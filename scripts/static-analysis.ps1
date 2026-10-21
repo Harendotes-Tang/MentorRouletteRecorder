@@ -48,7 +48,10 @@ param(
     [ValidateRange(1, 64)]
     [int]$Jobs = [Math]::Max(1, [Environment]::ProcessorCount),
 
-    [string]$OutputDir = 'artifacts/static-analysis',
+    [string]$OutputDir = ('artifacts/static-analysis/run-' + [guid]::NewGuid().ToString('N')),
+
+    [ValidateRange(1, 7200)]
+    [int]$ToolTimeoutSeconds = 600,
 
     [switch]$Strict
 )
@@ -60,6 +63,7 @@ try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } c
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Utf8NoBom = New-Object System.Text.UTF8Encoding $false
+. (Join-Path $PSScriptRoot 'package-runtime.ps1')
 
 # ---------------------------------------------------------------- locations --
 function Resolve-RepoPath([string]$Configured, [string]$Default) {
@@ -182,25 +186,68 @@ function Start-Tool([string]$Exe, [string[]]$ArgumentList, [string]$StdoutPath) 
     $info.FileName = $Exe
     $info.WorkingDirectory = $RepoRoot
     $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
     $info.RedirectStandardOutput = $true
     $info.RedirectStandardError = $true
     $info.StandardOutputEncoding = $Utf8NoBom
     $info.StandardErrorEncoding = $Utf8NoBom
     foreach ($argument in $ArgumentList) { [void]$info.ArgumentList.Add($argument) }
-    $process = New-Object System.Diagnostics.Process
-    $process.StartInfo = $info
-    [void]$process.Start()
-    # Both streams are drained asynchronously; a full pipe would otherwise block the tool.
-    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-    $stderrTask = $process.StandardError.ReadToEndAsync()
-    return [pscustomobject]@{ Process = $process; Stdout = $stdoutTask; Stderr = $stderrTask; StdoutPath = $StdoutPath }
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $operation = Start-PackageVerificationProcess -StartInfo $info -TimeoutSeconds $ToolTimeoutSeconds
+    return [pscustomobject]@{
+        Job = $operation; Stdout = ''; Stderr = ''; StdoutPath = $StdoutPath
+        Clock = $clock; TimedOut = $false
+    }
 }
 
 function Wait-Tool($Handle) {
-    $Handle.Process.WaitForExit()
-    [System.IO.File]::WriteAllText($Handle.StdoutPath, $Handle.Stdout.Result, $Utf8NoBom)
-    [System.IO.File]::WriteAllText(($Handle.StdoutPath -replace '\.log$', '.err'), $Handle.Stderr.Result, $Utf8NoBom)
-    return $Handle.Process.ExitCode
+    try {
+        $result = $Handle.Job.Wait()
+        $Handle.TimedOut = $result.TimedOut
+        $Handle.Stdout = $result.Stdout
+        $Handle.Stderr = $result.Stderr
+        [System.IO.File]::WriteAllText($Handle.StdoutPath, $Handle.Stdout, $Utf8NoBom)
+        [System.IO.File]::WriteAllText(($Handle.StdoutPath -replace '\.log$', '.err'), $Handle.Stderr, $Utf8NoBom)
+        if ($Handle.TimedOut) { return 124 }
+        return $result.ExitCode
+    }
+    finally {
+        $Handle.Job.Dispose()
+    }
+}
+
+function Read-CppcheckReport([string]$ReportPath) {
+    $settings = [System.Xml.XmlReaderSettings]::new()
+    $settings.DtdProcessing = [System.Xml.DtdProcessing]::Prohibit
+    $settings.MaxCharactersInDocument = 64 * 1024 * 1024
+    $reader = [System.Xml.XmlReader]::Create($ReportPath, $settings)
+    try {
+        $document = [System.Xml.XmlDocument]::new()
+        $document.XmlResolver = $null
+        $document.Load($reader)
+    }
+    finally { $reader.Dispose() }
+    $root = $document.DocumentElement
+    if ($root.Name -ne 'results' -or $root.GetAttribute('version') -ne '2' -or
+        $document.SelectNodes('/results/cppcheck').Count -ne 1 -or
+        [string]::IsNullOrWhiteSpace($document.SelectSingleNode('/results/cppcheck').GetAttribute('version')) -or
+        $document.SelectNodes('/results/errors').Count -ne 1 -or
+        $document.SelectNodes('/results/errors/*[not(self::error)]').Count -gt 0) {
+        throw 'Malformed cppcheck XML v2 report; missing analysis is not a clean result.'
+    }
+    foreach ($issue in $document.SelectNodes('/results/errors/error')) {
+        if ([string]::IsNullOrWhiteSpace($issue.GetAttribute('id')) -or
+            $issue.GetAttribute('severity') -notin @('error', 'warning', 'style', 'performance', 'portability', 'information', 'debug') -or
+            -not $issue.HasAttribute('msg')) {
+            throw 'Malformed cppcheck finding; cannot determine its severity.'
+        }
+        if ($issue.GetAttribute('severity') -eq 'error' -and
+            ($issue.GetAttribute('id') -eq 'internalError' -or
+             $issue.SelectNodes('location[@file and normalize-space(@file) != ""]').Count -eq 0)) {
+            throw 'cppcheck reported an internal or unlocated error; analysis did not complete.'
+        }
+    }
+    return $document
 }
 
 # ----------------------------------------------------------------- clang-tidy --
@@ -238,7 +285,9 @@ if ($Tool -in @('all', 'clang-tidy')) {
                     $handle | Add-Member -NotePropertyName Unit -NotePropertyValue $unit.Relative
                     $running.Add($handle)
                 }
-                $finished = $running | Where-Object { $_.Process.HasExited }
+                $finished = $running | Where-Object {
+                    $_.Job.IsCompleted
+                }
                 if (-not $finished) { Start-Sleep -Milliseconds 100; continue }
                 foreach ($handle in @($finished)) {
                     $exitCode = Wait-Tool $handle
@@ -248,7 +297,7 @@ if ($Tool -in @('all', 'clang-tidy')) {
                     # clang-tidy exits 0 and prints location-less "error:" lines when it could
                     # not analyse a unit at all (bad compile command, missing file). Silence
                     # there would read as "no findings", so it is a tool failure instead.
-                    $output = $handle.Stdout.Result + "`n" + $handle.Stderr.Result
+                    $output = $handle.Stdout + "`n" + $handle.Stderr
                     $unanalysed = $output -match '(?m)^(Error while processing |error: )'
                     if ($exitCode -ne 0 -or $unanalysed) {
                         $toolFailures += ("clang-tidy 未能分析 {0}（退出码 {1}），见 {2}" -f $handle.Unit, $exitCode, (Format-PathLabel ($handle.StdoutPath -replace '\.log$', '.err')))
@@ -257,8 +306,13 @@ if ($Tool -in @('all', 'clang-tidy')) {
             }
         } finally {
             # Ctrl+C or an exception above must not leave analyzers running detached.
+            $cleanupFailures = @()
             foreach ($handle in $running) {
-                try { if (-not $handle.Process.HasExited) { $handle.Process.Kill() } } catch { }
+                try { $handle.Job.Dispose() }
+                catch { $cleanupFailures += $_.Exception.Message }
+            }
+            if ($cleanupFailures.Count -gt 0) {
+                throw ('Analyzer job cleanup failed: ' + ($cleanupFailures -join '; '))
             }
         }
 
@@ -380,7 +434,7 @@ if ($Tool -in @('all', 'cppcheck')) {
         if ($exitCode -ne 0 -or -not (Test-Path -LiteralPath $xmlPath)) {
             $toolFailures += ("cppcheck 退出码 {0}，见 {1}" -f $exitCode, (Format-PathLabel (Join-Path $cppcheckDir 'cppcheck.err')))
         } else {
-            [xml]$report = [System.IO.File]::ReadAllText($xmlPath, $Utf8NoBom)
+            [xml]$report = Read-CppcheckReport $xmlPath
             foreach ($issue in $report.SelectNodes('/results/errors/error')) {
                 $location = $issue.SelectSingleNode('location')
                 $rawFile = if ($location) { $location.GetAttribute('file') } else { '' }
@@ -389,6 +443,12 @@ if ($Tool -in @('all', 'cppcheck')) {
                 $thirdParty = -not $relative
                 $file = if ($relative) { $relative } elseif ($rawFile) { $rawFile.Replace('\', '/') } else { '(none)' }
                 $hard = ($issue.GetAttribute('severity') -eq 'error')
+                if ($hard -and $thirdParty) {
+                    # cppcheck fatal errors outside our source are still analysis failures.
+                    # Only clang's documented Qt path diagnostics have a third-party exemption.
+                    $toolFailures += ("cppcheck error [{0}] at {1}: {2}" -f
+                        $issue.GetAttribute('id'), $file, $issue.GetAttribute('msg'))
+                }
                 Add-Finding 'cppcheck' $file $line $issue.GetAttribute('severity') $issue.GetAttribute('id') $issue.GetAttribute('msg') ($hard -and -not $thirdParty) $thirdParty
             }
         }

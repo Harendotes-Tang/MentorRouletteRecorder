@@ -1,12 +1,20 @@
 #include "AppSettings.h"
+#include "BundledFonts.h"
 #include "LanguageManager.h"
 #include "TtsService.h"
 
 #include <QFont>
 #include <QFontDatabase>
+#include <QFontInfo>
+#include <QDir>
 #include <QGuiApplication>
 #include <QLocale>
 #include <QQmlEngine>
+#include <QQmlComponent>
+#include <QQmlContext>
+#include <QQuickItem>
+#include <QQuickWindow>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QStandardPaths>
@@ -138,6 +146,115 @@ private Q_SLOTS:
         manager.setLanguage("en");
         QCOMPARE(QFont::substitutes(alias), base);
         manager.setLanguage("zh-CN");
+    }
+
+    void navigationFontAndInkFollowLiveLanguageSwitch()
+    {
+        QVERIFY(mr::registerBundledFonts());
+#ifdef Q_OS_WIN
+        const QString windowsDir = qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows"));
+        for (const char *file : {"Fonts/msyh.ttc", "Fonts/msjh.ttc", "Fonts/YuGothM.ttc"})
+            QFontDatabase::addApplicationFont(QDir(windowsDir).filePath(QString::fromLatin1(file)));
+#endif
+        if (qEnvironmentVariableIsSet("MR_TEST_TRADITIONAL_NATIVE_DPI")
+            && !QFontDatabase::hasFamily(QStringLiteral("Microsoft JhengHei UI")))
+            QSKIP("The Windows DPI regression requires Microsoft JhengHei UI");
+        const QFont savedFont = QGuiApplication::font();
+        const QString alias = QStringLiteral("MentorRecorder Interface");
+        const QStringList savedSubstitutes = QFont::substitutes(alias);
+        const auto savedRenderType = QQuickWindow::textRenderType();
+        const auto restoreFont = qScopeGuard([&] {
+            QFont::removeSubstitutions(alias);
+            QFont::insertSubstitutions(alias, savedSubstitutes);
+            QGuiApplication::setFont(savedFont);
+            QQuickWindow::setTextRenderType(savedRenderType);
+        });
+        QFont baseFont;
+        QStringList baseFamilies;
+        if (QFontDatabase::hasFamily(QStringLiteral("Microsoft YaHei UI")))
+            baseFamilies.append(QStringLiteral("Microsoft YaHei UI"));
+        baseFamilies.append(QStringLiteral("Noto Sans SC"));
+        baseFont.setFamilies(baseFamilies);
+        QGuiApplication::setFont(baseFont);
+        mr::LanguageManager manager(nullptr);
+        manager.initialize("zh-CN");
+        const QString qml = QString::fromUtf8(MR_DESKTOP_QML_DIR);
+        qmlRegisterSingletonType(QUrl::fromLocalFile(qml + "/Theme.qml"),
+                                 "MentorRecorder", 1, 0, "Theme");
+        qmlRegisterType(QUrl::fromLocalFile(qml + "/components/NavItem.qml"),
+                        "MentorRecorder", 1, 0, "NavItem");
+        QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering);
+        QQmlEngine engine;
+        manager.attachEngine(&engine);
+        engine.rootContext()->setContextProperty("Lang", &manager);
+        engine.rootContext()->setContextProperty("ReduceMotion", true);
+        engine.rootContext()->setContextProperty("App", QVariantMap{{"dark", false}});
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import MentorRecorder
+Window {
+    width: 240; height: 120; visible: true; color: "white"
+    NavItem { objectName: "navigation"; x: 20; y: 20; width: 168
+        label: Lang.code === "zh-TW" ? "一般" : "通用"
+        sub: Lang.code === "zh-TW" ? "語言 · 啟動 · 記錄 · 外觀" : "语言 · 启动 · 记录 · 外观"
+    }
+})", QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(window);
+        auto *navigation = root->findChild<QQuickItem *>("navigation");
+        QVERIFY(navigation);
+        // Keep the same Text items alive while language and selection weight change.
+        for (const QString &code : {QStringLiteral("zh-TW"), QStringLiteral("ja"),
+                                   QStringLiteral("zh-TW"), QStringLiteral("zh-CN")}) {
+            manager.setLanguage(code);
+            const QString family = manager.displayFamily(code);
+            for (bool selected : {true, false}) {
+                QSignalSpy frames(window, &QQuickWindow::frameSwapped);
+                navigation->setProperty("current", selected);
+                window->requestUpdate();
+                QVERIFY(QTest::qWaitFor([&] { return !frames.isEmpty(); }));
+                QQuickItem *label = nullptr;
+                int checked = 0;
+                for (auto *item : navigation->findChildren<QQuickItem *>()) {
+                    const QString text = item->property("text").toString();
+                    if (text != navigation->property("label").toString()
+                        && text != navigation->property("sub").toString())
+                        continue;
+                    const QFont actual = item->property("font").value<QFont>();
+                    QCOMPARE(QFontInfo(actual).family(), QFontInfo(QFont(family)).family());
+                    QCOMPARE(item->property("renderType").toInt(),
+                             int(code == QLatin1String("zh-TW")
+                                 ? QQuickWindow::CurveTextRendering : QQuickWindow::NativeTextRendering));
+                    if (text == navigation->property("label").toString()) {
+                        QCOMPARE(actual.weight(), selected ? QFont::DemiBold : QFont::Medium);
+                        label = item;
+                    }
+                    ++checked;
+                }
+                QCOMPARE(checked, 2);
+                QVERIFY(label);
+                if (code != QLatin1String("zh-TW"))
+                    continue;
+                // Text-property assertions miss an invisible 一. Inspect its first
+                // character cell in the rendered frame, excluding the following 般.
+                QImage frame;
+                QVERIFY(QTest::qWaitFor([&] {
+                    frame = window->grabWindow();
+                    return !frame.isNull();
+                }));
+                const qreal dpr = window->devicePixelRatio();
+                const QRectF cell = label->mapRectToScene(QRectF(0, 0, 13, label->height()));
+                const QImage glyph = frame.copy(QRect(qFloor(cell.x() * dpr),
+                    qFloor(cell.y() * dpr), qCeil(cell.width() * dpr), qCeil(cell.height() * dpr)));
+                bool hasInk = false;
+                for (int y = 0; y < glyph.height(); ++y)
+                    for (int x = 0; x < glyph.width(); ++x)
+                        hasInk |= glyph.pixelColor(x, y).red() < 180;
+                QVERIFY2(hasInk, "The first character of 一般 has no visible ink after switching language");
+            }
+        }
     }
 
     // 播报跟随界面语言: each language keeps its own voice and templates;

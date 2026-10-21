@@ -278,6 +278,20 @@
     },
     "RunImportSourceKind": { "type": "string", "enum": ["CSV", "XLS", "XLSX", "JSON", "BACKUP", "PASTE", "SCREENSHOT", "ROWS"] },
     "PreviewRunImportRequest": {
+      "oneOf": [
+        { "$ref": "#/$defs/PreviewRunImportSourceRequest" },
+        { "$ref": "#/$defs/PreviewRunImportPageRequest" }
+      ]
+    },
+    "PreviewRunImportPageRequest": {
+      "type": "object", "additionalProperties": false, "required": ["preview_id", "page"],
+      "description": "Read a one-based page of a frozen paged preview without rereading its source or reclassifying local records. Cannot be mixed with any source/edit input; an empty preview has only page 1. Preview expiry is unchanged.",
+      "properties": {
+        "preview_id": { "$ref": "#/$defs/Uuid" },
+        "page": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "PreviewRunImportSourceRequest": {
       "type": "object", "additionalProperties": false, "required": ["source_kind"],
       "properties": {
         "source_kind": { "$ref": "#/$defs/RunImportSourceKind" },
@@ -286,7 +300,8 @@
         "rows": { "type": "array", "maxItems": 5000, "items": { "type": "object" }, "description": "Canonical edited candidates take precedence over file/text. Screenshot pixels, OCR confidence and bounding boxes remain local to Desktop." },
         "column_mapping": { "type": ["object", "null"], "maxProperties": 200, "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 100 } },
         "time_zone": { "type": ["string", "null"], "maxLength": 100 },
-        "source_name": { "type": ["string", "null"], "maxLength": 500 }
+        "source_name": { "type": ["string", "null"], "maxLength": 500 },
+        "page_size": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Opt in to frozen whole-batch classification with bounded response pages. The server may lower this size to retain complete fields under the existing response budget. A paged preview whose candidates, as the JSON array an edit or time-zone re-check sends back (UTF-8, escaped the way System.Text.Json JavaScriptEncoder with UnicodeRanges.All writes it, CJK unescaped; the Desktop measures the same way before an edit, a re-check or a screenshot append), exceed 3 MiB is refused up front with ERR_BAD_REQUEST, field rows, message_ref import.preview.too_large, and nothing is cached: such a batch could be shown but never checked again. Omission preserves the legacy complete-response contract and capacity refusal." }
       }
     },
     "CommitRunImportRequest": {
@@ -306,6 +321,15 @@
         "preview_id": { "$ref": "#/$defs/Uuid" },
         "source_kind": { "$ref": "#/$defs/RunImportSourceKind" },
         "source_name": { "type": ["string", "null"] },
+        "page_info": {
+          "type": "object", "additionalProperties": false, "required": ["page", "page_size", "total"],
+          "description": "Present only for paged previews. page_size is fixed for the session; total and summary count the entire frozen batch. Cache: 30 minutes, at most 8 sessions and 64 MiB of frozen JSON UTF-8 bytes in total; oldest sessions are reclaimed first. Pages retain complete candidate, run, error and warning values.",
+          "properties": {
+            "page": { "type": "integer", "minimum": 1 },
+            "page_size": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "total": { "type": "integer", "minimum": 0, "maximum": 5000 }
+          }
+        },
         "rows": { "type": "array", "maxItems": 5000, "items": {
           "type": "object", "additionalProperties": false,
           "required": ["row_number", "status", "can_import", "incomplete", "candidate", "run", "errors", "warnings", "matching_run_id"],
@@ -313,7 +337,7 @@
             "row_number": { "type": "integer", "minimum": 1 },
             "status": { "type": "string", "enum": ["new", "duplicate", "conflict", "possible_duplicate", "invalid"] },
             "can_import": { "type": "boolean" }, "incomplete": { "type": "boolean" },
-            "candidate": { "type": "object", "description": "Absent source fields remain absent; source_key must survive edits and a new preview." },
+            "candidate": { "type": "object", "description": "Absent source fields remain absent; source_key must survive edits and a new preview. matched_at_utc, entered_at_utc, ended_at_utc and created_at_utc written as local clock text (no trailing Z or +hh:mm / -hh:mm offset) stay as written and are read in the request's time_zone, so a re-check with another time_zone reads them again; a time with its own Z or offset is rewritten in canonical UTC form. run carries the UTC values." },
             "run": { "oneOf": [{ "$ref": "#/$defs/Run" }, { "type": "null" }] },
             "errors": { "type": "array", "items": { "type": "string" } },
             "warnings": { "type": "array", "items": { "type": "string" } },
@@ -844,8 +868,8 @@
         "enabled": { "type": "boolean", "description": "Whether update_check_enabled allows a check at all. Default true." },
         "update_available": { "type": "boolean", "description": "True when latest_version is strictly newer than this build. A running prerelease counts as older than the release it was cut towards. Always false while enabled is false, whatever an earlier check found." },
         "latest_version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$", "description": "Newest published version this installation has learned of. Absent until a check has succeeded; kept across a failed check and across restarts." },
-        "release_url": { "type": "string", "description": "The release page to show the user. A constant of this build, always present." },
-        "installer_url": { "type": "string", "description": "Where the installer of latest_version is published: this project's release asset MentorRecorder-<version>-setup.exe under releases/download/v<version>/. Present exactly when latest_version is. The update check never requests it. The Collector fetches it only after StartUpdateDownload (docs/privacy-boundary.md §8.6); the Desktop hands it to the user's browser when the download is left to the browser." },
+        "release_url": { "type": "string", "description": "The release page to show the user: this project's newest release on GitHub, or, when latest_version was learned from the GitCode mirror, that version's release page on the mirror. Where latest_version was learned is kept with it, so this survives a restart. Always present." },
+        "installer_url": { "type": "string", "description": "Where the installer of latest_version is published: this project's release asset MentorRecorder-<version>-setup.exe under releases/download/v<version>/ on GitHub, or the same file attached to that version's release on the GitCode mirror when latest_version was learned from the mirror (kept with it across a restart, like release_url). Present exactly when latest_version is. The update check never requests it. The in-app download (StartUpdateDownload, docs/privacy-boundary.md §8.6) starts at GitHub whatever this says and falls back to the mirror on its own; the Desktop hands this address to the user's browser when the download is left to the browser." },
         "download": { "$ref": "#/$defs/UpdateDownload" },
         "last_checked_at_utc": { "type": "string", "description": "When a check was last attempted, successfully or not. Absent until one has been." },
         "last_outcome": { "type": "string", "description": "How that attempt ended: OK, NOT_FOUND (the ordinary answer while nothing is published), RATE_LIMITED, HTTP_STATUS, REDIRECT_REFUSED, HOST_REFUSED, TOO_LARGE, TIMEOUT, DNS_OR_CONNECT, TLS_FAILED, MALFORMED, TRANSPORT_FAILED, CANCELLED, DISABLED (the MR_DISABLE_UPDATE_CHECK kill switch). Not an enum: a build may learn new outcomes." }
@@ -1507,7 +1531,7 @@
         "bound_at_utc": { "$ref": "#/$defs/NullableUtcTimestamp", "description": "When it began recording inside a running capture session." },
         "last_refusal": { "type": ["string", "null"], "pattern": "^[A-Z0-9_]{1,64}$", "description": "Why the last bind or withdrawal did not go through, as a short token (NOT_SELECTED, WRITE_FAILED, CONTRADICTED, REVOKED, REJECTED, USER_REJECTED, STALE...). Diagnostics only." },
         "rejected_candidates": { "type": "integer", "minimum": 0, "description": "Candidates with status REJECTED." },
-        "user_rejected": { "type": "boolean", "description": "True while the player's 不用共享的，我自己校准 stands for this build: nothing shared is fetched, imported or bound until DiscardCalibration (重新观察)." },
+        "user_rejected": { "type": "boolean", "description": "True while the player's 改为本机校准 stands for this build: nothing shared is fetched, imported or bound until DiscardCalibration (清空校准进度)." },
         "audit_pending": { "type": "boolean", "description": "True while the profile in use records with an audited criterion still waiting (§18.4): a PUBLISHED code bound at login whose match or duty entry has not yet been seen to behave. Optional: a Collector before 1.1.0 does not send it." },
         "recheck": { "oneOf": [{ "$ref": "#/$defs/SharedCalibrationRecheck" }, { "type": "null" }], "description": "The last index read that happened although a profile was already recording (docs/privacy-boundary.md §8.2), or null while none has. Optional: a Collector before 1.4.0 does not send it." }
       }
@@ -1524,10 +1548,10 @@
     "DiscardCalibrationRequest": {
       "type": "object",
       "additionalProperties": false,
-      "description": "重新观察：丢弃本次会话已积累的校准证据，重新开始观察。空载荷仍然合法。",
+      "description": "清空校准进度：丢弃本次会话已积累的校准证据，重新开始观察。空载荷仍然合法。",
       "properties": {
-        "retire_local_profile": { "type": "boolean", "default": false, "description": "重新校准：true 时，若当前生效的是本机校准出来的档案（profile_origin = LOCAL_CALIBRATION），则先停用它：文件改名保留（不删除），正在进行的记录按停止捕获收尾，校准重新开始观察。它生成的记录不会被标为待复核，它所认的报文也不会被拒绝：是玩家要求重新校准，而不是流量证伪了它。缺省为 false，即只重新观察；当前生效的不是本机校准档案时，true 与 false 等价。" },
-        "restore_local_profile": { "type": "boolean", "default": false, "description": "恢复上一份本机校准：把 `retire_local_profile` 停用的那份档案（`<profile_id>.json.retired`）改回 `.json` 并立即用它记录，同时放开当前生效的档案（包括正在使用的共享校准；共享校准只是被让位，不计作被证伪，其校准码不被拒绝，已生成的记录也不标待复核）。不会丢弃校准证据。流量证伪后自动撤下的档案（`.json.contradicted`）永远不可恢复。无可恢复、同名档案已存在、或恢复后无法通过档案校验时答 ERR_CALIBRATION_NOT_READY 并带上可直接展示的中文说明。恢复出来的档案能通过校验、却被同版本排序更靠前的档案盖过时（例如它按排本推断匹配，而在用的校准认得出匹配报文），档案留在原处，当前生效的档案照常记录、不被放开，同样答 ERR_CALIBRATION_NOT_READY 并说明原因。与 `retire_local_profile` 互斥，同时为真答 ERR_BAD_REQUEST。" }
+        "retire_local_profile": { "type": "boolean", "default": false, "description": "重新校准：true 时，若当前生效的是本机校准出来的档案（profile_origin = LOCAL_CALIBRATION），则先停用它：文件改名保留（不删除），正在进行的记录按停止捕获收尾，校准重新开始观察。它生成的记录不会被标为待复核，它所认的报文也不会被拒绝：是玩家要求重新校准，而不是流量证伪了它。缺省为 false，即只重新观察；当前生效的不是本机校准档案时，true 与 false 等价。当前记录处于 MENTOR_MATCHED 或 ENTERED_DUTY，或按排本推断匹配的档案保留着一条仍在匹配窗口内的排本申请（玩家已在排队、还没有记录）时，true 答 ERR_CALIBRATION_NOT_READY 并带上可直接展示的中文说明，什么也不改：此时停用档案会让这一把的记录中断，或让排队之后的这一把记不下来。" },
+        "restore_local_profile": { "type": "boolean", "default": false, "description": "恢复上一份本机校准：把 `retire_local_profile` 停用的那份档案（`<profile_id>.json.retired`）改回 `.json` 并立即用它记录，同时放开当前生效的档案（包括正在使用的共享校准；共享校准只是被让位，不计作被证伪，其校准码不被拒绝，已生成的记录也不标待复核）。不会丢弃校准证据。流量证伪后自动撤下的档案（`.json.contradicted`）永远不可恢复。无可恢复、同名档案已存在、或恢复后无法通过档案校验时答 ERR_CALIBRATION_NOT_READY 并带上可直接展示的中文说明。恢复出来的档案能通过校验、却被同版本排序更靠前的档案盖过时（例如它按排本推断匹配，而在用的校准认得出匹配报文），档案留在原处，当前生效的档案照常记录、不被放开，同样答 ERR_CALIBRATION_NOT_READY 并说明原因。与 `retire_local_profile` 互斥，同时为真答 ERR_BAD_REQUEST。当前记录处于 MENTOR_MATCHED 或 ENTERED_DUTY，或按排本推断匹配的档案保留着一条仍在匹配窗口内的排本申请时，同样答 ERR_CALIBRATION_NOT_READY 并带上可直接展示的中文说明，什么也不改：此时放开当前生效的档案会让这一把的记录中断，或让排队之后的这一把记不下来。" }
       }
     },
     "ConfirmCalibrationRequest": {
@@ -1788,7 +1812,10 @@
         "properties": {
           "state": { "$ref": "#/$defs/RunState" },
           "run": { "oneOf": [{ "$ref": "#/$defs/Run" }, { "type": "null" }] },
-          "elapsed_ms": { "oneOf": [{ "$ref": "#/$defs/DurationMs" }, { "type": "null" }] }
+          "elapsed_ms": {
+            "description": "Time the run in flight has spent in its duty: monotonic milliseconds since the run's transition to ENTERED_DUTY, counted from the entry itself when the entry was replayed after the fact (a confirmation or a shared bind that handed over messages kept earlier). Null while no run is in flight and while the run has not entered a duty (MENTOR_MATCHED).",
+            "oneOf": [{ "$ref": "#/$defs/DurationMs" }, { "type": "null" }]
+          }
         }
       },
       "QueryRunCalendarDays": {
@@ -1911,7 +1938,9 @@
         "additionalProperties": false,
         "required": ["outcome"],
         "properties": {
-          "outcome": { "type": "string", "enum": ["STARTED", "ALREADY_FETCHING", "RECENTLY_CHECKED", "DISABLED", "NOT_NEEDED"], "description": "DISABLED: the setting is off or this build has no download wired. NOT_NEEDED: not calibrating, a profile already records, or the player refused shared calibration for the build - nothing is sent. RECENTLY_CHECKED: a manual check ran seconds ago and its answer stands for this one; nothing is running, so the card already shows the result." }
+          "outcome": { "type": "string", "enum": ["STARTED", "ALREADY_FETCHING", "RECENTLY_CHECKED", "DISABLED", "NOT_NEEDED"], "description": "DISABLED: the setting is off or this build has no download wired. NOT_NEEDED: not calibrating, a profile already records, or the player refused shared calibration for the build - nothing is sent; also when this machine's shared-calibration bookkeeping cannot be read right now, so whether the player refused is unknown (nothing is sent either; then message and message_ref are present). RECENTLY_CHECKED: a manual check ran seconds ago and its answer stands for this one; nothing is running, so the card already shows the result." },
+          "message": { "type": "string", "maxLength": 1000, "description": "Present only when the outcome alone would tell the player something untrue; the Desktop shows it instead of its own sentence for the outcome. zh-Hans, no hex. Since 2026-10-21 only for NOT_NEEDED while the bookkeeping cannot be read (sharing.check.state_unreadable): asking again later may succeed. Optional: absent otherwise, and a Collector before 2026-10-21 never sends it." },
+          "message_ref": { "$ref": "#/$defs/TextRef", "description": "message as a catalogue reference (contracts/collector-texts.md); present exactly when message is." }
         }
       },
       "ImportCalibrationCode": {
@@ -1920,7 +1949,7 @@
         "required": ["outcome", "reason", "message", "code_sha256"],
         "properties": {
           "outcome": { "type": "string", "enum": ["APPLIED", "NOT_APPLICABLE", "MALFORMED"] },
-          "reason": { "type": ["string", "null"], "pattern": "^[A-Z][A-Z0-9_]{0,63}$", "description": "Null when applied. MALFORMED: an E_SHARE_CODE_* rejection or UNBUILDABLE. NOT_APPLICABLE: NOT_CALIBRATING, OTHER_REGION, OTHER_BUILD, OTHER_TEMPLATE, USER_REJECTED, REJECTED, REVOKED (the last index this machine read revoked the code), TOO_MANY_CANDIDATES or CHANGED." },
+          "reason": { "type": ["string", "null"], "pattern": "^[A-Z][A-Z0-9_]{0,63}$", "description": "Null when applied. MALFORMED: an E_SHARE_CODE_* rejection or UNBUILDABLE. NOT_APPLICABLE: NOT_CALIBRATING, OTHER_REGION, OTHER_BUILD, OTHER_TEMPLATE, USER_REJECTED, STATE_UNREADABLE (this machine's shared-calibration bookkeeping cannot be read right now, so neither a refusal nor the code's record is known; asking again later may succeed), REJECTED, REVOKED (an index this machine read revoked the code; a revocation is never taken back), TOO_MANY_CANDIDATES or CHANGED." },
           "message": { "type": "string", "maxLength": 1000, "description": "What to tell the player, zh-Hans, no hex." },
           "message_ref": { "$ref": "#/$defs/TextRef", "description": "message as a catalogue reference (contracts/collector-texts.md). Optional: a Collector before 2026-10-15 does not send it." },
           "code_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "Identity of the code; null when it did not decode." },
@@ -1939,7 +1968,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["withdrawn_profile_id", "dropped_candidates"],
-        "description": "不用共享的，我自己校准. The withdrawal and the re-arm complete in the background; calibration_changed announces them.",
+        "description": "改为本机校准. The withdrawal and the re-arm complete in the background; calibration_changed announces them. Refused with ERR_CALIBRATION_NOT_READY and a sentence the player can read, changing nothing, while the profile in force is a shared calibration (profile_origin = SHARED_CALIBRATION) and either the current run is MENTOR_MATCHED or ENTERED_DUTY, or the profile infers matches from the queue and still holds a queue request within its match window: withdrawing it would close that run, or lose the run that queue request leads to. Dropping codes still being checked cuts nothing and goes ahead.",
         "properties": {
           "withdrawn_profile_id": { "type": ["string", "null"], "description": "The shared profile that was in force and is being withdrawn." },
           "dropped_candidates": { "type": "integer", "minimum": 0 }
@@ -2045,7 +2074,7 @@
         "required": ["outcome", "update"],
         "description": "The user asked for an update check now (docs/privacy-boundary.md §8.4). The daily throttle does not apply; the setting and the kill switch do, and nothing is sent under either. Asynchronous: answered when the one GET has returned (or at once when nothing is sent); other requests on the connection are answered meanwhile. Notification only, as ever: nothing is downloaded or run.",
         "properties": {
-          "outcome": { "type": "string", "enum": ["CHECKED", "DISABLED", "BLOCKED"], "description": "CHECKED: a check ran, or one already in flight was waited for; update.last_outcome says how it ended. DISABLED: update_check_enabled is off. BLOCKED: MR_DISABLE_UPDATE_CHECK stops every check of this process." },
+          "outcome": { "type": "string", "enum": ["CHECKED", "DISABLED", "BLOCKED"], "description": "CHECKED: a check ran, or one already in flight was waited for; update.last_outcome says how it ended. DISABLED: update_check_enabled is off, or was switched off while the check ran - that check stops before sending anything more, the mirror included, and records nothing. BLOCKED: MR_DISABLE_UPDATE_CHECK stops every check of this process." },
           "update": { "$ref": "#/$defs/UpdateStatus" }
         }
       },

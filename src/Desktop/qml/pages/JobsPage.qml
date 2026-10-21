@@ -8,6 +8,24 @@ Item {
 
     property var rowsCache: []
     property var rolesCache: []
+    // The 中途加入 column: 58 px holds the four CJK characters; the English
+    // header ("Joined late") is wider and takes the room it needs.
+    readonly property int joinedColumnWidth: Math.max(58, Math.ceil(joinedHeaderMeasure.implicitWidth))
+    // The table's columns. 职业 is the only flexible one; every other column
+    // pins its minimum to its width (a layout item may otherwise shrink to 0),
+    // so header and rows always agree on where each column starts. The 次数
+    // bar takes 180 px when there is room (the prototype's 34 % at 1280) and
+    // otherwise whatever is left after the job name's 150 px, down to 48 px
+    // beside the count: at the 1100 px window minimum the bar gives way first,
+    // then the name, and the fixed columns never spill past the card.
+    readonly property int jobColumnWidth: 150
+    readonly property int roleColumnWidth: 84
+    readonly property int rateColumnWidth: 58
+    readonly property int durationColumnWidth: 68
+    readonly property int tableColumnSpacing: 10
+    readonly property int runsColumnWidth: Math.max(48, Math.min(180,
+        contentColumn.width - 320 - 12 - 32 - 5 * tableColumnSpacing - jobColumnWidth - roleColumnWidth
+        - joinedColumnWidth - rateColumnWidth - durationColumnWidth))
 
     readonly property int unknownCount: {
         const unknown = Theme.jobLabel(null, "未知")
@@ -17,6 +35,18 @@ Item {
                 count += Number(rowsCache[index].attempt_count || 0)
         }
         return count
+    }
+
+    // Never shown: the 中途加入 header in the header row's font, so the
+    // column can be as wide as its own title.
+    Text {
+        id: joinedHeaderMeasure
+        visible: false
+        text: qsTr("中途加入")
+        textFormat: Text.PlainText
+        font.pixelSize: Theme.fs(11)
+        font.weight: Theme.eorzea ? Font.Bold : Font.Normal
+        font.letterSpacing: Theme.eorzea ? 0.7 : 0
     }
 
     function reloadRows() {
@@ -203,11 +233,12 @@ Item {
                         Layout.preferredHeight: 40
                         Layout.leftMargin: 16
                         Layout.rightMargin: 16
-                        spacing: 10
+                        spacing: page.tableColumnSpacing
 
                         Text {
+                            objectName: "jobsTableHeaderJob"
                             Layout.fillWidth: true
-                            Layout.preferredWidth: 150
+                            Layout.preferredWidth: page.jobColumnWidth
                             text: qsTr("职业")
                             // workbench `.table th`: t6, regular, text-3.
                             color: Theme.eorzea ? Theme.gold : Theme.textMuted
@@ -217,7 +248,8 @@ Item {
                         }
 
                         Text {
-                            Layout.preferredWidth: 84
+                            Layout.preferredWidth: page.roleColumnWidth
+                            Layout.minimumWidth: page.roleColumnWidth
                             text: qsTr("职能")
                             color: Theme.eorzea ? Theme.gold : Theme.textMuted
                             font.pixelSize: Theme.fs(11)
@@ -226,7 +258,9 @@ Item {
                         }
 
                         Text {
-                            Layout.preferredWidth: 220
+                            objectName: "jobsTableHeaderRuns"
+                            Layout.preferredWidth: page.runsColumnWidth
+                            Layout.minimumWidth: page.runsColumnWidth
                             text: qsTr("次数")
                             color: Theme.eorzea ? Theme.gold : Theme.textMuted
                             font.pixelSize: Theme.fs(11)
@@ -235,7 +269,20 @@ Item {
                         }
 
                         Text {
-                            Layout.preferredWidth: 58
+                            objectName: "jobsTableHeaderJoined"
+                            Layout.preferredWidth: page.joinedColumnWidth
+                            Layout.minimumWidth: page.joinedColumnWidth
+                            text: qsTr("中途加入")
+                            color: Theme.eorzea ? Theme.gold : Theme.textMuted
+                            font.pixelSize: Theme.fs(11)
+                            font.weight: Theme.eorzea ? Font.Bold : Font.Normal
+                            font.letterSpacing: Theme.eorzea ? 0.7 : 0
+                            horizontalAlignment: Text.AlignRight
+                        }
+
+                        Text {
+                            Layout.preferredWidth: page.rateColumnWidth
+                            Layout.minimumWidth: page.rateColumnWidth
                             text: qsTr("完成率")
                             color: Theme.eorzea ? Theme.gold : Theme.textMuted
                             font.pixelSize: Theme.fs(11)
@@ -245,7 +292,8 @@ Item {
                         }
 
                         Text {
-                            Layout.preferredWidth: 68
+                            Layout.preferredWidth: page.durationColumnWidth
+                            Layout.minimumWidth: page.durationColumnWidth
                             text: qsTr("平均耗时")
                             color: Theme.eorzea ? Theme.gold : Theme.textMuted
                             font.pixelSize: Theme.fs(11)
@@ -283,11 +331,12 @@ Item {
                                 anchors.fill: parent
                                 anchors.leftMargin: 16
                                 anchors.rightMargin: 16
-                                spacing: 10
+                                spacing: page.tableColumnSpacing
 
                                 RowLayout {
+                                    objectName: "jobRowJob"
                                     Layout.fillWidth: true
-                                    Layout.preferredWidth: 150
+                                    Layout.preferredWidth: page.jobColumnWidth
                                     spacing: 8
 
                                     JobIcon {
@@ -308,7 +357,10 @@ Item {
 
                                 RoleIcon {
                                     objectName: "jobRowRole"
-                                    Layout.preferredWidth: 84
+                                    // RoleIcon is a layout and would fill by default, unlike the header Text.
+                                    Layout.fillWidth: false
+                                    Layout.preferredWidth: page.roleColumnWidth
+                                    Layout.minimumWidth: page.roleColumnWidth
                                     // The fine-grained group of the legend
                                     // (坦克 / 治疗 / 近战 / 远程物理 / 魔法 /
                                     // 未知), never the coarse DPS bucket.
@@ -319,7 +371,11 @@ Item {
                                 }
 
                                 RowLayout {
-                                    Layout.preferredWidth: 220
+                                    objectName: "jobRowRuns"
+                                    // A nested layout fills by default, unlike the header Text above it.
+                                    Layout.fillWidth: false
+                                    Layout.preferredWidth: page.runsColumnWidth
+                                    Layout.minimumWidth: page.runsColumnWidth
                                     spacing: 8
 
                                     StatBar {
@@ -342,8 +398,25 @@ Item {
                                     }
                                 }
 
+                                // 中途加入 (docs/statistics-definitions.md §12.2); an
+                                // older Collector sends no such field, which reads
+                                // as 0 like a job that never joined late.
                                 Text {
-                                    Layout.preferredWidth: 58
+                                    objectName: "jobRowJoinedInProgress"
+                                    Layout.preferredWidth: page.joinedColumnWidth
+                                    Layout.minimumWidth: page.joinedColumnWidth
+                                    text: String(modelData.joined_in_progress_count || 0)
+                                    color: Theme.textPrimary
+                                    font.pixelSize: Theme.fs(12)
+                                    horizontalAlignment: Text.AlignRight
+                                    font.family: Theme.figureFamily
+                                    font.weight: Theme.figureWeight(false)
+                                    font.features: ({ "tnum": 1 })
+                                }
+
+                                Text {
+                                    Layout.preferredWidth: page.rateColumnWidth
+                                    Layout.minimumWidth: page.rateColumnWidth
                                     text: Fmt.percent(modelData.completion_rate)
                                     color: Theme.textPrimary
                                     font.pixelSize: Theme.fs(12)
@@ -354,7 +427,8 @@ Item {
                                 }
 
                                 Text {
-                                    Layout.preferredWidth: 68
+                                    Layout.preferredWidth: page.durationColumnWidth
+                                    Layout.minimumWidth: page.durationColumnWidth
                                     text: Fmt.duration(modelData.avg_duration_ms)
                                     color: Theme.textPrimary
                                     font.pixelSize: Theme.fs(12)

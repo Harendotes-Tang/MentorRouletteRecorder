@@ -1129,5 +1129,69 @@ class RemarkTests(PublishTestCase):
         self.assertEqual(before, [(self.repo / name).read_bytes() for name in ("index.json", "submissions.json")])
 
 
+class EvidenceCommandTests(PublishTestCase):
+    """N1-3: ``evidence lift`` and ``evidence compact``, the maintainer's override and way out of a full ledger."""
+
+    def setUp(self):
+        super().setUp()
+        import evidence
+        self.evidence = evidence
+        self.assertEqual("published", self.publish_as(4242, "Octo-Cat")["status"])
+        ledger = evidence.empty_ledger()
+        for account in range(1, 4):
+            item = {"format": "MentorRecorder.CalibrationEvidence", "schema_version": 1, "kind": "CODE_VERIFICATION",
+                    "evidence_id": "00000000-0000-4000-8000-%012d" % account,
+                    "producer": {"app_version": "1.7.3", "rules_version": "calibration-evidence-v1"},
+                    "target": {"region": "CN", "game_build": BUILD, "template_profile_id": self.payload["template_profile_id"],
+                               "template_sha256": self.payload["template_sha256"], "code_sha256": self.sha, "quarantine_epoch": 0},
+                    "sessions": [{"session_alias": "00000000-0000-4000-9000-%06d%06d" % (account, number), "complete": True,
+                                  "health": {"silent_reason": "NONE", "preexisting_connections": 0, "adapter_dropped": 0,
+                                             "decoded_messages_dropped": 0, "damaged_directions": 0, "observation_overflow": False},
+                                  "checks": [{"field": "zone", "verdict": "CONTRADICT"}]} for number in range(2)],
+                    "observations": []}
+            evidence.receive(ledger, json.dumps(item), account_id=account, account_created_at="2020-01-01T00:00:00Z",
+                             issue_number=account, now=publish._now(NOW))
+        self.candidate = next(iter(ledger["candidates"]))
+        (self.repo / evidence.LEDGER_FILE).write_bytes(evidence.canonical(ledger) + b"\n")
+        state = repo_index.load(self.repo)
+        repo_index.write_files(self.repo, repo_index.Index(evidence.apply_hints(state.entries, ledger), state.submissions))
+
+    def hint(self) -> tuple:
+        entry = repo_index.load(self.repo).entries[0]
+        return entry.get("quarantined"), entry.get("quarantine_epoch")
+
+    def snapshot(self) -> dict:
+        return {path.relative_to(self.repo).as_posix(): path.read_bytes()
+                for path in sorted(self.repo.rglob("*")) if path.is_file()}
+
+    def test_lift_ends_the_quarantine_in_the_ledger_and_in_index_json(self):
+        self.assertEqual((True, 1), self.hint())
+        exit_code, stdout = self.call("evidence", "lift", "--repo", self.repo, self.candidate)
+        self.assertEqual((0, {"lifted": self.candidate, "fields": ["zone"], "region": "CN", "game_build": BUILD,
+                              "code_sha256": self.sha}), (exit_code, json.loads(stdout)))
+        self.assertEqual((False, 1), self.hint())
+        ledger = self.evidence.load_ledger(self.repo)
+        self.assertEqual((False, {}), (ledger["candidates"][self.candidate]["quarantined"], ledger["candidates"][self.candidate]["triggers"]))
+        before = self.snapshot()
+        for candidate in (self.candidate, "f" * 64, "not-a-candidate"):
+            with self.subTest(candidate=candidate), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual((2, ""), self.call("evidence", "lift", "--repo", self.repo, candidate))
+        self.assertEqual(before, self.snapshot(), "a refused lift writes nothing")
+
+    def test_compact_prints_its_plan_and_writes_only_with_apply(self):
+        self.assertEqual(0, self.call("revoke", "--repo", self.repo, "--code-sha256", self.sha)[0])
+        before = self.snapshot()
+        plan = {"candidates": 1, "votes": 3, "receipts": 3, "sessions": 6, "issues": 3}
+        exit_code, stdout = self.call("evidence", "compact", "--repo", self.repo)
+        self.assertEqual((0, {"applied": False, "removed": plan}), (exit_code, json.loads(stdout)))
+        self.assertEqual(before, self.snapshot())
+        exit_code, stdout = self.call("evidence", "compact", "--repo", self.repo, "--apply")
+        self.assertEqual((0, {"applied": True, "removed": plan}), (exit_code, json.loads(stdout)))
+        ledger = self.evidence.load_ledger(self.repo)
+        self.assertEqual(({}, {}, {}, {}), (ledger["candidates"], ledger["receipts"], ledger["sessions"], ledger["issues"]))
+        self.assertEqual(3, ledger["sequence"], "the sequence never goes back")
+        self.assertEqual(before["index.json"], self.snapshot()["index.json"])
+
+
 if __name__ == "__main__":
     unittest.main()

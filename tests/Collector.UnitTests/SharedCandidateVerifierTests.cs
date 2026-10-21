@@ -368,9 +368,38 @@ public sealed class SharedCandidateVerifierTests : IDisposable
         Assert.Equal(SharedVerdict.Wait, Assert.Single(result.Criteria, criterion => criterion.Message == "CONTENT_FINDER_POP").Verdict);
     }
 
-    /// <summary>A declared pop that keeps arriving without a request, in two healthy sessions, is not a pop.</summary>
+    /// <summary>
+    /// A declared pop that keeps arriving without a request, in two healthy sessions, is not a pop: here
+    /// as a list of rows inside one second, each with its own number where the roulette id should be.
+    /// </summary>
     [Fact]
     public void ADeclaredPopThatKeepsArrivingWithoutARequestIsContradicted()
+    {
+        var candidate = Candidate(CodeFromEveningA(CalibrationTrafficCases.ReplyState));
+        var observer = Watching(candidate);
+        var evening = CalibrationObserverTests.Session1().Concat(new byte[] { 2, 3, 4, 5 }.Select((row, index) =>
+            CalibrationObserverTests.Message(
+                MessageDirection.Inbound, CalibrationTrafficCases.Reply, CalibrationObserverTests.Bytes(40, (9, 3), (16, row)),
+                1_000 + (index * 20))));
+
+        Play(observer, "evening-b1", 24, evening);
+        Play(observer, "evening-b2", 48, evening);
+        var result = Verify(observer, candidate);
+
+        Assert.Equal(SharedVerdict.Contradicted, result.Verdict);
+        var pop = Assert.Single(result.Criteria, criterion => criterion.Message == "CONTENT_FINDER_POP");
+        Assert.Equal(SharedVerdict.Contradicted, pop.Verdict);
+        // The player is told what contradicts it since C-3: a burst inside one second, not a pop that merely recurs.
+        Assert.Contains("一秒内成批出现多个不同的随机任务", pop.Reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-20, C-3. Two party roulettes queued by the leader in each of two healthy sessions:
+    /// the member's pops carry a roulette this connection never requested. That is ordinary play, and it
+    /// must not throw a correct code away.
+    /// </summary>
+    [Fact]
+    public void PartyPopsInTwoSessionsDoNotContradictTheDeclaredPop()
     {
         var candidate = Candidate(CodeFromEveningA(CalibrationTrafficCases.ReplyState));
         var observer = Watching(candidate);
@@ -382,8 +411,8 @@ public sealed class SharedCandidateVerifierTests : IDisposable
         Play(observer, "evening-b2", 48, evening);
         var result = Verify(observer, candidate);
 
-        Assert.Equal(SharedVerdict.Contradicted, result.Verdict);
-        Assert.Equal(SharedVerdict.Contradicted,
+        Assert.NotEqual(SharedVerdict.Contradicted, result.Verdict);
+        Assert.NotEqual(SharedVerdict.Contradicted,
             Assert.Single(result.Criteria, criterion => criterion.Message == "CONTENT_FINDER_POP").Verdict);
     }
 

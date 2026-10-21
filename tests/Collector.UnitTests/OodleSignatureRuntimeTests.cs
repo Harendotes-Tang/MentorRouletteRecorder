@@ -86,7 +86,9 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
         var options = new CaptureStartOptions(
             "test", 1, null, null, OodleMode.FfxivTcp, null, executable, Region.Cn, Build,
             AllowCandidateOodleSignature: true);
-        using var runtime = OodleSignatureRuntime.TryCreate(options, _root);
+        using var logger = new MentorRecorder.Collector.Diagnostics.RotatingFileLogger(
+            Path.Combine(_root, "logs"), new TestClock(DateTimeOffset.UnixEpoch.AddYears(56)));
+        using var runtime = OodleSignatureRuntime.TryCreate(options, _root, logger);
         Assert.NotNull(runtime);
 
         var originalImplementation = ReadImplementation();
@@ -96,7 +98,15 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
             var error = Assert.Throws<CollectorException>(() => runtime!.Install());
 
             Assert.Equal(ErrorCodes.Internal, error.Code);
-            Assert.Contains("抓包未开始", error.Message, StringComparison.Ordinal);
+            // Audit 2026-10-20, A2-4: any failure here - a full temp folder, an antivirus scan, a
+            // profile that no longer fits - reads the same neutral sentence; the tool a maintainer
+            // regenerates the profile with is named in the local log only.
+            Assert.Equal(MentorRecorder.Collector.Contracts.Texts.CollectorTexts.CaptureOodleProfileLoadFailed(), error.Text);
+            Assert.DoesNotContain("tools/", error.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("签名档案", error.Message, StringComparison.Ordinal);
+            Assert.Contains(File.ReadAllLines(logger.CurrentPath), line =>
+                line.Contains("oodle_signature_override_failed", StringComparison.Ordinal) &&
+                line.Contains("oodle-signature-finder", StringComparison.Ordinal));
             Assert.Null(ReadMachinaNative());
         }
         finally

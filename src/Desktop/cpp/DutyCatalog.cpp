@@ -8,6 +8,7 @@
 #include <QStringList>
 
 #include <algorithm>
+#include <cmath>
 
 namespace {
 
@@ -176,6 +177,33 @@ QString DutyCatalog::difficultyForName(const QString &name)
             return QString::fromUtf8("极");
     }
     return QString::fromUtf8("普通");
+}
+
+bool DutyCatalog::isExtremeTrial(const QVariant &contentId) const
+{
+    // The IPC identity is numeric. Do not let a display string or a rounded
+    // fractional value acquire a known duty's identity through QVariant coercion.
+    switch (contentId.typeId()) {
+    case QMetaType::Int:
+    case QMetaType::UInt:
+    case QMetaType::LongLong:
+    case QMetaType::ULongLong:
+    case QMetaType::Float:
+    case QMetaType::Double:
+        break;
+    default:
+        return false;
+    }
+    const double numericId = contentId.toDouble();
+    if (!std::isfinite(numericId))
+        return false;
+    const QVariantMap duty = lookup(contentId);
+    if (duty.isEmpty() || duty.value(QStringLiteral("content_id")).toDouble() != numericId
+        || duty.value(QStringLiteral("duty_category")).toString() != QString::fromUtf8("讨伐歼灭战"))
+        return false;
+    const QString name = duty.value(QStringLiteral("duty_name")).toString().trimmed();
+    return !name.endsWith(QString::fromUtf8("幻巧战"))
+           && difficultyForName(name) == QString::fromUtf8("极");
 }
 
 QString DutyCatalog::versionForExpansion(const QString &expansion)

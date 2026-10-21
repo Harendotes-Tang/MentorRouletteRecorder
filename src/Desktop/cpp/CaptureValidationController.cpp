@@ -365,10 +365,10 @@ void CaptureValidationController::refreshStatusSnapshot()
                     m_status = QJsonObject();
                     clearRetry();
                     m_pollTimer.stop();
-                    m_error = [code, message] {
+                    m_error = [message] {
                         return message.isEmpty()
-                                   ? tr("当前 Collector 不支持桌面验证（%1）。").arg(code)
-                                   : tr("当前 Collector 不支持桌面验证：%1").arg(message);
+                                   ? tr("当前后台服务不支持桌面验证，请更新软件后重试。")
+                                   : tr("当前后台服务不支持桌面验证，请更新软件后重试。（%1）").arg(message);
                     };
                 } else {
                     // A timeout or transport error is not evidence that a newer
@@ -380,7 +380,7 @@ void CaptureValidationController::refreshStatusSnapshot()
                     m_error = [exhausted = m_retriesExhausted, code, message] {
                         return exhausted
                                    ? tr("验证状态多次刷新失败（%1），已停止自动重试；"
-                                        "可点击“重新扫描 FF14”再试一次。")
+                                        "可点击“重新检测游戏”再试一次。")
                                          .arg(code)
                                    : (message.isEmpty()
                                           ? tr("验证状态刷新失败（%1），将自动重试。").arg(code)
@@ -455,10 +455,11 @@ void CaptureValidationController::toggle()
 
     if (m_host && m_host->formalCapturing()) {
         const quint64 generation = ++m_generation;
+        const quint64 captureRevision = m_host->formalCaptureRevision();
         BackendReply *reply = m_backend->stopCapture();
         const QPointer<BackendReply> guard(reply);
         reply->whenDone(
-            this, [this, guard, generation](bool ok, const QVariantMap &payload,
+            this, [this, guard, generation, captureRevision](bool ok, const QVariantMap &payload,
                                      const QString &code, const QString &message) {
                 m_commandBusy = false;
                 if (generation != m_generation) {
@@ -470,7 +471,8 @@ void CaptureValidationController::toggle()
                     return;
                 }
                 if (m_host) {
-                    m_host->applyFormalCaptureStatus(payload);
+                    if (captureRevision == m_host->formalCaptureRevision())
+                        m_host->applyFormalCaptureStatus(payload);
                     m_host->refreshStatus();
                 }
                 Q_EMIT changed();
@@ -555,10 +557,11 @@ void CaptureValidationController::stopValidation()
 void CaptureValidationController::startFormalCapture()
 {
     const quint64 generation = m_generation;
+    const quint64 captureRevision = m_host ? m_host->formalCaptureRevision() : 0;
 
     BackendReply *reply = m_backend->startCapture(m_adapterId);
     const QPointer<BackendReply> guard(reply);
-    reply->whenDone(this, [this, guard, generation](bool ok, const QVariantMap &payload,
+    reply->whenDone(this, [this, guard, generation, captureRevision](bool ok, const QVariantMap &payload,
                                             const QString &code, const QString &message) {
             if (generation != m_generation) {
                 m_commandBusy = false;
@@ -571,7 +574,8 @@ void CaptureValidationController::startFormalCapture()
                 return;
             }
             if (m_host) {
-                m_host->applyFormalCaptureStatus(payload);
+                if (captureRevision == m_host->formalCaptureRevision())
+                    m_host->applyFormalCaptureStatus(payload);
                 m_host->refreshStatus();
             }
             m_error.clear();

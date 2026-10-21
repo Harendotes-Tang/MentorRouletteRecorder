@@ -98,5 +98,76 @@ $summary = ($statements[$start..($statements.Count - 1)] | ForEach-Object {{ $_.
         self.assertNotIn(READY_LINE, completed.stdout)
 
 
+@unittest.skipUnless(os.name == "nt", "Windows verification script")
+class VerifyStaticAnalysisStepTests(unittest.TestCase):
+    """The C++ static-analysis step of verify.ps1, run alone against a stand-in analyzer.
+
+    static-analysis.ps1 throws when it cannot run at all (no compile_commands.json, a failed
+    configure). Under ErrorActionPreference Stop that used to end verify.ps1 on the spot, so the
+    listener, doctor, payload and licence gates and the summary never ran (audit 2026-10-20, M-5).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        shell = shutil.which("pwsh")
+        if shell is None:
+            raise unittest.SkipTest("PowerShell 7 (pwsh) is required")
+        cls.shell = shell
+
+    def run_step(self, analyzer_body):
+        with tempfile.TemporaryDirectory(prefix="mr verify analysis ") as directory:
+            analyzer = Path(directory) / "static-analysis.ps1"
+            analyzer.write_text("param([string]$Tool, [int]$Jobs)\n" + analyzer_body + "\n",
+                                encoding="utf-8-sig")
+            script = f"""
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+[Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
+$source = [IO.File]::ReadAllText({ps_literal(VERIFY)}, [Text.Encoding]::UTF8)
+$tokens = $null
+$errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors)
+if ($errors.Count) {{ throw 'Cannot parse verify.ps1' }}
+$statements = @($ast.EndBlock.Statements)
+$start = -1
+for ($i = 0; $i -lt $statements.Count; $i++) {{
+    if ($statements[$i].Extent.Text -match '^Write-Head\\s+''C\\+\\+ ') {{ $start = $i; break }}
+}}
+if ($start -lt 0) {{ throw 'The static-analysis step of verify.ps1 was not found' }}
+$end = $start + 1
+while ($end -lt $statements.Count -and $statements[$end].Extent.Text -notmatch '^Write-Head\\s') {{ $end++ }}
+function Write-Head([string]$Text) {{ Write-Host "== $Text" }}
+function Add-Failure([string]$Name, [string]$Detail) {{ Write-Host "  $Detail"; $failures.Add($Name) }}
+$failures = New-Object System.Collections.Generic.List[string]
+$StaticAnalysisScript = {ps_literal(analyzer)}
+$step = ($statements[$start..($end - 1)] | ForEach-Object {{ $_.Extent.Text }}) -join "`n"
+. ([scriptblock]::Create($step))
+Write-Host ("AFTER-STEP failures=" + ($failures -join ','))
+"""
+            path = Path(directory) / "step.ps1"
+            path.write_text(script, encoding="utf-8-sig")
+            return subprocess.run(
+                [self.shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                 "-File", str(path)],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+
+    def test_a_passing_analyzer_records_no_failure(self):
+        # Guards the harness: the step ran and the script went on past it.
+        completed = self.run_step("exit 0")
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertIn("AFTER-STEP failures=\n", completed.stdout + "\n")
+
+    def test_a_failing_analyzer_is_recorded(self):
+        completed = self.run_step("exit 3")
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertIn("AFTER-STEP failures=cpp-static-analysis", completed.stdout)
+
+    def test_an_analyzer_that_throws_is_recorded_and_verify_goes_on(self):
+        completed = self.run_step("throw 'compile_commands.json is missing from the build directory'")
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("AFTER-STEP failures=cpp-static-analysis", completed.stdout)
+        self.assertIn("compile_commands.json is missing", completed.stdout)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

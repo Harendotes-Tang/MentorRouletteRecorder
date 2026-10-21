@@ -35,6 +35,7 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QSignalSpy>
+#include <QStandardPaths>
 #include <QTest>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -117,7 +118,8 @@ struct DialogFixture {
     ObservedBackend backend;
     mr::AppController controller{&backend, nullptr};
     mr::Formatters formatters;
-    QTemporaryDir imageRoot;
+    QTemporaryDir imageRoot{QString::fromUtf8(MR_SOURCE_DIR)
+                           + QStringLiteral("/artifacts/recoverable-prompts-20261020/reflection-images-XXXXXX")};
     mr::NoteImageStore images{imageRoot.path()};
     QQmlEngine engine;
     std::unique_ptr<QObject> root;
@@ -628,6 +630,7 @@ int main(int argc, char *argv[])
     // Never run against the user's own Collector, database or serve lease - see
     // TestCollectorGuard.h. Must precede any construction.
     mrtest::disableCollectorLaunch();
+    QStandardPaths::setTestModeEnabled(true);
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QGuiApplication app(argc, argv);
     ReflectionDialogBindingTests tests;

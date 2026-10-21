@@ -254,6 +254,10 @@
         <translation>現在は申請したルーレットと実際に突入したコンテンツをもとに記録します。校正の改善に協力したい場合は、種類の違うルーレットを2つ申請してクリアしてください。新たに確認が必要な内容があれば、またお知らせします。</translation>
     </message>
     <message>
+        <source>请先阅读「共享校准」中的说明，再点「同意，开始记录」。也可以在「其他方式」中选择「改为本机校准」，照常游戏来完成校准。</source>
+        <translation>「共有された校正」の説明を読んでから、「同意して記録を開始」を押してください。「その他の方法」で「この PC で校正する」を選び、通常どおりプレイして校正を完了することもできます。</translation>
+    </message>
+    <message>
         <source>识别到通关后会自动填写结果。如果没有识别到，请在离开副本后打开记录补上结果。</source>
         <translation>クリアを識別すると結果を自動で入力します。識別できなかった場合は、コンテンツから退出したあとで記録を開いて結果を補ってください。</translation>
     </message>
@@ -268,10 +272,6 @@
     <message>
         <source>请按「本机校准」中的「下一步」提示处理。</source>
         <translation>「この PC での校正」の「次の操作」に従ってください。</translation>
-    </message>
-    <message>
-        <source>请先阅读「共享校准」中的说明，再点「同意，开始记录」。也可以选择「改为本机校准」，照常游戏来完成校准。</source>
-        <translation>「共有された校正」の説明を読んでから、「同意して記録を開始」を押してください。「この PC で校正する」を選び、通常どおりプレイして校正を完了することもできます。</translation>
     </message>
     <message>
         <source>当前游戏版本还需要校准。启动游戏后，照常完成随机任务，再按提示核对。校准完成前暂时不能自动记录。</source>
@@ -359,6 +359,14 @@
     <message>
         <source>这个时间我没有排本</source>
         <translation>この時刻には申請していない</translation>
+    </message>
+    <message>
+        <source>请选择…</source>
+        <translation>選択してください…</translation>
+    </message>
+    <message>
+        <source>请在“你当时排的是”里选出实际排的随机任务。</source>
+        <translation>「申請していたのは」で、実際に申請したルーレットを選んでください。</translation>
     </message>
     <message>
         <source>以后再说</source>
@@ -815,6 +823,26 @@
 <context>
     <name>CaptureChainModel</name>
     <message>
+        <source>尚未识别游戏区服 · 暂时不会自动记录</source>
+        <translation>ゲームのリージョンを判定できません · 現在は自動記録できません</translation>
+    </message>
+    <message>
+        <source>未识别区服</source>
+        <translation>リージョン不明</translation>
+    </message>
+    <message>
+        <source>尚未识别游戏区服</source>
+        <translation>ゲームのリージョンを判定できません</translation>
+    </message>
+    <message>
+        <source>正在获取自动记录状态…</source>
+        <translation>自動記録の状態を取得しています…</translation>
+    </message>
+    <message>
+        <source>正在连接自动记录服务…</source>
+        <translation>自動記録サービスに接続しています…</translation>
+    </message>
+    <message>
         <source>验证正在等待所选游戏重启</source>
         <translation>検証は選択したゲームの再起動を待っています</translation>
     </message>
@@ -1107,6 +1135,10 @@
         <translation>未インストール</translation>
     </message>
     <message>
+        <source>尚未读取</source>
+        <translation>未取得</translation>
+    </message>
+    <message>
         <source>网卡</source>
         <translation>アダプター</translation>
     </message>
@@ -1156,6 +1188,14 @@
     <message>
         <source>检查中</source>
         <translation>確認中</translation>
+    </message>
+    <message>
+        <source>正在获取自动记录状态…</source>
+        <translation>自動記録の状態を取得しています…</translation>
+    </message>
+    <message>
+        <source>正在连接自动记录服务…</source>
+        <translation>自動記録サービスに接続しています…</translation>
     </message>
     <message>
         <source>未安装 Npcap，自动记录已停用</source>
@@ -1508,6 +1548,18 @@
 <context>
     <name>CaptureNotices</name>
     <message>
+        <source>尚未识别游戏区服</source>
+        <translation>ゲームのリージョンを判定できません</translation>
+    </message>
+    <message>
+        <source>无法从安装路径判断区服。请在「设置 → 通用」中选择实际使用的国服或国际服，保存后会重新检查。</source>
+        <translation>インストール先からリージョンを判定できません。「設定 → 一般」で利用中の中国版またはグローバル版を選択してください。保存後に再確認します。</translation>
+    </message>
+    <message>
+        <source>设置区服</source>
+        <translation>リージョンを設定</translation>
+    </message>
+    <message>
         <source>已就绪：%1</source>
         <translation>準備完了：%1</translation>
     </message>
@@ -1560,8 +1612,8 @@
         <translation>ほかのプレイヤーが共有した校正がチェックに合格し、通常どおり自動記録できます。クリアを自動で識別できなかった場合は、コンテンツから退出したあとで記録を開いて結果を補ってください。</translation>
     </message>
     <message>
-        <source>能自动记录指导者任务的匹配、进入和离开；副本内收到通关结算时自动记为通关。没有收到结算就离开副本时，记录会标为“待复核”，在记录里用“修正”填上结果。</source>
-        <translation>メンタールーレットのマッチ・突入・退出を自動で記録できます。コンテンツ内でクリア結果を受信すると、自動でクリアとして記録します。結果を受信しないまま退出した場合、記録は「要確認」になります。記録の「修正」で結果を入力してください。</translation>
+        <source>能自动记录指导者任务的匹配、进入和离开；副本内收到通关结算时自动记为通关。没有收到结算就离开副本时，记录会标为“待复核”，在记录里用“手动修正”填上结果。</source>
+        <translation>メンタールーレットのマッチ・突入・退出を自動で記録できます。コンテンツ内でクリア結果を受信すると、自動でクリアとして記録します。結果を受信しないまま退出した場合、記録は「要確認」になります。記録の「手動で修正」で結果を入力してください。</translation>
     </message>
     <message>
         <source>（以下是上次检查的结果）</source>
@@ -1715,6 +1767,29 @@
     </message>
 </context>
 <context>
+    <name>CaptureRegionSelector</name>
+    <message>
+        <source>自动（按安装路径）</source>
+        <translation>自動（インストール先から判定）</translation>
+    </message>
+    <message>
+        <source>国服 CN</source>
+        <translation>中国版 CN</translation>
+    </message>
+    <message>
+        <source>国际服 GLOBAL</source>
+        <translation>グローバル版 GLOBAL</translation>
+    </message>
+    <message>
+        <source>游戏区服</source>
+        <translation>ゲームのリージョン</translation>
+    </message>
+    <message>
+        <source>自动按安装路径识别；无法识别时，请选择实际使用的国服或国际服。</source>
+        <translation>インストール先から自動判定します。判定できない場合は、利用中の中国版またはグローバル版を選択してください。</translation>
+    </message>
+</context>
+<context>
     <name>CaptureToolsPanel</name>
     <message>
         <source>工具</source>
@@ -1784,24 +1859,16 @@
         <translation>名前のないアダプター</translation>
     </message>
     <message>
+        <source>%1 · 推荐</source>
+        <translation>%1 · おすすめ</translation>
+    </message>
+    <message>
         <source>%1 · %2 · 推荐</source>
         <translation>%1 · %2 · おすすめ</translation>
     </message>
     <message>
         <source>%1 · %2</source>
         <translation>%1 · %2</translation>
-    </message>
-    <message>
-        <source>自动（按安装路径）</source>
-        <translation>自動（インストール先で判定）</translation>
-    </message>
-    <message>
-        <source>国服 CN</source>
-        <translation>中国版 CN</translation>
-    </message>
-    <message>
-        <source>国际服 GLOBAL</source>
-        <translation>グローバル版 GLOBAL</translation>
     </message>
     <message>
         <source>已取消等待</source>
@@ -1932,14 +1999,6 @@
         <translation>リージョン</translation>
     </message>
     <message>
-        <source>区服覆盖</source>
-        <translation>リージョンの上書き</translation>
-    </message>
-    <message>
-        <source>默认自动：由采集器从安装路径判断。装在自定义目录时国服可能识别不出，可在此显式指定。</source>
-        <translation>既定は自動：コレクターがインストール先から判定します。中国版を独自のフォルダーにインストールしている場合は識別できないことがあるため、ここで明示的に指定できます。</translation>
-    </message>
-    <message>
         <source>区服“自动”由采集器从安装路径推断；装在非默认目录的国服客户端可能识别为未知，此时取证与验证会被拒绝，请在此显式指定。</source>
         <translation>リージョンの「自動」はコレクターがインストール先から推定します。既定以外のフォルダーにある中国版クライアントは不明と識別されることがあり、その場合は検証データの記録と検証が拒否されるため、ここで明示的に指定してください。</translation>
     </message>
@@ -1982,6 +2041,10 @@
     <message>
         <source>队列丢弃 %1</source>
         <translation>キュー破棄 %1</translation>
+    </message>
+    <message>
+        <source>采证文件：%1</source>
+        <translation>証拠ファイル：%1</translation>
     </message>
     <message>
         <source>Trace：%1
@@ -2118,6 +2181,11 @@ SHA256：%3</translation>
         <source>客户端版本未知，无法写出档案。</source>
         <comment>calibration.build_unknown</comment>
         <translation>クライアントのバージョンが不明なため、プロファイルを書き出せません。</translation>
+    </message>
+    <message>
+        <source>你正在排导随，现在更换校准会让接下来这一把记不下来。请等这一把结束后再试。如果已经取消排队，软件可能察觉不到，请退出并重新启动游戏后再试，或在开始排队一小时后再试。</source>
+        <comment>calibration.change_while_queued</comment>
+        <translation>メンタールーレットに申請中です。今校正を変更すると、この後の回が記録されません。その回が終わってからもう一度お試しください。申請を取り消した場合、このアプリが気付いていないことがあります。ゲームを終了して再起動してからお試しいただくか、申請を始めてから1時間後にもう一度お試しください。</translation>
     </message>
     <message>
         <source>导随记录照常进行。已找到补全职业的信息，请核对下面的时间线，再点「核对并启用」；之后的新记录会自动带上职业。</source>
@@ -2429,29 +2497,9 @@ SHA256：%3</translation>
         <translation>FFXIV のプロセスを {count} 個検出しました。概要またはキャプチャ診断ページで、現在の記録対象を確認してください。</translation>
     </message>
     <message>
-        <source>没有权限读取游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录（fail-closed）。</source>
-        <comment>capture.game.path_denied</comment>
-        <translation>ゲームのインストール先を読み取る権限がないため、リージョンとクライアントのバージョンは不明のままです。この間、自動記録は一切行いません（fail-closed）。</translation>
-    </message>
-    <message>
-        <source>无法确定游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录（fail-closed）。</source>
-        <comment>capture.game.path_unknown</comment>
-        <translation>ゲームのインストール先を特定できないため、リージョンとクライアントのバージョンは不明のままです。この間、自動記録は一切行いません（fail-closed）。</translation>
-    </message>
-    <message>
-        <source>无法从安装路径判断区服（路径同时含有国服与国际服的标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录（fail-closed）。</source>
-        <comment>capture.game.region_ambiguous</comment>
-        <translation>インストール先からリージョンを判定できません（パスに中国版とグローバル版の両方の目印が含まれています）。設定でリージョン（中国版 / グローバル版）を手動で指定してください。指定するまで、自動記録は一切行いません（fail-closed）。</translation>
-    </message>
-    <message>
         <source>设置中手动指定的区服与安装路径推断出的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除区服覆盖。</source>
         <comment>capture.game.region_override_mismatch</comment>
         <translation>設定で手動指定したリージョンが、インストール先から推定したリージョンと一致しないため、手動指定のリージョンとして扱いました。意図したものでない場合は、設定でリージョンの上書きを解除してください。</translation>
-    </message>
-    <message>
-        <source>无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录（fail-closed）。</source>
-        <comment>capture.game.region_unmarked</comment>
-        <translation>インストール先からリージョンを判定できません（パスは読み取れますが、識別できるリージョンの目印が含まれていません）。設定でリージョン（中国版 / グローバル版）を手動で指定してください。指定するまで、自動記録は一切行いません（fail-closed）。</translation>
     </message>
     <message>
         <source>未能在游戏目录中读取到 {file}，客户端版本未知。</source>
@@ -2505,25 +2553,9 @@ SHA256：%3</translation>
         <translation>Npcap を使用できます。キャプチャは常に読み取り専用で、パケットを送信することは一切ありません。</translation>
     </message>
     <message>
-        <source>匹配的 Oodle 签名档案无法加载，抓包未开始。 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。</source>
-        <comment>capture.oodle.profile_load_failed</comment>
-        <translation>一致する Oodle シグネチャプロファイルを読み込めないため、キャプチャを開始していません。tools/oodle-signature-finder を実行して、シグネチャプロファイルを再生成・検証してください。</translation>
-    </message>
-    <message>
         <source>正式采集或验证会话尚未结束，请先停止并等待资源释放。</source>
         <comment>capture.ownership_busy</comment>
         <translation>正式な収集または検証のセッションがまだ終わっていません。先に停止し、リソースが解放されるまでお待ちください。</translation>
-    </message>
-    <message>
-        <source>仓库中没有任何协议档案（PROTOCOL_PROFILE_STATUS = NONE）。按 fail-closed 规则，本版本不会解析任何报文，也不会自动写入任何记录，只能手工补录。</source>
-        <comment>capture.profile.none</comment>
-        <translation>リポジトリにプロトコルプロファイルが1つもありません（PROTOCOL_PROFILE_STATUS = NONE）。fail-closed の規則により、このバージョンはパケットを一切解析せず、記録も一切自動で書き込みません。記録は手動で追加するしかありません。</translation>
-    </message>
-    <message>
-        <source>协议档案不可用（fail-closed）：{reason}</source>
-        <comment>capture.profile.unavailable</comment>
-        <extracomment>Placeholders: {reason} shown as it is. Keep every {placeholder} exactly as written. {reason} is the profile directory&apos;s English explanation, for example: no profile matches this region and build.</extracomment>
-        <translation>プロトコルプロファイルを使用できません（fail-closed）：{reason}</translation>
     </message>
     <message>
         <source>所选游戏已退出或重新启动，请重新选择游戏窗口。</source>
@@ -2634,11 +2666,6 @@ SHA256：%3</translation>
         <source>请先选择该游戏窗口，再开始监听。</source>
         <comment>capture.start.process_not_selected</comment>
         <translation>先にこのゲームウィンドウを選んでから、監視を開始してください。</translation>
-    </message>
-    <message>
-        <source>协议档案不可用（fail-closed），未启动抓包：本版本不会解析任何报文，也不会自动写入任何记录。若只是想验证抓包链路本身，请先把设置 capture.allow_without_profile 打开（仅统计，不记录）。</source>
-        <comment>capture.start.profile_unavailable</comment>
-        <translation>プロトコルプロファイルを使用できないため（fail-closed）、キャプチャを開始していません。このバージョンはパケットを一切解析せず、記録も一切自動で書き込みません。キャプチャ経路そのものを検証したいだけの場合は、先に設定 capture.allow_without_profile をオンにしてください（統計のみで、記録はしません）。</translation>
     </message>
     <message>
         <source>请先在总览或捕获诊断页选择要记录的游戏窗口。</source>
@@ -2959,9 +2986,80 @@ SHA256：%3</translation>
         <translation>自動記録の構成要素に互換性がないため、監視を開始できませんでした。アプリ全体を更新するか再インストールしてください。解決しない場合は診断レポートを出力してください。</translation>
     </message>
     <message>
+        <source>正在进行的这一把导随还没结束，现在更换校准会中断这一把的记录。请在这一把结束后再试。</source>
+        <comment>calibration.change_during_run</comment>
+        <translation>進行中のメンタールーレットがまだ終わっていません。今校正を変更すると、この回の記録が途中で終わってしまいます。この回が終わってからもう一度お試しください。</translation>
+    </message>
+    <message>
+        <source>后台的进一步校准已无法继续。如需继续完善，请先点「清空校准进度」（现用校准会继续记录），保持软件开启，再尝试不同的随机任务并进出副本；组队时请由你来申请。</source>
+        <comment>calibration.provisional.blocked_more</comment>
+        <translation>バックグラウンドでのこれ以上の校正は続けられません。さらに改善したい場合は、先に「校正の進捗をリセット」を押し（使用中の校正で記録は続きます）、アプリを開いたまま、別のルーレットを試してコンテンツに出入りしてください。パーティで参加する場合は、あなたが申請してください。</translation>
+    </message>
+    <message>
+        <source>导随记录照常进行。检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。</source>
+        <comment>calibration.provisional.recording_popup</comment>
+        <translation>メンタールーレットの記録は通常どおり行います。突入確認を検出した場合はその時刻を、検出できなかった場合は引き続き申請の時刻を記録します。申請を取り消しても記録は作成されません。</translation>
+    </message>
+    <message>
+        <source>导随记录照常进行。检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。后台仍在尝试识别职业，找到后会请你核对时间线；在此之前，新记录的职业为未知。你可以照常游戏。</source>
+        <comment>calibration.provisional.searching_job</comment>
+        <translation>メンタールーレットの記録は通常どおり行います。突入確認を検出した場合はその時刻を、検出できなかった場合は引き続き申請の時刻を記録します。申請を取り消しても記録は作成されません。バックグラウンドでジョブの識別を引き続き試みており、見つかったらタイムラインの確認をお願いします。それまでの新しい記録ではジョブは不明になります。そのままプレイを続けてかまいません。</translation>
+    </message>
+    <message>
+        <source>导随记录照常进行。检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。后台仍在继续校准，有新发现时会请你核对时间线。你可以照常游戏，也可以尝试不同的随机任务帮助校准；组队时请由你来申请。</source>
+        <comment>calibration.provisional.searching_more</comment>
+        <translation>メンタールーレットの記録は通常どおり行います。突入確認を検出した場合はその時刻を、検出できなかった場合は引き続き申請の時刻を記録します。申請を取り消しても記録は作成されません。バックグラウンドで校正を続けており、新たに見つかったものがあればタイムラインの確認をお願いします。そのままプレイを続けても、別のルーレットを試して校正に協力してもかまいません。パーティで参加する場合は、あなたが申請してください。</translation>
+    </message>
+    <message>
+        <source>没有权限读取游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录。</source>
+        <comment>capture.game.path_denied</comment>
+        <translation>ゲームのインストール先を読み取る権限がないため、リージョンとクライアントのバージョンは不明のままです。この間、自動記録は一切行いません。</translation>
+    </message>
+    <message>
+        <source>无法确定游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录。</source>
+        <comment>capture.game.path_unknown</comment>
+        <translation>ゲームのインストール先を特定できないため、リージョンとクライアントのバージョンは不明のままです。この間、自動記録は一切行いません。</translation>
+    </message>
+    <message>
+        <source>无法从安装路径判断区服（路径同时含有国服与国际服的标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录。</source>
+        <comment>capture.game.region_ambiguous</comment>
+        <translation>インストール先からリージョンを判定できません（パスに中国版とグローバル版の両方の目印が含まれています）。設定でリージョン（中国版 / グローバル版）を手動で指定してください。指定するまで、自動記録は一切行いません。</translation>
+    </message>
+    <message>
+        <source>无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录。</source>
+        <comment>capture.game.region_unmarked</comment>
+        <translation>インストール先からリージョンを判定できません（パスは読み取れますが、識別できるリージョンの目印が含まれていません）。設定でリージョン（中国版 / グローバル版）を手動で指定してください。指定するまで、自動記録は一切行いません。</translation>
+    </message>
+    <message>
         <source>上次自动记录尚未完全停止，本次监听未开始。请稍后重试；仍失败时重启软件并导出诊断报告。</source>
         <comment>capture.oodle.previous_not_released</comment>
         <translation>前回の自動記録が完全に停止していないため、監視を開始できませんでした。少し待ってから再試行してください。解決しない場合はアプリを再起動し、診断レポートを出力してください。</translation>
+    </message>
+    <message>
+        <source>准备读取游戏数据时出错，本次监听未开始。可能是磁盘空间不足、安全软件拦截了游戏程序文件，或游戏更新后暂不兼容。请稍后重试；仍失败时导出诊断报告。</source>
+        <comment>capture.oodle.profile_load_failed</comment>
+        <translation>ゲームデータを読み取る準備中にエラーが発生したため、監視を開始できませんでした。ディスクの空き容量不足、セキュリティソフトによるゲームプログラムファイルのブロック、またはゲーム更新後の未対応が考えられます。少し待ってから再試行してください。解決しない場合は診断レポートを出力してください。</translation>
+    </message>
+    <message>
+        <source>仓库中没有任何协议档案。为避免记错，本版本不会解析任何报文，也不会自动写入任何记录，只能手工补录。</source>
+        <comment>capture.profile.none</comment>
+        <translation>リポジトリにプロトコルプロファイルが1つもありません。誤った記録を防ぐため、このバージョンはパケットを一切解析せず、記録も一切自動で書き込みません。記録は手動で追加するしかありません。</translation>
+    </message>
+    <message>
+        <source>协议档案不可用，暂时不会自动记录：{reason}</source>
+        <comment>capture.profile.unavailable</comment>
+        <extracomment>Placeholders: {reason} shown as it is. Keep every {placeholder} exactly as written. {reason} is the profile directory&apos;s English explanation, for example: no profile matches this region and build.</extracomment>
+        <translation>プロトコルプロファイルを使用できないため、現在は自動記録しません：{reason}</translation>
+    </message>
+    <message>
+        <source>协议档案不可用，未启动抓包：本版本不会解析任何报文，也不会自动写入任何记录。若只是想验证抓包链路本身，请先把设置 capture.allow_without_profile 打开（仅统计，不记录）。</source>
+        <comment>capture.start.profile_unavailable</comment>
+        <translation>プロトコルプロファイルを使用できないため、キャプチャを開始していません。このバージョンはパケットを一切解析せず、記録も一切自動で書き込みません。キャプチャ経路そのものを検証したいだけの場合は、先に設定 capture.allow_without_profile をオンにしてください（統計のみで、記録はしません）。</translation>
+    </message>
+    <message>
+        <source>上一次采集验证未能完全结束，正在自动重试收尾，期间不会自动记录。如长时间未恢复，请重新启动本软件。</source>
+        <comment>capture.warning.validation_releasing</comment>
+        <translation>前回の収集の検証が完全には終了していません。自動で後片付けを再試行しており、その間は自動記録しません。長時間回復しない場合は、このアプリを再起動してください。</translation>
     </message>
     <message>
         <source>目标文件已存在，请更换文件名或保存位置后重试。</source>
@@ -3205,6 +3303,16 @@ SHA256：%3</translation>
         <translation>ローカルファイルの完全なパスを選んでください。</translation>
     </message>
     <message>
+        <source>只能导入本机磁盘上的文件，不支持网络共享或设备路径。请先把文件复制到本机文件夹再导入。</source>
+        <comment>import.preview.path_not_local</comment>
+        <translation>インポートできるのはこの PC のディスク上のファイルだけです。ネットワーク共有やデバイスのパスには対応していません。先にファイルをこの PC のフォルダーにコピーしてからインポートしてください。</translation>
+    </message>
+    <message>
+        <source>无法确认这个文件是否在本机磁盘上。请检查文件夹和访问权限，或把文件复制到本机文件夹后再导入。</source>
+        <comment>import.preview.path_uncheckable</comment>
+        <translation>このファイルがこの PC のディスク上にあるか確認できませんでした。フォルダーとアクセス権を確認するか、ファイルをこの PC のフォルダーにコピーしてからインポートしてください。</translation>
+    </message>
+    <message>
         <source>来源名称超过 500 字符。</source>
         <comment>import.preview.source_name_too_long</comment>
         <translation>記録元の名前が 500 文字を超えています。</translation>
@@ -3278,6 +3386,12 @@ SHA256：%3</translation>
         <source>记录编号（run_id）格式不正确，请按 JSON 模板填写标准 UUID。</source>
         <comment>import.row.run_id_invalid</comment>
         <translation>記録 ID（run_id）の形式が正しくありません。JSON テンプレートに従って標準の UUID を記入してください。</translation>
+    </message>
+    <message>
+        <source>开始时间 {start_date} 只有日期，与这条记录已有的记录时间 {source_date} 对不上，无法确定是哪一天。已保留原值，请修正其中一项或调整列映射后重新预览。</source>
+        <comment>import.row.start_date_source_conflict</comment>
+        <extracomment>Placeholders: {start_date} shown as it is; {source_date} shown as it is. Keep every {placeholder} exactly as written. A date-only spreadsheet start cannot be combined with an existing source time on another day, or with one held only in UTC (it may or may not be the same local day, so the sentence does not say the dates differ). A source time with a clock on the same day is accepted. Both arguments are original source values.</extracomment>
+        <translation>開始時刻 {start_date} は日付だけで、この記録にすでにある記録時刻 {source_date} と合わないため、どの日か判断できません。元の値は保持されています。どちらかを修正するか列の対応を変更して、もう一度プレビューしてください。</translation>
     </message>
     <message>
         <source>{field} 处于夏令时调整时段，无法确定具体时刻。请填写带时区偏移的完整时间。</source>
@@ -4132,6 +4246,11 @@ SHA256：%3</translation>
         <translation>「気分は未記録」はインポートした感想にのみ使用できます。</translation>
     </message>
     <message>
+        <source>暂时读不到本机保存的共享校准记录（可能被其他程序占用），请稍后再查找。</source>
+        <comment>sharing.check.state_unreadable</comment>
+        <translation>この PC に保存されている共有された校正の記録を現在読み取れません（ほかのプログラムに使用されている可能性があります）。しばらくしてからもう一度探してください。</translation>
+    </message>
+    <message>
         <source>校准码中有无法识别的字符。请重新完整复制，不要带上其他文字。</source>
         <comment>sharing.code.characters</comment>
         <translation>校正コードに識別できない文字が含まれています。ほかの文字を含めずに、もう一度全体をコピーしてください。</translation>
@@ -4258,6 +4377,11 @@ SHA256：%3</translation>
         <source>这份共享校准已被撤回，不能继续用于记录。请向分享者获取新校准码，或使用「本机校准」。</source>
         <comment>sharing.import.revoked</comment>
         <translation>この共有された校正は取り下げられたため、記録には使えなくなりました。共有した人から新しい校正コードを受け取るか、「この PC での校正」を使ってください。</translation>
+    </message>
+    <message>
+        <source>暂时读不到本机保存的共享校准记录（可能被其他程序占用），请稍后再导入。</source>
+        <comment>sharing.import.state_unreadable</comment>
+        <translation>この PC に保存されている共有された校正の記録を現在読み取れません（ほかのプログラムに使用されている可能性があります）。しばらくしてからもう一度インポートしてください。</translation>
     </message>
     <message>
         <source>这份校准码暂时无法使用。请更新导随记录器，或请分享者重新生成校准码。</source>
@@ -4668,10 +4792,6 @@ SHA256：%3</translation>
 <context>
     <name>DashboardPage</name>
     <message>
-        <source>未知副本</source>
-        <translation>不明なコンテンツ</translation>
-    </message>
-    <message>
         <source>笔记数据尚未加载，请稍后再试</source>
         <translation>メモのデータをまだ読み込んでいません。しばらくしてから再試行してください</translation>
     </message>
@@ -4706,30 +4826,6 @@ SHA256：%3</translation>
     <message>
         <source>查看捕获诊断</source>
         <translation>キャプチャ診断を見る</translation>
-    </message>
-    <message>
-        <source>%1 条记录待复核</source>
-        <translation>要確認の記録が %1 件</translation>
-    </message>
-    <message>
-        <source>这些记录需要你复核，可能是程序异常退出、未收到通关结算，或生成记录时使用的校准后来被停用。尚未记为通关的记录，确认“通关”后才计入导随次数；每次确认都会记入“修改记录”。</source>
-        <translation>これらの記録は確認が必要です。アプリの異常終了、クリア結果の未受信、または記録作成時に使った校正がその後使用停止になったことが原因と考えられます。まだクリアになっていない記録は、「クリア」と確認して初めてメンター回数に加算されます。確認するたびに「変更履歴」に記録されます。</translation>
-    </message>
-    <message>
-        <source>最近一条：%1</source>
-        <translation>最新：%1</translation>
-    </message>
-    <message>
-        <source>通关</source>
-        <translation>クリア</translation>
-    </message>
-    <message>
-        <source>退出 / 放弃</source>
-        <translation>途中退出 / ギブアップ</translation>
-    </message>
-    <message>
-        <source>去复核</source>
-        <translation>確認する</translation>
     </message>
     <message>
         <source>查看验证状态</source>
@@ -5030,8 +5126,8 @@ SHA256：%3</translation>
         <translation>通信 1：ゲーム更新後に共有された校正を取得（既定でオン、オフにできます）</translation>
     </message>
     <message>
-        <source>游戏更新后，如果还不能自动记录，软件会从固定的公开 GitHub 仓库下载其他玩家分享的校准，根据你的游戏情况检查可用后再使用。如果正在使用共享校准，或暂时根据排队和进本来记录，软件还会检查同一份公开列表，确认当前校准是否已被撤回，以及有没有更完整的校准；其他已有可用校准的情况下不会为此联网。请求不含账号、安装编号或设备身份信息，GitHub 与 CDN 能看到请求来自哪个 IP 地址。不想要可以在「设置 → 通用」关掉「游戏更新后获取其他玩家的共享校准」。</source>
-        <translation>ゲームの更新後にまだ自動記録できない場合、アプリは決まった公開 GitHub リポジトリから、ほかのプレイヤーが共有した校正をダウンロードし、あなたのゲームで使えるかチェックしてから使用します。共有された校正を使用中の場合や、一時的に申請と突入をもとに記録している場合は、同じ公開リストを確認して、現在の校正が取り下げられていないか、より完全な校正がないかも調べます。それ以外で使える校正がすでにある場合は、このための通信は行いません。リクエストにはアカウント、インストール ID、デバイスを識別する情報は含まれませんが、GitHub と CDN にはリクエスト元の IP アドレスがわかります。不要な場合は「設定 → 一般」で「ゲーム更新後にほかのプレイヤーが共有した校正を取得」をオフにしてください。</translation>
+        <source>游戏更新后，如果还不能自动记录，软件会从固定的公开 GitHub 仓库下载其他玩家分享的校准（GitHub 读取失败时，依次改从它在 GitCode 上的同名镜像和 CDN 读取），根据你的游戏情况检查可用后再使用。如果正在使用共享校准，或暂时根据排队和进本来记录，软件还会检查同一份公开列表，确认当前校准是否已被撤回，以及有没有更完整的校准；其他已有可用校准的情况下不会为此联网。请求不含账号、安装编号或设备身份信息，GitHub、GitCode 与 CDN 能看到请求来自哪个 IP 地址。不想要可以在「设置 → 通用」关掉「游戏更新后获取其他玩家的共享校准」。</source>
+        <translation>ゲームの更新後にまだ自動記録できない場合、アプリは決まった公開 GitHub リポジトリから、ほかのプレイヤーが共有した校正をダウンロードし（GitHub から読み込めない場合は、GitCode 上の同名のミラー、CDN の順に切り替えて読み込みます）、あなたのゲームで使えるかチェックしてから使用します。共有された校正を使用中の場合や、一時的に申請と突入をもとに記録している場合は、同じ公開リストを確認して、現在の校正が取り下げられていないか、より完全な校正がないかも調べます。それ以外で使える校正がすでにある場合は、このための通信は行いません。リクエストにはアカウント、インストール ID、デバイスを識別する情報は含まれませんが、GitHub、GitCode、CDN にはリクエスト元の IP アドレスがわかります。不要な場合は「設定 → 一般」で「ゲーム更新後にほかのプレイヤーが共有した校正を取得」をオフにしてください。</translation>
     </message>
     <message>
         <source>联网二：在线语音（默认关闭）</source>
@@ -5070,12 +5166,12 @@ SHA256：%3</translation>
         <translation>ゲームを終了する必要はありません。「キャプチャ診断」ページでも再ログインを案内します。</translation>
     </message>
     <message>
-        <source>3. 正常排指导者任务，未能自动判定的结果到“待复核”里填写</source>
-        <translation>3. いつも通りメンタールーレットに申請し、自動判定できなかった結果は「要確認」で入力</translation>
+        <source>3. 正常排指导者任务，未能自动判定的结果到“待处理”里填写</source>
+        <translation>3. いつも通りメンタールーレットに申請し、自動判定できなかった結果は「要対応」で入力</translation>
     </message>
     <message>
-        <source>匹配、进入副本和离开副本会自动记录。收到通关结算时自动记为通关；未收到结算就离开副本时，记录标为「待复核」。打开记录，点「修正」填写通关或离开。</source>
-        <translation>マッチ、コンテンツへの突入と退出は自動で記録します。クリア結果を受信すると自動でクリアとして記録し、受信しないまま退出した場合は記録が「要確認」になります。記録を開き、「修正」でクリアか退出かを入力してください。</translation>
+        <source>匹配、进入副本和离开副本会自动记录。收到通关结算时自动记为通关；未收到结算就离开副本时，记录标为「待复核」。打开记录，点「手动修正」填写通关或离开。</source>
+        <translation>マッチ、コンテンツへの突入と退出は自動で記録します。クリア結果を受信すると自動でクリアとして記録し、受信しないまま退出した場合は記録が「要確認」になります。記録を開き、「手動で修正」でクリアか退出かを入力してください。</translation>
     </message>
     <message>
         <source>此说明可随时在「设置 → 关于」中点「查看软件说明」重新打开。</source>
@@ -5167,6 +5263,10 @@ SHA256：%3</translation>
     <message>
         <source>最近出现</source>
         <translation>最終プレイ</translation>
+    </message>
+    <message>
+        <source>中途加入</source>
+        <translation>途中参加</translation>
     </message>
     <message>
         <source>未识别</source>
@@ -5922,14 +6022,6 @@ SHA256：%3</translation>
 <context>
     <name>ImportCalibrationCodeDialog</name>
     <message>
-        <source>导入校准码</source>
-        <translation>校正コードをインポート</translation>
-    </message>
-    <message>
-        <source>把其他玩家发来的校准码完整粘贴到下面。导入时不需要联网。软件会先检查游戏版本，再根据你登录、排本和进本的情况确认是否可用。通过检查后才会用它记录。</source>
-        <translation>ほかのプレイヤーから受け取った校正コードを、下に丸ごと貼り付けてください。インポートにネットワークは不要です。アプリはまずゲームバージョンを確認し、次にログイン・申請・突入の状況から使えるかどうかを確かめます。チェックに合格するまでは、それを使って記録することはありません。</translation>
-    </message>
-    <message>
         <source>在这里粘贴校准码</source>
         <translation>ここに校正コードを貼り付け</translation>
     </message>
@@ -5941,9 +6033,37 @@ SHA256：%3</translation>
         <source>导入</source>
         <translation>インポート</translation>
     </message>
+    <message>
+        <source>手动导入校准码</source>
+        <translation>校正コードを手動でインポート</translation>
+    </message>
+    <message>
+        <source>自动获取不可用，或想使用其他玩家提供的校准码时，可在这里完整粘贴。导入时不需要联网。软件会先检查游戏版本，再根据你登录、排本和进本的情况确认是否可用。通过检查后才会用它记录。</source>
+        <translation>自動取得が利用できない場合や、ほかのプレイヤーの校正コードを使いたい場合は、ここにコード全体を貼り付けてください。インポートにネットワークは不要です。ゲームバージョンを確認した後、ログイン・申請・突入の状況から使えるかどうかを確かめます。チェックに合格してから記録に使用します。</translation>
+    </message>
 </context>
 <context>
     <name>ImportRecordsDialog</name>
+    <message>
+        <source>全选整批可导入</source>
+        <translation>全ページを選択</translation>
+    </message>
+    <message>
+        <source>上一页</source>
+        <translation>前のページ</translation>
+    </message>
+    <message>
+        <source>下一页</source>
+        <translation>次のページ</translation>
+    </message>
+    <message>
+        <source>第 %1 / %2 页</source>
+        <translation>%1 / %2 ページ</translation>
+    </message>
+    <message>
+        <source>%1–%2 / %3 条</source>
+        <translation>%1–%2 / %3 件</translation>
+    </message>
     <message>
         <source>图标识别得分 %1/100</source>
         <translation>アイコン識別スコア %1/100</translation>
@@ -6019,6 +6139,10 @@ SHA256：%3</translation>
     <message>
         <source>内容有修改，请先重新校验再勾选。</source>
         <translation>内容が変更されています。再検証してからチェックしてください。</translation>
+    </message>
+    <message>
+        <source>职业是按图标推测的，请先在「职业」中确认，再勾选。</source>
+        <translation>ジョブはアイコンから推測したものです。先に「ジョブ」で確認してからチェックしてください。</translation>
     </message>
     <message>
         <source>需重新校验</source>
@@ -6119,10 +6243,6 @@ SHA256：%3</translation>
     <message>
         <source>未勾选</source>
         <translation>未選択</translation>
-    </message>
-    <message>
-        <source>全选可导入</source>
-        <translation>インポート可能なものをすべて選択</translation>
     </message>
     <message>
         <source>批量设置</source>
@@ -6337,6 +6457,14 @@ SHA256：%3</translation>
     <message>
         <source>还没有勾选记录</source>
         <translation>まだ記録をチェックしていません</translation>
+    </message>
+    <message>
+        <source>起始次数尚未读取，读取后才能导入</source>
+        <translation>記録開始前の回数をまだ読み込めていません。読み込み後にインポートできます</translation>
+    </message>
+    <message>
+        <source>%1 条已勾选记录的职业待确认，确认后才能导入</source>
+        <translation>チェックした記録のうち %1 件はジョブが未確認です。確認するとインポートできます</translation>
     </message>
     <message>
         <source>核对后勾选需要导入的记录</source>
@@ -6594,6 +6722,10 @@ SHA256：%3</translation>
         <source>平均耗时</source>
         <translation>平均時間</translation>
     </message>
+    <message>
+        <source>中途加入</source>
+        <translation>途中参加</translation>
+    </message>
 </context>
 <context>
     <name>Main</name>
@@ -6666,10 +6798,6 @@ SHA256：%3</translation>
         <translation>取り消すと、前回修正した内容が変更前の値に戻ります。この取り消しも変更履歴に残り、これまでの修正の記録は削除されません。</translation>
     </message>
     <message>
-        <source>确认表示你已核对这条记录。结果不会被改写，只会取消“待复核”标记，并记入修改记录。要改成“通关”或“离开”，请用“修正”填写结果。</source>
-        <translation>確認すると、この記録をチェックしたことになります。結果は書き換えず、「要確認」のマークを外して変更履歴に記録するだけです。「クリア」や「退出」に変えたい場合は、「修正」で結果を入力してください。</translation>
-    </message>
-    <message>
         <source>删除后，这条记录会移到“已删除”，不再计入默认统计。永久删除前仍可恢复；自动清理期限可在设置中查看。</source>
         <translation>削除すると、この記録は「削除済み」に移動し、通常の統計には含まれなくなります。完全に削除されるまでは復元でき、自動消去までの期間は設定で確認できます。</translation>
     </message>
@@ -6692,6 +6820,10 @@ SHA256：%3</translation>
     <message>
         <source>刚刚完成</source>
         <translation>完了したばかり</translation>
+    </message>
+    <message>
+        <source>确认表示你已核对这条记录。结果不会被改写，只会取消“待复核”标记，并记入修改记录。要改成“通关”或“离开”，请用“手动修正”填写结果。</source>
+        <translation>確認すると、この記録をチェックしたことになります。結果は書き換えず、「要確認」のマークを外して変更履歴に記録するだけです。「クリア」や「退出」に変えたい場合は、「手動で修正」で結果を入力してください。</translation>
     </message>
     <message>
         <source>核对并启用</source>
@@ -6792,6 +6924,10 @@ SHA256：%3</translation>
         <translation>キャプチャ</translation>
     </message>
     <message>
+        <source>已收起到待处理，记录和草稿已保留</source>
+        <translation>要確認に移しました。記録と下書きは残っています</translation>
+    </message>
+    <message>
         <source>原因</source>
         <translation>理由</translation>
     </message>
@@ -6818,6 +6954,30 @@ SHA256：%3</translation>
     <message>
         <source>补录笔记</source>
         <translation>メモを追加</translation>
+    </message>
+    <message>
+        <source>解锁浮窗</source>
+        <translation>ロック解除</translation>
+    </message>
+    <message>
+        <source>统计浮窗</source>
+        <translation>統計オーバーレイ</translation>
+    </message>
+    <message>
+        <source>继续处理</source>
+        <translation>続ける</translation>
+    </message>
+    <message>
+        <source>导随记录器 · 已收起提醒</source>
+        <translation>メンターレコーダー · 通知を閉じました</translation>
+    </message>
+    <message>
+        <source>重新打开</source>
+        <translation>もう一度開く</translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation>閉じる</translation>
     </message>
 </context>
 <context>
@@ -7010,6 +7170,348 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>OverlayCurrentDutyModule</name>
+    <message>
+        <source>当前副本</source>
+        <translation>コンテンツ</translation>
+    </message>
+    <message>
+        <source>已匹配</source>
+        <translation>マッチ済み</translation>
+    </message>
+</context>
+<context>
+    <name>OverlayCustomizePanel</name>
+    <message>
+        <source>自定义浮窗</source>
+        <translation>オーバーレイのカスタマイズ</translation>
+    </message>
+    <message>
+        <source>拖动排序，开关控制显示</source>
+        <translation>ドラッグで並べ替え、スイッチで表示を切り替え</translation>
+    </message>
+    <message>
+        <source>拖动排序</source>
+        <translation>ドラッグで並べ替え</translation>
+    </message>
+    <message>
+        <source>上移</source>
+        <translation>上へ</translation>
+    </message>
+    <message>
+        <source>下移</source>
+        <translation>下へ</translation>
+    </message>
+    <message>
+        <source>副本排行</source>
+        <translation>コンテンツ順位</translation>
+    </message>
+    <message>
+        <source>关</source>
+        <translation>なし</translation>
+    </message>
+    <message>
+        <source>前 3</source>
+        <translation>上位3</translation>
+    </message>
+    <message>
+        <source>前 5</source>
+        <translation>上位5</translation>
+    </message>
+    <message>
+        <source>前 10</source>
+        <translation>上位10</translation>
+    </message>
+    <message>
+        <source>全部</source>
+        <translation>すべて</translation>
+    </message>
+    <message>
+        <source>背景不透明度</source>
+        <translation>背景の不透明度</translation>
+    </message>
+    <message>
+        <source>只影响底板，文字和图形始终清晰</source>
+        <translation>透けるのは背景だけ。文字と図形はくっきり表示</translation>
+    </message>
+    <message>
+        <source>文字标签</source>
+        <translation>テキストラベル</translation>
+    </message>
+    <message>
+        <source>显示模块名和图例名称；关闭时鼠标悬停查看</source>
+        <translation>モジュール名と凡例名を表示。オフのときはマウスを重ねると表示</translation>
+    </message>
+    <message>
+        <source>恢复默认</source>
+        <translation>初期設定に戻す</translation>
+    </message>
+    <message>
+        <source>完成</source>
+        <translation>完了</translation>
+    </message>
+</context>
+<context>
+    <name>OverlayData</name>
+    <message>
+        <source>累计进度 %1 / %2（%3）
+还差 %4 次 · 含起始次数 %5 次</source>
+        <translation>累計 %1 / %2（%3）
+あと %4 回 · 記録開始前の %5 回を含む</translation>
+    </message>
+    <message>
+        <source>未识别</source>
+        <translation>未識別</translation>
+    </message>
+    <message>
+        <source>未知</source>
+        <translation>不明</translation>
+    </message>
+    <message>
+        <source>已匹配导随，等待进本</source>
+        <translation>メンターがマッチ、突入待ち</translation>
+    </message>
+    <message>
+        <source>已进入副本 · %1 · %2</source>
+        <translation>コンテンツ内 · %1 · %2</translation>
+    </message>
+    <message>
+        <source>通关 · %1 · %2</source>
+        <translation>クリア · %1 · %2</translation>
+    </message>
+    <message>
+        <source>结果待确认 · %1 · %2</source>
+        <translation>結果未確認 · %1 · %2</translation>
+    </message>
+    <message>
+        <source>均 %1</source>
+        <translation>平均 %1</translation>
+    </message>
+    <message>
+        <source>匹配后已过 %1</source>
+        <translation>マッチから %1</translation>
+    </message>
+    <message>
+        <source>已进行 %1 · 该副本平均 %2</source>
+        <translation>経過 %1 · このコンテンツの平均 %2</translation>
+    </message>
+    <message>
+        <source>已进行 %1</source>
+        <translation>経過 %1</translation>
+    </message>
+    <message>
+        <source>用时 %1 · 比平均快 %2</source>
+        <translation>所要 %1 · 平均より %2 速い</translation>
+    </message>
+    <message>
+        <source>用时 %1 · 比平均慢 %2</source>
+        <translation>所要 %1 · 平均より %2 遅い</translation>
+    </message>
+    <message>
+        <source>用时 %1</source>
+        <translation>所要 %1</translation>
+    </message>
+    <message>
+        <source>%1 条记录待处理，点击逐条处理</source>
+        <translation>要対応の記録が %1 件。クリックして1件ずつ処理</translation>
+    </message>
+    <message>
+        <source>迷</source>
+        <translation>ダ</translation>
+    </message>
+    <message>
+        <source>讨</source>
+        <translation>討</translation>
+    </message>
+    <message>
+        <source>大</source>
+        <translation>ア</translation>
+    </message>
+    <message>
+        <source>团</source>
+        <translation>レ</translation>
+    </message>
+    <message>
+        <source>令</source>
+        <translation>ギ</translation>
+    </message>
+    <message>
+        <source>极神</source>
+        <translation>極討滅戦</translation>
+    </message>
+    <message>
+        <source>极</source>
+        <translation>極</translation>
+    </message>
+</context>
+<context>
+    <name>OverlayDutyStatsModule</name>
+    <message>
+        <source>通关 %1 · 尝试 %2 · 通关率 %3</source>
+        <translation>クリア %1 · 挑戦 %2 · クリア率 %3</translation>
+    </message>
+    <message>
+        <source>副本统计 · 按类型通关</source>
+        <translation>コンテンツ統計 · 種別ごとのクリア</translation>
+    </message>
+    <message>
+        <source>%1 · 通关 %2 次（%3）</source>
+        <translation>%1 · クリア %2 回（%3）</translation>
+    </message>
+    <message>
+        <source>读取中…</source>
+        <translation>読み込み中…</translation>
+    </message>
+    <message>
+        <source>出现次数 · 全部</source>
+        <translation>回数 · すべて</translation>
+    </message>
+    <message>
+        <source>出现次数 · 前 %1</source>
+        <translation>回数 · 上位%1</translation>
+    </message>
+    <message>
+        <source>未识别</source>
+        <translation>未識別</translation>
+    </message>
+    <message>
+        <source>%1 · %2 次 · %3</source>
+        <translation>%1 · %2 回 · %3</translation>
+    </message>
+    <message>
+        <source>暂无统计</source>
+        <translation>統計はまだありません</translation>
+    </message>
+</context>
+<context>
+    <name>OverlayElapsedModule</name>
+    <message>
+        <source>副本用时</source>
+        <translation>経過時間</translation>
+    </message>
+</context>
+<context>
+    <name>OverlayMiniBar</name>
+    <message>
+        <source>锁定位置和大小，鼠标穿透；在主窗口或托盘解锁</source>
+        <translation>位置とサイズをロックし、クリックを通過させます。メインウィンドウかトレイから解除</translation>
+    </message>
+    <message>
+        <source>展开完整浮窗</source>
+        <translation>フル表示に戻す</translation>
+    </message>
+    <message>
+        <source>已匹配</source>
+        <translation>マッチ済み</translation>
+    </message>
+</context>
+<context>
+    <name>OverlayPendingModule</name>
+    <message>
+        <source>待处理记录</source>
+        <translation>要対応の記録</translation>
+    </message>
+    <message>
+        <source>%1 条待处理</source>
+        <translation>要対応 %1 件</translation>
+    </message>
+</context>
+<context>
+    <name>OverlayProgressModule</name>
+    <message>
+        <source>累计进度</source>
+        <translation>累計進捗</translation>
+    </message>
+</context>
+<context>
+    <name>OverlayRolesModule</name>
+    <message>
+        <source>职能占比 · 尝试</source>
+        <translation>ロール比率 · 挑戦</translation>
+    </message>
+    <message>
+        <source>%1 · 尝试 %2 次（%3）</source>
+        <translation>%1 · 挑戦 %2 回（%3）</translation>
+    </message>
+    <message>
+        <source>暂无统计</source>
+        <translation>統計はまだありません</translation>
+    </message>
+</context>
+<context>
+    <name>PendingWorkContent</name>
+    <message>
+        <source>正在读取待处理记录…</source>
+        <translation>要対応の記録を読み込み中…</translation>
+    </message>
+    <message>
+        <source>待处理 · %1</source>
+        <translation>要対応 · %1</translation>
+    </message>
+    <message>
+        <source>未知副本</source>
+        <translation>不明なコンテンツ</translation>
+    </message>
+    <message>
+        <source>未知职业</source>
+        <translation>不明なジョブ</translation>
+    </message>
+    <message>
+        <source>待复核</source>
+        <translation>要確認</translation>
+    </message>
+    <message>
+        <source>待补笔记</source>
+        <translation>メモ未記入</translation>
+    </message>
+    <message>
+        <source>有草稿</source>
+        <translation>下書きあり</translation>
+    </message>
+    <message>
+        <source>确认移除（草稿一并删除）</source>
+        <translation>削除を確定（下書きも削除）</translation>
+    </message>
+    <message>
+        <source>移除提醒</source>
+        <translation>通知を削除</translation>
+    </message>
+    <message>
+        <source>继续处理</source>
+        <translation>続ける</translation>
+    </message>
+    <message>
+        <source>没有待处理的记录。关闭提醒不会丢失记录，之后可从这里继续。</source>
+        <translation>要対応の記録はありません。通知を閉じても記録は消えず、あとでここから続けられます。</translation>
+    </message>
+    <message>
+        <source>查看全部待处理</source>
+        <translation>要対応をすべて見る</translation>
+    </message>
+</context>
+<context>
+    <name>RecoveryInbox</name>
+    <message>
+        <source>导随记录器 · 待处理</source>
+        <translation>メンターレコーダー · 要対応</translation>
+    </message>
+    <message>
+        <source>刷新</source>
+        <translation>更新</translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation>閉じる</translation>
+    </message>
+</context>
+<context>
+    <name>RecoveryReminderWindow</name>
+    <message>
+        <source>导随记录器 · 本次记录待处理</source>
+        <translation>メンターレコーダー · 今回の記録を確認</translation>
+    </message>
+</context>
+<context>
     <name>ReflectionCard</name>
     <message>
         <source>未知副本</source>
@@ -7057,6 +7559,10 @@ SHA256：%3</translation>
     <message>
         <source>上一条笔记仍在保存中，请稍候再试。</source>
         <translation>前のメモをまだ保存中です。少し待ってから再試行してください。</translation>
+    </message>
+    <message>
+        <source>继续处理</source>
+        <translation>続ける</translation>
     </message>
     <message>
         <source>未能确认笔记是否保存，请稍后重试。</source>
@@ -7147,10 +7653,6 @@ SHA256：%3</translation>
         <translation>終了後に自動で尋ねる</translation>
     </message>
     <message>
-        <source>通关后自动弹出</source>
-        <translation>クリア後に自動で開く</translation>
-    </message>
-    <message>
         <source>保存中…</source>
         <translation>保存中…</translation>
     </message>
@@ -7165,6 +7667,64 @@ SHA256：%3</translation>
     <message>
         <source>保存笔记</source>
         <translation>メモを保存</translation>
+    </message>
+    <message>
+        <source>导随记录器</source>
+        <translation>メンターレコーダー</translation>
+    </message>
+    <message>
+        <source>收起</source>
+        <translation>閉じる</translation>
+    </message>
+    <message>
+        <source>本次结果待确认</source>
+        <translation>今回の結果を確認</translation>
+    </message>
+    <message>
+        <source>本次笔记待补录</source>
+        <translation>今回のメモを追加</translation>
+    </message>
+    <message>
+        <source>关闭只会收起提醒，待办和草稿会保留，可从“待处理”继续。</source>
+        <translation>閉じても通知が消えるだけです。要対応の項目と下書きは残り、「要対応」から続けられます。</translation>
+    </message>
+    <message>
+        <source>这条记录已删除或暂时无法读取。草稿仍可复制，当前不能提交。</source>
+        <translation>この記録は削除済み、または一時的に読み込めません。下書きはコピーできますが、今は送信できません。</translation>
+    </message>
+    <message>
+        <source>在历史记录中复核</source>
+        <translation>履歴で確認</translation>
+    </message>
+    <message>
+        <source>已保存的笔记有变化。下面保留了旧草稿，请选择要继续编辑的内容。最新笔记：
+%1</source>
+        <translation>保存済みのメモが変更されています。以前の下書きは下に残っています。編集を続ける内容を選んでください。最新のメモ：
+%1</translation>
+    </message>
+    <message>
+        <source>（空）</source>
+        <translation>（空欄）</translation>
+    </message>
+    <message>
+        <source>继续使用草稿</source>
+        <translation>下書きを使う</translation>
+    </message>
+    <message>
+        <source>使用最新笔记</source>
+        <translation>最新のメモを使う</translation>
+    </message>
+    <message>
+        <source>通关后提醒记笔记</source>
+        <translation>クリア後にメモを促す</translation>
+    </message>
+    <message>
+        <source>草稿尚未保存，请保留窗口并稍后重试。</source>
+        <translation>下書きはまだ保存されていません。このウィンドウを開いたまま、あとでもう一度お試しください。</translation>
+    </message>
+    <message>
+        <source>记录库尚未确认，请保留草稿并稍后重新打开。</source>
+        <translation>記録データベースをまだ確認できていません。下書きを保持し、あとでもう一度開いてください。</translation>
     </message>
 </context>
 <context>
@@ -7533,6 +8093,141 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>ResultPopupContent</name>
+    <message>
+        <source>刚刚结束</source>
+        <translation>終了したばかり</translation>
+    </message>
+    <message>
+        <source>上一条</source>
+        <translation>前へ</translation>
+    </message>
+    <message>
+        <source>下一条</source>
+        <translation>次へ</translation>
+    </message>
+    <message>
+        <source>结束后自动询问：开</source>
+        <translation>終了後に確認：オン</translation>
+    </message>
+    <message>
+        <source>结束后自动询问：关</source>
+        <translation>終了後に確認：オフ</translation>
+    </message>
+    <message>
+        <source>通关后提醒记笔记：开</source>
+        <translation>クリア後の感想リマインド：オン</translation>
+    </message>
+    <message>
+        <source>通关后提醒记笔记：关</source>
+        <translation>クリア後の感想リマインド：オフ</translation>
+    </message>
+    <message>
+        <source>只有确认「通关」才计入导随次数。
+收起后草稿保留，可从浮窗「待处理」继续。</source>
+        <translation>「クリア」と確認した記録だけが回数に加算されます。
+閉じても下書きは残り、オーバーレイの「要確認」から再開できます。</translation>
+    </message>
+    <message>
+        <source>收起到待处理，稍后再确认</source>
+        <translation>要確認に移して、あとで確認</translation>
+    </message>
+    <message>
+        <source>这条记录已删除或暂时无法读取。草稿仍可复制，当前不能提交。</source>
+        <translation>この記録は削除済み、または一時的に読み込めません。下書きはコピーできますが、今は送信できません。</translation>
+    </message>
+    <message>
+        <source>未识别</source>
+        <translation>未識別</translation>
+    </message>
+    <message>
+        <source>未知</source>
+        <translation>不明</translation>
+    </message>
+    <message>
+        <source>本次职业</source>
+        <translation>今回のジョブ</translation>
+    </message>
+    <message>
+        <source>已保存的笔记有变化。下面保留了旧草稿，请选择要继续编辑的内容。最新笔记：
+%1</source>
+        <translation>保存済みのメモが変更されています。以前の下書きは下に残っています。編集を続ける内容を選んでください。最新のメモ：
+%1</translation>
+    </message>
+    <message>
+        <source>（空）</source>
+        <translation>（空欄）</translation>
+    </message>
+    <message>
+        <source>继续使用草稿</source>
+        <translation>下書きを使う</translation>
+    </message>
+    <message>
+        <source>使用最新笔记</source>
+        <translation>最新のメモを使う</translation>
+    </message>
+    <message>
+        <source>通关了吗？</source>
+        <translation>クリアしましたか？</translation>
+    </message>
+    <message>
+        <source>通关 +1</source>
+        <translation>クリア +1</translation>
+    </message>
+    <message>
+        <source>确认通关，计入导随次数</source>
+        <translation>クリアを確定して回数に加算</translation>
+    </message>
+    <message>
+        <source>退出</source>
+        <translation>離脱</translation>
+    </message>
+    <message>
+        <source>退出 / 放弃 · 不计入导随次数</source>
+        <translation>離脱・放棄 · 回数に加算しない</translation>
+    </message>
+    <message>
+        <source>稍后</source>
+        <translation>あとで</translation>
+    </message>
+    <message>
+        <source>已计入导随次数</source>
+        <translation>回数に加算しました</translation>
+    </message>
+    <message>
+        <source>已记为退出 / 放弃，不计入</source>
+        <translation>離脱・放棄として記録（加算なし）</translation>
+    </message>
+    <message>
+        <source>顺利</source>
+        <translation>順調</translation>
+    </message>
+    <message>
+        <source>一般</source>
+        <translation>ふつう</translation>
+    </message>
+    <message>
+        <source>糟心</source>
+        <translation>しんどい</translation>
+    </message>
+    <message>
+        <source>写一句心得（可选）</source>
+        <translation>ひとこと感想（任意）</translation>
+    </message>
+    <message>
+        <source>在历史记录中复核</source>
+        <translation>履歴で確認</translation>
+    </message>
+    <message>
+        <source>保存中…</source>
+        <translation>保存中…</translation>
+    </message>
+    <message>
+        <source>完成</source>
+        <translation>完了</translation>
+    </message>
+</context>
+<context>
     <name>RoleIcon</name>
     <message>
         <source>坦</source>
@@ -7561,6 +8256,10 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>RunDetailPanel</name>
+    <message>
+        <source>进入方式</source>
+        <translation>参加形態</translation>
+    </message>
     <message>
         <source>否</source>
         <translation>いいえ</translation>
@@ -7651,10 +8350,6 @@ SHA256：%3</translation>
     </message>
     <message>
         <source>排队时间</source>
-    <message>
-        <source>进入方式</source>
-        <translation>参加形態</translation>
-    </message>
         <translation>待ち時間</translation>
     </message>
     <message>
@@ -7881,6 +8576,10 @@ SHA256：%3</translation>
 <context>
     <name>RunWizardResultStep</name>
     <message>
+        <source>进入方式</source>
+        <translation>参加形態</translation>
+    </message>
+    <message>
         <source>%1，%2</source>
         <translation>%1、%2</translation>
     </message>
@@ -7970,10 +8669,6 @@ SHA256：%3</translation>
         <translation>例：アプリ停止中の分を手動で追加</translation>
     </message>
     <message>
-    <message>
-        <source>进入方式</source>
-        <translation>参加形態</translation>
-    </message>
         <source>图片保存在软件安装目录：%1</source>
         <translation>画像はアプリのインストール先に保存されます：%1</translation>
     </message>
@@ -8179,6 +8874,22 @@ SHA256：%3</translation>
 <context>
     <name>SettingsGeneralTab</name>
     <message>
+        <source>自动记录</source>
+        <translation>自動記録</translation>
+    </message>
+    <message>
+        <source>游戏区服</source>
+        <translation>ゲームのリージョン</translation>
+    </message>
+    <message>
+        <source>默认按安装路径识别，自定义目录可能无法识别。
+请选择实际使用的区服，保存后会重新检查。
+监听或采证期间不可修改。</source>
+        <translation>インストール先から自動判定します。独自のフォルダーでは判定できないことがあります。
+利用中のリージョンを選択すると、保存後に再確認します。
+監視中または証拠収集中は変更できません。</translation>
+    </message>
+    <message>
         <source>当前后台服务不支持这项设置，暂时无法修改。</source>
         <translation>現在のバックグラウンドサービスはこの設定に対応していないため、変更できません。</translation>
     </message>
@@ -8223,28 +8934,12 @@ SHA256：%3</translation>
         <translation>閉じるときはタスクトレイに最小化</translation>
     </message>
     <message>
-        <source>关闭窗口后仍在后台运行；可从托盘菜单选择「显示」或「退出」</source>
-        <translation>ウィンドウを閉じてもバックグラウンドで動作し続けます。トレイメニューの「表示」または「終了」から操作できます</translation>
-    </message>
-    <message>
         <source>记录</source>
         <translation>記録</translation>
     </message>
     <message>
         <source>结束后询问本次结果</source>
         <translation>終了後に結果を確認する</translation>
-    </message>
-    <message>
-        <source>未收到通关结算就离开副本时，软件会询问本次结果。关闭后可在总览的「待复核」中确认。</source>
-        <translation>クリア結果を受信しないままコンテンツから退出したとき、今回の結果を尋ねます。オフにしても、概要の「要確認」から確認できます。</translation>
-    </message>
-    <message>
-        <source>通关后弹出笔记窗口</source>
-        <translation>クリア後にメモ画面を開く</translation>
-    </message>
-    <message>
-        <source>通关后弹出窗口记笔记；也可稍后到历史记录补写。</source>
-        <translation>クリア後にウィンドウを開いてメモを書けます。あとで履歴から書くこともできます。</translation>
     </message>
     <message>
         <source>校准</source>
@@ -8345,6 +9040,42 @@ SHA256：%3</translation>
     <message>
         <source>重启后生效</source>
         <translation>再起動後に反映</translation>
+    </message>
+    <message>
+        <source>通关后提醒记笔记</source>
+        <translation>クリア後にメモを促す</translation>
+    </message>
+    <message>
+        <source>关闭窗口后仍在后台运行；可从托盘菜单选择「显示主窗口」或「退出」</source>
+        <translation>ウィンドウを閉じてもバックグラウンドで動作し続けます。トレイメニューの「メインウィンドウを表示」または「終了」から操作できます</translation>
+    </message>
+    <message>
+        <source>未收到通关结算就离开副本时，软件会询问本次结果。关闭后可在总览的「待处理」中确认。</source>
+        <translation>クリア結果を受信しないままコンテンツから退出したとき、今回の結果を尋ねます。オフにしても、概要の「要対応」から確認できます。</translation>
+    </message>
+    <message>
+        <source>通关后按下方方式提醒；关闭提醒后仍可从历史记录补写。</source>
+        <translation>クリア後に下の方法で通知します。通知をオフにしても、履歴からメモを追加できます。</translation>
+    </message>
+    <message>
+        <source>提醒方式</source>
+        <translation>通知方法</translation>
+    </message>
+    <message>
+        <source>独立小窗不抢键盘焦点；浮窗关闭时只保留待办。关闭提醒不会删除草稿。</source>
+        <translation>独立ウィンドウはキーボードのフォーカスを奪いません。オーバーレイを閉じている間は要対応の項目だけを残します。通知をオフにしても下書きは消えません。</translation>
+    </message>
+    <message>
+        <source>独立小窗</source>
+        <translation>独立ウィンドウ</translation>
+    </message>
+    <message>
+        <source>浮窗提示</source>
+        <translation>オーバーレイに通知</translation>
+    </message>
+    <message>
+        <source>仅保留待办</source>
+        <translation>要対応に追加のみ</translation>
     </message>
 </context>
 <context>
@@ -8591,16 +9322,16 @@ SHA256：%3</translation>
         <translation>同意して記録を開始</translation>
     </message>
     <message>
-        <source>导入校准码</source>
-        <translation>校正コードをインポート</translation>
-    </message>
-    <message>
         <source>立即检查</source>
         <translation>今すぐ確認</translation>
     </message>
     <message>
         <source>改为本机校准</source>
         <translation>この PC で校正する</translation>
+    </message>
+    <message>
+        <source>副本进行中，结束后再试</source>
+        <translation>コンテンツに参加中です。終わってから再試行してください</translation>
     </message>
     <message>
         <source>改为本机校准？</source>
@@ -8617,6 +9348,68 @@ SHA256：%3</translation>
     <message>
         <source>取消</source>
         <translation>キャンセル</translation>
+    </message>
+    <message>
+        <source>其他方式</source>
+        <translation>その他の方法</translation>
+    </message>
+    <message>
+        <source>收起其他方式</source>
+        <translation>その他の方法を閉じる</translation>
+    </message>
+    <message>
+        <source>手动导入校准码…</source>
+        <translation>手動でインポート…</translation>
+    </message>
+</context>
+<context>
+    <name>StatisticsFloatingContent</name>
+    <message>
+        <source>还没有选择内容，点标题栏的“自定义”添加。</source>
+        <translation>まだ何も選んでいません。タイトルバーの「カスタマイズ」で追加できます。</translation>
+    </message>
+    <message>
+        <source>所选内容进本后显示。</source>
+        <translation>選んだ内容はコンテンツ突入後に表示されます。</translation>
+    </message>
+</context>
+<context>
+    <name>StatisticsFloatingWindow</name>
+    <message>
+        <source>导随统计浮窗</source>
+        <translation>メンター統計オーバーレイ</translation>
+    </message>
+    <message>
+        <source>拖动移动</source>
+        <translation>ドラッグで移動</translation>
+    </message>
+    <message>
+        <source>导随统计</source>
+        <translation>メンター統計</translation>
+    </message>
+    <message>
+        <source>收成迷你条</source>
+        <translation>ミニバーにする</translation>
+    </message>
+    <message>
+        <source>自定义</source>
+        <translation>カスタマイズ</translation>
+    </message>
+    <message>
+        <source>锁定位置和大小，鼠标穿透；在主窗口或托盘解锁</source>
+        <translation>位置とサイズをロックし、クリックを通過させます。メインウィンドウかトレイから解除</translation>
+    </message>
+    <message>
+        <source>关闭浮窗</source>
+        <translation>オーバーレイを閉じる</translation>
+    </message>
+    <message>
+        <source>拖动调整大小</source>
+        <translation>ドラッグでサイズ変更</translation>
+    </message>
+    <message>
+        <source>数据暂未就绪，已有统计可能不是最新。</source>
+        <translation>データを取得できていません。表示中の統計は最新でない可能性があります。</translation>
     </message>
 </context>
 <context>
@@ -8795,8 +9588,8 @@ SHA256：%3</translation>
         <translation>未接続</translation>
     </message>
     <message>
-        <source>Collector 运行中（复用已有实例）</source>
-        <translation>Collector 実行中（既存のインスタンスを再利用）</translation>
+        <source>后台服务运行中（沿用之前启动的）</source>
+        <translation>バックグラウンドサービス実行中（以前に起動したものを使用）</translation>
     </message>
     <message>
         <source>游戏已连接，但暂时读不到有效数据。请登出到标题画面再重新登录一次（不用关闭游戏）。</source>
@@ -8891,12 +9684,8 @@ SHA256：%3</translation>
         <translation>再検出しましたが、実行中の FF14 は見つかりませんでした。</translation>
     </message>
     <message>
-        <source>已重新扫描：FF14 PID %1 · 实例 %2 · build %3</source>
-        <translation>再スキャンしました：FF14 PID %1 · インスタンス %2 · build %3</translation>
-    </message>
-    <message>
-        <source>未知</source>
-        <translation>不明</translation>
+        <source>已重新检测，找到正在运行的 FF14。</source>
+        <translation>再検出しました。実行中の FF14 が見つかりました。</translation>
     </message>
     <message>
         <source>已重新检测到 %1 张网卡</source>
@@ -8926,6 +9715,10 @@ SHA256：%3</translation>
         <source>读取事件摘要失败：%1</source>
         <translation>イベント概要を読み込めませんでした：%1</translation>
     </message>
+    <message>
+        <source>记录库连接已变化，本次笔记的保存结果尚未在当前页面确认。请从待处理重新打开。</source>
+        <translation>データベースへの接続が変わったため、この画面ではメモの保存結果を確認できていません。「要対応」からもう一度開いてください。</translation>
+    </message>
 </context>
 <context>
     <name>mr::AppSettings</name>
@@ -8952,6 +9745,18 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>mr::AutomaticRecordingController</name>
+    <message>
+        <source>无法识别游戏区服，暂时不能自动记录。请在「设置 → 通用」中选择实际区服（国服 / 国际服），保存后会重新检查。</source>
+        <translation>ゲームのリージョンを判定できないため、現在は自動記録できません。「設定 → 一般」で利用中のリージョン（中国版 / グローバル版）を選択してください。保存後に再確認します。</translation>
+    </message>
+    <message>
+        <source>无法读取游戏版本，暂时不能自动记录。请确认游戏文件完整，再点「重新检测游戏」。</source>
+        <translation>ゲームのバージョンを読み取れないため、現在は自動記録できません。ゲームファイルを確認してから「ゲームを再検出」を押してください。</translation>
+    </message>
+    <message>
+        <source>正在检查游戏安装位置、区服和版本，请稍候…</source>
+        <translation>ゲームのインストール先、リージョン、バージョンを確認しています。しばらくお待ちください…</translation>
+    </message>
     <message>
         <source>正在连接自动记录服务，请稍候。</source>
         <translation>自動記録サービスに接続しています。しばらくお待ちください。</translation>
@@ -9338,16 +10143,16 @@ SHA256：%3</translation>
         <translation>検証は終了しました</translation>
     </message>
     <message>
-        <source>当前 Collector 不支持桌面验证（%1）。</source>
-        <translation>現在の Collector はデスクトップ検証に対応していません（%1）。</translation>
+        <source>当前后台服务不支持桌面验证，请更新软件后重试。</source>
+        <translation>現在のバックグラウンドサービスはデスクトップ検証に対応していません。アプリを更新してから再試行してください。</translation>
     </message>
     <message>
-        <source>当前 Collector 不支持桌面验证：%1</source>
-        <translation>現在の Collector はデスクトップ検証に対応していません：%1</translation>
+        <source>当前后台服务不支持桌面验证，请更新软件后重试。（%1）</source>
+        <translation>現在のバックグラウンドサービスはデスクトップ検証に対応していません。アプリを更新してから再試行してください。（%1）</translation>
     </message>
     <message>
-        <source>验证状态多次刷新失败（%1），已停止自动重试；可点击“重新扫描 FF14”再试一次。</source>
-        <translation>検証状態の更新に何度も失敗したため（%1）、自動再試行を停止しました。「FF14 を再スキャン」を押すともう一度試せます。</translation>
+        <source>验证状态多次刷新失败（%1），已停止自动重试；可点击“重新检测游戏”再试一次。</source>
+        <translation>検証状態の更新に何度も失敗したため（%1）、自動再試行を停止しました。「ゲームを再検出」を押すともう一度試せます。</translation>
     </message>
     <message>
         <source>验证状态刷新失败（%1），将自动重试。</source>
@@ -9478,6 +10283,10 @@ SHA256：%3</translation>
     <message>
         <source>其他副本</source>
         <translation>その他のコンテンツ</translation>
+    </message>
+    <message>
+        <source>极神</source>
+        <translation>極討滅戦</translation>
     </message>
 </context>
 <context>
@@ -9666,12 +10475,40 @@ SHA256：%3</translation>
         <translation>理由の説明なし</translation>
     </message>
     <message>
+        <source>找不到数据文件夹。</source>
+        <translation>データフォルダーが見つかりません。</translation>
+    </message>
+    <message>
+        <source>数据文件夹还不存在：%1。后台服务启动后会创建它。</source>
+        <translation>データフォルダーはまだありません：%1。バックグラウンドサービスの起動後に作成されます。</translation>
+    </message>
+    <message>
         <source>已打开 %1</source>
         <translation>%1 を開きました</translation>
     </message>
 </context>
 <context>
     <name>mr::Formatters</name>
+    <message>
+        <source>副本开始</source>
+        <translation>コンテンツ開始</translation>
+    </message>
+    <message>
+        <source>副本剩余时间</source>
+        <translation>コンテンツの残り時間</translation>
+    </message>
+    <message>
+        <source>进入方式</source>
+        <translation>参加形態</translation>
+    </message>
+    <message>
+        <source>中途加入</source>
+        <translation>途中参加</translation>
+    </message>
+    <message>
+        <source>开局进入</source>
+        <translation>開始から参加</translation>
+    </message>
     <message>
         <source>周一</source>
         <translation>月曜</translation>
@@ -9798,26 +10635,6 @@ SHA256：%3</translation>
     </message>
     <message>
         <source>没有检测到正在运行的游戏。</source>
-    <message>
-        <source>副本开始</source>
-        <translation>コンテンツ開始</translation>
-    </message>
-    <message>
-        <source>副本剩余时间</source>
-        <translation>コンテンツの残り時間</translation>
-    </message>
-    <message>
-        <source>进入方式</source>
-        <translation>参加形態</translation>
-    </message>
-    <message>
-        <source>中途加入</source>
-        <translation>途中参加</translation>
-    </message>
-    <message>
-        <source>开局进入</source>
-        <translation>開始から参加</translation>
-    </message>
         <translation>実行中のゲームが見つかりません。</translation>
     </message>
     <message>
@@ -10250,6 +11067,10 @@ SHA256：%3</translation>
         <translation>この記録の結果はほかの場所で確認されたばかりのため、今回は何も変更していません。現在の記録を見てから判断してください。</translation>
     </message>
     <message>
+        <source>选中的记录已经变了，未做任何改动。请关闭后重新选择要操作的记录。</source>
+        <translation>選択した記録が変わったため、何も変更していません。閉じてから、操作する記録を選び直してください。</translation>
+    </message>
+    <message>
         <source>该记录不在待复核状态。</source>
         <translation>この記録は要確認の状態ではありません。</translation>
     </message>
@@ -10405,6 +11226,14 @@ SHA256：%3</translation>
         <translation>記録ファイルを1つ選んでください。スクリーンショットは複数まとめて読み取れます。</translation>
     </message>
     <message>
+        <source>截图「%1」已在本批次中，没有重复添加；原批次已保留。</source>
+        <translation>スクリーンショット「%1」はすでにこのバッチに含まれているため、重複して追加していません。元のバッチはそのまま残しています。</translation>
+    </message>
+    <message>
+        <source>截图「%1」选择了两次，请每张截图只选一次。</source>
+        <translation>スクリーンショット「%1」が2回選ばれています。各スクリーンショットは1回だけ選んでください。</translation>
+    </message>
+    <message>
         <source>同一批次最多 %1 张截图；原批次已保留。</source>
         <translation>1つのバッチに入れられるスクリーンショットは %1 枚までです。元のバッチはそのまま残しています。</translation>
     </message>
@@ -10457,6 +11286,14 @@ SHA256：%3</translation>
         <translation>バックグラウンドサービスが未接続です。入力内容は保持しています。接続が回復したら「再検証」を押してください。</translation>
     </message>
     <message>
+        <source>加入新截图后这批记录太大，无法校验。未添加新记录，原批次已保留；请把新截图放到下一批导入。</source>
+        <translation>新しいスクリーンショットを加えるとバッチが大きすぎて検証できません。記録は追加せず、元のバッチはそのまま残しています。新しいスクリーンショットは次のバッチでインポートしてください。</translation>
+    </message>
+    <message>
+        <source>这批记录太大，无法重新校验，当前内容没有改动。请分成几批重新导入。</source>
+        <translation>このバッチは大きすぎて再検証できないため、内容は変更していません。いくつかのバッチに分けてインポートし直してください。</translation>
+    </message>
+    <message>
         <source>当前后台服务版本不支持导入，请更新软件后重试。</source>
         <translation>現在のバックグラウンドサービスのバージョンはインポートに対応していません。アプリを更新してから再試行してください。</translation>
     </message>
@@ -10471,6 +11308,10 @@ SHA256：%3</translation>
     <message>
         <source>未收到新截图的完整预览，原批次已保留。请重新添加截图并校验。</source>
         <translation>新しいスクリーンショットの完全なプレビューを受け取れませんでした。元のバッチはそのまま残しています。スクリーンショットを追加し直して検証してください。</translation>
+    </message>
+    <message>
+        <source>修改后这批记录太大，无法重新校验，这次修改没有保存。请缩短内容后再改。</source>
+        <translation>変更後のバッチが大きすぎて再検証できないため、今回の変更は保存していません。内容を短くしてから変更し直してください。</translation>
     </message>
     <message>
         <source>批量设置只能修改职业、结果和打本心情。</source>
@@ -10493,12 +11334,20 @@ SHA256：%3</translation>
         <translation>気分の選択肢を識別できません。選び直してください。</translation>
     </message>
     <message>
+        <source>批量设置后这批记录太大，无法重新校验，没有修改任何记录。</source>
+        <translation>一括設定後のバッチが大きすぎて再検証できないため、記録は1件も変更していません。</translation>
+    </message>
+    <message>
         <source>尚未确认导入结果。输入已保留，可安全重试同一批次。</source>
         <translation>インポート結果をまだ確認できていません。入力内容は保持しているので、同じバッチを安全に再試行できます。</translation>
     </message>
     <message>
         <source>追加已取消，原批次已保留。</source>
         <translation>追加を取り消しました。元のバッチはそのまま残しています。</translation>
+    </message>
+    <message>
+        <source>这批记录太大，更改地区后无法重新校验，地区没有更改。</source>
+        <translation>このバッチは大きすぎて地域の変更後に再検証できないため、地域は変更していません。</translation>
     </message>
     <message>
         <source>职业未知 / 待补充</source>
@@ -10580,10 +11429,6 @@ SHA256：%3</translation>
     <message>
         <source>记录已更新，请重新勾选，本批未应用。</source>
         <translation>記録が更新されました。チェックし直してください。このバッチは適用していません。</translation>
-    </message>
-    <message>
-        <source>记录删除状态与操作不符，本批未应用。</source>
-        <translation>記録の削除状態が操作と合わないため、このバッチは適用していません。</translation>
     </message>
 </context>
 <context>
@@ -10761,6 +11606,41 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>mr::RecoveryController</name>
+    <message>
+        <source>无法读取待办草稿；当前输入仍保留在窗口中。</source>
+        <translation>要対応の下書きを読み込めません。現在の入力はウィンドウに残っています。</translation>
+    </message>
+    <message>
+        <source>待办草稿文件无法识别，已保留原文件；当前输入仍在内存中。</source>
+        <translation>要対応の下書きファイルを認識できません。元のファイルは保持し、現在の入力はメモリに残しています。</translation>
+    </message>
+    <message>
+        <source>无法保存待办草稿；请保留当前窗口，稍后重试。</source>
+        <translation>要対応の下書きを保存できません。このウィンドウを開いたまま、あとでもう一度お試しください。</translation>
+    </message>
+    <message>
+        <source>另一个窗口正在保存待办草稿，请稍后重试。</source>
+        <translation>別のウィンドウが要対応の下書きを保存中です。少し待ってからお試しください。</translation>
+    </message>
+    <message>
+        <source>记录身份已改变；原草稿已保留，请先复制内容。</source>
+        <translation>記録の識別情報が変わりました。元の下書きは残っています。まず内容をコピーしてください。</translation>
+    </message>
+    <message>
+        <source>待办暂时无法更新，已保留上次记录和草稿。</source>
+        <translation>要対応の項目を更新できません。前回の記録と下書きは保持しています。</translation>
+    </message>
+    <message>
+        <source>当前无法读取最新记录；草稿仍可查看和复制。</source>
+        <translation>最新の記録を読み込めません。下書きの表示とコピーはできます。</translation>
+    </message>
+    <message>
+        <source>这条记录已不存在或已删除；保留的草稿仍可复制。</source>
+        <translation>この記録は存在しないか、削除されています。残っている下書きはコピーできます。</translation>
+    </message>
+</context>
+<context>
     <name>mr::ReflectionShareController</name>
     <message>
         <source>导随心得合集_%1_%2条</source>
@@ -10881,6 +11761,10 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>mr::RunFormValidator</name>
+    <message>
+        <source>进入方式</source>
+        <translation>参加形態</translation>
+    </message>
     <message>
         <source>修正原因</source>
         <translation>修正理由</translation>
@@ -11007,10 +11891,6 @@ SHA256：%3</translation>
     <message>
         <source>日历服务尚未连接</source>
         <translation>カレンダーのサービスが未接続です</translation>
-    <message>
-        <source>进入方式</source>
-        <translation>参加形態</translation>
-    </message>
     </message>
     <message>
         <source>无效的日历月份</source>
@@ -11166,20 +12046,8 @@ SHA256：%3</translation>
         <translation>校正コードをインポートしました。ログイン後にルーレットを申請してコンテンツに突入し、チェックに合格すると記録を始められます。</translation>
     </message>
     <message>
-        <source>找到了共享校准，登录时会自动检查，通过后就能开始记录。</source>
-        <translation>共有された校正が見つかりました。ログイン時に自動でチェックし、合格すれば記録を始められます。</translation>
-    </message>
-    <message>
-        <source>找到了共享校准。申请随机任务并进入副本，通过检查后才能开始记录。</source>
-        <translation>共有された校正が見つかりました。ルーレットを申請してコンテンツに突入し、チェックに合格すると記録を始められます。</translation>
-    </message>
-    <message>
         <source>校准码已导入。登录或排本时会自动检查是否可用。</source>
         <translation>校正コードをインポートしました。ログイン時または申請時に、使えるかどうかを自動でチェックします。</translation>
-    </message>
-    <message>
-        <source>找到了共享校准，登录或排本时会自动检查是否可用。</source>
-        <translation>共有された校正が見つかりました。ログイン時または申請時に、使えるかどうかを自動でチェックします。</translation>
     </message>
     <message>
         <source>共享校准已通过检查，请确认是否使用。</source>
@@ -11234,24 +12102,12 @@ SHA256：%3</translation>
         <translation>この PC での校正を続けます。これまでの進捗は保持されるので、いつも通りプレイしてください。</translation>
     </message>
     <message>
-        <source>稍后可点「立即检查」重试。也可以向已完成校准的玩家索取校准码，再点「导入校准码」。</source>
-        <translation>あとで「今すぐ確認」を押して再試行できます。校正を完了したプレイヤーから校正コードをもらい、「校正コードをインポート」を押すこともできます。</translation>
-    </message>
-    <message>
         <source>本机校准完成后，可以点「分享给其他玩家」，让同一游戏版本的玩家也能使用。</source>
         <translation>この PC での校正が完了したら、「ほかのプレイヤーと共有」を押して、同じゲームバージョンのプレイヤーにも使ってもらえます。</translation>
     </message>
     <message>
-        <source>想自动查找共享校准，可在设置中开启「游戏更新后获取其他玩家的共享校准」。也可以直接导入校准码。</source>
-        <translation>共有された校正を自動で探すには、設定で「ゲーム更新後にほかのプレイヤーが共有した校正を取得」をオンにしてください。校正コードを直接インポートすることもできます。</translation>
-    </message>
-    <message>
         <source>想重新使用共享校准，点「清空校准进度」。本机尚未完成的校准进度也会一起清空。</source>
         <translation>共有された校正をもう一度使うには、「校正の進捗をリセット」を押してください。この PC でまだ完了していない校正の進捗も一緒に消去されます。</translation>
-    </message>
-    <message>
-        <source>有其他玩家发来的校准码，可以点「导入校准码」。通过检查后才会使用。</source>
-        <translation>ほかのプレイヤーから受け取った校正コードがあれば、「校正コードをインポート」を押してください。チェックに合格してから使用します。</translation>
     </message>
     <message>
         <source>分享给其他玩家</source>
@@ -11260,10 +12116,6 @@ SHA256：%3</translation>
     <message>
         <source>这份校准好用，告诉其他玩家</source>
         <translation>この校正が使えたと共有</translation>
-    </message>
-    <message>
-        <source>这份校准会根据你申请的随机任务和实际进入的副本来记录，记录中的匹配时间使用你申请排队的时间。取消排队不会生成记录。这是目前可用的基础记录方式。同意后，当前游戏版本不会再询问。如果你有其他玩家发来的校准码，也可以先点「导入校准码」。</source>
-        <translation>この校正では、申請したルーレットと実際に突入したコンテンツをもとに記録し、記録のマッチ時刻には申請した時刻を使います。申請を取り消した場合は記録を作成しません。これは現在使える基本の記録方法です。同意すると、現在のゲームバージョンでは今後確認しません。ほかのプレイヤーから受け取った校正コードがあれば、先に「校正コードをインポート」を押すこともできます。</translation>
     </message>
     <message>
         <source>可以把本机校准分享给同一游戏版本的玩家。点击后会打开 GitHub 分享页面，并复制校准码。是否提交由你决定，软件不会自动上传。</source>
@@ -11322,12 +12174,12 @@ SHA256：%3</translation>
         <translation>校正コードを作成できませんでした。しばらくしてから再試行してください。</translation>
     </message>
     <message>
-        <source>校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 页面。你可以把这份校准直接发给其他玩家，让对方点「导入校准码」并粘贴。</source>
-        <translation>校正コードをクリップボードにコピーしました。内容が長いため、GitHub のページを自動で開けません。この校正をほかのプレイヤーに直接送り、「校正コードをインポート」を押して貼り付けてもらってください。</translation>
+        <source>校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 页面。你可以把这份校准直接发给其他玩家，让对方在「其他方式」中点「手动导入校准码…」并粘贴。</source>
+        <translation>校正コードをクリップボードにコピーしました。内容が長いため、GitHub のページを自動で開けません。この校正をほかのプレイヤーに直接送り、「その他の方法」の「手動でインポート…」を押して貼り付けてもらってください。</translation>
     </message>
     <message>
-        <source>校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 分享页面。你可以直接把它发给其他玩家，让对方点「导入校准码」并粘贴。</source>
-        <translation>校正コードをクリップボードにコピーしました。内容が長いため、GitHub の共有ページを自動で開けません。コードをほかのプレイヤーに直接送り、「校正コードをインポート」を押して貼り付けてもらってください。</translation>
+        <source>校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 分享页面。你可以直接把它发给其他玩家，让对方在「其他方式」中点「手动导入校准码…」并粘贴。</source>
+        <translation>校正コードをクリップボードにコピーしました。内容が長いため、GitHub の共有ページを自動で開けません。コードをほかのプレイヤーに直接送り、「その他の方法」の「手動でインポート…」を押して貼り付けてもらってください。</translation>
     </message>
     <message>
         <source>校准码已复制到剪贴板。GitHub 页面地址有误，未打开浏览器；可以把这份校准直接发给其他玩家。</source>
@@ -11388,6 +12240,38 @@ SHA256：%3</translation>
     <message>
         <source>已取消共享校准的检查，正在继续本机校准。</source>
         <translation>共有された校正のチェックを取り消し、この PC での校正を続けています。</translation>
+    </message>
+    <message>
+        <source>已找到共享校准，等待本机验证。</source>
+        <translation>共有された校正が見つかりました。このPCでのチェックを待っています。</translation>
+    </message>
+    <message>
+        <source>无需手动导入。登录游戏时会自动检查，检查通过后才能开始自动记录。如果不能使用，会继续本机校准，已有进度会保留。</source>
+        <translation>手動インポートは不要です。ゲームへのログイン時に自動でチェックし、合格すると自動記録を開始できます。使えない場合は、これまでの進行を残したまま、このPCでの校正を続けます。</translation>
+    </message>
+    <message>
+        <source>无需手动导入。请申请随机任务并进入副本，检查通过后才能开始自动记录。如果不能使用，会继续本机校准，已有进度会保留。</source>
+        <translation>手動インポートは不要です。コンテンツルーレットに申請して突入してください。チェックに合格すると自動記録を開始できます。使えない場合は、これまでの進行を残したまま、このPCでの校正を続けます。</translation>
+    </message>
+    <message>
+        <source>无需手动导入。登录或排本时会自动检查，检查通过后才能开始自动记录。如果不能使用，会继续本机校准，已有进度会保留。</source>
+        <translation>手動インポートは不要です。ログイン時やコンテンツ申請時に自動でチェックし、合格すると自動記録を開始できます。使えない場合は、これまでの進行を残したまま、このPCでの校正を続けます。</translation>
+    </message>
+    <message>
+        <source>稍后可点「立即检查」重试。也可以向已完成校准的玩家索取校准码，在「其他方式」中手动导入。</source>
+        <translation>しばらくしてから「今すぐ確認」で再試行できます。校正を終えたプレイヤーからコードを受け取り、「その他の方法」から手動でインポートすることもできます。</translation>
+    </message>
+    <message>
+        <source>想自动查找共享校准，可在设置中开启「游戏更新后获取其他玩家的共享校准」。也可以在「其他方式」中手动导入校准码。</source>
+        <translation>共有された校正を自動で探すには、設定の「ゲーム更新後にほかのプレイヤーの共有校正を取得」を有効にしてください。「その他の方法」からコードを手動でインポートすることもできます。</translation>
+    </message>
+    <message>
+        <source>有其他玩家发来的校准码，可以在「其他方式」中手动导入。通过检查后才会使用。</source>
+        <translation>ほかのプレイヤーから受け取った校正コードは、「その他の方法」から手動でインポートできます。チェックに合格してから使用します。</translation>
+    </message>
+    <message>
+        <source>这份校准会根据你申请的随机任务和实际进入的副本来记录，记录中的匹配时间使用你申请排队的时间。取消排队不会生成记录。这是目前可用的基础记录方式。同意后，当前游戏版本不会再询问。如果你有其他玩家发来的校准码，也可以在「其他方式」中手动导入校准码。</source>
+        <translation>申請したルーレットと実際に突入したコンテンツを基に記録します。記録のマッチング時刻には申請した時刻を使います。申請を取り消した場合は記録されません。これは現在利用できる基本的な記録方法です。同意すると、現在のゲームバージョンでは再び確認しません。ほかのプレイヤーから受け取った校正コードがある場合は、「その他の方法」から手動でインポートすることもできます。</translation>
     </message>
 </context>
 <context>
@@ -11507,6 +12391,10 @@ SHA256：%3</translation>
 <context>
     <name>mr::StatisticsController</name>
     <message>
+        <source>中途加入</source>
+        <translation>途中参加</translation>
+    </message>
+    <message>
         <source>尝试次数</source>
         <translation>挑戦回数</translation>
     </message>
@@ -11552,6 +12440,41 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>mr::StatisticsOverlayController</name>
+    <message>
+        <source>累计进度</source>
+        <translation>累計進捗</translation>
+    </message>
+    <message>
+        <source>当前副本</source>
+        <translation>現在のコンテンツ</translation>
+    </message>
+    <message>
+        <source>进本后显示</source>
+        <translation>コンテンツ中に表示</translation>
+    </message>
+    <message>
+        <source>副本用时</source>
+        <translation>経過時間</translation>
+    </message>
+    <message>
+        <source>副本统计</source>
+        <translation>コンテンツ統計</translation>
+    </message>
+    <message>
+        <source>职业统计</source>
+        <translation>ジョブ統計</translation>
+    </message>
+    <message>
+        <source>待处理记录</source>
+        <translation>要対応の記録</translation>
+    </message>
+    <message>
+        <source>有待处理时显示</source>
+        <translation>対象があるときに表示</translation>
+    </message>
+</context>
+<context>
     <name>mr::StatsRowsModel</name>
     <message>
         <source>统计分页在读取时发生变化，请刷新后重试。</source>
@@ -11579,6 +12502,22 @@ SHA256：%3</translation>
     <message>
         <source>FF14 导随记录器</source>
         <translation>FF14 メンターレコーダー</translation>
+    </message>
+    <message>
+        <source>隐藏统计浮窗</source>
+        <translation>統計オーバーレイを隠す</translation>
+    </message>
+    <message>
+        <source>显示统计浮窗</source>
+        <translation>統計オーバーレイを表示</translation>
+    </message>
+    <message>
+        <source>解锁统计浮窗</source>
+        <translation>統計オーバーレイのロック解除</translation>
+    </message>
+    <message>
+        <source>待处理（%1）</source>
+        <translation>要対応（%1）</translation>
     </message>
 </context>
 <context>
@@ -11632,10 +12571,6 @@ SHA256：%3</translation>
         <translation>女性</translation>
     </message>
     <message>
-    <message>
-        <source>中途加入</source>
-        <translation>途中参加</translation>
-    </message>
         <source>%1（%2）</source>
         <extracomment>A voice name, then its language and gender.</extracomment>
         <translation>%1（%2）</translation>

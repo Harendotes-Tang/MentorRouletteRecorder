@@ -66,20 +66,40 @@ internal sealed partial class SharedCalibrationSession
             : null;
     }
 
-    /// <summary>True while the player's refusal stands for this region and build. Read from the store once per build and kept.</summary>
-    private bool IsUserRejected(Region region, string build)
+    /// <summary>
+    /// True while the player's refusal stands for this region and build, and while the store cannot say whether it does:
+    /// nothing shared is fetched, registered or imported on an unknown (audit 2026-10-20, E-2).
+    /// </summary>
+    private bool IsUserRejected(Region region, string build) => UserRejection(region, build) != false;
+
+    /// <summary>
+    /// The player's refusal for this region and build as the store shows it: read once per build and kept - except an
+    /// unknown (null), when the state file cannot be read right now, which is read again next time and never kept.
+    /// </summary>
+    private bool? UserRejection(Region region, string build)
     {
         if (_userRejection is { } memo && memo.Region == region && string.Equals(memo.Build, build, StringComparison.Ordinal))
         {
             return memo.Rejected;
         }
 
-        var rejected = SharedCalibrationIndex.IsBuild(build) &&
-                       Attempt(() => _services.SharedCalibrations.IsUserRejected(region, build));
-        _userRejection = (region, build, rejected);
+        if (!SharedCalibrationIndex.IsBuild(build))
+        {
+            return false;
+        }
+
+        var rejected = Attempt(() => _services.SharedCalibrations.IsUserRejected(region, build));
+        if (rejected is { } known)
+        {
+            _userRejection = (region, build, known);
+        }
+
         return rejected;
     }
 
-    /// <summary>Whether the refusal stands for the build it would be kept for right now (<see cref="RefusalScope"/>).</summary>
-    private bool UserRejectedNow() => RefusalScope() is { } scope && IsUserRejected(scope.Region, scope.Build);
+    /// <summary>
+    /// Whether the refusal the store shows stands for the build it would be kept for right now (<see cref="RefusalScope"/>):
+    /// what the card says, so an unknown is not shown as the player's refusal.
+    /// </summary>
+    private bool UserRejectedNow() => RefusalScope() is { } scope && UserRejection(scope.Region, scope.Build) == true;
 }

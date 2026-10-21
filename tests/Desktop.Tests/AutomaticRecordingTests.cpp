@@ -21,6 +21,10 @@ public:
     // 由测试决定。
     bool holdWrites = false;
     mr::BackendReply *held = nullptr;
+    bool holdSettings = false;
+    mr::BackendReply *heldSettings = nullptr;
+    QString holdFormalType;
+    mr::BackendReply *heldFormal = nullptr;
     QList<mr::BackendReply *> heldWrites;
     QList<QJsonObject> heldWritePayloads;
     QJsonObject settings{{"follow_game", true}, {"candidate_validation_enabled", true},
@@ -43,7 +47,11 @@ public:
     mr::BackendReply *request(const QString &type, const QJsonObject &p = {}) override {
         calls.append(type);
         auto *r = new mr::BackendReply(QString::number(calls.size()), type, this);
+        if (!holdFormalType.isEmpty() && type == holdFormalType) {
+            holdFormalType.clear(); heldFormal = r; return r;
+        }
         if (type == QLatin1String("GetCaptureSettings")) {
+            if (holdSettings) { holdSettings = false; heldSettings = r; return r; }
             if (failSettings) r->fail("ERR_TEST", "settings unavailable"); else r->succeed(settings);
         } else if (type == QLatin1String("UpdateCaptureSettings")) {
             writes.append(p);
@@ -71,6 +79,216 @@ private slots:
         RecordingBackend b; b.capture["ffxiv_running"] = false; b.capture["profile_status"] = "NONE";
         mr::AutomaticRecordingController c(&b); QSignalSpy alerts(&c, &mr::AutomaticRecordingController::incidentRaised);
         c.refresh(); QCOMPARE(c.state(), "waiting"); QCOMPARE(alerts.count(), 0); QVERIFY(!c.pendingAlert());
+    }
+    void recordingPollAndPageShareTheSameGameFacts() {
+        RecordingBackend b;
+        b.capture["ffxiv_running"] = false;
+        b.capture["profile_status"] = "NONE";
+        mr::AppController app(&b, nullptr);
+        QVERIFY(!app.ffxivRunning());
+
+        b.capture["ffxiv_running"] = true;
+        b.capture["profile_status"] = "UNSUPPORTED_BUILD";
+        app.recording()->refresh();
+        QVERIFY(app.recording()->blocked());
+        QVERIFY(app.ffxivRunning());
+        QCOMPARE(app.captureProfileStatus(), QStringLiteral("UNSUPPORTED_BUILD"));
+
+        b.capture["ffxiv_running"] = false;
+        app.recording()->refresh();
+        QVERIFY(!app.ffxivRunning());
+        QVERIFY(!app.recording()->blocked());
+        QVERIFY(!app.recording()->pendingAlert());
+        QCOMPARE(app.recording()->state(), QStringLiteral("waiting"));
+    }
+    void oldPageStatusCannotOverwriteANewerRecordingPoll() {
+        RecordingBackend b;
+        b.capture["ffxiv_running"] = false;
+        mr::AppController app(&b, nullptr);
+        const auto oldCapture = b.capture;
+        b.holdStatus = true;
+        app.refreshStatus();
+        auto *old = b.held;
+        QVERIFY(old);
+        b.capture["ffxiv_running"] = true;
+        b.capture["profile_status"] = "UNSUPPORTED_BUILD";
+        app.recording()->refresh();
+        old->succeed({{"capture", oldCapture}, {"game", b.game}});
+        QVERIFY(app.ffxivRunning());
+        QVERIFY(app.recording()->blocked());
+    }
+    void oldRecordingPollCannotResurrectAClosedGameIncident() {
+        RecordingBackend b;
+        b.capture["profile_status"] = "NONE";
+        mr::AppController app(&b, nullptr);
+        b.holdStatus = true;
+        app.recording()->refresh();
+        auto *old = b.held;
+        QVERIFY(old);
+        const auto oldCapture = b.capture;
+        b.capture["ffxiv_running"] = false;
+        app.applyFormalCaptureStatus(b.capture.toVariantMap());
+        old->succeed({{"capture", oldCapture}, {"game", b.game}});
+        QVERIFY(!app.ffxivRunning());
+        QVERIFY(!app.recording()->blocked());
+        QVERIFY(!app.recording()->pendingAlert());
+        QCOMPARE(app.recording()->state(), QStringLiteral("waiting"));
+    }
+    void oldConnectionStatusCannotReplaceTheReconnectedGame() {
+        RecordingBackend b;
+        b.capture["ffxiv_running"] = false;
+        mr::AppController app(&b, nullptr);
+        const auto oldCapture = b.capture;
+        b.holdStatus = true;
+        app.refreshStatus();
+        auto *old = b.held;
+        QVERIFY(old);
+        b.capture["ffxiv_running"] = true;
+        b.capture["profile_status"] = "UNSUPPORTED_BUILD";
+        b.reconnect();
+        old->succeed({{"capture", oldCapture}, {"game", b.game}});
+        QVERIFY(app.ffxivRunning());
+        QVERIFY(app.recording()->blocked());
+    }
+    void staleCaptureDoesNotDiscardUnrelatedStatusInformation() {
+        RecordingBackend b;
+        b.capture["ffxiv_running"] = false;
+        mr::AppController app(&b, nullptr);
+        const auto oldCapture = b.capture;
+        b.holdStatus = true;
+        app.refreshStatus();
+        auto *old = b.held;
+        b.capture["ffxiv_running"] = true;
+        app.recording()->refresh();
+        old->succeed({{"capture", oldCapture}, {"update", QJsonObject{{"state", "checking"}}}});
+        QVERIFY(app.ffxivRunning());
+        QCOMPARE(app.collectorStatus().value("update").toMap().value("state").toString(),
+                 QStringLiteral("checking"));
+    }
+    void externalObservationDoesNotReleasePendingInitialization() {
+        RecordingBackend b;
+        mr::AppController app(&b, nullptr);
+        b.calls.clear();
+        b.holdSettings = true;
+        app.recording()->refresh();
+        QVERIFY(b.heldSettings);
+        app.applyFormalCaptureStatus(b.capture.toVariantMap());
+        app.recording()->refresh();
+        QCOMPARE(b.calls.count(QStringLiteral("GetCaptureSettings")), 1);
+        b.heldSettings->succeed(b.settings);
+        QCOMPARE(app.recording()->state(), QStringLiteral("listening"));
+    }
+    void aNullRunningFactCannotClearAnIncident() {
+        RecordingBackend b;
+        b.capture["profile_status"] = "NONE";
+        mr::AppController app(&b, nullptr);
+        app.recording()->refresh();
+        QVERIFY(app.recording()->blocked());
+        b.capture["ffxiv_running"] = QJsonValue::Null;
+        app.applyFormalCaptureStatus(b.capture.toVariantMap());
+        app.refreshStatus();
+        QVERIFY(app.ffxivRunning());
+        QVERIFY(app.recording()->blocked());
+    }
+    void unreadablePathDoesNotAlternateBetweenPathAndRegionIncidents_data() {
+        QTest::addColumn<QString>("region");
+        QTest::newRow("unknown") << QStringLiteral("UNKNOWN");
+        QTest::newRow("cn override") << QStringLiteral("CN");
+        QTest::newRow("global override") << QStringLiteral("GLOBAL");
+    }
+    void unreadablePathDoesNotAlternateBetweenPathAndRegionIncidents() {
+        QFETCH(QString, region);
+        RecordingBackend b;
+        b.capture["region"] = region;
+        b.capture["game_build"] = QJsonValue::Null;
+        b.capture["profile_status"] = "NONE";
+        b.game["install_path_readable"] = false;
+        mr::AppController app(&b, nullptr);
+        app.recording()->refresh();
+        QVERIFY(app.recording()->message().contains(QStringLiteral("找不到游戏的安装位置")));
+        app.recording()->acknowledge();
+        QSignalSpy alerts(app.recording(), &mr::AutomaticRecordingController::incidentRaised);
+        app.refreshStatus();
+        app.applyFormalCaptureStatus(b.capture.toVariantMap());
+        app.recording()->refresh();
+        QCOMPARE(alerts.count(), 0);
+        QVERIFY(!app.recording()->pendingAlert());
+        QVERIFY(app.recording()->message().contains(QStringLiteral("找不到游戏的安装位置")));
+    }
+    void lateFormalCommandCannotResurrectClosedGame_data() {
+        QTest::addColumn<bool>("stopping");
+        QTest::newRow("stop") << true;
+        QTest::newRow("start") << false;
+    }
+    void lateFormalCommandCannotResurrectClosedGame() {
+        QFETCH(bool, stopping);
+        RecordingBackend b;
+        b.capture["state"] = stopping ? "RUNNING" : "STOPPED";
+        mr::AppController app(&b, nullptr);
+        app.setMaintainerToolsVisible(true);
+        b.holdFormalType = stopping ? QStringLiteral("StopCapture") : QStringLiteral("StartCapture");
+        app.toggleCapture();
+        QVERIFY(b.heldFormal);
+        const auto oldCapture = b.capture;
+        b.capture["ffxiv_running"] = false;
+        b.capture["state"] = "STOPPED";
+        app.applyFormalCaptureStatus(b.capture.toVariantMap());
+        bool resurrected = false;
+        connect(&app, &mr::AppController::statusChanged, &app, [&] {
+            resurrected = resurrected || app.ffxivRunning();
+        });
+        b.heldFormal->succeed(oldCapture);
+        QVERIFY(!resurrected);
+        QVERIFY(!app.ffxivRunning());
+    }
+    void unknownRegionNamesTheActualRecoverySetting() {
+        RecordingBackend b;
+        b.capture["region"] = "UNKNOWN";
+        b.capture["game_build"] = "2026.09.15.0000.0000";
+        b.capture["profile_status"] = "NONE";
+        mr::AutomaticRecordingController c(&b);
+        c.refresh();
+        QVERIFY(c.blocked());
+        QVERIFY(c.message().contains(QStringLiteral("区服")));
+        QVERIFY(c.message().contains(QStringLiteral("设置 → 通用")));
+        QVERIFY(!c.message().contains(QStringLiteral("支持文件")));
+        QVERIFY(!b.calls.contains(QStringLiteral("StartCaptureValidation")));
+    }
+    void unknownBuildIsNotReportedAsAnUnsupportedBuild() {
+        RecordingBackend b;
+        b.capture["region"] = "CN";
+        b.capture["game_build"] = QJsonValue::Null;
+        b.capture["profile_status"] = "NONE";
+        mr::AutomaticRecordingController c(&b);
+        c.refresh();
+        QVERIFY(c.blocked());
+        QVERIFY(c.message().contains(QStringLiteral("无法读取游戏版本")));
+        QVERIFY(!c.message().contains(QStringLiteral("支持文件")));
+    }
+    void confirmedRegionSaveRechecksCaptureWithoutStartingValidation() {
+        RecordingBackend b;
+        b.settings["region_override"] = QJsonValue::Null;
+        mr::AppController app(&b, nullptr);
+        b.holdWrites = true;
+        app.updateCaptureSetting(QStringLiteral("region_override"), QStringLiteral("CN"));
+        QTRY_COMPARE(b.heldWrites.size(), 1);
+        b.calls.clear();
+        b.completeWrite(0);
+        QCOMPARE(b.writes.last(), QJsonObject({{"region_override", "CN"}}));
+        QVERIFY(b.calls.contains(QStringLiteral("GetStatus")));
+        QVERIFY(!b.calls.contains(QStringLiteral("StartCaptureValidation")));
+        QVERIFY(!b.calls.contains(QStringLiteral("StartCapture")));
+    }
+    void refusedRegionSaveRestoresTheSettingAndKeepsTheErrorVisible() {
+        RecordingBackend b;
+        b.settings["region_override"] = QJsonValue::Null;
+        mr::AppController app(&b, nullptr);
+        b.failWrite = true;
+        app.updateCaptureSetting(QStringLiteral("region_override"), QStringLiteral("CN"));
+        QTRY_VERIFY(!b.writes.isEmpty());
+        QVERIFY(app.captureSettings().value("region_override").isNull());
+        QVERIFY(!app.captureSettingsError().isEmpty());
+        QVERIFY(!b.calls.contains(QStringLiteral("StartCaptureValidation")));
     }
     void incidentAcknowledgementRecoveryAndNewSession() {
         RecordingBackend b; b.capture["profile_status"] = "NONE";
@@ -412,7 +630,7 @@ private slots:
         QCOMPARE(app.captureSettings().value("update_check_enabled").toBool(), false);
     }
 
-    // 「点重新扫描 FF14 再试」 is only accurate if the rescan re-reads everything
+    // 「点重新检测游戏再试」 is only accurate if the rescan re-reads everything
     // the hint names, including the validation snapshot.
     void rescanAlsoRefreshesTheValidationSnapshot() {
         RecordingBackend b;

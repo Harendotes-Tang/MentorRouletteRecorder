@@ -337,24 +337,11 @@ private Q_SLOTS:
         QCOMPARE(statistics.dutyOptions().size(), 3);
     }
 
-    // 审查 OI-1：读取失败不是「待复核记录没了」，也不是「趋势归零」。
-    void aFailedReadKeepsThePendingReviewRunAndTheTrend()
+    // 审查 OI-1：读取失败不是「趋势归零」。（「待复核记录」的单条查询已随总览提示条
+    // 一起移除，审查 K1-9；待处理列表的失败读取见 RecoveryTests。）
+    void aFailedReadKeepsTheTrend()
     {
         ControlledBackend backend;
-        mr::HistoryController history(&backend);
-        history.refreshPendingReviewRun();
-        backend.last(QStringLiteral("QueryRuns")).reply->succeed(
-            {{QStringLiteral("items"), QJsonArray{QJsonObject::fromVariantMap(run(QStringLiteral("A"), 3))}}});
-        QCOMPARE(history.pendingReviewRun().value(QStringLiteral("run_id")).toString(), QStringLiteral("A"));
-        history.refreshPendingReviewRun();
-        backend.last(QStringLiteral("QueryRuns")).reply->fail(QStringLiteral("ERR_INTERNAL"),
-                                                              QStringLiteral("timeout"));
-        QCOMPARE(history.pendingReviewRun().value(QStringLiteral("run_id")).toString(), QStringLiteral("A"));
-        // An answer that there is nothing left still empties it.
-        history.refreshPendingReviewRun();
-        backend.last(QStringLiteral("QueryRuns")).reply->succeed({{QStringLiteral("items"), QJsonArray{}}});
-        QVERIFY(history.pendingReviewRun().isEmpty());
-
         mr::StatisticsController statistics(&backend);
         statistics.setTrendMode(QStringLiteral("week"));
         backend.last(QStringLiteral("GetDashboardStats")).reply->succeed({{QStringLiteral("trend"), QJsonObject{
@@ -442,6 +429,68 @@ private Q_SLOTS:
         history.correctSelectedRun({{"note", "draft"}}, "reason", "A", 1);
         QCOMPARE(failed.count(), 2);
         QCOMPARE(failed.last().first().toString(), QStringLiteral("ERR_SELECTION_CHANGED"));
+    }
+
+    // 审查 L1-3：撤销 / 删除 / 恢复 / 确认已复核按原因对话框打开时看到的记录与修订发送；
+    // 期间实时事件把选中记录推进到新修订时，由采集服务按旧修订拒绝，而不是悄悄换了目标。
+    void reasonActionsSendTheRevisionTheDialogWasOpenedFor_data()
+    {
+        QTest::addColumn<QString>("action");
+        QTest::addColumn<QString>("type");
+        QTest::newRow("undo") << QStringLiteral("undo") << QStringLiteral("UndoRevision");
+        QTest::newRow("delete") << QStringLiteral("delete") << QStringLiteral("SoftDeleteRun");
+        QTest::newRow("restore") << QStringLiteral("restore") << QStringLiteral("RestoreRun");
+        QTest::newRow("review") << QStringLiteral("review") << QStringLiteral("CorrectRun");
+    }
+
+    void reasonActionsSendTheRevisionTheDialogWasOpenedFor()
+    {
+        QFETCH(QString, action);
+        QFETCH(QString, type);
+        ControlledBackend backend;
+        mr::HistoryController history(&backend);
+        const auto send = [&history, &action](const QString &runId, int revision) {
+            if (action == QLatin1String("undo"))
+                history.undoSelectedRunRevision(QStringLiteral("reason"), runId, revision);
+            else if (action == QLatin1String("delete"))
+                history.softDeleteSelectedRun(QStringLiteral("reason"), runId, revision);
+            else if (action == QLatin1String("restore"))
+                history.restoreSelectedRun(QStringLiteral("reason"), runId, revision);
+            else
+                history.confirmSelectedRunReview(QStringLiteral("reason"), runId, revision);
+        };
+        history.selectRun(run(QStringLiteral("A"), 2));
+        auto call = backend.last(QStringLiteral("GetRunRevisions"));
+        call.reply->succeed(revisionPage(call.payload, 2));
+        // The dialog was opened at revision 2; a SYSTEM revision lands meanwhile.
+        history.adoptRunRevisionFromEvent({{"run_id", "A"}, {"revision", 3}, {"pending_review", true}});
+        call = backend.last(QStringLiteral("GetRunRevisions"));
+        call.reply->succeed(revisionPage(call.payload, 3));
+        QCOMPARE(history.selectedRun().value(QStringLiteral("revision")).toInt(), 3);
+        send(QStringLiteral("A"), 2);
+        QCOMPARE(backend.count(type), 1);
+        QCOMPARE(backend.last(type).payload.value(QStringLiteral("run_id")).toString(), QStringLiteral("A"));
+        QCOMPARE(backend.last(type).payload.value(QStringLiteral("expected_revision")).toInt(), 2);
+
+        // Another record took the dialog's place: nothing is sent.
+        QSignalSpy failed(&history, &mr::HistoryController::mutationFailed);
+        history.selectRun(run(QStringLiteral("B"), 5));
+        send(QStringLiteral("A"), 2);
+        QCOMPARE(backend.count(type), 1);
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.first().at(0).toString(), QStringLiteral("ERR_SELECTION_CHANGED"));
+        QCOMPARE(failed.first().at(2).toString(), action);
+        QCOMPARE(failed.first().at(3).toString(), QStringLiteral("A"));
+    }
+
+    // 历史表默认按日期列从新到旧：RunListModel 的默认排序已是 history_date（审查
+    // K1-8），控制器再调用一次 sortBy 就会把它翻成从旧到新。
+    void theHistoryListStartsNewestFirstByTheDateColumn()
+    {
+        ControlledBackend backend;
+        mr::HistoryController history(&backend);
+        QCOMPARE(history.runs()->sortField(), QStringLiteral("history_date"));
+        QVERIFY(!history.runs()->sortAscending());
     }
 
     void mutationRepliesLeaveANewerSelectionAlone_data()
@@ -715,9 +764,9 @@ private Q_SLOTS:
     {
         ControlledBackend backend;
         mr::HistoryController history(&backend);
-        history.updatePendingReviewCount(1);
-        backend.last(QStringLiteral("QueryRuns")).reply->succeed(
-            {{QStringLiteral("items"), QJsonArray{QJsonObject::fromVariantMap(run(QStringLiteral("A"), 3))}}});
+        // -1: the revision of the record the caller holds - the selected one.
+        history.openRun(run(QStringLiteral("A"), 3));
+        const int revisionReads = backend.count(QStringLiteral("GetRunRevisions"));
         history.resolveRunResult(QStringLiteral("A"), -1, QStringLiteral("COMPLETED"), QStringLiteral("reason"));
         auto correction = backend.last(QStringLiteral("CorrectRun"));
         QCOMPARE(correction.payload.value(QStringLiteral("expected_revision")).toInt(), 3);
@@ -731,9 +780,129 @@ private Q_SLOTS:
         correction.reply->fail(QStringLiteral("ERR_REVISION_CONFLICT"), QStringLiteral("stale again"));
         QCOMPARE(failed.count(), 1);
         QCOMPARE(backend.count(QStringLiteral("CorrectRun")), 2);
-        QCOMPARE(backend.count(QStringLiteral("GetRunRevisions")), 1);
-        history.updatePendingReviewCount(0);
-        QVERIFY(history.pendingReviewRun().isEmpty());
+        QCOMPARE(backend.count(QStringLiteral("GetRunRevisions")), revisionReads + 1);
+    }
+
+    void resultCallbacksStopAfterTheirContextChanges_data()
+    {
+        QTest::addColumn<bool>("reconnect");
+        QTest::addColumn<QString>("stage");
+        QTest::addColumn<bool>("fails");
+        for (const bool reconnect : {false, true}) {
+            for (const QString &stage : {QStringLiteral("first"), QStringLiteral("revisions"),
+                                         QStringLiteral("retry")}) {
+                for (const bool fails : {false, true}) {
+                    const QString name = QStringLiteral("%1-%2-%3")
+                        .arg(reconnect ? QStringLiteral("reconnect") : QStringLiteral("scope"),
+                             stage, fails ? QStringLiteral("failure") : QStringLiteral("success"));
+                    QTest::newRow(qPrintable(name)) << reconnect << stage << fails;
+                }
+            }
+        }
+    }
+
+    void resultCallbacksStopAfterTheirContextChanges()
+    {
+        QFETCH(bool, reconnect);
+        QFETCH(QString, stage);
+        QFETCH(bool, fails);
+        ControlledBackend backend;
+        mr::HistoryController history(&backend);
+        history.resolveRunResult(QStringLiteral("A"), 3, QStringLiteral("COMPLETED"),
+                                 QStringLiteral("reason"));
+        QPointer<mr::BackendReply> delayed = backend.last(QStringLiteral("CorrectRun")).reply;
+        if (stage != QLatin1String("first")) {
+            delayed->fail(QStringLiteral("ERR_REVISION_CONFLICT"), QStringLiteral("stale"));
+            delayed = backend.last(QStringLiteral("GetRunRevisions")).reply;
+        }
+        if (stage == QLatin1String("retry")) {
+            delayed->succeed(revisionsChanging(4, {QStringLiteral("note")}));
+            delayed = backend.last(QStringLiteral("CorrectRun")).reply;
+        }
+        QVERIFY(delayed);
+        const int correctionsBefore = backend.count(QStringLiteral("CorrectRun"));
+        const int readsBefore = backend.count(QStringLiteral("GetRunRevisions"));
+        QSignalSpy succeeded(&history, &mr::HistoryController::mutationSucceeded);
+        QSignalSpy failed(&history, &mr::HistoryController::mutationFailed);
+        QSignalSpy revised(&history, &mr::HistoryController::runRevisionChanged);
+        QSignalSpy refreshed(&history, &mr::HistoryController::refreshRequested);
+        QSignalSpy toast(&history, &mr::HistoryController::toastRequested);
+
+        if (reconnect)
+            Q_EMIT backend.connectionChanged();
+        else
+            history.invalidateResultRequests();
+        if (fails) {
+            delayed->fail(QStringLiteral("ERR_REVISION_CONFLICT"), QStringLiteral("late conflict"));
+        } else if (stage == QLatin1String("revisions")) {
+            delayed->succeed(revisionsChanging(4, {QStringLiteral("note")}));
+        } else {
+            delayed->succeed({{QStringLiteral("run_id"), QStringLiteral("A")},
+                              {QStringLiteral("revision"), 4},
+                              {QStringLiteral("run"), QJsonObject::fromVariantMap(run(QStringLiteral("A"), 4))}});
+        }
+        QCOMPARE(backend.count(QStringLiteral("CorrectRun")), correctionsBefore);
+        QCOMPARE(backend.count(QStringLiteral("GetRunRevisions")), readsBefore);
+        QCOMPARE(succeeded.count(), 0);
+        QCOMPARE(failed.count(), 0);
+        QCOMPARE(revised.count(), 0);
+        QCOMPARE(refreshed.count(), 0);
+        QCOMPARE(toast.count(), 0);
+
+        // Invalidation drops only old callbacks, rather than disabling later
+        // explicit confirmation from the newly opened record.
+        history.resolveRunResult(QStringLiteral("B"), 1, QStringLiteral("COMPLETED"),
+                                 QStringLiteral("new reason"));
+        backend.last(QStringLiteral("CorrectRun")).reply->succeed(
+            {{QStringLiteral("run_id"), QStringLiteral("B")}, {QStringLiteral("revision"), 2}});
+        QCOMPARE(succeeded.count(), 1);
+        QCOMPARE(succeeded.first().at(1).toString(), QStringLiteral("B"));
+    }
+
+    void explicitReviewCallbacksCannotAdoptAnotherContextsRecord_data()
+    {
+        QTest::addColumn<bool>("reconnect");
+        QTest::addColumn<bool>("fails");
+        QTest::newRow("scope-success") << false << false;
+        QTest::newRow("scope-failure") << false << true;
+        QTest::newRow("reconnect-success") << true << false;
+        QTest::newRow("reconnect-failure") << true << true;
+    }
+
+    void explicitReviewCallbacksCannotAdoptAnotherContextsRecord()
+    {
+        QFETCH(bool, reconnect);
+        QFETCH(bool, fails);
+        ControlledBackend backend;
+        mr::HistoryController history(&backend);
+        history.openRun(run(QStringLiteral("A"), 3));
+        history.confirmSelectedRunReview(QStringLiteral("reason"));
+        const auto delayed = backend.last(QStringLiteral("CorrectRun")).reply;
+        QVERIFY(delayed);
+        if (reconnect)
+            Q_EMIT backend.connectionChanged();
+        else
+            history.invalidateResultRequests();
+        QVariantMap newRecord = run(QStringLiteral("A"), 2);
+        newRecord.insert(QStringLiteral("note"), QStringLiteral("new database record"));
+        history.openRun(newRecord);
+        const QVariantMap expected = history.selectedRun();
+        QSignalSpy selected(&history, &mr::HistoryController::selectionChanged);
+        QSignalSpy succeeded(&history, &mr::HistoryController::mutationSucceeded);
+        QSignalSpy failed(&history, &mr::HistoryController::mutationFailed);
+        QSignalSpy refreshed(&history, &mr::HistoryController::refreshRequested);
+        if (fails) {
+            delayed->fail(QStringLiteral("ERR_REVISION_CONFLICT"), QStringLiteral("late"));
+        } else {
+            delayed->succeed({{QStringLiteral("run_id"), QStringLiteral("A")},
+                              {QStringLiteral("revision"), 4},
+                              {QStringLiteral("run"), QJsonObject::fromVariantMap(run(QStringLiteral("A"), 4))}});
+        }
+        QCOMPARE(history.selectedRun(), expected);
+        QCOMPARE(selected.count(), 0);
+        QCOMPARE(succeeded.count(), 0);
+        QCOMPARE(failed.count(), 0);
+        QCOMPARE(refreshed.count(), 0);
     }
 
     void jobSupplementRetriesPastOutcomeChangesButDoesNotOverwriteAnotherJob()

@@ -395,6 +395,56 @@ public sealed class SharedCalibrationProvenanceTests : IDisposable
         Assert.False(runs.Get(earlier.RunId)!.PendingReview);
     }
 
+    /// <summary>
+    /// Audit 2026-10-20, E-3: a system clock moved back after the bind dates this code's own runs before the time its
+    /// binding began recording. Every run that finishes under the profile while the code records is the code's all the
+    /// same, so the window reaches back to it - and a revocation marks it, while an earlier code's record stays as it is.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RevokingACodeMarksTheRunsItRecordedAfterTheClockWasMovedBack(bool restart)
+    {
+        // The bind happens an hour and a half after the next evening's duty is stamped: the clock is moved back in between.
+        _bed.Db.Clock.UtcNow = new DateTimeOffset(2026, 9, 10, 13, 30, 0, TimeSpan.Zero);
+        var earlier = TestDatabase.Run(
+            result: RunResult.Interrupted, source: RunSource.AutoNetwork, enteredAt: Bed.Confirmed.AddDays(-2)) with { ProtocolProfileId = ProfileId };
+        Seed(earlier);
+        _bed.Publish();
+        var pipeline = _bed.Pipeline(_bed.Services());
+        pipeline.Refresh(Bed.Game());
+        await Bed.Idle(pipeline);
+        _bed.Play(pipeline, Bed.Evening(), hour: 0);
+        await Bed.Idle(pipeline);
+        var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        _bed.Publish(code);
+        Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
+        await Bed.Idle(pipeline);
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);
+
+        if (restart)
+        {
+            pipeline = _bed.Pipeline(_bed.Services());
+            Assert.Equal(ProfileOrigin.Shared, pipeline.Refresh(Bed.Game()).Origin);
+            await Bed.Idle(pipeline);
+        }
+
+        var session = _bed.Play(pipeline, Bed.Before(Bed.Evening(), 200_000), hour: 24);
+        await Bed.Idle(pipeline);
+        var own = Assert.Single(RunsOf(session));
+        Assert.True(own.CreatedAtUtc < _bed.Db.Clock.UtcNow.AddHours(-1));
+
+        _bed.PublishRevoked(code);
+        _bed.Db.Clock.Elapsed += SharedCalibrationSession.ManualCheckInterval;
+        Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
+        await Bed.Idle(pipeline);
+
+        Assert.False(File.Exists(_bed.SharedProfilePath));
+        var runs = new RunRepository(_bed.Db.Database);
+        Assert.True(runs.Get(own.RunId)!.PendingReview);
+        Assert.False(runs.Get(earlier.RunId)!.PendingReview);
+    }
+
     /// <summary>Two healthy evenings on which the declared zone marker is not what the client sends.</summary>
     private async Task Contradict(LiveProtocolPipeline pipeline)
     {

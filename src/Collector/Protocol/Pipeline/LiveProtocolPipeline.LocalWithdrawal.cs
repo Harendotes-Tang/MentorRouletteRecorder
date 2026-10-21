@@ -36,6 +36,15 @@ public sealed partial class LiveProtocolPipeline
     private ushort _watchedPopOpcode;
 
     /// <summary>
+    /// When the version <see cref="_popWatch"/> watches began recording: when its file was written,
+    /// which the file keeps across a restart - earlier for what a confirmation replayed, later when
+    /// the rebind onto it was owed. A local profile id names the build, not one file: an upgrade
+    /// rewrites the same id, so the runs an earlier version made are older than this (audit
+    /// 2026-10-20, D1-2).
+    /// </summary>
+    private DateTimeOffset? _popWatchSince;
+
+    /// <summary>
     /// Local profiles this process withdrew. The file is put away by renaming it, and a file held
     /// open cannot be renamed while the directory still lists it; without this the reloaded
     /// catalogue would hand back the very profile the traffic has just disproved.
@@ -67,6 +76,8 @@ public sealed partial class LiveProtocolPipeline
 
         _popWatch = new PopContradictionWatch();
         _watchedPopOpcode = pop.Opcode;
+        var now = _clock.UtcNow;
+        _popWatchSince = profile.GeneratedAtUtc <= now ? profile.GeneratedAtUtc : now;
         return new PopWatchSink(processor, _popWatch);
     }
 
@@ -79,6 +90,7 @@ public sealed partial class LiveProtocolPipeline
     {
         _popWatch = null;
         _watchedPopOpcode = 0;
+        _popWatchSince = null;
     }
 
     /// <summary>
@@ -102,6 +114,7 @@ public sealed partial class LiveProtocolPipeline
         }
 
         var opcode = _watchedPopOpcode;
+        var since = _popWatchSince;
         var region = _selection.Region;
         var gameBuild = _selection.GameBuild ?? _game.GameBuild;
         // Dropped before anything else: a re-bind below arms a fresh watch, and this one has
@@ -111,11 +124,10 @@ public sealed partial class LiveProtocolPipeline
 
         UnbindProfile(profileId);
 
-        // Every record under the id, not only this binding's: unlike a shared profile - whose id
-        // is shared by every code published for the build - a local profile id names exactly one
-        // file, written by this machine, so everything recorded under it came from the shape the
-        // traffic has just disproved.
-        FlagRecords(profileId, null, ContradictedLocalReason, ContradictedLocalNotice);
+        // What this version recorded, not everything under the id: a local profile id names the
+        // build, and the confirmation that upgraded a queue-inferred profile rewrote the same id, so
+        // the runs the earlier version made were never this shape's (audit 2026-10-20, D1-2).
+        FlagRecords(profileId, since, ContradictedLocalReason, ContradictedLocalNotice);
 
         if (!string.IsNullOrWhiteSpace(gameBuild))
         {

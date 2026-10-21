@@ -230,6 +230,34 @@ public sealed class FirstPacketTests
         Assert.Equal(0, buffer.Counters.ExpiredStreams);
     }
 
+    /// <summary>
+    /// Audit 2026-10-20, A1-5. Ownership waits thirty seconds from the SYN, and Oodle's
+    /// initialization - hash, copy, load and scan of the game executable - can outlast that on a
+    /// slow disk or under an antivirus scan. The first pump used to age streams before it matched
+    /// the system's connection table, so the game's connection was dropped by the very pump that
+    /// would have confirmed it, and nothing decoded until the next login. A stream nobody claims is
+    /// still released.
+    /// </summary>
+    [Fact]
+    public void AConnectionTheFirstPumpConfirmsIsNotAgedOutByThatPump()
+    {
+        var time = TimeSpan.Zero;
+        var messages = new List<ushort>();
+        var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
+            (_, _, bytes, _) => messages.Add(BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18)))), clock: () => time);
+        buffer.Offer(Packet(false, 100, 2), 101);
+        buffer.Offer(Packet(false, 101, 24, Bundle(7)), 101);
+        buffer.Offer(Packet(false, 300, 2, port: 41001), 101); // somebody else's
+
+        time = TimeSpan.FromSeconds(31);
+        buffer.Tick();
+        buffer.Pump(new[] { Owned() });
+
+        Assert.Equal(new ushort[] { 7 }, messages);
+        Assert.Equal(1, buffer.Counters.ExpiredStreams);
+        Assert.Equal(1, buffer.Usage.Tuples);
+    }
+
     [Fact]
     public void AHandshakeIsCountedForEveryConnectionAndTheGameSConnectionsAreCountedApart()
     {
@@ -542,9 +570,10 @@ public sealed class FirstPacketTests
         // Untracked: a long download crossing zero, and a Fast Open handshake.
         buffer.Offer(Packet(true, uint.MaxValue - 10, 24, new byte[100], port: 41005), 101);
         buffer.Offer(Packet(false, 7000, 2, Bundle(1), port: 41006), 101);
-        // Tracked but nobody's: one wraps, one jumps half the sequence space.
-        buffer.Offer(Packet(false, uint.MaxValue - 50, 2, port: 41007), 101);
-        buffer.Offer(Packet(false, uint.MaxValue - 49, 24, new byte[100], port: 41007), 101);
+        // Tracked but nobody's: one runs back across its own SYN, one jumps half the sequence
+        // space. (Crossing zero on the wire is no longer a refusal at all: A1-1.)
+        buffer.Offer(Packet(false, 1000, 2, port: 41007), 101);
+        buffer.Offer(Packet(false, 990, 24, new byte[100], port: 41007), 101);
         buffer.Offer(Packet(false, 100, 2, port: 41008), 101);
         buffer.Offer(Packet(false, 0x80000065u, 24, new byte[10], port: 41008), 101);
 
@@ -721,61 +750,127 @@ public sealed class FirstPacketTests
         Assert.Equal(1, buffer.Usage.Tuples);
     }
 
+    /// <summary>
+    /// Audit 2026-10-20, A1-1. The game's own connection crossing the 32-bit sequence wrap used to
+    /// give that direction up for the rest of the connection: on CN the zone connection lasts the
+    /// whole login, so every later duty went unrecorded while the status stayed healthy. Each
+    /// direction is now counted from its own SYN, by the buffer and by Machina alike, so a direction
+    /// reaches the wrap only after 4 GiB of its own data.
+    /// </summary>
+    [Fact]
+    public void AGameDirectionCrossingTheSequenceWrapKeepsDecoding()
+    {
+        var messages = new List<(bool Inbound, ushort Opcode)>();
+        var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
+            (_, _, bytes, inbound) => messages.Add((inbound, BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18))))));
+        const uint syn = uint.MaxValue - 50;
+        buffer.Offer(Packet(false, 100, 2), 101);
+        buffer.Offer(Packet(true, syn, 18), 101);
+        buffer.Pump(new[] { Owned() });
+
+        // Three bundles: the first crosses zero, the other two follow it.
+        for (var i = 0u; i < 3; i++)
+        {
+            buffer.Offer(Packet(true, unchecked(syn + 1 + i * 76), 24, Bundle((ushort)(i + 1))), 101);
+        }
+
+        // Before Pump on purpose: a refused frame must fail the test, never reach the decoder.
+        Assert.Equal(0, buffer.Counters.DamagedGameDirections);
+        Assert.Equal(3, buffer.Usage.Packets);
+        buffer.Pump(new[] { Owned() });
+        buffer.Offer(Packet(false, 101, 24, Bundle(9)), 101);
+        buffer.Pump(new[] { Owned() });
+
+        Assert.Null(buffer.Failure);
+        Assert.Equal(new[] { (true, (ushort)1), (true, (ushort)2), (true, (ushort)3), (false, (ushort)9) }, messages);
+        Assert.Equal(0, buffer.Counters.DamagedGameDirections);
+        Assert.Equal(0, buffer.Counters.StreamResets);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-20, A1-1. Machina compares sequences as plain unsigned numbers and treats a next
+    /// sequence of zero as "not started", so it must see the same counted-from-the-SYN numbers the
+    /// buffer decides on, not the ones on the wire. Only the sequence field changes.
+    /// </summary>
+    [Fact]
+    public void MachinaIsFedSequencesCountedFromEachDirectionsOwnSyn()
+    {
+        var sink = new Sink();
+        var buffer = new FirstPacketBuffer(Local, 42, _ => sink);
+        buffer.Offer(Packet(false, 1000, 2), 101);
+        buffer.Offer(Packet(true, uint.MaxValue - 10, 18), 101);
+        buffer.Offer(Packet(false, 1001, 24, Bundle(1)), 101);
+        buffer.Offer(Packet(true, uint.MaxValue - 9, 24, Bundle(2)), 101);
+        buffer.Offer(Packet(false, 1077, 24, Bundle(3)), 101);
+        buffer.Pump(new[] { Owned() });
+
+        var fed = sink.Packets.Select(p => (Inbound: BinaryPrimitives.ReadUInt32LittleEndian(p.AsSpan(12)) == Remote,
+            Sequence: BinaryPrimitives.ReadUInt32BigEndian(p.AsSpan(24)))).ToArray();
+        Assert.Equal(new[] { (false, 0u), (true, 0u), (false, 1u), (true, 1u), (false, 77u) }, fed);
+        Assert.Equal(Packet(true, 1, 24, Bundle(2)), sink.Packets[3]);
+    }
+
     [Theory]
-    [InlineData(uint.MaxValue - 76, 0)] // Data ends at zero: upstream can emit it indefinitely.
+    [InlineData(uint.MaxValue - 76, 0)] // Data ends at zero on the wire.
     [InlineData(uint.MaxValue - 50, 0)] // Data crosses zero.
     [InlineData(uint.MaxValue - 76, 20)] // Overlap retransmission ends at zero.
     [InlineData(uint.MaxValue - 50, 20)] // Overlap retransmission crosses zero.
-    public void SequenceWrapIsRejectedBeforeTheActualMachinaDecoderCanLoop(uint synSequence, int prefixLength)
+    public void SequenceWrapOnTheWireDecodesWithoutTheActualMachinaDecoderLooping(uint synSequence, int prefixLength)
     {
         var messages = 0;
         var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
             (_, _, _, _) => messages++));
         buffer.Offer(Packet(false, synSequence, 2), 101);
-        buffer.Pump(new[] { Owned() }); // A non-wrapping SYN is safe in the actual dependency.
+        buffer.Pump(new[] { Owned() });
         var bundle = Bundle(9);
         var start = synSequence + 1;
         if (prefixLength != 0)
         {
             buffer.Offer(Packet(false, start, 24, bundle[..prefixLength]), 101);
-            buffer.Pump(new[] { Owned() }); // Safe prefix stops short of the uint boundary.
+            buffer.Pump(new[] { Owned() });
         }
         var overlapOffset = prefixLength / 2;
-        buffer.Offer(Packet(false, start + (uint)overlapOffset, 24, bundle[overlapOffset..]), 101);
-        // These assertions precede Pump deliberately: a broken guard must fail the test,
-        // never execute the known non-terminating dependency path during a RED run. The
-        // refusal is the game stream's own: that direction is given up, the capture is not.
-        Assert.Equal(0, buffer.Usage.Packets);
-        Assert.Equal(1, buffer.Counters.DamagedGameDirections);
+        buffer.Offer(Packet(false, unchecked(start + (uint)overlapOffset), 24, bundle[overlapOffset..]), 101);
+        // These assertions precede Pump deliberately: a frame that ends at zero on the wire, handed
+        // to Machina as it is, can make its decoder return the frame forever. The buffer must have
+        // taken it in its own direction's numbering, without giving the direction up.
+        Assert.Equal(1, buffer.Usage.Packets);
+        Assert.Equal(0, buffer.Counters.DamagedGameDirections);
         Assert.Null(buffer.Failure);
         buffer.Pump(new[] { Owned() });
         buffer.Stop();
-        Assert.Equal(0, messages);
+        Assert.Equal(1, messages);
     }
 
     [Fact]
-    public void MaximumSynSequenceIsRejectedBeforeZeroCanBecomeMachinaNextSequence()
+    public void MaximumSynSequenceOpensAStreamThatDecodes()
     {
         var created = 0;
+        var messages = 0;
         var buffer = new FirstPacketBuffer(Local, 42, c =>
         {
             created++;
-            return new FirstPacketDecoder(c, (_, _, _, _) => { });
+            return new FirstPacketDecoder(c, (_, _, _, _) => messages++);
         });
         buffer.Offer(Packet(false, uint.MaxValue, 2), 101);
-        // The handshake opens nothing, so the connection is dropped for want of a stream --
-        // counted, and without ending the capture for every other connection.
-        Assert.Null(buffer.Failure);
-        Assert.Equal(1, buffer.Counters.DroppedNoStream);
+        buffer.Offer(Packet(false, 0, 24, Bundle(9)), 101);
+        // Counted from the SYN, the handshake is zero and its data starts at one: Machina never
+        // sees a next sequence of zero (see MachinaIsFedSequencesCountedFromEachDirectionsOwnSyn).
+        Assert.Equal(0, buffer.Counters.DroppedNoStream);
+        Assert.Equal(2, buffer.Usage.Packets);
         buffer.Pump(new[] { Owned() });
         buffer.Stop();
-        Assert.Equal(0, created);
+        Assert.Null(buffer.Failure);
+        Assert.Equal(1, created);
+        Assert.Equal(1, messages);
         Assert.Equal((0, 0, 0), buffer.Usage);
     }
 
     [Theory]
-    [InlineData(uint.MaxValue - 200, 12u)] // A low-sequence continuation after an uncaptured wrap.
+    [InlineData(uint.MaxValue - 200, 0x80000000u - 200u)] // Half the sequence space past a SYN near the wrap.
     [InlineData(100u, 0x80000065u)] // Exactly half the sequence space is ambiguous.
+    [InlineData(1000u, 900u)] // A segment from before its own SYN, which only an earlier connection can send.
+    [InlineData(1000u, 990u)] // A segment running across its own SYN.
     public void AmbiguousSequenceDistanceAbandonsThatDirectionWithoutAdvancingTheDecoder(uint synSequence, uint sequence)
     {
         var sink = new Sink();
@@ -795,14 +890,16 @@ public sealed class FirstPacketTests
     /// arrived and is no longer, because the decoder advanced past segments queued in front of it.
     /// It is the game stream's own frame, so it costs that direction - reported with its connection,
     /// behind what was decoded - and never the capture with every other connection in it.
+    /// Sequences count from each direction's own SYN (audit 2026-10-20, A1-1), so a frame can only
+    /// lie half the sequence space behind the decoder once the direction has carried 2 GiB: the
+    /// test pushes that much through first.
     /// </summary>
     [Fact]
     public void AFrameThatBecomesAmbiguousBeforeDecodingAbandonsOnlyItsDirection()
     {
         var reports = new List<string>();
-        var buffer = new FirstPacketBuffer(Local, 42, c => new FirstPacketDecoder(c,
-            (_, _, bytes, inbound) => reports.Add(
-                (inbound ? "in " : "out ") + BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(18)))),
+        var buffer = new FirstPacketBuffer(Local, 42, _ => new SmallFrameRecorder(reports),
+            clock: () => TimeSpan.Zero,
             directionDamaged: (connection, inbound) => reports.Add(
                 "damaged " + connection.LocalPort + (inbound ? " in" : " out")));
         const uint syn = 0x80000100u;
@@ -810,12 +907,24 @@ public sealed class FirstPacketTests
         buffer.Offer(Packet(true, 500, 18), 101);
         buffer.Pump(new[] { Owned() });
 
-        // Both arrive before the next decode, while the outbound side still expects syn + 1: the
+        // Just over 2 GiB on the outbound direction, one large segment at a time.
+        const uint chunk = 65_000;
+        var bulk = Packet(false, 0, 24, new byte[chunk]);
+        var next = 1u;
+        while (next <= 0x80000000u)
+        {
+            BinaryPrimitives.WriteUInt32BigEndian(bulk.AsSpan(24), unchecked(syn + next));
+            buffer.Offer(bulk, 101);
+            buffer.Pump(new[] { Owned() });
+            next += chunk;
+        }
+
+        // Both arrive before the next decode, while the outbound side still expects next: the
         // second is a stale retransmission just inside half the sequence space, so it is accepted.
         // Feeding the first moves the expected sequence 76 bytes on, and the second is then
         // exactly as far away as an ambiguous frame.
-        buffer.Offer(Packet(false, syn + 1, 24, Bundle(1)), 101);
-        buffer.Offer(Packet(false, syn + 1 - 0x7FFFFFF0u, 24, Bundle(2)), 101);
+        buffer.Offer(Packet(false, unchecked(syn + next), 24, Bundle(1)), 101);
+        buffer.Offer(Packet(false, unchecked(syn + next - 0x7FFFFFF0u), 24, Bundle(2)), 101);
         Assert.Equal(0, buffer.Counters.DamagedGameDirections);
         buffer.Pump(new[] { Owned() });
 
@@ -828,7 +937,17 @@ public sealed class FirstPacketTests
         buffer.Pump(new[] { Owned() });
 
         Assert.Null(buffer.Failure);
-        Assert.Equal(new[] { "out 1", "damaged 41000 out", "in 9" }, reports);
+        Assert.Equal(new[] { "out 0", "in 0", "out " + next, "damaged 41000 out", "in 1" }, reports);
+    }
+
+    /// <summary>Records direction and fed sequence of every frame short enough to be a handshake or a test bundle.</summary>
+    private sealed class SmallFrameRecorder(List<string> reports) : IFirstPacketDecoder
+    {
+        public void Feed(byte[] ipv4, bool inbound)
+        {
+            if (ipv4.Length > 200) return;
+            reports.Add((inbound ? "in " : "out ") + BinaryPrimitives.ReadUInt32BigEndian(ipv4.AsSpan(24)));
+        }
     }
 
     [Theory]

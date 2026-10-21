@@ -36,6 +36,9 @@ internal sealed partial class SharedCalibrationSession
     /// <summary>Refusal token of 不用共享的: the import refusal reason and the last refusal after a withdrawal.</summary>
     internal const string UserRejectedReason = "USER_REJECTED";
 
+    /// <summary>Import refusal while the store's bookkeeping cannot be read, so nothing about the build is known (audit 2026-10-20, E-2).</summary>
+    internal const string StateUnreadableReason = "STATE_UNREADABLE";
+
     /// <summary>
     /// How long a download runs before the card is told about it, so one that answers at once - the
     /// kill switch, an unreachable network - never flickers the card.
@@ -219,8 +222,10 @@ internal sealed partial class SharedCalibrationSession
     }
 
     /// <summary>立即检查: fetch now, past the six-hour throttle. The setting and the kill switch still apply.</summary>
-    public SharedCheckOutcome CheckNow() =>
-        _stopped || _host.SharedContext() is not { } context ? SharedCheckOutcome.NotNeeded : MaybeFetch(context, manual: true);
+    public SharedCheckAnswer CheckNow() =>
+        _stopped || _host.SharedContext() is not { } context
+            ? new SharedCheckAnswer(SharedCheckOutcome.NotNeeded)
+            : MaybeFetch(context, manual: true);
 
     /// <summary>The player accepted queue inference; remembered for this region and build.</summary>
     public SharedConsentOutcome AcceptQueueInference()
@@ -340,10 +345,24 @@ internal sealed partial class SharedCalibrationSession
     public bool OnRunFinished(MentorRun run)
     {
         // The profile id is the build's: a run the profile this one is taking over from recorded under the same id,
-        // before the swap or before the bind, is not this code's duty (audit 2026-10-03, OE-4).
-        if (_bound is not { Proven: false } bound || !string.Equals(run.ProtocolProfileId, bound.ProfileId, StringComparison.Ordinal) ||
-            bound.AwaitingSwap || (bound.RecordsFromUtc is { } from && run.CreatedAtUtc < from) ||
-            run.EnteredAtUtc is null || run.EndedAtUtc is null ||
+        // before the swap, is not this code's duty (audit 2026-10-03, OE-4).
+        if (_bound is not { } bound || !string.Equals(run.ProtocolProfileId, bound.ProfileId, StringComparison.Ordinal) ||
+            bound.AwaitingSwap)
+        {
+            return false;
+        }
+
+        // Past the swap, a run that finishes under the id is this binding's own: the parser of the code before it was
+        // replaced between runs, or the bind found no parser at all. Dated before the binding began recording, it was
+        // stamped by a system clock moved back since, and the window this binding's runs are told by - for marking them
+        // after a withdrawal, for "has it recorded a duty" after a restart - reaches back to it (audit 2026-10-20, E-3).
+        if (bound.RecordsFromUtc is { } from && run.CreatedAtUtc < from)
+        {
+            bound.RecordsFromUtc = run.CreatedAtUtc;
+            RecordBound(bound);
+        }
+
+        if (bound.Proven || run.EnteredAtUtc is null || run.EndedAtUtc is null ||
             run.Result is RunResult.Interrupted or RunResult.Disconnected or RunResult.CancelledBeforeEntry)
         {
             return false;

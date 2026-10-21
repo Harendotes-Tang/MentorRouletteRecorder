@@ -41,7 +41,10 @@ HistoryController::HistoryController(IBackend *backend, QObject *parent)
     , m_runs(new RunListModel(this))
 {
     // 历史表日期与日期筛选共享 actual/source 投影；心得模型保持自己的排序。
-    m_runs->sortBy(QStringLiteral("history_date"));
+    // sortBy() on the current field reverses it; the model already defaults to
+    // history_date newest first (review K1-8), so only another field is changed.
+    if (m_runs->sortField() != QLatin1String("history_date"))
+        m_runs->sortBy(QStringLiteral("history_date"));
     m_historyFilter.insert(QStringLiteral("date_field"), QStringLiteral("history_date"));
     m_runs->setBackend(backend);
     // The existing model borrows a raw backend pointer. Keep that borrow within
@@ -50,6 +53,7 @@ HistoryController::HistoryController(IBackend *backend, QObject *parent)
     connect(m_runs, &QAbstractItemModel::modelReset, this, &HistoryController::checkedRunsChanged);
     connect(m_runs, &RunListModel::loadingChanged, this, &HistoryController::checkedRunsChanged);
     connect(backend, &IBackend::connectionChanged, this, [this] {
+        invalidateResultRequests();
         if (m_backend && m_backend->isConnected())
             refreshRetentionSettings();
     });
@@ -60,32 +64,9 @@ HistoryController::HistoryController(IBackend *backend, QObject *parent)
     });
 }
 
-void HistoryController::refreshPendingReviewRun()
+void HistoryController::invalidateResultRequests()
 {
-    if (!m_backend)
-        return;
-    QJsonObject filter;
-    filter.insert(QStringLiteral("pending_review"), true);
-    filter.insert(QStringLiteral("source"), QJsonArray{QStringLiteral("AUTO_NETWORK"), QStringLiteral("MANUAL")});
-    QJsonObject sort;
-    sort.insert(QStringLiteral("field"), QStringLiteral("matched_at_utc"));
-    sort.insert(QStringLiteral("direction"), QStringLiteral("desc"));
-    m_backend->queryRuns(filter, 1, 1, sort)
-        ->whenDone(this, [this](bool ok, const QVariantMap &payload, const QString &,
-                                const QString &) {
-            // A failed read is not evidence that the run was reviewed: keep
-            // the banner on the run it showed (review OI-1).
-            if (!ok)
-                return;
-            const QJsonArray items =
-                QJsonObject::fromVariantMap(payload).value(QStringLiteral("items")).toArray();
-            const QJsonObject next =
-                items.isEmpty() ? QJsonObject() : items.first().toObject();
-            if (next == m_pendingReviewRun)
-                return;
-            m_pendingReviewRun = next;
-            Q_EMIT pendingReviewRunChanged();
-        });
+    ++m_resultRequestContextGeneration;
 }
 
 void HistoryController::adoptRunRevisionFromEvent(const QJsonObject &run)
@@ -119,10 +100,6 @@ void HistoryController::adoptRunRevisionFromEvent(const QJsonObject &run)
         // 修正历史 stops at the old row and 撤销 is withheld (review S2-6).
         if (revisionAdvanced)
             loadRevisionsForSelection();
-    }
-    if (merge(m_pendingReviewRun)) {
-        Q_EMIT pendingReviewRunChanged();
-        changed = true;
     }
     if (changed && revisionAdvanced)
         Q_EMIT runRevisionChanged(runId, revision);
@@ -425,7 +402,7 @@ void HistoryController::mutateCheckedRuns(const QString &action, const QString &
     m_batchRunning = true;
     m_batchFeedback.clear();
     Q_EMIT batchChanged();
-    BackendReply *batchReply = m_backend->requestWithId(QStringLiteral("BatchMutateRuns"), payload, requestId);
+    BackendReply *batchReply = m_backend->batchMutateRuns(action, rows, reason.trimmed(), requestId);
     const QPointer<BackendReply> batchGuard(batchReply);
     batchReply->whenDone(this, [this, action, ids, requestId, batchGuard](bool ok, const QVariantMap &answer,
                                                                        const QString &code, const QString &message) {
@@ -475,7 +452,7 @@ void HistoryController::refreshRetentionSettings()
     if (!m_backend || !m_backend->isConnected() || m_retentionSaving)
         return;
     const quint64 generation = ++m_retentionGeneration;
-    BackendReply *readReply = m_backend->request(QStringLiteral("GetHistoryRetentionSettings"));
+    BackendReply *readReply = m_backend->getHistoryRetentionSettings();
     const QPointer<BackendReply> readGuard(readReply);
     readReply->whenDone(this, [this, generation, readGuard](bool ok, const QVariantMap &payload,
                                                            const QString &, const QString &message) {
@@ -508,8 +485,7 @@ void HistoryController::updateRetentionSettings(int days)
     m_retentionSaving = true;
     m_retentionFeedback.clear();
     Q_EMIT retentionChanged();
-    BackendReply *saveReply = m_backend->request(QStringLiteral("UpdateHistoryRetentionSettings"),
-                                                 {{QStringLiteral("retention_days"), days}});
+    BackendReply *saveReply = m_backend->updateHistoryRetentionSettings(days);
     const QPointer<BackendReply> saveGuard(saveReply);
     saveReply->whenDone(this, [this, days, saveGuard](bool ok, const QVariantMap &payload,
                                                      const QString &code, const QString &message) {
@@ -533,9 +509,13 @@ void HistoryController::sendRunMutation(const QString &kind, const QString &runI
         return;
     // whenDone() runs before the reply is deleted, so the guard is still set there.
     const QPointer<BackendReply> sent(reply);
-    reply->whenDone(this, [this, kind, runId, keepSelection, sent](bool ok, const QVariantMap &payload,
+    const quint64 contextGeneration = m_resultRequestContextGeneration;
+    reply->whenDone(this, [this, kind, runId, keepSelection, sent, contextGeneration]
+                         (bool ok, const QVariantMap &payload,
                                                                    const QString &code,
                                                                    const QString &message) {
+        if (contextGeneration != m_resultRequestContextGeneration)
+            return;
         if (!ok) {
             Q_EMIT mutationFailed(code, message, kind, runId, sent && sent->neverSent());
             Q_EMIT toastRequested(message.isEmpty() ? code : message);
@@ -710,18 +690,12 @@ void HistoryController::resolveRunResult(const QString &runId, int revision,
         return;
     }
 
-    // The revision the caller saw. -1 means "the one carried by the record this
-    // process already holds", which is the dashboard banner's case; a mismatch
-    // is refused by the Collector rather than overwriting another correction.
+    // The revision the caller saw. -1 means "the one carried by the selected
+    // record"; a mismatch is refused by the Collector rather than overwriting
+    // another correction.
     int expected = revision;
-    if (expected < 0) {
-        for (const QJsonObject *candidate : {&m_pendingReviewRun, &m_selectedRun}) {
-            if (candidate->value(QStringLiteral("run_id")).toString() == runId) {
-                expected = candidate->value(QStringLiteral("revision")).toInt();
-                break;
-            }
-        }
-    }
+    if (expected < 0 && m_selectedRun.value(QStringLiteral("run_id")).toString() == runId)
+        expected = m_selectedRun.value(QStringLiteral("revision")).toInt();
     if (expected < 0) {
         Q_EMIT mutationFailed(
             QStringLiteral("ERR_BAD_REQUEST"),
@@ -769,17 +743,18 @@ void HistoryController::sendResultCorrection(const QString &runId, int expectedR
     const bool keepSelection =
         m_selectedRun.value(QStringLiteral("run_id")).toString() == runId;
     const QString kind = result.isEmpty() ? QStringLiteral("supplement_job") : QStringLiteral("review");
+    const quint64 contextGeneration = m_resultRequestContextGeneration;
     BackendReply *reply = m_backend->correctRun(runId, expectedRevision, changes, reason);
-    if (!allowRetry) {
-        sendRunMutation(kind, runId, reply, keepSelection);
-        return;
-    }
     if (!reply)
         return;
 
-    reply->whenDone(this, [this, runId, expectedRevision, result, reason, jobId, keepSelection, kind](
+    const QPointer<BackendReply> sent(reply);
+    reply->whenDone(this, [this, runId, expectedRevision, result, reason, jobId, keepSelection, kind,
+                          allowRetry, contextGeneration, sent](
                               bool ok, const QVariantMap &payload, const QString &code,
                               const QString &message) {
+        if (contextGeneration != m_resultRequestContextGeneration)
+            return;
         if (ok) {
             adoptRunMutation(kind, payload, keepSelection);
             return;
@@ -791,12 +766,12 @@ void HistoryController::sendResultCorrection(const QString &runId, int expectedR
         // correction is sent once more with it. When it touched the very fields
         // this dialog is about to write, retrying would overwrite a decision
         // someone already made; the contract leaves that to the user.
-        if (code == QLatin1String("ERR_REVISION_CONFLICT")) {
+        if (allowRetry && code == QLatin1String("ERR_REVISION_CONFLICT")) {
             retryResultCorrectionWithFreshRevision(runId, expectedRevision, result, reason,
                                                    jobId);
             return;
         }
-        Q_EMIT mutationFailed(code, message, kind, runId);
+        Q_EMIT mutationFailed(code, message, kind, runId, sent && sent->neverSent());
         Q_EMIT toastRequested(message.isEmpty() ? code : message);
     });
 }
@@ -814,10 +789,13 @@ void HistoryController::retryResultCorrectionWithFreshRevision(const QString &ru
     // so the rows it never saw are the ones that come back.
     const int page = qMax(0, staleRevision) / kRevisionPageSize + 1;
     const QString kind = result.isEmpty() ? QStringLiteral("supplement_job") : QStringLiteral("review");
+    const quint64 contextGeneration = m_resultRequestContextGeneration;
     m_backend->getRunRevisions(runId, page, kRevisionPageSize)->whenDone(
-        this, [this, runId, staleRevision, result, reason, jobId, page, kind](
+        this, [this, runId, staleRevision, result, reason, jobId, page, kind, contextGeneration](
                   bool ok, const QVariantMap &payload, const QString &code,
                   const QString &message) {
+            if (contextGeneration != m_resultRequestContextGeneration)
+                return;
             if (!ok) {
                 Q_EMIT mutationFailed(code, message, kind, runId);
                 Q_EMIT toastRequested(message.isEmpty() ? code : message);
@@ -848,6 +826,8 @@ void HistoryController::retryResultCorrectionWithFreshRevision(const QString &ru
                 // More than a page of revisions landed since the dialog opened.
                 // What they changed is unknown here, so nothing is retried.
                 Q_EMIT runRevisionChanged(runId, newest);
+                if (contextGeneration != m_resultRequestContextGeneration)
+                    return;
                 Q_EMIT mutationFailed(QStringLiteral("ERR_REVISION_CONFLICT"), reopen, kind, runId);
                 Q_EMIT toastRequested(reopen);
                 return;
@@ -855,6 +835,8 @@ void HistoryController::retryResultCorrectionWithFreshRevision(const QString &ru
             // Publish the observed revision for read-only projections. Forms
             // keep their baseline; only the checked retry below advances it.
             Q_EMIT runRevisionChanged(runId, newest);
+            if (contextGeneration != m_resultRequestContextGeneration)
+                return;
             if (overlaps) {
                 // Another place has already answered for this run. Whoever
                 // wrote first wins (docs/manual-correction.md section 3); the
@@ -886,9 +868,29 @@ bool HistoryController::revisionTouchesResult(const QVariantMap &revision, bool 
     return false;
 }
 
-void HistoryController::confirmSelectedRunReview(const QString &reason)
+bool HistoryController::reasonTargetStillSelected(const QString &kind, const QString &runId)
 {
-    if (!m_backend || m_selectedRun.isEmpty())
+    const QString selected = m_selectedRun.value(QStringLiteral("run_id")).toString();
+    if (runId.isEmpty())
+        return !m_selectedRun.isEmpty();
+    if (!m_selectedRun.isEmpty() && runId == selected)
+        return true;
+    Q_EMIT mutationFailed(QStringLiteral("ERR_SELECTION_CHANGED"),
+                          tr("选中的记录已经变了，未做任何改动。请关闭后重新选择要操作的记录。"),
+                          kind, runId);
+    return false;
+}
+
+int HistoryController::reasonRevision(int expectedRevision) const
+{
+    return expectedRevision >= 0 ? expectedRevision
+                                 : m_selectedRun.value(QStringLiteral("revision")).toInt();
+}
+
+void HistoryController::confirmSelectedRunReview(const QString &reason, const QString &dialogRunId,
+                                                 int expectedRevision)
+{
+    if (!m_backend || !reasonTargetStillSelected(QStringLiteral("review"), dialogRunId))
         return;
     const QString runId = m_selectedRun.value(QStringLiteral("run_id")).toString();
     if (reason.trimmed().isEmpty()) {
@@ -911,15 +913,14 @@ void HistoryController::confirmSelectedRunReview(const QString &reason)
     QJsonObject changes;
     changes.insert(QStringLiteral("pending_review"), false);
     sendRunMutation(QStringLiteral("review"), runId,
-                    m_backend->correctRun(
-                        runId, m_selectedRun.value(QStringLiteral("revision")).toInt(), changes,
-                        reason),
+                    m_backend->correctRun(runId, reasonRevision(expectedRevision), changes, reason),
                     true);
 }
 
-void HistoryController::undoSelectedRunRevision(const QString &reason)
+void HistoryController::undoSelectedRunRevision(const QString &reason, const QString &dialogRunId,
+                                                int expectedRevision)
 {
-    if (!m_backend || m_selectedRun.isEmpty())
+    if (!m_backend || !reasonTargetStillSelected(QStringLiteral("undo"), dialogRunId))
         return;
     const QString runId = m_selectedRun.value(QStringLiteral("run_id")).toString();
     if (reason.trimmed().isEmpty()) {
@@ -937,30 +938,29 @@ void HistoryController::undoSelectedRunRevision(const QString &reason)
     }
 
     sendRunMutation(QStringLiteral("undo"), runId,
-                    m_backend->undoRevision(
-                        runId, m_selectedRun.value(QStringLiteral("revision")).toInt(), reason),
+                    m_backend->undoRevision(runId, reasonRevision(expectedRevision), reason),
                     true);
 }
 
-void HistoryController::softDeleteSelectedRun(const QString &reason)
+void HistoryController::softDeleteSelectedRun(const QString &reason, const QString &dialogRunId,
+                                              int expectedRevision)
 {
-    if (!m_backend || m_selectedRun.isEmpty())
+    if (!m_backend || !reasonTargetStillSelected(QStringLiteral("delete"), dialogRunId))
         return;
     const QString runId = m_selectedRun.value(QStringLiteral("run_id")).toString();
     sendRunMutation(QStringLiteral("delete"), runId,
-                    m_backend->softDeleteRun(
-                        runId, m_selectedRun.value(QStringLiteral("revision")).toInt(), reason),
+                    m_backend->softDeleteRun(runId, reasonRevision(expectedRevision), reason),
                     false);
 }
 
-void HistoryController::restoreSelectedRun(const QString &reason)
+void HistoryController::restoreSelectedRun(const QString &reason, const QString &dialogRunId,
+                                           int expectedRevision)
 {
-    if (!m_backend || m_selectedRun.isEmpty())
+    if (!m_backend || !reasonTargetStillSelected(QStringLiteral("restore"), dialogRunId))
         return;
     const QString runId = m_selectedRun.value(QStringLiteral("run_id")).toString();
     sendRunMutation(QStringLiteral("restore"), runId,
-                    m_backend->restoreRun(
-                        runId, m_selectedRun.value(QStringLiteral("revision")).toInt(), reason),
+                    m_backend->restoreRun(runId, reasonRevision(expectedRevision), reason),
                     false);
 }
 
@@ -985,16 +985,6 @@ void HistoryController::adoptReflection(const QString &runId, const QJsonValue &
         return;
     m_selectedRun.insert(QStringLiteral("reflection"), reflection);
     Q_EMIT selectionChanged();
-}
-
-void HistoryController::updatePendingReviewCount(int count)
-{
-    if (count > 0) {
-        refreshPendingReviewRun();
-    } else if (!m_pendingReviewRun.isEmpty()) {
-        m_pendingReviewRun = QJsonObject();
-        Q_EMIT pendingReviewRunChanged();
-    }
 }
 
 

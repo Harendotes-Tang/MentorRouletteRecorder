@@ -28,6 +28,12 @@ QtObject {
     readonly property bool choosingGame: App.gameSelection.selectionRequired
     readonly property int gameCount: App.gameSelection.choices.length
     readonly property string npcapStatus: String(chain.npcap.status || "")
+    // npcap_installed is required in every capture status, so without it - no
+    // pipe yet, a Collector that refused to start or exited, a status read that
+    // failed - nothing is known about Npcap and nothing is said about it
+    // (review K2-1). CaptureHeroCopy reads the same verdict.
+    readonly property bool statusKnown: App.backendConnected
+                                        && App.captureStatus.npcap_installed !== undefined
     readonly property bool npcapReady: App.npcapInstalled
                                        && (chain.npcapStatus === "" || chain.npcapStatus === "READY")
     readonly property string adapterId: String(chain.capture.adapter_id || "")
@@ -56,8 +62,8 @@ QtObject {
     // The Collector reads the installed version off disk, so a closed game no
     // longer means an unknown one: only a build it has never located leaves the
     // chain unable to say anything about the profile.
-    readonly property bool buildUnknown: !chain.capture.game_build || !chain.capture.region
-                                         || chain.capture.region === "UNKNOWN"
+    readonly property bool regionUnknown: !chain.capture.region || chain.capture.region === "UNKNOWN"
+    readonly property bool buildUnknown: !chain.capture.game_build || chain.regionUnknown
     // 已安装的游戏版本: the launcher may still patch over it, so it is never
     // called 当前 or 最新 while the game is closed.
     readonly property string installedVersion: Fmt.gameVersionLabel(chain.capture.game_build)
@@ -79,6 +85,8 @@ QtObject {
     // The first thing in the chain that stops a record, in the order the
     // chain is walked. Returns [sentence, tone]; tone is "ok", "wait" or "bad".
     function summary() {
+        if (!chain.statusKnown)
+            return [App.backendConnected ? qsTr("正在获取自动记录状态…") : qsTr("正在连接自动记录服务…"), "wait"]
         if (App.validationActive && String(App.validationStatus.reason || "") === "WAITING_RESTART")
             return [qsTr("验证正在等待所选游戏重启"), "wait"]
         if (chain.choosingGame)
@@ -124,6 +132,8 @@ QtObject {
             return [qsTr("正在检查当前游戏版本能否自动记录…"), "wait"]
         if (!chain.profileReady) {
             // The same words as the 协议档案 card below.
+            if (chain.regionUnknown && chain.capture.game_build)
+                return [qsTr("尚未识别游戏区服 · 暂时不会自动记录"), "bad"]
             if (chain.buildUnknown)
                 return [qsTr("尚未识别游戏版本或区服 · 暂时不会自动记录"), "bad"]
             if (chain.profileStatus === "UNSUPPORTED_BUILD")
@@ -198,7 +208,8 @@ QtObject {
         if (chain.profileStatus === "")
             return qsTr("检查中")
         if (chain.buildUnknown)
-            return qsTr("未识别版本")
+            return chain.regionUnknown && chain.capture.game_build
+                ? qsTr("未识别区服") : qsTr("未识别版本")
         if (chain.profileStatus === "UNSUPPORTED_BUILD")
             return qsTr("版本不支持")
         if (chain.profileStatus === "AMBIGUOUS")
@@ -221,7 +232,8 @@ QtObject {
         if (chain.profileStatus === "")
             return qsTr("正在核对")
         if (chain.buildUnknown)
-            return qsTr("尚未识别游戏版本或区服")
+            return chain.regionUnknown && chain.capture.game_build
+                ? qsTr("尚未识别游戏区服") : qsTr("尚未识别游戏版本或区服")
         if (chain.profileStatus === "AMBIGUOUS")
             return qsTr("游戏版本支持文件有冲突")
         return chain.gameRunning ? qsTr("当前版本暂时不会自动记录")
@@ -255,13 +267,14 @@ QtObject {
         },
         {
             key: "npcap", label: qsTr("Npcap"),
-            value: App.npcapInstalled
+            value: !chain.statusKnown ? Fmt.dash()
+                   : App.npcapInstalled
                    ? ((chain.npcap.version || chain.capture.npcap_version)
                       ? Fmt.npcapVersionLabel(chain.npcap.version || chain.capture.npcap_version)
                       : qsTr("已安装"))
                    : qsTr("未安装"),
-            sub: chain.npcapSub(),
-            tone: chain.npcapReady ? "ok" : "bad"
+            sub: chain.statusKnown ? chain.npcapSub() : qsTr("尚未读取"),
+            tone: !chain.statusKnown ? "off" : chain.npcapReady ? "ok" : "bad"
         },
         {
             key: "adapter", label: qsTr("网卡"),

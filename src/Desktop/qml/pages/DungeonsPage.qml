@@ -15,6 +15,9 @@ Item {
     // another language (Alliance Raids, 討伐・討滅戦) widen it up to 110 px and
     // the duty column gives way.
     readonly property int typeColumnWidth: Math.min(110, Math.max(55, Math.ceil(typeMeasure.implicitWidth)))
+    // The 中途加入 column: 58 px holds the four CJK characters; the English
+    // header ("Joined late") is wider and takes the room it needs.
+    readonly property int joinedColumnWidth: Math.max(58, Math.ceil(joinedHeaderMeasure.implicitWidth))
 
     function typeLabel(row) {
         return Theme.categoryName(row.duty_category) || qsTr("未识别")
@@ -36,6 +39,18 @@ Item {
                 font.pixelSize: Theme.fs(11)
             }
         }
+    }
+
+    // Never shown: the 中途加入 header in the header row's font, so the
+    // column can be as wide as its own title.
+    Text {
+        id: joinedHeaderMeasure
+        visible: false
+        text: qsTr("中途加入")
+        textFormat: Text.PlainText
+        font.pixelSize: Theme.fs(11)
+        font.weight: Theme.eorzea ? Font.Bold : Font.Normal
+        font.letterSpacing: Theme.eorzea ? 0.7 : 0
     }
 
     function reloadRows() {
@@ -252,6 +267,7 @@ Item {
                                 { label: qsTr("副本"), width: 120, align: Text.AlignLeft },
                                 { label: qsTr("类型"), width: page.typeColumnWidth, align: Text.AlignLeft },
                                 { label: qsTr("次数"), width: 36, align: Text.AlignRight },
+                                { label: qsTr("中途加入"), width: page.joinedColumnWidth, align: Text.AlignRight },
                                 { label: qsTr("完成率"), width: 52, align: Text.AlignRight },
                                 { label: qsTr("平均耗时"), width: 58, align: Text.AlignRight },
                                 { label: qsTr("最近出现"), width: 68, align: Text.AlignRight }
@@ -259,6 +275,8 @@ Item {
 
                             delegate: Text {
                                 required property var modelData
+                                required property int index
+                                objectName: "dungeonTableHeader" + index
                                 Layout.preferredWidth: modelData.width
                                 Layout.fillWidth: modelData.width === 120
                                 text: modelData.label
@@ -349,6 +367,21 @@ Item {
                                 Text {
                                     Layout.preferredWidth: 36
                                     text: String(modelData.attempt_count || 0)
+                                    color: Theme.textPrimary
+                                    font.pixelSize: Theme.fs(12)
+                                    horizontalAlignment: Text.AlignRight
+                                    font.family: Theme.figureFamily
+                                    font.weight: Theme.figureWeight(false)
+                                    font.features: ({ "tnum": 1 })
+                                }
+
+                                // 中途加入 (docs/statistics-definitions.md §12.2); an
+                                // older Collector sends no such field, which reads
+                                // as 0 like a duty nobody joined late.
+                                Text {
+                                    objectName: "dungeonRowJoinedInProgress"
+                                    Layout.preferredWidth: page.joinedColumnWidth
+                                    text: String(modelData.joined_in_progress_count || 0)
                                     color: Theme.textPrimary
                                     font.pixelSize: Theme.fs(12)
                                     horizontalAlignment: Text.AlignRight

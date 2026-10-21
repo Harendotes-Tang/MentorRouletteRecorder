@@ -21,6 +21,32 @@ Card {
     readonly property bool offersSomething: !!section.shared
         && (section.shared.canCheck || section.shared.canImport
             || section.shared.canReject || section.shared.canShare)
+    readonly property bool hasOtherWays: !!section.shared
+        && (section.shared.canImport || section.shared.canReject)
+    // 停用正在记录的共享校准会把进行中的记录按停止捕获收尾，等于让玩家白打这一把；
+    // 这时「改为本机校准」等副本结束再给，已打开的对话框随之关掉（审查 K2-2）。共享校准
+    // 还没用来记录时（核对中、待同意），放弃它不动正在记录的档案，照常可点。
+    readonly property bool runInFlight: App.currentRunState === "MENTOR_MATCHED"
+                                        || App.currentRunState === "ENTERED_DUTY"
+    readonly property bool rejectStopsRun: section.runInFlight && !!section.shared && section.shared.inUse
+    onRejectStopsRunChanged: {
+        if (section.rejectStopsRun)
+            rejectDialog.close()
+    }
+    // 换到另一阶段后重新折叠，避免已失效的备用操作留在主要提示旁。
+    onViewChanged: {
+        if (!otherWaysButton)
+            return
+        const restoreFocus = (manualImportButton && manualImportButton.activeFocus)
+                          || (localCalibrationButton && localCalibrationButton.activeFocus)
+        otherWaysButton.checked = false
+        if (restoreFocus) {
+            if (otherWaysButton.visible)
+                otherWaysButton.forceActiveFocus(Qt.OtherFocusReason)
+            else
+                section.forceActiveFocus(Qt.OtherFocusReason)
+        }
+    }
     // The Collector's own lines on the shared profile that records (when the
     // calibration row shows no local panel to list them under 下一步).
     property var retainingLines: []
@@ -110,8 +136,7 @@ Card {
                 wrapMode: Text.WordWrap
             }
 
-            // 两个答案并排：同意这份按排本推断的校准，或者先导入手上更好的校准码。
-            // 用 Flow 而非 RowLayout，面板窄时换行而不是把按钮挤出面板。
+            // 确认使用是这一阶段的主要操作；备用入口统一放在下方“其他方式”。
             Flow {
                 Layout.fillWidth: true
                 spacing: 8
@@ -122,14 +147,6 @@ Card {
                     text: qsTr("同意，开始记录")
                     enabled: !!section.shared && !section.shared.busy
                     onClicked: section.shared.acceptQueueInference()
-                }
-
-                AppButton {
-                    objectName: "sharedConsentImportButton"
-                    visible: !!section.shared && section.shared.canImport
-                    text: qsTr("导入校准码")
-                    enabled: !!section.shared && !section.shared.busy
-                    onClicked: importDialog.openDialog()
                 }
             }
         }
@@ -167,27 +184,64 @@ Card {
         AppButton {
             objectName: "sharedCheckButton"
             visible: !!section.shared && section.shared.canCheck
+            variant: "primary"
             text: qsTr("立即检查")
             enabled: !!section.shared && !section.shared.busy
             onClicked: section.shared.checkNow()
         }
 
         AppButton {
+            id: otherWaysButton
+            objectName: "sharedOtherWaysButton"
+            visible: section.hasOtherWays
+            variant: "ghost"
+            checkable: true
+            text: checked ? qsTr("收起其他方式") : qsTr("其他方式")
+            enabled: !!section.shared && !section.shared.busy
+            Keys.onReturnPressed: checked = !checked
+            Keys.onEnterPressed: checked = !checked
+        }
+    }
+
+    Flow {
+        objectName: "sharedOtherWaysActions"
+        Layout.fillWidth: true
+        visible: section.hasOtherWays && otherWaysButton.checked
+        spacing: 8
+
+        AppButton {
+            id: manualImportButton
             objectName: "sharedImportButton"
-            // 征求同意时由同意框里的那个按钮承担，避免同屏出现两个一样的按钮。
-            visible: !!section.shared && section.shared.canImport && section.view !== "consent"
-            text: qsTr("导入校准码")
+            visible: !!section.shared && section.shared.canImport
+            text: qsTr("手动导入校准码…")
             enabled: !!section.shared && !section.shared.busy
             onClicked: importDialog.openDialog()
+            Keys.onReturnPressed: clicked()
+            Keys.onEnterPressed: clicked()
         }
 
         AppButton {
+            id: localCalibrationButton
             objectName: "sharedRejectButton"
             visible: !!section.shared && section.shared.canReject
             text: qsTr("改为本机校准")
-            enabled: !!section.shared && !section.shared.busy
+            enabled: !section.rejectStopsRun && !!section.shared && !section.shared.busy
             onClicked: rejectDialog.open()
+            Keys.onReturnPressed: clicked()
+            Keys.onEnterPressed: clicked()
         }
+    }
+
+    Text {
+        objectName: "sharedRejectInFlightHint"
+        Layout.fillWidth: true
+        visible: section.rejectStopsRun && section.hasOtherWays && otherWaysButton.checked
+                 && section.shared.canReject
+        text: qsTr("副本进行中，结束后再试")
+        textFormat: Text.PlainText
+        color: Theme.textSecondary
+        font.pixelSize: Theme.fs(12)
+        wrapMode: Text.WordWrap
     }
 
     ImportCalibrationCodeDialog {
@@ -202,6 +256,7 @@ Card {
         parent: Overlay.overlay
         anchors.centerIn: parent
         modal: true
+        focus: true
         // Qt Basic's backdrop in eorzea, workbench's .dialog-backdrop in classic.
         Overlay.modal: Rectangle { color: Theme.modalScrim(rejectDialog.palette.shadow) }
         width: 460
@@ -249,7 +304,7 @@ Card {
                     objectName: "sharedRejectConfirm"
                     variant: "primary"
                     text: qsTr("改为本机校准")
-                    enabled: !!section.shared && !section.shared.busy
+                    enabled: !section.rejectStopsRun && !!section.shared && !section.shared.busy
                     onClicked: {
                         section.shared.reject()
                         rejectDialog.close()

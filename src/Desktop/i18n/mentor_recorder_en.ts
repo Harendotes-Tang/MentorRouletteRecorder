@@ -254,6 +254,10 @@
         <translation>For now, runs are recorded based on the roulette you queue for and the duty you actually enter. To help refine calibration, queue for and complete two different roulettes yourself. You&apos;ll be reminded when there&apos;s something new to review.</translation>
     </message>
     <message>
+        <source>请先阅读「共享校准」中的说明，再点「同意，开始记录」。也可以在「其他方式」中选择「改为本机校准」，照常游戏来完成校准。</source>
+        <translation>Read the notes in “Shared calibrations” first, then click “Agree and start recording”. Or choose “Calibrate locally instead” under “Other ways” and finish calibration by playing as usual.</translation>
+    </message>
+    <message>
         <source>识别到通关后会自动填写结果。如果没有识别到，请在离开副本后打开记录补上结果。</source>
         <translation>When a clear is recognized, the result is filled in automatically. If not, open the record after you leave the duty and fill in the result.</translation>
     </message>
@@ -268,10 +272,6 @@
     <message>
         <source>请按「本机校准」中的「下一步」提示处理。</source>
         <translation>Follow the “Next step” guidance in “Local calibration”.</translation>
-    </message>
-    <message>
-        <source>请先阅读「共享校准」中的说明，再点「同意，开始记录」。也可以选择「改为本机校准」，照常游戏来完成校准。</source>
-        <translation>Read the notes in “Shared calibrations” first, then click “Agree and start recording”. Or choose “Calibrate locally instead” and finish calibration by playing as usual.</translation>
     </message>
     <message>
         <source>当前游戏版本还需要校准。启动游戏后，照常完成随机任务，再按提示核对。校准完成前暂时不能自动记录。</source>
@@ -359,6 +359,14 @@
     <message>
         <source>这个时间我没有排本</source>
         <translation>I didn&apos;t queue at this time</translation>
+    </message>
+    <message>
+        <source>请选择…</source>
+        <translation>Choose…</translation>
+    </message>
+    <message>
+        <source>请在“你当时排的是”里选出实际排的随机任务。</source>
+        <translation>Under “You queued for”, choose the roulette you actually queued for.</translation>
     </message>
     <message>
         <source>以后再说</source>
@@ -815,6 +823,26 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
 <context>
     <name>CaptureChainModel</name>
     <message>
+        <source>尚未识别游戏区服 · 暂时不会自动记录</source>
+        <translation>Game region not yet recognised · Automatic recording is unavailable</translation>
+    </message>
+    <message>
+        <source>未识别区服</source>
+        <translation>Region unknown</translation>
+    </message>
+    <message>
+        <source>尚未识别游戏区服</source>
+        <translation>Game region not yet recognised</translation>
+    </message>
+    <message>
+        <source>正在获取自动记录状态…</source>
+        <translation>Getting automatic recording status…</translation>
+    </message>
+    <message>
+        <source>正在连接自动记录服务…</source>
+        <translation>Connecting to the automatic recording service…</translation>
+    </message>
+    <message>
         <source>验证正在等待所选游戏重启</source>
         <translation>Validation is waiting for the selected game to restart</translation>
     </message>
@@ -1107,6 +1135,10 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>Not installed</translation>
     </message>
     <message>
+        <source>尚未读取</source>
+        <translation>Not read yet</translation>
+    </message>
+    <message>
         <source>网卡</source>
         <translation>Network adapter</translation>
     </message>
@@ -1156,6 +1188,14 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
     <message>
         <source>检查中</source>
         <translation>Checking</translation>
+    </message>
+    <message>
+        <source>正在获取自动记录状态…</source>
+        <translation>Getting automatic recording status…</translation>
+    </message>
+    <message>
+        <source>正在连接自动记录服务…</source>
+        <translation>Connecting to the automatic recording service…</translation>
     </message>
     <message>
         <source>未安装 Npcap，自动记录已停用</source>
@@ -1508,6 +1548,18 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
 <context>
     <name>CaptureNotices</name>
     <message>
+        <source>尚未识别游戏区服</source>
+        <translation>Game region not yet recognised</translation>
+    </message>
+    <message>
+        <source>无法从安装路径判断区服。请在「设置 → 通用」中选择实际使用的国服或国际服，保存后会重新检查。</source>
+        <translation>The installation path does not identify the region. Select the China or Global version you use in Settings → General. It will be checked again after saving.</translation>
+    </message>
+    <message>
+        <source>设置区服</source>
+        <translation>Set region</translation>
+    </message>
+    <message>
         <source>已就绪：%1</source>
         <translation>Ready: %1</translation>
     </message>
@@ -1560,7 +1612,7 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>The calibration shared by another player passed its checks and records automatically. If a clear isn&apos;t recognized automatically, open the record after you leave the duty and fill in the result.</translation>
     </message>
     <message>
-        <source>能自动记录指导者任务的匹配、进入和离开；副本内收到通关结算时自动记为通关。没有收到结算就离开副本时，记录会标为“待复核”，在记录里用“修正”填上结果。</source>
+        <source>能自动记录指导者任务的匹配、进入和离开；副本内收到通关结算时自动记为通关。没有收到结算就离开副本时，记录会标为“待复核”，在记录里用“手动修正”填上结果。</source>
         <translation>Mentor Roulette matches, entries and exits are recorded automatically; a clear result received in the duty is recorded as a clear. If you leave the duty without a result, the record is marked “Needs review” — use “Correct manually” on the record to fill in the result.</translation>
     </message>
     <message>
@@ -1715,6 +1767,29 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
     </message>
 </context>
 <context>
+    <name>CaptureRegionSelector</name>
+    <message>
+        <source>自动（按安装路径）</source>
+        <translation>Automatic (installation path)</translation>
+    </message>
+    <message>
+        <source>国服 CN</source>
+        <translation>China (CN)</translation>
+    </message>
+    <message>
+        <source>国际服 GLOBAL</source>
+        <translation>Global (GLOBAL)</translation>
+    </message>
+    <message>
+        <source>游戏区服</source>
+        <translation>Game region</translation>
+    </message>
+    <message>
+        <source>自动按安装路径识别；无法识别时，请选择实际使用的国服或国际服。</source>
+        <translation>Detects the region from the installation path. If detection fails, select the China or Global version you use.</translation>
+    </message>
+</context>
+<context>
     <name>CaptureToolsPanel</name>
     <message>
         <source>工具</source>
@@ -1784,24 +1859,16 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>Unnamed adapter</translation>
     </message>
     <message>
+        <source>%1 · 推荐</source>
+        <translation>%1 · recommended</translation>
+    </message>
+    <message>
         <source>%1 · %2 · 推荐</source>
         <translation>%1 · %2 · recommended</translation>
     </message>
     <message>
         <source>%1 · %2</source>
         <translation>%1 · %2</translation>
-    </message>
-    <message>
-        <source>自动（按安装路径）</source>
-        <translation>Auto (by install path)</translation>
-    </message>
-    <message>
-        <source>国服 CN</source>
-        <translation>China (CN)</translation>
-    </message>
-    <message>
-        <source>国际服 GLOBAL</source>
-        <translation>Global (GLOBAL)</translation>
     </message>
     <message>
         <source>已取消等待</source>
@@ -1932,14 +1999,6 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>Server region</translation>
     </message>
     <message>
-        <source>区服覆盖</source>
-        <translation>Server region override</translation>
-    </message>
-    <message>
-        <source>默认自动：由采集器从安装路径判断。装在自定义目录时国服可能识别不出，可在此显式指定。</source>
-        <translation>Auto by default: the Collector infers it from the install path. A CN client in a custom folder may not be recognized; set it explicitly here.</translation>
-    </message>
-    <message>
         <source>区服“自动”由采集器从安装路径推断；装在非默认目录的国服客户端可能识别为未知，此时取证与验证会被拒绝，请在此显式指定。</source>
         <translation>With server region set to “Auto”, the Collector infers it from the install path; a CN client in a non-default folder may come out as unknown, and capture and validation are then refused — set it explicitly here.</translation>
     </message>
@@ -1982,6 +2041,10 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
     <message>
         <source>队列丢弃 %1</source>
         <translation>Queue drops %1</translation>
+    </message>
+    <message>
+        <source>采证文件：%1</source>
+        <translation>Evidence file: %1</translation>
     </message>
     <message>
         <source>Trace：%1
@@ -2118,6 +2181,11 @@ SHA256: %3</translation>
         <source>客户端版本未知，无法写出档案。</source>
         <comment>calibration.build_unknown</comment>
         <translation>The client version is unknown, so the profile can&apos;t be written.</translation>
+    </message>
+    <message>
+        <source>你正在排导随，现在更换校准会让接下来这一把记不下来。请等这一把结束后再试。如果已经取消排队，软件可能察觉不到，请退出并重新启动游戏后再试，或在开始排队一小时后再试。</source>
+        <comment>calibration.change_while_queued</comment>
+        <translation>You&apos;re queued for a mentor roulette, and changing the calibration now would leave the coming run unrecorded. Try again once that run is over. If you&apos;ve already left the queue, the app may not have noticed: quit and restart the game, then try again, or try again an hour after you started queueing.</translation>
     </message>
     <message>
         <source>导随记录照常进行。已找到补全职业的信息，请核对下面的时间线，再点「核对并启用」；之后的新记录会自动带上职业。</source>
@@ -2429,29 +2497,9 @@ SHA256: %3</translation>
         <translation>{count} FFXIV processes detected. Confirm the game to record on Overview or the Capture diagnostics page.</translation>
     </message>
     <message>
-        <source>没有权限读取游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录（fail-closed）。</source>
-        <comment>capture.game.path_denied</comment>
-        <translation>No permission to read the game&apos;s install path, so the server region and client version stay unknown; nothing is recorded automatically in this state (fail-closed).</translation>
-    </message>
-    <message>
-        <source>无法确定游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录（fail-closed）。</source>
-        <comment>capture.game.path_unknown</comment>
-        <translation>The game&apos;s install path can&apos;t be determined, so the server region and client version stay unknown; nothing is recorded automatically in this state (fail-closed).</translation>
-    </message>
-    <message>
-        <source>无法从安装路径判断区服（路径同时含有国服与国际服的标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录（fail-closed）。</source>
-        <comment>capture.game.region_ambiguous</comment>
-        <translation>The server region can&apos;t be determined from the install path (it contains markers for both CN and Global). Set the server region manually in Settings (CN / Global); nothing is recorded automatically until then (fail-closed).</translation>
-    </message>
-    <message>
         <source>设置中手动指定的区服与安装路径推断出的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除区服覆盖。</source>
         <comment>capture.game.region_override_mismatch</comment>
         <translation>The server region set manually in Settings doesn&apos;t match the one inferred from the install path; the manually set region is used. If that&apos;s not what you want, clear the server region override in Settings.</translation>
-    </message>
-    <message>
-        <source>无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录（fail-closed）。</source>
-        <comment>capture.game.region_unmarked</comment>
-        <translation>The server region can&apos;t be determined from the install path (the path is readable but has no recognizable region marker). Set the server region manually in Settings (CN / Global); nothing is recorded automatically until then (fail-closed).</translation>
     </message>
     <message>
         <source>未能在游戏目录中读取到 {file}，客户端版本未知。</source>
@@ -2505,25 +2553,9 @@ SHA256: %3</translation>
         <translation>Npcap is available. Capture is read-only throughout and never sends any packets.</translation>
     </message>
     <message>
-        <source>匹配的 Oodle 签名档案无法加载，抓包未开始。 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。</source>
-        <comment>capture.oodle.profile_load_failed</comment>
-        <translation>The matching Oodle signature profile can&apos;t be loaded, so capture didn&apos;t start. Run tools/oodle-signature-finder to regenerate and verify the signature profile.</translation>
-    </message>
-    <message>
         <source>正式采集或验证会话尚未结束，请先停止并等待资源释放。</source>
         <comment>capture.ownership_busy</comment>
         <translation>A real capture or validation session hasn&apos;t ended yet. Stop it first and wait for its resources to be released.</translation>
-    </message>
-    <message>
-        <source>仓库中没有任何协议档案（PROTOCOL_PROFILE_STATUS = NONE）。按 fail-closed 规则，本版本不会解析任何报文，也不会自动写入任何记录，只能手工补录。</source>
-        <comment>capture.profile.none</comment>
-        <translation>There are no protocol profiles in the repository (PROTOCOL_PROFILE_STATUS = NONE). Under the fail-closed rule, this version won&apos;t parse any packets or write any records automatically; records can only be added manually.</translation>
-    </message>
-    <message>
-        <source>协议档案不可用（fail-closed）：{reason}</source>
-        <comment>capture.profile.unavailable</comment>
-        <extracomment>Placeholders: {reason} shown as it is. Keep every {placeholder} exactly as written. {reason} is the profile directory&apos;s English explanation, for example: no profile matches this region and build.</extracomment>
-        <translation>Protocol profile unavailable (fail-closed): {reason}</translation>
     </message>
     <message>
         <source>所选游戏已退出或重新启动，请重新选择游戏窗口。</source>
@@ -2634,11 +2666,6 @@ SHA256: %3</translation>
         <source>请先选择该游戏窗口，再开始监听。</source>
         <comment>capture.start.process_not_selected</comment>
         <translation>Choose this game window before starting to listen.</translation>
-    </message>
-    <message>
-        <source>协议档案不可用（fail-closed），未启动抓包：本版本不会解析任何报文，也不会自动写入任何记录。若只是想验证抓包链路本身，请先把设置 capture.allow_without_profile 打开（仅统计，不记录）。</source>
-        <comment>capture.start.profile_unavailable</comment>
-        <translation>Protocol profile unavailable (fail-closed), so capture didn&apos;t start: this version won&apos;t parse any packets or write any records automatically. If you only want to test the capture chain itself, turn on the capture.allow_without_profile setting first (counts only, no records).</translation>
     </message>
     <message>
         <source>请先在总览或捕获诊断页选择要记录的游戏窗口。</source>
@@ -2959,9 +2986,80 @@ SHA256: %3</translation>
         <translation>Automatic recording components are incompatible, so monitoring has not started. Update or reinstall the complete app. If it still fails, export a diagnostic report.</translation>
     </message>
     <message>
+        <source>正在进行的这一把导随还没结束，现在更换校准会中断这一把的记录。请在这一把结束后再试。</source>
+        <comment>calibration.change_during_run</comment>
+        <translation>The current mentor run hasn&apos;t finished yet, and changing the calibration now would cut off this run&apos;s record. Try again once this run is over.</translation>
+    </message>
+    <message>
+        <source>后台的进一步校准已无法继续。如需继续完善，请先点「清空校准进度」（现用校准会继续记录），保持软件开启，再尝试不同的随机任务并进出副本；组队时请由你来申请。</source>
+        <comment>calibration.provisional.blocked_more</comment>
+        <translation>Further calibration in the background can&apos;t continue. To keep refining it, click “Clear calibration progress” first (the calibration in use keeps recording), keep the app open, then try different roulettes and enter and leave their duties; if you&apos;re in a party, be the one who queues.</translation>
+    </message>
+    <message>
+        <source>导随记录照常进行。检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。</source>
+        <comment>calibration.provisional.recording_popup</comment>
+        <translation>Mentor run recording continues as usual. When a duty pop is detected, the pop time is recorded, and otherwise the queue time is still recorded; canceling a queue creates no record.</translation>
+    </message>
+    <message>
+        <source>导随记录照常进行。检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。后台仍在尝试识别职业，找到后会请你核对时间线；在此之前，新记录的职业为未知。你可以照常游戏。</source>
+        <comment>calibration.provisional.searching_job</comment>
+        <translation>Mentor run recording continues as usual. When a duty pop is detected, the pop time is recorded, and otherwise the queue time is still recorded; canceling a queue creates no record. The app is still trying to recognize your job in the background and will ask you to review the timeline once it&apos;s found; until then, new records show the job as unknown. You can play as usual.</translation>
+    </message>
+    <message>
+        <source>导随记录照常进行。检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。后台仍在继续校准，有新发现时会请你核对时间线。你可以照常游戏，也可以尝试不同的随机任务帮助校准；组队时请由你来申请。</source>
+        <comment>calibration.provisional.searching_more</comment>
+        <translation>Mentor run recording continues as usual. When a duty pop is detected, the pop time is recorded, and otherwise the queue time is still recorded; canceling a queue creates no record. Calibration continues in the background, and the app will ask you to review the timeline if it finds something new. You can play as usual, or try different roulettes to help calibration; if you&apos;re in a party, be the one who queues.</translation>
+    </message>
+    <message>
+        <source>没有权限读取游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录。</source>
+        <comment>capture.game.path_denied</comment>
+        <translation>No permission to read the game&apos;s install path, so the server region and client version stay unknown; nothing is recorded automatically in this state.</translation>
+    </message>
+    <message>
+        <source>无法确定游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录。</source>
+        <comment>capture.game.path_unknown</comment>
+        <translation>The game&apos;s install path can&apos;t be determined, so the server region and client version stay unknown; nothing is recorded automatically in this state.</translation>
+    </message>
+    <message>
+        <source>无法从安装路径判断区服（路径同时含有国服与国际服的标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录。</source>
+        <comment>capture.game.region_ambiguous</comment>
+        <translation>The server region can&apos;t be determined from the install path (it contains markers for both CN and Global). Set the server region manually in Settings (CN / Global); nothing is recorded automatically until then.</translation>
+    </message>
+    <message>
+        <source>无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录。</source>
+        <comment>capture.game.region_unmarked</comment>
+        <translation>The server region can&apos;t be determined from the install path (the path is readable but has no recognizable region marker). Set the server region manually in Settings (CN / Global); nothing is recorded automatically until then.</translation>
+    </message>
+    <message>
         <source>上次自动记录尚未完全停止，本次监听未开始。请稍后重试；仍失败时重启软件并导出诊断报告。</source>
         <comment>capture.oodle.previous_not_released</comment>
         <translation>The previous recording session has not fully stopped, so monitoring has not started. Try again shortly. If it still fails, restart the app and export a diagnostic report.</translation>
+    </message>
+    <message>
+        <source>准备读取游戏数据时出错，本次监听未开始。可能是磁盘空间不足、安全软件拦截了游戏程序文件，或游戏更新后暂不兼容。请稍后重试；仍失败时导出诊断报告。</source>
+        <comment>capture.oodle.profile_load_failed</comment>
+        <translation>Something went wrong while preparing to read game data, so monitoring has not started. The disk may be full, security software may have blocked the game program file, or a game update may not be supported yet. Try again shortly. If it still fails, export a diagnostic report.</translation>
+    </message>
+    <message>
+        <source>仓库中没有任何协议档案。为避免记错，本版本不会解析任何报文，也不会自动写入任何记录，只能手工补录。</source>
+        <comment>capture.profile.none</comment>
+        <translation>There are no protocol profiles in the repository. To avoid recording anything wrong, this version won&apos;t parse any packets or write any records automatically; records can only be added manually.</translation>
+    </message>
+    <message>
+        <source>协议档案不可用，暂时不会自动记录：{reason}</source>
+        <comment>capture.profile.unavailable</comment>
+        <extracomment>Placeholders: {reason} shown as it is. Keep every {placeholder} exactly as written. {reason} is the profile directory&apos;s English explanation, for example: no profile matches this region and build.</extracomment>
+        <translation>Protocol profile unavailable, so nothing is recorded automatically for now: {reason}</translation>
+    </message>
+    <message>
+        <source>协议档案不可用，未启动抓包：本版本不会解析任何报文，也不会自动写入任何记录。若只是想验证抓包链路本身，请先把设置 capture.allow_without_profile 打开（仅统计，不记录）。</source>
+        <comment>capture.start.profile_unavailable</comment>
+        <translation>Protocol profile unavailable, so capture didn&apos;t start: this version won&apos;t parse any packets or write any records automatically. If you only want to test the capture chain itself, turn on the capture.allow_without_profile setting first (counts only, no records).</translation>
+    </message>
+    <message>
+        <source>上一次采集验证未能完全结束，正在自动重试收尾，期间不会自动记录。如长时间未恢复，请重新启动本软件。</source>
+        <comment>capture.warning.validation_releasing</comment>
+        <translation>The last validation capture didn&apos;t fully finish, and the app is automatically retrying the cleanup; nothing is recorded automatically in the meantime. If this doesn&apos;t clear for a long time, restart this app.</translation>
     </message>
     <message>
         <source>目标文件已存在，请更换文件名或保存位置后重试。</source>
@@ -3205,6 +3303,16 @@ SHA256: %3</translation>
         <translation>Choose a full local file path.</translation>
     </message>
     <message>
+        <source>只能导入本机磁盘上的文件，不支持网络共享或设备路径。请先把文件复制到本机文件夹再导入。</source>
+        <comment>import.preview.path_not_local</comment>
+        <translation>Only files on a local disk can be imported; network shares and device paths aren&apos;t supported. Copy the file to a local folder first, then import it.</translation>
+    </message>
+    <message>
+        <source>无法确认这个文件是否在本机磁盘上。请检查文件夹和访问权限，或把文件复制到本机文件夹后再导入。</source>
+        <comment>import.preview.path_uncheckable</comment>
+        <translation>Couldn&apos;t confirm whether this file is on a local disk. Check the folder and access permissions, or copy the file to a local folder and import it from there.</translation>
+    </message>
+    <message>
         <source>来源名称超过 500 字符。</source>
         <comment>import.preview.source_name_too_long</comment>
         <translation>The source name exceeds 500 characters.</translation>
@@ -3278,6 +3386,12 @@ SHA256: %3</translation>
         <source>记录编号（run_id）格式不正确，请按 JSON 模板填写标准 UUID。</source>
         <comment>import.row.run_id_invalid</comment>
         <translation>The record ID (run_id) is in the wrong format. Use a standard UUID as in the JSON template.</translation>
+    </message>
+    <message>
+        <source>开始时间 {start_date} 只有日期，与这条记录已有的记录时间 {source_date} 对不上，无法确定是哪一天。已保留原值，请修正其中一项或调整列映射后重新预览。</source>
+        <comment>import.row.start_date_source_conflict</comment>
+        <extracomment>Placeholders: {start_date} shown as it is; {source_date} shown as it is. Keep every {placeholder} exactly as written. A date-only spreadsheet start cannot be combined with an existing source time on another day, or with one held only in UTC (it may or may not be the same local day, so the sentence does not say the dates differ). A source time with a clock on the same day is accepted. Both arguments are original source values.</extracomment>
+        <translation>The start time {start_date} has only a date and doesn&apos;t match this record&apos;s existing recorded time {source_date}, so the day can&apos;t be determined. The original values are preserved. Correct one of them or adjust the column mapping, then preview again.</translation>
     </message>
     <message>
         <source>{field} 处于夏令时调整时段，无法确定具体时刻。请填写带时区偏移的完整时间。</source>
@@ -4132,6 +4246,11 @@ SHA256: %3</translation>
         <translation>“No mood” only applies to imported notes.</translation>
     </message>
     <message>
+        <source>暂时读不到本机保存的共享校准记录（可能被其他程序占用），请稍后再查找。</source>
+        <comment>sharing.check.state_unreadable</comment>
+        <translation>The shared calibration records saved on this computer can&apos;t be read right now (another program may be using them). Try looking again later.</translation>
+    </message>
+    <message>
         <source>校准码中有无法识别的字符。请重新完整复制，不要带上其他文字。</source>
         <comment>sharing.code.characters</comment>
         <translation>The calibration code has characters that can&apos;t be recognized. Copy the whole code again, without any other text.</translation>
@@ -4258,6 +4377,11 @@ SHA256: %3</translation>
         <source>这份共享校准已被撤回，不能继续用于记录。请向分享者获取新校准码，或使用「本机校准」。</source>
         <comment>sharing.import.revoked</comment>
         <translation>This shared calibration has been withdrawn and can no longer be used for recording. Get a new calibration code from the person who shared it, or use “Local calibration”.</translation>
+    </message>
+    <message>
+        <source>暂时读不到本机保存的共享校准记录（可能被其他程序占用），请稍后再导入。</source>
+        <comment>sharing.import.state_unreadable</comment>
+        <translation>The shared calibration records saved on this computer can&apos;t be read right now (another program may be using them). Try importing again later.</translation>
     </message>
     <message>
         <source>这份校准码暂时无法使用。请更新导随记录器，或请分享者重新生成校准码。</source>
@@ -4668,10 +4792,6 @@ SHA256: %3</translation>
 <context>
     <name>DashboardPage</name>
     <message>
-        <source>未知副本</source>
-        <translation>Unknown duty</translation>
-    </message>
-    <message>
         <source>笔记数据尚未加载，请稍后再试</source>
         <translation>Notes haven&apos;t loaded yet. Try again shortly.</translation>
     </message>
@@ -4706,30 +4826,6 @@ SHA256: %3</translation>
     <message>
         <source>查看捕获诊断</source>
         <translation>View capture diagnostics</translation>
-    </message>
-    <message>
-        <source>%1 条记录待复核</source>
-        <translation>%1 records need review</translation>
-    </message>
-    <message>
-        <source>这些记录需要你复核，可能是程序异常退出、未收到通关结算，或生成记录时使用的校准后来被停用。尚未记为通关的记录，确认“通关”后才计入导随次数；每次确认都会记入“修改记录”。</source>
-        <translation>These records need your review: the app may have exited unexpectedly, no clear result arrived, or the calibration used to create them was later retired. Records not yet marked as cleared count toward your mentor runs only after you confirm “Cleared”; each confirmation is logged in “Edit history”.</translation>
-    </message>
-    <message>
-        <source>最近一条：%1</source>
-        <translation>Latest: %1</translation>
-    </message>
-    <message>
-        <source>通关</source>
-        <translation>Cleared</translation>
-    </message>
-    <message>
-        <source>退出 / 放弃</source>
-        <translation>Left / abandoned</translation>
-    </message>
-    <message>
-        <source>去复核</source>
-        <translation>Review</translation>
     </message>
     <message>
         <source>查看验证状态</source>
@@ -5030,8 +5126,8 @@ SHA256: %3</translation>
         <translation>Online use 1: getting shared calibrations after game updates (on by default, can be turned off)</translation>
     </message>
     <message>
-        <source>游戏更新后，如果还不能自动记录，软件会从固定的公开 GitHub 仓库下载其他玩家分享的校准，根据你的游戏情况检查可用后再使用。如果正在使用共享校准，或暂时根据排队和进本来记录，软件还会检查同一份公开列表，确认当前校准是否已被撤回，以及有没有更完整的校准；其他已有可用校准的情况下不会为此联网。请求不含账号、安装编号或设备身份信息，GitHub 与 CDN 能看到请求来自哪个 IP 地址。不想要可以在「设置 → 通用」关掉「游戏更新后获取其他玩家的共享校准」。</source>
-        <translation>After a game update, if automatic recording doesn&apos;t work yet, the app downloads calibrations shared by other players from a fixed public GitHub repository, checks that they work with your game, and then uses them. If it&apos;s using a shared calibration, or is temporarily recording from queueing and duty entry, the app also checks the same public list to see whether the current calibration has been withdrawn or a more complete one is available; when another working calibration is already in place, it doesn&apos;t go online for this. Requests contain no account, install ID or device identity; GitHub and its CDN can see the IP address a request comes from. If you don&apos;t want this, turn off “Get shared calibrations from other players after game updates” in “Settings → General”.</translation>
+        <source>游戏更新后，如果还不能自动记录，软件会从固定的公开 GitHub 仓库下载其他玩家分享的校准（GitHub 读取失败时，依次改从它在 GitCode 上的同名镜像和 CDN 读取），根据你的游戏情况检查可用后再使用。如果正在使用共享校准，或暂时根据排队和进本来记录，软件还会检查同一份公开列表，确认当前校准是否已被撤回，以及有没有更完整的校准；其他已有可用校准的情况下不会为此联网。请求不含账号、安装编号或设备身份信息，GitHub、GitCode 与 CDN 能看到请求来自哪个 IP 地址。不想要可以在「设置 → 通用」关掉「游戏更新后获取其他玩家的共享校准」。</source>
+        <translation>After a game update, if automatic recording doesn&apos;t work yet, the app downloads calibrations shared by other players from a fixed public GitHub repository (if reading from GitHub fails, it falls back to the repository&apos;s mirror of the same name on GitCode, then to a CDN), checks that they work with your game, and then uses them. If it&apos;s using a shared calibration, or is temporarily recording from queueing and duty entry, the app also checks the same public list to see whether the current calibration has been withdrawn or a more complete one is available; when another working calibration is already in place, it doesn&apos;t go online for this. Requests contain no account, install ID or device identity; GitHub, GitCode and the CDN can see the IP address a request comes from. If you don&apos;t want this, turn off “Get shared calibrations from other players after game updates” in “Settings → General”.</translation>
     </message>
     <message>
         <source>联网二：在线语音（默认关闭）</source>
@@ -5070,11 +5166,11 @@ SHA256: %3</translation>
         <translation>No need to close the game. The “Capture diagnostics” page will also remind you to log in again.</translation>
     </message>
     <message>
-        <source>3. 正常排指导者任务，未能自动判定的结果到“待复核”里填写</source>
-        <translation>3. Queue for Mentor Roulette as usual, and fill in any result that couldn&apos;t be determined under “Needs review”</translation>
+        <source>3. 正常排指导者任务，未能自动判定的结果到“待处理”里填写</source>
+        <translation>3. Queue for Mentor Roulette as usual, and fill in any result that couldn&apos;t be determined under “To do”</translation>
     </message>
     <message>
-        <source>匹配、进入副本和离开副本会自动记录。收到通关结算时自动记为通关；未收到结算就离开副本时，记录标为「待复核」。打开记录，点「修正」填写通关或离开。</source>
+        <source>匹配、进入副本和离开副本会自动记录。收到通关结算时自动记为通关；未收到结算就离开副本时，记录标为「待复核」。打开记录，点「手动修正」填写通关或离开。</source>
         <translation>Matching, entering and leaving duties are recorded automatically. When a clear result arrives, the run is recorded as a clear; if you leave without one, the record is marked “Needs review”. Open the record and click “Correct manually” to fill in cleared or left.</translation>
     </message>
     <message>
@@ -5169,6 +5265,10 @@ SHA256: %3</translation>
         <translation>Last seen</translation>
     </message>
     <message>
+        <source>中途加入</source>
+        <translation>Joined late</translation>
+    </message>
+    <message>
         <source>未识别</source>
         <translation>Unrecognized</translation>
     </message>
@@ -5181,7 +5281,7 @@ SHA256: %3</translation>
     </message>
     <message>
         <source>不记得或没有留意</source>
-        <translation>Don't remember, or didn't notice</translation>
+        <translation>Don&apos;t remember, or didn&apos;t notice</translation>
     </message>
     <message>
         <source>开局进入</source>
@@ -5922,14 +6022,6 @@ SHA256: %3</translation>
 <context>
     <name>ImportCalibrationCodeDialog</name>
     <message>
-        <source>导入校准码</source>
-        <translation>Import calibration code</translation>
-    </message>
-    <message>
-        <source>把其他玩家发来的校准码完整粘贴到下面。导入时不需要联网。软件会先检查游戏版本，再根据你登录、排本和进本的情况确认是否可用。通过检查后才会用它记录。</source>
-        <translation>Paste the full calibration code another player sent you below. Importing doesn&apos;t need the internet. The app first checks the game version, then confirms whether the code works from your logins, queues and duty entries. It&apos;s used for recording only after it passes these checks.</translation>
-    </message>
-    <message>
         <source>在这里粘贴校准码</source>
         <translation>Paste the calibration code here</translation>
     </message>
@@ -5941,9 +6033,37 @@ SHA256: %3</translation>
         <source>导入</source>
         <translation>Import</translation>
     </message>
+    <message>
+        <source>手动导入校准码</source>
+        <translation>Import calibration code manually</translation>
+    </message>
+    <message>
+        <source>自动获取不可用，或想使用其他玩家提供的校准码时，可在这里完整粘贴。导入时不需要联网。软件会先检查游戏版本，再根据你登录、排本和进本的情况确认是否可用。通过检查后才会用它记录。</source>
+        <translation>If automatic retrieval is unavailable, or you want to use a code from another player, paste the full code here. Importing does not need the internet. The app checks the game version, then uses your logins, queues and duty entries to verify the code. It is used for recording only after these checks pass.</translation>
+    </message>
 </context>
 <context>
     <name>ImportRecordsDialog</name>
+    <message>
+        <source>全选整批可导入</source>
+        <translation>Select whole batch</translation>
+    </message>
+    <message>
+        <source>上一页</source>
+        <translation>Previous page</translation>
+    </message>
+    <message>
+        <source>下一页</source>
+        <translation>Next page</translation>
+    </message>
+    <message>
+        <source>第 %1 / %2 页</source>
+        <translation>Page %1 / %2</translation>
+    </message>
+    <message>
+        <source>%1–%2 / %3 条</source>
+        <translation>%1–%2 / %3 rows</translation>
+    </message>
     <message>
         <source>图标识别得分 %1/100</source>
         <translation>Icon match score %1/100</translation>
@@ -6019,6 +6139,10 @@ SHA256: %3</translation>
     <message>
         <source>内容有修改，请先重新校验再勾选。</source>
         <translation>The content changed; validate again before checking it.</translation>
+    </message>
+    <message>
+        <source>职业是按图标推测的，请先在「职业」中确认，再勾选。</source>
+        <translation>The job was guessed from the icon. Confirm it under “Job” before checking this record.</translation>
     </message>
     <message>
         <source>需重新校验</source>
@@ -6119,10 +6243,6 @@ SHA256: %3</translation>
     <message>
         <source>未勾选</source>
         <translation>Unchecked</translation>
-    </message>
-    <message>
-        <source>全选可导入</source>
-        <translation>Select all importable</translation>
     </message>
     <message>
         <source>批量设置</source>
@@ -6337,6 +6457,14 @@ The image text was read as “%2”; confirm against the original image.</transl
     <message>
         <source>还没有勾选记录</source>
         <translation>No records checked yet</translation>
+    </message>
+    <message>
+        <source>起始次数尚未读取，读取后才能导入</source>
+        <translation>The starting count hasn&apos;t been read yet; you can import once it&apos;s read</translation>
+    </message>
+    <message>
+        <source>%1 条已勾选记录的职业待确认，确认后才能导入</source>
+        <translation>%1 checked records have a job to confirm; confirm them to import</translation>
     </message>
     <message>
         <source>核对后勾选需要导入的记录</source>
@@ -6594,6 +6722,10 @@ The image text was read as “%2”; confirm against the original image.</transl
         <source>平均耗时</source>
         <translation>Avg. time</translation>
     </message>
+    <message>
+        <source>中途加入</source>
+        <translation>Joined late</translation>
+    </message>
 </context>
 <context>
     <name>Main</name>
@@ -6666,10 +6798,6 @@ The image text was read as “%2”; confirm against the original image.</transl
         <translation>Undoing restores the values from before the last correction. The undo is also kept in the edit history; existing corrections aren&apos;t deleted.</translation>
     </message>
     <message>
-        <source>确认表示你已核对这条记录。结果不会被改写，只会取消“待复核”标记，并记入修改记录。要改成“通关”或“离开”，请用“修正”填写结果。</source>
-        <translation>Confirming means you&apos;ve checked this record. The result isn&apos;t changed; only the “Needs review” flag is removed, and this is logged in the edit history. To change it to “Cleared” or “Left”, use “Correct manually” to fill in the result.</translation>
-    </message>
-    <message>
         <source>删除后，这条记录会移到“已删除”，不再计入默认统计。永久删除前仍可恢复；自动清理期限可在设置中查看。</source>
         <translation>Once deleted, this record moves to “Deleted” and no longer counts in the default stats. It can still be restored until it&apos;s permanently deleted; the automatic cleanup period is shown in Settings.</translation>
     </message>
@@ -6692,6 +6820,10 @@ The image text was read as “%2”; confirm against the original image.</transl
     <message>
         <source>刚刚完成</source>
         <translation>Just finished</translation>
+    </message>
+    <message>
+        <source>确认表示你已核对这条记录。结果不会被改写，只会取消“待复核”标记，并记入修改记录。要改成“通关”或“离开”，请用“手动修正”填写结果。</source>
+        <translation>Confirming means you&apos;ve checked this record. The result isn&apos;t changed; only the “Needs review” flag is removed, and this is logged in the edit history. To change it to “Cleared” or “Left”, use “Correct manually” to fill in the result.</translation>
     </message>
     <message>
         <source>核对并启用</source>
@@ -6792,6 +6924,10 @@ Recorder</translation>
         <translation>Capture</translation>
     </message>
     <message>
+        <source>已收起到待处理，记录和草稿已保留</source>
+        <translation>Moved to To review; the record and draft are kept</translation>
+    </message>
+    <message>
         <source>原因</source>
         <translation>Reason</translation>
     </message>
@@ -6818,6 +6954,30 @@ Recorder</translation>
     <message>
         <source>补录笔记</source>
         <translation>Add note</translation>
+    </message>
+    <message>
+        <source>解锁浮窗</source>
+        <translation>Unlock overlay</translation>
+    </message>
+    <message>
+        <source>统计浮窗</source>
+        <translation>Stats overlay</translation>
+    </message>
+    <message>
+        <source>继续处理</source>
+        <translation>Continue</translation>
+    </message>
+    <message>
+        <source>导随记录器 · 已收起提醒</source>
+        <translation>Mentor Recorder · Reminder dismissed</translation>
+    </message>
+    <message>
+        <source>重新打开</source>
+        <translation>Reopen</translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation>Close</translation>
     </message>
 </context>
 <context>
@@ -7010,6 +7170,348 @@ Recorder</translation>
     </message>
 </context>
 <context>
+    <name>OverlayCurrentDutyModule</name>
+    <message>
+        <source>当前副本</source>
+        <translation>Duty</translation>
+    </message>
+    <message>
+        <source>已匹配</source>
+        <translation>Matched</translation>
+    </message>
+</context>
+<context>
+    <name>OverlayCustomizePanel</name>
+    <message>
+        <source>自定义浮窗</source>
+        <translation>Customize overlay</translation>
+    </message>
+    <message>
+        <source>拖动排序，开关控制显示</source>
+        <translation>Drag to reorder; switch to show or hide</translation>
+    </message>
+    <message>
+        <source>拖动排序</source>
+        <translation>Drag to reorder</translation>
+    </message>
+    <message>
+        <source>上移</source>
+        <translation>Move up</translation>
+    </message>
+    <message>
+        <source>下移</source>
+        <translation>Move down</translation>
+    </message>
+    <message>
+        <source>副本排行</source>
+        <translation>Duty ranking</translation>
+    </message>
+    <message>
+        <source>关</source>
+        <translation>Off</translation>
+    </message>
+    <message>
+        <source>前 3</source>
+        <translation>Top 3</translation>
+    </message>
+    <message>
+        <source>前 5</source>
+        <translation>Top 5</translation>
+    </message>
+    <message>
+        <source>前 10</source>
+        <translation>Top 10</translation>
+    </message>
+    <message>
+        <source>全部</source>
+        <translation>All</translation>
+    </message>
+    <message>
+        <source>背景不透明度</source>
+        <translation>Background opacity</translation>
+    </message>
+    <message>
+        <source>只影响底板，文字和图形始终清晰</source>
+        <translation>Only the backdrop fades; text and graphics stay solid</translation>
+    </message>
+    <message>
+        <source>文字标签</source>
+        <translation>Text labels</translation>
+    </message>
+    <message>
+        <source>显示模块名和图例名称；关闭时鼠标悬停查看</source>
+        <translation>Show module and legend names. When off, hover to see them</translation>
+    </message>
+    <message>
+        <source>恢复默认</source>
+        <translation>Reset</translation>
+    </message>
+    <message>
+        <source>完成</source>
+        <translation>Done</translation>
+    </message>
+</context>
+<context>
+    <name>OverlayData</name>
+    <message>
+        <source>累计进度 %1 / %2（%3）
+还差 %4 次 · 含起始次数 %5 次</source>
+        <translation>Progress %1 / %2 (%3)
+%4 to go · includes starting count of %5</translation>
+    </message>
+    <message>
+        <source>未识别</source>
+        <translation>Unrecognized</translation>
+    </message>
+    <message>
+        <source>未知</source>
+        <translation>Unknown</translation>
+    </message>
+    <message>
+        <source>已匹配导随，等待进本</source>
+        <translation>Mentor run matched, waiting to enter</translation>
+    </message>
+    <message>
+        <source>已进入副本 · %1 · %2</source>
+        <translation>In duty · %1 · %2</translation>
+    </message>
+    <message>
+        <source>通关 · %1 · %2</source>
+        <translation>Cleared · %1 · %2</translation>
+    </message>
+    <message>
+        <source>结果待确认 · %1 · %2</source>
+        <translation>Result to confirm · %1 · %2</translation>
+    </message>
+    <message>
+        <source>均 %1</source>
+        <translation>avg %1</translation>
+    </message>
+    <message>
+        <source>匹配后已过 %1</source>
+        <translation>Matched %1 ago</translation>
+    </message>
+    <message>
+        <source>已进行 %1 · 该副本平均 %2</source>
+        <translation>Elapsed %1 · this duty averages %2</translation>
+    </message>
+    <message>
+        <source>已进行 %1</source>
+        <translation>Elapsed %1</translation>
+    </message>
+    <message>
+        <source>用时 %1 · 比平均快 %2</source>
+        <translation>Took %1 · %2 faster than average</translation>
+    </message>
+    <message>
+        <source>用时 %1 · 比平均慢 %2</source>
+        <translation>Took %1 · %2 slower than average</translation>
+    </message>
+    <message>
+        <source>用时 %1</source>
+        <translation>Took %1</translation>
+    </message>
+    <message>
+        <source>%1 条记录待处理，点击逐条处理</source>
+        <translation>%1 runs need attention. Click to go through them one by one</translation>
+    </message>
+    <message>
+        <source>迷</source>
+        <translation>D</translation>
+    </message>
+    <message>
+        <source>讨</source>
+        <translation>T</translation>
+    </message>
+    <message>
+        <source>大</source>
+        <translation>A</translation>
+    </message>
+    <message>
+        <source>团</source>
+        <translation>R</translation>
+    </message>
+    <message>
+        <source>令</source>
+        <translation>G</translation>
+    </message>
+    <message>
+        <source>极神</source>
+        <translation>Extreme Trials</translation>
+    </message>
+    <message>
+        <source>极</source>
+        <translation>EX</translation>
+    </message>
+</context>
+<context>
+    <name>OverlayDutyStatsModule</name>
+    <message>
+        <source>通关 %1 · 尝试 %2 · 通关率 %3</source>
+        <translation>%1 cleared · %2 attempts · %3 clear rate</translation>
+    </message>
+    <message>
+        <source>副本统计 · 按类型通关</source>
+        <translation>Duty stats · clears by type</translation>
+    </message>
+    <message>
+        <source>%1 · 通关 %2 次（%3）</source>
+        <translation>%1 · %2 cleared (%3)</translation>
+    </message>
+    <message>
+        <source>读取中…</source>
+        <translation>Loading…</translation>
+    </message>
+    <message>
+        <source>出现次数 · 全部</source>
+        <translation>Most played · all</translation>
+    </message>
+    <message>
+        <source>出现次数 · 前 %1</source>
+        <translation>Most played · top %1</translation>
+    </message>
+    <message>
+        <source>未识别</source>
+        <translation>Unrecognized</translation>
+    </message>
+    <message>
+        <source>%1 · %2 次 · %3</source>
+        <translation>%1 · %2 runs · %3</translation>
+    </message>
+    <message>
+        <source>暂无统计</source>
+        <translation>No statistics yet</translation>
+    </message>
+</context>
+<context>
+    <name>OverlayElapsedModule</name>
+    <message>
+        <source>副本用时</source>
+        <translation>Duty time</translation>
+    </message>
+</context>
+<context>
+    <name>OverlayMiniBar</name>
+    <message>
+        <source>锁定位置和大小，鼠标穿透；在主窗口或托盘解锁</source>
+        <translation>Lock position and size; clicks pass through. Unlock from the main window or the tray</translation>
+    </message>
+    <message>
+        <source>展开完整浮窗</source>
+        <translation>Expand</translation>
+    </message>
+    <message>
+        <source>已匹配</source>
+        <translation>Matched</translation>
+    </message>
+</context>
+<context>
+    <name>OverlayPendingModule</name>
+    <message>
+        <source>待处理记录</source>
+        <translation>To-do records</translation>
+    </message>
+    <message>
+        <source>%1 条待处理</source>
+        <translation>%1 to do</translation>
+    </message>
+</context>
+<context>
+    <name>OverlayProgressModule</name>
+    <message>
+        <source>累计进度</source>
+        <translation>Total progress</translation>
+    </message>
+</context>
+<context>
+    <name>OverlayRolesModule</name>
+    <message>
+        <source>职能占比 · 尝试</source>
+        <translation>Roles · attempts</translation>
+    </message>
+    <message>
+        <source>%1 · 尝试 %2 次（%3）</source>
+        <translation>%1 · %2 attempts (%3)</translation>
+    </message>
+    <message>
+        <source>暂无统计</source>
+        <translation>No statistics yet</translation>
+    </message>
+</context>
+<context>
+    <name>PendingWorkContent</name>
+    <message>
+        <source>正在读取待处理记录…</source>
+        <translation>Loading to-do items…</translation>
+    </message>
+    <message>
+        <source>待处理 · %1</source>
+        <translation>To do · %1</translation>
+    </message>
+    <message>
+        <source>未知副本</source>
+        <translation>Unknown duty</translation>
+    </message>
+    <message>
+        <source>未知职业</source>
+        <translation>Unknown job</translation>
+    </message>
+    <message>
+        <source>待复核</source>
+        <translation>Needs review</translation>
+    </message>
+    <message>
+        <source>待补笔记</source>
+        <translation>Needs a note</translation>
+    </message>
+    <message>
+        <source>有草稿</source>
+        <translation>Draft saved</translation>
+    </message>
+    <message>
+        <source>确认移除（草稿一并删除）</source>
+        <translation>Confirm removal (draft deleted too)</translation>
+    </message>
+    <message>
+        <source>移除提醒</source>
+        <translation>Remove reminder</translation>
+    </message>
+    <message>
+        <source>继续处理</source>
+        <translation>Continue</translation>
+    </message>
+    <message>
+        <source>没有待处理的记录。关闭提醒不会丢失记录，之后可从这里继续。</source>
+        <translation>No records need attention. Dismissing a reminder keeps the record; you can continue here later.</translation>
+    </message>
+    <message>
+        <source>查看全部待处理</source>
+        <translation>View all to-do items</translation>
+    </message>
+</context>
+<context>
+    <name>RecoveryInbox</name>
+    <message>
+        <source>导随记录器 · 待处理</source>
+        <translation>Mentor Recorder · To do</translation>
+    </message>
+    <message>
+        <source>刷新</source>
+        <translation>Refresh</translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation>Close</translation>
+    </message>
+</context>
+<context>
+    <name>RecoveryReminderWindow</name>
+    <message>
+        <source>导随记录器 · 本次记录待处理</source>
+        <translation>Mentor Recorder · This run needs attention</translation>
+    </message>
+</context>
+<context>
     <name>ReflectionCard</name>
     <message>
         <source>未知副本</source>
@@ -7057,6 +7559,10 @@ Recorder</translation>
     <message>
         <source>上一条笔记仍在保存中，请稍候再试。</source>
         <translation>The previous note is still saving. Try again in a moment.</translation>
+    </message>
+    <message>
+        <source>继续处理</source>
+        <translation>Continue</translation>
     </message>
     <message>
         <source>未能确认笔记是否保存，请稍后重试。</source>
@@ -7147,10 +7653,6 @@ Recorder</translation>
         <translation>Ask automatically after each run</translation>
     </message>
     <message>
-        <source>通关后自动弹出</source>
-        <translation>Pop up after clears</translation>
-    </message>
-    <message>
         <source>保存中…</source>
         <translation>Saving…</translation>
     </message>
@@ -7165,6 +7667,64 @@ Recorder</translation>
     <message>
         <source>保存笔记</source>
         <translation>Save note</translation>
+    </message>
+    <message>
+        <source>导随记录器</source>
+        <translation>Mentor Recorder</translation>
+    </message>
+    <message>
+        <source>收起</source>
+        <translation>Dismiss</translation>
+    </message>
+    <message>
+        <source>本次结果待确认</source>
+        <translation>Confirm this run’s result</translation>
+    </message>
+    <message>
+        <source>本次笔记待补录</source>
+        <translation>Add a note for this run</translation>
+    </message>
+    <message>
+        <source>关闭只会收起提醒，待办和草稿会保留，可从“待处理”继续。</source>
+        <translation>Closing dismisses the reminder. Your to-do item and draft stay in “To do” so you can continue later.</translation>
+    </message>
+    <message>
+        <source>这条记录已删除或暂时无法读取。草稿仍可复制，当前不能提交。</source>
+        <translation>This record was deleted or is temporarily unavailable. You can still copy the draft, but cannot submit it now.</translation>
+    </message>
+    <message>
+        <source>在历史记录中复核</source>
+        <translation>Review in history</translation>
+    </message>
+    <message>
+        <source>已保存的笔记有变化。下面保留了旧草稿，请选择要继续编辑的内容。最新笔记：
+%1</source>
+        <translation>The saved note has changed. Your earlier draft is kept below. Choose which version to continue editing. Latest note:
+%1</translation>
+    </message>
+    <message>
+        <source>（空）</source>
+        <translation>(empty)</translation>
+    </message>
+    <message>
+        <source>继续使用草稿</source>
+        <translation>Keep editing draft</translation>
+    </message>
+    <message>
+        <source>使用最新笔记</source>
+        <translation>Use latest note</translation>
+    </message>
+    <message>
+        <source>通关后提醒记笔记</source>
+        <translation>Remind me to add a note after clears</translation>
+    </message>
+    <message>
+        <source>草稿尚未保存，请保留窗口并稍后重试。</source>
+        <translation>The draft is not saved yet. Keep this window open and try again later.</translation>
+    </message>
+    <message>
+        <source>记录库尚未确认，请保留草稿并稍后重新打开。</source>
+        <translation>The record database is not confirmed yet. Keep your draft and reopen it later.</translation>
     </message>
 </context>
 <context>
@@ -7533,6 +8093,141 @@ Recorder</translation>
     </message>
 </context>
 <context>
+    <name>ResultPopupContent</name>
+    <message>
+        <source>刚刚结束</source>
+        <translation>Just ended</translation>
+    </message>
+    <message>
+        <source>上一条</source>
+        <translation>Previous</translation>
+    </message>
+    <message>
+        <source>下一条</source>
+        <translation>Next</translation>
+    </message>
+    <message>
+        <source>结束后自动询问：开</source>
+        <translation>Ask after each duty: on</translation>
+    </message>
+    <message>
+        <source>结束后自动询问：关</source>
+        <translation>Ask after each duty: off</translation>
+    </message>
+    <message>
+        <source>通关后提醒记笔记：开</source>
+        <translation>Note reminder after a clear: on</translation>
+    </message>
+    <message>
+        <source>通关后提醒记笔记：关</source>
+        <translation>Note reminder after a clear: off</translation>
+    </message>
+    <message>
+        <source>只有确认「通关」才计入导随次数。
+收起后草稿保留，可从浮窗「待处理」继续。</source>
+        <translation>Only runs confirmed as Cleared count toward your total.
+Collapsing keeps your draft; pick it up again from To review in the overlay.</translation>
+    </message>
+    <message>
+        <source>收起到待处理，稍后再确认</source>
+        <translation>Move to To review and confirm later</translation>
+    </message>
+    <message>
+        <source>这条记录已删除或暂时无法读取。草稿仍可复制，当前不能提交。</source>
+        <translation>This record was deleted or is temporarily unavailable. You can still copy the draft, but cannot submit it now.</translation>
+    </message>
+    <message>
+        <source>未识别</source>
+        <translation>Unrecognized</translation>
+    </message>
+    <message>
+        <source>未知</source>
+        <translation>Unknown</translation>
+    </message>
+    <message>
+        <source>本次职业</source>
+        <translation>Job this run</translation>
+    </message>
+    <message>
+        <source>已保存的笔记有变化。下面保留了旧草稿，请选择要继续编辑的内容。最新笔记：
+%1</source>
+        <translation>The saved note has changed. Your earlier draft is kept below. Choose which version to continue editing. Latest note:
+%1</translation>
+    </message>
+    <message>
+        <source>（空）</source>
+        <translation>(empty)</translation>
+    </message>
+    <message>
+        <source>继续使用草稿</source>
+        <translation>Keep editing draft</translation>
+    </message>
+    <message>
+        <source>使用最新笔记</source>
+        <translation>Use latest note</translation>
+    </message>
+    <message>
+        <source>通关了吗？</source>
+        <translation>Did you clear it?</translation>
+    </message>
+    <message>
+        <source>通关 +1</source>
+        <translation>Cleared +1</translation>
+    </message>
+    <message>
+        <source>确认通关，计入导随次数</source>
+        <translation>Confirm the clear and count it</translation>
+    </message>
+    <message>
+        <source>退出</source>
+        <translation>Left</translation>
+    </message>
+    <message>
+        <source>退出 / 放弃 · 不计入导随次数</source>
+        <translation>Left or abandoned · not counted</translation>
+    </message>
+    <message>
+        <source>稍后</source>
+        <translation>Later</translation>
+    </message>
+    <message>
+        <source>已计入导随次数</source>
+        <translation>Counted toward your total</translation>
+    </message>
+    <message>
+        <source>已记为退出 / 放弃，不计入</source>
+        <translation>Saved as left or abandoned; not counted</translation>
+    </message>
+    <message>
+        <source>顺利</source>
+        <translation>Smooth</translation>
+    </message>
+    <message>
+        <source>一般</source>
+        <translation>So-so</translation>
+    </message>
+    <message>
+        <source>糟心</source>
+        <translation>Rough</translation>
+    </message>
+    <message>
+        <source>写一句心得（可选）</source>
+        <translation>Add a note (optional)</translation>
+    </message>
+    <message>
+        <source>在历史记录中复核</source>
+        <translation>Review in history</translation>
+    </message>
+    <message>
+        <source>保存中…</source>
+        <translation>Saving…</translation>
+    </message>
+    <message>
+        <source>完成</source>
+        <translation>Done</translation>
+    </message>
+</context>
+<context>
     <name>RoleIcon</name>
     <message>
         <source>坦</source>
@@ -7561,6 +8256,10 @@ Recorder</translation>
 </context>
 <context>
     <name>RunDetailPanel</name>
+    <message>
+        <source>进入方式</source>
+        <translation>Entry</translation>
+    </message>
     <message>
         <source>否</source>
         <translation>No</translation>
@@ -7651,10 +8350,6 @@ Recorder</translation>
     </message>
     <message>
         <source>排队时间</source>
-    <message>
-        <source>进入方式</source>
-        <translation>Entry</translation>
-    </message>
         <translation>Queue time</translation>
     </message>
     <message>
@@ -7881,6 +8576,10 @@ Recorder</translation>
 <context>
     <name>RunWizardResultStep</name>
     <message>
+        <source>进入方式</source>
+        <translation>Entry</translation>
+    </message>
+    <message>
         <source>%1，%2</source>
         <translation>%1, %2</translation>
     </message>
@@ -7970,10 +8669,6 @@ Turning this off excludes the clear from achievement progress, but the run still
         <translation>e.g. added manually while the app wasn&apos;t running</translation>
     </message>
     <message>
-    <message>
-        <source>进入方式</source>
-        <translation>Entry</translation>
-    </message>
         <source>图片保存在软件安装目录：%1</source>
         <translation>Images are saved in the app&apos;s install folder: %1</translation>
     </message>
@@ -8179,6 +8874,22 @@ Turning this off excludes the clear from achievement progress, but the run still
 <context>
     <name>SettingsGeneralTab</name>
     <message>
+        <source>自动记录</source>
+        <translation>Automatic recording</translation>
+    </message>
+    <message>
+        <source>游戏区服</source>
+        <translation>Game region</translation>
+    </message>
+    <message>
+        <source>默认按安装路径识别，自定义目录可能无法识别。
+请选择实际使用的区服，保存后会重新检查。
+监听或采证期间不可修改。</source>
+        <translation>The region is detected from the installation path. Custom folders may not be recognised.
+Select the region you use; it will be checked again after saving.
+The region cannot be changed while listening or collecting evidence.</translation>
+    </message>
+    <message>
         <source>当前后台服务不支持这项设置，暂时无法修改。</source>
         <translation>The current background service doesn&apos;t support this setting, so it can&apos;t be changed for now.</translation>
     </message>
@@ -8223,28 +8934,12 @@ Turning this off excludes the clear from achievement progress, but the run still
         <translation>Minimize to tray on close</translation>
     </message>
     <message>
-        <source>关闭窗口后仍在后台运行；可从托盘菜单选择「显示」或「退出」</source>
-        <translation>Keeps running in the background after you close the window; choose “Show main window” or “Quit” from the tray menu</translation>
-    </message>
-    <message>
         <source>记录</source>
         <translation>Recording</translation>
     </message>
     <message>
         <source>结束后询问本次结果</source>
         <translation>Ask for the result after each run</translation>
-    </message>
-    <message>
-        <source>未收到通关结算就离开副本时，软件会询问本次结果。关闭后可在总览的「待复核」中确认。</source>
-        <translation>If you leave a duty without a clear result, the app asks how the run went. If off, confirm it later under “Needs review” on Overview.</translation>
-    </message>
-    <message>
-        <source>通关后弹出笔记窗口</source>
-        <translation>Open the note window after a clear</translation>
-    </message>
-    <message>
-        <source>通关后弹出窗口记笔记；也可稍后到历史记录补写。</source>
-        <translation>Opens a window for a note after a clear; you can also add it later from History.</translation>
     </message>
     <message>
         <source>校准</source>
@@ -8345,6 +9040,42 @@ Turning this off excludes the clear from achievement progress, but the run still
     <message>
         <source>重启后生效</source>
         <translation>Takes effect after restart</translation>
+    </message>
+    <message>
+        <source>通关后提醒记笔记</source>
+        <translation>Remind me to add a note after clears</translation>
+    </message>
+    <message>
+        <source>关闭窗口后仍在后台运行；可从托盘菜单选择「显示主窗口」或「退出」</source>
+        <translation>Keeps running in the background after you close the window; choose “Show main window” or “Quit” from the tray menu</translation>
+    </message>
+    <message>
+        <source>未收到通关结算就离开副本时，软件会询问本次结果。关闭后可在总览的「待处理」中确认。</source>
+        <translation>If you leave a duty without a clear result, the app asks how the run went. If off, confirm it later under “To do” on Overview.</translation>
+    </message>
+    <message>
+        <source>通关后按下方方式提醒；关闭提醒后仍可从历史记录补写。</source>
+        <translation>Use the method below to remind you after clears. If reminders are off, you can still add notes from history.</translation>
+    </message>
+    <message>
+        <source>提醒方式</source>
+        <translation>Reminder style</translation>
+    </message>
+    <message>
+        <source>独立小窗不抢键盘焦点；浮窗关闭时只保留待办。关闭提醒不会删除草稿。</source>
+        <translation>The separate window keeps keyboard focus where it is. Overlay reminders stay in To do when the overlay is closed. Turning off reminders keeps your drafts.</translation>
+    </message>
+    <message>
+        <source>独立小窗</source>
+        <translation>Separate window</translation>
+    </message>
+    <message>
+        <source>浮窗提示</source>
+        <translation>Overlay reminder</translation>
+    </message>
+    <message>
+        <source>仅保留待办</source>
+        <translation>To do only</translation>
     </message>
 </context>
 <context>
@@ -8591,16 +9322,16 @@ Turning this off excludes the clear from achievement progress, but the run still
         <translation>Agree and start recording</translation>
     </message>
     <message>
-        <source>导入校准码</source>
-        <translation>Import calibration code</translation>
-    </message>
-    <message>
         <source>立即检查</source>
         <translation>Check now</translation>
     </message>
     <message>
         <source>改为本机校准</source>
         <translation>Calibrate locally instead</translation>
+    </message>
+    <message>
+        <source>副本进行中，结束后再试</source>
+        <translation>In a duty — try again after it ends</translation>
     </message>
     <message>
         <source>改为本机校准？</source>
@@ -8617,6 +9348,68 @@ Turning this off excludes the clear from achievement progress, but the run still
     <message>
         <source>取消</source>
         <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>其他方式</source>
+        <translation>Other ways</translation>
+    </message>
+    <message>
+        <source>收起其他方式</source>
+        <translation>Hide other ways</translation>
+    </message>
+    <message>
+        <source>手动导入校准码…</source>
+        <translation>Import code manually…</translation>
+    </message>
+</context>
+<context>
+    <name>StatisticsFloatingContent</name>
+    <message>
+        <source>还没有选择内容，点标题栏的“自定义”添加。</source>
+        <translation>Nothing selected yet; use Customize in the title bar to add modules.</translation>
+    </message>
+    <message>
+        <source>所选内容进本后显示。</source>
+        <translation>The selected modules appear once a duty begins.</translation>
+    </message>
+</context>
+<context>
+    <name>StatisticsFloatingWindow</name>
+    <message>
+        <source>导随统计浮窗</source>
+        <translation>Mentor stats overlay</translation>
+    </message>
+    <message>
+        <source>拖动移动</source>
+        <translation>Drag to move</translation>
+    </message>
+    <message>
+        <source>导随统计</source>
+        <translation>Mentor stats</translation>
+    </message>
+    <message>
+        <source>收成迷你条</source>
+        <translation>Collapse to mini bar</translation>
+    </message>
+    <message>
+        <source>自定义</source>
+        <translation>Customize</translation>
+    </message>
+    <message>
+        <source>锁定位置和大小，鼠标穿透；在主窗口或托盘解锁</source>
+        <translation>Lock position and size; clicks pass through. Unlock from the main window or the tray</translation>
+    </message>
+    <message>
+        <source>关闭浮窗</source>
+        <translation>Close overlay</translation>
+    </message>
+    <message>
+        <source>拖动调整大小</source>
+        <translation>Drag to resize</translation>
+    </message>
+    <message>
+        <source>数据暂未就绪，已有统计可能不是最新。</source>
+        <translation>Data is not ready. Shown stats may be out of date.</translation>
     </message>
 </context>
 <context>
@@ -8795,8 +9588,8 @@ Turning this off excludes the clear from achievement progress, but the run still
         <translation>Not connected</translation>
     </message>
     <message>
-        <source>Collector 运行中（复用已有实例）</source>
-        <translation>Collector running (reusing existing instance)</translation>
+        <source>后台服务运行中（沿用之前启动的）</source>
+        <translation>Background service running (reusing the one started earlier)</translation>
     </message>
     <message>
         <source>游戏已连接，但暂时读不到有效数据。请登出到标题画面再重新登录一次（不用关闭游戏）。</source>
@@ -8891,12 +9684,8 @@ Turning this off excludes the clear from achievement progress, but the run still
         <translation>Checked again; no running FFXIV found.</translation>
     </message>
     <message>
-        <source>已重新扫描：FF14 PID %1 · 实例 %2 · build %3</source>
-        <translation>Rescanned: FFXIV PID %1 · instance %2 · build %3</translation>
-    </message>
-    <message>
-        <source>未知</source>
-        <translation>Unknown</translation>
+        <source>已重新检测，找到正在运行的 FF14。</source>
+        <translation>Checked again; found FFXIV running.</translation>
     </message>
     <message>
         <source>已重新检测到 %1 张网卡</source>
@@ -8926,6 +9715,10 @@ Turning this off excludes the clear from achievement progress, but the run still
         <source>读取事件摘要失败：%1</source>
         <translation>Couldn&apos;t load the event summary: %1</translation>
     </message>
+    <message>
+        <source>记录库连接已变化，本次笔记的保存结果尚未在当前页面确认。请从待处理重新打开。</source>
+        <translation>The database connection has changed. This page has not confirmed whether the note was saved. Reopen it from To do.</translation>
+    </message>
 </context>
 <context>
     <name>mr::AppSettings</name>
@@ -8952,6 +9745,18 @@ Turning this off excludes the clear from achievement progress, but the run still
 </context>
 <context>
     <name>mr::AutomaticRecordingController</name>
+    <message>
+        <source>无法识别游戏区服，暂时不能自动记录。请在「设置 → 通用」中选择实际区服（国服 / 国际服），保存后会重新检查。</source>
+        <translation>The game region could not be identified, so automatic recording is unavailable. Select the region you use (China or Global) in Settings → General. It will be checked again after saving.</translation>
+    </message>
+    <message>
+        <source>无法读取游戏版本，暂时不能自动记录。请确认游戏文件完整，再点「重新检测游戏」。</source>
+        <translation>The game version could not be read, so automatic recording is unavailable. Check the game files, then select Detect game again.</translation>
+    </message>
+    <message>
+        <source>正在检查游戏安装位置、区服和版本，请稍候…</source>
+        <translation>Checking the game installation, region and version. Please wait…</translation>
+    </message>
     <message>
         <source>正在连接自动记录服务，请稍候。</source>
         <translation>Connecting to the automatic recording service. Please wait.</translation>
@@ -9338,15 +10143,15 @@ Turning this off excludes the clear from achievement progress, but the run still
         <translation>Validation ended</translation>
     </message>
     <message>
-        <source>当前 Collector 不支持桌面验证（%1）。</source>
-        <translation>This Collector doesn&apos;t support desktop validation (%1).</translation>
+        <source>当前后台服务不支持桌面验证，请更新软件后重试。</source>
+        <translation>The current background service doesn&apos;t support desktop validation. Update the app and try again.</translation>
     </message>
     <message>
-        <source>当前 Collector 不支持桌面验证：%1</source>
-        <translation>This Collector doesn&apos;t support desktop validation: %1</translation>
+        <source>当前后台服务不支持桌面验证，请更新软件后重试。（%1）</source>
+        <translation>The current background service doesn&apos;t support desktop validation. Update the app and try again. (%1)</translation>
     </message>
     <message>
-        <source>验证状态多次刷新失败（%1），已停止自动重试；可点击“重新扫描 FF14”再试一次。</source>
+        <source>验证状态多次刷新失败（%1），已停止自动重试；可点击“重新检测游戏”再试一次。</source>
         <translation>Refreshing validation status failed repeatedly (%1), so automatic retries stopped; click “Check game again” to try again.</translation>
     </message>
     <message>
@@ -9478,6 +10283,10 @@ Turning this off excludes the clear from achievement progress, but the run still
     <message>
         <source>其他副本</source>
         <translation>Other duties</translation>
+    </message>
+    <message>
+        <source>极神</source>
+        <translation>Extreme Trials</translation>
     </message>
 </context>
 <context>
@@ -9666,12 +10475,40 @@ Turning this off excludes the clear from achievement progress, but the run still
         <translation>no reason given</translation>
     </message>
     <message>
+        <source>找不到数据文件夹。</source>
+        <translation>Can&apos;t find the data folder.</translation>
+    </message>
+    <message>
+        <source>数据文件夹还不存在：%1。后台服务启动后会创建它。</source>
+        <translation>The data folder doesn&apos;t exist yet: %1. The background service creates it when it starts.</translation>
+    </message>
+    <message>
         <source>已打开 %1</source>
         <translation>Opened %1</translation>
     </message>
 </context>
 <context>
     <name>mr::Formatters</name>
+    <message>
+        <source>副本开始</source>
+        <translation>Duty commenced</translation>
+    </message>
+    <message>
+        <source>副本剩余时间</source>
+        <translation>Duty time remaining</translation>
+    </message>
+    <message>
+        <source>进入方式</source>
+        <translation>Entry</translation>
+    </message>
+    <message>
+        <source>中途加入</source>
+        <translation>Joined in progress</translation>
+    </message>
+    <message>
+        <source>开局进入</source>
+        <translation>From the start</translation>
+    </message>
     <message>
         <source>周一</source>
         <translation>Mon</translation>
@@ -9798,26 +10635,6 @@ Turning this off excludes the clear from achievement progress, but the run still
     </message>
     <message>
         <source>没有检测到正在运行的游戏。</source>
-    <message>
-        <source>副本开始</source>
-        <translation>Duty commenced</translation>
-    </message>
-    <message>
-        <source>副本剩余时间</source>
-        <translation>Duty time remaining</translation>
-    </message>
-    <message>
-        <source>进入方式</source>
-        <translation>Entry</translation>
-    </message>
-    <message>
-        <source>中途加入</source>
-        <translation>Joined in progress</translation>
-    </message>
-    <message>
-        <source>开局进入</source>
-        <translation>From the start</translation>
-    </message>
         <translation>No running game detected.</translation>
     </message>
     <message>
@@ -10250,6 +11067,10 @@ Turning this off excludes the clear from achievement progress, but the run still
         <translation>This record&apos;s result was just confirmed elsewhere, so nothing was changed this time. Check the current record before deciding.</translation>
     </message>
     <message>
+        <source>选中的记录已经变了，未做任何改动。请关闭后重新选择要操作的记录。</source>
+        <translation>The selected record has changed, so nothing was done. Close this and select the record you want to work on again.</translation>
+    </message>
+    <message>
         <source>该记录不在待复核状态。</source>
         <translation>This record doesn&apos;t need review.</translation>
     </message>
@@ -10405,6 +11226,14 @@ Turning this off excludes the clear from achievement progress, but the run still
         <translation>Choose one record file. Several screenshots can be recognized together.</translation>
     </message>
     <message>
+        <source>截图「%1」已在本批次中，没有重复添加；原批次已保留。</source>
+        <translation>Screenshot “%1” is already in this batch, so it wasn&apos;t added again; the existing batch is kept.</translation>
+    </message>
+    <message>
+        <source>截图「%1」选择了两次，请每张截图只选一次。</source>
+        <translation>Screenshot “%1” was chosen twice. Choose each screenshot only once.</translation>
+    </message>
+    <message>
         <source>同一批次最多 %1 张截图；原批次已保留。</source>
         <translation>A batch can hold up to %1 screenshots; the existing batch is kept.</translation>
     </message>
@@ -10457,6 +11286,14 @@ Turning this off excludes the clear from achievement progress, but the run still
         <translation>The background service isn&apos;t connected; your input is kept. Click “Validate again” once the connection is back.</translation>
     </message>
     <message>
+        <source>加入新截图后这批记录太大，无法校验。未添加新记录，原批次已保留；请把新截图放到下一批导入。</source>
+        <translation>With the new screenshots the batch would be too large to validate. No records were added and the existing batch is kept; import the new screenshots in the next batch.</translation>
+    </message>
+    <message>
+        <source>这批记录太大，无法重新校验，当前内容没有改动。请分成几批重新导入。</source>
+        <translation>This batch is too large to validate again; nothing was changed. Split it into several batches and import them again.</translation>
+    </message>
+    <message>
         <source>当前后台服务版本不支持导入，请更新软件后重试。</source>
         <translation>This version of the background service doesn&apos;t support importing. Update the app and try again.</translation>
     </message>
@@ -10471,6 +11308,10 @@ Turning this off excludes the clear from achievement progress, but the run still
     <message>
         <source>未收到新截图的完整预览，原批次已保留。请重新添加截图并校验。</source>
         <translation>No complete preview received for the new screenshots; the existing batch is kept. Add the screenshots again and validate.</translation>
+    </message>
+    <message>
+        <source>修改后这批记录太大，无法重新校验，这次修改没有保存。请缩短内容后再改。</source>
+        <translation>After this change the batch is too large to validate again, so the change wasn&apos;t saved. Shorten the content and try again.</translation>
     </message>
     <message>
         <source>批量设置只能修改职业、结果和打本心情。</source>
@@ -10493,12 +11334,20 @@ Turning this off excludes the clear from achievement progress, but the run still
         <translation>Mood option not recognized. Choose again.</translation>
     </message>
     <message>
+        <source>批量设置后这批记录太大，无法重新校验，没有修改任何记录。</source>
+        <translation>After bulk edit the batch would be too large to validate again, so no records were changed.</translation>
+    </message>
+    <message>
         <source>尚未确认导入结果。输入已保留，可安全重试同一批次。</source>
         <translation>The import result isn&apos;t confirmed yet. Your input is kept and you can safely retry the same batch.</translation>
     </message>
     <message>
         <source>追加已取消，原批次已保留。</source>
         <translation>Adding canceled; the existing batch is kept.</translation>
+    </message>
+    <message>
+        <source>这批记录太大，更改地区后无法重新校验，地区没有更改。</source>
+        <translation>This batch is too large to validate again after changing the region, so the region wasn&apos;t changed.</translation>
     </message>
     <message>
         <source>职业未知 / 待补充</source>
@@ -10580,10 +11429,6 @@ Turning this off excludes the clear from achievement progress, but the run still
     <message>
         <source>记录已更新，请重新勾选，本批未应用。</source>
         <translation>Records were updated; check them again. This batch wasn&apos;t applied.</translation>
-    </message>
-    <message>
-        <source>记录删除状态与操作不符，本批未应用。</source>
-        <translation>A record&apos;s deletion state doesn&apos;t match the action; this batch wasn&apos;t applied.</translation>
     </message>
 </context>
 <context>
@@ -10761,6 +11606,41 @@ Turning this off excludes the clear from achievement progress, but the run still
     </message>
 </context>
 <context>
+    <name>mr::RecoveryController</name>
+    <message>
+        <source>无法读取待办草稿；当前输入仍保留在窗口中。</source>
+        <translation>Could not load to-do drafts. Your current input is still in the window.</translation>
+    </message>
+    <message>
+        <source>待办草稿文件无法识别，已保留原文件；当前输入仍在内存中。</source>
+        <translation>The to-do draft file could not be read. The original file is kept; your current input remains in memory.</translation>
+    </message>
+    <message>
+        <source>无法保存待办草稿；请保留当前窗口，稍后重试。</source>
+        <translation>Could not save the to-do draft. Keep this window open and try again later.</translation>
+    </message>
+    <message>
+        <source>另一个窗口正在保存待办草稿，请稍后重试。</source>
+        <translation>Another window is saving to-do drafts. Try again shortly.</translation>
+    </message>
+    <message>
+        <source>记录身份已改变；原草稿已保留，请先复制内容。</source>
+        <translation>The record’s identity has changed. Your original draft is kept; copy its contents first.</translation>
+    </message>
+    <message>
+        <source>待办暂时无法更新，已保留上次记录和草稿。</source>
+        <translation>Could not refresh to-do items. The previous records and drafts are kept.</translation>
+    </message>
+    <message>
+        <source>当前无法读取最新记录；草稿仍可查看和复制。</source>
+        <translation>The latest record is unavailable. You can still view and copy the draft.</translation>
+    </message>
+    <message>
+        <source>这条记录已不存在或已删除；保留的草稿仍可复制。</source>
+        <translation>This record no longer exists or was deleted. You can still copy the saved draft.</translation>
+    </message>
+</context>
+<context>
     <name>mr::ReflectionShareController</name>
     <message>
         <source>导随心得合集_%1_%2条</source>
@@ -10881,6 +11761,10 @@ Turning this off excludes the clear from achievement progress, but the run still
 </context>
 <context>
     <name>mr::RunFormValidator</name>
+    <message>
+        <source>进入方式</source>
+        <translation>Entry</translation>
+    </message>
     <message>
         <source>修正原因</source>
         <translation>Reason for correction</translation>
@@ -11007,10 +11891,6 @@ Turning this off excludes the clear from achievement progress, but the run still
     <message>
         <source>日历服务尚未连接</source>
         <translation>Calendar service not connected</translation>
-    <message>
-        <source>进入方式</source>
-        <translation>Entry</translation>
-    </message>
     </message>
     <message>
         <source>无效的日历月份</source>
@@ -11166,20 +12046,8 @@ Turning this off excludes the clear from achievement progress, but the run still
         <translation>Calibration code imported. After logging in, queue for a roulette and enter the duty; recording starts once the checks pass.</translation>
     </message>
     <message>
-        <source>找到了共享校准，登录时会自动检查，通过后就能开始记录。</source>
-        <translation>Found a shared calibration. It&apos;s checked automatically when you log in, and recording can start once it passes.</translation>
-    </message>
-    <message>
-        <source>找到了共享校准。申请随机任务并进入副本，通过检查后才能开始记录。</source>
-        <translation>Found a shared calibration. Queue for a roulette and enter the duty; recording starts once the checks pass.</translation>
-    </message>
-    <message>
         <source>校准码已导入。登录或排本时会自动检查是否可用。</source>
         <translation>Calibration code imported. It&apos;s checked automatically when you log in or queue.</translation>
-    </message>
-    <message>
-        <source>找到了共享校准，登录或排本时会自动检查是否可用。</source>
-        <translation>Found a shared calibration. It&apos;s checked automatically when you log in or queue.</translation>
     </message>
     <message>
         <source>共享校准已通过检查，请确认是否使用。</source>
@@ -11234,24 +12102,12 @@ Turning this off excludes the clear from achievement progress, but the run still
         <translation>Local calibration continues and existing progress is kept. Just play as usual.</translation>
     </message>
     <message>
-        <source>稍后可点「立即检查」重试。也可以向已完成校准的玩家索取校准码，再点「导入校准码」。</source>
-        <translation>You can click “Check now” later to retry, or ask a player who has finished calibrating for a calibration code and click “Import calibration code”.</translation>
-    </message>
-    <message>
         <source>本机校准完成后，可以点「分享给其他玩家」，让同一游戏版本的玩家也能使用。</source>
         <translation>Once local calibration is done, you can click “Share with other players” so players on the same game version can use it too.</translation>
     </message>
     <message>
-        <source>想自动查找共享校准，可在设置中开启「游戏更新后获取其他玩家的共享校准」。也可以直接导入校准码。</source>
-        <translation>To look for shared calibrations automatically, turn on “Get shared calibrations from other players after game updates” in Settings. You can also import a calibration code directly.</translation>
-    </message>
-    <message>
         <source>想重新使用共享校准，点「清空校准进度」。本机尚未完成的校准进度也会一起清空。</source>
         <translation>To use shared calibrations again, click “Clear calibration progress”. Unfinished local calibration progress is cleared along with it.</translation>
-    </message>
-    <message>
-        <source>有其他玩家发来的校准码，可以点「导入校准码」。通过检查后才会使用。</source>
-        <translation>If another player sent you a calibration code, click “Import calibration code”. It&apos;s used only after it passes the checks.</translation>
     </message>
     <message>
         <source>分享给其他玩家</source>
@@ -11260,10 +12116,6 @@ Turning this off excludes the clear from achievement progress, but the run still
     <message>
         <source>这份校准好用，告诉其他玩家</source>
         <translation>This calibration works — tell other players</translation>
-    </message>
-    <message>
-        <source>这份校准会根据你申请的随机任务和实际进入的副本来记录，记录中的匹配时间使用你申请排队的时间。取消排队不会生成记录。这是目前可用的基础记录方式。同意后，当前游戏版本不会再询问。如果你有其他玩家发来的校准码，也可以先点「导入校准码」。</source>
-        <translation>This calibration will record runs based on the roulette you queue for and the duty you actually enter, and the match time in records is the time you queued. Canceling a queue creates no record. This is the basic recording method available for now. Once you agree, you won&apos;t be asked again for this game version. If another player sent you a calibration code, you can click “Import calibration code” first.</translation>
     </message>
     <message>
         <source>可以把本机校准分享给同一游戏版本的玩家。点击后会打开 GitHub 分享页面，并复制校准码。是否提交由你决定，软件不会自动上传。</source>
@@ -11322,12 +12174,12 @@ Turning this off excludes the clear from achievement progress, but the run still
         <translation>Couldn&apos;t create a calibration code. Try again later.</translation>
     </message>
     <message>
-        <source>校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 页面。你可以把这份校准直接发给其他玩家，让对方点「导入校准码」并粘贴。</source>
-        <translation>Calibration code copied to the clipboard. It&apos;s too long to open the GitHub page automatically. You can send this calibration straight to other players and have them click “Import calibration code” and paste it.</translation>
+        <source>校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 页面。你可以把这份校准直接发给其他玩家，让对方在「其他方式」中点「手动导入校准码…」并粘贴。</source>
+        <translation>Calibration code copied to the clipboard. It&apos;s too long to open the GitHub page automatically. You can send this calibration straight to other players and have them click “Import code manually…” under “Other ways” and paste it.</translation>
     </message>
     <message>
-        <source>校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 分享页面。你可以直接把它发给其他玩家，让对方点「导入校准码」并粘贴。</source>
-        <translation>Calibration code copied to the clipboard. It&apos;s too long to open the GitHub share page automatically. You can send it straight to other players and have them click “Import calibration code” and paste it.</translation>
+        <source>校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 分享页面。你可以直接把它发给其他玩家，让对方在「其他方式」中点「手动导入校准码…」并粘贴。</source>
+        <translation>Calibration code copied to the clipboard. It&apos;s too long to open the GitHub share page automatically. You can send it straight to other players and have them click “Import code manually…” under “Other ways” and paste it.</translation>
     </message>
     <message>
         <source>校准码已复制到剪贴板。GitHub 页面地址有误，未打开浏览器；可以把这份校准直接发给其他玩家。</source>
@@ -11388,6 +12240,38 @@ Turning this off excludes the clear from achievement progress, but the run still
     <message>
         <source>已取消共享校准的检查，正在继续本机校准。</source>
         <translation>Canceled the shared calibration check; local calibration continues.</translation>
+    </message>
+    <message>
+        <source>已找到共享校准，等待本机验证。</source>
+        <translation>Shared calibration found. Waiting for verification on this computer.</translation>
+    </message>
+    <message>
+        <source>无需手动导入。登录游戏时会自动检查，检查通过后才能开始自动记录。如果不能使用，会继续本机校准，已有进度会保留。</source>
+        <translation>No manual import is needed. The app will check this calibration when you log in. Automatic recording can start after it passes. If it cannot be used, local calibration will continue with your progress preserved.</translation>
+    </message>
+    <message>
+        <source>无需手动导入。请申请随机任务并进入副本，检查通过后才能开始自动记录。如果不能使用，会继续本机校准，已有进度会保留。</source>
+        <translation>No manual import is needed. Queue for a roulette and enter the duty. Automatic recording can start after verification passes. If this calibration cannot be used, local calibration will continue with your progress preserved.</translation>
+    </message>
+    <message>
+        <source>无需手动导入。登录或排本时会自动检查，检查通过后才能开始自动记录。如果不能使用，会继续本机校准，已有进度会保留。</source>
+        <translation>No manual import is needed. The app will check this calibration when you log in or queue for a duty. Automatic recording can start after it passes. If it cannot be used, local calibration will continue with your progress preserved.</translation>
+    </message>
+    <message>
+        <source>稍后可点「立即检查」重试。也可以向已完成校准的玩家索取校准码，在「其他方式」中手动导入。</source>
+        <translation>Try Check now again later. You can also ask a player who has completed calibration for their code and import it manually under Other ways.</translation>
+    </message>
+    <message>
+        <source>想自动查找共享校准，可在设置中开启「游戏更新后获取其他玩家的共享校准」。也可以在「其他方式」中手动导入校准码。</source>
+        <translation>To find shared calibrations automatically, enable Get other players’ shared calibrations after a game update in Settings. You can also import a code manually under Other ways.</translation>
+    </message>
+    <message>
+        <source>有其他玩家发来的校准码，可以在「其他方式」中手动导入。通过检查后才会使用。</source>
+        <translation>If another player sent you a calibration code, import it manually under Other ways. It will be used only after verification passes.</translation>
+    </message>
+    <message>
+        <source>这份校准会根据你申请的随机任务和实际进入的副本来记录，记录中的匹配时间使用你申请排队的时间。取消排队不会生成记录。这是目前可用的基础记录方式。同意后，当前游戏版本不会再询问。如果你有其他玩家发来的校准码，也可以在「其他方式」中手动导入校准码。</source>
+        <translation>This calibration records the roulette you queue for and the duty you enter. The match time in each record is the time you joined the queue. Cancelling the queue creates no record. This is the basic recording method currently available. Once you agree, you will not be asked again for this game version. If another player sent you a calibration code, you can also import it manually under Other ways.</translation>
     </message>
 </context>
 <context>
@@ -11507,6 +12391,10 @@ Turning this off excludes the clear from achievement progress, but the run still
 <context>
     <name>mr::StatisticsController</name>
     <message>
+        <source>中途加入</source>
+        <translation>Joined in progress</translation>
+    </message>
+    <message>
         <source>尝试次数</source>
         <translation>Attempts</translation>
     </message>
@@ -11552,6 +12440,41 @@ Turning this off excludes the clear from achievement progress, but the run still
     </message>
 </context>
 <context>
+    <name>mr::StatisticsOverlayController</name>
+    <message>
+        <source>累计进度</source>
+        <translation>Total progress</translation>
+    </message>
+    <message>
+        <source>当前副本</source>
+        <translation>Current duty</translation>
+    </message>
+    <message>
+        <source>进本后显示</source>
+        <translation>Shown in a duty</translation>
+    </message>
+    <message>
+        <source>副本用时</source>
+        <translation>Duty time</translation>
+    </message>
+    <message>
+        <source>副本统计</source>
+        <translation>Duty stats</translation>
+    </message>
+    <message>
+        <source>职业统计</source>
+        <translation>Job stats</translation>
+    </message>
+    <message>
+        <source>待处理记录</source>
+        <translation>To-do records</translation>
+    </message>
+    <message>
+        <source>有待处理时显示</source>
+        <translation>Shown when needed</translation>
+    </message>
+</context>
+<context>
     <name>mr::StatsRowsModel</name>
     <message>
         <source>统计分页在读取时发生变化，请刷新后重试。</source>
@@ -11579,6 +12502,22 @@ Turning this off excludes the clear from achievement progress, but the run still
     <message>
         <source>FF14 导随记录器</source>
         <translation>FFXIV Mentor Recorder</translation>
+    </message>
+    <message>
+        <source>隐藏统计浮窗</source>
+        <translation>Hide stats overlay</translation>
+    </message>
+    <message>
+        <source>显示统计浮窗</source>
+        <translation>Show stats overlay</translation>
+    </message>
+    <message>
+        <source>解锁统计浮窗</source>
+        <translation>Unlock stats overlay</translation>
+    </message>
+    <message>
+        <source>待处理（%1）</source>
+        <translation>To do (%1)</translation>
     </message>
 </context>
 <context>
@@ -11632,10 +12571,6 @@ Turning this off excludes the clear from achievement progress, but the run still
         <translation>Female</translation>
     </message>
     <message>
-    <message>
-        <source>中途加入</source>
-        <translation>Joined in progress</translation>
-    </message>
         <source>%1（%2）</source>
         <extracomment>A voice name, then its language and gender.</extracomment>
         <translation>%1 (%2)</translation>

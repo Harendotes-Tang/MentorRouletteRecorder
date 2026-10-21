@@ -747,8 +747,8 @@ public static partial class RunImportSourceParser
             command.CommandText = "SELECT " + string.Join(',', selected.Select(column => "r.\"" + column + "\"")) +
                 (reflectionColumns.Count == 0 ? string.Empty : ", f.text AS reflection_text, f.mood AS reflection_mood") +
                 (metadataColumns.Count == 0 ? string.Empty : ", " + string.Join(',', metadataFields.Select(column => "m.\"" + column + "\" AS \"" + column + "\""))) +
-                " FROM mentor_runs r" + (reflectionColumns.Count == 0 ? string.Empty : " LEFT JOIN run_reflections f ON f.run_id = r.run_id") +
-                (metadataColumns.Count == 0 ? string.Empty : " LEFT JOIN run_import_metadata m ON m.run_id = r.run_id") +
+                " FROM mentor_runs r" + (reflectionColumns.Count == 0 ? string.Empty : " LEFT JOIN run_reflections f ON f.run_id COLLATE BINARY = r.run_id") +
+                (metadataColumns.Count == 0 ? string.Empty : " LEFT JOIN run_import_metadata m ON m.run_id COLLATE BINARY = r.run_id") +
                 " ORDER BY r.run_id LIMIT 5001;";
             var output = new List<ImportSourceRow>();
             long projectedTextBytes = 0;
@@ -783,20 +783,35 @@ public static partial class RunImportSourceParser
     private static HashSet<string> BackupColumns(SqliteConnection connection, string table, bool required)
     {
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT type FROM sqlite_master WHERE name = $name;";
+        // sqlite_master 的 type='table' 也包含虚拟表。只接受历史迁移实际创建的普通表，
+        // 不让外部文件选择虚拟表模块或以重复连接键放大后面的三表查询。
+        command.CommandText = "SELECT type FROM pragma_table_list WHERE \"schema\" = 'main' AND name = $name;";
         command.Parameters.AddWithValue("$name", table);
         var type = command.ExecuteScalar() as string;
         if (type is null && !required) return new HashSet<string>(StringComparer.Ordinal);
         if (type != "table") throw Invalid(CollectorTexts.ImportBackupTableMissing(table));
-        // table 仅由本类的两个固定字面量传入，外部文件名和表头不会进入 SQL。
+        // table 仅由本类的三个固定字面量传入，外部文件名和表头不会进入 SQL。
         command.CommandText = "PRAGMA table_info(\"" + table + "\");";
         using var reader = command.ExecuteReader();
         var columns = new HashSet<string>(StringComparer.Ordinal);
+        var primaryKeyColumns = 0;
+        var hasRunIdentity = false;
         while (reader.Read())
         {
             if (columns.Count >= MaxColumns) throw Invalid(CollectorTexts.ImportBackupTooManyColumns());
-            columns.Add(reader.GetString(1));
+            var name = reader.GetString(1);
+            columns.Add(name);
+            if (reader.GetInt32(5) > 0)
+            {
+                primaryKeyColumns++;
+                hasRunIdentity = name == "run_id" && reader.GetInt32(5) == 1 &&
+                    string.Equals(reader.GetString(2), "TEXT", StringComparison.OrdinalIgnoreCase);
+            }
         }
+        // 0001/0003/0009 均以 TEXT run_id 为单列主键；旧软件备份同样满足。
+        // LIMIT 在 ORDER BY/连接之后才生效，不能代替读取前的唯一键检查。
+        if (primaryKeyColumns != 1 || !hasRunIdentity)
+            throw Invalid(CollectorTexts.ImportBackupNotABackup());
         return columns;
     }
 

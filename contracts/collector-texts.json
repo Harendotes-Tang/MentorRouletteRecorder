@@ -371,6 +371,10 @@
     "calibration.provisional.recording": "导随记录照常进行。仅靠排队和进本核对时，记入的是排队时间；取消排队不会产生记录。",
     "calibration.provisional.blocked": "后台还没认出匹配弹窗，这次校准进度已无法继续。如需继续完善，请先点「清空校准进度」（现用校准会继续记录），保持软件开启，再尝试不同的随机任务并进出副本；组队时请由你来申请。",
     "calibration.provisional.searching": "导随记录照常进行。仅靠排队和进本核对时，记入的是排队时间；取消排队不会产生记录。后台仍在尝试识别匹配弹窗，找到后会请你核对时间线。你可以照常游戏，也可以尝试不同的随机任务帮助校准；组队时请由你来申请。",
+    "calibration.provisional.searching_job": "导随记录照常进行。检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。后台仍在尝试识别职业，找到后会请你核对时间线；在此之前，新记录的职业为未知。你可以照常游戏。",
+    "calibration.provisional.searching_more": "导随记录照常进行。检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。后台仍在继续校准，有新发现时会请你核对时间线。你可以照常游戏，也可以尝试不同的随机任务帮助校准；组队时请由你来申请。",
+    "calibration.provisional.blocked_more": "后台的进一步校准已无法继续。如需继续完善，请先点「清空校准进度」（现用校准会继续记录），保持软件开启，再尝试不同的随机任务并进出副本；组队时请由你来申请。",
+    "calibration.provisional.recording_popup": "导随记录照常进行。检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。",
     "calibration.shared.retaining": "导随记录照常进行，正在使用共享校准。启用前的检查已通过，后台检查还没结束。请照常游戏；完整记录一次副本且通过检查后，校准才算完成。若检查不通过，会停用这份共享校准并改回本机校准。",
     "calibration.completing.job_found": "导随记录照常进行。已找到补全职业的信息，请核对下面的时间线，再点「核对并启用」；之后的新记录会自动带上职业。",
     "calibration.provisional.pop_found": "导随记录照常进行。已找到匹配弹窗，请核对下面的时间线，再点「核对并启用」；之后会记入匹配成功的时间。",
@@ -383,6 +387,7 @@
     "capture.hint.no_packets": "所选网卡上没有看到游戏流量，可能使用了加速器或 VPN。请在「捕获诊断」点「重新检测网卡」，再按网卡提示操作；也可以关闭加速器后重新登录游戏。",
     "capture.hint.no_ownership": "看到了网络流量，但无法确认这些连接属于游戏。请确认没有使用加速器或代理；若仍然如此，请尝试以管理员身份运行本软件后重新开始。",
     "capture.warning.validation_holds": "正在进行采集验证，验证期间不会自动记录。如需恢复记录，请在捕获诊断页停止验证。",
+    "capture.warning.validation_releasing": "上一次采集验证未能完全结束，正在自动重试收尾，期间不会自动记录。如长时间未恢复，请重新启动本软件。",
     "capture.warning.recalibrating": "游戏更新了，需要重新校准。请照常完成随机任务，再按提示核对。校准完成前暂时不能自动记录。",
     "capture.warning.profile_unverified": "游戏数据正在读取中，但还没有确认当前游戏版本是否支持。暂时不能自动记录，期间可以先手动记录。",
     "capture.warning.preexisting_reconnected": "你已经重新连接过游戏，但软件仍然没能读到连接开始时的信息。请先关闭加速器、VPN 和正在进行的下载，再重启本软件后重试。",
@@ -397,7 +402,7 @@
     "capture.start.process_not_selected": "请先选择该游戏窗口，再开始监听。",
     "capture.start.no_adapters": "没有枚举到任何可用网卡。请确认 Npcap 服务已启动，必要时以管理员身份运行一次本软件。",
     "capture.start.adapter_no_ipv4": "所选网卡没有可绑定的 IPv4 地址，抓包未启动。请刷新网卡列表并选择实际承载游戏流量的 IPv4 网卡。",
-    "capture.start.profile_unavailable": "协议档案不可用（fail-closed），未启动抓包：本版本不会解析任何报文，也不会自动写入任何记录。若只是想验证抓包链路本身，请先把设置 capture.allow_without_profile 打开（仅统计，不记录）。",
+    "capture.start.profile_unavailable": "协议档案不可用，未启动抓包：本版本不会解析任何报文，也不会自动写入任何记录。若只是想验证抓包链路本身，请先把设置 capture.allow_without_profile 打开（仅统计，不记录）。",
     "capture.stop.not_running": "抓包未在运行，无需停止。",
     "capture.stop.pipeline_busy": "协议处理尚未退出，已保留会话资源。请稍后重试停止，或退出采集服务。",
     "capture.start.session_log_failed": "无法建立抓包会话日志，未启动抓包。详情见本机诊断日志。",
@@ -416,8 +421,8 @@
         "count": "number"
       }
     },
-    "capture.game.region_ambiguous": "无法从安装路径判断区服（路径同时含有国服与国际服的标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录（fail-closed）。",
-    "capture.game.region_unmarked": "无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录（fail-closed）。",
+    "capture.game.region_ambiguous": "无法从安装路径判断区服（路径同时含有国服与国际服的标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录。",
+    "capture.game.region_unmarked": "无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录。",
     "capture.game.version_file_missing": {
       "zh": "未能在游戏目录中读取到 {file}，客户端版本未知。",
       "args": {
@@ -425,10 +430,10 @@
       },
       "note": "{file} is the game's version file name, ffxivgame.ver."
     },
-    "capture.game.path_denied": "没有权限读取游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录（fail-closed）。",
-    "capture.game.path_unknown": "无法确定游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录（fail-closed）。",
+    "capture.game.path_denied": "没有权限读取游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录。",
+    "capture.game.path_unknown": "无法确定游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录。",
     "capture.game.region_override_mismatch": "设置中手动指定的区服与安装路径推断出的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除区服覆盖。",
-    "capture.profile.none": "仓库中没有任何协议档案（PROTOCOL_PROFILE_STATUS = NONE）。按 fail-closed 规则，本版本不会解析任何报文，也不会自动写入任何记录，只能手工补录。",
+    "capture.profile.none": "仓库中没有任何协议档案。为避免记错，本版本不会解析任何报文，也不会自动写入任何记录，只能手工补录。",
     "status.recovered_runs": {
       "zh": "启动时恢复了 {count} 条未完结记录，请在「待复核」中确认。",
       "args": {
@@ -452,7 +457,7 @@
     "capture.start.adapter_list_changed": "网卡列表已经发生变化，刚才选中的网卡现在找不到了。正在重新扫描并挑选承载游戏流量的网卡，请稍候。",
     "capture.oodle.previous_not_released": "上次自动记录尚未完全停止，本次监听未开始。请稍后重试；仍失败时重启软件并导出诊断报告。",
     "capture.oodle.machina_incompatible": "自动记录组件不兼容，本次监听未开始。请更新或重新安装完整的软件；仍失败时导出诊断报告。",
-    "capture.oodle.profile_load_failed": "匹配的 Oodle 签名档案无法加载，抓包未开始。 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。",
+    "capture.oodle.profile_load_failed": "准备读取游戏数据时出错，本次监听未开始。可能是磁盘空间不足、安全软件拦截了游戏程序文件，或游戏更新后暂不兼容。请稍后重试；仍失败时导出诊断报告。",
     "capture.select.start_time_unknown": "暂时无法确认该游戏的启动时间，请重新检测后再选择。",
     "capture.ownership_busy": "正式采集或验证会话尚未结束，请先停止并等待资源释放。",
     "capture.settings.research_needs_validation": "请先开启候选档案验证，再设置研究白名单。",
@@ -491,7 +496,7 @@
     "capture.validation.marker_not_recording": "仅在验证录制期间可以添加标记。",
     "capture.validation.marker_queue_full": "标记队列或会话标记总数已满，请等待已接收标记写入。",
     "capture.profile.unavailable": {
-      "zh": "协议档案不可用（fail-closed）：{reason}",
+      "zh": "协议档案不可用，暂时不会自动记录：{reason}",
       "args": {
         "reason": "text"
       },
@@ -527,6 +532,8 @@
     "calibration.verdicts_empty": "verdicts 不能为空。",
     "calibration.pipeline_not_ready": "游戏数据读取服务尚未就绪，请稍后重试。",
     "calibration.discard_conflict": "retire_local_profile 与 restore_local_profile 不能同时为真。",
+    "calibration.change_during_run": "正在进行的这一把导随还没结束，现在更换校准会中断这一把的记录。请在这一把结束后再试。",
+    "calibration.change_while_queued": "你正在排导随，现在更换校准会让接下来这一把记不下来。请等这一把结束后再试。如果已经取消排队，软件可能察觉不到，请退出并重新启动游戏后再试，或在开始排队一小时后再试。",
     "calibration.evidence_hash_invalid": "code_sha256 必须是 64 位小写十六进制。",
     "history.run_not_found": "找不到该记录，请刷新列表后重试。",
     "candidate.start_after_end": "开始时间不能晚于结束时间。",
@@ -659,6 +666,8 @@
     "sharing.import.revoked": "这份共享校准已被撤回，不能继续用于记录。请向分享者获取新校准码，或使用「本机校准」。",
     "sharing.import.user_rejected": "当前游戏版本已选择只用「本机校准」，暂时不能「导入校准码」。如需使用共享校准，请先点「清空校准进度」，再「导入校准码」。",
     "sharing.import.check_pending": "暂时无法检查这份校准码。请等当前的共享校准检查有结果后，再「导入校准码」。",
+    "sharing.import.state_unreadable": "暂时读不到本机保存的共享校准记录（可能被其他程序占用），请稍后再导入。",
+    "sharing.check.state_unreadable": "暂时读不到本机保存的共享校准记录（可能被其他程序占用），请稍后再查找。",
     "sharing.code.paste_whole": "请粘贴完整的校准码。",
     "sharing.import.not_imported": {
       "zh": "校准码未导入：{reason}",
@@ -888,6 +897,14 @@
       },
       "note": "field is a record field name such as duration_ms, shown as it is."
     },
+    "import.row.start_date_source_conflict": {
+      "zh": "开始时间 {start_date} 只有日期，与这条记录已有的记录时间 {source_date} 对不上，无法确定是哪一天。已保留原值，请修正其中一项或调整列映射后重新预览。",
+      "args": {
+        "start_date": "text",
+        "source_date": "text"
+      },
+      "note": "A date-only spreadsheet start cannot be combined with an existing source time on another day, or with one held only in UTC (it may or may not be the same local day, so the sentence does not say the dates differ). A source time with a clock on the same day is accepted. Both arguments are original source values."
+    },
     "import.row.time_date_only": {
       "zh": "{field} 只有日期，没有具体时间。请补充时分；实际游戏时间不知道可以留空。",
       "args": {
@@ -971,6 +988,8 @@
     "import.preview.kind_unsupported": "无法导入这种文件格式，请选择支持的记录文件或截图。",
     "import.preview.source_name_too_long": "来源名称超过 500 字符。",
     "import.preview.path_not_absolute": "请选择完整的本地文件路径。",
+    "import.preview.path_not_local": "只能导入本机磁盘上的文件，不支持网络共享或设备路径。请先把文件复制到本机文件夹再导入。",
+    "import.preview.path_uncheckable": "无法确认这个文件是否在本机磁盘上。请检查文件夹和访问权限，或把文件复制到本机文件夹后再导入。",
     "import.preview.too_many_rows": "一次最多预览 5000 条记录，请分批选择。",
     "import.preview.too_large": "预览内容过多，暂时无法显示。请拆分文件或减少本批记录后重试。",
     "import.commit.own_records_required": "只能导入自己的记录，请先勾选「我确认这些是自己的记录」。",

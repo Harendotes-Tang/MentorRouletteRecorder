@@ -11,14 +11,16 @@ on:
 permissions:
   contents: read
 
-# Share the lock with release publication: its tag must arrive before its assets.
+# Shared with the branch cleanup and the scheduled release catch-up. A release-event run holds
+# a per-tag lock and pushes its own tag before any asset (mirror-release.yml).
 concurrency:
   group: gitcode-mirror-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
   mirror:
-    if: github.repository == 'Harendotes-Tang/MentorRouletteRecorder'
+    # Dependabot branch pushes run without Actions secrets; the hourly schedule mirrors them.
+    if: github.repository == 'Harendotes-Tang/MentorRouletteRecorder' && (github.event_name == 'schedule' || github.actor != 'dependabot[bot]')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

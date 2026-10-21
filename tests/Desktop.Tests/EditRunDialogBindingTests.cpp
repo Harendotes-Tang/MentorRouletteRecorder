@@ -37,10 +37,12 @@
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QScopeGuard>
 #include <QSet>
 #include <QSignalSpy>
 #include <QTest>
 #include <QTemporaryDir>
+#include <QTranslator>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -281,6 +283,23 @@ ApplicationWindow {
         QMetaObject::invokeMethod(dialog(), "selectedDutyName", Q_RETURN_ARG(QVariant, selected));
         return selected.toString();
     }
+};
+
+/// The sentence 「估算进本」 adds to 备注, as EditRunDialog.qml writes it.
+const QString kEstimateNote = QStringLiteral("进本时间按匹配时间估算；实际耗时不详，不计入平均耗时。");
+const QString kEstimateNoteEnglish = QStringLiteral("Entry time estimated from the match time; the real duration is unknown and is left out of the average.");
+
+/// An English interface for that one sentence, without the build's .qm files.
+class EstimateNoteTranslator final : public QTranslator
+{
+public:
+    QString translate(const char *context, const char *sourceText, const char *, int) const override
+    {
+        if (QByteArrayView(context) == "EditRunDialog" && QString::fromUtf8(sourceText) == kEstimateNote)
+            return kEstimateNoteEnglish;
+        return {};
+    }
+    bool isEmpty() const override { return false; }
 };
 
 QVariantList ids(std::initializer_list<int> values)
@@ -1018,6 +1037,122 @@ private Q_SLOTS:
         QVERIFY(fields.contains(QStringLiteral("duration_ms")));
         QVERIFY(fields.value(QStringLiteral("duration_ms")).isNull());
         QCOMPARE(fields.value(QStringLiteral("entered_at_utc")), fields.value(QStringLiteral("matched_at_utc")));
+    }
+
+    // 审查 L1-1：补录时先「估算进本」，再把日期改成真正的那一天（补录的常规步骤）。
+    // 估算跟着日期一起走：仍是估算，耗时为空，备注里的说明也留着；此前改日期会把
+    // 估算悄悄当成实测，连排队时间一起算进平均耗时。
+    void anEstimatedEntryMovesWithTheMatchDate()
+    {
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "openForCreate"));
+        fixture.dialog()->setProperty("matchedTime", "20:00:00");
+        fixture.dialog()->setProperty("endedTime", "20:30:00");
+        QSignalSpy creations(fixture.dialog(), SIGNAL(createRequested(QVariant,QString)));
+        QVERIFY(creations.isValid());
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "estimateEntryFromMatch"));
+        QVERIFY(fixture.dialog()->property("estimatedEntry").toBool());
+
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "setMatchedDate",
+                                          Q_ARG(QVariant, QVariant(QStringLiteral("2026-09-13")))));
+        QCOMPARE(fixture.dialog()->property("enteredDate").toString(), QStringLiteral("2026-09-13"));
+        QCOMPARE(fixture.dialog()->property("endedDate").toString(), QStringLiteral("2026-09-13"));
+        QVERIFY(fixture.dialog()->property("estimatedEntry").toBool());
+        QVERIFY(fixture.dialog()->property("noteText").toString().contains(QStringLiteral("估算")));
+
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(creations.count(), 1);
+        const auto fields = asMap(creations.at(0).at(0));
+        QVERIFY(fields.contains(QStringLiteral("duration_ms")));
+        QVERIFY(fields.value(QStringLiteral("duration_ms")).isNull());
+        QCOMPARE(fields.value(QStringLiteral("entered_at_utc")), fields.value(QStringLiteral("matched_at_utc")));
+        QVERIFY(fields.value(QStringLiteral("note")).toString().contains(QStringLiteral("估算")));
+    }
+
+    // 审查 L1-5：「估算进本」写进备注的说明与程序填写的原因一样，不论界面语言，
+    // 都以简体中文原文保存；旧版本以界面语言写下的同一句也认得，不会再添一行。
+    void theEstimateNoteIsStoredInChineseWhateverTheInterfaceLanguage()
+    {
+        EstimateNoteTranslator english;
+        QVERIFY(QCoreApplication::installTranslator(&english));
+        const auto removeEnglish = qScopeGuard([&english] { QCoreApplication::removeTranslator(&english); });
+        QCOMPARE(QCoreApplication::translate("EditRunDialog", kEstimateNote.toUtf8().constData()),
+                 kEstimateNoteEnglish);
+
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "openForCreate"));
+        fixture.dialog()->setProperty("matchedTime", "20:00:00");
+        fixture.dialog()->setProperty("endedTime", "20:30:00");
+        QSignalSpy creations(fixture.dialog(), SIGNAL(createRequested(QVariant,QString)));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "estimateEntryFromMatch"));
+        QCOMPARE(fixture.dialog()->property("noteText").toString(), kEstimateNote);
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(creations.count(), 1);
+        QCOMPARE(asMap(creations.at(0).at(0)).value(QStringLiteral("note")).toString(), kEstimateNote);
+
+        auto legacy = run(QStringLiteral("legacy-estimate"), 70, 19, QStringLiteral("COMPLETED"));
+        legacy.insert(QStringLiteral("entered_at_utc"), legacy.value(QStringLiteral("matched_at_utc")));
+        legacy.insert(QStringLiteral("duration_ms"), QVariant());
+        legacy.insert(QStringLiteral("note"), kEstimateNoteEnglish);
+        QVERIFY(fixture.openForRun(legacy));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "estimateEntryFromMatch"));
+        QCOMPARE(fixture.dialog()->property("noteText").toString(), kEstimateNoteEnglish);
+    }
+
+    // 审查 L1-7：「已通关，计入进度」只在修正记录时换掉程序预填的原因；用户自己写的
+    // 原因不被覆盖，新增记录的原因也不会自称「修正识别结果」。
+    void markingCompletedReplacesOnlyThePrefilledCorrectionReason()
+    {
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        const QString correctedReason = QStringLiteral("实际已通关，修正识别结果");
+
+        QVERIFY(fixture.openForRun(run(QStringLiteral("prefilled"), 70, 19,
+                                       QStringLiteral("CANCELLED_BEFORE_ENTRY"))));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "markCompleted"));
+        QCOMPARE(fixture.dialog()->property("resultCode").toString(), QStringLiteral("COMPLETED"));
+        QCOMPARE(fixture.dialog()->property("reasonText").toString(), correctedReason);
+
+        QVERIFY(fixture.openForRun(run(QStringLiteral("typed"), 70, 19,
+                                       QStringLiteral("CANCELLED_BEFORE_ENTRY"))));
+        fixture.dialog()->setProperty("reasonText", QStringLiteral("队友掉线后重新打完"));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "markCompleted"));
+        QCOMPARE(fixture.dialog()->property("resultCode").toString(), QStringLiteral("COMPLETED"));
+        QCOMPARE(fixture.dialog()->property("reasonText").toString(), QStringLiteral("队友掉线后重新打完"));
+
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "openForCreate"));
+        const QString createReason = fixture.dialog()->property("reasonText").toString();
+        QCOMPARE(createReason, QStringLiteral("补录遗漏的导随记录"));
+        fixture.dialog()->setProperty("contributesToGoal", false);
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "markCompleted"));
+        QVERIFY(fixture.dialog()->property("contributesToGoal").toBool());
+        QCOMPARE(fixture.dialog()->property("reasonText").toString(), createReason);
+    }
+
+    // 审查 L1-4：崩溃恢复的记录进本时间是实测的，结束时间是重启时刻，耗时为空。
+    // 用户补上真实的结束时间后，耗时按实测的进本时间算出，计入平均耗时；只有进本
+    // 时间按匹配时间估算的记录（进本 = 匹配）才继续保持耗时为空。
+    void aMeasuredEntryGetsItsDurationOnceTheEndIsCorrected()
+    {
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        auto value = run(QStringLiteral("recovered"), 70, 19, QStringLiteral("INTERRUPTED"));
+        value.insert(QStringLiteral("duration_ms"), QVariant());
+        QVERIFY(fixture.openForRun(value));
+        const auto entered = QDateTime::fromString(value.value(QStringLiteral("entered_at_utc")).toString(),
+                                                   Qt::ISODateWithMs);
+        const auto end = entered.addSecs(25 * 60);
+        fixture.dialog()->setProperty("endedDate", end.toLocalTime().toString(QStringLiteral("yyyy-MM-dd")));
+        fixture.dialog()->setProperty("endedTime", end.toLocalTime().toString(QStringLiteral("HH:mm:ss.zzz")));
+        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(corrections.count(), 1);
+        const auto changes = asMap(corrections.at(0).at(0));
+        QVERIFY(changes.contains(QStringLiteral("duration_ms")));
+        QVERIFY(!changes.value(QStringLiteral("duration_ms")).isNull());
+        QCOMPARE(changes.value(QStringLiteral("duration_ms")).toLongLong(), entered.msecsTo(end));
     }
 
     void reopeningAnUnknownDurationPreservesItUntilTheEntryIsReplaced_data()

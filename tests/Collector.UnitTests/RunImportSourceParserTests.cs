@@ -335,6 +335,34 @@ public sealed class RunImportSourceParserTests : IDisposable
     }
 
     [Theory]
+    [InlineData(14, null)]
+    [InlineData(164, "yyyy.m.d")]
+    public void Xlsx_DateOnlyStartKeepsTheHistoricalDayAndKnownJobAfterCanonicalRevalidation(int formatId, string? format)
+    {
+        using var fixture = new TestDatabase();
+        // 截图转述：日期数值单元格、战士和已知副本，不冒充投诉者原始工作簿。
+        var worksheet = "<worksheet><sheetData><row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>副本</t></is></c><c r=\"B1\" t=\"inlineStr\"><is><t>职业</t></is></c><c r=\"C1\" t=\"inlineStr\"><is><t>开始时间</t></is></c></row><row r=\"2\"><c r=\"A2\" t=\"inlineStr\"><is><t>异界孤城特罗亚宫廷</t></is></c><c r=\"B2\" t=\"inlineStr\"><is><t>战士</t></is></c><c r=\"C2\" s=\"1\"><v>44832</v></c></row></sheetData></worksheet>";
+        var path = WriteWorkbook(worksheet, styles: TemporalStyles(formatId, format));
+        var parsed = Assert.Single(RunImportSourceParser.Parse("XLSX", path));
+        Assert.Equal("2022-09-28", Text(parsed, "entered_at_utc"));
+        var service = new RunImportService(fixture.Database, fixture.Clock);
+        var first = service.PreviewSource("XLSX", path);
+        var row = Assert.Single(first["rows"]!.AsArray())!;
+        Assert.True(row["can_import"]!.GetValue<bool>());
+        Assert.Equal(21, row["run"]!["job_id"]!.GetValue<int>());
+        Assert.NotNull(row["run"]!["content_id"]);
+        Assert.Null(row["candidate"]!["entered_at_utc"]);
+        Assert.Equal("2022-09-28", row["candidate"]!["source_recorded_at"]!.GetValue<string>());
+        var second = service.PreviewSource("XLSX", rows: new JsonArray(row["candidate"]!.DeepClone()));
+        var saved = service.Commit(second["preview_id"]!.GetValue<string>(), [1], true, Guid.NewGuid().ToString("D"));
+        var run = new RunRepository(fixture.Database).Get(saved["run_ids"]![0]!.GetValue<string>())!;
+        Assert.Equal("2022-09-28", run.ImportMetadata!.SourceRecordedAt);
+        Assert.Null(run.ImportMetadata.SourceRecordedAtUtc);
+        Assert.Null(run.EnteredAtUtc);
+        Assert.Null(run.DurationMs);
+    }
+
+    [Theory]
     [InlineData(18, null)]
     [InlineData(19, null)]
     [InlineData(20, null)]

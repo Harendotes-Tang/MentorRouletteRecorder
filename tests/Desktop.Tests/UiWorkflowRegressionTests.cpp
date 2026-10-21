@@ -67,7 +67,10 @@ public:
             });
         } else {
             QJsonObject answer = answers.value(type);
-            if (type == QLatin1String("QueryRunCalendarDays") && !answers.contains(type)) {
+            const QJsonObject custom = answerFor ? answerFor(type, payload) : QJsonObject();
+            if (!custom.isEmpty()) {
+                answer = custom;
+            } else if (type == QLatin1String("QueryRunCalendarDays") && !answers.contains(type)) {
                 const QString month = payload.value(QStringLiteral("month")).toString();
                 const QDate first = QDate::fromString(month + QStringLiteral("-01"), Qt::ISODate);
                 QJsonArray days;
@@ -128,6 +131,8 @@ public:
     QHash<QString, QJsonObject> lastPayloads;
     /// What an ordinary (non-pending) request answers with; {} by default.
     QHash<QString, QJsonObject> answers;
+    /// An answer that depends on the request; an empty object falls back to `answers`.
+    std::function<QJsonObject(const QString &, const QJsonObject &)> answerFor;
     /// Message types that are refused, with the error code.
     QHash<QString, QString> failures;
     QList<Pending> pending;
@@ -276,6 +281,7 @@ import QtQuick.Controls
 import MentorRecorder
 ApplicationWindow {
     width: 1280; height: 800; visible: true
+    color: Theme.contentBackground
     SettingsPage { objectName: "settingsPage"; anchors.fill: parent }
 })", QUrl());
         root.reset(component.create());
@@ -534,14 +540,16 @@ private Q_SLOTS:
     void pendingReflectionLocksEscapeAndRunSelection();
     void ordinaryReflectionSaveStillWaitsForItsReply();
     void unrelatedReflectionReplyDoesNotCloseAnIdleDialog();
-    void quickReviewButtonsRefuseASecondClickWhileTheFirstIsOut();
-    void quickReviewButtonsWaitForTheRefusalOfTheirOwnRequest();
+    void overviewPendingPreviewOnlyRequestsSharedEditor();
+    void overviewPendingCountComesFromRecoverySnapshot();
     void calibrationDialogsLockWhileBusyAndDropAnEarlierReply();
     void calibrationDialogsCannotBeCancelledWhileBusy();
     void historyMirrorsEveryFilterAndClearsStaleControls();
     void historyDeletedMenuUsesExclusiveFilter();
     void historyRangeSelectionDoesNotSubmitHalfARange();
     void historyCalendarUsesOtherFiltersAndBlocksEmptyDates();
+    void historyRangeStaysAppliedWhenANarrowerFilterEmptiesItsEndDays();
+    void historyDetailDropsAnImageRefusalOfAnotherRun();
     void recycleBinFooterHasSpacing_data();
     void recycleBinFooterHasSpacing();
     void historyRetainsAnUnlistedJobDrillDownUntilExplicitlyCleared_data();
@@ -557,6 +565,13 @@ private Q_SLOTS:
     void styleSwitchShowsTheStyleOnScreen();
     void settingsTabsShowTheirOwnControls_data();
     void settingsTabsShowTheirOwnControls();
+    void regionSettingIsReachableWithKeyboard_data();
+    void regionSettingIsReachableWithKeyboard();
+    void regionSettingWritesExistingOverride_data();
+    void regionSettingWritesExistingOverride();
+    void regionSettingFailureRestoresConfirmedValue();
+    void regionSettingStaysDisabledDuringCaptureActivity_data();
+    void regionSettingStaysDisabledDuringCaptureActivity();
     void integrityButtonShowsTheCollectorsAnswer_data();
     void integrityButtonShowsTheCollectorsAnswer();
     void voiceComboListsTheVoicesAndSelectsOne();
@@ -565,9 +580,10 @@ private Q_SLOTS:
     void onlineConfirmationIsAskedOnceAndCancelKeepsTheVoice();
     void theConfirmationTemplateSaysWhenItIsSpoken();
     void theRecordSwitchesSayWhenTheyAct();
-    void thePendingBannerSaysWhyARunIsPending();
+    void overviewPendingCardHidesWhenRecoveryEmpty();
     void theCurrentRunCardKeepsItsValuesInsideWhileANoticeShows();
     void theExplanationSaysAClearIsRecordedByItself();
+    void theCalibrationFetchNamesEveryOperatorThatSeesTheAddress();
     void noPlayerTextSaysTheClearCannotBeSeen();
 };
 
@@ -1003,98 +1019,59 @@ void UiWorkflowRegressionTests::unrelatedReflectionReplyDoesNotCloseAnIdleDialog
     QCOMPARE(fixture.textArea()->property("text").toString(), QStringLiteral("unsent draft"));
 }
 
-// 审查第 10 条：总览页的「通关 / 未通关」快速处理按钮此前没有任何在途保护。
-// 连点会发出第二条内容完全相同的修正，它命中修订冲突后被自动重发，于是审计里
-// 多出一条用户从未要求过的重复修订。
-void UiWorkflowRegressionTests::quickReviewButtonsRefuseASecondClickWhileTheFirstIsOut()
+// The overview opens the shared editor instead of writing a result directly.
+void UiWorkflowRegressionTests::overviewPendingPreviewOnlyRequestsSharedEditor()
 {
     ShellScene scene;
+    QVariantMap pending = run(QStringLiteral("pending-run"));
+    pending.insert(QStringLiteral("source"), QStringLiteral("MANUAL"));
+    pending.insert(QStringLiteral("pending_review"), true);
+    pending.insert(QStringLiteral("result"), QStringLiteral("UNKNOWN"));
+    scene.backend.answers.insert(QStringLiteral("QueryRuns"),
+        QJsonObject{{QStringLiteral("items"), QJsonArray{QJsonObject::fromVariantMap(pending)}},
+                    {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("total"), 1}}}});
     QVERIFY2(scene.create(), qPrintable(scene.errors));
-    scene.backend.answers.insert(QStringLiteral("GetDashboardStats"),
-                                 QJsonObject{{QStringLiteral("unfinished_pending_review"), 1}});
-    scene.backend.answers.insert(
-        QStringLiteral("QueryRuns"),
-        QJsonObject{{QStringLiteral("items"),
-                     QJsonArray{QJsonObject{{QStringLiteral("run_id"), QStringLiteral("pending-run")},
-                                            {QStringLiteral("revision"), 1},
-                                            {QStringLiteral("duty_name"), QStringLiteral("fixture duty")}}}}});
-    scene.controller.refreshDashboard();
-    QTRY_COMPARE(scene.controller.pendingReviewRun().value(QStringLiteral("run_id")).toString(),
-                 QStringLiteral("pending-run"));
-
-    auto *completed = scene.item(QStringLiteral("pendingReviewCompletedButton"));
-    auto *left = scene.item(QStringLiteral("pendingReviewLeftButton"));
-    QVERIFY(completed);
-    QVERIFY(left);
-    QTRY_VERIFY(completed->property("enabled").toBool());
-
-    QVERIFY(QMetaObject::invokeMethod(completed, "clicked"));
-    QCOMPARE(scene.backend.counts.value(QStringLiteral("CorrectRun")), 1);
-    // 回应还没到：两个按钮一起禁用，第二次点击也不再送出请求。
-    QVERIFY(!completed->property("enabled").toBool());
-    QVERIFY(!left->property("enabled").toBool());
-    QVERIFY(QMetaObject::invokeMethod(completed, "clicked"));
-    QVERIFY(QMetaObject::invokeMethod(left, "clicked"));
-    QCOMPARE(scene.backend.counts.value(QStringLiteral("CorrectRun")), 1);
-
-    // 采集服务接受之后才重新可用。
-    QVERIFY(scene.backend.finish(QStringLiteral("CorrectRun"), true));
-    QTRY_VERIFY(completed->property("enabled").toBool());
-    QVERIFY(left->property("enabled").toBool());
+    scene.controller.recovery()->offer(pending, QStringLiteral("result"));
+    scene.controller.recovery()->refresh();
+    QTRY_COMPARE(scene.controller.recovery()->count(), 1);
+    QTRY_VERIFY(!scene.controller.recovery()->busy()
+                && scene.controller.recovery()->error().isEmpty());
+    auto *button = scene.item(QStringLiteral("openPendingWork_pending-run"));
+    QVERIFY(button && button->isVisible());
+    QSignalSpy requested(scene.controller.recovery(), &mr::RecoveryController::openRequested);
+    QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+    QTRY_COMPARE(requested.count(), 1);
+    QCOMPARE(requested.first().at(0).toMap().value(QStringLiteral("run_id")).toString(),
+             QStringLiteral("pending-run"));
+    QCOMPARE(scene.backend.counts.value(QStringLiteral("CorrectRun")), 0);
+    QCOMPARE(scene.backend.counts.value(QStringLiteral("SetRunReflection")), 0);
 }
 
-// 审查 DT4-X1：mutationFailed 带上了请求种类与记录 id 之后，快速处理按钮只认
-// 自己那一条的拒绝。别处（原因对话框、结果窗口、设置）的拒绝不是它的回答：
-// 提前解锁会让第二次点击在第一条还在途时发出。
-void UiWorkflowRegressionTests::quickReviewButtonsWaitForTheRefusalOfTheirOwnRequest()
+// A different dashboard statistics count must not become a second pending inbox.
+void UiWorkflowRegressionTests::overviewPendingCountComesFromRecoverySnapshot()
 {
     ShellScene scene;
+    scene.backend.answers.insert(QStringLiteral("QueryRuns"),
+        QJsonObject{{QStringLiteral("items"), QJsonArray{}},
+                    {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("total"), 0}}}});
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.backend.answers.insert(QStringLiteral("GetDashboardStats"),
-                                 QJsonObject{{QStringLiteral("unfinished_pending_review"), 1}});
-    scene.backend.answers.insert(
-        QStringLiteral("QueryRuns"),
-        QJsonObject{{QStringLiteral("items"),
-                     QJsonArray{QJsonObject{{QStringLiteral("run_id"), QStringLiteral("pending-run")},
-                                            {QStringLiteral("revision"), 1},
-                                            {QStringLiteral("duty_name"), QStringLiteral("fixture duty")}}}}});
+        QJsonObject{{QStringLiteral("unfinished_pending_review"), 7}});
+    auto draftRun = run(QStringLiteral("draft-only"));
+    draftRun.insert(QStringLiteral("result"), QStringLiteral("COMPLETED"));
+    scene.controller.recovery()->saveDraft(draftRun, {{QStringLiteral("text"), QStringLiteral("local draft")},
+        {QStringLiteral("mood"), QStringLiteral("good")}, {QStringLiteral("jobId"), 24}});
     scene.controller.refreshDashboard();
-    QTRY_COMPARE(scene.controller.pendingReviewRun().value(QStringLiteral("run_id")).toString(),
-                 QStringLiteral("pending-run"));
-
-    auto *completed = scene.item(QStringLiteral("pendingReviewCompletedButton"));
-    auto *left = scene.item(QStringLiteral("pendingReviewLeftButton"));
-    QVERIFY(completed);
-    QVERIFY(left);
-    QTRY_VERIFY(completed->property("enabled").toBool());
-    QVERIFY(QMetaObject::invokeMethod(completed, "clicked"));
-    QCOMPARE(scene.backend.counts.value(QStringLiteral("CorrectRun")), 1);
-    QVERIFY(!completed->property("enabled").toBool());
-
-    // Refusals of other requests: another run's review, a correction of this very run
-    // from the edit dialog, and two requests about no run at all.
-    Q_EMIT scene.controller.mutationFailed(QStringLiteral("ERR_REVISION_CONFLICT"),
-                                           QStringLiteral("fixture refusal"),
-                                           QStringLiteral("review"), QStringLiteral("other-run"));
-    Q_EMIT scene.controller.mutationFailed(QStringLiteral("ERR_BAD_REQUEST"),
-                                           QStringLiteral("fixture refusal"),
-                                           QStringLiteral("correct"), QStringLiteral("pending-run"));
-    Q_EMIT scene.controller.mutationFailed(QStringLiteral("ERR_BAD_REQUEST"),
-                                           QStringLiteral("fixture refusal"),
-                                           QStringLiteral("baseline"), QString());
-    Q_EMIT scene.controller.mutationFailed(QStringLiteral("ERR_BAD_REQUEST"),
-                                           QStringLiteral("fixture refusal"),
-                                           QStringLiteral("create"), QString());
-    QCoreApplication::processEvents();
-    QVERIFY(!completed->property("enabled").toBool());
-    QVERIFY(!left->property("enabled").toBool());
-    QVERIFY(QMetaObject::invokeMethod(completed, "clicked"));
-    QCOMPARE(scene.backend.counts.value(QStringLiteral("CorrectRun")), 1);
-
-    // Its own refusal unlocks both, so the player can answer again.
-    QVERIFY(scene.backend.finish(QStringLiteral("CorrectRun"), false));
-    QTRY_VERIFY(completed->property("enabled").toBool());
-    QVERIFY(left->property("enabled").toBool());
+    scene.controller.recovery()->refresh();
+    QTRY_COMPARE(scene.controller.pendingReviewCount(), 7);
+    QTRY_COMPARE(scene.controller.recovery()->count(), 1);
+    QTRY_VERIFY(!scene.controller.recovery()->busy()
+                && scene.controller.recovery()->error().isEmpty());
+    auto *card = scene.item(QStringLiteral("dashboardPendingWorkCard"));
+    QVERIFY(card && card->isVisible());
+    QCOMPARE(textStartingWith(card, QString::fromUtf8("待处理 ·")), QString::fromUtf8("待处理 · 1"));
+    QVERIFY(!scene.item(QStringLiteral("pendingReviewCompletedButton")));
+    QVERIFY(!scene.item(QStringLiteral("pendingReviewLeftButton")));
 }
 
 // 审查第 9 条：核对与导入校准码两个对话框与第 4 条同源——确认按钮用 busy 禁用
@@ -1375,6 +1352,84 @@ void UiWorkflowRegressionTests::historyCalendarUsesOtherFiltersAndBlocksEmptyDat
     QVERIFY(fixture.controller.historyFilter().contains(QStringLiteral("job_id")));
 }
 
+/// 审查 K1-1：先选好 9 月 7 日至 17 日，再把职业收窄到一个 7 日没有记录的职业。
+/// 两个日期都完整合法，筛选必须照常发出；日历只是不再让人点选没有记录的日子。
+/// 此前 7 日被当成「不合法」，此后每一次筛选改动都被挡下，列表、条数与导出
+/// 仍是旧条件，而控件已显示新条件。
+void UiWorkflowRegressionTests::historyRangeStaysAppliedWhenANarrowerFilterEmptiesItsEndDays()
+{
+    UiFixture fixture;
+    fixture.backend.answerFor = [](const QString &type, const QJsonObject &payload) {
+        if (type != QLatin1String("QueryRunCalendarDays"))
+            return QJsonObject();
+        const QString month = payload.value(QStringLiteral("month")).toString();
+        const bool narrowed = payload.value(QStringLiteral("filter")).toObject()
+                                  .contains(QStringLiteral("job_id"));
+        QJsonArray days;
+        if (month == QLatin1String("2026-09")) {
+            if (!narrowed)
+                days.append(QStringLiteral("2026-09-07"));
+            days.append(QStringLiteral("2026-09-17"));
+        }
+        return QJsonObject{{QStringLiteral("month"), month}, {QStringLiteral("days"), days}};
+    };
+    QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+    auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    auto *range = fixture.history()->findChild<QQuickItem *>(QStringLiteral("historyDateRange"));
+    auto *job = fixture.history()->findChild<QObject *>(QStringLiteral("historyJobFilter"));
+    QVERIFY(range);
+    QVERIFY(job);
+    range->setProperty("startText", QStringLiteral("2026-09-07"));
+    range->setProperty("endText", QStringLiteral("2026-09-17"));
+    QTRY_COMPARE(fixture.controller.historyFilter().value(QStringLiteral("history_to_day")).toString(),
+                 QStringLiteral("2026-09-17"));
+    QTRY_VERIFY(fixture.controller.runs()->calendarDayAvailable(QStringLiteral("2026-09-07")));
+
+    job->setProperty("currentIndex", 1);
+    QVERIFY(QMetaObject::invokeMethod(job, "activated", Q_ARG(int, 1)));
+    // The new scope's calendar no longer has the 7th ...
+    QTRY_VERIFY(fixture.controller.runs()->calendarMonthKnown(QStringLiteral("2026-09"))
+                && !fixture.controller.runs()->calendarDayAvailable(QStringLiteral("2026-09-07")));
+    // ... and the list still follows the controls.
+    QTRY_VERIFY(fixture.controller.historyFilter().contains(QStringLiteral("job_id")));
+    QCOMPARE(fixture.controller.historyFilter().value(QStringLiteral("history_from_day")).toString(),
+             QStringLiteral("2026-09-07"));
+    QCOMPARE(fixture.controller.historyFilter().value(QStringLiteral("history_to_day")).toString(),
+             QStringLiteral("2026-09-17"));
+    QVERIFY(range->property("valid").toBool());
+}
+
+/// 审查 L1-9：详情浮层换到另一条记录时，上一条记录「添加图片」被拒的原因不再
+/// 显示在新记录下面；同一条记录刷新时原因仍在。
+void UiWorkflowRegressionTests::historyDetailDropsAnImageRefusalOfAnotherRun()
+{
+    UiFixture fixture;
+    QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+    auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    auto *panel = findWithProperty(window->contentItem(), "objectName", QStringLiteral("runDetailPanel"));
+    QVERIFY(panel);
+
+    fixture.controller.openHistoryForRun(run(QStringLiteral("run-a")));
+    QTRY_COMPARE(panel->property("runData").toMap().value(QStringLiteral("run_id")).toString(),
+                 QStringLiteral("run-a"));
+    const QString refusal = QStringLiteral("图片超过大小上限");
+    panel->setProperty("noteImageError", refusal);
+
+    // The same run, read again: its own refusal stays.
+    auto refreshed = run(QStringLiteral("run-a"));
+    refreshed.insert(QStringLiteral("revision"), 2);
+    fixture.controller.openHistoryForRun(refreshed);
+    QTRY_COMPARE(panel->property("runData").toMap().value(QStringLiteral("revision")).toInt(), 2);
+    QCOMPARE(panel->property("noteImageError").toString(), refusal);
+
+    fixture.controller.openHistoryForRun(run(QStringLiteral("run-b")));
+    QTRY_COMPARE(panel->property("runData").toMap().value(QStringLiteral("run_id")).toString(),
+                 QStringLiteral("run-b"));
+    QCOMPARE(panel->property("noteImageError").toString(), QString());
+}
+
 void UiWorkflowRegressionTests::recycleBinFooterHasSpacing_data()
 {
     QTest::addColumn<int>("width");
@@ -1471,10 +1526,6 @@ void UiWorkflowRegressionTests::historyMirrorsEveryFilterAndClearsStaleControls(
     QVERIFY(QMetaObject::invokeMethod(fixture.history(), "applyFilter"));
     QCOMPARE(fixture.controller.historyFilter().value(QStringLiteral("job_id")).toList().first().toInt(), 21);
     QCOMPARE(fixture.controller.historyFilter().size(), 2); // job_id plus date_field
-    fixture.controller.showPendingReview();
-    QVERIFY(QMetaObject::invokeMethod(fixture.history(), "applyFilter"));
-    QCOMPARE(fixture.controller.historyFilter().value(QStringLiteral("pending_review")).toBool(), true);
-    QCOMPARE(fixture.controller.historyFilter().size(), 2); // pending_review plus date_field
 }
 
 void UiWorkflowRegressionTests::historyRetainsAnUnlistedJobDrillDownUntilExplicitlyCleared_data()
@@ -1874,7 +1925,7 @@ void UiWorkflowRegressionTests::settingsTabsShowTheirOwnControls_data()
     QTest::newRow("general") << QStringLiteral("general")
         << QStringList{QStringLiteral("generalSettingsCard"), QStringLiteral("appearanceSettingsCard"),
                        QStringLiteral("uiStyleSettingControl"), QStringLiteral("autoCalibrationToggle"),
-                       QStringLiteral("sharedCalibrationToggle")};
+                       QStringLiteral("sharedCalibrationToggle"), QStringLiteral("captureRegionSettingControl")};
     QTest::newRow("tts") << QStringLiteral("tts")
         << QStringList{QStringLiteral("ttsVoiceCombo"), QStringLiteral("ttsPreviewButton"),
                        QStringLiteral("speechTemplatesCard")};
@@ -1924,6 +1975,191 @@ void UiWorkflowRegressionTests::settingsTabsShowTheirOwnControls()
     QQuickItem *slot = fixture.item(QStringLiteral("onlineSpeechSlot"));
     QVERIFY(slot);
     QVERIFY(!slot->isVisible());
+}
+
+void UiWorkflowRegressionTests::regionSettingIsReachableWithKeyboard_data()
+{
+    QTest::addColumn<bool>("dark");
+    QTest::addColumn<int>("width");
+    QTest::addColumn<int>("height");
+    QTest::newRow("dark minimum page") << true << 760 << 660;
+    QTest::newRow("light minimum page") << false << 760 << 660;
+    QTest::newRow("dark normal page") << true << 1280 << 800;
+    QTest::newRow("light normal page") << false << 1280 << 800;
+}
+
+void UiWorkflowRegressionTests::regionSettingIsReachableWithKeyboard()
+{
+    QFETCH(bool, dark);
+    QFETCH(int, width);
+    QFETCH(int, height);
+    SettingsFixture fixture;
+    fixture.backend.answers.insert(QStringLiteral("GetCaptureSettings"),
+        QJsonObject{{QStringLiteral("follow_game"), true},
+                    {QStringLiteral("region_override"), QJsonValue::Null}});
+    fixture.controller.refreshCaptureSettings();
+    QVERIFY2(fixture.create(QStringLiteral("classic")), qPrintable(fixture.errors));
+    QTRY_VERIFY(fixture.controller.captureSettingsLoaded());
+    if (fixture.controller.isDark() != dark)
+        fixture.controller.toggleTheme();
+    auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
+    QVERIFY(window);
+    window->resize(width, height);
+    QVERIFY(fixture.selectTab(QStringLiteral("about")));
+    QVERIFY(QMetaObject::invokeMethod(fixture.page(), "openRegionSettings"));
+    QCOMPARE(fixture.page()->property("currentTab").toString(), QStringLiteral("general"));
+    auto *control = fixture.item(QStringLiteral("captureRegionSettingControl"));
+    auto *card = fixture.item(QStringLiteral("captureRegionSettingsCard"));
+    QVERIFY(control && card);
+    QTRY_VERIFY(control->hasActiveFocus());
+    QVERIFY(control->isEnabled());
+    QTRY_VERIFY(control->width() > 0 && control->height() > 0);
+    const auto withinWindow = [window](QQuickItem *item) {
+        const QRectF bounds(item->mapToScene(QPointF()), QSizeF(item->width(), item->height()));
+        return QRectF(0, 0, window->width(), window->height()).contains(bounds);
+    };
+    QTRY_VERIFY(withinWindow(control));
+    QVERIFY(withinWindow(card));
+    // Tab enters the next real setting; Shift+Tab returns to the region field.
+    // Its inherited ComboBox popup also retains native Space / Escape behavior.
+    QTest::keyClick(window, Qt::Key_Tab);
+    QTRY_VERIFY(!control->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Backtab);
+    QTRY_VERIFY(control->hasActiveFocus());
+    auto *popup = control->property("popup").value<QObject *>();
+    QVERIFY(popup);
+    QTest::keyClick(window, Qt::Key_Space);
+    QTRY_VERIFY(popup->property("visible").toBool());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!popup->property("visible").toBool());
+    QTRY_VERIFY(control->hasActiveFocus());
+    QCOMPARE(fixture.backend.counts.value(QStringLiteral("UpdateCaptureSettings")), 0);
+    QCOMPARE(fixture.backend.counts.value(QStringLiteral("StartCaptureValidation")), 0);
+    const QString evidence = qEnvironmentVariable("MR_CAPTURE_RECOVERY_EVIDENCE_DIR");
+    if (!evidence.isEmpty()) {
+        QVERIFY(QDir().mkpath(evidence));
+        QTest::qWait(100);
+        QVERIFY(window->grabWindow().save(QDir(evidence).filePath(
+            QStringLiteral("region-settings-%1-%2x%3.png")
+                .arg(dark ? QStringLiteral("dark") : QStringLiteral("light")).arg(width).arg(height))));
+    }
+}
+
+void UiWorkflowRegressionTests::regionSettingWritesExistingOverride_data()
+{
+    QTest::addColumn<int>("index");
+    QTest::addColumn<QJsonValue>("value");
+    QTest::newRow("automatic") << 0 << QJsonValue(QJsonValue::Null);
+    QTest::newRow("CN") << 1 << QJsonValue(QStringLiteral("CN"));
+    QTest::newRow("GLOBAL") << 2 << QJsonValue(QStringLiteral("GLOBAL"));
+}
+
+void UiWorkflowRegressionTests::regionSettingWritesExistingOverride()
+{
+    QFETCH(int, index);
+    QFETCH(QJsonValue, value);
+    SettingsFixture fixture;
+    fixture.backend.answers.insert(QStringLiteral("GetCaptureSettings"),
+        QJsonObject{{QStringLiteral("follow_game"), true},
+                    {QStringLiteral("region_override"), QStringLiteral("GLOBAL")}});
+    fixture.backend.holdTypes.append(QStringLiteral("UpdateCaptureSettings"));
+    fixture.controller.refreshCaptureSettings();
+    QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+    auto *control = fixture.item(QStringLiteral("captureRegionSettingControl"));
+    QVERIFY(control);
+    QTRY_COMPARE(control->property("currentIndex").toInt(), 2);
+    QCOMPARE(control->property("count").toInt(), 3);
+    QVERIFY(QMetaObject::invokeMethod(control, "activated", Q_ARG(int, index)));
+    QTRY_COMPARE(fixture.backend.counts.value(QStringLiteral("UpdateCaptureSettings")), 1);
+    QCOMPARE(fixture.backend.lastPayloads.value(QStringLiteral("UpdateCaptureSettings")),
+             QJsonObject({{QStringLiteral("region_override"), value}}));
+    QVERIFY(fixture.backend.release(QStringLiteral("UpdateCaptureSettings"),
+        QJsonObject{{QStringLiteral("follow_game"), true}, {QStringLiteral("region_override"), value}}));
+    QTRY_COMPARE(control->property("currentIndex").toInt(), index);
+    QCOMPARE(fixture.backend.counts.value(QStringLiteral("StartCaptureValidation")), 0);
+    QCOMPARE(fixture.backend.counts.value(QStringLiteral("StartCapture")), 0);
+}
+
+void UiWorkflowRegressionTests::regionSettingFailureRestoresConfirmedValue()
+{
+    SettingsFixture fixture;
+    fixture.backend.answers.insert(QStringLiteral("GetCaptureSettings"),
+        QJsonObject{{QStringLiteral("follow_game"), true},
+                    {QStringLiteral("region_override"), QJsonValue::Null}});
+    fixture.backend.holdTypes.append(QStringLiteral("UpdateCaptureSettings"));
+    fixture.controller.refreshCaptureSettings();
+    QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+    auto *control = fixture.item(QStringLiteral("captureRegionSettingControl"));
+    auto *error = fixture.item(QStringLiteral("captureSettingsErrorText"));
+    QVERIFY(control && error);
+    QTRY_VERIFY(fixture.controller.captureSettingsLoaded());
+    QVERIFY(QMetaObject::invokeMethod(control, "activated", Q_ARG(int, 1)));
+    QTRY_COMPARE(fixture.backend.counts.value(QStringLiteral("UpdateCaptureSettings")), 1);
+    QVERIFY(fixture.backend.finish(QStringLiteral("UpdateCaptureSettings"), false));
+    QTRY_COMPARE(control->property("currentIndex").toInt(), 0);
+    QTRY_VERIFY(error->isVisible());
+    QVERIFY(!error->property("text").toString().isEmpty());
+    QCOMPARE(fixture.backend.counts.value(QStringLiteral("StartCaptureValidation")), 0);
+}
+
+void UiWorkflowRegressionTests::regionSettingStaysDisabledDuringCaptureActivity_data()
+{
+    QTest::addColumn<QString>("activity");
+    QTest::newRow("metadata evidence active") << QStringLiteral("validation");
+    QTest::newRow("formal capture active") << QStringLiteral("capture");
+    QTest::newRow("capture command pending") << QStringLiteral("command");
+}
+
+void UiWorkflowRegressionTests::regionSettingStaysDisabledDuringCaptureActivity()
+{
+    QFETCH(QString, activity);
+    SettingsFixture fixture;
+    fixture.backend.answers.insert(QStringLiteral("GetCaptureSettings"),
+        QJsonObject{{QStringLiteral("follow_game"), true},
+                    {QStringLiteral("region_override"), QJsonValue::Null}});
+    const QJsonObject capture{{QStringLiteral("state"), activity == QLatin1String("capture")
+                                  ? QStringLiteral("RUNNING") : QStringLiteral("STOPPED")},
+                             {QStringLiteral("ffxiv_running"), true},
+                             {QStringLiteral("npcap_installed"), true},
+                             {QStringLiteral("region"), QStringLiteral("CN")},
+                             {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")}};
+    fixture.backend.answers.insert(QStringLiteral("GetStatus"),
+                                    QJsonObject{{QStringLiteral("capture"), capture}});
+    fixture.backend.answers.insert(QStringLiteral("GetCaptureValidationStatus"),
+        QJsonObject{{QStringLiteral("available"), true},
+                    {QStringLiteral("active"), activity == QLatin1String("validation")},
+                    {QStringLiteral("state"), activity == QLatin1String("validation")
+                         ? QStringLiteral("RECORDING") : QStringLiteral("IDLE")}});
+    fixture.backend.answers.insert(QStringLiteral("GetProtocolProfileStatus"),
+        QJsonObject{{QStringLiteral("status"), QStringLiteral("VERIFIED")}});
+    fixture.backend.holdTypes.append(QStringLiteral("StartCapture"));
+    fixture.controller.setMaintainerToolsVisible(true);
+    fixture.controller.refreshCaptureSettings();
+    fixture.controller.refreshStatus();
+    QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+    QTRY_VERIFY(fixture.controller.captureSettingsLoaded());
+    QTRY_COMPARE(fixture.controller.validationState(), activity == QLatin1String("validation")
+                       ? QStringLiteral("RECORDING") : QStringLiteral("IDLE"));
+    QTRY_COMPARE(fixture.controller.capturing(), activity == QLatin1String("capture"));
+    if (activity == QLatin1String("command")) {
+        QTRY_VERIFY(fixture.controller.captureActionEnabled());
+        fixture.controller.toggleCapture();
+        QTRY_VERIFY(fixture.controller.captureCommandBusy());
+    }
+    auto *control = fixture.item(QStringLiteral("captureRegionSettingControl"));
+    QVERIFY(control);
+    QTRY_VERIFY(!control->isEnabled());
+    QVERIFY(QMetaObject::invokeMethod(fixture.page(), "openRegionSettings"));
+    auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
+    QVERIFY(window);
+    QTest::qWait(50);
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+        control->mapToScene(QPointF(control->width() / 2, control->height() / 2)).toPoint());
+    auto *popup = control->property("popup").value<QObject *>();
+    QVERIFY(popup);
+    QVERIFY(!popup->property("visible").toBool());
+    QCOMPARE(control->property("currentIndex").toInt(), 0);
+    QCOMPARE(fixture.backend.counts.value(QStringLiteral("UpdateCaptureSettings")), 0);
 }
 
 void UiWorkflowRegressionTests::integrityButtonShowsTheCollectorsAnswer_data()
@@ -2278,28 +2514,42 @@ void UiWorkflowRegressionTests::theRecordSwitchesSayWhenTheyAct()
     QQuickItem *ask = findWithProperty(scene, "label", QString::fromUtf8("结束后询问本次结果"));
     QVERIFY(ask);
     QCOMPARE(ask->property("description").toString(),
-             QString::fromUtf8("未收到通关结算就离开副本时，软件会询问本次结果。关闭后可在总览的「待复核」中确认。"));
+             QString::fromUtf8("未收到通关结算就离开副本时，软件会询问本次结果。关闭后可在总览的「待处理」中确认。"));
 
-    QQuickItem *note = findWithProperty(scene, "label", QString::fromUtf8("通关后弹出笔记窗口"));
+    QQuickItem *note = findWithProperty(scene, "label", QString::fromUtf8("通关后提醒记笔记"));
     QVERIFY(note);
     QCOMPARE(note->property("description").toString(),
-             QString::fromUtf8("通关后弹出窗口记笔记；也可稍后到历史记录补写。"));
+             QString::fromUtf8("通关后按下方方式提醒；关闭提醒后仍可从历史记录补写。"));
+
+    // The tray menu item is 「显示主窗口」 (TrayController); the switch names it as shown.
+    QQuickItem *tray = findWithProperty(scene, "label", QString::fromUtf8("关闭时最小化到托盘"));
+    QVERIFY(tray);
+    QCOMPARE(tray->property("description").toString(),
+             QString::fromUtf8("关闭窗口后仍在后台运行；可从托盘菜单选择「显示主窗口」或「退出」"));
 }
 
-// The 待复核 banner on 总览 speaks of whatever runs are pending, which the
-// Desktop does not know one by one. A run the clear completed can be flagged
-// later, when the calibration that recorded it is withdrawn: its result stays
-// 通关 and already counts. So the reasons are the common ones, not a claim about
-// each run, and only a run not yet recorded as 通关 waits for the answer to count.
-void UiWorkflowRegressionTests::thePendingBannerSaysWhyARunIsPending()
+// A completed recovery task removes the overview card as well as its count.
+void UiWorkflowRegressionTests::overviewPendingCardHidesWhenRecoveryEmpty()
 {
     ShellScene scene;
+    scene.backend.answers.insert(QStringLiteral("QueryRuns"),
+        QJsonObject{{QStringLiteral("items"), QJsonArray{}},
+                    {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("total"), 0}}}});
     QVERIFY2(scene.create(), qPrintable(scene.errors));
-    QVERIFY(scene.item(QStringLiteral("pendingReviewBannerTitle")));
-
-    QCOMPARE(textStartingWith(scene.window()->contentItem(),
-                              QString::fromUtf8("这些记录需要你复核")),
-             QString::fromUtf8("这些记录需要你复核，可能是程序异常退出、未收到通关结算，或生成记录时使用的校准后来被停用。尚未记为通关的记录，确认“通关”后才计入导随次数；每次确认都会记入“修改记录”。"));
+    scene.controller.recovery()->refresh();
+    QTRY_VERIFY(!scene.controller.recovery()->busy()
+                && scene.controller.recovery()->error().isEmpty());
+    auto *card = scene.item(QStringLiteral("dashboardPendingWorkCard"));
+    QVERIFY(card);
+    QTRY_VERIFY(!card->isVisible());
+    auto task = run(QStringLiteral("deferred-note"));
+    task.insert(QStringLiteral("source"), QStringLiteral("MANUAL"));
+    task.insert(QStringLiteral("result"), QStringLiteral("COMPLETED"));
+    scene.controller.recovery()->offer(task, QStringLiteral("reflection"));
+    QTRY_VERIFY(card->isVisible());
+    scene.controller.recovery()->markReflectionSaved(QStringLiteral("deferred-note"));
+    QTRY_COMPARE(scene.controller.recovery()->count(), 0);
+    QTRY_VERIFY(!card->isVisible());
 }
 
 // 软件说明 · 运行顺序, step 3: only a result that was not recorded by itself is
@@ -2331,9 +2581,45 @@ ApplicationWindow {
     QVERIFY(content);
 
     QCOMPARE(textStartingWith(content, QString::fromUtf8("· 3. ")),
-             QString::fromUtf8("· 3. 正常排指导者任务，未能自动判定的结果到“待复核”里填写"));
+             QString::fromUtf8("· 3. 正常排指导者任务，未能自动判定的结果到“待处理”里填写"));
     QCOMPARE(textStartingWith(content, QString::fromUtf8("匹配、进入副本和离开副本会自动记录")),
-             QString::fromUtf8("匹配、进入副本和离开副本会自动记录。收到通关结算时自动记为通关；未收到结算就离开副本时，记录标为「待复核」。打开记录，点「修正」填写通关或离开。"));
+             QString::fromUtf8("匹配、进入副本和离开副本会自动记录。收到通关结算时自动记为通关；未收到结算就离开副本时，记录标为「待复核」。打开记录，点「手动修正」填写通关或离开。"));
+}
+
+// Review L1-6: a shared-calibration fetch falls back to the GitCode mirror
+// (docs/privacy-boundary.md §8.2), another operator that sees the player's IP
+// address; 联网一 names it next to GitHub and the CDN.
+void UiWorkflowRegressionTests::theCalibrationFetchNamesEveryOperatorThatSeesTheAddress()
+{
+    WorkflowBackend backend;
+    mr::AppController controller{&backend, nullptr};
+    mr::Formatters formatters;
+    QQmlEngine engine;
+    engine.rootContext()->setContextProperty(QStringLiteral("App"), &controller);
+    engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), &formatters);
+    engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+    QQmlComponent component(&engine);
+    component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 900; height: 900; visible: true
+    DisclosureDialog { id: notice; objectName: "disclosure"; anchors.centerIn: parent }
+    Component.onCompleted: notice.openDialog()
+})", QUrl());
+    const std::unique_ptr<QObject> window(component.create());
+    QVERIFY2(window, qPrintable(component.errorString()));
+    auto *dialog = window->findChild<QObject *>(QStringLiteral("disclosure"));
+    QVERIFY(dialog);
+    QTRY_VERIFY(dialog->property("visible").toBool());
+    auto *content = dialog->property("contentItem").value<QQuickItem *>();
+    QVERIFY(content);
+
+    const QString fetch = textStartingWith(content, QString::fromUtf8("游戏更新后，如果还不能自动记录"));
+    QVERIFY(!fetch.isEmpty());
+    QVERIFY2(fetch.contains(QString::fromUtf8("GitCode 上的同名镜像")), qUtf8Printable(fetch));
+    QVERIFY2(fetch.contains(QString::fromUtf8("GitHub、GitCode 与 CDN 能看到请求来自哪个 IP 地址")),
+             qUtf8Printable(fetch));
 }
 
 // The CN clear is recognised (docs/protocol-profile-format.md §12), so no text a

@@ -124,7 +124,9 @@ public sealed class CaptureIpcTests
         Assert.Equal("NONE", payload["status"]!.GetValue<string>());
         Assert.Null(payload["profile_id"]);
         Assert.Null(payload["verified_at_utc"]);
-        Assert.Contains("fail-closed", payload["message"]!.GetValue<string>(), StringComparison.Ordinal);
+        // Plain words for the player, no design term (review A2-4).
+        Assert.Contains("不会自动写入任何记录", payload["message"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.DoesNotContain("fail-closed", payload["message"]!.GetValue<string>(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -388,7 +390,8 @@ public sealed class CaptureIpcTests
         Assert.Equal("integration-live", current["run"]!["protocol_profile_id"]!.GetValue<string>());
         Assert.Equal(gameBuild, current["run"]!["game_build"]!.GetValue<string>());
         Assert.Equal(sessionId, current["run"]!["capture_session_id"]!.GetValue<string>());
-        Assert.True(current["elapsed_ms"]!.GetValue<long>() >= 0);
+        // Time in the duty: absent until the run enters one (audit 2026-10-20, D1-3).
+        Assert.Null(current["elapsed_ms"]);
         Assert.Single((await fixture.CallAsync("QueryRuns")).Require()["items"]!.AsArray());
 
         var zone = new byte[16];

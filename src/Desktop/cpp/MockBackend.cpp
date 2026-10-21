@@ -7,13 +7,20 @@
 #include "MockData.h"
 
 #include <QDir>
+#include <QFile>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonValue>
+#include <QMap>
+#include <QRegularExpression>
 #include <QSet>
 #include <QTimer>
+#include <QUuid>
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <tuple>
 #include <utility>
 
 using namespace mr::mock;
@@ -251,6 +258,18 @@ bool readsAsInFlight(const QJsonObject &run)
            && run.value(QStringLiteral("result")).toString() == QLatin1String("UNKNOWN")
            && !run.value(QStringLiteral("ended_at_utc")).isString()
            && !run.value(QStringLiteral("pending_review")).toBool(false);
+}
+
+/// The mutations RunMutationService makes idempotent by request_id, all of which answer a
+/// replay with idempotent_replay: true.
+bool isReplayableMutation(const QString &messageType)
+{
+    static const QSet<QString> types{
+        QStringLiteral("CreateManualRun"), QStringLiteral("CorrectRun"),
+        QStringLiteral("SoftDeleteRun"),   QStringLiteral("RestoreRun"),
+        QStringLiteral("UndoRevision"),    QStringLiteral("UpdateAchievementBaseline"),
+        QStringLiteral("BatchMutateRuns")};
+    return types.contains(messageType);
 }
 
 /// RunMutationRules.OverrulesTheRecord: whether a correction overrules what the software
@@ -1835,6 +1854,13 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
             *errorMessage = QString::fromUtf8("没有任何字段被修改。");
             return {};
         }
+        // RunMutationService.CorrectRun (OG-4): nor may a correction put an automatic run into
+        // the shape of one still in flight - left out of every statistic and the review list,
+        // and never closed again. The run the state machine is still following has that shape
+        // already and may be corrected as before (CS5-X2).
+        if (readsAsInFlight(run) && !readsAsInFlight(before))
+            return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"),
+                              "mutation.unknown_needs_end");
         // RunMutationService.CorrectRun: only a correction that overrules the record marks
         // the run, and once marked it stays marked; the revision records the change.
         if (overrulesTheRecord(before.value(reviewKey).toBool(false), applied)
@@ -1917,6 +1943,981 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
     result.insert(QStringLiteral("idempotent_replay"), false);
     result.insert(QStringLiteral("run"), run);
     return result;
+}
+
+// ---------------------------------------------------------------------------
+// 导入本人记录 · PreviewRunImport / CommitRunImport
+//
+// A deliberately small RunImportService. It reads the canonical candidate fields -
+// what a recognised screenshot, a JSON file and every 重新校验 carry - resolves the
+// duty and the job through the catalogues, classifies the batch against this
+// dataset, hands it out whole or in frozen pages and commits it once under a
+// receipt. Every refusal and warning is the Collector's catalogue sentence. The
+// tables, workbooks and backups RunImportSourceParser reads are not parsed here.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+constexpr int kMaxImportRows = 5000;
+
+void appendSentence(QJsonArray &texts, QJsonArray &refs, const char *key, const QVariantMap &args = {})
+{
+    const QVariantMap ref = collector_text::textRef(key, args);
+    texts.append(collector_text::chinese(ref));
+    refs.append(QJsonObject::fromVariantMap(ref));
+}
+
+QJsonValue textOrNull(const QString &text)
+{
+    return text.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(text);
+}
+
+bool hasExplicitZone(const QString &text)
+{
+    static const QRegularExpression zone(QStringLiteral("(?:Z|[+-]\\d{2}:\\d{2})$"));
+    return zone.match(text).hasMatch();
+}
+
+/// RunImportCandidateNormalizer.TryCalendarDay: a whole day and nothing else.
+QDate calendarDay(const QString &text)
+{
+    for (const char *format : {"yyyy-MM-dd", "yyyy/M/d", "yyyy.M.d"}) {
+        const QDate day = QDate::fromString(text, QLatin1String(format));
+        if (day.isValid())
+            return day;
+    }
+    return {};
+}
+
+/// Reads one candidate row the way RunImportCandidateNormalizer does and keeps the first
+/// value it has to refuse: the Collector stops the row at that one.
+class ImportRowReader
+{
+public:
+    explicit ImportRowReader(const QJsonObject &row) : m_row(row) {}
+
+    bool failed() const { return m_key != nullptr; }
+    const char *key() const { return m_key; }
+    QVariantMap args() const { return m_args; }
+    void refuse(const char *key, const QVariantMap &args = {})
+    {
+        if (!m_key) {
+            m_key = key;
+            m_args = args;
+        }
+    }
+
+    /// A scalar as trimmed text; empty when absent, null or blank.
+    QString text(const QString &field, int max)
+    {
+        const QJsonValue value = m_row.value(field);
+        QString text;
+        if (value.isString())
+            text = value.toString().trimmed();
+        else if (value.isBool())
+            text = value.toBool() ? QStringLiteral("true") : QStringLiteral("false");
+        else if (value.isDouble())
+            text = QString::number(value.toDouble(), 'g', 17);
+        else if (value.isObject() || value.isArray()) {
+            refuse("import.row.field_not_scalar", {{QStringLiteral("field"), field}});
+            return {};
+        }
+        if (text.size() > max) {
+            refuse("import.row.field_too_long", {{QStringLiteral("field"), field}, {QStringLiteral("max"), max}});
+            return {};
+        }
+        return text;
+    }
+
+    /// A non-negative whole number, or -1 when absent.
+    qint64 count(const QString &field, qint64 max = std::numeric_limits<int>::max())
+    {
+        static const QRegularExpression digits(QStringLiteral("^[0-9]+$"));
+        const QString value = text(field, 100);
+        if (value.isEmpty())
+            return -1;
+        bool ok = false;
+        const qint64 number = value.toLongLong(&ok);
+        if (!digits.match(value).hasMatch() || !ok || number > max) {
+            refuse("import.row.field_not_count", {{QStringLiteral("field"), field}});
+            return -1;
+        }
+        return number;
+    }
+
+    /// true / false (or 1 / 0, 是 / 否), null when absent.
+    QJsonValue flag(const QString &field)
+    {
+        const QString value = text(field, 20).toLower();
+        if (value.isEmpty())
+            return QJsonValue(QJsonValue::Null);
+        if (value == QLatin1String("true") || value == QLatin1String("1") || value == QString::fromUtf8("是"))
+            return true;
+        if (value == QLatin1String("false") || value == QLatin1String("0") || value == QString::fromUtf8("否"))
+            return false;
+        refuse("import.row.field_not_flag", {{QStringLiteral("field"), field}});
+        return QJsonValue(QJsonValue::Null);
+    }
+
+    /// RunImportCandidateNormalizer.ParseTime: an instant as UTC text, null when absent. A
+    /// time with an offset must carry its whole date; one without is read in \a zone.
+    QJsonValue time(const QString &field, const char *name, const QString &zone)
+    {
+        const QJsonValue none(QJsonValue::Null);
+        const QString value = text(field, 100);
+        if (value.isEmpty())
+            return none;
+        const QVariantMap which{{QStringLiteral("field"), collector_text::textRef(name)}};
+        static const QRegularExpression clock(QStringLiteral("\\d{1,2}:\\d{2}"));
+        static const QRegularExpression fullDate(QStringLiteral("^\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}(?:T|\\s)"));
+        if (!clock.match(value).hasMatch()) {
+            refuse("import.row.time_date_only", which);
+            return none;
+        }
+        if (hasExplicitZone(value)) {
+            if (!fullDate.match(value).hasMatch()) {
+                refuse("import.row.time_date_missing", which);
+                return none;
+            }
+            QDateTime parsed = QDateTime::fromString(value, Qt::ISODateWithMs);
+            if (!parsed.isValid())
+                parsed = QDateTime::fromString(QString(value).replace(QLatin1Char(' '), QLatin1Char('T')), Qt::ISODateWithMs);
+            if (parsed.isValid())
+                return isoUtc(parsed);
+        }
+        QDateTime local;
+        for (const char *format : {"yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy/M/d H:mm:ss", "yyyy/M/d H:mm",
+                                   "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.zzz", "yyyy-MM-dd'T'HH:mm"}) {
+            local = QDateTime::fromString(value, QLatin1String(format));
+            if (local.isValid())
+                break;
+        }
+        if (!local.isValid()) {
+            refuse("import.row.time_unrecognized", which);
+            return none;
+        }
+        static const QRegularExpression offset(QStringLiteral("^([+-])(\\d{2}):(\\d{2})$"));
+        const QRegularExpressionMatch fixed = offset.match(zone);
+        const QTimeZone timeZone = fixed.hasMatch()
+            ? QTimeZone::fromSecondsAheadOfUtc((fixed.captured(1) == QLatin1String("-") ? -1 : 1)
+                                               * (fixed.captured(2).toInt() * 3600 + fixed.captured(3).toInt() * 60))
+            : QTimeZone(zone.toUtf8());
+        if (zone.isEmpty() || !timeZone.isValid()) {
+            refuse("import.row.time_zone_missing", which);
+            return none;
+        }
+        local.setTimeZone(timeZone);
+        return isoUtc(local);
+    }
+
+private:
+    QJsonObject m_row;
+    const char *m_key = nullptr;
+    QVariantMap m_args;
+};
+
+/// One normalised candidate: what the preview hands back, and the run it would save.
+struct ImportRow
+{
+    QJsonObject candidate;
+    QJsonObject run; // empty when the row cannot be imported
+    bool stable = false; // the source named the run_id
+    QSet<QString> compared; // the facts the source provided
+    QString fingerprint;
+    QJsonArray errors, errorRefs, warnings, warningRefs;
+};
+
+/// RunImportCandidateNormalizer.FactValues: the personal facts a source can state.
+QJsonObject importFacts(const QJsonObject &run)
+{
+    const QJsonObject metadata = run.value(QStringLiteral("import_metadata")).toObject();
+    const QJsonObject reflection = run.value(QStringLiteral("reflection")).toObject();
+    const auto value = [](const QJsonObject &object, const char *key) {
+        const QJsonValue stored = object.value(QLatin1String(key));
+        return stored.isUndefined() ? QJsonValue(QJsonValue::Null) : stored;
+    };
+    QJsonObject facts;
+    for (const char *key : {"region", "content_id", "mentor_roulette_id", "territory_id", "duty_name",
+                            "duty_category", "job_id", "matched_at_utc", "entered_at_utc", "ended_at_utc",
+                            "duration_ms", "result", "contributes_to_goal", "soft_deleted", "note"})
+        facts.insert(QLatin1String(key), value(run, key));
+    facts.insert(QStringLiteral("job_name"), run.value(QStringLiteral("job_name")).isString()
+                                                 ? run.value(QStringLiteral("job_name"))
+                                                 : QJsonValue(QString::fromUtf8("未知")));
+    facts.insert(QStringLiteral("reflection_text"), value(reflection, "text"));
+    facts.insert(QStringLiteral("reflection_mood"), value(reflection, "mood"));
+    facts.insert(QStringLiteral("source_recorded_at"), value(metadata, "source_recorded_at"));
+    facts.insert(QStringLiteral("source_recorded_at_utc"), value(metadata, "source_recorded_at_utc"));
+    // Only when the source said how the duty was entered, as the Collector keeps it.
+    if (run.value(QStringLiteral("joined_in_progress")).isBool())
+        facts.insert(QStringLiteral("joined_in_progress"), run.value(QStringLiteral("joined_in_progress")));
+    return facts;
+}
+
+QString sha256Hex(const QString &text)
+{
+    return QString::fromLatin1(QCryptographicHash::hash(text.toUtf8(), QCryptographicHash::Sha256).toHex());
+}
+
+/// RunImportCandidateNormalizer.CanonicalValues: a source row's own values in a fixed form
+/// for its identity - fields in ordinal order (a QJsonObject keeps its keys so), text
+/// trimmed, empty cells left out - so a column added empty or moved does not change who
+/// the row is.
+QString canonicalImportValues(const QJsonObject &row)
+{
+    QJsonObject canonical;
+    for (auto it = row.constBegin(); it != row.constEnd(); ++it) {
+        const QJsonValue value = it.value();
+        if (value.isNull() || value.isUndefined())
+            continue;
+        if (value.isString()) {
+            const QString text = value.toString().trimmed();
+            if (!text.isEmpty())
+                canonical.insert(it.key(), text);
+        } else {
+            canonical.insert(it.key(), value);
+        }
+    }
+    return QString::fromUtf8(QJsonDocument(canonical).toJson(QJsonDocument::Compact));
+}
+
+/// RunImportCandidateNormalizer.SourceDay: the calendar day a source text begins with
+/// (yyyy-M-d, yyyy/M/d or yyyy.M.d, alone or before its clock) as yyyy-MM-dd - the day as
+/// the source wrote it, in no particular zone. Empty otherwise.
+QString sourceDay(const QJsonValue &text)
+{
+    static const QRegularExpression day(QStringLiteral("^(\\d{4})[-/.](\\d{1,2})[-/.](\\d{1,2})(?:$|[T\\s])"));
+    const QRegularExpressionMatch match = day.match(text.toString());
+    if (!match.hasMatch())
+        return {};
+    return QStringLiteral("%1-%2-%3")
+        .arg(match.captured(1).toInt(), 4, 10, QLatin1Char('0'))
+        .arg(match.captured(2).toInt(), 2, 10, QLatin1Char('0'))
+        .arg(match.captured(3).toInt(), 2, 10, QLatin1Char('0'));
+}
+
+/// RunImportService.TwinKey: what makes two rows of one batch the same record - the duty,
+/// the same clock time (game entry or source time) and the same reflection text. Empty
+/// without a clock time: one day can hold several runs of a duty.
+QString importTwinKey(const QJsonObject &run)
+{
+    const QJsonValue entered = run.value(QStringLiteral("entered_at_utc"));
+    const QJsonValue sourceUtc =
+        run.value(QStringLiteral("import_metadata")).toObject().value(QStringLiteral("source_recorded_at_utc"));
+    if (!entered.isString() && !sourceUtc.isString())
+        return {};
+    const QJsonValue content = run.value(QStringLiteral("content_id"));
+    const QJsonValue text = run.value(QStringLiteral("reflection")).toObject().value(QStringLiteral("text"));
+    const QJsonArray key{content.isDouble() ? QStringLiteral("content:") + QString::number(qint64(content.toDouble()))
+                                            : QStringLiteral("name:") + run.value(QStringLiteral("duty_name")).toString(),
+                         entered.isString() ? entered : QJsonValue(QJsonValue::Null),
+                         sourceUtc.isString() ? sourceUtc : QJsonValue(QJsonValue::Null),
+                         text.isString() ? text : QJsonValue(QJsonValue::Null)};
+    return QString::fromUtf8(QJsonDocument(key).toJson(QJsonDocument::Compact));
+}
+
+/// RunImportCandidateNormalizer.Normalize, for the canonical candidate fields.
+ImportRow normalizeImportRow(const QJsonObject &row, const QString &kind, const QJsonValue &sourceName,
+                             const QString &zone, const QString &now, const JobCatalog &jobs)
+{
+    ImportRow out;
+    out.candidate = row;
+    for (const QString &key : row.keys())
+        out.compared.insert(key);
+    if (row.value(QStringLiteral("reflection")).isObject())
+        out.compared.unite({QStringLiteral("reflection_text"), QStringLiteral("reflection_mood")});
+    if (row.contains(QStringLiteral("source_recorded_at")))
+        out.compared.insert(QStringLiteral("source_recorded_at_utc"));
+
+    ImportRowReader read(row);
+    static const QRegularExpression uuid(
+        QStringLiteral("^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"));
+    const QString originalId = read.text(QStringLiteral("run_id"), 64);
+    out.stable = !originalId.isEmpty();
+    if (out.stable && !uuid.match(originalId).hasMatch())
+        read.refuse("import.row.run_id_invalid");
+    const QString runId = out.stable ? originalId.toLower() : QUuid::createUuid().toString(QUuid::WithoutBraces);
+    QString recordSourceName = read.text(QStringLiteral("source_name"), 500);
+    if (recordSourceName.isEmpty())
+        recordSourceName = sourceName.toString();
+
+    // The source's own time is provenance, never a game time.
+    const QString sourceRecorded = read.text(QStringLiteral("source_recorded_at"), 200);
+    const QString sourceUtcText = read.text(QStringLiteral("source_recorded_at_utc"), 100);
+    const bool sourceDateOnly = calendarDay(sourceRecorded).isValid();
+    QJsonValue sourceUtc(QJsonValue::Null);
+    if (sourceDateOnly)
+        appendSentence(out.warnings, out.warningRefs, "import.warning.source_date_only");
+    else if (!sourceRecorded.isEmpty() && (!zone.isEmpty() || hasExplicitZone(sourceRecorded)))
+        sourceUtc = read.time(QStringLiteral("source_recorded_at"), "import.time_field.source_recorded", zone);
+    else if (!sourceUtcText.isEmpty())
+        sourceUtc = read.time(QStringLiteral("source_recorded_at_utc"), "import.time_field.source_recorded", zone);
+    else if (!sourceRecorded.isEmpty())
+        sourceUtc = read.time(QStringLiteral("source_recorded_at"), "import.time_field.source_recorded", zone);
+    const QJsonValue entered = read.time(QStringLiteral("entered_at_utc"), "import.time_field.entered", zone);
+    const QJsonValue ended = read.time(QStringLiteral("ended_at_utc"), "import.time_field.ended", zone);
+    const QJsonValue matched = read.time(QStringLiteral("matched_at_utc"), "import.time_field.matched", zone);
+
+    qint64 contentId = read.count(QStringLiteral("content_id"));
+    qint64 jobId = read.count(QStringLiteral("job_id"));
+    const QString jobName = read.text(QStringLiteral("job_name"), 200);
+    if (jobId < 0 && !jobName.isEmpty()) {
+        QList<qint64> matches;
+        for (const QVariant &value : jobs.allJobs()) {
+            const QVariantMap job = value.toMap();
+            if (job.value(QStringLiteral("job_name")).toString().compare(jobName, Qt::CaseInsensitive) == 0
+                || job.value(QStringLiteral("abbreviation")).toString().compare(jobName, Qt::CaseInsensitive) == 0)
+                matches.append(job.value(QStringLiteral("job_id")).toLongLong());
+        }
+        if (matches.size() == 1)
+            jobId = matches.first();
+        else
+            appendSentence(out.warnings, out.warningRefs, "import.warning.job_unmatched");
+    }
+    const QString dutyName = read.text(QStringLiteral("duty_name"), 500);
+    QString region = read.text(QStringLiteral("region"), 64);
+    if (region.isEmpty())
+        region = QStringLiteral("UNKNOWN");
+    else if (region != QLatin1String("CN") && region != QLatin1String("GLOBAL") && region != QLatin1String("UNKNOWN"))
+        read.refuse("import.row.field_value_unsupported", {{QStringLiteral("field"), QStringLiteral("region")}});
+    if (contentId < 0 && !dutyName.isEmpty()) {
+        QSet<qint64> matches;
+        for (const QVariant &value : DutyCatalog::shared()->allDuties()) {
+            const QVariantMap duty = value.toMap();
+            if (duty.value(QStringLiteral("duty_name")).toString() == dutyName)
+                matches.insert(duty.value(QStringLiteral("content_id")).toLongLong());
+        }
+        if (matches.size() == 1)
+            contentId = *matches.constBegin();
+    }
+    const QVariantMap duty = contentId >= 0 ? DutyCatalog::shared()->lookup(contentId) : QVariantMap();
+
+    const QString resultText = read.text(QStringLiteral("result"), 64);
+    static const QHash<QString, QString> spoken{
+        {QString::fromUtf8("完成"), QStringLiteral("COMPLETED")}, {QString::fromUtf8("通关"), QStringLiteral("COMPLETED")},
+        {QString::fromUtf8("已完成"), QStringLiteral("COMPLETED")}, {QString::fromUtf8("未知"), QStringLiteral("UNKNOWN")},
+        {QString::fromUtf8("离开"), QStringLiteral("LEFT_OR_ABANDONED")}, {QString::fromUtf8("放弃"), QStringLiteral("LEFT_OR_ABANDONED")},
+        {QString::fromUtf8("取消"), QStringLiteral("CANCELLED_BEFORE_ENTRY")}, {QString::fromUtf8("中断"), QStringLiteral("INTERRUPTED")},
+        {QString::fromUtf8("掉线"), QStringLiteral("DISCONNECTED")}};
+    static const QStringList results{QStringLiteral("COMPLETED"), QStringLiteral("LEFT_OR_ABANDONED"),
+                                     QStringLiteral("CANCELLED_BEFORE_ENTRY"), QStringLiteral("DISCONNECTED"),
+                                     QStringLiteral("INTERRUPTED"), QStringLiteral("UNKNOWN")};
+    QString result = resultText.isEmpty() ? QStringLiteral("COMPLETED") : spoken.value(resultText, resultText);
+    if (!results.contains(result))
+        read.refuse("import.row.result_invalid");
+    if (resultText.isEmpty())
+        appendSentence(out.warnings, out.warningRefs, "import.warning.result_defaulted");
+    const qint64 duration = read.count(QStringLiteral("duration_ms"), std::numeric_limits<qint64>::max());
+
+    ImportRowReader nested(row.value(QStringLiteral("reflection")).toObject());
+    const QString reflectionText = row.contains(QStringLiteral("reflection_text"))
+        ? read.text(QStringLiteral("reflection_text"), 2000) : nested.text(QStringLiteral("text"), 2000);
+    const QString moodText = row.contains(QStringLiteral("reflection_mood"))
+        ? read.text(QStringLiteral("reflection_mood"), 32) : nested.text(QStringLiteral("mood"), 32);
+    if (nested.failed())
+        read.refuse(nested.key(), nested.args());
+    static const QStringList moods{QStringLiteral("good"), QStringLiteral("ok"), QStringLiteral("bad"),
+                                   QStringLiteral("unknown")};
+    if (!moodText.isEmpty() && !moods.contains(moodText))
+        read.refuse("import.row.mood_invalid");
+    const QString mood = moodText.isEmpty() ? QStringLiteral("unknown") : moodText;
+    const QJsonValue mentorConfirmed = read.flag(QStringLiteral("mentor_confirmed"));
+    const QJsonValue contributes = read.flag(QStringLiteral("contributes_to_goal"));
+    const QJsonValue softDeleted = read.flag(QStringLiteral("soft_deleted"));
+    const QJsonValue joined = read.flag(QStringLiteral("joined_in_progress"));
+    const QString note = read.text(QStringLiteral("note"), 1000);
+    const qint64 roulette = read.count(QStringLiteral("mentor_roulette_id"));
+    const qint64 territory = read.count(QStringLiteral("territory_id"));
+    const QString category = read.text(QStringLiteral("duty_category"), 200);
+    const QString sourceKey = read.text(QStringLiteral("source_key"), 500);
+    if (read.failed()) {
+        appendSentence(out.errors, out.errorRefs, read.key(), read.args());
+        return out;
+    }
+
+    const QJsonValue none(QJsonValue::Null);
+    const QVariant job = jobId >= 0 ? QVariant(jobId) : QVariant();
+    const QString name = !dutyName.isEmpty() ? dutyName : duty.value(QStringLiteral("duty_name")).toString();
+    if (contentId < 0 && name.isEmpty() && jobId < 0 && (jobName.isEmpty() || jobName == QString::fromUtf8("未知"))
+        && matched.isNull() && entered.isNull() && ended.isNull() && sourceRecorded.isEmpty() && sourceUtc.isNull()
+        && reflectionText.isEmpty() && note.isEmpty()) {
+        appendSentence(out.errors, out.errorRefs, "import.row.empty");
+        return out;
+    }
+    // RunMutationRules.ValidateFinalValue: supplied times are ordered; missing ones stay
+    // missing on imported history. An omitted duration is derived from the two times.
+    const QDateTime matchedAt = fromIso(matched);
+    const QDateTime enteredAt = fromIso(entered);
+    const QDateTime endedAt = fromIso(ended);
+    if (matchedAt.isValid() && enteredAt.isValid() && matchedAt > enteredAt) {
+        appendSentence(out.errors, out.errorRefs, "mutation.matched_after_entered");
+        return out;
+    }
+    if (enteredAt.isValid() && endedAt.isValid() && enteredAt > endedAt) {
+        appendSentence(out.errors, out.errorRefs, "mutation.entered_after_ended");
+        return out;
+    }
+    const QJsonValue durationMs = row.contains(QStringLiteral("duration_ms"))
+        ? (duration >= 0 ? QJsonValue(double(duration)) : none)
+        : (enteredAt.isValid() && endedAt.isValid() ? QJsonValue(double(enteredAt.msecsTo(endedAt))) : none);
+
+    const bool incomplete = result == QLatin1String("UNKNOWN")
+        || (result != QLatin1String("CANCELLED_BEFORE_ENTRY")
+            && (entered.isNull() || (result == QLatin1String("COMPLETED") && ended.isNull())));
+    if (incomplete)
+        appendSentence(out.warnings, out.warningRefs, result == QLatin1String("UNKNOWN")
+                                                          ? "import.warning.result_unknown"
+                                                          : "import.warning.time_missing");
+    if (!reflectionText.isEmpty() && mood == QLatin1String("unknown"))
+        appendSentence(out.warnings, out.warningRefs, "import.warning.mood_missing");
+    int sourceWarnings = 0;
+    for (const QJsonValue &warning : row.value(QStringLiteral("warnings")).toArray()) {
+        if (sourceWarnings++ == 20)
+            break;
+        out.warnings.append(warning.isString() ? warning.toString() : QString::number(warning.toDouble()));
+        out.warningRefs.append(none);
+    }
+
+    const QJsonObject metadata{
+        {QStringLiteral("source_kind"), kind},
+        {QStringLiteral("source_name"), textOrNull(recordSourceName)},
+        {QStringLiteral("source_recorded_at"), textOrNull(sourceRecorded)},
+        {QStringLiteral("source_recorded_at_utc"), sourceUtc},
+        {QStringLiteral("imported_at_utc"), now},
+        {QStringLiteral("mentor_confirmed"), mentorConfirmed.isBool() ? mentorConfirmed.toBool() : true},
+        {QStringLiteral("incomplete"), incomplete}};
+    const QJsonValue reflection = reflectionText.isEmpty()
+        ? none
+        : QJsonValue(QJsonObject{{QStringLiteral("mood"), mood}, {QStringLiteral("text"), reflectionText},
+                                 {QStringLiteral("created_at_utc"), now}, {QStringLiteral("updated_at_utc"), now}});
+    const QVariant zoneOfDuty = duty.value(QStringLiteral("territory_id"));
+    out.run = QJsonObject{
+        {QStringLiteral("run_id"), runId},
+        {QStringLiteral("revision"), 1},
+        {QStringLiteral("capture_session_id"), none},
+        {QStringLiteral("region"), region},
+        {QStringLiteral("game_build"), none},
+        {QStringLiteral("protocol_profile_id"), none},
+        {QStringLiteral("mentor_roulette_id"), roulette >= 0 ? QJsonValue(roulette) : none},
+        {QStringLiteral("content_id"), contentId >= 0 ? QJsonValue(contentId) : none},
+        {QStringLiteral("territory_id"), territory >= 0 ? QJsonValue(territory)
+                                         : zoneOfDuty.isValid() ? QJsonValue(zoneOfDuty.toLongLong()) : none},
+        {QStringLiteral("duty_name"), textOrNull(name)},
+        {QStringLiteral("duty_category"),
+         textOrNull(!category.isEmpty() ? category : duty.value(QStringLiteral("duty_category")).toString())},
+        {QStringLiteral("job_id"), jobId >= 0 ? QJsonValue(jobId) : none},
+        {QStringLiteral("job_name"), !jobName.isEmpty() ? jobName : jobs.jobName(job)},
+        {QStringLiteral("role"), jobs.role(job)},
+        {QStringLiteral("matched_at_utc"), matched},
+        {QStringLiteral("entered_at_utc"), entered},
+        {QStringLiteral("ended_at_utc"), ended},
+        {QStringLiteral("duration_ms"), durationMs},
+        {QStringLiteral("result"), result},
+        {QStringLiteral("detection_confidence"), QStringLiteral("NONE")},
+        {QStringLiteral("source"), QStringLiteral("IMPORT")},
+        {QStringLiteral("contributes_to_goal"), contributes.isBool() ? contributes.toBool() : true},
+        {QStringLiteral("manually_created"), false},
+        {QStringLiteral("manually_corrected"), false},
+        {QStringLiteral("soft_deleted"), softDeleted.isBool() && softDeleted.toBool()},
+        {QStringLiteral("deleted_at_utc"), none},
+        {QStringLiteral("pending_review"), false},
+        {QStringLiteral("note"), textOrNull(note)},
+        {QStringLiteral("joined_in_progress"), joined},
+        {QStringLiteral("reflection"), reflection},
+        {QStringLiteral("import_metadata"), metadata},
+        {QStringLiteral("created_at_utc"), now},
+        {QStringLiteral("updated_at_utc"), now}};
+    out.fingerprint = sha256Hex(kind + QLatin1Char('\n') + recordSourceName + QLatin1Char('\n')
+                                + (out.stable ? runId : sourceKey) + QLatin1Char('\n')
+                                + QString::fromUtf8(QJsonDocument(importFacts(out.run)).toJson(QJsonDocument::Compact)));
+
+    // The candidate in canonical form; a field the source left out stays out.
+    for (const QString &field : row.keys()) {
+        if (out.run.contains(field))
+            out.candidate.insert(field, out.run.value(field));
+    }
+    out.candidate.insert(QStringLiteral("run_id"), out.stable ? QJsonValue(runId) : none);
+    if (!sourceRecorded.isEmpty())
+        out.candidate.insert(QStringLiteral("source_recorded_at"), sourceRecorded);
+    if (!sourceUtc.isNull() || sourceDateOnly)
+        out.candidate.insert(QStringLiteral("source_recorded_at_utc"), sourceUtc);
+    out.candidate.insert(QStringLiteral("source_key"), textOrNull(sourceKey));
+    if (!reflectionText.isEmpty()) {
+        out.candidate.insert(QStringLiteral("reflection_text"), reflectionText);
+        if (!moodText.isEmpty())
+            out.candidate.insert(QStringLiteral("reflection_mood"), mood);
+    }
+    return out;
+}
+
+/// RunImportService.Classify against \a library: the same run id (a duplicate when every
+/// fact the source stated agrees, a conflict otherwise), the same source fingerprint, or -
+/// FindNearby - a run of the same duty within a minute of the entry, at the same source
+/// time, or, when one of the two has no clock time, on the same source day as written in
+/// the source and, where both name one, with the same job. Two clock times decide alone.
+std::pair<QString, QJsonValue> classifyImportRun(const QJsonObject &run, bool stable,
+                                                 const QSet<QString> &compared, const QString &fingerprint,
+                                                 const QJsonArray &library,
+                                                 const QHash<QString, QString> &fingerprints)
+{
+    const QJsonValue none(QJsonValue::Null);
+    const QString runId = run.value(QStringLiteral("run_id")).toString();
+    if (stable) {
+        for (const QJsonValue &value : library) {
+            const QJsonObject local = value.toObject();
+            if (local.value(QStringLiteral("run_id")).toString() != runId)
+                continue;
+            const QJsonObject incoming = importFacts(run);
+            const QJsonObject existing = importFacts(local);
+            bool same = true;
+            for (const QString &field : compared)
+                same = same && (!incoming.contains(field) || incoming.value(field) == existing.value(field));
+            return {same ? QStringLiteral("duplicate") : QStringLiteral("conflict"), runId};
+        }
+    }
+    if (fingerprints.contains(fingerprint))
+        return {QStringLiteral("duplicate"), fingerprints.value(fingerprint)};
+
+    const QDateTime entered = fromIso(run.value(QStringLiteral("entered_at_utc")));
+    const QJsonObject metadata = run.value(QStringLiteral("import_metadata")).toObject();
+    const QJsonValue sourceUtc = metadata.value(QStringLiteral("source_recorded_at_utc"));
+    const QString day = sourceDay(metadata.value(QStringLiteral("source_recorded_at")));
+    const QJsonValue content = run.value(QStringLiteral("content_id"));
+    const QString name = run.value(QStringLiteral("duty_name")).toString();
+    if ((!entered.isValid() && !sourceUtc.isString() && day.isEmpty())
+        || (content.isNull() && name.trimmed().isEmpty()))
+        return {QStringLiteral("new"), none};
+    const bool undated = !entered.isValid() && !sourceUtc.isString();
+    const QJsonValue job = run.value(QStringLiteral("job_id"));
+    QString nearest;
+    for (const QJsonValue &value : library) {
+        const QJsonObject local = value.toObject();
+        const bool sameDuty = content.isDouble() ? local.value(QStringLiteral("content_id")) == content
+                                                 : local.value(QStringLiteral("duty_name")).toString() == name;
+        if (!sameDuty)
+            continue;
+        const QDateTime localEntered = fromIso(local.value(QStringLiteral("entered_at_utc")));
+        const QJsonObject localMetadata = local.value(QStringLiteral("import_metadata")).toObject();
+        const QJsonValue localSourceUtc = localMetadata.value(QStringLiteral("source_recorded_at_utc"));
+        const QJsonValue localJob = local.value(QStringLiteral("job_id"));
+        // A run with no source day - every live-captured one - never matches by its day.
+        const bool sameDay = !day.isEmpty() && (undated || (!localEntered.isValid() && !localSourceUtc.isString()))
+            && (!job.isDouble() || !localJob.isDouble() || localJob == job)
+            && sourceDay(localMetadata.value(QStringLiteral("source_recorded_at"))) == day;
+        const bool near = (entered.isValid() && localEntered.isValid() && qAbs(entered.msecsTo(localEntered)) <= 60000)
+            || (sourceUtc.isString() && localSourceUtc == sourceUtc) || sameDay;
+        const QString localId = local.value(QStringLiteral("run_id")).toString();
+        if (near && (nearest.isEmpty() || localId < nearest))
+            nearest = localId;
+    }
+    return nearest.isEmpty() ? std::pair<QString, QJsonValue>{QStringLiteral("new"), none}
+                             : std::pair<QString, QJsonValue>{QStringLiteral("possible_duplicate"), nearest};
+}
+
+/// One page of a frozen preview: the source fields and the whole batch's summary.
+QJsonObject importPage(const QJsonObject &whole, int page, int pageSize)
+{
+    const QJsonArray all = whole.value(QStringLiteral("rows")).toArray();
+    QJsonArray rows;
+    for (qint64 i = qint64(page - 1) * pageSize; i < qMin(qint64(all.size()), qint64(page) * pageSize); ++i)
+        rows.append(all.at(int(i)));
+    QJsonObject out = whole;
+    out.insert(QStringLiteral("rows"), rows);
+    out.insert(QStringLiteral("page_info"),
+               QJsonObject{{QStringLiteral("page"), page}, {QStringLiteral("page_size"), pageSize},
+                           {QStringLiteral("total"), all.size()}});
+    return out;
+}
+
+} // namespace
+
+QJsonObject MockBackend::previewRunImport(const QJsonObject &payload, QString *errorCode, QString *errorMessage)
+{
+    const auto refuse = [&](const char *key, const QVariantMap &args = {}) {
+        return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), key, args);
+    };
+    const auto unknownField = [&payload](const QStringList &declared) {
+        for (const QString &key : payload.keys()) {
+            if (!declared.contains(key))
+                return key;
+        }
+        return QString();
+    };
+    const auto wholeNumber = [](const QJsonValue &value) {
+        return value.isDouble() && value.toDouble() == std::floor(value.toDouble()) ? qint64(value.toDouble()) : qint64(-1);
+    };
+
+    // RunImportService.PreviewPage: a page of a frozen preview, never classified again.
+    if (payload.contains(QStringLiteral("preview_id")) || payload.contains(QStringLiteral("page"))) {
+        const QString extra = unknownField({QStringLiteral("preview_id"), QStringLiteral("page")});
+        if (!extra.isEmpty())
+            return refuse("ipc.field.unknown", {{QStringLiteral("field"), extra}});
+        const QString previewId = payload.value(QStringLiteral("preview_id")).toString();
+        for (const ImportPreview &preview : std::as_const(m_importPreviews)) {
+            if (preview.previewId != previewId)
+                continue;
+            if (preview.pageSize == 0)
+                return refuse("ipc.field.undeclared_value", {{QStringLiteral("field"), QStringLiteral("preview_id")}});
+            const int total = int(preview.whole.value(QStringLiteral("rows")).toArray().size());
+            const int pageCount = qMax(1, (total + preview.pageSize - 1) / preview.pageSize);
+            const qint64 page = wholeNumber(payload.value(QStringLiteral("page")));
+            if (page < 1 || page > pageCount)
+                return refuse("ipc.field.out_of_range", {{QStringLiteral("field"), QStringLiteral("page")},
+                                                          {QStringLiteral("min"), 1}, {QStringLiteral("max"), pageCount}});
+            return importPage(preview.whole, int(page), preview.pageSize);
+        }
+        return refuse("import.commit.preview_expired");
+    }
+
+    const QString extra = unknownField({QStringLiteral("source_kind"), QStringLiteral("file_path"), QStringLiteral("text"),
+                                        QStringLiteral("rows"), QStringLiteral("column_mapping"),
+                                        QStringLiteral("time_zone"), QStringLiteral("source_name"),
+                                        QStringLiteral("page_size")});
+    if (!extra.isEmpty())
+        return refuse("ipc.field.unknown", {{QStringLiteral("field"), extra}});
+    int pageSize = 0;
+    if (payload.contains(QStringLiteral("page_size"))) {
+        const qint64 size = wholeNumber(payload.value(QStringLiteral("page_size")));
+        if (size < 1 || size > 100)
+            return refuse("ipc.field.out_of_range", {{QStringLiteral("field"), QStringLiteral("page_size")},
+                                                      {QStringLiteral("min"), 1}, {QStringLiteral("max"), 100}});
+        pageSize = int(size);
+    }
+    if (!payload.value(QStringLiteral("source_kind")).isString())
+        return refuse("ipc.field.missing", {{QStringLiteral("field"), QStringLiteral("source_kind")}});
+    const QString kind = payload.value(QStringLiteral("source_kind")).toString().toUpper();
+    static const QStringList kinds{QStringLiteral("CSV"), QStringLiteral("XLS"), QStringLiteral("XLSX"),
+                                   QStringLiteral("JSON"), QStringLiteral("BACKUP"), QStringLiteral("PASTE"),
+                                   QStringLiteral("SCREENSHOT"), QStringLiteral("ROWS")};
+    if (!kinds.contains(kind))
+        return refuse("import.preview.kind_unsupported");
+    const QJsonValue sourceName = payload.value(QStringLiteral("source_name")).isString()
+        ? payload.value(QStringLiteral("source_name")) : QJsonValue(QJsonValue::Null);
+    if (sourceName.toString().size() > 500)
+        return refuse("import.preview.source_name_too_long");
+    // A file or text the parser could not read: "无法读取导入内容：" and why.
+    const auto unreadable = [&refuse](const char *detail) {
+        return refuse("import.source.unreadable", {{QStringLiteral("detail"), collector_text::textRef(detail)}});
+    };
+
+    QJsonArray rows;
+    if (payload.contains(QStringLiteral("rows"))) {
+        // Edited candidates take precedence over the file or text they came from.
+        const QJsonValue value = payload.value(QStringLiteral("rows"));
+        bool objects = value.isArray() && value.toArray().size() <= kMaxImportRows;
+        for (const QJsonValue &row : value.toArray())
+            objects = objects && row.isObject();
+        if (!objects)
+            return refuse("import.request.rows_invalid");
+        rows = value.toArray();
+    } else if (kind == QLatin1String("JSON")) {
+        QByteArray text;
+        if (payload.value(QStringLiteral("text")).isString()) {
+            text = payload.value(QStringLiteral("text")).toString().toUtf8();
+        } else if (payload.value(QStringLiteral("file_path")).isString()) {
+            const QString path = payload.value(QStringLiteral("file_path")).toString();
+            if (!QDir::isAbsolutePath(path))
+                return refuse("import.preview.path_not_absolute");
+            QFile file(path);
+            if (!file.exists())
+                return unreadable("import.source.file_not_found");
+            if (file.size() > 20 * 1024 * 1024)
+                return unreadable("import.source.file_too_large");
+            if (!file.open(QIODevice::ReadOnly))
+                return unreadable("import.source.file_not_found");
+            text = file.readAll();
+        } else {
+            return unreadable("import.source.file_required");
+        }
+        if (text.startsWith("\xEF\xBB\xBF"))
+            text.remove(0, 3);
+        QJsonParseError error{};
+        const QJsonDocument document = QJsonDocument::fromJson(text, &error);
+        if (error.error != QJsonParseError::NoError)
+            return unreadable("import.json.malformed");
+        if (!document.isArray())
+            return unreadable("import.json.not_array");
+        rows = document.array();
+        if (rows.size() > kMaxImportRows)
+            return unreadable("import.json.too_many_rows");
+    } else if (kind == QLatin1String("SCREENSHOT") || kind == QLatin1String("ROWS")) {
+        return unreadable("import.source.rows_required");
+    } else {
+        // Refused on purpose: this backend reads no table, workbook or backup.
+        *errorCode = QStringLiteral("ERR_BAD_REQUEST");
+        *errorMessage = QString::fromUtf8("模拟后端不读取表格、工作簿或备份文件；请用 JSON 文件或截图识别，"
+                                          "或连接后台服务后导入。");
+        return {};
+    }
+
+    // RunImportService.PreviewSource: a row without its own identity is known by its own
+    // content and how many identical rows precede it, so adding, removing or moving other
+    // rows leaves it recognisable on a later import; then the whole batch is classified once.
+    const QString now = isoUtc(QDateTime::currentDateTimeUtc());
+    QHash<QString, int> occurrences;
+    const QString zone = payload.value(QStringLiteral("time_zone")).toString().trimmed();
+    const JobCatalog jobs;
+    QJsonArray rendered;
+    QJsonArray entries;
+    QMap<QString, int> counts{{QStringLiteral("new"), 0}, {QStringLiteral("duplicate"), 0},
+                              {QStringLiteral("conflict"), 0}, {QStringLiteral("possible_duplicate"), 0},
+                              {QStringLiteral("invalid"), 0}, {QStringLiteral("incomplete"), 0}};
+    QHash<QString, QJsonObject> seenIds;
+    QHash<QString, QString> seenFingerprints;
+    QHash<QString, QString> seenTwins; // RunImportService.TwinKey -> run_id of the first copy
+    for (int i = 0; i < rows.size(); ++i) {
+        const int rowNumber = i + 1;
+        ImportRow entry;
+        if (!rows.at(i).isObject()) {
+            appendSentence(entry.errors, entry.errorRefs, "import.json.row_not_object");
+        } else {
+            QJsonObject row = rows.at(i).toObject();
+            const auto absent = [&row](const char *key) {
+                const QJsonValue value = row.value(QLatin1String(key));
+                return value.isUndefined() || value.isNull();
+            };
+            if (absent("run_id") && absent("source_key")) {
+                const QString own = sha256Hex(canonicalImportValues(row));
+                const int occurrence = ++occurrences[own];
+                row.insert(QStringLiteral("source_key"), own + QLatin1Char(':') + QString::number(occurrence));
+            }
+            entry = normalizeImportRow(row, kind, sourceName, zone, now, jobs);
+        }
+        QString status = QStringLiteral("invalid");
+        QJsonValue matching(QJsonValue::Null);
+        if (!entry.run.isEmpty()) {
+            const QString runId = entry.run.value(QStringLiteral("run_id")).toString();
+            std::tie(status, matching) = classifyImportRun(entry.run, entry.stable, entry.compared, entry.fingerprint,
+                                                           m_runs, m_importFingerprints);
+            if (status == QLatin1String("new") || status == QLatin1String("possible_duplicate")) {
+                if (entry.stable && seenIds.contains(runId)) {
+                    const QJsonObject incoming = importFacts(entry.run);
+                    const QJsonObject earlier = importFacts(seenIds.value(runId));
+                    bool same = true;
+                    for (const QString &field : std::as_const(entry.compared))
+                        same = same && (!incoming.contains(field) || incoming.value(field) == earlier.value(field));
+                    status = same ? QStringLiteral("duplicate") : QStringLiteral("conflict");
+                    matching = runId;
+                } else if (seenFingerprints.contains(entry.fingerprint)) {
+                    status = QStringLiteral("duplicate");
+                    matching = seenFingerprints.value(entry.fingerprint);
+                } else {
+                    if (entry.stable)
+                        seenIds.insert(runId, entry.run);
+                    seenFingerprints.insert(entry.fingerprint, runId);
+                    // The same card read twice (overlapping screenshots, one picture added twice)
+                    // differs only in what the reading added: a possible duplicate of the first.
+                    const QString twin = importTwinKey(entry.run);
+                    if (!twin.isEmpty()) {
+                        if (status == QLatin1String("new") && seenTwins.contains(twin)) {
+                            status = QStringLiteral("possible_duplicate");
+                            matching = seenTwins.value(twin);
+                        } else if (!seenTwins.contains(twin)) {
+                            seenTwins.insert(twin, runId);
+                        }
+                    }
+                }
+            }
+        }
+        const bool incomplete = entry.run.value(QStringLiteral("import_metadata")).toObject()
+                                    .value(QStringLiteral("incomplete")).toBool(false);
+        counts[status] += 1;
+        if (incomplete)
+            counts[QStringLiteral("incomplete")] += 1;
+        rendered.append(QJsonObject{
+            {QStringLiteral("row_number"), rowNumber},
+            {QStringLiteral("status"), status},
+            {QStringLiteral("can_import"), status == QLatin1String("new") || status == QLatin1String("possible_duplicate")},
+            {QStringLiteral("incomplete"), incomplete},
+            {QStringLiteral("candidate"), entry.candidate},
+            {QStringLiteral("run"), entry.run.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(entry.run)},
+            {QStringLiteral("errors"), entry.errors},
+            {QStringLiteral("warnings"), entry.warnings},
+            {QStringLiteral("error_refs"), entry.errorRefs},
+            {QStringLiteral("warning_refs"), entry.warningRefs},
+            {QStringLiteral("matching_run_id"), matching}});
+        QJsonArray compared;
+        for (const QString &field : std::as_const(entry.compared))
+            compared.append(field);
+        entries.append(QJsonObject{{QStringLiteral("row_number"), rowNumber},
+                                   {QStringLiteral("run"), entry.run},
+                                   {QStringLiteral("valid"), !entry.run.isEmpty() && entry.errors.isEmpty()},
+                                   {QStringLiteral("stable"), entry.stable},
+                                   {QStringLiteral("compared"), compared},
+                                   {QStringLiteral("fingerprint"), entry.fingerprint}});
+    }
+    QJsonObject summary;
+    for (auto it = counts.constBegin(); it != counts.constEnd(); ++it)
+        summary.insert(it.key(), it.value());
+    summary.insert(QStringLiteral("total"), rows.size());
+
+    ImportPreview preview;
+    preview.previewId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    preview.pageSize = pageSize;
+    preview.entries = entries;
+    preview.whole = QJsonObject{{QStringLiteral("preview_id"), preview.previewId},
+                                {QStringLiteral("source_kind"), kind},
+                                {QStringLiteral("source_name"), sourceName},
+                                {QStringLiteral("rows"), rendered},
+                                {QStringLiteral("summary"), summary}};
+    // RunImportService.MaxPreviews: the oldest preview makes room for a new one.
+    m_importPreviews.append(preview);
+    while (m_importPreviews.size() > 8)
+        m_importPreviews.removeFirst();
+    return pageSize > 0 ? importPage(preview.whole, 1, pageSize) : preview.whole;
+}
+
+QJsonObject MockBackend::commitRunImport(const QJsonObject &payload, QString *errorCode, QString *errorMessage)
+{
+    const auto refuse = [&](const char *key, const QVariantMap &args = {}) {
+        return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), key, args);
+    };
+    for (const QString &key : payload.keys()) {
+        static const QStringList declared{QStringLiteral("preview_id"), QStringLiteral("row_numbers"),
+                                          QStringLiteral("confirm_own_records"), QStringLiteral("deduct_from_baseline")};
+        if (!declared.contains(key))
+            return refuse("ipc.field.unknown", {{QStringLiteral("field"), key}});
+    }
+    if (!payload.value(QStringLiteral("confirm_own_records")).toBool(false))
+        return refuse("import.commit.own_records_required");
+    const QString previewId = payload.value(QStringLiteral("preview_id")).toString();
+    const QString requestId = m_requestId.isEmpty() ? QUuid::createUuid().toString(QUuid::WithoutBraces) : m_requestId;
+    if (QUuid::fromString(previewId).isNull())
+        return refuse("import.commit.ids_invalid");
+    QList<int> selected;
+    bool valid = payload.value(QStringLiteral("row_numbers")).isArray();
+    for (const QJsonValue &value : payload.value(QStringLiteral("row_numbers")).toArray()) {
+        const int number = value.toInt(0);
+        valid = valid && value.isDouble() && number >= 1 && value.toDouble() == number && !selected.contains(number);
+        selected.append(number);
+    }
+    if (!valid || selected.isEmpty() || selected.size() > kMaxImportRows)
+        return refuse("import.commit.selection_invalid");
+    std::sort(selected.begin(), selected.end());
+    const bool deduct = payload.value(QStringLiteral("deduct_from_baseline")).toBool(false);
+    QStringList numbers;
+    for (int number : std::as_const(selected))
+        numbers.append(QString::number(number));
+    // The baseline choice is part of the selection: a retry that changes it is another commit.
+    const QByteArray selection = (previewId + QLatin1Char(':') + numbers.join(QLatin1Char(','))
+                                  + (deduct ? QStringLiteral(":deduct_from_baseline") : QString())).toUtf8();
+
+    // A receipt for this preview, or for this request, answers its resend.
+    for (const ImportReceipt &receipt : std::as_const(m_importReceipts)) {
+        if (receipt.previewId != previewId && receipt.requestId != requestId)
+            continue;
+        if (receipt.selection != selection)
+            return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_IDEMPOTENCY_CONFLICT"),
+                              "import.commit.selection_changed");
+        QJsonObject replay = receipt.response;
+        replay.insert(QStringLiteral("replayed"), true);
+        return replay;
+    }
+    if (m_appliedRequests.contains(requestId))
+        return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_IDEMPOTENCY_CONFLICT"),
+                          "import.commit.request_reused");
+    const ImportPreview *preview = nullptr;
+    for (const ImportPreview &stored : std::as_const(m_importPreviews)) {
+        if (stored.previewId == previewId)
+            preview = &stored;
+    }
+    if (!preview)
+        return refuse("import.commit.preview_expired");
+    QList<QJsonObject> chosen;
+    for (int number : std::as_const(selected)) {
+        QJsonObject found;
+        for (const QJsonValue &entry : preview->entries) {
+            if (entry.toObject().value(QStringLiteral("row_number")).toInt() == number)
+                found = entry.toObject();
+        }
+        if (found.isEmpty())
+            return refuse("import.commit.row_not_in_preview");
+        chosen.append(found);
+    }
+    for (const QJsonObject &entry : std::as_const(chosen)) {
+        if (!entry.value(QStringLiteral("valid")).toBool())
+            return refuse("import.commit.rows_have_errors");
+    }
+
+    // Every selected row is checked again against the library as it is now; a duplicate or a
+    // conflict is never written over local data.
+    QJsonArray outcomes;
+    QJsonArray accepted;
+    int duplicates = 0;
+    int conflicts = 0;
+    const QString now = isoUtc(QDateTime::currentDateTimeUtc());
+    for (const QJsonObject &entry : std::as_const(chosen)) {
+        const QJsonObject run = entry.value(QStringLiteral("run")).toObject();
+        QSet<QString> compared;
+        for (const QJsonValue &field : entry.value(QStringLiteral("compared")).toArray())
+            compared.insert(field.toString());
+        const QString fingerprint = entry.value(QStringLiteral("fingerprint")).toString();
+        auto [status, matching] = classifyImportRun(run, entry.value(QStringLiteral("stable")).toBool(), compared,
+                                                    fingerprint, m_runs, m_importFingerprints);
+        if (status == QLatin1String("duplicate")) {
+            ++duplicates;
+        } else if (status == QLatin1String("conflict")) {
+            ++conflicts;
+        } else {
+            // The preview owns the complete candidate; its revision chain starts here.
+            m_runs.append(run);
+            m_importFingerprints.insert(fingerprint, run.value(QStringLiteral("run_id")).toString());
+            QJsonArray changes;
+            for (auto it = run.constBegin(); it != run.constEnd(); ++it)
+                changes.append(changeEntry(it.key(), QJsonValue(QJsonValue::Null), it.value()));
+            m_revisions.append(QJsonObject{
+                {QStringLiteral("revision_id"), QUuid::createUuid().toString(QUuid::WithoutBraces)},
+                {QStringLiteral("run_id"), run.value(QStringLiteral("run_id"))},
+                {QStringLiteral("revision"), 1},
+                {QStringLiteral("changed_at_utc"), now},
+                {QStringLiteral("change_kind"), QStringLiteral("IMPORT")},
+                {QStringLiteral("reason"), QString::fromUtf8("导入本人的历史记录")},
+                {QStringLiteral("actor"), QStringLiteral("USER")},
+                {QStringLiteral("changes"), changes}});
+            accepted.append(run.value(QStringLiteral("run_id")));
+            status = QStringLiteral("imported");
+            matching = run.value(QStringLiteral("run_id"));
+        }
+        outcomes.append(QJsonObject{{QStringLiteral("row_number"), entry.value(QStringLiteral("row_number"))},
+                                    {QStringLiteral("status"), status},
+                                    {QStringLiteral("run_id"), matching}});
+    }
+
+    // RunImportService.DeductFromBaseline: the imported completions the progress counts come
+    // off the baseline the player says already holds them, never below zero.
+    int deducted = 0;
+    if (deduct && m_baselineCompletedCount > 0) {
+        int contributing = 0;
+        for (const QJsonValue &id : std::as_const(accepted)) {
+            const QJsonObject run = m_runs.at(indexOfRun(id.toString())).toObject();
+            if (!isSoftDeleted(run) && isConfirmedMentor(run)
+                && run.value(QStringLiteral("result")).toString() == QLatin1String("COMPLETED")
+                && run.value(QStringLiteral("contributes_to_goal")).toBool(true))
+                ++contributing;
+        }
+        deducted = qMin(contributing, m_baselineCompletedCount);
+        if (deducted > 0) {
+            m_baselineCompletedCount -= deducted;
+            m_baselineEffectiveAt = QDateTime::currentDateTimeUtc();
+            m_achievementUpdatedAt = m_baselineEffectiveAt;
+            m_baselineAuditEventId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        }
+    }
+
+    const QJsonObject response{{QStringLiteral("preview_id"), previewId},
+                               {QStringLiteral("imported_count"), accepted.size()},
+                               {QStringLiteral("duplicate_count"), duplicates},
+                               {QStringLiteral("conflict_count"), conflicts},
+                               {QStringLiteral("skipped_count"), 0},
+                               {QStringLiteral("replayed"), false},
+                               {QStringLiteral("run_ids"), accepted},
+                               {QStringLiteral("rows"), outcomes},
+                               {QStringLiteral("baseline_deducted_count"), deducted},
+                               {QStringLiteral("baseline_completed_count"), m_baselineCompletedCount}};
+    m_importReceipts.append(ImportReceipt{previewId, requestId, selection, response});
+    // The request id is spent: no other mutation may be answered under it.
+    m_appliedRequests.insert(requestId, AppliedRequest{QStringLiteral("CommitRunImport"), selection, response});
+    return response;
 }
 
 // ---------------------------------------------------------------------------
@@ -2052,9 +3053,65 @@ QJsonObject MockBackend::refuseWith(QString *errorCode, QString *errorMessage, c
     return {};
 }
 
+BackendReply *MockBackend::requestWithId(const QString &messageType, const QJsonObject &payload,
+                                         const QString &requestId)
+{
+    if (requestId.isEmpty())
+        return request(messageType, payload);
+    // RunMutationService.ApplySnapshot: the stored outcome of an applied request answers its
+    // replay; a different request under the same id is refused, never answered as applied.
+    const QByteArray fingerprint =
+        messageType.toUtf8() + QByteArrayLiteral("\n") + QJsonDocument(payload).toJson(QJsonDocument::Compact);
+    const auto applied = m_appliedRequests.constFind(requestId);
+    if (applied != m_appliedRequests.constEnd() && isReplayableMutation(messageType)) {
+        auto *reply = new BackendReply(requestId, messageType, this);
+        if (applied->fingerprint == fingerprint) {
+            QJsonObject replay = applied->result;
+            replay.insert(QStringLiteral("idempotent_replay"), true);
+            deliver(reply, replay, {}, {}, {}, {});
+        } else {
+            QString errorCode;
+            QString errorMessage;
+            refuseWith(&errorCode, &errorMessage, QStringLiteral("ERR_IDEMPOTENCY_CONFLICT"),
+                       messageType == QLatin1String("BatchMutateRuns") ? "history.batch.request_reused"
+                                                                       : "idempotency.request_reused");
+            const QJsonObject errorRef = m_errorRef;
+            m_errorRef = {};
+            m_errorRefMessage.clear();
+            deliver(reply, {}, errorCode, errorMessage,
+                    {{QStringLiteral("conflict"), QStringLiteral("idempotency")}}, errorRef);
+        }
+        return reply;
+    }
+    m_requestId = requestId;
+    m_requestFingerprint = fingerprint;
+    BackendReply *reply = request(messageType, payload);
+    m_requestId.clear();
+    m_requestFingerprint.clear();
+    return reply;
+}
+
+void MockBackend::deliver(BackendReply *reply, const QJsonObject &result, const QString &errorCode,
+                          const QString &errorMessage, const QJsonObject &errorDetails,
+                          const QJsonObject &errorRef)
+{
+    // Deliver on the next event-loop turn so callers always observe the same
+    // asynchronous behaviour as the real IPC backend - or later, when a test
+    // asked for this type's answer to be held back (setReplyDelay).
+    const bool failed = !errorCode.isEmpty();
+    const int delay = m_replyDelays.value(reply->messageType(), m_replyDelays.value(QString(), 0));
+    QTimer::singleShot(delay, reply, [reply, failed, result, errorCode, errorMessage, errorDetails, errorRef] {
+        if (failed)
+            reply->fail(errorCode, errorMessage, errorDetails, errorRef);
+        else
+            reply->succeed(result);
+    });
+}
+
 BackendReply *MockBackend::request(const QString &messageType, const QJsonObject &payload)
 {
-    auto *reply = new BackendReply(ipc::newRequestId(), messageType, this);
+    auto *reply = new BackendReply(m_requestId.isEmpty() ? ipc::newRequestId() : m_requestId,
+                                   messageType, this);
 
     QString errorCode;
     QString errorMessage;
@@ -2257,7 +3314,31 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
             errorMessage = QString::fromUtf8("日历查询需要有效的 YYYY-MM 月份和筛选对象。");
         } else result = queryRunCalendarDaysPayload(payload);
     } else if (messageType == QLatin1String("QueryRuns")) {
-        result = queryRunsPayload(payload);
+        // RequestParsers.Paging (PayloadReader.Int): omitted or null is the default, anything
+        // else must be an integer in range - page from 1, page_size 1 to 200 - and is refused,
+        // never clamped. A page past the end is answered, empty (RunRepository.Query).
+        const auto refusedPaging = [&](const char *field, qint64 maximum) {
+            const QJsonValue value = payload.value(QLatin1String(field));
+            if (value.isUndefined() || value.isNull())
+                return false;
+            const QVariantMap name{{QStringLiteral("field"), QString::fromLatin1(field)}};
+            if (!value.isDouble() || value.toDouble() != std::floor(value.toDouble())) {
+                refuseWith(&errorCode, &errorMessage, QStringLiteral("ERR_BAD_REQUEST"),
+                           "ipc.field.not_integer", name);
+                return true;
+            }
+            if (value.toDouble() < 1.0 || value.toDouble() > double(maximum)) {
+                QVariantMap range = name;
+                range.insert(QStringLiteral("min"), 1);
+                range.insert(QStringLiteral("max"), maximum);
+                refuseWith(&errorCode, &errorMessage, QStringLiteral("ERR_BAD_REQUEST"),
+                           "ipc.field.out_of_range", range);
+                return true;
+            }
+            return false;
+        };
+        if (!refusedPaging("page", std::numeric_limits<int>::max()) && !refusedPaging("page_size", 200))
+            result = queryRunsPayload(payload);
     } else if (messageType == QLatin1String("GetHistoryRetentionSettings")) {
         result.insert(QStringLiteral("retention_days"), m_historyRetentionDays);
     } else if (messageType == QLatin1String("UpdateHistoryRetentionSettings")) {
@@ -2302,9 +3383,13 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
             if (target.toObject().value(QStringLiteral("expected_revision")).toInt(-1) != run.value(QStringLiteral("revision")).toInt()) {
                 errorCode = QStringLiteral("ERR_REVISION_CONFLICT");
                 errorMessage = tr("记录已更新，请重新勾选，本批未应用。");
-            } else if (isSoftDeleted(run) != (action != QLatin1String("soft_delete"))) {
-                errorCode = QStringLiteral("ERR_BAD_REQUEST");
-                errorMessage = tr("记录删除状态与操作不符，本批未应用。");
+            } else if (action == QLatin1String("soft_delete") && isSoftDeleted(run)) {
+                // RunMutationService.BatchMutateRuns: the Collector's own codes and sentences.
+                refuseWith(&errorCode, &errorMessage, QStringLiteral("ERR_ALREADY_DELETED"),
+                           "history.batch.already_deleted");
+            } else if (action != QLatin1String("soft_delete") && !isSoftDeleted(run)) {
+                refuseWith(&errorCode, &errorMessage, QStringLiteral("ERR_NOT_DELETED"),
+                           "history.batch.not_deleted");
             }
         }
         if (errorCode.isEmpty()) {
@@ -2329,7 +3414,8 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
             if (!errorCode.isEmpty()) {
                 m_runs = beforeRuns; m_revisions = beforeRevisions; m_pendingImageCleanup = beforeCleanup;
             } else {
-                result = {{QStringLiteral("changed_count"), changed.size()}, {QStringLiteral("run_ids"), changed}, {QStringLiteral("action"), action}};
+                result = {{QStringLiteral("changed_count"), changed.size()}, {QStringLiteral("run_ids"), changed},
+                          {QStringLiteral("action"), action}, {QStringLiteral("idempotent_replay"), false}};
             }
         }
     } else if (messageType == QLatin1String("QueryCandidateObservations")) {
@@ -2420,6 +3506,13 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         result = applyMutation(messageType, payload, &errorCode, &errorMessage);
     } else if (messageType == QLatin1String("SetRunReflection")) {
         result = applyReflection(payload, &errorCode, &errorMessage);
+    } else if (messageType == QLatin1String("PreviewRunImport")) {
+        result = previewRunImport(payload, &errorCode, &errorMessage);
+    } else if (messageType == QLatin1String("CommitRunImport")) {
+        result = commitRunImport(payload, &errorCode, &errorMessage);
+    } else if (messageType == QLatin1String("GetCalibrationEvidence")
+               || messageType == QLatin1String("GetTemplateObservation")) {
+        result = calibrationEvidence(messageType, payload, &errorCode, &errorMessage);
     } else if (messageType == QLatin1String("GetReflectionSummary")) {
         const QJsonValue limit = payload.value(QStringLiteral("recent_limit"));
         result = reflectionSummary(limit.isDouble() ? limit.toInt() : 3);
@@ -2475,9 +3568,6 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         errorMessage = QString::fromUtf8("模拟后端不支持该消息：") + messageType;
     }
 
-    // Deliver on the next event-loop turn so callers always observe the same
-    // asynchronous behaviour as the real IPC backend - or later, when a test
-    // asked for this type's answer to be held back (setReplyDelay).
     const bool failed = !errorCode.isEmpty();
     // A refusal refuseWith() wrote carries its catalogue reference, as the
     // Collector's ErrorPayload does (message_ref).
@@ -2485,13 +3575,11 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         failed && !m_errorRef.isEmpty() && errorMessage == m_errorRefMessage ? m_errorRef : QJsonObject();
     m_errorRef = {};
     m_errorRefMessage.clear();
-    const int delay = m_replyDelays.value(messageType, m_replyDelays.value(QString(), 0));
-    QTimer::singleShot(delay, reply, [reply, failed, result, errorCode, errorMessage, errorDetails, errorRef] {
-        if (failed)
-            reply->fail(errorCode, errorMessage, errorDetails, errorRef);
-        else
-            reply->succeed(result);
-    });
+    // An applied mutation is remembered under the request_id it came with; a refused one
+    // is not, so its retry is checked again (the Collector rolls the transaction back).
+    if (!failed && !m_requestId.isEmpty() && isReplayableMutation(messageType))
+        m_appliedRequests.insert(m_requestId, AppliedRequest{messageType, m_requestFingerprint, result});
+    deliver(reply, result, errorCode, errorMessage, errorDetails, errorRef);
     return reply;
 }
 

@@ -45,6 +45,12 @@ public:
 
     BackendReply *request(const QString &messageType,
                           const QJsonObject &payload = {}) override;
+    /// Like request(), under  requestId, the way the Collector keys its mutations
+    /// (RunMutationService.Apply): a mutation resent under the id of one already applied is
+    /// answered from that first outcome, flagged as a replay and applied once, and the same
+    /// id for a different request is refused with ERR_IDEMPOTENCY_CONFLICT.
+    BackendReply *requestWithId(const QString &messageType, const QJsonObject &payload,
+                                const QString &requestId) override;
 
     /// Holds replies to \a messageType back by \a milliseconds (every type when
     /// \a messageType is empty; 0 removes the delay). Replies otherwise arrive
@@ -226,6 +232,10 @@ private:
     /// the reply's message_ref. Returns an empty result.
     QJsonObject refuseWith(QString *errorCode, QString *errorMessage, const QString &code,
                            const char *key, const QVariantMap &args = {});
+    /// Answers  reply on the next event-loop turn, or after setReplyDelay()'s delay.
+    void deliver(BackendReply *reply, const QJsonObject &result, const QString &errorCode,
+                 const QString &errorMessage, const QJsonObject &errorDetails,
+                 const QJsonObject &errorRef);
 
     // -- dataset ------------------------------------------------------------
     void generateRuns();
@@ -262,6 +272,18 @@ private:
     QJsonObject rejectSharedPayload();
     /// Announces a shared-state change the way the Collector does.
     void emitCalibrationChangedLater();
+    /// GetCalibrationEvidence / GetTemplateObservation (MockBackendShared.cpp). This
+    /// backend never completed a healthy session or sealed an observation, so the answer
+    /// is always unavailable, with the reason the Collector gives.
+    QJsonObject calibrationEvidence(const QString &messageType, const QJsonObject &payload,
+                                    QString *errorCode, QString *errorMessage);
+    // -- 导入本人记录 (MockBackend.cpp) ---------------------------------------
+    /// PreviewRunImport: candidate rows (every source kind) and JSON sources, classified as
+    /// a whole against this dataset and handed out whole or in frozen pages. Tables,
+    /// workbooks and backups are refused: this backend does not parse them.
+    QJsonObject previewRunImport(const QJsonObject &payload, QString *errorCode, QString *errorMessage);
+    /// CommitRunImport: saves the selected rows of a preview once, under a receipt.
+    QJsonObject commitRunImport(const QJsonObject &payload, QString *errorCode, QString *errorMessage);
     // -- 在线语音 (MockBackendSpeech.cpp) ------------------------------------
     static bool isSpeechMessage(const QString &messageType);
     QJsonObject applySpeech(const QString &messageType, const QJsonObject &payload,
@@ -389,6 +411,39 @@ private:
     /// the one refuseWith() wrote.
     QJsonObject m_errorRef;
     QString m_errorRefMessage;
+    /// The first outcome of every mutation applied under a request_id (requestWithId).
+    struct AppliedRequest
+    {
+        QString messageType;
+        QByteArray fingerprint;
+        QJsonObject result;
+    };
+    QHash<QString, AppliedRequest> m_appliedRequests;
+    /// A classified import batch: `whole` is the complete PreviewRunImport answer; `entries`
+    /// keep each row's run and identity for the commit. pageSize 0 is an unpaged preview.
+    struct ImportPreview
+    {
+        QString previewId;
+        QJsonObject whole;
+        QJsonArray entries;
+        int pageSize = 0;
+    };
+    /// Newest last, at most eight (RunImportService.MaxPreviews).
+    QList<ImportPreview> m_importPreviews;
+    /// run_import_batches: what each commit answered, by preview and by request.
+    struct ImportReceipt
+    {
+        QString previewId;
+        QString requestId;
+        QByteArray selection;
+        QJsonObject response;
+    };
+    QList<ImportReceipt> m_importReceipts;
+    /// run_import_metadata.source_fingerprint -> run_id of every run imported here.
+    QHash<QString, QString> m_importFingerprints;
+    /// The request_id, and the payload's fingerprint, request() is answering under.
+    QString m_requestId;
+    QByteArray m_requestFingerprint;
 };
 
 } // namespace mr

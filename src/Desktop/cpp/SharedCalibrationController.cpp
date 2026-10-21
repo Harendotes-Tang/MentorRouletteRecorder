@@ -241,12 +241,10 @@ QString SharedCalibrationController::headline() const
         // the sentence from before the split stands.
         if (m_inputs.provenance == QLatin1String("imported"))
             return tr("校准码已导入。登录后申请随机任务并进入副本，通过检查后才能开始记录。");
-        if (m_inputs.gate == QLatin1String("login"))
-            return tr("找到了共享校准，登录时会自动检查，通过后就能开始记录。");
-        if (m_inputs.gate == QLatin1String("queue"))
-            return tr("找到了共享校准。申请随机任务并进入副本，通过检查后才能开始记录。");
+        if (m_inputs.gate == QLatin1String("login") || m_inputs.gate == QLatin1String("queue"))
+            return tr("已找到共享校准，等待本机验证。");
         return m_inputs.manualOnly ? tr("校准码已导入。登录或排本时会自动检查是否可用。")
-                                   : tr("找到了共享校准，登录或排本时会自动检查是否可用。");
+                                   : tr("已找到共享校准，等待本机验证。");
     }
     if (current == QLatin1String("consent"))
         return tr("共享校准已通过检查，请确认是否使用。");
@@ -275,6 +273,14 @@ QString SharedCalibrationController::detail() const
     if (current == QLatin1String("verifying")) {
         if (recordingAlready())
             return tr("自动记录照常进行。检查通过后会自动换用新的共享校准，已保存的记录不会改动。");
+        if (m_inputs.provenance != QLatin1String("imported")
+            && (!m_inputs.manualOnly || !m_inputs.gate.isEmpty())) {
+            if (m_inputs.gate == QLatin1String("login"))
+                return tr("无需手动导入。登录游戏时会自动检查，检查通过后才能开始自动记录。如果不能使用，会继续本机校准，已有进度会保留。");
+            if (m_inputs.gate == QLatin1String("queue"))
+                return tr("无需手动导入。请申请随机任务并进入副本，检查通过后才能开始自动记录。如果不能使用，会继续本机校准，已有进度会保留。");
+            return tr("无需手动导入。登录或排本时会自动检查，检查通过后才能开始自动记录。如果不能使用，会继续本机校准，已有进度会保留。");
+        }
         return tr("检查通过后才能开始自动记录。照常游戏即可；如果不能使用，会继续本机校准，已有进度会保留。");
     }
     if (current == QLatin1String("verified")) {
@@ -287,15 +293,15 @@ QString SharedCalibrationController::detail() const
     if (current == QLatin1String("rejected"))
         return tr("本机校准会继续，已有进度会保留，照常游戏即可。");
     if (current == QLatin1String("unavailable"))
-        return tr("稍后可点「立即检查」重试。也可以向已完成校准的玩家索取校准码，再点「导入校准码」。");
+        return tr("稍后可点「立即检查」重试。也可以向已完成校准的玩家索取校准码，在「其他方式」中手动导入。");
     if (current == QLatin1String("none_for_build"))
         return tr("本机校准完成后，可以点「分享给其他玩家」，让同一游戏版本的玩家也能使用。");
     if (current == QLatin1String("disabled"))
-        return tr("想自动查找共享校准，可在设置中开启「游戏更新后获取其他玩家的共享校准」。也可以直接导入校准码。");
+        return tr("想自动查找共享校准，可在设置中开启「游戏更新后获取其他玩家的共享校准」。也可以在「其他方式」中手动导入校准码。");
     if (current == QLatin1String("user_rejected") && calibrating())
         return tr("想重新使用共享校准，点「清空校准进度」。本机尚未完成的校准进度也会一起清空。");
     if (current == QLatin1String("none") && canImport())
-        return tr("有其他玩家发来的校准码，可以点「导入校准码」。通过检查后才会使用。");
+        return tr("有其他玩家发来的校准码，可以在「其他方式」中手动导入。通过检查后才会使用。");
     return {};
 }
 
@@ -377,7 +383,7 @@ QString SharedCalibrationController::consentText()
     // CalibrationController::queueInferenceText() names on its own.
     return tr("这份校准会根据你申请的随机任务和实际进入的副本来记录，记录中的匹配时间使用你申请排队的时间。"
               "取消排队不会生成记录。这是目前可用的基础记录方式。同意后，当前游戏版本不会再询问。"
-              "如果你有其他玩家发来的校准码，也可以先点「导入校准码」。");
+              "如果你有其他玩家发来的校准码，也可以在「其他方式」中手动导入校准码。");
 }
 
 QString SharedCalibrationController::shareHint()
@@ -452,8 +458,15 @@ void SharedCalibrationController::checkNow()
             Q_EMIT notice(tr("刚刚检查过，请稍后重试。上次结果已显示在「共享校准」中。"));
         else if (outcome == QLatin1String("DISABLED"))
             Q_EMIT notice(tr("请先在设置中开启「游戏更新后获取其他玩家的共享校准」。也可以直接导入校准码。"));
-        else
-            Q_EMIT notice(tr("暂时不需要查找：已有可用校准，或你已选择当前游戏版本只用本机校准。"));
+        else {
+            // A NOT_NEEDED that says why - the refusal state could not be read (audit RV5-5) -
+            // is shown in the Collector's words, in the interface language where message_ref
+            // allows; the fixed line below would claim a usable calibration or a choice.
+            const QString reason = collector_text::render(payload.value(QStringLiteral("message_ref")),
+                                                          payload.value(QStringLiteral("message")).toString());
+            Q_EMIT notice(!reason.isEmpty() ? reason
+                          : tr("暂时不需要查找：已有可用校准，或你已选择当前游戏版本只用本机校准。"));
+        }
         Q_EMIT refreshRequested();
     });
 }
@@ -493,9 +506,9 @@ void SharedCalibrationController::deliverShareCode(const QVariantMap &payload)
     if (!payload.value(QStringLiteral("code_in_url")).toBool()) {
         Q_EMIT notice(verified
             ? tr("校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 页面。"
-                 "你可以把这份校准直接发给其他玩家，让对方点「导入校准码」并粘贴。")
+                 "你可以把这份校准直接发给其他玩家，让对方在「其他方式」中点「手动导入校准码…」并粘贴。")
             : tr("校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 分享页面。"
-                 "你可以直接把它发给其他玩家，让对方点「导入校准码」并粘贴。"));
+                 "你可以直接把它发给其他玩家，让对方在「其他方式」中点「手动导入校准码…」并粘贴。"));
         return;
     }
     const QUrl url(payload.value(QStringLiteral("issue_url")).toString(), QUrl::StrictMode);

@@ -38,10 +38,18 @@
 - `details` 只包含结构化、非敏感的上下文，**永远不包含原始报文负载**。
 - `retryable = true` 表示同一 `request_id` 原样重发是安全且可能成功的。
 - 所有可变更消息（`CreateManualRun` / `CorrectRun` / `SoftDeleteRun` /
-  `RestoreRun` / `UpdateAchievementBaseline` / `SetRunReflection`）按 `request_id` 幂等。
-  重放已应用的请求返回原结果并置 `idempotent_replay = true`，不再次变更，也不报错。
+  `RestoreRun` / `UndoRevision` / `BatchMutateRuns` / `UpdateAchievementBaseline` /
+  `SetRunReflection` / `CommitRunImport`）按 `request_id` 幂等。
+  重放已应用的请求返回原结果，不再次变更，也不报错；应答带 `idempotent_replay` 字段的置为 `true`，
+  `CommitRunImport` 的导入回执置 `replayed = true`。
   仅当**同一个 `request_id` 配上不同的请求内容**时才拒绝，错误码为
   `ERR_IDEMPOTENCY_CONFLICT`（见下表）。
+- 并非每个请求都会得到应答。分帧错误答复一次后关闭连接；同一连接上已受理而尚未完成的延迟应答类请求
+  （`SynthesizeSpeech` / `CheckDatabaseIntegrity` / `CheckUpdateNow` / `PreviewRunImport` / `CommitRunImport`；
+  尚未应答的 `CheckUpdateNow` 无论几条只计一条，自身另以 8 条为限）达到 8 条时，再到达的一条不被处理，
+  Collector 直接关闭连接，不发送错误信封，尚未写出的应答一并丢弃
+  （[docs/architecture.md](../docs/architecture.md) §3.3）。客户端应把连接断开视为全部未完成请求的失败，
+  变更类请求重连后以原 `request_id` 重发，以得到确定结果。
 
 `ReviewCandidateObservation` 同样按 `request_id` 幂等。其响应按候选契约仅返回
 `observation_id / review_verdict / reviewed_at_utc` 三项，重放时返回原结果，
@@ -52,7 +60,7 @@
 | Code | 触发条件 | 典型消息类型 | retryable | 客户端应有的处理 |
 |---|---|---|---|---|
 | `ERR_PROTOCOL_VERSION` | 请求信封的 `protocol_version` 不是 1，或帧无法按 4 字节长度前缀解析 | 任意 | false | 提示版本不匹配，停止使用该连接；Desktop 应提示重新安装以使两个进程版本一致 |
-| `ERR_BAD_REQUEST` | JSON 结构不合法（包括信封或载荷中同一对象内字段名重复）、缺少必填字段、字段类型错误、出现契约未声明的字段、`page_size > 200`、时间戳不是带毫秒的 UTC ISO-8601 等；**以及**所选网卡在开始抓包时已不在 Npcap 设备列表中（例如用户中途启用加速器 / VPN、切换 Wi-Fi 或重新获取 IP）；**以及** `StartCapture.process_id` 不是当前锁定的客户端；**以及** `CorrectRun` 会使一条自动记录变为「结果未知、没有结束时间且不在待复核中」（修正前已是这一形态的进行中记录除外） | 任意；网卡与 `process_id` 情形仅出现在 `StartCapture` | 一般为 false；网卡情形为 **true** | 视为编程错误；`payload.field` 指出出错字段路径。网卡情形下 `field = "adapter_id"`，`details.adapter_id` 为原网卡；客户端应重新选择网卡后按秒重试。该错误不表示 Npcap 未安装。`process_id` 情形下 `field = "process_id"`：改变记录对象须用 `SelectGameProcess`。`CorrectRun` 情形下 `field = "ended_at_utc"`：须填写结束时间或选择实际结果（见 `docs/manual-correction.md` §7） |
+| `ERR_BAD_REQUEST` | JSON 结构不合法（包括信封或载荷中同一对象内字段名重复）、缺少必填字段、字段类型错误、出现契约未声明的字段、`page_size > 200`、时间戳不是带毫秒的 UTC ISO-8601 等；**以及**所选网卡在开始抓包时已不在 Npcap 设备列表中（例如用户中途启用加速器 / VPN、切换 Wi-Fi 或重新获取 IP）；**以及** `StartCapture.process_id` 不是当前锁定的客户端；**以及** `CorrectRun` 会使一条自动记录变为「结果未知、没有结束时间且不在待复核中」（修正前已是这一形态的进行中记录除外）；**以及** `PreviewRunImport` 的 `file_path` 不是完整的本地路径、指向网络共享或设备路径、或无法确认位于本机磁盘（`field = "file_path"`）；**以及** `PreviewRunImport` 的预览超出容量，包括分页预览的全批候选超过 3 MiB（`field = "rows"`） | 任意；网卡与 `process_id` 情形仅出现在 `StartCapture` | 一般为 false；网卡情形为 **true** | 视为编程错误；`payload.field` 指出出错字段路径。网卡情形下 `field = "adapter_id"`，`details.adapter_id` 为原网卡；客户端应重新选择网卡后按秒重试。该错误不表示 Npcap 未安装。`process_id` 情形下 `field = "process_id"`：改变记录对象须用 `SelectGameProcess`。`CorrectRun` 情形下 `field = "ended_at_utc"`：须填写结束时间或选择实际结果（见 `docs/manual-correction.md` §7） |
 | `ERR_NOT_FOUND` | `run_id` 不存在（含从未创建过的 UUID） | `CorrectRun` `SoftDeleteRun` `RestoreRun` `GetRunRevisions` `SetRunReflection` | false | 刷新列表 |
 | `ERR_CANDIDATE_OBSERVATION_NOT_FOUND` | 候选观测不存在或已按容量/保留期清理 | `ReviewCandidateObservation` | false | 刷新对照核对列表 |
 | `ERR_REASON_REQUIRED` | 需要理由的操作未提供非空 `reason` | `CreateManualRun` `CorrectRun` `SoftDeleteRun` `RestoreRun` `UpdateAchievementBaseline` | false | 在 UI 中强制填写理由后重试（新 `request_id`） |
@@ -63,13 +71,13 @@
 | `ERR_ALREADY_DELETED` | 对 `soft_deleted = 1` 的记录再次执行软删除 | `SoftDeleteRun` | false | 刷新状态 |
 | `ERR_NOT_DELETED` | 对 `soft_deleted = 0` 的记录执行恢复 | `RestoreRun` | false | 刷新状态 |
 | `ERR_UNDO_NOT_ALLOWED` | `UndoRevision` 指向的是 `revision = 1`，也就是创建记录本身；**以及**指向程序写下的修订（`actor = SYSTEM`），而撤销会让记录回到无法统计也无法确认的状态：自动记录回到“进行中”（`UNKNOWN`、没有结束时间、不在待复核），或没有进入时间却不是进本前取消。重启时对未完结记录的收尾、以及对早期版本所存此类记录的一次性更正，都属此类 | `UndoRevision` | false | 撤销只能作用在创建之后的修订上；需要移除记录请改用软删除。程序收尾的修订不能撤销，判断有误时用 `CorrectRun` 直接更正。`field = "expected_revision"`，`details.run_id` 给出记录标识 |
-| `ERR_IDEMPOTENCY_CONFLICT` | 同一个 `request_id` 被用于**内容不同**的请求（幂等行里保存的请求指纹不匹配） | `CreateManualRun` `CorrectRun` `SoftDeleteRun` `RestoreRun` `UpdateAchievementBaseline` `SetRunReflection` | false | 这是客户端 bug：改动内容变了就必须换一个新的 `request_id` 重发；`details.conflict = "idempotency"`。**另一种触发条件**：幂等表按 24 小时清理之后到达的迟到重放——响应正文已经清除，但 `run_revisions.request_id` / `candidate_reviews.request_id` / `run_import_batches.request_id` 或基数持久执行标记证明它执行过；此时 `details.reason = "RESPONSE_EXPIRED"`、`field = "request_id"`，同样是换一个新的 `request_id` 重发 |
+| `ERR_IDEMPOTENCY_CONFLICT` | 同一个 `request_id` 被用于**内容不同**的请求（幂等行里保存的请求指纹不匹配）；`CommitRunImport` 对同一 `preview_id` 改变勾选后重试同样属于此类 | `CreateManualRun` `CorrectRun` `SoftDeleteRun` `RestoreRun` `UndoRevision` `BatchMutateRuns` `UpdateAchievementBaseline` `SetRunReflection` `CommitRunImport` | false | 这是客户端 bug：改动内容变了就必须换一个新的 `request_id` 重发；`details.conflict = "idempotency"`。**另一种触发条件**：幂等表按 24 小时清理之后到达的迟到重放——响应正文已经清除，但 `run_revisions.request_id` / `candidate_reviews.request_id` / `run_import_batches.request_id` 或基数持久执行标记证明它执行过；此时 `details.reason = "RESPONSE_EXPIRED"`、`field = "request_id"`，同样是换一个新的 `request_id` 重发 |
 | `ERR_NPCAP_MISSING` | 未检测到 Npcap（注册表与 `wpcap.dll` 均不存在），或 Npcap 存在但无法打开设备列表 | `StartCapture` `ListCaptureAdapters` | false | 显示安装指引；**本软件不内置、不下载、不分发 Npcap** |
 | `ERR_FFXIV_NOT_RUNNING` | 未找到 FFXIV 游戏进程/窗口，无法确定要观察的会话；**以及**有客户端可选但尚未锁定（`CaptureStatus.game_selection_required = true`）时启动抓包；**以及** `SelectGameProcess` 的令牌已失效（客户端退出、重启或编号被复用）、所选客户端暂时没有可读的启动时间，或所选客户端在切换过程中退出 | `StartCapture` `SelectGameProcess` | `StartCapture` 为 true；`SelectGameProcess` 为 **false** | `StartCapture`：提示先启动游戏，或先在「记录对象」中选择窗口，之后可原样重试。`SelectGameProcess`：同一令牌不会再生效，刷新 `game_processes` 后重新选择。切换过程中退出时选择已经提交、旧采集已经停止，状态显示 `EXITED`；没有任何客户端在运行时 `game_selection_required` 为 false，不要提示选择 |
 | `ERR_CAPTURE_ALREADY_RUNNING` | 抓包已处于 `STARTING` / `RUNNING` / `DEGRADED` 时再次请求启动；**以及**采集验证占用监听资源时请求 `SelectGameProcess`（在停止旧采集之前拒绝，原有选择与采集保持不变） | `StartCapture` `SelectGameProcess` | false | 同步 UI 状态，不重复启动；切换窗口前先停止验证 |
 | `ERR_CAPTURE_NOT_RUNNING` | 抓包处于 `STOPPED` / `FAILED` 时请求停止 | `StopCapture` | false | 同步 UI 状态 |
 | `ERR_PROFILE_UNSUPPORTED` | 协议档案状态为 `NONE` 或 `UNSUPPORTED_BUILD`：客户端版本未知或无对应档案 | `StartCapture` `GetProtocolProfileStatus` | false | **fail-closed**：不解析任何报文、不写入任何记录；提示用户仅能手动补录。自 0.3.0 起，"无对应档案但有随包模板"的情况不再触发它，而是进入本机校准（`CaptureStatus.calibration.state = OBSERVING`） |
-| `ERR_CALIBRATION_NOT_READY` | 本机校准还没有可核对的草稿：没有在校准、还在观察、或已阻塞 | `ConfirmCalibration` | false | 按 `CaptureStatus.calibration.blockers` 提示用户继续游玩或导出证据 |
+| `ERR_CALIBRATION_NOT_READY` | 本机校准还没有可核对的草稿：没有在校准、还在观察、或已阻塞；**以及** `restore_local_profile` 没能换回上一份本机校准（[docs/protocol-profile-format.md](../docs/protocol-profile-format.md) §11.6.1）；**以及**有导随正在进行（状态机处于 `MENTOR_MATCHED` 或 `ENTERED_DUTY`），或按排本推断匹配的档案保留着一条仍在匹配窗口内的排本申请（玩家已在排队、还没有记录）时，请求 `DiscardCalibration` 的 `retire_local_profile` / `restore_local_profile`，或在共享档案生效时请求 `RejectSharedCalibration`（目录键 `calibration.change_during_run`；只在排队时为 `calibration.change_while_queued`） | `ConfirmCalibration` `DiscardCalibration` `RejectSharedCalibration` | false | 草稿未就绪时按 `CaptureStatus.calibration.blockers` 提示用户继续游玩或导出证据；其余情形显示 `message`，导随进行中或排队中的拒绝在这一场结束、或那条排本申请失效之后可再次请求 |
 | `ERR_CALIBRATION_REJECTED` | 用户把校准时间线里的某一项标为"错"，草稿作废，被否决的候选在本次会话内不再提出 | `ConfirmCalibration` | false | 提示"再打一把随机任务"，界面回到校准中 |
 | `ERR_SHARE_CODE_UNAVAILABLE` | 当前生效的档案给不出校准码：没有可用档案（`details.reason = NO_PROFILE`）、是随包档案（`NOT_LOCAL`）、是其他玩家分享的档案且本机尚未核实完毕——还没完整记录过一次随机任务或仍有审计判据在等待（`SHARED_NOT_PROVEN`）、是已在本机核实通过的共享档案但本机没有保存对应的校准码（`SHARED`，例如粘贴导入、从未下载的码；2026-10-15 之前表示「共享来的不再转手」）、或本机档案文件读不出 / 已被改动 / 不符合校准生成的结构（`NOT_SHAREABLE`） | `GetCalibrationShareCode` | false | 不显示「分享给其他玩家」或「这份校准好用，告诉其他玩家」；按 `details.reason` 说明原因，不重试 |
 | `ERR_SPEECH_DISABLED` | 环境变量 `MR_DISABLE_ONLINE_SPEECH` 已设置（除空、`0`、`false` 以外的值）。最先检查，连缓存也不读 | `SynthesizeSpeech` | false | 本次用本机语音播报；这是验证、测试、打包时的正常状态 |
@@ -79,9 +87,9 @@
 | `ERR_SPEECH_NETWORK` | 其他非 2xx 状态（`details.reason = HTTP_STATUS`）、任何 3xx（`REDIRECT_REFUSED`，从不跟随）、连接或读取失败（`details.reason` 为 `NAME_RESOLUTION_ERROR`、`CONNECTION_ERROR` 之类的大写记号） | `SynthesizeSpeech` | true | 用本机语音播报，并提示一次；响应正文从不回传 |
 | `ERR_SPEECH_TIMEOUT` | 单次请求连接与读取合计超过 8 秒；或队列已满（同时一条发送中、三条等待，第五条直接失败，`details.reason = QUEUE_FULL`）；或等待超过 8 秒仍未轮到（`QUEUE_WAIT`）；或请求被取消，即采集服务正在停止或该请求所在的连接已断开（`CANCELLED`，正在发送与仍在排队的句子相同） | `SynthesizeSpeech` | true | 该句改用本机语音播报。超出队列的句子不排队，以免播报持续滞后 |
 | `ERR_SPEECH_FORMAT` | 响应 `Content-Type` 不是 `audio/*` / `application/octet-stream`（`details.reason = CONTENT_TYPE`）、超过 5 MB（`TOO_LARGE`）、不是 RIFF/WAVE 16 位 PCM（`NOT_RIFF_WAVE`、`NOT_PCM`、`NOT_16_BIT`、`BAD_FMT`、`NO_DATA` 等），或音频无法写入 `tts-cache\`（`CACHE_WRITE`） | `SynthesizeSpeech` | false | 用本机语音播报，并提示一次；这样的响应不写缓存 |
-| `ERR_DB_BUSY` | SQLite 返回 `SQLITE_BUSY` / `SQLITE_LOCKED`，且已超过重试预算；或 `CheckDatabaseIntegrity` 请求到达时已有一次全库校验在执行（同时只允许一次，不排队）；**以及**进程启动时数据库文件被其他程序锁定 | 任意写操作；`CheckDatabaseIntegrity`；进程启动（不经由 IPC 返回） | true | 稍后以相同 `request_id` 重试（幂等）。启动时的情形：采集服务拒绝启动，退出码 **3**，标准错误的最后一行为带数据库文件位置的中文说明，本机日志记 `startup/open_failed` |
+| `ERR_DB_BUSY` | SQLite 返回 `SQLITE_BUSY` / `SQLITE_LOCKED`，且已超过重试预算；或 `CheckDatabaseIntegrity` 请求到达时已有一次全库校验在执行（同时只允许一次，不排队）；或 `PreviewRunImport` / `CommitRunImport` 到达时已有一次导入预览或提交在执行（两者共用一个名额，跨连接，不排队）；**以及**进程启动时数据库文件被其他程序锁定 | 任意写操作；`CheckDatabaseIntegrity`；`PreviewRunImport` `CommitRunImport`；进程启动（不经由 IPC 返回） | true | 稍后以相同 `request_id` 重试（幂等）。启动时的情形：采集服务拒绝启动，退出码 **3**，标准错误的最后一行为带数据库文件位置的中文说明，本机日志记 `startup/open_failed` |
 | `ERR_DB_INTEGRITY` | `PRAGMA integrity_check` 失败、迁移失败或迁移校验失败、检测到 schema 版本高于本程序支持的版本；**以及** SQLite 在打开数据库时报告的其他错误（不是数据库文件或文件已损坏、无法以读写方式打开、磁盘已满、读写出错） | 进程启动（不经由 IPC 返回） | false | 采集服务拒绝启动，退出码 **3**，管道不会打开，因此桌面端收不到这个码；没有只读模式，也无法调用 `BackupDatabase`。标准错误的最后一行为 `ERR_DB_INTEGRITY: <中文说明>`，说明中给出数据库文件位置；同一原因连同 SQLite 的原话记入本机日志 `startup/open_failed`。先把该文件复制一份留底再排查 |
-| `ERR_EXPORT_FAILED` | 目标路径不可写、磁盘空间不足、目标已存在且 `overwrite = false`、路径穿越等 | `ExportCsv` `ExportJson` `BackupDatabase` `ExportDiagnosticsReport` | false | 让用户重新选择路径 |
+| `ERR_EXPORT_FAILED` | 目标路径不可写、磁盘空间不足、目标已存在且 `overwrite = false`、路径穿越等；**以及** `BackupDatabase` 的副本未通过完整性校验（此时不清理既有备份） | `ExportCsv` `ExportJson` `BackupDatabase` `ExportDiagnosticsReport` `ExportCandidateEvidence` | false | 让用户重新选择路径 |
 | `ERR_ALREADY_RUNNING` | 本机已有一个 Collector 在服务同一条管道：单实例租约已被占用，或管道已存在 | 进程启动（`--serve`，不经由 IPC 返回） | false | 连接正在运行的实例，不再启动新实例；进程退出码为 **4**，与本机数据故障（3）区分。仅当管道**存在且可接受连接**、占用者却连续 6 次（每次 500 ms，合计 ≥ 3 秒）不应答 `GetVersion` 探活时，退出码改为 **6**，表示占用者已无响应：应先请其停止并等待退出，必要时结束该进程（进程号记录在日志目录下的 `serve.pid`，或 `--pipe` 自定义管道对应的 `serve.<管道名>.pid`），然后重试。租约被占用但管道尚未建立或已拆除（对方正在启动或停止），以及管道实例已满（对方正在服务其他客户端），退出码仍为 **4**。探活连接因管道属于另一个 Windows 账户（或以管理员身份运行的进程）而被拒绝时，退出码为 **3**：没有可复用的实例，也没有本账户的进程可结束；标准错误给出中文说明，日志 `startup/already_running` 记 `holder = OTHER_ACCOUNT` |
 | `ERR_INTERNAL` | 其他未归类的异常；**以及**旧采集的协议处理线程或数据源尚未退出、会话资源被保留时请求 `StopCapture` 或 `SelectGameProcess`（此时选择不会改变） | 任意 | false | 记录到本地诊断日志（不含报文负载），提示用户上报**手动复制**的日志；资源被保留的情形可稍后再试一次 |
 

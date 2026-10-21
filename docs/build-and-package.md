@@ -98,6 +98,10 @@ tag 中原本不含该段落时，跳过。找不到 git 或当前目录不是�
 `scripts/package-version.ps1`，由 `scripts/package.ps1` 点源引入，并由
 `tools/package-verification/test_package_version.py` 逐条自测；该自测由
 `scripts/run-python-tool-tests.ps1` 自动发现，`verify.ps1` 的「工具自测」关卡会运行它。
+`run-python-tool-tests.ps1` 运行任何自测脚本之前，先在所用的解释器中逐个导入 `tools/requirements-ci.txt`
+列出的包（`opencv-python-headless` 按 `cv2` 导入）；缺少任何一个即以退出码 1 失败，列出缺少的包，并提示运行
+`python -m pip install -r tools/requirements-ci.txt`，或将 `MR_PYTHON_EXE` 指向已安装这些包的解释器。
+unittest 报告的跳过数按脚本列在汇总末尾；跳过不改变退出码，但被跳过的测试在本机没有得到验证。
 
 `installer/MentorRecorder.iss` 未提供版本号的默认值。手工调用必须写明 `ISCC.exe /DAppVersion=<version> installer\MentorRecorder.iss`，否则预处理器报错；
 未另行指定 `/DAppVersionNumeric` 时，安装器自身的版本资源取 `AppVersion` 中第一个连字符之前的部分。
@@ -207,9 +211,12 @@ ctest --test-dir build --output-on-failure
 | `MentorRecorderQmlBaselineDialog` | 首次启动 baseline 对话框 |
 
 `MentorRecorderIpcIntegration` 在同目录（或 `../../src/Desktop`）找不到
-`MentorRecorder.Collector.exe` 时执行 **QSKIP** 而非失败，因此仅安装 Qt 的检出也能完整
-运行该套件。该用例在 `cleanupTestCase` 中依次对自己的子进程调用 `terminate()` 与
-`kill()`，并断言进程已结束，运行结束后不会遗留孤儿 Collector 进程。
+`MentorRecorder.Collector.exe`、Collector 无法启动或拒绝服务时，以 **QSKIP** 跳过整个套件。
+QtTest 与 ctest 都把这种跳过记为通过，因此仅安装 Qt 的检出直接运行 `ctest` 时，该套件同样显示通过。
+`scripts/test.ps1`（`verify.ps1` 经由它运行全部测试）不接受这种结果：该套件未注册，或其 QtTest 统计行
+缺失、通过数为 0、有任何失败或跳过，都判定测试失败（见 §4.1）。
+该用例在 `cleanupTestCase` 中先对自己的子进程调用 `terminate()`，5 秒内未结束再调用 `kill()`，
+并断言进程已结束，运行结束后不会遗留孤儿 Collector 进程。
 
 QML 测试通过 `QQmlApplicationEngine::objectCreationFailed` 将 QML 错误转换为非零退出码。
 每个截图用例还以 `--verify-text` 断言名称所指的内容确实出现在画面上（否则退出码 8）；
@@ -267,7 +274,7 @@ build\src\Desktop\MentorRecorder.Desktop.exe
 ```
 
 数据库位于 Collector 的默认位置（`%LOCALAPPDATA%\MentorRecorder\`），
-顶栏显示 `Collector 运行中`。
+顶栏显示「后台服务已启动」。
 
 **B. 先单独启动一个 Collector（用于指定数据库或查看服务端日志）**
 
@@ -293,12 +300,12 @@ build\src\Desktop\MentorRecorder.Desktop.exe
 （见 [architecture.md](architecture.md) §2.3，退出码表见 §2.4）。
 
 此时桌面端拉起的子进程会因**每用户单实例租约**立即退出，顶栏显示
-`Collector 运行中（复用已有实例）`。这是正常行为，桌面端不会因此进入重启循环。
+「后台服务运行中（沿用之前启动的）」。这是正常行为，桌面端不会因此进入重启循环。
 详见 [ui-design.md](ui-design.md) §4.8。
 
 Collector 非预期退出时，桌面端按 0.8 s 至 30 s 的指数退避自动重启，并弹出一条 toast 提示；
 子进程连续运行满 60 秒后再退出，退避才重新从 0.8 s 开始。以下情形不再重启，顶栏显示
-「Collector 无法启动：<原因>」，同一原因只提示一次：退出码 2（无法识别启动参数）、
+「后台服务无法启动：<原因>」，同一原因只提示一次：退出码 2（无法识别启动参数）、
 尚未开始服务就以退出码 3 退出（数据库或数据目录不可用，原因取自子进程标准错误的最后一行），
 以及 Windows 连续两次拒绝运行该程序。其中退出码 3 每 5 分钟静默重试一次，因为占用数据库的
 程序可能稍后释放它。
@@ -328,7 +335,9 @@ $env:PATH = "D:\APPS\Qt\6.11.2\mingw_64\bin;D:\APPS\Qt\Tools\mingw1310_64\bin;$e
 
 桌面端启动时会在自身目录中查找并拉起 `MentorRecorder.Collector.exe`。
 仅使用 Qt Creator 构建而不运行 `scripts/build.ps1` 时，构建目录中没有
-Collector，界面显示“未找到 Collector”，Npcap 与 FF14 等状态停留在默认值。
+Collector，顶栏提示「缺少后台服务，软件可能没有安装完整。请重新安装后重试。」（以
+`MR_DEV_COLLECTOR_DISCOVERY` 编译的开发构建改为给出期望路径与构建建议，见本节末条），
+Npcap 与 FF14 等状态停留在默认值。
 
 `src/Desktop/CMakeLists.txt` 提供 `mr_stage_collector` 目标，默认随 `ALL`
 构建：只要 PATH 上存在 `dotnet`，该目标先执行 `dotnet build` 构建 Collector，再由
@@ -344,8 +353,9 @@ Collector，界面显示“未找到 Collector”，Npcap 与 FF14 等状态停�
   （设置后它是唯一的候选，文件不存在也不回退到其他位置），并在上述两处之后从构建目录逐级向上
   查找源码树中的 `src/Collector/bin/{x64/,}{Release,Debug}/net8.0-windows/win-x64/`。
   `scripts/package.ps1` 拒绝打包以该选项编译的桌面端（`Assert-DesktopExecutable`，见 §5）。
-- 仍未找到时，发布构建的顶栏提示「未找到 Collector，安装可能不完整，请重新安装本软件。」；
-  开发构建的提示给出期望路径与构建建议，便于排查。
+- 仍未找到时，发布构建的顶栏提示「缺少后台服务，软件可能没有安装完整。请重新安装后重试。」；
+  以 `MR_DEV_COLLECTOR_DISCOVERY` 编译的开发构建提示「未找到 Collector（期望位置：<路径>）。请运行
+  scripts/build.ps1、在 CMake 中启用 MR_STAGE_COLLECTOR，或设置 MR_COLLECTOR_PATH」，便于排查。
 
 ## 4. 脚本
 
@@ -360,8 +370,8 @@ Collector，界面显示“未找到 Collector”，Npcap 与 FF14 等状态停�
 | `bootstrap-ocr.ps1` | 校验或复制已构建的固定 OCR 运行目录，核对 SHA256、文件闭包与许可证；不联网、不安装软件、不改 PATH |
 | `build.ps1` | `dotnet build -c Release`；若 `src/Desktop/CMakeLists.txt` 存在则再执行 CMake configure 与 build，将完整的 Collector 及已准备的固定 OCR 目录部署到 Desktop 同目录；未提供 OCR 时明确报告资产部署未执行 |
 | `test.ps1` | 默认完整构建后运行全部 .NET / Qt / QML 测试，并**解析 TRX 报告真实用例数**；`-NoBuild` 复用已有产物 |
-| `verify.ps1` | 环境自检 + 静态边界检查 + 架构依赖门禁 + 协议档案校验 + `tools/` 下全部 Python 自测（含检查器反向自测）+ 全部测试 + 监听端口核对 + `LIVE_CAPTURE_STATUS` 断言 + 注入载荷扫描 + 许可证材料核对（提交前必须运行）；`-NoBuild` 复用已有构建产物，`-TestFilter` 转发 xunit 特征筛选，`-SkipGate` 显式跳过单个关卡；带其中任一参数的运行是部分验证（见 4.4） |
-| `package.ps1` | 先运行 `verify.ps1`，再发布 Collector、部署 Qt 运行时、补齐许可证与 docs，生成 zip 与 SHA256；`-Verify` 额外解包并运行两个可执行文件 |
+| `verify.ps1` | 环境自检 + 完整依赖安全审计 + 静态边界检查 + 架构依赖门禁 + 协议档案校验 + `tools/` 下全部 Python 自测（含检查器反向自测）+ 全部测试 + C++ cppcheck + 监听端口核对 + `LIVE_CAPTURE_STATUS` 断言 + 注入载荷扫描 + 许可证材料核对 + 构建目录已部署 OCR 时的离线 OCR 运行验证（提交前必须运行）；`-NoBuild` 复用已有构建产物，`-TestFilter` 转发 xunit 特征筛选，`-SkipGate` 显式跳过单个关卡；带其中任一参数的运行是部分验证（见 4.4） |
+| `package.ps1` | 先运行 `verify.ps1`，再发布 Collector、部署 Qt 运行时、补齐许可证与 docs，生成 zip 与 SHA256；`-Verify` 额外解包并运行两个可执行文件，未带 `-Verify` 的产物不得公开分发（见 §5） |
 | `static-analysis.ps1` | 对桌面端 C++ 逐编译单元运行 clang-tidy 与 cppcheck，按检查项汇总并将原始输出写入 `artifacts/static-analysis/`；只有编译错误、`clang-analyzer-*` 告警与 cppcheck 的 error 级结果令退出码非零（见 4.5） |
 
 用法：
@@ -403,6 +413,10 @@ pwsh -File scripts/bootstrap-ocr.ps1 `
 替换示例中的绝对路径；输出目录必须尚不存在，以保留已有产物。
 `-InstallBuildDependencies` 是维护者显式选择的构建阶段 pip 安装；依赖已准备好时省略此开关。
 发布 payload 必须与固定清单完全一致，构建环境或产物变化不会自动放宽哈希检查。
+`requirements-build.txt` 固定的是已发布 payload 构建时使用的版本（其中 `setuptools` 为 65.5.0）。
+`tools/package-verification/test_ocr_manifest.py` 核对该文件（换行统一为 LF 后）的 SHA-256 与依赖清单记录的
+`requirements_sha256` 一致，并核对清单中每个来自 PyPI 的组件在该文件中固定为同一版本。因此升级其中任何依赖，
+包括 Dependabot 提出的升级，都必须在同一改动中重新构建 OCR payload 并更新依赖清单，否则工具自测失败。
 准备结果默认位于已忽略的 `artifacts/dependencies/ocr/<cache_id>/runtime`。
 `MR_OCR_DIR` 可指定已有的完整离线运行目录；不带参数运行 `bootstrap-ocr.ps1` 可校验并试运行已准备的目录。
 常规应用构建、打包、准备缓存和用户运行均不为 OCR 下载文件，不搜索系统 Python、Tesseract 或 PATH。
@@ -415,19 +429,24 @@ pwsh -File scripts/bootstrap-ocr.ps1 `
 
 ### 4.1 `test.ps1` 解析 TRX 的原因
 
-`test.ps1` 不以 `dotnet test` 的退出码为准，只以用例计数为准：一次运行即使一个用例也没有执行，
-也不能算作通过。该脚本枚举 `tests/` 下声明 `IsTestProject=true` 的项目（`MentorRecorder.sln`
-同样包含这两个测试项目），逐个运行测试、写出 TRX、读取 `ResultSummary/Counters`，
-并在下列任一情况下判定失败：
+`test.ps1` 不单凭 `dotnet test` 的退出码判定结果：一次运行即使一个用例也没有执行，退出码也可能为 0，
+这不能算作通过。该脚本枚举 `tests/` 下声明 `IsTestProject=true` 的项目（`MentorRecorder.sln`
+同样包含这两个测试项目），逐个运行测试、写出 TRX、读取 `ResultSummary/Counters` 并与逐条用例的结果
+相互核对，在下列任一情况下判定失败：
 
 - 任一项目失败数 > 0；
-- 任一项目用例总数为 0（空测试不视为成功）；
+- 任一项目用例总数或实际执行数为 0（空测试不视为成功）；
 - 找不到测试项目，或没有生成 TRX；
-- `ctest` 未注册任何用例，或输出中读不到用例统计。
+- TRX 的汇总计数与逐条结果不一致，或其中出现未知结果、缺失或重复的执行标识；
+- `dotnet test` 的退出码非零，而 TRX 中没有失败用例；
+- 带 `-NoBuild` 运行时，`bin\x64\<配置>\` 下找不到该项目已构建的测试程序集；
+- `ctest` 未注册任何用例、输出中读不到用例统计、退出码非零，或没有写出 JUnit 结果；
+- `MentorRecorderIpcIntegration` 未注册，或其 QtTest 统计行缺失、通过数为 0、有失败或跳过（见 §3.2）。
 
 跳过数按 `total - executed` 计算：VSTest 将跳过数记录在此处，而非 `notExecuted`。
 
-TRX 落在 `artifacts/test-results/`。
+每次运行的 TRX 与 ctest 的 JUnit 结果写入独立的 `artifacts/test-results/run-<UTC 时间>-<随机编号>/`，
+不覆盖此前或并行运行的结果；.NET 用例统计之后打印本次的目录。
 
 ### 4.2 `-SettleSeconds`
 
@@ -461,10 +480,11 @@ Get-Process MentorRecorder* | Stop-Process -Force
 pwsh -File scripts/verify.ps1 -Configuration Release -TestFilter 'Category!=Soak'
 ```
 
-CI 因此覆盖 `verify.ps1` 的全部关卡：桌面端与真实 Collector 之间的
+CI 因此执行 `verify.ps1` 的绝大部分关卡：完整 NuGet 解析图审计、静态边界检查与架构依赖门禁、
+`tools/` 下的 Python 自测、桌面端与真实 Collector 之间的
 `MentorRecorderIpcIntegration` 与 `MentorRecorderLifecycle`（`build.ps1` 会把
-Collector 运行目录部署到测试二进制旁边）、TRX 真实计数与空测试保护、监听端口核对、
-`LIVE_CAPTURE_STATUS` 断言、注入载荷扫描与许可证材料核对。
+Collector 运行目录部署到测试二进制旁边）、TRX 真实计数与空测试保护、C++ cppcheck、监听端口核对、
+`LIVE_CAPTURE_STATUS` 断言、注入载荷扫描与许可证材料核对。CI 不执行的部分见下列差异。
 
 与本地发布验收相比有以下差异：
 
@@ -473,25 +493,39 @@ Collector 运行目录部署到测试二进制旁边）、TRX 真实计数与空
   （见 [release-checklist.md](release-checklist.md)）；在 Actions 页面手动触发并勾选
   「Run the Soak suite」时，`verify.ps1` 不带任何筛选运行。带筛选的运行是部分验证，
   结论中不评定 `PUBLIC_DISTRIBUTION_READY`。
+- CI 不准备离线 OCR 运行目录（没有设置 `MR_OCR_DIR`，检出中也没有 `artifacts/dependencies/ocr/` 缓存），
+  `build.ps1` 因此不部署 OCR，`verify.ps1` 将 `ocr-runtime` 关卡记为跳过。CI 的每一次运行，包括勾选
+  「Run the Soak suite」的手动运行，因此都是部分验证，不评定 `PUBLIC_DISTRIBUTION_READY`；
+  截图识别依赖的运行验证只在本地完成（见「离线截图识别依赖」）。
 - **未**传入 `-SkipGate`。CI 上没有任何关卡需要 Npcap 或游戏客户端：抓包相关的
   断言核对的是 `src/Collector/Capture/CaptureDiagnostics.cs` 中的编译期常量
   （`LiveCaptureStatus` / `MonitorType` / `InjectedHookEnabled`），
   而 `--capture-doctor` 返回 1（表示该机器当前无法启动抓包）本身就是合法结果。
 - CI **不**运行 `package.ps1`（打包、版本与 CHANGELOG 一致性核对、`-Verify` 解包运行、安装器），
-  也不运行 `static-analysis.ps1`；这两步只在本地发布验收中执行。
+  这一步只在本地发布验收中执行。
+- CI 安装固定版本的 cppcheck 2.21.0（核对安装包的大小、SHA-256 与版本号），`verify.ps1` 只以
+  `static-analysis.ps1 -Tool cppcheck` 调用它；clang-tidy 不在 CI 中运行，需在本地单独运行
+  `static-analysis.ps1` 并记录结果。
+- CI 不执行 `security-quality.ps1` 的 `PrePush`、`PostPush`、`Merge` 与 `Release` 阶段（远端读回）。
 
 `-SkipGate` 接受 `tool-selftests`、`listener-check`、`live-capture-status`、
 `injection-payload`。被跳过的关卡会在跳过时与结论中各提示一次，不会静默通过。
 
 `PUBLIC_DISTRIBUTION_READY` 是对一次完整运行的判断。带 `-SkipGate`、`-TestFilter` 或 `-NoBuild`
-的运行即使全部通过、退出码为 0，结论中也只说明这是一次部分验证，不打印
-`PUBLIC_DISTRIBUTION_READY = true`；`-NoBuild` 复用磁盘上已有的构建产物，它们可能早于正在验证的源码。
+的运行，以及构建目录中未部署 OCR、`ocr-runtime` 关卡因此被记为跳过的运行，即使全部通过、退出码为 0，
+结论中也只说明这是一次部分验证，不打印 `PUBLIC_DISTRIBUTION_READY = true`；`-NoBuild` 复用磁盘上
+已有的构建产物，它们可能早于正在验证的源码。
 这类运行不能作为发布验收。
 
-另有一个 `markdown` job，使用 `markdownlint-cli` 检查 `docs/`、`README.md`、
-`CHANGELOG.md`、`CONTRIBUTING.md`、`SECURITY.md`。规则见 `.markdownlint.json`，
+另有一个 `markdown` job，使用固定版本的 `markdownlint-cli@0.49.1` 检查 `docs/`、`README.md`、
+`CHANGELOG.md`、`CONTRIBUTING.md`、`SECURITY.md`；该版本号写在工作流中，Dependabot 不跟踪，需手动升级。
+规则见 `.markdownlint.json`，
 排除项见 `.markdownlintignore`；其中 `docs/reviews/`、`docs/plans/`、`openspec/`
 是不入库的本地工作材料，本地检出中仍可能存在。
+
+另有独立的 `security-quality` job，运行安全门禁检查器的正反例。普通 PR 的
+`verify.ps1` 只执行本地依赖审计，不要求 PR 令牌访问特权安全接口。
+推送、合入和发布的远端读回规则见 [安全与质量门禁](security-quality-gates.md)。
 
 ### 4.5 `static-analysis.ps1`：clang-tidy 与 cppcheck
 
@@ -499,6 +533,15 @@ Collector 运行目录部署到测试二进制旁边）、TRX 真实计数与空
 完成一次构建再运行。分析范围是 `src/Desktop/cpp` 与 `tests/Desktop.Tests` 下的每个
 `.cpp`；C# 侧由编译器的 `TreatWarningsAsErrors` 与 `tools/static-boundary-check`
 覆盖，不在这里。
+
+`build.ps1` 显式导出编译数据库。默认每次分析写入独立的
+`artifacts/static-analysis/run-<id>/`，避免覆盖并行会话的日志；每个工具的整个进程树
+由 Windows Job Object 管理，受 `-ToolTimeoutSeconds` 预算约束。cppcheck XML 缺少必需
+结构或分析未完成时按失败处理，不能解释为零告警。
+
+`verify.ps1` 以 `-Tool cppcheck` 调用本脚本（`-Jobs` 取 2 与处理器数中的较小者）。脚本无法运行（例如找不到
+`compile_commands.json`）或退出码非零时，`verify.ps1` 将其记为 `cpp-static-analysis` 关卡失败，
+其后的关卡与结论照常执行。
 
 ```powershell
 pwsh -File scripts/static-analysis.ps1                    # 两个工具，全部文件
@@ -562,7 +605,8 @@ pwsh -File scripts/package.ps1 -Force -Verify   # 再解包运行一次，证明
 
 默认行为：
 
-1. 先执行 `scripts/verify.ps1 -Configuration <...>`。
+1. 先读取一次源码状态（提交号、工作区是否有未提交改动、git 能否回答），再执行
+   `scripts/verify.ps1 -Configuration <...>`。
 2. 再执行 `scripts/build.ps1` 补齐构建产物，并对 `build\src\Desktop\MentorRecorder.Desktop.exe` 执行
    `Assert-DesktopExecutable`（见 §5.1）；随后执行
    `dotnet publish src/Collector/MentorRecorder.Collector.csproj -r win-x64 --self-contained true`。
@@ -600,7 +644,7 @@ pwsh -File scripts/package.ps1 -Force -Verify   # 再解包运行一次，证明
 
 安装程序 `MentorRecorder-<版本>-setup.exe` 与其校验和 `MentorRecorder-<版本>-setup.exe.sha256`（§5.3 生成，内容为
 64 位十六进制 SHA-256、两个空格与文件名）同样必须作为发布资产上传到标签为 `v<版本>` 的发布页：
-「下载并安装」先读取 `.sha256`，读不到或内容不是校验值时不下载安装程序；下载到的安装程序与之不一致时被删除
+「下载安装包」先读取 `.sha256`，读不到或内容不是校验值时不下载安装程序；下载到的安装程序与之不一致时被删除
 （[privacy-boundary.md](privacy-boundary.md) §8.6）。浏览器下载使用的是同一个安装程序地址。
 
 另有一条按**内容**而非文件名判定的断言 `Assert-NoLocalPathLeak`：以 UTF-8 与 UTF-16LE
@@ -683,6 +727,14 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
 找不到 git、目录不是仓库、git 因所有权不符（dubious ownership）拒绝该仓库，或任一 git 命令失败时，
 `source_commit` 与 `source_worktree_dirty` 记为 `null`，这种情况不会被当作工作区干净，
 而是作为一条阻断原因写入 `public_distribution_blockers`。
+写入元数据时再读一次源码状态，并与「默认行为」第 1 步、即运行 `verify.ps1` 与 `build.ps1` 之前读到的状态比较：
+提交号、是否有未提交改动或 git 能否回答，任一项不同即打包失败（「源码在打包过程中发生了变化…」），
+因为产物中的程序已无法确定来自哪一份源码。
+`BUILD-METADATA.json` 另以 `unpack_verified` 记录本次是否带 `-Verify` 运行，`unpack_verified_source` 说明
+解包运行在写出元数据之后进行、失败时整次打包失败。解包验证失败时，此前写出、记为 `unpack_verified = true` 的压缩包、
+它的 `.sha256` 与暂存目录中的 `BUILD-METADATA.json` 一并删除（未能删除的在错误信息中列出，须手动删除、不得分发），
+暂存目录的其余内容保留以便排查。未带 `-Verify` 时 `unpack_verified` 为 `false`，
+`public_distribution_blockers` 写明「未按 -Verify 解包并运行产物（unpack_verified=false）」，产物不得公开分发。
 许可证一侧的前置条件（[third-party-licenses.md](third-party-licenses.md) §7）已全部落实：
 `docs/licenses/` 下的 LGPL 与 GCC 运行时例外文本随 `docs/` 一并进入发布包。
 
@@ -702,10 +754,12 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
   全部为真，据此安装会中途失败，或者把软件装入随时可能被移除的介质。取不到驱动器类型时按
   `DRIVE_UNKNOWN` 处理，走 Program Files 分支，以免安装器在目录页崩溃。目录页始终显示，用户仍可修改。
   目录页拒绝三类位置并要求另选：整个磁盘的根目录（如 `D:\`）；本身是链接（联接点或符号链接）的文件夹；
-  以及已有其他文件、却不是本软件此前安装位置的非空文件夹。是否为此前的安装位置，以其中存在
-  `MentorRecorder.Desktop.exe` 或 `MentorRecorder.Collector.exe` 为准；卸载后只剩 `note-images` 的文件夹
-  同样可以直接安装，`note-images` 与其他文件并存则不算安装痕迹。这项检查只为避免误选，不是安全边界：
-  下一条的保护不依赖它，磁盘根目录与链接在 `ssInstall` 还会再检查一次，静默安装同样适用。
+  以及已有其他文件、却不是本软件此前安装位置的非空文件夹。此前的安装位置须同时满足两项：本软件的卸载项
+  （`HKLM` 下以本软件 AppId 命名，只有管理员能够写入）中的 `Inno Setup: App Path` 指向该文件夹，且其中存在
+  `MentorRecorder.Desktop.exe` 或 `MentorRecorder.Collector.exe`。仅有同名的可执行文件不算，解压出的便携副本
+  或登记在别处的副本因此会被拒绝。卸载后只剩 `note-images` 的文件夹同样可以直接安装，`note-images` 与其他
+  文件并存则不算安装痕迹。这项检查只为避免误选，不是安全边界：下一条的保护不依赖它，磁盘根目录与链接在
+  `ssInstall` 还会再检查一次，未知的子文件夹也在那时检查（见下一条），静默安装同样适用。
 - **安装文件夹的访问权限。** 数据盘（如 `D:\`）上的文件夹沿用盘符根目录的权限，常见情况下本机任何用户
   都可以修改其中的程序与卸载程序。安装与升级在写入任何文件之前（`CurStepChanged(ssInstall)` 中的
   `ProtectInstallDirectory`）保护 `{app}`：先以 `System32\icacls.exe /setowner` 把文件夹的所有者设为
@@ -714,13 +768,19 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
   文件夹：硬链接与它所链接的文件共用同一份安全描述符，传播会连带改动安装文件夹之外的那个文件。此后新建的
   文件和文件夹在创建时继承这份 ACL。账户按众所周知的 SID 指定，不依赖本地化的账户名；`/L` 使 icacls
   只作用于链接本身，icacls 以隐藏窗口运行，全程不使用递归（`/T`）。
-  ACL 生效之后，安装程序再次确认 `{app}` 仍是真实的文件夹而不是链接，然后逐个处理此前已直接位于 `{app}`
-  中的文件：所有者改为 Administrators，并清除其显式授权，使其只继承上述 ACL——安装之前由其他账户放入的
+  ACL 生效之后，安装程序再次确认 `{app}` 仍是真实的文件夹而不是链接，随后检查其中的子文件夹。Qt 会从
+  应用程序所在文件夹中的子文件夹加载插件与 QML 模块，而事先建立的文件夹保留着创建者赋予的所有者与权限，
+  因此只要有一个文件夹（含指向文件夹的链接）既不是 `note-images`、也不在 `[InstallDelete]` 整个清除之列，
+  安装即停止并指出该文件夹；安装程序不删除它，也不改动 `note-images` 与 `{app}` 中的文件，由用户删除或移走
+  该文件夹后重新运行安装程序。通过这项检查之后，安装程序逐个处理此前已直接位于 `{app}` 中的文件：
+  所有者改为 Administrators，并清除其显式授权，使其只继承上述 ACL——安装之前由其他账户放入的
   文件因此不能保留原属主或自带的授权。随后即被 `[InstallDelete]` 删除的 `*.dll` 与 `qt.conf` 跳过。
   处理每个文件之前先读取其硬链接数：文件是重解析点、另有硬链接，或链接数无法读取时，安装停止并指出该文件，
-  不删除也不改动任何内容。子文件夹的处理各不相同：代码与资源目录由下一条的 `[InstallDelete]` 整个清除后
-  重新建立，随之继承新的 ACL；`note-images` 见下；既不属于本软件、也不在 `[InstallDelete]` 之列的其他
-  子文件夹保持原有的权限，程序不从其中加载任何内容。
+  不删除也不改动任何内容。允许留下的子文件夹分两类：代码与资源目录在 `note-images` 与上述文件处理完之后，
+  由安装程序自行整个删除（遇到链接只删除链接本身，不进入链接所指的位置），再由 `[Files]` 重新建立，随之继承
+  新的 ACL。`[InstallDelete]` 删除失败时并不报错，因此这一步删除之后仍然存在的文件夹——例如其他账户事先建立、
+  设置为管理员无法删除的同名文件夹，或本软件仍在运行、占用着其中的文件——会使安装停止并指出该文件夹，由用户
+  删除后重新运行安装程序，静默安装同样停止；此时已删除的其他代码与资源目录在重新安装时恢复。`note-images` 见下。
   `note-images` 是唯一允许普通用户写入的子文件夹。它不存在时由安装程序创建；它若是指向别处的链接，
   安装停止并提示删除该链接，以免写入权限落到链接所指的位置。它的所有者同样设为 Administrators，ACL 同样以
   不向已有文件传播的方式替换为受保护的访问控制列表——Administrators 与 SYSTEM 完全控制、Users 修改，可向下继承；其中已有的
@@ -729,7 +789,8 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
   上述任一步失败（例如该位置不是本机 NTFS 磁盘），或 `{app}` 是链接或磁盘根目录，安装即停止并说明原因。
   两个文件夹最终的 ACL 会以 `icacls` 列表的形式写入 Setup 日志。`.iss` 另以 `RedirectionGuard=yes` 在
   Windows 11 与 Windows 10 22H2 上阻止安装与卸载程序跟随非提升进程创建的链接；更早的系统靠上述自行检查。
-- **`[InstallDelete]` 在复制文件之前清除旧内容。** 除各代码与资源子文件夹外，还删除直接位于 `{app}` 的
+- **`[InstallDelete]` 在复制文件之前清除旧内容。** 各代码与资源子文件夹此时已由上一条的删除步骤删除，
+  `[InstallDelete]` 仍列出它们，`package.ps1` 据此核对发布的每个子文件夹都在清除之列。此外还删除直接位于 `{app}` 的
   全部 `*.dll` 与 `qt.conf`：安装包不附带 `qt.conf`，自带的 DLL 随后照常写回，安装之前被放入该文件夹的
   DLL 或 `qt.conf` 因此不会被程序加载。可执行文件不在此列（卸载程序 `unins*.exe` 由 Setup 在每次升级时
   重写）。从 1.5.0 及更早版本升级时，另删除已不再使用的外部应用程序清单
@@ -737,7 +798,8 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
 - **这项保护的范围。** 它针对的是安装文件夹自身，以下情形不在其内，与不受信任的用户共用的电脑应安装到
   `Program Files`：上级目录若允许普通用户删除或重命名其中的条目（例如对 Users 授予完全控制的数据盘根目录），
   其他本机用户仍可在软件未运行时把整个安装文件夹改名并换成自己的文件夹；`[InstallDelete]` 的删除失败时
-  Setup 不报错，被其他进程占用而删不掉的外来 DLL 会留在原处；从文件夹可被任何用户写入的 1.5.0 升级时，
+  Setup 不报错：被其他进程占用而删不掉的外来 DLL 会留在原处（代码与资源目录不在此列：删不掉时安装停止，
+  见上）；从文件夹可被任何用户写入的 1.5.0 升级时，
   原有的卸载日志 `unins000.dat` 会被沿用一次。
 - **最低要求在 `InitializeSetup`（`[Code]`）中检查**：低于 Windows 10 版本 1809（内部版本 17763，Qt 6.11 的下限；
   .NET 8 只需 1607）直接拒绝并说明所需版本；ARM 处理器上的 Windows 10 拒绝安装，因为没有 x64 模拟；
@@ -751,6 +813,85 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
   提示同时写明备注图片不在其中：它们保存在安装文件夹的 `note-images` 中，无论选择哪一项都会保留
   （`uninsneveruninstall`），不再需要时可在卸载完成后手动删除。
 - 中文界面来自 `installer/ChineseSimplified.isl`（Inno Setup 官方仓库的用户贡献翻译）。
+
+### 5.4 GitCode 镜像
+
+本仓库及其发布页同步到 GitCode 上的同名镜像 `https://gitcode.com/Harendotes-Tang/MentorRouletteRecorder`；
+更新检查与软件内下载在 GitHub 不可达时读取该镜像（见 [privacy-boundary.md](privacy-boundary.md) §8.4、§8.6）。
+校准数据仓库 `MentorRecorder-Calibrations` 另有 GitCode 镜像（§8.2），其分支清理同样由本仓库的工作流执行。
+同步由下列三个工作流完成，脚本位于 `tools/release-mirror/`。三个工作流都只在仓库
+`Harendotes-Tang/MentorRouletteRecorder` 中运行，权限为 `contents: read`，并且总是检出 `main`，运行的是
+`main` 上的脚本与批准计划：`dev` 上对它们的修改在快进合并到 `main` 之后才生效。每个工作流先运行相应脚本的
+自测，自测通过后才访问镜像。
+
+| 工作流 | 触发条件 | 作用 |
+|---|---|---|
+| `mirror-repository.yml` | 任一分支或标签的推送；手动触发；每小时一次 | `sync_refs.py` 将 GitHub 的全部分支与标签推送到镜像 |
+| `mirror-release.yml` | GitHub 发布页的发布或编辑（草稿除外）；`main` 上该工作流或 `tools/release-mirror/` 的改动；手动触发，可填写标签；每 6 小时一次 | 先以 `sync_refs.py` 同步引用，再以 `sync_release.py` 复制发布 |
+| `cleanup-mirror-branches.yml` | `main` 上该工作流、`cleanup_refs.py`、其测试、`cleanup-plan.json` 或 `sync_refs.py` 的改动；GitHub 上删除分支；每 6 小时一次 | `cleanup_refs.py` 按批准计划删除镜像上的分支 |
+
+**令牌。** 访问 GitCode 的令牌只来自仓库的 Actions secret `GITCODE_MIRROR_TOKEN`，它需要两个镜像仓库
+（本仓库与 `MentorRecorder-Calibrations`）的推送权限。未配置时，引用同步与发布复制以
+「Configure the repository Actions secret GITCODE_MIRROR_TOKEN first」失败，分支清理在删除步骤以
+「Configure GITCODE_MIRROR_TOKEN before execution」失败。令牌只经由 Git 子进程的环境或发往 GitCode API 的
+请求头传递，不出现在命令行参数与日志中，也不进入软件；客户端只使用匿名读取接口。
+
+**引用同步（`sync_refs.py`）。** 取得 GitHub 的全部分支与标签（不含 Pull Request 引用），确认取得期间 GitHub
+没有变化，再以精确 lease 原子推送有变化的引用，推送后回读核对。镜像上独有的引用一律保留，不被删除。
+该脚本可以重复执行。
+
+**发布复制（`sync_release.py`）。** 由发布事件或填写了标签的手动运行触发时，复制该标签的发布；其他触发方式
+补齐 GitHub 上的最新正式版，以及最近 20 个发布中最晚发布的测试包，并核对已撤回的正式版（见下）。
+
+- 只复制已发布（非草稿）的发布，且镜像上的同名标签必须已指向与 GitHub 相同的提交；该脚本从不创建或改动标签。
+- 正式版复制安装程序、其 `.sha256` 与 `BUILD-METADATA.json`；测试包复制安装程序与 zip 及二者的 `.sha256`。
+  附件从 GitHub 下载后核对大小、GitHub 记录的 SHA-256 与 `.sha256` 文件；正式版的 `BUILD-METADATA.json`
+  还必须记录同一版本号、`prerelease = false`、与标签相同的 `source_commit`、`source_worktree_dirty = false`
+  与 `public_distribution_ready = true`，否则不复制。
+- 镜像上尚无该发布时，以 GitHub 的标题与说明新建：测试包标为预发布；正式版只有在它是 GitHub 当前的最新
+  正式版时才标为最新版本。
+- 镜像上已有该发布时，先核对标签与类别（正式版或测试包），并逐个以匿名下载核对已有附件与 GitHub 的原文件
+  一致；全部一致后，GitHub 上被编辑过的标题或说明随之更新到镜像，再补传缺少的附件。附件内容冲突、类别不符，
+  或正式版已有 `BUILD-METADATA.json` 却缺少其他附件时，运行失败，不替换也不删除任何附件。
+- 每个附件上传后都以匿名下载核对 SHA-256，正式版的 `BUILD-METADATA.json` 最后上传；运行结束前再读回一次，
+  核对标题、说明与附件是否齐全。
+
+**已撤回的正式版。** 补齐运行还读取 GitCode 发布清单的第一页（最多 20 个，与采集服务的更新后备读取同一清单），
+并就其中每个正式版向 GitHub 查询同一标签。GitHub 答复该发布不存在（HTTP 404）时，运行失败，并逐个写明
+「<标签>: deleted on GitHub but still published on GitCode; delete the GitCode release by hand」。
+脚本从不删除镜像上的发布：维护者确认该版本确应撤回后，在 GitCode 上手动删除该发布，此后不再报告。
+
+**分支清理（`cleanup_refs.py`）。** 引用同步不删除镜像上的分支，需要删除的分支逐条写入
+`tools/release-mirror/cleanup-plan.json`。该计划是清理的唯一依据，命令行不能另行指定计划、分支、提交或目标。
+每条记录写明仓库、分支（只接受 `refs/heads/` 下的名称，`main` 与 `dev` 不能列入）、镜像上该分支应有的提交号，
+以及一个必须是 GitHub `main` 祖先的锚点提交（分支已合入时写 `merge_anchor`，放弃时写 `discard_anchor`）。
+工作流先不带令牌对两个镜像预览，再带令牌执行：GitHub 上仍存在的分支保留，镜像上已不存在的跳过，其余以精确
+lease 原子删除并匿名回读核对。镜像上的提交号与记录不符时拒绝执行，须重新核对后更新计划；删除期间该分支在
+GitHub 上重新出现时，脚本在镜像上将其恢复，并以清理未完成失败。
+
+**并发与 Dependabot。** 仓库同步与分支清理共用一个并发组，同一时刻只运行其中一个。`mirror-release.yml` 的
+每次运行，不论由发布事件、推送、定时还是手动触发，都使用它自己的另一个并发组：发布事件的运行与补齐运行不会
+同时处理同一个标签，仓库同步与分支清理也不会顶替尚在等待的发布复制运行；同一组内只保留一个等待中的运行，
+后到的发布复制运行会顶替它，之后的定时补齐仍会处理最新的正式版与测试包。正在进行的运行都不会被取消。
+发布复制可能与仓库同步同时进行，其引用同步失败时（例如精确 lease 因此不符），30 秒后从新的快照重试一次。
+仓库同步与分支清理跳过由 Dependabot 触发的推送与删除事件（这类运行取不到 Actions secret），由定时运行补齐。
+
+**运行失败时。** 失败原因写在日志中 `Repository mirror failed:`、`Release mirror failed:` 或
+`Approved mirror cleanup failed:` 之后，不含令牌、签名地址或远端的原始输出。常见情形的处理如下：
+
+- 缺少令牌：配置 `GITCODE_MIRROR_TOKEN` 后重新运行。
+- 「Mirror tag not found」或「Mirror tag differs from GitHub」：镜像上的标签缺失或不一致；重新运行
+  `mirror-release.yml`，它在复制之前先同步引用。引用同步本身失败时，日志提示检查令牌、镜像的分支保护、
+  网络连接或服务端对 lease 与原子推送的支持。
+- 「Source release assets incomplete」：GitHub 发布页的附件尚未全部上传；上传完毕后在 Actions 中以该标签
+  手动运行 `mirror-release.yml`，或等待定时运行。
+- 「Source build metadata is not a clean distributable build of the release tag」：正式版发布页上的
+  `BUILD-METADATA.json` 不是由该标签的干净提交打出、`public_distribution_ready = true` 的产物；按
+  [release-checklist.md](release-checklist.md) §9.4 重新打包并替换 GitHub 上的附件后重新运行。
+- 附件内容冲突，或镜像上已有的发布与 GitHub 不符：脚本不做任何修复；维护者在 GitCode 上核对该发布，
+  手动删除错误的附件或发布后重新运行。
+- 已撤回的正式版：见上。
+- 时限用尽或网络错误：直接重新运行。发布复制只补传缺少的附件，已核对一致的附件不会重复上传。
 
 ## 6. 已知构建注意事项
 

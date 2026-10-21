@@ -373,11 +373,13 @@ private Q_SLOTS:
         QCOMPARE(history.retentionDays(), 0);
         QVERIFY(!history.retentionSaving());
     }
-    void sourceCalendarDayFilterKeepsBothRawDateFormatsInNegativeTimezone() {
+    void sourceCalendarDayFilterKeepsAllRawDateFormatsInNegativeTimezone() {
         mr::MockBackend backend;
         QJsonArray fixtures;
-        for (const QString &raw : {QStringLiteral("2024-09-24"), QStringLiteral("2024/9/24")}) {
-            QJsonObject run = QJsonObject::fromVariantMap(row(raw.contains(QLatin1Char('/')) ? secondId : firstId, 1));
+        for (const QString &raw : {QStringLiteral("2024-09-24"), QStringLiteral("2024/9/24"), QStringLiteral("2024.9.24")}) {
+            const QString id = raw.contains(QLatin1Char('.')) ? QStringLiteral("00000000-0000-0000-0000-000000000004")
+                : raw.contains(QLatin1Char('/')) ? secondId : firstId;
+            QJsonObject run = QJsonObject::fromVariantMap(row(id, 1));
             run.insert(QStringLiteral("source"), QStringLiteral("IMPORT"));
             run.insert(QStringLiteral("import_metadata"), QJsonObject{{QStringLiteral("source_recorded_at"), raw}});
             fixtures.append(run);
@@ -400,7 +402,7 @@ private Q_SLOTS:
         backend.request(QStringLiteral("QueryRuns"), {{QStringLiteral("filter"), filter}})->whenDone(this, collect);
         QTRY_VERIFY(finished);
         QVERIFY(success);
-        QCOMPARE(result.value(QStringLiteral("items")).toList().size(), 2);
+        QCOMPARE(result.value(QStringLiteral("items")).toList().size(), 3);
         filter.insert(QStringLiteral("run_id"), QJsonArray{secondId});
         finished = false;
         backend.request(QStringLiteral("QueryRuns"), {{QStringLiteral("filter"), filter}})->whenDone(this, collect);
@@ -592,7 +594,7 @@ ApplicationWindow {
                 hasSupplement |= field.toMap().value(QStringLiteral("v")).toString() == QStringLiteral("待补充");
             QCOMPARE(hasSupplement, source == QLatin1String("IMPORT"));
         }
-        for (const QString &raw : {QStringLiteral("2024-09-24"), QStringLiteral("2024/9/24")}) {
+        for (const QString &raw : {QStringLiteral("2024-09-24"), QStringLiteral("2024/9/24"), QStringLiteral("2024.9.24")}) {
             const QVariantMap source{{QStringLiteral("source_recorded_at"), raw}};
             const QVariant input = QVariantMap{{QStringLiteral("import_metadata"), source}};
             QVariant returned;

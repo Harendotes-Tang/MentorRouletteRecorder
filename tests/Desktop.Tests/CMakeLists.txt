@@ -230,7 +230,7 @@ add_test(NAME MentorRecorderReflections
 # CollectorTextDisplay: the controllers that show those sentences, before and after a language switch.
 foreach(MR_REVIEW_SUITE WorkflowController RunFormValidator ExportFailure UiWorkflowRegression EditRunDialogBinding
                         ReflectionDialogBinding Calibration SharedCalibration SharedCalibrationCard Speech
-                        CapturePage Motion UpdateNotice UpdateInstall ReleaseNotes EvidenceSubmission LanguageManager InstallerHold NoteImageStore SingleInstance ShellDialog
+                        CapturePage Motion AchievementProgress StatisticsOverlay Recovery RecoveryUi UpdateNotice UpdateInstall ReleaseNotes EvidenceSubmission LanguageManager InstallerHold NoteImageStore SingleInstance ShellDialog
                         RunDetailPanel MockBackend QmlWarningCounter RunListModel GameNames CollectorText
                         CollectorTextDisplay)
     add_executable(MentorRecorder${MR_REVIEW_SUITE}Tests ${MR_REVIEW_SUITE}Tests.cpp)
@@ -245,6 +245,19 @@ foreach(MR_REVIEW_SUITE WorkflowController RunFormValidator ExportFailure UiWork
         COMMAND MentorRecorder${MR_REVIEW_SUITE}Tests
             -o "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorder${MR_REVIEW_SUITE}.qtlog.txt,txt")
 endforeach()
+
+qt_add_lrelease(
+    TS_FILES
+        "${PROJECT_SOURCE_DIR}/src/Desktop/i18n/mentor_recorder_en.ts"
+        "${PROJECT_SOURCE_DIR}/src/Desktop/i18n/mentor_recorder_ja.ts"
+        "${PROJECT_SOURCE_DIR}/src/Desktop/i18n/mentor_recorder_zh_TW.ts"
+    LRELEASE_TARGET MentorRecorderOverlayTestTranslations
+    QM_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/overlay-i18n"
+    QM_FILES_OUTPUT_VARIABLE MR_OVERLAY_TEST_QM)
+qt_add_resources(MentorRecorderStatisticsOverlayTests overlay_test_i18n
+    PREFIX "/i18n"
+    BASE "${CMAKE_CURRENT_BINARY_DIR}/overlay-i18n"
+    FILES ${MR_OVERLAY_TEST_QM})
 
 # ---------------------------------------------------------------------------
 # tst_ipcrequests - one request sample per message type, compared against the
@@ -480,9 +493,8 @@ add_test(NAME MentorRecorderQmlMidstreamBanner
         --mock-recording-state listening
         --verify-text "一直读不到有效数据")
 
-# The pending-review banner on the dashboard reads the count the Collector
-# reported; it must not appear when there is nothing to review.
-add_test(NAME MentorRecorderQmlPendingReviewBanner
+# The overview uses the shared pending-work projection, including drafts and notes.
+add_test(NAME MentorRecorderQmlPendingWorkCard
     COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
         --backend mock
         --screenshot "${CMAKE_CURRENT_BINARY_DIR}/dashboard-pending-review.png"
@@ -491,7 +503,8 @@ add_test(NAME MentorRecorderQmlPendingReviewBanner
         --theme dark
         --screenshot-size 1280x900
         --screenshot-delay 1200
-        --verify-text "条记录待复核")
+        --verify-text "待处理 ·"
+        --verify-text "继续处理")
 
 # The 事件摘要 tab must render real GetRunEvents rows, never a placeholder. A
 # player reads the event by its Chinese name. The first history row is a match
@@ -608,13 +621,13 @@ add_test(NAME MentorRecorderDesktopRejectsCalibrationMockWithIpc
 # 共享校准 on the capture page: the card's shared section in every state the
 # mock can take, each asserted through the sentence a player reads.
 set(MR_SHARED_TEXT_fetching "正在查找其他玩家分享的校准")
-set(MR_SHARED_TEXT_verifying "找到了共享校准")
+set(MR_SHARED_TEXT_verifying "已找到共享校准，等待本机验证")
 set(MR_SHARED_TEXT_consent "同意，开始记录")
 set(MR_SHARED_TEXT_verified "正在用其他玩家分享的校准")
 # 核实门槛按来源分级（plans/shared-calibration.md §18）：登录时核实通过即记录，
 # 排本与进本在记录中继续核对；未发布的导入码仍要全部判据通过才启用。
 set(MR_SHARED_TEXT_verified-auditing "排本和进本还在核对中")
-set(MR_SHARED_TEXT_imported-published "找到了共享校准，登录时会自动检查")
+set(MR_SHARED_TEXT_imported-published "已找到共享校准，等待本机验证")
 set(MR_SHARED_TEXT_imported-unpublished "校准码已导入。登录后申请随机任务并进入副本")
 set(MR_SHARED_TEXT_rejected "这份共享校准不适用于你的游戏")
 set(MR_SHARED_TEXT_unavailable "暂时没能下载共享校准")
@@ -1018,7 +1031,7 @@ foreach(regression IN ITEMS ToggleSwitch ImportImageOrientation)
 endforeach()
 set(MR_VALIDATION_QML_TESTS
     MentorRecorderQmlMidstreamBanner
-    MentorRecorderQmlPendingReviewBanner
+    MentorRecorderQmlPendingWorkCard
     MentorRecorderQmlRunEventsTab
     MentorRecorderQmlValidation_waiting
     MentorRecorderQmlValidation_recording
@@ -1029,6 +1042,12 @@ set(MR_VALIDATION_QML_TESTS
     MentorRecorderQmlValidationDashboardFormalRunning
     MentorRecorderQmlValidationKeyboard)
 # Derive the common runtime from registered tests so a new suite cannot miss it.
+if(WIN32)
+    # Exercise the native Windows glyph path at the DPI where 一 disappeared.
+    add_test(NAME MentorRecorderNavigationTraditionalDpi
+        COMMAND MentorRecorderLanguageManagerTests navigationFontAndInkFollowLiveLanguageSwitch
+            -o "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorderNavigationTraditionalDpi.qtlog.txt,txt")
+endif()
 get_property(MR_ALL_DESKTOP_TESTS DIRECTORY PROPERTY TESTS)
 
 set_property(TEST ${MR_ALL_DESKTOP_TESTS} APPEND PROPERTY ENVIRONMENT
@@ -1076,3 +1095,13 @@ set_property(TEST ${MR_ALL_DESKTOP_TESTS} PROPERTY ENVIRONMENT_MODIFICATION
 set_property(TEST MentorRecorderAppSettingsIsolation MentorRecorderToggleSwitch
     MentorRecorderImportImageOrientation APPEND PROPERTY ENVIRONMENT
     "QT_QUICK_BACKEND=software")
+
+if(WIN32)
+    set_property(TEST MentorRecorderNavigationTraditionalDpi APPEND PROPERTY ENVIRONMENT_MODIFICATION
+        "QT_QPA_PLATFORM=set:windows"
+        "QT_SCALE_FACTOR=set:1.5"
+        "QT_QUICK_BACKEND=set:rhi"
+        "QSG_RHI_BACKEND=set:d3d11"
+        "MR_TEST_TRADITIONAL_NATIVE_DPI=set:1")
+    set_tests_properties(MentorRecorderNavigationTraditionalDpi PROPERTIES TIMEOUT 30)
+endif()

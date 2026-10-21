@@ -1,4 +1,6 @@
 using MentorRecorder.Collector.Capture;
+using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Calibration;
@@ -194,6 +196,81 @@ public sealed class LocalProfileRetirementTests : IDisposable
         Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
         Assert.True(File.Exists(LocalProfileFiles.PathFor(shipped, Region.Cn, Bed.Build)));
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+    }
+
+    // ------------------------------------------------------------------ while a queue is parked
+
+    /// <summary>The player queues for the mentor roulette, as a queue-inferred profile reads it.</summary>
+    /// <param name="at">Session time in milliseconds.</param>
+    private static DecodedMessage MentorQueue(long at) => CalibrationObserverTests.Message(
+        MessageDirection.Outbound, CalibrationTrafficCases.Request, CalibrationObserverTests.Bytes(24, (0, 9)), at);
+
+    /// <summary>Ordinary traffic no profile declares: it only moves the session's clock on.</summary>
+    /// <param name="at">Session time in milliseconds.</param>
+    private static DecodedMessage Background(long at) => CalibrationObserverTests.Message(
+        MessageDirection.Inbound, 0x7FFE, new byte[8], at);
+
+    private static CollectorException RetireRefused(LiveProtocolPipeline pipeline) => Assert.Throws<CollectorException>(
+        () => pipeline.DiscardCalibration(retireLocalProfile: true, refuseWhileARunIsUnderWay: true));
+
+    /// <summary>
+    /// Re-review 2026-10-21, RV5-2. Every profile this machine writes before it learns the popup infers the match from
+    /// the queue request, parks that request for the profile's whole match window - an hour - and never sees a queue
+    /// cancelled. The refusal therefore holds at two minutes and at fifty-nine, and its sentence must not promise that a
+    /// couple of minutes will do: it names what really ends it, the hour or the game closed and started again.
+    /// </summary>
+    [Fact]
+    public void AParkedQueueHoldsTheRetirementForTheProfilesWholeHourAndTheSentenceSaysSo()
+    {
+        var written = ProfileLoader.Validate(WriteLocalProfile(CalibrationTrafficCases.QueueRequest)).Profile!;
+        Assert.True(written.ToBinding().MatchFromQueue);
+        Assert.Equal(TimeSpan.FromHours(1), written.MatchWindow);
+        var pipeline = _bed.Pipeline(Services());
+        pipeline.Refresh(Bed.Game());
+        Assert.Equal(ProfileOrigin.Local, pipeline.Current.Origin);
+        var session = _bed.Start(pipeline);
+        Bed.Feed(pipeline, session, new[] { MentorQueue(60_000), Background(60_000 + 120_000) });
+        Assert.Equal(RunState.Idle, pipeline.RunState);
+
+        var refused = RetireRefused(pipeline);
+        Assert.Equal(ErrorCodes.CalibrationNotReady, refused.Code);
+        Assert.Equal(CollectorTexts.CalibrationChangeWhileQueued(), refused.Text);
+        Assert.DoesNotContain("两分钟", refused.Message, StringComparison.Ordinal);
+        Assert.Contains("软件可能察觉不到", refused.Message, StringComparison.Ordinal);
+        Assert.Contains("退出并重新启动游戏", refused.Message, StringComparison.Ordinal);
+        Assert.Contains("开始排队一小时后", refused.Message, StringComparison.Ordinal);
+
+        Bed.Feed(pipeline, session, new[] { Background(60_000 + 59 * 60_000) });
+        Assert.Equal(CollectorTexts.CalibrationChangeWhileQueued(), RetireRefused(pipeline).Text);
+        Assert.Empty(_retired);
+
+        Bed.Feed(pipeline, session, new[] { Background(60_000 + 60 * 60_000 + 1_000) });
+        pipeline.DiscardCalibration(retireLocalProfile: true, refuseWhileARunIsUnderWay: true);
+        Assert.Single(_retired);
+        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+    }
+
+    /// <summary>
+    /// RV5-2, the other way out the sentence names: the game is closed - the capture ends with it - and started again.
+    /// A queue parked before that no longer holds the retirement, however little of the hour has gone by.
+    /// </summary>
+    [Fact]
+    public void AQueueParkedBeforeTheGameClosedNoLongerHoldsTheRetirementOnceTheGameIsStartedAgain()
+    {
+        WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
+        var pipeline = _bed.Pipeline(Services());
+        pipeline.Refresh(Bed.Game());
+        var session = _bed.Start(pipeline);
+        Bed.Feed(pipeline, session, new[] { MentorQueue(60_000), Background(180_000) });
+        Assert.Equal(CollectorTexts.CalibrationChangeWhileQueued(), RetireRefused(pipeline).Text);
+
+        pipeline.OnCaptureStopped(session, CaptureEndReason.ProcessExit);
+        var restarted = _bed.Start(pipeline);
+        Bed.Feed(pipeline, restarted, new[] { Background(5_000) });
+
+        pipeline.DiscardCalibration(retireLocalProfile: true, refuseWhileARunIsUnderWay: true);
+        Assert.Single(_retired);
+        pipeline.OnCaptureStopped(restarted, CaptureEndReason.UserStop);
     }
 
     // ------------------------------------------------------------------ failure paths

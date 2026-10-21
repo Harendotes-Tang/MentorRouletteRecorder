@@ -71,6 +71,80 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         Assert.DoesNotContain(CalibrationDraft.Derive(carried, template).Messages, message => message.Name == "PLAYER_JOB");
     }
 
+    /// <summary>
+    /// Audit 2026-10-20, C-6. The player marked a line of the timeline wrong. The evidence was saved and
+    /// carried over a restart, but what the player rejected lived in memory only, so the restarted
+    /// Collector put the very same timeline to them again at once - while the card had told them it would
+    /// check again after another roulette. What was rejected is kept with the evidence it was about.
+    /// </summary>
+    [Fact]
+    public void AWrongVerdictSurvivesARestart()
+    {
+        var template = CalibrationObserverTests.Template();
+        var coordinator = new CalibrationCoordinator();
+        coordinator.Arm(template, Region.Cn, Build);
+        coordinator.Begin(FirstSession);
+        foreach (var message in CalibrationObserverTests.Session1())
+        {
+            coordinator.Accept(message);
+        }
+
+        coordinator.Stop();
+        var draft = coordinator.CurrentDraft()!;
+        Assert.Equal(CalibrationState.Ready, coordinator.State);
+        var verdicts = draft.Events.Where(item => item.RequiresConfirmation)
+            .ToDictionary(item => item.EventId, _ => CalibrationVerdict.Correct);
+        verdicts[draft.Events.First(item => item.Kind == "pop").EventId] = CalibrationVerdict.Wrong;
+        Assert.Null(coordinator.Judge(verdicts));
+        Assert.NotEqual(CalibrationState.Ready, coordinator.Snapshot().State);
+
+        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, coordinator.Evidence()!));
+        var restarted = new CalibrationCoordinator();
+        restarted.Arm(template, Region.Cn, Build);
+        restarted.Carry(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha));
+        restarted.Begin("after-restart");
+
+        Assert.NotEqual(CalibrationState.Ready, restarted.Snapshot().State);
+    }
+
+    /// <summary>Every kind of rejection reads back as it was written; a file without any reads as none.</summary>
+    [Fact]
+    public void RejectionsRoundTripThroughTheFile()
+    {
+        var at = new DateTimeOffset(2026, 9, 9, 12, 2, 0, 123, TimeSpan.Zero);
+        var rejections = new CalibrationRejections(
+            new HashSet<ushort> { 0xC002 },
+            new HashSet<MessageKey> { new(PacketDirection.ServerToClient, 0xA107, 456) })
+        {
+            TimedOpcodes = new HashSet<ushort> { 0xF00D },
+            MatchStates = new[]
+            {
+                ((ushort)0xC002, (IReadOnlyList<CalibrationSelectorReading>)new[] { new CalibrationSelectorReading("finder_state", 3) }),
+            },
+            Requests = new HashSet<DateTimeOffset> { at },
+            Entries = new HashSet<DateTimeOffset> { at.AddMinutes(1) },
+            Exits = new HashSet<DateTimeOffset> { at.AddMinutes(2) },
+        };
+        var plain = Observe(CalibrationObserverTests.Session1());
+        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, plain));
+        Assert.Same(CalibrationRejections.None, CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha)!.Rejections);
+        Assert.DoesNotContain("rejections", File.ReadAllText(Path.Combine(_root, CalibrationEvidenceStore.FileNameFor(Region.Cn, Build))),
+            StringComparison.Ordinal);
+
+        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, plain with { Rejections = rejections }));
+        var read = CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha)!.Rejections;
+
+        Assert.Equal(rejections.PopOpcodes, read.PopOpcodes);
+        Assert.Equal(rejections.ZoneKeys, read.ZoneKeys);
+        Assert.Equal(rejections.TimedOpcodes, read.TimedOpcodes);
+        var state = Assert.Single(read.MatchStates);
+        Assert.Equal(0xC002, state.Opcode);
+        Assert.True(CalibrationObserver.SameSelectors(rejections.MatchStates[0].Selectors, state.Selectors));
+        Assert.Equal(rejections.Requests, read.Requests);
+        Assert.Equal(rejections.Entries, read.Entries);
+        Assert.Equal(rejections.Exits, read.Exits);
+    }
+
     [Fact]
     public void EvidenceSurvivesARestartAndStillDerivesTheSameDraft()
     {

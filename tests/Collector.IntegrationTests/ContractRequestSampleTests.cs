@@ -11,6 +11,9 @@ namespace MentorRecorder.Collector.IntegrationTests;
 /// wrappers, and pinned there. This suite validates each of them against the schema and
 /// then feeds them to a real Collector, so a request the client can build but the Collector
 /// refuses -- or that the contract does not describe -- fails here rather than in the field.
+/// tests/Fixtures/ipc-requests/variants/*.json are the further shapes one message can take
+/// (a paged import, its next page, an import from a file); they are held to the schema too
+/// (audit 2026-10-20, G-3).
 /// </summary>
 public sealed class ContractRequestSampleTests
 {
@@ -31,6 +34,21 @@ public sealed class ContractRequestSampleTests
         return samples;
     }
 
+    /// <summary>The variant samples, each named <c>&lt;MessageType&gt;.&lt;variant&gt;.json</c>; the message type is the envelope's.</summary>
+    private static IReadOnlyList<(string Name, JsonObject Envelope)> Variants()
+    {
+        var variants = new List<(string, JsonObject)>();
+        foreach (var path in Directory.GetFiles(Path.Combine(SampleDirectory, "variants"), "*.json").OrderBy(
+                     name => name, StringComparer.Ordinal))
+        {
+            var envelope = JsonNode.Parse(File.ReadAllText(path)) as JsonObject
+                ?? throw new InvalidOperationException(path + " 不是一个 JSON 对象。");
+            variants.Add((Path.GetFileNameWithoutExtension(path), envelope));
+        }
+
+        return variants;
+    }
+
     [Fact]
     public void OneSampleExistsForEveryBusinessMessage() =>
         Assert.Equal(
@@ -46,6 +64,21 @@ public sealed class ContractRequestSampleTests
             ContractSchema.Validate(string.Empty, envelope, $"{messageType} request envelope");
             ContractSchema.Validate(
                 "$defs/RequestEnvelope", envelope, $"{messageType} request envelope");
+        }
+    }
+
+    [Fact]
+    public void EveryVariantSampleMatchesTheRequestEnvelopeSchema()
+    {
+        var variants = Variants();
+        Assert.NotEmpty(variants);
+        foreach (var (name, envelope) in variants)
+        {
+            var messageType = envelope["message_type"]!.GetValue<string>();
+            Assert.Contains(messageType, ContractSchema.BusinessMessageTypes);
+            Assert.StartsWith(messageType + ".", name, StringComparison.Ordinal);
+            ContractSchema.Validate(string.Empty, envelope, $"{name} request envelope");
+            ContractSchema.Validate("$defs/RequestEnvelope", envelope, $"{name} request envelope");
         }
     }
 

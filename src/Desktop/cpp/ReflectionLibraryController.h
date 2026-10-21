@@ -49,6 +49,9 @@ Q_SIGNALS:
     void filterChangeNeedsConfirmation();
 private:
     void applyFilter(const QVariantMap &filter);
+    /// 重新读取已勾选的记录：心得已清空或记录已删除的移出选择，其余换成新投影。
+    /// 读取失败时选择保持不变。
+    void refreshSelection();
     QPointer<IBackend> m_backend;
     RunListModel *m_runs;
     QVariantMap m_filter;
@@ -57,5 +60,6 @@ private:
     QStringList m_selectedIds;
     QHash<QString, QVariantMap> m_selectedRuns;
     QVariantMap m_pendingFilter;
+    quint64 m_selectionGeneration = 0;
 };
 }

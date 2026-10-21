@@ -62,7 +62,9 @@ void StatisticsController::requestDashboard(std::function<void(bool ok)> then)
     // defined on days, so they are read off this series no matter which
     // granularity the chart happens to be showing.
     m_backend->getDashboardStats({}, QStringLiteral("day"))
-        ->whenDone(this, [this, then = std::move(then), connection = m_connectionGeneration](
+        ->whenDone(this, [this, then = std::move(then), connection = m_connectionGeneration,
+                         observation = m_achievementObservationGeneration,
+                         serial = ++m_achievementReadSerial](
                              bool ok, const QVariantMap &payload, const QString &,
                              const QString &) {
             // A failed read is not evidence that the numbers changed: wiping the
@@ -86,6 +88,12 @@ void StatisticsController::requestDashboard(std::function<void(bool ok)> then)
                     m_achievementSettingsLoaded = true;
                     Q_EMIT achievementSettingsLoadedChanged();
                 }
+                if (connection == m_connectionGeneration
+                    && observation == m_achievementObservationGeneration
+                    && serial > m_lastAchievementReadSerial) {
+                    m_lastAchievementReadSerial = serial;
+                    observeAchievement(QJsonObject::fromVariantMap(payload));
+                }
             }
             // Projections may coordinate dependent workflows before completion.
             Q_EMIT dashboardRequestFinished(ok);
@@ -96,6 +104,28 @@ void StatisticsController::requestDashboard(std::function<void(bool ok)> then)
             if (then)
                 then(ok);
         });
+}
+
+void StatisticsController::observeAchievement(const QJsonObject &dashboard)
+{
+    const int goal = dashboard.value(QStringLiteral("goal_count")).toInt(0);
+    const int baseline = dashboard.value(QStringLiteral("baseline_completed_count")).toInt(-1);
+    const int progress = dashboard.value(QStringLiteral("achievement_progress")).toInt(-1);
+    if (goal < 1 || baseline < 0 || progress < 0)
+        return;
+
+    const bool sameSettings = goal == m_observedGoal && baseline == m_observedBaseline;
+    const int lap = progress / goal;
+    const bool celebrate = m_achievementObservationReady && sameSettings
+        && !baselineSaving() && lap > m_highestCompletedLap;
+    // Preserve the high-water mark through reconnects and decreasing counts,
+    // so restoring a deleted completion cannot celebrate the same lap again.
+    m_highestCompletedLap = sameSettings ? qMax(m_highestCompletedLap, lap) : lap;
+    m_observedGoal = goal;
+    m_observedBaseline = baseline;
+    m_achievementObservationReady = !baselineSaving();
+    if (celebrate)
+        Q_EMIT achievementMilestoneReached(lap);
 }
 
 void StatisticsController::refreshTrend()
@@ -299,6 +329,17 @@ QVariantList StatisticsController::statCards() const
                      .arg(counts.value(QStringLiteral("DISCONNECTED")))
                      .arg(counts.value(QStringLiteral("INTERRUPTED")))),
     };
+    // 中途加入: the count, then its share among the attempts whose entry the software saw
+    // (docs/statistics-definitions.md 12.2). Shown only once there is one, like 未知结果, so a
+    // player without any keeps the eight-card layout. An older Collector sends no count.
+    const int joined = m_dashboard.value(QStringLiteral("joined_in_progress_count")).toInt();
+    if (joined != 0) {
+        const QJsonValue rate = m_dashboard.value(QStringLiteral("joined_in_progress_rate"));
+        cards.append(statCard(tr("中途加入"),
+                              rate.isDouble()
+                                  ? QStringLiteral("%1 · %2").arg(joined).arg(Formatters::percent(rate.toVariant()))
+                                  : QString::number(joined)));
+    }
     const int unknown = counts.value(QStringLiteral("UNKNOWN"));
     if (unknown != 0)
         cards.append(statCard(tr("未知结果"), QString::number(unknown)));
@@ -329,17 +370,6 @@ int StatisticsController::remainingCount() const
 {
     const QJsonValue remaining = m_dashboard.value(QStringLiteral("remaining"));
     return remaining.isDouble() ? remaining.toInt() : qMax(0, goalCount() - achievementProgress());
-    // 中途加入: the count, then its share among the attempts whose entry the software saw
-    // (docs/statistics-definitions.md 12.2). Shown only once there is one, like 未知结果, so a
-    // player without any keeps the eight-card layout. An older Collector sends no count.
-    const int joined = m_dashboard.value(QStringLiteral("joined_in_progress_count")).toInt();
-    if (joined != 0) {
-        const QJsonValue rate = m_dashboard.value(QStringLiteral("joined_in_progress_rate"));
-        cards.append(statCard(tr("中途加入"),
-                              rate.isDouble()
-                                  ? QStringLiteral("%1 · %2").arg(joined).arg(Formatters::percent(rate.toVariant()))
-                                  : QString::number(joined)));
-    }
 }
 
 int StatisticsController::pendingReviewCount() const
@@ -350,6 +380,7 @@ int StatisticsController::pendingReviewCount() const
 void StatisticsController::forgetAchievementSettings()
 {
     ++m_connectionGeneration;
+    m_achievementObservationReady = false;
     if (!m_achievementSettingsLoaded)
         return;
     m_achievementSettingsLoaded = false;
@@ -370,12 +401,16 @@ void StatisticsController::updateAchievementBaseline(int goal, int baseline, con
         Q_EMIT toastRequested(message);
         return;
     }
+    // Old reads cannot prime a milestone observation after a settings write.
+    ++m_achievementObservationGeneration;
+    m_achievementObservationReady = false;
     // Counted before the request: a pipe that is down answers inside the call.
     if (m_baselineSavesInFlight++ == 0)
         Q_EMIT baselineSavingChanged();
     m_backend->updateAchievementBaseline(goal, baseline, reason)
         ->whenDone(this, [this](bool ok, const QVariantMap &payload, const QString &code,
                                 const QString &message) {
+            m_achievementObservationReady = false;
             // Before the outcome, so whoever takes the answer may already send again.
             if (--m_baselineSavesInFlight == 0)
                 Q_EMIT baselineSavingChanged();

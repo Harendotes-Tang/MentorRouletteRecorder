@@ -54,3 +54,30 @@ function New-IsolatedPackageStartInfo {
     if ($Offscreen) { $childEnvironment['QT_QPA_PLATFORM'] = 'offscreen' }
     return $info
 }
+
+function Start-PackageVerificationProcess {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][System.Diagnostics.ProcessStartInfo]$StartInfo,
+        [ValidateRange(1, 7200)][int]$TimeoutSeconds = 60
+    )
+
+    if (-not ('MentorRecorder.Packaging.VerificationJob' -as [type])) {
+        Add-Type -Path (Join-Path $PSScriptRoot 'package-process-job.cs')
+    }
+    # Membership is established while the initial thread is suspended. A probe cannot
+    # spawn an unowned descendant between Process.Start and AssignProcessToJobObject.
+    return [MentorRecorder.Packaging.VerificationJob]::Start($StartInfo, $TimeoutSeconds)
+}
+
+function Invoke-PackageVerificationProcess {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][System.Diagnostics.ProcessStartInfo]$StartInfo,
+        [ValidateRange(1, 3600)][int]$TimeoutSeconds = 60
+    )
+
+    $operation = Start-PackageVerificationProcess -StartInfo $StartInfo -TimeoutSeconds $TimeoutSeconds
+    try { return $operation.Wait() }
+    finally { $operation.Dispose() }
+}

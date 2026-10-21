@@ -1,0 +1,15 @@
+{
+    "message_type": "PreviewRunImport",
+    "payload": {
+        "column_mapping": {
+            "评论": "reflection_text"
+        },
+        "file_path": "D:/imports/personal-records.xlsx",
+        "page_size": 100,
+        "source_kind": "XLSX",
+        "source_name": "personal-records.xlsx",
+        "time_zone": "+09:00"
+    },
+    "protocol_version": 1,
+    "request_id": "11111111-2222-4333-8444-555555555555"
+}

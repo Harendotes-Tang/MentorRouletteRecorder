@@ -135,7 +135,16 @@ void CalibrationController::publish(const QString &state, const QString &gameBui
             ++required;
     }
     const QString nextState = state.isEmpty() ? QStringLiteral("IDLE") : state;
-    if (m_state == nextState && m_gameBuild == gameBuild && m_blockers == blockers
+    // A refusal or a failed request speaks of the state it happened in. The next draft, a
+    // finished or stopped calibration and another game build are other states, and the line
+    // must not follow the player there (review I4-2). Observing again - where a rejected draft
+    // leads - keeps the sentence that says why.
+    const bool observing = nextState == QLatin1String("OBSERVING") || nextState == QLatin1String("WAITING");
+    const bool errorOutlived = !m_error.isEmpty()
+        && ((nextState != m_state && !observing) || gameBuild != m_gameBuild);
+    if (errorOutlived)
+        m_error.clear();
+    if (!errorOutlived && m_state == nextState && m_gameBuild == gameBuild && m_blockers == blockers
         && m_blockerRefs == blockerRefs && m_progress == progress && m_events == events && m_confirmCount == required
         && m_provisional == provisional
         && m_retiredLocalProfileAvailable == retiredLocalProfileAvailable) {

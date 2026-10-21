@@ -1,5 +1,31 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-10-21 · `elapsed_ms` 的口径、更新地址的来源、导随进行中拒绝更换校准与其他澄清
+
+不新增消息类型；除 `CheckSharedCalibration` 应答新增两个可选字段外，不改变任何结构；以下为口径修正、新的拒绝情形与此前未写明的约定。
+
+- **`GetCurrentRun.elapsed_ms`** 改为副本内用时：从这一场进入副本（`ENTERED_DUTY`）起按单调时钟计时；进本由事后补交的报文得出时（确认校准或共享绑定交还此前保留的报文），从进本那条报文的时刻算起。没有进行中的记录、或记录尚未进入副本（`MENTOR_MATCHED`）时为 `null`。此前它从匹配弹窗、匹配宣布或绑定时刻起算，进本前也有数值；桌面端据此显示的进本后用时（总览「已进行」、统计浮窗的副本用时）因此不再包含匹配到进本之间的等待，进本之前总览显示「—」，浮窗另按 `matched_at_utc` 显示匹配后已过的时间。契约中该字段的描述已写明这一定义。
+- **延迟应答上限。**`SynthesizeSpeech`、`CheckDatabaseIntegrity`、`CheckUpdateNow`、`PreviewRunImport` 与 `CommitRunImport` 在完成后另行写回应答。同一连接上已受理而尚未应答的这类请求达到 8 条时（尚未应答的 `CheckUpdateNow` 无论几条只计一条，它们加入同一次进行中的检查，自身另以 8 条为限），再到达的一条不被处理，采集服务直接关闭连接，不发送错误信封，尚未写出的应答一并丢弃（[docs/architecture.md](../docs/architecture.md) §3.3、[error-codes.md](error-codes.md)）。这是分帧错误之外唯一不作应答即关闭连接的情形；客户端应把连接断开视为全部未完成请求的失败，变更类请求以原 `request_id` 重发，以得到确定结果。
+- **`UpdateStatus.release_url` / `installer_url` 跟随版本号的来源。**`latest_version` 由 GitCode 镜像得知时，两个地址分别是镜像上该版本的发布页与同名附件；提供版本号的来源随版本号一同保存（设置 `update.latest_source`），重启后照常给出镜像地址。此前来源只在内存中，重启后一律给出 GitHub 地址；2026-09-17 一节「`release_url` 固定为公开发布页」的说法自镜像回退起已不成立。
+- **`CheckUpdateNow.outcome = DISABLED`** 另包括检查进行中关闭「检查新版本并提示」的情形：该次检查不再发出任何请求（包括镜像），也不记录检查时间与结果。同一连接上重复的 `CheckUpdateNow` 加入同一次进行中的检查。
+- **`ImportCalibrationCode.reason`** 新增 `NOT_APPLICABLE` 原因 `STATE_UNREADABLE`：本机的共享校准记录暂时无法读取（文件被占用，或读取时出错），因而不知道玩家是否拒绝过，或不知道这份码是否已被本机流量否定，稍后重试可能成功；说明为 `sharing.import.state_unreadable`（「暂时读不到本机保存的共享校准记录（可能被其他程序占用），请稍后再导入。」）。`REVOKED` 的含义改为本机读到过的任一份索引撤回过这份码：保存的撤回名单只增不减（每个版本最多 512 个），之后读到的索引不再列出撤回时名单不变。
+- **`CheckSharedCalibration` 应答新增可选的 `message` 与 `message_ref`。**本机的共享校准记录暂时无法读取、因而不知道玩家是否已对当前游戏版本选择只用本机校准时，「立即检查」与此前一样不发出任何请求，`outcome` 仍为 `NOT_NEEDED`，另带说明 `sharing.check.state_unreadable`（「暂时读不到本机保存的共享校准记录（可能被其他程序占用），请稍后再查找。」）。桌面端收到这两个字段时应显示该说明，而不是 `NOT_NEEDED` 的固定说明；此前这种情形显示「已有可用校准，或你已选择当前游戏版本只用本机校准」，与实情不符。其余情形不带这两个字段；旧桌面端忽略它们，照旧显示原说明。
+- **`CorrectRun.changes`** 中的 `result`、`contributes_to_goal` 与 `pending_review` 不再接受 JSON `null`，以 `ERR_BAD_REQUEST` 拒绝（`field` 分别为 `payload.changes.result`、`payload.changes.contributes_to_goal` 与 `changes.pending_review`）。此前 `"result": null` 被当作确认原结果，记录随之退出待复核；桌面端从不发送这样的请求。
+- **导随进行中拒绝更换校准。**状态机处于 `MENTOR_MATCHED` 或 `ENTERED_DUTY`，或按排本推断匹配的档案保留着一条仍在匹配窗口内的排本申请（玩家已在排队、还没有记录）时，`DiscardCalibration` 带 `retire_local_profile` 或 `restore_local_profile`、以及共享档案生效时的 `RejectSharedCalibration`，以 `ERR_CALIBRATION_NOT_READY` 拒绝（目录键 `calibration.change_during_run`；只在排队时为 `calibration.change_while_queued`），这一场结束、或那条排本申请失效之后可再次请求；此前它们会把进行中的记录按停止捕获收尾，或丢掉已在排队的申请，使接下来的这一把不被记录。不带这两个字段的 `DiscardCalibration` 不受此限（[error-codes.md](error-codes.md)、[docs/protocol-profile-format.md](../docs/protocol-profile-format.md) §11.6）。
+- **导入：表格中只有日期的开始时间。**`PreviewRunImport` 的表格来源（XLS、XLSX、CSV、PASTE）中，`entered_at_utc` 只有日期（`yyyy-MM-dd`、`yyyy/M/d` 或 `yyyy.M.d`）时不作为进本时间，而以 `yyyy-MM-dd` 写入 `import_metadata.source_recorded_at`，`entered_at_utc` 为 `null`。同一行已有与之同一天的原站时间（包括带时刻的）时保留原值；日期不同，或原站时间只以 UTC 给出时，该行以 `import.row.start_date_source_conflict` 判为无效（[docs/data-model.md](../docs/data-model.md) §9）。
+- **导入：本地时间原样保留在候选中。**`rows[].candidate` 中不带时区或偏移的 `matched_at_utc`、`entered_at_utc`、`ended_at_utc`、`created_at_utc` 保持来源原文，不再改写为以 `Z` 结尾的规范文本；`rows[].run` 照常给出按 `time_zone` 换算的 UTC。以新的 `time_zone` 重新校验时，这些时间按新时区重新换算。
+- **导入：行的默认身份与「可能重复」。**没有 `run_id` 与 `source_key` 的行，默认 `source_key` 改为该行自身取值的哈希加上它在相同行中的序号，不再取整份文件的哈希加行号；旧键仍一并与已保存的来源指纹核对，来源指纹的组成不变；职业只能靠中文别名识别的行另按早先版本的职业解析结果再算一份指纹核对。`possible_duplicate` 另包括：与本地记录副本相同、原站日期相同、双方至少一方没有具体时刻（双方都有职业时职业也相同）的行，以及同一批次中带有具体时刻（进本时间或原站时间）、且与前面某一行副本、进本时间、原站时间与心得都相同的行（`matching_run_id` 指向前面那一行；只有日期的行不按此判定）。规则见 [docs/data-model.md](../docs/data-model.md) §9。
+- **导入：来源文件路径的拒绝。**`PreviewRunImport` 的 `file_path` 指向网络共享、设备路径，或无法确认是否位于本机磁盘时，以 `ERR_BAD_REQUEST`（`field = "file_path"`，`import.preview.path_not_local` / `import.preview.path_uncheckable`）拒绝；此前沿用导出的错误码与说明。
+- **`BackupDatabase` 核对副本。**备份副本在发布前另行打开并做完整性校验；未通过时以 `ERR_EXPORT_FAILED`（`export.backup_integrity_failed`）拒绝，且不清理既有备份。应答中的 `integrity_check_passed` 因此只要有应答即为 `true`。
+- **`GetDungeonStats`**：`territory_id` 在本地副本表中查不到的记录并入 `content_id` 与名称都未知的那一行「未知副本」，不再各自成行（[docs/statistics-definitions.md](../docs/statistics-definitions.md) §10）。
+- **文字目录**（[collector-texts.json](collector-texts.json)）新增 `calibration.change_during_run`、`calibration.change_while_queued`、`sharing.import.state_unreadable`、`sharing.check.state_unreadable`（出现在 `CheckSharedCalibration.message_ref`）、`import.preview.path_not_local`、`import.preview.path_uncheckable`、`capture.warning.validation_releasing`（出现在 `CollectorStatus.warnings`）与 `calibration.provisional.searching_job`、`calibration.provisional.searching_more`、`calibration.provisional.blocked_more`、`calibration.provisional.recording_popup`（出现在 `CalibrationStatus.blockers`；最后一个是按排本推断匹配、已认得匹配弹窗的档案正在记录而后台校准无法继续时，卡片的第一句）；`capture.game.region_ambiguous`、`capture.game.region_unmarked`、`capture.game.path_denied`、`capture.game.path_unknown` 去掉句末的「（fail-closed）」，`capture.oodle.profile_load_failed` 改写为面向玩家的说明；`import.row.start_date_source_conflict` 改写为说明哪一项对不上。旧桌面端照常显示中文原句。
+
+## 2026-10-20 · 本人历史导入可分页核对整批记录
+
+- `PreviewRunImport` 首次来源请求可带整数 `page_size`（1–100），应答新增可选 `page_info = { page, page_size, total }`。服务端先分类冻结全批，再按完整行切页；`page` 从 1 开始，实际 `page_size` 可降低以满足原 3 MiB 预览预算，随后固定。`total`、`summary`、来源和 `preview_id` 在各页保持全批快照，不因翻页重新读取文件或数据库，跨页重复照常识别。
+- 续页请求只含 `preview_id` 与 `page`，禁止混入来源、编辑或 `page_size` 字段；空批次仅有第 1 页。过期、越界、混合请求以关联的 `ERR_BAD_REQUEST` 拒绝。冻结缓存保留 30 分钟、最多 8 个会话，并按冻结 JSON 的 UTF-8 字节数限制总计 64 MiB；先回收最旧会话，单批超预算明确拒绝，取消的预览不进入缓存。全批候选（`rows[].candidate` 的 JSON）超过 3 MiB 时，分页预览在冻结之前即以 `ERR_BAD_REQUEST`（`import.preview.too_large`，`field = "rows"`）拒绝：其后的每次编辑或时区更改都要把全批候选放进一条请求重新校验，超过这一预算的批次将无法提交。
+- 未带 `page_size` 的旧请求仍返回完整预览并保留原容量拒绝；4 MiB 帧上限不变。分页不改变 `CommitRunImport`：全部选中行仍在同一事务内重查去重与冲突、扣除已包含的成就基数并保存幂等回执，失败整批回滚。
+
 ## 2026-10-20 · 中途加入进行中的副本：`Run.joined_in_progress` 与三处统计计数
 
 附加式变更，不新增消息类型。采集服务按内容识别国服副本导演报文中的两种内容：开始宣布与剩余时间（[docs/protocol-profile-format.md](../docs/protocol-profile-format.md) §13），据此在进本后记下这一场是否中途加入进行中的副本（[docs/state-machine.md](../docs/state-machine.md) §3.14）。

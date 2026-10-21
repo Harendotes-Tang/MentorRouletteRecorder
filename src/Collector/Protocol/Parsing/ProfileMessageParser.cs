@@ -61,6 +61,7 @@ public sealed class ProfileMessageParser : IDecodedMessageSink, IParserStats
     {
         "CONTENT_FINDER_POP", "ZONE_INITIALIZATION", "ZONE_TERRITORY", "DUTY_RESULT",
         "PLAYER_JOB", "ZONE_LEFT", "INSTANCE_LEFT", "MATCH_CANCELLED", "MATCH_ANNOUNCED",
+        "DUTY_COMMENCED", "DUTY_TIME_REMAINING",
     });
 
     /// <summary>Creates a parser bound to one profile.</summary>

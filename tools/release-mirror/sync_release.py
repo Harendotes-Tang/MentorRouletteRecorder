@@ -2,7 +2,8 @@
 """Copy an official GitHub release to GitCode, publishing metadata last.
 
 Git refs are synchronized by the preceding Actions ref-sync step. This tool never creates or changes
-tags, deletes attachments, or overwrites conflicting published content.
+tags, deletes attachments or releases, or replaces a conflicting attachment. An edited GitHub title or
+notes is copied only after the tag, the channel and every registered attachment verify.
 API contracts: https://docs.gitcode.com/docs/apis/ (Release and Tag sections).
 """
 
@@ -333,6 +334,12 @@ class RemoteMirror:
             "tag_name": self.tag, "name": source["name"], "body": source["body"],
             "target_commitish": commit, "release_status": status})
 
+    def update(self, source, commit):
+        """Copy an edited GitHub title and notes; nothing else about the release changes."""
+        verify_mirror_tag(self.http, self.tag, commit)
+        self.http.api(GC + "/releases/" + self.tag, auth=True, method="PATCH",
+                      payload={"name": source["name"], "body": source["body"]})
+
     def verify(self, name, expected):
         path = self.directory / ("mirror-" + name)
         actual = self.http.download(download_url("gitcode.com", self.tag, name), path,
@@ -353,12 +360,21 @@ class RemoteMirror:
         upload_with_curl(response["url"], headers, path, self.http.deadline)
 
 
-def validate_mirror_identity(existing, source):
+def validate_mirror_release(existing, source):
+    """Tag and channel must match; the title and notes may still predate a GitHub edit."""
     require(isinstance(existing, dict) and existing.get("tag_name") == source["tag_name"]
             and existing.get("prerelease") is source["prerelease"]
-            and existing.get("name") == source["name"] and notes_equal(source["body"], existing.get("body"))
             and (not source["prerelease"] or existing.get("release_status") == "pre"),
-            "Existing mirror release identity or notes conflict with GitHub")
+            "Existing mirror release identity conflicts with GitHub")
+
+
+def text_current(existing, source) -> bool:
+    return existing.get("name") == source["name"] and notes_equal(source["body"], existing.get("body"))
+
+
+def validate_mirror_identity(existing, source):
+    validate_mirror_release(existing, source)
+    require(text_current(existing, source), "Existing mirror release identity or notes conflict with GitHub")
 
 
 def publish(mirror, source: dict, commit: str, paths: dict, hashes: dict) -> None:
@@ -367,13 +383,17 @@ def publish(mirror, source: dict, commit: str, paths: dict, hashes: dict) -> Non
     existing = mirror.release()
     assets = {}
     if existing is not None:
-        validate_mirror_identity(existing, source)
+        validate_mirror_release(existing, source)
         assets = asset_map(existing)
         require(source["prerelease"] or names[2] not in assets or all(n in assets for n in names),
                 "Existing completion metadata has missing attachments; refusing repair in place")
         for name in names:
             if name in assets:
                 mirror.verify(name, hashes[name])
+        if not text_current(existing, source):
+            # The GitHub title or notes were edited after mirroring. Every registered
+            # attachment matched, so only the text follows; missing attachments come next.
+            mirror.update(source, commit)
     else:
         mirror.create(source, commit)
     for name in names:  # Formal metadata is last; beta has both binary/checksum pairs.
@@ -438,12 +458,33 @@ def synchronize(http: Http, tag: str | None, directory: Path) -> str:
     return tag
 
 
+def withdrawn_formal_releases(http: Http) -> list[str]:
+    """Formal GitCode releases whose GitHub release is gone; reported, never deleted."""
+    # The same listing the Collector's GitCode update fallback reads.
+    releases = http.api(GC + "/releases?page=1&per_page=20")
+    require(isinstance(releases, list) and len(releases) <= 20
+            and all(isinstance(release, dict) for release in releases), "Invalid mirror release listing")
+    withdrawn = []
+    for release in releases:
+        tag = release.get("tag_name")
+        # Like the Collector, an absent draft/prerelease flag counts as formal. Only
+        # formal version tags are offered as updates, and only they enter a URL.
+        if (not isinstance(tag, str) or not TAG.fullmatch(tag)
+                or any(release.get(key, False) is not False for key in ("draft", "prerelease"))):
+            continue
+        try:
+            http.api(GH + "/releases/tags/" + tag, auth=True)
+        except Missing:
+            withdrawn.append(tag)
+    return withdrawn
+
+
 def catch_up(http: Http, directory: Path) -> list[str]:
-    """Bounded catch-up for the two channels, with neither starving the other."""
+    """Bounded catch-up for the two channels and the withdrawal report; none starves another."""
     total_deadline = getattr(http, "deadline", None)
     tags = []
     failures = []
-    for channel in ("formal", "prerelease"):
+    for channel in ("formal", "prerelease", "withdrawal"):
         if total_deadline is not None:
             # Discovery is a small JSON request, not an artifact transfer. A
             # slow stream must leave time for the other channel and uploads.
@@ -455,6 +496,12 @@ def catch_up(http: Http, directory: Path) -> list[str]:
                         and latest.get("prerelease") is False and not is_prerelease(latest.get("tag_name")),
                         "Cannot establish the latest formal release")
                 tags.append(latest["tag_name"])
+            elif channel == "withdrawal":
+                # A release deleted on GitHub stays on GitCode, where the Collector would
+                # still offer it. Removing it there is the maintainer's decision.
+                for tag in withdrawn_formal_releases(http):
+                    failures.append(tag + ": deleted on GitHub but still published on GitCode;"
+                                    " delete the GitCode release by hand")
             else:
                 releases = http.api(GH + "/releases?per_page=20&page=1", auth=True)
                 require(isinstance(releases, list) and len(releases) <= 20, "Invalid bounded source release listing")

@@ -29,16 +29,16 @@
 |---|---|---|
 | 1 | 不做 ACT / Dalamud 插件，不以插件形态挂载到任何第三方宿主 | 人工评审 |
 | 2 | 不进行进程注入 | `INJ-*` |
-| 3 | 不读写其他进程的内存、不在其中分配内存或修改内存保护、不创建远程线程或投递 APC、不安装窗口钩子：`ReadProcessMemory` / `WriteProcessMemory` / `VirtualAllocEx` / `VirtualProtectEx` / `CreateRemoteThread` / `QueueUserAPC` / `SetWindowsHookEx`，以及对应的 `Nt*` / `Zw*` 原语、`RtlCreateUserThread` 与转储进程内存的 `MiniDumpWriteDump` | `INJ-001`…`INJ-006` |
-| 3b | 不打开游戏进程或其线程的句柄：不调用 `OpenProcess`（含 `NtOpenProcess` / `ZwOpenProcess`）/ `OpenThread`（含 `NtOpenThread` / `ZwOpenThread`）/ 按窗口取进程句柄的 `GetProcessHandleFromHwnd` / 逐个打开进程的 `NtGetNextProcess`（含 `ZwGetNextProcess`）/ `DebugActiveProcess` / `Process.EnterDebugMode`，不使用内部会打开目标进程句柄的 `Process` 成员（`MainModule` / `Modules`、`StartTime`、`HasExited`、`WaitForExit`、`Kill`、`Handle`、`Process.GetProcessById` 等；属性模式与对象初始化器中的写法同样拒绝，PowerShell 管道中不带点号点名这些成员的写法（`Get-Process \| Select-Object StartTime`、`ForEach-Object Kill` 等）也在其列）。涉及进程、窗口与网络的操作系统查询只允许下列几类，均不打开任何进程的句柄：内核进程表（`NtQuerySystemInformation` 的 `SystemProcessInformation` 快照读取进程编号、映像名与创建时间，`SystemProcessIdInformation` 读取单个进程的镜像路径）、系统 TCP 表（`GetExtendedTcpTable`）、系统路由表（`GetBestInterface`，与任何进程无关），以及桌面端在「点选游戏窗口」期间读取前台窗口所属的进程编号（`GetForegroundWindow` / `GetWindowThreadProcessId`）。本软件对自身进程的操作见 §2.1 | `INJ-007` `INJ-008` `INJ-009` |
+| 3 | 不读写其他进程的内存、不在其中分配内存或修改内存保护、不创建远程线程或投递 APC、不安装窗口钩子或事件钩子：`ReadProcessMemory` / `WriteProcessMemory` / `VirtualAllocEx` / `VirtualProtectEx` / `CreateRemoteThread` / `QueueUserAPC` / `SetWindowsHookEx` / `SetWinEventHook`（其 `WINEVENT_INCONTEXT` 方式会把调用方的 DLL 映射进目标进程，因此整个函数一律禁止），以及对应的 `Nt*` / `Zw*` 原语、`RtlCreateUserThread` 与转储进程内存的 `MiniDumpWriteDump` | `INJ-001`…`INJ-006` |
+| 3b | 不打开游戏进程或其线程的句柄：不调用 `OpenProcess`（含 `NtOpenProcess` / `ZwOpenProcess`）/ `OpenThread`（含 `NtOpenThread` / `ZwOpenThread`）/ 按窗口取进程句柄的 `GetProcessHandleFromHwnd` / 逐个打开进程的 `NtGetNextProcess`（含 `ZwGetNextProcess`）/ `DebugActiveProcess` / `Process.EnterDebugMode`，不使用内部会打开目标进程句柄的 `Process` 成员（`MainModule` / `Modules`、`StartTime`、`HasExited`、`WaitForExit`、`Kill`、`Handle`、`Process.GetProcessById` 等；属性模式与对象初始化器中的写法同样拒绝，PowerShell 管道中不带点号点名这些成员的写法（`Get-Process \| Select-Object StartTime`、`ForEach-Object Kill` 等）也在其列），也不使用会打开线程句柄的 `ProcessThread` 成员（`PriorityLevel`、`IdealProcessor`、`ResetIdealProcessor`）、读取其他进程模块表的 Toolhelp 模块快照（`TH32CS_SNAPMODULE` / `TH32CS_SNAPALL`、`Module32First` / `Module32Next`）与 `Get-Process` 的 `-Module` / `-FileVersionInfo` 参数，以及其提供程序会打开所列每个进程的 WMI 类 `Win32_Process` / `CIM_Process`。涉及进程、窗口与网络的操作系统查询只允许下列几类，均不打开任何进程的句柄：内核进程表（`NtQuerySystemInformation` 的 `SystemProcessInformation` 快照读取进程编号、映像名、创建时间与所属 Windows 会话编号，只认与采集服务处于同一会话的游戏进程；`SystemProcessIdInformation` 读取单个进程的镜像路径）、系统 TCP 表（`GetExtendedTcpTable`）、系统路由表（`GetBestInterface`，与任何进程无关），以及桌面端在「点选游戏窗口」期间读取前台窗口所属的进程编号（`GetForegroundWindow` / `GetWindowThreadProcessId`）。本软件对自身进程的操作见 §2.1 | `INJ-007` `INJ-008` `INJ-009` |
 | 4 | 不发送任何数据包（`pcap_sendpacket` / `pcap_inject`、libpcap 的发送队列、Packet.dll 的 `PacketSendPacket`、SharpPcap 的 `SendPacket` / `SendQueue`），抓包严格只读 | `CAP-001` `CAP-002` |
 | 4b | 只用 Npcap/WinPCap 抓包实现，不用 raw socket 实现；不直接加载 pcap 原生库（`DllImport` / `LibraryImport` / `NativeLibrary.Load` / `LoadLibrary` / `QLibrary`），抓包只经由 SharpPcap 的 Npcap 设备 | `CAP-003` `CAP-004` `CAP-006` |
 | 4c | 不把原始报文写成抓包文件（`pcap_dump*`、SharpPcap 的 `CaptureFileWriterDevice`） | `CAP-005` |
-| 5 | 不做游戏自动化、不模拟输入（`SendInput` / `SendKeys` / `keybd_event` / `mouse_event`）、不向窗口投递消息（`PostMessage` / `SendMessage` 系列、`Process.CloseMainWindow`）、不代替玩家操作 | `AUT-001` |
+| 5 | 不做游戏自动化、不模拟输入（`SendInput` / `SendKeys` / `keybd_event` / `mouse_event`）、不向窗口投递或发送消息（`PostMessage` / `SendMessage` 系列、`Process.CloseMainWindow`，以及经 `SendMessageTimeout` 向主窗口发送 `WM_NULL` 的 `Process.Responding`）、不代替玩家操作 | `AUT-001` |
 | 6 | 不做任何反检测、反封禁、隐藏自身、混淆特征的处理 | 人工评审 |
-| 7 | 无遥测、无使用统计、无崩溃上报；不在用户点击之前下载或安装更新：安装程序只在用户点击「下载安装包」后由采集服务下载、经核对发布时公布的 SHA-256 后保留，只在用户再点击「立即安装」后由桌面端经系统外壳启动，随后本软件退出；采集服务从不执行所下载的文件，替换本软件文件的是用户启动的安装程序，而不是运行中的本软件（§8.6）。运行时允许的出站请求只有三类：§8.2 的共享校准获取（只读下载）、§8.3 的在线语音合成（默认关闭，只发送本次要播报的文字），与 §8.4、§8.6 的更新（默认开启、可关闭的版本检查，只读取本项目发布元数据及必要的镜像发行版清单；以及用户点击后对该版本安装程序及其校验值的只读下载）。三类请求都只经由 HTTP 客户端发出，不直接使用套接字或域名解析接口；脚本与 QML 不自行下载或请求网络资源，任何代码不以 XML 读取接口从远程地址加载，Python 工具不自行联网（开发期的数据表生成器与 CI 专用 Release 镜像工具除外，见 §2.1）。唯一的另一处联网在安装程序中：本机没有 Npcap 时下载其官方安装程序（§8.5） | `NET-006` `NET-007` `NET-008` `NET-009` `NET-010` |
+| 7 | 无遥测、无使用统计、无崩溃上报；不在用户点击之前下载或安装更新：安装程序只在用户点击「下载安装包」后由采集服务下载、经核对发布时公布的 SHA-256 后保留，只在用户再点击「立即安装」后由桌面端经系统外壳启动，随后本软件退出；采集服务从不执行所下载的文件，替换本软件文件的是用户启动的安装程序，而不是运行中的本软件（§8.6）。运行时允许的出站请求只有三类：§8.2 的共享校准获取（只读下载）、§8.3 的在线语音合成（默认关闭，只发送本次要播报的文字），与 §8.4、§8.6 的更新（默认开启、可关闭的版本检查，只读取本项目发布元数据及必要的镜像发行版清单；以及用户点击后对该版本安装程序及其校验值的只读下载）。三类请求都只经由 HTTP 客户端发出，不直接使用套接字或域名解析接口；脚本与 QML 不自行下载或请求网络资源（CI 工作流中登记在案的一行除外，见 §2.1），任何代码不以 XML 读取接口从远程地址加载，Python 工具不自行联网或监听（开发期的数据表生成器与 CI 专用 Release 镜像工具除外，见 §2.1）。唯一的另一处联网在安装程序中：本机没有 Npcap 时下载其官方安装程序（§8.5） | `NET-006` `NET-007` `NET-008` `NET-009` `NET-010` |
 | 8 | 无本软件自己的服务器、无账号体系、无用户数据同步或上传。共享校准存放于固定公开 GitHub 仓库及其 GitCode 镜像（§8.2），本软件只读获取；发布由玩家在浏览器中提交 Issue、由仓库的 Action 完成，本软件不发送数据。在线语音合成（§8.3）发往用户选定的语音服务（Azure 语音，或用户填写地址的 OpenAI 兼容接口），发送内容仅为本次要播报的文字，密钥由用户自行提供 | `NET-006` `NET-007` `NET-008` `NET-009` |
-| 9 | 不监听任何 HTTP / TCP / WebSocket / gRPC 端口，也不直接使用 TCP / UDP / QUIC 套接字；进程间通信**只用命名管道** | `NET-001`…`NET-005` `NET-008` |
+| 9 | 不监听任何 HTTP / TCP / WebSocket / gRPC 端口，也不直接使用 TCP / UDP / QUIC 套接字；进程间通信**只用命名管道** | `NET-001`…`NET-005` `NET-008` `NET-010` |
 | 10 | 不长期存储原始报文负载 | 见 §5 |
 | 11 | 不从 AGPL 项目复制代码 | 见 §7 |
 | 12 | 不在没有证据的情况下猜测 opcode / 结构偏移 | 见 [protocol-profile-format.md](protocol-profile-format.md) |
@@ -60,8 +60,13 @@
   这一例外仅按该脚本的精确路径放行 `INJ-009`，其他进程/网络规则仍适用。随软件发布的抓包代码
   一律不放行。以行内标记逐行放行的 `INJ-009` 命中都与进程句柄无关：SQLite 连接自身的句柄（`SqliteConnection.Handle`，
   位于 `src/Collector/Storage/SqliteDatabase.cs` 与单元测试 `tests/Collector.UnitTests/DatabaseIntegrityCheckTests.cs`）、
-  注释中为说明取值格式而点名的 `Process.StartTime`（`src/Collector/CommandLineOptions.cs`），以及测试夹具结果记录的
-  `ExitCode`（`tests/Collector.IntegrationTests/RecoveryEndToEndTests.cs`）。标记的规则见下文。
+  注释中为说明取值格式而点名的 `Process.StartTime`（`src/Collector/CommandLineOptions.cs`）、测试夹具结果记录的
+  `ExitCode`（`tests/Collector.IntegrationTests/RecoveryEndToEndTests.cs`），以及打包验证与 CI 中由脚本自行启动的子进程
+  的结果记录字段 `ExitCode`（`scripts/package-process-job.cs` 一行，`.github/workflows/ci.yml` 三行）。标记的规则见下文。
+- **`INJ-007` 按精确路径放行两个打包预算测试。** `tools/package-verification/test_package_runtime_budget.py` 与
+  `tools/package-verification/test_static_analysis_budget.py` 各自以 `OpenProcess` 只取 `SYNCHRONIZE` 权限，等待本测试夹具
+  刚启动并报告了进程编号的子进程退出，不查找或打开游戏进程。放行只按这两个文件的精确路径生效，同目录或其他位置的文件
+  照常检查，这两个文件中的其他规则同样照常检查。
 - **本地 OCR 的联网阻断检查。** `scripts/local-ai-ocr-worker.py` 的精确行内标记仅允许
   审计钩子列出被拒绝的网络事件名称；事件发生时在实际连接或解析之前抛出错误。
   `tools/LocalAiOcr/test_worker.py` 的两个精确标记仅用于导入测试模块和断言同一钩子
@@ -71,26 +76,38 @@
   桌面端读取自身令牌的用户 SID（`OpenProcessToken(GetCurrentProcess())`），据此算出管道名，并在连上管道后用
   `GetSecurityInfo` 读取管道的所有者，只接受当前用户（或其令牌的默认所有者）的管道；采集服务用 `WaitNamedPipe`
   询问管道是否存在；两个进程用命名事件与命名互斥体（`Local\<管道名>.stop`、桌面端的单实例互斥体与唤起事件等）
-  协调停止与单实例；采集服务无应答时，桌面端用系统自带的 `tasklist` / `taskkill` 核对并结束 `serve.pid` 所记的
-  采集服务进程。
-- **`NET-009` 只放行安装程序中创建下载页的那一行。** 安装程序在缺少 Npcap 时以 Inno Setup 的下载页下载
-  Npcap 官方安装程序（§8.5）。`installer/MentorRecorder.iss` 不再按路径整体放行，只有创建该下载页的一行带有登记在案的
-  行内标记（登记的命中原文为 `CreateDownloadPage(`），该文件中其他任何下载写法照常报错。其余脚本、工作流、QML 与
-  桌面端不得自行下载或请求网络资源，桌面端也不得以 `load` / `setSource` 把远程地址交给 QML 引擎。任何代码也不得把远程地址
-  交给 XML 读取接口（`XDocument.Load`、`XmlReader.Create` 等）。
-- **`NET-010` 按精确路径放行两个维护工具。** Python 代码不得引入或调用联网模块；例外是开发期下载公开副本数据表的
-  `tools/duty-data-generator/generate.py`，以及 CI 发布同步入口 `tools/release-mirror/sync_release.py`。
-  后者只在维护者的发布工作流中复制本项目原始 Release 附件并匿名回读校验，不随软件运行；其 GitCode 发布令牌来自
-  GitHub Actions secret `GITCODE_MIRROR_TOKEN`，不进入客户端、安装包或用户配置。客户端只使用匿名读取接口。
-  `tools/shared-calibration/` 的 Python 只读取保存下来的 `gh` 输出，不需要放行。
+  协调停止与单实例；采集服务无应答时，桌面端用系统自带的 `tasklist.exe` / `taskkill.exe` 核对并结束 `serve.pid` 所记的
+  采集服务进程；两者的路径取自 Windows 报告的系统目录（`GetSystemDirectoryW`），不经由 `%SystemRoot%` 环境变量或 `PATH` 查找。
+- **`NET-009` 只放行两处登记在案的行。** 安装程序在缺少 Npcap 时以 Inno Setup 的下载页下载
+  Npcap 官方安装程序（§8.5）。`installer/MentorRecorder.iss` 不按路径整体放行，只有创建该下载页的一行带有登记在案的
+  行内标记（登记的命中原文为 `CreateDownloadPage(`），该文件中其他任何下载写法照常报错。CI 工作流
+  `.github/workflows/ci.yml` 为运行验证脚本，以 `curl.exe` 从 github.com 上 cppcheck 项目的发布页下载固定版本（2.21.0）的
+  官方安装包；启动该下载的一行带有登记在案的行内标记，随后核对文件大小与 SHA-256，不一致即失败。该下载只在 CI 中发生，
+  所得工具不进入软件或安装包。除这两处外，脚本、工作流、QML 与桌面端不得自行下载或请求网络资源：QML 不得把远程地址
+  用作 `source`、`import` 或 `url` 属性，也不得以 `Qt.resolvedUrl` / `Qt.include` / `Qt.createComponent` 加载远程地址；
+  桌面端也不得以 `load` / `loadUrl` / `setSource` 把远程地址交给 QML 引擎。下载命令写在进程启动参数中时（`-Executable` /
+  `-FilePath`、`.FileName =` 或 `ProcessStartInfo(` 之后的 `curl` 等）同样被识别。任何代码也不得把远程地址
+  交给 XML 读取接口（`XDocument.Load`、`XmlReader.Create` 等）。CI 与开发脚本中的 `pip` / `npx` 安装不在任何静态规则的
+  识别范围内，它们安装的内容见 §8。
+- **`NET-010` 按精确路径放行两个维护工具。** Python 代码不得引入或调用联网模块，也不得自行监听：`http.server`、
+  `socketserver`、`xmlrpc.server`、`asyncio.start_server`、事件循环或 `ssl` 的 `create_connection` / `create_server`
+  与 `ssl.get_server_certificate` 同样在列。例外是开发期下载公开副本数据表的 `tools/duty-data-generator/generate.py`，
+  以及 CI 发布同步入口 `tools/release-mirror/sync_release.py`。后者只在维护者的发布工作流中运行，不随软件运行：
+  它复制本项目原始 Release 附件并匿名回读校验；GitHub 上已发布版本的标题或说明修改后，它先核对标签、发布类型与全部附件，
+  再以带令牌的 `PATCH` 更新 GitCode 上已有发布的标题与说明；定时补同步时，它还匿名读取 GitCode 的发行版清单，
+  逐个向 GitHub 查询其中的正式版本标签，已在 GitHub 删除、仍在 GitCode 发布的版本使该次运行失败并留待维护者手动删除。
+  该工具从不删除发布或附件。其 GitCode 发布令牌来自 GitHub Actions secret `GITCODE_MIRROR_TOKEN`，不进入客户端、
+  安装包或用户配置。客户端只使用匿名读取接口。`tools/shared-calibration/` 的 Python 不引入联网模块：发布脚本只读取
+  保存下来的 `gh` 输出，证据工作流在公开仓库的 Action 中以子进程调用 `gh` 与 `git`，因此不需要放行。
 
 - **行内标记。** 一行可以用 `BOUNDARY-ALLOW(<规则编号>): <理由>` 解除**该行**上**该条**规则的**一处**命中，
   其他规则照常检查。每个标记都按「文件 + 规则编号 + 命中原文」逐个登记在 `rules.json` 的 `allow_markers` 中，
   只有该行上该规则恰好只有一处命中、且其原文与登记一致时才生效；同一行出现该规则的第二处命中，或命中换成了
   其他写法，都会被报出并使检查失败。未登记的标记、没有解除任何命中的标记、登记了却找不到的标记，以及写了未声明
-  规则编号的标记，同样使检查失败。每个生效的标记连同它解除的命中原文列在检查输出中。标记只用于三种情形：
-  说明边界的代码在注释中点名一个被禁止的成员（例如解释为何不用它）；某行的唯一命中并非被禁止的对象（同名而无关的
-  成员）；以及上一条所述安装程序中创建 Npcap 下载页的那一行。
+  规则编号的标记，同样使检查失败。每个生效的标记连同它解除的命中原文列在检查输出中。除上文本地 OCR 的联网阻断检查与 §8.4 末段的测试替身外，
+  标记只用于四种情形：说明边界的代码在注释中点名一个被禁止的成员（例如解释为何不用它）；某行的唯一命中并非被禁止的
+  对象（同名而无关的成员，例如结果记录中的 `ExitCode`）；安装程序中创建 Npcap 下载页的那一行；以及 CI 工作流中下载
+  固定版本 cppcheck 安装包的那一行。测试对其自身启动的子进程的等待不以标记放行，而按精确路径放行（见上文 `INJ-007` 一条）。
 - **检查不完整即失败。** 文件无法读取或超出大小上限、目录无法列出、扫描根缺失、扫描到零个文件，都使检查以失败告终，
   而不是报告通过。
 
@@ -233,16 +250,19 @@ Machina 在释放库时会尝试删除自己产生的临时副本，其诊断信
   游戏进程的连接才会被解码，其余报文在缓冲区中丢弃。无关包不进入业务解析、trace、日志或数据库，也不会落盘。
 - 抓包回调复制出**判定所需的最小字段**后立即释放缓冲区。
 - 有界队列中的元素在解析后立即归还，不做任何持久化。
-- 解析器除按档案认领报文外，还把服务器下发的报文与一种固定内容（国服的通关结算，
-  [protocol-profile-format.md](protocol-profile-format.md) §12）比较。比较只在内存中进行，不保留任何字节；
-  命中时产生一个胜利事件，其键与其他事件的键构成相同（[state-machine.md](state-machine.md) §7.3），
-  负载只以 SHA-256 摘要出现。
-  这不是新的读取：比较的对象是采集服务本就解码的游戏连接报文。诊断日志只记下结算出现过、
-  对应哪条记录、是否由它记为通关、距离离开副本多久以及累计次数，不含负载、哈希、opcode 或副本编号
+- 解析器除按档案认领报文外，还把服务器下发的报文与国服的三种固定内容比较：通关结算
+  （[protocol-profile-format.md](protocol-profile-format.md) §12），以及同一种报文承载的副本开始宣布与剩余时间（同文件 §13）。
+  比较只在内存中进行，不保留任何字节。命中通关结算时产生一个胜利事件；命中开始宣布或剩余时间时产生一个只携带
+  时限秒数或剩余秒数的事件，用于判断这一场是中途加入还是开局进入（[state-machine.md](state-machine.md) §3.14）。
+  这些事件的键与其他事件的键构成相同（[state-machine.md](state-machine.md) §7.3），负载只以 SHA-256 摘要出现。
+  这不是新的读取：比较的对象是采集服务本就解码的游戏连接报文。诊断日志对通关结算只记下结算出现过、
+  对应哪条记录、是否由它记为通关、距离离开副本多久以及累计次数；对开始宣布与剩余时间只记下种类、对应哪条记录、
+  所带的秒数、是否由它作出判定以及判定结果（`protocol/duty_start_signal`）。两者都不含负载、哈希、opcode 或副本编号
   （[capture-diagnostics.md](capture-diagnostics.md) §8）。
 - `run_events.detail_json` 只允许：opcode 编号、方向、报文长度、时间戳、
-  以及被解析出的 id 型字段（`content_id` / `territory_id` / `roulette_id` / `job_id`）
-  与档案 id。
+  被解析出的 id 型字段（`content_id` / `territory_id` / `roulette_id` / `job_id`）与档案 id、
+  副本开始宣布与剩余时间携带的秒数（`time_limit_seconds` / `remaining_seconds`），
+  以及事件序列空洞已知丢失的观测条数（`dropped_count`）。
 - **禁止**写入：原始字节、十六进制转储、聊天内容、角色名、队友信息、
   IP 地址、MAC 地址、任何其他玩家的可识别信息。
 - 诊断日志同样受此约束，且不依赖调用方自觉。`RotatingFileLogger.Sanitize`
@@ -318,7 +338,10 @@ passive-validation-batch.md（内部工作文档，不随仓库分发） §1、�
 opcode，按 opcode 与字段名分组，**不与轮盘编号、连接标签或事件时间线一起导出**。
 
 诊断计数表有固定上限，截断仅影响报告。用于判定的候选表同样有上限，但只要丢失的证据可能影响
-时序或唯一性，就阻止生成可启用草稿。只有已知回执状态的冗余样本可以安全压缩。
+时序或唯一性，就阻止生成可启用草稿。只有已知回执状态的冗余样本可以安全压缩。换区簇（最多 64 个）与
+排本申请—回执配对（最多 256 条）只保留最近的部分，较早的依次舍弃，这不计为溢出。舍弃的换区簇只留下一项按报文形状
+累计的计数：长度等于模板换区标记或区域报文的服务器报文，各有多少个舍弃的簇恰好含它一次（opcode、长度与次数，
+不含时间与连接标签），与簇外出现次数一样覆盖证据存续的全部时间。
 
 校准产物是一份普通的协议档案（§9 的
 `protocol-profiles\`），用户核对时间线后才写出。校准期间的抓包与 §6 的 fail-closed 一致：
@@ -363,9 +386,10 @@ opcode，按 opcode 与字段名分组，**不与轮盘编号、连接标签或�
 | 本机 IPC | 是 | 仅命名管道 `MentorRecorder.<UserSidHash>.v1`，ACL 限当前用户；桌面端连上后核对管道的所有者，不属于当前用户即断开 |
 | 抓包 | 是（只读） | Npcap，仅读取，从不发送 |
 
-开发与发布期间另有联网行为：NuGet 包还原、`tools/duty-data-generator` 下载公开数据表、`tools/release-mirror/sync_release.py` 在 CI 同步 Release（两个 Python 精确路径例外见 §2.1），以及开发者查阅文档。
+开发与发布期间另有联网行为，均不随软件运行：NuGet 包还原；`tools/duty-data-generator` 下载公开数据表、`tools/release-mirror/sync_release.py` 在 CI 同步 Release（两个 Python 精确路径例外见 §2.1）；CI 工作流 `.github/workflows/ci.yml` 经固定到提交号的 Actions 安装 .NET、Python、Node.js 与 Qt，以 `pip install -r tools/requirements-ci.txt` 安装固定版本的 Python 测试依赖，以 `npx` 安装固定版本的 markdownlint-cli，并从 github.com 上 cppcheck 的发布页下载固定版本的安装包、核对其大小与 SHA-256（§2.1）；维护者构建本地 OCR 组件时，`scripts/build-local-ai-ocr-worker.ps1` 在指定 `-InstallBuildDependencies` 时以 pip 安装 `tools/LocalAiOcr/requirements-build.txt` 中固定版本的构建依赖；以及开发者查阅文档。其中 pip 与 npx 的安装不在任何静态规则的识别范围内。
 
-仓库引用同步另由 CI 中的 `tools/release-mirror/sync_refs.py` 调用 Git 完成：只向固定的两个 GitCode 仓库推送 GitHub 的 heads/tags，使用精确 lease、原子推送并回读验证，不删除目标独有引用。凭据仅在 Git 子进程环境中按目标 URL 限定，不写入仓库或软件。校准仓库通过源模板映射部署同一个脚本，并监听校准发布工作流成功完成，覆盖 GITHUB_TOKEN 提交不触发 push 工作流的情况。
+仓库引用同步另由 CI 中的 `tools/release-mirror/sync_refs.py` 调用 Git 完成：只向固定的两个 GitCode 仓库推送 GitHub 的 heads/tags，使用精确 lease、原子推送并回读验证，同步本身不删除目标独有引用。凭据仅在 Git 子进程环境中按目标 URL 限定，不写入仓库或软件。校准仓库通过源模板映射部署同一个脚本，在推送时、每 30 分钟，以及校准发布、证据与报告三个工作流每次运行结束后（不论成败）运行，覆盖 GITHUB_TOKEN 提交不触发 push 工作流的情况。
+GitCode 上的分支只由 `tools/release-mirror/cleanup_refs.py` 删除：它只处理维护者在 `tools/release-mirror/cleanup-plan.json` 中逐条批准的分支（精确分支名与预期提交号；`main`、`dev` 与标签不得列入），且只在该分支已不在 GitHub 上、GitCode 上的提交号与批准的一致、批准时登记的锚点提交已并入 GitHub 的 `main` 时删除。删除使用精确 lease 的原子推送，随后匿名回读核对；删除后分支在 GitHub 上重新出现时，工具把它恢复到 GitCode 并使该次运行失败。该工具使用同一个 `GITCODE_MIRROR_TOKEN`，由 `.github/workflows/cleanup-mirror-branches.yml` 每 6 小时运行一次，另在批准清单或工具的变更推送到 `main` 时、以及 GitHub 上删除分支时运行。
 发布版本在运行时只发起 §8.2、§8.3 与 §8.4 / §8.6 三类请求，均由采集服务发出；安装时另有 §8.5 的一次下载。
 桌面端不发起任何网络请求：打开网页一律交由系统浏览器处理，在线语音的音频由采集服务取回并写成本机文件后，
 再由桌面端播放。
@@ -403,12 +427,14 @@ GitCode 只允许 `/api/v5/repos/Harendotes-Tang/MentorRecorder-Calibrations/raw
 除本类请求、§8.3 的在线语音合成与 §8.4、§8.6 的更新检查及按请求下载外，其余运行时出站行为仍然禁止：遥测、使用统计、崩溃上报、账号。
 0.7.11 发布时该仓库尚未建立，该版本的请求只会得到“未找到”。
 
-**仓库内容。** 仓库中包含玩家提交的校准码、索引 `index.json`，以及提交台账 `submissions.json`。
+**仓库内容。** 仓库中包含玩家提交的校准码、索引 `index.json`，以及提交台账 `submissions.json`；
+另有证据台账与新区服候选草案，见下文"公开仓库的证据与隔离"。
 台账按区服与客户端版本记录每次提交的 GitHub 账号数字编号、校准码校验值、提交时间与 Issue 编号，以及该账号此前被替换掉的校准码的校验值，
 仅用于执行按账号的规则：每个账号每个版本同时只保留一份有效校准码；每个账号对同一版本的提交次数、每天可提交的版本数均有上限；
 某个账号提交的校准码被维护者撤回后，该账号在该区服与版本下的提交暂停，经维护者复核后才恢复。**本软件从不下载该文件**，
 `index.json` 中也不含任何账号信息。发布由玩家在浏览器中提交 Issue、由该仓库的 GitHub Action 校验后完成，
-Action 只使用 GitHub 默认的 `GITHUB_TOKEN`。仓库中的脚本与模板按 GPL-3.0-or-later 授权，
+处理 Issue 的 Action 只使用 GitHub 默认的 `GITHUB_TOKEN`；把仓库同步到 GitCode 镜像的工作流另用仓库 secret
+`GITCODE_MIRROR_TOKEN`，它只检出 `main`，不读取 Issue 内容。仓库中的脚本与模板按 GPL-3.0-or-later 授权，
 玩家提交的数据按 CC0-1.0 公开，提交表单中写明"提交即同意"。
 
 **触发条件。** 下列条件同时满足时才会自动获取：区服与客户端版本已知；本机校准处于可启用状态；
@@ -442,10 +468,12 @@ Action 只使用 GitHub 默认的 `GITHUB_TOKEN`。仓库中的脚本与模板�
   卡片不显示校准码、校准码编号、十六进制或拒绝原因记号。
 - 「立即检查」只在本机仍处于校准状态时出现，用于使采集服务立即获取一次。该操作同样受上述条件、开关与总开关限制，
   只是不受 6 小时节流限制；不满足上述触发条件时（例如随包档案在用）不发出任何请求。
-- 「导入校准码」供玩家粘贴他人提供的校准码。导入过程不联网，也不受开关影响；导入的校准码同样须先在本机流量中核实。
-  导入时只比对本机此前下载到的索引，不发出请求：索引列出的码按下载的码对待；索引已撤回的码拒绝导入；
+- 「手动导入校准码」供玩家粘贴他人提供的校准码。导入过程不联网，也不受开关影响；导入的校准码同样须先在本机流量中核实。
+  导入时只比对本机此前下载到的索引与保存的撤回名单，不发出请求：索引列出的码按下载的码对待；本机读到过的任一份
+  索引撤回过的码拒绝导入，即使之后读到的索引（例如镜像仍在提供的旧索引）不再列出这次撤回；
   任何索引都不认识的码须排本与进本全部核实通过后才生成档案，在此之前不产生记录（1.1.0 起）。
-- 「不用共享的，我自己校准」先弹出确认，随后撤下正在使用或正在核实的共享校准。在执行「清空进度并重新观察」之前，该版本不再获取、导入或绑定共享校准。
+  本机的共享校准记录（§9 的 `state.json`）暂时无法读取时，导入同样不进行，可稍后重试。
+- 「其他方式」中的「改为本机校准」先弹出确认，随后撤下正在使用或正在核实的共享校准。在点击「清空校准进度」之前，该版本不再获取、导入或绑定共享校准。
 - 按排本推断匹配的共享校准核实通过后，卡片先说明该记录方式的代价，即记录中的匹配时间为申请排本的时间；玩家点击一次「同意，开始记录」后才会启用。
 
 0.7.11 仅实现采集服务一侧，不含上述界面。该版本只能通过下文的**总开关**关闭下载，需要用户同意的共享校准不会启用。
@@ -471,26 +499,71 @@ Action 只使用 GitHub 默认的 `GITHUB_TOKEN`。仓库中的脚本与模板�
 - 边读取边统计字节：索引超过 64 KB、单个校准码超过 4 KB 立即断开；校准码解压后另行限制为 16 KB。
 - 索引按严格格式逐条校验，格式不符的条目丢弃；校准码解码后的规范载荷哈希必须等于索引登记的 `code_sha256`，且区服、客户端版本和匹配来源必须一致，否则丢弃。
 - 下载的校准码**不是档案**。它只写入 §9 的 `shared-calibrations\`，须先在本机流量中按结构核实，
-  才会生成档案并用于记录（plans/shared-calibration.md §4、§18）。候选按索引给出的提交人数从多到少排列，
-  人数相同时没有冲突标记的在前，再依次按首次发布时间与校验值排列；通过核实的候选中，认得出服务器匹配报文的码
-  优先于按排本推断的码。
+  才会生成档案并用于记录。下载时候选按索引给出的提交人数从多到少排列，人数相同时没有冲突标记（`conflicting`）的在前，
+  再依次按结构先验（`shape_prior` 为 true 的在前）、首次发布时间与校验值排列，每个版本最多取 8 份。通过核实的候选中，
+  认得出服务器匹配报文的码优先于按排本推断的码，其次是在分歧中占多数的码与提交人数更多的码。
+- 本软件逐个报文比较正在核实的各份校准码：换区、区域与职业报文不论匹配方式都比较，匹配报文只在匹配方式相同的码之间
+  比较，码中没有声明的报文不参与比较。一个取值的票数是带有该取值的各份码的提交人数之和。一份码在每个有分歧的报文上
+  都是票数严格最多的取值，或者——仅限匹配报文——与其他取值票数相同、而只有它与这台机器在上一版本核实过的档案形状一致时，
+  才算在分歧中占多数；没有分歧的码同样算作占多数。打破平票只用本机自己的先验，索引中的 `shape_prior` 与冲突标记只影响
+  下载与核实的顺序，不参与这一判断。
 - 核实的门槛取决于这份码与本机的情况。公开仓库列出的码，只有同时满足下列条件时，才在登录时换区报文按结构核实
-  通过后即生成档案并开始记录，排本与进本报文在记录中继续核实：本机当前没有可用档案；仓库没有给它标冲突标记；
-  至少有一名提交者；没有提交人数比它更多的候选。其余的码，即会替换本机已可用档案的、带冲突标记的、另有提交人数
-  更多的候选的，以及未在仓库发布的导入码，须排本与进本报文也核实通过才生成档案，在此之前不产生记录。
-  每份候选实际采用的门槛见脱敏诊断报告中各判据的 `gate`（[capture-diagnostics.md](capture-diagnostics.md) §9.6）。
+  通过后即生成档案并开始记录，排本与进本报文在记录中继续核实：本机当前没有可用档案；仓库没有将它隔离（见下一条）；
+  至少有一名提交者；没有提交人数比它更多的候选；在分歧中占多数。其余的码，即会替换本机已可用档案的、被隔离的、
+  另有提交人数更多的候选的、在分歧中不占多数的，以及未在仓库发布的导入码，须排本与进本报文也核实通过才生成档案，
+  在此之前不产生记录。每份候选实际采用的门槛见脱敏诊断报告中各判据的 `gate`（[capture-diagnostics.md](capture-diagnostics.md) §9.6）。
+- 公开仓库可以在索引条目上写入可逆的隔离提示（`quarantined`，以及表示隔离轮次的 `quarantine_epoch`），条件见下文
+  "公开仓库的证据与隔离"。隔离不是撤回：本软件仍下载并核实这份码，只是它须按导入码的门槛完整核实才能生成档案。
+  按登录时换区报文生成、尚未完整记录过一次随机任务并通过全部判据的共享档案，读到隔离提示后暂停使用
+  （诊断中 `last_refusal` 为 `QUARANTINED`），这份码回到核实中，它此前生成的记录不标记待复核；已完整记录过一次且判据
+  全部通过的共享档案不因隔离撤下。档案写出期间这份码被隔离或门槛发生变化时，须按新门槛重新核实，未通过即丢弃写出的档案
+  （`RECHECK_REQUIRED`）。
 - 无论门槛如何，两个抓包完整的会话都对不上时撤下档案，它生成的记录标记待复核。每份共享档案开始记录的时间随档案
-  保存在本机（§9 的 `state.json`），撤下时只标记这份校准自己生成的记录，重启之后同样如此。采用磁盘上已有的共享档案
-  之前，先核对上次读到的索引是否已撤回它；已撤回的立即撤下，它生成的记录标记待复核。
+  保存在本机（§9 的 `state.json`），撤下时只标记这份校准自己生成的记录，重启之后同样如此。系统时钟回拨后，这份校准
+  在记录期间结束的记录若早于保存的开始时间，开始时间随之提前并重新保存，这些记录因此同样会被标记。
+- 读到的撤回只增不减：本机保存每个版本读到过的全部撤回（最多 512 个），之后读到的索引不再列出某次撤回时，名单不变。
+  采集服务启动时先载入这份名单，采用磁盘上已有的共享校准码或档案之前先与之核对；已撤回的不再使用，在用的立即撤下，
+  它生成的记录标记待复核。
 
 **不上传数据。** 在共享校准一侧，本软件不向任何地方发送数据。校准卡片上的「分享给其他玩家」只在本机校准完成、
 且当前正在使用本机校准档案时出现。点击后由系统浏览器打开 github.com 上预填的 Issue 页面，并将校准码复制到剪贴板。
 页面内容对玩家可见，是否提交由玩家在浏览器中自行决定。
 校准码过长、无法放入地址时只复制，不打开浏览器；桌面端只将 `https://github.com/` 下的地址交给浏览器。
-2026-10-15 起（plans/shared-calibration.md §20）多一种出现条件：正在使用的共享校准已完整记录过一次随机任务、
+2026-10-15 起多一种出现条件：正在使用的共享校准已完整记录过一次随机任务、
 排本与进本的核对也都通过之后，同一位置出现「这份校准好用，告诉其他玩家」。机制完全相同：预填的是这台机器下载或导入的那份校准码，
 表单里的「这份校准码的来源」一栏由地址参数预先填为"其他玩家分享，已在我的软件里核实通过并正常记录"（本机校准的分享同样预填对应的一句），提交后仓库把它计为又一个提交账号，让其他玩家的软件更优先核实它。
 软件仍然不发送任何数据，核实结果从不自动回传。
+
+捕获诊断页「工具」中的「共享校准证据」，以及「帮助适配其他区服」的采证步骤，以同样的方式交由玩家提交证据摘要。
+点击「预览」（采证完成后为「预览候选摘要」）时，桌面端经命名管道向采集服务请求摘要（`GetCalibrationEvidence` /
+`GetTemplateObservation`）；采集服务只读取本机已保存的内容，不发出任何网络请求。预览窗口显示将要公开的完整 JSON，
+其格式固定为 `calibration-evidence-v1`（`contracts/calibration-evidence-v1.schema.json`）。两类摘要都只含区服、客户端版本、
+软件版本、随机生成的摘要编号与会话别名以及各会话的健康计数；共享校准证据另含模板编号与校验值、校准码编号、隔离轮次，
+以及每个健康且完整的抓包会话对换区、区域、职业与匹配四项各自的核实结论；新区服候选摘要另含操作标记、方向、段类型、
+opcode、长度与窗口内外的计数。两者都不含报文正文、负载哈希、连接标签、角色、地址、设备标识或精确的游戏时间线。
+只有玩家点击「复制摘要并打开提交页」后，桌面端才把完整 JSON 复制到剪贴板，并由系统浏览器打开
+`https://github.com/Harendotes-Tang/MentorRecorder-Calibrations/issues/new` 上对应的 Issue 表单；摘要较短时同时预填在表单中，
+较长时由玩家粘贴。是否提交由玩家在浏览器中决定；预览与取消不复制、不打开浏览器，也不上传任何内容。
+
+**公开仓库的证据与隔离。** 证据摘要与新区服候选线索都以公开 Issue 的形式提交：摘要正文、提交者的 GitHub 账号与
+提交时间对所有人可见，编辑或删除 Issue 不能保证清除历史与镜像中的副本。仓库的 Action 校验摘要格式，并把受理结果
+记入仓库中的证据台账 `evidence-ledger.json`（摘要编号、随机会话别名、提交账号的数字编号、Issue 编号，以及各账号对每份码
+每项报文的最新结论）；台账另记下工作流答复过的每个 Issue 的编号（包括未受理的）与首次答复时的台账序号，以及 `answered_floor`
+（编号不超过它的 Issue 一律视为已答复），这部分不含账号编号。本软件不下载该文件。受理规则如下：
+
+- 只计入注册满 30 天的账号。同一份码的同一项报文，每个账号只保留最新的一个结论，且该结论须有至少两个健康且完整的
+  抓包会话一致给出。
+- 同一项报文有至少 3 个账号判为矛盾、且判为矛盾的账号严格多于判为通过的账号时，Action 为这份码写入隔离提示并递增隔离
+  轮次；隔离之后新收到的、属于当前轮次的通过结论达到 3 个且多于矛盾结论时，隔离自动解除。隔离不撤回校准码，也不暂停
+  任何账号。维护者复核后可以用 `publish.py evidence lift` 手动解除隔离，触发隔离的旧矛盾结论随之作废，只有新收到的
+  证据能再次触发；台账容量不足时，维护者可以用 `publish.py evidence compact` 删除以后不会再被计入的记录。
+- 两个账号的 Issue 带有相同的摘要编号或会话别名时，归先被受理的 Issue：之后处理的 Issue 中重复的摘要编号被拒绝，
+  重复的会话不被计入。唯一的例外是创建更早（编号更小）、且工作流此前从未答复过的 Issue：它首次被处理时收回这些编号与别名，
+  先被受理的那份的受理记录与全部结论作废。已得到过答复的 Issue 事后被编辑、贴入他人已受理的摘要时，按复制处理。
+  本软件为同一次抓包会话中的每个候选各生成一个随机会话别名。1.7.3 在同一会话中为各个候选使用同一个别名；
+  这样的会话出现在多份候选的摘要中时，只计入最先受理它的候选，其他候选的摘要照常受理。
+- 已计入结论的证据 Issue 与已归档候选草案的 Issue 在回复后自动关闭；仍在等待或未受理的 Issue 保持打开。新区服候选线索
+  按元数据去重归档为仓库中的候选草案，始终为 CANDIDATE / BLOCKED，不会成为可用档案。
 
 **只有采集服务联网。** 桌面端继续禁止 `QNetworkAccessManager`（`NET-006`），打开网页一律交由系统浏览器处理。
 
@@ -511,9 +584,9 @@ GitCode API 主机仅放行共享校准客户端、更新客户端与该发布�
 `tts.speech.microsoft.com` 只能出现在在线语音客户端（§8.3）。各处放行互不通用：共享校准客户端中出现语音主机名，
 或语音客户端中出现共享校准的源，同样报错。`NET-008` 禁止直接使用套接字、域名解析、Ping 与 SmtpClient，
 没有任何放行，三个客户端同样只经由 HTTP 客户端联网；`NET-009` 禁止脚本、工作流、QML 与桌面端自行下载或请求
-网络资源，也禁止桌面端把远程地址交给 QML 引擎、任何代码以 XML 读取接口从远程地址加载，只以一个登记在案的行内标记
-放行安装程序中创建 Npcap 下载页的那一行（§2.1、§8.5）；`NET-010` 禁止 Python 代码引入或调用联网模块，
-只按精确路径放行开发期数据生成器与 CI Release 同步入口（§2.1）。
+网络资源，也禁止桌面端把远程地址交给 QML 引擎、任何代码以 XML 读取接口从远程地址加载，只以两个登记在案的行内标记
+放行安装程序中创建 Npcap 下载页的那一行（§8.5）与 CI 工作流下载固定版本 cppcheck 安装包的那一行（§2.1）；
+`NET-010` 禁止 Python 代码引入或调用联网模块、自行监听，只按精确路径放行开发期数据生成器与 CI Release 同步入口（§2.1）。
 
 ### 8.3 在线语音合成：仅发送播报文字（默认关闭）
 
@@ -671,6 +744,9 @@ Windows 可能执行代理自动发现（WPAD / PAC 脚本）；校验 TLS 证�
 「检查更新」对应的 `CheckUpdateNow` 与 §8.6 的两条消息在应答中给出同一个对象。
 其中 `release_url` 为上文按已接受来源构造的公开发布页；`installer_url` 为该来源固定项目下
 `releases/download/v<版本>/MentorRecorder-<版本>-setup.exe`，与 `latest_version` 同时出现、同时缺席。
+提供该版本的来源（GitHub 或 GitCode）与版本号一同保存在数据库的设置中（`update.latest_source`），重启后据此
+构造这两个地址，因此从 GitCode 得知的版本在重启后仍给出 GitCode 的地址；它只记录版本号的出处，不影响下一次检查
+先请求哪个来源。
 `latest_version` 只能是三段纯数字版本。`release_url` 与 `GetCalibrationShareCode.issue_url` 一样只交给浏览器打开，
 采集服务从不请求这两个页面。`installer_url` 供浏览器下载使用；软件内下载每次重新从 GitHub 开始，失败才请求
 GitCode 同版本固定附件 API（§8.6），不会因上一轮使用过镜像而优先请求镜像。
@@ -693,7 +769,8 @@ GitCode 同版本固定附件 API（§8.6），不会因上一轮使用过镜像
 
 **为何由安装程序下载。** 本软件依赖 Npcap 读取网卡流量，而 Npcap 免费版的许可证不允许随本软件分发
 （`THIRD_PARTY_NOTICES.md`）。为免去用户自行查找下载页的步骤，安装程序在本机没有 Npcap 时代为下载其官方安装程序。
-这是发布产物中唯一不经由采集服务的联网行为，也是 `NET-009` 唯一允许的例外（§2.1）。
+这是发布产物中唯一不经由采集服务的联网行为，也是发布产物中 `NET-009` 唯一允许的例外（§2.1；另一处登记的例外
+是 CI 下载 cppcheck，不进入发布产物）。
 
 **何时发生。** 只在运行安装程序的过程中。安装程序检查本机是否已有 Npcap（`%SystemRoot%\System32\Npcap\wpcap.dll`，
 或注册表 `HKLM\SOFTWARE\Npcap` / `HKLM\SOFTWARE\WOW6432Node\Npcap`）；已有时不显示相关页面，也不发出任何请求。
@@ -863,7 +940,7 @@ GitCode 起始地址为固定的 `/api/v5/repos/Harendotes-Tang/MentorRouletteRe
    |---|---|---|---|
    | `mentor_recorder.db`（含 `-wal` / `-shm`） | 首次运行 | 用户的记录本身 | 记录全部丢失 |
    | `logs\` | 首次运行 | 结构化诊断日志，无报文正文；2 MiB × 5，7 天清理 | 仅损失排查材料 |
-   | `backups\` | 每日自动备份（默认开启）或显式 `BackupDatabase` | 数据库的完整副本，保留 14 份 | 损失本地回滚点 |
+   | `backups\` | 每日自动备份（默认开启）、显式 `BackupDatabase`，以及每次升级数据库结构之前 | 数据库的完整副本：每日备份保留 14 份；升级前快照 `pre_schema_<旧版本>_upgrade_<时间>_<编号>.db` 不参加滚动清理（[data-model.md](data-model.md) §8） | 损失本地回滚点；删除升级前快照后，旧版程序无法再打开升级前的数据 |
    | `exports\` | 仅在导出候选取证且未指定路径时 | 候选证据 JSON + `.sha256` | 无影响 |
    | `diagnostics\` | 仅在导出脱敏诊断报告且未指定路径时 | `diag_<时间>.json`，白名单字段 | 无影响 |
    | `traces\` | 仅在界面上开始过"验证"时 | opcode 级取证会话；保留最近 10 个 / 7 天 | 无影响 |
@@ -872,10 +949,12 @@ GitCode 起始地址为固定的 `/api/v5/repos/Harendotes-Tang/MentorRouletteRe
    | `serve.pid` | 采集服务**开始服务之后**（位于 `logs\` 或 `--log-dir` 指定的目录下）；迁移与崩溃恢复期间尚无该文件，停止时它最先被删除 | 占用通信管道的进程号；干净退出时自动删除。用 `--pipe` 指定其他管道名时，文件名为 `serve.<管道名>.pid` | 无影响 |
    | `icons\` | 仅在用户自行放入时 | 用户自备的图标 | 回退到内置图标 |
    | `desktop.ini` | 首次运行桌面端时；始终位于 `%LOCALAPPDATA%\MentorRecorder\`，不随 `MR_DATA_DIR` 移动 | 桌面端的界面、播报与数据设置，以及首次启动是否已完成、上次自动备份的日期与被忽略的新版本号；早先版本写下的说明确认记录可能仍留在其中，不再使用 | 设置恢复默认，首次启动的基数引导再出现一次 |
-   | `calibration\` | 仅在本机校准观察过流量之后 | 每个区服与客户端版本一份 `<区服>.<客户端版本>.json`：本机校准积累的观察，只有 opcode、报文长度、字节偏移、id 类数值（轮盘、区域、职业）以及脱敏后的连接标签与时间，不含报文正文（§5.2）；「清空进度并重新观察」或校准结束后删除 | 本机校准从头积累观察 |
+   | `recovery\` | 有需要用户确认结局或填写心得的记录之后，以及用户在任一记录（含导入的记录）的心得编辑器中输入了尚未保存的文字之后（由桌面端写入）；与 `desktop.ini` 一样始终位于 `%LOCALAPPDATA%\MentorRecorder\`，不随 `MR_DATA_DIR` 移动 | 每个数据库一份 `<sha256>.json`（文件名为该数据库完整路径的 SHA-256），以及保存期间存在的锁文件 `<sha256>.json.lock`：浮窗「待处理」中尚未处理完的记录（采集服务发来的完整记录内容）、它们是等待确认结局还是填写心得，以及用户已输入、尚未保存的心得草稿（含心情与补选的职业，主窗口内编辑器的草稿同样保存）；处理完的条目随即移出，记录已不存在时带草稿的条目保留到用户点「移除提醒」 | 「待处理」中的提醒与未保存的草稿丢失；数据库中的记录不受影响 |
+   | `calibration\` | 仅在本机校准观察过流量之后 | 每个区服与客户端版本一份 `<区服>.<客户端版本>.json`：本机校准积累的观察，只有 opcode、报文长度、字节偏移、id 类数值（轮盘、区域、职业）以及脱敏后的连接标签与时间，不含报文正文（§5.2）；另有用户在核对时间线时判为「错」的条目与本机流量已否定的匹配报文（被否定的 opcode、报文形状、状态字段取值与对应时间），只在存在时写入，使这些判定在重启后继续有效；「清空校准进度」或校准结束后删除 | 本机校准从头积累观察 |
    | `reference\` | 仅在用户于校准时间线上更正过随机任务名称之后 | `roulette-names.json`：用户更正的随机任务编号与名称，只用于显示 | 回退到随软件提供的名称 |
    | `protocol-profiles\` | 仅在用户确认过一次本机校准之后 | 本机校准写出的协议档案（每区服最新 3 份；不含任何报文正文，只有 opcode、长度、偏移与证据说明） | 下次游戏时重新校准一次 |
-   | `shared-calibrations\` | 仅在获取过共享校准之后（§8.2；默认开启，可关闭） | 按 `<区服>\<客户端版本>\` 分目录：下载的校准码 `<sha前12位>.mrc`，以及 `state.json`，其中含上次获取的时间、每个源的结果码、索引给出的排序信息与撤销标记、拒绝记录（校准码编号与在本机流量中判出矛盾的抓包会话编号）、用户选择「不用共享的」的时间、已结束看护的共享档案的文档校验值，以及在用共享档案的文档校验值、对应校准码编号与开始记录的时间；不含报文正文、地址或账号 | 下次需要时重新获取；拒绝记录与「不用共享的」选择一并清空 |
+   | `shared-calibrations\` | 仅在获取过共享校准之后（§8.2；默认开启，可关闭） | 按 `<区服>\<客户端版本>\` 分目录：下载的校准码 `<sha前12位>.mrc`，以及 `state.json`，其中含上次获取的时间、每个源的结果码、索引给出的排序信息、读到过的撤回名单（只增不减，每个版本最多 512 个）与隔离提示、拒绝记录（校准码编号与在本机流量中判出矛盾的抓包会话编号）、用户选择「改为本机校准」的时间、已结束看护的共享档案的文档校验值，以及在用共享档案的文档校验值、对应校准码编号与开始记录的时间；不含报文正文、地址或账号。该文件存在却无法打开时（例如被其他程序独占），按拒绝处理：不获取、不导入、不绑定新的共享校准，已在使用的不因此撤下，直到能够读取 | 下次需要时重新获取；拒绝记录、撤回名单与「改为本机校准」的选择一并清空，此后以下次读到的索引为准 |
+   | `shared-calibrations\public-evidence\receipts.json` | 仅在本机核实共享校准候选期间、有抓包会话健康且完整地结束（停止监听或游戏退出）之后（§8.2） | 「共享校准证据」所预览摘要的本机留存，`calibration-evidence-v1` 格式，最多 32 份、每份最多 8 个会话：每份对应一个区服、客户端版本、模板与校准码，含随机生成的摘要编号与会话别名、会话健康计数，以及换区、区域、职业与匹配四项各自的核实结论；不含抓包会话编号、连接标签、报文或时间线。重启之后预览的仍是同一份摘要，因此重复提交可被公开仓库识别 | 此前会话的摘要随之丢失，此后的预览只包含删除之后结束的会话 |
    | `protocol-profiles-shared\` | 仅在一份共享校准通过本机核实之后 | 由共享校准码重建的协议档案（id `<区服>.<版本>.shared`；不含报文正文，证据说明写明来源校准码与本机核实次数） | 下次游戏时重新获取并核实 |
    | `tts-cache\` | 仅在使用过在线语音之后（§8.3；默认关闭） | 在线语音取回的音频 `<sha256>.wav`，每个文件对应一条播报的声音，可能含副本名与进度数字；上限 20 MB，按最近使用淘汰 | 下次播报同一文字时重新请求一次 |
    | `speech-key.bin` | 仅在用户为在线语音填写过密钥之后 | 用户的语音服务密钥与其发送目标主机，用 Windows DPAPI（当前用户）加密；其他账户、其他机器无法解密 | 在线语音变为"未配置"，需重新填写密钥 |

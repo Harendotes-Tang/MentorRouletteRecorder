@@ -27,28 +27,11 @@ ScrollView {
     signal openManualRequested()
     signal openCaptureRequested()
     signal openSettingsRequested()
-    // Jump to 历史记录 filtered to the runs awaiting review.
-    signal openPendingReviewRequested()
     // Opens ReflectionDialog for `run` with the given kicker.
     signal reflectRequested(var run, string kicker)
     // Jumps to the history page with `run` selected on the 心得 tab.
     signal openRunHistoryRequested(var run)
     signal openReflectionsRequested()
-
-    // The newest run still waiting for a result. The controller only fetches it
-    // while something is actually pending, so an empty map is the normal case.
-    readonly property var pendingRun: (typeof App !== "undefined" && App.pendingReviewRun)
-                                      ? App.pendingReviewRun : ({})
-    readonly property bool pendingRunReady: !!(pendingRun && pendingRun.run_id)
-    readonly property string pendingRunDuty: pendingRunReady && pendingRun.duty_name
-                                             ? (Theme.dutyName(pendingRun) || qsTr("未知副本"))
-                                             : qsTr("未知副本")
-    // 快速处理按钮发出请求后到采集服务回应为止禁用。连点会发出第二条内容完全
-    // 相同的修正请求，它命中修订冲突后会被自动重发一次，于是审计里多出一条用户
-    // 从未要求过的重复修订（审查第 10 条）。Main.qml 的 reasonDialog 早有
-    // enabled: !window.reasonSubmitting 的同样写法，这里照此办理。
-    property string resolvingRunId: ""
-    readonly property bool resolvingPendingRun: page.resolvingRunId.length > 0
 
     readonly property var reflectionSummary: (typeof App !== "undefined" && App.reflectionSummary)
                                              ? App.reflectionSummary : ({})
@@ -61,33 +44,6 @@ ScrollView {
         ? String(Number(reflectionSummary.reflection_count)) : Fmt.dash()
     readonly property string pendingReflectionCountText: reflectionSummaryLoaded
         ? String(Number(reflectionSummary.pending_completed_count)) : Fmt.dash()
-
-    // 复核结果只由用户回答，程序不代答；这里只负责把这一次回答送出去一次。
-    function resolvePendingRun(result, reason) {
-        if (!page.pendingRunReady || page.resolvingPendingRun)
-            return
-        page.resolvingRunId = page.pendingRun.run_id
-        App.resolveRunResult(page.resolvingRunId, -1, result, reason)
-    }
-
-    Connections {
-        target: typeof App !== "undefined" ? App : null
-        ignoreUnknownSignals: true
-
-        // 只认领本页送出的那一条：别处的修正不应解锁这两个按钮。成功后待复核
-        // 记录会换成下一条，按钮随之重新可用。
-        function onMutationSucceeded(kind, runId, revision, auditEventId) {
-            if (kind === "review" && runId === page.resolvingRunId)
-                page.resolvingRunId = ""
-        }
-
-        // 拒绝同样只认本页那一条（审查 DT4-X1）：原因对话框、结果窗口或设置
-        // 的拒绝不是它的回答，提前解锁会让第二次点击在第一条还在途时发出。
-        function onMutationFailed(code, message, kind, runId) {
-            if (kind === "review" && runId === page.resolvingRunId)
-                page.resolvingRunId = ""
-        }
-    }
 
     function backfillReflection() {
         if (!page.reflectionSummaryLoaded) {
@@ -209,93 +165,15 @@ ScrollView {
             }
         }
 
-        // Runs waiting for the user's confirmation (pending_review): closed by crash
-        // recovery, left without the clear signal, or flagged by a withdrawn calibration.
-        Rectangle {
+        // All task kinds share RecoveryController's unique-run projection and editor.
+        Card {
+            objectName: "dashboardPendingWorkCard"
             Layout.fillWidth: true
-            Layout.preferredHeight: visible ? pendingRow.implicitHeight + 24 : 0
-            visible: App.pendingReviewCount > 0
-            radius: Theme.radiusM
-            color: "transparent"
-            border.width: 1
-            border.color: Theme.orange
-
-            RowLayout {
-                id: pendingRow
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.leftMargin: 16
-                anchors.rightMargin: 12
-                spacing: 16
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 3
-
-                    Text {
-                        objectName: "pendingReviewBannerTitle"
-                        text: qsTr("%1 条记录待复核").arg(App.pendingReviewCount)
-                        color: Theme.orangeText
-                        font.pixelSize: Theme.fs(14)
-                        font.bold: true
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        // Says nothing of any one run: a pending run may already be 通关
-                        // (a withdrawn calibration flags its runs and keeps their results).
-                        text: qsTr("这些记录需要你复核，可能是程序异常退出、"
-                                   + "未收到通关结算，或生成记录时使用的校准后来被停用。"
-                                   + "尚未记为通关的记录，确认“通关”后才计入导随次数；"
-                                   + "每次确认都会记入“修改记录”。")
-                        color: Theme.textPrimary
-                        font.pixelSize: Theme.fs(12)
-                        wrapMode: Text.WordWrap
-                    }
-
-                    // The newest pending run is resolved here directly, without
-                    // going through 历史记录.
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Layout.topMargin: 4
-                        visible: page.pendingRunReady
-                        spacing: 8
-
-                        Text {
-                            text: qsTr("最近一条：%1").arg(page.pendingRunDuty)
-                            color: Theme.textSecondary
-                            font.pixelSize: Theme.fs(12)
-                        }
-
-                        AppButton {
-                            objectName: "pendingReviewCompletedButton"
-                            variant: "primary"
-                            implicitHeight: 26
-                            enabled: !page.resolvingPendingRun
-                            text: qsTr("通关")
-                            onClicked: page.resolvePendingRun("COMPLETED",
-                                                              QT_TRANSLATE_NOOP("SystemReason", "用户确认通关"))
-                        }
-
-                        AppButton {
-                            objectName: "pendingReviewLeftButton"
-                            implicitHeight: 26
-                            enabled: !page.resolvingPendingRun
-                            text: qsTr("退出 / 放弃")
-                            onClicked: page.resolvePendingRun("LEFT_OR_ABANDONED",
-                                                              QT_TRANSLATE_NOOP("SystemReason", "用户确认退出或放弃"))
-                        }
-
-                        Item { Layout.fillWidth: true }
-                    }
-                }
-
-                AppButton {
-                    variant: "primary"
-                    text: qsTr("去复核")
-                    onClicked: page.openPendingReviewRequested()
-                }
+            visible: App.recovery.count > 0 || App.recovery.error.length > 0
+            PendingWorkContent {
+                Layout.fillWidth: true
+                limit: 1
+                prominentHeader: true
             }
         }
 
@@ -350,11 +228,15 @@ ScrollView {
         // light 艾欧泽亚 skin gets its own darker gilded value instead of the dark
         // skin's (2026-09-21 audit, finding 21).
         Rectangle {
+            objectName: "npcapMissingBanner"
             Layout.fillWidth: true
             // 68 px, or taller when a longer translation of the text below
             // takes its second line.
             Layout.preferredHeight: visible ? Math.max(68, npcapRow.implicitHeight + 20) : 0
-            visible: !App.npcapInstalled
+            // Only on the Collector's own answer: without a capture status (no
+            // pipe, a failed read) nothing is known about Npcap (review K2-1).
+            visible: App.backendConnected && App.captureStatus.npcap_installed !== undefined
+                     && !App.npcapInstalled
             radius: Theme.radiusM
             border.width: 1
             border.color: Theme.orange
@@ -394,9 +276,6 @@ ScrollView {
                         font.pixelSize: Theme.fs(14)
                         font.bold: true
                     }
-                    // Two rows for the eight prototype cards; a ninth (中途加入 or 未知结果,
-                    // each shown only when non-zero) adds a row rather than overflowing.
-                    readonly property int cardRows: Math.max(1, Math.ceil(App.statCards.length / 4))
 
                     Text {
                         Layout.fillWidth: true
@@ -424,6 +303,7 @@ ScrollView {
             spacing: 12
 
             Card {
+                objectName: "achievementCard"
                 Layout.preferredWidth: 300
                 Layout.fillHeight: true
                 padding: 20
@@ -444,7 +324,20 @@ ScrollView {
                         value: page.achievementProgress
                         maximum: Math.max(1, App.goalCount)
                         label: String(page.achievementProgress)
-                        detail: Fmt.percent(Math.min(1, Math.max(0, value / maximum)), 1)
+                        detail: Fmt.percent(Math.max(0, value / maximum), 1)
+                    }
+
+                    AchievementConfetti {
+                        id: achievementConfetti
+                        objectName: "achievementConfetti"
+                        anchors.fill: parent
+                        z: 1
+                    }
+                    Connections {
+                        target: App
+                        function onAchievementMilestoneReached(completedLaps) {
+                            achievementConfetti.burst()
+                        }
                     }
                 }
 
@@ -505,6 +398,9 @@ ScrollView {
                 spacing: 12
 
                 GridLayout {
+                    // Two rows for the eight prototype cards; a ninth (中途加入 or 未知结果,
+                    // each shown only when non-zero) adds a row rather than overflowing.
+                    readonly property int cardRows: Math.max(1, Math.ceil(App.statCards.length / 4))
                     Layout.fillWidth: true
                     Layout.preferredHeight: cardRows * 96 + (cardRows - 1) * 12
                     columns: 4

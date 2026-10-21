@@ -291,8 +291,12 @@ public sealed class StatisticsRepository
             {
                 var attempts = group.Count(IsAttempt);
                 var completed = group.Count(row => row.Result == RunResult.Completed);
-                var recent = group.OrderByDescending(row => row.UpdatedAtUtc)
-                    .FirstOrDefault(row => !string.IsNullOrWhiteSpace(row.DutyName));
+                // The (null, null) group has no duty identity, so no run in it names the row: it is 未知副本 whatever an
+                // imported row's free text says (statistics-definitions §10; re-review 2026-10-20, RV2-4).
+                var recent = group.Key is (null, null)
+                    ? null
+                    : group.OrderByDescending(row => row.UpdatedAtUtc)
+                        .FirstOrDefault(row => !string.IsNullOrWhiteSpace(row.DutyName));
                 var region = recent?.Region ?? group.First().Region;
                 var mapped = group.Key.ContentId is { } contentId
                     ? _duties.Find(contentId, region)
@@ -319,7 +323,9 @@ public sealed class StatisticsRepository
     /// <summary>
     /// Aggregation key of one run: <c>content_id</c> when observed, else the content id of
     /// the one duty the observed <c>territory_id</c> hosts, else the <c>territory_id</c>
-    /// itself, and (null, null) for a run with no duty identity at all.
+    /// itself when several duties share it, and (null, null) for a run with no duty identity
+    /// at all - including a zone the reference file does not know, which names no duty either
+    /// and so joins the one 未知副本 row (audit 2026-10-20 H1-4).
     /// </summary>
     /// <param name="row">Row read for the statistics.</param>
     private (int? ContentId, int? TerritoryId) DutyKey(StatRow row)
@@ -334,7 +340,7 @@ public sealed class StatisticsRepository
             return (duty.ContentId, null);
         }
 
-        return (null, row.TerritoryId);
+        return _duties.FindByTerritory(row.TerritoryId, row.Region) is null ? (null, null) : (null, row.TerritoryId);
     }
 
     /// <summary>Aggregates by job id, keeping null as a visible unknown group.</summary>

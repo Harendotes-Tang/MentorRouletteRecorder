@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import MentorRecorder
 import "Lucide.js" as Lucide
+import "OverlayIcons.js" as OverlayIcons
 
 // Shared button for `.btn` / `.btn-primary` / `.btn-secondary` / `.btn-ghost`.
 // In the game themes a filled accent plate means "selected" (SegmentedControl, the
@@ -22,9 +23,13 @@ Button {
     // A Lucide icon (components/Lucide.js) drawn before the label in the label's
     // colour; empty for a text-only button. `iconAfterText` puts it after.
     property string iconName: ""
+    // One of the float's own icons (components/OverlayIcons.js) instead; the
+    // result popup's answers use these.
+    property string overlayIcon: ""
     property bool iconAfterText: false
     readonly property int iconSize: compact ? 12 : 14
-    readonly property bool hasIcon: iconName.length > 0 && Lucide.has(iconName)
+    readonly property bool hasIcon: (overlayIcon.length > 0 && OverlayIcons.has(overlayIcon))
+                                    || (iconName.length > 0 && Lucide.has(iconName))
     readonly property real pixelRatio: Screen.devicePixelRatio > 0 ? Screen.devicePixelRatio : 1
 
     readonly property bool primary: variant === "primary"
@@ -211,7 +216,9 @@ Button {
             // Rendered at the screen's pixel density so the strokes stay crisp.
             sourceSize: Qt.size(Math.round(control.iconSize * control.pixelRatio),
                                 Math.round(control.iconSize * control.pixelRatio))
-            source: control.hasIcon ? Lucide.source(control.iconName, control.foreground) : ""
+            source: !control.hasIcon ? ""
+                    : control.overlayIcon.length > 0 ? OverlayIcons.source(control.overlayIcon, control.foreground)
+                    : Lucide.source(control.iconName, control.foreground)
             fillMode: Image.PreserveAspectFit
             smooth: true
         }

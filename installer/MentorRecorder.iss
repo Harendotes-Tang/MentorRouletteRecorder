@@ -125,6 +125,8 @@ chinesesimplified.InstallDirIsDriveRoot=不能把软件直接安装到整个磁�
 chinesesimplified.InstallDirCreateFailed=无法创建安装文件夹“%1”，安装已停止。请重新运行安装程序并选择其他位置。
 chinesesimplified.InstallDirProtectFailed=无法为安装文件夹“%1”设置访问权限（错误码 %2），安装已停止。%n%n安装程序必须把该文件夹设为只有管理员可以修改，否则本机的其他用户可以篡改程序文件。该位置可能不在本机的 NTFS 磁盘上（例如 U 盘、FAT32 或 exFAT 分区、网络位置）。请重新运行安装程序，选择本机 NTFS 磁盘上的文件夹。
 chinesesimplified.InstallDirFileIsLink=安装文件夹中的文件“%1”是指向别处文件的链接（硬链接或符号链接），或者安装程序无法确认它不是链接，安装已停止。%n%n安装程序会把安装文件夹中原有的文件设为只有管理员可以修改；如果这个文件是链接，这项改动就会落到与它相连的另一个文件上。请删除这个文件（如果它是链接，与它相连的文件不受影响），然后重新运行安装程序。
+chinesesimplified.InstallDirUnknownFolder=安装文件夹中的“%1”不是本软件的文件夹，安装已停止。%n%n程序运行时可能会从安装文件夹里的子文件夹加载组件。这个文件夹可能是其他人在安装之前放进来的，安装程序无法确认其中的内容是否安全，也不会自行删除它。如果你不认识它，请删除它；如果里面是你自己的文件，请把它移到别处。然后重新运行安装程序。
+chinesesimplified.InstallDirFolderNotRemoved=无法删除安装文件夹中的“%1”，安装已停止。%n%n安装程序要先删除这个文件夹，再放入新版本的文件。删除失败，可能是因为本软件仍在运行，也可能是其他人在安装之前建立了这个文件夹并禁止删除它。程序运行时会使用这个文件夹中的内容，所以安装程序不会把文件放进一个删不掉的文件夹。%n%n请关闭本软件后重新运行安装程序。如果仍然停在这里，请删除这个文件夹（提示没有权限时，先在它的“属性 → 安全 → 高级”中把所有者改为自己），然后重新运行安装程序。
 chinesesimplified.NoteImagesIsLink=安装文件夹中的“%1”是一个链接（联接点或符号链接），而不是普通文件夹，安装已停止。%n%n安装程序会允许本机所有用户在这个文件夹中保存备注图片；如果它是链接，这项写入权限就会落到链接所指的位置。请删除这个链接（链接所指的文件夹不受影响），然后重新运行安装程序。
 chinesesimplified.NoteImagesGrantFailed=无法为安装文件夹中的“%1”设置访问权限（错误码 %2），安装已停止。%n%n这个文件夹用来保存备注图片，安装程序需要允许本机所有用户在其中保存和删除图片，但没有设置成功。请重新运行安装程序。
 chinesesimplified.LaunchAfterInstall=启动 {#AppName}
@@ -144,6 +146,8 @@ english.InstallDirIsDriveRoot=Setup cannot install into the root of an entire dr
 english.InstallDirCreateFailed=The installation folder "%1" could not be created, so Setup has stopped. Please run Setup again and choose another location.
 english.InstallDirProtectFailed=The access permissions of the installation folder "%1" could not be set (error code %2), so Setup has stopped.%n%nSetup must make this folder modifiable by administrators only; otherwise other users of this computer could tamper with the program files. The location may not be on a local NTFS disk (for example a USB drive, a FAT32 or exFAT partition, or a network location). Please run Setup again and choose a folder on a local NTFS disk.
 english.InstallDirFileIsLink=The file "%1" in the installation folder is a link to a file elsewhere (a hard link or a symbolic link), or Setup could not confirm that it is not one, so Setup has stopped.%n%nSetup makes the files already in the installation folder modifiable by administrators only; if this file is a link, that change would land on the other file it is linked to. Please delete this file (if it is a link, the file it is linked to is not affected), then run Setup again.
+english.InstallDirUnknownFolder=The folder "%1" in the installation folder does not belong to this application, so Setup has stopped.%n%nThe program may load components from folders inside its installation folder. This folder may have been placed there by someone else before Setup ran; Setup cannot tell whether what it holds is safe, and does not delete it on its own. If you do not recognise it, delete it; if it holds files of your own, move it elsewhere. Then run Setup again.
+english.InstallDirFolderNotRemoved=The folder "%1" in the installation folder could not be deleted, so Setup has stopped.%n%nSetup deletes this folder before it puts the new version's files in place. The delete failed, perhaps because the application is still running, or because someone else created this folder before Setup ran and made it impossible to delete. The program uses what this folder holds, so Setup does not put files into a folder it cannot delete.%n%nClose the application and run Setup again. If Setup stops here again, delete this folder (if Windows says you lack permission, first make yourself its owner under Properties > Security > Advanced), then run Setup again.
 english.NoteImagesIsLink=The "%1" folder in the installation folder is a link (a junction or symbolic link), not an ordinary folder, so Setup has stopped.%n%nSetup lets every user of this computer save note images in this folder; if it were a link, that write access would land wherever it points. Please delete the link (the folder it points to is not affected), then run Setup again.
 english.NoteImagesGrantFailed=The access permissions of "%1" in the installation folder could not be set (error code %2), so Setup has stopped.%n%nThis folder holds note images, and Setup must allow every user of this computer to save and delete images in it, but could not. Please run Setup again.
 english.LaunchAfterInstall=Launch {#AppNameEn}
@@ -162,6 +166,10 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; profile the selector will still offer. Clear them first, then reinstall the current
 ; contents. Nothing here is user data: records, backups and settings live under
 ; %LOCALAPPDATA%\MentorRecorder and are never touched by an upgrade.
+; These folder names are also the only ones, besides note-images, that Setup lets stay in the
+; install folder (ClearedDirectoryNames in [Code], which must list exactly the same names). By
+; the time this section runs, ProtectInstallDirectory has already deleted them and stopped Setup
+; on one it could not delete - a failure this section would silently skip.
 Type: filesandordirs; Name: "{app}\protocol-profiles"
 Type: filesandordirs; Name: "{app}\qml"
 Type: filesandordirs; Name: "{app}\ocr"
@@ -228,6 +236,12 @@ const
   // The subfolder of {app} that holds note images (see [Dirs]): the only part of the
   // install folder ordinary users may write to.
   NoteImagesDirName = 'note-images';
+  // The folders [InstallDelete] removes whole before [Files] recreates them, in lower case and
+  // each between bars. Keep it equal to the filesandordirs names there (checked by
+  // tools/package-verification/test_installer_directories.py); with note-images they are the
+  // only folders Setup lets stay in {app} (RefuseUnknownTopLevelDirectories). Setup deletes them
+  // itself before [InstallDelete] runs and stops on one that is left (RemoveClearedDirectories).
+  ClearedDirectoryNames = '|protocol-profiles|qml|ocr|plugins|docs|generic|iconengines|imageformats|multimedia|networkinformation|platforminputcontexts|platforms|qmltooling|styles|texttospeech|tls|vectorimageformats|';
   // Ownership and per-file resets, applied by ProtectInstallDirectory and ProtectTopLevelFiles.
   // Accounts are named by well-known SID, never by name, because Windows localises the names
   // ("Users" is "用户" on a Chinese system): S-1-5-32-544 is Administrators. /L makes icacls act
@@ -435,15 +449,35 @@ begin
   Result := HasNoteImages and (not HasOther);
 end;
 
+// True when Dir is the folder named by the uninstall entry of this AppId, that is, where an
+// earlier installation of this application went. Setup writes that entry under HKLM, where only
+// an administrator can create it, in the registry view of its install mode - the view these Reg*
+// functions read as well. Its key is the AppId with "_is1" appended (ExpandConstant turns the
+// AppId's escaped "{{" into "{"), and "Inno Setup: App Path" holds that installation's {app}.
+function IsRegisteredInstallDir(const Dir: String): Boolean;
+var
+  Registered: String;
+begin
+  Result := False;
+  if RegQueryStringValue(HKEY_LOCAL_MACHINE,
+       ExpandConstant('Software\Microsoft\Windows\CurrentVersion\Uninstall\{#SetupSetting("AppId")}_is1'),
+       'Inno Setup: App Path', Registered) and (Registered <> '') then
+    Result := CompareText(RemoveBackslashUnlessRoot(Registered), RemoveBackslashUnlessRoot(Dir)) = 0;
+end;
+
 // An earlier installation of this application - or the lone note-images folder its uninstaller
-// leaves behind - is the one kind of non-empty folder Setup may take over. A real executable is
-// required: a bare note-images directory beside planted files is not enough (an attacker could
-// create one to slip past the refusal). This is only a convenience for honest users; the folder
-// is protected and swept at ssInstall regardless of what this returns (ProtectInstallDirectory).
+// leaves behind - is the one kind of non-empty folder Setup may take over. An earlier installation
+// is recognised by its uninstall entry (IsRegisteredInstallDir), with its program still in the
+// folder. A file name alone proves nothing: whoever can write to the folder can create an empty
+// MentorRecorder.Desktop.exe in it. Nor is a bare note-images directory beside planted files
+// enough (an attacker could create one to slip past the refusal). This is only a convenience for
+// honest users; the folder is protected and swept at ssInstall regardless of what this returns
+// (ProtectInstallDirectory).
 function HoldsThisApplication(const Dir: String): Boolean;
 begin
-  Result := FileExists(AddBackslash(Dir) + '{#AppExe}')
-    or FileExists(AddBackslash(Dir) + 'MentorRecorder.Collector.exe')
+  Result := (IsRegisteredInstallDir(Dir)
+      and (FileExists(AddBackslash(Dir) + '{#AppExe}')
+        or FileExists(AddBackslash(Dir) + 'MentorRecorder.Collector.exe')))
     or HoldsOnlyNoteImages(Dir);
 end;
 
@@ -576,9 +610,10 @@ end;
 // before Setup ran keeps its OWNER (an owner can always rewrite its own ACL), its explicit
 // grants and its old inherited entries; each top-level file is therefore re-owned and /reset
 // (which re-derives that one file's entries from Dir) one by one. Only
-// files are touched: directories are left to [InstallDelete] (which removes the code folders
-// without following a link) and to note-images (whose own grant and images must never change),
-// so a junction planted in Dir is skipped, never traversed - there is no recursion and no /T.
+// files are touched: directories are left to RemoveClearedDirectories (which removes the code
+// folders without following a link) and to note-images (whose own grant and images must never
+// change), so a junction planted in Dir is skipped, never traversed - there is no recursion and
+// no /T.
 //
 // Names that [InstallDelete] removes right afterwards (*.dll, qt.conf) are skipped: an installed
 // folder holds about 250 files directly in {app}, nearly all of them DLLs, and two icacls runs
@@ -634,6 +669,118 @@ begin
   end;
 end;
 
+// True for a folder Setup may leave in {app}: note-images, and the folders deleted whole before
+// [Files] recreates them (ClearedDirectoryNames; RemoveClearedDirectories, then [InstallDelete]).
+// Case is ignored, as by Windows.
+function IsKnownTopLevelDirectory(const Name: String): Boolean;
+begin
+  Result := (CompareText(Name, NoteImagesDirName) = 0)
+    or (Pos('|' + Lowercase(Name) + '|', ClearedDirectoryNames) > 0);
+end;
+
+// Qt looks for plugins and QML modules in folders directly inside the application's folder (its
+// library paths and its QML import path both include that folder), so a folder there that Setup
+// neither clears nor protects could be loaded into every user's program - for example a QtQuick
+// or platformthemes folder an ordinary user created before Setup ran, which keeps the owner and
+// ACL its creator gave it. Setup stops on the first folder in Dir that is not a known one
+// (IsKnownTopLevelDirectory) - a link to a folder included - and leaves it alone rather than
+// guess what is safe to delete; the user removes or moves it and runs Setup again. It runs once
+// Dir's protected DACL is in place, when no ordinary user can add another entry to Dir. Returns
+// '' when there is no such folder, else the stopping message.
+function RefuseUnknownTopLevelDirectories(const Dir: String): String;
+var
+  FindRec: TFindRec;
+begin
+  Result := '';
+  if FindFirst(AddBackslash(Dir) + '*', FindRec) then
+  begin
+    try
+      repeat
+        if ((FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0)
+          and (FindRec.Name <> '.') and (FindRec.Name <> '..')
+          and (not IsKnownTopLevelDirectory(FindRec.Name)) then
+        begin
+          Result := FmtMessage(CustomMessage('InstallDirUnknownFolder'), [AddBackslash(Dir) + FindRec.Name]);
+          Break;
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
+// True for a folder name [InstallDelete] removes whole (ClearedDirectoryNames). Case is ignored,
+// as by Windows; no file name can contain the bar that separates the names.
+function IsClearedDirectoryName(const Name: String): Boolean;
+begin
+  Result := Pos('|' + Lowercase(Name) + '|', ClearedDirectoryNames) > 0;
+end;
+
+// The name of the first folder directly in Dir - a link to a folder included - whose name is a
+// cleared one (IsClearedDirectoryName), or '' when there is none. Read from Dir's own listing,
+// which shows such a folder even when its own ACL lets Administrators read nothing, and shows a
+// link itself, not what it points to (DirExists would follow it).
+function FirstClearedDirectory(const Dir: String): String;
+var
+  FindRec: TFindRec;
+begin
+  Result := '';
+  if FindFirst(AddBackslash(Dir) + '*', FindRec) then
+  begin
+    try
+      repeat
+        if ((FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0)
+          and IsClearedDirectoryName(FindRec.Name) then
+          Result := FindRec.Name;
+      until (Result <> '') or (not FindNext(FindRec));
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
+// Deletes the folders [InstallDelete] would clear next, and stops Setup on one that is left.
+// [InstallDelete] ignores a failed delete, and Setup takes no ownership before deleting, so a
+// folder an ordinary user created under one of these names with an ACL that lets Administrators
+// delete nothing - a qml folder made before an upgrade over 1.5.0, or one added to a pre-created
+// empty install folder while the administrator was still on the Ready page - would survive it
+// with its creator's owner and ACL, and [Files] would then write Qt's modules into it for that
+// account to change. Here such a folder stops Setup and is named; the user deletes it and runs
+// Setup again. Nothing is re-owned or forced. DelTree removes a folder that is a link (junction or
+// symbolic link) itself and deletes nothing inside what it points to (Inno Setup help, DelTree,
+// Remarks). Dir is protected by now, so no ordinary user can put a folder back afterwards. On an
+// honest upgrade this is the delete [InstallDelete] would make moments later, which then finds
+// nothing left to do. Returns '' when every such folder is gone, else the stopping message.
+function RemoveClearedDirectories(const Dir: String): String;
+var
+  FindRec: TFindRec;
+  Target, Left: String;
+begin
+  Result := '';
+  if FindFirst(AddBackslash(Dir) + '*', FindRec) then
+  begin
+    try
+      repeat
+        if ((FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0)
+          and IsClearedDirectoryName(FindRec.Name) then
+        begin
+          Target := AddBackslash(Dir) + FindRec.Name;
+          if DelTree(Target, True, True, True) then
+            Log(Format('Removed "%s" before the new files are copied', [Target]))
+          else
+            Log(Format('Could not remove "%s" completely', [Target]));
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+  Left := FirstClearedDirectory(Dir);
+  if Left <> '' then
+    Result := FmtMessage(CustomMessage('InstallDirFolderNotRemoved'), [AddBackslash(Dir) + Left]);
+end;
+
 // The install folder must not be writable by ordinary users: Setup and the uninstaller run
 // elevated, every account runs the executables, and the bundled protocol profiles outrank
 // the user-writable local ones because they sit here (docs/privacy-boundary.md). Program
@@ -654,6 +801,10 @@ end;
 //   4. re-check, now that the protected ACL is in place, that Dir is still a real directory
 //      and not a link: a swap between the earlier checks and here (its parent may let users
 //      rename it - see docs) would otherwise go unnoticed;
+//   4a. stop on any folder in Dir that is neither note-images nor one [InstallDelete] removes
+//      (RefuseUnknownTopLevelDirectories): Qt may load code from a folder there, and nothing
+//      below Dir is re-protected. Checked now, when no ordinary user can add an entry to Dir any
+//      more, and before anything below Dir is changed;
 //   5. note-images: refuse it if it is a link, create it if it is missing, then give it its own
 //      protected DACL in which Users may also modify - again through ApplyDacl, so the images
 //      already inside keep the ACLs they were created with and are never touched;
@@ -662,15 +813,20 @@ end;
 //      *.dll and qt.conf names [InstallDelete] deletes next; a file that is a link (reparse
 //      point or extra hard link), or whose link count cannot be read, stops Setup instead
 //      (ProtectTopLevelFiles);
+//   6a. delete the folders [InstallDelete] would clear next and stop on one that is left
+//      (RemoveClearedDirectories): [InstallDelete] ignores a failed delete, so a folder under one
+//      of those names that an ordinary user made undeletable would otherwise keep its creator's
+//      owner and ACL and receive Qt's modules. Last, so every stop that deletes nothing comes
+//      first;
 //   7. write the resulting ACLs of Dir and note-images to the Setup log.
 // Returns '' when the folder is protected, otherwise the message that stops Setup.
 //
 // What no longer happens: because step 3 does not propagate, nothing that already sits below
 // Dir has its inherited entries re-derived from the new DACL. Each kind of existing entry is
 // covered as follows:
-//   - code folders (protocol-profiles, qml, the Qt plugin folders, docs): [InstallDelete]
-//     removes them whole (a link among them is removed, not followed) and [Files] recreates
-//     them; a folder Setup creates inherits Dir's entries on creation;
+//   - code folders (protocol-profiles, qml, the Qt plugin folders, docs): step 6a removes them
+//     whole (a link among them is removed, not followed) and stops Setup on one it cannot remove,
+//     and [Files] recreates them; a folder Setup creates inherits Dir's entries on creation;
 //   - files directly in Dir: re-owned and reset in step 6, or - *.dll and qt.conf - deleted by
 //     [InstallDelete] and, for ours, copied again;
 //   - files [Files] replaces: Setup writes each one to a new temporary file in the destination
@@ -683,8 +839,9 @@ end;
 //     TUninstallLog.Save: fdOpenExisting), keeping its old ACL - it sits directly in Dir, so
 //     step 6 has already re-owned and reset it;
 //   - note-images and the images in it: step 5;
-//   - any other folder in Dir that is neither ours nor listed in [InstallDelete] keeps the ACL it
-//     had. The programs load nothing from such a folder.
+//   - any other folder in Dir, neither note-images nor listed in [InstallDelete], would keep the
+//     owner and ACL it had, and Qt may load plugins and QML modules from a folder directly in the
+//     application's folder; step 4a stops Setup on such a folder instead of installing beside it.
 //
 // To check on a real installation (Get-Acl, or icacls, on each path; the Setup log also lists
 // {app} and note-images) - a fresh install to D:\, an upgrade over 1.5.0, and Program Files:
@@ -697,6 +854,11 @@ end;
 //   {app}\qml\... and plugin folders inherited entries only (recreated by Setup)
 //   {app}\note-images                protected; Administrators F, SYSTEM F, Users M, each
 //                                    (OI)(CI); no other entry
+//   a folder such as {app}\QtQuick   created before Setup ran: Setup stops at ssInstall and
+//                                    names it; note-images and the files are left unchanged
+//   {app}\qml created by another     with an ACL granting Administrators nothing: Setup stops
+//   account before Setup ran         at ssInstall and names it; the other code folders are
+//                                    already deleted, and Setup run again restores them
 function ProtectInstallDirectory(const Dir: String): String;
 var
   Code: Integer;
@@ -744,6 +906,11 @@ begin
     Exit;
   end;
 
+  // Step 4a: a folder Setup would neither clear nor protect stops Setup here.
+  Result := RefuseUnknownTopLevelDirectories(Dir);
+  if Result <> '' then
+    Exit;
+
   // note-images: a link is refused before anything is granted; a missing folder is created
   // here (by Setup, inside the now protected Dir) so that its grant is set by ApplyDacl rather
   // than by [Dirs].
@@ -773,6 +940,9 @@ begin
   end;
 
   Result := ProtectTopLevelFiles(Dir);
+  // Step 6a: the folders [InstallDelete] would clear are deleted now; one that is left stops Setup.
+  if Result = '' then
+    Result := RemoveClearedDirectories(Dir);
   LogAcl(Dir);
   LogAcl(Images);
 end;
@@ -920,7 +1090,8 @@ begin
   if CurStep = ssInstall then
   begin
     // Before anything is written; see ProtectInstallDirectory. Abort from ssInstall ends
-    // Setup ("Abort" in the Inno Setup help), and nothing has been installed yet.
+    // Setup ("Abort" in the Inno Setup help), and nothing has been installed yet (a stop in
+    // step 6a may follow the deletion of the old code folders; Setup run again restores them).
     Failure := ProtectInstallDirectory(ExpandConstant('{app}'));
     if Failure <> '' then
     begin

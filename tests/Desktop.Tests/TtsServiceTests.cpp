@@ -14,6 +14,7 @@
 #include "CalibrationController.h"
 #include "CollectorProcess.h"
 #include "MockBackend.h"
+#include "RecoveryController.h"
 #include "TtsService.h"
 
 #include "IBackend.h"
@@ -35,6 +36,15 @@
 #include <memory>
 
 namespace {
+
+/// The database the fixture Collector reports. Nothing opens it; its absolute
+/// path is the identity the recovery journal is keyed by, as the real
+/// Collector's GetStatus.database_path always is.
+QString fixtureDatabasePath()
+{
+    return QDir(QDir::tempPath())
+        .absoluteFilePath(QStringLiteral("MentorRecorder-tts-tests/mentor_recorder.db"));
+}
 
 /// A backend that answers nothing and only emits the LiveEvent shapes the
 /// Collector really sends ($defs/LiveEvent), so the shell's event routing can
@@ -63,12 +73,17 @@ public:
     /// GetDashboardStats refuses. The terminal announcement must then not
     /// invent a progress number, and the cards must keep what they had.
     bool failDashboard = false;
+    /// GetStatus times out while the pipe stays up - a read queued behind a
+    /// long BackupDatabase, say.
+    bool failStatus = false;
     /// How many further CorrectRun calls answer ERR_REVISION_CONFLICT.
     int correctRunConflicts = 0;
     /// What GetRunRevisions answers with.
     QJsonObject revisions;
-    /// What GetStatus answers with.
-    QJsonObject status;
+    /// What GetStatus answers with. By default only what every real answer
+    /// carries: the database_path that verifies the recovery journal's
+    /// database. Automatic result questions and note prompts wait for it.
+    QJsonObject status{{QStringLiteral("database_path"), fixtureDatabasePath()}};
     /// What GetCurrentRun answers with.
     QJsonObject currentRun;
     /// When set, SelectGameProcess behaves as the Collector does when the
@@ -90,6 +105,13 @@ public:
             QTimer::singleShot(0, reply, [reply] {
                 reply->fail(QStringLiteral("ERR_INTERNAL"),
                             QString::fromUtf8("统计读取失败。"));
+            });
+            return reply;
+        }
+        if (messageType == QLatin1String("GetStatus") && failStatus) {
+            QTimer::singleShot(0, reply, [reply] {
+                reply->fail(QStringLiteral("ERR_TIMEOUT"),
+                            QString::fromUtf8("读取状态超时。"));
             });
             return reply;
         }
@@ -373,6 +395,7 @@ private Q_SLOTS:
         backend.reportConnectFailure();
         QCOMPARE(controller.collectorState(), QStringLiteral("missing"));
     }
+    void appController_namesAReusedBackgroundServiceInPlainWords();
     void render_substitutesKnownPlaceholdersOnly();
     void rateAndVolume_mapAndClamp();
     void announce_usesTemplatesAndHonoursMasterSwitch();
@@ -403,6 +426,7 @@ private Q_SLOTS:
     void appController_leavesTheDailyBackupAWhileAfterADutyEnds();
     void appController_staysSilentAboutTransitionsFromBeforeItStarted();
     void appController_keepsANewerCaptureAnswerOverAnOlderStatusEvent();
+    void appController_keepsTheCaptureWhenOneStatusReadFailsOnALivePipe();
     void appController_reportsAChosenGameThatExitedDuringTheSwitch_data();
     void appController_reportsAChosenGameThatExitedDuringTheSwitch();
     void appController_neverRelaunchesAReusedCollectorOnEveryFailedConnect();
@@ -416,9 +440,27 @@ private Q_SLOTS:
     void appController_ignoresHeartbeats();
     void appController_asksToConfirmTheResultOfAFinishedMentorDuty();
     void appController_aClearedRunIsAnnouncedAsCompletedAndNoResultIsAsked();
+    void appController_aNoteSavedBeforeTheFirstStatusIsNotAScopeChange();
     void appController_confirmingSendsOneAuditedCorrection();
     void mockBackend_refusesSettingPendingReviewTrue();
 };
+
+/// The title bar names the program's own background service the way every
+/// other lifecycle line does: 「后台服务…」, never the component name
+/// "Collector" or the word 实例 (review I1-3). Reached when the pipe is up but
+/// this window's own child is not the one serving it.
+void TtsServiceTests::appController_namesAReusedBackgroundServiceInPlainWords()
+{
+    mr::AppSettings settings;
+    EventOnlyBackend backend;
+    mr::CollectorProcess supervisor;
+    mr::AppController controller(&backend, &settings, nullptr, &supervisor, kSilentSpeech);
+    QCOMPARE(controller.collectorState(), QStringLiteral("reused"));
+    const QString text = controller.collectorStatusText();
+    QVERIFY2(text.startsWith(QString::fromUtf8("后台服务")), qPrintable(text));
+    QVERIFY2(!text.contains(QLatin1String("Collector")), qPrintable(text));
+    QVERIFY2(!text.contains(QString::fromUtf8("实例")), qPrintable(text));
+}
 
 void TtsServiceTests::render_substitutesKnownPlaceholdersOnly()
 {
@@ -1097,6 +1139,9 @@ void TtsServiceTests::appController_queuesAResultQuestionRaisedWhileTheDialogIsB
     backend.setDashboard(10, 1400, 2000, 1);
     mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
     QSignalSpy asked(&controller, &mr::AppController::resultConfirmationRequested);
+    // Automatic questions and note prompts wait for the database identity the
+    // start-up GetStatus verifies; let that answer land first, as it does live.
+    QTRY_VERIFY_WITH_TIMEOUT(controller.recovery()->identityVerified(), 3000);
 
     backend.emitEvent(runFinishedEvent(QStringLiteral("UNKNOWN_FINAL_STATE"),
                                        freshRun(QStringLiteral("run-first"), true)));
@@ -1518,8 +1563,11 @@ void TtsServiceTests::appController_keepsANewerCaptureAnswerOverAnOlderStatusEve
                                   QStringLiteral("collector_status"));
     stale.insert(QStringLiteral("emitted_at_utc"),
                  QDateTime::currentDateTimeUtc().addSecs(-5).toString(Qt::ISODateWithMs));
+    // Every capture snapshot says whether the game runs: one without it is
+    // "unknown" and never adopted, which would prove nothing here.
     stale.insert(QStringLiteral("capture"),
                  QVariantMap{{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                             {QStringLiteral("ffxiv_running"), true},
                              {QStringLiteral("ffxiv_process_id"), 100}});
     backend.resetCounts();
     backend.emitEvent(stale);
@@ -1533,9 +1581,67 @@ void TtsServiceTests::appController_keepsANewerCaptureAnswerOverAnOlderStatusEve
                                   QStringLiteral("collector_status"));
     fresh.insert(QStringLiteral("capture"),
                  QVariantMap{{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                             {QStringLiteral("ffxiv_running"), true},
                              {QStringLiteral("ffxiv_process_id"), 300}});
     backend.emitEvent(fresh);
     QCOMPARE(controller.captureStatus().value(QStringLiteral("ffxiv_process_id")).toInt(), 300);
+}
+
+/// One failed GetStatus while the pipe stays up says nothing about the capture.
+/// The last capture answer stays, so the calibration card, an open shared
+/// calibration answer and an evidence preview do not see the capture drop to
+/// idle although nothing stopped it (review I4-3); a status event older than
+/// that answer is still not adopted over it. Npcap and the game come from the
+/// same snapshot and stay with it: an installed Npcap that cannot be used must
+/// not read as ready for one poll (review RV3-2 / RV5-7). Losing the pipe
+/// still forgets all three.
+void TtsServiceTests::appController_keepsTheCaptureWhenOneStatusReadFailsOnALivePipe()
+{
+    mr::AppSettings settings;
+    EventOnlyBackend backend;
+    backend.status = QJsonObject{{QStringLiteral("database_path"), fixtureDatabasePath()},
+                                 {QStringLiteral("capture"),
+                                  QJsonObject{{QStringLiteral("state"), QStringLiteral("RUNNING")},
+                                              {QStringLiteral("ffxiv_running"), true},
+                                              {QStringLiteral("ffxiv_process_id"), 200},
+                                              {QStringLiteral("npcap_installed"), true}}},
+                                 {QStringLiteral("npcap"),
+                                  QJsonObject{{QStringLiteral("status"), QStringLiteral("NPCAP_ADMIN_ONLY")}}},
+                                 {QStringLiteral("game"),
+                                  QJsonObject{{QStringLiteral("running"), true},
+                                              {QStringLiteral("instance_count"), 1}}}};
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
+    QTRY_COMPARE_WITH_TIMEOUT(
+        controller.captureStatus().value(QStringLiteral("ffxiv_process_id")).toInt(), 200, 3000);
+    QCOMPARE(controller.npcapInfo().value(QStringLiteral("status")).toString(),
+             QStringLiteral("NPCAP_ADMIN_ONLY"));
+
+    backend.failStatus = true;
+    QSignalSpy statusChanged(&controller, &mr::AppController::statusChanged);
+    controller.refreshStatus();
+    QTRY_VERIFY_WITH_TIMEOUT(statusChanged.count() >= 1, 3000);
+    QCOMPARE(controller.captureStatus().value(QStringLiteral("ffxiv_process_id")).toInt(), 200);
+    QVERIFY(controller.capturing());
+    QCOMPARE(controller.npcapInfo().value(QStringLiteral("status")).toString(),
+             QStringLiteral("NPCAP_ADMIN_ONLY"));
+    QCOMPARE(controller.gameInfo().value(QStringLiteral("instance_count")).toInt(), 1);
+
+    QVariantMap stale = liveEvent(QStringLiteral("CaptureStatusChanged"),
+                                  QStringLiteral("collector_status"));
+    stale.insert(QStringLiteral("emitted_at_utc"),
+                 QDateTime::currentDateTimeUtc().addSecs(-5).toString(Qt::ISODateWithMs));
+    stale.insert(QStringLiteral("capture"),
+                 QVariantMap{{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                             {QStringLiteral("ffxiv_running"), true},
+                             {QStringLiteral("ffxiv_process_id"), 100}});
+    backend.emitEvent(stale);
+    QCOMPARE(controller.captureStatus().value(QStringLiteral("ffxiv_process_id")).toInt(), 200);
+
+    backend.setConnected(false);
+    QVERIFY(controller.captureStatus().isEmpty());
+    QVERIFY(!controller.capturing());
+    QVERIFY(controller.npcapInfo().isEmpty());
+    QVERIFY(controller.gameInfo().isEmpty());
 }
 
 void TtsServiceTests::appController_reportsAChosenGameThatExitedDuringTheSwitch_data()
@@ -1845,8 +1951,11 @@ void TtsServiceTests::appController_ignoresHeartbeats()
     mr::AppSettings settings;
     EventOnlyBackend backend;
     mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
-    // Let the start-up refresh finish first, or its own GetStatus would be
-    // mistaken for one a heartbeat caused.
+    // Let the start-up refresh finish first, or one of its two GetStatus reads -
+    // the window's own and the one ending the automatic-recording check - would
+    // be mistaken for one a heartbeat caused. Counted, not timed: on a busy
+    // machine the start-up chain can take longer than any fixed wait.
+    QTRY_COMPARE_WITH_TIMEOUT(backend.countOf(QStringLiteral("GetStatus")), 2, 3000);
     QTest::qWait(80);
 
     backend.resetCounts();
@@ -1872,6 +1981,9 @@ void TtsServiceTests::appController_asksToConfirmTheResultOfAFinishedMentorDuty(
     backend.setDashboard(10, 1400, 2000, 1);
     mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
     QSignalSpy asked(&controller, &mr::AppController::resultConfirmationRequested);
+    // Automatic questions and note prompts wait for the database identity the
+    // start-up GetStatus verifies; let that answer land first, as it does live.
+    QTRY_VERIFY_WITH_TIMEOUT(controller.recovery()->identityVerified(), 3000);
 
     // A run that really did end in a confirmed COMPLETED needs no question.
     backend.emitEvent(runFinishedEvent(QStringLiteral("COMPLETED"),
@@ -1933,6 +2045,9 @@ void TtsServiceTests::appController_aClearedRunIsAnnouncedAsCompletedAndNoResult
     QSignalSpy spoke(controller.tts(), &mr::TtsService::spoke);
     QSignalSpy asked(&controller, &mr::AppController::resultConfirmationRequested);
     QSignalSpy prompted(&controller, &mr::AppController::reflectionPromptRequested);
+    // Automatic questions and note prompts wait for the database identity the
+    // start-up GetStatus verifies; let that answer land first, as it does live.
+    QTRY_VERIFY_WITH_TIMEOUT(controller.recovery()->identityVerified(), 3000);
 
     const QVariantMap cleared = freshRun(QStringLiteral("run-cleared"));
     QCOMPARE(cleared.value(QStringLiteral("pending_review")).toBool(), false);
@@ -1946,6 +2061,30 @@ void TtsServiceTests::appController_aClearedRunIsAnnouncedAsCompletedAndNoResult
              QStringLiteral("run-cleared"));
     QTest::qWait(80);
     QCOMPARE(asked.count(), 0);
+}
+
+/// A note saved before the start-up GetStatus has answered belongs to the
+/// database that answer names: the first identity is not a change of database
+/// (RecoveryController::setDatabasePath claims this process's earlier work for
+/// it), so the save is adopted instead of being reported as 「记录库连接已变化」
+/// (review P-4).
+void TtsServiceTests::appController_aNoteSavedBeforeTheFirstStatusIsNotAScopeChange()
+{
+    mr::AppSettings settings;
+    EventOnlyBackend backend;
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
+    QSignalSpy saved(&controller, &mr::AppController::reflectionSaved);
+    QSignalSpy failed(&controller, &mr::AppController::reflectionFailed);
+    QVERIFY(!controller.recovery()->identityVerified());
+
+    controller.saveReflection(QStringLiteral("run-early"), QStringLiteral("ok"),
+                              QString::fromUtf8("开场前写下的笔记"), QString());
+
+    QTRY_COMPARE_WITH_TIMEOUT(saved.count() + failed.count(), 1, 3000);
+    QVERIFY2(failed.isEmpty(),
+             failed.isEmpty() ? "" : qPrintable(failed.at(0).at(0).toString()));
+    QCOMPARE(saved.at(0).at(0).toString(), QStringLiteral("run-early"));
+    QVERIFY(controller.recovery()->identityVerified());
 }
 
 void TtsServiceTests::appController_confirmingSendsOneAuditedCorrection()

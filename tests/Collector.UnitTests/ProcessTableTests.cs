@@ -21,23 +21,23 @@ public sealed class ProcessTableTests
     public void ReadsTheProcessIdNameAndCreationTimeOfEveryRow()
     {
         var table = Table(
-            (0, "", 0),
-            (4, "System", Started.AddHours(-5).ToFileTime()),
-            (4321, "ffxiv_dx11.exe", Started.ToFileTime()));
+            (0, "", 0, 0),
+            (4, "System", Started.AddHours(-5).ToFileTime(), 0),
+            (4321, "ffxiv_dx11.exe", Started.ToFileTime(), 2));
 
         var entries = ProcessTable.Parse(table, Base);
 
         Assert.NotNull(entries);
         Assert.Equal(3, entries.Count);
-        Assert.Equal(new ProcessTableEntry(0, "", null), entries[0]);
-        Assert.Equal(new ProcessTableEntry(4, "System", Started.AddHours(-5)), entries[1]);
-        Assert.Equal(new ProcessTableEntry(4321, "ffxiv_dx11.exe", Started), entries[2]);
+        Assert.Equal(new ProcessTableEntry(0, "", null, 0), entries[0]);
+        Assert.Equal(new ProcessTableEntry(4, "System", Started.AddHours(-5), 0), entries[1]);
+        Assert.Equal(new ProcessTableEntry(4321, "ffxiv_dx11.exe", Started, 2), entries[2]);
     }
 
     [Fact]
     public void ARowWithoutACreationTimeHasNoneRatherThanTheEpoch()
     {
-        var entries = ProcessTable.Parse(Table((4321, "ffxiv_dx11.exe", 0)), Base);
+        var entries = ProcessTable.Parse(Table((4321, "ffxiv_dx11.exe", 0, 1)), Base);
 
         Assert.Null(Assert.Single(entries!).CreatedAtUtc);
     }
@@ -45,7 +45,7 @@ public sealed class ProcessTableTests
     [Fact]
     public void ANameThatPointsOutsideTheTableMakesTheWholeReadFail()
     {
-        var table = Table((4321, "ffxiv_dx11.exe", Started.ToFileTime()));
+        var table = Table((4321, "ffxiv_dx11.exe", Started.ToFileTime(), 1));
         BinaryPrimitives.WriteInt64LittleEndian(
             table.AsSpan(ProcessTable.ImageNameBufferField), Base + table.Length - 2);
 
@@ -55,7 +55,7 @@ public sealed class ProcessTableTests
     [Fact]
     public void ANextRowBeyondTheTableMakesTheWholeReadFail()
     {
-        var table = Table((4, "System", Started.ToFileTime()), (4321, "ffxiv_dx11.exe", Started.ToFileTime()));
+        var table = Table((4, "System", Started.ToFileTime(), 0), (4321, "ffxiv_dx11.exe", Started.ToFileTime(), 1));
         BinaryPrimitives.WriteUInt32LittleEndian(table.AsSpan(ProcessTable.NextEntryOffsetField), (uint)table.Length);
 
         Assert.Null(ProcessTable.Parse(table, Base));
@@ -64,7 +64,7 @@ public sealed class ProcessTableTests
     [Fact]
     public void ATruncatedTableIsAFailureNotAShorterList()
     {
-        var table = Table((4, "System", Started.ToFileTime()), (4321, "ffxiv_dx11.exe", Started.ToFileTime()));
+        var table = Table((4, "System", Started.ToFileTime(), 0), (4321, "ffxiv_dx11.exe", Started.ToFileTime(), 1));
 
         Assert.Null(ProcessTable.Parse(table.AsSpan(0, RowBytes + 0x40), Base));
         Assert.Null(ProcessTable.Parse(ReadOnlySpan<byte>.Empty, Base));
@@ -106,6 +106,7 @@ public sealed class ProcessTableTests
         // (user and kernel time) or a cycle count, none of which lands in this window.
         Assert.NotNull(entry.CreatedAtUtc);
         Assert.InRange(entry.CreatedAtUtc.Value, boot - TimeSpan.FromMinutes(1), now + TimeSpan.FromSeconds(1));
+        Assert.Equal((uint)self.SessionId, entry.SessionId);
     }
 
     [Fact]
@@ -115,9 +116,10 @@ public sealed class ProcessTableTests
         // have come from the table row.
         var provider = new WindowsGameProcessProvider(() => new[]
         {
-            new ProcessTableEntry(4, "System", Started.AddHours(-5)),
-            new ProcessTableEntry(999_999, "ffxiv_dx11.exe", Started),
-            new ProcessTableEntry(1_000_003, "notepad.exe", Started),
+            new ProcessTableEntry(4, "System", Started.AddHours(-5), 0),
+            new ProcessTableEntry(Environment.ProcessId, "MentorRecorder.Collector.exe", Started, 1),
+            new ProcessTableEntry(999_999, "ffxiv_dx11.exe", Started, 1),
+            new ProcessTableEntry(1_000_003, "notepad.exe", Started, 1),
         });
 
         var client = Assert.Single(provider.ByName(GameProcessLocator.Dx11ProcessName));
@@ -125,6 +127,50 @@ public sealed class ProcessTableTests
         Assert.Equal(999_999, client.ProcessId);
         Assert.Equal(GameProcessLocator.Dx11ProcessName, client.ProcessName);
         Assert.Equal(Started, client.StartedAtUtc);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-20, A2-1. The game is looked for by name in the whole kernel table, and that
+    /// table lists every Windows session on the machine. A client another account started - after
+    /// a fast user switch on a shared PC, or a program merely named like the game - would be
+    /// followed and recorded into this account's history, and its executable copied and loaded
+    /// into this process for Oodle. Only this Collector's own session counts.
+    /// </summary>
+    [Fact]
+    public void AGameInAnotherWindowsSessionIsNotListed()
+    {
+        var provider = new WindowsGameProcessProvider(() => new[]
+        {
+            new ProcessTableEntry(4, "System", Started.AddHours(-5), 0),
+            new ProcessTableEntry(Environment.ProcessId, "MentorRecorder.Collector.exe", Started, 1),
+            new ProcessTableEntry(999_999, "ffxiv_dx11.exe", Started, 2),
+            new ProcessTableEntry(1_000_003, "ffxiv_dx11.exe", Started.AddMinutes(1), 1),
+            new ProcessTableEntry(1_000_007, "ffxiv_dx11.exe", Started.AddMinutes(2), 0),
+        });
+
+        var client = Assert.Single(provider.ByName(GameProcessLocator.Dx11ProcessName));
+
+        Assert.Equal(1_000_003, client.ProcessId);
+        Assert.Empty(new WindowsGameProcessProvider(() => new[]
+        {
+            new ProcessTableEntry(Environment.ProcessId, "MentorRecorder.Collector.exe", Started, 2),
+            new ProcessTableEntry(1_000_003, "ffxiv_dx11.exe", Started, 1),
+        }).ByName(GameProcessLocator.Dx11ProcessName));
+    }
+
+    /// <summary>
+    /// Audit 2026-10-20, A2-1. Without this process's own row the session the game must share
+    /// cannot be told, which is a failed listing, never "every session counts".
+    /// </summary>
+    [Fact]
+    public void ATableWithoutThisProcessIsAFailedListing()
+    {
+        var provider = new WindowsGameProcessProvider(() => new[]
+        {
+            new ProcessTableEntry(1_000_003, "ffxiv_dx11.exe", Started, 1),
+        });
+
+        Assert.Throws<InvalidOperationException>(() => provider.ByName(GameProcessLocator.Dx11ProcessName));
     }
 
     [Fact]
@@ -154,17 +200,18 @@ public sealed class ProcessTableTests
     /// NextEntryOffset, each name stored inside the row's own slot and referenced by an absolute
     /// pointer based at <see cref="Base"/>.
     /// </summary>
-    private static byte[] Table(params (long Pid, string Name, long CreateTime)[] rows)
+    private static byte[] Table(params (long Pid, string Name, long CreateTime, uint Session)[] rows)
     {
         var table = new byte[rows.Length * RowBytes];
         for (var index = 0; index < rows.Length; index++)
         {
             var row = table.AsSpan(index * RowBytes, RowBytes);
-            var (pid, name, created) = rows[index];
+            var (pid, name, created, session) = rows[index];
             BinaryPrimitives.WriteUInt32LittleEndian(
                 row[ProcessTable.NextEntryOffsetField..], index == rows.Length - 1 ? 0u : RowBytes);
             BinaryPrimitives.WriteInt64LittleEndian(row[ProcessTable.CreateTimeField..], created);
             BinaryPrimitives.WriteInt64LittleEndian(row[ProcessTable.UniqueProcessIdField..], pid);
+            BinaryPrimitives.WriteUInt32LittleEndian(row[ProcessTable.SessionIdField..], session);
             var nameBytes = Encoding.Unicode.GetBytes(name);
             BinaryPrimitives.WriteUInt16LittleEndian(row[ProcessTable.ImageNameLengthField..], (ushort)nameBytes.Length);
             BinaryPrimitives.WriteUInt16LittleEndian(row[(ProcessTable.ImageNameLengthField + 2)..], (ushort)nameBytes.Length);

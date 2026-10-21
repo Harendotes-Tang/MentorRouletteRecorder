@@ -1,5 +1,6 @@
 #include "IBackend.h"
 #include "ImportRecordsController.h"
+#include "IpcFraming.h"
 #include "JobCatalog.h"
 #include "OfflineOcrEngine.h"
 #include "JobIconClassifier.h"
@@ -37,6 +38,7 @@
 #include <QtTest/qtestwheel.h>
 #include <QThread>
 #include <QTimer>
+#include <QTranslator>
 #include <QtMath>
 #include <algorithm>
 
@@ -51,6 +53,24 @@ Q_SIGNALS:
 };
 
 namespace {
+
+/// The interface in another language: only the two source-name patterns are translated.
+class SourceNameTranslator final : public QTranslator
+{
+public:
+    bool isEmpty() const override { return false; }
+    QString translate(const char *context, const char *sourceText, const char *, int) const override
+    {
+        if (qstrcmp(context, "mr::ImportRecordsController") != 0)
+            return {};
+        const QString source = QString::fromUtf8(sourceText);
+        if (source == QStringLiteral("粘贴的表格"))
+            return QStringLiteral("Pasted table");
+        if (source == QStringLiteral("%1 等 %2 张截图"))
+            return QStringLiteral("%1 and %2 screenshots");
+        return {};
+    }
+};
 
 class ImportBackend final : public mr::IBackend
 {
@@ -173,6 +193,14 @@ private:
     QSet<QByteArray> present;
 };
 
+/// Answers the icon's job guess on \a row with the same job, as choosing it in 「职业」 does:
+/// a guessed job must be confirmed before the row can be imported (audit L2-4).
+void confirmGuessedJob(mr::ImportRecordsController &controller, int row)
+{
+    const QVariantMap candidate = controller.rows().value(row).toMap().value("candidate").toMap();
+    controller.updateCandidate(row, {{"job_id", candidate.value("job_id")}, {"job_name", candidate.value("job_name")}});
+}
+
 QImage syntheticImportImage()
 {
     QImage image(600, 800, QImage::Format_ARGB32);
@@ -193,6 +221,23 @@ QJsonObject previewCandidates(const QJsonArray &candidates, const QString &id = 
             {"can_import", true}, {"incomplete", true}, {"candidate", candidates[i]},
             {"errors", QJsonArray{}}, {"warnings", QJsonArray{}}});
     return {{"preview_id", id}, {"rows", rows}, {"summary", QJsonObject{{"total", rows.size()}, {"new", rows.size()}}}};
+}
+
+QJsonObject pagedPreview(int total, int page, int pageSize = 100, const QString &id = QStringLiteral("paged-preview"), int rowOffset = 0)
+{
+    QJsonArray rows;
+    for (int i = (page - 1) * pageSize; i < qMin(total, page * pageSize); ++i) {
+        const QJsonObject candidate{{"duty_name", QStringLiteral("合成副本 %1").arg(i + 1)},
+            {"job_name", QStringLiteral("战士")}, {"source_recorded_at", "2022-09-28"},
+            {"reflection_text", QStringLiteral("仅用于分页测试的记录 %1").arg(i + 1)}};
+        rows.append(QJsonObject{{"row_number", i + 1 + rowOffset}, {"status", "new"}, {"can_import", true},
+            {"candidate", candidate}, {"errors", QJsonArray{}}, {"warnings", QJsonArray{}},
+            {"run", QJsonObject{{"job_id", 21}, {"job_name", QStringLiteral("战士")}, {"result", "COMPLETED"},
+                {"import_metadata", QJsonObject{{"mentor_confirmed", true}}}}}});
+    }
+    return {{"preview_id", id}, {"source_kind", "PASTE"}, {"source_name", QStringLiteral("粘贴的表格")},
+        {"summary", QJsonObject{{"total", total}, {"new", total}}}, {"rows", rows},
+        {"page_info", QJsonObject{{"page", page}, {"page_size", pageSize}, {"total", total}}}};
 }
 
 int matchingAntialiasedForegroundPixels(const QImage &image, const QRectF &sceneRect, qreal ratio,
@@ -564,7 +609,7 @@ ApplicationWindow {
         QVERIFY(commit && choose && status && reflection);
         controller.setOwnRecordsConfirmed(true);
         controller.commit();
-        backend.calls.last().reply->fail(QStringLiteral("ERR_TIMEOUT"), QStringLiteral("尚未确认"));
+        backend.calls.last().reply->failTransport(QStringLiteral("ERR_INTERNAL"), QStringLiteral("尚未确认"));
         QVERIFY(controller.pendingCommitConfirmation());
         QCOMPARE(controller.rows().size(), 1);
         const QString id = backend.calls.last().requestId;
@@ -601,6 +646,61 @@ ApplicationWindow {
         QCOMPARE(backend.calls.last().type, QStringLiteral("PreviewRunImport"));
         QCOMPARE(backend.calls.last().payload.value("text").toString(), QStringLiteral("副本\n新批次"));
     }
+    // Audit 2026-10-20 I3-6: 「取消识别 / 预览」 stops the work in flight. On a batch the user has
+    // already reviewed it must not also close the dialog, which empties the batch when it opens again.
+    void cancellingWorkOnAReviewedBatchKeepsTheDialogOpen()
+    {
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        backend.calls.last().reply->succeed(preview());
+        controller.updateCandidate(0, {{"reflection_text", QStringLiteral("已核对的修改")}});
+        ImportThemeState theme;
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("ImportRecords"), &controller);
+        engine.rootContext()->setContextProperty(QStringLiteral("App"), &theme);
+        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this, [&warnings](const QList<QQmlError> &errors) {
+            for (const auto &error : errors) warnings.append(error.toString());
+        });
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 1240; height: 800; visible: true
+    ImportRecordsDialog { Component.onCompleted: open() }
+})", QUrl::fromLocalFile(QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/dialogs/ImportCancelProbe.qml")));
+        QTRY_VERIFY_WITH_TIMEOUT(component.status() != QQmlComponent::Loading, 5000);
+        QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(window && QTest::qWaitForWindowExposed(window));
+        auto *dialog = root->findChild<QObject *>(QStringLiteral("importRecordsDialog"));
+        auto *cancel = root->findChild<QQuickItem *>(QStringLiteral("importCancel"));
+        QVERIFY(dialog && cancel);
+        QTRY_VERIFY(dialog->property("opened").toBool());
+        controller.revalidate();
+        QVERIFY(controller.busy());
+        QTest::qWait(50);
+        const QPointF centre = cancel->mapToScene(QPointF(cancel->width() / 2, cancel->height() / 2));
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, centre.toPoint());
+        QTRY_VERIFY(!controller.busy());
+        QTest::qWait(100);
+        QVERIFY(dialog->property("visible").toBool());
+        QCOMPARE(controller.rows().size(), 3);
+        QCOMPARE(controller.currentCandidate().value("reflection_text").toString(), QStringLiteral("已核对的修改"));
+        // Once nothing is running the same button closes, as its label then says.
+        QTest::qWait(50);
+        const QPointF closeCentre = cancel->mapToScene(QPointF(cancel->width() / 2, cancel->height() / 2));
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, closeCentre.toPoint());
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+    }
+
     void realMessageNamesAndOwnRecordConfirmation()
     {
         ImportBackend backend;
@@ -628,6 +728,60 @@ ApplicationWindow {
         backend.calls.last().reply->succeed({{"imported_count", 1}, {"duplicate_count", 0}, {"conflict_count", 0}});
         QCOMPARE(controller.phase(), QStringLiteral("complete"));
         QVERIFY(!controller.canCommit());
+    }
+
+    // Audit 2026-10-20 H2-2: the source name is stored provenance and part of the duplicate
+    // fingerprint, so it never follows the interface language; only the label on screen does.
+    void sourceNamesTravelInChineseWhateverTheInterfaceLanguage()
+    {
+        ScopedImportOcrEnvironment environment;
+        SourceNameTranslator english;
+        QVERIFY(QCoreApplication::installTranslator(&english));
+        const auto removeTranslator = qScopeGuard([&english] { QCoreApplication::removeTranslator(&english); });
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        QCOMPARE(backend.calls.last().payload.value("source_name").toString(), QStringLiteral("粘贴的表格"));
+        QCOMPARE(controller.sourceLabel(), QStringLiteral("Pasted table"));
+        backend.calls.last().reply->succeed(preview());
+        controller.updateCandidate(0, {{"reflection_text", QStringLiteral("修改后再校验")}});
+        controller.revalidate();
+        QCOMPARE(backend.calls.last().payload.value("source_name").toString(), QStringLiteral("粘贴的表格"));
+        backend.calls.last().reply->succeed(preview(QStringLiteral("edited-paste")));
+
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        qputenv("LOCALAPPDATA", directory.path().toUtf8());
+        const QString tsvPath = directory.filePath(QStringLiteral("synthetic.tsv"));
+        createFile(tsvPath, syntheticOcrCard());
+        qputenv("MR_TEST_OCR_TSV_FILE", tsvPath.toUtf8());
+        const QString app = installTestWorker(directory);
+        QVERIFY(!app.isEmpty());
+        const QString first = directory.filePath(QStringLiteral("first.png"));
+        const QString second = directory.filePath(QStringLiteral("second.png"));
+        const QString third = directory.filePath(QStringLiteral("third.png"));
+        for (const QString &path : {first, second, third})
+            QVERIFY(syntheticImportImage().save(path));
+        controller.setOcrApplicationDirectoryForTesting(app);
+        controller.importFiles({first, second});
+        QTRY_COMPARE_WITH_TIMEOUT(backend.calls.last().payload.value("source_kind").toString(), QStringLiteral("SCREENSHOT"), 10000);
+        QCOMPARE(backend.calls.last().payload.value("source_name").toString(), QStringLiteral("first.png 等 2 张截图"));
+        backend.calls.last().reply->succeed(previewCandidates(backend.calls.last().payload.value("rows").toArray(), "two-images"));
+        QCOMPARE(controller.sourceLabel(), QStringLiteral("first.png and 2 screenshots"));
+        const int beforeAppend = backend.calls.size();
+        controller.importFiles({third});
+        QTRY_COMPARE_WITH_TIMEOUT(backend.calls.size(), beforeAppend + 1, 10000);
+        QCOMPARE(backend.calls.last().payload.value("source_name").toString(), QStringLiteral("first.png 等 3 张截图"));
+        backend.calls.last().reply->succeed(previewCandidates(backend.calls.last().payload.value("rows").toArray(), "three-images"));
+        QCOMPARE(controller.sourceLabel(), QStringLiteral("first.png and 3 screenshots"));
+        controller.setRowSelected(0, true);
+        confirmGuessedJob(controller, 0);
+        controller.setOwnRecordsConfirmed(true);
+        controller.commit();
+        backend.calls.last().reply->succeed({{"imported_count", 1}, {"rows", QJsonArray{QJsonObject{{"row_number", 1}, {"status", "imported"}}}}});
+        controller.revalidate();
+        QCOMPARE(backend.calls.last().payload.value("source_name").toString(), QStringLiteral("second.png 等 2 张截图"));
     }
 
     void editedRowsMustBeRevalidatedWithOriginalSourceKind()
@@ -767,6 +921,31 @@ ApplicationWindow {
         backend.calls.last().reply->succeed(previewCandidates(candidates));
         QCOMPARE(controller.selectedCount(), 3);
         QVERIFY(!controller.ownRecordsConfirmed());
+    }
+
+    // Audit 2026-10-20 H2-1 (Desktop side): a row the Collector calls possible_duplicate - the same
+    // duty on the same day, an in-batch twin - is shown for checking but never ticked for the user.
+    void possibleDuplicatesAreNeverPreselected()
+    {
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        const QJsonArray candidates{QJsonObject{{"duty_name", "one"}}, QJsonObject{{"duty_name", "two"}},
+            QJsonObject{{"duty_name", "three"}}};
+        QJsonObject response = previewCandidates(candidates, "suspects", {1, 2, 3});
+        QJsonArray rows = response.value("rows").toArray();
+        QJsonObject suspect = rows[1].toObject();
+        suspect.insert("status", "possible_duplicate");
+        rows[1] = suspect;
+        response.insert("rows", rows);
+        backend.calls.last().reply->succeed(response);
+        QCOMPARE(controller.selectedCount(), 2);
+        QVERIFY(controller.rows()[0].toMap().value("selected").toBool());
+        QVERIFY(!controller.rows()[1].toMap().value("selected").toBool());
+        QVERIFY(controller.rows()[2].toMap().value("selected").toBool());
+        controller.setRowSelected(1, true); // Still the user's to choose.
+        QCOMPARE(controller.selectedCount(), 3);
     }
 
     void batchUpdateFreezesSelectedIndicesAndValidatesOnce()
@@ -968,6 +1147,98 @@ ApplicationWindow {
         QVERIFY(!QFileInfo::exists(clipboardPath));
     }
 
+    // Audit 2026-10-20 I3-1: the same screenshot added again would turn every card on it into a
+    // second "new" row. An image already in the batch - or chosen twice at once - is refused
+    // before any recognition starts, and the batch stays as it was.
+    void screenshotAlreadyInTheBatchIsNotAddedTwice()
+    {
+        ScopedImportOcrEnvironment environment;
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        qputenv("LOCALAPPDATA", directory.path().toUtf8());
+        const QString tsvPath = directory.filePath(QStringLiteral("synthetic.tsv"));
+        createFile(tsvPath, syntheticOcrCard());
+        qputenv("MR_TEST_OCR_TSV_FILE", tsvPath.toUtf8());
+        const QString app = installTestWorker(directory);
+        QVERIFY(!app.isEmpty());
+        const QString firstImage = directory.filePath(QStringLiteral("first.png"));
+        const QString secondImage = directory.filePath(QStringLiteral("second.png"));
+        QVERIFY(syntheticImportImage().save(firstImage));
+        QVERIFY(syntheticImportImage().save(secondImage));
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.setOcrApplicationDirectoryForTesting(app);
+        controller.importFiles({firstImage, firstImage});
+        QVERIFY(!controller.busy());
+        QVERIFY(backend.calls.isEmpty());
+        QVERIFY(controller.errorText().contains(QStringLiteral("first.png")));
+        controller.importFiles({firstImage});
+        QTRY_COMPARE_WITH_TIMEOUT(backend.calls.size(), 1, 10000);
+        backend.calls.last().reply->succeed(previewCandidates(backend.calls.last().payload.value("rows").toArray(), "one-image"));
+        controller.setRowSelected(0, true);
+        const QVariantList original = controller.rows();
+        for (const QVariantList &again : {QVariantList{firstImage}, QVariantList{secondImage, firstImage},
+                                          QVariantList{QUrl::fromLocalFile(firstImage.toUpper())},
+                                          QVariantList{secondImage, secondImage}}) {
+            controller.importFiles(again);
+            QVERIFY(!controller.busy());
+            QCOMPARE(backend.calls.size(), 1);
+            QCOMPARE(controller.rows(), original);
+            QVERIFY(controller.previewValid());
+            QCOMPARE(controller.sourceImageCount(), 1);
+            QCOMPARE(controller.selectedCount(), 1);
+            QVERIFY(!controller.errorText().isEmpty());
+        }
+        controller.importFiles({secondImage});
+        QTRY_COMPARE_WITH_TIMEOUT(backend.calls.size(), 2, 10000);
+        QCOMPARE(backend.calls.last().payload.value("rows").toArray().size(), 2);
+        QVERIFY(controller.errorText().isEmpty());
+    }
+
+    // Audit 2026-10-20 I3-5: when one image of a new batch cannot be read, the cards already
+    // recognised from the others were never shown. They must not linger as a hidden batch that
+    // the next screenshot is appended to, or that uses up the 20-image limit.
+    void failedImageDiscardsTheUnseenPartOfANewBatch()
+    {
+        ScopedImportOcrEnvironment environment;
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        qputenv("LOCALAPPDATA", directory.path().toUtf8());
+        const QString tsvPath = directory.filePath(QStringLiteral("synthetic.tsv"));
+        createFile(tsvPath, syntheticOcrCard());
+        qputenv("MR_TEST_OCR_TSV_FILE", tsvPath.toUtf8());
+        const QString app = installTestWorker(directory);
+        QVERIFY(!app.isEmpty());
+        const QString firstImage = directory.filePath(QStringLiteral("first.png"));
+        const QString unreadable = directory.filePath(QStringLiteral("cropped-too-small.png"));
+        const QString nextImage = directory.filePath(QStringLiteral("next.png"));
+        QVERIFY(syntheticImportImage().save(firstImage));
+        QVERIFY(syntheticImportImage().save(nextImage));
+        QImage tiny(200, 100, QImage::Format_RGB32);
+        tiny.fill(Qt::white); // Smaller than the recognised text's coordinates: the image cannot be read.
+        QVERIFY(tiny.save(unreadable));
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.setOcrApplicationDirectoryForTesting(app);
+        controller.importFiles({firstImage, unreadable});
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000);
+        QVERIFY(backend.calls.isEmpty());
+        QVERIFY(!controller.errorText().isEmpty());
+        QVERIFY(controller.rows().isEmpty());
+        QCOMPARE(controller.sourceImageCount(), 0);
+        controller.revalidate(); // Nothing hidden is left to validate.
+        QVERIFY(backend.calls.isEmpty());
+        controller.importFiles({nextImage});
+        QTRY_COMPARE_WITH_TIMEOUT(backend.calls.size(), 1, 10000);
+        QCOMPARE(backend.calls.last().payload.value("rows").toArray().size(), 1);
+        QCOMPARE(backend.calls.last().payload.value("source_name").toString(), QStringLiteral("next.png"));
+        backend.calls.last().reply->succeed(previewCandidates(backend.calls.last().payload.value("rows").toArray(), "next-only"));
+        QCOMPARE(controller.sourceImageCount(), 1);
+        QCOMPARE(controller.currentEvidence().value("source_image").toString(), nextImage);
+    }
+
     void partialScreenshotCommitKeepsOnlyRemainingEvidenceAndAllowsAppend()
     {
         ScopedImportOcrEnvironment environment;
@@ -996,6 +1267,7 @@ ApplicationWindow {
         controller.revalidate();
         backend.calls.last().reply->succeed(previewCandidates(backend.calls.last().payload.value("rows").toArray()));
         controller.setRowSelected(0, true);
+        confirmGuessedJob(controller, 0);
         controller.setCurrentRow(1);
         controller.setOwnRecordsConfirmed(true);
         const QVariantMap evidence = controller.currentEvidence();
@@ -1045,6 +1317,7 @@ ApplicationWindow {
         controller.updateCandidate(0, {{"reflection_text", "already stored old note"}});
         controller.revalidate();
         backend.calls.last().reply->succeed(previewCandidates(backend.calls.last().payload.value("rows").toArray(), "edited-to-commit"));
+        confirmGuessedJob(controller, 0);
         controller.setOwnRecordsConfirmed(true);
         controller.commit();
         QCOMPARE(backend.calls.size(), 3);
@@ -1190,8 +1463,45 @@ ApplicationWindow {
         QVERIFY(eligible.contains(originalJob));
         controller.setOwnRecordsConfirmed(true);
         QVERIFY(!controller.canCommit());
-        controller.setRowSelected(0, true); // Screenshot selection is always explicit.
+        // Audit 2026-10-20 L2-4: a job guessed from the icon stays a question until the user
+        // answers it. 全选 and 勾选并下一条 pass the row by, and no commit carries the guess.
+        controller.setAllImportableSelected(true);
+        QCOMPARE(controller.selectedCount(), 0);
+        {
+            ImportThemeState theme;
+            QQmlEngine engine;
+            engine.rootContext()->setContextProperty(QStringLiteral("ImportRecords"), &controller);
+            engine.rootContext()->setContextProperty(QStringLiteral("App"), &theme);
+            engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+            QQmlComponent component(&engine);
+            component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 1240; height: 800; visible: true
+    ImportRecordsDialog { Component.onCompleted: open() }
+})", QUrl::fromLocalFile(QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/dialogs/ImportPendingJobProbe.qml")));
+            QTRY_VERIFY_WITH_TIMEOUT(component.status() != QQmlComponent::Loading, 5000);
+            QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+            std::unique_ptr<QObject> root(component.create());
+            QVERIFY2(root != nullptr, qPrintable(component.errorString()));
+            auto *window = qobject_cast<QQuickWindow *>(root.get());
+            QVERIFY(window && QTest::qWaitForWindowExposed(window));
+            auto *dialog = root->findChild<QObject *>(QStringLiteral("importRecordsDialog"));
+            auto *footerHint = root->findChild<QQuickItem *>(QStringLiteral("importSelectionHint"));
+            QVERIFY(dialog && footerHint);
+            QCOMPARE(controller.currentRow(), 0);
+            QVERIFY(QMetaObject::invokeMethod(dialog, "checkAndNext"));
+            QCOMPARE(controller.selectedCount(), 0);
+            QVERIFY(!dialog->property("navigationHint").toString().isEmpty());
+            controller.setRowSelected(0, true); // An explicit tick is still the user's choice.
+            QTRY_VERIFY(footerHint->property("text").toString().contains(QStringLiteral("职业")));
+        }
         QCOMPARE(controller.selectedCount(), 1);
+        QCOMPARE(controller.pendingJobSelectedCount(), 1);
+        QVERIFY(!controller.canCommit());
+        controller.commit();
+        QCOMPARE(backend.calls.size(), 1);
         QSignalSpy changes(&controller, &mr::ImportRecordsController::changed);
         const QString reviewedDuty = changeJob ? QStringLiteral("手动合成副本") : canonicalDuty;
         controller.updateCandidate(0, {{"duty_name", reviewedDuty}});
@@ -1201,6 +1511,7 @@ ApplicationWindow {
         QCOMPARE(controller.currentCandidate().value("duty_name").toString(), reviewedDuty);
         QCOMPARE(controller.previewValid(), !changeJob);
         QCOMPARE(controller.selectedCount(), changeJob ? 0 : 1);
+        QVERIFY(!controller.canCommit()); // Reviewing the duty does not answer the job.
         const int reviewedJob = changeJob ? (originalJob == 19 ? 24 : 19) : originalJob;
         controller.updateCandidate(0, {{"job_id", reviewedJob}, {"job_name", catalog.jobName(reviewedJob)}});
         QVERIFY(!changes.isEmpty());
@@ -1211,6 +1522,7 @@ ApplicationWindow {
         if (!changeJob) {
             QVERIFY(controller.previewValid());
             QCOMPARE(controller.selectedCount(), 1);
+            QCOMPARE(controller.pendingJobSelectedCount(), 0);
             QVERIFY(controller.canCommit());
         } else {
             QVERIFY(!controller.previewValid());
@@ -1430,6 +1742,411 @@ ApplicationWindow {
         QVERIFY(!edited[4].toObject().contains("source_recorded_at"));
     }
 
+    // Audit 2026-10-20 H2-4 (Desktop side): the Collector keeps a source's local game times as
+    // written in the candidate, so a later zone change can re-read them. The Desktop must send
+    // that text back untouched with the new zone - never a "Z" time computed for the old one.
+    void timeZoneChangeResendsTheRawGameTimes()
+    {
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.importText(QStringLiteral("副本\t进本时间\t结束时间\n合成副本\t2026-10-10 20:00\t2026-10-10 20:30"));
+        QCOMPARE(backend.calls.last().payload.value("time_zone").toString(), QStringLiteral("+08:00"));
+        const QJsonObject candidate{{"duty_name", QStringLiteral("合成副本")}, {"entered_at_utc", "2026-10-10 20:00"},
+                                    {"ended_at_utc", "2026-10-10 20:30"}};
+        const QJsonObject run{{"entered_at_utc", "2026-10-10T12:00:00.000Z"}, {"ended_at_utc", "2026-10-10T12:30:00.000Z"}};
+        backend.calls.last().reply->succeed(singleRowPreview(candidate, run));
+        controller.setTimeZone(QStringLiteral("+09:00"));
+        QVERIFY(!controller.previewValid());
+        controller.revalidate();
+        const QJsonObject request = backend.calls.last().payload;
+        QCOMPARE(request.value("time_zone").toString(), QStringLiteral("+09:00"));
+        const QJsonObject sent = request.value("rows").toArray().first().toObject();
+        QCOMPARE(sent.value("entered_at_utc").toString(), QStringLiteral("2026-10-10 20:00"));
+        QCOMPARE(sent.value("ended_at_utc").toString(), QStringLiteral("2026-10-10 20:30"));
+        QVERIFY(!sent.contains("matched_at_utc"));
+    }
+
+    // Audit 2026-10-20 H2-3 (Desktop side): a paged preview the Collector refuses up front as too
+    // large is reported in its own words, is not retried as a legacy request, and keeps the input.
+    void oversizedPagedPreviewRefusalIsShownAsTheCollectorSaysIt()
+    {
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        QCOMPARE(backend.calls.last().payload.value("page_size").toInt(), 100);
+        const QString tooLarge = QStringLiteral("预览内容过多，暂时无法显示。请拆分文件或减少本批记录后重试。");
+        backend.calls.last().reply->fail(QStringLiteral("ERR_BAD_REQUEST"), tooLarge, QJsonObject{},
+                                         QJsonObject{{"key", "import.preview.too_large"}});
+        QCoreApplication::processEvents();
+        QCOMPARE(backend.calls.size(), 1);
+        QVERIFY(!controller.busy());
+        QVERIFY(!controller.previewValid());
+        QVERIFY(controller.rows().isEmpty());
+        QCOMPARE(controller.errorText(), tooLarge);
+        controller.revalidate();
+        QCOMPARE(backend.calls.last().payload.value("text").toString(), QStringLiteral("副本\n合成副本"));
+    }
+
+    // Audit 2026-10-20 H2-3 / RV3-1 / RV5-1 (Desktop side): every edit, zone change and 重新校验
+    // re-sends the whole batch in one request, and the Collector re-checks it only while its
+    // candidates, written as one JSON array in its own spelling, stay within three quarters of a
+    // frame (RunImportService.MaxPreviewResponseBytes). A change after which that request would be
+    // refused, and a 重新校验 that would be refused, are refused before anything changes, so an
+    // accepted batch always stays committable.
+    void acceptedLargeBatchIsNeverEditedIntoAnUncommittableOne()
+    {
+        constexpr int count = 255;
+        constexpr qint64 budget = mr::ipc::kMaxFrameBytes * 3 / 4;
+        const auto pages = [](const QJsonArray &candidates, const QString &id) {
+            QList<QJsonObject> result;
+            for (int page = 1; (page - 1) * 100 < candidates.size(); ++page) {
+                QJsonArray rows;
+                for (int i = (page - 1) * 100; i < qMin(int(candidates.size()), page * 100); ++i)
+                    rows.append(QJsonObject{{"row_number", i + 1}, {"status", "new"}, {"can_import", true},
+                        {"candidate", candidates[i]}, {"errors", QJsonArray{}}, {"warnings", QJsonArray{}}});
+                result.append(QJsonObject{{"preview_id", id}, {"source_kind", "PASTE"}, {"source_name", QStringLiteral("粘贴的表格")},
+                    {"summary", QJsonObject{{"total", candidates.size()}, {"new", candidates.size()}}}, {"rows", rows},
+                    {"page_info", QJsonObject{{"page", page}, {"page_size", 100}, {"total", candidates.size()}}}});
+            }
+            return result;
+        };
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        const auto answerPaged = [&](const QJsonArray &candidates, const QString &id) {
+            const QList<QJsonObject> answers = pages(candidates, id);
+            const int before = int(backend.calls.size()) - 1;
+            for (int page = 0; page < answers.size(); ++page) {
+                QTRY_COMPARE(int(backend.calls.size()), before + page + 1);
+                backend.calls.last().reply->succeed(answers[page]);
+            }
+        };
+        // What the Collector measures. Until the '+' edit below these candidates hold only ASCII
+        // letters, digits, spaces and CJK, which it writes exactly as Qt does.
+        const auto candidateBytes = [](const QJsonObject &payload) {
+            return qint64(QJsonDocument(payload.value("rows").toArray()).toJson(QJsonDocument::Compact).size());
+        };
+        QJsonArray candidates;
+        for (int i = 0; i < count; ++i)
+            candidates.append(QJsonObject{{"duty_name", QStringLiteral("合成副本 %1").arg(i + 1)},
+                                          {"reflection_text", QString(12000, QLatin1Char('x'))}});
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        answerPaged(candidates, QStringLiteral("large-1"));
+        QVERIFY(controller.previewValid());
+        controller.setOwnRecordsConfirmed(true);
+        controller.revalidate(); // The request every later edit re-sends.
+        const QJsonObject resent = backend.calls.last().payload;
+        const qint64 slack = budget - candidateBytes(resent);
+        QVERIFY2(slack > 0 && slack < 200 * 1024, qPrintable(QString::number(slack)));
+        answerPaged(resent.value("rows").toArray(), QStringLiteral("large-2"));
+        QVERIFY(controller.canCommit());
+
+        // Within the budget in Qt's spelling, beyond it in the Collector's, which writes '+' as a
+        // six-byte escape: refused before anything changes.
+        const int calls = int(backend.calls.size());
+        controller.updateCandidate(0, {{"reflection_text", QString(12000, QLatin1Char('x'))
+                                                               + QString(int(slack / 3) + 1, QLatin1Char('+'))}});
+        QVERIFY(controller.previewValid());
+        QVERIFY(controller.canCommit());
+        QCOMPARE(controller.currentCandidate().value("reflection_text").toString().size(), 12000);
+        QVERIFY(!controller.errorText().isEmpty());
+        QCOMPARE(int(backend.calls.size()), calls);
+
+        // One character too many: refused the same way.
+        controller.updateCandidate(0, {{"reflection_text", QString(12000 + int(slack) + 1, QLatin1Char('x'))}});
+        QVERIFY(controller.previewValid());
+        QVERIFY(controller.canCommit());
+        QCOMPARE(controller.currentCandidate().value("reflection_text").toString().size(), 12000);
+        QVERIFY(!controller.errorText().isEmpty());
+        QCOMPARE(int(backend.calls.size()), calls);
+
+        // Exactly the budget: accepted, and the re-check really goes out, in one frame.
+        controller.updateCandidate(0, {{"reflection_text", QString(12000 + int(slack), QLatin1Char('x'))}});
+        QVERIFY(!controller.previewValid());
+        controller.revalidate();
+        const QJsonObject edited = backend.calls.last().payload;
+        QCOMPARE(candidateBytes(edited), budget);
+        QVERIFY(!mr::ipc::encodeFrame(mr::ipc::makeRequest(QStringLiteral("00000000-0000-4000-8000-000000000000"),
+                                                          QStringLiteral("PreviewRunImport"), edited)).isEmpty());
+        answerPaged(edited.value("rows").toArray(), QStringLiteral("large-3"));
+        QVERIFY(controller.canCommit());
+
+        // No room left: a batch setting is refused the same way.
+        controller.batchUpdateSelected({{"result", "UNKNOWN"}});
+        QVERIFY(controller.previewValid());
+        QVERIFY(controller.canCommit());
+        QCOMPARE(int(backend.calls.size()), calls + 3);
+        QVERIFY(!controller.currentCandidate().contains("result"));
+        controller.commit();
+        QCOMPARE(backend.calls.last().type, QStringLiteral("CommitRunImport"));
+        QCOMPARE(backend.calls.last().payload.value("row_numbers").toArray().size(), count);
+        backend.calls.last().reply->succeed({{"imported_count", count}});
+
+        // A service without the up-front limit may still hand over a batch beyond the budget,
+        // though within one frame: it can be imported as it is, but nothing - not the zone, not an
+        // edit, not 重新校验 - gives up its accepted preview for a re-check the Collector refuses.
+        QJsonArray oversized = candidates;
+        for (int i = count; i < count + 20; ++i)
+            oversized.append(QJsonObject{{"duty_name", QStringLiteral("合成副本 %1").arg(i + 1)},
+                                         {"reflection_text", QString(12000, QLatin1Char('x'))}});
+        controller.importText(QStringLiteral("副本\n更大的批次"));
+        answerPaged(oversized, QStringLiteral("oversized"));
+        controller.setOwnRecordsConfirmed(true);
+        QVERIFY(controller.canCommit());
+        const int beforeRefusals = int(backend.calls.size());
+        controller.setTimeZone(QStringLiteral("+09:00"));
+        QCOMPARE(controller.timeZone(), QStringLiteral("+08:00"));
+        QVERIFY(controller.previewValid());
+        QVERIFY(!controller.errorText().isEmpty());
+        controller.updateCandidate(0, {{"reflection_text", QStringLiteral("短")}});
+        QVERIFY(controller.previewValid());
+        QCOMPARE(int(backend.calls.size()), beforeRefusals);
+        controller.revalidate();
+        QVERIFY(controller.previewValid());
+        QVERIFY(controller.canCommit());
+        QVERIFY(!controller.busy());
+        QCOMPARE(int(backend.calls.size()), beforeRefusals);
+        QCOMPARE(controller.errorText(),
+                 QString::fromUtf8("这批记录太大，无法重新校验，当前内容没有改动。请分成几批重新导入。"));
+        controller.commit();
+        QCOMPARE(backend.calls.last().type, QStringLiteral("CommitRunImport"));
+        QCOMPARE(backend.calls.last().payload.value("row_numbers").toArray().size(), count + 20);
+    }
+
+    // Audit RV3-1: adding screenshots re-sends the whole batch as well. When the batch with the
+    // new rows would be refused as too large, the new screenshots are dropped before anything is
+    // sent, and the accepted batch stays as it was.
+    void screenshotAppendBeyondTheBudgetIsRefusedBeforeItIsSent()
+    {
+        constexpr qint64 budget = mr::ipc::kMaxFrameBytes * 3 / 4;
+        ScopedImportOcrEnvironment environment;
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        qputenv("LOCALAPPDATA", directory.path().toUtf8());
+        const QString tsvPath = directory.filePath(QStringLiteral("synthetic.tsv"));
+        createFile(tsvPath, syntheticOcrCard());
+        qputenv("MR_TEST_OCR_TSV_FILE", tsvPath.toUtf8());
+        const QString app = installTestWorker(directory);
+        QVERIFY(!app.isEmpty());
+        const QString firstImage = directory.filePath(QStringLiteral("first.png"));
+        const QString secondImage = directory.filePath(QStringLiteral("second.png"));
+        QVERIFY(syntheticImportImage().save(firstImage));
+        QVERIFY(syntheticImportImage().save(secondImage));
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.setOcrApplicationDirectoryForTesting(app);
+        controller.importFiles({firstImage});
+        QTRY_COMPARE_WITH_TIMEOUT(backend.calls.size(), 1, 10000);
+        backend.calls.last().reply->succeed(previewCandidates(backend.calls.last().payload.value("rows").toArray(), "initial-image"));
+        // What the Collector measures, as long as the rows hold nothing it spells wider than Qt.
+        const auto candidateBytes = [](const QJsonObject &payload) {
+            const QByteArray json = QJsonDocument(payload.value("rows").toArray()).toJson(QJsonDocument::Compact);
+            for (const char *wider : {"+", "&", "'", "<", ">", "`", "\\\"", "\\u", "\xE3\x80\x80", "\xC2\xA0"})
+                if (json.contains(wider))
+                    return qint64(-1);
+            return qint64(json.size());
+        };
+        // One long note brings the accepted batch to 50 bytes under the budget.
+        controller.updateCandidate(0, {{"reflection_text", QString(1000, QLatin1Char('x'))}});
+        controller.revalidate();
+        const qint64 measured = candidateBytes(backend.calls.last().payload);
+        QVERIFY(measured > 0);
+        backend.calls.last().reply->succeed(previewCandidates(backend.calls.last().payload.value("rows").toArray(), "measured"));
+        controller.updateCandidate(0, {{"reflection_text", QString(1000 + int(budget - 50 - measured), QLatin1Char('x'))}});
+        controller.revalidate();
+        QCOMPARE(candidateBytes(backend.calls.last().payload), budget - 50);
+        backend.calls.last().reply->succeed(previewCandidates(backend.calls.last().payload.value("rows").toArray(), "full"));
+        QVERIFY(controller.previewValid());
+        const QVariantList original = controller.rows();
+        const int calls = int(backend.calls.size());
+
+        controller.importFiles({secondImage});
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000);
+        QCOMPARE(int(backend.calls.size()), calls);
+        QVERIFY(controller.previewValid());
+        QCOMPARE(controller.rows(), original);
+        QCOMPARE(controller.sourceImageCount(), 1);
+        QCOMPARE(controller.errorText(),
+                 QString::fromUtf8("加入新截图后这批记录太大，无法校验。未添加新记录，原批次已保留；请把新截图放到下一批导入。"));
+    }
+
+    void pagedPreviewAcceptsOnlyWholeBatchAndKeepsOriginalCandidates()
+    {
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.setBaselineCount(2200);
+        controller.setBaselineLoaded(true);
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        QCOMPARE(backend.calls.last().payload.value("page_size").toInt(), 100);
+        controller.setOwnRecordsConfirmed(true);
+        for (int page = 1; page <= 21; ++page) {
+            QTRY_COMPARE(backend.calls.size(), page);
+            if (page > 1)
+                QCOMPARE(backend.calls.last().payload, (QJsonObject{{"preview_id", "paged-preview"}, {"page", page}}));
+            QVERIFY(controller.busy());
+            QVERIFY(!controller.previewValid());
+            QVERIFY(!controller.canCommit());
+            backend.calls.last().reply->succeed(pagedPreview(2090, page, 100, "paged-preview", 1));
+        }
+        QVERIFY(!controller.busy());
+        QVERIFY(controller.previewValid());
+        QCOMPARE(controller.rows().size(), 2090);
+        QCOMPARE(controller.selectedCount(), 2090);
+        QCOMPARE(controller.contributingSelectedCount(), 2090);
+        QCOMPARE(controller.baselineDeductionPreview(), 2090);
+        controller.setCurrentRow(2089);
+        QCOMPARE(controller.currentCandidate().value("job_id").toInt(), 21);
+        controller.updateCandidate(2089, {{"reflection_text", QStringLiteral("末页修改")}});
+        controller.revalidate();
+        const QJsonArray candidates = backend.calls.last().payload.value("rows").toArray();
+        QCOMPARE(candidates.size(), 2090);
+        QVERIFY(!candidates.last().toObject().contains("job_id")); // Display projection cannot alter source meaning.
+        QCOMPARE(candidates.last().toObject().value("reflection_text").toString(), QStringLiteral("末页修改"));
+        QVERIFY(QJsonDocument(backend.calls.last().payload).toJson(QJsonDocument::Compact).size() < 4 * 1024 * 1024);
+        backend.calls.last().reply->succeed(previewCandidates(candidates, "revalidated"));
+        QCOMPARE(controller.selectedCount(), 2090); // XLSX physical rows 2..2091 become raw candidate rows 1..2090.
+        controller.setAllImportableSelected(false);
+        controller.setRowSelected(0, true);
+        controller.setRowSelected(2089, true);
+        controller.commit();
+        QCOMPARE(backend.calls.last().payload.value("row_numbers").toArray(), (QJsonArray{1, 2090}));
+    }
+
+    void pagedPreviewRejectsInconsistentOrFailedContinuation_data()
+    {
+        QTest::addColumn<QString>("defect");
+        for (const char *defect : {"id", "page", "page_size", "total", "summary", "source", "duplicate_row", "short_page", "failed"})
+            QTest::newRow(defect) << QString::fromLatin1(defect);
+    }
+
+    void pagedPreviewRejectsInconsistentOrFailedContinuation()
+    {
+        QFETCH(QString, defect);
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.importText(QStringLiteral("副本\n保留输入"));
+        backend.calls.last().reply->succeed(pagedPreview(5, 1, 2)); // Service can freeze a smaller page size.
+        QTRY_COMPARE(backend.calls.size(), 2);
+        QJsonObject next = pagedPreview(5, 2, 2);
+        QJsonObject info = next.value("page_info").toObject();
+        if (defect == QLatin1String("id")) next.insert("preview_id", "other-preview");
+        if (defect == QLatin1String("page")) info.insert("page", 3);
+        if (defect == QLatin1String("page_size")) info.insert("page_size", 3);
+        if (defect == QLatin1String("total")) info.insert("total", 6);
+        if (defect == QLatin1String("summary")) next.insert("summary", QJsonObject{{"total", 5}, {"new", 4}});
+        if (defect == QLatin1String("source")) next.insert("source_name", "other-source");
+        QJsonArray rows = next.value("rows").toArray();
+        if (defect == QLatin1String("duplicate_row")) {
+            auto row = rows.first().toObject(); row.insert("row_number", 1); rows[0] = row;
+        }
+        if (defect == QLatin1String("short_page")) rows.removeLast();
+        next.insert("rows", rows);
+        next.insert("page_info", info);
+        if (defect == QLatin1String("failed")) backend.calls.last().reply->fail("ERR_TIMEOUT", QStringLiteral("续页失败"));
+        else backend.calls.last().reply->succeed(next);
+        QVERIFY(!controller.busy());
+        QVERIFY(!controller.previewValid());
+        QVERIFY(controller.rows().isEmpty());
+        QVERIFY(!controller.errorText().isEmpty());
+        controller.revalidate();
+        QCOMPARE(backend.calls.last().payload.value("text").toString(), QStringLiteral("副本\n保留输入"));
+    }
+
+    void pagedPreviewCancellationIgnoresLateContinuation()
+    {
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.importText(QStringLiteral("副本\n旧批次"));
+        backend.calls.last().reply->succeed(pagedPreview(3, 1, 2));
+        QTRY_COMPARE(backend.calls.size(), 2);
+        auto late = backend.calls.last().reply;
+        controller.cancel();
+        controller.importText(QStringLiteral("副本\n新批次"));
+        backend.calls.last().reply->succeed(preview("new-preview"));
+        const auto accepted = controller.rows();
+        late->succeed(pagedPreview(3, 2, 2));
+        QCOMPARE(controller.rows(), accepted);
+        QVERIFY(controller.previewValid());
+        QVERIFY(!controller.busy());
+    }
+
+    void pagedPreviewDowngradesOnlyExplicitUnsupportedField()
+    {
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        const QJsonObject initial = backend.calls.last().payload;
+        backend.calls.last().reply->fail("ERR_BAD_REQUEST", QStringLiteral("请求包含契约未声明的字段 page_size。"));
+        QTRY_COMPARE(backend.calls.size(), 2);
+        QJsonObject legacy = initial; legacy.remove("page_size");
+        QCOMPARE(backend.calls.last().payload, legacy);
+        backend.calls.last().reply->succeed(preview());
+        QVERIFY(controller.previewValid());
+        controller.revalidate();
+        const int beforeFailure = backend.calls.size();
+        backend.calls.last().reply->fail("ERR_BAD_REQUEST", QStringLiteral("其他请求错误"));
+        QCoreApplication::processEvents();
+        QCOMPARE(backend.calls.size(), beforeFailure);
+        QVERIFY(!controller.previewValid());
+    }
+
+    void backendJobProjectionDoesNotOverwriteExplicitUnknown()
+    {
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        const QJsonObject warrior{{"duty_name", QStringLiteral("合成副本")}, {"job_name", QStringLiteral("战士")}};
+        const QJsonObject normalized{{"job_id", 21}, {"job_name", QStringLiteral("战士")}};
+        backend.calls.last().reply->succeed(singleRowPreview(warrior, normalized));
+        QCOMPARE(controller.currentCandidate().value("job_id").toInt(), 21);
+        QVERIFY(!controller.rows().first().toMap().value("candidate").toMap().contains("job_id"));
+        controller.updateCandidate(0, {{"job_id", QVariant()}, {"job_name", QVariant()}});
+        QVERIFY(controller.currentCandidate().contains("job_id"));
+        QVERIFY(controller.currentCandidate().value("job_id").isNull());
+        controller.revalidate();
+        const auto raw = backend.calls.last().payload.value("rows").toArray().first().toObject();
+        QVERIFY(raw.contains("job_id") && raw.value("job_id").isNull());
+        backend.calls.last().reply->succeed(singleRowPreview(raw, normalized));
+        QVERIFY(controller.currentCandidate().value("job_id").isNull());
+    }
+
+    void completeLegacyPreviewRejectsMissingRowsOrDuplicateIdentity_data()
+    {
+        QTest::addColumn<bool>("duplicate");
+        QTest::newRow("missing-page-info-and-rows") << false;
+        QTest::newRow("duplicate-row-number") << true;
+    }
+
+    void completeLegacyPreviewRejectsMissingRowsOrDuplicateIdentity()
+    {
+        QFETCH(bool, duplicate);
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.importText(QStringLiteral("副本\n保留原输入"));
+        QJsonObject response = preview();
+        if (duplicate) {
+            QJsonArray rows = response.value("rows").toArray();
+            auto row = rows[1].toObject(); row.insert("row_number", 1); rows[1] = row;
+            response.insert("rows", rows);
+        } else response.insert("summary", QJsonObject{{"total", 2090}, {"new", 2090}});
+        backend.calls.last().reply->succeed(response);
+        QVERIFY(!controller.previewValid());
+        QVERIFY(controller.rows().isEmpty());
+        QVERIFY(!controller.busy());
+        QVERIFY(!controller.errorText().isEmpty());
+        controller.revalidate();
+        QCOMPARE(backend.calls.last().payload.value("text").toString(), QStringLiteral("副本\n保留原输入"));
+    }
+
     void cancelledPreviewCannotRestoreCommitEligibility()
     {
         ImportBackend backend;
@@ -1455,7 +2172,7 @@ ApplicationWindow {
         controller.commit();
         const QString id = backend.calls.last().requestId;
         const QJsonObject request = backend.calls.last().payload;
-        backend.calls.last().reply->fail(QStringLiteral("ERR_TIMEOUT"), QStringLiteral("尚未确认"));
+        backend.calls.last().reply->failTransport(QStringLiteral("ERR_INTERNAL"), QStringLiteral("尚未确认"));
         QVERIFY(controller.pendingCommitConfirmation());
         controller.updateCandidate(0, {{"duty_name", QStringLiteral("不得改变未知结果的批次")}});
         controller.setAllImportableSelected(false);
@@ -1469,6 +2186,52 @@ ApplicationWindow {
         controller.commit();
         QCOMPARE(backend.calls.last().requestId, id);
         QCOMPARE(backend.calls.last().payload, request);
+    }
+
+    // Audit 2026-10-20 I3-3: only an unanswered request (lost pipe, local timeout) leaves the
+    // outcome open. A refusal the Collector actually sent - the preview it no longer holds after
+    // a restart, its own internal error - is final, so the batch must become editable and the
+    // dialog closable again; otherwise every retry repeats the same refusal forever.
+    void refusedCommitRetryReleasesTheBatch()
+    {
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        backend.calls.last().reply->succeed(preview());
+        controller.setOwnRecordsConfirmed(true);
+        controller.commit();
+        const QString id = backend.calls.last().requestId;
+        backend.calls.last().reply->failTransport(QStringLiteral("ERR_INTERNAL"), QStringLiteral("后台服务暂时没有响应"));
+        QVERIFY(controller.pendingCommitConfirmation());
+        controller.commit(); // 重试确认保存, answered by a restarted Collector without the preview.
+        QCOMPARE(backend.calls.last().requestId, id);
+        const QString expired = QStringLiteral("导入预览已失效，尚未保存。请点「重新校验」后再导入。");
+        backend.calls.last().reply->fail(QStringLiteral("ERR_BAD_REQUEST"), expired);
+        QVERIFY(!controller.pendingCommitConfirmation());
+        QVERIFY(!controller.committing());
+        QCOMPARE(controller.errorText(), expired);
+        QCOMPARE(controller.rows().size(), 3);
+        const int beforeRevalidate = backend.calls.size();
+        controller.revalidate();
+        QCOMPARE(backend.calls.size(), beforeRevalidate + 1);
+        QCOMPARE(backend.calls.last().type, QStringLiteral("PreviewRunImport"));
+        QCOMPARE(backend.calls.last().payload.value("rows").toArray().size(), 3);
+        backend.calls.last().reply->succeed(preview(QStringLiteral("fresh-preview")));
+        controller.reset(); // The dialog's close path works again.
+        QVERIFY(controller.rows().isEmpty());
+
+        // A Collector's own error reply is an answer as well; only a transport failure is pending.
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        backend.calls.last().reply->succeed(preview());
+        controller.setOwnRecordsConfirmed(true);
+        controller.commit();
+        backend.calls.last().reply->fail(QStringLiteral("ERR_INTERNAL"), QStringLiteral("采集服务内部错误"));
+        QVERIFY(!controller.pendingCommitConfirmation());
+        QVERIFY(controller.canCommit()); // A plain retry still carries the same request id.
+        controller.commit();
+        backend.calls.last().reply->failUnsent(QStringLiteral("ERR_INTERNAL"), QStringLiteral("后台服务尚未连接。"));
+        QVERIFY(!controller.pendingCommitConfirmation());
     }
 
     void destroyedControllerAndSynchronousReply()
@@ -1497,6 +2260,7 @@ ApplicationWindow {
         mr::ImportRecordsController controller;
         controller.setBackend(&backend);
         controller.setBaselineCount(1500);
+        controller.setBaselineLoaded(true);
         controller.importText(QStringLiteral("副本\n合成副本"));
         QJsonObject response = preview();
         QJsonArray rows = response.value("rows").toArray();
@@ -1568,9 +2332,99 @@ ApplicationWindow {
         QVERIFY(!controller.baselineChoiceOffered());
     }
 
+    // Audit 2026-10-20 H2-8: only this software's own JSON export (every row carries the
+    // recorded run_id and source) holds post-installation runs; the JSON template a player fills
+    // with older history is counted in the baseline like a spreadsheet.
+    // Audit 2026-10-20 L2-9: until the stored baseline has been read, 0 is only a default. A batch
+    // that adds to the progress waits for it instead of silently skipping the 已包含 question.
+    void contributingBatchWaitsUntilTheBaselineIsRead()
+    {
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        QVERIFY(!controller.baselineLoaded());
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        backend.calls.last().reply->succeed(preview()); // No row adds to the progress.
+        controller.setOwnRecordsConfirmed(true);
+        QVERIFY(!controller.waitingForBaseline());
+        QVERIFY(controller.canCommit());
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        QJsonObject response = preview();
+        QJsonArray rows = response.value("rows").toArray();
+        QJsonObject first = rows[0].toObject();
+        first.insert("run", QJsonObject{{"result", "COMPLETED"}, {"contributes_to_goal", true},
+                                        {"import_metadata", QJsonObject{{"mentor_confirmed", true}}}});
+        rows[0] = first;
+        response.insert("rows", rows);
+        backend.calls.last().reply->succeed(response);
+        controller.setOwnRecordsConfirmed(true);
+        QCOMPARE(controller.contributingSelectedCount(), 1);
+        QVERIFY(!controller.baselineChoiceOffered()); // The unread 0 cannot ask the question...
+        QVERIFY(controller.waitingForBaseline());
+        QVERIFY(!controller.canCommit());             // ...so nothing is saved without it.
+        const int before = backend.calls.size();
+        controller.commit();
+        QCOMPARE(backend.calls.size(), before);
+        {
+            ImportThemeState theme;
+            QQmlEngine engine;
+            engine.rootContext()->setContextProperty(QStringLiteral("ImportRecords"), &controller);
+            engine.rootContext()->setContextProperty(QStringLiteral("App"), &theme);
+            engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+            QQmlComponent component(&engine);
+            component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 1240; height: 800; visible: true
+    ImportRecordsDialog { Component.onCompleted: open() }
+})", QUrl::fromLocalFile(QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/dialogs/ImportBaselineProbe.qml")));
+            QTRY_VERIFY_WITH_TIMEOUT(component.status() != QQmlComponent::Loading, 5000);
+            QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+            std::unique_ptr<QObject> root(component.create());
+            QVERIFY2(root != nullptr, qPrintable(component.errorString()));
+            auto *window = qobject_cast<QQuickWindow *>(root.get());
+            QVERIFY(window && QTest::qWaitForWindowExposed(window));
+            auto *hint = root->findChild<QQuickItem *>(QStringLiteral("importSelectionHint"));
+            auto *commit = root->findChild<QQuickItem *>(QStringLiteral("importCommit"));
+            QVERIFY(hint && commit);
+            QTRY_VERIFY(hint->property("text").toString().contains(QStringLiteral("起始次数尚未读取")));
+            QVERIFY(!commit->isEnabled());
+            controller.setBaselineCount(1500);
+            controller.setBaselineLoaded(true);
+            QTRY_VERIFY(commit->isEnabled());
+            QVERIFY(!hint->property("text").toString().contains(QStringLiteral("起始次数")));
+        }
+        QVERIFY(!controller.waitingForBaseline());
+        QVERIFY(controller.baselineChoiceOffered());
+        controller.commit();
+        QVERIFY(backend.calls.last().payload.value("deduct_from_baseline").toBool());
+        backend.calls.last().reply->succeed({{"imported_count", 1}});
+        controller.setBaselineLoaded(false); // A dropped connection forgets the stored figure again.
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        backend.calls.last().reply->succeed(response);
+        controller.setOwnRecordsConfirmed(true);
+        QVERIFY(!controller.canCommit());
+
+        // 重试确认保存 resends what was already asked, so it never waits for the baseline.
+        controller.setBaselineLoaded(true);
+        controller.commit();
+        const QString id = backend.calls.last().requestId;
+        const QJsonObject asked = backend.calls.last().payload;
+        backend.calls.last().reply->failTransport(QStringLiteral("ERR_INTERNAL"), QStringLiteral("后台服务暂时没有响应"));
+        QVERIFY(controller.pendingCommitConfirmation());
+        controller.setBaselineLoaded(false);
+        QVERIFY(controller.canCommit());
+        controller.commit();
+        QCOMPARE(backend.calls.last().requestId, id);
+        QCOMPARE(backend.calls.last().payload, asked);
+    }
+
     void backupAndNativeJsonDefaultToKeepingTheBaseline()
     {
-        for (const QString &kind : {QStringLiteral("BACKUP"), QStringLiteral("JSON"), QStringLiteral("XLSX"), QStringLiteral("XLS")}) {
+        for (const QString &variant : {QStringLiteral("BACKUP"), QStringLiteral("JSON"), QStringLiteral("NATIVE_JSON"),
+                                       QStringLiteral("PARTLY_NATIVE_JSON"), QStringLiteral("XLSX"), QStringLiteral("XLS")}) {
+            const QString kind = variant.endsWith(QLatin1String("JSON")) ? QStringLiteral("JSON") : variant;
             ImportBackend backend;
             mr::ImportRecordsController controller;
             controller.setBackend(&backend);
@@ -1593,10 +2447,31 @@ ApplicationWindow {
             first.insert("run", QJsonObject{{"result", "COMPLETED"}, {"contributes_to_goal", true},
                 {"import_metadata", QJsonObject{{"mentor_confirmed", true}}}});
             rows[0] = first;
+            if (variant != QLatin1String("JSON")) {
+                for (int i = 0; i < rows.size(); ++i) {
+                    if (variant == QLatin1String("PARTLY_NATIVE_JSON") && i == 2)
+                        continue; // One templated row makes the file a filled template, not an export.
+                    QJsonObject row = rows[i].toObject();
+                    QJsonObject candidate = row.value("candidate").toObject();
+                    candidate.insert("run_id", QStringLiteral("9f1d3f2a-6b47-4a01-9a52-8c0d7f1e4b3%1").arg(i));
+                    candidate.insert("source", QStringLiteral("AUTO"));
+                    row.insert("candidate", candidate);
+                    rows[i] = row;
+                }
+            } else { // The Collector echoes a missing identity as null.
+                for (int i = 0; i < rows.size(); ++i) {
+                    QJsonObject row = rows[i].toObject();
+                    QJsonObject candidate = row.value("candidate").toObject();
+                    candidate.insert("run_id", QJsonValue::Null);
+                    row.insert("candidate", candidate);
+                    rows[i] = row;
+                }
+            }
             response.insert("rows", rows);
             backend.calls.last().reply->succeed(response);
-            QVERIFY2(controller.baselineChoiceOffered(), qPrintable(kind));
-            QCOMPARE(controller.deductFromBaseline(), kind == QLatin1String("XLSX") || kind == QLatin1String("XLS"));
+            QVERIFY2(controller.baselineChoiceOffered(), qPrintable(variant));
+            const bool keepsBaseline = variant == QLatin1String("BACKUP") || variant == QLatin1String("NATIVE_JSON");
+            QVERIFY2(controller.deductFromBaseline() == !keepsBaseline, qPrintable(variant));
         }
     }
 
@@ -1734,6 +2609,135 @@ ApplicationWindow { width: 980; height: 760; visible: true
         QTest::keyClick(window, Qt::Key_Tab);
         QCOMPARE(field->property("text").toString(), beforeIme); // Tab never fills during composition.
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+    }
+
+    void pagedDialogPreservesWholeBatchAndKeyboard_data()
+    {
+        QTest::addColumn<bool>("dark");
+        QTest::addColumn<bool>("narrow");
+        QTest::newRow("light") << false << false;
+        QTest::newRow("dark") << true << false;
+        QTest::newRow("narrow") << false << true;
+    }
+
+    void pagedDialogPreservesWholeBatchAndKeyboard()
+    {
+        QFETCH(bool, dark);
+        QFETCH(bool, narrow);
+#ifdef Q_OS_WIN
+        const int fontId = QFontDatabase::addApplicationFont(
+            QDir(qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows"))).filePath(QStringLiteral("Fonts/msyh.ttc")));
+        const auto families = QFontDatabase::applicationFontFamilies(fontId);
+        QVERIFY(fontId >= 0 && !families.isEmpty());
+        QApplication::setFont(QFont(families.first()));
+#endif
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.setBaselineLoaded(true); // The paged batch adds to the progress.
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        QJsonObject all = pagedPreview(2090, 1, 2090);
+        all.remove("page_info"); // UI projection test; transport pages are exercised separately above.
+        backend.calls.last().reply->succeed(all);
+        controller.setOwnRecordsConfirmed(true);
+        ImportThemeState theme;
+        theme.dark = dark;
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("ImportRecords"), &controller);
+        engine.rootContext()->setContextProperty(QStringLiteral("App"), &theme);
+        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this, [&warnings](const QList<QQmlError> &errors) {
+            for (const auto &error : errors) warnings.append(error.toString());
+        });
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 1240; height: 800; visible: true
+    ImportRecordsDialog { Component.onCompleted: open() }
+})", QUrl::fromLocalFile(QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/dialogs/ImportPagingProbe.qml")));
+        QTRY_VERIFY_WITH_TIMEOUT(component.status() != QQmlComponent::Loading, 5000);
+        QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(window);
+        if (narrow) window->resize(980, 640);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *dialog = root->findChild<QObject *>(QStringLiteral("importRecordsDialog"));
+        auto *list = root->findChild<QQuickItem *>(QStringLiteral("importCandidates"));
+        auto *selectAll = root->findChild<QQuickItem *>(QStringLiteral("importSelectAll"));
+        auto *previousPage = root->findChild<QQuickItem *>(QStringLiteral("importPreviousPage"));
+        auto *nextPage = root->findChild<QQuickItem *>(QStringLiteral("importNextPage"));
+        auto *pageLabel = root->findChild<QQuickItem *>(QStringLiteral("importPageLabel"));
+        auto *commit = root->findChild<QQuickItem *>(QStringLiteral("importCommit"));
+        auto *job = root->findChild<QQuickItem *>(QStringLiteral("importJob"));
+        QVERIFY(dialog && list && selectAll && previousPage && nextPage && pageLabel && commit && job);
+        QCOMPARE(dialog->property("unknownJobCount").toInt(), 0);
+        QVERIFY(job->property("currentIndex").toInt() > 0);
+        QCOMPARE(dialog->property("pageCount").toInt(), 21);
+        QCOMPARE(dialog->property("pageRows").toList().size(), 100);
+        QVERIFY(selectAll->property("text").toString().contains(QStringLiteral("整批")));
+        controller.setAllImportableSelected(false);
+        selectAll->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(window, Qt::Key_Space);
+        QTRY_COMPARE(controller.selectedCount(), 2090);
+        QVERIFY(QMetaObject::invokeMethod(dialog, "selectRow", Q_ARG(QVariant, 99)));
+        list->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(window, Qt::Key_Down);
+        QTRY_COMPARE(controller.currentRow(), 100);
+        QTRY_COMPARE(dialog->property("reviewPage").toInt(), 1);
+        QTest::keyClick(window, Qt::Key_Up);
+        QTRY_COMPARE(controller.currentRow(), 99);
+        QTRY_COMPARE(dialog->property("reviewPage").toInt(), 0);
+        QTest::keyClick(window, Qt::Key_Return);
+        QTRY_COMPARE(controller.currentRow(), 100);
+        QTRY_COMPARE(dialog->property("reviewPage").toInt(), 1);
+        QVERIFY(QMetaObject::invokeMethod(dialog, "choosePage", Q_ARG(QVariant, 20)));
+        QTRY_COMPARE(dialog->property("reviewPage").toInt(), 20);
+        QCOMPARE(dialog->property("pageRows").toList().size(), 90);
+        QVERIFY(!nextPage->isEnabled());
+        QCOMPARE(controller.selectedCount(), 2090);
+        QVERIFY(QMetaObject::invokeMethod(dialog, "selectRow", Q_ARG(QVariant, 2089)));
+        controller.updateCandidate(2089, {{"reflection_text", QStringLiteral("末页编辑保留")}});
+        controller.revalidate();
+        const auto edited = backend.calls.last().payload.value("rows").toArray();
+        QJsonObject reviewed = previewCandidates(edited);
+        auto reviewedRows = reviewed.value("rows").toArray();
+        const auto referenceRows = all.value("rows").toArray();
+        for (int i = 0; i < reviewedRows.size(); ++i) {
+            auto row = reviewedRows[i].toObject(); row.insert("run", referenceRows[i].toObject().value("run")); reviewedRows[i] = row;
+        }
+        reviewed.insert("rows", reviewedRows);
+        backend.calls.last().reply->succeed(reviewed);
+        QTRY_COMPARE(controller.selectedCount(), 2090);
+        QCOMPARE(controller.currentCandidate().value("reflection_text").toString(), QStringLiteral("末页编辑保留"));
+        QTRY_COMPARE(dialog->property("reviewPage").toInt(), 20);
+        QTest::qWait(150);
+        for (QQuickItem *item : {previousPage, nextPage, pageLabel, commit}) {
+            QVERIFY(item->isVisible());
+            const auto rect = item->mapRectToScene(QRectF(0, 0, item->width(), item->height()));
+            QVERIFY2(rect.left() >= 0 && rect.right() <= window->width() && rect.top() >= 0 && rect.bottom() <= window->height(), qPrintable(item->objectName()));
+        }
+        previousPage->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(window, Qt::Key_Tab);
+        QTRY_VERIFY(window->activeFocusItem() && window->activeFocusItem() != previousPage);
+        const QString evidence = qEnvironmentVariable("MR_IMPORT_PAGING_SCREENSHOTS");
+        if (!evidence.isEmpty()) {
+            QVERIFY(QDir().mkpath(evidence));
+            const QString name = QStringLiteral("paging-%1.png").arg(narrow ? "narrow" : dark ? "dark" : "light");
+            QVERIFY(window->grabWindow().save(QDir(evidence).filePath(name)));
+        }
+        controller.commit();
+        QJsonArray imported;
+        for (int i = 1; i <= 2000; ++i) imported.append(QJsonObject{{"row_number", i}, {"status", "imported"}});
+        backend.calls.last().reply->succeed({{"imported_count", 2000}, {"rows", imported}});
+        QTRY_COMPARE(controller.rows().size(), 90);
+        QTRY_COMPARE(dialog->property("reviewPage").toInt(), 0);
+        QCOMPARE(dialog->property("pageRows").toList().size(), 90);
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join(QLatin1Char('\n'))));
     }
 
     void productionDialogLoadsAndActionsRemainVisibleAtMinimumSize_data()
@@ -2088,7 +3092,7 @@ ApplicationWindow {
         controller.commit();
         const QString commitId = backend.calls.last().requestId;
         const QJsonObject commitPayload = backend.calls.last().payload;
-        backend.calls.last().reply->fail(QStringLiteral("ERR_TIMEOUT"), QStringLiteral("尚未确认"));
+        backend.calls.last().reply->failTransport(QStringLiteral("ERR_INTERNAL"), QStringLiteral("尚未确认"));
         QTRY_VERIFY(commit->isEnabled());
         QVERIFY(!cancel->isEnabled());
         QTest::keyClick(window, Qt::Key_Escape);

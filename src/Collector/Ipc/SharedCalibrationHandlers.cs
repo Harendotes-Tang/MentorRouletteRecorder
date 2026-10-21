@@ -43,7 +43,7 @@ public static class SharedCalibrationHandlers
     /// <param name="host">Collector host.</param>
     /// <param name="reader">Request payload.</param>
     public static JsonObject Check(CollectorHost host, PayloadReader reader) =>
-        OutcomeResponse(EnumWire<SharedCheckOutcome>.Format(EmptyRequest(host, reader).CheckSharedCalibrationNow()));
+        CheckResponse(EmptyRequest(host, reader).CheckSharedCalibration());
 
     /// <summary>Handles <c>ImportCalibrationCode</c>. The length is checked before anything decodes the text.</summary>
     /// <param name="host">Collector host.</param>
@@ -71,11 +71,15 @@ public static class SharedCalibrationHandlers
     public static JsonObject AcceptQueueInference(CollectorHost host, PayloadReader reader) =>
         OutcomeResponse(EnumWire<SharedConsentOutcome>.Format(EmptyRequest(host, reader).AcceptSharedQueueInference()));
 
-    /// <summary>Handles <c>RejectSharedCalibration</c>.</summary>
+    /// <summary>
+    /// Handles <c>RejectSharedCalibration</c>. Refused, under the pipeline's gate, while a run is under way and the shared
+    /// calibration it would withdraw is the one recording it (audit 2026-10-20, K2-2; re-review RV2-3); dropping codes that
+    /// are still being checked cuts nothing and goes ahead.
+    /// </summary>
     /// <param name="host">Collector host.</param>
     /// <param name="reader">Request payload.</param>
     public static JsonObject Reject(CollectorHost host, PayloadReader reader) =>
-        RejectResponse(EmptyRequest(host, reader).RejectSharedCalibration());
+        RejectResponse(EmptyRequest(host, reader).RejectSharedCalibration(refuseWhileARunIsUnderWay: true));
 
     /// <summary>The <c>GetCalibrationShareCode</c> response.</summary>
     /// <param name="code">The share code.</param>
@@ -123,6 +127,24 @@ public static class SharedCalibrationHandlers
     /// <summary>The <c>CheckSharedCalibration</c> and <c>AcceptSharedQueueInference</c> responses.</summary>
     /// <param name="token">Outcome token.</param>
     public static JsonObject OutcomeResponse(string token) => new() { ["outcome"] = token };
+
+    /// <summary>
+    /// The <c>CheckSharedCalibration</c> response: the outcome token and, only when the answer carries one, the sentence
+    /// the Desktop shows in place of its own for that outcome (<c>message</c> and <c>message_ref</c>; re-review RV5-5).
+    /// </summary>
+    /// <param name="answer">What 立即检查 came to.</param>
+    public static JsonObject CheckResponse(SharedCheckAnswer answer)
+    {
+        ArgumentNullException.ThrowIfNull(answer);
+        var response = OutcomeResponse(EnumWire<SharedCheckOutcome>.Format(answer.Outcome));
+        if (answer.Text is { } text)
+        {
+            response["message"] = text.Chinese;
+            response["message_ref"] = text.ToJson();
+        }
+
+        return response;
+    }
 
     private static LiveProtocolPipeline EmptyRequest(CollectorHost host, PayloadReader reader)
     {

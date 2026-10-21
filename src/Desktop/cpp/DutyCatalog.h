@@ -69,6 +69,11 @@ public:
     /// …忆想歼灭战 or 终极之战); 普通 otherwise.
     static QString difficultyForName(const QString &name);
 
+    /// 通关占比的极神身份：仅接受目录中已知的整数 content_id，并使用目录
+    /// 中文类型和名称判断讨伐极难度，排除幻巧战；不改变 difficulty 字段、
+    /// 难度筛选或记录中的类型，也不根据调用方的显示名称推断身份。
+    bool isExtremeTrial(const QVariant &contentId) const;
+
     /// "2.x" for A Realm Reborn up to "7.x" for Dawntrail; empty otherwise.
     static QString versionForExpansion(const QString &expansion);
 

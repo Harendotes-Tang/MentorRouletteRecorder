@@ -21,7 +21,7 @@ public sealed class IpcImportAdmissionTests
             .Select(index => host.Imports.PreviewSource("ROWS", rows: Rows("retained-" + index))).ToArray();
         var commit = CommitRequest(previews[0]);
         var blocker = new DatabaseBlocker(host.Database);
-        await blocker.Entered.WaitAsync(TimeSpan.FromSeconds(5));
+        await blocker.Entered.WaitAsync(TimeSpan.FromSeconds(30));
         clock.Observe();
 
         using var firstStream = new RequestStream(PreviewRequest("cancelled-preview"));
@@ -34,11 +34,13 @@ public sealed class IpcImportAdmissionTests
         Task secondConnection = Task.CompletedTask;
         try
         {
-            await clock.FirstObservedRead.WaitAsync(TimeSpan.FromSeconds(5));
+            await clock.FirstObservedRead.WaitAsync(TimeSpan.FromSeconds(30));
             secondConnection = new PipeConnection(secondStream, dispatcher).ServeAsync(secondLifetime.Token);
             var replies = new List<JsonObject>();
             for (var index = 0; index < 32; index++)
-                replies.Add(await secondStream.NextWrittenAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
+                // Bounded, not tight: on a loaded machine (the full gate builds C++ in parallel)
+                // a refusal can take several seconds to be written; a hang is still caught.
+                replies.Add(await secondStream.NextWrittenAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(30)));
 
             var refusals = replies.Where(reply => reply["ok"]!.GetValue<bool>() == false).ToArray();
             Assert.Equal(31, refusals.Length);
@@ -54,7 +56,7 @@ public sealed class IpcImportAdmissionTests
             // The database holder is still running: leaving the connection must release its
             // one admitted worker without waiting for somebody else's database operation.
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
-                () => firstConnection.WaitAsync(TimeSpan.FromSeconds(2)));
+                () => firstConnection.WaitAsync(TimeSpan.FromSeconds(10)));
             Assert.False(blocker.Finished);
         }
         finally

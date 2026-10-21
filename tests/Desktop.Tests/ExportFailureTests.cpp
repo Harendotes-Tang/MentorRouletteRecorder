@@ -2,10 +2,23 @@
 #include "ExportController.h"
 #include "MockBackend.h"
 
+#include <QDesktopServices>
+#include <QScopeGuard>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QtTest>
 
 namespace {
+
+/// Stands in for the shell: records the folders that would have been opened.
+class OpenedFolders final : public QObject
+{
+    Q_OBJECT
+public:
+    QList<QUrl> urls;
+public Q_SLOTS:
+    void open(const QUrl &url) { urls.append(url); }
+};
 
 class BackupReplyBackend final : public mr::MockBackend
 {
@@ -66,6 +79,40 @@ private Q_SLOTS:
         controller.backupDatabase();
 
         QCOMPARE(succeeded.count(), 1);
+    }
+
+    // Audit 2026-10-20 I3-7: before the Collector has named its database, 打开目录 opens the
+    // folder the Collector uses - MR_DATA_DIR or %LOCALAPPDATA%\MentorRecorder - and never
+    // creates one of its own.
+    void databaseFolderFallbackIsTheCollectorDataDirectory()
+    {
+        QTemporaryDir root;
+        QVERIFY(root.isValid());
+        const QString dataDirectory = QDir(root.path()).filePath(QStringLiteral("collector-data"));
+        const QByteArray previous = qgetenv("MR_DATA_DIR");
+        const bool hadPrevious = qEnvironmentVariableIsSet("MR_DATA_DIR");
+        qputenv("MR_DATA_DIR", dataDirectory.toUtf8());
+        OpenedFolders opened;
+        QDesktopServices::setUrlHandler(QStringLiteral("file"), &opened, "open");
+        const auto restore = qScopeGuard([&] {
+            QDesktopServices::unsetUrlHandler(QStringLiteral("file"));
+            if (hadPrevious)
+                qputenv("MR_DATA_DIR", previous);
+            else
+                qunsetenv("MR_DATA_DIR");
+        });
+        mr::ExportController controller;
+        QSignalSpy toast(&controller, &mr::ExportController::toastRequested);
+
+        controller.openDatabaseFolder({});
+        QVERIFY(!QFileInfo::exists(dataDirectory));
+        QVERIFY(opened.urls.isEmpty());
+        QCOMPARE(toast.count(), 1);
+        QVERIFY(toast.last().first().toString().contains(QDir::toNativeSeparators(dataDirectory)));
+
+        QVERIFY(QDir().mkpath(dataDirectory));
+        controller.openDatabaseFolder(QDir(root.path()).filePath(QStringLiteral("gone/mentor.db")));
+        QCOMPARE(opened.urls, QList<QUrl>{QUrl::fromLocalFile(QDir::cleanPath(dataDirectory))});
     }
 };
 

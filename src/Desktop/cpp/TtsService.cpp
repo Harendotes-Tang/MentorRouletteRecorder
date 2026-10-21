@@ -7,6 +7,7 @@
 
 #include <QCoreApplication>
 #include <QDesktopServices>
+#include <QGuiApplication>
 #include <QLocale>
 #include <QLoggingCategory>
 #include <QStringList>
@@ -43,6 +44,17 @@ TtsService::TtsService(AppSettings *settings, QObject *parent, EngineMode engine
         connect(m_settings, &AppSettings::ttsChanged, this, &TtsService::onSettingsChanged);
         m_announcementsEnabled = m_settings->ttsEnabled();
         m_onlineVoice = onlineVoiceSelected();
+    }
+
+    // The voice list was read once per process. A voice the player adds through
+    // 「打开 Windows 语音设置」 is read when they come back to this tray-resident
+    // app, not at its next start (review I4-4).
+    if (auto *app = qobject_cast<QGuiApplication *>(QCoreApplication::instance())) {
+        connect(app, &QGuiApplication::applicationStateChanged, this,
+                [this](Qt::ApplicationState state) {
+                    if (state == Qt::ApplicationActive && languageVoiceMissing())
+                        rescanVoices();
+                });
     }
 
     // The status line and the voice labels are rebuilt for a language switch.
@@ -175,10 +187,20 @@ bool TtsService::voiceApplicableInState(int state)
     return state == int(QTextToSpeech::Ready);
 }
 
+void TtsService::rescanVoices()
+{
+    if (!m_engine)
+        return;
+    m_voiceListStale = true;
+    m_voicePending = true;
+    applyVoiceAndLevels();
+}
+
 void TtsService::refreshVoiceList()
 {
-    if (!m_engine || !m_engineVoices.isEmpty())
+    if (!m_engine || (!m_engineVoices.isEmpty() && !m_voiceListStale))
         return;
+    m_voiceListStale = false;
 
     const QLocale before = m_engine->locale();
     const QList<QVoice> all = m_engine->findVoices();

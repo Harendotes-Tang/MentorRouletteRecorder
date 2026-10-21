@@ -4,6 +4,28 @@ namespace MentorRecorder.Collector.UnitTests;
 
 public sealed class GameProcessPathResolutionTests
 {
+    /// <summary>
+    /// Audit 2026-10-20, A2-4. The detection warnings every player sees when the install path or
+    /// the region cannot be told used to end in the English design term "(fail-closed)". The
+    /// sentence already says what happens: nothing is recorded automatically.
+    /// </summary>
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData(null, false)]
+    [InlineData(@"D:\最终幻想\SquareEnix\FINAL FANTASY XIV - A Realm Reborn\game\ffxiv_dx11.exe", false)]
+    [InlineData(@"D:\Games\game\ffxiv_dx11.exe", false)]
+    public void TheGameDetectionWarningsAreFreeOfDesignJargon(string? path, bool accessDenied)
+    {
+        var processes = new FakeGameProcessProvider().Add(
+            GameProcessLocator.Dx11ProcessName, 55, DateTimeOffset.UnixEpoch, path, accessDenied);
+
+        var detection = new GameProcessLocator(processes, new FakeGameFileReader()).Locate();
+
+        Assert.Contains(detection.Warnings, warning => warning.Chinese.Contains("不会进行任何自动记录", StringComparison.Ordinal));
+        Assert.All(detection.Warnings, warning =>
+            Assert.DoesNotContain("fail-closed", warning.Chinese, StringComparison.OrdinalIgnoreCase));
+    }
+
     [Fact]
     public void TheProcessTableAnswerIsTakenAsIs()
     {

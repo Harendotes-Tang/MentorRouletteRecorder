@@ -327,8 +327,13 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         Assert.Equal(TimeSpan.FromHours(6), SharedCalibrationStore.AutoFetchInterval);
     }
 
+    /// <summary>
+    /// The repository never takes a revocation back (quarantine is its reversible tool), so a later index that no longer
+    /// says so - a mirror still serving the index from before the revocation - leaves the code revoked (audit 2026-10-20,
+    /// E-1; until then the stored list was replaced by every readable index, and this test pinned that).
+    /// </summary>
     [Fact]
-    public void ACodeTheIndexRevokedIsNotLoadedUntilAReadableIndexStopsRevokingIt()
+    public void ACodeTheIndexRevokedStaysRevokedWhenALaterIndexNoLongerSaysSo()
     {
         var code = Candidate(0xF001);
         _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, code), T0);
@@ -341,9 +346,30 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.IndexUnavailable), T0.AddHours(14));
         Assert.Empty(_store.LoadCandidates(Region.Cn, Build, Template));
 
-        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.NoneForBuild), T0.AddHours(21));
-        Assert.Single(_store.LoadCandidates(Region.Cn, Build, Template));
+        // A stale index that lists the code again, and one that no longer mentions it at all.
+        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, code), T0.AddHours(21));
+        _store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.NoneForBuild), T0.AddHours(28));
+
+        Assert.Empty(_store.LoadCandidates(Region.Cn, Build, Template));
+        Assert.Equal(SharedPublication.Revoked, _store.Publication(Region.Cn, Build, code.CodeSha256));
+        Assert.Equal(new[] { code.CodeSha256 }, _store.RevokedCodes(Region.Cn, Build));
+        Assert.Null(_store.CodeText(Region.Cn, Build, code.CodeSha256));
         Assert.True(File.Exists(FileOf(code)));
+    }
+
+    [Fact]
+    public void TheRevocationListIsBoundedAndANewRevocationIsNeverTheOneDropped()
+    {
+        var earlier = Enumerable.Range(0, SharedCalibrationIndex.MaxEntries).Select(index => index.ToString("x64")).ToArray();
+        var full = SharedCalibrationState.Empty.WithRevoked(earlier);
+        var fresh = new string('f', 64);
+
+        var next = full.WithMoreRevoked(new[] { fresh });
+
+        Assert.Equal(SharedCalibrationIndex.MaxEntries, next.Revoked.Count);
+        Assert.Contains(fresh, next.Revoked);
+        Assert.Equal(next.Revoked.Order(StringComparer.Ordinal), next.Revoked);
+        Assert.Equal(earlier, full.WithMoreRevoked(Array.Empty<string>()).Revoked);
     }
 
     // -------------------------------------------------------------------- rejections
@@ -422,6 +448,14 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         Assert.True(File.Exists(FileOf(code)));
     }
 
+    /// <summary>
+    /// A state file that exists but cannot be opened is an unknown, not an empty bookkeeping: what it would say about
+    /// revocations, rejections and the player's refusal cannot be read, so nothing stored is offered, and both the code's
+    /// rejection and the player's refusal answer "unknown" - which no caller keeps, the paths that offer or admit a code
+    /// read as refused, and the withdrawal of the profile in use does not act on (audit 2026-10-20, E-2; until then the
+    /// stored code was offered, and this test pinned that. Re-review RV2-1: for a while the code's rejection answered
+    /// "rejected" here, which withdrew the profile in use over a passing lock).
+    /// </summary>
     [Fact]
     public void AStateFileThatCannotBeOpenedIsNeitherTrustedNorOverwritten()
     {
@@ -435,10 +469,16 @@ public sealed class SharedCalibrationStoreTests : IDisposable
             Assert.False(_store.RecordFetch(Region.Cn, Build, Template, Fetched(SharedFetchStatus.Ok, code), T0.AddHours(7)).Recorded);
             Assert.False(_store.ClearRejections(Region.Cn, Build));
             Assert.Null(_store.LastFetch(Region.Cn, Build, Template));
-            Assert.Single(_store.LoadCandidates(Region.Cn, Build, Template));
+            Assert.Empty(_store.LoadCandidates(Region.Cn, Build, Template));
+            Assert.Null(_store.IsRejected(Region.Cn, Build, Template, code.CodeSha256));
+            Assert.Null(_store.IsUserRejected(Region.Cn, Build));
+            Assert.Empty(_store.RevokedCodes(Region.Cn, Build));
         }
 
         Assert.Equal(before, File.ReadAllText(StateFile));
+        Assert.Single(_store.LoadCandidates(Region.Cn, Build, Template));
+        Assert.False(_store.IsRejected(Region.Cn, Build, Template, code.CodeSha256));
+        Assert.False(_store.IsUserRejected(Region.Cn, Build));
     }
 
     // -------------------------------------------------------------------------- inert
@@ -456,6 +496,7 @@ public sealed class SharedCalibrationStoreTests : IDisposable
         Assert.False(inert.IsRejected(Region.Cn, Build, Template, Template));
         Assert.False(inert.ClearRejections(Region.Cn, Build));
         Assert.Equal(SharedPublication.Unknown, inert.Publication(Region.Cn, Build, Template));
+        Assert.Empty(inert.RevokedCodes(Region.Cn, Build));
     }
 
     // ------------------------------------------------------------------------ publication (plan §18.5)

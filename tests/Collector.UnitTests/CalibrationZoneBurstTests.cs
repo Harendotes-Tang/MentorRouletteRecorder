@@ -1,4 +1,5 @@
 using MentorRecorder.Collector.Domain;
+using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Decoded;
 
@@ -180,6 +181,93 @@ public sealed class CalibrationZoneBurstTests
         Assert.Equal(725_100, Assert.Single(draft.Events, e => e.Kind == "duty_enter").TMs);
         Assert.Equal(815_100, Assert.Single(draft.Events, e => e.Kind == "duty_exit").TMs);
     }
+
+    /// <summary>
+    /// Re-review 2026-10-20, RV1-1. Bursts are a window of the newest 64 (C-4), while sightings outside a burst are counted
+    /// for the evidence's whole life. Weighed against the window alone, the true marker - filed outside a burst on one slow
+    /// load in ten - stopped qualifying for good at about two hundred zone loads: the draft could only say 进出副本的时间还在
+    /// 检查中, and the repeated signature no longer opened an exit that background traffic hides. The loads let go still
+    /// count as marked, and that count travels with the evidence across restarts.
+    /// </summary>
+    [Fact]
+    public void TheTrueMarkerKeepsQualifyingAfterTwoHundredLoadsWithOneInTenFiledOutside()
+    {
+        const string build = "2026.09.01.0000.0000";
+        const string templateSha = "template-sha";
+        var template = CalibrationObserverTests.Template();
+        var zone = new MessageKey(PacketDirection.ServerToClient, 0xA107, 456);
+        var root = Path.Combine(Path.GetTempPath(), "MentorRecorder.Rv11." + Guid.NewGuid().ToString("N"));
+        try
+        {
+            CalibrationSnapshot? carried = null;
+            for (var session = 0; session < 10; session++)
+            {
+                var id = "session-" + session;
+                var observer = new CalibrationObserver(template, Region.Cn, id);
+                if (carried is not null)
+                {
+                    observer.AdoptEvidence(carried);
+                }
+
+                var shift = TimeSpan.FromHours(session * 2);
+                foreach (var message in LoadsWithOneInTenMarkersOutside(session * 20).OrderBy(m => m.Mono))
+                {
+                    observer.Accept(message with { CaptureSessionId = id, ObservedAtUtc = message.ObservedAtUtc + shift });
+                }
+
+                observer.Flush();
+                Assert.True(CalibrationEvidenceStore.Save(root, Region.Cn, build, templateSha, observer.Snapshot()));
+                carried = CalibrationEvidenceStore.Load(root, Region.Cn, build, templateSha);
+                Assert.NotNull(carried);
+            }
+
+            var snapshot = carried!;
+            Assert.Equal(0, snapshot.OverflowCount);
+            Assert.Equal(CalibrationObserver.MaxClusters, snapshot.Clusters.Count);
+            Assert.Equal(20, CalibrationDraft.Outside(snapshot, zone));
+            Assert.True(CalibrationDraft.MarksEnough(snapshot, zone));
+            Assert.Equal(1, CalibrationEvidenceSummary.From(snapshot, template).ZoneCandidates);
+
+            // One more restart, then a duty whose exit background traffic hides: the signature still opens it.
+            var next = new CalibrationObserver(template, Region.Cn, "session-10");
+            next.AdoptEvidence(snapshot);
+            foreach (var message in BeforeExit().Concat(Background()).Concat(CalibrationObserverTests.Cluster(215_000, 5000))
+                         .OrderBy(m => m.Mono))
+            {
+                next.Accept(message with
+                {
+                    CaptureSessionId = "session-10", ObservedAtUtc = message.ObservedAtUtc + TimeSpan.FromHours(20),
+                });
+            }
+
+            next.Flush();
+            var played = next.Snapshot();
+            Assert.Equal(3, played.Clusters.Count(cluster =>
+                played.ConnectionSessions.TryGetValue(cluster.ConnectionTag, out var owner) && owner == "session-10"));
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(root, recursive: true);
+            }
+            catch (IOException)
+            {
+                // Debris in the temp folder is not worth failing a test over.
+            }
+        }
+    }
+
+    /// <summary>Twenty town loads; on every tenth load overall the marker arrives early and is filed outside the burst.</summary>
+    private static IEnumerable<DecodedMessage> LoadsWithOneInTenMarkersOutside(int firstLoad) =>
+        Enumerable.Range(0, 20).SelectMany(index =>
+        {
+            var t = 5_000 + (index * 30_000L);
+            return (firstLoad + index) % 10 == 9
+                ? CalibrationObserverTests.Cluster(t, 5000, includeZoneInit: false).Prepend(
+                    CalibrationObserverTests.Message(MessageDirection.Inbound, 0xA107, new byte[456], t - 10_000))
+                : CalibrationObserverTests.Cluster(t, 5000);
+        });
 
     private static IEnumerable<DecodedMessage> BeforeExit() =>
         CalibrationObserverTests.Session1().Where(m => m.Mono.TotalMilliseconds < 215_000);

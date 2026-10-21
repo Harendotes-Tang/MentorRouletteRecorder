@@ -16,14 +16,16 @@ on:
 permissions:
   contents: read
 
-# The publisher and normal repository mirror use the same repository-scoped lock.
+# Shared with the repository mirror and the scheduled release catch-up; a release-event run
+# holds a per-tag lock and only pushes refs that exist on GitHub (mirror-release.yml).
 concurrency:
   group: gitcode-mirror-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
   cleanup:
-    if: github.repository == 'Harendotes-Tang/MentorRouletteRecorder' && (github.event_name != 'delete' || github.event.ref_type == 'branch')
+    # Dependabot branch deletions run without Actions secrets; the schedule covers them.
+    if: github.repository == 'Harendotes-Tang/MentorRouletteRecorder' && (github.event_name != 'delete' || github.event.ref_type == 'branch') && (github.event_name == 'schedule' || github.actor != 'dependabot[bot]')
     runs-on: ubuntu-latest
     timeout-minutes: 65
     steps:

@@ -48,6 +48,17 @@ QDateTime parseUtc(const QJsonValue &value)
     return dt;
 }
 
+/// Whether a reply still belongs to the recovery scope captured when its request
+/// went out. An empty captured key means no database identity was known yet:
+/// the first identity is not a change of database - RecoveryController claims
+/// this process's earlier work for it and emits no scopeChanging (review P-4).
+/// Every real change also bumps the prompt context generation, which the
+/// callers compare as well.
+bool sameRecoveryScope(const QString &capturedKey, const QString &currentKey)
+{
+    return capturedKey.isEmpty() || capturedKey == currentKey;
+}
+
 /// The keys $defs/UpdateCaptureSettingsRequest accepts. An unknown key is
 /// dropped rather than sent into an additionalProperties:false schema, which
 /// would be refused outright.
@@ -76,10 +87,38 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     , m_collector(collector)
     , m_history(new HistoryController(backend, this))
     , m_statistics(new StatisticsController(backend, this))
+    , m_statisticsOverlay(new StatisticsOverlayController(settings, this))
+    , m_recovery(new RecoveryController(backend, settings, this))
     , m_tts(new TtsService(settings, this, speechEngine))
     , m_promptCutoffUtc(QDateTime::currentDateTimeUtc())
 {
     m_capture = new CaptureValidationController(this, this);
+    connect(m_recovery, &RecoveryController::scopeChanging, this, [this] {
+        ++m_recoveryPromptContextGeneration;
+        m_history->invalidateResultRequests();
+        // QML closes the old editor before the recovery journal changes.
+        // Its close callbacks must not re-offer a queued run from that scope.
+        m_queuedResultRuns.clear();
+        m_queuedReflectionRuns.clear();
+        m_offeredResultRunIds.clear();
+        m_offeredReflectionRunIds.clear();
+        m_confirmedRunIds.clear();
+        m_promptedRunIds.clear();
+        m_resultConfirmationBusy = false;
+        m_reflectionPromptBusy = false;
+    });
+    connect(m_recovery, &RecoveryController::promptReady, this,
+            [this](const QVariantMap &run, const QString &kind) {
+        const QJsonObject record = QJsonObject::fromVariantMap(run);
+        if (kind == QLatin1String("reflection"))
+            maybePromptForReflection(record);
+        else if (kind == QLatin1String("result"))
+            maybeConfirmResult(QStringLiteral("UNKNOWN_FINAL_STATE"), record);
+    });
+    connect(m_statisticsOverlay, &StatisticsOverlayController::opened, this, [this] {
+        m_statistics->dungeons()->reload();
+        m_statistics->jobs()->reload();
+    });
     m_capture->setBackend(backend);
     m_recording = new AutomaticRecordingController(backend, this);
     connect(m_capture, &CaptureValidationController::metadataOwnershipChanged,
@@ -88,11 +127,14 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     connect(this, &AppController::statusChanged, this,
             [this] { m_gameSelection->observe(captureStatus()); });
     connect(m_recording, &AutomaticRecordingController::captureObserved,
-            m_gameSelection, &GameSelectionController::observe);
+            this, [this](const QVariantMap &capture) {
+        m_collectorStatus.insert(QStringLiteral("capture"), QJsonObject::fromVariantMap(capture));
+        m_captureAnswerAtUtc = QDateTime::currentDateTimeUtc();
+        Q_EMIT statusChanged();
+    });
     connect(m_gameSelection, &GameSelectionController::selected, this,
             [this](const QVariantMap &capture) {
         adoptCaptureAnswer(QJsonObject::fromVariantMap(capture));
-        emit statusChanged();
         m_recording->refresh();
     });
     connect(m_recording, &AutomaticRecordingController::settingsConfirmed, this,
@@ -119,11 +161,7 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     // one place and cannot go stale behind a single path.
     connect(this, &AppController::statusChanged, this,
             [this] { m_calibration->refreshFromCaptureStatus(captureStatus()); });
-    // The recording poll reads a capture snapshot of its own every two seconds while the
-    // game is up. Calibration progress changes without the state changing (a roulette is
-    // seen, a zone burst closes), so the card follows that poll as well.
-    connect(m_recording, &AutomaticRecordingController::captureObserved, this,
-            [this](const QVariantMap &capture) { m_calibration->refreshFromCaptureStatus(capture); });
+    // Recording polls enter the same statusChanged path as every other accepted capture.
     connect(m_calibration, &CalibrationController::confirmed, this,
             [this](const QString &, bool) {
         // The Collector has written and bound the profile; the projection the
@@ -203,19 +241,8 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
         m_captureSettingsError.clear();
         Q_EMIT captureSettingsChanged();
     });
-    connect(m_candidates, &CandidateReviewController::captureStatusRefreshRequested, this, [this] {
-        // m_backend is a QPointer and every callback checks it (review finding
-        // M-1); this signal comes from a child object, so nothing else
-        // guarantees the backend outlives it.
-        if (!m_backend)
-            return;
-        m_backend->getCaptureStatus()->whenDone(this,
-            [this](bool ok, const QVariantMap &payload, const QString &, const QString &) {
-                if (!ok) return;
-                adoptCaptureAnswer(QJsonObject::fromVariantMap(payload));
-                Q_EMIT statusChanged();
-            });
-    });
+    connect(m_candidates, &CandidateReviewController::captureStatusRefreshRequested,
+            this, &AppController::rereadCaptureStatus);
 
     // QML and the tray consume the unified capture projection through
     // validationChanged, but it depends on both validation and formal capture
@@ -240,6 +267,8 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     });
 
     connect(m_statistics, &StatisticsController::dashboardChanged, this, &AppController::dashboardChanged);
+    connect(m_statistics, &StatisticsController::achievementMilestoneReached,
+            this, &AppController::achievementMilestoneReached);
     connect(this, &AppController::statusChanged, this, &AppController::captureHealthTextChanged);
     onLanguageChanged(this, &AppController::retranslate);
     connect(m_statistics, &StatisticsController::achievementSettingsLoadedChanged, this,
@@ -257,10 +286,29 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     connect(m_statistics, &StatisticsController::toastRequested, this, &AppController::showToast);
     connect(m_history, &HistoryController::selectionChanged, this, &AppController::selectionChanged);
     connect(m_history, &HistoryController::runEventsChanged, this, &AppController::runEventsChanged);
-    connect(m_history, &HistoryController::pendingReviewRunChanged, this, &AppController::pendingReviewRunChanged);
     connect(m_history, &HistoryController::runRevisionChanged, this, &AppController::runRevisionChanged);
     connect(m_history, &HistoryController::mutationFailed, this, &AppController::mutationFailed);
     connect(m_history, &HistoryController::mutationSucceeded, this, &AppController::mutationSucceeded);
+    connect(m_history, &HistoryController::mutationSucceeded, this,
+            [this](const QString &kind, const QString &runId, int, const QString &) {
+        // An answer given anywhere - the popup's pager, the history page -
+        // settles the run's automatic prompts: a queued question is not asked
+        // again when the popup closes (review L2-2).
+        if (kind == QLatin1String("review") && !runId.isEmpty()) {
+            const auto sameRun = [&runId](const QJsonObject &queued) {
+                return queued.value(QStringLiteral("run_id")).toString() == runId;
+            };
+            m_queuedResultRuns.removeIf(sameRun);
+            m_queuedReflectionRuns.removeIf(sameRun);
+            m_offeredResultRunIds.remove(runId);
+            m_offeredReflectionRunIds.remove(runId);
+            m_confirmedRunIds.insert(runId);
+        }
+        // A mutation reply carries no submitting database identity, and a
+        // correction can leave pending_review unchanged. Only a fresh read
+        // in the recovery controller's current scope decides what remains.
+        m_recovery->refresh();
+    });
     connect(m_history, &HistoryController::toastRequested, this, &AppController::showToast);
     connect(m_history, &HistoryController::refreshRequested, this, &AppController::refreshAll);
     connect(m_history, &HistoryController::checkedRunsChanged, this, [this] {
@@ -282,9 +330,7 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
             m_export->setHistoryFilter(QJsonObject::fromVariantMap(m_history->historyFilter()));
         Q_EMIT historyFilterChanged();
     });
-    connect(m_statistics, &StatisticsController::dashboardRequestFinished, this, [this](bool ok) {
-        if (ok)
-            m_history->updatePendingReviewCount(m_statistics->pendingReviewCount());
+    connect(m_statistics, &StatisticsController::dashboardRequestFinished, this, [this](bool) {
         if (m_tts)
             m_tts->setContextValues(announcementValues());
     });
@@ -302,6 +348,8 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     }
 
     connect(m_backend, &IBackend::connectionChanged, this, [this] {
+        ++m_recoveryConnectionGeneration;
+        ++m_recoveryPromptContextGeneration;
         Q_EMIT backendChanged();
         if (m_collector)
             m_collector->noteBackendConnected(m_backend->isConnected());
@@ -531,7 +579,7 @@ QString AppController::collectorStatusText() const
     // A live pipe is the ground truth: our own child may have exited because
     // another instance already holds the per-user serve lease.
     if (backendConnected() && m_collector->state() != CollectorProcess::State::Running)
-        return tr("Collector 运行中（复用已有实例）");
+        return tr("后台服务运行中（沿用之前启动的）");
     return m_collector->statusText();
 }
 
@@ -571,13 +619,38 @@ QString AppController::captureProfileStatus() const
 void AppController::applyFormalCaptureStatus(const QVariantMap &capture)
 {
     adoptCaptureAnswer(QJsonObject::fromVariantMap(capture));
-    Q_EMIT statusChanged();
+}
+
+quint64 AppController::formalCaptureRevision() const
+{
+    return m_recording->captureRevision();
 }
 
 void AppController::adoptCaptureAnswer(const QJsonObject &capture)
 {
-    m_collectorStatus.insert(QStringLiteral("capture"), capture);
-    m_captureAnswerAtUtc = QDateTime::currentDateTimeUtc();
+    m_recording->observeCapture(capture.toVariantMap());
+}
+
+void AppController::adoptCollectorAnswer(const QVariantMap &payload, quint64 captureRevision)
+{
+    const auto previous = m_collectorStatus;
+    m_collectorStatus = QJsonObject::fromVariantMap(payload);
+    auto capture = m_collectorStatus.value(QStringLiteral("capture")).toObject();
+    const auto game = m_collectorStatus.value(QStringLiteral("game")).toObject();
+    if (game.contains(QStringLiteral("install_path_readable")))
+        capture.insert(QStringLiteral("install_path_readable"), game.value(QStringLiteral("install_path_readable")));
+    if (captureRevision == m_recording->captureRevision()
+        && capture.value(QStringLiteral("ffxiv_running")).isBool()) {
+        adoptCaptureAnswer(capture);
+    } else {
+        // 下载进度等非捕获信息仍然有效；game 与 capture 来自同一快照，须一起保留。
+        for (const auto *name : {"capture", "game"}) {
+            const auto key = QString::fromLatin1(name);
+            if (previous.contains(key)) m_collectorStatus.insert(key, previous.value(key));
+            else m_collectorStatus.remove(key);
+        }
+        Q_EMIT statusChanged();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -644,18 +717,27 @@ QString AppController::captureHealthText() const
 
 void AppController::refreshCaptureSettings()
 {
+    readCaptureSettings(false);
+}
+
+void AppController::readCaptureSettings(bool preserveWriteError)
+{
     if (!m_backend)
         return;
     const auto candidateGeneration = m_candidateSettingsGeneration;
+    const auto editGeneration = m_captureSettingsEditGeneration;
     m_backend->getCaptureSettings()->whenDone(
-        this, [this, candidateGeneration](bool ok, const QVariantMap &payload, const QString &code,
+        this, [this, candidateGeneration, editGeneration, preserveWriteError](bool ok, const QVariantMap &payload, const QString &code,
                      const QString &message) {
-            if (candidateGeneration != m_candidateSettingsGeneration) return;
+            if (candidateGeneration != m_candidateSettingsGeneration
+                || editGeneration != m_captureSettingsEditGeneration
+                || !m_pendingCaptureSettings.isEmpty() || m_captureSettingsWritesInFlight > 0)
+                return;
             if (ok) {
                 m_captureSettings = QJsonObject::fromVariantMap(payload);
                 m_captureSettingsLoaded = true;
                 m_captureSettingsSupported = true;
-                m_captureSettingsError.clear();
+                if (!preserveWriteError) m_captureSettingsError.clear();
             } else if (code == QLatin1String("ERR_UNKNOWN_MESSAGE")
                        || code == QLatin1String("ERR_UNSUPPORTED")
                        || code == QLatin1String("ERR_BAD_REQUEST")) {
@@ -684,6 +766,7 @@ void AppController::updateCaptureSetting(const QString &key, const QVariant &val
 
     // Optimistic locally so the control does not snap back while the debounce
     // runs; the authoritative object always comes from the reply.
+    ++m_captureSettingsEditGeneration;
     m_captureSettings.insert(key, QJsonValue::fromVariant(value));
     m_pendingCaptureSettings.insert(key, QJsonValue::fromVariant(value));
     Q_EMIT captureSettingsChanged();
@@ -712,7 +795,7 @@ void AppController::flushCaptureSettings()
                 Q_EMIT captureSettingsChanged();
                 // Re-read, so the page shows what the Collector actually has
                 // rather than the value this process optimistically wrote.
-                refreshCaptureSettings();
+                readCaptureSettings(true);
                 return;
             }
             auto confirmed = QJsonObject::fromVariantMap(payload);
@@ -739,6 +822,11 @@ void AppController::flushCaptureSettings()
             m_captureSettingsLoaded = true;
             m_captureSettingsError.clear();
             Q_EMIT captureSettingsChanged();
+            if (changes.contains(QStringLiteral("region_override"))) {
+                // 保存确认后才重查；选择区服本身既不启动正式捕获，也不启动采证。
+                refreshStatus();
+                m_recording->refresh();
+            }
         });
 }
 
@@ -795,6 +883,7 @@ void AppController::refreshAll()
     refreshDashboard();
     refreshTrend();
     refreshReflections();
+    m_recovery->refresh();
     m_history->runs()->reload();
     m_statistics->dungeons()->reload();
     m_statistics->jobs()->reload();
@@ -815,12 +904,50 @@ void AppController::readCollectorStatus()
 {
     if (!m_backend)
         return;
+    const quint64 generation = ++m_recoveryStatusReadGeneration;
+    const quint64 connectionGeneration = m_recoveryConnectionGeneration;
+    const auto captureRevision = m_recording->captureRevision();
     m_backend->getStatus()->whenDone(
-        this, [this](bool ok, const QVariantMap &payload, const QString &,
+        this, [this, generation, connectionGeneration, captureRevision]
+                    (bool ok, const QVariantMap &payload, const QString &,
                      const QString &) {
-            m_collectorStatus = ok ? QJsonObject::fromVariantMap(payload) : QJsonObject();
-            m_captureAnswerAtUtc = ok ? QDateTime::currentDateTimeUtc() : QDateTime();
-            Q_EMIT statusChanged();
+            if (generation != m_recoveryStatusReadGeneration
+                || connectionGeneration != m_recoveryConnectionGeneration)
+                return;
+            if (ok) {
+                adoptCollectorAnswer(payload, captureRevision);
+            } else {
+                // One failed read on a live pipe (one queued behind a long
+                // BackupDatabase, say) says nothing about the capture: its last
+                // answer stays, with the time it was given, as the speech hookup
+                // keeps database_path. Calibration, shared calibration and an
+                // evidence preview would otherwise see the capture drop to idle
+                // although nothing stopped it (review I4-3). Npcap and the
+                // game come from the same snapshot and stay with it, or an
+                // installed Npcap that cannot be used would read as ready
+                // (review RV3-2 / RV5-7). Without a pipe nothing is known.
+                const QJsonObject previous = m_collectorStatus;
+                m_collectorStatus = QJsonObject();
+                if (m_backend && m_backend->isConnected()
+                    && previous.value(QStringLiteral("capture")).isObject()) {
+                    for (const auto *name : {"capture", "npcap", "game"}) {
+                        const auto key = QString::fromLatin1(name);
+                        if (previous.contains(key))
+                            m_collectorStatus.insert(key, previous.value(key));
+                    }
+                } else {
+                    m_captureAnswerAtUtc = QDateTime();
+                }
+                Q_EMIT statusChanged();
+            }
+            // Keep recovery isolated even if status requests complete out of
+            // order or a request from the previous connection answers late.
+            // Failed reads never replace the last known database identity.
+            const QString path = payload.value(QStringLiteral("database_path")).toString();
+            if (ok && !path.isEmpty() && generation == m_recoveryStatusReadGeneration
+                && connectionGeneration == m_recoveryConnectionGeneration) {
+                m_recovery->setDatabasePath(path);
+            }
             Q_EMIT backendChanged();
         });
 }
@@ -888,11 +1015,6 @@ void AppController::requestDashboard(std::function<void(bool ok)> then)
         if (guard && then)
             then(ok);
     });
-}
-
-void AppController::refreshPendingReviewRun()
-{
-    return m_history->refreshPendingReviewRun();
 }
 
 void AppController::refreshTrend()
@@ -1102,6 +1224,7 @@ void AppController::handleLiveEvent(const QVariantMap &event)
         // up; the announcement itself reads the duty off the event's own run
         // rather than waiting for that reply.
         refreshCurrentRun();
+        m_recovery->refresh();
         const QString state = event.value(QStringLiteral("state")).toString();
         const QJsonObject run =
             QJsonObject::fromVariantMap(event.value(QStringLiteral("run")).toMap());
@@ -1135,13 +1258,15 @@ void AppController::handleLiveEvent(const QVariantMap &event)
         const bool olderThanAnswer =
             emitted.isValid() && m_captureAnswerAtUtc.isValid() && emitted < m_captureAnswerAtUtc;
         if (!capture.isEmpty() && !olderThanAnswer) {
-            m_collectorStatus.insert(QStringLiteral("capture"),
-                                     QJsonObject::fromVariantMap(capture));
-            if (emitted.isValid()
-                && (!m_captureAnswerAtUtc.isValid() || emitted > m_captureAnswerAtUtc)) {
-                m_captureAnswerAtUtc = emitted;
-            }
-            Q_EMIT statusChanged();
+            const auto previousAnswerAt = m_captureAnswerAtUtc;
+            const auto previousRevision = m_recording->captureRevision();
+            adoptCaptureAnswer(QJsonObject::fromVariantMap(capture));
+            // 事件的产生时刻不是请求的完成时刻；保留原有时间线语义。
+            // 同步监听器若已接纳另一份新快照，不能把它的时间戳退回。
+            if (m_recording->captureRevision() == previousRevision + 1)
+                m_captureAnswerAtUtc = emitted.isValid()
+                    && (!previousAnswerAt.isValid() || emitted > previousAnswerAt)
+                    ? emitted : previousAnswerAt;
         }
         refreshStatus();
         // Published when the capture state changes, which is what happens the
@@ -1156,6 +1281,7 @@ void AppController::handleLiveEvent(const QVariantMap &event)
         refreshDashboard();
         refreshTrend();
         refreshReflections();
+        m_recovery->refresh();
         m_history->runs()->reload();
         retryHistoryImageCleanup();
         m_statistics->dungeons()->reload();
@@ -1170,6 +1296,7 @@ void AppController::handleLiveEvent(const QVariantMap &event)
         m_history->runs()->reload();
         refreshCurrentRun();
         refreshReflections();
+        m_recovery->refresh();
 
         // A run that arrives already finished - the Collector writes the result
         // and the end time in one go - is the second way the 心得 prompt can be
@@ -1187,15 +1314,19 @@ void AppController::handleLiveEvent(const QVariantMap &event)
 
         // run_finished is the one terminal event the bus always publishes, so
         // it - not StateChanged - is where the run is announced and where the
-        // result question is asked. The dashboard is re-read first and the
-        // announcement runs in its reply: {progress} has to be the number this
-        // run just produced, and GetDashboardStats is asynchronous.
+        // result question is asked. Register the question while the live run
+        // is available: recovery buffers it until the database is verified.
+        // Only the announcement waits for fresh progress from the dashboard.
         QString state = event.value(QStringLiteral("state")).toString();
         if (state.isEmpty())
             state = run.value(QStringLiteral("state")).toString();
-        requestDashboard([this, state, run](bool numbersKnown) {
-            announceFinished(state, run, numbersKnown);
-            maybeConfirmResult(state, run);
+        maybeConfirmResult(state, run);
+        const QString recoveryDatabaseKey = m_recovery->databaseKey();
+        const quint64 contextGeneration = m_recoveryPromptContextGeneration;
+        requestDashboard([this, state, run, recoveryDatabaseKey, contextGeneration](bool numbersKnown) {
+            if (sameRecoveryScope(recoveryDatabaseKey, m_recovery->databaseKey())
+                && contextGeneration == m_recoveryPromptContextGeneration)
+                announceFinished(state, run, numbersKnown);
         });
         return;
     }
@@ -1438,7 +1569,7 @@ void AppController::refreshReflections()
 }
 
 void AppController::saveReflection(const QString &runId, const QString &mood,
-                                   const QString &text)
+                                   const QString &text, const QString &draftToken)
 {
     // A second click while the first request is in flight would race two
     // writes for the same run_id; the later response is not guaranteed to
@@ -1452,26 +1583,41 @@ void AppController::saveReflection(const QString &runId, const QString &mood,
     }
 
     const bool cleared = text.trimmed().isEmpty();
+    const QString recoveryDatabaseKey = m_recovery->databaseKey();
+    const quint64 contextGeneration = m_recoveryPromptContextGeneration;
     m_reflectionSaving = true;
     Q_EMIT reflectionsChanged();
 
     m_backend->setRunReflection(runId, mood, text.trimmed())
-        ->whenDone(this, [this, runId, cleared](bool ok, const QVariantMap &payload,
+        ->whenDone(this, [this, runId, cleared, draftToken, recoveryDatabaseKey, contextGeneration]
+                   (bool ok, const QVariantMap &payload,
                                                 const QString &code,
                                                 const QString &message) {
             m_reflectionSaving = false;
+            if (!sameRecoveryScope(recoveryDatabaseKey, m_recovery->databaseKey())
+                || contextGeneration != m_recoveryPromptContextGeneration
+                || !m_recovery->identityVerified()) {
+                // The request can already have been applied to the original
+                // database. Do not adopt its row, clear another scope's draft
+                // or signal a success that could advance a new result form.
+                const QString scopeMessage = tr("记录库连接已变化，本次笔记的保存结果尚未在当前页面确认。请从待处理重新打开。");
+                Q_EMIT reflectionsChanged();
+                Q_EMIT reflectionFailed(QStringLiteral("ERR_RECOVERY_SCOPE_CHANGED"), scopeMessage);
+                showToast(scopeMessage);
+                return;
+            }
             if (!ok) {
                 Q_EMIT reflectionsChanged();
                 Q_EMIT reflectionFailed(code, message);
                 showToast(message.isEmpty() ? code : message);
                 return;
             }
-            applySavedReflection(runId, payload, cleared);
+            applySavedReflection(runId, payload, cleared, draftToken);
         });
 }
 
 void AppController::applySavedReflection(const QString &runId, const QVariantMap &payload,
-                                         bool cleared)
+                                         bool cleared, const QString &draftToken)
 {
     // The dialog can be opened from the dashboard as well as from the detail
     // panel, so the selected run is only touched when it is the very same run.
@@ -1497,6 +1643,10 @@ void AppController::applySavedReflection(const QString &runId, const QVariantMap
     // reflection without waiting for the next unrelated live event.
     refreshCurrentRun();
     refreshReflections();
+    // An editor may already contain a newer unsaved draft when this reply
+    // arrives. The submitted token clears only its own draft, never that edit.
+    m_recovery->markReflectionSaved(runId, draftToken);
+    m_recovery->refresh();
     Q_EMIT reflectionsChanged();
     Q_EMIT reflectionSaved(runId, cleared);
 
@@ -1543,6 +1693,11 @@ void AppController::maybePromptForReflection(const QJsonObject &run)
     if (run.value(QStringLiteral("reflection")).isObject())
         return;
     if (!endedDuringThisSession(run))
+        return;
+    // Persist before the bounded automatic queue can drop this work, including
+    // a run whose editor cannot open while another one is still on screen.
+    m_recovery->offer(run.toVariantMap(), QStringLiteral("reflection"));
+    if (!m_recovery->identityVerified())
         return;
     for (const QJsonObject &queued : std::as_const(m_queuedReflectionRuns)) {
         if (queued.value(QStringLiteral("run_id")).toString() == runId)
@@ -1604,6 +1759,21 @@ void AppController::reflectionPromptClosed()
     emitNextReflectionPrompt();
 }
 
+void AppController::reflectionPromptDeferred(const QString &runId)
+{
+    if (runId.isEmpty())
+        return;
+    m_promptedRunIds.insert(runId);
+    m_offeredReflectionRunIds.remove(runId);
+    for (int index = m_queuedReflectionRuns.size() - 1; index >= 0; --index) {
+        if (m_queuedReflectionRuns.at(index).value(QStringLiteral("run_id")).toString() == runId)
+            m_queuedReflectionRuns.removeAt(index);
+    }
+    // QML may defer directly from the offer signal. Advancing asynchronously
+    // keeps that callback out of the next offer and never pretends a dialog opened.
+    QTimer::singleShot(0, this, &AppController::emitNextReflectionPrompt);
+}
+
 void AppController::maybeConfirmResult(const QString &state, const QJsonObject &run)
 {
     // A CN duty that ends without the clear signal (docs/protocol-profile-format.md
@@ -1621,6 +1791,9 @@ void AppController::maybeConfirmResult(const QString &state, const QJsonObject &
     if (runId.isEmpty() || m_confirmedRunIds.contains(runId))
         return;
     if (!endedDuringThisSession(run))
+        return;
+    m_recovery->offer(run.toVariantMap(), QStringLiteral("result"));
+    if (!m_recovery->identityVerified())
         return;
     for (const QJsonObject &queued : std::as_const(m_queuedResultRuns)) {
         if (queued.value(QStringLiteral("run_id")).toString() == runId)
@@ -1676,6 +1849,26 @@ void AppController::resultConfirmationClosed()
     // dropped it while it was showing this one. Now that it is free, offer it.
     m_offeredResultRunIds.clear();
     emitNextResultConfirmation();
+}
+
+void AppController::resultConfirmationDeferred(const QString &runId)
+{
+    if (runId.isEmpty())
+        return;
+    m_confirmedRunIds.insert(runId);
+    m_offeredResultRunIds.remove(runId);
+    for (int index = m_queuedResultRuns.size() - 1; index >= 0; --index) {
+        if (m_queuedResultRuns.at(index).value(QStringLiteral("run_id")).toString() == runId)
+            m_queuedResultRuns.removeAt(index);
+    }
+    QTimer::singleShot(0, this, &AppController::emitNextResultConfirmation);
+}
+
+void AppController::readGoalProgress(const QString &runId)
+{
+    if (runId.isEmpty())
+        return;
+    requestDashboard([this, runId](bool ok) { Q_EMIT goalProgressRead(runId, ok); });
 }
 
 void AppController::openHistoryForRun(const QVariantMap &run)
@@ -1805,7 +1998,7 @@ void AppController::retryHistoryImageCleanup()
         return;
     m_historyImageCleanupRunning = true;
     Q_EMIT historyImageCleanupChanged();
-    m_backend->request(QStringLiteral("GetPendingImageCleanup"))
+    m_backend->getPendingImageCleanup()
         ->whenDone(this, [this](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
             if (!ok) {
                 finishHistoryImageCleanup([reason = message.isEmpty() ? code : message] {
@@ -1846,10 +2039,7 @@ void AppController::drainHistoryImageCleanup()
         finishHistoryImageCleanup(failures);
         return;
     }
-    QJsonArray ids;
-    for (const QString &id : m_historyCleanupSuccessful)
-        ids.append(id);
-    m_backend->request(QStringLiteral("AcknowledgeImageCleanup"), {{QStringLiteral("run_ids"), ids}})
+    m_backend->acknowledgeImageCleanup(m_historyCleanupSuccessful)
         ->whenDone(this, [this, failures](bool ok, const QVariantMap &, const QString &code, const QString &message) {
             if (!ok) {
                 finishHistoryImageCleanup([reason = message.isEmpty() ? code : message, failures] {
@@ -1916,15 +2106,6 @@ void AppController::showHistoryForJob(const QVariant &jobId)
     }
     QVariantMap filter;
     filter.insert(QStringLiteral("job_id"), QVariantList{jobId});
-    setHistoryFilter(filter);
-    clearSelection();
-    navigate(1);
-}
-
-void AppController::showPendingReview()
-{
-    QVariantMap filter;
-    filter.insert(QStringLiteral("pending_review"), true);
     setHistoryFilter(filter);
     clearSelection();
     navigate(1);
@@ -1998,20 +2179,24 @@ void AppController::rescanGame()
         return;
     // The profile status and the validation snapshot are re-read as well: they are
     // the only user-reachable way out of a transient failure, and the exhausted-hint
-    // tells the player to 「点重新扫描 FF14 再试」.
+    // tells the player to 「点重新检测游戏再试」.
     m_capture->refreshProfile();
     m_capture->refreshStatusSnapshot();
 
+    const auto generation = ++m_recoveryStatusReadGeneration;
+    const auto connectionGeneration = m_recoveryConnectionGeneration;
+    const auto captureRevision = m_recording->captureRevision();
     m_backend->getStatus()->whenDone(
-        this, [this](bool ok, const QVariantMap &payload, const QString &code,
+        this, [this, generation, connectionGeneration, captureRevision](bool ok, const QVariantMap &payload, const QString &code,
                      const QString &message) {
+            if (generation != m_recoveryStatusReadGeneration
+                || connectionGeneration != m_recoveryConnectionGeneration)
+                return;
             if (!ok) {
                 showToast(message.isEmpty() ? code : message);
                 return;
             }
-            m_collectorStatus = QJsonObject::fromVariantMap(payload);
-            m_captureAnswerAtUtc = QDateTime::currentDateTimeUtc();
-            Q_EMIT statusChanged();
+            adoptCollectorAnswer(payload, captureRevision);
             Q_EMIT backendChanged();
 
             const QJsonObject game =
@@ -2029,11 +2214,9 @@ void AppController::rescanGame()
                 showToast(tr("已重新检测，未找到正在运行的 FF14。"));
                 return;
             }
-            showToast(tr("已重新扫描：FF14 PID %1 · 实例 %2 · build %3")
-                          .arg(game.value(QStringLiteral("process_id")).toInt())
-                          .arg(game.value(QStringLiteral("instance_count")).toInt())
-                          .arg(game.value(QStringLiteral("game_build"))
-                                   .toString(tr("未知"))));
+            // The process id, instance count and build are shown in the
+            // maintainer section; the player only needs the answer.
+            showToast(tr("已重新检测，找到正在运行的 FF14。"));
         });
 }
 
@@ -2085,9 +2268,10 @@ void AppController::resolveRunResult(const QString &runId, int revision,
     return m_history->resolveRunResult(runId, revision, result, reason, jobId);
 }
 
-void AppController::confirmSelectedRunReview(const QString &reason)
+void AppController::confirmSelectedRunReview(const QString &reason, const QString &runId,
+                                             int expectedRevision)
 {
-    return m_history->confirmSelectedRunReview(reason);
+    return m_history->confirmSelectedRunReview(reason, runId, expectedRevision);
 }
 
 void AppController::supplementRunJob(const QString &runId, int revision, int jobId, const QString &reason)
@@ -2095,19 +2279,22 @@ void AppController::supplementRunJob(const QString &runId, int revision, int job
     return m_history->supplementRunJob(runId, revision, jobId, reason);
 }
 
-void AppController::undoSelectedRunRevision(const QString &reason)
+void AppController::undoSelectedRunRevision(const QString &reason, const QString &runId,
+                                            int expectedRevision)
 {
-    return m_history->undoSelectedRunRevision(reason);
+    return m_history->undoSelectedRunRevision(reason, runId, expectedRevision);
 }
 
-void AppController::softDeleteSelectedRun(const QString &reason)
+void AppController::softDeleteSelectedRun(const QString &reason, const QString &runId,
+                                          int expectedRevision)
 {
-    return m_history->softDeleteSelectedRun(reason);
+    return m_history->softDeleteSelectedRun(reason, runId, expectedRevision);
 }
 
-void AppController::restoreSelectedRun(const QString &reason)
+void AppController::restoreSelectedRun(const QString &reason, const QString &runId,
+                                       int expectedRevision)
 {
-    return m_history->restoreSelectedRun(reason);
+    return m_history->restoreSelectedRun(reason, runId, expectedRevision);
 }
 
 void AppController::updateAchievementBaseline(int goal, int baseline, const QString &reason)
@@ -2183,11 +2370,13 @@ void AppController::rereadCaptureStatus()
 {
     if (!m_backend)
         return;
+    const auto revision = m_recording->captureRevision();
+    const auto connectionGeneration = m_recoveryConnectionGeneration;
     m_backend->getCaptureStatus()->whenDone(this,
-        [this](bool ok, const QVariantMap &payload, const QString &, const QString &) {
-            if (!ok) return;
+        [this, revision, connectionGeneration](bool ok, const QVariantMap &payload, const QString &, const QString &) {
+            if (!ok || connectionGeneration != m_recoveryConnectionGeneration
+                || revision != m_recording->captureRevision()) return;
             adoptCaptureAnswer(QJsonObject::fromVariantMap(payload));
-            Q_EMIT statusChanged();
         });
 }
 

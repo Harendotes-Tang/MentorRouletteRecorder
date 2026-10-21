@@ -155,6 +155,21 @@ public sealed class SharedCalibrationContractTests
 
         Assert.All(EnumWire<SharedCheckOutcome>.AllTokens, token => ContractSchema.Validate(
             "$defs/Responses/CheckSharedCalibration", SharedCalibrationHandlers.OutcomeResponse(token), token));
+        foreach (var outcome in Enum.GetValues<SharedCheckOutcome>())
+        {
+            var plain = SharedCalibrationHandlers.CheckResponse(new SharedCheckAnswer(outcome));
+            ContractSchema.Validate("$defs/Responses/CheckSharedCalibration", plain, "check " + outcome);
+            Assert.False(plain.ContainsKey("message"));
+            Assert.False(plain.ContainsKey("message_ref"));
+        }
+
+        // Re-review 2026-10-21, RV5-5: a check refused because the records cannot be read says so.
+        var unreadable = SharedCalibrationHandlers.CheckResponse(
+            new SharedCheckAnswer(SharedCheckOutcome.NotNeeded, CollectorTexts.SharingCheckStateUnreadable()));
+        ContractSchema.Validate("$defs/Responses/CheckSharedCalibration", unreadable, "check, records unreadable");
+        Assert.Equal("NOT_NEEDED", unreadable["outcome"]!.GetValue<string>());
+        Assert.Equal("sharing.check.state_unreadable", unreadable["message_ref"]!["key"]!.GetValue<string>());
+        CollectorTextCatalogue.AssertParallel(unreadable["message"], unreadable["message_ref"]);
         Assert.All(EnumWire<SharedConsentOutcome>.AllTokens, token => ContractSchema.Validate(
             "$defs/Responses/AcceptSharedQueueInference", SharedCalibrationHandlers.OutcomeResponse(token), token));
     }

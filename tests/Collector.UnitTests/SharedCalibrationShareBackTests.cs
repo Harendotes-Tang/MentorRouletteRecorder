@@ -402,18 +402,20 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
             Region region, string gameBuild, string templateSha256, string codeSha256, string sessionId, DateTimeOffset nowUtc) =>
             Nothing.RecordContradiction(region, gameBuild, templateSha256, codeSha256, sessionId, nowUtc);
 
-        public bool IsRejected(Region region, string gameBuild, string templateSha256, string codeSha256) =>
+        public bool? IsRejected(Region region, string gameBuild, string templateSha256, string codeSha256) =>
             Nothing.IsRejected(region, gameBuild, templateSha256, codeSha256);
 
         public bool RecordUserRejection(Region region, string gameBuild, DateTimeOffset nowUtc) =>
             Nothing.RecordUserRejection(region, gameBuild, nowUtc);
 
-        public bool IsUserRejected(Region region, string gameBuild) => Nothing.IsUserRejected(region, gameBuild);
+        public bool? IsUserRejected(Region region, string gameBuild) => Nothing.IsUserRejected(region, gameBuild);
 
         public bool ClearRejections(Region region, string gameBuild) => Nothing.ClearRejections(region, gameBuild);
 
         public SharedPublication Publication(Region region, string gameBuild, string codeSha256) =>
             Nothing.Publication(region, gameBuild, codeSha256);
+
+        public IReadOnlyList<string> RevokedCodes(Region region, string gameBuild) => Nothing.RevokedCodes(region, gameBuild);
 
         public bool RecordSettled(Region region, string gameBuild, string profileSha256, DateTimeOffset nowUtc) =>
             Nothing.RecordSettled(region, gameBuild, profileSha256, nowUtc);

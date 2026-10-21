@@ -110,6 +110,7 @@ public:
     /// 全部已发布统计行的通关次数；不受页面 Top-N 选择影响。
     qint64 totalCompletedCount() const;
     /// 按返回的副本类型聚合通关次数，缺类型时查本地目录，仍未知则单列。
+    /// 讨伐中由目录稳定身份确认的极神另列互斥桶，排除幻巧，不改原记录类型。
     /// 桶含 label、completed_count、share 和 color_token；分母为零时 share 为空。
     Q_INVOKABLE QVariantList categoryBreakdown() const;
     /// 导随通关中的主线三本、行会令、其他和未知，始终保留四个桶。

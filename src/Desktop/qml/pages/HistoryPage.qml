@@ -44,7 +44,7 @@ Item {
         if (source.source_recorded_at_utc)
             return qsTr("原站\n%1").arg(Fmt.localDate(source.source_recorded_at_utc))
         if (source.source_recorded_at) {
-            const date = /^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/.exec(source.source_recorded_at)
+            const date = /^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})$/.exec(source.source_recorded_at)
             if (date) {
                 const normalized = date[1] + "-" + String(date[2]).padStart(2, "0") + "-" + String(date[3]).padStart(2, "0")
                 if (RunForm.isValidDate(normalized)) return qsTr("原站\n%1").arg(normalized)

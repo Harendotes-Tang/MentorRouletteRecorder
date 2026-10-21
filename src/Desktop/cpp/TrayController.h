@@ -3,10 +3,16 @@
 // ---------------------------------------------------------------------------
 // Windows notification-area icon.
 //
-// Menu (prototype "托盘菜单：显示 / 开始捕获 / 退出"):
-//   显示        - raise the main window
-//   开始/停止捕获 - forwards to AppController::toggleCapture(), i.e. to the backend
-//   退出        - quit for real, bypassing the minimise-to-tray close handler
+// Menu, top to bottom:
+//   显示主窗口          - raise the main window
+//   待处理（N）          - raise the main window and open the 待处理 list
+//                          (RecoveryController::requestInbox); N is its count
+//   显示/隐藏统计浮窗    - StatisticsOverlayController::toggle()
+//   解锁统计浮窗        - StatisticsOverlayController::unlock(); only while the
+//                          float is locked
+//   开始/停止捕获        - forwards to AppController::toggleCapture(), i.e. to the
+//                          backend; only while the maintainer tools are shown
+//   退出                - quit for real, bypassing the minimise-to-tray close handler
 //
 // The icon is only created when the platform actually has a tray (never under
 // the offscreen platform used for screenshots and CI).
@@ -68,6 +74,9 @@ private:
     /// QObject, so nothing else would ever delete it.
     std::unique_ptr<QMenu> m_menu;
     QAction *m_showAction = nullptr;
+    QAction *m_pendingWorkAction = nullptr;
+    QAction *m_statisticsAction = nullptr;
+    QAction *m_unlockStatisticsAction = nullptr;
     QAction *m_captureAction = nullptr;
     QAction *m_quitAction = nullptr;
 };

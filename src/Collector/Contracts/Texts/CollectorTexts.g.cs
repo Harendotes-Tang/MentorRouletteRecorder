@@ -89,6 +89,14 @@ public static partial class CollectorTexts
     public static UserText CalibrationBuildUnknown() =>
         new("calibration.build_unknown", "客户端版本未知，无法写出档案。");
 
+    /// <summary><c>calibration.change_during_run</c>: 正在进行的这一把导随还没结束，现在更换校准会中断这一把的记录。请在这一把结束后再试。</summary>
+    public static UserText CalibrationChangeDuringRun() =>
+        new("calibration.change_during_run", "正在进行的这一把导随还没结束，现在更换校准会中断这一把的记录。请在这一把结束后再试。");
+
+    /// <summary><c>calibration.change_while_queued</c>: 你正在排导随，现在更换校准会让接下来这一把记不下来。请等这一把结束后再试。如果已经取消排队，软件可能察觉不到，请退出并重新启动游戏后再试，或在开始排队一小时后再试。</summary>
+    public static UserText CalibrationChangeWhileQueued() =>
+        new("calibration.change_while_queued", "你正在排导随，现在更换校准会让接下来这一把记不下来。请等这一把结束后再试。如果已经取消排队，软件可能察觉不到，请退出并重新启动游戏后再试，或在开始排队一小时后再试。");
+
     /// <summary><c>calibration.completing.job_found</c>: 导随记录照常进行。已找到补全职业的信息，请核对下面的时间线，再点「核对并启用」；之后的新记录会自动带上职业。</summary>
     public static UserText CalibrationCompletingJobFound() =>
         new("calibration.completing.job_found", "导随记录照常进行。已找到补全职业的信息，请核对下面的时间线，再点「核对并启用」；之后的新记录会自动带上职业。");
@@ -169,6 +177,10 @@ public static partial class CollectorTexts
     public static UserText CalibrationProvisionalBlocked() =>
         new("calibration.provisional.blocked", "后台还没认出匹配弹窗，这次校准进度已无法继续。如需继续完善，请先点「清空校准进度」（现用校准会继续记录），保持软件开启，再尝试不同的随机任务并进出副本；组队时请由你来申请。");
 
+    /// <summary><c>calibration.provisional.blocked_more</c>: 后台的进一步校准已无法继续。如需继续完善，请先点「清空校准进度」（现用校准会继续记录），保持软件开启，再尝试不同的随机任务并进出副本；组队时请由你来申请。</summary>
+    public static UserText CalibrationProvisionalBlockedMore() =>
+        new("calibration.provisional.blocked_more", "后台的进一步校准已无法继续。如需继续完善，请先点「清空校准进度」（现用校准会继续记录），保持软件开启，再尝试不同的随机任务并进出副本；组队时请由你来申请。");
+
     /// <summary><c>calibration.provisional.job_and_pop</c>: 导随记录照常进行。请核对下面的时间线，再点「核对并启用」；之后的新记录会带上职业，检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。</summary>
     public static UserText CalibrationProvisionalJobAndPop() =>
         new("calibration.provisional.job_and_pop", "导随记录照常进行。请核对下面的时间线，再点「核对并启用」；之后的新记录会带上职业，检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。");
@@ -189,9 +201,21 @@ public static partial class CollectorTexts
     public static UserText CalibrationProvisionalRecording() =>
         new("calibration.provisional.recording", "导随记录照常进行。仅靠排队和进本核对时，记入的是排队时间；取消排队不会产生记录。");
 
+    /// <summary><c>calibration.provisional.recording_popup</c>: 导随记录照常进行。检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。</summary>
+    public static UserText CalibrationProvisionalRecordingPopup() =>
+        new("calibration.provisional.recording_popup", "导随记录照常进行。检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。");
+
     /// <summary><c>calibration.provisional.searching</c>: 导随记录照常进行。仅靠排队和进本核对时，记入的是排队时间；取消排队不会产生记录。后台仍在尝试识别匹配弹窗，找到后会请你核对时间线。你可以照常游戏，也可以尝试不同的随机任务帮助校准；组队时请由你来申请。</summary>
     public static UserText CalibrationProvisionalSearching() =>
         new("calibration.provisional.searching", "导随记录照常进行。仅靠排队和进本核对时，记入的是排队时间；取消排队不会产生记录。后台仍在尝试识别匹配弹窗，找到后会请你核对时间线。你可以照常游戏，也可以尝试不同的随机任务帮助校准；组队时请由你来申请。");
+
+    /// <summary><c>calibration.provisional.searching_job</c>: 导随记录照常进行。检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。后台仍在尝试识别职业，找到后会请你核对时间线；在此之前，新记录的职业为未知。你可以照常游戏。</summary>
+    public static UserText CalibrationProvisionalSearchingJob() =>
+        new("calibration.provisional.searching_job", "导随记录照常进行。检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。后台仍在尝试识别职业，找到后会请你核对时间线；在此之前，新记录的职业为未知。你可以照常游戏。");
+
+    /// <summary><c>calibration.provisional.searching_more</c>: 导随记录照常进行。检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。后台仍在继续校准，有新发现时会请你核对时间线。你可以照常游戏，也可以尝试不同的随机任务帮助校准；组队时请由你来申请。</summary>
+    public static UserText CalibrationProvisionalSearchingMore() =>
+        new("calibration.provisional.searching_more", "导随记录照常进行。检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。后台仍在继续校准，有新发现时会请你核对时间线。你可以照常游戏，也可以尝试不同的随机任务帮助校准；组队时请由你来申请。");
 
     /// <summary><c>calibration.rejected</c>: 有事件被标为不对，这次校准作废；再打一把随机任务后会重新核对。</summary>
     public static UserText CalibrationRejected() =>
@@ -325,25 +349,25 @@ public static partial class CollectorTexts
     public static UserText CaptureGameInstances(long count) =>
         new("capture.game.instances", "检测到 {count} 个 FFXIV 进程。请在总览或捕获诊断页确认当前记录对象。", UserTextArg.Number("count", count));
 
-    /// <summary><c>capture.game.path_denied</c>: 没有权限读取游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录（fail-closed）。</summary>
+    /// <summary><c>capture.game.path_denied</c>: 没有权限读取游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录。</summary>
     public static UserText CaptureGamePathDenied() =>
-        new("capture.game.path_denied", "没有权限读取游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录（fail-closed）。");
+        new("capture.game.path_denied", "没有权限读取游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录。");
 
-    /// <summary><c>capture.game.path_unknown</c>: 无法确定游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录（fail-closed）。</summary>
+    /// <summary><c>capture.game.path_unknown</c>: 无法确定游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录。</summary>
     public static UserText CaptureGamePathUnknown() =>
-        new("capture.game.path_unknown", "无法确定游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录（fail-closed）。");
+        new("capture.game.path_unknown", "无法确定游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录。");
 
-    /// <summary><c>capture.game.region_ambiguous</c>: 无法从安装路径判断区服（路径同时含有国服与国际服的标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录（fail-closed）。</summary>
+    /// <summary><c>capture.game.region_ambiguous</c>: 无法从安装路径判断区服（路径同时含有国服与国际服的标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录。</summary>
     public static UserText CaptureGameRegionAmbiguous() =>
-        new("capture.game.region_ambiguous", "无法从安装路径判断区服（路径同时含有国服与国际服的标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录（fail-closed）。");
+        new("capture.game.region_ambiguous", "无法从安装路径判断区服（路径同时含有国服与国际服的标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录。");
 
     /// <summary><c>capture.game.region_override_mismatch</c>: 设置中手动指定的区服与安装路径推断出的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除区服覆盖。</summary>
     public static UserText CaptureGameRegionOverrideMismatch() =>
         new("capture.game.region_override_mismatch", "设置中手动指定的区服与安装路径推断出的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除区服覆盖。");
 
-    /// <summary><c>capture.game.region_unmarked</c>: 无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录（fail-closed）。</summary>
+    /// <summary><c>capture.game.region_unmarked</c>: 无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录。</summary>
     public static UserText CaptureGameRegionUnmarked() =>
-        new("capture.game.region_unmarked", "无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录（fail-closed）。");
+        new("capture.game.region_unmarked", "无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录。");
 
     /// <summary><c>capture.game.version_file_missing</c>: 未能在游戏目录中读取到 {file}，客户端版本未知。</summary>
     public static UserText CaptureGameVersionFileMissing(string file) =>
@@ -393,21 +417,21 @@ public static partial class CollectorTexts
     public static UserText CaptureOodlePreviousNotReleased() =>
         new("capture.oodle.previous_not_released", "上次自动记录尚未完全停止，本次监听未开始。请稍后重试；仍失败时重启软件并导出诊断报告。");
 
-    /// <summary><c>capture.oodle.profile_load_failed</c>: 匹配的 Oodle 签名档案无法加载，抓包未开始。 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。</summary>
+    /// <summary><c>capture.oodle.profile_load_failed</c>: 准备读取游戏数据时出错，本次监听未开始。可能是磁盘空间不足、安全软件拦截了游戏程序文件，或游戏更新后暂不兼容。请稍后重试；仍失败时导出诊断报告。</summary>
     public static UserText CaptureOodleProfileLoadFailed() =>
-        new("capture.oodle.profile_load_failed", "匹配的 Oodle 签名档案无法加载，抓包未开始。 请运行 tools/oodle-signature-finder 重新生成并核验签名档案。");
+        new("capture.oodle.profile_load_failed", "准备读取游戏数据时出错，本次监听未开始。可能是磁盘空间不足、安全软件拦截了游戏程序文件，或游戏更新后暂不兼容。请稍后重试；仍失败时导出诊断报告。");
 
     /// <summary><c>capture.ownership_busy</c>: 正式采集或验证会话尚未结束，请先停止并等待资源释放。</summary>
     public static UserText CaptureOwnershipBusy() =>
         new("capture.ownership_busy", "正式采集或验证会话尚未结束，请先停止并等待资源释放。");
 
-    /// <summary><c>capture.profile.none</c>: 仓库中没有任何协议档案（PROTOCOL_PROFILE_STATUS = NONE）。按 fail-closed 规则，本版本不会解析任何报文，也不会自动写入任何记录，只能手工补录。</summary>
+    /// <summary><c>capture.profile.none</c>: 仓库中没有任何协议档案。为避免记错，本版本不会解析任何报文，也不会自动写入任何记录，只能手工补录。</summary>
     public static UserText CaptureProfileNone() =>
-        new("capture.profile.none", "仓库中没有任何协议档案（PROTOCOL_PROFILE_STATUS = NONE）。按 fail-closed 规则，本版本不会解析任何报文，也不会自动写入任何记录，只能手工补录。");
+        new("capture.profile.none", "仓库中没有任何协议档案。为避免记错，本版本不会解析任何报文，也不会自动写入任何记录，只能手工补录。");
 
-    /// <summary><c>capture.profile.unavailable</c>: 协议档案不可用（fail-closed）：{reason}</summary>
+    /// <summary><c>capture.profile.unavailable</c>: 协议档案不可用，暂时不会自动记录：{reason}</summary>
     public static UserText CaptureProfileUnavailable(string reason) =>
-        new("capture.profile.unavailable", "协议档案不可用（fail-closed）：{reason}", UserTextArg.Text("reason", reason));
+        new("capture.profile.unavailable", "协议档案不可用，暂时不会自动记录：{reason}", UserTextArg.Text("reason", reason));
 
     /// <summary><c>capture.select.game_exited</c>: 所选游戏已退出或重新启动，请重新选择游戏窗口。</summary>
     public static UserText CaptureSelectGameExited() =>
@@ -497,9 +521,9 @@ public static partial class CollectorTexts
     public static UserText CaptureStartProcessNotSelected() =>
         new("capture.start.process_not_selected", "请先选择该游戏窗口，再开始监听。");
 
-    /// <summary><c>capture.start.profile_unavailable</c>: 协议档案不可用（fail-closed），未启动抓包：本版本不会解析任何报文，也不会自动写入任何记录。若只是想验证抓包链路本身，请先把设置 capture.allow_without_profile 打开（仅统计，不记录）。</summary>
+    /// <summary><c>capture.start.profile_unavailable</c>: 协议档案不可用，未启动抓包：本版本不会解析任何报文，也不会自动写入任何记录。若只是想验证抓包链路本身，请先把设置 capture.allow_without_profile 打开（仅统计，不记录）。</summary>
     public static UserText CaptureStartProfileUnavailable() =>
-        new("capture.start.profile_unavailable", "协议档案不可用（fail-closed），未启动抓包：本版本不会解析任何报文，也不会自动写入任何记录。若只是想验证抓包链路本身，请先把设置 capture.allow_without_profile 打开（仅统计，不记录）。");
+        new("capture.start.profile_unavailable", "协议档案不可用，未启动抓包：本版本不会解析任何报文，也不会自动写入任何记录。若只是想验证抓包链路本身，请先把设置 capture.allow_without_profile 打开（仅统计，不记录）。");
 
     /// <summary><c>capture.start.select_game</c>: 请先在总览或捕获诊断页选择要记录的游戏窗口。</summary>
     public static UserText CaptureStartSelectGame() =>
@@ -640,6 +664,10 @@ public static partial class CollectorTexts
     /// <summary><c>capture.warning.validation_holds</c>: 正在进行采集验证，验证期间不会自动记录。如需恢复记录，请在捕获诊断页停止验证。</summary>
     public static UserText CaptureWarningValidationHolds() =>
         new("capture.warning.validation_holds", "正在进行采集验证，验证期间不会自动记录。如需恢复记录，请在捕获诊断页停止验证。");
+
+    /// <summary><c>capture.warning.validation_releasing</c>: 上一次采集验证未能完全结束，正在自动重试收尾，期间不会自动记录。如长时间未恢复，请重新启动本软件。</summary>
+    public static UserText CaptureWarningValidationReleasing() =>
+        new("capture.warning.validation_releasing", "上一次采集验证未能完全结束，正在自动重试收尾，期间不会自动记录。如长时间未恢复，请重新启动本软件。");
 
     /// <summary><c>database.busy</c>: 数据库正忙，请稍后重试。</summary>
     public static UserText DatabaseBusy() =>
@@ -941,6 +969,14 @@ public static partial class CollectorTexts
     public static UserText ImportPreviewPathNotAbsolute() =>
         new("import.preview.path_not_absolute", "请选择完整的本地文件路径。");
 
+    /// <summary><c>import.preview.path_not_local</c>: 只能导入本机磁盘上的文件，不支持网络共享或设备路径。请先把文件复制到本机文件夹再导入。</summary>
+    public static UserText ImportPreviewPathNotLocal() =>
+        new("import.preview.path_not_local", "只能导入本机磁盘上的文件，不支持网络共享或设备路径。请先把文件复制到本机文件夹再导入。");
+
+    /// <summary><c>import.preview.path_uncheckable</c>: 无法确认这个文件是否在本机磁盘上。请检查文件夹和访问权限，或把文件复制到本机文件夹后再导入。</summary>
+    public static UserText ImportPreviewPathUncheckable() =>
+        new("import.preview.path_uncheckable", "无法确认这个文件是否在本机磁盘上。请检查文件夹和访问权限，或把文件复制到本机文件夹后再导入。");
+
     /// <summary><c>import.preview.source_name_too_long</c>: 来源名称超过 500 字符。</summary>
     public static UserText ImportPreviewSourceNameTooLong() =>
         new("import.preview.source_name_too_long", "来源名称超过 500 字符。");
@@ -996,6 +1032,10 @@ public static partial class CollectorTexts
     /// <summary><c>import.row.run_id_invalid</c>: 记录编号（run_id）格式不正确，请按 JSON 模板填写标准 UUID。</summary>
     public static UserText ImportRowRunIdInvalid() =>
         new("import.row.run_id_invalid", "记录编号（run_id）格式不正确，请按 JSON 模板填写标准 UUID。");
+
+    /// <summary><c>import.row.start_date_source_conflict</c>: 开始时间 {start_date} 只有日期，与这条记录已有的记录时间 {source_date} 对不上，无法确定是哪一天。已保留原值，请修正其中一项或调整列映射后重新预览。</summary>
+    public static UserText ImportRowStartDateSourceConflict(string startDate, string sourceDate) =>
+        new("import.row.start_date_source_conflict", "开始时间 {start_date} 只有日期，与这条记录已有的记录时间 {source_date} 对不上，无法确定是哪一天。已保留原值，请修正其中一项或调整列映射后重新预览。", UserTextArg.Text("start_date", startDate), UserTextArg.Text("source_date", sourceDate));
 
     /// <summary><c>import.row.time_ambiguous</c>: {field} 处于夏令时调整时段，无法确定具体时刻。请填写带时区偏移的完整时间。</summary>
     public static UserText ImportRowTimeAmbiguous(UserText field) =>
@@ -1645,6 +1685,10 @@ public static partial class CollectorTexts
     public static UserText ReflectionUnrecordedMoodImportOnly() =>
         new("reflection.unrecorded_mood_import_only", "未记录心情仅适用于导入的心得。");
 
+    /// <summary><c>sharing.check.state_unreadable</c>: 暂时读不到本机保存的共享校准记录（可能被其他程序占用），请稍后再查找。</summary>
+    public static UserText SharingCheckStateUnreadable() =>
+        new("sharing.check.state_unreadable", "暂时读不到本机保存的共享校准记录（可能被其他程序占用），请稍后再查找。");
+
     /// <summary><c>sharing.code.characters</c>: 校准码中有无法识别的字符。请重新完整复制，不要带上其他文字。</summary>
     public static UserText SharingCodeCharacters() =>
         new("sharing.code.characters", "校准码中有无法识别的字符。请重新完整复制，不要带上其他文字。");
@@ -1744,6 +1788,10 @@ public static partial class CollectorTexts
     /// <summary><c>sharing.import.revoked</c>: 这份共享校准已被撤回，不能继续用于记录。请向分享者获取新校准码，或使用「本机校准」。</summary>
     public static UserText SharingImportRevoked() =>
         new("sharing.import.revoked", "这份共享校准已被撤回，不能继续用于记录。请向分享者获取新校准码，或使用「本机校准」。");
+
+    /// <summary><c>sharing.import.state_unreadable</c>: 暂时读不到本机保存的共享校准记录（可能被其他程序占用），请稍后再导入。</summary>
+    public static UserText SharingImportStateUnreadable() =>
+        new("sharing.import.state_unreadable", "暂时读不到本机保存的共享校准记录（可能被其他程序占用），请稍后再导入。");
 
     /// <summary><c>sharing.import.unbuildable</c>: 这份校准码暂时无法使用。请更新导随记录器，或请分享者重新生成校准码。</summary>
     public static UserText SharingImportUnbuildable() =>

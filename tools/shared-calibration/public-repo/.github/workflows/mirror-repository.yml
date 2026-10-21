@@ -1,5 +1,6 @@
 # Maintained in MentorRecorder and assembled with the canonical ref-sync tool by sync_public_repo.py.
 # GITHUB_TOKEN publications do not trigger push workflows; workflow_run observes their completion.
+# Every workflow that pushes main is listed, and any conclusion counts: a run can push and then fail.
 name: mirror-repository
 
 on:
@@ -8,7 +9,7 @@ on:
     - cron: '11,41 * * * *'
   workflow_dispatch:
   workflow_run:
-    workflows: [publish-calibration]
+    workflows: [publish-calibration, evidence-calibration, report-calibration]
     types: [completed]
     branches: [main]
 
@@ -24,8 +25,7 @@ jobs:
     if: >-
       github.repository == 'Harendotes-Tang/MentorRecorder-Calibrations' &&
       (github.event_name != 'workflow_run' ||
-       (github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.head_repository.full_name == github.repository))
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

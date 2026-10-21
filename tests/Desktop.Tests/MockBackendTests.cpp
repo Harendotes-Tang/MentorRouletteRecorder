@@ -19,15 +19,18 @@
 #include "TtsService.h"
 
 #include <QDateTime>
+#include <QFile>
 #include <QGuiApplication>
 #include <QHash>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QPointer>
 #include <QScopeGuard>
 #include <QSet>
 #include <QSignalSpy>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 #include <QTest>
 #include <QTextToSpeech>
 #include <QTimeZone>
@@ -57,6 +60,43 @@ Answer ask(mr::IBackend &backend, const QString &type, const QJsonObject &payloa
     if (!QTest::qWaitFor([&answer] { return answer.done; }, 3000))
         answer.code = QStringLiteral("TEST_NO_REPLY");
     return answer;
+}
+
+/// One request sent under \a requestId, the way a retried mutation is resent, waited for.
+/// The reply carries that id.
+Answer askWithId(mr::IBackend &backend, const QString &type, const QJsonObject &payload,
+                 const QString &requestId)
+{
+    Answer answer;
+    mr::BackendReply *reply = backend.requestWithId(type, payload, requestId);
+    if (reply->requestId() != requestId)
+        answer.code = QStringLiteral("TEST_WRONG_REQUEST_ID");
+    reply->whenDone(&backend,
+        [&answer](bool ok, const QVariantMap &result, const QString &code, const QString &message) {
+            answer.done = true;
+            answer.ok = ok;
+            answer.payload = QJsonObject::fromVariantMap(result);
+            if (answer.code != QLatin1String("TEST_WRONG_REQUEST_ID"))
+                answer.code = code;
+            answer.message = message;
+        });
+    if (!QTest::qWaitFor([&answer] { return answer.done; }, 3000))
+        answer.code = QStringLiteral("TEST_NO_REPLY");
+    return answer;
+}
+
+/// The Collector's Chinese for the catalogue sentence \a key.
+QString collectorChinese(const char *key, const QVariantMap &args = {})
+{
+    return mr::collector_text::chinese(mr::collector_text::textRef(key, args));
+}
+
+int runCount(mr::MockBackend &backend)
+{
+    return ask(backend, QStringLiteral("QueryRuns"),
+               {{QStringLiteral("filter"), QJsonObject{{QStringLiteral("include_deleted"), true}}},
+                {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}})
+        .payload.value(QStringLiteral("page_info")).toObject().value(QStringLiteral("total")).toInt();
 }
 
 /// The Collector's two copies of one sentence agree: \a ref names a catalogue
@@ -121,6 +161,42 @@ Answer correct(mr::MockBackend &backend, const QString &runId, const QJsonObject
                 {QStringLiteral("expected_revision"), revision},
                 {QStringLiteral("changes"), changes},
                 {QStringLiteral("reason"), QString::fromUtf8("核对")}});
+}
+
+/// A whole (unpaged) import preview of \a rows: a JSON file's text, or the recognised
+/// rows of screenshots, read in UTC+8.
+Answer previewImport(mr::MockBackend &backend, const QString &kind, const QJsonArray &rows,
+                     const QString &sourceName)
+{
+    QJsonObject payload{{QStringLiteral("source_kind"), kind},
+                        {QStringLiteral("source_name"), sourceName},
+                        {QStringLiteral("time_zone"), QStringLiteral("+08:00")}};
+    if (kind == QLatin1String("JSON"))
+        payload.insert(QStringLiteral("text"), QString::fromUtf8(QJsonDocument(rows).toJson(QJsonDocument::Compact)));
+    else
+        payload.insert(QStringLiteral("rows"), rows);
+    return ask(backend, QStringLiteral("PreviewRunImport"), payload);
+}
+
+/// Each preview row's status, in row order.
+QStringList importStatuses(const Answer &preview)
+{
+    QStringList statuses;
+    for (const QJsonValue &row : preview.payload.value(QStringLiteral("rows")).toArray())
+        statuses.append(row.toObject().value(QStringLiteral("status")).toString());
+    return statuses;
+}
+
+/// Commits every row of \a preview.
+Answer commitWholePreview(mr::MockBackend &backend, const Answer &preview)
+{
+    QJsonArray numbers;
+    for (const QJsonValue &row : preview.payload.value(QStringLiteral("rows")).toArray())
+        numbers.append(row.toObject().value(QStringLiteral("row_number")));
+    return ask(backend, QStringLiteral("CommitRunImport"),
+               {{QStringLiteral("preview_id"), preview.payload.value(QStringLiteral("preview_id"))},
+                {QStringLiteral("row_numbers"), numbers},
+                {QStringLiteral("confirm_own_records"), true}});
 }
 
 } // namespace
@@ -1492,6 +1568,808 @@ private Q_SLOTS:
             });
         QTRY_COMPARE(order.size(), 2);
         QCOMPARE(order, (QStringList{QStringLiteral("GetStatus"), QStringLiteral("GetVersion")}));
+    }
+
+    // J-2: StatisticsRepository.GetDungeonStats - one row per duty identity (DutyKey: the
+    // content_id, else the one duty the observed zone hosts, else the zone itself), every
+    // group listed even when nothing in it was an attempt, named by the most recently
+    // updated run that names it and otherwise by the catalogue, last seen at its latest
+    // match, and ordered by attempts, then content_id (null first), then name.
+    void dungeonStatisticsGroupByDutyIdentityLikeTheCollector()
+    {
+        const mr::DutyCatalog *duties = mr::DutyCatalog::shared();
+        const QVariantMap sastasha = duties->lookup(4);
+        const qint64 sastashaZone = sastasha.value(QStringLiteral("territory_id")).toLongLong();
+        QVERIFY(sastashaZone > 0);
+        // A zone three duties share: the catalogue names it by its lowest content id
+        // (DutyCatalog.FindByTerritory) but it never identifies one of them.
+        const qint64 sharedZone = 832;
+        const QString sharedZoneName = duties->lookup(640).value(QStringLiteral("duty_name")).toString();
+        QCOMPARE(duties->lookup(641).value(QStringLiteral("territory_id")).toLongLong(), sharedZone);
+        QVERIFY(!sharedZoneName.isEmpty());
+
+        const auto run = [](const char *id, const char *result, bool entered, const QJsonValue &content,
+                            const QJsonValue &zone, const QJsonValue &name, const char *updated) {
+            QJsonObject value = autoRun(QString::fromLatin1(id), QString::fromLatin1(result), entered);
+            value.insert(QStringLiteral("content_id"), content);
+            value.insert(QStringLiteral("territory_id"), zone);
+            value.insert(QStringLiteral("duty_name"), name);
+            value.insert(QStringLiteral("duty_category"), QJsonValue(QJsonValue::Null));
+            value.insert(QStringLiteral("updated_at_utc"), QString::fromLatin1(updated));
+            return value;
+        };
+        const QJsonValue none(QJsonValue::Null);
+        QJsonObject cancelledEarly = run("44444444-4444-4444-8444-444444444444", "CANCELLED_BEFORE_ENTRY", false,
+                                         17, none, none, "2026-09-01T12:10:00.000Z");
+        cancelledEarly.insert(QStringLiteral("matched_at_utc"), QStringLiteral("2026-09-03T08:00:00.000Z"));
+        mr::MockBackend backend;
+        backend.resetRuns(QJsonArray{
+            run("11111111-1111-4111-8111-111111111111", "COMPLETED", true, 4, sastashaZone,
+                QString::fromUtf8("沙斯塔夏溶洞"), "2026-09-01T12:10:00.000Z"),
+            run("22222222-2222-4222-8222-222222222222", "COMPLETED", true, none, sastashaZone, none,
+                "2026-09-02T12:10:00.000Z"),
+            cancelledEarly,
+            run("55555555-5555-4555-8555-555555555555", "CANCELLED_BEFORE_ENTRY", false, 2, none, none,
+                "2026-09-01T12:10:00.000Z"),
+            run("66666666-6666-4666-8666-666666666666", "LEFT_OR_ABANDONED", true, none, sharedZone, none,
+                "2026-09-01T12:10:00.000Z"),
+            run("77777777-7777-4777-8777-777777777777", "COMPLETED", true, none, none, none,
+                "2026-09-01T12:10:00.000Z")});
+
+        const QJsonArray rows = backend.dungeonStats({});
+        QCOMPARE(rows.size(), 5);
+        const auto row = [&rows](int index) { return rows.at(index).toObject(); };
+
+        // The zone-only run joins the run that observed the content id: one duty, one row.
+        QCOMPARE(row(0).value(QStringLiteral("content_id")).toInt(), 4);
+        QCOMPARE(row(0).value(QStringLiteral("attempt_count")).toInt(), 2);
+        QCOMPARE(row(0).value(QStringLiteral("completed_count")).toInt(), 2);
+        QCOMPARE(row(0).value(QStringLiteral("duty_name")).toString(), QString::fromUtf8("沙斯塔夏溶洞"));
+        QCOMPARE(row(0).value(QStringLiteral("duty_category")).toString(),
+                 sastasha.value(QStringLiteral("duty_category")).toString());
+
+        // One attempt each, both without a content id: ordered by name.
+        const QString unknownDuty = QString::fromUtf8("未知副本");
+        const bool zoneFirst = sharedZoneName < unknownDuty;
+        const QJsonObject zoneRow = row(zoneFirst ? 1 : 2);
+        const QJsonObject unknownRow = row(zoneFirst ? 2 : 1);
+        QVERIFY(zoneRow.value(QStringLiteral("content_id")).isNull());
+        QCOMPARE(zoneRow.value(QStringLiteral("duty_name")).toString(), sharedZoneName);
+        QCOMPARE(zoneRow.value(QStringLiteral("attempt_count")).toInt(), 1);
+        QVERIFY(unknownRow.value(QStringLiteral("content_id")).isNull());
+        QCOMPARE(unknownRow.value(QStringLiteral("duty_name")).toString(), unknownDuty);
+        QVERIFY(unknownRow.value(QStringLiteral("duty_category")).isNull());
+
+        // No attempt at all: still listed, with a zero and no rate, content_id 2 before 17.
+        QCOMPARE(row(3).value(QStringLiteral("content_id")).toInt(), 2);
+        QCOMPARE(row(4).value(QStringLiteral("content_id")).toInt(), 17);
+        QCOMPARE(row(4).value(QStringLiteral("attempt_count")).toInt(), 0);
+        QVERIFY(row(4).value(QStringLiteral("completion_rate")).isNull());
+        QCOMPARE(row(4).value(QStringLiteral("duty_name")).toString(),
+                 duties->lookup(17).value(QStringLiteral("duty_name")).toString());
+        QCOMPARE(row(4).value(QStringLiteral("last_seen_utc")).toString(),
+                 QStringLiteral("2026-09-03T08:00:00.000Z"));
+
+        // The most recently updated run that names the duty names the row.
+        backend.resetRuns(QJsonArray{
+            run("11111111-1111-4111-8111-111111111111", "COMPLETED", true, 4, sastashaZone,
+                QString::fromUtf8("旧名字"), "2026-09-01T12:10:00.000Z"),
+            run("22222222-2222-4222-8222-222222222222", "COMPLETED", true, 4, sastashaZone,
+                QString::fromUtf8("新名字"), "2026-09-05T12:10:00.000Z"),
+            run("33333333-3333-4333-8333-333333333333", "COMPLETED", true, 4, sastashaZone,
+                QString::fromUtf8("中间的名字"), "2026-09-03T12:10:00.000Z")});
+        QCOMPARE(backend.dungeonStats({}).at(0).toObject().value(QStringLiteral("duty_name")).toString(),
+                 QString::fromUtf8("新名字"));
+    }
+
+    // RV2-5 (audit 2026-10-20 H1-4, RV2-4): StatisticsRepository.DutyKey - a zone the duty
+    // table does not know names no duty, so its runs join the runs without any duty identity
+    // in the one 未知副本 row, and that row is called 未知副本 whatever a run in it calls its
+    // duty. A zone several duties share keeps its own row.
+    void runsInZonesTheDutyTableDoesNotKnowJoinTheOneUnknownDutyRow()
+    {
+        const mr::DutyCatalog *duties = mr::DutyCatalog::shared();
+        const qint64 newZone = 99998;
+        const qint64 otherNewZone = 99999;
+        QVERIFY(duties->lookupByTerritory(newZone).isEmpty());
+        QVERIFY(duties->lookupByTerritory(otherNewZone).isEmpty());
+        const qint64 sharedZone = 832;
+        QCOMPARE(duties->lookup(641).value(QStringLiteral("territory_id")).toLongLong(), sharedZone);
+        const QString sharedZoneName = duties->lookup(640).value(QStringLiteral("duty_name")).toString();
+
+        const auto run = [](const char *id, const char *result, const QJsonValue &zone, const QJsonValue &name,
+                            const QJsonValue &category, const char *updated) {
+            QJsonObject value = autoRun(QString::fromLatin1(id), QString::fromLatin1(result), true);
+            value.insert(QStringLiteral("content_id"), QJsonValue(QJsonValue::Null));
+            value.insert(QStringLiteral("territory_id"), zone);
+            value.insert(QStringLiteral("duty_name"), name);
+            value.insert(QStringLiteral("duty_category"), category);
+            value.insert(QStringLiteral("updated_at_utc"), QString::fromLatin1(updated));
+            return value;
+        };
+        const QJsonValue none(QJsonValue::Null);
+        mr::MockBackend backend;
+        backend.resetRuns(QJsonArray{
+            run("11111111-1111-4111-8111-111111111111", "COMPLETED", newZone, none, none, "2026-09-01T12:10:00.000Z"),
+            run("22222222-2222-4222-8222-222222222222", "LEFT_OR_ABANDONED", otherNewZone, none, none,
+                "2026-09-02T12:10:00.000Z"),
+            run("33333333-3333-4333-8333-333333333333", "COMPLETED", none, none, none, "2026-09-03T12:10:00.000Z"),
+            // An imported row whose 副本 cell matched no duty: free text, the most recent of the four.
+            run("44444444-4444-4444-8444-444444444444", "COMPLETED", none, QString::fromUtf8("自由填写的副本"),
+                QString::fromUtf8("自由填写的类别"), "2026-09-09T12:10:00.000Z"),
+            run("55555555-5555-4555-8555-555555555555", "COMPLETED", sharedZone, none, none,
+                "2026-09-01T12:10:00.000Z")});
+
+        const QJsonArray rows = backend.dungeonStats({});
+        QCOMPARE(rows.size(), 2);
+        const QJsonObject unknown = rows.at(0).toObject();
+        QVERIFY(unknown.value(QStringLiteral("content_id")).isNull());
+        QCOMPARE(unknown.value(QStringLiteral("duty_name")).toString(), QString::fromUtf8("未知副本"));
+        QVERIFY(unknown.value(QStringLiteral("duty_category")).isNull());
+        QCOMPARE(unknown.value(QStringLiteral("attempt_count")).toInt(), 4);
+        QCOMPARE(unknown.value(QStringLiteral("completed_count")).toInt(), 3);
+        const QJsonObject shared = rows.at(1).toObject();
+        QVERIFY(shared.value(QStringLiteral("content_id")).isNull());
+        QCOMPARE(shared.value(QStringLiteral("duty_name")).toString(), sharedZoneName);
+        QCOMPARE(shared.value(QStringLiteral("attempt_count")).toInt(), 1);
+    }
+
+    // J-2: StatisticsRepository.GetJobStats - one row per job_id, every group listed even
+    // when nothing in it was an attempt, named and roled by the job catalogue rather than
+    // by whatever the run carries, ordered by attempts, then job_id (null first).
+    void jobStatisticsNameJobsFromTheCatalogueLikeTheCollector()
+    {
+        const mr::JobCatalog jobs;
+        const auto run = [](const char *id, const char *result, bool entered, const QJsonValue &job,
+                            const char *name, const char *role) {
+            QJsonObject value = autoRun(QString::fromLatin1(id), QString::fromLatin1(result), entered);
+            value.insert(QStringLiteral("job_id"), job);
+            value.insert(QStringLiteral("job_name"), QString::fromUtf8(name));
+            value.insert(QStringLiteral("role"), QString::fromLatin1(role));
+            return value;
+        };
+        mr::MockBackend backend;
+        backend.resetRuns(QJsonArray{
+            run("11111111-1111-4111-8111-111111111111", "CANCELLED_BEFORE_ENTRY", false, 24, "白魔法师", "HEALER"),
+            run("22222222-2222-4222-8222-222222222222", "COMPLETED", true, 21, "战士", "TANK"),
+            run("33333333-3333-4333-8333-333333333333", "COMPLETED", true, 19, "改过的名字", "DPS"),
+            run("44444444-4444-4444-8444-444444444444", "COMPLETED", true, QJsonValue(QJsonValue::Null),
+                "某个职业", "DPS")});
+
+        const QJsonArray rows = backend.jobStats({});
+        QCOMPARE(rows.size(), 4);
+        const auto row = [&rows](int index) { return rows.at(index).toObject(); };
+        QVERIFY(row(0).value(QStringLiteral("job_id")).isNull());
+        QCOMPARE(row(0).value(QStringLiteral("job_name")).toString(), QString::fromUtf8("未知"));
+        QCOMPARE(row(0).value(QStringLiteral("role")).toString(), QStringLiteral("UNKNOWN"));
+        QCOMPARE(row(1).value(QStringLiteral("job_id")).toInt(), 19);
+        QCOMPARE(row(1).value(QStringLiteral("job_name")).toString(), jobs.jobName(19));
+        QCOMPARE(row(1).value(QStringLiteral("role")).toString(), jobs.role(19));
+        QCOMPARE(row(1).value(QStringLiteral("role")).toString(), QStringLiteral("TANK"));
+        QCOMPARE(row(2).value(QStringLiteral("job_id")).toInt(), 21);
+        QCOMPARE(row(3).value(QStringLiteral("job_id")).toInt(), 24);
+        QCOMPARE(row(3).value(QStringLiteral("attempt_count")).toInt(), 0);
+        QCOMPARE(row(3).value(QStringLiteral("completed_count")).toInt(), 0);
+        QVERIFY(row(3).value(QStringLiteral("completion_rate")).isNull());
+    }
+
+    // J-3a: RunMutationService.CorrectRun - a correction may not put an automatic run into
+    // the shape of one still in flight (UNKNOWN, no end, not pending review): it would leave
+    // every statistic and the review list and never be closed again. The run the state
+    // machine is still following has that shape already and stays correctable.
+    void aCorrectionCannotPutAnAutomaticRunBackInFlight()
+    {
+        const QString runId = QStringLiteral("11111111-1111-4111-8111-111111111111");
+        const QString openId = QStringLiteral("22222222-2222-4222-8222-222222222222");
+        QJsonObject open = autoRun(openId, QStringLiteral("UNKNOWN"), true);
+        open.insert(QStringLiteral("ended_at_utc"), QJsonValue(QJsonValue::Null));
+        open.insert(QStringLiteral("duration_ms"), QJsonValue(QJsonValue::Null));
+        mr::MockBackend backend;
+        backend.resetRuns(QJsonArray{autoRun(runId, QStringLiteral("COMPLETED"), true), open});
+
+        const Answer refused = correct(backend, runId, {{QStringLiteral("result"), QStringLiteral("UNKNOWN")},
+                                                        {QStringLiteral("ended_at_utc"), QJsonValue(QJsonValue::Null)}});
+        QCOMPARE(refused.code, QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(refused.message, collectorChinese("mutation.unknown_needs_end"));
+        const QJsonObject stored = ask(backend, QStringLiteral("QueryRuns"),
+                                       {{QStringLiteral("filter"), QJsonObject{{QStringLiteral("run_id"), QJsonArray{runId}}}}})
+                                       .payload.value(QStringLiteral("items")).toArray().at(0).toObject();
+        QCOMPARE(stored.value(QStringLiteral("result")).toString(), QStringLiteral("COMPLETED"));
+        QCOMPARE(stored.value(QStringLiteral("revision")).toInt(), 1);
+
+        // An unknown result with an end time is a closed run, and may be recorded.
+        QVERIFY(correct(backend, runId, {{QStringLiteral("result"), QStringLiteral("UNKNOWN")}}).ok);
+        // The run still being followed may be corrected as before.
+        QVERIFY(correct(backend, openId, {{QStringLiteral("note"), QStringLiteral("x")}}).ok);
+    }
+
+    // J-3b: RunMutationService.Apply / BatchMutateRuns - a mutation resent under the same
+    // request_id (HistoryController keeps the id of a request it stopped waiting for) is
+    // answered from its first outcome and applied once; the same id for another request is
+    // refused with ERR_IDEMPOTENCY_CONFLICT (contracts/error-codes.md).
+    void aResentMutationIsAppliedOnceAndAnsweredAsAReplay()
+    {
+        mr::MockBackend backend;
+        const int before = runCount(backend);
+        const QJsonObject manual{
+            {QStringLiteral("content_id"), 4},
+            {QStringLiteral("matched_at_utc"), QStringLiteral("2026-09-02T12:00:00.000Z")},
+            {QStringLiteral("entered_at_utc"), QStringLiteral("2026-09-02T12:01:00.000Z")},
+            {QStringLiteral("ended_at_utc"), QStringLiteral("2026-09-02T12:20:00.000Z")},
+            {QStringLiteral("result"), QStringLiteral("COMPLETED")},
+            {QStringLiteral("reason"), QString::fromUtf8("补录")}};
+        const QString createId = QStringLiteral("aaaaaaaa-0000-4000-8000-000000000001");
+        const Answer created = askWithId(backend, QStringLiteral("CreateManualRun"), manual, createId);
+        const Answer resent = askWithId(backend, QStringLiteral("CreateManualRun"), manual, createId);
+        QVERIFY2(created.ok, qPrintable(created.code));
+        QVERIFY2(resent.ok, qPrintable(resent.code));
+        QVERIFY(created.payload.contains(QStringLiteral("idempotent_replay")));
+        QVERIFY(!created.payload.value(QStringLiteral("idempotent_replay")).toBool());
+        QVERIFY(resent.payload.value(QStringLiteral("idempotent_replay")).toBool());
+        const QString runId = created.payload.value(QStringLiteral("run_id")).toString();
+        QCOMPARE(resent.payload.value(QStringLiteral("run_id")).toString(), runId);
+        QCOMPARE(runCount(backend), before + 1);
+
+        QJsonObject other = manual;
+        other.insert(QStringLiteral("note"), QStringLiteral("x"));
+        const Answer reused = askWithId(backend, QStringLiteral("CreateManualRun"), other, createId);
+        QCOMPARE(reused.code, QStringLiteral("ERR_IDEMPOTENCY_CONFLICT"));
+        QCOMPARE(reused.message, collectorChinese("idempotency.request_reused"));
+        QCOMPARE(runCount(backend), before + 1);
+
+        const QJsonObject correction{
+            {QStringLiteral("run_id"), runId}, {QStringLiteral("expected_revision"), 1},
+            {QStringLiteral("changes"), QJsonObject{{QStringLiteral("note"), QString::fromUtf8("核对")}}},
+            {QStringLiteral("reason"), QString::fromUtf8("核对")}};
+        const QString correctId = QStringLiteral("aaaaaaaa-0000-4000-8000-000000000002");
+        QVERIFY(askWithId(backend, QStringLiteral("CorrectRun"), correction, correctId).ok);
+        const Answer again = askWithId(backend, QStringLiteral("CorrectRun"), correction, correctId);
+        QVERIFY2(again.ok, qPrintable(again.code)); // not ERR_REVISION_CONFLICT, not applied twice
+        QVERIFY(again.payload.value(QStringLiteral("idempotent_replay")).toBool());
+        QCOMPARE(again.payload.value(QStringLiteral("revision")).toInt(), 2);
+        const auto revisions = [&backend, &runId] {
+            return ask(backend, QStringLiteral("GetRunRevisions"), {{QStringLiteral("run_id"), runId}})
+                .payload.value(QStringLiteral("items")).toArray().size();
+        };
+        QCOMPARE(revisions(), 2);
+
+        const QJsonObject batch{
+            {QStringLiteral("action"), QStringLiteral("soft_delete")},
+            {QStringLiteral("reason"), QString::fromUtf8("重复")},
+            {QStringLiteral("runs"), QJsonArray{QJsonObject{{QStringLiteral("run_id"), runId},
+                                                            {QStringLiteral("expected_revision"), 2}}}}};
+        const QString batchId = QStringLiteral("aaaaaaaa-0000-4000-8000-000000000003");
+        const Answer deleted = askWithId(backend, QStringLiteral("BatchMutateRuns"), batch, batchId);
+        QVERIFY2(deleted.ok, qPrintable(deleted.code));
+        const Answer replayed = askWithId(backend, QStringLiteral("BatchMutateRuns"), batch, batchId);
+        QVERIFY2(replayed.ok, qPrintable(replayed.code)); // not ERR_ALREADY_DELETED
+        QVERIFY(replayed.payload.value(QStringLiteral("idempotent_replay")).toBool());
+        QCOMPARE(replayed.payload.value(QStringLiteral("changed_count")).toInt(), 1);
+        QCOMPARE(revisions(), 3);
+
+        QJsonObject restore = batch;
+        restore.insert(QStringLiteral("action"), QStringLiteral("restore"));
+        restore.insert(QStringLiteral("runs"), QJsonArray{QJsonObject{{QStringLiteral("run_id"), runId},
+                                                                      {QStringLiteral("expected_revision"), 3}}});
+        const Answer reusedBatch = askWithId(backend, QStringLiteral("BatchMutateRuns"), restore, batchId);
+        QCOMPARE(reusedBatch.code, QStringLiteral("ERR_IDEMPOTENCY_CONFLICT"));
+        QCOMPARE(reusedBatch.message, collectorChinese("history.batch.request_reused"));
+        QCOMPARE(revisions(), 3);
+    }
+
+    // J-3c: RunMutationService.BatchMutateRuns - a selection whose deletion state does not
+    // fit the action is refused with the Collector's own codes and sentences, nothing is
+    // applied, and an applied batch says it was no replay.
+    void aBatchRefusesAMismatchedDeletionStateWithTheCollectorsCodes()
+    {
+        const QString liveId = QStringLiteral("11111111-1111-4111-8111-111111111111");
+        const QString deletedId = QStringLiteral("22222222-2222-4222-8222-222222222222");
+        QJsonObject deleted = autoRun(deletedId, QStringLiteral("COMPLETED"), true);
+        deleted.insert(QStringLiteral("soft_deleted"), true);
+        mr::MockBackend backend;
+        backend.resetRuns(QJsonArray{autoRun(liveId, QStringLiteral("COMPLETED"), true), deleted});
+        const auto batch = [&backend](const char *action, const QString &runId) {
+            return ask(backend, QStringLiteral("BatchMutateRuns"),
+                       {{QStringLiteral("action"), QString::fromLatin1(action)},
+                        {QStringLiteral("reason"), QString::fromUtf8("整理")},
+                        {QStringLiteral("runs"), QJsonArray{QJsonObject{{QStringLiteral("run_id"), runId},
+                                                                        {QStringLiteral("expected_revision"), 1}}}}});
+        };
+
+        const Answer again = batch("soft_delete", deletedId);
+        QCOMPARE(again.code, QStringLiteral("ERR_ALREADY_DELETED"));
+        QCOMPARE(again.message, collectorChinese("history.batch.already_deleted"));
+        for (const char *action : {"restore", "purge"}) {
+            const Answer refused = batch(action, liveId);
+            QCOMPARE(refused.code, QStringLiteral("ERR_NOT_DELETED"));
+            QCOMPARE(refused.message, collectorChinese("history.batch.not_deleted"));
+        }
+        QCOMPARE(runCount(backend), 2);
+
+        const Answer applied = batch("soft_delete", liveId);
+        QVERIFY2(applied.ok, qPrintable(applied.code));
+        QCOMPARE(applied.payload.value(QStringLiteral("changed_count")).toInt(), 1);
+        QVERIFY(applied.payload.contains(QStringLiteral("idempotent_replay")));
+        QVERIFY(!applied.payload.value(QStringLiteral("idempotent_replay")).toBool());
+    }
+
+    // J-3d: RequestParsers.Paging + RunRepository.Query - a page or page_size out of range
+    // is refused, never clamped, and a page past the end is answered as asked and empty, so
+    // the history list's own past-the-end recovery (RunListModel) runs offline as well.
+    void queryRunsRefusesOutOfRangePagingAndAnswersAPagePastTheEnd()
+    {
+        mr::MockBackend backend;
+        const auto query = [&backend](const QJsonObject &paging) {
+            QJsonObject payload = paging;
+            payload.insert(QStringLiteral("filter"), QJsonObject());
+            return ask(backend, QStringLiteral("QueryRuns"), payload);
+        };
+        for (int size : {0, 201}) {
+            const Answer refused = query({{QStringLiteral("page"), 1}, {QStringLiteral("page_size"), size}});
+            QCOMPARE(refused.code, QStringLiteral("ERR_BAD_REQUEST"));
+            QCOMPARE(refused.message, collectorChinese("ipc.field.out_of_range",
+                                                       {{QStringLiteral("field"), QStringLiteral("page_size")},
+                                                        {QStringLiteral("min"), 1}, {QStringLiteral("max"), 200}}));
+        }
+        QCOMPARE(query({{QStringLiteral("page"), 0}, {QStringLiteral("page_size"), 50}}).code,
+                 QStringLiteral("ERR_BAD_REQUEST"));
+
+        const Answer defaults = query({});
+        QVERIFY(defaults.ok);
+        const QJsonObject defaultInfo = defaults.payload.value(QStringLiteral("page_info")).toObject();
+        QCOMPARE(defaultInfo.value(QStringLiteral("page")).toInt(), 1);
+        QCOMPARE(defaultInfo.value(QStringLiteral("page_size")).toInt(), 50);
+        const int total = defaultInfo.value(QStringLiteral("total")).toInt();
+        QVERIFY(total > 0);
+
+        const Answer past = query({{QStringLiteral("page"), 99}, {QStringLiteral("page_size"), 50}});
+        QVERIFY(past.ok);
+        QVERIFY(past.payload.value(QStringLiteral("items")).toArray().isEmpty());
+        const QJsonObject pastInfo = past.payload.value(QStringLiteral("page_info")).toObject();
+        QCOMPARE(pastInfo.value(QStringLiteral("page")).toInt(), 99);
+        QCOMPARE(pastInfo.value(QStringLiteral("total")).toInt(), total);
+    }
+
+    // J-3e: RunFilterSql - pending_review true is the actionable review list, which leaves
+    // imported history out (source IMPORT, import metadata, or an IMPORT creation revision),
+    // in the listing as in the calendar.
+    void thePendingReviewListLeavesOutImportedHistory()
+    {
+        const QString flaggedId = QStringLiteral("11111111-1111-4111-8111-111111111111");
+        QJsonObject flagged = autoRun(flaggedId, QStringLiteral("INTERRUPTED"), true);
+        flagged.insert(QStringLiteral("pending_review"), true);
+        QJsonObject imported = autoRun(QStringLiteral("22222222-2222-4222-8222-222222222222"),
+                                       QStringLiteral("UNKNOWN"), true);
+        imported.insert(QStringLiteral("source"), QStringLiteral("IMPORT"));
+        imported.insert(QStringLiteral("mentor_roulette_id"), QJsonValue(QJsonValue::Null));
+        imported.insert(QStringLiteral("pending_review"), true);
+        QJsonObject withMetadata = autoRun(QStringLiteral("33333333-3333-4333-8333-333333333333"),
+                                           QStringLiteral("UNKNOWN"), true);
+        withMetadata.insert(QStringLiteral("source"), QStringLiteral("MANUAL"));
+        withMetadata.insert(QStringLiteral("pending_review"), true);
+        withMetadata.insert(QStringLiteral("import_metadata"),
+                            QJsonObject{{QStringLiteral("source_kind"), QStringLiteral("CSV")},
+                                        {QStringLiteral("source_name"), QJsonValue(QJsonValue::Null)},
+                                        {QStringLiteral("source_recorded_at"), QJsonValue(QJsonValue::Null)},
+                                        {QStringLiteral("source_recorded_at_utc"), QJsonValue(QJsonValue::Null)},
+                                        {QStringLiteral("imported_at_utc"), QStringLiteral("2026-09-03T12:00:00.000Z")},
+                                        {QStringLiteral("incomplete"), true}});
+        mr::MockBackend backend;
+        backend.resetRuns(QJsonArray{flagged, imported, withMetadata});
+
+        const Answer listed = ask(backend, QStringLiteral("QueryRuns"),
+                                  {{QStringLiteral("filter"), QJsonObject{{QStringLiteral("pending_review"), true}}}});
+        QVERIFY(listed.ok);
+        const QJsonArray items = listed.payload.value(QStringLiteral("items")).toArray();
+        QCOMPARE(items.size(), 1);
+        QCOMPARE(items.at(0).toObject().value(QStringLiteral("run_id")).toString(), flaggedId);
+        QCOMPARE(listed.payload.value(QStringLiteral("page_info")).toObject().value(QStringLiteral("total")).toInt(), 1);
+        // Without the filter all three are listed.
+        QCOMPARE(runCount(backend), 3);
+    }
+
+    // J-4: the offline backend answers every message of the contract, or refuses it on
+    // purpose - never with 「模拟后端不支持该消息」, the answer to a message it forgot.
+    // Event and Error are what the Collector sends; nobody requests them.
+    void everyContractMessageIsAnsweredOrDeliberatelyRefused()
+    {
+        QFile schema(QStringLiteral(MR_SOURCE_DIR "/contracts/ipc-v1.schema.json"));
+        QVERIFY(schema.open(QIODevice::ReadOnly));
+        const QJsonArray types = QJsonDocument::fromJson(schema.readAll()).object()
+                                     .value(QStringLiteral("$defs")).toObject()
+                                     .value(QStringLiteral("MessageType")).toObject()
+                                     .value(QStringLiteral("enum")).toArray();
+        QVERIFY(types.size() > 50);
+        const QSet<QString> notRequests{QStringLiteral("Event"), QStringLiteral("Error")};
+        const QString forgotten = QString::fromUtf8("模拟后端不支持该消息");
+        QTemporaryDir data;
+        QVERIFY(data.isValid());
+        mr::MockBackend backend;
+        backend.setDataDirectory(data.path());
+        for (const QJsonValue &value : types) {
+            const QString type = value.toString();
+            const Answer answer = ask(backend, type);
+            QVERIFY2(answer.done, qPrintable(type));
+            if (notRequests.contains(type)) {
+                QVERIFY2(!answer.ok, qPrintable(type));
+                continue;
+            }
+            QVERIFY2(!answer.message.startsWith(forgotten),
+                     qPrintable(type + QStringLiteral(": ") + answer.message));
+        }
+    }
+
+    // J-4: RunImportService - a preview of edited candidate rows (the screenshot path, and
+    // every 重新校验) is classified as a whole and handed out in pages that share one
+    // summary; the commit saves the selected rows once, deducts the completions the player
+    // says the baseline already holds, and answers a resend from its receipt.
+    void anImportIsPreviewedPageByPageAndCommittedOnce()
+    {
+        const mr::JobCatalog jobs;
+        const QString sastasha = mr::DutyCatalog::shared()->lookup(4).value(QStringLiteral("duty_name")).toString();
+        QVERIFY(!sastasha.isEmpty());
+        const QJsonArray rows{
+            QJsonObject{{QStringLiteral("duty_name"), sastasha}, {QStringLiteral("job_name"), jobs.jobName(19)},
+                        {QStringLiteral("result"), QStringLiteral("COMPLETED")},
+                        {QStringLiteral("source_recorded_at"), QStringLiteral("2026-08-01")}},
+            QJsonObject{{QStringLiteral("content_id"), 17}, {QStringLiteral("job_id"), 24},
+                        {QStringLiteral("result"), QString::fromUtf8("完成")},
+                        {QStringLiteral("entered_at_utc"), QStringLiteral("2026-08-02T12:01:00.000Z")},
+                        {QStringLiteral("ended_at_utc"), QStringLiteral("2026-08-02T12:20:00.000Z")}},
+            QJsonObject{}};
+        const QJsonObject source{{QStringLiteral("source_kind"), QStringLiteral("SCREENSHOT")},
+                                 {QStringLiteral("source_name"), QString::fromUtf8("截图")},
+                                 {QStringLiteral("time_zone"), QStringLiteral("Asia/Shanghai")},
+                                 {QStringLiteral("page_size"), 2}, {QStringLiteral("rows"), rows}};
+        mr::MockBackend backend;
+        backend.setAchievement(2000, 10);
+        const int before = runCount(backend);
+
+        const Answer first = ask(backend, QStringLiteral("PreviewRunImport"), source);
+        QVERIFY2(first.ok, qPrintable(first.code + QStringLiteral(" ") + first.message));
+        const QString previewId = first.payload.value(QStringLiteral("preview_id")).toString();
+        QVERIFY(!previewId.isEmpty());
+        QCOMPARE(first.payload.value(QStringLiteral("source_kind")).toString(), QStringLiteral("SCREENSHOT"));
+        const QJsonObject info = first.payload.value(QStringLiteral("page_info")).toObject();
+        QCOMPARE(info.value(QStringLiteral("page")).toInt(), 1);
+        QCOMPARE(info.value(QStringLiteral("page_size")).toInt(), 2);
+        QCOMPARE(info.value(QStringLiteral("total")).toInt(), 3);
+        const QJsonObject summary = first.payload.value(QStringLiteral("summary")).toObject();
+        QCOMPARE(summary.value(QStringLiteral("new")).toInt(), 2);
+        QCOMPARE(summary.value(QStringLiteral("invalid")).toInt(), 1);
+        QCOMPARE(summary.value(QStringLiteral("incomplete")).toInt(), 1);
+        QCOMPARE(summary.value(QStringLiteral("total")).toInt(), 3);
+        const QJsonArray firstRows = first.payload.value(QStringLiteral("rows")).toArray();
+        QCOMPARE(firstRows.size(), 2);
+        const QJsonObject named = firstRows.at(0).toObject();
+        QCOMPARE(named.value(QStringLiteral("row_number")).toInt(), 1);
+        QCOMPARE(named.value(QStringLiteral("status")).toString(), QStringLiteral("new"));
+        QVERIFY(named.value(QStringLiteral("can_import")).toBool());
+        QVERIFY(named.value(QStringLiteral("incomplete")).toBool());
+        const QJsonObject namedRun = named.value(QStringLiteral("run")).toObject();
+        QCOMPARE(namedRun.value(QStringLiteral("content_id")).toInt(), 4);
+        QCOMPARE(namedRun.value(QStringLiteral("job_id")).toInt(), 19);
+        QCOMPARE(namedRun.value(QStringLiteral("source")).toString(), QStringLiteral("IMPORT"));
+        QCOMPARE(namedRun.value(QStringLiteral("import_metadata")).toObject()
+                     .value(QStringLiteral("source_recorded_at")).toString(), QStringLiteral("2026-08-01"));
+        const QJsonArray warnings = named.value(QStringLiteral("warnings")).toArray();
+        const QJsonArray warningRefs = named.value(QStringLiteral("warning_refs")).toArray();
+        QCOMPARE(warningRefs.size(), warnings.size());
+        QVERIFY(warnings.contains(collectorChinese("import.warning.source_date_only")));
+        QVERIFY(warnings.contains(collectorChinese("import.warning.time_missing")));
+        for (qsizetype i = 0; i < warnings.size(); ++i)
+            QVERIFY(sameSentence(warnings.at(i), warningRefs.at(i)));
+        const QJsonObject timed = firstRows.at(1).toObject().value(QStringLiteral("run")).toObject();
+        QCOMPARE(timed.value(QStringLiteral("duration_ms")).toDouble(), 1140000.0);
+        QCOMPARE(timed.value(QStringLiteral("result")).toString(), QStringLiteral("COMPLETED"));
+
+        const Answer second = ask(backend, QStringLiteral("PreviewRunImport"),
+                                  {{QStringLiteral("preview_id"), previewId}, {QStringLiteral("page"), 2}});
+        QVERIFY2(second.ok, qPrintable(second.message));
+        QCOMPARE(second.payload.value(QStringLiteral("summary")).toObject(), summary);
+        const QJsonArray secondRows = second.payload.value(QStringLiteral("rows")).toArray();
+        QCOMPARE(secondRows.size(), 1);
+        const QJsonObject empty = secondRows.at(0).toObject();
+        QCOMPARE(empty.value(QStringLiteral("row_number")).toInt(), 3);
+        QCOMPARE(empty.value(QStringLiteral("status")).toString(), QStringLiteral("invalid"));
+        QVERIFY(empty.value(QStringLiteral("run")).isNull());
+        QCOMPARE(empty.value(QStringLiteral("errors")).toArray().at(0).toString(), collectorChinese("import.row.empty"));
+        QCOMPARE(ask(backend, QStringLiteral("PreviewRunImport"),
+                     {{QStringLiteral("preview_id"), previewId}, {QStringLiteral("page"), 3}}).code,
+                 QStringLiteral("ERR_BAD_REQUEST"));
+
+        QCOMPARE(ask(backend, QStringLiteral("CommitRunImport"),
+                     {{QStringLiteral("preview_id"), previewId}, {QStringLiteral("row_numbers"), QJsonArray{1}},
+                      {QStringLiteral("confirm_own_records"), false}}).message,
+                 collectorChinese("import.commit.own_records_required"));
+        QCOMPARE(ask(backend, QStringLiteral("CommitRunImport"),
+                     {{QStringLiteral("preview_id"), previewId}, {QStringLiteral("row_numbers"), QJsonArray{1, 3}},
+                      {QStringLiteral("confirm_own_records"), true}}).message,
+                 collectorChinese("import.commit.rows_have_errors"));
+        QCOMPARE(runCount(backend), before);
+
+        const QJsonObject commit{{QStringLiteral("preview_id"), previewId},
+                                 {QStringLiteral("row_numbers"), QJsonArray{1, 2}},
+                                 {QStringLiteral("confirm_own_records"), true},
+                                 {QStringLiteral("deduct_from_baseline"), true}};
+        const QString commitId = QStringLiteral("bbbbbbbb-0000-4000-8000-000000000001");
+        const Answer saved = askWithId(backend, QStringLiteral("CommitRunImport"), commit, commitId);
+        QVERIFY2(saved.ok, qPrintable(saved.code + QStringLiteral(" ") + saved.message));
+        QCOMPARE(saved.payload.value(QStringLiteral("imported_count")).toInt(), 2);
+        QCOMPARE(saved.payload.value(QStringLiteral("replayed")).toBool(), false);
+        QCOMPARE(saved.payload.value(QStringLiteral("baseline_deducted_count")).toInt(), 2);
+        QCOMPARE(saved.payload.value(QStringLiteral("baseline_completed_count")).toInt(), 8);
+        const QJsonArray runIds = saved.payload.value(QStringLiteral("run_ids")).toArray();
+        QCOMPARE(runIds.size(), 2);
+        const QJsonArray outcomes = saved.payload.value(QStringLiteral("rows")).toArray();
+        QCOMPARE(outcomes.size(), 2);
+        QCOMPARE(outcomes.at(0).toObject().value(QStringLiteral("status")).toString(), QStringLiteral("imported"));
+        QCOMPARE(runCount(backend), before + 2);
+        QCOMPARE(backend.dashboardStats({}).value(QStringLiteral("baseline_completed_count")).toInt(), 8);
+        const QJsonArray chain = ask(backend, QStringLiteral("GetRunRevisions"),
+                                     {{QStringLiteral("run_id"), runIds.at(0)}})
+                                     .payload.value(QStringLiteral("items")).toArray();
+        QCOMPARE(chain.size(), 1);
+        QCOMPARE(chain.at(0).toObject().value(QStringLiteral("change_kind")).toString(), QStringLiteral("IMPORT"));
+
+        // A resend, under the same id or another, is answered from the receipt.
+        const Answer resent = askWithId(backend, QStringLiteral("CommitRunImport"), commit, commitId);
+        QVERIFY2(resent.ok, qPrintable(resent.message));
+        QVERIFY(resent.payload.value(QStringLiteral("replayed")).toBool());
+        QCOMPARE(resent.payload.value(QStringLiteral("run_ids")).toArray(), runIds);
+        QVERIFY(ask(backend, QStringLiteral("CommitRunImport"), commit).payload.value(QStringLiteral("replayed")).toBool());
+        QCOMPARE(runCount(backend), before + 2);
+        QCOMPARE(backend.dashboardStats({}).value(QStringLiteral("baseline_completed_count")).toInt(), 8);
+        QJsonObject narrower = commit;
+        narrower.insert(QStringLiteral("row_numbers"), QJsonArray{1});
+        const Answer changed = ask(backend, QStringLiteral("CommitRunImport"), narrower);
+        QCOMPARE(changed.code, QStringLiteral("ERR_IDEMPOTENCY_CONFLICT"));
+        QCOMPARE(changed.message, collectorChinese("import.commit.selection_changed"));
+
+        // The same rows again are already in the library.
+        QJsonObject whole = source;
+        whole.remove(QStringLiteral("page_size"));
+        const Answer again = ask(backend, QStringLiteral("PreviewRunImport"), whole);
+        QVERIFY2(again.ok, qPrintable(again.message));
+        QVERIFY(!again.payload.contains(QStringLiteral("page_info")));
+        const QJsonArray againRows = again.payload.value(QStringLiteral("rows")).toArray();
+        QCOMPARE(againRows.size(), 3);
+        QCOMPARE(againRows.at(0).toObject().value(QStringLiteral("status")).toString(), QStringLiteral("duplicate"));
+        QCOMPARE(againRows.at(0).toObject().value(QStringLiteral("matching_run_id")), runIds.at(0));
+        QVERIFY(!againRows.at(0).toObject().value(QStringLiteral("can_import")).toBool());
+    }
+
+    // J-4: the offline backend reads a JSON source the way the Collector does, and refuses -
+    // saying so - the table, workbook and backup sources it does not parse.
+    void anImportFromJsonIsReadAndOtherFilesAreRefusedOnPurpose()
+    {
+        mr::MockBackend backend;
+        const Answer json = ask(backend, QStringLiteral("PreviewRunImport"),
+                                {{QStringLiteral("source_kind"), QStringLiteral("JSON")},
+                                 {QStringLiteral("text"), QStringLiteral("[{\"content_id\": 4, \"result\": \"COMPLETED\"}]")}});
+        QVERIFY2(json.ok, qPrintable(json.message));
+        QCOMPARE(json.payload.value(QStringLiteral("rows")).toArray().size(), 1);
+        QCOMPARE(json.payload.value(QStringLiteral("summary")).toObject().value(QStringLiteral("new")).toInt(), 1);
+        const Answer notArray = ask(backend, QStringLiteral("PreviewRunImport"),
+                                    {{QStringLiteral("source_kind"), QStringLiteral("JSON")},
+                                     {QStringLiteral("text"), QStringLiteral("{}")}});
+        QCOMPARE(notArray.code, QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(notArray.message,
+                 collectorChinese("import.source.unreadable",
+                                  {{QStringLiteral("detail"), mr::collector_text::textRef("import.json.not_array")}}));
+        const Answer table = ask(backend, QStringLiteral("PreviewRunImport"),
+                                 {{QStringLiteral("source_kind"), QStringLiteral("CSV")},
+                                  {QStringLiteral("text"), QStringLiteral("duty_name,result\nx,COMPLETED")}});
+        QCOMPARE(table.code, QStringLiteral("ERR_BAD_REQUEST"));
+        QVERIFY(!table.message.isEmpty());
+        QVERIFY(!table.message.startsWith(QString::fromUtf8("模拟后端不支持该消息")));
+        QCOMPARE(ask(backend, QStringLiteral("PreviewRunImport"),
+                     {{QStringLiteral("source_kind"), QStringLiteral("DOCX")}}).message,
+                 collectorChinese("import.preview.kind_unsupported"));
+    }
+
+    // RV2-5 (audit 2026-10-20 H2-1): RunImportService.PreviewSource - a row without its own
+    // identity is known by its own cells (ordinal order, trimmed, empty cells left out) and how
+    // many identical rows precede it, never by the whole file it came in. Re-importing an edited
+    // file marks only the rows already imported as duplicates, wherever they moved.
+    void aReimportedFileMarksOnlyTheRowsAlreadyImportedAsDuplicates()
+    {
+        const QString sastasha = mr::DutyCatalog::shared()->lookup(4).value(QStringLiteral("duty_name")).toString();
+        QVERIFY(!sastasha.isEmpty());
+        const auto row = [&sastasha](const char *day, int job) {
+            return QJsonObject{{QStringLiteral("duty_name"), sastasha}, {QStringLiteral("job_id"), job},
+                               {QStringLiteral("source_recorded_at"), QString::fromLatin1(day)},
+                               {QStringLiteral("result"), QString::fromUtf8("通关")}};
+        };
+        const QString file = QStringLiteral("personal-records.json");
+        const QStringList newRows{QStringLiteral("new"), QStringLiteral("new")};
+
+        mr::MockBackend appending;
+        appending.resetRuns({});
+        const Answer first = previewImport(appending, QStringLiteral("JSON"),
+                                           {row("2026-09-01", 21), row("2026-09-02", 21)}, file);
+        QVERIFY2(first.ok, qPrintable(first.message));
+        QCOMPARE(importStatuses(first), newRows);
+        QCOMPARE(commitWholePreview(appending, first).payload.value(QStringLiteral("imported_count")).toInt(), 2);
+        const Answer appended = previewImport(appending, QStringLiteral("JSON"),
+                                              {row("2026-09-01", 21), row("2026-09-02", 21), row("2026-09-03", 21)}, file);
+        QCOMPARE(importStatuses(appended),
+                 (QStringList{QStringLiteral("duplicate"), QStringLiteral("duplicate"), QStringLiteral("new")}));
+        QVERIFY(!appended.payload.value(QStringLiteral("rows")).toArray().at(0).toObject()
+                     .value(QStringLiteral("can_import")).toBool());
+        // A padded cell or an empty one added does not change who the row is; another job does.
+        QJsonObject padded = row("2026-09-01", 21);
+        padded.insert(QStringLiteral("duty_name"), QStringLiteral("  ") + sastasha + QStringLiteral(" "));
+        padded.insert(QStringLiteral("note"), QString());
+        const Answer edited = previewImport(appending, QStringLiteral("JSON"), {padded, row("2026-09-02", 19)}, file);
+        QCOMPARE(importStatuses(edited), (QStringList{QStringLiteral("duplicate"), QStringLiteral("new")}));
+
+        mr::MockBackend moving;
+        moving.resetRuns({});
+        const QJsonObject twice = row("2026-09-01", 21);
+        QCOMPARE(commitWholePreview(moving, previewImport(moving, QStringLiteral("JSON"), {twice, twice}, file))
+                     .payload.value(QStringLiteral("imported_count")).toInt(),
+                 2);
+        const Answer reordered = previewImport(moving, QStringLiteral("JSON"), {row("2026-09-05", 19), twice, twice}, file);
+        QCOMPARE(importStatuses(reordered),
+                 (QStringList{QStringLiteral("new"), QStringLiteral("duplicate"), QStringLiteral("duplicate")}));
+        // A third identical row is a run the library may already hold: offered, never pre-judged new.
+        const Answer third = previewImport(moving, QStringLiteral("JSON"), {twice, twice, twice}, file);
+        QCOMPARE(importStatuses(third), (QStringList{QStringLiteral("duplicate"), QStringLiteral("duplicate"),
+                                                     QStringLiteral("possible_duplicate")}));
+        QVERIFY(third.payload.value(QStringLiteral("rows")).toArray().at(2).toObject()
+                    .value(QStringLiteral("can_import")).toBool());
+    }
+
+    // RV2-5 (audit 2026-10-20 H2-1): RunImportService.FindNearby - a run of the same duty on
+    // the same source day, with the same job where both name one, may be this record when at
+    // least one of the two has no clock time. Two clock times decide on their own, and a
+    // live-captured run has no source day to match.
+    void aRowOnTheSameSourceDayAsAnImportedRunIsAPossibleDuplicate()
+    {
+        const mr::DutyCatalog *duties = mr::DutyCatalog::shared();
+        const QString sastasha = duties->lookup(4).value(QStringLiteral("duty_name")).toString();
+        const QString other = duties->lookup(17).value(QStringLiteral("duty_name")).toString();
+        QVERIFY(!sastasha.isEmpty() && !other.isEmpty() && other != sastasha);
+        const auto row = [](const QString &duty, const char *recorded, int job) {
+            QJsonObject value{{QStringLiteral("duty_name"), duty},
+                              {QStringLiteral("source_recorded_at"), QString::fromLatin1(recorded)},
+                              {QStringLiteral("result"), QStringLiteral("COMPLETED")}};
+            if (job > 0)
+                value.insert(QStringLiteral("job_id"), job);
+            return value;
+        };
+
+        mr::MockBackend backend;
+        // A live-captured run of the duty that day, sorted before any generated id.
+        QJsonObject live = autoRun(QStringLiteral("00000000-0000-4000-8000-000000000001"),
+                                   QStringLiteral("CANCELLED_BEFORE_ENTRY"), false);
+        live.insert(QStringLiteral("content_id"), 4);
+        live.insert(QStringLiteral("duty_name"), sastasha);
+        live.insert(QStringLiteral("job_id"), 21);
+        backend.resetRuns(QJsonArray{live});
+        const Answer stored = commitWholePreview(
+            backend, previewImport(backend, QStringLiteral("JSON"), {row(sastasha, "2026-09-01", 21)},
+                                   QStringLiteral("old.json")));
+        QVERIFY2(stored.ok, qPrintable(stored.message));
+        const QString storedId = stored.payload.value(QStringLiteral("run_ids")).toArray().at(0).toString();
+        QVERIFY(!storedId.isEmpty());
+
+        const Answer pasted = previewImport(backend, QStringLiteral("JSON"),
+                                            {row(sastasha, "2026-09-01", 21), row(sastasha, "2026-09-01 20:30", 21),
+                                             row(sastasha, "2026.9.1", 0), row(sastasha, "2026-09-01", 19),
+                                             row(sastasha, "2026-09-02", 21), row(other, "2026-09-01", 21)},
+                                            QString::fromUtf8("粘贴的表格"));
+        QVERIFY2(pasted.ok, qPrintable(pasted.message));
+        QCOMPARE(importStatuses(pasted),
+                 (QStringList{QStringLiteral("possible_duplicate"), QStringLiteral("possible_duplicate"),
+                              QStringLiteral("possible_duplicate"), QStringLiteral("new"), QStringLiteral("new"),
+                              QStringLiteral("new")}));
+        const QJsonArray rows = pasted.payload.value(QStringLiteral("rows")).toArray();
+        for (int i = 0; i < 3; ++i) {
+            QCOMPARE(rows.at(i).toObject().value(QStringLiteral("matching_run_id")).toString(), storedId);
+            QVERIFY(rows.at(i).toObject().value(QStringLiteral("can_import")).toBool());
+        }
+
+        mr::MockBackend timed;
+        timed.resetRuns({});
+        QVERIFY(commitWholePreview(timed, previewImport(timed, QStringLiteral("JSON"),
+                                                        {row(sastasha, "2026-09-01 20:30", 21)},
+                                                        QStringLiteral("old.json"))).ok);
+        QCOMPARE(importStatuses(previewImport(timed, QStringLiteral("JSON"), {row(sastasha, "2026-09-01 22:10", 21)},
+                                              QString::fromUtf8("粘贴的表格"))),
+                 QStringList{QStringLiteral("new")});
+    }
+
+    // RV2-5 (audit 2026-10-20 I3-1): RunImportService.Render - the same card read twice in one
+    // batch (overlapping screenshots, one picture added twice) differs only in what the reading
+    // added; the later copy is a possible duplicate of the first. The twin key is the duty, the
+    // clock time and the reflection text, so date-only rows of one day are never twins.
+    void theSameCardTwiceInOneBatchIsOfferedOnceAsNew()
+    {
+        const mr::JobCatalog jobs;
+        const QString sastasha = mr::DutyCatalog::shared()->lookup(4).value(QStringLiteral("duty_name")).toString();
+        QVERIFY(!sastasha.isEmpty());
+        const auto card = [&](const QString &text, const char *time, int job) {
+            return QJsonObject{{QStringLiteral("duty_name"), sastasha}, {QStringLiteral("job_name"), jobs.jobName(job)},
+                               {QStringLiteral("reflection_text"), text},
+                               {QStringLiteral("source_recorded_at"), QString::fromLatin1(time)},
+                               {QStringLiteral("result"), QStringLiteral("COMPLETED")}};
+        };
+        const QString thought = QString::fromUtf8("合成截图心得");
+        QJsonObject overlapping = card(thought, "2026-10-08 20:30:00", 19);
+        overlapping.insert(QStringLiteral("warnings"), QJsonArray{QString::fromUtf8("职业是按图标推测的")});
+        mr::MockBackend backend;
+        backend.resetRuns({});
+        const Answer preview = previewImport(
+            backend, QStringLiteral("SCREENSHOT"),
+            {card(thought, "2026-10-08 20:30:00", 21), card(QString::fromUtf8("另一条心得"), "2026-10-08 20:30:00", 21),
+             card(thought, "2026-10-08 20:30:00", 21), overlapping, card(thought, "2026-10-08 21:30:00", 21)},
+            QString::fromUtf8("合成截图 等 2 张截图"));
+        QVERIFY2(preview.ok, qPrintable(preview.message));
+        QCOMPARE(importStatuses(preview),
+                 (QStringList{QStringLiteral("new"), QStringLiteral("new"), QStringLiteral("possible_duplicate"),
+                              QStringLiteral("possible_duplicate"), QStringLiteral("new")}));
+        const QJsonArray rows = preview.payload.value(QStringLiteral("rows")).toArray();
+        const QString firstCopy = rows.at(0).toObject().value(QStringLiteral("run")).toObject()
+                                      .value(QStringLiteral("run_id")).toString();
+        QVERIFY(!firstCopy.isEmpty());
+        QCOMPARE(rows.at(2).toObject().value(QStringLiteral("matching_run_id")).toString(), firstCopy);
+        QCOMPARE(rows.at(3).toObject().value(QStringLiteral("matching_run_id")).toString(), firstCopy);
+        QVERIFY(rows.at(2).toObject().value(QStringLiteral("can_import")).toBool());
+        QCOMPARE(preview.payload.value(QStringLiteral("summary")).toObject()
+                     .value(QStringLiteral("possible_duplicate")).toInt(),
+                 2);
+
+        const QJsonObject dateOnly{{QStringLiteral("duty_name"), sastasha}, {QStringLiteral("job_id"), 21},
+                                   {QStringLiteral("source_recorded_at"), QStringLiteral("2026-10-09")},
+                                   {QStringLiteral("result"), QStringLiteral("COMPLETED")}};
+        QCOMPARE(importStatuses(previewImport(backend, QStringLiteral("SCREENSHOT"), {dateOnly, dateOnly},
+                                              QString::fromUtf8("截图"))),
+                 (QStringList{QStringLiteral("new"), QStringLiteral("new")}));
+    }
+
+    // J-4: CalibrationEvidenceHandlers / CaptureValidationController.GetTemplateObservation -
+    // the offline backend has never completed a session or an observation, so it says
+    // which of the Collector's reasons applies instead of refusing the message.
+    void calibrationEvidenceSaysWhyNothingIsReady()
+    {
+        mr::MockBackend backend;
+        const Answer none = ask(backend, QStringLiteral("GetCalibrationEvidence"));
+        QVERIFY2(none.ok, qPrintable(none.message));
+        QCOMPARE(none.payload.value(QStringLiteral("available")).toBool(), false);
+        QCOMPARE(none.payload.value(QStringLiteral("kind")).toString(), QStringLiteral("CODE_VERIFICATION"));
+        QVERIFY(none.payload.value(QStringLiteral("evidence_json")).isNull());
+        QVERIFY(none.payload.value(QStringLiteral("issue_url")).isNull());
+        QCOMPARE(none.payload.value(QStringLiteral("evidence_in_url")).toBool(), false);
+        QCOMPARE(none.payload.value(QStringLiteral("reason")).toString(), QStringLiteral("NO_CURRENT_CANDIDATE"));
+        const Answer badHash = ask(backend, QStringLiteral("GetCalibrationEvidence"),
+                                   {{QStringLiteral("code_sha256"), QStringLiteral("XYZ")}});
+        QCOMPARE(badHash.code, QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(badHash.message, collectorChinese("calibration.evidence_hash_invalid"));
+
+        backend.setSharedCalibrationFixture(QStringLiteral("verifying"));
+        const QJsonArray candidates = ask(backend, QStringLiteral("GetCaptureStatus")).payload
+                                          .value(QStringLiteral("calibration")).toObject()
+                                          .value(QStringLiteral("shared")).toObject()
+                                          .value(QStringLiteral("candidates")).toArray();
+        QCOMPARE(candidates.size(), 1);
+        // The one candidate is the one the summary would describe.
+        QCOMPARE(ask(backend, QStringLiteral("GetCalibrationEvidence")).payload.value(QStringLiteral("reason")).toString(),
+                 QStringLiteral("NO_COMPLETED_HEALTHY_SESSION"));
+        QCOMPARE(ask(backend, QStringLiteral("GetCalibrationEvidence"),
+                     {{QStringLiteral("code_sha256"), QString(64, QLatin1Char('0'))}})
+                     .payload.value(QStringLiteral("reason")).toString(),
+                 QStringLiteral("CANDIDATE_NOT_OBSERVED"));
+
+        const Answer observation = ask(backend, QStringLiteral("GetTemplateObservation"));
+        QVERIFY2(observation.ok, qPrintable(observation.message));
+        QCOMPARE(observation.payload.value(QStringLiteral("available")).toBool(), false);
+        QCOMPARE(observation.payload.value(QStringLiteral("kind")).toString(), QStringLiteral("TEMPLATE_OBSERVATION"));
+        QCOMPARE(observation.payload.value(QStringLiteral("reason")).toString(), QStringLiteral("NO_OBSERVATION"));
+        backend.setValidationFixture(QStringLiteral("RECORDING"));
+        QCOMPARE(ask(backend, QStringLiteral("GetTemplateObservation")).payload.value(QStringLiteral("reason")).toString(),
+                 QStringLiteral("OBSERVATION_ACTIVE"));
     }
 };
 

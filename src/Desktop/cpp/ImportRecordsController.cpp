@@ -3,6 +3,7 @@
 #include "CollectorText.h"
 #include "IBackend.h"
 #include "DutyCatalog.h"
+#include "IpcFraming.h"
 #include "JobCatalog.h"
 #include "OfflineOcrEngine.h"
 #include "ScreenshotImportParser.h"
@@ -15,14 +16,19 @@
 #include <QGuiApplication>
 #include <QImageReader>
 #include <QJsonDocument>
+#include <QLocale>
 #include <QMimeData>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QScopedValueRollback>
 #include <QStandardPaths>
+#include <QTimer>
 #include <QUrl>
 #include <QUuid>
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 
 static void initializeImportTemplateResources()
 {
@@ -34,6 +40,126 @@ static void initializeImportTemplateResources()
 }
 
 namespace mr {
+
+struct ImportRecordsController::PreviewPages
+{
+    QVariantMap first;
+    QVariantList rows;
+    QSet<int> rowNumbers;
+    int next = 1;
+    int pageSize = 0;
+    int total = 0;
+    bool legacyRetry = false;
+};
+
+namespace {
+
+bool boundedInteger(const QVariant &value, int minimum, int maximum, int &result)
+{
+    const QJsonValue json = QJsonValue::fromVariant(value);
+    if (!json.isDouble() || json.toDouble() < minimum || json.toDouble() > maximum
+        || json.toDouble() != json.toInt())
+        return false;
+    result = json.toInt();
+    return true;
+}
+
+/// One screenshot file, however its path was spelled (Windows paths ignore case).
+QString imageIdentity(const QString &path)
+{
+    const QString canonical = QFileInfo(path).canonicalFilePath();
+    const QString identity = canonical.isEmpty() ? QDir::cleanPath(path) : canonical;
+#ifdef Q_OS_WIN
+    return identity.toCaseFolded();
+#else
+    return identity;
+#endif
+}
+
+bool unsupportedPreviewPaging(const QPointer<BackendReply> &reply, const QString &code, const QString &message)
+{
+    if (code != QLatin1String("ERR_BAD_REQUEST"))
+        return false;
+    const QVariantMap ref = reply ? reply->errorRef().toMap() : QVariantMap();
+    const QVariantMap field = ref.value(QStringLiteral("args")).toMap();
+    // Only the strict unknown-field refusal proves that this is a legacy peer.
+    // Other validation, capacity and transport failures must never be retried.
+    return (ref.value(QStringLiteral("key")).toString() == QLatin1String("ipc.field.unknown")
+            && field.value(QStringLiteral("field")).toString() == QLatin1String("page_size"))
+        || message == QStringLiteral("请求包含契约未声明的字段 page_size。");
+}
+
+/// The Collector re-checks a batch sent back as rows only while the JSON array of its candidates
+/// stays within three quarters of a frame, and refuses a paged preview beyond it as
+/// import.preview.too_large: RunImportService.MaxPreviewResponseBytes (RunImportService.Paging.cs),
+/// contracts/ipc-v1.schema.json `page_size`.
+constexpr qint64 kMaxRecheckCandidateBytes = ipc::kMaxFrameBytes * 3 / 4;
+
+/// UTF-8 bytes of \a text as a JSON string the way the Collector measures candidates
+/// (System.Text.Json, JavaScriptEncoder.Create(UnicodeRanges.All): RunImportService.CandidateBytes).
+/// It escapes more than Qt does: HTML-sensitive ASCII, spaces other than U+0020, private-use and
+/// unassigned code points, U+FEFF and every character outside the BMP.
+qint64 collectorStringBytes(const QString &text)
+{
+    qint64 bytes = 2;
+    for (qsizetype i = 0; i < text.size(); ++i) {
+        const char16_t c = text.at(i).unicode();
+        if (QChar::isHighSurrogate(c) && i + 1 < text.size() && QChar::isLowSurrogate(text.at(i + 1).unicode())) {
+            bytes += 12; // a surrogate pair: two six-byte escapes
+            ++i;
+        } else if (c == u'\b' || c == u'\t' || c == u'\n' || c == u'\f' || c == u'\r' || c == u'\\') {
+            bytes += 2;
+        } else if (c < 0x20 || c == 0x7F || c == u'"' || c == u'&' || c == u'\'' || c == u'+' || c == u'<'
+                   || c == u'>' || c == u'`') {
+            bytes += 6;
+        } else if (c < 0x80) {
+            bytes += 1;
+        } else {
+            const QChar::Category category = QChar::category(char32_t(c));
+            const bool escaped = c == 0xFEFF || QChar::isSurrogate(c) || category == QChar::Other_Control
+                || category == QChar::Other_PrivateUse || category == QChar::Other_NotAssigned
+                || category == QChar::Separator_Space || category == QChar::Separator_Line
+                || category == QChar::Separator_Paragraph;
+            bytes += escaped ? 6 : (c < 0x800 ? 2 : 3);
+        }
+    }
+    return bytes;
+}
+
+/// Bytes of \a value written compactly in the Collector's spelling (see collectorStringBytes).
+qint64 collectorJsonBytes(const QJsonValue &value)
+{
+    switch (value.type()) {
+    case QJsonValue::Bool:
+        return value.toBool() ? 4 : 5;
+    case QJsonValue::Double: {
+        const double number = value.toDouble();
+        return std::abs(number) < 9007199254740992.0 && number == std::trunc(number)
+            ? QByteArray::number(qint64(number)).size()
+            : QByteArray::number(number, 'g', QLocale::FloatingPointShortest).size();
+    }
+    case QJsonValue::String:
+        return collectorStringBytes(value.toString());
+    case QJsonValue::Array: {
+        const QJsonArray array = value.toArray();
+        qint64 bytes = 2 + std::max<qsizetype>(0, array.size() - 1);
+        for (const QJsonValue &item : array)
+            bytes += collectorJsonBytes(item);
+        return bytes;
+    }
+    case QJsonValue::Object: {
+        const QJsonObject object = value.toObject();
+        qint64 bytes = 2 + std::max<qsizetype>(0, object.size() - 1);
+        for (auto it = object.constBegin(); it != object.constEnd(); ++it)
+            bytes += collectorStringBytes(it.key()) + 1 + collectorJsonBytes(it.value());
+        return bytes;
+    }
+    default:
+        return 4; // null
+    }
+}
+
+} // namespace
 
 ImportRecordsController::ImportRecordsController(QObject *parent)
     : QObject(parent), m_ocr(new OfflineOcrEngine(this))
@@ -57,11 +183,18 @@ ImportRecordsController::ImportRecordsController(QObject *parent)
                     : m_error);
         } else if (complete && !m_candidates.isEmpty() && m_error.isEmpty())
             revalidate();
-        else if (m_error.isEmpty())
-            fail([complete] {
-                return complete ? tr("没有识别到完整记录卡片。请裁切到记录列表或粘贴表格后重试。")
-                                : tr("识别已取消；历史记录没有变化。");
-            });
+        else {
+            // Cards recognised before an image failed were never shown: they must not stay
+            // behind as a hidden batch the next screenshot is appended to (audit I3-5).
+            m_candidates = {};
+            m_evidence.clear();
+            m_sourceImages.clear();
+            if (m_error.isEmpty())
+                fail([complete] {
+                    return complete ? tr("没有识别到完整记录卡片。请裁切到记录列表或粘贴表格后重试。")
+                                    : tr("识别已取消；历史记录没有变化。");
+                });
+        }
         Q_EMIT changed();
     });
     // statusText is built when it is read and the messages are recipes; the job
@@ -208,12 +341,26 @@ void ImportRecordsController::beginInput(const QString &kind, const QString &nam
     invalidatePreview(false);
 }
 
-QString ImportRecordsController::screenshotSourceName(const QStringList &paths) const
+QString ImportRecordsController::screenshotSourceName(const QStringList &paths, bool forDisplay) const
 {
     if (paths.isEmpty())
         return {};
     const QString first = QFileInfo(paths.first()).fileName();
-    return (paths.size() == 1 ? first : tr("%1 等 %2 张截图").arg(first).arg(paths.size())).left(500);
+    if (paths.size() == 1)
+        return first.left(500);
+    // The sent name is stored as provenance and hashed into the duplicate fingerprint,
+    // so it is the zh-CN wording in every interface language (audit H2-2).
+    const QString pattern = forDisplay ? tr("%1 等 %2 张截图") : QStringLiteral("%1 等 %2 张截图");
+    return pattern.arg(first).arg(paths.size()).left(500);
+}
+
+QString ImportRecordsController::sourceLabel() const
+{
+    if (m_sourceKind == QLatin1String("PASTE"))
+        return tr("粘贴的表格");
+    if (m_sourceKind == QLatin1String("SCREENSHOT") && !m_sourceImages.isEmpty())
+        return screenshotSourceName(m_sourceImages, true);
+    return m_sourceName;
 }
 
 void ImportRecordsController::discardAppend(const LiveText &message)
@@ -346,6 +493,26 @@ void ImportRecordsController::importFiles(const QVariantList &pathsOrUrls)
     if (kind == QLatin1String("SCREENSHOT")) {
         const bool append = m_sourceKind == QLatin1String("SCREENSHOT")
             && !m_sourceImages.isEmpty() && !m_candidates.isEmpty() && !m_batchCommitted;
+        // The same image twice would make every card on it a second "new" row (audit I3-1).
+        QSet<QString> inBatch;
+        if (append) {
+            for (const QString &path : std::as_const(m_sourceImages))
+                inBatch.insert(imageIdentity(path));
+        }
+        QSet<QString> chosen;
+        for (const QString &path : std::as_const(files)) {
+            const QString identity = imageIdentity(path);
+            const QString name = QFileInfo(path).fileName();
+            if (inBatch.contains(identity)) {
+                fail([name] { return tr("截图「%1」已在本批次中，没有重复添加；原批次已保留。").arg(name); });
+                return;
+            }
+            if (chosen.contains(identity)) {
+                fail([name] { return tr("截图「%1」选择了两次，请每张截图只选一次。").arg(name); });
+                return;
+            }
+            chosen.insert(identity);
+        }
         if (files.size() + (append ? m_sourceImages.size() : 0) > OfflineOcrEngine::MaxImages) {
             fail([] { return tr("同一批次最多 %1 张截图；原批次已保留。").arg(OfflineOcrEngine::MaxImages); });
             return;
@@ -357,7 +524,7 @@ void ImportRecordsController::importFiles(const QVariantList &pathsOrUrls)
             m_appendPreviousPhase = m_phase;
             m_error.clear();
             if (previewValid())
-                m_restoreSelection = m_selected;
+                rememberSelectedIndices();
         } else {
             beginInput(kind, screenshotSourceName(files));
             m_sourceImages = files;
@@ -437,7 +604,8 @@ void ImportRecordsController::importText(const QString &text)
         fail([] { return tr("请粘贴非空表格文字，大小不超过 1 MiB。"); });
         return;
     }
-    beginInput(QStringLiteral("PASTE"), tr("粘贴的表格"));
+    // Stored provenance and part of the duplicate fingerprint: zh-CN in every language (H2-2).
+    beginInput(QStringLiteral("PASTE"), QStringLiteral("粘贴的表格"));
     m_text = text;
     revalidate();
 }
@@ -497,24 +665,47 @@ void ImportRecordsController::recognizeImage(const QString &path, const QByteArr
     }
 }
 
+bool ImportRecordsController::revalidationFits(int row, const QJsonObject &candidate, qint64 extraBytes) const
+{
+    // Every edit, zone change and 重新校验 re-sends the whole batch in one request. The Collector
+    // re-checks it only while its candidates stay within its budget, measured as it measures them,
+    // and IpcClient sends nothing whose envelope exceeds one frame. Refusing a change that would
+    // cross either keeps an accepted batch committable as it is (audit H2-3, RV3-1, RV5-1).
+    // extraBytes is what the change adds; a shorter zone does not make the candidates smaller.
+    // A UUID has the length of every real request id.
+    QJsonObject request = previewRequest();
+    QJsonArray rows = request.value(QStringLiteral("rows")).toArray();
+    if (row >= 0 && row < rows.size()) {
+        rows[row] = candidate;
+        request.insert(QStringLiteral("rows"), rows);
+    }
+    if (collectorJsonBytes(rows) + std::max<qint64>(extraBytes, 0) > kMaxRecheckCandidateBytes)
+        return false;
+    const QJsonObject envelope = ipc::makeRequest(QStringLiteral("00000000-0000-4000-8000-000000000000"),
+                                                  QStringLiteral("PreviewRunImport"), request);
+    return QJsonDocument(envelope).toJson(QJsonDocument::Compact).size() + extraBytes <= ipc::kMaxFrameBytes;
+}
+
+RunImportSource ImportRecordsController::previewSource() const
+{
+    RunImportSource source;
+    source.rows = m_candidates;
+    for (const auto &candidate : m_appendCandidates)
+        source.rows.append(candidate);
+    source.kind = m_sourceKind;
+    source.name = m_appendImages.isEmpty() ? m_sourceName : screenshotSourceName(m_sourceImages + m_appendImages);
+    source.timeZone = m_timeZone;
+    source.pageSize = 100;
+    // Edited candidates take precedence; the file or text is read only before the first preview.
+    source.filePath = m_filePath;
+    source.text = m_text;
+    source.columnMapping = QJsonObject::fromVariantMap(m_columnMapping);
+    return source;
+}
+
 QJsonObject ImportRecordsController::previewRequest() const
 {
-    QJsonArray candidates = m_candidates;
-    for (const auto &candidate : m_appendCandidates)
-        candidates.append(candidate);
-    const QString sourceName = m_appendImages.isEmpty() ? m_sourceName
-        : screenshotSourceName(m_sourceImages + m_appendImages);
-    QJsonObject request{{QStringLiteral("source_kind"), m_sourceKind}, {QStringLiteral("source_name"), sourceName},
-                        {QStringLiteral("time_zone"), m_timeZone}};
-    if (!candidates.isEmpty())
-        request.insert(QStringLiteral("rows"), candidates);
-    else if (!m_filePath.isEmpty())
-        request.insert(QStringLiteral("file_path"), m_filePath);
-    else if (!m_text.isEmpty())
-        request.insert(QStringLiteral("text"), m_text);
-    if (!m_columnMapping.isEmpty())
-        request.insert(QStringLiteral("column_mapping"), QJsonObject::fromVariantMap(m_columnMapping));
-    return request;
+    return IBackend::previewRunImportPayload(previewSource());
 }
 
 void ImportRecordsController::revalidate()
@@ -536,19 +727,51 @@ void ImportRecordsController::revalidate()
             fail([] { return tr("后台服务尚未连接，输入已保留。连接恢复后请点「重新校验」。"); });
         return;
     }
+    // Every candidate goes back. A batch the Collector would refuse to re-check, or that would
+    // not fit one frame, keeps its accepted preview and the new screenshots are not sent (RV3-1).
+    if (!revalidationFits(-1, {})) {
+        if (!m_appendImages.isEmpty())
+            discardAppend([] { return tr("加入新截图后这批记录太大，无法校验。未添加新记录，原批次已保留；请把新截图放到下一批导入。"); });
+        else
+            fail([] { return tr("这批记录太大，无法重新校验，当前内容没有改动。请分成几批重新导入。"); });
+        return;
+    }
     if (m_appendImages.isEmpty())
         invalidatePreview();
     m_error.clear();
     m_phase = QStringLiteral("preview");
     const quint64 generation = ++m_generation;
     Q_EMIT changed();
-    BackendReply *previewReply = m_backend->request(QStringLiteral("PreviewRunImport"), previewRequest());
+    requestPreviewPage(previewSource(), generation, std::make_shared<PreviewPages>());
+}
+
+void ImportRecordsController::requestPreviewPage(const RunImportSource &source, quint64 generation,
+                                                const std::shared_ptr<PreviewPages> &pages)
+{
+    if (generation != m_generation)
+        return;
+    if (!m_backend || !m_backend->isConnected()) {
+        m_phase = QStringLiteral("editing");
+        const LiveText error = [] { return tr("后台服务尚未连接，输入已保留。连接恢复后请点「重新校验」。"); };
+        if (!m_appendImages.isEmpty()) discardAppend(error); else fail(error);
+        return;
+    }
+    BackendReply *previewReply = pages->next == 1 ? m_backend->previewRunImport(source)
+        : m_backend->previewRunImportPage(pages->first.value(QStringLiteral("preview_id")).toString(), pages->next);
     const QPointer<BackendReply> previewGuard(previewReply);
-    previewReply->whenDone(this, [this, generation, previewGuard](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
+    previewReply->whenDone(this, [this, generation, previewGuard, source, pages](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
             if (generation != m_generation)
                 return;
-            m_phase = QStringLiteral("editing");
             if (!ok) {
+                if (pages->next == 1 && !pages->legacyRetry && source.pageSize > 0
+                    && unsupportedPreviewPaging(previewGuard, code, message)) {
+                    pages->legacyRetry = true;
+                    RunImportSource legacy = source;
+                    legacy.pageSize = 0;
+                    QTimer::singleShot(0, this, [this, generation, pages, legacy] { requestPreviewPage(legacy, generation, pages); });
+                    return;
+                }
+                m_phase = QStringLiteral("editing");
                 const LiveText error = [code, refusal = collector_text::replyErrorText(previewGuard, message)] {
                     return code == QLatin1String("ERR_UNKNOWN_MESSAGE") ? tr("当前后台服务版本不支持导入，请更新软件后重试。")
                         : (refusal.isEmpty() ? tr("预览未完成，输入已保留。请点「重新校验」重试。") : refusal.text());
@@ -559,14 +782,84 @@ void ImportRecordsController::revalidate()
                     fail(error);
                 return;
             }
-            acceptPreview(payload);
+            if (pages->next == 1 && !payload.contains(QStringLiteral("page_info"))) {
+                m_phase = QStringLiteral("editing");
+                acceptPreview(payload); // Older service and local mocks return one complete response.
+                return;
+            }
+            const QVariantMap info = payload.value(QStringLiteral("page_info")).toMap();
+            int page = 0, size = 0, total = 0, summaryTotal = 0;
+            bool valid = boundedInteger(info.value(QStringLiteral("page")), 1, 5000, page)
+                && boundedInteger(info.value(QStringLiteral("page_size")), 1, 100, size)
+                && boundedInteger(info.value(QStringLiteral("total")), 0, 5000, total)
+                && boundedInteger(payload.value(QStringLiteral("summary")).toMap().value(QStringLiteral("total")), 0, 5000, summaryTotal)
+                && summaryTotal == total && page == pages->next
+                && !payload.value(QStringLiteral("preview_id")).toString().isEmpty();
+            if (valid && page == 1) {
+                pages->first = payload;
+                pages->pageSize = size;
+                pages->total = total;
+            } else if (valid) {
+                valid = size == pages->pageSize && total == pages->total;
+                for (const QString &key : {QStringLiteral("preview_id"), QStringLiteral("summary"),
+                                           QStringLiteral("source_kind"), QStringLiteral("source_name")})
+                    valid = valid && payload.value(key) == pages->first.value(key);
+            }
+            const QVariantList rows = payload.value(QStringLiteral("rows")).toList();
+            const int remaining = total - pages->rows.size();
+            valid = valid && remaining >= 0 && rows.size() == qMin(size, remaining)
+                && (total > 0 || page == 1);
+            for (const QVariant &value : rows) {
+                int number = 0;
+                if (!boundedInteger(value.toMap().value(QStringLiteral("row_number")), 1, std::numeric_limits<int>::max(), number)
+                    || pages->rowNumbers.contains(number)) {
+                    valid = false;
+                    break;
+                }
+                pages->rowNumbers.insert(number);
+            }
+            if (!valid) {
+                m_phase = QStringLiteral("editing");
+                const LiveText error = [] { return tr("未收到完整预览，暂时不能导入。请点「重新校验」重试；仍失败时请更新软件。"); };
+                if (!m_appendImages.isEmpty()) discardAppend(error); else fail(error);
+                return;
+            }
+            pages->rows.append(rows);
+            if (pages->rows.size() == pages->total) {
+                QVariantMap complete = pages->first;
+                complete.insert(QStringLiteral("rows"), pages->rows);
+                complete.remove(QStringLiteral("page_info"));
+                m_phase = QStringLiteral("editing");
+                acceptPreview(complete);
+                return;
+            }
+            ++pages->next;
+            // A synchronous mock (or cached reply) cannot grow the call stack by thousands of pages.
+            QTimer::singleShot(0, this, [this, generation, pages, source] { requestPreviewPage(source, generation, pages); });
         });
 }
 
 void ImportRecordsController::acceptPreview(const QVariantMap &payload)
 {
     const QString previewId = payload.value(QStringLiteral("preview_id")).toString();
-    if (previewId.isEmpty()) {
+    const QVariantList receivedRows = payload.value(QStringLiteral("rows")).toList();
+    int total = 0;
+    bool complete = !previewId.isEmpty()
+        && boundedInteger(payload.value(QStringLiteral("summary")).toMap().value(QStringLiteral("total")), 0, 5000, total)
+        && total == receivedRows.size();
+    QSet<int> identities;
+    for (const QVariant &value : receivedRows) {
+        int number = 0;
+        if (!boundedInteger(value.toMap().value(QStringLiteral("row_number")), 1, std::numeric_limits<int>::max(), number)
+            || identities.contains(number)) {
+            complete = false;
+            break;
+        }
+        identities.insert(number);
+    }
+    // A legacy full response must prove its completeness too: a missing page_info
+    // must not turn the first page of a damaged response into a committable batch.
+    if (!complete) {
         const LiveText error = [] { return tr("未收到完整预览，暂时不能导入。请点「重新校验」重试；仍失败时请更新软件。"); };
         if (!m_appendImages.isEmpty())
             discardAppend(error);
@@ -603,13 +896,15 @@ void ImportRecordsController::acceptPreview(const QVariantMap &payload)
         renderCollectorTexts(row);
         const bool selectable = row.value(QStringLiteral("can_import")).toBool();
         // Screenshot text always requires explicit row selection after checking
-        // the source. Duplicate/conflict/invalid rows never become selected.
+        // the source. Duplicate/conflict/invalid rows never become selected, and a
+        // possible duplicate is only ever ticked by the user (audit H2-1).
         const int number = row.value(QStringLiteral("row_number")).toInt();
-        const bool selected = selectable && (m_hasAcceptedPreview ? m_restoreSelection.contains(number)
-            : m_sourceKind != QLatin1String("SCREENSHOT"));
+        const bool selected = selectable && (m_hasAcceptedPreview ? m_restoreSelection.contains(i)
+            : m_sourceKind != QLatin1String("SCREENSHOT")
+                && row.value(QStringLiteral("status")).toString() != QLatin1String("possible_duplicate"));
         row.insert(QStringLiteral("selected"), selected);
         if (selected)
-            m_selected.insert(row.value(QStringLiteral("row_number")).toInt());
+            m_selected.insert(number);
         m_rows[i] = row;
     }
     m_hasAcceptedPreview = true;
@@ -619,10 +914,18 @@ void ImportRecordsController::acceptPreview(const QVariantMap &payload)
     Q_EMIT changed();
 }
 
+void ImportRecordsController::rememberSelectedIndices()
+{
+    m_restoreSelection.clear();
+    for (int i = 0; i < m_rows.size(); ++i)
+        if (m_selected.contains(m_rows[i].toMap().value(QStringLiteral("row_number")).toInt()))
+            m_restoreSelection.insert(i);
+}
+
 void ImportRecordsController::invalidatePreview(bool rememberSelection)
 {
     if (rememberSelection && previewValid())
-        m_restoreSelection = m_selected;
+        rememberSelectedIndices();
     else if (!rememberSelection)
         m_restoreSelection.clear();
     m_previewId.clear();
@@ -653,16 +956,24 @@ void ImportRecordsController::updateCandidate(int row, const QVariantMap &change
             && row < m_rows.size()
             && !m_rows[row].toMap().value(QStringLiteral("run")).toMap()
                     .value(QStringLiteral("duty_category")).toString().isEmpty();
+        const bool clearingProjectedJob = it.key() == QLatin1String("job_id") && value.isNull()
+            && !candidate.contains(QStringLiteral("job_id")) && row < m_rows.size()
+            && !m_rows[row].toMap().value(QStringLiteral("run")).toMap().value(QStringLiteral("job_id")).isNull();
         if (!candidate.contains(it.key()) && (value.isNull() || (value.isString() && value.toString().isEmpty()))
-            && !clearingProjectedCategory)
+            && !clearingProjectedCategory && !clearingProjectedJob)
             continue;
-        if (candidate.value(it.key()) != value || clearingProjectedCategory) {
+        if (candidate.value(it.key()) != value || clearingProjectedCategory || clearingProjectedJob) {
             candidate.insert(it.key(), value);
             candidateChanged = true;
             recordedTimeChanged |= it.key() == QLatin1String("source_recorded_at");
             dutyNameChanged |= it.key() == QLatin1String("duty_name");
             dutyCategoryChanged |= it.key() == QLatin1String("duty_category");
         }
+    }
+    // Before anything changes, the job evidence included: a refused edit leaves no trace.
+    if (candidateChanged && !m_batchEditing && !revalidationFits(row, candidate)) {
+        fail([] { return tr("修改后这批记录太大，无法重新校验，这次修改没有保存。请缩短内容后再改。"); });
+        return;
     }
     bool evidenceReviewed = false;
     if ((changes.contains(QStringLiteral("job_id")) || changes.contains(QStringLiteral("duty_name")))
@@ -792,6 +1103,15 @@ void ImportRecordsController::batchUpdateSelected(const QVariantMap &changes)
             && m_selected.contains(row.value(QStringLiteral("row_number")).toInt()))
             targets.append(i);
     }
+    // Each row grows by at most the changed fields written out once; checked for the whole
+    // batch at once, since checking every row separately would serialise the batch per row.
+    // The Collector's spelling is never shorter than Qt's, so it bounds both budgets.
+    const qint64 growth = collectorJsonBytes(QJsonObject::fromVariantMap(normalized));
+    if (!targets.isEmpty() && !revalidationFits(-1, {}, growth * targets.size())) {
+        fail([] { return tr("批量设置后这批记录太大，无法重新校验，没有修改任何记录。"); });
+        return;
+    }
+    const QScopedValueRollback<bool> batchEditing(m_batchEditing, true);
     for (int index : targets)
         updateCandidate(index, normalized);
     if (!targets.isEmpty())
@@ -815,13 +1135,28 @@ void ImportRecordsController::setRowSelected(int row, bool selected)
     Q_EMIT changed();
 }
 
+bool ImportRecordsController::jobCandidatePending(int index) const
+{
+    return index >= 0 && index < m_evidence.size()
+        && m_evidence[index].toMap().value(QStringLiteral("job_candidate_pending")).toBool();
+}
+
+int ImportRecordsController::pendingJobSelectedCount() const
+{
+    int count = 0;
+    for (int i = 0; i < m_rows.size(); ++i)
+        count += m_rows[i].toMap().value(QStringLiteral("selected")).toBool() && jobCandidatePending(i);
+    return count;
+}
+
 void ImportRecordsController::setAllImportableSelected(bool selected)
 {
     if (busy() || pendingCommitConfirmation() || !previewValid())
         return;
     for (int i = 0; i < m_rows.size(); ++i) {
         QVariantMap display = m_rows[i].toMap();
-        if (!display.value(QStringLiteral("can_import")).toBool())
+        // 全选 passes by a job the icon only guessed: the user confirms it on the row first.
+        if (!display.value(QStringLiteral("can_import")).toBool() || (selected && jobCandidatePending(i)))
             continue;
         const int number = display.value(QStringLiteral("row_number")).toInt();
         if (selected) m_selected.insert(number); else m_selected.remove(number);
@@ -840,25 +1175,32 @@ void ImportRecordsController::commit()
     std::sort(sorted.begin(), sorted.end());
     for (int number : sorted)
         numbers.append(number);
+    // What was asked, kept as it was for 重试确认保存 of an unanswered commit.
     QJsonObject request = pendingCommitConfirmation() ? m_pendingCommitPayload
-        : QJsonObject{{QStringLiteral("preview_id"), m_previewId}, {QStringLiteral("row_numbers"), numbers},
-                      {QStringLiteral("confirm_own_records"), true}};
+        : QJsonObject{{QStringLiteral("preview_id"), m_previewId}, {QStringLiteral("row_numbers"), numbers}};
     // Only an answered question travels: an older Collector rejects fields it does not know,
     // and with no baseline or no contributing row there is nothing to deduct.
     if (!pendingCommitConfirmation() && baselineChoiceOffered() && deductFromBaseline())
         request.insert(QStringLiteral("deduct_from_baseline"), true);
+    QList<int> rowNumbers;
+    for (const QJsonValue &number : request.value(QStringLiteral("row_numbers")).toArray())
+        rowNumbers.append(number.toInt());
     const quint64 generation = m_generation;
     m_phase = QStringLiteral("commit");
     m_error.clear();
     Q_EMIT changed();
-    QPointer<BackendReply> reply = m_backend->requestWithId(QStringLiteral("CommitRunImport"), request, m_commitRequestId);
-    reply->whenDone(this, [this, generation, request, reply](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
+    QPointer<BackendReply> reply = m_backend->commitRunImport(request.value(QStringLiteral("preview_id")).toString(),
+        rowNumbers, request.value(QStringLiteral("deduct_from_baseline")).toBool(), m_commitRequestId);
+    reply->whenDone(this, [this, generation, request, reply](bool ok, const QVariantMap &payload, const QString &, const QString &message) {
             if (generation != m_generation)
                 return;
             m_phase = QStringLiteral("editing");
             if (!ok) {
-                if ((!reply || !reply->neverSent()) && (code == QLatin1String("ERR_INTERNAL") || code == QLatin1String("ERR_TIMEOUT")))
-                    m_pendingCommitPayload = request;
+                // Only a request left unanswered - lost pipe, local timeout - may have been
+                // applied unseen, so only that keeps the batch frozen for 重试确认保存. A refusal
+                // the Collector actually sent, also to such a retry, is final (audit I3-3).
+                const bool unanswered = !reply || reply->transportFailed();
+                m_pendingCommitPayload = unanswered ? request : QJsonObject();
                 fail([refusal = collector_text::replyErrorText(reply, message)] {
                     return refusal.isEmpty() ? tr("尚未确认导入结果。输入已保留，可安全重试同一批次。") : refusal.text();
                 });
@@ -979,6 +1321,14 @@ void ImportRecordsController::setBaselineCount(int count)
     Q_EMIT changed();
 }
 
+void ImportRecordsController::setBaselineLoaded(bool loaded)
+{
+    if (m_baselineLoaded == loaded)
+        return;
+    m_baselineLoaded = loaded;
+    Q_EMIT changed();
+}
+
 int ImportRecordsController::contributingSelectedCount() const
 {
     // Mirrors docs/statistics-definitions.md §4 on the preview the Collector rendered: the
@@ -1010,9 +1360,21 @@ bool ImportRecordsController::deductFromBaseline() const
     if (m_deductChosen)
         return m_deduct;
     // A backup or this software's own JSON export holds runs recorded after installation, which
-    // the baseline never included. Spreadsheets, pasted tables and screenshots usually carry the
-    // history the game's achievement panel - and so the baseline - already counted.
-    return m_sourceKind != QLatin1String("BACKUP") && m_sourceKind != QLatin1String("JSON");
+    // the baseline never included. Spreadsheets, pasted tables, screenshots and the JSON template
+    // usually carry the history the game's achievement panel - and so the baseline - already
+    // counted. An export is recognised by its rows: each carries the recorded run_id and source
+    // (audit H2-8); one row without them makes the file a filled template.
+    if (m_sourceKind == QLatin1String("BACKUP"))
+        return false;
+    if (m_sourceKind != QLatin1String("JSON") || m_candidates.isEmpty())
+        return true;
+    for (const QJsonValue &value : m_candidates) {
+        const QJsonObject candidate = value.toObject();
+        if (candidate.value(QStringLiteral("run_id")).toString().isEmpty()
+            || candidate.value(QStringLiteral("source")).toString().isEmpty())
+            return true;
+    }
+    return false;
 }
 
 void ImportRecordsController::setDeductFromBaseline(bool deduct)
@@ -1037,6 +1399,13 @@ QVariantMap ImportRecordsController::currentCandidate() const
     if (m_current < 0 || m_current >= m_candidates.size())
         return {};
     QVariantMap candidate = m_candidates[m_current].toObject().toVariantMap();
+    if (m_current < m_rows.size() && !candidate.contains(QStringLiteral("job_id"))) {
+        const QVariantMap run = m_rows[m_current].toMap().value(QStringLiteral("run")).toMap();
+        if (run.contains(QStringLiteral("job_id"))) {
+            candidate.insert(QStringLiteral("job_id"), run.value(QStringLiteral("job_id")));
+            candidate.insert(QStringLiteral("job_name"), run.value(QStringLiteral("job_name")));
+        }
+    }
     if (m_current < m_rows.size() && candidate.value(QStringLiteral("duty_category")).toString().isEmpty()) {
         const QVariantMap run = m_rows[m_current].toMap().value(QStringLiteral("run")).toMap();
         const QString category = run.value(QStringLiteral("duty_category")).toString();
@@ -1061,6 +1430,11 @@ void ImportRecordsController::setTimeZone(const QString &zone)
 {
     if (busy() || pendingCommitConfirmation() || m_timeZone == zone)
         return;
+    // A zone change re-checks every row: never for a batch that could not be re-checked.
+    if (!m_candidates.isEmpty() && !revalidationFits(-1, {}, qint64(zone.toUtf8().size()) - m_timeZone.toUtf8().size())) {
+        fail([] { return tr("这批记录太大，更改地区后无法重新校验，地区没有更改。"); });
+        return;
+    }
     m_timeZone = zone;
     static const QRegularExpression explicitOffset(QStringLiteral(R"((?:Z|[+-]\d{2}:\d{2})$)"));
     for (int i = 0; i < m_candidates.size(); ++i) {

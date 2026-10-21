@@ -43,13 +43,22 @@ public static class RouletteNameOverrides
 
     /// <summary>
     /// Reads the corrections, or an empty map when there are none or the file cannot be read.
+    /// An entry this build cannot read is skipped on its own (audit 2026-10-20 H2-6).
     /// Never throws: a correction is a convenience and may never stop the Collector starting.
     /// </summary>
     /// <param name="path">File to read.</param>
-    public static IReadOnlyDictionary<(Region Region, int RouletteId), string> Load(string path)
+    public static IReadOnlyDictionary<(Region Region, int RouletteId), string> Load(string path) => Read(path, out _);
+
+    /// <summary>
+    /// <see cref="Load"/>, also saying whether everything in the file that could be a correction was read:
+    /// false when the file could not be parsed or an object entry had to be skipped (a region, id or name
+    /// this build does not accept, perhaps written by a newer one), or when there were more than it keeps.
+    /// </summary>
+    private static Dictionary<(Region, int), string> Read(string path, out bool complete)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         var result = new Dictionary<(Region, int), string>();
+        complete = true;
         try
         {
             if (!File.Exists(path))
@@ -58,7 +67,8 @@ public static class RouletteNameOverrides
             }
 
             using var document = JsonDocument.Parse(File.ReadAllText(path));
-            if (!document.RootElement.TryGetProperty("names", out var names) ||
+            if (document.RootElement.ValueKind != JsonValueKind.Object ||
+                !document.RootElement.TryGetProperty("names", out var names) ||
                 names.ValueKind != JsonValueKind.Array)
             {
                 return result;
@@ -66,33 +76,64 @@ public static class RouletteNameOverrides
 
             foreach (var item in names.EnumerateArray())
             {
-                if (result.Count >= MaxEntries ||
-                    !item.TryGetProperty("region", out var region) ||
-                    !item.TryGetProperty("roulette_id", out var id) ||
-                    !item.TryGetProperty("name", out var name) ||
-                    region.ValueKind != JsonValueKind.String ||
-                    id.ValueKind != JsonValueKind.Number ||
-                    name.ValueKind != JsonValueKind.String)
+                if (item.ValueKind != JsonValueKind.Object)
                 {
                     continue;
                 }
 
-                var text = name.GetString();
-                if (string.IsNullOrWhiteSpace(text) || text.Length > MaxNameLength)
+                if (result.Count >= MaxEntries || !TryReadEntry(item, out var key, out var text))
                 {
+                    complete = false;
                     continue;
                 }
 
-                result[(EnumWire<Region>.Parse(region.GetString()), id.GetInt32())] = text;
+                result[key] = text;
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException
-            or FormatException or ArgumentException)
+            or FormatException or ArgumentException or InvalidOperationException)
         {
+            complete = false;
             return new Dictionary<(Region, int), string>();
         }
 
         return result;
+    }
+
+    private static bool TryReadEntry(JsonElement item, out (Region, int) key, out string text)
+    {
+        key = default;
+        text = string.Empty;
+        if (!item.TryGetProperty("region", out var region) || region.ValueKind != JsonValueKind.String ||
+            !item.TryGetProperty("roulette_id", out var id) || id.ValueKind != JsonValueKind.Number ||
+            !id.TryGetInt32(out var rouletteId) ||
+            !item.TryGetProperty("name", out var name) || name.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        try
+        {
+            if (!EnumWire<Region>.TryParse(region.GetString(), out var parsedRegion))
+            {
+                return false;
+            }
+
+            var value = name.GetString();
+            if (string.IsNullOrWhiteSpace(value) || value.Length > MaxNameLength)
+            {
+                return false;
+            }
+
+            key = (parsedRegion, rouletteId);
+            text = value;
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            // A name or region that is not valid text (an unpaired surrogate escape).
+            return false;
+        }
     }
 
     /// <summary>
@@ -114,10 +155,14 @@ public static class RouletteNameOverrides
             return false;
         }
 
-        var current = new Dictionary<(Region, int), string>(Load(path))
+        // The file is rewritten from what was read: never over corrections that could not be read.
+        var current = Read(path, out var complete);
+        if (!complete)
         {
-            [(region, rouletteId)] = name,
-        };
+            return false;
+        }
+
+        current[(region, rouletteId)] = name;
         if (current.Count > MaxEntries)
         {
             return false;

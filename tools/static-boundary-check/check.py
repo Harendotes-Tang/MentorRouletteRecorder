@@ -27,7 +27,10 @@ Design notes
     makes the run fail (exit 2). Every marker must also be pinned in
     ``allow_markers`` by file, rule and the exact text of the hit it lifts: a
     marker lifts that hit only when it is the rule's one hit on the line, so a
-    second hit added to a marked line, or a different one, is reported. An
+    second hit added to a marked line, or a different one, is reported. A pattern
+    anchored at the start of the line yields one hit per line at most, so every
+    entry of the rule is matched again with the lifted hit blanked out, and what
+    that finds is a second hit too. An
     unpinned marker lifts nothing, and an unpinned marker, one whose line does not
     hold exactly its pinned hit, a pinned one the scan does not find and one that
     lifts no hit on its line each fail the run. Every honoured marker is listed,
@@ -690,25 +693,44 @@ def scan_file(path: Path, config: Config, relative: str,
     for line_number, line in enumerate(text.splitlines(), start=1):
         allowed = line_markers(line, config, relative, line_number, errors)
         # Every hit of a marked rule id on this line, each with the rule entry that made it.
-        marked: dict[str, list[tuple[Rule, str]]] = {rule_id: [] for rule_id in allowed}
+        marked: dict[str, list[tuple[Rule, re.Match[str]]]] = {rule_id: [] for rule_id in allowed}
         for rule in rules:
             if rule.identifier in allowed:
-                marked[rule.identifier].extend((rule, hit.group(0)) for hit in rule.regex.finditer(line))
+                marked[rule.identifier].extend((rule, hit) for hit in rule.regex.finditer(line))
             elif rule.regex.search(line):
                 violations.append(
                     Violation(path=path, line_number=line_number, rule=rule, line=line)
                 )
         for rule_id, reason in allowed.items():
+            found = [(rule, hit.group(0)) for rule, hit in marked[rule_id]]
+            if len(found) == 1:
+                found += further_hits(line, marked[rule_id][0][1],
+                                      [rule for rule in rules if rule.identifier == rule_id])
             hit = lifted_hit(config, relative, line_number, rule_id,
-                             [matched for _, matched in marked[rule_id]], errors)
+                             [matched for _, matched in found], errors)
             if hit is not None:
                 markers.append(AllowMarker(path, line_number, rule_id, reason, hit))
                 continue
-            for rule in dict.fromkeys(rule for rule, _ in marked[rule_id]):
+            for rule in dict.fromkeys(rule for rule, _ in found):
                 violations.append(
                     Violation(path=path, line_number=line_number, rule=rule, line=line)
                 )
     return violations, markers
+
+
+def further_hits(line: str, lifted: re.Match[str], rules: Sequence[Rule]) -> list[tuple[Rule, str]]:
+    """Hits of ``rules`` that ``line`` still holds once its one hit ``lifted`` is set aside.
+
+    A pattern anchored at the start of the line (NET-009's shell commands) yields one hit per
+    line at most, so a second download command appended to a marked line never showed as a
+    second hit and the marker lifted the whole line (RV4-5). Every entry of the rule is matched
+    again on the line with the lifted hit blanked out; its quote and comment characters stay, so
+    the rest of the line is read in the same quoting context. Each further hit is returned with
+    the line's own text over its span.
+    """
+    start, end = lifted.span()
+    masked = line[:start] + re.sub(r"[^\"'#]", " ", line[start:end]) + line[end:]
+    return [(rule, line[hit.start():hit.end()]) for rule in rules for hit in rule.regex.finditer(masked)]
 
 
 def lifted_hit(config: Config, relative: str, line_number: int, rule_id: str, hits: list[str],

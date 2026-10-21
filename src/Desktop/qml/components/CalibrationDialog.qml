@@ -54,6 +54,16 @@ Dialog {
         }
         return pending > 0
     }
+    // 点了“错”、还没选出正确名称的行：核对并启用为何不能点，写在按钮旁边（审查 K2-3）。
+    readonly property bool namePending: {
+        const answers = dialog.verdicts
+        for (const event of dialog.timeline) {
+            const answer = event.requires_confirmation ? answers[event.event_id] : null
+            if (answer && answer.verdict === "RELABEL" && !answer.roulette_name)
+                return true
+        }
+        return false
+    }
 
     function answerOf(eventId) {
         const answer = dialog.verdicts[eventId]
@@ -256,12 +266,14 @@ Dialog {
                                 const official = Theme.rouletteName(name)
                                 return official !== name ? official : qsTranslate("CalibrationDialog", name)
                             }).concat([qsTr("这个时间我没有排本")])
+                            // 刚点“错”、还没选名称时不预选任何一项：预选第一项看上去像已经选好，
+                            // 而选中它又不会触发改名（审查 K2-3）。
+                            displayText: currentIndex < 0 ? qsTr("请选择…") : currentText
                             currentIndex: {
                                 const answer = dialog.verdicts[eventRow.modelData.event_id]
                                 if (!answer || answer.verdict !== "RELABEL")
                                     return Theme.live(dialog.rouletteChoices.length)
-                                const at = dialog.rouletteChoices.indexOf(answer.roulette_name)
-                                return Theme.live(at < 0 ? 0 : at)
+                                return Theme.live(dialog.rouletteChoices.indexOf(answer.roulette_name))
                             }
                             onActivated: (index) => {
                                 if (index >= dialog.rouletteChoices.length)
@@ -295,7 +307,21 @@ Dialog {
             Layout.fillWidth: true
             spacing: 8
 
-            Item { Layout.fillWidth: true }
+            Text {
+                objectName: "calibrationDialogNameHint"
+                Layout.fillWidth: true
+                visible: dialog.namePending
+                text: qsTr("请在“你当时排的是”里选出实际排的随机任务。")
+                textFormat: Text.PlainText
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fs(12)
+                wrapMode: Text.WordWrap
+            }
+
+            Item {
+                Layout.fillWidth: true
+                visible: !dialog.namePending
+            }
 
             AppButton {
                 objectName: "calibrationDialogLater"

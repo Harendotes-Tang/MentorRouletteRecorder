@@ -27,6 +27,7 @@ Item {
 
     // 校准对话框与其它模态一样挂在 Main.qml 的 Overlay 上，故此处仅发出信号。
     signal openCalibrationRequested()
+    signal openRegionSettingsRequested()
 
     readonly property int contentMaxWidth: 1080
     readonly property bool maintainerTools: App.maintainerToolsVisible
@@ -97,6 +98,7 @@ Item {
                 // says its own sentence.
                 heroSpeaksCalibration: hero.copy.kind === "calibration"
                 onOpenCalibrationRequested: page.openCalibrationRequested()
+                onOpenRegionSettingsRequested: page.openRegionSettingsRequested()
             }
 
             // dg-row: 解析 (flex 2) beside 工具 (flex 1), top-aligned. The two

@@ -36,11 +36,20 @@ public sealed partial class LiveProtocolPipeline
     /// at all and therefore keeps the evidence and the shared bookkeeping exactly as they are.
     /// The two flags are opposites; the IPC handler refuses a request carrying both.
     /// </param>
+    /// <param name="refuseWhileARunIsUnderWay">
+    /// True (the IPC request) to refuse retiring or restoring, under the gate, while a run is under way
+    /// (<see cref="RefuseWhileARunIsUnderWay"/>). 重新观察 alone leaves the profile recording and is never refused.
+    /// </param>
     public CalibrationStatusSnapshot DiscardCalibration(
-        bool retireLocalProfile = false, bool restoreLocalProfile = false)
+        bool retireLocalProfile = false, bool restoreLocalProfile = false, bool refuseWhileARunIsUnderWay = false)
     {
         lock (_gate)
         {
+            if (refuseWhileARunIsUnderWay && (retireLocalProfile || restoreLocalProfile))
+            {
+                RefuseWhileARunIsUnderWay();
+            }
+
             if (restoreLocalProfile)
             {
                 // Nothing of the plain discard runs: the player is putting a calibration back,
@@ -75,6 +84,26 @@ public sealed partial class LiveProtocolPipeline
                 Shared = _shared.Snapshot(),
                 RetiredLocalProfileAvailable = RetiredLocalProfileAvailable(),
             };
+        }
+    }
+
+    /// <summary>
+    /// Putting the calibration in force away closes a run in flight the way a stopped capture closes it, and drops a queue
+    /// request the machine has parked - the player would have played that duty for nothing. While either is the case the
+    /// change is refused with a sentence the player can read, and can be made once the run is over or the match window has
+    /// gone by (audit 2026-10-20, K2-2). Decided here, under the gate the change itself is made under, by the test the
+    /// shared-calibration swap waits on (<see cref="RunUnderWay"/>; re-review RV2-3).
+    /// </summary>
+    private void RefuseWhileARunIsUnderWay()
+    {
+        if (_processor is { } recording && RunUnderWay(recording))
+        {
+            // A queued player has no run yet: the sentence says what is at stake for them.
+            throw new CollectorException(
+                ErrorCodes.CalibrationNotReady,
+                recording.Machine.State is RunState.MentorMatched or RunState.EnteredDuty
+                    ? CollectorTexts.CalibrationChangeDuringRun()
+                    : CollectorTexts.CalibrationChangeWhileQueued());
         }
     }
 

@@ -53,6 +53,13 @@ qt_add_resources(MentorRecorderDesktopLib "mr_release_notes"
     FILES "${CMAKE_SOURCE_DIR}/CHANGELOG.md"
           "${CMAKE_CURRENT_SOURCE_DIR}/resources/release-notes/presentation.json")
 
+# The reminder identifies itself with the same local application artwork.
+set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/resources/app/app.png"
+    PROPERTIES QT_RESOURCE_ALIAS "app.png")
+qt_add_resources(MentorRecorderDesktopLib "mr_app_identity"
+    PREFIX "/app"
+    FILES "${CMAKE_CURRENT_SOURCE_DIR}/resources/app/app.png")
+
 # Developer Collector discovery (CollectorProcess::resolveDefaultExecutable): the
 # MR_COLLECTOR_PATH override and the walk up into a source checkout's C# build
 # output. A release build must never start a Collector found either way (review
@@ -106,6 +113,10 @@ set(MR_CPP_SOURCES
     cpp/HistoryController.h
     cpp/StatisticsController.cpp
     cpp/StatisticsController.h
+    cpp/StatisticsOverlayController.cpp
+    cpp/StatisticsOverlayController.h
+    cpp/RecoveryController.cpp
+    cpp/RecoveryController.h
     cpp/AppSettings.cpp
     cpp/AppSettings.h
     cpp/LanguageManager.cpp
@@ -240,6 +251,31 @@ set(MR_QML_FILES
     qml/components/PanelDecoration.qml
     qml/components/PillSwitch.qml
     qml/components/ProgressRing.qml
+    qml/components/AchievementConfetti.qml
+    qml/components/StatisticsFloatingWindow.qml
+    qml/components/StatisticsFloatingContent.qml
+    qml/components/OverlayIcons.js
+    qml/components/OverlayIcon.qml
+    qml/components/OverlayIconButton.qml
+    qml/components/OverlayToolTip.qml
+    qml/components/OverlayData.qml
+    qml/components/OverlayBar.qml
+    qml/components/OverlayTypeBadge.qml
+    qml/components/OverlayPlusPill.qml
+    qml/components/OverlayStatusIcon.qml
+    qml/components/OverlayRunRow.qml
+    qml/components/OverlayModuleLabel.qml
+    qml/components/OverlayProgressModule.qml
+    qml/components/OverlayCurrentDutyModule.qml
+    qml/components/OverlayElapsedModule.qml
+    qml/components/OverlayDutyStatsModule.qml
+    qml/components/OverlayRolesModule.qml
+    qml/components/OverlayPendingModule.qml
+    qml/components/OverlayMiniBar.qml
+    qml/components/OverlayCustomizePanel.qml
+    qml/components/RecoveryInbox.qml
+    qml/components/RecoveryReminderWindow.qml
+    qml/components/PendingWorkContent.qml
     qml/components/ReflectionCard.qml
     qml/components/ReflectionShareCard.qml
     qml/components/ReflectionShareEntry.qml
@@ -268,6 +304,7 @@ set(MR_QML_FILES
     qml/components/PageHost.qml
     qml/components/ToggleSwitch.qml
     qml/components/TrendBars.qml
+    qml/components/CaptureRegionSelector.qml
     qml/components/UpdateDownloadStatus.qml
     qml/components/UpdateNotice.qml
     qml/dialogs/BaselineDialog.qml
@@ -277,6 +314,7 @@ set(MR_QML_FILES
     qml/dialogs/EditRunDialog.qml
     qml/dialogs/OnlineSpeechConfirmDialog.qml
     qml/dialogs/ReflectionDialog.qml
+    qml/dialogs/ResultPopupContent.qml
     qml/dialogs/ReflectionShareDialog.qml
     qml/dialogs/ImportRecordsDialog.qml
     qml/dialogs/RunDetailPanel.qml

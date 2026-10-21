@@ -1,5 +1,9 @@
 # V1 发布验收清单 / V1 Release Checklist
 
+当前安全与质量门禁及推送/合入/发布检查方式见
+[安全与质量门禁](security-quality-gates.md)。下列历史验收表中的计数和 PASS 只对应表中版本，
+不能替代当前输入的验证报告。
+
 > 本文件是 V1 的**验收依据**，不是愿望清单。每一项都写明验证方法、本次验收的实际结果与证据位置。
 > 未实际执行过的条目必须标注 `UNVERIFIED`，不得标注 `PASS`。
 >
@@ -48,7 +52,7 @@
 |---|---|---|---|---|
 | 1 | Windows x64 能构建出两个可执行文件 | `pwsh -File scripts/build.ps1`（dotnet + CMake/Ninja/Qt） | **PASS** | `src/Collector/bin/x64/Release/net8.0-windows/win-x64/MentorRecorder.Collector.exe`、`build/src/Desktop/MentorRecorder.Desktop.exe` |
 | 2 | 两个可执行文件都能启动 | `package.ps1 -Verify`：解包后运行 `--version`、`--capture-doctor --json`、`--screenshot` | **PASS** | 见第 2 节「打包验证」输出 |
-| 3 | 没有 Npcap 时优雅降级（不崩溃、给指引） | `CaptureControllerTests.RefusesToStart_WithoutNpcap`、`ReportsUnavailable_WhenNpcapIsMissing`；`--capture-doctor` 退出码 1 并打印安装指引 | **PASS** | `artifacts/test-results/MentorRecorder.Collector.UnitTests.trx`；`LifecycleProcessTests.TheVersionAndDoctorModesRunWithoutOpeningAnythingAtAll` |
+| 3 | 没有 Npcap 时优雅降级（不崩溃、给指引） | `CaptureControllerTests.RefusesToStart_WithoutNpcap`、`ReportsUnavailable_WhenNpcapIsMissing`；`--capture-doctor` 退出码 1 并打印安装指引 | **PASS** | `artifacts/test-results/run-<UTC 时间>-<随机编号>/MentorRecorder.Collector.UnitTests.trx`；`LifecycleProcessTests.TheVersionAndDoctorModesRunWithoutOpeningAnythingAtAll` |
 | 4 | 合成样本重放能产出 COMPLETED / LEFT_OR_ABANDONED / CANCELLED_BEFORE_ENTRY / INTERRUPTED / UNKNOWN | `ProtocolDecodedReplayTests`（10 个 decoded 测试样本 × 2）、`ReplayIntegrationTests`（10 个语义测试样本）、`StateMachineTests.EnteredDuty_FinalOutcomesRemainDistinct` | **PASS** | 两个 TRX；`tests/Fixtures/` |
 | 5 | 同一份测试样本重放两次不重复计数 | `ProtocolDecodedReplayTests.ReplayingTheSameFixtureTwiceWritesNothingTheSecondTime`（10 组参数） | **PASS** | 集成 TRX；第二次 `RunsCreated = 0`、`EventsAppended = 0` |
 | 6 | 成就基线可设置并影响进度 | `MutationTests.UpdateAchievementBaseline_StoresGoalBaselineAndAudit`、`StatisticsAfterMutationTests.BaselineChange_RecomputesProgressAndRemaining`、`PipeServerTests.UpdateAchievementBaseline_IsServedAndIdempotent` | **PASS** | 两个 TRX |
@@ -67,7 +71,7 @@
 | 19 | 不出现任何被禁 API | `python tools/static-boundary-check/check.py`（`rules.json` 中的全部规则，扫描范围见第 3 节）＋ `selftest.py`（反向用例） | **PASS** | 见第 3 节；规则数、文件数与用例数以当次输出为准 |
 | 20 | 协议档案不可用时 fail-closed（不解析、不记录） | `CaptureControllerTests.RefusesToStart_WhenTheProfileIsNotVerified`、`ProtocolDecodedReplayTests.ABuildMismatchWritesNoRunAndLeavesTheStateMachineUntouched`、`SoakBoundsTests.AFailClosedParserRefusesIndefinitelyWithoutGrowing` | **PASS** | 两个 TRX |
 | 21 | 可追溯性：记录携带协议档案与事件摘要 | 档案侧：`CaptureIpcTests.VerifiedProfileFlowsFromCaptureThroughParserIntoLiveIpcAndStorage` 断言 `protocol_profile_id` / `game_build` / `capture_session_id`。事件侧：`run_events` 表有完整轨迹，`RecoveryEndToEndTests` 直接读它 | **PASS** | 事件轨迹现已可读取：`GetRunEvents` 是契约中的一条只读消息，对应第 5 节缺口 G1，该缺口已关闭 |
-| 22 | `BUILD-METADATA.json` 的状态字段与产物本身一致，不是手写的字面量 | `package.ps1` 从产物自己的 `--capture-doctor --json` 与 `--list-profiles --json` 读出 `live_capture_status` / `packaged_verified_profile_status`，并用 `*_source` 字段写明各自的来源（前者是二进制里的编译期常量，后者是对包内档案的真实检查）；`-Verify` 解包后再次查询并断言一致，`public_distribution_ready = true` 时另查是否记录了 `source_commit`、git 能否读出工作区状态、工作区是否干净、包内是否真有 VERIFIED 档案 | **PASS** | 打包产物中的 `BUILD-METADATA.json`；判据见 §7 |
+| 22 | `BUILD-METADATA.json` 的状态字段与产物本身一致，不是手写的字面量 | `package.ps1` 从产物自己的 `--capture-doctor --json` 与 `--list-profiles --json` 读出 `live_capture_status` / `packaged_verified_profile_status`，并用 `*_source` 字段写明各自的来源（前者是二进制里的编译期常量，后者是对包内档案的真实检查）；`-Verify` 解包后再次查询并断言一致，`public_distribution_ready = true` 时另查是否记录了 `source_commit`、git 能否读出工作区状态、工作区是否干净、包内是否真有 VERIFIED 档案；`unpack_verified` 记录本次是否带 `-Verify`，未带时 `public_distribution_ready` 为 `false`，解包验证失败时记为 `true` 的压缩包、校验文件与元数据一并删除；源码状态在打包开始与写入元数据时各读一次，两次不一致即打包失败 | **PASS** | 打包产物中的 `BUILD-METADATA.json`；判据见 §7 |
 | 23 | 崩溃后重启：已进入副本的未完结记录变 INTERRUPTED + 待复核（从未进本的记为 CANCELLED_BEFORE_ENTRY + 待复核），重启第二次不再变化 | `RecoveryEndToEndTests.ARunLeftUnfinishedByADeadProcessComesBackAsInterruptedAndPendingReview`（真进程 → 真进程） | **PASS** | 集成 TRX |
 | 24 | 单实例：第二个 `--serve` 非零退出，第一个继续服务 | `LifecycleProcessTests.ASecondServeIsRefusedAndTheFirstKeepsServing` | **PASS** | 集成 TRX |
 | 25 | 长时间运行不泄漏、计数自洽 | `SoakTests.AMixedStreamSustainedForTheWholeDurationLeavesEveryInvariantIntact`（默认 15 s，`MR_SOAK_MINUTES` 可延长） | **PASS** | 见第 4 节实测数字 |
@@ -75,7 +79,7 @@
 | 27 | 发布包不含禁止内容、含齐全许可证材料 | `package.ps1` 的 `Assert-NoForbiddenPayload` + `Assert-RequiredContent`，打包目录与**解包目录**各查一次；另由 `Assert-DesktopExecutable` 在暂存前与解包后核对桌面端内嵌的应用程序清单，并拒绝以开发用 Collector 查找（`MR_DEV_COLLECTOR_DISCOVERY`）编译的程序 | **PASS** | 见第 2 节 |
 | 28 | 桌面端被强杀后不留孤儿 Collector | 桌面端固定以 `--serve --parent-pid <自身 pid>` 拉起子进程；`ParentProcessWatchdog` 用 `Process.GetProcessById` + `WaitForExitAsync`（**进程存在性检查，非 `OpenProcess`**）等父进程结束，随后走与 Ctrl+C 完全相同的停止路径，10 秒硬退出兜底。`LifecycleOrphanTests`（2 项，真进程：杀掉替身父进程后断言 Collector 15 s 内退出、退出码 0、`integrity_check = ok`、无残留未关闭的抓包会话）、`WatchdogTests`（8 项）、Qt `LifecycleTests::theCollectorIsAlwaysToldOurProcessIdSoItCannotBeOrphaned` | **PASS** | 集成 TRX；ctest |
 | 29 | 已发布的 CHANGELOG 段落在打 tag 之后不被改写 | `package.ps1` 的 `Assert-ReleasedChangelogSectionsUnchanged`：对每个 `vX.Y.Z` tag，把工作区 `CHANGELOG.md` 里的 `## [X.Y.Z]` 段落与 `git show <tag>:CHANGELOG.md` 的同名段落比较，标题行（含日期）与正文逐字一致；段落被删除或标题被改名同样算作改动，任一不符即打包失败。新的变更只能写进 `[Unreleased]` 或下一个版本 | **PASS** | 打包脚本；缘由见内部工作文档 `reviews/2026-09-08/fix-status.md` 第 H-9 条，该文档不随仓库分发 |
-| 30 | 软件内下载并安装更新：下载、核对、Windows 的管理员批准提示、本软件退出、安装程序完成更新 | 自动化（不联网）：`UpdateChecksumTests`、`UpdateDownloadServiceTests`、`UpdateDownloadFailureTests`、`UpdateDownloadDiskTests` 与集成测试 `UpdateDownloadIpcTests` 都使用替身传输层；ctest `MentorRecorderUpdateInstall`、`MentorRecorderInstallerHold` 与 `MentorRecorderQmlUpdateDownload_*`，模拟后端从不启动安装程序。真机：在装有旧版本的机器上，待新版本的安装程序及其 `.sha256` 按第 2 节发布后，点「下载并安装」，确认下载进度持续更新、「取消」后数据目录 `updates\` 中不留 `.part`；再次下载至「立即安装」，确认安装程序被持有期间 Windows 仍弹出管理员批准提示、安装程序的向导仍能出现；批准提示显示期间，`updates\` 中的安装程序不能被删除或改名；选「否」时本软件继续运行并说明原因，此后该文件可以删除；选「是」时本软件退出、采集服务正常停止、安装程序的向导完成更新；新版本下次启动后 `updates\` 中不再留有已用过的安装程序 | **UNVERIFIED** | 自动化部分见 TRX 与 ctest；真机部分待执行 |
+| 30 | 软件内下载并安装更新：下载、核对、Windows 的管理员批准提示、本软件退出、安装程序完成更新 | 自动化（不联网）：`UpdateChecksumTests`、`UpdateDownloadServiceTests`、`UpdateDownloadFailureTests`、`UpdateDownloadDiskTests` 与集成测试 `UpdateDownloadIpcTests` 都使用替身传输层；ctest `MentorRecorderUpdateInstall`、`MentorRecorderInstallerHold` 与 `MentorRecorderQmlUpdateDownload_*`，模拟后端从不启动安装程序。真机：在装有旧版本的机器上，待新版本的安装程序及其 `.sha256` 按第 2 节发布后，点「下载安装包」，确认下载进度持续更新、「取消」后数据目录 `updates\` 中不留 `.part`；再次下载至「立即安装」，确认安装程序被持有期间 Windows 仍弹出管理员批准提示、安装程序的向导仍能出现；批准提示显示期间，`updates\` 中的安装程序不能被删除或改名；选「否」时本软件继续运行并说明原因，此后该文件可以删除；选「是」时本软件退出、采集服务正常停止、安装程序的向导完成更新；新版本下次启动后 `updates\` 中不再留有已用过的安装程序 | **UNVERIFIED** | 自动化部分见 TRX 与 ctest；真机部分待执行 |
 
 **真机验收须补充的条目**：第 16 项（高 DPI 实机缩放）、第 30 项（软件内下载并安装更新），以及全部与真实抓包相关的行为。
 验收机器既没有 Npcap，也没有安装游戏客户端，相关流程见
@@ -143,7 +147,7 @@ pwsh -NoProfile -File scripts/package.ps1 -Force -Verify
 该资产缺失时，所有用户的检查都只会得到"未找到"并静默降级，界面上不出现任何提示。
 
 安装程序必须以 `MentorRecorder-<版本>-setup.exe` 为名，上传到标签为 `v<版本>` 的发布页：
-「下载并安装」由采集服务下载，「在浏览器中下载」由浏览器下载，两者使用的地址都是
+「下载安装包」由采集服务下载，「在浏览器中下载」由浏览器下载，两者使用的地址都是
 `releases/download/v<版本>/MentorRecorder-<版本>-setup.exe`
 （[privacy-boundary.md](privacy-boundary.md) §8.4、§8.6）。名称或标签不符时，两者都只会得到"未找到"。
 
@@ -294,7 +298,7 @@ UUID 原样保留。`DiagnosticsLogHygieneTests` 现共 11 项，**0 跳过**。
 ```powershell
 Get-Content <解包目录>\BUILD-METADATA.json | ConvertFrom-Json |
   Select-Object live_capture_status, packaged_verified_profile_status,
-                source_protocol_profile_status, public_distribution_ready,
+                source_protocol_profile_status, unpack_verified, public_distribution_ready,
                 public_distribution_blockers, source_commit, source_worktree_dirty
 ```
 
@@ -305,7 +309,8 @@ Get-Content <解包目录>\BUILD-METADATA.json | ConvertFrom-Json |
 | `live_capture_status` | **编译期常量**。在暂存目录中运行该产物自身的 `--capture-doctor --json`（`MR_DATA_DIR` 指向临时目录，探测不会向产物写入数据库或日志），读回编译进 `CaptureDiagnostics` 的声明。该字段证明元数据与这份二进制同源，**不**表示对这份产物做过实时抓包测量；`live_capture_status_source` 如实写明这一点 |
 | `packaged_verified_profile_status` | 该产物自身的 `--list-profiles --json`，取 `status == VERIFIED && usable` 的 `profile_id`，格式为 `VERIFIED (id1, id2)`；一份都没有时取 `NONE`。这一条是对**包内档案文件**的真实检查，记录在 `packaged_verified_profile_status_source` |
 | `source_protocol_profile_status` | [`../protocol-profiles/README.md`](../protocol-profiles/README.md) 顶部的 `PROTOCOL_PROFILE_STATUS = <状态>` 标记 |
-| `public_distribution_ready` | **计算值**，下列前提全部满足才为 `true`；`public_distribution_ready_source` 列出参与计算的四类输入：编译期常量、包内档案、git 工作区状态、`-SkipVerify`（版本号是否为先行版另由 `prerelease` 字段给出） |
+| `unpack_verified` | 本次是否带 `-Verify` 运行。解包运行在写出元数据之后进行，失败时整次打包失败，`unpack_verified_source` 如实写明这一点；失败时此前写出、记为 `true` 的压缩包、它的 `.sha256` 与暂存目录中的 `BUILD-METADATA.json` 随之删除 |
+| `public_distribution_ready` | **计算值**，下列前提全部满足才为 `true`；`public_distribution_ready_source` 列出参与计算的五类输入：编译期常量、包内档案、git 工作区状态、`-SkipVerify` 与 `-Verify`（版本号是否为先行版另由 `prerelease` 字段给出） |
 | `public_distribution_blockers` | 未满足的前提，逐条列出；全部满足时为空数组 |
 
 `public_distribution_ready` 的前提如下，任何一条不成立即不得公开分发：
@@ -325,11 +330,17 @@ Get-Content <解包目录>\BUILD-METADATA.json | ConvertFrom-Json |
    产物随包附带 `SOURCE_CODE.md` 与 `BUILD-METADATA.json` 中的 `source_commit`；
 5. 未使用 `-SkipVerify` 跳过验证关卡；
 6. 版本号不带先行版后缀。`X.Y.Z-beta.N` 的测试包按定义不作为正式发布分发（第 9.2 节），
-   打包本身照常成功。
+   打包本身照常成功；
+7. 带 `-Verify` 打包（`unpack_verified = true`），即产物解包后实际运行过两个可执行文件。
+   未带 `-Verify` 时阻断原因写明「未按 -Verify 解包并运行产物（unpack_verified=false）」。
 
 > 第 1、2 条是二进制中的声明，只要源码未改动即恒为真，因此并**不**构成这道闸门的实际约束力；
-> 真正可能与事实不符、也真正起到阻断作用的是第 3 至 6 条。
+> 真正可能与事实不符、也真正起到阻断作用的是第 3 至 7 条。
 > 阻断原因 `public_distribution_blockers` 与控制台输出对前两条均标注「编译期常量」。
+
+源码状态在运行 `verify.ps1` 与 `build.ps1` 之前读取一次，写入 `BUILD-METADATA.json` 时再读一次。
+提交号、是否有未提交改动或 git 能否回答，任一项不同即打包失败（「源码在打包过程中发生了变化…」），
+不写出可能与源码不对应的元数据。
 
 `package.ps1 -Verify` 会**再次核对**这份声明：解包之后再次查询产物本身，
 `live_capture_status` 与 `packaged_verified_profile_status` 必须与元数据中的记录一致。
@@ -454,6 +465,10 @@ git merge --ff-only dev                           # 快进合并
 git tag v1.4.0
 ```
 
+`package.ps1` 必须带 `-Verify`：未带时 `public_distribution_ready` 为 `false`（第 7 节第 7 条），GitCode 镜像
+也不会复制该正式版（见第 9.5 节）。打包期间工作区不得变动，包括其他会话的提交、切换分支或暂存改动；
+源码状态在打包开始与写入元数据时不一致，打包即失败。
+
 正式版的 `CHANGELOG.md` 最上方必须就是 `## [1.4.0]`：打包脚本取第一个 `## [..]` 标题与版本号比对，
 上面多一个空的 `[Unreleased]` 会被拒绝。下一轮的第一条变更再把 `## [Unreleased]` 加回来即可。
 
@@ -470,3 +485,18 @@ git tag v1.4.0
 5. `BUILD-METADATA.json`（独立资产，更新检查读取的就是它）
 
 正式发布不得勾选 pre-release；测试包必须勾选。
+
+### 9.5 核对 GitCode 镜像
+
+GitHub 发布页（正式版与测试包）发布之后，确认 GitCode 镜像已完整复制。流程、触发条件与故障处理见
+[build-and-package.md](build-and-package.md) §5.4。
+
+1. Actions 中由该发布触发的「Mirror release to GitCode」运行成功，日志中有
+   `Verified complete GitCode mirror: v<版本>`。附件在发布之后才上传完毕时，该次运行以
+   「Source release assets incomplete」失败，此时以该标签手动运行该工作流。
+2. GitCode 发布页 `https://gitcode.com/Harendotes-Tang/MentorRouletteRecorder/releases/v<版本>` 的标题与说明
+   与 GitHub 一致；正式版附带安装程序、其 `.sha256` 与 `BUILD-METADATA.json`，测试包附带安装程序与 zip
+   及二者的 `.sha256`，并标为预发布。
+3. 此后编辑 GitHub 上的标题或说明时，由编辑触发的运行同样成功，GitCode 上的文字随之更新。
+4. 撤回一个正式版（删除其 GitHub 发布）时，同时在 GitCode 上手动删除同一发布。否则此后每次补齐运行都以
+   「deleted on GitHub but still published on GitCode」失败，采集服务的更新后备读取也仍会看到该版本。

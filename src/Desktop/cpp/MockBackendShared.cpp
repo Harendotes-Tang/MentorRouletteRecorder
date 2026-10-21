@@ -11,6 +11,7 @@
 #include "MockBackend.h"
 #include "MockData.h"
 
+#include <QRegularExpression>
 #include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
@@ -376,6 +377,53 @@ QJsonObject MockBackend::rejectSharedPayload()
     return {{QStringLiteral("withdrawn_profile_id"),
              withdrawn ? QJsonValue(QLatin1String(kSharedProfileId)) : QJsonValue(QJsonValue::Null)},
             {QStringLiteral("dropped_candidates"), dropped}};
+}
+
+QJsonObject MockBackend::calibrationEvidence(const QString &messageType, const QJsonObject &payload,
+                                             QString *errorCode, QString *errorMessage)
+{
+    // CalibrationEvidenceHandlers.Response for evidence that is not there: no summary, no
+    // form address, and the Collector's reason. This backend has never completed a healthy
+    // session after a candidate was registered, nor sealed a metadata observation.
+    const auto unavailable = [](const char *kind, const char *reason) {
+        return QJsonObject{{QStringLiteral("available"), false},
+                           {QStringLiteral("kind"), QLatin1String(kind)},
+                           {QStringLiteral("evidence_json"), QJsonValue(QJsonValue::Null)},
+                           {QStringLiteral("issue_url"), QJsonValue(QJsonValue::Null)},
+                           {QStringLiteral("evidence_in_url"), false},
+                           {QStringLiteral("reason"), QLatin1String(reason)}};
+    };
+    if (messageType == QLatin1String("GetTemplateObservation")) {
+        // CaptureValidationController.GetTemplateObservation: a session still running or
+        // draining is OBSERVATION_ACTIVE; the synthetic fixtures never sealed a trace.
+        const bool active = m_validationState == QLatin1String("WAITING")
+                            || m_validationState == QLatin1String("RECORDING")
+                            || m_validationState == QLatin1String("STOPPING");
+        return unavailable("TEMPLATE_OBSERVATION", active ? "OBSERVATION_ACTIVE" : "NO_OBSERVATION");
+    }
+
+    // CalibrationEvidenceHandlers.Get, then CalibrationEvidenceCollector.Export over an
+    // evidence store that holds nothing.
+    static const QRegularExpression sha256(QStringLiteral("^[0-9a-f]{64}$"));
+    const QJsonValue code = payload.value(QStringLiteral("code_sha256"));
+    const bool chosen = !code.isUndefined() && !code.isNull();
+    if (chosen && !sha256.match(code.toString()).hasMatch())
+        return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"),
+                          "calibration.evidence_hash_invalid");
+    // Every fixture candidate is the committed test vector, whether or not its row names
+    // the full identity (code_sha256 is optional on the wire).
+    QStringList candidates;
+    for (const QJsonValue &candidate : candidatesFor(m_sharedState)) {
+        const QJsonValue identity = candidate.toObject().value(QStringLiteral("code_sha256"));
+        candidates.append(identity.isString() ? identity.toString() : QLatin1String(kVectorSha256));
+    }
+    if (candidates.isEmpty())
+        return unavailable("CODE_VERIFICATION", "NO_CURRENT_CANDIDATE");
+    if (!chosen && candidates.size() != 1)
+        return unavailable("CODE_VERIFICATION", "SELECT_CANDIDATE");
+    if (chosen && !candidates.contains(code.toString()))
+        return unavailable("CODE_VERIFICATION", "CANDIDATE_NOT_OBSERVED");
+    return unavailable("CODE_VERIFICATION", "NO_COMPLETED_HEALTHY_SESSION");
 }
 
 void MockBackend::emitCalibrationChangedLater()

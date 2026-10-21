@@ -139,8 +139,9 @@ mentor_runs.revision = 1  ──►  run_revisions(revision=1, change_kind=CREAT
   手工记录没有单调时钟可用，这是推算时长的唯一场景。计算得出的时长在 `changes_json` 中如实记录。
 - 若三者同时提供且互相矛盾，以显式的 `duration_ms` 为准，不做静默调整。
 - 新建或更正时显式传入 `duration_ms: null` 表示耗时未知，该记录不参与推算，也不计入平均耗时。
-  桌面端再次编辑耗时未知的记录时，只修改结束时间仍保留空耗时；
-  只有将原进本时间替换为实际时间之后，才重新计算时长。
+  桌面端再次编辑耗时未知的记录时，若进本时间是由匹配时间估算的（进本时间等于匹配时间），
+  只修改结束时间仍保留空耗时，以免把排队时间算作副本用时；将原进本时间替换为实际时间之后，才重新计算时长。
+  进本时间是实测值的记录（例如崩溃恢复时以重启时刻收尾的记录）补上实际结束时间后即按两者之差计算时长。
 - 手工创建的记录取 `detection_confidence = NONE`、`source = MANUAL`、
   `capture_session_id = NULL`、`protocol_profile_id = NULL`。
 
@@ -310,7 +311,7 @@ Excel 与 LibreOffice 均会隐藏该撇号并显示原文；以脚本解析时�
 
 **JSON**：由契约 `$defs/Run` 对象组成的数组，`revision`、`manually_created`、`soft_deleted`、
 `pending_review`、`note`、`reflection` 等全部字段均包含在内。
-需要完整可信度信息时应导出 JSON；CSV 的 16 列是面向电子表格的精简视图。
+需要完整可信度信息时应导出 JSON；CSV 的 17 列是面向电子表格的精简视图。
 
 两种导出遵循与 `QueryRuns` **完全相同**的 `RunFilter`，导出范围与列表中可见的范围一致。
 导出目录可以选择个人文件夹之外的本地目录，例如其他盘符下的文件夹，该目录须具备写入权限。

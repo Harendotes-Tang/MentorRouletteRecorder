@@ -7,6 +7,7 @@
 
 #include "MockBackend.h"
 #include "DutyCatalog.h"
+#include "JobCatalog.h"
 #include "MockData.h"
 
 #include <QDateTime>
@@ -100,6 +101,7 @@ QJsonValue fieldForSort(const QJsonObject &run, const QString &field)
         const QString raw = source.value(QStringLiteral("source_recorded_at")).toString();
         QDate date = QDate::fromString(raw, QStringLiteral("yyyy-MM-dd"));
         if (!date.isValid()) date = QDate::fromString(raw, QStringLiteral("yyyy/M/d"));
+        if (!date.isValid()) date = QDate::fromString(raw, QStringLiteral("yyyy.M.d"));
         if (date.isValid()) return date.toString(QStringLiteral("yyyy-MM-dd")) + QStringLiteral("T00:00:00.000Z");
         return QJsonValue(QJsonValue::Null);
     }
@@ -116,6 +118,7 @@ QDate sourceCalendarDay(const QJsonObject &run)
     const QString raw = source.value(QStringLiteral("source_recorded_at")).toString();
     QDate date = QDate::fromString(raw, QStringLiteral("yyyy-MM-dd"));
     if (!date.isValid()) date = QDate::fromString(raw, QStringLiteral("yyyy/M/d"));
+    if (!date.isValid()) date = QDate::fromString(raw, QStringLiteral("yyyy.M.d"));
     return date;
 }
 
@@ -191,6 +194,19 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
     const QDate fromDay = QDate::fromString(filter.value(QStringLiteral("history_from_day")).toString(), Qt::ISODate);
     const QDate toDay = QDate::fromString(filter.value(QStringLiteral("history_to_day")).toString(), Qt::ISODate);
     const QSet<qint64> contentZones = zonesOfOnly(filter.value(QStringLiteral("content_id")).toArray());
+    // RunFilterSql: pending_review true is the actionable review list, and imported
+    // history - source IMPORT, import metadata, or an IMPORT creation revision - is never
+    // on it (RunFilterSql.ImportedHistoryPredicate).
+    const bool reviewList = filter.value(QStringLiteral("pending_review")).toBool(false);
+    QSet<QString> importedByRevision;
+    if (reviewList) {
+        for (const QJsonValue &value : m_revisions) {
+            const QJsonObject revision = value.toObject();
+            if (revision.value(QStringLiteral("revision")).toInt() == 1
+                && revision.value(QStringLiteral("change_kind")).toString() == QLatin1String("IMPORT"))
+                importedByRevision.insert(revision.value(QStringLiteral("run_id")).toString());
+        }
+    }
 
     QList<QJsonObject> selected;
     selected.reserve(m_runs.size());
@@ -223,6 +239,12 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
         const QJsonValue pendingReview = filter.value(QStringLiteral("pending_review"));
         if (pendingReview.isBool()
             && run.value(QStringLiteral("pending_review")).toBool(false) != pendingReview.toBool()) {
+            continue;
+        }
+        if (reviewList
+            && (run.value(QStringLiteral("source")).toString() == QLatin1String("IMPORT")
+                || run.value(QStringLiteral("import_metadata")).isObject()
+                || importedByRevision.contains(run.value(QStringLiteral("run_id")).toString()))) {
             continue;
         }
         // 有心得: the chip narrows the list to runs carrying a reflection; it
@@ -291,22 +313,8 @@ QJsonObject MockBackend::queryRunCalendarDaysPayload(const QJsonObject &payload)
         filter.remove(key);
     const QString month = payload.value(QStringLiteral("month")).toString();
     QSet<QString> unique;
-    QSet<QString> importedRevisionIds;
-    const bool pendingOnly = filter.value(QStringLiteral("pending_review")).toBool(false);
-    if (pendingOnly) {
-        for (const QJsonValue &value : m_revisions) {
-            const QJsonObject revision = value.toObject();
-            if (revision.value(QStringLiteral("revision")).toInt() == 1
-                && revision.value(QStringLiteral("change_kind")).toString() == QLatin1String("IMPORT"))
-                importedRevisionIds.insert(revision.value(QStringLiteral("run_id")).toString());
-        }
-    }
+    // selectRuns leaves historical imports out of the actionable review filter.
     for (const QJsonObject &run : selectRuns(filter, false)) {
-        // RunFilterSql excludes historical imports from the actionable review filter.
-        if (pendingOnly && (run.value(QStringLiteral("source")).toString() == QLatin1String("IMPORT")
-            || run.value(QStringLiteral("import_metadata")).isObject()
-            || importedRevisionIds.contains(run.value(QStringLiteral("run_id")).toString())))
-            continue;
         QDate day = sourceCalendarDay(run);
         if (!day.isValid())
             day = fromIso(fieldForSort(run, QStringLiteral("history_date"))).toLocalTime().date();
@@ -337,14 +345,16 @@ QJsonObject MockBackend::queryRunsPayload(const QJsonObject &payload) const
                          return sortsBefore(a, b, field, ascending);
                      });
 
+    // RunRepository.Query: the page asked for, even past the end (then empty). The request
+    // path has already refused a page or page_size out of range (RequestParsers.Paging).
     const int total = int(rows.size());
-    const int pageSize = qBound(1, payload.value(QStringLiteral("page_size")).toInt(50), 200);
-    const int pageCount = qMax(1, (total + pageSize - 1) / pageSize);
-    const int page = qBound(1, payload.value(QStringLiteral("page")).toInt(1), pageCount);
+    const int pageSize = payload.value(QStringLiteral("page_size")).toInt(50);
+    const int page = payload.value(QStringLiteral("page")).toInt(1);
 
     QJsonArray items;
-    for (int i = (page - 1) * pageSize; i < qMin(total, page * pageSize); ++i)
-        items.append(rows.at(i));
+    const qint64 first = qint64(page - 1) * pageSize;
+    for (qint64 i = first; i < qMin(qint64(total), first + pageSize); ++i)
+        items.append(rows.at(int(i)));
 
     QJsonObject pageInfo;
     pageInfo.insert(QStringLiteral("page"), page);
@@ -558,9 +568,26 @@ struct Aggregate {
     int joinedInProgress = 0;
     double durationSum = 0.0;
     int durationCount = 0;
-    QString label;
-    QString lastSeen;
 };
+
+/// StatisticsRepository's per-group counts. Every run of the group is in it, an attempt or
+/// not: attempt_count counts the attempts (IsAttempt), completed_count every COMPLETED
+/// run, and a group whose runs never entered is still a row, with zero attempts.
+void accumulate(Aggregate &aggregate, const QJsonObject &run)
+{
+    if (hasEntered(run)) {
+        ++aggregate.attempts;
+        const QJsonValue joined = run.value(QStringLiteral("joined_in_progress"));
+        if (joined.isBool() && joined.toBool())
+            ++aggregate.joinedInProgress;
+    }
+    if (run.value(QStringLiteral("result")).toString() == QLatin1String("COMPLETED"))
+        ++aggregate.completed;
+    if (countsTowardsAverageDuration(run)) {
+        aggregate.durationSum += run.value(QStringLiteral("duration_ms")).toDouble();
+        ++aggregate.durationCount;
+    }
+}
 
 QJsonObject aggregateToRow(const Aggregate &aggregate)
 {
@@ -577,70 +604,131 @@ QJsonObject aggregateToRow(const Aggregate &aggregate)
     return row;
 }
 
+/// A JSON number as an id, or -1 for null / absent: no real id is negative.
+qint64 idOf(const QJsonValue &value)
+{
+    return value.isDouble() ? qint64(value.toDouble()) : qint64(-1);
+}
+
+/// The catalogue's duties by zone, lowest content id first. DutyCatalog.FindByTerritory
+/// names a zone by its first duty; FindUniqueByTerritory takes it as the duty's identity
+/// only when it is the zone's one duty.
+QHash<qint64, QList<qint64>> dutiesByZone()
+{
+    QHash<qint64, QList<qint64>> zones;
+    for (const QVariant &row : mr::DutyCatalog::shared()->allDuties()) {
+        const QVariantMap duty = row.toMap();
+        const QVariant zone = duty.value(QStringLiteral("territory_id"));
+        if (!zone.isValid() || zone.isNull())
+            continue;
+        QList<qint64> &ids = zones[zone.toLongLong()];
+        const qint64 id = duty.value(QStringLiteral("content_id")).toLongLong();
+        if (!ids.contains(id))
+            ids.append(id);
+    }
+    for (QList<qint64> &ids : zones)
+        std::sort(ids.begin(), ids.end());
+    return zones;
+}
+
 } // namespace
 
 QJsonArray MockBackend::dungeonStats(const QJsonObject &filter) const
 {
-    const QList<QJsonObject> rows = selectRuns(filter, true);
+    // StatisticsRepository.GetDungeonStats (docs/statistics-definitions.md 10): grouped by
+    // duty identity, DutyKey - the content_id when the run observed one, else the one duty
+    // the observed zone hosts, else the zone itself with a null content_id when several
+    // duties share it, and (null, null) for a run with no duty identity at all - including a
+    // zone the duty table does not know, which names no duty either. A zone several duties
+    // share never stands for one of them. The (null, null) row is always 未知副本.
+    struct Group {
+        qint64 contentId = -1;
+        qint64 zone = -1;
+        Aggregate aggregate;
+        QString name;
+        QJsonValue category;
+        QString nameUpdatedAt;
+        QString lastSeen;
+    };
+    const QHash<qint64, QList<qint64>> zones = dutiesByZone();
+    QList<Group> groups; // in order of first appearance, like LINQ's GroupBy
+    QHash<QPair<qint64, qint64>, int> indexOf;
 
-    // Aggregated by content_id. Runs without one collapse into a single
-    // "未知副本" row (docs/statistics-definitions.md 10).
-    QMap<int, Aggregate> byContent; // key -1 == unknown
-    QMap<int, QString> categories;
-
-    for (const QJsonObject &run : rows) {
-        if (!hasEntered(run))
-            continue;
-        const QJsonValue contentId = run.value(QStringLiteral("content_id"));
-        const int key = contentId.isNull() ? -1 : contentId.toInt();
-
-        Aggregate &aggregate = byContent[key];
-        ++aggregate.attempts;
-        if (run.value(QStringLiteral("joined_in_progress")).isBool()
-            && run.value(QStringLiteral("joined_in_progress")).toBool())
-            ++aggregate.joinedInProgress;
-        if (run.value(QStringLiteral("result")).toString() == QLatin1String("COMPLETED"))
-            ++aggregate.completed;
-        if (countsTowardsAverageDuration(run)) {
-            aggregate.durationSum += run.value(QStringLiteral("duration_ms")).toDouble();
-            ++aggregate.durationCount;
+    for (const QJsonObject &run : selectRuns(filter, true)) {
+        qint64 contentId = idOf(run.value(QStringLiteral("content_id")));
+        qint64 zone = -1;
+        if (contentId < 0) {
+            const qint64 observed = idOf(run.value(QStringLiteral("territory_id")));
+            const QList<qint64> hosted = zones.value(observed);
+            if (hosted.size() == 1)
+                contentId = hosted.first();
+            else if (!hosted.isEmpty())
+                zone = observed;
         }
+        const QPair<qint64, qint64> key{contentId, zone};
+        if (!indexOf.contains(key)) {
+            indexOf.insert(key, int(groups.size()));
+            groups.append(Group{contentId, zone});
+        }
+        Group &group = groups[indexOf.value(key)];
+        accumulate(group.aggregate, run);
 
+        // The name and category of the most recently updated run that names the duty. A row
+        // without a duty identity is 未知副本, whatever free text a run in it calls its duty.
         const QString name = run.value(QStringLiteral("duty_name")).toString();
-        if (!name.isEmpty())
-            aggregate.label = name;
-        const QString category = run.value(QStringLiteral("duty_category")).toString();
-        if (!category.isEmpty())
-            categories.insert(key, category);
+        const QString updated = run.value(QStringLiteral("updated_at_utc")).toString();
+        const bool identified = contentId >= 0 || zone >= 0;
+        if (identified && !name.trimmed().isEmpty() && (group.name.isEmpty() || updated > group.nameUpdatedAt)) {
+            group.name = name;
+            group.category = run.value(QStringLiteral("duty_category"));
+            group.nameUpdatedAt = updated;
+        }
+        // MAX(matched_at_utc): when this duty was last matched into, attempt or not.
         const QString matched = run.value(QStringLiteral("matched_at_utc")).toString();
-        if (matched > aggregate.lastSeen)
-            aggregate.lastSeen = matched;
+        if (matched > group.lastSeen)
+            group.lastSeen = matched;
     }
 
     QList<QJsonObject> out;
-    for (auto it = byContent.constBegin(); it != byContent.constEnd(); ++it) {
-        QJsonObject row = aggregateToRow(it.value());
+    for (const Group &group : std::as_const(groups)) {
+        // What the catalogue says: the duty itself, or the lowest content id of the zone.
+        const QList<qint64> hosted = zones.value(group.zone);
+        const QVariantMap mapped = group.contentId >= 0
+            ? mr::DutyCatalog::shared()->lookup(group.contentId)
+            : hosted.isEmpty() ? QVariantMap() : mr::DutyCatalog::shared()->lookup(hosted.first());
+        const QString mappedName = mapped.value(QStringLiteral("duty_name")).toString();
+        const QString mappedCategory = mapped.value(QStringLiteral("duty_category")).toString();
+
+        QJsonObject row = aggregateToRow(group.aggregate);
         row.insert(QStringLiteral("content_id"),
-                   it.key() < 0 ? QJsonValue(QJsonValue::Null) : QJsonValue(it.key()));
+                   group.contentId < 0 ? QJsonValue(QJsonValue::Null) : QJsonValue(group.contentId));
         row.insert(QStringLiteral("duty_name"),
-                   it.value().label.isEmpty() ? QString::fromUtf8("未知副本")
-                                              : it.value().label);
+                   !group.name.isEmpty() ? group.name
+                   : !mappedName.isEmpty() ? mappedName
+                                           : QString::fromUtf8("未知副本"));
         row.insert(QStringLiteral("duty_category"),
-                   categories.contains(it.key()) ? QJsonValue(categories.value(it.key()))
-                                                 : QJsonValue(QJsonValue::Null));
+                   !group.name.isEmpty() && group.category.isString() && !group.category.toString().isEmpty()
+                       ? group.category
+                       : !mappedCategory.isEmpty() ? QJsonValue(mappedCategory) : QJsonValue(QJsonValue::Null));
         // No duty_meta: $defs/DungeonStatsRow cannot carry it. DungeonStatsModel
         // derives it from the duty catalogue, in the interface language.
         row.insert(QStringLiteral("last_seen_utc"),
-                   it.value().lastSeen.isEmpty() ? QJsonValue(QJsonValue::Null)
-                                                 : QJsonValue(it.value().lastSeen));
+                   group.lastSeen.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(group.lastSeen));
         out.append(row);
     }
 
-    std::stable_sort(out.begin(), out.end(),
-                     [](const QJsonObject &a, const QJsonObject &b) {
-                         return a.value(QStringLiteral("attempt_count")).toInt()
-                              > b.value(QStringLiteral("attempt_count")).toInt();
-                     });
+    // Attempts first, then content_id with null first, then the name, ordinal.
+    std::stable_sort(out.begin(), out.end(), [](const QJsonObject &a, const QJsonObject &b) {
+        const int attemptsA = a.value(QStringLiteral("attempt_count")).toInt();
+        const int attemptsB = b.value(QStringLiteral("attempt_count")).toInt();
+        if (attemptsA != attemptsB)
+            return attemptsA > attemptsB;
+        const qint64 contentA = idOf(a.value(QStringLiteral("content_id")));
+        const qint64 contentB = idOf(b.value(QStringLiteral("content_id")));
+        if (contentA != contentB)
+            return contentA < contentB;
+        return a.value(QStringLiteral("duty_name")).toString() < b.value(QStringLiteral("duty_name")).toString();
+    });
 
     QJsonArray array;
     for (const QJsonObject &row : std::as_const(out))
@@ -650,59 +738,38 @@ QJsonArray MockBackend::dungeonStats(const QJsonObject &filter) const
 
 QJsonArray MockBackend::jobStats(const QJsonObject &filter) const
 {
-    const QList<QJsonObject> rows = selectRuns(filter, true);
-
-    // Aggregated by job_id. job_id null is its own row named "未知" and is
-    // never folded into a real job (docs/statistics-definitions.md 11).
-    QMap<int, Aggregate> byJob; // key -1 == unknown
-    QMap<int, QString> roles;
-    QMap<int, QString> roleGroups;
-
-    for (const QJsonObject &run : rows) {
-        if (!hasEntered(run))
-            continue;
-        const QJsonValue jobId = run.value(QStringLiteral("job_id"));
-        const int key = jobId.isNull() ? -1 : jobId.toInt();
-
-        Aggregate &aggregate = byJob[key];
-        ++aggregate.attempts;
-        if (run.value(QStringLiteral("joined_in_progress")).isBool()
-            && run.value(QStringLiteral("joined_in_progress")).toBool())
-            ++aggregate.joinedInProgress;
-        if (run.value(QStringLiteral("result")).toString() == QLatin1String("COMPLETED"))
-            ++aggregate.completed;
-        if (countsTowardsAverageDuration(run)) {
-            aggregate.durationSum += run.value(QStringLiteral("duration_ms")).toDouble();
-            ++aggregate.durationCount;
-        }
-        const QString name = run.value(QStringLiteral("job_name")).toString();
-        if (!name.isEmpty())
-            aggregate.label = name;
-        roles.insert(key, run.value(QStringLiteral("role")).toString());
-        const QString group = run.value(QStringLiteral("role_group")).toString();
-        if (!group.isEmpty())
-            roleGroups.insert(key, group);
+    // StatisticsRepository.GetJobStats (docs/statistics-definitions.md 11): grouped by
+    // job_id, null its own "未知" row and never folded into a real job; the name and the
+    // role are the job catalogue's, not whatever a run carries.
+    QList<qint64> order; // in order of first appearance, like LINQ's GroupBy
+    QHash<qint64, Aggregate> byJob;
+    for (const QJsonObject &run : selectRuns(filter, true)) {
+        const qint64 jobId = idOf(run.value(QStringLiteral("job_id")));
+        if (!byJob.contains(jobId))
+            order.append(jobId);
+        accumulate(byJob[jobId], run);
     }
 
+    const JobCatalog jobs;
     QList<QJsonObject> out;
-    for (auto it = byJob.constBegin(); it != byJob.constEnd(); ++it) {
-        QJsonObject row = aggregateToRow(it.value());
-        row.insert(QStringLiteral("job_id"),
-                   it.key() < 0 ? QJsonValue(QJsonValue::Null) : QJsonValue(it.key()));
-        row.insert(QStringLiteral("job_name"),
-                   it.value().label.isEmpty() ? QString::fromUtf8("未知") : it.value().label);
-        row.insert(QStringLiteral("role"),
-                   roles.value(it.key(), QStringLiteral("UNKNOWN")));
-        row.insert(QStringLiteral("role_group"),
-                   roleGroups.value(it.key(), QString::fromUtf8("未知")));
+    for (const qint64 jobId : std::as_const(order)) {
+        const QVariant id = jobId < 0 ? QVariant() : QVariant(jobId);
+        QJsonObject row = aggregateToRow(byJob.value(jobId));
+        row.insert(QStringLiteral("job_id"), jobId < 0 ? QJsonValue(QJsonValue::Null) : QJsonValue(jobId));
+        row.insert(QStringLiteral("job_name"), jobs.jobName(id));
+        row.insert(QStringLiteral("role"), jobs.role(id));
+        row.insert(QStringLiteral("role_group"), jobs.roleGroup(id));
         out.append(row);
     }
 
-    std::stable_sort(out.begin(), out.end(),
-                     [](const QJsonObject &a, const QJsonObject &b) {
-                         return a.value(QStringLiteral("attempt_count")).toInt()
-                              > b.value(QStringLiteral("attempt_count")).toInt();
-                     });
+    // Attempts first, then job_id with null first.
+    std::stable_sort(out.begin(), out.end(), [](const QJsonObject &a, const QJsonObject &b) {
+        const int attemptsA = a.value(QStringLiteral("attempt_count")).toInt();
+        const int attemptsB = b.value(QStringLiteral("attempt_count")).toInt();
+        if (attemptsA != attemptsB)
+            return attemptsA > attemptsB;
+        return idOf(a.value(QStringLiteral("job_id"))) < idOf(b.value(QStringLiteral("job_id")));
+    });
 
     QJsonArray array;
     for (const QJsonObject &row : std::as_const(out))

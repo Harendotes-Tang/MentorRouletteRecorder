@@ -11,7 +11,9 @@ namespace MentorRecorder.Collector.Ipc;
 /// Errors fall into two kinds. A framing error is fatal to the connection, because the byte
 /// stream can no longer be resynchronised. Everything else -- bad JSON, an unknown message
 /// type, a business refusal, an unexpected exception -- becomes one error envelope and the
-/// connection carries on.
+/// connection carries on. The one other close is not an error of the request: a peer that
+/// already has <see cref="MaxDeferredResponses"/> deferred requests unanswered and sends another
+/// is disconnected without a reply (see there).
 ///
 /// <c>SubscribeLiveEvents</c> is the one message that changes the shape of the connection:
 /// after the acknowledgement, a background pump pushes event frames while the read loop keeps
@@ -28,6 +30,20 @@ public sealed class PipeConnection
 
     /// <summary>Live subscriptions one connection may hold at a time.</summary>
     public const int MaxLiveSubscriptions = 1;
+
+    /// <summary>
+    /// Deferred requests one connection may have unanswered - still being worked on, or answered and
+    /// not yet written. Service admission limits do not cover replies queued behind a peer that keeps
+    /// sending but never reads. A request past this limit closes the connection, which also cancels
+    /// every outstanding reply. All of a connection's unanswered <c>CheckUpdateNow</c> count as one:
+    /// they wait on the same update check (<see cref="Update.UpdateCheckService.CheckNowIfAllowedAsync"/>
+    /// joins the one in flight), so pressing 立即检查 again cannot push a legitimate peer - four sentences,
+    /// the integrity check, an import and the update check at most - to the limit; they are held to the
+    /// same limit among themselves (audit 2026-10-20, G-1).
+    /// </summary>
+    public const int MaxDeferredResponses = 8;
+
+    private const string UpdateCheckMessageType = "CheckUpdateNow";
 
     /// <summary>Longest event type name a subscription filter accepts.</summary>
     private const int MaxEventTypeLength = 64;
@@ -57,7 +73,7 @@ public sealed class PipeConnection
     {
         var channel = new FrameChannel(_stream);
         var subscriptions = new List<Task>();
-        var deferred = new List<Task>();
+        var deferred = new Deferred();
         using var connectionScope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         try
@@ -96,9 +112,9 @@ public sealed class PipeConnection
         finally
         {
             await connectionScope.CancelAsync().ConfigureAwait(false);
-            if (subscriptions.Count > 0 || deferred.Count > 0)
+            if (subscriptions.Count > 0 || deferred.Requests.Count > 0 || deferred.UpdateChecks.Count > 0)
             {
-                await Task.WhenAll(subscriptions.Concat(deferred)).ConfigureAwait(false);
+                await Task.WhenAll(subscriptions.Concat(deferred.Requests).Concat(deferred.UpdateChecks)).ConfigureAwait(false);
             }
         }
     }
@@ -112,7 +128,7 @@ public sealed class PipeConnection
         FrameChannel channel,
         byte[] body,
         List<Task> subscriptions,
-        List<Task> deferred,
+        Deferred deferred,
         CancellationTokenSource connectionScope)
     {
         IpcRequest request;
@@ -141,8 +157,25 @@ public sealed class PipeConnection
                 // Answered later, on its own, so a sentence waiting for the speech service does not
                 // hold up the status polls behind it on this same connection. Finished answers are
                 // dropped here; the rest are awaited when the connection closes.
-                deferred.RemoveAll(task => task.IsCompleted);
-                deferred.Add(RespondLaterAsync(channel, request, connectionScope.Token));
+                deferred.Requests.RemoveAll(task => task.IsCompleted);
+                deferred.UpdateChecks.RemoveAll(task => task.IsCompleted);
+                var updateCheck = string.Equals(request.MessageType, UpdateCheckMessageType, StringComparison.Ordinal);
+                var joins = updateCheck && deferred.UpdateChecks.Count > 0;
+                var full = joins
+                    ? deferred.UpdateChecks.Count >= MaxDeferredResponses
+                    : deferred.Requests.Count + (deferred.UpdateChecks.Count > 0 ? 1 : 0) >= MaxDeferredResponses;
+                if (full)
+                {
+                    // Do not enqueue even a refusal: it would wait behind the same blocked
+                    // writer. Disconnect before dispatching this request; previously admitted
+                    // mutations retain their normal transaction and durable-retry semantics.
+                    _log?.Invoke("closing connection after reaching the deferred response limit", null);
+                    connectionScope.Cancel();
+                    return null;
+                }
+
+                (updateCheck ? deferred.UpdateChecks : deferred.Requests)
+                    .Add(RespondLaterAsync(channel, request, connectionScope.Token));
                 return null;
             }
 
@@ -166,6 +199,17 @@ public sealed class PipeConnection
                 IpcEnvelope.ErrorMessageType,
                 new CollectorException(ErrorCodes.Internal, CollectorTexts.IpcInternalError()));
         }
+    }
+
+    /// <summary>
+    /// A connection's deferred answers still outstanding: update checks apart, because together they hold one slot
+    /// (<see cref="MaxDeferredResponses"/>).
+    /// </summary>
+    private sealed class Deferred
+    {
+        public List<Task> Requests { get; } = new();
+
+        public List<Task> UpdateChecks { get; } = new();
     }
 
     private async Task RespondLaterAsync(FrameChannel channel, IpcRequest request, CancellationToken cancellationToken)

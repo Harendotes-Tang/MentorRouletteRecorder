@@ -15,7 +15,7 @@ namespace mr {
 class IBackend;
 class BackendReply;
 
-/// Owns the history model, selected/pending records and revision/event request handling.
+/// Owns the history model, the selected record and revision/event request handling.
 /// The backend and its reply objects are borrowed; this QObject supplies the callback
 /// context, while QPointer and backend-destruction handlers guard the borrowed backend.
 class HistoryController : public QObject
@@ -25,7 +25,6 @@ public:
     explicit HistoryController(IBackend *backend, QObject *parent = nullptr);
     RunListModel *runs() const { return m_runs; }
     QVariantMap historyFilter() const { return m_historyFilter.toVariantMap(); }
-    QVariantMap pendingReviewRun() const { return m_pendingReviewRun.toVariantMap(); }
     bool hasSelection() const { return !m_selectedRun.isEmpty(); }
     QVariantList selectedRunRevisions() const { return m_selectedRunRevisions; }
     QVariantList selectedRunEvents() const { return m_selectedRunEvents; }
@@ -33,9 +32,11 @@ public:
     QString runEventsMessage() const { return m_runEventsMessage.text(); }
     void openRun(const QVariantMap &run);
     void adoptReflection(const QString &runId, const QJsonValue &reflection);
-    void updatePendingReviewCount(int count);
+    /// Discard callbacks and automatic result retries issued before a database
+    /// or connection change. Already sent mutations cannot be cancelled; the
+    /// caller closes old forms and later opens a fresh record explicitly.
+    void invalidateResultRequests();
 
-    void refreshPendingReviewRun();
     void adoptRunRevisionFromEvent(const QJsonObject &run);
     QVariantMap selectedRun() const;
     bool selectedRunCanUndo() const;
@@ -52,10 +53,19 @@ public:
     void resolveRunResult(const QString &runId, int revision,
                                     const QString &result, const QString &reason, int jobId = 0);
     void supplementRunJob(const QString &runId, int revision, int jobId, const QString &reason);
-    void confirmSelectedRunReview(const QString &reason);
-    void undoSelectedRunRevision(const QString &reason);
-    void softDeleteSelectedRun(const QString &reason);
-    void restoreSelectedRun(const QString &reason);
+    /// The 原因 dialog's four actions. Like correctSelectedRun they take the run
+    /// and the revision the dialog was opened for: another selected record is
+    /// refused (ERR_SELECTION_CHANGED), and the revision is what is sent, so a
+    /// live revision meanwhile is refused by the Collector instead of becoming
+    /// the target (review L1-3). An empty run id / -1 use the selection.
+    void confirmSelectedRunReview(const QString &reason, const QString &runId = QString(),
+                                  int expectedRevision = -1);
+    void undoSelectedRunRevision(const QString &reason, const QString &runId = QString(),
+                                 int expectedRevision = -1);
+    void softDeleteSelectedRun(const QString &reason, const QString &runId = QString(),
+                               int expectedRevision = -1);
+    void restoreSelectedRun(const QString &reason, const QString &runId = QString(),
+                            int expectedRevision = -1);
     /// 勾选保存当时的修订，不随翻页或后台刷新偷偷推进冲突基线。
     QStringList checkedRunIds() const { return m_checkedOrder; }
     int checkedRunCount() const { return m_checkedOrder.size(); }
@@ -80,7 +90,6 @@ Q_SIGNALS:
     void selectionChanged();
     void runEventsChanged();
     void historyFilterChanged();
-    void pendingReviewRunChanged();
     void runRevisionChanged(const QString &runId, int revision);
     /// \a kind and \a runId name the request that was refused, as
     /// mutationSucceeded names the one that was accepted; \a runId is empty for
@@ -114,6 +123,11 @@ private:
                                                            const QString &result,
                                                            const QString &reason, int jobId);
     static bool revisionTouchesResult(const QVariantMap &revision, bool withJob, bool withResult);
+    /// False, after refusing \a kind with ERR_SELECTION_CHANGED, when the dialog's
+    /// \a runId is no longer the selected record.
+    bool reasonTargetStillSelected(const QString &kind, const QString &runId);
+    /// The revision a 原因 action sends: the dialog's own, else the selection's.
+    int reasonRevision(int expectedRevision) const;
 
     /// The request_id of a create or a correction whose fate is unknown - the
     /// client stopped waiting, or the pipe dropped - and what it carried. The
@@ -157,10 +171,12 @@ private:
     QPointer<IBackend> m_backend;
     /// Bumped by every revision-list load; replies of an older load are dropped.
     quint64 m_revisionLoadGeneration = 0;
+    /// Shared by result retries and audited run-mutation adoption so a late
+    /// reply cannot update a newly opened form in another backend context.
+    quint64 m_resultRequestContextGeneration = 0;
     RunListModel *m_runs;
     QJsonObject m_selectedRun;
     QJsonObject m_historyFilter;
-    QJsonObject m_pendingReviewRun;
     QVariantList m_selectedRunRevisions;
     QVariantList m_selectedRunEvents;
     QString m_runEventsState = QStringLiteral("idle");

@@ -35,6 +35,13 @@ public sealed class UpdateCheckService : IDisposable
     /// <summary>How the last attempt ended, as an <see cref="UpdateCheckOutcome"/> token.</summary>
     public const string LastOutcomeSetting = "update.last_outcome";
 
+    /// <summary>
+    /// Where <see cref="LatestVersionSetting"/> was learned, as an <see cref="UpdateSource"/> token: written with it, so the
+    /// release page and installer reported after a restart are the ones of the source that answered (audit 2026-10-20,
+    /// F-1). The origin of the stored version only, never a preference for where to ask next.
+    /// </summary>
+    public const string LatestSourceSetting = "update.latest_source";
+
     /// <summary>Shortest time between two checks, before the jitter is added.</summary>
     public static readonly TimeSpan CheckInterval = TimeSpan.FromHours(24);
 
@@ -66,6 +73,7 @@ public sealed class UpdateCheckService : IDisposable
     private volatile bool _enabled;
     private bool _inFlight;
     private Task? _pending;
+    private CancellationTokenSource? _check;
     private bool _disposed;
 
     /// <summary>Creates the service and reads the state a previous run left behind.</summary>
@@ -103,6 +111,9 @@ public sealed class UpdateCheckService : IDisposable
         _latestVersion = ReadString(LatestVersionSetting) is { } stored && UpdateMetadata.IsVersion(stored)
             ? stored
             : null;
+        _latestSource = _latestVersion is not null && EnumWire<UpdateSource>.TryParse(ReadString(LatestSourceSetting), out var source)
+            ? source
+            : UpdateSource.GitHub;
         _lastOutcome = ReadString(LastOutcomeSetting);
     }
 
@@ -177,10 +188,34 @@ public sealed class UpdateCheckService : IDisposable
 
     /// <summary>
     /// Pushes <c>update.check_enabled</c> at the service, so that "saved" and "in force" are the same
-    /// moment. The value itself is written by <c>CaptureSettingsStore</c>.
+    /// moment. The value itself is written by <c>CaptureSettingsStore</c>. Off also stops the check in
+    /// flight: nothing more is sent - the mirror included - and a check stopped this way is no attempt,
+    /// so nothing is stamped (audit 2026-10-20, F-2).
     /// </summary>
     /// <param name="enabled">Whether checks may run.</param>
-    public void ApplySetting(bool enabled) => _enabled = enabled;
+    public void ApplySetting(bool enabled)
+    {
+        _enabled = enabled;
+        if (enabled)
+        {
+            return;
+        }
+
+        CancellationTokenSource? check;
+        lock (_gate)
+        {
+            check = _check;
+        }
+
+        try
+        {
+            check?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The check ended in between; there is nothing left to stop.
+        }
+    }
 
     /// <summary>
     /// Runs one check now, whatever is due, and records it. The seam tests drive; the shipping paths are
@@ -226,7 +261,7 @@ public sealed class UpdateCheckService : IDisposable
                 }
             }
 
-            return UpdateCheckRequestOutcome.Checked;
+            return _enabled ? UpdateCheckRequestOutcome.Checked : UpdateCheckRequestOutcome.Disabled;
         }
 
         try
@@ -236,14 +271,15 @@ public sealed class UpdateCheckService : IDisposable
                 _checkedThisProcess = true;
             }
 
-            await CheckNowAsync(cancellationToken).ConfigureAwait(false);
+            await RunCheckAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             Release(claim);
         }
 
-        return UpdateCheckRequestOutcome.Checked;
+        // Switched off while it ran: the check was stopped and recorded nothing.
+        return _enabled ? UpdateCheckRequestOutcome.Checked : UpdateCheckRequestOutcome.Disabled;
     }
 
     /// <summary>
@@ -321,7 +357,7 @@ public sealed class UpdateCheckService : IDisposable
         {
             try
             {
-                await CheckNowAsync(_stopping.Token).ConfigureAwait(false);
+                await RunCheckAsync(_stopping.Token).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
             {
@@ -333,6 +369,36 @@ public sealed class UpdateCheckService : IDisposable
                 Release(claim);
             }
         });
+    }
+
+    // The claimed check, under a token of its own that ApplySetting(false) cancels (F-2). Published before the
+    // setting is read again, and ApplySetting writes the setting before it reads _check: a switch-off either
+    // finds this check or is seen by it before anything is sent.
+    private async Task RunCheckAsync(CancellationToken cancellationToken)
+    {
+        using var check = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        lock (_gate)
+        {
+            _check = check;
+        }
+
+        try
+        {
+            if (_enabled)
+            {
+                await CheckNowAsync(check.Token).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                if (ReferenceEquals(_check, check))
+                {
+                    _check = null;
+                }
+            }
+        }
     }
 
     // Claiming the one check that may be in flight and publishing the task other callers wait on
@@ -415,10 +481,11 @@ public sealed class UpdateCheckService : IDisposable
         };
 
         // A failed check keeps whatever version the last successful one learned: the user is not
-        // told the update vanished because a server was down.
+        // told the update vanished because a server was down. Where it was learned goes with it.
         if (acceptedVersion is { } latest)
         {
             values[LatestVersionSetting] = Text(latest);
+            values[LatestSourceSetting] = Text(EnumWire<UpdateSource>.Format(result.Source));
         }
 
         _settings.SetSettings(values, _ => 0);

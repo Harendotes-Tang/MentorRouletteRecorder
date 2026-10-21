@@ -540,6 +540,7 @@ public sealed class UpdateCheckServiceTests : IDisposable
         Assert.Equal("update.last_checked_at_utc", UpdateCheckService.LastCheckedSetting);
         Assert.Equal("update.latest_version", UpdateCheckService.LatestVersionSetting);
         Assert.Equal("update.last_outcome", UpdateCheckService.LastOutcomeSetting);
+        Assert.Equal("update.latest_source", UpdateCheckService.LatestSourceSetting);
 
         var transport = new Transport();
         var service = Service(transport);
@@ -549,6 +550,7 @@ public sealed class UpdateCheckServiceTests : IDisposable
         Assert.Equal("\"" + Published + "\"", _settings.GetSetting(UpdateCheckService.LatestVersionSetting));
         Assert.Equal("\"OK\"", _settings.GetSetting(UpdateCheckService.LastOutcomeSetting));
         Assert.NotNull(_settings.GetSetting(UpdateCheckService.LastCheckedSetting));
+        Assert.Equal("\"GIT_HUB\"", _settings.GetSetting(UpdateCheckService.LatestSourceSetting));
     }
 
     [Fact]

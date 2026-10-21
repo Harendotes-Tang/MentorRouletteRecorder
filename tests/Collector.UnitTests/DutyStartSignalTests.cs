@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Security.Cryptography;
 using MentorRecorder.Collector.Domain.Events;
 using MentorRecorder.Collector.Protocol.Parsing;
 
@@ -48,6 +49,28 @@ public sealed class DutyStartSignalTests
         Assert.True(matched);
         Assert.Equal(DutyStartSignalKind.Commenced, kind);
         Assert.Equal(7200, seconds);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-20, D2-4. The test above builds the expected body from the same constants the
+    /// matcher reads, so a wrong command, parameter offset or zero run would pass it. The bodies are
+    /// held to the evidence instead, as the clear's is: the trace keeps the first 12 hex digits of each
+    /// payload's SHA-256, row 2294 (the commencement, time limit 7200) reads fd0e8cbff183 and row 2300
+    /// (the first remaining-time report, 7199 seconds left) reads a107e0da5257
+    /// (docs/reviews/2026-10-05/duty-trace-2026-10-05.jsonl).
+    /// </summary>
+    [Fact]
+    public void TheObservedBodiesHashToTheEvidenceRows()
+    {
+        var commencement = Convert.FromHexString("6d000000" + "56000380" + "01000040" + "201c0000" + new string('0', 48));
+        var remaining = Convert.FromHexString("6d000000" + "56000380" + "04000080" + "1f1c0000" + new string('0', 48));
+
+        Assert.StartsWith("fd0e8cbff183", Convert.ToHexString(SHA256.HashData(commencement)).ToLowerInvariant(), StringComparison.Ordinal);
+        Assert.StartsWith("a107e0da5257", Convert.ToHexString(SHA256.HashData(remaining)).ToLowerInvariant(), StringComparison.Ordinal);
+        Assert.Equal(commencement, Body(DutyStartSignal.CommencedCommand, 7200));
+        Assert.Equal(remaining, Body(DutyStartSignal.TimeRemainingCommand, 7199));
+        Assert.Equal((true, DutyStartSignalKind.Commenced, 7200), Match(commencement));
+        Assert.Equal((true, DutyStartSignalKind.TimeRemaining, 7199), Match(remaining));
     }
 
     [Theory]

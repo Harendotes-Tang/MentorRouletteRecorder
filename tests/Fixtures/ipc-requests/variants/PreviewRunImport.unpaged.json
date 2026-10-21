@@ -1,0 +1,11 @@
+{
+    "message_type": "PreviewRunImport",
+    "payload": {
+        "source_kind": "PASTE",
+        "source_name": "粘贴的表格",
+        "text": "副本\t评论\n合成测试副本\t合成测试心得",
+        "time_zone": "+08:00"
+    },
+    "protocol_version": 1,
+    "request_id": "11111111-2222-4333-8444-555555555555"
+}

@@ -106,7 +106,15 @@ Dialog {
     property string estimatedEntryAt: ""
     /// The estimate added its explanation to 备注, and takes it back with it.
     property bool estimateNoted: false
-    readonly property string estimateNote: qsTr("进本时间按匹配时间估算；实际耗时不详，不计入平均耗时。")
+    /// Like a reason the program fills in (Theme.storedReason), the explanation
+    /// is stored in its Simplified-Chinese source text whatever the interface
+    /// language (review L1-5). Its translation on screen is only recognised, so
+    /// a line an older build wrote in the interface language is not added again.
+    readonly property string estimateNote: "进本时间按匹配时间估算；实际耗时不详，不计入平均耗时。"
+    readonly property string estimateNoteTranslated: qsTr("进本时间按匹配时间估算；实际耗时不详，不计入平均耗时。")
+    function isEstimateNote(line) {
+        return line === estimateNote || line === estimateNoteTranslated
+    }
     onEnteredDateChanged: dialog.dropReplacedEstimate()
     onEnteredTimeChanged: dialog.dropReplacedEstimate()
     /// 跨天: shows the separate 进本日期 / 结束日期 fields even while they
@@ -672,8 +680,13 @@ Dialog {
         if (value === matchedDate)
             return
         const previous = matchedDate
-        if (enteredDate === previous)
+        if (enteredDate === previous) {
+            // An estimate taken from the match moves with it: it is still the
+            // same estimate on the new day, not a measured entry (review L1-1).
+            if (estimatedEntry && enteredDate + " " + canonicalTime(enteredTime) === estimatedEntryAt)
+                estimatedEntryAt = value + " " + canonicalTime(enteredTime)
             enteredDate = value
+        }
         if (endedDate === previous)
             endedDate = value
         matchedDate = value
@@ -682,7 +695,11 @@ Dialog {
     function markCompleted() {
         selectResult("COMPLETED")
         contributesToGoal = true
-        reasonText = qsTranslate("SystemReason", "实际已通关，修正识别结果")
+        // Only the reason this dialog pre-filled for a correction gives way: a
+        // typed reason is the player's, and a new record corrects no
+        // recognition (review L1-7).
+        if (editMode && Theme.storedReason(reasonText) === "手动核对并修正记录")
+            reasonText = qsTranslate("SystemReason", "实际已通关，修正识别结果")
     }
 
     function estimateEntryFromMatch() {
@@ -694,7 +711,7 @@ Dialog {
         estimatedEntryAt = enteredDate + " " + canonicalTime(enteredTime)
         errorText = ""
         errorCode = ""
-        if (noteText.indexOf(estimateNote) < 0) {
+        if (noteText.indexOf(estimateNote) < 0 && noteText.indexOf(estimateNoteTranslated) < 0) {
             noteText = noteText.trim() ? noteText.trim() + "\n" + estimateNote : estimateNote
             estimateNoted = true
         }
@@ -706,7 +723,7 @@ Dialog {
         estimatedEntry = false
         estimatedEntryAt = ""
         if (estimateNoted) {
-            noteText = noteText.split("\n").filter(function(line) { return line !== estimateNote })
+            noteText = noteText.split("\n").filter(function(line) { return !isEstimateNote(line) })
                                .join("\n")
             estimateNoted = false
         }
@@ -1055,10 +1072,14 @@ Dialog {
                 && enteredUtc === runData.entered_at_utc && endedUtc === runData.ended_at_utc
         // A saved unknown duration stays unknown while its entry time is kept:
         // editing the end of an estimated run must not count queue time. A real
-        // entry time restores the calculation. Qt can expose a null QVariant as
-        // either null or undefined in QML, hence the loose comparison.
+        // entry time restores the calculation. Only an entry estimated from the
+        // match (entry = match) is such an estimate; a measured entry - a run
+        // recovered after a crash, ended at the restart - gets its duration once
+        // the real end is filled in (review L1-4). Qt can expose a null QVariant
+        // as either null or undefined in QML, hence the loose comparison.
         const unknownDurationRetained = editMode && runData && runData.duration_ms == null
                 && enteredUtc && enteredUtc === runData.entered_at_utc
+                && runData.entered_at_utc === runData.matched_at_utc
         const durationMs = estimatedEntry || unknownDurationRetained ? null
                 : durationUnchanged ? runData.duration_ms : enteredUtc && endedUtc
                 ? Math.max(0, new Date(endedUtc) - new Date(enteredUtc))

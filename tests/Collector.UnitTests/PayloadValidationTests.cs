@@ -161,6 +161,24 @@ public sealed class PayloadValidationTests
         Assert.Equal(ErrorCodes.BadRequest, error.Code);
     }
 
+    /// <summary>
+    /// Audit 2026-10-20, G-4: result, contributes_to_goal and pending_review cannot be cleared - the contract does not
+    /// allow null for them - so an explicit null is refused rather than read as "specified", which for result would
+    /// acknowledge a 待复核 record without changing anything.
+    /// </summary>
+    [Theory]
+    [InlineData("result", "payload.changes.result")]
+    [InlineData("contributes_to_goal", "payload.changes.contributes_to_goal")]
+    [InlineData("pending_review", "changes.pending_review")]
+    public void Changes_WithAnExplicitNullForANonNullableField_AreRefused(string name, string field)
+    {
+        var error = Assert.Throws<CollectorException>(() =>
+            RequestParsers.Changes(new PayloadReader(new JsonObject { [name] = null }, "payload.changes")));
+
+        Assert.Equal(ErrorCodes.BadRequest, error.Code);
+        Assert.Equal(field, error.Field);
+    }
+
     [Fact]
     public void Changes_WithANegativeDuration_AreRefusedWithTheDurationCode()
     {

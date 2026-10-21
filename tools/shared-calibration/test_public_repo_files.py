@@ -29,6 +29,7 @@ PUBLIC = testsupport.HERE / "public-repo"
 WORKFLOW = PUBLIC / ".github" / "workflows" / "publish-calibration.yml"
 REPORT_WORKFLOW = PUBLIC / ".github" / "workflows" / "report-calibration.yml"
 MIRROR_WORKFLOW = PUBLIC / ".github" / "workflows" / "mirror-repository.yml"
+EVIDENCE_WORKFLOW = PUBLIC / ".github" / "workflows" / "evidence-calibration.yml"
 FORM = PUBLIC / ".github" / "ISSUE_TEMPLATE" / "share-calibration.yml"
 REPORT_FORM = PUBLIC / ".github" / "ISSUE_TEMPLATE" / "report-calibration.yml"
 CONFIG = PUBLIC / ".github" / "ISSUE_TEMPLATE" / "config.yml"
@@ -191,6 +192,37 @@ class WorkflowSecurityTests(unittest.TestCase):
                 self.assertIn("gh label create %s" % label, readme, "a new label needs a manual step")
         self.assertIn("`%s`" % publish.LABEL_CONFLICTING, (PUBLIC / "README.md").read_text(encoding="utf-8"))
 
+    def test_every_label_a_form_applies_or_the_evidence_lane_sets_has_a_manual_create_step(self):
+        """N1-2: GitHub applies a form's label only if it exists, and the evidence lane reads nothing else."""
+        readme = (testsupport.HERE / "README.md").read_text(encoding="utf-8")
+        forms = set()
+        for path in sorted((PUBLIC / ".github" / "ISSUE_TEMPLATE").glob("*.yml")):
+            match = re.search(r"^labels:\s*(?:\[(?P<inline>[^\]]*)\]|\n(?P<block>(?:\s+-\s*\S+\n)+))", path.read_text(encoding="utf-8"), re.M)
+            if match is None:
+                continue
+            names = match.group("inline").split(",") if match.group("inline") is not None else re.findall(r"-\s*(\S+)", match.group("block"))
+            forms.update(name.strip() for name in names)
+        self.assertEqual({"share-calibration", "calibration-report", "calibration-evidence", "template-observation"}, forms)
+        lane = (testsupport.HERE / "evidence_workflow.py").read_text(encoding="utf-8")
+        results = {"candidate-waiting", "evidence-accepted", "evidence-invalid", "evidence-waiting"}
+        for label in sorted(forms | results):
+            with self.subTest(label):
+                if label in results:
+                    self.assertIn('"%s"' % label, lane)
+                self.assertTrue("gh label create %s " % label in readme, "no manual create step for " + label)
+
+    def test_the_manual_setup_names_the_mirror_secret_and_the_evidence_files(self):
+        readme = (testsupport.HERE / "README.md").read_text(encoding="utf-8")
+        steps = readme[readme.index("## 需要用户确认后才能执行的手工步骤"):]
+        self.assertTrue("GITCODE_MIRROR_TOKEN" in steps, "the mirror secret is a manual step")
+        self.assertFalse("不需要任何 secret" in steps, "the mirror workflow needs a secret")
+        for name in ("tools/evidence.py", "tools/evidence_workflow.py", "tools/sync_refs.py",
+                     "schemas/calibration-evidence-v1.schema.json", ".github/ISSUE_TEMPLATE/evidence-calibration.yml",
+                     ".github/ISSUE_TEMPLATE/template-observation.yml", ".github/workflows/evidence-calibration.yml",
+                     ".github/workflows/mirror-repository.yml"):
+            with self.subTest(name):
+                self.assertTrue(name in steps, name + " is missing from the manual steps")
+
     def test_the_conflict_notices_are_best_effort_and_only_use_validated_fields(self):
         text = (testsupport.HERE / "publish_issue.sh").read_text(encoding="utf-8")
         for fragment in ("--name conflict_label", "--name conflict_issues", '--body-file "$out/conflict-$rival.md"',
@@ -219,14 +251,15 @@ class MirrorWorkflowSecurityTests(unittest.TestCase):
         self.assertIn("persist-credentials: false", self.text)
         self.assertIn("contents: read", self.text)
         self.assertNotIn("contents: write", self.text)
-        self.assertIn("github.event.workflow_run.conclusion == 'success'", self.text)
+        # N1-7: a run that pushed and then failed (or skipped its reply) is mirrored too; main is trusted either way.
+        self.assertNotIn("github.event.workflow_run.conclusion", self.text)
         self.assertIn("github.event.workflow_run.head_repository.full_name == github.repository", self.text)
         self.assertIn("github.repository == 'Harendotes-Tang/MentorRecorder-Calibrations'", self.text)
         expressions = set(re.findall(r"\$\{\{\s*(.*?)\s*\}\}", self.text))
         self.assertEqual({"github.repository", "secrets.GITCODE_MIRROR_TOKEN"}, expressions)
 
-    def test_triggers_include_successful_publication_and_periodic_reconciliation(self):
-        self.assertIn("workflows: [publish-calibration]", self.text)
+    def test_triggers_include_every_workflow_that_pushes_main_and_periodic_reconciliation(self):
+        self.assertIn("workflows: [publish-calibration, evidence-calibration, report-calibration]", self.text)
         self.assertIn("types: [completed]", self.text)
         self.assertIn("cancel-in-progress: false", self.text)
         self.assertIn("python tools/sync_refs.py --repo MentorRecorder-Calibrations", self.text)
@@ -237,7 +270,8 @@ class MirrorWorkflowSecurityTests(unittest.TestCase):
         data = yaml.safe_load(self.text)
         triggers = data.get("on", data.get(True))
         self.assertEqual({"push", "schedule", "workflow_dispatch", "workflow_run"}, set(triggers))
-        self.assertEqual({"workflows": ["publish-calibration"], "types": ["completed"], "branches": ["main"]},
+        self.assertEqual({"workflows": ["publish-calibration", "evidence-calibration", "report-calibration"],
+                          "types": ["completed"], "branches": ["main"]},
                          triggers["workflow_run"])
         self.assertEqual({"contents": "read"}, data["permissions"])
         job = data["jobs"]["mirror"]
@@ -299,10 +333,68 @@ class ReportWorkflowSecurityTests(unittest.TestCase):
         available = assert_every_action_is_pinned(self, CI.read_text(encoding="utf-8"), "ci.yml")
         self.assertLessEqual(used, available)
 
-    def test_it_revokes_nothing_and_closes_nothing(self):
-        for forbidden in ("revoke", "issue close", "git push", "--reason"):
+    def test_it_runs_the_evidence_lane_which_revokes_nothing(self):
+        # N1-6: report_issue.sh is kept only for the old interface. What the workflow runs is evidence_workflow.py,
+        # whose report path test_evidence.py drives end to end: one reply, left open, nothing published.
+        self.assertNotIn("report_issue.sh", self.text)
+        lane = (testsupport.HERE / "evidence_workflow.py").read_text(encoding="utf-8")
+        self.assertIsNone(re.search(r"\brevoke\b", lane), "the evidence lane never revokes a code")
+
+    def test_the_maintainer_readme_describes_the_report_lane_the_workflow_runs(self):
+        readme = (testsupport.HERE / "README.md").read_text(encoding="utf-8")
+        for stale in ("`report-calibration.yml` 不写仓库", "**另一个**并发组", "报告没有定时补处理"):
+            with self.subTest(stale):
+                self.assertFalse(stale in readme, "the README still describes report_issue.sh")
+        self.assertTrue("evidence_workflow.py --event" in readme, "the README names what the workflow runs")
+
+
+class EvidenceWorkflowSecurityTests(unittest.TestCase):
+    """N1-6: evidence-calibration.yml writes main with the token too, so it gets the same hardening checks."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = EVIDENCE_WORKFLOW.read_text(encoding="utf-8")
+
+    def test_no_run_script_contains_an_expression_and_no_event_text_is_referenced(self):
+        scripts = [script for script in run_scripts(self.text) if script.strip()]
+        self.assertGreaterEqual(len(scripts), 2)
+        for script in scripts:
+            with self.subTest(script[:40]):
+                self.assertNotIn("${{", script)
+        for forbidden in ("github.event.issue.title", "github.event.issue.body", "github.event.issue.user",
+                          "github.event.comment", "github.head_ref", "pull_request_target", "secrets."):
             with self.subTest(forbidden):
-                self.assertNotIn(forbidden, (testsupport.HERE / "report_issue.sh").read_text(encoding="utf-8"))
+                self.assertNotIn(forbidden, self.text)
+
+    def test_expressions_outside_if_conditions_are_only_trusted_values(self):
+        expressions = set(re.findall(r"\$\{\{\s*(.*?)\s*\}\}", self.text))
+        self.assertEqual({"github.token", "github.repository"}, expressions)
+
+    def test_actions_are_pinned_to_a_commit_id_and_taken_from_the_main_ci_set(self):
+        used = assert_every_action_is_pinned(self, self.text, "evidence-calibration.yml")
+        available = assert_every_action_is_pinned(self, CI.read_text(encoding="utf-8"), "ci.yml")
+        self.assertLessEqual(used, available)
+
+    def test_permissions_triggers_and_the_shared_concurrency_group(self):
+        self.assertIn("group: publish-calibration", self.text)
+        self.assertNotIn("cancel-in-progress: true", self.text)
+        if yaml is None:
+            self.assertIn("permissions:\n  contents: write\n  issues: write\n", self.text)
+            return
+        data = yaml.safe_load(self.text)
+        triggers = data.get("on", data.get(True))
+        self.assertEqual({"issues", "schedule", "workflow_dispatch"}, set(triggers))
+        self.assertEqual(["opened", "edited", "labeled", "reopened"], triggers["issues"]["types"])
+        self.assertEqual({"contents": "write", "issues": "write"}, data["permissions"])
+        self.assertNotIn("concurrency", data, "a workflow-level group would let skipped events cancel pending jobs")
+        for job in data["jobs"].values():
+            self.assertEqual({"group": "publish-calibration", "cancel-in-progress": False}, job["concurrency"])
+            self.assertIn("timeout-minutes", job)
+            self.assertNotIn("permissions", job)
+            for fragment in ("github.event.issue.state == 'open'",
+                             "contains(github.event.issue.labels.*.name, 'calibration-evidence')",
+                             "contains(github.event.issue.labels.*.name, 'template-observation')"):
+                self.assertIn(fragment, job["if"])
 
 
 class ReportFormTests(unittest.TestCase):

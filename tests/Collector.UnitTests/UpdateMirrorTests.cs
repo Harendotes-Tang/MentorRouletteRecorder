@@ -101,6 +101,71 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
         Assert.Equal("3.0.0", restarted.Snapshot().LatestVersion);
     }
 
+    /// <summary>
+    /// Audit 2026-10-20, F-1: where the version came from is kept with it. A player who could only reach the mirror is
+    /// sent to the mirror's release page and installer after a restart too, until a check learns a version from GitHub.
+    /// </summary>
+    [Fact]
+    public async Task AVersionLearnedFromTheMirrorKeepsTheMirrorLinksAcrossARestart()
+    {
+        using var database = new TestDatabase();
+        var settings = new SettingsRepository(database.Database, database.Clock);
+        var transport = MirrorMetadata("[" + Release(Published) + "]")
+            .On(UpdateCheckClient.MetadataUri(), (uri, _) => Task.FromResult(Transport.Status(uri, 503)));
+        using (var service = new UpdateCheckService(settings, Client(transport), Local, database.Clock, () => TimeSpan.Zero))
+        {
+            Assert.Equal(UpdateSource.GitCode, (await service.CheckNowAsync()).Source);
+        }
+
+        using var restarted = new UpdateCheckService(settings, Client(new Transport()), Local, database.Clock, () => TimeSpan.Zero);
+        var snapshot = restarted.Snapshot();
+        Assert.Equal(Published, snapshot.LatestVersion);
+        Assert.Equal(UpdateCheckClient.GitCodeReleaseUrl(Published), snapshot.ReleaseUrl);
+        Assert.Equal(UpdateCheckClient.GitCodeInstallerUrl(Published), snapshot.InstallerUrl);
+
+        var github = new Transport().On(UpdateCheckClient.MetadataUri(),
+            (uri, _) => Task.FromResult(Bytes(uri, Encoding.UTF8.GetBytes("{\"version\":\"" + Published + "\"}"))));
+        using (var service = new UpdateCheckService(settings, Client(github), Local, database.Clock, () => TimeSpan.Zero))
+        {
+            Assert.Equal(UpdateSource.GitHub, (await service.CheckNowAsync()).Source);
+        }
+
+        using var again = new UpdateCheckService(settings, Client(new Transport()), Local, database.Clock, () => TimeSpan.Zero);
+        Assert.Equal(UpdateCheckClient.ReleaseUrl, again.Snapshot().ReleaseUrl);
+        Assert.Equal(UpdateCheckClient.InstallerUrl(Published), again.Snapshot().InstallerUrl);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-20, F-2: switching 检查新版本并提示 off stops the check in flight. GitHub answering only afterwards must
+    /// not send the mirror requests, and a check stopped that way is no attempt: nothing is stamped.
+    /// </summary>
+    [Fact]
+    public async Task SwitchingTheCheckOffWhileGitHubStallsAsksNoMirrorAndStampsNothing()
+    {
+        using var database = new TestDatabase();
+        var settings = new SettingsRepository(database.Database, database.Clock);
+        var asked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var transport = MirrorMetadata("[" + Release(Published) + "]")
+            .On(UpdateCheckClient.MetadataUri(), async (uri, _) =>
+            {
+                asked.TrySetResult();
+                await release.Task.ConfigureAwait(false);
+                return Transport.Status(uri, 503);
+            });
+        using var service = new UpdateCheckService(settings, Client(transport), Local, database.Clock, () => TimeSpan.Zero);
+
+        service.Observe();
+        await asked.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        service.ApplySetting(false);
+        release.SetResult();
+        await service.Pending!.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(new[] { UpdateCheckClient.MetadataUri() }, transport.Requests);
+        Assert.Null(service.Snapshot().LastCheckedAtUtc);
+        Assert.Null(settings.GetSetting(UpdateCheckService.LastCheckedSetting));
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

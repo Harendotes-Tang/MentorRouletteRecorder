@@ -23,7 +23,13 @@ public sealed partial class LiveProtocolPipeline
     /// 立即检查: downloads the shared calibrations for the build being calibrated now, past the six-hour
     /// throttle. The setting, the kill switch, the player's refusal and "a profile already records" still stop it.
     /// </summary>
-    public SharedCheckOutcome CheckSharedCalibrationNow()
+    public SharedCheckOutcome CheckSharedCalibrationNow() => CheckSharedCalibration().Outcome;
+
+    /// <summary>
+    /// 立即检查 as the IPC request answers it: <see cref="CheckSharedCalibrationNow"/> with the sentence the player is
+    /// shown when the outcome alone would say something untrue (re-review 2026-10-21, RV5-5).
+    /// </summary>
+    public SharedCheckAnswer CheckSharedCalibration()
     {
         lock (_gate)
         {
@@ -67,10 +73,19 @@ public sealed partial class LiveProtocolPipeline
     /// records, so no shared code - downloaded or pasted - binds for this region and build until 重新观察
     /// (<see cref="DiscardCalibration"/>). Local calibration is left exactly as it is.
     /// </summary>
-    public SharedRejectResult RejectSharedCalibration()
+    /// <param name="refuseWhileARunIsUnderWay">
+    /// True (the IPC request) to refuse, under the gate, while a shared profile in force is recording a run or holds a
+    /// parked queue request (<see cref="RefuseWhileARunIsUnderWay"/>); dropping codes still being checked cuts nothing.
+    /// </param>
+    public SharedRejectResult RejectSharedCalibration(bool refuseWhileARunIsUnderWay = false)
     {
         lock (_gate)
         {
+            if (refuseWhileARunIsUnderWay && _selection.Origin == ProfileOrigin.Shared)
+            {
+                RefuseWhileARunIsUnderWay();
+            }
+
             return _shared.RejectByUser();
         }
     }
@@ -182,7 +197,9 @@ public sealed partial class LiveProtocolPipeline
                 ? null
                 : CalibrationCoordinator.Upgradable
                     .Where(name => profile.Message(name) is null)
-                    .ToHashSet(StringComparer.Ordinal));
+                    .ToHashSet(StringComparer.Ordinal),
+            // What an upgrade must keep, read off the profile in force like the completing role's.
+            inForce: upgrading ? _selection.Profile?.Messages : null);
         _calibration.UseRetention(retaining && !upgrading);
         // The messages a completing draft has to reproduce exactly come from the profile in
         // force itself, not from anything this process remembers writing.
@@ -396,9 +413,16 @@ public sealed partial class LiveProtocolPipeline
     /// starts its runs from the server's announcement, which for a parked request may already have gone by.
     /// </summary>
     private bool BetweenRuns(SemanticEventProcessor recording) =>
-        recording.Machine.State is not (RunState.MentorMatched or RunState.EnteredDuty) &&
-        !recording.Machine.HasParkedQueue(LifecycleMono()) &&
+        !RunUnderWay(recording) &&
         string.IsNullOrWhiteSpace(recording.LastStorageError);
+
+    /// <summary>
+    /// True while a run is matched or in its duty, or a queue request is parked that the machine would still turn into a
+    /// run when the duty loads: replacing the machine now, or putting its profile away, loses that duty.
+    /// </summary>
+    private bool RunUnderWay(SemanticEventProcessor recording) =>
+        recording.Machine.State is RunState.MentorMatched or RunState.EnteredDuty ||
+        recording.Machine.HasParkedQueue(LifecycleMono());
 
     /// <summary>
     /// Rebuilds the parser and the state machine over <paramref name="profile"/> inside the running session,

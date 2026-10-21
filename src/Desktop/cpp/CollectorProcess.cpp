@@ -43,23 +43,6 @@ constexpr int kReapGraceMs = 200;
 /// The Collector executable file name, as it appears in the system task list.
 const char *kCollectorImageName = "MentorRecorder.Collector.exe";
 
-/// A system tool from %SystemRoot%\System32, by absolute path.
-///
-/// Never by bare name: that resolves through PATH. These two tools end a
-/// process the user can see in Task Manager, so which binary runs must not
-/// depend on the environment.
-QString systemTool(const QString &fileName)
-{
-#ifdef Q_OS_WIN
-    const QString root = qEnvironmentVariable("SystemRoot", QStringLiteral("C:/Windows"));
-    const QString path = QDir(root).absoluteFilePath(QStringLiteral("System32/") + fileName);
-    return QFileInfo::exists(path) ? path : QString();
-#else
-    Q_UNUSED(fileName)
-    return QString();
-#endif
-}
-
 /// Deadline for one system-tool call. Short enough that a stuck tool cannot
 /// stall the sequence; it runs asynchronously either way, so it never blocks
 /// the GUI thread.
@@ -647,24 +630,48 @@ void CollectorProcess::setTakeoverTimingsForTest(int holderGrace, int politeKill
     m_politeKillGraceMs = politeKillGrace;
 }
 
+QString CollectorProcess::systemToolPath(const QString &fileName)
+{
+#ifdef Q_OS_WIN
+    // Never by bare name (that resolves through PATH) and never under %SystemRoot%:
+    // HKCU\Environment is the user's to change, and a Desktop running elevated would
+    // then start a binary planted there at high integrity (review I1-4). The system
+    // directory comes from Windows itself.
+    wchar_t buffer[MAX_PATH] = {};
+    const UINT length = GetSystemDirectoryW(buffer, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH)
+        return QString();
+    const QDir system(QDir::fromNativeSeparators(QString::fromWCharArray(buffer, int(length))));
+    const QString path = system.absoluteFilePath(fileName);
+    return QFileInfo::exists(path) ? path : QString();
+#else
+    Q_UNUSED(fileName)
+    return QString();
+#endif
+}
+
 void CollectorProcess::runTool(const QString &tool, const QStringList &arguments,
                                std::function<void(int, const QString &)> then)
 {
+    const quint64 generation = m_takeoverGeneration;
+    const auto deliver = [this, generation, then = std::move(then)](int code, const QString &output) {
+        if (generation == m_takeoverGeneration && m_takeoverBusy && !m_stopRequested)
+            then(code, output);
+    };
     // A test answers the tools from a function. The answer is still delivered
     // through the event loop, so the state machine sees exactly the ordering it
     // sees in production.
     if (m_toolRunner) {
         const ToolResult result = m_toolRunner(tool, arguments);
-        QTimer::singleShot(0, this, [then = std::move(then), result] {
-            then(result.exitCode, result.output);
+        QTimer::singleShot(0, this, [deliver, result] {
+            deliver(result.exitCode, result.output);
         });
         return;
     }
 
-    const QString program = systemTool(tool);
+    const QString program = systemToolPath(tool);
     if (program.isEmpty()) {
-        QTimer::singleShot(0, this,
-                           [then = std::move(then)] { then(kToolFailedExitCode, QString()); });
+        QTimer::singleShot(0, this, [deliver] { deliver(kToolFailedExitCode, QString()); });
         return;
     }
 
@@ -676,20 +683,23 @@ void CollectorProcess::runTool(const QString &tool, const QStringList &arguments
     m_tool->setProgram(program);
     m_tool->setArguments(arguments);
     m_tool->setProcessChannelMode(QProcess::MergedChannels);
+    QProcess *const process = m_tool;
     connect(m_tool, &QProcess::finished, this,
-            [this, then](int exitCode, QProcess::ExitStatus status) {
+            [this, generation, process, deliver](int exitCode, QProcess::ExitStatus status) {
+                if (generation != m_takeoverGeneration || process != m_tool)
+                    return;
                 m_toolTimeoutTimer.stop();
-                const QString output = QString::fromLocal8Bit(m_tool->readAll());
+                const QString output = QString::fromLocal8Bit(process->readAll());
                 const int code = status == QProcess::NormalExit ? exitCode : kToolFailedExitCode;
                 // Never continue the sequence from inside finished(): the next
                 // step deletes this very QProcess.
-                QTimer::singleShot(0, this, [then, code, output] { then(code, output); });
+                QTimer::singleShot(0, this, [deliver, code, output] { deliver(code, output); });
             });
-    connect(m_tool, &QProcess::errorOccurred, this, [this, then](QProcess::ProcessError error) {
-        if (error != QProcess::FailedToStart)
+    connect(m_tool, &QProcess::errorOccurred, this, [this, generation, process, deliver](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart || generation != m_takeoverGeneration || process != m_tool)
             return;
         m_toolTimeoutTimer.stop();
-        QTimer::singleShot(0, this, [then] { then(kToolFailedExitCode, QString()); });
+        QTimer::singleShot(0, this, [deliver] { deliver(kToolFailedExitCode, QString()); });
     });
     m_tool->start();
     m_toolTimeoutTimer.start(kToolTimeoutMs);
@@ -724,10 +734,38 @@ void CollectorProcess::emitTakeoverOnce(bool ok, const QString &message)
 
 void CollectorProcess::finishTakeover()
 {
+    ++m_takeoverGeneration;
     m_takeoverBusy = false;
     m_takeoverRequested = false;
     m_holderGraceTimer.stop();
     m_toolTimeoutTimer.stop();
+}
+
+CollectorProcess::HolderLease CollectorProcess::readHolderLease()
+{
+    HolderLease lease;
+    lease.path = serveLeasePidPath();
+    QFile file(lease.path);
+    if (lease.path.isEmpty() || !file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
+    bool numeric = false;
+    lease.pid = QString::fromLatin1(file.read(64)).trimmed().toLongLong(&numeric);
+    lease.written = QFileInfo(file).lastModified();
+    return numeric && lease.pid > 0 && lease.written.isValid() ? lease : HolderLease{};
+}
+
+bool CollectorProcess::takeoverHolderUnchanged() const
+{
+    return m_holderLease.pid > 0 && readHolderLease() == m_holderLease;
+}
+
+bool CollectorProcess::validateTakeoverHolder()
+{
+    if (takeoverHolderUnchanged())
+        return true;
+    m_holderGraceDone = false;
+    finishTakeover();
+    return false;
 }
 
 void CollectorProcess::abortTakeover()
@@ -747,6 +785,8 @@ void CollectorProcess::beginHolderGrace()
 {
     if (m_stopRequested || m_takeoverBusy)
         return;
+    ++m_takeoverGeneration;
+    m_holderLease = readHolderLease();
     m_takeoverBusy = true;
     m_takeoverToasted = false;
     // Ask before doing anything else. A holder wedged on one thread can still
@@ -781,6 +821,8 @@ void CollectorProcess::onHolderGraceTick()
         tryRelaunchForLease();
         return;
     }
+    if (!validateTakeoverHolder())
+        return;
     if (QDateTime::currentMSecsSinceEpoch() < m_holderGraceUntilMs)
         return;
 
@@ -838,7 +880,8 @@ void CollectorProcess::requestServeLeaseTakeover()
         return;
     }
 
-    if (!m_holderGraceDone) {
+    if (!m_holderGraceDone || !takeoverHolderUnchanged()) {
+        m_holderGraceDone = false;
         beginHolderGrace();
         return;
     }
@@ -860,7 +903,6 @@ void CollectorProcess::continueTakeover()
         return;
     }
     ++m_takeoverAttempts;
-    m_takeoverPid = readServeLeasePid();
     if (serveLeaseLooksVacant()) {
         finishTakeover();
         if (tryRelaunchForLease()) {
@@ -873,6 +915,9 @@ void CollectorProcess::continueTakeover()
         finishTakeover();
         return;
     }
+    if (!validateTakeoverHolder())
+        return;
+    m_takeoverPid = m_holderLease.pid;
 
     // serve.pid can be stale and Windows reuses pids, so the pid alone is not
     // evidence. The system task list answers "which image is this pid right
@@ -887,7 +932,7 @@ void CollectorProcess::continueTakeover()
 void CollectorProcess::onHolderListed(int exitCode, const QString &output)
 {
     Q_UNUSED(exitCode)
-    if (m_stopRequested || !m_takeoverBusy)
+    if (m_stopRequested || !m_takeoverBusy || !validateTakeoverHolder())
         return;
     if (!tasklistNamesCollector(output, m_takeoverPid)) {
         // Whatever serve.pid named, it is not a Collector any more.
@@ -909,7 +954,7 @@ void CollectorProcess::onHolderListed(int exitCode, const QString &output)
 void CollectorProcess::onPoliteKillFinished(int exitCode, const QString &output)
 {
     Q_UNUSED(output)
-    if (m_stopRequested || !m_takeoverBusy)
+    if (m_stopRequested || !m_takeoverBusy || !validateTakeoverHolder())
         return;
     if (exitCode == kTaskkillNoSuchProcess) {
         finishTakeover();
@@ -921,8 +966,10 @@ void CollectorProcess::onPoliteKillFinished(int exitCode, const QString &output)
     }
     // Whether or not the tool claims to have delivered the request, only the
     // task list can say whether it was acted on.
-    QTimer::singleShot(m_politeKillGraceMs, this, [this] {
-        if (m_stopRequested || !m_takeoverBusy)
+    const quint64 generation = m_takeoverGeneration;
+    QTimer::singleShot(m_politeKillGraceMs, this, [this, generation] {
+        if (generation != m_takeoverGeneration || m_stopRequested || !m_takeoverBusy
+            || !validateTakeoverHolder())
             return;
         runTool(QStringLiteral("tasklist.exe"),
                 {QStringLiteral("/FI"), QStringLiteral("PID eq %1").arg(m_takeoverPid),
@@ -934,7 +981,7 @@ void CollectorProcess::onPoliteKillFinished(int exitCode, const QString &output)
 void CollectorProcess::onHolderRelisted(int exitCode, const QString &output)
 {
     Q_UNUSED(exitCode)
-    if (m_stopRequested || !m_takeoverBusy)
+    if (m_stopRequested || !m_takeoverBusy || !validateTakeoverHolder())
         return;
     if (!tasklistNamesCollector(output, m_takeoverPid)) {
         qCInfo(lcCollector) << "serve-lease holder" << m_takeoverPid

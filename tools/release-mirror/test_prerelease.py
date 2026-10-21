@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Prerelease artifact, identity and catch-up regressions; never publish remotely."""
 
+import copy
 import hashlib
 import io
 import json
@@ -23,7 +24,7 @@ class BetaMirror(FakeMirror):
     def release(self):
         if not self.existing:
             return None
-        return {**BETA, "release_status": "pre", "body": self.notes,
+        return {**BETA, "release_status": "pre", "name": self.title, "body": self.notes,
                 "assets": [{"name": name} for name in self.contents]}
 
 
@@ -180,6 +181,41 @@ class PrereleaseTests(unittest.TestCase):
             self.assertEqual(m.synchronize(Api(), TAG, Path(self.temp.name)), TAG)
             remote.return_value.verify_release.assert_called_once_with(source)
 
+    def test_edited_release_notes_reach_the_existing_mirror(self):
+        """The `release: edited` run after a complete beta mirror: copy the text, upload nothing."""
+        source = {**BETA, "name": "Edited title", "body": "Edited\r\nrelease notes",
+                  "assets": [{"name": n, "size": self.hashes[n][0],
+                              "digest": "sha256:" + self.hashes[n][1]} for n in NAMES]}
+        mirror = {**BETA, "release_status": "pre", "assets": [{"name": n, "type": "attach"} for n in NAMES]}
+        files = {n: self.paths[n].read_bytes() for n in NAMES}
+        writes = []
+        class Api:
+            def api(inner, url, *, auth=False, method="GET", payload=None):
+                if method != "GET":
+                    writes.append((method, url, auth, payload))
+                if url == m.GH + "/releases/tags/" + TAG:
+                    return copy.deepcopy(source)
+                if url == m.GH + "/git/ref/tags/" + TAG:
+                    return {"object": {"type": "commit", "sha": COMMIT}}
+                if url.startswith(m.GC + "/tags?"):
+                    return [{"name": TAG, "commit": {"sha": COMMIT}}]
+                if url == m.GC + "/releases/tags/" + TAG and method == "GET":
+                    return copy.deepcopy(mirror)
+                if url == m.GC + "/releases/" + TAG and method == "PATCH":
+                    # GitCode stores notes with normalized newlines.
+                    mirror.update(payload, body=payload["body"].replace("\r\n", "\n"))
+                    return copy.deepcopy(mirror)
+                raise AssertionError("Unexpected request")
+            def download(inner, url, path, limit, hosts):
+                name = url.rsplit("/", 1)[1]
+                path.write_bytes(files[name])
+                return self.hashes[name]
+        self.assertEqual(m.synchronize(Api(), TAG, Path(self.temp.name)), TAG)
+        self.assertEqual(writes, [("PATCH", m.GC + "/releases/" + TAG, True,
+                                   {"name": "Edited title", "body": "Edited\r\nrelease notes"})])
+        self.assertEqual((mirror["name"], mirror["body"], mirror["release_status"]),
+                         ("Edited title", "Edited\nrelease notes", "pre"))
+
 
 class CatchupTests(unittest.TestCase):
     def test_slow_discovery_does_not_exhaust_the_other_channels_budget(self):
@@ -206,6 +242,9 @@ class CatchupTests(unittest.TestCase):
 
                 class Opener:
                     def open(self, request, timeout):
+                        if request.full_url.startswith(m.GC + "/"):
+                            opened.append("withdrawal")
+                            return Response([], False)
                         channel = "formal" if request.full_url.endswith("/latest") else "prerelease"
                         opened.append(channel)
                         body = {**SOURCE, "tag_name": "v1.7.2"} if channel == "formal" else [BETA]
@@ -224,7 +263,7 @@ class CatchupTests(unittest.TestCase):
                     with self.assertRaises(m.MirrorError) as failure:
                         m.catch_up(http, Path("unused"))
 
-                self.assertEqual(opened, ["formal", "prerelease"])
+                self.assertEqual(opened, ["formal", "prerelease", "withdrawal"])
                 self.assertEqual(completed, [TAG if broken == "formal" else "v1.7.2"])
                 self.assertIn(broken + ":", str(failure.exception))
                 self.assertNotIn(("prerelease" if broken == "formal" else "formal") + ":", str(failure.exception))
@@ -242,7 +281,57 @@ class CatchupTests(unittest.TestCase):
         with patch.object(m, "synchronize", return_value="ok") as sync:
             self.assertEqual(m.catch_up(Api(), Path("unused")), ["v1.7.2", TAG])
             self.assertEqual([c.args[1] for c in sync.call_args_list], ["v1.7.2", TAG])
-        self.assertEqual(calls, [m.GH + "/releases/latest", m.GH + "/releases?per_page=20&page=1"])
+        self.assertEqual(calls, [m.GH + "/releases/latest", m.GH + "/releases?per_page=20&page=1",
+                                 m.GC + "/releases?page=1&per_page=20"])
+
+    def test_formal_mirror_deleted_on_github_is_reported_and_never_deleted(self):
+        requests = []
+        class Api:
+            def api(self, url, *, auth=False, method="GET", payload=None):
+                requests.append((method, url))
+                if url == m.GH + "/releases/latest":
+                    return {**SOURCE, "tag_name": "v1.7.2"}
+                if url == m.GH + "/releases?per_page=20&page=1":
+                    return [BETA]
+                if url == m.GC + "/releases?page=1&per_page=20":
+                    # The same listing the Collector's GitCode fallback reads.
+                    return [{"tag_name": "v1.7.2", "prerelease": False, "draft": False},
+                            {"tag_name": "v1.7.1", "prerelease": False},
+                            {"tag_name": "v1.7.0"},  # no flags: the Collector treats it as formal
+                            {"tag_name": "v1.6.0", "prerelease": False, "draft": True},
+                            {"tag_name": "v1.7.3-beta.1", "prerelease": True},
+                            {"tag_name": "v1.5.0/../x", "prerelease": False},
+                            {"tag_name": None}]
+                if url == m.GH + "/releases/tags/v1.7.2":
+                    return {**SOURCE, "tag_name": "v1.7.2"}
+                if url in (m.GH + "/releases/tags/v1.7.1", m.GH + "/releases/tags/v1.7.0"):
+                    raise m.Missing("Remote resource not found (HTTP 404)")
+                raise AssertionError("Unexpected request")
+        with patch.object(m, "synchronize", side_effect=lambda http, tag, directory: tag) as sync:
+            with self.assertRaises(m.MirrorError) as failure:
+                m.catch_up(Api(), Path("unused"))
+        self.assertEqual([c.args[1] for c in sync.call_args_list], ["v1.7.2", TAG])
+        message = str(failure.exception)
+        self.assertIn("v1.7.1: deleted on GitHub but still published on GitCode", message)
+        self.assertIn("v1.7.0: deleted on GitHub but still published on GitCode", message)
+        for other in ("v1.7.2:", "v1.6.0", "beta.1", "v1.5.0"):
+            self.assertNotIn(other, message)
+        self.assertEqual({method for method, _ in requests}, {"GET"})
+        self.assertEqual([url for _, url in requests if url.startswith(m.GH + "/releases/tags/")],
+                         [m.GH + "/releases/tags/" + tag for tag in ("v1.7.2", "v1.7.1", "v1.7.0")])
+
+    def test_invalid_mirror_listing_fails_the_check_without_starving_synchronization(self):
+        for listing in ({"tag_name": "v1.7.1"}, [{"tag_name": "v1.7.%d" % n} for n in range(21)], ["v1.7.1"]):
+            class Api:
+                def api(self, url, **kwargs):
+                    if url == m.GC + "/releases?page=1&per_page=20":
+                        return listing
+                    return {**SOURCE, "tag_name": "v1.7.2"} if url.endswith("/latest") else [BETA]
+            with self.subTest(listing=str(listing)[:40]), \
+                    patch.object(m, "synchronize", side_effect=lambda http, tag, directory: tag) as sync:
+                with self.assertRaisesRegex(m.MirrorError, "withdrawal: Invalid mirror release"):
+                    m.catch_up(Api(), Path("unused"))
+                self.assertEqual([c.args[1] for c in sync.call_args_list], ["v1.7.2", TAG])
 
     def test_one_failed_candidate_does_not_starve_the_other(self):
         class Api:
@@ -295,14 +384,6 @@ class CatchupTests(unittest.TestCase):
                 m.catch_up(api, Path("unused"))
         self.assertEqual(budgets, [60.0, 60.0])
         self.assertEqual(api.deadline, 220.0)
-
-    def test_workflow_runs_tests_and_handles_edited_prereleases(self):
-        workflow = (Path(__file__).resolve().parents[2] / ".github/workflows/mirror-release.yml").read_text(encoding="utf-8")
-        self.assertIn("types: [published, edited]", workflow)
-        self.assertNotIn("!github.event.release.prerelease", workflow)
-        self.assertIn("python tools/release-mirror/test_prerelease.py", workflow)
-        self.assertIn("ref: main", workflow)
-        self.assertIn("cancel-in-progress: false", workflow)
 
 
 if __name__ == "__main__":

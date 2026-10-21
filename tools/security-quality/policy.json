@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "solution": "MentorRecorder.sln",
+  "required_checks": [
+    "Release verification (scripts/verify.ps1)",
+    "Markdown lint",
+    "Security and quality checker tests"
+  ],
+  "required_remote_scans": ["dependabot"],
+  "require_configured_scans": true
+}

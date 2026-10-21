@@ -29,7 +29,7 @@
 以下限制是本项目的基本前提，违反其中任何一项的 Pull Request 不予合并。
 
 - 不注入进程，不读取游戏进程内存，不安装钩子，不发送数据包，不提供自动化或反检测功能。
-- 不监听网络端口，不包含遥测或云端服务。更新只在用户点击「下载并安装」后下载、再点击「立即安装」后安装，
+- 不监听网络端口，不包含遥测或云端服务。更新只在用户点击「下载安装包」后下载、再点击「立即安装」后安装，
   不接受改为自动下载或自动安装的改动。
 - 出站请求仅限以下三类，均由采集服务发出。桌面端不发起任何网络请求。不接受新增其他网络访问。
   - 共享校准的只读下载（[docs/privacy-boundary.md](docs/privacy-boundary.md) §8.2，默认开启，可关闭）；
@@ -93,7 +93,7 @@
 | CMake | ≥ 3.24 |
 | Ninja | — |
 | PowerShell | 7 |
-| Python | 3.x（运行 `tools/` 下的自测；签名工具的测试另需 `capstone` 与 `pefile`，版本见 CI 配置） |
+| Python | 3.x（运行 `tools/` 下的自测；所需的包列在 `tools/requirements-ci.txt`，以 `python -m pip install -r tools/requirements-ci.txt` 安装，或以 `MR_PYTHON_EXE` 指定已安装这些包的解释器，缺少任何一个时自测在运行前即失败） |
 
 工具链路径通过环境变量 `MR_QT_PREFIX`、`MR_MINGW_BIN`、`MR_NINJA_EXE`、`MR_CMAKE_EXE` 指定，
 详见 [docs/build-and-package.md](docs/build-and-package.md)。
@@ -104,7 +104,11 @@ pwsh -File scripts/build.ps1       # 构建
 pwsh -File scripts/test.ps1        # 运行 .NET 与 Qt 测试
 pwsh -File scripts/verify.ps1      # 边界检查与全部测试（提交前必须通过）
 pwsh -File scripts/static-analysis.ps1   # 桌面端 C++ 的 clang-tidy 与 cppcheck
+pwsh -File scripts/security-quality.ps1 -Phase PrePush # 推送前只读核对远端现状及本地依赖
 ```
+
+`verify.ps1` 已包含本地完整 NuGet 依赖审计和 cppcheck。合入、发布还需绑定准确提交的远端检查，
+规则与权限不足时的处理见 [安全与质量门禁](docs/security-quality-gates.md)。
 
 ## 开发规范
 

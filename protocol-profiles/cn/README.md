@@ -4,7 +4,8 @@
 >
 > 自任务确认弹窗至离开副本的流程可自动记录。
 > `cn.2026.08.05.json` 声明 `CONTENT_FINDER_POP`（S2C `0x0323`，第 16 字节为随机任务编号，
-> 第 9 字节为 3 表示已匹配）与 `ZONE_INITIALIZATION`（S2C `0x014a`），`mentor_roulette_id = 9`。
+> 第 9 字节为 3 表示已匹配）、`ZONE_INITIALIZATION`（S2C `0x014a`）、`ZONE_TERRITORY`（S2C `0x028d`，
+> 第 2 字节起为区域编号）与 `PLAYER_JOB`（S2C `0x0350`，第 0 字节为职业编号），`mentor_roulette_id = 9`。
 > 该档案不含 `DUTY_RESULT`：是否通关由按内容识别的通关结算确定
 > （[protocol-profile-format.md](../../docs/protocol-profile-format.md) §12）；没有收到时，
 > 离开副本的记录以 `UNKNOWN` 收尾并标记待复核（[state-machine.md](../../docs/state-machine.md) §3.10）。
@@ -38,8 +39,10 @@
 **不接受**：推测值、试错得出的数值、从 AGPL 项目复制的常量表、
 从客户端逆向得到的内部结构，以及任何无法说明来源的数字。
 
-`cn.2026.08.05` 的证据全部来自本机被动抓包与用户核对，逐条记录在档案的
-`provenance.evidence` 中（见 [live-validation-guide.md](../../docs/live-validation-guide.md) §7）。
+`cn.2026.08.05` 的证据逐条记录在档案的 `provenance.evidence` 中（见
+[live-validation-guide.md](../../docs/live-validation-guide.md) §7）。弹窗、换区与校准模板的常量来自本机被动抓包与
+用户核对；`mentor_roulette_id` 取自公开的国服 ContentRoulette 数据表；`ZONE_TERRITORY` 与 `PLAYER_JOB` 的 opcode
+与字段偏移引用公开资料（`PUBLIC_DOCUMENTATION`，附 URL 与访问日期），其 opcode 另有本机抓包的观察记录。
 
 ## 贡献档案
 

@@ -35,7 +35,15 @@ public static class RunFilterSql
         "AND length(substr(im.source_recorded_at, 6 + instr(substr(im.source_recorded_at, 6), '/'))) BETWEEN 1 AND 2 " +
         "THEN printf('%04d-%02d-%02d', substr(im.source_recorded_at, 1, 4), " +
         "substr(im.source_recorded_at, 6, instr(substr(im.source_recorded_at, 6), '/') - 1), " +
-        "substr(im.source_recorded_at, 6 + instr(substr(im.source_recorded_at, 6), '/'))) END";
+        "substr(im.source_recorded_at, 6 + instr(substr(im.source_recorded_at, 6), '/'))) " +
+        "WHEN im.source_recorded_at GLOB '[0-9][0-9][0-9][0-9].[0-9]*.[0-9]*' " +
+        "AND im.source_recorded_at NOT GLOB '*[^0-9.]*' " +
+        "AND length(im.source_recorded_at) - length(replace(im.source_recorded_at, '.', '')) = 2 " +
+        "AND instr(substr(im.source_recorded_at, 6), '.') BETWEEN 2 AND 3 " +
+        "AND length(substr(im.source_recorded_at, 6 + instr(substr(im.source_recorded_at, 6), '.'))) BETWEEN 1 AND 2 " +
+        "THEN printf('%04d-%02d-%02d', substr(im.source_recorded_at, 1, 4), " +
+        "substr(im.source_recorded_at, 6, instr(substr(im.source_recorded_at, 6), '.') - 1), " +
+        "substr(im.source_recorded_at, 6 + instr(substr(im.source_recorded_at, 6), '.'))) END";
 
     private const string ValidSourceDay = "CASE WHEN date(" + SourceDay +
         ", '+0 days') = (" + SourceDay + ") THEN (" + SourceDay + ") END";
@@ -214,6 +222,7 @@ public static class RunFilterSql
             textMatches.Add(
                 "(IFNULL(duty_name, '') LIKE $text ESCAPE '\\' OR IFNULL(job_name, '') LIKE $text ESCAPE '\\' OR IFNULL(note, '') LIKE $text ESCAPE '\\')");
             parameters.Add(new("$text", "%" + EscapeLike(filter.Text) + "%"));
+            AddChineseJobMatch(textMatches, parameters, filter.Text);
         }
         if (!string.IsNullOrWhiteSpace(filter.NameText))
         {
@@ -240,6 +249,27 @@ public static class RunFilterSql
         {
             command.Parameters.AddWithValue(name, value ?? DBNull.Value);
         }
+    }
+
+    /// <summary>Adds one catalog-backed job match alongside literal text, never replacing note search.
+    /// Name-only history is matched exactly; an explicit different ID is not reclassified here.</summary>
+    private static void AddChineseJobMatch(List<string> matches,
+        List<KeyValuePair<string, object?>> parameters, string text)
+    {
+        var job = JobCatalog.Default.FindByChineseSearchText(text);
+        if (job is null) return;
+        parameters.Add(new("$text_job_id", job.JobId));
+        var names = new[] { job.NameZh, job.NameEn, job.Abbreviation }.Concat(job.AliasesZh)
+            .Where(name => !string.IsNullOrWhiteSpace(name)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var placeholders = new List<string>(names.Length);
+        for (var i = 0; i < names.Length; i++)
+        {
+            var parameter = "$text_job_name" + i.ToString(CultureInfo.InvariantCulture);
+            placeholders.Add(parameter);
+            parameters.Add(new(parameter, names[i]));
+        }
+        matches.Add("(job_id = $text_job_id OR (job_id IS NULL AND job_name COLLATE NOCASE IN ("
+            + string.Join(", ", placeholders) + ")))");
     }
 
     // content_id IN (...) alone misses the runs that identified the same duty by zone only,

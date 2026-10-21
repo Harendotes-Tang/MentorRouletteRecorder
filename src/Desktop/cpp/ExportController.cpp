@@ -1,6 +1,7 @@
 #include "ExportController.h"
 #include <QJsonArray>
 
+#include "CollectorProcess.h"
 #include "Formatters.h"
 #include "IBackend.h"
 #include "LiveText.h"
@@ -270,11 +271,17 @@ void ExportController::checkDatabaseIntegrity()
 
 void ExportController::openDatabaseFolder(const QString &databasePath)
 {
-    QString folder = QFileInfo(databasePath).absolutePath();
-    if (databasePath.isEmpty() || !QDir(folder).exists()) {
-        folder = QDir(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation))
-                     .absoluteFilePath(QStringLiteral("MentorRecorder"));
-        QDir().mkpath(folder);
+    QString folder = databasePath.isEmpty() ? QString() : QFileInfo(databasePath).absolutePath();
+    if (folder.isEmpty() || !QDir(folder).exists()) {
+        // No database named yet: the folder the Collector uses (MR_DATA_DIR, else
+        // %LOCALAPPDATA%\MentorRecorder). Opening it never creates it (audit I3-7).
+        folder = CollectorProcess::collectorDataDirectory();
+        if (folder.isEmpty() || !QDir(folder).exists()) {
+            Q_EMIT toastRequested(folder.isEmpty()
+                ? tr("找不到数据文件夹。")
+                : tr("数据文件夹还不存在：%1。后台服务启动后会创建它。").arg(QDir::toNativeSeparators(folder)));
+            return;
+        }
     }
     // A shell hand-off to a local folder, never to a URL derived from backend
     // data. AppController::openCaptureValidationFolder() is the other one.

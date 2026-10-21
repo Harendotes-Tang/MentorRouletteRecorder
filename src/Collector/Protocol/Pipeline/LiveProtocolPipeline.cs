@@ -26,7 +26,10 @@ namespace MentorRecorder.Collector.Protocol.Pipeline;
 /// <summary>A consistent answer for the <c>GetCurrentRun</c> IPC message.</summary>
 /// <param name="State">Current state-machine state.</param>
 /// <param name="Run">Run in flight, or null when no run is active.</param>
-/// <param name="ElapsedMs">Monotonic time since the active match was observed.</param>
+/// <param name="ElapsedMs">
+/// Time the run in flight has spent in its duty: monotonic time since its entry, null until it
+/// entered one (audit 2026-10-20, D1-3).
+/// </param>
 public sealed record LiveRunSnapshot(RunState State, MentorRun? Run, long? ElapsedMs);
 
 /// <summary>
@@ -278,7 +281,18 @@ public sealed partial class LiveProtocolPipeline :
     private DutyClearCounts _dutyClearCounts = new();
 
     private Stopwatch? _sessionTimer;
+
+    /// <summary>Runs from the moment the run in flight was seen entering its duty; null before that.</summary>
     private Stopwatch? _runTimer;
+
+    /// <summary>The run <see cref="_runTimer"/> times.</summary>
+    private string? _runTimerRunId;
+
+    /// <summary>
+    /// How long the run had already been in its duty when <see cref="_runTimer"/> started: nothing for an
+    /// entry seen live, the distance on the message clock for an entry replayed after the fact.
+    /// </summary>
+    private TimeSpan _runTimerOffset;
     private TimeSpan? _lastMessageMono;
     private string? _sessionId;
     private bool _active;
@@ -486,7 +500,7 @@ public sealed partial class LiveProtocolPipeline :
             var run = runId is null ? null : _runs.Get(runId);
             var elapsed = runId is null || _runTimer is null
                 ? (long?)null
-                : Math.Max(0, _runTimer.ElapsedMilliseconds);
+                : Math.Max(0, (long)_runTimerOffset.TotalMilliseconds + _runTimer.ElapsedMilliseconds);
             return new LiveRunSnapshot(state, run, elapsed);
         }
     }
@@ -971,7 +985,7 @@ public sealed partial class LiveProtocolPipeline :
 
         var afterState = machine.State;
         var afterId = machine.CurrentRunId;
-        UpdateRunTimer(beforeId, afterId);
+        UpdateRunTimer(machine);
 
         var changed = false;
         // A match offered again - somebody withdrew and the finder re-formed the party - is the
@@ -1075,17 +1089,29 @@ public sealed partial class LiveProtocolPipeline :
         }
     }
 
-    private void UpdateRunTimer(string? beforeId, string? afterId)
+    /// <summary>
+    /// Times the run in flight from its duty entry, which is what the desktop shows as its time in the
+    /// duty and holds against the duty's average (audit 2026-10-20, D1-3). An entry replayed after the
+    /// fact - what the card wait kept, or what a shared bind staged - starts the timer where the entry
+    /// was on the message clock, not where the replay is.
+    /// </summary>
+    /// <param name="machine">The machine a step was just applied to.</param>
+    private void UpdateRunTimer(MentorRunStateMachine machine)
     {
-        if (afterId is null)
+        var runId = machine.CurrentRunId;
+        if (runId is null || machine.State != Domain.RunState.EnteredDuty || machine.EnteredMono is not { } entered)
         {
             _runTimer?.Stop();
             _runTimer = null;
+            _runTimerRunId = null;
             return;
         }
 
-        if (!string.Equals(beforeId, afterId, StringComparison.Ordinal))
+        if (_runTimer is null || !string.Equals(_runTimerRunId, runId, StringComparison.Ordinal))
         {
+            var behind = LifecycleMono() - entered;
+            _runTimerOffset = behind > TimeSpan.Zero ? behind : TimeSpan.Zero;
+            _runTimerRunId = runId;
             _runTimer = Stopwatch.StartNew();
         }
     }

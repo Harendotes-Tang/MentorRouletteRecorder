@@ -143,6 +143,48 @@ public sealed class LocalProfileWithdrawalTests : IDisposable
         Assert.DoesNotContain(status.Events, item => string.Equals(item.Kind, "pop", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// Audit 2026-10-20, D1-2. A local profile id names the build, not one file: confirming an upgrade of
+    /// a queue-inferred profile rewrites the file under the same id. When the upgraded version is then
+    /// disproved, only what that version recorded is marked for review; a run the earlier version made
+    /// days before stands, and is not told it came from a profile the traffic disproved.
+    /// </summary>
+    [Fact]
+    public void ADisprovedVersionMarksOnlyWhatThatVersionRecorded()
+    {
+        WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
+        var provisional = _bed.Pipeline(Services());
+        provisional.Refresh(Bed.Game());
+        var earlier = _bed.Start(provisional);
+        Bed.Feed(provisional, earlier, new[]
+            {
+                CalibrationObserverTests.Message(MessageDirection.Outbound, CalibrationTrafficCases.Request,
+                    CalibrationObserverTests.Bytes(24, (0, 9)), 60_000),
+            }
+            .Concat(CalibrationObserverTests.Cluster(65_000, 1039)), hour: 1);
+        provisional.OnCaptureStopped(earlier, CaptureEndReason.UserStop);
+        var before = Assert.Single(RunsOf(earlier));
+        Assert.False(before.PendingReview);
+
+        // Two hours after that run the player confirmed the upgrade: the same id, written anew.
+        LocalProfileWriter.Write(
+            CalibrationTrafficCases.Derive(CalibrationTrafficCases.Announcement), Bed.Template, Bed.Build,
+            Bed.Confirmed.AddHours(2), _bed.LocalRoot);
+        _bed.Db.Clock.UtcNow = Bed.Confirmed.AddHours(2.5);
+        var upgraded = _bed.Pipeline(Services());
+        upgraded.Refresh(Bed.Game());
+        var later = _bed.Start(upgraded);
+        Bed.Feed(upgraded, later, new[] { Announced(9, 50_000) }, hour: 3);
+        var after = Assert.Single(RunsOf(later));
+        Assert.Equal(before.ProtocolProfileId, after.ProtocolProfileId);
+
+        Bed.Feed(upgraded, later, BellRows(100_000), hour: 3);
+
+        var runs = new RunRepository(_bed.Db.Database);
+        Assert.True(runs.Get(after.RunId)!.PendingReview);
+        Assert.False(runs.Get(before.RunId)!.PendingReview);
+    }
+
     [Fact]
     public void ARejectedPopOpcodeIsNeverProposedAgainInThisProcess()
     {

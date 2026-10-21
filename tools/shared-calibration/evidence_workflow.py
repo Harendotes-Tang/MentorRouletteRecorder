@@ -155,6 +155,10 @@ def reply(repo, number, live, result):
             path = Path(temp) / "comment.md"; path.write_text(body, encoding="utf-8")
             gh("issue", "comment", str(number), "--body-file", str(path))
     if snapshot(api(f"repos/{repo}/issues/{number}")) != snapshot(live): return
+    # A recorded position and an archived candidate are settled: re-reading the same body only repeats
+    # this answer. Closing them (first, as publication does) keeps the sweep on the Issues that can change.
+    if result["status"] in ("accepted", "candidate"):
+        gh("issue", "close", str(number), "--reason", "completed")
     label = {"candidate": "candidate-waiting", "accepted": "evidence-accepted", "invalid": "evidence-invalid"}.get(result["status"], "evidence-waiting")
     existing_labels = {item.get("name") for item in live.get("labels", []) if isinstance(item, dict)}
     stale = sorted((existing_labels & {"candidate-waiting", "evidence-accepted", "evidence-invalid", "evidence-waiting"}) - {label})
@@ -213,6 +217,10 @@ def process(repo, number):
                     result = result["original"]
             except evidence.EvidenceError as error:
                 result = {"status": "waiting" if str(error).endswith("_WAIT") else "invalid", "reason": str(error)}
+        # Every outcome is recorded in the same commit, before the reply: an Issue answered once can never
+        # later take back a summary another Issue was received with (RV4-1). A run that fails before the push
+        # has not replied either, so the Issue's next processing is still its first.
+        evidence.record_answer(state, number)
         try: paths = write_state(state, result, item)
         except evidence.EvidenceError as error:
             if str(error) != "PUBLIC_INDEX_CAPACITY_WAIT": raise
@@ -220,7 +228,11 @@ def process(repo, number):
             # the Issue open and retryable, roll back only our fixed paths, then continue the sweep.
             restore_controlled_file(evidence.LEDGER_FILE)
             run("git", "restore", "--source=origin/main", "--staged", "--worktree", "--", "index.json")
-            paths = []
+            # The answer is still recorded, on the ledger as it was; quarantine hints do not depend on it.
+            state = evidence.load_ledger(Path("."))
+            evidence.record_answer(state, number)
+            atomic(Path(evidence.LEDGER_FILE), evidence.canonical(state) + b"\n")
+            paths = [evidence.LEDGER_FILE]
             result = {"status": "waiting", "reason": "PUBLIC_INDEX_CAPACITY_WAIT"}
         if snapshot(api(f"repos/{repo}/issues/{number}")) != snapshot(live): continue
         if paths: run("git", "add", "--", *paths)

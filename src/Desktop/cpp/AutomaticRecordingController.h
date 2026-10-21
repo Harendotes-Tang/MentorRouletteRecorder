@@ -60,6 +60,10 @@ public:
     /// Current poll period in milliseconds. \ref kIdlePollMs while the game is
     /// not running, \ref kActivePollMs otherwise.
     int pollIntervalMs() const { return m_timer.interval(); }
+    /// 本进程接纳捕获事实的序号；连接变化也递增，使旧请求不能覆盖新观察。
+    quint64 captureRevision() const { return m_captureRevision; }
+    /// 接纳其他已确认的捕获回应。只发布有效的游戏运行事实；不会启动采证或写设置。
+    void observeCapture(const QVariantMap &capture);
     /// One observation is three serialized IPC requests, hence the long idle
     /// period: while the game is not running nothing this reads can change except
     /// "the game started", which arrives as a status event anyway.
@@ -104,6 +108,9 @@ private:
     QPointer<IBackend> m_backend;
     QTimer m_timer;
     quint64 m_generation = 0;
+    quint64 m_captureRevision = 0;
+    QVariantMap m_latestCapture;
+    bool m_initializationPending = false;
     bool m_busy = false;
     bool m_maintenance = false;
     bool m_userObservation = false;

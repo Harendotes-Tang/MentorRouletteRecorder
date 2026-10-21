@@ -750,8 +750,8 @@ public sealed class CalibrationPipelineTests : IDisposable
     }
 
     /// <summary>
-    /// Only the exact clear is kept: the director's other messages - its start, the remaining time, the
-    /// progress, the two that follow the clear - are not, so none of them reaches the parser the
+    /// Only the exact clear and the two duty-start contents are kept: the director's other messages -
+    /// the progress, the two that follow the clear - are not, so none of them reaches the parser the
     /// confirmation binds.
     /// </summary>
     [Fact]
@@ -761,8 +761,6 @@ public sealed class CalibrationPipelineTests : IDisposable
         var pipeline = ReadyWithADutyUnderWay(db, out var sessionId);
         Feed(pipeline, sessionId, new[]
         {
-            ClearMessage(500_000, command: 0x40000001, parameter: 7200),
-            ClearMessage(500_100, command: 0x80000004, parameter: 7199),
             ClearMessage(600_000, command: 0x80000015, parameter: 1),
             ClearMessage(900_000, command: 0x40000007, parameter: 0),
             ClearMessage(900_001, command: 0x40000007, parameter: 1),
@@ -793,6 +791,76 @@ public sealed class CalibrationPipelineTests : IDisposable
         Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
 
         Assert.Equal(maxCardWaitMessages, pipeline.DutyClearSignalCount);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-20, D1-1. The duty commenced while the card waited, and the player confirmed inside
+    /// it. Only the clear used to be kept, so the replay entered the duty without its commencement and
+    /// the next live remaining-time report - five minutes later - decided the run had been joined in
+    /// progress. The two duty-start contents are kept like the clear, so the replay decides it as live.
+    /// </summary>
+    [Fact]
+    public void ADutyThatCommencedWhileTheCardWaitedIsNotJoinedInProgress()
+    {
+        using var db = new TestDatabase();
+        var pipeline = ReadyWithADutyUnderWay(db, out var sessionId);
+        Feed(pipeline, sessionId, new[]
+        {
+            ClearMessage(494_500, command: 0x40000001, parameter: 7200),
+            ClearMessage(494_563, command: 0x80000004, parameter: 7199),
+        });
+
+        var ready = pipeline.CalibrationStatus();
+        Assert.Equal(CalibrationState.Ready, ready.State);
+        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
+        Feed(pipeline, sessionId, new[] { ClearMessage(794_563, command: 0x80000004, parameter: 6899) });
+
+        Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
+        var run = Assert.Single(new RunRepository(db.Database).Query(null, null, 1, 50).Items);
+        Assert.False(run.JoinedInProgress);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-20, D1-3. A duty entered while the card waited is replayed when the player confirms,
+    /// five minutes later. Its time in the duty counts from the entry, not from the replay.
+    /// </summary>
+    [Fact]
+    public void AReplayedEntryCountsItsTimeInTheDutyFromTheEntry()
+    {
+        using var db = new TestDatabase();
+        var pipeline = ReadyWithADutyUnderWay(db, out var sessionId);
+        Feed(pipeline, sessionId, CalibrationObserverTests.Noise(430_000, 720_000));
+
+        var ready = pipeline.CalibrationStatus();
+        Assert.Equal(CalibrationState.Ready, ready.State);
+        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
+
+        var current = pipeline.GetCurrentRun();
+        Assert.Equal(RunState.EnteredDuty, current.State);
+        Assert.InRange(current.ElapsedMs!.Value, 299_000, 320_000);
+    }
+
+    /// <summary>
+    /// A long duty while the card waits sends a remaining-time report every five minutes. Only the first
+    /// after anything else is kept - the rest say nothing the replay needs - so they cannot push the queue
+    /// request and the entry out of the hour the kept messages span, and the duty is still replayed.
+    /// </summary>
+    [Fact]
+    public void RemainingTimeReportsWhileTheCardWaitsDoNotCrowdOutTheDuty()
+    {
+        using var db = new TestDatabase();
+        var pipeline = ReadyWithADutyUnderWay(db, out var sessionId);
+        Feed(pipeline, sessionId, new[] { ClearMessage(494_500, command: 0x40000001, parameter: 7200) }
+            .Concat(Enumerable.Range(0, 20).Select(index => ClearMessage(
+                494_563 + (index * 300_000L), command: 0x80000004, parameter: (uint)(7199 - (index * 300))))));
+
+        var ready = pipeline.CalibrationStatus();
+        Assert.True(pipeline.ConfirmCalibration(AllCorrect(ready)).BoundInSession);
+
+        Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
+        var run = Assert.Single(new RunRepository(db.Database).Query(null, null, 1, 50).Items);
+        Assert.Equal(9, run.MentorRouletteId);
+        Assert.False(run.JoinedInProgress);
     }
 
     /// <summary>

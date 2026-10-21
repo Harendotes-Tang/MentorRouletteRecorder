@@ -565,11 +565,18 @@ public sealed class WindowsGameProcessProvider : IGameProcessProvider
         var table = _readTable()
             ?? throw new InvalidOperationException("The kernel process table could not be read.");
 
+        // The table lists every Windows session on the machine. A client another account started
+        // - after a fast user switch on a shared PC, or any program merely named like the game -
+        // is not this user's to follow, record or load the executable of (audit 2026-10-20, A2-1).
+        // This process's own row says which session is ours; without it that cannot be told.
+        var ownSession = table.FirstOrDefault(entry => entry.ProcessId == Environment.ProcessId)?.SessionId
+            ?? throw new InvalidOperationException("This process is missing from the kernel process table.");
+
         var results = new List<GameProcessCandidate>();
         foreach (var entry in table)
         {
             var name = ProcessTable.ShortName(entry.ImageName);
-            if (!string.Equals(name, processName, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(name, processName, StringComparison.OrdinalIgnoreCase) || entry.SessionId != ownSession)
             {
                 continue;
             }

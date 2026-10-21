@@ -729,6 +729,31 @@ public sealed class ProtocolPipelineTests
         Assert.NotEqual(second["run"]!["run_id"]!.GetValue<string>(), third["run"]!["run_id"]!.GetValue<string>());
     }
 
+    /// <summary>
+    /// Audit 2026-10-20, D1-3. The desktop shows the current run's elapsed time as its time in the duty and
+    /// holds it against the duty's average, which runs from entry to end. It used to count from the
+    /// popup. Now it is absent until the run enters the duty and counts from the entry.
+    /// </summary>
+    [Fact]
+    public void TheCurrentRunsElapsedTimeIsItsTimeInTheDuty()
+    {
+        using var fixture = new TestDatabase();
+        EnsureSession(fixture);
+        var pipeline = new LiveProtocolPipeline(fixture.Database, fixture.Clock, new LiveEventBus(fixture.Clock),
+            _ => MatchSourceSelection(fromQueue: false));
+        pipeline.OnCaptureStarted(SessionId);
+
+        pipeline.Accept(PopMessage(10_000));
+        var matched = pipeline.GetCurrentRun();
+        Assert.Equal(RunState.MentorMatched, matched.State);
+        Assert.Null(matched.ElapsedMs);
+
+        pipeline.Accept(ZoneMessage(80_000));
+        var entered = pipeline.GetCurrentRun();
+        Assert.Equal(RunState.EnteredDuty, entered.State);
+        Assert.InRange(entered.ElapsedMs!.Value, 0, 10_000);
+    }
+
     [Fact]
     public async Task AnUnobservedCancellationThenTeleportLeavesNoHistoryOrCurrentRun()
     {

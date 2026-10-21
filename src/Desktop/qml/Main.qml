@@ -25,6 +25,7 @@ ApplicationWindow {
     // For icons rendered through a data: URL (components/Lucide.js): request them
     // at device pixels so the strokes stay crisp on a scaled display.
     readonly property real pixelRatio: Screen.devicePixelRatio > 0 ? Screen.devicePixelRatio : 1
+    StatisticsFloatingWindow { id: statisticsFloat }
 
     function presentRecordingAlert() {
         if (App.maintainerToolsVisible || !window.visible || window.visibility === Window.Minimized) return
@@ -32,6 +33,13 @@ ApplicationWindow {
             recordingAlert.open()
     }
     onVisibilityChanged: Qt.callLater(window.presentRecordingAlert)
+    // A note editor left open in this window when it goes to the tray would
+    // hold every automatic popup back; it is put away like 稍后补录, its draft
+    // kept (review L2-10).
+    onVisibleChanged: {
+        if (!window.visible && reflectionDialog.visible && !reflectionDialog.standalone && !reflectionDialog.busy)
+            reflectionDialog.defer()
+    }
     Connections {
         target: App.recording
         function onChanged() {
@@ -131,8 +139,15 @@ ApplicationWindow {
     // kind and run (a failure not even that), so the dialog takes a success
     // only for its own action and run, and a failure only while its request is
     // out: a 通关 answered in 本次导随结果 meanwhile is not its reply (review
-    // OK-6 / OL-5).
+    // OK-6 / OL-5). Both are taken when the dialog opens: the action is sent
+    // for the record and the revision the user was looking at, never for a
+    // revision that arrived while the reason was typed (review L1-3).
     property string reasonRunId: ""
+    property int reasonRevision: -1
+
+    // npcap_installed is in every capture status; without one (no pipe, a
+    // failed read) the side panel claims nothing about Npcap (review K2-1).
+    readonly property bool npcapKnown: App.backendConnected && App.captureStatus.npcap_installed !== undefined
 
     // Colour of the title bar's Collector dot; the state comes from
     // CollectorProcess through AppController.
@@ -183,7 +198,92 @@ ApplicationWindow {
     // automatic prompt after a COMPLETED run goes through openForPrompt, which
     // tells the controller whether it really opened.
     function openReflection(run, kicker) {
+        if (reflectionDialog.visible || reflectionDialog.busy) return
+        prepareReflection(false, false)
         reflectionDialog.openForRun(run, kicker || "")
+    }
+
+    function prepareReflection(independent, automatic) {
+        recoveryNotice.hide()
+        reflectionDialog.standalone = independent
+        reflectionDialog.automaticOpen = automatic
+        reflectionDialog.automaticKind = ""
+        reflectionDialog.parent = independent ? recoveryReminder.contentItem : Overlay.overlay
+        if (independent) recoveryReminder.prepare(!automatic)
+    }
+
+    function offerReminder(run, kind) {
+        if (!App.recovery.identityVerified) return
+        const mode = typeof Settings !== "undefined" && Settings.promptPresentation
+                     ? Settings.promptPresentation : "window"
+        // 独立小窗 always opens the popup; 浮窗提示 opens it beside the float
+        // while the float is up and otherwise only keeps the prompt in 待处理,
+        // as 仅保留待办 always does (review L2-8).
+        const silent = mode === "floating" ? !statisticsFloat.visible : mode !== "window"
+        if (silent) {
+            if (kind === "result") App.resultConfirmationDeferred(run.run_id)
+            else App.reflectionPromptDeferred(run.run_id)
+            return
+        }
+        if (reflectionDialog.visible || reflectionDialog.busy) return
+        prepareReflection(true, true)
+        if (kind === "result") reflectionDialog.openForResult(run)
+        else reflectionDialog.openForPrompt(run, qsTr("刚刚完成"))
+    }
+
+    /// Bring this window forward. showNormal() only restores a hidden or
+    /// minimised window; a maximised one stays maximised (review K1-6).
+    function bringToFront() {
+        if (!window.visible)
+            window.show()
+        else if (window.visibility === Window.Minimized)
+            window.showNormal()
+        window.raise()
+        window.requestActivate()
+    }
+
+    /// The editor is open, possibly for another record: show where it is
+    /// rather than doing nothing (review K1-7).
+    function raiseEditorHost() {
+        const host = reflectionDialog.parent ? reflectionDialog.parent.Window.window : null
+        if (host === window) {
+            window.bringToFront()
+        } else if (host) {
+            host.show()
+            host.raise()
+            host.requestActivate()
+        }
+    }
+
+    Connections {
+        target: App.recovery
+        function onScopeChanging() { recoveryInbox.close(); recoveryNotice.hide() }
+        function onInboxRequested() {
+            if (reflectionDialog.visible || reflectionDialog.busy) {
+                window.raiseEditorHost()
+                return
+            }
+            window.bringToFront()
+            recoveryInbox.open()
+            App.recovery.refresh()
+        }
+        function onOpenRequested(run, kind) {
+            // The popup's pager: the open window takes the record it asked for.
+            if (reflectionDialog.visible && reflectionDialog.pendingSwitchId.length > 0
+                && reflectionDialog.pendingSwitchId === run.run_id) {
+                reflectionDialog.switchTo(run, kind)
+                return
+            }
+            if (reflectionDialog.visible || reflectionDialog.busy) {
+                window.raiseEditorHost()
+                return
+            }
+            prepareReflection(true, false)
+            if (kind === "result") reflectionDialog.openForResult(run)
+            else reflectionDialog.openForRun(run, qsTr("继续处理"))
+            // Manual recovery is independent from automatic queue acknowledgments.
+            reflectionDialog.automaticKind = ""
+        }
     }
 
     function openShare(run) {
@@ -228,7 +328,7 @@ ApplicationWindow {
         case "review":
             return qsTr("确认表示你已核对这条记录。结果不会被改写，"
                         + "只会取消“待复核”标记，并记入修改记录。"
-                        + "要改成“通关”或“离开”，请用“修正”填写结果。")
+                        + "要改成“通关”或“离开”，请用“手动修正”填写结果。")
         default:
             return qsTr("删除后，这条记录会移到“已删除”，不再计入默认统计。永久删除前仍可恢复；自动清理期限可在设置中查看。")
         }
@@ -249,7 +349,8 @@ ApplicationWindow {
         reasonAction = actionName
         reasonDialogError = ""
         reasonSubmitting = false
-        reasonRunId = ""
+        reasonRunId = App.selectedRun.run_id || ""
+        reasonRevision = App.selectedRun.revision !== undefined ? Number(App.selectedRun.revision) : -1
         reasonField.text = ""
         reasonDialog.title = window.reasonDialogTitle(actionName)
         reasonDialog.open()
@@ -322,8 +423,9 @@ ApplicationWindow {
         ignoreUnknownSignals: true
 
         function onReflectionPromptRequested(run) {
-            reflectionDialog.openForPrompt(run, qsTr("刚刚完成"))
+            window.offerReminder(run, "reflection")
         }
+        function onResultConfirmationRequested(run) { window.offerReminder(run, "result") }
     }
 
     Rectangle {
@@ -625,6 +727,18 @@ ApplicationWindow {
                     }
 
                     // Window controls (frameless window).
+                    AppButton {
+                        objectName: "statisticsFloatingWindowButton"
+                        compact: true
+                        variant: App.statisticsOverlay.visible ? "primary" : "secondary"
+                        text: App.statisticsOverlay.locked ? qsTr("解锁浮窗") : qsTr("统计浮窗")
+                        iconName: App.statisticsOverlay.locked ? "lock-open" : "chart-column"
+                        onClicked: {
+                            if (App.statisticsOverlay.locked) App.statisticsOverlay.unlock()
+                            else App.statisticsOverlay.toggle()
+                        }
+                    }
+
                     Row {
                         spacing: 2
                         Layout.leftMargin: 6
@@ -787,7 +901,8 @@ ApplicationWindow {
                                 // 当前导随 card.
                                 model: [
                                     { icon: "gamepad-2", key: qsTr("FF14"), value: App.gameSelection.selectionRequired && App.gameSelection.choices.length > 0 ? qsTr("待选择") : App.ffxivRunning ? qsTr("运行中") : qsTr("未运行"), color: App.gameSelection.selectionRequired && App.gameSelection.choices.length > 0 ? Theme.orange : App.ffxivRunning ? Theme.green : Theme.neutral400 },
-                                    { icon: "network", key: qsTr("Npcap"), value: App.npcapInstalled ? qsTr("就绪") : qsTr("未安装"), color: App.npcapInstalled ? Theme.green : Theme.orange },
+                                    // Without a capture status nothing is known about Npcap (review K2-1).
+                                    { icon: "network", key: qsTr("Npcap"), value: !window.npcapKnown ? Fmt.dash() : App.npcapInstalled ? qsTr("就绪") : qsTr("未安装"), color: !window.npcapKnown ? Theme.neutral400 : App.npcapInstalled ? Theme.green : Theme.orange },
                                     { icon: "radio", key: qsTr("捕获"), value: window.captureBadgeText(), color: window.captureBadgeColor() }
                                 ]
 
@@ -873,7 +988,6 @@ ApplicationWindow {
                                 App.navigate(5)
                                 settingsPage.editBaseline()
                             }
-                            onOpenPendingReviewRequested: App.showPendingReview()
                             onOpenReflectionsRequested: App.navigate(7)
                             onReflectRequested: function(run, kicker) {
                                 window.openReflection(run, kicker)
@@ -952,6 +1066,10 @@ ApplicationWindow {
                         CapturePage {
                             anchors.fill: parent
                             onOpenCalibrationRequested: calibrationDialog.openDialog()
+                            onOpenRegionSettingsRequested: {
+                                App.navigate(5)
+                                settingsPage.openRegionSettings()
+                            }
                         }
                         }
 
@@ -1049,8 +1167,85 @@ ApplicationWindow {
     ReflectionDialog {
         id: reflectionDialog
         objectName: "reflectionDialog"
-        anchors.centerIn: Overlay.overlay
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        managedPresentation: true
+        onReviewRequested: function(run) {
+            window.bringToFront()
+            // openHistoryForRun never toggles an already selected record off,
+            // which selectRun does (review K1-3 / L1-2).
+            App.openHistoryForRun(run)
+            Qt.callLater(function() { window.openReasonDialog("review") })
+        }
+        onHostClosing: recoveryReminder.hide()
+        onDismissing: function(runId, completed) {
+            // Only the popup is a reminder put away; the editor in the main
+            // window just closes (review K1-4 / L2-5). A record found deleted
+            // with no draft left nothing in 待处理 to reopen (review RV3-3).
+            if (completed || !runId || !reflectionDialog.standalone) return
+            const pending = App.recovery ? App.recovery.items : []
+            let kept = false
+            for (let i = 0; i < pending.length && !kept; ++i)
+                kept = (pending[i].runId || pending[i].run_id) === runId
+            if (!kept) return
+            recoveryNotice.runId = runId
+            recoveryNotice.x = recoveryReminder.x
+            recoveryNotice.y = recoveryReminder.y
+            recoveryNotice.show()
+            recoveryNoticeTimer.restart()
+        }
     }
+
+    RecoveryReminderWindow { id: recoveryReminder; editor: reflectionDialog; overlayWindow: statisticsFloat }
+    RecoveryInbox { id: recoveryInbox; anchors.centerIn: parent }
+    Window {
+        id: recoveryNotice
+        objectName: "recoveryNoticeWindow"
+        property string runId: ""
+        transientParent: null
+        flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+        visible: false
+        // `.ov-toast`: a pill where the popup was - 已收起到待处理, with a way back.
+        width: Math.min(420, noticeContent.implicitWidth + 24)
+        height: noticeContent.implicitHeight + 16
+        color: "transparent"
+        title: qsTr("导随记录器 · 已收起提醒")
+        Rectangle {
+            anchors.fill: parent
+            radius: height / 2
+            color: Qt.rgba(Theme.surface.r, Theme.surface.g, Theme.surface.b, 0.94)
+            border.width: 1
+            border.color: Theme.eorzea ? Theme.gold3 : Theme.borderStrong
+        }
+        RowLayout {
+            id: noticeContent
+            anchors.fill: parent
+            anchors.leftMargin: 14
+            anchors.rightMargin: 6
+            anchors.topMargin: 8
+            anchors.bottomMargin: 8
+            spacing: 8
+            OverlayIcon { name: "crest"; color: Theme.eorzea ? Theme.gold2 : Theme.accent; Layout.alignment: Qt.AlignVCenter }
+            Text {
+                Layout.fillWidth: true
+                Layout.maximumWidth: 260
+                text: App.recovery.error.length > 0 ? App.recovery.error : qsTr("已收起到待处理，记录和草稿已保留")
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fs(12.5)
+                font.weight: Font.DemiBold
+                wrapMode: Text.WordWrap
+            }
+            AppButton {
+                objectName: "reopenDeferredButton"
+                text: qsTr("重新打开")
+                variant: "ghost"
+                compact: true
+                onClicked: { recoveryNotice.hide(); App.recovery.requestOpen(recoveryNotice.runId) }
+            }
+            OverlayIconButton { iconName: "close"; tip: qsTr("关闭"); onClicked: recoveryNotice.hide() }
+        }
+    }
+    Timer { id: recoveryNoticeTimer; interval: 6000; onTriggered: recoveryNotice.hide() }
 
     ReflectionShareDialog {
         id: reflectionShareDialog
@@ -1201,14 +1396,15 @@ ApplicationWindow {
                             window.reasonDialogError = qsTr("没有选中的记录，请关闭后重新选择。")
                             return
                         }
-                        window.reasonRunId = App.selectedRun.run_id
                         window.reasonSubmitting = true
                         const reason = reasonField.text.trim()
+                        const runId = window.reasonRunId
+                        const revision = window.reasonRevision
                         switch (window.reasonAction) {
-                        case "restore": App.restoreSelectedRun(reason); break
-                        case "undo": App.undoSelectedRunRevision(reason); break
-                        case "review": App.confirmSelectedRunReview(reason); break
-                        default: App.softDeleteSelectedRun(reason); break
+                        case "restore": App.restoreSelectedRun(reason, runId, revision); break
+                        case "undo": App.undoSelectedRunRevision(reason, runId, revision); break
+                        case "review": App.confirmSelectedRunReview(reason, runId, revision); break
+                        default: App.softDeleteSelectedRun(reason, runId, revision); break
                         }
                     }
                 }

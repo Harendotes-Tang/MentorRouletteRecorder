@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Diagnostics;
 using Machina.Infrastructure;
 using MentorRecorder.Collector.Contracts.Texts;
@@ -153,14 +154,9 @@ internal sealed class FirstPacketBuffer
             // the diagnostics page cannot infer from any other counter.
             Interlocked.Increment(ref _rawPackets);
             // Machina's TCP decoder consumes SYN sequence space but ignores any SYN payload, so
-            // TCP Fast Open would start the bundle decoder after a lost prefix. Machina 2.3.1.3
-            // also compares unsigned sequences and treats NextSequence == 0 as uninitialized: a
-            // packet ending at zero can remain queued and be returned forever. Both are refused
-            // before allocation or decoder access, including SYN/FIN -- for their own stream
-            // only (see Refuse).
-            var sequenceEnd = (ulong)frame.Sequence + (uint)frame.PayloadLength +
-                (frame.Syn ? 1u : 0u) + ((frame.Flags & 1) != 0 ? 1u : 0u);
-            var refused = (frame.Syn && frame.PayloadLength != 0) || sequenceEnd > uint.MaxValue;
+            // TCP Fast Open would start the bundle decoder after a lost prefix. Refused before
+            // allocation or decoder access -- for its own stream only (see Refuse).
+            var refused = frame.Syn && frame.PayloadLength != 0;
             _streams.TryGetValue(frame.Tuple, out var stream);
             if (frame.Closed && stream?.Decoder is null) { Remove(frame.Tuple); return; }
             if (frame.Origin && (stream is null || stream.OriginInbound != frame.Inbound || stream.OriginSequence != frame.Sequence))
@@ -189,8 +185,10 @@ internal sealed class FirstPacketBuffer
             var direction = frame.Inbound ? stream.Inbound : stream.Outbound;
             // Once a close was accepted, only that direction's data at or before it may still
             // arrive: a retransmission filling a hole in front of the FIN, without which the FIN
-            // could never be consumed and the end never reported (audit 2026-10-03, OA-5).
-            if (stream.Closing && (direction.ClosedAt is not { } closedAt || sequenceEnd > closedAt)) return;
+            // could never be consumed and the end never reported (audit 2026-10-03, OA-5). A
+            // direction with a close has its SYN.
+            if (stream.Closing && (direction.ClosedAt is not { } closedAt ||
+                direction.SynSequence is not { } origin || Rebase(frame, origin).End > closedAt)) return;
             // A direction abandoned after an unfillable gap accepts nothing more: its Machina
             // state is past the hole and would decode the remainder as garbage.
             if (direction.Damaged) { Interlocked.Increment(ref _droppedNoStream); return; }
@@ -210,8 +208,18 @@ internal sealed class FirstPacketBuffer
                 return;
             }
             if (!frame.Syn && !frame.Closed && frame.PayloadLength == 0) return;
-            var expected = direction.Next ?? checked(direction.SynSequence.Value + 1);
-            if (AmbiguousDistance(frame.Sequence, expected) || AmbiguousDistance((uint)sequenceEnd, expected))
+            // From here on a sequence is counted from this direction's own SYN, which is zero, and
+            // Machina is fed the same numbers (see Rebase): the game's zone connection lasts the
+            // whole login, and on the wire numbers its data wraps at a random point, which used to
+            // give the direction up and leave every later duty unrecorded (audit 2026-10-20, A1-1).
+            // Machina 2.3.1.3 compares unsigned sequences and treats NextSequence == 0 as
+            // uninitialized, so a packet ending at zero could remain queued and be returned
+            // forever: what would cross zero in the counted numbers -- 4 GiB on one direction, or
+            // a segment from before its own SYN -- is still refused, for its own stream only.
+            var (sequence, sequenceEnd) = Rebase(frame, direction.SynSequence.Value);
+            var expected = direction.Next ?? 1u;
+            if (sequenceEnd > uint.MaxValue ||
+                AmbiguousDistance(sequence, expected) || AmbiguousDistance((uint)sequenceEnd, expected))
             { Refuse(frame.Tuple, stream, frame.Inbound); return; }
             while (_bytes > _limits.Bytes - frame.Length || _packets == _limits.Packets)
             {
@@ -235,7 +243,11 @@ internal sealed class FirstPacketBuffer
                 stream.Closing = true;
                 direction.ClosedAt ??= (uint)sequenceEnd;
             }
-            var packet = new Packet(frame, data.Slice(frame.Offset, frame.Length).ToArray(), _clock());
+            var bytes = data.Slice(frame.Offset, frame.Length).ToArray();
+            // Neither Machina's IP nor its TCP decoder verifies a checksum, and nothing else reads
+            // this copy, so only the sequence field changes.
+            BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan((bytes[0] & 15) * 4 + 4), sequence);
+            var packet = new Packet(frame with { Sequence = sequence }, bytes, _clock());
             stream.Pending.Add(packet);
             _bytes += packet.Data.Length;
             _packets++;
@@ -337,10 +349,13 @@ internal sealed class FirstPacketBuffer
             // while Oodle initialized is prefix, and prefix is the one thing that cannot be
             // recovered by waiting.
             _decoding = true;
-            Expire();
             var now = _clock();
             var confirmed = owned.Where(c => c.ProcessId == _pid && c.LocalIP == _localIP)
                 .ToDictionary(c => new FirstPacketTuple(c.LocalIP, c.LocalPort, c.RemoteIP, c.RemotePort), c => c);
+            // A stream the system lists for the game right now is claimed by this very pump, so the
+            // ownership age does not release it first: the first pump comes only after Oodle's
+            // initialization, which can outlast that age (audit 2026-10-20, A1-5).
+            Expire(confirmed);
             // The operating system's own answer to "has the client reconnected since we
             // started", counted and never reported as an address. A total above the count
             // taken at startup means a fresh login happened while we were listening, so a
@@ -455,6 +470,20 @@ internal sealed class FirstPacketBuffer
 
     internal void Tick() { lock (_gate) { if (!_stopped && Failure is null) Expire(); } }
     private static bool AmbiguousDistance(uint left, uint right) => Math.Abs((long)left - right) >= 0x80000000L;
+
+    /// <summary>
+    /// Where a frame starts and ends counted from its direction's own SYN, which is zero: the
+    /// numbers this buffer decides on and Machina is fed. The end takes in SYN and FIN, and is wide
+    /// so that crossing zero in these numbers can be seen.
+    /// </summary>
+    /// <param name="frame">Frame as it was on the wire.</param>
+    /// <param name="synSequence">Wire sequence of the SYN that opened the frame's direction.</param>
+    private static (uint Start, ulong End) Rebase(in FirstPacketFrame frame, uint synSequence)
+    {
+        var start = unchecked(frame.Sequence - synSequence);
+        return (start, (ulong)start + (uint)frame.PayloadLength + (frame.Syn ? 1u : 0u) +
+            ((frame.Flags & 1) != 0 ? 1u : 0u));
+    }
     internal void Stop() { lock (_gate) { _stopped = true; Clear(); } }
     internal void Fault(UserText reason) { lock (_gate) Fail(reason); }
     private void Fail(UserText reason) { Failure ??= reason; Clear(); }
@@ -474,7 +503,8 @@ internal sealed class FirstPacketBuffer
     /// delivering connection, so a real disconnect later was never reported (audit 2026-10-03,
     /// OA-5).
     /// </summary>
-    private void Expire()
+    /// <param name="confirmed">Tuples the pump calling this is about to confirm; never released for their age.</param>
+    private void Expire(IReadOnlyDictionary<FirstPacketTuple, TCPConnection>? confirmed = null)
     {
         if (!_decoding) return;
         var now = _clock();
@@ -482,7 +512,8 @@ internal sealed class FirstPacketBuffer
         {
             if (stream.Decoder is null)
             {
-                if (now - stream.Created >= _limits.Ownership) { Interlocked.Increment(ref _expiredStreams); Remove(tuple); }
+                if (now - stream.Created >= _limits.Ownership && confirmed?.ContainsKey(tuple) != true)
+                { Interlocked.Increment(ref _expiredStreams); Remove(tuple); }
                 continue;
             }
 
@@ -607,6 +638,7 @@ internal sealed class FirstPacketBuffer
 
     private sealed class DirectionState
     {
+        /// <summary>Wire sequence of this direction's SYN; Next and ClosedAt are counted from it (see Rebase).</summary>
         internal uint? SynSequence, Next;
         internal bool Damaged;
 

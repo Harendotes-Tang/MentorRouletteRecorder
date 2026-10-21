@@ -1021,10 +1021,14 @@ int main(int argc, char *argv[])
     importRecords->setBackend(backend);
     QObject::connect(importRecords, &mr::ImportRecordsController::imported, &controller,
                      [&controller] { controller.refreshAll(); });
-    // The import dialog asks whether a batch is already inside the baseline; it needs the stored one.
+    // The import dialog asks whether a batch is already inside the baseline; it needs the stored
+    // one, and until it has been read on this connection a contributing batch waits (audit L2-9).
     importRecords->setBaselineCount(controller.baselineCount());
+    importRecords->setBaselineLoaded(controller.achievementSettingsLoaded());
     QObject::connect(&controller, &mr::AppController::dashboardChanged, importRecords,
                      [&controller, importRecords] { importRecords->setBaselineCount(controller.baselineCount()); });
+    QObject::connect(&controller, &mr::AppController::achievementSettingsLoadedChanged, importRecords,
+                     [&controller, importRecords] { importRecords->setBaselineLoaded(controller.achievementSettingsLoaded()); });
     QObject::connect(&controller, &mr::AppController::currentPageChanged,
                      &reflections, [&controller, &reflections] {
         reflections.setActive(controller.currentPage() == 7);

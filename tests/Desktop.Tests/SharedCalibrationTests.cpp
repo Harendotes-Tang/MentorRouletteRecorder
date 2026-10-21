@@ -204,6 +204,8 @@ public:
     QString errorMessage;
     QJsonObject errorDetails;
     QString outcome = QStringLiteral("STARTED");
+    /// More fields of the CheckSharedCalibration answer (its message / message_ref).
+    QJsonObject checkExtra;
     QJsonObject importResult;
     QJsonObject rejectResult{{QStringLiteral("withdrawn_profile_id"), QJsonValue::Null},
                              {QStringLiteral("dropped_candidates"), 1}};
@@ -248,8 +250,12 @@ private:
             return importResult;
         if (type == QLatin1String("RejectSharedCalibration"))
             return rejectResult;
-        if (type == QLatin1String("CheckSharedCalibration")
-            || type == QLatin1String("AcceptSharedQueueInference"))
+        if (type == QLatin1String("CheckSharedCalibration")) {
+            QJsonObject result = checkExtra;
+            result.insert(QStringLiteral("outcome"), outcome);
+            return result;
+        }
+        if (type == QLatin1String("AcceptSharedQueueInference"))
             return {{QStringLiteral("outcome"), outcome}};
         return {};
     }
@@ -293,7 +299,7 @@ private Q_SLOTS:
         QTest::newRow("fetching") << "FETCHING" << "" << false << "fetching"
                                   << QString::fromUtf8("正在查找其他玩家分享的校准");
         QTest::newRow("verifying") << "VERIFYING" << "OK" << false << "verifying"
-                                   << QString::fromUtf8("找到了共享校准，登录或排本时会自动检查是否可用");
+                                   << QString::fromUtf8("已找到共享校准，等待本机验证");
         QTest::newRow("consent") << "AWAITING_CONSENT" << "OK" << false << "consent"
                                  << QString::fromUtf8("确认是否使用");
         QTest::newRow("verified") << "VERIFIED" << "OK" << false << "verified"
@@ -369,7 +375,7 @@ private Q_SLOTS:
             QStringLiteral("OBSERVING"),
             sharedStatus(QStringLiteral("VERIFYING"), false, QStringLiteral("OK"),
                          {candidate(QStringLiteral("MANUAL")), candidate(QStringLiteral("DOWNLOADED"))})));
-        QVERIFY(controller.headline().contains(QString::fromUtf8("找到了共享校准")));
+        QVERIFY(controller.headline().contains(QString::fromUtf8("已找到共享校准")));
     }
 
     // -- 18.3 / 18.4: gates graded by where the code came from ---------------
@@ -380,8 +386,8 @@ private Q_SLOTS:
         QTest::addColumn<QString>("provenance");
         QTest::addColumn<QString>("headline");
 
-        const QString published = QString::fromUtf8("找到了共享校准，登录时会自动检查，通过后就能开始记录。");
-        const QString queue = QString::fromUtf8("找到了共享校准。申请随机任务并进入副本，通过检查后才能开始记录。");
+        const QString published = QString::fromUtf8("已找到共享校准，等待本机验证。");
+        const QString queue = QString::fromUtf8("已找到共享校准，等待本机验证。");
         const QString imported = QString::fromUtf8("校准码已导入。登录后申请随机任务并进入副本，通过检查后才能开始记录。");
         const QString audit = QStringLiteral("AUDIT");
         const QString required = QStringLiteral("REQUIRED");
@@ -434,7 +440,7 @@ private Q_SLOTS:
         QTest::newRow("published-not-judged-yet")
             << QJsonArray{candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("VERIFYING"),
                                     QStringLiteral("PUBLISHED"))}
-            << "published" << QString::fromUtf8("找到了共享校准，登录或排本时会自动检查是否可用。");
+            << "published" << QString::fromUtf8("已找到共享校准，等待本机验证。");
         // A rejected candidate decides nothing any more, so the one still in the running does.
         QTest::newRow("rejected-published-is-ignored")
             << QJsonArray{candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("REJECTED"),
@@ -446,7 +452,7 @@ private Q_SLOTS:
         // wording from before the split stands unchanged.
         QTest::newRow("not-reported-downloaded")
             << QJsonArray{candidate(QStringLiteral("DOWNLOADED"))} << QString()
-            << QString::fromUtf8("找到了共享校准，登录或排本时会自动检查是否可用。");
+            << QString::fromUtf8("已找到共享校准，等待本机验证。");
         QTest::newRow("not-reported-manual")
             << QJsonArray{candidate(QStringLiteral("MANUAL"))} << QString()
             << QString::fromUtf8("校准码已导入。登录或排本时会自动检查是否可用。");
@@ -519,8 +525,8 @@ private Q_SLOTS:
         verifyPlayerCopy(c.detail());
     }
 
-    /// With nothing in force the wording is untouched: the candidate really would start the recording.
-    void aCandidateCheckedWithNothingRecordingKeepsTheOlderWording()
+    /// With nothing in force the candidate explains the remaining login check.
+    void aCandidateCheckedWithNothingRecordingExplainsTheNextStep()
     {
         mr::SharedCalibrationController c;
         const QJsonArray checking{candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("VERIFYING"),
@@ -531,9 +537,34 @@ private Q_SLOTS:
             sharedStatus(QStringLiteral("VERIFYING"), false, QStringLiteral("OK"), checking), QString(),
             QStringLiteral("UNSUPPORTED_BUILD")));
 
-        QCOMPARE(c.headline(), QString::fromUtf8("找到了共享校准，登录时会自动检查，通过后就能开始记录。"));
+        QCOMPARE(c.headline(), QString::fromUtf8("已找到共享校准，等待本机验证。"));
         QCOMPARE(c.detail(),
-                 QString::fromUtf8("检查通过后才能开始自动记录。照常游戏即可；如果不能使用，会继续本机校准，已有进度会保留。"));
+                 QString::fromUtf8("无需手动导入。登录游戏时会自动检查，检查通过后才能开始自动记录。如果不能使用，会继续本机校准，已有进度会保留。"));
+    }
+
+    void aRetrievedCandidateExplainsItsVerificationGate_data()
+    {
+        QTest::addColumn<QString>("gate");
+        QTest::addColumn<QString>("nextStep");
+        QTest::newRow("login") << "AUDIT" << QString::fromUtf8("登录游戏时会自动检查");
+        QTest::newRow("queue") << "REQUIRED" << QString::fromUtf8("请申请随机任务并进入副本");
+        QTest::newRow("unknown") << "" << QString::fromUtf8("登录或排本时会自动检查");
+    }
+
+    void aRetrievedCandidateExplainsItsVerificationGate()
+    {
+        QFETCH(QString, gate);
+        QFETCH(QString, nextStep);
+        mr::SharedCalibrationController controller;
+        const QJsonArray checking{candidate(QStringLiteral("DOWNLOADED"), QStringLiteral("VERIFYING"),
+                                            QStringLiteral("PUBLISHED"), false, gate)};
+        controller.refreshFromCaptureStatus(captureWith(QStringLiteral("OBSERVING"),
+            sharedStatus(QStringLiteral("VERIFYING"), false, QStringLiteral("OK"), checking)));
+        QVERIFY(controller.detail().startsWith(QString::fromUtf8("无需手动导入。")));
+        QVERIFY(controller.detail().contains(nextStep));
+        QVERIFY(controller.detail().contains(QString::fromUtf8("检查通过后才能开始自动记录")));
+        if (gate == QLatin1String("AUDIT"))
+            QVERIFY(!controller.detail().contains(QString::fromUtf8("申请随机任务")));
     }
 
     void aRecordingProfileUnderAuditSaysSoInGrey()
@@ -779,6 +810,42 @@ private Q_SLOTS:
         QVERIFY(!c.busy());
     }
 
+    // Audit RV5-5 (X6): with the refusal state unreadable the Collector still answers NOT_NEEDED
+    // but says why. That sentence is shown - rendered from the catalogue in the interface
+    // language - instead of claiming a usable calibration or a choice of local calibration.
+    void checkNowShowsTheCollectorsReasonForNotLooking()
+    {
+        const QVariantMap ref = mrtest::textRef("sharing.check.state_unreadable");
+        const QString unreadable = mr::collector_text::chinese(ref);
+        QVERIFY(!unreadable.isEmpty());
+        SharedBackend backend;
+        backend.outcome = QStringLiteral("NOT_NEEDED");
+        backend.checkExtra = {{QStringLiteral("message"), unreadable},
+                              {QStringLiteral("message_ref"), QJsonObject::fromVariantMap(ref)}};
+        mr::SharedCalibrationController c;
+        c.setBackend(&backend);
+        QSignalSpy notices(&c, &mr::SharedCalibrationController::notice);
+        QSignalSpy rereads(&c, &mr::SharedCalibrationController::refreshRequested);
+        c.checkNow();
+        QCOMPARE(lastNotice(notices), unreadable);
+        verifyPlayerCopy(lastNotice(notices));
+        QCOMPARE(rereads.count(), 1);
+        {
+            const mrtest::MarkedLanguage language;
+            c.checkNow();
+            QCOMPARE(lastNotice(notices), mrtest::marked("sharing.check.state_unreadable", unreadable));
+        }
+        // A sentence without a catalogue reference is shown as the Collector wrote it.
+        backend.checkExtra = {{QStringLiteral("message"), unreadable}};
+        c.checkNow();
+        QCOMPARE(lastNotice(notices), unreadable);
+        // Without either, NOT_NEEDED keeps its own line.
+        backend.checkExtra = {};
+        c.checkNow();
+        QVERIFY2(lastNotice(notices).contains(QString::fromUtf8("暂时不需要查找")), qPrintable(lastNotice(notices)));
+        QCOMPARE(rereads.count(), 4);
+    }
+
     void shareOpensTheIssueAndCopiesTheCode()
     {
         SharedBackend backend;
@@ -831,6 +898,11 @@ private Q_SLOTS:
         QCOMPARE(seams.copied, QStringList{QLatin1String(kVectorCode)});
         QVERIFY(lastNotice(notices).contains(QString::fromUtf8("剪贴板")));
         QVERIFY(lastNotice(notices).contains(QString::fromUtf8("无法自动打开 GitHub 分享页面")));
+        // Review K2-5: the import button is 手动导入校准码… inside the folded 其他方式 now; the
+        // sentence the other player follows names it where it is.
+        QCOMPARE(lastNotice(notices),
+                 QString::fromUtf8("校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 分享页面。"
+                                   "你可以直接把它发给其他玩家，让对方在「其他方式」中点「手动导入校准码…」并粘贴。"));
         verifyPlayerCopy(lastNotice(notices));
     }
 
@@ -911,7 +983,7 @@ private Q_SLOTS:
         QVERIFY(seams.opened.isEmpty());
         QCOMPARE(lastNotice(notices),
                  QString::fromUtf8("校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 页面。"
-                                   "你可以把这份校准直接发给其他玩家，让对方点「导入校准码」并粘贴。"));
+                                   "你可以把这份校准直接发给其他玩家，让对方在「其他方式」中点「手动导入校准码…」并粘贴。"));
         verifyPlayerCopy(lastNotice(notices));
 
         backend.shareResult = shareAnswer(QStringLiteral("VERIFIED"), true, QStringLiteral("https://example.com/"));
@@ -1304,7 +1376,7 @@ private Q_SLOTS:
             << QString::fromUtf8("排本和进本还在核对中");
         QTest::newRow("imported-published")
             << "imported-published" << "published" << false
-            << QString::fromUtf8("找到了共享校准，登录时会自动检查，通过后就能开始记录。")
+            << QString::fromUtf8("已找到共享校准，等待本机验证。")
             << QString::fromUtf8("检查通过后才能开始自动记录");
         QTest::newRow("imported-unpublished")
             << "imported-unpublished" << "imported" << false

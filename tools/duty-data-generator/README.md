@@ -19,7 +19,7 @@ python tools/duty-data-generator/test_generate.py            # 离线单元测�
 | `--out-dir <dir>` | `data/duties` | 输出目录 |
 | `--raw-dir <dir>` | 临时目录 | 原始下载的存放位置，不进入仓库：指向仓库目录或其子目录时直接拒绝运行（退出码 2）；未指定时在系统临时目录（`TMP` / `TEMP`）下新建，临时目录本身位于仓库内时同样拒绝运行。`--dry-run` 时不保存原始下载 |
 | `--dry-run` | 关 | 抓取并打印统计，**不写任何文件**：不写输出、不保存原始下载、不创建临时目录 |
-| `--game-version <key>` | XIVAPI 当前版本 | 将每一页请求固定到该游戏版本，即 `provenance.xivapi_game_version` 记录的键 |
+| `--game-version <key>` | XIVAPI 当前版本 | 将每一页请求固定到该游戏版本，即 `provenance.xivapi_game_version` 记录的键。无论是否指定，`ContentFinderCondition` 的每一页都必须报告同一个游戏版本：某页未报告版本、与指定的版本不同或与第 1 页不同时，生成器报错退出（退出码 1），不写任何文件 |
 | `--add-party-size <file>…` | — | 不生成新版本，只为这些已有文件逐行补写 `party_size`（置于 `level` 之后），行顺序与其余字段逐字不变；按各文件记录的 `xivapi_game_version` 抓取，来源记入 `provenance.party_size`。任一步骤失败均不写文件 |
 
 一次运行**同时**写出 `global.<version>.json` 与 `cn.<version>.json`。
@@ -82,7 +82,8 @@ python tools/duty-data-generator/test_generate.py                     # 含 --ga
 ```
 
 职责按静态硬边界检查（NET-007 / NET-010，见 `docs/privacy-boundary.md`）划分：
-`generate.py` 是允许联网的唯一 Python 脚本，负责全部请求、URL 构造与原始下载的记录；
+`generate.py` 是本工具中唯一联网的脚本，也是仓库中唯一下载游戏数据表的脚本（`NET-010` 另外只按精确路径放行
+CI 发布同步脚本 `tools/release-mirror/sync_release.py`），负责全部请求、URL 构造与原始下载的记录；
 `game_names.py` 不联网，只接收已抓取的数据，负责解析 CSV、合并译名、OpenCC 回退与写出文件。
 
 - 英文与日文取自 XIVAPI v2（`language=en` / `language=ja`），固定为基准副本文件记录的 `xivapi_game_version`；

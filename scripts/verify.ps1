@@ -8,17 +8,27 @@
 
       1.  环境自检：不存在遗留的 MentorRecorder 进程（失败即立即退出：它们会占用单实例
           租约并锁住 build/ 中的 DLL，继续执行只会得到误导性的构建失败）
+      1b. 完整依赖安全审计（scripts/security-quality.ps1 -Phase Local），在执行还原所得的
+          依赖之前进行；脚本缺失或审计未通过即立即退出
       2.  静态硬边界检查（tools/static-boundary-check/check.py）
       3.  架构依赖门禁（tools/architecture-boundary-check/check.py）
       3b. 协议档案校验（tools/protocol-profile-validator/validate.py），覆盖随包全部档案
-      4.  tools/ 下全部 Python 自测，其中边界检查器的反向自测（selftest.py）验证它确实
-          会拦截；`dotnet test` 与 `ctest` 均不覆盖这些脚本
+      4.  tools/ 下全部 Python 自测（scripts/run-python-tool-tests.ps1），其中边界检查器的
+          反向自测（selftest.py）验证它确实会拦截；运行前先逐个导入
+          tools/requirements-ci.txt 所列的包，缺少任何一个即失败；`dotnet test` 与 `ctest`
+          均不覆盖这些脚本
       5.  完整构建与全部测试（.NET 按 TRX 计数，Qt/C++ 走 ctest），报告真实用例数
+      5b. C++ 静态分析（scripts/static-analysis.ps1 -Tool cppcheck）：硬结果或分析不完整即失败，
+          风格类告警只列出；分析器无法运行时同样记为本关失败，后续关卡照常执行
       6.  监听端口核对：启动一个 Collector，用 Get-NetTCPConnection 与 netstat 确认它不占端口
       7.  `LIVE_CAPTURE_STATUS` 断言：执行 `--capture-doctor --json`，要求
           `VERIFIED_POP_TO_EXIT`、无注入式钩子、monitor_type 为 WinPCap（与 package.ps1 同一组断言）
       8.  注入载荷扫描：所有输出目录中都不得存在 deucalion 原生载荷
-      9.  许可证材料齐全（LICENSE / THIRD_PARTY_NOTICES.md / docs/）
+      9.  许可证材料齐全（LICENSE / THIRD_PARTY_NOTICES.md / README.md / docs/），包括固定
+          离线 OCR 依赖清单（docs/licenses/ocr/dependency-manifest.json）所列的许可证文件，
+          且其 SHA-256 与清单一致
+      9b. 离线 OCR 运行验证：构建目录部署了 OCR 时，按固定清单核对并实际运行一次版本查询
+          与识别探测；未部署时记为跳过，这次运行因此不评定 PUBLIC_DISTRIBUTION_READY
 
     静态边界检查失败按构建失败处理，它守护的是不可协商的行为边界
     （见 docs/privacy-boundary.md）。
@@ -84,6 +94,8 @@ $CheckPy             = Join-Path $RepoRoot 'tools\static-boundary-check\check.py
 $ArchitectureCheckPy = Join-Path $RepoRoot 'tools\architecture-boundary-check\check.py'
 $TestScript          = Join-Path $PSScriptRoot 'test.ps1'
 $ToolTests           = Join-Path $PSScriptRoot 'run-python-tool-tests.ps1'
+$SecurityQualityScript = Join-Path $PSScriptRoot 'security-quality.ps1'
+$StaticAnalysisScript = Join-Path $PSScriptRoot 'static-analysis.ps1'
 
 $failures = New-Object System.Collections.Generic.List[string]
 $skipped = New-Object System.Collections.Generic.List[string]
@@ -145,6 +157,19 @@ if ($orphans.Count -gt 0) {
 }
 else {
     Write-Host '  没有遗留的 MentorRecorder 进程。' -ForegroundColor Green
+}
+
+# Audit before executing the restored dependencies. The following no-restore build/test
+# reuses this solution graph; final self-contained publish audits its own RID graph.
+Write-Head '完整依赖安全审计 / Full dependency security audit'
+if (-not (Test-Path -LiteralPath $SecurityQualityScript)) {
+    Write-Host 'Missing mandatory scripts/security-quality.ps1.' -ForegroundColor Red
+    exit 1
+}
+& $SecurityQualityScript -Phase Local
+if ($LASTEXITCODE -ne 0) {
+    Write-Host 'Dependency security audit did not pass; verification is blocked.' -ForegroundColor Red
+    exit 1
 }
 
 # ------------------------------------------------------- 2. static boundary -------
@@ -254,6 +279,28 @@ if ($TestFilter) {
 & $TestScript @testArgs
 if ($LASTEXITCODE -ne 0) {
     $failures.Add('build-and-test')
+}
+
+# This is part of the full local/CI gate, rather than an optional standalone check.
+# Its policy rejects hard errors and incomplete analysis, while reporting style findings.
+Write-Head 'C++ 静态分析 / C++ static analysis'
+if (-not (Test-Path -LiteralPath $StaticAnalysisScript)) {
+    Add-Failure 'cpp-static-analysis' 'Missing mandatory scripts/static-analysis.ps1.'
+}
+else {
+    # static-analysis.ps1 throws when it cannot run at all (no compile_commands.json, a failed
+    # configure); record that as this gate's failure so the gates below and the summary still run.
+    try {
+        & $StaticAnalysisScript -Tool cppcheck -Jobs ([Math]::Min(2, [Environment]::ProcessorCount))
+        $staticAnalysisExit = $LASTEXITCODE
+    }
+    catch {
+        Add-Failure 'cpp-static-analysis' ("C++ analyzer could not run: {0}" -f $_.Exception.Message)
+        $staticAnalysisExit = $null
+    }
+    if ($null -ne $staticAnalysisExit -and $staticAnalysisExit -ne 0) {
+        Add-Failure 'cpp-static-analysis' 'C++ analyzer failed or reported hard findings.'
+    }
 }
 
 # --------------------------------------------------------- 6. listener check ------

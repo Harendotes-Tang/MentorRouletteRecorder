@@ -732,6 +732,12 @@ Assert-File $Windeployqt '缺少 windeployqt'
 Assert-File $BuildScript '缺少构建脚本'
 Assert-File $VerifyScript '缺少验证脚本'
 
+# The source the binaries are built from, read before verify.ps1 and build.ps1 run and required
+# unchanged where BUILD-METADATA.json records it (audit 2026-10-20, M-2): a checkout, stash or
+# commit by another session in between would otherwise leave a clean source_commit beside
+# binaries built from another tree.
+$sourceStateBeforeVerify = Get-SourceTreeState -RepoRoot $RepoRoot
+
 if (-not $SkipVerify) {
     Write-Head '预验证 / Preflight verify'
     & $VerifyScript -Configuration $Configuration
@@ -778,7 +784,8 @@ Write-Head '发布 Collector / Publish Collector'
     -c $Configuration `
     -r win-x64 `
     --self-contained true `
-    -p:NuGetAudit=false `
+    -p:NuGetAudit=true `
+    -p:NuGetAuditMode=all `
     -o $CollectorStage
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
@@ -825,6 +832,17 @@ foreach ($localOnlyDocs in @('docs\diagrams', 'docs\plans', 'docs\reviews')) {
 # an empty `git status` must not pass for a clean tree: Get-SourceTreeState reports it as a
 # problem, which blocks the distribution claim below.
 $sourceState = Get-SourceTreeState -RepoRoot $RepoRoot
+if ($sourceStateBeforeVerify.Commit -ne $sourceState.Commit -or
+    $sourceStateBeforeVerify.Dirty -ne $sourceState.Dirty -or
+    [bool]$sourceStateBeforeVerify.Problem -ne [bool]$sourceState.Problem) {
+    $describeSource = {
+        param($state)
+        if ($state.Problem) { return [string]$state.Problem }
+        '提交 {0}（{1}）' -f $state.Commit, $(if ($state.Dirty) { '有未提交改动' } else { '工作区干净' })
+    }
+    throw ("源码在打包过程中发生了变化：验证与构建开始时为{0}，现在为{1}。产物中的程序无法确定来自哪一份源码；请在工作区不再变动时重新打包。" -f
+        (& $describeSource $sourceStateBeforeVerify), (& $describeSource $sourceState))
+}
 
 Write-Head '读取构建自述 / Read build self-report'
 # Exit code 1 from --capture-doctor means this machine could not capture right now (no Npcap,
@@ -878,6 +896,10 @@ elseif ($sourceState.Dirty) {
 if ($SkipVerify) {
     $distributionBlockers += '按 -SkipVerify 跳过了验证关卡'
 }
+if (-not $Verify) {
+    # docs/release-checklist.md requires the unpack-and-run check of the archive (M-2).
+    $distributionBlockers += '未按 -Verify 解包并运行产物（unpack_verified=false）'
+}
 if ($IsPrerelease) {
     # A beta is a test build by definition: the number says the work is not released yet,
     # so the artifact must never be offered as one. Packaging still succeeds - producing
@@ -913,8 +935,13 @@ foreach ($blocker in $distributionBlockers) {
     source_protocol_profile_status = $sourceProfileStatus
     packaged_verified_profile_status = $packagedProfileStatus
     packaged_verified_profile_status_source = 'staged --list-profiles over the packaged profile files'
+    # Whether this run unpacks the archive and runs both executables from it (-Verify). That
+    # check runs after this file is written; a failure there fails the packaging run and
+    # deletes this file, the archive and its checksum.
+    unpack_verified = [bool]$Verify
+    unpack_verified_source = 'package.ps1 -Verify; the unpack-and-run check follows this file and fails the run when it fails'
     public_distribution_ready = $publicDistributionReady
-    public_distribution_ready_source = 'staged CaptureDiagnostics constant, packaged profiles, git worktree state and -SkipVerify'
+    public_distribution_ready_source = 'staged CaptureDiagnostics constant, packaged profiles, git worktree state, -SkipVerify and -Verify'
     public_distribution_blockers = @($distributionBlockers)
     produced_at_utc = [DateTimeOffset]::UtcNow.ToString('O')
 } | ConvertTo-Json | Set-Content -LiteralPath $BuildMetadataPath -Encoding utf8
@@ -1010,22 +1037,16 @@ if ($Verify) {
             $startInfo.get_EnvironmentVariables()['MR_DISABLE_SHARED_FETCH'] = '1'
             $startInfo.get_EnvironmentVariables()['MR_DISABLE_ONLINE_SPEECH'] = '1'
             $startInfo.get_EnvironmentVariables()['MR_DISABLE_UPDATE_CHECK'] = '1'
-            $process = [System.Diagnostics.Process]::Start($startInfo)
-            try {
-                # Drain both pipes while the process runs so Qt diagnostics cannot fill
-                # stderr and block a screenshot before it reaches its exit path.
-                $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-                $stderrTask = $process.StandardError.ReadToEndAsync()
-                $process.WaitForExit()
-                $processExit = $process.ExitCode
-                $stdout = $stdoutTask.GetAwaiter().GetResult()
-                $stderr = $stderrTask.GetAwaiter().GetResult()
-            }
-            finally {
-                $process.Dispose()
-            }
+            $result = Invoke-PackageVerificationProcess -StartInfo $startInfo -TimeoutSeconds 60
+            $processExit = $result.ExitCode
+            $stdout = $result.Stdout
+            $stderr = $result.Stderr
             Set-Content -LiteralPath $out -Value $stdout -Encoding UTF8
             Set-Content -LiteralPath $err -Value $stderr -Encoding UTF8
+
+            if ($result.TimedOut) {
+                throw ("{0} exceeded the 60-second package verification timeout; see {1} and {2}." -f $Label, $out, $err)
+            }
 
             if ($AllowedExitCodes -notcontains $processExit) {
                 throw ("{0} 退出码 {1}（允许 {2}）:`n{3}`n{4}" -f
@@ -1147,6 +1168,26 @@ if ($Verify) {
         # Nothing the run just did may have written a database or a log into the artifact.
         Assert-NoForbiddenPayload $unpacked
         Write-Host '  解包验证通过：运行时依赖完整。' -ForegroundColor Green
+    }
+    catch {
+        # The archive, its checksum and the stage's BUILD-METADATA.json were written before this
+        # check and say unpack_verified = true; a failed check must not leave them behind (RV4-6).
+        $verifyFailure = $_
+        $removed = @()
+        $notRemoved = @()
+        foreach ($claimant in @($ZipPath, $ZipHashPath, $BuildMetadataPath)) {
+            if (-not (Test-Path -LiteralPath $claimant)) { continue }
+            Remove-Item -LiteralPath $claimant -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $claimant) { $notRemoved += $claimant } else { $removed += $claimant }
+        }
+        $lines = @($verifyFailure.Exception.Message)
+        if ($removed.Count -gt 0) {
+            $lines += ('解包验证未通过，已删除验证前写出、记录 unpack_verified = true 的产物：{0}' -f ($removed -join ', '))
+        }
+        if ($notRemoved.Count -gt 0) {
+            $lines += ('以下产物未能删除，请手动删除，不要分发：{0}' -f ($notRemoved -join ', '))
+        }
+        throw ($lines -join [Environment]::NewLine)
     }
     finally {
         Remove-Item -LiteralPath $verifyRoot -Recurse -Force -ErrorAction SilentlyContinue

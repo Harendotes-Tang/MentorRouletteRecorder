@@ -17,6 +17,10 @@ Button {
     property string number: ""
     property string iconName: ""
     property string label: ""
+    // JhengHei's native rasterizer can drop 一 at fractional DPI (e.g. 150%).
+    // Draw Traditional Chinese navigation text from its outlines instead.
+    readonly property int labelRenderType: typeof Lang !== "undefined" && Lang.code === "zh-TW"
+                                          ? Text.CurveRendering : Text.NativeRendering
     readonly property bool hasIcon: iconName.length > 0 && Lucide.has(iconName)
     readonly property real pixelRatio: Screen.devicePixelRatio > 0 ? Screen.devicePixelRatio : 1
     property string sub: ""
@@ -153,6 +157,7 @@ Button {
                        : (navItem.current ? Theme.accent
                                           : (navItem.hovered ? Theme.textPrimary : Theme.textSecondary))
                 // Classic: t2 (15 px); 500 at rest, 600 on the current page.
+                renderType: navItem.labelRenderType
                 font.pixelSize: Theme.eorzea ? 13 : 15
                 font.weight: Theme.eorzea
                              ? (navItem.current ? Font.Bold : Font.Normal)
@@ -169,6 +174,7 @@ Button {
                 text: navItem.sub
                 color: navItem.current ? labelText.color : Theme.textSecondary
                 opacity: navItem.current ? 0.8 : 1.0
+                renderType: navItem.labelRenderType
                 font.pixelSize: 11
                 font.weight: Font.Normal
                 wrapMode: Text.WordWrap

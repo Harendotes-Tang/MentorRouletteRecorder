@@ -18,7 +18,11 @@ public sealed record JobInfo(
     string NameEn,
     string NameZh,
     string RoleGroup,
-    Role Role);
+    Role Role)
+{
+    /// <summary>Approved complete Chinese aliases; absent in legacy catalog rows.</summary>
+    public IReadOnlyList<string> AliasesZh { get; init; } = Array.Empty<string>();
+}
 
 /// <summary>
 /// Maps a job id to a display name and a role.
@@ -60,6 +64,33 @@ public sealed class JobCatalog
     /// <param name="jobId">Job id.</param>
     public JobInfo? Find(int? jobId) =>
         jobId is { } id && _byId.TryGetValue(id, out var info) ? info : null;
+
+    /// <summary>Resolves one complete name or approved alias, ignoring outer whitespace and case.
+    /// Unknown or ambiguous text returns null; no substring or single-character inference is made.</summary>
+    /// <param name="name">Source name, English abbreviation or approved Chinese alias; null/blank is unknown.</param>
+    public JobInfo? FindByName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        var query = name.Trim();
+        var matches = _byId.Values.Where(job =>
+            string.Equals(job.NameZh, query, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(job.NameEn, query, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(job.Abbreviation, query, StringComparison.OrdinalIgnoreCase)
+            || job.AliasesZh.Contains(query, StringComparer.OrdinalIgnoreCase)).Take(2).ToArray();
+        return matches.Length == 1 ? matches[0] : null;
+    }
+
+    /// <summary>Resolves a complete approved Chinese alias or its job's Chinese full name for query expansion.
+    /// Jobs without aliases and ambiguous terms retain the existing literal-search behavior.</summary>
+    /// <param name="text">Unmodified search text; only surrounding whitespace is ignored for this lookup.</param>
+    public JobInfo? FindByChineseSearchText(string? text)
+    {
+        var job = FindByName(text);
+        if (job is null || job.AliasesZh.Count == 0) return null;
+        var query = text!.Trim();
+        return string.Equals(job.NameZh, query, StringComparison.OrdinalIgnoreCase)
+            || job.AliasesZh.Contains(query, StringComparer.OrdinalIgnoreCase) ? job : null;
+    }
 
     /// <summary>Display name of a job id; the unknown marker when it cannot be resolved.</summary>
     /// <param name="jobId">Job id.</param>
@@ -110,7 +141,12 @@ public sealed class JobCatalog
                 row.NameEn ?? string.Empty,
                 string.IsNullOrWhiteSpace(row.NameZh) ? UnknownJobName : row.NameZh,
                 group,
-                MapRole(group));
+                MapRole(group))
+            {
+                AliasesZh = Array.AsReadOnly((row.AliasesZh ?? Array.Empty<string>())
+                    .Where(alias => !string.IsNullOrWhiteSpace(alias)).Select(alias => alias.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToArray()),
+            };
         }
 
         return new JobCatalog(byId);
@@ -165,6 +201,9 @@ public sealed class JobCatalog
 
         [JsonPropertyName("name_zh")]
         public string? NameZh { get; init; }
+
+        [JsonPropertyName("aliases_zh")]
+        public string[]? AliasesZh { get; init; }
 
         [JsonPropertyName("role")]
         public string? Role { get; init; }

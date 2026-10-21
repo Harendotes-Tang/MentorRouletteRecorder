@@ -451,7 +451,12 @@ public sealed class OodleSignatureRuntime : IDisposable
             }
 
             LogScanResults(scan);
-            _logger.WriteError("capture", "oodle_signature_override_failed", ex);
+            // Any failure lands here - a full temp folder, an antivirus scan of the copy, a profile
+            // that no longer fits - so the player's sentence names none of them for certain; the
+            // tool a maintainer regenerates the profile with is named in the local log only
+            // (audit 2026-10-20, A2-4).
+            _logger.WriteError("capture", "oodle_signature_override_failed", ex,
+                "if the profile no longer fits, regenerate and verify it with tools/oodle-signature-finder");
             throw Refused(CollectorTexts.CaptureOodleProfileLoadFailed(), ex);
         }
 

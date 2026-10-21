@@ -12,6 +12,7 @@
 #include <QPainter>
 #include <QPixmap>
 #include <QSystemTrayIcon>
+#include <QTimer>
 #include <QWindow>
 
 namespace {
@@ -69,6 +70,35 @@ TrayController::TrayController(AppController *controller, AppSettings *settings,
     m_menu = std::make_unique<QMenu>();
     m_showAction = m_menu->addAction(QString());
     connect(m_showAction, &QAction::triggered, this, &TrayController::showWindow);
+    m_pendingWorkAction = m_menu->addAction(QString());
+    m_pendingWorkAction->setObjectName(QStringLiteral("pendingWorkAction"));
+    m_pendingWorkAction->setEnabled(m_controller != nullptr);
+    connect(m_pendingWorkAction, &QAction::triggered, this, [this] {
+        showWindow();
+        // The main window is shown before its overlay is requested. Leave
+        // one event-loop turn for its visibility bindings to catch up.
+        QTimer::singleShot(0, this, [this] {
+            if (m_controller)
+                m_controller->recovery()->requestInbox();
+        });
+    });
+    if (m_controller) {
+        connect(m_controller->recovery(), &RecoveryController::changed,
+                this, &TrayController::retranslate);
+    }
+    m_statisticsAction = m_menu->addAction(QString());
+    m_statisticsAction->setObjectName(QStringLiteral("statisticsFloatingWindowAction"));
+    m_unlockStatisticsAction = m_menu->addAction(QString());
+    m_unlockStatisticsAction->setObjectName(QStringLiteral("unlockStatisticsFloatingWindowAction"));
+    if (m_controller) {
+        auto *overlay = m_controller->statisticsOverlay();
+        connect(m_statisticsAction, &QAction::triggered, overlay, &StatisticsOverlayController::toggle);
+        connect(m_unlockStatisticsAction, &QAction::triggered, overlay, &StatisticsOverlayController::unlock);
+        connect(overlay, &StatisticsOverlayController::visibleChanged, this, &TrayController::retranslate);
+        connect(overlay, &StatisticsOverlayController::lockedChanged, this, &TrayController::retranslate);
+    } else {
+        m_statisticsAction->setEnabled(false);
+    }
 
     // With a controller its text is the capture action's label (refreshCaptureAction).
     m_captureAction = m_menu->addAction(tr("开始捕获"));
@@ -148,6 +178,15 @@ void TrayController::retranslate()
     if (!m_tray)
         return;
     m_showAction->setText(tr("显示主窗口"));
+    if (m_pendingWorkAction)
+        m_pendingWorkAction->setText(tr("待处理（%1）")
+                                       .arg(m_controller ? m_controller->recovery()->count() : 0));
+    if (m_statisticsAction) {
+        m_statisticsAction->setText(m_controller && m_controller->statisticsOverlay()->visible()
+                                   ? tr("隐藏统计浮窗") : tr("显示统计浮窗"));
+        m_unlockStatisticsAction->setText(tr("解锁统计浮窗"));
+        m_unlockStatisticsAction->setVisible(m_controller && m_controller->statisticsOverlay()->locked());
+    }
     m_quitAction->setText(tr("退出"));
     m_tray->setToolTip(tr("FF14 导随记录器"));
     refreshCaptureAction();

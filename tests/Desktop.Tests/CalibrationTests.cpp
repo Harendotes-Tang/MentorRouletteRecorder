@@ -20,7 +20,9 @@
 #include "CollectorText.h"
 #include "CollectorTextTestSupport.h"
 #include "IBackend.h"
+#include "JobCatalog.h"
 #include "MockBackend.h"
+#include "RoleCatalog.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -93,6 +95,15 @@ QJsonObject observingCalibration()
                          {QStringLiteral("duty_entry_seen"), false},
                          {QStringLiteral("duty_exit_seen"), false}}},
             {QStringLiteral("events"), QJsonArray{}}};
+}
+
+/// 对 for every row of readyTimeline() that asks.
+QVariantMap allCorrectVerdicts()
+{
+    return {{QStringLiteral("finder_request-60000"), QStringLiteral("CORRECT")},
+            {QStringLiteral("pop-120000"), QStringLiteral("CORRECT")},
+            {QStringLiteral("duty_enter-124000"), QStringLiteral("CORRECT")},
+            {QStringLiteral("duty_exit-214000"), QStringLiteral("CORRECT")}};
 }
 
 /// A backend that answers every message synchronously and records the order.
@@ -456,6 +467,83 @@ private Q_SLOTS:
                  QStringLiteral("WRONG"));
     }
 
+    // Review I4-2: a refusal or a failed request speaks of the state it happened in. It used to
+    // stay on the card - and in a freshly opened 核对 dialog - through the next draft, a finished
+    // calibration and another game build.
+    void aRefusalDoesNotOutliveItsState()
+    {
+        CalibrationBackend backend;
+        backend.confirmErrorCode = QStringLiteral("ERR_INTERNAL");
+        mr::CalibrationController controller;
+        controller.setBackend(&backend);
+        const auto status = [](const QJsonObject &calibration) {
+            return QJsonObject{{QStringLiteral("calibration"), calibration}}.toVariantMap();
+        };
+        controller.refreshFromCaptureStatus(status(readyTimeline()));
+        controller.confirm(allCorrectVerdicts());
+        QCOMPARE(backend.count("ConfirmCalibration"), 1);
+        QVERIFY(!controller.error().isEmpty());
+
+        // The same draft read again: the failure still applies to it, and a retry is up to the player.
+        controller.refreshFromCaptureStatus(status(readyTimeline()));
+        QVERIFY(!controller.error().isEmpty());
+
+        // Finished after all: there is nothing left to retry.
+        controller.refreshFromCaptureStatus(status(readyTimeline(false)));
+        QCOMPARE(controller.state(), QStringLiteral("DONE"));
+        QVERIFY2(controller.error().isEmpty(), qPrintable(controller.error()));
+    }
+
+    void aRejectedDraftKeepsItsSentenceOnlyUntilTheNextDraft()
+    {
+        CalibrationBackend backend;
+        backend.confirmErrorCode = QStringLiteral("ERR_CALIBRATION_REJECTED");
+        mr::CalibrationController controller;
+        controller.setBackend(&backend);
+        const auto status = [](const QJsonObject &calibration) {
+            return QJsonObject{{QStringLiteral("calibration"), calibration}}.toVariantMap();
+        };
+        controller.refreshFromCaptureStatus(status(readyTimeline()));
+        controller.confirm(allCorrectVerdicts());
+        const QString rejected = mr::CalibrationController::rejectedMessage();
+        QCOMPARE(controller.error(), rejected);
+
+        // Observing again is what the rejection leads to, and the sentence says why.
+        controller.refreshFromCaptureStatus(status(observingCalibration()));
+        QCOMPARE(controller.state(), QStringLiteral("OBSERVING"));
+        QCOMPARE(controller.error(), rejected);
+        QJsonObject waiting = observingCalibration();
+        waiting.insert(QStringLiteral("state"), QStringLiteral("WAITING"));
+        controller.refreshFromCaptureStatus(status(waiting));
+        QCOMPARE(controller.state(), QStringLiteral("WAITING"));
+        QCOMPARE(controller.error(), rejected);
+
+        // The next draft is a new question: the old answer must not greet it.
+        controller.refreshFromCaptureStatus(status(readyTimeline()));
+        QCOMPARE(controller.state(), QStringLiteral("READY"));
+        QVERIFY2(controller.error().isEmpty(), qPrintable(controller.error()));
+    }
+
+    void anotherGameBuildDropsTheRefusal()
+    {
+        CalibrationBackend backend;
+        backend.confirmErrorCode = QStringLiteral("ERR_INTERNAL");
+        mr::CalibrationController controller;
+        controller.setBackend(&backend);
+        const auto status = [](const QJsonObject &calibration) {
+            return QJsonObject{{QStringLiteral("calibration"), calibration}}.toVariantMap();
+        };
+        controller.refreshFromCaptureStatus(status(readyTimeline()));
+        controller.confirm(allCorrectVerdicts());
+        QVERIFY(!controller.error().isEmpty());
+
+        QJsonObject patched = readyTimeline();
+        patched.insert(QStringLiteral("game_build"), QStringLiteral("2026.10.01.0000.0000"));
+        controller.refreshFromCaptureStatus(status(patched));
+        QCOMPARE(controller.state(), QStringLiteral("READY"));
+        QVERIFY2(controller.error().isEmpty(), qPrintable(controller.error()));
+    }
+
     void discardAsksToObserveAgain()
     {
         CalibrationBackend backend;
@@ -649,6 +737,123 @@ ApplicationWindow {
         QCOMPARE(backend.calibrationFixture(), QStringLiteral("done"));
         QTRY_COMPARE(app.captureStatus().value(QStringLiteral("profile_status")).toString(),
                      QStringLiteral("VERIFIED"));
+    }
+
+    // Review K2-3: 错 on a row that carries a roulette id records RELABEL with no name yet. The
+    // 你当时排的是 box used to show the first roulette as if it had been chosen, 核对并启用 stayed
+    // disabled with no word why, and picking the roulette on show changed nothing.
+    void aWrongRouletteNameAsksForTheRightOneInsteadOfShowingTheFirst()
+    {
+        CalibrationBackend backend;
+        QJsonObject calibration = readyTimeline();
+        QJsonArray events = calibration.value(QStringLiteral("events")).toArray();
+        QJsonObject pop = events.at(2).toObject();
+        QCOMPARE(pop.value(QStringLiteral("event_id")).toString(), QStringLiteral("pop-120000"));
+        pop.insert(QStringLiteral("roulette_id"), 2);
+        events.replace(2, pop);
+        calibration.insert(QStringLiteral("events"), events);
+        backend.capture.insert(QStringLiteral("calibration"), calibration);
+        mr::AppController app(&backend, nullptr);
+        QTRY_COMPARE(app.calibration()->state(), QStringLiteral("READY"));
+
+        // The open list draws its rows with StyledComboBox's delegate, which reads these two.
+        mr::JobCatalog jobs;
+        mr::RoleCatalog roles;
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("App"), &app);
+        engine.rootContext()->setContextProperty(QStringLiteral("Jobs"), &jobs);
+        engine.rootContext()->setContextProperty(QStringLiteral("Roles"), &roles);
+        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 720; height: 640; visible: true
+    CalibrationDialog { id: inner }
+})", QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(window);
+        auto *dialog = root->findChild<QObject *>(QStringLiteral("calibrationDialog"));
+        QVERIFY(dialog);
+        QVERIFY(QMetaObject::invokeMethod(dialog, "openDialog"));
+        QTRY_VERIFY(dialog->property("visible").toBool());
+        auto *content = qobject_cast<QQuickItem *>(dialog->property("contentItem").value<QObject *>());
+        QVERIFY(content);
+
+        for (const QString &id : {QStringLiteral("finder_request-60000"), QStringLiteral("duty_enter-124000"),
+                                  QStringLiteral("duty_exit-214000")}) {
+            QVERIFY(QMetaObject::invokeMethod(dialog, "setVerdict", Q_ARG(QVariant, QVariant(id)),
+                                              Q_ARG(QVariant, QVariant(QStringLiteral("CORRECT"))),
+                                              Q_ARG(QVariant, QVariant(QString()))));
+        }
+        auto *confirm = findVisualItem(content, QStringLiteral("calibrationDialogConfirm"));
+        auto *right = findVisualItem(content, QStringLiteral("calibrationVerdictCorrect_pop-120000"));
+        auto *wrong = findVisualItem(content, QStringLiteral("calibrationVerdictWrong_pop-120000"));
+        auto *choice = findVisualItem(content, QStringLiteral("calibrationRelabelChoice_pop-120000"));
+        auto *hint = findVisualItem(content, QStringLiteral("calibrationDialogNameHint"));
+        QVERIFY(confirm && right && wrong && choice);
+        QVERIFY(hint);
+        QVERIFY(!hint->isVisible());
+
+        const QString placeholder = QString::fromUtf8("请选择…");
+        const auto expectNameAsked = [&] {
+            QTRY_VERIFY(choice->isVisible());
+            QCOMPARE(choice->property("currentIndex").toInt(), -1);
+            QCOMPARE(choice->property("displayText").toString(), placeholder);
+            QVERIFY(!confirm->property("enabled").toBool());
+            QTRY_VERIFY(hint->isVisible());
+            QVERIFY(hint->property("text").toString().contains(QString::fromUtf8("你当时排的是")));
+        };
+
+        QVERIFY(QMetaObject::invokeMethod(wrong, "clicked"));
+        expectNameAsked();
+        if (QTest::currentTestFailed())
+            return;
+
+        // A player picks the first roulette - the very one the box used to show - with the keyboard.
+        choice->forceActiveFocus();
+        QTRY_VERIFY(choice->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_Down);
+        QTRY_COMPARE(choice->property("currentIndex").toInt(), 0);
+        const QVariantMap verdicts = dialog->property("verdicts").toMap();
+        const QVariantMap answer = verdicts.value(QStringLiteral("pop-120000")).toMap();
+        QCOMPARE(answer.value(QStringLiteral("verdict")).toString(), QStringLiteral("RELABEL"));
+        QCOMPARE(answer.value(QStringLiteral("roulette_name")).toString(), QString::fromUtf8("顶级迷宫"));
+        QTRY_VERIFY(confirm->property("enabled").toBool());
+        QVERIFY(!hint->isVisible());
+
+        // 对 and then 错 again asks again, rather than showing the earlier choice as made.
+        QVERIFY(QMetaObject::invokeMethod(right, "clicked"));
+        QTRY_VERIFY(!choice->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(wrong, "clicked"));
+        expectNameAsked();
+        if (QTest::currentTestFailed())
+            return;
+
+        // The same with the mouse, through the open list: a pick there must not leave the box
+        // showing it once the answer has moved on.
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          choice->mapToScene(QPointF(choice->width() / 2, choice->height() / 2)).toPoint());
+        auto *popup = choice->property("popup").value<QObject *>();
+        QVERIFY(popup);
+        QTRY_VERIFY(popup->property("opened").toBool());
+        auto *list = qobject_cast<QQuickItem *>(popup->property("contentItem").value<QObject *>());
+        QVERIFY(list);
+        QQuickItem *row = nullptr;
+        QTRY_VERIFY(QMetaObject::invokeMethod(list, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, row),
+                                              Q_ARG(int, 1)) && row);
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          row->mapToScene(QPointF(row->width() / 2, row->height() / 2)).toPoint());
+        QTRY_COMPARE(choice->property("currentIndex").toInt(), 1);
+        QTRY_COMPARE(dialog->property("verdicts").toMap().value(QStringLiteral("pop-120000")).toMap()
+                         .value(QStringLiteral("roulette_name")).toString(), QString::fromUtf8("满级迷宫"));
+        QVERIFY(QMetaObject::invokeMethod(right, "clicked"));
+        QTRY_VERIFY(!choice->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(wrong, "clicked"));
+        expectNameAsked();
     }
 
     void dialogShowsThePlainRejectionSentenceAndCloses()

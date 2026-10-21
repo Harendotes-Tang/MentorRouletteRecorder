@@ -100,11 +100,20 @@ Dialog {
         {text: qsTr("糟心"), value: "bad"}
     ]
     readonly property var visibleRows: projectRows(activeFilter)
+    readonly property int reviewPageSize: 100
+    property int reviewPage: 0
+    readonly property int pageCount: Math.max(1, Math.ceil(visibleRows.length / reviewPageSize))
+    readonly property var pageRows: visibleRows.slice(reviewPage * reviewPageSize, (reviewPage + 1) * reviewPageSize)
     readonly property var listItems: groupedRows()
     readonly property int attentionCount: projectRows("attention").length
     readonly property int unknownJobCount: projectRows("unknown").length
     readonly property int unselectedCount: projectRows("unselected").length
     readonly property bool allImportableSelected: allRowsSelected()
+    onVisibleRowsChanged: Qt.callLater(syncPageToCurrent)
+    Connections {
+        target: dialog.controller
+        function onChanged() { Qt.callLater(dialog.syncPageToCurrent) }
+    }
 
     component FieldLabel: Text {
         textFormat: Text.PlainText
@@ -186,7 +195,8 @@ Dialog {
             const row = rows[i]
             const c = row.candidate || {}
             if (filter === "attention" && !rowNeedsAttention(row)) continue
-            if (filter === "unknown" && c.job_id !== null && c.job_id !== undefined) continue
+            const jobId = Object.prototype.hasOwnProperty.call(c, "job_id") ? c.job_id : (row.run || {}).job_id
+            if (filter === "unknown" && jobId !== null && jobId !== undefined) continue
             if (filter === "unselected" && row.selected === true) continue
             result.push({originalIndex: i, row: row})
         }
@@ -205,11 +215,11 @@ Dialog {
             const source = (all[i].evidence || {}).source_image || ""
             if (source && sourceNumbers[source] === undefined) sourceNumbers[source] = ++sourceCount
         }
-        for (let item of visibleRows) {
+        for (let item of pageRows) {
             const source = (item.row.evidence || {}).source_image || ""
             if (source !== previousSource) {
                 let count = 0
-                for (let entry of visibleRows)
+                for (let entry of pageRows)
                     if (((entry.row.evidence || {}).source_image || "") === source) ++count
                 result.push({originalIndex: -1, source: source,
                     label: source ? qsTr("截图 %1 · %2").arg(sourceNumbers[source]).arg(sourceName(source))
@@ -220,11 +230,15 @@ Dialog {
         }
         return result
     }
+    function jobGuessPending(row) {
+        return !!row && (row.evidence || {}).job_candidate_pending === true
+    }
     function allRowsSelected() {
         const rows = controller ? controller.rows : []
         let importable = 0
         for (let row of rows) {
-            if (row.can_import === true) {
+            // 全选 leaves a guessed job for the user to confirm, so it does not count here.
+            if (row.can_import === true && !jobGuessPending(row)) {
                 ++importable
                 if (row.selected !== true) return false
             }
@@ -241,7 +255,18 @@ Dialog {
         for (let entry of rows)
             if (entry.originalIndex === controller.currentRow) found = true
         if (!found && rows.length) controller.currentRow = rows[0].originalIndex
+        syncPageToCurrent()
         candidateList.forceActiveFocus(Qt.MouseFocusReason)
+    }
+    function syncPageToCurrent() {
+        const position = visiblePosition()
+        reviewPage = position >= 0 ? Math.floor(position / reviewPageSize) : Math.max(0, Math.min(reviewPage, pageCount - 1))
+    }
+    function choosePage(page) {
+        flushEditors()
+        reviewPage = Math.max(0, Math.min(page, pageCount - 1))
+        if (pageRows.length) controller.currentRow = pageRows[0].originalIndex
+        candidateList.forceActiveFocus(Qt.TabFocusReason)
     }
     function visiblePosition() {
         for (let i = 0; i < visibleRows.length; ++i)
@@ -265,12 +290,17 @@ Dialog {
             navigationHint = qsTr("内容有修改，请先重新校验再勾选。")
             return
         }
+        if (jobGuessPending(controller.rows[row])) {
+            navigationHint = qsTr("职业是按图标推测的，请先在「职业」中确认，再勾选。")
+            return
+        }
         controller.setRowSelected(row, true)
         navigationHint = ""
         if (position >= 0 && position + 1 < rows.length)
             controller.currentRow = rows[position + 1].originalIndex
         else if (visibleRows.length && activeFilter === "unselected")
             controller.currentRow = visibleRows[0].originalIndex
+        syncPageToCurrent()
         candidateList.forceActiveFocus(Qt.MouseFocusReason)
     }
     function toggleCurrentSelection() {
@@ -310,6 +340,7 @@ Dialog {
         if (controller && !controller.committing && !controller.pendingCommitConfirmation)
             controller.reset()
         activeFilter = "all"
+        reviewPage = 0
         navigationHint = ""
         showRecognitionHints = false
         showMapping = false
@@ -333,6 +364,7 @@ Dialog {
     function selectRow(row) {
         flushEditors()
         controller.currentRow = row
+        syncPageToCurrent()
     }
     function flushEditors() {
         // AppButton accepts Tab focus, so clicking an action may leave a text
@@ -583,9 +615,33 @@ Dialog {
                     }
                     RowLayout {
                         Layout.fillWidth: true; spacing: 5
-                        ImportCheckBox { objectName: "importSelectAll"; text: qsTr("全选可导入"); checked: dialog.allImportableSelected; enabled: !dialog.inputLocked && dialog.controller && dialog.controller.previewValid; onClicked: { dialog.flushEditors(); dialog.controller.setAllImportableSelected(checked) } }
+                        ImportCheckBox { objectName: "importSelectAll"; text: qsTr("全选整批可导入"); checked: dialog.allImportableSelected; enabled: !dialog.inputLocked && dialog.controller && dialog.controller.previewValid; onClicked: { dialog.flushEditors(); dialog.controller.setAllImportableSelected(checked) } }
                         Item { Layout.fillWidth: true }
                         AppButton { objectName: "importBatchOpen"; text: qsTr("批量设置"); compact: true; Layout.preferredWidth: 72; enabled: !dialog.inputLocked && dialog.controller && dialog.controller.previewValid && dialog.controller.selectedCount > 0; onClicked: dialog.openBatch() }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: 4
+                        AppButton {
+                            objectName: "importPreviousPage"; text: ""; iconName: "chevron-left"; compact: true
+                            enabled: !dialog.inputLocked && dialog.reviewPage > 0
+                            Accessible.name: qsTr("上一页")
+                            ToolTip.visible: hovered; ToolTip.text: qsTr("上一页")
+                            onClicked: dialog.choosePage(dialog.reviewPage - 1)
+                        }
+                        Text {
+                            objectName: "importPageLabel"; textFormat: Text.PlainText; Layout.fillWidth: true
+                            text: qsTr("第 %1 / %2 页").arg(dialog.reviewPage + 1).arg(dialog.pageCount) + "\n"
+                                + qsTr("%1–%2 / %3 条").arg(dialog.visibleRows.length ? dialog.reviewPage * dialog.reviewPageSize + 1 : 0)
+                                    .arg(Math.min((dialog.reviewPage + 1) * dialog.reviewPageSize, dialog.visibleRows.length)).arg(dialog.visibleRows.length)
+                            color: Theme.textSecondary; font.pixelSize: Theme.fs(11); horizontalAlignment: Text.AlignHCenter
+                        }
+                        AppButton {
+                            objectName: "importNextPage"; text: ""; iconName: "chevron-right"; compact: true
+                            enabled: !dialog.inputLocked && dialog.reviewPage + 1 < dialog.pageCount
+                            Accessible.name: qsTr("下一页")
+                            ToolTip.visible: hovered; ToolTip.text: qsTr("下一页")
+                            onClicked: dialog.choosePage(dialog.reviewPage + 1)
+                        }
                     }
                     ListView {
                         id: candidateList
@@ -956,10 +1012,31 @@ Dialog {
             ColumnLayout {
                 visible: dialog.hasRows; Layout.fillWidth: true; spacing: 2
                 Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: dialog.controller && dialog.controller.selectedCount > 0 ? qsTr("已勾选 %1 条").arg(dialog.controller.selectedCount) : qsTr("还没有勾选记录"); color: Theme.textSecondary; font.pixelSize: Theme.fs(11); elide: Text.ElideRight }
-                Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: dialog.controller && dialog.controller.previewValid ? qsTr("核对后勾选需要导入的记录") : qsTr("修改后请重新校验"); color: Theme.textMuted; font.pixelSize: Theme.fs(10); elide: Text.ElideRight }
+                Text {
+                    objectName: "importSelectionHint"
+                    readonly property int pendingJobs: dialog.controller ? dialog.controller.pendingJobSelectedCount : 0
+                    readonly property bool waitingForBaseline: dialog.controller ? dialog.controller.waitingForBaseline : false
+                    textFormat: Text.PlainText; Layout.fillWidth: true
+                    text: waitingForBaseline ? qsTr("起始次数尚未读取，读取后才能导入")
+                        : pendingJobs > 0 ? qsTr("%1 条已勾选记录的职业待确认，确认后才能导入").arg(pendingJobs)
+                        : dialog.controller && dialog.controller.previewValid ? qsTr("核对后勾选需要导入的记录") : qsTr("修改后请重新校验")
+                    color: waitingForBaseline || pendingJobs > 0 ? Theme.orangeText : Theme.textMuted; font.pixelSize: Theme.fs(10); elide: Text.ElideRight
+                    PlainToolTip { visible: selectionHintHover.hovered && parent.truncated; text: parent.text }
+                    HoverHandler { id: selectionHintHover }
+                }
             }
             ImportCheckBox { objectName: "importOwnRecordsConfirmed"; visible: dialog.hasRows; text: qsTr("我确认这些是自己的记录"); checked: dialog.controller ? dialog.controller.ownRecordsConfirmed : false; enabled: !dialog.inputLocked; onToggled: if (dialog.controller) dialog.controller.ownRecordsConfirmed = checked }
-            AppButton { objectName: "importCancel"; text: dialog.working ? qsTr("取消识别 / 预览") : qsTr("关闭"); enabled: !dialog.controller || (!dialog.controller.committing && !dialog.controller.pendingCommitConfirmation); onClicked: { if (dialog.controller) dialog.controller.cancel(); dialog.close() } }
+            AppButton {
+                objectName: "importCancel"; text: dialog.working ? qsTr("取消识别 / 预览") : qsTr("关闭")
+                enabled: !dialog.controller || (!dialog.controller.committing && !dialog.controller.pendingCommitConfirmation)
+                onClicked: {
+                    // Cancelling an append or a re-check keeps the reviewed batch; closing as well
+                    // would empty it when the dialog opens again (audit I3-6).
+                    const keepBatch = dialog.working && dialog.hasRows
+                    if (dialog.controller) dialog.controller.cancel()
+                    if (!keepBatch) dialog.close()
+                }
+            }
             AppButton { objectName: "importRevalidate"; text: qsTr("重新校验"); visible: dialog.hasRows; enabled: !dialog.inputLocked && dialog.controller && dialog.controller.sourceKind.length > 0; onClicked: { dialog.flushEditors(); dialog.controller.revalidate() } }
             AppButton { objectName: "importCommit"; visible: dialog.hasRows; text: dialog.controller && dialog.controller.pendingCommitConfirmation ? qsTr("重试确认保存") : qsTr("导入选中的 %1 条").arg(dialog.controller ? dialog.controller.selectedCount : 0); variant: "primary"; enabled: dialog.controller && dialog.controller.canCommit && !(reflectionEditor.activeFocus && reflectionEditor.text !== reflectionEditor.originalText); onClicked: { dialog.flushEditors(); dialog.controller.commit() } }
         }

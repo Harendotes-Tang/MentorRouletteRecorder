@@ -212,6 +212,11 @@ public sealed class CalibrationObserverSharedStateTests : IDisposable
 
     // ------------------------------------------------------------------ declared candidates
 
+    /// <summary>
+    /// The pop with the queue outstanding is counted; the lone pop with nothing queued is a sighting
+    /// only. A party member gets exactly that when the leader queues, so on its own it contradicts
+    /// nothing (audit 2026-10-20, C-3).
+    /// </summary>
     [Fact]
     public void ACandidatesPopIsCountedWithAndWithoutAnOutstandingRequest()
     {
@@ -223,7 +228,7 @@ public sealed class CalibrationObserverSharedStateTests : IDisposable
 
         var counts = Assert.Single(observer.Snapshot().Candidates).Sessions[Session];
         Assert.Equal(1, counts.PopWithRequest);
-        Assert.Equal(1, counts.PopWithoutRequest);
+        Assert.Equal(0, counts.PopWithoutRequest);
         Assert.True(counts.SightingsComplete);
         Assert.Equal(new[] { false, true }, counts.Sightings.Select(sighting => sighting.WithRequest));
         Assert.Equal(0, counts.ZoneOutside);
@@ -326,12 +331,47 @@ public sealed class CalibrationObserverSharedStateTests : IDisposable
         var observer = Observer();
         observer.RegisterCandidate(Candidate("true", TrueValues));
 
-        Feed(observer, Enumerable.Range(0, CalibrationObserver.MaxCandidateSightings + 8).Select(i => ReplyPop(1_000 + i * 10)));
+        Feed(observer, Enumerable.Range(0, CalibrationObserver.MaxCandidateSightings + 8)
+            .Select(i => ReplyPop(1_000 + i * 10, roulette: (byte)(1 + (i % 3)))));
 
         var counts = Assert.Single(observer.Snapshot().Candidates).Sessions[Session];
         Assert.Equal(CalibrationObserver.MaxCandidateSightings + 8, counts.PopWithoutRequest);
         Assert.Equal(CalibrationObserver.MaxCandidateSightings, counts.Sightings.Count);
         Assert.False(counts.SightingsComplete);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-20, C-3. A party member's duty pops carry the roulette the leader queued, which
+    /// this connection never requested. Counted as unrequested, two party roulettes in each of two
+    /// healthy sessions withdrew a correct shared calibration. Only the shape of a list - three or
+    /// more different roulette ids inside one second, as the retainer bell's rows carry their slot
+    /// numbers - is counted, the way a local profile's pop is disproved (PopContradictionWatch).
+    /// </summary>
+    [Fact]
+    public void PartyPopsAloneAreNotCountedAsUnrequested()
+    {
+        var observer = Observer();
+        observer.RegisterCandidate(Candidate("true", TrueValues));
+
+        Feed(observer, new[] { ReplyPop(1_000, roulette: 3), ReplyPop(300_000, roulette: 5), ReplyPop(300_400, roulette: 5) });
+
+        var counts = Assert.Single(observer.Snapshot().Candidates).Sessions[Session];
+        Assert.Equal(0, counts.PopWithoutRequest);
+        Assert.Equal(3, counts.Sightings.Count);
+    }
+
+    /// <summary>A list of rows inside one second, each with its own number, is counted in full.</summary>
+    [Fact]
+    public void AListOfRowsInsideOneSecondIsCountedAsUnrequested()
+    {
+        var observer = Observer();
+        observer.RegisterCandidate(Candidate("true", TrueValues));
+
+        Feed(observer, new byte[] { 1, 2, 3, 4, 5, 6, 8, 9 }
+            .Select((roulette, index) => ReplyPop(1_000 + (index * 20), roulette)));
+
+        var counts = Assert.Single(observer.Snapshot().Candidates).Sessions[Session];
+        Assert.Equal(8, counts.PopWithoutRequest);
     }
 
     [Fact]

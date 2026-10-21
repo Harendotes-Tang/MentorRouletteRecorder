@@ -77,6 +77,33 @@ class OcrRuntimeTests(unittest.TestCase):
         for file in self.manifest["files"]:
             self.assertEqual(file["sha256"], hashlib.sha256((target / "ocr" / file["path"]).read_bytes()).hexdigest())
 
+    def test_helper_launch_preserves_extended_local_and_unc_paths(self):
+        # Intercept at the process factory: the tiny deployment fixture is not
+        # executable and no network share or external process is accessed.
+        for runtime, expected in (
+            (r"C:\owned runtime\中文", r"\\?\C:\owned runtime\中文\local-ai-ocr.exe"),
+            (r"\\server\share\owned runtime", r"\\?\UNC\server\share\owned runtime\local-ai-ocr.exe"),
+            (r"\\?\C:\owned runtime", r"\\?\C:\owned runtime\local-ai-ocr.exe"),
+            (r"\\?\UNC\server\share\owned runtime", r"\\?\UNC\server\share\owned runtime\local-ai-ocr.exe"),
+        ):
+            with self.subTest(runtime=runtime):
+                captured = self.root / "captured-program.json"
+                self.run_ps(
+                    "$script:observedProgram=$null\n"
+                    "function New-IsolatedPackageStartInfo {\n"
+                    "  param($Executable,$WorkingDirectory,$Arguments)\n"
+                    "  $script:observedProgram=$Executable\n"
+                    "  throw 'CapturedOwnedOcrInvocation'\n"
+                    "}\n"
+                    "try {\n"
+                    f"  Invoke-OcrRuntimeProcess -RuntimeDirectory {ps(runtime)} -Arguments @('--version')\n"
+                    "  throw 'Expected process-factory interception'\n"
+                    "} catch {\n"
+                    "  if ($_.Exception.Message -ne 'CapturedOwnedOcrInvocation') { throw }\n"
+                    "}\n"
+                    f"$script:observedProgram | ConvertTo-Json -Compress | Set-Content -LiteralPath {ps(captured)} -Encoding utf8\n")
+                self.assertEqual(expected, json.loads(captured.read_text(encoding="utf-8-sig")))
+
     def test_registered_legacy_runtime_is_replaced_without_bundling_old_engine(self):
         target = self.root / "desktop"
         self.run_ps(f"$env:MR_OCR_DIR=$source\nInstall-OcrRuntime -DestinationDirectory {ps(target)} -RepoRoot $repo")

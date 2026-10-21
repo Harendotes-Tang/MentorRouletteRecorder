@@ -22,6 +22,8 @@ MAX_VOTES = 16384
 MAX_ACCOUNT_RECEIPTS = 128
 MAX_ACCOUNT_SESSIONS = 1024
 MAX_ACCOUNT_REPORTS = 64
+MAX_ANSWERED = 16384
+LEDGER_VERSION = 2
 LEDGER_FILE = "evidence-ledger.json"
 FIELDS = ("zone", "territory", "job", "match")
 
@@ -132,8 +134,10 @@ def parse(data):
 
 
 def empty_ledger():
-    return {"schema_version": 1, "sequence": 0, "receipts": {}, "sessions": {}, "votes": {},
-            "candidates": {}, "issues": {}, "reports": {}}
+    # answered: Issue number -> ledger sequence when the workflow first answered it; answered_floor: every
+    # Issue up to this number counts as answered (record_answer).
+    return {"schema_version": LEDGER_VERSION, "sequence": 0, "receipts": {}, "sessions": {}, "votes": {},
+            "candidates": {}, "issues": {}, "reports": {}, "answered": {}, "answered_floor": 0}
 
 
 def load_ledger(root):
@@ -145,13 +149,22 @@ def _load_ledger(root):
     path = Path(root) / LEDGER_FILE
     if not path.exists(): return empty_ledger()
     state = strict_json(path.read_bytes(), MAX_LEDGER_BYTES)
-    if not isinstance(state, dict) or set(state) != set(empty_ledger()) or type(state["schema_version"]) is not int or state["schema_version"] != 1:
+    legacy = (isinstance(state, dict) and set(state) == set(empty_ledger()) - {"answered", "answered_floor"}
+              and type(state["schema_version"]) is int and state["schema_version"] == 1)
+    if legacy:
+        # Version 1 did not record answered Issues; the floor is set below, once the rows are known to be valid.
+        state = dict(state, schema_version=LEDGER_VERSION, answered={}, answered_floor=0)
+    if not isinstance(state, dict) or set(state) != set(empty_ledger()) or type(state["schema_version"]) is not int or state["schema_version"] != LEDGER_VERSION:
         raise EvidenceError("LEDGER_CORRUPT")
     if type(state["sequence"]) is not int or state["sequence"] < 0:
         raise EvidenceError("LEDGER_CORRUPT")
-    for name in ("receipts", "sessions", "votes", "candidates", "issues", "reports"):
+    for name in ("receipts", "sessions", "votes", "candidates", "issues", "reports", "answered"):
         if not isinstance(state[name], dict): raise EvidenceError("LEDGER_CORRUPT")
     _check_ledger_records(state)
+    if legacy:
+        # Every Issue the old ledger knows was answered; so, conservatively, is every lower-numbered one.
+        known = [row["issue"] for name in ("receipts", "votes") for row in state[name].values()]
+        state["answered_floor"] = max([0, *known, *map(int, state["issues"]), *map(int, state["reports"])])
     check_caps(state)
     return state
 
@@ -192,6 +205,11 @@ def _check_ledger_records(state):
     for key, row in state["reports"].items():
         if re.fullmatch(r"[1-9][0-9]*", key) is None: raise EvidenceError("LEDGER_CORRUPT")
         _record(row, "account"); _natural(row["account"], True)
+    _natural(state["answered_floor"])
+    for key, sequence in state["answered"].items():
+        if re.fullmatch(r"[1-9][0-9]*", key) is None or int(key) <= state["answered_floor"]: raise EvidenceError("LEDGER_CORRUPT")
+        _natural(sequence)
+        if sequence > state["sequence"]: raise EvidenceError("LEDGER_CORRUPT")
     schema = strict_json(schema_path().read_bytes())
     for key, row in state["candidates"].items():
         _hash(key); _record(row, "scope epoch quarantined triggers consumed")
@@ -219,7 +237,8 @@ def _check_ledger_records(state):
 def check_caps(state):
     if (len(state["receipts"]) > MAX_RECEIPTS or len(state["sessions"]) > MAX_SESSIONS or
             len(state["votes"]) > MAX_VOTES or len(state["issues"]) > MAX_RECEIPTS or
-            len(state["reports"]) > MAX_RECEIPTS or len(canonical(state)) > MAX_LEDGER_BYTES):
+            len(state["reports"]) > MAX_RECEIPTS or len(state["answered"]) > MAX_ANSWERED or
+            len(canonical(state)) > MAX_LEDGER_BYTES):
         # Never prune replay tombstones and accidentally accept old evidence as new.
         raise EvidenceError("LEDGER_CAPACITY_WAIT")
 
@@ -258,11 +277,61 @@ def _recompute(state, candidate_id):
     candidate["quarantined"] = bool(candidate["triggers"])
 
 
+def _creating_issue(state, key):
+    """The Issue whose receipt first recorded this session row; None once that receipt is gone."""
+    account, row = int(key.split(":", 1)[0]), state["sessions"][key]
+    return next((receipt["issue"] for receipt in state["receipts"].values()
+                 if receipt["account"] == account and receipt["sequence"] == row["sequence"]), None)
+
+
+def _answered_before(state, issue_number):
+    """Whether the workflow already answered this Issue (record_answer) or recorded a receipt for it."""
+    return (issue_number <= state["answered_floor"] or str(issue_number) in state["answered"]
+            or str(issue_number) in state["issues"])
+
+
+def _later_copies(state, item, account_id, issue_number):
+    """Other accounts' Issues, created after this one, that were received first with its evidence_id or aliases.
+
+    A job cancelled in the shared concurrency group lets a copy of public JSON run first. The Issue
+    created earlier keeps the receipt and the aliases; an owner whose receipt is gone keeps them too.
+    Only an Issue the workflow has never answered can be that earlier Issue: Issue bodies stay editable,
+    so an answered Issue edited afterwards to carry another Issue's summary is a copy like any other.
+    """
+    later = set()
+    previous = state["receipts"].get(item["evidence_id"])
+    if previous and previous["account"] != account_id and previous["issue"] > issue_number:
+        later.add((previous["account"], previous["issue"]))
+    owners = {key.split(":", 1)[1]: key for key in state["sessions"]}
+    for session in item["sessions"]:
+        key = owners.get(session["session_alias"])
+        if key is None or key.startswith(str(account_id) + ":"): continue
+        issue = _creating_issue(state, key)
+        if issue is not None and issue > issue_number: later.add((int(key.split(":", 1)[0]), issue))
+    return later
+
+
+def _void_issue(state, account, issue):
+    """Withdraw one later copy: its receipts, the session rows they created and its votes, then recompute."""
+    receipts = [key for key, row in state["receipts"].items() if row["account"] == account and row["issue"] == issue]
+    sequences = {state["receipts"][key]["sequence"] for key in receipts}
+    prefix = str(account) + ":"
+    sessions = [key for key, row in state["sessions"].items() if key.startswith(prefix) and row["sequence"] in sequences]
+    votes = [key for key, row in state["votes"].items() if row["account"] == account and row["issue"] == issue]
+    candidates = {state["votes"][key]["candidate"] for key in votes}
+    for name, keys in (("receipts", receipts), ("sessions", sessions), ("votes", votes)):
+        for key in keys: del state[name][key]
+    # The Issue row stays as it was: an Issue that had voted still needs a new Issue for a new position.
+    for candidate_id in sorted(candidates): _recompute(state, candidate_id)
+
+
 def receive(state, raw, *, account_id, account_created_at, issue_number, now):
     """Atomically mutate caller's ledger only after every check; returns fixed disposition and artifact.
 
     An accepted issue is immutable for voting. A newer issue number can replace a position; an old
-    issue edit cannot supersede it. Session aliases are single-use across all scopes for an account.
+    issue edit cannot supersede it. A session alias belongs to the first candidate it was received for;
+    another candidate's document that repeats it simply does not count that session. The caller records
+    every answered Issue with record_answer; until then an Issue may take back what a later one copied.
     """
     item = parse(raw)
     if type(account_id) is not int or account_id <= 0 or type(issue_number) is not int or issue_number <= 0:
@@ -274,7 +343,8 @@ def receive(state, raw, *, account_id, account_created_at, issue_number, now):
     sha = digest(item)
     evidence_id = item["evidence_id"]
     previous = state["receipts"].get(evidence_id)
-    if previous:
+    later = set() if _answered_before(state, issue_number) else _later_copies(state, item, account_id, issue_number)
+    if previous and (previous["account"], previous["issue"]) not in later:
         if previous["hash"] != sha or previous["account"] != account_id: raise EvidenceError("EVIDENCE_ID_REUSED")
         return {"status": "duplicate", "reason": "ALREADY_RECEIVED", "hash": sha, "original": previous.get("result")}
     issue_previous = state["issues"].get(str(issue_number))
@@ -282,6 +352,7 @@ def receive(state, raw, *, account_id, account_created_at, issue_number, now):
     if sum(row["account"] == account_id for row in state["receipts"].values()) >= MAX_ACCOUNT_RECEIPTS:
         raise EvidenceError("ACCOUNT_CAPACITY_WAIT")
     updated = copy.deepcopy(state)
+    for account, issue in sorted(later): _void_issue(updated, account, issue)
     updated["sequence"] += 1
     seq = updated["sequence"]
     issue_key = str(issue_number)
@@ -299,8 +370,11 @@ def receive(state, raw, *, account_id, account_created_at, issue_number, now):
             continue
         fresh = key not in updated["sessions"]
         if key in updated["sessions"]:
-            if updated["sessions"][key]["hash"] != digest(session): raise EvidenceError("SESSION_ALIAS_REUSED")
+            # 1.7.3 clients give every candidate of one capture session the same alias, with checks of
+            # their own. The session counts for the candidate that recorded it first; for any other
+            # candidate it is skipped, never a reason to refuse the whole document.
             if updated["sessions"][key]["candidate"] != candidate_id: continue
+            if updated["sessions"][key]["hash"] != digest(session): raise EvidenceError("SESSION_ALIAS_REUSED")
         else:
             updated["sessions"][key] = {"hash": digest(session), "sequence": seq, "candidate": candidate_id,
                                          "epoch": item["target"]["quarantine_epoch"]}
@@ -352,6 +426,83 @@ def receive(state, raw, *, account_id, account_created_at, issue_number, now):
     check_caps(updated)
     state.clear(); state.update(updated)
     return result
+
+
+def record_answer(state, issue_number):
+    """Record that the workflow answered this Issue, whatever the outcome; only its first answer is kept.
+
+    receive() lets only an Issue never answered before take back an id or alias. When the table is full,
+    or the ledger would outgrow its byte cap, answered_floor rises to the highest Issue recorded and the
+    table starts again: an unanswered Issue up to the floor loses that claim, an answered one never gains it.
+    Raises LEDGER_CAPACITY_WAIT, leaving the ledger as it was, only if even the emptied table does not fit.
+    """
+    if type(issue_number) is not int or issue_number <= 0: raise EvidenceError("IDENTITY_INVALID")
+    if str(issue_number) in state["answered"] or issue_number <= state["answered_floor"]: return
+    answered = {**state["answered"], str(issue_number): state["sequence"]}
+    floor = state["answered_floor"]
+    try: check_caps(dict(state, answered=answered))
+    except EvidenceError:
+        floor = max([floor, *map(int, answered)])
+        answered = {}
+        check_caps(dict(state, answered=answered, answered_floor=floor))
+    state["answered"], state["answered_floor"] = answered, floor
+
+
+def lift(state, candidate_id):
+    """Maintainer review: end one candidate's quarantine. Returns (new ledger, lifted fields); KeyError if not quarantined.
+
+    The negatives behind each trigger are consumed exactly as an automatic recovery consumes them, so only
+    new evidence can quarantine the candidate again, and then under a new epoch. The epoch itself stays.
+    """
+    if not state["candidates"].get(candidate_id, {}).get("quarantined"): raise KeyError(candidate_id)
+    updated = copy.deepcopy(state)
+    candidate = updated["candidates"][candidate_id]
+    fields = sorted(candidate["triggers"])
+    for field in fields: candidate["consumed"][field] = updated["sequence"]
+    candidate["triggers"] = {}
+    candidate["quarantined"] = False
+    _check_ledger_records(updated); check_caps(updated)
+    return updated, fields
+
+
+def compact(state, live):
+    """Maintainer: reclaim capacity without letting any Issue the sweep re-reads count again.
+
+    ``live`` holds (region, game_build, code_sha256) of every unrevoked index entry. Removed:
+    * every row of a retired candidate (its code revoked, a replacement included, or pruned: the workflow
+      refuses evidence for a code index.json does not publish before receive() sees it);
+    * session rows of no candidate (template observations never vote);
+    * session rows from an epoch older than their candidate's (a client bundles a session only with its
+      own epoch, so a current bundle never repeats one);
+    * receipts superseded by a later receipt of the same Issue (the sweep re-reads only the current body,
+      whose receipt stays and answers it as a duplicate);
+    * Issue rows left without a receipt.
+    Report rows and the record of answered Issues stay. Returns (new ledger, removed row counts).
+    """
+    updated = copy.deepcopy(state)
+    retired = {key for key, row in updated["candidates"].items()
+               if (row["scope"]["region"], row["scope"]["game_build"], row["scope"]["code_sha256"]) not in live}
+    latest = {}
+    for row in updated["receipts"].values():
+        issue = (row["account"], row["issue"])
+        latest[issue] = max(latest.get(issue, 0), row["sequence"])
+    removed = {}
+
+    def keep(name, wanted):
+        before = len(updated[name])
+        updated[name] = {key: row for key, row in updated[name].items() if wanted(key, row)}
+        removed[name] = before - len(updated[name])
+
+    keep("candidates", lambda key, row: key not in retired)
+    keep("votes", lambda key, row: row["candidate"] not in retired)
+    keep("receipts", lambda key, row: row["result"].get("candidate") not in retired
+         and row["sequence"] == latest[(row["account"], row["issue"])])
+    keep("sessions", lambda key, row: row["candidate"] in updated["candidates"]
+         and row["epoch"] >= updated["candidates"][row["candidate"]]["epoch"])
+    issues = {(row["account"], row["issue"]) for row in updated["receipts"].values()}
+    keep("issues", lambda key, row: (row["account"], int(key)) in issues)
+    _check_ledger_records(updated); check_caps(updated)
+    return updated, removed
 
 
 def candidate_artifact(item):

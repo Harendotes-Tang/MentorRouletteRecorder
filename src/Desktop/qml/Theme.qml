@@ -51,6 +51,10 @@ QtObject {
     readonly property int motionFast: motion ? 120 : 0
     readonly property int motionMedium: motion ? 220 : 0
     readonly property int motionSlow: motion ? 600 : 0
+    // The achievement ring's sweep. Slower than motionSlow on purpose: it is
+    // the one animation watched as a reward, so a lap crossing reads as a
+    // sweep rather than a snap.
+    readonly property int motionRing: motion ? 1500 : 0
     // workbench.css --dur: micro-interactions and the classic row / panel entrances.
     readonly property int motionControl: motion ? 200 : 0
     readonly property int motionEnter: motion ? 200 : 0

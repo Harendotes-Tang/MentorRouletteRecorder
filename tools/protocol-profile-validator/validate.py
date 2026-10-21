@@ -378,6 +378,11 @@ def fixture_errors(document: dict, path: str) -> list:
     errors = []
     base = os.path.dirname(os.path.abspath(path))
     for entry in document.get("fixtures", []):
+        if "\x00" in entry["path"]:
+            # Path.GetFullPath throws on NUL, so ProfileLoader refuses the profile with
+            # E_PROFILE_FIXTURE_PATH; os.path.isfile would only say "absent" (D2-5).
+            errors.append("fixture %r: fixture path is invalid" % entry["path"])
+            continue
         target = os.path.normpath(os.path.join(base, entry["path"]))
         if not os.path.isfile(target):
             continue

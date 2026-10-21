@@ -17,18 +17,53 @@
 #include "RunListModel.h"
 
 #include <QDateTime>
+#include <QDir>
 #include <QFile>
 #include <QGuiApplication>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QSignalSpy>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
 
 namespace {
 
-/// A backend that answers every request with an empty payload and can push one
+/// Keep all preference and recovery writes in this checkout, including runs
+/// launched directly with a working directory outside the build directory.
+QString testArtifactRoot()
+{
+    for (const QString &start : {QDir::currentPath(), QCoreApplication::applicationDirPath()}) {
+        QDir candidate(start);
+        do {
+            if (!QFile::exists(candidate.filePath(QStringLiteral("src/Desktop/CMakeLists.txt"))))
+                continue;
+            const QString root = candidate.filePath(QStringLiteral("artifacts/recoverable-prompts-20261020"));
+            if (!QDir().mkpath(root))
+                qFatal("Cannot create the isolated reflection test artifact directory");
+            return root;
+        } while (candidate.cdUp());
+    }
+    qFatal("Cannot locate the checkout for isolated reflection tests");
+    return {};
+}
+
+QTemporaryDir &settingsDirectory()
+{
+    static QTemporaryDir directory(testArtifactRoot() + QStringLiteral("/reflection-settings-XXXXXX"));
+    if (!directory.isValid())
+        qFatal("Cannot create isolated reflection test settings");
+    return directory;
+}
+
+QString settingsPath()
+{
+    return settingsDirectory().filePath(QStringLiteral("desktop.ini"));
+}
+
+/// A backend with a synchronous fixture database identity and otherwise empty
+/// replies. It can push one
 /// hand-written $defs/LiveEvent, so the prompt rules can be pinned on events
 /// this machine can never actually produce.
 class EventBackend final : public mr::IBackend
@@ -42,11 +77,49 @@ public:
     {
         Q_UNUSED(payload)
         auto *reply = new mr::BackendReply(QStringLiteral("test"), messageType, this);
+        if (messageType == QLatin1String("GetStatus")) {
+            reply->succeed({{QStringLiteral("database_path"),
+                             settingsDirectory().filePath(QStringLiteral("fixture.sqlite"))}});
+            return reply;
+        }
         QTimer::singleShot(0, reply, [reply] { reply->succeed({}); });
         return reply;
     }
 
     void emitEvent(const QVariantMap &event) { Q_EMIT liveEvent(event); }
+};
+
+/// Hold only identity and dashboard responses so a real live event can arrive
+/// before startup/reconnect has established which recovery journal it belongs to.
+class PromptIdentityBackend final : public mr::IBackend
+{
+public:
+    QList<QPointer<mr::BackendReply>> statusReplies;
+    QList<QPointer<mr::BackendReply>> dashboardReplies;
+    QJsonObject runSnapshot;
+    QString backendName() const override { return QStringLiteral("controlled"); }
+    bool isConnected() const override { return true; }
+    mr::BackendReply *request(const QString &type, const QJsonObject &payload = {}) override
+    {
+        auto *reply = new mr::BackendReply(QStringLiteral("identity-test"), type, this);
+        if (type == QLatin1String("GetStatus")) {
+            statusReplies.append(reply);
+        } else if (type == QLatin1String("GetDashboardStats")) {
+            dashboardReplies.append(reply);
+        } else {
+            QJsonObject answer;
+            if (type == QLatin1String("QueryRuns")) {
+                const QJsonArray items = runSnapshot.isEmpty() ? QJsonArray() : QJsonArray{runSnapshot};
+                answer = {{QStringLiteral("items"), items},
+                          {QStringLiteral("page_info"), QJsonObject{
+                              {QStringLiteral("page"), payload.value(QStringLiteral("page")).toInt(1)},
+                              {QStringLiteral("page_size"), payload.value(QStringLiteral("page_size")).toInt(200)},
+                              {QStringLiteral("total"), items.size()}}}};
+            }
+            QTimer::singleShot(0, reply, [reply, answer] { reply->succeed(answer); });
+        }
+        return reply;
+    }
 };
 
 /// $defs/LiveEvent.sequence is monotonic per subscription and the shell drops
@@ -90,6 +163,8 @@ QVariantMap completedRun(const QString &runId, const QVariant &reflection = {})
     run.insert(QStringLiteral("result"), QStringLiteral("COMPLETED"));
     run.insert(QStringLiteral("ended_at_utc"), QStringLiteral("2026-09-04T11:00:00.000Z"));
     run.insert(QStringLiteral("duty_name"), QString::fromUtf8("石卫塔"));
+    run.insert(QStringLiteral("source"), QStringLiteral("AUTO_NETWORK"));
+    run.insert(QStringLiteral("mentor_roulette_id"), 9);
     run.insert(QStringLiteral("reflection"), reflection);
     return run;
 }
@@ -135,16 +210,75 @@ private Q_SLOTS:
     void appController_staysSilentWhenDisabledOrAlreadyWritten();
     void appController_neverPromptsForRunsThatEndedBeforeTheSession();
     void appController_offersAPromptDroppedWhileBusyOnlyWhileStillWanted();
+    void appController_keepsNewResultPromptWhileIdentityAndDashboardArePending_data();
+    void appController_keepsNewResultPromptWhileIdentityAndDashboardArePending();
     void ipcBackend_buildsBothReflectionRequests();
 };
+
+void ReflectionTests::appController_keepsNewResultPromptWhileIdentityAndDashboardArePending_data()
+{
+    QTest::addColumn<bool>("switchExistingDatabase");
+    QTest::newRow("initial-identity") << false;
+    QTest::newRow("reconnect-to-other-database") << true;
+}
+
+void ReflectionTests::appController_keepsNewResultPromptWhileIdentityAndDashboardArePending()
+{
+    QFETCH(bool, switchExistingDatabase);
+    QTemporaryDir directory(QDir::current().filePath(QStringLiteral("recovery-live-prompt-XXXXXX")));
+    QVERIFY(directory.isValid());
+    mr::AppSettings settings(directory.filePath(QStringLiteral("desktop.ini")), nullptr);
+    settings.setConfirmPrompt(true);
+    settings.setReflectPrompt(false);
+    PromptIdentityBackend backend;
+    mr::AppController controller(&backend, &settings, nullptr, nullptr,
+                                 mr::TtsService::EngineMode::Mock);
+    controller.setReflectionPromptCutoffForTest(fixtureCutoff());
+    QVERIFY(!backend.statusReplies.isEmpty());
+    if (switchExistingDatabase) {
+        backend.statusReplies.last()->succeed({{QStringLiteral("database_path"),
+                                                directory.filePath(QStringLiteral("first.sqlite"))}});
+        QVERIFY(controller.recovery()->identityVerified());
+        Q_EMIT backend.connectionChanged();
+    }
+    QVERIFY(!controller.recovery()->identityVerified());
+    QSignalSpy asked(&controller, &mr::AppController::resultConfirmationRequested);
+    QVariantMap record = completedRun(QStringLiteral("11111111-2222-4333-8444-555555555555"));
+    record.insert(QStringLiteral("result"), QStringLiteral("UNKNOWN"));
+    record.insert(QStringLiteral("source"), QStringLiteral("AUTO_NETWORK"));
+    record.insert(QStringLiteral("mentor_roulette_id"), 9);
+    record.insert(QStringLiteral("pending_review"), true);
+    record.insert(QStringLiteral("created_at_utc"), QStringLiteral("2026-09-04T10:30:00.000Z"));
+    record.insert(QStringLiteral("revision"), 1);
+    backend.runSnapshot = QJsonObject::fromVariantMap(record);
+    QVariantMap event = runUpdatedEvent(record);
+    event.insert(QStringLiteral("event_type"), QStringLiteral("RunFinished"));
+    event.insert(QStringLiteral("kind"), QStringLiteral("run_finished"));
+    event.insert(QStringLiteral("state"), QStringLiteral("UNKNOWN_FINAL_STATE"));
+    Q_EMIT backend.liveEvent(event);
+    QCOMPARE(asked.count(), 0);
+
+    // No dashboard has answered yet. The verified identity alone must resume
+    // the buffered live prompt, even when it changed from an established scope.
+    backend.statusReplies.last()->succeed({{QStringLiteral("database_path"),
+                                            directory.filePath(QStringLiteral("current.sqlite"))}});
+    QVERIFY(controller.recovery()->identityVerified());
+    QCOMPARE(asked.count(), 1);
+    QCOMPARE(asked.first().first().toMap().value(QStringLiteral("run_id")).toString(),
+             record.value(QStringLiteral("run_id")).toString());
+    const auto dashboards = backend.dashboardReplies;
+    for (const auto &reply : dashboards)
+        if (reply && !reply->isFinished()) reply->succeed({});
+    QCOMPARE(asked.count(), 1);
+}
 
 /// A prompt the busy dialog could not show is offered when it closes (review
 /// OH-6) - unless the player switched 通关后弹出心得窗口 off in the meantime.
 void ReflectionTests::appController_offersAPromptDroppedWhileBusyOnlyWhileStillWanted()
 {
-    QFile::remove(mr::AppSettings::filePath());
+    QFile::remove(settingsPath());
     for (const bool stillWanted : {true, false}) {
-        mr::AppSettings settings;
+        mr::AppSettings settings(settingsPath(), nullptr);
         settings.setReflectPrompt(true);
         EventBackend backend;
         mr::AppController controller(&backend, &settings);
@@ -164,15 +298,15 @@ void ReflectionTests::appController_offersAPromptDroppedWhileBusyOnlyWhileStillW
                      QStringLiteral("run-waiting"));
         }
     }
-    QFile::remove(mr::AppSettings::filePath());
+    QFile::remove(settingsPath());
 }
 
 void ReflectionTests::settings_roundTripReflectPromptAndUiStyle()
 {
-    QFile::remove(mr::AppSettings::filePath());
+    QFile::remove(settingsPath());
 
     {
-        mr::AppSettings settings;
+        mr::AppSettings settings(settingsPath(), nullptr);
         // Defaults: the prompt is on and the workbench (classic) skin is the one
         // that ships (2026-09 redesign, decision 1).
         QCOMPARE(settings.reflectPrompt(), true);
@@ -206,12 +340,12 @@ void ReflectionTests::settings_roundTripReflectPromptAndUiStyle()
     }
 
     {
-        mr::AppSettings reopened;
+        mr::AppSettings reopened(settingsPath(), nullptr);
         QCOMPARE(reopened.reflectPrompt(), false);
         QCOMPARE(reopened.uiStyle(), QStringLiteral("eorzea"));
     }
 
-    QFile::remove(mr::AppSettings::filePath());
+    QFile::remove(settingsPath());
 }
 
 void ReflectionTests::mockBackend_summarisesTheSeededReflections()
@@ -281,8 +415,8 @@ void ReflectionTests::mockBackend_filtersRunsThatHaveAReflection()
 
 void ReflectionTests::appController_savesAndClearsTheSelectedRunsReflection()
 {
-    QFile::remove(mr::AppSettings::filePath());
-    mr::AppSettings settings;
+    QFile::remove(settingsPath());
+    mr::AppSettings settings(settingsPath(), nullptr);
     mr::MockBackend backend;
     mr::AppController controller(&backend, &settings);
     QTRY_COMPARE_WITH_TIMEOUT(summaryCount(controller, "reflection_count"), 6, 3000);
@@ -332,13 +466,13 @@ void ReflectionTests::appController_savesAndClearsTheSelectedRunsReflection()
     QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 3000);
     QCOMPARE(failed.at(0).at(0).toString(), QStringLiteral("ERR_NOT_FOUND"));
     QCOMPARE(saved.count(), 2);
-    QFile::remove(mr::AppSettings::filePath());
+    QFile::remove(settingsPath());
 }
 
 void ReflectionTests::appController_promptsOncePerCompletedRun()
 {
-    QFile::remove(mr::AppSettings::filePath());
-    mr::AppSettings settings;
+    QFile::remove(settingsPath());
+    mr::AppSettings settings(settingsPath(), nullptr);
     settings.setReflectPrompt(true);
 
     mr::MockBackend backend;
@@ -349,6 +483,7 @@ void ReflectionTests::appController_promptsOncePerCompletedRun()
     controller.setReflectionPromptCutoffForTest(fixtureCutoff());
     QSignalSpy prompts(&controller, &mr::AppController::reflectionPromptRequested);
 
+    QTRY_VERIFY_WITH_TIMEOUT(controller.recovery()->identityVerified(), 3000);
     backend.simulateRunTransitions(QStringLiteral("COMPLETED"));
     QCOMPARE(prompts.count(), 1);
     const QVariantMap run = prompts.at(0).at(0).toMap();
@@ -362,16 +497,16 @@ void ReflectionTests::appController_promptsOncePerCompletedRun()
     // The dashboard's 补录 target is a stored run, never the live one.
     QVERIFY(run.value(QStringLiteral("run_id")).toString()
             != nextPendingRun(backend).value(QStringLiteral("run_id")).toString());
-    QFile::remove(mr::AppSettings::filePath());
+    QFile::remove(settingsPath());
 }
 
 void ReflectionTests::appController_staysSilentWhenDisabledOrAlreadyWritten()
 {
-    QFile::remove(mr::AppSettings::filePath());
+    QFile::remove(settingsPath());
 
     // 1. 通关后弹出心得窗口 off: no prompt, whatever arrives.
     {
-        mr::AppSettings settings;
+        mr::AppSettings settings(settingsPath(), nullptr);
         settings.setReflectPrompt(false);
         EventBackend backend;
         mr::AppController controller(&backend, &settings);
@@ -385,7 +520,7 @@ void ReflectionTests::appController_staysSilentWhenDisabledOrAlreadyWritten()
     // 2. Switch on: a finished run with no 心得 prompts, one that already has
     //    one does not, and a run that has not finished does not either.
     {
-        mr::AppSettings settings;
+        mr::AppSettings settings(settingsPath(), nullptr);
         settings.setReflectPrompt(true);
         EventBackend backend;
         mr::AppController controller(&backend, &settings);
@@ -413,7 +548,7 @@ void ReflectionTests::appController_staysSilentWhenDisabledOrAlreadyWritten()
         QCOMPARE(prompts.count(), 1);
     }
 
-    QFile::remove(mr::AppSettings::filePath());
+    QFile::remove(settingsPath());
 }
 
 void ReflectionTests::appController_neverPromptsForRunsThatEndedBeforeTheSession()
@@ -421,8 +556,8 @@ void ReflectionTests::appController_neverPromptsForRunsThatEndedBeforeTheSession
     // The Collector replays its last events to every client that connects, so
     // a run that finished hours ago - or one a test harness wrote - reaches a
     // freshly started Desktop as a live run_finished. It is history, not 刚刚完成.
-    QFile::remove(mr::AppSettings::filePath());
-    mr::AppSettings settings;
+    QFile::remove(settingsPath());
+    mr::AppSettings settings(settingsPath(), nullptr);
     settings.setReflectPrompt(true);
     EventBackend backend;
 
@@ -464,7 +599,7 @@ void ReflectionTests::appController_neverPromptsForRunsThatEndedBeforeTheSession
         backend.emitEvent(runUpdatedEvent(completedRun(QStringLiteral("run-replayed"))));
         QCOMPARE(prompts.count(), 1);
     }
-    QFile::remove(mr::AppSettings::filePath());
+    QFile::remove(settingsPath());
 }
 
 void ReflectionTests::ipcBackend_buildsBothReflectionRequests()

@@ -16,8 +16,10 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QList>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QVariantMap>
 
 #include <functional>
@@ -118,6 +120,21 @@ private:
     QJsonObject m_errorRef;
 };
 
+/// $defs/PreviewRunImportSourceRequest. Exactly one of rows (edited candidates, which take
+/// precedence), filePath or text is the source. An empty column mapping is left out; pageSize 0
+/// leaves out page_size and asks for the whole preview in one answer.
+struct RunImportSource
+{
+    QString kind;
+    QString name;
+    QString timeZone;
+    QJsonArray rows;
+    QString filePath;
+    QString text;
+    QJsonObject columnMapping;
+    int pageSize = 0;
+};
+
 /// Abstract Collector facade. Mirrors contracts/ipc-v1.schema.json.
 class IBackend : public QObject
 {
@@ -140,8 +157,10 @@ public:
     /// Like request(), but the envelope carries \a requestId rather than a
     /// fresh one, so a mutation the client stopped waiting for can be resent
     /// and answered by the Collector's idempotency instead of being applied
-    /// twice (contracts/error-codes.md). An empty id mints one. A backend
-    /// without request ids - the mock - ignores it.
+    /// twice (contracts/error-codes.md). An empty id mints one. This default,
+    /// for a backend without request ids, ignores it; IpcBackend sends it, and
+    /// MockBackend honours it as the Collector does (replay of the first
+    /// outcome, ERR_IDEMPOTENCY_CONFLICT for a different payload).
     virtual BackendReply *requestWithId(const QString &messageType, const QJsonObject &payload,
                                         const QString &requestId);
 
@@ -261,6 +280,36 @@ public:
                                             int baselineCompletedCount,
                                             const QString &reason,
                                             const QString &baselineEffectiveAtUtc = {});
+
+    // -- 已删除记录 ---------------------------------------------------------
+    /// $defs/BatchMutateRunsRequest. \a action is soft_delete, restore or purge;
+    /// \a runs holds {run_id, expected_revision} objects. \a requestId: see
+    /// requestWithId(); the history page resends an unanswered batch with it.
+    BackendReply *batchMutateRuns(const QString &action, const QJsonArray &runs,
+                                  const QString &reason, const QString &requestId = {});
+    /// {} -> $defs/HistoryRetentionSettings: how long deleted records are kept.
+    BackendReply *getHistoryRetentionSettings();
+    /// $defs/HistoryRetentionSettings. 0 turns the automatic purge off.
+    BackendReply *updateHistoryRetentionSettings(int retentionDays);
+    /// {} -> $defs/ImageCleanupIds: purged runs whose note images are still on disk.
+    BackendReply *getPendingImageCleanup();
+    /// $defs/ImageCleanupIds: the runs whose note images the Desktop has removed.
+    BackendReply *acknowledgeImageCleanup(const QStringList &runIds);
+
+    // -- 导入记录 -----------------------------------------------------------
+    /// $defs/PreviewRunImportSourceRequest: read and classify a source. With a
+    /// page size the answer is page 1 of a frozen preview.
+    BackendReply *previewRunImport(const RunImportSource &source);
+    /// $defs/PreviewRunImportPageRequest: one more page of a frozen preview.
+    BackendReply *previewRunImportPage(const QString &previewId, int page);
+    /// $defs/CommitRunImportRequest. confirm_own_records is always true - the
+    /// dialog does not commit without it - and deduct_from_baseline travels only
+    /// when true, so an older Collector never sees it unasked. \a requestId: see
+    /// requestWithId(); an unanswered commit is resent with it.
+    BackendReply *commitRunImport(const QString &previewId, const QList<int> &rowNumbers,
+                                  bool deductFromBaseline, const QString &requestId = {});
+    /// The payload previewRunImport() sends for \a source.
+    static QJsonObject previewRunImportPayload(const RunImportSource &source);
 
     // -- 导随心得 -----------------------------------------------------------
     /// $defs/SetRunReflectionRequest. The Collector trims \a text; an empty

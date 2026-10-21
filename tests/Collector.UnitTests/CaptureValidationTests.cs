@@ -210,6 +210,45 @@ public sealed class CaptureValidationTests
         Assert.False(source.IsRunning);
     }
 
+    /// <summary>
+    /// Audit 2026-10-20, A2-3. A monitor fault often comes with a reason and no exception (an
+    /// adapter read that stopped, say). The validation dropped the reason, so its log line said
+    /// nothing at all while the player was told the details were in that log. The reason goes to
+    /// the local log only, never to the status.
+    /// </summary>
+    [Fact]
+    public void ASourceFaultWithoutAnExceptionLogsItsReason()
+    {
+        using var db = new TestDatabase();
+        var directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.ValidationFault", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            using (var logger = new MentorRecorder.Collector.Diagnostics.RotatingFileLogger(directory, db.Clock))
+            {
+                var source = new FakeCaptureSource();
+                var services = Services(() => Game(), source);
+                using var controller = new CaptureValidationController(db.Path, new(),
+                    services with { Trace = services.Trace with { Logger = logger } });
+                controller.Start("wifi");
+                Until(controller, "state", "RECORDING");
+                source.Fault("simulated adapter read stop");
+                Until(controller, "state", "FAILED");
+
+                Assert.Contains(File.ReadAllLines(logger.CurrentPath), line =>
+                    line.Contains("validation_failed", StringComparison.Ordinal) &&
+                    line.Contains("simulated adapter read stop", StringComparison.Ordinal));
+                Assert.DoesNotContain("simulated adapter read stop", controller.Snapshot().ToJsonString());
+            }
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
     [Fact]
     public void WaitingOwnsFormalAndFollowCaptureAndDuplicateStartIsRejected()
     {
@@ -389,6 +428,39 @@ public sealed class CaptureValidationTests
         source.FailCleanup = false;
         controller.Dispose();
         using var lease = ownership.Acquire();
+    }
+
+    /// <summary>
+    /// Audit 2026-10-20, A2-2. A validation whose source could not be released kept the shared
+    /// capture lease until the Collector exited, with no retry, so automatic recording stayed
+    /// blocked while the capture status told the player to stop a validation that had already
+    /// ended. The release is retried in the background, and the status says what is going on.
+    /// </summary>
+    [Fact]
+    public void AFailedSourceReleaseIsRetriedWithoutWaitingForShutdown()
+    {
+        using var db = new TestDatabase();
+        var ownership = new CaptureOwnership();
+        var source = new LateSource { FailCleanup = true };
+        using var formal = new CaptureController(FormalServices(new FakeCaptureSource(), ownership));
+        using var controller = new CaptureValidationController(db.Path, ownership,
+            Services(() => Game(), source) with { ReleaseRetryInterval = TimeSpan.FromMilliseconds(20) });
+        controller.Start("wifi");
+        Until(controller, "state", "RECORDING");
+        controller.Stop();
+        Until(controller, "state", "FAILED");
+
+        Assert.True(ownership.IsHeld);
+        var warning = Assert.Single(formal.Snapshot().Warnings, text => text.Chinese.Contains("验证", StringComparison.Ordinal));
+        Assert.Equal(CollectorTexts.CaptureWarningValidationReleasing(), warning);
+
+        source.FailCleanup = false;
+        Assert.True(SpinWait.SpinUntil(() => !ownership.IsHeld, 5000));
+        Assert.False(source.IsRunning);
+        Assert.Equal("FAILED", controller.Snapshot()["state"]!.GetValue<string>());
+        Assert.DoesNotContain(formal.Snapshot().Warnings, text => text.Chinese.Contains("验证", StringComparison.Ordinal));
+        formal.Start("wifi");
+        Assert.Equal(CaptureControllerState.Running, formal.State);
     }
 
     private static CaptureServices FormalServices(ICaptureSource source, CaptureOwnership ownership) => new()

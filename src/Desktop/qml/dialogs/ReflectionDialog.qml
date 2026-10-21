@@ -38,6 +38,265 @@ Dialog {
     // every way out of this window - see onClosed.
     property bool resultAcknowledged: false
     readonly property bool busy: submitting || resolving
+    // Main owns delivery; isolated legacy callers can keep the original route.
+    property bool managedPresentation: false
+    property bool standalone: false
+    /// The reminder's wording and 收起 belong to the popup Main opens beside
+    /// the float; the note editor in the main window keeps its own look (review
+    /// K1-4 / P-7, docs/ui-design.md §4.9.2). Esc puts every managed editor
+    /// away through defer(), which keeps a draft it could not save on screen
+    /// (review RV3-4).
+    readonly property bool reminderChrome: managedPresentation && standalone
+    property bool automaticOpen: false
+    property bool loadingDraft: false
+    property bool completedAction: false
+    property bool conflictUnresolved: false
+    property string draftToken: ""
+    property string submittedDraftToken: ""
+    property string baselineText: ""
+    property string baselineMood: "good"
+    property string automaticKind: ""
+    property string editScope: ""
+    property bool observedIdentityVerified: true
+    readonly property var recovery: typeof App !== "undefined" && App.recovery ? App.recovery : null
+    // The compact popup beside the statistics float (standalone; docs/ui-design.md
+    // §4.9, dialogs/ResultPopupContent.qml): the question is answered first and
+    // the result stays on screen while the note is written; 完成 saves it.
+    readonly property bool compact: standalone
+    property bool answered: false
+    property string answeredResult: ""
+    /// The goal count before and after a 通关 answer; -1 when unknown. Both are
+    /// the Collector's achievement_progress: "from" as held when the clear was
+    /// shown or answered, "to" from a read sent after it counted (review L2-1).
+    property int progressFrom: -1
+    property int progressTo: -1
+    /// Opened for a 结果 question, whether answered yet or not.
+    property bool resultFlow: false
+    /// The run the popup's pager asked for; Main hands it to switchTo().
+    property string pendingSwitchId: ""
+    readonly property var queueItems: recovery ? recovery.items : []
+    readonly property int queueCount: queueItems.length
+    readonly property int queueIndex: {
+        for (let i = 0; i < queueItems.length; ++i)
+            if ((queueItems[i].runId || queueItems[i].run_id) === runId) return i
+        return -1
+    }
+    readonly property alias noteEditor: textArea
+    /// This dialog, for the popup face: inside its Component the name `dialog`
+    /// would resolve to the face's own `dialog` property.
+    readonly property var popupHost: dialog
+    readonly property bool unavailable: runData.recoveryUnavailable === true
+        || (managedPresentation && !!recovery && (!recovery.identityVerified || editScope !== recovery.databaseKey))
+    signal dismissing(string runId, bool completed)
+    signal hostClosing()
+    signal reviewRequested(var run)
+
+    function restoreDraft(run) {
+        loadingDraft = true
+        editScope = recovery ? recovery.databaseKey : ""
+        baselineText = run.reflection && run.reflection.text ? run.reflection.text : ""
+        baselineMood = run.reflection && run.reflection.mood ? run.reflection.mood : "good"
+        completedAction = false
+        conflictUnresolved = false
+        draftToken = ""
+        const saved = recovery ? recovery.draft(run) : ({})
+        if (saved && saved.token) {
+            draftToken = saved.token
+            textArea.text = saved.text || ""
+            mood = saved.mood || "good"
+            for (let i = 1; i < jobOptions.length; ++i)
+                if (Number(jobOptions[i].job_id) === Number(saved.jobId)) jobIndex = i
+            conflictUnresolved = saved.conflict === true
+        }
+        loadingDraft = false
+    }
+
+    function persistDraft(resetBaseline) {
+        draftTimer.stop()
+        if (!recovery || loadingDraft || !runId || completedAction) return true
+        if (editScope !== recovery.databaseKey) return false
+        const changed = textArea.text !== baselineText || mood !== baselineMood || selectedJobId > 0
+        if (!changed && !conflictUnresolved) {
+            if (draftToken) recovery.clearDraft(runId, draftToken)
+            draftToken = ""
+            return true
+        }
+        // saveDraft retains the original baseline until resetBaseline is explicit.
+        const saved = recovery.saveDraft(runData, {text: textArea.text, mood: mood, jobId: selectedJobId,
+                                                  resetBaseline: resetBaseline === true})
+        draftToken = recovery.draftTokenForFields(runId, {
+            text: textArea.text, mood: mood, jobId: selectedJobId
+        })
+        return saved
+    }
+
+    function defer() {
+        if (busy) return
+        // 收起 after the answer keeps the note, like 完成. After a refused save,
+        // a conflict or an unavailable record it closes the ordinary way, the
+        // draft kept, so the window can always be put away.
+        if (compact && answered && errorText.length === 0 && !conflictUnresolved && !unavailable) {
+            finish()
+            return
+        }
+        if (!persistDraft()) {
+            errorText = recovery && recovery.error ? recovery.error : qsTr("草稿尚未保存，请保留窗口并稍后重试。")
+            return
+        }
+        close()
+    }
+
+    function draftChanged() {
+        if (visible && !loadingDraft && !completedAction) draftTimer.restart()
+    }
+
+    // ---------------------------------------------------------------- 弹窗 --
+    /// 完成: a changed note is saved and the window closes on the reply; with
+    /// nothing to save the reminder is spent and the window closes at once.
+    function finish() {
+        if (busy || runId.length === 0 || conflictUnresolved || unavailable) return
+        if (selectedJobId > 0) {
+            resolveWith("", QT_TRANSLATE_NOOP("SystemReason", "补录本次导随职业"))
+            return
+        }
+        const note = textArea.text.trim()
+        const changed = note !== baselineText.trim() || mood !== baselineMood
+        // An emptied note is a deliberate clearing; saveReflection with "" deletes it.
+        if (changed && (note.length > 0 || baselineText.trim().length > 0)) {
+            if (typeof App === "undefined" || !App.saveReflection) {
+                errorText = qsTr("当前版本无法保存笔记。")
+                return
+            }
+            if (App.reflectionSaving === true) {
+                errorText = qsTr("上一条笔记仍在保存中，请稍候再试。")
+                return
+            }
+            errorText = ""
+            persistDraft()
+            submittedDraftToken = draftToken
+            submitting = true
+            App.saveReflection(runId, mood, note, submittedDraftToken)
+            return
+        }
+        completedAction = true
+        if (recovery) {
+            if (draftToken) recovery.clearDraft(runId, draftToken)
+            recovery.markReflectionSaved(runId)
+        }
+        close()
+    }
+
+    /// 在历史记录中复核: keep the draft, close, and let Main open the record and
+    /// its 确认已复核 dialog. Not a reminder put away, so no 已收起 notice.
+    function requestReview() {
+        if (busy || runId.length === 0) return
+        const run = runData
+        if (!persistDraft()) {
+            errorText = recovery && recovery.error ? recovery.error : qsTr("草稿尚未保存，请保留窗口并稍后重试。")
+            return
+        }
+        completedAction = true
+        close()
+        reviewRequested(run)
+    }
+
+    function useLatestNote() {
+        if (recovery) recovery.clearDraft(runId, draftToken)
+        loadingDraft = true
+        textArea.text = baselineText
+        mood = baselineMood
+        draftToken = ""
+        conflictUnresolved = false
+        loadingDraft = false
+    }
+
+    /// The pager: ask the controller for the neighbouring record; it answers
+    /// through openRequested, which Main routes to switchTo() while the id matches.
+    function pageQueue(direction) {
+        const next = queueIndex + direction
+        if (busy || queueIndex < 0 || next < 0 || next >= queueItems.length || !recovery) return
+        if (!persistDraft()) {
+            errorText = recovery.error ? recovery.error : qsTr("草稿尚未保存，请保留窗口并稍后重试。")
+            return
+        }
+        pendingSwitchId = queueItems[next].runId || queueItems[next].run_id
+        recovery.requestOpen(pendingSwitchId)
+    }
+
+    /// Show another record in the open popup (the pager). A question shown here
+    /// has been asked: it is reported, so the controller does not ask it again
+    /// once the popup closes (review L2-2).
+    function switchTo(run, kind) {
+        if (!run || !run.run_id || busy) return
+        persistDraft()
+        pendingSwitchId = ""
+        runData = run
+        jobIndex = 0
+        errorText = ""
+        noteImageError = ""
+        submitting = false
+        resolving = false
+        waitingForReflection = false
+        answered = false
+        answeredResult = ""
+        progressFrom = -1
+        progressTo = -1
+        askingResult = kind === "result"
+        resultFlow = askingResult
+        kicker = askingResult ? qsTr("刚刚结束") : qsTr("继续处理")
+        mood = run.reflection && run.reflection.mood ? run.reflection.mood : "good"
+        textArea.text = run.reflection && run.reflection.text ? run.reflection.text : ""
+        restoreDraft(run)
+        automaticKind = ""
+        if (askingResult && managedPresentation && typeof App !== "undefined"
+            && typeof App.resultConfirmationShown === "function") {
+            resultAcknowledged = true
+            App.resultConfirmationShown(run.run_id)
+        }
+    }
+    /// \a putAway: the connection was lost - the reminder is put away like 收起
+    /// and Main's notice says where it went (review L2-6). Otherwise the
+    /// database is switching and the work belongs to the other one.
+    function invalidateEditor(putAway) {
+        if (!visible) return
+        persistDraft()
+        completedAction = putAway !== true
+        submitting = false
+        resolving = false
+        waitingForReflection = false
+        pendingResult = ""
+        close()
+    }
+    Component.onCompleted: observedIdentityVerified = recovery ? recovery.identityVerified : true
+    onMoodChanged: draftChanged()
+    onJobIndexChanged: draftChanged()
+    Timer { id: draftTimer; interval: 250; onTriggered: dialog.persistDraft() }
+    Connections {
+        target: dialog.recovery
+        ignoreUnknownSignals: true
+        function onFlushRequested() { if (dialog.visible) dialog.persistDraft() }
+        function onScopeChanging() { dialog.invalidateEditor(false) }
+        function onChanged() {
+            const verified = dialog.recovery.identityVerified
+            if (dialog.observedIdentityVerified && !verified) dialog.invalidateEditor(true)
+            dialog.observedIdentityVerified = verified
+        }
+        function onScopeChanged() {
+            // The first verified identity claims provisional work without closing it.
+            if (dialog.visible && dialog.editScope.length === 0) dialog.editScope = dialog.recovery.databaseKey
+        }
+    }
+
+    function acknowledge() {
+        if (!managedPresentation || !parent || !parent.Window.window || !parent.Window.window.visible) return
+        if (automaticKind === "result") {
+            resultAcknowledged = true
+            App.resultConfirmationShown(runId)
+        } else if (automaticKind === "reflection") App.reflectionPromptShown(runId)
+        automaticKind = ""
+    }
+    onOpened: acknowledge()
+    onAboutToHide: persistDraft()
 
     readonly property string runId: runData && runData.run_id ? runData.run_id : ""
 
@@ -72,7 +331,7 @@ Dialog {
         context: Qt.WindowShortcut
         // TextArea handles ordinary text paste itself. An image clipboard is
         // the only case this dialog claims Ctrl+V.
-        enabled: dialog.visible && !dialog.busy && !!dialog.imageStore
+        enabled: dialog.visible && !dialog.standalone && !dialog.busy && !!dialog.imageStore
             && dialog.imageStore.clipboardHasImage && (!dialog.askingResult || dialog.promptEnabled)
         onActivated: dialog.pasteNoteImage()
     }
@@ -103,16 +362,39 @@ Dialog {
     readonly property string dutyText: (runData && runData.duty_name)
                                        ? (Theme.dutyName(runData) || qsTr("未知副本")) : qsTr("未知副本")
 
-    modal: true
+    modal: !standalone
+    focus: !automaticOpen
     // Qt Basic's backdrop in eorzea, workbench's .dialog-backdrop in classic.
     Overlay.modal: Rectangle { color: Theme.modalScrim(dialog.palette.shadow) }
-    width: 560
-    padding: 22
+    readonly property int dialogWidth: standalone ? 320 : 560
+    width: managedPresentation && parent ? Math.min(dialogWidth, parent.width) : dialogWidth
+    height: managedPresentation && parent ? Math.min(implicitHeight, parent.height) : implicitHeight
+    padding: standalone ? 0 : 22
     // No dismissal while a request is in flight, so the reply always lands on
     // the record that sent it.
-    closePolicy: busy ? Popup.NoAutoClose : Popup.CloseOnEscape
+    closePolicy: busy || managedPresentation ? Popup.NoAutoClose : Popup.CloseOnEscape
+    Shortcut {
+        sequence: "Escape"
+        context: Qt.WindowShortcut
+        enabled: dialog.visible && dialog.managedPresentation && !dialog.busy
+        onActivated: dialog.defer()
+    }
 
-    background: DialogFrame {}
+    background: Item {
+        DialogFrame { anchors.fill: parent; visible: !dialog.standalone }
+        // `.pp.panel`: the float's plate, at least 90 % opaque.
+        Rectangle {
+            anchors.fill: parent
+            visible: dialog.standalone
+            radius: Theme.eorzea ? Theme.radiusM : Theme.radiusL
+            color: Qt.rgba(Theme.surface.r, Theme.surface.g, Theme.surface.b,
+                           Math.max(0.9, typeof App !== "undefined" && App.statisticsOverlay ? App.statisticsOverlay.opacity : 1))
+            border.width: 1
+            border.color: Theme.border
+            PanelDecoration { }
+            TapHandler { acceptedButtons: Qt.AllButtons; gesturePolicy: TapHandler.ReleaseWithinBounds }
+        }
+    }
 
     enter: Transition {
         NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionMedium; easing.type: Easing.OutCubic }
@@ -135,6 +417,8 @@ Dialog {
     // screen. The 心得 prompt has the same pair, asked after the result
     // question so that one comes first.
     onClosed: {
+        dialog.dismissing(dialog.runId, dialog.completedAction)
+        dialog.hostClosing()
         dialog.resultAcknowledged = false
         if (typeof App !== "undefined"
             && typeof App.resultConfirmationClosed === "function")
@@ -163,7 +447,20 @@ Dialog {
         dialog.askingResult = false
         dialog.resolving = false
         dialog.waitingForReflection = false
+        dialog.answered = false
+        dialog.answeredResult = ""
+        dialog.progressFrom = -1
+        dialog.progressTo = -1
+        dialog.resultFlow = false
+        dialog.pendingSwitchId = ""
+        dialog.restoreDraft(run)
         dialog.open()
+    }
+
+    /// The Collector's achievement_progress as last read, or -1 when none was.
+    function collectorProgress() {
+        const value = typeof App !== "undefined" && App.dashboard ? App.dashboard.achievement_progress : undefined
+        return typeof value === "number" && isFinite(value) && value >= 0 ? Math.floor(value) : -1
     }
 
     // The automatic 心得 prompt after a COMPLETED run. Like openForResult it
@@ -173,8 +470,18 @@ Dialog {
     function openForPrompt(run, kickerText) {
         if (!run || !run.run_id || dialog.busy || dialog.visible)
             return
+        dialog.automaticKind = "reflection"
         openForRun(run, kickerText)
-        if (dialog.visible && dialog.runId === run.run_id
+        // The popup shows the count the clear just raised: the figure held now,
+        // read before this run's own events reached the dashboard, and the one
+        // a read sent now returns. Nothing is counted here (review L2-1).
+        if (dialog.compact && dialog.visible && run.result === "COMPLETED" && run.contributes_to_goal === true
+            && typeof App !== "undefined" && typeof App.readGoalProgress === "function") {
+            dialog.progressFrom = dialog.collectorProgress()
+            if (dialog.progressFrom >= 0)
+                App.readGoalProgress(run.run_id)
+        }
+        if (!managedPresentation && dialog.visible && dialog.runId === run.run_id
             && typeof App !== "undefined"
             && typeof App.reflectionPromptShown === "function")
             App.reflectionPromptShown(run.run_id)
@@ -189,14 +496,11 @@ Dialog {
         // them onClosed. Typing is just as important to preserve as saving.
         if (!run || !run.run_id || dialog.busy || dialog.visible)
             return
-        const sameRun = dialog.runId.length > 0 && dialog.runId === run.run_id
         dialog.runData = run
         dialog.kicker = qsTr("刚刚结束")
-        if (!sameRun) {
-            dialog.jobIndex = 0
-            dialog.mood = "good"
-            textArea.text = ""
-        }
+        dialog.jobIndex = 0
+        dialog.mood = run.reflection && run.reflection.mood ? run.reflection.mood : "good"
+        textArea.text = run.reflection && run.reflection.text ? run.reflection.text : ""
         dialog.errorText = ""
         // An image refusal belongs to the add that caused it, never to the next
         // question (review OD-5).
@@ -205,10 +509,18 @@ Dialog {
         dialog.askingResult = true
         dialog.resolving = false
         dialog.waitingForReflection = false
+        dialog.answered = false
+        dialog.answeredResult = ""
+        dialog.progressFrom = -1
+        dialog.progressTo = -1
+        dialog.resultFlow = true
+        dialog.pendingSwitchId = ""
+        dialog.restoreDraft(run)
+        dialog.automaticKind = "result"
         dialog.open()
         // Acknowledge only once the window is up: until this call the run is not
         // recorded as asked, so a dialog that never opened stays re-offerable.
-        if (typeof App !== "undefined"
+        if (!managedPresentation && typeof App !== "undefined"
             && typeof App.resultConfirmationShown === "function") {
             dialog.resultAcknowledged = true
             App.resultConfirmationShown(run.run_id)
@@ -219,7 +531,7 @@ Dialog {
     // stays open until the Collector accepts the correction: a refusal (a stale
     // revision, for instance) must be visible here, not only in a toast.
     function resolveWith(result, reasonText) {
-        if (dialog.runId.length === 0 || dialog.busy)
+        if (dialog.runId.length === 0 || dialog.busy || conflictUnresolved || unavailable)
             return
         if (typeof App === "undefined" || (result.length > 0 ? !App.resolveRunResult : !App.supplementRunJob)) {
             dialog.errorText = qsTr("当前版本不支持在此确认结果或补录职业。")
@@ -227,7 +539,16 @@ Dialog {
         }
         dialog.errorText = ""
         const note = textArea.text.trim()
-        const saveNote = note.length > 0 || (!dialog.askingResult && !!dialog.runData.reflection)
+        // The popup keeps the result on screen after an answer and saves the
+        // note at 完成; a job-only 完成 still saves the note first.
+        const saveNote = !(dialog.compact && result.length > 0)
+                         && (note.length > 0 || (!dialog.askingResult && !!dialog.runData.reflection))
+        // The count before the answer; the one after it is read once the
+        // Collector has accepted it (onMutationSucceeded).
+        if (result === "COMPLETED") {
+            dialog.progressFrom = dialog.collectorProgress()
+            dialog.progressTo = -1
+        }
         if (saveNote && !App.saveReflection) {
             dialog.errorText = qsTr("当前版本无法保存笔记。")
             return
@@ -243,7 +564,9 @@ Dialog {
         // save cannot be hidden by a successful result write.
         if (saveNote) {
             dialog.waitingForReflection = true
-            App.saveReflection(dialog.runId, dialog.mood, note)
+            dialog.persistDraft()
+            dialog.submittedDraftToken = dialog.draftToken
+            App.saveReflection(dialog.runId, dialog.mood, note, dialog.submittedDraftToken)
         } else {
             submitPendingResult()
         }
@@ -251,6 +574,11 @@ Dialog {
 
     function submitPendingResult() {
         dialog.waitingForReflection = false
+        if (dialog.unavailable) {
+            dialog.resolving = false
+            dialog.errorText = qsTr("记录库尚未确认，请保留草稿并稍后重新打开。")
+            return
+        }
         if (dialog.pendingResult.length > 0)
             App.resolveRunResult(dialog.runId, dialog.runRevision,
                                  dialog.pendingResult, dialog.pendingReason, dialog.selectedJobId)
@@ -267,17 +595,24 @@ Dialog {
                 || (!dialog.submitting && !dialog.waitingForReflection))
                 return
             dialog.submitting = false
+            dialog.baselineText = textArea.text.trim()
+            dialog.baselineMood = dialog.mood
+            dialog.draftToken = ""
+            dialog.runData = Object.assign({}, dialog.runData, {
+                reflection: cleared ? null : {text: dialog.baselineText, mood: dialog.baselineMood}
+            })
             if (dialog.waitingForReflection) {
                 dialog.submitPendingResult()
                 return
             }
+            dialog.completedAction = true
             dialog.close()
         }
 
         // The controller decides whether the question may be asked (settings,
         // replayed events, one run only once); nothing here repeats those rules.
         function onResultConfirmationRequested(run) {
-            dialog.openForResult(run)
+            if (!dialog.managedPresentation) dialog.openForResult(run)
         }
 
         // Keep the revision the player saw. The controller can retry a
@@ -289,7 +624,33 @@ Dialog {
                 || (kind !== "review" && kind !== "supplement_job") || runId !== dialog.runId)
                 return
             dialog.resolving = false
+            if (dialog.compact && kind === "review" && dialog.pendingResult.length > 0) {
+                // The answer is recorded; the popup stays for the note.
+                dialog.answered = true
+                dialog.answeredResult = dialog.pendingResult
+                dialog.askingResult = false
+                const picked = dialog.selectedJobId > 0 ? dialog.jobOptions[dialog.jobIndex] : null
+                dialog.runData = Object.assign({}, dialog.runData, {
+                    result: dialog.pendingResult, pending_review: false, revision: revision
+                }, picked ? { job_id: picked.job_id, job_name: picked.job_name } : {})
+                dialog.jobIndex = 0
+                dialog.pendingResult = ""
+                if (dialog.recovery) dialog.recovery.markResultSaved(dialog.runId)
+                if (dialog.answeredResult === "COMPLETED" && dialog.runData.contributes_to_goal === true
+                    && dialog.progressFrom >= 0 && typeof App.readGoalProgress === "function")
+                    App.readGoalProgress(dialog.runId)
+                return
+            }
+            dialog.completedAction = true
             dialog.close()
+        }
+
+        // The read sent once this run counted: its answer is the count after it.
+        function onGoalProgressRead(runId, ok) {
+            if (!ok || !dialog.visible || runId !== dialog.runId
+                || dialog.progressFrom < 0 || dialog.progressTo >= 0)
+                return
+            dialog.progressTo = dialog.collectorProgress()
         }
 
         // Only the refusal of this window's own 通关 / 未通关 or 补录职业: one
@@ -315,31 +676,137 @@ Dialog {
         }
     }
 
-    contentItem: ColumnLayout {
+    contentItem: Item {
+        implicitWidth: dialog.standalone && compactFace.item ? compactFace.item.implicitWidth : formViewport.implicitWidth
+        implicitHeight: dialog.standalone && compactFace.item ? compactFace.item.implicitHeight : formViewport.implicitHeight
+
+        // The popup face lives only while the window is the standalone one.
+        Loader {
+            id: compactFace
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            active: dialog.standalone
+            visible: dialog.standalone
+            sourceComponent: ResultPopupContent { dialog: popupHost }
+        }
+
+        ScrollView {
+        id: formViewport
+        anchors.fill: parent
+        visible: !dialog.standalone
+        implicitHeight: form.implicitHeight
+        contentWidth: availableWidth
+        clip: true
+        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+        ColumnLayout {
+        id: form
+        width: formViewport.availableWidth
         spacing: 14
 
         RowLayout {
             Layout.fillWidth: true
             spacing: 12
 
-            CardKicker { text: dialog.kicker }
+            Image {
+                visible: dialog.reminderChrome
+                source: "qrc:/app/app.png"
+                Layout.preferredWidth: 28
+                Layout.preferredHeight: 28
+                sourceSize.width: 56
+                sourceSize.height: 56
+            }
+            CardKicker { text: dialog.reminderChrome ? qsTr("导随记录器") : dialog.kicker }
 
             Item { Layout.fillWidth: true }
 
             Text {
-                text: dialog.runId
+                text: dialog.reminderChrome ? dialog.kicker : dialog.runId
                 textFormat: Text.PlainText
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fs(11)
                 elide: Text.ElideMiddle
                 Layout.maximumWidth: 260
             }
+            AppButton {
+                objectName: dialog.standalone ? "deferReflectionButtonFull" : "deferReflectionButton"
+                visible: dialog.reminderChrome
+                text: qsTr("收起")
+                iconName: "chevrons-down"
+                compact: true
+                enabled: !dialog.busy
+                onClicked: dialog.defer()
+            }
+            DragHandler {
+                enabled: dialog.standalone
+                target: null
+                onActiveChanged: if (active && dialog.parent && dialog.parent.Window.window) dialog.parent.Window.window.startSystemMove()
+            }
         }
 
         HeadingLabel {
             Layout.fillWidth: true
-            text: dialog.askingResult ? qsTr("本次导随结果") : qsTr("导随笔记")
+            text: dialog.reminderChrome
+                  ? (dialog.askingResult ? qsTr("本次结果待确认") : qsTr("本次笔记待补录"))
+                  : (dialog.askingResult ? qsTr("本次导随结果") : qsTr("导随笔记"))
             font.pixelSize: Theme.dialogTitleSize(20)
+        }
+
+        Text {
+            Layout.fillWidth: true
+            visible: dialog.reminderChrome
+            text: qsTr("关闭只会收起提醒，待办和草稿会保留，可从“待处理”继续。")
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fs(12)
+            wrapMode: Text.WordWrap
+        }
+        Text {
+            Layout.fillWidth: true
+            visible: dialog.unavailable
+            text: qsTr("这条记录已删除或暂时无法读取。草稿仍可复制，当前不能提交。")
+            color: Theme.red
+            font.pixelSize: Theme.fs(12)
+            wrapMode: Text.WordWrap
+        }
+        Text {
+            Layout.fillWidth: true
+            visible: !!dialog.recovery && dialog.recovery.error.length > 0
+            text: dialog.recovery ? dialog.recovery.error : ""
+            color: Theme.red
+            font.pixelSize: Theme.fs(12)
+            wrapMode: Text.WordWrap
+        }
+        AppButton {
+            objectName: "reviewRecoveredRecordButton"
+            visible: !dialog.askingResult && !!dialog.runData.pending_review && !dialog.unavailable
+            text: qsTr("在历史记录中复核")
+            enabled: !dialog.busy
+            onClicked: dialog.requestReview()
+        }
+        ColumnLayout {
+            Layout.fillWidth: true
+            visible: dialog.conflictUnresolved
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("已保存的笔记有变化。下面保留了旧草稿，请选择要继续编辑的内容。最新笔记：\n%1")
+                      .arg(dialog.baselineText || qsTr("（空）"))
+                textFormat: Text.PlainText
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fs(12)
+                wrapMode: Text.WordWrap
+            }
+            RowLayout {
+                AppButton {
+                    objectName: dialog.standalone ? "keepRecoveryDraftButtonFull" : "keepRecoveryDraftButton"
+                    text: qsTr("继续使用草稿")
+                    onClicked: { dialog.conflictUnresolved = false; dialog.persistDraft(true) }
+                }
+                AppButton {
+                    objectName: dialog.standalone ? "useLatestNoteButtonFull" : "useLatestNoteButton"
+                    text: qsTr("使用最新笔记")
+                    onClicked: dialog.useLatestNote()
+                }
+            }
         }
 
         ColumnLayout {
@@ -389,16 +856,16 @@ Dialog {
                 spacing: 8
 
                 AppButton {
-                    objectName: "confirmCompletedButton"
+                    objectName: dialog.standalone ? "confirmCompletedButtonFull" : "confirmCompletedButton"
                     variant: "primary"
-                    enabled: !dialog.resolving
+                    enabled: !dialog.busy && !dialog.conflictUnresolved && !dialog.unavailable
                     text: qsTr("通关")
                     onClicked: dialog.resolveWith("COMPLETED", QT_TRANSLATE_NOOP("SystemReason", "用户确认通关"))
                 }
 
                 AppButton {
-                    objectName: "confirmLeftButton"
-                    enabled: !dialog.resolving
+                    objectName: dialog.standalone ? "confirmLeftButtonFull" : "confirmLeftButton"
+                    enabled: !dialog.busy && !dialog.conflictUnresolved && !dialog.unavailable
                     text: qsTr("退出 / 放弃")
                     onClicked: dialog.resolveWith("LEFT_OR_ABANDONED",
                                                   QT_TRANSLATE_NOOP("SystemReason", "用户确认退出或放弃"))
@@ -409,9 +876,9 @@ Dialog {
                 AppButton {
                     enabled: !dialog.resolving
                     text: qsTr("稍后再说")
-                    // Nothing is written: the run stays 待复核 and the total
-                    // 总览 banner keeps offering the same two buttons.
-                    onClicked: dialog.close()
+                    // Nothing is written: the run stays 待复核 and 待处理
+                    // keeps offering the same question.
+                    onClicked: dialog.defer()
                 }
             }
 
@@ -525,9 +992,10 @@ Dialog {
 
             StyledTextArea {
                 id: textArea
-                objectName: "reflectionTextArea"
+                objectName: dialog.standalone ? "reflectionTextAreaFull" : "reflectionTextArea"
                 width: textViewport.availableWidth
                 readOnly: dialog.busy
+                onTextChanged: dialog.draftChanged()
                 placeholderText: qsTr("记下这次导随的感想：新人表现、机制提醒、想对自己说的话……")
                 // ScrollView keeps the cursor visible; native text paste and
                 // the image-only shortcut retain their existing behavior.
@@ -607,7 +1075,7 @@ Dialog {
             spacing: 8
 
             ToggleSwitch {
-                accessibleName: dialog.askingResult ? qsTr("结束后自动询问") : qsTr("通关后自动弹出")
+                accessibleName: dialog.askingResult ? qsTr("结束后自动询问") : qsTr("通关后提醒记笔记")
                 scale: 0.8
                 checked: dialog.askingResult ? dialog.confirmEnabled : dialog.promptEnabled
                 onToggled: function(value) {
@@ -623,7 +1091,7 @@ Dialog {
             }
 
             Text {
-                text: dialog.askingResult ? qsTr("结束后自动询问") : qsTr("通关后自动弹出")
+                text: dialog.askingResult ? qsTr("结束后自动询问") : qsTr("通关后提醒记笔记")
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fs(12)
             }
@@ -634,17 +1102,17 @@ Dialog {
                 visible: !dialog.askingResult
                 enabled: !dialog.busy
                 text: qsTr("稍后补录")
-                onClicked: dialog.close()
+                onClicked: dialog.defer()
             }
 
             AppButton {
-                objectName: "saveReflectionButton"
+                objectName: dialog.standalone ? "saveReflectionButtonFull" : "saveReflectionButton"
                 visible: !dialog.askingResult
                 variant: "primary"
                 // A save started elsewhere (the dashboard's 补录) makes the
                 // controller drop a second call, so the button waits instead of
                 // pretending to submit.
-                enabled: !dialog.busy
+                enabled: !dialog.busy && !dialog.conflictUnresolved && !dialog.unavailable
                          && !(typeof App !== "undefined" && App.reflectionSaving === true)
                 text: dialog.submitting
                       ? qsTr("保存中…")
@@ -663,10 +1131,14 @@ Dialog {
                         return
                     }
                     dialog.errorText = ""
+                    dialog.persistDraft()
+                    dialog.submittedDraftToken = dialog.draftToken
                     dialog.submitting = true
-                    App.saveReflection(dialog.runId, dialog.mood, textArea.text.trim())
+                    App.saveReflection(dialog.runId, dialog.mood, textArea.text.trim(), dialog.submittedDraftToken)
                 }
             }
+        }
+        }
         }
     }
 }

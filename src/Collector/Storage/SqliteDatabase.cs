@@ -78,13 +78,16 @@ public sealed class SqliteDatabase : IDisposable
             var applied = MigrationRunner.ReadAppliedMigrations(connection);
             var priorVersion = applied.Count == 0 ? 0 : applied.Keys.Max();
             var database = new SqliteDatabase(connection, fullPath, priorVersion, openReadOnly ?? OpenReadOnlyConnection);
-            if (priorVersion is > 0 and < 10)
+            if (priorVersion > 0 && priorVersion < MigrationRunner.LatestVersion)
             {
-                // This upgrade introduces eventual permanent cleanup. Keep a verified pre-upgrade
-                // snapshot outside the ordinary rolling-backup name pattern; never prune old copies.
+                // Every upgrade keeps a verified copy of the file as the previous version left it, so
+                // that version can still open the user's history (audit 2026-10-20 H1-2; the daily
+                // backup is taken after connecting, so on upgrade day it is already the new schema).
+                // The copy is named outside the ordinary rolling-backup pattern and never pruned.
                 var snapshot = ExportPaths.Resolve(System.IO.Path.Combine(
                     System.IO.Path.GetDirectoryName(fullPath)!, "backups",
-                    "history_retention_upgrade_" + clock.UtcNow.ToUniversalTime().ToString("yyyyMMdd_HHmmss", System.Globalization.CultureInfo.InvariantCulture)
+                    "pre_schema_" + priorVersion.ToString(System.Globalization.CultureInfo.InvariantCulture) + "_upgrade_"
+                    + clock.UtcNow.ToUniversalTime().ToString("yyyyMMdd_HHmmss", System.Globalization.CultureInfo.InvariantCulture)
                     + "_" + Guid.NewGuid().ToString("N") + ".db"));
                 ExportPaths.PrepareDestination(snapshot, overwrite: false);
                 database.BackupDatabase(snapshot, overwrite: false);
@@ -549,18 +552,15 @@ public sealed class SqliteDatabase : IDisposable
         }
     }
 
-    private static bool VerifyCopy(string path)
+    /// <summary>
+    /// Integrity check of a staged copy, on a read-only connection opened like every other one this class
+    /// opens, so a test can make the check fail and prove a damaged copy is never published (audit 2026-10-20 H1-5).
+    /// </summary>
+    private bool VerifyCopy(string path)
     {
         try
         {
-            var builder = new SqliteConnectionStringBuilder
-            {
-                DataSource = path,
-                Mode = SqliteOpenMode.ReadOnly,
-                Pooling = false,
-            };
-            using var connection = new SqliteConnection(builder.ConnectionString);
-            connection.Open();
+            using var connection = _openReadOnly(path);
             using var command = connection.CreateCommand();
             command.CommandText = "PRAGMA integrity_check;";
             return string.Equals(command.ExecuteScalar() as string, "ok", StringComparison.OrdinalIgnoreCase);

@@ -91,9 +91,6 @@ jobs:
           if ($profiles.Count -eq 0) { throw 'No protocol profiles found' }
           python tools/protocol-profile-validator/validate.py @($profiles.FullName)
 
-      - name: Restore
-        run: dotnet restore MentorRecorder.sln
-
       # The whole release gate, including the Desktop<->real Collector ctest suites
       # (MentorRecorderIpcIntegration, MentorRecorderLifecycle) - which is why
       # scripts/build.ps1 stages the Collector next to both the Desktop executable and the
@@ -107,6 +104,43 @@ jobs:
       #   * No -SkipGate is passed. Nothing here needs Npcap or a game client: the capture
       #     gates assert compile-time boundary constants and accept "this machine cannot
       #     capture right now" (exit code 1) as a correct answer.
+      - name: Install pinned cppcheck for verify.ps1
+        shell: pwsh
+        run: |
+          # Official release asset and SHA256 from the upstream release metadata:
+          # https://github.com/cppcheck-opensource/cppcheck/releases/tag/2.21.0
+          # The exact Chocolatey 2.21.0 package is absent. Extract an independent
+          # administrative image; never use or replace a runner's global installation.
+          $msi = Join-Path $env:RUNNER_TEMP 'cppcheck-2.21.0-x64-Setup.msi'
+          $toolRoot = Join-Path $env:RUNNER_TEMP "cppcheck-2.21.0-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          . ./scripts/package-runtime.ps1
+          $download = New-IsolatedPackageStartInfo -Executable "$env:SystemRoot/System32/curl.exe" -WorkingDirectory $env:RUNNER_TEMP -Arguments @('--fail', '--location', '--proto', '=https', '--proto-redir', '=https', '--connect-timeout', '30', '--max-time', '300', '--output', $msi, 'https://github.com/cppcheck-opensource/cppcheck/releases/download/2.21.0/cppcheck-2.21.0-x64-Setup.msi') # BOUNDARY-ALLOW(NET-009): CI-only download of the pinned cppcheck MSI; its size and SHA-256 are checked below.
+          $result = Invoke-PackageVerificationProcess -StartInfo $download -TimeoutSeconds 330
+          if ($result.TimedOut -or $result.ExitCode -ne 0) { throw 'Downloading the pinned official cppcheck MSI failed.' } # BOUNDARY-ALLOW(INJ-009): ExitCode of the bounded result record, not a Process handle.
+          if ((Get-Item -LiteralPath $msi).Length -ne 23777280 -or
+              (Get-FileHash -LiteralPath $msi -Algorithm SHA256).Hash -ne 'A86EEF1180DC18FDE46B08F4E4B12F2A1EAD8CFC0DD6C294AAC8757748CBBB24') {
+            throw 'The pinned official cppcheck MSI size or SHA256 does not match.'
+          }
+          if (Test-Path -LiteralPath $toolRoot) { throw 'The isolated cppcheck directory already exists.' }
+          New-Item -ItemType Directory -Path $toolRoot | Out-Null
+          $extract = New-IsolatedPackageStartInfo -Executable "$env:SystemRoot/System32/msiexec.exe" -WorkingDirectory $env:RUNNER_TEMP
+          # Windows Installer parses its own syntax: switches stay bare and path values
+          # are quoted; quoting every argv element makes msiexec return error 1639.
+          $extract.Arguments = ('/a "{0}" /qn /norestart TARGETDIR="{1}"' -f $msi, $toolRoot)
+          $result = Invoke-PackageVerificationProcess -StartInfo $extract -TimeoutSeconds 180
+          if ($result.TimedOut -or $result.ExitCode -ne 0) { # BOUNDARY-ALLOW(INJ-009): ExitCode of the bounded result record, not a Process handle.
+            throw 'Extracting the pinned cppcheck administrative image failed.'
+          }
+          $executables = @(Get-ChildItem -LiteralPath $toolRoot -Filter cppcheck.exe -Recurse -File)
+          if ($executables.Count -ne 1) { throw 'The extracted image must contain exactly one cppcheck.exe.' }
+          $cppcheck = $executables[0].FullName
+          $probe = New-IsolatedPackageStartInfo -Executable $cppcheck -WorkingDirectory $executables[0].DirectoryName -Arguments @('--version')
+          $version = Invoke-PackageVerificationProcess -StartInfo $probe -TimeoutSeconds 30
+          if ($version.TimedOut -or $version.ExitCode -ne 0 -or $version.Stdout.Trim() -ne 'Cppcheck 2.21.0') { # BOUNDARY-ALLOW(INJ-009): ExitCode of the bounded result record, not a Process handle.
+            throw 'The extracted cppcheck version does not match the pinned analyzer.'
+          }
+          "MR_CPPCHECK_EXE=$cppcheck" | Out-File $env:GITHUB_ENV -Append
+
       - name: verify.ps1 (Release)
         shell: pwsh
         env:
@@ -128,9 +162,27 @@ jobs:
           name: test-results
           path: |
             artifacts/test-results/
+            artifacts/security-quality/
+            artifacts/static-analysis/
             build/tests/Desktop.Tests/*.qtlog.txt
           if-no-files-found: warn
           retention-days: 14
+
+  security-quality:
+    name: Security and quality checker tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      # Behavioral tests cover failures, pagination, commit identity, empty results and
+      # secret redaction without needing security-events access on a pull-request token.
+      # verify.ps1 runs the real local NuGet graph audit. Privileged GitHub readback is
+      # separately invoked by a maintainer before merge/release and never changes policy.
+      - name: Security gate positive and negative cases
+        run: python -B tools/security-quality/test_check.py
 
   markdown:
     name: Markdown lint
@@ -144,5 +196,7 @@ jobs:
       # Scope: the documents a reader is pointed at. Rules are in .markdownlint.json;
       # .markdownlintignore skips the local-only working material (docs/plans, docs/reviews,
       # openspec) so a local run lints the same set of files as this job.
+      # The linter is pinned to one release: unpinned, npx would install whatever is newest on
+      # npm at every run. Dependabot does not see a version written here; bump it by hand.
       - name: markdownlint
-        run: npx --yes markdownlint-cli 'docs/**/*.md' 'README.md' 'CHANGELOG.md' 'CONTRIBUTING.md' 'SECURITY.md'
+        run: npx --yes markdownlint-cli@0.49.1 'docs/**/*.md' 'README.md' 'CHANGELOG.md' 'CONTRIBUTING.md' 'SECURITY.md'

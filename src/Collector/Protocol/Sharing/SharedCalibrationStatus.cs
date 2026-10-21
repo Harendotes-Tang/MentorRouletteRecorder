@@ -240,6 +240,15 @@ public enum SharedCheckOutcome
     NotNeeded,
 }
 
+/// <summary>The answer to <c>CheckSharedCalibration</c>.</summary>
+/// <param name="Outcome">What 立即检查 did.</param>
+/// <param name="Text">
+/// What to tell the player instead of the Desktop's own sentence for <paramref name="Outcome"/>, when that sentence would
+/// be untrue (<c>message</c> and <c>message_ref</c>); null otherwise. Set only for a check refused because this machine's
+/// shared-calibration records cannot be read right now (re-review 2026-10-21, RV5-5).
+/// </param>
+public sealed record SharedCheckAnswer(SharedCheckOutcome Outcome, UserText? Text = null);
+
 /// <summary>What accepting queue inference did.</summary>
 public enum SharedConsentOutcome
 {

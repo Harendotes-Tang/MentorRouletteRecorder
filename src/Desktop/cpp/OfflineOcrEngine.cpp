@@ -189,7 +189,18 @@ void OfflineOcrEngine::launchProcess(const QString &input)
         environment.insert(name, QStringLiteral("2"));
     process->setProcessEnvironment(environment);
     process->setWorkingDirectory(m_work->path());
-    process->setProgram(enginePath(m_applicationDirectory));
+    QString program = enginePath(m_applicationDirectory);
+#ifdef Q_OS_WIN
+    program = QDir::toNativeSeparators(QFileInfo(program).absoluteFilePath());
+    // The frozen worker loads native dependencies below its executable root.
+    // Keep that root extended even when it is shorter than MAX_PATH itself.
+    if (!program.startsWith(QStringLiteral("\\\\?\\"))) {
+        program = program.startsWith(QStringLiteral("\\\\"))
+            ? QStringLiteral("\\\\?\\UNC\\") + program.mid(2)
+            : QStringLiteral("\\\\?\\") + program;
+    }
+#endif
+    process->setProgram(program);
     process->setArguments({QStringLiteral("--input"), input, QStringLiteral("--output"), m_outputFile,
                            QStringLiteral("--models"), modelsPath(m_applicationDirectory)});
     // Drain pipes without recording OCR text; diagnostic retention is bounded.

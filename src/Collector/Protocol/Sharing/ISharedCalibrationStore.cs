@@ -25,8 +25,9 @@ public interface ISharedCalibrationStore
         Region region, string gameBuild, string templateSha256, SharedCalibrationFetchResult result, DateTimeOffset nowUtc);
 
     /// <summary>
-    /// Stored codes for this region, build and template that are neither revoked by the last readable
-    /// index nor rejected, best first, at most <see cref="SharedCalibrationIndex.MaxCandidates"/>.
+    /// Stored codes for this region, build and template that are neither revoked by an index this machine
+    /// read nor rejected, best first, at most <see cref="SharedCalibrationIndex.MaxCandidates"/>. None while
+    /// the bookkeeping cannot be read.
     /// </summary>
     /// <param name="region">Region of the running client.</param>
     /// <param name="gameBuild">Build of the running client.</param>
@@ -52,12 +53,16 @@ public interface ISharedCalibrationStore
     SharedContradictionResult RecordContradiction(
         Region region, string gameBuild, string templateSha256, string codeSha256, string sessionId, DateTimeOffset nowUtc);
 
-    /// <summary>True once enough distinct sessions contradicted this code under this template.</summary>
+    /// <summary>
+    /// True once enough distinct sessions contradicted this code under this template; null when the bookkeeping exists but
+    /// cannot be read right now, so the answer is unknown. A caller that offers or admits a code treats unknown as
+    /// rejected; one that would withdraw the profile in use acts only on a known rejection (re-review 2026-10-20, RV2-1).
+    /// </summary>
     /// <param name="region">Region of the running client.</param>
     /// <param name="gameBuild">Build of the running client.</param>
     /// <param name="templateSha256">Template in force.</param>
     /// <param name="codeSha256">The code.</param>
-    bool IsRejected(Region region, string gameBuild, string templateSha256, string codeSha256);
+    bool? IsRejected(Region region, string gameBuild, string templateSha256, string codeSha256);
 
     /// <summary>
     /// Remembers that the player chose not to use shared calibrations for this region and build
@@ -69,10 +74,14 @@ public interface ISharedCalibrationStore
     /// <param name="nowUtc">When the player said so.</param>
     bool RecordUserRejection(Region region, string gameBuild, DateTimeOffset nowUtc);
 
-    /// <summary>True while the player's refusal of shared calibrations stands for this region and build.</summary>
+    /// <summary>
+    /// True while the player's refusal of shared calibrations stands for this region and build; null when the bookkeeping
+    /// exists but cannot be read right now (another process holds it), so the answer is unknown. A caller treats unknown
+    /// as refused and does not keep it (audit 2026-10-20, E-2).
+    /// </summary>
     /// <param name="region">Region of the running client.</param>
     /// <param name="gameBuild">Build of the running client.</param>
-    bool IsUserRejected(Region region, string gameBuild);
+    bool? IsUserRejected(Region region, string gameBuild);
 
     /// <summary>Forgets every rejection for a build (重新观察), the player's own refusal included. Codes and fetch records stay.</summary>
     /// <param name="region">Region of the running client.</param>
@@ -80,13 +89,23 @@ public interface ISharedCalibrationStore
     bool ClearRejections(Region region, string gameBuild);
 
     /// <summary>
-    /// What the last index this machine read for the build said about a code (plan §18.5): listed, listed
-    /// and revoked, or never seen. Reads the bookkeeping only; nothing is sent to answer it.
+    /// What the indexes this machine read for the build said about a code (plan §18.5): listed, revoked by any of
+    /// them, or never seen - and never seen while the bookkeeping cannot be read. Reads the bookkeeping only;
+    /// nothing is sent to answer it.
     /// </summary>
     /// <param name="region">Region of the running client.</param>
     /// <param name="gameBuild">Build of the running client.</param>
     /// <param name="codeSha256">The code.</param>
     SharedPublication Publication(Region region, string gameBuild, string codeSha256);
+
+    /// <summary>
+    /// Every code an index this machine read for the build has revoked, sorted. The publisher never takes a revocation back,
+    /// so the list only grows (bounded); empty when nothing was revoked or the bookkeeping cannot be read. Reads the
+    /// bookkeeping only; nothing is sent to answer it.
+    /// </summary>
+    /// <param name="region">Region of the running client.</param>
+    /// <param name="gameBuild">Build of the running client.</param>
+    IReadOnlyList<string> RevokedCodes(Region region, string gameBuild);
 
     /// <summary>
     /// Remembers that the shared profile with this document hash finished its watch (plan §18.4): a complete
@@ -137,8 +156,8 @@ public interface ISharedCalibrationStore
     /// <summary>
     /// The text of the stored code with exactly this identity, as it was downloaded (plan §20.5): what a player whose
     /// machine proved another player's calibration hands back to the repository. Null when no file holds that code - a
-    /// code pasted and never downloaded included - when the file no longer decodes to it, or when the last readable index
-    /// revoked it. Reads the files only; nothing is sent to answer it.
+    /// code pasted and never downloaded included - when the file no longer decodes to it, or when an index this machine
+    /// read revoked it. Reads the files only; nothing is sent to answer it.
     /// </summary>
     /// <param name="region">Region of the running client.</param>
     /// <param name="gameBuild">Build of the running client.</param>
@@ -155,7 +174,7 @@ public enum SharedPublication
     /// <summary>An index listed it, whether or not its file could be obtained.</summary>
     Published,
 
-    /// <summary>The last readable index marks it revoked.</summary>
+    /// <summary>An index this machine read revoked it; a revocation is never taken back.</summary>
     Revoked,
 }
 
@@ -233,19 +252,22 @@ internal sealed class InertSharedCalibrationStore : ISharedCalibrationStore
         new(0, false, false);
 
     /// <inheritdoc />
-    public bool IsRejected(Region region, string gameBuild, string templateSha256, string codeSha256) => false;
+    public bool? IsRejected(Region region, string gameBuild, string templateSha256, string codeSha256) => false;
 
     /// <inheritdoc />
     public bool RecordUserRejection(Region region, string gameBuild, DateTimeOffset nowUtc) => false;
 
     /// <inheritdoc />
-    public bool IsUserRejected(Region region, string gameBuild) => false;
+    public bool? IsUserRejected(Region region, string gameBuild) => false;
 
     /// <inheritdoc />
     public bool ClearRejections(Region region, string gameBuild) => false;
 
     /// <inheritdoc />
     public SharedPublication Publication(Region region, string gameBuild, string codeSha256) => SharedPublication.Unknown;
+
+    /// <inheritdoc />
+    public IReadOnlyList<string> RevokedCodes(Region region, string gameBuild) => Array.Empty<string>();
 
     /// <inheritdoc />
     public bool RecordSettled(Region region, string gameBuild, string profileSha256, DateTimeOffset nowUtc) => false;

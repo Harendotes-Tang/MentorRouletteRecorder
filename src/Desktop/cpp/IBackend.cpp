@@ -421,6 +421,87 @@ BackendReply *IBackend::updateAchievementBaseline(int goalCount,
     return request(QStringLiteral("UpdateAchievementBaseline"), payload);
 }
 
+BackendReply *IBackend::batchMutateRuns(const QString &action, const QJsonArray &runs,
+                                        const QString &reason, const QString &requestId)
+{
+    QJsonObject payload;
+    payload.insert(QStringLiteral("action"), action);
+    payload.insert(QStringLiteral("runs"), runs);
+    payload.insert(QStringLiteral("reason"), reason);
+    return requestWithId(QStringLiteral("BatchMutateRuns"), payload, requestId);
+}
+
+BackendReply *IBackend::getHistoryRetentionSettings()
+{
+    return request(QStringLiteral("GetHistoryRetentionSettings"));
+}
+
+BackendReply *IBackend::updateHistoryRetentionSettings(int retentionDays)
+{
+    QJsonObject payload;
+    payload.insert(QStringLiteral("retention_days"), retentionDays);
+    return request(QStringLiteral("UpdateHistoryRetentionSettings"), payload);
+}
+
+BackendReply *IBackend::getPendingImageCleanup()
+{
+    return request(QStringLiteral("GetPendingImageCleanup"));
+}
+
+BackendReply *IBackend::acknowledgeImageCleanup(const QStringList &runIds)
+{
+    QJsonObject payload;
+    payload.insert(QStringLiteral("run_ids"), QJsonArray::fromStringList(runIds));
+    return request(QStringLiteral("AcknowledgeImageCleanup"), payload);
+}
+
+QJsonObject IBackend::previewRunImportPayload(const RunImportSource &source)
+{
+    QJsonObject payload;
+    payload.insert(QStringLiteral("source_kind"), source.kind);
+    payload.insert(QStringLiteral("source_name"), source.name);
+    payload.insert(QStringLiteral("time_zone"), source.timeZone);
+    if (source.pageSize > 0)
+        payload.insert(QStringLiteral("page_size"), source.pageSize);
+    if (!source.rows.isEmpty())
+        payload.insert(QStringLiteral("rows"), source.rows);
+    else if (!source.filePath.isEmpty())
+        payload.insert(QStringLiteral("file_path"), source.filePath);
+    else if (!source.text.isEmpty())
+        payload.insert(QStringLiteral("text"), source.text);
+    if (!source.columnMapping.isEmpty())
+        payload.insert(QStringLiteral("column_mapping"), source.columnMapping);
+    return payload;
+}
+
+BackendReply *IBackend::previewRunImport(const RunImportSource &source)
+{
+    return request(QStringLiteral("PreviewRunImport"), previewRunImportPayload(source));
+}
+
+BackendReply *IBackend::previewRunImportPage(const QString &previewId, int page)
+{
+    QJsonObject payload;
+    payload.insert(QStringLiteral("preview_id"), previewId);
+    payload.insert(QStringLiteral("page"), page);
+    return request(QStringLiteral("PreviewRunImport"), payload);
+}
+
+BackendReply *IBackend::commitRunImport(const QString &previewId, const QList<int> &rowNumbers,
+                                        bool deductFromBaseline, const QString &requestId)
+{
+    QJsonArray numbers;
+    for (int number : rowNumbers)
+        numbers.append(number);
+    QJsonObject payload;
+    payload.insert(QStringLiteral("preview_id"), previewId);
+    payload.insert(QStringLiteral("row_numbers"), numbers);
+    payload.insert(QStringLiteral("confirm_own_records"), true);
+    if (deductFromBaseline)
+        payload.insert(QStringLiteral("deduct_from_baseline"), true);
+    return requestWithId(QStringLiteral("CommitRunImport"), payload, requestId);
+}
+
 BackendReply *IBackend::setRunReflection(const QString &runId, const QString &mood,
                                          const QString &text)
 {

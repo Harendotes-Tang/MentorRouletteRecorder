@@ -550,9 +550,13 @@ public sealed partial record CalibrationDraft(
         // run starts when the player queues and then sits at "matched" for ever, whatever they
         // play. Such a profile is worse than none, so it is not offered; calibration keeps
         // looking instead.
-        var needsTerritory = CalibratedShape.RequiresTerritory(source);
+        //
+        // The same line for any other draft that is not ready and has no reason to give: a popup found
+        // by the roulette it carries with no duty the table knows after it - a patch-day duty missing
+        // from the table, matches the player declined - waited with an empty list, and the card hid its
+        // hint (audit 2026-10-20, C-8). Entering a duty is what such a draft waits for, too.
         var ready = blockers.Count == 0 && CalibratedShape.IsComplete(source, messages);
-        if (!blocked && !ready && needsTerritory && blockers.Count == 0)
+        if (!blocked && !ready && blockers.Count == 0)
         {
             blockers.Add(CollectorTexts.CalibrationBlockerNoDuty());
         }
@@ -1144,7 +1148,11 @@ public sealed partial record CalibrationDraft(
     {
         var marked = ExactlyOnceCount(snapshot.Clusters, key);
         var outside = Outside(snapshot, key);
-        return marked > 0 && (outside <= MaxZoneOutside || outside * ZoneOutsidePerBurst <= marked);
+        // The outside sightings are counted over the evidence's whole life, while the bursts kept are only the newest
+        // (C-4); the loads let go still count as marked, so both sides of the ratio cover the same span (re-review
+        // 2026-10-20, RV1-1).
+        var markedEver = (long)marked + snapshot.RetiredOnceCounts.GetValueOrDefault(key);
+        return marked > 0 && (outside <= MaxZoneOutside || (long)outside * ZoneOutsidePerBurst <= markedEver);
     }
 
     private static bool OnceIn(ZoneCluster cluster, MessageKey key) =>

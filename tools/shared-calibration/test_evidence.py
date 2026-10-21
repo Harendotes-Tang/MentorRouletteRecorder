@@ -159,11 +159,234 @@ class EvidenceTests(unittest.TestCase):
             self.assertEqual(before, self.state)
             self.assertEqual("accepted", self.accept(account=2, issue=20)["status"])
 
+    def test_one_alias_shared_by_two_candidates_is_skipped_not_refused(self):
+        # 1.7.3 clients give every candidate observed in one capture session the same alias (N1-1).
+        first = receipt()
+        second = copy.deepcopy(first); second["evidence_id"] = str(uuid.uuid4())
+        second["target"]["code_sha256"] = "c" * 64
+        for session in second["sessions"]: session["checks"] = [{"field": "zone", "verdict": "PASS"}]
+        self.assertEqual("accepted", self.accept(first, 1, 10)["status"])
+        self.assertEqual("waiting", self.accept(second, 1, 11)["status"])
+        self.assertEqual(1, len(self.state["votes"]))
+        grown = copy.deepcopy(second); grown["evidence_id"] = str(uuid.uuid4())
+        grown["sessions"] += receipt("PASS")["sessions"]
+        self.assertEqual("accepted", self.accept(grown, 1, 12)["status"])
+        self.assertEqual({"CONTRADICT", "PASS"}, {vote["verdict"] for vote in self.state["votes"].values()})
+        tampered = copy.deepcopy(first); tampered["evidence_id"] = str(uuid.uuid4())
+        tampered["sessions"][0]["checks"][0]["verdict"] = "PASS"
+        with self.assertRaisesRegex(self.e.EvidenceError, "SESSION_ALIAS_REUSED"): self.accept(tampered, 1, 13)
+
+    def test_one_alias_per_candidate_counts_for_each_candidate(self):
+        first = receipt()
+        second = receipt("PASS"); second["target"]["code_sha256"] = "c" * 64
+        self.assertEqual("accepted", self.accept(first, 1, 10)["status"])
+        self.assertEqual("accepted", self.accept(second, 1, 11)["status"])
+        self.assertEqual(2, len(self.state["votes"]))
+
     def test_public_session_aliases_copied_by_another_account_do_not_add_votes(self):
         item = receipt(); self.accept(item, 1, 1)
         copied = copy.deepcopy(item); copied["evidence_id"] = str(uuid.uuid4())
         self.assertEqual("waiting", self.accept(copied, 2, 2)["status"])
         self.assertEqual(1, len(self.state["votes"]))
+
+    def test_copier_processed_first_loses_the_receipt_to_the_earlier_issue(self):
+        # N1-4: the copy (account 2, Issue 101) runs before the original (account 1, Issue 100).
+        honest = receipt("PASS")
+        self.assertEqual("accepted", self.accept(copy.deepcopy(honest), 2, 101)["status"])
+        self.assertEqual("accepted", self.accept(honest, 1, 100)["status"])
+        self.assertEqual((1, 100), (self.state["receipts"][honest["evidence_id"]]["account"],
+                                    self.state["receipts"][honest["evidence_id"]]["issue"]))
+        self.assertEqual({1}, {vote["account"] for vote in self.state["votes"].values()})
+        self.assertEqual({"1"}, {key.split(":")[0] for key in self.state["sessions"]})
+        with self.assertRaisesRegex(self.e.EvidenceError, "EVIDENCE_ID_REUSED"): self.accept(honest, 2, 101)
+        self.assertEqual({1}, {vote["account"] for vote in self.state["votes"].values()})
+
+    def test_aliases_copied_under_a_new_id_by_a_later_issue_return_to_the_earlier_issue(self):
+        honest = receipt("PASS")
+        copied = copy.deepcopy(honest); copied["evidence_id"] = str(uuid.uuid4())
+        for session in copied["sessions"]: session["checks"][0]["verdict"] = "CONTRADICT"
+        self.assertEqual("accepted", self.accept(copied, 2, 101)["status"])
+        self.assertEqual("accepted", self.accept(honest, 1, 100)["status"])
+        self.assertNotIn(copied["evidence_id"], self.state["receipts"])
+        self.assertEqual([("PASS", 1)], [(v["verdict"], v["account"]) for v in self.state["votes"].values()])
+        again = copy.deepcopy(copied); again["evidence_id"] = str(uuid.uuid4())
+        self.assertEqual("waiting", self.accept(again, 2, 102)["status"])
+        self.assertEqual(1, len(self.state["votes"]))
+
+    def test_a_later_copy_never_takes_an_earlier_issue_s_receipt(self):
+        honest = receipt("PASS")
+        self.accept(honest, 1, 100)
+        with self.assertRaisesRegex(self.e.EvidenceError, "EVIDENCE_ID_REUSED"): self.accept(copy.deepcopy(honest), 2, 101)
+        self.assertEqual(1, self.state["receipts"][honest["evidence_id"]]["account"])
+
+    def answer_invalid(self, account, issue):
+        # What the workflow does with a body it cannot read: no receipt, but the answer is recorded.
+        with self.assertRaises(self.e.EvidenceError):
+            self.e.receive(self.state, "invalid", account_id=account, account_created_at="2020-01-01T00:00:00Z",
+                           issue_number=issue, now=NOW)
+        self.e.record_answer(self.state, issue)
+
+    def test_an_answered_issue_edited_to_carry_a_later_summary_claims_nothing(self):
+        # RV4-1: Issue 99 was answered once ("invalid"), before or after Issue 100 was accepted, then edited.
+        for placeholder_first in (True, False):
+            with self.subTest(placeholder_first=placeholder_first):
+                self.state = self.e.empty_ledger()
+                honest = receipt("PASS")
+                if placeholder_first: self.answer_invalid(2, 99)
+                self.assertEqual("accepted", self.accept(honest, 1, 100)["status"])
+                self.e.record_answer(self.state, 100)
+                if not placeholder_first: self.answer_invalid(2, 99)
+                before = copy.deepcopy(self.state)
+                with self.assertRaisesRegex(self.e.EvidenceError, "EVIDENCE_ID_REUSED"): self.accept(copy.deepcopy(honest), 2, 99)
+                self.assertEqual(before, self.state)
+                self.assertEqual((1, 100), (self.state["receipts"][honest["evidence_id"]]["account"],
+                                            self.state["receipts"][honest["evidence_id"]]["issue"]))
+                self.assertEqual({"1"}, {key.split(":")[0] for key in self.state["sessions"]})
+                self.assertEqual([("PASS", 1)], [(v["verdict"], v["account"]) for v in self.state["votes"].values()])
+
+    def test_an_answered_issue_edited_to_carry_a_later_issue_s_aliases_counts_none_of_them(self):
+        honest = receipt("PASS")
+        self.assertEqual("accepted", self.accept(honest, 1, 100)["status"])
+        self.e.record_answer(self.state, 100)
+        self.answer_invalid(2, 99)
+        copied = copy.deepcopy(honest); copied["evidence_id"] = str(uuid.uuid4())
+        for session in copied["sessions"]: session["checks"][0]["verdict"] = "CONTRADICT"
+        self.assertEqual("waiting", self.accept(copied, 2, 99)["status"])
+        self.assertEqual((1, 100), (self.state["receipts"][honest["evidence_id"]]["account"],
+                                    self.state["receipts"][honest["evidence_id"]]["issue"]))
+        self.assertEqual({"1"}, {key.split(":")[0] for key in self.state["sessions"]})
+        self.assertEqual([("PASS", 1)], [(v["verdict"], v["account"]) for v in self.state["votes"].values()])
+
+    def test_an_issue_never_answered_still_takes_back_its_summary_from_an_answered_later_copy(self):
+        # The race N1-4 repairs: the copy (account 2, Issue 100) was received and answered before Issue 99 was.
+        for same_id in (True, False):
+            with self.subTest(same_id=same_id):
+                self.state = self.e.empty_ledger()
+                honest = receipt("PASS")
+                copied = copy.deepcopy(honest)
+                if not same_id:
+                    copied["evidence_id"] = str(uuid.uuid4())
+                    for session in copied["sessions"]: session["checks"][0]["verdict"] = "CONTRADICT"
+                self.assertEqual("accepted", self.accept(copied, 2, 100)["status"])
+                self.e.record_answer(self.state, 100)
+                self.assertEqual("accepted", self.accept(honest, 1, 99)["status"])
+                self.e.record_answer(self.state, 99)
+                self.assertEqual((1, 99), (self.state["receipts"][honest["evidence_id"]]["account"],
+                                           self.state["receipts"][honest["evidence_id"]]["issue"]))
+                self.assertEqual(1, len(self.state["receipts"]))
+                self.assertEqual({"1"}, {key.split(":")[0] for key in self.state["sessions"]})
+                self.assertEqual([("PASS", 1)], [(v["verdict"], v["account"]) for v in self.state["votes"].values()])
+
+    def test_answers_are_recorded_once_and_the_ledger_stays_strict(self):
+        self.e.record_answer(self.state, 7)
+        self.accept(account=1, issue=8); self.e.record_answer(self.state, 8)
+        self.e.record_answer(self.state, 7)
+        self.assertEqual((2, 0, {"7": 0, "8": 1}), (self.state["schema_version"], self.state["answered_floor"], self.state["answered"]))
+        with self.assertRaises(self.e.EvidenceError): self.e.record_answer(self.state, 0)
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / self.e.LEDGER_FILE
+            path.write_bytes(self.e.canonical(self.state))
+            self.assertEqual(self.state, self.e.load_ledger(root))
+            for mutate in (lambda s: s["answered"].update({"0": 0}), lambda s: s["answered"].update({"x": 0}),
+                           lambda s: s["answered"].update({"9": True}), lambda s: s["answered"].update({"9": 2}),
+                           lambda s: s["answered"].update({"9": -1}), lambda s: s.update(answered_floor=-1),
+                           lambda s: s.update(answered_floor=True), lambda s: s.update(answered_floor=7),
+                           lambda s: s.update(answered=[]), lambda s: s.pop("answered"),
+                           lambda s: s.update(schema_version=1)):
+                broken = copy.deepcopy(self.state); mutate(broken)
+                path.write_bytes(self.e.canonical(broken))
+                with self.subTest(broken=broken), self.assertRaisesRegex(self.e.EvidenceError, "LEDGER_CORRUPT"):
+                    self.e.load_ledger(root)
+
+    def test_a_version_1_ledger_counts_every_issue_it_knows_as_answered(self):
+        # The answers of the code before version 2 were not recorded: no Issue up to the highest one it knows may claim.
+        honest = receipt("PASS")
+        self.accept(honest, 1, 100)
+        legacy = {key: value for key, value in self.state.items() if key not in ("answered", "answered_floor")}
+        legacy["schema_version"] = 1
+        with tempfile.TemporaryDirectory() as root:
+            (Path(root) / self.e.LEDGER_FILE).write_bytes(self.e.canonical(legacy))
+            self.state = self.e.load_ledger(root)
+            self.assertEqual((2, 100, {}), (self.state["schema_version"], self.state["answered_floor"], self.state["answered"]))
+            with self.assertRaisesRegex(self.e.EvidenceError, "EVIDENCE_ID_REUSED"): self.accept(copy.deepcopy(honest), 2, 99)
+            legacy["answered"] = {}
+            (Path(root) / self.e.LEDGER_FILE).write_bytes(self.e.canonical(legacy))
+            with self.assertRaisesRegex(self.e.EvidenceError, "LEDGER_CORRUPT"): self.e.load_ledger(root)
+
+    def test_a_full_answer_table_raises_the_floor_and_never_forgets_an_answer(self):
+        from unittest.mock import patch
+        for issue in (5, 7): self.e.record_answer(self.state, issue)
+        with patch.object(self.e, "MAX_ANSWERED", 2):
+            self.e.record_answer(self.state, 3)
+        self.assertEqual((7, {}), (self.state["answered_floor"], self.state["answered"]))
+        self.e.record_answer(self.state, 6)
+        self.assertEqual((7, {}), (self.state["answered_floor"], self.state["answered"]), "6 counts as answered already")
+        honest = receipt("PASS")
+        self.accept(copy.deepcopy(honest), 2, 8)
+        with self.assertRaisesRegex(self.e.EvidenceError, "EVIDENCE_ID_REUSED"): self.accept(honest, 1, 4)
+        self.e.record_answer(self.state, 9)
+        self.assertEqual({"9": 1}, self.state["answered"])
+        with patch.object(self.e, "MAX_LEDGER_BYTES", len(self.e.canonical(self.state)) + 3):
+            self.e.record_answer(self.state, 11)
+            self.assertEqual((11, {}), (self.state["answered_floor"], self.state["answered"]))
+            before = copy.deepcopy(self.state)
+        with patch.object(self.e, "MAX_LEDGER_BYTES", len(self.e.canonical(self.state))):
+            with self.assertRaisesRegex(self.e.EvidenceError, "LEDGER_CAPACITY_WAIT"): self.e.record_answer(self.state, 123456)
+        self.assertEqual(before, self.state)
+
+    def test_lift_ends_a_quarantine_and_consumes_the_negatives_that_set_it(self):
+        # N1-3: a maintainer override that apply_hints does not undo, because it lives in the ledger.
+        for account in range(1, 4): self.accept(account=account)
+        candidate_id = next(iter(self.state["candidates"]))
+        before = copy.deepcopy(self.state)
+        lifted, fields = self.e.lift(self.state, candidate_id)
+        self.assertEqual(before, self.state, "the caller's ledger is left alone")
+        self.assertEqual(["zone"], fields)
+        candidate = lifted["candidates"][candidate_id]
+        self.assertEqual((False, {}, 1, {"zone": lifted["sequence"]}),
+                         (candidate["quarantined"], candidate["triggers"], candidate["epoch"], candidate["consumed"]))
+        entry = {"region": "CN", "game_build": "2026.09.01.0000.0000", "code_sha256": "b" * 64}
+        self.assertEqual((False, 1), tuple(self.e.apply_hints((entry,), lifted)[0][k] for k in ("quarantined", "quarantine_epoch")))
+        self.state = lifted
+        self.accept(account=4, issue=40)
+        self.assertFalse(self.state["candidates"][candidate_id]["quarantined"], "consumed negatives do not count again")
+        for account in range(5, 7): self.accept(account=account, issue=account * 10)
+        self.assertEqual((True, 2), (self.state["candidates"][candidate_id]["quarantined"], self.state["candidates"][candidate_id]["epoch"]))
+        with self.assertRaises(KeyError): self.e.lift(self.state, "f" * 64)
+        released, _ = self.e.lift(self.state, candidate_id)
+        with self.assertRaises(KeyError): self.e.lift(released, candidate_id)
+
+    def test_compact_reclaims_only_rows_no_reread_issue_can_count_again(self):
+        live = receipt  # code b*64 stays published; code c*64 is retired
+        for account in range(1, 4): self.accept(live(), account, account)
+        for account in range(1, 4): self.accept(live("PASS", 1), account, account + 10)
+        first = live("PASS", 1); first["sessions"] = first["sessions"][:1]
+        self.assertEqual("waiting", self.accept(first, 4, 40)["status"])
+        grown = copy.deepcopy(first); grown["evidence_id"] = str(uuid.uuid4())
+        grown["sessions"] += live("PASS", 1)["sessions"][:1]
+        self.assertEqual("accepted", self.accept(grown, 4, 40)["status"])
+        retired = live(); retired["target"]["code_sha256"] = "c" * 64
+        self.accept(retired, 5, 50)
+        template = live(kind="TEMPLATE_OBSERVATION")
+        template["target"].update(region="GLOBAL", template_profile_id=None, template_sha256=None, code_sha256=None)
+        self.accept(template, 6, 60)
+        before = copy.deepcopy(self.state)
+        compacted, removed = self.e.compact(self.state, {("CN", "2026.09.01.0000.0000", "b" * 64)})
+        self.assertEqual(before, self.state, "the caller's ledger is left alone")
+        self.assertEqual({"candidates": 1, "votes": 1, "receipts": 2, "sessions": 6 + 2 + 2, "issues": 1}, removed)
+        self.assertEqual([("b" * 64)], [c["scope"]["code_sha256"] for c in compacted["candidates"].values()])
+        self.assertNotIn(first["evidence_id"], compacted["receipts"])
+        self.assertEqual({1}, {row["epoch"] for row in compacted["sessions"].values()})
+        self.assertNotIn("50", compacted["issues"])
+        with tempfile.TemporaryDirectory() as root:
+            (Path(root) / self.e.LEDGER_FILE).write_bytes(self.e.canonical(compacted))
+            self.assertEqual(compacted, self.e.load_ledger(root))
+        self.state = compacted
+        votes = copy.deepcopy(compacted["votes"])
+        self.assertEqual("duplicate", self.accept(grown, 4, 40)["status"], "the swept current body is still a duplicate")
+        self.assertEqual("duplicate", self.accept(template, 6, 60)["status"])
+        with self.assertRaisesRegex(self.e.EvidenceError, "NEW_ISSUE_REQUIRED"): self.accept(first, 4, 40)
+        self.assertEqual(votes, self.state["votes"])
 
     def test_template_artifact_stays_blocked_and_real_producer_fixture_parses(self):
         item = receipt(kind="TEMPLATE_OBSERVATION")
@@ -293,6 +516,84 @@ elif a[:2] == ["issue", "comment"]:
             self.assertFalse(entry["revoked"])
         self.assertEqual(6, len(json.loads(self.origin_show("main:evidence-ledger.json"))["receipts"]))
 
+    def test_settled_issues_are_closed_and_the_rest_stay_open_for_the_sweep(self):
+        # N1-8: re-reading an accepted position or an archived candidate can only repeat the answer.
+        payload, sha = self.seed_published_code()
+        target = dict(template_profile_id=payload["template_profile_id"], template_sha256=payload["template_sha256"], code_sha256=sha)
+        accepted = receipt(); accepted["target"].update(target)
+        waiting = receipt(); waiting["target"].update(target); waiting["sessions"] = waiting["sessions"][:1]
+        for number, (item, account) in enumerate(((accepted, 1), (waiting, 2), (receipt(kind="TEMPLATE_OBSERVATION"), 3)), 41):
+            event, _ = self.event_for(item, number, account); self.execute(event)
+        copied, _ = self.event_for(accepted, 44, 4)
+        self.execute(copied)
+        closes = [call for call in self.gh_calls() if call.startswith("issue close ")]
+        self.assertEqual(["issue close 41 --reason completed", "issue close 43 --reason completed"], closes)
+
+    def published_item(self, payload, sha, verdict="PASS"):
+        item = receipt(verdict)
+        item["target"].update(template_profile_id=payload["template_profile_id"], template_sha256=payload["template_sha256"], code_sha256=sha)
+        return item
+
+    def test_every_answered_issue_is_recorded_whatever_the_outcome(self):
+        # RV4-1: only an Issue never answered may claim a copied summary, so every answer is recorded.
+        payload, sha = self.seed_published_code()
+        waiting = self.published_item(payload, sha); waiting["sessions"] = waiting["sessions"][:1]
+        for number, (item, account) in enumerate(((self.published_item(payload, sha), 1), (waiting, 2),
+                                                  (receipt(kind="TEMPLATE_OBSERVATION"), 3)), 41):
+            event, _ = self.event_for(item, number, account); self.execute(event)
+        for number, label, body in ((44, "calibration-evidence", "invalid"), (45, "calibration-report", "plain report")):
+            event, issue = self.event_for(receipt(), number, number - 40)
+            issue["labels"] = [{"name": label}]; issue["body"] = body
+            (self.stub / ("repos_owner_calibrations_issues_%d.json" % number)).write_text(json.dumps(issue), encoding="utf-8")
+            self.execute(event)
+        ledger = json.loads(self.origin_show("main:evidence-ledger.json"))
+        self.assertEqual({"41": 1, "42": 2, "43": 3, "44": 3, "45": 3}, ledger["answered"])
+
+    def test_an_answered_placeholder_edited_to_copy_an_accepted_summary_is_refused(self):
+        # RV4-1 end to end: Issue 99 was answered once ("invalid"); its edit carries Issue 100's accepted summary.
+        payload, sha = self.seed_published_code()
+        honest = self.published_item(payload, sha)
+        event, _ = self.event_for(honest, 100, 1); self.execute(event)
+        event, placeholder = self.event_for(honest, 99, 2)
+        placeholder["body"] = "placeholder"
+        (self.stub / "repos_owner_calibrations_issues_99.json").write_text(json.dumps(placeholder), encoding="utf-8")
+        self.execute(event)
+        before = json.loads(self.origin_show("main:evidence-ledger.json"))
+        event, _ = self.event_for(honest, 99, 2); self.execute(event)
+        ledger = json.loads(self.origin_show("main:evidence-ledger.json"))
+        self.assertEqual(before, ledger)
+        self.assertEqual((1, 100), (ledger["receipts"][honest["evidence_id"]]["account"], ledger["receipts"][honest["evidence_id"]]["issue"]))
+        self.assertEqual({1}, {vote["account"] for vote in ledger["votes"].values()})
+        self.assertIn("EVIDENCE_ID_REUSED", (self.stub / "comments-99.json").read_text(encoding="utf-8"))
+
+    def test_an_issue_first_processed_after_its_copy_still_takes_it_back(self):
+        # N1-4 still holds: the copy (account 2, Issue 100) ran first; Issue 99 had never been answered.
+        payload, sha = self.seed_published_code()
+        honest = self.published_item(payload, sha)
+        event, _ = self.event_for(copy.deepcopy(honest), 100, 2); self.execute(event)
+        event, _ = self.event_for(honest, 99, 1); self.execute(event)
+        ledger = json.loads(self.origin_show("main:evidence-ledger.json"))
+        self.assertEqual((1, 99), (ledger["receipts"][honest["evidence_id"]]["account"], ledger["receipts"][honest["evidence_id"]]["issue"]))
+        self.assertEqual({1}, {vote["account"] for vote in ledger["votes"].values()})
+        self.assertEqual({"99", "100"}, set(ledger["answered"]))
+
+    def test_a_report_is_answered_once_left_open_and_publishes_nothing(self):
+        # N1-6: report-calibration.yml runs this lane (not report_issue.sh); a text report never votes.
+        self.seed_published_code()
+        index_before = self.origin_show("main:index.json")
+        _, report = self.event_for(receipt(), 51)
+        report["labels"] = [{"name": "calibration-report"}]; report["body"] = "plain report"
+        (self.stub / "repos_owner_calibrations_issues_51.json").write_text(json.dumps(report), encoding="utf-8")
+        event = self.root / "event-51.json"; event.write_text(json.dumps({"issue": report}), encoding="utf-8")
+        for _ in range(2): self.execute(event)
+        ledger = json.loads(self.origin_show("main:evidence-ledger.json"))
+        self.assertEqual(({"51": {"account": 12}}, {}, {}), (ledger["reports"], ledger["receipts"], ledger["votes"]))
+        self.assertEqual(index_before, self.origin_show("main:index.json"))
+        calls = self.gh_calls()
+        self.assertEqual(1, len([call for call in calls if call.startswith("issue comment ")]))
+        self.assertFalse(any(call.startswith("issue close ") for call in calls))
+        self.assertIn("issue edit 51 --add-label evidence-waiting", calls)
+
     def test_changed_first_snapshot_does_not_publish_untracked_old_receipt(self):
         item = receipt(kind="TEMPLATE_OBSERVATION")
         event, issue = self.event_for(item, 31)
@@ -355,6 +656,7 @@ elif a[:2] == ["issue", "comment"]:
         self.execute(EVIDENCE_TEST_INDEX_LIMIT=limit)
         state = json.loads(self.origin_show("main:evidence-ledger.json"))
         self.assertEqual((1, {}), (len(state["receipts"]), state["votes"]))
+        self.assertEqual({"81", "82"}, set(state["answered"]), "the withdrawn receipt's answer is still recorded")
         self.assertIn("PUBLIC_INDEX_CAPACITY_WAIT", (self.stub / "comments-81.json").read_text())
         self.assertNotIn("quarantined", json.loads(self.origin_show("main:index.json"))["entries"][0])
 

@@ -83,6 +83,9 @@ public sealed partial class LiveProtocolPipeline
     /// </summary>
     private readonly HashSet<(ushort Opcode, MessageDirection Direction)> _cardWaitKeys = new();
 
+    /// <summary>The newest entry kept while the card waits is a CN duty-start signal.</summary>
+    private bool _cardWaitEndsWithStartSignal;
+
     /// <summary>
     /// The confirmation rewrote the profile this session already records with - it gained a message
     /// it lacked - or wrote the local profile that takes over from the shared one in force. Between
@@ -133,7 +136,11 @@ public sealed partial class LiveProtocolPipeline
         }
 
         _localRebindOwed = null;
-        SwapParser(profile);
+        if (SwapParser(profile) && _popWatchSince is not null)
+        {
+            // Until now the version it takes over from recorded under the same id.
+            _popWatchSince = _clock.UtcNow;
+        }
     }
 
     /// <summary>
@@ -164,16 +171,36 @@ public sealed partial class LiveProtocolPipeline
     /// a content of a message whose opcode the draft knows nothing of - yet without it a duty
     /// played during the wait is replayed as entry and exit only and ends unknown. Only the exact
     /// signal is kept (<see cref="DutyClearSignal"/>), under the same bounds as everything else.
+    ///
+    /// So are the two CN duty-start contents (<see cref="DutyStartSignal"/>), by the same rule:
+    /// without them a duty that commenced during the wait is replayed without its commencement,
+    /// and the next live remaining-time report decides it was joined in progress (audit
+    /// 2026-10-20, D1-1). A remaining-time report right behind another kept start signal is not
+    /// kept: the first of the two after the entry decides, the five-minute reports after it say
+    /// nothing, and kept they would push the queue request and the entry out of the window long
+    /// before a two-hour duty ends.
     /// </summary>
     /// <param name="message">Message just counted.</param>
     private void KeepWhileCardWaits(DecodedMessage message)
     {
-        if (!_cardWaitKeys.Contains((message.Opcode, message.Direction)) &&
-            !(_cardWaitKeys.Count > 0 && DutyClearSignal.Matches(message)))
+        var startSignal = false;
+        if (!_cardWaitKeys.Contains((message.Opcode, message.Direction)))
         {
-            return;
+            if (_cardWaitKeys.Count == 0)
+            {
+                return;
+            }
+
+            startSignal = DutyStartSignal.TryMatch(message, out var kind, out _);
+            if (startSignal
+                ? kind == DutyStartSignalKind.TimeRemaining && _cardWaitEndsWithStartSignal
+                : !DutyClearSignal.Matches(message))
+            {
+                return;
+            }
         }
 
+        _cardWaitEndsWithStartSignal = startSignal;
         _cardWait.Enqueue(new CardWaitEntry(CardWaitKind.Message, message.Mono, message));
         while (_cardWait.Count > MaxCardWaitMessages ||
             message.Mono - _cardWait.Peek().Mono > CalibrationDraft.QueueWindow)
@@ -200,6 +227,7 @@ public sealed partial class LiveProtocolPipeline
             return;
         }
 
+        _cardWaitEndsWithStartSignal = false;
         _cardWait.Enqueue(new CardWaitEntry(
             kind, LifecycleMono(), AtUtc: _clock.UtcNow, DroppedCount: droppedCount,
             ConnectionKey: connectionKey, Direction: direction));
@@ -222,6 +250,7 @@ public sealed partial class LiveProtocolPipeline
     {
         _cardWait.Clear();
         _cardWaitKeys.Clear();
+        _cardWaitEndsWithStartSignal = false;
     }
 
     /// <summary>
@@ -239,6 +268,15 @@ public sealed partial class LiveProtocolPipeline
         if (_parser is not { } parser || _processor is not { } processor)
         {
             return;
+        }
+
+        // What the replay records, this binding records: a watched local profile's records begin
+        // with the oldest message it hands over (audit 2026-10-20, D1-2).
+        if (_popWatchSince is { } since &&
+            waited.FirstOrDefault(entry => entry.Message is not null).Message is { } oldest &&
+            oldest.ObservedAtUtc < since)
+        {
+            _popWatchSince = oldest.ObservedAtUtc;
         }
 
         var now = LifecycleMono();

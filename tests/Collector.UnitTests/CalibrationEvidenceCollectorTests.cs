@@ -265,6 +265,34 @@ public sealed class CalibrationEvidenceCollectorTests
         Assert.Equal("CONTRADICT", session!["checks"]!.AsArray().Single(item => item!["field"]!.ToString() == "zone")!["verdict"]!.ToString());
     }
 
+    /// <summary>
+    /// Audit 2026-10-20, N1-1: the repository takes a session alias as one account's single use, whatever code it came
+    /// with. Two codes watched in the same capture session therefore each get an alias of their own, or the second code's
+    /// evidence would be refused every time it is submitted.
+    /// </summary>
+    [Fact]
+    public void TwoCodesWatchedInOneCaptureSessionEachGetTheirOwnAlias()
+    {
+        using var bed = new SharedCalibrationTestBed();
+        var collector = Collector();
+        var original = bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        var other = SharedCalibrationTestBed.Encode(original.Payload with { ZoneOpcode = 65500 });
+        foreach (var code in new[] { original, other })
+        {
+            collector.Register(Region.Cn, SharedCalibrationTestBed.Build, Template,
+                SharedCandidateVerifier.Candidate(code.Payload, Template)!, 0);
+        }
+
+        collector.Start("one");
+        collector.Health(SharedCalibrationTestBed.Healthy("one"));
+        Feed(collector, "one");
+        collector.Complete("one", CaptureEndReason.UserStop);
+
+        string Alias(SharedCode code) => Assert.Single(JsonNode.Parse(
+            collector.Export(Region.Cn, SharedCalibrationTestBed.Build, code.Sha).EvidenceJson!)!["sessions"]!.AsArray())!["session_alias"]!.ToString();
+        Assert.NotEqual(Alias(original), Alias(other));
+    }
+
     [Fact]
     public void NewEpochRequiresPostEpochObservationAndDoesNotRelabelEarlierSessions()
     {

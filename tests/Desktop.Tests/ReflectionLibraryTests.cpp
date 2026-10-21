@@ -50,6 +50,60 @@ public:
         return reply;
     }
 };
+/// Runs kept in memory and queried the way the Collector does: soft-deleted runs
+/// and runs without reflection text are left out, run_id narrows, pages slice.
+class StoreBackend final : public mr::IBackend
+{
+public:
+    QString backendName() const override { return QStringLiteral("store"); }
+    bool isConnected() const override { return true; }
+    QList<QJsonObject> runs;
+    bool reject = false;
+    void add(const QString &id, const QString &text) {
+        runs.append({{QStringLiteral("run_id"), id}, {QStringLiteral("duty_name"), QStringLiteral("心得副本")},
+                     {QStringLiteral("result"), QStringLiteral("COMPLETED")},
+                     {QStringLiteral("reflection"), QJsonObject{{QStringLiteral("text"), text}}}});
+    }
+    void update(const QString &id, const QString &key, const QJsonValue &value) {
+        for (QJsonObject &run : runs)
+            if (run.value(QStringLiteral("run_id")).toString() == id)
+                run.insert(key, value);
+    }
+    mr::BackendReply *request(const QString &type, const QJsonObject &payload) override {
+        auto *reply = new mr::BackendReply(QStringLiteral("store"), type, this);
+        const QJsonObject filter = payload.value(QStringLiteral("filter")).toObject();
+        QStringList ids;
+        for (const QJsonValue &id : filter.value(QStringLiteral("run_id")).toArray())
+            ids.append(id.toString());
+        QJsonArray matching;
+        for (const QJsonObject &run : runs) {
+            if (run.value(QStringLiteral("soft_deleted")).toBool())
+                continue;
+            if (filter.value(QStringLiteral("with_reflection")).toBool()
+                && run.value(QStringLiteral("reflection")).toObject().value(QStringLiteral("text")).toString().isEmpty())
+                continue;
+            if (filter.contains(QStringLiteral("run_id")) && !ids.contains(run.value(QStringLiteral("run_id")).toString()))
+                continue;
+            matching.append(run);
+        }
+        const int page = payload.value(QStringLiteral("page")).toInt(1);
+        const int size = payload.value(QStringLiteral("page_size")).toInt(10);
+        QJsonArray items;
+        for (int index = (page - 1) * size; index < qMin(int(matching.size()), page * size); ++index)
+            items.append(matching.at(index));
+        const int total = int(matching.size());
+        const bool rejected = reject;
+        QTimer::singleShot(0, reply, [reply, rejected, items, page, total] {
+            if (rejected) {
+                reply->fail(QStringLiteral("ERR_QUERY"), QStringLiteral("数据库暂不可读"));
+                return;
+            }
+            reply->succeed({{QStringLiteral("items"), items}, {QStringLiteral("page_info"),
+                QJsonObject{{QStringLiteral("page"), page}, {QStringLiteral("total"), total}}}});
+        });
+        return reply;
+    }
+};
 QQuickItem *findVisual(QQuickItem *at, const QString &name) {
     if (at->objectName() == name) return at;
     for (auto *child : at->childItems())
@@ -292,6 +346,50 @@ ApplicationWindow {
         QTest::keyClick(window, Qt::Key_Space);
         QTRY_COMPARE(library.selectedCount(), 0);
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join(QLatin1Char('\n'))));
+    }
+    // 审查 I4-1：勾选保存的是记录的副本。心得被清空、记录被删除，或在别的页上改过
+    // 心得之后，勾选必须跟着记录走：删掉的不再交给「生成分享图片」，改过的用新文字；
+    // 读取失败时什么也不动。
+    void selectionFollowsTheRecordsItWasTakenFrom() {
+        StoreBackend backend;
+        backend.add(QStringLiteral("a"), QStringLiteral("甲的心得"));
+        backend.add(QStringLiteral("b"), QStringLiteral("乙的心得"));
+        backend.add(QStringLiteral("c"), QStringLiteral("丙的心得"));
+        backend.add(QStringLiteral("d"), QStringLiteral("丁的心得"));
+        mr::ReflectionLibraryController library(&backend);
+        library.runs()->setPageSize(1);
+        library.setActive(true);
+        QTRY_VERIFY(!library.runs()->isLoading());
+        for (int page = 1; page <= 3; ++page) {
+            QTRY_COMPARE(library.runs()->page(), page);
+            QTRY_VERIFY(!library.runs()->isLoading());
+            library.setPageSelected(true);
+            if (page < 3)
+                library.runs()->nextPage();
+        }
+        QCOMPARE(library.selectedIds(), QStringList({QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("c")}));
+
+        // 甲's reflection cleared, 乙's edited while it sits on another page, 丙's run
+        // deleted in a batch - which only says "re-query".
+        backend.update(QStringLiteral("a"), QStringLiteral("reflection"), QJsonObject{{QStringLiteral("text"), QString()}});
+        backend.update(QStringLiteral("b"), QStringLiteral("reflection"),
+                       QJsonObject{{QStringLiteral("text"), QStringLiteral("乙改过的心得")}});
+        backend.update(QStringLiteral("c"), QStringLiteral("soft_deleted"), true);
+        Q_EMIT backend.liveEvent({{QStringLiteral("kind"), QStringLiteral("stats_invalidated")}});
+        QTRY_COMPARE(library.selectedIds(), QStringList({QStringLiteral("b")}));
+        QTRY_VERIFY(!library.runs()->isLoading());
+        QVERIFY(library.runs()->runAt(0).value(QStringLiteral("run_id")).toString() != QStringLiteral("b"));
+        QCOMPARE(library.selectedCount(), 1);
+        QTRY_COMPARE(library.selectedRuns().at(0).toMap().value(QStringLiteral("reflection")).toMap()
+                         .value(QStringLiteral("text")).toString(), QStringLiteral("乙改过的心得"));
+
+        // A failed read is not a deletion.
+        backend.reject = true;
+        backend.update(QStringLiteral("b"), QStringLiteral("soft_deleted"), true);
+        Q_EMIT backend.liveEvent({{QStringLiteral("kind"), QStringLiteral("run_updated")}});
+        QTRY_VERIFY(!library.runs()->loadError().isEmpty());
+        QTest::qWait(50);
+        QCOMPARE(library.selectedIds(), QStringList({QStringLiteral("b")}));
     }
     void inactiveRefreshAndBackendLifetime() {
         auto *backend = new QueryBackend;

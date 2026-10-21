@@ -120,10 +120,10 @@ class BoundaryCheckerTests(unittest.TestCase):
                 self.assertTrue(any(item["rule"] == "domain-using"
                                     for item in report["violations"]), report)
 
-    def test_generated_directories_inside_scan_root_remain_excluded(self) -> None:
-        for generated in ("artifacts", "build", "bin", "obj", "BUILD", ".git", "__pycache__"):
+    def test_only_project_level_sdk_outputs_are_excluded(self) -> None:
+        for generated in ("bin", "obj", ".git"):
             self.fixture.write(
-                f"src/Collector/Domain/{generated}/Bad.cs",
+                f"src/Collector/{generated}/Bad.cs",
                 "using MentorRecorder.Collector.Ipc;\nnamespace MentorRecorder.Collector.Domain;\n",
             )
             self.fixture.write(
@@ -135,6 +135,38 @@ class BoundaryCheckerTests(unittest.TestCase):
         self.assertEqual(0, code, (report, stderr))
         self.assertEqual(1, report["scanned_counts"]["domain_files"])
         self.assertEqual(2, report["scanned_counts"]["collector_csharp_files"])
+
+    def test_output_like_source_folders_cannot_hide_dependencies(self) -> None:
+        for folder in ("artifacts", "build", "bin", "obj", "BUILD", "__pycache__"):
+            with self.subTest(folder=folder):
+                relative = f"src/Collector/Domain/{folder}/Bad.cs"
+                path = self.fixture.write(
+                    relative,
+                    "using MentorRecorder.Collector.Ipc;\nnamespace MentorRecorder.Collector.Domain;\n",
+                )
+                self.assert_violation("domain-using", "MentorRecorder.Collector.Ipc")
+                path.unlink()
+
+    def test_output_like_collector_folders_cannot_hide_global_imports(self) -> None:
+        for folder in ("artifacts", "build", "__pycache__"):
+            with self.subTest(folder=folder):
+                path = self.fixture.write(
+                    f"src/Collector/{folder}/GlobalUsings.cs",
+                    "global using MentorRecorder.Collector.Ipc;\n",
+                )
+                self.assert_violation("domain-global-using", "MentorRecorder.Collector.Ipc")
+                path.unlink()
+
+    def test_nested_project_file_cannot_hide_root_project_compile_inputs(self) -> None:
+        self.fixture.write("src/Collector/Domain/Nested.csproj", "<Project/>\n")
+        for folder in ("bin", "obj"):
+            with self.subTest(folder=folder):
+                path = self.fixture.write(
+                    f"src/Collector/Domain/{folder}/Bad.cs",
+                    "using MentorRecorder.Collector.Ipc;\nnamespace MentorRecorder.Collector.Domain;\n",
+                )
+                self.assert_violation("domain-using", "MentorRecorder.Collector.Ipc")
+                path.unlink()
 
     def test_domain_ordinary_static_and_alias_imports(self) -> None:
         cases = (
@@ -450,6 +482,26 @@ class BoundaryCheckerTests(unittest.TestCase):
             "src/Collector/Domain/RuntimeUse.cs",
             "namespace MentorRecorder.Collector.Domain;\n"
             "class RuntimeUse { System.DateTime Value { get; set; } }\n",
+        )
+        code, report, stderr = self.fixture.run()
+        self.assertEqual(0, code, (report, stderr))
+
+    def test_runtime_named_packages_do_not_pollute_external_prefixes(self) -> None:
+        # N2-8 (audit 2026-10-20): a package whose name starts with a base-runtime namespace
+        # (System.Security.Cryptography.Xml in the Collector project) must not turn every
+        # System.* or Microsoft.Win32.* qualified name in Domain into an external reference.
+        self.fixture.write(
+            "src/Collector/Collector.csproj",
+            '<Project><ItemGroup><PackageReference Include="System.Security.Cryptography.Xml" '
+            'Version="8.0.2" /><PackageReference Include="Microsoft.Win32.Registry" '
+            'Version="5.0.0" /></ItemGroup></Project>\n',
+        )
+        self.fixture.write(
+            "src/Collector/Domain/RuntimeUse.cs",
+            "namespace MentorRecorder.Collector.Domain;\n"
+            "[System.Diagnostics.CodeAnalysis.SuppressMessage(\"Style\", \"IDE0001\")]\n"
+            "class RuntimeUse { int Value => System.Math.Max(1, 2); "
+            "Microsoft.Win32.RegistryHive Hive => default; }\n",
         )
         code, report, stderr = self.fixture.run()
         self.assertEqual(0, code, (report, stderr))

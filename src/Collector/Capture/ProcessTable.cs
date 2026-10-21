@@ -11,7 +11,8 @@ namespace MentorRecorder.Collector.Capture;
 /// Image name as the table records it, such as <c>ffxiv_dx11.exe</c>; empty for the idle process.
 /// </param>
 /// <param name="CreatedAtUtc">Creation time, or null when the row carries none.</param>
-internal sealed record ProcessTableEntry(int ProcessId, string ImageName, DateTimeOffset? CreatedAtUtc);
+/// <param name="SessionId">Windows session (logon) the process runs in.</param>
+internal sealed record ProcessTableEntry(int ProcessId, string ImageName, DateTimeOffset? CreatedAtUtc, uint SessionId);
 
 /// <summary>
 /// Lists running processes, with their creation times, without opening a handle to any of them.
@@ -62,8 +63,14 @@ internal static class ProcessTable
     /// <summary><c>UniqueProcessId</c>, a pointer-sized HANDLE.</summary>
     internal const int UniqueProcessIdField = 0x50;
 
+    /// <summary>
+    /// <c>SessionId</c>, a ULONG, after <c>InheritedFromUniqueProcessId</c> (a HANDLE) and
+    /// <c>HandleCount</c> (a ULONG).
+    /// </summary>
+    internal const int SessionIdField = 0x64;
+
     /// <summary>Bytes of a row this reader looks at; a shorter row is a malformed table.</summary>
-    internal const int EntryHeaderBytes = 0x58;
+    internal const int EntryHeaderBytes = 0x68;
 
     private static readonly long MaxFileTime = DateTime.MaxValue.ToFileTimeUtc();
 
@@ -169,6 +176,7 @@ internal static class ProcessTable
             var nameBytes = BinaryPrimitives.ReadUInt16LittleEndian(row[ImageNameLengthField..]);
             var nameAddress = BinaryPrimitives.ReadInt64LittleEndian(row[ImageNameBufferField..]);
             var processId = BinaryPrimitives.ReadInt64LittleEndian(row[UniqueProcessIdField..]);
+            var sessionId = BinaryPrimitives.ReadUInt32LittleEndian(row[SessionIdField..]);
             if (processId is < 0 or > int.MaxValue)
             {
                 return null;
@@ -186,7 +194,7 @@ internal static class ProcessTable
                 name = Encoding.Unicode.GetString(table.Slice((int)start, nameBytes));
             }
 
-            entries.Add(new ProcessTableEntry((int)processId, name, CreationTime(created)));
+            entries.Add(new ProcessTableEntry((int)processId, name, CreationTime(created), sessionId));
             if (next == 0)
             {
                 return entries;

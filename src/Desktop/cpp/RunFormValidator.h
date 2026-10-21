@@ -57,8 +57,9 @@ public:
     /// interface language), which diff() displays while duty_name / job_name,
     /// the record's own, decide whether anything changed.
     /// incomplete_import_context (bool) is a trusted Desktop editing context:
-    /// only an existing IMPORT with import_metadata whose unknown/pending facts
-    /// are retained may set it. It is false for creation and result confirmation.
+    /// EditRunDialog sets it for every existing imported run it edits (source
+    /// IMPORT or import_metadata present), confirming an imported result
+    /// included. It is false for creation and for runs the software recorded.
     /// It permits absent endpoints, never malformed or reversed supplied times.
     /// \a before is the same shape for the record being corrected; it is only
     /// consulted when edit_mode is true, to detect "nothing changed".

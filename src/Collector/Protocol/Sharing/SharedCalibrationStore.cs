@@ -17,9 +17,14 @@ namespace MentorRecorder.Collector.Protocol.Sharing;
 /// is overwritten is one holding a revoked code, by a new code the index publishes under the same name.
 ///
 /// Robust about state. <c>state.json</c> is bookkeeping, not evidence. A file that cannot be understood
-/// reads as empty and is replaced on the next write; a file that cannot be opened (locked, denied) reads
-/// as empty and is left alone, so a transient lock never costs the rejection records. Every write is a
-/// temp file moved into place, and nothing here throws for anything found on disk.
+/// reads as empty and is replaced on the next write; a file that cannot be opened (locked, denied) is left
+/// alone, so a transient lock never costs the rejection records, and reads as unknown rather than empty
+/// (audit 2026-10-20, E-2): what it would say about revocations, rejections and the player's refusal cannot
+/// be read, so no stored code is offered, every code reads as rejected and the refusal as unknown. Every
+/// write is a temp file moved into place, and nothing here throws for anything found on disk.
+///
+/// Revocations only accumulate (audit 2026-10-20, E-1): the publisher never takes one back, so an index that
+/// no longer revokes a code - a mirror serving an older index - leaves it revoked.
 ///
 /// Throttling is keyed by region, build and template hash: a software update that brings a new
 /// template may fetch at once instead of waiting out the previous template's six hours.
@@ -165,7 +170,7 @@ public sealed class SharedCalibrationStore : ISharedCalibrationStore
                 result.IndexAttempts.ToArray(),
                 result.Discards.ToArray());
             var updated = state.WithFetch(record).WithHints(hints);
-            var next = result.IndexWasRead ? updated.WithRevoked(result.RevokedCodeSha256s) : updated;
+            var next = result.IndexWasRead ? updated.WithMoreRevoked(result.RevokedCodeSha256s) : updated;
             return new SharedStoreWriteResult(WriteAtomically(StatePath(directory), next.Serialize(region, gameBuild)), written, refused);
         }
     }
@@ -177,7 +182,13 @@ public sealed class SharedCalibrationStore : ISharedCalibrationStore
         RequireSha256(templateSha256, nameof(templateSha256));
         lock (Gate)
         {
-            var (state, _) = ReadState(directory);
+            var (state, readable) = ReadState(directory);
+            if (!readable)
+            {
+                // What it would say about revocations and rejections is unknown, so nothing stored can be offered (E-2).
+                return Array.Empty<SharedStoredCandidate>();
+            }
+
             var revoked = state.Revoked.ToHashSet(StringComparer.Ordinal);
             var found = new List<SharedStoredCandidate>();
             foreach (var path in CodeFiles(directory))
@@ -261,14 +272,17 @@ public sealed class SharedCalibrationStore : ISharedCalibrationStore
     }
 
     /// <inheritdoc />
-    public bool IsRejected(Region region, string gameBuild, string templateSha256, string codeSha256)
+    public bool? IsRejected(Region region, string gameBuild, string templateSha256, string codeSha256)
     {
         var directory = DirectoryFor(Root, region, gameBuild);
         RequireSha256(templateSha256, nameof(templateSha256));
         RequireSha256(codeSha256, nameof(codeSha256));
         lock (Gate)
         {
-            return IsRejected(ReadState(directory).State, templateSha256, codeSha256);
+            // Unknown, not rejected (RV2-1): the caller decides what an unknown means. Offering or admitting a code treats it
+            // as rejected (E-2); withdrawing the profile in use over a passing lock would be far worse than waiting.
+            var (state, readable) = ReadState(directory);
+            return readable ? IsRejected(state, templateSha256, codeSha256) : null;
         }
     }
 
@@ -285,12 +299,13 @@ public sealed class SharedCalibrationStore : ISharedCalibrationStore
     }
 
     /// <inheritdoc />
-    public bool IsUserRejected(Region region, string gameBuild)
+    public bool? IsUserRejected(Region region, string gameBuild)
     {
         var directory = DirectoryFor(Root, region, gameBuild);
         lock (Gate)
         {
-            return ReadState(directory).State.UserRejectedAtUtc is not null;
+            var (state, readable) = ReadState(directory);
+            return readable ? state.UserRejectedAtUtc is not null : null;
         }
     }
 
@@ -386,6 +401,7 @@ public sealed class SharedCalibrationStore : ISharedCalibrationStore
         RequireSha256(codeSha256, nameof(codeSha256));
         lock (Gate)
         {
+            // An unreadable file answers Unknown, never Revoked: that would withdraw the profile in use over a passing lock.
             var (state, _) = ReadState(directory);
             if (state.Revoked.Contains(codeSha256, StringComparer.Ordinal))
             {
@@ -398,6 +414,16 @@ public sealed class SharedCalibrationStore : ISharedCalibrationStore
                          state.Fetches.Any(fetch => fetch.Discards.Any(discard =>
                              string.Equals(discard.CodeSha256, codeSha256, StringComparison.Ordinal)));
             return listed ? SharedPublication.Published : SharedPublication.Unknown;
+        }
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<string> RevokedCodes(Region region, string gameBuild)
+    {
+        var directory = DirectoryFor(Root, region, gameBuild);
+        lock (Gate)
+        {
+            return ReadState(directory).State.Revoked;
         }
     }
 
@@ -550,7 +576,10 @@ public sealed class SharedCalibrationStore : ISharedCalibrationStore
     private static bool IsRejected(SharedCalibrationState state, string templateSha256, string codeSha256) =>
         state.RejectionFor(templateSha256, codeSha256) is { } rejection && rejection.Sessions.Count >= RejectionThreshold;
 
-    /// <summary>The state, and whether it may be overwritten: false only when the file exists but could not be opened.</summary>
+    /// <summary>
+    /// The state, and whether it may be overwritten: false only when the file exists but could not be opened - and then
+    /// the state is not known either, whatever the empty state returned with it says.
+    /// </summary>
     private static (SharedCalibrationState State, bool Writable) ReadState(string directory)
     {
         var path = StatePath(directory);

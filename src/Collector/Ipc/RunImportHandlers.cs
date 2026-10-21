@@ -12,7 +12,14 @@ public static class RunImportHandlers
     {
         cancellationToken.ThrowIfCancellationRequested();
         var reader = new PayloadReader(payload);
-        reader.RejectUnknown("source_kind", "file_path", "text", "rows", "column_mapping", "time_zone", "source_name");
+        if (reader.Has("preview_id") || reader.Has("page"))
+        {
+            reader.RejectUnknown("preview_id", "page");
+            return host.Imports.PreviewPage(reader.RequiredUuid("preview_id"),
+                reader.RequiredInt("page", 1), cancellationToken);
+        }
+        reader.RejectUnknown("source_kind", "file_path", "text", "rows", "column_mapping", "time_zone", "source_name", "page_size");
+        var pageSize = reader.Has("page_size") ? reader.RequiredInt("page_size", 1, 100) : (int?)null;
         JsonArray? rows = null;
         if (reader.Has("rows"))
         {
@@ -28,7 +35,7 @@ public static class RunImportHandlers
         }
         return host.Imports.PreviewSource(reader.RequiredString("source_kind", 32),
             reader.String("file_path", 32000), reader.String("text", FrameCodec.MaxFrameBytes / 2), rows, mapping,
-            reader.String("time_zone", 100), reader.String("source_name", 500), cancellationToken);
+            reader.String("time_zone", 100), reader.String("source_name", 500), cancellationToken, pageSize);
     }
 
     public static JsonObject Commit(CollectorHost host, string requestId, JsonObject payload, CancellationToken cancellationToken = default)

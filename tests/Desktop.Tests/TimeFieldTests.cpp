@@ -69,6 +69,7 @@ private slots:
     void initTestCase();
 
     void bareDigitsBecomeATimeAsTheyAreTyped();
+    void backspaceGetsPastAnAddedColon();
     void leavingTheFieldWritesTheCanonicalForm();
     void nonsenseStaysAsTypedAndTurnsRed();
     void theWheelsOpenOnTheFieldsOwnTimeAndWriteBack();
@@ -116,6 +117,31 @@ void TimeFieldTests::bareDigitsBecomeATimeAsTheyAreTyped()
     typeText(window, QStringLiteral("99"));
     QCOMPARE(field->property("text").toString(), QStringLiteral("99"));
     QVERIFY(!field->property("valid").toBool());
+}
+
+// Review L1-8: the colon added after two digits must not come back when the
+// player deletes it - only an edit that makes the text longer is punctuated.
+void TimeFieldTests::backspaceGetsPastAnAddedColon()
+{
+    Scene scene;
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    QQuickWindow *window = scene.window();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    QQuickItem *field = scene.field();
+    field->forceActiveFocus();
+    QTRY_VERIFY(field->hasActiveFocus());
+
+    typeText(window, QStringLiteral("21"));
+    QCOMPARE(field->property("text").toString(), QStringLiteral("21:"));
+    QTest::keyClick(window, Qt::Key_Backspace);
+    QCOMPARE(field->property("text").toString(), QStringLiteral("21"));
+    QTest::keyClick(window, Qt::Key_Backspace);
+    QCOMPARE(field->property("text").toString(), QStringLiteral("2"));
+
+    // Typing on is punctuated as before.
+    typeText(window, QStringLiteral("030"));
+    QCOMPARE(field->property("text").toString(), QStringLiteral("20:30"));
+    QVERIFY(field->property("valid").toBool());
 }
 
 void TimeFieldTests::leavingTheFieldWritesTheCanonicalForm()

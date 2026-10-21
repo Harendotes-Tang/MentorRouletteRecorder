@@ -1,6 +1,9 @@
 #include "ReflectionLibraryController.h"
 #include "IBackend.h"
 
+#include <QJsonArray>
+#include <QJsonObject>
+
 namespace mr {
 ReflectionLibraryController::ReflectionLibraryController(IBackend *backend, QObject *parent)
     : QObject(parent), m_backend(backend), m_runs(new RunListModel(this))
@@ -167,6 +170,52 @@ void ReflectionLibraryController::reload()
     } else {
         m_dirty = false;
         m_runs->reload();
+    }
+    refreshSelection();
+}
+
+void ReflectionLibraryController::refreshSelection()
+{
+    // 页外的勾选只是一份副本：心得清空、记录删除（含批量删除，只发 stats_invalidated）
+    // 或在别的页改过心得后，「生成分享图片」不能再用旧内容（审查 I4-1）。
+    if (!m_backend || m_selectedIds.isEmpty())
+        return;
+    const quint64 generation = ++m_selectionGeneration;
+    constexpr qsizetype kChunk = 200; // RunFilter.run_id ≤ 2000，page_size ≤ 200
+    for (qsizetype start = 0; start < m_selectedIds.size(); start += kChunk) {
+        const QStringList ids = m_selectedIds.mid(start, kChunk);
+        const QJsonObject filter{{QStringLiteral("with_reflection"), true},
+                                 {QStringLiteral("run_id"), QJsonArray::fromStringList(ids)}};
+        BackendReply *reply = m_backend->queryRuns(filter, 1, int(ids.size()));
+        reply->whenDone(this, [this, generation, ids](bool ok, const QVariantMap &payload,
+                                                      const QString &, const QString &) {
+            // 读取失败不等于记录已删除；较早的回答让位于较新的一次。
+            if (!ok || generation != m_selectionGeneration)
+                return;
+            QHash<QString, QVariantMap> fresh;
+            for (const QVariant &item : payload.value(QStringLiteral("items")).toList()) {
+                const QVariantMap run = item.toMap();
+                fresh.insert(run.value(QStringLiteral("run_id")).toString(), run);
+            }
+            bool changed = false;
+            for (const QString &id : ids) {
+                if (!m_selectedRuns.contains(id))
+                    continue;
+                const QVariantMap run = fresh.value(id);
+                const bool shareable = !run.value(QStringLiteral("soft_deleted")).toBool()
+                    && !run.value(QStringLiteral("reflection")).toMap()
+                            .value(QStringLiteral("text")).toString().isEmpty();
+                if (shareable) {
+                    m_selectedRuns.insert(id, run);
+                } else {
+                    m_selectedRuns.remove(id);
+                    m_selectedIds.removeAll(id);
+                }
+                changed = true;
+            }
+            if (changed)
+                Q_EMIT selectionChanged();
+        });
     }
 }
 }

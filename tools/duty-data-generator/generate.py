@@ -23,7 +23,9 @@ redistributed copy of the upstream data. A dry run keeps no raw download at all.
 the ids of the bundled zh-Hans duty, job and roulette files. This script fetches the sources
 (XIVAPI v2 with language=en / ja, and the CSVs of thewakingsands/ffxiv-datamining-tc and
 -cn at one resolved commit each); game_names.py, which never touches the network, parses,
-merges and writes them. This is the only Python script the static boundary check lets fetch.
+merges and writes them. This is the only script that fetches game reference data; the static
+boundary check lets one other Python script fetch: the CI-only release mirror,
+tools/release-mirror/sync_release.py.
 
 Usage:
     python tools/duty-data-generator/generate.py [--version 2026-09-04] [--out-dir data/duties]
@@ -160,6 +162,7 @@ def fetch_english_rows(raw_dir: str | None, game_version: str | None = None):
     pages = []
     after = 0
     api_version = None
+    first_version = None
     for _ in range(XIVAPI_MAX_PAGES):
         params = {
             "fields": XIVAPI_FIELDS,
@@ -174,7 +177,26 @@ def fetch_english_rows(raw_dir: str | None, game_version: str | None = None):
         body = http_get(url)
         pages.append(body)
         document = json.loads(body.decode("utf-8"))
-        api_version = document.get("version") or api_version
+        page_version = document.get("version")
+        # Every page must come from one game version (N3-4): unpinned, the pages of a run that
+        # straddles a patch would mix two versions while provenance named only the last one. A
+        # page that names no version cannot be shown to match the others, so it fails too.
+        if not isinstance(page_version, str) or not page_version:
+            raise ValueError(
+                "XIVAPI ContentFinderCondition 第 %d 页没有给出游戏版本，无法确认各页来自同一版本。"
+                % len(pages))
+        if game_version and page_version != game_version:
+            raise ValueError(
+                "请求的 XIVAPI 游戏版本是 %s，ContentFinderCondition 第 %d 页却来自 %s。"
+                % (game_version, len(pages), page_version))
+        if first_version is None:
+            first_version = page_version
+        elif page_version != first_version:
+            raise ValueError(
+                "XIVAPI ContentFinderCondition 的各页来自不同的游戏版本（第 1 页 %s，第 %d 页 %s），"
+                "多半是生成时恰逢数据更新；请稍后重新生成，或用 --game-version 固定版本。"
+                % (first_version, len(pages), page_version))
+        api_version = page_version
         page_rows = document.get("rows") or []
         if not page_rows:
             break

@@ -18,7 +18,6 @@ internal sealed class CalibrationEvidenceCollector
     private Region _region;
     private string? _build;
     private string? _session;
-    private string? _alias;
     private CaptureSessionHealth? _health;
     private CalibrationObserver? _observer;
     private bool _storageFailed;
@@ -66,7 +65,6 @@ internal sealed class CalibrationEvidenceCollector
         if (session == _session || _endedSessions.Contains(session, StringComparer.Ordinal)) return;
         // Starting again abandons an unfinished observation; it never completes the previous one.
         _session = session;
-        _alias = Guid.NewGuid().ToString("D");
         _health = null;
         _epochBlocked.Clear();
         _observer = null;
@@ -123,7 +121,9 @@ internal sealed class CalibrationEvidenceCollector
             var verification = SharedCandidateVerifier.Verify(isolated, _template!, candidate, SharedCandidateProvenance.Imported);
             var checks = verification.Criteria.Select(criterion => new CalibrationEvidenceCheck(Field(criterion.Message),
                 criterion.ContradictingSessions > 0 ? "CONTRADICT" : criterion.Verdict == SharedVerdict.Pass ? "PASS" : "WAIT")).ToArray();
-            var frozen = new CalibrationEvidenceSession(_alias!, true, new("NONE", 0, 0, 0, 0, false), checks);
+            // One alias per capture session and code: the repository takes an alias as one account's single use whatever
+            // code it came with, so a second code watched in the same session needs its own (audit 2026-10-20, N1-1).
+            var frozen = new CalibrationEvidenceSession(Guid.NewGuid().ToString("D"), true, new("NONE", 0, 0, 0, 0, false), checks);
             _storageFailed |= !_store.Append(Target(candidate.CandidateId, item.Epoch), frozen);
         }
     }
@@ -167,6 +167,8 @@ internal sealed class CalibrationEvidenceCollector
             Pops = Array.Empty<PopHit>(), RouletteEchoHits = Array.Empty<RouletteEchoHit>(), Markers = Array.Empty<MarkerCandidate>(),
             Clusters = snapshot.Clusters.Where(cluster => tags.Contains(cluster.ConnectionTag) && cluster.LoadStartedAtUtc >= counts.ObservedFromUtc).ToArray(),
             OutsideCounts = outside,
+            // Loads let go from the window belong to no one session; this candidate's rules weigh only its own (RV1-1).
+            RetiredOnceCounts = new Dictionary<MessageKey, int>(),
             SessionHealth = new Dictionary<string, CaptureSessionHealth>(StringComparer.Ordinal) { [session] = health },
             Candidates = new[] { new DeclaredCandidateObservation(candidate.CandidateId,
                 new Dictionary<string, DeclaredCandidateCounts>(StringComparer.Ordinal) { [session] = counts }) },

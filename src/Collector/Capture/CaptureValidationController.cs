@@ -40,6 +40,13 @@ public sealed record CaptureValidationServices
     /// </summary>
     public TimeSpan ShutdownTimeout { get; init; } = TimeSpan.FromSeconds(10);
 
+    /// <summary>
+    /// How often a source that could not be released when its session ended is tried again. The
+    /// session keeps the capture lease until then, and with it every automatic recording
+    /// (audit 2026-10-20, A2-2).
+    /// </summary>
+    public TimeSpan ReleaseRetryInterval { get; init; } = TimeSpan.FromSeconds(5);
+
     /// <summary>Newest trace sessions kept on disk.</summary>
     public int RetainedTraces { get; init; } = DefaultRetainedTraces;
 
@@ -308,7 +315,7 @@ public sealed partial class CaptureValidationController : IDisposable
                 var queue = new DecodedMessageQueue(sink, onSinkError: ex => Fault(s, ex, writeFailed: true));
                 lock (_gate) s.Queue = queue;
                 s.Stop.Token.ThrowIfCancellationRequested();
-                observer = new Observer(queue, sink, ex => Fault(s, ex));
+                observer = new Observer(queue, sink, (reason, ex) => Fault(s, ex, reason: reason));
                 try { source.Start(new CaptureStartOptions(s.Id, game.ProcessId!.Value, adapter.BindAddress, adapter.Id,
                     OodleMode.FfxivTcp, null, game.ExecutablePath, game.Region, game.GameBuild,
                     AllowCandidateOodleSignature: true), observer); }
@@ -382,7 +389,11 @@ public sealed partial class CaptureValidationController : IDisposable
                 s.Ended = UtcTimestamp.Truncate(trace.Clock.UtcNow);
                 s.Finalized = true;
                 if (released) s.Lease.Dispose();
-                else s.RetainedSource = source;
+                else
+                {
+                    s.RetainedSource = source;
+                    CaptureOwnership.MarkReleasing(s.Lease);
+                }
                 s.Stop.Dispose();
                 if (s.ErrorCode is not null) SetState("FAILED", "FAILED", CollectorTexts.CaptureValidationFailed());
                 else if (s.Path is null) SetState("COMPLETED", "CANCELLED", s.TimedOut
@@ -394,6 +405,56 @@ public sealed partial class CaptureValidationController : IDisposable
             // Retention runs after the session is finalized, so this session's own directory
             // is already complete and counted.
             SweepTraces();
+            if (!released) await RetryReleaseAsync(s).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Tries again to release a source that could not be released when its session ended, and
+    /// gives the capture lease back once it is. Only shutdown used to try again, so automatic
+    /// recording stayed blocked until the Collector exited (audit 2026-10-20, A2-2). The wait
+    /// doubles from <see cref="CaptureValidationServices.ReleaseRetryInterval"/> up to the formal
+    /// capture's longest fault back-off; it ends on Dispose, which makes the last attempt itself.
+    /// </summary>
+    /// <param name="s">The finalized session holding the source and the lease.</param>
+    private async Task RetryReleaseAsync(Session s)
+    {
+        var wait = _services.ReleaseRetryInterval;
+        while (true)
+        {
+            var waited = Stopwatch.StartNew();
+            while (waited.Elapsed < wait)
+            {
+                await Task.Delay(_services.PollInterval).ConfigureAwait(false);
+                lock (_gate) if (_disposed) return;
+            }
+
+            ICaptureSource? retained;
+            lock (_gate)
+            {
+                if (_disposed) return;
+                retained = s.RetainedSource;
+            }
+
+            if (retained is null) return;
+            try
+            {
+                try { retained.Stop(); } finally { retained.Dispose(); }
+            }
+            catch (Exception ex)
+            {
+                _services.Trace.Logger.WriteError("capture", "validation_release_failed", ex);
+                wait = TimeSpan.FromMilliseconds(Math.Min(wait.TotalMilliseconds * 2, CaptureController.MaxFaultBackoffMs));
+                continue;
+            }
+
+            lock (_gate)
+            {
+                s.RetainedSource = null;
+                s.Lease.Dispose();
+            }
+
+            return;
         }
     }
 
@@ -461,7 +522,14 @@ public sealed partial class CaptureValidationController : IDisposable
         return null;
     }
 
-    private void Fault(Session s, Exception? error, bool writeFailed = false)
+    /// <param name="s">Session the fault belongs to.</param>
+    /// <param name="error">Underlying exception, for the local log only.</param>
+    /// <param name="writeFailed">True when the trace file can no longer be trusted.</param>
+    /// <param name="reason">
+    /// The source's own reason, for the local log only: a monitor fault often has no exception,
+    /// and without it the log line says nothing (audit 2026-10-20, A2-3).
+    /// </param>
+    private void Fault(Session s, Exception? error, bool writeFailed = false, string? reason = null)
     {
         lock (_gate)
         {
@@ -471,7 +539,7 @@ public sealed partial class CaptureValidationController : IDisposable
             SetState("STOPPING", "STOPPING", CollectorTexts.CaptureValidationStoppingAfterError());
             s.Stop.Cancel();
         }
-        _services.Trace.Logger.WriteError("capture", "validation_failed", error);
+        _services.Trace.Logger.WriteError("capture", "validation_failed", error, reason);
     }
 
     private bool Cleanup(Action action, Session s)
@@ -531,7 +599,7 @@ public sealed partial class CaptureValidationController : IDisposable
 
     private sealed record Marker(string Text, DateTimeOffset ReceivedAtUtc, TimeSpan Elapsed);
 
-    private sealed class Observer(DecodedMessageQueue queue, CaptureTraceSink sink, Action<Exception?> fault) : ICaptureSourceObserver
+    private sealed class Observer(DecodedMessageQueue queue, CaptureTraceSink sink, Action<string, Exception?> fault) : ICaptureSourceObserver
     {
         private readonly object _gate = new();
         private bool _closed;
@@ -542,7 +610,7 @@ public sealed partial class CaptureValidationController : IDisposable
         {
             lock (_gate) if (_closed) return;
             // Fault takes the controller gate; never hold the observer gate across it.
-            fault(error);
+            fault(reason, error);
         }
     }
 }

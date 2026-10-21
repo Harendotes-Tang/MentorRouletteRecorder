@@ -5,8 +5,8 @@ The Desktop interface can switch between zh-CN, zh-TW, en and ja. The zh-Hans na
 ship in data/duties, data/jobs and data/roulettes; this file adds the other three languages,
 keyed by the same ids, plus the duty category and expansion labels those files use.
 
-This module never touches the network. generate.py, the one Python script the static
-boundary check lets fetch (docs/privacy-boundary.md), downloads the sources and hands the
+This module never touches the network. generate.py, the only script that fetches game
+reference data (docs/privacy-boundary.md), downloads the sources and hands the
 already-fetched rows and CSV text to the functions here, which parse, merge and write:
 
   * XIVAPI v2 rows (language=en and language=ja, pinned to the base duty file's game version)

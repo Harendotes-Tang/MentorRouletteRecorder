@@ -19,6 +19,9 @@ namespace MentorRecorder.Collector.Protocol.Calibration;
 /// Every table is bounded. When a bound is hit the count is remembered in
 /// <see cref="CalibrationSnapshot.OverflowCount"/>, and the draft treats any overflow as a
 /// reason to refuse the "never seen outside a burst" claim rather than as a smaller sample.
+/// The bursts and the request/echo pairs are the exception: they keep the most recent
+/// <see cref="MaxClusters"/> and <see cref="MaxPairs"/>, and letting the oldest go is not an
+/// overflow (audit 2026-10-20, C-4).
 ///
 /// This is deliberately not <see cref="Parsing.CandidateObserver"/>: that one is keyed by
 /// opcodes a CANDIDATE profile already names, and a new build names none.
@@ -43,7 +46,12 @@ public sealed partial class CalibrationObserver
     /// </summary>
     public const int MaxEndedConnections = 1024;
 
-    /// <summary>Bursts kept per session.</summary>
+    /// <summary>
+    /// Bursts kept: the most recent, across sessions and evidence carried from disk. Each draft rests
+    /// on the newest of them, so the oldest goes first, and that is not an overflow - capped over the
+    /// observer's whole life, about 64 zone changes on one build blocked calibration for good (audit
+    /// 2026-10-20, C-4).
+    /// </summary>
     public const int MaxClusters = 64;
 
     /// <summary>Shapes counted per burst.</summary>
@@ -55,7 +63,7 @@ public sealed partial class CalibrationObserver
     /// <summary>Messages held per connection while waiting to see whether a burst opens.</summary>
     public const int MaxRingEntries = 4096;
 
-    /// <summary>Pairs kept per session.</summary>
+    /// <summary>Request/echo pairs kept: the most recent, the oldest going first, as for <see cref="MaxClusters"/>.</summary>
     public const int MaxPairs = 256;
 
     /// <summary>Pops kept per session.</summary>
@@ -169,6 +177,7 @@ public sealed partial class CalibrationObserver
     private readonly List<PopHit> _pops = new();
     private readonly List<ZoneCluster> _clusters = new();
     private readonly Dictionary<MessageKey, int> _outside = new();
+    private readonly Dictionary<MessageKey, int> _retiredOnce = new();
     private readonly Dictionary<(PacketDirection, ushort), int> _opcodeCounts = new();
     private readonly Dictionary<ushort, int> _jobViolations = new();
     private readonly Dictionary<ushort, long> _latestJobValues = new();
@@ -192,6 +201,9 @@ public sealed partial class CalibrationObserver
     private int _diagnosticsOverflow;
     private int _overflow;
     private int _seen;
+
+    /// <summary>Index the next closed burst gets; bursts are let go oldest first, so their count is not one.</summary>
+    private int _nextClusterIndex;
 
     /// <summary>Creates an observer for one capture session.</summary>
     /// <param name="template">Template lending the shapes.</param>
@@ -294,6 +306,7 @@ public sealed partial class CalibrationObserver
         _sessions.Count + _adoptedSessions)
     {
         PopShapeSeen = _popShapeSeen,
+        RetiredOnceCounts = new Dictionary<MessageKey, int>(_retiredOnce),
         LatestJobValues = new Dictionary<ushort, long>(_latestJobValues),
         PopRefusals = new Dictionary<(ushort, string), int>(_popRefusals),
         RouletteEchoes = new Dictionary<(ushort, int), int>(_rouletteEchoes),
@@ -464,11 +477,19 @@ public sealed partial class CalibrationObserver
             throw new InvalidOperationException("calibration evidence can only be adopted before observing");
         }
 
-        _pairs.AddRange(carried.Pairs);
+        // A file never holds more than the tables keep; one that did is cut to the newest.
+        _pairs.AddRange(carried.Pairs.Skip(Math.Max(0, carried.Pairs.Count - MaxPairs)));
         _pops.AddRange(carried.Pops);
-        // Indices are positional and the restored bursts come first, so they keep theirs and
-        // anything closed from here on continues the sequence.
-        _clusters.AddRange(carried.Clusters);
+        // The restored bursts come first and keep their indices; anything closed from here on
+        // continues the sequence. Bursts cut off here are let go like any other, and still count as marked.
+        Merge(_retiredOnce, carried.RetiredOnceCounts);
+        foreach (var cut in carried.Clusters.Take(Math.Max(0, carried.Clusters.Count - MaxClusters)))
+        {
+            Retire(cut);
+        }
+
+        _clusters.AddRange(carried.Clusters.Skip(Math.Max(0, carried.Clusters.Count - MaxClusters)));
+        _nextClusterIndex = carried.Clusters.Count == 0 ? 0 : carried.Clusters.Max(cluster => cluster.Index) + 1;
         Merge(_outside, carried.OutsideCounts);
         Merge(_opcodeCounts, carried.OpcodeCounts);
         Merge(_jobViolations, carried.JobViolations);
@@ -786,9 +807,11 @@ public sealed partial class CalibrationObserver
         bool Once(ZoneCluster cluster, MessageKey key) => cluster.Members.GetValueOrDefault(key) == 1;
         bool Confined(MessageKey key)
         {
+            // The outside count spans every load, so the loads let go still count as marked (RV1-1).
             var outside = _outside.GetValueOrDefault(key);
             return (outside <= CalibrationDraft.MaxZoneOutside ||
-                    (long)outside * CalibrationDraft.ZoneOutsidePerBurst <= prior.Count(cluster => Once(cluster, key))) &&
+                    (long)outside * CalibrationDraft.ZoneOutsidePerBurst <=
+                    prior.Count(cluster => Once(cluster, key)) + _retiredOnce.GetValueOrDefault(key)) &&
                 !prior.Any(cluster => cluster.Members.GetValueOrDefault(key) > 1);
         }
 
@@ -909,12 +932,16 @@ public sealed partial class CalibrationObserver
 
         if (_clusters.Count >= MaxClusters)
         {
-            _overflow++;
-            return;
+            // The oldest burst goes. Every draft rests on recent loads, and the messages inside the
+            // one let go were never counted outside a load - but it did mark the shapes it held once,
+            // and the outside counts those are weighed against span every load (re-review 2026-10-20,
+            // RV1-1), so that much of it is kept.
+            Retire(_clusters[0]);
+            _clusters.RemoveAt(0);
         }
 
         _clusters.Add(new ZoneCluster(
-            _clusters.Count,
+            _nextClusterIndex++,
             open.ConnectionTag,
             open.StartTMs,
             open.EndTMs,
@@ -934,6 +961,33 @@ public sealed partial class CalibrationObserver
             Lobby = !connection.Game,
             JobViolations = new Dictionary<ushort, int>(open.JobViolations),
         });
+    }
+
+    /// <summary>
+    /// Keeps what a burst being let go said about the shapes the zone claims weigh - the zone marker's and the territory's
+    /// length, server to client - as a count of the loads each marked exactly once (<see cref="CalibrationSnapshot.RetiredOnceCounts"/>).
+    /// A full table only leaves a shape's count smaller, which can only make it harder to admit, so it is not an overflow.
+    /// </summary>
+    /// <param name="cluster">The burst being let go.</param>
+    private void Retire(ZoneCluster cluster)
+    {
+        foreach (var (key, count) in cluster.Members)
+        {
+            if (count != 1 || key.Direction != PacketDirection.ServerToClient ||
+                (key.Length != _template.ZoneInitialization.ExpectedLength && key.Length != _template.ZoneTerritory?.ExpectedLength))
+            {
+                continue;
+            }
+
+            if (_retiredOnce.TryGetValue(key, out var marked))
+            {
+                _retiredOnce[key] = marked + 1;
+            }
+            else if (_retiredOnce.Count < MaxOutsideKeys)
+            {
+                _retiredOnce[key] = 1;
+            }
+        }
     }
 
     /// <summary>
@@ -1062,22 +1116,21 @@ public sealed partial class CalibrationObserver
         var match = echo;
         if (match is not null)
         {
-            if (_pairs.Count < MaxPairs)
+            if (_pairs.Count >= MaxPairs)
             {
-                _pairs.Add(new FinderPairHit(connection.Tag, match.Opcode, opcode, echoed, match.TMs, t, at));
-                if (_replyOpcodes.Count < MaxReplyOpcodes)
-                {
-                    _replyOpcodes.Add(opcode);
-                }
-
-                if (_pairedOpcodes.Count < MaxReplyOpcodes * 2)
-                {
-                    _pairedOpcodes.Add((opcode, match.Opcode));
-                }
+                // The oldest pair goes, as the oldest burst does (MaxClusters).
+                _pairs.RemoveAt(0);
             }
-            else
+
+            _pairs.Add(new FinderPairHit(connection.Tag, match.Opcode, opcode, echoed, match.TMs, t, at));
+            if (_replyOpcodes.Count < MaxReplyOpcodes)
             {
-                _overflow++;
+                _replyOpcodes.Add(opcode);
+            }
+
+            if (_pairedOpcodes.Count < MaxReplyOpcodes * 2)
+            {
+                _pairedOpcodes.Add((opcode, match.Opcode));
             }
         }
 
@@ -1119,7 +1172,8 @@ public sealed partial class CalibrationObserver
         // plausible byte at one offset, and letting that into the table is how the table fills.
         // Qualification uses the bounded evidence table: the smaller diagnostic opcode set
         // may omit later pairs, but must not hide changed or competing selector states.
-        // Losing a pair at MaxPairs already makes the snapshot incomplete and blocks derivation.
+        // The pairs kept are the most recent (MaxPairs), and an opcode still answering the player's
+        // queues is among them.
         if (refused is not null && !_pairs.Any(pair => pair.ReplyOpcode == opcode))
         {
             return;

@@ -78,7 +78,6 @@ Write-Head ("dotnet build ({0})" -f $Configuration)
 $buildArgs = @($Solution, '-c', $Configuration)
 if ($NoRestore) {
     $buildArgs += '--no-restore'
-    $buildArgs += '-p:NuGetAudit=false'
 }
 & dotnet build @buildArgs
 if ($LASTEXITCODE -ne 0) {
@@ -117,6 +116,7 @@ Write-Head 'cmake configure (MinGW + Ninja + Qt 6.11.2)'
     "-DCMAKE_RC_COMPILER=$MinGwBin/windres.exe" `
     "-DMR_STAGE_COLLECTOR=OFF" `
     "-DMR_DEV_COLLECTOR_DISCOVERY=OFF" `
+    "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON" `
     "-DCMAKE_BUILD_TYPE=$Configuration"
 if ($LASTEXITCODE -ne 0) {
     Write-Host 'cmake configure 失败。' -ForegroundColor Red

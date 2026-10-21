@@ -13,6 +13,9 @@ Card {
     readonly property var validation: App.validationStatus
     property bool guidedMode: false
     readonly property var evidence: typeof CalibrationEvidence !== "undefined" ? CalibrationEvidence : null
+    // 玩家从「帮助适配其他区服」打开的这张卡片不显示错误码、网卡的内部编号和文件校验值；
+    // 这些只给维护者看（审查 K2-4，2026-10-03 §四 第 5 条）。
+    readonly property bool technical: !card.guidedMode || App.maintainerToolsVisible
 
     readonly property var adapterChoices: {
         const choices = [{ adapter_id: "", label: qsTr("自动选择（唯一推荐网卡）") }]
@@ -21,26 +24,14 @@ Card {
             const name = row.friendly_name || row.description || qsTr("未命名适配器")
             choices.push({
                 adapter_id: row.adapter_id,
-                label: (row.recommended ? qsTr("%1 · %2 · 推荐") : qsTr("%1 · %2"))
-                       .arg(name)
-                       .arg(row.adapter_id)
+                label: !card.technical
+                       ? (row.recommended ? qsTr("%1 · 推荐").arg(name) : name)
+                       : (row.recommended ? qsTr("%1 · %2 · 推荐") : qsTr("%1 · %2"))
+                         .arg(name)
+                         .arg(row.adapter_id)
             })
         }
         return choices
-    }
-
-    readonly property var regionChoices: [
-        { value: null, label: qsTr("自动（按安装路径）") },
-        { value: "CN", label: qsTr("国服 CN") },
-        { value: "GLOBAL", label: qsTr("国际服 GLOBAL") }
-    ]
-
-    function regionIndex(value) {
-        for (let index = 0; index < card.regionChoices.length; ++index) {
-            if (card.regionChoices[index].value === (value === undefined ? null : value))
-                return index
-        }
-        return 0
     }
 
     function adapterIndex(adapterId) {
@@ -128,7 +119,8 @@ Card {
         Layout.fillWidth: true
         text: App.captureStatus.candidate_validation_enabled
               ? qsTr("候选验证仅写入独立观测账本；以下是单独的桌面验证取证工具。")
-              : App.capturing && !App.validationActive
+              // Listening on a build without a usable profile records nothing (review K2-4).
+              : App.capturing && !App.validationActive && App.protocolProfileStatus === "VERIFIED"
               ? qsTr("当前正在正式记录；以下为最近一次验证取证证据。")
               : App.validationNotice
         color: Theme.orangeText
@@ -170,10 +162,13 @@ Card {
         wrapMode: Text.WordWrap
     }
 
+    // A player reads the Collector's sentence above; the code is a maintainer's. Without a
+    // sentence the player still learns that it failed, never the token.
     Text {
         Layout.fillWidth: true
-        visible: !!card.validation.error_code
-        text: qsTr("错误码：") + card.validation.error_code
+        visible: !!card.validation.error_code && (card.technical || !card.validation.message)
+        text: card.technical ? qsTr("错误码：") + card.validation.error_code
+                             : App.errorText("", card.validation.error_code)
         color: Theme.red
         font.pixelSize: Theme.fs(12)
         font.bold: true
@@ -211,25 +206,11 @@ Card {
         }
 
         FieldLabel { text: qsTr("区服") }
-        StyledComboBox {
+        CaptureRegionSelector {
             id: regionOverride
+            objectName: "validationRegionSettingControl"
             Layout.preferredWidth: 150
-            model: card.regionChoices
-            textRole: "label"
-            valueRole: "value"
-            enabled: App.captureSettingsSupported && !App.validationActive
-                     && !App.capturing && !App.captureCommandBusy
-            Binding {
-                target: regionOverride
-                property: "currentIndex"
-                value: card.regionIndex(App.captureSettings.region_override)
-                restoreMode: Binding.RestoreNone
-            }
-            onActivated: function(index) {
-                App.updateCaptureSetting("region_override", card.regionChoices[index].value)
-            }
-            Accessible.name: qsTr("区服覆盖")
-            Accessible.description: qsTr("默认自动：由采集器从安装路径判断。装在自定义目录时国服可能识别不出，可在此显式指定。")
+            interactionAllowed: !App.validationActive && !App.capturing && !App.captureCommandBusy
         }
     }
 
@@ -304,10 +285,12 @@ Card {
         // writing a log line: this is the page users screenshot when filing an
         // issue (docs/privacy-boundary.md section 5). The unfolded value stays
         // with openCaptureValidationFolder().
-        text: qsTr("Trace：%1\nSHA256 文件：%2\nSHA256：%3")
-              .arg(Fmt.foldUserPath(card.validation.trace_path || "") || Fmt.dash())
-              .arg(Fmt.foldUserPath(card.validation.sha256_path || "") || Fmt.dash())
-              .arg(card.validation.sha256 || Fmt.dash())
+        text: !card.technical
+              ? qsTr("采证文件：%1").arg(Fmt.foldUserPath(card.validation.trace_path || "") || Fmt.dash())
+              : qsTr("Trace：%1\nSHA256 文件：%2\nSHA256：%3")
+                .arg(Fmt.foldUserPath(card.validation.trace_path || "") || Fmt.dash())
+                .arg(Fmt.foldUserPath(card.validation.sha256_path || "") || Fmt.dash())
+                .arg(card.validation.sha256 || Fmt.dash())
         color: App.validationSaved ? Theme.textPrimary : Theme.orangeText
         font.pixelSize: Theme.fs(11)
         font.family: Theme.monoFamily

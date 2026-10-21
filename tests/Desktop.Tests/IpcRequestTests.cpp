@@ -11,6 +11,10 @@
 // ContractRequestSampleTests, so a field this client renames, drops or adds
 // fails here first and in the Collector suite second. Regenerate the samples
 // deliberately, by copying the files this test writes, and read the diff.
+//
+// A message the Desktop sends in more than one shape (PreviewRunImport: a source,
+// the next page of a frozen preview, the unpaged fallback) has its further shapes
+// pinned the same way under variants/, named <message>.<shape>.json.
 // ---------------------------------------------------------------------------
 
 #include "TestCollectorGuard.h"
@@ -204,6 +208,31 @@ QJsonObject argsFor(const QString &messageType)
         args.insert(QStringLiteral("verdicts"), verdicts);
     } else if (messageType == QLatin1String("GetCalibrationEvidence")) {
         args.insert(QStringLiteral("code_sha256"), QString(64, QLatin1Char('a')));
+    } else if (messageType == QLatin1String("BatchMutateRuns")) {
+        // The hand-written sample's values (tests/Fixtures/README.md), now built by the wrapper.
+        args.insert(QStringLiteral("action"), QStringLiteral("soft_delete"));
+        args.insert(QStringLiteral("runs"), QJsonArray{QJsonObject{
+            {QStringLiteral("run_id"), QStringLiteral("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")},
+            {QStringLiteral("expected_revision"), 1}}});
+        args.insert(QStringLiteral("reason"), QString::fromUtf8("批量删除"));
+    } else if (messageType == QLatin1String("UpdateHistoryRetentionSettings")) {
+        args.insert(QStringLiteral("retention_days"), 30);
+    } else if (messageType == QLatin1String("AcknowledgeImageCleanup")) {
+        args.insert(QStringLiteral("run_ids"), QJsonArray{QStringLiteral("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")});
+    } else if (messageType == QLatin1String("PreviewRunImport")) {
+        // The first request of an import: edited candidates, a paged preview of 100 rows.
+        args.insert(QStringLiteral("source_kind"), QStringLiteral("SCREENSHOT"));
+        args.insert(QStringLiteral("source_name"), QStringLiteral("synthetic"));
+        args.insert(QStringLiteral("time_zone"), QStringLiteral("+08:00"));
+        args.insert(QStringLiteral("page_size"), 100);
+        args.insert(QStringLiteral("rows"), QJsonArray{QJsonObject{
+            {QStringLiteral("duty_name"), QString::fromUtf8("合成测试副本")},
+            {QStringLiteral("reflection_text"), QString::fromUtf8("合成测试心得")},
+            {QStringLiteral("source_recorded_at"), QStringLiteral("2026-10-08 20:30:00")}}});
+    } else if (messageType == QLatin1String("CommitRunImport")) {
+        args.insert(QStringLiteral("preview_id"), QStringLiteral("6f1d2c3b-4a5e-4f60-8b7c-9d0e1f2a3b4c"));
+        args.insert(QStringLiteral("row_numbers"), QJsonArray{1});
+        args.insert(QStringLiteral("deduct_from_baseline"), true);
     } else if (messageType == QLatin1String("ImportCalibrationCode")) {
         // tests/Fixtures/shared-calibration/vectors.json valid[0].code: the
         // sample the Collector side wrote first (contracts/CHANGELOG.md).
@@ -272,7 +301,58 @@ QStringList allMessageTypes()
         QStringLiteral("CheckUpdateNow"),
         QStringLiteral("StartUpdateDownload"),
         QStringLiteral("CancelUpdateDownload"),
+        QStringLiteral("BatchMutateRuns"),
+        QStringLiteral("GetHistoryRetentionSettings"),
+        QStringLiteral("UpdateHistoryRetentionSettings"),
+        QStringLiteral("GetPendingImageCleanup"),
+        QStringLiteral("AcknowledgeImageCleanup"),
+        QStringLiteral("PreviewRunImport"),
+        QStringLiteral("CommitRunImport"),
     };
+}
+
+/// A further shape of a message, pinned as variants/<file>.json.
+struct RequestVariant
+{
+    QString file;
+    QString messageType;
+    QJsonObject args;
+};
+
+QList<RequestVariant> requestVariants()
+{
+    return {
+        // ImportRecordsController: every page after the first of a frozen preview.
+        {QStringLiteral("PreviewRunImport.page"), QStringLiteral("PreviewRunImport"),
+         QJsonObject{{QStringLiteral("preview_id"), QStringLiteral("6f1d2c3b-4a5e-4f60-8b7c-9d0e1f2a3b4c")},
+                     {QStringLiteral("page"), 2}}},
+        // A file read for the first time, with the column mapping the dialog offers.
+        {QStringLiteral("PreviewRunImport.file"), QStringLiteral("PreviewRunImport"),
+         QJsonObject{{QStringLiteral("source_kind"), QStringLiteral("XLSX")},
+                     {QStringLiteral("source_name"), QStringLiteral("personal-records.xlsx")},
+                     {QStringLiteral("time_zone"), QStringLiteral("+09:00")},
+                     {QStringLiteral("page_size"), 100},
+                     {QStringLiteral("file_path"), QStringLiteral("D:/imports/personal-records.xlsx")},
+                     {QStringLiteral("column_mapping"), QJsonObject{{QString::fromUtf8("评论"), QStringLiteral("reflection_text")}}}}},
+        // The unpaged fallback, sent once to a Collector that refuses page_size.
+        {QStringLiteral("PreviewRunImport.unpaged"), QStringLiteral("PreviewRunImport"),
+         QJsonObject{{QStringLiteral("source_kind"), QStringLiteral("PASTE")},
+                     {QStringLiteral("source_name"), QString::fromUtf8("粘贴的表格")},
+                     {QStringLiteral("time_zone"), QStringLiteral("+08:00")},
+                     {QStringLiteral("text"), QString::fromUtf8("副本\t评论\n合成测试副本\t合成测试心得")}}},
+        // No baseline question answered: deduct_from_baseline does not travel.
+        {QStringLiteral("CommitRunImport.keep-baseline"), QStringLiteral("CommitRunImport"),
+         QJsonObject{{QStringLiteral("preview_id"), QStringLiteral("6f1d2c3b-4a5e-4f60-8b7c-9d0e1f2a3b4c")},
+                     {QStringLiteral("row_numbers"), QJsonArray{1, 2, 5}}}},
+    };
+}
+
+QJsonObject readSample(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    return QJsonDocument::fromJson(file.readAll()).object();
 }
 
 } // namespace
@@ -284,6 +364,7 @@ class IpcRequestTests : public QObject
 private Q_SLOTS:
     void buildsOneSamplePerMessageType();
     void samplesMatchTheCommittedFixtures();
+    void variantsMatchTheCommittedFixtures();
 };
 
 void IpcRequestTests::buildsOneSamplePerMessageType()
@@ -306,6 +387,15 @@ void IpcRequestTests::buildsOneSamplePerMessageType()
                  qPrintable(file.errorString()));
         file.write(QJsonDocument(envelope).toJson(QJsonDocument::Indented));
         file.close();
+    }
+    const QString variants = QStringLiteral(MR_IPC_REQUEST_OUTPUT_DIR) + QStringLiteral("/variants");
+    QVERIFY(QDir().mkpath(variants));
+    for (const RequestVariant &variant : requestVariants()) {
+        const QJsonObject envelope = mr::IpcBackend::buildRequestForTest(variant.messageType, variant.args);
+        QCOMPARE(envelope.value(QStringLiteral("message_type")).toString(), variant.messageType);
+        QFile file(variants + QLatin1Char('/') + variant.file + QStringLiteral(".json"));
+        QVERIFY2(file.open(QIODevice::WriteOnly | QIODevice::Truncate), qPrintable(file.errorString()));
+        file.write(QJsonDocument(envelope).toJson(QJsonDocument::Indented));
     }
 }
 
@@ -337,6 +427,22 @@ void IpcRequestTests::samplesMatchTheCommittedFixtures()
                  qPrintable(type + QStringLiteral(" drifted from its committed sample; ") +
                             QStringLiteral("regenerate from ") +
                             QStringLiteral(MR_IPC_REQUEST_OUTPUT_DIR)));
+    }
+}
+
+// G-3 / I1-1 (audit 2026-10-20): the import dialog's other request shapes are pinned too.
+void IpcRequestTests::variantsMatchTheCommittedFixtures()
+{
+    for (const RequestVariant &variant : requestVariants()) {
+        const QJsonObject envelope = mr::IpcBackend::buildRequestForTest(variant.messageType, variant.args);
+        const QString path = QStringLiteral(MR_IPC_REQUEST_FIXTURE_DIR) + QStringLiteral("/variants/")
+            + variant.file + QStringLiteral(".json");
+        const QJsonObject sample = readSample(path);
+        QVERIFY2(!sample.isEmpty(), qPrintable(path));
+        QCOMPARE(sample.value(QStringLiteral("message_type")), envelope.value(QStringLiteral("message_type")));
+        QCOMPARE(sample.value(QStringLiteral("protocol_version")), envelope.value(QStringLiteral("protocol_version")));
+        QVERIFY2(sample.value(QStringLiteral("payload")) == envelope.value(QStringLiteral("payload")),
+                 qPrintable(variant.file + QStringLiteral(" drifted from its committed sample")));
     }
 }
 

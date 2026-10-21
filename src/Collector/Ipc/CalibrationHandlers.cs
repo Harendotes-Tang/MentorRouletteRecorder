@@ -89,7 +89,9 @@ public static class CalibrationHandlers
 
         var pipeline = host.LiveProtocol ?? throw new CollectorException(
             ErrorCodes.CalibrationNotReady, CollectorTexts.CalibrationPipelineNotReady());
-        var snapshot = pipeline.DiscardCalibration(retire, restore);
+        // Retiring and restoring both put the profile in force away, which the pipeline refuses under its own gate while a
+        // run is under way (audit 2026-10-20, K2-2; re-review RV2-3). 重新观察 alone leaves it recording.
+        var snapshot = pipeline.DiscardCalibration(retire, restore, refuseWhileARunIsUnderWay: true);
         return new JsonObject
         {
             ["state"] = CalibrationWire.State(snapshot.State),

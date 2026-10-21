@@ -293,6 +293,75 @@ public sealed class CalibrationObserverSafetyTests
             blocker => blocker.Chinese.Contains("积累的信息太多", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// Audit 2026-10-20, C-4. Bursts and request/echo pairs were capped over everything the observer
+    /// ever held, evidence carried from disk included, so about 64 zone changes on one build - an
+    /// evening or two of play - overflowed the table for good: every draft blocked, and the roles that
+    /// run beside a recording profile stopped until the player found 清空校准进度. The two tables keep
+    /// the most recent bursts and pairs instead; letting the oldest go is not a loss the draft has to
+    /// refuse over, so it is not counted as overflow, before or after a restart.
+    /// </summary>
+    [Fact]
+    public void TwoHundredBurstsOverTenSessionsNeverOverflow()
+    {
+        const int sessions = 10;
+        const int burstsPerSession = 20;
+        const int queuesPerSession = 30;
+        var observer = new CalibrationObserver(Template(), Region.Cn, "session-0");
+        for (var session = 0; session < sessions; session++)
+        {
+            var id = "session-" + session;
+            if (session > 0)
+            {
+                observer.AdoptSession(id);
+            }
+
+            var shift = TimeSpan.FromHours(session * 2);
+            var traffic = Enumerable.Range(0, burstsPerSession)
+                .SelectMany(index => Cluster(5_000 + (index * 30_000L), 5000))
+                .Concat(Enumerable.Range(0, queuesPerSession)
+                    .SelectMany(index => QueueAndPop(20_000 + (index * 30_000L), 1, 0).Take(2)))
+                .OrderBy(message => message.Mono);
+            foreach (var message in traffic)
+            {
+                observer.Accept(message with { CaptureSessionId = id, ObservedAtUtc = message.ObservedAtUtc + shift });
+            }
+        }
+
+        observer.Flush();
+        var snapshot = observer.Snapshot();
+
+        Assert.Equal(0, snapshot.OverflowCount);
+        Assert.Equal(CalibrationObserver.MaxClusters, snapshot.Clusters.Count);
+        Assert.Equal(CalibrationObserver.MaxPairs, snapshot.Pairs.Count);
+        // The newest are the ones kept, and every burst keeps an index of its own.
+        Assert.Equal("session-9", snapshot.ConnectionSessions[snapshot.Clusters[^1].ConnectionTag]);
+        Assert.Equal("session-9", snapshot.ConnectionSessions[snapshot.Pairs[^1].ConnectionTag]);
+        Assert.DoesNotContain(snapshot.Clusters, cluster => snapshot.ConnectionSessions[cluster.ConnectionTag] == "session-0");
+        Assert.Equal(snapshot.Clusters.Count, snapshot.Clusters.Select(cluster => cluster.Index).Distinct().Count());
+        Assert.DoesNotContain(CalibrationDraft.Derive(snapshot, Template()).Blockers,
+            blocker => blocker.Chinese.Contains("积累的信息太多", StringComparison.Ordinal));
+
+        // Carried into the next run of the Collector and played on: still nothing lost to a cap.
+        var restarted = new CalibrationObserver(Template(), Region.Cn, "session-10");
+        restarted.AdoptEvidence(snapshot);
+        foreach (var message in Cluster(5_000, 5000).Concat(QueueAndPop(20_000, 1, 0).Take(2)))
+        {
+            restarted.Accept(message with
+            {
+                CaptureSessionId = "session-10",
+                ObservedAtUtc = message.ObservedAtUtc + TimeSpan.FromHours(sessions * 2),
+            });
+        }
+
+        restarted.Flush();
+        var carried = restarted.Snapshot();
+        Assert.Equal(0, carried.OverflowCount);
+        Assert.Equal(CalibrationObserver.MaxClusters, carried.Clusters.Count);
+        Assert.Equal(CalibrationObserver.MaxPairs, carried.Pairs.Count);
+        Assert.Equal(carried.Clusters.Count, carried.Clusters.Select(cluster => cluster.Index).Distinct().Count());
+    }
+
     private static IEnumerable<DecodedMessage> FillReplyDiagnostics()
     {
         // Each earlier opcode only answers one request. None has a later matched state,

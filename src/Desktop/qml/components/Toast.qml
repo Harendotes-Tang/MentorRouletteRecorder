@@ -25,6 +25,9 @@ Rectangle {
         anchors.fill: parent
         anchors.margins: 10
         text: root.shownMessage
+        // Messages may carry a recorded duty name, which may come from an
+        // imported file: shown as written, never as markup.
+        textFormat: Text.PlainText
         color: Theme.textPrimary
         wrapMode: Text.WordWrap
         font.pixelSize: Theme.fs(13)

@@ -251,7 +251,7 @@ tests/Fixtures/
 `request_id`），由 Qt 桌面端**正式发布使用的** `IBackend` 包装器生成，并固定保存于本目录：
 
 - 生成方：`tests/Desktop.Tests/IpcRequestTests.cpp`
-  通过 `IpcBackend::buildRequestForTest` 构造，写到构建目录后与本目录逐字节比对；
+  通过 `IpcBackend::buildRequestForTest` 构造，写到构建目录后与本目录逐字段比对（`message_type`、`protocol_version` 与 `payload`，不比较 `request_id`）；
 - 校验方：[`../Collector.IntegrationTests/ContractRequestSampleTests.cs`](../Collector.IntegrationTests/ContractRequestSampleTests.cs)
   执行三项检查：
   1. 契约中**每一条业务消息**都恰好有一个同名样本（文件名 = `message_type`）；
@@ -262,6 +262,12 @@ tests/Fixtures/
 
 样本与契约 `$defs/MessageType` 中的业务消息（分组见 [`../../docs/architecture.md`](../../docs/architecture.md) §3.1）
 一一对应，数量以契约为准，由上述第 1 项检查核对。
+
+子目录 `variants/` 存放同一条消息的其他请求形状（例如分页导入的后续页、从文件导入、不分页的回退请求），
+文件名为 `<MessageType>.<variant>.json`，同样由 `tst_ipcrequests` 生成并与本目录逐字段比对。
+`ContractRequestSampleTests.EveryVariantSampleMatchesTheRequestEnvelopeSchema` 核对每个变体的
+`message_type` 是契约中的业务消息、文件名以该消息名加 `.` 开头，并按根形状与 `$defs/RequestEnvelope` 校验；
+变体不计入第 1 项，也不发送给真实 Collector。
 
 `StartCapture.json` 在第 3 步中被**跳过**。该样本刻意填入合成的
 `adapter_id`（`NPF_TEST_ADAPTER`），仅为覆盖该字段而不绑定真实网卡。

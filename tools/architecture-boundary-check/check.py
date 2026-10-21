@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -23,7 +24,7 @@ EXIT_OK = 0
 EXIT_VIOLATION = 1
 EXIT_INSPECTION_ERROR = 2
 
-IGNORED_DIRS = {"bin", "obj", ".git", "build", "artifacts", "__pycache__"}
+PROJECT_OUTPUT_DIRS = {"bin", "obj"}
 DOMAIN_NAMESPACE = "MentorRecorder.Collector.Domain"
 PROJECT_NAMESPACE = "MentorRecorder.Collector"
 BASE_RUNTIME_NAMESPACE_PREFIXES = ("System", "Microsoft.Win32")
@@ -380,12 +381,28 @@ def _shadowing_types(namespaces: set[str], declared: dict[str, set[str]]) -> set
     return shadowing or set()
 
 
-def _source_files(base: Path, suffixes: set[str]) -> list[Path]:
+def _source_files(base: Path, suffixes: set[str], *, project_root: Path) -> list[Path]:
+    """Inspect source folders; only the Collector root's bin/obj are SDK outputs.
+
+    A folder named Domain/build, Domain/bin or artifacts is still compiled by the
+    root SDK project. A nested .csproj does not change that root project's glob;
+    discovering one must never introduce another output-directory exemption.
+    """
     if not base.is_dir():
         return []
-    return sorted(path for path in base.rglob("*")
-                  if path.is_file() and path.suffix.lower() in suffixes
-                  and not any(part.lower() in IGNORED_DIRS for part in path.relative_to(base).parts[:-1]))
+    found = []
+
+    def unreadable(error: OSError) -> None:
+        raise error
+
+    for directory, subdirectories, filenames in os.walk(base, onerror=unreadable):
+        project = Path(directory) == project_root
+        subdirectories[:] = [name for name in subdirectories
+                             if name != ".git"
+                             and not (project and name.lower() in PROJECT_OUTPUT_DIRS)]
+        found.extend(Path(directory) / name for name in filenames
+                     if Path(name).suffix.lower() in suffixes)
+    return sorted(found)
 
 
 def _mask_xml_non_elements(text: str) -> str:
@@ -456,13 +473,13 @@ class Checker:
         if not collector.is_dir():
             self.error("required scope is missing: src/Collector")
             return
-        domain_files = _source_files(domain, {".cs"})
+        domain_files = _source_files(domain, {".cs"}, project_root=collector)
         if not domain.is_dir():
             self.error("required scope is missing: src/Collector/Domain")
         elif not domain_files:
             self.error("required scope is empty: src/Collector/Domain contains no C# files")
 
-        all_csharp = _source_files(collector, {".cs"})
+        all_csharp = _source_files(collector, {".cs"}, project_root=collector)
         if not all_csharp:
             self.error("required scope is empty: src/Collector contains no C# files")
             return
@@ -548,7 +565,7 @@ class Checker:
         package_include = re.compile(
             r"\bInclude\s*=\s*([\"'])(?P<name>.*?)\1", re.IGNORECASE
         )
-        for project in _source_files(collector, {".csproj"}):
+        for project in _source_files(collector, {".csproj"}, project_root=collector):
             project_text = self.read(project)
             if project_text is None:
                 continue
@@ -562,6 +579,11 @@ class Checker:
                     continue
                 package_name = included.group("name").strip()
                 if not package_name or "$" in package_name:
+                    continue
+                if any(package_name == prefix or package_name.startswith(prefix + ".")
+                       for prefix in BASE_RUNTIME_NAMESPACE_PREFIXES):
+                    # A package in a base-runtime namespace (System.Security.Cryptography.Xml)
+                    # is treated like a using of one: "System" is not an external prefix (N2-8).
                     continue
                 parts = package_name.split(".")
                 prefix_size = min(3, len(parts)) if parts[0] == "Microsoft" else 1
@@ -652,7 +674,7 @@ class Checker:
                                  dependency,
                                  "Domain references a non-Domain attribute of an enclosing namespace")
 
-        project_files = _source_files(collector, {".csproj"})
+        project_files = _source_files(collector, {".csproj"}, project_root=collector)
         for ancestor in (collector, collector.parent, self.root):
             for name in ("Directory.Build.props", "Directory.Build.targets"):
                 candidate = ancestor / name

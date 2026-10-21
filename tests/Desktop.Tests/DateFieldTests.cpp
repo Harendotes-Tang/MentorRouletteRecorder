@@ -386,7 +386,12 @@ void DateFieldTests::recordAwareRangeDisablesEmptyDatesButSingleDateDoesNot()
     clickItem(window, dayCell(field, 7));
     QTRY_VERIFY(!field->property("calendarOpen").toBool());
     QCOMPARE(field->property("endText").toString(), QStringLiteral("2026-09-07"));
+    // Record days only limit what the calendar offers: a whole date already in
+    // the field stays valid and is queried (review K1-1). Only a malformed one is not.
     field->setProperty("endText", QStringLiteral("2026-09-08"));
+    QVERIFY(field->property("valid").toBool());
+    QVERIFY(!dayCell(field, 8)->isEnabled());
+    field->setProperty("endText", QStringLiteral("2026-09-31"));
     QVERIFY(!field->property("valid").toBool());
 
     // The same component in the new-record wizard permits a record-free date

@@ -327,7 +327,7 @@ public sealed class HistoryRetentionTests
                 seed.Parameters.AddWithValue("$id", Id()); seed.ExecuteNonQuery();
             }
             using var migrated = SqliteDatabase.Open(path, clock);
-            var snapshotPath = Assert.Single(Directory.GetFiles(Path.Combine(Path.GetDirectoryName(path)!, "backups"), "history_retention_upgrade_*.db"));
+            var snapshotPath = Assert.Single(Directory.GetFiles(Path.Combine(Path.GetDirectoryName(path)!, "backups"), "pre_schema_9_upgrade_*.db"));
             using (var snapshot = new SqliteConnection("Data Source=" + snapshotPath + ";Mode=ReadOnly;Pooling=False"))
             {
                 snapshot.Open(); using var snapshotCheck = snapshot.CreateCommand();

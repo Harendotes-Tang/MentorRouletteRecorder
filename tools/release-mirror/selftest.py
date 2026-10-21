@@ -28,15 +28,24 @@ class FakeMirror:
         self.fail = fail
         self.events = []
         self.existing = bool(contents)
+        self.title = SOURCE["name"]
         self.notes = SOURCE["body"]
+        self.identity = {}
 
     def release(self):
         if not self.existing:
             return None
-        return {**SOURCE, "body": self.notes, "assets": [{"name": name} for name in self.contents]}
+        return {**SOURCE, "name": self.title, "body": self.notes, **self.identity,
+                "assets": [{"name": name} for name in self.contents]}
 
     def create(self, source, commit):
         self.events.append(("create", commit))
+
+    def update(self, source, commit):
+        self.events.append(("update", commit))
+        if self.fail == ("update", None):
+            raise m.MirrorError("update failed")
+        self.title, self.notes = source["name"], source["body"]
 
     def verify(self, name, expected):
         self.events.append(("verify", name))
@@ -96,10 +105,13 @@ class TransactionTests(unittest.TestCase):
     def test_completed_or_partial_conflicting_content_never_mutates(self):
         for contents in (dict(self.hashes), {NAMES[0]: (1, "bad")}):
             contents[NAMES[0]] = (1, "bad")
-            mirror = FakeMirror(contents)
-            with self.assertRaises(m.MirrorError):
-                self.run_publish(mirror)
-            self.assertFalse(any(event[0] in {"upload", "create"} for event in mirror.events))
+            for notes in (SOURCE["body"], "Notes before a GitHub edit"):
+                with self.subTest(contents=sorted(contents), notes=notes):
+                    mirror = FakeMirror(contents)
+                    mirror.notes = notes
+                    with self.assertRaises(m.MirrorError):
+                        self.run_publish(mirror)
+                    self.assertFalse(any(event[0] in {"upload", "create", "update"} for event in mirror.events))
 
     def test_completion_marker_without_required_assets_is_refused(self):
         mirror = FakeMirror({NAMES[2]: self.hashes[NAMES[2]]})
@@ -107,12 +119,42 @@ class TransactionTests(unittest.TestCase):
             self.run_publish(mirror)
         self.assertEqual(mirror.events, [])
 
-    def test_existing_notes_conflict_is_not_overwritten(self):
-        mirror = FakeMirror(self.hashes)
-        mirror.notes = "different"
+    def test_edited_notes_after_cut_short_formal_mirror_update_text_then_finish(self):
+        # The installer upload timed out after create, then the GitHub notes were edited.
+        mirror = FakeMirror()
+        mirror.existing = True
+        mirror.notes = "Notes before a GitHub edit"
+        self.run_publish(mirror)
+        self.assertEqual(mirror.events, [("update", COMMIT), ("upload", NAMES[0]), ("verify", NAMES[0]),
+            ("upload", NAMES[1]), ("verify", NAMES[1]), ("upload", NAMES[2]), ("verify", NAMES[2])])
+        self.assertEqual((mirror.title, mirror.notes), (SOURCE["name"], SOURCE["body"]))
+        self.assertEqual(mirror.contents, self.hashes)
+
+    def test_edited_title_with_partial_mirror_verifies_registered_attachments_first(self):
+        mirror = FakeMirror({NAMES[0]: self.hashes[NAMES[0]]})
+        mirror.title = "Title before a GitHub edit"
+        self.run_publish(mirror)
+        self.assertEqual(mirror.events[:2], [("verify", NAMES[0]), ("update", COMMIT)])
+        self.assertNotIn(("upload", NAMES[0]), mirror.events)
+        self.assertEqual(mirror.contents, self.hashes)
+
+    def test_failed_text_update_adds_no_attachment(self):
+        mirror = FakeMirror({NAMES[0]: self.hashes[NAMES[0]]}, fail=("update", None))
+        mirror.notes = "Notes before a GitHub edit"
         with self.assertRaises(m.MirrorError):
             self.run_publish(mirror)
-        self.assertEqual(mirror.events, [])
+        self.assertEqual(mirror.events, [("verify", NAMES[0]), ("update", COMMIT)])
+
+    def test_identity_or_completion_conflict_never_updates_edited_notes(self):
+        for contents, identity in ((self.hashes, {"prerelease": True}), (self.hashes, {"tag_name": "v1.2.2"}),
+                                   ({NAMES[2]: self.hashes[NAMES[2]]}, {})):
+            with self.subTest(contents=sorted(contents), identity=identity):
+                mirror = FakeMirror(contents)
+                mirror.identity = identity
+                mirror.notes = "Notes before a GitHub edit"
+                with self.assertRaises(m.MirrorError):
+                    self.run_publish(mirror)
+                self.assertEqual(mirror.events, [])
 
     def test_existing_notes_accept_only_line_ending_normalization(self):
         for ending in ("\r\n", "\r"):
@@ -122,15 +164,17 @@ class TransactionTests(unittest.TestCase):
                 self.run_publish(mirror)
                 self.assertEqual(mirror.events, [("verify", name) for name in NAMES])
 
-    def test_notes_spaces_content_and_final_newline_differences_still_conflict(self):
-        for notes in (SOURCE["body"] + "\n", " " + SOURCE["body"], SOURCE["body"] + " ",
-                      SOURCE["body"].replace("release", "changed"), None):
-            with self.subTest(notes=notes):
+    def test_every_title_or_notes_difference_is_copied_after_attachments_verify(self):
+        for title, notes in ((SOURCE["name"], SOURCE["body"] + "\n"), (SOURCE["name"], " " + SOURCE["body"]),
+                             (SOURCE["name"], SOURCE["body"] + " "), (SOURCE["name"], None),
+                             (SOURCE["name"], SOURCE["body"].replace("release", "changed")),
+                             ("Edited title", SOURCE["body"])):
+            with self.subTest(title=title, notes=notes):
                 mirror = FakeMirror(self.hashes)
-                mirror.notes = notes
-                with self.assertRaises(m.MirrorError):
-                    self.run_publish(mirror)
-                self.assertEqual(mirror.events, [])
+                mirror.title, mirror.notes = title, notes
+                self.run_publish(mirror)
+                self.assertEqual(mirror.events, [("verify", name) for name in NAMES] + [("update", COMMIT)])
+                self.assertEqual((mirror.title, mirror.notes), (SOURCE["name"], SOURCE["body"]))
 
     def test_source_hash_and_commit_are_required(self):
         exe, checksum, metadata = NAMES
@@ -172,6 +216,34 @@ class NetworkTests(unittest.TestCase):
                 self.assertEqual(len(posts), 1)
                 self.assertEqual(posts[0]["release_status"], expected)
                 self.assertEqual(posts[0]["body"], source["body"])
+
+    def test_update_rechecks_mirror_tag_and_patches_only_title_and_notes(self):
+        calls = []
+        class Api:
+            def api(self, url, **kwargs):
+                calls.append((url, kwargs))
+                if url.startswith(m.GC + "/tags?"):
+                    return [{"name": TAG, "commit": {"sha": COMMIT}}]
+                if url == m.GC + "/releases/" + TAG and kwargs.get("method") == "PATCH":
+                    return {}
+                raise AssertionError("Unexpected request")
+        source = {**SOURCE, "name": "Edited title", "body": "Edited\r\nnotes\r\n"}
+        m.RemoteMirror(Api(), TAG, Path("unused")).update(source, COMMIT)
+        self.assertEqual([url for url, _ in calls], [m.GC + "/tags?per_page=100&page=1", m.GC + "/releases/" + TAG])
+        self.assertEqual(calls[1][1], {"auth": True, "method": "PATCH",
+                                       "payload": {"name": "Edited title", "body": source["body"]}})
+
+    def test_update_never_patches_when_mirror_tag_moved(self):
+        calls = []
+        class Api:
+            def api(self, url, **kwargs):
+                calls.append(url)
+                if url.startswith(m.GC + "/tags?"):
+                    return [{"name": TAG, "commit": {"sha": "b" * 40}}]
+                raise AssertionError("PATCH must not follow a moved mirror tag")
+        with self.assertRaises(m.MirrorError):
+            m.RemoteMirror(Api(), TAG, Path("unused")).update(SOURCE, COMMIT)
+        self.assertEqual(calls, [m.GC + "/tags?per_page=100&page=1"])
 
     def test_unknown_or_invalid_github_latest_prevents_create(self):
         for latest in ({}, {"tag_name": "v1.2.4-beta", "draft": False, "prerelease": False},

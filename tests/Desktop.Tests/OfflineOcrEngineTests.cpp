@@ -15,7 +15,12 @@
 #include <QTest>
 #include <QThread>
 
+#include <iterator>
 #include <memory>
+
+#ifdef Q_OS_WIN
+#include <qt_windows.h>
+#endif
 
 namespace {
 
@@ -30,9 +35,9 @@ bool writeFile(const QString &path, const QByteArray &bytes)
     return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
 }
 
-QString installWorker(QTemporaryDir &directory)
+QString installWorker(QTemporaryDir &directory, const QString &relativeAppDirectory = QStringLiteral("app with spaces"))
 {
-    const QString app = directory.filePath(QStringLiteral("app with spaces"));
+    const QString app = directory.filePath(relativeAppDirectory);
     const QString ocr = QDir(app).filePath(QStringLiteral("ocr"));
     const QString models = QDir(ocr).filePath(QStringLiteral("models"));
     if (!QDir().mkpath(models)
@@ -84,6 +89,13 @@ int worker(int argc, char **argv)
                            {QStringLiteral("cwd"), QDir::currentPath()},
                            {QStringLiteral("pythonpath_present"), qEnvironmentVariableIsSet("PYTHONPATH")},
                            {QStringLiteral("omp_threads"), qEnvironmentVariable("OMP_NUM_THREADS")}};
+#ifdef Q_OS_WIN
+        wchar_t modulePath[32768];
+        const DWORD modulePathLength = GetModuleFileNameW(nullptr, modulePath, DWORD(std::size(modulePath)));
+        if (modulePathLength == 0 || modulePathLength >= std::size(modulePath))
+            return 18;
+        record.insert(QStringLiteral("module_path"), QString::fromWCharArray(modulePath, int(modulePathLength)));
+#endif
         QFile file(log);
         if (!file.open(QIODevice::Append))
             return 14;
@@ -288,6 +300,48 @@ private Q_SLOTS:
         QCOMPARE(engine.completedImages(), 1);
         QVERIFY(!engine.busy());
     }
+
+#ifdef Q_OS_WIN
+    void deepWindowsWorkerLoadsThroughExtendedPath_data()
+    {
+        QTest::addColumn<bool>("alreadyExtended");
+        QTest::newRow("absolute-drive-path") << false;
+        QTest::newRow("already-extended-drive-path") << true;
+    }
+
+    void deepWindowsWorkerLoadsThroughExtendedPath()
+    {
+        QFETCH(bool, alreadyExtended);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        QString relativeApp = QStringLiteral("深目录 with spaces");
+        while (mr::OfflineOcrEngine::enginePath(directory.filePath(relativeApp)).size() < 220)
+            relativeApp += QStringLiteral("/nested app files");
+        const QString app = installWorker(directory, relativeApp);
+        QVERIFY(!app.isEmpty());
+        const QString log = directory.filePath(QStringLiteral("deep-worker.jsonl"));
+        qputenv("MR_TEST_AI_OCR_LOG", log.toUtf8());
+        const QString nativeApp = QDir::toNativeSeparators(app);
+        mr::OfflineOcrEngine engine;
+        engine.setApplicationDirectoryForTesting(alreadyExtended ? QStringLiteral("\\\\?\\") + nativeApp : app);
+        QSignalSpy recognized(&engine, &mr::OfflineOcrEngine::imageRecognized);
+        QSignalSpy finished(&engine, &mr::OfflineOcrEngine::finished);
+        QSignalSpy failures(&engine, &mr::OfflineOcrEngine::failed);
+        QVERIFY(engine.start({createScreenshot(directory)}));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 10000);
+        QVERIFY2(failures.isEmpty(), failures.isEmpty() ? "" : qPrintable(failures[0][0].toString()));
+        QVERIFY(finished[0][0].toBool());
+        QCOMPARE(recognized.size(), 1);
+        QCOMPARE(recognized[0][1].toByteArray(), wholeImageTsv());
+        QFile file(log);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const auto record = QJsonDocument::fromJson(file.readAll().trimmed()).object();
+        // Verify the path Windows actually used to load the child, beyond the
+        // QProcess property: PyInstaller adds dependency paths below this root.
+        QCOMPARE(record.value(QStringLiteral("module_path")).toString(),
+                 QStringLiteral("\\\\?\\") + QDir::toNativeSeparators(mr::OfflineOcrEngine::enginePath(app)));
+    }
+#endif
 
     void emptyWholeImageResultRemainsEmpty()
     {

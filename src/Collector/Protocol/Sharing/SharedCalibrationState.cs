@@ -54,7 +54,7 @@ internal sealed record SharedBinding(string ProfileSha256, string CodeSha256, Da
 /// </summary>
 /// <param name="Fetches">Last attempt per template.</param>
 /// <param name="Codes">Index hints per stored code.</param>
-/// <param name="Revoked">Codes the last readable index revoked.</param>
+/// <param name="Revoked">Codes an index this machine read revoked; a revocation is never taken back (see <see cref="WithMoreRevoked"/>).</param>
 /// <param name="Rejections">Contradiction records per template and code.</param>
 /// <param name="UserRejectedAtUtc">
 /// When the player chose 不用共享的，我自己校准 for this build; null while they have not. Written as the optional
@@ -133,6 +133,23 @@ internal sealed record SharedCalibrationState(
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)
             .Take(SharedCalibrationIndex.MaxEntries)
+            .ToArray(),
+    };
+
+    /// <summary>
+    /// Adds what a readable index revokes to what earlier indexes revoked. The publisher never takes a revocation back -
+    /// quarantine is its reversible tool - so an index that no longer says so, such as a mirror still serving the one from
+    /// before the revocation, leaves the list as it was (audit 2026-10-20, E-1). Bounded like the index; at the bound the
+    /// codes just revoked are kept and earlier ones give way.
+    /// </summary>
+    internal SharedCalibrationState WithMoreRevoked(IEnumerable<string> revoked) => this with
+    {
+        Revoked = revoked
+            .Where(sha => SharedCalibrationIndex.IsSha256(sha))
+            .Concat(Revoked)
+            .Distinct(StringComparer.Ordinal)
+            .Take(SharedCalibrationIndex.MaxEntries)
+            .Order(StringComparer.Ordinal)
             .ToArray(),
     };
 

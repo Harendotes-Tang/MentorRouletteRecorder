@@ -2,10 +2,10 @@
 
 > **`PROTOCOL_PROFILE_STATUS = CN_VERIFIED_POP_TO_EXIT`**（2026-09-07）
 >
-> `cn/cn.2026.08.05.json` 是第一份真实的 `VERIFIED` 档案，声明弹窗（S2C `0x0323`）与换区
-> （S2C `0x014a`）两条消息，`mentor_roulette_id = 9`，不含 `DUTY_RESULT`。
+> `cn/cn.2026.08.05.json` 是第一份真实的 `VERIFIED` 档案，声明弹窗（S2C `0x0323`）、换区
+> （S2C `0x014a`）、区域（S2C `0x028d`）与职业（S2C `0x0350`）四条消息，`mentor_roulette_id = 9`，不含 `DUTY_RESULT`。
 > 其 `finder_state` 声明为 `"role": "selector"`（见下文）。该档案另带一个可选的
-> `calibration` 模板段（本机校准所需的报文结构，见 `../docs/protocol-profile-format.md` §3.6），并据此重新盖章，
+> `calibration` 模板段（本机校准所需的报文结构，见 `../docs/protocol-profile-format.md` §11），并据此重新盖章，
 > `profile_sha256` 为 `8c6ffec309e0597f723a09e5c787759475828aaf6152402d3c94a24af92b3cd1`。
 > 每个常量的来源均记录在其 `provenance.evidence` 中。`global/` 仍只有 `UNSUPPORTED` 占位。
 > `synthetic/synthetic-v1.json` 的每个常量均为**编造值**，仅服务于离线测试。
@@ -14,9 +14,9 @@
 形成可审计、可替换、可失效的数据文件。
 `src/Collector/Protocol/Parsing/ProfileMessageParser.cs` 中**不含任何硬编码常量**：
 解析器读取的字段、长度、字节序与允许取值，全部来自本目录的文件。
-唯一的例外是国服的通关结算：它与 opcode 无关，按固定内容识别，不属于任何档案，
-常量集中在 `src/Collector/Protocol/Parsing/DutyClearSignal.cs`，证据见
-[`../docs/protocol-profile-format.md`](../docs/protocol-profile-format.md) §12。
+例外是国服副本导演报文中的通关结算、副本开始宣布与剩余时间：它们与 opcode 无关，按固定内容识别，
+不属于任何档案，常量集中在 `src/Collector/Protocol/Parsing/DutyClearSignal.cs` 与 `DutyStartSignal.cs`，证据见
+[`../docs/protocol-profile-format.md`](../docs/protocol-profile-format.md) §12、§13。
 
 ## 目录
 
@@ -27,7 +27,7 @@ protocol-profiles/
   cn/
     README.md               国服：档案状态与证据要求
     cn-unsupported.json     UNSUPPORTED 占位，零消息（其他版本）
-    cn.2026.08.05.json      VERIFIED，弹窗 + 换区，无 DUTY_RESULT
+    cn.2026.08.05.json      VERIFIED，弹窗 + 换区 + 区域 + 职业，无 DUTY_RESULT
     cn.2026.08.05.candidate.json CANDIDATE，仅 hypotheses，与正式档案并行观察
   global/
     README.md               国际服：为什么本目录为空

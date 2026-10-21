@@ -244,9 +244,13 @@ private:
     /// Push the preferred locale and voice into the engine. Only ever called
     /// while \ref voiceApplicableInState says it is safe.
     void applyVoiceSelection();
-    /// Enumerate every installed voice once. findVoices() may switch the
-    /// engine's locale to do so, which is why it only runs while Ready.
+    /// Enumerate every installed voice once, and again after rescanVoices().
+    /// findVoices() may switch the engine's locale to do so, which is why it
+    /// only runs while Ready.
     void refreshVoiceList();
+    /// Read the installed voices again at the next Ready (now, when idle): a
+    /// voice added in Windows shows up without restarting the app (review I4-4).
+    void rescanVoices();
     /// Today's default: the first voice of the zh-CN locale, or of the
     /// engine's own locale on a machine without a Chinese voice.
     void applyDefaultVoice();
@@ -310,6 +314,8 @@ private:
     /// A voice / locale change arrived while the engine was busy speaking and
     /// still has to be applied. Cleared by the next Ready.
     bool m_voicePending = false;
+    /// rescanVoices() asked for the voice list to be read again.
+    bool m_voiceListStale = false;
 
     QPointer<IBackend> m_backend;
     QPointer<SpeechController> m_speech;

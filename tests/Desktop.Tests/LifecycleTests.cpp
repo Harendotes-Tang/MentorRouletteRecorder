@@ -30,6 +30,7 @@
 #include <QGuiApplication>
 #include <QSettings>
 #include <QSignalSpy>
+#include <QScopeGuard>
 #include <QStandardPaths>
 #include <QPointer>
 #include <QProcess>
@@ -293,9 +294,14 @@ private Q_SLOTS:
     void stopAsksThroughTheCollectorsStopEventBeforeKilling();
     void theServeLeasePidIsReadFromTheCollectorsDataDirectory();
     void systemToolsAreJudgedByExitCodeNotByLocalisedOutput();
+    void systemToolsComeFromTheSystemDirectoryNotFromTheEnvironment();
     void aFreshServeLeaseHolderIsNeverEnded();
     void aHolderThatLeavesOnItsOwnIsNeverEnded();
     void aWedgedHolderIsForcedOnlyAsALastResort();
+    void aChangedLeaseStopsTheTakeover_data();
+    void aChangedLeaseStopsTheTakeover();
+    void anAbortedTakeoverCannotContinueInsideANewAttempt();
+    void anAbortedPoliteKillTimerCannotContinueInsideANewAttempt();
     void aHolderThatRefusesToBeEndedIsReportedRatherThanClaimedEnded();
     void anUnresponsiveHolderExitAsksBeforeItEndsAnything();
     void aVanishedHolderJustLetsOurOwnChildTakeTheLease();
@@ -651,6 +657,46 @@ void LifecycleTests::systemToolsAreJudgedByExitCodeNotByLocalisedOutput()
     QVERIFY(!mr::CollectorProcess::tasklistNamesCollector(row, 0));
 }
 
+/// Review I1-4: tasklist and taskkill come from the system directory Windows
+/// reports, never from %SystemRoot%. The environment is the user's to change
+/// (HKCU\Environment), and an elevated Desktop would otherwise start a binary
+/// planted there at high integrity when it takes over the serve lease.
+void LifecycleTests::systemToolsComeFromTheSystemDirectoryNotFromTheEnvironment()
+{
+#ifdef Q_OS_WIN
+    QTemporaryDir planted;
+    QVERIFY(planted.isValid());
+    QVERIFY(QDir(planted.path()).mkpath(QStringLiteral("System32")));
+    const QStringList tools{QStringLiteral("tasklist.exe"), QStringLiteral("taskkill.exe")};
+    for (const QString &tool : tools) {
+        QFile file(QDir(planted.path()).absoluteFilePath(QStringLiteral("System32/") + tool));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write("MZ");
+    }
+    const QByteArray previous = qgetenv("SystemRoot");
+    qputenv("SystemRoot", QDir::toNativeSeparators(planted.path()).toLocal8Bit());
+    const auto restore = qScopeGuard([&previous] { qputenv("SystemRoot", previous); });
+
+    wchar_t buffer[MAX_PATH] = {};
+    const UINT length = GetSystemDirectoryW(buffer, MAX_PATH);
+    QVERIFY(length > 0 && length < MAX_PATH);
+    const QString systemDirectory =
+        QDir::cleanPath(QDir::fromNativeSeparators(QString::fromWCharArray(buffer, int(length))));
+
+    for (const QString &tool : tools) {
+        const QString path = QDir::cleanPath(mr::CollectorProcess::systemToolPath(tool));
+        QVERIFY2(!path.startsWith(QDir::cleanPath(planted.path()), Qt::CaseInsensitive), qPrintable(path));
+        QCOMPARE(QFileInfo(path).absolutePath().toLower(), systemDirectory.toLower());
+        QCOMPARE(QFileInfo(path).fileName().toLower(), tool);
+        QVERIFY(QFileInfo::exists(path));
+    }
+    // A tool that is not there is not run at all.
+    QVERIFY(mr::CollectorProcess::systemToolPath(QStringLiteral("no-such-tool-i1-4.exe")).isEmpty());
+#else
+    QSKIP("tasklist and taskkill are Windows tools");
+#endif
+}
+
 /// A Collector that took the lease seconds ago is never ended, however silent
 /// it is.
 ///
@@ -823,6 +869,122 @@ void LifecycleTests::aWedgedHolderIsForcedOnlyAsALastResort()
 
     collector.stop();
     qputenv("MR_DATA_DIR", previous);
+}
+
+void LifecycleTests::aChangedLeaseStopsTheTakeover_data()
+{
+    QTest::addColumn<int>("changeAtCall");
+    QTest::addColumn<bool>("samePid");
+    for (const int call : {1, 2, 3}) {
+        const QByteArray phase = QByteArray::number(call);
+        QTest::newRow(("new-pid-at-" + phase).constData()) << call << false;
+        QTest::newRow(("same-pid-new-lease-at-" + phase).constData()) << call << true;
+    }
+}
+
+/// Every tool is injected: even the broken implementation cannot end a real process.
+/// A lease can change after tasklist started, during its callback, or in the
+/// polite-kill grace. A rewritten lease for the same PID is a new holder too.
+void LifecycleTests::aChangedLeaseStopsTheTakeover()
+{
+    QFETCH(int, changeAtCall);
+    QFETCH(bool, samePid);
+    QTemporaryDir data;
+    QVERIFY(data.isValid());
+    const QByteArray previous = qgetenv("MR_DATA_DIR");
+    const auto restore = qScopeGuard([previous] { qputenv("MR_DATA_DIR", previous); });
+    qputenv("MR_DATA_DIR", QFile::encodeName(data.path()));
+    QVERIFY(writeServePid(data.path(), 424242));
+    QVERIFY(ageServePid(data.path(), 60000));
+
+    mr::CollectorProcess collector(data.filePath(QStringLiteral("absent.exe")), nullptr);
+    collector.setStopEventNameForTest(isolatedStopEventName());
+    collector.setTakeoverTimingsForTest(0, 0);
+    QList<ToolCall> calls;
+    bool changed = false;
+    collector.setToolRunnerForTest([&](const QString &tool, const QStringList &arguments) {
+        calls.append({tool, arguments});
+        if (calls.size() == changeAtCall) {
+            changed = writeServePid(data.path(), samePid ? 424242 : 434343);
+        }
+        return mr::CollectorProcess::ToolResult{
+            0, tool == QStringLiteral("tasklist.exe")
+                ? QStringLiteral("\"MentorRecorder.Collector.exe\",\"424242\",\"Console\",\"1\",\"31 K\"\r\n")
+                : QString()};
+    });
+    collector.requestServeLeaseTakeover();
+    QTRY_VERIFY_WITH_TIMEOUT(changed, 2000);
+    QTest::qWait(80);
+    int kills = 0;
+    for (const ToolCall &call : std::as_const(calls)) {
+        QVERIFY2(!call.forced(), "a replacement lease must never receive a forced kill");
+        if (call.tool == QStringLiteral("taskkill.exe"))
+            ++kills;
+    }
+    QCOMPARE(kills, changeAtCall == 1 ? 0 : 1);
+}
+
+void LifecycleTests::anAbortedTakeoverCannotContinueInsideANewAttempt()
+{
+    QTemporaryDir data;
+    QVERIFY(data.isValid());
+    const QByteArray previous = qgetenv("MR_DATA_DIR");
+    const auto restore = qScopeGuard([previous] { qputenv("MR_DATA_DIR", previous); });
+    qputenv("MR_DATA_DIR", QFile::encodeName(data.path()));
+    QVERIFY(writeServePid(data.path(), 424242));
+    QVERIFY(ageServePid(data.path(), 60000));
+    mr::CollectorProcess collector(data.filePath(QStringLiteral("absent.exe")), nullptr);
+    collector.setStopEventNameForTest(isolatedStopEventName());
+    collector.setTakeoverTimingsForTest(0, 0);
+    QList<ToolCall> calls;
+    collector.setToolRunnerForTest([&](const QString &tool, const QStringList &arguments) {
+        calls.append({tool, arguments});
+        if (calls.size() == 1) {
+            collector.noteBackendConnected(true);
+            collector.noteBackendConnected(false);
+            collector.setTakeoverTimingsForTest(1000, 0);
+            collector.requestServeLeaseTakeover();
+        }
+        return mr::CollectorProcess::ToolResult{
+            0, QStringLiteral("\"MentorRecorder.Collector.exe\",\"424242\",\"Console\",\"1\",\"31 K\"\r\n")};
+    });
+    collector.requestServeLeaseTakeover();
+    QTest::qWait(80);
+    QCOMPARE(calls.size(), 1);
+    collector.noteBackendConnected(true);
+}
+
+void LifecycleTests::anAbortedPoliteKillTimerCannotContinueInsideANewAttempt()
+{
+    QTemporaryDir data;
+    QVERIFY(data.isValid());
+    const QByteArray previous = qgetenv("MR_DATA_DIR");
+    const auto restore = qScopeGuard([previous] { qputenv("MR_DATA_DIR", previous); });
+    qputenv("MR_DATA_DIR", QFile::encodeName(data.path()));
+    QVERIFY(writeServePid(data.path(), 424242));
+    QVERIFY(ageServePid(data.path(), 60000));
+    mr::CollectorProcess collector(data.filePath(QStringLiteral("absent.exe")), nullptr);
+    collector.setStopEventNameForTest(isolatedStopEventName());
+    collector.setTakeoverTimingsForTest(0, 80);
+    QList<ToolCall> calls;
+    collector.setToolRunnerForTest([&](const QString &tool, const QStringList &arguments) {
+        calls.append({tool, arguments});
+        if (calls.size() == 2) {
+            QTimer::singleShot(20, &collector, [&] {
+                collector.noteBackendConnected(true);
+                collector.noteBackendConnected(false);
+                collector.setTakeoverTimingsForTest(1000, 80);
+                collector.requestServeLeaseTakeover();
+            });
+        }
+        return mr::CollectorProcess::ToolResult{
+            0, QStringLiteral("\"MentorRecorder.Collector.exe\",\"424242\",\"Console\",\"1\",\"31 K\"\r\n")};
+    });
+    collector.requestServeLeaseTakeover();
+    QTRY_COMPARE_WITH_TIMEOUT(calls.size(), 2, 1000);
+    QTest::qWait(150);
+    QCOMPARE(calls.size(), 2);
+    collector.noteBackendConnected(true);
 }
 
 /// A taskkill that was refused is reported as a refusal.

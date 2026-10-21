@@ -57,6 +57,9 @@ public:
 
 Q_SIGNALS:
     void dashboardChanged();
+    /// A newly observed whole-goal milestone; first reads/settings/reconnects
+    /// only prime the observation. UI consumers may discard it while hidden.
+    void achievementMilestoneReached(int completedLaps);
     void trendChanged();
     void optionsChanged();
     void achievementSettingsLoadedChanged();
@@ -71,6 +74,7 @@ Q_SIGNALS:
     void toastRequested(const QString &message);
 
 private:
+    void observeAchievement(const QJsonObject &dashboard);
     void applyTrendSeries(const QJsonObject &trend);
     void applyDayCounts(const QJsonObject &trend);
     void rebuildDutyOptions();
@@ -87,6 +91,13 @@ private:
     /// Bumped by forgetAchievementSettings(): a read asked before the drop does not
     /// count as this connection's.
     quint64 m_connectionGeneration = 0;
+    quint64 m_achievementObservationGeneration = 0;
+    quint64 m_achievementReadSerial = 0;
+    quint64 m_lastAchievementReadSerial = 0;
+    bool m_achievementObservationReady = false;
+    int m_observedGoal = 0;
+    int m_observedBaseline = 0;
+    int m_highestCompletedLap = 0;
     bool m_achievementSettingsLoaded = false;
     int m_baselineSavesInFlight = 0;
     int m_completedLast7Days = 0;

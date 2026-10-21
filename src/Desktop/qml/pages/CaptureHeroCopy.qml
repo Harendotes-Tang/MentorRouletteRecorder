@@ -2,8 +2,9 @@ import QtQuick
 import MentorRecorder
 
 // What the hero card says: one headline, one line under it, at most one detail
-// line, a tone and the page badge, for the state the page is in. The order of
-// precedence follows AutomaticRecordingController::project(): a missing Npcap,
+// line, a tone and the page badge, for the state the page is in. A capture
+// status not read yet comes first: nothing else is known then (review K2-1).
+// The rest follows AutomaticRecordingController::project(): a missing Npcap,
 // a game to choose, a capture that decodes nothing, 本机校准, the closed game,
 // then the ordinary blocked / checking / listening states.
 // Every sentence is written for the player: no opcode, no token, no id.
@@ -16,12 +17,17 @@ QtObject {
 
     readonly property var npcap: App.npcapInfo
     readonly property string npcapStatus: String(copy.npcap.status || "")
+    // The verdict of CaptureChainModel.statusKnown: without a capture status -
+    // no pipe, a Collector that refused to start or exited, a failed read - a
+    // missing npcap_installed is not a missing driver.
+    readonly property bool statusKnown: App.backendConnected
+                                        && App.captureStatus.npcap_installed !== undefined
     readonly property bool npcapNotInstalled: !App.npcapInstalled || copy.npcapStatus === ""
                                               || copy.npcapStatus === "NOT_INSTALLED"
     // Installed is not enough: NOT_WINPCAP_COMPATIBLE, NPCAP_ADMIN_ONLY and
     // LOAD_FAILED are installed drivers this Collector still cannot open.
-    readonly property bool npcapProblem: !App.npcapInstalled
-                                         || (copy.npcapStatus !== "" && copy.npcapStatus !== "READY")
+    readonly property bool npcapProblem: copy.statusKnown
+        && (!App.npcapInstalled || (copy.npcapStatus !== "" && copy.npcapStatus !== "READY"))
     readonly property bool choosingGame: App.gameSelection.selectionRequired
     readonly property bool gameRunning: App.ffxivRunning
     readonly property bool silent: App.captureMidstreamSuspected || App.captureSilent
@@ -37,8 +43,11 @@ QtObject {
         && (!copy.gameRunning || App.recording.calibrating
             || (copy.calibration.recording && copy.recordingState === "listening"))
 
-    // broken | choosing | silent | calibration | waiting | blocked | normal | checking
-    readonly property string kind: copy.npcapProblem ? "broken"
+    // connecting | broken | choosing | silent | calibration | waiting | blocked | normal | checking
+    // An incident the recording controller keeps across a lost connection is
+    // still what the sidebar says, so it stays the page's verdict too.
+    readonly property string kind: !copy.statusKnown ? (App.recording.blocked ? "blocked" : "connecting")
+        : copy.npcapProblem ? "broken"
         : copy.choosingGame ? "choosing"
         : (copy.silent && copy.gameRunning) ? "silent"
         : copy.calibrationSpeaks ? "calibration"
@@ -88,6 +97,9 @@ QtObject {
 
     function headline() {
         switch (copy.kind) {
+        case "connecting":
+            // The recording controller's words for the same wait.
+            return App.backendConnected ? qsTr("正在获取自动记录状态…") : qsTr("正在连接自动记录服务…")
         case "broken":
             return copy.npcapNotInstalled ? qsTr("未安装 Npcap，自动记录已停用")
                                           : qsTr("Npcap 暂时用不了，自动记录已停用")
@@ -112,6 +124,10 @@ QtObject {
 
     function text() {
         switch (copy.kind) {
+        case "connecting":
+            // Without a pipe the title bar's sentence says why: still starting,
+            // refused to start, waiting to restart.
+            return App.backendConnected ? "" : App.collectorStatusText
         case "broken":
             return copy.npcapExplanation()
         case "choosing":

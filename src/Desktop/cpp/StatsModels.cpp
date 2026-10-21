@@ -356,8 +356,16 @@ QVariantList DungeonStatsModel::categoryBreakdown() const
         counts.insert(category, 0);
     const QString unknown = QString::fromUtf8("未识别"); // key; labelled below
     counts.insert(unknown, 0);
-    for (const QJsonObject &row : m_rows)
-        counts[dutyCategory(row)] += completionCount(row);
+    qint64 extremeCount = 0;
+    const QString trials = QString::fromUtf8("讨伐歼灭战");
+    for (const QJsonObject &row : m_rows) {
+        const QString category = dutyCategory(row);
+        if (category == trials
+            && DutyCatalog::shared()->isExtremeTrial(row.value(QStringLiteral("content_id")).toVariant()))
+            extremeCount += completionCount(row);
+        else
+            counts[category] += completionCount(row);
+    }
 
     QStringList categories = order;
     for (auto it = counts.cbegin(); it != counts.cend(); ++it) {
@@ -380,6 +388,11 @@ QVariantList DungeonStatsModel::categoryBreakdown() const
                    counts.value(category), total,
                    category == unknown ? QStringLiteral("neutral500") : tokens.at(i % tokens.size()),
                    category == unknown));
+        // Insert the display-only slice without changing ordinary category
+        // indices/colors. Its separate count cannot collide with a supplied
+        // category label, and zero remains a known bucket with the same denominator.
+        if (category == trials)
+            out.append(completionBucket(tr("极神"), extremeCount, total, QStringLiteral("yellow")));
     }
     return out;
 }

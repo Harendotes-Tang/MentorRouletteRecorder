@@ -91,7 +91,10 @@ public sealed record SharedVerification(string CandidateId, SharedVerdict Verdic
 /// had queued (or earlier evidence shows the same); a session contradicts when a queue request was
 /// followed within the template's match window by a known duty with no declared pop in between, or
 /// when the declared pop arrived <see cref="UnrequestedPopsPerSession"/> or more times with no queue
-/// outstanding. A duty entered after the window is ordinary play and only makes it wait.</item>
+/// outstanding as part of a burst - three or more different roulette ids inside one second, the way a
+/// list arrives and an announcement never does. A lone unrequested pop - a party member's - never
+/// contradicts it (audit 2026-10-20, C-3). A duty entered after the window is ordinary play and only
+/// makes it wait.</item>
 /// <item><c>CONTENT_FINDER_POP</c> from the client (queue inferred): pass when the declared request paired with
 /// its echo; a session contradicts when its echo pairs are dominated by another request opcode that
 /// paired at least twice on two different roulettes, and the declared one never paired.</item>
@@ -277,7 +280,7 @@ public static class SharedCandidateVerifier
         return Judge(CalibratedShape.PopName, pass, contradicting,
             "这条匹配报文在本机流量里跟在同一随机任务的排本之后出现过。",
             "还没见到这条匹配报文跟在排本之后出现；排一次随机任务就能核实。",
-            "在 {0} 个抓包完整的会话里，排本后很快进了副本，这条匹配报文却没有出现，或者在没人排本时反复出现。");
+            "在 {0} 个抓包完整的会话里，排本后很快进了副本，这条匹配报文却没有出现，或者在没人排本时一秒内成批出现多个不同的随机任务。");
     }
 
     private static SharedCriterion QueuePop(Evidence evidence)

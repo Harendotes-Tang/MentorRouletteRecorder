@@ -177,7 +177,9 @@ $ # 同一个 --db 再跑一次
   非导随 `roulette_id`、重复报文，四种解析拒绝
   （`E_LEN_MISMATCH`、`E_OFFSET_OOB`、`E_FIELD_CONSTRAINT`、`E_PROFILE_UNSUPPORTED`），
   未声明 opcode 被计入 `ignored` 而非失败，
-  以及通关结算按内容识别（出现在未声明的 opcode 上）及其缺失时的 `UNKNOWN` 待复核。
+  以及通关结算按内容识别（出现在未声明的 opcode 上）及其缺失时的 `UNKNOWN` 待复核；
+  区域报文与登录时的职业报文写入记录的区域、副本名与职业（`synthetic_territory_duty`），
+  副本开始宣布与剩余时间按内容识别，先收到剩余时间的一场记为中途加入（`synthetic_duty_joined`）。
 
 重启恢复得到的 `INTERRUPTED_PENDING_REVIEW` 不由测试样本覆盖。该状态不是事件驱动的，
 而是启动时的一次性扫描，由

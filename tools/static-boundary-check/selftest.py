@@ -146,12 +146,44 @@ MORE_SAMPLES: tuple[tuple[str, str, str], ...] = (
     ("INJ-007", "        using var thread = OpenThread(ThreadGetContext, false, threadId);", DEFAULT_SITE),
     ("INJ-007", "        NtOpenThread(out var thread, access, ref attributes, ref client);", DEFAULT_SITE),
     ("INJ-007", "        ZwOpenThread(out var thread, access, ref attributes, ref client);", DEFAULT_SITE),
+    # N2-4 (audit 2026-10-20): an event hook (WINEVENT_INCONTEXT maps our DLL into the game; the
+    # flag usually sits in a constant on another line), and the WMI process classes, whose
+    # provider opens every process it lists to read its path and command line.
+    ("INJ-005", "        _hook = SetWinEventHook(EventMin, EventMax, module, callback, gameId, 0, Flags);", DEFAULT_SITE),
+    ("INJ-007", "$line = (Get-CimInstance Win32_Process -Filter \"ProcessId=$id\").CommandLine", PS1_SITE),
+    ("INJ-007", '        using var searcher = new ManagementObjectSearcher("SELECT * FROM CIM_Process");',
+     DEFAULT_SITE),
     ("INJ-008", "        foreach (ProcessModule module in process.Modules) { }", DEFAULT_SITE),
     # V5-2: whitespace after the dot, and C# property patterns, on one line or one per line.
     ("INJ-008", "        var path = process . MainModule?.FileName;", DEFAULT_SITE),
     ("INJ-008", "        if (process is { MainModule.FileName: var path }) { }", DEFAULT_SITE),
     ("INJ-008", "        if (process is { Modules: var all }) { }", DEFAULT_SITE),
     ("INJ-008", "            MainModule: { FileName: var path },", DEFAULT_SITE),
+    # N2-1 (audit 2026-10-20): a C# verbatim identifier, a PowerShell pipeline that names the
+    # member without a dot (the INJ-009 grammar: a process source, then after a later '|' a
+    # cmdlet that reads a member by name), and Get-Process's own -Module / -FileVersionInfo.
+    ("INJ-008", "        var path = game.@MainModule.FileName;", DEFAULT_SITE),
+    ("INJ-008", "        if (game is { @Modules: var all }) { }", DEFAULT_SITE),
+    ("INJ-008", "Get-Process ffxiv_dx11 | Select-Object -ExpandProperty MainModule", PS1_SITE),
+    ("INJ-008", "gps ffxiv_dx11 | % Modules", PS1_SITE),
+    ("INJ-008", "ps ffxiv_dx11 | ForEach-Object Modules", PS1_SITE),
+    ("INJ-008", "[System.Diagnostics.Process]::GetProcessesByName('ffxiv_dx11') | Sort-Object MainModule",
+     PS1_SITE),
+    ("INJ-008", "Get-Process | Where-Object MainModule", PS1_SITE),
+    ("INJ-008", "Get-Process | Group-Object MainModule", PS1_SITE),
+    ("INJ-008", "Get-Process | Measure-Object -Property Modules", PS1_SITE),
+    ("INJ-008", "Get-Process | Format-Table Name, MainModule", PS1_SITE),
+    ("INJ-008", "Get-Process | Format-List Modules", PS1_SITE),
+    ("INJ-008", "Get-Process | ft Name, MainModule", PS1_SITE),
+    ("INJ-008", "Get-Process | ? Modules", PS1_SITE),
+    ("INJ-008", "Get-Process ffxiv_dx11 -Module", PS1_SITE),
+    ("INJ-008", "$info = gps -Name ffxiv_dx11 -FileVersionInfo", PS1_SITE),
+    ("INJ-008", "ps ffxiv_dx11 -FV | Out-String", PS1_SITE),
+    # N2-4: a Toolhelp module snapshot of another process is the same module table.
+    ("INJ-008", "        var snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, gameId);", DEFAULT_SITE),
+    ("INJ-008", "        HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPALL, pid);", CPP_SITE),
+    ("INJ-008", "        if (Module32FirstW(snapshot, &entry)) { }", CPP_SITE),
+    ("INJ-008", "        while (Module32Next(snapshot, ref entry)) { }", DEFAULT_SITE),
     ("INJ-009", "        var ended = process.ExitTime;", DEFAULT_SITE),
     ("INJ-009", "        var raw = process.Handle;", DEFAULT_SITE),
     ("INJ-009", "        using var safe = process.SafeHandle;", DEFAULT_SITE),
@@ -175,6 +207,7 @@ MORE_SAMPLES: tuple[tuple[str, str, str], ...] = (
     # V5-2: whitespace after the dot, property patterns (after '{' or ',', or one per line) and
     # object initialisers name the same members without a dot in front of them.
     ("INJ-009", "        var started = game . StartTime;", DEFAULT_SITE),
+    ("INJ-009", "        var raw = game . Handle;", DEFAULT_SITE),
     ("INJ-009", "        if (game is { StartTime: var started }) { }", DEFAULT_SITE),
     ("INJ-009", "            HasExited: false,", DEFAULT_SITE),
     ("INJ-009", "        if (game is { Id: 7, ExitTime: var ended }) { }", DEFAULT_SITE),
@@ -188,6 +221,20 @@ MORE_SAMPLES: tuple[tuple[str, str, str], ...] = (
     ("INJ-009", "        if (game is { MinWorkingSet: var least }) { }", DEFAULT_SITE),
     ("INJ-009", "        if (game is { Handle: var raw }) { }", DEFAULT_SITE),
     ("INJ-009", "        if (game is { ExitCode: 0 }) { }", DEFAULT_SITE),
+    # N2-1: C# verbatim identifiers name the same members.
+    ("INJ-009", "        game.@Kill();", DEFAULT_SITE),
+    ("INJ-009", "        var started = game.@StartTime;", DEFAULT_SITE),
+    ("INJ-009", "        var raw = game.@Handle;", DEFAULT_SITE),
+    ("INJ-009", "        if (game is { @HasExited: false }) { }", DEFAULT_SITE),
+    # N2-4: ProcessThread members that open the thread with OpenThread.
+    ("INJ-009", "        foreach (ProcessThread thread in game.Threads) { var level = thread.PriorityLevel; }",
+     DEFAULT_SITE),
+    ("INJ-009", "        thread.IdealProcessor = 0;", DEFAULT_SITE),
+    ("INJ-009", "        thread.ResetIdealProcessor();", DEFAULT_SITE),
+    ("INJ-009", "        if (thread is { PriorityLevel: ThreadPriorityLevel.Idle }) { }", DEFAULT_SITE),
+    ("INJ-009", "Get-Process ffxiv_dx11 | Select-Object -ExpandProperty Threads | Select-Object PriorityLevel",
+     PS1_SITE),
+    ("INJ-009", "(Get-Process ffxiv_dx11).Threads | ForEach-Object ResetIdealProcessor", PS1_SITE),
     # S33-9: a PowerShell pipeline names the member without a dot. A process source on the line
     # (Get-Process, gps, ps, [Process]::GetProcesses*) and, after a later '|', a cmdlet that reads
     # or calls a member by name, in any letter case; one row per member, cmdlet and source.
@@ -311,6 +358,8 @@ MORE_SAMPLES: tuple[tuple[str, str, str], ...] = (
     # V5-6: C++ handing the QML engine a remote address.
     ("NET-009/downloads", '    engine.load(QUrl(QStringLiteral("https://example.invalid/Main.qml")));', CPP_SITE),
     ("NET-009/downloads", '    view.setSource(QUrl("https://example.invalid/Main.qml"));', CPP_SITE),
+    # N2-5 (audit 2026-10-20): QQmlComponent::loadUrl with a remote address.
+    ("NET-009/downloads", '    component.loadUrl(QUrl(QStringLiteral("https://example.invalid/Remote.qml")));', CPP_SITE),
     ("NET-009/downloads", "$feed = [xml](Invoke-WebRequest -Uri $url -UseBasicParsing).Content", PS1_SITE),
     ("NET-009/qml-remote", "        image.source = 'https://example.invalid/banner.png'", QML_SITE),
     ("NET-009/qml-remote", 'import "https://example.invalid/qml/Remote" 1.0', QML_SITE),
@@ -318,6 +367,8 @@ MORE_SAMPLES: tuple[tuple[str, str, str], ...] = (
     ("NET-009/qml-remote", '    property url banner: "https://example.invalid/banner.png"', QML_SITE),
     ("NET-009/qml-remote", '        Image { source: Qt.resolvedUrl("https://example.invalid/b.png") }', QML_SITE),
     ("NET-009/qml-remote", '    Qt.include("https://example.invalid/lib.js")', "src/Desktop/qml/sample.js"),
+    # N2-5: Qt.createComponent with a remote address.
+    ("NET-009/qml-remote", '        var component = Qt.createComponent("https://example.invalid/Remote.qml")', QML_SITE),
     ("NET-009/shell-commands", "$page = iwr $url", PS1_SITE),
     ("NET-009/shell-commands", 'Write-Host "fetching"; irm $url', PS1_SITE),
     ("NET-009/shell-commands", "printf 'fetching'; wget $url -O x", "scripts/sample.sh"),
@@ -348,6 +399,15 @@ MORE_SAMPLES: tuple[tuple[str, str, str], ...] = (
     ("NET-009/shell-commands", "C:\\Windows\\System32\\curl.exe -L %URL% -o x", "scripts/sample.bat"),
     ("NET-009/shell-commands", "/usr/bin/wget $url", "scripts/sample.sh"),
     ("NET-009/shell-commands", "$feed = [xml](iwr $url)", PS1_SITE),
+    # N2-3 (audit 2026-10-20): a download command handed to a process launcher as a quoted path,
+    # after -Executable / -FilePath, assigned to .FileName, or as ProcessStartInfo's first argument.
+    ("NET-009/shell-commands",
+     '$download = New-IsolatedPackageStartInfo -Executable "$env:SystemRoot/System32/curl.exe" -Arguments @($url)',
+     PS1_SITE),
+    ("NET-009/shell-commands", "Start-Process -NoNewWindow -FilePath 'C:\\Windows\\System32\\curl.exe' $url", PS1_SITE),
+    ("NET-009/shell-commands", "$psi.FileName = 'wget'", PS1_SITE),
+    ("NET-009/shell-commands", "$psi = [System.Diagnostics.ProcessStartInfo]::new('bitsadmin.exe', $arguments)",
+     PS1_SITE),
     # S33-9: an XML reader handed a remote address downloads it. '.Load(' / ']::Load(' with an
     # http(s) literal first (XmlDocument, XDocument, XElement, PowerShell, MSXML in Pascal),
     # XmlReader.Create with one, and XmlTextReader / XPathDocument whose first literal is one.
@@ -391,6 +451,17 @@ MORE_SAMPLES: tuple[tuple[str, str, str], ...] = (
     ("NET-010", "    body = generate.urllib.request.urlopen(url).read()", PY_SITE),
     ("NET-010", '    print("fetching"); urllib.request.urlretrieve(url, target)', PY_SITE),
     ("NET-010", "    print('connecting'); reader, writer = await asyncio.open_connection(host, 443)", PY_SITE),
+    # N2-5: the standard library's listeners (http.server, socketserver, xmlrpc.server, an asyncio
+    # server) and connections that need no network import (ssl and an asyncio event loop).
+    ("NET-010", "from http.server import HTTPServer, SimpleHTTPRequestHandler", PY_SITE),
+    ("NET-010", "import socketserver", PY_SITE),
+    ("NET-010", "from xmlrpc.server import SimpleXMLRPCServer", PY_SITE),
+    ("NET-010", "from http import server", PY_SITE),
+    ("NET-010", "    server = await asyncio.start_server(handle, '127.0.0.1', 8080)", PY_SITE),
+    ("NET-010", "    server = await loop.create_server(factory, '127.0.0.1', 8080)", PY_SITE),
+    ("NET-010", "    pem = ssl.get_server_certificate((host, 443))", PY_SITE),
+    ("NET-010", "    with ssl.create_connection((host, 443)) as raw:", PY_SITE),
+    ("NET-010", "    transport, protocol = await loop.create_connection(factory, host, 443)", PY_SITE),
     ("AUT-001", "        keybd_event(key, 0, 0, 0);", DEFAULT_SITE),
     ("AUT-001", "        mouse_event(LeftDown, 0, 0, 0, 0);", DEFAULT_SITE),
     ("AUT-001", '        SendKeys.SendWait("{ENTER}");', DEFAULT_SITE),
@@ -403,6 +474,11 @@ MORE_SAMPLES: tuple[tuple[str, str, str], ...] = (
     ("AUT-001", "        SendMessageCallbackW(window, WmChar, key, 0, callback, 0);", DEFAULT_SITE),
     ("AUT-001", "        SendNotifyMessageW(window, WmChar, key, 0);", DEFAULT_SITE),
     ("AUT-001", "        game.CloseMainWindow();", DEFAULT_SITE),
+    # N2-4: Process.Responding sends the main window WM_NULL through SendMessageTimeout.
+    ("AUT-001", "        if (!game.Responding) return;", DEFAULT_SITE),
+    ("AUT-001", "        if (game is { Responding: false }) return;", DEFAULT_SITE),
+    ("AUT-001", "        var alive = game . Responding;", DEFAULT_SITE),
+    ("AUT-001", "            Responding: true,", DEFAULT_SITE),
 )
 
 # Lines that look like a forbidden token but are not one, each in the file it would live in.
@@ -447,6 +523,11 @@ LOOK_ALIKES: tuple[tuple[str, str], ...] = (
     ("        var run = new RunRecord { StartTimeUtc = now, Handled = true, ExitCodes = codes };", DEFAULT_SITE),
     ("        if (process is { Id: var id, ProcessName: var name }) { }", DEFAULT_SITE),
     ("            ModulesLoaded: 3,", DEFAULT_SITE),
+    # N2-2 (audit 2026-10-20): a sentence ending in a full stop before a capitalised word is
+    # prose, not a member access; only whitespace on both sides of the dot (`game . Kill`) is.
+    ("// 自定义: the float's own settings, in place of its content. Modules are reordered", QML_SITE),
+    ("        // Wait for the reply. Handle it on the UI thread, then 2. Kill the probe.", DEFAULT_SITE),
+    ("# Read the summary. ExitCode and StartTime are columns of our own result table.", PS1_SITE),
     # V5-5: shell words in prose, a tool that only starts with a download command's name, a URL,
     # and the call operator running one of our own scripts.
     ("REM if curl fails, stop", "scripts/sample.bat"),
@@ -456,6 +537,12 @@ LOOK_ALIKES: tuple[tuple[str, str], ...] = (
     ("      https://curl.se/download.html", ".github/workflows/sample.yml"),
     ('$tool = "curl.exe"', "scripts/sample.ps1"),
     ('& "$PSScriptRoot\\build.ps1" -Configuration Release', "scripts/sample.ps1"),
+    # N2-3: launchers handed another program, a variable, or prose that only names a download command.
+    ('$extract = New-IsolatedPackageStartInfo -Executable "$env:SystemRoot/System32/msiexec.exe"',
+     "scripts/sample.ps1"),
+    ("Start-Process -FilePath $python -ArgumentList 'curl is not used'", "scripts/sample.ps1"),
+    ("$psi.FileName = $tool; $psi.Arguments = 'wget'", "scripts/sample.ps1"),
+    ('Write-Host "-FilePath curl.exe is never passed"', "scripts/sample.ps1"),
     # V5-6: a link opened in the browser, a local sound, a module loaded by name, a string property.
     ('    static const QUrl kNpcapUrl(QStringLiteral("https://npcap.com/"));', "src/Desktop/cpp/Sample.cpp"),
     ("    m_effect->setSource(QUrl::fromLocalFile(path));", "src/Desktop/cpp/Sample.cpp"),
@@ -470,6 +557,18 @@ LOOK_ALIKES: tuple[tuple[str, str], ...] = (
     ("# Get-Process | Sort-Object StartTime would open a handle to every process", "scripts/sample.ps1"),
     ("$ps = [PowerShell]::Create(); $results | Sort-Object ExitCode", "scripts/sample.ps1"),
     ("$orphans = @(Get-Process -Name 'MentorRecorder*' -ErrorAction SilentlyContinue)", "scripts/sample.ps1"),
+    # N2-1, INJ-008: the module members on objects that are not processes, a comment, a bash ps
+    # whose flags only start like an abbreviated -FileVersionInfo, and C# that only looks like a pipe.
+    ("$plugins | Sort-Object Modules | Select-Object -First 1", "scripts/sample.ps1"),
+    ("# Get-Process -Module or | Select-Object MainModule would open the game", "scripts/sample.ps1"),
+    ('ps -fp "$pid" -o comm=', "scripts/sample.sh"),
+    ("        if (ps.Length == 0 || Modules.Count == 0) return;", DEFAULT_SITE),
+    # N2-4: a process-list snapshot (no handle), the WMI start-up options class, a thread count,
+    # and prose that only says "responding".
+    ("        var snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);", DEFAULT_SITE),
+    ("$startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly", "scripts/sample.ps1"),
+    ("        var count = game.Threads.Count; var id = thread.Id;", DEFAULT_SITE),
+    ("        // The game was not responding. Responding again resumes the timer.", DEFAULT_SITE),
     # S33-9, NET-009/xml-loads: local files, a parsed string that names a namespace URI, an address
     # that is not the reader's first literal, and loads of our own types.
     ('        var duties = XDocument.Load("data/duties/cn.xml");', DEFAULT_SITE),
@@ -495,6 +594,12 @@ LOOK_ALIKES: tuple[tuple[str, str], ...] = (
     ("from urllib.parse import urlencode", "tools/some-tool/sample.py"),
     ("from http import HTTPStatus", "tools/some-tool/sample.py"),
     ("import ssl, hashlib", "tools/some-tool/sample.py"),
+    # N2-5: names that only start like a connection call, a local QML component and a resource.
+    ("    dsn = settings.create_connection_string(path)", "tools/some-tool/sample.py"),
+    ("    # asyncio.start_server( is not used here; loop.create_server( neither", "tools/some-tool/sample.py"),
+    ('        var component = Qt.createComponent("OverlayPanel.qml")', "src/Desktop/qml/Sample.qml"),
+    ('    component.loadUrl(QUrl(QStringLiteral("qrc:/qt/qml/MentorRecorder/Main.qml")));',
+     "src/Desktop/cpp/Sample.cpp"),
     ("import requests", "tools/some-tool/notes.txt"),
 )
 
@@ -1496,6 +1601,64 @@ def cases() -> Iterable[tuple[str, callable]]:
 
     yield "the parent watchdog is still checked by every other rule", watchdog_allowance_lifts_one_rule_only
 
+    # --- INJ-007: the two process-budget tests, by exact path (audit 2026-10-20, N2-7) ---------
+    # Each waits on a child of its own fixture with a SYNCHRONIZE-only OpenProcess. They are
+    # allowed by exact path, as INJ-009 allows the code that drives our own processes, instead of
+    # five line markers whose pinned text was only the API name.
+    budget_tests = (
+        "tools/package-verification/test_package_runtime_budget.py",
+        "tools/package-verification/test_static_analysis_budget.py",
+    )
+    owned_wait = "    handle = kernel.OpenProcess(0x100000, False, pid)"
+
+    def budget_tests_are_the_only_inj007_allowance() -> None:
+        entries = [entry for entry in rules["rules"] if entry["id"] == "INJ-007"]
+        allowed = sorted(path for entry in entries for path in entry.get("allow_paths", []))
+        prefixes = [path for entry in entries for path in entry.get("allow_path_prefixes", [])]
+        if allowed != sorted(budget_tests) or prefixes:
+            raise Failure(f"INJ-007 allows {allowed} and prefixes {prefixes}; expected exactly {list(budget_tests)}")
+        pins = [pin for pin in rules.get("allow_markers", []) if pin.get("rule") == "INJ-007"]
+        if pins:
+            raise Failure(f"INJ-007 markers are pinned again: {pins}")
+
+    yield "INJ-007 allows exactly the two budget tests and pins no marker", budget_tests_are_the_only_inj007_allowance
+
+    for allowed_test in budget_tests:
+
+        def budget_test_is_allowed(allowed_test: str = allowed_test) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                clean_tree(root)
+                plant(root, allowed_test, owned_wait)
+                expect_clean(root, f"INJ-007 in {allowed_test}")
+
+        yield f"INJ-007 allows {allowed_test} by exact path", budget_test_is_allowed
+
+        def budget_allowance_lifts_one_rule_only(allowed_test: str = allowed_test) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                clean_tree(root)
+                plant(root, allowed_test, owned_wait + "; ReadProcessMemory(handle, 0, buffer, 4, None)")
+                expect_violation(root, f"ReadProcessMemory in {allowed_test}", "INJ-001")
+
+        yield f"{allowed_test} is still checked by every other rule", budget_allowance_lifts_one_rule_only
+
+    for elsewhere in (
+        "tools/package-verification/test_package_runtime.py",
+        "tools/package-verification/sub/test_package_runtime_budget.py",
+        "tools/other/test_static_analysis_budget.py",
+        "scripts/test_package_runtime_budget.py",
+    ):
+
+        def open_process_elsewhere(elsewhere: str = elsewhere) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                clean_tree(root)
+                plant(root, elsewhere, owned_wait)
+                expect_violation(root, f"OpenProcess in {elsewhere}", "INJ-007")
+
+        yield f"INJ-007 still rejects {elsewhere}", open_process_elsewhere
+
     # --- NET-009: the installer's pinned Npcap download (ON2-4; V5-4: one pinned line, not the file) ---
     installer = "installer/MentorRecorder.iss"
     download_call = "  DownloadPage := CreateDownloadPage(SetupMessage(msgWizardPreparing), Desc, @OnProgress);"
@@ -1967,6 +2130,47 @@ def cases() -> Iterable[tuple[str, callable]]:
                               f"errors {report.get('errors')}")
 
         yield "two markers in one file each lift the hit their own pin names", each_pin_lifts_its_own_hit
+
+    # --- a second command on a line whose marked hit is anchored (audit 2026-10-20, RV4-5) ------
+    # NET-009's shell-commands variant starts at the beginning of the line, so it yields one hit per
+    # line: a download appended to the marked ci.yml line never showed as a second hit, and the
+    # marker lifted the whole line. Every variant now runs again with the lifted hit set aside.
+    workflow = ".github/workflows/sample.yml"
+    launcher = '          $download = New-IsolatedPackageStartInfo -Executable "$env:SystemRoot/System32/curl.exe'
+    launch_args = "\" -WorkingDirectory $env:RUNNER_TEMP -Arguments @('--output', $msi, 'https://example.invalid/x.msi')"
+    launch_marker = " # " + allow_marker + "(NET-009): CI-only download of the pinned MSI"
+    pin_launcher = [(workflow, "NET-009", launcher)]
+
+    def marked_launcher_is_allowed() -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clean_tree(root)
+            plant(root, workflow, launcher + launch_args + launch_marker)
+            code, report = run_check(root, pins=pin_launcher)
+            if code != EXIT_OK or report.get("allow_marker_count") != 1:
+                raise Failure(f"the marked download launcher: exit {code}, {report.get('errors')}")
+
+    yield "NET-009 lifts the one pinned download launcher on its marked line", marked_launcher_is_allowed
+
+    for appended in (
+        "; & curl.exe -sSo $env:RUNNER_TEMP/x.ps1 https://example.invalid/x",
+        "; iwr https://example.invalid/x -OutFile x.ps1",
+        '; & "curl.exe" https://example.invalid/x',
+        "; Start-Process wget https://example.invalid/x",
+    ):
+
+        def second_download_on_marked_line(appended: str = appended) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                clean_tree(root)
+                plant(root, workflow, launcher + launch_args + appended + launch_marker)
+                code, report = run_check(root, pins=pin_launcher)
+                found = [v["rule_id"] for v in report.get("violations", [])]
+                if code != EXIT_ERROR or "NET-009" not in found or report.get("allow_marker_count"):
+                    raise Failure(f"{appended!r} after the marked launcher: expected NET-009 reported, no "
+                                  f"marker honoured and exit 2; got exit {code}, {found}, {report.get('errors')}")
+
+        yield f"NET-009 rejects {appended!r} appended to the marked launcher line", second_download_on_marked_line
 
     for bad in (
         {"file": DEFAULT_SITE, "rule": "INJ-04", "match": "CreateRemoteThread"},

@@ -13,8 +13,18 @@ using MentorRecorder.Collector.Reference;
 
 namespace MentorRecorder.Collector.Import;
 
+/// <param name="LegacyFingerprint">
+/// The fingerprint this row had under the identity an earlier version gave a row without its own
+/// (whole parsed source + row number), so its stored imports and purge tombstones still match; null otherwise.
+/// </param>
+/// <param name="PreAliasFingerprint">
+/// The fingerprint 1.7.3 gave this row when its 职业 text resolves to another job now - an approved Chinese alias such as
+/// 白魔 named no job then - computed with that earlier job under the key 1.7.3 used, so what it imported or purged still
+/// matches (re-review 2026-10-21, RV5-3); null when the job resolves as it did.
+/// </param>
 internal sealed record ImportCandidate(int RowNumber, JsonObject Input, MentorRun? Run,
-    bool HasStableId, IReadOnlySet<string> ComparedFields, IReadOnlyList<ImportRowText> Errors, IReadOnlyList<ImportRowText> Warnings);
+    bool HasStableId, IReadOnlySet<string> ComparedFields, IReadOnlyList<ImportRowText> Errors, IReadOnlyList<ImportRowText> Warnings,
+    string? LegacyFingerprint = null, string? PreAliasFingerprint = null);
 
 /// <summary>
 /// One sentence of a preview row (<c>rows[].errors</c> / <c>rows[].warnings</c>): the Simplified Chinese the row has
@@ -43,7 +53,7 @@ internal readonly record struct ImportRowText(string Chinese, UserText? Text)
 internal static class RunImportCandidateNormalizer
 {
     public static ImportCandidate Normalize(ImportSourceRow row, string sourceKind, string? sourceName,
-        string? timeZone, DateTimeOffset now)
+        string? timeZone, DateTimeOffset now, string? legacySourceKey = null)
     {
         var input = (JsonObject)row.Values.DeepClone();
         var errors = row.ErrorTexts.Select(text => (ImportRowText)text).ToList();
@@ -71,6 +81,26 @@ internal static class RunImportCandidateNormalizer
             var sourceUtcText = clearedSource ? null : input.ContainsKey("source_recorded_at_utc")
                 ? Text(input, "source_recorded_at_utc", 100)
                 : importedMetadata is null ? null : Text(importedMetadata, "source_recorded_at_utc", 100);
+            var enteredText = Text(input, "entered_at_utc", 100);
+            if (sourceKind is "XLS" or "XLSX" or "CSV" or "PASTE"
+                && TryCalendarDay(enteredText, out var startDay))
+            {
+                // A spreadsheet may remember the day without the actual entry clock. Keep
+                // that calendar fact in provenance; never replace existing provenance or
+                // manufacture a midnight. Leave Input intact until all validation succeeds.
+                // A source time with a clock on that very day agrees with it and stays the
+                // provenance (audit 2026-10-20 H2-5); a source time held only in UTC cannot
+                // be checked against a local day and is never discarded for it.
+                var sameDay = sourceRecorded is not null
+                    && SourceDay(sourceRecorded) == startDay.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                var timedSameDay = sameDay && !TryCalendarDay(sourceRecorded, out _);
+                if (sourceUtcText is not null && !timedSameDay || sourceRecorded is not null && !sameDay)
+                    throw Bad(CollectorTexts.ImportRowStartDateSourceConflict(enteredText!, sourceRecorded ?? sourceUtcText!));
+                sourceRecorded ??= startDay.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                enteredText = null;
+                comparedFields.Add("source_recorded_at");
+                comparedFields.Add("source_recorded_at_utc");
+            }
             // An editable raw timestamp with an explicit zone owns its derived UTC cache.
             // Native exports without a zone retain their separately stored UTC provenance.
             var unchangedStoredSource = importedMetadata is not null && sourceUtcText is not null
@@ -78,27 +108,25 @@ internal static class RunImportCandidateNormalizer
                 && string.Equals(sourceUtcText, Text(importedMetadata, "source_recorded_at_utc", 100), StringComparison.Ordinal);
             var parseRawSource = !unchangedStoredSource && sourceRecorded is not null && (!string.IsNullOrWhiteSpace(timeZone)
                 || Regex.IsMatch(sourceRecorded, @"(?:Z|[+-]\d{2}:\d{2})$", RegexOptions.CultureInvariant));
-            var sourceDateOnly = sourceRecorded is not null && DateTime.TryParseExact(sourceRecorded,
-                new[] { "yyyy-MM-dd", "yyyy/M/d" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
+            var sourceDateOnly = TryCalendarDay(sourceRecorded, out _);
             var sourceUtc = sourceDateOnly ? null : ParseTime(parseRawSource ? sourceRecorded : sourceUtcText ?? sourceRecorded, timeZone, CollectorTexts.ImportTimeFieldSourceRecorded());
             if (sourceDateOnly) warnings.Add(CollectorTexts.ImportWarningSourceDateOnly());
             if (!sourceDateOnly && parseRawSource && sourceUtcText is not null
                 && !string.Equals(sourceUtcText, UtcTimestamp.ToTextOrNull(sourceUtc), StringComparison.Ordinal))
                 warnings.Add(CollectorTexts.ImportWarningSourceTimeRecomputed());
-            var entered = ParseTime(Text(input, "entered_at_utc", 100), timeZone, CollectorTexts.ImportTimeFieldEntered());
+            var entered = ParseTime(enteredText, timeZone, CollectorTexts.ImportTimeFieldEntered());
             var ended = ParseTime(Text(input, "ended_at_utc", 100), timeZone, CollectorTexts.ImportTimeFieldEnded());
             var matched = ParseTime(Text(input, "matched_at_utc", 100), timeZone, CollectorTexts.ImportTimeFieldMatched());
             var contentId = Number(input, "content_id", int.MaxValue);
             var jobId = Number(input, "job_id", int.MaxValue);
             var jobName = Text(input, "job_name", 200);
+            var jobBeforeAliases = jobId;
             if (jobId is null && jobName is not null)
             {
-                var candidates = JobCatalog.Default.Jobs.Where(job =>
-                    string.Equals(job.NameZh, jobName, StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(job.NameEn, jobName, StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(job.Abbreviation, jobName, StringComparison.OrdinalIgnoreCase)).ToArray();
-                if (candidates.Length == 1) jobId = candidates[0].JobId;
+                var identifiedJob = JobCatalog.Default.FindByName(jobName);
+                if (identifiedJob is not null) jobId = identifiedJob.JobId;
                 else warnings.Add(CollectorTexts.ImportWarningJobUnmatched());
+                jobBeforeAliases = JobBeforeAliases(jobName);
             }
             var dutyName = Text(input, "duty_name", 500);
             var region = ParseEnum(input, "region", Region.Unknown);
@@ -169,12 +197,22 @@ internal static class RunImportCandidateNormalizer
             var key = Text(input, "source_key", 500);
             var fingerprint = Hash(string.Join('\n', sourceKind, recordSourceName ?? string.Empty,
                 stable ? id : key ?? string.Empty, signature));
+            var legacyFingerprint = stable || legacySourceKey is null ? null
+                : Hash(string.Join('\n', sourceKind, recordSourceName ?? string.Empty, legacySourceKey, signature));
+            // job_id is one of the hashed facts: a 职业 text 1.7.3 resolved otherwise gave the row other facts then (RV5-3).
+            var preAliasFingerprint = jobBeforeAliases == jobId ? null
+                : Hash(string.Join('\n', sourceKind, recordSourceName ?? string.Empty,
+                    stable ? id : legacySourceKey ?? key ?? string.Empty,
+                    Facts(run with { JobId = jobBeforeAliases is null ? null : (int)jobBeforeAliases })));
             run = run with { ImportMetadata = metadata with { SourceFingerprint = fingerprint } };
             // Canonical editable values; generated local UUID stays absent when the source had none.
             var canonical = Wire.Run(run);
             // Keep absent source fields absent: a CSV export cannot conflict over JSON-only facts.
+            // A game time written without a zone stays as written, like source_recorded_at: it was read in
+            // the selected region, and a check in another region must read it again (audit 2026-10-20 H2-4).
             foreach (var field in input.Select(pair => pair.Key).ToArray())
-                if (canonical.ContainsKey(field)) input[field] = canonical[field]?.DeepClone();
+                if (canonical.ContainsKey(field) && !(canonical[field] is not null && IsLocalTimeText(field, input[field])))
+                    input[field] = canonical[field]?.DeepClone();
             input["run_id"] = stable ? id : null;
             if (sourceRecorded is not null) input["source_recorded_at"] = sourceRecorded;
             if (sourceUtc is not null || clearedSource || sourceDateOnly) input["source_recorded_at_utc"] = UtcTimestamp.ToTextOrNull(sourceUtc);
@@ -184,7 +222,8 @@ internal static class RunImportCandidateNormalizer
                 input["reflection_text"] = text;
                 if (moodText is not null) input["reflection_mood"] = ReflectionText.Format(mood);
             }
-            return new ImportCandidate(row.RowNumber, input, run, stable, comparedFields, errors, warnings);
+            return new ImportCandidate(row.RowNumber, input, run, stable, comparedFields, errors, warnings, legacyFingerprint,
+                preAliasFingerprint);
         }
         catch (Exception failure) when (failure is CollectorException or FormatException or ArgumentException or InvalidOperationException or TimeZoneNotFoundException or InvalidTimeZoneException)
         {
@@ -196,6 +235,52 @@ internal static class RunImportCandidateNormalizer
     }
 
     public static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+
+    /// <summary>
+    /// The job a 职业 text named in 1.7.3, before approved Chinese aliases: the full Chinese name, the English name or the
+    /// abbreviation of exactly one job, ignoring case; null otherwise (re-review 2026-10-21, RV5-3).
+    /// </summary>
+    private static int? JobBeforeAliases(string jobName)
+    {
+        var named = JobCatalog.Default.Jobs.Where(job =>
+            string.Equals(job.NameZh, jobName, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(job.NameEn, jobName, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(job.Abbreviation, jobName, StringComparison.OrdinalIgnoreCase)).Take(2).ToArray();
+        return named.Length == 1 ? named[0].JobId : null;
+    }
+
+    /// <summary>
+    /// A source row's own values in a fixed form for its identity: fields in ordinal order, text trimmed,
+    /// empty cells left out, so a column added empty or moved does not change who the row is.
+    /// </summary>
+    public static string CanonicalValues(JsonObject values)
+    {
+        var canonical = new JsonObject();
+        foreach (var (key, value) in values.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        {
+            if (value is null) continue;
+            if (value is JsonValue scalar && scalar.TryGetValue<string>(out var text))
+            {
+                if (string.IsNullOrWhiteSpace(text)) continue;
+                canonical[key] = text.Trim();
+            }
+            else canonical[key] = value.DeepClone();
+        }
+        return canonical.ToJsonString(Wire.JsonOptions);
+    }
+
+    /// <summary>
+    /// The calendar day a source text begins with (<c>yyyy-M-d</c>, <c>yyyy/M/d</c> or <c>yyyy.M.d</c>, alone or
+    /// before its clock) as <c>yyyy-MM-dd</c>: the day as the source wrote it, in no particular zone. Null otherwise.
+    /// </summary>
+    public static string? SourceDay(string? text)
+    {
+        if (text is null) return null;
+        var match = Regex.Match(text, @"^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:$|[T\s])", RegexOptions.CultureInvariant);
+        if (!match.Success) return null;
+        int Part(int index) => int.Parse(match.Groups[index].Value, NumberStyles.None, CultureInfo.InvariantCulture);
+        return string.Format(CultureInfo.InvariantCulture, "{0:D4}-{1:D2}-{2:D2}", Part(1), Part(2), Part(3));
+    }
 
     /// <summary>Captured identity and audit counters are excluded; conflicting personal facts are retained.</summary>
     public static bool SameProvidedFacts(ImportCandidate incoming, MentorRun local)
@@ -284,6 +369,17 @@ internal static class RunImportCandidateNormalizer
             _ => EnumWire<RunResult>.TryParse(text, out var result) ? result : throw Bad(CollectorTexts.ImportRowResultInvalid()),
         };
     }
+
+    /// <summary>A game or creation time in the source as local clock text, read in the selected region.</summary>
+    private static bool IsLocalTimeText(string field, JsonNode? value) =>
+        field is "matched_at_utc" or "entered_at_utc" or "ended_at_utc" or "created_at_utc"
+        && value is JsonValue scalar && scalar.TryGetValue<string>(out var text) && !string.IsNullOrWhiteSpace(text)
+        && !Regex.IsMatch(text.Trim(), @"(?:Z|[+-]\d{2}:\d{2})$", RegexOptions.CultureInvariant);
+
+    /// <summary>Accepts only complete calendar days, with no clock or implicit calendar fields.</summary>
+    private static bool TryCalendarDay(string? text, out DateTime day) => DateTime.TryParseExact(text,
+        new[] { "yyyy-MM-dd", "yyyy/M/d", "yyyy.M.d" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out day);
+
     private static DateTimeOffset? ParseTime(string? text, string? zone, UserText field)
     {
         if (text is null) return null;

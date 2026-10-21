@@ -92,6 +92,14 @@ public sealed record CaptureServices
     public TimeSpan FaultRetryInterval { get; init; } =
         TimeSpan.FromMilliseconds(CaptureController.InitialFaultBackoffMs);
 
+    /// <summary>
+    /// How long the loss of the game's last connection waits, while the game process is still
+    /// listed, for the process to exit before it counts as a disconnect. A client that closes its
+    /// connections and then takes a moment to exit is quitting (docs/state-machine.md sections
+    /// 3.6 and 3.7; audit 2026-10-20, A1-4).
+    /// </summary>
+    public TimeSpan ConnectionLossGrace { get; init; } = TimeSpan.FromSeconds(2);
+
     /// <summary>Clock used for timestamps.</summary>
     public IClock Clock { get; init; } = SystemClock.Instance;
 
@@ -224,6 +232,15 @@ public sealed class CaptureController : IDisposable
     public const int IngressLogIntervalMs = 30_000;
 
     /// <summary>
+    /// Attempts in a row the follow poll repeats at once when the source cannot find the chosen card
+    /// in Npcap's own device list. Enough for a card that is back on the next tick; a card Npcap never
+    /// lists - a PPPoE dial-up connection, a card its filter is not bound to - then waits the follow
+    /// back-off, since each attempt writes a capture session row and runs the pipeline's start and
+    /// stop work (audit 2026-10-20, A1-3).
+    /// </summary>
+    public const int AdapterMissingQuickRetries = 3;
+
+    /// <summary>
     /// Explains the observed decoding gap without claiming the user's startup order is known.
     /// A fresh login may supply a new connection prefix, but recovery is not guaranteed.
     /// </summary>
@@ -297,6 +314,10 @@ public sealed class CaptureController : IDisposable
     private long _faultBackoffMs;
     private long _ingressLoggedAtMs = -1;
     private bool _adapterReevaluated;
+
+    /// <summary>Starts in a row the source refused because Npcap did not list <see cref="_adapterMissingId"/>.</summary>
+    private int _adapterMissingStarts;
+    private string? _adapterMissingId;
     private IDisposable? _ownershipLease;
     private bool _releaseFailed;
 
@@ -387,7 +408,11 @@ public sealed class CaptureController : IDisposable
             // this sentence nothing says why nothing is recorded (audit 2026-10-03, OA-8).
             if (_ownershipLease is null && _services.Ownership.IsHeld)
             {
-                warnings.Add(CollectorTexts.CaptureWarningValidationHolds());
+                // A validation that has already ended and only keeps the lease until its source is
+                // released has nothing left for the player to stop (audit 2026-10-20, A2-2).
+                warnings.Add(_services.Ownership.IsReleasing
+                    ? CollectorTexts.CaptureWarningValidationReleasing()
+                    : CollectorTexts.CaptureWarningValidationHolds());
             }
 
             if (state == CaptureControllerState.Running
@@ -524,6 +549,7 @@ public sealed class CaptureController : IDisposable
                 _followRetryAtMs = -1;
                 _faultRetryAtMs = -1;
                 _adapterReevaluated = false;
+                _adapterMissingStarts = 0;
                 _lastErrorCode = _lastErrorMessage = null;
             }
             // Read only: a listing that fails here counts as "still running".
@@ -855,6 +881,7 @@ public sealed class CaptureController : IDisposable
 
             // The timer does not serialise ticks, so the back-off stamp lives under the same
             // gate as the rest of the lifecycle state.
+            string? missingCard = null;
             lock (_gate)
             {
                 if (!game.Running)
@@ -864,13 +891,30 @@ public sealed class CaptureController : IDisposable
                     // re-evaluation is per game session rather than per capture attempt:
                     // re-choosing every minute would churn instead of informing.
                     _adapterReevaluated = false;
+                    _adapterMissingStarts = 0;
                     return;
                 }
 
                 if (ProcessUptimeMs < _followRetryAtMs)
                 {
-                    return;
+                    if (_adapterMissingStarts < AdapterMissingQuickRetries || _adapterMissingId is null)
+                    {
+                        return;
+                    }
+
+                    missingCard = _adapterMissingId;
                 }
+            }
+
+            // The interval waits out the card Npcap keeps not listing, and only that card: once the
+            // game's traffic moves to another one - the 加速器 turned off, a relog in the same game
+            // process - that card is tried on this tick, before the new connection's handshake has
+            // gone by (re-review 2026-10-20, RV1-2). Reading the recommendation is the same listing
+            // every quick retry did.
+            if (missingCard is not null && RecommendedAdapterId(game) is var recommended &&
+                (recommended is null || string.Equals(recommended, missingCard, StringComparison.Ordinal)))
+            {
+                return;
             }
 
             // A validation session holding the capture is not a refusal to back off from:
@@ -903,6 +947,13 @@ public sealed class CaptureController : IDisposable
                 (ex.Code == ErrorCodes.BadRequest && ex.Field == "adapter_id");
             lock (_gate)
             {
+                // The chosen card is still missing from Npcap's list after the quick retries.
+                if (ex.Code == ErrorCodes.BadRequest && ex.Field == "adapter_id" &&
+                    _adapterMissingStarts >= AdapterMissingQuickRetries)
+                {
+                    waitingForReadiness = false;
+                }
+
                 // The periodic timer already limits readiness retries. Adding an interval
                 // from this failure's completion would skip the next scheduled tick.
                 _followRetryAtMs = waitingForReadiness ? -1 : ProcessUptimeMs
@@ -964,6 +1015,7 @@ public sealed class CaptureController : IDisposable
             _services.Uptime);
 
         var lifecycleStarted = false;
+        var sourceEntered = false;
         try
         {
             // The session row and protocol pipeline must exist before the source is allowed to
@@ -983,6 +1035,7 @@ public sealed class CaptureController : IDisposable
             _services.Lifecycle.OnCaptureStarted(sessionId);
             lifecycleStarted = true;
 
+            sourceEntered = true;
             source.Start(
                 new CaptureStartOptions(
                     sessionId,
@@ -1038,21 +1091,40 @@ public sealed class CaptureController : IDisposable
             }
             if (queueStopped) CloseSessionRow(run, CaptureEndReason.Error);
 
+            var refusal = ex as CollectorException ?? new CollectorException(
+                ErrorCodes.Internal, CollectorTexts.CaptureStartFailed(), inner: ex);
+            // The source failed after it began its own work - on a patch day, Oodle's
+            // initialization not finding its functions in the new executable. That is a fault
+            // like one a moment after Start, and it waits out the same doubling back-off: back
+            // at Idle the follow poll retried it every thirty seconds, each attempt hashing,
+            // copying and loading the game executable (audit 2026-10-20, A1-2). A refusal the
+            // source words as a driver or adapter problem keeps its own retry.
+            var startFaulted = sourceEntered && refusal.Code == ErrorCodes.Internal;
+            var adapterMissing = sourceEntered && refusal is { Code: ErrorCodes.BadRequest, Field: "adapter_id" };
+
             lock (_gate)
             {
+                _adapterMissingStarts = !adapterMissing ? 0
+                    : _adapterMissingId == adapter.Id ? _adapterMissingStarts + 1 : 1;
+                _adapterMissingId = adapterMissing ? adapter.Id : null;
                 _releaseFailed = !released || !queueStopped;
                 _releaseReason = CaptureEndReason.Error;
                 _source = released ? null : source;
                 _queue = queueStopped ? null : queue;
                 _run = queueStopped ? null : run;
-                _state = released && queueStopped ? CaptureControllerState.Idle : CaptureControllerState.Faulted;
+                _state = released && queueStopped && !startFaulted
+                    ? CaptureControllerState.Idle
+                    : CaptureControllerState.Faulted;
+                if (startFaulted && !_releaseFailed)
+                {
+                    _faultRetryAtMs = ProcessUptimeMs + _faultBackoffMs;
+                }
+
                 _pendingStartFaultReason = null;
                 _pendingStartFaultText = null;
                 _pendingStartFaultError = null;
             }
 
-            var refusal = ex as CollectorException ?? new CollectorException(
-                ErrorCodes.Internal, CollectorTexts.CaptureStartFailed(), inner: ex);
             RecordError(refusal);
             _services.Logger.WriteError("capture", "start_failed", ex);
             if (queueStopped) Publish(Snapshot(), "抓包启动失败。");
@@ -1067,6 +1139,8 @@ public sealed class CaptureController : IDisposable
             // The backoff is reset by a session that lasted, not by one that started; see
             // HealthySessionMs.
             _faultRetryAtMs = -1;
+            _adapterMissingStarts = 0;
+            _adapterMissingId = null;
             _ingressLoggedAtMs = ProcessUptimeMs + IngressLogIntervalMs;
         }
 
@@ -1080,6 +1154,21 @@ public sealed class CaptureController : IDisposable
         var snapshot = Snapshot();
         Publish(snapshot, "抓包已启动。");
         return snapshot;
+    }
+
+    /// <summary>The card a follow start would choose for the game right now, or null when none can be told.</summary>
+    /// <param name="game">The game being followed.</param>
+    private string? RecommendedAdapterId(GameProcessDetection game)
+    {
+        try
+        {
+            return _services.Adapters.List(game.ProcessId, ReadSettingString(AdapterSetting))
+                .FirstOrDefault(candidate => candidate.Recommended)?.Id;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            return null;
+        }
     }
 
     private CaptureAdapterView ChooseAdapter(IReadOnlyList<CaptureAdapterView> adapters, string? adapterId)
@@ -1692,13 +1781,17 @@ public sealed class CaptureController : IDisposable
     /// recorded as DISCONNECTED instead of INTERRUPTED, contradicting
     /// docs/state-machine.md section 3.6 (review finding R-2). The check only reads the
     /// process list -- the selection is the poll's to change, not this parser thread's -- and
-    /// a listing that fails counts as "alive", as that section requires.
+    /// a listing that fails counts as "alive", as that section requires. One reading right
+    /// after the last FIN is not enough either: a client still exiting is listed then, so the
+    /// check is repeated through <see cref="CaptureServices.ConnectionLossGrace"/> (see
+    /// <see cref="GameOutlivesConnectionLoss"/>; audit 2026-10-20, A1-4).
     /// </summary>
     /// <param name="captureSessionId">Session the marker was queued for.</param>
     /// <param name="generation">Session generation the marker belongs to.</param>
     private void DeliverConnectionLost(string captureSessionId, long generation)
     {
         CaptureRun run;
+        DecodedMessageQueue? queue;
         lock (_gate)
         {
             // Stop drains accepted messages before closing this session; their loss markers must
@@ -1710,9 +1803,10 @@ public sealed class CaptureController : IDisposable
                 return;
             }
             run = current;
+            queue = _queue;
         }
 
-        if (!run.StillListed(_services.Game))
+        if (!GameOutlivesConnectionLoss(run, queue, generation))
         {
             _services.Logger.Write(
                 LogLevel.Info, "capture", "connection_lost_game_exited", new Dictionary<string, object?>
@@ -1732,6 +1826,45 @@ public sealed class CaptureController : IDisposable
             OnFault(CollectorTexts.CaptureFaultPipeline(), ex, generation);
         }
     }
+
+    /// <summary>
+    /// Whether the game is still listed once the loss of its last connection has waited out
+    /// <see cref="CaptureServices.ConnectionLossGrace"/>: false as soon as a reading no longer
+    /// lists it, which leaves the run to the process-exit stop. The wait runs on the parser
+    /// thread, so whatever is queued behind the marker stays behind it; it ends early, answering
+    /// from the listing at that moment, once something is queued behind the marker - the client
+    /// talking again - or the session is no longer running, so that a stop is never held up.
+    /// </summary>
+    /// <param name="run">Session the marker was queued for.</param>
+    /// <param name="queue">Queue the marker came through.</param>
+    /// <param name="generation">Session generation the marker belongs to.</param>
+    private bool GameOutlivesConnectionLoss(CaptureRun run, DecodedMessageQueue? queue, long generation)
+    {
+        var waited = Stopwatch.StartNew();
+        while (run.StillListed(_services.Game))
+        {
+            if (waited.Elapsed >= _services.ConnectionLossGrace || queue is null || queue.Depth > 0)
+            {
+                return true;
+            }
+
+            lock (_gate)
+            {
+                if (_disposed || generation != _generation || !ReferenceEquals(_queue, queue) ||
+                    _state != CaptureControllerState.Running)
+                {
+                    return true;
+                }
+            }
+
+            Thread.Sleep(ConnectionLossGraceStepMs);
+        }
+
+        return false;
+    }
+
+    /// <summary>How often the process table is read while a connection loss waits out its grace.</summary>
+    private const int ConnectionLossGraceStepMs = 100;
 
     /// <summary>
     /// One direction of a game connection was given up after a gap it could not fill. Queued like

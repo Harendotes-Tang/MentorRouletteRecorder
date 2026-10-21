@@ -187,7 +187,13 @@ public static class CalibrationEvidenceStore
         try
         {
             Directory.CreateDirectory(root);
-            var json = Write(snapshot, region, gameBuild, templateSha256).ToJsonString(new JsonSerializerOptions
+            var document = Write(snapshot, region, gameBuild, templateSha256);
+            if (Rejections(snapshot.Rejections) is { } rejected)
+            {
+                document["rejections"] = rejected;
+            }
+
+            var json = document.ToJsonString(new JsonSerializerOptions
             {
                 Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
             });
@@ -319,6 +325,9 @@ public static class CalibrationEvidenceStore
                 }),
         }),
         ["outside"] = Keys(snapshot.OutsideCounts),
+        // Added without changing the layout version (re-review 2026-10-20, RV1-1): an earlier file reads back as "no
+        // burst let go yet", which is all an earlier observer could have known.
+        ["retired_once"] = Keys(snapshot.RetiredOnceCounts),
         ["opcodes"] = Array(snapshot.OpcodeCounts, entry => new JsonObject
         {
             ["inbound"] = entry.Key.Direction == PacketDirection.ServerToClient,
@@ -412,6 +421,51 @@ public static class CalibrationEvidenceStore
         }),
     };
 
+    /// <summary>
+    /// What was rejected about the evidence, or null when nothing was (audit 2026-10-20, C-6). Written
+    /// only when there is something, so a file without rejections reads exactly as it did before, and
+    /// a file written by an older version reads back as "nothing rejected".
+    /// </summary>
+    /// <param name="rejections">What the coordinator held when the evidence was taken.</param>
+    private static JsonObject? Rejections(CalibrationRejections rejections)
+    {
+        if (rejections.PopOpcodes.Count + rejections.ZoneKeys.Count + rejections.TimedOpcodes.Count +
+            rejections.MatchStates.Count + rejections.Requests.Count + rejections.Entries.Count +
+            rejections.Exits.Count == 0)
+        {
+            return null;
+        }
+
+        return new JsonObject
+        {
+            ["pops"] = new JsonArray(rejections.PopOpcodes.OrderBy(opcode => opcode)
+                .Select(opcode => (JsonNode?)JsonValue.Create(opcode)).ToArray()),
+            ["zones"] = Array(rejections.ZoneKeys.OrderBy(key => key.Opcode).ThenBy(key => key.Length), key => new JsonObject
+            {
+                ["inbound"] = key.Direction == PacketDirection.ServerToClient,
+                ["opcode"] = key.Opcode,
+                ["length"] = key.Length,
+            }),
+            ["timed"] = new JsonArray(rejections.TimedOpcodes.OrderBy(opcode => opcode)
+                .Select(opcode => (JsonNode?)JsonValue.Create(opcode)).ToArray()),
+            ["match_states"] = Array(rejections.MatchStates, state => new JsonObject
+            {
+                ["opcode"] = state.Opcode,
+                ["selectors"] = Array(state.Selectors, reading => new JsonObject
+                {
+                    ["field"] = reading.Field,
+                    ["value"] = reading.Value,
+                }),
+            }),
+            ["requests"] = Stamps(rejections.Requests),
+            ["entries"] = Stamps(rejections.Entries),
+            ["exits"] = Stamps(rejections.Exits),
+        };
+    }
+
+    private static JsonArray Stamps(IEnumerable<DateTimeOffset> times) =>
+        new(times.OrderBy(at => at).Select(at => (JsonNode?)JsonValue.Create(Stamp(at))).ToArray());
+
     private static JsonObject Sighting(TimedSighting sighting) => new()
     {
         ["at"] = Stamp(sighting.AtUtc),
@@ -496,6 +550,7 @@ public static class CalibrationEvidenceStore
             Math.Max(1, Int32(node, "sessions")))
         {
             PopShapeSeen = Int32(node, "pop_shapes"),
+            RetiredOnceCounts = KeyCounts(node, "retired_once"),
             PopRefusals = Items(node, "pop_refusals").ToDictionary(
                 item => ((ushort)Int32(item, "opcode"), Text(item, "field") ?? string.Empty),
                 item => Int32(item, "count")),
@@ -529,6 +584,7 @@ public static class CalibrationEvidenceStore
             DiagnosticsOverflow = Int32(node, "diagnostics_overflow"),
             FirstMessageAtUtc = AtOrNull(node, "first_at"),
             LastMessageAtUtc = AtOrNull(node, "last_at"),
+            Rejections = ReadRejections(node),
         };
 
         return Int32(node, "queue_rule") >= QueueRule ? snapshot : WithoutQueueTables(snapshot);
@@ -553,6 +609,42 @@ public static class CalibrationEvidenceStore
         TimedDead = System.Array.Empty<(ushort, int)>(),
         TimingOverflow = 0,
     };
+
+    /// <summary>What was rejected about the evidence; nothing for a file written before it was kept.</summary>
+    /// <param name="node">The root object of the file.</param>
+    private static CalibrationRejections ReadRejections(JsonElement node)
+    {
+        if (!node.TryGetProperty("rejections", out var rejections) || rejections.ValueKind != JsonValueKind.Object)
+        {
+            return CalibrationRejections.None;
+        }
+
+        return new CalibrationRejections(
+            Values(rejections, "pops").Select(opcode => checked((ushort)opcode)).ToHashSet(),
+            Items(rejections, "zones").Select(item => new MessageKey(
+                Bool(item, "inbound") ? PacketDirection.ServerToClient : PacketDirection.ClientToServer,
+                (ushort)Int32(item, "opcode"), Int32(item, "length"))).ToHashSet())
+        {
+            TimedOpcodes = Values(rejections, "timed").Select(opcode => checked((ushort)opcode)).ToHashSet(),
+            MatchStates = Items(rejections, "match_states")
+                .Select(item => ((ushort)Int32(item, "opcode"), (IReadOnlyList<CalibrationSelectorReading>)Items(item, "selectors")
+                    .Select(reading => new CalibrationSelectorReading(Text(reading, "field") ?? string.Empty, Int64(reading, "value")))
+                    .ToArray()))
+                .ToArray(),
+            Requests = Times(rejections, "requests"),
+            Entries = Times(rejections, "entries"),
+            Exits = Times(rejections, "exits"),
+        };
+    }
+
+    private static HashSet<DateTimeOffset> Times(JsonElement node, string name) =>
+        Items(node, name)
+            .Select(item => item.ValueKind == JsonValueKind.String &&
+                DateTimeOffset.TryParse(item.GetString(), CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var at)
+                ? at
+                : throw new FormatException("a rejected time is not a timestamp"))
+            .ToHashSet();
 
     private static IReadOnlyList<TimedSighting> Sightings(JsonElement node, string name) =>
         Items(node, name).Select(item => new TimedSighting(

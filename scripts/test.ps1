@@ -7,7 +7,7 @@
     枚举 tests/ 下声明 IsTestProject=true 的全部 .NET 测试项目，逐个运行并解析
     TRX 结果文件取得真实的通过/失败/跳过数量，再运行 Qt/C++ ctest。
 
-    判定只依据计数，不依据退出码：一个用例也没有运行的测试项目同样可能退出 0，
+    同时核对实际结果、计数与退出码：一个用例也没有运行的测试项目同样可能退出 0，
     而 "0 个测试" 不是通过。规则：
       * 任一项目失败数 > 0        → 失败
       * 任一项目用例总数 = 0      → 失败（空测试不是成功）
@@ -22,7 +22,7 @@
     默认先执行完整构建；-NoBuild 要求 build/ 与 .NET 测试程序集（bin\x64\<配置>\）
     均已由同一配置生成，找不到程序集时直接判失败。
     -Python 额外运行 tools/ 下的 Python 自测（`dotnet test` 与 `ctest` 不覆盖）。
-    结果文件写入 artifacts/test-results/。
+    每次运行的结果文件写入 artifacts/test-results/<唯一运行目录>/。
     退出码：0 表示全部通过；1 表示任一闸门失败。
 
 .EXAMPLE
@@ -75,7 +75,8 @@ $BuildDir = if ([string]::IsNullOrWhiteSpace($configuredBuildDir)) {
 $CTestExe = if ([string]::IsNullOrWhiteSpace($env:MR_CTEST_EXE)) {
     'D:/APPS/Qt/Tools/CMake_64/bin/ctest.exe'
 } else { $env:MR_CTEST_EXE.Replace('\', '/') }
-$ResultsRoot = Join-Path $RepoRoot 'artifacts\test-results'
+$ResultsRoot = Join-Path (Join-Path $RepoRoot 'artifacts\test-results') `
+    ('run-{0}-{1}' -f [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfff'), [Guid]::NewGuid().ToString('N'))
 $ToolTestScript = Join-Path $PSScriptRoot 'run-python-tool-tests.ps1'
 
 # Qt tests that must never report a skip. QtTest counts a QSKIP as a pass, so a
@@ -91,9 +92,8 @@ function Write-Head([string]$Text) {
 .SYNOPSIS
     Reads the counters out of one TRX file.
 .DESCRIPTION
-    TRX ResultSummary/Counters is the only place dotnet test records what
-    actually ran. The element is namespaced, but PowerShell's XML adapter
-    resolves the path regardless, so no namespace manager is needed.
+    Cross-checks TRX counters against individual outcomes. VSTest may leave
+    notExecuted=0 for skips; total-executed must still match the skipped results.
 #>
 function Read-TrxCounters([string]$Path) {
     [xml]$trx = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
@@ -102,10 +102,15 @@ function Read-TrxCounters([string]$Path) {
     $get = {
         param($name)
         $value = $counters.GetAttribute($name)
-        if ([string]::IsNullOrWhiteSpace($value)) { 0 } else { [int]$value }
+        $parsed = 0
+        if ([string]::IsNullOrWhiteSpace($value) -or
+            -not [int]::TryParse($value, [ref]$parsed) -or $parsed -lt 0) {
+            throw "TRX 缺少或包含无效计数 '$name': $Path"
+        }
+        return $parsed
     }
 
-    [pscustomobject]@{
+    $counts = [pscustomobject]@{
         Total    = & $get 'total'
         Executed = & $get 'executed'
         Passed   = & $get 'passed'
@@ -115,6 +120,47 @@ function Read-TrxCounters([string]$Path) {
         Aborted  = & $get 'aborted'
         NotRun   = & $get 'notExecuted'
     }
+    $results = @($trx.TestRun.SelectNodes("./*[local-name()='Results']/*[local-name()='UnitTestResult']"))
+    $outcomes = @{ Passed = 0; Failed = 0; Error = 0; Timeout = 0; Aborted = 0; NotExecuted = 0 }
+    $executions = [System.Collections.Generic.HashSet[string]]::new()
+    foreach ($result in $results) {
+        $outcome = $result.GetAttribute('outcome')
+        $execution = $result.GetAttribute('executionId')
+        if (-not $outcomes.ContainsKey($outcome) -or [string]::IsNullOrWhiteSpace($execution) -or
+            -not $executions.Add($execution)) {
+            throw "TRX 包含未知结果或缺失/重复执行身份: $Path"
+        }
+        $outcomes[$outcome]++
+    }
+    $skipped = $counts.Total - $counts.Executed
+    if ($counts.Total -le 0 -or $counts.Executed -le 0 -or
+        $results.Count -ne $counts.Total -or $skipped -ne $outcomes.NotExecuted -or
+        $counts.Passed -ne $outcomes.Passed -or $counts.Failed -ne $outcomes.Failed -or
+        $counts.Errors -ne $outcomes.Error -or $counts.Timeout -ne $outcomes.Timeout -or
+        $counts.Aborted -ne $outcomes.Aborted -or $counts.NotRun -notin @(0, $skipped) -or
+        $counts.Executed -ne ($counts.Passed + $counts.Failed + $counts.Errors + $counts.Timeout + $counts.Aborted)) {
+        throw "TRX 未实际执行用例，或汇总计数与逐项结果不一致: $Path"
+    }
+    if ($trx.TestRun.ResultSummary.outcome -notin @('Completed', 'Failed') -or
+        ($trx.TestRun.ResultSummary.outcome -eq 'Failed' -and
+         ($counts.Failed + $counts.Errors + $counts.Timeout + $counts.Aborted) -eq 0)) {
+        throw "TRX 汇总状态与逐项结果不一致: $Path"
+    }
+    return $counts
+}
+
+function Read-RequiredQtTestTotals([string]$Output) {
+    $footers = [regex]::Matches($Output, '(?m)^\s*Totals:\s*(\d+)\s*passed,\s*(\d+)\s*failed,\s*(\d+)\s*skipped')
+    if ($footers.Count -ne 1) {
+        throw '缺少唯一的 QtTest 完成统计；不能凭 Collector 文件存在推断集成用例已执行。'
+    }
+    $passed = [int]$footers[0].Groups[1].Value
+    $failed = [int]$footers[0].Groups[2].Value
+    $skipped = [int]$footers[0].Groups[3].Value
+    if ($passed -eq 0 -or $failed -gt 0 -or $skipped -gt 0) {
+        throw "QtTest: $passed 通过 / $failed 失败 / $skipped 跳过。必要集成用例不能跳过。"
+    }
+    return [pscustomobject]@{ Passed = $passed; Failed = $failed; Skipped = $skipped }
 }
 
 # --------------------------------------------------------------------- build ------
@@ -175,10 +221,7 @@ if ($dotNetTestProjects.Count -eq 0) {
     $code = 1
 }
 else {
-    if (Test-Path -LiteralPath $ResultsRoot) {
-        Remove-Item -LiteralPath $ResultsRoot -Recurse -Force
-    }
-    New-Item -ItemType Directory -Path $ResultsRoot -Force | Out-Null
+    New-Item -ItemType Directory -Path $ResultsRoot | Out-Null
 
     # The test projects run against a throw-away MR_DATA_DIR
     # (src/Collector/Storage/DatabasePaths.cs), created before the loop and removed once
@@ -258,7 +301,14 @@ else {
                 continue
             }
 
-            $counters = Read-TrxCounters $trxPath
+            try {
+                $counters = Read-TrxCounters $trxPath
+            }
+            catch {
+                Write-Host ("  无法证明测试实际执行且结果一致: {0}" -f $_.Exception.Message) -ForegroundColor Red
+                $code = 1
+                continue
+            }
             $summaries.Add([pscustomobject]@{
                 Project  = $relativeProject
                 Total    = $counters.Total
@@ -432,72 +482,16 @@ else {
                 if ($out -notmatch 'Totals:' -and (Test-Path -LiteralPath $qtLog)) {
                     $out += Get-Content -LiteralPath $qtLog -Raw
                 }
-                if ($out -match 'Totals:\s*(\d+)\s*passed,\s*(\d+)\s*failed,\s*(\d+)\s*skipped') {
-                    $passed = [int]$Matches[1]
-                    $skipped = [int]$Matches[3]
-                    if ($skipped -gt 0 -or $passed -eq 0) {
-                        Write-Host ''
-                        Write-Host ("  {0}: {1} 通过 / {2} 跳过。QSKIP 不是通过。" -f
-                            $name, $passed, $skipped) -ForegroundColor Red
-                        foreach ($line in ($out -split "`r?`n" | Where-Object { $_ -match 'SKIP' })) {
-                            Write-Host ("    {0}" -f $line.Trim()) -ForegroundColor DarkRed
-                        }
-                        $code = 1
-                    }
-                    else {
-                        Write-Host ("  {0}: {1} 通过 / 0 跳过。" -f $name, $passed) -ForegroundColor Green
-                    }
+                try {
+                    $totals = Read-RequiredQtTestTotals $out
+                    Write-Host ("  {0}: {1} 通过 / 0 跳过。" -f $name, $totals.Passed) -ForegroundColor Green
                 }
-                else {
-                    # Fallback: assert the precondition instead of the skip count.
-                    # IpcIntegrationTests looks for the Collector next to its own binary
-                    # and then in ../../src/Desktop; when neither has it, the whole binary
-                    # QSKIPs and still exits 0. Re-running with QtTest's file logger would
-                    # give the real counts but would also start a second real Collector
-                    # against the user's production data directory on every test run.
-                    #
-                    # Only this configured build is inspected: a recursive search could
-                    # select a stale Qt Creator build nested below build/.
-                    $binary = @(Get-Item -LiteralPath (Join-Path $BuildDir "tests\Desktop.Tests\$name`Tests.exe") `
-                        -ErrorAction SilentlyContinue)
-                    $lookup = @()
-                    if ($binary.Count -gt 0) {
-                        $lookup += $binary[0].DirectoryName
-                        $lookup += (Join-Path $binary[0].DirectoryName '..\..\src\Desktop')
+                catch {
+                    Write-Host ("  {0}: {1}" -f $name, $_.Exception.Message) -ForegroundColor Red
+                    foreach ($line in ($out -split "`r?`n" | Where-Object { $_ -match 'SKIP' })) {
+                        Write-Host ("    {0}" -f $line.Trim()) -ForegroundColor DarkRed
                     }
-                    else {
-                        $lookup += (Join-Path $BuildDir 'src\Desktop')
-                    }
-
-                    $staged = @($lookup | ForEach-Object {
-                        Join-Path $_ 'MentorRecorder.Collector.exe'
-                    } | Where-Object { Test-Path -LiteralPath $_ })
-
-                    if ($staged.Count -eq 0) {
-                        Write-Host ''
-                        Write-Host ("  {0} 找不到 MentorRecorder.Collector.exe。" -f $name) `
-                            -ForegroundColor Red
-                        Write-Host '  这组用例会因此 QSKIP 掉整个二进制，而 QtTest 与 ctest 都会记成通过——' `
-                            -ForegroundColor Red
-                        Write-Host '  也就是桌面端↔真实 Collector 的集成通路根本没有被验证。按失败处理。' `
-                            -ForegroundColor Red
-                        Write-Host '  应当出现在（任一即可）：' -ForegroundColor Yellow
-                        foreach ($candidate in $lookup) {
-                            Write-Host ("    {0}" -f [System.IO.Path]::GetFullPath($candidate)) `
-                                -ForegroundColor Yellow
-                        }
-                        Write-Host '  见 src/Desktop/cmake/StageCollector.cmake 与 scripts/build.ps1。' `
-                            -ForegroundColor Yellow
-                        $code = 1
-                    }
-                    else {
-                        Write-Host ("  {0}: 已 stage Collector（{1}），未跳过。" -f
-                            $name, [System.IO.Path]::GetFullPath($staged[0])) -ForegroundColor Green
-                        Write-Host '    （该二进制是 GUI 子系统程序，ctest 抓不到它的 QtTest 输出；' `
-                            -ForegroundColor DarkGray
-                        Write-Host '      这里核对的是 QSKIP 的前置条件而不是跳过计数本身。）' `
-                            -ForegroundColor DarkGray
-                    }
+                    $code = 1
                 }
             }
         }

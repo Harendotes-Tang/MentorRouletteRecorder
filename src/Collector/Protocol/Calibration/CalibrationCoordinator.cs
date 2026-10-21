@@ -140,6 +140,7 @@ public sealed class CalibrationCoordinator
     private string? _localProfileId;
     private string? _provisionalProfileId;
     private HashSet<string> _provisionalLacks = new(StringComparer.Ordinal);
+    private IReadOnlyList<ProfileMessage>? _provisionalInForce;
     private bool _provisional;
     private bool _retaining;
     private bool _completing;
@@ -251,9 +252,13 @@ public sealed class CalibrationCoordinator
 
     /// <summary>
     /// The evidence as it stands, for writing to disk, or null when there is none worth
-    /// writing. Taking it costs nothing and changes nothing.
+    /// writing. Taking it costs nothing and changes nothing. It carries what was rejected about it,
+    /// so the next run of the Collector does not put a timeline the player marked wrong to them
+    /// again (audit 2026-10-20, C-6).
     /// </summary>
-    public CalibrationSnapshot? Evidence() => _observer?.Snapshot();
+    public CalibrationSnapshot? Evidence() => _observer?.Snapshot() is { } snapshot
+        ? snapshot with { Rejections = _rejections }
+        : null;
 
     /// <summary>Forgets everything; the build got a profile or the game went away for good.</summary>
     public void Disarm()
@@ -271,6 +276,7 @@ public sealed class CalibrationCoordinator
         _provisional = false;
         _provisionalProfileId = null;
         _provisionalLacks.Clear();
+        _provisionalInForce = null;
         _retaining = false;
         _completing = false;
         _completingInForce = null;
@@ -299,6 +305,7 @@ public sealed class CalibrationCoordinator
             if (_carried is { } carried)
             {
                 _observer.AdoptEvidence(carried);
+                _rejections = Union(_rejections, carried.Rejections);
                 _carried = null;
             }
 
@@ -366,15 +373,25 @@ public sealed class CalibrationCoordinator
     /// offer the profile could never gain it for the life of the build - every record stays
     /// job-less, or every popup stays silent. Null or empty means it lacks nothing.
     /// </param>
-    public void UseProvisional(bool provisional, string? profileId = null, IReadOnlySet<string>? lacking = null)
+    /// <param name="inForce">
+    /// That profile's declared messages. Confirming an upgrade rewrites the profile from the draft
+    /// alone, so a draft is offered only when it declares every one of them unchanged (audit
+    /// 2026-10-20, C-1). Without them nothing can be compared and no upgrade is offered.
+    /// </param>
+    public void UseProvisional(
+        bool provisional, string? profileId = null, IReadOnlySet<string>? lacking = null,
+        IReadOnlyList<ProfileMessage>? inForce = null)
     {
         _provisionalProfileId = provisional ? profileId : null;
         var missing = provisional && lacking is { Count: > 0 }
             ? new HashSet<string>(lacking, StringComparer.Ordinal)
             : new HashSet<string>(StringComparer.Ordinal);
-        if (_provisional != provisional || !_provisionalLacks.SetEquals(missing))
+        var messages = provisional ? inForce : null;
+        if (_provisional != provisional || !_provisionalLacks.SetEquals(missing) ||
+            !ReferenceEquals(_provisionalInForce, messages))
         {
             _provisionalLacks = missing;
+            _provisionalInForce = messages;
             _provisional = provisional;
             _draft = null;
             _draftAtMessage = -1;
@@ -467,6 +484,23 @@ public sealed class CalibrationCoordinator
                 StringComparison.Ordinal)));
     }
 
+    /// <summary>
+    /// True when a draft declares every message the queue-inferred profile in force declares, name for
+    /// name and byte for byte, compared as <see cref="Completes"/> compares them. Confirming an upgrade
+    /// writes the profile from the draft alone, so a draft that lost one of them - the job, ruled out by a
+    /// gearset change inside a zone load, or a popup whose timing stopped qualifying - would write it out
+    /// of the profile, and every later record would go without it (audit 2026-10-20, C-1).
+    /// </summary>
+    /// <param name="draft">Draft just derived.</param>
+    private bool KeepsInForce(CalibrationDraft draft) =>
+        _provisionalInForce is { } inForce &&
+        inForce.All(current => draft.Messages.Any(message =>
+            string.Equals(message.Name, current.Name, StringComparison.Ordinal) &&
+            string.Equals(
+                CalibratedProfileDocument.Message(current).ToJsonString(),
+                CalibratedProfileDocument.Message(message).ToJsonString(),
+                StringComparison.Ordinal)));
+
     /// <summary>Feeds one decoded message to the observer, when observing.</summary>
     /// <param name="message">Decoded message.</param>
     public void Accept(DecodedMessage message)
@@ -512,7 +546,8 @@ public sealed class CalibrationCoordinator
         {
             _draft = CalibrationDraft.Derive(snapshot, _template, _rejections, _roulettes);
             _draftAtMessage = snapshot.MessagesSeen;
-            var brings = _draft.Messages.Any(message => _provisionalLacks.Contains(message.Name));
+            var brings = _draft.Messages.Any(message => _provisionalLacks.Contains(message.Name)) &&
+                KeepsInForce(_draft);
             _state = StateFor(
                 _draft.Status, _draft.MatchSource, _provisional, _retaining, brings, _completing, Completes(_draft));
         }
@@ -583,17 +618,35 @@ public sealed class CalibrationCoordinator
             // And unless the search has found something: then the card asks the player to check a
             // timeline, and "still looking, will ask you once found" under that question contradicts
             // it (audit 2026-10-03, OCal-9).
+            //
+            // And what the search is for comes from what the profile in force lacks: beside one that
+            // already recognises the popup, "still trying to recognise the popup" is untrue (audit
+            // 2026-10-20, C-7).
+            //
+            // The same goes for the stuck card: beside a profile that reads the popup, "仅靠排队和进本核对时，记入的是
+            // 排队时间" is untrue, so it says what that profile records instead (re-review 2026-10-20, RV1-3).
+            var lacksPopup = _provisionalLacks.Contains(CalibratedShape.AnnouncedName);
             blockers = _state == CalibrationState.Ready && draft is not null
                 ? ProvisionalOffer(draft)
                 : draft?.Status == CalibrationDraftStatus.Blocked
-                ? new[]
-                {
-                    CollectorTexts.CalibrationProvisionalRecording(),
-                    CollectorTexts.CalibrationProvisionalBlocked(),
-                }
+                ? lacksPopup
+                    ? new[]
+                    {
+                        CollectorTexts.CalibrationProvisionalRecording(),
+                        CollectorTexts.CalibrationProvisionalBlocked(),
+                    }
+                    : new[]
+                    {
+                        CollectorTexts.CalibrationProvisionalRecordingPopup(),
+                        CollectorTexts.CalibrationProvisionalBlockedMore(),
+                    }
                 : new[]
                 {
-                    CollectorTexts.CalibrationProvisionalSearching(),
+                    lacksPopup
+                        ? CollectorTexts.CalibrationProvisionalSearching()
+                        : _provisionalLacks.Contains(CalibratedShape.JobName)
+                            ? CollectorTexts.CalibrationProvisionalSearchingJob()
+                            : CollectorTexts.CalibrationProvisionalSearchingMore(),
                 };
         }
         else if (_retaining)
@@ -806,6 +859,22 @@ public sealed class CalibrationCoordinator
             Exits = exits,
         };
     }
+
+    /// <summary>What two sets of rejections reject between them.</summary>
+    /// <param name="left">One set.</param>
+    /// <param name="right">The other.</param>
+    private static CalibrationRejections Union(CalibrationRejections left, CalibrationRejections right) =>
+        new(left.PopOpcodes.Union(right.PopOpcodes).ToHashSet(), left.ZoneKeys.Union(right.ZoneKeys).ToHashSet())
+        {
+            TimedOpcodes = left.TimedOpcodes.Union(right.TimedOpcodes).ToHashSet(),
+            MatchStates = left.MatchStates
+                .Concat(right.MatchStates.Where(state => !left.MatchStates.Any(known =>
+                    known.Opcode == state.Opcode && CalibrationObserver.SameSelectors(known.Selectors, state.Selectors))))
+                .ToArray(),
+            Requests = left.Requests.Union(right.Requests).ToHashSet(),
+            Entries = left.Entries.Union(right.Entries).ToHashSet(),
+            Exits = left.Exits.Union(right.Exits).ToHashSet(),
+        };
 
     /// <summary>
     /// Refuses a CONTENT_FINDER_POP opcode for good, the way a WRONG verdict refuses one the

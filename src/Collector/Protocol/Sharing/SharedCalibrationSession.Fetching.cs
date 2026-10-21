@@ -22,11 +22,11 @@ internal sealed partial class SharedCalibrationSession
 
     // ------------------------------------------------------------------ fetching
 
-    private SharedCheckOutcome MaybeFetch(SharedContext context, bool manual)
+    private SharedCheckAnswer MaybeFetch(SharedContext context, bool manual)
     {
         if (!_services.SharedFetchWired || !_enabled)
         {
-            return manual ? SharedCheckOutcome.Disabled : SharedCheckOutcome.NotNeeded;
+            return new(manual ? SharedCheckOutcome.Disabled : SharedCheckOutcome.NotNeeded);
         }
 
         // The one outbound request is for a build nothing records yet - and, since 1.4.0, for the two
@@ -38,18 +38,21 @@ internal sealed partial class SharedCalibrationSession
             context.Selection.IsUsable, context.Selection.Origin, context.Selection.Profile is { MatchFromQueue: true });
         if (context.Selection.IsUsable && recheck is null)
         {
-            return SharedCheckOutcome.NotNeeded;
+            return new(SharedCheckOutcome.NotNeeded);
         }
 
-        // 不用共享的: the player said no for this build, so there is nothing to fetch for until 重新观察.
-        if (IsUserRejected(context.Key.Region, context.Key.GameBuild))
+        // 不用共享的: the player said no for this build, so there is nothing to fetch for until 重新观察. While the state
+        // file cannot be read the refusal is unknown and stops the fetch all the same (E-2); the answer then says so, as
+        // NOT_NEEDED alone would tell the player a calibration is in use or that they chose local calibration (RV5-5).
+        var refusal = UserRejection(context.Key.Region, context.Key.GameBuild);
+        if (refusal != false)
         {
-            return SharedCheckOutcome.NotNeeded;
+            return new(SharedCheckOutcome.NotNeeded, refusal is null ? CollectorTexts.SharingCheckStateUnreadable() : null);
         }
 
         if (_fetch is not null)
         {
-            return SharedCheckOutcome.AlreadyFetching;
+            return new(SharedCheckOutcome.AlreadyFetching);
         }
 
         // A check that has only just been through every source is the answer to this one as well, whatever it
@@ -60,14 +63,14 @@ internal sealed partial class SharedCalibrationSession
         // monotonic clock, so a system clock moved backwards cannot stretch the gap into a lasting refusal.
         if (manual && _lastManualCheckAt is { } previous && _clock.Elapsed - previous < ManualCheckInterval)
         {
-            return SharedCheckOutcome.RecentlyChecked;
+            return new(SharedCheckOutcome.RecentlyChecked);
         }
 
         // On the monotonic clock as well (audit 2026-10-03, OE-6b): a system clock moved back must not hold the next
         // automatic download back for six hours plus however far it moved.
         if (!manual && _nextAutoFetchAt is { } next && _clock.Elapsed < next)
         {
-            return SharedCheckOutcome.NotNeeded;
+            return new(SharedCheckOutcome.NotNeeded);
         }
 
         var ticket = new FetchTicket(context.Key, context.Template, manual) { Recheck = recheck };
@@ -78,7 +81,7 @@ internal sealed partial class SharedCalibrationSession
         }
 
         Schedule(() => FetchAsync(ticket));
-        return SharedCheckOutcome.Started;
+        return new(SharedCheckOutcome.Started);
     }
 
     /// <summary>
@@ -381,16 +384,22 @@ internal sealed partial class SharedCalibrationSession
                 codes[existing] = (fetched.CodeSha256, fetched.Payload, fetched.Submitters, fetched.ShapePrior,
                     fetched.Quarantined, fetched.QuarantineEpoch);
             }
-            else if (!Attempt(() => store.IsRejected(region, build, templateSha, fetched.CodeSha256)))
+            else if (Attempt(() => store.IsRejected(region, build, templateSha, fetched.CodeSha256)) == false)
             {
                 codes.Add((fetched.CodeSha256, fetched.Payload, fetched.Submitters, fetched.ShapePrior, fetched.Quarantined, fetched.QuarantineEpoch));
             }
         }
 
+        // What an index read earlier revoked stays revoked, whatever this one says (audit 2026-10-20, E-1).
+        var revoked = (Attempt(() => store.RevokedCodes(region, build)) ?? Array.Empty<string>()).ToHashSet(StringComparer.Ordinal);
         if (result is { IndexWasRead: true })
         {
-            var revoked = result.RevokedCodeSha256s.ToHashSet(StringComparer.Ordinal);
-            codes.RemoveAll(code => revoked.Contains(code.CodeSha256));
+            revoked.UnionWith(result.RevokedCodeSha256s);
+        }
+
+        codes.RemoveAll(code => revoked.Contains(code.CodeSha256));
+        if (result is { IndexWasRead: true })
+        {
             foreach (var entry in result.IndexEntries)
             {
                 var existing = codes.FindIndex(code => code.CodeSha256 == entry.CodeSha256);
@@ -489,11 +498,11 @@ internal sealed partial class SharedCalibrationSession
         }
 
         SharedContext? context;
-        bool userRejected;
+        bool? userRejected;
         lock (_gate)
         {
             context = _stopped ? null : _host.SharedContext();
-            userRejected = context is not null && IsUserRejected(context.Key.Region, context.Key.GameBuild);
+            userRejected = context is null ? false : UserRejection(context.Key.Region, context.Key.GameBuild);
         }
 
         if (Inapplicable(payload, sha, context, userRejected) is { } refused)
@@ -559,7 +568,7 @@ internal sealed partial class SharedCalibrationSession
                 ? CollectorTexts.SharingImportAppliedAtLogin()
                 : CollectorTexts.SharingImportApplied();
 
-    private SharedImportResult? Inapplicable(ShareCodePayload payload, string sha, SharedContext? context, bool userRejected)
+    private SharedImportResult? Inapplicable(ShareCodePayload payload, string sha, SharedContext? context, bool? userRejected)
     {
         string? reason = null;
         UserText? message = null;
@@ -579,14 +588,22 @@ internal sealed partial class SharedCalibrationSession
         {
             (reason, message) = ("OTHER_TEMPLATE", CollectorTexts.SharingImportOtherTemplate());
         }
-        else if (userRejected)
+        else if (userRejected is null)
+        {
+            // The bookkeeping cannot be read right now, so neither the player's refusal nor this code's record is known (E-2).
+            (reason, message) = (StateUnreadableReason, CollectorTexts.SharingImportStateUnreadable());
+        }
+        else if (userRejected == true)
         {
             (reason, message) = (UserRejectedReason, RefusalMessage(UserRejectedReason));
         }
         else if (Attempt(() => _services.SharedCalibrations.IsRejected(
-                     context.Key.Region, context.Key.GameBuild, context.Key.TemplateSha256, sha)))
+                     context.Key.Region, context.Key.GameBuild, context.Key.TemplateSha256, sha)) is not false and var rejected)
         {
-            (reason, message) = ("REJECTED", RefusalMessage("REJECTED"));
+            // Unknown is refused too, as unknown (E-2, RV2-1): what the records say about this code cannot be read.
+            (reason, message) = rejected is null
+                ? (StateUnreadableReason, CollectorTexts.SharingImportStateUnreadable())
+                : ("REJECTED", RefusalMessage("REJECTED"));
         }
 
         return reason is null ? null : new SharedImportResult(SharedImportOutcome.NotApplicable, reason, message!, sha);

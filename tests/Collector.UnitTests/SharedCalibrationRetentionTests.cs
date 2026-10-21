@@ -4,6 +4,7 @@ using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Protocol.Sharing;
+using MentorRecorder.Collector.Storage.Repositories;
 using Bed = MentorRecorder.Collector.UnitTests.SharedCalibrationTestBed;
 
 namespace MentorRecorder.Collector.UnitTests;
@@ -26,7 +27,7 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
     private static IEnumerable<DecodedMessage> EveningWithoutTheDeclaredMarker => TrueEvening.Select(message =>
         message.Opcode == CalibrationTrafficCases.ZoneInit ? message with { Opcode = 0xA1F7 } : message);
 
-    private bool Rejected(SharedCode code) => _bed.Store.IsRejected(Region.Cn, Bed.Build, Bed.TemplateSha, code.Sha);
+    private bool Rejected(SharedCode code) => _bed.Store.IsRejected(Region.Cn, Bed.Build, Bed.TemplateSha, code.Sha) == true;
 
     [Fact]
     public async Task OneHealthyContradictingSessionRejectsNothingTwoDoAndRediscoveringForgetsIt()
@@ -209,6 +210,47 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
     }
 
     /// <summary>
+    /// Audit 2026-10-20, E-1: the repository never takes a revocation back. A mirror still serving the index from before
+    /// the revocation must not hand the code back - neither to the store, nor after a restart, when the revocation read
+    /// earlier is known from the disk alone - and pasting it answers REVOKED.
+    /// </summary>
+    [Fact]
+    public async Task ARevokedCodeStaysRevokedThroughAStaleIndexAndARestart()
+    {
+        var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        _bed.Publish(code);
+        var pipeline = _bed.Pipeline(_bed.Services());
+        pipeline.Refresh(Bed.Game());
+        await Bed.Idle(pipeline);
+        Assert.Single(pipeline.CalibrationStatus().Shared.Candidates);
+
+        _bed.PublishRevoked(code);
+        Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
+        await Bed.Idle(pipeline);
+        Assert.Equal(SharedPublication.Revoked, _bed.Store.Publication(Region.Cn, Bed.Build, code.Sha));
+
+        // A mirror that still serves the index from before the revocation.
+        _bed.Publish(code);
+        _bed.Db.Clock.Elapsed += SharedCalibrationSession.ManualCheckInterval;
+        Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
+        await Bed.Idle(pipeline);
+        Assert.Equal(SharedPublication.Revoked, _bed.Store.Publication(Region.Cn, Bed.Build, code.Sha));
+
+        var restarted = _bed.Pipeline(_bed.Services());
+        restarted.Refresh(Bed.Game());
+        await Bed.Idle(restarted);
+        var sent = _bed.Transport.Requests.Count;
+        Assert.Equal(SharedCheckOutcome.Started, restarted.CheckSharedCalibrationNow());
+        await Bed.Idle(restarted);
+
+        Assert.True(_bed.Transport.Requests.Count > sent);
+        Assert.DoesNotContain(restarted.CalibrationStatus().Shared.Candidates, item => item.Status != SharedCandidateStatus.Rejected);
+        var pasted = restarted.ImportCalibrationCode(code.Code);
+        Assert.Equal(SharedImportOutcome.NotApplicable, pasted.Outcome);
+        Assert.Equal("REVOKED", pasted.Reason);
+    }
+
+    /// <summary>
     /// B2a review finding 1: the revocation branch is reachable. An automatic download is still pending
     /// when the player imports a code that binds, and the index that download then reads revokes that
     /// very code. The download went out before any profile was usable; nothing further is sent afterwards.
@@ -281,6 +323,63 @@ public sealed class SharedCalibrationRetentionTests : IDisposable
         Assert.True(pipeline.CalibrationArmed);
         Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Refresh(Bed.Game()).Status);
         Assert.Equal("REJECTED", pipeline.CalibrationStatus().Shared.LastRefusal);
+    }
+
+    /// <summary>
+    /// Re-review 2026-10-20, RV2-1: a state file another program holds open is no rejection. The shared profile in force
+    /// stays bound, nothing it recorded is marked 待复核 and its document stays on disk; only a rejection the file can be
+    /// seen to hold withdraws it.
+    /// </summary>
+    [Fact]
+    public async Task AStateFileThatCannotBeOpenedWithdrawsNothingAndAKnownRejectionStillDoes()
+    {
+        var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        SharedProfileFiles.Write(
+            SharedProfileBuilder.Build(code.Payload, Bed.Template, Bed.Confirmed, new Dictionary<string, int>()),
+            _bed.SharedRoot);
+        // One contradicting session is a record, not a rejection - and it leaves a state file on disk to hold open.
+        _bed.Store.RecordContradiction(Region.Cn, Bed.Build, Bed.TemplateSha, code.Sha, "session-1", Bed.Confirmed);
+        var runs = new RunRepository(_bed.Db.Database);
+        var revisions = new RunRevisionRepository(_bed.Db.Database);
+        var recorded = TestDatabase.Run(source: RunSource.AutoNetwork) with
+        {
+            ProtocolProfileId = SharedProfileBuilder.ProfileIdFor(Region.Cn, Bed.Build),
+        };
+        _bed.Db.Database.RunInTransaction(tx =>
+        {
+            runs.Insert(recorded, tx);
+            revisions.Append(new RunRevision
+            {
+                RevisionId = Guid.NewGuid().ToString("D"), RunId = recorded.RunId, Revision = 1,
+                ChangedAtUtc = recorded.CreatedAtUtc, ChangeKind = ChangeKind.CreateAuto, Actor = RevisionActor.System,
+                Reason = null, Changes = Array.Empty<RunFieldChange>(),
+            }, tx);
+        });
+        var state = Path.Combine(
+            SharedCalibrationStore.DirectoryFor(_bed.StoreRoot, Region.Cn, Bed.Build), SharedCalibrationStore.StateFileName);
+
+        var pipeline = _bed.Pipeline(_bed.Services());
+        using (new FileStream(state, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            pipeline.Refresh(Bed.Game());
+            await Bed.Idle(pipeline);
+        }
+
+        Assert.True(File.Exists(_bed.SharedProfilePath));
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+        Assert.NotNull(pipeline.CalibrationStatus().Shared.ProfileId);
+        Assert.Null(pipeline.CalibrationStatus().Shared.LastRefusal);
+        Assert.False(runs.Get(recorded.RunId)!.PendingReview);
+
+        // A second contradicting session is a rejection the file shows: the next start withdraws the profile.
+        _bed.Store.RecordContradiction(Region.Cn, Bed.Build, Bed.TemplateSha, code.Sha, "session-2", Bed.Confirmed);
+        var restarted = _bed.Pipeline(_bed.Services());
+        restarted.Refresh(Bed.Game());
+        await Bed.Idle(restarted);
+
+        Assert.False(File.Exists(_bed.SharedProfilePath));
+        Assert.Equal("REJECTED", restarted.CalibrationStatus().Shared.LastRefusal);
+        Assert.True(runs.Get(recorded.RunId)!.PendingReview);
     }
 
     [Fact]

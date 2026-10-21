@@ -19,12 +19,12 @@
 | `rebuild.py` | 按随包模板结构重建校准码并拒绝无效内容；文件开头列明已移植的 C# 规则与留给客户端本机核实的部分 | 是 |
 | `index.py` | `index.json`（客户端读取格式的精确移植）与 `submissions.json` 台账；`add_submission`、`revoke`、`lift_hold`、`prune`；两个标记的 `update_marks` / `refresh_marks` 与字段级比对 `disputes` | 是 |
 | `issue.py` | 读两个 Issue 表单的正文（提交表单、报告表单）；标题只用来发现不一致；回显内容的转义 | 是 |
-| `publish.py` | Action 的命令行：`check`、`update-index`、`push-failed`、`field`、`event-field`、`pending`、`wrap-event`、`report`；维护者命令 `revoke`、`lift`、`prune`、`remark` | 是 |
+| `publish.py` | Action 的命令行：`check`、`update-index`、`push-failed`、`field`、`event-field`、`pending`、`wrap-event`、`report`；维护者命令 `revoke`、`lift`、`prune`、`remark`、`evidence lift`、`evidence compact` | 是 |
 | `publish_issue.sh` | 处理一个提交 Issue：实时查询状态与标签 → 查账号 → 校验、提交、推送（推送被拒时从新的 main 重新开始）→ 回复、打标签、关闭；有不一致的校准码时通知对方 Issue | 是 |
 | `sweep_issues.sh` | 定时补处理：逐个处理尚未回复的提交 | 是 |
-| `report_issue.sh` | 处理一个「报告校准有误」Issue：实时查询状态与标签 → 校验栏目 → 回复一次、打两个标签；不改任何文件，不关闭 Issue | 是 |
-| `evidence.py` | 读取唯一 canonical schema，按账号/会话防重放与三乘二门槛重算可逆隔离、恢复；新区服输出 CANDIDATE 缺口草案 | 是 |
-| `evidence_workflow.py` | fresh REST 作者身份与正文、固定 Git/gh 参数、原子台账/索引写入、冲突重算、单机器人评论幂等和有界持久游标 sweep | 是 |
+| `report_issue.sh` | 旧接口：处理一个「报告校准有误」Issue（校验栏目、回复一次、打两个标签）。现已没有工作流调用它，报告由 `evidence_workflow.py` 处理 | 是 |
+| `evidence.py` | 读取唯一 canonical schema，按账号/会话防重放与三乘二门槛重算可逆隔离、恢复；新区服输出 CANDIDATE 缺口草案；维护者的 `lift` 与 `compact` | 是 |
+| `evidence_workflow.py` | 证据、候选与「报告校准有误」三种 Issue 的处理：fresh REST 作者身份与正文、固定 Git/gh 参数、原子台账/索引写入、冲突重算、单机器人评论幂等、已结案 Issue 的关闭和有界持久游标 sweep | 是 |
 | `public-repo/` | 公开仓库的四语 README、LICENSE、Issue 表单、工作流、`.gitattributes`（`dot-` 前缀的文件同步时改名为点文件） | 是（改名后） |
 | `sync_public_repo.py` | 把上面这些与随包模板、空索引、许可全文组装成公开仓库的完整文件集 | 否 |
 | `generate_index_sample.py` | 生成 C# 回归测试读的 `tests/Fixtures/shared-calibration/index-sample*` | 否 |
@@ -192,36 +192,92 @@ python tools/publish.py remark --repo . --region CN --build 2026.10.06.0000.0000
 
 ### 「报告校准有误」的规则
 
-1. 只处理带 `calibration-report` 标签、仍处于打开状态的 Issue。
-2. 正文必须恰好有一个「区服」、一个「游戏版本」、一个「现象」栏目；「说明」可留空。
-   「区服」与「现象」必须是表单提供的选项，「游戏版本」必须形如客户端版本号；栏目缺失、重复或不合法一律按「没读全」回复。
-3. 打标签 `calibration-report` 与 `needs-maintainer`，回复一次，**Issue 保持打开**。
-4. **不做任何自动撤回**，也不按报告数量设阈值：报告只是维护者查看的理由。撤回始终由维护者执行 `publish.py revoke`。
-5. **状态与标签一律实时查询**（`gh issue view --json state,labels`），不取事件里的那一份：
-   报告不会被关闭，事件又可能被重投或重放，而挡住第二条回复的正是上一次打下的结果标签，
-   事件里记着的却是它触发那一刻的标签。已带结果标签的 Issue 直接跳过；现查的内容读不出来时同样跳过，
-   宁可漏一条自动回复（维护者按标签仍能找到），也不重复回复。
-6. 回复只由固定文字拼成，不回显正文或标题的任何内容；「说明」的文字根本不会离开 Issue 正文。
+1. `report-calibration.yml` 在 `opened`、`edited`、`labeled`、`reopened` 事件中，对带 `calibration-report` 标签、仍处于打开状态的
+   Issue 运行 `python -B tools/evidence_workflow.py --event "$GITHUB_EVENT_PATH"`。同时带证据表单标签的 Issue 按证据处理。
+2. 正文不作解析：普通文字报告一律不计票，结果为 `report`（原因 `STRUCTURED_EVIDENCE_REQUIRED`），回复固定文字，
+   指引玩家用软件的「共享校准证据」生成摘要后新建证据 Issue，并打上 `evidence-waiting` 标签。
+3. 每份报告在 `evidence-ledger.json` 的 `reports` 中按 Issue 编号记一条无票收据（只含账号数字编号），用于去重与容量控制：
+   全局最多 4096 条、每个账号最多 64 条，超出时回复 `LEDGER_CAPACITY_WAIT` 或 `ACCOUNT_CAPACITY_WAIT` 并保持等待。
+   收据随台账提交并推送 `main`，因此该工作流需要 `contents: write`，并与发布共用 `publish-calibration` 并发组。
+4. **不做任何自动撤回或隔离**，也不按报告数量设阈值：报告只是维护者查看的理由，**Issue 保持打开**。撤回始终由维护者执行 `publish.py revoke`。
+5. 状态、标签、作者与正文一律以实时 REST 查询为准，事件只用来定位 Issue 编号；回复前后各核对一次 Issue 未被改动。
+   每个 Issue 只有一条机器人评论（按评论开头的标记识别），重投的事件与重试只原地更新它，不重复回复。
+6. 回复只由固定文字拼成，不回显正文或标题的任何内容。
+7. 任务在开始前被并发组取消的报告，由 `evidence-calibration.yml` 的定时 sweep 补处理（见下文）。
 
-> **报告没有定时补处理。** 并发组中同时只保留一个排队任务，短时间内大量报告会让部分任务在开始前被取消，
-> 这些 Issue 因而不会收到自动回复。它们仍带着表单打上的 `calibration-report` 标签、仍处于打开状态，
-> 维护者按标签即可找到；报告不像提交那样需要按时发布，因此没有仿照 `sweep` 再加一个定时任务。
+`report_issue.sh` 与 `publish.py report` 仍随公开仓库同步，`test_workflow_script.py` 继续测试它们，但已没有工作流调用。
+
+### 证据台账的维护
+
+**会话别名与候选。** 一个会话别名（按账号计）只归它第一次被受理时所属的候选。1.7.3 客户端在一次抓包会话中给所有候选用同一个别名，
+各候选的判据各不相同；另一个候选的摘要重复这个别名时，该会话对这个候选不计，摘要照常受理，不判为无效。
+1.7.3 之后的客户端在同一次抓包会话中为每个候选各生成一个别名，该会话因此对每个候选都计入。
+
+**抢先复制。** 公开摘要可以被复制。`evidence_id` 或会话别名已由另一个账号的 Issue 先被受理、而本 Issue 编号更小（创建得更早）、
+且工作流此前从未答复过本 Issue 时，判给本 Issue：较晚那个 Issue 的全部收据、由它新建的会话行和它的票一并作废，并重算相关候选；
+较晚 Issue 的 Issue 行原样保留。之后再处理较晚的 Issue 时按复制处理（`EVIDENCE_ID_REUSED`，或该会话不计）。
+本 Issue 此前已得到过答复（受理、等待、未受理、候选草案或报告，任何结果都算）时，同样按复制处理：Issue 正文可以随时编辑，
+先建 Issue、得到答复后再贴入他人已受理的摘要，不能夺走对方的收据与票。
+工作流把每个答复过的 Issue 记入台账的 `answered`（Issue 编号 → 首次答复时的台账序号），与处理结果在同一次提交中、并在回复之前推送；
+运行在推送之前失败时 Issue 也没有得到回复，下次处理仍算首次。
+`answered` 最多 16384 行；写满、或再记一行会使台账超过字节上限时，`answered_floor` 提到已记录的最大编号并清空该表，
+编号不超过它的 Issue 一律算已答复：此时尚未处理过的 Issue 不再能收回被抢先的摘要，已答复过的 Issue 也绝不会因此获得这一资格。
+`schema_version` 为 1 的旧台账在读取时升级为 2，`answered_floor` 取台账中出现过的最大 Issue 编号。
+仍无法区分的情形：Issue 在首次被处理之前（任务被并发组取消、sweep 尚未处理到它）就被编辑贴入他人已受理的摘要，与真正被抢先的 Issue 无从区分，
+仍会判给它；这只可能发生在 sweep 处理到它之前，只能由维护者核对。
+
+**解除隔离（`evidence lift`）。** 维护者复核后执行：
+
+```bash
+python tools/publish.py evidence lift --repo . <候选编号>
+```
+
+候选编号是 `evidence-ledger.json` 中 `candidates` 下的 64 位十六进制键，其 `scope` 写明区服、版本与 `code_sha256`。
+命令清除该候选的全部隔离原因，并像自动恢复一样把触发这些原因的负向票记为已消耗；`quarantine_epoch` 不变，
+此后只有新收到的证据才能再次隔离它（届时 epoch 加一）。随后按台账重写 `index.json` 的隔离提示，之后的证据处理因此不会把它改回去；
+只手改 `index.json` 则会被下一次处理按台账覆盖。打印一行 JSON（`lifted`、`fields` 与该候选的区服、版本、`code_sha256`）。
+候选不存在或没有被隔离时退出码为 2，不写任何文件。
+
+**腾出容量（`evidence compact`）。** 台账的全局与每账号上限到顶后，新证据只会等待（`LEDGER_CAPACITY_WAIT`、`ACCOUNT_CAPACITY_WAIT`）。
+
+```bash
+python tools/publish.py evidence compact --repo .          # 只打印各类将删除的行数
+python tools/publish.py evidence compact --repo . --apply  # 写回 evidence-ledger.json，并按它重写 index.json 的隔离提示
+```
+
+只删除以后不会再被任何 Issue 计入的行：
+
+- 已退役候选的全部行：它的校准码在 `index.json` 中已撤销（包括被替换撤下）或已被 `prune` 移除，针对这样的校准码的证据在受理前就被拒绝（`PUBLISHED_CANDIDATE_REQUIRED`）。
+  被 `prune` 移除的版本若之后重新发布同一份码，它的证据从零开始累计；
+- 不属于任何候选的会话行（模板观察从不计票）；
+- 早于所属候选当前 epoch 的会话行：客户端只把会话放进同一 epoch 的摘要；
+- 被同一 Issue 后来的收据取代的收据：sweep 只重读 Issue 当前的正文，它对应的收据保留，重读仍判为重复；
+- 收据已全部删除的 Issue 行。
+
+报告收据、已答复 Issue 的记录（`answered` 与 `answered_floor`）与序号不删除。打印一行 JSON（`applied` 与各类删除行数 `removed`），不加 `--apply` 时不改动任何文件。
+删除较旧 epoch 的会话行之后，仍停留在旧 epoch 的客户端（索引长期没能刷新）若再提交含这些会话的新摘要，它们会被当作新会话；
+这与一个账号自行编造会话的效果相同，仍受「至少 3 个账号」的门槛约束。
+两条命令都只改本地文件，核对差异后由维护者提交并推送 `main`。
 
 ## 工作流的安全措施
 
 - 标题、正文、登录名均视为不可信输入。没有任何 `run:` 脚本含 `${{ }}` 表达式；`env:` 只传令牌、仓库名与 Issue 编号；
   只有 `publish.py` 从事件文件读取 Issue 内容，交回 shell 的每个值（编号、登录名、状态、标签、关闭原因、文件路径、提交说明）都先按白名单校验。
+  `evidence_workflow.py` 只从事件取 Issue 编号，内容与作者一律重新经 REST 读取，全程在 Python 内处理，不交回 shell。
 - 登录名只用于 `gh api "users/$login"`，事先校验为 `[A-Za-z0-9-]{1,39}`；账号编号再与事件中的作者编号比对。
 - 回复先写入文件，再以 `--body-file` 发送。回显的内容（例如校准码中未知的键名）经 `issue.escape_inline` 处理：去掉换行、控制与零宽字符，
   转义 Markdown/HTML，`@ # : / .` 替换为全角，杜绝提及、链接与自动链接。标题从不回显。
   给对方 Issue 的通知（`conflict-<编号>.md`）不回显任何内容；对方 Issue 编号由 `publish.py` 校验为 1–10 位、不以 0 开头的数字，
   以单个空格分隔交给 shell，标签只能是 `conflicting`。
 - `publish.py` 每次只打印一行 ASCII JSON，Issue 内容不可能出现在日志的行首，因此无法伪装成工作流命令。
-- 只用默认 `GITHUB_TOKEN`。`publish-calibration.yml` 的权限为 `contents: write`、`issues: write`；
-  `report-calibration.yml` 不写仓库，权限仅 `contents: read`（检出）与 `issues: write`（回复与打标签）。
-  两个工作流都不用 `pull_request_target`，不读取 secrets。
-- `publish-calibration.yml` 的两个 job 共用一个 `concurrency` 组，该配置写在 job 上，被 `if` 跳过的事件不占用队列；
-  运行中的任务从不取消。`report-calibration.yml` 用**另一个**并发组：报告不碰 `index.json`，既不应排在发布后面，也不应挡住发布。
+- `publish-calibration.yml`、`evidence-calibration.yml` 与 `report-calibration.yml` 只用默认 `GITHUB_TOKEN`，权限均为
+  `contents: write`、`issues: write`：三者都会推送 `main`（证据台账、索引的隔离提示、候选草案与报告收据也要提交）。
+  只有 `mirror-repository.yml` 读取 secret `GITCODE_MIRROR_TOKEN`；它只检出可信的 `main`，`persist-credentials: false`，权限仅 `contents: read`。
+  所有工作流都不用 `pull_request_target`。
+- 发布、证据与报告三个工作流的 job 共用同一个 `publish-calibration` 并发组，该配置写在 job 上，被 `if` 跳过的事件不占用队列；
+  运行中的任务从不取消。三者都写 `main`，证据与报告还写同一份 `evidence-ledger.json`，因此不能并行。
+- `mirror-repository.yml` 在推送、每 30 分钟的定时任务，以及上述三个工作流任意一次运行结束后（不论结论，因为一次运行可能先推送再失败）
+  把公开仓库的分支与标签同步到 GitCode 上的同名镜像。
 - 推送被拒绝时**不执行 rebase**。索引按提交 sha 指向码文件，rebase 会改写该提交，因此每次重试都从最新的 main 重新判定、
   重新生成两个提交，最多 5 次；仍失败则回复并转交维护者。
 - 脚本的全部语句写在函数内，最后一行以 `exit` 结尾，因为 `git reset --hard` 可能在运行中替换脚本文件本身。
@@ -233,6 +289,11 @@ python tools/publish.py remark --repo . --region CN --build 2026.10.06.0000.0000
 （`cancel-in-progress: false` 只保护正在运行的任务）。补丁日大量玩家同时分享时，部分 Issue 的任务会在开始前被取消。
 `sweep` 每 30 分钟运行一次，也可手动触发，列出仍打开、带 `share-calibration`、且尚无 `published` / `rejected` / `needs-maintainer`
 标签的 Issue，逐个交由同一个 `publish_issue.sh` 处理。
+
+`evidence-calibration.yml` 的 `sweep` 同样每 30 分钟运行一次，按持久游标 `evidence-sweep.json` 每次至多处理 25 个仍打开、
+带 `calibration-evidence`、`template-observation` 或 `calibration-report` 的 Issue，到达末尾后从头开始。
+已计入立场的证据 Issue 与已归档候选草案的 Issue 在回复后关闭（`completed`）：重读同一份正文只会得到同样的答复，关闭后 sweep 不再重复处理它们。
+仍在等待、未受理的证据 Issue 与报告保持打开，玩家可以编辑原 Issue 补充或修正；重新打开已关闭的 Issue 会再处理一次。
 
 ## 公开仓库布局
 
@@ -251,8 +312,10 @@ tools/                                       本目录的运行文件
 .github/workflows/publish-calibration.yml     自动发布与定时补处理
 .github/workflows/report-calibration.yml      普通报告自动等待、无投票收据与幂等回复
 .github/workflows/evidence-calibration.yml    证据受理、可逆隔离恢复、候选归档与补处理
+.github/workflows/mirror-repository.yml       同步到 GitCode 镜像（tools/sync_refs.py，需要 secret GITCODE_MIRROR_TOKEN）
 schemas/calibration-evidence-v1.schema.json   canonical 证据格式的逐字节副本
 evidence-ledger.json、evidence-sweep.json     有界证据台账与补处理游标
+candidates/<哈希>.json                       无模板区服的 CANDIDATE 草案（证据工作流写入）
 README.md、README.zh-TW.md、README.en.md、README.ja.md
 LICENSE.md、LICENSES/GPL-3.0-or-later.txt、.gitattributes、.gitignore
 ```
@@ -268,7 +331,9 @@ pwsh -NoProfile -File scripts/run-python-tool-tests.ps1   # verify.ps1 的工具
 ```
 
 `test_workflow_script.py` 在本地以裸仓库代替 GitHub，以桩 `gh` 记录调用，真实运行三个 shell 脚本，
-其中包括「维护者先推送」的并发场景，以及报告 Issue 只被回复一次、不被关闭、不改动任何文件。
+其中包括「维护者先推送」的并发场景，以及旧接口 `report_issue.sh` 只回复一次、不关闭 Issue、不改动任何文件。
+`test_evidence.py` 用同一套桩真实运行 `evidence_workflow.py`：证据的受理、隔离与恢复，已结案 Issue 的关闭，
+以及报告只回复一次、保持打开、不改动索引。
 该测试需要 bash 与 git；Windows 上使用 Git for Windows 自带的 bash，不使用 WSL。依赖缺失时跳过。
 
 ## 需要用户确认后才能执行的手工步骤
@@ -296,6 +361,15 @@ pwsh -NoProfile -File scripts/run-python-tool-tests.ps1   # verify.ps1 的工具
 > 补建标签 `conflicting`（第 6 步）；推送后在公开仓库执行一次 `python tools/publish.py remark --repo .`，
 > 核对输出后提交并推送 `index.json`，为既有条目补上 `shape_prior` 并按字段级规则重算 `conflicting`。
 > 索引与台账的格式向后兼容：旧客户端忽略 `shape_prior`，旧台账没有 `basis` 也照常读写。
+>
+> **证据通道与 GitCode 镜像（1.7.3 起）需要补做的步骤**，同样须先向用户确认；执行前先用
+> `gh label list --repo Harendotes-Tang/MentorRecorder-Calibrations` 与公开仓库的文件列表核对哪些已经存在：
+> 把 `sync_public_repo.py` 生成的 `tools/evidence.py`、`tools/evidence_workflow.py`、`tools/publish.py`、`tools/sync_refs.py`、
+> `schemas/calibration-evidence-v1.schema.json`、`.github/ISSUE_TEMPLATE/evidence-calibration.yml`、
+> `.github/ISSUE_TEMPLATE/template-observation.yml`、`.github/workflows/evidence-calibration.yml`、
+> `.github/workflows/report-calibration.yml`、`.github/workflows/mirror-repository.yml` 与四份 README 同步到公开仓库并推送；
+> 补建 `calibration-evidence`、`template-observation` 与四个证据结果标签（第 6 步）；添加 secret `GITCODE_MIRROR_TOKEN`（第 7 步）。
+> 证据台账 `evidence-ledger.json` 与补处理游标 `evidence-sweep.json` 由工作流第一次处理时创建并提交，不需要手工准备。
 
 以下每一步都会对外产生效果，**执行前逐项向用户确认**：
 
@@ -325,7 +399,7 @@ pwsh -NoProfile -File scripts/run-python-tool-tests.ps1   # verify.ps1 的工具
    git push -u origin main
    ```
 
-6. 建六个标签：
+6. 建十二个标签：
 
    ```powershell
    gh label create share-calibration --repo Harendotes-Tang/MentorRecorder-Calibrations --color 1D76DB --description "共享校准码提交"
@@ -334,14 +408,24 @@ pwsh -NoProfile -File scripts/run-python-tool-tests.ps1   # verify.ps1 的工具
    gh label create rejected --repo Harendotes-Tang/MentorRecorder-Calibrations --color B60205 --description "未受理"
    gh label create needs-maintainer --repo Harendotes-Tang/MentorRecorder-Calibrations --color FBCA04 --description "需要维护者处理"
    gh label create conflicting --repo Harendotes-Tang/MentorRecorder-Calibrations --color C5DEF5 --description "与同版本的另一份校准码不一致"
+   gh label create calibration-evidence --repo Harendotes-Tang/MentorRecorder-Calibrations --color 5319E7 --description "共享校准证据摘要"
+   gh label create template-observation --repo Harendotes-Tang/MentorRecorder-Calibrations --color 006B75 --description "无模板区服的候选线索"
+   gh label create evidence-accepted --repo Harendotes-Tang/MentorRecorder-Calibrations --color 0E8A16 --description "证据已计入该账号的立场"
+   gh label create evidence-waiting --repo Harendotes-Tang/MentorRecorder-Calibrations --color C2E0C6 --description "证据或报告自动等待"
+   gh label create evidence-invalid --repo Harendotes-Tang/MentorRecorder-Calibrations --color E99695 --description "证据摘要未受理"
+   gh label create candidate-waiting --repo Harendotes-Tang/MentorRecorder-Calibrations --color BFD4F2 --description "候选草案已归档，协议语义尚不完整"
    ```
 
-   > **仓库已存在时只需补建 `conflicting`**（`calibration-report` 已于 2026-10-06 同步时建好，`needs-maintainer` 已于 2026-09-16 建好）。
-   > 脚本在打标签前会先 `gh label create`，标签缺失不会让 Issue 无人回复，但预先建好才有颜色与说明。
+   > **仓库已存在时，先用 `gh label list` 核对，只补建缺少的标签**（`calibration-report` 已于 2026-10-06 同步时建好，`needs-maintainer` 已于 2026-09-16 建好）。
+   > `calibration-evidence` 与 `template-observation` 必须在证据表单启用前建好：GitHub 只在标签已存在时才给用表单提交的 Issue 打上它，
+   > 而证据工作流只处理带这两个标签之一（或 `calibration-report`）的 Issue，缺少时这些 Issue 永远不会被处理。
+   > 其余标签缺失时，脚本在打标签前会先 `gh label create`，不会让 Issue 无人回复，但预先建好才有颜色与说明。
 
 7. 设置：确认 Issues 已开启（`gh repo edit Harendotes-Tang/MentorRecorder-Calibrations --enable-issues`），Actions 已允许运行。
    Settings → Actions → General → Workflow permissions：工作流文件已自行声明 `contents: write` 与 `issues: write`；
-   若仓库或账号策略将令牌限制为只读，选择 "Read and write permissions"。不需要任何 secret。
+   若仓库或账号策略将令牌限制为只读，选择 "Read and write permissions"。
+   GitCode 镜像工作流 `mirror-repository.yml` 需要仓库 secret `GITCODE_MIRROR_TOKEN`（对 GitCode 上同名镜像仓库有推送权限的令牌）：
+   `gh secret set GITCODE_MIRROR_TOKEN --repo Harendotes-Tang/MentorRecorder-Calibrations`。其余工作流只用默认 `GITHUB_TOKEN`，不读取任何 secret。
 8. **验收（plan §8 阶段 D）**：在公开宣布前用测试 Issue 走通以下场景：合法码发布；非法码拒绝并回复原因；标题与正文中的注入
    （`$(…)`、反引号、`@提及`、Markdown 链接、`### 校准码` 重复栏目）既不被执行也不被回显；两份并发提交不丢失更新；
    非协作者账号创建的 Issue 可正常发布（plan §9 待实测项）。测试数据建议使用不存在的过去的客户端版本号，

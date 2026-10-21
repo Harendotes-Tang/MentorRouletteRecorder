@@ -459,7 +459,8 @@ internal sealed partial class SharedCalibrationSession
             RanComplete = ranComplete,
             Proven = ranComplete && IsSettled(selected),
         };
-        if (!_withdrawn.Contains(selected.ProfileId) && IsUserRejected(selected.Region, selected.GameBuild))
+        // Only a refusal the store shows withdraws it: a state file that cannot be read for a moment is no refusal (E-2).
+        if (!_withdrawn.Contains(selected.ProfileId) && UserRejection(selected.Region, selected.GameBuild) == true)
         {
             Supersede(UserRejectedReason, contradicted: false);
         }
@@ -496,10 +497,12 @@ internal sealed partial class SharedCalibrationSession
 
             // Adopted from disk - after a restart, or after a withdrawal whose delete failed: a code this
             // build's traffic already rejected is withdrawn again, never trusted. Once per profile per
-            // process, so a file that cannot be deleted does not turn every selection into a retry.
+            // process, so a file that cannot be deleted does not turn every selection into a retry. Only a
+            // rejection the records show: a state file another program holds open for a moment is none, and
+            // withdrawing over it would flag every run the profile recorded (re-review 2026-10-20, RV2-1).
             if (!bound.Proven && !_withdrawn.Contains(bound.ProfileId) &&
                 (_rejected.Contains(declared.CandidateId) || Attempt(() => _services.SharedCalibrations.IsRejected(
-                    context.Key.Region, context.Key.GameBuild, context.Key.TemplateSha256, declared.CandidateId))))
+                    context.Key.Region, context.Key.GameBuild, context.Key.TemplateSha256, declared.CandidateId)) == true))
             {
                 Supersede("REJECTED");
                 return;
@@ -634,6 +637,13 @@ internal sealed partial class SharedCalibrationSession
         _binding = null;
         _deferred = null;
         _key = key;
+        if (key is { } next)
+        {
+            // A revocation read before this process started lives on the disk only (audit 2026-10-20, E-1).
+            _revoked.UnionWith(Attempt(() => _services.SharedCalibrations.RevokedCodes(next.Region, next.GameBuild)) ??
+                               Array.Empty<string>());
+        }
+
         _rejected.Clear();
         _rejectedSummaries.Clear();
         _contradictions.Clear();

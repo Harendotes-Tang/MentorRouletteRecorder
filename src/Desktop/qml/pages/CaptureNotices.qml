@@ -14,6 +14,7 @@ ColumnLayout {
     id: notices
 
     signal openCalibrationRequested()
+    signal openRegionSettingsRequested()
 
     // The hero card is saying the calibration sentence, so the row need not.
     property bool heroSpeaksCalibration: false
@@ -37,7 +38,11 @@ ColumnLayout {
     // launcher may patch over it before the next login.
     readonly property bool buildUnknown: !notices.capture.game_build || !notices.capture.region
                                          || notices.capture.region === "UNKNOWN"
-    // 本机校准出来的档案生效后，校准卡片连同「清空进度并重新观察」「导入校准码」一起消失，
+    readonly property bool offersRegionSetting: App.ffxivRunning
+        && (!notices.capture.region || notices.capture.region === "UNKNOWN")
+        && notices.capture.install_path_readable !== false
+        && !App.gameSelection.selectionRequired
+    // 本机校准出来的档案生效后，校准卡片连同「清空校准进度」「导入校准码」一起消失，
     // 玩家再无入口可用。「重新校准」只在这种情况下出现：别人分享的校准由「不用共享的，
     // 我自己校准」停用，随包档案不是本机的猜测，没有档案时也无从停用。
     readonly property bool offersRecalibrate: notices.profileStatus === "VERIFIED"
@@ -57,6 +62,13 @@ ColumnLayout {
     // 停用档案会把正在进行的记录按停止捕获收尾，等于让玩家白打这一把。
     readonly property bool runInFlight: App.currentRunState === "MENTOR_MATCHED"
                                         || App.currentRunState === "ENTERED_DUTY"
+    // 对话框可能在排队时打开、副本恰在此时开始：确认按钮随之停用，对话框也关掉（审查 K2-2）。
+    onRunInFlightChanged: {
+        if (notices.runInFlight) {
+            recalibrateDialog.close()
+            restoreDialog.close()
+        }
+    }
     // A known, non-verified profile while the game runs is the reason nothing is
     // recorded. While calibration runs its own card explains that instead, and
     // with the game closed the hero already says it once - a second card there
@@ -68,7 +80,7 @@ ColumnLayout {
     // 协议档案卡就会整张隐藏，「恢复上一份本机校准」也随之不可达——正是本功能要堵的洞。
     readonly property bool profileCardVisible: notices.offersShare || notices.calibratedProfile
                                                || notices.profileProblem || notices.offersRestore
-                                               || notices.restoreNoticeVisible
+                                               || notices.restoreNoticeVisible || notices.offersRegionSetting
 
     /// The remembered adapter the Collector now reports as carrying no game
     /// traffic, and the one it recommends instead. The notice appears only when
@@ -113,6 +125,8 @@ ColumnLayout {
         if (status === "VERIFIED")
             return App.ffxivRunning ? qsTr("已支持当前游戏版本")
                                     : qsTr("已支持安装在这台电脑上的游戏版本")
+        if (notices.offersRegionSetting)
+            return qsTr("尚未识别游戏区服")
         if (notices.buildUnknown)
             return qsTr("尚未识别游戏版本或区服")
         if (status === "UNSUPPORTED_BUILD")
@@ -133,7 +147,9 @@ ColumnLayout {
                         + "如果没有自动识别到通关，请在离开副本后打开记录补上结果。")
         if (notices.profileStatus === "VERIFIED")
             return qsTr("能自动记录指导者任务的匹配、进入和离开；副本内收到通关结算时自动记为通关。"
-                        + "没有收到结算就离开副本时，记录会标为“待复核”，在记录里用“修正”填上结果。")
+                        + "没有收到结算就离开副本时，记录会标为“待复核”，在记录里用“手动修正”填上结果。")
+        if (notices.offersRegionSetting)
+            return qsTr("无法从安装路径判断区服。请在「设置 → 通用」中选择实际使用的国服或国际服，保存后会重新检查。")
         // message_ref renders the Collector's sentence in the interface language.
         const detail = notices.profile.message
             ? " " + Fmt.collectorText(notices.profile.message_ref, notices.profile.message) : ""
@@ -364,6 +380,13 @@ ColumnLayout {
                 spacing: 8
 
                 AppButton {
+                    objectName: "openRegionSettingsButton"
+                    visible: notices.offersRegionSetting
+                    text: qsTr("设置区服")
+                    onClicked: notices.openRegionSettingsRequested()
+                }
+
+                AppButton {
                     objectName: "protocolShareButton"
                     visible: notices.offersShare
                     variant: "primary"
@@ -442,7 +465,7 @@ ColumnLayout {
                     objectName: "protocolRecalibrateConfirm"
                     variant: "primary"
                     text: qsTr("停用并重新校准")
-                    enabled: !!App.calibration && !App.calibration.busy
+                    enabled: !notices.runInFlight && !!App.calibration && !App.calibration.busy
                     onClicked: {
                         App.calibration.recalibrate()
                         recalibrateDialog.close()
@@ -503,7 +526,7 @@ ColumnLayout {
                     objectName: "protocolRestoreConfirm"
                     variant: "primary"
                     text: qsTr("恢复")
-                    enabled: !!App.calibration && !App.calibration.busy
+                    enabled: !notices.runInFlight && !!App.calibration && !App.calibration.busy
                     onClicked: {
                         App.calibration.restoreLocalProfile()
                         restoreDialog.close()

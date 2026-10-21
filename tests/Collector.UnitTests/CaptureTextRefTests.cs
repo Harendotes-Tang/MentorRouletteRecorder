@@ -125,7 +125,7 @@ public sealed class CaptureTextRefTests
 
         var wire = CaptureWire.Profile(profile);
 
-        Assert.Equal("协议档案不可用（fail-closed）：no profile matches this region and build", wire["message"]!.GetValue<string>());
+        Assert.Equal("协议档案不可用，暂时不会自动记录：no profile matches this region and build", wire["message"]!.GetValue<string>());
         Assert.Equal("no profile matches this region and build", wire["message_ref"]!["args"]!["reason"]!.GetValue<string>());
         CollectorTextCatalogue.AssertParallel(wire["message"], wire["message_ref"]);
     }

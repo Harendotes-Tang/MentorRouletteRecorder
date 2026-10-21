@@ -64,9 +64,20 @@
     "pattern cannot tell that member from Process.Handle without knowing the type, and any",
     "spelling it could key on would let a process handle through under the same spelling, so",
     "each such line carries a pinned marker (audit 2026-10-03, CS5-X1).",
-    "INJ-008 and INJ-009 also match a member after whitespace following the dot, and in C#",
-    "property patterns and object initialisers, where the name follows '{' or ',' or starts",
-    "the line and is followed by ':', '.' or '=' (V5-2).",
+    "INJ-008 and INJ-009 also match a member after a dot with whitespace on both sides",
+    "('game . Kill'), and in C# property patterns and object initialisers, where the name",
+    "follows '{' or ',' or starts the line and is followed by ':', '.' or '=' (V5-2). Whitespace",
+    "after the dot alone is not enough (N2-2, audit 2026-10-20): 'its content. Modules are'",
+    "is a sentence in a comment, not a member access. Both also match a C# verbatim",
+    "identifier after the dot or in a property pattern ('game.@Kill()', '{ @Modules: ... }'),",
+    "and INJ-008 matches a PowerShell pipeline that names MainModule or Modules without a dot",
+    "under the same grammar as INJ-009's (below), and Get-Process / gps / ps with -Module or",
+    "-FileVersionInfo (any abbreviation from -M or -Fi, and the alias -FV) before the next '|',",
+    "';' or '#', which read the module table of every process they list (N2-1).",
+    "N2-4 (audit 2026-10-20) adds the process-boundary APIs that need no other forbidden token:",
+    "SetWinEventHook (INJ-005), the WMI classes Win32_Process / CIM_Process (INJ-007), a Toolhelp",
+    "module snapshot (INJ-008), ProcessThread.PriorityLevel / IdealProcessor / ResetIdealProcessor",
+    "(INJ-009) and Process.Responding after a dot or in a property pattern (AUT-001).",
     "INJ-009 also matches a PowerShell pipeline that names one of its members without a dot",
     "(S33-9): a process source on the line (Get-Process, gps, ps, or [Process]::GetProcesses*)",
     "and, after a later '|', Select-Object, ForEach-Object, Sort-Object, Where-Object,",
@@ -75,6 +86,13 @@
     "and not after a '#'. The process source is what tells 'Get-Process | Sort-Object StartTime'",
     "from '$runs | Sort-Object StartTime'; inside a string the pipeline still counts, because a",
     "string handed to powershell -Command runs it.",
+    "",
+    "INJ-007 allows, by exact path, the two packaging budget tests (N2-7, audit 2026-10-20):",
+    "tools/package-verification/test_package_runtime_budget.py and test_static_analysis_budget.py",
+    "each wait on a child process their own fixture started, with a SYNCHRONIZE-only",
+    "OpenProcess, as INJ-009 allows the code that drives our own processes. They used to carry",
+    "five line markers whose pinned 'match' was only the API name, so a changed call on a marked",
+    "line stayed green; an allowance by path says plainly what is allowed and where.",
     "",
     "installer/MentorRecorder.iss creates its Inno Setup download page on one line, which",
     "carries a pinned NET-009 marker (V5-4; until then the whole file was allowed): when",
@@ -93,7 +111,11 @@
     "cmd /c and Start-Process, quoted after the call operator &, and with a path in front),",
     "outside a '#' comment and outside other quoted text, and not followed by a letter, a",
     "digit, '.', '-' or '_', so prose, identifiers and tools that merely contain those words",
-    "do not trip it (V5-5).",
+    "do not trip it (V5-5). A download command handed to a process launcher as its program",
+    "is a command too (N2-3, audit 2026-10-20): quoted or not, with or without a path, after",
+    "-Executable or -FilePath, assigned to .FileName, or as the first argument of",
+    "ProcessStartInfo( / [ProcessStartInfo]::new(. The one such download, the CI workflow's",
+    "pinned cppcheck MSI (size and SHA-256 checked before use), carries a pinned NET-009 marker.",
     "",
     "NET-009/xml-loads (S33-9) refuses an XML reader handed a remote address, which it then",
     "downloads itself: '.Load(' or ']::Load(' whose first argument is an http(s) literal",
@@ -109,7 +131,11 @@
     "poplib, imaplib, nntplib, telnetlib, xmlrpc.client, websockets) as an import or from",
     "statement, as 'from urllib|http|xmlrpc import request|client', or through __import__ /",
     "importlib.import_module with the name as a literal, and a call of urlopen, urlretrieve or",
-    "asyncio.open_connection outside a '#' comment and outside a string. Matching import",
+    "asyncio.open_connection outside a '#' comment and outside a string; N2-5 (audit 2026-10-20)",
+    "adds the listeners http.server, socketserver and xmlrpc.server (also 'from http import",
+    "server'), asyncio.start_server, any '.create_connection(' / '.create_server(' (an event",
+    "loop's, ssl's) and ssl.get_server_certificate, and NET-009 adds Qt.createComponent and",
+    "QQmlComponent::loadUrl with a remote address. Matching import",
     "statements and calls, not names, keeps the tests quiet that fake a download (a fake",
     "function, mock.patch of a name in a string). It allows exactly one file, by exact path:",
     "tools/duty-data-generator/generate.py, the dev-time generator that downloads the duty",
@@ -256,6 +282,31 @@
       "file": "tests/Desktop.Tests/RunDetailPanelTests.cpp",
       "rule": "NET-006",
       "match": "QNetworkAccessManager"
+    },
+    {
+      "file": "scripts/package-process-job.cs",
+      "rule": "INJ-009",
+      "match": "                    ExitCode ="
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "rule": "INJ-009",
+      "match": ".ExitCode"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "rule": "INJ-009",
+      "match": ".ExitCode"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "rule": "INJ-009",
+      "match": ".ExitCode"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "rule": "NET-009",
+      "match": "          $download = New-IsolatedPackageStartInfo -Executable \"$env:SystemRoot/System32/curl.exe"
     }
   ],
   "rules": [
@@ -286,8 +337,8 @@
     {
       "id": "INJ-005",
       "category": "process-injection",
-      "pattern": "\\bSetWindowsHookEx\\w*\\b",
-      "message": "全局/远程消息钩子被禁止 / installing Windows hooks is forbidden"
+      "pattern": "\\bSetWindowsHookEx\\w*\\b|\\bSetWinEventHook\\b",
+      "message": "全局/远程消息钩子与事件钩子被禁止（SetWindowsHookEx；SetWinEventHook 的 WINEVENT_INCONTEXT 会把本软件的 DLL 映射进目标进程，而该标志通常写在另一行的常量中，所以整个函数都不允许） / installing Windows hooks is forbidden (SetWindowsHookEx; SetWinEventHook as a whole, because its WINEVENT_INCONTEXT flag maps our DLL into the target and usually sits in a constant on another line)"
     },
     {
       "id": "INJ-006",
@@ -298,20 +349,24 @@
     {
       "id": "INJ-007",
       "category": "process-injection",
-      "pattern": "\\bOpenProcess\\b|\\b(?:Nt|Zw)OpenProcess\\b|\\bDebugActiveProcess\\b|\\bEnterDebugMode\\b|\\bGetProcessHandleFromHwnd\\b|\\b(?:Nt|Zw)GetNextProcess\\b|\\bOpenThread\\b|\\b(?:Nt|Zw)OpenThread\\b",
-      "message": "禁止打开游戏进程或其线程的句柄，或为此取得调试特权（OpenProcess、OpenThread、按窗口取进程句柄的 GetProcessHandleFromHwnd、逐个打开进程的 NtGetNextProcess、DebugActiveProcess、Process.EnterDebugMode）；只允许不打开任何进程句柄的查询：内核进程表快照（进程编号、映像名、创建时间）与单个进程的映像路径查询、系统 TCP 表、系统路由表，以及桌面端点选游戏窗口时读取前台窗口所属的进程编号 / opening a handle to another process or one of its threads, or taking the debug privilege to do so (OpenProcess, OpenThread, GetProcessHandleFromHwnd, which opens one from a window, NtGetNextProcess, which opens one process after another, DebugActiveProcess, Process.EnterDebugMode), is forbidden; only queries that open no process handle are allowed: the kernel process-table snapshot (ids, image names, creation times) and its per-process image-path lookup, the system TCP table, the system routing table, and the Desktop reading the foreground window's process id while the player picks the game window"
+      "pattern": "\\bOpenProcess\\b|\\b(?:Nt|Zw)OpenProcess\\b|\\bDebugActiveProcess\\b|\\bEnterDebugMode\\b|\\bGetProcessHandleFromHwnd\\b|\\b(?:Nt|Zw)GetNextProcess\\b|\\bOpenThread\\b|\\b(?:Nt|Zw)OpenThread\\b|(?i:\\b(?:win32|cim)_process\\b)",
+      "message": "禁止打开游戏进程或其线程的句柄，或为此取得调试特权（OpenProcess、OpenThread、按窗口取进程句柄的 GetProcessHandleFromHwnd、逐个打开进程的 NtGetNextProcess、DebugActiveProcess、Process.EnterDebugMode，以及 WMI 的 Win32_Process / CIM_Process：其提供程序会打开所列的每个进程，读取映像路径与命令行）；只允许不打开任何进程句柄的查询：内核进程表快照（进程编号、映像名、创建时间）与单个进程的映像路径查询、系统 TCP 表、系统路由表，以及桌面端点选游戏窗口时读取前台窗口所属的进程编号。只有两个打包预算测试按精确路径放行：它们只以 SYNCHRONIZE 权限等待自己启动的夹具子进程 / opening a handle to another process or one of its threads, or taking the debug privilege to do so (OpenProcess, OpenThread, GetProcessHandleFromHwnd, which opens one from a window, NtGetNextProcess, which opens one process after another, DebugActiveProcess, Process.EnterDebugMode, and the WMI classes Win32_Process / CIM_Process, whose provider opens every process it lists to read its image path and command line), is forbidden; only queries that open no process handle are allowed: the kernel process-table snapshot (ids, image names, creation times) and its per-process image-path lookup, the system TCP table, the system routing table, and the Desktop reading the foreground window's process id while the player picks the game window. Only the two packaging budget tests are allowed, by exact path: each waits, with SYNCHRONIZE access only, on a child its own fixture started",
+      "allow_paths": [
+        "tools/package-verification/test_package_runtime_budget.py",
+        "tools/package-verification/test_static_analysis_budget.py"
+      ]
     },
     {
       "id": "INJ-008",
       "category": "process-injection",
-      "pattern": "\\.\\s*(?:MainModule|Modules)\\b|(?:^|(?<=[{,]))\\s*(?:MainModule|Modules)\\s*[.:]",
-      "message": "禁止使用 Process.MainModule / Process.Modules（含属性模式中的写法）：二者内部以 PROCESS_QUERY_INFORMATION | PROCESS_VM_READ 打开目标进程句柄并读取其模块表，请改用内核进程表（ProcessImagePath） / Process.MainModule and Process.Modules are forbidden, property patterns included: they open a handle to the target with PROCESS_QUERY_INFORMATION | PROCESS_VM_READ and read its module table; use the kernel process table (ProcessImagePath) instead"
+      "pattern": "(?:\\.|\\s+\\.\\s*)@?(?:MainModule|Modules)\\b|(?:^|(?<=[{,]))\\s*@?(?:MainModule|Modules)\\s*[.:]|(?i:^(?=[^|\\r\\n]*\\|)[^#\\r\\n]*?(?:(?<![\\w$.-])(?:get-process|gps|ps)(?![\\w-])|\\bGetProcesses\\w*)[^#\\r\\n]*?\\|\\s*(?:(?:select|foreach|sort|where|group|measure)(?:-object)?|format-(?:table|list)|f[tl]|%|\\?)(?![\\w-])[^#|;{}\\r\\n]*?(?<![\\w$.-])(?:MainModule|Modules)(?![\\w-]))|(?i:^[^#\\r\\n]*?(?<![\\w$.-])(?:get-process|gps|ps)(?![\\w-])[^#|;\\r\\n]*?\\s-(?:m\\w*|fi\\w*|fv)(?![\\w-]))|\\bModule32(?:First|Next)W?\\b|\\bTH32CS_SNAP(?:MODULE(?:32)?|ALL)\\b",
+      "message": "禁止使用 Process.MainModule / Process.Modules（含属性模式与 PowerShell 管道中的写法，以及 Get-Process 的 -Module / -FileVersionInfo）与 Toolhelp 模块快照（TH32CS_SNAPMODULE / TH32CS_SNAPALL、Module32First / Module32Next）：它们都会打开目标进程并读取其模块表，请改用内核进程表（ProcessImagePath） / Process.MainModule and Process.Modules are forbidden, property patterns, PowerShell pipelines and Get-Process -Module / -FileVersionInfo included, and so is a Toolhelp module snapshot (TH32CS_SNAPMODULE / TH32CS_SNAPALL, Module32First / Module32Next): each opens the target and reads its module table; use the kernel process table (ProcessImagePath) instead"
     },
     {
       "id": "INJ-009",
       "category": "process-injection",
-      "pattern": "\\.\\s*(?:StartTime|ExitTime|SafeHandle|HasExited|ExitCode|EnableRaisingEvents|PriorityClass|PriorityBoostEnabled|ProcessorAffinity|TotalProcessorTime|UserProcessorTime|PrivilegedProcessorTime|MaxWorkingSet|MinWorkingSet|WaitForExit|WaitForExitAsync|WaitForInputIdle|Kill)\\b|\\.\\s*Handle\\b(?!\\s*\\()|\\bGetProcessById\\b|(?:^|(?<=[{,]))\\s*(?:HasExited|StartTime|ExitTime|SafeHandle|EnableRaisingEvents|PriorityClass|PriorityBoostEnabled|ProcessorAffinity|\\w*ProcessorTime|M(?:ax|in)WorkingSet|Handle|ExitCode)\\s*[.:=]|(?i:^(?=[^|\\r\\n]*\\|)[^#\\r\\n]*?(?:(?<![\\w$.-])(?:get-process|gps|ps)(?![\\w-])|\\bGetProcesses\\w*)[^#\\r\\n]*?\\|\\s*(?:(?:select|foreach|sort|where|group|measure)(?:-object)?|format-(?:table|list)|f[tl]|%|\\?)(?![\\w-])[^#|;{}\\r\\n]*?(?<![\\w$.-])(?:StartTime|ExitTime|Handle|SafeHandle|HasExited|ExitCode|EnableRaisingEvents|PriorityClass|PriorityBoostEnabled|ProcessorAffinity|TotalProcessorTime|UserProcessorTime|PrivilegedProcessorTime|MaxWorkingSet|MinWorkingSet|WaitForExit|WaitForExitAsync|WaitForInputIdle|Kill)(?![\\w-]))",
-      "message": "禁止使用会打开目标进程句柄的 Process 成员（StartTime、HasExited、WaitForExit、Kill、Handle、GetProcessById 等，含属性模式与对象初始化器中的写法，以及 PowerShell 管道中不带点号点名这些成员的写法，如 Get-Process | Select-Object StartTime、ForEach-Object Kill、Where-Object HasExited 及其别名，不分大小写）：对游戏进程而言这就是打开它的句柄；游戏只允许进程存在性检查与内核进程表。只有驱动本软件自身进程的父进程看门狗、测试与脚本按精确路径放行 / Process members that open a handle to their process (StartTime, HasExited, WaitForExit, Kill, Handle, GetProcessById, ..., property patterns, object initialisers and PowerShell pipelines that name the member without a dot, such as Get-Process | Select-Object StartTime, ForEach-Object Kill or Where-Object HasExited and their aliases, in any letter case, included) are forbidden: on the game they are a handle to the game, which may only be checked for existence and read through the kernel process table; only the parent watchdog and the tests and scripts that drive our own processes are allowed, by exact path",
+      "pattern": "(?:\\.|\\s+\\.\\s*)@?(?:StartTime|ExitTime|SafeHandle|HasExited|ExitCode|EnableRaisingEvents|PriorityClass|PriorityBoostEnabled|ProcessorAffinity|TotalProcessorTime|UserProcessorTime|PrivilegedProcessorTime|MaxWorkingSet|MinWorkingSet|WaitForExit|WaitForExitAsync|WaitForInputIdle|Kill|PriorityLevel|IdealProcessor|ResetIdealProcessor)\\b|(?:\\.|\\s+\\.\\s*)@?Handle\\b(?!\\s*\\()|\\bGetProcessById\\b|(?:^|(?<=[{,]))\\s*@?(?:HasExited|StartTime|ExitTime|SafeHandle|EnableRaisingEvents|PriorityClass|PriorityBoostEnabled|ProcessorAffinity|\\w*ProcessorTime|M(?:ax|in)WorkingSet|Handle|ExitCode|PriorityLevel)\\s*[.:=]|(?i:^(?=[^|\\r\\n]*\\|)[^#\\r\\n]*?(?:(?<![\\w$.-])(?:get-process|gps|ps)(?![\\w-])|\\bGetProcesses\\w*)[^#\\r\\n]*?\\|\\s*(?:(?:select|foreach|sort|where|group|measure)(?:-object)?|format-(?:table|list)|f[tl]|%|\\?)(?![\\w-])[^#|;{}\\r\\n]*?(?<![\\w$.-])(?:StartTime|ExitTime|Handle|SafeHandle|HasExited|ExitCode|EnableRaisingEvents|PriorityClass|PriorityBoostEnabled|ProcessorAffinity|TotalProcessorTime|UserProcessorTime|PrivilegedProcessorTime|MaxWorkingSet|MinWorkingSet|WaitForExit|WaitForExitAsync|WaitForInputIdle|Kill|PriorityLevel|ResetIdealProcessor)(?![\\w-]))",
+      "message": "禁止使用会打开目标进程句柄的 Process 成员（StartTime、HasExited、WaitForExit、Kill、Handle、GetProcessById，以及打开线程句柄的 ProcessThread.PriorityLevel / IdealProcessor / ResetIdealProcessor 等，含属性模式与对象初始化器中的写法，以及 PowerShell 管道中不带点号点名这些成员的写法，如 Get-Process | Select-Object StartTime、ForEach-Object Kill、Where-Object HasExited 及其别名，不分大小写）：对游戏进程而言这就是打开它的句柄；游戏只允许进程存在性检查与内核进程表。只有驱动本软件自身进程的父进程看门狗、测试与脚本按精确路径放行 / Process members that open a handle to their process (StartTime, HasExited, WaitForExit, Kill, Handle, GetProcessById, and ProcessThread.PriorityLevel / IdealProcessor / ResetIdealProcessor, which open the thread, ..., property patterns, object initialisers and PowerShell pipelines that name the member without a dot, such as Get-Process | Select-Object StartTime, ForEach-Object Kill or Where-Object HasExited and their aliases, in any letter case, included) are forbidden: on the game they are a handle to the game, which may only be checked for existence and read through the kernel process table; only the parent watchdog and the tests and scripts that drive our own processes are allowed, by exact path",
       "allow_paths": [
         "src/Collector/Diagnostics/ParentProcessWatchdog.cs",
         "tests/Collector.IntegrationTests/LifecycleOrphanTests.cs",
@@ -509,15 +564,15 @@
       "id": "NET-009",
       "variant": "downloads",
       "category": "outbound-network",
-      "pattern": "(?i:\\bInvoke-WebRequest\\b|\\bInvoke-RestMethod\\b|\\bStart-BitsTransfer\\b)|(?i:\\b(?:DownloadTemporaryFile\\w*|CreateDownloadPage)\\s*\\()|\\bXMLHttpRequest\\b|\\bsource\\s*:\\s*[\"']https?://|(?i:\\b(?:MSXML2\\.(?:Server)?XMLHTTP|Microsoft\\.XMLHTTP)\\b)|\\b(?:load|setSource)\\s*\\(\\s*(?:QUrl\\s*\\(\\s*)?(?:QStringLiteral\\s*\\(\\s*)?u?\"https?://",
-      "message": "禁止脚本、安装程序、QML 与桌面端自行下载或请求网络资源（Invoke-WebRequest、Invoke-RestMethod、BITS、Inno Setup 下载页（不分大小写）、XMLHttpRequest 与 MSXML2.XMLHTTP、远程 source、把远程地址交给 QML 引擎的 load / setSource）；唯一例外是安装程序在缺少 Npcap 时从 npcap.com 下载固定版本、校验 SHA-256 的官方安装程序，创建下载页的那一行带有登记在案的行内标记（Npcap 的免费许可证不允许随包分发，见 README.md 与 THIRD_PARTY_NOTICES.md） / scripts, the installer, QML and the Desktop must not download or request network resources themselves (Invoke-WebRequest, Invoke-RestMethod, BITS, Inno Setup download pages in any letter case, XMLHttpRequest and MSXML2.XMLHTTP, a remote source, load / setSource handing the QML engine a remote address); the one exception is the installer downloading the official Npcap installer (pinned version, SHA-256 checked) from npcap.com when Npcap is missing, whose one line creating the download page carries a pinned marker, because Npcap's free licence forbids bundling it (see README.md and THIRD_PARTY_NOTICES.md)"
+      "pattern": "(?i:\\bInvoke-WebRequest\\b|\\bInvoke-RestMethod\\b|\\bStart-BitsTransfer\\b)|(?i:\\b(?:DownloadTemporaryFile\\w*|CreateDownloadPage)\\s*\\()|\\bXMLHttpRequest\\b|\\bsource\\s*:\\s*[\"']https?://|(?i:\\b(?:MSXML2\\.(?:Server)?XMLHTTP|Microsoft\\.XMLHTTP)\\b)|\\b(?:load|loadUrl|setSource)\\s*\\(\\s*(?:QUrl\\s*\\(\\s*)?(?:QStringLiteral\\s*\\(\\s*)?u?\"https?://",
+      "message": "禁止脚本、安装程序、QML 与桌面端自行下载或请求网络资源（Invoke-WebRequest、Invoke-RestMethod、BITS、Inno Setup 下载页（不分大小写）、XMLHttpRequest 与 MSXML2.XMLHTTP、远程 source、把远程地址交给 QML 引擎的 load / loadUrl / setSource）；唯一例外是安装程序在缺少 Npcap 时从 npcap.com 下载固定版本、校验 SHA-256 的官方安装程序，创建下载页的那一行带有登记在案的行内标记（Npcap 的免费许可证不允许随包分发，见 README.md 与 THIRD_PARTY_NOTICES.md） / scripts, the installer, QML and the Desktop must not download or request network resources themselves (Invoke-WebRequest, Invoke-RestMethod, BITS, Inno Setup download pages in any letter case, XMLHttpRequest and MSXML2.XMLHTTP, a remote source, load / loadUrl / setSource handing the QML engine a remote address); the one exception is the installer downloading the official Npcap installer (pinned version, SHA-256 checked) from npcap.com when Npcap is missing, whose one line creating the download page carries a pinned marker, because Npcap's free licence forbids bundling it (see README.md and THIRD_PARTY_NOTICES.md)"
     },
     {
       "id": "NET-009",
       "variant": "qml-remote",
       "category": "outbound-network",
-      "pattern": "\\bsource\\s*=\\s*[\"']https?://|^\\s*import\\s+[\"']https?://|\\bproperty\\s+url\\s+\\w+\\s*:\\s*[\"']https?://|\\bQt\\s*\\.\\s*(?:resolvedUrl|include)\\s*\\(\\s*[\"']https?://",
-      "message": "QML 与其中的 JavaScript 不得加载远程资源（给 source 赋远程地址、import 远程模块、url 属性取远程地址、Qt.resolvedUrl / Qt.include 远程地址） / QML and its JavaScript must not load remote resources (a remote address assigned to source, an import of a remote module, a url property bound to a remote address, Qt.resolvedUrl / Qt.include of a remote address)",
+      "pattern": "\\bsource\\s*=\\s*[\"']https?://|^\\s*import\\s+[\"']https?://|\\bproperty\\s+url\\s+\\w+\\s*:\\s*[\"']https?://|\\bQt\\s*\\.\\s*(?:resolvedUrl|include|createComponent)\\s*\\(\\s*[\"']https?://",
+      "message": "QML 与其中的 JavaScript 不得加载远程资源（给 source 赋远程地址、import 远程模块、url 属性取远程地址、Qt.resolvedUrl / Qt.include / Qt.createComponent 远程地址） / QML and its JavaScript must not load remote resources (a remote address assigned to source, an import of a remote module, a url property bound to a remote address, Qt.resolvedUrl / Qt.include / Qt.createComponent of a remote address)",
       "only_extensions": [
         ".js",
         ".mjs",
@@ -528,7 +583,7 @@
       "id": "NET-009",
       "variant": "shell-commands",
       "category": "outbound-network",
-      "pattern": "^(?:[^#\"'\\r\\n]|\"[^\"\\r\\n]*\"|'[^'\\r\\n]*')*?(?:^|[;|&({=@!`]|\\brun:|&\\s*[\"'](?:[^\"'\\r\\n]*[\\\\/])?)\\s*(?:(?:if|then|do|else|elif|while|until|sudo)\\s+|(?i:cmd(?:\\.exe)?\\s+/[ck])\\s+[\"']?|(?i:start-process)\\s+(?:(?i:-filepath)\\s+)?[\"']?)*(?:[^\\s\"'#;|&`]*[\\\\/])?(?i:(?:curl|wget|iwr|irm|bitsadmin)(?:\\.exe)?(?![\\w.-])|certutil(?:\\.exe)?\\b[^#\\r\\n]*[-/]urlcache\\b)",
+      "pattern": "^(?:[^#\"'\\r\\n]|\"[^\"\\r\\n]*\"|'[^'\\r\\n]*')*?(?:^|[;|&({=@!`]|\\brun:|&\\s*[\"'](?:[^\"'\\r\\n]*[\\\\/])?|(?i:-(?:executable|filepath)\\s*:?\\s*|\\.filename\\s*=\\s*|processstartinfo\\s*(?:\\]\\s*::\\s*new\\s*)?\\(\\s*)[\"']?(?:[^\"'\\r\\n]*[\\\\/])?)\\s*(?:(?:if|then|do|else|elif|while|until|sudo)\\s+|(?i:cmd(?:\\.exe)?\\s+/[ck])\\s+[\"']?|(?i:start-process)\\s+(?:(?i:-filepath)\\s+)?[\"']?)*(?:[^\\s\"'#;|&`]*[\\\\/])?(?i:(?:curl|wget|iwr|irm|bitsadmin)(?:\\.exe)?(?![\\w.-])|certutil(?:\\.exe)?\\b[^#\\r\\n]*[-/]urlcache\\b)",
       "message": "脚本与工作流不得用下载命令联网（curl、wget、iwr、irm、bitsadmin、certutil -urlcache，含 if / then / do 等 shell 关键字、sudo、!、反引号、cmd /c、Start-Process、调用运算符 & 之后与带路径的写法） / scripts and workflows must not fetch network resources with download commands (curl, wget, iwr, irm, bitsadmin, certutil -urlcache, including after if / then / do and the other shell keywords, sudo, !, a backtick, cmd /c, Start-Process or the call operator &, and with a path in front)",
       "only_extensions": [
         ".bat",
@@ -550,8 +605,8 @@
     {
       "id": "NET-010",
       "category": "outbound-network",
-      "pattern": "(?:^\\s*(?:import|from)\\s+(?:[\\w.]+(?:\\s+as\\s+\\w+)?\\s*,\\s*)*|\\b(?:__import__|import_module)\\s*\\(\\s*[\"'])(?:urllib\\.request|urllib3|http\\.client|requests|httpx|aiohttp|socket|ftplib|smtplib|poplib|imaplib|nntplib|telnetlib|xmlrpc\\.client|websockets?)(?!\\w)|^\\s*from\\s+(?:urllib|http|xmlrpc)\\s+import\\b[^#\\r\\n]*?\\b(?:request|client)\\b|^(?:[^#\"'\\r\\n]|\"[^\"\\r\\n]*\"|'[^'\\r\\n]*')*?(?:\\burl(?:open|retrieve)\\s*\\(|\\basyncio\\s*\\.\\s*open_connection\\s*\\()",
-      "message": "Python 脚本不得自行联网（导入网络模块 urllib.request、urllib3、http.client、requests、httpx、aiohttp、socket、ftplib、smtplib、poplib、imaplib、nntplib、telnetlib、xmlrpc.client、websockets，含 __import__ / importlib.import_module，以及调用 urlopen / urlretrieve 与 asyncio.open_connection）；例外仅限开发期任务数据生成器 tools/duty-data-generator/generate.py 和 CI 发布同步脚本 tools/release-mirror/sync_release.py / Python scripts must not reach the network themselves (importing a network module: urllib.request, urllib3, http.client, requests, httpx, aiohttp, socket, ftplib, smtplib, poplib, imaplib, nntplib, telnetlib, xmlrpc.client or websockets, __import__ and importlib.import_module included, or calling urlopen / urlretrieve or asyncio.open_connection); the exact exceptions are tools/duty-data-generator/generate.py and the CI release synchronization entry tools/release-mirror/sync_release.py",
+      "pattern": "(?:^\\s*(?:import|from)\\s+(?:[\\w.]+(?:\\s+as\\s+\\w+)?\\s*,\\s*)*|\\b(?:__import__|import_module)\\s*\\(\\s*[\"'])(?:urllib\\.request|urllib3|http\\.(?:client|server)|socketserver|requests|httpx|aiohttp|socket|ftplib|smtplib|poplib|imaplib|nntplib|telnetlib|xmlrpc\\.(?:client|server)|websockets?)(?!\\w)|^\\s*from\\s+(?:urllib|http|xmlrpc)\\s+import\\b[^#\\r\\n]*?\\b(?:request|client|server)\\b|^(?:[^#\"'\\r\\n]|\"[^\"\\r\\n]*\"|'[^'\\r\\n]*')*?(?:\\burl(?:open|retrieve)\\s*\\(|\\basyncio\\s*\\.\\s*(?:open_connection|start_server)\\s*\\(|\\.\\s*create_(?:connection|server)\\s*\\(|\\bget_server_certificate\\s*\\()",
+      "message": "Python 脚本不得自行联网或监听（导入网络模块 urllib.request、urllib3、http.client、http.server、socketserver、requests、httpx、aiohttp、socket、ftplib、smtplib、poplib、imaplib、nntplib、telnetlib、xmlrpc.client、xmlrpc.server、websockets，含 __import__ / importlib.import_module，以及调用 urlopen / urlretrieve、asyncio.open_connection / start_server、事件循环或 ssl 的 create_connection / create_server 与 ssl.get_server_certificate）；例外仅限开发期任务数据生成器 tools/duty-data-generator/generate.py 和 CI 发布同步脚本 tools/release-mirror/sync_release.py / Python scripts must not reach the network or listen themselves (importing a network module: urllib.request, urllib3, http.client, http.server, socketserver, requests, httpx, aiohttp, socket, ftplib, smtplib, poplib, imaplib, nntplib, telnetlib, xmlrpc.client, xmlrpc.server or websockets, __import__ and importlib.import_module included, or calling urlopen / urlretrieve, asyncio.open_connection / start_server, an event loop's or ssl's create_connection / create_server, or ssl.get_server_certificate); the exact exceptions are tools/duty-data-generator/generate.py and the CI release synchronization entry tools/release-mirror/sync_release.py",
       "allow_paths": [
         "tools/duty-data-generator/generate.py",
         "tools/release-mirror/sync_release.py"
@@ -563,8 +618,8 @@
     {
       "id": "AUT-001",
       "category": "game-automation",
-      "pattern": "\\bSendInput\\b|\\bkeybd_event\\b|\\bmouse_event\\b|\\bSendKeys\\b|\\bPostMessage[AW]?\\b|\\bPostThreadMessage[AW]?\\b|\\bSendMessage(?:[AW]|Timeout[AW]?|Callback[AW]?)?\\b|\\bSendNotifyMessage[AW]?\\b|\\bCloseMainWindow\\b",
-      "message": "禁止任何形式的游戏自动化/模拟输入（含 SendKeys、向窗口投递消息的 PostMessage / SendMessage，以及向主窗口发送关闭消息的 Process.CloseMainWindow） / synthetic input and game automation are forbidden, including SendKeys, posting window messages with PostMessage / SendMessage, and Process.CloseMainWindow, which posts a close message to a process's main window"
+      "pattern": "\\bSendInput\\b|\\bkeybd_event\\b|\\bmouse_event\\b|\\bSendKeys\\b|\\bPostMessage[AW]?\\b|\\bPostThreadMessage[AW]?\\b|\\bSendMessage(?:[AW]|Timeout[AW]?|Callback[AW]?)?\\b|\\bSendNotifyMessage[AW]?\\b|\\bCloseMainWindow\\b|(?:\\.|\\s+\\.\\s*)@?Responding\\b|(?:^|(?<=[{,]))\\s*@?Responding\\s*[.:=]",
+      "message": "禁止任何形式的游戏自动化/模拟输入（含 SendKeys、向窗口投递消息的 PostMessage / SendMessage，向主窗口发送关闭消息的 Process.CloseMainWindow，以及经 SendMessageTimeout 向主窗口发送 WM_NULL 的 Process.Responding） / synthetic input and game automation are forbidden, including SendKeys, posting window messages with PostMessage / SendMessage, Process.CloseMainWindow, which posts a close message to a process's main window, and Process.Responding, which sends it WM_NULL through SendMessageTimeout"
     }
   ],
   "scan_files": [

@@ -26,14 +26,14 @@
 
 | 区域 | 尺寸 | 说明 |
 |------|------|------|
-| 窗口 | 1280 × 800（最小 1100 × 720） | 原生 Windows 边框 |
-| 标题栏 | 高 40 | 菱形徽标 + `MENTOR ROULETTE 导随记录器` + Collector 状态 + 主题切换按钮 |
-| 侧边栏 | 宽 200 | `Achievement` kicker + 衬线金色品牌块 + 渐变分隔线 + 6 个页面 + 底部状态面板（`.status-panel`：自带底色和边框的扁平 `Card`，`Theme.statusPanelBackground/Border`）。状态面板只有原型的三行 FF14 / Npcap / 捕获；行首是按状态色（绿 / 灰 / 橙）绘制的 Lucide 图标（gamepad-2 / network / radio），取代原型的 8 px 圆点 |
+| 窗口 | 1280 × 800（最小 1100 × 720） | 无边框窗口（`Qt.FramelessWindowHint`），标题栏由界面自行绘制，边缘缩放交给系统（`startSystemResize`） |
+| 标题栏 | 高 40 | 菱形徽标（仅艾欧泽亚系风格）+「导随记录器」+ 版本号 `v<版本>` + 后台服务状态（§4.8）+ 主题切换按钮 +「统计浮窗」按钮（§4.9.1）+ 最小化 / 最大化 / 关闭 |
+| 侧边栏 | 宽 200 | `Achievement` kicker + 衬线金色品牌块 + 渐变分隔线 + 6 个页面 + 底部状态面板（`.status-panel`：自带底色和边框的扁平 `Card`，`Theme.statusPanelBackground/Border`）。状态面板只有原型的三行 FF14 / Npcap / 捕获；行首是按状态色（绿 / 灰 / 橙）绘制的 Lucide 图标（gamepad-2 / network / radio），取代原型的 8 px 圆点。Npcap 一行只在已连上采集服务、且读到的捕获状态带有 `npcap_installed` 时才写「就绪」或「未安装」，此前显示「—」并用灰色 |
 | 内容区 | 余下空间 | 左右内边距 28，上 22 下 32 |
 
-标题栏**不绘制** macOS 交通灯圆点，也不绘制原型中的 `— ▢ ✕`。
-本软件是 Windows 应用，窗口按钮由系统边框提供。原型中的这几个字符属于原型自身的应用截图外观，
-复制到真实窗口上会出现两套关闭按钮。
+窗口没有系统边框，标题栏承担系统标题栏的职责：按住空白处拖动窗口，双击切换最大化；
+右端的 ─ / ☐ / ✕ 三个按钮分别最小化、最大化（已最大化时改为还原图标）与关闭窗口，关闭按钮悬停时为红底白字。
+关闭窗口同样受「关闭时最小化到托盘」约束（§4.5）。标题栏不绘制 macOS 交通灯圆点。
 
 导航项（`.navi`）选中时为 90° 金色渐变底加左侧 2 px 金条，金条带一层柔光；
 未选中时为 `--color-text-2`，悬停时叠加 `--color-fill`。
@@ -79,7 +79,7 @@
 
 | Theme 属性 | 值 | 用途 |
 |---|---|---|
-| `Theme.headingFamily` | `Cinzel` | 拉丁字母与数字（`MENTOR ROULETTE`、统计数字、进度环） |
+| `Theme.headingFamily` | `Cinzel` | 拉丁字母与数字（统计数字、进度环） |
 | `Theme.headingFamilyCjk` | `Noto Serif SC` | 中文标题 |
 | `Theme.numFamily` | 同 `headingFamily` | 大号数字 |
 | `Theme.headingFamilyFor(text)` | 二选一 | 见下 |
@@ -87,7 +87,6 @@
 QML 的 `font` 值类型**没有** `families` 列表，只有 `family`，因此无法像 CSS 那样声明字体栈。
 `Theme.headingFamilyFor(text)` 以一个 CJK 区间正则判断文本本身是中文还是拉丁，
 再返回对应的字体家族，`components/HeadingLabel.qml` 即按此实现。
-标题中中英混排的位置（标题栏的 `MENTOR ROULETTE 导随记录器`）由两个 `Text` 分别渲染。
 
 Cinzel 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/Desktop/resources/fonts/`，
 包括 `Cinzel-Regular.ttf`、`Cinzel-Bold.ttf` 与 `OFL.txt`，
@@ -168,14 +167,14 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   卡片自上而下为标题「有新版本 x.y.z」、说明文字、下载状态（`UpdateDownloadStatus`，前缀 `updateNotice`，见下文）
   与按钮行：主按钮（`downloadInstallerButton`）、「忽略此版本」（`dismissUpdateButton`，下载开始后隐藏）
   与透明文字按钮（ghost）「查看更新说明」（`openReleasePageButton`）。
-  说明一行在采集服务支持软件内下载时为「当前 <版本>。只有在你点「下载并安装」之后才会下载，下载完成后还要再点「立即安装」才会安装；
-  本软件不会自行下载或安装。」，否则为「当前 <版本>。更新需要用户自行下载安装，本软件不会自动下载或替换任何文件。」。
+  说明一行在采集服务支持软件内下载时为「当前 <版本>。点「下载安装包」只下载安装包并校验；准备好后，再点「立即安装」启动安装程序。」，
+  否则为「当前 <版本>。点「下载新版本」用浏览器下载安装包，再自行运行安装。」。
   主按钮的文字与作用随下载阶段（`App.update.downloadPhase`）变化，三处更新位置（本横幅、设置页「通用」与「关于」）相同，
   见 [privacy-boundary.md](privacy-boundary.md) §8.6：
 
   | 阶段 | 出现条件（`update.download.state`） | 主按钮 | 下载状态中的一句（`<前缀>DownloadStatusText`） |
   |---|---|---|---|
-  | `offer` | 有新版本，`IDLE` | 「下载并安装」：发出 `StartUpdateDownload`（采集服务未开始下载时只显示一条提示，见下文） | 无 |
+  | `offer` | 有新版本，`IDLE` | 「下载安装包」：发出 `StartUpdateDownload`（采集服务未开始下载时只显示一条提示，见下文） | 无 |
   | `downloading` | `DOWNLOADING` | 「取消」（横幅中改为次要按钮）：发出 `CancelUpdateDownload` | 「<名称>：已下载 P%（R / T MB）」；服务器未声明大小时为「<名称>：已下载 R MB」，不显示进度条 |
   | `verifying` | `VERIFYING` | 「取消」 | 「<名称>：已下载完毕，正在核对发布时公布的校验值…」，进度条满格 |
   | `ready` | `READY` | 「立即安装」；桌面端自行核对期间为「正在校验…」且不可用 | 「<名称>：已下载并通过校验。点「立即安装」后本软件会关闭，由安装程序完成更新；Windows 会请你批准它以管理员身份运行。」；核对期间为「<名称>：正在校验，通过后启动安装程序并关闭本软件。」 |
@@ -226,50 +225,61 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   职业尚未识别时显示「未知」（职业报文在登录与换职业时出现，识别后该栏随记录更新）。
   结束后的结果与心得对话框提供可选的职业补录，与确认结果一并保存；
   用户不选择时留待后续补录。
+* 「待处理」卡片（`dashboardPendingWorkCard`，内容为 `components/PendingWorkContent.qml`）在有待处理的记录、
+  或待处理列表读取出错时出现：标题「待处理 · N」，只列出最新的一条；条数多于一条或读取出错时另有
+  「查看全部待处理」，打开完整列表。待处理列表的内容与规则见 §4.5.2。
 
 ### 4.2 历史记录（page 2）
 
 * 筛选栏按原型压缩为**一行**（`Flow`，间距 6），自左至右依次为：
-  搜索框（占据剩余宽度，最多 200 字）；起始日期与结束日期（`components/DateField.qml`，各 118 px，
-  占位文字「年/月/日」，可手动输入 yyyy-MM-dd，右侧日历图标打开月历 `MonthGrid` 选择日期，
-  对应原型的 `<input type="date">`）；四个 86 px 的窄下拉框 类型 / 职业 / 结果 / 来源
-  （首项即占位文字，不再使用「全部…」）；`.chip` 开关 已修正 / **有心得** / **中途加入** / 含已删除；
-  以及 `清除`（ghost 纯文字，40 px）。
-  「待复核」始终可直接切换，总览跳转复用同一筛选状态。正常宽度保持紧凑单行；
-  宽度不足时低频选项收进「更多筛选」，搜索、日期与待复核入口继续可见。
+  搜索框（`historySearchField`，占据剩余宽度，最多 200 字，占位文字「搜索 副本 / 职业 / 备注」）；
+  日期范围（`historyDateRange`，`components/DateField.qml` 的范围模式，238 px，占位文字「日期范围」，
+  填写后显示为「开始 — 结束」；点击打开月历 `MonthGrid`，弹层上方另有「开始日期」「结束日期」两个输入框，
+  可手动输入 yyyy-MM-dd，对应原型的 `<input type="date">`）；类型 / 职业 / 结果 / 来源四个窄下拉框
+  （宽度按占位文字计算，首项即占位文字，不再使用「全部…」）；多选下拉框「标记类型」（`historyMarkFilter`，118 px，
+  选中若干项时写作「标记类型 · N」），其中为 待复核 / 已修正 / **有笔记** / **中途加入** / 已删除 五个开关；
+  以及 `清除`（ghost 纯文字，至少 40 px）。
+  页面宽度不足 1020 px 时「来源」收进「更多筛选」，其余筛选仍在原位；已选的来源以可移除的 chip 显示在筛选栏下方。
 * 行首复选框按稳定编号跨页保留选择，全选仅覆盖当前页。改变筛选前提示清空选择，取消时保留原筛选与选择。
   已选记录可导出 CSV/JSON、批量软删除或恢复；永久删除只允许已软删除记录，并明确提示数量及不可恢复。
   设置页提供删除记录的保留天数，默认 30 天，亦可永不自动清理。
 * 历史日期排序和筛选使用独立 `history_date` 投影。历史导入缺游戏时间只标「待补充」，
   已确认结果仍计入总览统计，未知游戏时间不由原站日期替代。
 * 原型**删除了「副本」下拉框**，但副本统计页的下钻（`filter.content_id`）必须继续可用。
-  实现的做法是：`App.historyFilter.content_id` 非空时，在日期之后增加一枚以副本名命名的
+  实现的做法是：`App.historyFilter.content_id` 非空时，在筛选栏下方的一行中增加一枚以副本名命名的
   可移除 chip（`removable`，点击时发出 `removed()`）；点击该 chip 即清除 `content_id` 并重新查询。
   跳转并筛选仍经由 `App.showHistoryForContent()`，不存在第二套筛选状态。
-* `有心得` chip 打开时，在 `RunFilter` 中加入 `with_reflection: true`；`中途加入` chip
-  （`historyJoinedInProgressFilter`）打开时加入 `joined_in_progress: true`，只列出记为中途加入的记录。
-* 「标记」列除 已修正 / 已确认 / 已删除 / 手动创建 之外，还会显示 **有心得**（`run.reflection` 非空）
-  与 **中途加入**（`run.joined_in_progress === true`；`false` 与 `null` 都不显示）。
+* 「标记类型」中的开关分别在 `RunFilter` 中加入 `pending_review: true`（待复核，`pendingReviewChip`）、
+  `corrected_only: true`（已修正）、`with_reflection: true`（有笔记，`historyReflectionFilter`）、
+  `joined_in_progress: true`（中途加入，`historyJoinedInProgressFilter`，只列出记为中途加入的记录）与
+  `deleted_only: true`（已删除）。
+* 「标记」列可依次显示 待复核（非导入记录的 `pending_review`）/ 待补充（导入记录缺少游戏时间或结果等信息）/
+  **中途加入**（`run.joined_in_progress === true`；`false` 与 `null` 都不显示）/ 已修正或已确认 / 已删除 /
+  手动创建 / **有笔记**（`run.reflection` 非空）。
   记录详情的「进入方式」一栏按 `Fmt.joinedInProgressLabel` 显示 中途加入 / 开局进入 / 未知。
   已修正 取自 `run.manually_corrected`（人改过软件记下的内容）；已确认 表示该记录有过修订、已不在待复核，
-  但没有任何一次改动推翻软件的记录——通常是用户在「本次导随结果」里回答了是否通关。
+  但没有任何一次改动推翻软件的记录——通常是用户回答了软件留待确认的结果，或补上了软件没有认出的职业、副本。
 * **筛选实时生效**，带 300 ms 防抖。先前实现中的「应用筛选」按钮已移除。
-* 日期输入接受 `yyyy-MM-dd`，由 C++ `RunForm.isValidDate()` 校验。
-  值不完整或非法时输入框文字转为红色并保持原样，填写完整之前不发出查询，也不会以空值静默查询，
-  列表保留上一次的结果。开始日期晚于结束日期时同样不查询，筛选栏下方以橙字提示
-  「开始日期晚于结束日期，筛选未更新。」（`historyRangeHint`）。
+* 日期输入接受 `yyyy-MM-dd`，且须是真实存在的日期（`DateField.parse()`）。
+  值不完整或非法时该输入框的文字转为红色并保持原样，填写完整之前不发出查询，也不会以空值静默查询，
+  列表保留上一次的结果；在月历中只点了起点、尚未点终点时同样不查询。开始日期晚于结束日期时也不查询，
+  筛选栏下方以橙字提示「开始日期晚于结束日期，筛选未更新。」（`historyRangeHint`）。
+  有记录的日子只决定月历中哪些日期可以点选（`restrictToRecords`，取自 `App.runs.calendarAvailableDays`）：
+  已填入的完整日期始终有效并参与查询，即使改变其他筛选之后那一天已没有记录。
 * 历史记录读取失败时，页头小字为「读取失败」，列表位置以橙字说明「历史记录读取失败：<原因>」，
   不显示为「0 条匹配」或「没有符合筛选条件的记录。」（`RunListModel.loadError`）。
-* 点击表头排序，同一排序键只在一列上显示箭头。
+* 点击表头排序：再点同一列切换升降序，点另一列改为按该列降序；同一排序键只在一列上显示箭头。
+  默认按「日期」列的键 `history_date` 由新到旧排序，因此打开页面时该列即带箭头。
 * 点击行打开右侧 380 px 的详情浮层（`dialogs/RunDetailPanel.qml`），
-  含四个页签 详情 / 事件摘要 / 修正历史 / **心得**，底部为 手动修正 / 软删除 / 恢复记录。
-  详情页签采用原型的两列键值网格。修正历史只列出详情页同样展示的字段，字段名、取值、修订种类与
+  含四个页签 详情 / 事件摘要 / 修改记录 / **笔记**，底部为「手动修正」、「确认已复核」（仅待复核的记录），
+  以及「删除记录」（软删除）或「恢复记录」（已软删除的记录）。
+  详情页签采用原型的两列键值网格。修改记录只列出详情页同样展示的字段，字段名、取值、修订种类与
   操作者均以中文显示（`Fmt.revisionFieldVisible` / `revisionFieldValue` / `changeKindLabel` /
   `revisionActorLabel`）；事件摘要见 §8 第 2 条。内部编号与原始取值只在维护者工具打开时显示。
   详情页签的「待复核」一行（`pendingReviewText`）按结果区分：结果未知时为
-  「是 · 结果未经确认（崩溃恢复，或离开副本前未收到通关结算）」；结果已知而仍待复核时（例如崩溃恢复记为中断的记录，
+  「是 · 结果尚未确认，请核对是否通关」；结果已知而仍待复核时（例如崩溃恢复记为中断的记录，
   或生成记录的校准事后被撤下、保留原结果的记录，后者可能已是通关），由系统修订加上待复核标记的为
-  「是 · 需要你确认这条记录（原因见修正历史）」，其余为「是 · 需要你确认这条记录」。
+  「是 · 需要你确认这条记录（原因见“修改记录”）」，其余为「是 · 需要你确认这条记录」。
 * 详情页签末尾的「备注」区块：备注文字（经手动修正编辑）之下是该记录的图片条
   （`components/NoteImageStrip.qml`，64 px，点击缩略图以浮层查看原图），包含「添加图片」格子与每张图片右上角的移除按钮；
   在这里添加或移除是即时的（`NoteImages.addPicked()` / `removeOne()`），不经向导、不需理由、不产生修订，
@@ -309,90 +319,123 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   默认 20 px，启用 `smooth` 与 `mipmap`，`sourceSize` 固定 64×64，只降采样一次）。
   图例保留一条 3 px 的调色板色条，使图例与圆环的配色一一对应；
   名称 / 占比 / 次数三列不变。
+* **两张表格各有一列「中途加入」**（每行的 `joined_in_progress_count`，口径见
+  `docs/statistics-definitions.md` §12.2），位于「次数」之后，与「完成率」同样式、右对齐；
+  列宽至少 58 px（四个汉字），标题更宽的语言（英文「Joined late」）按标题实际宽度加宽；
+  没有中途加入的行显示 0，旧版采集服务不发送该字段时同样显示 0。原型没有这一列：
+  职业统计的「次数」条形列由原型的 34 %（1280 宽下约 220 px）改为有空间时 180 px 为它让出位置；
+  表格放不下时该列先按页面宽度算出的余量收窄（`runsColumnWidth`，最窄 48 px），再轮到「职业」列，
+  其余列宽固定且表头与数据行取同一组数值（`Layout.minimumWidth` 等于列宽，布局不会把它们压窄），
+  各列因此始终对齐，窗口最小宽度 1100 下不溢出。
+* 副本统计页的「副本类型占比」饼图（`DungeonStatsModel::categoryBreakdown`）按副本类型统计通关次数
+  （各行的 `completed_count`），分母是同一筛选下全部行的 `completed_count` 之和
+  （[statistics-definitions.md](statistics-definitions.md) §12.1）。分段依次为 四人迷宫 / 讨伐歼灭战 / **极神** /
+  大型任务 / 团队任务 / 行会令，其后是这五类之外出现的其他类型与「未识别」。「极神」是从讨伐歼灭战中拆出、
+  只在界面上存在的分段（`DutyCatalog::isExtremeTrial`）：一行的内容编号在随包副本目录中对应一个讨伐歼灭战，
+  且其名称属于极难度（以「歼殛战」等极神副本的名称结尾，或为「终极之战」），该行的通关计入「极神」；
+  名称以「幻巧战」结尾的幻巧战不计入「极神」。其余讨伐歼灭战，包括内容编号在目录中查不到的行，仍计入「讨伐歼灭战」，
+  因此「讨伐歼灭战」分段不含极神，两段之和才是该类型的全部通关。「极神」为 0 时同样列出，颜色为 `yellow`，
+  其他分段的颜色不因它的插入而改变。记录、采集服务的统计与导出都不区分极神。
 
 ### 4.4 捕获诊断（page 5）
 
 本页自 2026-10 改版起按设计稿「三皮肤整合版 · 捕获诊断」排布：单列，最大宽度 1080，靠左对齐，
-卡片之间间距 12 px。页面拆分为下列文件，均位于 `qml/pages/`，单个文件不超过约 400 行：
+卡片之间间距 12 px。页面拆分为下列文件，均位于 `qml/pages/`：
 
 | 块 | 文件 | 何时出现 |
 |---|---|---|
-| 标题行 | `CapturePage.qml` | 始终。标题「捕获诊断」+「被动监听 · 不发包 · 不注入」；右侧普通用户是带状态点的状态标签（`captureHeaderStatus` / `captureHeaderStatusText`，`components/StatusTag.qml`：自动监听中 / 等待游戏启动 / 校准中 / 校准待核对 / 监听中 · 收不到游戏数据 / 无法自动记录 / 降级模式 / 等待选择游戏 / 检查中，与首张卡片的判断同源，颜色按 ok / warn / bad / off 四种语气），维护者是「开始 / 停止捕获」按钮（`captureHeaderAction`，`App.captureActionLabel` / `toggleCapture()`） |
-| 首张卡片（状态 + 链路） | `CaptureHeroPanel.qml`（文案 `CaptureHeroCopy.qml`，链路数据 `CaptureChainModel.qml`） | 始终。上半是一盏状态灯、一句标题、一句说明和该状态的按钮，降级模式也在这里；下半是链路总结与四个节点 |
+| 标题行 | `CapturePage.qml` | 始终。标题「捕获诊断」+「被动监听 · 不发包 · 不注入」；右侧普通用户是带状态点的状态标签（`captureHeaderStatus` / `captureHeaderStatusText`，`components/StatusTag.qml`：自动监听中 / 等待游戏启动 / 校准中 / 校准待核对 / 暂时读不到游戏数据 / 无法自动记录 / 需手动记录 / 等待选择游戏 / 检查中，与首张卡片的判断同源，颜色按 ok / warn / bad / off 四种语气），维护者是捕获按钮（`captureHeaderAction`，文字取 `App.captureActionLabel`，如「开始捕获」「停止捕获」，点击调用 `toggleCapture()`） |
+| 首张卡片（状态 + 连接状态） | `CaptureHeroPanel.qml`（文案 `CaptureHeroCopy.qml`，连接状态数据 `CaptureChainModel.qml`） | 始终。上半是一盏状态灯、一句标题、一句说明和该状态的按钮，降级模式也在这里；下半是「连接状态」的总结与四个节点 |
 | 记录对象 | `GameSelectionPanel.qml` | 有游戏窗口可选时 |
-| 提示与校准 | `CaptureNotices.qml` | 各自按需；全部不出现时整块不占位。含网卡提示、自动跟随提示、校准行（`components/CalibrationCard.qml`：本机校准 ｜ 共享校准）与协议档案一行 |
+| 提示与校准 | `CaptureNotices.qml` | 各自按需；全部不出现时整块不占位。含网卡提示、自动跟随提示、校准行（`components/CalibrationCard.qml`：本机校准 ｜ 共享校准）与「版本支持」一行（协议档案卡） |
 | 解析 ｜ 工具 | `CaptureParsePanel.qml` ｜ `CaptureToolsPanel.qml` | 始终；并排 2 : 1，顶端对齐 |
+| 新区服采证步骤 | `CaptureValidationEvidenceCard.qml`（`guidedMode`，`templateObservationGuideCard`） | 点「工具」中的「采证步骤」后出现，再点一次收起 |
 | 维护者工具 | `CaptureMaintainerSection.qml`（+ `CaptureValidationEvidenceCard.qml`） | 仅 `App.maintainerToolsVisible` |
 
 页面只读取 `App`、`Fmt`、`Theme`，不读取 `Settings`。
 因此 `SharedCalibrationCardTests` 与 `CapturePageTests` 只需提供这三个上下文便可加载整页。
 启动自检的禁词不变：普通页面不得出现「开始捕获」「停止捕获」「开始验证」「维护者工具」「对照核对」。
 
-**首张卡片**（`captureHeroPanel`）的上半部分由 `CaptureHeroCopy` 决定说什么：按
-`AutomaticRecordingController::project()` 的优先级依次判断 Npcap 不可用（降级模式）、
-等待选择游戏、抓包无输出、本机校准（含共享校准）、游戏未运行、受阻、检查中、正常监听。
+**首张卡片**（`captureHeroPanel`）的上半部分由 `CaptureHeroCopy` 决定说什么。还没有读到捕获状态时
+（没有连上采集服务，或已连上而尚未读到带 `npcap_installed` 的捕获状态，`statusKnown` 为假）显示「连接中」；
+其余情况按 `AutomaticRecordingController::project()` 的优先级依次判断 Npcap 不可用（降级模式）、
+等待选择游戏、读不到游戏数据、本机校准（含共享校准）、游戏未运行、受阻、正常监听，都不成立时为检查中。
 本机校准只在自动记录控制器也处于校准状态、游戏未运行、或已按校准出的档案正常监听时说话
 （`calibrationSpeaks`）：采集受阻、设置尚未确认等状态优先于一份已完成的校准，页面标签因此与侧栏一致；
 此时校准行自己把那句话说出来（`CaptureNotices.heroSpeaksCalibration`）。
 每种状态给出一盏状态灯（`components/StatusLed.qml`，ok 绿 / warn 橙 / bad 红 / off 灰）、
-一句标题（`captureHeroHeadline`）与一句说明（`captureHeroText`）；抓包无输出时另有一行
-「已解码 N · 解码失败 N」（`captureHeroDetail`）。正常监听时标题为「链路正常，自动监听中」，
-游戏未运行时为「等待游戏启动」，说明按已安装版本的档案结论变化；受阻时标题为「暂时不会自动记录」，
-说明取自动记录控制器的句子（去掉末尾的「请查看诊断」）。右侧是两个透明文字按钮
-「重扫 FF14」（`GetStatus` 与档案状态）与「重扫适配器」（`ListCaptureAdapters`）。
+一句标题（`captureHeroHeadline`）与一句说明（`captureHeroText`）；读不到游戏数据时另有一行
+「成功读取 N 条 · 读取失败 N 次」（`captureHeroDetail`）。
 
-**降级模式**就是这张卡片的 Npcap 状态：标题「未安装 Npcap，自动记录已停用」（已安装但不可用时为
-「Npcap 暂时用不了，自动记录已停用」）、说明「被动抓包依赖 Npcap 驱动，出于许可证限制需自行安装。
-安装前仍可手动记录、统计、导出与备份。」，右边是四步安装说明（`captureNpcapPanel`），
-按钮换成「打开 npcap.com」与「重新检测」（`ListCaptureAdapters`），页面标签为「降级模式」。
+* 连接中：标题为「正在连接自动记录服务…」（没有管道）或「正在获取自动记录状态…」（已连上、尚未读到状态），
+  灯为灰色，页面标签为「检查中」；没有管道时说明取标题栏的后台服务状态句（`App.collectorStatusText`，§4.8），
+  已连上时没有说明。此时页面不对 Npcap 下任何结论，不出现安装步骤与安装按钮。
+  自动记录控制器仍保留着一次受阻（例如断线之前已提示的故障）时，按受阻显示，与侧栏一致。
+* 正常监听：标题「自动记录已开启，正在读取游戏数据」，说明「进本和出本会自动记录。识别到通关后会自动填写结果；
+  如果没有识别到，请在离开副本后打开记录补上结果。」。
+* 游戏未运行：标题「等待游戏启动」，说明按已安装版本的档案结论变化。
+* 受阻：标题「暂时不会自动记录」，说明取自动记录控制器的句子，去掉末尾的「请查看诊断」与括号中的错误码。
+
+右侧是两个透明文字按钮「重新检测游戏」（`rescanGameButton`：重读 `GetStatus`、协议档案状态与验证状态）
+与「重新检测网卡」（`rescanAdaptersButton`，`ListCaptureAdapters`）。
+
+**降级模式**就是这张卡片的 Npcap 状态，只在已读到捕获状态时判断：标题「未安装 Npcap，自动记录已停用」
+（已安装但不可用时为「Npcap 暂时用不了，自动记录已停用」）、说明「自动记录需要 Npcap 驱动，请自行下载安装。
+安装前仍可手动记录、查看统计、导出和备份。」，右边是四步安装说明（`captureNpcapPanel`），
+按钮换成「打开 npcap.com」与「重新检测」（`ListCaptureAdapters`），页面标签为「需手动记录」。
 已安装但不可用时（`NOT_WINPCAP_COMPATIBLE` / `NPCAP_ADMIN_ONLY` / `LOAD_FAILED`），
-说明改为一句中文原因，加上采集服务自身的 `npcap.install_hint`。
+说明改为一句中文原因，加上采集服务自身的 `npcap.install_hint`（经 `install_hint_ref` 按界面语言显示）。
 该提示给出的正是具体的修复方式，界面与 `--capture-doctor` 因此不会给出两种说法。
 未安装时不显示 `install_hint`（其全文见 [capture-diagnostics.md](capture-diagnostics.md) §2），
 由上述固定说明与安装步骤代替。
 
 **提示与校准**位于首张卡片下方，顺序固定：
 
-* 记住的网卡没有游戏流量（`adapterPreferenceStaleNotice`）：`preference_stale` 与 `recommended`
-  两个适配器都已知时出现。「使用推荐适配器」（`useRecommendedAdapterButton`）写入 `CaptureSettings.adapter_id`。
+* 记住的网卡没有游戏流量（`adapterPreferenceStaleNotice`，标题「记住的网卡上已经没有游戏流量了」）：
+  `preference_stale` 与 `recommended` 两个适配器都已知时出现。「使用推荐网卡」（`useRecommendedAdapterButton`）
+  写入 `CaptureSettings.adapter_id`。
 * 自动跟随（`captureReadinessNotice`，仅维护者可见，且仅在未捕获时出现）：关闭时显示橙框与「开启自动跟随」。
 * 校准行（`calibrationCard`，本机校准面板 `calibrationLocalPanel` 在左、共享校准面板
   `calibrationSharedSection` 在右，宽度 2 : 1，卡片窄于 640 px 时上下叠放，见 4.4.1、4.4.2）：
   `calibration.state != IDLE` 时出现。状态的那句话由首张卡片说（`headlineInHero`），
   本机校准面板只摆进度；共享档案正在记录时本机校准面板隐藏，共享校准面板占满整行。
-* 协议档案（`protocolProfileCard`，一行：小标题、句子与说明、右侧按钮）：正在使用本机校准或共享校准的档案、
-  可以「分享给其他玩家」（`protocolShareHint` / `protocolShareButton`）、
+* 协议档案（`protocolProfileCard`，小标题「版本支持」，一行：小标题、句子与说明、右侧按钮）：
+  正在使用本机校准或共享校准的档案、可以「分享给其他玩家」（`protocolShareHint` / `protocolShareButton`）、
   「重新校准」（`protocolRecalibrateButton`，仅本机校准）或
   「恢复上一份本机校准」（`protocolRestoreButton`，仅在有被停用的档案待恢复时），
   或游戏正在运行而档案不是 `VERIFIED`（校准行存在时由校准行解释）时出现。
-  普通用户看到的标题是「正在使用本机校准出来的档案」「当前游戏版本没有可用档案」一类语句，
-  **不出现档案编号与状态令牌**；维护者在 `VERIFIED` 时看到「已就绪：`<profile_id>`」。
-  游戏未运行时，措辞中的「当前游戏版本」改为「已安装的游戏版本」；档案不可用的提示此时不出现，
-  相关信息已由首张卡片按已安装的版本给出。
+  普通用户看到的标题是「正在使用这台电脑完成的校准」「正在使用其他玩家分享的校准」「当前游戏版本暂不支持自动记录」
+  一类语句，**不出现档案编号与状态令牌**；维护者在 `VERIFIED` 时看到「已就绪：`<profile_id>`」。
+  游戏未运行时，措辞中的「当前游戏版本」改为「已安装的游戏版本」或「安装在这台电脑上的游戏版本」；
+  档案不可用的提示此时不出现，相关信息已由首张卡片按已安装的版本给出。
 
-中途开抓 / 无流量不再是单独的提示条：`captureMidstreamSuspected`、`captureSilent` 或 `recording.silent`
-时，首张卡片的标题就是「抓包开始得太晚：这条连接不会解出任何报文」/「捕获在运行，但至今没有解码出任何报文」/
-「正在监听，但还没有收到游戏数据」，说明取采集服务的 `hint`，缺失时取自动记录控制器的提示，
-下面一行为「已解码 N · 解码失败 N」。
+读不到游戏数据不再是单独的提示条：`captureMidstreamSuspected`、`captureSilent` 或 `recording.silent`
+且游戏正在运行时，首张卡片的标题依次为「已连接游戏，但还读不到游戏数据」/「正在读取游戏数据，但还没有识别成功」/
+「正在监听，但还没有收到游戏数据」，页面标签为「暂时读不到游戏数据」，说明取采集服务的 `hint`，
+缺失时取自动记录控制器的提示，下面一行为「成功读取 N 条 · 读取失败 N 次」。
 
-**链路**是首张卡片的下半部分（数据来自 `CaptureChainModel.qml`）：一条分隔线下是小标题「链路」与一句总结。
-总结（`captureChainSummary`）按链路顺序给出**第一个**阻碍记录的原因，依次为：
-Npcap 未安装或不可用；游戏未运行（见下）；
-校准中 / 待核对 / 校准受阻；档案核对中；档案不可用（与协议档案提示使用同一套说法）；
-记住的网卡没有流量；`last_error_code`（`Fmt.captureErrorLabel`）；监听尚未启动；无流量；
-其他受阻情况（`recording.message`）。以上均不成立时，总结为「FF14 → Npcap → 适配器 → 协议档案 全部就绪」。
-问题用橙字，等待与就绪用灰字。
+**连接状态**是首张卡片的下半部分（数据来自 `CaptureChainModel.qml`）：一条分隔线下是小标题「连接状态」与一句总结。
+总结（`captureChainSummary`）按顺序给出**第一个**阻碍记录的原因，依次为：
+尚未读到捕获状态（与首张卡片相同的「正在连接自动记录服务…」/「正在获取自动记录状态…」，灰字）；
+验证正在等待所选游戏重启；等待选择游戏；Npcap 未安装或不可用；游戏未运行（见下）；
+待核对 / 校准受阻 / 正在重新校准；正在检查版本支持；版本未识别、不支持、支持文件有冲突或没有适用的支持文件
+（与协议档案卡使用同一套说法）；
+记住的网卡没有流量；`last_error_code`（「暂时无法读取游戏数据 · <`Fmt.captureErrorLabel`>」）；
+监听尚未启动（「正在启动监听…」）；读不到游戏数据；其他受阻情况（「暂时不会自动记录 · 见上方说明」）。
+以上均不成立时，总结为「游戏、驱动、网卡和版本支持均已就绪」。问题用橙字，等待与就绪用灰字。
 
 游戏未运行时的总结取决于采集服务是否已从本机记住的安装目录读到客户端版本
 （`capture.ffxiv_running` 为假而 `capture.game_build` 与 `region` 已知）：
 
-* 版本未知（首次使用，尚未见过游戏）：「等待游戏启动 · 档案按版本匹配，游戏启动后才知道能否记录」，灰字。
-* 版本已知且档案为 `VERIFIED`：「等待游戏启动 · 已安装版本的档案已就绪，启动游戏后会自动记录」，灰字。
-* 版本已知而没有可用档案：以「等待游戏启动 · 已安装的游戏版本还没有可用档案」开头，橙字，
-  其后按情况说明「启动游戏后需要重新校准」、待核对、校准受阻、档案冲突或暂时不会自动记录；
-  共享校准正在获取、等待核实或等待同意时，以「见下方共享校准」结尾，不与校准行的说法冲突。
+* 版本未知（首次使用，尚未见过游戏）：「等待游戏启动 · 启动后会检查能否自动记录」，灰字。
+* 版本已知、正在检查：「等待游戏启动 · 正在检查已安装的游戏版本」，灰字。
+* 版本已知且档案为 `VERIFIED`：「等待游戏启动 · 已支持安装的游戏版本，启动后会自动记录」，灰字。
+* 版本已知而没有可用档案：橙字，按情况为「等待游戏启动 · 请先在「本机校准」中核对结果」、
+  「等待游戏启动 · 校准遇到问题，请查看「本机校准」」、「等待游戏启动 · 当前安装的游戏版本需要重新校准」、
+  「等待游戏启动 · 游戏版本支持文件有冲突，暂时不能自动记录」或「等待游戏启动 · 当前安装的游戏版本暂不支持自动记录」；
+  共享校准正在获取、等待核实或等待同意时为「等待游戏启动 · 请查看「共享校准」中的进度」，不与校准行的说法冲突。
 
-游戏未运行时一律称「已安装的游戏版本」而不称「当前」或「最新」：补丁日启动器完成更新之前，
+游戏未运行时一律称「已安装」或「当前安装」的游戏版本，而不称「最新」：补丁日启动器完成更新之前，
 磁盘上仍是旧版本，游戏启动后以运行中的客户端为准。此时界面不给出「去打一把副本」一类的操作指示。
 
 总结下方是四列等宽的节点（`captureChain_<key>`，值为 `captureChainValue_<key>`，
@@ -401,24 +444,24 @@ Npcap 未安装或不可用；游戏未运行（见下）；
 
 | 列 | 值 | 副行 | 来源 |
 |---|---|---|---|
-| FF14 进程 | `ffxiv_dx11.exe`（固定）/ 未运行 | PID n / 已安装版本 2026.09.01（游戏未运行而版本已知，`Fmt.gameVersionLabel`）/ 启动游戏后自动检测 | `capture.ffxiv_running` / `ffxiv_process_id` / `game_build` |
-| Npcap | 版本（以数字开头时加「v」；只读得到 libpcap 版本时原样显示 `libpcap x.y.z`，`Fmt.npcapVersionLabel`）/ 已安装（读不到版本）/ 未安装 | WinPcap 兼容模式 / 驱动缺失 / 未启用 WinPcap 兼容模式 / 仅限管理员使用 / 驱动文件无法加载 | `GetStatus.npcap.version`、`status`，`capture.npcap_*` |
-| 适配器 | 正在用的网卡友好名 / 未选择 | 自动选择（有 FF14 连接）/ 手动指定 / 记住的网卡上没有游戏流量 | `capture.adapter_id` 对上 `App.captureAdapters[].friendly_name`（找不到时用 `capture.adapter_description`；普通用户从不看到不透明的 adapter_id）；`captureSettings.adapter_id` 为空即自动 |
-| 协议档案 | 普通用户：档案匹配 / 本机校准 / 共享校准 / 待游戏启动（仅版本未知时）/ 校准中 / 待校准（游戏未运行）/ 待核对 / 版本不支持 / 档案冲突 / 未匹配；维护者：`profile_id` | 与游戏版本匹配 / 与已安装的游戏版本匹配 / 启动游戏后重新校准 / 已安装版本暂时不会自动记录 / 待游戏启动后校验（仅版本未知时）/ …；维护者：状态令牌 · build | `capture.profile_status` / `profile_origin`、`App.calibration.state`、`App.protocolProfile` |
+| FF14 | `ffxiv_dx11.exe`（固定）/ 未运行 / 待选择 | PID n / 已安装版本 2026.09.01（游戏未运行而版本已知，`Fmt.gameVersionLabel`）/ 启动游戏后自动检测 / 检测到 N 个客户端 | `capture.ffxiv_running` / `ffxiv_process_id` / `game_build`，`App.gameSelection` |
+| Npcap | 版本（以数字开头时加「v」；只读得到 libpcap 版本时原样显示 `libpcap x.y.z`，`Fmt.npcapVersionLabel`）/ 已安装（读不到版本）/ 未安装；尚未读到捕获状态时为「—」 | WinPcap 兼容模式 / 驱动缺失 / 未启用 WinPcap 兼容模式 / 仅限管理员使用 / 驱动文件无法加载；尚未读到捕获状态时为「尚未读取」，节点为灰色 | `GetStatus.npcap.version`、`status`，`capture.npcap_*` |
+| 网卡 | 正在用的网卡友好名 / 未选择 | 自动选择（有 FF14 连接）/ 手动指定 / 之前选择的网卡收不到游戏数据 | `capture.adapter_id` 对上 `App.captureAdapters[]` 的 `friendly_name`（没有时用 `description`）；对不上任何一行时普通用户看到「已选择」，维护者看到 `adapter_id`，普通用户从不看到不透明的 adapter_id；`captureSettings.adapter_id` 为空即自动 |
+| 版本支持 | 普通用户：版本已支持 / 本机校准 / 共享校准 / 待游戏启动（仅版本未知时）/ 校准中 / 待校准（游戏未运行）/ 待核对 / 需要处理 / 检查中 / 未识别版本 / 版本不支持 / 支持文件有冲突 / 未匹配；维护者：`profile_id` | 与游戏版本匹配 / 与已安装的游戏版本匹配 / 进度见下方本机校准 / 启动游戏后重新校准 / 当前版本暂时不会自动记录 / 已安装版本暂时不会自动记录 / 启动游戏后自动检查（仅版本未知时）/ …；维护者：状态令牌 · build | `capture.profile_status` / `profile_origin`、`App.calibration.state`、`App.protocolProfile` |
 
-适配器只有在监听运行时才显示绿点；游戏未运行时，即使采集服务已记住网卡也显示灰点。
+网卡只有在监听运行时才显示绿点；游戏未运行时，即使采集服务已记住网卡也显示灰点。
 
-**解析**包含小标题「解析」与说明「失败即忽略，不改变导随状态、不创建记录」，下方是一行指标：
+**解析**包含小标题「数据读取」与说明「无法识别的数据会跳过，不会据此新增或修改记录」，下方是一行指标：
 「成功率」在艾欧泽亚系皮肤用 30 px 标题字体、金色，经典皮肤用 24 px IBM Plex Mono、正文色，
-其下是一条迷你柱状线（`captureParseSparkline`：最近 12 次读到的成功率，每 5 秒至多记一次，不足两次时不显示）；「消息速率」为 `n / s`；
-「失败 · 去重」为 `a · b`；「最近有效事件」为本地时间加 `Fmt.eventKindLabel(last_valid_event_kind)`，
+其下是一条迷你柱状线（`captureParseSparkline`：最近 12 次读到的成功率，每 5 秒至多记一次，不足两次时不显示）；
+「读取速度」为 `n / s`；「失败 · 重复」为 `a · b`；「最近识别的操作」为本地时间加 `Fmt.eventKindLabel(last_valid_event_kind)`，
 例如「21:38:04 副本结算」。未知类型只显示时间，契约要求将未知令牌视为「某个事件」。
 `last_valid_event_kind` 的取值含义如下：`CONTENT_FINDER_POP` 匹配成功、
 `ZONE_INITIALIZATION` 进入区域（每次换区都会出现，不限于进入副本）、`ZONE_TERRITORY` 识别所在区域、
 `DUTY_RESULT` 副本结算、`PLAYER_JOB` 识别职业、`ZONE_LEFT` 离开副本区域、`INSTANCE_LEFT` 退出副本、
-`MATCH_CANCELLED` 匹配取消。契约另有 `MATCH_ANNOUNCED`（按出现时机认出的匹配通知，
-见 [protocol-profile-format.md](protocol-profile-format.md) §11.5）：桌面端不为它准备文案，
-按上面的约定只显示时间。
+`MATCH_CANCELLED` 匹配取消、`MATCH_ANNOUNCED` 匹配成功通知（按出现时机认出的匹配通知，
+见 [protocol-profile-format.md](protocol-profile-format.md) §11.5）、`DUTY_COMMENCED` 副本开始、
+`DUTY_TIME_REMAINING` 副本剩余时间。
 
 **采集服务未发送的计数一律渲染为 `—`**。`AppController::captureCounters` 只复制实际到达的键，
 `last_valid_event_kind` 同样如此，因此界面上的 `0` 必定是实测得到的 0。
@@ -426,27 +469,41 @@ Npcap 未安装或不可用；游戏未运行（见下）；
 采集服务完全没有报告解析计数时（`AppController::parserStatsAvailable` 为假），整行指标不出现，
 只显示一句「还没有拿到解析统计……」。
 
-「最近失败」位于一条分隔线之下，行间有分隔线，最新的一行在上。普通用户看到的每行依次为
+「最近未识别的数据」位于一条分隔线之下，行间有分隔线，最新的一行在上。普通用户看到的每行依次为
 64 px 时间与说明；维护者视图在两者之间另有一列 150 px、红色 11 px 的等宽错误码。
-普通用户看到的说明来自 `Fmt.parserErrorLabel(code)`，例如「报文长度与档案不符，已忽略」；
+普通用户看到的说明来自 `Fmt.parserErrorLabel(code)`，例如「游戏数据的格式不符合预期，已跳过」；
 六个 `ParserErrorEntry.code` 各对应一句，未知码有通用句。
 普通用户视图**不显示 opcode、方向与采集服务原文**，原文中含有十六进制数值；
-最多显示 5 行，超出部分写为「另有 N 条更早的失败未列出」。
+最多显示 5 行，超出部分写为「另有 N 条更早的失败未列出，都不会生成记录。」；没有失败时为「最近没有数据读取失败记录。」。
 维护者可以看到全部行，说明为「方向 opcode · 采集服务原文」。
 模拟后端的示例行下方有橙色提示，说明该行使用模拟数据。
 
 **工具**面板的行与行之间有分隔线，复用 `SettingsRow`。
 
-* 「导出脱敏诊断报告」一行包含说明「不含游戏内容、网络地址与账号」与按钮「导出」
-  （`exportDiagnosticsButton`），发送 `ExportDiagnosticsReport`（contracts/CHANGELOG.md 第 16 条）。
+* 「共享校准证据」（`calibrationEvidenceRow`，说明「先预览公开摘要，再由你提交到 GitHub」）与
+  「帮助适配其他区服」（`templateObservationGuideRow`，说明「按步骤采集报文元数据，未适配区服仍不正式记录」）
+  在提供 `CalibrationEvidence`（`EvidenceSubmissionController`）时出现。前者的「预览」生成校准证据的公开摘要，
+  只有用户在预览中确认后才复制摘要并打开固定的 GitHub 表单；后者的「采证步骤」展开或收起下文的新区服采证步骤。
+* 「导出诊断报告」一行包含说明「不含游戏内容、网络地址与账号」（维护者视图为 `ExportDiagnosticsReport` 的技术说明）
+  与按钮「导出」（`exportDiagnosticsButton`），发送 `ExportDiagnosticsReport`（contracts/CHANGELOG.md 第 16 条）。
   报告由**当前正在运行的**采集服务写成本地 JSON，成功后 toast 给出路径与字节数。
   目标路径必须位于 `%USERPROFILE%` 或 `%LOCALAPPDATA%` 之内，否则采集服务返回 `ERR_EXPORT_FAILED`，
   桌面端原样显示其文案。在文件对话框中取消时不发送任何请求。
 * 「离线回放测试样本」（`offlineReplayRow`，仅维护者可见，只有说明没有按钮）显示
-  「用采集器的 --replay 命令行，幂等、不产生新记录」，因为 `ipc-v1` 没有回放消息。
+  「使用 --replay 回放样本；默认写入独立临时数据库，重复回放同一样本不会重复新增。」，因为 `ipc-v1` 没有回放消息。
 * 本页**没有「诊断模式」开关**（决策 3：`Settings.diagnosticsMode` 不产生任何行为）。
   每条导随的脱敏事件行仍在「历史记录 → 事件摘要」中读取（`GetRunEvents`）。
-* 「采集器告警」（`collectorWarningsList`）：`GetStatus.warnings` 非空时，在面板底部显示一列橙色小字。
+* 「后台服务提示」（`collectorWarningsList`）：`GetStatus.warnings` 非空时，在面板底部显示一列橙色小字。
+
+**新区服采证步骤**（`templateObservationGuideCard`）与维护者的桌面验证取证是同一个组件（`CaptureValidationEvidenceCard.qml`），
+以 `guidedMode` 面向玩家：小标题「新区服采证步骤」，三步说明，按钮「开始采证」（捕获运行中为「切换为采证」，
+进行中为「停止采证」，等待中为「取消等待」）与「预览候选摘要」（采证已保存且已停止时可用）。
+普通用户（未打开维护者工具）看到的网卡下拉框只列网卡名称，推荐的一项写作「<名称> · 推荐」，不出现 `adapter_id`；
+采集服务给出错误码时只显示其说明句，没有说明句时显示「操作没有完成，原因不明。」，从不显示「错误码：…」；
+采证文件写作「采证文件：<路径>」（路径折叠到 `%USERPROFILE%`），不显示 SHA-256。
+捕获运行中、协议档案为 `VERIFIED` 时，橙字说明「当前正在正式记录，不能切换为候选采证。……」；
+「当前正在正式记录；以下为最近一次验证取证证据。」同样只在档案为 `VERIFIED` 时出现。
+打开维护者工具后，这张卡片与维护者视图一样显示全部技术细节（`technical`）。
 
 **维护者工具**（`captureMaintainerSection`）位于页面最下方，包含小标题「维护者工具」与一条分隔线，
 其行为与改版前一致：
@@ -460,7 +517,7 @@ Npcap 未安装或不可用；游戏未运行（见下）；
 
    | 标题 | 值 | 副标题 | 来源字段 |
    |------|----|--------|----------|
-   | Npcap | 版本（规则同链路的 Npcap 列）/ `v?`（读不到版本）/ 未安装 | `status` · WinPcap 兼容 · 仅管理员 | `capture.npcap_*` + `GetStatus.npcap` |
+   | Npcap | 版本（规则同连接状态的 Npcap 列）/ `v?`（读不到版本）/ 未安装 | `status` · WinPcap 兼容 · 仅管理员 | `capture.npcap_*` + `GetStatus.npcap` |
    | 适配器 | `adapter_id` / 未选择 | 可用 N 个 · 未开始捕获时不占用任何网卡 | `capture.adapter_id` + `ListCaptureAdapters` |
    | FF14 PID | 进程号 / 未运行 | 实例 N · build … · region … | `capture.ffxiv_*` + `GetStatus.game` |
    | 捕获状态 | 监听中 / 已停止 / 降级监听 / 无有效报文 / … | 自 hh:mm:ss / 需回到标题画面重新登录 | `capture.state` |
@@ -477,11 +534,11 @@ Npcap 未安装或不可用；游戏未运行（见下）；
 5. 等宽状态块（`liveCaptureStatusBox`）**始终**打印以下内容：
 
    ```
-   LIVE_CAPTURE_STATUS = UNVERIFIED
+   LIVE_CAPTURE_STATUS = VERIFIED_POP_TO_EXIT
    PROTOCOL_PROFILE_STATUS = <后端上报，mock = SYNTHETIC_ONLY>
    OODLE_MODE = <GetStatus.oodle_mode，本机实测 FfxivTcp>
    READS_GAME_EXECUTABLE = <GetStatus.reads_game_executable>
-   PUBLIC_DISTRIBUTION_READY = false
+   PUBLIC_DISTRIBUTION_READY = true
    ```
 
    `LIVE_CAPTURE_STATUS` 与 `PUBLIC_DISTRIBUTION_READY` 是编译期常量
@@ -497,7 +554,8 @@ Npcap 未安装或不可用；游戏未运行（见下）；
 `--mock-npcap-missing`、`--maintainer-tools`、`--mock-midstream`、`--mock-calibration`、`--mock-shared`。
 模拟后端的 `GetStatus` 同样带有 `npcap` 对象，与 `CaptureWire.StatusExtras` 同形。
 QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`）覆盖：
-标题行的两种身份、链路的三种状态、最近有效事件的已知与未知类型、没有解析计数时的说明，
+标题行的两种身份、连接状态的各种情况（含尚未读到捕获状态与断线前保留的故障）、新区服采证步骤的玩家视图、
+最近有效事件的已知与未知类型、没有解析计数时的说明，
 以及普通用户页面不出现 opcode、`0x`、`ERR_` 与维护者文案。
 
 #### 4.4.1 本机校准（0.3.0）
@@ -506,37 +564,49 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 此时界面只增加三处内容，全部面向玩家，且不置于「维护者工具」之后：
 
 * **校准行**（`calibrationCard`，位于捕获页首张卡片之下，`capture.calibration.state != IDLE` 时显示）：
-  左边的本机校准面板（`calibrationLocalPanel`）是小标题「本机校准」加一句「累计校准进度 N / 4 · …」（只数排本、匹配、进本、出本四项必需证据）
-  （`calibrationProgressContext`），下面是五步进度线 排本 / 匹配弹窗 / 进本 / 出本 / 职业
-  （`calibrationProgress_<key>`：圆圈 ✓ 已看到、! 看到了相近证据、空圈还没见到；步名
+  左边的本机校准面板（`calibrationLocalPanel`）是小标题「本机校准」加一句进度说明（`calibrationProgressContext`）：
+  读到进度时为「已识别 N / 4 项 · 进度会保留，显示的是已识别的步骤，不是当前游戏状态」（只数排本、匹配、进本、出本四项必需证据），
+  采集服务没有报告进度时为「退出游戏或重启软件不会清空进度。以下是已识别的步骤，不是当前游戏状态。」；
+  下面是五步进度线 排本 / 匹配弹窗（按排本推断记录时为「匹配成功」）/ 进本 / 出本 / 职业
+  （`calibrationProgress_<key>`：圆圈 ✓ 已识别、! 看到了相近证据、空圈尚未识别；步名
   `calibrationProgressLabel_<key>`，状态 `calibrationProgressText_<key>`，取自 `calibration.progress`；
-  面板窄于 400 px 时改为上下排列），再是「最近识别登录 / 已采到的进本」（`calibrationEvidenceTimes`）
-  与「下一步」（`calibrationBlockers`：`blockers[]` 逐句原样显示，Collector 写入的即是面向玩家的完整句子）。
+  面板窄于 400 px 时改为上下排列），再是「最近检测到登录：…」「最近检测到进本：…」（`calibrationEvidenceTimes`）
+  与「下一步」（已有档案在记录时为「接下来」；`calibrationBlockers`：`blockers[]` 逐句原样显示，
+  Collector 写入的即是面向玩家的完整句子；读不到游戏数据时改为本卡片自己的一句橙字说明）。
   状态本身的那句话（`components/CalibrationCopy.qml`）由首张卡片说：`READY` 时为
-  「校准完成，核对 N 件事就能开始自动记录。」；若此时已有档案在记录
+  「还差最后一步：核对 N 件事，就能开始自动记录。」；若此时已有档案在记录
   （共享档案在用、`profile_status = VERIFIED`，或 `calibration.local_profile_id` 非空，例如按排本推断
-  或缺职业的本机档案），改为「正在自动记录。核对 N 件事后，之后的记录会更准确、更完整。」（`recordingBesideOffer`）；
-  观察中为「游戏更新了，正在重新校准」，游戏未运行时为「启动游戏后会重新校准」，完成后为「校准完成，已经可以正常记录」。
+  或缺职业的本机档案），改为「记录照常进行。再核对 N 件事，之后的记录会更准确。」（`recordingBesideOffer`）；
+  观察中为「游戏更新了，正在重新校准」，游戏未运行时为「启动游戏后会重新校准」，受阻时为「校准遇到了问题，暂时不能自动记录。」，
+  完成后为「校准完成，已经可以正常记录」，按排本推断记录时为「已经可以自动记录，后台仍在完善校准。」；
+  已有档案可以记录而游戏未运行时为「启动游戏后会自动记录」。
   单独加载卡片（测试）时这句话显示在卡片顶部（`calibrationHeadline` / `calibrationExplanation`）。
-  面板有两个按钮：**核对并启用**（`calibrationConfirmButton`，仅在 `READY` 时可用）与
-  **清空进度并重新观察**（`calibrationDiscardButton`，发送 `DiscardCalibration`）。
-* **核对对话框**（`calibrationDialog`）按时间列出 `calibration.events`，每行为 `HH:mm` 与 `label`，
+  面板有两个按钮：**核对并启用**（`calibrationConfirmButton`，仅在 `READY` 时出现，打开核对对话框）与
+  **清空校准进度**（`calibrationDiscardButton`，校准完成后不再出现；点击即发送 `DiscardCalibration`，
+  清空尚未完成的校准进度，已保存的记录与正在使用的校准不受影响）。
+* **核对对话框**（`calibrationDialog`，标题「核对这几件事」）按时间列出 `calibration.events`，每行为 `time_text` 与 `label`，
   登录与换区行灰显且没有按钮。每条 `requires_confirmation` 的事件带一对 **对 / 错** 按钮
-  （`calibrationVerdictCorrect_<event_id>` 与 `calibrationVerdictWrong_<event_id>`），
-  全部选择完毕后方可点击确认（`calibrationDialogConfirm`），发送 `ConfirmCalibration`。
+  （`calibrationVerdictCorrect_<event_id>` 与 `calibrationVerdictWrong_<event_id>`）。
+  带随机任务编号的事件点「错」后，下方追问「你当时排的是」（`calibrationRelabelChoice_<event_id>`），
+  选项为游戏内的随机任务与「这个时间我没有排本」。尚未选择时下拉框显示「请选择…」，不预选任何一项，
+  按钮旁以灰字提示「请在“你当时排的是”里选出实际排的随机任务。」（`calibrationDialogNameHint`），
+  「核对并启用」（`calibrationDialogConfirm`）保持停用。选出随机任务记为改名（`RELABEL`，校准继续），
+  选「这个时间我没有排本」记为错（`WRONG`）。全部回答之后方可点击「核对并启用」，发送 `ConfirmCalibration`；
+  「以后再说」关闭对话框，请求在途时它与 Esc 都不可用。
   成功后对话框关闭并刷新。应答的 `bound_in_session` 为假时（采集服务没有当场换上新档案，
-  例如这一把正在进行），另以 toast 提示「本机校准已保存，从下一把起按它记录；正在进行的这一把不受影响。」
+  例如这一把正在进行），另以 toast 提示「校准已保存，从下一次副本开始使用。本次副本的记录方式不变。」
   返回 `ERR_CALIBRATION_REJECTED` 时显示
-  「有事件被标为不对，这次校准作废；再打一把随机任务后会重新核对。」并关闭，
-  该句同时保留在卡片上（`App.calibration.error`）。
+  「有内容与你的实际游戏情况不符，本次校准需要重来。请照常完成随机任务，之后会再次提醒你核对。」并关闭，
+  该句同时保留在卡片上（`App.calibration.error`）。这句话与其他失败说明在校准状态不变、或回到观察
+  （`OBSERVING` / `WAITING`）时保留；状态改为其他任何状态（下一份待核对的草稿、完成、空闲或受阻）
+  或游戏版本改变时清除。
 * **横幅与侧栏**：`AutomaticRecordingController` 提供 `calibrating`、`calibration_ready` 与
-  `calibration_blocked` 三种投影，均只点亮橙色横幅，**不**弹出「无法自动记录」对话框，
-  因为补丁日的档案不匹配属于预期情况，而非故障。横幅文案在观察中为
-  「游戏更新到了新版本，本软件正在重新校准：正常打一把随机任务（进本、打完出本）就好，期间不会生成记录。」；
-  就绪时为「校准完成，核对 N 件事就能开始自动记录。」并附「核对并启用」按钮；
-  阻塞时原样显示第一条 blocker，并附「查看诊断」。
-  侧栏「协议」一行显示 校准中 / 待核对 / 需诊断；`profile_origin = LOCAL_CALIBRATION`
-  时显示 **本机校准**，状态仍为「监听中」。
+  `calibration_blocked` 三种投影，均只显示主窗口右下角的橙色提示卡，**不**弹出「无法自动记录」对话框，
+  因为补丁日的档案不匹配属于预期情况，而非故障。提示卡文案在观察中为
+  「游戏更新了，正在重新校准。请照常完成随机任务，再按提示核对。完成前暂时不能自动记录。」；
+  就绪时为「还差最后一步：核对 N 件事，就能开始自动记录。」并附「核对并启用」按钮；
+  阻塞时为第一条 blocker 加「请查看「捕获诊断」。」（没有 blocker 时为「校准遇到了问题，暂时不能自动记录。请查看「捕获诊断」。」）。
+  提示卡另有「查看诊断」与「收起」。侧栏「捕获」一行显示 校准中 / 待核对 / 无法自动记录。
 * **设置页**提供开关「游戏更新后自动校准」（`autoCalibrationToggle`，写入
   `UpdateCaptureSettings.auto_calibration_enabled`，由 Collector 持有，默认开启）。
 * 数据流：每次 `GetStatus`、`GetCaptureStatus` 与 `CaptureStatusChanged` 都将 `capture.calibration`
@@ -555,63 +625,79 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 
 **校准行右边的「共享校准」面板**（`SharedCalibrationSection.qml`，`calibrationSharedSection`）与本机校准面板并排。
 `calibration.shared` 缺失时（旧版采集服务）整节不显示。
-显示内容先按 `user_rejected` 判定，再按 `phase` 判定：
+显示内容先按 `user_rejected` 判定，再看共享档案是否在用（`profile_origin = SHARED_CALIBRATION`），最后按 `phase` 判定。
+面板自上而下为小标题「共享校准」、一句标题（`sharedCalibrationHeadline`）、一句灰字说明（`sharedCalibrationDetail`）、
+征求同意时的橙框、分享说明与按钮行。按钮行中，「立即检查」与分享按钮直接可见；手动导入与改为本机校准两项备用操作
+收在「其他方式」（`sharedOtherWaysButton`，展开后为「收起其他方式」）之后，展开后为
+「手动导入校准码…」（`sharedImportButton`）与「改为本机校准」（`sharedRejectButton`），阶段改变时重新折叠。
 
-| 情况 | 卡片上的话 | 按钮 |
-|---|---|---|
-| `FETCHING` | 正在获取其他玩家的共享校准，本机校准照常进行。 | 导入校准码 |
-| `VERIFYING`，未被拒绝的候选全为 `provenance = IMPORTED` | 已导入校准码，登录并排一次本、核实通过后启用。 | 导入校准码、不用共享的，我自己校准 |
-| `VERIFYING`，某个未被拒绝的候选的 `CONTENT_FINDER_POP` 判据为 `gate = AUDIT`（仓库发布的码，且本机没有可用校准、未被标为有分歧、没有提交人数更多的候选） | 找到共享校准，登录时自动核实，通过就开始记录。 | 导入校准码、不用共享的，我自己校准 |
-| `VERIFYING`，未被拒绝的候选的该判据全为 `gate = REQUIRED`（或为手动导入的码） | 找到共享校准，还要在本机排一次本、核实通过后才会启用。 | 导入校准码、不用共享的，我自己校准 |
-| `VERIFYING`，候选未报告 `provenance` 或判据的 `gate`（1.1.0 之前的采集服务，或候选尚未判定） | 找到共享校准，登录或排本时自动核实。（候选全是手动导入的：已导入校准码，……） | 导入校准码、不用共享的，我自己校准 |
-| `VERIFYING`，且 `profile_status = VERIFIED`（已有档案在记录，1.4.0 起会出现） | 找到更准的共享校准，正在本机核实；当前记录照常生成。（候选全为 `IMPORTED`：已导入校准码，正在本机核实；当前记录照常生成。）另加一行灰字：现在的记录不受影响；核实通过后会自动换用更准的那一份，之前生成的记录不会改动。 | 导入校准码、不用共享的，我自己校准 |
-| `AWAITING_CONSENT` | 共享校准核实通过了，还需要你同意一次才能开始记录。橙框内说明代价，末句另给第三条出路：「手上有其他玩家发来的校准码的话，也可以先点「导入校准码」。」 | 同意，开始记录（橙框内，与 `sharedConsentImportButton` 并排）、导入校准码、不用共享的，我自己校准 |
-| `VERIFIED`，或 `profile_origin = SHARED_CALIBRATION` | 已使用其他玩家分享的校准（本机已核实）。 | 不用共享的，我自己校准 |
-| 同上，且 `audit_pending = true` | 已使用其他玩家分享的校准（登录时已在本机核实）。另加一行灰字：排本和进本还在核对中，照常游戏即可；万一对不上，会自动改回本机校准，这期间生成的记录会标记待复核。 | 不用共享的，我自己校准 |
-| `REJECTED` | 共享校准与本机流量对不上，已改为本机校准。 | 立即检查、导入校准码 |
-| `UNAVAILABLE` | 没取到共享校准（网络不通），继续本机校准。 | 立即检查、导入校准码 |
-| `NONE` 且 `last_fetch_status = NONE_FOR_BUILD` | 还没有人分享这个版本的校准，继续本机校准。 | 立即检查、导入校准码 |
-| `NONE` 且 `last_fetch_status = DISABLED` | 获取共享校准已关闭，继续本机校准。 | 立即检查、导入校准码 |
-| `user_rejected = true` | 已按你的选择改为本机校准，这个游戏版本不再使用共享校准。并提示可用「清空进度并重新观察」撤销 | 无 |
-| `profile_origin = LOCAL_CALIBRATION`（校准卡片仍显示时，即刚完成校准的那一次） | 一行分享说明（浏览器打开 GitHub 分享页、复制校准码、软件不上传） | 分享给其他玩家 |
-| `profile_origin = SHARED_CALIBRATION`，首个候选 `status = PROVEN`、`audit_pending` 为假、`provenance = PUBLISHED`，且带 `preferred` 字段（仅 §20 起的采集服务发送；更早的版本对这种档案拒绝给码）（共享档案已在本机完整记录过一次，`shareKind = verified`，plans/shared-calibration.md §20.6） | 灰字「会打开 GitHub 页面，把这份校准记为你也核实过，让其他玩家的软件更优先使用它。」；应答 `basis = VERIFIED` 时 toast 说明提交后这份共享校准会多一个核实通过的账号，`SHARED_NOT_PROVEN` 时说明还在核对中；候选的 `disputed`、`preferred`、`shape_prior` 不显示 | 这份校准好用，告诉其他玩家（同一个 `share()`；校准卡片不在时由协议档案卡提供，规则同上） |
+| 情况 | 标题 | 灰字说明 | 按钮 |
+|---|---|---|---|
+| `FETCHING` | 正在查找其他玩家分享的校准，本机校准也会继续。 | 无 | 其他方式：手动导入校准码… |
+| `VERIFYING`，未被拒绝的候选全为 `provenance = IMPORTED` | 校准码已导入。登录后申请随机任务并进入副本，通过检查后才能开始记录。 | 检查通过后才能开始自动记录。照常游戏即可；如果不能使用，会继续本机校准，已有进度会保留。 | 其他方式：手动导入校准码…、改为本机校准 |
+| `VERIFYING`，某个未被拒绝的候选的 `CONTENT_FINDER_POP` 判据为 `gate = AUDIT`（仓库发布的码，且本机没有可用校准、未被标为有分歧、没有提交人数更多的候选） | 已找到共享校准，等待本机验证。 | 无需手动导入。登录游戏时会自动检查，检查通过后才能开始自动记录。如果不能使用，会继续本机校准，已有进度会保留。 | 同上 |
+| `VERIFYING`，未被拒绝的候选的该判据全为 `gate = REQUIRED`（或为手动导入的码） | 已找到共享校准，等待本机验证。 | 无需手动导入。请申请随机任务并进入副本，检查通过后才能开始自动记录。…… | 同上 |
+| `VERIFYING`，候选未报告 `provenance` 或判据的 `gate`（1.1.0 之前的采集服务，或候选尚未判定） | 已找到共享校准，等待本机验证。（候选全是手动导入的：校准码已导入。登录或排本时会自动检查是否可用。） | 无需手动导入。登录或排本时会自动检查，……（候选全是手动导入的：检查通过后才能开始自动记录。……） | 同上 |
+| `VERIFYING`，且 `profile_status = VERIFIED`（已有档案在记录） | 找到了更完整的共享校准，正在检查是否可用。自动记录照常进行。（候选全为 `IMPORTED`：校准码已导入，正在检查是否可用。自动记录照常进行。） | 自动记录照常进行。检查通过后会自动换用新的共享校准，已保存的记录不会改动。 | 同上 |
+| `AWAITING_CONSENT` | 共享校准已通过检查，请确认是否使用。 | 无；橙框内说明代价（`consentText`），末句为「如果你有其他玩家发来的校准码，也可以在「其他方式」中手动导入校准码。」 | 同意，开始记录（橙框内）；其他方式：手动导入校准码…、改为本机校准 |
+| `VERIFIED`，或 `profile_origin = SHARED_CALIBRATION` | 正在使用共享校准，已通过本机检查。 | 已确认这份共享校准能在你的游戏中使用，照常游戏即可。 | 其他方式：改为本机校准 |
+| 同上，且 `audit_pending = true` | 正在使用共享校准，登录检查已通过。 | 排本和进本还在核对中，记录照常进行。如果之后发现不匹配，会停止使用这份校准并继续本机校准，期间生成的记录会标为“待复核”，请检查并补正。 | 其他方式：改为本机校准 |
+| `REJECTED` | 这份共享校准不适用于你的游戏，已改为本机校准。 | 本机校准会继续，已有进度会保留，照常游戏即可。 | 立即检查；其他方式：手动导入校准码… |
+| `UNAVAILABLE` | 暂时没能下载共享校准，将继续本机校准。 | 稍后可点「立即检查」重试。也可以向已完成校准的玩家索取校准码，在「其他方式」中手动导入。 | 同上 |
+| `NONE` 且 `last_fetch_status = NONE_FOR_BUILD` | 暂时没有当前游戏版本的共享校准，将继续本机校准。 | 本机校准完成后，可以点「分享给其他玩家」，让同一游戏版本的玩家也能使用。 | 同上 |
+| `NONE` 且 `last_fetch_status = DISABLED` | 自动获取共享校准已关闭，将继续本机校准。 | 想自动查找共享校准，可在设置中开启「游戏更新后获取其他玩家的共享校准」。也可以在「其他方式」中手动导入校准码。 | 同上 |
+| `NONE`，尚未获取过 | 无 | 有其他玩家发来的校准码，可以在「其他方式」中手动导入。通过检查后才会使用。 | 同上 |
+| `user_rejected = true` | 已改为本机校准，当前游戏版本不再使用共享校准。 | 校准仍在进行时：想重新使用共享校准，点「清空校准进度」。本机尚未完成的校准进度也会一起清空。 | 无 |
+| `profile_origin = LOCAL_CALIBRATION`（校准卡片仍显示时，即刚完成校准的那一次） | 一行分享说明（浏览器打开 GitHub 分享页、复制校准码、软件不上传） | — | 分享给其他玩家 |
+| `profile_origin = SHARED_CALIBRATION`，首个候选 `status = PROVEN`、`audit_pending` 为假、`provenance = PUBLISHED`，且带 `preferred` 字段（更早的采集服务对这种档案拒绝给码）（共享档案已在本机完整记录过一次，`shareKind = verified`） | 灰字「会打开 GitHub 页面，把这份校准记为你也核实过，让其他玩家的软件更优先使用它。」；应答 `basis = VERIFIED` 时 toast 说明提交后这份共享校准会多一个核实通过的账号，`SHARED_NOT_PROVEN` 时说明还在核对中；候选的 `disputed`、`preferred`、`shape_prior` 不显示 | — | 这份校准好用，告诉其他玩家（同一个 `share()`；校准卡片不在时由协议档案卡提供，规则同上） |
+
+「立即检查」（`sharedCheckButton`）只在获取没有结果的阶段（尚未获取、已关闭、下载失败、没有当前版本的、
+被本机流量否定）出现；「手动导入校准码…」不限阶段。两者都要求本机仍处于校准（`WAITING` / `OBSERVING`）、
+没有共享档案正在记录，且用户没有改为本机校准。「改为本机校准」在核实中、待同意与已使用三个阶段出现。本机保存的共享校准记录暂时读不到（文件被其他程序占用）时，「立即检查」的回答仍是 `NOT_NEEDED`，但附带说明文字（`sharing.check.state_unreadable`），界面显示该说明而不是「暂时不需要查找」。
 
 **「分享给其他玩家」同时出现在协议档案卡上**（`protocolProfileCard`，即校准行下方的协议档案一行），
 只要具备分享条件即会出现。校准卡片仅在 `calibration.state != IDLE` 时出现，
-而重启软件之后本机档案直接生效，校准不再处于观察状态；在 0.7.12 中，最需要分享的用户因此没有入口。
-当前的行为是：正在使用的档案由本机校准产生（`profile_origin = LOCAL_CALIBRATION`），或是上表中可以告诉其他玩家的共享档案（`shareKind = verified`），
+而重启软件之后本机档案直接生效，校准不再处于观察状态，校准卡片随之消失。
+因此，正在使用的档案由本机校准产生（`profile_origin = LOCAL_CALIBRATION`），或是上表中可以告诉其他玩家的共享档案（`shareKind = verified`），
 且采集服务支持共享校准时，协议档案卡上增加一行分享说明与一个 `protocolShareButton`。
 该按钮与校准卡片上的 `sharedShareButton` 调用同一个 `App.calibration.shared.share()`，
 按钮文字与说明句也取自同一处（C++ 的 `shareButtonText` 与 `shareHintText`，随 `shareKind` 变化）。
 **校准卡片存在时该按钮不出现**：校准卡片正在说明刚完成的校准，分享入口放在该卡片上更为连贯，
 同一屏内不应出现两个功能相同的按钮。
-「导入校准码」不随之迁移，因为采集服务只在校准进行中才接受导入。
+「手动导入校准码…」不随之迁移，因为采集服务只在校准进行中才接受导入。
 
 **「重新校准」也出现在协议档案卡上**（`protocolRecalibrateButton`，次要按钮），
 条件是 `profile_status = VERIFIED` 且 `profile_origin = LOCAL_CALIBRATION`——
-本机档案生效后校准卡片消失，「清空进度并重新观察」与「导入校准码」也随之失去入口，
-此前，怀疑本机识别错了报文，或拿到了更好校准码的玩家，无法重新校准或导入校准码。
+本机档案生效后校准卡片消失，「清空校准进度」与「手动导入校准码…」也随之失去入口；
+怀疑本机识别错了报文、或拿到了更好校准码的玩家，经由这个按钮重新校准或导入校准码。
 点击先打开确认框（`protocolRecalibrateDialog`，沿用 `DialogFrame`）：
-标题「重新校准这一版游戏？」，正文「现在这份本机校准会停用（文件会保留，不会删除），
-软件回到观察状态：期间不会生成记录，直到重新校准完成，或导入了其他玩家的校准码。之前的记录不受影响。」，
+标题「重新校准这一版游戏？」，正文「将停止使用当前的本机校准，并重新开始校准。旧校准会保留，之后可以恢复。
+重新校准完成前暂时不能自动记录；也可以导入校准码，通过检查后使用。已保存的记录不受影响。」，
 按钮 **取消** 与 **停用并重新校准**（`protocolRecalibrateConfirm`）。
 确认后发送 `DiscardCalibration` 并带上 `retire_local_profile = true`，随即重读一次捕获状态。
-`App.currentRunState` 为 `MENTOR_MATCHED` 或 `ENTERED_DUTY` 时按钮禁用，
-旁边给一行灰字「副本进行中，结束后再试」——停用档案会把这一把按停止捕获收尾。
-共享档案由「不用共享的，我自己校准」停用，随包档案与「没有档案」都不出现此按钮。
+`App.currentRunState` 为 `MENTOR_MATCHED` 或 `ENTERED_DUTY` 时按钮与确认框中的确认按钮都停用，
+已打开的确认框随之关闭，按钮旁给一行灰字「副本进行中，结束后再试」（`protocolRecalibrateHint`）——
+停用档案会把这一把按停止捕获收尾。采集服务同样拒绝这一时段的请求：带 `retire_local_profile` 或 `restore_local_profile`
+的 `DiscardCalibration` 在记录处于 `MENTOR_MATCHED` 或 `ENTERED_DUTY` 时以 `ERR_CALIBRATION_NOT_READY` 拒绝，说明为
+「正在进行的这一把导随还没结束，现在更换校准会中断这一把的记录。请在这一把结束后再试。」（文字目录键
+`calibration.change_during_run`）；不带这两个字段的「清空校准进度」不受此限制。
+按排本推断匹配的档案保留着一条仍在匹配窗口内的排本申请（玩家已在排队、还没有记录）时，采集服务同样拒绝带这两个字段的请求，
+说明改为「你正在排导随，现在更换校准会让接下来这一把记不下来。请等这一把结束后再试。如果已经取消排队，软件可能察觉不到，请退出并重新启动游戏后再试，或在开始排队一小时后再试。」
+（`calibration.change_while_queued`）；桌面端的停用条件只看 `App.currentRunState`，排队期间按钮仍可点击，玩家看到的是采集服务的这句拒绝。
+共享档案由共享校准面板的「改为本机校准」停用，随包档案与「没有档案」都不出现此按钮。
 行为见 [protocol-profile-format.md](protocol-profile-format.md) §11.6。
 
 **「恢复上一份本机校准」**（`protocolRestoreButton`，同一行、同一张卡）是它的撤销：
 `calibration.retired_local_profile_available` 为真时出现，即被停用的那份档案还在磁盘上、
 且当前没有本机档案生效。它与「重新校准」互斥——一个要求有本机档案生效，另一个要求没有——
 同屏只会出现其中之一。确认框（`protocolRestoreDialog`）标题「恢复上一份本机校准？」，
-正文「软件会把你上次停用的那一份本机校准放回来，并立刻改用它记录，现在这份校准随之停用。如果现在用的档案比它优先（比如随软件附带的档案），就继续用现在这份记录，放回的那份留作备用。之前的记录不受影响。」，
+正文「将恢复你上次停用的本机校准。如果可以使用，软件会用它替换当前的校准来记录。如果当前使用的校准优先级更高（例如软件自带的版本），则继续使用当前校准，恢复的这份留作备用。已保存的记录不受影响。」，
 按钮 **取消** 与 **恢复**（`protocolRestoreConfirm`），确认后发送
 `DiscardCalibration` 并带上 `restore_local_profile = true`；应答到达后，不论成功还是被拒，都重读一次捕获状态。
-副本进行中时同样禁用，并复用「重新校准」那一行灰字。
+副本进行中时按钮与确认按钮同样停用、已打开的确认框随之关闭，并复用「重新校准」那一行灰字。
 停用之后校准卡片会重新出现，若不把这条退路算进协议档案卡的可见条件，整张卡会被隐藏、
 按钮也就无法使用，因此 `profileCardVisible` 把它一并计入。
-采集服务拒绝时（没有可恢复的、同名档案已存在、恢复后无法通过校验），它给的中文句子
+采集服务拒绝时（没有可恢复的、同名档案已存在、恢复后无法通过校验，或副本正在进行、正在排队），它给的中文句子
 原样显示在卡片的 `protocolCalibrationError` 一行——此时校准卡片未必在场，这是唯一的说明位置。
 恢复的档案因优先级较低而未被采用时，采集服务的应答说明档案已恢复，以及为何继续使用现有校准，
 在用的校准不被停用（[protocol-profile-format.md](protocol-profile-format.md) §11.6.1）。
@@ -621,42 +707,43 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
 恢复按钮随状态消失，协议档案卡在这行说明显示期间保持可见。
 下一次校准请求发出，或在用档案的状态、来源或游戏版本改变时，这行说明清除。
 
-* 「立即检查」只在本机仍处于校准（`WAITING` / `OBSERVING`）、
-  且没有共享档案正在记录时出现。「导入校准码」条件相同，但**包括**征求同意（`AWAITING_CONSENT`）
-  这一状态：采集服务从未在该阶段拒绝导入，此前只是卡片把按钮藏了起来，
-  于是「同意这份按排本推断的校准」与「这个版本不再用共享校准」成了仅有的两个答案，
-  手里拿着更好的校准码的玩家反而无从导入。该状态下按钮由橙框内的
-  `sharedConsentImportButton` 承担，`sharedImportButton` 让位，同屏不出现两个同名按钮。`last_refusal`、候选的 `sha12`、`criteria` 与 `last_index_attempts`
-  都不显示在卡片上，它们属于脱敏诊断报告的内容。
+* `last_refusal`、候选的 `sha12`、`criteria` 与 `last_index_attempts` 都不显示在卡片上，
+  它们属于脱敏诊断报告的内容。
 * **共享档案正在记录**：在共享档案完整记录一次进出副本之前，采集服务继续观察校准事件，
-  `calibration.state` 仍为 `OBSERVING`。此时卡片小标题改为「共享校准」，
-  标题为「已使用其他玩家分享的校准（本机已核实），正在自动记录。」，
-  隐藏进度行与「清空进度并重新观察」，采集服务的说明句改用灰色。
-  侧栏「协议」显示 **共享校准**，横幅使用普通的「自动监听中」。
-* **绑定后仍在核对（`audit_pending = true`）**：核实门槛按来源分级之后
-  （plans/shared-calibration.md §18），仓库发布的校准只在本机没有可用校准、未被仓库标为有分歧、
-  且没有提交人数更多的候选时，才在登录簇核实通过即开始记录，排本与进本改为绑定后审计；
-  其余情况下排本与进本须先核实通过。此时卡片标题改为
-  「已使用其他玩家分享的校准（登录时已在本机核实），正在自动记录。」，
-  不再说「本机已核实」；共享校准一节的灰字说明照常显示（这是唯一说明该状态的地方），
-  内容为「排本和进本还在核对中，照常游戏即可；万一对不上，会自动改回本机校准，这期间生成的记录会标记待复核。」。
-  按钮、进度行与侧栏与上一条相同，审计期间不弹任何对话框。
+  `calibration.state` 仍为 `OBSERVING`。此时本机校准面板隐藏，共享校准面板占满整行；
+  首张卡片的标题为「正在用其他玩家分享的校准自动记录。」，共享校准面板不再重复标题与「已通过本机检查」时的说明，
+  采集服务的说明句（`blockers[]`）以灰字列在面板中（`sharedRetainingText`）。侧栏「捕获」显示「自动监听中」。
+* **绑定后仍在核对（`audit_pending = true`）**：核实门槛按来源分级之后，仓库发布的校准只在本机没有可用校准、
+  未被仓库标为有分歧、且没有提交人数更多的候选时，才在登录簇核实通过即开始记录，排本与进本改为绑定后审计；
+  其余情况下排本与进本须先核实通过。此时首张卡片的标题改为
+  「正在用其他玩家分享的校准记录，排本和进本还在核对。」；共享校准面板的灰字说明照常显示（这是唯一说明该状态的地方），
+  内容即上表中「登录检查已通过」一行的说明。按钮、面板布局与侧栏与上一条相同，审计期间不弹任何对话框。
   旧采集服务不报 `audit_pending`，桌面端按"未报告"处理，措辞与上一条一致。
 * **同意提示**：代价说明与本机临时档案的说明共用 `CalibrationController.queueInferenceText`。
-  `AWAITING_CONSENT` 期间横幅改为
-  「找到了其他玩家分享的校准，同意一次就能开始自动记录：请到捕获诊断页的校准卡片上查看。」，
-  仍然只点亮橙色横幅，不弹出对话框。
-* **导入校准码对话框**（`sharedImportDialog`）包含一个文本框与「导入」按钮。
+  `AWAITING_CONSENT` 期间提示卡改为
+  「共享校准已通过检查。请在「捕获诊断」的「共享校准」中阅读说明，点「同意，开始记录」。」，
+  仍然只显示橙色提示卡，不弹出对话框。
+* **手动导入校准码对话框**（`sharedImportDialog`，标题「手动导入校准码」）包含一个文本框与「取消」「导入」两个按钮。
   `ImportCalibrationCode` 返回的 `message` 原样显示在文本框下方；返回 `APPLIED` 时对话框关闭，
-  同一句话进入 toast。文本为空时不发送请求。
+  同一句话进入 toast。文本为空时不发送请求，提示「请先粘贴完整的校准码。」。
   采集服务的这句话本身区分"命中公开仓库索引"与"未发布"（对应应答中的 `provenance`），
   以及 `reason = REVOKED` 的"已被撤回"，桌面端不改写、不追加；
   只有 `message` 为空时才退回桌面端自己的兜底句。
-* **不用共享的确认框**（`sharedRejectDialog`）说明将撤下哪些内容、此后该游戏版本不再获取或导入共享校准，
-  以及如何撤销该选择；确认后发送 `RejectSharedCalibration`。
+* **改为本机校准的确认框**（`sharedRejectDialog`，标题「改为本机校准？」）说明将停止使用或取消检查哪份共享校准、
+  此后当前游戏版本不再使用共享校准，以及撤销该选择的办法（点「清空校准进度」）；按钮为「取消」与「改为本机校准」
+  （`sharedRejectConfirm`），确认后发送 `RejectSharedCalibration`，toast 按应答说明是停止使用了在用的共享校准、
+  取消了正在进行的检查，还是只记下了这一选择。共享档案正在记录且有副本进行中（`App.currentRunState` 为
+  `MENTOR_MATCHED` 或 `ENTERED_DUTY`）时，「改为本机校准」与确认按钮都停用，已打开的确认框随之关闭，
+  展开的「其他方式」中给一行灰字「副本进行中，结束后再试」（`sharedRejectInFlightHint`）：
+  停用正在记录的档案会把这一把按停止捕获收尾。共享校准尚未用于记录（核实中、待同意）时不受此限制。
+  采集服务对 `RejectSharedCalibration` 执行同一规则：在用的档案来自共享校准、且记录处于 `MENTOR_MATCHED` 或
+  `ENTERED_DUTY` 时，以 `ERR_CALIBRATION_NOT_READY` 与上文「重新校准」的同一句说明拒绝；该档案按排本推断匹配、
+  保留着一条仍在匹配窗口内的排本申请时同样拒绝，说明为上文排队时的那一句（`calibration.change_while_queued`）。
+  排队期间桌面端不停用这两个按钮，拒绝的说明以 toast 显示。
 * **分享**：`GetCalibrationShareCode` 成功后先将 `code` 复制到剪贴板。
   仅当 `code_in_url = true` 且地址位于 `https://github.com/` 之下（不含账号、不含端口）时，
-  才交给 `QDesktopServices::openUrl`；否则只复制并在 toast 中说明。
+  才交给 `QDesktopServices::openUrl`；否则只复制并在 toast 中说明，`code_in_url = false` 时的说明请对方
+  「在「其他方式」中点「手动导入校准码…」并粘贴」。
   `ERR_SHARE_CODE_UNAVAILABLE` 按 `details.reason`（`NO_PROFILE` / `NOT_LOCAL` / `SHARED` / `SHARED_NOT_PROVEN` / `NOT_SHAREABLE`）
   各给出一句说明，不显示采集服务的原文，原文中可能含有路径。
   为此 `BackendReply` 提供 `errorDetails()`，由 `IpcClient` 传递错误信封中的 `details`。
@@ -710,8 +797,10 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
   点选即切换并写入 `desktop.ini` 的 `ui/language`，**不需要重启**，见 §4.5.3。
 * **启动与托盘**（`generalSettingsCard`）：开机启动、随 FF14 自动开始捕获
   （`followGameToggle`，仅维护者可见，写入 `UpdateCaptureSettings.follow_game`）、关闭时最小化到托盘。
-* **记录**：结束后询问本次结果（`Settings.confirmPrompt`，默认开启）、
-  通关后弹出笔记窗口（`Settings.reflectPrompt`）。
+* **记录**：「结束后询问本次结果」（`Settings.confirmPrompt`，默认开启）、「通关后提醒记笔记」
+  （`Settings.reflectPrompt`，默认开启），以及「提醒方式」（`promptPresentationControl`，`Settings.promptPresentation`，
+  INI 键 `general/promptPresentation`）：独立小窗（`window`，默认）/ 浮窗提示（`floating`）/ 仅保留待办（`inbox`），
+  小字为「独立小窗不抢键盘焦点；浮窗关闭时只保留待办。关闭提醒不会删除草稿。」。三种方式的行为见 §4.5.2。
 * **校准**（原型中没有该面板，见改版方案 §3.1）：游戏更新后自动校准（`autoCalibrationToggle`）、
   **游戏更新后获取其他玩家的共享校准**（`sharedCalibrationToggle`，写入
   `UpdateCaptureSettings.shared_calibration_enabled`，由采集服务持有，默认开启）。
@@ -721,19 +810,20 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
 * **更新**：开关「检查新版本并提示」（`updateCheckToggle`，写入
   `UpdateCaptureSettings.update_check_enabled`，由采集服务持有，默认开启）。
   描述写明这是默认开启的联网请求：每天最多一次，只从本项目的 GitHub 发布页读取一个只含版本号的小文件，
-  有新版本时在总览页提示；请求不带账号、安装编号或任何可识别信息；只有在用户点「下载并安装」之后，
+  有新版本时在总览页提示；请求不带账号、安装编号或任何可识别信息；只有在用户点「下载安装包」之后，
   后台进程才会从本项目的发布页下载安装程序并与发布时公布的校验值核对，安装还要再点「立即安装」；
   本软件从不自行下载或安装新版本，见 [privacy-boundary.md](privacy-boundary.md) §8.4、§8.6。
   已检查过时，面板下方以小字给出「最近检查：<时间> · 最新版本 <版本号>」（`updateCheckStatusText`）。
   该行右侧是「检查更新」（`checkUpdateNowButton`）：点击发出 `CheckUpdateNow`，
-  采集服务随即检查一次，不受每日节流限制，结果以一句提示说明。有可下载的新版本时（`App.update.downloadPhase` 非空）
-  同一位置改为随下载阶段变化的按钮，文字与作用和总览横幅的主按钮相同（「下载并安装」「取消」「立即安装」「重试」，
+  采集服务随即检查一次，不受每日节流限制，结果以一句提示说明；已有一次检查正在进行（定时的或另一次请求发起的）时，
+  采集服务等待那一次的结果，不重复检查。有可下载的新版本时（`App.update.downloadPhase` 非空）
+  同一位置改为随下载阶段变化的按钮，文字与作用和总览横幅的主按钮相同（「下载安装包」「取消」「立即安装」「重试」，
   或所连接的采集服务不支持软件内下载时的「下载新版本」，见 §4.1），这时它在请求尚未返回或桌面端正在校验时停用；
   其下是同一个下载状态组件（前缀 `settingsUpdate`）。
   其旁另有透明文字按钮「查看更新说明」（`updateReleaseNotesButton`），只在有新版本时出现，打开发布页。
   作为「检查更新」时，按钮在开关关闭、采集服务未给出更新信息，或上一次检查尚未返回时停用，
   判据是 `App.update.canCheck`（`available && enabled && !checking`）。
-  提示共五句，分别对应：有新版本（写明可以点「下载并安装」，不支持软件内下载时写「下载新版本」）、已是最新版本、
+  提示共五句，分别对应：有新版本（写明可以点「下载安装包」，不支持软件内下载时写「下载新版本」）、已是最新版本、
   没有检查成功、开关已关闭、本机已通过环境变量禁用；其中失败一句不区分具体原因，也不出现地址或协议标记。
   新版本的横幅提示本身在总览页（§4.1），设置页不重复呈现。
   打开维护者工具时，面板底部另有一行小字「维护者工具：下载已发布的最新正式版的安装程序，即使它不比当前版本新。」
@@ -753,8 +843,12 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
   `MentorRecorder` 的值（`QSettings::NativeFormat`）。本软件只写 HKCU，不安装服务，
   也不创建计划任务，因此删除程序目录即完成卸载。该开关默认**关闭**，
   安装即写入注册表属于用户不会预期的副作用。
-* 托盘由 `TrayController`（`QSystemTrayIcon`）实现，菜单项为 显示 / 开始捕获 / 退出。
-  捕获项调用 `AppController::toggleCapture()`，同样经由后端。
+* 托盘由 `TrayController`（`QSystemTrayIcon`）实现，菜单项自上而下为：「显示主窗口」；
+  「待处理（N）」（N 为待处理的条数），显示主窗口并打开待处理列表（`RecoveryController::requestInbox`，§4.5.2）；
+  「显示统计浮窗」或「隐藏统计浮窗」（§4.9.1）；「解锁统计浮窗」，只在浮窗锁定时出现；
+  捕获项，只在打开维护者工具时出现，文字与捕获诊断页标题行的按钮相同（`App.captureActionLabel`，
+  如「开始捕获」「停止捕获」），调用 `AppController::toggleCapture()`，同样经由后端；分隔线之后为「退出」。
+  单击或双击托盘图标同样显示主窗口。主窗口隐藏或最小化时出现「无法自动记录」的情况，托盘另弹出一条同名通知。
   开关打开时，窗口的关闭事件被拦截为「隐藏到托盘」，退出菜单项绕过该拦截。
   没有托盘的环境（offscreen、CI）不创建图标，并将 `quitOnLastWindowClosed` 恢复为真。
 
@@ -804,6 +898,8 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
   语音列表按界面语言排序（同语言同地区、同语言其他地区、简体中文、其余），未保存语音时选列表第一项。
   本机已有语音、但没有界面语言的语音时，语音引擎小字改为橙色的「这台电脑还没有<语言>语音，暂用其他语言的语音播报」，
   并出现「打开 Windows 语音设置」（`openSpeechSettingsButton`，打开本机的 `ms-settings:speech`，不联网）。
+  缺少界面语言的语音时，本软件每次重新回到前台都重新读取一次语音列表（`TtsService::rescanVoices`），
+  在 Windows 中新装的语音随即出现；没有保存过语音选择时，按上述排序选中它。
   `{duty}` 按界面语言读出副本名（§4.5.3）。
 * **播报模板**（`speechTemplatesCard`）：kicker「播报模板 · <语言>」与「可用变量：`{duty} {progress} {remaining}`」（等宽）；
   末尾的透明按钮「恢复默认模板」（`resetTemplatesButton`）只清除当前语言的五条模板，没有编辑过时停用；
@@ -818,7 +914,8 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
 * `voices` 列出本机已安装的语音，zh-CN 在前、其余在后，各自保持引擎顺序。
   每行为 `{id: "local:<名称>", name, label, locale, provider: "local"}`，
   `label` 形如「Microsoft Huihui Desktop（中文 · 女声）」。
-  `findVoices()` 可能切换引擎的语言区域，因此只在引擎处于 `Ready` 时枚举一次并缓存。
+  `findVoices()` 可能切换引擎的语言区域，因此只在引擎处于 `Ready` 时枚举并缓存；
+  之后只在 `rescanVoices()` 要求时（见上文「播报语言」）重新枚举，枚举仍等到下一次 `Ready`。
 * `setVoice(id)` 将选择存入 `Settings.ttsVoice`（INI 键 `tts/voice`，空值表示默认）。
   `voiceId` 是当前正在使用、或空闲后即将使用的语音。
   语音**只在 `voiceApplicableInState()` 允许（即 `Ready`）时切换**：
@@ -913,41 +1010,74 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
 MockBackend 在模拟状态切换以及开始或停止捕获时发出这些事件，
 并提供 `simulateRunTransitions()` 供测试驱动完整流程，其中包含最后一条 `RunFinished`。
 
-**成就**（`achievementSettingsCard`）分为目标值与安装前已完成次数（基数）两列，修改原因为必填项。
-总览成就卡片上「含安装前基数 N 次 · 修改」中的「修改」直接打开本分页（`SettingsPage.editBaseline()`），
-并把光标放进基数栏（`baselineField`）、选中其中的数字，直接输入即可替换；已保存的值尚未读到、输入框还不可用时，
-读到之后再放入光标，届时已离开本分页则不再放入。
+**成就**（`achievementSettingsCard`，kicker「成就进度」）分为「目标值」与「起始次数」两列，修改原因为必填项。
+起始次数是开始用本软件记录前已经完成的导随次数，即契约中的 `baseline_completed_count`（下文简称基数）。
+总览成就卡片上「含起始次数 N 次 · 修改」中的「修改」直接打开本分页（`SettingsPage.editBaseline()`），
+并把光标放进起始次数栏（`baselineField`）、选中其中的数字，此时输入的数字直接替换它；已保存的值尚未读到、
+输入框还不可用时，读到之后再放入光标，届时已离开本分页则不再放入。
 两个输入框预填的是从采集服务读到的已保存值（`GetDashboardStats` 的 `goal_count` 与 `baseline_completed_count`）。
 在当前连接上读到第一份统计之前（`App.achievementSettingsLoaded` 为假，与采集服务断开后重新变为假），
-两个输入框与「保存」均不可用，下方以灰字说明「还没有从采集服务读到已保存的目标与基数，读到之后才能修改和保存。」：
+两个输入框与「保存」均不可用，下方以灰字说明「正在读取已保存的目标和起始次数，读取完成后才能修改和保存。」：
 此时输入框里只是默认的 2000 与 0（或上一次连接读到的值），只改目标并保存就可能改掉已保存的基数。
 读到之后，用户尚未动过的输入框换成已保存的值。
-基数栏为空时不按 0 保存，而以「基数必须是大于等于 0 的整数。」拒绝。
-采集服务对 `UpdateAchievementBaseline` 强制要求 reason（`ERR_REASON_REQUIRED`），页面先执行同样的检查；
-采集服务的拒绝（`App.baselineFailed`）以红字显示在按钮上方。
-修改原因输入框的提示是「例如：补录安装前的历史完成数（按 Tab 填入）」：框内为空时按 Tab 即填入
-「补录安装前的历史完成数」，焦点留在框内（`StyledTextField.exampleText`）；框内已有文字、输入法正在组字，
+目标不是大于 0 的整数时以「「目标值」请填写大于 0 的整数。」拒绝；起始次数栏为空时不按 0 保存，
+而以「「起始次数」请填写 0 或正整数。」拒绝。
+采集服务对 `UpdateAchievementBaseline` 强制要求 reason（`ERR_REASON_REQUIRED`），页面先执行同样的检查，
+原因为空时提示「请填写「修改原因」后再点「保存」。」；采集服务的拒绝（`App.baselineFailed`）以红字显示在按钮上方。
+修改原因输入框的提示是「例如：调整开始记录前已完成的导随次数（按 Tab 填入）」：框内为空时按 Tab 即填入
+「调整开始记录前已完成的导随次数」，焦点留在框内（`StyledTextField.exampleText`）；框内已有文字、输入法正在组字，
 或同时按着修饰键（如 Shift+Tab）时，照常移动焦点。只有原因与备注这类自由文字栏设有示例，数字与配置类输入框没有。
-保存成功后桌面端重新读取一次总览，toast 取重新读取得到的进度，写作「基数已设为 N · 目标 M · 进度 P · 已重算」；
-重新读取失败时只写「基数已设为 N · 目标 M · 已保存」，不给进度数字（`UpdateAchievementBaseline` 的应答不含进度）。
-内嵌框「进度 = 基数 + 软件记录」之后是数字字体的大号算式 `基数 + 记录 = 进度`（`progressFormula`），
-右侧小字为「修改后立即重算 · 导入已包含在基数中的历史记录时可从基数扣除」。算式预览当前输入保存后对应的进度：
-「基数」取基数栏中正在填写的数（栏内为空或不是大于等于 0 的整数时取已保存的基数），
-「记录」为采集服务给出的 `achievement_progress` 减去已保存的基数，即软件记录的、计入进度的通关，
-不论何时结束都在其中，不计入进度的通关则不在其中；「进度」为两者之和
+保存成功后桌面端重新读取一次总览，toast 取重新读取得到的进度，写作「起始次数已设为 N · 目标 M · 总进度 P」；
+重新读取失败时只写「起始次数已设为 N · 目标 M · 已保存」，不给进度数字（`UpdateAchievementBaseline` 的应答不含进度）。
+内嵌框（`progressFormula`）中「进度 = 起始次数 + 软件记录」之后是数字字体的大号算式 `B + R = P`（`progressFormulaFigures`），
+右侧小字为「起始次数：开始用本软件记录前，已经完成的导随次数。可保留或调整，点「保存」后生效；导入时可扣除重复计数。」。
+算式预览当前输入保存后对应的进度：B 取起始次数栏中正在填写的数（栏内为空或不是大于等于 0 的整数时取已保存的基数），
+R 为采集服务给出的 `achievement_progress` 减去已保存的基数，即软件记录的、计入进度的通关，
+不论何时结束都在其中，不计入进度的通关则不在其中；P 为两者之和
 （[statistics-definitions.md](statistics-definitions.md) §4）。
 总览的进度环、「还差 N 次」与语音播报中的进度数字取自 `achievement_progress`。
 
-导入记录对话框（`importRecordsDialog`）在底部按钮行之上有一块内嵌框（`importBaselineChoice`），只在已保存的基数大于 0
-且勾选的记录中有会计入进度的通关（`ImportRecords.contributingSelectedCount`）时出现：「勾选的记录中有 N 条计入进度的通关。
-它们是否已经包含在成就基数 B 中？」，下方两枚单选 `PickChip`：「已包含：保存时从基数中扣除 D 次，基数改为 B − D」
-（`importBaselineDeduct`）与「未包含：照常加在基数之上」（`importBaselineKeep`），D 为 N 与 B 中较小者；N 大于 B 时另加一行灰字
-「基数只有 B，只能扣到 0；其余 N − B 次照常加在基数之上。」。默认值按来源：备份与原生 JSON 为「未包含」，表格、粘贴与截图为「已包含」；
-用户的选择在同一批次的重新校验后保留，换来源后重置。选「已包含」时 `CommitRunImport` 带 `deduct_from_baseline = true`，
-保存后的状态行在导入计数之后写「成就基数已从 B 改为 B′（扣除 D 次已导入的通关），进度不变。」，数字取应答中的
-`baseline_deducted_count` 与 `baseline_completed_count`。基数由 `App.baselineCount` 经 `main.cpp` 传给 `ImportRecords.baselineCount`，
-对话框不直接读 `App`。
-左下为「重新打开首次引导」，右下为主按钮「保存」。
+导入记录对话框（`importRecordsDialog`）在底部按钮行之上有一块内嵌框（`importBaselineChoice`），只在预览有效、
+已保存的基数大于 0，且勾选的记录中有会计入进度的通关（`ImportRecords.contributingSelectedCount`）时出现：
+「勾选记录中有 N 条通关会计入进度。它们已包含在起始次数 B（开始用本软件记录前，已经完成的导随次数）中吗？」，
+下方两枚单选 `PickChip`：「已包含：保存时扣除 D 次，起始次数改为 B − D」（`importBaselineDeduct`）与
+「未包含：照常加在起始次数之上」（`importBaselineKeep`），D 为 N 与 B 中较小者；选「已包含」而 N 大于 B 时另加一行灰字
+「起始次数只有 B，只能扣到 0；其余 N − B 次照常加在起始次数之上。」。
+默认值按来源：备份为「未包含」；JSON 只在每一条候选都带非空的 `run_id` 与 `source` 时（即本软件自己导出的 JSON）
+为「未包含」，填写后的 JSON 模板与其他 JSON 为「已包含」；表格、粘贴与截图为「已包含」。
+用户的选择在同一批次的重新校验后保留，换来源后重置。
+选「已包含」时 `CommitRunImport` 带 `deduct_from_baseline = true`，采集服务在同一事务内从基数中扣除本次**新写入**的、
+计入进度的通关数，最低扣到 0（[statistics-definitions.md](statistics-definitions.md) §4）。保存后的状态行写
+「已导入 I 条，跳过重复 X 条；冲突 C 条，保留本地记录。起始次数已从 B 改为 B′，扣除已包含的 D 次通关，避免重复计算。」，
+数字取应答中的 `imported_count`、`duplicate_count`、`conflict_count`、`baseline_deducted_count` 与 `baseline_completed_count`。
+扣除之后，新写入的计入进度的通关不多于原基数时总进度不变；多于原基数时基数减至 0，总进度增加超出的部分。
+勾选了会计入进度的通关、而基数尚未从采集服务读到时（`ImportRecords.waitingForBaseline`），不能导入，
+底部写「起始次数尚未读取，读取后才能导入」；「重试确认保存」重发的是已经发出的同一批次，不受此限制。
+基数及其是否已读到由 `App.baselineCount` 与 `App.achievementSettingsLoaded` 经 `main.cpp` 传给
+`ImportRecords.baselineCount` 与 `baselineLoaded`，对话框不直接读 `App`。
+
+导入记录对话框另有以下保护：
+
+* 已在本批次中的截图不再加入，提示「截图「<名称>」已在本批次中，没有重复添加；原批次已保留。」；
+  一次选择中同一张截图选了两次时提示「截图「<名称>」选择了两次，请每张截图只选一次。」。
+* 职业按图标推测（`job_candidate_pending`）的行须先在「职业」中确认（选择一个职业，即使与推测相同）：
+  「勾选并下一条」遇到这样的行时提示「职业是按图标推测的，请先在「职业」中确认，再勾选。」，
+  「全选整批可导入」跳过这样的行；已勾选的行中仍有待确认职业时不能导入，底部写「N 条已勾选记录的职业待确认，确认后才能导入」。
+* 首次预览时，可能重复（`possible_duplicate`）的行与截图来源的行都不预先勾选，只由用户勾选；
+  重复、冲突与无效的行不能勾选。「全选整批可导入」会勾选可能重复的行。采集服务把两类行标为可能重复：
+  与本地记录副本相同、原站日期相同且至少一方没有具体时刻的行（[data-model.md](data-model.md) §9），以及同一批次中
+  与前面某一行副本、时间与心得都相同的行（例如重叠的滚动截图读出的同一张卡片）。
+* 修改单行、批量设置、更改地区、重新校验或追加截图之前，先按采集服务的口径计算大小：候选记录的 JSON 数组按 .NET 的转义规则
+  计出的 UTF-8 字节数，上限为 IPC 单帧上限的四分之三（3 MiB），与服务端拒绝分页预览的预算相同。超过时这次操作不生效并说明原因，
+  例如「修改后这批记录太大，无法重新校验，这次修改没有保存。请缩短内容后再改。」、重新校验时的「这批记录太大，无法重新校验，
+  当前内容没有改动。请分成几批重新导入。」、追加截图时的「加入新截图后这批记录太大，无法校验。未添加新记录，原批次已保留；
+  请把新截图放到下一批导入。」；已通过校验的批次保持原样，仍可导入。
+* 已有记录的批次在追加截图或重新校验时，底部按钮写作「取消识别 / 预览」，只取消这次处理并保留原批次，
+  对话框不关闭；空闲时该按钮为「关闭」。
+* 提交没有得到应答时，这批记录保留为待确认，按钮改为「重试确认保存」，以同一请求编号重发；
+  采集服务明确拒绝时（包括它自己答复的内部错误与预览过期），待确认状态解除，可以再次修改、重新校验或关闭。
+
+成就分页底部左侧为「重新打开首次引导」，右侧为主按钮「保存」。
 
 **数据**（`dataSettingsCard`，kicker 为「数据库」）包含以下内容：
 数据库位置（只读、等宽，取自 `GetStatus.database_path`）与「打开目录」
@@ -1004,26 +1134,26 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 
 | 界面 | 绑定 |
 |---|---|
-| 总览「导随心得」面板 | `App.reflectionSummary`（`reflection_count` / `pending_completed_count` / `recent` / `next_pending`） |
-| `补录心得` 按钮 | `next_pending` 存在则打开对话框，否则 toast「所有通关记录都已写过心得」 |
-| 近期心得卡片（最多 3 张） | `App.openHistoryForRun(run)`，同时把详情浮层切到 `心得` 页签 |
-| 历史筛选 `有心得` | `RunFilter.with_reflection` |
-| 详情浮层「心得」页签 | `run.reflection`；有则 心情 tag + 时间 + 正文 + `编辑心得`，无则空状态框 + `补录心得` |
+| 总览「导随笔记」面板 | `App.reflectionSummary`（`reflection_count` / `pending_completed_count` / `recent` / `next_pending`） |
+| 「补录笔记」按钮 | `next_pending` 存在则打开对话框，否则 toast「所有通关记录都已写过笔记」 |
+| 近期心得卡片（最多 3 张） | `App.openHistoryForRun(run)`，同时把详情浮层切到「笔记」页签 |
+| 历史筛选「有笔记」 | `RunFilter.with_reflection` |
+| 详情浮层「笔记」页签 | `run.reflection`；有则 心情 tag + 时间 + 正文 +「编辑笔记」，正文非空时另有「生成分享图片」；无则空状态框 +「补录笔记」 |
 | `dialogs/ReflectionDialog.qml` | `App.saveReflection(runId, mood, text)`；`App.reflectionSaved` 关闭，`App.reflectionFailed` 在对话框内红字显示 |
-| 通关后自动弹出 | `App.reflectionPromptRequested(run)` → `Main.qml` 的 `reflectionDialog.openForPrompt(run, "刚刚完成")`；对话框正忙时请求留在队列中，窗口关闭后再弹出（`reflectionPromptShown` / `reflectionPromptClosed`），期间关闭「通关后弹出心得窗口」则清空队列；已在「本次导随结果」中弹出过的记录不再单独提示 |
-| 设置「通关后弹出笔记窗口」 | `Settings.reflectPrompt` |
-| 结束后询问结果 | `App.resultConfirmationRequested(run)` → 同一个对话框的 `openForResult(run)` |
+| 通关后自动提醒 | `App.reflectionPromptRequested(run)` → `Main.qml` 的 `offerReminder(run, "reflection")`：按提醒方式（§4.5.2）在紧凑弹窗中 `openForPrompt(run, "刚刚完成")`，或只记入待处理；弹窗正忙时请求留在队列中，弹窗关闭后再弹出（`reflectionPromptShown` / `reflectionPromptClosed`），期间关闭「通关后提醒记笔记」则清空队列；已在结果问句中弹出过的记录不再单独提示 |
+| 设置「通关后提醒记笔记」 | `Settings.reflectPrompt` |
+| 结束后询问结果 | `App.resultConfirmationRequested(run)` → `offerReminder(run, "result")` → 同一个对话框的 `openForResult(run)` |
 | 设置「结束后询问本次结果」 | `Settings.confirmPrompt` |
 
-对话框宽 560，自上而下依次为：kicker（刚刚完成 / 补录心得 / 编辑心得）与右侧的 run_id；
-衬线标题「导随心得」；四列内嵌摘要（副本 / 职业 / 结果 / 耗时）；
-`这次感觉` 分段控件（顺利 / 一般 / 糟心）；六行文本域；文本域之下是备注图片条
+主窗口中的对话框（由总览「导随笔记」面板与历史记录详情的「笔记」页签打开）宽 560，自上而下依次为：
+kicker（补录笔记 / 编辑笔记，或打开方给出的文字）与右侧的 run_id；衬线标题「导随笔记」；
+四列内嵌摘要（副本 / 职业 / 结果 / 耗时）；「这次感觉」分段控件（顺利 / 一般 / 糟心）；六行文本域；文本域之下是备注图片条
 （`NoteImageStrip`，与详情浮层同一组件：「添加图片」与移除都即时生效，图片属于记录而非心得，
 不随「保存笔记」或「稍后补录」改变；提交请求在途时不可编辑）。
-页脚为小号开关「通关后自动弹出」、`稍后补录` 与 `保存心得`。
+页脚为小号开关「通关后提醒记笔记」、「稍后补录」与主按钮「保存笔记」（清空了原有笔记时为「清空笔记」，补选了职业时为「保存记录」）。
 
 清空正文后保存等同于删除该条心得，契约规定 `text` 为空即删除，
-因此 `保存心得` 在文本为空时不会被禁用。
+因此主按钮在文本为空时不会被禁用。
 
 ### 4.5.2 本次导随结果（confirmation）
 
@@ -1034,24 +1164,35 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 本软件不代替用户判定这类结果，也不将该判定完全交给事后的「待复核」列表；
 0.2.2 中「完成一局而次数未变」的问题即源于后者。
 
-同一个 `ReflectionDialog` 增加了问句模式（`askingResult`）。此时标题变为「本次导随结果」，
-先询问《副本名》是否已完成，提供三个答案：**通关**、**未通关 / 中途离开**、**稍后再说**，
-其下接原有的心得字段；`Settings.reflectPrompt` 关闭时只保留问句。
-选择 `通关` 调用 `App.resolveRunResult(runId, revision, "COMPLETED", "用户确认通关")`；
-选择 `未通关 / 中途离开` 走同一路径写入 `LEFT_OR_ABANDONED`；
-选择 `稍后再说` 不写入任何内容，记录保留在待复核列表中。
-已填写的心得随答案一并保存。答案被 Collector 接受（`mutationSucceeded`）后窗口才关闭；
-被拒绝时（例如版本号过期）在对话框内以红字显示。
+结果问句由同一个 `ReflectionDialog` 的问句模式（`askingResult`）承担，本软件自己发出的问句总以浮窗旁的紧凑弹窗呈现
+（§4.9.2）：先问「通关了吗？」，提供三个答案 **通关 +1**、**退出**、**稍后**；`Settings.reflectPrompt` 关闭时弹窗不含心得一行。
+选择「通关 +1」调用 `App.resolveRunResult(runId, revision, "COMPLETED", "用户确认通关")`（未识别职业时一并带上补选的职业）；
+选择「退出」走同一路径写入 `LEFT_OR_ABANDONED`（原因「用户确认退出或放弃」）；
+选择「稍后」不写入任何内容，弹窗收起，记录留在待处理与待复核列表中。
+答案被 Collector 接受（`mutationSucceeded`）后，弹窗改为显示已记下的结果，心得在「完成」时保存；
+被拒绝时（例如版本号过期）在弹窗内以红字显示。非独立形态的对话框保留同样的问句（「通关」「退出 / 放弃」「稍后再说」，
+已填写的心得随答案先行保存），只在不经 `Main.qml` 调度的场合（测试）使用。
 
 `resolveRunResult` 使用**与手动修正完全相同的 `CorrectRun`**：
 一条修正中同时写入 `result` 与 `pending_review = false`。
 因此确认本身也是一条可审计的新 revision，且不引入任何新的 IPC 消息。
 
-总览的「待复核」提示条上提供同样的一对按钮，供当时仍在游戏中、未能及时回答的用户补充确认。
-提示条的说明不针对某一条记录：它列出常见原因（崩溃恢复关闭的记录、离开副本前没有收到通关结算、
-生成记录的校准事后被撤下），并说明尚未记为通关的记录在确认“通关”后才计入导随次数。
-待复核的记录可能已是通关（校准被撤下的记录保留原结果），这类记录已经计入进度。
-`App.pendingReviewRun` 是最近一条待确认的记录，仅在 `pendingReviewCount > 0` 时才查询。
+**待处理**：尚未处理完的结果问句与心得提醒汇入一份按数据库区分的待处理列表（`RecoveryController`，`App.recovery`）。
+一条记录在以下任一情况下列入：采集服务报告它待复核（`QueryRuns` 的 `pending_review = true`，只取自动识别且确认为导随的记录
+与手动记录）；结果问句或心得提醒已经发给它而尚未处理；它有未保存的心得草稿。提醒与草稿写在设置文件旁的
+`recovery\<数据库路径的 SHA-256>.json` 中，程序崩溃或关闭后仍在；这份文件只记提醒与草稿，从不修改记录。
+列表按匹配时间由新到旧排列，每条写副本名、职业与结束时间，并以「待复核」「待补笔记」「有草稿」标明原因。
+「继续处理」先重新读取该记录，再在紧凑弹窗中打开：结果仍未知的待复核记录先问结果，其余打开心得；
+读取失败时以保存的副本打开，草稿可以查看、复制，但不能提交。记录已不存在或已删除时，它的结果与心得提醒随之撤下，
+只保留草稿供复制；无法打开的条目另有「移除提醒」，带草稿时第一次点击变为「确认移除（草稿一并删除）」，
+再点一次才连同草稿一起移除，记录本身不受影响。
+列表出现在三处：总览的「待处理」卡片（§4.1）；托盘菜单「待处理（N）」与卡片上「查看全部待处理」打开的
+「导随记录器 · 待处理」窗口（`RecoveryInbox`，另有「刷新」与「关闭」）；统计浮窗的待处理模块（§4.9.1）。
+待复核的记录可能已是通关（校准被撤下的记录保留原结果），这类记录已经计入进度，在弹窗中以「在历史记录中复核」处理（§4.9.2）。
+
+**提醒方式**（§4.5「记录」）决定一条新的结果问句或心得提醒是否立刻弹出：「独立小窗」总是在浮窗旁弹出紧凑弹窗；
+「浮窗提示」只在统计浮窗显示时弹出，浮窗关闭时只记入待处理；「仅保留待办」从不自动弹出，只记入待处理。
+无论哪种方式，提醒都先写入待处理，再决定是否弹出；弹窗正在显示另一条记录时，新的提醒排队，弹窗关闭后再弹出。
 每条记录只询问一次；`ended_at_utc` 早于本次启动的记录（重连时被重放的旧事件）不再询问。
 
 ### 4.5.3 界面语言
@@ -1084,8 +1225,10 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
   显示采集服务的中文原句。界面需要辨认某一句话时（例如校准卡片对「打完这把副本，离开后再回来。」的补充说明），
   比较的是目录键而不是文字，因此在各种语言下判断一致。
 * **仍为简体中文的文字**：协议档案中的说明、随程序嵌入的更新记录与导入说明；
-  历史记录搜索框的文字（`QueryRuns.filter.text`）由采集服务在记录所存的简体中文副本名、职业名与备注中匹配，
-  不匹配译名。
+  历史记录搜索框的文字（`QueryRuns.filter.text`）由采集服务在记录所存的简体中文副本名、职业名与备注中匹配。
+  界面语言不是简体中文、且搜索文字与某个副本或职业的界面译名相符时，桌面端另把它换成记录所存的简体中文名称
+  （`Names.recordedSearchText`），作为 `filter.name_text` 一并发送；采集服务只在副本名与职业名中匹配它，
+  结果与 `filter.text` 的匹配合并。
 * 截图与测试可用 `--ui-language zh-CN|zh-TW|en|ja` 固定本次运行的语言，不改写 `desktop.ini`（§7）。
 
 ### 4.6 首次启动与软件说明（DEC-OODLE-01）
@@ -1094,7 +1237,7 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 baseline 对话框」一段），此前不显示任何说明，也不要求任何确认。是否为首次启动取自 `AppSettings` 的
 `ui/first_run_completed`，基数引导保存成功后记为完成。
 
-说明窗口 `DisclosureDialog`（kicker「隐私与边界」，标题「这个软件做什么、不做什么」）是一个普通的说明窗口，
+说明窗口 `DisclosureDialog`（kicker「隐私说明」，标题「这个软件做什么、不做什么」）是一个普通的说明窗口，
 只由设置页「关于」的「查看软件说明」打开：没有勾选项，不需要确认，底部只有主按钮「关闭」（`disclosureCloseButton`），
 Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于」中点「查看软件说明」重新打开。」；窗口不记录任何内容。
 只有正文滚动，「关闭」固定在底部：720 像素高的窗口容纳不下整页。
@@ -1103,21 +1246,22 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
 是否读取游戏可执行文件，取自 `GetStatus` 的 `oodle_mode` 与 `reads_game_executable`，而非硬编码的默认值：
 
 1. 只被动监听网卡流量
-2. **会读取游戏可执行文件的一份副本**
+2. **会读取磁盘上的游戏程序副本**
 3. 不注入、不读取游戏进程内存
-4. 数据只留在本机 — 无遥测、无云同步、从不上传
-5. **只有三种联网，都由后台进程发出**，分四段叙述：总述；
-   **联网一：游戏更新后获取共享校准**（默认开启，可关），说明发送时机、不携带的内容，
+4. 游戏记录保存在本机：没有遥测或云同步，下列联网请求不会上传数据库
+5. **后台服务仅为以下三类用途联网**，分四段叙述：总述（界面本身不直接联网）；
+   **联网一：游戏更新后获取共享校准（默认开启，可关）**，说明发送时机、GitHub 读取失败时依次改从 GitCode 镜像
+   与 CDN 读取、不携带的内容、GitHub、GitCode 与 CDN 能看到请求来自哪个 IP 地址，
    以及在「设置 → 通用」中的关闭方式（docs/privacy-boundary.md §8.2）；
-   **联网二：在线语音**（默认关闭），仅在选择在线语音并填写自有密钥后才发送，
-   发送内容为当前这一句播报，改回本机语音即停止（§8.3）；
-   **联网三：检查新版本（默认开启，可关），以及你要求时下载新版本**：每天最多一次，只读取发布页上一个只含版本号的小文件，
-   有新版本时在总览页提示；只有点「下载并安装」之后才下载安装程序并与发布时公布的校验值核对，
-   只有再点「立即安装」才启动安装程序、本软件随即关闭；本软件从不自行下载或安装新版本，
+   **联网二：在线语音（默认关闭）**，仅在选择在线语音并填写自有密钥后才发送，
+   发送内容为当前这一句播报，选回本机语音即停止（§8.3）；
+   **联网三：检查更新，以及按你的操作下载新版本**：从本项目公开发布页读取版本信息，有新版本时在总览提示，
+   也可点「检查更新」主动检查；点「下载安装包」只下载安装包并核对发布时公布的校验值，
+   再点「立即安装」才启动安装程序、本软件随即关闭；软件不会自行下载或安装，
    可在「设置 → 通用 → 更新」中关闭「检查新版本并提示」（§8.4、§8.6）
 
 「运行顺序」三条：先打开本软件，再启动游戏；已经登录的，登出到标题画面再登录一次；
-正常排指导者任务，未能自动判定的结果到"待复核"里填写（副本内收到通关结算时自动记为通关）。
+正常排指导者任务，未能自动判定的结果到"待处理"里填写（副本内收到通关结算时自动记为通关）。
 
 此前的版本在首次启动时先显示该窗口，须打开「我已阅读并理解」开关再点「我已了解」，确认按说明的版本号
 （`AppSettings::kDisclosureVersion`）记在 `desktop.ini` 的 `ui/disclosure_acknowledged_version` 与
@@ -1138,9 +1282,9 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
 | 总览：完成趋势 | `GetDashboardStats`（`trend_granularity` = day / week / month）| 桶由 Collector 按 UTC 的 `matched_at_utc` 聚合；桌面端只按本地时区标注 |
 | 总览：当前导随卡 | `GetCurrentRun` | `state` / `run` / `elapsed_ms` |
 | 侧栏状态点 · 顶栏 Collector 行 | `GetStatus` + `CollectorProcess` | FF14 / Npcap / 捕获 / Collector 生命周期 |
-| 历史记录：列表、分页、排序、搜索、筛选 | `QueryRuns`（`filter` / `page` / `page_size` / `sort`）| 默认 `sort = {matched_at_utc, desc}`，`page_size` 按窗口高度计算（最少 5，见「页面布局」） |
+| 历史记录：列表、分页、排序、搜索、筛选 | `QueryRuns`（`filter` / `page` / `page_size` / `sort`）| 默认 `sort = {history_date, desc}`（「日期」列），`page_size` 按窗口高度计算（最少 5，见 §2） |
 | 历史记录：导出 CSV / JSON | `ExportCsv` / `ExportJson` | 路径由 `QFileDialog` 选（默认「文档」）；`--export-target DIR` 可跳过对话框 |
-| 历史记录：详情面板 | 行数据 + `GetRunRevisions` | 选中即拉修正历史 |
+| 历史记录：详情面板 | 行数据 + `GetRunRevisions` | 选中即读取修改记录 |
 | 副本统计 | `GetDungeonStats` | 含 `content_id = null` 的「未知副本」行 |
 | 职业统计 | `GetJobStats` | 含 `job_id = null` 的「未知」行；职能占比由 `job_id` 经职业目录推导 |
 | 副本 / 职业柱状图点击 | `QueryRuns`（`filter.content_id` / `filter.job_id`）| 跳到历史页并预置筛选；`content_id` / `job_id` 为空的行不跳转，只提示原因 |
@@ -1197,7 +1341,7 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
 | `ERR_REASON_REQUIRED` 等（成就进度）| **成就进度卡内、字段下方的红色说明行** + toast |
 | `ERR_NPCAP_MISSING` / `ERR_FFXIV_NOT_RUNNING` / `ERR_CAPTURE_*` | toast（页面本身已经在解释同一件事） |
 | `ERR_EXPORT_FAILED` / `ERR_DB_*` | toast |
-| 连接中断 / 超时（新增 / 修正）| **修正对话框内的红色错误条**：请求已发出、却没有收到能说明是否保存成功的回应时（客户端等待超时、管道断开，或采集服务答复内部错误），说明记录可能已经保存，表单冻结，只能「原样重试」或关闭窗口；请求根本没有发出时（未连上采集服务、写入被拒、请求超过帧上限），说明「这次提交没有发给采集服务，记录没有保存。」，表单保持可编辑 |
+| 连接中断 / 超时（新增 / 修正）| **修正对话框内的红色错误条**：请求已发出、却没有收到能说明是否保存成功的回应时（客户端等待超时、管道断开，或采集服务答复内部错误），说明记录可能已经保存，表单冻结，只能「原样重试」或关闭窗口；请求根本没有发出时（未连上采集服务、写入被拒、请求超过帧上限），说明「这次提交未能发给后台服务，记录尚未保存。连接恢复后可重试。」，表单保持可编辑 |
 | 连接中断 / 超时（其他）| toast + 顶栏 Collector 行 |
 
 为使上表第一、二行成立，两个对话框在提交后**不立即关闭**：
@@ -1215,34 +1359,38 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
 
 请求在写入管道之前就被拒绝时（未连上采集服务、写入被拒，或请求超过 4 MiB 帧上限），桌面端以
 `BackendReply::neverSent()` 标明它从未发出，`mutationFailed` 随之带上这一标志。采集服务不可能保存过这样的请求，
-因此可编辑的表单保持可编辑，错误条在原因之后写「这次提交没有发给采集服务，记录没有保存。」。
+因此可编辑的表单保持可编辑，错误条在原因之后写「这次提交未能发给后台服务，记录尚未保存。连接恢复后可重试。」。
 表单已因此前一次发出而未得到回应的提交冻结、「原样重试」又未能发出时，表单仍保持冻结，错误条写
-「这次重试没有发给采集服务。之前那次提交可能已经保存，为免重复，只能原样重试或关闭窗口；关闭后请先在历史记录中确认，再决定是否重新填写。」
+「这次重试未能发给后台服务，上次提交可能已经保存。为避免重复，只能原样重试或关闭窗口；关闭后请先在历史记录中确认，再决定是否重新填写。」
 
-`GetRunRevisions` 是只读接口；撤销经 `UndoRevision` 实现。详情浮层「修正历史」页签只在最新一条修订
+`GetRunRevisions` 是只读接口；撤销经 `UndoRevision` 实现。详情浮层「修改记录」页签只在最新一条修订
 （不含第 1 条创建修订）上提供「撤销」按钮（`undoRevisionButton`），点击后经原因对话框提交；
 被撤销的修订保留在链上，撤销本身追加一条新修订，规则见 [manual-correction.md](manual-correction.md) §1。
 采集服务拒绝撤销时（例如程序为未完结记录写下的系统修订），拒绝原因显示在原因对话框内。
 
 ## 4.8 Collector 生命周期在界面上的呈现
 
-`CollectorProcess` 的状态直接映射到顶栏的圆点与文案，以及侧栏的 Collector 行：
+`CollectorProcess` 的状态直接映射到标题栏的圆点与文案（`App.collectorStatusText`）。界面一律称采集服务为「后台服务」，
+不出现组件名 Collector；侧栏状态面板没有后台服务一行（§1）：
 
 | 状态 | 文案 | 触发 |
 |---|---|---|
-| `missing` | 未找到 Collector，安装可能不完整，请重新安装本软件。 | exe 同目录与其 `collector\` 子目录中都没有 `MentorRecorder.Collector.exe`。以 `MR_DEV_COLLECTOR_DISCOVERY` 编译的开发构建改为给出期望位置与构建提示 |
-| `idle` | Collector 可用，未启动 | 尚未启动 |
-| `starting` | Collector 启动中… | `QProcess::start()` 已发出 |
-| `running` | Collector 运行中 | 本软件启动的子进程仍在运行 |
-| `reused` | Collector 运行中（复用已有实例）| 子进程因单实例租约立刻退出，但管道已连上 |
-| `exited` | Collector 已退出（代码 N），x.x 秒后重启（第 N 次）| 非预期退出，指数退避 0.8 s → 30 s；连续运行满 60 秒后退出时退避才重新从 0.8 s 开始 |
-| `exited`（拒绝启动） | Collector 无法启动：<原因> | 退出码 2（无法识别启动参数）、尚未开始服务就以退出码 3 退出（数据库或数据目录不可用，原因取自采集服务写到标准错误的最后一行），或 Windows 连续两次拒绝运行该程序。不进入重启循环，同一原因只提示一次；退出码 3 每 5 分钟静默重试一次 |
-| `stopped` | Collector 已停止 | 由本软件主动停止 |
+| `missing` | 缺少后台服务，软件可能没有安装完整。请重新安装后重试。 | exe 同目录与其 `collector\` 子目录中都没有 `MentorRecorder.Collector.exe`。以 `MR_DEV_COLLECTOR_DISCOVERY` 编译的开发构建改为「未找到 Collector（期望位置：…）」并给出构建提示 |
+| `idle` | 后台服务尚未启动 | 尚未启动 |
+| `starting` | 后台服务正在启动… | `QProcess::start()` 已发出 |
+| `running` | 后台服务已启动 | 本软件启动的子进程仍在运行 |
+| `reused` | 检测到已有后台服务；占用租约的旧实例没有应答时为「检测到已有后台服务（占用者无响应）」 | 子进程以退出码 4 退出（另一个实例已持有单实例租约）或退出码 6（持有租约的实例没有应答），旧版采集服务则是短时退出而管道已连上；子进程未在运行而管道连上时同样进入此状态 |
+| `exited` | 后台服务已停止（代码 N），将在 x.x 秒后重试启动（第 N 次）；崩溃时括号内为「崩溃」，没有排定重启时只写前半句 | 非预期退出，指数退避 0.8 s → 30 s；连续运行满 60 秒后退出时退避才重新从 0.8 s 开始 |
+| `exited`（拒绝启动） | 后台服务无法启动：<原因> | 退出码 2（无法识别启动参数）、尚未开始服务就以退出码 3 退出（数据库或数据目录不可用，原因取自采集服务写到标准错误的最后一行），或 Windows 连续两次拒绝运行该程序。不进入重启循环，同一原因只提示一次；退出码 3 每 5 分钟静默重试一次 |
+| `stopped` | 后台服务已停止 | 由本软件主动停止 |
+
+管道已连上而本软件自己的子进程不在运行时（即沿用了此前启动的后台服务），标题栏不显示上表的句子，
+而写「后台服务运行中（沿用之前启动的）」；使用模拟数据时写「模拟数据」。
 
 `reused` 是必须单独区分的一档。Collector 以一个具名事件实现每用户单实例租约，
 第二个实例会立即带错误退出。若将其判定为崩溃，将导致无意义的重启循环。
-判据是「短时退出且管道已连接」，并在重启定时器触发时再判定一次，
-因为子进程可能先于 socket 的 connected 信号退出。
+判据首先是退出码 4（不依赖管道是否已先连上）；不带该退出码的旧版采集服务按「短时退出且管道已连接」判断，
+并在重启定时器触发时再判定一次，因为子进程可能先于 socket 的 connected 信号退出。
 
 桌面端每个用户只运行一个（`SingleInstanceGuard`）：第一个实例持有一个以当前用户管道名命名的
 具名互斥量；再次启动时，新进程置位第一个实例等待的具名事件，使其把窗口调到前台，随后自行退出，
@@ -1256,6 +1404,80 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
 进程被 `Stop-Process` 或任务管理器强制结束时不会执行析构。子 Collector 以
 `--serve --parent-pid <桌面端 pid> --parent-start-time <启动时间>` 启动，自行监视桌面端进程，
 发现其结束后走与 Ctrl+C 相同的停止流程，10 秒内未完成则强制退出，因此不会留下孤儿进程。
+
+## 4.9 游戏内浮窗与结果确认弹窗
+
+设计稿为 Design 画布 `Hj9eFWAHmSJETMTfcNf86n` 中「游戏内浮窗 + 本次结果确认弹窗」一页：图形为主、少文字，
+两者都跟随界面风格、深浅主题与界面语言。浮窗与弹窗都是无边框、始终置顶的工具窗口
+（`Qt.Tool | FramelessWindowHint | WindowStaysOnTopHint`，不设 `transientParent`），
+只有底板带透明度，文字与图形始终不透明。
+
+### 4.9.1 导随统计浮窗
+
+入口为主窗口标题栏的「统计浮窗」按钮与托盘菜单；状态由 `StatisticsOverlayController`（`App.statisticsOverlay`）持有，
+窗口为 `components/StatisticsFloatingWindow.qml`，模块数据集中在 `components/OverlayData.qml`。
+
+* **两种形态**：完整浮窗（默认 300 × 560，可拖动右下角缩放，宽 240–520）与一行的迷你条（固定 280 宽，高度随内容）。
+  两者共用位置；迷你条不改变记忆中的完整尺寸。标题栏右侧的「收成迷你条」与迷你条上的「展开完整浮窗」互相切换，形态持久保存。
+  迷你条按自己的尺寸放进屏幕（`StatisticsOverlayController::setPosition`）：贴在屏幕底边时停在原处，
+  内容多出第二行时向上长高而不越出屏幕，第二行消失后保持上移后的位置；切回完整浮窗时，完整尺寸按迷你条所在位置放进屏幕。
+* **标题栏**（30 px）：拖动点、徽记、「导随统计」，右侧依次为收成迷你条、自定义、锁定、关闭；整条标题栏可拖动移动。
+* **模块**（`components/Overlay*Module.qml`，顺序与开关由自定义决定）：累计进度（大号数字、目标、百分比、带四分刻度的进度条，
+  新增通关后显示「+N」6 秒；修改起始次数或目标、以及这类保存进行中时进度的变化不计为新增）、当前副本（职业徽章、副本类型角标、名称与状态标记：进行中绿点、通关对勾、结果未知「?」、
+  已匹配沙漏）、副本用时（大号时间、与该副本平均用时的差值、以平均用时为刻度的进度条；已匹配时为滚动条纹）、
+  副本统计（按类型通关的堆叠条、角标图例与出现次数排行）、职业统计（按职能的柱状列与职能图标）、
+  待处理记录（数量、每条一个按类型着色的圆点，点击从最新的一条起在结果弹窗中逐条处理；条数增加时闪动并短暂显示「+1」）。
+  当前副本与副本用时只在有当前导随（已匹配、副本中、刚通关或结果待确认）时显示，待处理记录只在有记录时显示。
+  状态标记的脉动与已匹配时的滚动条纹这类循环动画只在浮窗显示（且未最小化）时运行。
+* **文字标签**默认关闭：模块名、图例名与职能名不显示，鼠标悬停在模块、分段或按钮上时以提示框给出名称与数字；打开后随内容显示。
+  提示框是独立的小窗（`components/OverlayToolTip.qml`，`popupType: Popup.Window`），不受浮窗边界约束：显示在所悬停项目的上方，
+  贴近屏幕顶端没有空间时改到下方；迷你条上的提示框以整条为基准，不会盖住条上的数字或按钮。
+  按钮落在可悬停的条上（标题栏的拖动区、迷你条的进度行）时只显示按钮自己的提示，不同时显示条的提示。
+* **副本类型色**与副本统计页的类型图例一致（`DungeonStatsModel::categoryBreakdown` 的 token，§4.3），角标为单字（迷 / 讨 / 大 / 团 / 令；
+  极神只作为图例分段出现，角标为「极」）；
+  职能色取自 `JobCatalog::tokenForRoleGroup`。累计进度来自 `dashboard.achievement_progress` 与 `goalCount`，
+  当前副本来自 `App.currentRun`，进本后的用时来自 `liveElapsedMs`（由 `GetCurrentRun.elapsed_ms` 外推，自进入副本起计，
+  进本之前该字段为空），已匹配阶段由 `matched_at_utc` 起算，平均用时取副本统计行的 `avg_duration_ms`，
+  待处理记录来自 `App.recovery.items`。
+* **自定义**面板替换浮窗内容：模块列表可拖动握把排序（也可在握把上按 ↑ / ↓，或用悬停时出现的上下箭头），开关控制显示，
+  关闭的模块保留原位；其下为副本排行（关 / 前 3 / 前 5 / 前 10 / 全部）、背景不透明度（30–100 %）与文字标签开关；
+  「恢复默认」还原模块、排行、不透明度与标签，「完成」返回内容。
+* **锁定**：隐藏标题栏与缩放角，窗口对鼠标穿透（`WindowTransparentForInput | WindowDoesNotAcceptFocus`），
+  在主窗口标题栏按钮或托盘菜单解锁；锁定不持久，重新打开浮窗时总是解锁状态。
+* 设置项位于 `statistics_overlay/*`：`geometry`、`opacity`、`modules`（显示中的模块）、`module_order`（全部模块的顺序）、
+  `row_limit`、`form`、`labels`；可见与锁定不保存。无效值由控制器收敛到默认（不透明度 0.85，排行前 3，全部模块开启）。
+
+### 4.9.2 本次结果待确认弹窗
+
+结果问句与心得提醒（§4.5.2）的弹窗由同一个 `ReflectionDialog` 承担：`standalone` 时切换为
+`dialogs/ResultPopupContent.qml` 的 320 px 紧凑布局，由 `RecoveryReminderWindow` 承载，放在浮窗左侧 12 px、顶边对齐
+（左侧放不下则放右侧；浮窗未显示时靠屏幕右上角）。自动提醒按提醒方式弹出（§4.5.2），从待处理打开的记录同样用这个弹窗。
+收起按钮、「本次结果待确认」/「本次笔记待补录」一类标题、「关闭只会收起提醒……」的说明与「已收起」提示条
+只属于这个弹窗（`reminderChrome`）；主窗口内的补录 / 编辑心得对话框保持自己的样式，但 Esc 同样经由收起逻辑保存草稿，草稿保存失败时窗口保持打开并显示原因。
+主窗口对话框中输入的内容同样随时存为草稿，在保存之前列入待处理（标为「有草稿」），因此不会丢失；
+主窗口隐藏到托盘时，未在提交中的该对话框按「稍后补录」收起，草稿保留。
+
+* **标题栏**：徽记、结束时间（自动弹出时为「刚刚结束」，从待处理打开时为结束时刻）、从待处理打开且尚未回答时、待处理多于一条的翻页（上一条 / 下一条，
+  经 `pageQueue` → `RecoveryController.requestOpen` → `Main.qml` 的 `onOpenRequested` 识别 `pendingSwitchId` 后在原窗口内 `switchTo`，不关窗）、
+  提醒开关（铃铛：结果弹窗控制「结束后自动询问」，心得提醒控制「通关后提醒记笔记」）、ⓘ 说明与「收起」。
+* **内容**：职业徽章、类型角标、副本名与用时；结果未知时显示「通关了吗？」与 通关 +1 / 退出 / 稍后 三个答案。
+  与主窗口对话框不同，回答后窗口不关闭：结果改以结果框呈现，下方是三个心情表情与一行心得输入框（输入时增高），
+  按「完成」才保存心得并关闭；没有写心得时「完成」直接关闭并视作已处理。
+  结果框只在采集服务认定该记录计入进度（`contributes_to_goal === true`）的通关上写「已计入导随次数」；
+  其后的「N → N+1」两个数字都取自采集服务的 `achievement_progress`：前者是弹窗为自动记为通关的记录自动弹出时、
+  或回答「通关 +1」时持有的值，后者是随后再读一次总览（`App.readGoalProgress`）得到的值（回答「通关 +1」时在采集服务
+  接受答案之后读取），两者恰好相差 1 时才显示，桌面端从不自行加一。退出写「已记为退出 / 放弃，不计入」，其他结果写结果名称。
+  记录仍待复核而结果已知时（崩溃恢复记为中断，或校准被撤下而保留原结果），「完成」旁另有「在历史记录中复核」：
+  保存草稿并关闭弹窗（不出现「已收起」提示条），把主窗口带到前台，在历史记录中选中该记录并打开「确认待复核记录」的原因对话框（与详情浮层的「确认已复核」相同）。
+  因此写入顺序为先 `CorrectRun` 后 `SetRunReflection`，而主窗口对话框仍是先心得后结果。
+  已自动记为通关的记录（心得提醒）直接显示结果框。未识别职业时在副本行下补一行职业选择，随答案一并写入。
+* **收起 / 稍后 / Esc**：草稿保留，记录进入待处理；浮窗的待处理条目在条数增加时闪动并显示「+1」，
+  弹窗原位出现「已收起到待处理，记录和草稿已保留」的提示条（6 秒，可「重新打开」；待处理列表出错时提示条改写出错原因）；提示条只在该记录仍在待处理中时出现，记录已被删除且没有草稿时直接收起、不显示提示条。
+  与采集服务的连接断开、无法确认数据库身份时，弹窗同样按收起处理：草稿保留，出现同一提示条；
+  切换到另一个数据库时，弹窗关闭而不出现提示条，草稿留在原数据库的待处理中。回答之后再收起等同于「完成」；若那次保存被拒绝（错误显示在窗内），再次收起按普通方式关闭并保留草稿，
+  因此窗口总能被收起。清空已保存的心得后按「完成」会删除该心得（契约规定空正文即删除）；未识别职业时补选的职业随答案写入，
+  之后的「完成」不再重复提交。
+* 备注图片不在弹窗中提供，仍在历史记录详情中添加。
 
 ## 5. 手动修正对话框与校验
 
@@ -1271,7 +1493,7 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
 | 结束时间早于进本时间（耗时为负） | `ERR_NEGATIVE_DURATION` |
 | 非 `CANCELLED_BEFORE_ENTRY` 却没有进本时间（明确历史导入豁免） | `ERR_BAD_REQUEST` |
 | `COMPLETED` 却没有结束时间（明确历史导入豁免） | `ERR_BAD_REQUEST` |
-| 修正模式下没有任何字段变化 | `ERR_NO_CHANGES`（"没有任何字段被修改。"） |
+| 修正模式下没有任何字段变化 | `ERR_NO_CHANGES`（`RunFormValidator` 的说明为「内容还没有变化，无需保存。」；向导提交前自行发现没有改动时，错误条写「还没有修改记录内容。」） |
 | 日期/时间格式非法 | `ERR_BAD_REQUEST` |
 
 对话框在修正模式下显示原型的「修改前后对比」三列表格，
@@ -1281,22 +1503,23 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
 「进入方式」在第 1 步（`RunWizardResultStep`）以三枚 `PickChip` 选择：不清楚（`null`）/ 开局进入（`false`）/
 中途加入（`true`），对应 `$defs/Run.joined_in_progress`；修正时预填记录的值，补录时默认「不清楚」。
 修正提交只在值改变时带上该字段（`null` 与采集服务未给出的字段视为同一个值）。
-没有差异时显示「尚未修改任何字段。」。
+没有差异时显示「还没有修改记录内容。」（`noChangesText`）。
 
 首次启动的 baseline 对话框（`dialogs/BaselineDialog.qml`）按原型排版，自上而下为：
-`首次启动 · 1 / 1` kicker、大号标题、一段说明（基数是安装本软件之前已完成的次数，首次启动时即游戏内
-成就面板显示的完成数，软件记录的通关加在基数之上）、两个大字号数字输入（安装前已完成次数与目标）、
+`首次启动 · 1 / 1` kicker、大号标题「开始记录前，你已完成多少次导随？」、一段说明（起始次数是开始用本软件记录前
+已经完成的导随次数，总进度 = 起始次数 + 软件中计入进度的通关次数；导入旧记录时，若确认它们已包含在起始次数中，
+软件会相应扣减）、两个大字号数字输入（「起始次数」与「目标」，起始次数即下文的基数）、
 进度预览，以及 `从 0 开始` 与 `保存并开始` 两个按钮。首次启动时该对话框不能经 Esc 关闭。
-从设置页「重新打开首次引导」打开时（`openDialog(true)`），kicker 改为「成就基数」，两个输入预填当前的
+从设置页「重新打开首次引导」打开时（`openDialog(true)`），kicker 改为「起始次数」，两个输入预填当前的
 基数与目标，并多出「取消」按钮，Esc 同样关闭对话框而不做任何修改；保存时一并提交基数与目标。
 
 两个输入预填的同样是从采集服务读到的已保存值。读到之前（`settingsLoaded` 为假）两个输入框、`从 0 开始` 与
-`保存并开始` 均不可用，说明行写「还没有从采集服务读到已保存的目标与基数，读到之后才能修改和保存。」；
+`保存并开始` 均不可用，说明行写「正在读取已保存的目标和起始次数，读取完成后才能修改和保存。」；
 首次启动时此时另有「稍后填写」按钮，关闭对话框而不保存任何内容，下次启动时再次询问。
 值在对话框打开之后才读到时，用户尚未动过的输入换成已保存的值。
 
-`从 0 开始` 提交的是对话框中显示的目标（与 `保存并开始` 一样先检查是否为大于 0 的整数）与基数 0。
-`保存并开始` 不把空的基数栏当作 0，而以「基数必须是大于等于 0 的整数。」拒绝；以 0 为基数应使用 `从 0 开始`。
+`从 0 开始` 提交的是对话框中显示的目标（与 `保存并开始` 一样先检查是否为大于 0 的整数，否则提示「目标值必须是大于 0 的整数。」）
+与基数 0。`保存并开始` 不把空的起始次数栏当作 0，而以「起始次数必须是大于等于 0 的整数。」拒绝；以 0 为基数应使用 `从 0 开始`。
 按下任一保存按钮后对话框保持打开，`保存并开始` 改写为「保存中…」；应答到达之前，两个输入框、两个保存按钮与
 「取消」/「稍后填写」均不可用，Esc 与点击窗外也不关闭对话框。采集服务接受后对话框才关闭，首次启动随之记为完成；
 被拒绝或连接断开时，对话框保留已填写的内容，并以红字显示采集服务给出的原因。首次启动时，保存失败之后同样出现
@@ -1304,20 +1527,19 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
 另有一次成就设置的保存（例如来自设置页）尚未得到应答时，两个保存按钮同样不可用。
 
 进度预览（`baselinePreviewText`）只在读到已保存的值、且软件已记录计入进度的通关时出现，写作
-「软件已记录 N 次计入进度的通关，会加在基数之上：B + N = P。游戏内成就面板显示的完成数已包含这 N 次，填写时请先减去，以免重复计算。」
-其中 N 为采集服务给出的 `achievement_progress` 减去已保存的基数，B 为基数栏中正在填写的数
+「软件中已有 N 次通关计入进度，总进度为：B + N = P。如果按游戏内成就面板的总次数填写起始次数，请先减去这 N 次，避免重复计算。」
+其中 N 为采集服务给出的 `achievement_progress` 减去已保存的基数，B 为起始次数栏中正在填写的数
 （栏内为空或不是大于等于 0 的整数时取已保存的基数），P 为两者之和
 （[statistics-definitions.md](statistics-definitions.md) §4）。
 
 新增与修正采用三步向导。状态与逻辑位于 `dialogs/EditRunDialog.qml`，
-三步的界面分别为 `RunWizardResultStep.qml`、`RunWizardDutyStep.qml` 与 `RunWizardTimeStep.qml`，
-另见计划 §5（内部工作文档，不随仓库分发）。
+三步的界面分别为 `RunWizardResultStep.qml`、`RunWizardDutyStep.qml` 与 `RunWizardTimeStep.qml`。
 向导宽 `min(720, 窗口宽 − 40)`、高 `min(680, 窗口高 − 32)`；
 标题、步骤条（可点击，显示每步当前值）与底部按钮栏固定，只有正文滚动。
 
 * 第 1 步「结果」包含六张结果卡（`PickSurface`，颜色取自 `Fmt.resultColorToken`，
-  结果代码只在维护者模式下显示）、开关「这是指导者任务，计入成就进度」（`goalToggle`）
-  与进度预览（`progressPreview`）。
+  结果代码只在维护者模式下显示）、开关「计入导随成就进度」（`goalToggle`，小字「这里只补录指导者任务。
+  关闭后不增加成就进度，仍计入次数、通关率等统计。」）与进度预览（`progressPreview`）。
 * 第 2 步「副本与职业」包含：人数分段（全部 / 4 人本 / 8 人本 / 24 人本 / 其他，
   取自 `DutyCatalog` 的 `party_size`）；搜索（支持名称、等级、`7.2` 一类版本号按资料片匹配、
   资料片中文名与种类）；等级区间与难度标签（`PickChip`，难度只在 全部 / 8 人本 / 24 人本 时出现）；
@@ -1337,7 +1559,7 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
   每张右上角的移除、「添加图片」（系统文件选择框）以及一行说明保存位置的提示。
   添加与移除只在对话框内暂存（`pendingImageAdds` / `removedImagePaths`），
   记录保存成功后才由 `NoteImages.commit()` 写入安装目录，取消即放弃。
-  只改图片时不发送修正、不产生修订，「保存为新修订」在仅有图片改动时也可用；
+  只改图片时不发送修正、不产生修订，修正模式的主按钮「保存修正」在仅有图片改动时也可用；
   记录已保存而图片写入失败时对话框保持打开并给出原因（`savedRunId` / `recordSaved`）：
   前两步、时间、原因与备注字段锁定，按钮改为「重试图片」与「关闭」，再次保存只重试图片，
   不会把记录再提交一次。不是图片、超过 20 MB、分辨率超过 5000 万像素（先看文件头）、
@@ -1388,7 +1610,7 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
 | 成功 / 黄焰 · 警告 / 危险 | `green` / `orange` / `red` | `#6fbf8a` / `#c8a020` / `#e74c3c` | `#35804e` / `#8f7010` / `#b8322a` |
 
 在 Harendotes 中 `gold` 系即"焰"：原先绑定金色的标记、小标题、导航选中条都随之变为橙焰，真正的古金只经 `oldGold`
-出现在面板外框与标题栏底线的尾段。成就进度环在此风格下沿弧线渐变（components/ProgressRing.qml 的锥形渐变）：12 点方向的起点为黄焰（`ringTail`，深 `#ffd84a` / 浅 `#f7bc1f`），末端为深橙焰（`ringStart`，深 `#e8401a` / 浅 `#c8380f`），两端在色相与明度上都拉开，全程不透明：半透明或低饱和的色段叠在轨道上会发灰；艾欧泽亚仍为对角直线渐变。标题栏经 `titlebarTop/Bottom/Brand/Text/TextSecondary/Mark/Fill` 取色，
+出现在面板外框与标题栏底线的尾段。成就进度环在此风格下沿弧线渐变（components/ProgressRing.qml 的锥形渐变）：12 点方向的起点为黄焰（`ringTail`，深 `#ffd84a` / 浅 `#f7bc1f`），末端为深橙焰（`ringStart`，深 `#e8401a` / 浅 `#c8380f`），两端在色相与明度上都拉开，全程不透明：半透明或低饱和的色段叠在轨道上会发灰；弧头为圆头，起点仍为平头（只在末端补一枚 `ringStart` 色的圆片——`lineCap: round` 会连 12 点方向的起点一起圆掉，而锥形渐变在那里由 `ringTail` 直接折回 `ringStart`，起点的圆头会显出末端的深橙）；艾欧泽亚仍为对角直线渐变，弧头同样补圆片，圆片直接取同一直线渐变填充。标题栏经 `titlebarTop/Bottom/Brand/Text/TextSecondary/Mark/Fill` 取色，
 各风格下都与侧栏同底；规格原定的浅色海军蓝顶栏实机观感过重，已改为浅色。「深色 / 浅色」切换按钮在三种风格下
 一律按"对方主题的底色与文字"反色绘制（`inverseBackground` / `inverseText`）；
 导航选中底与开关不再写死金色字面量，改由 `navActiveStart/End`、`switchTrackOn`、`switchKnobTop/Bottom` 给出。
@@ -1466,7 +1688,7 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
 | `components/StackedResultBar.qml` | 结果分布条（12 px、2 px 间隙） |
 | `components/DialogFrame.qml` | `.dialog` + `.dialog::before` 的 2 px 渐变顶线 |
 | `components/ReflectionCard.qml` | 总览「导随心得」面板里的近期卡片 |
-| `components/ProgressRing.qml` | 成就环：butt 端点 + `ffgold` 渐变 + r76/r96 两圈细金线 |
+| `components/ProgressRing.qml` | 成就环：`ffgold` 渐变 + r76/r96 两圈细金线；起点平头、弧头圆头（末端补一枚同渐变填充的圆片，原型为 butt 端点，2026-10-20 按产品决定改圆头） |
 
 经典风格的按钮按 workbench 定义：默认与 secondary 为 `surface` 底加 1 px neutral-300 边，悬停时为 `fill`；
 primary 为 accent 底加 600 字重白字，悬停时为 accent-600；
@@ -1491,12 +1713,13 @@ divider 细边与 600 字重 accent 字色。
 
 ### 6.3 标题栏
 
-标题栏为 `--chrome-bg` 渐变加 1 px `gold-3` 下边框。
-左侧是一枚旋转 45° 的镀金菱形，其后是 Cinzel 字体的 `MENTOR ROULETTE` 与正文字体的 `导随记录器`。
-右侧是 Collector 生命周期圆点与文案，以及 `btn-secondary` 小号的主题切换按钮。
+标题栏为 `titlebarTop` → `titlebarBottom` 的竖直渐变（对应 `--chrome-bg`）加 1 px 下边框：艾欧泽亚系风格为 `gold3`，
+经典风格为 `border`；Harendotes 另在底边叠一条由橙焰过渡到古金的细线。
+左侧在艾欧泽亚系风格下是一枚旋转 45° 的镀金菱形，其后是品牌名「导随记录器」（字体经 `Theme.headingFamilyFor` 选择）与版本号。
+右侧依次是后台服务状态圆点与文案（§4.8）、小号的主题切换按钮（`AppButton { variant: "inverse" }`）、
+「统计浮窗」按钮与三个窗口按钮。
 
-标题栏**不绘制**原型中的 `— ▢ ✕` 三个装饰字符，也不绘制 macOS 交通灯圆点。
-本软件是 Windows 应用，窗口按钮由系统边框提供，复制到真实窗口上会出现两套关闭按钮。
+窗口没有系统边框，最小化、最大化与关闭三个按钮由标题栏自行绘制（§1）；标题栏不绘制 macOS 交通灯圆点。
 
 ### 6.4 动效
 

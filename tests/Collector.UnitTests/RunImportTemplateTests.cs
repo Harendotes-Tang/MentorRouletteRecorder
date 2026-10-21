@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using System.Xml.Linq;
 using MentorRecorder.Collector.Import;
+using MentorRecorder.Collector.Reference;
 using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.UnitTests;
@@ -69,6 +70,74 @@ public sealed class RunImportTemplateTests : IDisposable
         Assert.Equal("合成模板心得", run.Reflection!.Text); Assert.Equal(1200000, run.DurationMs);
         Assert.Equal(new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero), run.EnteredAtUtc);
         Assert.Equal(new DateTimeOffset(2026, 10, 9, 12, 30, 0, TimeSpan.Zero), run.ImportMetadata.SourceRecordedAtUtc);
+    }
+
+    [Theory]
+    [InlineData("Chinese")]
+    [InlineData("English")]
+    [InlineData("Abbreviation")]
+    public void ExcelTemplateJobNamesSurvivePreviewRevalidationAndCommit(string spelling)
+    {
+        // 填写随软件分发的真实模板；合成记录不代表反馈者的原始工作簿。
+        var jobs = JobCatalog.Default.Jobs;
+        Assert.NotEmpty(jobs);
+        var names = jobs.Select(job => spelling switch
+        {
+            "Chinese" => job.NameZh,
+            "English" => job.NameEn,
+            _ => job.Abbreviation.ToLowerInvariant(),
+        }).ToArray();
+        var path = Path.Combine(_directory, "jobs.xlsx");
+        File.Copy(Template("personal-records.xlsx"), path);
+        using (var zip = ZipFile.Open(path, ZipArchiveMode.Update))
+        {
+            var entry = zip.GetEntry("xl/worksheets/sheet1.xml")!;
+            XDocument document;
+            using (var stream = entry.Open()) document = XDocument.Load(stream);
+            var ns = document.Root!.Name.Namespace;
+            var sheetData = document.Root.Element(ns + "sheetData")!;
+            sheetData.Elements(ns + "row").Where(row => row.Attribute("r")?.Value != "1").Remove();
+            for (var i = 0; i < names.Length; i++)
+                sheetData.Add(new XElement(ns + "row", new XAttribute("r", i + 2),
+                    new[] { "合成职业识别副本", "  " + names[i] + "  " }.Select((value, column) =>
+                        new XElement(ns + "c", new XAttribute("r", ((char)('A' + column)).ToString() + (i + 2)),
+                            new XAttribute("t", "inlineStr"), new XElement(ns + "is", new XElement(ns + "t", value))))));
+            entry.Delete();
+            using var output = zip.CreateEntry("xl/worksheets/sheet1.xml").Open();
+            document.Save(output);
+        }
+
+        using var database = new TestDatabase();
+        var service = new RunImportService(database.Database, database.Clock);
+        var first = service.PreviewSource("XLSX", path);
+        var rows = first["rows"]!.AsArray();
+        Assert.Equal(jobs.Count, rows.Count);
+        for (var i = 0; i < jobs.Count; i++)
+        {
+            Assert.True(rows[i]!["can_import"]!.GetValue<bool>());
+            Assert.Equal(jobs[i].JobId, rows[i]!["run"]!["job_id"]!.GetValue<int>());
+            Assert.False(rows[i]!["candidate"]!.AsObject().ContainsKey("job_id"));
+            Assert.Empty(rows[i]!["errors"]!.AsArray());
+            Assert.DoesNotContain(rows[i]!["warning_refs"]!.AsArray(), warning =>
+                warning?["key"]?.GetValue<string>() == "import.warning.job_unmatched");
+        }
+
+        // Desktop 重新校验时发送原始候选；展示用的职业编号不应改变来源字段或去重语义。
+        var second = service.PreviewSource("XLSX", rows: new JsonArray(
+            rows.Select(row => row!["candidate"]!.DeepClone()).ToArray()));
+        var committed = service.Commit(second["preview_id"]!.GetValue<string>(),
+            second["rows"]!.AsArray().Select(row => row!["row_number"]!.GetValue<int>()).ToArray(),
+            true, Guid.NewGuid().ToString("D"));
+        Assert.Equal(jobs.Count, committed["imported_count"]!.GetValue<int>());
+        var repository = new RunRepository(database.Database);
+        var runIds = committed["run_ids"]!.AsArray();
+        for (var i = 0; i < jobs.Count; i++)
+        {
+            var run = repository.Get(runIds[i]!.GetValue<string>())!;
+            Assert.Equal(jobs[i].JobId, run.JobId);
+            Assert.Equal(jobs[i].Role, run.Role);
+            Assert.Equal(names[i], run.JobName);
+        }
     }
 
     private static string Template(string name)

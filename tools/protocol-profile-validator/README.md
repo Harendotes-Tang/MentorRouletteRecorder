@@ -102,8 +102,8 @@ Collector 侧只校验，不写入。
   （`E_PROFILE_FIELD_OOB`）；
 - `constraints.max < constraints.min` 拒绝（`E_PROFILE_CONSTRAINT`）；
 - 必需字段齐全（`E_PROFILE_MISSING_FIELD`）：
-  `CONTENT_FINDER_POP.roulette_id`、`DUTY_RESULT.outcome`、`PLAYER_JOB.job_id`；
-  `ZONE_INITIALIZATION` / `ZONE_LEFT` / `INSTANCE_LEFT` / `MATCH_CANCELLED` 无必需字段；
+  `CONTENT_FINDER_POP.roulette_id`、`ZONE_TERRITORY.territory_id`、`DUTY_RESULT.outcome`、`PLAYER_JOB.job_id`；
+  `ZONE_INITIALIZATION` / `ZONE_LEFT` / `INSTANCE_LEFT` / `MATCH_CANCELLED` / `MATCH_ANNOUNCED` 无必需字段；
 - `DUTY_RESULT` 的 `victory_values` 必须非空（`E_PROFILE_NO_VICTORY`）；
 - `calibration` 只允许出现在 `VERIFIED` 档案中（`E_PROFILE_CALIBRATION_STATUS`）。
   其 `finder_request.roulette_field` 按普通字段读取，因此同样执行上面的字段检查
@@ -127,6 +127,8 @@ Collector 侧只校验，不写入。
 ### 7. 测试样本哈希
 
 `fixtures[]` 中**存在**的文件必须匹配其 `sha256`，不匹配 → `E_PROFILE_FIXTURE_HASH`，拒绝该档案。
+`path` 无法构成合法路径（例如含 NUL 字符）→ `E_PROFILE_FIXTURE_PATH`，同样拒绝；Python 校验器对此报告
+`fixture path is invalid`。
 **不存在**的文件只记一条警告 `W_PROFILE_FIXTURE_MISSING`，并将 `fixture_verified` 置为 `false`。
 测试树不会随档案一同部署，缺失不等于被篡改。
 路径按档案文件所在目录解析。
@@ -144,8 +146,9 @@ Collector 侧只校验，不写入。
 按文件名、修改时间或 `compatibility_status` 择一，等于让记录的数据取决于
 哪份文件恰好排在前面。协议常量不接受这种隐式选择。
 
-档案根目录的查找顺序为：`--profiles-dir` 显式指定；否则从可执行文件目录与当前工作目录
-出发，逐级向上查找名为 `protocol-profiles` 的目录。均未找到时按空目录处理，整体 fail-closed。
+档案根目录的查找顺序为：`--profiles-dir` 显式指定；否则，Release 构建只查找可执行文件目录下的
+`protocol-profiles`，Debug 构建另从可执行文件目录与当前工作目录出发逐级向上查找同名目录
+（`ProfileCatalog.FindDefaultRoot`）。均未找到时按空目录处理，整体 fail-closed。
 
 ---
 

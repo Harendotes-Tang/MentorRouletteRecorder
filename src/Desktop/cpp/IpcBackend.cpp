@@ -51,6 +51,22 @@ int intArg(const QJsonObject &args, const char *name, int fallback)
     return value.isDouble() ? value.toInt() : fallback;
 }
 
+QList<int> intListArg(const QJsonObject &args, const char *name)
+{
+    QList<int> values;
+    for (const QJsonValue &value : args.value(QLatin1String(name)).toArray())
+        values.append(value.toInt());
+    return values;
+}
+
+QStringList stringListArg(const QJsonObject &args, const char *name)
+{
+    QStringList values;
+    for (const QJsonValue &value : args.value(QLatin1String(name)).toArray())
+        values.append(value.toString());
+    return values;
+}
+
 } // namespace
 
 IpcBackend::IpcBackend(QObject *parent, const QString &serverName)
@@ -202,6 +218,33 @@ QJsonObject IpcBackend::buildRequestForTest(const QString &messageType,
         backend.undoRevision(stringArg(args, "run_id"),
                              intArg(args, "expected_revision", 1),
                              stringArg(args, "reason"));
+    else if (messageType == QLatin1String("BatchMutateRuns"))
+        backend.batchMutateRuns(stringArg(args, "action"), args.value(QLatin1String("runs")).toArray(),
+                                stringArg(args, "reason"));
+    else if (messageType == QLatin1String("GetHistoryRetentionSettings"))
+        backend.getHistoryRetentionSettings();
+    else if (messageType == QLatin1String("UpdateHistoryRetentionSettings"))
+        backend.updateHistoryRetentionSettings(intArg(args, "retention_days", 0));
+    else if (messageType == QLatin1String("GetPendingImageCleanup"))
+        backend.getPendingImageCleanup();
+    else if (messageType == QLatin1String("AcknowledgeImageCleanup"))
+        backend.acknowledgeImageCleanup(stringListArg(args, "run_ids"));
+    else if (messageType == QLatin1String("PreviewRunImport") && args.contains(QLatin1String("page")))
+        backend.previewRunImportPage(stringArg(args, "preview_id"), intArg(args, "page", 1));
+    else if (messageType == QLatin1String("PreviewRunImport")) {
+        RunImportSource source;
+        source.kind = stringArg(args, "source_kind");
+        source.name = stringArg(args, "source_name");
+        source.timeZone = stringArg(args, "time_zone");
+        source.rows = args.value(QLatin1String("rows")).toArray();
+        source.filePath = stringArg(args, "file_path");
+        source.text = stringArg(args, "text");
+        source.columnMapping = objectArg(args, "column_mapping");
+        source.pageSize = intArg(args, "page_size", 0);
+        backend.previewRunImport(source);
+    } else if (messageType == QLatin1String("CommitRunImport"))
+        backend.commitRunImport(stringArg(args, "preview_id"), intListArg(args, "row_numbers"),
+                                args.value(QLatin1String("deduct_from_baseline")).toBool(false));
     else if (messageType == QLatin1String("UpdateAchievementBaseline"))
         backend.updateAchievementBaseline(intArg(args, "goal_count", 2000),
                                           intArg(args, "baseline_completed_count", 0),

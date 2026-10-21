@@ -22,6 +22,12 @@ Run by tools/publish_issue.sh and tools/sweep_issues.sh, which .github/workflows
   lift           maintainer: after review, let one held account submit for that region and build again
   prune          maintainer: take the builds named with --region and --build out, with their entries,
                  ledger rows and code files; prints the plan and changes nothing unless --apply is given
+  evidence lift  maintainer: after review, end one candidate's quarantine in evidence-ledger.json and
+                 rewrite the quarantine hints of index.json from it
+  evidence compact
+                 maintainer: drop the evidence-ledger.json rows no Issue can count again (retired codes,
+                 template observations, older epochs, superseded receipts); prints the counts and changes
+                 nothing unless --apply is given
   report         validate one "report a wrong calibration" issue, for labelling and one reply
 
 ``check`` and ``update-index`` read whether the issue is still open and still unanswered from
@@ -60,6 +66,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Iterator
 
+import evidence
 import index as repo_index
 import issue as issue_form
 import rebuild
@@ -1098,6 +1105,51 @@ def command_prune(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_evidence(repo: Path) -> dict:
+    try:
+        return evidence.load_ledger(repo)
+    except evidence.EvidenceError as error:
+        raise UsageError("evidence-ledger.json does not load (%s); nothing was written" % error) from error
+
+
+def _write_evidence(repo: Path, ledger: dict) -> None:
+    """Writes the evidence ledger and index.json with the quarantine hints derived from it, as the evidence
+    workflow does. The index is checked first, so an index that would be refused leaves both files as they were."""
+    state = repo_index.load(repo)
+    files = repo_index.dump(replace(state, entries=evidence.apply_hints(state.entries, ledger)))
+    (repo / evidence.LEDGER_FILE).write_bytes(evidence.canonical(ledger) + b"\n")
+    for name, data in files.items():
+        (repo / name).write_bytes(data)
+
+
+def command_evidence_lift(args: argparse.Namespace) -> int:
+    if not repo_index.is_sha256(args.candidate):
+        raise UsageError("name the candidate by its 64-hex key under \"candidates\" in evidence-ledger.json")
+    repo = Path(args.repo)
+    try:
+        lifted, fields = evidence.lift(_load_evidence(repo), args.candidate)
+    except KeyError as error:
+        raise UsageError("evidence-ledger.json holds no quarantined candidate %s; nothing was written" % args.candidate) from error
+    _write_evidence(repo, lifted)
+    scope = lifted["candidates"][args.candidate]["scope"]
+    print(json.dumps({"lifted": args.candidate, "fields": fields, "region": scope["region"],
+                      "game_build": scope["game_build"], "code_sha256": scope["code_sha256"]}))
+    return 0
+
+
+def command_evidence_compact(args: argparse.Namespace) -> int:
+    repo = Path(args.repo)
+    ledger = _load_evidence(repo)
+    live = {(entry["region"], entry["game_build"], entry["code_sha256"])
+            for entry in repo_index.load(repo).entries if not entry["revoked"]}
+    compacted, removed = evidence.compact(ledger, live)
+    # The counts are printed first, and without --apply they are all that happens.
+    print(json.dumps({"applied": args.apply, "removed": removed}))
+    if args.apply and compacted != ledger:
+        _write_evidence(repo, compacted)
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="publish.py", description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -1182,6 +1234,17 @@ def _parser() -> argparse.ArgumentParser:
     prune.add_argument("--apply", action="store_true",
                        help="write the change; without it, only print what would be removed")
     prune.set_defaults(run=command_prune)
+
+    evidence_commands = commands.add_parser("evidence").add_subparsers(dest="evidence_command", required=True)
+    evidence_lift = evidence_commands.add_parser("lift")
+    evidence_lift.add_argument("--repo", required=True)
+    evidence_lift.add_argument("candidate", help="the candidate's 64-hex key under \"candidates\" in evidence-ledger.json")
+    evidence_lift.set_defaults(run=command_evidence_lift)
+    evidence_compact = evidence_commands.add_parser("compact")
+    evidence_compact.add_argument("--repo", required=True)
+    evidence_compact.add_argument("--apply", action="store_true",
+                                  help="write the change; without it, only print how many rows would be removed")
+    evidence_compact.set_defaults(run=command_evidence_compact)
     return parser
 
 

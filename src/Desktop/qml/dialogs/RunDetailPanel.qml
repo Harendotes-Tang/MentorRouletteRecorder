@@ -33,8 +33,18 @@ Rectangle {
         void noteImageSerial
         return imageStore && runData && runData.run_id ? imageStore.imagesFor(runData.run_id) : []
     }
-    /// Why the last add or remove did not happen; cleared by the next one.
+    /// Why the last add or remove did not happen; cleared by the next one, and
+    /// when the panel moves on to another run (review L1-9).
     property string noteImageError: ""
+    property string noteImageRunId: ""
+    Component.onCompleted: noteImageRunId = runData && runData.run_id ? runData.run_id : ""
+    onRunDataChanged: {
+        const id = runData && runData.run_id ? runData.run_id : ""
+        if (id !== noteImageRunId) {
+            noteImageRunId = id
+            noteImageError = ""
+        }
+    }
 
     /// 添加图片 straight from the panel: chooser, copy, done. No wizard, no
     /// reason, no revision - the file is not part of the record.

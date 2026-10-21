@@ -26,7 +26,7 @@
 离开副本三个事件并生成记录，按职业、副本、耗时与结果汇总为历史与统计。不注入、不读游戏进程内存，
 监听过程不向游戏服务器发包；无遥测，游戏记录保存在本机。启用在线语音时会发送本次播报文字，见[隐私与网络边界](#隐私与网络边界)。
 
-**当前源码版本：** `1.7.3`（版本来源为 [Directory.Build.props](Directory.Build.props)，安装包发布状态见[正式版下载](https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/latest)）。
+**当前源码版本：** `1.8.0-beta.1`（测试版，版本来源为 [Directory.Build.props](Directory.Build.props)，不代表该版本安装包已发布；安装包发布状态见[正式版下载](https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/latest)）。
 下文包含本版本的记录导入、离线截图识别与心得库功能；正式版与测试版的区别见[安装](#安装)，
 本轮变更见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -48,7 +48,7 @@
 > the mirror and keeps the original SHA-256 check.
 > Setting `MR_DISABLE_SHARED_FETCH=1`, `MR_DISABLE_ONLINE_SPEECH=1` and `MR_DISABLE_UPDATE_CHECK=1`
 > disables all three.
-> The current source version is `1.7.3`; published installers are listed on the [release page](https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/latest). It also supports local record imports from CSV,
+> The current source version is `1.8.0-beta.1` (a test build; its installer is not necessarily published); published installers are listed on the [release page](https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/latest). It also supports local record imports from CSV,
 > XLS/XLSX, native JSON, database backups, pasted tables and screenshots. Screenshot OCR runs offline;
 > imports require preview and confirmation, and conflicts preserve local records. Reflection sharing
 > saves a PNG locally without uploading it.
@@ -105,8 +105,8 @@
 **已知限制：** 副本内收到通关结算时，软件自动记为通关并计入进度。该结算目前只在一种副本的一局通关中实测过，
 其他类型的副本、中途退出、灭团与超时尚未观测；中途加入的判断同样只在开局进入的一局中实测过，中途加入的副本尚未观测，
 两种报文都没有收到时进入方式保持未知。软件只在收到结算时记为通关，从不因没有收到结算而记为未通关：
-离开副本前没有收到结算时，软件弹出「本次导随结果」对话框，由用户选择「通关」或「退出 / 放弃」，其他情况可稍后到历史记录手动修正；
-也可稍后在总览页的「待复核」中确认。
+离开副本前没有收到结算时，软件弹出结果确认小窗，由用户选择「通关 +1」「退出」或「稍后」（按设置中的「提醒方式」，也可以只记入待处理），其他情况可稍后到历史记录手动修正；
+也可稍后在总览页的「待处理」中确认。
 
 ## 系统要求
 
@@ -142,7 +142,7 @@
 3. 若游戏已处于登录状态，请退回标题画面后重新登录，无需退出游戏。国服客户端登录后始终复用同一条连接，
    而流量解压必须从连接建立时开始跟踪，因此传送不能代替重新登录。
 4. 正常参加指导者任务。副本内收到通关结算时自动记为通关；没有收到时，离开副本后确认结果，
-   也可稍后在「待复核」中确认。
+   也可稍后在总览页的「待处理」中确认。
 5. 以前的记录可从「历史 → 导入记录」搬入；心得可在记录中补录，并在「全部心得」查看或生成分享图片。
 
 **游戏程序副本。** 为解压游戏流量，软件会将游戏可执行文件复制到临时目录，并在自身进程中加载该副本；
@@ -167,11 +167,12 @@
 3. **核对成就起始次数。** 勾选的记录中有计入进度的通关、且已保存起始次数大于 0 时，界面会询问这些通关是否已包含在起始次数中。
    选「已包含」会在保存记录的同时，从起始次数中扣除实际新增且计入进度的通关数，最低扣到 0，并留下修改记录；
    超过起始次数的部分仍增加进度。选「未包含」则照常加在起始次数之上。
-   表格、粘贴与截图默认「已包含」，数据库备份与原生 JSON 默认「未包含」，应按实际情况选择。
+   数据库备份与本软件导出的 JSON 默认「未包含」；表格、粘贴、截图与其他 JSON（包括填写后的 JSON 模板）
+   默认「已包含」，应按实际情况选择。起始次数尚未读到时，含计入进度通关的导入暂不能提交。
 4. **确认导入。** 点击「导入选中的 N 条」，核对保存结果与起始次数调整提示；重复记录跳过，冲突记录保留本地。
 
 **原站记录时间不等于实际游戏时间。** 在预览中确认本人导随及通关结果后，即使缺少进入或结束时间，
-通关仍计入统计与成就；未知游戏时间与耗时保持空值，只在历史记录显示「待补充」，不因此进入总览待复核提示。
+通关仍计入统计与成就；未知游戏时间与耗时保持空值，只在历史记录显示「待补充」，不因此标记为待复核。
 原站日期用于历史排序、日期筛选与完成趋势。结果未知或无法确认属于导随的记录不计入完成与成就。
 之后可以继续补充已知信息，也可以只修改备注、心得或附图，不需要为了计入进度补造未知时间。
 

@@ -22,6 +22,7 @@ Dialog {
     readonly property bool busy: !!dialog.shared && dialog.shared.busy
 
     modal: true
+    focus: true
     // Qt Basic's backdrop in eorzea, workbench's .dialog-backdrop in classic.
     Overlay.modal: Rectangle { color: Theme.modalScrim(dialog.palette.shadow) }
     width: 520
@@ -73,14 +74,16 @@ Dialog {
         spacing: 12
 
         HeadingLabel {
+            objectName: "sharedImportTitle"
             Layout.fillWidth: true
-            text: qsTr("导入校准码")
+            text: qsTr("手动导入校准码")
             font.pixelSize: Theme.dialogTitleSize(20)
         }
 
         Text {
+            objectName: "sharedImportHelp"
             Layout.fillWidth: true
-            text: qsTr("把其他玩家发来的校准码完整粘贴到下面。导入时不需要联网。"
+            text: qsTr("自动获取不可用，或想使用其他玩家提供的校准码时，可在这里完整粘贴。导入时不需要联网。"
                        + "软件会先检查游戏版本，再根据你登录、排本和进本的情况确认是否可用。通过检查后才会用它记录。")
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)

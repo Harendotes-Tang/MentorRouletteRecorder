@@ -26,15 +26,19 @@
 
 #include <QDir>
 #include <QGuiApplication>
+#include <QFontDatabase>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickItem>
+#include <QQuickWindow>
 #include <QQuickStyle>
 #include <QRegularExpression>
 #include <QStandardPaths>
+#include <QSignalSpy>
 #include <QTest>
 
 #include <memory>
@@ -71,12 +75,18 @@ class CaptureBackend final : public mr::IBackend
 {
 public:
     QJsonObject capture;
+    /// GetCaptureValidationStatus; no session by default.
+    QJsonObject validation{{QStringLiteral("active"), false}};
+    /// ListCaptureAdapters when set.
+    QJsonObject adapters;
+    QHash<QString, int> counts;
 
     QString backendName() const override { return QStringLiteral("mock"); }
     bool isConnected() const override { return true; }
 
     mr::BackendReply *request(const QString &type, const QJsonObject & = {}) override
     {
+        ++counts[type];
         auto *reply = new mr::BackendReply(type, type, this);
         if (type == QLatin1String("GetStatus"))
             reply->succeed({{QStringLiteral("capture"), capture}});
@@ -85,6 +95,49 @@ public:
         // Follow-the-game on and no validation session: the recording controller
         // can then reach its capture verdicts instead of waiting for a setting.
         else if (type == QLatin1String("GetCaptureSettings"))
+            reply->succeed({{QStringLiteral("follow_game"), true}});
+        else if (type == QLatin1String("GetCaptureValidationStatus"))
+            reply->succeed(validation);
+        else if (type == QLatin1String("ListCaptureAdapters") && !adapters.isEmpty())
+            reply->succeed(adapters);
+        else
+            reply->succeed({});
+        return reply;
+    }
+};
+
+/// A Collector the Desktop cannot read (review K2-1): no pipe at all - not started yet,
+/// refused to start, exited - or a pipe on which GetStatus fails. Either way nothing is
+/// known about Npcap, and the page must not say it is missing.
+class UnreadableBackend final : public mr::IBackend
+{
+public:
+    bool connected = false;
+    bool statusReadable = false;
+    QJsonObject capture;
+
+    QString backendName() const override { return QStringLiteral("ipc"); }
+    bool isConnected() const override { return connected; }
+
+    void setConnected(bool value)
+    {
+        connected = value;
+        Q_EMIT connectionChanged();
+    }
+
+    mr::BackendReply *request(const QString &type, const QJsonObject & = {}) override
+    {
+        auto *reply = new mr::BackendReply(type, type, this);
+        if (!connected)
+            reply->failUnsent(QStringLiteral("ERR_INTERNAL"), QStringLiteral("not connected"));
+        else if (type == QLatin1String("GetStatus") || type == QLatin1String("GetCaptureStatus")) {
+            if (!statusReadable)
+                reply->failTransport(QStringLiteral("ERR_TIMEOUT"), QStringLiteral("timed out"));
+            else if (type == QLatin1String("GetStatus"))
+                reply->succeed({{QStringLiteral("capture"), capture}});
+            else
+                reply->succeed(capture);
+        } else if (type == QLatin1String("GetCaptureSettings"))
             reply->succeed({{QStringLiteral("follow_game"), true}});
         else if (type == QLatin1String("GetCaptureValidationStatus"))
             reply->succeed({{QStringLiteral("active"), false}});
@@ -181,6 +234,27 @@ bool summaryReadsAsWaiting(const PageScene &scene)
     return summary && sub && summary->property("color") == sub->property("color");
 }
 
+/// Review K2-1: what the page says while it knows nothing about Npcap.
+void expectNothingClaimedAboutNpcap(const PageScene &scene, const QString &headline)
+{
+    QTRY_COMPARE(scene.text(QStringLiteral("captureHeroHeadline")), headline);
+    QVERIFY(!scene.shows(QStringLiteral("captureNpcapPanel")));
+    QVERIFY(!scene.shows(QStringLiteral("openNpcapButton")));
+    QVERIFY(!scene.shows(QStringLiteral("redetectNpcapButton")));
+    // The sidebar says 检查中 for the same state, and so does the page.
+    QCOMPARE(scene.text(QStringLiteral("captureHeaderStatusText")), QString::fromUtf8("检查中"));
+    QCOMPARE(scene.text(QStringLiteral("captureChainSummary")), headline);
+    QVERIFY(summaryReadsAsWaiting(scene));
+    // A field the Collector did not send is a dash, never a verdict.
+    QCOMPARE(chainValue(scene, "npcap"), mr::Formatters::dash());
+    QCOMPARE(chainSub(scene, "npcap"), QString::fromUtf8("尚未读取"));
+    const QString page = scene.visibleTexts().join(QLatin1Char('\n'));
+    QVERIFY2(!page.contains(QString::fromUtf8("未安装")), qPrintable(page));
+    QVERIFY2(!page.contains(QString::fromUtf8("驱动缺失")), qPrintable(page));
+    QVERIFY2(!page.contains(QString::fromUtf8("需手动记录")), qPrintable(page));
+    QVERIFY2(!page.contains(QStringLiteral("npcap.com")), qPrintable(page));
+}
+
 } // namespace
 
 class CapturePageTests : public QObject
@@ -231,6 +305,71 @@ private slots:
         QVERIFY(scene.open());
         QTRY_COMPARE(scene.text(QStringLiteral("captureHeaderStatusText")), QString::fromUtf8("等待游戏启动"));
         QVERIFY(!scene.shows(QStringLiteral("captureHeaderAction")));
+    }
+
+    void unknownRegionOffersOrdinarySettings_data()
+    {
+        QTest::addColumn<bool>("running");
+        QTest::addColumn<QString>("region");
+        QTest::addColumn<bool>("readable");
+        QTest::addColumn<bool>("expected");
+        QTest::newRow("unknown running region") << true << QStringLiteral("UNKNOWN") << true << true;
+        QTest::newRow("closed game") << false << QStringLiteral("UNKNOWN") << true << false;
+        QTest::newRow("known CN") << true << QStringLiteral("CN") << true << false;
+        QTest::newRow("known GLOBAL") << true << QStringLiteral("GLOBAL") << true << false;
+        QTest::newRow("unreadable installation") << true << QStringLiteral("UNKNOWN") << false << false;
+    }
+
+    void unknownRegionOffersOrdinarySettings()
+    {
+        QFETCH(bool, running);
+        QFETCH(QString, region);
+        QFETCH(bool, readable);
+        QFETCH(bool, expected);
+        auto fake = std::make_unique<CaptureBackend>();
+        auto *backend = fake.get();
+        fake->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                         {QStringLiteral("ffxiv_running"), running},
+                         {QStringLiteral("npcap_installed"), true},
+                         {QStringLiteral("profile_status"), QStringLiteral("NONE")},
+                         {QStringLiteral("region"), region},
+                         {QStringLiteral("game_build"), QStringLiteral("2026.10.20.0000.0000")},
+                         {QStringLiteral("install_path_readable"), readable}};
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open());
+        QTRY_COMPARE(scene.app->ffxivRunning(), running);
+        QTRY_COMPARE(scene.shows(QStringLiteral("openRegionSettingsButton")), expected);
+        if (!expected)
+            return;
+
+        QCOMPARE(scene.text(QStringLiteral("protocolProfileHeadline")), QString::fromUtf8("尚未识别游戏区服"));
+        const auto visible = scene.visibleTexts().join(QLatin1Char('\n'));
+        QVERIFY(visible.contains(QString::fromUtf8("未识别区服")));
+        QVERIFY(!visible.contains(QString::fromUtf8("未识别版本")));
+        QVERIFY(scene.text(QStringLiteral("protocolProfileExplanation")).contains(QString::fromUtf8("设置 → 通用")));
+        QSignalSpy requested(scene.page, SIGNAL(openRegionSettingsRequested()));
+        QVERIFY(requested.isValid());
+        auto *button = scene.item(QStringLiteral("openRegionSettingsButton"));
+        QVERIFY(button && button->isEnabled());
+        QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+        QCOMPARE(requested.count(), 1);
+        QVERIFY(!scene.page->property("observationGuideExpanded").toBool());
+        QCOMPARE(backend->counts.value(QStringLiteral("StartCaptureValidation")), 0);
+        QCOMPARE(backend->counts.value(QStringLiteral("StartCapture")), 0);
+        const auto evidence = qEnvironmentVariable("MR_CAPTURE_RECOVERY_EVIDENCE_DIR");
+        if (!evidence.isEmpty()) {
+            QVERIFY(QDir().mkpath(evidence));
+            auto *window = qobject_cast<QQuickWindow *>(scene.root.get());
+            QVERIFY(window);
+            for (const bool dark : {true, false}) {
+                if (scene.app->isDark() != dark) scene.app->toggleTheme();
+                QTest::qWait(150);
+                QVERIFY(window->grabWindow().save(QDir(evidence).filePath(
+                    QStringLiteral("capture-region-unknown-%1.png")
+                        .arg(dark ? QStringLiteral("dark") : QStringLiteral("light")))));
+            }
+        }
     }
 
     void maintainersKeepTheCaptureButtonAndTheirTools()
@@ -497,6 +636,83 @@ private slots:
         QVERIFY(scene.shows(QStringLiteral("redetectNpcapButton")));
     }
 
+    // Review K2-1: with no status from the Collector - no pipe yet, a Collector that refused
+    // to start or exited, a status read that failed - nothing is known about Npcap. The page
+    // used to read the missing key as "not installed": the 降级模式 panel, 打开 npcap.com
+    // and 需手动记录, sending the player to reinstall a driver for an unrelated problem.
+    void aCollectorWithoutAPipeIsNotAMissingNpcap()
+    {
+        auto fake = std::make_unique<UnreadableBackend>();
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open());
+        QVERIFY(!scene.app->backendConnected());
+        expectNothingClaimedAboutNpcap(scene, QString::fromUtf8("正在连接自动记录服务…"));
+    }
+
+    void aFailedStatusReadIsNotAMissingNpcap()
+    {
+        auto fake = std::make_unique<UnreadableBackend>();
+        fake->connected = true;
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open());
+        QVERIFY(scene.app->backendConnected());
+        expectNothingClaimedAboutNpcap(scene, QString::fromUtf8("正在获取自动记录状态…"));
+    }
+
+    void aCollectorThatGoesAwayLeavesNpcapUnknown()
+    {
+        auto fake = std::make_unique<UnreadableBackend>();
+        fake->connected = true;
+        fake->statusReadable = true;
+        fake->capture = {{QStringLiteral("state"), QStringLiteral("RUNNING")},
+                         {QStringLiteral("ffxiv_running"), true},
+                         {QStringLiteral("npcap_installed"), true},
+                         {QStringLiteral("npcap_version"), QStringLiteral("1.79")},
+                         {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")}};
+        auto *source = fake.get();
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open());
+        QTRY_COMPARE(chainValue(scene, "npcap"), QStringLiteral("v1.79"));
+
+        source->setConnected(false);
+        QVERIFY(!scene.app->backendConnected());
+        expectNothingClaimedAboutNpcap(scene, QString::fromUtf8("正在连接自动记录服务…"));
+    }
+
+    void anIncidentKeptAcrossALostConnectionStaysThePagesVerdict()
+    {
+        // The recording controller keeps an incident when the pipe goes (a disconnect is no
+        // evidence of recovery), and the sidebar keeps saying 无法自动记录. The page says the
+        // same - and still claims nothing about Npcap.
+        auto fake = std::make_unique<UnreadableBackend>();
+        fake->connected = true;
+        fake->statusReadable = true;
+        fake->capture = {{QStringLiteral("state"), QStringLiteral("RUNNING")},
+                         {QStringLiteral("ffxiv_running"), true},
+                         {QStringLiteral("ffxiv_process_id"), 18244},
+                         {QStringLiteral("npcap_installed"), true},
+                         {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")},
+                         {QStringLiteral("last_error_code"), QStringLiteral("ERR_DB_BUSY")}};
+        auto *source = fake.get();
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open());
+        QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("blocked"));
+        QTRY_COMPARE(scene.text(QStringLiteral("captureHeaderStatusText")), QString::fromUtf8("无法自动记录"));
+
+        source->setConnected(false);
+        QVERIFY(!scene.app->backendConnected());
+        QTRY_COMPARE(scene.text(QStringLiteral("captureChainSummary")), QString::fromUtf8("正在连接自动记录服务…"));
+        QCOMPARE(scene.app->recording()->state(), QStringLiteral("blocked"));
+        QCOMPARE(scene.text(QStringLiteral("captureHeaderStatusText")), QString::fromUtf8("无法自动记录"));
+        QCOMPARE(scene.text(QStringLiteral("captureHeroHeadline")), QString::fromUtf8("暂时不会自动记录"));
+        QVERIFY(!scene.shows(QStringLiteral("captureNpcapPanel")));
+        QCOMPARE(chainValue(scene, "npcap"), mr::Formatters::dash());
+    }
+
     // OB8-D1：只读得到 Npcap 自带 libpcap 的版本时，采集服务报「libpcap 1.10.6」；页面在
     // 前面再加「v」就成了「vlibpcap 1.10.6」。只有以数字开头的版本号才加「v」。
     void aLibpcapVersionIsNotPrefixedWithAV()
@@ -517,6 +733,92 @@ private slots:
             const QString page = scene.visibleTexts().join(QLatin1Char('\n'));
             QVERIFY2(!page.contains(QStringLiteral("vlibpcap")), qPrintable(page));
         }
+    }
+
+    // -- 采证步骤 (帮助适配其他区服) ------------------------------------------
+
+    // Review K2-4: the guided card a player opens from 帮助适配其他区服 showed a raw 错误码, the
+    // opaque adapter id in every adapter label, a 64-digit SHA-256, and claimed 当前正在正式记录
+    // while the capture was only listening on a build it cannot record.
+    void theObservationGuideSpeaksToAPlayer_data()
+    {
+        QTest::addColumn<bool>("maintainer");
+        QTest::newRow("player") << false;
+        QTest::newRow("maintainer") << true;
+    }
+
+    void theObservationGuideSpeaksToAPlayer()
+    {
+        QFETCH(bool, maintainer);
+        const QString adapterId = QStringLiteral("\\Device\\NPF_{0B7E3C1A-5D2F-4E6B-9A10-2C4D6E8F0A1B}");
+        const QString sha = QStringLiteral("9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08");
+        auto fake = std::make_unique<CaptureBackend>();
+        fake->capture = {{QStringLiteral("state"), QStringLiteral("RUNNING")},
+                         {QStringLiteral("ffxiv_running"), true},
+                         {QStringLiteral("ffxiv_process_id"), 18244},
+                         {QStringLiteral("npcap_installed"), true},
+                         {QStringLiteral("profile_status"), QStringLiteral("UNSUPPORTED_BUILD")},
+                         {QStringLiteral("region"), QStringLiteral("GLOBAL")},
+                         {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")}};
+        fake->validation = {{QStringLiteral("active"), false},
+                            {QStringLiteral("state"), QStringLiteral("FAILED")},
+                            {QStringLiteral("reason"), QStringLiteral("START_FAILED")},
+                            {QStringLiteral("message"), QString()},
+                            {QStringLiteral("error_code"), QStringLiteral("ERR_CAPTURE_START_FAILED")},
+                            {QStringLiteral("trace_path"), QStringLiteral("D:/MentorRecorder/data/validation/trace.jsonl")},
+                            {QStringLiteral("sha256_path"), QStringLiteral("D:/MentorRecorder/data/validation/trace.jsonl.sha256")},
+                            {QStringLiteral("sha256"), sha}};
+        fake->adapters = {{QStringLiteral("npcap_installed"), true},
+                          {QStringLiteral("adapters"), QJsonArray{QJsonObject{
+                               {QStringLiteral("adapter_id"), adapterId},
+                               {QStringLiteral("description"), QStringLiteral("Intel(R) Ethernet Controller")},
+                               {QStringLiteral("friendly_name"), QString::fromUtf8("以太网")},
+                               {QStringLiteral("is_loopback"), false},
+                               {QStringLiteral("is_up"), true},
+                               {QStringLiteral("recommended"), true}}}}};
+        auto *source = fake.get();
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open(maintainer));
+        QTRY_VERIFY(scene.app->capturing());
+        QTRY_COMPARE(scene.app->validationState(), QStringLiteral("FAILED"));
+        QTRY_COMPARE(scene.app->captureAdapters().size(), 1);
+        scene.page->setProperty("observationGuideExpanded", true);
+        auto *card = scene.item(QStringLiteral("templateObservationGuideCard"));
+        QVERIFY(card);
+        QTRY_VERIFY(card->isVisible());
+
+        QStringList texts;
+        collectVisibleText(card, texts);
+        for (const QVariant &choice : card->property("adapterChoices").toList())
+            texts.append(choice.toMap().value(QStringLiteral("label")).toString());
+        const QString all = texts.join(QLatin1Char('\n'));
+        static const QRegularExpression hash(QStringLiteral("[0-9A-Fa-f]{64}"));
+        // The capture listens, but this build is not recorded: nothing may say it is.
+        QVERIFY2(!all.contains(QString::fromUtf8("正在正式记录")), qPrintable(all));
+        if (maintainer) {
+            // A maintainer keeps every detail of the trace and the adapter.
+            QVERIFY2(all.contains(QStringLiteral("ERR_CAPTURE_START_FAILED")), qPrintable(all));
+            QVERIFY2(all.contains(adapterId), qPrintable(all));
+            QVERIFY2(all.contains(sha), qPrintable(all));
+        } else {
+            QVERIFY2(!all.contains(QStringLiteral("ERR_")), qPrintable(all));
+            QVERIFY2(!all.contains(QStringLiteral("NPF_")), qPrintable(all));
+            QVERIFY2(!hash.match(all).hasMatch(), qPrintable(all));
+            QVERIFY2(!all.contains(QStringLiteral("SHA256")), qPrintable(all));
+            // The Collector sent no sentence, so the player reads the generic one, never the code.
+            QVERIFY2(all.contains(QString::fromUtf8("操作没有完成，原因不明。")), qPrintable(all));
+            QVERIFY2(all.contains(QString::fromUtf8("以太网")), qPrintable(all));
+        }
+
+        // On a build that does record, the sentence is true again.
+        QJsonObject verified = source->capture;
+        verified.insert(QStringLiteral("profile_status"), QStringLiteral("VERIFIED"));
+        source->capture = verified;
+        scene.app->refreshStatus();
+        QTRY_COMPARE(scene.app->protocolProfileStatus(), QStringLiteral("VERIFIED"));
+        QTRY_VERIFY(scene.visibleTexts().join(QLatin1Char('\n'))
+                        .contains(QString::fromUtf8("当前正在正式记录；以下为最近一次验证取证证据。")));
     }
 
     // -- 解析 ---------------------------------------------------------------
@@ -661,6 +963,19 @@ int main(int argc, char **argv)
     QStandardPaths::setTestModeEnabled(true);
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QGuiApplication app(argc, argv);
+#ifdef Q_OS_WIN
+    // 与实际截图入口一致：offscreen 平台不会自动加载 Windows 的中文字体。
+    const int cjkFont = QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/msyh.ttc"));
+    QFontDatabase::addApplicationFont(QStringLiteral("C:/Windows/Fonts/consola.ttf"));
+    if (cjkFont < 0 && !qEnvironmentVariableIsEmpty("MR_CAPTURE_RECOVERY_EVIDENCE_DIR")) {
+        qCritical("Cannot load the CJK font required for capture-page evidence.");
+        return 6;
+    }
+    QFont font;
+    font.setFamilies({QStringLiteral("Microsoft YaHei UI"), QStringLiteral("Microsoft YaHei"),
+                      QStringLiteral("Segoe UI")});
+    QGuiApplication::setFont(font);
+#endif
     CapturePageTests tests;
     return QTest::qExec(&tests, argc, argv);
 }

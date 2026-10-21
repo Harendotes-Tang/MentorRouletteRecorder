@@ -57,6 +57,15 @@ Item {
         Qt.callLater(function() { generalTab.focusLanguageControl() })
     }
 
+    function openRegionSettings() {
+        page.selectTab("general")
+        Qt.callLater(function() {
+            scroll.contentY = Math.max(0, Math.min(generalTab.regionSettingsY,
+                                                  scroll.contentHeight - scroll.height))
+            generalTab.focusRegionControl()
+        })
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 20

@@ -38,6 +38,8 @@
 #include "LiveText.h"
 #include "SpeechController.h"
 #include "StatisticsController.h"
+#include "StatisticsOverlayController.h"
+#include "RecoveryController.h"
 #include "TtsService.h"
 #include "UpdateController.h"
 
@@ -170,15 +172,14 @@ class AppController final : public QObject, public CaptureValidationController::
     /// $defs/DashboardStats.unfinished_pending_review: runs the crash-recovery
     /// service closed without evidence and that a human still has to confirm.
     Q_PROPERTY(int pendingReviewCount READ pendingReviewCount NOTIFY dashboardChanged)
-    /// The newest run still awaiting a result, or an empty map when there is
-    /// none. Fetched only while pendingReviewCount > 0, so the dashboard can
-    /// offer 通关 / 未通关 without opening the history page first.
-    Q_PROPERTY(QVariantMap pendingReviewRun READ pendingReviewRun NOTIFY pendingReviewRunChanged)
 
     // -- models -------------------------------------------------------------
     Q_PROPERTY(mr::RunListModel *runs READ runs CONSTANT)
     Q_PROPERTY(mr::DungeonStatsModel *dungeons READ dungeons CONSTANT)
     Q_PROPERTY(mr::JobStatsModel *jobs READ jobs CONSTANT)
+    Q_PROPERTY(mr::StatisticsOverlayController *statisticsOverlay READ statisticsOverlay CONSTANT)
+    /// Local deferred prompts and drafts; run mutations still belong to HistoryController.
+    Q_PROPERTY(mr::RecoveryController *recovery READ recovery CONSTANT)
 
     // -- selection and dialogs ---------------------------------------------
     Q_PROPERTY(QVariantMap selectedRun READ selectedRun NOTIFY selectionChanged)
@@ -388,7 +389,6 @@ public:
     bool achievementSettingsLoaded() const { return m_statistics->achievementSettingsLoaded(); }
     bool baselineSaving() const { return m_statistics->baselineSaving(); }
     int pendingReviewCount() const;
-    QVariantMap pendingReviewRun() const { return m_history->pendingReviewRun(); }
 
     /// TTS template kind for one $defs/Run.state, or an empty string when the
     /// state is deliberately silent. Public and static so the mapping can be
@@ -398,6 +398,8 @@ public:
     RunListModel *runs() const { return m_history->runs(); }
     DungeonStatsModel *dungeons() const { return m_statistics->dungeons(); }
     JobStatsModel *jobs() const { return m_statistics->jobs(); }
+    StatisticsOverlayController *statisticsOverlay() const { return m_statisticsOverlay; }
+    RecoveryController *recovery() const { return m_recovery; }
 
     QVariantMap selectedRun() const;
     bool hasSelection() const { return m_history->hasSelection(); }
@@ -473,6 +475,7 @@ public:
     bool formalCapturing() const override { return capturing(); }
     QString captureProfileStatus() const override;
     void applyFormalCaptureStatus(const QVariantMap &capture) override;
+    quint64 formalCaptureRevision() const override;
 
 public Q_SLOTS:
     // Also the two Host members QML calls directly.
@@ -516,7 +519,8 @@ public Q_SLOTS:
     void refreshRunEvents();
 
     /// Write or clear one run's 心得. An empty \a text deletes it.
-    void saveReflection(const QString &runId, const QString &mood, const QString &text);
+    void saveReflection(const QString &runId, const QString &mood, const QString &text,
+                        const QString &draftToken = {});
     /// Re-read GetReflectionSummary.
     void refreshReflections();
     /// Show \a run on the history page with its detail panel open. Unlike
@@ -537,20 +541,25 @@ public Q_SLOTS:
     /// Jump to the history page pre-filtered by one duty or one job.
     void showHistoryForContent(const QVariant &contentId);
     void showHistoryForJob(const QVariant &jobId);
-    /// Jump to the history page showing only the runs awaiting review.
-    void showPendingReview();
 
     void createManualRun(const QVariantMap &fields, const QString &reason);
     void correctSelectedRun(const QVariantMap &changes, const QString &reason,
                             const QString &runId = QString(), int expectedRevision = -1);
-    void softDeleteSelectedRun(const QString &reason);
-    void restoreSelectedRun(const QString &reason);
+    /// The 原因 dialog's actions name the run and the revision it was opened for;
+    /// another selected record is refused and that revision is what is sent
+    /// (review L1-3, HistoryController).
+    void softDeleteSelectedRun(const QString &reason, const QString &runId = QString(),
+                               int expectedRevision = -1);
+    void restoreSelectedRun(const QString &reason, const QString &runId = QString(),
+                            int expectedRevision = -1);
     /// Undo the newest revision of the selected run through UndoRevision.
-    void undoSelectedRunRevision(const QString &reason);
+    void undoSelectedRunRevision(const QString &reason, const QString &runId = QString(),
+                                 int expectedRevision = -1);
     /// Clear pending_review on the selected run through CorrectRun, which is
     /// what makes the acknowledgement an audited, append-only revision rather
     /// than a silent flag flip.
-    void confirmSelectedRunReview(const QString &reason);
+    void confirmSelectedRunReview(const QString &reason, const QString &runId = QString(),
+                                  int expectedRevision = -1);
     /// Write one run's result through CorrectRun and clear pending_review with
     /// it: the program never decides a result, but a human's answer travels the
     /// ordinary audited correction path. \a result is a $defs/Run.result enum
@@ -593,6 +602,9 @@ public Q_SLOTS:
     /// then is the run remembered as asked. The dialog silently drops a request
     /// raised while it is already showing another one.
     Q_INVOKABLE void resultConfirmationShown(const QString &runId);
+    /// Delivery to the recovery list consumed this automatic offer without
+    /// opening an editor. Keeps the result pending and advances on the next turn.
+    Q_INVOKABLE void resultConfirmationDeferred(const QString &runId);
     /// Told by QML that the dialog closed, however it closed. Any question that
     /// was raised while it was busy is asked now.
     Q_INVOKABLE void resultConfirmationClosed();
@@ -601,9 +613,17 @@ public Q_SLOTS:
     /// the dialog really opened for \a runId's prompt. Only then is the run
     /// remembered as prompted; a prompt the busy dialog dropped stays queued.
     Q_INVOKABLE void reflectionPromptShown(const QString &runId);
+    /// The recovery list retains the note task while this session stops
+    /// automatically offering it. Does not acquire the editor's busy state.
+    Q_INVOKABLE void reflectionPromptDeferred(const QString &runId);
     /// Told by QML that the dialog closed, however it closed. A prompt raised
     /// while it was busy is offered now.
     Q_INVOKABLE void reflectionPromptClosed();
+    /// Read the dashboard once more for the result popup and answer with
+    /// \ref goalProgressRead. The read is sent now, so its answer counts every
+    /// run that already counted when it was called - unlike a dashboard reply
+    /// that was requested earlier and merely arrives later (review L2-1).
+    Q_INVOKABLE void readGoalProgress(const QString &runId);
 
 Q_SIGNALS:
     void currentPageChanged();
@@ -664,6 +684,8 @@ Q_SIGNALS:
     /// Collector stored. The first-run guide closes on it, and only then marks the
     /// first run complete (audit 2026-10-03, DT6-X1).
     void baselineSaved(int goal, int baseline);
+    /// Presentation-only milestone from the statistics snapshot observer.
+    void achievementMilestoneReached(int completedLaps);
 
     void reflectionsChanged();
     /// \a cleared is true when the text was empty and the reflection was removed.
@@ -680,7 +702,9 @@ Q_SIGNALS:
     /// run_id, only for runs that ended during this session and only while
     /// 结束后询问本次结果 is on.
     void resultConfirmationRequested(const QVariantMap &run);
-    void pendingReviewRunChanged();
+    /// The read asked for by \ref readGoalProgress has answered; on success
+    /// \ref dashboard already holds what it returned.
+    void goalProgressRead(const QString &runId, bool ok);
     /// The Collector's own revision for \a runId moved on - because a live
     /// run_updated said so, or because a CorrectRun hit ERR_REVISION_CONFLICT
     /// and the fresh number was read back. Open forms keep their own baseline;
@@ -694,7 +718,7 @@ private:
     /// Adopt one accepted SetRunReflection response: selection, list, summary
     /// and the toast that says which of the two things just happened.
     void applySavedReflection(const QString &runId, const QVariantMap &payload,
-                              bool cleared);
+                              bool cleared, const QString &draftToken);
     /// Queue reflectionPromptRequested for \a run when the settings allow it,
     /// the run has no 心得 yet and this run_id has not been prompted before.
     void maybePromptForReflection(const QJsonObject &run);
@@ -707,6 +731,9 @@ private:
     /// answer to a request, and remember when: a status event published before
     /// that is older than it (see handleLiveEvent).
     void adoptCaptureAnswer(const QJsonObject &capture);
+    /// 同连接晚到的回应仍可更新下载等信息，但捕获事实须保留较新的观察。
+    void adoptCollectorAnswer(const QVariantMap &payload, quint64 captureRevision);
+    void readCaptureSettings(bool preserveWriteError);
     /// Queue resultConfirmationRequested for a run that finished in
     /// UNKNOWN_FINAL_STATE during this session.
     void maybeConfirmResult(const QString &state, const QJsonObject &run);
@@ -716,8 +743,6 @@ private:
     /// replayed live event looks. Shared by the 心得 prompt, the result
     /// confirmation and the terminal announcements.
     bool endedDuringThisSession(const QJsonObject &run) const;
-    /// Re-read the single newest run that is still awaiting a result.
-    void refreshPendingReviewRun();
     /// Template values a real announcement would use right now. \a run is the
     /// run the announcement is about; its duty name wins over the (possibly
     /// stale) current-run card.
@@ -811,6 +836,16 @@ private:
     void retranslate();
     QVariantList m_recentDuties;
     StatisticsController *m_statistics = nullptr;
+    StatisticsOverlayController *m_statisticsOverlay = nullptr;
+    RecoveryController *m_recovery = nullptr;
+    /// Namespace adoption accepts only the newest GetStatus issued on the
+    /// current connection; an older reply must not reopen another journal.
+    quint64 m_recoveryStatusReadGeneration = 0;
+    quint64 m_captureSettingsEditGeneration = 0;
+    quint64 m_recoveryConnectionGeneration = 0;
+    /// Invalidate delayed prompts and note acknowledgments after any scope or
+    /// connection change, including switching away from and back to one key.
+    quint64 m_recoveryPromptContextGeneration = 0;
     TtsService *m_tts = nullptr;
     CaptureValidationController *m_capture = nullptr;
     AutomaticRecordingController *m_recording = nullptr;

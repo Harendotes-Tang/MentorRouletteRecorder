@@ -174,13 +174,14 @@ Invoke-Expression (Get-FunctionDefinitions @('Test-ForbiddenMediaFile'))
 
     # ----------------------------------------------- public_distribution_ready
 
-    def distribution_claim(self, *, failing_git):
+    def distribution_claim(self, *, failing_git, verify=True):
         return self.run_package_statements(f"""
 $RepoRoot = {ps_literal(self.repository)}
 $stagedDoctor = [pscustomobject]@{{ public_distribution_ready = $true }}
 $liveCaptureStatus = 'VERIFIED_POP_TO_EXIT'
 $verifiedProfileIds = @('global.test.verified')
 $SkipVerify = [switch]$false
+$Verify = [switch]${'true' if verify else 'false'}
 $IsPrerelease = $false
 $Version = '9.9.9'
 . ([scriptblock]::Create((Get-Assignments @(
@@ -202,6 +203,125 @@ $Version = '9.9.9'
         claim = self.distribution_claim(failing_git=True)
         self.assertFalse(claim["ready"])
         self.assertTrue(any("git" in blocker for blocker in claim["blockers"]), claim["blockers"])
+
+    def test_an_artifact_that_was_not_unpacked_and_run_is_not_ready(self):
+        # M-2 (audit 2026-10-20): release-checklist §9.4 requires the unpack-and-run check; a
+        # -Force run without -Verify used to claim public_distribution_ready all the same.
+        claim = self.distribution_claim(failing_git=False, verify=False)
+        self.assertFalse(claim["ready"])
+        self.assertTrue(any("-Verify" in blocker for blocker in claim["blockers"]), claim["blockers"])
+
+    def build_metadata(self, *, verify):
+        metadata = self.directory / "BUILD-METADATA.json"
+        self.run_package_statements(f"""
+$Version = '9.9.9'
+$IsPrerelease = $false
+$Configuration = 'Release'
+$sourceState = [ordered]@{{ Commit = ('a' * 40); Dirty = $false; Problem = $null }}
+$liveCaptureStatus = 'VERIFIED_POP_TO_EXIT'
+$sourceProfileStatus = 'VERIFIED'
+$packagedProfileStatus = 'VERIFIED'
+$publicDistributionReady = $false
+$distributionBlockers = @()
+$Verify = [switch]${'true' if verify else 'false'}
+$BuildMetadataPath = {ps_literal(metadata)}
+$write = $ast.Find({{
+    param($node)
+    $node -is [Management.Automation.Language.PipelineAst] -and
+    $node.Extent.Text -match 'Set-Content -LiteralPath \\$BuildMetadataPath'
+}}, $true)
+if (-not $write) {{ throw 'The BUILD-METADATA.json writer was not found' }}
+. ([scriptblock]::Create($write.Extent.Text))
+@{{}} | ConvertTo-Json -Compress
+""")
+        return json.loads(metadata.read_text(encoding="utf-8-sig"))
+
+    def test_build_metadata_says_whether_the_archive_was_unpacked_and_run(self):
+        self.assertIs(True, self.build_metadata(verify=True)["unpack_verified"])
+        self.assertIs(False, self.build_metadata(verify=False)["unpack_verified"])
+
+    def failed_unpack_check(self):
+        stage = self.directory / "artifacts" / "MentorRecorder-9.9.9-win-x64"
+        stage.mkdir(parents=True)
+        return self.run_package_statements(f"""
+$StageDir = {ps_literal(stage)}
+$ZipPath = $StageDir + '.zip'
+$ZipHashPath = $ZipPath + '.sha256'
+$BuildMetadataPath = Join-Path $StageDir 'BUILD-METADATA.json'
+$Verify = [switch]$true
+Set-Content -LiteralPath $ZipPath -Value 'archive'
+Set-Content -LiteralPath $ZipHashPath -Value 'checksum'
+Set-Content -LiteralPath $BuildMetadataPath -Value '{{"unpack_verified": true}}'
+Set-Content -LiteralPath (Join-Path $StageDir 'SHA256SUMS.txt') -Value 'sums'
+. ([scriptblock]::Create((Get-FunctionDefinitions @('Write-Head'))))
+# The check's first step fails, as a timed-out screenshot or a refused claim would later on.
+function Expand-Archive {{ throw 'simulated unpack failure' }}
+$check = @($statements | Where-Object {{
+    $_ -is [Management.Automation.Language.IfStatementAst] -and
+    $_.Clauses[0].Item1.Extent.Text -eq '$Verify'
+}})
+if ($check.Count -ne 1) {{ throw 'The -Verify block was not found' }}
+$refusal = $null
+try {{ . ([scriptblock]::Create($check[0].Extent.Text)) 6>$null }} catch {{ $refusal = $_.Exception.Message }}
+[ordered]@{{
+    refused = [bool]$refusal
+    message = [string]$refusal
+    zip_left = Test-Path -LiteralPath $ZipPath
+    checksum_left = Test-Path -LiteralPath $ZipHashPath
+    metadata_left = Test-Path -LiteralPath $BuildMetadataPath
+    stage_left = Test-Path -LiteralPath (Join-Path $StageDir 'SHA256SUMS.txt')
+}} | ConvertTo-Json -Compress
+""")
+
+    def test_a_failed_unpack_check_leaves_no_artifact_claiming_it_passed(self):
+        # RV4-6 (audit 2026-10-20): the zip, its .sha256 and BUILD-METADATA.json are written
+        # before the -Verify check and say unpack_verified = true; a failed check used to leave
+        # all three on disk, and the release asset BUILD-METADATA.json comes from the stage.
+        outcome = self.failed_unpack_check()
+        self.assertTrue(outcome["refused"])
+        self.assertIn("simulated unpack failure", outcome["message"])
+        self.assertIn("MentorRecorder-9.9.9-win-x64.zip", outcome["message"])
+        self.assertIn("unpack_verified", outcome["message"])
+        self.assertFalse(outcome["zip_left"])
+        self.assertFalse(outcome["checksum_left"])
+        self.assertFalse(outcome["metadata_left"])
+        # The rest of the stage stays for diagnosis; nothing in it claims a verified archive.
+        self.assertTrue(outcome["stage_left"])
+
+    # ------------------------------------------- the source identity, before and after
+
+    def source_identity_check(self, change):
+        return self.run_package_statements(f"""
+$RepoRoot = {ps_literal(self.repository)}
+. ([scriptblock]::Create((Get-Assignments @('$sourceStateBeforeVerify'))))
+{change}
+$refusal = $null
+try {{
+    . ([scriptblock]::Create((Get-StatementRange '^\\$sourceState\\s*=' '^Write-Head\\s')))
+}}
+catch {{ $refusal = $_.Exception.Message }}
+[ordered]@{{ refused = [bool]$refusal; message = [string]$refusal }} | ConvertTo-Json -Compress
+""")
+
+    def test_an_unchanged_source_tree_passes_the_identity_check(self):
+        # Guards the harness: the check runs and accepts the same tree read twice.
+        outcome = self.source_identity_check("")
+        self.assertFalse(outcome["refused"], outcome["message"])
+
+    def test_a_commit_made_while_packaging_is_refused(self):
+        # M-2: another session's checkout, stash or commit between verify.ps1 and the metadata
+        # step would leave a clean source_commit beside binaries built from another tree.
+        outcome = self.source_identity_check(
+            "& git -C $RepoRoot -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false "
+            "commit -q --allow-empty -m moved")
+        self.assertTrue(outcome["refused"])
+        self.assertIn("源码在打包过程中发生了变化", outcome["message"])
+
+    def test_a_tree_cleaned_while_packaging_is_refused(self):
+        (self.repository / "local-change.txt").write_text("not committed\n", encoding="utf-8")
+        outcome = self.source_identity_check("Remove-Item -LiteralPath (Join-Path $RepoRoot 'local-change.txt')")
+        self.assertTrue(outcome["refused"])
+        self.assertIn("有未提交改动", outcome["message"])
 
     # ------------------------------------------------------- -Verify recheck
 

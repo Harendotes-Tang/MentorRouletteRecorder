@@ -94,7 +94,17 @@ StyledTextField {
         popup.open()
     }
 
-    onTextEdited: completeDigits()
+    /// The text's length after its last change, typed or set. textEdited is
+    /// emitted before textChanged, so while an edit is handled this is still the
+    /// length before it: only an edit that made the text longer is punctuated,
+    /// and a Backspace over the colon completeDigits() added stays done (review L1-8).
+    property int settledLength: 0
+    Component.onCompleted: settledLength = text.length
+    onTextChanged: settledLength = text.length
+    onTextEdited: {
+        if (text.length > settledLength)
+            completeDigits()
+    }
     onEditingFinished: canonicalize()
 
     Image {

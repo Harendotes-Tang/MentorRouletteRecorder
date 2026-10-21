@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text;
 using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Contracts.Errors;
@@ -13,10 +12,10 @@ using MentorRecorder.Collector.Storage.Repositories;
 namespace MentorRecorder.Collector.Import;
 
 /// <summary>Bounded, read-only previews followed by atomic personal-history merge and durable retry receipts.</summary>
-public sealed class RunImportService
+public sealed partial class RunImportService
 {
     private sealed record Preview(string Id, string Kind, string? Name, DateTimeOffset Created,
-        IReadOnlyList<ImportCandidate> Candidates);
+        IReadOnlyList<ImportCandidate> Candidates, JsonObject? FrozenRender = null, int? PageSize = null, int FrozenBytes = 0);
     private readonly SqliteDatabase _database;
     private readonly IClock _clock;
     private readonly RunRepository _runs;
@@ -25,6 +24,7 @@ public sealed class RunImportService
     private readonly RunRevisionRepository _revisions;
     private readonly IdempotencyRepository _idempotency;
     private readonly SettingsRepository _settings;
+    private readonly long _maxPreviewCacheBytes;
     private readonly Dictionary<string, Preview> _previews = new(StringComparer.Ordinal);
     private readonly object _gate = new();
     public const int MaxRows = 5000;
@@ -34,10 +34,16 @@ public sealed class RunImportService
     /// <summary>Longest verbatim argument a <c>$defs/TextRef</c> carries (contracts/ipc-v1.schema.json).</summary>
     private const int MaxVerbatimArgument = 4000;
 
-    public RunImportService(SqliteDatabase database, IClock clock)
+    public RunImportService(SqliteDatabase database, IClock clock) : this(database, clock, MaxPreviewCacheBytes)
     {
+    }
+
+    internal RunImportService(SqliteDatabase database, IClock clock, long maxPreviewCacheBytes)
+    {
+        if (maxPreviewCacheBytes <= 0) throw new ArgumentOutOfRangeException(nameof(maxPreviewCacheBytes));
         _database = database;
         _clock = clock;
+        _maxPreviewCacheBytes = maxPreviewCacheBytes;
         _runs = new RunRepository(database);
         _imports = new RunImportRepository(database);
         _reflections = new RunReflectionRepository(database);
@@ -49,9 +55,12 @@ public sealed class RunImportService
     /// <summary>No run, reflection, audit or receipt is written while constructing this preview.</summary>
     public JsonObject PreviewSource(string sourceKind, string? filePath = null, string? text = null,
         JsonArray? rows = null, IReadOnlyDictionary<string, string>? columnMapping = null,
-        string? timeZone = null, string? sourceName = null, CancellationToken cancellationToken = default)
+        string? timeZone = null, string? sourceName = null, CancellationToken cancellationToken = default,
+        int? pageSize = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (pageSize is < 1 or > 100)
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldOutOfRange("page_size", 1, 100), "page_size");
         sourceKind = sourceKind.ToUpperInvariant();
         if (!new[] { "CSV", "XLS", "XLSX", "JSON", "BACKUP", "PASTE", "SCREENSHOT", "ROWS" }.Contains(sourceKind, StringComparer.Ordinal))
             throw CollectorException.BadRequest(CollectorTexts.ImportPreviewKindUnsupported(), "source_kind");
@@ -60,7 +69,17 @@ public sealed class RunImportService
         {
             if (!Path.IsPathFullyQualified(filePath)) throw CollectorException.BadRequest(CollectorTexts.ImportPreviewPathNotAbsolute(), "file_path");
             // Import reads only ordinary local sources; it never changes the source or follows a network destination.
-            Export.ExportPaths.Resolve(filePath);
+            // The path check is the export one; its refusal is an import request refused, in import words (audit 2026-10-20 H2-7).
+            try { Export.ExportPaths.Resolve(filePath, "file_path"); }
+            catch (CollectorException refused) when (refused.Code == ErrorCodes.ExportFailed)
+            {
+                throw CollectorException.BadRequest(refused.Text?.Key switch
+                {
+                    "export.path.uncheckable" => CollectorTexts.ImportPreviewPathUncheckable(),
+                    "export.path.empty" or "export.path.invalid" => CollectorTexts.ImportPreviewPathNotAbsolute(),
+                    _ => CollectorTexts.ImportPreviewPathNotLocal(),
+                }, "file_path");
+            }
         }
         IReadOnlyList<ImportSourceRow> parsed;
         try { parsed = RunImportSourceParser.Parse(sourceKind, filePath, text, rows, columnMapping); }
@@ -68,35 +87,36 @@ public sealed class RunImportService
         { throw Unreadable(failure); }
         cancellationToken.ThrowIfCancellationRequested();
         if (parsed.Count > MaxRows) throw CollectorException.BadRequest(CollectorTexts.ImportPreviewTooManyRows(), "rows");
-        // Hash the bounded parsed snapshot, never reread a file that could change after parsing.
+        // A row without its own identity is known by its own content and how many identical rows
+        // precede it, so adding, removing or moving other rows leaves it recognisable on a later import
+        // (audit 2026-10-20 H2-1). Hash the bounded parsed values, never reread a file that could change.
+        // The key a row got before (whole parsed snapshot + row number) is still checked, so a file imported
+        // by an earlier version and its purge tombstones keep matching.
         var snapshot = new JsonArray(parsed.Select(row => (JsonNode)row.Values.DeepClone()).ToArray());
-        var inputFingerprint = RunImportCandidateNormalizer.Hash(snapshot.ToJsonString(Wire.JsonOptions));
+        var legacyInputFingerprint = RunImportCandidateNormalizer.Hash(snapshot.ToJsonString(Wire.JsonOptions));
+        var legacyKeys = new Dictionary<int, string>();
+        var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var row in parsed)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (row.Values["run_id"] is null && row.Values["source_key"] is null)
-                row.Values["source_key"] = inputFingerprint + ":" + row.RowNumber.ToString(CultureInfo.InvariantCulture);
+            {
+                var own = RunImportCandidateNormalizer.Hash(RunImportCandidateNormalizer.CanonicalValues(row.Values));
+                var occurrence = occurrences[own] = occurrences.GetValueOrDefault(own) + 1;
+                row.Values["source_key"] = own + ":" + occurrence.ToString(CultureInfo.InvariantCulture);
+                legacyKeys[row.RowNumber] = legacyInputFingerprint + ":" + row.RowNumber.ToString(CultureInfo.InvariantCulture);
+            }
         }
         var now = UtcTimestamp.Truncate(_clock.UtcNow);
         var preview = new Preview(Guid.NewGuid().ToString("D"), sourceKind, sourceName, now,
             parsed.Select(row =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                return RunImportCandidateNormalizer.Normalize(row, sourceKind, sourceName, timeZone, now);
+                return RunImportCandidateNormalizer.Normalize(row, sourceKind, sourceName, timeZone, now,
+                    legacyKeys.GetValueOrDefault(row.RowNumber));
             }).ToArray());
         var rendered = _database.Read(_ => Render(preview, cancellationToken), cancellationToken);
-        // Retain the existing IPC framing limit, with room for the response envelope.
-        if (Encoding.UTF8.GetByteCount(rendered.ToJsonString(Wire.JsonOptions)) > FrameCodec.MaxFrameBytes * 3 / 4)
-            throw CollectorException.BadRequest(CollectorTexts.ImportPreviewTooLarge(), "rows");
-        lock (_gate)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            foreach (var id in _previews.Where(pair => now - pair.Value.Created > PreviewLifetime).Select(pair => pair.Key).ToArray())
-                _previews.Remove(id);
-            if (_previews.Count >= MaxPreviews) _previews.Remove(_previews.Values.OrderBy(value => value.Created).First().Id);
-            _previews[preview.Id] = preview;
-        }
-        return rendered;
+        return FreezeAndCache(preview, rendered, pageSize, cancellationToken);
     }
 
     /// <summary>Rechecks all selected identities under the write transaction; conflicts never overwrite local data.</summary>
@@ -254,6 +274,7 @@ public sealed class RunImportService
         { ["new"] = 0, ["duplicate"] = 0, ["conflict"] = 0, ["possible_duplicate"] = 0, ["invalid"] = 0, ["incomplete"] = 0, ["total"] = preview.Candidates.Count };
         var seenIds = new Dictionary<string, ImportCandidate>(StringComparer.Ordinal);
         var seenFingerprints = new Dictionary<string, ImportCandidate>(StringComparer.Ordinal);
+        var seenTwins = new Dictionary<string, ImportCandidate>(StringComparer.Ordinal);
         foreach (var candidate in preview.Candidates)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -272,6 +293,14 @@ public sealed class RunImportService
                 {
                     if (candidate.HasStableId) seenIds[run.RunId] = candidate;
                     seenFingerprints[run.ImportMetadata!.SourceFingerprint] = candidate;
+                    // The same card read twice (overlapping screenshots, one picture added twice) differs only in
+                    // what the reading added; it is offered as a possible duplicate of the first (audit 2026-10-20 I3-1).
+                    if (TwinKey(run) is { } twin)
+                    {
+                        if (status == "new" && seenTwins.TryGetValue(twin, out var first))
+                        { status = "possible_duplicate"; matching = first.Run!.RunId; }
+                        else seenTwins.TryAdd(twin, candidate);
+                    }
                 }
             }
             counts[status]++;
@@ -298,6 +327,17 @@ public sealed class RunImportService
     }
 
     /// <summary>
+    /// What makes two rows of one batch the same record: the duty, the same clock time (game entry or source
+    /// time) and the same reflection text. Null without a clock time: one day can hold several runs of a duty.
+    /// </summary>
+    private static string? TwinKey(MentorRun run) =>
+        run.EnteredAtUtc is null && run.ImportMetadata?.SourceRecordedAtUtc is null ? null
+            : new JsonArray(
+                run.ContentId is { } content ? "content:" + content.ToString(CultureInfo.InvariantCulture) : "name:" + run.DutyName,
+                UtcTimestamp.ToTextOrNull(run.EnteredAtUtc), UtcTimestamp.ToTextOrNull(run.ImportMetadata?.SourceRecordedAtUtc),
+                run.Reflection?.Text).ToJsonString(Wire.JsonOptions);
+
+    /// <summary>
     /// "无法读取导入内容：" and why. The parser's own sentence nests as a reference; an operating-system, SQLite, XML or
     /// JSON message travels as a verbatim argument, and one longer than a TextRef argument may be stays Chinese only.
     /// </summary>
@@ -314,34 +354,63 @@ public sealed class RunImportService
     private (string Status, string? Matching) Classify(ImportCandidate candidate, SqliteTransaction? transaction)
     {
         var incoming = candidate.Run!;
-        if (_idempotency.IsPurgedRun(incoming.RunId, incoming.ImportMetadata?.SourceFingerprint, transaction))
+        if (_idempotency.IsPurgedRun(incoming.RunId, incoming.ImportMetadata?.SourceFingerprint, transaction)
+            || candidate.LegacyFingerprint is { } purgedBefore && _idempotency.IsPurgedRun(incoming.RunId, purgedBefore, transaction)
+            || candidate.PreAliasFingerprint is { } purgedPreAlias && _idempotency.IsPurgedRun(incoming.RunId, purgedPreAlias, transaction))
             return ("conflict", incoming.RunId);
         if (candidate.HasStableId && _runs.GetInternal(incoming.RunId, transaction) is { } local)
             return (RunImportCandidateNormalizer.SameProvidedFacts(candidate, local) ? "duplicate" : "conflict", local.RunId);
-        if (_imports.FindFingerprint(incoming.ImportMetadata!.SourceFingerprint, transaction) is { } exact)
+        if ((_imports.FindFingerprint(incoming.ImportMetadata!.SourceFingerprint, transaction)
+            ?? (candidate.LegacyFingerprint is { } before ? _imports.FindFingerprint(before, transaction) : null)
+            ?? (candidate.PreAliasFingerprint is { } preAlias ? _imports.FindFingerprint(preAlias, transaction) : null)) is { } exact)
             return ("duplicate", exact);
         var nearby = FindNearby(incoming, transaction);
         return nearby is null ? ("new", null) : ("possible_duplicate", nearby);
     }
 
+    /// <summary>
+    /// A local run of the same duty that may be this record: entered within a minute, the same source
+    /// time, or - when one of the two has no clock time - the same source day as written in the source
+    /// and, where both name one, the same job (audit 2026-10-20 H2-1). Two clock times decide on their own.
+    /// </summary>
     private string? FindNearby(MentorRun incoming, SqliteTransaction? transaction)
     {
         var sourceTime = incoming.ImportMetadata?.SourceRecordedAtUtc;
-        if (incoming.EnteredAtUtc is null && sourceTime is null) return null;
+        var sourceDay = RunImportCandidateNormalizer.SourceDay(incoming.ImportMetadata?.SourceRecordedAt);
+        if (incoming.EnteredAtUtc is null && sourceTime is null && sourceDay is null) return null;
         if (incoming.ContentId is null && string.IsNullOrWhiteSpace(incoming.DutyName)) return null;
         using var command = _database.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = "SELECT r.run_id FROM mentor_runs r LEFT JOIN run_import_metadata im ON im.run_id = r.run_id " +
             "WHERE (r.content_id = $content OR ($content IS NULL AND r.duty_name = $name)) AND " +
             "(($entered IS NOT NULL AND r.entered_at_utc BETWEEN $from AND $to) OR " +
-            "($source IS NOT NULL AND im.source_recorded_at_utc = $source)) ORDER BY r.run_id LIMIT 1;";
+            "($source IS NOT NULL AND im.source_recorded_at_utc = $source) OR " +
+            "($day IS NOT NULL AND ($undated = 1 OR (r.entered_at_utc IS NULL AND im.source_recorded_at_utc IS NULL)) " +
+            "AND ($job IS NULL OR r.job_id IS NULL OR r.job_id = $job) AND " + SourceDaySql("im.source_recorded_at") + " = $day)) " +
+            "ORDER BY r.run_id LIMIT 1;";
         command.Parameters.AddWithValue("$content", (object?)incoming.ContentId ?? DBNull.Value);
         command.Parameters.AddWithValue("$name", (object?)incoming.DutyName ?? DBNull.Value);
         command.Parameters.AddWithValue("$entered", (object?)UtcTimestamp.ToTextOrNull(incoming.EnteredAtUtc) ?? DBNull.Value);
         command.Parameters.AddWithValue("$from", incoming.EnteredAtUtc is { } entered ? UtcTimestamp.ToText(entered.AddMinutes(-1)) : DBNull.Value);
         command.Parameters.AddWithValue("$to", incoming.EnteredAtUtc is { } enteredAgain ? UtcTimestamp.ToText(enteredAgain.AddMinutes(1)) : DBNull.Value);
         command.Parameters.AddWithValue("$source", (object?)UtcTimestamp.ToTextOrNull(sourceTime) ?? DBNull.Value);
+        command.Parameters.AddWithValue("$day", (object?)sourceDay ?? DBNull.Value);
+        command.Parameters.AddWithValue("$undated", incoming.EnteredAtUtc is null && sourceTime is null ? 1 : 0);
+        command.Parameters.AddWithValue("$job", (object?)incoming.JobId ?? DBNull.Value);
         return command.ExecuteScalar() as string;
+    }
+
+    /// <summary>
+    /// SQL twin of <see cref="RunImportCandidateNormalizer.SourceDay"/>: the leading
+    /// <c>yyyy-M-d</c> / <c>yyyy/M/d</c> / <c>yyyy.M.d</c> of a stored source text as <c>yyyy-MM-dd</c>, else NULL.
+    /// </summary>
+    private static string SourceDaySql(string column)
+    {
+        var text = $"replace(replace({column}, '/', '-'), '.', '-')";
+        var rest = $"substr({text}, 6)";
+        return $"(CASE WHEN {text} GLOB '[0-9][0-9][0-9][0-9]-[0-9]*' AND instr({rest}, '-') > 1 " +
+            $"THEN printf('%04d-%02d-%02d', CAST(substr({text}, 1, 4) AS INTEGER), CAST({rest} AS INTEGER), " +
+            $"CAST(substr({rest}, instr({rest}, '-') + 1) AS INTEGER)) END)";
     }
 
     private (string Fingerprint, string Json)? FindReceipt(string previewId, string requestId, SqliteTransaction transaction)

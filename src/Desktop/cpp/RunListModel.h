@@ -108,7 +108,10 @@ private:
     IBackend *m_backend = nullptr;
     QList<QJsonObject> m_rows;
     QJsonObject m_filter;
-    QString m_sortField = QStringLiteral("matched_at_utc");
+    // The 日期 column's key (HistoryPage), so the list opens sorted by the date
+    // it shows - an import's original-site day included - with its arrow on
+    // (docs/ui-design.md §4.2; review K1-8).
+    QString m_sortField = QStringLiteral("history_date");
     bool m_sortAscending = false;
     int m_page = 1;
     int m_pageSize = 10;

@@ -15,6 +15,8 @@
 #include <QObject>
 #include <QSettings>
 #include <QString>
+#include <QRect>
+#include <QStringList>
 
 namespace mr {
 
@@ -34,6 +36,8 @@ class AppSettings : public QObject
     /// 结束后询问本次结果 - 离开副本前没有收到通关结算时，一局导随停在
     /// UNKNOWN_FINAL_STATE（待复核）。关掉它就完全靠 待复核 列表事后确认。
     Q_PROPERTY(bool confirmPrompt READ confirmPrompt WRITE setConfirmPrompt NOTIFY generalChanged)
+    /// Reminder delivery: window, floating or inbox; existing prompt switches still gate eligibility.
+    Q_PROPERTY(QString promptPresentation READ promptPresentation WRITE setPromptPresentation NOTIFY generalChanged)
 
     // -- 外观 ---------------------------------------------------------------
     /// 界面风格 "classic"（经典，workbench，默认）或 "eorzea"（艾欧泽亚）。
@@ -66,9 +70,29 @@ public:
     QString shareGameIdentity() const;
     void setShareGameIdentity(const QString &identity);
     explicit AppSettings(QObject *parent = nullptr);
+    /// Explicit INI location for isolated local harnesses.
+    AppSettings(const QString &iniPath, QObject *parent);
+    /// Floating-window preferences; the overlay controller validates semantic bounds.
+    QRect statisticsOverlayGeometry() const;
+    void setStatisticsOverlayGeometry(const QRect &geometry);
+    double statisticsOverlayOpacity() const;
+    void setStatisticsOverlayOpacity(double opacity);
+    QStringList statisticsOverlayModules(const QStringList &fallback) const;
+    void setStatisticsOverlayModules(const QStringList &modules);
+    QStringList statisticsOverlayModuleOrder(const QStringList &fallback) const;
+    void setStatisticsOverlayModuleOrder(const QStringList &order);
+    int statisticsOverlayRowLimit() const;
+    void setStatisticsOverlayRowLimit(int limit);
+    /// "full" or "mini"; the controller validates.
+    QString statisticsOverlayForm() const;
+    void setStatisticsOverlayForm(const QString &form);
+    bool statisticsOverlayLabels() const;
+    void setStatisticsOverlayLabels(bool labels);
 
     /// Absolute path of the INI file.
     static QString filePath();
+    /// This object's actual INI, including an explicitly injected harness location.
+    QString instanceFilePath() const;
 
     /// True when a run of this program must keep away from the player's own
     /// settings, backup date and note images: a screenshot, or any run on the
@@ -108,6 +132,8 @@ public:
 
     bool confirmPrompt() const;
     void setConfirmPrompt(bool enabled);
+    QString promptPresentation() const;
+    void setPromptPresentation(const QString &presentation);
 
     /// "classic" (default) or "eorzea"; anything else is ignored and keeps the old value.
     QString uiStyle() const;

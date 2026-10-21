@@ -3,7 +3,9 @@
 #include <QCoreApplication>
 #include <QDate>
 #include <QDir>
+#include <QFileInfo>
 #include <QStandardPaths>
+#include <limits>
 
 namespace {
 
@@ -67,16 +69,89 @@ QString AppSettings::filePath()
     return QDir(settingsDirectory()).absoluteFilePath(QStringLiteral("desktop.ini"));
 }
 
+QString AppSettings::instanceFilePath() const
+{
+    return QFileInfo(m_settings.fileName()).absoluteFilePath();
+}
+
 bool AppSettings::isHarnessRun(bool screenshotMode, const QString &backend)
 {
     return screenshotMode || backend == QLatin1String("mock");
 }
 
 AppSettings::AppSettings(QObject *parent)
-    : QObject(parent)
-    , m_settings(filePath(), QSettings::IniFormat)
+    : AppSettings(filePath(), parent)
 {
-    QDir().mkpath(settingsDirectory());
+}
+
+AppSettings::AppSettings(const QString &iniPath, QObject *parent)
+    : QObject(parent)
+    , m_settings(iniPath, QSettings::IniFormat)
+{
+    QDir().mkpath(QFileInfo(iniPath).absolutePath());
+}
+
+QRect AppSettings::statisticsOverlayGeometry() const
+{
+    return m_settings.value(QStringLiteral("statistics_overlay/geometry")).toRect();
+}
+void AppSettings::setStatisticsOverlayGeometry(const QRect &geometry)
+{
+    m_settings.setValue(QStringLiteral("statistics_overlay/geometry"), geometry);
+}
+double AppSettings::statisticsOverlayOpacity() const
+{
+    // NaN when absent or unreadable: the overlay controller supplies the default.
+    bool ok = false;
+    const double opacity = m_settings.value(QStringLiteral("statistics_overlay/opacity")).toDouble(&ok);
+    return ok ? opacity : std::numeric_limits<double>::quiet_NaN();
+}
+void AppSettings::setStatisticsOverlayOpacity(double opacity)
+{
+    m_settings.setValue(QStringLiteral("statistics_overlay/opacity"), opacity);
+}
+QStringList AppSettings::statisticsOverlayModules(const QStringList &fallback) const
+{
+    return m_settings.value(QStringLiteral("statistics_overlay/modules"), fallback).toStringList();
+}
+void AppSettings::setStatisticsOverlayModules(const QStringList &modules)
+{
+    m_settings.setValue(QStringLiteral("statistics_overlay/modules"), modules);
+}
+QStringList AppSettings::statisticsOverlayModuleOrder(const QStringList &fallback) const
+{
+    return m_settings.value(QStringLiteral("statistics_overlay/module_order"), fallback).toStringList();
+}
+void AppSettings::setStatisticsOverlayModuleOrder(const QStringList &order)
+{
+    m_settings.setValue(QStringLiteral("statistics_overlay/module_order"), order);
+}
+int AppSettings::statisticsOverlayRowLimit() const
+{
+    // -1 when absent or unreadable: the overlay controller supplies the default.
+    bool ok = false;
+    const int limit = m_settings.value(QStringLiteral("statistics_overlay/row_limit")).toInt(&ok);
+    return ok ? limit : -1;
+}
+void AppSettings::setStatisticsOverlayRowLimit(int limit)
+{
+    m_settings.setValue(QStringLiteral("statistics_overlay/row_limit"), limit);
+}
+QString AppSettings::statisticsOverlayForm() const
+{
+    return m_settings.value(QStringLiteral("statistics_overlay/form")).toString();
+}
+void AppSettings::setStatisticsOverlayForm(const QString &form)
+{
+    m_settings.setValue(QStringLiteral("statistics_overlay/form"), form);
+}
+bool AppSettings::statisticsOverlayLabels() const
+{
+    return m_settings.value(QStringLiteral("statistics_overlay/labels"), false).toBool();
+}
+void AppSettings::setStatisticsOverlayLabels(bool labels)
+{
+    m_settings.setValue(QStringLiteral("statistics_overlay/labels"), labels);
 }
 
 QString AppSettings::themeMode() const
@@ -237,6 +312,23 @@ void AppSettings::setConfirmPrompt(bool enabled)
     if (confirmPrompt() == enabled)
         return;
     m_settings.setValue(QStringLiteral("general/confirmPrompt"), enabled);
+    Q_EMIT generalChanged();
+}
+
+QString AppSettings::promptPresentation() const
+{
+    const QString stored = m_settings.value(QStringLiteral("general/promptPresentation"),
+                                            QStringLiteral("window")).toString();
+    return stored == QLatin1String("floating") || stored == QLatin1String("inbox")
+        ? stored : QStringLiteral("window");
+}
+
+void AppSettings::setPromptPresentation(const QString &presentation)
+{
+    if ((presentation != QLatin1String("window") && presentation != QLatin1String("floating")
+         && presentation != QLatin1String("inbox")) || presentation == promptPresentation())
+        return;
+    m_settings.setValue(QStringLiteral("general/promptPresentation"), presentation);
     Q_EMIT generalChanged();
 }
 

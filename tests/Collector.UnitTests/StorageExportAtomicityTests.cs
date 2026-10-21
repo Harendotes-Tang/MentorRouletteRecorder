@@ -153,9 +153,8 @@ public sealed class StorageExportAtomicityTests : IDisposable
         var target = Target("while-capture-writes.db");
         try
         {
-            var outcome = await Task.Run(() => _database.Database.BackupDatabase(target, overwrite: false))
+            await Task.Run(() => _database.Database.BackupDatabase(target, overwrite: false))
                 .WaitAsync(TimeSpan.FromSeconds(10));
-            Assert.True(outcome.IntegrityCheckPassed);
         }
         finally
         {

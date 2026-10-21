@@ -231,6 +231,15 @@ public sealed record CalibrationSnapshot(
     public int PopShapeSeen { get; init; }
 
     /// <summary>
+    /// Per server shape of the zone marker's or the territory's length, how many of the bursts let go to keep
+    /// <see cref="Clusters"/> to the newest <see cref="CalibrationObserver.MaxClusters"/> carried it exactly once.
+    /// <see cref="OutsideCounts"/> spans the evidence's whole life, so the loads a shape's outside sightings are weighed
+    /// against must too: the kept bursts plus these (re-review 2026-10-20, RV1-1). A full table is a smaller count, which
+    /// can only make a shape harder to admit, so it is never an overflow.
+    /// </summary>
+    public IReadOnlyDictionary<MessageKey, int> RetiredOnceCounts { get; init; } = new Dictionary<MessageKey, int>();
+
+    /// <summary>
     /// The most recent constraint-satisfying job reading per opcode, in or out of a burst. It
     /// seeds the state machine when a local or shared profile is bound mid-session, so the first record
     /// is not job-less until the next zone change. Not persisted: a restart re-observes it at login.
@@ -350,6 +359,13 @@ public sealed record CalibrationSnapshot(
 
     /// <summary>Counts for every declared candidate being watched. Not persisted.</summary>
     public IReadOnlyList<DeclaredCandidateObservation> Candidates { get; init; } = Array.Empty<DeclaredCandidateObservation>();
+
+    /// <summary>
+    /// What the player rejected about this evidence - and what the traffic disproved - when it was
+    /// taken for writing to disk, so a restart does not put the same timeline to them again (audit
+    /// 2026-10-20, C-6). The observer never sets it; <see cref="CalibrationCoordinator.Evidence"/> does.
+    /// </summary>
+    public CalibrationRejections Rejections { get; init; } = CalibrationRejections.None;
 }
 
 /// <summary>

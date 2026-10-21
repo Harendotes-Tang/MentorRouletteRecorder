@@ -67,11 +67,17 @@ public sealed class BackupService
         var fullPath = ResolveTarget(targetPath, now);
         ExportPaths.PrepareDestination(fullPath, overwrite);
 
-        var outcome = _database.BackupDatabase(fullPath, overwrite);
-        if (!outcome.IntegrityCheckPassed)
+        BackupOutcome outcome;
+        try
         {
+            outcome = _database.BackupDatabase(fullPath, overwrite);
+        }
+        catch (CollectorException refused) when (refused.Text?.Key == "export.integrity_failed")
+        {
+            // The copy failed its own check and was not published. Say so in backup words: the refusal
+            // comes before retention, so no existing backup was removed (audit 2026-10-20 H1-5).
             throw new CollectorException(ErrorCodes.ExportFailed,
-                CollectorTexts.ExportBackupIntegrityFailed());
+                CollectorTexts.ExportBackupIntegrityFailed(), refused.Details, inner: refused);
         }
         var pruned = Prune(Path.GetDirectoryName(fullPath), DefaultDirectory);
         PruneAbandonedTemporaries(DefaultDirectory, now);

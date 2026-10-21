@@ -49,6 +49,7 @@ public:
     ///
     /// \a args supplies the wrapper's parameters by contract field name
     /// (for example "run_id", "expected_revision", "changes", "reason").
+    /// PreviewRunImport with a "page" builds the continuation of a frozen preview.
     static QJsonObject buildRequestForTest(const QString &messageType,
                                            const QJsonObject &args = {});
 

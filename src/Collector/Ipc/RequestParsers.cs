@@ -175,10 +175,27 @@ public static class RequestParsers
                 ErrorCodes.NegativeDuration, CollectorTexts.MutationDurationNegative(), field: "changes.duration_ms");
         }
 
+        // result and contributes_to_goal cannot be cleared - the contract allows no null for either - and a null
+        // result would still count as specified, acknowledging a 待复核 record while changing nothing
+        // (audit 2026-10-20, G-4). Refused as UpdateCaptureSettings refuses a null switch.
+        if (reader.IsNull(RunFields.Result))
+        {
+            throw CollectorException.BadRequest(
+                CollectorTexts.IpcFieldNotOneOf(RunFields.Result, string.Join(" / ", EnumWire<RunResult>.AllTokens)),
+                "payload.changes." + RunFields.Result);
+        }
+
+        if (reader.IsNull(RunFields.ContributesToGoal))
+        {
+            throw CollectorException.BadRequest(
+                CollectorTexts.IpcFieldNotBoolean(RunFields.ContributesToGoal), "payload.changes." + RunFields.ContributesToGoal);
+        }
+
         // A correction may confirm a 待复核 record (false) but never send one back into review:
-        // pending_review is set only by the machine, when it could not observe an ending.
+        // pending_review is set only by the machine, when it could not observe an ending. Null is no
+        // confirmation either.
         var pendingReview = reader.Bool(RunFields.PendingReview);
-        if (pendingReview is true)
+        if (pendingReview is true || reader.IsNull(RunFields.PendingReview))
         {
             throw new CollectorException(
                 ErrorCodes.BadRequest, CollectorTexts.MutationPendingReviewOnlyFalse(),

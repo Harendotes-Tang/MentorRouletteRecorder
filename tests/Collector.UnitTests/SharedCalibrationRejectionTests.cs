@@ -1,4 +1,5 @@
 using MentorRecorder.Collector.Capture;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Profiles;
@@ -175,5 +176,129 @@ public sealed class SharedCalibrationRejectionTests : IDisposable
         Assert.False(_bed.Store.IsUserRejected(Region.Cn, Bed.Build));
         Assert.False(pipeline.CalibrationStatus().Shared.UserRejected);
         Assert.Equal(ProfileOrigin.Local, pipeline.Current.Origin);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-20, E-2: a state file another process holds open is no answer. While it cannot be read nothing shared
+    /// is fetched - the refusal it may hold is unknown - and that unknown is not remembered: once the file opens again the
+    /// player's 不用共享的 stands exactly as before.
+    /// </summary>
+    [Fact]
+    public async Task ARefusalTheStateFileCannotShowForAMomentStillStandsOnceItCan()
+    {
+        var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        Assert.True(_bed.Store.RecordUserRejection(Region.Cn, Bed.Build, Bed.Confirmed));
+        _bed.Publish(code);
+        var state = Path.Combine(
+            SharedCalibrationStore.DirectoryFor(_bed.StoreRoot, Region.Cn, Bed.Build), SharedCalibrationStore.StateFileName);
+        var pipeline = _bed.Pipeline(_bed.Services());
+        using (new FileStream(state, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            pipeline.Refresh(Bed.Game());
+            await Bed.Idle(pipeline);
+            Assert.Empty(_bed.Transport.Requests);
+            Assert.Empty(pipeline.CalibrationStatus().Shared.Candidates);
+        }
+
+        Assert.NotEqual(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
+        await Bed.Idle(pipeline);
+
+        Assert.Empty(_bed.Transport.Requests);
+        Assert.True(pipeline.CalibrationStatus().Shared.UserRejected);
+        Assert.Equal(SharedCalibrationSession.UserRejectedReason, pipeline.ImportCalibrationCode(code.Code).Reason);
+    }
+
+    /// <summary>
+    /// Re-review 2026-10-20, RV2-2: a code pasted while the state file is held open, before this process has read the
+    /// player's refusal, is refused as unknown with a sentence that says so - not with one promising a check that, while
+    /// the answer is unknown, never runs.
+    /// </summary>
+    [Fact]
+    public async Task ACodePastedBeforeTheRefusalIsKnownSaysTheRecordsCannotBeRead()
+    {
+        var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        Assert.True(_bed.Store.RecordUserRejection(Region.Cn, Bed.Build, Bed.Confirmed));
+        var state = Path.Combine(
+            SharedCalibrationStore.DirectoryFor(_bed.StoreRoot, Region.Cn, Bed.Build), SharedCalibrationStore.StateFileName);
+        var pipeline = _bed.Pipeline(_bed.Services());
+
+        SharedImportResult pasted;
+        using (new FileStream(state, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            pipeline.Refresh(Bed.Game());
+            await Bed.Idle(pipeline);
+            pasted = pipeline.ImportCalibrationCode(code.Code);
+        }
+
+        Assert.Equal(SharedImportOutcome.NotApplicable, pasted.Outcome);
+        Assert.Equal(SharedCalibrationSession.StateUnreadableReason, pasted.Reason);
+        Assert.Equal(CollectorTexts.SharingImportStateUnreadable(), pasted.Text);
+    }
+
+    /// <summary>
+    /// Re-review 2026-10-21, RV5-5: 立即检查 while the state file is held open, before this process knows whether the
+    /// player refused shared calibration for the build. Nothing is fetched - an unknown counts as a refusal (E-2) - but the
+    /// answer carries a sentence saying the records cannot be read, so the Desktop does not say a calibration is in use or
+    /// that the player chose local calibration. Once the file opens and the refusal is known, the answer is the plain
+    /// NOT_NEEDED it always was.
+    /// </summary>
+    [Fact]
+    public async Task ACheckBeforeTheRefusalIsKnownSaysTheRecordsCannotBeRead()
+    {
+        Assert.True(_bed.Store.RecordUserRejection(Region.Cn, Bed.Build, Bed.Confirmed));
+        var state = Path.Combine(
+            SharedCalibrationStore.DirectoryFor(_bed.StoreRoot, Region.Cn, Bed.Build), SharedCalibrationStore.StateFileName);
+        var pipeline = _bed.Pipeline(_bed.Services());
+
+        SharedCheckAnswer unknown;
+        using (new FileStream(state, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            pipeline.Refresh(Bed.Game());
+            await Bed.Idle(pipeline);
+            unknown = pipeline.CheckSharedCalibration();
+        }
+
+        await Bed.Idle(pipeline);
+        Assert.Equal(SharedCheckOutcome.NotNeeded, unknown.Outcome);
+        Assert.Equal(CollectorTexts.SharingCheckStateUnreadable(), unknown.Text);
+        Assert.Empty(_bed.Transport.Requests);
+
+        var known = pipeline.CheckSharedCalibration();
+        await Bed.Idle(pipeline);
+        Assert.Equal(SharedCheckOutcome.NotNeeded, known.Outcome);
+        Assert.Null(known.Text);
+        Assert.Empty(_bed.Transport.Requests);
+        Assert.True(pipeline.CalibrationStatus().Shared.UserRejected);
+    }
+
+    /// <summary>
+    /// Re-review 2026-10-20, RV2-1 (the import side): once the player's refusal is known not to stand, a code pasted while
+    /// the state file is held open cannot be checked against its own record either. It is refused as unknown
+    /// (STATE_UNREADABLE), not as a code this build's traffic rejected, and can be pasted again once the file opens.
+    /// </summary>
+    [Fact]
+    public async Task ACodePastedWhileTheStateFileIsHeldOpenIsRefusedAsUnknownNotAsRejected()
+    {
+        var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        _bed.Publish(Bed.Encode(code.Payload with { ZoneOpcode = 0x7778 }));
+        var pipeline = _bed.Pipeline(_bed.Services());
+        pipeline.Refresh(Bed.Game());
+        await Bed.Idle(pipeline);
+        Assert.False(pipeline.CalibrationStatus().Shared.UserRejected);
+        var state = Path.Combine(
+            SharedCalibrationStore.DirectoryFor(_bed.StoreRoot, Region.Cn, Bed.Build), SharedCalibrationStore.StateFileName);
+        Assert.True(File.Exists(state));
+
+        SharedImportResult pasted;
+        using (new FileStream(state, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            pasted = pipeline.ImportCalibrationCode(code.Code);
+        }
+
+        Assert.Equal(SharedImportOutcome.NotApplicable, pasted.Outcome);
+        Assert.Equal(SharedCalibrationSession.StateUnreadableReason, pasted.Reason);
+        // Says what is wrong - the bookkeeping cannot be read - not that a check is under way (re-review RV2-2).
+        Assert.Equal(CollectorTexts.SharingImportStateUnreadable(), pasted.Text);
+        Assert.Equal(SharedImportOutcome.Applied, pipeline.ImportCalibrationCode(code.Code).Outcome);
     }
 }

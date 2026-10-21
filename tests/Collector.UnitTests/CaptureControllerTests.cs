@@ -474,6 +474,90 @@ public sealed class CaptureControllerTests : IDisposable
     }
 
     /// <summary>
+    /// Audit 2026-10-20, A1-3. The recommended card can be missing from Npcap's own device list for
+    /// good - a PPPoE dial-up connection, a card the Npcap filter is not bound to. Every attempt gets
+    /// as far as the source, so it writes a capture session row and runs the pipeline's start and stop
+    /// work, and at the one-second readiness cadence that went on for as long as the game ran. A card
+    /// that is back on the next tick still gets its quick retries; after a few, the attempt waits the
+    /// ordinary follow back-off.
+    /// </summary>
+    [Fact]
+    public void AnAdapterNpcapKeepsNotListingIsRetriedQuicklyOnlyAFewTimes()
+    {
+        WithGame();
+        _startFailure = NpcapPacketReader.AdapterListChanged("wifi");
+        long elapsedMs = 0;
+        using var controller = new CaptureController(Services() with
+        {
+            ProcessUptime = () => TimeSpan.FromMilliseconds(Interlocked.Read(ref elapsedMs)),
+        });
+
+        for (var tick = 0; tick < 10; tick++)
+        {
+            controller.Poll();
+            Interlocked.Add(ref elapsedMs, 1_000);
+        }
+
+        Assert.Equal(3, _sources.Count);
+        Assert.Equal(3, _lifecycle.Events.Count(entry => entry == "started"));
+        Assert.Equal(3, CaptureSessionRowCount());
+        Assert.Equal(CaptureControllerState.Idle, controller.State);
+        Assert.Equal(ErrorCodes.BadRequest, controller.Snapshot().LastErrorCode);
+
+        // Still retried, thirty seconds after the last quick attempt; once the card is there, it starts.
+        Interlocked.Exchange(ref elapsedMs, 31_999);
+        controller.Poll();
+        Assert.Equal(3, _sources.Count);
+        _startFailure = null;
+        Interlocked.Exchange(ref elapsedMs, 32_000);
+        controller.Poll();
+        Assert.Equal(4, _sources.Count);
+        Assert.Equal(CaptureControllerState.Running, controller.State);
+    }
+
+    /// <summary>
+    /// Re-review 2026-10-20, RV1-2. The thirty-second wait is for the card Npcap keeps not listing. A player who turns the
+    /// 加速器 off and logs in again in the same game process moves the game's traffic to a card Npcap does list; waiting out
+    /// the interval there would miss the new zone connection's handshake, so a different recommended card is tried at once.
+    /// </summary>
+    [Fact]
+    public void ADifferentRecommendedCardIsTriedAtOnceDuringTheMissingCardBackOff()
+    {
+        WithGame();
+        _adapters.Add("eth", "Ethernet", addresses: "192.168.31.5");
+        _startFailure = NpcapPacketReader.AdapterListChanged("wifi");
+        long elapsedMs = 0;
+        using var controller = new CaptureController(Services() with
+        {
+            ProcessUptime = () => TimeSpan.FromMilliseconds(Interlocked.Read(ref elapsedMs)),
+        });
+
+        for (var tick = 0; tick < 5; tick++)
+        {
+            controller.Poll();
+            Interlocked.Add(ref elapsedMs, 1_000);
+        }
+
+        Assert.Equal(3, _sources.Count);
+
+        // The game's traffic moves to the Ethernet card, well inside the thirty seconds.
+        _tcp.With(4321, "192.168.31.5");
+        _startFailure = null;
+        controller.Poll();
+
+        Assert.Equal(4, _sources.Count);
+        Assert.Equal(CaptureControllerState.Running, controller.State);
+        Assert.Equal("eth", controller.Snapshot().AdapterId);
+    }
+
+    private int CaptureSessionRowCount() => _database.Database.Read(connection =>
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM capture_sessions";
+        return Convert.ToInt32(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
+    });
+
+    /// <summary>
     /// Two overlapping ticks of the follow timer must not leave CAPTURE_ALREADY_RUNNING in
     /// last_error for the rest of a perfectly healthy session (review finding L-1).
     /// </summary>
@@ -583,6 +667,57 @@ public sealed class CaptureControllerTests : IDisposable
         while (!_lifecycle.Events.Contains("connection_lost") && DateTime.UtcNow < deadline) Thread.Sleep(10);
 
         Assert.DoesNotContain("connection_lost", _lifecycle.Events);
+        controller.Stop();
+    }
+
+    /// <summary>
+    /// Audit 2026-10-20, A1-4. A client that closes its connections and then takes a moment to exit
+    /// is quitting, not disconnected: the process table was read once, about fifty milliseconds
+    /// after the last FIN, and found the exiting client still listed, so the run was recorded
+    /// DISCONNECTED and the process-exit stop a second later found it over. The loss now waits a
+    /// short grace while the game is listed; the game leaving inside it leaves the run to the
+    /// process-exit stop (INTERRUPTED, docs/state-machine.md section 3.7).
+    /// </summary>
+    [Fact]
+    public void AGameThatExitsJustAfterItsConnectionClosedIsNotRecordedAsADisconnect()
+    {
+        WithGame();
+        using var controller = new CaptureController(Services() with
+        {
+            ConnectionLossGrace = TimeSpan.FromSeconds(10),
+        });
+        controller.Start();
+
+        Source.PushConnectionClosed();
+        Thread.Sleep(300); // Plenty for the marker to reach the parser while the game is still listed.
+
+        _processes.Clear();
+        controller.Poll();
+
+        Assert.Equal(CaptureControllerState.Idle, controller.State);
+        Assert.Contains("stopped:ProcessExit", _lifecycle.Events);
+        Assert.DoesNotContain("connection_lost", _lifecycle.Events);
+    }
+
+    /// <summary>Audit 2026-10-20, A1-4. A game still running once the grace is over did lose its connection.</summary>
+    [Fact]
+    public void AGameStillRunningAfterTheGraceIsRecordedAsADisconnect()
+    {
+        WithGame();
+        using var controller = new CaptureController(Services() with
+        {
+            ConnectionLossGrace = TimeSpan.FromMilliseconds(500),
+        });
+        controller.Start();
+
+        Source.PushConnectionClosed();
+        Thread.Sleep(200);
+        Assert.DoesNotContain("connection_lost", _lifecycle.Events);
+
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!_lifecycle.Events.Contains("connection_lost") && DateTime.UtcNow < deadline) Thread.Sleep(10);
+        Assert.Contains("connection_lost", _lifecycle.Events);
+        Assert.Equal(CaptureControllerState.Running, controller.State);
         controller.Stop();
     }
 
@@ -880,7 +1015,8 @@ public sealed class CaptureControllerTests : IDisposable
 
         Assert.Equal(ErrorCodes.Internal, error.Code);
         Assert.Contains("启动回调故障", error.Message, StringComparison.Ordinal);
-        Assert.Equal(CaptureControllerState.Idle, controller.State);
+        // Faulted, not Idle: the retry waits out the fault back-off (audit 2026-10-20, A1-2).
+        Assert.Equal(CaptureControllerState.Faulted, controller.State);
         Assert.Equal(new[] { "started", "stopped:Error" }, _lifecycle.Events);
         Assert.Empty(new CaptureSessionRepository(_database.Database).ListOpen(transaction: null));
     }
@@ -902,7 +1038,7 @@ public sealed class CaptureControllerTests : IDisposable
         Assert.Equal(ErrorCodes.Internal, error.Code);
         Assert.Equal(CollectorTexts.CaptureFaultMonitor(), error.Text);
         Assert.Equal("抓包监视器报告了致命错误，抓包已停止。详情见本机诊断日志。", error.Message);
-        Assert.Equal(CaptureControllerState.Idle, controller.State);
+        Assert.Equal(CaptureControllerState.Faulted, controller.State);
     }
 
     [Fact]
@@ -1214,6 +1350,38 @@ public sealed class CaptureControllerTests : IDisposable
         controller.Poll();
         Assert.Equal(CaptureControllerState.Running, controller.State);
         Assert.Equal(3, _sources.Count);
+    }
+
+    /// <summary>
+    /// Audit 2026-10-20, A1-2. A start that faults inside the source - on a patch day Oodle's
+    /// initialization cannot find its functions in the new executable - went back to Idle and was
+    /// retried every thirty seconds for as long as the game ran, each attempt hashing, copying and
+    /// loading the 52 MB game executable. It is a fault like one a moment after Start, and backs off
+    /// the same way: 30 s, 60 s, 120 s, 240 s, then every five minutes.
+    /// </summary>
+    [Fact]
+    public void AStartThatFaultsInsideTheSourceBacksOffLikeAFaultedSession()
+    {
+        WithGame();
+        _faultDuringStart = "模拟的 Oodle 初始化故障";
+        long elapsedMs = 0;
+        using var controller = new CaptureController(Services() with
+        {
+            ProcessUptime = () => TimeSpan.FromMilliseconds(Interlocked.Read(ref elapsedMs)),
+        });
+
+        var attempts = new List<long>();
+        for (; Interlocked.Read(ref elapsedMs) <= 600_000; Interlocked.Add(ref elapsedMs, 1_000))
+        {
+            var before = _sources.Count;
+            controller.Poll();
+            if (_sources.Count != before) attempts.Add(Interlocked.Read(ref elapsedMs));
+        }
+
+        Assert.Equal(new long[] { 0, 30_000, 90_000, 210_000, 450_000 }, attempts);
+        Assert.Equal(CaptureControllerState.Faulted, controller.State);
+        Assert.Equal(ErrorCodes.Internal, controller.Snapshot().LastErrorCode);
+        Assert.Empty(new CaptureSessionRepository(_database.Database).ListOpen(transaction: null));
     }
 
     [Fact]

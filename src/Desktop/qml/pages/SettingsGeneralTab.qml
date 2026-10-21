@@ -27,6 +27,12 @@ ColumnLayout {
         languageChoices.focusSelectedOption()
     }
 
+    readonly property real regionSettingsY: regionSettingsCard.y
+
+    function focusRegionControl() {
+        captureRegionControl.forceActiveFocus(Qt.TabFocusReason)
+    }
+
     // One place decides how an unsupported Collector reads, so a switch that can
     // do nothing never looks like one that can.
     function captureSettingDescription(text) {
@@ -99,9 +105,45 @@ ColumnLayout {
         SettingToggleRow {
             showDivider: false
             label: qsTr("关闭时最小化到托盘")
-            description: qsTr("关闭窗口后仍在后台运行；可从托盘菜单选择「显示」或「退出」")
+            description: qsTr("关闭窗口后仍在后台运行；可从托盘菜单选择「显示主窗口」或「退出」")
             checked: Settings.minimizeToTray
             onToggled: function(value) { Settings.minimizeToTray = value }
+        }
+    }
+
+    // -------------------------------------------------------- 游戏区服 --
+    SettingsPanel {
+        id: regionSettingsCard
+        objectName: "captureRegionSettingsCard"
+        kicker: qsTr("自动记录")
+
+        SettingsRow {
+            showDivider: captureSettingsErrorText.visible
+            label: qsTr("游戏区服")
+            description: tab.captureSettingDescription(
+                qsTr("默认按安装路径识别，自定义目录可能无法识别。\n"
+                     + "请选择实际使用的区服，保存后会重新检查。\n"
+                     + "监听或采证期间不可修改。"))
+
+            CaptureRegionSelector {
+                id: captureRegionControl
+                objectName: "captureRegionSettingControl"
+                Layout.preferredWidth: 200
+                interactionAllowed: !App.validationActive && !App.capturing && !App.captureCommandBusy
+            }
+        }
+
+        Text {
+            id: captureSettingsErrorText
+            objectName: "captureSettingsErrorText"
+            Layout.fillWidth: true
+            Layout.topMargin: 10
+            Layout.bottomMargin: 4
+            visible: App.captureSettingsError.length > 0
+            text: App.captureSettingsError
+            color: Theme.orangeText
+            font.pixelSize: Theme.fs(11)
+            wrapMode: Text.WordWrap
         }
     }
 
@@ -112,7 +154,7 @@ ColumnLayout {
         SettingToggleRow {
             label: qsTr("结束后询问本次结果")
             description: qsTr("未收到通关结算就离开副本时，软件会询问本次结果。"
-                              + "关闭后可在总览的「待复核」中确认。")
+                              + "关闭后可在总览的「待处理」中确认。")
             checked: tab.confirmPromptEnabled
             onToggled: function(value) {
                 if (typeof Settings !== "undefined" && Settings.confirmPrompt !== undefined)
@@ -121,13 +163,24 @@ ColumnLayout {
         }
 
         SettingToggleRow {
-            showDivider: false
-            label: qsTr("通关后弹出笔记窗口")
-            description: qsTr("通关后弹出窗口记笔记；也可稍后到历史记录补写。")
+            label: qsTr("通关后提醒记笔记")
+            description: qsTr("通关后按下方方式提醒；关闭提醒后仍可从历史记录补写。")
             checked: tab.reflectPromptEnabled
             onToggled: function(value) {
                 if (typeof Settings !== "undefined" && Settings.reflectPrompt !== undefined)
                     Settings.reflectPrompt = value
+            }
+        }
+        SettingsRow {
+            showDivider: false
+            label: qsTr("提醒方式")
+            description: qsTr("独立小窗不抢键盘焦点；浮窗关闭时只保留待办。关闭提醒不会删除草稿。")
+            StyledComboBox {
+                objectName: "promptPresentationControl"
+                Layout.preferredWidth: 230
+                model: [qsTr("独立小窗"), qsTr("浮窗提示"), qsTr("仅保留待办")]
+                currentIndex: Settings.promptPresentation === "floating" ? 1 : Settings.promptPresentation === "inbox" ? 2 : 0
+                onActivated: Settings.promptPresentation = ["window", "floating", "inbox"][currentIndex]
             }
         }
     }
@@ -157,7 +210,7 @@ ColumnLayout {
         // 另一类为在线语音（§8.3），默认关闭，仅在「播报」中选择在线语音后出现。
         SettingToggleRow {
             objectName: "sharedCalibrationToggle"
-            showDivider: captureSettingsErrorText.visible
+            showDivider: false
             label: qsTr("游戏更新后获取其他玩家的共享校准")
             description: tab.captureSettingDescription(
                 qsTr("默认开启。自动校准开启时，软件会联网查找其他玩家分享的校准，检查可用后再使用。"
@@ -168,20 +221,6 @@ ColumnLayout {
             onToggled: function(value) {
                 App.updateCaptureSetting("shared_calibration_enabled", value)
             }
-        }
-
-        Text {
-            id: captureSettingsErrorText
-
-            objectName: "captureSettingsErrorText"
-            Layout.fillWidth: true
-            Layout.topMargin: 10
-            Layout.bottomMargin: 4
-            visible: App.captureSettingsError.length > 0
-            text: App.captureSettingsError
-            color: Theme.orangeText
-            font.pixelSize: Theme.fs(11)
-            wrapMode: Text.WordWrap
         }
     }
 

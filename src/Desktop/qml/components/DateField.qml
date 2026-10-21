@@ -17,13 +17,9 @@ StyledTextField {
     readonly property string shownMonth: String(grid.year).padStart(4, "0") + "-" + String(grid.month + 1).padStart(2, "0")
     signal calendarRequested(string month)
     signal endpointRequested(string date)
-    function endpointAvailable(value) {
-        return !restrictToRecords || value.length === 0 || availableDays.indexOf(value.trim()) >= 0
-    }
-    function endpointUnavailable(value) {
-        return restrictToRecords && parse(value) !== null
-            && knownMonths.indexOf(value.trim().slice(0, 7)) >= 0 && !endpointAvailable(value)
-    }
+    // Record days only decide what the calendar lets you pick. A whole date
+    // already in a field stays valid and is queried even when a narrower
+    // filter leaves that day without records (review K1-1).
     onShownMonthChanged: { if (popup.visible && restrictToRecords) calendarRequested(shownMonth) }
     property bool selectionPending: false
     property bool monthView: false
@@ -177,8 +173,8 @@ StyledTextField {
                         objectName: "fromDateField"
                         width: 138
                         placeholderText: qsTr("开始 · 年/月/日")
-                        readonly property bool valid: text.length === 0 || (field.parse(text) !== null && field.endpointAvailable(text))
-                        color: field.parse(text) !== null || text.length === 0 ? (field.endpointUnavailable(text) ? Theme.red : Theme.textPrimary) : Theme.red
+                        readonly property bool valid: text.length === 0 || field.parse(text) !== null
+                        color: valid ? Theme.textPrimary : Theme.red
                         Accessible.name: qsTr("开始日期")
                         onTextEdited: field.selectionPending = false
                         onTextChanged: { if (field.restrictToRecords && field.parse(text) !== null) field.endpointRequested(text.trim()) }
@@ -192,8 +188,8 @@ StyledTextField {
                         objectName: "toDateField"
                         width: 138
                         placeholderText: qsTr("结束 · 年/月/日")
-                        readonly property bool valid: text.length === 0 || (field.parse(text) !== null && field.endpointAvailable(text))
-                        color: field.parse(text) !== null || text.length === 0 ? (field.endpointUnavailable(text) ? Theme.red : Theme.textPrimary) : Theme.red
+                        readonly property bool valid: text.length === 0 || field.parse(text) !== null
+                        color: valid ? Theme.textPrimary : Theme.red
                         Accessible.name: qsTr("结束日期")
                         onTextEdited: field.selectionPending = false
                         onTextChanged: { if (field.restrictToRecords && field.parse(text) !== null) field.endpointRequested(text.trim()) }

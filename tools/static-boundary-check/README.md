@@ -56,11 +56,11 @@ pwsh -File scripts/verify.ps1                          # 边界检查 + dotnet t
 | `INJ-002` | `process-injection` | `WriteProcessMemory` | — |
 | `INJ-003` | `process-injection` | 在其他进程中分配内存或修改内存保护：`VirtualAllocEx`（含 `VirtualAllocExNuma`）、`VirtualAlloc2`、`VirtualProtectEx`、`NtAllocateVirtualMemory` / `ZwAllocateVirtualMemory`、`NtProtectVirtualMemory` / `ZwProtectVirtualMemory` | — |
 | `INJ-004` | `process-injection` | `CreateRemoteThread` / `CreateRemoteThreadEx` | — |
-| `INJ-005` | `process-injection` | `SetWindowsHookEx*` | — |
+| `INJ-005` | `process-injection` | `SetWindowsHookEx*`，以及整个 `SetWinEventHook`（它的 `WINEVENT_INCONTEXT` 标志会把本软件的 DLL 映射进目标进程，而该标志通常写在另一行的常量中） | — |
 | `INJ-006` | `process-injection` | 底层注入原语：`NtWriteVirtualMemory` / `ZwWriteVirtualMemory`（含 `NtWow64WriteVirtualMemory64`）、`NtCreateThreadEx` / `ZwCreateThreadEx`、`RtlCreateUserThread`、`QueueUserAPC` / `QueueUserAPC2`、`NtQueueApcThread*` / `ZwQueueApcThread*` | — |
-| `INJ-007` | `process-injection` | 打开其他进程或其线程的句柄，或为此取得调试特权：`OpenProcess`、`NtOpenProcess` / `ZwOpenProcess`、`OpenThread`、`NtOpenThread` / `ZwOpenThread`、按窗口取进程句柄的 `GetProcessHandleFromHwnd`、逐个打开进程的 `NtGetNextProcess` / `ZwGetNextProcess`、`DebugActiveProcess`、`Process.EnterDebugMode` | — |
-| `INJ-008` | `process-injection` | `Process.MainModule` / `Process.Modules`（内部以 `PROCESS_QUERY_INFORMATION` 与 `PROCESS_VM_READ` 打开句柄并读模块表），含点号后有空白的写法，以及 C# 属性模式中的写法（`{ MainModule.FileName: … }`、`{ Modules: … }`，名字位于 `{` 或 `,` 之后或行首，后跟 `.` 或 `:`） | — |
-| `INJ-009` | `process-injection` | 会打开所属进程句柄的 `Process` 成员：`.StartTime` `.ExitTime` `.Handle`（方法调用 `.Handle(…)` 除外） `.SafeHandle` `.HasExited` `.ExitCode` `.EnableRaisingEvents` `.PriorityClass` `.PriorityBoostEnabled` `.ProcessorAffinity` `.TotalProcessorTime` `.UserProcessorTime` `.PrivilegedProcessorTime` `.MaxWorkingSet` `.MinWorkingSet` `.WaitForExit` `.WaitForExitAsync` `.WaitForInputIdle` `.Kill`（点号后可有空白），以及 `GetProcessById`；属性成员在 C# 属性模式与对象初始化器中同样拦截（`{ HasExited: false, StartTime: var s }`、`new Process { EnableRaisingEvents = true }`，名字位于 `{` 或 `,` 之后或行首，后跟 `:`、`.` 或 `=`）；PowerShell 管道中不带点号点名这些成员的写法同样拦截：同一行上先有进程来源（`Get-Process` / `gps` / `ps`，或 `[Process]::GetProcesses*`），其后某个 `\|` 之后的 `Select-Object`（含 `-Property`、`-ExpandProperty`）、`ForEach-Object`、`Sort-Object`、`Where-Object`、`Group-Object`、`Measure-Object`、`Format-Table`、`Format-List` 或其别名（`select` `foreach` `%` `sort` `where` `?` `group` `measure` `ft` `fl`）的参数中出现成员名（`Get-Process \| Select-Object StartTime`、`gps \| % Kill`），不分大小写，`#` 之后的注释不计；没有进程来源的同名属性（`$runs \| Sort-Object StartTime`）不构成命中 | 只放行驱动本软件**自身**进程的文件，均为精确路径：父进程看门狗 `src/Collector/Diagnostics/ParentProcessWatchdog.cs`（等待桌面端退出并读取其启动时间）；启动、等待、结束采集服务或替身父进程的测试与脚本。完整名单见 `rules.json`。只有一处命中且命中的并非 `Process` 成员的文件不整文件放行，改用登记在案的行内标记（见下文“例外标记”） |
+| `INJ-007` | `process-injection` | 打开其他进程或其线程的句柄，或为此取得调试特权：`OpenProcess`、`NtOpenProcess` / `ZwOpenProcess`、`OpenThread`、`NtOpenThread` / `ZwOpenThread`、按窗口取进程句柄的 `GetProcessHandleFromHwnd`、逐个打开进程的 `NtGetNextProcess` / `ZwGetNextProcess`、`DebugActiveProcess`、`Process.EnterDebugMode`，以及 WMI 的 `Win32_Process` / `CIM_Process`（不分大小写；其提供程序会打开所列的每个进程，读取映像路径与命令行） | 只放行两个打包预算测试，均为精确路径：`tools/package-verification/test_package_runtime_budget.py` 与 `tools/package-verification/test_static_analysis_budget.py`，各自只以 `SYNCHRONIZE` 权限等待本测试夹具启动的子进程 |
+| `INJ-008` | `process-injection` | 读取其他进程的模块表：`Process.MainModule` / `Process.Modules`（内部以 `PROCESS_QUERY_INFORMATION` 与 `PROCESS_VM_READ` 打开句柄并读模块表），含点号两侧都有空白的写法（`game . Modules`；只在点号之后有空白的不算，那通常是注释中一句话的句号）与成员名前带 C# 逐字标识符 `@` 的写法（`game.@Modules`），以及 C# 属性模式中的写法（`{ MainModule.FileName: … }`、`{ @Modules: … }`，名字位于 `{` 或 `,` 之后或行首，后跟 `.` 或 `:`）；PowerShell 管道中不带点号点名 `MainModule` / `Modules` 的写法，规则与 `INJ-009` 的管道写法相同（`Get-Process \| Select-Object MainModule`）；同一行上 `Get-Process` / `gps` / `ps` 在下一个 `\|`、`;` 或 `#` 之前带 `-Module` 或 `-FileVersionInfo`（以 `-M`、`-Fi` 开头的任意缩写及别名 `-FV`，不分大小写），二者会读取所列每个进程的模块表；以及 Toolhelp 模块快照 `TH32CS_SNAPMODULE` / `TH32CS_SNAPMODULE32` / `TH32CS_SNAPALL` 与 `Module32First` / `Module32Next`（可带 `W`） | — |
+| `INJ-009` | `process-injection` | 会打开所属进程句柄的 `Process` 成员：`.StartTime` `.ExitTime` `.Handle`（方法调用 `.Handle(…)` 除外） `.SafeHandle` `.HasExited` `.ExitCode` `.EnableRaisingEvents` `.PriorityClass` `.PriorityBoostEnabled` `.ProcessorAffinity` `.TotalProcessorTime` `.UserProcessorTime` `.PrivilegedProcessorTime` `.MaxWorkingSet` `.MinWorkingSet` `.WaitForExit` `.WaitForExitAsync` `.WaitForInputIdle` `.Kill`，以及打开线程句柄的 `ProcessThread` 成员 `.PriorityLevel` `.IdealProcessor` `.ResetIdealProcessor`（点号两侧都有空白时同样拦截，只在点号之后有空白的不算；成员名前可带 C# 逐字标识符的 `@`），以及 `GetProcessById`；属性成员在 C# 属性模式与对象初始化器中同样拦截（`{ HasExited: false, StartTime: var s }`、`new Process { EnableRaisingEvents = true }`，名字位于 `{` 或 `,` 之后或行首，后跟 `:`、`.` 或 `=`）；PowerShell 管道中不带点号点名这些成员的写法同样拦截：同一行上先有进程来源（`Get-Process` / `gps` / `ps`，或 `[Process]::GetProcesses*`），其后某个 `\|` 之后的 `Select-Object`（含 `-Property`、`-ExpandProperty`）、`ForEach-Object`、`Sort-Object`、`Where-Object`、`Group-Object`、`Measure-Object`、`Format-Table`、`Format-List` 或其别名（`select` `foreach` `%` `sort` `where` `?` `group` `measure` `ft` `fl`）的参数中出现成员名（只写属性 `IdealProcessor` 除外；`Get-Process \| Select-Object StartTime`、`gps \| % Kill`），不分大小写，`#` 之后的注释不计；没有进程来源的同名属性（`$runs \| Sort-Object StartTime`）不构成命中 | 只放行驱动本软件**自身**进程的文件，均为精确路径：父进程看门狗 `src/Collector/Diagnostics/ParentProcessWatchdog.cs`（等待桌面端退出并读取其启动时间）；启动、等待、结束采集服务或替身父进程的测试与脚本。完整名单见 `rules.json`。只有一处命中且命中的并非 `Process` 成员的文件不整文件放行，改用登记在案的行内标记（见下文“例外标记”） |
 | `DEU-001` | `injected-hook` | 启用 Deucalion 注入式钩子（`UseDeucalion = true` 等） | — |
 | `DEU-002` | `injected-hook` | Deucalion 的 API（`DeucalionClient` / `DeucalionInjector` 等） | — |
 | `DEU-003` | `injected-hook` | 注入载荷文件名 `deucalion-*.dll` | — |
@@ -84,12 +84,12 @@ pwsh -File scripts/verify.ps1                          # 边界检查 + dotnet t
 | `NET-007/gitcode-asset-hosts` | `outbound-network` | GitCode 发布附件 CDN 与上传主机（不分大小写） | 更新检查客户端、`tools/release-mirror/sync_release.py`；客户端仅下载，上传仅由 CI 发布工具执行 |
 | `NET-007/gitcode-upload-host` | `outbound-network` | 专用上传主机 `file.gitcode.com`（不分大小写） | 仅 `tools/release-mirror/sync_release.py`；更新客户端、校准客户端与同目录其他脚本均不放行 |
 | `NET-008` | `network-socket` | 直接使用网络：套接字 `TcpClient` / `UdpClient` / `Socket` / `QTcpSocket` / `QUdpSocket` / `QSslSocket` / `QSctpSocket` / `QAbstractSocket`、QUIC（`QuicConnection` / `QuicListener` / `QuicStream`）、Winsock（`WSAStartup` / `WSASocket*` / `WSAConnect*`、以 `AF_` / `PF_` 为首个参数的 `socket(…)`）；域名解析 `Dns.*`（含 PowerShell 的 `[Dns]::…`）、`QHostInfo::lookupHost` / `fromName`、`QDnsLookup`、`getaddrinfo` / `gethostbyname` / `GetAddrInfo*`；`Ping`（`new Ping()`、`SendPingAsync`）与 `SmtpClient`；既不得外连也不得监听 | — |
-| `NET-009/downloads` | `outbound-network` | 脚本、安装程序、QML 与桌面端自行联网：`Invoke-WebRequest` / `Invoke-RestMethod` / `Start-BitsTransfer`（不分大小写），Inno Setup 的 `DownloadTemporaryFile*(…)` / `CreateDownloadPage(…)`（不分大小写，与 Pascal 一致），`XMLHttpRequest` 与 COM 的 `MSXML2.(Server)XMLHTTP` / `Microsoft.XMLHTTP`，`source: "https://…"` / `source: 'https://…'` 形式的远程资源，以及 C++ 把远程地址交给 QML 引擎的 `load(…)` / `setSource(…)`（`engine.load(QUrl("https://…"))`，可带 `QStringLiteral`） | 不按路径放行。缺少 Npcap 时，安装程序 `installer/MentorRecorder.iss` 从 npcap.com 下载固定版本、校验 SHA-256 的官方安装程序并启动（Npcap 的免费许可证不允许随包分发，见仓库根目录的 `README.md` 与 `THIRD_PARTY_NOTICES.md`）；创建下载页的那一行带有登记在案的行内标记，同一文件中的其他下载照常拦截。Inno Setup 的两项按调用匹配，因此自带翻译文件 `installer/ChineseSimplified.isl` 在小节标题中提到的函数名不构成命中 |
-| `NET-009/qml-remote` | `outbound-network` | 仅 `.qml` / `.js` / `.mjs`：给 `source` 赋远程地址（`image.source = "https://…"`），`import "https://…"` 远程模块，`url` 属性取远程地址（`property url x: "https://…"`），以及 `Qt.resolvedUrl("https://…")` / `Qt.include("https://…")` | — |
-| `NET-009/shell-commands` | `outbound-network` | 仅脚本与工作流（`.ps1` `.psm1` `.bat` `.cmd` `.sh` `.yml` `.yaml`）：位于命令位置的下载命令 `curl` / `wget` / `iwr` / `irm` / `bitsadmin`（可带 `.exe`，可带路径）与 `certutil … -urlcache`，不分大小写。命令位置指行首，或 `;` `\|` `&` `(` `{` `=` `@` `!`、反引号与 YAML 的 `run:` 之后，也包括 shell 关键字 `if` `then` `do` `else` `elif` `while` `until` 与 `sudo` 之后、`cmd /c` 与 `Start-Process`（可带 `-FilePath`）之后，以及调用运算符 `&` 之后加引号的写法（`& "curl.exe" $url`）；`#` 之后的注释与其他引号内的文字不计，命令名后紧跟字母、数字、`_`、`.` 或 `-` 时也不计，因此散文、注释、恰好含这些词的标识符与 `curl-config` 这样的其他工具不构成命中 | — |
+| `NET-009/downloads` | `outbound-network` | 脚本、安装程序、QML 与桌面端自行联网：`Invoke-WebRequest` / `Invoke-RestMethod` / `Start-BitsTransfer`（不分大小写），Inno Setup 的 `DownloadTemporaryFile*(…)` / `CreateDownloadPage(…)`（不分大小写，与 Pascal 一致），`XMLHttpRequest` 与 COM 的 `MSXML2.(Server)XMLHTTP` / `Microsoft.XMLHTTP`，`source: "https://…"` / `source: 'https://…'` 形式的远程资源，以及 C++ 把远程地址交给 QML 引擎的 `load(…)` / `loadUrl(…)` / `setSource(…)`（`engine.load(QUrl("https://…"))`、`component.loadUrl(QUrl("https://…"))`，可带 `QStringLiteral`） | 不按路径放行。缺少 Npcap 时，安装程序 `installer/MentorRecorder.iss` 从 npcap.com 下载固定版本、校验 SHA-256 的官方安装程序并启动（Npcap 的免费许可证不允许随包分发，见仓库根目录的 `README.md` 与 `THIRD_PARTY_NOTICES.md`）；创建下载页的那一行带有登记在案的行内标记，同一文件中的其他下载照常拦截。Inno Setup 的两项按调用匹配，因此自带翻译文件 `installer/ChineseSimplified.isl` 在小节标题中提到的函数名不构成命中 |
+| `NET-009/qml-remote` | `outbound-network` | 仅 `.qml` / `.js` / `.mjs`：给 `source` 赋远程地址（`image.source = "https://…"`），`import "https://…"` 远程模块，`url` 属性取远程地址（`property url x: "https://…"`），以及 `Qt.resolvedUrl("https://…")` / `Qt.include("https://…")` / `Qt.createComponent("https://…")` | — |
+| `NET-009/shell-commands` | `outbound-network` | 仅脚本与工作流（`.ps1` `.psm1` `.bat` `.cmd` `.sh` `.yml` `.yaml`）：位于命令位置的下载命令 `curl` / `wget` / `iwr` / `irm` / `bitsadmin`（可带 `.exe`，可带路径）与 `certutil … -urlcache`，不分大小写。命令位置指行首，或 `;` `\|` `&` `(` `{` `=` `@` `!`、反引号与 YAML 的 `run:` 之后，也包括 shell 关键字 `if` `then` `do` `else` `elif` `while` `until` 与 `sudo` 之后、`cmd /c` 与 `Start-Process`（可带 `-FilePath`）之后，以及调用运算符 `&` 之后加引号的写法（`& "curl.exe" $url`）；交给进程启动接口作为所启动程序的下载命令同样算作命令，不分大小写：`-Executable` / `-FilePath`（可带 `:`）之后、赋给 `.FileName` 时，以及作为 `ProcessStartInfo(` / `[ProcessStartInfo]::new(` 的第一个参数，带不带引号、带不带路径均可；`#` 之后的注释与其他引号内的文字不计，命令名后紧跟字母、数字、`_`、`.` 或 `-` 时也不计，因此散文、注释、恰好含这些词的标识符与 `curl-config` 这样的其他工具不构成命中 | 不按路径放行。CI 工作流 `.github/workflows/ci.yml` 以 `curl.exe` 下载固定版本 cppcheck 官方安装包、随后核对文件大小与 SHA-256 的那一行带有登记在案的行内标记；该下载只在 CI 中发生，同一文件中的其他下载照常拦截 |
 | `NET-009/xml-loads` | `outbound-network` | 以 XML 读取接口从远程地址加载（这些接口会自行下载所给的地址），不分大小写：`.Load(` 或 `]::Load(` 的第一个参数是 `http(s)://` 字面量（`XmlDocument` / `XDocument` / `XElement` 的 `Load`，PowerShell 的 `$doc.Load('https://…')` 与 `[XDocument]::Load(…)`，Pascal 中 MSXML 的 `load`；可带 C# 具名参数、`@` / `$` 前缀），`XmlReader.Create("https://…")`（含 `[XmlReader]::Create`），以及 `XmlTextReader` / `XPathDocument` 之后同一行的第一个字符串字面量是远程地址（`new XmlTextReader("https://…")`、`New-Object System.Xml.XmlTextReader 'https://…'`）。本地文件路径与存放在变量中的地址不构成命中；PowerShell 用 `[xml]` 转换下载结果时，其中的 `WebClient`、`Invoke-WebRequest`、`iwr` / `irm` 已由 `NET-006` 与 `NET-009` 拦截 | — |
-| `NET-010` | `outbound-network` | 仅 `.py`：Python 脚本自行联网。拦截以 `import` / `from` 语句、`from urllib\|http\|xmlrpc import request\|client`、`__import__("…")` 或 `importlib.import_module("…")` 导入网络模块 `urllib.request`、`urllib3`、`http.client`、`requests`、`httpx`、`aiohttp`、`socket`、`ftplib`、`smtplib`、`poplib`、`imaplib`、`nntplib`、`telnetlib`、`xmlrpc.client`、`websockets`，以及在 `#` 注释与字符串之外调用 `urlopen(` / `urlretrieve(` / `asyncio.open_connection(`。只认导入语句与调用，因此测试中以字符串点名（`mock.patch("urllib.request.urlopen")`）或以假函数代替下载的写法不构成命中 | 只放行开发期从两个公开来源（XIVAPI 与 thewakingsands 的数据挖掘 CSV）下载任务数据表的 `tools/duty-data-generator/generate.py`，以及只在发布 CI 运行的 `tools/release-mirror/sync_release.py`；后者校验原始附件并同步到 GitCode，凭据只来自 Actions secret。`tools/shared-calibration/` 的 Python 只读取保存下来的 `gh` 输出文件，访问 GitHub 的 `gh` 调用位于同目录的 shell 脚本与工作流中，因此不需要放行 |
-| `AUT-001` | `game-automation` | 模拟输入与窗口消息：`SendInput` / `keybd_event` / `mouse_event` / `SendKeys`，`PostMessage*` / `PostThreadMessage*` / `SendMessage*` / `SendNotifyMessage*`，以及向主窗口投递关闭消息的 `Process.CloseMainWindow` | — |
+| `NET-010` | `outbound-network` | 仅 `.py`：Python 脚本自行联网或监听。拦截以 `import` / `from` 语句、`from urllib\|http\|xmlrpc import request\|client\|server`、`__import__("…")` 或 `importlib.import_module("…")` 导入网络模块 `urllib.request`、`urllib3`、`http.client`、`http.server`、`socketserver`、`requests`、`httpx`、`aiohttp`、`socket`、`ftplib`、`smtplib`、`poplib`、`imaplib`、`nntplib`、`telnetlib`、`xmlrpc.client`、`xmlrpc.server`、`websockets`，以及在 `#` 注释与字符串之外调用 `urlopen(` / `urlretrieve(` / `asyncio.open_connection(` / `asyncio.start_server(`、任意对象的 `.create_connection(` / `.create_server(`（事件循环、`ssl` 等）与 `get_server_certificate(`。只认导入语句与调用，因此测试中以字符串点名（`mock.patch("urllib.request.urlopen")`）或以假函数代替下载的写法不构成命中 | 只放行开发期从两个公开来源（XIVAPI 与 thewakingsands 的数据挖掘 CSV）下载任务数据表的 `tools/duty-data-generator/generate.py`，以及只在发布 CI 运行的 `tools/release-mirror/sync_release.py`；后者校验原始附件并同步到 GitCode，凭据只来自 Actions secret。`tools/shared-calibration/` 的 Python 只读取保存下来的 `gh` 输出文件，访问 GitHub 的 `gh` 调用位于同目录的 shell 脚本与工作流中，因此不需要放行 |
+| `AUT-001` | `game-automation` | 模拟输入与窗口消息：`SendInput` / `keybd_event` / `mouse_event` / `SendKeys`，`PostMessage*` / `PostThreadMessage*` / `SendMessage*` / `SendNotifyMessage*`、向主窗口投递关闭消息的 `Process.CloseMainWindow`，以及经 `SendMessageTimeout` 向主窗口发送 `WM_NULL` 的 `Process.Responding`（点号之后与 C# 属性模式、对象初始化器中的写法，规则与 `INJ-009` 相同） | — |
 
 ## 例外标记
 
@@ -109,14 +109,16 @@ pwsh -File scripts/verify.ps1                          # 边界检查 + dotnet t
   一个标记一条，例如 `{"file": "src/Collector/Storage/SqliteDatabase.cs", "rule": "INJ-009", "match": ".Handle"}`。
   `match` 是该规则的模式在这一行上匹配到的原文。只有当这一行上该规则恰有一处命中、且原文与登记的一致时，
   标记才豁免它；同一行上再出现第二处命中，或命中换成了别的写法，标记不生效，命中照常报告，且检查器以退出码 `2` 结束。
+  从行首起匹配的模式（如 `NET-009/shell-commands`）每行至多匹配到一处，因此检查器还会把被豁免的命中替换为空白
+  （其中的引号与 `#` 保留，行内其余部分的引号关系不变），再以该规则的全部模式重新匹配这一行，仍能匹配到的同样算作第二处命中。
   未登记的标记同样不生效，且以退出码 `2` 结束；登记了却没有找到、找到的数量与登记的不一致、
   或所在行没有可豁免的命中，也以退出码 `2` 结束。因此新增标记必须同时修改 `rules.json`，评审在配置中即可看到豁免的是什么。
 - 每次运行都会列出全部生效的标记及其数量：文本输出在末尾列出，JSON 输出给出 `allow_marker_count`
   与 `allow_markers`。每条记录文件、行号、规则编号、理由、被豁免命中的原文 `match`，以及被豁免的命中数 `lifted`（总是 1）。
 
-该标记**仅供实施边界本身的代码**使用，或用于某个文件中唯一一处、实际并非被禁行为的命中
+该标记**仅供实施边界本身的代码**使用，或用于某一行上唯一一处、实际并非被禁行为的命中
 （例如文档注释以 `Process.StartTime` 说明取值格式，或测试读取结果记录的 `ExitCode` 属性），
-以及安装程序创建 Npcap 下载页的那一行，以免为一行而放行整个文件。目前登记的标记见 `rules.json` 的 `allow_markers`。
+以及安装程序创建 Npcap 下载页的那一行和 CI 工作流下载固定版本 cppcheck 安装包的那一行，以免为一行而放行整个文件。目前登记的标记见 `rules.json` 的 `allow_markers`。
 
 **该标记不得用于绕过检查。** 新增的标记会出现在每次运行的输出中，评审会逐一核查。
 
@@ -145,8 +147,8 @@ pwsh -File scripts/verify.ps1                          # 边界检查 + dotnet t
 
 规则可声明自身不适用的文件。每一处放行都必须在
 [`docs/privacy-boundary.md`](../../docs/privacy-boundary.md) 中写明理由，`NET-006` 与 `NET-007` 见 §8.2、§8.3、§8.4、§8.6，
-`NET-010` 见 §8 中开发期联网一段；`INJ-009` 与 `NET-010` 的放行理由另见 `rules.json` 的 `$comment` 与规则消息。
-`NET-009` 不按路径放行，安装程序的 Npcap 下载用的是行内标记：
+`NET-010` 见 §8 中开发期联网一段，`INJ-007` 与 `INJ-009` 见 §2.1；`INJ-007`、`INJ-009` 与 `NET-010` 的放行理由另见 `rules.json` 的 `$comment` 与规则消息。
+`NET-009` 不按路径放行，安装程序的 Npcap 下载与 CI 工作流的 cppcheck 下载用的是行内标记：
 
 | 字段 | 匹配方式 | 例子 |
 |---|---|---|
@@ -205,22 +207,25 @@ python tools/static-boundary-check/selftest.py -v    # 逐条打印
   以及经反射或 `GetProcAddress` 动态查找、名字不以整词出现在一行之内的调用。
 - **标识符转义与别名**：C# 的 Unicode 转义标识符（`SendInput`）、在另一文件中以非 `const` 字段保存、
   随后传给 `NativeLibrary.Load` 的库名、为被禁类型另起的 `using` 别名。
-- **未列出的 API**：规则只认识表中列出的名字。`NET-010` 只认网络模块的导入与 `urlopen` / `urlretrieve` /
-  `asyncio.open_connection` 的调用：Python 经由 `subprocess` 运行的下载命令（`subprocess.run(["curl", url])`）、
+- **未列出的 API**：规则只认识表中列出的名字。`NET-010` 只认表中所列网络模块的导入与所列函数的调用：
+  Python 经由 `subprocess` 运行的下载命令（`subprocess.run(["curl", url])`）、
   借道已放行模块的下载（导入 `generate` 后调用 `generate.http_get(url)`），以及表中未列出的模块都不会被发现。
   `NET-009/xml-loads` 只认 `Load`、`XmlReader.Create`、`XmlTextReader` 与 `XPathDocument`，`DataSet.ReadXml` 等其他接受地址的
-  读取接口不在其内，地址来自变量时也不会被发现。
+  读取接口不在其内，地址来自变量时也不会被发现。`INJ-008` 只认以 `-M`、`-Fi` 开头的参数缩写与别名 `-FV`，
+  单个字母的 `-F`（`-FileVersionInfo` 的最短缩写）不会被发现。
 - **不点名成员的读取**：`INJ-009` 只在成员名写在同一行上时生效。PowerShell 整体输出或序列化进程对象时会读取其全部属性
   （`Get-Process` 的默认表格输出读取 `CPU`，即 `TotalProcessorTime`；`Select-Object *`、`Format-List *`、`ConvertTo-Json`、
   `Export-Csv`），PowerShell 为进程对象附加的 `CPU`、`Path`、`Company`、`FileVersion` 等属性内部同样打开句柄，
-  `Stop-Process`、`Wait-Process` 也打开进程句柄；这些写法都不会被发现。
-- **只看名字、不看类型**：`INJ-008` 与 `INJ-009` 在属性模式与对象初始化器中按成员名匹配，
+  `Stop-Process`、`Wait-Process` 也打开进程句柄；这些写法都不会被发现。`AUT-001` 只认点号之后与属性模式中的 `Responding`，
+  `Get-Process | Where-Object Responding` 这样的管道写法不会被发现。
+- **只看名字、不看类型**：`INJ-008`、`INJ-009` 与 `AUT-001` 在属性模式与对象初始化器中按成员名匹配，
   本软件自己的类型若有名为 `StartTime`、`Handle`、`ExitCode` 等的成员，写进 `{ … }` 也会命中，需要改写或登记行内标记。
-  `INJ-009` 的 PowerShell 管道写法以同一行上的进程来源（`Get-Process` 等）代替类型判断：一行中先取进程、
+  `INJ-008` 与 `INJ-009` 的 PowerShell 管道写法以同一行上的进程来源（`Get-Process` 等）代替类型判断：一行中先取进程、
   后把其他对象交给管道时同样会命中。
 - **注释与字符串**：规则同样作用于注释和字符串，所以散文提到被禁名字也会命中（需要登记的行内标记）；
   反过来，`NET-009/shell-commands` 只把 `#` 之后与引号之内的文字当作非命令，PowerShell 的 `<# … #>`
   块注释与 here-string 中位于行首的 `curl` 仍会被当作命令，`@{ curl = 1 }` 这样的哈希表键也会误报。
-  `INJ-009` 的 PowerShell 管道写法同样不计 `#` 之后的文字，但引号之内照常计入（交给 `powershell -Command` 的字符串会被执行），
+  `INJ-008` 与 `INJ-009` 的 PowerShell 管道写法同样不计 `#` 之后的文字，但引号之内照常计入（交给 `powershell -Command` 的字符串会被执行），
   `#` 写在进程来源之前的字符串中时则会漏检；`NET-010` 的调用写法不计 `#` 之后与引号之内的文字，导入语句只在行首匹配，
-  因此多行文档字符串中恰好以 `import requests` 开头的一行仍会命中。
+  因此多行文档字符串中恰好以 `import requests` 开头的一行仍会命中。为不把注释中句末的句号当作成员访问，
+  `INJ-008`、`INJ-009` 与 `AUT-001` 不认只在点号之后有空白的写法（`game. Kill()`），这样写的代码不会被发现。

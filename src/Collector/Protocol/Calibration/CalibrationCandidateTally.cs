@@ -66,9 +66,12 @@ public readonly record struct CandidateSighting(DateTimeOffset AtUtc, string Con
 /// <param name="ObservedFromUtc">First message of the session the counts cover.</param>
 /// <param name="PopWithRequest">Declared pops carrying the roulette the connection had queued and not yet loaded into.</param>
 /// <param name="PopWithoutRequest">
-/// Declared pops carrying a known roulette that was never requested on that connection - the thing
-/// a true announcement never does. A pop whose queue was merely cleared by a load in between (a
-/// teleport while queued) is neither: it is kept as a sighting and counted in neither total.
+/// Declared pops carrying a known roulette that was never requested on that connection, arriving as
+/// a list does: three or more different roulette ids inside one second, which a true announcement
+/// never does (<see cref="Parsing.PopContradictionWatch"/>). A lone such pop is not counted: a party
+/// member's pop carries the roulette the leader queued, which this connection never requested
+/// (audit 2026-10-20, C-3). A pop whose queue was merely cleared by a load in between (a teleport
+/// while queued) is neither: it is kept as a sighting and counted in neither total.
 /// </param>
 /// <param name="ZoneOutside">Declared zone markers that travelled outside every burst.</param>
 /// <param name="TerritoryOutside">Declared territory messages that travelled outside every burst.</param>
@@ -155,15 +158,14 @@ internal sealed class CandidateTallies
 
             var withRequest = outstandingRoulette == roulette;
             var requestedHere = requested.Contains(roulette);
+            var unrequested = !withRequest && !requestedHere &&
+                roulette is > 0 and <= int.MaxValue && roulettes.IsKnown((int)roulette, region);
+            counts.WithoutRequest += counts.Listed(at, roulette, unrequested);
             if (withRequest)
             {
                 counts.WithRequest++;
             }
-            else if (!requestedHere && roulette is > 0 and <= int.MaxValue && roulettes.IsKnown((int)roulette, region))
-            {
-                counts.WithoutRequest++;
-            }
-            else if (!requestedHere)
+            else if (!unrequested && !requestedHere)
             {
                 continue;
             }
@@ -279,10 +281,62 @@ internal sealed class CandidateTallies
 
         public int ZoneOutside { get; set; }
 
+        /// <summary>The declared pops of the last second, for the shape of a list; at most as many as the watch keeps.</summary>
+        private List<RecentPop> Recent { get; } = new();
+
+        /// <summary>
+        /// Takes one parsed pop into the last second and answers how many unrequested pops it has just
+        /// shown to be rows of a list: none until three or more different roulette ids arrived inside
+        /// one second, then each unrequested pop of that second once (as
+        /// <see cref="Parsing.PopContradictionWatch"/> decides a local profile's pop is disproved).
+        /// </summary>
+        /// <param name="at">Arrival time.</param>
+        /// <param name="roulette">Roulette id it carried.</param>
+        /// <param name="unrequested">It carried a known roulette this connection never requested.</param>
+        public int Listed(DateTimeOffset at, long roulette, bool unrequested)
+        {
+            // A clock that went back starts a new second, as a new capture's stopwatch does for the watch.
+            if (Recent.Count > 0 && at < Recent[^1].At)
+            {
+                Recent.Clear();
+            }
+
+            Recent.RemoveAll(pop => at - pop.At > Parsing.PopContradictionWatch.Window);
+            Recent.Add(new RecentPop(at, roulette, unrequested, false));
+            if (Recent.Count > Parsing.PopContradictionWatch.MaxSightings)
+            {
+                Recent.RemoveAt(0);
+            }
+
+            if (Recent.Select(pop => pop.Roulette).Distinct().Count() < Parsing.PopContradictionWatch.DistinctToContradict)
+            {
+                return 0;
+            }
+
+            var listed = 0;
+            for (var index = 0; index < Recent.Count; index++)
+            {
+                if (Recent[index] is { Unrequested: true, Counted: false } pop)
+                {
+                    Recent[index] = pop with { Counted = true };
+                    listed++;
+                }
+            }
+
+            return listed;
+        }
+
         public int TerritoryOutside { get; set; }
 
         public List<CandidateSighting> Sightings { get; } = new();
 
         public bool Complete { get; set; } = true;
+
+        /// <summary>One declared pop of the last second.</summary>
+        /// <param name="At">Arrival time.</param>
+        /// <param name="Roulette">Roulette id it carried.</param>
+        /// <param name="Unrequested">It carried a known roulette this connection never requested.</param>
+        /// <param name="Counted">Already counted as a row of a list.</param>
+        private readonly record struct RecentPop(DateTimeOffset At, long Roulette, bool Unrequested, bool Counted);
     }
 }

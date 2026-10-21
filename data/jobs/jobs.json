@@ -177,6 +177,7 @@
       "abbreviation": "DRG",
       "name_en": "dragoon",
       "name_zh": "龙骑士",
+      "aliases_zh": ["龙骑"],
       "role": "近战"
     },
     {
@@ -184,6 +185,7 @@
       "abbreviation": "BRD",
       "name_en": "bard",
       "name_zh": "吟游诗人",
+      "aliases_zh": ["诗人"],
       "role": "远程物理"
     },
     {
@@ -191,6 +193,7 @@
       "abbreviation": "WHM",
       "name_en": "white mage",
       "name_zh": "白魔法师",
+      "aliases_zh": ["白魔"],
       "role": "治疗"
     },
     {
@@ -198,6 +201,7 @@
       "abbreviation": "BLM",
       "name_en": "black mage",
       "name_zh": "黑魔法师",
+      "aliases_zh": ["黑魔"],
       "role": "魔法"
     },
     {
@@ -212,6 +216,7 @@
       "abbreviation": "SMN",
       "name_en": "summoner",
       "name_zh": "召唤师",
+      "aliases_zh": ["召唤"],
       "role": "魔法"
     },
     {
@@ -240,6 +245,7 @@
       "abbreviation": "MCH",
       "name_en": "machinist",
       "name_zh": "机工士",
+      "aliases_zh": ["机工"],
       "role": "远程物理"
     },
     {
@@ -247,6 +253,7 @@
       "abbreviation": "DRK",
       "name_en": "dark knight",
       "name_zh": "暗黑骑士",
+      "aliases_zh": ["暗骑", "黑骑"],
       "role": "坦克"
     },
     {
@@ -254,6 +261,7 @@
       "abbreviation": "AST",
       "name_en": "astrologian",
       "name_zh": "占星术士",
+      "aliases_zh": ["占星"],
       "role": "治疗"
     },
     {
@@ -268,6 +276,7 @@
       "abbreviation": "RDM",
       "name_en": "red mage",
       "name_zh": "赤魔法师",
+      "aliases_zh": ["赤魔"],
       "role": "魔法"
     },
     {
@@ -275,6 +284,7 @@
       "abbreviation": "BLU",
       "name_en": "blue mage",
       "name_zh": "青魔法师",
+      "aliases_zh": ["青魔"],
       "role": "魔法"
     },
     {
@@ -282,6 +292,7 @@
       "abbreviation": "GNB",
       "name_en": "gunbreaker",
       "name_zh": "绝枪战士",
+      "aliases_zh": ["绝枪", "枪刃"],
       "role": "坦克"
     },
     {
@@ -296,6 +307,7 @@
       "abbreviation": "RPR",
       "name_en": "reaper",
       "name_zh": "钐镰客",
+      "aliases_zh": ["钐镰", "镰刀"],
       "role": "近战"
     },
     {
@@ -310,6 +322,7 @@
       "abbreviation": "VPR",
       "name_en": "viper",
       "name_zh": "蝰蛇剑士",
+      "aliases_zh": ["蝰蛇"],
       "role": "近战"
     },
     {
@@ -317,6 +330,7 @@
       "abbreviation": "PCT",
       "name_en": "pictomancer",
       "name_zh": "绘灵法师",
+      "aliases_zh": ["绘灵", "画家"],
       "role": "魔法"
     },
     {
@@ -324,6 +338,7 @@
       "abbreviation": "BST",
       "name_en": "beastmaster",
       "name_zh": "驯兽师",
+      "aliases_zh": ["驯兽"],
       "role": "近战"
     }
   ]

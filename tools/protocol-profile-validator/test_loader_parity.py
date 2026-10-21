@@ -204,6 +204,29 @@ class LoaderParityTests(unittest.TestCase):
 
         self.assertTrue(any("cannot read the profile" in error for error in errors), errors)
 
+    # --- (e) a fixture path the Collector cannot resolve (audit 2026-10-20, D2-5) ----------
+
+    def test_a_fixture_path_with_a_nul_character_is_refused(self):
+        # Path.GetFullPath throws on NUL, so ProfileLoader reports E_PROFILE_FIXTURE_PATH; here
+        # os.path.isfile returned False and the fixture was skipped as merely absent.
+        document = copy.deepcopy(self.document)
+        document["fixtures"] = [{"path": "fixtures/pop\x00.bin", "sha256": "0" * 64}]
+        self.write(document)
+
+        errors = self.assert_refused()
+
+        self.assertIn("fixture 'fixtures/pop\\x00.bin': fixture path is invalid", errors)
+
+    def test_an_absent_fixture_is_still_only_unverified(self):
+        # Guards the case above: a missing fixture stays a warning in the Collector, not an error.
+        document = copy.deepcopy(self.document)
+        document["fixtures"] = [{"path": "fixtures/not-deployed.bin", "sha256": "0" * 64}]
+        self.write(document)
+
+        code, errors = validate.validate(str(self.path), stamp=False)
+
+        self.assertEqual(0, code, errors)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

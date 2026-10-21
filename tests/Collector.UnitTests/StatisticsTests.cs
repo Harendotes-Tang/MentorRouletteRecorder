@@ -246,6 +246,74 @@ public sealed class StatisticsTests
         Assert.Empty(runs.Query(new RunFilter { ContentIds = new[] { 600 } }, null, 1, 50).Items);
     }
 
+    /// <summary>
+    /// Audit 2026-10-20 H1-4. A run in a zone the reference file does not know at all names no duty either:
+    /// it belongs to the one 未知副本 row (statistics-definitions §10), not to a second row of the same name.
+    /// </summary>
+    [Fact]
+    public void DungeonStats_AZoneTheReferenceFileDoesNotKnowJoinsTheOneUnknownDutyRow()
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        fixture.Database.RunInTransaction(tx =>
+        {
+            runs.Insert(TestDatabase.Run(contentId: null), tx);
+            runs.Insert(TestDatabase.Run(contentId: null) with
+            {
+                Region = Region.Cn, TerritoryId = 999_999, DutySource = DutySource.Territory,
+            }, tx);
+            runs.Insert(TestDatabase.Run(contentId: null) with
+            {
+                Region = Region.Cn, TerritoryId = 1036, DutyName = "天然要害沙斯塔夏溶洞",
+                DutySource = DutySource.Territory,
+            }, tx);
+        });
+        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
+        settings.EnsureDefaults();
+
+        var duties = new StatisticsRepository(fixture.Database, settings).GetDungeonStats();
+
+        Assert.Equal(2, duties.Count);
+        var unknown = Assert.Single(duties, row => row.ContentId is null);
+        Assert.Equal(DutyCatalog.UnknownDutyName, unknown.DutyName);
+        Assert.Equal(2, unknown.AttemptCount);
+        Assert.Equal(4, Assert.Single(duties, row => row.ContentId is not null).ContentId);
+    }
+
+    /// <summary>
+    /// Re-review 2026-10-20, RV2-4. An imported row whose duty name matched no catalogue entry has no duty identity
+    /// either, so it shares the 未知副本 row with a run recorded in a zone the reference file does not know - and that
+    /// row is named 未知副本 (statistics-definitions §10), never after the free text typed into one imported row.
+    /// </summary>
+    [Fact]
+    public void DungeonStats_TheUnknownDutyRowIsNeverNamedAfterAnImportedFreeTextName()
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        fixture.Database.RunInTransaction(tx =>
+        {
+            runs.Insert(TestDatabase.Run(contentId: null, source: RunSource.AutoNetwork) with
+            {
+                Region = Region.Cn, TerritoryId = 999_999, DutySource = DutySource.Territory,
+            }, tx);
+            runs.Insert(TestDatabase.Run(contentId: null, source: RunSource.Import) with
+            {
+                Region = Region.Cn, DutyName = "神兵", DutyCategory = "迷宫挑战",
+                UpdatedAtUtc = new DateTimeOffset(2026, 9, 30, 12, 0, 0, TimeSpan.Zero),
+            }, tx);
+        });
+        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
+        settings.EnsureDefaults();
+
+        var duties = new StatisticsRepository(fixture.Database, settings).GetDungeonStats();
+
+        var unknown = Assert.Single(duties);
+        Assert.Null(unknown.ContentId);
+        Assert.Equal(DutyCatalog.UnknownDutyName, unknown.DutyName);
+        Assert.Null(unknown.DutyCategory);
+        Assert.Equal(2, unknown.AttemptCount);
+    }
+
     /// <summary>A territory the reference file knows still supplies the name and category.</summary>
     [Fact]
     public void DungeonStats_NamesATerritoryOnlyGroupFromTheReferenceFile()

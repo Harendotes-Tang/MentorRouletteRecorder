@@ -75,7 +75,8 @@ internal sealed class NpcapPacketReader : INpcapPacketReader
     /// Refusal raised when the selected card has left the device list. Bad-request rather than
     /// "Npcap is missing": the driver is fine and only the selection is stale, so the follow
     /// poll retries on its one-second cadence instead of backing off for thirty seconds behind
-    /// a message telling the user to reinstall Npcap (review finding H-1).
+    /// a message telling the user to reinstall Npcap (review finding H-1) - for a few attempts in
+    /// a row (<see cref="CaptureController.AdapterMissingQuickRetries"/>, audit 2026-10-20, A1-3).
     /// </summary>
     /// <param name="adapterId">Adapter that could not be resolved.</param>
     public static CollectorException AdapterListChanged(string? adapterId) => new(

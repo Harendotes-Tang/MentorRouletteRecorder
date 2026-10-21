@@ -22,8 +22,11 @@ on:
 permissions:
   contents: read
 
+# Every run of this workflow, whatever its trigger, holds one release lock of its own: a release
+# event and a catch-up run never upload to the same tag at once, and the repository mirror and
+# branch cleanup, which share the repository-wide lock, cannot replace a pending release run.
 concurrency:
-  group: gitcode-mirror-${{ github.repository }}
+  group: gitcode-release-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
@@ -52,7 +55,9 @@ jobs:
         timeout-minutes: 20
         env:
           GITCODE_MIRROR_TOKEN: ${{ secrets.GITCODE_MIRROR_TOKEN }}
-        run: python tools/release-mirror/sync_refs.py --repo MentorRouletteRecorder
+        # Any run of this workflow may overlap the repository mirror; an exact-lease push that loses
+        # that race fails closed, and one retry from a fresh snapshot finds the refs in place.
+        run: python tools/release-mirror/sync_refs.py --repo MentorRouletteRecorder || { sleep 30; python tools/release-mirror/sync_refs.py --repo MentorRouletteRecorder; }
       - name: Mirror original assets and verify anonymous downloads
         timeout-minutes: 65
         env:

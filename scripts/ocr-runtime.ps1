@@ -200,7 +200,18 @@ function Invoke-OcrRuntimeProcess {
         [Parameter(Mandatory)][string]$RuntimeDirectory,
         [Parameter(Mandatory)][string[]]$Arguments
     )
-    $info = New-IsolatedPackageStartInfo -Executable (Join-Path $RuntimeDirectory 'local-ai-ocr.exe') `
+    $executable = [System.IO.Path]::GetFullPath((Join-Path $RuntimeDirectory 'local-ai-ocr.exe'))
+    # The frozen helper derives native dependency paths from its executable path.
+    # Preserve the extended Windows form so a deep extraction/install directory
+    # does not make its bundled Python extension DLLs exceed legacy path limits.
+    if ($IsWindows -and -not $executable.StartsWith('\\?\', [StringComparison]::Ordinal)) {
+        $executable = if ($executable.StartsWith('\\', [StringComparison]::Ordinal)) {
+            '\\?\UNC\' + $executable.Substring(2)
+        } else {
+            '\\?\' + $executable
+        }
+    }
+    $info = New-IsolatedPackageStartInfo -Executable $executable `
         -WorkingDirectory $RuntimeDirectory -Arguments $Arguments
     foreach ($name in @($info.get_EnvironmentVariables().Keys)) {
         if ($name -match '^(PYTHON|TESSDATA|OMP_|OPENBLAS_|MKL_|NUMEXPR_)') {

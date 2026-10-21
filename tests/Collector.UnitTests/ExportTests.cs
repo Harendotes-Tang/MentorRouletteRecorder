@@ -197,7 +197,6 @@ public sealed class ExportTests : IDisposable
         var result = service.CreateBackup();
 
         Assert.True(File.Exists(result.TargetPath));
-        Assert.True(result.IntegrityCheckPassed);
         Assert.True(result.ByteCount > 0);
         Assert.Equal(
             BackupService.RetainedBackups,

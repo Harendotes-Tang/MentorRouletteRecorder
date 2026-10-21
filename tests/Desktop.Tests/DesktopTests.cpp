@@ -9,6 +9,8 @@
 #include "RunFormValidator.h"
 #include "RunListModel.h"
 #include "StatsModels.h"
+#include "AppSettings.h"
+#include "TtsService.h"
 
 #include <QDateTime>
 #include <QGuiApplication>
@@ -17,7 +19,9 @@
 #include <QPointer>
 #include <QSet>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QTest>
+#include <QTextToSpeech>
 
 namespace {
 
@@ -269,6 +273,8 @@ private Q_SLOTS:
     void runListModel_filtersSortsAndPages();
     void runListModel_resizeRoundTripKeepsNavigationAnchor();
     void runListModel_clampsAnchorWhenTotalShrinks();
+    void runListModel_sortsByTheDateColumnByDefault();
+    void ttsService_readsTheVoicesAgainWhenTheAppIsActivated();
     void jobStatsModel_roleBreakdownKeepsFixedOrder();
     void mockStatisticsPagesKeepTheSameTotalWithoutRepeatingRows();
     void jobStatsModel_derivesRoleGroupFromTheContractFields();
@@ -279,6 +285,8 @@ private Q_SLOTS:
     void appController_routesValidationAndBlocksDuplicateCommands();
     void appController_handlesSynchronousValidationFailure();
     void appController_persistentlyReportsUnsupportedOldCollector();
+    void appController_saysPlainlyThatAnOldServiceCannotValidate();
+    void appController_rescanNamesTheRunningGameWithoutProcessDetails();
     void appController_ignoresStaleValidationStatusAfterStop();
     void appController_keepsRecordingOnTransientStatusFailureAndRecovers();
     void appController_disconnectMakesValidationUnknownAndReconnectOnlyPolls();
@@ -756,6 +764,49 @@ void DesktopTests::runListModel_resizeRoundTripKeepsNavigationAnchor()
     QTRY_VERIFY_WITH_TIMEOUT(!model.isLoading(), 3000);
 }
 
+// Review K1-8: the history list opens sorted by its 日期 column (history_date),
+// so imported rows with only an original-site date sit among the others and the
+// column shows the sort arrow; matched_at_utc put them all at the end.
+void DesktopTests::runListModel_sortsByTheDateColumnByDefault()
+{
+    DeferredBackend backend;
+    mr::RunListModel model;
+    QCOMPARE(model.sortField(), QStringLiteral("history_date"));
+    QVERIFY(!model.sortAscending());
+    model.setBackend(&backend);
+    model.reload();
+    QCOMPARE(backend.seenMessages().last(), QStringLiteral("QueryRuns"));
+    const QJsonObject sort = backend.seenPayloads().last().value(QStringLiteral("sort")).toObject();
+    QCOMPARE(sort.value(QStringLiteral("field")).toString(), QStringLiteral("history_date"));
+    QCOMPARE(sort.value(QStringLiteral("direction")).toString(), QStringLiteral("desc"));
+}
+
+// Review I4-4: a voice added through 「打开 Windows 语音设置」 appears when the player
+// comes back to the app; the list was read once per process before.
+void DesktopTests::ttsService_readsTheVoicesAgainWhenTheAppIsActivated()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    mr::AppSettings settings(dir.filePath(QStringLiteral("desktop.ini")), nullptr);
+    mr::TtsService tts(&settings, nullptr, mr::TtsService::EngineMode::Mock);
+    auto *engine = tts.findChild<QTextToSpeech *>();
+    if (!engine || !tts.isAvailable())
+        QSKIP("Qt's mock speech engine plugin is not installed.");
+    QTRY_COMPARE(engine->state(), QTextToSpeech::Ready);
+    QTRY_VERIFY(!tts.voices().isEmpty());
+    // The mock engine has no Chinese voice: the page offers the Windows speech settings.
+    QVERIFY(tts.languageVoiceMissing());
+
+    QSignalSpy reread(&tts, &mr::TtsService::voicesChanged);
+    QVERIFY(reread.isValid());
+    Q_EMIT qGuiApp->applicationStateChanged(Qt::ApplicationInactive);
+    QCOMPARE(reread.count(), 0);
+    Q_EMIT qGuiApp->applicationStateChanged(Qt::ApplicationActive);
+    QTRY_VERIFY(reread.count() > 0);
+    QVERIFY(!tts.voices().isEmpty());
+    QCOMPARE(engine->state(), QTextToSpeech::Ready);
+}
+
 void DesktopTests::runListModel_clampsAnchorWhenTotalShrinks()
 {
     DeferredBackend backend;
@@ -1091,6 +1142,59 @@ void DesktopTests::appController_persistentlyReportsUnsupportedOldCollector()
     QCOMPARE(verifiedBackend.count(QStringLiteral("StartCaptureValidation")), 0);
 }
 
+/// The refusal of an old background service is said in plain words with what to
+/// do, never with the component's name or an error code (audit RV6 / Z5).
+void DesktopTests::appController_saysPlainlyThatAnOldServiceCannotValidate()
+{
+    DeferredBackend backend;
+    backend.setSyncFailure(QStringLiteral("GetCaptureValidationStatus"),
+                           QStringLiteral("ERR_UNKNOWN_MESSAGE"), QString());
+    backend.setConnected(true);
+    mr::AppController controller(&backend, nullptr);
+    controller.setMaintainerToolsVisible(true);
+    QTRY_VERIFY_WITH_TIMEOUT(controller.validationStatusLoaded(), 3000);
+    QCOMPARE(controller.validationError(),
+             QString::fromUtf8("当前后台服务不支持桌面验证，请更新软件后重试。"));
+
+    DeferredBackend explained;
+    explained.setSyncFailure(QStringLiteral("GetCaptureValidationStatus"),
+                             QStringLiteral("ERR_BAD_REQUEST"), QString::fromUtf8("未知消息类型"));
+    explained.setConnected(true);
+    mr::AppController explainedController(&explained, nullptr);
+    explainedController.setMaintainerToolsVisible(true);
+    QTRY_VERIFY_WITH_TIMEOUT(explainedController.validationStatusLoaded(), 3000);
+    const QString error = explainedController.validationError();
+    QVERIFY2(error.startsWith(QString::fromUtf8("当前后台服务不支持桌面验证，请更新软件后重试。")), qPrintable(error));
+    QVERIFY2(error.contains(QString::fromUtf8("未知消息类型")), qPrintable(error));
+    QVERIFY2(!error.contains(QStringLiteral("Collector")) && !error.contains(QStringLiteral("ERR_")), qPrintable(error));
+}
+
+/// 重新检测游戏 answers in a player's sentence; the process id, the instance
+/// count and the build stay in the maintainer section (audit RV6 / Z5).
+void DesktopTests::appController_rescanNamesTheRunningGameWithoutProcessDetails()
+{
+    DeferredBackend backend;
+    backend.setConnected(true);
+    mr::AppController controller(&backend, nullptr);
+    QTRY_VERIFY_WITH_TIMEOUT(backend.count(QStringLiteral("GetStatus")) >= 1, 3000);
+    QTest::qWait(50);
+    backend.setAutoRespond(false);
+    controller.rescanGame();
+    backend.completeNext(QStringLiteral("GetStatus"),
+                         QJsonObject{{QStringLiteral("capture"),
+                                      QJsonObject{{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                                                  {QStringLiteral("npcap_installed"), true},
+                                                  {QStringLiteral("ffxiv_running"), true},
+                                                  {QStringLiteral("ffxiv_process_id"), 4321}}},
+                                     {QStringLiteral("game"),
+                                      QJsonObject{{QStringLiteral("running"), true},
+                                                  {QStringLiteral("process_id"), 4321},
+                                                  {QStringLiteral("instance_count"), 1},
+                                                  {QStringLiteral("game_build"), QStringLiteral("2026.10.06.0000.0000")}}}});
+    QCOMPARE(controller.toastMessage(), QString::fromUtf8("已重新检测，找到正在运行的 FF14。"));
+    QCOMPARE(controller.gameInfo().value(QStringLiteral("process_id")).toInt(), 4321);
+}
+
 void DesktopTests::appController_ignoresStaleValidationStatusAfterStop()
 {
     DeferredBackend backend;
@@ -1318,9 +1422,11 @@ void DesktopTests::appController_prioritizesCurrentFormalCaptureOverTerminalVali
 
         controller.toggleCapture();
         QCOMPARE(backend.count(QStringLiteral("StartCapture")), 1);
+        // A capture answer counts only when it says whether the game runs.
         backend.completeNext(QStringLiteral("StartCapture"),
                              QJsonObject{{QStringLiteral("state"),
-                                          QStringLiteral("RUNNING")}});
+                                          QStringLiteral("RUNNING")},
+                                         {QStringLiteral("ffxiv_running"), true}});
 
         QVERIFY(controller.capturing());
         QCOMPARE(controller.captureActionLabel(), QString::fromUtf8("停止捕获"));
@@ -1400,10 +1506,12 @@ void DesktopTests::appController_notifiesAggregateCaptureProjectionForFormalStat
     QSignalSpy projectionChanges(&controller, &mr::AppController::validationChanged);
     controller.refreshStatus();
     projectionChanges.clear();
+    // A capture answer counts only when it says whether the game runs.
     backend.completeNext(QStringLiteral("GetStatus"),
                          QJsonObject{{QStringLiteral("capture"),
                                       QJsonObject{{QStringLiteral("state"),
-                                                   QStringLiteral("RUNNING")}}}});
+                                                   QStringLiteral("RUNNING")},
+                                                  {QStringLiteral("ffxiv_running"), true}}}});
     QCOMPARE(projectionChanges.count(), 1);
     QVERIFY(controller.capturing());
     QCOMPARE(controller.captureActionLabel(), QString::fromUtf8("停止捕获"));
@@ -1414,7 +1522,8 @@ void DesktopTests::appController_notifiesAggregateCaptureProjectionForFormalStat
     backend.completeNext(QStringLiteral("GetStatus"),
                          QJsonObject{{QStringLiteral("capture"),
                                       QJsonObject{{QStringLiteral("state"),
-                                                   QStringLiteral("STOPPED")}}}});
+                                                   QStringLiteral("STOPPED")},
+                                                  {QStringLiteral("ffxiv_running"), true}}}});
     QCOMPARE(projectionChanges.count(), 1);
     QVERIFY(!controller.capturing());
     QCOMPARE(controller.captureActionLabel(), QString::fromUtf8("开始捕获"));

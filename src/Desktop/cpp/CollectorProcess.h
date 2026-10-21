@@ -40,6 +40,7 @@
 // ---------------------------------------------------------------------------
 
 #include <QObject>
+#include <QDateTime>
 #include <QProcess>
 #include <QString>
 #include <QStringList>
@@ -179,6 +180,12 @@ public:
     /// nothing, and a bare image-name search would accept another pid's row.
     static bool tasklistNamesCollector(const QString &csvOutput, qint64 pid);
 
+    /// The absolute path of system tool \a fileName (tasklist.exe, taskkill.exe)
+    /// in the system directory, or empty when it is not there. Never resolved
+    /// through PATH or %SystemRoot%: these tools end a process, and the
+    /// environment is the user's to change (review I1-4).
+    static QString systemToolPath(const QString &fileName);
+
     /// Milliseconds since serve.pid was last written, or -1 when there is none.
     static qint64 serveLeasePidAgeMs();
     /// True when serve.pid is too young to be ended (\ref servePidProtectionMs).
@@ -199,7 +206,7 @@ public:
         QString output;
     };
     /// Test-only: answer the takeover's tasklist/taskkill calls from a function
-    /// instead of from %SystemRoot%\System32, so the decision path - including
+    /// instead of from the system directory, so the decision path - including
     /// the forced kill - can be exercised without ending anything on the
     /// machine running the tests. \a tool is the bare file name.
     using ToolRunner =
@@ -366,13 +373,25 @@ private:
     void finishTakeover();
     /// Cancel everything in flight - the holder answered, or we are quitting.
     void abortTakeover();
+    /// The grace applies only to this exact serve.pid generation. Rewriting it
+    /// for the same PID starts a new lease and requires a new grace period.
+    struct HolderLease {
+        QString path;
+        qint64 pid = 0;
+        QDateTime written;
+        bool operator==(const HolderLease &) const = default;
+    };
+    static HolderLease readHolderLease();
+    bool takeoverHolderUnchanged() const;
+    /// Stops an attempt whose lease changed. No old callback may resume it.
+    bool validateTakeoverHolder();
     /// Start our own child now that the serve lease is believed to be free.
     /// False when \ref kMaxTakeoverAttempts is already spent, which is what
     /// keeps a child that exits on the lease again from looping.
     bool tryRelaunchForLease();
     /// \ref leaseTakeover, at most once per attempt.
     void emitTakeoverOnce(bool ok, const QString &message);
-    /// Run a %SystemRoot%\System32 tool and hand \a then its exit code and
+    /// Run a tool from the system directory and hand \a then its exit code and
     /// output. Asynchronous; \a then is invoked from a queued connection, never
     /// from inside QProcess::finished.
     void runTool(const QString &tool, const QStringList &arguments,
@@ -408,6 +427,10 @@ private:
     qint64 m_holderGraceUntilMs = 0;
     /// The holder the running sequence is about.
     qint64 m_takeoverPid = 0;
+    HolderLease m_holderLease;
+    /// Invalidates queued tool completions and delayed polite-kill probes when
+    /// a connection recovers, an attempt ends, or another grace begins.
+    quint64 m_takeoverGeneration = 0;
     /// The tasklist/taskkill child currently running, if any.
     QProcess *m_tool = nullptr;
     QTimer m_toolTimeoutTimer;

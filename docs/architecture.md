@@ -61,8 +61,16 @@
   后端名称本身不赋予进程管理权限。
 - Desktop 每个用户只运行一个实例。它以命名互斥体 `Local\<管道名>.desktop.instance` 判断是否已有实例；
   再次启动时置位命名事件 `Local\<管道名>.desktop.show`，使已有窗口回到前台，然后退出。截图与模拟数据运行不受此限。
-- Desktop 通过 `GetVersion` 完成握手，校验 `protocol_version == 1`；不匹配则拒绝继续。
-- Desktop 定期发送 `GetStatus` 心跳。Collector 崩溃时，Desktop 显示明确的故障状态并提供重启按钮。
+- 协议版本逐帧核对，不另做握手：每个信封都带 `protocol_version = 1`，Collector 对其他取值答
+  `ERR_PROTOCOL_VERSION`；Desktop 收到 `protocol_version` 不为 1 的应答或事件时断开连接、令全部未完成的请求失败，
+  提示「界面和后台服务的版本不匹配，请重新安装软件后重试。」，随后按退避重连。`GetVersion` 只用于 Collector
+  启动时探测已有实例（§2.4）。
+- Desktop 不发送专门的心跳请求。自动记录面板在游戏运行时每 2 秒、未运行时每 10 秒读取一次 `GetStatus`；
+  实时事件订阅另有 `heartbeat` 事件（§3.2）。Collector 进程退出时，`CollectorProcess` 按退避
+  （0.8 秒起逐次加倍，最长 30 秒）重新启动它，并提示「后台服务已退出，已自动重启（第 N 次）」；
+  启动参数不被接受、或数据库与数据目录无法打开而拒绝启动时不立即重启，界面显示 Collector 给出的原因，
+  后一种情形每 5 分钟静默重试一次。界面上没有手动重启按钮。管道保持连接却不再应答的 Collector
+  不会被重启或接管：各请求按超时（一般为 8 秒）失败，退出并重新启动本软件后才能恢复。
 - Desktop 正常退出时先置位 Collector 的停止事件 `Local\<管道名>.stop`，最多等待 10 秒；
   未退出再结束子进程（先 `terminate()`，0.5 秒后 `kill()`）。托盘菜单的「退出」、关闭窗口（未开启最小化到托盘时），
   以及「立即安装」成功启动安装程序之后，都经由同一个 `TrayController::quitApplication()` 走这条路径。
@@ -160,6 +168,7 @@
    任一条件成立即结束等待；
 4. 只有在等待期满、**并且**桌面端一侧的"连续四次连接失败"计数也已计满时，才依次执行
    `tasklist` → `taskkill`（不带 `/F`）→ 等待 2 秒 → `tasklist` → `taskkill /F`。
+   两个程序都取自 Windows 系统目录（`GetSystemDirectoryW`），不经由 `PATH` 或 `%SystemRoot%` 查找。
    成功与否一律依据命令的**退出码**判断（0 才是成功），不依据本地化的输出文本。
 
 单实例由两项检查保证：一是 `Local\` 命名空间中的命名事件（按登录会话划分），
@@ -194,8 +203,13 @@
   与 [../contracts/error-codes.md](../contracts/error-codes.md)；
   变更记录见 [../contracts/CHANGELOG.md](../contracts/CHANGELOG.md)。
   契约与实现的一致性由 `tests/Collector.IntegrationTests/Contract*.cs`
-  （校验 Collector 发出的每一条应答与事件）和 `tests/Desktop.Tests/IpcRequestTests.cpp`
-  （固定 Desktop 发出的每一条请求样本）保证，任何一方发生漂移都会导致测试失败。
+  （校验 Collector 发出的每一条应答与事件，并按契约校验 `tests/Fixtures/ipc-requests/` 中每条消息的请求样本，
+  包括 `variants/` 下同一消息的其他请求形态，如分页预览的续页请求）和 `tests/Desktop.Tests/IpcRequestTests.cpp`
+  （以每一种业务消息的类型化接口构造请求，与这些样本逐字段比对 `message_type`、`protocol_version` 与 `payload`；
+  `GetCalibrationEvidence` 与 `GetTemplateObservation` 和 Desktop 一样经由通用入口构造）保证，任何一方发生漂移都会导致测试失败。
+  Desktop 中少数调用处自行拼装载荷：统计分页（`StatsModels`）与证据预览的字段与样本相同；带 `switch_from_unsupported` 的
+  `StartCaptureValidation`（玩家从不受支持的抓包切换到采集验证时发出）由 `CaptureValidationController::startValidation` 拼装，
+  类型化接口不带这一字段，也没有对应的样本，这一请求形态不在比对之内。
 - **不存在任何 HTTP / TCP / WebSocket / gRPC 监听端口。** 由静态检查强制。
 
 ### 3.1 消息一览（业务消息 + `Event` + `Error`）
@@ -211,13 +225,16 @@
 | 抓包控制 | `ListCaptureAdapters` `StartCapture` `StopCapture` `GetCaptureSettings` `UpdateCaptureSettings` `SelectGameProcess` |
 | 抓包验证 | `StartCaptureValidation` `GetCaptureValidationStatus` `AddCaptureValidationMarker` `StopCaptureValidation` |
 | 实时 | `GetCurrentRun` `SubscribeLiveEvents` |
-| 查询 | `QueryRuns` `GetRunRevisions` `GetRunEvents` |
+| 查询 | `QueryRuns` `QueryRunCalendarDays` `GetRunRevisions` `GetRunEvents` |
 | 统计 | `GetDashboardStats` `GetDungeonStats` `GetJobStats` `GetResultStats` |
-| 变更 | `CreateManualRun` `CorrectRun` `SoftDeleteRun` `RestoreRun` `UndoRevision` `UpdateAchievementBaseline` |
+| 变更 | `CreateManualRun` `CorrectRun` `SoftDeleteRun` `RestoreRun` `UndoRevision` `BatchMutateRuns` `UpdateAchievementBaseline` |
+| 回收站与笔记图片清理 | `GetHistoryRetentionSettings` `UpdateHistoryRetentionSettings` `GetPendingImageCleanup` `AcknowledgeImageCleanup` |
+| 历史导入 | `PreviewRunImport` `CommitRunImport` |
 | 心得 | `SetRunReflection` `GetReflectionSummary` |
 | 候选取证 | `QueryCandidateObservations` `ReviewCandidateObservation` `ExportCandidateEvidence` |
 | 本机校准 | `ConfirmCalibration` `DiscardCalibration` `GetCalibrationShareCode` |
 | 共享校准 | `CheckSharedCalibration` `ImportCalibrationCode` `AcceptSharedQueueInference` `RejectSharedCalibration` |
+| 公开证据预览 | `GetCalibrationEvidence` `GetTemplateObservation` |
 | 语音播报 | `GetSpeechSettings` `UpdateSpeechSettings` `SynthesizeSpeech` |
 | 导出与备份 | `ExportCsv` `ExportJson` `BackupDatabase` `ExportDiagnosticsReport` `CheckDatabaseIntegrity` |
 
@@ -225,9 +242,13 @@
 被撤销的修订仍保留在修订链上。`revision = 1` 是创建记录本身，
 撤销它返回 `ERR_UNDO_NOT_ALLOWED`（[manual-correction.md](manual-correction.md) §1）。
 
-所有变更类消息：
-- 返回 `revision` 与 `audit_event_id`；
-- 按 `request_id` **幂等**（重放不重复应用，返回 `idempotent_replay = true`）；
+变更类消息的约定：
+- 单条记录的变更（`CreateManualRun` `CorrectRun` `SoftDeleteRun` `RestoreRun` `UndoRevision`）返回
+  `revision` 与 `audit_event_id`（`$defs/MutationResult`）；`UpdateAchievementBaseline` 返回保存后的设置与
+  `audit_event_id`；`SetRunReflection` 返回保存后的心得；`BatchMutateRuns` 返回 `changed_count`、`run_ids` 与
+  `idempotent_replay`；`CommitRunImport` 返回导入回执（`$defs/RunImportCommit`）。
+- 以上消息均按 `request_id` **幂等**：重放不重复应用，返回原结果；应答带 `idempotent_replay` 字段的置为
+  `true`，`CommitRunImport` 置 `replayed = true`。同一 `request_id` 配上不同内容时答 `ERR_IDEMPOTENCY_CONFLICT`。
 - 非法状态返回显式错误码，不静默成功。
 
 ### 3.2 应答与事件的实际传输格式
@@ -309,6 +330,17 @@ payload: <LiveEvent>}`。
 其余错误，包括非法 JSON、未知消息类型、业务拒绝与未预期的异常，都只产生一个错误信封，
 连接继续服务。未预期的异常返回 `ERR_INTERNAL`，细节只写入本机日志，**不回传给客户端**。
 
+另一种连接级情形是延迟应答超限。`SynthesizeSpeech`、`CheckDatabaseIntegrity`、`CheckUpdateNow`、
+`PreviewRunImport` 与 `CommitRunImport`（`MessageDispatcher.AsynchronousMessageTypes`）不在读循环上应答，
+而是各自完成后再写回，以免排在其后的状态查询被阻塞。同一连接上已受理而尚未应答（仍在处理，或已有结果
+尚未写出）的这类请求最多 8 条（`PipeConnection.MaxDeferredResponses`）；其中尚未应答的 `CheckUpdateNow`
+无论几条都只计一条，因为它们等待同一次进行中的更新检查，它们自身另以 8 条为限。超出上限的请求到达时
+Collector 不处理该请求、不作应答，直接关闭连接，尚未写出的应答随之丢弃。这一上限防止只发不读的对端让应答无限堆积；各项服务自身的准入限制（语音的有界队列、
+完整性校验与导入各自只允许一个在途任务）不覆盖这种情形。此前已受理的请求随连接一同取消，其中的变更
+要么整体提交、要么整体回滚，可用原 `request_id` 重发以确认结果。桌面端在连接断开时令全部未完成的请求
+失败，然后重连；它在正常使用中同时发出的这类请求（最多 4 条语音、1 次完整性校验、1 次导入与更新检查）
+少于这一上限。
+
 ## 4. Collector 内部线程模型
 
 ```
@@ -382,7 +414,7 @@ payload: <LiveEvent>}`。
 | Capture | `src/Collector/Capture/` | Npcap 检测（**每次开始监听都重新枚举设备列表**）、适配器枚举、游戏进程定位（内核进程表，不打开进程句柄）、经 SharpPcap 的只读 Npcap 读取（**不使用 raw socket**）、Machina 封装（系统 TCP 表、Oodle、报文解码）、FFXIV 分帧、有界队列、抓包诊断、Oodle 临时副本清单与回收 | `NpcapDetector` `AdapterEnumerator` `GameProcessLocator` `ProcessTable` `ProcessImagePath` `NpcapPacketReader` `MachinaCaptureSource` `FfxivFraming` `DecodedMessageQueue` `CaptureController` `CaptureDiagnostics` `CaptureCli` `OodleTempCopyCleaner` |
 | Protocol / Decoded | `src/Collector/Protocol/Decoded/` | 抓包与解析之间**唯一**的交接类型 | `DecodedMessage` `IDecodedMessageSink` |
 | Protocol / Profiles | `src/Collector/Protocol/Profiles/` | 档案加载、Schema 校验、规范化哈希、目录扫描与 `AMBIGUOUS`、按 `region`+`game_build` 选档 | `ProfileLoader` `JsonSchemaValidator` `CanonicalJson` `ProfileValidationReport` `ProfileCatalog` `ProfileSelector` `ProtocolProfile` |
-| Protocol / Parsing | `src/Collector/Protocol/Parsing/` | 字节 → 语义事件，**零硬编码 opcode**；唯一按内容识别的常量（国服通关结算，见 [protocol-profile-format.md](protocol-profile-format.md) §12）集中在 `DutyClearSignal`；拒绝分类与有界错误环 | `ProfileMessageParser` `DutyClearSignal` `ParserError` |
+| Protocol / Parsing | `src/Collector/Protocol/Parsing/` | 字节 → 语义事件，**零硬编码 opcode**；按内容识别的常量（国服通关结算，以及副本开始宣布与剩余时间，见 [protocol-profile-format.md](protocol-profile-format.md) §12、§13）集中在 `DutyClearSignal` 与 `DutyStartSignal`；拒绝分类与有界错误环 | `ProfileMessageParser` `DutyClearSignal` `DutyStartSignal` `ParserError` |
 | Domain / Events | `src/Collector/Domain/Events/` | 实时解析与离线重放共用的语义事件、方向和去重键 | `SemanticEvent` 及其子类、`EventKey`、`PacketDirection` |
 | Protocol / Pipeline | `src/Collector/Protocol/Pipeline/` | 连接抓包 → 解析 → 状态机 → 存储 → 实时事件各环节；语义事件到数据库行的**唯一**路径 | `LiveProtocolPipeline` `SemanticEventProcessor` `ICaptureLifecycleListener` |
 | Domain | `src/Collector/Domain/` | 状态机与判定规则、领域模型、变更规则、统计模型、单调时钟；变更拒绝只携带类型化业务原因及上下文 | `MentorRunStateMachine` `StateMachineCommands` `ProfileBinding` `BoundedDedupSet` `MentorRun` `RunEvent` `RunRevision` `RunMutationRules` `RunRuleViolationException` |

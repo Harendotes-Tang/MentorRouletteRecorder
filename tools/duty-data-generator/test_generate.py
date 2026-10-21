@@ -134,16 +134,17 @@ class FetchEnglishRowsTests(unittest.TestCase):
         self.raw_dir = directory.name
         self.addCleanup(setattr, generate, "http_get", generate.http_get)
 
-    def serve(self, rows_on_page):
-        """Replace the module's HTTP call with pages of rows_on_page(page_number) rows."""
+    def serve(self, rows_on_page, version_on_page=lambda page: "sample-version"):
+        """Replace the module's HTTP call with pages of rows_on_page(page_number) rows, each
+        reporting the game version version_on_page(page_number)."""
         self.requests = []
         row_ids = itertools.count(1)
 
         def fake_get(url, timeout=60):
             self.requests.append(url)
-            rows = [{"row_id": next(row_ids), "fields": {}}
-                    for _ in range(rows_on_page(len(self.requests)))]
-            return json.dumps({"version": "sample-version", "rows": rows}).encode("utf-8")
+            page = len(self.requests)
+            rows = [{"row_id": next(row_ids), "fields": {}} for _ in range(rows_on_page(page))]
+            return json.dumps({"version": version_on_page(page), "rows": rows}).encode("utf-8")
 
         generate.http_get = fake_get
 
@@ -175,6 +176,52 @@ class FetchEnglishRowsTests(unittest.TestCase):
         self.assertIn("XIVAPI_MAX_PAGES", str(caught.exception))
         # ValueError is what main() and add_party_size_to_files() already catch: both print the
         # failure and return 1 without writing a data/duties file.
+
+    def test_pages_from_two_game_versions_are_refused(self):
+        # N3-4 (audit 2026-10-20): without --game-version no page is pinned, and on patch day the
+        # first pages can come from the old game data and the rest from the new; the file would
+        # then mix both while provenance named only the last page's version.
+        self.serve(lambda page: generate.XIVAPI_PAGE_SIZE if page == 1 else 3,
+                   lambda page: "7.30" if page == 1 else "7.35")
+
+        with self.assertRaises(ValueError) as caught:
+            generate.fetch_english_rows(self.raw_dir)
+
+        self.assertIn("7.30", str(caught.exception))
+        self.assertIn("7.35", str(caught.exception))
+
+    def test_a_page_without_a_game_version_is_refused(self):
+        # Without the version a page cannot be shown to match the others: fail closed, whether the
+        # first page or a later one leaves it out or leaves it empty.
+        for name, version_on_page in (
+                ("first page missing", lambda page: None if page == 1 else "7.35"),
+                ("first page empty", lambda page: "" if page == 1 else "7.35"),
+                ("later page missing", lambda page: "7.35" if page == 1 else None),
+                ("every page missing", lambda page: None)):
+            with self.subTest(name):
+                self.serve(lambda page: generate.XIVAPI_PAGE_SIZE if page == 1 else 3, version_on_page)
+
+                with self.assertRaises(ValueError) as caught:
+                    generate.fetch_english_rows(self.raw_dir)
+
+                self.assertIn("没有给出游戏版本", str(caught.exception))
+
+    def test_a_pinned_version_the_answer_does_not_carry_is_refused(self):
+        self.serve(lambda page: 3, lambda page: "7.35")
+
+        with self.assertRaises(ValueError) as caught:
+            generate.fetch_english_rows(self.raw_dir, "7.30")
+
+        self.assertIn("7.30", str(caught.exception))
+        self.assertIn("version=7.30", self.requests[0])
+
+    def test_a_pinned_version_answered_on_every_page_is_accepted(self):
+        self.serve(lambda page: generate.XIVAPI_PAGE_SIZE if page == 1 else 3, lambda page: "7.30")
+
+        rows, urls, _, api_version = generate.fetch_english_rows(self.raw_dir, "7.30")
+
+        self.assertEqual("7.30", api_version)
+        self.assertEqual(2, len(urls))
 
 
 class BuildDocumentTests(unittest.TestCase):

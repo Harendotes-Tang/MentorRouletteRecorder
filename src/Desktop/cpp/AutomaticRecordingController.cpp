@@ -15,6 +15,9 @@ AutomaticRecordingController::AutomaticRecordingController(IBackend *backend, QO
         // otherwise.
         setPollInterval(kActivePollMs);
         ++m_generation;
+        ++m_captureRevision;
+        m_latestCapture.clear();
+        m_initializationPending = false;
         m_busy = false;
         m_followAttempted = m_stopAttempted = false;
         m_stopPending = false;
@@ -117,12 +120,34 @@ void AutomaticRecordingController::refresh()
         return;
     }
     m_busy = true;
+    m_initializationPending = true;
     readSettings(m_generation);
+}
+
+void AutomaticRecordingController::observeCapture(const QVariantMap &capture)
+{
+    // 缺失或空的字段不是“游戏已退出”，不能用它清除已确认的故障。
+    if (capture.value(QStringLiteral("ffxiv_running")).metaType().id() != QMetaType::Bool)
+        return;
+    const auto revision = ++m_captureRevision;
+    m_latestCapture = capture;
+    Q_EMIT captureObserved(capture);
+    if (revision != m_captureRevision || m_maintenance || m_userObservation
+        || !m_backend || !m_backend->isConnected())
+        return;
+    // 初始化尚未答复时，不拿上一轮的设置错误为新会话建立故障。
+    // 游戏退出、选择对象以及档案不可用则已有充分事实，可以立即投影。
+    if (m_initializationPending && capture.value(QStringLiteral("ffxiv_running")).toBool()
+        && capture.value(QStringLiteral("profile_status")).toString() == QLatin1String("VERIFIED")
+        && !capture.value(QStringLiteral("game_selection_required")).toBool()) {
+        finishUnknown([] { return tr("正在准备自动记录，请稍候…"); });
+        return;
+    }
+    project(capture);
 }
 
 void AutomaticRecordingController::finishUnknown(const LiveText &message)
 {
-    m_busy = false;
     // Missing facts cannot clear an incident, or resurrect a green status.
     setState(blocked() ? QStringLiteral("blocked") : QStringLiteral("checking"),
              blocked() ? m_message : message);
@@ -217,20 +242,26 @@ void AutomaticRecordingController::readValidation(quint64 generation)
 void AutomaticRecordingController::readCapture(quint64 generation)
 {
     if (!m_backend) return;
+    m_initializationPending = false;
+    const auto revision = m_captureRevision;
     m_backend->getStatus()->whenDone(this,
-        [this, generation](bool ok, const QVariantMap &p, const QString &, const QString &error) {
+        [this, generation, revision](bool ok, const QVariantMap &p, const QString &, const QString &error) {
         if (generation != m_generation) return;
+        m_busy = false;
+        if (revision != m_captureRevision) {
+            if (!m_latestCapture.isEmpty() && !m_maintenance && !m_userObservation)
+                project(m_latestCapture);
+            return;
+        }
         if (!ok) { finishUnknown([error] { return tr("暂时无法确认自动记录服务是否正常。%1").arg(error); }); return; }
         auto capture = p.value(QStringLiteral("capture")).toMap();
         const auto game = p.value(QStringLiteral("game")).toMap();
         if (game.contains(QStringLiteral("install_path_readable")))
             capture.insert(QStringLiteral("install_path_readable"), game.value(QStringLiteral("install_path_readable")));
-        if (!capture.contains(QStringLiteral("ffxiv_running"))) {
+        if (capture.value(QStringLiteral("ffxiv_running")).metaType().id() != QMetaType::Bool) {
             finishUnknown([] { return tr("正在获取自动记录状态，请稍候…"); }); return;
         }
-        m_busy = false;
-        Q_EMIT captureObserved(capture);
-        project(capture);
+        observeCapture(capture);
     });
 }
 
@@ -274,14 +305,33 @@ void AutomaticRecordingController::project(const QVariantMap &c)
                                 && !c.value(QStringLiteral("install_path_readable")).toBool();
     const bool npcapMissing = c.contains(QStringLiteral("npcap_installed"))
                               && !c.value(QStringLiteral("npcap_installed")).toBool();
+    const bool regionUnknown = c.contains(QStringLiteral("region"))
+        && (c.value(QStringLiteral("region")).toString().isEmpty()
+            || c.value(QStringLiteral("region")).toString() == QLatin1String("UNKNOWN"));
+    const bool buildUnknown = c.contains(QStringLiteral("game_build"))
+        && c.value(QStringLiteral("game_build")).toString().isEmpty();
+    if (!c.contains(QStringLiteral("install_path_readable")) && buildUnknown) {
+        // GetCaptureStatus/事件没有路径可读性，须等待完整 GetStatus 才能区分
+        // 安装位置不可读和可读目录没有区服标记；缺字段不能当成路径可读。
+        finishUnknown([] { return tr("正在检查游戏安装位置、区服和版本，请稍候…"); });
+        return;
+    }
     // 本机校准 outranks "协议档案不匹配": a mismatched profile is the situation
     // calibration exists for. An unreadable install path still wins - nothing can
     // be calibrated for an unknown build - and so does a missing Npcap, with no
     // packets to learn from.
-    if (!pathUnreadable && !npcapMissing && profile != QLatin1String("VERIFIED") && projectCalibration(c))
+    if (!pathUnreadable && !npcapMissing && !regionUnknown && !buildUnknown
+        && profile != QLatin1String("VERIFIED") && projectCalibration(c))
         return;
     if (profile != QLatin1String("VERIFIED")) {
-        block(session + QStringLiteral("profile:") + profile, [pathUnreadable] {
+        const QString reason = pathUnreadable ? QStringLiteral("path")
+            : regionUnknown ? QStringLiteral("region") : buildUnknown ? QStringLiteral("build")
+            : QStringLiteral("profile:") + profile;
+        block(session + reason, [pathUnreadable, regionUnknown, buildUnknown] {
+            if (regionUnknown && !pathUnreadable)
+                return tr("无法识别游戏区服，暂时不能自动记录。请在「设置 → 通用」中选择实际区服（国服 / 国际服），保存后会重新检查。");
+            if (buildUnknown && !pathUnreadable)
+                return tr("无法读取游戏版本，暂时不能自动记录。请确认游戏文件完整，再点「重新检测游戏」。");
             return pathUnreadable
                 // 路径取自内核进程表，本就不需要额外权限，提权对此没有帮助，
                 // 因此这里不再建议以管理员身份运行（审查 2026-09-21 第 1 条）。

@@ -143,6 +143,9 @@ public sealed partial class MentorRunStateMachine
     /// <summary>Monotonic reading taken when the current match popped.</summary>
     public TimeSpan MatchedMono => _matchedMono;
 
+    /// <summary>Monotonic reading of the current run's duty entry, or null before it entered one.</summary>
+    public TimeSpan? EnteredMono => _enteredMono;
+
     /// <summary>Most recent job observed in any state, or null when none was ever seen.</summary>
     public int? LastKnownJobId => _lastKnownJobId;
 

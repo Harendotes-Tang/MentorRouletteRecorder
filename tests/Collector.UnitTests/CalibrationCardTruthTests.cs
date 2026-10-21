@@ -38,14 +38,16 @@ public sealed class CalibrationCardTruthTests
     /// The player's own machine, 2026-09-18: a chatty 40-byte opcode overflowed the pop table
     /// (overflow 356), so the search underneath the recording profile could never finish, while
     /// the card went on saying that two more roulettes would do it. When the search is stuck the
-    /// card says so, says it costs no records, and names the one thing that restarts it.
+    /// card says so, says it costs no records, and names the one thing that restarts it. That search
+    /// was for the popup the profile in force did not read (said outright since re-review 2026-10-20,
+    /// RV1-3: the card beside a profile that reads it is the next test's).
     /// </summary>
     [Fact]
     public void AStuckUpgradeSaysItIsStuckAndHowToRestartIt()
     {
         var coordinator = new CalibrationCoordinator();
         coordinator.Arm(CalibrationObserverTests.Template(), Region.Cn, CalibrationTrafficCases.Build);
-        coordinator.UseProvisional(true);
+        coordinator.UseProvisional(true, lacking: new HashSet<string> { CalibratedShape.AnnouncedName });
         coordinator.Begin("calibration-session");
         var traffic = CalibrationObserverTests.QueueAndPop(1_000, 1, 100_000).Take(2)
             .Concat(Enumerable.Range(0, 300).Select(index => CalibrationObserverTests.Message(
@@ -101,7 +103,11 @@ public sealed class CalibrationCardTruthTests
     {
         var coordinator = new CalibrationCoordinator();
         coordinator.Arm(CalibrationObserverTests.Template(), Region.Cn, CalibrationTrafficCases.Build);
-        coordinator.UseProvisional(true, "cn.2026.09.01.0000.0000.local", new HashSet<string> { lacking });
+        // The profile in force is the one the same evening would have written, without what it lacks.
+        var inForce = CalibrationTrafficCases.Derive(traffic).Messages
+            .Where(message => message.Name != lacking)
+            .ToArray();
+        coordinator.UseProvisional(true, "cn.2026.09.01.0000.0000.local", new HashSet<string> { lacking }, inForce);
         coordinator.Begin("calibration-session");
         foreach (var message in CalibrationTrafficCases.Traffic(traffic)
             .Concat(CalibrationObserverTests.Noise(470_000, 490_000))
@@ -119,6 +125,132 @@ public sealed class CalibrationCardTruthTests
                                                  text.Chinese.Contains(brings, StringComparison.Ordinal));
         Assert.Contains(status.Blockers, text => text.Chinese.Contains("记录照常", StringComparison.Ordinal));
         Assert.All(status.Blockers, text => Assert.DoesNotContain("0x", text.Chinese, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Audit 2026-10-20, C-7. Beside every queue-inferred profile the card said the software was still
+    /// trying to recognise the match popup and would ask the player to check it once found - also beside
+    /// a profile that recognises the popup already. What the line says the search is for comes from what
+    /// the profile in force still lacks.
+    /// </summary>
+    [Theory]
+    [InlineData("PLAYER_JOB", "职业")]
+    [InlineData(null, "继续校准")]
+    public void ASearchBesideAProfileThatReadsThePopupDoesNotSayItIsLookingForThePopup(string? lacking, string says)
+    {
+        var coordinator = new CalibrationCoordinator();
+        coordinator.Arm(CalibrationObserverTests.Template(), Region.Cn, CalibrationTrafficCases.Build);
+        coordinator.UseProvisional(
+            true, "cn.2026.09.01.0000.0000.local", lacking is null ? null : new HashSet<string> { lacking });
+        coordinator.Begin("calibration-session");
+
+        var status = coordinator.Snapshot();
+
+        Assert.Equal(CalibrationState.Observing, status.State);
+        Assert.Contains(status.Blockers, text => text.Chinese.Contains("导随记录照常进行", StringComparison.Ordinal) &&
+                                                 text.Chinese.Contains(says, StringComparison.Ordinal));
+        Assert.DoesNotContain(status.Blockers, text => text.Chinese.Contains("识别匹配弹窗", StringComparison.Ordinal));
+        Assert.DoesNotContain(status.Blockers, text => text.Chinese.Contains("仅靠排队和进本核对", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The same when the search is stuck: the card says it is stuck, not that the popup is missing - nor that runs are dated
+    /// by the queue alone, which a profile that reads the popup does not do (re-review 2026-10-20, RV1-3).
+    /// </summary>
+    [Fact]
+    public void AStuckSearchBesideAProfileThatReadsThePopupDoesNotSayThePopupIsMissing()
+    {
+        var coordinator = new CalibrationCoordinator();
+        coordinator.Arm(CalibrationObserverTests.Template(), Region.Cn, CalibrationTrafficCases.Build);
+        coordinator.UseProvisional(true, "cn.2026.09.01.0000.0000.local", new HashSet<string> { "PLAYER_JOB" });
+        coordinator.Begin("calibration-session");
+        var traffic = CalibrationObserverTests.QueueAndPop(1_000, 1, 100_000).Take(2)
+            .Concat(Enumerable.Range(0, 300).Select(index => CalibrationObserverTests.Message(
+                MessageDirection.Inbound, CalibrationTrafficCases.Reply,
+                CalibrationObserverTests.Bytes(40, (9, (byte)(index % 256)), (16, (byte)(1 + index / 256))), 3_000 + index)));
+        foreach (var message in traffic)
+        {
+            coordinator.Accept(message);
+        }
+
+        var status = coordinator.Snapshot();
+
+        Assert.Equal(CalibrationState.Observing, status.State);
+        Assert.Contains(status.Blockers, text => text.Chinese.Contains("清空校准进度", StringComparison.Ordinal) &&
+                                                 text.Chinese.Contains("现用校准会继续记录", StringComparison.Ordinal));
+        Assert.Contains(status.Blockers, text => text.Chinese.Contains("导随记录照常进行", StringComparison.Ordinal) &&
+                                                 text.Chinese.Contains("检测到匹配弹窗时会记入弹窗时间", StringComparison.Ordinal));
+        Assert.DoesNotContain(status.Blockers, text => text.Chinese.Contains("还没认出匹配弹窗", StringComparison.Ordinal));
+        Assert.DoesNotContain(status.Blockers, text => text.Chinese.Contains("仅靠排队和进本核对", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Audit 2026-10-20, C-8. The popup was found by the roulette it carries, but no duty the table knows
+    /// followed it - a patch-day duty missing from the table, or matches the player declined. The draft
+    /// waited with an empty list of reasons, and the card hid its hint box: nothing told the player what
+    /// to do next. A draft that is not ready always says what it is waiting for.
+    /// </summary>
+    [Fact]
+    public void ADraftThatFoundThePopupButNoDutySaysWhatItIsWaitingFor()
+    {
+        var town = CalibrationObserverTests.Bytes(136, (2, 0x88), (3, 0x13));
+        var traffic = CalibrationTrafficCases.Traffic(CalibrationTrafficCases.MarkerOffset)
+            .Select(message => message.Opcode == CalibrationTrafficCases.Territory
+                ? message with { Payload = town }
+                : message);
+
+        var draft = CalibrationDraft.Derive(CalibrationTrafficCases.Observe(traffic), CalibrationObserverTests.Template());
+
+        Assert.Equal(CalibrationMatchSource.MarkerOffset, draft.MatchSource);
+        Assert.Equal(CalibrationDraftStatus.Observing, draft.Status);
+        Assert.Contains(draft.Blockers, text => text.Key == "calibration.blocker.no_duty");
+    }
+
+    /// <summary>The queue-request evening without the job in its exit burst: the job cannot be declared.</summary>
+    /// <param name="traffic">Case from <see cref="CalibrationTrafficCases"/>.</param>
+    private static DecodedMessage[] WithoutTheExitJob(string traffic) => CalibrationTrafficCases.Traffic(traffic)
+        .Where(message => !(message.Opcode == CalibrationTrafficCases.Job &&
+            message.Mono >= TimeSpan.FromMilliseconds(215_000) && message.Mono < TimeSpan.FromMilliseconds(216_000)))
+        .ToArray();
+
+    /// <summary>
+    /// Audit 2026-10-20, C-1. Beside a recording, queue-inferred profile a ready draft was offered as soon
+    /// as it declared one message the profile lacked, and confirming it rewrites the profile from the draft
+    /// alone. A draft that found the popup but had lost the job - a gearset change inside a zone load rules
+    /// the job message out - would have written the job out of the profile, and every later record would
+    /// say 职业未知; the mirror case loses the popup. An upgrade is offered only when it keeps everything
+    /// the profile already declares, name for name and byte for byte.
+    /// </summary>
+    [Theory]
+    [InlineData(CalibrationTrafficCases.QueueRequest, "MATCH_ANNOUNCED", CalibrationTrafficCases.QueueRequestAnnounced, "PLAYER_JOB")]
+    [InlineData(CalibrationTrafficCases.QueueRequestAnnounced, "PLAYER_JOB", CalibrationTrafficCases.QueueRequest, "MATCH_ANNOUNCED")]
+    public void AnUpgradeThatWouldDropADeclaredMessageIsNotOffered(
+        string profileTraffic, string lacking, string eveningTraffic, string dropped)
+    {
+        var inForce = CalibrationTrafficCases.Derive(profileTraffic).Messages
+            .Where(message => message.Name != lacking)
+            .ToArray();
+        var evening = lacking == "MATCH_ANNOUNCED"
+            ? WithoutTheExitJob(eveningTraffic)
+            : CalibrationTrafficCases.Traffic(eveningTraffic).ToArray();
+        var draft = CalibrationDraft.Derive(CalibrationTrafficCases.Observe(evening), CalibrationObserverTests.Template());
+        Assert.Equal(CalibrationDraftStatus.Ready, draft.Status);
+        Assert.Contains(inForce, message => message.Name == dropped);
+        Assert.DoesNotContain(draft.Messages, message => message.Name == dropped);
+        Assert.Contains(draft.Messages, message => message.Name == lacking);
+
+        var coordinator = new CalibrationCoordinator();
+        coordinator.Arm(CalibrationObserverTests.Template(), Region.Cn, CalibrationTrafficCases.Build);
+        coordinator.UseProvisional(true, "cn.2026.09.01.0000.0000.local", new HashSet<string> { lacking }, inForce);
+        coordinator.Begin("calibration-session");
+        foreach (var message in evening
+            .Concat(CalibrationObserverTests.Noise(470_000, 490_000))
+            .OrderBy(message => message.Mono))
+        {
+            coordinator.Accept(message);
+        }
+
+        Assert.Equal(CalibrationState.Observing, coordinator.Snapshot().State);
     }
 
     /// <summary>
