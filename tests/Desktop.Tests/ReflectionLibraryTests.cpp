@@ -89,9 +89,9 @@ public:
         const int page = payload.value(QStringLiteral("page")).toInt(1);
         const int size = payload.value(QStringLiteral("page_size")).toInt(10);
         QJsonArray items;
-        for (int index = (page - 1) * size; index < qMin(int(matching.size()), page * size); ++index)
+        for (int index = (page - 1) * size; index < qMin(static_cast<int>(matching.size()), page * size); ++index)
             items.append(matching.at(index));
-        const int total = int(matching.size());
+        const int total = static_cast<int>(matching.size());
         const bool rejected = reject;
         QTimer::singleShot(0, reply, [reply, rejected, items, page, total] {
             if (rejected) {
@@ -112,6 +112,7 @@ QQuickItem *findVisual(QQuickItem *at, const QString &name) {
 }
 }
 
+namespace {
 class LibraryThemeState : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool dark MEMBER dark NOTIFY changed)
@@ -123,7 +124,9 @@ public:
 Q_SIGNALS:
     void changed();
 };
+} // namespace
 
+namespace {
 class ReflectionLibraryTests : public QObject
 {
     Q_OBJECT
@@ -419,6 +422,7 @@ ApplicationWindow {
         QVERIFY(!library.runs()->isLoading());
     }
 };
+} // namespace
 
 int main(int argc, char **argv) {
     QQuickStyle::setStyle(QStringLiteral("Basic"));

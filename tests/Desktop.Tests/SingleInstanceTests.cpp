@@ -26,6 +26,7 @@ QString uniqueKey()
 
 } // namespace
 
+namespace {
 class SingleInstanceTests : public QObject
 {
     Q_OBJECT
@@ -101,6 +102,7 @@ private Q_SLOTS:
         QVERIFY(alsoUnguarded.isPrimary());
     }
 };
+} // namespace
 
 int main(int argc, char *argv[])
 {

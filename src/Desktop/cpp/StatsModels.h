@@ -35,7 +35,7 @@ class StatsRowsModel : public QAbstractListModel
     Q_PROPERTY(QString loadError READ loadError NOTIFY loadErrorChanged)
 
 public:
-    enum Roles { RowRole = Qt::UserRole + 1 };
+    enum Roles : quint16 { RowRole = Qt::UserRole + 1 };
 
     explicit StatsRowsModel(QObject *parent = nullptr);
 
@@ -45,7 +45,7 @@ public:
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    int rowCountProperty() const { return int(m_rows.size()); }
+    int rowCountProperty() const { return static_cast<int>(m_rows.size()); }
     int distinctCount() const;
     /// Largest attempt_count in the set, for bar scaling. At least 1.
     int maxAttemptCount() const;

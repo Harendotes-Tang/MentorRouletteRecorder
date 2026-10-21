@@ -32,7 +32,7 @@ void RunListModel::setBackend(IBackend *backend)
 
 int RunListModel::rowCount(const QModelIndex &parent) const
 {
-    return parent.isValid() ? 0 : int(m_rows.size());
+    return parent.isValid() ? 0 : static_cast<int>(m_rows.size());
 }
 
 QVariant RunListModel::data(const QModelIndex &index, int role) const
@@ -67,7 +67,7 @@ void RunListModel::setPageSize(int pageSize)
     // resize keeps the navigation anchor in view. Reusing the current page's
     // rounded-down first row would accumulate drift on every resize.
     m_pageSize = clamped;
-    m_page = m_anchorRow / clamped + 1;
+    m_page = (m_anchorRow / clamped) + 1;
     Q_EMIT pagingChanged();
     loadRows();
 }
@@ -104,9 +104,9 @@ void RunListModel::previousPage()
 
 void RunListModel::sortBy(const QString &field)
 {
-    if (field == m_sortField)
+    if (field == m_sortField) {
         m_sortAscending = !m_sortAscending;
-    else {
+    } else {
         m_sortField = field;
         m_sortAscending = false;
     }
@@ -339,8 +339,11 @@ void RunListModel::loadCalendarMonth(const QString &month, bool retryError)
             m_calendarErrors.remove(month);
         } else {
             m_calendarErrors.insert(month, LiveText([ok, code, refusal = collector_text::replyErrorText(guard, message)] {
-                return ok ? tr("暂时无法读取有记录的日期，请重新加载。")
-                    : (!refusal.isEmpty() ? refusal.text() : (!code.isEmpty() ? code : tr("日历日期加载失败")));
+                if (ok)
+                    return tr("暂时无法读取有记录的日期，请重新加载。");
+                if (!refusal.isEmpty())
+                    return refusal.text();
+                return !code.isEmpty() ? code : tr("日历日期加载失败");
             }));
         }
         Q_EMIT calendarChanged();

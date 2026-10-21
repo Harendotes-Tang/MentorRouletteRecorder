@@ -10,6 +10,7 @@
 
 // Synchronous replies exercise BackendReply::whenDone's already-completed path;
 // held status replies reproduce a previous connection finishing after reconnect.
+namespace {
 class RecordingBackend : public mr::IBackend
 {
 public:
@@ -56,21 +57,25 @@ public:
         } else if (type == QLatin1String("UpdateCaptureSettings")) {
             writes.append(p);
             if (holdWrites) { heldWrites.append(r); heldWritePayloads.append(p); return r; }
-            if (failWrite) r->fail("ERR_TEST", "write refused");
-            else { for (auto i = p.begin(); i != p.end(); ++i) settings.insert(i.key(), i.value()); r->succeed(settings); }
-        } else if (type == QLatin1String("GetCaptureValidationStatus")) r->succeed(validation);
-        else if (type == QLatin1String("StopCaptureValidation")) {
+            if (failWrite) { r->fail("ERR_TEST", "write refused");
+            } else { for (auto i = p.begin(); i != p.end(); ++i) settings.insert(i.key(), i.value()); r->succeed(settings); }
+        } else if (type == QLatin1String("GetCaptureValidationStatus")) { r->succeed(validation);
+        } else if (type == QLatin1String("StopCaptureValidation")) {
             if (holdStop) { held = r; holdStop = false; return r; }
             if (drainStop) { validation["state"] = "STOPPING"; r->succeed(validation); return r; }
-            if (failStop) r->fail("ERR_TEST", "stop refused");
-            else { validation.insert("active", false); r->succeed(validation); }
+            if (failStop) { r->fail("ERR_TEST", "stop refused");
+            } else { validation.insert("active", false); r->succeed(validation); }
         } else if (type == QLatin1String("GetStatus")) {
-            if (holdStatus) { held = r; holdStatus = false; } else r->succeed({{"capture", capture}, {"game", game}});
-        } else r->succeed({});
+            if (holdStatus) { held = r; holdStatus = false; } else { r->succeed({{"capture", capture}, {"game", game}});
+}
+        } else { r->succeed({});
+}
         return r;
     }
 };
+} // namespace
 
+namespace {
 class AutomaticRecordingTests : public QObject
 {
     Q_OBJECT
@@ -735,6 +740,7 @@ private slots:
         QVERIFY(b.writes.isEmpty());
     }
 };
+} // namespace
 int main(int argc, char **argv)
 {
     // Never run against the user's own Collector, database or serve lease - see

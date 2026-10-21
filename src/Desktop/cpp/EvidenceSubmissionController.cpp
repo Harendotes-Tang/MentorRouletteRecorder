@@ -18,8 +18,11 @@ constexpr auto codeKind = "CODE_VERIFICATION";
 constexpr auto templateKind = "TEMPLATE_OBSERVATION";
 QString formFor(const QString &kind)
 {
-    return kind == QLatin1String(codeKind) ? QStringLiteral("evidence-calibration.yml")
-         : kind == QLatin1String(templateKind) ? QStringLiteral("template-observation.yml") : QString();
+    if (kind == QLatin1String(codeKind))
+        return QStringLiteral("evidence-calibration.yml");
+    if (kind == QLatin1String(templateKind))
+        return QStringLiteral("template-observation.yml");
+    return {};
 }
 }
 
@@ -219,7 +222,7 @@ void EvidenceSubmissionController::preview(const QString &kind, const QString &c
         if (generation != m_generation || !m_visible || !m_backend || !m_backend->isConnected()) return;
         m_busy = false;
         if (!ok) {
-            m_reason = code == QLatin1String("ERR_UNKNOWN_MESSAGE") ? code : message.isEmpty() ? code : message;
+            m_reason = code == QLatin1String("ERR_UNKNOWN_MESSAGE") || message.isEmpty() ? code : message;
         } else if (!payload.value(QStringLiteral("available")).toBool()) {
             m_reason = payload.value(QStringLiteral("reason")).toString();
             if (m_reason.isEmpty()) m_reason = QStringLiteral("INVALID_RESPONSE");

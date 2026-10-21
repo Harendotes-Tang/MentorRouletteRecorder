@@ -82,7 +82,7 @@ public:
             const int page = payload.value(QStringLiteral("page")).toInt(1);
             const int pageSize = payload.value(QStringLiteral("page_size")).toInt(200);
             QJsonArray items;
-            for (int i = (page - 1) * pageSize; i < qMin(page * pageSize, int(source.size())); ++i)
+            for (int i = (page - 1) * pageSize; i < qMin(page * pageSize, static_cast<int>(source.size())); ++i)
                 items.append(source.at(i));
             answer = {{QStringLiteral("items"), items},
                       {QStringLiteral("distinct_count"), source.size()},
@@ -249,6 +249,7 @@ ApplicationWindow {
 
 } // namespace
 
+namespace {
 class DungeonCompositionTests : public QObject
 {
     Q_OBJECT
@@ -274,7 +275,7 @@ private:
         for (const QVariant &role : rawRoles) roleTotal += role.toMap().value("attempt_count").toInt();
         QCOMPARE(roleTotal, scene.controller.jobs()->totalAttemptCount());
         const auto shown = qmlList(page->property("rowsCache"));
-        QVERIFY(std::any_of(shown.cbegin(), shown.cend(), [](const QVariant &row) {
+        QVERIFY(std::ranges::any_of(shown, [](const QVariant &row) {
             return row.toMap().value("job_name").toString() == QString::fromUtf8("未收录职业名称");
         }));
         const auto nameOnly = shown[shown.size() - 2].toMap();
@@ -351,22 +352,22 @@ private Q_SLOTS:
         model.setBackend(&backend);
         model.reload();
         QTRY_COMPARE(model.rowCount(), 8);
-        QCOMPARE(model.totalCompletedCount(), qint64(42));
+        QCOMPARE(model.totalCompletedCount(), static_cast<qint64>(42));
         QVERIFY(model.totalAttemptCount() > model.totalCompletedCount());
         const auto categories = model.categoryBreakdown();
         const auto special = model.specialDutyBreakdown();
-        QCOMPARE(total(categories), qint64(42));
-        QCOMPARE(total(special), qint64(42));
-        QCOMPARE(count(categories, "四人迷宫"), qint64(22));
-        QCOMPARE(count(categories, "讨伐歼灭战"), qint64(9));
-        QCOMPARE(count(categories, "行会令"), qint64(5));
-        QCOMPARE(count(categories, "未识别"), qint64(6));
-        QCOMPARE(count(special, "主线副本"), qint64(10));
-        QCOMPARE(count(special, "行会令"), qint64(5));
-        QCOMPARE(count(special, "其他副本"), qint64(10));
-        QCOMPARE(count(special, "未识别"), qint64(17));
+        QCOMPARE(total(categories), static_cast<qint64>(42));
+        QCOMPARE(total(special), static_cast<qint64>(42));
+        QCOMPARE(count(categories, "四人迷宫"), static_cast<qint64>(22));
+        QCOMPARE(count(categories, "讨伐歼灭战"), static_cast<qint64>(9));
+        QCOMPARE(count(categories, "行会令"), static_cast<qint64>(5));
+        QCOMPARE(count(categories, "未识别"), static_cast<qint64>(6));
+        QCOMPARE(count(special, "主线副本"), static_cast<qint64>(10));
+        QCOMPARE(count(special, "行会令"), static_cast<qint64>(5));
+        QCOMPARE(count(special, "其他副本"), static_cast<qint64>(10));
+        QCOMPARE(count(special, "未识别"), static_cast<qint64>(17));
         QCOMPARE(bucket(special, QString::fromUtf8("主线副本")).value("share").toDouble(), 10.0 / 42.0);
-        QCOMPARE(bucket(categories, QString::fromUtf8("大型任务")).value("completed_count").toLongLong(), qint64(0));
+        QCOMPARE(bucket(categories, QString::fromUtf8("大型任务")).value("completed_count").toLongLong(), static_cast<qint64>(0));
         QCOMPARE(bucket(categories, QString::fromUtf8("大型任务")).value("share").toDouble(), 0.0);
     }
 
@@ -381,13 +382,13 @@ private Q_SLOTS:
         model.setBackend(&backend);
         model.reload();
         QTRY_COMPARE(model.rowCount(), 2);
-        QCOMPARE(count(model.specialDutyBreakdown(), "主线副本"), qint64(5));
-        QCOMPARE(count(model.specialDutyBreakdown(), "行会令"), qint64(0));
-        QCOMPARE(count(model.specialDutyBreakdown(), "其他副本"), qint64(7));
+        QCOMPARE(count(model.specialDutyBreakdown(), "主线副本"), static_cast<qint64>(5));
+        QCOMPARE(count(model.specialDutyBreakdown(), "行会令"), static_cast<qint64>(0));
+        QCOMPARE(count(model.specialDutyBreakdown(), "其他副本"), static_cast<qint64>(7));
         // Category composition preserves the backend's corrected category, while
         // a missing category falls back to the installed catalogue.
-        QCOMPARE(count(model.categoryBreakdown(), "四人迷宫"), qint64(5));
-        QCOMPARE(count(model.categoryBreakdown(), "行会令"), qint64(7));
+        QCOMPARE(count(model.categoryBreakdown(), "四人迷宫"), static_cast<qint64>(5));
+        QCOMPARE(count(model.categoryBreakdown(), "行会令"), static_cast<qint64>(7));
     }
 
     void extremeTrialsUseBundledIdentityWithoutChangingDifficultySelection()
@@ -431,12 +432,12 @@ private Q_SLOTS:
         model.reload();
         QTRY_COMPARE(model.rowCount(), 10);
         const auto categories = model.categoryBreakdown();
-        QCOMPARE(model.totalCompletedCount(), qint64(65));
+        QCOMPARE(model.totalCompletedCount(), static_cast<qint64>(65));
         QCOMPARE(total(categories), model.totalCompletedCount());
-        QCOMPARE(count(categories, "极神"), qint64(7));
-        QCOMPARE(count(categories, "讨伐歼灭战"), qint64(38));
-        QCOMPARE(count(categories, "四人迷宫"), qint64(11));
-        QCOMPARE(count(categories, "未识别"), qint64(9));
+        QCOMPARE(count(categories, "极神"), static_cast<qint64>(7));
+        QCOMPARE(count(categories, "讨伐歼灭战"), static_cast<qint64>(38));
+        QCOMPARE(count(categories, "四人迷宫"), static_cast<qint64>(11));
+        QCOMPARE(count(categories, "未识别"), static_cast<qint64>(9));
         const auto extreme = bucket(categories, QString::fromUtf8("极神"));
         QCOMPARE(extreme.value("share").toDouble(), 7.0 / 65.0);
         QVERIFY(!extreme.value("is_unknown").toBool());
@@ -471,7 +472,7 @@ private Q_SLOTS:
         model.reload();
         QTRY_COMPARE(model.rowCount(), 4);
         const auto chinese = model.categoryBreakdown();
-        QCOMPARE(count(chinese, "极神"), qint64(3));
+        QCOMPARE(count(chinese, "极神"), static_cast<qint64>(3));
         for (const int limit : {1, 5, 0}) {
             QCOMPARE(model.topRows(limit).size(), limit == 1 ? 1 : 4);
             QCOMPARE(model.categoryBreakdown(), chinese);
@@ -479,8 +480,8 @@ private Q_SLOTS:
         const int requests = backend.requests;
         language.setLanguage(QStringLiteral("en"));
         const auto english = model.categoryBreakdown();
-        QCOMPARE(count(english, "Extreme Trials"), qint64(3));
-        QCOMPARE(total(english), qint64(17));
+        QCOMPARE(count(english, "Extreme Trials"), static_cast<qint64>(3));
+        QCOMPARE(total(english), static_cast<qint64>(17));
         QCOMPARE(english.size(), chinese.size());
         for (qsizetype i = 0; i < chinese.size(); ++i) {
             auto before = chinese.at(i).toMap();
@@ -512,10 +513,10 @@ private Q_SLOTS:
         QCOMPARE(model.topRows(10).size(), 10);
         QCOMPARE(model.topRows(20).size(), 20);
         QCOMPARE(model.topRows(0).size(), 403);
-        QCOMPARE(model.totalCompletedCount(), qint64(530));
-        QCOMPARE(total(model.categoryBreakdown()), qint64(530));
-        QCOMPARE(count(model.categoryBreakdown(), "未识别"), qint64(30));
-        QCOMPARE(count(model.specialDutyBreakdown(), "主线副本"), qint64(99));
+        QCOMPARE(model.totalCompletedCount(), static_cast<qint64>(530));
+        QCOMPARE(total(model.categoryBreakdown()), static_cast<qint64>(530));
+        QCOMPARE(count(model.categoryBreakdown(), "未识别"), static_cast<qint64>(30));
+        QCOMPARE(count(model.specialDutyBreakdown(), "主线副本"), static_cast<qint64>(99));
     }
 
     void emptyTotalsKeepZeroBucketsAndUndefinedShares()
@@ -526,23 +527,23 @@ private Q_SLOTS:
         model.setBackend(&backend);
         model.reload();
         QTRY_VERIFY(!model.isLoading());
-        QCOMPARE(model.totalCompletedCount(), qint64(0));
+        QCOMPARE(model.totalCompletedCount(), static_cast<qint64>(0));
         QCOMPARE(model.specialDutyBreakdown().size(), 4);
         QCOMPARE(model.categoryBreakdown().size(), 7);
         QVERIFY(!bucket(model.categoryBreakdown(), QString::fromUtf8("极神")).isEmpty());
         QVERIFY(!bucket(model.categoryBreakdown(), QString::fromUtf8("未识别")).isEmpty());
         for (const auto &group : {model.categoryBreakdown(), model.specialDutyBreakdown()}) {
             for (const QVariant &value : group) {
-                QCOMPARE(value.toMap().value("completed_count").toLongLong(), qint64(0));
+                QCOMPARE(value.toMap().value("completed_count").toLongLong(), static_cast<qint64>(0));
                 QVERIFY(value.toMap().value("share").isNull());
             }
         }
         backend.rows = {duty(63, QString::fromUtf8("讨伐歼灭战"), 0),
                         duty(56, QString::fromUtf8("讨伐歼灭战"), 1)};
         model.reload();
-        QTRY_COMPARE(model.totalCompletedCount(), qint64(1));
+        QTRY_COMPARE(model.totalCompletedCount(), static_cast<qint64>(1));
         const auto extreme = bucket(model.categoryBreakdown(), QString::fromUtf8("极神"));
-        QCOMPARE(extreme.value("completed_count").toLongLong(), qint64(0));
+        QCOMPARE(extreme.value("completed_count").toLongLong(), static_cast<qint64>(0));
         QCOMPARE(extreme.value("share").toDouble(), 0.0);
         QVERIFY(!extreme.value("is_unknown").toBool());
     }
@@ -556,7 +557,7 @@ private Q_SLOTS:
         model.setBackend(&backend);
         model.reload();
         QTRY_COMPARE(model.rowCount(), 2);
-        const qint64 expected = qint64(std::numeric_limits<int>::max()) * 2;
+        const qint64 expected = static_cast<qint64>(std::numeric_limits<int>::max()) * 2;
         QCOMPARE(model.totalCompletedCount(), expected);
         QCOMPARE(count(model.categoryBreakdown(), "四人迷宫"), expected);
         QCOMPARE(count(model.specialDutyBreakdown(), "主线副本"), expected);
@@ -591,7 +592,7 @@ private Q_SLOTS:
         scene.backend.rows[2] = duty(63, QString::fromUtf8("讨伐歼灭战"), 5);
         QVERIFY2(scene.create(theme, style, width, graphs), qPrintable(scene.errors));
         QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
-        QTRY_COMPARE(scene.controller.dungeons()->totalCompletedCount(), qint64(42));
+        QTRY_COMPARE(scene.controller.dungeons()->totalCompletedCount(), static_cast<qint64>(42));
         auto *page = scene.item(QStringLiteral("dungeonsPage"));
         auto *category = scene.item(QStringLiteral("dungeonCategoryPie"));
         auto *special = scene.item(QStringLiteral("dungeonSpecialPie"));
@@ -620,7 +621,7 @@ private Q_SLOTS:
         }
         const QVariantList before = qmlList(special->property("buckets"));
         const QVariantList categoriesBefore = qmlList(category->property("buckets"));
-        QCOMPARE(count(categoriesBefore, "极神"), qint64(5));
+        QCOMPARE(count(categoriesBefore, "极神"), static_cast<qint64>(5));
         QCOMPARE(before.size(), 4);
         QVERIFY(page->setProperty("topLimit", 0));
         QCOMPARE(qmlList(special->property("buckets")), before);
@@ -786,9 +787,11 @@ private Q_SLOTS:
         const auto dashboard = [](int unknown) {
             QJsonArray buckets;
             for (const char *code : {"COMPLETED", "LEFT_OR_ABANDONED", "CANCELLED_BEFORE_ENTRY", "DISCONNECTED", "INTERRUPTED", "UNKNOWN"}) {
-                const int count = QByteArray(code) == "COMPLETED" ? 1 : (QByteArray(code) == "UNKNOWN" ? unknown : 0);
+                int count = 0;
+                if (QByteArray(code) == "COMPLETED") count = 1;
+                else if (QByteArray(code) == "UNKNOWN") count = unknown;
                 buckets.append(QJsonObject{{"result", QString::fromLatin1(code)}, {"count", count},
-                                           {"share", double(count) / (1 + unknown)}});
+                                           {"share", static_cast<double>(count) / (1 + unknown)}});
             }
             return QJsonObject{{"attempt_count", 1 + unknown}, {"completed_count", 1},
                                {"result_breakdown", QJsonObject{{"buckets", buckets}}}};
@@ -812,7 +815,7 @@ private Q_SLOTS:
                         scene.backend.rows[2] = duty(QJsonValue::Null, QJsonValue::Null, unknown, unknown, QString::fromUtf8("未知副本"));
                         scene.controller.dungeons()->reload();
                     }
-                    QTRY_COMPARE(scene.controller.dungeons()->totalCompletedCount(), qint64(1 + unknown));
+                    QTRY_COMPARE(scene.controller.dungeons()->totalCompletedCount(), static_cast<qint64>(1 + unknown));
                     QTRY_COMPARE(qmlList(page->property("rowsCache")).size(), unknown ? 3 : 2);
                     QCOMPARE(scene.controller.dungeons()->topRows(0).size(), 3);
                     for (const QString &chartName : {QStringLiteral("dungeonCategoryPie"), QStringLiteral("dungeonSpecialPie")}) {
@@ -826,7 +829,7 @@ private Q_SLOTS:
                         QCOMPARE(raw.last().toMap().value("completed_count").toInt(), unknown);
                         QCOMPARE(raw.last().toMap().value("label").toString(), language.code() == QLatin1String("en")
                                  ? QStringLiteral("Unrecognized") : QString::fromUtf8("未识别"));
-                        QCOMPARE(total(raw), qint64(1 + unknown));
+                        QCOMPARE(total(raw), static_cast<qint64>(1 + unknown));
                         for (qsizetype i = 0; i < raw.size() - 1; ++i)
                             QVERIFY(!raw[i].toMap().value("is_unknown").toBool());
                         const int shown = rawSize - (unknown == 0 ? 1 : 0);
@@ -1007,6 +1010,7 @@ private Q_SLOTS:
         QVERIFY2(scene.warnings.isEmpty(), qPrintable(scene.warnings.join(QLatin1Char('\n'))));
     }
 };
+} // namespace
 
 int main(int argc, char **argv)
 {

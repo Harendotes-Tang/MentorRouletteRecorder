@@ -4,6 +4,7 @@
 #include <QSignalSpy>
 #include <QTest>
 
+namespace {
 class SelectionBackend : public mr::IBackend
 {
 public:
@@ -29,7 +30,9 @@ public:
         return reply;
     }
 };
+} // namespace
 
+namespace {
 class GameSelectionTests : public QObject
 {
     Q_OBJECT
@@ -273,6 +276,7 @@ private slots:
         QCOMPARE(selected.count(), 0);
     }
 };
+} // namespace
 
 int main(int argc, char **argv)
 {

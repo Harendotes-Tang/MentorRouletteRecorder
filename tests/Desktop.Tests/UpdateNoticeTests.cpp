@@ -327,6 +327,7 @@ ApplicationWindow {
 
 } // namespace
 
+namespace {
 class UpdateNoticeTests : public QObject
 {
     Q_OBJECT
@@ -1045,6 +1046,7 @@ ApplicationWindow {
         QVERIFY(!all.contains(QString::fromUtf8("本软件从不自动下载、也从不安装新版本")));
     }
 };
+} // namespace
 
 int main(int argc, char **argv)
 {

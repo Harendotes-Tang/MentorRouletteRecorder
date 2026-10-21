@@ -47,7 +47,11 @@
 #endif
 
 namespace {
-const QString kEvidence = QStringLiteral("/artifacts/statistics-float-20261020");
+const QString &kEvidence()
+{
+    static const QString value = QStringLiteral("/artifacts/statistics-float-20261020");
+    return value;
+}
 
 QVariantMap unknownResultRun(int sequence = 1)
 {
@@ -76,7 +80,7 @@ QVariantMap completedRun(int sequence = 1)
 }
 
 struct Scene {
-    QTemporaryDir directory{QString::fromUtf8(MR_SOURCE_DIR) + kEvidence + QStringLiteral("/test-settings-XXXXXX")};
+    QTemporaryDir directory{QString::fromUtf8(MR_SOURCE_DIR) + kEvidence() + QStringLiteral("/test-settings-XXXXXX")};
     mr::AppSettings settings{directory.filePath(QStringLiteral("desktop.ini")), nullptr};
     mr::LanguageManager language{&settings};
     mr::MockBackend backend;
@@ -143,10 +147,21 @@ ApplicationWindow {
     }
     bool click(const QString &name) const
     {
-        auto *target = item(name, true);
-        if (!target || !target->isEnabled() || target->width() <= 0) return false;
-        QTest::mouseClick(target->window(), Qt::LeftButton, Qt::NoModifier,
-                          target->mapToScene(QPointF(target->width() / 2, target->height() / 2)).toPoint());
+        QQuickItem *target = nullptr;
+        QPoint point;
+        // Module changes rebuild the Repeater before its new rows are laid out.
+        // Polish their visual ancestry before mapping the actual mouse target.
+        if (!QTest::qWaitFor([&] {
+                target = item(name, true);
+                if (!target || !target->isEnabled() || !target->window()) return false;
+                QList<QQuickItem *> ancestors;
+                for (auto *parent = target; parent; parent = parent->parentItem()) ancestors.prepend(parent);
+                for (auto *parent : ancestors) parent->ensurePolished();
+                if (target->width() <= 0 || target->height() <= 0) return false;
+                point = target->mapToScene(QPointF(target->width() / 2, target->height() / 2)).toPoint();
+                return QRect(QPoint(), target->window()->size()).contains(point);
+            }, 1500)) return false;
+        QTest::mouseClick(target->window(), Qt::LeftButton, Qt::NoModifier, point);
         return true;
     }
     QStringList texts() const
@@ -216,11 +231,12 @@ ApplicationWindow {
     bool grab(const QString &name) const
     {
         QTest::qWait(80);
-        return floating()->grabWindow().save(QString::fromUtf8(MR_SOURCE_DIR) + kEvidence + QLatin1Char('/') + name + QStringLiteral(".png"));
+        return floating()->grabWindow().save(QString::fromUtf8(MR_SOURCE_DIR) + kEvidence() + QLatin1Char('/') + name + QStringLiteral(".png"));
     }
 };
 }
 
+namespace {
 class StatisticsOverlayTests : public QObject
 {
     Q_OBJECT
@@ -243,7 +259,10 @@ private:
         QTRY_COMPARE(scene.overlay()->modules(), QStringList({"jobs"}));
         // 副本排行: choosing 前 5 changes the ranking (audit 2026-10-20, L3-6 / I2-5).
         auto *rowLimit = scene.item(QStringLiteral("floatingRowLimit"), true);
-        QVERIFY(rowLimit);
+        if (!rowLimit) {
+            QTest::qFail("floatingRowLimit was not found", __FILE__, __LINE__);
+            return;
+        }
         QQuickItem *topFive = nullptr;
         const auto findOption = [&](auto &&self, QQuickItem *parent) -> void {
             if (!topFive && parent->inherits("QQuickAbstractButton") && parent->property("text").toString() == QString::fromUtf8("前 5"))
@@ -251,7 +270,11 @@ private:
             for (auto *child : parent->childItems()) self(self, child);
         };
         findOption(findOption, rowLimit);
-        QVERIFY(topFive && topFive->isVisible());
+        if (!topFive) {
+            QTest::qFail("The top-five row limit option was not found", __FILE__, __LINE__);
+            return;
+        }
+        QVERIFY(topFive->isVisible());
         QCOMPARE(scene.overlay()->rowLimit(), 3);
         QTest::mouseClick(topFive->window(), Qt::LeftButton, Qt::NoModifier,
                           topFive->mapToScene(QPointF(topFive->width() / 2, topFive->height() / 2)).toPoint());
@@ -331,7 +354,7 @@ private:
                 .arg(topTip.x()).arg(topTip.y()).arg(topTip.width()).arg(topTip.height())
                 .arg(topBar.x()).arg(topBar.y()).arg(topBar.width()).arg(topBar.height())));
             QVERIFY2(topTip.top() >= screen.top(), qPrintable(QStringLiteral("tip top %1 above screen top %2").arg(topTip.top()).arg(screen.top())));
-            QVERIFY(tipWindow->grabWindow().save(QString::fromUtf8(MR_SOURCE_DIR) + kEvidence + QStringLiteral("/mini-lock-tip-screen-top.png")));
+            QVERIFY(tipWindow->grabWindow().save(QString::fromUtf8(MR_SOURCE_DIR) + kEvidence() + QStringLiteral("/mini-lock-tip-screen-top.png")));
         }
         QTest::mouseMove(scene.floating(), QPoint(150, 300));
         QTRY_VERIFY(!lockTip->property("visible").toBool());
@@ -363,10 +386,11 @@ private Q_SLOTS:
     void renderedEvidence_data();
     void renderedEvidence();
 };
+} // namespace
 
 void StatisticsOverlayTests::initTestCase()
 {
-    QVERIFY(QDir().mkpath(QString::fromUtf8(MR_SOURCE_DIR) + kEvidence));
+    QVERIFY(QDir().mkpath(QString::fromUtf8(MR_SOURCE_DIR) + kEvidence()));
     const QString base = QString::fromUtf8(MR_DESKTOP_QML_DIR);
     qmlRegisterSingletonType(QUrl::fromLocalFile(base + QStringLiteral("/Theme.qml")), "MentorRecorder", 1, 0, "Theme");
     for (const auto &directory : {QStringLiteral("/components"), QStringLiteral("/pages"),
@@ -381,7 +405,7 @@ void StatisticsOverlayTests::initTestCase()
 
 void StatisticsOverlayTests::preferencesPersistButVisibilityAndLockDoNot()
 {
-    QTemporaryDir directory(QString::fromUtf8(MR_SOURCE_DIR) + kEvidence + QStringLiteral("/preferences-XXXXXX"));
+    QTemporaryDir directory(QString::fromUtf8(MR_SOURCE_DIR) + kEvidence() + QStringLiteral("/preferences-XXXXXX"));
     const QString path = directory.filePath(QStringLiteral("ui.ini"));
     const QStringList everything{"progress", "current_duty", "elapsed", "dungeons", "jobs", "pending_work"};
     {
@@ -431,7 +455,7 @@ void StatisticsOverlayTests::preferencesPersistButVisibilityAndLockDoNot()
 
 void StatisticsOverlayTests::moduleOrderSurvivesSwitchingOff()
 {
-    QTemporaryDir directory(QString::fromUtf8(MR_SOURCE_DIR) + kEvidence + QStringLiteral("/order-XXXXXX"));
+    QTemporaryDir directory(QString::fromUtf8(MR_SOURCE_DIR) + kEvidence() + QStringLiteral("/order-XXXXXX"));
     const QString path = directory.filePath(QStringLiteral("ui.ini"));
     {
         mr::AppSettings settings(path, nullptr);
@@ -463,7 +487,7 @@ void StatisticsOverlayTests::moduleOrderSurvivesSwitchingOff()
 
 void StatisticsOverlayTests::invalidPreferencesAreBounded()
 {
-    QTemporaryDir directory(QString::fromUtf8(MR_SOURCE_DIR) + kEvidence + QStringLiteral("/invalid-preferences-XXXXXX"));
+    QTemporaryDir directory(QString::fromUtf8(MR_SOURCE_DIR) + kEvidence() + QStringLiteral("/invalid-preferences-XXXXXX"));
     const QString path = directory.filePath(QStringLiteral("ui.ini"));
     {
         QSettings raw(path, QSettings::IniFormat);
@@ -752,7 +776,7 @@ void StatisticsOverlayTests::miniBarTipsOpenOutsideTheBar()
     QVERIFY2(!tip.intersects(bar), qPrintable(QStringLiteral("tip %1,%2 %3x%4 overlaps bar %5,%6 %7x%8")
         .arg(tip.x()).arg(tip.y()).arg(tip.width()).arg(tip.height())
         .arg(bar.x()).arg(bar.y()).arg(bar.width()).arg(bar.height())));
-    QVERIFY(tipWindow->grabWindow().save(QString::fromUtf8(MR_SOURCE_DIR) + kEvidence + QStringLiteral("/mini-lock-tip.png")));
+    QVERIFY(tipWindow->grabWindow().save(QString::fromUtf8(MR_SOURCE_DIR) + kEvidence() + QStringLiteral("/mini-lock-tip.png")));
     QVERIFY(scene.grab(QStringLiteral("mini-lock-hovered")));
 
     // Leaving the button for the figures swaps the tips over.
@@ -843,8 +867,8 @@ void StatisticsOverlayTests::hiddenFloatKeepsItsEndlessAnimationsStill()
     QVERIFY2(scene.create(QStringLiteral("harendotes"), true, false, false), qPrintable(scene.errors));
     QVERIFY(!scene.floating()->isVisible());
     const struct { mr::MockBackend::LiveMode mode; const char *state; } runs[] = {
-        {mr::MockBackend::LiveMode::Matched, "MENTOR_MATCHED"},
-        {mr::MockBackend::LiveMode::Entered, "ENTERED_DUTY"}};
+        {.mode=mr::MockBackend::LiveMode::Matched, .state="MENTOR_MATCHED"},
+        {.mode=mr::MockBackend::LiveMode::Entered, .state="ENTERED_DUTY"}};
     for (const auto &run : runs) {
         scene.backend.setLiveMode(run.mode);
         QTRY_COMPARE(scene.app->currentRunState(), QString::fromLatin1(run.state));
@@ -964,13 +988,13 @@ void StatisticsOverlayTests::entryButtonFollowsPageTheme()
     auto *background = button->property("background").value<QQuickItem *>();
     QVERIFY(background);
     QTest::mouseMove(scene.mainWindow(), QPoint(2, scene.mainWindow()->height() - 2));
-    const QString output = QString::fromUtf8(MR_SOURCE_DIR) + kEvidence + QStringLiteral("/entry");
+    const QString output = QString::fromUtf8(MR_SOURCE_DIR) + kEvidence() + QStringLiteral("/entry");
     QVERIFY(QDir().mkpath(output));
     for (bool dark : {true, false}) {
         scene.app->setThemeMode(dark ? QStringLiteral("dark") : QStringLiteral("light"));
         const auto followsTheme = [&] {
             const QColor color = background->property("color").value<QColor>();
-            const double luma = 0.2126 * color.redF() + 0.7152 * color.greenF() + 0.0722 * color.blueF();
+            const double luma = (0.2126 * color.redF()) + (0.7152 * color.greenF()) + (0.0722 * color.blueF());
             return dark ? luma < 0.5 : luma > 0.5;
         };
         QTRY_VERIFY2(followsTheme(), qPrintable(background->property("color").value<QColor>().name()));

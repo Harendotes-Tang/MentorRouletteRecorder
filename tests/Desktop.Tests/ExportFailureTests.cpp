@@ -38,6 +38,7 @@ public:
 
 } // namespace
 
+namespace {
 class ExportFailureTests final : public QObject
 {
     Q_OBJECT
@@ -115,6 +116,7 @@ private Q_SLOTS:
         QCOMPARE(opened.urls, QList<QUrl>{QUrl::fromLocalFile(QDir::cleanPath(dataDirectory))});
     }
 };
+} // namespace
 
 int main(int argc, char **argv)
 {

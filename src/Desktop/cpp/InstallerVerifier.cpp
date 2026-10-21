@@ -127,17 +127,17 @@ bool InstallerHold::isAt(const QString &path) const
     if (!m_handle)
         return false;
     std::wstring resolved(MAX_PATH, L'\0');
-    DWORD length = ::GetFinalPathNameByHandleW(m_handle, resolved.data(), DWORD(resolved.size()),
+    DWORD length = ::GetFinalPathNameByHandleW(m_handle, resolved.data(), static_cast<DWORD>(resolved.size()),
                                                FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
     if (length >= resolved.size()) {
         // Too small: the answer is the size needed, terminator included.
         resolved.assign(length, L'\0');
-        length = ::GetFinalPathNameByHandleW(m_handle, resolved.data(), DWORD(resolved.size()),
+        length = ::GetFinalPathNameByHandleW(m_handle, resolved.data(), static_cast<DWORD>(resolved.size()),
                                              FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
     }
     if (length == 0 || length >= resolved.size())
         return false;
-    QString held = QString::fromWCharArray(resolved.data(), int(length));
+    QString held = QString::fromWCharArray(resolved.data(), static_cast<int>(length));
     // \\?\C:\... on a drive, \\?\UNC\server\share\... on a share.
     static const QString kUnc = QStringLiteral("\\\\?\\UNC\\");
     static const QString kLocal = QStringLiteral("\\\\?\\");
@@ -160,12 +160,12 @@ QByteArray InstallerHold::read(qint64 maxBytes, bool *ok)
         return {};
     // A slice is never more than this, however much is asked for.
     constexpr qint64 kMostPerRead = 16LL * 1024 * 1024;
-    const DWORD wanted = DWORD(std::clamp(maxBytes, qint64{1}, kMostPerRead));
-    QByteArray bytes(qsizetype(wanted), Qt::Uninitialized);
+    const DWORD wanted = static_cast<DWORD>(std::clamp(maxBytes, qint64{1}, kMostPerRead));
+    QByteArray bytes(static_cast<qsizetype>(wanted), Qt::Uninitialized);
     DWORD received = 0;
     if (!::ReadFile(m_handle, bytes.data(), wanted, &received, nullptr))
         return {};
-    bytes.truncate(qsizetype(received));
+    bytes.truncate(static_cast<qsizetype>(received));
     *ok = true;
     return bytes;
 #else

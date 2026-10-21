@@ -36,11 +36,11 @@ struct TemplateDefault
     const char *text;
 };
 const TemplateDefault kTemplateDefaults[] = {
-    {"tpl_matched", QT_TRANSLATE_NOOP("mr::AppSettings", "指导者任务匹配成功")},
-    {"tpl_entered", QT_TRANSLATE_NOOP("mr::AppSettings", "进入 {duty}")},
-    {"tpl_completed", QT_TRANSLATE_NOOP("mr::AppSettings", "导随完成，当前 {progress} 次，剩余 {remaining}")},
-    {"tpl_finished", QT_TRANSLATE_NOOP("mr::AppSettings", "导随结束，请确认是否通关，已确认 {progress} 次")},
-    {"tpl_aborted", QT_TRANSLATE_NOOP("mr::AppSettings", "导随异常结束")},
+    {.leaf = "tpl_matched", .text = QT_TRANSLATE_NOOP("mr::AppSettings", "指导者任务匹配成功")},
+    {.leaf = "tpl_entered", .text = QT_TRANSLATE_NOOP("mr::AppSettings", "进入 {duty}")},
+    {.leaf = "tpl_completed", .text = QT_TRANSLATE_NOOP("mr::AppSettings", "导随完成，当前 {progress} 次，剩余 {remaining}")},
+    {.leaf = "tpl_finished", .text = QT_TRANSLATE_NOOP("mr::AppSettings", "导随结束，请确认是否通关，已确认 {progress} 次")},
+    {.leaf = "tpl_aborted", .text = QT_TRANSLATE_NOOP("mr::AppSettings", "导随异常结束")},
 };
 
 QString templateDefault(const char *leaf)

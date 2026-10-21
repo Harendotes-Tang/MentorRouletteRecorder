@@ -25,6 +25,7 @@
 // library these tests link; the screenshot tests MentorRecorderQmlLanguage_*
 // (tests/Desktop.Tests/CMakeLists.txt) run the executable with --ui-language and
 // find the translated text on screen.
+namespace {
 class LanguageManagerTests : public QObject
 {
     Q_OBJECT
@@ -225,7 +226,7 @@ Window {
                     const QFont actual = item->property("font").value<QFont>();
                     QCOMPARE(QFontInfo(actual).family(), QFontInfo(QFont(family)).family());
                     QCOMPARE(item->property("renderType").toInt(),
-                             int(code == QLatin1String("zh-TW")
+                             static_cast<int>(code == QLatin1String("zh-TW")
                                  ? QQuickWindow::CurveTextRendering : QQuickWindow::NativeTextRendering));
                     if (text == navigation->property("label").toString()) {
                         QCOMPARE(actual.weight(), selected ? QFont::DemiBold : QFont::Medium);
@@ -312,11 +313,11 @@ Window {
     {
         using Voice = mr::TtsService::VoiceEntry;
         const QList<Voice> voices{
-            {QStringLiteral("Zira"), QLocale(QLocale::English, QLocale::UnitedStates)},
-            {QStringLiteral("Haruka"), QLocale(QLocale::Japanese, QLocale::Japan)},
-            {QStringLiteral("Hanhan"), QLocale(QLocale::Chinese, QLocale::Taiwan)},
-            {QStringLiteral("Huihui"), QLocale(QLocale::Chinese, QLocale::China)},
-            {QStringLiteral("Hazel"), QLocale(QLocale::English, QLocale::UnitedKingdom)},
+            {.name=QStringLiteral("Zira"), .locale=QLocale(QLocale::English, QLocale::UnitedStates)},
+            {.name=QStringLiteral("Haruka"), .locale=QLocale(QLocale::Japanese, QLocale::Japan)},
+            {.name=QStringLiteral("Hanhan"), .locale=QLocale(QLocale::Chinese, QLocale::Taiwan)},
+            {.name=QStringLiteral("Huihui"), .locale=QLocale(QLocale::Chinese, QLocale::China)},
+            {.name=QStringLiteral("Hazel"), .locale=QLocale(QLocale::English, QLocale::UnitedKingdom)},
         };
         const auto names = [](const QList<Voice> &list) {
             QStringList out;
@@ -353,6 +354,7 @@ Window {
         manager.setLanguage("zh-CN");
     }
 };
+} // namespace
 
 int main(int argc, char **argv)
 {

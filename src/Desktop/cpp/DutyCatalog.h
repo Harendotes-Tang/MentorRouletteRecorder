@@ -38,7 +38,7 @@ public:
     /// JSON, so the models, the controller and QML share one parse.
     static DutyCatalog *shared();
 
-    int count() const { return int(m_byContentId.size()); }
+    int count() const { return static_cast<int>(m_byContentId.size()); }
     QString dataVersion() const { return m_dataVersion; }
 
     /// The catalogue row for \a contentId, or an empty map. Keys:

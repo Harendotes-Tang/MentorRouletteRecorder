@@ -74,10 +74,10 @@ void DutyCatalog::load()
             continue;
 
         QVariantMap row;
-        row.insert(QStringLiteral("content_id"), qint64(contentId.toDouble()));
+        row.insert(QStringLiteral("content_id"), static_cast<qint64>(contentId.toDouble()));
         if (duty.value(QStringLiteral("territory_id")).isDouble()) {
             row.insert(QStringLiteral("territory_id"),
-                       qint64(duty.value(QStringLiteral("territory_id")).toDouble()));
+                       static_cast<qint64>(duty.value(QStringLiteral("territory_id")).toDouble()));
         }
         row.insert(QStringLiteral("duty_name"),
                    duty.value(QStringLiteral("localized_name")).toString());
@@ -95,13 +95,13 @@ void DutyCatalog::load()
                    difficultyForName(duty.value(QStringLiteral("localized_name")).toString()));
         row.insert(QStringLiteral("version"), versionForExpansion(expansion));
 
-        m_byContentId.insert(qint64(contentId.toDouble()), row);
+        m_byContentId.insert(static_cast<qint64>(contentId.toDouble()), row);
         if (row.contains(QStringLiteral("territory_id")))
             m_byTerritoryId[row.value(QStringLiteral("territory_id")).toLongLong()].append(row);
         rows.append(row);
     }
 
-    std::stable_sort(rows.begin(), rows.end(),
+    std::ranges::stable_sort(rows,
                      [](const QVariantMap &a, const QVariantMap &b) {
                          const QString ea = a.value(QStringLiteral("duty_expansion")).toString();
                          const QString eb = b.value(QStringLiteral("duty_expansion")).toString();

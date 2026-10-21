@@ -20,7 +20,7 @@ namespace {
 QString byteSize(double bytes)
 {
     if (bytes < 1024)
-        return QStringLiteral("%1 B").arg(qint64(bytes));
+        return QStringLiteral("%1 B").arg(static_cast<qint64>(bytes));
     if (bytes < 1024.0 * 1024.0)
         return QStringLiteral("%1 KB").arg(bytes / 1024.0, 0, 'f', 1);
     return QStringLiteral("%1 MB").arg(bytes / (1024.0 * 1024.0), 0, 'f', 2);
@@ -202,7 +202,7 @@ void ExportController::exportDiagnosticsReport()
                 tr("诊断报告已保存到 %1（%2，不含游戏内容、网络地址和个人路径）")
                     .arg(QDir::toNativeSeparators(
                              payload.value(QStringLiteral("target_path")).toString()),
-                         byteSize(double(
+                         byteSize(static_cast<double>(
                              payload.value(QStringLiteral("byte_count")).toLongLong()))));
         });
 }

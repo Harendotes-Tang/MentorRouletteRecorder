@@ -110,13 +110,13 @@ void GameSelectionController::observe(const QVariantMap &capture)
     if (m_required) {
         const auto reason = capture.value(QStringLiteral("game_selection_reason")).toString();
         m_selectionMessage = [reason, several = processes.size() > 1] {
-            return reason == QLatin1String("EXITED")
-                ? tr("所选游戏已退出，记录已暂停。单开时重新启动同一游戏会自动接续；无法确认时请重新选择游戏窗口。")
-                : reason == QLatin1String("IDENTITY_UNAVAILABLE")
-                ? tr("暂时无法确认游戏的启动时间，记录已暂停。请重新检测后选择游戏窗口。")
-                : several
-                ? tr("检测到多个游戏客户端，请选择要记录的游戏窗口。")
-                : tr("尚未确定要记录的游戏，请选择要记录的游戏窗口。");
+            if (reason == QLatin1String("EXITED"))
+                return tr("所选游戏已退出，记录已暂停。单开时重新启动同一游戏会自动接续；无法确认时请重新选择游戏窗口。");
+            if (reason == QLatin1String("IDENTITY_UNAVAILABLE"))
+                return tr("暂时无法确认游戏的启动时间，记录已暂停。请重新检测后选择游戏窗口。");
+            if (several)
+                return tr("检测到多个游戏客户端，请选择要记录的游戏窗口。");
+            return tr("尚未确定要记录的游戏，请选择要记录的游戏窗口。");
         };
     }
     m_currentLabel.clear();
@@ -128,7 +128,7 @@ void GameSelectionController::observe(const QVariantMap &capture)
     m_observedPid = selectedPid;
     for (const auto &value : processes) {
         auto choice = value.toMap();
-        const QString label = choiceLabel(choice, int(choices.size()) + 1);
+        const QString label = choiceLabel(choice, static_cast<int>(choices.size()) + 1);
         choice.insert(QStringLiteral("label"), label);
         choices.append(choice);
         if (choice.value(QStringLiteral("process_id")).toInt() == selectedPid)
@@ -154,12 +154,14 @@ void GameSelectionController::beginPick()
         [this, guard, generation](bool ok, const QVariantMap &capture, const QString &, const QString &error) {
         if (generation != m_generation) return;
         m_busy = false;
-        if (!ok) m_message = collector_text::replyErrorText(guard, error);
-        else {
+        if (!ok) {
+            m_message = collector_text::replyErrorText(guard, error);
+        } else {
             observe(capture);
             m_pickChoices = m_choices;
-            if (m_pickChoices.isEmpty()) m_message = [] { return tr("请先启动要记录的游戏。"); };
-            else {
+            if (m_pickChoices.isEmpty()) {
+                m_message = [] { return tr("请先启动要记录的游戏。"); };
+            } else {
                 m_ticks = 0;
                 m_picker.start();
                 m_message = [] { return tr("请在 15 秒内点击要记录的 FF14 窗口；选中后会锁定它。"); };

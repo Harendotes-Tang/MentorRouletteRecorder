@@ -13,9 +13,9 @@ QList<Component> components(std::vector<uchar> mask, int width, int height, bool
     QList<Component> result;
     std::vector<int> pending;
     for (int start = 0; start < width * height; ++start) {
-        if (!mask[size_t(start)])
+        if (!mask[static_cast<size_t>(start)])
             continue;
-        mask[size_t(start)] = 0;
+        mask[static_cast<size_t>(start)] = 0;
         pending.assign(1, start);
         QRect bounds(start % width, start / width, 1, 1);
         for (size_t next = 0; next < pending.size(); ++next) {
@@ -26,16 +26,16 @@ QList<Component> components(std::vector<uchar> mask, int width, int height, bool
             static const std::array<QPoint, 8> offsets{QPoint(-1, 0), QPoint(1, 0), QPoint(0, -1), QPoint(0, 1),
                                                        QPoint(-1, -1), QPoint(1, -1), QPoint(-1, 1), QPoint(1, 1)};
             for (int k = 0; k < (eightConnected ? 8 : 4); ++k) {
-                const QPoint offset = offsets[size_t(k)];
+                const QPoint offset = offsets[static_cast<size_t>(k)];
                 const int nx = px + offset.x();
                 const int ny = py + offset.y();
-                if (nx >= 0 && ny >= 0 && nx < width && ny < height && mask[size_t(ny) * size_t(width) + size_t(nx)]) {
-                    mask[size_t(ny) * size_t(width) + size_t(nx)] = 0;
-                    pending.push_back(ny * width + nx);
+                if (nx >= 0 && ny >= 0 && nx < width && ny < height && mask[(static_cast<size_t>(ny) * static_cast<size_t>(width)) + static_cast<size_t>(nx)]) {
+                    mask[(static_cast<size_t>(ny) * static_cast<size_t>(width)) + static_cast<size_t>(nx)] = 0;
+                    pending.push_back((ny * width) + nx);
                 }
             }
         }
-        result.append({bounds, pending});
+        result.append({.bounds = bounds, .points = pending});
     }
     return result;
 }
@@ -45,15 +45,15 @@ bool isDiagonalCross(const std::vector<int> &points, int width, const QRect &bou
     int diagonal = 0;
     std::array<int, 4> corners{};
     for (const int position : points) {
-        const double dx = double(position % width - bounds.left()) / (bounds.width() - 1);
+        const double dx = static_cast<double>((position % width) - bounds.left()) / (bounds.width() - 1);
         const int y = position / width;
-        const double dy = double(y - bounds.top()) / (bounds.height() - 1);
+        const double dy = static_cast<double>(y - bounds.top()) / (bounds.height() - 1);
         diagonal += std::abs(dx - dy) <= tolerance || std::abs(dx + dy - 1.0) <= tolerance;
         if (std::abs(dx - 0.5) > 0.25 && std::abs(dy - 0.5) > 0.25)
             ++corners[(dy > 0.5 ? size_t{2} : size_t{0}) + (dx > 0.5 ? size_t{1} : size_t{0})];
     }
-    return diagonal >= double(points.size()) * 0.85
-        && std::all_of(corners.begin(), corners.end(), [](int count) { return count >= 3; });
+    return diagonal >= static_cast<double>(points.size()) * 0.85
+        && std::ranges::all_of(corners, [](int count) { return count >= 3; });
 }
 
 } // namespace mr::screenshot
@@ -78,7 +78,7 @@ bool levelToken(const QString &text, int maxLevel = 0, int *level = nullptr, boo
     const QString original = match.captured(3);
     const auto isDigit = [](QChar character) { return character.isDigit(); };
     const bool fullPrefix = !match.captured(1).isEmpty() && !match.captured(2).isEmpty();
-    if (!fullPrefix && std::none_of(original.cbegin(), original.cend(), isDigit))
+    if (!fullPrefix && std::ranges::none_of(original, isDigit))
         return false;
     const auto value = [](QString digits) {
         digits.replace(QLatin1Char('O'), QLatin1Char('0')).replace(QLatin1Char('o'), QLatin1Char('0'));
@@ -92,7 +92,7 @@ bool levelToken(const QString &text, int maxLevel = 0, int *level = nullptr, boo
     if (level)
         *level = result;
     if (misreadDigits)
-        *misreadDigits = !std::all_of(original.cbegin(), original.cend(), isDigit);
+        *misreadDigits = !std::ranges::all_of(original, isDigit);
     return true;
 }
 
@@ -174,7 +174,7 @@ QRect surfaceAlong(const QImage &image, const std::array<int, 2> &columns, const
     if (std::max({qRed(surface), qGreen(surface), qBlue(surface)}) > 210)
         return {};
     const auto matches = [&](int row) {
-        return std::all_of(columns.cbegin(), columns.cend(), [&](int x) {
+        return std::ranges::all_of(columns, [&](int x) {
             return colorDistance(image.pixel(x, row), surface) < 45;
         });
     };
@@ -211,8 +211,8 @@ QRect rowSurface(const QImage &image, const QRect &level, const QRect &date, con
                                                     {level.right() + near, level.right() + inner}}};
     QRect widestSurface;
     for (const std::array<int, 2> &columns : strips) {
-        const bool covered = std::any_of(nearby.cbegin(), nearby.cend(), [&columns](const Word &word) {
-            return std::any_of(columns.cbegin(), columns.cend(), [&word](int x) {
+        const bool covered = std::ranges::any_of(nearby, [&columns](const Word &word) {
+            return std::ranges::any_of(columns, [&word](int x) {
                 return word.rect.left() <= x && x <= word.rect.right();
             });
         });
@@ -279,10 +279,10 @@ QRect typeIconRect(const QImage &image, const QRect &area, QRgb surface, int gly
     const QRect search = area.isValid() ? area.intersected(image.rect()) : QRect();
     if (search.isEmpty())
         return {};
-    std::vector<uchar> mask(size_t(search.width()) * size_t(search.height()), 0);
+    std::vector<uchar> mask(static_cast<size_t>(search.width()) * static_cast<size_t>(search.height()), 0);
     for (int y = 0; y < search.height(); ++y) {
         for (int x = 0; x < search.width(); ++x)
-            mask[size_t(y) * search.width() + x] = isTypeIconPixel(image.pixel(search.left() + x, search.top() + y), surface);
+            mask[(static_cast<size_t>(y) * search.width()) + x] = isTypeIconPixel(image.pixel(search.left() + x, search.top() + y), surface);
     }
     const QList<Component> parts = components(std::move(mask), search.width(), search.height(), false);
     const auto iconShaped = [glyph](const QRect &rect) {
@@ -337,7 +337,7 @@ QList<Word> rowTimeWords(const QList<Word> &words, const Word &date, bool &stack
         if (!isDeleteText(word.text.trimmed()))
             sorted.append(word);
     }
-    std::sort(sorted.begin(), sorted.end(), [](const Word &a, const Word &b) {
+    std::ranges::sort(sorted, [](const Word &a, const Word &b) {
         return a.rect.left() < b.rect.left();
     });
     // Columns are separated by much more than the space between date and time.
@@ -376,7 +376,7 @@ QList<Word> rowTimeWords(const QList<Word> &words, const Word &date, bool &stack
  */
 QList<QList<Word>> visualLines(QList<Word> words)
 {
-    std::sort(words.begin(), words.end(), [](const Word &a, const Word &b) {
+    std::ranges::sort(words, [](const Word &a, const Word &b) {
         return a.rect.center().y() < b.rect.center().y();
     });
     QList<QList<Word>> lines;
@@ -392,7 +392,7 @@ QList<QList<Word>> visualLines(QList<Word> words)
         }
     }
     for (QList<Word> &line : lines) {
-        std::sort(line.begin(), line.end(), [](const Word &a, const Word &b) {
+        std::ranges::sort(line, [](const Word &a, const Word &b) {
             return a.rect.left() < b.rect.left();
         });
     }
@@ -421,22 +421,22 @@ QRect rowDeleteMarkPixels(const QImage &image, const RowRecord &row)
 {
     const int glyph = row.levelRect.height();
     const int middle = row.levelRect.center().y();
-    const QRect search = QRect(QPoint(row.rect.right() - glyph * 5, middle - glyph * 5 / 2),
-                               QPoint(row.rect.right(), middle + glyph * 5 / 2))
+    const QRect search = QRect(QPoint(row.rect.right() - (glyph * 5), middle - (glyph * 5 / 2)),
+                               QPoint(row.rect.right(), middle + (glyph * 5 / 2)))
                              .intersected(row.rect).intersected(image.rect());
     if (glyph <= 0 || search.isEmpty())
         return {};
     const int width = search.width();
     const int height = search.height();
-    std::vector<uchar> mask(size_t(width) * size_t(height), 0);
+    std::vector<uchar> mask(static_cast<size_t>(width) * static_cast<size_t>(height), 0);
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             const QRgb pixel = image.pixel(search.left() + x, search.top() + y);
-            mask[size_t(y) * width + x] = isBrightStroke(pixel);
+            mask[(static_cast<size_t>(y) * width) + x] = isBrightStroke(pixel);
         }
     }
     const auto light = [&](int x, int y) {
-        return x >= 0 && y >= 0 && x < width && y < height && mask[size_t(y) * width + x];
+        return x >= 0 && y >= 0 && x < width && y < height && mask[(static_cast<size_t>(y) * width) + x];
     };
     const int smallest = std::max(8, glyph / 2);
     QRect best;
@@ -446,7 +446,7 @@ QRect rowDeleteMarkPixels(const QImage &image, const RowRecord &row)
         int top = height;
         int bottom = -1;
         for (const int position : part.points) {
-            if (position % width >= right - smallest / 2) {
+            if (position % width >= right - (smallest / 2)) {
                 top = std::min(top, position / width);
                 bottom = std::max(bottom, position / width);
             }
@@ -482,8 +482,8 @@ QList<Word> withoutDeleteMark(const QList<Word> &words, const QRect &mark, RowRe
             continue;
         }
         if (mark.adjusted(-1, -1, 1, 1).contains(word.rect.center())
-            || qint64(overlap.width()) * overlap.height() * 2 >= qint64(word.rect.width()) * word.rect.height()) {
-            row.deletionOverlaps |= word.rect.left() < mark.left() - h / 2 || word.rect.right() > mark.right() + h / 2;
+            || static_cast<qint64>(overlap.width()) * overlap.height() * 2 >= static_cast<qint64>(word.rect.width()) * word.rect.height()) {
+            row.deletionOverlaps |= word.rect.left() < mark.left() - (h / 2) || word.rect.right() > mark.right() + (h / 2);
             continue;
         }
         // A word overlapping the button touches it, whatever its last glyph.
@@ -529,7 +529,7 @@ void stripFusedDeleteMark(const QImage &image, QList<Word> &notes, RowRecord &ro
     if (notes.isEmpty())
         return;
     const int h = row.levelRect.height();
-    const auto last = std::max_element(notes.begin(), notes.end(), [](const Word &a, const Word &b) {
+    const auto last = std::ranges::max_element(notes, [](const Word &a, const Word &b) {
         return a.rect.right() < b.rect.right();
     });
     if (row.rect.right() - last->rect.right() > h * 4)
@@ -539,7 +539,7 @@ void stripFusedDeleteMark(const QImage &image, QList<Word> &notes, RowRecord &ro
     if (text.size() == 1 && isCrossLookalike(text.front()) && box.width() * 5 >= box.height() * 3
         && box.height() * 5 >= box.width() * 3 && std::max(box.width(), box.height()) * 2 <= h * 3
         && (isDeleteText(text) || drawsCross(image, box))) {
-        const bool touching = std::any_of(notes.cbegin(), notes.cend(), [&](const Word &word) {
+        const bool touching = std::ranges::any_of(notes, [&](const Word &word) {
             return word.rect != box && overlapsVertically(word.rect, box) && word.rect.right() < box.left()
                 && box.left() - word.rect.right() < h / 2;
         });
@@ -565,10 +565,10 @@ void widenMissingTime(const QList<Word> &all, const Word &date, RowRecord &row)
         return;
     // Two gaps before the next word: the field pass pads this crop by about one more.
     const int gap = std::max(3, date.rect.height() / 3);
-    int right = date.rect.right() + date.rect.width() * 85 / 100;
+    int right = date.rect.right() + (date.rect.width() * 85 / 100);
     for (const Word &word : all) {
         if (word.rect.left() > date.rect.right() && overlapsVertically(word.rect, date.rect))
-            right = std::min(right, word.rect.left() - gap * 2);
+            right = std::min(right, word.rect.left() - (gap * 2));
     }
     row.timeCrop = QRect(QPoint(date.rect.left(), date.rect.top()),
                          QPoint(std::max(date.rect.right(), right), std::max(date.rect.bottom(), row.textBand.bottom())));
@@ -644,8 +644,8 @@ QList<Word> assignNoteLines(const QList<Word> &notes, RowRecord &row)
             // Within reach of the button on either side (a note may run past it).
             const int apart = std::max({row.deleteRect.left() - word.rect.right(), word.rect.left() - row.deleteRect.right(), 0});
             row.deletionOverlaps |= row.deleteRect.isValid() && apart <= reach
-                && word.rect.top() <= row.deleteRect.bottom() + reach / 2
-                && word.rect.bottom() >= row.deleteRect.top() - reach / 2;
+                && word.rect.top() <= row.deleteRect.bottom() + (reach / 2)
+                && word.rect.bottom() >= row.deleteRect.top() - (reach / 2);
         }
     }
     return used;
@@ -674,8 +674,8 @@ void assignRowColumns(const QImage &image, const QList<Line> &lines, const QList
         all.append(lines[i].words);
     QList<Word> used = assignTimeColumn(all, date, row);
     const int h = row.levelRect.height();
-    const QRect iconSearch(QPoint(row.levelRect.right() + 1, row.levelRect.center().y() - 2 * h),
-                           QPoint(row.timeColumn.left() - 1, row.levelRect.center().y() + 2 * h));
+    const QRect iconSearch(QPoint(row.levelRect.right() + 1, row.levelRect.center().y() - (2 * h)),
+                           QPoint(row.timeColumn.left() - 1, row.levelRect.center().y() + (2 * h)));
     row.iconRect = typeIconRect(image, iconSearch.isValid() ? iconSearch.intersected(row.rect) : QRect(), surface, h);
     row.deleteMark = rowDeleteMarkPixels(image, row);
     all = withoutDeleteMark(all, row.deleteMark, row);
@@ -697,9 +697,10 @@ void assignRowColumns(const QImage &image, const QList<Line> &lines, const QList
         else if (x > row.timeColumn.right())
             notes.append(word);
     }
-    duty.erase(std::remove_if(duty.begin(), duty.end(), [&](const Word &word) {
+    const auto removed = std::ranges::remove_if(duty, [&](const Word &word) {
         return row.iconRect.adjusted(-2, -2, 2, 2).contains(word.rect.center()) || isTypeIconWord(word, image, surface);
-    }), duty.end());
+    });
+    duty.erase(removed.begin(), removed.end());
     for (const QList<Word> &line : visualLines(duty))
         row.duty.append(line);
     used.append(row.duty);
@@ -723,7 +724,7 @@ qsizetype levelRunStart(const QList<Word> &words, qsizetype &count)
             continue;
         const QRect run = words[start].rect;
         const bool onlyIconsBefore = std::all_of(words.cbegin(), words.cbegin() + start, [&run](const Word &word) {
-            const bool han = std::any_of(word.text.cbegin(), word.text.cend(), isHan);
+            const bool han = std::ranges::any_of(word.text, isHan);
             const bool iconSized = word.rect.height() * 2 > run.height() * 3;
             // 整图检测会把大职业图形读成数字，其外接框与较高的 Lv 框之间
             // 可能不足一个字高；只有大图形才允许半个字高的间距。
@@ -747,8 +748,8 @@ RowRecord rowRecord(const QImage &image, const QList<Line> &lines, int index, in
     for (qsizetype i = start; i < start + head; ++i)
         row.levelRect = row.levelRect.united(words[i].rect);
     const int h = row.levelRect.height();
-    const QList<int> nearby = linesBetween(lines, index, row.levelRect.top() - 3 * h,
-                                           row.levelRect.bottom() + 3 * h);
+    const QList<int> nearby = linesBetween(lines, index, row.levelRect.top() - (3 * h),
+                                           row.levelRect.bottom() + (3 * h));
     const Word *date = rowDate(lines, nearby, row.levelRect);
     // A watermark glyph read as a level token is far taller than the text.
     if (!date || h > date->rect.height() * 2)

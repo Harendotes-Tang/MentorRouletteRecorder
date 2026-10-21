@@ -171,13 +171,13 @@ bool readPcmWaveHeader(const QString &path, int *durationMs, QString *reason)
             if (byteRate == 0 || size == 0)
                 return fail("empty data");
             if (durationMs)
-                *durationMs = int(qMin<qint64>(qint64(size) * 1000 / byteRate, 10 * 60 * 1000));
+                *durationMs = static_cast<int>(qMin<qint64>(static_cast<qint64>(size) * 1000 / byteRate, 10 * 60 * 1000));
             return true;
         }
-        const qint64 next = qint64(body) + qint64(size) + (size & 1);
+        const qint64 next = static_cast<qint64>(body) + static_cast<qint64>(size) + (size & 1);
         if (next > head.size())
             break;
-        offset = qsizetype(next);
+        offset = static_cast<qsizetype>(next);
     }
     return fail(sawFormat && !pcm16 ? "not 16-bit PCM" : "no data chunk");
 }

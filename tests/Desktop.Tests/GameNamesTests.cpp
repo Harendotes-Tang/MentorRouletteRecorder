@@ -32,11 +32,31 @@
 
 namespace {
 
-const QString kSastashaCn = QString::fromUtf8("天然要害沙斯塔夏溶洞");
-const QString kTotoRakCn = QString::fromUtf8("监狱废墟托托·拉克千狱");
-const QString kPaladinCn = QString::fromUtf8("骑士");
-const QString kWhiteMageCn = QString::fromUtf8("白魔法师");
-const QString kDungeonsCn = QString::fromUtf8("四人迷宫");
+const QString &kSastashaCn()
+{
+    static const QString value = QString::fromUtf8("天然要害沙斯塔夏溶洞");
+    return value;
+}
+const QString &kTotoRakCn()
+{
+    static const QString value = QString::fromUtf8("监狱废墟托托·拉克千狱");
+    return value;
+}
+const QString &kPaladinCn()
+{
+    static const QString value = QString::fromUtf8("骑士");
+    return value;
+}
+const QString &kWhiteMageCn()
+{
+    static const QString value = QString::fromUtf8("白魔法师");
+    return value;
+}
+const QString &kDungeonsCn()
+{
+    static const QString value = QString::fromUtf8("四人迷宫");
+    return value;
+}
 
 QVariantMap asMap(const QVariant &value)
 {
@@ -54,7 +74,7 @@ QVariantMap catalogueDuty(int contentId, const QString &name, int level)
 {
     return {{QStringLiteral("content_id"), contentId},
             {QStringLiteral("duty_name"), name},
-            {QStringLiteral("duty_category"), kDungeonsCn},
+            {QStringLiteral("duty_category"), kDungeonsCn()},
             {QStringLiteral("duty_level"), level},
             {QStringLiteral("duty_expansion"), QStringLiteral("A Realm Reborn")},
             {QStringLiteral("party_size"), 4},
@@ -71,10 +91,10 @@ QVariantMap sastashaRun()
         {QStringLiteral("entered_at_utc"), QStringLiteral("2026-09-04T12:41:00.000Z")},
         {QStringLiteral("ended_at_utc"), QStringLiteral("2026-09-04T12:59:40.422Z")},
         {QStringLiteral("content_id"), 4},
-        {QStringLiteral("duty_name"), kSastashaCn},
-        {QStringLiteral("duty_category"), kDungeonsCn},
+        {QStringLiteral("duty_name"), kSastashaCn()},
+        {QStringLiteral("duty_category"), kDungeonsCn()},
         {QStringLiteral("job_id"), 19},
-        {QStringLiteral("job_name"), kPaladinCn},
+        {QStringLiteral("job_name"), kPaladinCn()},
         {QStringLiteral("result"), QStringLiteral("COMPLETED")},
         {QStringLiteral("contributes_to_goal"), true},
         {QStringLiteral("note"), QString()},
@@ -83,6 +103,7 @@ QVariantMap sastashaRun()
 
 } // namespace
 
+namespace {
 class GameNamesTests : public QObject
 {
     Q_OBJECT
@@ -145,25 +166,25 @@ private Q_SLOTS:
 
     void dutiesAndJobsInEachLanguage()
     {
-        QCOMPARE(names()->dutyIn(QStringLiteral("zh-TW"), 4, kSastashaCn),
+        QCOMPARE(names()->dutyIn(QStringLiteral("zh-TW"), 4, kSastashaCn()),
                  QString::fromUtf8("天然要害沙斯塔夏溶洞"));
-        QCOMPARE(names()->dutyIn(QStringLiteral("en"), 4, kSastashaCn), QStringLiteral("Sastasha"));
-        QCOMPARE(names()->dutyIn(QStringLiteral("ja"), 4, kSastashaCn),
+        QCOMPARE(names()->dutyIn(QStringLiteral("en"), 4, kSastashaCn()), QStringLiteral("Sastasha"));
+        QCOMPARE(names()->dutyIn(QStringLiteral("ja"), 4, kSastashaCn()),
                  QString::fromUtf8("天然要害 サスタシャ浸食洞"));
-        QCOMPARE(names()->jobIn(QStringLiteral("zh-TW"), 19, kPaladinCn), QString::fromUtf8("騎士"));
-        QCOMPARE(names()->jobIn(QStringLiteral("en"), 19, kPaladinCn), QStringLiteral("Paladin"));
-        QCOMPARE(names()->jobIn(QStringLiteral("ja"), 19, kPaladinCn), QString::fromUtf8("ナイト"));
+        QCOMPARE(names()->jobIn(QStringLiteral("zh-TW"), 19, kPaladinCn()), QString::fromUtf8("騎士"));
+        QCOMPARE(names()->jobIn(QStringLiteral("en"), 19, kPaladinCn()), QStringLiteral("Paladin"));
+        QCOMPARE(names()->jobIn(QStringLiteral("ja"), 19, kPaladinCn()), QString::fromUtf8("ナイト"));
 
         // The invokables follow the language on screen.
         switchTo("en");
-        QCOMPARE(names()->duty(4, kSastashaCn), QStringLiteral("Sastasha"));
-        QCOMPARE(names()->job(19, kPaladinCn), QStringLiteral("Paladin"));
+        QCOMPARE(names()->duty(4, kSastashaCn()), QStringLiteral("Sastasha"));
+        QCOMPARE(names()->job(19, kPaladinCn()), QStringLiteral("Paladin"));
         QCOMPARE(names()->roulette(9, QString::fromUtf8("指导者任务")), QStringLiteral("Mentor"));
         switchTo("ja");
-        QCOMPARE(names()->duty(4, kSastashaCn), QString::fromUtf8("天然要害 サスタシャ浸食洞"));
+        QCOMPARE(names()->duty(4, kSastashaCn()), QString::fromUtf8("天然要害 サスタシャ浸食洞"));
         QCOMPARE(names()->rouletteByName(QString::fromUtf8("指导者任务")), QString::fromUtf8("メンター"));
         switchTo("zh-TW");
-        QCOMPARE(names()->job(19, kPaladinCn), QString::fromUtf8("騎士"));
+        QCOMPARE(names()->job(19, kPaladinCn()), QString::fromUtf8("騎士"));
     }
 
     void simplifiedChineseShowsTheRecordUnchanged()
@@ -173,20 +194,20 @@ private Q_SLOTS:
         const QString recorded = QString::fromUtf8("沙斯塔夏（旧称）");
         QCOMPARE(names()->duty(4, recorded), recorded);
         QCOMPARE(names()->job(19, QString::fromUtf8("剑术师转职")), QString::fromUtf8("剑术师转职"));
-        QCOMPARE(names()->category(kDungeonsCn), kDungeonsCn);
+        QCOMPARE(names()->category(kDungeonsCn()), kDungeonsCn());
         QCOMPARE(names()->rouletteByName(QString::fromUtf8("指导者任务")), QString::fromUtf8("指导者任务"));
         // Without a recorded name the catalogue's Chinese name stands in.
-        QCOMPARE(names()->duty(4, QString()), kSastashaCn);
+        QCOMPARE(names()->duty(4, QString()), kSastashaCn());
     }
 
     void aMissingIdIsFoundByTheChineseName()
     {
         switchTo("en");
-        QCOMPARE(names()->duty(QVariant(), kSastashaCn), QStringLiteral("Sastasha"));
-        QCOMPARE(names()->duty(QVariant::fromValue(nullptr), kTotoRakCn),
+        QCOMPARE(names()->duty(QVariant(), kSastashaCn()), QStringLiteral("Sastasha"));
+        QCOMPARE(names()->duty(QVariant::fromValue(nullptr), kTotoRakCn()),
                  QStringLiteral("The Thousand Maws of Toto–Rak"));
-        QCOMPARE(names()->job(QVariant(), kPaladinCn), QStringLiteral("Paladin"));
-        QCOMPARE(names()->dutyIn(QStringLiteral("ja"), QVariant(), kSastashaCn),
+        QCOMPARE(names()->job(QVariant(), kPaladinCn()), QStringLiteral("Paladin"));
+        QCOMPARE(names()->dutyIn(QStringLiteral("ja"), QVariant(), kSastashaCn()),
                  QString::fromUtf8("天然要害 サスタシャ浸食洞"));
     }
 
@@ -202,7 +223,7 @@ private Q_SLOTS:
         QCOMPARE(names()->expansion(QStringLiteral("Unknown Expansion")), QStringLiteral("Unknown Expansion"));
         QCOMPARE(names()->roleGroup(QString::fromUtf8("不存在")), QString::fromUtf8("不存在"));
         // An id of 0 is no id: the recorded name finds the duty.
-        QCOMPARE(names()->duty(0, kSastashaCn), QStringLiteral("Sastasha"));
+        QCOMPARE(names()->duty(0, kSastashaCn()), QStringLiteral("Sastasha"));
     }
 
     // A localized name supplies a recorded-name alias; the page separately
@@ -210,13 +231,13 @@ private Q_SLOTS:
     void searchUsesTheRecordedNames()
     {
         QCOMPARE(names()->recordedSearchTextIn(QStringLiteral("en"), QStringLiteral("sastasha")),
-                 kSastashaCn);
+                 kSastashaCn());
         QCOMPARE(names()->recordedSearchTextIn(QStringLiteral("en"), QStringLiteral("Paladin")),
-                 kPaladinCn);
+                 kPaladinCn());
         QCOMPARE(names()->recordedSearchTextIn(QStringLiteral("ja"), QString::fromUtf8("ナイト")),
-                 kPaladinCn);
+                 kPaladinCn());
         // Chinese typed as is, a note's words, an empty query: unchanged.
-        QCOMPARE(names()->recordedSearchTextIn(QStringLiteral("en"), kSastashaCn), kSastashaCn);
+        QCOMPARE(names()->recordedSearchTextIn(QStringLiteral("en"), kSastashaCn()), kSastashaCn());
         QCOMPARE(names()->recordedSearchTextIn(QStringLiteral("en"), QStringLiteral("wiped twice")),
                  QStringLiteral("wiped twice"));
         QCOMPARE(names()->recordedSearchTextIn(QStringLiteral("en"), QString()), QString());
@@ -273,7 +294,7 @@ private Q_SLOTS:
         // A White Mage's note such as "helped a Paladin" must remain searchable,
         // even though a Paladin's recorded job name is Chinese.
         QCOMPARE(filter.value(QStringLiteral("text")).toString(), QStringLiteral("Paladin"));
-        QCOMPARE(filter.value(QStringLiteral("name_text")).toString(), kPaladinCn);
+        QCOMPARE(filter.value(QStringLiteral("name_text")).toString(), kPaladinCn());
         QCOMPARE(search->property("text").toString(), QStringLiteral("Paladin"));
 
         // A later free-text query must not retain the previous name alias.
@@ -288,35 +309,35 @@ private Q_SLOTS:
     void categoriesAndExpansions()
     {
         switchTo("en");
-        QCOMPARE(names()->category(kDungeonsCn), QStringLiteral("Dungeons"));
+        QCOMPARE(names()->category(kDungeonsCn()), QStringLiteral("Dungeons"));
         QCOMPARE(names()->expansion(QStringLiteral("A Realm Reborn")), QStringLiteral("A Realm Reborn"));
         switchTo("ja");
-        QCOMPARE(names()->category(kDungeonsCn), QString::fromUtf8("ダンジョン"));
+        QCOMPARE(names()->category(kDungeonsCn()), QString::fromUtf8("ダンジョン"));
         QCOMPARE(names()->expansion(QStringLiteral("Dawntrail")), QString::fromUtf8("黄金のレガシー"));
         switchTo("zh-TW");
-        QCOMPARE(names()->category(kDungeonsCn), QString::fromUtf8("迷宮挑戰"));
+        QCOMPARE(names()->category(kDungeonsCn()), QString::fromUtf8("迷宮挑戰"));
         switchTo("zh-CN");
         QCOMPARE(names()->expansion(QStringLiteral("A Realm Reborn")), QString::fromUtf8("重生之境"));
     }
 
     void revisionLogShowsRecordedNamesInTheInterfaceLanguage()
     {
-        QCOMPARE(mr::Formatters::revisionFieldValue(QStringLiteral("duty_name"), kSastashaCn), kSastashaCn);
+        QCOMPARE(mr::Formatters::revisionFieldValue(QStringLiteral("duty_name"), kSastashaCn()), kSastashaCn());
         switchTo("en");
-        QCOMPARE(mr::Formatters::revisionFieldValue(QStringLiteral("duty_name"), kSastashaCn),
+        QCOMPARE(mr::Formatters::revisionFieldValue(QStringLiteral("duty_name"), kSastashaCn()),
                  QStringLiteral("Sastasha"));
-        QCOMPARE(mr::Formatters::revisionFieldValue(QStringLiteral("job_name"), kPaladinCn),
+        QCOMPARE(mr::Formatters::revisionFieldValue(QStringLiteral("job_name"), kPaladinCn()),
                  QStringLiteral("Paladin"));
-        QCOMPARE(mr::Formatters::revisionFieldValue(QStringLiteral("duty_category"), kDungeonsCn),
+        QCOMPARE(mr::Formatters::revisionFieldValue(QStringLiteral("duty_category"), kDungeonsCn()),
                  QStringLiteral("Dungeons"));
-        QCOMPARE(mr::Formatters::revisionFieldValue(QStringLiteral("note"), kSastashaCn), kSastashaCn);
+        QCOMPARE(mr::Formatters::revisionFieldValue(QStringLiteral("note"), kSastashaCn()), kSastashaCn());
     }
 
     void formDiffComparesRecordedNamesAndShowsLabels()
     {
-        const QVariantMap before{{QStringLiteral("duty_name"), kSastashaCn},
+        const QVariantMap before{{QStringLiteral("duty_name"), kSastashaCn()},
                                  {QStringLiteral("duty_label"), QStringLiteral("Sastasha")},
-                                 {QStringLiteral("job_name"), kPaladinCn},
+                                 {QStringLiteral("job_name"), kPaladinCn()},
                                  {QStringLiteral("job_label"), QStringLiteral("Paladin")}};
         // Same records: no row, whatever the labels say.
         QVariantMap same = before;
@@ -324,7 +345,7 @@ private Q_SLOTS:
         QVERIFY(mr::RunFormValidator::diff(before, same).isEmpty());
 
         QVariantMap other = before;
-        other.insert(QStringLiteral("duty_name"), kTotoRakCn);
+        other.insert(QStringLiteral("duty_name"), kTotoRakCn());
         other.insert(QStringLiteral("duty_label"), QStringLiteral("The Thousand Maws of Toto–Rak"));
         const QVariantList rows = mr::RunFormValidator::diff(before, other);
         QCOMPARE(rows.size(), 1);
@@ -334,9 +355,9 @@ private Q_SLOTS:
 
         // A form without labels shows the names themselves.
         const QVariantList bare = mr::RunFormValidator::diff(
-            {{QStringLiteral("job_name"), kPaladinCn}}, {{QStringLiteral("job_name"), kWhiteMageCn}});
+            {{QStringLiteral("job_name"), kPaladinCn()}}, {{QStringLiteral("job_name"), kWhiteMageCn()}});
         QCOMPARE(bare.size(), 1);
-        QCOMPARE(bare.first().toMap().value(QStringLiteral("b")).toString(), kWhiteMageCn);
+        QCOMPARE(bare.first().toMap().value(QStringLiteral("b")).toString(), kWhiteMageCn());
     }
 
     void themeHelpersFollowTheLanguage()
@@ -371,10 +392,10 @@ QtObject {
         std::unique_ptr<QObject> probe(component.create());
         QVERIFY2(probe, qPrintable(component.errorString()));
 
-        QCOMPARE(probe->property("duty").toString(), kSastashaCn);
+        QCOMPARE(probe->property("duty").toString(), kSastashaCn());
         QCOMPARE(probe->property("noDuty").toString(), QString());
-        QCOMPARE(probe->property("catalogJob").toString(), kPaladinCn);
-        QCOMPARE(probe->property("category").toString(), kDungeonsCn);
+        QCOMPARE(probe->property("catalogJob").toString(), kPaladinCn());
+        QCOMPARE(probe->property("category").toString(), kDungeonsCn());
 
         switchTo("en");
         QCOMPARE(probe->property("duty").toString(), QStringLiteral("Sastasha"));
@@ -390,10 +411,10 @@ QtObject {
         QCOMPARE(probe->property("unknownRole").toString(), QString::fromUtf8("未知"));
         // Options keep the Chinese value and carry the label.
         const QVariantMap job = asMap(asList(probe->property("jobs")).value(0));
-        QCOMPARE(job.value(QStringLiteral("job_name")).toString(), kPaladinCn);
+        QCOMPARE(job.value(QStringLiteral("job_name")).toString(), kPaladinCn());
         QCOMPARE(job.value(QStringLiteral("label")).toString(), QStringLiteral("Paladin"));
         const QVariantMap category = asMap(asList(probe->property("categories")).value(0));
-        QCOMPARE(category.value(QStringLiteral("value")).toString(), kDungeonsCn);
+        QCOMPARE(category.value(QStringLiteral("value")).toString(), kDungeonsCn());
         QCOMPARE(category.value(QStringLiteral("label")).toString(), QStringLiteral("Dungeons"));
         // A search finds the duty by either name.
         for (const QString &query : {QStringLiteral("sasta"), QString::fromUtf8("沙斯塔")}) {
@@ -441,13 +462,13 @@ ApplicationWindow {
         QVERIFY2(root, qPrintable(component.errorString()));
         QObject *dialog = root->findChild<QObject *>(QStringLiteral("edit"));
         QVERIFY(dialog);
-        dialog->setProperty("dutyOptions", QVariantList{catalogueDuty(4, kSastashaCn, 15),
-                                                        catalogueDuty(1, kTotoRakCn, 24)});
+        dialog->setProperty("dutyOptions", QVariantList{catalogueDuty(4, kSastashaCn(), 15),
+                                                        catalogueDuty(1, kTotoRakCn(), 24)});
         dialog->setProperty("jobOptions",
                             QVariantList{QVariantMap{{QStringLiteral("job_id"), 19},
-                                                     {QStringLiteral("job_name"), kPaladinCn}},
+                                                     {QStringLiteral("job_name"), kPaladinCn()}},
                                          QVariantMap{{QStringLiteral("job_id"), 24},
-                                                     {QStringLiteral("job_name"), kWhiteMageCn}}});
+                                                     {QStringLiteral("job_name"), kWhiteMageCn()}}});
         // Every catalogue row survives the roulette-category filter in English too.
         QCOMPARE(asList(dialog->property("visibleDuties")).size(), 2);
 
@@ -456,8 +477,8 @@ ApplicationWindow {
         QCOMPARE(asMap(steps.value(1)).value(QStringLiteral("value")).toString(),
                  QStringLiteral("Sastasha · Paladin"));
         const QVariantMap form = asMap(dialog->property("formState"));
-        QCOMPARE(form.value(QStringLiteral("duty_name")).toString(), kSastashaCn);
-        QCOMPARE(form.value(QStringLiteral("job_name")).toString(), kPaladinCn);
+        QCOMPARE(form.value(QStringLiteral("duty_name")).toString(), kSastashaCn());
+        QCOMPARE(form.value(QStringLiteral("job_name")).toString(), kPaladinCn());
         QCOMPARE(form.value(QStringLiteral("duty_label")).toString(), QStringLiteral("Sastasha"));
         QVERIFY(asList(dialog->property("diffRows")).isEmpty());
 
@@ -482,7 +503,7 @@ ApplicationWindow {
         const QVariantMap tank = asMap(groups.first());
         QCOMPARE(tank.value(QStringLiteral("role")).toString(), QString::fromUtf8("坦克"));
         const QVariantMap paladin = asMap(asList(tank.value(QStringLiteral("jobs"))).value(0));
-        QCOMPARE(paladin.value(QStringLiteral("job_name")).toString(), kPaladinCn);
+        QCOMPARE(paladin.value(QStringLiteral("job_name")).toString(), kPaladinCn());
         QCOMPARE(paladin.value(QStringLiteral("label")).toString(), QStringLiteral("Paladin"));
 
         // Only the note changes: no name, translated or not, goes to the Collector.
@@ -507,12 +528,13 @@ ApplicationWindow {
         QCOMPARE(corrections.count(), 2);
         const QVariantMap dutyChange = asMap(corrections.at(1).at(0));
         QCOMPARE(dutyChange.value(QStringLiteral("content_id")).toInt(), 1);
-        QCOMPARE(dutyChange.value(QStringLiteral("duty_name")).toString(), kTotoRakCn);
+        QCOMPARE(dutyChange.value(QStringLiteral("duty_name")).toString(), kTotoRakCn());
         // Both are 四人迷宫, so the category is no change; the job never travels by name.
         QVERIFY(!dutyChange.contains(QStringLiteral("duty_category")));
         QVERIFY(!dutyChange.contains(QStringLiteral("job_name")));
     }
 };
+} // namespace
 
 int main(int argc, char **argv)
 {

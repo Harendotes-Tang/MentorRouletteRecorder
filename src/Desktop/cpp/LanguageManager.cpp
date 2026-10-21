@@ -19,7 +19,11 @@ constexpr char kSettingsKey[] = "ui/language";
 constexpr char kFontAlias[] = "MentorRecorder Interface";
 
 // The language on screen, readable without a manager (see currentCode()).
-QString g_currentCode = QStringLiteral("zh-CN");
+QString &currentCodeStorage()
+{
+    static QString code = QStringLiteral("zh-CN");
+    return code;
+}
 mr::LanguageManager *g_instance = nullptr;
 
 struct LanguageInfo
@@ -32,10 +36,10 @@ struct LanguageInfo
 
 // Display order of the settings card: 简体中文 · 繁體中文 · English · 日本語.
 const LanguageInfo kLanguages[] = {
-    {"zh-CN", "", "zh-CN", "简体中文"},
-    {"zh-TW", "zh_TW", "zh-TW", "繁體中文"},
-    {"en", "en", "en-US", "English"},
-    {"ja", "ja", "ja-JP", "日本語"},
+    {.code = "zh-CN", .qmSuffix = "", .locale = "zh-CN", .nativeName = "简体中文"},
+    {.code = "zh-TW", .qmSuffix = "zh_TW", .locale = "zh-TW", .nativeName = "繁體中文"},
+    {.code = "en", .qmSuffix = "en", .locale = "en-US", .nativeName = "English"},
+    {.code = "ja", .qmSuffix = "ja", .locale = "ja-JP", .nativeName = "日本語"},
 };
 
 const LanguageInfo *find(const QString &code)
@@ -118,7 +122,7 @@ QStringList LanguageManager::preferredFamiliesFor(const QString &code)
 
 QString LanguageManager::currentCode()
 {
-    return g_currentCode;
+    return currentCodeStorage();
 }
 
 LanguageManager *LanguageManager::instance()
@@ -203,7 +207,7 @@ void LanguageManager::apply(const QString &code)
     }
 
     m_code = code;
-    g_currentCode = code;
+    currentCodeStorage() = code;
     if (m_settings)
         m_settings->setSpeechLanguage(code);
     QLocale::setDefault(QLocale(QString::fromLatin1(info->locale)));

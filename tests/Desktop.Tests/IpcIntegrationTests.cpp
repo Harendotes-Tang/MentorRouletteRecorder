@@ -93,6 +93,7 @@ Outcome await(mr::BackendReply *reply, int timeoutMs = 15000)
 
 } // namespace
 
+namespace {
 class IpcIntegrationTests : public QObject
 {
     Q_OBJECT
@@ -125,6 +126,7 @@ private:
     QString m_seededRunId;
     int m_seededRevision = 0;
 };
+} // namespace
 
 void IpcIntegrationTests::awaitDisconnectsAfterTimeout()
 {
@@ -541,9 +543,9 @@ void IpcIntegrationTests::dashboardStatsCarryTheServerSideTrend()
         int stepDays;
     };
 
-    for (const Expectation &expected : {Expectation{"day", 30, 1},
-                                        Expectation{"week", 12, 7},
-                                        Expectation{"month", 6, 0}}) {
+    for (const Expectation &expected : {Expectation{.granularity="day", .buckets=30, .stepDays=1},
+                                        Expectation{.granularity="week", .buckets=12, .stepDays=7},
+                                        Expectation{.granularity="month", .buckets=6, .stepDays=0}}) {
         const Outcome stats = await(m_backend->getDashboardStats(
             {}, QString::fromLatin1(expected.granularity)));
         QVERIFY2(stats.ok, qPrintable(stats.code + QLatin1Char(' ') + stats.message));
@@ -553,7 +555,7 @@ void IpcIntegrationTests::dashboardStatsCarryTheServerSideTrend()
                  QString::fromLatin1(expected.granularity));
 
         const QVariantList buckets = trend.value(QStringLiteral("buckets")).toList();
-        QCOMPARE(int(buckets.size()), expected.buckets);
+        QCOMPARE(static_cast<int>(buckets.size()), expected.buckets);
 
         // Gap-free, ordered, and every boundary is midnight UTC. A chart that
         // has to guess where a missing bucket went is a chart that lies.

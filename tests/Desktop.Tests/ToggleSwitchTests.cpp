@@ -9,6 +9,7 @@
 #include <QTest>
 #include <memory>
 
+namespace {
 struct ToggleScene
 {
     QQmlEngine engine;
@@ -45,19 +46,21 @@ ApplicationWindow {
     }
     QQuickWindow *window() const { return qobject_cast<QQuickWindow *>(root.get()); }
     QQuickItem *item(const char *name) const { return root->findChild<QQuickItem *>(QString::fromLatin1(name)); }
-    bool focusBefore()
+    bool focusBefore() const
     {
         if (!QTest::qWaitForWindowExposed(window())) return false;
         item("before")->forceActiveFocus(Qt::TabFocusReason);
         return QTest::qWaitFor([&] { return item("before")->hasActiveFocus(); });
     }
-    bool focusWithinToggle()
+    bool focusWithinToggle() const
     {
         for (QQuickItem *item = window()->activeFocusItem(); item; item = item->parentItem())
             if (item == this->item("toggle")) return true;
         return false;
     }
 };
+} // namespace
+namespace {
 class ToggleSwitchTests final : public QObject
 {
     Q_OBJECT
@@ -169,6 +172,7 @@ private slots:
         QVERIFY(scene.item("toggle")->property("checked").toBool());
     }
 };
+} // namespace
 int main(int argc, char **argv)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");

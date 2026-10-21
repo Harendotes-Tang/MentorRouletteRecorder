@@ -97,7 +97,7 @@ void CalibrationController::refreshFromCaptureStatus(const QVariantMap &capture)
                      at.isValid() ? at.toLocalTime().toString(QStringLiteral("HH:mm")) : QString());
         events.append(event);
     }
-    std::stable_sort(events.begin(), events.end(), [](const QVariant &left, const QVariant &right) {
+    std::ranges::stable_sort(events, [](const QVariant &left, const QVariant &right) {
         // Wall clock, not session time: evidence may span a re-login, and session clocks
         // restart at zero.
         const QString leftAt = left.toMap().value(QStringLiteral("at_utc")).toString();
@@ -273,11 +273,13 @@ void CalibrationController::sendDiscard(bool retireLocalProfile, bool restoreLoc
             } else {
                 const LiveText refusal = collector_text::replyErrorText(guard, message);
                 m_error = [refusal, retireLocalProfile, restoreLocalProfile] {
-                    return !refusal.isEmpty()
-                        ? refusal.text()
-                        : retireLocalProfile ? tr("没能重新开始校准，请稍后重试。")
-                        : restoreLocalProfile ? tr("没能恢复上一份本机校准，请稍后重试。")
-                                              : tr("没能清空校准进度，请稍后重试。");
+                    if (!refusal.isEmpty())
+                        return refusal.text();
+                    if (retireLocalProfile)
+                        return tr("没能重新开始校准，请稍后重试。");
+                    if (restoreLocalProfile)
+                        return tr("没能恢复上一份本机校准，请稍后重试。");
+                    return tr("没能清空校准进度，请稍后重试。");
                 };
             }
             Q_EMIT changed();

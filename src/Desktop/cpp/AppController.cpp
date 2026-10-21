@@ -864,7 +864,7 @@ QVariant AppController::liveElapsedMs() const
     const QJsonValue reported = m_currentRun.value(QStringLiteral("elapsed_ms"));
     if (reported.isNull() || !reported.isDouble())
         return {};
-    const qint64 base = qint64(reported.toDouble());
+    const qint64 base = static_cast<qint64>(reported.toDouble());
     const qint64 sinceFetch =
         m_currentRun.value(QStringLiteral("_fetched_at_ms")).toVariant().toLongLong();
     if (sinceFetch <= 0)
@@ -969,7 +969,7 @@ void AppController::refreshCurrentRun()
             m_currentRunKnown = ok;
             if (ok) {
                 m_currentRun.insert(QStringLiteral("_fetched_at_ms"),
-                                    double(QDateTime::currentMSecsSinceEpoch()));
+                                    static_cast<double>(QDateTime::currentMSecsSinceEpoch()));
             }
             Q_EMIT currentRunChanged();
             // The daily backup waits for a run to end; this is where it learns
@@ -1004,7 +1004,7 @@ void AppController::refreshCaptureDetail()
 
 void AppController::refreshDashboard()
 {
-    return m_statistics->refreshDashboard();
+    m_statistics->refreshDashboard();
 }
 
 void AppController::requestDashboard(std::function<void(bool ok)> then)
@@ -1020,17 +1020,17 @@ void AppController::requestDashboard(std::function<void(bool ok)> then)
 
 void AppController::refreshTrend()
 {
-    return m_statistics->refreshTrend();
+    m_statistics->refreshTrend();
 }
 
 void AppController::setTrendMode(const QString &mode)
 {
-    return m_statistics->setTrendMode(mode);
+    m_statistics->setTrendMode(mode);
 }
 
 void AppController::setTrendWindowDays(int days)
 {
-    return m_statistics->setTrendWindowDays(days);
+    m_statistics->setTrendWindowDays(days);
 }
 
 QVariantList AppController::trendBuckets() const
@@ -1517,7 +1517,7 @@ void AppController::announceFinished(const QString &state, const QJsonObject &ru
 /// they displayed so a later save still checks for intervening changes.
 void AppController::adoptRunRevisionFromEvent(const QJsonObject &run)
 {
-    return m_history->adoptRunRevisionFromEvent(run);
+    m_history->adoptRunRevisionFromEvent(run);
 }
 
 // ---------------------------------------------------------------------------
@@ -1536,17 +1536,17 @@ bool AppController::selectedRunCanUndo() const
 
 void AppController::selectRun(const QVariantMap &run)
 {
-    return m_history->selectRun(run);
+    m_history->selectRun(run);
 }
 
 void AppController::clearSelection()
 {
-    return m_history->clearSelection();
+    m_history->clearSelection();
 }
 
 void AppController::refreshRunEvents()
 {
-    return m_history->refreshRunEvents();
+    m_history->refreshRunEvents();
 }
 
 // ---------------------------------------------------------------------------
@@ -1945,7 +1945,7 @@ QVariantList AppController::recentDutiesFromRuns(const QJsonArray &runs, int lim
         const QJsonValue id = run.value(QStringLiteral("content_id"));
         if (!id.isDouble())
             continue;
-        const qint64 contentId = qint64(id.toDouble());
+        const qint64 contentId = static_cast<qint64>(id.toDouble());
         if (seen.contains(contentId))
             continue;
         const QVariantMap row = DutyCatalog::shared()->lookup(contentId);
@@ -1959,12 +1959,12 @@ QVariantList AppController::recentDutiesFromRuns(const QJsonArray &runs, int lim
 
 void AppController::setHistoryFilter(const QVariantMap &filter)
 {
-    return m_history->setHistoryFilter(filter);
+    m_history->setHistoryFilter(filter);
 }
 
 void AppController::resetHistoryFilter()
 {
-    return m_history->resetHistoryFilter();
+    m_history->resetHistoryFilter();
 }
 
 void AppController::setHistoryRunChecked(const QVariantMap &run, bool checked)
@@ -2254,53 +2254,53 @@ void AppController::rescanAdapters()
 
 void AppController::createManualRun(const QVariantMap &fields, const QString &reason)
 {
-    return m_history->createManualRun(fields, reason);
+    m_history->createManualRun(fields, reason);
 }
 
 void AppController::correctSelectedRun(const QVariantMap &changes, const QString &reason,
                                       const QString &runId, int expectedRevision)
 {
-    return m_history->correctSelectedRun(changes, reason, runId, expectedRevision);
+    m_history->correctSelectedRun(changes, reason, runId, expectedRevision);
 }
 
 void AppController::resolveRunResult(const QString &runId, int revision,
                                     const QString &result, const QString &reason, int jobId)
 {
-    return m_history->resolveRunResult(runId, revision, result, reason, jobId);
+    m_history->resolveRunResult(runId, revision, result, reason, jobId);
 }
 
 void AppController::confirmSelectedRunReview(const QString &reason, const QString &runId,
                                              int expectedRevision)
 {
-    return m_history->confirmSelectedRunReview(reason, runId, expectedRevision);
+    m_history->confirmSelectedRunReview(reason, runId, expectedRevision);
 }
 
 void AppController::supplementRunJob(const QString &runId, int revision, int jobId, const QString &reason)
 {
-    return m_history->supplementRunJob(runId, revision, jobId, reason);
+    m_history->supplementRunJob(runId, revision, jobId, reason);
 }
 
 void AppController::undoSelectedRunRevision(const QString &reason, const QString &runId,
                                             int expectedRevision)
 {
-    return m_history->undoSelectedRunRevision(reason, runId, expectedRevision);
+    m_history->undoSelectedRunRevision(reason, runId, expectedRevision);
 }
 
 void AppController::softDeleteSelectedRun(const QString &reason, const QString &runId,
                                           int expectedRevision)
 {
-    return m_history->softDeleteSelectedRun(reason, runId, expectedRevision);
+    m_history->softDeleteSelectedRun(reason, runId, expectedRevision);
 }
 
 void AppController::restoreSelectedRun(const QString &reason, const QString &runId,
                                        int expectedRevision)
 {
-    return m_history->restoreSelectedRun(reason, runId, expectedRevision);
+    m_history->restoreSelectedRun(reason, runId, expectedRevision);
 }
 
 void AppController::updateAchievementBaseline(int goal, int baseline, const QString &reason)
 {
-    return m_statistics->updateAchievementBaseline(goal, baseline, reason);
+    m_statistics->updateAchievementBaseline(goal, baseline, reason);
 }
 
 void AppController::completeFirstRun()

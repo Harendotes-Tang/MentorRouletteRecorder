@@ -171,7 +171,7 @@ void TtsService::handleEngineState()
         return;
 
     const QTextToSpeech::State state = m_engine->state();
-    noteLocalEngineState(int(state));
+    noteLocalEngineState(static_cast<int>(state));
     if (state == QTextToSpeech::Ready || state == QTextToSpeech::Speaking) {
         // Ready is the first moment the voice list is trustworthy, and it is
         // the only point at which a zh-CN voice that SAPI enumerated late can
@@ -186,7 +186,7 @@ bool TtsService::voiceApplicableInState(int state)
     // Ready and nothing else. Speaking and Synthesizing are the states the
     // engine is in while a line is being produced, Paused holds one, and Error
     // means there is nothing to configure.
-    return state == int(QTextToSpeech::Ready);
+    return state == static_cast<int>(QTextToSpeech::Ready);
 }
 
 void TtsService::rescanVoices()
@@ -215,7 +215,7 @@ void TtsService::refreshVoiceList()
     QList<VoiceEntry> entries;
     entries.reserve(all.size());
     for (const QVoice &voice : all)
-        entries.append({voice.name(), voice.locale(), voice.gender()});
+        entries.append({.name = voice.name(), .locale = voice.locale(), .gender = voice.gender()});
     m_voiceEntries = entries;
     m_engineVoices = all;
     reorderVoices();
@@ -312,7 +312,7 @@ void TtsService::applyVoiceAndLevels()
     // the SAPI plugin answers setVoice by declaring itself Ready and starting the
     // next queued utterance, which cuts the line being spoken off mid-word.
     const bool choiceChanged = m_settings && m_settings->ttsVoice() != m_appliedVoiceSetting;
-    if (!voiceApplicableInState(int(m_engine->state()))) {
+    if (!voiceApplicableInState(static_cast<int>(m_engine->state()))) {
         // Remembered rather than forced: handleEngineState runs again on the
         // next state change, and the first Ready after this applies it. A new
         // choice from the settings page waits here too.
@@ -380,13 +380,13 @@ QString TtsService::render(const QString &templateText, const QVariantMap &value
 
 double TtsService::rateFromPercent(int percent)
 {
-    const double rate = (double(percent) - 100.0) / 100.0;
+    const double rate = (static_cast<double>(percent) - 100.0) / 100.0;
     return qBound(-1.0, rate, 1.0);
 }
 
 double TtsService::volumeFromPercent(int percent)
 {
-    return qBound(0.0, double(percent) / 100.0, 1.0);
+    return qBound(0.0, static_cast<double>(percent) / 100.0, 1.0);
 }
 
 namespace {
@@ -529,7 +529,7 @@ int TtsService::savedVoiceIndex(const QList<VoiceEntry> &ordered, const QString 
         return -1;
     for (qsizetype index = 0; index < ordered.size(); ++index) {
         if (ordered.at(index).name == name)
-            return int(index);
+            return static_cast<int>(index);
     }
     return -1;
 }

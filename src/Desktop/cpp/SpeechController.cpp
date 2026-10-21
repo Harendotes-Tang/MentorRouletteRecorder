@@ -13,8 +13,8 @@ namespace {
 
 Q_LOGGING_CATEGORY(lcSpeech, "mr.speech")
 
-const QString kAzure = QStringLiteral("azure");
-const QString kOpenAi = QStringLiteral("openai_compatible");
+constexpr QLatin1StringView kAzure("azure");
+constexpr QLatin1StringView kOpenAi("openai_compatible");
 
 QVariantList voiceList(const QJsonValue &value)
 {

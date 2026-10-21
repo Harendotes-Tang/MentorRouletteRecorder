@@ -37,7 +37,7 @@ public:
     explicit Lcg(quint32 seed) : m_state(seed) {}
     double next()
     {
-        m_state = static_cast<quint32>(m_state * 1664525u + 1013904223u);
+        m_state = static_cast<quint32>((m_state * 1664525u) + 1013904223u);
         return static_cast<double>(m_state) / 4294967296.0;
     }
 
@@ -60,45 +60,45 @@ struct Duty {
 // chips name the same duty the mock history shows. The others keep the
 // prototype's ids, none of which is one of the real ids used here.
 const Duty kDuties[] = {
-    {  4, 1036, "沙斯塔夏溶洞",         "四人迷宫",   15, "2.0"},
-    {  2, 1037, "塔姆·塔拉墓园",        "四人迷宫",   16, "2.0"},
-    {  3, 1038, "铜铃铜山",             "四人迷宫",   17, "2.0"},
-    { 17, 1039, "天狼星灯塔",           "四人迷宫",   32, "2.0"},
-    { 11, 1043, "石卫塔",               "四人迷宫",   28, "2.0"},
-    { 12, 1041, "巴尔达姆霸国",         "四人迷宫",   47, "2.0"},
-    { 20, 1045, "魔大陆阿济兹拉",       "四人迷宫",   59, "3.0"},
-    { 15, 1052, "帝国南方堡",           "四人迷宫",   67, "4.0"},
-    { 44, 1064, "红玉海",               "四人迷宫",   70, "4.1"},
-    {659, 1070, "格鲁格火山",           "四人迷宫",   73, "5.0"},
-    {649, 1073, "水妖幻园",             "四人迷宫",   80, "5.0"},
-    {692, 1078, "魔法宫殿",             "四人迷宫",   85, "6.0"},
-    {844, 1083, "阿尔扎达尔海底遗迹群", "四人迷宫",   90, "6.0"},
-    { 70, 1180, "伊库拉尔堡垒",         "四人迷宫",   93, "7.0"},
-    { 72, 1189, "起源之矛",             "四人迷宫",  100, "7.0"},
-    { 75, 1194, "绯红蜂巢",             "四人迷宫",  100, "7.2"},
-    { 56, 1060, "伊弗利特讨伐战",       "讨伐歼灭战", 20, "2.0"},
-    { 57, 1062, "泰坦讨伐战",           "讨伐歼灭战", 34, "2.0"},
-    {239, 1090, "神龙歼灭战",           "讨伐歼灭战", 70, "4.0"},
-    {687, 1094, "哈迪斯歼灭战",         "讨伐歼灭战", 80, "5.0"},
-    {995, 1196, "佐拉加歼灭战",         "讨伐歼灭战",100, "7.1"},
-    {120, 1200, "魔航船虚无方舟",       "大型任务",   50, "2.3"},
-    {201, 1201, "魔科学研究所",         "大型任务",   60, "3.3"},
-    {700, 1202, "复制工厂废墟",         "大型任务",   80, "5.1"},
-    {300, 1300, "行会令：新兵训练",     "行会令",     10, "2.0"},
-    {301, 1301, "行会令：基础战术",     "行会令",     15, "2.0"},
+    {  .contentId = 4, .territoryId = 1036, .name = "沙斯塔夏溶洞",         .category = "四人迷宫",   .level = 15, .expansion = "2.0"},
+    {  .contentId = 2, .territoryId = 1037, .name = "塔姆·塔拉墓园",        .category = "四人迷宫",   .level = 16, .expansion = "2.0"},
+    {  .contentId = 3, .territoryId = 1038, .name = "铜铃铜山",             .category = "四人迷宫",   .level = 17, .expansion = "2.0"},
+    { .contentId = 17, .territoryId = 1039, .name = "天狼星灯塔",           .category = "四人迷宫",   .level = 32, .expansion = "2.0"},
+    { .contentId = 11, .territoryId = 1043, .name = "石卫塔",               .category = "四人迷宫",   .level = 28, .expansion = "2.0"},
+    { .contentId = 12, .territoryId = 1041, .name = "巴尔达姆霸国",         .category = "四人迷宫",   .level = 47, .expansion = "2.0"},
+    { .contentId = 20, .territoryId = 1045, .name = "魔大陆阿济兹拉",       .category = "四人迷宫",   .level = 59, .expansion = "3.0"},
+    { .contentId = 15, .territoryId = 1052, .name = "帝国南方堡",           .category = "四人迷宫",   .level = 67, .expansion = "4.0"},
+    { .contentId = 44, .territoryId = 1064, .name = "红玉海",               .category = "四人迷宫",   .level = 70, .expansion = "4.1"},
+    {.contentId = 659, .territoryId = 1070, .name = "格鲁格火山",           .category = "四人迷宫",   .level = 73, .expansion = "5.0"},
+    {.contentId = 649, .territoryId = 1073, .name = "水妖幻园",             .category = "四人迷宫",   .level = 80, .expansion = "5.0"},
+    {.contentId = 692, .territoryId = 1078, .name = "魔法宫殿",             .category = "四人迷宫",   .level = 85, .expansion = "6.0"},
+    {.contentId = 844, .territoryId = 1083, .name = "阿尔扎达尔海底遗迹群", .category = "四人迷宫",   .level = 90, .expansion = "6.0"},
+    { .contentId = 70, .territoryId = 1180, .name = "伊库拉尔堡垒",         .category = "四人迷宫",   .level = 93, .expansion = "7.0"},
+    { .contentId = 72, .territoryId = 1189, .name = "起源之矛",             .category = "四人迷宫",  .level = 100, .expansion = "7.0"},
+    { .contentId = 75, .territoryId = 1194, .name = "绯红蜂巢",             .category = "四人迷宫",  .level = 100, .expansion = "7.2"},
+    { .contentId = 56, .territoryId = 1060, .name = "伊弗利特讨伐战",       .category = "讨伐歼灭战", .level = 20, .expansion = "2.0"},
+    { .contentId = 57, .territoryId = 1062, .name = "泰坦讨伐战",           .category = "讨伐歼灭战", .level = 34, .expansion = "2.0"},
+    {.contentId = 239, .territoryId = 1090, .name = "神龙歼灭战",           .category = "讨伐歼灭战", .level = 70, .expansion = "4.0"},
+    {.contentId = 687, .territoryId = 1094, .name = "哈迪斯歼灭战",         .category = "讨伐歼灭战", .level = 80, .expansion = "5.0"},
+    {.contentId = 995, .territoryId = 1196, .name = "佐拉加歼灭战",         .category = "讨伐歼灭战",.level = 100, .expansion = "7.1"},
+    {.contentId = 120, .territoryId = 1200, .name = "魔航船虚无方舟",       .category = "大型任务",   .level = 50, .expansion = "2.3"},
+    {.contentId = 201, .territoryId = 1201, .name = "魔科学研究所",         .category = "大型任务",   .level = 60, .expansion = "3.3"},
+    {.contentId = 700, .territoryId = 1202, .name = "复制工厂废墟",         .category = "大型任务",   .level = 80, .expansion = "5.1"},
+    {.contentId = 300, .territoryId = 1300, .name = "行会令：新兵训练",     .category = "行会令",     .level = 10, .expansion = "2.0"},
+    {.contentId = 301, .territoryId = 1301, .name = "行会令：基础战术",     .category = "行会令",     .level = 15, .expansion = "2.0"},
 };
-constexpr int kDutyCount = int(sizeof(kDuties) / sizeof(kDuties[0]));
+constexpr int kDutyCount = static_cast<int>(sizeof(kDuties) / sizeof(kDuties[0]));
 
 // Extreme, savage and alliance-raid duties, real catalogue rows, so every 人数 /
 // 难度 filter of the record wizard has something of the player's own. They are
 // placed on a few recent runs after the random draw (generateRuns), which keeps
 // the prototype's random stream - and every other run - unchanged.
 const Duty kHighEndDuties[] = {
-    {1015, 1248, "朱诺：第一巡行",                  "大型任务",   100, "7.1"},
-    { 278,  730, "神龙梦幻歼灭战",                  "讨伐歼灭战",  70, "4.3"},
-    { 986, 1226, "阿卡狄亚零式登天斗技场 轻量级1",   "大型任务",   100, "7.0"},
-    { 866, 1054, "灿烂神域阿格莱亚",                "大型任务",    90, "6.1"},
-    { 996, 1201, "佐拉加歼殛战",                    "讨伐歼灭战", 100, "7.0"},
+    {.contentId = 1015, .territoryId = 1248, .name = "朱诺：第一巡行",                  .category = "大型任务",   .level = 100, .expansion = "7.1"},
+    { .contentId = 278,  .territoryId = 730, .name = "神龙梦幻歼灭战",                  .category = "讨伐歼灭战",  .level = 70, .expansion = "4.3"},
+    { .contentId = 986, .territoryId = 1226, .name = "阿卡狄亚零式登天斗技场 轻量级1",   .category = "大型任务",   .level = 100, .expansion = "7.0"},
+    { .contentId = 866, .territoryId = 1054, .name = "灿烂神域阿格莱亚",                .category = "大型任务",    .level = 90, .expansion = "6.1"},
+    { .contentId = 996, .territoryId = 1201, .name = "佐拉加歼殛战",                    .category = "讨伐歼灭战", .level = 100, .expansion = "7.0"},
 };
 constexpr int kHighEndOffsets[] = {1, 4, 8, 12, 16};
 
@@ -111,22 +111,22 @@ struct JobEntry {
 
 // Real ClassJob row ids, so the extracted job icons resolve.
 const JobEntry kJobs[] = {
-    {19, "骑士",     "坦克",     "TANK"},
-    {21, "战士",     "坦克",     "TANK"},
-    {37, "绝枪战士", "坦克",     "TANK"},
-    {24, "白魔法师", "治疗",     "HEALER"},
-    {33, "占星术士", "治疗",     "HEALER"},
-    {40, "贤者",     "治疗",     "HEALER"},
-    {22, "龙骑士",   "近战",     "DPS"},
-    {30, "忍者",     "近战",     "DPS"},
-    {34, "武士",     "近战",     "DPS"},
-    {23, "吟游诗人", "远程物理", "DPS"},
-    {31, "机工士",   "远程物理", "DPS"},
-    {25, "黑魔法师", "魔法",     "DPS"},
-    {27, "召唤师",   "魔法",     "DPS"},
-    {35, "赤魔法师", "魔法",     "DPS"},
+    {.id = 19, .name = "骑士",     .roleGroup = "坦克",     .role = "TANK"},
+    {.id = 21, .name = "战士",     .roleGroup = "坦克",     .role = "TANK"},
+    {.id = 37, .name = "绝枪战士", .roleGroup = "坦克",     .role = "TANK"},
+    {.id = 24, .name = "白魔法师", .roleGroup = "治疗",     .role = "HEALER"},
+    {.id = 33, .name = "占星术士", .roleGroup = "治疗",     .role = "HEALER"},
+    {.id = 40, .name = "贤者",     .roleGroup = "治疗",     .role = "HEALER"},
+    {.id = 22, .name = "龙骑士",   .roleGroup = "近战",     .role = "DPS"},
+    {.id = 30, .name = "忍者",     .roleGroup = "近战",     .role = "DPS"},
+    {.id = 34, .name = "武士",     .roleGroup = "近战",     .role = "DPS"},
+    {.id = 23, .name = "吟游诗人", .roleGroup = "远程物理", .role = "DPS"},
+    {.id = 31, .name = "机工士",   .roleGroup = "远程物理", .role = "DPS"},
+    {.id = 25, .name = "黑魔法师", .roleGroup = "魔法",     .role = "DPS"},
+    {.id = 27, .name = "召唤师",   .roleGroup = "魔法",     .role = "DPS"},
+    {.id = 35, .name = "赤魔法师", .roleGroup = "魔法",     .role = "DPS"},
 };
-constexpr int kJobCount = int(sizeof(kJobs) / sizeof(kJobs[0]));
+constexpr int kJobCount = static_cast<int>(sizeof(kJobs) / sizeof(kJobs[0]));
 
 QJsonObject changeEntry(const QString &field, const QJsonValue &oldValue,
                         const QJsonValue &newValue)
@@ -521,12 +521,12 @@ void MockBackend::generateRuns()
     };
 
     static const struct { const char *code; double weight; } kWeights[] = {
-        {"COMPLETED", 0.78},
-        {"LEFT_OR_ABANDONED", 0.09},
-        {"CANCELLED_BEFORE_ENTRY", 0.06},
-        {"DISCONNECTED", 0.03},
-        {"INTERRUPTED", 0.02},
-        {"UNKNOWN", 0.02},
+        {.code = "COMPLETED", .weight = 0.78},
+        {.code = "LEFT_OR_ABANDONED", .weight = 0.09},
+        {.code = "CANCELLED_BEFORE_ENTRY", .weight = 0.06},
+        {.code = "DISCONNECTED", .weight = 0.03},
+        {.code = "INTERRUPTED", .weight = 0.02},
+        {.code = "UNKNOWN", .weight = 0.02},
     };
 
     QList<Draft> drafts;
@@ -535,21 +535,21 @@ void MockBackend::generateRuns()
     for (int i = 0; i < 96; ++i) {
         Draft draft;
 
-        const int daysAgo = int(std::floor(std::pow(rng.next(), 1.3) * 60.0));
+        const int daysAgo = static_cast<int>(std::floor(std::pow(rng.next(), 1.3) * 60.0));
         QDateTime moment = m_now.addDays(-daysAgo);
-        const int hour = 18 + int(std::floor(rng.next() * 5.0));
-        const int minute = int(std::floor(rng.next() * 60.0));
-        const int second = int(std::floor(rng.next() * 60.0));
+        const int hour = 18 + static_cast<int>(std::floor(rng.next() * 5.0));
+        const int minute = static_cast<int>(std::floor(rng.next() * 60.0));
+        const int second = static_cast<int>(std::floor(rng.next() * 60.0));
         moment.setTime(QTime(hour, minute, second));
         if (moment > m_now)
-            moment = m_now.addMSecs(-qint64(3600000.0 * (1.0 + rng.next() * 4.0)));
+            moment = m_now.addMSecs(-static_cast<qint64>(3600000.0 * (1.0 + (rng.next() * 4.0))));
 
         // These conditionals must short-circuit exactly like the prototype's
         // ternaries, otherwise the random stream drifts.
         if (rng.next() >= 0.02)
-            draft.duty = &kDuties[int(std::pow(rng.next(), 1.6) * kDutyCount)];
+            draft.duty = &kDuties[static_cast<int>(std::pow(rng.next(), 1.6) * kDutyCount)];
         if (rng.next() >= 0.06)
-            draft.job = &kJobs[int(std::pow(rng.next(), 1.4) * kJobCount)];
+            draft.job = &kJobs[static_cast<int>(std::pow(rng.next(), 1.4) * kJobCount)];
 
         const double roll = rng.next();
         double acc = 0.0;
@@ -565,7 +565,7 @@ void MockBackend::generateRuns()
         draft.matched = moment;
         if (draft.result != QLatin1String("CANCELLED_BEFORE_ENTRY")) {
             draft.entered =
-                draft.matched.addMSecs(qint64((40.0 + rng.next() * 80.0) * 1000.0));
+                draft.matched.addMSecs(static_cast<qint64>((40.0 + (rng.next() * 80.0)) * 1000.0));
 
             double base = 18.0;
             if (draft.duty) {
@@ -584,28 +584,28 @@ void MockBackend::generateRuns()
                     base = 22.0;
             }
             const double minutes = draft.result == QLatin1String("COMPLETED")
-                                       ? base * (0.8 + rng.next() * 0.5)
-                                       : base * (0.15 + rng.next() * 0.6);
+                                       ? base * (0.8 + (rng.next() * 0.5))
+                                       : base * (0.15 + (rng.next() * 0.6));
             // An UNKNOWN run is one the state machine closed without a result
             // (UNKNOWN_FINAL_STATE), so it has an end like the others. Without one
             // it would read as still in flight for good (RunMutationRules
             // .ReadsAsInFlight): left out of every statistic and listed as 进行中.
             // No draw is spent here, so the random stream is unchanged.
             if (draft.result != QLatin1String("INTERRUPTED")) {
-                draft.ended = draft.entered.addMSecs(qint64(minutes * 60000.0));
+                draft.ended = draft.entered.addMSecs(static_cast<qint64>(minutes * 60000.0));
                 draft.hasDuration = true;
                 draft.durationMs = draft.entered.msecsTo(draft.ended);
             }
         } else {
             draft.ended =
-                draft.matched.addMSecs(qint64((30.0 + rng.next() * 60.0) * 1000.0));
+                draft.matched.addMSecs(static_cast<qint64>((30.0 + (rng.next() * 60.0)) * 1000.0));
         }
 
         rng.next(); // the prototype spends one draw on the run id suffix
         drafts.append(draft);
     }
 
-    std::stable_sort(drafts.begin(), drafts.end(),
+    std::ranges::stable_sort(drafts,
                      [](const Draft &a, const Draft &b) { return a.matched < b.matched; });
 
     m_runs = QJsonArray();
@@ -656,7 +656,7 @@ void MockBackend::generateRuns()
                    draft.ended.isValid() ? QJsonValue(isoUtc(draft.ended))
                                          : QJsonValue(QJsonValue::Null));
         run.insert(QStringLiteral("duration_ms"),
-                   draft.hasDuration ? QJsonValue(double(draft.durationMs))
+                   draft.hasDuration ? QJsonValue(static_cast<double>(draft.durationMs))
                                      : QJsonValue(QJsonValue::Null));
         run.insert(QStringLiteral("result"), draft.result);
         run.insert(QStringLiteral("detection_confidence"),
@@ -684,8 +684,8 @@ void MockBackend::generateRuns()
         m_runs.append(run);
     }
 
-    for (int i = 0; i < int(sizeof(kHighEndOffsets) / sizeof(kHighEndOffsets[0])); ++i) {
-        const int index = int(m_runs.size()) - kHighEndOffsets[i];
+    for (int i = 0; std::cmp_less(i, sizeof(kHighEndOffsets) / sizeof(kHighEndOffsets[0])); ++i) {
+        const int index = static_cast<int>(m_runs.size()) - kHighEndOffsets[i];
         if (index < 0)
             continue;
         const Duty &duty = kHighEndDuties[i];
@@ -712,7 +712,7 @@ void MockBackend::generateRuns()
         const QDateTime ended = entered.addSecs(19LL * 60);
         corrected.insert(QStringLiteral("result"), QStringLiteral("COMPLETED"));
         corrected.insert(QStringLiteral("ended_at_utc"), isoUtc(ended));
-        corrected.insert(QStringLiteral("duration_ms"), double(19 * 60 * 1000));
+        corrected.insert(QStringLiteral("duration_ms"), static_cast<double>(19 * 60 * 1000));
         corrected.insert(QStringLiteral("manually_corrected"), true);
         corrected.insert(QStringLiteral("revision"), 2);
         m_runs.replace(10, corrected);
@@ -853,12 +853,12 @@ void MockBackend::generateRuns()
 void MockBackend::seedReflections()
 {
     static const struct { const char *mood; const char *text; } kReflections[] = {
-        {"good", "新人坦克第一次打灯塔，全程语音提醒机制，最后一个 boss 一次过。他说以后想练奶妈。"},
-        {"ok",   "队里两个新人都不说话，机制靶子吃满，好在没灭。下次进本先打个招呼。"},
-        {"bad",  "第二个 boss 灭了三次，DPS 一直站在圈里。忍住没说重话，退本后还是有点烦躁。"},
-        {"good", "占星带三个新人打神龙，念了一遍机制顺序，居然全员存活。回城收到两张感谢卡。"},
-        {"ok",   "佐拉加，新人不会看地板，一直吃塔。打完顺手给了两条宏。"},
-        {"good", "老玩家练小号，节奏极快，十二分钟出本。轻松的一次。"},
+        {.mood = "good", .text = "新人坦克第一次打灯塔，全程语音提醒机制，最后一个 boss 一次过。他说以后想练奶妈。"},
+        {.mood = "ok",   .text = "队里两个新人都不说话，机制靶子吃满，好在没灭。下次进本先打个招呼。"},
+        {.mood = "bad",  .text = "第二个 boss 灭了三次，DPS 一直站在圈里。忍住没说重话，退本后还是有点烦躁。"},
+        {.mood = "good", .text = "占星带三个新人打神龙，念了一遍机制顺序，居然全员存活。回城收到两张感谢卡。"},
+        {.mood = "ok",   .text = "佐拉加，新人不会看地板，一直吃塔。打完顺手给了两条宏。"},
+        {.mood = "good", .text = "老玩家练小号，节奏极快，十二分钟出本。轻松的一次。"},
     };
     static const int kSlots[] = {0, 2, 3, 5, 6, 8};
 
@@ -988,7 +988,7 @@ QJsonObject MockBackend::captureStatus() const
     status.insert(QStringLiteral("candidate_profile_id"),
                   candidateEnabled ? QJsonValue(QStringLiteral("cn.2026.08.05.candidate"))
                                    : QJsonValue(QJsonValue::Null));
-    status.insert(QStringLiteral("candidate_observation_count"), int(m_candidateObservations.size()));
+    status.insert(QStringLiteral("candidate_observation_count"), static_cast<int>(m_candidateObservations.size()));
     status.insert(QStringLiteral("candidate_hypotheses"), mockCandidateHypotheses());
     status.insert(QStringLiteral("profile_id"), candidateEnabled
                       ? QJsonValue(QJsonValue::Null) : QJsonValue(QStringLiteral("cn/2026.08.12")));
@@ -999,7 +999,7 @@ QJsonObject MockBackend::captureStatus() const
     status.insert(QStringLiteral("adapter_auto_selected"), true);
     status.insert(QStringLiteral("connection_count"), running ? 1 : 0);
     status.insert(QStringLiteral("started_at_utc"),
-                  running ? QJsonValue(isoUtc(m_now.addSecs(-(2 * 3600 + 14 * 60 + 9))))
+                  running ? QJsonValue(isoUtc(m_now.addSecs(-((2 * 3600) + (14 * 60) + 9))))
                           : QJsonValue(QJsonValue::Null));
     status.insert(QStringLiteral("packets_observed"), 918432);
     status.insert(QStringLiteral("packets_dropped"), 0);
@@ -1014,7 +1014,7 @@ QJsonObject MockBackend::captureStatus() const
     status.insert(QStringLiteral("injected_hook_enabled"), false);
 
     status.insert(QStringLiteral("uptime_ms"),
-                  running ? double((2 * 3600 + 14 * 60 + 9) * 1000) : 0.0);
+                  running ? static_cast<double>(((2 * 3600) + (14 * 60) + 9) * 1000) : 0.0);
 
     // The contract's own counter names since contracts/CHANGELOG.md entry 14.
     // The mock reports the same fields the Collector does, so the diagnostics
@@ -1025,9 +1025,11 @@ QJsonObject MockBackend::captureStatus() const
     // A midstream session decodes nothing at all and only accumulates decode
     // errors; that is the whole point of the fixture.
     status.insert(QStringLiteral("messages_decoded"),
-                  running ? (m_midstreamSuspected ? 0 : 917994) : 0);
-    status.insert(QStringLiteral("decode_errors"),
-                  running ? (m_midstreamSuspected ? 24518 : 438) : 0);
+                  running && !m_midstreamSuspected ? 917994 : 0);
+    int decodeErrors = 0;
+    if (running)
+        decodeErrors = m_midstreamSuspected ? 24518 : 438;
+    status.insert(QStringLiteral("decode_errors"), decodeErrors);
     status.insert(QStringLiteral("parse_ok_count"), running && !candidateEnabled ? 12879 : 0);
     status.insert(QStringLiteral("parse_fail_count"), running && !candidateEnabled ? 52 : 0);
     status.insert(QStringLiteral("duplicate_count"), running && !candidateEnabled ? 17 : 0);
@@ -1174,8 +1176,11 @@ QJsonObject MockBackend::captureStatus() const
         const bool chosen = m_selectedGameProcessId > 0;
         status["game_processes"] = choices;
         status["game_selection_required"] = !chosen;
-        status["game_selection_reason"] = chosen ? QStringLiteral("NONE")
-            : m_recordingFixture == QLatin1String("multiple-exited") ? QStringLiteral("EXITED") : QStringLiteral("MULTIPLE");
+        if (chosen)
+            status["game_selection_reason"] = QStringLiteral("NONE");
+        else
+            status["game_selection_reason"] = m_recordingFixture == QLatin1String("multiple-exited")
+                ? QStringLiteral("EXITED") : QStringLiteral("MULTIPLE");
         status["ffxiv_process_id"] = chosen ? QJsonValue(m_selectedGameProcessId) : QJsonValue(QJsonValue::Null);
         status["ffxiv_running"] = chosen;
         status["state"] = chosen ? QStringLiteral("RUNNING") : QStringLiteral("STOPPED");
@@ -1255,16 +1260,18 @@ QJsonArray MockBackend::runEvents(const QString &runId) const
         const char *opcode;
     };
     const QString result = run.value(QStringLiteral("result")).toString();
-    const Step end = result == QLatin1String("COMPLETED")
-                         ? Step{"DUTY_RESULT", "ended_at_utc", "0x0271"}
-                     : result == QLatin1String("CANCELLED_BEFORE_ENTRY")
-                         ? Step{"MATCH_CANCELLED", "ended_at_utc", "0x0142"}
-                     : result == QLatin1String("DISCONNECTED")
-                         ? Step{"CONNECTION_LOST", "ended_at_utc", nullptr}
-                         : Step{"INSTANCE_LEFT", "ended_at_utc", "0x02A4"};
+    const Step end = [&result] {
+        if (result == QLatin1String("COMPLETED"))
+            return Step{.type = "DUTY_RESULT", .field = "ended_at_utc", .opcode = "0x0271"};
+        if (result == QLatin1String("CANCELLED_BEFORE_ENTRY"))
+            return Step{.type = "MATCH_CANCELLED", .field = "ended_at_utc", .opcode = "0x0142"};
+        if (result == QLatin1String("DISCONNECTED"))
+            return Step{.type = "CONNECTION_LOST", .field = "ended_at_utc", .opcode = nullptr};
+        return Step{.type = "INSTANCE_LEFT", .field = "ended_at_utc", .opcode = "0x02A4"};
+    }();
     const Step steps[] = {
-        {"CONTENT_FINDER_POP", "matched_at_utc", "0x0142"},
-        {"ZONE_INITIALIZATION", "entered_at_utc", "0x01A3"},
+        {.type = "CONTENT_FINDER_POP", .field = "matched_at_utc", .opcode = "0x0142"},
+        {.type = "ZONE_INITIALIZATION", .field = "entered_at_utc", .opcode = "0x01A3"},
         end,
     };
 
@@ -1429,7 +1436,7 @@ QJsonObject MockBackend::collectorStatus() const
     status.insert(QStringLiteral("database_path"),
                   QDir::toNativeSeparators(dataDirectory()
                                            + QStringLiteral("/mentor_recorder.db")));
-    status.insert(QStringLiteral("uptime_ms"), double(2 * 3600 * 1000 + 14 * 60 * 1000));
+    status.insert(QStringLiteral("uptime_ms"), static_cast<double>((2 * 3600 * 1000) + (14 * 60 * 1000)));
     status.insert(QStringLiteral("capture"), captureStatus());
     // GetStatus.npcap exactly as CaptureWire.StatusExtras reports it, so the
     // 链路 panel's Npcap column reads the same fields offline as live.
@@ -1547,7 +1554,7 @@ QJsonObject MockBackend::currentRun() const
                            : QStringLiteral("MENTOR_MATCHED"));
     payload.insert(QStringLiteral("run"), run);
     payload.insert(QStringLiteral("elapsed_ms"),
-                   entered ? QJsonValue(double(enteredAt.msecsTo(m_now)))
+                   entered ? QJsonValue(static_cast<double>(enteredAt.msecsTo(m_now)))
                            : QJsonValue(QJsonValue::Null));
     return payload;
 }
@@ -1688,7 +1695,7 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
             const QDateTime endedAt = fromIso(run.value(QStringLiteral("ended_at_utc")));
             run.insert(QStringLiteral("duration_ms"),
                        enteredAt.isValid() && endedAt.isValid()
-                           ? QJsonValue(double(enteredAt.msecsTo(endedAt)))
+                           ? QJsonValue(static_cast<double>(enteredAt.msecsTo(endedAt)))
                            : QJsonValue(QJsonValue::Null));
         }
         if (!acceptableFinalValue(run, errorCode, errorMessage))
@@ -1835,7 +1842,7 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
             const QDateTime endedAt = fromIso(run.value(QStringLiteral("ended_at_utc")));
             derive(QStringLiteral("duration_ms"),
                    enteredAt.isValid() && endedAt.isValid()
-                       ? QJsonValue(double(enteredAt.msecsTo(endedAt)))
+                       ? QJsonValue(static_cast<double>(enteredAt.msecsTo(endedAt)))
                        : QJsonValue(QJsonValue::Null));
         }
         if (!acceptableFinalValue(run, errorCode, errorMessage))
@@ -2009,13 +2016,13 @@ public:
     {
         const QJsonValue value = m_row.value(field);
         QString text;
-        if (value.isString())
+        if (value.isString()) {
             text = value.toString().trimmed();
-        else if (value.isBool())
+        } else if (value.isBool()) {
             text = value.toBool() ? QStringLiteral("true") : QStringLiteral("false");
-        else if (value.isDouble())
+        } else if (value.isDouble()) {
             text = QString::number(value.toDouble(), 'g', 17);
-        else if (value.isObject() || value.isArray()) {
+        } else if (value.isObject() || value.isArray()) {
             refuse("import.row.field_not_scalar", {{QStringLiteral("field"), field}});
             return {};
         }
@@ -2097,7 +2104,7 @@ public:
         const QRegularExpressionMatch fixed = offset.match(zone);
         const QTimeZone timeZone = fixed.hasMatch()
             ? QTimeZone::fromSecondsAheadOfUtc((fixed.captured(1) == QLatin1String("-") ? -1 : 1)
-                                               * (fixed.captured(2).toInt() * 3600 + fixed.captured(3).toInt() * 60))
+                                               * ((fixed.captured(2).toInt() * 3600) + (fixed.captured(3).toInt() * 60)))
             : QTimeZone(zone.toUtf8());
         if (zone.isEmpty() || !timeZone.isValid()) {
             refuse("import.row.time_zone_missing", which);
@@ -2205,7 +2212,7 @@ QString importTwinKey(const QJsonObject &run)
         return {};
     const QJsonValue content = run.value(QStringLiteral("content_id"));
     const QJsonValue text = run.value(QStringLiteral("reflection")).toObject().value(QStringLiteral("text"));
-    const QJsonArray key{content.isDouble() ? QStringLiteral("content:") + QString::number(qint64(content.toDouble()))
+    const QJsonArray key{content.isDouble() ? QStringLiteral("content:") + QString::number(static_cast<qint64>(content.toDouble()))
                                             : QStringLiteral("name:") + run.value(QStringLiteral("duty_name")).toString(),
                          entered.isString() ? entered : QJsonValue(QJsonValue::Null),
                          sourceUtc.isString() ? sourceUtc : QJsonValue(QJsonValue::Null),
@@ -2243,9 +2250,9 @@ ImportRow normalizeImportRow(const QJsonObject &row, const QString &kind, const 
     const QString sourceUtcText = read.text(QStringLiteral("source_recorded_at_utc"), 100);
     const bool sourceDateOnly = calendarDay(sourceRecorded).isValid();
     QJsonValue sourceUtc(QJsonValue::Null);
-    if (sourceDateOnly)
+    if (sourceDateOnly) {
         appendSentence(out.warnings, out.warningRefs, "import.warning.source_date_only");
-    else {
+    } else {
         const bool useSourceRecorded = !sourceRecorded.isEmpty()
             && (!zone.isEmpty() || hasExplicitZone(sourceRecorded) || sourceUtcText.isEmpty());
         if (useSourceRecorded)
@@ -2356,9 +2363,11 @@ ImportRow normalizeImportRow(const QJsonObject &row, const QString &kind, const 
         appendSentence(out.errors, out.errorRefs, "mutation.entered_after_ended");
         return out;
     }
-    const QJsonValue durationMs = row.contains(QStringLiteral("duration_ms"))
-        ? (duration >= 0 ? QJsonValue(double(duration)) : none)
-        : (enteredAt.isValid() && endedAt.isValid() ? QJsonValue(double(enteredAt.msecsTo(endedAt))) : none);
+    QJsonValue durationMs = none;
+    if (row.contains(QStringLiteral("duration_ms")))
+        durationMs = duration >= 0 ? QJsonValue(static_cast<double>(duration)) : none;
+    else if (enteredAt.isValid() && endedAt.isValid())
+        durationMs = QJsonValue(static_cast<double>(enteredAt.msecsTo(endedAt)));
 
     const bool incomplete = result == QLatin1String("UNKNOWN")
         || (result != QLatin1String("CANCELLED_BEFORE_ENTRY")
@@ -2390,6 +2399,11 @@ ImportRow normalizeImportRow(const QJsonObject &row, const QString &kind, const 
         : QJsonValue(QJsonObject{{QStringLiteral("mood"), mood}, {QStringLiteral("text"), reflectionText},
                                  {QStringLiteral("created_at_utc"), now}, {QStringLiteral("updated_at_utc"), now}});
     const QVariant zoneOfDuty = duty.value(QStringLiteral("territory_id"));
+    QJsonValue resolvedTerritory = none;
+    if (territory >= 0)
+        resolvedTerritory = QJsonValue(territory);
+    else if (zoneOfDuty.isValid())
+        resolvedTerritory = QJsonValue(zoneOfDuty.toLongLong());
     out.run = QJsonObject{
         {QStringLiteral("run_id"), runId},
         {QStringLiteral("revision"), 1},
@@ -2399,8 +2413,7 @@ ImportRow normalizeImportRow(const QJsonObject &row, const QString &kind, const 
         {QStringLiteral("protocol_profile_id"), none},
         {QStringLiteral("mentor_roulette_id"), roulette >= 0 ? QJsonValue(roulette) : none},
         {QStringLiteral("content_id"), contentId >= 0 ? QJsonValue(contentId) : none},
-        {QStringLiteral("territory_id"), territory >= 0 ? QJsonValue(territory)
-                                         : zoneOfDuty.isValid() ? QJsonValue(zoneOfDuty.toLongLong()) : none},
+        {QStringLiteral("territory_id"), resolvedTerritory},
         {QStringLiteral("duty_name"), textOrNull(name)},
         {QStringLiteral("duty_category"),
          textOrNull(!category.isEmpty() ? category : duty.value(QStringLiteral("duty_category")).toString())},
@@ -2518,8 +2531,8 @@ QJsonObject importPage(const QJsonObject &whole, int page, int pageSize)
 {
     const QJsonArray all = whole.value(QStringLiteral("rows")).toArray();
     QJsonArray rows;
-    for (qint64 i = qint64(page - 1) * pageSize; i < qMin(qint64(all.size()), qint64(page) * pageSize); ++i)
-        rows.append(all.at(int(i)));
+    for (qint64 i = static_cast<qint64>(page - 1) * pageSize; i < qMin(static_cast<qint64>(all.size()), static_cast<qint64>(page) * pageSize); ++i)
+        rows.append(all.at(static_cast<int>(i)));
     QJsonObject out = whole;
     out.insert(QStringLiteral("rows"), rows);
     out.insert(QStringLiteral("page_info"),
@@ -2543,7 +2556,7 @@ QJsonObject MockBackend::previewRunImport(const QJsonObject &payload, QString *e
         return QString();
     };
     const auto wholeNumber = [](const QJsonValue &value) {
-        return value.isDouble() && value.toDouble() == std::floor(value.toDouble()) ? qint64(value.toDouble()) : qint64(-1);
+        return value.isDouble() && value.toDouble() == std::floor(value.toDouble()) ? static_cast<qint64>(value.toDouble()) : static_cast<qint64>(-1);
     };
 
     // RunImportService.PreviewPage: a page of a frozen preview, never classified again.
@@ -2557,13 +2570,13 @@ QJsonObject MockBackend::previewRunImport(const QJsonObject &payload, QString *e
                 continue;
             if (preview.pageSize == 0)
                 return refuse("ipc.field.undeclared_value", {{QStringLiteral("field"), QStringLiteral("preview_id")}});
-            const int total = int(preview.whole.value(QStringLiteral("rows")).toArray().size());
+            const int total = static_cast<int>(preview.whole.value(QStringLiteral("rows")).toArray().size());
             const int pageCount = qMax(1, (total + preview.pageSize - 1) / preview.pageSize);
             const qint64 page = wholeNumber(payload.value(QStringLiteral("page")));
             if (page < 1 || page > pageCount)
                 return refuse("ipc.field.out_of_range", {{QStringLiteral("field"), QStringLiteral("page")},
                                                           {QStringLiteral("min"), 1}, {QStringLiteral("max"), pageCount}});
-            return importPage(preview.whole, int(page), preview.pageSize);
+            return importPage(preview.whole, static_cast<int>(page), preview.pageSize);
         }
         return refuse("import.commit.preview_expired");
     }
@@ -2580,7 +2593,7 @@ QJsonObject MockBackend::previewRunImport(const QJsonObject &payload, QString *e
         if (size < 1 || size > 100)
             return refuse("ipc.field.out_of_range", {{QStringLiteral("field"), QStringLiteral("page_size")},
                                                       {QStringLiteral("min"), 1}, {QStringLiteral("max"), 100}});
-        pageSize = int(size);
+        pageSize = static_cast<int>(size);
     }
     if (!payload.value(QStringLiteral("source_kind")).isString())
         return refuse("ipc.field.missing", {{QStringLiteral("field"), QStringLiteral("source_kind")}});
@@ -2792,7 +2805,7 @@ QJsonObject MockBackend::commitRunImport(const QJsonObject &payload, QString *er
     }
     if (!valid || selected.isEmpty() || selected.size() > kMaxImportRows)
         return refuse("import.commit.selection_invalid");
-    std::sort(selected.begin(), selected.end());
+    std::ranges::sort(selected);
     const bool deduct = payload.value(QStringLiteral("deduct_from_baseline")).toBool(false);
     QStringList numbers;
     for (int number : std::as_const(selected))
@@ -2913,9 +2926,9 @@ QJsonObject MockBackend::commitRunImport(const QJsonObject &payload, QString *er
                                {QStringLiteral("rows"), outcomes},
                                {QStringLiteral("baseline_deducted_count"), deducted},
                                {QStringLiteral("baseline_completed_count"), m_baselineCompletedCount}};
-    m_importReceipts.append(ImportReceipt{previewId, requestId, selection, response});
+    m_importReceipts.append(ImportReceipt{.previewId = previewId, .requestId = requestId, .selection = selection, .response = response});
     // The request id is spent: no other mutation may be answered under it.
-    m_appliedRequests.insert(requestId, AppliedRequest{QStringLiteral("CommitRunImport"), selection, response});
+    m_appliedRequests.insert(requestId, AppliedRequest{.messageType = QStringLiteral("CommitRunImport"), .fingerprint = selection, .result = response});
     return response;
 }
 
@@ -3000,18 +3013,18 @@ QJsonObject MockBackend::reflectionSummary(int recentLimit) const
             .value(QStringLiteral("updated_at_utc"))
             .toString();
     };
-    std::stable_sort(withReflection.begin(), withReflection.end(),
+    std::ranges::stable_sort(withReflection,
                      [&](const QJsonObject &a, const QJsonObject &b) {
                          return reflectionStamp(a) > reflectionStamp(b);
                      });
-    std::stable_sort(pending.begin(), pending.end(),
+    std::ranges::stable_sort(pending,
                      [](const QJsonObject &a, const QJsonObject &b) {
                          return a.value(QStringLiteral("matched_at_utc")).toString()
                                 > b.value(QStringLiteral("matched_at_utc")).toString();
                      });
 
     QJsonArray recent;
-    for (int i = 0; i < qMin(limit, int(withReflection.size())); ++i) {
+    for (int i = 0; i < qMin(limit, static_cast<int>(withReflection.size())); ++i) {
         QJsonObject entry;
         entry.insert(QStringLiteral("run"), withReflection.at(i));
         entry.insert(QStringLiteral("reflection"),
@@ -3020,8 +3033,8 @@ QJsonObject MockBackend::reflectionSummary(int recentLimit) const
     }
 
     QJsonObject result;
-    result.insert(QStringLiteral("reflection_count"), int(withReflection.size()));
-    result.insert(QStringLiteral("pending_completed_count"), int(pending.size()));
+    result.insert(QStringLiteral("reflection_count"), static_cast<int>(withReflection.size()));
+    result.insert(QStringLiteral("pending_completed_count"), static_cast<int>(pending.size()));
     result.insert(QStringLiteral("recent"), recent);
     result.insert(QStringLiteral("next_pending"),
                   pending.isEmpty() ? QJsonValue(QJsonValue::Null)
@@ -3038,7 +3051,7 @@ MockBackend::CollectorSentence MockBackend::collectorSentence(const char *key, c
     // A key the catalogue does not have would send an empty sentence.
     Q_ASSERT_X(collector_text::knows(QString::fromUtf8(key)), "MockBackend", key);
     const QVariantMap ref = collector_text::textRef(key, args);
-    return {collector_text::chinese(ref), QJsonObject::fromVariantMap(ref)};
+    return {.chinese = collector_text::chinese(ref), .ref = QJsonObject::fromVariantMap(ref)};
 }
 
 QJsonObject MockBackend::refuseWith(QString *errorCode, QString *errorMessage, const QString &code,
@@ -3311,7 +3324,8 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         if (!valid) {
             errorCode = QStringLiteral("ERR_BAD_REQUEST");
             errorMessage = QString::fromUtf8("日历查询需要有效的 YYYY-MM 月份和筛选对象。");
-        } else result = queryRunCalendarDaysPayload(payload);
+        } else { result = queryRunCalendarDaysPayload(payload);
+}
     } else if (messageType == QLatin1String("QueryRuns")) {
         // RequestParsers.Paging (PayloadReader.Int): omitted or null is the default, anything
         // else must be an integer in range - page from 1, page_size 1 to 200 - and is refused,
@@ -3326,7 +3340,7 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
                            "ipc.field.not_integer", name);
                 return true;
             }
-            if (value.toDouble() < 1.0 || value.toDouble() > double(maximum)) {
+            if (value.toDouble() < 1.0 || value.toDouble() > static_cast<double>(maximum)) {
                 QVariantMap range = name;
                 range.insert(QStringLiteral("min"), 1);
                 range.insert(QStringLiteral("max"), maximum);
@@ -3444,18 +3458,18 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
                 if (value.toObject().value(QStringLiteral("run_id")).toString() == runId)
                     chain.append(value.toObject());
             }
-            std::stable_sort(chain.begin(), chain.end(), [](const QJsonObject &a, const QJsonObject &b) {
+            std::ranges::stable_sort(chain, [](const QJsonObject &a, const QJsonObject &b) {
                 return a.value(QStringLiteral("revision")).toInt()
                        < b.value(QStringLiteral("revision")).toInt();
             });
             QJsonArray items;
-            const qint64 first = qint64(page - 1) * pageSize;
-            for (qint64 i = first; i < qMin(qint64(chain.size()), first + pageSize); ++i)
-                items.append(chain.at(int(i)));
+            const qint64 first = static_cast<qint64>(page - 1) * pageSize;
+            for (qint64 i = first; i < qMin(static_cast<qint64>(chain.size()), first + pageSize); ++i)
+                items.append(chain.at(static_cast<int>(i)));
             QJsonObject pageInfo;
             pageInfo.insert(QStringLiteral("page"), page);
             pageInfo.insert(QStringLiteral("page_size"), pageSize);
-            pageInfo.insert(QStringLiteral("total"), int(chain.size()));
+            pageInfo.insert(QStringLiteral("total"), static_cast<int>(chain.size()));
             result.insert(QStringLiteral("items"), items);
             result.insert(QStringLiteral("page_info"), pageInfo);
         }
@@ -3483,19 +3497,19 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         const int page = qMax(1, payload.value(QStringLiteral("page")).toInt(1));
         const int pageSize = qBound(1, payload.value(QStringLiteral("page_size")).toInt(50), 200);
         QJsonArray items;
-        for (qint64 i = qint64(page - 1) * pageSize;
-             i < qMin(qint64(allItems.size()), qint64(page) * pageSize); ++i)
+        for (qint64 i = static_cast<qint64>(page - 1) * pageSize;
+             i < qMin(static_cast<qint64>(allItems.size()), static_cast<qint64>(page) * pageSize); ++i)
             items.append(allItems.at(i));
         QJsonObject pageInfo;
         pageInfo.insert(QStringLiteral("page"), page);
         pageInfo.insert(QStringLiteral("page_size"), pageSize);
-        pageInfo.insert(QStringLiteral("total"), int(allItems.size()));
+        pageInfo.insert(QStringLiteral("total"), static_cast<int>(allItems.size()));
         result.insert(QStringLiteral("items"), items);
         result.insert(QStringLiteral("page_info"), pageInfo);
         if (messageType == QLatin1String("GetDungeonStats")) {
             // How many distinct duties match the filter, not how many rows this
             // page carries.
-            result.insert(QStringLiteral("distinct_count"), int(allItems.size()));
+            result.insert(QStringLiteral("distinct_count"), static_cast<int>(allItems.size()));
         }
     } else if (messageType == QLatin1String("UndoRevision")
                || messageType == QLatin1String("CreateManualRun")
@@ -3578,7 +3592,7 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
     // An applied mutation is remembered under the request_id it came with; a refused one
     // is not, so its retry is checked again (the Collector rolls the transaction back).
     if (!failed && !m_requestId.isEmpty() && isReplayableMutation(messageType))
-        m_appliedRequests.insert(m_requestId, AppliedRequest{messageType, m_requestFingerprint, result});
+        m_appliedRequests.insert(m_requestId, AppliedRequest{.messageType = messageType, .fingerprint = m_requestFingerprint, .result = result});
     deliver(reply, result, errorCode, errorMessage, errorDetails, errorRef);
     return reply;
 }

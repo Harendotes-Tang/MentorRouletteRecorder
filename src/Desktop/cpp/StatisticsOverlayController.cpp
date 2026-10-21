@@ -10,15 +10,15 @@ struct Module { const char *key; const char *title; const char *hint; };
 // Design order; every module is on by default. 当前副本 / 副本用时 only show
 // during a run and 待处理记录 only while something waits, whatever the switch.
 const Module kModules[] = {
-    {"progress", QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "累计进度"), nullptr},
-    {"current_duty", QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "当前副本"),
-     QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "进本后显示")},
-    {"elapsed", QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "副本用时"),
-     QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "进本后显示")},
-    {"dungeons", QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "副本统计"), nullptr},
-    {"jobs", QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "职业统计"), nullptr},
-    {"pending_work", QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "待处理记录"),
-     QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "有待处理时显示")},
+    {.key = "progress", .title = QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "累计进度"), .hint = nullptr},
+    {.key = "current_duty", .title = QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "当前副本"),
+     .hint = QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "进本后显示")},
+    {.key = "elapsed", .title = QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "副本用时"),
+     .hint = QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "进本后显示")},
+    {.key = "dungeons", .title = QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "副本统计"), .hint = nullptr},
+    {.key = "jobs", .title = QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "职业统计"), .hint = nullptr},
+    {.key = "pending_work", .title = QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "待处理记录"),
+     .hint = QT_TRANSLATE_NOOP("mr::StatisticsOverlayController", "有待处理时显示")},
 };
 QStringList moduleKeys()
 {
@@ -68,7 +68,7 @@ QScreen *screenFor(const QRect &geometry)
     qint64 bestArea = 0;
     for (QScreen *screen : QGuiApplication::screens()) {
         const QRect overlap = screen->availableGeometry().intersected(geometry);
-        const qint64 area = overlap.isValid() ? qint64(overlap.width()) * overlap.height() : 0;
+        const qint64 area = overlap.isValid() ? static_cast<qint64>(overlap.width()) * overlap.height() : 0;
         if (area > bestArea) {
             bestArea = area;
             chosen = screen;
@@ -82,7 +82,7 @@ QRect fitToAvailableScreen(const QRect &geometry)
     qint64 bestArea = 0;
     for (QScreen *screen : QGuiApplication::screens()) {
         const QRect overlap = screen->availableGeometry().intersected(geometry);
-        const qint64 area = overlap.isValid() ? qint64(overlap.width()) * overlap.height() : 0;
+        const qint64 area = overlap.isValid() ? static_cast<qint64>(overlap.width()) * overlap.height() : 0;
         if (area > bestArea) {
             bestArea = area;
             chosen = screen;
@@ -256,13 +256,13 @@ void StatisticsOverlayController::toggleModule(const QString &key)
 void StatisticsOverlayController::moveModule(const QString &key, int direction)
 {
     if (direction != -1 && direction != 1) return;
-    moveModuleTo(key, int(m_order.indexOf(key)) + direction);
+    moveModuleTo(key, static_cast<int>(m_order.indexOf(key)) + direction);
 }
 void StatisticsOverlayController::moveModuleTo(const QString &key, int index)
 {
     const qsizetype from = m_order.indexOf(key);
     if (from < 0) return;
-    const qsizetype to = qBound(qsizetype(0), qsizetype(index), m_order.size() - 1);
+    const qsizetype to = qBound(static_cast<qsizetype>(0), static_cast<qsizetype>(index), m_order.size() - 1);
     if (from == to) return;
     m_order.move(from, to);
     m_modules = enabledInOrder(m_order, m_modules);

@@ -56,6 +56,7 @@ bool makeJunction(const QString &link, const QString &target)
 
 } // namespace
 
+namespace {
 class InstallerHoldTests : public QObject
 {
     Q_OBJECT
@@ -171,7 +172,7 @@ private Q_SLOTS:
         const QString path = directory.filePath(QLatin1String(kInstallerName));
         QByteArray bytes;
         for (int index = 0; index < 10000; ++index)
-            bytes.append(char('a' + index % 26));
+            bytes.append(static_cast<char>('a' + (index % 26)));
         QVERIFY(writeFile(path, bytes));
 
         mr::InstallerHold hold;
@@ -206,6 +207,7 @@ private Q_SLOTS:
         QVERIFY(!hasher.start(&hold));
     }
 };
+} // namespace
 
 QTEST_GUILESS_MAIN(InstallerHoldTests)
 

@@ -35,6 +35,7 @@
 #include <QQuickStyle>
 #include <memory>
 #include <ranges>
+#include <utility>
 
 #ifdef Q_OS_WIN
 #  ifndef NOMINMAX
@@ -75,8 +76,8 @@ struct TestPipe {
         if (!operation.hEvent) return false;
         const auto closeEvent = qScopeGuard([&] { ::CloseHandle(operation.hEvent); });
         const BOOL done = writing
-            ? ::WriteFile(handle, bytes.constData(), DWORD(bytes.size()), &transferred, &operation)
-            : ::ReadFile(handle, bytes.data(), DWORD(bytes.size()), &transferred, &operation);
+            ? ::WriteFile(handle, bytes.constData(), static_cast<DWORD>(bytes.size()), &transferred, &operation)
+            : ::ReadFile(handle, bytes.data(), static_cast<DWORD>(bytes.size()), &transferred, &operation);
         if (done) return true;
         if (::GetLastError() != ERROR_IO_PENDING) return false;
         if (::WaitForSingleObject(operation.hEvent, 2000) != WAIT_OBJECT_0) {
@@ -99,13 +100,21 @@ struct TestPipe {
     }
     bool writeFrame(QByteArray bytes) const {
         DWORD sent = 0;
-        return transfer(true, bytes, sent) && sent == DWORD(bytes.size());
+        return transfer(true, bytes, sent) && std::cmp_equal(sent, bytes.size());
     }
 };
 #endif
 
-const QString firstId = QStringLiteral("00000000-0000-0000-0000-000000000001");
-const QString secondId = QStringLiteral("00000000-0000-0000-0000-000000000002");
+const QString &firstId()
+{
+    static const QString value = QStringLiteral("00000000-0000-0000-0000-000000000001");
+    return value;
+}
+const QString &secondId()
+{
+    static const QString value = QStringLiteral("00000000-0000-0000-0000-000000000002");
+    return value;
+}
 QVariantMap row(const QString &id, int revision, bool deleted = false)
 {
     return {{QStringLiteral("run_id"), id}, {QStringLiteral("revision"), revision},
@@ -120,12 +129,12 @@ public:
     bool isConnected() const override { return true; }
     mr::BackendReply *request(const QString &type, const QJsonObject &payload = {}) override {
         auto *reply = new mr::BackendReply(QString::number(calls.size()), type, this);
-        calls.append({type, payload, {}, reply});
+        calls.append({.type=type, .payload=payload, .id={}, .reply=reply});
         return reply;
     }
     mr::BackendReply *requestWithId(const QString &type, const QJsonObject &payload, const QString &id) override {
         auto *reply = transport ? new mr::BackendReply(id, type, this) : request(type, payload);
-        if (transport) calls.append({type, payload, id, reply});
+        if (transport) calls.append({.type=type, .payload=payload, .id=id, .reply=reply});
         else calls.last().id = id;
         if (transport) transport->send(reply, type, payload);
         return reply;
@@ -157,8 +166,8 @@ public:
             QStringList ids;
             for (const auto &id : payload.value(QStringLiteral("run_ids")).toArray()) ids.append(id.toString());
             acknowledgements.append(ids);
-            if (failAck) reply->fail(QStringLiteral("ERR_PIPE_CLOSED"), QStringLiteral("连接中断"));
-            else {
+            if (failAck) { reply->fail(QStringLiteral("ERR_PIPE_CLOSED"), QStringLiteral("连接中断"));
+            } else {
                 for (const QString &id : ids) pending.removeAll(id);
                 reply->succeed({{QStringLiteral("acknowledged_count"), ids.size()}});
             }
@@ -180,6 +189,7 @@ void clickItem(QQuickWindow *window, QQuickItem *item) {
 }
 }
 
+namespace {
 class HistoryBatchTests final : public QObject {
     Q_OBJECT
 private:
@@ -245,14 +255,14 @@ private Q_SLOTS:
         mr::HistoryController history(&backend);
         history.runs()->setPageSize(1);
         QCOMPARE(backend.last(QStringLiteral("QueryRuns")).payload.value(QStringLiteral("sort")).toObject().value(QStringLiteral("field")).toString(), QStringLiteral("history_date"));
-        backend.completePage(row(firstId, 4));
+        backend.completePage(row(firstId(), 4));
         history.setCurrentPageChecked(true);
         QVERIFY(history.allCurrentPageChecked());
         history.runs()->nextPage();
-        backend.completePage(row(secondId, 7), 2);
+        backend.completePage(row(secondId(), 7), 2);
         history.setCurrentPageChecked(true);
-        QCOMPARE(history.checkedRunIds(), QStringList({firstId, secondId}));
-        history.adoptRunRevisionFromEvent(QJsonObject::fromVariantMap(row(firstId, 9)));
+        QCOMPARE(history.checkedRunIds(), QStringList({firstId(), secondId()}));
+        history.adoptRunRevisionFromEvent(QJsonObject::fromVariantMap(row(firstId(), 9)));
         history.mutateCheckedRuns(QStringLiteral("soft_delete"), QStringLiteral("清理记录"));
         const auto sent = backend.last(QStringLiteral("BatchMutateRuns"));
         const auto targets = sent.payload.value(QStringLiteral("runs")).toArray();
@@ -307,7 +317,7 @@ private Q_SLOTS:
         ControlledBackend backend;
         backend.transport = &client;
         mr::HistoryController history(&backend);
-        history.setRunChecked(row(firstId, 3), true);
+        history.setRunChecked(row(firstId(), 3), true);
         history.mutateCheckedRuns(QStringLiteral("soft_delete"), QStringLiteral("原因"));
         const auto first = backend.last(QStringLiteral("BatchMutateRuns"));
         if (failure != QLatin1String("unsent")) {
@@ -333,7 +343,7 @@ private Q_SLOTS:
             }
         }
         QTRY_VERIFY(!history.batchRunning());
-        QCOMPARE(history.checkedRunIds(), QStringList({firstId}));
+        QCOMPARE(history.checkedRunIds(), QStringList({firstId()}));
         if (failure == QLatin1String("business")) {
             QVERIFY(history.batchFeedback().contains(QStringLiteral("数据库写入失败")));
             QVERIFY(history.batchFeedback().contains(QStringLiteral("重新勾选")));
@@ -352,7 +362,7 @@ private Q_SLOTS:
     void uncertainBatchRetryKeepsRequestIdentity() {
         ControlledBackend backend;
         mr::HistoryController history(&backend);
-        history.setRunChecked(row(firstId, 3), true);
+        history.setRunChecked(row(firstId(), 3), true);
         history.mutateCheckedRuns(QStringLiteral("soft_delete"), QStringLiteral("原因"));
         const auto first = backend.last(QStringLiteral("BatchMutateRuns"));
         first.reply->fail(QStringLiteral("ERR_PIPE_CLOSED"), QStringLiteral("结果未知"));
@@ -366,7 +376,7 @@ private Q_SLOTS:
     void filterChangesRequireExplicitConfirmation() {
         ControlledBackend backend;
         mr::HistoryController history(&backend);
-        history.setRunChecked(row(firstId, 2), true);
+        history.setRunChecked(row(firstId(), 2), true);
         history.setHistoryFilter({{QStringLiteral("pending_review"), true}});
         QVERIFY(history.filterConfirmationPending());
         QCOMPARE(history.checkedRunCount(), 1);
@@ -388,10 +398,10 @@ private Q_SLOTS:
         exporter.setBackend(&backend);
         exporter.setTargetOverride(dir.path());
         exporter.setHistoryFilter({{QStringLiteral("text"), QStringLiteral("原筛选")}});
-        exporter.setCheckedRunIds({firstId, secondId});
+        exporter.setCheckedRunIds({firstId(), secondId()});
         exporter.exportCsv();
         const auto filter = backend.last(QStringLiteral("ExportCsv")).payload.value(QStringLiteral("filter")).toObject();
-        QCOMPARE(filter.value(QStringLiteral("run_id")).toArray(), QJsonArray({firstId, secondId}));
+        QCOMPARE(filter.value(QStringLiteral("run_id")).toArray(), QJsonArray({firstId(), secondId()}));
         QVERIFY(filter.value(QStringLiteral("include_deleted")).toBool());
         QVERIFY(!filter.contains(QStringLiteral("text")));
         exporter.setCheckedRunIds({});
@@ -401,13 +411,13 @@ private Q_SLOTS:
     void purgeAndRestoreRefuseLiveOrMixedSelectionBeforeSending() {
         ControlledBackend backend;
         mr::HistoryController history(&backend);
-        history.setRunChecked(row(firstId, 1), true);
-        history.setRunChecked(row(secondId, 2, true), true);
+        history.setRunChecked(row(firstId(), 1), true);
+        history.setRunChecked(row(secondId(), 2, true), true);
         history.mutateCheckedRuns(QStringLiteral("purge"), QStringLiteral("原因"));
         history.mutateCheckedRuns(QStringLiteral("restore"), QStringLiteral("原因"));
         history.mutateCheckedRuns(QStringLiteral("soft_delete"), QStringLiteral("原因"));
         QVERIFY(backend.calls.isEmpty());
-        history.setRunChecked(row(firstId, 1), false);
+        history.setRunChecked(row(firstId(), 1), false);
         history.mutateCheckedRuns(QStringLiteral("purge"), QStringLiteral("原因"));
         QVERIFY(backend.last(QStringLiteral("BatchMutateRuns")).reply);
     }
@@ -428,8 +438,9 @@ private Q_SLOTS:
         mr::MockBackend backend;
         QJsonArray fixtures;
         for (const QString &raw : {QStringLiteral("2024-09-24"), QStringLiteral("2024/9/24"), QStringLiteral("2024.9.24")}) {
-            const QString id = raw.contains(QLatin1Char('.')) ? QStringLiteral("00000000-0000-0000-0000-000000000004")
-                : raw.contains(QLatin1Char('/')) ? secondId : firstId;
+            QString id = firstId();
+            if (raw.contains(QLatin1Char('.'))) id = QStringLiteral("00000000-0000-0000-0000-000000000004");
+            else if (raw.contains(QLatin1Char('/'))) id = secondId();
             QJsonObject run = QJsonObject::fromVariantMap(row(id, 1));
             run.insert(QStringLiteral("source"), QStringLiteral("IMPORT"));
             run.insert(QStringLiteral("import_metadata"), QJsonObject{{QStringLiteral("source_recorded_at"), raw}});
@@ -454,17 +465,17 @@ private Q_SLOTS:
         QTRY_VERIFY(finished);
         QVERIFY(success);
         QCOMPARE(result.value(QStringLiteral("items")).toList().size(), 3);
-        filter.insert(QStringLiteral("run_id"), QJsonArray{secondId});
+        filter.insert(QStringLiteral("run_id"), QJsonArray{secondId()});
         finished = false;
         backend.request(QStringLiteral("QueryRuns"), {{QStringLiteral("filter"), filter}})->whenDone(this, collect);
         QTRY_VERIFY(finished);
         QCOMPARE(result.value(QStringLiteral("items")).toList().size(), 1);
-        QCOMPARE(result.value(QStringLiteral("items")).toList().first().toMap().value(QStringLiteral("run_id")).toString(), secondId);
+        QCOMPARE(result.value(QStringLiteral("items")).toList().first().toMap().value(QStringLiteral("run_id")).toString(), secondId());
     }
     void importedMaintenanceRevisionCannotUndoEvenWithOnlyPendingFlagChange() {
         ControlledBackend backend;
         mr::HistoryController history(&backend);
-        history.selectRun(row(firstId, 2));
+        history.selectRun(row(firstId(), 2));
         const QJsonObject revision{{QStringLiteral("revision"), 2}, {QStringLiteral("actor"), QStringLiteral("SYSTEM")},
             {QStringLiteral("reason"), QStringLiteral("依据导入来源审计维护历史身份；缺游戏时间保留待补充，不作为采集结果待复核。")},
             {QStringLiteral("changes"), QJsonArray{QJsonObject{{QStringLiteral("field"), QStringLiteral("pending_review")}}}}};
@@ -485,10 +496,10 @@ private Q_SLOTS:
         QFETCH(bool, sourceFirst);
         mr::MockBackend backend;
         const QDate sourceDay(2024, 9, 24);
-        QJsonObject source = QJsonObject::fromVariantMap(row(firstId, 1));
+        QJsonObject source = QJsonObject::fromVariantMap(row(firstId(), 1));
         source.insert(QStringLiteral("source"), QStringLiteral("IMPORT"));
         source.insert(QStringLiteral("import_metadata"), QJsonObject{{QStringLiteral("source_recorded_at"), QStringLiteral("2024/9/24")}});
-        QJsonObject actual = QJsonObject::fromVariantMap(row(secondId, 1));
+        QJsonObject actual = QJsonObject::fromVariantMap(row(secondId(), 1));
         actual.insert(QStringLiteral("entered_at_utc"), QDateTime(sourceDay.addDays(dayOffset), QTime(hour, 0),
             QTimeZone::systemTimeZone()).toUTC().toString(Qt::ISODateWithMs));
         backend.resetRuns({actual, source});
@@ -507,13 +518,13 @@ private Q_SLOTS:
             QVERIFY(success);
             const QVariantList rows = result.value(QStringLiteral("items")).toList();
             QCOMPARE(rows.size(), 2);
-            QCOMPARE(rows.first().toMap().value(QStringLiteral("run_id")).toString(), sourceFirst == ascending ? firstId : secondId);
+            QCOMPARE(rows.first().toMap().value(QStringLiteral("run_id")).toString(), sourceFirst == ascending ? firstId() : secondId());
         }
         // The default instant filter remains UTC-day based; only the comparison
         // key used by ORDER BY treats a raw calendar day as local midnight.
         finished = false;
         const QJsonObject filter{{QStringLiteral("date_field"), QStringLiteral("history_date")},
-            {QStringLiteral("run_id"), QJsonArray{firstId}},
+            {QStringLiteral("run_id"), QJsonArray{firstId()}},
             {QStringLiteral("from_utc"), QStringLiteral("2024-09-24T00:00:00.000Z")},
             {QStringLiteral("to_utc"), QStringLiteral("2024-09-24T00:00:00.000Z")}};
         backend.request(QStringLiteral("QueryRuns"), {{QStringLiteral("filter"), filter}})->whenDone(this, collect);
@@ -524,16 +535,16 @@ private Q_SLOTS:
     void cleanupRejectsTraversalAndUnexpectedDirectories() {
         QTemporaryDir dir;
         mr::NoteImageStore store(dir.filePath(QStringLiteral("images")));
-        QVERIFY(QDir().mkpath(store.runDirectory(firstId) + QStringLiteral("/nested")));
-        QVERIFY(putFile(store.runDirectory(firstId) + QStringLiteral("/kept.png")));
+        QVERIFY(QDir().mkpath(store.runDirectory(firstId()) + QStringLiteral("/nested")));
+        QVERIFY(putFile(store.runDirectory(firstId()) + QStringLiteral("/kept.png")));
         QVERIFY(!store.cleanupRun(QStringLiteral("../escape")).value(QStringLiteral("ok")).toBool());
-        QVERIFY(!store.cleanupRun(firstId).value(QStringLiteral("ok")).toBool());
-        QVERIFY(QFileInfo::exists(store.runDirectory(firstId) + QStringLiteral("/kept.png")));
-        QVERIFY(QDir(store.runDirectory(firstId)).rmdir(QStringLiteral("nested")));
-        QVERIFY(store.cleanupRun(firstId).value(QStringLiteral("ok")).toBool());
+        QVERIFY(!store.cleanupRun(firstId()).value(QStringLiteral("ok")).toBool());
+        QVERIFY(QFileInfo::exists(store.runDirectory(firstId()) + QStringLiteral("/kept.png")));
+        QVERIFY(QDir(store.runDirectory(firstId())).rmdir(QStringLiteral("nested")));
+        QVERIFY(store.cleanupRun(firstId()).value(QStringLiteral("ok")).toBool());
         QVERIFY(QDir(store.rootDirectory()).exists());
-        QVERIFY(!QDir(store.runDirectory(firstId)).exists());
-        QVERIFY(store.cleanupRun(firstId).value(QStringLiteral("ok")).toBool());
+        QVERIFY(!QDir(store.runDirectory(firstId())).exists());
+        QVERIFY(store.cleanupRun(firstId()).value(QStringLiteral("ok")).toBool());
     }
     void cleanupRejectsJunctionWithoutTouchingItsTarget() {
 #ifdef Q_OS_WIN
@@ -544,10 +555,10 @@ private Q_SLOTS:
         QVERIFY(QDir().mkpath(outside));
         QVERIFY(putFile(outside + QStringLiteral("/keep.png")));
         QProcess link;
-        link.start(QStringLiteral("cmd.exe"), {QStringLiteral("/c"), QStringLiteral("mklink"), QStringLiteral("/J"), QDir::toNativeSeparators(store.runDirectory(firstId)), QDir::toNativeSeparators(outside)});
+        link.start(QStringLiteral("cmd.exe"), {QStringLiteral("/c"), QStringLiteral("mklink"), QStringLiteral("/J"), QDir::toNativeSeparators(store.runDirectory(firstId())), QDir::toNativeSeparators(outside)});
         if (!link.waitForFinished(10000) || link.exitCode() != 0) QSKIP("mklink /J unavailable");
-        auto unlink = qScopeGuard([&] { QDir(store.rootDirectory()).rmdir(firstId); });
-        QVERIFY(!store.cleanupRun(firstId).value(QStringLiteral("ok")).toBool());
+        auto unlink = qScopeGuard([&] { QDir(store.rootDirectory()).rmdir(firstId()); });
+        QVERIFY(!store.cleanupRun(firstId()).value(QStringLiteral("ok")).toBool());
         QVERIFY(QFileInfo::exists(outside + QStringLiteral("/keep.png")));
 #else
         QSKIP("Windows junction regression");
@@ -556,21 +567,21 @@ private Q_SLOTS:
     void cleanupAcknowledgesOnlySuccessAndRetriesFailedAcknowledgement() {
         QTemporaryDir dir;
         mr::NoteImageStore store(dir.filePath(QStringLiteral("images")));
-        QVERIFY(QDir().mkpath(store.runDirectory(firstId)));
-        QVERIFY(QDir().mkpath(store.runDirectory(secondId) + QStringLiteral("/nested")));
-        QVERIFY(putFile(store.runDirectory(firstId) + QStringLiteral("/note.png")));
+        QVERIFY(QDir().mkpath(store.runDirectory(firstId())));
+        QVERIFY(QDir().mkpath(store.runDirectory(secondId()) + QStringLiteral("/nested")));
+        QVERIFY(putFile(store.runDirectory(firstId()) + QStringLiteral("/note.png")));
         CleanupBackend backend;
-        backend.pending = {firstId, secondId};
+        backend.pending = {firstId(), secondId()};
         backend.failAck = true;
         mr::AppController app(&backend, nullptr);
         app.setNoteImageStore(&store);
         QTRY_VERIFY(!app.historyImageCleanupRunning());
         QCOMPARE(backend.acknowledgements.size(), 1);
-        QCOMPARE(backend.acknowledgements.first(), QStringList({firstId}));
+        QCOMPARE(backend.acknowledgements.first(), QStringList({firstId()}));
         QCOMPARE(backend.pending.size(), 2);
         QVERIFY(app.historyImageCleanupFeedback().contains(QStringLiteral("清理结果还没保存")));
         backend.failAck = false;
-        QVERIFY(QDir(store.runDirectory(secondId)).rmdir(QStringLiteral("nested")));
+        QVERIFY(QDir(store.runDirectory(secondId())).rmdir(QStringLiteral("nested")));
         app.retryHistoryImageCleanup();
         QTRY_VERIFY(!app.historyImageCleanupRunning());
         QVERIFY(backend.pending.isEmpty());
@@ -678,6 +689,7 @@ ApplicationWindow {
         QVERIFY(!QTest::currentTestFailed());
     }
 };
+} // namespace
 int main(int argc, char **argv) {
     mrtest::disableCollectorLaunch();
     if (qEnvironmentVariableIsEmpty("QT_QPA_FONTDIR"))

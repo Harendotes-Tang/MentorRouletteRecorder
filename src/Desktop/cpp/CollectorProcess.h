@@ -63,7 +63,7 @@ class CollectorProcess : public QObject
     Q_PROPERTY(QString stateToken READ stateToken NOTIFY stateChanged)
 
 public:
-    enum class State {
+    enum class State : quint8 {
         Missing,
         Idle,
         Starting,

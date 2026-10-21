@@ -317,26 +317,26 @@ QList<RequestVariant> requestVariants()
 {
     return {
         // ImportRecordsController: every page after the first of a frozen preview.
-        {QStringLiteral("PreviewRunImport.page"), QStringLiteral("PreviewRunImport"),
-         QJsonObject{{QStringLiteral("preview_id"), QStringLiteral("6f1d2c3b-4a5e-4f60-8b7c-9d0e1f2a3b4c")},
+        {.file=QStringLiteral("PreviewRunImport.page"), .messageType=QStringLiteral("PreviewRunImport"),
+         .args=QJsonObject{{QStringLiteral("preview_id"), QStringLiteral("6f1d2c3b-4a5e-4f60-8b7c-9d0e1f2a3b4c")},
                      {QStringLiteral("page"), 2}}},
         // A file read for the first time, with the column mapping the dialog offers.
-        {QStringLiteral("PreviewRunImport.file"), QStringLiteral("PreviewRunImport"),
-         QJsonObject{{QStringLiteral("source_kind"), QStringLiteral("XLSX")},
+        {.file=QStringLiteral("PreviewRunImport.file"), .messageType=QStringLiteral("PreviewRunImport"),
+         .args=QJsonObject{{QStringLiteral("source_kind"), QStringLiteral("XLSX")},
                      {QStringLiteral("source_name"), QStringLiteral("personal-records.xlsx")},
                      {QStringLiteral("time_zone"), QStringLiteral("+09:00")},
                      {QStringLiteral("page_size"), 100},
                      {QStringLiteral("file_path"), QStringLiteral("D:/imports/personal-records.xlsx")},
                      {QStringLiteral("column_mapping"), QJsonObject{{QString::fromUtf8("评论"), QStringLiteral("reflection_text")}}}}},
         // The unpaged fallback, sent once to a Collector that refuses page_size.
-        {QStringLiteral("PreviewRunImport.unpaged"), QStringLiteral("PreviewRunImport"),
-         QJsonObject{{QStringLiteral("source_kind"), QStringLiteral("PASTE")},
+        {.file=QStringLiteral("PreviewRunImport.unpaged"), .messageType=QStringLiteral("PreviewRunImport"),
+         .args=QJsonObject{{QStringLiteral("source_kind"), QStringLiteral("PASTE")},
                      {QStringLiteral("source_name"), QString::fromUtf8("粘贴的表格")},
                      {QStringLiteral("time_zone"), QStringLiteral("+08:00")},
                      {QStringLiteral("text"), QString::fromUtf8("副本\t评论\n合成测试副本\t合成测试心得")}}},
         // No baseline question answered: deduct_from_baseline does not travel.
-        {QStringLiteral("CommitRunImport.keep-baseline"), QStringLiteral("CommitRunImport"),
-         QJsonObject{{QStringLiteral("preview_id"), QStringLiteral("6f1d2c3b-4a5e-4f60-8b7c-9d0e1f2a3b4c")},
+        {.file=QStringLiteral("CommitRunImport.keep-baseline"), .messageType=QStringLiteral("CommitRunImport"),
+         .args=QJsonObject{{QStringLiteral("preview_id"), QStringLiteral("6f1d2c3b-4a5e-4f60-8b7c-9d0e1f2a3b4c")},
                      {QStringLiteral("row_numbers"), QJsonArray{1, 2, 5}}}},
     };
 }
@@ -351,6 +351,7 @@ QJsonObject readSample(const QString &path)
 
 } // namespace
 
+namespace {
 class IpcRequestTests : public QObject
 {
     Q_OBJECT
@@ -360,6 +361,7 @@ private Q_SLOTS:
     void samplesMatchTheCommittedFixtures();
     void variantsMatchTheCommittedFixtures();
 };
+} // namespace
 
 void IpcRequestTests::buildsOneSamplePerMessageType()
 {

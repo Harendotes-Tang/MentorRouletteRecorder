@@ -11,6 +11,7 @@
 #include <QStandardPaths>
 #include <QTest>
 
+namespace {
 class ReleaseNotesTests : public QObject
 {
     Q_OBJECT
@@ -207,6 +208,7 @@ private Q_SLOTS:
         QVERIFY(!notes.text().contains("## [Unreleased]"));
     }
 };
+} // namespace
 
 int main(int argc, char **argv)
 {

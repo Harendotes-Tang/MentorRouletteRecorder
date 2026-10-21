@@ -35,10 +35,13 @@
 #include <QPointer>
 #include <QProcess>
 #include <QTemporaryDir>
+#include <QMetaEnum>
 #include <QTest>
 #include <QTextStream>
 #include <QTimer>
+#include <QVariant>
 
+#include <array>
 #include <chrono>
 
 #ifdef Q_OS_WIN
@@ -183,7 +186,7 @@ int launchesIn(const QString &directory)
     QFile runs(QDir(directory).absoluteFilePath(QStringLiteral("runs.txt")));
     if (!runs.open(QIODevice::ReadOnly | QIODevice::Text))
         return 0;
-    return int(runs.readAll().count('\n'));
+    return static_cast<int>(runs.readAll().count('\n'));
 }
 
 /// Make the supervised child crash now: close the standard input its stub
@@ -279,6 +282,7 @@ private:
 
 } // namespace
 
+namespace {
 class LifecycleTests : public QObject
 {
     Q_OBJECT
@@ -334,6 +338,7 @@ private Q_SLOTS:
 
     void aSettingsFileWithTheRetiredConfirmationStillLoads();
 };
+} // namespace
 
 /// Two slots below remove AppSettings::filePath(). This is the guard that the
 /// path they remove is the throw-away one and never the user's own settings.
@@ -351,6 +356,20 @@ void LifecycleTests::settingsAreOnlyEverWrittenInsideTheTestRoot()
 
 void LifecycleTests::missingExecutableNeverLaunchesAnything()
 {
+    // Collector states remain visible to Qt by the established names and numbers.
+    const QMetaEnum states = QMetaEnum::fromType<mr::CollectorProcess::State>();
+    QVERIFY(states.isValid());
+    constexpr std::array<const char *, 7> keys{
+        "Missing", "Idle", "Starting", "Running", "Reused", "Exited", "Stopped"};
+    QCOMPARE(states.keyCount(), static_cast<int>(keys.size()));
+    for (std::size_t index = 0; index < keys.size(); ++index) {
+        const int expected = static_cast<int>(index);
+        QCOMPARE(states.keyToValue(keys.at(index)), expected);
+        const auto state = static_cast<mr::CollectorProcess::State>(index);
+        QCOMPARE(QVariant::fromValue(state).toInt(), expected);
+        QCOMPARE(QVariant::fromValue(state).value<mr::CollectorProcess::State>(), state);
+    }
+
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     const QString absent =
@@ -402,7 +421,7 @@ void LifecycleTests::theCollectorIsAlwaysToldOurProcessIdSoItCannotBeOrphaned()
     // Later than 2020-01-01 as .NET UTC ticks and not in the future.
     QVERIFY(ticks > 637134336000000000ULL);
     const qulonglong nowTicks =
-        qulonglong(QDateTime::currentDateTimeUtc().toMSecsSinceEpoch()) * 10000ULL
+        (static_cast<qulonglong>(QDateTime::currentDateTimeUtc().toMSecsSinceEpoch()) * 10000ULL)
         + 621355968000000000ULL;
     QVERIFY(ticks <= nowTicks);
 }
@@ -562,7 +581,7 @@ void LifecycleTests::stopAsksThroughTheCollectorsStopEventBeforeKilling()
     HANDLE event = ::CreateEventW(nullptr, TRUE, FALSE,
                                   reinterpret_cast<const wchar_t *>(name.utf16()));
     QVERIFY(event != nullptr);
-    QCOMPARE(::WaitForSingleObject(event, 0), DWORD(WAIT_TIMEOUT));
+    QCOMPARE(::WaitForSingleObject(event, 0), static_cast<DWORD>(WAIT_TIMEOUT));
 
     mr::CollectorProcess collector(stub, nullptr);
     collector.setStopEventNameForTest(name);
@@ -579,7 +598,7 @@ void LifecycleTests::stopAsksThroughTheCollectorsStopEventBeforeKilling()
     const qint64 blockedMs = elapsed.elapsed();
 
     // The request was made...
-    QCOMPARE(::WaitForSingleObject(event, 0), DWORD(WAIT_OBJECT_0));
+    QCOMPARE(::WaitForSingleObject(event, 0), static_cast<DWORD>(WAIT_OBJECT_0));
     // ...the stub ignored it, so the fallback still ended the child...
     QVERIFY(!collector.isRunning());
     QCOMPARE(collector.stateToken(), QStringLiteral("stopped"));
@@ -603,20 +622,20 @@ void LifecycleTests::theServeLeasePidIsReadFromTheCollectorsDataDirectory()
     QCOMPARE(mr::CollectorProcess::collectorDataDirectory(),
              QDir::cleanPath(QDir(directory.path()).absolutePath()));
     // Nothing recorded yet.
-    QCOMPARE(mr::CollectorProcess::readServeLeasePid(), qint64(0));
+    QCOMPARE(mr::CollectorProcess::readServeLeasePid(), static_cast<qint64>(0));
 
     QVERIFY(writeServePid(directory.path(), 4242));
-    QCOMPARE(mr::CollectorProcess::readServeLeasePid(), qint64(4242));
+    QCOMPARE(mr::CollectorProcess::readServeLeasePid(), static_cast<qint64>(4242));
 
     // Garbage is not a pid.
     QVERIFY(writeServePid(directory.path(), 0));
-    QCOMPARE(mr::CollectorProcess::readServeLeasePid(), qint64(0));
+    QCOMPARE(mr::CollectorProcess::readServeLeasePid(), static_cast<qint64>(0));
 
     // And the logs/ layout is looked at as well.
     QFile::remove(QDir(directory.path()).absoluteFilePath(QStringLiteral("serve.pid")));
     QVERIFY(QDir(directory.path()).mkpath(QStringLiteral("logs")));
     QVERIFY(writeServePid(QDir(directory.path()).absoluteFilePath(QStringLiteral("logs")), 77));
-    QCOMPARE(mr::CollectorProcess::readServeLeasePid(), qint64(77));
+    QCOMPARE(mr::CollectorProcess::readServeLeasePid(), static_cast<qint64>(77));
 
     qputenv("MR_DATA_DIR", previous);
 }
@@ -683,7 +702,7 @@ void LifecycleTests::systemToolsComeFromTheSystemDirectoryNotFromTheEnvironment(
     const UINT length = GetSystemDirectoryW(buffer, MAX_PATH);
     QVERIFY(length > 0 && length < MAX_PATH);
     const QString systemDirectory =
-        QDir::cleanPath(QDir::fromNativeSeparators(QString::fromWCharArray(buffer, int(length))));
+        QDir::cleanPath(QDir::fromNativeSeparators(QString::fromWCharArray(buffer, static_cast<int>(length))));
 
     for (const QString &tool : tools) {
         const QString path = QDir::cleanPath(mr::CollectorProcess::systemToolPath(tool));
@@ -729,8 +748,8 @@ void LifecycleTests::aFreshServeLeaseHolderIsNeverEnded()
     QList<ToolCall> calls;
     collector.setToolRunnerForTest(
         [&calls](const QString &tool, const QStringList &arguments) {
-            calls.append(ToolCall{tool, arguments});
-            return mr::CollectorProcess::ToolResult{0, QString()};
+            calls.append(ToolCall{.tool=tool, .arguments=arguments});
+            return mr::CollectorProcess::ToolResult{.exitCode=0, .output=QString()};
         });
     QSignalSpy takeovers(&collector, &mr::CollectorProcess::leaseTakeover);
 
@@ -784,8 +803,8 @@ void LifecycleTests::aHolderThatLeavesOnItsOwnIsNeverEnded()
     QList<ToolCall> calls;
     collector.setToolRunnerForTest(
         [&calls](const QString &tool, const QStringList &arguments) {
-            calls.append(ToolCall{tool, arguments});
-            return mr::CollectorProcess::ToolResult{0, QString()};
+            calls.append(ToolCall{.tool=tool, .arguments=arguments});
+            return mr::CollectorProcess::ToolResult{.exitCode=0, .output=QString()};
         });
     QSignalSpy takeovers(&collector, &mr::CollectorProcess::leaseTakeover);
 
@@ -837,17 +856,17 @@ void LifecycleTests::aWedgedHolderIsForcedOnlyAsALastResort()
     bool holderAlive = true;
     collector.setToolRunnerForTest(
         [&calls, &holderAlive](const QString &tool, const QStringList &arguments) {
-            calls.append(ToolCall{tool, arguments});
+            calls.append(ToolCall{.tool=tool, .arguments=arguments});
             if (tool == QStringLiteral("tasklist.exe")) {
                 return mr::CollectorProcess::ToolResult{
-                    0,
-                    holderAlive ? QStringLiteral("\"MentorRecorder.Collector.exe\",\"424242\","
+                    .exitCode=0,
+                    .output=holderAlive ? QStringLiteral("\"MentorRecorder.Collector.exe\",\"424242\","
                                                  "\"Console\",\"1\",\"31,204 K\"\r\n")
                                 : QString::fromUtf8("信息: 没有运行的任务匹配指定标准。")};
             }
             if (arguments.contains(QStringLiteral("/F")))
                 holderAlive = false;
-            return mr::CollectorProcess::ToolResult{0, QString()};
+            return mr::CollectorProcess::ToolResult{.exitCode=0, .output=QString()};
         });
     QSignalSpy takeovers(&collector, &mr::CollectorProcess::leaseTakeover);
 
@@ -905,12 +924,12 @@ void LifecycleTests::aChangedLeaseStopsTheTakeover()
     QList<ToolCall> calls;
     bool changed = false;
     collector.setToolRunnerForTest([&](const QString &tool, const QStringList &arguments) {
-        calls.append({tool, arguments});
+        calls.append({.tool=tool, .arguments=arguments});
         if (calls.size() == changeAtCall) {
             changed = writeServePid(data.path(), samePid ? 424242 : 434343);
         }
         return mr::CollectorProcess::ToolResult{
-            0, tool == QStringLiteral("tasklist.exe")
+            .exitCode=0, .output=tool == QStringLiteral("tasklist.exe")
                 ? QStringLiteral("\"MentorRecorder.Collector.exe\",\"424242\",\"Console\",\"1\",\"31 K\"\r\n")
                 : QString()};
     });
@@ -940,7 +959,7 @@ void LifecycleTests::anAbortedTakeoverCannotContinueInsideANewAttempt()
     collector.setTakeoverTimingsForTest(0, 0);
     QList<ToolCall> calls;
     collector.setToolRunnerForTest([&](const QString &tool, const QStringList &arguments) {
-        calls.append({tool, arguments});
+        calls.append({.tool=tool, .arguments=arguments});
         if (calls.size() == 1) {
             collector.noteBackendConnected(true);
             collector.noteBackendConnected(false);
@@ -948,7 +967,7 @@ void LifecycleTests::anAbortedTakeoverCannotContinueInsideANewAttempt()
             collector.requestServeLeaseTakeover();
         }
         return mr::CollectorProcess::ToolResult{
-            0, QStringLiteral("\"MentorRecorder.Collector.exe\",\"424242\",\"Console\",\"1\",\"31 K\"\r\n")};
+            .exitCode=0, .output=QStringLiteral("\"MentorRecorder.Collector.exe\",\"424242\",\"Console\",\"1\",\"31 K\"\r\n")};
     });
     collector.requestServeLeaseTakeover();
     QTest::qWait(80);
@@ -970,7 +989,7 @@ void LifecycleTests::anAbortedPoliteKillTimerCannotContinueInsideANewAttempt()
     collector.setTakeoverTimingsForTest(0, 80);
     QList<ToolCall> calls;
     collector.setToolRunnerForTest([&](const QString &tool, const QStringList &arguments) {
-        calls.append({tool, arguments});
+        calls.append({.tool=tool, .arguments=arguments});
         if (calls.size() == 2) {
             QTimer::singleShot(20, &collector, [&] {
                 collector.noteBackendConnected(true);
@@ -980,7 +999,7 @@ void LifecycleTests::anAbortedPoliteKillTimerCannotContinueInsideANewAttempt()
             });
         }
         return mr::CollectorProcess::ToolResult{
-            0, QStringLiteral("\"MentorRecorder.Collector.exe\",\"424242\",\"Console\",\"1\",\"31 K\"\r\n")};
+            .exitCode=0, .output=QStringLiteral("\"MentorRecorder.Collector.exe\",\"424242\",\"Console\",\"1\",\"31 K\"\r\n")};
     });
     collector.requestServeLeaseTakeover();
     QTRY_COMPARE_WITH_TIMEOUT(calls.size(), 2, 1000);
@@ -1013,13 +1032,13 @@ void LifecycleTests::aHolderThatRefusesToBeEndedIsReportedRatherThanClaimedEnded
     collector.setToolRunnerForTest([](const QString &tool, const QStringList &) {
         if (tool == QStringLiteral("tasklist.exe")) {
             return mr::CollectorProcess::ToolResult{
-                0, QStringLiteral("\"MentorRecorder.Collector.exe\",\"424242\","
+                .exitCode=0, .output=QStringLiteral("\"MentorRecorder.Collector.exe\",\"424242\","
                                   "\"Console\",\"1\",\"31,204 K\"\r\n")};
         }
         // What a Chinese Windows prints when it refuses. No ASCII "ERROR".
         return mr::CollectorProcess::ToolResult{
-            1,
-            QString::fromUtf8("错误: 无法终止 PID 为 424242 的进程。原因: 拒绝访问。")};
+            .exitCode=1,
+            .output=QString::fromUtf8("错误: 无法终止 PID 为 424242 的进程。原因: 拒绝访问。")};
     });
     QSignalSpy takeovers(&collector, &mr::CollectorProcess::leaseTakeover);
 
@@ -1065,8 +1084,8 @@ void LifecycleTests::anUnresponsiveHolderExitAsksBeforeItEndsAnything()
     QList<ToolCall> calls;
     collector.setToolRunnerForTest(
         [&calls](const QString &tool, const QStringList &arguments) {
-            calls.append(ToolCall{tool, arguments});
-            return mr::CollectorProcess::ToolResult{0, QString()};
+            calls.append(ToolCall{.tool=tool, .arguments=arguments});
+            return mr::CollectorProcess::ToolResult{.exitCode=0, .output=QString()};
         });
     QSignalSpy takeovers(&collector, &mr::CollectorProcess::leaseTakeover);
     collector.start();
@@ -1541,13 +1560,13 @@ void LifecycleTests::stopAsksAChildThatHasNotRecordedItsLeaseYet()
     collector.start();
     QTRY_VERIFY_WITH_TIMEOUT(collector.isRunning(), 10000);
     // No serve.pid anywhere: the child has not got as far as writing one.
-    QCOMPARE(mr::CollectorProcess::readServeLeasePid(), qint64(0));
+    QCOMPARE(mr::CollectorProcess::readServeLeasePid(), static_cast<qint64>(0));
 
     collector.stop();
     const DWORD signalled = ::WaitForSingleObject(event, 0);
     ::CloseHandle(event);
     qputenv("MR_DATA_DIR", previous);
-    QCOMPARE(signalled, DWORD(WAIT_OBJECT_0));
+    QCOMPARE(signalled, static_cast<DWORD>(WAIT_OBJECT_0));
     QVERIFY(!collector.isRunning());
 #endif
 }
@@ -1586,7 +1605,7 @@ void LifecycleTests::stopNeverAsksTheCollectorOfAnotherHolder()
     const DWORD signalled = ::WaitForSingleObject(event, 0);
     ::CloseHandle(event);
     qputenv("MR_DATA_DIR", previous);
-    QCOMPARE(signalled, DWORD(WAIT_TIMEOUT));
+    QCOMPARE(signalled, static_cast<DWORD>(WAIT_TIMEOUT));
     QVERIFY(!collector.isRunning());
 #endif
 }

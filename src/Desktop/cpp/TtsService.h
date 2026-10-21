@@ -79,7 +79,7 @@ public:
     /// Mock: Qt's own "mock" engine plugin, which plays no sound but goes
     /// through the engine states word by word, so a test can see what the
     /// engine is doing; without that plugin there is no engine, as for None.
-    enum class EngineMode { System, None, Mock };
+    enum class EngineMode : quint8 { System, None, Mock };
 
     explicit TtsService(AppSettings *settings, QObject *parent = nullptr,
                         EngineMode engineMode = EngineMode::System);
@@ -236,7 +236,7 @@ private:
         /// The 测试 button waits for this sentence's outcome.
         bool reportsTest = false;
     };
-    enum class OnlinePhase { Idle, Synthesizing, Playing, SpeakingLocal };
+    enum class OnlinePhase : quint8 { Idle, Synthesizing, Playing, SpeakingLocal };
 
     void onSettingsChanged();
     void refreshAllVoices();

@@ -231,7 +231,7 @@ public:
 
     int count(const char *type) const
     {
-        return int(std::count(calls.begin(), calls.end(), QLatin1String(type)));
+        return static_cast<int>(std::count(calls.begin(), calls.end(), QLatin1String(type)));
     }
 
 private:
@@ -284,6 +284,7 @@ QString lastNotice(const QSignalSpy &spy)
 
 } // namespace
 
+namespace {
 class SharedCalibrationTests : public QObject
 {
     Q_OBJECT
@@ -1586,6 +1587,7 @@ private Q_SLOTS:
         QTRY_VERIFY(shared->view() != QLatin1String("user_rejected"));
     }
 };
+} // namespace
 
 int main(int argc, char **argv)
 {

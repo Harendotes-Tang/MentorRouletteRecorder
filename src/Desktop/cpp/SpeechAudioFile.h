@@ -28,7 +28,7 @@ struct SpeechAudioCheck
 };
 
 /// Longest file accepted: the Collector refuses responses over 5 MB.
-constexpr qint64 kMaxSpeechAudioBytes = 5 * 1024 * 1024 + 1024;
+constexpr qint64 kMaxSpeechAudioBytes = (5 * 1024 * 1024) + 1024;
 
 /// <dir of databasePath>/tts-cache, cleaned, or empty when \a databasePath is
 /// empty or not absolute (a relative path would resolve against this

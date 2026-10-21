@@ -45,7 +45,11 @@
 
 namespace {
 
-const QString kRunId = QStringLiteral("0d3f6c2a-9b1e-4c7d-8a5f-1234567890ab");
+const QString &kRunId()
+{
+    static const QString value = QStringLiteral("0d3f6c2a-9b1e-4c7d-8a5f-1234567890ab");
+    return value;
+}
 
 /// A real, decodable image at \a path; the format follows the suffix.
 bool writeImage(const QString &path, const QColor &color = Qt::red)
@@ -89,7 +93,7 @@ struct StoreFixture {
         return path;
     }
 
-    QString runDir() const { return store.runDirectory(kRunId); }
+    QString runDir() const { return store.runDirectory(kRunId()); }
 };
 
 /// The wizard on a mock backend, with NoteImages pointed at a temp root.
@@ -145,7 +149,7 @@ ApplicationWindow {
     static QVariantMap run()
     {
         return {
-            {QStringLiteral("run_id"), kRunId},
+            {QStringLiteral("run_id"), kRunId()},
             {QStringLiteral("revision"), 1},
             {QStringLiteral("matched_at_utc"), QStringLiteral("2026-09-04T12:39:05.125Z")},
             {QStringLiteral("entered_at_utc"), QStringLiteral("2026-09-04T12:41:00.000Z")},
@@ -202,6 +206,7 @@ ApplicationWindow {
 
 } // namespace
 
+namespace {
 class NoteImageStoreTests : public QObject
 {
     Q_OBJECT
@@ -248,8 +253,8 @@ private Q_SLOTS:
     void runIdNamesAFolderSoOnlyAUuidIsAccepted()
     {
         StoreFixture fixture;
-        QVERIFY(mr::NoteImageStore::isValidRunId(kRunId));
-        QVERIFY(mr::NoteImageStore::isValidRunId(kRunId.toUpper()));
+        QVERIFY(mr::NoteImageStore::isValidRunId(kRunId()));
+        QVERIFY(mr::NoteImageStore::isValidRunId(kRunId().toUpper()));
         for (const QString &bad : {QString(), QStringLiteral("run-a"), QStringLiteral("../x"),
                                    QStringLiteral("0d3f6c2a-9b1e-4c7d-8a5f-1234567890ab/.."),
                                    QStringLiteral("0d3f6c2a9b1e4c7d8a5f1234567890ab")}) {
@@ -266,8 +271,8 @@ private Q_SLOTS:
                     .entryList(QDir::AllEntries | QDir::NoDotAndDotDot)
                     .isEmpty());
         // The folder name is the canonical lower-case form.
-        QCOMPARE(fixture.store.runDirectory(kRunId.toUpper()),
-                 QDir::cleanPath(fixture.root.path()) + QLatin1Char('/') + kRunId);
+        QCOMPARE(fixture.store.runDirectory(kRunId().toUpper()),
+                 QDir::cleanPath(fixture.root.path()) + QLatin1Char('/') + kRunId());
     }
 
     // ------------------------------------------------------------ 内容 --
@@ -323,18 +328,18 @@ private Q_SLOTS:
         QVERIFY(look.value(QStringLiteral("byte_count")).toLongLong() > 0);
 
         // commit checks every file before copying any: one bad file, no folder.
-        const QVariantMap result = fixture.store.commit(kRunId, {real, fake}, {});
+        const QVariantMap result = fixture.store.commit(kRunId(), {real, fake}, {});
         QVERIFY(!result.value(QStringLiteral("ok")).toBool());
         QVERIFY(!QDir(fixture.runDir()).exists());
-        QVERIFY(fixture.store.imagesFor(kRunId).isEmpty());
+        QVERIFY(fixture.store.imagesFor(kRunId()).isEmpty());
     }
 
     void truncatedImageDoesNotCommitAnyChanges()
     {
         StoreFixture fixture;
         const QString existing = fixture.picture(QStringLiteral("existing.png"));
-        QVERIFY(fixture.store.addFile(kRunId, existing).value(QStringLiteral("ok")).toBool());
-        const QString stored = fixture.store.imagesFor(kRunId).first().toMap()
+        QVERIFY(fixture.store.addFile(kRunId(), existing).value(QStringLiteral("ok")).toBool());
+        const QString stored = fixture.store.imagesFor(kRunId()).first().toMap()
                                    .value(QStringLiteral("path")).toString();
         const QString damaged = fixture.picture(QStringLiteral("truncated.png"));
         QFile file(damaged);
@@ -343,10 +348,10 @@ private Q_SLOTS:
         file.close();
         QVERIFY(QImage(damaged).isNull());
         QVERIFY(!fixture.store.inspect(damaged).value(QStringLiteral("ok")).toBool());
-        const QVariantMap result = fixture.store.commit(kRunId, {existing, damaged}, {stored});
+        const QVariantMap result = fixture.store.commit(kRunId(), {existing, damaged}, {stored});
         QVERIFY(!result.value(QStringLiteral("ok")).toBool());
         QVERIFY(QFileInfo::exists(stored));
-        QCOMPARE(fixture.store.imagesFor(kRunId).size(), 1);
+        QCOMPARE(fixture.store.imagesFor(kRunId()).size(), 1);
         QVERIFY(result.value(QStringLiteral("added")).toStringList().isEmpty());
     }
 
@@ -360,16 +365,16 @@ private Q_SLOTS:
         const QString second = fixture.picture(QStringLiteral("two.jpeg"), Qt::blue);
         QVERIFY(!first.isEmpty() && !second.isEmpty());
 
-        QVariantMap result = fixture.store.commit(kRunId, {first, second}, {});
+        QVariantMap result = fixture.store.commit(kRunId(), {first, second}, {});
         QVERIFY2(result.value(QStringLiteral("ok")).toBool(),
                  qPrintable(result.value(QStringLiteral("error")).toString()));
         QCOMPARE(result.value(QStringLiteral("added")).toStringList(), QStringList({first, second}));
         QCOMPARE(changed.count(), 1);
-        QCOMPARE(changed.first().first().toString(), kRunId);
+        QCOMPARE(changed.first().first().toString(), kRunId());
 
         // Copied, not moved; stored by the real format; in order; readable back.
         QVERIFY(QFileInfo::exists(first));
-        QVariantList rows = fixture.store.imagesFor(kRunId);
+        QVariantList rows = fixture.store.imagesFor(kRunId());
         QCOMPARE(rows.size(), 2);
         const QStringList stored = names(rows);
         QVERIFY2(stored.at(0).endsWith(QStringLiteral("-01.png")), qPrintable(stored.at(0)));
@@ -388,9 +393,9 @@ private Q_SLOTS:
         // A second commit a moment later sorts after the first.
         QTest::qWait(5);
         const QString third = fixture.picture(QStringLiteral("three.bmp"), Qt::green);
-        result = fixture.store.commit(kRunId, {third}, {});
+        result = fixture.store.commit(kRunId(), {third}, {});
         QVERIFY(result.value(QStringLiteral("ok")).toBool());
-        rows = fixture.store.imagesFor(kRunId);
+        rows = fixture.store.imagesFor(kRunId());
         QCOMPARE(rows.size(), 3);
         QVERIFY(names(rows).at(2).endsWith(QStringLiteral(".bmp")));
 
@@ -401,26 +406,26 @@ private Q_SLOTS:
         const QString goneOne = rows.at(0).toMap().value(QStringLiteral("path")).toString();
         const QString goneTwo = rows.at(1).toMap().value(QStringLiteral("path")).toString();
         result = fixture.store.commit(
-            kRunId, {},
+            kRunId(), {},
             {outside, goneOne, fixture.runDir() + QStringLiteral("/../escape.png"), fixture.runDir()});
         QVERIFY(!result.value(QStringLiteral("ok")).toBool());
         QCOMPARE(result.value(QStringLiteral("removed")).toStringList(), QStringList({goneOne}));
         QVERIFY(QFileInfo::exists(outside));
         QVERIFY(!QFileInfo::exists(goneOne));
         QVERIFY(QFileInfo::exists(keep));
-        QCOMPARE(fixture.store.imagesFor(kRunId).size(), 2);
+        QCOMPARE(fixture.store.imagesFor(kRunId()).size(), 2);
 
-        result = fixture.store.commit(kRunId, {}, {goneTwo, goneOne, keep});
+        result = fixture.store.commit(kRunId(), {}, {goneTwo, goneOne, keep});
         QVERIFY2(result.value(QStringLiteral("ok")).toBool(),
                  qPrintable(result.value(QStringLiteral("error")).toString()));
         QCOMPARE(result.value(QStringLiteral("removed")).toStringList().size(), 3);
-        QVERIFY(fixture.store.imagesFor(kRunId).isEmpty());
+        QVERIFY(fixture.store.imagesFor(kRunId()).isEmpty());
         // The empty run folder is gone with its last image.
         QVERIFY(!QDir(fixture.runDir()).exists());
         QCOMPARE(changed.count(), 4);
 
         // Nothing to do is not a change.
-        result = fixture.store.commit(kRunId, {}, {});
+        result = fixture.store.commit(kRunId(), {}, {});
         QVERIFY(result.value(QStringLiteral("ok")).toBool());
         QCOMPARE(changed.count(), 4);
     }
@@ -453,10 +458,10 @@ private Q_SLOTS:
         }
         QVERIFY(fixture.store.clipboardHasImage());
         QVERIFY(clipboardChanged.count() > 0);
-        const QVariantMap result = fixture.store.addClipboard(kRunId);
+        const QVariantMap result = fixture.store.addClipboard(kRunId());
         QVERIFY2(result.value(QStringLiteral("ok")).toBool(), qPrintable(result.value(QStringLiteral("error")).toString()));
         QCOMPARE(changed.count(), 1);
-        const auto rows = fixture.store.imagesFor(kRunId);
+        const auto rows = fixture.store.imagesFor(kRunId());
         QCOMPARE(rows.size(), 1);
         const QImage stored(rows.first().toMap().value(QStringLiteral("path")).toString());
         QCOMPARE(stored.size(), image.size());
@@ -472,10 +477,10 @@ private Q_SLOTS:
         auto *clipboard = QGuiApplication::clipboard();
         clipboard->clear();
         QVERIFY(!fixture.store.clipboardHasImage());
-        QVERIFY(!fixture.store.addClipboard(kRunId).value(QStringLiteral("ok")).toBool());
+        QVERIFY(!fixture.store.addClipboard(kRunId()).value(QStringLiteral("ok")).toBool());
         clipboard->setText(QStringLiteral("ordinary reflection text"));
         QVERIFY(!fixture.store.clipboardHasImage());
-        QVERIFY(!fixture.store.addClipboard(kRunId).value(QStringLiteral("ok")).toBool());
+        QVERIFY(!fixture.store.addClipboard(kRunId()).value(QStringLiteral("ok")).toBool());
         const auto setEncoded = [&](const QString &format, const QByteArray &bytes) {
             auto *mime = new QMimeData;
             mime->setData(format, bytes);
@@ -483,24 +488,24 @@ private Q_SLOTS:
         };
         setEncoded(QStringLiteral("image/png"), QByteArrayLiteral("truncated png"));
         QVERIFY(fixture.store.clipboardHasImage());
-        QVERIFY(!fixture.store.addClipboard(kRunId).value(QStringLiteral("ok")).toBool());
+        QVERIFY(!fixture.store.addClipboard(kRunId()).value(QStringLiteral("ok")).toBool());
         setEncoded(QStringLiteral("image/png"), QByteArray(mr::NoteImageStore::kMaxImageBytes + 1, '\0'));
-        auto result = fixture.store.addClipboard(kRunId);
+        auto result = fixture.store.addClipboard(kRunId());
         QVERIFY(!result.value(QStringLiteral("ok")).toBool());
         QVERIFY(result.value(QStringLiteral("error")).toString().contains(QStringLiteral("超过")));
         QByteArray bomb;
         QDataStream out(&bomb, QIODevice::WriteOnly);
         out.setByteOrder(QDataStream::LittleEndian);
         out.writeRawData("BM", 2);
-        out << quint32(54) << quint32(0) << quint32(54);
-        out << quint32(40) << qint32(10000) << qint32(10000);
-        out << quint16(1) << quint16(24) << quint32(0) << quint32(0);
-        out << qint32(2835) << qint32(2835) << quint32(0) << quint32(0);
+        out << static_cast<quint32>(54) << static_cast<quint32>(0) << static_cast<quint32>(54);
+        out << static_cast<quint32>(40) << static_cast<qint32>(10000) << static_cast<qint32>(10000);
+        out << static_cast<quint16>(1) << static_cast<quint16>(24) << static_cast<quint32>(0) << static_cast<quint32>(0);
+        out << static_cast<qint32>(2835) << static_cast<qint32>(2835) << static_cast<quint32>(0) << static_cast<quint32>(0);
         setEncoded(QStringLiteral("image/bmp"), bomb);
-        result = fixture.store.addClipboard(kRunId);
+        result = fixture.store.addClipboard(kRunId());
         QVERIFY(!result.value(QStringLiteral("ok")).toBool());
         QVERIFY(result.value(QStringLiteral("error")).toString().contains(QStringLiteral("分辨率")));
-        QVERIFY(fixture.store.imagesFor(kRunId).isEmpty());
+        QVERIFY(fixture.store.imagesFor(kRunId()).isEmpty());
         QVERIFY(!QDir(fixture.runDir()).exists());
         QVERIFY(!fixture.store.addClipboard(QStringLiteral("../outside")).value(QStringLiteral("ok")).toBool());
         clipboard->clear();
@@ -517,14 +522,14 @@ private Q_SLOTS:
             temporarySource = source;
             return false;
         });
-        const auto failed = fixture.store.addClipboard(kRunId);
+        const auto failed = fixture.store.addClipboard(kRunId());
         QVERIFY(!failed.value(QStringLiteral("ok")).toBool());
         QVERIFY(!temporarySource.isEmpty());
         QVERIFY(!QFileInfo::exists(temporarySource));
-        QVERIFY(fixture.store.imagesFor(kRunId).isEmpty());
+        QVERIFY(fixture.store.imagesFor(kRunId()).isEmpty());
         fixture.store.setCopyFunctionForTesting({});
-        QVERIFY(fixture.store.addClipboard(kRunId).value(QStringLiteral("ok")).toBool());
-        QCOMPARE(fixture.store.imagesFor(kRunId).size(), 1);
+        QVERIFY(fixture.store.addClipboard(kRunId()).value(QStringLiteral("ok")).toBool());
+        QCOMPARE(fixture.store.imagesFor(kRunId()).size(), 1);
         QGuiApplication::clipboard()->clear();
     }
 
@@ -535,14 +540,14 @@ private Q_SLOTS:
         QStringList sources;
         for (int i = 0; i < mr::NoteImageStore::kMaxImagesPerRun; ++i)
             sources.append(picture);
-        QVERIFY(fixture.store.commit(kRunId, sources, {}).value(QStringLiteral("ok")).toBool());
+        QVERIFY(fixture.store.commit(kRunId(), sources, {}).value(QStringLiteral("ok")).toBool());
         QImage image(24, 16, QImage::Format_RGB32);
         image.fill(Qt::yellow);
         QGuiApplication::clipboard()->setImage(image);
-        const auto result = fixture.store.addClipboard(kRunId);
+        const auto result = fixture.store.addClipboard(kRunId());
         QVERIFY(!result.value(QStringLiteral("ok")).toBool());
         QVERIFY(result.value(QStringLiteral("error")).toString().contains(QString::number(mr::NoteImageStore::kMaxImagesPerRun)));
-        QCOMPARE(fixture.store.imagesFor(kRunId).size(), mr::NoteImageStore::kMaxImagesPerRun);
+        QCOMPARE(fixture.store.imagesFor(kRunId()).size(), mr::NoteImageStore::kMaxImagesPerRun);
         QGuiApplication::clipboard()->clear();
     }
 
@@ -552,26 +557,26 @@ private Q_SLOTS:
         QSignalSpy changed(&fixture.store, &mr::NoteImageStore::imagesChanged);
         const QString shot = fixture.picture(QStringLiteral("shot.png"));
 
-        QVariantMap result = fixture.store.addFile(kRunId, shot);
+        QVariantMap result = fixture.store.addFile(kRunId(), shot);
         QVERIFY2(result.value(QStringLiteral("ok")).toBool(),
                  qPrintable(result.value(QStringLiteral("error")).toString()));
         QCOMPARE(result.value(QStringLiteral("added")).toStringList(), QStringList{shot});
-        QCOMPARE(fixture.store.imagesFor(kRunId).size(), 1);
+        QCOMPARE(fixture.store.imagesFor(kRunId()).size(), 1);
         QCOMPARE(changed.count(), 1);
 
-        result = fixture.store.addFile(kRunId, QStringLiteral("Z:/nowhere/none.png"));
+        result = fixture.store.addFile(kRunId(), QStringLiteral("Z:/nowhere/none.png"));
         QVERIFY(!result.value(QStringLiteral("ok")).toBool());
-        QCOMPARE(fixture.store.imagesFor(kRunId).size(), 1);
+        QCOMPARE(fixture.store.imagesFor(kRunId()).size(), 1);
 
         const QString stored =
-            fixture.store.imagesFor(kRunId).first().toMap().value(QStringLiteral("path")).toString();
-        result = fixture.store.removeOne(kRunId, fixture.pictures.path() + QStringLiteral("/shot.png"));
+            fixture.store.imagesFor(kRunId()).first().toMap().value(QStringLiteral("path")).toString();
+        result = fixture.store.removeOne(kRunId(), fixture.pictures.path() + QStringLiteral("/shot.png"));
         QVERIFY(!result.value(QStringLiteral("ok")).toBool());
         QVERIFY(QFileInfo::exists(shot));
-        result = fixture.store.removeOne(kRunId, stored);
+        result = fixture.store.removeOne(kRunId(), stored);
         QVERIFY2(result.value(QStringLiteral("ok")).toBool(),
                  qPrintable(result.value(QStringLiteral("error")).toString()));
-        QVERIFY(fixture.store.imagesFor(kRunId).isEmpty());
+        QVERIFY(fixture.store.imagesFor(kRunId()).isEmpty());
         QCOMPARE(changed.count(), 2);
     }
 
@@ -581,24 +586,24 @@ private Q_SLOTS:
         QStringList adds;
         for (int i = 0; i < mr::NoteImageStore::kMaxImagesPerRun; ++i)
             adds.append(fixture.picture(QStringLiteral("p%1.png").arg(i)));
-        QVariantMap result = fixture.store.commit(kRunId, adds, {});
+        QVariantMap result = fixture.store.commit(kRunId(), adds, {});
         QVERIFY2(result.value(QStringLiteral("ok")).toBool(),
                  qPrintable(result.value(QStringLiteral("error")).toString()));
-        QCOMPARE(fixture.store.imagesFor(kRunId).size(), mr::NoteImageStore::kMaxImagesPerRun);
+        QCOMPARE(fixture.store.imagesFor(kRunId()).size(), mr::NoteImageStore::kMaxImagesPerRun);
 
         const QString extra = fixture.picture(QStringLiteral("extra.png"));
-        result = fixture.store.commit(kRunId, {extra}, {});
+        result = fixture.store.commit(kRunId(), {extra}, {});
         QVERIFY(!result.value(QStringLiteral("ok")).toBool());
         QVERIFY(result.value(QStringLiteral("error")).toString().contains(QString::fromUtf8("最多")));
-        QCOMPARE(fixture.store.imagesFor(kRunId).size(), mr::NoteImageStore::kMaxImagesPerRun);
+        QCOMPARE(fixture.store.imagesFor(kRunId()).size(), mr::NoteImageStore::kMaxImagesPerRun);
 
         // A removal in the same commit frees the slot.
         const QString oldest =
-            fixture.store.imagesFor(kRunId).first().toMap().value(QStringLiteral("path")).toString();
-        result = fixture.store.commit(kRunId, {extra}, {oldest});
+            fixture.store.imagesFor(kRunId()).first().toMap().value(QStringLiteral("path")).toString();
+        result = fixture.store.commit(kRunId(), {extra}, {oldest});
         QVERIFY2(result.value(QStringLiteral("ok")).toBool(),
                  qPrintable(result.value(QStringLiteral("error")).toString()));
-        QCOMPARE(fixture.store.imagesFor(kRunId).size(), mr::NoteImageStore::kMaxImagesPerRun);
+        QCOMPARE(fixture.store.imagesFor(kRunId()).size(), mr::NoteImageStore::kMaxImagesPerRun);
     }
 
     void aCopyThatFailsMidBatchRollsBackAndReportsNothingAdded()
@@ -613,7 +618,7 @@ private Q_SLOTS:
         fixture.store.setCopyFunctionForTesting([&copies](const QString &source, const QString &target) {
             return ++copies == 1 && QFile::copy(source, target);
         });
-        const QVariantMap result = fixture.store.commit(kRunId, {first, second}, {});
+        const QVariantMap result = fixture.store.commit(kRunId(), {first, second}, {});
         QVERIFY(!result.value(QStringLiteral("ok")).toBool());
         QVERIFY(result.value(QStringLiteral("error")).toString().contains(QString::fromUtf8("无法把图片复制")));
         QCOMPARE(copies, 2);
@@ -622,7 +627,7 @@ private Q_SLOTS:
         // `added` would otherwise drop the first image from its staging list
         // although its copy was just rolled back.
         QVERIFY(result.value(QStringLiteral("added")).toStringList().isEmpty());
-        QVERIFY(fixture.store.imagesFor(kRunId).isEmpty());
+        QVERIFY(fixture.store.imagesFor(kRunId()).isEmpty());
         QVERIFY(!QDir(fixture.runDir()).exists());
         QCOMPARE(changed.count(), 0);
         QVERIFY(QFileInfo::exists(first));
@@ -630,11 +635,11 @@ private Q_SLOTS:
 
         // Back to the real copy, the same batch goes through.
         fixture.store.setCopyFunctionForTesting({});
-        const QVariantMap retry = fixture.store.commit(kRunId, {first, second}, {});
+        const QVariantMap retry = fixture.store.commit(kRunId(), {first, second}, {});
         QVERIFY2(retry.value(QStringLiteral("ok")).toBool(),
                  qPrintable(retry.value(QStringLiteral("error")).toString()));
         QCOMPARE(retry.value(QStringLiteral("added")).toStringList(), QStringList({first, second}));
-        QCOMPARE(fixture.store.imagesFor(kRunId).size(), 2);
+        QCOMPARE(fixture.store.imagesFor(kRunId()).size(), 2);
     }
 
     void aDeclaredCanvasBeyondTheCapIsRefusedBeforeDecoding()
@@ -650,10 +655,10 @@ private Q_SLOTS:
             QDataStream out(&file);
             out.setByteOrder(QDataStream::LittleEndian);
             out.writeRawData("BM", 2);
-            out << quint32(54) << quint32(0) << quint32(54);     // file size, reserved, pixel offset
-            out << quint32(40) << qint32(10000) << qint32(10000); // info size, width, height
-            out << quint16(1) << quint16(24) << quint32(0) << quint32(0);
-            out << qint32(2835) << qint32(2835) << quint32(0) << quint32(0);
+            out << static_cast<quint32>(54) << static_cast<quint32>(0) << static_cast<quint32>(54);     // file size, reserved, pixel offset
+            out << static_cast<quint32>(40) << static_cast<qint32>(10000) << static_cast<qint32>(10000); // info size, width, height
+            out << static_cast<quint16>(1) << static_cast<quint16>(24) << static_cast<quint32>(0) << static_cast<quint32>(0);
+            out << static_cast<qint32>(2835) << static_cast<qint32>(2835) << static_cast<quint32>(0) << static_cast<quint32>(0);
         }
         const QVariantMap look = fixture.store.inspect(bomb);
         QVERIFY(!look.value(QStringLiteral("ok")).toBool());
@@ -661,7 +666,7 @@ private Q_SLOTS:
                  qPrintable(look.value(QStringLiteral("error")).toString()));
 
         // Refused before any copy, so the folder never appears.
-        const QVariantMap result = fixture.store.commit(kRunId, {bomb}, {});
+        const QVariantMap result = fixture.store.commit(kRunId(), {bomb}, {});
         QVERIFY(!result.value(QStringLiteral("ok")).toBool());
         QVERIFY(!QDir(fixture.runDir()).exists());
 
@@ -692,13 +697,13 @@ private Q_SLOTS:
         QVERIFY(planted.isJunction());
         // Whatever happens below, the junction goes before the fixtures do, or
         // QTemporaryDir would clean the target through it.
-        auto unlink = qScopeGuard([&] { QDir(fixture.store.rootDirectory()).rmdir(kRunId); });
+        auto unlink = qScopeGuard([&] { QDir(fixture.store.rootDirectory()).rmdir(kRunId()); });
 
         // The file shows through the junction, and its path lies inside the run
         // folder on paper; deleting it must still be refused.
         const QString throughJunction = fixture.runDir() + QStringLiteral("/victim.png");
         QVERIFY(QFileInfo::exists(throughJunction));
-        QVariantMap result = fixture.store.removeOne(kRunId, throughJunction);
+        QVariantMap result = fixture.store.removeOne(kRunId(), throughJunction);
         QVERIFY(!result.value(QStringLiteral("ok")).toBool());
         QVERIFY2(result.value(QStringLiteral("error")).toString().contains(QString::fromUtf8("重定向")),
                  qPrintable(result.value(QStringLiteral("error")).toString()));
@@ -706,7 +711,7 @@ private Q_SLOTS:
 
         // Nor is anything written through it.
         const QString shot = fixture.picture(QStringLiteral("shot.png"));
-        result = fixture.store.addFile(kRunId, shot);
+        result = fixture.store.addFile(kRunId(), shot);
         QVERIFY(!result.value(QStringLiteral("ok")).toBool());
         QCOMPARE(QDir(elsewhere.path()).entryList(QDir::Files).size(), 1);
         QVERIFY(planted.exists());
@@ -720,7 +725,7 @@ private Q_SLOTS:
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
         const QString first = fixture.files.picture(QStringLiteral("one.png"));
         const QString second = fixture.files.picture(QStringLiteral("two.png"), Qt::blue);
-        QVERIFY(fixture.files.store.commit(kRunId, {first, second}, {}).value(QStringLiteral("ok")).toBool());
+        QVERIFY(fixture.files.store.commit(kRunId(), {first, second}, {}).value(QStringLiteral("ok")).toBool());
         QVERIFY(fixture.openForRun());
         auto *dialog = fixture.dialog();
         QCOMPARE(fixture.rows().size(), 2);
@@ -729,7 +734,7 @@ private Q_SLOTS:
         // stops showing it.
         const QString goneOne = fixture.rows().at(0).toMap().value(QStringLiteral("path")).toString();
         const QString goneTwo = fixture.rows().at(1).toMap().value(QStringLiteral("path")).toString();
-        QVERIFY(fixture.files.store.removeOne(kRunId, goneOne).value(QStringLiteral("ok")).toBool());
+        QVERIFY(fixture.files.store.removeOne(kRunId(), goneOne).value(QStringLiteral("ok")).toBool());
         QCOMPARE(fixture.rows().size(), 1);
         QVERIFY(!dialog->property("imagesDirty").toBool());
 
@@ -738,18 +743,18 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(dialog, "unstageNoteImage",
                                           Q_ARG(QVariant, QVariant(fixture.rows().first().toMap()))));
         QVERIFY(dialog->property("imagesDirty").toBool());
-        QVERIFY(fixture.files.store.removeOne(kRunId, goneTwo).value(QStringLiteral("ok")).toBool());
+        QVERIFY(fixture.files.store.removeOne(kRunId(), goneTwo).value(QStringLiteral("ok")).toBool());
         QVERIFY(fixture.rows().isEmpty());
         QVERIFY(!dialog->property("imagesDirty").toBool());
 
         // Added elsewhere: shown here too, as an existing image, not a pending one.
-        QVERIFY(fixture.files.store.addFile(kRunId, first).value(QStringLiteral("ok")).toBool());
+        QVERIFY(fixture.files.store.addFile(kRunId(), first).value(QStringLiteral("ok")).toBool());
         QCOMPARE(fixture.rows().size(), 1);
         QVERIFY(!fixture.rows().first().toMap().value(QStringLiteral("pending")).toBool());
 
         // A closed dialog does not follow; reopening reads the folder afresh anyway.
         QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
-        QVERIFY(fixture.files.store.addFile(kRunId, second).value(QStringLiteral("ok")).toBool());
+        QVERIFY(fixture.files.store.addFile(kRunId(), second).value(QStringLiteral("ok")).toBool());
         QCOMPARE(fixture.rows().size(), 1);
         QVERIFY(fixture.openForRun());
         QCOMPARE(fixture.rows().size(), 2);
@@ -777,13 +782,13 @@ private Q_SLOTS:
         QCOMPARE(fixture.rows().size(), 2);
         QVERIFY(fixture.rows().at(0).toMap().value(QStringLiteral("pending")).toBool());
         QVERIFY(fixture.rows().at(1).toMap().value(QStringLiteral("pending")).toBool());
-        QVERIFY(fixture.files.store.imagesFor(kRunId).isEmpty());
+        QVERIFY(fixture.files.store.imagesFor(kRunId()).isEmpty());
 
         // Once the disk cooperates, 保存 again writes both.
         fixture.files.store.setCopyFunctionForTesting({});
         QVERIFY(fixture.submit());
         QVERIFY(!dialog->property("visible").toBool());
-        QCOMPARE(fixture.files.store.imagesFor(kRunId).size(), 2);
+        QCOMPARE(fixture.files.store.imagesFor(kRunId()).size(), 2);
     }
 
     void wizardStagesImagesAndAppliesThemOnlyOnSave()
@@ -852,9 +857,9 @@ private Q_SLOTS:
                                 .arg(dialog->property("errorCode").toString(),
                                      dialog->property("submitting").toString())
                                 .arg(asList(dialog->property("pendingImageAdds")).size())
-                                .arg(fixture.files.store.imagesFor(kRunId).size())
+                                .arg(fixture.files.store.imagesFor(kRunId()).size())
                                 .arg(dialog->property("imagesDirty").toString())));
-        QCOMPARE(fixture.files.store.imagesFor(kRunId).size(), 2);
+        QCOMPARE(fixture.files.store.imagesFor(kRunId()).size(), 2);
         QVERIFY(!dialog->property("imagesDirty").toBool());
         QCOMPARE(fixture.controller.toastMessage(), QString::fromUtf8("已添加 2 张图片"));
 
@@ -870,7 +875,7 @@ private Q_SLOTS:
         QCOMPARE(corrections.count(), 0);
         QVERIFY(!dialog->property("visible").toBool());
         QVERIFY(!QFileInfo::exists(doomed.value(QStringLiteral("path")).toString()));
-        QCOMPARE(fixture.files.store.imagesFor(kRunId).size(), 1);
+        QCOMPARE(fixture.files.store.imagesFor(kRunId()).size(), 1);
     }
 
     // 审查 OL-3：记录照采集服务存的样子（职能 TANK、整分钟的时间），玩家只加了一张图，
@@ -899,7 +904,7 @@ private Q_SLOTS:
         QVERIFY(fixture.submit());
         QCOMPARE(corrections.count(), 0);
         QTRY_VERIFY(!dialog->property("visible").toBool());
-        QCOMPARE(fixture.files.store.imagesFor(kRunId).size(), 1);
+        QCOMPARE(fixture.files.store.imagesFor(kRunId()).size(), 1);
     }
 
     void imagesFollowARecordCorrectionAndAreNeverPartOfIt()
@@ -934,10 +939,10 @@ private Q_SLOTS:
 
         // Ours: the image is applied to that run and the dialog closes.
         QVERIFY(QMetaObject::invokeMethod(dialog, "acceptSubmission", Q_RETURN_ARG(QVariant, accepted),
-                                          Q_ARG(QVariant, QVariant(kRunId))));
+                                          Q_ARG(QVariant, QVariant(kRunId()))));
         QVERIFY(accepted.toBool());
         QVERIFY(!dialog->property("visible").toBool());
-        QCOMPARE(fixture.files.store.imagesFor(kRunId).size(), 1);
+        QCOMPARE(fixture.files.store.imagesFor(kRunId()).size(), 1);
         QVERIFY(!dialog->property("imagesDirty").toBool());
     }
 
@@ -961,10 +966,10 @@ private Q_SLOTS:
         // The Collector names the new run; the folder takes that name.
         QVariant accepted;
         QVERIFY(QMetaObject::invokeMethod(dialog, "acceptSubmission", Q_RETURN_ARG(QVariant, accepted),
-                                          Q_ARG(QVariant, QVariant(kRunId))));
+                                          Q_ARG(QVariant, QVariant(kRunId()))));
         QVERIFY(accepted.toBool());
         QVERIFY(!dialog->property("visible").toBool());
-        QCOMPARE(fixture.files.store.imagesFor(kRunId).size(), 1);
+        QCOMPARE(fixture.files.store.imagesFor(kRunId()).size(), 1);
     }
 
     void aFailedImageSaveKeepsTheDialogOpenWithoutResendingTheRecord_data()
@@ -999,11 +1004,11 @@ private Q_SLOTS:
         QVERIFY(QFile::remove(shot));
         QVariant accepted;
         QVERIFY(QMetaObject::invokeMethod(dialog, "acceptSubmission", Q_RETURN_ARG(QVariant, accepted),
-                                          Q_ARG(QVariant, QVariant(kRunId))));
+                                          Q_ARG(QVariant, QVariant(kRunId()))));
         QVERIFY(accepted.toBool());
         QVERIFY(dialog->property("visible").toBool());
         QCOMPARE(dialog->property("errorCode").toString(), QStringLiteral("ERR_NOTE_IMAGE"));
-        QCOMPARE(dialog->property("savedRunId").toString(), kRunId);
+        QCOMPARE(dialog->property("savedRunId").toString(), kRunId());
         QVERIFY(dialog->property("imagesDirty").toBool());
         for (const char *name : {"wizardStep1", "wizardStep2", "matchedDateField",
                                  "matchedTimeField", "enteredTimeField", "endedTimeField",
@@ -1038,6 +1043,7 @@ private Q_SLOTS:
         QVERIFY(dialog->findChild<QObject *>(QStringLiteral("noteField"))->property("enabled").toBool());
     }
 };
+} // namespace
 
 int main(int argc, char *argv[])
 {

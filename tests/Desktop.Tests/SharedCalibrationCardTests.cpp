@@ -51,9 +51,13 @@ namespace {
 constexpr auto kVectorCode =
     "MRC1.XY_LasMwEEX_ZdbG6G3LuxKyKyG02ZRShCSPExXbMrIdaEP-vWoKpeksZjH3wZkLHO2Axq2hb6EBRpgqiS4JLUme24IC3qMzcfKxRWgEZUwWMNjFn8wc1-TzEZ62-8cX83x4OGyzf4oTNBf4jWgqRQEz9uiXmMzZ9ivO0Lzyt2sBCY8hjrljs8vRBYeptwuaKcUu9GjCN5cfyx-0uiTyr2s-WSZVdvBOeYrEaVu1zAuUXU00tcxxL1qJqqtITTWz3AkvW4XVP_1WmlLIfB93v2bwMzS0gM844p3Cr18";
 
-const QStringList kButtons{QStringLiteral("sharedShareButton"), QStringLiteral("sharedCheckButton"),
+const QStringList &kButtons()
+{
+    static const QStringList value{QStringLiteral("sharedShareButton"), QStringLiteral("sharedCheckButton"),
                            QStringLiteral("sharedImportButton"), QStringLiteral("sharedRejectButton"),
                            QStringLiteral("sharedAcceptButton"), QStringLiteral("sharedOtherWaysButton")};
+    return value;
+}
 
 QQuickItem *findVisualItem(QQuickItem *root, const QString &name)
 {
@@ -148,14 +152,14 @@ public:
     {
         requestTypes.append(type);
         auto *reply = new mr::BackendReply(type, type, this);
-        if (type == QLatin1String("GetStatus"))
+        if (type == QLatin1String("GetStatus")) {
             reply->succeed({{QStringLiteral("capture"), capture}});
-        else if (type == QLatin1String("GetCaptureStatus")) {
+        } else if (type == QLatin1String("GetCaptureStatus")) {
             ++captureStatusReads;
             reply->succeed(capture);
-        } else if (type == QLatin1String("GetCurrentRun"))
+        } else if (type == QLatin1String("GetCurrentRun")) {
             reply->succeed(currentRun);
-        else if (type == QLatin1String("DiscardCalibration")) {
+        } else if (type == QLatin1String("DiscardCalibration")) {
             discards.append(payload);
             if (!captureAfterDiscard.isEmpty())
                 capture = captureAfterDiscard;
@@ -163,8 +167,9 @@ public:
                 reply->succeed({{QStringLiteral("state"), QStringLiteral("IDLE")}});
             else
                 reply->fail(discardErrorCode, discardErrorMessage);
-        } else
+        } else {
             reply->succeed({});
+}
         return reply;
     }
 };
@@ -357,6 +362,7 @@ ApplicationWindow {
 
 } // namespace
 
+namespace {
 class SharedCalibrationCardTests : public QObject
 {
     Q_OBJECT
@@ -450,7 +456,7 @@ private Q_SLOTS:
         QTRY_VERIFY2(text->isVisible(), qPrintable(sentenceItem));
         QVERIFY2(text->property("text").toString().contains(sentence),
                  qPrintable(text->property("text").toString()));
-        for (const QString &name : kButtons) {
+        for (const QString &name : kButtons()) {
             auto *button = scene.item(name);
             QVERIFY2(button, qPrintable(name));
             QCOMPARE(button->isVisible(), buttons.contains(name));
@@ -804,7 +810,7 @@ private Q_SLOTS:
         QCOMPARE(scene.item(QStringLiteral("sharedCheckButton"))->property("variant").toString(), QStringLiteral("primary"));
         scene.expandOtherWays();
         QTest::qWait(50);
-        for (const QString &name : kButtons) {
+        for (const QString &name : kButtons()) {
             auto *button = scene.item(name);
             if (!button->isVisible())
                 continue;
@@ -1422,6 +1428,7 @@ private Q_SLOTS:
         QTRY_COMPARE(text->property("text").toString(), explanation);
     }
 };
+} // namespace
 
 int main(int argc, char **argv)
 {

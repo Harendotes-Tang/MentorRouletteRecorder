@@ -82,7 +82,7 @@ public:
         // As IpcBackend does: the caller's id, or a fresh one.
         const QString id = requestId.isEmpty() ? QUuid::createUuid().toString(QUuid::WithoutBraces)
                                                : requestId;
-        calls.append({type, payload, id, reply});
+        calls.append({.type=type, .payload=payload, .requestId=id, .reply=reply});
         if (unsentTypes.contains(type)) {
             // As IpcClient does with a pipe that is down: refused inside the call,
             // before anything is written.
@@ -289,14 +289,14 @@ struct Refusal {
 /// Every place that explains a refusal, and the refusal each one gets below: the Collector's
 /// sentence, or the form's own check.
 const Refusal kRefusals[] = {
-    {"reason", "ERR_REVISION_CONFLICT", "该记录已被修改，请刷新后重试。"},
-    {"wizardCheck", "ERR_REASON_REQUIRED", "请先填写新增原因，再保存。"},
-    {"wizard", "ERR_TIME_ORDER", "匹配时间不能晚于进入副本的时间。"},
-    {"guide", "ERR_BAD_REQUEST", "基数必须是大于等于 0 的整数。"},
-    {"cardCheck", "ERR_REASON_REQUIRED", "请填写「修改原因」后再点「保存」。"},
-    {"card", "ERR_DB_BUSY", "本地数据库正忙，请稍后重试。"},
-    {"result", "ERR_NOT_FOUND", "找不到该记录，请刷新列表后重试。"},
-    {"note", "ERR_DB_BUSY", "本地数据库正忙，笔记没有保存。"},
+    {.place="reason", .code="ERR_REVISION_CONFLICT", .sentence="该记录已被修改，请刷新后重试。"},
+    {.place="wizardCheck", .code="ERR_REASON_REQUIRED", .sentence="请先填写新增原因，再保存。"},
+    {.place="wizard", .code="ERR_TIME_ORDER", .sentence="匹配时间不能晚于进入副本的时间。"},
+    {.place="guide", .code="ERR_BAD_REQUEST", .sentence="基数必须是大于等于 0 的整数。"},
+    {.place="cardCheck", .code="ERR_REASON_REQUIRED", .sentence="请填写「修改原因」后再点「保存」。"},
+    {.place="card", .code="ERR_DB_BUSY", .sentence="本地数据库正忙，请稍后重试。"},
+    {.place="result", .code="ERR_NOT_FOUND", .sentence="找不到该记录，请刷新列表后重试。"},
+    {.place="note", .code="ERR_DB_BUSY", .sentence="本地数据库正忙，笔记没有保存。"},
 };
 
 QString refusalSentence(const char *place)
@@ -445,6 +445,7 @@ void refuseEverywhere(bool maintainer, QHash<QString, QString> &shown)
 
 } // namespace
 
+namespace {
 class ShellDialogTests : public QObject
 {
     Q_OBJECT
@@ -533,7 +534,10 @@ private Q_SLOTS:
         QVERIFY2(shell.create(), qPrintable(shell.errors));
         auto *dialog = shell.named(QStringLiteral("releaseNotesDialog"));
         auto *disclosure = shell.named(QStringLiteral("disclosureDialog"));
-        QVERIFY(dialog && disclosure);
+        if (!dialog || !disclosure) {
+            QTest::qFail("The shell has no release notes or disclosure dialog", __FILE__, __LINE__);
+            return;
+        }
         QVERIFY(QMetaObject::invokeMethod(disclosure, "openDialog"));
         QTest::qWait(450);
         QVERIFY(!dialog->property("visible").toBool());
@@ -1033,7 +1037,10 @@ private Q_SLOTS:
         auto *goal = shell.item(QStringLiteral("goalField"));
         auto *baseline = shell.item(QStringLiteral("baselineField"));
         auto *reason = shell.item(QStringLiteral("baselineReasonField"));
-        QVERIFY(goal && baseline && reason);
+        if (!goal || !baseline || !reason) {
+            QTest::qFail("The achievement settings omit a goal, baseline or reason field", __FILE__, __LINE__);
+            return;
+        }
 
         // Nothing read yet: the fields hold defaults, so a goal-only save must not go out.
         reason->setProperty("text", QString::fromUtf8("只改目标"));
@@ -1972,6 +1979,7 @@ private Q_SLOTS:
         QVERIFY2(page.contains(QString::fromUtf8("游戏自带的解压函数")), qPrintable(page));
     }
 };
+} // namespace
 
 int main(int argc, char *argv[])
 {

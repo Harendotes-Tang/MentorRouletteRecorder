@@ -51,17 +51,23 @@ struct Scene
     QQuickItem *field() const { return root->findChild<QQuickItem *>(QStringLiteral("field")); }
 };
 
-const QByteArray kScene = R"(import QtQuick
+const QByteArray &kScene()
+{
+    static const QByteArray value = R"(import QtQuick
 import QtQuick.Window
 import MentorRecorder
 Window {
     width: 480; height: 360; visible: true
     DateField { objectName: "field"; x: 20; y: 20; width: 118 }
 })";
+    return value;
+}
 
 // The history page's case: the calendar opens over the table, whose rows listen
 // with a TapHandler (HistoryPage's row selection).
-const QByteArray kSceneOverRows = R"(import QtQuick
+const QByteArray &kSceneOverRows()
+{
+    static const QByteArray value = R"(import QtQuick
 import QtQuick.Window
 import MentorRecorder
 Window {
@@ -73,6 +79,8 @@ Window {
     }
     DateField { objectName: "field"; x: 20; y: 20; width: 118 }
 })";
+    return value;
+}
 
 /// Repeater delegates (the month grid's day cells) hang off the visual tree
 /// only, so findChild() over QObject children cannot see them.
@@ -103,6 +111,7 @@ void clickItem(QQuickWindow *window, QQuickItem *item)
 
 } // namespace
 
+namespace {
 class DateFieldTests final : public QObject
 {
     Q_OBJECT
@@ -123,6 +132,7 @@ private slots:
     void rangeCalendarScreenshots_data();
     void rangeCalendarScreenshots();
 };
+} // namespace
 
 void DateFieldTests::initTestCase()
 {
@@ -141,7 +151,7 @@ void DateFieldTests::initTestCase()
 void DateFieldTests::emptyFieldShowsThePlaceholderAndIsValid()
 {
     Scene scene;
-    QVERIFY2(scene.create(kScene), qPrintable(scene.errors));
+    QVERIFY2(scene.create(kScene()), qPrintable(scene.errors));
     QQuickItem *field = scene.field();
     QVERIFY(field);
     QCOMPARE(field->property("text").toString(), QString());
@@ -156,7 +166,7 @@ void DateFieldTests::emptyFieldShowsThePlaceholderAndIsValid()
 void DateFieldTests::aTypedDateIsAcceptedAndNonsenseTurnsRed()
 {
     Scene scene;
-    QVERIFY2(scene.create(kScene), qPrintable(scene.errors));
+    QVERIFY2(scene.create(kScene()), qPrintable(scene.errors));
     QQuickItem *field = scene.field();
     field->setProperty("text", QStringLiteral("2026-09-17"));
     QVERIFY(field->property("valid").toBool());
@@ -174,7 +184,7 @@ void DateFieldTests::aTypedDateIsAcceptedAndNonsenseTurnsRed()
 void DateFieldTests::theCalendarOpensOnTheFieldsOwnMonth()
 {
     Scene scene;
-    QVERIFY2(scene.create(kScene), qPrintable(scene.errors));
+    QVERIFY2(scene.create(kScene()), qPrintable(scene.errors));
     QQuickItem *field = scene.field();
     field->setProperty("text", QStringLiteral("2025-02-14"));
     QVERIFY(QMetaObject::invokeMethod(field, "openCalendar"));
@@ -202,7 +212,7 @@ void DateFieldTests::theCalendarOpensOnTheFieldsOwnMonth()
 void DateFieldTests::pickingADayWritesItAsText()
 {
     Scene scene;
-    QVERIFY2(scene.create(kScene), qPrintable(scene.errors));
+    QVERIFY2(scene.create(kScene()), qPrintable(scene.errors));
     QQuickWindow *window = scene.window();
     QVERIFY(window);
     QVERIFY(QTest::qWaitForWindowExposed(window));
@@ -224,7 +234,7 @@ void DateFieldTests::pickingADayWritesItAsText()
 void DateFieldTests::theArrowsTurnThePagesAcrossAYearEnd()
 {
     Scene scene;
-    QVERIFY2(scene.create(kScene), qPrintable(scene.errors));
+    QVERIFY2(scene.create(kScene()), qPrintable(scene.errors));
     QQuickItem *field = scene.field();
     field->setProperty("text", QStringLiteral("2026-12-05"));
     QVERIFY(QMetaObject::invokeMethod(field, "openCalendar"));
@@ -248,7 +258,7 @@ void DateFieldTests::theArrowsTurnThePagesAcrossAYearEnd()
 void DateFieldTests::onlyTheChosenDayOfItsOwnMonthIsHighlighted()
 {
     Scene scene;
-    QVERIFY2(scene.create(kScene), qPrintable(scene.errors));
+    QVERIFY2(scene.create(kScene()), qPrintable(scene.errors));
     QQuickItem *field = scene.field();
     field->setProperty("text", QStringLiteral("2026-09-17"));
     QVERIFY(QMetaObject::invokeMethod(field, "openCalendar"));
@@ -272,7 +282,7 @@ void DateFieldTests::onlyTheChosenDayOfItsOwnMonthIsHighlighted()
 void DateFieldTests::aClickInTheCalendarNeverReachesTheRowBeneathIt()
 {
     Scene scene;
-    QVERIFY2(scene.create(kSceneOverRows), qPrintable(scene.errors));
+    QVERIFY2(scene.create(kSceneOverRows()), qPrintable(scene.errors));
     QQuickWindow *window = scene.window();
     QVERIFY(QTest::qWaitForWindowExposed(window));
     QQuickItem *field = scene.field();
@@ -309,7 +319,7 @@ void DateFieldTests::aClickInTheCalendarNeverReachesTheRowBeneathIt()
 void DateFieldTests::rangeSelectionAndCancellation()
 {
     Scene scene;
-    QByteArray qml = kScene;
+    QByteArray qml = kScene();
     qml.replace("height: 360", "height: 580");
     qml.replace("width: 118", "width: 238; rangeMode: true");
     QVERIFY2(scene.create(qml), qPrintable(scene.errors));
@@ -364,7 +374,7 @@ void DateFieldTests::rangeSelectionAndCancellation()
 void DateFieldTests::recordAwareRangeDisablesEmptyDatesButSingleDateDoesNot()
 {
     Scene scene;
-    QByteArray qml = kScene;
+    QByteArray qml = kScene();
     qml.replace("height: 360", "height: 580");
     qml.replace("width: 118", R"(width: 238; rangeMode: true; restrictToRecords: true; availableDays: ["2026-09-07", "2026-09-17"]; knownMonths: ["2026-09"])");
     QVERIFY2(scene.create(qml), qPrintable(scene.errors));
@@ -397,7 +407,7 @@ void DateFieldTests::recordAwareRangeDisablesEmptyDatesButSingleDateDoesNot()
     // The same component in the new-record wizard permits a record-free date
     // and commits it after ONE click, regardless of range availability inputs.
     Scene single;
-    QVERIFY2(single.create(kScene), qPrintable(single.errors));
+    QVERIFY2(single.create(kScene()), qPrintable(single.errors));
     auto *singleField = single.field();
     QVERIFY(!singleField->property("rangeMode").toBool());
     QVERIFY(!singleField->property("restrictToRecords").toBool());
@@ -415,7 +425,7 @@ void DateFieldTests::recordAwareRangeDisablesEmptyDatesButSingleDateDoesNot()
 void DateFieldTests::monthYearWheelAndKeyboard()
 {
     Scene scene;
-    QVERIFY2(scene.create(kScene), qPrintable(scene.errors));
+    QVERIFY2(scene.create(kScene()), qPrintable(scene.errors));
     auto *window = scene.window();
     QVERIFY(QTest::qWaitForWindowExposed(window));
     auto *field = scene.field();
@@ -485,7 +495,7 @@ void DateFieldTests::rangeCalendarScreenshots()
     });
     scene.engine.rootContext()->setContextProperty(QStringLiteral("ForceUiStyle"), style);
     scene.engine.rootContext()->setContextProperty(QStringLiteral("App"), QVariantMap{{QStringLiteral("dark"), dark}});
-    QByteArray qml = kScene;
+    QByteArray qml = kScene();
     qml.replace("height: 360", "height: 580; color: Theme.windowBackground");
     qml.replace("width: 118", "width: 238; rangeMode: true");
     QVERIFY2(scene.create(qml), qPrintable(scene.errors));

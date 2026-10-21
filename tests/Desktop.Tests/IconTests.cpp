@@ -55,6 +55,7 @@ QQuickItem *childNamed(QObject *root, const QString &name)
 
 } // namespace
 
+namespace {
 class IconTests final : public QObject
 {
     Q_OBJECT
@@ -69,6 +70,7 @@ private slots:
     void appButton_ignoresAnUnknownIconName();
     void navItem_showsThePageIconInsteadOfTheNumber();
 };
+} // namespace
 
 void IconTests::initTestCase()
 {

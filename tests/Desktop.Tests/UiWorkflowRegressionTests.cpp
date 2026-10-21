@@ -59,7 +59,7 @@ public:
         auto *reply = new mr::BackendReply(QString::number(++serial), type, this);
         if (type == QLatin1String("SetRunReflection") || type == QLatin1String("CorrectRun")
             || holdTypes.contains(type)) {
-            pending.append({type, payload, reply});
+            pending.append({.type=type, .payload=payload, .reply=reply});
         } else if (failures.contains(type)) {
             const QString code = failures.value(type);
             QTimer::singleShot(0, reply, [reply, code] {
@@ -518,6 +518,7 @@ QString textStartingWith(QQuickItem *from, const QString &prefix)
 
 } // namespace
 
+namespace {
 class UiWorkflowRegressionTests : public QObject
 {
     Q_OBJECT
@@ -586,6 +587,7 @@ private Q_SLOTS:
     void theCalibrationFetchNamesEveryOperatorThatSeesTheAddress();
     void noPlayerTextSaysTheClearCannotBeSeen();
 };
+} // namespace
 
 void UiWorkflowRegressionTests::initTestCase()
 {
@@ -2436,7 +2438,7 @@ void UiWorkflowRegressionTests::onlineConfirmationIsAskedOnceAndCancelKeepsTheVo
             if (item->isVisible() && item->property("text").toString() == text)
                 return true;
             const auto children = item->childItems();
-            return std::any_of(children.begin(), children.end(),
+            return std::ranges::any_of(children,
                                [&](QQuickItem *child) { return shows(child, text); });
         };
     QQuickItem *scene = window->contentItem()->parentItem() ? window->contentItem()->parentItem()

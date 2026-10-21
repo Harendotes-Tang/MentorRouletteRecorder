@@ -142,7 +142,7 @@ bool captureCelebration(const Scene &scene, const QString &evidence)
     QElapsedTimer clock;
     clock.start();
     for (int frame = 0; frame < kCelebrationFrames; ++frame) {
-        while (clock.elapsed() < qint64(frame) * kCelebrationFrameMs)
+        while (clock.elapsed() < static_cast<qint64>(frame) * kCelebrationFrameMs)
             QTest::qWait(5);
         const qint64 at = clock.elapsed();
         const QImage image = scene.window()->grabWindow();
@@ -157,6 +157,7 @@ bool captureCelebration(const Scene &scene, const QString &evidence)
 }
 } // namespace
 
+namespace {
 class AchievementProgressTests : public QObject
 {
     Q_OBJECT
@@ -174,6 +175,7 @@ private Q_SLOTS:
     void dashboardUsesUncappedPercentAndMilestoneSignal();
     void renderedEvidence();
 };
+} // namespace
 
 void AchievementProgressTests::initTestCase()
 {
@@ -283,8 +285,8 @@ void AchievementProgressTests::laps_data()
     QTest::addColumn<double>("ratio");
     QTest::addColumn<double>("fraction");
     for (const int count : {0, 1980, 2000, 2200, 3000, 4000, 5000}) {
-        const double ratio = double(count) / 2000;
-        const double fraction = count > 0 && count % 2000 == 0 ? 1.0 : double(count % 2000) / 2000;
+        const double ratio = static_cast<double>(count) / 2000;
+        const double fraction = count > 0 && count % 2000 == 0 ? 1.0 : static_cast<double>(count % 2000) / 2000;
         QTest::newRow(qPrintable(QString::number(count))) << count << ratio << fraction;
     }
 }
@@ -396,7 +398,7 @@ void AchievementProgressTests::renderedEvidence()
             auto *ring = scene.find("ring");
             for (const int progress : {1980, 2000, 2200, 3000, 4000, 5000}) {
                 ring->setProperty("value", progress);
-                QTRY_VERIFY(qAbs(ring->property("shown").toDouble() - double(progress) / 2000) < 0.000001);
+                QTRY_VERIFY(qAbs(ring->property("shown").toDouble() - (static_cast<double>(progress) / 2000)) < 0.000001);
                 QTest::qWait(35);
                 const QImage image = scene.window()->grabWindow();
                 QVERIFY(!image.isNull());

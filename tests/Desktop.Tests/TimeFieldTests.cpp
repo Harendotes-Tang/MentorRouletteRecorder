@@ -61,6 +61,7 @@ void typeText(QQuickWindow *window, const QString &text)
 
 } // namespace
 
+namespace {
 class TimeFieldTests final : public QObject
 {
     Q_OBJECT
@@ -75,6 +76,7 @@ private slots:
     void theWheelsOpenOnTheFieldsOwnTimeAndWriteBack();
     void nowWritesTheClockWithSeconds();
 };
+} // namespace
 
 void TimeFieldTests::initTestCase()
 {

@@ -14,6 +14,7 @@
 #include <limits>
 #include <mutex>
 #include <optional>
+#include <utility>
 #include <vector>
 
 static void initializeClassifierResource()
@@ -53,7 +54,7 @@ std::optional<std::array<float, kFeatureCount>> features(const QImage &input)
             const int r = qRed(pixel);
             const int g = qGreen(pixel);
             const int b = qBlue(pixel);
-            mask[static_cast<size_t>(y) * width + x] = qAlpha(pixel) > 100 && r > 100 && g > 75
+            mask[(static_cast<size_t>(y) * width) + x] = qAlpha(pixel) > 100 && r > 100 && g > 75
                 && r * 10 >= g * 9 && r - b > 25 && g - b > 20;
         }
     }
@@ -64,7 +65,7 @@ std::optional<std::array<float, kFeatureCount>> features(const QImage &input)
     int bottom = -1;
     int foreground = 0;
     std::vector<int> component;
-    for (int index = 0; index < static_cast<int>(mask.size()); ++index) {
+    for (int index = 0; std::cmp_less(index, mask.size()); ++index) {
         if (mask[index] != 1)
             continue;
         component.clear();
@@ -86,7 +87,7 @@ std::optional<std::array<float, kFeatureCount>> features(const QImage &input)
                     const int ny = y + dy;
                     if ((dx == 0 && dy == 0) || nx < 0 || ny < 0 || nx >= width || ny >= height)
                         continue;
-                    const int neighbour = ny * width + nx;
+                    const int neighbour = (ny * width) + nx;
                     if (mask[neighbour] == 1) {
                         mask[neighbour] = 2;
                         component.push_back(neighbour);
@@ -121,10 +122,10 @@ std::optional<std::array<float, kFeatureCount>> features(const QImage &input)
                 const int wy = std::min(yh, (sy + 1) * kGrid) - std::max(yl, sy * kGrid);
                 for (int sx = xl / kGrid; sx < (xh + kGrid - 1) / kGrid; ++sx) {
                     const int wx = std::min(xh, (sx + 1) * kGrid) - std::max(xl, sx * kGrid);
-                    total += selected[static_cast<size_t>(top + sy) * width + left + sx] * wx * wy;
+                    total += selected[(static_cast<size_t>(top + sy) * width) + left + sx] * wx * wy;
                 }
             }
-            result[y * kGrid + x] = static_cast<float>(total / (glyphWidth * glyphHeight));
+            result[(y * kGrid) + x] = static_cast<float>(total / (glyphWidth * glyphHeight));
         }
     }
     result.back() = static_cast<float>(std::log(aspect));
@@ -237,7 +238,7 @@ JobIconClassifier::Result JobIconClassifier::classify(const QImage &crop) const
     for (int h = 0; h < kHiddenCount; ++h) {
         double value = model.hiddenBias[h];
         for (int f = 0; f < kFeatureCount; ++f)
-            value += (*input)[f] * model.inputHidden[f * kHiddenCount + h];
+            value += (*input)[f] * model.inputHidden[(f * kHiddenCount) + h];
         hidden[h] = std::max(0.0, value);
     }
     const int classes = static_cast<int>(model.ids.size());
@@ -245,9 +246,9 @@ JobIconClassifier::Result JobIconClassifier::classify(const QImage &crop) const
     for (int c = 0; c < classes; ++c) {
         scores[c] = model.outputBias[c];
         for (int h = 0; h < kHiddenCount; ++h)
-            scores[c] += hidden[h] * model.hiddenOutput[h * classes + c];
+            scores[c] += hidden[h] * model.hiddenOutput[(h * classes) + c];
     }
-    const double maximum = *std::max_element(scores.cbegin(), scores.cend());
+    const double maximum = *std::ranges::max_element(scores);
     double total = 0;
     for (double &value : scores) {
         value = std::exp(value - maximum);
@@ -261,7 +262,7 @@ JobIconClassifier::Result JobIconClassifier::classify(const QImage &crop) const
     std::vector<int> order(classes);
     for (int c = 0; c < classes; ++c)
         order[c] = c;
-    std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return scores[a] > scores[b]; });
+    std::ranges::stable_sort(order, [&](int a, int b) { return scores[a] > scores[b]; });
     const int best = order[0];
     const int runner = order[1];
     if (best == 0)
@@ -271,7 +272,7 @@ JobIconClassifier::Result JobIconClassifier::classify(const QImage &crop) const
     result.runnerUpId = model.ids[runner];
     result.runnerUpConfidence = scores[runner];
     for (int f = 0; f < kFeatureCount; ++f) {
-        const double difference = (*input)[f] - model.centers[best * kFeatureCount + f];
+        const double difference = (*input)[f] - model.centers[(best * kFeatureCount) + f];
         result.featureDistance += difference * difference;
     }
     result.featureDistance /= kFeatureCount;

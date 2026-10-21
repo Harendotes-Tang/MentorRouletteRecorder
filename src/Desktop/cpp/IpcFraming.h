@@ -24,7 +24,7 @@ inline constexpr int kProtocolVersion = 1;
 inline constexpr qint64 kMaxFrameBytes = 4LL * 1024 * 1024;
 
 /// Result of trying to pull one frame out of a receive buffer.
-enum class FrameStatus {
+enum class FrameStatus : quint8 {
     Ok,          ///< a complete, well-formed envelope was extracted
     Incomplete,  ///< not enough bytes yet; keep reading
     Oversized,   ///< the declared length exceeds kMaxFrameBytes
@@ -56,7 +56,7 @@ QString newRequestId();
 QString utcTimestamp(const QDateTime &moment);
 
 /// What a decoded envelope turned out to be.
-enum class EnvelopeKind {
+enum class EnvelopeKind : quint8 {
     Response,  ///< an answer to a request; correlate by requestId
     Event,     ///< a live event; payload is a $defs/LiveEvent
 };

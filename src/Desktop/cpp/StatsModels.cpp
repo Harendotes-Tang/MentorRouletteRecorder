@@ -23,7 +23,7 @@ namespace {
 
 qint64 completionCount(const QJsonObject &row)
 {
-    return qMax(qint64(0), row.value(QStringLiteral("completed_count")).toInteger());
+    return qMax(static_cast<qint64>(0), row.value(QStringLiteral("completed_count")).toInteger());
 }
 
 struct MainScenarioMembership {
@@ -52,7 +52,7 @@ const MainScenarioMembership &mainScenarioMembership()
         for (const auto &value : root.value(QStringLiteral("duties")).toArray()) {
             const QJsonValue id = value.toObject().value(QStringLiteral("content_id"));
             if (!id.isDouble() || id.toInteger() <= 0
-                || double(id.toInteger()) != id.toDouble()
+                || static_cast<double>(id.toInteger()) != id.toDouble()
                 || DutyCatalog::shared()->lookup(id.toVariant()).isEmpty()) {
                 qWarning("main-scenario member is absent from installed duty catalogue");
                 return MainScenarioMembership{};
@@ -70,7 +70,7 @@ QVariantMap completionBucket(const QString &label, qint64 count, qint64 total,
 {
     return {{QStringLiteral("label"), label},
             {QStringLiteral("completed_count"), count},
-            {QStringLiteral("share"), total > 0 ? QVariant(double(count) / double(total)) : QVariant()},
+            {QStringLiteral("share"), total > 0 ? QVariant(static_cast<double>(count) / static_cast<double>(total)) : QVariant()},
             {QStringLiteral("color_token"), token},
             {QStringLiteral("is_unknown"), unknown}};
 }
@@ -87,7 +87,7 @@ QString dutyCategory(const QJsonObject &row)
 }
 
 /// Marks a duty_meta decorate() derived, so a language switch can derive it again.
-const QString kDerivedMeta = QStringLiteral("duty_meta_derived");
+constexpr QLatin1StringView kDerivedMeta("duty_meta_derived");
 
 } // namespace
 
@@ -100,7 +100,7 @@ void StatsRowsModel::retranslate()
 {
     retranslateRows();
     if (!m_rows.isEmpty())
-        Q_EMIT dataChanged(index(0), index(int(m_rows.size()) - 1), {RowRole});
+        Q_EMIT dataChanged(index(0), index(static_cast<int>(m_rows.size()) - 1), {RowRole});
     Q_EMIT loadErrorChanged();
     Q_EMIT countChanged();
 }
@@ -117,7 +117,7 @@ void StatsRowsModel::setBackend(IBackend *backend)
 
 int StatsRowsModel::rowCount(const QModelIndex &parent) const
 {
-    return parent.isValid() ? 0 : int(m_rows.size());
+    return parent.isValid() ? 0 : static_cast<int>(m_rows.size());
 }
 
 QVariant StatsRowsModel::data(const QModelIndex &index, int role) const
@@ -136,7 +136,7 @@ QHash<int, QByteArray> StatsRowsModel::roleNames() const
 
 int StatsRowsModel::distinctCount() const
 {
-    return qMax(m_distinctCount, int(m_rows.size()));
+    return qMax(m_distinctCount, static_cast<int>(m_rows.size()));
 }
 
 int StatsRowsModel::maxAttemptCount() const
@@ -171,8 +171,8 @@ QVariantMap StatsRowsModel::rowAt(int row) const
 QVariantList StatsRowsModel::topRows(int limit) const
 {
     QVariantList out;
-    const int count = limit <= 0 ? int(m_rows.size())
-                                 : qMin(limit, int(m_rows.size()));
+    const int count = limit <= 0 ? static_cast<int>(m_rows.size())
+                                 : qMin(limit, static_cast<int>(m_rows.size()));
     out.reserve(count);
     for (int i = 0; i < count; ++i)
         out.append(m_rows.at(i).toVariantMap());
@@ -219,13 +219,13 @@ void StatsRowsModel::loadPage(quint64 generation, int page, QList<QJsonObject> r
                 const QJsonArray items = object.value(QStringLiteral("items")).toArray();
                 const QJsonObject info = object.value(QStringLiteral("page_info")).toObject();
                 const int reportedTotal = info.value(QStringLiteral("total")).toInt(
-                    object.value(QStringLiteral("distinct_count")).toInt(int(items.size())));
+                    object.value(QStringLiteral("distinct_count")).toInt(static_cast<int>(items.size())));
                 if (total < 0)
                     total = reportedTotal;
                 if (reportedTotal != total || total < 0
                     || info.value(QStringLiteral("page")).toInt(page) != page
                     || info.value(QStringLiteral("page_size")).toInt(pageSize) != pageSize
-                    || items.size() != qMin(pageSize, qMax(0, total - int(rows.size())))) {
+                    || items.size() != qMin(pageSize, qMax(0, total - static_cast<int>(rows.size())))) {
                     failLoad(generation, QStringLiteral("ERR_BAD_RESPONSE"),
                              LiveText([] { return tr("统计分页在读取时发生变化，请刷新后重试。"); }));
                     return;

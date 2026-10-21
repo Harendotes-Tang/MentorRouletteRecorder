@@ -39,7 +39,7 @@ constexpr qsizetype kMaxOnlineTextLength = 200;
 /// generous for a slow voice, bounded for an engine that never reports back.
 int localSpeechBudgetMs(const QString &text)
 {
-    return qBound(3000, 2000 + int(text.size()) * 450, 60000);
+    return qBound(3000, 2000 + (static_cast<int>(text.size()) * 450), 60000);
 }
 
 /// The codes a toast is keyed by. Everything the reason text cannot tell
@@ -117,7 +117,7 @@ void TtsService::setCollectorDatabasePath(const QString &path)
 
 int TtsService::pendingOnlineCount() const
 {
-    return int(m_onlineQueue.size()) + (m_current ? 1 : 0);
+    return static_cast<int>(m_onlineQueue.size()) + (m_current ? 1 : 0);
 }
 
 QString TtsService::fallbackToast(const QString &code)
@@ -318,19 +318,19 @@ void TtsService::fallBackToLocal(const QString &code)
     m_localTimer.start(localSpeechBudgetMs(utterance.text));
     m_engine->say(utterance.text);
     m_engineHoldsOnlyTest = utterance.test;
-    noteLocalEngineState(int(m_engine->state()));
+    noteLocalEngineState(static_cast<int>(m_engine->state()));
 }
 
 void TtsService::noteLocalEngineState(int state)
 {
     if (m_phase != OnlinePhase::SpeakingLocal)
         return;
-    if (state == int(QTextToSpeech::Speaking) || state == int(QTextToSpeech::Synthesizing)) {
+    if (state == static_cast<int>(QTextToSpeech::Speaking) || state == static_cast<int>(QTextToSpeech::Synthesizing)) {
         m_localStarted = true;
         return;
     }
-    if (state == int(QTextToSpeech::Error)
-        || (state == int(QTextToSpeech::Ready) && m_localStarted)) {
+    if (state == static_cast<int>(QTextToSpeech::Error)
+        || (state == static_cast<int>(QTextToSpeech::Ready) && m_localStarted)) {
         finishCurrent(false);
     }
 }

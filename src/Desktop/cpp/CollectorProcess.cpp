@@ -240,7 +240,7 @@ QString ownStartTimeUtcTicks()
     if (!GetProcessTimes(GetCurrentProcess(), &creation, &exited, &kernel, &user))
         return {};
     const quint64 fileTime =
-        (quint64(creation.dwHighDateTime) << 32) | quint64(creation.dwLowDateTime);
+        (static_cast<quint64>(creation.dwHighDateTime) << 32) | static_cast<quint64>(creation.dwLowDateTime);
     // FILETIME counts 100 ns intervals since 1601-01-01; .NET ticks since 0001-01-01.
     constexpr quint64 kFileTimeEpochAsTicks = 504911232000000000ULL;
     return QString::number(fileTime + kFileTimeEpochAsTicks);
@@ -364,7 +364,7 @@ QString CollectorProcess::statusText() const
         if (m_restartTimer.isActive()) {
             return tr("后台服务已停止（%1），将在 %2 秒后重试启动（第 %3 次）")
                 .arg(m_detail.text())
-                .arg(double(m_scheduledDelayMs) / 1000.0, 0, 'f', 1)
+                .arg(static_cast<double>(m_scheduledDelayMs) / 1000.0, 0, 'f', 1)
                 .arg(m_restartCount + 1);
         }
         return tr("后台服务已停止（%1）").arg(m_detail.text());
@@ -642,7 +642,7 @@ QString CollectorProcess::systemToolPath(const QString &fileName)
     const UINT length = GetSystemDirectoryW(buffer, MAX_PATH);
     if (length == 0 || length >= MAX_PATH)
         return {};
-    const QDir system(QDir::fromNativeSeparators(QString::fromWCharArray(buffer, int(length))));
+    const QDir system(QDir::fromNativeSeparators(QString::fromWCharArray(buffer, static_cast<int>(length))));
     const QString path = system.absoluteFilePath(fileName);
     return QFileInfo::exists(path) ? path : QString();
 #else

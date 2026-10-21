@@ -44,11 +44,15 @@
 
 namespace {
 
-const QString kHash64 = QStringLiteral("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+const QString &kHash64()
+{
+    static const QString value = QStringLiteral("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+    return value;
+}
 
 QByteArray waveBytes(quint16 bits = 16, quint16 format = 1, quint32 dataBytes = 4800)
 {
-    QByteArray bytes(44 + int(dataBytes), '\0');
+    QByteArray bytes(44 + static_cast<int>(dataBytes), '\0');
     char *d = bytes.data();
     std::copy_n("RIFF", 4, d);
     qToLittleEndian<quint32>(36 + dataBytes, d + 4);
@@ -100,7 +104,7 @@ class ScriptedSpeechBackend final : public mr::IBackend
 {
 public:
     struct Answer {
-        enum Kind { File, Error, Hang } kind = File;
+        enum Kind : quint8 { File, Error, Hang } kind = File;
         QString value; // audio_path or error code
     };
 
@@ -153,7 +157,7 @@ public:
         }
         return result;
     }
-    int countOf(const QString &type) const { return int(payloadsOf(type).size()); }
+    int countOf(const QString &type) const { return static_cast<int>(payloadsOf(type).size()); }
 
     bool connected = true;
     int delayMs = 0;
@@ -207,7 +211,7 @@ struct CacheFixture {
     QString cacheDir() const { return root.filePath(QStringLiteral("tts-cache")); }
     QString wav(int index, const QByteArray &bytes = waveBytes()) const
     {
-        const QString name = QStringLiteral("%1%2.wav").arg(kHash64.left(62)).arg(index, 2, 10, QLatin1Char('0'));
+        const QString name = QStringLiteral("%1%2.wav").arg(kHash64().left(62)).arg(index, 2, 10, QLatin1Char('0'));
         const QString path = cacheDir() + QLatin1Char('/') + name;
         writeFile(path, bytes);
         return QDir::toNativeSeparators(path);
@@ -236,7 +240,7 @@ struct SettingsGuard {
 /// Qt's silent mock engine, for a test that watches the local voice).
 struct RoutingFixture {
     mr::AppSettings settings;
-    SettingsGuard guard{settings};
+    SettingsGuard guard{.settings=settings};
     ScriptedSpeechBackend backend;
     mr::SpeechController speech;
     mr::TtsService tts{&settings, nullptr, mr::TtsService::EngineMode::None};
@@ -270,9 +274,9 @@ struct RoutingFixture {
 
     bool loaded() { return QTest::qWaitFor([this] { return speech.loaded(); }, 2000); }
     void say(const QString &text) { tts.announceText(QStringLiteral("entered"), text); }
-    static ScriptedSpeechBackend::Answer file(const QString &path) { return {ScriptedSpeechBackend::Answer::File, path}; }
-    static ScriptedSpeechBackend::Answer error(const QString &code) { return {ScriptedSpeechBackend::Answer::Error, code}; }
-    static ScriptedSpeechBackend::Answer hang() { return {ScriptedSpeechBackend::Answer::Hang, {}}; }
+    static ScriptedSpeechBackend::Answer file(const QString &path) { return {.kind=ScriptedSpeechBackend::Answer::File, .value=path}; }
+    static ScriptedSpeechBackend::Answer error(const QString &code) { return {.kind=ScriptedSpeechBackend::Answer::Error, .value=code}; }
+    static ScriptedSpeechBackend::Answer hang() { return {.kind=ScriptedSpeechBackend::Answer::Hang, .value={}}; }
 };
 
 QString route(const QString &text, const QString &how)
@@ -283,7 +287,7 @@ QString route(const QString &text, const QString &how)
 /// SpeechController + TtsService on the shipping MockBackend.
 struct MockFixture {
     mr::AppSettings settings;
-    SettingsGuard guard{settings};
+    SettingsGuard guard{.settings=settings};
     QTemporaryDir data;
     mr::MockBackend backend;
     mr::SpeechController speech;
@@ -308,6 +312,7 @@ struct MockFixture {
 
 } // namespace
 
+namespace {
 class SpeechTests : public QObject
 {
     Q_OBJECT
@@ -359,6 +364,7 @@ private Q_SLOTS:
     void audioFile_acceptsOnlyCacheWaves();
     void audioFile_readsPcmHeaders();
 };
+} // namespace
 
 // ---------------------------------------------------------------------------
 // IBackend wrappers
@@ -560,7 +566,7 @@ void SpeechTests::controller_testReportsSuccessAndFailure()
 void SpeechTests::controller_olderCollectorHidesOnlineSpeech()
 {
     mr::AppSettings settings;
-    SettingsGuard guard{settings};
+    SettingsGuard guard{.settings=settings};
     settings.setTtsVoice(QStringLiteral("azure:zh-CN-XiaoxiaoNeural"));
     ScriptedSpeechBackend backend;
     backend.settingsError = QStringLiteral("ERR_UNKNOWN_MESSAGE");
@@ -894,13 +900,13 @@ void SpeechTests::routing_refusesFilesOutsideTheCache()
     RoutingFixture f;
     QVERIFY(f.loaded());
     QTemporaryDir elsewhere;
-    const QString outside = QDir::toNativeSeparators(elsewhere.filePath(kHash64 + QStringLiteral(".wav")));
+    const QString outside = QDir::toNativeSeparators(elsewhere.filePath(kHash64() + QStringLiteral(".wav")));
     QVERIFY(writeFile(outside, waveBytes()));
     const QString inCache = f.cache.wav(7);
     const QString sneaky = QDir::toNativeSeparators(f.cache.cacheDir() + QStringLiteral("/../")
                                                     + QFileInfo(inCache).fileName());
-    const QString missing = QDir::toNativeSeparators(f.cache.cacheDir() + QLatin1Char('/') + kHash64 + QStringLiteral(".wav"));
-    const QString notWav = f.cache.cacheDir() + QLatin1Char('/') + kHash64 + QStringLiteral(".mp3");
+    const QString missing = QDir::toNativeSeparators(f.cache.cacheDir() + QLatin1Char('/') + kHash64() + QStringLiteral(".wav"));
+    const QString notWav = f.cache.cacheDir() + QLatin1Char('/') + kHash64() + QStringLiteral(".mp3");
     QVERIFY(writeFile(notWav, waveBytes()));
     const QString badName = f.cache.cacheDir() + QStringLiteral("/speech.wav");
     QVERIFY(writeFile(badName, waveBytes()));
@@ -947,7 +953,7 @@ void SpeechTests::routing_refusesALinkedCacheFolder()
     QVERIFY(f.loaded());
     QTemporaryDir target;
     QTemporaryDir data;
-    const QString file = target.filePath(kHash64 + QStringLiteral(".wav"));
+    const QString file = target.filePath(kHash64() + QStringLiteral(".wav"));
     QVERIFY(writeFile(file, waveBytes()));
     const QString link = QDir::toNativeSeparators(data.filePath(QStringLiteral("tts-cache")));
     const int exit = QProcess::execute(QStringLiteral("cmd.exe"),
@@ -958,7 +964,7 @@ void SpeechTests::routing_refusesALinkedCacheFolder()
     const auto unlink = qScopeGuard([link] { QDir().rmdir(link); });
     if (exit != 0 || !QFileInfo(link).isJunction())
         QSKIP("cannot create a junction on this machine");
-    const QString viaLink = link + QLatin1Char('\\') + kHash64 + QStringLiteral(".wav");
+    const QString viaLink = link + QLatin1Char('\\') + kHash64() + QStringLiteral(".wav");
     QVERIFY(QFileInfo::exists(viaLink));
     const mr::SpeechAudioCheck check = mr::checkSpeechAudioFile(
         viaLink, data.filePath(QStringLiteral("mentor_recorder.db")));
@@ -1087,7 +1093,7 @@ void SpeechTests::routing_mismatchedServiceIsNotSent()
 
     // Before any settings arrived (no Collector), nothing is sent either.
     mr::AppSettings settings;
-    SettingsGuard guard{settings};
+    SettingsGuard guard{.settings=settings};
     settings.setTtsVoice(QStringLiteral("azure:zh-CN-XiaoxiaoNeural"));
     ScriptedSpeechBackend offline;
     offline.connected = false;
@@ -1327,7 +1333,7 @@ void SpeechTests::voices_mergeLocalAndOnlineRows()
     QCOMPARE(f.tts.voiceId(), QStringLiteral("openai:my-voice"));
 
     // Rate changes do not rebuild the list.
-    const int before = int(changed.size());
+    const int before = static_cast<int>(changed.size());
     f.settings.setTtsRate(120);
     QCOMPARE(int(changed.size()), before);
 
@@ -1418,19 +1424,19 @@ void SpeechTests::audioFile_acceptsOnlyCacheWaves()
              QStringLiteral("C:/Data/tts-cache"));
 
     // A subfolder of tts-cache is not tts-cache.
-    const QString nested = cache.cacheDir() + QStringLiteral("/sub/") + kHash64 + QStringLiteral(".wav");
+    const QString nested = cache.cacheDir() + QStringLiteral("/sub/") + kHash64() + QStringLiteral(".wav");
     QVERIFY(writeFile(nested, waveBytes()));
     QVERIFY(!mr::checkSpeechAudioFile(nested, db).ok);
     // Another drive, the database folder itself.
-    const QString beside = QFileInfo(db).absolutePath() + QLatin1Char('/') + kHash64 + QStringLiteral(".wav");
+    const QString beside = QFileInfo(db).absolutePath() + QLatin1Char('/') + kHash64() + QStringLiteral(".wav");
     QVERIFY(writeFile(beside, waveBytes()));
     QVERIFY(!mr::checkSpeechAudioFile(beside, db).ok);
-    QVERIFY(!mr::checkSpeechAudioFile(QStringLiteral("Z:/tts-cache/") + kHash64 + QStringLiteral(".wav"), db).ok);
+    QVERIFY(!mr::checkSpeechAudioFile(QStringLiteral("Z:/tts-cache/") + kHash64() + QStringLiteral(".wav"), db).ok);
     // Too large.
-    const QString huge = cache.wav(41, waveBytes(16, 1, quint32(mr::kMaxSpeechAudioBytes)));
+    const QString huge = cache.wav(41, waveBytes(16, 1, static_cast<quint32>(mr::kMaxSpeechAudioBytes)));
     QVERIFY(!mr::checkSpeechAudioFile(huge, db).ok);
     // A directory with the right name.
-    const QString folder = cache.cacheDir() + QLatin1Char('/') + kHash64.left(63) + QStringLiteral("f.wav");
+    const QString folder = cache.cacheDir() + QLatin1Char('/') + kHash64().left(63) + QStringLiteral("f.wav");
     QVERIFY(QDir().mkpath(folder));
     QVERIFY(!mr::checkSpeechAudioFile(folder, db).ok);
 }

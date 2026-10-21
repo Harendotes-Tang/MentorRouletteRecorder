@@ -199,7 +199,7 @@ NoteImageStore::Inspection NoteImageStore::inspectFile(const QString &sourcePath
         result.error = QCoreApplication::translate("mr::NoteImageStore", "图片已损坏或无法读取：%1").arg(info.fileName());
         return result;
     }
-    if (qint64(declared.width()) * qint64(declared.height()) > kMaxImagePixels) {
+    if (static_cast<qint64>(declared.width()) * static_cast<qint64>(declared.height()) > kMaxImagePixels) {
         result.error = QCoreApplication::translate("mr::NoteImageStore", "图片分辨率过大（%1×%2，超过 %3 万像素），请先缩小：%4")
                            .arg(declared.width())
                            .arg(declared.height())
@@ -523,7 +523,7 @@ QVariantMap NoteImageStore::addClipboard(const QString &runId)
         if (!reader.canRead() || !supportedSuffixes().contains(suffixForFormat(reader.format()))
                 || !canvas.isValid())
             return fail(QCoreApplication::translate("mr::NoteImageStore", "剪贴板图片已损坏或无法读取，请重新复制。"));
-        if (qint64(canvas.width()) * canvas.height() > kMaxImagePixels)
+        if (static_cast<qint64>(canvas.width()) * canvas.height() > kMaxImagePixels)
             return fail(QCoreApplication::translate("mr::NoteImageStore", "剪贴板图片分辨率过大，超过 %1 万像素，请先缩小。").arg(kMaxImagePixels / 10000));
         image = reader.read();
         if (image.isNull())
@@ -536,7 +536,7 @@ QVariantMap NoteImageStore::addClipboard(const QString &runId)
         image = clipboard->image();
     if (image.isNull())
         return fail(QCoreApplication::translate("mr::NoteImageStore", "剪贴板图片已损坏或无法读取，请重新复制。"));
-    if (qint64(image.width()) * image.height() > kMaxImagePixels)
+    if (static_cast<qint64>(image.width()) * image.height() > kMaxImagePixels)
         return fail(QCoreApplication::translate("mr::NoteImageStore", "剪贴板图片分辨率过大，超过 %1 万像素，请先缩小。").arg(kMaxImagePixels / 10000));
 
     QTemporaryDir temporary(QDir::tempPath() + QStringLiteral("/MentorRecorder-clipboard-XXXXXX"));

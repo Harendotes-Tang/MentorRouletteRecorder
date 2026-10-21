@@ -56,7 +56,7 @@ public:
 public Q_SLOTS:
     void showWindow();
 
-protected:
+public:
     /// Turns the window's close into "hide to tray" while 关闭时最小化到托盘
     /// is on and a tray actually exists.
     bool eventFilter(QObject *watched, QEvent *event) override;

@@ -42,6 +42,7 @@
 #include <QtMath>
 #include <algorithm>
 
+namespace {
 class ImportThemeState : public QObject
 {
     Q_OBJECT
@@ -51,6 +52,7 @@ public:
 Q_SIGNALS:
     void changed();
 };
+} // namespace
 
 namespace {
 
@@ -86,7 +88,7 @@ public:
     mr::BackendReply *request(const QString &type, const QJsonObject &payload) override
     {
         auto *reply = new mr::BackendReply(QString::number(calls.size()), type, this);
-        calls.append({type, payload, {}, reply});
+        calls.append({.type=type, .payload=payload, .requestId={}, .reply=reply});
         if (synchronous)
             reply->succeed(synchronousAnswer);
         return reply;
@@ -103,7 +105,10 @@ QJsonObject preview(const QString &id = QStringLiteral("test-preview"))
 {
     QJsonArray rows;
     for (int i = 1; i <= 3; ++i) {
-        rows.append(QJsonObject{{"row_number", i}, {"status", i == 1 ? "new" : (i == 2 ? "duplicate" : "conflict")},
+        const char *status = "conflict";
+        if (i == 1) status = "new";
+        else if (i == 2) status = "duplicate";
+        rows.append(QJsonObject{{"row_number", i}, {"status", status},
                                 {"can_import", i == 1}, {"incomplete", true},
                                 {"candidate", QJsonObject{{"duty_name", QStringLiteral("合成副本")}, {"reflection_text", QStringLiteral("合成正文")},
                                                           {"source_recorded_at", QStringLiteral("2026-10-08 18:00:00")}}},
@@ -122,13 +127,17 @@ QJsonObject singleRowPreview(const QJsonObject &candidate, const QJsonObject &ru
             {"summary", QJsonObject{{"total", 1}, {"new", 1}, {"incomplete", 1}}}};
 }
 
-const QByteArray kTsvHeader = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n";
+const QByteArray &kTsvHeader()
+{
+    static const QByteArray value = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n";
+    return value;
+}
 
 QByteArray syntheticOcrCard()
 {
     // Synthetic source text follows the production mobile card coordinates;
     // no personal record or real screenshot is embedded in a test fixture.
-    return kTsvHeader
+    return kTsvHeader()
         + QStringLiteral("5\t1\t1\t1\t1\t1\t150\t100\t65\t20\t96\tLv.15\n"
                          "5\t1\t1\t1\t1\t2\t225\t98\t30\t25\t40\t(A)\n"
                          "5\t1\t1\t1\t1\t3\t270\t100\t280\t20\t96\t天然要寒沙斯塔夏溶洞\n"
@@ -249,7 +258,7 @@ int matchingAntialiasedForegroundPixels(const QImage &image, const QRectF &scene
     const qreal dr = foreground.red() - background.red();
     const qreal dg = foreground.green() - background.green();
     const qreal db = foreground.blue() - background.blue();
-    const qreal lengthSquared = dr * dr + dg * dg + db * db;
+    const qreal lengthSquared = (dr * dr) + (dg * dg) + (db * db);
     if (lengthSquared == 0)
         return 0;
     int matched = 0;
@@ -260,9 +269,9 @@ int matchingAntialiasedForegroundPixels(const QImage &image, const QRectF &scene
             // RGB blend direction instead of requiring the exact text RGB.
             // This is a coverage proxy, not gamma-correct physical coverage;
             // it permits rounding while rejecting a different foreground hue.
-            const qreal coverage = ((color.red() - background.red()) * dr
-                + (color.green() - background.green()) * dg
-                + (color.blue() - background.blue()) * db) / lengthSquared;
+            const qreal coverage = (((color.red() - background.red()) * dr)
+                + ((color.green() - background.green()) * dg)
+                + ((color.blue() - background.blue()) * db)) / lengthSquared;
             if (coverage < 0.25 || coverage > 1.02)
                 continue;
             const qreal error = std::max({qAbs(color.red() - background.red() - coverage * dr),
@@ -275,6 +284,7 @@ int matchingAntialiasedForegroundPixels(const QImage &image, const QRectF &scene
 
 } // namespace
 
+namespace {
 class ImportRecordsControllerTests : public QObject
 {
     Q_OBJECT
@@ -711,7 +721,7 @@ ApplicationWindow {
             QVERIFY(QDir().mkpath(evidenceDirectory));
             QVERIFY(checkedFrame.save(QDir(evidenceDirectory).filePath(QStringLiteral("import-minimum-checked-%1.png").arg(stage.dark ? "dark" : "light"))));
         }
-        pixelRatio = qreal(checkedFrame.width()) / window->width();
+        pixelRatio = static_cast<qreal>(checkedFrame.width()) / window->width();
         auto *ownLabel = own->property("contentItem").value<QQuickItem *>();
         auto *ownIndicator = own->property("indicator").value<QQuickItem *>();
         const qreal labelPadding = ownLabel->property("leftPadding").toReal();
@@ -832,18 +842,23 @@ private Q_SLOTS:
     void antialiasedForegroundOracleRejectsBlackFallback()
     {
         for (bool dark : {false, true}) for (bool muted : {false, true}) {
-            const QColor foreground(muted ? (dark ? "#7b8494" : "#8a93a1") : (dark ? "#e8ecf2" : "#1c2430"));
+            const QColor foreground = [muted, dark] {
+                if (muted) return QColor(dark ? "#7b8494" : "#8a93a1");
+                return QColor(dark ? "#e8ecf2" : "#1c2430");
+            }();
             const QColor background(dark ? "#1b212c" : "#ffffff");
             QImage correct(30, 10, QImage::Format_RGB32);
             QImage blackFallback(30, 10, QImage::Format_RGB32);
             correct.fill(background);
             blackFallback.fill(background);
             for (int x = 0; x < 30; ++x) {
-                const qreal opacity = x < 10 ? 0.3 : x < 20 ? 0.5 : 0.8;
+                qreal opacity = 0.8;
+                if (x < 10) opacity = 0.3;
+                else if (x < 20) opacity = 0.5;
                 const auto blend = [background, opacity](const QColor &ink) {
-                    return QColor(qRound(background.red() + opacity * (ink.red() - background.red())),
-                                  qRound(background.green() + opacity * (ink.green() - background.green())),
-                                  qRound(background.blue() + opacity * (ink.blue() - background.blue())));
+                    return QColor(qRound(background.red() + (opacity * (ink.red() - background.red()))),
+                                  qRound(background.green() + (opacity * (ink.green() - background.green()))),
+                                  qRound(background.blue() + (opacity * (ink.blue() - background.blue()))));
                 };
                 for (int y = 0; y < 10; ++y) {
                     correct.setPixelColor(x, y, blend(foreground));
@@ -2034,7 +2049,8 @@ ApplicationWindow {
         QCOMPARE(controller.previewValid(), !changeJob);
         QCOMPARE(controller.selectedCount(), changeJob ? 0 : 1);
         QVERIFY(!controller.canCommit()); // Reviewing the duty does not answer the job.
-        const int reviewedJob = changeJob ? (originalJob == 19 ? 24 : 19) : originalJob;
+        const int alternativeJob = originalJob == 19 ? 24 : 19;
+        const int reviewedJob = changeJob ? alternativeJob : originalJob;
         controller.updateCandidate(0, {{"job_id", reviewedJob}, {"job_name", catalog.jobName(reviewedJob)}});
         QVERIFY(!changes.isEmpty());
         QVERIFY(!controller.currentEvidence().value("job_candidate_pending").toBool());
@@ -2209,7 +2225,9 @@ ApplicationWindow {
             QJsonObject candidate{{"duty_name", QStringLiteral("合成副本")}, {"source_key", QString::number(i)},
                                   {"source_recorded_at_utc", utc}};
             if (i != 4) {
-                const QString raw = i == 2 ? QStringLiteral("2026-10-08") : (i == 3 ? offset : local);
+                QString raw = local;
+                if (i == 2) raw = QStringLiteral("2026-10-08");
+                else if (i == 3) raw = offset;
                 metadata.insert("source_recorded_at", raw);
                 if (i != 1) candidate.insert("source_recorded_at", raw); // Nested-only native provenance.
             }
@@ -2323,9 +2341,9 @@ ApplicationWindow {
         constexpr qint64 budget = mr::ipc::kMaxFrameBytes * 3 / 4;
         const auto pages = [](const QJsonArray &candidates, const QString &id) {
             QList<QJsonObject> result;
-            for (int page = 1; (qsizetype(page) - 1) * 100 < candidates.size(); ++page) {
+            for (int page = 1; (static_cast<qsizetype>(page) - 1) * 100 < candidates.size(); ++page) {
                 QJsonArray rows;
-                for (int i = (page - 1) * 100; i < qMin(int(candidates.size()), page * 100); ++i)
+                for (int i = (page - 1) * 100; i < qMin(static_cast<int>(candidates.size()), page * 100); ++i)
                     rows.append(QJsonObject{{"row_number", i + 1}, {"status", "new"}, {"can_import", true},
                         {"candidate", candidates[i]}, {"errors", QJsonArray{}}, {"warnings", QJsonArray{}}});
                 result.append(QJsonObject{{"preview_id", id}, {"source_kind", "PASTE"}, {"source_name", QStringLiteral("粘贴的表格")},
@@ -2339,16 +2357,16 @@ ApplicationWindow {
         controller.setBackend(&backend);
         const auto answerPaged = [&](const QJsonArray &candidates, const QString &id) {
             const QList<QJsonObject> answers = pages(candidates, id);
-            const int before = int(backend.calls.size()) - 1;
+            const int before = static_cast<int>(backend.calls.size()) - 1;
             for (int page = 0; page < answers.size(); ++page) {
-                QTRY_COMPARE(int(backend.calls.size()), before + page + 1);
+                QTRY_COMPARE(static_cast<int>(backend.calls.size()), before + page + 1);
                 backend.calls.last().reply->succeed(answers[page]);
             }
         };
         // What the Collector measures. Until the '+' edit below these candidates hold only ASCII
         // letters, digits, spaces and CJK, which it writes exactly as Qt does.
         const auto candidateBytes = [](const QJsonObject &payload) {
-            return qint64(QJsonDocument(payload.value("rows").toArray()).toJson(QJsonDocument::Compact).size());
+            return static_cast<qint64>(QJsonDocument(payload.value("rows").toArray()).toJson(QJsonDocument::Compact).size());
         };
         QJsonArray candidates;
         for (int i = 0; i < count; ++i)
@@ -2367,25 +2385,25 @@ ApplicationWindow {
 
         // Within the budget in Qt's spelling, beyond it in the Collector's, which writes '+' as a
         // six-byte escape: refused before anything changes.
-        const int calls = int(backend.calls.size());
+        const int calls = static_cast<int>(backend.calls.size());
         controller.updateCandidate(0, {{"reflection_text", QString(12000, QLatin1Char('x'))
-                                                               + QString(int(slack / 3) + 1, QLatin1Char('+'))}});
+                                                               + QString(static_cast<int>(slack / 3) + 1, QLatin1Char('+'))}});
         QVERIFY(controller.previewValid());
         QVERIFY(controller.canCommit());
         QCOMPARE(controller.currentCandidate().value("reflection_text").toString().size(), 12000);
         QVERIFY(!controller.errorText().isEmpty());
-        QCOMPARE(int(backend.calls.size()), calls);
+        QCOMPARE(static_cast<int>(backend.calls.size()), calls);
 
         // One character too many: refused the same way.
-        controller.updateCandidate(0, {{"reflection_text", QString(12000 + int(slack) + 1, QLatin1Char('x'))}});
+        controller.updateCandidate(0, {{"reflection_text", QString(12000 + static_cast<int>(slack) + 1, QLatin1Char('x'))}});
         QVERIFY(controller.previewValid());
         QVERIFY(controller.canCommit());
         QCOMPARE(controller.currentCandidate().value("reflection_text").toString().size(), 12000);
         QVERIFY(!controller.errorText().isEmpty());
-        QCOMPARE(int(backend.calls.size()), calls);
+        QCOMPARE(static_cast<int>(backend.calls.size()), calls);
 
         // Exactly the budget: accepted, and the re-check really goes out, in one frame.
-        controller.updateCandidate(0, {{"reflection_text", QString(12000 + int(slack), QLatin1Char('x'))}});
+        controller.updateCandidate(0, {{"reflection_text", QString(12000 + static_cast<int>(slack), QLatin1Char('x'))}});
         QVERIFY(!controller.previewValid());
         controller.revalidate();
         const QJsonObject edited = backend.calls.last().payload;
@@ -2399,7 +2417,7 @@ ApplicationWindow {
         controller.batchUpdateSelected({{"result", "UNKNOWN"}});
         QVERIFY(controller.previewValid());
         QVERIFY(controller.canCommit());
-        QCOMPARE(int(backend.calls.size()), calls + 3);
+        QCOMPARE(static_cast<int>(backend.calls.size()), calls + 3);
         QVERIFY(!controller.currentCandidate().contains("result"));
         controller.commit();
         QCOMPARE(backend.calls.last().type, QStringLiteral("CommitRunImport"));
@@ -2417,19 +2435,19 @@ ApplicationWindow {
         answerPaged(oversized, QStringLiteral("oversized"));
         controller.setOwnRecordsConfirmed(true);
         QVERIFY(controller.canCommit());
-        const int beforeRefusals = int(backend.calls.size());
+        const int beforeRefusals = static_cast<int>(backend.calls.size());
         controller.setTimeZone(QStringLiteral("+09:00"));
         QCOMPARE(controller.timeZone(), QStringLiteral("+08:00"));
         QVERIFY(controller.previewValid());
         QVERIFY(!controller.errorText().isEmpty());
         controller.updateCandidate(0, {{"reflection_text", QStringLiteral("短")}});
         QVERIFY(controller.previewValid());
-        QCOMPARE(int(backend.calls.size()), beforeRefusals);
+        QCOMPARE(static_cast<int>(backend.calls.size()), beforeRefusals);
         controller.revalidate();
         QVERIFY(controller.previewValid());
         QVERIFY(controller.canCommit());
         QVERIFY(!controller.busy());
-        QCOMPARE(int(backend.calls.size()), beforeRefusals);
+        QCOMPARE(static_cast<int>(backend.calls.size()), beforeRefusals);
         QCOMPARE(controller.errorText(),
                  QString::fromUtf8("这批记录太大，无法重新校验，当前内容没有改动。请分成几批重新导入。"));
         controller.commit();
@@ -2468,8 +2486,8 @@ ApplicationWindow {
             const QByteArray json = QJsonDocument(payload.value("rows").toArray()).toJson(QJsonDocument::Compact);
             for (const char *wider : {"+", "&", "'", "<", ">", "`", "\\\"", "\\u", "\xE3\x80\x80", "\xC2\xA0"})
                 if (json.contains(wider))
-                    return qint64(-1);
-            return qint64(json.size());
+                    return static_cast<qint64>(-1);
+            return static_cast<qint64>(json.size());
         };
         // One long note brings the accepted batch to 50 bytes under the budget.
         controller.updateCandidate(0, {{"reflection_text", QString(1000, QLatin1Char('x'))}});
@@ -2477,17 +2495,17 @@ ApplicationWindow {
         const qint64 measured = candidateBytes(backend.calls.last().payload);
         QVERIFY(measured > 0);
         backend.calls.last().reply->succeed(previewCandidates(backend.calls.last().payload.value("rows").toArray(), "measured"));
-        controller.updateCandidate(0, {{"reflection_text", QString(1000 + int(budget - 50 - measured), QLatin1Char('x'))}});
+        controller.updateCandidate(0, {{"reflection_text", QString(1000 + static_cast<int>(budget - 50 - measured), QLatin1Char('x'))}});
         controller.revalidate();
         QCOMPARE(candidateBytes(backend.calls.last().payload), budget - 50);
         backend.calls.last().reply->succeed(previewCandidates(backend.calls.last().payload.value("rows").toArray(), "full"));
         QVERIFY(controller.previewValid());
         const QVariantList original = controller.rows();
-        const int calls = int(backend.calls.size());
+        const int calls = static_cast<int>(backend.calls.size());
 
         controller.importFiles({secondImage});
         QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000);
-        QCOMPARE(int(backend.calls.size()), calls);
+        QCOMPARE(static_cast<int>(backend.calls.size()), calls);
         QVERIFY(controller.previewValid());
         QCOMPARE(controller.rows(), original);
         QCOMPARE(controller.sourceImageCount(), 1);
@@ -2659,7 +2677,8 @@ ApplicationWindow {
             QJsonArray rows = response.value("rows").toArray();
             auto row = rows[1].toObject(); row.insert("row_number", 1); rows[1] = row;
             response.insert("rows", rows);
-        } else response.insert("summary", QJsonObject{{"total", 2090}, {"new", 2090}});
+        } else { response.insert("summary", QJsonObject{{"total", 2090}, {"new", 2090}});
+}
         backend.calls.last().reply->succeed(response);
         QVERIFY(!controller.previewValid());
         QVERIFY(controller.rows().isEmpty());
@@ -2952,8 +2971,12 @@ ApplicationWindow {
             controller.setBackend(&backend);
             controller.setBaselineCount(1500);
             QTemporaryDir dir;
-            const QString extension = kind == QLatin1String("BACKUP") ? QStringLiteral("db")
-                : kind == QLatin1String("JSON") ? QStringLiteral("json") : kind == QLatin1String("XLS") ? QStringLiteral("xls") : QStringLiteral("xlsx");
+            const QString extension = [&kind] {
+                if (kind == QLatin1String("BACKUP")) return QStringLiteral("db");
+                if (kind == QLatin1String("JSON")) return QStringLiteral("json");
+                if (kind == QLatin1String("XLS")) return QStringLiteral("xls");
+                return QStringLiteral("xlsx");
+            }();
             const QString path = dir.filePath(QStringLiteral("history.") + extension);
             QFile file(path);
             QVERIFY(file.open(QIODevice::WriteOnly));
@@ -3226,7 +3249,8 @@ ApplicationWindow {
         const QString evidence = qEnvironmentVariable("MR_IMPORT_PAGING_SCREENSHOTS");
         if (!evidence.isEmpty()) {
             QVERIFY(QDir().mkpath(evidence));
-            const QString name = QStringLiteral("paging-%1.png").arg(narrow ? "narrow" : dark ? "dark" : "light");
+            const char *theme = dark ? "dark" : "light";
+            const QString name = QStringLiteral("paging-%1.png").arg(narrow ? "narrow" : theme);
             QVERIFY(window->grabWindow().save(QDir(evidence).filePath(name)));
         }
         controller.commit();
@@ -3565,6 +3589,7 @@ ApplicationWindow {
         qunsetenv("MR_TEST_OCR_SLEEP");
     }
 };
+} // namespace
 
 int main(int argc, char **argv)
 {
@@ -3572,12 +3597,12 @@ int main(int argc, char **argv)
         QCoreApplication application(argc, argv);
         if (qEnvironmentVariableIsSet("MR_TEST_OCR_SLEEP"))
             QThread::msleep(10000);
-        QByteArray tsv = kTsvHeader;
+        QByteArray tsv = kTsvHeader();
         if (qEnvironmentVariableIsSet("MR_TEST_OCR_TSV_FILE")) {
             QFile input(qEnvironmentVariable("MR_TEST_OCR_TSV_FILE"));
             if (!input.open(QIODevice::ReadOnly))
                 return 2;
-            tsv = input.read(8 * 1024 * 1024 + 1);
+            tsv = input.read((8 * 1024 * 1024) + 1);
             if (tsv.size() > 8LL * 1024 * 1024)
                 return 2;
         }

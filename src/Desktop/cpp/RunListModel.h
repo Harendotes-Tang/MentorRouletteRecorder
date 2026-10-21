@@ -45,7 +45,7 @@ class RunListModel : public QAbstractListModel
     Q_PROPERTY(QStringList calendarKnownMonths READ calendarKnownMonths NOTIFY calendarChanged)
 
 public:
-    enum Roles { RunRole = Qt::UserRole + 1 };
+    enum Roles : quint16 { RunRole = Qt::UserRole + 1 };
 
     explicit RunListModel(QObject *parent = nullptr);
 

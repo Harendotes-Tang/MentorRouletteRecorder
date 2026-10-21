@@ -215,7 +215,7 @@ void CandidateReviewController::readIndexPage(int page, int generation)
             const int total = info.value(QStringLiteral("total"), -1).toInt();
             const auto items = payload.value(QStringLiteral("items")).toList();
             if (m_indexExpectedTotal < 0) m_indexExpectedTotal = total;
-            const int expected = qBound(0, total - (page - 1) * kIndexPageSize, kIndexPageSize);
+            const int expected = qBound(0, total - ((page - 1) * kIndexPageSize), kIndexPageSize);
             if (total < 0 || total > kMaxObservations || total != m_indexExpectedTotal || items.size() != expected
                 || info.value(QStringLiteral("page")).toInt() != page
                 || info.value(QStringLiteral("page_size")).toInt() != kIndexPageSize) {
@@ -254,7 +254,9 @@ void CandidateReviewController::readIndexPage(int page, int generation)
                 });
             } else if (m_indexIds.size() != total || m_indexChanged) {
                 indexFailed(LiveText([] { return tr("捕获期间观测发生变化，需重新刷新后查看锚点配对。"); }), true);
-            } else finishIndex();
+            } else {
+                finishIndex();
+            }
         });
 }
 
@@ -279,7 +281,7 @@ void CandidateReviewController::finishIndex()
         summary[QStringLiteral("label")] = sessionLabel(summary);
         m_sessions.append(summary);
     }
-    std::sort(m_sessions.begin(), m_sessions.end(), [](const QVariant &a, const QVariant &b) {
+    std::ranges::sort(m_sessions, [](const QVariant &a, const QVariant &b) {
         const auto x = a.toMap();
         const auto y = b.toMap();
         const auto xt = x.value(QStringLiteral("last_at_utc")).toString();
@@ -326,7 +328,7 @@ void CandidateReviewController::buildTimeline()
     m_timeline.clear();
     m_pairs.clear();
     for (auto rows : m_indexEvents) {
-        std::sort(rows.begin(), rows.end(), before);
+        std::ranges::sort(rows, before);
         bool sawLogin = false;
         bool inDuty = false;
         qint64 popAt = -1;
@@ -419,7 +421,7 @@ void CandidateReviewController::buildTimeline()
     QHash<QString, qsizetype> sessionOrder;
     for (qsizetype i = 0; i < m_sessions.size(); ++i)
         sessionOrder.insert(m_sessions[i].toMap().value(QStringLiteral("session_id")).toString(), i);
-    std::sort(m_timeline.begin(), m_timeline.end(), [&sessionOrder](const QVariant &a, const QVariant &b) {
+    std::ranges::sort(m_timeline, [&sessionOrder](const QVariant &a, const QVariant &b) {
         const auto x = a.toMap();
         const auto y = b.toMap();
         const auto sx = sessionOrder.value(x.value(QStringLiteral("capture_session_id")).toString());
@@ -433,7 +435,7 @@ void CandidateReviewController::buildTimeline()
         if (cx != cy) return cx < cy;
         return x.value(QStringLiteral("observation_id")).toString() < y.value(QStringLiteral("observation_id")).toString();
     });
-    std::sort(m_pairs.begin(), m_pairs.end(), [](const QVariant &a, const QVariant &b) {
+    std::ranges::sort(m_pairs, [](const QVariant &a, const QVariant &b) {
         return a.toMap().value(QStringLiteral("first_at_utc")).toString() > b.toMap().value(QStringLiteral("first_at_utc")).toString();
     });
 }
@@ -486,8 +488,9 @@ void CandidateReviewController::review(const QString &id, const QString &verdict
         [this, generation, id, note, pageWasLoading, cancelledPage, reviewGuard](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
             if (generation != m_connectionGeneration) return;
             m_reviewBusyId.clear();
-            if (!ok) m_reviewError = failureText(reviewGuard, code, message);
-            else {
+            if (!ok) {
+                m_reviewError = failureText(reviewGuard, code, message);
+            } else {
                 const auto patch = [&](QVariantList &list) {
                     for (auto &value : list) {
                         auto row = value.toMap();
@@ -521,8 +524,9 @@ void CandidateReviewController::writeSettings(const QJsonObject &changes)
         [this, generation, settingsGuard](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
             if (generation != m_connectionGeneration) return;
             m_settingsBusy = false;
-            if (!ok) m_settingsError = failureText(settingsGuard, code, message);
-            else {
+            if (!ok) {
+                m_settingsError = failureText(settingsGuard, code, message);
+            } else {
                 Q_EMIT captureSettingsApplied(payload);
                 Q_EMIT captureStatusRefreshRequested();
             }

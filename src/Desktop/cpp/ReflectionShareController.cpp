@@ -188,9 +188,9 @@ QString ReflectionShareController::suggestedFileName(QObject *item, const QStrin
     } else {
         const QVariantMap run = entries.isEmpty() ? shareProperty(item, "runData").toMap() : entries.first().toMap();
         QString time = Formatters::localDateTime(run.value(QStringLiteral("matched_at_utc")));
-        if (time == Formatters::dash())
+        if (time == Formatters::dash()) {
             time = tr("时间未知");
-        else {
+        } else {
             time.replace(QLatin1Char(' '), QLatin1Char('_'));
             time.replace(QLatin1Char(':'), QLatin1Char('-'));
         }
@@ -311,10 +311,10 @@ void ReflectionShareController::capturePrepared(QObject *object, const QString &
         return;
     }
     // 捕获完整布局；限制和完整性核验均使用窗口 DPR 后的真实像素，禁止缩放或裁切。
-    const QSize size(int(std::ceil(item->width())), int(std::ceil(item->height())));
+    const QSize size(static_cast<int>(std::ceil(item->width())), static_cast<int>(std::ceil(item->height())));
     const QSize pixelSize = size * item->window()->effectiveDevicePixelRatio();
     if (pixelSize.width() > 16384 || pixelSize.height() > 16384
-        || qint64(pixelSize.width()) * pixelSize.height() > 50LL * 1000 * 1000) {
+        || static_cast<qint64>(pixelSize.width()) * pixelSize.height() > 50LL * 1000 * 1000) {
         done({}, tr("图片太大，尚未保存（任一边不能超过 16384 像素，总计不能超过 5000 万像素）。如果选择了“合成长图”，请改用“逐条 PNG”。"));
         return;
     }
@@ -323,9 +323,9 @@ void ReflectionShareController::capturePrepared(QObject *object, const QString &
     if (url.isLocalFile())
         target = url.toLocalFile();
     const QString suffix = QFileInfo(target).suffix();
-    if (suffix.isEmpty())
+    if (suffix.isEmpty()) {
         target += QStringLiteral(".png");
-    else if (suffix.compare(QStringLiteral("png"), Qt::CaseInsensitive) != 0) {
+    } else if (suffix.compare(QStringLiteral("png"), Qt::CaseInsensitive) != 0) {
         done({}, tr("请使用 .png 文件名保存分享图片。"));
         return;
     }
@@ -353,7 +353,7 @@ void ReflectionShareController::capturePrepared(QObject *object, const QString &
         ++m_generation;
         m_grab.reset();
         if (!capturedItem || !capturedItem->window()
-            || QSize(int(std::ceil(capturedItem->width())), int(std::ceil(capturedItem->height()))) != size
+            || QSize(static_cast<int>(std::ceil(capturedItem->width())), static_cast<int>(std::ceil(capturedItem->height()))) != size
             || size * capturedItem->window()->effectiveDevicePixelRatio() != pixelSize) {
             done({}, tr("预览尺寸已变化，图片未保存。请重试。"));
             return;
@@ -417,7 +417,7 @@ void ReflectionShareController::saveBatchTo(const QVariantList &entries, const Q
         const QString label = entry.value(QStringLiteral("label")).toString();
         auto *item = qobject_cast<QQuickItem *>(entry.value(QStringLiteral("item")).value<QObject *>());
         indices.append(static_cast<int>(m_batchEntries.size()));
-        m_batchEntries.append({id, label, item});
+        m_batchEntries.append({.runId = id, .label = label, .item = item});
         m_batchResults.append(QVariantMap{{QStringLiteral("run_id"), id},
             {QStringLiteral("label"), label}, {QStringLiteral("status"), QStringLiteral("pending")},
             {QStringLiteral("path"), QString()}, {QStringLiteral("error"), QString()}});
