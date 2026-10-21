@@ -4161,19 +4161,9 @@ SHA256: %3</translation>
         <translation>The duration can&apos;t be negative.</translation>
     </message>
     <message>
-        <source>判定为「已完成」的记录必须填写结束时间。</source>
-        <comment>mutation.end_required</comment>
-        <translation>A record marked “Cleared” must have an end time.</translation>
-    </message>
-    <message>
         <source>进入副本的时间不能晚于结束时间。</source>
         <comment>mutation.entered_after_ended</comment>
         <translation>The duty entry time can&apos;t be later than the end time.</translation>
-    </message>
-    <message>
-        <source>只有「未进入副本即取消」可以没有进入时间，其余结果都必须填写进入时间。</source>
-        <comment>mutation.entry_required</comment>
-        <translation>Only “Match canceled” can have no entry time; every other result needs an entry time.</translation>
     </message>
     <message>
         <source>匹配时间不能晚于进入副本的时间。</source>
@@ -5647,6 +5637,25 @@ SHA256: %3</translation>
     </message>
 </context>
 <context>
+    <name>HistoryColumnsDialog</name>
+    <message>
+        <source>自定义列</source>
+        <translation>Customize columns</translation>
+    </message>
+    <message>
+        <source>勾选要显示的列，至少保留一列。按住列标题左右拖动可以调整顺序；拖动标题右侧的边缘可以调整列宽，双击边缘恢复该列的默认宽度。</source>
+        <translation>Tick the columns to show; at least one stays. Hold a column title and drag it sideways to change the order; drag the right edge of a title to change its width, and double-click the edge to restore the column&apos;s default width.</translation>
+    </message>
+    <message>
+        <source>恢复默认</source>
+        <translation>Reset</translation>
+    </message>
+    <message>
+        <source>完成</source>
+        <translation>Done</translation>
+    </message>
+</context>
+<context>
     <name>HistoryPage</name>
     <message>
         <source>中途加入</source>
@@ -5887,10 +5896,6 @@ SHA256: %3</translation>
         <translation>The start date is after the end date; filters not updated.</translation>
     </message>
     <message>
-        <source>全选当前页</source>
-        <translation>Select all on this page</translation>
-    </message>
-    <message>
         <source>勾选记录 %1 %2</source>
         <translation>Check record %1 %2</translation>
     </message>
@@ -5921,6 +5926,10 @@ SHA256: %3</translation>
     <message>
         <source>没有符合筛选条件的记录。</source>
         <translation>No records match these filters.</translation>
+    </message>
+    <message>
+        <source>自定义列</source>
+        <translation>Customize columns</translation>
     </message>
     <message>
         <source>已勾选 %1 条 · 翻页保留</source>
@@ -6017,6 +6026,13 @@ SHA256: %3</translation>
     <message>
         <source>确认删除</source>
         <translation>Delete</translation>
+    </message>
+</context>
+<context>
+    <name>HistoryTableHeader</name>
+    <message>
+        <source>全选当前页</source>
+        <translation>Select all on this page</translation>
     </message>
 </context>
 <context>
@@ -7170,6 +7186,21 @@ Recorder</translation>
     </message>
 </context>
 <context>
+    <name>OverlayAttemptsModule</name>
+    <message>
+        <source>排本次数</source>
+        <translation>Attempts</translation>
+    </message>
+    <message>
+        <source>读取中…</source>
+        <translation>Loading…</translation>
+    </message>
+    <message>
+        <source>重试</source>
+        <translation>Retry</translation>
+    </message>
+</context>
+<context>
     <name>OverlayCurrentDutyModule</name>
     <message>
         <source>当前副本</source>
@@ -7414,6 +7445,13 @@ Recorder</translation>
     <message>
         <source>%1 条待处理</source>
         <translation>%1 to do</translation>
+    </message>
+</context>
+<context>
+    <name>OverlayPeriodSelector</name>
+    <message>
+        <source>排本次数时间范围</source>
+        <translation>Attempt count period</translation>
     </message>
 </context>
 <context>
@@ -8033,6 +8071,10 @@ Recorder</translation>
         <translation>%1: %2</translation>
     </message>
     <message>
+        <source>另有 %1 项改动未列出</source>
+        <translation>Other changes not listed: %1</translation>
+    </message>
+    <message>
         <source>新增</source>
         <translation>Added</translation>
     </message>
@@ -8633,14 +8675,6 @@ Turning this off excludes the clear from achievement progress, but the run still
         <translation>Match canceled: entered and ended times can stay blank.</translation>
     </message>
     <message>
-        <source>手动补录通关需填进本和结束时间，用于计算耗时；导入记录的未知时间可留空。</source>
-        <translation>A manually added clear needs entry and end times to work out the duration; unknown times on imported records can stay blank.</translation>
-    </message>
-    <message>
-        <source>结束时间可留空；未填写进本时间的记录不计入平均耗时。</source>
-        <translation>The end time can stay blank; records without an entry time are left out of the average duration.</translation>
-    </message>
-    <message>
         <source>跨天？</source>
         <translation>Past midnight?</translation>
     </message>
@@ -8659,6 +8693,14 @@ Turning this off excludes the clear from achievement progress, but the run still
     <message>
         <source>例如：程序未运行时手动补录；网络中断但实际已通关</source>
         <translation>e.g. added manually while the app wasn&apos;t running; disconnected but actually cleared</translation>
+    </message>
+    <message>
+        <source>进本与结束时间都可留空；两者齐全才计算耗时，缺一则不计入平均耗时。</source>
+        <translation>Entered and ended times can both stay blank; the duration is worked out only when both are filled in, otherwise the record is left out of the average duration.</translation>
+    </message>
+    <message>
+        <source>进本与结束时间都可留空；未填写进本时间的记录不计入平均耗时。</source>
+        <translation>Entered and ended times can both stay blank; records without an entry time are left out of the average duration.</translation>
     </message>
     <message>
         <source>备注</source>
@@ -9358,8 +9400,8 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <translation>Hide other ways</translation>
     </message>
     <message>
-        <source>手动导入校准码…</source>
-        <translation>Import code manually…</translation>
+        <source>手动导入校准码</source>
+        <translation>Import code manually</translation>
     </message>
 </context>
 <context>
@@ -11822,14 +11864,6 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <translation>Times out of order: ended before matched.</translation>
     </message>
     <message>
-        <source>除“进本前取消”外，其他结果都需要填写进本时间。</source>
-        <translation>Every result except “Match canceled” needs an entry time.</translation>
-    </message>
-    <message>
-        <source>通关记录必须有结束时间。</source>
-        <translation>A cleared record needs an ended-at time.</translation>
-    </message>
-    <message>
         <source>内容还没有变化，无需保存。</source>
         <translation>Nothing has changed, so there&apos;s nothing to save.</translation>
     </message>
@@ -12174,12 +12208,12 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <translation>Couldn&apos;t create a calibration code. Try again later.</translation>
     </message>
     <message>
-        <source>校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 页面。你可以把这份校准直接发给其他玩家，让对方在「其他方式」中点「手动导入校准码…」并粘贴。</source>
-        <translation>Calibration code copied to the clipboard. It&apos;s too long to open the GitHub page automatically. You can send this calibration straight to other players and have them click “Import code manually…” under “Other ways” and paste it.</translation>
+        <source>校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 页面。你可以把这份校准直接发给其他玩家，让对方在「其他方式」中点「手动导入校准码」并粘贴。</source>
+        <translation>Calibration code copied to the clipboard. It&apos;s too long to open the GitHub page automatically. You can send this calibration straight to other players and have them click “Import code manually” under “Other ways” and paste it.</translation>
     </message>
     <message>
-        <source>校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 分享页面。你可以直接把它发给其他玩家，让对方在「其他方式」中点「手动导入校准码…」并粘贴。</source>
-        <translation>Calibration code copied to the clipboard. It&apos;s too long to open the GitHub share page automatically. You can send it straight to other players and have them click “Import code manually…” under “Other ways” and paste it.</translation>
+        <source>校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 分享页面。你可以直接把它发给其他玩家，让对方在「其他方式」中点「手动导入校准码」并粘贴。</source>
+        <translation>Calibration code copied to the clipboard. It&apos;s too long to open the GitHub share page automatically. You can send it straight to other players and have them click “Import code manually” under “Other ways” and paste it.</translation>
     </message>
     <message>
         <source>校准码已复制到剪贴板。GitHub 页面地址有误，未打开浏览器；可以把这份校准直接发给其他玩家。</source>
@@ -12472,6 +12506,30 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>有待处理时显示</source>
         <translation>Shown when needed</translation>
+    </message>
+    <message>
+        <source>排本次数</source>
+        <translation>Attempts</translation>
+    </message>
+    <message>
+        <source>当日</source>
+        <translation>Today</translation>
+    </message>
+    <message>
+        <source>近七天</source>
+        <translation>Last 7 days</translation>
+    </message>
+    <message>
+        <source>近30天</source>
+        <translation>Last 30 days</translation>
+    </message>
+    <message>
+        <source>全部</source>
+        <translation>All time</translation>
+    </message>
+    <message>
+        <source>排本次数读取失败，请重试</source>
+        <translation>Could not load attempts. Try again.</translation>
     </message>
 </context>
 <context>

@@ -34,6 +34,7 @@ public:
     QVariant value(QAnyStringView key, const QVariant &fallback = {}) const
     { return m_settings.value(key, fallback); }
     bool contains(QAnyStringView key) const { return m_settings.contains(key); }
+    QStringList allKeys() const { return m_settings.allKeys(); }
     void sync() { m_settings.sync(); }
     void setValue(QAnyStringView key, const QVariant &value)
     {

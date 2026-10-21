@@ -73,7 +73,9 @@ Item {
         return qsTr("指定副本")
     }
 
-    // 副本 is the only column that stretches to fill the table width; the matched
+    // ------------------------------------------------------------- 列 --
+    // 副本 is the one elastic column: without a width the user dragged out it
+    // takes whatever the others leave of the table width; the matched
     // time-of-day appears in the detail panel only.
     readonly property int dutyColumnWidth: 228
     // Classic sets times in IBM Plex Mono, whose figures are wider than the body
@@ -81,22 +83,135 @@ Item {
     readonly property int timeColumnWidth: Theme.eorzea ? 64 : 70
     // The same wider mono figures: classic needs 96 px, at 86 the date touches 进本.
     readonly property int dateColumnWidth: Theme.eorzea ? 86 : 96
-    // Column titles sit centred over their column; the cells of the narrow
-    // columns centre too, so a title and its figures line up. 副本 is the one
-    // exception: an icon, a name and a second line read from the left.
-    readonly property var columns: [
-        { key: "", label: "", width: 32 },
-        { key: "history_date", label: qsTr("日期"), width: page.dateColumnWidth },
-        { key: "entered_at_utc", label: qsTr("进本"), width: page.timeColumnWidth },
-        { key: "ended_at_utc", label: qsTr("结束"), width: page.timeColumnWidth },
-        { key: "duty_name", label: qsTr("副本"), width: page.dutyColumnWidth, fill: true },
-        { key: "", label: qsTr("类型"), width: 84 },
-        { key: "", label: qsTr("职业"), width: 112 },
-        { key: "", label: qsTr("结果"), width: 92 },
-        { key: "duration_ms", label: qsTr("耗时"), width: 66 },
-        { key: "", label: qsTr("来源"), width: 60 },
-        { key: "", label: qsTr("标记"), width: 92 }
-    ]
+    // The columns by the stable keys App.historyColumns stores (docs/ui-design.md
+    // §4.2): the title in the interface language, the sort key the Collector
+    // knows (empty: not sortable), the default width and the narrowest width a
+    // drag may leave. Column titles sit centred over their column; the cells of
+    // the narrow columns centre too, so a title and its figures line up. 副本 is
+    // the one exception: an icon, a name and a second line read from the left.
+    readonly property var columnCatalog: ({
+        date:     { label: qsTr("日期"), sortKey: "history_date",   width: page.dateColumnWidth, minimum: 80 },
+        entered:  { label: qsTr("进本"), sortKey: "entered_at_utc", width: page.timeColumnWidth, minimum: 62 },
+        ended:    { label: qsTr("结束"), sortKey: "ended_at_utc",   width: page.timeColumnWidth, minimum: 62 },
+        duty:     { label: qsTr("副本"), sortKey: "duty_name",      width: page.dutyColumnWidth, minimum: 120, fill: true },
+        category: { label: qsTr("类型"), sortKey: "",               width: 84,  minimum: 56 },
+        job:      { label: qsTr("职业"), sortKey: "",               width: 112, minimum: 64 },
+        result:   { label: qsTr("结果"), sortKey: "",               width: 92,  minimum: 64 },
+        duration: { label: qsTr("耗时"), sortKey: "duration_ms",    width: 66,  minimum: 50 },
+        source:   { label: qsTr("来源"), sortKey: "",               width: 60,  minimum: 48 },
+        marks:    { label: qsTr("标记"), sortKey: "",               width: 92,  minimum: 60 }
+    })
+    /// App.historyColumns; a scene whose App is a stand-in without it (some shell
+    /// tests) shows the default columns and cannot customise them.
+    readonly property var columnsController: App.historyColumns ? App.historyColumns : defaultColumns
+    QtObject {
+        id: defaultColumns
+        readonly property var order: ["date", "entered", "ended", "duty", "category", "job",
+                                      "result", "duration", "source", "marks"]
+        readonly property var visible: order
+        readonly property var widths: ({})
+        readonly property bool customised: false
+        readonly property int minimumWidth: 40
+        readonly property int maximumWidth: 800
+        function isVisible(key) { return order.indexOf(key) >= 0 }
+        function canHide(key) { return false }
+        function width(key) { return 0 }
+        function setVisible(key, visible) {}
+        function setWidth(key, width) {}
+        function moveTo(key, index) {}
+        function reset() {}
+    }
+    /// Every column in the user's order, hidden ones included: the 自定义列 dialog's list.
+    readonly property var allColumns: page.columnsController.order.map(function(key) {
+        const column = page.columnCatalog[key]
+        return { key: key, label: column ? column.label : key }
+    })
+    /// Width the columns share: the header less its margins and the checkbox.
+    readonly property real columnsWidth: Math.max(0, tableHeader.width - 8 - 32)
+    /// Where every shown column sits, for the header and the rows alike:
+    /// { keys, available, <key>: { x, width, index, maximum } }. A width being
+    /// dragged on the header is previewed here, so the rows follow the pointer.
+    readonly property var columnLayout: page.computeLayout()
+
+    /// What each shown column asks for: the width being dragged, the stored
+    /// width (never below the column's narrowest) or the default; `fill` names
+    /// the elastic column, if one is still elastic.
+    function requestedWidths(keys, stored) {
+        const request = { widths: {}, minimums: {}, fill: "" }
+        for (const key of keys) {
+            const column = page.columnCatalog[key] || { width: 80, minimum: 40 }
+            const resizing = tableHeader.resizeKey === key
+            const custom = stored[key] > 0
+            request.minimums[key] = column.minimum
+            request.widths[key] = resizing ? tableHeader.resizeWidth
+                                : (custom ? Math.max(column.minimum, stored[key]) : column.width)
+            if (column.fill === true && !custom && !resizing)
+                request.fill = key
+        }
+        return request
+    }
+    /// Too wide for the window: every column but the one being dragged gives
+    /// up its share of what it can, down to its narrowest; beyond that the row
+    /// overflows. The dragged one keeps following the pointer.
+    function squeeze(keys, widths, minimums, available) {
+        let total = 0
+        for (const key of keys)
+            total += widths[key]
+        if (total <= available)
+            return
+        let give = 0
+        for (const key of keys)
+            if (key !== tableHeader.resizeKey)
+                give += Math.max(0, widths[key] - minimums[key])
+        const excess = Math.min(total - available, give)
+        if (give <= 0 || excess <= 0)
+            return
+        for (const key of keys) {
+            if (key === tableHeader.resizeKey)
+                continue
+            const room = Math.max(0, widths[key] - minimums[key])
+            widths[key] -= Math.round(excess * room / give)
+        }
+    }
+    function computeLayout() {
+        const keys = page.columnsController.visible
+        const available = page.columnsWidth
+        const request = page.requestedWidths(keys, page.columnsController.widths)
+        const widths = request.widths
+        const minimums = request.minimums
+        const fillKey = request.fill
+        let fixed = 0
+        for (const key of keys)
+            if (key !== fillKey)
+                fixed += widths[key]
+        // The elastic column takes what the others leave, down to its narrowest
+        // (whole pixels, so the columns after it sit on whole pixels too).
+        if (fillKey.length > 0)
+            widths[fillKey] = Math.max(minimums[fillKey], Math.floor(available - fixed))
+        // What another column may still take: beyond the widths asked for and
+        // the elastic column's narrowest. Negative when the window is too narrow.
+        const room = available - fixed - (fillKey.length > 0 ? minimums[fillKey] : 0)
+        const layout = { keys: keys, available: available }
+        for (const key of keys) {
+            const widest = key === fillKey ? available - fixed : widths[key] + room
+            layout[key] = { maximum: Math.min(page.columnsController.maximumWidth, Math.max(minimums[key], widest)) }
+        }
+        page.squeeze(keys, widths, minimums, available)
+        let x = 0
+        for (let index = 0; index < keys.length; ++index) {
+            const key = keys[index]
+            layout[key].x = x
+            layout[key].width = widths[key]
+            layout[key].index = index
+            x += widths[key]
+        }
+        return layout
+    }
+    function sortByColumn(key) {
+        const column = page.columnCatalog[key]
+        if (column && column.sortKey.length > 0)
+            App.runs.sortBy(column.sortKey)
+    }
 
     // ---------------------------------------------------- 每页行数 --
     // Rows per page follow the window: as many as fit between the table
@@ -694,75 +809,29 @@ Item {
             }
 
             // ---------------------------------------------------- 表头 --
-            Rectangle {
+            // Titles, sorting, drag-to-reorder and drag-to-resize live in the
+            // component; the page owns the layout both it and the rows read.
+            HistoryTableHeader {
                 id: tableHeader
                 objectName: "historyTableHeader"
                 Layout.fillWidth: true
                 Layout.preferredHeight: 32
-                color: Theme.eorzea
-                       ? (Theme.dark ? "#2e000000" : "#14785c28")
-                       : "transparent"
-
-                Rectangle {
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    height: 1
-                    color: Theme.eorzea ? Theme.gold3 : Theme.border
-                }
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 4
-                    anchors.rightMargin: 4
-                    spacing: 0
-
-                    SelectionCheckBox {
-                        objectName: "selectCurrentHistoryPage"
-                        Layout.preferredWidth: 32
-                        Layout.preferredHeight: 30
-                        checked: App.allCurrentHistoryPageChecked
-                        enabled: !App.runs.loading && App.runs.loadError.length === 0 && App.runs.total > 0
-                        Accessible.name: qsTr("全选当前页")
-                        ToolTip.visible: hovered
-                        ToolTip.text: qsTr("全选当前页")
-                        onClicked: App.setCurrentHistoryPageChecked(checked)
-                    }
-
-                    Repeater {
-                        model: page.columns.slice(1)
-
-                        delegate: Text {
-                            required property var modelData
-
-                            Layout.preferredWidth: modelData.width
-                            Layout.fillWidth: modelData.fill === true
-                            text: modelData.label
-                                  + (modelData.key.length > 0 && App.runs.sortField === modelData.key
-                                     ? (App.runs.sortAscending ? " ↑" : " ↓") : "")
-                            horizontalAlignment: Text.AlignHCenter
-                            // workbench `.table th`: t5, regular, text-3.
-                            color: Theme.eorzea
-                                   ? Theme.gold
-                                   : (App.runs.sortField === modelData.key && modelData.key.length > 0
-                                      ? Theme.accent : Theme.textMuted)
-                            font.pixelSize: Theme.fs(12)
-                            font.weight: Theme.eorzea ? Font.Bold : Font.Normal
-                            font.letterSpacing: Theme.eorzea ? 0.7 : 0
-                            elide: Text.ElideRight
-
-                            TapHandler {
-                                enabled: modelData.key.length > 0
-                                onTapped: App.runs.sortBy(modelData.key)
-                            }
-                        }
-                    }
-                }
+                // Its drop and width guides reach down over the rows.
+                z: 1
+                layout: page.columnLayout
+                catalog: page.columnCatalog
+                controller: page.columnsController
+                sortField: App.runs.sortField
+                sortAscending: App.runs.sortAscending
+                bodyHeight: rowsColumn.height
+                onSortRequested: function(key) { page.sortByColumn(key) }
+                onCustomizeRequested: columnsDialog.open()
             }
 
             // The table sizes to its content (a full page of rows always fits),
             // so the page - not the table - is what scrolls.
             ColumnLayout {
+                id: rowsColumn
                 Layout.fillWidth: true
                 spacing: 0
 
@@ -825,110 +894,139 @@ Item {
                             color: Theme.eorzea ? Theme.gold : Theme.accent
                         }
 
-                        RowLayout {
+                        // The cells sit where page.columnLayout puts their
+                        // columns, exactly under the header's titles.
+                        Item {
                             anchors.fill: parent
                             anchors.leftMargin: 4
                             anchors.rightMargin: 4
-                            spacing: 0
 
                             SelectionCheckBox {
                                 objectName: "historyRunCheck_" + run.run_id
-                                Layout.preferredWidth: 32
+                                x: 0
+                                width: 32
+                                anchors.verticalCenter: parent.verticalCenter
                                 checked: page.isChecked(run.run_id)
                                 enabled: !App.historyBatchRunning
                                 Accessible.name: qsTr("勾选记录 %1 %2").arg(Theme.dutyName(run) || qsTr("未知副本")).arg(page.dateLabel(run))
                                 onClicked: App.setHistoryRunChecked(run, checked)
                             }
 
-                            Text {
-                                Layout.preferredWidth: page.dateColumnWidth
-                                textFormat: Text.PlainText
-                                text: page.dateLabel(run)
-                                horizontalAlignment: Text.AlignHCenter
-                                color: Theme.textPrimary
-                                font.pixelSize: Theme.fs(12)
-                                font.weight: Theme.figureWeight(true)
-                                font.family: Theme.figureFamily
-                                font.features: ({ "tnum": 1 })
-                            }
-                            Text {
-                                Layout.preferredWidth: page.timeColumnWidth
-                                text: Fmt.localTime(run.entered_at_utc)
-                                horizontalAlignment: Text.AlignHCenter
-                                color: Theme.textPrimary
-                                font.pixelSize: Theme.fs(12)
-                                font.family: Theme.figureFamily
-                                font.weight: Theme.figureWeight(false)
-                                font.features: ({ "tnum": 1 })
-                            }
-                            Text {
-                                Layout.preferredWidth: page.timeColumnWidth
-                                text: Fmt.localTime(run.ended_at_utc)
-                                horizontalAlignment: Text.AlignHCenter
-                                color: Theme.textPrimary
-                                font.pixelSize: Theme.fs(12)
-                                font.family: Theme.figureFamily
-                                font.weight: Theme.figureWeight(false)
-                                font.features: ({ "tnum": 1 })
-                            }
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Layout.preferredWidth: page.dutyColumnWidth
-                                spacing: 7
-
-                                CategoryIcon {
-                                    category: run.duty_category || ""
-                                    size: 22
+                            HistoryCell {
+                                columnKey: "date"
+                                layout: page.columnLayout
+                                Text {
+                                    anchors.fill: parent
+                                    textFormat: Text.PlainText
+                                    text: page.dateLabel(run)
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                    // Figures elide rather than spill into the
+                                    // next column when a column is narrowed.
+                                    elide: Text.ElideRight
+                                    color: Theme.textPrimary
+                                    font.pixelSize: Theme.fs(12)
+                                    font.weight: Theme.figureWeight(true)
+                                    font.family: Theme.figureFamily
+                                    font.features: ({ "tnum": 1 })
                                 }
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 0
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: Theme.dutyName(run) || qsTr("未知副本")
-                                        textFormat: Text.PlainText
-                                        color: Theme.textPrimary
-                                        font.pixelSize: Theme.fs(12)
-                                        font.bold: true
-                                        elide: Text.ElideRight
-                                    }
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: run.duty_expansion
-                                              ? qsTr("%1 · %2级").arg(Theme.expansionName(run.duty_expansion))
-                                                                  .arg(run.duty_level || 0)
-                                              : Fmt.dash()
-                                        textFormat: Text.PlainText
-                                        color: Theme.textSecondary
-                                        font.pixelSize: Theme.fs(11)
-                                        font.family: Theme.figureFamily
-                                        font.weight: Theme.figureWeight(false)
-                                        font.features: ({ "tnum": 1 })
-                                        elide: Text.ElideRight
-                                    }
+                            }
+                            HistoryCell {
+                                columnKey: "entered"
+                                layout: page.columnLayout
+                                Text {
+                                    anchors.fill: parent
+                                    text: Fmt.localTime(run.entered_at_utc)
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                    elide: Text.ElideRight
+                                    color: Theme.textPrimary
+                                    font.pixelSize: Theme.fs(12)
+                                    font.family: Theme.figureFamily
+                                    font.weight: Theme.figureWeight(false)
+                                    font.features: ({ "tnum": 1 })
+                                }
+                            }
+                            HistoryCell {
+                                columnKey: "ended"
+                                layout: page.columnLayout
+                                Text {
+                                    anchors.fill: parent
+                                    text: Fmt.localTime(run.ended_at_utc)
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                    elide: Text.ElideRight
+                                    color: Theme.textPrimary
+                                    font.pixelSize: Theme.fs(12)
+                                    font.family: Theme.figureFamily
+                                    font.weight: Theme.figureWeight(false)
+                                    font.features: ({ "tnum": 1 })
                                 }
                             }
 
-                            Text {
-                                Layout.preferredWidth: 84
-                                text: Theme.categoryName(run.duty_category) || qsTr("未识别")
-                                textFormat: Text.PlainText
-                                horizontalAlignment: Text.AlignHCenter
-                                color: Theme.textSecondary
-                                font.pixelSize: Theme.fs(12)
-                                elide: Text.ElideRight
+                            HistoryCell {
+                                columnKey: "duty"
+                                layout: page.columnLayout
+                                RowLayout {
+                                    anchors.fill: parent
+                                    spacing: 7
+
+                                    CategoryIcon {
+                                        category: run.duty_category || ""
+                                        size: 22
+                                    }
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 0
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: Theme.dutyName(run) || qsTr("未知副本")
+                                            textFormat: Text.PlainText
+                                            color: Theme.textPrimary
+                                            font.pixelSize: Theme.fs(12)
+                                            font.bold: true
+                                            elide: Text.ElideRight
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: run.duty_expansion
+                                                  ? qsTr("%1 · %2级").arg(Theme.expansionName(run.duty_expansion))
+                                                                      .arg(run.duty_level || 0)
+                                                  : Fmt.dash()
+                                            textFormat: Text.PlainText
+                                            color: Theme.textSecondary
+                                            font.pixelSize: Theme.fs(11)
+                                            font.family: Theme.figureFamily
+                                            font.weight: Theme.figureWeight(false)
+                                            font.features: ({ "tnum": 1 })
+                                            elide: Text.ElideRight
+                                        }
+                                    }
+                                }
                             }
 
-                            Item {
-                                // A nested layout fills by default; only 副本
-                                // stretches, as in the header row.
-                                Layout.fillWidth: false
-                                Layout.preferredWidth: 112
-                                Layout.fillHeight: true
+                            HistoryCell {
+                                columnKey: "category"
+                                layout: page.columnLayout
+                                Text {
+                                    anchors.fill: parent
+                                    text: Theme.categoryName(run.duty_category) || qsTr("未识别")
+                                    textFormat: Text.PlainText
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.fs(12)
+                                    elide: Text.ElideRight
+                                }
+                            }
 
-                                // No room for the role glyph in 112 px, so the
-                                // role only shows up on hover.
+                            HistoryCell {
+                                id: jobCell
+                                columnKey: "job"
+                                layout: page.columnLayout
+
+                                // No room for the role glyph at the default 112 px,
+                                // so the role only shows up on hover.
                                 HoverHandler { id: jobHover }
                                 ToolTip {
                                     id: jobTip
@@ -952,7 +1050,7 @@ Item {
 
                                     JobIcon { jobId: run.job_id; size: 22 }
                                     Text {
-                                        Layout.maximumWidth: 112 - 22 - 7
+                                        Layout.maximumWidth: Math.max(0, jobCell.width - 22 - 7)
                                         text: Theme.jobName(run) || qsTr("未知")
                                         textFormat: Text.PlainText
                                         color: Theme.textPrimary
@@ -962,9 +1060,9 @@ Item {
                                 }
                             }
 
-                            Item {
-                                Layout.preferredWidth: 92
-                                Layout.preferredHeight: 28
+                            HistoryCell {
+                                columnKey: "result"
+                                layout: page.columnLayout
                                 Tag {
                                     anchors.centerIn: parent
                                     text: Theme.live(Fmt.runResultLabel(run))
@@ -973,46 +1071,62 @@ Item {
                                 }
                             }
 
-                            Text {
-                                Layout.preferredWidth: 66
-                                text: Fmt.duration(run.duration_ms)
-                                horizontalAlignment: Text.AlignHCenter
-                                color: Theme.textPrimary
-                                font.pixelSize: Theme.fs(12)
-                                font.family: Theme.figureFamily
-                                font.weight: Theme.figureWeight(false)
-                                font.features: ({ "tnum": 1 })
+                            HistoryCell {
+                                columnKey: "duration"
+                                layout: page.columnLayout
+                                Text {
+                                    anchors.fill: parent
+                                    text: Fmt.duration(run.duration_ms)
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                    elide: Text.ElideRight
+                                    color: Theme.textPrimary
+                                    font.pixelSize: Theme.fs(12)
+                                    font.family: Theme.figureFamily
+                                    font.weight: Theme.figureWeight(false)
+                                    font.features: ({ "tnum": 1 })
+                                }
                             }
-                            Text {
-                                Layout.preferredWidth: 60
-                                text: Theme.live(Fmt.sourceLabel(run.source || "AUTO_NETWORK"))
-                                horizontalAlignment: Text.AlignHCenter
-                                color: Theme.textSecondary
-                                font.pixelSize: Theme.fs(12)
-                                elide: Text.ElideRight
+                            HistoryCell {
+                                columnKey: "source"
+                                layout: page.columnLayout
+                                Text {
+                                    anchors.fill: parent
+                                    text: Theme.live(Fmt.sourceLabel(run.source || "AUTO_NETWORK"))
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.fs(12)
+                                    elide: Text.ElideRight
+                                }
                             }
-                            Text {
-                                Layout.preferredWidth: 92
-                                horizontalAlignment: Text.AlignHCenter
-                                text: [run.source !== "IMPORT" && run.pending_review ? qsTr("待复核") : "",
-                                       page.importIncomplete(run) ? qsTr("待补充") : "",
-                                       // 中途加入: the duty was already under way at the entry
-                                       // ($defs/Run.joined_in_progress); null and false say nothing here.
-                                       run.joined_in_progress === true ? qsTr("中途加入") : "",
-                                       // 已修正：人改过软件记下的内容。已确认：人只回答了软件
-                                       // 留待复核的结局，或补上了它没认出的职业、副本。
-                                       run.manually_corrected ? qsTr("已修正")
-                                           : (Number(run.revision || 1) > 1 && !run.pending_review
-                                              && !run.manually_created && !run.soft_deleted
-                                              ? qsTr("已确认") : ""),
-                                       run.soft_deleted ? qsTr("已删除") : "",
-                                       run.manually_created ? qsTr("手动创建") : "",
-                                       run.reflection ? qsTr("有笔记") : ""]
-                                      .filter(function(part) { return part.length > 0 })
-                                      .join(" · ")
-                                color: Theme.orangeText
-                                font.pixelSize: Theme.fs(11)
-                                elide: Text.ElideRight
+                            HistoryCell {
+                                columnKey: "marks"
+                                layout: page.columnLayout
+                                Text {
+                                    anchors.fill: parent
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                    text: [run.source !== "IMPORT" && run.pending_review ? qsTr("待复核") : "",
+                                           page.importIncomplete(run) ? qsTr("待补充") : "",
+                                           // 中途加入: the duty was already under way at the entry
+                                           // ($defs/Run.joined_in_progress); null and false say nothing here.
+                                           run.joined_in_progress === true ? qsTr("中途加入") : "",
+                                           // 已修正：人改过软件记下的内容。已确认：人只回答了软件
+                                           // 留待复核的结局，或补上了它没认出的职业、副本。
+                                           run.manually_corrected ? qsTr("已修正")
+                                               : (Number(run.revision || 1) > 1 && !run.pending_review
+                                                  && !run.manually_created && !run.soft_deleted
+                                                  ? qsTr("已确认") : ""),
+                                           run.soft_deleted ? qsTr("已删除") : "",
+                                           run.manually_created ? qsTr("手动创建") : "",
+                                           run.reflection ? qsTr("有笔记") : ""]
+                                          .filter(function(part) { return part.length > 0 })
+                                          .join(" · ")
+                                    color: Theme.orangeText
+                                    font.pixelSize: Theme.fs(11)
+                                    elide: Text.ElideRight
+                                }
                             }
                         }
 
@@ -1048,6 +1162,14 @@ Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 34
                 spacing: 8
+
+                // 自定义列 sits at the table's foot, where it takes no width from
+                // the rows; a right click on the header opens the same dialog.
+                AppButton {
+                    objectName: "historyCustomizeColumns"
+                    text: qsTr("自定义列")
+                    onClicked: columnsDialog.open()
+                }
 
                 Item { Layout.fillWidth: true }
 
@@ -1085,6 +1207,13 @@ Item {
                 }
             }
         }
+    }
+
+    HistoryColumnsDialog {
+        id: columnsDialog
+        objectName: "historyColumnsDialog"
+        columns: page.allColumns
+        controller: page.columnsController
     }
 
     Popup {

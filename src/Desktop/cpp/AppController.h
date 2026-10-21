@@ -39,6 +39,7 @@
 #include "SpeechController.h"
 #include "StatisticsController.h"
 #include "StatisticsOverlayController.h"
+#include "HistoryColumnsController.h"
 #include "RecoveryController.h"
 #include "TtsService.h"
 #include "UpdateController.h"
@@ -178,6 +179,8 @@ class AppController final : public QObject, public CaptureValidationController::
     Q_PROPERTY(mr::DungeonStatsModel *dungeons READ dungeons CONSTANT)
     Q_PROPERTY(mr::JobStatsModel *jobs READ jobs CONSTANT)
     Q_PROPERTY(mr::StatisticsOverlayController *statisticsOverlay READ statisticsOverlay CONSTANT)
+    /// The history table's columns as the user arranged them (docs/ui-design.md §4.2).
+    Q_PROPERTY(mr::HistoryColumnsController *historyColumns READ historyColumns CONSTANT)
     /// Local deferred prompts and drafts; run mutations still belong to HistoryController.
     Q_PROPERTY(mr::RecoveryController *recovery READ recovery CONSTANT)
 
@@ -399,6 +402,7 @@ public:
     DungeonStatsModel *dungeons() const { return m_statistics->dungeons(); }
     JobStatsModel *jobs() const { return m_statistics->jobs(); }
     StatisticsOverlayController *statisticsOverlay() const { return m_statisticsOverlay; }
+    HistoryColumnsController *historyColumns() const { return m_historyColumns; }
     RecoveryController *recovery() const { return m_recovery; }
 
     QVariantMap selectedRun() const;
@@ -837,6 +841,7 @@ private:
     QVariantList m_recentDuties;
     StatisticsController *m_statistics = nullptr;
     StatisticsOverlayController *m_statisticsOverlay = nullptr;
+    HistoryColumnsController *m_historyColumns = nullptr;
     RecoveryController *m_recovery = nullptr;
     /// Namespace adoption accepts only the newest GetStatus issued on the
     /// current connection; an older reply must not reopen another journal.

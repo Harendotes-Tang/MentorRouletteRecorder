@@ -111,6 +111,8 @@ set(MR_CPP_SOURCES
     cpp/AppController.h
     cpp/HistoryController.cpp
     cpp/HistoryController.h
+    cpp/HistoryColumnsController.cpp
+    cpp/HistoryColumnsController.h
     cpp/StatisticsController.cpp
     cpp/StatisticsController.h
     cpp/StatisticsOverlayController.cpp
@@ -238,6 +240,9 @@ set(MR_QML_FILES
     qml/components/Entrance.qml
     qml/components/FieldLabel.qml
     qml/components/HeadingLabel.qml
+    qml/components/HistoryCell.qml
+    qml/components/HistoryColumnsDialog.qml
+    qml/components/HistoryTableHeader.qml
     qml/components/ImportCalibrationCodeDialog.qml
     qml/components/InsetBox.qml
     qml/components/JobIcon.qml

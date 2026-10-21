@@ -232,7 +232,7 @@ foreach(MR_REVIEW_SUITE WorkflowController RunFormValidator ExportFailure UiWork
                         ReflectionDialogBinding Calibration SharedCalibration SharedCalibrationCard Speech
                         CapturePage Motion AchievementProgress StatisticsOverlay Recovery RecoveryUi UpdateNotice UpdateInstall ReleaseNotes EvidenceSubmission LanguageManager InstallerHold NoteImageStore SingleInstance ShellDialog
                         RunDetailPanel MockBackend QmlWarningCounter RunListModel GameNames CollectorText
-                        CollectorTextDisplay)
+                        CollectorTextDisplay HistoryColumns)
     add_executable(MentorRecorder${MR_REVIEW_SUITE}Tests ${MR_REVIEW_SUITE}Tests.cpp)
     target_link_libraries(MentorRecorder${MR_REVIEW_SUITE}Tests PRIVATE
         MentorRecorderDesktopLib Qt6::Gui Qt6::Test)

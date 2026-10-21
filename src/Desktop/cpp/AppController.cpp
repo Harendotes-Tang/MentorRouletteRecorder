@@ -87,6 +87,7 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     , m_history(new HistoryController(backend, this))
     , m_statistics(new StatisticsController(backend, this))
     , m_statisticsOverlay(new StatisticsOverlayController(settings, this))
+    , m_historyColumns(new HistoryColumnsController(settings, this))
     , m_recovery(new RecoveryController(backend, settings, this))
     , m_tts(new TtsService(settings, this, speechEngine))
     , m_promptCutoffUtc(QDateTime::currentDateTimeUtc())

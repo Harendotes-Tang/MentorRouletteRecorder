@@ -89,6 +89,17 @@ public:
     bool statisticsOverlayLabels() const;
     void setStatisticsOverlayLabels(bool labels);
 
+    /// The history table's columns (docs/ui-design.md §4.2), by column key:
+    /// the user's order, the hidden columns and the widths they dragged out.
+    /// HistoryColumnsController validates; an empty list or map removes the key.
+    QStringList historyColumnOrder() const;
+    void setHistoryColumnOrder(const QStringList &order);
+    QStringList historyHiddenColumns() const;
+    void setHistoryHiddenColumns(const QStringList &keys);
+    /// key -> width in pixels, one key `history/column_width/<key>` each.
+    QVariantMap historyColumnWidths() const;
+    void setHistoryColumnWidths(const QVariantMap &widths);
+
     /// Absolute path of the INI file.
     static QString filePath();
     /// This object's actual INI, including an explicitly injected harness location.

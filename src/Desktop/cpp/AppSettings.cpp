@@ -155,6 +155,46 @@ void AppSettings::setStatisticsOverlayLabels(bool labels)
     m_settings.setValue(QStringLiteral("statistics_overlay/labels"), labels);
 }
 
+QStringList AppSettings::historyColumnOrder() const
+{
+    return m_settings.value(QStringLiteral("history/column_order")).toStringList();
+}
+void AppSettings::setHistoryColumnOrder(const QStringList &order)
+{
+    if (order.isEmpty())
+        m_settings.remove(QStringLiteral("history/column_order"));
+    else
+        m_settings.setValue(QStringLiteral("history/column_order"), order);
+}
+QStringList AppSettings::historyHiddenColumns() const
+{
+    return m_settings.value(QStringLiteral("history/hidden_columns")).toStringList();
+}
+void AppSettings::setHistoryHiddenColumns(const QStringList &keys)
+{
+    if (keys.isEmpty())
+        m_settings.remove(QStringLiteral("history/hidden_columns"));
+    else
+        m_settings.setValue(QStringLiteral("history/hidden_columns"), keys);
+}
+QVariantMap AppSettings::historyColumnWidths() const
+{
+    // allKeys() is const; beginGroup() is not.
+    const QString prefix = QStringLiteral("history/column_width/");
+    QVariantMap widths;
+    for (const QString &key : m_settings.allKeys())
+        if (key.startsWith(prefix))
+            widths.insert(key.mid(prefix.size()), m_settings.value(key));
+    return widths;
+}
+void AppSettings::setHistoryColumnWidths(const QVariantMap &widths)
+{
+    // Removing the group drops every column's width; the given ones are written back.
+    m_settings.remove(QStringLiteral("history/column_width"));
+    for (auto it = widths.cbegin(); it != widths.cend(); ++it)
+        m_settings.setValue(QStringLiteral("history/column_width/") + it.key(), it.value().toInt());
+}
+
 QString AppSettings::themeMode() const
 {
     QString mode =

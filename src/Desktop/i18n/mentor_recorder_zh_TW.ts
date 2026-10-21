@@ -4161,19 +4161,9 @@ SHA256：%3</translation>
         <translation>時長不能為負數。</translation>
     </message>
     <message>
-        <source>判定为「已完成」的记录必须填写结束时间。</source>
-        <comment>mutation.end_required</comment>
-        <translation>判定為「已完成」的記錄必須填寫結束時間。</translation>
-    </message>
-    <message>
         <source>进入副本的时间不能晚于结束时间。</source>
         <comment>mutation.entered_after_ended</comment>
         <translation>進入副本的時間不能晚於結束時間。</translation>
-    </message>
-    <message>
-        <source>只有「未进入副本即取消」可以没有进入时间，其余结果都必须填写进入时间。</source>
-        <comment>mutation.entry_required</comment>
-        <translation>只有「未進入副本即取消」可以沒有進入時間，其餘結果都必須填寫進入時間。</translation>
     </message>
     <message>
         <source>匹配时间不能晚于进入副本的时间。</source>
@@ -5647,6 +5637,25 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>HistoryColumnsDialog</name>
+    <message>
+        <source>自定义列</source>
+        <translation>自訂欄位</translation>
+    </message>
+    <message>
+        <source>勾选要显示的列，至少保留一列。按住列标题左右拖动可以调整顺序；拖动标题右侧的边缘可以调整列宽，双击边缘恢复该列的默认宽度。</source>
+        <translation>勾選要顯示的欄位，至少保留一欄。按住欄位標題左右拖曳可以調整順序；拖曳標題右側的邊緣可以調整欄寬，雙擊邊緣恢復該欄的預設寬度。</translation>
+    </message>
+    <message>
+        <source>恢复默认</source>
+        <translation>恢復預設</translation>
+    </message>
+    <message>
+        <source>完成</source>
+        <translation>完成</translation>
+    </message>
+</context>
+<context>
     <name>HistoryPage</name>
     <message>
         <source>中途加入</source>
@@ -5887,10 +5896,6 @@ SHA256：%3</translation>
         <translation>開始日期晚於結束日期，篩選未更新。</translation>
     </message>
     <message>
-        <source>全选当前页</source>
-        <translation>全選目前頁面</translation>
-    </message>
-    <message>
         <source>勾选记录 %1 %2</source>
         <translation>勾選記錄 %1 %2</translation>
     </message>
@@ -5921,6 +5926,10 @@ SHA256：%3</translation>
     <message>
         <source>没有符合筛选条件的记录。</source>
         <translation>沒有符合篩選條件的記錄。</translation>
+    </message>
+    <message>
+        <source>自定义列</source>
+        <translation>自訂欄位</translation>
     </message>
     <message>
         <source>已勾选 %1 条 · 翻页保留</source>
@@ -6017,6 +6026,13 @@ SHA256：%3</translation>
     <message>
         <source>确认删除</source>
         <translation>確認刪除</translation>
+    </message>
+</context>
+<context>
+    <name>HistoryTableHeader</name>
+    <message>
+        <source>全选当前页</source>
+        <translation>全選目前頁面</translation>
     </message>
 </context>
 <context>
@@ -7170,6 +7186,21 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>OverlayAttemptsModule</name>
+    <message>
+        <source>排本次数</source>
+        <translation>排本次數</translation>
+    </message>
+    <message>
+        <source>读取中…</source>
+        <translation>讀取中…</translation>
+    </message>
+    <message>
+        <source>重试</source>
+        <translation>重試</translation>
+    </message>
+</context>
+<context>
     <name>OverlayCurrentDutyModule</name>
     <message>
         <source>当前副本</source>
@@ -7414,6 +7445,13 @@ SHA256：%3</translation>
     <message>
         <source>%1 条待处理</source>
         <translation>%1 筆待處理</translation>
+    </message>
+</context>
+<context>
+    <name>OverlayPeriodSelector</name>
+    <message>
+        <source>排本次数时间范围</source>
+        <translation>排本次數時間範圍</translation>
     </message>
 </context>
 <context>
@@ -8033,6 +8071,10 @@ SHA256：%3</translation>
         <translation>%1 %2 項</translation>
     </message>
     <message>
+        <source>另有 %1 项改动未列出</source>
+        <translation>另有 %1 項改動未列出</translation>
+    </message>
+    <message>
         <source>新增</source>
         <translation>新增</translation>
     </message>
@@ -8633,14 +8675,6 @@ SHA256：%3</translation>
         <translation>進本前取消：進本與結束時間可留空。</translation>
     </message>
     <message>
-        <source>手动补录通关需填进本和结束时间，用于计算耗时；导入记录的未知时间可留空。</source>
-        <translation>手動補錄通關需填寫進本和結束時間，用於計算耗時；匯入記錄的未知時間可留空。</translation>
-    </message>
-    <message>
-        <source>结束时间可留空；未填写进本时间的记录不计入平均耗时。</source>
-        <translation>結束時間可留空；未填寫進本時間的記錄不計入平均耗時。</translation>
-    </message>
-    <message>
         <source>跨天？</source>
         <translation>跨日？</translation>
     </message>
@@ -8659,6 +8693,14 @@ SHA256：%3</translation>
     <message>
         <source>例如：程序未运行时手动补录；网络中断但实际已通关</source>
         <translation>例如：程式未執行時手動補錄；網路中斷但實際已通關</translation>
+    </message>
+    <message>
+        <source>进本与结束时间都可留空；两者齐全才计算耗时，缺一则不计入平均耗时。</source>
+        <translation>進本與結束時間都可留空；兩者齊全才計算耗時，缺一則不計入平均耗時。</translation>
+    </message>
+    <message>
+        <source>进本与结束时间都可留空；未填写进本时间的记录不计入平均耗时。</source>
+        <translation>進本與結束時間都可留空；未填寫進本時間的記錄不計入平均耗時。</translation>
     </message>
     <message>
         <source>备注</source>
@@ -9358,8 +9400,8 @@ SHA256：%3</translation>
         <translation>收起其他方式</translation>
     </message>
     <message>
-        <source>手动导入校准码…</source>
-        <translation>手動匯入校準碼…</translation>
+        <source>手动导入校准码</source>
+        <translation>手動匯入校準碼</translation>
     </message>
 </context>
 <context>
@@ -11822,14 +11864,6 @@ SHA256：%3</translation>
         <translation>時間順序錯誤：結束時間早於配對時間。</translation>
     </message>
     <message>
-        <source>除“进本前取消”外，其他结果都需要填写进本时间。</source>
-        <translation>除「進本前取消」外，其他結果都需要填寫進本時間。</translation>
-    </message>
-    <message>
-        <source>通关记录必须有结束时间。</source>
-        <translation>通關記錄必須有結束時間。</translation>
-    </message>
-    <message>
         <source>内容还没有变化，无需保存。</source>
         <translation>內容沒有變更，不需儲存。</translation>
     </message>
@@ -12174,12 +12208,12 @@ SHA256：%3</translation>
         <translation>無法產生校準碼，請稍後重試。</translation>
     </message>
     <message>
-        <source>校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 页面。你可以把这份校准直接发给其他玩家，让对方在「其他方式」中点「手动导入校准码…」并粘贴。</source>
-        <translation>校準碼已複製到剪貼簿。由於內容較長，無法自動開啟 GitHub 頁面。你可以把這份校準直接傳給其他玩家，讓對方在「其他方式」中點「手動匯入校準碼…」並貼上。</translation>
+        <source>校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 页面。你可以把这份校准直接发给其他玩家，让对方在「其他方式」中点「手动导入校准码」并粘贴。</source>
+        <translation>校準碼已複製到剪貼簿。由於內容較長，無法自動開啟 GitHub 頁面。你可以把這份校準直接傳給其他玩家，讓對方在「其他方式」中點「手動匯入校準碼」並貼上。</translation>
     </message>
     <message>
-        <source>校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 分享页面。你可以直接把它发给其他玩家，让对方在「其他方式」中点「手动导入校准码…」并粘贴。</source>
-        <translation>校準碼已複製到剪貼簿。由於內容較長，無法自動開啟 GitHub 分享頁面。你可以直接把它傳給其他玩家，讓對方在「其他方式」中點「手動匯入校準碼…」並貼上。</translation>
+        <source>校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 分享页面。你可以直接把它发给其他玩家，让对方在「其他方式」中点「手动导入校准码」并粘贴。</source>
+        <translation>校準碼已複製到剪貼簿。由於內容較長，無法自動開啟 GitHub 分享頁面。你可以直接把它傳給其他玩家，讓對方在「其他方式」中點「手動匯入校準碼」並貼上。</translation>
     </message>
     <message>
         <source>校准码已复制到剪贴板。GitHub 页面地址有误，未打开浏览器；可以把这份校准直接发给其他玩家。</source>
@@ -12472,6 +12506,30 @@ SHA256：%3</translation>
     <message>
         <source>有待处理时显示</source>
         <translation>有待處理時顯示</translation>
+    </message>
+    <message>
+        <source>排本次数</source>
+        <translation>排本次數</translation>
+    </message>
+    <message>
+        <source>当日</source>
+        <translation>當日</translation>
+    </message>
+    <message>
+        <source>近七天</source>
+        <translation>近七天</translation>
+    </message>
+    <message>
+        <source>近30天</source>
+        <translation>近30天</translation>
+    </message>
+    <message>
+        <source>全部</source>
+        <translation>全部</translation>
+    </message>
+    <message>
+        <source>排本次数读取失败，请重试</source>
+        <translation>排本次數讀取失敗，請重試。</translation>
     </message>
 </context>
 <context>

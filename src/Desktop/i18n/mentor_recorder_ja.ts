@@ -4161,19 +4161,9 @@ SHA256：%3</translation>
         <translation>所要時間を負の数にすることはできません。</translation>
     </message>
     <message>
-        <source>判定为「已完成」的记录必须填写结束时间。</source>
-        <comment>mutation.end_required</comment>
-        <translation>「クリア」と判定した記録には終了時刻を入力する必要があります。</translation>
-    </message>
-    <message>
         <source>进入副本的时间不能晚于结束时间。</source>
         <comment>mutation.entered_after_ended</comment>
         <translation>突入時刻を終了時刻より後にすることはできません。</translation>
-    </message>
-    <message>
-        <source>只有「未进入副本即取消」可以没有进入时间，其余结果都必须填写进入时间。</source>
-        <comment>mutation.entry_required</comment>
-        <translation>突入時刻を空欄にできるのは「突入前に取り消し」だけです。それ以外の結果では突入時刻を入力する必要があります。</translation>
     </message>
     <message>
         <source>匹配时间不能晚于进入副本的时间。</source>
@@ -5647,6 +5637,25 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>HistoryColumnsDialog</name>
+    <message>
+        <source>自定义列</source>
+        <translation>列のカスタマイズ</translation>
+    </message>
+    <message>
+        <source>勾选要显示的列，至少保留一列。按住列标题左右拖动可以调整顺序；拖动标题右侧的边缘可以调整列宽，双击边缘恢复该列的默认宽度。</source>
+        <translation>表示する列にチェックを付けます（最低 1 列は残ります）。列の見出しを押したまま左右にドラッグすると順序を変えられます。見出しの右端をドラッグすると幅を変えられ、右端をダブルクリックするとその列の幅が初期設定に戻ります。</translation>
+    </message>
+    <message>
+        <source>恢复默认</source>
+        <translation>初期設定に戻す</translation>
+    </message>
+    <message>
+        <source>完成</source>
+        <translation>完了</translation>
+    </message>
+</context>
+<context>
     <name>HistoryPage</name>
     <message>
         <source>中途加入</source>
@@ -5887,10 +5896,6 @@ SHA256：%3</translation>
         <translation>開始日が終了日より後のため、絞り込みは更新されていません。</translation>
     </message>
     <message>
-        <source>全选当前页</source>
-        <translation>このページをすべて選択</translation>
-    </message>
-    <message>
         <source>勾选记录 %1 %2</source>
         <translation>記録 %1 %2 をチェック</translation>
     </message>
@@ -5921,6 +5926,10 @@ SHA256：%3</translation>
     <message>
         <source>没有符合筛选条件的记录。</source>
         <translation>条件に合う記録はありません。</translation>
+    </message>
+    <message>
+        <source>自定义列</source>
+        <translation>列のカスタマイズ</translation>
     </message>
     <message>
         <source>已勾选 %1 条 · 翻页保留</source>
@@ -6017,6 +6026,13 @@ SHA256：%3</translation>
     <message>
         <source>确认删除</source>
         <translation>削除する</translation>
+    </message>
+</context>
+<context>
+    <name>HistoryTableHeader</name>
+    <message>
+        <source>全选当前页</source>
+        <translation>このページをすべて選択</translation>
     </message>
 </context>
 <context>
@@ -7170,6 +7186,21 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>OverlayAttemptsModule</name>
+    <message>
+        <source>排本次数</source>
+        <translation>挑戦回数</translation>
+    </message>
+    <message>
+        <source>读取中…</source>
+        <translation>読み込み中…</translation>
+    </message>
+    <message>
+        <source>重试</source>
+        <translation>再試行</translation>
+    </message>
+</context>
+<context>
     <name>OverlayCurrentDutyModule</name>
     <message>
         <source>当前副本</source>
@@ -7414,6 +7445,13 @@ SHA256：%3</translation>
     <message>
         <source>%1 条待处理</source>
         <translation>要対応 %1 件</translation>
+    </message>
+</context>
+<context>
+    <name>OverlayPeriodSelector</name>
+    <message>
+        <source>排本次数时间范围</source>
+        <translation>挑戦回数の集計期間</translation>
     </message>
 </context>
 <context>
@@ -8033,6 +8071,10 @@ SHA256：%3</translation>
         <translation>%1 %2 件</translation>
     </message>
     <message>
+        <source>另有 %1 项改动未列出</source>
+        <translation>その他の変更 %1 件は省略</translation>
+    </message>
+    <message>
         <source>新增</source>
         <translation>追加</translation>
     </message>
@@ -8633,14 +8675,6 @@ SHA256：%3</translation>
         <translation>突入前に取り消し：突入時刻と終了時刻は空欄で構いません。</translation>
     </message>
     <message>
-        <source>手动补录通关需填进本和结束时间，用于计算耗时；导入记录的未知时间可留空。</source>
-        <translation>クリアを手動で追加する場合は、所要時間の計算のため突入時刻と終了時刻を入力してください。インポートした記録の不明な時刻は空欄で構いません。</translation>
-    </message>
-    <message>
-        <source>结束时间可留空；未填写进本时间的记录不计入平均耗时。</source>
-        <translation>終了時刻は空欄で構いません。突入時刻が未入力の記録は平均時間に含めません。</translation>
-    </message>
-    <message>
         <source>跨天？</source>
         <translation>日付をまたぐ？</translation>
     </message>
@@ -8659,6 +8693,14 @@ SHA256：%3</translation>
     <message>
         <source>例如：程序未运行时手动补录；网络中断但实际已通关</source>
         <translation>例：アプリ停止中の分を手動で追加／回線が切れたが実際はクリア</translation>
+    </message>
+    <message>
+        <source>进本与结束时间都可留空；两者齐全才计算耗时，缺一则不计入平均耗时。</source>
+        <translation>突入時刻と終了時刻はどちらも空欄で構いません。両方そろったときだけ所要時間を計算し、どちらかが未入力の記録は平均時間に含めません。</translation>
+    </message>
+    <message>
+        <source>进本与结束时间都可留空；未填写进本时间的记录不计入平均耗时。</source>
+        <translation>突入時刻と終了時刻はどちらも空欄で構いません。突入時刻が未入力の記録は平均時間に含めません。</translation>
     </message>
     <message>
         <source>备注</source>
@@ -9358,8 +9400,8 @@ SHA256：%3</translation>
         <translation>その他の方法を閉じる</translation>
     </message>
     <message>
-        <source>手动导入校准码…</source>
-        <translation>手動でインポート…</translation>
+        <source>手动导入校准码</source>
+        <translation>手動でインポート</translation>
     </message>
 </context>
 <context>
@@ -11822,14 +11864,6 @@ SHA256：%3</translation>
         <translation>時刻の順序が不正です：終了がマッチより前です。</translation>
     </message>
     <message>
-        <source>除“进本前取消”外，其他结果都需要填写进本时间。</source>
-        <translation>「突入前に取り消し」以外の結果には突入時刻が必要です。</translation>
-    </message>
-    <message>
-        <source>通关记录必须有结束时间。</source>
-        <translation>クリアの記録には終了時刻が必要です。</translation>
-    </message>
-    <message>
         <source>内容还没有变化，无需保存。</source>
         <translation>内容が変わっていないため、保存の必要はありません。</translation>
     </message>
@@ -12174,12 +12208,12 @@ SHA256：%3</translation>
         <translation>校正コードを作成できませんでした。しばらくしてから再試行してください。</translation>
     </message>
     <message>
-        <source>校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 页面。你可以把这份校准直接发给其他玩家，让对方在「其他方式」中点「手动导入校准码…」并粘贴。</source>
-        <translation>校正コードをクリップボードにコピーしました。内容が長いため、GitHub のページを自動で開けません。この校正をほかのプレイヤーに直接送り、「その他の方法」の「手動でインポート…」を押して貼り付けてもらってください。</translation>
+        <source>校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 页面。你可以把这份校准直接发给其他玩家，让对方在「其他方式」中点「手动导入校准码」并粘贴。</source>
+        <translation>校正コードをクリップボードにコピーしました。内容が長いため、GitHub のページを自動で開けません。この校正をほかのプレイヤーに直接送り、「その他の方法」の「手動でインポート」を押して貼り付けてもらってください。</translation>
     </message>
     <message>
-        <source>校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 分享页面。你可以直接把它发给其他玩家，让对方在「其他方式」中点「手动导入校准码…」并粘贴。</source>
-        <translation>校正コードをクリップボードにコピーしました。内容が長いため、GitHub の共有ページを自動で開けません。コードをほかのプレイヤーに直接送り、「その他の方法」の「手動でインポート…」を押して貼り付けてもらってください。</translation>
+        <source>校准码已复制到剪贴板。由于内容较长，无法自动打开 GitHub 分享页面。你可以直接把它发给其他玩家，让对方在「其他方式」中点「手动导入校准码」并粘贴。</source>
+        <translation>校正コードをクリップボードにコピーしました。内容が長いため、GitHub の共有ページを自動で開けません。コードをほかのプレイヤーに直接送り、「その他の方法」の「手動でインポート」を押して貼り付けてもらってください。</translation>
     </message>
     <message>
         <source>校准码已复制到剪贴板。GitHub 页面地址有误，未打开浏览器；可以把这份校准直接发给其他玩家。</source>
@@ -12472,6 +12506,30 @@ SHA256：%3</translation>
     <message>
         <source>有待处理时显示</source>
         <translation>対象があるときに表示</translation>
+    </message>
+    <message>
+        <source>排本次数</source>
+        <translation>挑戦回数</translation>
+    </message>
+    <message>
+        <source>当日</source>
+        <translation>今日</translation>
+    </message>
+    <message>
+        <source>近七天</source>
+        <translation>過去7日</translation>
+    </message>
+    <message>
+        <source>近30天</source>
+        <translation>過去30日</translation>
+    </message>
+    <message>
+        <source>全部</source>
+        <translation>全期間</translation>
+    </message>
+    <message>
+        <source>排本次数读取失败，请重试</source>
+        <translation>挑戦回数を読み込めませんでした。もう一度お試しください。</translation>
     </message>
 </context>
 <context>
