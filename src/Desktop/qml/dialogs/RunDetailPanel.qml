@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // The 380 px overlay panel of the prototype: header, four tabs, action bar.
 Rectangle {
@@ -27,10 +29,10 @@ Rectangle {
     readonly property var reflection: runData && runData.reflection ? runData.reflection : null
     // 备注图片: files under the install directory, read through NoteImageStore.
     // Re-read whenever the store reports a change, hence the serial.
-    readonly property var imageStore: typeof NoteImages !== "undefined" ? NoteImages : null
+    readonly property var imageStore: typeof Runtime.noteImages !== "undefined" ? Runtime.noteImages : null
     property int noteImageSerial: 0
     readonly property var noteImages: {
-        void noteImageSerial
+        Theme.trackBindingDependency(noteImageSerial)
         return imageStore && runData && runData.run_id ? imageStore.imagesFor(runData.run_id) : []
     }
     /// Why the last add or remove did not happen; cleared by the next one, and
@@ -113,15 +115,15 @@ Rectangle {
     /// Raw database tokens (result codes, column names, NULL, source enums) are
     /// maintainer material: a player sees only the Chinese label for the same
     /// fact, and identifier-only rows disappear.
-    readonly property bool showRawTokens: App.maintainerToolsVisible
+    readonly property bool showRawTokens: Runtime.app.maintainerToolsVisible
 
     readonly property var infoFields: {
         const fields = [
             { k: qsTr("版本 / 等级"),
               v: runData.duty_expansion
                  ? qsTr("%1 · %2级").arg(Theme.expansionName(runData.duty_expansion)).arg(runData.duty_level || 0)
-                 : Fmt.dash() },
-            { k: qsTr("结果"), v: Fmt.runResultLabel(runData) },
+                 : Runtime.fmt.dash() },
+            { k: qsTr("结果"), v: Runtime.fmt.runResultLabel(runData) },
             // Rendered by the delegate as job icon + name + role icon + label;
             // `v` stays filled so the field degrades to plain text when the
             // catalogue is empty.
@@ -129,19 +131,19 @@ Rectangle {
               kind: "job",
               v: (Theme.jobName(runData) || qsTr("未知"))
                  + (runData.job_id
-                    ? " (" + Theme.roleGroupName(Jobs.roleGroup(runData.job_id)) + ")"
+                    ? " (" + Theme.roleGroupName(Runtime.jobs.roleGroup(runData.job_id)) + ")"
                     : " · " + qsTr("未能识别职业")) },
-            { k: qsTr("匹配时间"), v: Fmt.localTime(runData.matched_at_utc) },
-            { k: qsTr("进本时间"), v: Fmt.localTime(runData.entered_at_utc) },
-            { k: qsTr("结束时间"), v: Fmt.localTime(runData.ended_at_utc) },
-            { k: qsTr("耗时"), v: Fmt.duration(runData.duration_ms) }
+            { k: qsTr("匹配时间"), v: Runtime.fmt.localTime(runData.matched_at_utc) },
+            { k: qsTr("进本时间"), v: Runtime.fmt.localTime(runData.entered_at_utc) },
+            { k: qsTr("结束时间"), v: Runtime.fmt.localTime(runData.ended_at_utc) },
+            { k: qsTr("耗时"), v: Runtime.fmt.duration(runData.duration_ms) }
         ]
 
         if (runData.import_metadata) {
             const source = runData.import_metadata
             if (source.source_recorded_at_utc || source.source_recorded_at)
                 fields.push({ k: qsTr("原站记录时间"),
-                              v: source.source_recorded_at_utc ? Fmt.localDateTime(source.source_recorded_at_utc) : source.source_recorded_at })
+                              v: source.source_recorded_at_utc ? Runtime.fmt.localDateTime(source.source_recorded_at_utc) : source.source_recorded_at })
         }
         if (root.importIncomplete)
             fields.push({ k: qsTr("导入信息"), v: qsTr("待补充") })
@@ -152,23 +154,23 @@ Rectangle {
                               ? String(runData.content_id) : "NULL")
                              + " / "
                              + (runData.territory_id !== undefined && runData.territory_id !== null
-                                ? String(runData.territory_id) : Fmt.dash()) })
+                                ? String(runData.territory_id) : Runtime.fmt.dash()) })
         }
 
         fields.push({ k: qsTr("来源"),
                       v: root.showRawTokens
                          ? (runData.source || "AUTO_NETWORK")
-                         : Fmt.sourceLabel(runData.source || "AUTO_NETWORK") })
+                         : Runtime.fmt.sourceLabel(runData.source || "AUTO_NETWORK") })
         fields.push({ k: qsTr("成就计数设置"), v: runData.contributes_to_goal ? qsTr("开启") : qsTr("关闭") })
-        fields.push({ k: qsTr("进入方式"), v: Fmt.joinedInProgressLabel(runData.joined_in_progress) })
+        fields.push({ k: qsTr("进入方式"), v: Runtime.fmt.joinedInProgressLabel(runData.joined_in_progress) })
         fields.push({ k: qsTr("识别可信度"),
                       v: root.showRawTokens
-                         ? (runData.detection_confidence || Fmt.dash())
-                         : Fmt.runConfidenceLabel(runData) })
+                         ? (runData.detection_confidence || Runtime.fmt.dash())
+                         : Runtime.fmt.runConfidenceLabel(runData) })
         fields.push({ k: qsTr("待复核"), v: root.pendingReviewText })
 
         if (root.showRawTokens) {
-            fields.push({ k: qsTr("协议 profile"), v: runData.protocol_profile_id || Fmt.dash() })
+            fields.push({ k: qsTr("协议 profile"), v: runData.protocol_profile_id || Runtime.fmt.dash() })
             fields.push({ k: qsTr("排队时间"), v: qsTr("NULL（无可靠事件）") })
         }
 
@@ -212,7 +214,7 @@ Rectangle {
                     spacing: 8
 
                     CardKicker {
-                        text: qsTr("%1 · 修订 %2").arg(Fmt.localDate(root.runData.matched_at_utc))
+                        text: qsTr("%1 · 修订 %2").arg(Runtime.fmt.localDate(root.runData.matched_at_utc))
                                                   .arg(root.runData.revision || 1)
                     }
 
@@ -346,7 +348,7 @@ Rectangle {
                     case "events":
                         // Loaded on demand: GetRunEvents is a per-run query and
                         // opening the panel must not pay for a tab nobody looked at.
-                        Qt.callLater(function() { App.refreshRunEvents() })
+                        Qt.callLater(function() { Runtime.app.refreshRunEvents() })
                         return eventsPane
                     case "refl":
                         return reflectionPane
@@ -414,6 +416,7 @@ Rectangle {
                     model: root.infoFields
 
                     delegate: ColumnLayout {
+                        id: infoField
                         required property var modelData
 
                         readonly property bool isJob: modelData.kind === "job"
@@ -427,7 +430,7 @@ Rectangle {
 
                         Text {
                             Layout.fillWidth: true
-                            text: modelData.k
+                            text: infoField.modelData.k
                             color: Theme.textSecondary
                             font.pixelSize: Theme.fs(11)
                             elide: Text.ElideRight
@@ -436,7 +439,7 @@ Rectangle {
                         Text {
                             Layout.fillWidth: true
                             visible: !parent.isJob
-                            text: modelData.v
+                            text: infoField.modelData.v
                             textFormat: Text.PlainText
                             color: Theme.textPrimary
                             font.pixelSize: Theme.fs(13)
@@ -471,14 +474,14 @@ Rectangle {
                             RoleIcon {
                                 Layout.leftMargin: 4
                                 Layout.fillWidth: true
-                                role: root.runData.job_id ? Jobs.roleGroup(root.runData.job_id)
+                                role: root.runData.job_id ? Runtime.jobs.roleGroup(root.runData.job_id)
                                                           : qsTr("未知")
                                 size: 20
                                 showLabel: true
                                 labelPixelSize: 12
                                 labelColor: Theme.textSecondary
                                 labelText: root.runData.job_id
-                                           ? Theme.roleGroupName(Jobs.roleGroup(root.runData.job_id))
+                                           ? Theme.roleGroupName(Runtime.jobs.roleGroup(root.runData.job_id))
                                            : qsTr("未知") + " · " + qsTr("未能识别职业")
                             }
                         }
@@ -568,13 +571,13 @@ Rectangle {
                 RowLayout {
                     Layout.fillWidth: true
                     CardKicker {
-                        text: App.maintainerToolsVisible ? qsTr("原始事件摘要")
+                        text: Runtime.app.maintainerToolsVisible ? qsTr("原始事件摘要")
                                                          : qsTr("这次记录发生了什么")
                     }
                     Item { Layout.fillWidth: true }
                     Text {
-                        text: App.runEventsState === "ready"
-                              ? qsTr("%1 条").arg(App.selectedRunEvents.length) : ""
+                        text: Runtime.app.runEventsState === "ready"
+                              ? qsTr("%1 条").arg(Runtime.app.selectedRunEvents.length) : ""
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fs(11)
                         font.family: Theme.figureFamily
@@ -585,8 +588,8 @@ Rectangle {
 
                 InsetBox {
                     Layout.fillWidth: true
-                    visible: App.runEventsState !== "ready"
-                             || App.selectedRunEvents.length === 0
+                    visible: Runtime.app.runEventsState !== "ready"
+                             || Runtime.app.selectedRunEvents.length === 0
                     implicitHeight: emptyText.implicitHeight + 24
 
                     Text {
@@ -598,24 +601,25 @@ Rectangle {
                         text: {
                             if (root.runData.manually_created)
                                 return qsTr("手动记录，没有网络事件。")
-                            switch (App.runEventsState) {
+                            switch (Runtime.app.runEventsState) {
                             case "loading": return qsTr("正在读取事件摘要…")
                             case "unsupported":
-                            case "error": return App.runEventsMessage
+                            case "error": return Runtime.app.runEventsMessage
                             case "ready": return qsTr("这条记录没有事件摘要。")
                             default: return qsTr("打开“事件摘要”后会读取。")
                             }
                         }
-                        color: App.runEventsState === "error" ? Theme.red : Theme.textSecondary
+                        color: Runtime.app.runEventsState === "error" ? Theme.red : Theme.textSecondary
                         font.pixelSize: Theme.fs(12)
                         wrapMode: Text.WordWrap
                     }
                 }
 
                 Repeater {
-                    model: App.runEventsState === "ready" ? App.selectedRunEvents : []
+                    model: Runtime.app.runEventsState === "ready" ? Runtime.app.selectedRunEvents : []
 
                     delegate: InsetBox {
+                        id: eventEntry
                         required property var modelData
 
                         Layout.fillWidth: true
@@ -635,8 +639,8 @@ Rectangle {
 
                                 Text {
                                     text: root.showRawTokens
-                                          ? (modelData.event_type || Fmt.dash())
-                                          : Theme.live(Fmt.runEventLabel(modelData.event_type || ""))
+                                          ? (eventEntry.modelData.event_type || Runtime.fmt.dash())
+                                          : Theme.live(Runtime.fmt.runEventLabel(eventEntry.modelData.event_type || ""))
                                     color: Theme.textPrimary
                                     font.pixelSize: Theme.fs(12)
                                     font.bold: true
@@ -649,9 +653,9 @@ Rectangle {
                                 // (review OL-6). Maintainers see any other token.
                                 Tag {
                                     visible: root.showRawTokens
-                                             ? !!modelData.parser_status && modelData.parser_status !== "PARSED"
-                                             : modelData.parser_status === "UNKNOWN"
-                                    text: root.showRawTokens ? (modelData.parser_status || "")
+                                             ? !!eventEntry.modelData.parser_status && eventEntry.modelData.parser_status !== "PARSED"
+                                             : eventEntry.modelData.parser_status === "UNKNOWN"
+                                    text: root.showRawTokens ? (eventEntry.modelData.parser_status || "")
                                                              : qsTr("来源不明")
                                     variant: "neutral"
                                 }
@@ -659,7 +663,7 @@ Rectangle {
                                 Item { Layout.fillWidth: true }
 
                                 Text {
-                                    text: Fmt.localTime(modelData.observed_at_utc)
+                                    text: Runtime.fmt.localTime(eventEntry.modelData.observed_at_utc)
                                     color: Theme.textSecondary
                                     font.pixelSize: Theme.fs(12)
                                     font.family: Theme.figureFamily
@@ -670,12 +674,12 @@ Rectangle {
 
                             Text {
                                 Layout.fillWidth: true
-                                visible: App.maintainerToolsVisible
+                                visible: Runtime.app.maintainerToolsVisible
                                 textFormat: Text.PlainText
                                 text: qsTr("%1 \u00b7 %2 \u00b7 哈希 %3")
-                                      .arg(modelData.direction || Fmt.dash())
-                                      .arg(modelData.opcode || Fmt.dash())
-                                      .arg(modelData.payload_hash || Fmt.dash())
+                                      .arg(eventEntry.modelData.direction || Runtime.fmt.dash())
+                                      .arg(eventEntry.modelData.opcode || Runtime.fmt.dash())
+                                      .arg(eventEntry.modelData.payload_hash || Runtime.fmt.dash())
                                 color: Theme.textSecondary
                                 font.pixelSize: Theme.fs(11)
                                 font.family: Theme.monoFamily
@@ -689,14 +693,14 @@ Rectangle {
                                 visible: root.showRawTokens && text.length > 0
                                 textFormat: Text.PlainText
                                 text: {
-                                    const parsed = modelData.parsed
+                                    const parsed = eventEntry.modelData.parsed
                                     if (!parsed)
                                         return ""
                                     const parts = []
                                     for (const key in parsed) {
                                         const value = parsed[key]
                                         parts.push(key + "=" + (value === null || value === undefined
-                                                                ? Fmt.dash() : value))
+                                                                ? Runtime.fmt.dash() : value))
                                     }
                                     return parts.join(" \u00b7 ")
                                 }
@@ -707,10 +711,10 @@ Rectangle {
 
                             Text {
                                 Layout.fillWidth: true
-                                visible: App.maintainerToolsVisible
-                                         && !!modelData.protocol_profile_id
+                                visible: Runtime.app.maintainerToolsVisible
+                                         && !!eventEntry.modelData.protocol_profile_id
                                 textFormat: Text.PlainText
-                                text: "profile " + (modelData.protocol_profile_id || "")
+                                text: "profile " + (eventEntry.modelData.protocol_profile_id || "")
                                 color: Theme.textSecondary
                                 font.pixelSize: Theme.fs(10)
                                 elide: Text.ElideRight
@@ -721,7 +725,7 @@ Rectangle {
 
                 Text {
                     Layout.fillWidth: true
-                    text: App.maintainerToolsVisible
+                    text: Runtime.app.maintainerToolsVisible
                           ? qsTr("默认不保存完整报文，仅保留操作码、方向、哈希与解析字段。")
                           : qsTr("这里显示事件名称和发生时间，不保存完整的网络消息。")
                     color: Theme.textSecondary
@@ -731,8 +735,8 @@ Rectangle {
 
                 Text {
                     Layout.fillWidth: true
-                    visible: App.usingMockData && App.runEventsState === "ready"
-                             && App.selectedRunEvents.length > 0
+                    visible: Runtime.app.usingMockData && Runtime.app.runEventsState === "ready"
+                             && Runtime.app.selectedRunEvents.length > 0
                     text: qsTr("以上是演示数据，不是实际记录到的游戏事件。")
                     color: Theme.orangeText
                     font.pixelSize: Theme.fs(11)
@@ -767,7 +771,7 @@ Rectangle {
                     Text {
                         Layout.fillWidth: true
                         text: root.reflection
-                              ? Fmt.localDateTime(root.reflection.updated_at_utc) : ""
+                              ? Runtime.fmt.localDateTime(root.reflection.updated_at_utc) : ""
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fs(11)
                         font.family: Theme.figureFamily
@@ -849,7 +853,7 @@ Rectangle {
                         readonly property bool undoable:
                             Number(modelData.revision || 0) === root.newestRevision
                             && root.newestRevision > 1
-                            && App.selectedRunCanUndo
+                            && Runtime.app.selectedRunCanUndo
 
                         Layout.fillWidth: true
                         implicitHeight: revColumn.implicitHeight + 20
@@ -883,7 +887,7 @@ Rectangle {
                                 Item { Layout.fillWidth: true }
 
                                 Text {
-                                    text: Fmt.localDateTime(revisionBox.modelData.changed_at_utc)
+                                    text: Runtime.fmt.localDateTime(revisionBox.modelData.changed_at_utc)
                                     color: Theme.textSecondary
                                     font.pixelSize: Theme.fs(12)
                                     font.family: Theme.figureFamily
@@ -895,8 +899,8 @@ Rectangle {
                             Text {
                                 Layout.fillWidth: true
                                 text: root.showRawTokens
-                                      ? (revisionBox.modelData.change_kind || Fmt.dash())
-                                      : Theme.live(Fmt.changeKindLabel(revisionBox.modelData.change_kind || ""))
+                                      ? (revisionBox.modelData.change_kind || Runtime.fmt.dash())
+                                      : Theme.live(Runtime.fmt.changeKindLabel(revisionBox.modelData.change_kind || ""))
                                 color: Theme.textPrimary
                                 font.pixelSize: Theme.fs(12)
                                 wrapMode: Text.WordWrap
@@ -916,9 +920,9 @@ Rectangle {
                                     // language, after a switch.
                                     return Theme.live(changes).filter(function(row) {
                                         const field = row.field || ""
-                                        return Fmt.revisionFieldVisible(field)
-                                            && Fmt.revisionFieldValue(field, row.old_value)
-                                               !== Fmt.revisionFieldValue(field, row.new_value)
+                                        return Runtime.fmt.revisionFieldVisible(field)
+                                            && Runtime.fmt.revisionFieldValue(field, row.old_value)
+                                               !== Runtime.fmt.revisionFieldValue(field, row.new_value)
                                     })
                                 }
 
@@ -931,7 +935,7 @@ Rectangle {
 
                                     Text {
                                         Layout.preferredWidth: 74
-                                        text: Theme.live(Fmt.fieldLabel(modelData.field || ""))
+                                        text: Theme.live(Runtime.fmt.fieldLabel(modelData.field || ""))
                                         color: Theme.textSecondary
                                         font.pixelSize: Theme.fs(11)
                                         elide: Text.ElideRight
@@ -941,8 +945,8 @@ Rectangle {
                                         Layout.fillWidth: true
                                         Layout.preferredWidth: 1
                                         text: Theme.live(root.showRawTokens
-                                              ? Fmt.revisionValue(modelData.old_value)
-                                              : Fmt.revisionFieldValue(modelData.field || "", modelData.old_value))
+                                              ? Runtime.fmt.revisionValue(modelData.old_value)
+                                              : Runtime.fmt.revisionFieldValue(modelData.field || "", modelData.old_value))
                                         textFormat: Text.PlainText
                                         color: Theme.textSecondary
                                         font.pixelSize: Theme.fs(11)
@@ -960,8 +964,8 @@ Rectangle {
                                         Layout.fillWidth: true
                                         Layout.preferredWidth: 1
                                         text: Theme.live(root.showRawTokens
-                                              ? Fmt.revisionValue(modelData.new_value)
-                                              : Fmt.revisionFieldValue(modelData.field || "", modelData.new_value))
+                                              ? Runtime.fmt.revisionValue(modelData.new_value)
+                                              : Runtime.fmt.revisionFieldValue(modelData.field || "", modelData.new_value))
                                         textFormat: Text.PlainText
                                         color: Theme.textPrimary
                                         font.pixelSize: Theme.fs(11)
@@ -982,7 +986,7 @@ Rectangle {
                                            : qsTr("无原因"))
                                       .arg(root.showRawTokens
                                            ? (revisionBox.modelData.actor || "USER")
-                                           : Fmt.revisionActorLabel(revisionBox.modelData.actor || ""))
+                                           : Runtime.fmt.revisionActorLabel(revisionBox.modelData.actor || ""))
                                 textFormat: Text.PlainText
                                 color: Theme.textSecondary
                                 font.pixelSize: Theme.fs(12)

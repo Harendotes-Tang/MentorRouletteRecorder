@@ -276,6 +276,7 @@ class RecoveryUiTests : public QObject
 private Q_SLOTS:
     void initTestCase();
     void hiddenMainReminderCanDeferAndReopen();
+    void nativeCloseDefersTheDraftAndWaitsForAnActiveSave() const;
     void automaticNativeWindowDoesNotStealForeground();
     void restartDraftCanOpenFromOverviewAndSave();
     void silentModesAndDisabledPrompts_data();
@@ -359,6 +360,44 @@ void RecoveryUiTests::hiddenMainReminderCanDeferAndReopen()
     QCOMPARE(scene.editor()->property("runId").toString(), run.value(QStringLiteral("run_id")).toString());
     QVERIFY(scene.click(QStringLiteral("deferReflectionButton")));
     QTRY_VERIFY(!scene.host()->isVisible());
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+void RecoveryUiTests::nativeCloseDefersTheDraftAndWaitsForAnActiveSave() const
+{
+    Scene scene;
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    scene.mainWindow()->hide();
+    const auto run = finishedRun(true);
+    scene.publish(run);
+    QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
+    const QString text = QStringLiteral("keep this note when the native window closes");
+    QVERIFY(scene.enterNote(text));
+    QVERIFY(!scene.editor()->property("busy").toBool());
+    // The close event is rejected even when defer() successfully puts the
+    // editor away: only the editor owns saving its draft and hiding its host.
+    QVERIFY(!scene.host()->close());
+    QTRY_VERIFY(!scene.host()->isVisible() && !scene.editor()->property("visible").toBool());
+    QCOMPARE(scene.app->recovery()->draft(run).value(QStringLiteral("text")).toString(), text);
+    QCOMPARE(scene.backend.commands.count(QStringLiteral("SetRunReflection")), 0);
+
+    scene.app->recovery()->requestOpen(run.value(QStringLiteral("run_id")).toString());
+    QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
+    QCOMPARE(scene.note()->property("text").toString(), text);
+    QSignalSpy success(scene.app.get(), &mr::AppController::reflectionSaved);
+    scene.backend.setReplyDelay(1200, QStringLiteral("SetRunReflection"));
+    QVERIFY(scene.click(QStringLiteral("saveReflectionButton")));
+    QVERIFY(scene.editor()->property("busy").toBool());
+    QVERIFY(!scene.host()->close());
+    QVERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
+    QVERIFY(scene.editor()->property("busy").toBool());
+    QCOMPARE(scene.note()->property("text").toString(), text);
+    QCOMPARE(scene.app->recovery()->draft(run).value(QStringLiteral("text")).toString(), text);
+    QCOMPARE(scene.backend.commands.count(QStringLiteral("SetRunReflection")), 1);
+    QTRY_COMPARE(success.count(), 1);
+    QTRY_VERIFY(!scene.editor()->property("busy").toBool());
+    QTRY_VERIFY(!scene.host()->isVisible() && !scene.editor()->property("visible").toBool());
+    QVERIFY(scene.app->recovery()->draft(run).isEmpty());
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 

@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls 6.8
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 自定义列 (docs/ui-design.md §4.2): one check box per column, in the table's
 // order, hidden columns included. The last shown column cannot be unchecked,

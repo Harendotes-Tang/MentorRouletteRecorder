@@ -269,7 +269,7 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
                              run.value(QStringLiteral("job_id"))))
             continue;
         if (!matchesStringArray(filter, QStringLiteral("duty_category"),
-                                run.value(QStringLiteral("duty_category"))))
+                                mr::DutyCatalog::shared()->displayedCategory(run.toVariantMap())))
             continue;
         if (!matchesStringArray(filter, QStringLiteral("result"),
                                 run.value(QStringLiteral("result"))))
@@ -640,6 +640,9 @@ QJsonArray MockBackend::dungeonStats(const QJsonObject &filter) const
         QString name;
         QJsonValue category;
         QString nameUpdatedAt;
+        QJsonValue latestCategory;
+        QString latestUpdatedAt;
+        bool hasLatestRow = false;
         QString lastSeen;
     };
     const QHash<qint64, QList<qint64>> zones = dutiesByZone();
@@ -665,14 +668,20 @@ QJsonArray MockBackend::dungeonStats(const QJsonObject &filter) const
         Group &group = groups[indexOf.value(key)];
         accumulate(group.aggregate, run);
 
-        // The name and category of the most recently updated run that names the duty. A row
-        // without a duty identity is 未知副本, whatever free text a run in it calls its duty.
+        // Prefer the category of the most recent named run, matching the Collector.
+        // If every name is missing, retain the latest identified row's category fact.
+        // A row without a duty identity is 未知副本 regardless of its free text.
         const QString name = run.value(QStringLiteral("duty_name")).toString();
         const QString updated = run.value(QStringLiteral("updated_at_utc")).toString();
         const bool identified = contentId >= 0 || zone >= 0;
+        if (identified && (!group.hasLatestRow || updated > group.latestUpdatedAt)) {
+            group.latestCategory = mr::DutyCatalog::shared()->displayedCategory(run.toVariantMap());
+            group.latestUpdatedAt = updated;
+            group.hasLatestRow = true;
+        }
         if (identified && !name.trimmed().isEmpty() && (group.name.isEmpty() || updated > group.nameUpdatedAt)) {
             group.name = name;
-            group.category = run.value(QStringLiteral("duty_category"));
+            group.category = mr::DutyCatalog::shared()->displayedCategory(run.toVariantMap());
             group.nameUpdatedAt = updated;
         }
         // MAX(matched_at_utc): when this duty was last matched into, attempt or not.
@@ -701,8 +710,9 @@ QJsonArray MockBackend::dungeonStats(const QJsonObject &filter) const
         else
             row.insert(QStringLiteral("duty_name"),
                        !mappedName.isEmpty() ? mappedName : QString::fromUtf8("未知副本"));
-        if (!group.name.isEmpty() && group.category.isString() && !group.category.toString().isEmpty())
-            row.insert(QStringLiteral("duty_category"), group.category);
+        const QJsonValue category = group.name.isEmpty() ? group.latestCategory : group.category;
+        if (category.isString() && !category.toString().isEmpty())
+            row.insert(QStringLiteral("duty_category"), category);
         else
             row.insert(QStringLiteral("duty_category"),
                        !mappedCategory.isEmpty() ? QJsonValue(mappedCategory) : QJsonValue(QJsonValue::Null));

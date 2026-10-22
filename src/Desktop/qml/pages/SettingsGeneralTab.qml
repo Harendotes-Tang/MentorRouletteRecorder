@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 设置 · 通用: 语言 / 启动与托盘 / 记录 / 校准 / 更新 / 外观.
 ColumnLayout {
@@ -11,17 +11,19 @@ ColumnLayout {
     spacing: 16
 
     // Guarded: the two settings arrive with the reflection feature.
-    readonly property bool reflectPromptEnabled: (typeof Settings !== "undefined"
-                                                  && Settings.reflectPrompt !== undefined)
-                                                 ? Settings.reflectPrompt : true
-    readonly property bool confirmPromptEnabled: (typeof Settings !== "undefined"
-                                                  && Settings.confirmPrompt !== undefined)
-                                                 ? Settings.confirmPrompt : true
+    readonly property bool reflectPromptEnabled: (typeof Runtime.settings !== "undefined"
+                                                  && Runtime.settings.reflectPrompt !== undefined)
+                                                 ? Runtime.settings.reflectPrompt : true
+    readonly property bool confirmPromptEnabled: (typeof Runtime.settings !== "undefined"
+                                                  && Runtime.settings.confirmPrompt !== undefined)
+                                                 ? Runtime.settings.confirmPrompt : true
     // The style on screen, not the persisted one: --mock-ui-style pins Theme
     // without touching desktop.ini, and the segment must agree with the skin.
     readonly property string uiStyleValue: Theme.uiStyle
     // The application's LanguageManager; a test scene without one shows no card.
-    readonly property var lang: typeof Lang !== "undefined" ? Lang : null
+    readonly property var lang: typeof Runtime.lang !== "undefined" ? Runtime.lang : null
+    // A shell may supply the reveal callback; standalone test hosts need not.
+    readonly property var themeRevealHost: tab.ApplicationWindow.window
 
     function focusLanguageControl() {
         languageChoices.focusSelectedOption()
@@ -36,7 +38,7 @@ ColumnLayout {
     // One place decides how an unsupported Collector reads, so a switch that can
     // do nothing never looks like one that can.
     function captureSettingDescription(text) {
-        if (!App.captureSettingsSupported)
+        if (!Runtime.app.captureSettingsSupported)
             return qsTr("当前后台服务不支持这项设置，暂时无法修改。")
         return text
     }
@@ -78,27 +80,27 @@ ColumnLayout {
 
         SettingToggleRow {
             label: qsTr("开机启动")
-            description: Settings.autostartWritable
+            description: Runtime.settings.autostartWritable
                          ? qsTr("登录 Windows 后自动启动，显示在系统托盘中")
                          : qsTr("当前系统不支持开机启动")
-            toggleEnabled: Settings.autostartWritable
-            checked: Settings.autostart
-            onToggled: function(value) { Settings.autostart = value }
+            toggleEnabled: Runtime.settings.autostartWritable
+            checked: Runtime.settings.autostart
+            onToggled: function(value) { Runtime.settings.autostart = value }
         }
 
         // Owned by the Collector, not by desktop.ini: the Collector watches for
         // the game and starts capturing. Maintainers only.
         SettingToggleRow {
             objectName: "followGameToggle"
-            visible: App.maintainerToolsVisible
+            visible: Runtime.app.maintainerToolsVisible
             label: qsTr("随 FF14 自动开始捕获")
             description: tab.captureSettingDescription(
                 qsTr("默认开启。检测到游戏启动后开始监听，游戏退出后停止。"
                      + "请先打开本软件，再登录游戏，才能正常自动记录。"))
-            toggleEnabled: App.captureSettingsSupported && App.captureSettingsLoaded
-            checked: !!App.captureSettings.follow_game
+            toggleEnabled: Runtime.app.captureSettingsSupported && Runtime.app.captureSettingsLoaded
+            checked: !!Runtime.app.captureSettings.follow_game
             onToggled: function(value) {
-                App.updateCaptureSetting("follow_game", value)
+                Runtime.app.updateCaptureSetting("follow_game", value)
             }
         }
 
@@ -106,8 +108,8 @@ ColumnLayout {
             showDivider: false
             label: qsTr("关闭时最小化到托盘")
             description: qsTr("关闭窗口后仍在后台运行；可从托盘菜单选择「显示主窗口」或「退出」")
-            checked: Settings.minimizeToTray
-            onToggled: function(value) { Settings.minimizeToTray = value }
+            checked: Runtime.settings.minimizeToTray
+            onToggled: function(value) { Runtime.settings.minimizeToTray = value }
         }
     }
 
@@ -129,7 +131,7 @@ ColumnLayout {
                 id: captureRegionControl
                 objectName: "captureRegionSettingControl"
                 Layout.preferredWidth: 200
-                interactionAllowed: !App.validationActive && !App.capturing && !App.captureCommandBusy
+                interactionAllowed: !Runtime.app.validationActive && !Runtime.app.capturing && !Runtime.app.captureCommandBusy
             }
         }
 
@@ -139,8 +141,8 @@ ColumnLayout {
             Layout.fillWidth: true
             Layout.topMargin: 10
             Layout.bottomMargin: 4
-            visible: App.captureSettingsError.length > 0
-            text: App.captureSettingsError
+            visible: Runtime.app.captureSettingsError.length > 0
+            text: Runtime.app.captureSettingsError
             color: Theme.orangeText
             font.pixelSize: Theme.fs(11)
             wrapMode: Text.WordWrap
@@ -157,8 +159,8 @@ ColumnLayout {
                               + "关闭后可在总览的「待处理」中确认。")
             checked: tab.confirmPromptEnabled
             onToggled: function(value) {
-                if (typeof Settings !== "undefined" && Settings.confirmPrompt !== undefined)
-                    Settings.confirmPrompt = value
+                if (typeof Runtime.settings !== "undefined" && Runtime.settings.confirmPrompt !== undefined)
+                    Runtime.settings.confirmPrompt = value
             }
         }
 
@@ -167,8 +169,8 @@ ColumnLayout {
             description: qsTr("通关后按下方方式提醒；关闭提醒后仍可从历史记录补写。")
             checked: tab.reflectPromptEnabled
             onToggled: function(value) {
-                if (typeof Settings !== "undefined" && Settings.reflectPrompt !== undefined)
-                    Settings.reflectPrompt = value
+                if (typeof Runtime.settings !== "undefined" && Runtime.settings.reflectPrompt !== undefined)
+                    Runtime.settings.reflectPrompt = value
             }
         }
         SettingsRow {
@@ -179,8 +181,8 @@ ColumnLayout {
                 objectName: "promptPresentationControl"
                 Layout.preferredWidth: 230
                 model: [qsTr("独立小窗"), qsTr("浮窗提示"), qsTr("仅保留待办")]
-                currentIndex: Settings.promptPresentation === "floating" ? 1 : Settings.promptPresentation === "inbox" ? 2 : 0
-                onActivated: Settings.promptPresentation = ["window", "floating", "inbox"][currentIndex]
+                currentIndex: Runtime.settings.promptPresentation === "floating" ? 1 : Runtime.settings.promptPresentation === "inbox" ? 2 : 0
+                onActivated: Runtime.settings.promptPresentation = ["window", "floating", "inbox"][currentIndex]
             }
         }
     }
@@ -198,11 +200,11 @@ ColumnLayout {
             description: tab.captureSettingDescription(
                 qsTr("游戏更新后，软件可能需要重新识别排本和进出副本。开启后照常完成随机任务，按提示核对即可。"
                      + "校准完成前暂时不能自动记录。关闭后，游戏更新时可能需要等待软件更新才能恢复自动记录。"))
-            toggleEnabled: App.captureSettingsSupported && App.captureSettingsLoaded
-            checked: !App.captureSettingsLoaded
-                     || App.captureSettings.auto_calibration_enabled !== false
+            toggleEnabled: Runtime.app.captureSettingsSupported && Runtime.app.captureSettingsLoaded
+            checked: !Runtime.app.captureSettingsLoaded
+                     || Runtime.app.captureSettings.auto_calibration_enabled !== false
             onToggled: function(value) {
-                App.updateCaptureSetting("auto_calibration_enabled", value)
+                Runtime.app.updateCaptureSetting("auto_calibration_enabled", value)
             }
         }
 
@@ -215,11 +217,11 @@ ColumnLayout {
             description: tab.captureSettingDescription(
                 qsTr("默认开启。自动校准开启时，软件会联网查找其他玩家分享的校准，检查可用后再使用。"
                      + "请求不含账号或设备身份信息，不会上传你的游戏数据。关闭后仍可手动导入校准码。"))
-            toggleEnabled: App.captureSettingsSupported && App.captureSettingsLoaded
-            checked: !App.captureSettingsLoaded
-                     || App.captureSettings.shared_calibration_enabled !== false
+            toggleEnabled: Runtime.app.captureSettingsSupported && Runtime.app.captureSettingsLoaded
+            checked: !Runtime.app.captureSettingsLoaded
+                     || Runtime.app.captureSettings.shared_calibration_enabled !== false
             onToggled: function(value) {
-                App.updateCaptureSetting("shared_calibration_enabled", value)
+                Runtime.app.updateCaptureSetting("shared_calibration_enabled", value)
             }
         }
     }
@@ -242,11 +244,11 @@ ColumnLayout {
                      + "或设备身份信息。"
                      + "点「下载安装包」只下载安装包并校验，准备好后还需点「立即安装」启动安装。"
                      + "软件不会自行下载或安装新版本。"))
-            toggleEnabled: App.captureSettingsSupported && App.captureSettingsLoaded
-            checked: !App.captureSettingsLoaded
-                     || App.captureSettings.update_check_enabled !== false
+            toggleEnabled: Runtime.app.captureSettingsSupported && Runtime.app.captureSettingsLoaded
+            checked: !Runtime.app.captureSettingsLoaded
+                     || Runtime.app.captureSettings.update_check_enabled !== false
             onToggled: function(value) {
-                App.updateCaptureSetting("update_check_enabled", value)
+                Runtime.app.updateCaptureSetting("update_check_enabled", value)
             }
         }
 
@@ -262,13 +264,13 @@ ColumnLayout {
 
                 objectName: "updateCheckStatusText"
                 Layout.fillWidth: true
-                visible: App.update.available && App.update.lastCheckedAtUtc.length > 0
+                visible: Runtime.app.update.available && Runtime.app.update.lastCheckedAtUtc.length > 0
                 // 版本号只有采集器读到时才写出来，不在这里编一个「未知」。
-                text: App.update.latestVersion.length > 0
+                text: Runtime.app.update.latestVersion.length > 0
                       ? qsTr("最近检查：%1 · 最新版本 %2")
-                        .arg(Fmt.localTime(App.update.lastCheckedAtUtc))
-                        .arg(App.update.latestVersion)
-                      : qsTr("最近检查：%1").arg(Fmt.localTime(App.update.lastCheckedAtUtc))
+                        .arg(Runtime.fmt.localTime(Runtime.app.update.lastCheckedAtUtc))
+                        .arg(Runtime.app.update.latestVersion)
+                      : qsTr("最近检查：%1").arg(Runtime.fmt.localTime(Runtime.app.update.lastCheckedAtUtc))
                 color: Theme.textMuted
                 font.pixelSize: Theme.fs(11)
                 wrapMode: Text.WordWrap
@@ -279,11 +281,11 @@ ColumnLayout {
                 objectName: "updateReleaseNotesButton"
                 Layout.fillWidth: false
                 Layout.alignment: Qt.AlignVCenter
-                visible: App.update.updateAvailable
+                visible: Runtime.app.update.updateAvailable
                 compact: true
                 variant: "ghost"
                 text: qsTr("查看更新说明")
-                onClicked: App.update.openReleasePage()
+                onClicked: Runtime.app.update.openReleasePage()
             }
 
             // 一个位置，两种用途：没有可下载的新版本时是「检查更新」；有新版本时随
@@ -292,19 +294,19 @@ ColumnLayout {
             // 把安装程序的地址交给系统浏览器，由浏览器下载。
             AppButton {
                 objectName: "checkUpdateNowButton"
-                readonly property bool downloadPlace: App.update.downloadPhase.length > 0
+                readonly property bool downloadPlace: Runtime.app.update.downloadPhase.length > 0
                 Layout.fillWidth: false
                 Layout.alignment: Qt.AlignVCenter
                 compact: true
-                text: downloadPlace ? App.update.downloadActionText : qsTr("检查更新")
+                text: downloadPlace ? Runtime.app.update.downloadActionText : qsTr("检查更新")
                 // 检查：开关关闭或正在检查时不可用（privacy-boundary.md §8.4）。
                 // 下载：请求在途或正在校验时不可用。
-                enabled: downloadPlace ? App.update.downloadActionEnabled : App.update.canCheck
+                enabled: downloadPlace ? Runtime.app.update.downloadActionEnabled : Runtime.app.update.canCheck
                 onClicked: {
                     if (downloadPlace)
-                        App.update.downloadAction()
+                        Runtime.app.update.downloadAction()
                     else
-                        App.update.checkNow()
+                        Runtime.app.update.checkNow()
                 }
             }
         }
@@ -320,7 +322,7 @@ ColumnLayout {
         RowLayout {
             Layout.fillWidth: true
             Layout.bottomMargin: 4
-            visible: App.maintainerToolsVisible && App.update.downloadSupported
+            visible: Runtime.app.maintainerToolsVisible && Runtime.app.update.downloadSupported
             spacing: 12
 
             Text {
@@ -338,8 +340,8 @@ ColumnLayout {
                 compact: true
                 variant: "ghost"
                 text: qsTr("重新下载最新正式版")
-                enabled: App.update.canReinstall
-                onClicked: App.update.reinstallLatest()
+                enabled: Runtime.app.update.canReinstall
+                onClicked: Runtime.app.update.reinstallLatest()
             }
         }
     }
@@ -363,8 +365,8 @@ ColumnLayout {
                 ]
                 currentValue: tab.uiStyleValue
                 onActivated: function(value) {
-                    if (typeof Settings !== "undefined" && Settings.uiStyle !== undefined)
-                        Settings.uiStyle = value
+                    if (typeof Runtime.settings !== "undefined" && Runtime.settings.uiStyle !== undefined)
+                        Runtime.settings.uiStyle = value
                 }
             }
         }
@@ -381,12 +383,12 @@ ColumnLayout {
                     { value: "light", label: qsTr("浅色") },
                     { value: "system", label: qsTr("跟随系统") }
                 ]
-                currentValue: App.themeMode
+                currentValue: Runtime.app.themeMode
                 // The shell's circular reveal, from the option that was clicked;
                 // a host without one (tests) switches immediately.
                 onActivated: function(value) {
-                    const change = function() { App.setThemeMode(value) }
-                    const shell = ApplicationWindow.window
+                    const change = function() { Runtime.app.setThemeMode(value) }
+                    const shell = tab.themeRevealHost
                     if (shell && typeof shell.revealThemeChange === "function")
                         shell.revealThemeChange(change, themeModeControl.activatedOption)
                     else
@@ -410,8 +412,8 @@ ColumnLayout {
                 to: 175
                 stepSize: 25
                 suffix: "%"
-                value: App.uiScale
-                onMoved: function(value) { App.setUiScale(value) }
+                value: Runtime.app.uiScale
+                onMoved: function(value) { Runtime.app.setUiScale(value) }
             }
         }
     }

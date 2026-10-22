@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // The header every page shares: serif gold title, a muted subtitle, a slot for
 // actions on the right, and the gilded rule

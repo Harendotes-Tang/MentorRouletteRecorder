@@ -301,10 +301,16 @@ public sealed class StatisticsRepository
                 var mapped = group.Key.ContentId is { } contentId
                     ? _duties.Find(contentId, region)
                     : _duties.FindByTerritory(group.Key.TerritoryId, region);
+                // Category facts need not have a recorded display name. Preserve a custom
+                // category even when the name is supplied by the reference catalogue.
+                var categoryRow = recent ?? group.OrderByDescending(row => row.UpdatedAtUtc).First();
+                var category = group.Key is (null, null) ? null
+                    : _duties.Categories.Resolve(categoryRow.DutyCategory,
+                        categoryRow.ContentId, categoryRow.TerritoryId, categoryRow.Region) ?? mapped?.DutyCategory;
                 return new DungeonStatisticsRow(
                     group.Key.ContentId,
                     recent?.DutyName ?? mapped?.LocalizedName ?? DutyCatalog.UnknownDutyName,
-                    recent?.DutyCategory ?? mapped?.DutyCategory,
+                    category,
                     attempts,
                     completed,
                     Ratio(completed, attempts),

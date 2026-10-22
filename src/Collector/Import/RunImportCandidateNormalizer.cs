@@ -22,9 +22,15 @@ namespace MentorRecorder.Collector.Import;
 /// 白魔 named no job then - computed with that earlier job under the key 1.7.3 used, so what it imported or purged still
 /// matches (re-review 2026-10-21, RV5-3); null when the job resolves as it did.
 /// </param>
+/// <param name="PreviousDutyNameFingerprints">
+/// Earlier exact-name inference fingerprints, including older source-key and job-alias forms,
+/// when an audited catalog preference newly resolves the name. Read only for duplicate/purge
+/// checks; supplied content ids never produce these compatibility identities.
+/// </param>
 internal sealed record ImportCandidate(int RowNumber, JsonObject Input, MentorRun? Run,
     bool HasStableId, IReadOnlySet<string> ComparedFields, IReadOnlyList<ImportRowText> Errors, IReadOnlyList<ImportRowText> Warnings,
-    string? LegacyFingerprint = null, string? PreAliasFingerprint = null);
+    string? LegacyFingerprint = null, string? PreAliasFingerprint = null,
+    IReadOnlyList<string>? PreviousDutyNameFingerprints = null);
 
 /// <summary>
 /// One sentence of a preview row (<c>rows[].errors</c> / <c>rows[].warnings</c>): the Simplified Chinese the row has
@@ -118,6 +124,7 @@ internal static class RunImportCandidateNormalizer
             var ended = ParseTime(Text(input, "ended_at_utc", 100), timeZone, CollectorTexts.ImportTimeFieldEnded());
             var matched = ParseTime(Text(input, "matched_at_utc", 100), timeZone, CollectorTexts.ImportTimeFieldMatched());
             var contentId = Number(input, "content_id", int.MaxValue);
+            var hasExplicitContentId = contentId is not null;
             var jobId = Number(input, "job_id", int.MaxValue);
             var jobName = Text(input, "job_name", 200);
             var jobBeforeAliases = jobId;
@@ -132,12 +139,11 @@ internal static class RunImportCandidateNormalizer
             var region = ParseEnum(input, "region", Region.Unknown);
             if (contentId is null && dutyName is not null)
             {
-                var matches = DutyCatalog.Default.Documents.SelectMany(document => document.Rows.Values)
-                    .Where(duty => string.Equals(duty.LocalizedName, dutyName, StringComparison.Ordinal))
-                    .Select(duty => duty.ContentId).Distinct().ToArray();
-                if (matches.Length == 1) contentId = matches[0];
+                contentId = DutyCatalog.Default.FindByName(dutyName, region)?.ContentId;
             }
             var duty = DutyCatalog.Default.Find(contentId is null ? null : (int)contentId, region);
+            var suppliedTerritoryId = Int(input, "territory_id");
+            var suppliedDutyCategory = Text(input, "duty_category", 200);
             var job = JobCatalog.Default.Find(jobId is null ? null : (int)jobId);
             var result = ParseResult(input);
             if (Text(input, "result", 64) is null)
@@ -160,9 +166,9 @@ internal static class RunImportCandidateNormalizer
                 RunId = id, Revision = 1, Source = RunSource.Import, Region = region,
                 MentorRouletteId = Int(input, "mentor_roulette_id"),
                 ContentId = contentId is null ? null : (int)contentId,
-                TerritoryId = Int(input, "territory_id") ?? duty?.TerritoryId,
+                TerritoryId = suppliedTerritoryId ?? duty?.TerritoryId,
                 DutyName = dutyName ?? duty?.LocalizedName,
-                DutyCategory = Text(input, "duty_category", 200) ?? duty?.DutyCategory,
+                DutyCategory = suppliedDutyCategory ?? duty?.DutyCategory,
                 DutySource = contentId is not null ? DutySource.Manual : null,
                 JobId = jobId is null ? null : (int)jobId,
                 JobName = jobName ?? job?.NameZh ?? JobCatalog.UnknownJobName,
@@ -175,7 +181,7 @@ internal static class RunImportCandidateNormalizer
                 // informational and imported UNKNOWN stays out of dashboard review too.
                 PendingReview = false,
                 Note = Text(input, "note", 1000),
-                JoinedInProgress = Flag(input, "joined_in_progress"),
+                JoinedInProgress = EntryMode(input),
                 ImportMetadata = metadata,
                 Reflection = text is null ? null : new RunReflection(mood, text, now, now),
                 CreatedAtUtc = ParseTime(Text(input, "created_at_utc", 100), timeZone, CollectorTexts.ImportTimeFieldCreated()) ?? now,
@@ -204,6 +210,9 @@ internal static class RunImportCandidateNormalizer
                 : Hash(string.Join('\n', sourceKind, recordSourceName ?? string.Empty,
                     stable ? id : legacySourceKey ?? key ?? string.Empty,
                     Facts(run with { JobId = jobBeforeAliases is null ? null : (int)jobBeforeAliases })));
+            var previousDutyNameFingerprints = !hasExplicitContentId && duty?.PreferredForNameMatching == true
+                ? PreviousDutyNameFingerprints(input, run, stable, key, legacySourceKey, jobBeforeAliases)
+                : Array.Empty<string>();
             run = run with { ImportMetadata = metadata with { SourceFingerprint = fingerprint } };
             // Canonical editable values; generated local UUID stays absent when the source had none.
             var canonical = Wire.Run(run);
@@ -211,8 +220,20 @@ internal static class RunImportCandidateNormalizer
             // A game time written without a zone stays as written, like source_recorded_at: it was read in
             // the selected region, and a check in another region must read it again (audit 2026-10-20 H2-4).
             foreach (var field in input.Select(pair => pair.Key).ToArray())
-                if (canonical.ContainsKey(field) && !(canonical[field] is not null && IsLocalTimeText(field, input[field])))
+            {
+                // Empty catalog fields stay empty in the editable source. A changed name or
+                // region must be re-inferred, rather than retaining a previous preview's id/map/category.
+                var supplied = field switch
+                {
+                    "content_id" => hasExplicitContentId,
+                    "territory_id" => suppliedTerritoryId is not null,
+                    "duty_category" => suppliedDutyCategory is not null,
+                    _ => true,
+                };
+                if (canonical.ContainsKey(field) && supplied
+                    && !(canonical[field] is not null && IsLocalTimeText(field, input[field])))
                     input[field] = canonical[field]?.DeepClone();
+            }
             input["run_id"] = stable ? id : null;
             if (sourceRecorded is not null) input["source_recorded_at"] = sourceRecorded;
             if (sourceUtc is not null || clearedSource || sourceDateOnly) input["source_recorded_at_utc"] = UtcTimestamp.ToTextOrNull(sourceUtc);
@@ -223,7 +244,7 @@ internal static class RunImportCandidateNormalizer
                 if (moodText is not null) input["reflection_mood"] = ReflectionText.Format(mood);
             }
             return new ImportCandidate(row.RowNumber, input, run, stable, comparedFields, errors, warnings, legacyFingerprint,
-                preAliasFingerprint);
+                preAliasFingerprint, previousDutyNameFingerprints);
         }
         catch (Exception failure) when (failure is CollectorException or FormatException or ArgumentException or InvalidOperationException or TimeZoneNotFoundException or InvalidTimeZoneException)
         {
@@ -235,6 +256,40 @@ internal static class RunImportCandidateNormalizer
     }
 
     public static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+
+    /// <summary>
+    /// Reproduces the pre-preference name scan solely for matching earlier import provenance.
+    /// Restores only catalog-derived duty facts; explicit territory/category values remain facts.
+    /// Both source-key generations and the pre-alias job form are checked, so upgrading never
+    /// recreates a stored or permanently erased row merely because its name is now resolvable.
+    /// </summary>
+    private static IReadOnlyList<string> PreviousDutyNameFingerprints(JsonObject input, MentorRun run,
+        bool stable, string? sourceKey, string? legacySourceKey, long? jobBeforeAliases)
+    {
+        var matches = DutyCatalog.Default.Documents.SelectMany(document => document.Rows.Values)
+            .Where(row => string.Equals(row.LocalizedName, run.DutyName, StringComparison.Ordinal))
+            .Select(row => row.ContentId).Distinct().Take(2).ToArray();
+        int? previousId = matches.Length == 1 ? matches[0] : null;
+        if (previousId == run.ContentId)
+        {
+            return Array.Empty<string>();
+        }
+
+        var previousDuty = DutyCatalog.Default.Find(previousId, run.Region);
+        var previous = run with
+        {
+            ContentId = previousId,
+            TerritoryId = Int(input, "territory_id") ?? previousDuty?.TerritoryId,
+            DutyCategory = Text(input, "duty_category", 200) ?? previousDuty?.DutyCategory,
+        };
+        var keys = stable ? new[] { run.RunId }
+            : new[] { sourceKey ?? string.Empty, legacySourceKey }.OfType<string>().Distinct(StringComparer.Ordinal);
+        var jobs = run.JobId == jobBeforeAliases ? new[] { run.JobId }
+            : new[] { run.JobId, jobBeforeAliases is null ? null : (int?)jobBeforeAliases };
+        return keys.SelectMany(key => jobs.Select(job => Hash(string.Join('\n', run.ImportMetadata!.SourceKind,
+                run.ImportMetadata.SourceName ?? string.Empty, key, Facts(previous with { JobId = job })))))
+            .Distinct(StringComparer.Ordinal).ToArray();
+    }
 
     /// <summary>
     /// The job a 职业 text named in 1.7.3, before approved Chinese aliases: the full Chinese name, the English name or the
@@ -350,6 +405,14 @@ internal static class RunImportCandidateNormalizer
             _ => throw Bad(CollectorTexts.ImportRowFieldNotFlag(key)),
         };
     }
+
+    /// <summary>Only the entry-mode field accepts historical table labels; blank remains unobserved.</summary>
+    private static bool? EntryMode(JsonObject input) => Text(input, "joined_in_progress", 20) switch
+    {
+        "正常" or "开局进入" => false,
+        "中途" or "中途加入" => true,
+        _ => Flag(input, "joined_in_progress"),
+    };
     private static T ParseEnum<T>(JsonObject input, string key, T fallback) where T : struct, Enum =>
         Text(input, key, 64) is { } text
             ? EnumWire<T>.TryParse(text, out var parsed) ? parsed : throw Bad(CollectorTexts.ImportRowFieldValueUnsupported(key))

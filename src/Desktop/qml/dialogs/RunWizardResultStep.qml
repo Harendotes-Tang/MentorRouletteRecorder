@@ -1,7 +1,8 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // Step 1 of the record wizard (EditRunDialog): 结果, whether it counts towards
 // the achievement, and what saving will do to the progress.
@@ -54,7 +55,7 @@ ColumnLayout {
                             implicitWidth: 10
                             implicitHeight: 10
                             radius: 5
-                            color: Theme.token(Fmt.resultColorToken(resultCard.modelData.value))
+                            color: Theme.token(Runtime.fmt.resultColorToken(resultCard.modelData.value))
                         }
                         Text {
                             text: resultCard.modelData.label
@@ -74,7 +75,7 @@ ColumnLayout {
 
                     // The raw result token is maintainer material.
                     Text {
-                        visible: App.maintainerToolsVisible === true
+                        visible: Runtime.app.maintainerToolsVisible === true
                         text: resultCard.modelData.value
                         color: Theme.textMuted
                         font.family: Theme.monoFamily

@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import MentorRecorder
+import MentorRecorder 1.0
 
 // Selection controls share the import workflow's theme-aware local Lucide tick.
 CheckBox {

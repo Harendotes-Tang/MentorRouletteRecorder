@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // `.seg` / `.seg-opt`: an inset track of radio-like options. Classic uses the
 // workbench fill track with 2 px padding; the chosen option is a surface chip
@@ -20,7 +22,7 @@ Rectangle {
     function focusSelectedOption() {
         for (let index = 0; index < optionRepeater.count; ++index) {
             const option = optionRepeater.itemAt(index)
-            if (option && option.enabled && option.current) {
+            if (option && option.enabled && root.options[index].value === root.currentValue) {
                 option.forceActiveFocus(Qt.TabFocusReason)
                 return
             }

@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // Step 2 of the record wizard (EditRunDialog): 副本 and 职业.
 //
@@ -172,7 +174,7 @@ ColumnLayout {
                     required property var modelData
 
                     objectName: "recentDuty_" + modelData.content_id
-                    text: Theme.dutyName(modelData)
+                    text: Theme.dutyChoiceLabel(modelData)
                     checked: step.wizard.dutyIndex === modelData.option_index
                     onPicked: step.wizard.pickDuty(modelData.option_index)
                 }
@@ -221,7 +223,7 @@ ColumnLayout {
                                   : (rowHover.hovered ? Theme.fill : Theme.clear(Theme.fill))
 
                     Accessible.role: Accessible.RadioButton
-                    Accessible.name: Theme.dutyName(modelData)
+                    Accessible.name: Theme.dutyChoiceLabel(modelData)
                     Accessible.checkable: true
                     Accessible.checked: chosen
                     Accessible.onPressAction: step.wizard.pickDuty(modelData.option_index)
@@ -267,14 +269,14 @@ ColumnLayout {
 
                         Text {
                             Layout.fillWidth: true
-                            text: Theme.dutyName(dutyRow.modelData)
+                            text: Theme.dutyChoiceLabel(dutyRow.modelData)
                             textFormat: Text.PlainText
                             color: dutyRow.chosen
                                    ? (Theme.eorzea ? Theme.gold2 : Theme.accent)
                                    : Theme.textPrimary
                             font.pixelSize: Theme.fs(13)
                             font.weight: Font.DemiBold
-                            elide: Text.ElideRight
+                            elide: Text.ElideMiddle
                         }
 
                         Tag {
@@ -399,8 +401,8 @@ ColumnLayout {
                             id: jobChip
 
                             required property var modelData
-                            readonly property bool hasIcon: typeof Jobs !== "undefined"
-                                                            && Jobs.framedIcon(modelData.job_id) !== ""
+                            readonly property bool hasIcon: typeof Runtime.jobs !== "undefined"
+                                                            && Runtime.jobs.framedIcon(modelData.job_id) !== ""
 
                             objectName: "jobPick_" + modelData.job_id
                             width: jobChipRow.implicitWidth + 14

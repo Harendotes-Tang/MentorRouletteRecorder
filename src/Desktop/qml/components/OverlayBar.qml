@@ -1,5 +1,7 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // `.bar`: the float's inset track with a fill, optional quarter ticks (the
 // goal bar) and an optional mark (the duty's average on the time bar).

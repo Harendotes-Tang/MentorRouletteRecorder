@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // `.tag.dg-tone`: a status pill with a 6 px dot in the tone's colour before its
 // label. Eorzea keeps the framed, translucent plate every tag has; classic tints

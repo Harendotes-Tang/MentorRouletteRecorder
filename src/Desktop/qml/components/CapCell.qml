@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // One tile of the capture-diagnostics grid: kicker, value, sub-label.
 Card {

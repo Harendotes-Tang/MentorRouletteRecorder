@@ -266,6 +266,8 @@ class DesktopTests : public QObject
 private Q_SLOTS:
     void ipcFraming_roundTripsAndRejectsInvalidPayload();
     void dutyCatalog_fillsLevelAndExpansionByTerritoryWhenContentIdIsMissing();
+    void dutyCatalog_projectsAllianceCategoriesWithoutChangingRecordedFacts();
+    void dutyCatalog_sameNamesKeepEveryIdentityAndResolveOnlyAnExplicitPreference();
     void ipcEnvelope_readsSuccessErrorAndEventShapes();
     void ipcEnvelope_readsTheErrorsMessageRef();
     void ipcEnvelope_toleratesAdditiveFields();
@@ -1669,6 +1671,69 @@ void DesktopTests::runFormValidator_buildsTheBeforeAfterDiff()
 // A run identified from its zone alone (schema 8: duty_source = TERRITORY) has
 // no content_id, so the 资料片 · 等级 line stayed empty in the history list even
 // though the catalogue knows the duty by its territory_id.
+void DesktopTests::dutyCatalog_sameNamesKeepEveryIdentityAndResolveOnlyAnExplicitPreference()
+{
+    const auto *catalog = mr::DutyCatalog::shared();
+    QHash<QString, QSet<qint64>> idsByName;
+    for (const auto &value : catalog->allDuties()) {
+        const auto row = value.toMap();
+        idsByName[row.value("duty_name").toString()].insert(row.value("content_id").toLongLong());
+    }
+    int ambiguousGroups = 0;
+    for (auto it = idsByName.cbegin(); it != idsByName.cend(); ++it) {
+        if (it.value().size() < 2) continue;
+        ++ambiguousGroups;
+        for (qint64 id : it.value())
+            QVERIFY(catalog->lookup(id).value("name_ambiguous").toBool());
+        const auto match = catalog->findByName(it.key());
+        if (it.key() == QString::fromUtf8("阿修罗歼灭战"))
+            QCOMPARE(match.value("content_id").toInt(), 944);
+        else
+            QVERIFY2(match.isEmpty(), qPrintable(it.key()));
+        QVERIFY(catalog->findByName(it.key(), QStringLiteral("GLOBAL")).isEmpty());
+    }
+    QCOMPARE(ambiguousGroups, 17);
+    QCOMPARE(catalog->lookup(69).value("duty_name"), catalog->lookup(944).value("duty_name"));
+    QCOMPARE(catalog->findByName(QString::fromUtf8("伊弗利特讨伐战")).value("content_id"),
+             catalog->lookup(56).value("content_id"));
+    QVERIFY(catalog->findByName(QString::fromUtf8("阿修罗歼殛战")).isEmpty());
+    QVERIFY(catalog->findByName(QString::fromUtf8("阿修罗")).isEmpty());
+}
+
+void DesktopTests::dutyCatalog_projectsAllianceCategoriesWithoutChangingRecordedFacts()
+{
+    const auto *catalogue = mr::DutyCatalog::shared();
+    const QString raid = QString::fromUtf8("大型任务");
+    const QString alliance = QString::fromUtf8("团队任务");
+    for (int id : {92, 102, 111, 120, 168, 220, 281, 550, 636, 700, 736, 779,
+                   866, 911, 962, 1015, 1058, 1117}) {
+        QCOMPARE(catalogue->lookup(id).value("duty_category").toString(), alliance);
+        const QVariantMap original{{"content_id", id}, {"region", "CN"}, {"duty_category", raid}};
+        QCOMPARE(catalogue->enrich(original).value("duty_category").toString(), alliance);
+        QCOMPARE(original.value("duty_category").toString(), raid);
+        QVariantMap custom = original;
+        custom.insert("duty_category", QString::fromUtf8("个人分类"));
+        QCOMPARE(catalogue->enrich(custom).value("duty_category"), custom.value("duty_category"));
+    }
+    QCOMPARE(catalogue->lookup(986).value("duty_category").toString(), raid);
+    const QVariantMap water = catalogue->lookup(92);
+    const QVariantMap byTerritory{{"territory_id", water.value("territory_id")},
+                                  {"region", "CN"}, {"duty_category", raid}};
+    QCOMPARE(catalogue->enrich(byTerritory).value("duty_category").toString(), alliance);
+    QVariantMap unknown = byTerritory;
+    unknown.insert("content_id", 999999);
+    QCOMPARE(catalogue->enrich(unknown).value("duty_category").toString(), raid);
+    for (const QVariant &invalid : {QVariant(QStringLiteral("92")), QVariant(91.6), QVariant(true)}) {
+        unknown.insert("content_id", invalid);
+        QCOMPARE(catalogue->enrich(unknown).value("duty_category").toString(), raid);
+    }
+    for (const QVariant &invalid : {QVariant(QStringLiteral("174")), QVariant(173.6), QVariant(true)}) {
+        QVariantMap badTerritory = byTerritory;
+        badTerritory.insert("territory_id", invalid);
+        QCOMPARE(catalogue->enrich(badTerritory).value("duty_category").toString(), raid);
+    }
+}
+
 void DesktopTests::dutyCatalog_fillsLevelAndExpansionByTerritoryWhenContentIdIsMissing()
 {
     const auto *catalogue = mr::DutyCatalog::shared();

@@ -1,5 +1,5 @@
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 Rectangle {
     id: root

@@ -12,6 +12,7 @@ generate.py declares; the offline merge is covered by test_game_names.py.
 from __future__ import annotations
 
 import contextlib
+import copy
 import io
 import itertools
 import json
@@ -351,6 +352,7 @@ class DryRunTests(unittest.TestCase):
     def run_main(self, args):
         output = io.StringIO()
         with mock.patch.object(generate, "http_get", side_effect=self.fake_get), \
+                mock.patch.dict(generate.NAME_MATCHING_PREFERENCES, {}, clear=True), \
                 mock.patch.object(generate.tempfile, "mkdtemp",
                                   side_effect=AssertionError("a dry run made a temp directory")), \
                 contextlib.redirect_stdout(output):
@@ -438,6 +440,7 @@ class DryRunTests(unittest.TestCase):
         out_dir = os.path.join(self.scratch, "out")
         with mock.patch.object(generate.tempfile, "tempdir", self.scratch), \
                 mock.patch.object(generate.tempfile, "mkdtemp", side_effect=fake_mkdtemp), \
+                mock.patch.dict(generate.NAME_MATCHING_PREFERENCES, {}, clear=True), \
                 mock.patch.object(generate, "http_get", side_effect=self.fake_get), \
                 contextlib.redirect_stdout(io.StringIO()):
             code = generate.main(["--out-dir", out_dir, "--version", "2026-10-03"])
@@ -753,6 +756,248 @@ class GameNamesMainTests(unittest.TestCase):
         self.assertEqual([], self.sources.requests)
 
 
+def audited_name_rows():
+    """Synthetic source facts for the one explicitly reviewed preference; no network."""
+    return {row_id: {"row_id": row_id, "fields": {
+        "Name": "The Gilded Araya" if row_id == 69 else "the Gilded Araya",
+        "ClassJobLevelRequired": 90,
+        "ContentType": {"fields": {"Name": "Trials"}},
+        "TerritoryType": {"value": 509 if row_id == 69 else 1136, "fields": {
+            "ContentFinderCondition": {"value": 944}}},
+        "ContentMemberType": {"fields": {"MembersPerParty": 8, "PartyCount": 1}},
+        "HighEndDuty": False, "MentorRoulette": row_id == 944,
+    }} for row_id in (69, 944)}
+
+
+class NamePreferenceTests(unittest.TestCase):
+    def existing_document(self):
+        return {"data_version": "2026-09-04", "region": "CN",
+                "provenance": {"xivapi_game_version": "pinned", "xivapi_sha256": "old"},
+                "duties": [
+                    {"content_id": 944, "localized_name": "阿修罗歼灭战", "enabled": True},
+                    {"content_id": 1, "localized_name": "其他", "enabled": True},
+                    {"content_id": 69, "localized_name": "阿修罗歼灭战", "enabled": True}]}
+
+    def test_full_generation_only_marks_the_audited_preferred_id(self):
+        rows = audited_name_rows()
+        rows[9000] = copy.deepcopy(rows[944])
+        rows[9000]["row_id"] = 9000
+        for language in ("en", "zh-Hans"):
+            with self.subTest(language=language):
+                duties = generate.build_rows(rows, {69: "阿修罗歼灭战", 944: "阿修罗歼灭战",
+                                                    9000: "其他同名"}, language)
+                self.assertEqual([944], [row["content_id"] for row in duties
+                                         if row.get("preferred_for_name_matching")])
+                self.assertNotIn("preferred_for_name_matching", duties[0])
+
+    def test_a_changed_source_fact_refuses_to_emit_a_preference(self):
+        mutations = (
+            (69, "Name", "Another Trial"),
+            (944, "ContentType", {"fields": {"Name": "Raids"}}),
+            (944, "ClassJobLevelRequired", 100),
+            (944, "ClassJobLevelRequired", "90"),
+            (69, "ContentMemberType", {"fields": {"MembersPerParty": 4, "PartyCount": 1}}),
+            (69, "HighEndDuty", True), (944, "HighEndDuty", None),
+            (69, "MentorRoulette", True), (944, "MentorRoulette", False),
+            (69, "HighEndDuty", 0), (944, "MentorRoulette", 1),
+            (69, "TerritoryType", {"fields": {"ContentFinderCondition": {"value": 69}}}),
+            (944, "TerritoryType", {"fields": {"ContentFinderCondition": {"value": "944"}}}),
+        )
+        for row_id, field, value in mutations:
+            with self.subTest(row_id=row_id, field=field, value=value):
+                rows = audited_name_rows()
+                rows[row_id]["fields"][field] = value
+                with self.assertRaises(ValueError):
+                    generate.build_rows(rows, {}, "en")
+
+    def test_only_one_member_of_the_audited_pair_is_refused(self):
+        for missing in (69, 944):
+            rows = audited_name_rows()
+            del rows[missing]
+            with self.subTest(missing=missing), self.assertRaises(ValueError):
+                generate.build_rows(rows, {}, "en")
+
+    def test_full_cli_retains_preference_and_records_its_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            response = (audited_name_rows(), ["https://example.invalid/pinned"], "c" * 64,
+                        "pinned")
+            with mock.patch.object(generate, "fetch_english_rows", return_value=response), \
+                    mock.patch.object(generate, "fetch_chinese_names", return_value=(
+                        {69: "阿修罗歼灭战", 944: "阿修罗歼灭战"}, "cn-source", "d" * 64)), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                code = generate.main(["--version", "2026-10-22", "--game-version", "pinned",
+                                      "--out-dir", directory, "--raw-dir", directory])
+            self.assertEqual(0, code)
+            for region in ("cn", "global"):
+                with io.open(os.path.join(directory, region + ".2026-10-22.json"),
+                             encoding="utf-8") as handle:
+                    document = json.load(handle)
+                self.assertEqual([944], [row["content_id"] for row in document["duties"]
+                                         if row.get("preferred_for_name_matching")])
+                self.assertEqual("c" * 64,
+                                 document["provenance"]["name_matching"]["xivapi_sha256"])
+                self.assertEqual("pinned",
+                                 document["provenance"]["name_matching"]["xivapi_game_version"])
+
+    def test_backfill_preserves_every_existing_field_order_and_provenance(self):
+        before = self.existing_document()
+        original = copy.deepcopy(before)
+        source = {"xivapi_game_version": "pinned", "xivapi_sha256": "new"}
+
+        after = generate.with_name_preferences(before, audited_name_rows(), source)
+
+        self.assertEqual(original, before)
+        self.assertEqual([944, 1, 69], [row["content_id"] for row in after["duties"]])
+        for old, new in zip(before["duties"], after["duties"]):
+            self.assertEqual(list(old), [key for key in new if key != "preferred_for_name_matching"])
+            self.assertEqual(old, {key: value for key, value in new.items()
+                                   if key != "preferred_for_name_matching"})
+        self.assertTrue(after["duties"][0]["preferred_for_name_matching"])
+        self.assertEqual("old", after["provenance"]["xivapi_sha256"])
+        self.assertEqual("new", after["provenance"]["name_matching"]["xivapi_sha256"])
+        self.assertEqual([{"preferred_content_id": 944, "duplicate_content_id": 69}],
+                         after["provenance"]["name_matching"]["rules"])
+        twice = generate.with_name_preferences(after, audited_name_rows(), source)
+        self.assertEqual(after, twice)
+
+    def test_backfill_refuses_missing_or_renamed_localized_pair(self):
+        for missing, renamed in ((True, False), (False, True)):
+            document = self.existing_document()
+            if missing:
+                document["duties"].pop()
+            if renamed:
+                document["duties"][-1]["localized_name"] = "阿修罗歼殛战"
+            with self.subTest(missing=missing, renamed=renamed), self.assertRaises(ValueError):
+                generate.with_name_preferences(document, audited_name_rows(), {})
+
+    def test_backfill_cli_pins_old_version_and_never_fetches_chinese_names(self):
+        for dry_run in (False, True):
+            with self.subTest(dry_run=dry_run), tempfile.TemporaryDirectory() as directory:
+                path = os.path.join(directory, "existing.json")
+                before = json.dumps(self.existing_document(), ensure_ascii=False).encode("utf-8")
+                with open(path, "wb") as handle:
+                    handle.write(before)
+                args = ["--add-name-preferences", path, "--raw-dir", directory]
+                if dry_run:
+                    args.append("--dry-run")
+                response = (audited_name_rows(), ["https://example.invalid/pinned"], "c" * 64,
+                            "pinned")
+                with mock.patch.object(generate, "fetch_english_rows", return_value=response) as fetch, \
+                        mock.patch.object(generate, "fetch_chinese_names",
+                                          side_effect=AssertionError("fetched current CN names")), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    code = generate.main(args)
+                self.assertEqual(0, code)
+                fetch.assert_called_once_with(None if dry_run else directory, "pinned")
+                with open(path, "rb") as handle:
+                    after = handle.read()
+                if dry_run:
+                    self.assertEqual(before, after)
+                else:
+                    self.assertTrue(json.loads(after)["duties"][0]["preferred_for_name_matching"])
+
+    def test_backfill_rejects_game_version_override_without_writing_or_fetching(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "existing.json")
+            generate.write_document(path, self.existing_document())
+            with open(path, "rb") as handle:
+                before = handle.read()
+            with mock.patch.object(generate, "fetch_english_rows") as fetch, \
+                    contextlib.redirect_stderr(io.StringIO()):
+                code = generate.main(["--add-name-preferences", path, "--game-version", "other",
+                                      "--raw-dir", directory])
+            self.assertEqual(1, code)
+            fetch.assert_not_called()
+            with open(path, "rb") as handle:
+                self.assertEqual(before, handle.read())
+
+    def test_backfill_validates_all_files_before_writing_any(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = [os.path.join(directory, name + ".json") for name in ("first", "second")]
+            first, second = self.existing_document(), self.existing_document()
+            second["duties"][-1]["localized_name"] = "changed"
+            for path, document in zip(paths, (first, second)):
+                generate.write_document(path, document)
+            before = []
+            for path in paths:
+                with open(path, "rb") as handle:
+                    before.append(handle.read())
+            response = (audited_name_rows(), [], "c" * 64, "pinned")
+            with mock.patch.object(generate, "fetch_english_rows", return_value=response), \
+                    contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                code = generate.main(["--add-name-preferences", *paths, "--raw-dir", directory])
+            self.assertEqual(1, code)
+            for path, original in zip(paths, before):
+                with open(path, "rb") as handle:
+                    self.assertEqual(original, handle.read())
+
+    def test_backfill_missing_source_pair_refuses_the_entire_batch_without_writing(self):
+        for missing_ids in ((69,), (944,), (69, 944)):
+            with self.subTest(missing_ids=missing_ids), tempfile.TemporaryDirectory() as directory:
+                paths = [os.path.join(directory, name + ".json") for name in ("first", "second")]
+                first, second = self.existing_document(), self.existing_document()
+                first["duties"] = [row for row in first["duties"] if row["content_id"] == 1]
+                for path, document in zip(paths, (first, second)):
+                    generate.write_document(path, document)
+                before = []
+                for path in paths:
+                    with open(path, "rb") as handle:
+                        before.append(handle.read())
+                rows = audited_name_rows()
+                for row_id in missing_ids:
+                    del rows[row_id]
+                response = (rows, [], "c" * 64, "pinned")
+                with mock.patch.object(generate, "fetch_english_rows", return_value=response), \
+                        contextlib.redirect_stdout(io.StringIO()), \
+                        contextlib.redirect_stderr(io.StringIO()):
+                    code = generate.main(["--add-name-preferences", *paths, "--raw-dir", directory])
+                self.assertEqual(1, code)
+                for path, original in zip(paths, before):
+                    with open(path, "rb") as handle:
+                        self.assertEqual(original, handle.read())
+
+    def test_modes_are_mutually_exclusive(self):
+        for args in (["--add-name-preferences", "unused", "--add-party-size", "unused"],
+                     ["--game-names", "--add-name-preferences", "unused"]):
+            with self.subTest(args=args), mock.patch.object(generate, "http_get") as fetch, \
+                    contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as caught:
+                generate.main(["--dry-run", *args])
+            self.assertEqual(2, caught.exception.code)
+            fetch.assert_not_called()
+
+    def test_production_modes_refuse_incomplete_failed_or_wrong_version_fetches_without_writing(self):
+        cases = (
+            ("missing-pair", json.dumps({"version": "pinned", "rows": []}).encode()),
+            ("wrong-version", json.dumps({"version": "other", "rows":
+                                         list(audited_name_rows().values())}).encode()),
+            ("network-failure", urllib.error.URLError("offline")),
+        )
+        for mode in ("full", "backfill"):
+            for case, response in cases:
+                with self.subTest(mode=mode, case=case), tempfile.TemporaryDirectory() as directory:
+                    path = os.path.join(directory, "existing.json")
+                    generate.write_document(path, self.existing_document())
+                    with open(path, "rb") as handle:
+                        before = handle.read()
+                    out_dir = os.path.join(directory, "output")
+                    args = ["--game-version", "pinned", "--raw-dir", directory]
+                    args += (["--add-name-preferences", path] if mode == "backfill"
+                             else ["--out-dir", out_dir])
+                    transport = ({"side_effect": response} if isinstance(response, Exception)
+                                 else {"return_value": response})
+                    with mock.patch.object(generate, "http_get", **transport), \
+                            mock.patch.object(generate, "fetch_chinese_names") as chinese, \
+                            contextlib.redirect_stdout(io.StringIO()), \
+                            contextlib.redirect_stderr(io.StringIO()):
+                        code = generate.main(args)
+                    self.assertEqual(1, code)
+                    chinese.assert_not_called()
+                    self.assertFalse(os.path.exists(out_dir))
+                    with open(path, "rb") as handle:
+                        self.assertEqual(before, handle.read())
+
+
 class BundledDataTests(unittest.TestCase):
     """The committed files, offline: every roulette-relevant row states its party size."""
 
@@ -771,6 +1016,25 @@ class BundledDataTests(unittest.TestCase):
             self.assertEqual({24}, by_category["团队任务"], name)
             # 大型任务 holds both 8-player raids and 24-player alliance raids.
             self.assertEqual({8, 24}, by_category["大型任务"], name)
+
+    def test_bundled_preferences_keep_both_numeric_identities_and_source_version(self):
+        for name in ("cn.2026-09-04.json", "global.2026-09-04.json"):
+            with io.open(os.path.join(generate.REPO, "data", "duties", name),
+                         encoding="utf-8") as handle:
+                document = json.load(handle)
+            self.assertEqual(857, len(document["duties"]), name)
+            self.assertEqual([944], [row["content_id"] for row in document["duties"]
+                                     if row.get("preferred_for_name_matching")], name)
+            rows = {row["content_id"]: row for row in document["duties"]}
+            self.assertEqual(509, rows[69]["territory_id"])
+            self.assertEqual(1136, rows[944]["territory_id"])
+            self.assertEqual(rows[69]["localized_name"].casefold(),
+                             rows[944]["localized_name"].casefold())
+            source = document["provenance"]["name_matching"]
+            self.assertEqual(document["provenance"]["xivapi_game_version"],
+                             source["xivapi_game_version"])
+            self.assertEqual([{"preferred_content_id": 944, "duplicate_content_id": 69}],
+                             source["rules"])
 
 
 if __name__ == "__main__":

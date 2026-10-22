@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 待处理记录: how many runs still wait for an answer or a note, one coloured
 // dot per run. Clicking opens the first in the result popup, which then pages

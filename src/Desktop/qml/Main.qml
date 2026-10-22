@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls 6.8
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 import "components/Lucide.js" as Lucide
 
 ApplicationWindow {
@@ -28,8 +30,8 @@ ApplicationWindow {
     StatisticsFloatingWindow { id: statisticsFloat }
 
     function presentRecordingAlert() {
-        if (App.maintainerToolsVisible || !window.visible || window.visibility === Window.Minimized) return
-        if (App.recording.pendingAlert && App.recording.blocked && !recordingAlert.opened)
+        if (Runtime.app.maintainerToolsVisible || !window.visible || window.visibility === Window.Minimized) return
+        if (Runtime.app.recording.pendingAlert && Runtime.app.recording.blocked && !recordingAlert.opened)
             recordingAlert.open()
     }
     onVisibilityChanged: Qt.callLater(window.presentRecordingAlert)
@@ -41,9 +43,9 @@ ApplicationWindow {
             reflectionDialog.defer()
     }
     Connections {
-        target: App.recording
+        target: Runtime.app.recording
         function onChanged() {
-            if (!App.recording.blocked) recordingAlert.close()
+            if (!Runtime.app.recording.blocked) recordingAlert.close()
             Qt.callLater(window.presentRecordingAlert)
         }
     }
@@ -69,7 +71,7 @@ ApplicationWindow {
             spacing: 16
             Label {
                 Layout.fillWidth: true
-                text: App.recording.message
+                text: Runtime.app.recording.message
                 color: Theme.textPrimary
                 textFormat: Text.PlainText
                 wrapMode: Text.WordWrap
@@ -78,13 +80,13 @@ ApplicationWindow {
                 Layout.alignment: Qt.AlignRight
                 AppButton {
                     text: qsTr("查看诊断")
-                    onClicked: { App.recording.acknowledge(); recordingAlert.close(); App.navigate(4) }
+                    onClicked: { Runtime.app.recording.acknowledge(); recordingAlert.close(); Runtime.app.navigate(4) }
                 }
                 AppButton {
                     objectName: "automaticRecordingAcknowledge"
                     text: qsTr("我知道了")
                     variant: "primary"
-                    onClicked: { App.recording.acknowledge(); recordingAlert.close() }
+                    onClicked: { Runtime.app.recording.acknowledge(); recordingAlert.close() }
                 }
             }
         }
@@ -97,10 +99,10 @@ ApplicationWindow {
             window.showMaximized()
     }
 
-    readonly property bool suppressOnboarding: typeof SuppressOnboarding !== "undefined" ? SuppressOnboarding : false
+    readonly property bool suppressOnboarding: typeof Runtime.suppressOnboarding !== "undefined" ? Runtime.suppressOnboarding : false
     // 每次启动只调度一次；首次引导及业务弹窗优先，普通截图保持原画面。
     property bool releaseNotesWaiting: false
-    readonly property var releaseNotesController: typeof ReleaseNotes !== "undefined" ? ReleaseNotes : null
+    readonly property var releaseNotesController: typeof Runtime.releaseNotes !== "undefined" ? Runtime.releaseNotes : null
     function presentReleaseNotes() {
         if (!releaseNotesWaiting || !window.visible || window.visibility === Window.Minimized)
             return
@@ -125,12 +127,12 @@ ApplicationWindow {
         running: window.releaseNotesWaiting
         onTriggered: window.presentReleaseNotes()
     }
-    readonly property bool forceBaselineDialog: typeof ForceBaselineDialog !== "undefined" ? ForceBaselineDialog : false
-    readonly property bool forceDisclosure: typeof ForceDisclosure !== "undefined" ? ForceDisclosure : false
-    readonly property bool forceOpenDetail: typeof ForceOpenDetail !== "undefined" ? ForceOpenDetail : false
-    readonly property bool forceOpenEdit: typeof ForceOpenEdit !== "undefined" ? ForceOpenEdit : false
-    readonly property bool forceOpenReflection: typeof ForceOpenReflection !== "undefined" ? ForceOpenReflection : false
-    readonly property string forceDetailTab: typeof ForceDetailTab !== "undefined" ? ForceDetailTab : ""
+    readonly property bool forceBaselineDialog: typeof Runtime.forceBaselineDialog !== "undefined" ? Runtime.forceBaselineDialog : false
+    readonly property bool forceDisclosure: typeof Runtime.forceDisclosure !== "undefined" ? Runtime.forceDisclosure : false
+    readonly property bool forceOpenDetail: typeof Runtime.forceOpenDetail !== "undefined" ? Runtime.forceOpenDetail : false
+    readonly property bool forceOpenEdit: typeof Runtime.forceOpenEdit !== "undefined" ? Runtime.forceOpenEdit : false
+    readonly property bool forceOpenReflection: typeof Runtime.forceOpenReflection !== "undefined" ? Runtime.forceOpenReflection : false
+    readonly property string forceDetailTab: typeof Runtime.forceDetailTab !== "undefined" ? Runtime.forceDetailTab : ""
 
     property string reasonAction: ""
     property string reasonDialogError: ""
@@ -147,12 +149,12 @@ ApplicationWindow {
 
     // npcap_installed is in every capture status; without one (no pipe, a
     // failed read) the side panel claims nothing about Npcap (review K2-1).
-    readonly property bool npcapKnown: App.backendConnected && App.captureStatus.npcap_installed !== undefined
+    readonly property bool npcapKnown: Runtime.app.backendConnected && Runtime.app.captureStatus.npcap_installed !== undefined
 
     // Colour of the title bar's Collector dot; the state comes from
     // CollectorProcess through AppController.
     function collectorColor() {
-        switch (App.collectorState) {
+        switch (Runtime.app.collectorState) {
         case "running":
         case "reused": return Theme.green
         case "starting": return Theme.accent
@@ -166,22 +168,22 @@ ApplicationWindow {
     // after the client logged in stays RUNNING and decodes nothing
     // (docs/live-validation-guide.md section 6).
     function captureBadgeText() {
-        if (App.maintainerToolsVisible) return App.captureModeCompactText
-        return App.recording.state === "listening" ? qsTr("自动监听中")
-             : App.recording.silent ? qsTr("读不到游戏数据")
-             : App.recording.state === "waiting" ? qsTr("等待游戏")
-             : App.recording.state === "choosing_game" ? qsTr("等待选择游戏")
-             : App.recording.state === "calibrating" ? qsTr("校准中")
-             : App.recording.state === "calibration_ready" ? qsTr("待核对")
-             : App.recording.state === "calibration_blocked" ? qsTr("无法自动记录")
-             : App.recording.blocked ? qsTr("无法自动记录") : qsTr("检查中")
+        if (Runtime.app.maintainerToolsVisible) return Runtime.app.captureModeCompactText
+        return Runtime.app.recording.state === "listening" ? qsTr("自动监听中")
+             : Runtime.app.recording.silent ? qsTr("读不到游戏数据")
+             : Runtime.app.recording.state === "waiting" ? qsTr("等待游戏")
+             : Runtime.app.recording.state === "choosing_game" ? qsTr("等待选择游戏")
+             : Runtime.app.recording.state === "calibrating" ? qsTr("校准中")
+             : Runtime.app.recording.state === "calibration_ready" ? qsTr("待核对")
+             : Runtime.app.recording.state === "calibration_blocked" ? qsTr("无法自动记录")
+             : Runtime.app.recording.blocked ? qsTr("无法自动记录") : qsTr("检查中")
     }
 
     // Green claims that something is being recorded, so it is reserved for the
     // listening state; states needing attention are amber, the rest neutral.
     function captureBadgeColor() {
-        return App.recording.attention ? Theme.orange
-             : App.recording.state === "listening" ? Theme.green : Theme.neutral400
+        return Runtime.app.recording.attention ? Theme.orange
+             : Runtime.app.recording.state === "listening" ? Theme.green : Theme.neutral400
     }
 
     function openCreateDialog() {
@@ -189,9 +191,9 @@ ApplicationWindow {
     }
 
     function openCorrectDialog() {
-        if (!App.hasSelection)
+        if (!Runtime.app.hasSelection)
             return
-        editDialog.openForRun(App.selectedRun)
+        editDialog.openForRun(Runtime.app.selectedRun)
     }
 
     // Used by the dashboard's 导随心得 panel and the history detail panel. The
@@ -213,16 +215,16 @@ ApplicationWindow {
     }
 
     function offerReminder(run, kind) {
-        if (!App.recovery.identityVerified) return
-        const mode = typeof Settings !== "undefined" && Settings.promptPresentation
-                     ? Settings.promptPresentation : "window"
+        if (!Runtime.app.recovery.identityVerified) return
+        const mode = typeof Runtime.settings !== "undefined" && Runtime.settings.promptPresentation
+                     ? Runtime.settings.promptPresentation : "window"
         // 独立小窗 always opens the popup; 浮窗提示 opens it beside the float
         // while the float is up and otherwise only keeps the prompt in 待处理,
         // as 仅保留待办 always does (review L2-8).
         const silent = mode === "floating" ? !statisticsFloat.visible : mode !== "window"
         if (silent) {
-            if (kind === "result") App.resultConfirmationDeferred(run.run_id)
-            else App.reflectionPromptDeferred(run.run_id)
+            if (kind === "result") Runtime.app.resultConfirmationDeferred(run.run_id)
+            else Runtime.app.reflectionPromptDeferred(run.run_id)
             return
         }
         if (reflectionDialog.visible || reflectionDialog.busy) return
@@ -256,7 +258,7 @@ ApplicationWindow {
     }
 
     Connections {
-        target: App.recovery
+        target: Runtime.app.recovery
         function onScopeChanging() { recoveryInbox.close(); recoveryNotice.hide() }
         function onInboxRequested() {
             if (reflectionDialog.visible || reflectionDialog.busy) {
@@ -265,7 +267,7 @@ ApplicationWindow {
             }
             window.bringToFront()
             recoveryInbox.open()
-            App.recovery.refresh()
+            Runtime.app.recovery.refresh()
         }
         function onOpenRequested(run, kind) {
             // The popup's pager: the open window takes the record it asked for.
@@ -278,7 +280,7 @@ ApplicationWindow {
                 window.raiseEditorHost()
                 return
             }
-            prepareReflection(true, false)
+            window.prepareReflection(true, false)
             if (kind === "result") reflectionDialog.openForResult(run)
             else reflectionDialog.openForRun(run, qsTr("继续处理"))
             // Manual recovery is independent from automatic queue acknowledgments.
@@ -295,14 +297,14 @@ ApplicationWindow {
     }
 
     Connections {
-        target: App
+        target: Runtime.app
         function onCurrentPageChanged() {
-            if (typeof Reflections !== "undefined")
-                Reflections.setActive(App.currentPage === 7)
+            if (typeof Runtime.reflections !== "undefined")
+                Runtime.reflections.setActive(Runtime.app.currentPage === 7)
         }
         function onReflectionSaved(runId) {
-            if (typeof Reflections !== "undefined")
-                Reflections.reload()
+            if (typeof Runtime.reflections !== "undefined")
+                Runtime.reflections.reload()
         }
     }
 
@@ -344,20 +346,20 @@ ApplicationWindow {
     }
 
     function openReasonDialog(actionName) {
-        if (!App.hasSelection)
+        if (!Runtime.app.hasSelection)
             return
         reasonAction = actionName
         reasonDialogError = ""
         reasonSubmitting = false
-        reasonRunId = App.selectedRun.run_id || ""
-        reasonRevision = App.selectedRun.revision !== undefined ? Number(App.selectedRun.revision) : -1
+        reasonRunId = Runtime.app.selectedRun.run_id || ""
+        reasonRevision = Runtime.app.selectedRun.revision !== undefined ? Number(Runtime.app.selectedRun.revision) : -1
         reasonField.text = ""
         reasonDialog.title = window.reasonDialogTitle(actionName)
         reasonDialog.open()
     }
 
     Connections {
-        target: App
+        target: Runtime.app
 
         // Both dialogs stay open until the Collector answers, so its refusal is
         // shown in the form the user is looking at; the toast only repeats it.
@@ -365,11 +367,11 @@ ApplicationWindow {
         // form takes only its own - not one from 本次导随结果 or 设置 meanwhile
         // (review DT3-X1).
         function onMutationFailed(code, message, kind, runId, neverSent) {
-            const text = App.errorText(message, code)
-            if (reasonDialog.visible && reasonSubmitting
-                && kind === reasonAction && runId === reasonRunId) {
-                reasonDialogError = text
-                reasonSubmitting = false
+            const text = Runtime.app.errorText(message, code)
+            if (reasonDialog.visible && window.reasonSubmitting
+                && kind === window.reasonAction && runId === window.reasonRunId) {
+                window.reasonDialogError = text
+                window.reasonSubmitting = false
             }
             if (editDialog.visible && (kind === "create" || kind === "correct")) {
                 // The run, the code and whether it was sent first: the wizard
@@ -394,7 +396,7 @@ ApplicationWindow {
             if (!baselineDialog.saving)
                 return
             baselineDialog.saving = false
-            App.completeFirstRun()
+            Runtime.app.completeFirstRun()
             baselineDialog.close()
         }
 
@@ -405,21 +407,21 @@ ApplicationWindow {
                 if (!editDialog.acceptSubmission(runId))
                     return
                 if (kind === "create")
-                    App.navigate(1)
+                    Runtime.app.navigate(1)
                 return
             }
             // The 原因 actions answer with their own name as the kind.
-            if (!reasonDialog.visible || !reasonSubmitting
-                || kind !== reasonAction || runId !== reasonRunId)
+            if (!reasonDialog.visible || !window.reasonSubmitting
+                || kind !== window.reasonAction || runId !== window.reasonRunId)
                 return
-            reasonSubmitting = false
+            window.reasonSubmitting = false
             reasonDialog.close()
         }
     }
 
     // DUTY_RESULT arrived and the run has no reflection yet: ask for one now.
     Connections {
-        target: App
+        target: Runtime.app
         ignoreUnknownSignals: true
 
         function onReflectionPromptRequested(run) {
@@ -492,18 +494,18 @@ ApplicationWindow {
             id: recordingNotice
             objectName: "automaticRecordingBanner"
 
-            readonly property string message: App.recording.message
+            readonly property string message: Runtime.app.recording.message
             // Dismissal lasts until the software has something else to say. The
             // serial does not move on a language switch, which re-renders the
             // same message in other words; the text still matches a message that
             // comes back unchanged later.
             property string dismissed: ""
             property int dismissedSerial: -1
-            readonly property bool dismissedNow: recordingNotice.dismissedSerial === App.recording.messageSerial
+            readonly property bool dismissedNow: recordingNotice.dismissedSerial === Runtime.app.recording.messageSerial
                                                  || recordingNotice.dismissed === recordingNotice.message
 
-            visible: !App.maintainerToolsVisible
-                     && (App.recording.attention || App.recording.retryAvailable)
+            visible: !Runtime.app.maintainerToolsVisible
+                     && (Runtime.app.recording.attention || Runtime.app.recording.retryAvailable)
                      && !recordingNotice.dismissedNow
             // Bottom right, clear of the page title and of the sidebar: the notice
             // must not cover the heading of the page it is talking about.
@@ -536,23 +538,23 @@ ApplicationWindow {
                 }
                 AppButton {
                     objectName: "calibrationBannerConfirmButton"
-                    visible: App.calibration.state === "READY"
+                    visible: Runtime.app.calibration.state === "READY"
                     variant: "primary"
                     text: qsTr("核对并启用")
                     onClicked: calibrationDialog.openDialog()
                 }
                 AppButton {
-                    visible: App.recording.retryAvailable
+                    visible: Runtime.app.recording.retryAvailable
                     text: qsTr("重试自动记录")
-                    onClicked: App.recording.retry()
+                    onClicked: Runtime.app.recording.retry()
                 }
-                AppButton { text: qsTr("查看诊断"); onClicked: App.navigate(4) }
+                AppButton { text: qsTr("查看诊断"); onClicked: Runtime.app.navigate(4) }
                 AppButton {
                     objectName: "automaticRecordingNoticeDismiss"
                     text: qsTr("收起")
                     onClicked: {
                         recordingNotice.dismissed = recordingNotice.message
-                        recordingNotice.dismissedSerial = App.recording.messageSerial
+                        recordingNotice.dismissedSerial = Runtime.app.recording.messageSerial
                     }
                 }
             }
@@ -687,7 +689,7 @@ ApplicationWindow {
                         // 版本号常驻标题栏：确认所用版本无需查看安装包或导出诊断报告。
                         Text {
                             objectName: "titleBarVersion"
-                            text: "v" + App.appVersion
+                            text: "v" + Runtime.app.appVersion
                             color: Theme.titlebarTextSecondary
                             font.pixelSize: Theme.fs(11)
                             font.letterSpacing: 0.3
@@ -708,7 +710,7 @@ ApplicationWindow {
                     }
 
                     Text {
-                        text: App.collectorStatusText
+                        text: Runtime.app.collectorStatusText
                         color: Theme.titlebarTextSecondary
                         font.pixelSize: Theme.fs(11)
                         elide: Text.ElideRight
@@ -720,9 +722,9 @@ ApplicationWindow {
                         objectName: "themeToggleButton"
                         compact: true
                         variant: "inverse"
-                        text: App.dark ? qsTr("浅色") : qsTr("深色")
-                        iconName: App.dark ? "sun" : "moon"
-                        onClicked: window.revealThemeChange(function() { App.toggleTheme() },
+                        text: Runtime.app.dark ? qsTr("浅色") : qsTr("深色")
+                        iconName: Runtime.app.dark ? "sun" : "moon"
+                        onClicked: window.revealThemeChange(function() { Runtime.app.toggleTheme() },
                                                             themeToggleButton)
                     }
 
@@ -730,12 +732,12 @@ ApplicationWindow {
                     AppButton {
                         objectName: "statisticsFloatingWindowButton"
                         compact: true
-                        variant: App.statisticsOverlay.visible ? "primary" : "secondary"
-                        text: App.statisticsOverlay.locked ? qsTr("解锁浮窗") : qsTr("统计浮窗")
-                        iconName: App.statisticsOverlay.locked ? "lock-open" : "chart-column"
+                        variant: Runtime.app.statisticsOverlay.visible ? "primary" : "secondary"
+                        text: Runtime.app.statisticsOverlay.locked ? qsTr("解锁浮窗") : qsTr("统计浮窗")
+                        iconName: Runtime.app.statisticsOverlay.locked ? "lock-open" : "chart-column"
                         onClicked: {
-                            if (App.statisticsOverlay.locked) App.statisticsOverlay.unlock()
-                            else App.statisticsOverlay.toggle()
+                            if (Runtime.app.statisticsOverlay.locked) Runtime.app.statisticsOverlay.unlock()
+                            else Runtime.app.statisticsOverlay.toggle()
                         }
                     }
 
@@ -867,12 +869,12 @@ ApplicationWindow {
                                 delegate: NavItem {
                                     required property var modelData
 
-                                    visible: modelData.index !== 6 || App.maintainerToolsVisible
+                                    visible: modelData.index !== 6 || Runtime.app.maintainerToolsVisible
                                     Layout.fillWidth: true
                                     iconName: modelData.icon
                                     label: modelData.label
-                                    current: modelData.index === App.currentPage
-                                    onClicked: App.navigate(modelData.index)
+                                    current: modelData.index === Runtime.app.currentPage
+                                    onClicked: Runtime.app.navigate(modelData.index)
                                 }
                             }
                         }
@@ -900,13 +902,14 @@ ApplicationWindow {
                                 // 当前场次 belong to the capture page and the dashboard's
                                 // 当前导随 card.
                                 model: [
-                                    { icon: "gamepad-2", key: qsTr("FF14"), value: App.gameSelection.selectionRequired && App.gameSelection.choices.length > 0 ? qsTr("待选择") : App.ffxivRunning ? qsTr("运行中") : qsTr("未运行"), color: App.gameSelection.selectionRequired && App.gameSelection.choices.length > 0 ? Theme.orange : App.ffxivRunning ? Theme.green : Theme.neutral400 },
+                                    { icon: "gamepad-2", key: qsTr("FF14"), value: Runtime.app.gameSelection.selectionRequired && Runtime.app.gameSelection.choices.length > 0 ? qsTr("待选择") : Runtime.app.ffxivRunning ? qsTr("运行中") : qsTr("未运行"), color: Runtime.app.gameSelection.selectionRequired && Runtime.app.gameSelection.choices.length > 0 ? Theme.orange : Runtime.app.ffxivRunning ? Theme.green : Theme.neutral400 },
                                     // Without a capture status nothing is known about Npcap (review K2-1).
-                                    { icon: "network", key: qsTr("Npcap"), value: !window.npcapKnown ? Fmt.dash() : App.npcapInstalled ? qsTr("就绪") : qsTr("未安装"), color: !window.npcapKnown ? Theme.neutral400 : App.npcapInstalled ? Theme.green : Theme.orange },
+                                    { icon: "network", key: qsTr("Npcap"), value: !window.npcapKnown ? Runtime.fmt.dash() : Runtime.app.npcapInstalled ? qsTr("就绪") : qsTr("未安装"), color: !window.npcapKnown ? Theme.neutral400 : Runtime.app.npcapInstalled ? Theme.green : Theme.orange },
                                     { icon: "radio", key: qsTr("捕获"), value: window.captureBadgeText(), color: window.captureBadgeColor() }
                                 ]
 
                                 delegate: RowLayout {
+                                    id: statusRow
                                     required property var modelData
 
                                     Layout.fillWidth: true
@@ -918,12 +921,12 @@ ApplicationWindow {
                                     // the state colour.
                                     Image {
                                         objectName: "statusIcon"
-                                        visible: Lucide.has(modelData.icon)
+                                        visible: Lucide.has(statusRow.modelData.icon)
                                         Layout.preferredWidth: 14
                                         Layout.preferredHeight: 14
                                         Layout.alignment: Qt.AlignVCenter
                                         sourceSize: Qt.size(Math.round(14 * window.pixelRatio), Math.round(14 * window.pixelRatio))
-                                        source: visible ? Lucide.source(modelData.icon, modelData.color) : ""
+                                        source: visible ? Lucide.source(statusRow.modelData.icon, statusRow.modelData.color) : ""
                                         fillMode: Image.PreserveAspectFit
                                         smooth: true
                                     }
@@ -931,7 +934,7 @@ ApplicationWindow {
                                     Text {
                                         // Room for 4 CJK characters at 11 px (当前场次).
                                         Layout.preferredWidth: 46
-                                        text: modelData.key
+                                        text: statusRow.modelData.key
                                         color: Theme.textSecondary
                                         font.pixelSize: Theme.fs(11)
                                         elide: Text.ElideRight
@@ -942,7 +945,7 @@ ApplicationWindow {
                                     // line rather than an ellipsis.
                                     Text {
                                         Layout.fillWidth: true
-                                        text: modelData.value
+                                        text: statusRow.modelData.value
                                         color: Theme.textPrimary
                                         font.pixelSize: Theme.fs(11)
                                         font.bold: true
@@ -981,24 +984,24 @@ ApplicationWindow {
                         DashboardPage {
                             anchors.fill: parent
                             onOpenManualRequested: window.openCreateDialog()
-                            onOpenCaptureRequested: App.navigate(4)
+                            onOpenCaptureRequested: Runtime.app.navigate(4)
                             // 成就卡片上的「修改」：要改的是安装前已完成次数，所以打开
                             // 设置 · 成就，光标放进那个输入框。
                             onOpenSettingsRequested: {
-                                App.navigate(5)
+                                Runtime.app.navigate(5)
                                 settingsPage.editBaseline()
                             }
-                            onOpenReflectionsRequested: App.navigate(7)
+                            onOpenReflectionsRequested: Runtime.app.navigate(7)
                             onReflectRequested: function(run, kicker) {
                                 window.openReflection(run, kicker)
                             }
                             onOpenRunHistoryRequested: function(run) {
                                 historyPage.detailTab = "refl"
-                                if (App.openHistoryForRun)
-                                    App.openHistoryForRun(run)
+                                if (Runtime.app.openHistoryForRun)
+                                    Runtime.app.openHistoryForRun(run)
                                 else {
-                                    App.navigate(1)
-                                    App.selectRun(run)
+                                    Runtime.app.navigate(1)
+                                    Runtime.app.selectRun(run)
                                 }
                             }
                         }
@@ -1020,10 +1023,10 @@ ApplicationWindow {
                                 if (!recordingNotice.visible)
                                     return 0
                                 // mapFromItem is not a dependency; these are.
-                                void recordingNotice.height
-                                void historyPage.height
-                                void window.height
-                                void window.width
+                                Theme.trackBindingDependency(recordingNotice.height)
+                                Theme.trackBindingDependency(historyPage.height)
+                                Theme.trackBindingDependency(window.height)
+                                Theme.trackBindingDependency(window.width)
                                 return Math.max(0, historyPage.height
                                                    - historyPage.mapFromItem(recordingNotice, 0, 0).y)
                             }
@@ -1067,7 +1070,7 @@ ApplicationWindow {
                             anchors.fill: parent
                             onOpenCalibrationRequested: calibrationDialog.openDialog()
                             onOpenRegionSettingsRequested: {
-                                App.navigate(5)
+                                Runtime.app.navigate(5)
                                 settingsPage.openRegionSettings()
                             }
                         }
@@ -1090,10 +1093,10 @@ ApplicationWindow {
                                 anchors.fill: parent
                                 reservedBottom: {
                                     if (!recordingNotice.visible) return 0
-                                    void recordingNotice.height
-                                    void reflectionsPage.height
-                                    void window.height
-                                    void window.width
+                                    Theme.trackBindingDependency(recordingNotice.height)
+                                    Theme.trackBindingDependency(reflectionsPage.height)
+                                    Theme.trackBindingDependency(window.height)
+                                    Theme.trackBindingDependency(window.width)
                                     return Math.max(0, reflectionsPage.height
                                         - reflectionsPage.mapFromItem(recordingNotice, 0, 0).y)
                                 }
@@ -1101,7 +1104,7 @@ ApplicationWindow {
                                 onShareRequested: function(run) { window.openShare(run) }
                                 onShareBatchRequested: function(runs) { reflectionShareDialog.openForRuns(runs) }
                                 onOpenRunRequested: function(run) {
-                                    App.openHistoryForRun(run)
+                                    Runtime.app.openHistoryForRun(run)
                                     historyPage.detailTab = "refl"
                                 }
                             }
@@ -1153,13 +1156,13 @@ ApplicationWindow {
         // Correcting a record needs the full duty and battle-job catalogues, not only
         // what this player has already recorded: the record worth correcting is
         // usually the one whose duty the software could not name.
-        dutyOptions: App.dutyCatalogOptions
-        jobOptions: App.battleJobOptions
+        dutyOptions: Runtime.app.dutyCatalogOptions
+        jobOptions: Runtime.app.battleJobOptions
         onCreateRequested: function(fields, reason) {
-            App.createManualRun(fields, reason)
+            Runtime.app.createManualRun(fields, reason)
         }
         onCorrectRequested: function(changes, reason) {
-            App.correctSelectedRun(changes, reason, editDialog.runData ? editDialog.runData.run_id : "",
+            Runtime.app.correctSelectedRun(changes, reason, editDialog.runData ? editDialog.runData.run_id : "",
                                    editDialog.runData ? editDialog.runData.revision : -1)
         }
     }
@@ -1174,7 +1177,7 @@ ApplicationWindow {
             window.bringToFront()
             // openHistoryForRun never toggles an already selected record off,
             // which selectRun does (review K1-3 / L1-2).
-            App.openHistoryForRun(run)
+            Runtime.app.openHistoryForRun(run)
             Qt.callLater(function() { window.openReasonDialog("review") })
         }
         onHostClosing: recoveryReminder.hide()
@@ -1183,7 +1186,7 @@ ApplicationWindow {
             // window just closes (review K1-4 / L2-5). A record found deleted
             // with no draft left nothing in 待处理 to reopen (review RV3-3).
             if (completed || !runId || !reflectionDialog.standalone) return
-            const pending = App.recovery ? App.recovery.items : []
+            const pending = Runtime.app.recovery ? Runtime.app.recovery.items : []
             let kept = false
             for (let i = 0; i < pending.length && !kept; ++i)
                 kept = (pending[i].runId || pending[i].run_id) === runId
@@ -1229,7 +1232,7 @@ ApplicationWindow {
             Text {
                 Layout.fillWidth: true
                 Layout.maximumWidth: 260
-                text: App.recovery.error.length > 0 ? App.recovery.error : qsTr("已收起到待处理，记录和草稿已保留")
+                text: Runtime.app.recovery.error.length > 0 ? Runtime.app.recovery.error : qsTr("已收起到待处理，记录和草稿已保留")
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fs(12.5)
                 font.weight: Font.DemiBold
@@ -1240,7 +1243,7 @@ ApplicationWindow {
                 text: qsTr("重新打开")
                 variant: "ghost"
                 compact: true
-                onClicked: { recoveryNotice.hide(); App.recovery.requestOpen(recoveryNotice.runId) }
+                onClicked: { recoveryNotice.hide(); Runtime.app.recovery.requestOpen(recoveryNotice.runId) }
             }
             OverlayIconButton { iconName: "close"; tip: qsTr("关闭"); onClicked: recoveryNotice.hide() }
         }
@@ -1274,35 +1277,35 @@ ApplicationWindow {
         id: releaseNotesDialog
         notesController: window.releaseNotesController
         onLanguageSettingsRequested: {
-            App.navigate(5)
+            Runtime.app.navigate(5)
             settingsPage.openLanguageSettings()
         }
     }
 
     CalibrationEvidenceDialog {
-        evidenceController: typeof CalibrationEvidence !== "undefined" ? CalibrationEvidence : null
+        evidenceController: typeof Runtime.calibrationEvidence !== "undefined" ? Runtime.calibrationEvidence : null
     }
 
     BaselineDialog {
         id: baselineDialog
         objectName: "baselineDialog"
         anchors.centerIn: Overlay.overlay
-        goalCount: App.goalCount
-        baselineCount: App.baselineCount
-        recordedCount: App.dashboard.achievement_progress !== undefined
-                       ? Math.max(0, Number(App.dashboard.achievement_progress) - App.baselineCount) : 0
-        settingsLoaded: App.achievementSettingsLoaded
-        busy: App.baselineSaving
+        goalCount: Runtime.app.goalCount
+        baselineCount: Runtime.app.baselineCount
+        recordedCount: Runtime.app.dashboard.achievement_progress !== undefined
+                       ? Math.max(0, Number(Runtime.app.dashboard.achievement_progress) - Runtime.app.baselineCount) : 0
+        settingsLoaded: Runtime.app.achievementSettingsLoaded
+        busy: Runtime.app.baselineSaving
         // The goal typed in the dialog travels with the signal: writing it into
         // goalCount would cut that binding, and a guide reopened after 设置 · 目标
         // changed the goal would offer, and save, the old one (review OL-1).
         // The guide stays open until the answer (onMutationFailed / onBaselineSaved
         // above): a save that fails must not complete the first run (DT6-X1).
         onSaved: function(baseline, goal, reason) {
-            App.updateAchievementBaseline(goal, baseline, reason)
+            Runtime.app.updateAchievementBaseline(goal, baseline, reason)
         }
         onSkipped: function(goal, reason) {
-            App.updateAchievementBaseline(goal, 0, reason)
+            Runtime.app.updateAchievementBaseline(goal, 0, reason)
         }
     }
 
@@ -1392,7 +1395,7 @@ ApplicationWindow {
                         }
                         // The request goes to the selected record; without one
                         // nothing would answer and the locked window would stay.
-                        if (!App.hasSelection || !App.selectedRun.run_id) {
+                        if (!Runtime.app.hasSelection || !Runtime.app.selectedRun.run_id) {
                             window.reasonDialogError = qsTr("没有选中的记录，请关闭后重新选择。")
                             return
                         }
@@ -1401,10 +1404,10 @@ ApplicationWindow {
                         const runId = window.reasonRunId
                         const revision = window.reasonRevision
                         switch (window.reasonAction) {
-                        case "restore": App.restoreSelectedRun(reason, runId, revision); break
-                        case "undo": App.undoSelectedRunRevision(reason, runId, revision); break
-                        case "review": App.confirmSelectedRunReview(reason, runId, revision); break
-                        default: App.softDeleteSelectedRun(reason, runId, revision); break
+                        case "restore": Runtime.app.restoreSelectedRun(reason, runId, revision); break
+                        case "undo": Runtime.app.undoSelectedRunRevision(reason, runId, revision); break
+                        case "review": Runtime.app.confirmSelectedRunReview(reason, runId, revision); break
+                        default: Runtime.app.softDeleteSelectedRun(reason, runId, revision); break
                         }
                     }
                 }
@@ -1416,7 +1419,7 @@ ApplicationWindow {
         anchors.left: parent.left
         anchors.bottom: parent.bottom
         anchors.margins: 24
-        message: App.toastMessage
+        message: Runtime.app.toastMessage
     }
 
     // Screenshot helpers: --mock-open-detail / --mock-open-edit select the first
@@ -1428,12 +1431,12 @@ ApplicationWindow {
         repeat: true
         running: window.forceOpenDetail
         onTriggered: {
-            const run = App.runs.runAt(0)
+            const run = Runtime.app.runs.runAt(0)
             if (!run || !run.run_id)
                 return
             running = false
-            App.navigate(1)
-            App.selectRun(run)
+            Runtime.app.navigate(1)
+            Runtime.app.selectRun(run)
             if (window.forceDetailTab.length > 0)
                 historyPage.detailTab = window.forceDetailTab
             if (window.forceOpenEdit)
@@ -1448,8 +1451,8 @@ ApplicationWindow {
 
     // --mock-open-create [--mock-wizard-step N]: the 新增遗漏记录 wizard, once
     // the 最近打过 query had time to answer.
-    readonly property bool forceOpenCreate: typeof ForceOpenCreate !== "undefined" ? ForceOpenCreate : false
-    readonly property int forceWizardStep: typeof ForceWizardStep !== "undefined" ? ForceWizardStep : 1
+    readonly property bool forceOpenCreate: typeof Runtime.forceOpenCreate !== "undefined" ? Runtime.forceOpenCreate : false
+    readonly property int forceWizardStep: typeof Runtime.forceWizardStep !== "undefined" ? Runtime.forceWizardStep : 1
 
     Timer {
         interval: 220
@@ -1461,18 +1464,18 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
-        const previewNotes = typeof ForceReleaseNotes !== "undefined" && ForceReleaseNotes
-        const suppressNotes = typeof SuppressReleaseNotes !== "undefined" && SuppressReleaseNotes
+        const previewNotes = typeof Runtime.forceReleaseNotes !== "undefined" && Runtime.forceReleaseNotes
+        const suppressNotes = typeof Runtime.suppressReleaseNotes !== "undefined" && Runtime.suppressReleaseNotes
         releaseNotesWaiting = releaseNotesController !== null
             && releaseNotesController.text.length > 0
             && (previewNotes || (!suppressNotes && releaseNotesController.pending))
-        if (typeof Reflections !== "undefined")
-            Reflections.setActive(App.currentPage === 7)
-        if (typeof ForceOpenImport !== "undefined" && ForceOpenImport) {
+        if (typeof Runtime.reflections !== "undefined")
+            Runtime.reflections.setActive(Runtime.app.currentPage === 7)
+        if (typeof Runtime.forceOpenImport !== "undefined" && Runtime.forceOpenImport) {
             Qt.callLater(window.openImportDialog)
             return
         }
-        if (typeof ForceOpenShare !== "undefined" && ForceOpenShare) {
+        if (typeof Runtime.forceOpenShare !== "undefined" && Runtime.forceOpenShare) {
             shareSetup.start()
             return
         }
@@ -1483,7 +1486,7 @@ ApplicationWindow {
         }
         // A first start goes straight to the baseline question; --mock-first-run
         // asks for it on any run.
-        if (window.forceBaselineDialog || (App.firstRun && !window.suppressOnboarding))
+        if (window.forceBaselineDialog || (Runtime.app.firstRun && !window.suppressOnboarding))
             baselineDialog.openDialog()
     }
 
@@ -1493,7 +1496,7 @@ ApplicationWindow {
         repeat: true
         running: false
         onTriggered: {
-            const recent = App.reflectionSummary.recent || []
+            const recent = Runtime.app.reflectionSummary.recent || []
             if (recent.length === 0) return
             stop()
             const run = Object.assign({}, recent[0].run)

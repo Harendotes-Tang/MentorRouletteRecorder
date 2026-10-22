@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import MentorRecorder
+import MentorRecorder 1.0
 
 // `.ov-tip`: the explanation of a module, a bar or a button, shown while the
 // pointer rests on it. With 文字标签 off these are the only words the float
@@ -36,7 +36,7 @@ ToolTip {
     // Pixels between the top of the screen the item is on and the item; -1 when unknown.
     function roomAbove() {
         const top = clearOf.mapToGlobal(0, 0)
-        const screens = Qt.application.screens
+        const screens = Application.screens
         for (let i = 0; i < screens.length; ++i) {
             const s = screens[i]
             if (top.x >= s.virtualX && top.x < s.virtualX + s.width

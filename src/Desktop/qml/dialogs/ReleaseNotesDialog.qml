@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls 6.8
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 import "../components/Lucide.js" as Lucide
 
 Dialog {
@@ -104,8 +106,8 @@ Dialog {
                 spacing: 14
                 Rectangle {
                     Layout.alignment: Qt.AlignTop
-                    width: 40
-                    height: 40
+                    Layout.preferredWidth: 40
+                    Layout.preferredHeight: 40
                     radius: Theme.radiusS
                     color: Theme.accentMuted
                     Image {
@@ -173,7 +175,7 @@ Dialog {
                 }
             }
         }
-        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
+        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
         Flickable {
             id: notesView
             objectName: "releaseNotesScroll"
@@ -206,20 +208,21 @@ Dialog {
                 Repeater {
                     model: dialog.sections
                     ColumnLayout {
+                        id: sectionItem
                         required property var modelData
                         Layout.fillWidth: true
                         spacing: 0
                         Label {
                             Layout.fillWidth: true
-                            text: modelData.label
+                            text: sectionItem.modelData.label
                             textFormat: Text.PlainText
-                            color: modelData.category === "fixed" ? Theme.green : Theme.accentStrong
+                            color: sectionItem.modelData.category === "fixed" ? Theme.green : Theme.accentStrong
                             font.pixelSize: Theme.fs(12)
                             font.bold: true
                             bottomPadding: 8
                         }
                         Repeater {
-                            model: modelData.entries
+                            model: sectionItem.modelData.entries
                             ReleaseNotesEntry {
                                 required property var modelData
                                 Layout.fillWidth: true
@@ -233,7 +236,7 @@ Dialog {
                 }
             }
         }
-        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
+        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
         Item {
             Layout.fillWidth: true
             implicitHeight: footerRow.implicitHeight + 24

@@ -493,6 +493,12 @@ void MockBackend::resetRuns(const QJsonArray &runs)
     m_revisions = QJsonArray();
 }
 
+void MockBackend::resetRuns(const QJsonArray &runs, const QHash<QString, QString> &importFingerprints)
+{
+    resetRuns(runs);
+    m_importFingerprints = importFingerprints;
+}
+
 void MockBackend::setAchievement(int goalCount, int baselineCompletedCount)
 {
     m_goalCount = goalCount;
@@ -2063,6 +2069,17 @@ public:
         return {QJsonValue::Null};
     }
 
+    /// Historical labels apply only to joined_in_progress; blank stays unknown.
+    QJsonValue entryMode()
+    {
+        const QString value = text(QStringLiteral("joined_in_progress"), 20);
+        if (value == QStringLiteral("正常") || value == QStringLiteral("开局进入"))
+            return false;
+        if (value == QStringLiteral("中途") || value == QStringLiteral("中途加入"))
+            return true;
+        return flag(QStringLiteral("joined_in_progress"));
+    }
+
     /// RunImportCandidateNormalizer.ParseTime: an instant as UTC text, null when absent. A
     /// time with an offset must carry its whole date; one without is read in \a zone.
     QJsonValue time(const QString &field, const char *name, const QString &zone)
@@ -2128,6 +2145,7 @@ struct ImportRow
     bool stable = false; // the source named the run_id
     QSet<QString> compared; // the facts the source provided
     QString fingerprint;
+    QString prePreferredFingerprint;
     QJsonArray errors, errorRefs, warnings, warningRefs;
 };
 
@@ -2286,15 +2304,11 @@ ImportRow normalizeImportRow(const QJsonObject &row, const QString &kind, const 
         region = QStringLiteral("UNKNOWN");
     else if (region != QLatin1String("CN") && region != QLatin1String("GLOBAL") && region != QLatin1String("UNKNOWN"))
         read.refuse("import.row.field_value_unsupported", {{QStringLiteral("field"), QStringLiteral("region")}});
-    if (contentId < 0 && !dutyName.isEmpty()) {
-        QSet<qint64> matches;
-        for (const QVariant &value : DutyCatalog::shared()->allDuties()) {
-            const QVariantMap duty = value.toMap();
-            if (duty.value(QStringLiteral("duty_name")).toString() == dutyName)
-                matches.insert(duty.value(QStringLiteral("content_id")).toLongLong());
-        }
-        if (matches.size() == 1)
-            contentId = *matches.constBegin();
+    const bool hasExplicitContentId = contentId >= 0;
+    if (!hasExplicitContentId && !dutyName.isEmpty()) {
+        const QVariantMap catalogMatch = DutyCatalog::shared()->findByName(dutyName, region);
+        if (!catalogMatch.isEmpty())
+            contentId = catalogMatch.value(QStringLiteral("content_id")).toLongLong();
     }
     const QVariantMap duty = contentId >= 0 ? DutyCatalog::shared()->lookup(contentId) : QVariantMap();
 
@@ -2330,7 +2344,7 @@ ImportRow normalizeImportRow(const QJsonObject &row, const QString &kind, const 
     const QJsonValue mentorConfirmed = read.flag(QStringLiteral("mentor_confirmed"));
     const QJsonValue contributes = read.flag(QStringLiteral("contributes_to_goal"));
     const QJsonValue softDeleted = read.flag(QStringLiteral("soft_deleted"));
-    const QJsonValue joined = read.flag(QStringLiteral("joined_in_progress"));
+    const QJsonValue joined = read.entryMode();
     const QString note = read.text(QStringLiteral("note"), 1000);
     const qint64 roulette = read.count(QStringLiteral("mentor_roulette_id"));
     const qint64 territory = read.count(QStringLiteral("territory_id"));
@@ -2442,9 +2456,29 @@ ImportRow normalizeImportRow(const QJsonObject &row, const QString &kind, const 
     out.fingerprint = sha256Hex(kind + QLatin1Char('\n') + recordSourceName + QLatin1Char('\n')
                                 + (out.stable ? runId : sourceKey) + QLatin1Char('\n')
                                 + QString::fromUtf8(QJsonDocument(importFacts(out.run)).toJson(QJsonDocument::Compact)));
+    // A catalogue preference enriches new previews, but must still recognise an
+    // identical source row imported before that preference existed (or purged).
+    if (!hasExplicitContentId
+        && duty.value(QStringLiteral("name_ambiguous")).toBool()
+        && duty.value(QStringLiteral("preferred_for_name_matching")).toBool()) {
+        QJsonObject oldRun = out.run;
+        oldRun.insert(QStringLiteral("content_id"), none);
+        if (territory < 0)
+            oldRun.insert(QStringLiteral("territory_id"), none);
+        if (category.isEmpty())
+            oldRun.insert(QStringLiteral("duty_category"), none);
+        out.prePreferredFingerprint = sha256Hex(kind + QLatin1Char('\n') + recordSourceName + QLatin1Char('\n')
+            + (out.stable ? runId : sourceKey) + QLatin1Char('\n')
+            + QString::fromUtf8(QJsonDocument(importFacts(oldRun)).toJson(QJsonDocument::Compact)));
+    }
 
     // The candidate in canonical form; a field the source left out stays out.
     for (const QString &field : row.keys()) {
+        const QJsonValue original = row.value(field);
+        if ((field == QLatin1String("content_id") || field == QLatin1String("territory_id")
+             || field == QLatin1String("duty_category"))
+            && (original.isNull() || (original.isString() && original.toString().trimmed().isEmpty())))
+            continue;
         if (out.run.contains(field))
             out.candidate.insert(field, out.run.value(field));
     }
@@ -2469,6 +2503,7 @@ ImportRow normalizeImportRow(const QJsonObject &row, const QString &kind, const 
 /// the source and, where both name one, with the same job. Two clock times decide alone.
 std::pair<QString, QJsonValue> classifyImportRun(const QJsonObject &run, bool stable,
                                                  const QSet<QString> &compared, const QString &fingerprint,
+                                                 const QString &prePreferredFingerprint,
                                                  const QJsonArray &library,
                                                  const QHash<QString, QString> &fingerprints)
 {
@@ -2489,6 +2524,8 @@ std::pair<QString, QJsonValue> classifyImportRun(const QJsonObject &run, bool st
     }
     if (fingerprints.contains(fingerprint))
         return {QStringLiteral("duplicate"), fingerprints.value(fingerprint)};
+    if (!prePreferredFingerprint.isEmpty() && fingerprints.contains(prePreferredFingerprint))
+        return {QStringLiteral("duplicate"), fingerprints.value(prePreferredFingerprint)};
 
     const QDateTime entered = fromIso(run.value(QStringLiteral("entered_at_utc")));
     const QJsonObject metadata = run.value(QStringLiteral("import_metadata")).toObject();
@@ -2700,6 +2737,7 @@ QJsonObject MockBackend::previewRunImport(const QJsonObject &payload, QString *e
         if (!entry.run.isEmpty()) {
             const QString runId = entry.run.value(QStringLiteral("run_id")).toString();
             std::tie(status, matching) = classifyImportRun(entry.run, entry.stable, entry.compared, entry.fingerprint,
+                                                           entry.prePreferredFingerprint,
                                                            m_runs, m_importFingerprints);
             if (status == QLatin1String("new") || status == QLatin1String("possible_duplicate")) {
                 if (entry.stable && seenIds.contains(runId)) {
@@ -2756,7 +2794,8 @@ QJsonObject MockBackend::previewRunImport(const QJsonObject &payload, QString *e
                                    {QStringLiteral("valid"), !entry.run.isEmpty() && entry.errors.isEmpty()},
                                    {QStringLiteral("stable"), entry.stable},
                                    {QStringLiteral("compared"), compared},
-                                   {QStringLiteral("fingerprint"), entry.fingerprint}});
+                                   {QStringLiteral("fingerprint"), entry.fingerprint},
+                                   {QStringLiteral("pre_preferred_fingerprint"), entry.prePreferredFingerprint}});
     }
     QJsonObject summary;
     for (auto it = counts.constBegin(); it != counts.constEnd(); ++it)
@@ -2865,7 +2904,8 @@ QJsonObject MockBackend::commitRunImport(const QJsonObject &payload, QString *er
             compared.insert(field.toString());
         const QString fingerprint = entry.value(QStringLiteral("fingerprint")).toString();
         auto [status, matching] = classifyImportRun(run, entry.value(QStringLiteral("stable")).toBool(), compared,
-                                                    fingerprint, m_runs, m_importFingerprints);
+                                                    fingerprint, entry.value(QStringLiteral("pre_preferred_fingerprint")).toString(),
+                                                    m_runs, m_importFingerprints);
         if (status == QLatin1String("duplicate")) {
             ++duplicates;
         } else if (status == QLatin1String("conflict")) {

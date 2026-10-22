@@ -740,17 +740,26 @@ void IpcIntegrationTests::overlayAttemptPeriodsUseRealHistoryDates()
     // range has a baseline so other integration fixtures cannot change counts.
     mr::StatisticsOverlayController overlay(nullptr);
     overlay.setBackend(m_backend);
-    overlay.setModules({QStringLiteral("attempts")});
+    overlay.setModules({QStringLiteral("attempts"), QStringLiteral("dungeons"), QStringLiteral("jobs")});
     overlay.show();
     const QStringList periods{QStringLiteral("today"), QStringLiteral("last7"),
                               QStringLiteral("last30"), QStringLiteral("all")};
     QList<int> before;
+    QList<int> dungeonsBefore;
+    QList<int> jobsBefore;
+    QList<qint64> clearsBefore;
     for (const QString &period : periods) {
         overlay.setAttemptPeriod(period);
         overlay.refreshAttempts();
         QVERIFY(QTest::qWaitFor([&overlay] { return !overlay.attemptsLoading(); }, 15000));
         QVERIFY2(overlay.attemptsKnown(), qPrintable(overlay.attemptsError()));
         before.append(overlay.attemptCount());
+        QTRY_VERIFY(!overlay.dungeons()->isLoading() && !overlay.jobs()->isLoading());
+        QVERIFY2(overlay.dungeons()->loadError().isEmpty(), qPrintable(overlay.dungeons()->loadError()));
+        QVERIFY2(overlay.jobs()->loadError().isEmpty(), qPrintable(overlay.jobs()->loadError()));
+        dungeonsBefore.append(overlay.dungeons()->totalAttemptCount());
+        jobsBefore.append(overlay.jobs()->totalAttemptCount());
+        clearsBefore.append(overlay.dungeons()->totalCompletedCount());
     }
 
     const QDate today = QDate::currentDate();
@@ -823,6 +832,12 @@ void IpcIntegrationTests::overlayAttemptPeriodsUseRealHistoryDates()
         QVERIFY(QTest::qWaitFor([&overlay] { return !overlay.attemptsLoading(); }, 15000));
         QVERIFY2(overlay.attemptsKnown(), qPrintable(overlay.attemptsError()));
         QCOMPARE(overlay.attemptCount(), before.at(index) + expectedDelta.at(index));
+        QTRY_VERIFY(!overlay.dungeons()->isLoading() && !overlay.jobs()->isLoading());
+        QVERIFY2(overlay.dungeons()->loadError().isEmpty(), qPrintable(overlay.dungeons()->loadError()));
+        QVERIFY2(overlay.jobs()->loadError().isEmpty(), qPrintable(overlay.jobs()->loadError()));
+        QCOMPARE(overlay.dungeons()->totalAttemptCount(), dungeonsBefore.at(index) + expectedDelta.at(index));
+        QCOMPARE(overlay.jobs()->totalAttemptCount(), jobsBefore.at(index) + expectedDelta.at(index));
+        QCOMPARE(overlay.dungeons()->totalCompletedCount(), clearsBefore.at(index) + expectedDelta.at(index) - 1);
     }
     overlay.hide();
     const Outcome unchangedGlobal = await(m_backend->getDashboardStats());

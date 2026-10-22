@@ -8,6 +8,7 @@
 
 #include "TestCollectorGuard.h"
 #include "AppController.h"
+#include "DutyCatalog.h"
 #include "Formatters.h"
 #include "GameNames.h"
 #include "JobCatalog.h"
@@ -224,6 +225,54 @@ private Q_SLOTS:
         QCOMPARE(names()->roleGroup(QString::fromUtf8("不存在")), QString::fromUtf8("不存在"));
         // An id of 0 is no id: the recorded name finds the duty.
         QCOMPARE(names()->duty(0, kSastashaCn()), QStringLiteral("Sastasha"));
+    }
+
+    void ambiguousNamesDoNotAcquireTheFirstIdentity()
+    {
+        const QString ambiguous = QString::fromUtf8("天上福地云冠群岛");
+        for (const auto &code : {QStringLiteral("en"), QStringLiteral("ja"), QStringLiteral("zh-TW")}) {
+            QCOMPARE(names()->dutyIn(code, QVariant(), ambiguous), ambiguous);
+            const QString asura = QString::fromUtf8("阿修罗歼灭战");
+            QCOMPARE(names()->dutyIn(code, QVariant(), asura), names()->dutyIn(code, 944, asura));
+        }
+    }
+
+    void everySameNameChoiceKeepsADistinctLabelInEachLanguage()
+    {
+        QQmlEngine engine;
+        const Attachment attached(m_language.get(), &engine);
+        engine.rootContext()->setContextProperty(QStringLiteral("Lang"), m_language.get());
+        engine.rootContext()->setContextProperty(QStringLiteral("Names"), names());
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import MentorRecorder
+QtObject {
+    function label(row) { return Theme.dutyChoiceLabel(row) }
+    function plain(row) { return Theme.dutyName(row) }
+})", QUrl());
+        std::unique_ptr<QObject> probe(component.create());
+        QVERIFY2(probe, qPrintable(component.errorString()));
+        for (const char *code : {"zh-CN", "zh-TW", "en", "ja"}) {
+            switchTo(code);
+            QSet<QString> labels;
+            int count = 0;
+            for (const auto &value : mr::DutyCatalog::shared()->allDuties()) {
+                QVariantMap row = value.toMap();
+                if (!row.value("name_ambiguous").toBool()) continue;
+                ++count;
+                // Statistics rows omit the marker: Names must provide the same distinction.
+                row.remove(QStringLiteral("name_ambiguous"));
+                QVariant label;
+                QVariant plain;
+                QVERIFY(QMetaObject::invokeMethod(probe.get(), "label", Q_RETURN_ARG(QVariant, label), Q_ARG(QVariant, row)));
+                QVERIFY(QMetaObject::invokeMethod(probe.get(), "plain", Q_RETURN_ARG(QVariant, plain), Q_ARG(QVariant, row)));
+                QVERIFY(label.toString().startsWith(plain.toString()));
+                QVERIFY(label.toString().endsWith(row.value("content_id").toString()));
+                labels.insert(label.toString());
+            }
+            QCOMPARE(labels.size(), count);
+            QCOMPARE(count, 170);
+        }
     }
 
     // A localized name supplies a recorded-name alias; the page separately

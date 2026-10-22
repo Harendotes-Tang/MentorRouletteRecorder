@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // `.card-kicker`: a small gold ◆ followed by a wide-tracked label (eorzea);
 // a plain t3 label at 600 in the text colour (classic).

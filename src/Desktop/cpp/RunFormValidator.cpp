@@ -185,12 +185,14 @@ QVariantList RunFormValidator::diff(const QVariantMap &before, const QVariantMap
         rows.append(row);
     };
 
-    // Game names: the record's (Chinese) names decide whether the field changed,
-    // and the table shows them as the form labels them (duty_label / job_label,
-    // the interface language) when it does.
+    // Recorded names and (for duties) identity decide whether a field changed.
+    // Labels show the localized names and distinguishing IDs in the table.
     const auto addName = [&rows](const QString &label, const QVariantMap &before,
-                                 const QVariantMap &form, const char *key, const char *shownKey) {
-        if (text(before, key) == text(form, key))
+                                 const QVariantMap &form, const char *key, const char *shownKey,
+                                 const char *identityKey = nullptr) {
+        const bool sameIdentity = !identityKey
+            || before.value(QLatin1String(identityKey)).toLongLong() == form.value(QLatin1String(identityKey)).toLongLong();
+        if (sameIdentity && text(before, key) == text(form, key))
             return;
         const auto shown = [key, shownKey](const QVariantMap &map) {
             const QString labelled = text(map, shownKey);
@@ -203,7 +205,7 @@ QVariantList RunFormValidator::diff(const QVariantMap &before, const QVariantMap
         rows.append(row);
     };
 
-    addName(tr("副本"), before, form, "duty_name", "duty_label");
+    addName(tr("副本"), before, form, "duty_name", "duty_label", "content_id");
     addName(tr("职业"), before, form, "job_name", "job_label");
     add(tr("匹配日期"), text(before, "date"), text(form, "date"));
     add(tr("匹配时间"), text(before, "matched"), text(form, "matched"));

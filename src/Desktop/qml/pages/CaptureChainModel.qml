@@ -1,5 +1,5 @@
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 链路 as data: FF14 进程 → Npcap → 适配器 → 协议档案, read off the contract and
 // turned into the four nodes of the hero card and its one-line summary. No
@@ -16,37 +16,37 @@ import MentorRecorder
 QtObject {
     id: chain
 
-    readonly property var capture: App.captureStatus
-    readonly property var npcap: App.npcapInfo
-    readonly property var profile: App.protocolProfile
-    readonly property bool maintainer: App.maintainerToolsVisible
+    readonly property var capture: Runtime.app.captureStatus
+    readonly property var npcap: Runtime.app.npcapInfo
+    readonly property var profile: Runtime.app.protocolProfile
+    readonly property bool maintainer: Runtime.app.maintainerToolsVisible
 
     readonly property bool gameRunning: !!chain.capture.ffxiv_running
     // The 记录对象 card's own verdict, so the two never disagree: a choice is
     // asked for only while a client is listed to choose from. With the only
     // client closed the list is empty and this is ordinary waiting.
-    readonly property bool choosingGame: App.gameSelection.selectionRequired
-    readonly property int gameCount: App.gameSelection.choices.length
+    readonly property bool choosingGame: Runtime.app.gameSelection.selectionRequired
+    readonly property int gameCount: Runtime.app.gameSelection.choices.length
     readonly property string npcapStatus: String(chain.npcap.status || "")
     // npcap_installed is required in every capture status, so without it - no
     // pipe yet, a Collector that refused to start or exited, a status read that
     // failed - nothing is known about Npcap and nothing is said about it
     // (review K2-1). CaptureHeroCopy reads the same verdict.
-    readonly property bool statusKnown: App.backendConnected
-                                        && App.captureStatus.npcap_installed !== undefined
-    readonly property bool npcapReady: App.npcapInstalled
+    readonly property bool statusKnown: Runtime.app.backendConnected
+                                        && Runtime.app.captureStatus.npcap_installed !== undefined
+    readonly property bool npcapReady: Runtime.app.npcapInstalled
                                        && (chain.npcapStatus === "" || chain.npcapStatus === "READY")
     readonly property string adapterId: String(chain.capture.adapter_id || "")
     readonly property var adapterRow: {
-        for (let index = 0; index < App.captureAdapters.length; ++index) {
-            if (App.captureAdapters[index].adapter_id === chain.adapterId)
-                return App.captureAdapters[index]
+        for (let index = 0; index < Runtime.app.captureAdapters.length; ++index) {
+            if (Runtime.app.captureAdapters[index].adapter_id === chain.adapterId)
+                return Runtime.app.captureAdapters[index]
         }
         return null
     }
     readonly property bool adapterStale: {
-        for (let index = 0; index < App.captureAdapters.length; ++index) {
-            if (App.captureAdapters[index].preference_stale)
+        for (let index = 0; index < Runtime.app.captureAdapters.length; ++index) {
+            if (Runtime.app.captureAdapters[index].preference_stale)
                 return true
         }
         return false
@@ -54,7 +54,7 @@ QtObject {
     readonly property string profileStatus: String(chain.capture.profile_status || "")
     readonly property string profileOrigin: String(chain.capture.profile_origin || "")
     readonly property bool profileReady: chain.profileStatus === "VERIFIED"
-    readonly property string calibrationState: App.calibration ? App.calibration.state : "IDLE"
+    readonly property string calibrationState: Runtime.app.calibration ? Runtime.app.calibration.state : "IDLE"
     // A shared profile records while calibration stays armed beside it, so a
     // verified profile is never "calibrating".
     readonly property bool calibrating: !chain.profileReady
@@ -66,10 +66,10 @@ QtObject {
     readonly property bool buildUnknown: !chain.capture.game_build || chain.regionUnknown
     // 已安装的游戏版本: the launcher may still patch over it, so it is never
     // called 当前 or 最新 while the game is closed.
-    readonly property string installedVersion: Fmt.gameVersionLabel(chain.capture.game_build)
+    readonly property string installedVersion: Runtime.fmt.gameVersionLabel(chain.capture.game_build)
     // 共享校准 is fetching, verifying or waiting for consent: the calibration
     // row below says what happens next, and this summary must not talk past it.
-    readonly property var sharedCalibration: App.calibration ? App.calibration.shared : null
+    readonly property var sharedCalibration: Runtime.app.calibration ? Runtime.app.calibration.shared : null
     readonly property string sharedView: chain.sharedCalibration
                                          ? String(chain.sharedCalibration.view || "none") : "none"
     readonly property bool sharedPending: ["fetching", "verifying", "consent"]
@@ -78,21 +78,21 @@ QtObject {
         const code = String(chain.capture.last_error_code || "")
         return code === "NONE" ? "" : code
     }
-    readonly property bool silent: App.captureMidstreamSuspected || App.captureSilent
-                                   || App.recording.silent
+    readonly property bool silent: Runtime.app.captureMidstreamSuspected || Runtime.app.captureSilent
+                                   || Runtime.app.recording.silent
 
     // -- 总结 ----------------------------------------------------------------
     // The first thing in the chain that stops a record, in the order the
     // chain is walked. Returns [sentence, tone]; tone is "ok", "wait" or "bad".
     function summary() {
         if (!chain.statusKnown)
-            return [App.backendConnected ? qsTr("正在获取自动记录状态…") : qsTr("正在连接自动记录服务…"), "wait"]
-        if (App.validationActive && String(App.validationStatus.reason || "") === "WAITING_RESTART")
+            return [Runtime.app.backendConnected ? qsTr("正在获取自动记录状态…") : qsTr("正在连接自动记录服务…"), "wait"]
+        if (Runtime.app.validationActive && String(Runtime.app.validationStatus.reason || "") === "WAITING_RESTART")
             return [qsTr("验证正在等待所选游戏重启"), "wait"]
         if (chain.choosingGame)
-            return [App.gameSelection.selectionMessage, "bad"]
+            return [Runtime.app.gameSelection.selectionMessage, "bad"]
         if (!chain.npcapReady)
-            return App.npcapInstalled
+            return Runtime.app.npcapInstalled
                    ? [qsTr("Npcap 暂时用不了 · 按上方说明处理后点“重新检测”"), "bad"]
                    : [qsTr("Npcap 未安装 · 安装前只能手动记录"), "bad"]
         // 游戏未运行. The chain is never whole here, but with the installed
@@ -145,13 +145,13 @@ QtObject {
         if (chain.adapterStale)
             return [qsTr("之前选择的网卡收不到游戏数据 · 请查看下方提示"), "bad"]
         if (chain.errorCode.length > 0)
-            return [qsTr("暂时无法读取游戏数据 · %1").arg(Fmt.captureErrorLabel(chain.errorCode).replace(/。$/, "")), "bad"]
-        if (chain.adapterId.length === 0 || !App.capturing)
+            return [qsTr("暂时无法读取游戏数据 · %1").arg(Runtime.fmt.captureErrorLabel(chain.errorCode).replace(/。$/, "")), "bad"]
+        if (chain.adapterId.length === 0 || !Runtime.app.capturing)
             return [qsTr("正在启动监听…"), "wait"]
         if (chain.silent)
             return [qsTr("已连接游戏，但还读不到游戏数据 · 请查看上方说明"), "bad"]
         // The hero card above already carries the controller's sentence.
-        if (App.recording.blocked)
+        if (Runtime.app.recording.blocked)
             return [qsTr("暂时不会自动记录 · 见上方说明"), "bad"]
         return [qsTr("游戏、驱动、网卡和版本支持均已就绪"), "ok"]
     }
@@ -159,7 +159,7 @@ QtObject {
 
     // -- 四个节点 ------------------------------------------------------------
     function npcapSub() {
-        if (!App.npcapInstalled)
+        if (!Runtime.app.npcapInstalled)
             return qsTr("驱动缺失")
         switch (chain.npcapStatus) {
         case "READY": return qsTr("WinPcap 兼容模式")
@@ -185,7 +185,7 @@ QtObject {
     function adapterTone() {
         if (chain.adapterStale)
             return "warn"
-        return chain.adapterId.length > 0 && App.capturing ? "ok" : "off"
+        return chain.adapterId.length > 0 && Runtime.app.capturing ? "ok" : "off"
     }
 
     function profileValue() {
@@ -221,8 +221,8 @@ QtObject {
         if (chain.choosingGame)
             return qsTr("选定游戏后检查对应版本")
         if (chain.maintainer)
-            return qsTr("%1 · build %2").arg(App.protocolProfileStatus)
-                   .arg(chain.profile.game_build || chain.capture.game_build || Fmt.dash())
+            return qsTr("%1 · build %2").arg(Runtime.app.protocolProfileStatus)
+                   .arg(chain.profile.game_build || chain.capture.game_build || Runtime.fmt.dash())
         if (!chain.gameRunning && chain.buildUnknown)
             return qsTr("启动游戏后自动检查")
         if (chain.profileReady)
@@ -260,17 +260,17 @@ QtObject {
             // With the game closed the installed version is what the profile is
             // matched against, and it is the one fact worth the line.
             sub: chain.choosingGame && chain.gameCount > 0 ? qsTr("检测到 %1 个客户端").arg(chain.gameCount)
-                 : chain.gameRunning ? qsTr("PID %1").arg(chain.capture.ffxiv_process_id || Fmt.dash())
+                 : chain.gameRunning ? qsTr("PID %1").arg(chain.capture.ffxiv_process_id || Runtime.fmt.dash())
                  : chain.buildUnknown ? qsTr("启动游戏后自动检测")
                                       : qsTr("已安装版本 %1").arg(chain.installedVersion),
             tone: chain.gameRunning ? "ok" : "off"
         },
         {
             key: "npcap", label: qsTr("Npcap"),
-            value: !chain.statusKnown ? Fmt.dash()
-                   : App.npcapInstalled
+            value: !chain.statusKnown ? Runtime.fmt.dash()
+                   : Runtime.app.npcapInstalled
                    ? ((chain.npcap.version || chain.capture.npcap_version)
-                      ? Fmt.npcapVersionLabel(chain.npcap.version || chain.capture.npcap_version)
+                      ? Runtime.fmt.npcapVersionLabel(chain.npcap.version || chain.capture.npcap_version)
                       : qsTr("已安装"))
                    : qsTr("未安装"),
             sub: chain.statusKnown ? chain.npcapSub() : qsTr("尚未读取"),
@@ -280,7 +280,7 @@ QtObject {
             key: "adapter", label: qsTr("网卡"),
             value: chain.adapterValue(),
             sub: chain.adapterStale ? qsTr("之前选择的网卡收不到游戏数据")
-                 : App.captureSettings.adapter_id ? qsTr("手动指定") : qsTr("自动选择（有 FF14 连接）"),
+                 : Runtime.app.captureSettings.adapter_id ? qsTr("手动指定") : qsTr("自动选择（有 FF14 连接）"),
             tone: chain.adapterTone()
         },
         {

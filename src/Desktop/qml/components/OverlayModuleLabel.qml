@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // `.lbl`: a module's caption. Off by default; the 文字标签 switch shows it.
 Text {

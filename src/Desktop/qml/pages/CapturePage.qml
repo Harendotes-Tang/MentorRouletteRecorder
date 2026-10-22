@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // ---------------------------------------------------------------------------
 // 捕获诊断（docs/ui-design.md §4.4）
@@ -30,13 +30,13 @@ Item {
     signal openRegionSettingsRequested()
 
     readonly property int contentMaxWidth: 1080
-    readonly property bool maintainerTools: App.maintainerToolsVisible
+    readonly property bool maintainerTools: Runtime.app.maintainerToolsVisible
     property bool observationGuideExpanded: false
 
     Connections {
-        target: App
+        target: Runtime.app
         function onCurrentPageChanged() {
-            if (App.currentPage === 4)
+            if (Runtime.app.currentPage === 4)
                 Qt.callLater(function() { scroll.contentY = 0 })
         }
     }
@@ -76,10 +76,10 @@ Item {
                 AppButton {
                     objectName: "captureHeaderAction"
                     visible: page.maintainerTools
-                    text: App.captureActionLabel
+                    text: Runtime.app.captureActionLabel
                     variant: "primary"
-                    enabled: App.captureActionEnabled
-                    onClicked: App.toggleCapture()
+                    enabled: Runtime.app.captureActionEnabled
+                    onClicked: Runtime.app.toggleCapture()
                 }
             }
 

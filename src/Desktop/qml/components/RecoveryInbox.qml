@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls 6.8
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 Dialog {
     id: inbox
@@ -29,7 +31,7 @@ Dialog {
         }
         RowLayout {
             Layout.fillWidth: true
-            AppButton { objectName: "refreshPendingWorkButton"; text: qsTr("刷新"); onClicked: App.recovery.refresh() }
+            AppButton { objectName: "refreshPendingWorkButton"; text: qsTr("刷新"); onClicked: Runtime.app.recovery.refresh() }
             Item { Layout.fillWidth: true }
             AppButton { text: qsTr("关闭"); onClicked: inbox.close() }
         }

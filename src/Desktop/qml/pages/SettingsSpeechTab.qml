@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 设置 · 播报: the voice (engine, rate, volume), the 在线语音 panel while an
 // online voice is selected, and the five templates. A local voice never reaches
@@ -18,17 +20,17 @@ ColumnLayout {
 
     // 播报跟随界面语言 (LanguageManager). A test scene without one shows
     // neither the language row nor a language in the template title.
-    readonly property var lang: typeof Lang !== "undefined" ? Lang : null
+    readonly property var lang: typeof Runtime.lang !== "undefined" ? Runtime.lang : null
     readonly property string languageName: tab.lang ? tab.lang.nativeName : ""
-    readonly property bool languageVoiceMissing: typeof Tts !== "undefined" && !!Tts
-                                                 && Tts.languageVoiceMissing === true
+    readonly property bool languageVoiceMissing: typeof Runtime.tts !== "undefined" && !!Runtime.tts
+                                                 && Runtime.tts.languageVoiceMissing === true
 
     // The page is also loaded by tests with a Tts stub that may predate the
     // voice list, so every newer member is read defensively.
-    readonly property var voiceRows: (typeof Tts !== "undefined" && Tts && Tts.voices)
-                                     ? Tts.voices : []
-    readonly property string voiceIdValue: (typeof Tts !== "undefined" && Tts && Tts.voiceId)
-                                           ? Tts.voiceId : ""
+    readonly property var voiceRows: (typeof Runtime.tts !== "undefined" && Runtime.tts && Runtime.tts.voices)
+                                     ? Runtime.tts.voices : []
+    readonly property string voiceIdValue: (typeof Runtime.tts !== "undefined" && Runtime.tts && Runtime.tts.voiceId)
+                                           ? Runtime.tts.voiceId : ""
     readonly property int localVoiceCount: {
         let count = 0
         for (let i = 0; i < tab.voiceRows.length; ++i) {
@@ -37,14 +39,14 @@ ColumnLayout {
         }
         return count
     }
-    readonly property bool engineReady: typeof Tts !== "undefined" && !!Tts && Tts.available
+    readonly property bool engineReady: typeof Runtime.tts !== "undefined" && !!Runtime.tts && Runtime.tts.available
                                         && tab.localVoiceCount > 0
     // App.speech: the Collector's online-speech settings (never a key).
-    readonly property var speech: (typeof App !== "undefined" && App && App.speech) ? App.speech : null
+    readonly property var speech: (typeof Runtime.app !== "undefined" && Runtime.app && Runtime.app.speech) ? Runtime.app.speech : null
     readonly property bool onlineOffered: !!tab.speech && tab.speech.loaded && tab.speech.supported
     readonly property bool onlineSelected: tab.onlineOffered && tab.isOnline(tab.voiceIdValue)
-    readonly property bool onlineConfirmed: typeof Settings !== "undefined" && !!Settings
-                                            && Settings.ttsOnlineConfirmed === true
+    readonly property bool onlineConfirmed: typeof Runtime.settings !== "undefined" && !!Runtime.settings
+                                            && Runtime.settings.ttsOnlineConfirmed === true
     readonly property string onlineHost: tab.onlineSelected && tab.speech.configured
                                          && tab.speech.provider === tab.speech.providerOfVoiceId(tab.voiceIdValue)
                                          ? tab.speech.targetHost : ""
@@ -63,7 +65,7 @@ ColumnLayout {
             confirmDialog.ask(id, tab.labelOfVoice(id))
             return
         }
-        Tts.setVoice(id)
+        Runtime.tts.setVoice(id)
     }
 
     function indexOfVoice(id) {
@@ -95,13 +97,13 @@ ColumnLayout {
                 text: qsTr("试听")
                 // 通关 is the line a cleared 导随 reaches now that the clear is
                 // seen, so it is the one 试听 plays.
-                onClicked: Tts.preview("completed")
+                onClicked: Runtime.tts.preview("completed")
             }
             ToggleSwitch {
                 objectName: "ttsEnabledSwitch"
                 accessibleName: tab.onlineSelected ? qsTr("语音播报") : qsTr("本地语音播报")
-                checked: Settings.ttsEnabled
-                onToggled: function(value) { Settings.ttsEnabled = value }
+                checked: Runtime.settings.ttsEnabled
+                onToggled: function(value) { Runtime.settings.ttsEnabled = value }
             }
         }
 
@@ -140,9 +142,9 @@ ColumnLayout {
             description: tab.onlineSelected ? qsTr("在线 · 需配置密钥")
                          : voiceMissing ? qsTr("这台电脑还没有%1语音，暂用其他语言的语音播报").arg(tab.languageName)
                          : tab.engineReady ? qsTr("已安装 · Windows 自带")
-                         : (typeof Tts !== "undefined" && Tts ? Tts.statusText : "")
+                         : (typeof Runtime.tts !== "undefined" && Runtime.tts ? Runtime.tts.statusText : "")
             descriptionColor: !voiceMissing && (tab.onlineSelected || tab.engineReady
-                              || (typeof Tts !== "undefined" && Tts && Tts.available))
+                              || (typeof Runtime.tts !== "undefined" && Runtime.tts && Runtime.tts.available))
                               ? Theme.textSecondary : Theme.orangeText
 
             AppButton {
@@ -151,7 +153,7 @@ ColumnLayout {
                 variant: "ghost"
                 compact: true
                 text: qsTr("打开 Windows 语音设置")
-                onClicked: Tts.openSpeechSettings()
+                onClicked: Runtime.tts.openSpeechSettings()
             }
 
             StyledComboBox {
@@ -201,8 +203,8 @@ ColumnLayout {
                 to: 200
                 stepSize: 5
                 suffix: "%"
-                value: Settings.ttsRate
-                onMoved: function(value) { Settings.ttsRate = value }
+                value: Runtime.settings.ttsRate
+                onMoved: function(value) { Runtime.settings.ttsRate = value }
             }
         }
 
@@ -216,8 +218,8 @@ ColumnLayout {
                 from: 0
                 to: 100
                 stepSize: 5
-                value: Settings.ttsVolume
-                onMoved: function(value) { Settings.ttsVolume = value }
+                value: Runtime.settings.ttsVolume
+                onMoved: function(value) { Runtime.settings.ttsVolume = value }
             }
         }
     }
@@ -234,27 +236,29 @@ ColumnLayout {
         sourceComponent: OnlineSpeechPanel {
             speech: tab.speech
             voiceId: tab.voiceIdValue
-            onVoiceChosen: function(id) { Tts.setVoice(id) }
+            onVoiceChosen: function(id) { Runtime.tts.setVoice(id) }
         }
     }
 
-    OnlineSpeechConfirmDialog {
-        id: confirmDialog
+    QtObject {
+        readonly property OnlineSpeechConfirmDialog onlineConfirmation: OnlineSpeechConfirmDialog {
+            id: confirmDialog
 
-        parent: Overlay.overlay
-        anchors.centerIn: parent
-        onConfirmed: function(id) {
-            Settings.ttsOnlineConfirmed = true
-            Tts.setVoice(id)
+            parent: Overlay.overlay
+            anchors.centerIn: parent
+            onConfirmed: function(id) {
+                Runtime.settings.ttsOnlineConfirmed = true
+                Runtime.tts.setVoice(id)
+            }
+            // The box goes back to the voice still in use.
+            onCancelled: voiceCombo.currentIndex = tab.indexOfVoice(tab.voiceIdValue)
         }
-        // The box goes back to the voice still in use.
-        onCancelled: voiceCombo.currentIndex = tab.indexOfVoice(tab.voiceIdValue)
     }
 
     // --mock-open-speech-confirm: ask about the fixture's voice once its row exists.
     Timer {
-        readonly property string wanted: typeof ForceSpeechConfirm !== "undefined" && ForceSpeechConfirm
-                                         ? ForceSpeechConfirm : ""
+        readonly property string wanted: typeof Runtime.forceSpeechConfirm !== "undefined" && Runtime.forceSpeechConfirm
+                                         ? Runtime.forceSpeechConfirm : ""
         interval: 150
         repeat: true
         running: wanted.length > 0
@@ -304,23 +308,23 @@ ColumnLayout {
 
             TemplateField {
                 label: qsTr("匹配成功")
-                value: Settings.templateMatched
-                onCommitted: function(text) { Settings.templateMatched = text }
+                value: Runtime.settings.templateMatched
+                onCommitted: function(text) { Runtime.settings.templateMatched = text }
             }
             TemplateField {
                 label: qsTr("进入副本")
-                value: Settings.templateEntered
-                onCommitted: function(text) { Settings.templateEntered = text }
+                value: Runtime.settings.templateEntered
+                onCommitted: function(text) { Runtime.settings.templateEntered = text }
             }
             TemplateField {
                 label: qsTr("通关")
-                value: Settings.templateCompleted
-                onCommitted: function(text) { Settings.templateCompleted = text }
+                value: Runtime.settings.templateCompleted
+                onCommitted: function(text) { Runtime.settings.templateCompleted = text }
             }
             TemplateField {
                 label: qsTr("异常结束")
-                value: Settings.templateAborted
-                onCommitted: function(text) { Settings.templateAborted = text }
+                value: Runtime.settings.templateAborted
+                onCommitted: function(text) { Runtime.settings.templateAborted = text }
             }
             // 第 5 个模板（§3.1）：离开副本前没有收到通关结算时播报此条。
             TemplateField {
@@ -328,8 +332,8 @@ ColumnLayout {
                 label: qsTr("结束待确认")
                 note: qsTr("收到通关结算时，记录记为「通关」，播报上面的「通关」；"
                            + "未收到结算就离开副本时，记录为「待确认」，播报这一条。")
-                value: Settings.templateFinished
-                onCommitted: function(text) { Settings.templateFinished = text }
+                value: Runtime.settings.templateFinished
+                onCommitted: function(text) { Runtime.settings.templateFinished = text }
             }
         }
 
@@ -340,11 +344,11 @@ ColumnLayout {
             variant: "ghost"
             compact: true
             text: qsTr("恢复默认模板")
-            enabled: Settings.templatesCustomised === true
+            enabled: Runtime.settings.templatesCustomised === true
             onClicked: {
-                Settings.resetTemplates()
-                if (typeof App !== "undefined" && App && App.showToast) {
-                    App.showToast(tab.languageName.length > 0
+                Runtime.settings.resetTemplates()
+                if (typeof Runtime.app !== "undefined" && Runtime.app && Runtime.app.showToast) {
+                    Runtime.app.showToast(tab.languageName.length > 0
                                   ? qsTr("已恢复%1的默认播报模板").arg(tab.languageName)
                                   : qsTr("已恢复默认播报模板"))
                 }

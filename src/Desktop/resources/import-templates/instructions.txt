@@ -36,3 +36,4 @@ result 可填中文结果，也可填 COMPLETED、UNKNOWN、LEFT_OR_ABANDONED、
 心情 → reflection_mood：good（顺利）、ok（一般）、bad（糟糕）、unknown（未记录）；只填写英文值。
 记录时间 → source_recorded_at：原站或原表的记录时间；与实际进本/结束时间独立，不会代替它们。
 备注 → note：记录备注，可留空；最多 1000 字符。
+进入方式 → joined_in_progress：正常或开局进入表示从开局进入（false）；中途或中途加入表示中途进入（true）。未知时 Excel 留空，JSON 保留 null；不会自动按正常进入统计。JSON 也可填写布尔值 false 或 true。

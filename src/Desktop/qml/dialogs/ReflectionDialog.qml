@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls 6.8
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 导随心得: the per-run diary entry. Opened automatically after a COMPLETED
 // run (Settings.reflectPrompt), from the dashboard's 补录笔记 button and from
@@ -30,7 +32,7 @@ Dialog {
     readonly property bool needsJob: !(runData && runData.job_id > 0)
     // label: the job in the interface language; the request sends job_id.
     readonly property var jobOptions: [{ job_id: null, job_name: qsTr("稍后补录"), label: qsTr("稍后补录") }]
-        .concat(Theme.labelledJobs(typeof App !== "undefined" && App.battleJobOptions ? App.battleJobOptions : []))
+        .concat(Theme.labelledJobs(typeof Runtime.app !== "undefined" && Runtime.app.battleJobOptions ? Runtime.app.battleJobOptions : []))
     readonly property int selectedJobId: needsJob && jobIndex > 0 && jobIndex < jobOptions.length
                                          ? jobOptions[jobIndex].job_id : 0
     // True between App.resultConfirmationShown() for the run on screen and the
@@ -58,7 +60,7 @@ Dialog {
     property string automaticKind: ""
     property string editScope: ""
     property bool observedIdentityVerified: true
-    readonly property var recovery: typeof App !== "undefined" && App.recovery ? App.recovery : null
+    readonly property var recovery: typeof Runtime.app !== "undefined" && Runtime.app.recovery ? Runtime.app.recovery : null
     // The compact popup beside the statistics float (standalone; docs/ui-design.md
     // §4.9, dialogs/ResultPopupContent.qml): the question is answered first and
     // the result stays on screen while the note is written; 完成 saves it.
@@ -163,11 +165,11 @@ Dialog {
         const changed = note !== baselineText.trim() || mood !== baselineMood
         // An emptied note is a deliberate clearing; saveReflection with "" deletes it.
         if (changed && (note.length > 0 || baselineText.trim().length > 0)) {
-            if (typeof App === "undefined" || !App.saveReflection) {
+            if (typeof Runtime.app === "undefined" || !Runtime.app.saveReflection) {
                 errorText = qsTr("当前版本无法保存笔记。")
                 return
             }
-            if (App.reflectionSaving === true) {
+            if (Runtime.app.reflectionSaving === true) {
                 errorText = qsTr("上一条笔记仍在保存中，请稍候再试。")
                 return
             }
@@ -175,7 +177,7 @@ Dialog {
             persistDraft()
             submittedDraftToken = draftToken
             submitting = true
-            App.saveReflection(runId, mood, note, submittedDraftToken)
+            Runtime.app.saveReflection(runId, mood, note, submittedDraftToken)
             return
         }
         completedAction = true
@@ -248,10 +250,10 @@ Dialog {
         textArea.text = run.reflection && run.reflection.text ? run.reflection.text : ""
         restoreDraft(run)
         automaticKind = ""
-        if (askingResult && managedPresentation && typeof App !== "undefined"
-            && typeof App.resultConfirmationShown === "function") {
+        if (askingResult && managedPresentation && typeof Runtime.app !== "undefined"
+            && typeof Runtime.app.resultConfirmationShown === "function") {
             resultAcknowledged = true
-            App.resultConfirmationShown(run.run_id)
+            Runtime.app.resultConfirmationShown(run.run_id)
         }
     }
     /// \a putAway: the connection was lost - the reminder is put away like 收起
@@ -291,8 +293,8 @@ Dialog {
         if (!managedPresentation || !parent || !parent.Window.window || !parent.Window.window.visible) return
         if (automaticKind === "result") {
             resultAcknowledged = true
-            App.resultConfirmationShown(runId)
-        } else if (automaticKind === "reflection") App.reflectionPromptShown(runId)
+            Runtime.app.resultConfirmationShown(runId)
+        } else if (automaticKind === "reflection") Runtime.app.reflectionPromptShown(runId)
         automaticKind = ""
     }
     onOpened: acknowledge()
@@ -304,10 +306,10 @@ Dialog {
     // install directory's note-images folder (NoteImageStore), independent of
     // whether the 心得 text is saved - they are files of the run, not fields of
     // the reflection. The same strip appears in the history detail panel.
-    readonly property var imageStore: typeof NoteImages !== "undefined" ? NoteImages : null
+    readonly property var imageStore: typeof Runtime.noteImages !== "undefined" ? Runtime.noteImages : null
     property int noteImageSerial: 0
     readonly property var noteImages: {
-        void noteImageSerial
+        Theme.trackBindingDependency(noteImageSerial)
         return imageStore && runId.length > 0 ? imageStore.imagesFor(runId) : []
     }
     property string noteImageError: ""
@@ -353,12 +355,12 @@ Dialog {
     }
     readonly property int runRevision: runData && runData.revision !== undefined
                                        ? Number(runData.revision) : -1
-    readonly property bool promptEnabled: (typeof Settings !== "undefined"
-                                           && Settings.reflectPrompt !== undefined)
-                                          ? Settings.reflectPrompt : true
-    readonly property bool confirmEnabled: (typeof Settings !== "undefined"
-                                            && Settings.confirmPrompt !== undefined)
-                                           ? Settings.confirmPrompt : true
+    readonly property bool promptEnabled: (typeof Runtime.settings !== "undefined"
+                                           && Runtime.settings.reflectPrompt !== undefined)
+                                          ? Runtime.settings.reflectPrompt : true
+    readonly property bool confirmEnabled: (typeof Runtime.settings !== "undefined"
+                                            && Runtime.settings.confirmPrompt !== undefined)
+                                           ? Runtime.settings.confirmPrompt : true
     readonly property string dutyText: (runData && runData.duty_name)
                                        ? (Theme.dutyName(runData) || qsTr("未知副本")) : qsTr("未知副本")
 
@@ -388,7 +390,7 @@ Dialog {
             visible: dialog.standalone
             radius: Theme.eorzea ? Theme.radiusM : Theme.radiusL
             color: Qt.rgba(Theme.surface.r, Theme.surface.g, Theme.surface.b,
-                           Math.max(0.9, typeof App !== "undefined" && App.statisticsOverlay ? App.statisticsOverlay.opacity : 1))
+                           Math.max(0.9, typeof Runtime.app !== "undefined" && Runtime.app.statisticsOverlay ? Runtime.app.statisticsOverlay.opacity : 1))
             border.width: 1
             border.color: Theme.border
             PanelDecoration { }
@@ -420,12 +422,12 @@ Dialog {
         dialog.dismissing(dialog.runId, dialog.completedAction)
         dialog.hostClosing()
         dialog.resultAcknowledged = false
-        if (typeof App !== "undefined"
-            && typeof App.resultConfirmationClosed === "function")
-            App.resultConfirmationClosed()
-        if (typeof App !== "undefined"
-            && typeof App.reflectionPromptClosed === "function")
-            App.reflectionPromptClosed()
+        if (typeof Runtime.app !== "undefined"
+            && typeof Runtime.app.resultConfirmationClosed === "function")
+            Runtime.app.resultConfirmationClosed()
+        if (typeof Runtime.app !== "undefined"
+            && typeof Runtime.app.reflectionPromptClosed === "function")
+            Runtime.app.reflectionPromptClosed()
     }
 
     function openForRun(run, kickerText) {
@@ -459,7 +461,7 @@ Dialog {
 
     /// The Collector's achievement_progress as last read, or -1 when none was.
     function collectorProgress() {
-        const value = typeof App !== "undefined" && App.dashboard ? App.dashboard.achievement_progress : undefined
+        const value = typeof Runtime.app !== "undefined" && Runtime.app.dashboard ? Runtime.app.dashboard.achievement_progress : undefined
         return typeof value === "number" && isFinite(value) && value >= 0 ? Math.floor(value) : -1
     }
 
@@ -476,15 +478,15 @@ Dialog {
         // read before this run's own events reached the dashboard, and the one
         // a read sent now returns. Nothing is counted here (review L2-1).
         if (dialog.compact && dialog.visible && run.result === "COMPLETED" && run.contributes_to_goal === true
-            && typeof App !== "undefined" && typeof App.readGoalProgress === "function") {
+            && typeof Runtime.app !== "undefined" && typeof Runtime.app.readGoalProgress === "function") {
             dialog.progressFrom = dialog.collectorProgress()
             if (dialog.progressFrom >= 0)
-                App.readGoalProgress(run.run_id)
+                Runtime.app.readGoalProgress(run.run_id)
         }
         if (!managedPresentation && dialog.visible && dialog.runId === run.run_id
-            && typeof App !== "undefined"
-            && typeof App.reflectionPromptShown === "function")
-            App.reflectionPromptShown(run.run_id)
+            && typeof Runtime.app !== "undefined"
+            && typeof Runtime.app.reflectionPromptShown === "function")
+            Runtime.app.reflectionPromptShown(run.run_id)
     }
 
     // The duty just ended and nothing observed whether it was cleared. The
@@ -520,10 +522,10 @@ Dialog {
         dialog.open()
         // Acknowledge only once the window is up: until this call the run is not
         // recorded as asked, so a dialog that never opened stays re-offerable.
-        if (!managedPresentation && typeof App !== "undefined"
-            && typeof App.resultConfirmationShown === "function") {
+        if (!managedPresentation && typeof Runtime.app !== "undefined"
+            && typeof Runtime.app.resultConfirmationShown === "function") {
             dialog.resultAcknowledged = true
-            App.resultConfirmationShown(run.run_id)
+            Runtime.app.resultConfirmationShown(run.run_id)
         }
     }
 
@@ -533,7 +535,7 @@ Dialog {
     function resolveWith(result, reasonText) {
         if (dialog.runId.length === 0 || dialog.busy || conflictUnresolved || unavailable)
             return
-        if (typeof App === "undefined" || (result.length > 0 ? !App.resolveRunResult : !App.supplementRunJob)) {
+        if (typeof Runtime.app === "undefined" || (result.length > 0 ? !Runtime.app.resolveRunResult : !Runtime.app.supplementRunJob)) {
             dialog.errorText = qsTr("当前版本不支持在此确认结果或补录职业。")
             return
         }
@@ -549,11 +551,11 @@ Dialog {
             dialog.progressFrom = dialog.collectorProgress()
             dialog.progressTo = -1
         }
-        if (saveNote && !App.saveReflection) {
+        if (saveNote && !Runtime.app.saveReflection) {
             dialog.errorText = qsTr("当前版本无法保存笔记。")
             return
         }
-        if (saveNote && App.reflectionSaving === true) {
+        if (saveNote && Runtime.app.reflectionSaving === true) {
             dialog.errorText = qsTr("上一条笔记仍在保存中，请稍候再试。")
             return
         }
@@ -566,7 +568,7 @@ Dialog {
             dialog.waitingForReflection = true
             dialog.persistDraft()
             dialog.submittedDraftToken = dialog.draftToken
-            App.saveReflection(dialog.runId, dialog.mood, note, dialog.submittedDraftToken)
+            Runtime.app.saveReflection(dialog.runId, dialog.mood, note, dialog.submittedDraftToken)
         } else {
             submitPendingResult()
         }
@@ -580,14 +582,14 @@ Dialog {
             return
         }
         if (dialog.pendingResult.length > 0)
-            App.resolveRunResult(dialog.runId, dialog.runRevision,
+            Runtime.app.resolveRunResult(dialog.runId, dialog.runRevision,
                                  dialog.pendingResult, dialog.pendingReason, dialog.selectedJobId)
         else
-            App.supplementRunJob(dialog.runId, dialog.runRevision, dialog.selectedJobId, dialog.pendingReason)
+            Runtime.app.supplementRunJob(dialog.runId, dialog.runRevision, dialog.selectedJobId, dialog.pendingReason)
     }
 
     Connections {
-        target: typeof App !== "undefined" ? App : null
+        target: typeof Runtime.app !== "undefined" ? Runtime.app : null
         ignoreUnknownSignals: true
 
         function onReflectionSaved(runId, cleared) {
@@ -637,8 +639,8 @@ Dialog {
                 dialog.pendingResult = ""
                 if (dialog.recovery) dialog.recovery.markResultSaved(dialog.runId)
                 if (dialog.answeredResult === "COMPLETED" && dialog.runData.contributes_to_goal === true
-                    && dialog.progressFrom >= 0 && typeof App.readGoalProgress === "function")
-                    App.readGoalProgress(dialog.runId)
+                    && dialog.progressFrom >= 0 && typeof Runtime.app.readGoalProgress === "function")
+                    Runtime.app.readGoalProgress(dialog.runId)
                 return
             }
             dialog.completedAction = true
@@ -660,7 +662,7 @@ Dialog {
                 || (kind !== "review" && kind !== "supplement_job") || runId !== dialog.runId)
                 return
             dialog.resolving = false
-            dialog.errorText = App.errorText(message, code)
+            dialog.errorText = Runtime.app.errorText(message, code)
         }
 
         function onReflectionFailed(code, message) {
@@ -672,13 +674,16 @@ Dialog {
             if ((!message || message.length === 0) && (!code || code.length === 0))
                 dialog.errorText = qsTr("未能确认笔记是否保存，请稍后重试。")
             else
-                dialog.errorText = App.errorText(message, code)
+                dialog.errorText = Runtime.app.errorText(message, code)
         }
     }
 
     contentItem: Item {
-        implicitWidth: dialog.standalone && compactFace.item ? compactFace.item.implicitWidth : formViewport.implicitWidth
-        implicitHeight: dialog.standalone && compactFace.item ? compactFace.item.implicitHeight : formViewport.implicitHeight
+        id: reflectionContent
+        readonly property alias popupHost: dialog.popupHost
+        readonly property Item compactContent: compactFace.item as Item
+        implicitWidth: dialog.standalone && compactContent ? compactContent.implicitWidth : formViewport.implicitWidth
+        implicitHeight: dialog.standalone && compactContent ? compactContent.implicitHeight : formViewport.implicitHeight
 
         // The popup face lives only while the window is the standalone one.
         Loader {
@@ -688,7 +693,7 @@ Dialog {
             anchors.top: parent.top
             active: dialog.standalone
             visible: dialog.standalone
-            sourceComponent: ResultPopupContent { dialog: popupHost }
+            sourceComponent: ResultPopupContent { dialog: reflectionContent.popupHost }
         }
 
         ScrollView {
@@ -917,11 +922,12 @@ Dialog {
                         { k: qsTr("副本"), wraps: true, v: Theme.dutyName(dialog.runData) || qsTr("未知副本") },
                         { k: qsTr("职业"), v: dialog.selectedJobId > 0
                             ? dialog.jobOptions[dialog.jobIndex].label : Theme.jobName(dialog.runData) || qsTr("未知") },
-                        { k: qsTr("结果"), v: Fmt.resultLabel(dialog.runData.result || "UNKNOWN") },
-                        { k: qsTr("耗时"), v: Fmt.duration(dialog.runData.duration_ms) }
+                        { k: qsTr("结果"), v: Runtime.fmt.resultLabel(dialog.runData.result || "UNKNOWN") },
+                        { k: qsTr("耗时"), v: Runtime.fmt.duration(dialog.runData.duration_ms) }
                     ]
 
                     delegate: ColumnLayout {
+                        id: summaryItem
                         required property var modelData
 
                         Layout.fillWidth: true
@@ -931,24 +937,24 @@ Dialog {
                         spacing: 2
 
                         Text {
-                            text: modelData.k
+                            text: summaryItem.modelData.k
                             color: Theme.textSecondary
                             font.pixelSize: Theme.fs(11)
                         }
 
                         Text {
                             Layout.fillWidth: true
-                            text: modelData.v
+                            text: summaryItem.modelData.v
                             textFormat: Text.PlainText
                             color: Theme.textPrimary
                             font.pixelSize: Theme.fs(12)
                             font.weight: Theme.figureWeight(true)
                             font.family: Theme.figureFamily
                             font.features: ({ "tnum": 1 })
-                            wrapMode: modelData.wraps === true ? Text.WordWrap : Text.NoWrap
-                            maximumLineCount: modelData.wraps === true ? 2 : 1
+                            wrapMode: summaryItem.modelData.wraps === true ? Text.WordWrap : Text.NoWrap
+                            maximumLineCount: summaryItem.modelData.wraps === true ? 2 : 1
                             elide: Text.ElideRight
-                            onLineCountChanged: if (modelData.wraps === true) summaryGrid.dutyWrapped = lineCount > 1
+                            onLineCountChanged: if (summaryItem.modelData.wraps === true) summaryGrid.dutyWrapped = lineCount > 1
                         }
                     }
                 }
@@ -1079,13 +1085,13 @@ Dialog {
                 scale: 0.8
                 checked: dialog.askingResult ? dialog.confirmEnabled : dialog.promptEnabled
                 onToggled: function(value) {
-                    if (typeof Settings === "undefined")
+                    if (typeof Runtime.settings === "undefined")
                         return
                     if (dialog.askingResult) {
-                        if (Settings.confirmPrompt !== undefined)
-                            Settings.confirmPrompt = value
-                    } else if (Settings.reflectPrompt !== undefined) {
-                        Settings.reflectPrompt = value
+                        if (Runtime.settings.confirmPrompt !== undefined)
+                            Runtime.settings.confirmPrompt = value
+                    } else if (Runtime.settings.reflectPrompt !== undefined) {
+                        Runtime.settings.reflectPrompt = value
                     }
                 }
             }
@@ -1113,7 +1119,7 @@ Dialog {
                 // controller drop a second call, so the button waits instead of
                 // pretending to submit.
                 enabled: !dialog.busy && !dialog.conflictUnresolved && !dialog.unavailable
-                         && !(typeof App !== "undefined" && App.reflectionSaving === true)
+                         && !(typeof Runtime.app !== "undefined" && Runtime.app.reflectionSaving === true)
                 text: dialog.submitting
                       ? qsTr("保存中…")
                       : dialog.selectedJobId > 0 ? qsTr("保存记录")
@@ -1126,7 +1132,7 @@ Dialog {
                         dialog.resolveWith("", QT_TRANSLATE_NOOP("SystemReason", "补录本次导随职业"))
                         return
                     }
-                    if (typeof App === "undefined" || !App.saveReflection) {
+                    if (typeof Runtime.app === "undefined" || !Runtime.app.saveReflection) {
                         dialog.errorText = qsTr("当前版本无法保存笔记。")
                         return
                     }
@@ -1134,7 +1140,7 @@ Dialog {
                     dialog.persistDraft()
                     dialog.submittedDraftToken = dialog.draftToken
                     dialog.submitting = true
-                    App.saveReflection(dialog.runId, dialog.mood, textArea.text.trim(), dialog.submittedDraftToken)
+                    Runtime.app.saveReflection(dialog.runId, dialog.mood, textArea.text.trim(), dialog.submittedDraftToken)
                 }
             }
         }

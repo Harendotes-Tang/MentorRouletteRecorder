@@ -1,6 +1,5 @@
 import QtQuick
-import QtQuick.Controls
-import MentorRecorder
+import MentorRecorder 1.0
 
 // Both ordinary settings and metadata evidence use the Collector's existing
 // override. Selection alone never starts a capture or an evidence session.
@@ -27,17 +26,17 @@ StyledComboBox {
     textRole: "label"
     valueRole: "value"
     keepsRowAcrossLanguages: false
-    enabled: App.captureSettingsSupported && App.captureSettingsLoaded
+    enabled: Runtime.app.captureSettingsSupported && Runtime.app.captureSettingsLoaded
              && control.interactionAllowed
     Binding {
         target: control
         property: "currentIndex"
-        value: control.regionIndex(App.captureSettings.region_override)
+        value: control.regionIndex(Runtime.app.captureSettings.region_override)
         restoreMode: Binding.RestoreNone
     }
     onActivated: function(index) {
         if (index >= 0 && index < control.regionChoices.length)
-            App.updateCaptureSetting("region_override", control.regionChoices[index].value)
+            Runtime.app.updateCaptureSetting("region_override", control.regionChoices[index].value)
     }
     Accessible.name: qsTr("游戏区服")
     Accessible.description: qsTr("自动按安装路径识别；无法识别时，请选择实际使用的国服或国际服。")

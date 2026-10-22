@@ -1,6 +1,8 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // The float's modules in the order of 自定义, a hairline between them. 当前副本
 // and 副本用时 appear only during a run, 待处理记录 only while something waits.
@@ -16,9 +18,9 @@ ColumnLayout {
         return true
     }
     readonly property var shownModules: {
-        void content.ov.inRun
-        void content.ov.pendingCount
-        return App.statisticsOverlay.modules.filter(function(key) { return content.available(key) })
+        Theme.trackBindingDependency(content.ov.inRun)
+        Theme.trackBindingDependency(content.ov.pendingCount)
+        return Runtime.app.statisticsOverlay.modules.filter(function(key) { return content.available(key) })
     }
 
     Repeater {
@@ -56,7 +58,7 @@ ColumnLayout {
     Text {
         visible: content.shownModules.length === 0
         Layout.fillWidth: true
-        text: App.statisticsOverlay.modules.length === 0
+        text: Runtime.app.statisticsOverlay.modules.length === 0
               ? qsTr("还没有选择内容，点标题栏的“自定义”添加。")
               : qsTr("所选内容进本后显示。")
         wrapMode: Text.WordWrap

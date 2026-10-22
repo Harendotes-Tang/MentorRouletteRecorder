@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 本次结果待确认 as the compact popup beside the statistics float
 // (docs/ui-design.md §4.9): a 30 px header (when the run ended, the queue
@@ -29,7 +31,7 @@ ColumnLayout {
         if (dialog.automaticOpen) return qsTr("刚刚结束")
         const iso = String(run.ended_at_utc || run.matched_at_utc || "")
         const date = new Date(iso)
-        return isNaN(date.getTime()) ? Fmt.dash() : Qt.formatDateTime(date, "MM-dd HH:mm")
+        return isNaN(date.getTime()) ? Runtime.fmt.dash() : Qt.formatDateTime(date, "MM-dd HH:mm")
     }
 
     spacing: 0
@@ -106,9 +108,9 @@ ColumnLayout {
                 tip: resultKind ? (promptOn ? qsTr("结束后自动询问：开") : qsTr("结束后自动询问：关"))
                                 : (promptOn ? qsTr("通关后提醒记笔记：开") : qsTr("通关后提醒记笔记：关"))
                 onClicked: {
-                    if (typeof Settings === "undefined") return
-                    if (resultKind) { if (Settings.confirmPrompt !== undefined) Settings.confirmPrompt = !promptOn }
-                    else if (Settings.reflectPrompt !== undefined) Settings.reflectPrompt = !promptOn
+                    if (typeof Runtime.settings === "undefined") return
+                    if (resultKind) { if (Runtime.settings.confirmPrompt !== undefined) Runtime.settings.confirmPrompt = !promptOn }
+                    else if (Runtime.settings.reflectPrompt !== undefined) Runtime.settings.reflectPrompt = !promptOn
                 }
             }
             OverlayIconButton {
@@ -168,7 +170,7 @@ ColumnLayout {
                 Layout.alignment: Qt.AlignVCenter
                 OverlayIcon { name: "timer"; color: Theme.textSecondary }
                 Text {
-                    text: Fmt.duration(popup.run.duration_ms)
+                    text: Runtime.fmt.duration(popup.run.duration_ms)
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fs(12.5)
                     font.weight: Font.Bold
@@ -325,7 +327,7 @@ ColumnLayout {
                     Layout.fillWidth: true
                     text: popup.counted ? qsTr("已计入导随次数")
                         : popup.wasLeft ? qsTr("已记为退出 / 放弃，不计入")
-                        : Fmt.resultLabel(popup.result || "UNKNOWN")
+                        : Runtime.fmt.resultLabel(popup.result || "UNKNOWN")
                     textFormat: Text.PlainText
                     color: Theme.textPrimary
                     font.pixelSize: Theme.fs(12.5)
@@ -470,7 +472,7 @@ ColumnLayout {
                 variant: "primary"
                 compact: !Theme.eorzea
                 enabled: !popup.dialog.busy && !popup.dialog.conflictUnresolved && !popup.dialog.unavailable
-                         && !(typeof App !== "undefined" && App.reflectionSaving === true)
+                         && !(typeof Runtime.app !== "undefined" && Runtime.app.reflectionSaving === true)
                 text: popup.dialog.submitting ? qsTr("保存中…") : qsTr("完成")
                 onClicked: popup.dialog.finish()
             }

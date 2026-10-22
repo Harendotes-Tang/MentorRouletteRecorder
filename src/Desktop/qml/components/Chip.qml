@@ -1,5 +1,5 @@
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // `.chip`: a tag-shaped toggle used by the history filter row. Classic is a
 // 4x8-padded fill plate with a 4 px radius; accent-100 + accent when on.

@@ -119,7 +119,9 @@ QRect fitToAvailableScreen(const QRect &geometry)
 
 namespace mr {
 StatisticsOverlayController::StatisticsOverlayController(AppSettings *settings, QObject *parent, CalendarClock clock)
-    : QObject(parent), m_settings(settings), m_clock(std::move(clock))
+    : QObject(parent), m_settings(settings)
+    , m_dungeons(new DungeonStatsModel(this)), m_jobs(new JobStatsModel(this))
+    , m_clock(std::move(clock))
     , m_attemptPeriod(validPeriod(settings ? settings->statisticsOverlayAttemptPeriod() : QString()))
     , m_geometry(validGeometry(settings ? settings->statisticsOverlayGeometry() : QRect()))
     , m_form(validForm(settings ? settings->statisticsOverlayForm() : QString()))
@@ -192,9 +194,25 @@ bool StatisticsOverlayController::attemptsApplicable() const
 {
     return m_visible && m_form == QLatin1String("full") && m_modules.contains(QStringLiteral("attempts"));
 }
+bool StatisticsOverlayController::hasPeriodStatistics() const
+{
+    return m_modules.contains(QStringLiteral("attempts"))
+        || m_modules.contains(QStringLiteral("dungeons")) || m_modules.contains(QStringLiteral("jobs"));
+}
+bool StatisticsOverlayController::statisticsApplicable() const
+{
+    return m_visible && m_form == QLatin1String("full") && hasPeriodStatistics();
+}
+bool StatisticsOverlayController::statisticsConnected() const
+{
+    return m_backend && m_backend->isConnected();
+}
 void StatisticsOverlayController::invalidateAttempts()
 {
     ++m_attemptGeneration;
+    // setBackend also invalidates each model's pending pagination callbacks.
+    m_dungeons->setBackend(m_backend);
+    m_jobs->setBackend(m_backend);
     m_attemptsKnown = false;
     m_attemptsLoading = false;
     m_attemptsFailed = false;
@@ -202,12 +220,12 @@ void StatisticsOverlayController::invalidateAttempts()
 }
 void StatisticsOverlayController::updateAttemptsActivity()
 {
-    if (attemptsApplicable()) {
+    invalidateAttempts();
+    if (statisticsApplicable()) {
         m_calendarTimer->start();
         refreshAttempts();
     } else {
         m_calendarTimer->stop();
-        invalidateAttempts();
     }
 }
 void StatisticsOverlayController::setBackend(IBackend *backend)
@@ -236,20 +254,27 @@ void StatisticsOverlayController::setBackend(IBackend *backend)
 }
 void StatisticsOverlayController::refreshAttempts()
 {
-    if (!attemptsApplicable())
+    if (!statisticsApplicable())
         return;
-    const quint64 generation = ++m_attemptGeneration;
     const QDateTime now = m_clock();
     m_attemptDate = now.date();
     m_attemptZoneId = now.timeZone().id();
     m_attemptUtcOffset = now.offsetFromUtc();
+    const QJsonObject filter = attemptFilter(m_attemptPeriod, now.date(), now.timeZone());
+    if (m_modules.contains(QStringLiteral("dungeons")))
+        m_dungeons->setFilter(filter.toVariantMap());
+    if (m_modules.contains(QStringLiteral("jobs")))
+        m_jobs->setFilter(filter.toVariantMap());
+    if (!attemptsApplicable())
+        return;
+    const quint64 generation = ++m_attemptGeneration;
     m_attemptsKnown = false;
     m_attemptsLoading = m_backend && m_backend->isConnected();
     m_attemptsFailed = !m_attemptsLoading;
     Q_EMIT attemptsChanged();
     if (!m_attemptsLoading)
         return;
-    m_backend->getDashboardStats(attemptFilter(m_attemptPeriod, now.date(), now.timeZone()))
+    m_backend->getDashboardStats(filter)
         ->whenDone(this, [this, generation](bool ok, const QVariantMap &payload, const QString &, const QString &) {
             if (generation != m_attemptGeneration || !attemptsApplicable())
                 return;
@@ -267,7 +292,7 @@ void StatisticsOverlayController::refreshAttempts()
 }
 void StatisticsOverlayController::checkAttemptCalendar()
 {
-    if (!attemptsApplicable())
+    if (!statisticsApplicable())
         return;
     const QDateTime now = m_clock();
     if (now.date() != m_attemptDate || now.timeZone().id() != m_attemptZoneId
@@ -416,22 +441,23 @@ void StatisticsOverlayController::setModules(const QStringList &modules)
             order.append(key);
     if (m_modules == enabled && m_order == order)
         return;
-    const bool wasApplicable = attemptsApplicable();
+    const bool changedStatistics = m_modules.contains(QStringLiteral("attempts")) != enabled.contains(QStringLiteral("attempts"))
+        || m_modules.contains(QStringLiteral("dungeons")) != enabled.contains(QStringLiteral("dungeons"))
+        || m_modules.contains(QStringLiteral("jobs")) != enabled.contains(QStringLiteral("jobs"));
     m_order = order;
     m_modules = enabled;
     storeModules();
-    if (wasApplicable != attemptsApplicable())
+    if (changedStatistics)
         updateAttemptsActivity();
 }
 void StatisticsOverlayController::toggleModule(const QString &key)
 {
     if (!m_order.contains(key)) return;
-    const bool wasApplicable = attemptsApplicable();
     QStringList enabled = m_modules;
     if (!enabled.removeOne(key)) enabled.append(key);
     m_modules = enabledInOrder(m_order, enabled);
     storeModules();
-    if (wasApplicable != attemptsApplicable())
+    if (key == QLatin1String("attempts") || key == QLatin1String("dungeons") || key == QLatin1String("jobs"))
         updateAttemptsActivity();
 }
 void StatisticsOverlayController::moveModule(const QString &key, int direction)

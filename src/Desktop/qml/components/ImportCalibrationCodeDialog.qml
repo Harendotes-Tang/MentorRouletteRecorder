@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls 6.8
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 导入校准码：连不上 GitHub 时的兜底，粘贴其他玩家提供的校准码。
 // 导入本身不联网，也不受"获取共享校准"开关影响；通过检查的码与下载所得一样，
@@ -10,7 +12,7 @@ Dialog {
     id: dialog
     objectName: "sharedImportDialog"
 
-    readonly property var shared: App.calibration ? App.calibration.shared : null
+    readonly property var shared: Runtime.app.calibration ? Runtime.app.calibration.shared : null
     property alias code: codeField.text
     property string messageText: ""
     // 每次打开自增，提交时记下当时的值：导入请求一旦上路就收不回来，回应到达时

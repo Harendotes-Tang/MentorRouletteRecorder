@@ -1,6 +1,8 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // The 12 px result-distribution bar: 2 px gaps between segments and a hairline
 // frame in the eorzea style.

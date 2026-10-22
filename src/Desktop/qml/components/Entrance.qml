@@ -1,5 +1,5 @@
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // A classic-style entrance (workbench.css wbRow / wbPop): the owner binds its
 // opacity, scale and a Translate to this object and calls play(delay).

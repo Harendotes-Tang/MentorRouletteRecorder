@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // Achievement progress ring. The Eorzea theme paints the arc with the
 // #f0dc9e -> #b08a3a gradient of the prototype's <linearGradient id="ffgold">,

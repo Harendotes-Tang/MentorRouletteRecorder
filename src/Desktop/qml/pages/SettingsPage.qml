@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // ---------------------------------------------------------------------------
 // 设置
@@ -26,8 +28,8 @@ Item {
 
     // Remembered for the session: Main.qml creates the page once and only hides
     // it. --settings-tab opens a given tab for a screenshot.
-    property string currentTab: (typeof ForceSettingsTab !== "undefined" && ForceSettingsTab)
-                                ? ForceSettingsTab : "general"
+    property string currentTab: (typeof Runtime.forceSettingsTab !== "undefined" && Runtime.forceSettingsTab)
+                                ? Runtime.forceSettingsTab : "general"
     readonly property var tabs: [
         { id: "general", label: qsTr("通用"), sub: qsTr("语言 · 启动 · 记录 · 外观") },
         { id: "tts", label: qsTr("播报"), sub: qsTr("语音与模板") },

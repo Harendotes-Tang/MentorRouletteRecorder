@@ -1,12 +1,14 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls 6.8
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 ColumnLayout {
     id: page
     objectName: "reflectionsPage"
-    property var controller: typeof Reflections !== "undefined" ? Reflections : null
+    property var controller: typeof Runtime.reflections !== "undefined" ? Runtime.reflections : null
     property real reservedBottom: 0
     readonly property var runs: controller ? controller.runs : null
     signal reflectRequested(var run)
@@ -20,8 +22,8 @@ ColumnLayout {
         // Keep note words as typed and add a separate recorded-name match.
         const text = search.text.trim()
         const filter = { text: text }
-        const nameText = typeof Names !== "undefined" && Names
-                         ? Names.recordedSearchText(text) : text
+        const nameText = typeof Runtime.names !== "undefined" && Runtime.names
+                         ? Runtime.names.recordedSearchText(text) : text
         if (nameText !== text)
             filter.name_text = nameText
         if (job.currentIndex > 0)
@@ -32,10 +34,10 @@ ColumnLayout {
     }
     function dateLabel(run) {
         if (run.matched_at_utc)
-            return Fmt.localDateTime(run.matched_at_utc)
+            return Runtime.fmt.localDateTime(run.matched_at_utc)
         const source = run.import_metadata || ({})
         if (source.source_recorded_at_utc)
-            return qsTr("原站记录时间：%1").arg(Fmt.localDateTime(source.source_recorded_at_utc))
+            return qsTr("原站记录时间：%1").arg(Runtime.fmt.localDateTime(source.source_recorded_at_utc))
         if (source.source_recorded_at)
             return qsTr("原站记录时间：%1").arg(source.source_recorded_at)
         return qsTr("游玩时间未知")
@@ -99,7 +101,7 @@ ColumnLayout {
             width: 120
             // The label is the job in the interface language; the filter sends job_id.
             model: [{ job_id: null, job_name: qsTr("全部职业"), label: qsTr("全部职业") }]
-                   .concat(Theme.labelledJobs(typeof App !== "undefined" ? App.battleJobOptions : []))
+                   .concat(Theme.labelledJobs(typeof Runtime.app !== "undefined" ? Runtime.app.battleJobOptions : []))
             textRole: "label"
             onActivated: page.applyFilter()
         }
@@ -108,7 +110,7 @@ ColumnLayout {
             width: 110
             // value: the Chinese category RunFilter.duty_category carries; label: as shown.
             model: [{ value: null, label: qsTr("全部类型") }]
-                   .concat(Theme.labelledCategories(typeof App !== "undefined" ? App.categoryOptions : []))
+                   .concat(Theme.labelledCategories(typeof Runtime.app !== "undefined" ? Runtime.app.categoryOptions : []))
             textRole: "label"
             onActivated: page.applyFilter()
         }
@@ -137,41 +139,43 @@ ColumnLayout {
     }
     Timer { id: debounce; interval: 300; onTriggered: page.applyFilter() }
 
-    Dialog {
-        id: filterConfirmation
-        objectName: "reflectionFilterConfirmation"
-        property bool confirmed: false
-        modal: true
-        anchors.centerIn: Overlay.overlay
-        width: Math.min(440, Overlay.overlay ? Overlay.overlay.width - 48 : 440)
-        padding: 20
-        closePolicy: Popup.CloseOnEscape
-        background: DialogFrame {}
-        Overlay.modal: Rectangle { color: Theme.modalScrim(filterConfirmation.palette.shadow) }
-        onOpened: { confirmed = false; keepFilter.forceActiveFocus() }
-        onClosed: if (!confirmed && page.controller) page.controller.cancelFilterChange()
-        contentItem: ColumnLayout {
-            spacing: 16
-            HeadingLabel { text: qsTr("更改筛选将清空选择"); font.pixelSize: Theme.dialogTitleSize(18) }
-            Text {
-                Layout.fillWidth: true
-                text: qsTr("当前已选 %1 条心得。清空选择后再应用新筛选？").arg(page.controller ? page.controller.selectedCount : 0)
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fs(13)
-                wrapMode: Text.Wrap
-            }
-            RowLayout {
-                Layout.fillWidth: true
-                AppButton { id: keepFilter; objectName: "keepReflectionFilter"; text: qsTr("保留当前筛选"); onClicked: filterConfirmation.close() }
-                Item { Layout.fillWidth: true }
-                AppButton {
-                    objectName: "confirmReflectionFilter"
-                    text: qsTr("清空并筛选")
-                    variant: "primary"
-                    onClicked: {
-                        filterConfirmation.confirmed = true
-                        page.controller.confirmFilterChange()
-                        filterConfirmation.close()
+    QtObject {
+        readonly property Dialog filterPrompt: Dialog {
+            id: filterConfirmation
+            objectName: "reflectionFilterConfirmation"
+            property bool confirmed: false
+            modal: true
+            anchors.centerIn: Overlay.overlay
+            width: Math.min(440, Overlay.overlay ? Overlay.overlay.width - 48 : 440)
+            padding: 20
+            closePolicy: Popup.CloseOnEscape
+            background: DialogFrame {}
+            Overlay.modal: Rectangle { color: Theme.modalScrim(filterConfirmation.palette.shadow) }
+            onOpened: { confirmed = false; keepFilter.forceActiveFocus() }
+            onClosed: if (!confirmed && page.controller) page.controller.cancelFilterChange()
+            contentItem: ColumnLayout {
+                spacing: 16
+                HeadingLabel { text: qsTr("更改筛选将清空选择"); font.pixelSize: Theme.dialogTitleSize(18) }
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("当前已选 %1 条心得。清空选择后再应用新筛选？").arg(page.controller ? page.controller.selectedCount : 0)
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fs(13)
+                    wrapMode: Text.Wrap
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    AppButton { id: keepFilter; objectName: "keepReflectionFilter"; text: qsTr("保留当前筛选"); onClicked: filterConfirmation.close() }
+                    Item { Layout.fillWidth: true }
+                    AppButton {
+                        objectName: "confirmReflectionFilter"
+                        text: qsTr("清空并筛选")
+                        variant: "primary"
+                        onClicked: {
+                            filterConfirmation.confirmed = true
+                            page.controller.confirmFilterChange()
+                            filterConfirmation.close()
+                        }
                     }
                 }
             }
@@ -251,8 +255,8 @@ ColumnLayout {
                         color: Theme.textPrimary
                         font.family: Qt.fontFamilies().indexOf("Noto Sans SC") >= 0
                                      ? "Noto Sans SC"
-                                     : (typeof Lang !== "undefined" && Lang
-                                        ? Lang.displayFamily(Lang.code) : Theme.bodyFamily)
+                                     : (typeof Runtime.lang !== "undefined" && Runtime.lang
+                                        ? Runtime.lang.displayFamily(Runtime.lang.code) : Theme.bodyFamily)
                         font.pixelSize: Theme.fs(14)
                         wrapMode: Text.Wrap
                         lineHeight: 1.5

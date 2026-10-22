@@ -1,5 +1,7 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // `.panel::before` / `.panel::after` of ff14.css: two gilded corner ticks plus
 // the 1 px inner highlight of `--shadow-sm`. Harendotes drops the ticks for a
@@ -12,8 +14,9 @@ Item {
     property int tickSize: 10
     property real tickWidth: 1.5
     // Follows the host's corners so the glowing frame sits on its border.
-    readonly property real cornerRadius: parent && parent.radius !== undefined
-                                         ? parent.radius : Theme.radiusM
+    readonly property var panel: parent
+    readonly property real cornerRadius: panel && panel.radius !== undefined
+                                         ? panel.radius : Theme.radiusM
 
     anchors.fill: parent
     visible: Theme.eorzea

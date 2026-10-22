@@ -33,6 +33,7 @@ public sealed partial class RunImportService
 
     /// <summary>Longest verbatim argument a <c>$defs/TextRef</c> carries (contracts/ipc-v1.schema.json).</summary>
     private const int MaxVerbatimArgument = 4000;
+    private const int MaxPreviousDutyNameFingerprints = 32;
 
     public RunImportService(SqliteDatabase database, IClock clock) : this(database, clock, MaxPreviewCacheBytes)
     {
@@ -108,15 +109,63 @@ public sealed partial class RunImportService
             }
         }
         var now = UtcTimestamp.Truncate(_clock.UtcNow);
+        var previousDutyNames = SnapshotPreviousDutyNameFingerprints(now, cancellationToken);
         var preview = new Preview(Guid.NewGuid().ToString("D"), sourceKind, sourceName, now,
             parsed.Select(row =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                return RunImportCandidateNormalizer.Normalize(row, sourceKind, sourceName, timeZone, now,
+                var candidate = RunImportCandidateNormalizer.Normalize(row, sourceKind, sourceName, timeZone, now,
                     legacyKeys.GetValueOrDefault(row.RowNumber));
+                // The normalizer produces these only for an inferred preferred duty. An
+                // explicit id can have exactly the same facts hash and must not inherit them.
+                if (candidate.PreviousDutyNameFingerprints is { Count: > 0 } current
+                    && candidate.Run?.ImportMetadata is { } metadata
+                    && previousDutyNames.TryGetValue(metadata.SourceFingerprint, out var cached))
+                {
+                    candidate = candidate with
+                    {
+                        PreviousDutyNameFingerprints = cached.Concat(current).Distinct(StringComparer.Ordinal)
+                            .Take(MaxPreviousDutyNameFingerprints).ToArray(),
+                    };
+                }
+                return candidate;
             }).ToArray());
         var rendered = _database.Read(_ => Render(preview, cancellationToken), cancellationToken);
         return FreezeAndCache(preview, rendered, pageSize, cancellationToken);
+    }
+
+    /// <summary>
+    /// Keeps server-computed pre-preference identities through unchanged candidate rechecks.
+    /// Only unexpired previews contribute; oldest compatible identities win the bounded set.
+    /// Snapshotting is linear in the bounded cache and holds only its gate, never the DB gate.
+    /// The caller still normalizes every source fact and reclassifies against the current DB.
+    /// </summary>
+    private Dictionary<string, List<string>> SnapshotPreviousDutyNameFingerprints(DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var snapshot = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        lock (_gate)
+        {
+            foreach (var preview in _previews.Values.Where(preview => now - preview.Created <= PreviewLifetime)
+                         .OrderBy(preview => preview.Created))
+            {
+                foreach (var candidate in preview.Candidates)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (candidate.PreviousDutyNameFingerprints is not { Count: > 0 } fingerprints
+                        || candidate.Run?.ImportMetadata is not { } metadata)
+                        continue;
+                    if (!snapshot.TryGetValue(metadata.SourceFingerprint, out var known))
+                        snapshot.Add(metadata.SourceFingerprint, known = new List<string>());
+                    foreach (var fingerprint in fingerprints)
+                    {
+                        if (known.Count >= MaxPreviousDutyNameFingerprints) break;
+                        if (!known.Contains(fingerprint, StringComparer.Ordinal)) known.Add(fingerprint);
+                    }
+                }
+            }
+        }
+        return snapshot;
     }
 
     /// <summary>Rechecks all selected identities under the write transaction; conflicts never overwrite local data.</summary>
@@ -354,15 +403,19 @@ public sealed partial class RunImportService
     private (string Status, string? Matching) Classify(ImportCandidate candidate, SqliteTransaction? transaction)
     {
         var incoming = candidate.Run!;
+        var previousDutyNames = candidate.PreviousDutyNameFingerprints ?? Array.Empty<string>();
         if (_idempotency.IsPurgedRun(incoming.RunId, incoming.ImportMetadata?.SourceFingerprint, transaction)
             || candidate.LegacyFingerprint is { } purgedBefore && _idempotency.IsPurgedRun(incoming.RunId, purgedBefore, transaction)
-            || candidate.PreAliasFingerprint is { } purgedPreAlias && _idempotency.IsPurgedRun(incoming.RunId, purgedPreAlias, transaction))
+            || candidate.PreAliasFingerprint is { } purgedPreAlias && _idempotency.IsPurgedRun(incoming.RunId, purgedPreAlias, transaction)
+            || previousDutyNames.Any(fingerprint => _idempotency.IsPurgedRun(incoming.RunId, fingerprint, transaction)))
             return ("conflict", incoming.RunId);
         if (candidate.HasStableId && _runs.GetInternal(incoming.RunId, transaction) is { } local)
             return (RunImportCandidateNormalizer.SameProvidedFacts(candidate, local) ? "duplicate" : "conflict", local.RunId);
         if ((_imports.FindFingerprint(incoming.ImportMetadata!.SourceFingerprint, transaction)
             ?? (candidate.LegacyFingerprint is { } before ? _imports.FindFingerprint(before, transaction) : null)
-            ?? (candidate.PreAliasFingerprint is { } preAlias ? _imports.FindFingerprint(preAlias, transaction) : null)) is { } exact)
+            ?? (candidate.PreAliasFingerprint is { } preAlias ? _imports.FindFingerprint(preAlias, transaction) : null)
+            ?? previousDutyNames.Select(fingerprint => _imports.FindFingerprint(fingerprint, transaction))
+                .FirstOrDefault(runId => runId is not null)) is { } exact)
             return ("duplicate", exact);
         var nearby = FindNearby(incoming, transaction);
         return nearby is null ? ("new", null) : ("possible_duplicate", nearby);

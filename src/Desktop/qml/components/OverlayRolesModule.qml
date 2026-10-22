@@ -1,18 +1,23 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 职业统计: attempts by role group as a row of small columns, each topped by
 // its count and footed by the role glyph; the name only with 文字标签.
 ColumnLayout {
     id: root
+    objectName: "floatingJobStatistics"
 
     required property var ov
-    readonly property var stats: App.jobs
+    readonly property var stats: ov.controller.jobs
+    readonly property bool ready: ov.controller.statisticsConnected && !stats.loading && stats.loadError.length === 0
     property var columns: []
     spacing: 0
 
     function reload() {
+        if (!ready) { columns = []; return }
         const total = Number(stats.totalAttemptCount || 0)
         columns = stats.roleBreakdown()
             .filter(function(row) { return Number(row.attempt_count || 0) > 0 })
@@ -23,7 +28,13 @@ ColumnLayout {
             })
     }
     Component.onCompleted: reload()
-    Connections { target: root.stats; function onCountChanged() { root.reload() } }
+    Connections {
+        target: root.stats
+        function onCountChanged() { root.reload() }
+        function onLoadingChanged() { root.reload() }
+        function onLoadErrorChanged() { root.reload() }
+    }
+    Connections { target: root.ov.controller; function onAttemptsChanged() { root.reload() } }
 
     readonly property int maxCount: {
         let max = 1
@@ -57,19 +68,25 @@ ColumnLayout {
                     font.features: ({ "tnum": 1 })
                 }
                 Rectangle {
+                    objectName: "floatingRoleBarTrack"
                     Layout.alignment: Qt.AlignHCenter
                     Layout.preferredWidth: Math.min(24, Math.max(10, column.width))
                     Layout.preferredHeight: 36
                     radius: Theme.radiusXs
                     color: Qt.rgba(column.tone.r, column.tone.g, column.tone.b, 0.14)
+                    clip: true
                     Rectangle {
+                        objectName: "floatingRoleBarFill"
+                        // Animate the normalized value; transient layout heights
+                        // must not become a long-lived pixel-height animation.
+                        property real fillRatio: Math.max(0, Math.min(1, column.modelData.count / root.maxCount))
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.bottom: parent.bottom
-                        height: Math.max(2, Math.round(parent.height * column.modelData.count / root.maxCount))
+                        height: Math.min(parent.height, Math.max(2, Math.round(parent.height * fillRatio)))
                         radius: parent.radius
                         color: column.tone
-                        Behavior on height { NumberAnimation { duration: Theme.motion ? 400 : 0; easing.type: Easing.OutCubic } }
+                        Behavior on fillRatio { NumberAnimation { duration: Theme.motion ? 400 : 0; easing.type: Easing.OutCubic } }
                     }
                 }
                 RoleIcon {
@@ -90,15 +107,18 @@ ColumnLayout {
                 OverlayToolTip {
                     visible: columnHover.hovered
                     text: qsTr("%1 · 尝试 %2 次（%3）").arg(column.groupName).arg(column.modelData.count)
-                          .arg(Fmt.percent(column.modelData.share, 1))
+                          .arg(Runtime.fmt.percent(column.modelData.share, 1))
                 }
             }
         }
     }
 
     Text {
-        visible: root.columns.length === 0 && !root.stats.loading
-        text: root.stats.loadError.length > 0 ? root.stats.loadError : qsTr("暂无统计")
+        objectName: "floatingJobMessage"
+        visible: root.columns.length === 0
+        text: !root.ov.controller.statisticsConnected ? qsTr("后台服务未连接")
+            : root.stats.loading ? qsTr("读取中…")
+            : root.stats.loadError.length > 0 ? root.stats.loadError : qsTr("暂无统计")
         textFormat: Text.PlainText
         color: root.stats.loadError.length > 0 ? Theme.orangeText : Theme.textSecondary
         font.pixelSize: Theme.fs(12)

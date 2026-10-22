@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls 6.8
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 核对对话框：展示推断出来的时间线，一行一句话（时间 + 这一刻发生了什么）。
 // 需要核对的每一行给"对 / 错"两个按钮，全部点过才能启用。带轮盘名的行点"错"记为
@@ -11,7 +13,7 @@ Dialog {
     id: dialog
     objectName: "calibrationDialog"
 
-    readonly property var controller: App.calibration
+    readonly property var controller: Runtime.app.calibration
     // 事件 id → { verdict: "CORRECT" / "WRONG" / "RELABEL", roulette_name: "…" }。
     // 每次都整体替换，绑定才会重算。
     property var verdicts: ({})
@@ -125,8 +127,8 @@ Dialog {
             dialog.close()
             // 采集服务没能当场换上新档案（这一把正在进行，或还没开始监听）：它从下一把
             // 起才生效，必须如实告诉玩家，而不是让人以为这一把已按它记录（审查 CS3b-X2）。
-            if (!boundInSession && typeof App !== "undefined" && App.showToast)
-                App.showToast(qsTr("校准已保存，从下一次副本开始使用。本次副本的记录方式不变。"))
+            if (!boundInSession && typeof Runtime.app !== "undefined" && Runtime.app.showToast)
+                Runtime.app.showToast(qsTr("校准已保存，从下一次副本开始使用。本次副本的记录方式不变。"))
         }
         function onRejected(message) {
             if (!dialog.ownsReply())

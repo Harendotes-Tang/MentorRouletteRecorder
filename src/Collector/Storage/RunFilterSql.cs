@@ -172,7 +172,8 @@ public static class RunFilterSql
         AddContentIds(clauses, parameters, filter.ContentIds, duties);
         AddTextList(clauses, parameters, "run_id", filter.RunIds, "rid");
         AddIntList(clauses, parameters, "job_id", filter.JobIds, "jid");
-        AddTextList(clauses, parameters, "duty_category", filter.DutyCategories, "dcat");
+        if (filter.DutyCategories.Count > 0)
+            AddTextList(clauses, parameters, EffectiveDutyCategory(parameters, duties), filter.DutyCategories, "dcat");
         AddTextList(
             clauses,
             parameters,
@@ -322,6 +323,36 @@ public static class RunFilterSql
         }
 
         clauses.Add($"{column} IN ({string.Join(", ", names)})");
+    }
+
+    // This CASE is applied before COUNT, LIMIT and calendar aggregation. Its membership
+    // comes from the same resolver as display/statistics, never from translated names.
+    private static string EffectiveDutyCategory(List<KeyValuePair<string, object?>> parameters, DutyCatalog duties)
+    {
+        var regional = new List<string>();
+        foreach (var region in Enum.GetValues<Region>())
+        {
+            var identities = new List<string>();
+            var content = duties.Categories.AllianceContentIds(region);
+            var territories = duties.Categories.AllianceTerritoryIds(region);
+            var suffix = ((int)region).ToString(CultureInfo.InvariantCulture);
+            AddIntList(identities, parameters, "content_id", content, "dcat_content" + suffix + "_");
+            if (territories.Count > 0)
+            {
+                var byTerritory = new List<string>();
+                AddIntList(byTerritory, parameters, "territory_id", territories, "dcat_territory" + suffix + "_");
+                identities.Add("(content_id IS NULL AND " + byTerritory[0] + ")");
+            }
+            if (identities.Count == 0) continue;
+            var regionParameter = "$dcat_region" + suffix;
+            parameters.Add(new(regionParameter, EnumWire<Region>.Format(region)));
+            regional.Add("(region = " + regionParameter + " AND (" + string.Join(" OR ", identities) + "))");
+        }
+        if (regional.Count == 0) return "duty_category";
+        parameters.Add(new("$dcat_raw", DutyCategoryProjection.RaidCategory));
+        parameters.Add(new("$dcat_alliance", DutyCategoryProjection.AllianceCategory));
+        return "CASE WHEN (duty_category IS NULL OR trim(duty_category, char(9,10,11,12,13,32,133,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288)) = '' OR duty_category = $dcat_raw) AND ("
+            + string.Join(" OR ", regional) + ") THEN $dcat_alliance ELSE duty_category END";
     }
 
     private static void AddTextList(

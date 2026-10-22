@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 总览页顶部的新版本提示。
 //
@@ -18,7 +18,7 @@ Card {
     objectName: "updateNotice"
 
     Layout.fillWidth: true
-    visible: App.update.updateAvailable && (!App.update.dismissed || App.update.downloadEngaged)
+    visible: Runtime.app.update.updateAvailable && (!Runtime.app.update.dismissed || Runtime.app.update.downloadEngaged)
 
     CardKicker {
         Layout.fillWidth: true
@@ -28,7 +28,7 @@ Card {
     Text {
         objectName: "updateNoticeHeadline"
         Layout.fillWidth: true
-        text: App.update.headline
+        text: Runtime.app.update.headline
         color: Theme.textPrimary
         font.pixelSize: Theme.fs(14)
         font.bold: true
@@ -38,7 +38,7 @@ Card {
     Text {
         objectName: "updateNoticeDetail"
         Layout.fillWidth: true
-        text: App.update.detail
+        text: Runtime.app.update.detail
         color: Theme.textSecondary
         font.pixelSize: Theme.fs(12)
         lineHeight: 1.35
@@ -58,27 +58,27 @@ Card {
 
         AppButton {
             objectName: "downloadInstallerButton"
-            readonly property bool cancels: App.update.downloadPhase === "downloading"
-                                            || App.update.downloadPhase === "verifying"
+            readonly property bool cancels: Runtime.app.update.downloadPhase === "downloading"
+                                            || Runtime.app.update.downloadPhase === "verifying"
             visible: text.length > 0
             variant: cancels ? "secondary" : "primary"
-            text: App.update.downloadActionText
-            enabled: App.update.downloadActionEnabled
-            onClicked: App.update.downloadAction()
+            text: Runtime.app.update.downloadActionText
+            enabled: Runtime.app.update.downloadActionEnabled
+            onClicked: Runtime.app.update.downloadAction()
         }
 
         AppButton {
             objectName: "dismissUpdateButton"
-            visible: !App.update.downloadEngaged
+            visible: !Runtime.app.update.downloadEngaged
             text: qsTr("忽略此版本")
-            onClicked: App.update.dismiss()
+            onClicked: Runtime.app.update.dismiss()
         }
 
         AppButton {
             objectName: "openReleasePageButton"
             variant: "ghost"
             text: qsTr("查看更新说明")
-            onClicked: App.update.openReleasePage()
+            onClicked: Runtime.app.update.openReleasePage()
         }
     }
 }

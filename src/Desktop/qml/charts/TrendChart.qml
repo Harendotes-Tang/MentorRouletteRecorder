@@ -1,5 +1,7 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // Completion trend. Qt Graphs draws the bars when the module can be instantiated
 // in this environment (main() probes it once and publishes `GraphsAvailable`);
@@ -10,8 +12,8 @@ Item {
 
     property var buckets: []
 
-    readonly property bool useGraphs: (typeof GraphsAvailable !== "undefined")
-                                      && GraphsAvailable
+    readonly property bool useGraphs: (typeof Runtime.graphsAvailable !== "undefined")
+                                      && Runtime.graphsAvailable
     readonly property int maxCount: {
         let maxValue = 1
         for (let i = 0; i < buckets.length; ++i)

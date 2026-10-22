@@ -54,6 +54,7 @@
 #include "ReflectionLibraryController.h"
 #include "ReflectionShareController.h"
 #include "QmlWarningCounter.h"
+#include "QmlRuntime.h"
 #include "RoleCatalog.h"
 #include "RunFormValidator.h"
 #include "SingleInstanceGuard.h"
@@ -1074,37 +1075,37 @@ int main(int argc, char *argv[])
                      &settings, &mr::AppSettings::ttsChanged);
 
     QQmlApplicationEngine engine;
+    auto *runtime = mr::QmlRuntime::forEngine(&engine);
     if (screenshotMode)
         qmlWarnings.watch(&engine);
     language.attachEngine(&engine);
-    engine.rootContext()->setContextProperty(QStringLiteral("Lang"), &language);
-    engine.rootContext()->setContextProperty(QStringLiteral("Names"), mr::GameNames::shared());
-    engine.rootContext()->setContextProperty(QStringLiteral("App"), &controller);
-    engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), formatters);
-    engine.rootContext()->setContextProperty(QStringLiteral("Jobs"), jobs);
-    engine.rootContext()->setContextProperty(QStringLiteral("Roles"), roles);
-    engine.rootContext()->setContextProperty(QStringLiteral("RunForm"), validator);
-    engine.rootContext()->setContextProperty(QStringLiteral("NoteImages"), noteImages);
-    engine.rootContext()->setContextProperty(QStringLiteral("Reflections"), &reflections);
-    engine.rootContext()->setContextProperty(QStringLiteral("ReflectionShare"), &reflectionShare);
-    engine.rootContext()->setContextProperty(QStringLiteral("ImportRecords"), importRecords);
-    engine.rootContext()->setContextProperty(QStringLiteral("Settings"), &settings);
-    engine.rootContext()->setContextProperty(QStringLiteral("ReleaseNotes"), &releaseNotes);
-    engine.rootContext()->setContextProperty(QStringLiteral("CalibrationEvidence"), &evidence);
-    engine.rootContext()->setContextProperty(QStringLiteral("SuppressReleaseNotes"),
+    runtime->setValue(mr::QmlRuntime::Field::Lang, &language);
+    runtime->setValue(mr::QmlRuntime::Field::Names, mr::GameNames::shared());
+    runtime->setValue(mr::QmlRuntime::Field::App, &controller);
+    runtime->setValue(mr::QmlRuntime::Field::Fmt, formatters);
+    runtime->setValue(mr::QmlRuntime::Field::Jobs, jobs);
+    runtime->setValue(mr::QmlRuntime::Field::Roles, roles);
+    runtime->setValue(mr::QmlRuntime::Field::RunForm, validator);
+    runtime->setValue(mr::QmlRuntime::Field::NoteImages, noteImages);
+    runtime->setValue(mr::QmlRuntime::Field::Reflections, &reflections);
+    runtime->setValue(mr::QmlRuntime::Field::ReflectionShare, &reflectionShare);
+    runtime->setValue(mr::QmlRuntime::Field::ImportRecords, importRecords);
+    runtime->setValue(mr::QmlRuntime::Field::Settings, &settings);
+    runtime->setValue(mr::QmlRuntime::Field::ReleaseNotes, &releaseNotes);
+    runtime->setValue(mr::QmlRuntime::Field::CalibrationEvidence, &evidence);
+    runtime->setValue(mr::QmlRuntime::Field::SuppressReleaseNotes,
         mr::AppSettings::isHarnessRun(screenshotMode, selectedBackend));
-    engine.rootContext()->setContextProperty(QStringLiteral("ForceReleaseNotes"),
+    runtime->setValue(mr::QmlRuntime::Field::ForceReleaseNotes,
         parser.isSet(releaseNotesOption)
             && mr::AppSettings::isHarnessRun(screenshotMode, selectedBackend));
-    engine.rootContext()->setContextProperty(QStringLiteral("Tts"), controller.tts());
-    engine.rootContext()->setContextProperty(QStringLiteral("GraphsAvailable"),
+    runtime->setValue(mr::QmlRuntime::Field::Tts, controller.tts());
+    runtime->setValue(mr::QmlRuntime::Field::GraphsAvailable,
                                              probeGraphs(&engine));
-    engine.rootContext()->setContextProperty(
-        QStringLiteral("SuppressOnboarding"),
+    runtime->setValue(mr::QmlRuntime::Field::SuppressOnboarding,
         screenshotMode && !parser.isSet(firstRunOption));
-    engine.rootContext()->setContextProperty(QStringLiteral("ForceBaselineDialog"),
+    runtime->setValue(mr::QmlRuntime::Field::ForceBaselineDialog,
                                              parser.isSet(firstRunOption));
-    engine.rootContext()->setContextProperty(QStringLiteral("ForceDisclosure"),
+    runtime->setValue(mr::QmlRuntime::Field::ForceDisclosure,
                                              parser.isSet(disclosureOption));
     const QString uiStyle = parser.value(uiStyleOption);
     if (!uiStyle.isEmpty() && uiStyle != QLatin1String("eorzea")
@@ -1121,21 +1122,21 @@ int main(int argc, char *argv[])
                      qPrintable(detailTab));
         return 2;
     }
-    engine.rootContext()->setContextProperty(QStringLiteral("ForceUiStyle"), uiStyle);
-    engine.rootContext()->setContextProperty(QStringLiteral("ForceSettingsTab"), settingsTab);
-    engine.rootContext()->setContextProperty(QStringLiteral("ForceSpeechConfirm"), forceSpeechConfirm);
+    runtime->setValue(mr::QmlRuntime::Field::ForceUiStyle, uiStyle);
+    runtime->setValue(mr::QmlRuntime::Field::ForceSettingsTab, settingsTab);
+    runtime->setValue(mr::QmlRuntime::Field::ForceSpeechConfirm, forceSpeechConfirm);
     // Screenshot runs must be deterministic frames: no fades, no sweeps. The
     // same holds when Windows' 显示动画 is off. A motion probe is the exception:
     // its whole point is the motion.
     const bool reduceMotion = !motionProbe
                               && (screenshotMode || mr::motion::systemReducesMotion());
-    engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), reduceMotion);
-    engine.rootContext()->setContextProperty(QStringLiteral("ForceDetailTab"), detailTab);
-    engine.rootContext()->setContextProperty(QStringLiteral("ForceOpenReflection"),
+    runtime->setValue(mr::QmlRuntime::Field::ReduceMotion, reduceMotion);
+    runtime->setValue(mr::QmlRuntime::Field::ForceDetailTab, detailTab);
+    runtime->setValue(mr::QmlRuntime::Field::ForceOpenReflection,
                                              parser.isSet(openReflectionOption));
-    engine.rootContext()->setContextProperty(QStringLiteral("ForceOpenShare"),
+    runtime->setValue(mr::QmlRuntime::Field::ForceOpenShare,
                                              parser.isSet(openShareOption));
-    engine.rootContext()->setContextProperty(QStringLiteral("ForceOpenImport"),
+    runtime->setValue(mr::QmlRuntime::Field::ForceOpenImport,
                                              parser.isSet(openImportOption));
     const bool openDetail = parser.isSet(openDetailOption)
                             || parser.isSet(openEditOption)
@@ -1144,11 +1145,11 @@ int main(int argc, char *argv[])
                             || parser.isSet(openDetailOption2)
                             || parser.isSet(openEditOption2);
     const bool openEdit = parser.isSet(openEditOption) || parser.isSet(openEditOption2);
-    engine.rootContext()->setContextProperty(QStringLiteral("ForceOpenDetail"), openDetail);
-    engine.rootContext()->setContextProperty(QStringLiteral("ForceOpenEdit"), openEdit);
-    engine.rootContext()->setContextProperty(QStringLiteral("ForceOpenCreate"),
+    runtime->setValue(mr::QmlRuntime::Field::ForceOpenDetail, openDetail);
+    runtime->setValue(mr::QmlRuntime::Field::ForceOpenEdit, openEdit);
+    runtime->setValue(mr::QmlRuntime::Field::ForceOpenCreate,
                                              parser.isSet(openCreateOption));
-    engine.rootContext()->setContextProperty(QStringLiteral("ForceWizardStep"), wizardStep);
+    runtime->setValue(mr::QmlRuntime::Field::ForceWizardStep, wizardStep);
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      [] { QCoreApplication::exit(2); }, Qt::QueuedConnection);

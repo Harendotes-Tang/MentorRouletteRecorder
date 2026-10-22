@@ -1,5 +1,5 @@
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // `.tag`: eorzea draws a 1 px currentColor frame on a translucent plate;
 // classic is workbench's tinted pill (t6, regular weight).

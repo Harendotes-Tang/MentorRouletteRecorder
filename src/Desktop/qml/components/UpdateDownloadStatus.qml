@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 软件内下载新版本的进度与结论，总览页的更新提示、设置 · 通用与设置 · 关于三处共用
 // （docs/privacy-boundary.md §8.6）。下载由后台进程完成，这里只显示它报告的状态：
@@ -13,7 +13,7 @@ ColumnLayout {
 
     /// objectName 前缀，用来区分三处。
     property string namePrefix: "update"
-    readonly property string phase: App.update.downloadPhase
+    readonly property string phase: Runtime.app.update.downloadPhase
 
     spacing: 6
     visible: statusLine.text.length > 0 || problemLine.visible || browserButton.visible
@@ -23,9 +23,9 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.topMargin: 2
         // 大小未知时没有比例可画，只写已下载的兆字节数。
-        visible: (area.phase === "downloading" && App.update.downloadProgress >= 0)
+        visible: (area.phase === "downloading" && Runtime.app.update.downloadProgress >= 0)
                  || area.phase === "verifying"
-        ratio: area.phase === "verifying" ? 1 : Math.max(0, App.update.downloadProgress)
+        ratio: area.phase === "verifying" ? 1 : Math.max(0, Runtime.app.update.downloadProgress)
     }
 
     Text {
@@ -34,7 +34,7 @@ ColumnLayout {
         objectName: area.namePrefix + "DownloadStatusText"
         Layout.fillWidth: true
         visible: text.length > 0
-        text: App.update.downloadStatusText
+        text: Runtime.app.update.downloadStatusText
         color: area.phase === "failed" ? Theme.orangeText : Theme.textSecondary
         font.pixelSize: Theme.fs(12)
         lineHeight: 1.35
@@ -46,8 +46,8 @@ ColumnLayout {
 
         objectName: area.namePrefix + "InstallProblemText"
         Layout.fillWidth: true
-        visible: area.phase === "ready" && App.update.installProblem.length > 0
-        text: App.update.installProblem
+        visible: area.phase === "ready" && Runtime.app.update.installProblem.length > 0
+        text: Runtime.app.update.installProblem
         color: Theme.red
         font.pixelSize: Theme.fs(12)
         lineHeight: 1.35
@@ -59,10 +59,10 @@ ColumnLayout {
 
         objectName: area.namePrefix + "BrowserDownloadButton"
         Layout.fillWidth: false
-        visible: App.update.browserFallbackOffered
+        visible: Runtime.app.update.browserFallbackOffered
         compact: true
         variant: "ghost"
         text: qsTr("在浏览器中下载")
-        onClicked: App.update.openInstallerDownload()
+        onClicked: Runtime.app.update.openInstallerDownload()
     }
 }

@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtGraphs
-import MentorRecorder
+import MentorRecorder 1.0
 
 // Qt Graphs rendering of the completion trend. Loaded only when main() has
 // verified that QtGraphs can be instantiated in this environment.

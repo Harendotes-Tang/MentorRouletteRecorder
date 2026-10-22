@@ -13,7 +13,6 @@ var icons = {
     "progress": { body: "<circle cx='8' cy='10.2' r='3.9'/><path d='M5.6 6.9 3.6 1.8h3l1.4 3M10.4 6.9l2-5.1h-3L8 4.8'/>", width: 1.6 },
     "current": { body: "<path d='M4 14.2V2.2'/><path d='M4 2.8h8.4l-1.9 2.9 1.9 2.9H4' fill='COLOR' fill-opacity='.35'/>", width: 1.6 },
     "time": { body: "<circle cx='8' cy='9' r='5'/><path d='M8 9V6.3M6.3 2h3.4M12.3 4.5l1-1'/>", width: 1.6 },
-    "wait": { body: "<path d='M4.8 2.3h6.4M4.8 13.7h6.4M5.5 2.3c0 3.1 5 3.1 5 5.7s-5 2.6-5 5.7M10.5 2.3c0 3.1-5 3.1-5 5.7s5 2.6 5 5.7'/>", width: 1.6 },
     "duty": { body: "<path d='M2.4 14V7.6a5.6 5.6 0 0 1 11.2 0V14M1.6 14h12.8M6 14v-3.6a2 2 0 0 1 4 0V14'/>", width: 1.6 },
     "roles": { body: "<circle cx='8' cy='4.6' r='2.1'/><path d='M4.5 12.6a3.5 3.5 0 0 1 7 0'/><circle cx='3.2' cy='7' r='1.5'/><circle cx='12.8' cy='7' r='1.5'/><path d='M1 12.6a2.5 2.5 0 0 1 3-2.4M15 12.6a2.5 2.5 0 0 0-3-2.4'/>", width: 1.6 },
     "pending": { body: "<path d='M2 9.4 4 3.4h8l2 6v3.8a.8.8 0 0 1-.8.8H2.8a.8.8 0 0 1-.8-.8z'/><path d='M2 9.4h3.4l1 1.7h3.2l1-1.7H14'/>", width: 1.6 },

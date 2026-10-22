@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 Item {
     id: page
@@ -55,14 +57,14 @@ Item {
 
     function reloadRows() {
         const unknown = Theme.dutyLabel(null, "未知副本")
-        rowsCache = App.dungeons.topRows(topLimit === 0 ? 0 : topLimit)
+        rowsCache = Runtime.app.dungeons.topRows(topLimit === 0 ? 0 : topLimit)
             .filter(row => Number(row.attempt_count || 0) !== 0
                            || (Theme.dutyName(row) || unknown) !== unknown)
     }
 
     function reloadCompositions() {
-        categoriesCache = App.dungeons.categoryBreakdown()
-        specialDutiesCache = App.dungeons.specialDutyBreakdown()
+        categoriesCache = Runtime.app.dungeons.categoryBreakdown()
+        specialDutiesCache = Runtime.app.dungeons.specialDutyBreakdown()
     }
 
     Component.onCompleted: {
@@ -72,7 +74,7 @@ Item {
     onTopLimitChanged: reloadRows()
 
     Connections {
-        target: App.dungeons
+        target: Runtime.app.dungeons
         function onCountChanged() {
             page.reloadRows()
             page.reloadCompositions()
@@ -101,11 +103,11 @@ Item {
                 // Both counters describe the complete statistics snapshot;
                 // the Top-N selector only limits the rows drawn below. A failed
                 // read has no counters to report.
-                subtitle: App.dungeons.loadError.length > 0
+                subtitle: Runtime.app.dungeons.loadError.length > 0
                           ? qsTr("读取失败")
-                          : qsTr("%1 个副本 · %2 次尝试 · %3 次通关").arg(App.dungeons.distinctCount)
-                                                      .arg(App.dungeons.totalAttemptCount)
-                                                      .arg(App.dungeons.totalCompletedCount)
+                          : qsTr("%1 个副本 · %2 次尝试 · %3 次通关").arg(Runtime.app.dungeons.distinctCount)
+                                                      .arg(Runtime.app.dungeons.totalAttemptCount)
+                                                      .arg(Runtime.app.dungeons.totalCompletedCount)
 
                 SegmentedControl {
                     Layout.preferredWidth: 230
@@ -122,8 +124,8 @@ Item {
             Text {
                 objectName: "dungeonsLoadError"
                 Layout.fillWidth: true
-                visible: App.dungeons.loadError.length > 0
-                text: qsTr("副本统计读取失败，下方没有统计结果：%1").arg(App.dungeons.loadError)
+                visible: Runtime.app.dungeons.loadError.length > 0
+                text: qsTr("副本统计读取失败，下方没有统计结果：%1").arg(Runtime.app.dungeons.loadError)
                 textFormat: Text.PlainText
                 wrapMode: Text.WordWrap
                 color: Theme.orangeText
@@ -132,7 +134,7 @@ Item {
 
             Text {
                 Layout.fillWidth: true
-                visible: App.dungeons.loadError.length === 0
+                visible: Runtime.app.dungeons.loadError.length === 0
                 text: qsTr("占比按全部符合筛选的导随通关次数计算；前 10 / 前 20 只限制下方列表。")
                 textFormat: Text.PlainText
                 wrapMode: Text.WordWrap
@@ -143,7 +145,7 @@ Item {
             GridLayout {
                 objectName: "dungeonCompositionGrid"
                 Layout.fillWidth: true
-                visible: App.dungeons.loadError.length === 0
+                visible: Runtime.app.dungeons.loadError.length === 0
                 columns: page.wideStatistics ? 2 : 1
                 columnSpacing: 12
                 rowSpacing: 12
@@ -199,6 +201,7 @@ Item {
                         model: page.rowsCache
 
                         delegate: RowLayout {
+                            id: attemptRow
                             required property var modelData
 
                             Layout.fillWidth: true
@@ -210,27 +213,27 @@ Item {
                             Text {
                                 Layout.preferredWidth: Math.max(110, Math.min(160, dungeonAttemptsCard.width * 0.38))
                                 Layout.minimumWidth: 0
-                                text: Theme.dutyName(modelData) || qsTr("未知副本")
+                                text: Theme.dutyChoiceLabel(attemptRow.modelData) || qsTr("未知副本")
                                 textFormat: Text.PlainText
                                 color: Theme.textPrimary
                                 font.pixelSize: Theme.fs(12)
-                                elide: Text.ElideRight
+                                elide: Text.ElideMiddle
                             }
 
                             StatBar {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 8
                                 opacity: barHover.hovered ? 1.0 : 0.92
-                                ratio: Number(modelData.attempt_count || 0)
-                                       / Math.max(1, App.dungeons.maxAttemptCount)
+                                ratio: Number(attemptRow.modelData.attempt_count || 0)
+                                       / Math.max(1, Runtime.app.dungeons.maxAttemptCount)
                             }
 
                             Text {
                                 Layout.preferredWidth: 72
                                 horizontalAlignment: Text.AlignRight
-                                text: qsTr("%1  %2%").arg(modelData.attempt_count || 0)
-                                                      .arg(Math.round(1000 * Number(modelData.attempt_count || 0)
-                                                                      / Math.max(1, App.dungeons.totalAttemptCount)) / 10)
+                                text: qsTr("%1  %2%").arg(attemptRow.modelData.attempt_count || 0)
+                                                      .arg(Math.round(1000 * Number(attemptRow.modelData.attempt_count || 0)
+                                                                      / Math.max(1, Runtime.app.dungeons.totalAttemptCount)) / 10)
                                 color: Theme.textPrimary
                                 font.pixelSize: Theme.fs(12)
                                 font.weight: Theme.figureWeight(true)
@@ -240,7 +243,7 @@ Item {
 
                             HoverHandler { id: barHover }
                             TapHandler {
-                                onTapped: App.showHistoryForContent(modelData.content_id)
+                                onTapped: Runtime.app.showHistoryForContent(attemptRow.modelData.content_id)
                             }
                         }
                     }
@@ -300,6 +303,7 @@ Item {
                         model: page.rowsCache
 
                         delegate: Rectangle {
+                            id: dungeonRow
                             required property var modelData
 
                             Layout.fillWidth: true
@@ -309,7 +313,7 @@ Item {
                                    : "transparent"
 
                             HoverHandler { id: rowHover }
-                            TapHandler { onTapped: App.showHistoryForContent(modelData.content_id) }
+                            TapHandler { onTapped: Runtime.app.showHistoryForContent(dungeonRow.modelData.content_id) }
 
                             RowLayout {
                                 anchors.fill: parent
@@ -323,7 +327,7 @@ Item {
                                     spacing: 8
 
                                     CategoryIcon {
-                                        category: modelData.duty_category || ""
+                                        category: dungeonRow.modelData.duty_category || ""
                                         size: 24
                                     }
 
@@ -333,7 +337,7 @@ Item {
 
                                         Text {
                                             Layout.fillWidth: true
-                                            text: Theme.dutyName(modelData) || qsTr("未知副本")
+                                            text: Theme.dutyChoiceLabel(dungeonRow.modelData) || qsTr("未知副本")
                                             textFormat: Text.PlainText
                                             color: Theme.textPrimary
                                             font.pixelSize: Theme.fs(12)
@@ -343,7 +347,7 @@ Item {
 
                                         Text {
                                             Layout.fillWidth: true
-                                            text: modelData.duty_meta || Fmt.dash()
+                                            text: dungeonRow.modelData.duty_meta || Runtime.fmt.dash()
                                             textFormat: Text.PlainText
                                             color: Theme.textSecondary
                                             font.pixelSize: Theme.fs(10)
@@ -357,7 +361,7 @@ Item {
 
                                 Text {
                                     Layout.preferredWidth: page.typeColumnWidth
-                                    text: page.typeLabel(modelData)
+                                    text: page.typeLabel(dungeonRow.modelData)
                                     textFormat: Text.PlainText
                                     color: Theme.textSecondary
                                     font.pixelSize: Theme.fs(11)
@@ -366,7 +370,7 @@ Item {
 
                                 Text {
                                     Layout.preferredWidth: 36
-                                    text: String(modelData.attempt_count || 0)
+                                    text: String(dungeonRow.modelData.attempt_count || 0)
                                     color: Theme.textPrimary
                                     font.pixelSize: Theme.fs(12)
                                     horizontalAlignment: Text.AlignRight
@@ -381,7 +385,7 @@ Item {
                                 Text {
                                     objectName: "dungeonRowJoinedInProgress"
                                     Layout.preferredWidth: page.joinedColumnWidth
-                                    text: String(modelData.joined_in_progress_count || 0)
+                                    text: String(dungeonRow.modelData.joined_in_progress_count || 0)
                                     color: Theme.textPrimary
                                     font.pixelSize: Theme.fs(12)
                                     horizontalAlignment: Text.AlignRight
@@ -392,7 +396,7 @@ Item {
 
                                 Text {
                                     Layout.preferredWidth: 52
-                                    text: Fmt.percent(modelData.completion_rate)
+                                    text: Runtime.fmt.percent(dungeonRow.modelData.completion_rate)
                                     color: Theme.textPrimary
                                     font.pixelSize: Theme.fs(12)
                                     horizontalAlignment: Text.AlignRight
@@ -403,7 +407,7 @@ Item {
 
                                 Text {
                                     Layout.preferredWidth: 58
-                                    text: Fmt.duration(modelData.avg_duration_ms)
+                                    text: Runtime.fmt.duration(dungeonRow.modelData.avg_duration_ms)
                                     color: Theme.textPrimary
                                     font.pixelSize: Theme.fs(12)
                                     horizontalAlignment: Text.AlignRight
@@ -414,8 +418,8 @@ Item {
 
                                 Text {
                                     Layout.preferredWidth: 68
-                                    text: modelData.last_seen_utc
-                                          ? Fmt.localDate(modelData.last_seen_utc).substring(5) : "—"
+                                    text: dungeonRow.modelData.last_seen_utc
+                                          ? Runtime.fmt.localDate(dungeonRow.modelData.last_seen_utc).substring(5) : "—"
                                     textFormat: Text.PlainText
                                     color: Theme.textSecondary
                                     font.pixelSize: Theme.fs(11)

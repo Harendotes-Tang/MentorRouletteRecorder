@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls 6.8
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 import "Lucide.js" as Lucide
 
 // 备注图片: the thumbnails attached to a run's 备注. Read-only in the detail panel;
@@ -172,52 +174,54 @@ ColumnLayout {
 
     // ------------------------------------------------------------ 查看 --
     // Full-size view. Click anywhere, or Esc, to close.
-    Popup {
-        id: viewer
+    QtObject {
+        readonly property Popup imageViewer: Popup {
+            id: viewer
 
-        objectName: "noteImageViewer"
-        property var row: null
+            objectName: "noteImageViewer"
+            property var row: null
 
-        function show(value) {
-            row = value
-            open()
-        }
-
-        parent: Overlay.overlay
-        anchors.centerIn: parent
-        modal: true
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        padding: 12
-        width: Math.min(parent ? parent.width - 48 : 800, 1100)
-        height: Math.min(parent ? parent.height - 48 : 700, 820)
-        Overlay.modal: Rectangle { color: Theme.modalScrim(viewer.palette.shadow) }
-        background: DialogFrame { opaque: true }
-
-        contentItem: ColumnLayout {
-            spacing: 8
-
-            Image {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                source: viewer.row && viewer.row.url ? viewer.row.url : ""
-                fillMode: Image.PreserveAspectFit
-                asynchronous: true
-                cache: false
-                smooth: true
-
-                TapHandler {
-                    gesturePolicy: TapHandler.ReleaseWithinBounds
-                    onTapped: viewer.close()
-                }
+            function show(value) {
+                row = value
+                open()
             }
 
-            Text {
-                Layout.fillWidth: true
-                text: viewer.row && viewer.row.name ? viewer.row.name : ""
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fs(11)
-                elide: Text.ElideMiddle
-                horizontalAlignment: Text.AlignHCenter
+            parent: Overlay.overlay
+            anchors.centerIn: parent
+            modal: true
+            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+            padding: 12
+            width: Math.min(parent ? parent.width - 48 : 800, 1100)
+            height: Math.min(parent ? parent.height - 48 : 700, 820)
+            Overlay.modal: Rectangle { color: Theme.modalScrim(viewer.palette.shadow) }
+            background: DialogFrame { opaque: true }
+
+            contentItem: ColumnLayout {
+                spacing: 8
+
+                Image {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    source: viewer.row && viewer.row.url ? viewer.row.url : ""
+                    fillMode: Image.PreserveAspectFit
+                    asynchronous: true
+                    cache: false
+                    smooth: true
+
+                    TapHandler {
+                        gesturePolicy: TapHandler.ReleaseWithinBounds
+                        onTapped: viewer.close()
+                    }
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: viewer.row && viewer.row.name ? viewer.row.name : ""
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fs(11)
+                    elide: Text.ElideMiddle
+                    horizontalAlignment: Text.AlignHCenter
+                }
             }
         }
     }

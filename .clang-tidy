@@ -18,9 +18,9 @@
 #   cppcoreguidelines-special-member-...    QObject subclasses rely on Q_DISABLE_COPY/QObject
 #   bugprone-easily-swappable-parameters    (QString, QString) parameter pairs are everywhere
 #
-# Analyzer path diagnostics whose location is inside a Qt header (QPointer/QSharedPointer
-# reference counting reads as use-after-free to the analyzer) are reported by clang-tidy
-# regardless of HeaderFilterRegex; the script separates them from findings in this repository.
+# Analyzer path diagnostics may name a dependency header regardless of HeaderFilterRegex.
+# scripts/static-analysis.ps1 includes these diagnostics in the same failure gate;
+# a dependency location alone is never a reason to discard a finding.
 Checks: >
   -*,
   bugprone-*,

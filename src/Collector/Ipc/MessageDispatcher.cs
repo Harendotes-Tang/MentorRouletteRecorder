@@ -424,7 +424,7 @@ public sealed class MessageDispatcher
         return new JsonObject
         {
             ["state"] = EnumWire<RunState>.Format(current.State),
-            ["run"] = current.Run is null ? null : Wire.Run(current.Run),
+            ["run"] = current.Run is null ? null : Wire.DisplayRun(current.Run),
             ["elapsed_ms"] = current.ElapsedMs,
         };
     }
@@ -730,7 +730,7 @@ public sealed class MessageDispatcher
 
         if (outcome.Run is { } rendered)
         {
-            payload["run"] = Wire.Run(rendered);
+            payload["run"] = Wire.DisplayRun(rendered);
         }
 
         return payload;

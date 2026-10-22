@@ -1,10 +1,13 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 副本用时: the elapsed time as a figure, the duty's average at the right, and
-// a pace bar whose mark is the average. While a match waits for entry the bar
-// shows moving stripes instead.
+// a pace bar whose mark is the average (its category's while the duty has
+// none; no bar without either). While a match waits for entry the bar shows
+// moving stripes instead.
 ColumnLayout {
     id: root
 
@@ -12,7 +15,7 @@ ColumnLayout {
     spacing: 0
 
     // The module lives on while the float's window is hidden or minimized; the
-    // wait stripes slide only while someone can see them.
+    // sand and the wait stripes run only while someone can see them.
     readonly property bool windowShown: !Window.window
         || (Window.window.visible && Window.window.visibility !== Window.Minimized)
     readonly property color figureColor: root.ov.completed ? root.ov.ok
@@ -25,7 +28,14 @@ ColumnLayout {
         Layout.fillWidth: true
         spacing: 6
 
-        OverlayIcon { name: root.ov.matched ? "wait" : "time"; color: Theme.textSecondary; Layout.alignment: Qt.AlignVCenter }
+        OverlayIcon { visible: !root.ov.matched; name: "time"; color: Theme.textSecondary; Layout.alignment: Qt.AlignVCenter }
+        OverlayHourglass {
+            objectName: "floatingWaitHourglass"
+            visible: root.ov.matched
+            color: Theme.textSecondary
+            running: visible && Theme.motion && root.windowShown
+            Layout.alignment: Qt.AlignVCenter
+        }
         Text {
             objectName: "floatingElapsed"
             text: root.ov.elapsedText
@@ -49,7 +59,7 @@ ColumnLayout {
         }
         Item { Layout.fillWidth: true }
         Text {
-            visible: !root.ov.matched && root.ov.hasAverage
+            visible: !root.ov.matched && root.ov.hasReference
             text: root.ov.averageText
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(11)
@@ -60,13 +70,14 @@ ColumnLayout {
     }
 
     OverlayBar {
-        visible: !root.ov.matched
+        objectName: "floatingPaceBar"
+        visible: !root.ov.matched && root.ov.hasReference
         Layout.fillWidth: true
         Layout.topMargin: 8
         implicitHeight: 6
         ratio: root.ov.paceRatio
         fillColor: root.ov.overAverage ? root.ov.warn : root.ov.underAverage ? root.ov.ok : root.ov.barFill
-        showMark: root.ov.hasAverage
+        showMark: root.ov.hasReference
         markRatio: root.ov.averageRatio
     }
 

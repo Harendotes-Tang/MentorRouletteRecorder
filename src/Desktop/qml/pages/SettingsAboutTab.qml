@@ -1,7 +1,6 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 设置 · 关于: version and licence, the privacy facts the Collector reports
 // (GetStatus.oodle_mode / reads_game_executable, DEC-OODLE-01), the window
@@ -32,10 +31,10 @@ ColumnLayout {
                 objectName: "aboutVersionText"
                 Layout.fillWidth: true
                 // 有没有新版本由后台进程判断；这里只把结论接在版本号后面。
-                text: App.update.updateAvailable
+                text: Runtime.app.update.updateAvailable
                       ? qsTr("v%1 · GPL-3.0 或更高版本 · 有新版本 %2")
-                        .arg(App.appVersion).arg(App.update.latestVersion)
-                      : qsTr("v%1 · GPL-3.0 或更高版本").arg(App.appVersion)
+                        .arg(Runtime.app.appVersion).arg(Runtime.app.update.latestVersion)
+                      : qsTr("v%1 · GPL-3.0 或更高版本").arg(Runtime.app.appVersion)
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fs(12)
                 elide: Text.ElideRight
@@ -47,32 +46,32 @@ ColumnLayout {
             AppButton {
                 objectName: "aboutOpenReleasePageButton"
                 Layout.fillWidth: false
-                visible: App.update.updateAvailable
+                visible: Runtime.app.update.updateAvailable
                 compact: true
                 variant: "ghost"
                 text: qsTr("查看更新说明")
-                onClicked: App.update.openReleasePage()
+                onClicked: Runtime.app.update.openReleasePage()
             }
 
             AppButton {
                 objectName: "aboutDownloadInstallerButton"
                 Layout.fillWidth: false
-                visible: App.update.downloadPhase.length > 0
+                visible: Runtime.app.update.downloadPhase.length > 0
                 compact: true
-                text: App.update.downloadActionText
-                enabled: App.update.downloadActionEnabled
-                onClicked: App.update.downloadAction()
+                text: Runtime.app.update.downloadActionText
+                enabled: Runtime.app.update.downloadActionEnabled
+                onClicked: Runtime.app.update.downloadAction()
             }
 
             // 没有可下载的新版本时，同一个位置是主动检查（privacy-boundary.md §8.4）。
             AppButton {
                 objectName: "aboutCheckUpdateButton"
                 Layout.fillWidth: false
-                visible: App.update.downloadPhase.length === 0
+                visible: Runtime.app.update.downloadPhase.length === 0
                 compact: true
                 text: qsTr("检查更新")
-                enabled: App.update.canCheck
-                onClicked: App.update.checkNow()
+                enabled: Runtime.app.update.canCheck
+                onClicked: Runtime.app.update.checkNow()
             }
         }
 
@@ -96,13 +95,13 @@ ColumnLayout {
             // record's number, neither of them for players (review OK-8).
             FactTile {
                 label: qsTr("游戏流量解压")
-                value: Theme.live(Fmt.oodleModeLabel(App.oodleMode || ""))
+                value: Theme.live(Runtime.fmt.oodleModeLabel(Runtime.app.oodleMode || ""))
             }
             FactTile {
                 objectName: "readsGameExecutableTile"
                 label: qsTr("读取游戏程序文件")
-                value: App.readsGameExecutable ? qsTr("是（读取磁盘副本）") : qsTr("否")
-                valueColor: App.readsGameExecutable ? Theme.orangeText : Theme.textPrimary
+                value: Runtime.app.readsGameExecutable ? qsTr("是（读取磁盘副本）") : qsTr("否")
+                valueColor: Runtime.app.readsGameExecutable ? Theme.orangeText : Theme.textPrimary
             }
         }
 
@@ -126,7 +125,7 @@ ColumnLayout {
             AppButton {
                 variant: "ghost"
                 text: qsTr("打开捕获诊断")
-                onClicked: App.navigate(4)
+                onClicked: Runtime.app.navigate(4)
             }
         }
     }

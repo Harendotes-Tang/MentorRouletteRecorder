@@ -1,6 +1,8 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
-import MentorRecorder
+import MentorRecorder 1.0
 import "Lucide.js" as Lucide
 
 // Single-date callers retain text/valid. Range callers share this calendar and
@@ -282,6 +284,7 @@ StyledTextField {
                         currentIndex: grid.year - 100
                         Accessible.name: qsTr("选择年份")
                         delegate: ItemDelegate {
+                            id: yearOption
                             required property string modelData
                             required property int index
                             width: ListView.view ? ListView.view.width : yearSelect.width
@@ -290,14 +293,14 @@ StyledTextField {
                             text: modelData
                             font.pixelSize: Theme.fs(13)
                             contentItem: Text {
-                                text: parent.text
+                                text: yearOption.text
                                 color: Theme.textPrimary
-                                font: parent.font
+                                font: yearOption.font
                                 verticalAlignment: Text.AlignVCenter
                             }
                             background: Rectangle {
                                 radius: Theme.radiusS
-                                color: parent.highlighted ? Theme.fill : "transparent"
+                                color: yearOption.highlighted ? Theme.fill : "transparent"
                             }
                         }
                         onActivated: grid.year = currentIndex + 100

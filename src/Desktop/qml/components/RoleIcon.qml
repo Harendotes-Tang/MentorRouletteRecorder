@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // Framed FF14 role glyph (盾 / 十字 / 拳 / 箭 / 闪电 / 全能剪影).
 //
@@ -24,7 +24,7 @@ RowLayout {
     // Character and colour standing in for the glyph when no PNG is available
     // (the normal case in a distributed build).
     readonly property string badgeText: {
-        const key = Roles.roleKey(root.role)
+        const key = Runtime.roles.roleKey(root.role)
         if (key === "tank") return qsTr("坦")
         if (key === "healer") return qsTr("治")
         if (key === "melee") return qsTr("近")
@@ -33,7 +33,7 @@ RowLayout {
         return qsTr("全")
     }
     readonly property color badgeColor: {
-        const key = Roles.roleKey(root.role)
+        const key = Runtime.roles.roleKey(root.role)
         if (key === "tank") return "#3d7bd6"
         if (key === "healer") return "#3aa457"
         if (key === "melee" || key === "ranged" || key === "magic") return "#c9433d"
@@ -67,7 +67,7 @@ RowLayout {
         Layout.preferredHeight: root.size
         Layout.alignment: Qt.AlignVCenter
 
-        source: Roles.roleIconSource(root.role)
+        source: Runtime.roles.roleIconSource(root.role)
         // Decode the 64x64 PNGs at native size once; mipmaps handle the smaller
         // on-screen variants without re-decoding.
         sourceSize.width: 64

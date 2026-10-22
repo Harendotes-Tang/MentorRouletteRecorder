@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Templates as T
-import MentorRecorder
+import MentorRecorder 1.0
 
 // `.sw`: 40x22 square-ish inset track in the eorzea style; in the classic one
 // workbench's 36x20 pill, neutral-300 when off, accent when on, with a 16 px

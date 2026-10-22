@@ -18,6 +18,7 @@
           tools/requirements-ci.txt 所列的包，缺少任何一个即失败；`dotnet test` 与 `ctest`
           均不覆盖这些脚本
       5.  完整构建与全部测试（.NET 按 TRX 计数，Qt/C++ 走 ctest），报告真实用例数
+      5a. 全量 QML/JS 检查（scripts/qml-lint.ps1）：核对源码清单和类型信息，任何警告即失败
       5b. C++ 静态分析（scripts/static-analysis.ps1 -Tool cppcheck）：硬结果或分析不完整即失败，
           风格类告警只列出；分析器无法运行时同样记为本关失败，后续关卡照常执行
       6.  监听端口核对：启动一个 Collector，用 Get-NetTCPConnection 与 netstat 确认它不占端口
@@ -96,6 +97,7 @@ $TestScript          = Join-Path $PSScriptRoot 'test.ps1'
 $ToolTests           = Join-Path $PSScriptRoot 'run-python-tool-tests.ps1'
 $SecurityQualityScript = Join-Path $PSScriptRoot 'security-quality.ps1'
 $StaticAnalysisScript = Join-Path $PSScriptRoot 'static-analysis.ps1'
+$QmlLintScript = Join-Path $PSScriptRoot 'qml-lint.ps1'
 
 $failures = New-Object System.Collections.Generic.List[string]
 $skipped = New-Object System.Collections.Generic.List[string]
@@ -279,6 +281,22 @@ if ($TestFilter) {
 & $TestScript @testArgs
 if ($LASTEXITCODE -ne 0) {
     $failures.Add('build-and-test')
+}
+
+Write-Head '全量 QML/JS 警告检查 / Complete QML diagnostics'
+if (-not (Test-Path -LiteralPath $QmlLintScript)) {
+    Add-Failure 'qml-lint' 'Missing mandatory scripts/qml-lint.ps1.'
+}
+else {
+    try {
+        & $QmlLintScript -BuildDirectory $BuildDir
+        if ($LASTEXITCODE -ne 0) {
+            Add-Failure 'qml-lint' 'QML diagnostics contain warnings/errors or the file coverage is incomplete.'
+        }
+    }
+    catch {
+        Add-Failure 'qml-lint' ("QML diagnostics could not complete: {0}" -f $_.Exception.Message)
+    }
 }
 
 # This is part of the full local/CI gate, rather than an optional standalone check.

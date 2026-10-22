@@ -1,12 +1,14 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls 6.8
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 Dialog {
     id: dialog
     objectName: "reflectionShareDialog"
-    property var controller: typeof ReflectionShare !== "undefined" ? ReflectionShare : null
+    property var controller: typeof Runtime.reflectionShare !== "undefined" ? Runtime.reflectionShare : null
     property var runData: ({})
     property var runsData: []
     readonly property var reflection: runData.reflection || ({})
@@ -14,7 +16,7 @@ Dialog {
     readonly property bool batch: runsData.length > 1
     readonly property bool collection: batch && outputMode.currentIndex === 1
     property string exportDate: ""
-    readonly property var preferences: typeof Settings !== "undefined" ? Settings : null
+    readonly property var preferences: typeof Runtime.settings !== "undefined" ? Runtime.settings : null
     readonly property bool identityValid: identityInput.text.trim().length === 0
         || /^[^@\s]+(?: [^@\s]+)*@[^@\s]+(?: [^@\s]+)*$/.test(identityInput.text.trim())
     modal: true
@@ -215,10 +217,10 @@ Dialog {
             objectName: "reflectionShareFeedback"
             Layout.fillWidth: true
             visible: text.length > 0
-            text: controller ? controller.feedback : qsTr("暂时无法保存图片，请关闭后重新打开。")
+            text: dialog.controller ? dialog.controller.feedback : qsTr("暂时无法保存图片，请关闭后重新打开。")
             textFormat: Text.PlainText
-            color: controller && controller.failedCount > 0 ? Theme.orangeText
-                : controller && (controller.savedPath.length > 0 || controller.successfulCount > 0) ? Theme.green : Theme.textSecondary
+            color: dialog.controller && dialog.controller.failedCount > 0 ? Theme.orangeText
+                : dialog.controller && (dialog.controller.savedPath.length > 0 || dialog.controller.successfulCount > 0) ? Theme.green : Theme.textSecondary
             font.pixelSize: Theme.fs(12)
             wrapMode: Text.Wrap
         }

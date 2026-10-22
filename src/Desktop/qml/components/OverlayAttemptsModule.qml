@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // The independent snapshot distinguishes a known zero from waiting or failed
 // reads. The achievement module below continues to use its all-time progress.
@@ -26,7 +26,7 @@ ColumnLayout {
         }
         Text {
             objectName: "floatingAttemptCount"
-            text: root.controller.attemptsKnown ? String(root.controller.attemptCount) : Fmt.dash()
+            text: root.controller.attemptsKnown ? String(root.controller.attemptCount) : Runtime.fmt.dash()
             color: root.ov.figure
             font.family: Theme.numFamily
             font.pixelSize: Theme.fs(26)

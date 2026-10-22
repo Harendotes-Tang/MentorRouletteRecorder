@@ -32,6 +32,8 @@ Usage:
     python tools/duty-data-generator/generate.py --dry-run     # fetch and report, write nothing anywhere
     python tools/duty-data-generator/generate.py --add-party-size data/duties/cn.2026-09-04.json
         # add party_size to an existing file, pinned to the game version it was built from
+    python tools/duty-data-generator/generate.py --add-name-preferences data/duties/cn.2026-09-04.json
+        # add reviewed name-resolution preferences without changing existing duty facts
     python tools/duty-data-generator/generate.py --game-names [--version 2026-10-15] [--dry-run]
         # zh-TW / en / ja names into data/i18n, pinned to the duty file's game version
 """
@@ -68,8 +70,13 @@ XIVAPI_SHEET = "https://v2.xivapi.com/api/sheet/ContentFinderCondition"
 # 8-player raid from a 24-player alliance raid; this can, without guessing from names.
 XIVAPI_FIELDS = (
     "Name,ClassJobLevelRequired,ContentType.Name,TerritoryType.ExVersion.Name,"
-    "ContentMemberType.MembersPerParty,ContentMemberType.PartyCount"
+    "ContentMemberType.MembersPerParty,ContentMemberType.PartyCount,"
+    "HighEndDuty,MentorRoulette,TerritoryType.ContentFinderCondition.Name"
 )
+# Explicitly reviewed name-only resolution, not identity aliases or a general eligibility
+# heuristic. A future game-data change must pass the reviewed fact checks below before the
+# preferred row can be emitted. Both numeric identities remain available in every catalog.
+NAME_MATCHING_PREFERENCES = {944: 69}
 XIVAPI_PAGE_SIZE = 500
 XIVAPI_MAX_PAGES = 10
 
@@ -166,6 +173,7 @@ def fetch_english_rows(raw_dir: str | None, game_version: str | None = None):
     for _ in range(XIVAPI_MAX_PAGES):
         params = {
             "fields": XIVAPI_FIELDS,
+            "language": "en",
             "limit": XIVAPI_PAGE_SIZE,
             "after": after,
         }
@@ -318,8 +326,54 @@ def party_size(field):
     return members * parties
 
 
+def name_matching_preferences(english_rows, *, require_complete=False):
+    """Return reviewed preferred-id -> duplicate-id rules after checking source facts.
+
+    Direct row-building tests may use tiny fixtures with neither member. Production CLI modes
+    require_complete=True so a fetch missing both members is never mistaken for a valid empty
+    rule set. The reviewed pair must still be a same-name, level-90, eight-player normal trial.
+    Qualification fields never cause unrelated entries to be preferred automatically.
+    """
+    result = {}
+    for preferred, duplicate in NAME_MATCHING_PREFERENCES.items():
+        if preferred not in english_rows and duplicate not in english_rows:
+            if not require_complete:
+                continue
+        if preferred not in english_rows or duplicate not in english_rows:
+            raise ValueError("name preference %d/%d needs both source rows" % (preferred, duplicate))
+        preferred_fields = english_rows[preferred].get("fields") or {}
+        duplicate_fields = english_rows[duplicate].get("fields") or {}
+        preferred_name = preferred_fields.get("Name")
+        duplicate_name = duplicate_fields.get("Name")
+        if (not isinstance(preferred_name, str) or not preferred_name.strip()
+                or not isinstance(duplicate_name, str)
+                or preferred_name.strip().casefold() != duplicate_name.strip().casefold()):
+            raise ValueError("name preference %d/%d no longer has the same English name"
+                             % (preferred, duplicate))
+        for row_id, fields in ((preferred, preferred_fields), (duplicate, duplicate_fields)):
+            territory_fields = (fields.get("TerritoryType") or {}).get("fields") or {}
+            backlink = linked(territory_fields.get("ContentFinderCondition"))
+            if (nested_name(fields.get("ContentType")) != "Trials"
+                    or type(fields.get("ClassJobLevelRequired")) is not int
+                    or fields["ClassJobLevelRequired"] != 90
+                    or party_size(fields.get("ContentMemberType")) != 8
+                    or fields.get("HighEndDuty") is not False
+                    or fields.get("MentorRoulette") is not (row_id == preferred)
+                    or type(backlink) is not int or backlink != preferred):
+                raise ValueError("name preference %d/%d source facts changed at row %d"
+                                 % (preferred, duplicate, row_id))
+        result[preferred] = duplicate
+    return result
+
+
+def preference_rules(preferences):
+    return [{"preferred_content_id": preferred, "duplicate_content_id": duplicate}
+            for preferred, duplicate in sorted(preferences.items())]
+
+
 def build_rows(english_rows, chinese_names, language):
     """Builds the duty rows of one localisation. Sorted by content_id for a stable diff."""
+    preferences = name_matching_preferences(english_rows)
     duties = []
     for row_id in sorted(english_rows):
         row = english_rows[row_id]
@@ -341,7 +395,89 @@ def build_rows(english_rows, chinese_names, language):
             "party_size": party_size(fields.get("ContentMemberType")),
             "enabled": True,
         })
+        if row_id in preferences:
+            duties[-1]["preferred_for_name_matching"] = True
     return duties
+
+
+def with_name_preferences(document, english_rows, source):
+    """Append reviewed name-only preferences; retain existing facts, order and source hashes.
+
+    The historical file must still contain both enabled, same-localized-name identities.
+    This supplements the original provenance rather than rewriting its old fetch metadata.
+    """
+    existing = {row.get("content_id"): row for row in document.get("duties") or []}
+    for preferred, duplicate in NAME_MATCHING_PREFERENCES.items():
+        pair_ids = {preferred, duplicate}
+        if pair_ids.intersection(existing) and not pair_ids.issubset(english_rows):
+            raise ValueError("existing duty document rows %d/%d need both source rows"
+                             % (preferred, duplicate))
+    preferences = name_matching_preferences(english_rows)
+    for preferred, duplicate in preferences.items():
+        pair = [existing.get(row_id) for row_id in (preferred, duplicate)]
+        if any(row is None or row.get("enabled") is not True for row in pair):
+            raise ValueError("existing duty document needs both enabled rows %d/%d"
+                             % (preferred, duplicate))
+        names = [row.get("localized_name") for row in pair]
+        if (not all(isinstance(name, str) and name.strip() for name in names)
+                or names[0].strip().casefold() != names[1].strip().casefold()):
+            raise ValueError("existing duty document rows %d/%d no longer share a name"
+                             % (preferred, duplicate))
+    duties = []
+    for row in document.get("duties") or []:
+        updated = dict(row)
+        if row.get("content_id") in preferences:
+            updated["preferred_for_name_matching"] = True
+        elif row.get("preferred_for_name_matching") is True:
+            raise ValueError("unreviewed preferred_for_name_matching at row %s"
+                             % row.get("content_id"))
+        duties.append(updated)
+    provenance = dict(document.get("provenance") or {})
+    provenance["name_matching"] = dict(source, rules=preference_rules(preferences))
+    return dict(document, provenance=provenance, duties=duties)
+
+
+def add_name_preferences_to_files(paths, raw_dir, game_version=None, *, dry_run=False):
+    """Backfill at each file's original game version, validating all files before writing."""
+    try:
+        documents = []
+        for path in paths:
+            with io.open(path, "r", encoding="utf-8") as handle:
+                document = json.load(handle)
+            pinned = (document.get("provenance") or {}).get("xivapi_game_version")
+            if not isinstance(pinned, str) or not pinned:
+                raise ValueError("%s records no xivapi_game_version" % path)
+            if game_version is not None and game_version != pinned:
+                raise ValueError("%s records version %s; refusing override %s"
+                                 % (path, pinned, game_version))
+            documents.append((path, document, pinned))
+        fetched = {}
+        for _, _, pinned in documents:
+            if pinned not in fetched:
+                rows, urls, digest, api_version = fetch_english_rows(raw_dir, pinned)
+                if api_version != pinned:
+                    raise ValueError("asked XIVAPI for game version %s, got %s"
+                                     % (pinned, api_version))
+                name_matching_preferences(rows, require_complete=True)
+                fetched[pinned] = (rows, {"fields": XIVAPI_FIELDS,
+                    "fetched_at_utc": utc_timestamp(), "xivapi_game_version": api_version,
+                    "xivapi_urls": urls, "xivapi_sha256": digest})
+        updated = [(path, with_name_preferences(document, *fetched[pinned]))
+                   for path, document, pinned in documents]
+    except (urllib.error.URLError, ValueError, OSError, TypeError, AttributeError) as error:
+        print("FAILED to add name preferences: %s" % error, file=sys.stderr)
+        print("no file was written", file=sys.stderr)
+        return 1
+    for path, result in updated:
+        print("%s: %d reviewed name preference(s)" %
+              (path, len(result["provenance"]["name_matching"]["rules"])))
+    if dry_run:
+        print("dry run: nothing written")
+        return 0
+    for path, result in updated:
+        write_document(path, result)
+        print("wrote %s" % path)
+    return 0
 
 
 def with_party_size(document, english_rows, source):
@@ -704,8 +840,8 @@ def add_game_names_arguments(parser):
 
 
 def check_game_names_arguments(parser, args):
-    if args.add_party_size:
-        parser.error("--game-names and --add-party-size are separate runs")
+    if args.add_party_size or args.add_name_preferences:
+        parser.error("--game-names and duty backfill modes are separate runs")
     if args.version is not None and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.version):
         parser.error("--version must be a UTC date such as 2026-10-15")
     if not args.duties:
@@ -729,10 +865,15 @@ def main(argv):
     parser.add_argument("--add-party-size", nargs="+", metavar="FILE", default=None,
                         help="add party_size to existing data files in place, fetched at the "
                              "game version each file records; nothing else in them changes")
+    parser.add_argument("--add-name-preferences", nargs="+", metavar="FILE", default=None,
+                        help="add reviewed preferred_for_name_matching flags and their provenance "
+                             "to existing files, fetched at each file's original game version")
     add_game_names_arguments(parser)
     args = parser.parse_args(argv)
     if args.game_names:
         check_game_names_arguments(parser, args)
+    if args.add_party_size and args.add_name_preferences:
+        parser.error("--add-party-size and --add-name-preferences are separate runs")
     if args.raw_dir and is_inside_repository(args.raw_dir):
         parser.error("--raw-dir %s is inside the repository; raw downloads are upstream data "
                      "and must stay outside it" % args.raw_dir)
@@ -758,13 +899,18 @@ def main(argv):
         return add_party_size_to_files(args.add_party_size, raw_dir, args.game_version,
                                        dry_run=args.dry_run)
 
+    if args.add_name_preferences:
+        return add_name_preferences_to_files(args.add_name_preferences, raw_dir, args.game_version,
+                                             dry_run=args.dry_run)
+
     if args.game_names:
         return run_game_names(args, raw_dir, version)
 
     try:
         english_rows, urls, xivapi_digest, api_version = fetch_english_rows(
             raw_dir, args.game_version)
-    except (urllib.error.URLError, ValueError, OSError) as error:
+        preferences = name_matching_preferences(english_rows, require_complete=True)
+    except (urllib.error.URLError, ValueError, OSError, TypeError, AttributeError) as error:
         print("FAILED to fetch XIVAPI ContentFinderCondition: %s" % error, file=sys.stderr)
         print("no file was written; the existing data/duties/*.json are unchanged",
               file=sys.stderr)
@@ -778,8 +924,13 @@ def main(argv):
               file=sys.stderr)
         return 1
 
-    global_duties = build_rows(english_rows, chinese_names, "en")
-    cn_duties = build_rows(english_rows, chinese_names, "zh-Hans")
+    try:
+        global_duties = build_rows(english_rows, chinese_names, "en")
+        cn_duties = build_rows(english_rows, chinese_names, "zh-Hans")
+    except (ValueError, TypeError, AttributeError) as error:
+        print("FAILED to validate duty name preferences: %s" % error, file=sys.stderr)
+        print("no file was written; the existing data/duties/*.json are unchanged", file=sys.stderr)
+        return 1
     counts = {
         "xivapi_rows": len(english_rows),
         "datamining_cn_rows": len(chinese_names),
@@ -788,6 +939,11 @@ def main(argv):
     }
     provenance = make_provenance(
         urls, {"xivapi": xivapi_digest, "cn": cn_digest}, counts, api_version)
+    provenance["name_matching"] = {
+        "fields": XIVAPI_FIELDS, "fetched_at_utc": provenance["fetched_at_utc"],
+        "xivapi_game_version": api_version, "xivapi_urls": urls,
+        "xivapi_sha256": xivapi_digest, "rules": preference_rules(preferences),
+    }
 
     print("raw downloads:      %s" % (raw_dir or "not kept (dry run)"))
     print("xivapi rows:        %d (%d request(s))" % (len(english_rows), len(urls)))

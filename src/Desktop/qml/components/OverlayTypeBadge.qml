@@ -1,5 +1,5 @@
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // `.tb`: the one-character duty-category badge (迷 / 讨 / 大 / 团 / 令), white
 // on the category's colour.

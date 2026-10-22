@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 维护者工具 at the bottom of 捕获诊断, shown only with
 // App.maintainerToolsVisible:
@@ -13,24 +13,24 @@ ColumnLayout {
     id: section
     objectName: "captureMaintainerSection"
 
-    readonly property var capture: App.captureStatus
-    readonly property var counters: App.captureCounters
-    readonly property var npcap: App.npcapInfo
-    readonly property var game: App.gameInfo
-    readonly property var profile: App.protocolProfile
+    readonly property var capture: Runtime.app.captureStatus
+    readonly property var counters: Runtime.app.captureCounters
+    readonly property var npcap: Runtime.app.npcapInfo
+    readonly property var game: Runtime.app.gameInfo
+    readonly property var profile: Runtime.app.protocolProfile
 
     spacing: 16
 
     /// One counter, or an em dash when the Collector did not report it.
     function counter(key) {
         const value = section.counters[key]
-        return (value === undefined || value === null) ? Fmt.dash() : Fmt.count(value)
+        return (value === undefined || value === null) ? Runtime.fmt.dash() : Runtime.fmt.count(value)
     }
 
     function rateText() {
         const value = section.counters.message_rate_per_second
         if (value === undefined || value === null)
-            return Fmt.dash()
+            return Runtime.fmt.dash()
         return qsTr("%1 条/秒").arg(Number(value).toFixed(1))
     }
 
@@ -45,12 +45,12 @@ ColumnLayout {
 
     function parseRateText() {
         const rate = section.counters.parse_success_rate
-        return (rate === undefined || rate === null) ? Fmt.dash() : Fmt.percent(rate)
+        return (rate === undefined || rate === null) ? Runtime.fmt.dash() : Runtime.fmt.percent(rate)
     }
 
     function lastValidEventText() {
         const at = section.counters.last_valid_event_at_utc
-        return at ? Fmt.localTime(at) : Fmt.dash()
+        return at ? Runtime.fmt.localTime(at) : Runtime.fmt.dash()
     }
 
     function stateLabel() {
@@ -61,19 +61,19 @@ ColumnLayout {
         case "STOPPING": return qsTr("停止中")
         case "FAILED": return qsTr("失败")
         case "STOPPED": return qsTr("已停止")
-        default: return Fmt.dash()
+        default: return Runtime.fmt.dash()
         }
     }
 
     function uptimeText() {
         if (!section.capture.started_at_utc)
             return qsTr("未开始")
-        return qsTr("自 %1").arg(Fmt.localTime(section.capture.started_at_utc))
+        return qsTr("自 %1").arg(Runtime.fmt.localTime(section.capture.started_at_utc))
     }
 
     function boolText(value) {
         if (value === undefined || value === null)
-            return Fmt.dash()
+            return Runtime.fmt.dash()
         return value ? qsTr("是") : qsTr("否")
     }
 
@@ -137,9 +137,10 @@ ColumnLayout {
         }
 
         Repeater {
-            model: App.captureAdapters
+            model: Runtime.app.captureAdapters
 
             delegate: RowLayout {
+                id: adapterRow
                 required property var modelData
 
                 Layout.fillWidth: true
@@ -149,12 +150,12 @@ ColumnLayout {
                     implicitWidth: 8
                     implicitHeight: 8
                     radius: 4
-                    color: modelData.is_up ? Theme.green : Theme.neutral400
+                    color: adapterRow.modelData.is_up ? Theme.green : Theme.neutral400
                 }
 
                 Text {
                     Layout.preferredWidth: 150
-                    text: modelData.friendly_name || modelData.adapter_id
+                    text: adapterRow.modelData.friendly_name || adapterRow.modelData.adapter_id
                     color: Theme.textPrimary
                     font.pixelSize: Theme.fs(12)
                     font.bold: true
@@ -163,14 +164,14 @@ ColumnLayout {
 
                 Text {
                     Layout.fillWidth: true
-                    text: modelData.description || ""
+                    text: adapterRow.modelData.description || ""
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fs(12)
                     elide: Text.ElideRight
                 }
 
                 Text {
-                    text: (modelData.ipv4_addresses || []).join(", ") || qsTr("无 IPv4")
+                    text: (adapterRow.modelData.ipv4_addresses || []).join(", ") || qsTr("无 IPv4")
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fs(12)
                     font.family: Theme.figureFamily
@@ -179,12 +180,12 @@ ColumnLayout {
                 }
 
                 Tag {
-                    visible: modelData.is_loopback
+                    visible: adapterRow.modelData.is_loopback
                     text: qsTr("回环")
                 }
 
                 Tag {
-                    visible: modelData.recommended
+                    visible: adapterRow.modelData.recommended
                     text: qsTr("推荐")
                     variant: "ink"
                 }
@@ -193,7 +194,7 @@ ColumnLayout {
 
         Text {
             Layout.fillWidth: true
-            visible: App.captureAdapters.length === 0
+            visible: Runtime.app.captureAdapters.length === 0
             text: qsTr("未找到网卡。请点连接状态旁的“重新检测网卡”重试。")
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)
@@ -217,7 +218,7 @@ ColumnLayout {
             kicker: qsTr("Npcap")
             value: section.capture.npcap_installed
                    ? (section.capture.npcap_version
-                      ? Fmt.npcapVersionLabel(section.capture.npcap_version) : "v?")
+                      ? Runtime.fmt.npcapVersionLabel(section.capture.npcap_version) : "v?")
                    : qsTr("未安装")
             sub: section.npcap.status
                  ? qsTr("%1 · WinPcap 兼容 %2 · 仅管理员 %3")
@@ -231,7 +232,7 @@ ColumnLayout {
         CapCell {
             kicker: qsTr("适配器")
             value: section.capture.adapter_id || qsTr("未选择")
-            sub: qsTr("可用 %1 个 · 未开始捕获时不占用任何网卡").arg(App.captureAdapters.length)
+            sub: qsTr("可用 %1 个 · 未开始捕获时不占用任何网卡").arg(Runtime.app.captureAdapters.length)
         }
 
         CapCell {
@@ -240,7 +241,7 @@ ColumnLayout {
                    ? String(section.capture.ffxiv_process_id || 0) : qsTr("未运行")
             sub: qsTr("实例 %1 · build %2 · region %3")
                  .arg(section.game.instance_count !== undefined ? section.game.instance_count : 0)
-                 .arg(section.capture.game_build || Fmt.dash())
+                 .arg(section.capture.game_build || Runtime.fmt.dash())
                  .arg(section.capture.region || "UNKNOWN")
             valueColor: section.capture.ffxiv_running ? Theme.textPrimary : Theme.neutral400
         }
@@ -249,12 +250,12 @@ ColumnLayout {
             kicker: qsTr("捕获状态")
             // "监听中" is a claim about seeing traffic. When nothing has been
             // decoded it is replaced rather than qualified.
-            value: (App.captureMidstreamSuspected || App.captureSilent)
+            value: (Runtime.app.captureMidstreamSuspected || Runtime.app.captureSilent)
                    ? qsTr("无有效报文") : section.stateLabel()
-            sub: (App.captureMidstreamSuspected || App.captureSilent)
+            sub: (Runtime.app.captureMidstreamSuspected || Runtime.app.captureSilent)
                  ? qsTr("需回到标题画面重新登录") : section.uptimeText()
-            valueColor: (App.captureMidstreamSuspected || App.captureSilent)
-                        ? Theme.orange : (App.capturing ? Theme.green : Theme.neutral400)
+            valueColor: (Runtime.app.captureMidstreamSuspected || Runtime.app.captureSilent)
+                        ? Theme.orange : (Runtime.app.capturing ? Theme.green : Theme.neutral400)
         }
 
         CapCell {
@@ -303,17 +304,17 @@ ColumnLayout {
             kicker: qsTr("协议档案")
             value: section.profile.profile_id || qsTr("无")
             sub: qsTr("status %1 · build %2")
-                 .arg(App.protocolProfileStatus)
-                 .arg(section.profile.game_build || Fmt.dash())
-            valueColor: App.protocolProfileStatus === "VERIFIED" ? Theme.textPrimary : Theme.orange
+                 .arg(Runtime.app.protocolProfileStatus)
+                 .arg(section.profile.game_build || Runtime.fmt.dash())
+            valueColor: Runtime.app.protocolProfileStatus === "VERIFIED" ? Theme.textPrimary : Theme.orange
         }
 
         CapCell {
             kicker: qsTr("Oodle 签名")
-            value: section.capture.oodle_signature_source || Fmt.dash()
+            value: section.capture.oodle_signature_source || Runtime.fmt.dash()
             sub: qsTr("档案 %1 · 状态 %2")
-                 .arg(section.capture.oodle_profile_id || Fmt.dash())
-                 .arg(section.capture.oodle_profile_status || Fmt.dash())
+                 .arg(section.capture.oodle_profile_id || Runtime.fmt.dash())
+                 .arg(section.capture.oodle_profile_status || Runtime.fmt.dash())
             valueColor: section.capture.oodle_profile_status === "VERIFIED"
                         ? Theme.textPrimary : Theme.orange
         }
@@ -322,10 +323,10 @@ ColumnLayout {
             kicker: qsTr("边界常量")
             // Never invented: an absent monitor_type is an unreported fact,
             // not evidence that WinPCap mode is in use.
-            value: section.capture.monitor_type || Fmt.dash()
+            value: section.capture.monitor_type || Runtime.fmt.dash()
             sub: qsTr("注入式 hook %1 · 读取游戏可执行文件 %2")
                  .arg(section.boolText(section.capture.injected_hook_enabled))
-                 .arg(section.boolText(App.readsGameExecutable))
+                 .arg(section.boolText(Runtime.app.readsGameExecutable))
         }
     }
 
@@ -344,11 +345,11 @@ ColumnLayout {
             anchors.verticalCenter: parent.verticalCenter
             anchors.leftMargin: 12
             anchors.rightMargin: 12
-            text: "LIVE_CAPTURE_STATUS = " + App.liveCaptureStatus
-                  + "\nPROTOCOL_PROFILE_STATUS = " + App.protocolProfileStatus
-                  + "\nOODLE_MODE = " + (App.oodleMode || Fmt.dash())
-                  + "\nREADS_GAME_EXECUTABLE = " + (App.readsGameExecutable ? "true" : "false")
-                  + "\nPUBLIC_DISTRIBUTION_READY = " + (App.publicDistributionReady ? "true" : "false")
+            text: "LIVE_CAPTURE_STATUS = " + Runtime.app.liveCaptureStatus
+                  + "\nPROTOCOL_PROFILE_STATUS = " + Runtime.app.protocolProfileStatus
+                  + "\nOODLE_MODE = " + (Runtime.app.oodleMode || Runtime.fmt.dash())
+                  + "\nREADS_GAME_EXECUTABLE = " + (Runtime.app.readsGameExecutable ? "true" : "false")
+                  + "\nPUBLIC_DISTRIBUTION_READY = " + (Runtime.app.publicDistributionReady ? "true" : "false")
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(11)
             font.family: Theme.monoFamily

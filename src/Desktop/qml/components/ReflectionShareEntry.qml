@@ -1,5 +1,5 @@
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 来源时间与真实游玩时间保持区分；仅投影记录，不推断职业或通关结果。
 Item {
@@ -26,17 +26,17 @@ Item {
         resultText.y + resultText.height, mood.visible ? mood.y + mood.height : 0)
     readonly property real bodyTop: single ? dividerY + 30
         : Math.max(92 + titleShift, metadataBottom + 15, !knownTime ? timeText.y + timeText.height + 16 : 0)
-    readonly property string playedDate: runData.matched_at_utc ? Fmt.localDate(runData.matched_at_utc) : Fmt.dash()
-    readonly property bool knownTime: playedDate !== Fmt.dash()
+    readonly property string playedDate: runData.matched_at_utc ? Runtime.fmt.localDate(runData.matched_at_utc) : Runtime.fmt.dash()
+    readonly property bool knownTime: playedDate !== Runtime.fmt.dash()
     width: 1140
     height: body.text.length > 0 ? bodyTop + Math.max(1, body.lineCount) * 48
         : single ? Math.max(290, bodyTop + 22) : Math.max(76, bodyTop)
 
     function dateLabel() {
-        if (knownTime) return Fmt.localDateTime(runData.matched_at_utc).replace(/-/g, ".").slice(0, 16)
+        if (knownTime) return Runtime.fmt.localDateTime(runData.matched_at_utc).replace(/-/g, ".").slice(0, 16)
         const source = runData.import_metadata || ({})
         if (source.source_recorded_at_utc)
-            return qsTr("原站记录时间：%1 · 游玩时间未知").arg(Fmt.localDateTime(source.source_recorded_at_utc))
+            return qsTr("原站记录时间：%1 · 游玩时间未知").arg(Runtime.fmt.localDateTime(source.source_recorded_at_utc))
         if (source.source_recorded_at)
             return qsTr("原站记录时间：%1 · 游玩时间未知").arg(source.source_recorded_at)
         return qsTr("游玩时间未知")
@@ -45,7 +45,7 @@ Item {
     // 度量使用当前字号，换行只改变显示，不写回记录中的副本名。
     function wrappedDutyTitle(value) {
         // advanceWidth() 不会登记字体依赖；字号适配后必须按更新的字体重新换行。
-        void titleFontMetrics.font
+        Theme.trackBindingDependency(titleFontMetrics.font)
         const paragraphs = value.split("\n")
         const lines = []
         for (let p = 0; p < paragraphs.length; ++p) {
@@ -62,8 +62,8 @@ Item {
             }
             const rows = []
             let row = []
-            for (let i = 0; i < words.length; ++i) {
-                const word = words[i]
+            for (let wordIndex = 0; wordIndex < words.length; ++wordIndex) {
+                const word = words[wordIndex]
                 if (row.length && titleFontMetrics.advanceWidth(row.join("") + word) > dutyTitle.width) {
                     rows.push(row)
                     row = []
@@ -78,7 +78,7 @@ Item {
                     row.unshift(previous.pop())
             }
             rows.push(row)
-            for (let i = 0; i < rows.length; ++i) lines.push(rows[i].join(""))
+            for (let rowIndex = 0; rowIndex < rows.length; ++rowIndex) lines.push(rows[rowIndex].join(""))
         }
         return lines.join("\n")
     }
@@ -115,7 +115,7 @@ Item {
         renderType: Text.CurveRendering
         visible: !entry.single && entry.knownTime
         x: 84; y: 54 - baselineOffset; width: 106
-        text: entry.knownTime ? Fmt.localTime(entry.runData.matched_at_utc).slice(0, 5) : ""
+        text: entry.knownTime ? Runtime.fmt.localTime(entry.runData.matched_at_utc).slice(0, 5) : ""
         textFormat: Text.PlainText; horizontalAlignment: Text.AlignRight; color: "#6E5A44"
         font { family: "MR Reflection Serif"; pixelSize: 21; letterSpacing: 0.5 }
     }
@@ -147,7 +147,7 @@ Item {
             id: jobImage
             objectName: "reflectionShareGameJobImage"
             anchors.fill: parent
-            source: Jobs.framedIcon(job.jobId)
+            source: Runtime.jobs.framedIcon(job.jobId)
             fillMode: Image.PreserveAspectFit
             visible: source.toString().length > 0 && status === Image.Ready
         }
@@ -196,7 +196,7 @@ Item {
         x: dutyTitle.x
         y: (entry.single ? 192 : 69) + entry.titleShift - baselineOffset
         width: dutyTitle.width
-        text: Theme.live((Theme.jobName(entry.runData) || qsTr("未知职业")) + " · " + Fmt.resultLabel(entry.runData.result || "UNKNOWN"))
+        text: Theme.live((Theme.jobName(entry.runData) || qsTr("未知职业")) + " · " + Runtime.fmt.resultLabel(entry.runData.result || "UNKNOWN"))
         textFormat: Text.PlainText; wrapMode: Text.Wrap; color: "#6E5A44"
         font { family: "MR Reflection Serif"; pixelSize: 22; letterSpacing: 0.5 }
         lineHeightMode: Text.FixedHeight; lineHeight: 30

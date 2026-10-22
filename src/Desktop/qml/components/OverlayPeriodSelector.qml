@@ -1,10 +1,11 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
-// Only the attempt count uses this range; the controller supplies its keys and
-// translated titles so the rest of the float keeps its existing statistics.
+// All period statistics share this range; achievement and live modules stay cumulative/live.
 Rectangle {
     id: root
 
@@ -14,13 +15,13 @@ Rectangle {
     radius: Theme.radiusS
     color: Theme.fill
     Accessible.role: Accessible.Grouping
-    Accessible.name: qsTr("排本次数时间范围")
+    Accessible.name: qsTr("统计时间范围")
 
     function selectNeighbor(index, direction) {
         const next = (index + direction + options.count) % options.count
         const button = options.itemAt(next)
         if (!button) return
-        controller.attemptPeriod = button.modelData.key
+        controller.attemptPeriod = options.model[next].key
         button.forceActiveFocus(Qt.TabFocusReason)
     }
 

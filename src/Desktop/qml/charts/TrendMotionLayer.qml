@@ -1,5 +1,6 @@
 import QtQuick
-import MentorRecorder
+import QtQml.Models 6.8
+import MentorRecorder 1.0
 
 // The completion-trend bars while they move (the prototype's switchTrend()).
 // At rest this layer is hidden and Qt Graphs draws the bars. Bar geometry is Qt
@@ -46,8 +47,8 @@ Item {
         const existing = barRows.count
         for (let i = 0; i < existing; ++i)
             barRows.set(i, { entry: bars[i] })
-        for (let i = existing; i < bars.length; ++i)
-            barRows.append({ entry: bars[i] })
+        for (let appendIndex = existing; appendIndex < bars.length; ++appendIndex)
+            barRows.append({ entry: bars[appendIndex] })
     }
 
     // The phase after `merge` needs the series it merged from and into.
@@ -80,9 +81,9 @@ Item {
         if (!known)
             return Math.min(list.length - 1, Math.floor(index * list.length / Math.max(1, count)))
         let slot = 0
-        for (let k = 0; k < list.length; ++k) {
-            if (t >= list[k].t)
-                slot = k
+        for (let slotIndex = 0; slotIndex < list.length; ++slotIndex) {
+            if (t >= list[slotIndex].t)
+                slot = slotIndex
         }
         return slot
     }

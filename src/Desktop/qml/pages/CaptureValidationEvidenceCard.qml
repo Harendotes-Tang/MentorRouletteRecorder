@@ -1,7 +1,8 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 桌面验证取证 (maintainer tools): adapter and region overrides, the five
 // validation markers (validationMarker_<code>, driven by main.cpp's keyboard
@@ -10,17 +11,17 @@ Card {
     id: card
     objectName: guidedMode ? "templateObservationGuideCard" : "validationEvidenceCard"
 
-    readonly property var validation: App.validationStatus
+    readonly property var validation: Runtime.app.validationStatus
     property bool guidedMode: false
-    readonly property var evidence: typeof CalibrationEvidence !== "undefined" ? CalibrationEvidence : null
+    readonly property var evidence: typeof Runtime.calibrationEvidence !== "undefined" ? Runtime.calibrationEvidence : null
     // 玩家从「帮助适配其他区服」打开的这张卡片不显示错误码、网卡的内部编号和文件校验值；
     // 这些只给维护者看（审查 K2-4，2026-10-03 §四 第 5 条）。
-    readonly property bool technical: !card.guidedMode || App.maintainerToolsVisible
+    readonly property bool technical: !card.guidedMode || Runtime.app.maintainerToolsVisible
 
     readonly property var adapterChoices: {
         const choices = [{ adapter_id: "", label: qsTr("自动选择（唯一推荐网卡）") }]
-        for (let index = 0; index < App.captureAdapters.length; ++index) {
-            const row = App.captureAdapters[index]
+        for (let index = 0; index < Runtime.app.captureAdapters.length; ++index) {
+            const row = Runtime.app.captureAdapters[index]
             const name = row.friendly_name || row.description || qsTr("未命名适配器")
             choices.push({
                 adapter_id: row.adapter_id,
@@ -44,18 +45,18 @@ Card {
 
     function validationCounter(key) {
         const value = card.validation[key]
-        return (value === undefined || value === null) ? Fmt.dash() : Fmt.count(value)
+        return (value === undefined || value === null) ? Runtime.fmt.dash() : Runtime.fmt.count(value)
     }
 
     function validationStateLabel() {
         if (card.validation.reason === "CANCELLED")
             return qsTr("已取消等待")
-        switch (App.validationState) {
+        switch (Runtime.app.validationState) {
         case "IDLE": return qsTr("尚未开始")
         case "WAITING": return qsTr("等待安全候选")
         case "RECORDING": return qsTr("正在取证")
         case "STOPPING": return qsTr("正在停止并排空")
-        case "COMPLETED": return App.validationSaved ? qsTr("已保存") : qsTr("已结束，文件不完整")
+        case "COMPLETED": return Runtime.app.validationSaved ? qsTr("已保存") : qsTr("已结束，文件不完整")
         case "FAILED": return qsTr("失败")
         default: return qsTr("状态未知")
         }
@@ -70,7 +71,7 @@ Card {
         Item { Layout.fillWidth: true }
         Tag {
             text: card.validationStateLabel()
-            variant: App.validationState === "FAILED" ? "danger" : "ink"
+            variant: Runtime.app.validationState === "FAILED" ? "danger" : "ink"
         }
     }
 
@@ -89,25 +90,25 @@ Card {
         spacing: 10
         AppButton {
             objectName: "templateObservationActionButton"
-            text: App.validationState === "WAITING" ? qsTr("取消等待")
-                  : App.validationActive ? qsTr("停止采证")
-                  : App.capturing ? qsTr("切换为采证") : qsTr("开始采证")
+            text: Runtime.app.validationState === "WAITING" ? qsTr("取消等待")
+                  : Runtime.app.validationActive ? qsTr("停止采证")
+                  : Runtime.app.capturing ? qsTr("切换为采证") : qsTr("开始采证")
             variant: "primary"
-            enabled: App.templateObservationActionEnabled
-            onClicked: App.toggleTemplateObservation()
+            enabled: Runtime.app.templateObservationActionEnabled
+            onClicked: Runtime.app.toggleTemplateObservation()
         }
         AppButton {
             objectName: "previewTemplateObservationButton"
             text: qsTr("预览候选摘要")
-            enabled: !!card.evidence && !card.evidence.busy && App.validationSaved && !App.validationActive
+            enabled: !!card.evidence && !card.evidence.busy && Runtime.app.validationSaved && !Runtime.app.validationActive
             onClicked: card.evidence.previewTemplateObservation()
         }
     }
 
     Text {
         Layout.fillWidth: true
-        visible: card.guidedMode && App.capturing && !App.validationActive
-        text: App.protocolProfileStatus === "VERIFIED"
+        visible: card.guidedMode && Runtime.app.capturing && !Runtime.app.validationActive
+        text: Runtime.app.protocolProfileStatus === "VERIFIED"
               ? qsTr("当前正在正式记录，不能切换为候选采证。已有模板的校准核实请使用上方“共享校准证据”。")
               : qsTr("点击“切换为采证”会停止当前被动监听，改为只保存本机元数据；停止采证后自动监听可恢复。")
         color: Theme.orangeText
@@ -117,12 +118,12 @@ Card {
 
     Text {
         Layout.fillWidth: true
-        text: App.captureStatus.candidate_validation_enabled
+        text: Runtime.app.captureStatus.candidate_validation_enabled
               ? qsTr("候选验证仅写入独立观测账本；以下是单独的桌面验证取证工具。")
               // Listening on a build without a usable profile records nothing (review K2-4).
-              : App.capturing && !App.validationActive && App.protocolProfileStatus === "VERIFIED"
+              : Runtime.app.capturing && !Runtime.app.validationActive && Runtime.app.protocolProfileStatus === "VERIFIED"
               ? qsTr("当前正在正式记录；以下为最近一次验证取证证据。")
-              : App.validationNotice
+              : Runtime.app.validationNotice
         color: Theme.orangeText
         font.pixelSize: Theme.fs(13)
         font.bold: true
@@ -133,8 +134,8 @@ Card {
         Layout.fillWidth: true
         // message_ref renders the Collector's sentence in the interface language.
         text: (card.validation.message
-               ? Theme.live(Fmt.collectorText(card.validation.message_ref, card.validation.message))
-               : "") || (App.validationStatusLoaded
+               ? Theme.live(Runtime.fmt.collectorText(card.validation.message_ref, card.validation.message))
+               : "") || (Runtime.app.validationStatusLoaded
               ? card.guidedMode ? qsTr("点击上方按钮开始或停止采证。")
                                : qsTr("点击标题行的按钮开始或停止。")
               : qsTr("正在读取采集器验证能力…"))
@@ -145,7 +146,7 @@ Card {
 
     Text {
         Layout.fillWidth: true
-        visible: App.validationState === "WAITING"
+        visible: Runtime.app.validationState === "WAITING"
         text: qsTr("等待期间可点击“取消等待”；如需换网卡，请先取消，重新选择后再开始。")
         color: Theme.textSecondary
         font.pixelSize: Theme.fs(12)
@@ -154,8 +155,8 @@ Card {
 
     Text {
         Layout.fillWidth: true
-        visible: App.validationError.length > 0
-        text: qsTr("验证操作失败：") + App.validationError
+        visible: Runtime.app.validationError.length > 0
+        text: qsTr("验证操作失败：") + Runtime.app.validationError
         color: Theme.red
         font.pixelSize: Theme.fs(12)
         font.bold: true
@@ -168,7 +169,7 @@ Card {
         Layout.fillWidth: true
         visible: !!card.validation.error_code && (card.technical || !card.validation.message)
         text: card.technical ? qsTr("错误码：") + card.validation.error_code
-                             : App.errorText("", card.validation.error_code)
+                             : Runtime.app.errorText("", card.validation.error_code)
         color: Theme.red
         font.pixelSize: Theme.fs(12)
         font.bold: true
@@ -194,12 +195,12 @@ Card {
             Binding {
                 target: validationAdapter
                 property: "currentIndex"
-                value: card.adapterIndex(App.captureAdapterId)
+                value: card.adapterIndex(Runtime.app.captureAdapterId)
                 restoreMode: Binding.RestoreNone
             }
-            enabled: !App.validationActive && !App.capturing && !App.captureCommandBusy
+            enabled: !Runtime.app.validationActive && !Runtime.app.capturing && !Runtime.app.captureCommandBusy
             onActivated: function(index) {
-                App.captureAdapterId = card.adapterChoices[index].adapter_id
+                Runtime.app.captureAdapterId = card.adapterChoices[index].adapter_id
             }
             Accessible.name: qsTr("验证取证网络适配器")
             Accessible.description: qsTr("选择会把不透明 adapter_id 原样发给采集器；等待或取证中不可修改。")
@@ -210,7 +211,7 @@ Card {
             id: regionOverride
             objectName: "validationRegionSettingControl"
             Layout.preferredWidth: 150
-            interactionAllowed: !App.validationActive && !App.capturing && !App.captureCommandBusy
+            interactionAllowed: !Runtime.app.validationActive && !Runtime.app.capturing && !Runtime.app.captureCommandBusy
         }
     }
 
@@ -238,9 +239,9 @@ Card {
                 required property var modelData
                 objectName: (card.guidedMode ? "templateObservationMarker_" : "validationMarker_") + modelData.code
                 text: modelData.label
-                enabled: App.validationMarkerEnabled
-                onClicked: card.guidedMode ? App.addTemplateObservationMarker(modelData.code)
-                                          : App.addCaptureValidationMarker(modelData.code)
+                enabled: Runtime.app.validationMarkerEnabled
+                onClicked: card.guidedMode ? Runtime.app.addTemplateObservationMarker(modelData.code)
+                                          : Runtime.app.addCaptureValidationMarker(modelData.code)
                 Accessible.name: qsTr("添加验证标记：%1").arg(modelData.label)
             }
         }
@@ -248,8 +249,8 @@ Card {
 
     Text {
         Layout.fillWidth: true
-        visible: App.validationFeedback.length > 0
-        text: App.validationFeedback
+        visible: Runtime.app.validationFeedback.length > 0
+        text: Runtime.app.validationFeedback
         color: Theme.textPrimary
         font.pixelSize: Theme.fs(12)
         font.bold: true
@@ -286,12 +287,12 @@ Card {
         // issue (docs/privacy-boundary.md section 5). The unfolded value stays
         // with openCaptureValidationFolder().
         text: !card.technical
-              ? qsTr("采证文件：%1").arg(Fmt.foldUserPath(card.validation.trace_path || "") || Fmt.dash())
+              ? qsTr("采证文件：%1").arg(Runtime.fmt.foldUserPath(card.validation.trace_path || "") || Runtime.fmt.dash())
               : qsTr("Trace：%1\nSHA256 文件：%2\nSHA256：%3")
-                .arg(Fmt.foldUserPath(card.validation.trace_path || "") || Fmt.dash())
-                .arg(Fmt.foldUserPath(card.validation.sha256_path || "") || Fmt.dash())
-                .arg(card.validation.sha256 || Fmt.dash())
-        color: App.validationSaved ? Theme.textPrimary : Theme.orangeText
+                .arg(Runtime.fmt.foldUserPath(card.validation.trace_path || "") || Runtime.fmt.dash())
+                .arg(Runtime.fmt.foldUserPath(card.validation.sha256_path || "") || Runtime.fmt.dash())
+                .arg(card.validation.sha256 || Runtime.fmt.dash())
+        color: Runtime.app.validationSaved ? Theme.textPrimary : Theme.orangeText
         font.pixelSize: Theme.fs(11)
         font.family: Theme.monoFamily
         wrapMode: Text.WrapAnywhere
@@ -302,12 +303,12 @@ Card {
         visible: !!card.validation.trace_path
         AppButton {
             text: qsTr("打开所在目录")
-            enabled: !App.usingMockData
-            onClicked: App.openCaptureValidationFolder()
+            enabled: !Runtime.app.usingMockData
+            onClicked: Runtime.app.openCaptureValidationFolder()
         }
         Text {
             Layout.fillWidth: true
-            visible: App.usingMockData
+            visible: Runtime.app.usingMockData
             text: qsTr("当前是截图用模拟路径，不会当作可打开的真实取证。")
             color: Theme.orangeText
             font.pixelSize: Theme.fs(11)

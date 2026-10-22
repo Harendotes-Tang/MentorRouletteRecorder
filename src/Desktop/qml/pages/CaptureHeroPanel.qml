@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // The hero card of 捕获诊断: one sentence on what the capture is doing (a LED,
 // a headline, a line under it, the actions for that state), then 链路 - the
@@ -102,6 +102,7 @@ Card {
                 ]
 
                 delegate: RowLayout {
+                    id: installStep
                     required property string modelData
                     required property int index
 
@@ -111,7 +112,7 @@ Card {
                     Text {
                         Layout.alignment: Qt.AlignTop
                         Layout.preferredWidth: 14
-                        text: String(index + 1) + "."
+                        text: String(installStep.index + 1) + "."
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fs(13)
                         font.family: Theme.figureFamily
@@ -121,7 +122,7 @@ Card {
 
                     Text {
                         Layout.fillWidth: true
-                        text: modelData
+                        text: installStep.modelData
                         textFormat: Text.PlainText
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fs(13)
@@ -141,14 +142,14 @@ Card {
                 visible: hero.broken
                 text: qsTr("打开 npcap.com")
                 variant: "primary"
-                onClicked: App.openNpcapWebsite()
+                onClicked: Runtime.app.openNpcapWebsite()
             }
 
             AppButton {
                 objectName: "redetectNpcapButton"
                 visible: hero.broken
                 text: qsTr("重新检测")
-                onClicked: App.rescanAdapters()
+                onClicked: Runtime.app.rescanAdapters()
             }
 
             AppButton {
@@ -156,7 +157,7 @@ Card {
                 visible: !hero.broken
                 variant: "ghost"
                 text: qsTr("重新检测游戏")
-                onClicked: App.rescanGame()
+                onClicked: Runtime.app.rescanGame()
             }
 
             AppButton {
@@ -164,7 +165,7 @@ Card {
                 visible: !hero.broken
                 variant: "ghost"
                 text: qsTr("重新检测网卡")
-                onClicked: App.rescanAdapters()
+                onClicked: Runtime.app.rescanAdapters()
             }
         }
     }

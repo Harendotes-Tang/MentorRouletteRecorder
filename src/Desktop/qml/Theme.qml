@@ -1,6 +1,7 @@
 pragma Singleton
 
 import QtQuick
+import MentorRecorder 1.0
 
 // Single source of truth for the palette. Two visual styles share one token
 // vocabulary (docs/ui-design.md):
@@ -19,7 +20,10 @@ import QtQuick
 // Pages bind to token names, never to a literal colour, so flipping
 // `Settings.uiStyle` repaints the whole shell.
 QtObject {
-    readonly property bool dark: typeof App === "undefined" ? true : App.dark
+    // 参数求值保留动态绑定的属性依赖，调用表达式可被检查器识别。
+    function trackBindingDependency(value) { return value }
+
+    readonly property bool dark: typeof Runtime.app === "undefined" ? true : Runtime.app.dark
 
     // The style on screen: "classic", "eorzea" or "harendotes". Defaults to
     // classic unless the setting explicitly names another style, so the UI
@@ -27,11 +31,11 @@ QtObject {
     readonly property string uiStyle: {
         // --mock-ui-style pins the style for a screenshot run without touching
         // the persisted desktop.ini.
-        if (typeof ForceUiStyle !== "undefined" && ForceUiStyle !== "")
-            return normalizeStyle(ForceUiStyle)
-        if (typeof Settings === "undefined")
+        if (typeof Runtime.forceUiStyle !== "undefined" && Runtime.forceUiStyle !== "")
+            return normalizeStyle(Runtime.forceUiStyle)
+        if (typeof Runtime.settings === "undefined")
             return "classic"
-        return normalizeStyle(Settings.uiStyle)
+        return normalizeStyle(Runtime.settings.uiStyle)
     }
     function normalizeStyle(value) {
         return value === "eorzea" || value === "harendotes" ? value : "classic"
@@ -47,7 +51,7 @@ QtObject {
     // `motion` is the master switch: ReduceMotion (screenshot runs, Windows
     // "显示动画 = 关"; set in main.cpp) zeroes every motion* value below, so each
     // animation lands on its end state in the same frame.
-    readonly property bool motion: typeof ReduceMotion === "undefined" ? true : !ReduceMotion
+    readonly property bool motion: typeof Runtime.reduceMotion === "undefined" ? true : !Runtime.reduceMotion
     readonly property int motionFast: motion ? 120 : 0
     readonly property int motionMedium: motion ? 220 : 0
     readonly property int motionSlow: motion ? 600 : 0
@@ -83,7 +87,7 @@ QtObject {
     // ----------------------------------------------------------- 字体 --
     // Classic headings use the application (body) font; an empty family name
     // would make Qt fall back to a serif face on Windows.
-    readonly property string bodyFamily: Qt.application.font.family
+    readonly property string bodyFamily: Application.font.family
     // Harendotes sets headings and big figures in Song (Noto Serif SC), Latin
     // included; eorzea keeps Cinzel for Latin and figures.
     readonly property string headingFamily: eorzea
@@ -588,15 +592,15 @@ QtObject {
     // Not needed where the same binding already calls qsTr(), nor for numbers,
     // dates (yyyy-MM-dd) and Fmt.dash(), which read the same in every language.
     // C++ properties re-announce themselves (their NOTIFY) after a switch.
-    readonly property int langRevision: typeof Lang === "undefined" || !Lang ? 0 : Lang.revision
+    readonly property int langRevision: typeof Runtime.lang === "undefined" || !Runtime.lang ? 0 : Runtime.lang.revision
     // The interface language's locale for Qt's own calendar controls (weekday
     // and month names, first day of the week).
     readonly property string localeName: {
-        const code = typeof Lang === "undefined" || !Lang ? "zh-CN" : Lang.code
+        const code = typeof Runtime.lang === "undefined" || !Runtime.lang ? "zh-CN" : Runtime.lang.code
         return ({ "zh-TW": "zh_TW", "en": "en_US", "ja": "ja_JP" })[code] || "zh_CN"
     }
     function live(value) {
-        void langRevision
+        Theme.trackBindingDependency(langRevision)
         return value
     }
 
@@ -613,7 +617,7 @@ QtObject {
     // Pickers keep the Chinese name as their value and show one of these as their
     // label; a search over names matches both (nameMatches). The Collector's own
     // placeholders (未知副本, 未知) are this program's words and are translated.
-    readonly property bool namesAvailable: typeof Names !== "undefined" && !!Names
+    readonly property bool namesAvailable: typeof Runtime.names !== "undefined" && !!Runtime.names
     function nameText(value) {
         return value === undefined || value === null ? "" : String(value)
     }
@@ -624,55 +628,62 @@ QtObject {
     function dutyName(row) {
         return row ? dutyLabel(row.content_id, row.duty_name) : ""
     }
+    /// Choice labels distinguish real catalogue identities; recorded names stay plain.
+    function dutyChoiceLabel(row) {
+        const name = dutyName(row)
+        return row && nameId(row.content_id) !== null
+            && (row.name_ambiguous === true || (namesAvailable && Runtime.names.dutyNameAmbiguous(row.content_id)))
+            ? name + " · " + qsTr("编号 %1").arg(row.content_id) : name
+    }
     function dutyLabel(contentId, recorded) {
-        void langRevision
+        Theme.trackBindingDependency(langRevision)
         const name = nameText(recorded)
         if (name === "未知副本")
             return qsTr("未知副本")
-        return namesAvailable ? Names.duty(nameId(contentId), name) : name
+        return namesAvailable ? Runtime.names.duty(nameId(contentId), name) : name
     }
     /// The job a run, statistics row or job option names, or "".
     function jobName(row) {
         return row ? jobLabel(row.job_id, row.job_name) : ""
     }
     function jobLabel(jobId, recorded) {
-        void langRevision
+        Theme.trackBindingDependency(langRevision)
         const name = nameText(recorded)
         if (name === "未知")
             return qsTr("未知")
-        return namesAvailable ? Names.job(nameId(jobId), name) : name
+        return namesAvailable ? Runtime.names.job(nameId(jobId), name) : name
     }
     /// A bare job id named by the bundled job table; 未知 when it has no name.
     function catalogJobName(jobId) {
-        void langRevision
-        const known = typeof Jobs !== "undefined" && Jobs ? Jobs.jobName(nameId(jobId)) : ""
+        Theme.trackBindingDependency(langRevision)
+        const known = typeof Runtime.jobs !== "undefined" && Runtime.jobs ? Runtime.jobs.jobName(nameId(jobId)) : ""
         return !known || known === "未知" ? qsTr("未知") : jobLabel(jobId, known)
     }
     /// A roulette known by its Chinese client name.
     function rouletteName(recorded) {
-        void langRevision
+        Theme.trackBindingDependency(langRevision)
         const name = nameText(recorded)
-        return namesAvailable && name.length > 0 ? Names.rouletteByName(name) : name
+        return namesAvailable && name.length > 0 ? Runtime.names.rouletteByName(name) : name
     }
     /// A duty category (四人迷宫, 讨伐歼灭战 ...), or "".
     function categoryName(recorded) {
-        void langRevision
+        Theme.trackBindingDependency(langRevision)
         const name = nameText(recorded)
-        return namesAvailable && name.length > 0 ? Names.category(name) : name
+        return namesAvailable && name.length > 0 ? Runtime.names.category(name) : name
     }
     /// An expansion, given by the catalogue's English key ("A Realm Reborn").
     function expansionName(key) {
-        void langRevision
+        Theme.trackBindingDependency(langRevision)
         const name = nameText(key)
-        return namesAvailable && name.length > 0 ? Names.expansion(name) : name
+        return namesAvailable && name.length > 0 ? Runtime.names.expansion(name) : name
     }
     /// A role group of the legend (坦克 / 治疗 / 近战 / 远程物理 / 魔法 / 其他 / 未知).
     function roleGroupName(group) {
-        void langRevision
+        Theme.trackBindingDependency(langRevision)
         const name = nameText(group)
         if (name.length === 0 || name === "未知")
             return qsTr("未知")
-        return namesAvailable ? Names.roleGroup(name) : name
+        return namesAvailable ? Runtime.names.roleGroup(name) : name
     }
     /// True when \a query (trimmed, lower-cased) is part of any of \a names: a
     /// search over game names finds the recorded name and the one on screen.
@@ -688,7 +699,7 @@ QtObject {
     /// Job options ({ job_id, job_name, ... }) with `label`, the name to show;
     /// job_name stays the record's.
     function labelledJobs(options) {
-        void langRevision
+        Theme.trackBindingDependency(langRevision)
         const out = []
         const list = options || []
         for (let i = 0; i < list.length; ++i) {
@@ -699,7 +710,7 @@ QtObject {
     }
     /// Duty categories as { value, label }: value the Chinese label a filter sends.
     function labelledCategories(categories) {
-        void langRevision
+        Theme.trackBindingDependency(langRevision)
         const out = []
         const list = categories || []
         for (let i = 0; i < list.length; ++i)

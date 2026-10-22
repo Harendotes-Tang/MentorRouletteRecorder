@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // Settings row whose control is a switch. Label, sub-label and divider are
 // provided by SettingsRow.

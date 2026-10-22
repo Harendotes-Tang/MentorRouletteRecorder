@@ -1,6 +1,8 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
-import MentorRecorder
+import MentorRecorder 1.0
 
 // The history table's header (docs/ui-design.md §4.2). Every title sits over
 // its column at the x and width the page's layout gives it; the rows read the
@@ -108,12 +110,12 @@ Rectangle {
             width: 32
             height: 30
             anchors.verticalCenter: parent.verticalCenter
-            checked: App.allCurrentHistoryPageChecked
-            enabled: !App.runs.loading && App.runs.loadError.length === 0 && App.runs.total > 0
+            checked: Runtime.app.allCurrentHistoryPageChecked
+            enabled: !Runtime.app.runs.loading && Runtime.app.runs.loadError.length === 0 && Runtime.app.runs.total > 0
             Accessible.name: qsTr("全选当前页")
             ToolTip.visible: hovered
             ToolTip.text: qsTr("全选当前页")
-            onClicked: App.setCurrentHistoryPageChecked(checked)
+            onClicked: Runtime.app.setCurrentHistoryPageChecked(checked)
         }
 
         Repeater {

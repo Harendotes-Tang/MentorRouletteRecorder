@@ -199,6 +199,8 @@ public:
 
     /// Test seam: replace the dataset with a hand-written one.
     void resetRuns(const QJsonArray &runs);
+    /// Test seam for an older import library, including retained purge tombstones.
+    void resetRuns(const QJsonArray &runs, const QHash<QString, QString> &importFingerprints);
     /// Test seam: set the achievement settings directly.
     void setAchievement(int goalCount, int baselineCompletedCount);
 

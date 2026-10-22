@@ -23,12 +23,14 @@ public:
     {
         auto *reply = new mr::BackendReply(QString::number(requests.size()), type, this);
         requests.append(payload);
+        types.append(type);
         replies.append(reply);
         return reply;
     }
     void setConnected(bool value) { connected = value; Q_EMIT connectionChanged(); }
     bool connected = true;
     QList<QJsonObject> requests;
+    QStringList types;
     QList<QPointer<mr::BackendReply>> replies;
 };
 
@@ -153,6 +155,7 @@ private Q_SLOTS:
     {
         RangeBackend backend;
         mr::StatisticsOverlayController overlay(nullptr);
+        overlay.setModules({QStringLiteral("attempts")});
         overlay.setBackend(&backend);
         overlay.refreshAttempts();
         QCOMPARE(backend.requests.size(), 0);
@@ -205,6 +208,7 @@ private Q_SLOTS:
     {
         auto backend = std::make_unique<RangeBackend>();
         mr::StatisticsOverlayController overlay(nullptr);
+        overlay.setModules({QStringLiteral("attempts")});
         overlay.setBackend(backend.get());
         overlay.show();
         backend->replies.last()->succeed({});
@@ -232,6 +236,7 @@ private Q_SLOTS:
         QDateTime now(QDate(2026, 10, 21), QTime(23, 59), QTimeZone("Asia/Singapore"));
         RangeBackend backend;
         mr::StatisticsOverlayController overlay(nullptr, nullptr, [&now] { return now; });
+        overlay.setModules({QStringLiteral("attempts")});
         overlay.setBackend(&backend);
         overlay.setAttemptPeriod(QStringLiteral("today"));
         overlay.show();
@@ -252,6 +257,77 @@ private Q_SLOTS:
         QCOMPARE(backend.requests.size(), 3);
         overlay.show();
         QCOMPARE(backend.requests.size(), 4);
+    }
+
+    void periodModelsShareFiltersAndRejectLateReplies()
+    {
+        RangeBackend backend;
+        QDateTime now(QDate(2026, 10, 22), QTime(12, 0), QTimeZone("Asia/Singapore"));
+        mr::StatisticsOverlayController overlay(nullptr, nullptr, [&now] { return now; });
+        overlay.setBackend(&backend);
+        overlay.show();
+        QCOMPARE(backend.requests.size(), 3);
+        const auto rows = [](int count) {
+            return QJsonObject::fromVariantMap({{QStringLiteral("items"), QVariantList{QVariantMap{
+                {QStringLiteral("content_id"), 1}, {QStringLiteral("duty_name"), QStringLiteral("fixture")},
+                {QStringLiteral("job_id"), 19}, {QStringLiteral("attempt_count"), count},
+                {QStringLiteral("completed_count"), count}}}},
+                {QStringLiteral("page_info"), QVariantMap{{QStringLiteral("total"), 1},
+                    {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}}}});
+        };
+        const QStringList types{QStringLiteral("GetDungeonStats"), QStringLiteral("GetJobStats"), QStringLiteral("GetDashboardStats")};
+        for (const auto &period : {QStringLiteral("today"), QStringLiteral("last7"), QStringLiteral("last30"), QStringLiteral("all")}) {
+            const qsizetype first = backend.requests.size();
+            overlay.setAttemptPeriod(period);
+            QCOMPARE(backend.requests.size(), first + 3);
+            const auto filter = mr::StatisticsOverlayController::attemptFilter(period, now.date(), now.timeZone());
+            for (int i = 0; i < 3; ++i) {
+                QCOMPARE(backend.types.at(first + i), types.at(i));
+                QCOMPARE(backend.requests.at(first + i).value(QStringLiteral("filter")).toObject(), filter);
+            }
+        }
+        const qsizetype last = backend.requests.size() - 3;
+        backend.replies.at(last)->succeed(rows(8));
+        backend.replies.at(last + 1)->succeed(rows(8));
+        backend.replies.at(last + 2)->succeed({{QStringLiteral("attempt_count"), 8}});
+        QCOMPARE(overlay.dungeons()->totalAttemptCount(), 8);
+        QCOMPARE(overlay.jobs()->totalAttemptCount(), 8);
+        backend.replies.at(0)->succeed(rows(99));
+        backend.replies.at(1)->fail(QStringLiteral("OLD"), QStringLiteral("old"));
+        QCOMPARE(overlay.dungeons()->totalAttemptCount(), 8);
+        QCOMPARE(overlay.jobs()->totalAttemptCount(), 8);
+        QVERIFY(overlay.jobs()->loadError().isEmpty());
+
+        overlay.setModules({QStringLiteral("dungeons"), QStringLiteral("jobs")});
+        QVERIFY(overlay.hasPeriodStatistics());
+        const qsizetype pending = backend.requests.size() - 2;
+        overlay.hide();
+        backend.replies.at(pending)->succeed(rows(77));
+        backend.replies.at(pending + 1)->succeed(rows(77));
+        QCOMPARE(overlay.dungeons()->totalAttemptCount(), 8);
+        QCOMPARE(overlay.jobs()->totalAttemptCount(), 8);
+        const qsizetype hidden = backend.requests.size();
+        tick(overlay);
+        QCOMPARE(backend.requests.size(), hidden);
+        overlay.show();
+        QCOMPARE(backend.requests.size(), hidden + 2);
+        now = now.addDays(1);
+        tick(overlay);
+        QCOMPARE(backend.requests.size(), hidden + 4);
+        overlay.setModules({QStringLiteral("jobs")});
+        const qsizetype onlyJobs = backend.requests.size();
+        overlay.refreshAttempts();
+        QCOMPARE(backend.requests.size(), onlyJobs + 1);
+        QCOMPARE(backend.types.last(), QStringLiteral("GetJobStats"));
+        backend.replies.last()->fail(QStringLiteral("ERR_TEST"), QStringLiteral("current failure"));
+        QVERIFY(!overlay.jobs()->loadError().isEmpty());
+        QCOMPARE(overlay.jobs()->rowCount(), 0);
+        overlay.setModules({QStringLiteral("progress")});
+        QVERIFY(!overlay.hasPeriodStatistics());
+        const qsizetype stopped = backend.requests.size();
+        overlay.refreshAttempts();
+        tick(overlay);
+        QCOMPARE(backend.requests.size(), stopped);
     }
 };
 } // namespace

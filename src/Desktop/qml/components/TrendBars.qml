@@ -1,6 +1,8 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
-import MentorRecorder
+import MentorRecorder 1.0
 
 Item {
     id: root
@@ -39,6 +41,7 @@ Item {
             model: root.buckets
 
             delegate: Item {
+                id: bucket
                 required property var modelData
 
                 width: root.buckets.length > 0
@@ -52,7 +55,7 @@ Item {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
-                    height: Math.max(2, parent.height * Number(modelData.count || 0) / root.maxCount)
+                    height: Math.max(2, parent.height * Number(bucket.modelData.count || 0) / root.maxCount)
                     radius: Theme.eorzea ? Theme.radiusXxs : 3
                     readonly property color classicColor: hover.hovered ? Theme.accentStrong
                                                                        : Theme.accent

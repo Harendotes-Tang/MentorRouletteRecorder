@@ -1,7 +1,6 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 设置 · 成就: 目标值、安装前已完成次数（基数）与修改原因。
 ColumnLayout {
@@ -12,8 +11,8 @@ ColumnLayout {
     Layout.fillWidth: true
     spacing: 16
 
-    property string baselineText: String(App.baselineCount)
-    property string goalText: String(App.goalCount)
+    property string baselineText: String(Runtime.app.baselineCount)
+    property string goalText: String(Runtime.app.goalCount)
     property string baselineReasonText: ""
     property string baselineErrorText: ""
     // Set as soon as the user types and cleared on submit, so a dashboard
@@ -28,21 +27,21 @@ ColumnLayout {
     // Until the stored goal and baseline have been read on this connection the
     // fields hold defaults; saving them would overwrite the stored baseline
     // (audit 2026-10-03, CS7-D3), so they can be neither edited nor saved.
-    readonly property bool settingsLoaded: App.achievementSettingsLoaded
+    readonly property bool settingsLoaded: Runtime.app.achievementSettingsLoaded
 
     // The Collector's achievement_progress, and the part of it this software
     // recorded. Not completed_count: a COMPLETED run that does not count towards
     // the goal is in that total only (review OK-1).
-    readonly property int progressCount: App.dashboard.achievement_progress !== undefined
-        ? Number(App.dashboard.achievement_progress) : App.baselineCount
-    readonly property int recordedCount: Math.max(0, tab.progressCount - App.baselineCount)
+    readonly property int progressCount: Runtime.app.dashboard.achievement_progress !== undefined
+        ? Number(Runtime.app.dashboard.achievement_progress) : Runtime.app.baselineCount
+    readonly property int recordedCount: Math.max(0, tab.progressCount - Runtime.app.baselineCount)
     // The baseline field read the way 保存 reads it: a whole number of at least 0,
     // else -1. An empty field is no number, and is not saved as 0.
     readonly property int typedBaseline: tab.parseBaseline(tab.baselineText)
     // The formula previews what 保存 would give (B3-1): the baseline is what was
     // completed before installing, and every completion this software recorded is
     // added on top. Until the field holds a number the stored figures stand.
-    readonly property int previewBaseline: tab.typedBaseline >= 0 ? tab.typedBaseline : App.baselineCount
+    readonly property int previewBaseline: tab.typedBaseline >= 0 ? tab.typedBaseline : Runtime.app.baselineCount
 
     function parseBaseline(text) {
         const value = Number(text)
@@ -76,12 +75,12 @@ ColumnLayout {
     }
 
     Connections {
-        target: App
+        target: Runtime.app
         function onDashboardChanged() {
             if (tab.achievementEdited)
                 return
-            tab.baselineText = String(App.baselineCount)
-            tab.goalText = String(App.goalCount)
+            tab.baselineText = String(Runtime.app.baselineCount)
+            tab.goalText = String(Runtime.app.goalCount)
         }
         // The Collector's own refusal (ERR_REASON_REQUIRED, ERR_BAD_REQUEST …)
         // of this card's save is shown next to the field, not only in a toast
@@ -90,7 +89,7 @@ ColumnLayout {
             if (tab.ownSavesOut === 0)
                 return
             tab.ownSavesOut -= 1
-            tab.baselineErrorText = App.errorText(message, code)
+            tab.baselineErrorText = Runtime.app.errorText(message, code)
         }
         function onBaselineSaved(goal, baseline) {
             if (tab.ownSavesOut > 0)
@@ -110,14 +109,14 @@ ColumnLayout {
             return
         }
         if (!baselineReasonText.trim()) {
-            baselineErrorText = App.errorText(qsTr("请填写「修改原因」后再点「保存」。"), "ERR_REASON_REQUIRED")
+            baselineErrorText = Runtime.app.errorText(qsTr("请填写「修改原因」后再点「保存」。"), "ERR_REASON_REQUIRED")
             return
         }
         baselineErrorText = ""
         achievementEdited = false
         // Counted before the request: a refusal can arrive inside the call.
         ownSavesOut += 1
-        App.updateAchievementBaseline(Math.floor(goal), baseline,
+        Runtime.app.updateAchievementBaseline(Math.floor(goal), baseline,
                                       Theme.storedReason(baselineReasonText))
     }
 

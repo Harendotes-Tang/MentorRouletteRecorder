@@ -188,6 +188,44 @@ private:
         return false;
     }
 
+    static void checkDurationHandleDoesNotSortAndRestoresWidth(PageFixture &fixture)
+    {
+        auto *columns = fixture.columns();
+        auto *runs = fixture.app->runs();
+        // The edge of a sortable column that is not the sort column: no sort either.
+        QQuickItem *durationHandle = fixture.handle(QStringLiteral("duration"));
+        QVERIFY(durationHandle);
+        const int durationBefore = qRound(fixture.cell(QStringLiteral("duration"))->width());
+        drag(fixture.window, centreOf(durationHandle), centreOf(durationHandle) + QPoint(20, 0));
+        QTRY_COMPARE(columns->width(QStringLiteral("duration")), durationBefore + 20);
+        QCOMPARE(runs->sortField(), QStringLiteral("history_date"));
+        QVERIFY(!runs->sortAscending());
+        // A click on the edge sorts nothing; a double click puts the default width back.
+        QTest::mouseClick(fixture.window, Qt::LeftButton, Qt::NoModifier, centreOf(durationHandle));
+        QTest::qWait(60);
+        QCOMPARE(runs->sortField(), QStringLiteral("history_date"));
+        QVERIFY(!runs->sortAscending());
+        QTest::mouseDClick(fixture.window, Qt::LeftButton, Qt::NoModifier, centreOf(durationHandle));
+        QTRY_COMPARE(columns->width(QStringLiteral("duration")), 0);
+        QCOMPARE(qRound(fixture.cell(QStringLiteral("duration"))->width()), durationBefore);
+        QCOMPARE(runs->sortField(), QStringLiteral("history_date"));
+        QVERIFY(!runs->sortAscending());
+        // An edge drag that comes back and lets go where it began stores nothing.
+        const QPoint origin = centreOf(durationHandle);
+        QTest::mousePress(fixture.window, Qt::LeftButton, Qt::NoModifier, origin);
+        for (int step = 1; step <= 6; ++step) {
+            QTest::mouseMove(fixture.window, origin + QPoint(5 * step, 0));
+            QTest::qWait(5);
+        }
+        QTRY_COMPARE(qRound(fixture.cell(QStringLiteral("duration"))->width()), durationBefore + 30);
+        QTest::mouseMove(fixture.window, origin);
+        QTest::qWait(5);
+        QTest::mouseRelease(fixture.window, Qt::LeftButton, Qt::NoModifier, origin);
+        QTest::qWait(60);
+        QCOMPARE(columns->width(QStringLiteral("duration")), 0);
+        QCOMPARE(qRound(fixture.cell(QStringLiteral("duration"))->width()), durationBefore);
+    }
+
 private Q_SLOTS:
     void initTestCase()
     {
@@ -276,7 +314,8 @@ private Q_SLOTS:
         QCOMPARE(columns.order().indexOf(QStringLiteral("entered")), 1);
         columns.moveTo(QStringLiteral("bogus"), 0);
         const QStringList unchanged = columns.order();
-        columns.moveTo(QStringLiteral("duty"), columns.visible().size() - 1); // 原位：无变化。
+        const int lastVisibleIndex = static_cast<int>(columns.visible().size() - 1);
+        columns.moveTo(QStringLiteral("duty"), lastVisibleIndex); // 原位：无变化。
         QCOMPARE(columns.order(), unchanged);
     }
 
@@ -507,38 +546,9 @@ private Q_SLOTS:
         QCOMPARE(runs->sortField(), QStringLiteral("history_date")); // 拖边缘也不排序。
         QVERIFY(!runs->sortAscending());
 
-        // The edge of a sortable column that is not the sort column: no sort either.
-        QQuickItem *durationHandle = fixture.handle(QStringLiteral("duration"));
-        QVERIFY(durationHandle);
-        const int durationBefore = qRound(fixture.cell(QStringLiteral("duration"))->width());
-        drag(fixture.window, centreOf(durationHandle), centreOf(durationHandle) + QPoint(20, 0));
-        QTRY_COMPARE(columns->width(QStringLiteral("duration")), durationBefore + 20);
-        QCOMPARE(runs->sortField(), QStringLiteral("history_date"));
-        QVERIFY(!runs->sortAscending());
-        // A click on the edge sorts nothing; a double click puts the default width back.
-        QTest::mouseClick(fixture.window, Qt::LeftButton, Qt::NoModifier, centreOf(durationHandle));
-        QTest::qWait(60);
-        QCOMPARE(runs->sortField(), QStringLiteral("history_date"));
-        QVERIFY(!runs->sortAscending());
-        QTest::mouseDClick(fixture.window, Qt::LeftButton, Qt::NoModifier, centreOf(durationHandle));
-        QTRY_COMPARE(columns->width(QStringLiteral("duration")), 0);
-        QCOMPARE(qRound(fixture.cell(QStringLiteral("duration"))->width()), durationBefore);
-        QCOMPARE(runs->sortField(), QStringLiteral("history_date"));
-        QVERIFY(!runs->sortAscending());
-        // An edge drag that comes back and lets go where it began stores nothing.
-        const QPoint origin = centreOf(durationHandle);
-        QTest::mousePress(fixture.window, Qt::LeftButton, Qt::NoModifier, origin);
-        for (int step = 1; step <= 6; ++step) {
-            QTest::mouseMove(fixture.window, origin + QPoint(5 * step, 0));
-            QTest::qWait(5);
-        }
-        QTRY_COMPARE(qRound(fixture.cell(QStringLiteral("duration"))->width()), durationBefore + 30);
-        QTest::mouseMove(fixture.window, origin);
-        QTest::qWait(5);
-        QTest::mouseRelease(fixture.window, Qt::LeftButton, Qt::NoModifier, origin);
-        QTest::qWait(60);
-        QCOMPARE(columns->width(QStringLiteral("duration")), 0);
-        QCOMPARE(qRound(fixture.cell(QStringLiteral("duration"))->width()), durationBefore);
+        checkDurationHandleDoesNotSortAndRestoresWidth(fixture);
+        if (QTest::currentTestFailed())
+            return;
 
         // Narrower than its narrowest is refused; the handle stays usable.
         drag(fixture.window, centreOf(handle), centreOf(handle) - QPoint(600, 0));
@@ -640,7 +650,11 @@ private Q_SLOTS:
         QVERIFY(button && button->isVisible());
         QTest::mouseClick(fixture.window, Qt::LeftButton, Qt::NoModifier, centreOf(button));
         QQuickItem *sourceToggle = nullptr;
-        QTRY_VERIFY((sourceToggle = fixture.item(QStringLiteral("historyColumnToggle_source"))) && sourceToggle->isVisible());
+        const auto sourceToggleIsVisible = [&] {
+            sourceToggle = fixture.item(QStringLiteral("historyColumnToggle_source"));
+            return sourceToggle && sourceToggle->isVisible();
+        };
+        QTRY_VERIFY(sourceToggleIsVisible());
         QVERIFY(sourceToggle->property("checked").toBool());
         auto *reset = fixture.item(QStringLiteral("historyColumnsReset"));
         QVERIFY(reset);

@@ -8,6 +8,8 @@ python tools/duty-data-generator/generate.py --version 2026-09-04
 python tools/duty-data-generator/generate.py --dry-run       # 抓取并统计，不写文件
 python tools/duty-data-generator/generate.py --add-party-size data/duties/cn.2026-09-04.json data/duties/global.2026-09-04.json
                                                              # 给已有文件补 party_size，其余不动
+python tools/duty-data-generator/generate.py --add-name-preferences data/duties/cn.2026-09-04.json data/duties/global.2026-09-04.json
+                                                             # 补经审计的按名优先字段，保留原名与编号
 python tools/duty-data-generator/test_generate.py            # 离线单元测试，不联网
 ```
 
@@ -21,6 +23,7 @@ python tools/duty-data-generator/test_generate.py            # 离线单元测�
 | `--dry-run` | 关 | 抓取并打印统计，**不写任何文件**：不写输出、不保存原始下载、不创建临时目录 |
 | `--game-version <key>` | XIVAPI 当前版本 | 将每一页请求固定到该游戏版本，即 `provenance.xivapi_game_version` 记录的键。无论是否指定，`ContentFinderCondition` 的每一页都必须报告同一个游戏版本：某页未报告版本、与指定的版本不同或与第 1 页不同时，生成器报错退出（退出码 1），不写任何文件 |
 | `--add-party-size <file>…` | — | 不生成新版本，只为这些已有文件逐行补写 `party_size`（置于 `level` 之后），行顺序与其余字段逐字不变；按各文件记录的 `xivapi_game_version` 抓取，来源记入 `provenance.party_size`。任一步骤失败均不写文件 |
+| `--add-name-preferences <file>…` | — | 按文件原有游戏版本复核显式规则，只为经审计的编号补 `preferred_for_name_matching: true`，来源记入 `provenance.name_matching`；不抓取当前中文名称，不改旧来源、字段或顺序。拒绝覆盖游戏版本；校验失败不写任何文件。与其他生成／补写模式分开运行 |
 
 一次运行**同时**写出 `global.<version>.json` 与 `cn.<version>.json`。
 两者共用同一次 XIVAPI 抓取，仅名称所用的列不同。
@@ -33,11 +36,18 @@ python tools/duty-data-generator/test_generate.py            # 离线单元测�
 | 简体中文名 | `https://raw.githubusercontent.com/thewakingsands/ffxiv-datamining-cn/master/ContentFinderCondition.csv` | 1 |
 
 XIVAPI 侧只请求这些字段：
-`Name,ClassJobLevelRequired,ContentType.Name,TerritoryType.ExVersion.Name,ContentMemberType.MembersPerParty,ContentMemberType.PartyCount`。
+`Name,ClassJobLevelRequired,ContentType.Name,TerritoryType.ExVersion.Name,ContentMemberType.MembersPerParty,ContentMemberType.PartyCount,HighEndDuty,MentorRoulette,TerritoryType.ContentFinderCondition.Name`。
 `territory_id` 取自 `TerritoryType` 链接自身的 row id。
 `expansion` 取自其下一层的 `ExVersion.Name`，取不到时写 `UNKNOWN`。
 `party_size` 为 `MembersPerParty × PartyCount`，取值如 4 / 8 / 24；两者缺一或非正整数时写 `null`。
 `大型任务` 中 8 人副本与 24 人团队副本共用一个 `ContentType`，由该字段区分。
+
+`preferred_for_name_matching` 是显式审计后的按名解析偏好，由本工具唯一维护。
+当前仅有 `{944: 69}`：两者英文名忽略大小写相同，均为 `Trials`、90 级、8 人且
+`HighEndDuty=false`；69 的 `MentorRoulette=false`，944 为 `true`，两者领地均回指 944。
+上述事实任一变化即拒绝生成优先项，要求重新核对。完整生成和补写模式采用同一校验；
+补写另检查旧文件中的两个启用条目仍同名。只为 944 增加 `true`，保留 69 的真实身份。
+这些资格字段仅用于验证这条规则，不对其他同名副本自动套用；不能把领地回指理解为身份合并。
 
 两个来源按 `ContentFinderCondition` 的**行号**（`content_id`）关联。
 TLS 最低版本为 1.2，证书校验开启。两项均定义在 `http_get()` 中，任何降级都会是一次可见的改动。

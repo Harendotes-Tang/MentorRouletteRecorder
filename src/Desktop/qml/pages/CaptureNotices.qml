@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls 6.8
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // The blocks between the hero card and 解析. Each one appears only while it has
 // something to say; with none of them visible the block takes no room.
@@ -19,14 +21,14 @@ ColumnLayout {
     // The hero card is saying the calibration sentence, so the row need not.
     property bool heroSpeaksCalibration: false
 
-    readonly property var capture: App.captureStatus
-    readonly property var profile: App.protocolProfile
+    readonly property var capture: Runtime.app.captureStatus
+    readonly property var profile: Runtime.app.protocolProfile
     readonly property string profileStatus: String(notices.capture.profile_status || "")
     readonly property string profileOrigin: String(notices.capture.profile_origin || "")
 
     // 本机校准的卡片只在校准还在进行时出现（契约状态不是 IDLE）。
-    readonly property var sharedCalibration: App.calibration ? App.calibration.shared : null
-    readonly property bool calibrationCardVisible: !!App.calibration && App.calibration.state !== "IDLE"
+    readonly property var sharedCalibration: Runtime.app.calibration ? Runtime.app.calibration.shared : null
+    readonly property bool calibrationCardVisible: !!Runtime.app.calibration && Runtime.app.calibration.state !== "IDLE"
     // 校准卡片可见时由其提供「分享给其他玩家」（或「这份校准好用，告诉其他玩家」，见 shareKind），
     // 协议档案卡片让位，避免同屏出现两个相同按钮；校准卡片消失后，分享入口由协议档案卡片承担。
     readonly property bool offersShare: !!notices.sharedCalibration && notices.sharedCalibration.canShare
@@ -38,10 +40,10 @@ ColumnLayout {
     // launcher may patch over it before the next login.
     readonly property bool buildUnknown: !notices.capture.game_build || !notices.capture.region
                                          || notices.capture.region === "UNKNOWN"
-    readonly property bool offersRegionSetting: App.ffxivRunning
+    readonly property bool offersRegionSetting: Runtime.app.ffxivRunning
         && (!notices.capture.region || notices.capture.region === "UNKNOWN")
         && notices.capture.install_path_readable !== false
-        && !App.gameSelection.selectionRequired
+        && !Runtime.app.gameSelection.selectionRequired
     // 本机校准出来的档案生效后，校准卡片连同「清空校准进度」「导入校准码」一起消失，
     // 玩家再无入口可用。「重新校准」只在这种情况下出现：别人分享的校准由「不用共享的，
     // 我自己校准」停用，随包档案不是本机的猜测，没有档案时也无从停用。
@@ -49,19 +51,19 @@ ColumnLayout {
                                               && notices.profileOrigin === "LOCAL_CALIBRATION"
     // 「重新校准」的退路：上次停用的那份本机校准还在磁盘上。采集服务只在没有本机档案
     // 生效时报 true，因此这两个按钮天然互斥，这里再显式排除一次。
-    readonly property bool offersRestore: !!App.calibration && App.calibration.retiredLocalProfileAvailable
+    readonly property bool offersRestore: !!Runtime.app.calibration && Runtime.app.calibration.retiredLocalProfileAvailable
                                           && !notices.offersRecalibrate
     // 恢复时采集服务用同一个拒绝码回答两种情况：真没换回来，或者文件已经放回、只是这一版
     // 另有排在它前面的档案在用。回答之后状态会重读：退路还在，说明没有放回，按错误显示；
     // 退路没了，说明文件已经放回，这句话是说明，不是错误（审查 CS8-D1）。
-    readonly property string restoreAnswer: App.calibration ? App.calibration.restoreAnswer : ""
+    readonly property string restoreAnswer: Runtime.app.calibration ? Runtime.app.calibration.restoreAnswer : ""
     readonly property bool restoreNoticeVisible: notices.restoreAnswer.length > 0 && !notices.offersRestore
-    readonly property string calibrationError: !App.calibration ? ""
-        : App.calibration.error.length > 0 ? App.calibration.error
+    readonly property string calibrationError: !Runtime.app.calibration ? ""
+        : Runtime.app.calibration.error.length > 0 ? Runtime.app.calibration.error
         : notices.offersRestore ? notices.restoreAnswer : ""
     // 停用档案会把正在进行的记录按停止捕获收尾，等于让玩家白打这一把。
-    readonly property bool runInFlight: App.currentRunState === "MENTOR_MATCHED"
-                                        || App.currentRunState === "ENTERED_DUTY"
+    readonly property bool runInFlight: Runtime.app.currentRunState === "MENTOR_MATCHED"
+                                        || Runtime.app.currentRunState === "ENTERED_DUTY"
     // 对话框可能在排队时打开、副本恰在此时开始：确认按钮随之停用，对话框也关掉（审查 K2-2）。
     onRunInFlightChanged: {
         if (notices.runInFlight) {
@@ -73,7 +75,7 @@ ColumnLayout {
     // recorded. While calibration runs its own card explains that instead, and
     // with the game closed the hero already says it once - a second card there
     // would only nag about something the player cannot act on yet.
-    readonly property bool profileProblem: App.ffxivRunning && notices.profileStatus.length > 0
+    readonly property bool profileProblem: Runtime.app.ffxivRunning && notices.profileStatus.length > 0
                                            && notices.profileStatus !== "VERIFIED"
                                            && !notices.calibrationCardVisible
     // 停用本机校准之后校准卡片会重新出现，于是 profileProblem 为假；若不把退路算进来，
@@ -89,17 +91,17 @@ ColumnLayout {
     readonly property var recommendedAdapter: notices.findAdapter("recommended")
     readonly property bool staleVisible: !!notices.staleAdapter && !!notices.recommendedAdapter
 
-    readonly property bool followOn: !App.captureSettingsLoaded || !!App.captureSettings.follow_game
-    readonly property bool readinessVisible: App.maintainerToolsVisible && !App.capturing
+    readonly property bool followOn: !Runtime.app.captureSettingsLoaded || !!Runtime.app.captureSettings.follow_game
+    readonly property bool readinessVisible: Runtime.app.maintainerToolsVisible && !Runtime.app.capturing
 
     visible: notices.calibrationCardVisible || notices.profileCardVisible
              || notices.staleVisible || notices.readinessVisible
     spacing: 12
 
     function findAdapter(flag) {
-        for (let index = 0; index < App.captureAdapters.length; ++index) {
-            if (App.captureAdapters[index][flag])
-                return App.captureAdapters[index]
+        for (let index = 0; index < Runtime.app.captureAdapters.length; ++index) {
+            if (Runtime.app.captureAdapters[index][flag])
+                return Runtime.app.captureAdapters[index]
         }
         return null
     }
@@ -107,15 +109,15 @@ ColumnLayout {
     /// A name a player can recognise. The opaque adapter_id is the last resort.
     function adapterName(row) {
         if (!row)
-            return Fmt.dash()
-        return row.friendly_name || row.description || row.adapter_id || Fmt.dash()
+            return Runtime.fmt.dash()
+        return row.friendly_name || row.description || row.adapter_id || Runtime.fmt.dash()
     }
 
     // Players never read a profile id or a status token here
     // (SharedCalibrationCardTests.verifyPlayerCopy).
     function profileHeadline() {
         const status = notices.profileStatus
-        if (App.maintainerToolsVisible && status === "VERIFIED")
+        if (Runtime.app.maintainerToolsVisible && status === "VERIFIED")
             return qsTr("已就绪：%1").arg(notices.profile.profile_id || notices.capture.profile_id
                                           || qsTr("已验证档案"))
         if (notices.profileOrigin === "LOCAL_CALIBRATION" && status === "VERIFIED")
@@ -123,14 +125,14 @@ ColumnLayout {
         if (notices.profileOrigin === "SHARED_CALIBRATION" && status === "VERIFIED")
             return qsTr("正在使用其他玩家分享的校准")
         if (status === "VERIFIED")
-            return App.ffxivRunning ? qsTr("已支持当前游戏版本")
+            return Runtime.app.ffxivRunning ? qsTr("已支持当前游戏版本")
                                     : qsTr("已支持安装在这台电脑上的游戏版本")
         if (notices.offersRegionSetting)
             return qsTr("尚未识别游戏区服")
         if (notices.buildUnknown)
             return qsTr("尚未识别游戏版本或区服")
         if (status === "UNSUPPORTED_BUILD")
-            return App.ffxivRunning ? qsTr("当前游戏版本暂不支持自动记录")
+            return Runtime.app.ffxivRunning ? qsTr("当前游戏版本暂不支持自动记录")
                                     : qsTr("已安装的游戏版本暂不支持自动记录")
         if (status === "AMBIGUOUS")
             return qsTr("游戏版本支持文件有冲突，暂时不能自动记录")
@@ -152,8 +154,8 @@ ColumnLayout {
             return qsTr("无法从安装路径判断区服。请在「设置 → 通用」中选择实际使用的国服或国际服，保存后会重新检查。")
         // message_ref renders the Collector's sentence in the interface language.
         const detail = notices.profile.message
-            ? " " + Fmt.collectorText(notices.profile.message_ref, notices.profile.message) : ""
-        const stale = App.protocolProfileStale ? qsTr("（以下是上次检查的结果）") : ""
+            ? " " + Runtime.fmt.collectorText(notices.profile.message_ref, notices.profile.message) : ""
+        const stale = Runtime.app.protocolProfileStale ? qsTr("（以下是上次检查的结果）") : ""
         if (notices.buildUnknown)
             return qsTr("还没确认当前游戏版本能否自动记录，请先手动记录。") + stale + detail
         return qsTr("暂时不能自动记录，请先手动记录。") + stale + detail
@@ -201,7 +203,7 @@ ColumnLayout {
 
                 Text {
                     Layout.fillWidth: true
-                    visible: !App.captureSettingsSupported
+                    visible: !Runtime.app.captureSettingsSupported
                     text: qsTr("当前后台服务版本无法保存网卡选择，请更新软件后重试。")
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fs(11)
@@ -213,13 +215,13 @@ ColumnLayout {
                 objectName: "useRecommendedAdapterButton"
                 text: qsTr("使用推荐网卡")
                 variant: "primary"
-                enabled: App.captureSettingsSupported && App.captureSettingsLoaded
+                enabled: Runtime.app.captureSettingsSupported && Runtime.app.captureSettingsLoaded
                 onClicked: {
                     const recommended = notices.recommendedAdapter
                     if (!recommended)
                         return
-                    App.updateCaptureSetting("adapter_id", recommended.adapter_id)
-                    App.captureAdapterId = recommended.adapter_id
+                    Runtime.app.updateCaptureSetting("adapter_id", recommended.adapter_id)
+                    Runtime.app.captureAdapterId = recommended.adapter_id
                 }
             }
         }
@@ -259,8 +261,8 @@ ColumnLayout {
                 compact: true
                 variant: "primary"
                 text: qsTr("开启自动跟随")
-                enabled: App.captureSettingsSupported && App.captureSettingsLoaded
-                onClicked: App.updateCaptureSetting("follow_game", true)
+                enabled: Runtime.app.captureSettingsSupported && Runtime.app.captureSettingsLoaded
+                onClicked: Runtime.app.updateCaptureSetting("follow_game", true)
             }
         }
     }
@@ -400,7 +402,7 @@ ColumnLayout {
                     visible: notices.offersRestore
                     text: qsTr("恢复上一份本机校准")
                     enabled: !notices.runInFlight
-                             && (!App.calibration || !App.calibration.busy)
+                             && (!Runtime.app.calibration || !Runtime.app.calibration.busy)
                     onClicked: restoreDialog.open()
                 }
 
@@ -409,7 +411,7 @@ ColumnLayout {
                     visible: notices.offersRecalibrate
                     text: qsTr("重新校准")
                     enabled: !notices.runInFlight
-                             && (!App.calibration || !App.calibration.busy)
+                             && (!Runtime.app.calibration || !Runtime.app.calibration.busy)
                     onClicked: recalibrateDialog.open()
                 }
             }
@@ -417,58 +419,60 @@ ColumnLayout {
     }
 
     // 停用一份还在记录的档案，先把代价说清楚再问一次。
-    Dialog {
-        id: recalibrateDialog
-        objectName: "protocolRecalibrateDialog"
-        parent: Overlay.overlay
-        anchors.centerIn: parent
-        modal: true
-        Overlay.modal: Rectangle { color: Theme.modalScrim(recalibrateDialog.palette.shadow) }
-        width: 460
-        padding: 20
-        closePolicy: Popup.CloseOnEscape
+    QtObject {
+        readonly property Dialog recalibrationPrompt: Dialog {
+            id: recalibrateDialog
+            objectName: "protocolRecalibrateDialog"
+            parent: Overlay.overlay
+            anchors.centerIn: parent
+            modal: true
+            Overlay.modal: Rectangle { color: Theme.modalScrim(recalibrateDialog.palette.shadow) }
+            width: 460
+            padding: 20
+            closePolicy: Popup.CloseOnEscape
 
-        background: DialogFrame {}
+            background: DialogFrame {}
 
-        contentItem: ColumnLayout {
-            spacing: 12
+            contentItem: ColumnLayout {
+                spacing: 12
 
-            HeadingLabel {
-                Layout.fillWidth: true
-                text: qsTr("重新校准这一版游戏？")
-                font.pixelSize: Theme.dialogTitleSize(20)
-            }
-
-            Text {
-                Layout.fillWidth: true
-                text: qsTr("将停止使用当前的本机校准，并重新开始校准。旧校准会保留，之后可以恢复。"
-                           + "重新校准完成前暂时不能自动记录；也可以导入校准码，通过检查后使用。"
-                           + "已保存的记录不受影响。")
-                textFormat: Text.PlainText
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fs(12)
-                wrapMode: Text.WordWrap
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 8
-
-                Item { Layout.fillWidth: true }
-
-                AppButton {
-                    text: qsTr("取消")
-                    onClicked: recalibrateDialog.close()
+                HeadingLabel {
+                    Layout.fillWidth: true
+                    text: qsTr("重新校准这一版游戏？")
+                    font.pixelSize: Theme.dialogTitleSize(20)
                 }
 
-                AppButton {
-                    objectName: "protocolRecalibrateConfirm"
-                    variant: "primary"
-                    text: qsTr("停用并重新校准")
-                    enabled: !notices.runInFlight && !!App.calibration && !App.calibration.busy
-                    onClicked: {
-                        App.calibration.recalibrate()
-                        recalibrateDialog.close()
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("将停止使用当前的本机校准，并重新开始校准。旧校准会保留，之后可以恢复。"
+                               + "重新校准完成前暂时不能自动记录；也可以导入校准码，通过检查后使用。"
+                               + "已保存的记录不受影响。")
+                    textFormat: Text.PlainText
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fs(12)
+                    wrapMode: Text.WordWrap
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    Item { Layout.fillWidth: true }
+
+                    AppButton {
+                        text: qsTr("取消")
+                        onClicked: recalibrateDialog.close()
+                    }
+
+                    AppButton {
+                        objectName: "protocolRecalibrateConfirm"
+                        variant: "primary"
+                        text: qsTr("停用并重新校准")
+                        enabled: !notices.runInFlight && !!Runtime.app.calibration && !Runtime.app.calibration.busy
+                        onClicked: {
+                            Runtime.app.calibration.recalibrate()
+                            recalibrateDialog.close()
+                        }
                     }
                 }
             }
@@ -476,60 +480,62 @@ ColumnLayout {
     }
 
     // 换回上次停用的那一份，同样先说清楚会发生什么。
-    Dialog {
-        id: restoreDialog
-        objectName: "protocolRestoreDialog"
-        parent: Overlay.overlay
-        anchors.centerIn: parent
-        modal: true
-        Overlay.modal: Rectangle { color: Theme.modalScrim(restoreDialog.palette.shadow) }
-        width: 460
-        padding: 20
-        closePolicy: Popup.CloseOnEscape
+    QtObject {
+        readonly property Dialog restorePrompt: Dialog {
+            id: restoreDialog
+            objectName: "protocolRestoreDialog"
+            parent: Overlay.overlay
+            anchors.centerIn: parent
+            modal: true
+            Overlay.modal: Rectangle { color: Theme.modalScrim(restoreDialog.palette.shadow) }
+            width: 460
+            padding: 20
+            closePolicy: Popup.CloseOnEscape
 
-        background: DialogFrame {}
+            background: DialogFrame {}
 
-        contentItem: ColumnLayout {
-            spacing: 12
+            contentItem: ColumnLayout {
+                spacing: 12
 
-            HeadingLabel {
-                Layout.fillWidth: true
-                text: qsTr("恢复上一份本机校准？")
-                font.pixelSize: Theme.dialogTitleSize(20)
-            }
-
-            // 两种结果都要说到：放回的那份可能立刻用上，也可能因为现在用的档案比它优先而
-            // 留作备用（审查 CS8-D1）。
-            Text {
-                Layout.fillWidth: true
-                text: qsTr("将恢复你上次停用的本机校准。如果可以使用，软件会用它替换当前的校准来记录。"
-                           + "如果当前使用的校准优先级更高（例如软件自带的版本），则继续使用当前校准，"
-                           + "恢复的这份留作备用。已保存的记录不受影响。")
-                textFormat: Text.PlainText
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fs(12)
-                wrapMode: Text.WordWrap
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 8
-
-                Item { Layout.fillWidth: true }
-
-                AppButton {
-                    text: qsTr("取消")
-                    onClicked: restoreDialog.close()
+                HeadingLabel {
+                    Layout.fillWidth: true
+                    text: qsTr("恢复上一份本机校准？")
+                    font.pixelSize: Theme.dialogTitleSize(20)
                 }
 
-                AppButton {
-                    objectName: "protocolRestoreConfirm"
-                    variant: "primary"
-                    text: qsTr("恢复")
-                    enabled: !notices.runInFlight && !!App.calibration && !App.calibration.busy
-                    onClicked: {
-                        App.calibration.restoreLocalProfile()
-                        restoreDialog.close()
+                // 两种结果都要说到：放回的那份可能立刻用上，也可能因为现在用的档案比它优先而
+                // 留作备用（审查 CS8-D1）。
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("将恢复你上次停用的本机校准。如果可以使用，软件会用它替换当前的校准来记录。"
+                               + "如果当前使用的校准优先级更高（例如软件自带的版本），则继续使用当前校准，"
+                               + "恢复的这份留作备用。已保存的记录不受影响。")
+                    textFormat: Text.PlainText
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fs(12)
+                    wrapMode: Text.WordWrap
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    Item { Layout.fillWidth: true }
+
+                    AppButton {
+                        text: qsTr("取消")
+                        onClicked: restoreDialog.close()
+                    }
+
+                    AppButton {
+                        objectName: "protocolRestoreConfirm"
+                        variant: "primary"
+                        text: qsTr("恢复")
+                        enabled: !notices.runInFlight && !!Runtime.app.calibration && !Runtime.app.calibration.busy
+                        onClicked: {
+                            Runtime.app.calibration.restoreLocalProfile()
+                            restoreDialog.close()
+                        }
                     }
                 }
             }

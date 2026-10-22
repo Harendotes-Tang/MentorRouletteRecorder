@@ -1,5 +1,5 @@
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // `.plus`: "+1" after a completion, popping in beside the figure it raised.
 Rectangle {

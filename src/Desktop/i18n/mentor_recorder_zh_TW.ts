@@ -6687,6 +6687,42 @@ SHA256：%3</translation>
         <source>拖动或滚动查看截图，关闭后继续核对当前记录。</source>
         <translation>拖曳或捲動以檢視截圖，關閉後繼續核對目前的記錄。</translation>
     </message>
+    <message>
+        <source>未知</source>
+        <translation>未知</translation>
+    </message>
+    <message>
+        <source>正常</source>
+        <translation>正常</translation>
+    </message>
+    <message>
+        <source>中途</source>
+        <translation>中途</translation>
+    </message>
+    <message>
+        <source>进入方式</source>
+        <translation>進入方式</translation>
+    </message>
+    <message>
+        <source>未提供进入方式时保留未知，不会自动当作正常进入。</source>
+        <translation>未提供進入方式時保留未知，不會自動當作正常進入。</translation>
+    </message>
+    <message>
+        <source>进入方式列名</source>
+        <translation>進入方式欄名</translation>
+    </message>
+    <message>
+        <source>原表进入方式列名</source>
+        <translation>原表進入方式欄名</translation>
+    </message>
+    <message>
+        <source>进入方式可填“正常”或“中途”，留空为未知。</source>
+        <translation>進入方式可填「正常」或「中途」，留空為未知。</translation>
+    </message>
+    <message>
+        <source>该名称对应多个副本，请按编号选择；暂时无法确认时可保留未知。</source>
+        <translation>此名稱對應多個副本，請按編號選擇；暫時無法確認時可保留未知。</translation>
+    </message>
 </context>
 <context>
     <name>JobsPage</name>
@@ -7319,6 +7355,14 @@ SHA256：%3</translation>
         <translation>均 %1</translation>
     </message>
     <message>
+        <source>同类均 %1</source>
+        <translation>同類均 %1</translation>
+    </message>
+    <message>
+        <source>已进行 %1 · 同类副本平均 %2</source>
+        <translation>已進行 %1 · 同類副本平均 %2</translation>
+    </message>
+    <message>
         <source>匹配后已过 %1</source>
         <translation>配對後已過 %1</translation>
     </message>
@@ -7413,6 +7457,10 @@ SHA256：%3</translation>
         <source>暂无统计</source>
         <translation>暫無統計</translation>
     </message>
+    <message>
+        <source>后台服务未连接</source>
+        <translation>後台服務未連線</translation>
+    </message>
 </context>
 <context>
     <name>OverlayElapsedModule</name>
@@ -7450,8 +7498,8 @@ SHA256：%3</translation>
 <context>
     <name>OverlayPeriodSelector</name>
     <message>
-        <source>排本次数时间范围</source>
-        <translation>排本次數時間範圍</translation>
+        <source>统计时间范围</source>
+        <translation>統計時間範圍</translation>
     </message>
 </context>
 <context>
@@ -7474,6 +7522,14 @@ SHA256：%3</translation>
     <message>
         <source>暂无统计</source>
         <translation>暫無統計</translation>
+    </message>
+    <message>
+        <source>后台服务未连接</source>
+        <translation>後台服務未連線</translation>
+    </message>
+    <message>
+        <source>读取中…</source>
+        <translation>讀取中…</translation>
     </message>
 </context>
 <context>
@@ -9561,6 +9617,10 @@ SHA256：%3</translation>
     <message>
         <source>未记录</source>
         <translation>未記錄</translation>
+    </message>
+    <message>
+        <source>编号 %1</source>
+        <translation>編號 %1</translation>
     </message>
 </context>
 <context>

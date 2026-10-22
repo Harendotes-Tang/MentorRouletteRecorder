@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QSet>
+
 // ---------------------------------------------------------------------------
 // Display-only duty reference data.
 //
@@ -43,13 +45,20 @@ public:
 
     /// The catalogue row for \a contentId, or an empty map. Keys:
     /// content_id, territory_id, duty_name, duty_category, duty_level,
-    /// duty_expansion, party_size, difficulty, version.
+    /// duty_expansion, party_size, difficulty, version, name_ambiguous and
+    /// preferred_for_name_matching (both selection metadata, never stored names).
     ///
     /// party_size is the wizard's 人数 group (4 / 8 / 24, 0 = 其他), difficulty
     /// is 普通 / 极 / 零式 and version the "2.x" .. "7.x" label (empty when the
     /// expansion is unknown). See partySizeGroup(), difficultyForName() and
     /// versionForExpansion().
     Q_INVOKABLE QVariantMap lookup(const QVariant &contentId) const;
+
+    /// Exact CN name resolution: one identity, or one explicitly preferred
+    /// identity among same-name rows. Other ambiguous names remain unresolved.
+    /// GLOBAL cannot be inferred from this CN-only catalogue.
+    Q_INVOKABLE QVariantMap findByName(const QString &name,
+                                      const QString &region = QString()) const;
 
     /// What the catalogue can say about a duty known only by its zone: the
     /// fields on which every row with that territory_id agrees. A run recorded
@@ -77,10 +86,14 @@ public:
     /// "2.x" for A Realm Reborn up to "7.x" for Dawntrail; empty otherwise.
     static QString versionForExpansion(const QString &expansion);
 
-    /// \a run with duty_level / duty_expansion (and duty_category / duty_name
-    /// when the run has none) filled in from the catalogue. Fields the run
-    /// already carries always win: the Collector's own value is the record,
-    /// this is only a fallback for what the contract cannot transport.
+    /// 显示用分类：目录确认的标准 24 人大型任务显示为团队任务，其他显式
+    /// 分类保留。只接受已知编号或唯一区域；本地目录不能替其他区服作判断。
+    /// 此函数不修改记录，空身份或无法确认的类别保持原值。默认只投影团队
+    /// 分类；fillMissingFromCatalog 供 enrich 补齐旧界面的目录展示，不用于筛选。
+    QString displayedCategory(const QVariantMap &run, bool fillMissingFromCatalog = false) const;
+
+    /// 补充显示用等级、资料片、名称与分类。标准24人本的旧分类只在返回的
+    /// 副本中派生为团队任务，原始记录和其他人工分类不会被改写。
     QVariantMap enrich(const QVariantMap &run) const;
 
     /// Every row, sorted by expansion then level then name. Used by the
@@ -91,7 +104,9 @@ private:
     void load();
 
     QHash<qint64, QVariantMap> m_byContentId;
+    QHash<QString, QList<QVariantMap>> m_byName;
     QHash<qint64, QList<QVariantMap>> m_byTerritoryId;
+    QSet<qint64> m_allianceRaidIds;
     QVariantList m_ordered;
     QString m_dataVersion;
 };

@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
+import "Lucide.js" as Lucide
 
 // 累计进度: the count toward the goal as one large figure over a bar with
 // quarter ticks; a "+N" pill appears for a moment after each new completion.
@@ -16,17 +17,17 @@ ColumnLayout {
         Layout.fillWidth: true
         spacing: 6
 
-        OverlayIcon { name: "progress"; color: Theme.textSecondary; Layout.alignment: Qt.AlignVCenter }
+        OverlayIcon { source: Lucide.source("target", color); color: Theme.textSecondary; Layout.alignment: Qt.AlignVCenter }
 
         Text {
             objectName: "floatingAchievementProgress"
-            text: root.ov.progressKnown ? String(root.ov.progress) : Fmt.dash()
+            text: root.ov.progressKnown ? String(root.ov.progress) : Runtime.fmt.dash()
             color: root.ov.figure
             font.family: Theme.numFamily
             font.pixelSize: Theme.fs(26)
             font.weight: Theme.eorzea ? Font.Bold : Font.DemiBold
             font.features: ({ "tnum": 1 })
-            Layout.alignment: Qt.AlignBottom
+            Layout.alignment: Qt.AlignVCenter
         }
         Text {
             text: "/" + root.ov.goal
@@ -34,19 +35,18 @@ ColumnLayout {
             font.pixelSize: Theme.fs(12)
             font.family: Theme.figureFamily
             font.features: ({ "tnum": 1 })
-            Layout.alignment: Qt.AlignBottom
-            Layout.bottomMargin: 3
+            Layout.alignment: Qt.AlignVCenter
         }
         OverlayPlusPill { visible: root.ov.plus > 0; count: root.ov.plus; tone: root.ov.ok; Layout.alignment: Qt.AlignVCenter }
         Item { Layout.fillWidth: true }
         Text {
-            text: root.ov.progressKnown ? Fmt.percent(root.ov.progressRatio, 1) : ""
+            text: root.ov.progressKnown ? Runtime.fmt.percent(root.ov.progressRatio, 1) : ""
             color: root.ov.accent
             font.pixelSize: Theme.fs(13)
             font.weight: Font.Bold
             font.family: Theme.figureFamily
             font.features: ({ "tnum": 1 })
-            Layout.alignment: Qt.AlignBottom
+            Layout.alignment: Qt.AlignVCenter
         }
     }
 

@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls 6.8
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 共享校准：the narrow panel of the calibration row.
 //
@@ -12,7 +14,7 @@ import MentorRecorder
 Card {
     id: section
 
-    readonly property var shared: App.calibration ? App.calibration.shared : null
+    readonly property var shared: Runtime.app.calibration ? Runtime.app.calibration.shared : null
     readonly property string view: section.shared ? section.shared.view : "none"
     // 已绑定并在记录，但排本与进本仍在核对（plan §18.4）。
     readonly property bool auditPending: !!section.shared && section.shared.auditPending
@@ -26,8 +28,8 @@ Card {
     // 停用正在记录的共享校准会把进行中的记录按停止捕获收尾，等于让玩家白打这一把；
     // 这时「改为本机校准」等副本结束再给，已打开的对话框随之关掉（审查 K2-2）。共享校准
     // 还没用来记录时（核对中、待同意），放弃它不动正在记录的档案，照常可点。
-    readonly property bool runInFlight: App.currentRunState === "MENTOR_MATCHED"
-                                        || App.currentRunState === "ENTERED_DUTY"
+    readonly property bool runInFlight: Runtime.app.currentRunState === "MENTOR_MATCHED"
+                                        || Runtime.app.currentRunState === "ENTERED_DUTY"
     readonly property bool rejectStopsRun: section.runInFlight && !!section.shared && section.shared.inUse
     onRejectStopsRunChanged: {
         if (section.rejectStopsRun)

@@ -60,6 +60,19 @@ python tools/duty-data-generator/test_generate.py          # 离线单元测试�
 python tools/duty-data-generator/generate.py --add-party-size data/duties/cn.2026-09-04.json data/duties/global.2026-09-04.json
 ```
 
+补充经审计的同名按名解析偏好（保留原编号、名称、历史与旧来源）：
+
+```bash
+python tools/duty-data-generator/generate.py --add-name-preferences data/duties/cn.2026-09-04.json data/duties/global.2026-09-04.json
+```
+
+`preferred_for_name_matching` 为可选布尔字段，仅影响无明确编号的同名解析；缺失表示无偏好。
+明确编号查找和完整候选列表仍保留全部条目，已有历史不会被重写。
+目前只有 944 声明 `true`：与 69 同名且都非高难度，但仅 944 具有导随资格。
+生成器按原游戏版本复核同名、分类、等级、人数、资格及领地回指事实，校验后记录
+`provenance.name_matching`（抓取字段、时间、固定版本、逐页 URL、摘要和显式规则）。
+资格或领地回指不是通用消歧规则；未经审计的其他同名副本仍不能自动选取编号。
+
 生成器仅执行两项操作：从 XIVAPI v2 分页读取 `ContentFinderCondition`（英文名、
 `TerritoryType`、`ContentType`、等级需求、`ContentMemberType` 人数）；从 ffxiv-datamining-cn 的 CSV 读取中文名。
 两者按 `ContentFinderCondition` 的行号关联。**原始下载不纳入仓库**，仅将其 SHA-256

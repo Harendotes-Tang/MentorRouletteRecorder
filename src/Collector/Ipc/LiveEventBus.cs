@@ -147,7 +147,7 @@ public sealed class LiveEventBus
     public void PublishRun(LiveEventKind kind, MentorRun run)
     {
         ArgumentNullException.ThrowIfNull(run);
-        Publish(kind, payload => payload["run"] = Wire.Run(run));
+        Publish(kind, payload => payload["run"] = Wire.DisplayRun(run));
     }
 
     /// <summary>Publishes the terminal state of a run that has just finished.</summary>
@@ -158,7 +158,7 @@ public sealed class LiveEventBus
         ArgumentNullException.ThrowIfNull(run);
         Publish(LiveEventKind.RunFinished, payload =>
         {
-            payload["run"] = Wire.Run(run);
+            payload["run"] = Wire.DisplayRun(run);
             payload["state"] = EnumWire<RunState>.Format(terminalState);
         });
     }
@@ -196,7 +196,7 @@ public sealed class LiveEventBus
             }
             if (run is not null)
             {
-                payload["run"] = Wire.Run(run);
+                payload["run"] = Wire.DisplayRun(run);
             }
         });
 

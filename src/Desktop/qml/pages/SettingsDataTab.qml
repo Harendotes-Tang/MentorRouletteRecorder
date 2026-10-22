@@ -1,7 +1,6 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 设置 · 数据: 数据库位置、自动备份、诊断日志保留天数、立即备份与完整性校验。
 // The desktop never opens the database; every action here is a Collector
@@ -12,12 +11,12 @@ ColumnLayout {
     Layout.fillWidth: true
     spacing: 16
 
-    readonly property var integrity: App.integrityCheckResult || ({})
+    readonly property var integrity: Runtime.app.integrityCheckResult || ({})
     signal openImportRequested()
-    Component.onCompleted: App.refreshHistoryRetentionSettings()
+    Component.onCompleted: Runtime.app.refreshHistoryRetentionSettings()
 
     function captureSettingDescription(text) {
-        if (!App.captureSettingsSupported)
+        if (!Runtime.app.captureSettingsSupported)
             return qsTr("当前后台服务不支持这项设置，暂时无法修改。")
         return text
     }
@@ -56,12 +55,12 @@ ColumnLayout {
                     readOnly: true
                     font.family: Theme.monoFamily
                     font.pixelSize: Theme.fs(12)
-                    text: App.collectorStatus.database_path
+                    text: Runtime.app.collectorStatus.database_path
                           || "%LOCALAPPDATA%\\MentorRecorder\\mentor_recorder.db"
                 }
                 AppButton {
                     text: qsTr("打开目录")
-                    onClicked: App.openDatabaseFolder()
+                    onClicked: Runtime.app.openDatabaseFolder()
                 }
             }
 
@@ -77,8 +76,8 @@ ColumnLayout {
         SettingToggleRow {
             label: qsTr("自动备份")
             description: qsTr("软件运行且未在导随中时，每天备份一次，保留最近 14 份")
-            checked: Settings.autoBackup
-            onToggled: function(value) { Settings.autoBackup = value }
+            checked: Runtime.settings.autoBackup
+            onToggled: function(value) { Runtime.settings.autoBackup = value }
         }
 
         // The Collector owns the log files, so it owns the retention: the
@@ -88,24 +87,24 @@ ColumnLayout {
             showDivider: false
             label: qsTr("诊断日志保留天数")
             description: tab.captureSettingDescription(
-                App.captureSettingsLoaded
+                Runtime.app.captureSettingsLoaded
                 ? qsTr("可设为 1–90 天，当前保留 %1 天")
-                  .arg(App.captureSettings.log_retention_days !== undefined
-                       ? App.captureSettings.log_retention_days : Fmt.dash())
+                  .arg(Runtime.app.captureSettings.log_retention_days !== undefined
+                       ? Runtime.app.captureSettings.log_retention_days : Runtime.fmt.dash())
                 : qsTr("可设为 1–90 天，正在读取当前设置…"))
 
             StyledTextField {
                 objectName: "logRetentionField"
                 Layout.preferredWidth: 90
-                enabled: App.captureSettingsSupported && App.captureSettingsLoaded
-                text: App.captureSettings.log_retention_days !== undefined
-                      ? String(App.captureSettings.log_retention_days) : ""
+                enabled: Runtime.app.captureSettingsSupported && Runtime.app.captureSettingsLoaded
+                text: Runtime.app.captureSettings.log_retention_days !== undefined
+                      ? String(Runtime.app.captureSettings.log_retention_days) : ""
                 inputMethodHints: Qt.ImhDigitsOnly
                 validator: IntValidator { bottom: 1; top: 90 }
                 onEditingFinished: {
                     const days = Number(text)
                     if (Number.isFinite(days) && days >= 1 && days <= 90)
-                        App.updateCaptureSetting("log_retention_days", days)
+                        Runtime.app.updateCaptureSetting("log_retention_days", days)
                 }
             }
         }
@@ -124,7 +123,7 @@ ColumnLayout {
             AppButton {
                 objectName: "backupNowButton"
                 text: qsTr("立即备份")
-                onClicked: App.backupDatabase()
+                onClicked: Runtime.app.backupDatabase()
             }
             AppButton {
                 objectName: "importRecordsButton"
@@ -134,9 +133,9 @@ ColumnLayout {
             }
             AppButton {
                 objectName: "integrityCheckButton"
-                text: App.integrityCheckRunning ? qsTr("正在检查…") : qsTr("检查数据")
-                enabled: !App.integrityCheckRunning
-                onClicked: App.checkDatabaseIntegrity()
+                text: Runtime.app.integrityCheckRunning ? qsTr("正在检查…") : qsTr("检查数据")
+                enabled: !Runtime.app.integrityCheckRunning
+                onClicked: Runtime.app.checkDatabaseIntegrity()
             }
             Item { Layout.fillWidth: true }
         }
@@ -176,32 +175,32 @@ ColumnLayout {
                 id: retentionMode
                 objectName: "historyRetentionMode"
                 Layout.preferredWidth: 160
-                enabled: App.historyRetentionLoaded && App.historyRetentionDays >= 0 && !App.historyRetentionSaving
+                enabled: Runtime.app.historyRetentionLoaded && Runtime.app.historyRetentionDays >= 0 && !Runtime.app.historyRetentionSaving
                 model: [qsTr("按天自动清理"), qsTr("永不自动清理")]
-                currentIndex: Theme.live(App.historyRetentionDays === 0 ? 1 : 0)
-                onActivated: if (currentIndex === 1) App.updateHistoryRetentionSettings(0)
+                currentIndex: Theme.live(Runtime.app.historyRetentionDays === 0 ? 1 : 0)
+                onActivated: if (currentIndex === 1) Runtime.app.updateHistoryRetentionSettings(0)
             }
         }
         SettingsRow {
             objectName: "historyRetentionDaysRow"
             visible: retentionMode.currentIndex === 0
             label: qsTr("保留天数")
-            description: App.historyRetentionDays > 0 ? qsTr("当前保留 %1 天。恢复后停止计时，再次删除会重新计时。").arg(App.historyRetentionDays) : qsTr("可设为 1–36500 天，点「保存」后生效。")
+            description: Runtime.app.historyRetentionDays > 0 ? qsTr("当前保留 %1 天。恢复后停止计时，再次删除会重新计时。").arg(Runtime.app.historyRetentionDays) : qsTr("可设为 1–36500 天，点「保存」后生效。")
             StyledTextField {
                 id: retentionDays
                 objectName: "historyRetentionDays"
                 Layout.preferredWidth: 90
-                enabled: App.historyRetentionLoaded && App.historyRetentionDays >= 0 && !App.historyRetentionSaving
-                text: App.historyRetentionDays > 0 ? String(App.historyRetentionDays) : "30"
+                enabled: Runtime.app.historyRetentionLoaded && Runtime.app.historyRetentionDays >= 0 && !Runtime.app.historyRetentionSaving
+                text: Runtime.app.historyRetentionDays > 0 ? String(Runtime.app.historyRetentionDays) : "30"
                 inputMethodHints: Qt.ImhDigitsOnly
                 validator: IntValidator { bottom: 1; top: 36500 }
                 Accessible.name: qsTr("已删除记录保留天数")
             }
             AppButton {
                 objectName: "saveHistoryRetention"
-                text: App.historyRetentionSaving ? qsTr("正在保存…") : qsTr("保存")
-                enabled: App.historyRetentionLoaded && App.historyRetentionDays >= 0 && !App.historyRetentionSaving && retentionDays.acceptableInput
-                onClicked: App.updateHistoryRetentionSettings(Number(retentionDays.text))
+                text: Runtime.app.historyRetentionSaving ? qsTr("正在保存…") : qsTr("保存")
+                enabled: Runtime.app.historyRetentionLoaded && Runtime.app.historyRetentionDays >= 0 && !Runtime.app.historyRetentionSaving && retentionDays.acceptableInput
+                onClicked: Runtime.app.updateHistoryRetentionSettings(Number(retentionDays.text))
             }
         }
         Text {
@@ -218,7 +217,7 @@ ColumnLayout {
             objectName: "historyRetentionFeedback"
             Layout.fillWidth: true
             visible: text.length > 0
-            text: App.historyRetentionFeedback
+            text: Runtime.app.historyRetentionFeedback
             textFormat: Text.PlainText
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)
@@ -228,7 +227,7 @@ ColumnLayout {
             objectName: "historyImageCleanupFeedback"
             Layout.fillWidth: true
             visible: text.length > 0
-            text: App.historyImageCleanupFeedback
+            text: Runtime.app.historyImageCleanupFeedback
             textFormat: Text.PlainText
             color: Theme.orangeText
             font.pixelSize: Theme.fs(12)
@@ -237,15 +236,15 @@ ColumnLayout {
         AppButton {
             objectName: "historyImageCleanupRetry"
             Layout.topMargin: 12
-            text: App.historyImageCleanupRunning ? qsTr("正在重试清理…") : qsTr("重试附件清理")
-            enabled: !App.historyImageCleanupRunning && App.backendConnected
-            onClicked: App.retryHistoryImageCleanup()
+            text: Runtime.app.historyImageCleanupRunning ? qsTr("正在重试清理…") : qsTr("重试附件清理")
+            enabled: !Runtime.app.historyImageCleanupRunning && Runtime.app.backendConnected
+            onClicked: Runtime.app.retryHistoryImageCleanup()
         }
         AppButton {
             text: qsTr("重新读取保留期")
-            visible: App.historyRetentionDays < 0
-            enabled: !App.historyRetentionSaving && App.backendConnected
-            onClicked: App.refreshHistoryRetentionSettings()
+            visible: Runtime.app.historyRetentionDays < 0
+            enabled: !Runtime.app.historyRetentionSaving && Runtime.app.backendConnected
+            onClicked: Runtime.app.refreshHistoryRetentionSettings()
         }
     }
 }

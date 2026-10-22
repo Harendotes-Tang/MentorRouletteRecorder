@@ -1,5 +1,5 @@
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // `.pick`: a selectable card or chip of the record wizard. An inset plate with
 // a gold-3 hover frame (eorzea) or no frame at rest (classic); the chosen one

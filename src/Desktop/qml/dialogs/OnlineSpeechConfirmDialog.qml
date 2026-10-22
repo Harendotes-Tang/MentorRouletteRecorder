@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls 6.8
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 第一次选在线语音时的确认框（docs/privacy-boundary.md §8.3 "默认关闭"）。
 //
@@ -93,6 +95,7 @@ Dialog {
             ]
 
             delegate: ColumnLayout {
+                id: speechDisclosure
                 required property var modelData
 
                 Layout.fillWidth: true
@@ -100,7 +103,7 @@ Dialog {
 
                 Text {
                     Layout.fillWidth: true
-                    text: "· " + modelData.title
+                    text: "· " + speechDisclosure.modelData.title
                     color: Theme.textPrimary
                     font.pixelSize: Theme.fs(13)
                     font.bold: true
@@ -109,7 +112,7 @@ Dialog {
                 Text {
                     Layout.fillWidth: true
                     Layout.leftMargin: 12
-                    text: modelData.body
+                    text: speechDisclosure.modelData.body
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fs(12)
                     lineHeight: 1.35

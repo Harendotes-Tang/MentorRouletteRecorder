@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 工具: rows with dividers (the settings rows' grid 1fr auto; padding 12px 0).
 //   导出脱敏诊断报告 .. ExportDiagnosticsReport; the result arrives as a toast
@@ -12,10 +12,10 @@ Card {
     id: tools
     objectName: "captureToolsPanel"
 
-    readonly property bool maintainer: App.maintainerToolsVisible
+    readonly property bool maintainer: Runtime.app.maintainerToolsVisible
     // Built in the interface language on every read (warning_refs).
-    readonly property var warnings: Theme.live(App.collectorWarnings) || []
-    readonly property var evidence: typeof CalibrationEvidence !== "undefined" ? CalibrationEvidence : null
+    readonly property var warnings: Theme.live(Runtime.app.collectorWarnings) || []
+    readonly property var evidence: typeof Runtime.calibrationEvidence !== "undefined" ? Runtime.calibrationEvidence : null
     signal toggleObservationGuideRequested()
 
     horizontalPadding: 20
@@ -65,7 +65,7 @@ Card {
         AppButton {
             objectName: "exportDiagnosticsButton"
             text: qsTr("导出")
-            onClicked: App.exportDiagnosticsReport()
+            onClicked: Runtime.app.exportDiagnosticsReport()
         }
     }
 

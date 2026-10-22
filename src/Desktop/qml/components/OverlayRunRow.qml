@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // One run on a line: the job badge, the duty-category badge, the duty name and
 // a state mark. Shared by the float's 当前副本 module, the mini bar and the

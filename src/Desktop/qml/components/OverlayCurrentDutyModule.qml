@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 当前副本: the run in progress as one line (job, category, name, state).
 // Only on screen during a run; 已匹配 shows until the duty is entered.

@@ -3,13 +3,13 @@
 按钮、侧栏导航与状态板上的线条图标来自 **Lucide**（<https://lucide.dev>，仓库 <https://github.com/lucide-icons/lucide>），
 许可证 **ISC**（全文见同目录 `LICENSE`，即上游 `lucide-static` 包内的 `LICENSE`）。
 `LICENSE` 的后半段列出了 Lucide 从 **Feather** 项目派生的图标，它们同时受 **MIT** 许可证
-（Copyright (c) 2013-present Cole Bemis）约束。本目录中的 `calendar`、`chevron-left`、`chevron-right`、`chevrons-down`、`clock`、`moon`、`plus`、`radio`、`server`、`x`
+（Copyright (c) 2013-present Cole Bemis）约束。本目录中的 `calendar`、`chevron-left`、`chevron-right`、`chevrons-down`、`clock`、`moon`、`plus`、`radio`、`server`、`target`、`x`
 即在该名单中，生成器会将 MIT 声明一并写入 `Lucide.js` 的文件头。
 与上一级目录中的 SQUARE ENIX 游戏素材不同，这些文件**可以**随本软件公开分发。
 
 | 项 | 值 |
 |---|---|
-| 上游发布 | 官方仓库标签 [`1.60.0`](https://github.com/lucide-icons/lucide/tree/1.60.0/icons) 的 SVG；按同标签 `packages/lucide-static/scripts/copyIcons.mts` 添加版本许可证注释与 `class`，绘制元素原样保留 |
+| 上游发布 | 官方仓库标签 [`1.61.0`](https://github.com/lucide-icons/lucide/tree/1.61.0/icons) 的 SVG；按同标签 `packages/lucide-static/scripts/copyIcons.mts` 添加版本许可证注释与 `class`，绘制元素原样保留 |
 | 取用方式 | 开发期下载一次；运行时不联网 |
 | 进入构建产物的形式 | 这些 SVG **本身不编入资源**。`tools/lucide-icons/generate.py` 将每个图标的绘制元素写入 `src/Desktop/qml/components/Lucide.js`（含 ISC 声明），QML 模块仅包含该文件 |
 | 着色 | Lucide 的 SVG 使用 `stroke="currentColor"`，Qt 的 SVG 渲染器不支持该取值。`Lucide.js` 在运行时将按钮当前的文字颜色写入 `stroke`，并生成 `data:` 地址供 `Image` 使用 |
@@ -25,37 +25,38 @@
 
 | 文件 | SHA-256 |
 |------|---------|
-| `activity.svg` | `c857ff3d5d800e04001911ad1dafffcf2f47b6f87edaf7c92e14643610caba0d` |
-| `book-open-text.svg` | `5dd4db922f660fe6194c8de130bdd2bbcb1361b6e1e9995e8c08ae4fa55687cf` |
-| `calendar.svg` | `6550e4e31fd7d5c4ad494c0799fe86f92db97ed1ba37b89ba98b04ff1560e546` |
-| `chart-column.svg` | `a6480a03a116883dc6e97413945010dfba3c36492e1fe652f1c25e397d554be0` |
-| `chevron-left.svg` | `5a22cb1c8927bf7f348fa84a931368df6682832ace8504716b4d421ea271e6e4` |
-| `chevron-right.svg` | `fc318a364fbba06b47e6472ed38a088c29c9b5d9cee2247fb12bdeb9e87a042b` |
-| `chevrons-down.svg` | `dc815d1336036d7229323f59411e96bb192c823ab0b028fd7694fd7272907cd5` |
-| `clipboard-check.svg` | `dffc220ce1459d141e7c3a8ee5d2d233ca3f46f23ca1c9e48db495e54467818b` |
-| `clipboard-paste.svg` | `173c98094720467d0b7068cdfe59e879ff9de3c1859dc07fcdaee2be5844e3ae` |
-| `clock.svg` | `ec8c07b897a0d6ab2ad8a20538af6d0a7b1229a75fe9c34947b6033cd2541ad7` |
-| `file-check.svg` | `b2f7ffac3f303a090fe3af9d9b2469dd10d3b79cae4a3f3731890417508f1c51` |
-| `file-down.svg` | `0dd94c3d3b4514cb1c4ff2252f87838186a06848b2f586482c6d409018846271` |
-| `file-input.svg` | `4f1abf6c3ed3c6472f76c2c33ce0b8c9e7e1d8bb157930df1ddbc0483133b722` |
-| `file-json.svg` | `996e2d875ff219f72533ce346898555c1e64b73cb6a73c0bae1f777c52deb762` |
-| `filter-x.svg` | `3ef678a80115579d4ac3747ce698b6bc30bfbd5b4b568fe1882f572befd52612` |
-| `flag.svg` | `1e01dde15266e3d738eb178a4b2fd45c5cbcb2a4b40b02979069580e9d350f4a` |
-| `folder-open.svg` | `08d5439a88a0fc520c369f313eedd0c2d2efc28594c431bf460ac472159485d2` |
-| `gamepad-2.svg` | `42efdaceada98abe0b357d362d89850565e7f96ab70ea522d57443a3b3f9b44c` |
-| `history.svg` | `ec796c85d8606afc95995ccf7454eb6621a4f79e551fd6beb81696ced0f670e2` |
-| `image-down.svg` | `649a1b4db02c517e38a4903e81d569f31504f418a13654b0507955370837dada` |
-| `image.svg` | `58b6309353bdd4838ec7ff612f2a4ccee68a7c655e5d735e6751eeae8a722fce` |
-| `layout-dashboard.svg` | `f7270ead45b34f3296065233b5abf136e9ecd4c3e40f644ae8fab94063665d52` |
-| `lock-open.svg` | `9dbc45081ea012e0f4f93de2e428b9262a2e694c821da05a9300f087977cdf20` |
-| `moon.svg` | `5f2f11014bc4497c0858ad35137f989906039f01f30667755f69be5be631910b` |
-| `network.svg` | `adda9c08b49e2e306d80b303c3c61065c3df6d2938b96b0e28a743cb768a957d` |
-| `notebook-pen.svg` | `79f28255c013e3fa48abb1014f2c55a3191a6f0023ca0c4ef1c9028d0a0b75b7` |
-| `plus.svg` | `6daef8329169d1c6216922e8e3e1587facb9729c1e8a9b939f2b3ec469025caf` |
-| `radio.svg` | `fb6927e62e958fca73a4e81250d6aaad95249135bcf5aebb5443570378806d00` |
-| `server.svg` | `10f4dad75633c5ac67b40adb201e8a75e72c649dd29115ef86e8457078c27d1b` |
-| `settings.svg` | `4615a0b6ad349e8d2c905b0a195d01024a2e482d2483a0d5111df4d44c52ba0f` |
-| `sun.svg` | `04cdfe15f35c2aeaf71f04a8aa3417e1d50c8c5ec507947cd0a9991e3ca02367` |
-| `swords.svg` | `74075716a4e986e5866444008c5ac9b5dc95dce95a5c3d303bedc02281814a17` |
-| `users.svg` | `2c3cb6b0e1d67b85d4359271d51596b1e1d32164aeb821bca96ded9caf72dd87` |
-| `x.svg` | `c9adc6f731c23c2d505948a9c7b3fd9fa1bf8e41144d7842553241215920a636` |
+| `activity.svg` | `ad2e728ce1a3bf4dee93223ce3912c7b52cd2ee061c832e08ba0a14b028f68ee` |
+| `book-open-text.svg` | `7a6234f84d2f296421c4e27ea6d885e18d45bcb7737b5aa36a4ec6c147b0f746` |
+| `calendar.svg` | `5c0372f26e27a19c72b51e27315fa57d0dddbc325c6a2bf0ec32218e3a542ef6` |
+| `chart-column.svg` | `e4104761d3c5e4423544563d0e198550fbc301d43895db91703754d1e1a2bc13` |
+| `chevron-left.svg` | `6e7478a72752c404c2ff077dfb768a84b718255d7bf9ea547de9b080114592ee` |
+| `chevron-right.svg` | `2af3089fa09497d5725172b172196d193cbe8205bf70ad6f9078ce4773285001` |
+| `chevrons-down.svg` | `92c65689ea0c942b24b9e675ac0f435c92e1d8fcdc0937eeb472a082ed81e38a` |
+| `clipboard-check.svg` | `4ac5ba3c2308b50d29c6cd5ba499166dc45ac433d355041eebd38a985197d6d9` |
+| `clipboard-paste.svg` | `7a780940d3b4f6009d6ea174db51521a8bac9bdfbc0e8c16be41cb6d1b476723` |
+| `clock.svg` | `2a50ff1030ae5591447dd5b278bdbd24e7dda3c24e2133348e7a66231fd6e787` |
+| `file-check.svg` | `dacdcd0514471272bb11c18769f42399dd068ff52151030b0b0a8463a8262945` |
+| `file-down.svg` | `1256558eaa140c1ac65b3f6cf1291ae5898a79ebe9ca5cc23873d45e4551216f` |
+| `file-input.svg` | `8b978cfd489cd92ca0ce4d0303bd0729cf9700ecee77daaf004b356440d6fd46` |
+| `file-json.svg` | `6a27ab5aa7f7960053588d374423bd56e4edc57039345f8c59bf1ee332f1379e` |
+| `filter-x.svg` | `abc4f423c1281e2e5080c3bcb95918a11c3d2a4870bca0eb8a44d9bdc9d57651` |
+| `flag.svg` | `e84d0cd56503debfaebf1f6c1c587cae253db067c1ff69a0737e2c4dd5296398` |
+| `folder-open.svg` | `5adf2987a25d174cb7c0ecfd241f12c40e35953217d7c4ee5ced8d29a3baef6f` |
+| `gamepad-2.svg` | `0a25090b8e0cf03d14a58e3fe5e85335402485c58c610034e64eb73c2c70241a` |
+| `history.svg` | `15a0aa9c5c97acef0295b80e9d6a7d1d34f1e82f85c9f2866fc78187bce4d0d8` |
+| `image-down.svg` | `add0e62da3c12f3a04013d5cda5ea0d85e9019a23c06d7e3c68ca0bd102e0265` |
+| `image.svg` | `eb8267cf5cd811745284486e5494d022c37c0fb7cfc3e0c3c543675c3268db13` |
+| `layout-dashboard.svg` | `b02f45800b01e728a5f1a0c9eb2a7f7a12fef43917f2f5bda41259779e95b364` |
+| `lock-open.svg` | `7a49019d298ff9aedd0b915df02a7f0ba65650bea2f100e9b5c0cc33d8453113` |
+| `moon.svg` | `3002badbef72a8f85358b3fe844ccac9c6e9638cc8088fb197426e8aeee6e0a9` |
+| `network.svg` | `4f2d416762604ac95e05546c074635bfaa24346680fc9d938f6849da2ce92f17` |
+| `notebook-pen.svg` | `119524879d2fc8c753887114ab988ee8f788482f2afddfb3103cc21d6d17cf86` |
+| `plus.svg` | `dfcf07b39b0f4c0b422595ae488fb08c468ef4782f6ef37d0deceaadfb2a5693` |
+| `radio.svg` | `8637908d6b1f5172ba710b9e12c052f614e2facdfc66535f0eb60d9a8a0ced6c` |
+| `server.svg` | `91feaa119e863973e4be3a2beab09e7b21944bbe508d12b5268d903b757177f8` |
+| `settings.svg` | `f2235dfd6c69bdad1acd08554ba19557becefa526b21ae4cfabf8fe7bbc48796` |
+| `sun.svg` | `19d684776d546b673d45fc54b7dee7b22f18e0b2e673612220727e90f46fb4cf` |
+| `swords.svg` | `990cb2394a31acb9ed6fa898746d9e9c05bd199fe6342d6b95cb206f25e43e59` |
+| `target.svg` | `e26469cfee68a31c0ab6712987f7d05ea5d5326cb7b7061a243369e5e25c7d15` |
+| `users.svg` | `8d17ead4eb85514d53a2aa1b6e04198a4270207f2266fef9356967964db91f1e` |
+| `x.svg` | `a611112e8946480120e5e96f1d849651df76fa502f6190e293defaf6c4f56b07` |

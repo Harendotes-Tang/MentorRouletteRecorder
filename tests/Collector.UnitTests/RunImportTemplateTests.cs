@@ -12,7 +12,7 @@ namespace MentorRecorder.Collector.UnitTests;
 public sealed class RunImportTemplateTests : IDisposable
 {
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.TemplateTests", Guid.NewGuid().ToString("N"));
-    private static readonly string[] Fields = { "duty_name", "job_name", "entered_at_utc", "ended_at_utc", "result", "duration_ms", "reflection_text", "reflection_mood", "source_recorded_at", "note" };
+    private static readonly string[] Fields = { "duty_name", "job_name", "entered_at_utc", "ended_at_utc", "result", "duration_ms", "reflection_text", "reflection_mood", "source_recorded_at", "note", "joined_in_progress" };
     public RunImportTemplateTests() => Directory.CreateDirectory(_directory);
 
     [Fact]
@@ -23,6 +23,7 @@ public sealed class RunImportTemplateTests : IDisposable
         Assert.Equal(Fields.Order(StringComparer.Ordinal), row.Values.Select(pair => pair.Key).Order(StringComparer.Ordinal));
         Assert.False(row.Values.ContainsKey("run_id"));
         Assert.Null(row.Values["entered_at_utc"]); Assert.Null(row.Values["ended_at_utc"]);
+        Assert.Null(row.Values["joined_in_progress"]);
         using var database = new TestDatabase();
         var preview = new RunImportService(database.Database, database.Clock).PreviewSource("JSON", Template("personal-records.json"), timeZone: "+08:00");
         Assert.False(preview["rows"]![0]!["can_import"]!.GetValue<bool>());
@@ -30,11 +31,15 @@ public sealed class RunImportTemplateTests : IDisposable
     }
 
     [Theory]
-    [InlineData("JSON")]
-    [InlineData("XLSX")]
-    public void FilledTemplateCanPreviewAndCommitWithoutInventingIdentity(string kind)
+    [InlineData("JSON", "正常", false)]
+    [InlineData("JSON", "中途", true)]
+    [InlineData("JSON", "", null)]
+    [InlineData("XLSX", "正常", false)]
+    [InlineData("XLSX", "中途", true)]
+    [InlineData("XLSX", "", null)]
+    public void FilledTemplateCanPreviewAndCommitWithoutInventingIdentity(string kind, string entryMode, bool? joinedInProgress)
     {
-        var facts = new[] { "合成模板副本", "骑士", "2026-10-09T20:00:00+08:00", "2026-10-09T20:20:00+08:00", "COMPLETED", "1200000", "合成模板心得", "good", "2026-10-09T20:30:00+08:00", "合成模板备注" };
+        var facts = new[] { "合成模板副本", "骑士", "2026-10-09T20:00:00+08:00", "2026-10-09T20:20:00+08:00", "COMPLETED", "1200000", "合成模板心得", "good", "2026-10-09T20:30:00+08:00", "合成模板备注", entryMode };
         var path = Path.Combine(_directory, "filled." + kind.ToLowerInvariant());
         File.Copy(Template("personal-records." + kind.ToLowerInvariant()), path);
         if (kind == "JSON")
@@ -68,6 +73,7 @@ public sealed class RunImportTemplateTests : IDisposable
         var run = new RunRepository(database.Database).Get(committed["run_ids"]![0]!.GetValue<string>())!;
         Assert.Equal("合成模板备注", run.Note); Assert.Equal(kind, run.ImportMetadata!.SourceKind);
         Assert.Equal("合成模板心得", run.Reflection!.Text); Assert.Equal(1200000, run.DurationMs);
+        Assert.Equal(joinedInProgress, run.JoinedInProgress);
         Assert.Equal(new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero), run.EnteredAtUtc);
         Assert.Equal(new DateTimeOffset(2026, 10, 9, 12, 30, 0, TimeSpan.Zero), run.ImportMetadata.SourceRecordedAtUtc);
     }

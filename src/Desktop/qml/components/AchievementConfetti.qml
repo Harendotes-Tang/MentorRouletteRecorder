@@ -1,5 +1,5 @@
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // A short, input-transparent burst around the achievement ring. No particles
 // or animation frames remain active after it finishes or its view is hidden.

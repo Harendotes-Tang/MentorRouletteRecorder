@@ -1,7 +1,8 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 ColumnLayout {
     id: content
@@ -9,7 +10,7 @@ ColumnLayout {
     property bool prominentHeader: false
     signal chosen()
     spacing: 10
-    readonly property var recovery: typeof App !== "undefined" && App.recovery ? App.recovery : null
+    readonly property var recovery: typeof Runtime.app !== "undefined" && Runtime.app.recovery ? Runtime.app.recovery : null
     Text {
         objectName: "pendingWorkTitle"
         Layout.fillWidth: true
@@ -36,12 +37,13 @@ ColumnLayout {
     Repeater {
         model: content.recovery ? (content.limit > 0 ? content.recovery.items.slice(0, content.limit) : content.recovery.items) : []
         delegate: ColumnLayout {
+            id: pendingRow
             required property var modelData
             Layout.fillWidth: true
             spacing: 3
             Text {
                 Layout.fillWidth: true
-                text: Theme.dutyName(modelData) || qsTr("未知副本")
+                text: Theme.dutyName(pendingRow.modelData) || qsTr("未知副本")
                 textFormat: Text.PlainText
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fs(13)
@@ -49,8 +51,8 @@ ColumnLayout {
             }
             Text {
                 Layout.fillWidth: true
-                text: [Theme.jobName(modelData) || qsTr("未知职业"),
-                       Fmt.localDateTime(modelData.ended_at_utc || modelData.matched_at_utc)].join(" · ")
+                text: [Theme.jobName(pendingRow.modelData) || qsTr("未知职业"),
+                       Runtime.fmt.localDateTime(pendingRow.modelData.ended_at_utc || pendingRow.modelData.matched_at_utc)].join(" · ")
                 textFormat: Text.PlainText
                 wrapMode: Text.WordWrap
                 color: Theme.textSecondary
@@ -60,9 +62,9 @@ ColumnLayout {
                 Layout.fillWidth: true
                 Text {
                     Layout.fillWidth: true
-                    text: [modelData.needsResult ? qsTr("待复核") : "",
-                           modelData.needsReflection ? qsTr("待补笔记") : "",
-                           modelData.hasDraft ? qsTr("有草稿") : ""].filter(function(t) { return t.length > 0 }).join(" · ")
+                    text: [pendingRow.modelData.needsResult ? qsTr("待复核") : "",
+                           pendingRow.modelData.needsReflection ? qsTr("待补笔记") : "",
+                           pendingRow.modelData.hasDraft ? qsTr("有草稿") : ""].filter(function(t) { return t.length > 0 }).join(" · ")
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fs(11)
                     wrapMode: Text.WordWrap
@@ -73,28 +75,28 @@ ColumnLayout {
                 AppButton {
                     id: dismissButton
                     property bool confirming: false
-                    objectName: "dismissPendingWork_" + (modelData.runId || modelData.run_id)
-                    visible: modelData.recoveryUnavailable === true
+                    objectName: "dismissPendingWork_" + (pendingRow.modelData.runId || pendingRow.modelData.run_id)
+                    visible: pendingRow.modelData.recoveryUnavailable === true
                     text: confirming ? qsTr("确认移除（草稿一并删除）") : qsTr("移除提醒")
                     variant: "ghost"
                     compact: true
                     enabled: !content.recovery.busy
                     onClicked: {
-                        if (modelData.hasDraft && !confirming) {
+                        if (pendingRow.modelData.hasDraft && !confirming) {
                             confirming = true
                             return
                         }
-                        content.recovery.dismiss(modelData.runId || modelData.run_id)
+                        content.recovery.dismiss(pendingRow.modelData.runId || pendingRow.modelData.run_id)
                     }
                 }
                 AppButton {
-                    objectName: "openPendingWork_" + (modelData.runId || modelData.run_id)
+                    objectName: "openPendingWork_" + (pendingRow.modelData.runId || pendingRow.modelData.run_id)
                     text: qsTr("继续处理")
                     compact: true
                     enabled: !content.recovery.busy
                     onClicked: {
                         const scope = content.recovery.databaseKey
-                        const runId = modelData.runId || modelData.run_id
+                        const runId = pendingRow.modelData.runId || pendingRow.modelData.run_id
                         content.chosen()
                         Qt.callLater(function() {
                             if (scope === content.recovery.databaseKey)

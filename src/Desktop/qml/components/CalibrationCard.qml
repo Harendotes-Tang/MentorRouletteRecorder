@@ -1,7 +1,8 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 本机校准（面向玩家，非维护者工具）：the prototype's calibration row, 本机校准
 // (wide) beside 共享校准 (narrow). The sentence that says what the state means
@@ -21,7 +22,7 @@ ColumnLayout {
     signal confirmRequested()
 
     readonly property CalibrationCopy copy: CalibrationCopy {}
-    readonly property var controller: App.calibration
+    readonly property var controller: Runtime.app.calibration
     readonly property string calibrationState: card.copy.calibrationState
     readonly property var progress: card.controller ? card.controller.progress : ({})
     readonly property bool ready: card.copy.ready
@@ -37,7 +38,7 @@ ColumnLayout {
     // blocked 与 silent 均表示当前无法记录，MIDSTREAM（接入已有连接）走 blocked 分支，
     // 故两者都要判断。
     readonly property bool captureSilent:
-        App.recording ? (App.recording.silent || App.recording.blocked) : false
+        Runtime.app.recording ? (Runtime.app.recording.silent || Runtime.app.recording.blocked) : false
 
     // Evidence survives a new game connection. Compare wall clocks because the
     // session-relative clock starts over when the Collector reconnects.

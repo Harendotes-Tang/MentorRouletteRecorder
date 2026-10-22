@@ -550,9 +550,11 @@ pwsh -File scripts/static-analysis.ps1 -Path IpcFraming   # 只看路径含该�
 pwsh -File scripts/static-analysis.ps1 -Strict            # 任何告警都算失败
 ```
 
-工具位置沿用 `build.ps1` 的约定：`MR_CLANG_TIDY_EXE`（默认取 Qt 安装里的
-llvm-mingw：`D:/APPS/Qt/Tools/llvm-mingw1706_64/bin/clang-tidy.exe`）与
+工具位置沿用 `build.ps1` 的约定：`MR_CLANG_TIDY_EXE`（默认取 Qt Creator 自带的
+`D:/APPS/Qt/Tools/QtCreator/bin/clang/bin/clang-tidy.exe`）与
 `MR_CPPCHECK_EXE`（默认 `C:/Program Files/Cppcheck/cppcheck.exe`）。
+每次运行记录实际分析器路径及版本；旧 LLVM 17 对 Qt 自定义释放函数的路径诊断
+应先与新版工具和最小复现对照排查，不能按头文件所在目录直接排除。
 
 检查项在仓库根的 `.clang-tidy`，每个关掉的检查旁边写着为什么；cppcheck 的抑制项
 在脚本里，同样逐条注明。退出码只由“硬”结果决定：clang-tidy 的编译错误或
@@ -570,9 +572,9 @@ llvm-mingw：`D:/APPS/Qt/Tools/llvm-mingw1706_64/bin/clang-tidy.exe`）与
   `Q_OS_WIN` 这类由 Qt 头文件从编译器宏推导出来的宏要显式定义，否则
   `#ifdef Q_OS_WIN` 分支会被当作死代码而报出恒真/恒假条件。
 
-clang-tidy 会把落在 Qt 头文件里的分析器路径告警（`QPointer` / `QSharedPointer`
-的引用计数在分析器看来像 use-after-free）一并报出，`HeaderFilterRegex` 管不到它们；
-脚本按告警位置把这类结果单独计数并忽略，明细仍在 `findings.csv` 里。
+clang-tidy 的分析器路径诊断可能指向 Qt 等依赖头文件，`HeaderFilterRegex` 不会过滤
+这类结果。脚本保留位置分类及完整原始路径，但所有 `clang-analyzer-*` 诊断均阻塞；
+`-Strict` 使依赖头文件中的风格诊断也阻塞，明细保留在 `findings.csv` 中。
 
 ## 5. 打包
 

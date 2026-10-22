@@ -1,6 +1,8 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // The same Canvas and bucket snapshot render with Qt Graphs present or absent.
 // Counts and null shares come from DungeonStatsModel, never from table Top-N.
@@ -133,6 +135,7 @@ Card {
             Repeater {
                 model: root.visibleBuckets
                 delegate: RowLayout {
+                    id: legendRow
                     required property var modelData
                     required property int index
 
@@ -144,14 +147,14 @@ Card {
                         Layout.preferredWidth: 9
                         Layout.preferredHeight: 9
                         radius: 2
-                        color: Theme.token(modelData.color_token || "neutral500")
+                        color: Theme.token(legendRow.modelData.color_token || "neutral500")
                     }
 
                     Text {
-                        objectName: "completionPieLabel" + index
+                        objectName: "completionPieLabel" + legendRow.index
                         Layout.preferredWidth: 88
                         Layout.minimumWidth: 0
-                        text: modelData.label || qsTr("未识别")
+                        text: legendRow.modelData.label || qsTr("未识别")
                         textFormat: Text.PlainText
                         wrapMode: Text.WordWrap
                         color: Theme.textPrimary
@@ -159,9 +162,9 @@ Card {
                     }
 
                     Text {
-                        objectName: "completionPieCount" + index
+                        objectName: "completionPieCount" + legendRow.index
                         Layout.preferredWidth: 48
-                        text: qsTr("%1 次").arg(modelData.completed_count || 0)
+                        text: qsTr("%1 次").arg(legendRow.modelData.completed_count || 0)
                         color: Theme.textPrimary
                         font.pixelSize: Theme.fs(12)
                         font.family: Theme.figureFamily
@@ -170,9 +173,9 @@ Card {
                     }
 
                     Text {
-                        objectName: "completionPieShare" + index
+                        objectName: "completionPieShare" + legendRow.index
                         Layout.preferredWidth: 48
-                        text: root.shareText(modelData)
+                        text: root.shareText(legendRow.modelData)
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fs(12)
                         font.family: Theme.figureFamily

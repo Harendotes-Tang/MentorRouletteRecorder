@@ -1,5 +1,5 @@
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // h1..h4 of the prototype: Cinzel for Latin and numbers, Noto Serif SC for
 // Chinese, gold; the classic style falls back to the body font.

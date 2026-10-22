@@ -1,5 +1,7 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 按 1140 逻辑像素排完整张卷轴，再统一缩放至预览/抓图宽度。
 Item {
@@ -16,8 +18,8 @@ Item {
     readonly property bool spansYears: {
         const years = ({})
         for (let i = 0; i < entries.length; ++i) {
-            const date = Fmt.localDate(entries[i].matched_at_utc)
-            if (date !== Fmt.dash()) years[date.slice(0, 4)] = true
+            const date = Runtime.fmt.localDate(entries[i].matched_at_utc)
+            if (date !== Runtime.fmt.dash()) years[date.slice(0, 4)] = true
         }
         return Object.keys(years).length > 1
     }
@@ -28,8 +30,8 @@ Item {
     function collectionDates() {
         const dates = []
         for (let i = 0; i < entries.length; ++i) {
-            const date = Fmt.localDate(entries[i].matched_at_utc)
-            if (date !== Fmt.dash()) dates.push(date.replace(/-/g, "."))
+            const date = Runtime.fmt.localDate(entries[i].matched_at_utc)
+            if (date !== Runtime.fmt.dash()) dates.push(date.replace(/-/g, "."))
         }
         dates.sort()
         let unknown = dates.length < entries.length ? qsTr("%1 条游玩时间未知").arg(entries.length - dates.length) : ""
@@ -172,13 +174,14 @@ Item {
                 id: entriesRepeater
                 model: card.single ? [] : card.entries
                 ReflectionShareEntry {
+                    id: timelineEntry
                     required property var modelData
                     required property int index
                     runData: modelData; entryIndex: index; single: false
                     showYear: card.spansYears
                     Image {
                         x: 262; y: parent.height + 34; width: 794; height: 8
-                        visible: index < card.entries.length - 1
+                        visible: timelineEntry.index < card.entries.length - 1
                         source: card.assetRoot + "entry_rule.png"
                     }
                 }

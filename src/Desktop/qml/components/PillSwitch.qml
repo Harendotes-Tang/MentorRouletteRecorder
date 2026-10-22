@@ -1,7 +1,6 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // A switch with a label and a description. The track is ToggleSwitch, so it
 // follows the style like every other switch, but unlike ToggleSwitch it flips

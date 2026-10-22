@@ -1,5 +1,5 @@
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // `.field > label`: t6 at regular weight in the classic style.
 Text {

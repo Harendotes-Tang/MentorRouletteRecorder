@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import MentorRecorder
+import MentorRecorder 1.0
 
 // `.ov-ib`: a 24 px ghost icon button of the float and the popup. `on` paints
 // it in the accent (the open 自定义 panel, the bell while prompts are on).

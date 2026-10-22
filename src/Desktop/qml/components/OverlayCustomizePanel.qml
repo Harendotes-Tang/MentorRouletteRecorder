@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 自定义: the float's own settings, in place of its content; the modules are
 // reordered by dragging the grip (or with ↑ / ↓ on it, or the arrows that

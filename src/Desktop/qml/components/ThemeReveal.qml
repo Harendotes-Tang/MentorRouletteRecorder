@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Effects
-import MentorRecorder
+import MentorRecorder 1.0
 
 // The circular 深色 / 浅色 switch (the prototype's switchTheme(), which uses a
 // view transition). run(change, x, y) captures the window content, calls
@@ -80,7 +80,7 @@ Item {
     function dropOverlay() {
         if (!reveal.overlay)
             return
-        const item = reveal.overlay
+        const item = reveal.overlay as RevealFrame
         reveal.overlay = null
         item.stopAndHide()
         item.destroy()
@@ -131,79 +131,82 @@ Item {
     Component {
         id: overlayComponent
 
-        Item {
-            id: frame
+        RevealFrame {
+        }
+    }
 
-            property var grab: null
-            property real centerX: 0
-            property real centerY: 0
-            property real radius: 0
-            property real targetRadius: 0
-            /// true: the new theme opens as a hole in the old frame.
-            property bool expand: true
+    component RevealFrame: Item {
+        id: frame
 
-            signal done()
+        property var grab: null
+        property real centerX: 0
+        property real centerY: 0
+        property real radius: 0
+        property real targetRadius: 0
+        /// true: the new theme opens as a hole in the old frame.
+        property bool expand: true
 
-            function start() {
-                grow.from = frame.radius
-                grow.to = frame.targetRadius
-                grow.start()
-            }
+        signal done()
 
-            function stopAndHide() {
-                grow.stop()
-                frame.visible = false
-            }
+        function start() {
+            grow.from = frame.radius
+            grow.to = frame.targetRadius
+            grow.start()
+        }
 
+        function stopAndHide() {
+            grow.stop()
+            frame.visible = false
+        }
+
+        anchors.fill: parent
+
+        Image {
+            id: oldFrame
             anchors.fill: parent
+            source: frame.grab ? frame.grab.url : ""
+            visible: false
+            cache: false
+            asynchronous: false
+            smooth: true
+        }
 
-            Image {
-                id: oldFrame
-                anchors.fill: parent
-                source: frame.grab ? frame.grab.url : ""
-                visible: false
-                cache: false
-                asynchronous: false
-                smooth: true
+        // The mask: a disc on a transparent field, the size of the frame.
+        Item {
+            id: mask
+            anchors.fill: parent
+            visible: false
+            layer.enabled: true
+
+            Rectangle {
+                x: frame.centerX - frame.radius
+                y: frame.centerY - frame.radius
+                width: frame.radius * 2
+                height: frame.radius * 2
+                radius: frame.radius
+                color: "#ffffffff"
             }
+        }
 
-            // The mask: a disc on a transparent field, the size of the frame.
-            Item {
-                id: mask
-                anchors.fill: parent
-                visible: false
-                layer.enabled: true
+        MultiEffect {
+            anchors.fill: parent
+            source: oldFrame
+            maskEnabled: true
+            maskSource: mask
+            maskInverted: frame.expand
+            // A soft one-pixel edge instead of a stair-stepped circle.
+            maskThresholdMin: 0.5
+            maskSpreadAtMin: 1.0
+        }
 
-                Rectangle {
-                    x: frame.centerX - frame.radius
-                    y: frame.centerY - frame.radius
-                    width: frame.radius * 2
-                    height: frame.radius * 2
-                    radius: frame.radius
-                    color: "#ffffffff"
-                }
-            }
-
-            MultiEffect {
-                anchors.fill: parent
-                source: oldFrame
-                maskEnabled: true
-                maskSource: mask
-                maskInverted: frame.expand
-                // A soft one-pixel edge instead of a stair-stepped circle.
-                maskThresholdMin: 0.5
-                maskSpreadAtMin: 1.0
-            }
-
-            NumberAnimation {
-                id: grow
-                target: frame
-                property: "radius"
-                duration: Theme.motionReveal
-                easing.type: Easing.Bezier
-                easing.bezierCurve: Theme.curveReveal
-                onFinished: frame.done()
-            }
+        NumberAnimation {
+            id: grow
+            target: frame
+            property: "radius"
+            duration: Theme.motionReveal
+            easing.type: Easing.Bezier
+            easing.bezierCurve: Theme.curveReveal
+            onFinished: frame.done()
         }
     }
 }

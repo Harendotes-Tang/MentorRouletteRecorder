@@ -7,6 +7,7 @@ using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Domain.Queries;
 using MentorRecorder.Collector.Domain.Statistics;
 using MentorRecorder.Collector.Domain.Time;
+using MentorRecorder.Collector.Reference;
 
 namespace MentorRecorder.Collector.Ipc;
 
@@ -15,7 +16,8 @@ namespace MentorRecorder.Collector.Ipc;
 ///
 /// One direction only, and one place only: if a field name or an enum spelling is wrong it
 /// is wrong here and nowhere else. The CSV and JSON exporters reuse these builders so an
-/// exported file cannot drift from what the UI was shown.
+/// exported file retains the original facts. User-facing run messages explicitly use
+/// DisplayRun for catalogue-derived presentation; audit/fingerprint/export use Run.
 /// </summary>
 public static class Wire
 {
@@ -139,6 +141,16 @@ public static class Wire
         return rendered;
     }
 
+    /// <summary>Renders a user-facing run without changing stored/audited/exported category facts.</summary>
+    /// <param name="run">Raw repository or live run.</param>
+    public static JsonObject DisplayRun(MentorRun run)
+    {
+        var rendered = Run(run);
+        rendered["duty_category"] = DutyCatalog.Default.Categories.Resolve(
+            run.DutyCategory, run.ContentId, run.TerritoryId, run.Region);
+        return rendered;
+    }
+
     /// <summary>Builds a <c>$defs/RunReflection</c> object, or JSON null.</summary>
     /// <param name="reflection">Reflection to render; null renders as null.</param>
     public static JsonNode? Reflection(RunReflection? reflection) => reflection is null
@@ -160,7 +172,7 @@ public static class Wire
 
         return new JsonObject
         {
-            ["run"] = Run(run),
+            ["run"] = DisplayRun(run),
             ["reflection"] = Reflection(reflection),
         };
     }
@@ -358,7 +370,7 @@ public static class Wire
         var items = new JsonArray();
         foreach (var run in page.Items)
         {
-            items.Add(Run(run));
+            items.Add(DisplayRun(run));
         }
 
         return PagedItems(items, page.PageNumber, page.PageSize, page.Total);

@@ -1,7 +1,8 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 候选档案验证与“对照核对要保存哪些报文”。
 // 报文按用途分组，显示候选档案声明的中文 label（$defs/CandidateHypothesis，由
@@ -12,10 +13,10 @@ Card {
     objectName: "candidateValidationCard"
     padding: 16
     spacing: 10
-    readonly property var controller: App.candidates
-    readonly property bool candidateEnabled: !!App.captureSettings.candidate_validation_enabled
-    readonly property var whitelist: App.captureSettings.research_payload_opcodes || []
-    readonly property var hypotheses: App.captureStatus.candidate_hypotheses || []
+    readonly property var controller: Runtime.app.candidates
+    readonly property bool candidateEnabled: !!Runtime.app.captureSettings.candidate_validation_enabled
+    readonly property var whitelist: Runtime.app.captureSettings.research_payload_opcodes || []
+    readonly property var hypotheses: Runtime.app.captureStatus.candidate_hypotheses || []
     readonly property var eligible: hypotheses.filter(function(h) { return !!h.research_eligible })
     // 推荐集：排本 + 副本查找器两组，加上"副本与职业识别"组（区域初始化 136 字节、
     // 职业信息 16 字节，用来核对副本名与职业的字段偏移）。进本／换区那组只是时间锚点，
@@ -92,7 +93,7 @@ Card {
             text: card.controller.candidateSettingsBusy ? qsTr("正在保存…")
                   : card.candidateEnabled ? qsTr("已开启 · 点击关闭") : qsTr("开启候选验证")
             variant: card.candidateEnabled ? "primary" : "secondary"
-            enabled: App.captureSettingsSupported && !card.controller.candidateSettingsBusy
+            enabled: Runtime.app.captureSettingsSupported && !card.controller.candidateSettingsBusy
             onClicked: card.controller.setCandidateEnabled(!card.candidateEnabled)
             Accessible.description: qsTr("候选观测不计入正式统计；VERIFIED 解析可独立生成正式记录。运行中更改可能需要停止并重新开始捕获。")
         }
@@ -100,8 +101,8 @@ Card {
     Text {
         Layout.fillWidth: true
         text: qsTr("档案：%1　·　保留观测：%2 条")
-              .arg(App.captureStatus.candidate_profile_id || qsTr("尚未匹配"))
-              .arg(App.captureStatus.candidate_observation_count || 0)
+              .arg(Runtime.app.captureStatus.candidate_profile_id || qsTr("尚未匹配"))
+              .arg(Runtime.app.captureStatus.candidate_observation_count || 0)
         textFormat: Text.PlainText
         color: Theme.textPrimary
         font.pixelSize: Theme.fs(13)
@@ -184,11 +185,12 @@ Card {
     Repeater {
         model: card.groupedEligible
         delegate: ColumnLayout {
+            id: eligibleGroup
             required property var modelData
             Layout.fillWidth: true
             spacing: 4
             Text {
-                text: modelData.title
+                text: eligibleGroup.modelData.title
                 color: Theme.textMuted
                 font.pixelSize: Theme.fs(11)
                 font.bold: true
@@ -197,7 +199,7 @@ Card {
                 Layout.fillWidth: true
                 spacing: 6
                 Repeater {
-                    model: modelData.items
+                    model: eligibleGroup.modelData.items
                     delegate: AppButton {
                         required property var modelData
                         readonly property string opcode: modelData.opcode
@@ -256,7 +258,7 @@ Card {
             onClicked: card.advanced = !card.advanced
         }
         Item { Layout.fillWidth: true }
-        AppButton { text: qsTr("对照核对"); onClicked: App.navigate(6) }
+        AppButton { text: qsTr("对照核对"); onClicked: Runtime.app.navigate(6) }
         AppButton {
             text: card.controller.exporting ? qsTr("正在导出…") : qsTr("导出证据")
             enabled: !card.controller.exporting

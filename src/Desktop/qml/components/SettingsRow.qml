@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // One row of a settings panel - the prototype's
 //   display:grid; grid-template-columns:1fr auto; gap:16px; padding:12px 0;

@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import MentorRecorder
+import MentorRecorder 1.0
 import "Lucide.js" as Lucide
 import "OverlayIcons.js" as OverlayIcons
 

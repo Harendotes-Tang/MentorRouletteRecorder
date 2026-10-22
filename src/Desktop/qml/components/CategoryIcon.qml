@@ -1,5 +1,5 @@
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 Item {
     id: root
@@ -25,7 +25,7 @@ Item {
         id: image
         anchors.fill: parent
         anchors.margins: 1
-        source: Jobs.categoryIcon(root.category)
+        source: Runtime.jobs.categoryIcon(root.category)
         fillMode: Image.PreserveAspectFit
         visible: source !== "" && status === Image.Ready
     }

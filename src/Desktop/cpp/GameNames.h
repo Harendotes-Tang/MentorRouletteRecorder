@@ -40,6 +40,9 @@ public:
     /// record's own (Chinese) name: returned as is in 简体中文, and used to find
     /// the duty when \a contentId is missing.
     Q_INVOKABLE QString duty(const QVariant &contentId, const QString &recorded = QString()) const;
+    /// Whether the CN catalogue gives this identity a name shared by other duties.
+    /// Used only to distinguish selectable labels; no record is changed.
+    Q_INVOKABLE bool dutyNameAmbiguous(const QVariant &contentId) const;
     /// The job \a jobId; \a recorded as for duty().
     Q_INVOKABLE QString job(const QVariant &jobId, const QString &recorded = QString()) const;
     /// The roulette \a rouletteId; \a recorded as for duty().

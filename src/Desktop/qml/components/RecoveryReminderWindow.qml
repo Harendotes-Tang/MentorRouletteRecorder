@@ -1,6 +1,4 @@
-import QtQuick
-import QtQuick.Controls
-import MentorRecorder
+import QtQuick.Window 6.8
 
 // The window of the result popup (dialogs/ResultPopupContent.qml): a
 // frameless tool window beside the statistics float - to its left when there
@@ -46,8 +44,11 @@ Window {
         show()
         if (manual) requestActivate()
     }
-    onClosing: function(event) {
-        event.accepted = false
-        if (editor && !editor.busy) editor.defer()
+    Connections {
+        target: reminder
+        function onClosing(event) {
+            event.accepted = false
+            if (reminder.editor && !reminder.editor.busy) reminder.editor.defer()
+        }
     }
 }

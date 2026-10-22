@@ -518,6 +518,70 @@ private Q_SLOTS:
         QTest::newRow("retired content") << QVariant(999999);
     }
 
+    void noteOnlyCorrectionPreservesProjectedAllianceFacts_data()
+    {
+        QTest::addColumn<bool>("territoryOnly");
+        QTest::addColumn<QString>("category");
+        QTest::newRow("alliance") << false << QStringLiteral("大型任务");
+        QTest::newRow("territory alliance") << true << QStringLiteral("大型任务");
+        QTest::newRow("custom alliance") << false << QStringLiteral("个人分类");
+    }
+
+    void noteOnlyCorrectionPreservesProjectedAllianceFacts()
+    {
+        QFETCH(bool, territoryOnly);
+        QFETCH(QString, category);
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        const auto alliance = mr::DutyCatalog::shared()->lookup(92);
+        fixture.dialog()->setProperty("dutyOptions", QVariantList{alliance});
+        auto raw = run(QStringLiteral("alliance-note"), 92, 19, QStringLiteral("COMPLETED"));
+        if (territoryOnly)
+            raw.insert(QStringLiteral("content_id"), QVariant());
+        raw.insert(QStringLiteral("territory_id"), alliance.value(QStringLiteral("territory_id")));
+        raw.insert(QStringLiteral("duty_name"), alliance.value(QStringLiteral("duty_name")));
+        raw.insert(QStringLiteral("duty_category"), category);
+        const auto displayed = mr::DutyCatalog::shared()->enrich(raw);
+        QCOMPARE(displayed.value(QStringLiteral("duty_category")).toString(),
+                 category == QStringLiteral("大型任务") ? QStringLiteral("团队任务") : category);
+        QVERIFY(fixture.openForRun(displayed));
+        fixture.dialog()->setProperty("noteText", QStringLiteral("只修改备注"));
+        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(corrections.count(), 1);
+        const auto changes = asMap(corrections.at(0).at(0));
+        QCOMPARE(changes.keys(), QStringList{QStringLiteral("note")});
+        QCOMPARE(raw.value(QStringLiteral("duty_category")).toString(), category);
+    }
+
+    void choosingAnotherIdWithTheSameNameIsACorrection()
+    {
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        const auto oldDuty = mr::DutyCatalog::shared()->lookup(69);
+        const auto newDuty = mr::DutyCatalog::shared()->lookup(944);
+        fixture.dialog()->setProperty("dutyOptions", QVariantList{oldDuty, newDuty});
+        auto value = run(QStringLiteral("same-name-run"), 69, 19, QStringLiteral("COMPLETED"));
+        value.insert("duty_name", oldDuty.value("duty_name"));
+        value.insert("duty_category", oldDuty.value("duty_category"));
+        value.insert("territory_id", oldDuty.value("territory_id"));
+        value.insert("job_name", QStringLiteral("骑士"));
+        QVERIFY(fixture.openForRun(value));
+        QVERIFY(asList(fixture.dialog()->property("diffRows")).isEmpty());
+        QSignalSpy corrections(fixture.dialog(), SIGNAL(correctRequested(QVariant,QString)));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(corrections.count(), 0);
+        QCOMPARE(fixture.dialog()->property("errorCode").toString(), QStringLiteral("ERR_NO_CHANGES"));
+        QVERIFY(fixture.goToStep(2));
+        QVERIFY(fixture.click(QStringLiteral("dutyRow_944")));
+        QCOMPARE(asList(fixture.dialog()->property("diffRows")).size(), 1);
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "submit"));
+        QCOMPARE(corrections.count(), 1);
+        const auto changes = asMap(corrections.at(0).at(0));
+        QCOMPARE(changes.value("content_id").toInt(), 944);
+        QVERIFY(!changes.contains("duty_name"));
+    }
+
     void resultCorrectionPreservesAnIdentifiedDutyWithoutACatalogueMatch()
     {
         QFETCH(QVariant, contentId);
@@ -1913,7 +1977,7 @@ private Q_SLOTS:
         // The bundled table, joined with the data file's party_size.
         const DutyCatalog *catalog = DutyCatalog::shared();
         const QVariantMap alliance = catalog->lookup(1015);
-        QCOMPARE(alliance.value(QStringLiteral("duty_category")).toString(), u("大型任务"));
+        QCOMPARE(alliance.value(QStringLiteral("duty_category")).toString(), u("团队任务"));
         QCOMPARE(alliance.value(QStringLiteral("party_size")).toInt(), 24);
         QCOMPARE(alliance.value(QStringLiteral("difficulty")).toString(), u("普通"));
         QCOMPARE(alliance.value(QStringLiteral("version")).toString(), QStringLiteral("7.x"));

@@ -1,7 +1,7 @@
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls 6.8
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 Item {
     id: page
@@ -20,8 +20,8 @@ Item {
     property string detailTab: "info"
     property bool suspendFilter: false
     readonly property bool narrowFilters: page.width < 1020
-    readonly property int checkedCount: App.checkedHistoryRunCount
-    function isChecked(runId) { return App.checkedHistoryRunIds.indexOf(runId) >= 0 }
+    readonly property int checkedCount: Runtime.app.checkedHistoryRunCount
+    function isChecked(runId) { return Runtime.app.checkedHistoryRunIds.indexOf(runId) >= 0 }
     function importIncomplete(run) {
         if (run.source !== "IMPORT") return false
         if (run.import_metadata) return !!run.import_metadata.incomplete
@@ -39,18 +39,18 @@ Item {
     }
     function dateLabel(run) {
         const actual = run.matched_at_utc || run.entered_at_utc || run.ended_at_utc
-        if (actual) return Fmt.localDate(actual)
+        if (actual) return Runtime.fmt.localDate(actual)
         const source = run.import_metadata || ({})
         if (source.source_recorded_at_utc)
-            return qsTr("原站\n%1").arg(Fmt.localDate(source.source_recorded_at_utc))
+            return qsTr("原站\n%1").arg(Runtime.fmt.localDate(source.source_recorded_at_utc))
         if (source.source_recorded_at) {
             const date = /^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})$/.exec(source.source_recorded_at)
             if (date) {
                 const normalized = date[1] + "-" + String(date[2]).padStart(2, "0") + "-" + String(date[3]).padStart(2, "0")
-                if (RunForm.isValidDate(normalized)) return qsTr("原站\n%1").arg(normalized)
+                if (Runtime.runForm.isValidDate(normalized)) return qsTr("原站\n%1").arg(normalized)
             }
         }
-        return Fmt.dash()
+        return Runtime.fmt.dash()
     }
     // A drill-down from 副本统计 arrives as a content_id; the 副本 chip below
     // mirrors it so the two never disagree about what is filtered.
@@ -65,10 +65,10 @@ Item {
     function dutyLabel(contentId) {
         if (contentId === null || contentId === undefined)
             return ""
-        const rows = App.dutyOptions
+        const rows = Runtime.app.dutyOptions
         for (let index = 0; index < rows.length; ++index) {
             if (rows[index].content_id === contentId)
-                return Theme.dutyName(rows[index]) || qsTr("未知副本")
+                return Theme.dutyChoiceLabel(rows[index]) || qsTr("未知副本")
         }
         return qsTr("指定副本")
     }
@@ -103,7 +103,7 @@ Item {
     })
     /// App.historyColumns; a scene whose App is a stand-in without it (some shell
     /// tests) shows the default columns and cannot customise them.
-    readonly property var columnsController: App.historyColumns ? App.historyColumns : defaultColumns
+    readonly property var columnsController: Runtime.app.historyColumns ? Runtime.app.historyColumns : defaultColumns
     QtObject {
         id: defaultColumns
         readonly property var order: ["date", "entered", "ended", "duty", "category", "job",
@@ -155,22 +155,22 @@ Item {
     /// overflows. The dragged one keeps following the pointer.
     function squeeze(keys, widths, minimums, available) {
         let total = 0
-        for (const key of keys)
-            total += widths[key]
+        for (const summedKey of keys)
+            total += widths[summedKey]
         if (total <= available)
             return
         let give = 0
-        for (const key of keys)
-            if (key !== tableHeader.resizeKey)
-                give += Math.max(0, widths[key] - minimums[key])
+        for (const shrinkableKey of keys)
+            if (shrinkableKey !== tableHeader.resizeKey)
+                give += Math.max(0, widths[shrinkableKey] - minimums[shrinkableKey])
         const excess = Math.min(total - available, give)
         if (give <= 0 || excess <= 0)
             return
-        for (const key of keys) {
-            if (key === tableHeader.resizeKey)
+        for (const shrinkingKey of keys) {
+            if (shrinkingKey === tableHeader.resizeKey)
                 continue
-            const room = Math.max(0, widths[key] - minimums[key])
-            widths[key] -= Math.round(excess * room / give)
+            const room = Math.max(0, widths[shrinkingKey] - minimums[shrinkingKey])
+            widths[shrinkingKey] -= Math.round(excess * room / give)
         }
     }
     function computeLayout() {
@@ -181,9 +181,9 @@ Item {
         const minimums = request.minimums
         const fillKey = request.fill
         let fixed = 0
-        for (const key of keys)
-            if (key !== fillKey)
-                fixed += widths[key]
+        for (const fixedKey of keys)
+            if (fixedKey !== fillKey)
+                fixed += widths[fixedKey]
         // The elastic column takes what the others leave, down to its narrowest
         // (whole pixels, so the columns after it sit on whole pixels too).
         if (fillKey.length > 0)
@@ -192,25 +192,25 @@ Item {
         // the elastic column's narrowest. Negative when the window is too narrow.
         const room = available - fixed - (fillKey.length > 0 ? minimums[fillKey] : 0)
         const layout = { keys: keys, available: available }
-        for (const key of keys) {
-            const widest = key === fillKey ? available - fixed : widths[key] + room
-            layout[key] = { maximum: Math.min(page.columnsController.maximumWidth, Math.max(minimums[key], widest)) }
+        for (const boundedKey of keys) {
+            const widest = boundedKey === fillKey ? available - fixed : widths[boundedKey] + room
+            layout[boundedKey] = { maximum: Math.min(page.columnsController.maximumWidth, Math.max(minimums[boundedKey], widest)) }
         }
         page.squeeze(keys, widths, minimums, available)
         let x = 0
         for (let index = 0; index < keys.length; ++index) {
-            const key = keys[index]
-            layout[key].x = x
-            layout[key].width = widths[key]
-            layout[key].index = index
-            x += widths[key]
+            const positionedKey = keys[index]
+            layout[positionedKey].x = x
+            layout[positionedKey].width = widths[positionedKey]
+            layout[positionedKey].index = index
+            x += widths[positionedKey]
         }
         return layout
     }
     function sortByColumn(key) {
         const column = page.columnCatalog[key]
         if (column && column.sortKey.length > 0)
-            App.runs.sortBy(column.sortKey)
+            Runtime.app.runs.sortBy(column.sortKey)
     }
 
     // ---------------------------------------------------- 每页行数 --
@@ -237,13 +237,13 @@ Item {
     Timer {
         id: pageSizeDebounce
         interval: 150
-        onTriggered: App.runs.pageSize = page.rowsThatFit
+        onTriggered: Runtime.app.runs.pageSize = page.rowsThatFit
     }
 
     function toUtcRange(dateText, endOfDay) {
         if (!dateText || dateText.length === 0)
             return null
-        if (!RunForm.isValidDate(dateText))
+        if (!Runtime.runForm.isValidDate(dateText))
             return null
         const parts = dateText.split("-").map(Number)
         return new Date(parts[0], parts[1] - 1, parts[2],
@@ -267,9 +267,9 @@ Item {
     function scheduleFilter() {
         if (page.suspendFilter) return
         if (calendarReady) {
-            App.runs.setCalendarFilter(page.buildFilter(true))
-            App.runs.ensureCalendarDay(fromField.text.trim())
-            App.runs.ensureCalendarDay(toField.text.trim())
+            Runtime.app.runs.setCalendarFilter(page.buildFilter(true))
+            Runtime.app.runs.ensureCalendarDay(fromField.text.trim())
+            Runtime.app.runs.ensureCalendarDay(toField.text.trim())
         }
         filterDebounce.restart()
     }
@@ -295,8 +295,8 @@ Item {
         const text = searchField.text.trim()
         if (text.length > 0) {
             filter.text = text
-            const nameText = typeof Names !== "undefined" && Names
-                             ? Names.recordedSearchText(text) : text
+            const nameText = typeof Runtime.names !== "undefined" && Runtime.names
+                             ? Runtime.names.recordedSearchText(text) : text
             if (nameText !== text)
                 filter.name_text = nameText
         }
@@ -341,7 +341,7 @@ Item {
             return
         const filter = page.buildFilter(false)
         page.applying = true
-        App.setHistoryFilter(filter)
+        Runtime.app.setHistoryFilter(filter)
         page.applying = false
     }
 
@@ -364,7 +364,7 @@ Item {
         joinedInProgressOnly.checked = false
         page.suspendFilter = false
         filterDebounce.stop()
-        App.resetHistoryFilter()
+        Runtime.app.resetHistoryFilter()
     }
 
     function firstFilterValue(value) {
@@ -396,12 +396,12 @@ Item {
         // A drill-down replaces the complete filter. Cancel a pending edit
         // debounce and mirror every control without issuing another request.
         filterDebounce.stop()
-        const filter = App.historyFilter
+        const filter = Runtime.app.historyFilter
         page.suspendFilter = true
         dateRange.selectionPending = false
         searchField.text = filter.text || ""
-        fromField.text = filter.from_utc ? Fmt.localDate(filter.from_utc) : ""
-        toField.text = filter.to_utc ? Fmt.localDate(filter.to_utc) : ""
+        fromField.text = filter.from_utc ? Runtime.fmt.localDate(filter.from_utc) : ""
+        toField.text = filter.to_utc ? Runtime.fmt.localDate(filter.to_utc) : ""
         categoryBox.currentIndex = filterIndex(categoryBox.model, "value", filter.duty_category)
         jobBox.currentIndex = filterIndex(jobBox.model, "job_id", filter.job_id)
         page.retainedJobFilter = jobBox.currentIndex === 0 ? firstFilterValue(filter.job_id) : null
@@ -415,9 +415,9 @@ Item {
         page.contentFilter = firstFilterValue(filter.content_id)
         page.suspendFilter = false
         if (page.calendarReady) {
-            App.runs.setCalendarFilter(page.buildFilter(true))
-            App.runs.ensureCalendarDay(fromField.text.trim())
-            App.runs.ensureCalendarDay(toField.text.trim())
+            Runtime.app.runs.setCalendarFilter(page.buildFilter(true))
+            Runtime.app.runs.ensureCalendarDay(fromField.text.trim())
+            Runtime.app.runs.ensureCalendarDay(toField.text.trim())
         }
     }
 
@@ -444,32 +444,32 @@ Item {
         page.pageHost = page.findPageHost()
         page.syncFilter()
         page.calendarReady = true
-        App.runs.setCalendarFilter(page.buildFilter(true))
-        if (App.historyFilterConfirmationPending) filterConfirmation.open()
+        Runtime.app.runs.setCalendarFilter(page.buildFilter(true))
+        if (Runtime.app.historyFilterConfirmationPending) filterConfirmation.open()
     }
 
     Connections {
-        target: App
+        target: Runtime.app
 
         function onHistoryFilterChanged() {
             page.syncFilter()
         }
         function onHistoryFilterConfirmationChanged() {
-            if (App.historyFilterConfirmationPending && !filterConfirmation.visible)
+            if (Runtime.app.historyFilterConfirmationPending && !filterConfirmation.visible)
                 filterConfirmation.open()
         }
         function onHistoryBatchChanged() {
-            if (batchDialog.submitted && !App.historyBatchRunning && page.checkedCount === 0)
+            if (batchDialog.submitted && !Runtime.app.historyBatchRunning && page.checkedCount === 0)
                 batchDialog.close()
         }
     }
 
     Connections {
-        target: App.runs
+        target: Runtime.app.runs
         function onCalendarChanged() {
             if (!page.calendarReady) return
-            App.runs.ensureCalendarDay(fromField.text.trim())
-            App.runs.ensureCalendarDay(toField.text.trim())
+            Runtime.app.runs.ensureCalendarDay(fromField.text.trim())
+            Runtime.app.runs.ensureCalendarDay(toField.text.trim())
             filterDebounce.restart()
         }
     }
@@ -495,14 +495,14 @@ Item {
                 objectName: "historyHeader"
                 title: qsTr("历史记录")
                 // A failed query is not "0 条匹配".
-                subtitle: App.runs.loadError.length > 0
+                subtitle: Runtime.app.runs.loadError.length > 0
                           ? qsTr("读取失败")
-                          : qsTr("%1 条匹配 · 第 %2 / %3 页").arg(App.runs.total)
-                                                             .arg(App.runs.page)
-                                                             .arg(App.runs.pageCount)
+                          : qsTr("%1 条匹配 · 第 %2 / %3 页").arg(Runtime.app.runs.total)
+                                                             .arg(Runtime.app.runs.page)
+                                                             .arg(Runtime.app.runs.pageCount)
 
-                AppButton { text: page.checkedCount > 0 ? qsTr("导出选中 CSV (%1)").arg(page.checkedCount) : qsTr("导出 CSV"); iconName: "file-down"; enabled: !App.historyBatchRunning; onClicked: App.exportCsv() }
-                AppButton { text: page.checkedCount > 0 ? qsTr("导出选中 JSON (%1)").arg(page.checkedCount) : qsTr("导出 JSON"); iconName: "file-json"; enabled: !App.historyBatchRunning; onClicked: App.exportJson() }
+                AppButton { text: page.checkedCount > 0 ? qsTr("导出选中 CSV (%1)").arg(page.checkedCount) : qsTr("导出 CSV"); iconName: "file-down"; enabled: !Runtime.app.historyBatchRunning; onClicked: Runtime.app.exportCsv() }
+                AppButton { text: page.checkedCount > 0 ? qsTr("导出选中 JSON (%1)").arg(page.checkedCount) : qsTr("导出 JSON"); iconName: "file-json"; enabled: !Runtime.app.historyBatchRunning; onClicked: Runtime.app.exportJson() }
                 AppButton { text: qsTr("导入记录"); iconName: "file-input"; onClicked: page.openImportRequested() }
                 AppButton {
                     text: qsTr("新增记录")
@@ -521,7 +521,7 @@ Item {
                 id: filterRow
                 Layout.fillWidth: true
                 spacing: 6
-                enabled: !App.historyBatchRunning
+                enabled: !Runtime.app.historyBatchRunning
 
                 readonly property int controlHeight: Theme.eorzea ? 32 : 30
                 // Width of everything after the search field, gaps included.
@@ -559,19 +559,19 @@ Item {
                     width: 238
                     rangeMode: true
                     restrictToRecords: true
-                    availableDays: App.runs.calendarAvailableDays
-                    knownMonths: App.runs.calendarKnownMonths
-                    availabilityLoading: App.runs.calendarLoading
-                    availabilityError: Theme.live(App.runs.calendarError || App.runs.calendarDayError(startText.trim()) || App.runs.calendarDayError(endText.trim()))
+                    availableDays: Runtime.app.runs.calendarAvailableDays
+                    knownMonths: Runtime.app.runs.calendarKnownMonths
+                    availabilityLoading: Runtime.app.runs.calendarLoading
+                    availabilityError: Theme.live(Runtime.app.runs.calendarError || Runtime.app.runs.calendarDayError(startText.trim()) || Runtime.app.runs.calendarDayError(endText.trim()))
                     onCalendarRequested: function(month) {
                         // Retry failed typed endpoints as well as the visible month.
                         for (const date of [startText.trim(), endText.trim()]) {
-                            if (App.runs.calendarDayError(date).length > 0)
-                                App.runs.requestCalendarDays(date.slice(0, 7))
+                            if (Runtime.app.runs.calendarDayError(date).length > 0)
+                                Runtime.app.runs.requestCalendarDays(date.slice(0, 7))
                         }
-                        App.runs.requestCalendarDays(month)
+                        Runtime.app.runs.requestCalendarDays(month)
                     }
-                    onEndpointRequested: date => App.runs.ensureCalendarDay(date)
+                    onEndpointRequested: date => Runtime.app.runs.ensureCalendarDay(date)
                     Accessible.name: qsTr("历史日期范围")
                     onStartTextChanged: page.scheduleFilter()
                     onEndTextChanged: page.scheduleFilter()
@@ -608,7 +608,7 @@ Item {
                     width: Math.max(78, Math.ceil(typeLabelMetrics.advanceWidth) + 36
                                      + leftPadding + rightPadding)
                     // value: the Chinese category RunFilter.duty_category carries; label: as shown.
-                    model: [{ value: null, label: qsTr("全部类型") }].concat(Theme.labelledCategories(App.categoryOptions))
+                    model: [{ value: null, label: qsTr("全部类型") }].concat(Theme.labelledCategories(Runtime.app.categoryOptions))
                     textRole: "label"
                     displayText: currentIndex === 0 ? qsTr("类型") : currentText
                     Accessible.name: qsTr("类型筛选")
@@ -623,7 +623,7 @@ Item {
                     // The first row clears this filter; the closed field keeps its short label.
                     // The label is the job in the interface language; the filter sends job_id.
                     model: [{ job_id: null, job_name: qsTr("全部职业"), label: qsTr("全部职业") }]
-                           .concat(Theme.labelledJobs(App.battleJobOptions))
+                           .concat(Theme.labelledJobs(Runtime.app.battleJobOptions))
                     textRole: "label"
                     displayText: currentIndex === 0 ? qsTr("职业") : currentText
                     Accessible.name: qsTr("职业筛选")
@@ -773,18 +773,18 @@ Item {
                 objectName: "historyBatchBar"
                 Layout.fillWidth: true
                 spacing: 8
-                enabled: !App.historyBatchRunning
-                AppButton { text: qsTr("取消勾选"); visible: page.checkedCount > 0; variant: "ghost"; onClicked: App.clearCheckedHistoryRuns() }
-                AppButton { objectName: "batchSoftDeleteButton"; text: qsTr("删除记录"); visible: page.checkedCount > 0; enabled: App.checkedHistoryDeletedCount === 0; onClicked: page.requestBatch("soft_delete") }
-                AppButton { objectName: "batchRestoreButton"; text: qsTr("恢复选中"); visible: page.checkedCount > 0 && App.checkedHistoryDeletedCount > 0; enabled: App.checkedHistoryDeletedCount === page.checkedCount; onClicked: page.requestBatch("restore") }
-                AppButton { objectName: "batchPurgeButton"; text: qsTr("永久删除"); visible: page.checkedCount > 0 && App.checkedHistoryDeletedCount > 0; enabled: App.checkedHistoryDeletedCount === page.checkedCount; onClicked: page.requestBatch("purge") }
+                enabled: !Runtime.app.historyBatchRunning
+                AppButton { text: qsTr("取消勾选"); visible: page.checkedCount > 0; variant: "ghost"; onClicked: Runtime.app.clearCheckedHistoryRuns() }
+                AppButton { objectName: "batchSoftDeleteButton"; text: qsTr("删除记录"); visible: page.checkedCount > 0; enabled: Runtime.app.checkedHistoryDeletedCount === 0; onClicked: page.requestBatch("soft_delete") }
+                AppButton { objectName: "batchRestoreButton"; text: qsTr("恢复选中"); visible: page.checkedCount > 0 && Runtime.app.checkedHistoryDeletedCount > 0; enabled: Runtime.app.checkedHistoryDeletedCount === page.checkedCount; onClicked: page.requestBatch("restore") }
+                AppButton { objectName: "batchPurgeButton"; text: qsTr("永久删除"); visible: page.checkedCount > 0 && Runtime.app.checkedHistoryDeletedCount > 0; enabled: Runtime.app.checkedHistoryDeletedCount === page.checkedCount; onClicked: page.requestBatch("purge") }
             }
 
             Text {
                 id: batchFeedback
                 Layout.fillWidth: true
                 visible: text.length > 0
-                text: App.historyBatchRunning ? qsTr("正在处理选中的记录…") : App.historyBatchFeedback
+                text: Runtime.app.historyBatchRunning ? qsTr("正在处理选中的记录…") : Runtime.app.historyBatchFeedback
                 textFormat: Text.PlainText
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fs(12)
@@ -821,8 +821,8 @@ Item {
                 layout: page.columnLayout
                 catalog: page.columnCatalog
                 controller: page.columnsController
-                sortField: App.runs.sortField
-                sortAscending: App.runs.sortAscending
+                sortField: Runtime.app.runs.sortField
+                sortAscending: Runtime.app.runs.sortAscending
                 bodyHeight: rowsColumn.height
                 onSortRequested: function(key) { page.sortByColumn(key) }
                 onCustomizeRequested: columnsDialog.open()
@@ -837,7 +837,7 @@ Item {
 
                 Repeater {
                     id: rowRepeater
-                    model: App.runs
+                    model: Runtime.app.runs
 
                     delegate: Rectangle {
                         id: runRow
@@ -845,7 +845,7 @@ Item {
                         required property var run
                         required property int index
 
-                        readonly property bool selected: App.selectedRun.run_id === run.run_id
+                        readonly property bool selected: Runtime.app.selectedRun.run_id === run.run_id
 
                         Layout.fillWidth: true
                         Layout.preferredHeight: page.rowHeight
@@ -880,7 +880,7 @@ Item {
                             onTapped: function(eventPoint) {
                                 if (eventPoint.position.x < 36) return
                                 page.detailTab = "info"
-                                App.selectRun(run)
+                                Runtime.app.selectRun(run)
                             }
                         }
 
@@ -907,9 +907,9 @@ Item {
                                 width: 32
                                 anchors.verticalCenter: parent.verticalCenter
                                 checked: page.isChecked(run.run_id)
-                                enabled: !App.historyBatchRunning
+                                enabled: !Runtime.app.historyBatchRunning
                                 Accessible.name: qsTr("勾选记录 %1 %2").arg(Theme.dutyName(run) || qsTr("未知副本")).arg(page.dateLabel(run))
-                                onClicked: App.setHistoryRunChecked(run, checked)
+                                onClicked: Runtime.app.setHistoryRunChecked(run, checked)
                             }
 
                             HistoryCell {
@@ -936,7 +936,7 @@ Item {
                                 layout: page.columnLayout
                                 Text {
                                     anchors.fill: parent
-                                    text: Fmt.localTime(run.entered_at_utc)
+                                    text: Runtime.fmt.localTime(run.entered_at_utc)
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                     elide: Text.ElideRight
@@ -952,7 +952,7 @@ Item {
                                 layout: page.columnLayout
                                 Text {
                                     anchors.fill: parent
-                                    text: Fmt.localTime(run.ended_at_utc)
+                                    text: Runtime.fmt.localTime(run.ended_at_utc)
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                     elide: Text.ElideRight
@@ -992,7 +992,7 @@ Item {
                                             text: run.duty_expansion
                                                   ? qsTr("%1 · %2级").arg(Theme.expansionName(run.duty_expansion))
                                                                       .arg(run.duty_level || 0)
-                                                  : Fmt.dash()
+                                                  : Runtime.fmt.dash()
                                             textFormat: Text.PlainText
                                             color: Theme.textSecondary
                                             font.pixelSize: Theme.fs(11)
@@ -1033,7 +1033,7 @@ Item {
                                     visible: jobHover.hovered
                                     delay: 400
                                     text: (Theme.jobName(run) || qsTr("未知")) + " · "
-                                          + Theme.roleGroupName(Jobs.roleGroup(run.job_id))
+                                          + Theme.roleGroupName(Runtime.jobs.roleGroup(run.job_id))
                                     contentItem: Text {
                                         text: jobTip.text
                                         textFormat: Text.PlainText
@@ -1065,9 +1065,9 @@ Item {
                                 layout: page.columnLayout
                                 Tag {
                                     anchors.centerIn: parent
-                                    text: Theme.live(Fmt.runResultLabel(run))
-                                    variant: Fmt.runInProgress(run)
-                                             ? "outline" : Fmt.resultTagVariant(run.result || "UNKNOWN")
+                                    text: Theme.live(Runtime.fmt.runResultLabel(run))
+                                    variant: Runtime.fmt.runInProgress(run)
+                                             ? "outline" : Runtime.fmt.resultTagVariant(run.result || "UNKNOWN")
                                 }
                             }
 
@@ -1076,7 +1076,7 @@ Item {
                                 layout: page.columnLayout
                                 Text {
                                     anchors.fill: parent
-                                    text: Fmt.duration(run.duration_ms)
+                                    text: Runtime.fmt.duration(run.duration_ms)
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                     elide: Text.ElideRight
@@ -1092,7 +1092,7 @@ Item {
                                 layout: page.columnLayout
                                 Text {
                                     anchors.fill: parent
-                                    text: Theme.live(Fmt.sourceLabel(run.source || "AUTO_NETWORK"))
+                                    text: Theme.live(Runtime.fmt.sourceLabel(run.source || "AUTO_NETWORK"))
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                     color: Theme.textSecondary
@@ -1146,14 +1146,14 @@ Item {
                 Layout.fillWidth: true
                 Layout.topMargin: 24
                 Layout.bottomMargin: 24
-                visible: App.runs.total === 0
+                visible: Runtime.app.runs.total === 0
                 // An emptied list after a refused or lost query is not "no matches".
-                text: App.runs.loadError.length > 0
-                      ? qsTr("历史记录读取失败：%1").arg(App.runs.loadError)
+                text: Runtime.app.runs.loadError.length > 0
+                      ? qsTr("历史记录读取失败：%1").arg(Runtime.app.runs.loadError)
                       : qsTr("没有符合筛选条件的记录。")
                 textFormat: Text.PlainText
                 wrapMode: Text.WordWrap
-                color: App.runs.loadError.length > 0 ? Theme.orangeText : Theme.textSecondary
+                color: Runtime.app.runs.loadError.length > 0 ? Theme.orangeText : Theme.textSecondary
                 font.pixelSize: Theme.fs(13)
             }
 
@@ -1185,12 +1185,12 @@ Item {
                     objectName: "historyPreviousPage"
                     text: qsTr("上一页")
                     iconName: "chevron-left"
-                    enabled: App.runs.page > 1
-                    onClicked: App.runs.previousPage()
+                    enabled: Runtime.app.runs.page > 1
+                    onClicked: Runtime.app.runs.previousPage()
                 }
 
                 Text {
-                    text: qsTr("%1 / %2").arg(App.runs.page).arg(App.runs.pageCount)
+                    text: qsTr("%1 / %2").arg(Runtime.app.runs.page).arg(Runtime.app.runs.pageCount)
                     color: Theme.textPrimary
                     font.pixelSize: Theme.fs(12)
                     font.family: Theme.figureFamily
@@ -1202,8 +1202,8 @@ Item {
                     text: qsTr("下一页")
                     iconName: "chevron-right"
                     iconAfterText: true
-                    enabled: App.runs.page < App.runs.pageCount
-                    onClicked: App.runs.nextPage()
+                    enabled: Runtime.app.runs.page < Runtime.app.runs.pageCount
+                    onClicked: Runtime.app.runs.nextPage()
                 }
             }
         }
@@ -1261,7 +1261,7 @@ Item {
         background: DialogFrame {}
         Overlay.modal: Rectangle { color: Theme.modalScrim(filterConfirmation.palette.shadow) }
         onOpened: { answered = false; keepFilterButton.forceActiveFocus() }
-        onClosed: { if (!answered) { answered = true; App.confirmHistoryFilterChange(false) } }
+        onClosed: { if (!answered) { answered = true; Runtime.app.confirmHistoryFilterChange(false) } }
         contentItem: ColumnLayout {
             spacing: 14
             HeadingLabel { Layout.fillWidth: true; text: qsTr("更改筛选并取消勾选？"); wrapMode: Text.Wrap }
@@ -1269,8 +1269,8 @@ Item {
             RowLayout {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
-                AppButton { id: keepFilterButton; objectName: "historyKeepSelection"; text: qsTr("保留勾选和筛选"); onClicked: { filterConfirmation.answered = true; App.confirmHistoryFilterChange(false); filterConfirmation.close() } }
-                AppButton { objectName: "historyConfirmFilter"; text: qsTr("取消勾选并更改"); variant: "primary"; onClicked: { filterConfirmation.answered = true; App.confirmHistoryFilterChange(true); filterConfirmation.close() } }
+                AppButton { id: keepFilterButton; objectName: "historyKeepSelection"; text: qsTr("保留勾选和筛选"); onClicked: { filterConfirmation.answered = true; Runtime.app.confirmHistoryFilterChange(false); filterConfirmation.close() } }
+                AppButton { objectName: "historyConfirmFilter"; text: qsTr("取消勾选并更改"); variant: "primary"; onClicked: { filterConfirmation.answered = true; Runtime.app.confirmHistoryFilterChange(true); filterConfirmation.close() } }
             }
         }
     }
@@ -1288,7 +1288,7 @@ Item {
         property string action: "soft_delete"
         property bool submitted: false
         readonly property bool purge: action === "purge"
-        closePolicy: App.historyBatchRunning ? Popup.NoAutoClose : Popup.CloseOnEscape
+        closePolicy: Runtime.app.historyBatchRunning ? Popup.NoAutoClose : Popup.CloseOnEscape
         background: DialogFrame {}
         Overlay.modal: Rectangle { color: Theme.modalScrim(batchDialog.palette.shadow) }
         onOpened: batchCancelButton.forceActiveFocus()
@@ -1300,26 +1300,26 @@ Item {
                 text: batchDialog.purge
                     ? qsTr("记录、心得、事件和修改内容会被永久删除，关联图片也会清理，无法恢复。已有备份、导出文件和分享图片会保留。图片清理失败时会保留清理任务，之后重试。")
                     : batchDialog.action === "restore" ? qsTr("选中的记录将恢复到历史记录中，取消自动永久删除，统计会重新计算。")
-                    : App.historyRetentionDays === 0 ? qsTr("记录会移到“已删除”，不再计入统计，可以恢复。当前设置为不自动永久删除。")
-                    : App.historyRetentionDays < 0 ? qsTr("记录会移到“已删除”，不再计入统计，永久删除前可以恢复。尚未读到保留期，请到“设置”的“数据”页确认后台服务当前使用的天数。")
-                    : qsTr("记录会移到“已删除”，不再计入统计，%1 天内可以恢复；到期后会自动永久删除。软件关闭期间到期的记录，会在下次启动时清理。").arg(App.historyRetentionDays)
+                    : Runtime.app.historyRetentionDays === 0 ? qsTr("记录会移到“已删除”，不再计入统计，可以恢复。当前设置为不自动永久删除。")
+                    : Runtime.app.historyRetentionDays < 0 ? qsTr("记录会移到“已删除”，不再计入统计，永久删除前可以恢复。尚未读到保留期，请到“设置”的“数据”页确认后台服务当前使用的天数。")
+                    : qsTr("记录会移到“已删除”，不再计入统计，%1 天内可以恢复；到期后会自动永久删除。软件关闭期间到期的记录，会在下次启动时清理。").arg(Runtime.app.historyRetentionDays)
                 textFormat: Text.PlainText
                 wrapMode: Text.Wrap
                 color: batchDialog.purge ? Theme.orangeText : Theme.textPrimary
                 font.pixelSize: Theme.fs(13)
             }
-            StyledTextField { id: batchReason; objectName: "historyBatchReason"; Layout.fillWidth: true; maximumLength: 500; enabled: !App.historyBatchRunning; placeholderText: qsTr("操作原因（必填）"); Accessible.name: qsTr("批量操作原因") }
-            Text { Layout.fillWidth: true; visible: batchDialog.submitted && App.historyBatchFeedback.length > 0; text: App.historyBatchFeedback; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Theme.orangeText; font.pixelSize: Theme.fs(12) }
+            StyledTextField { id: batchReason; objectName: "historyBatchReason"; Layout.fillWidth: true; maximumLength: 500; enabled: !Runtime.app.historyBatchRunning; placeholderText: qsTr("操作原因（必填）"); Accessible.name: qsTr("批量操作原因") }
+            Text { Layout.fillWidth: true; visible: batchDialog.submitted && Runtime.app.historyBatchFeedback.length > 0; text: Runtime.app.historyBatchFeedback; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Theme.orangeText; font.pixelSize: Theme.fs(12) }
             RowLayout {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
-                AppButton { id: batchCancelButton; text: qsTr("取消"); enabled: !App.historyBatchRunning; onClicked: batchDialog.close() }
+                AppButton { id: batchCancelButton; text: qsTr("取消"); enabled: !Runtime.app.historyBatchRunning; onClicked: batchDialog.close() }
                 AppButton {
                     objectName: "historyConfirmBatch"
-                    text: App.historyBatchRunning ? qsTr("正在处理…") : batchDialog.purge ? qsTr("确认永久删除") : batchDialog.action === "restore" ? qsTr("确认恢复") : qsTr("确认删除")
+                    text: Runtime.app.historyBatchRunning ? qsTr("正在处理…") : batchDialog.purge ? qsTr("确认永久删除") : batchDialog.action === "restore" ? qsTr("确认恢复") : qsTr("确认删除")
                     variant: "primary"
-                    enabled: !App.historyBatchRunning && page.checkedCount > 0 && batchReason.text.trim().length > 0
-                    onClicked: { batchDialog.submitted = true; App.mutateCheckedHistoryRuns(batchDialog.action, Theme.storedReason(batchReason.text)) }
+                    enabled: !Runtime.app.historyBatchRunning && page.checkedCount > 0 && batchReason.text.trim().length > 0
+                    onClicked: { batchDialog.submitted = true; Runtime.app.mutateCheckedHistoryRuns(batchDialog.action, Theme.storedReason(batchReason.text)) }
                 }
             }
         }
@@ -1331,31 +1331,31 @@ Item {
     MouseArea {
         anchors.fill: parent
         z: 5
-        visible: App.hasSelection
-        enabled: App.hasSelection
+        visible: Runtime.app.hasSelection
+        enabled: Runtime.app.hasSelection
         acceptedButtons: Qt.LeftButton | Qt.RightButton
-        onClicked: App.clearSelection()
+        onClicked: Runtime.app.clearSelection()
     }
 
     RunDetailPanel {
-        visible: App.hasSelection
+        visible: Runtime.app.hasSelection
         anchors.top: parent.top
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.margins: 12
         width: 380
         z: 10
-        runData: App.selectedRun
-        revisions: App.selectedRunRevisions
+        runData: Runtime.app.selectedRun
+        revisions: Runtime.app.selectedRunRevisions
         activeTab: page.detailTab
         onTabChanged: function(tab) { page.detailTab = tab }
-        onCloseRequested: App.clearSelection()
+        onCloseRequested: Runtime.app.clearSelection()
         onCorrectRequested: page.openCorrectRequested()
         onDeleteRequested: page.openDeleteRequested()
         onRestoreRequested: page.openRestoreRequested()
         onUndoRequested: page.openUndoRequested()
         onReviewRequested: page.openReviewRequested()
-        onReflectRequested: page.reflectRequested(App.selectedRun)
-        onShareRequested: page.shareRequested(App.selectedRun)
+        onReflectRequested: page.reflectRequested(Runtime.app.selectedRun)
+        onShareRequested: page.shareRequested(Runtime.app.selectedRun)
     }
 }

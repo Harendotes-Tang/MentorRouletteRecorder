@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import MentorRecorder
+import MentorRecorder 1.0
 
 // `.input`: an inset well with a gold focus ring (eorzea); workbench's 30 px
 // surface field with a neutral-300 frame and an accent focus ring (classic).

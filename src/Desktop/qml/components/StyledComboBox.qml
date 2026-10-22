@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 ComboBox {
     id: control
@@ -87,7 +87,7 @@ ComboBox {
 
             RoleIcon {
                 visible: control.showJobIcons
-                role: Jobs.roleGroup(row.model.job_id !== undefined ? row.model.job_id : null)
+                role: Runtime.jobs.roleGroup(row.model.job_id !== undefined ? row.model.job_id : null)
                 size: 18
             }
         }

@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 导随统计浮窗: a frameless, always-on-top window the player keeps over the
 // game (docs/ui-design.md §4.9). Two forms: the full window - a 30 px title
@@ -12,12 +12,16 @@ Window {
     id: floating
     objectName: "statisticsFloatingWindow"
 
-    readonly property var controller: App.statisticsOverlay
+    readonly property var controller: Runtime.app.statisticsOverlay
     readonly property bool mini: controller.form === "mini"
     readonly property bool locked: controller.locked
     property bool positionReady: false
     property bool customizing: false
-    readonly property int miniWidth: 280
+    readonly property bool transitioning: formTransition.running
+    property rect targetGeometry: Qt.rect(0, 0, 300, 560)
+    property point formOrigin: Qt.point(0, 0)
+    property int formDuration: 0
+    property real formBlend: 0
 
     OverlayData { id: ov }
 
@@ -36,43 +40,53 @@ Window {
 
     function miniHeight() { return Math.max(40, Math.round(miniBar.implicitHeight)) }
 
-    // The full form's geometry is the saved one; the mini bar shares its
-    // position and has its own size.
+    // Persist only settled geometry. Animation frames must never replace the
+    // remembered full height, including when the window closes mid-transition.
     function rememberGeometry() {
         if (!positionReady) return
         if (mini) controller.setPosition(Qt.rect(x, y, width, height))
         else controller.setGeometry(Qt.rect(x, y, width, height))
     }
-    // The constraints are set here, in order, not bound: a binding may run
-    // after this handler and clamp the size it just set.
-    function applyForm() {
+    function finishForm() {
+        positionReady = false
+        formTransition.stop()
+        width = targetGeometry.width
+        height = targetGeometry.height
+        x = targetGeometry.x
+        y = targetGeometry.y
+        formBlend = mini ? 1 : 0
+        minimumWidth = mini ? width : 240
+        maximumWidth = mini ? width : 520
+        minimumHeight = mini ? height : 150
+        maximumHeight = mini ? height : 1200
+        positionReady = visible
+    }
+    // Fit the destination before animating. Reversals retain the sequence's
+    // original position and start from the current height and opacity.
+    function applyForm(animate) {
+        if (!transitioning) formOrigin = Qt.point(x, y)
+        positionReady = false
+        savePosition.stop()
+        formTransition.stop()
+        minimumWidth = 240
+        maximumWidth = 520
+        minimumHeight = 40
+        maximumHeight = 1200
         const rect = controller.geometry
         if (mini) {
-            const bar = miniHeight()
-            minimumWidth = miniWidth
-            maximumWidth = miniWidth
-            minimumHeight = bar
-            maximumHeight = bar
-            width = miniWidth
-            height = bar
-            // The bar's own rectangle decides what fits: docked at the bottom
-            // edge it stays there, and a second line grows it upwards, not off
-            // the screen.
-            controller.setPosition(Qt.rect(x, y, miniWidth, bar))
-            x = controller.geometry.x
-            y = controller.geometry.y
+            controller.setPosition(Qt.rect(formOrigin.x, formOrigin.y, rect.width, miniHeight()))
         } else {
-            minimumWidth = 240
-            maximumWidth = 520
-            minimumHeight = 150
-            maximumHeight = 1200
-            width = rect.width
-            height = rect.height
-            // Back from the bar: the full window must fit where the bar was.
-            controller.setGeometry(Qt.rect(x, y, rect.width, rect.height))
-            x = controller.geometry.x
-            y = controller.geometry.y
+            controller.setGeometry(Qt.rect(formOrigin.x, formOrigin.y, rect.width, rect.height))
         }
+        const fitted = controller.geometry
+        targetGeometry = Qt.rect(fitted.x, fitted.y, fitted.width, mini ? miniHeight() : fitted.height)
+        width = targetGeometry.width
+        x = targetGeometry.x
+        if (animate && Theme.motion) {
+            formDuration = Theme.motionControl
+            formTransition.start()
+        }
+        else finishForm()
     }
     onXChanged: { if (positionReady && visible) savePosition.restart() }
     onYChanged: { if (positionReady && visible) savePosition.restart() }
@@ -84,36 +98,62 @@ Window {
             const rect = controller.geometry
             x = rect.x
             y = rect.y
-            applyForm()
-            Qt.callLater(function() { floating.positionReady = floating.visible })
+            applyForm(false)
+            Qt.callLater(function() {
+                if (!floating.transitioning) floating.positionReady = floating.visible
+            })
         } else {
             rememberGeometry()
             savePosition.stop()
             customizing = false
             positionReady = false
+            formTransition.stop()
         }
     }
     onMiniChanged: {
         if (!visible) return
-        const ready = positionReady
-        positionReady = false
-        rememberGeometry()
+        const animate = positionReady || transitioning
+        // `mini` is already the destination here; save the previous form before
+        // disabling geometry persistence, even if its debounce has not fired.
+        if (positionReady) {
+            if (mini) controller.setGeometry(Qt.rect(x, y, width, height))
+            else controller.setPosition(Qt.rect(x, y, width, height))
+        }
         customizing = false
-        applyForm()
-        positionReady = ready
+        applyForm(animate)
     }
-    onClosing: {
-        rememberGeometry()
-        controller.hide()
+    Connections {
+        target: floating
+        function onClosing() {
+            floating.rememberGeometry()
+            floating.controller.hide()
+        }
     }
     Timer { id: savePosition; interval: 180; onTriggered: floating.rememberGeometry() }
+    ParallelAnimation {
+        id: formTransition
+        NumberAnimation { target: floating; property: "height"; to: floating.targetGeometry.height; duration: floating.formDuration; easing.type: Easing.Bezier; easing.bezierCurve: Theme.curveStandard }
+        NumberAnimation { target: floating; property: "y"; to: floating.targetGeometry.y; duration: floating.formDuration; easing.type: Easing.Bezier; easing.bezierCurve: Theme.curveStandard }
+        // Fade the outgoing form fully before revealing the incoming form;
+        // different title/count positions must never be drawn over each other.
+        NumberAnimation { target: floating; property: "formBlend"; to: floating.mini ? 1 : 0; duration: floating.formDuration; easing.type: Easing.Bezier; easing.bezierCurve: Theme.curveStandard }
+        onFinished: floating.finishForm()
+    }
+    Connections {
+        target: Theme
+        function onMotionChanged() {
+            // Each run captures its duration: changing live child durations to
+            // zero while stopping can leave Qt's animation group running.
+            if (!Theme.motion && floating.transitioning) floating.finishForm()
+        }
+    }
     Connections {
         target: floating.controller
         function onLockedChanged() { if (floating.controller.locked) floating.customizing = false }
     }
     Connections {
         target: miniBar
-        function onImplicitHeightChanged() { if (floating.mini && floating.visible) floating.applyForm() }
+        function onImplicitHeightChanged() { if (floating.mini && floating.visible) floating.applyForm(floating.transitioning) }
     }
 
     // ---------------------------------------------------------------- 底板 --
@@ -130,12 +170,18 @@ Window {
     // ---------------------------------------------------------------- 完整 --
     ColumnLayout {
         id: full
-        visible: !floating.mini
-        anchors.fill: parent
+        objectName: "floatingFullContent"
+        opacity: Math.max(0, 1 - floating.formBlend * 2)
+        visible: !floating.mini || floating.transitioning
+        enabled: !floating.mini
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
         anchors.margins: 1
+        height: (floating.transitioning ? floating.controller.geometry.height : floating.height) - 2
         spacing: 0
 
-        // `.ov-hd`: grip, crest, title, then 收成迷你条 / 自定义 / 锁定 / 关闭.
+        // The form action leads the right-hand button group in both forms.
         Item {
             id: header
             objectName: "floatingHeader"
@@ -145,6 +191,7 @@ Window {
 
             MouseArea {
                 anchors.fill: parent
+                enabled: !floating.transitioning
                 cursorShape: Qt.SizeAllCursor
                 onPressed: floating.startSystemMove()
                 HoverHandler { id: headerHover }
@@ -178,46 +225,54 @@ Window {
                     font.weight: Font.DemiBold
                     font.letterSpacing: 0.4
                 }
-                OverlayIconButton {
-                    id: miniButton
-                    objectName: "floatingMiniButton"
-                    iconName: "to-mini"
-                    tip: qsTr("收成迷你条")
-                    onClicked: floating.controller.form = "mini"
-                }
-                OverlayIconButton {
-                    id: customizeButton
-                    objectName: "floatingCustomizeButton"
-                    iconName: "customize"
-                    tip: qsTr("自定义")
-                    on: floating.customizing
-                    onClicked: floating.customizing = !floating.customizing
-                }
-                OverlayIconButton {
-                    id: lockButton
-                    objectName: "floatingLockButton"
-                    iconName: "lock"
-                    tip: qsTr("锁定位置和大小，鼠标穿透；在主窗口或托盘解锁")
-                    onClicked: floating.controller.locked = true
-                }
-                OverlayIconButton {
-                    id: closeButton
-                    objectName: "floatingCloseButton"
-                    iconName: "close"
-                    tip: qsTr("关闭浮窗")
-                    onClicked: { floating.rememberGeometry(); floating.controller.hide() }
+                RowLayout {
+                    objectName: "floatingFullActions"
+                    spacing: 4
+                    OverlayIconButton {
+                        id: miniButton
+                        objectName: "floatingMiniButton"
+                        iconName: "to-mini"
+                        tip: qsTr("收成迷你条")
+                        onClicked: floating.controller.form = "mini"
+                    }
+                    OverlayIconButton {
+                        id: customizeButton
+                        objectName: "floatingCustomizeButton"
+                        enabled: !floating.transitioning
+                        iconName: "customize"
+                        tip: qsTr("自定义")
+                        on: floating.customizing
+                        onClicked: floating.customizing = !floating.customizing
+                    }
+                    OverlayIconButton {
+                        id: lockButton
+                        objectName: "floatingLockButton"
+                        enabled: !floating.transitioning
+                        iconName: "lock"
+                        tip: qsTr("锁定位置和大小，鼠标穿透；在主窗口或托盘解锁")
+                        onClicked: floating.controller.locked = true
+                    }
+                    OverlayIconButton {
+                        id: closeButton
+                        objectName: "floatingCloseButton"
+                        enabled: !floating.transitioning
+                        iconName: "close"
+                        tip: qsTr("关闭浮窗")
+                        onClicked: { floating.rememberGeometry(); floating.controller.hide() }
+                    }
                 }
             }
         }
         Rectangle { visible: header.visible; Layout.fillWidth: true; implicitHeight: 1; color: Theme.border }
 
         OverlayPeriodSelector {
+            enabled: !floating.transitioning
             Layout.fillWidth: true
             Layout.leftMargin: 12
             Layout.rightMargin: 12
             Layout.topMargin: visible ? 8 : 0
             Layout.bottomMargin: visible ? 2 : 0
-            visible: !floating.customizing && floating.controller.modules.indexOf("attempts") >= 0
+            visible: !floating.customizing && floating.controller.hasPeriodStatistics
             controller: floating.controller
         }
 
@@ -225,6 +280,7 @@ Window {
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            enabled: !floating.transitioning
 
             ScrollView {
                 id: scroll
@@ -243,7 +299,7 @@ Window {
                     spacing: 8
                     Text {
                         Layout.fillWidth: true
-                        visible: !App.achievementSettingsLoaded
+                        visible: !Runtime.app.achievementSettingsLoaded
                         text: qsTr("数据暂未就绪，已有统计可能不是最新。")
                         wrapMode: Text.WordWrap
                         color: Theme.orangeText
@@ -270,7 +326,7 @@ Window {
 
     // `.ov-resize`: the corner glyph; the platform does the resizing.
     Item {
-        visible: !floating.mini && !floating.locked
+        visible: !floating.mini && !floating.locked && !floating.transitioning
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.margins: 1
@@ -289,7 +345,12 @@ Window {
     // ---------------------------------------------------------------- 迷你条 --
     OverlayMiniBar {
         id: miniBar
-        visible: floating.mini
+        objectName: "floatingMiniContent"
+        visible: floating.mini || floating.transitioning
+        enabled: floating.mini
+        opacity: Math.max(0, floating.formBlend * 2 - 1)
+        movingEnabled: !floating.transitioning
+        secondaryActionsEnabled: !floating.transitioning
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top

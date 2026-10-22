@@ -1105,3 +1105,33 @@ if(WIN32)
         "MR_TEST_TRADITIONAL_NATIVE_DPI=set:1")
     set_tests_properties(MentorRecorderNavigationTraditionalDpi PROPERTIES TIMEOUT 30)
 endif()
+
+# Source-QML fixtures register their own Theme and inject lightweight services.
+# Share Runtime's real implementation, with a test-only per-engine context adapter.
+add_library(MentorRecorderQmlRuntimeTestSupport OBJECT
+    "${PROJECT_SOURCE_DIR}/src/Desktop/cpp/QmlRuntime.h"
+    "${PROJECT_SOURCE_DIR}/src/Desktop/cpp/QmlRuntime.cpp"
+    QmlRuntimeTestRegistration.cpp)
+target_include_directories(MentorRecorderQmlRuntimeTestSupport PRIVATE
+    "${PROJECT_SOURCE_DIR}/src/Desktop/cpp")
+target_link_libraries(MentorRecorderQmlRuntimeTestSupport PUBLIC Qt6::Qml)
+set_target_properties(MentorRecorderQmlRuntimeTestSupport PROPERTIES AUTOMOC TRUE)
+mr_use_ascii_autogen_dir(MentorRecorderQmlRuntimeTestSupport)
+
+add_executable(MentorRecorderQmlRuntimeTests QmlRuntimeTests.cpp)
+target_link_libraries(MentorRecorderQmlRuntimeTests PRIVATE
+    MentorRecorderDesktopLib Qt6::Gui Qt6::Test)
+set_target_properties(MentorRecorderQmlRuntimeTests PROPERTIES AUTOMOC TRUE)
+mr_use_ascii_autogen_dir(MentorRecorderQmlRuntimeTests)
+add_test(NAME MentorRecorderQmlRuntime COMMAND MentorRecorderQmlRuntimeTests)
+set_tests_properties(MentorRecorderQmlRuntime PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;MR_DISABLE_SHARED_FETCH=1;MR_DISABLE_ONLINE_SPEECH=1;MR_DISABLE_UPDATE_CHECK=1"
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${MR_QT_RUNTIME_DIR};PATH=path_list_prepend:${MR_CXX_RUNTIME_DIR}")
+
+get_property(mr_desktop_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(mr_test_target IN LISTS mr_desktop_test_targets)
+    get_target_property(mr_test_target_type "${mr_test_target}" TYPE)
+    if(mr_test_target_type STREQUAL "EXECUTABLE" AND mr_test_target MATCHES "Tests$")
+        target_link_libraries("${mr_test_target}" PRIVATE MentorRecorderQmlRuntimeTestSupport)
+    endif()
+endforeach()

@@ -1,13 +1,15 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls 6.8
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 import "../components/Lucide.js" as Lucide
 
 Dialog {
     id: dialog
     objectName: "importRecordsDialog"
-    property var controller: typeof ImportRecords !== "undefined" ? ImportRecords : null
+    property var controller: typeof Runtime.importRecords !== "undefined" ? Runtime.importRecords : null
     readonly property bool working: controller ? controller.busy : false
     readonly property bool inputLocked: working || (controller && controller.pendingCommitConfirmation)
     readonly property var candidate: controller ? controller.currentCandidate : ({})
@@ -98,6 +100,11 @@ Dialog {
         {text: qsTr("顺利"), value: "good"},
         {text: qsTr("一般"), value: "ok"},
         {text: qsTr("糟心"), value: "bad"}
+    ]
+    readonly property var entryModeOptions: [
+        {text: qsTr("未知"), value: null},
+        {text: qsTr("正常"), value: false},
+        {text: qsTr("中途"), value: true}
     ]
     readonly property var visibleRows: projectRows(activeFilter)
     readonly property int reviewPageSize: 100
@@ -311,8 +318,11 @@ Dialog {
         candidateList.forceActiveFocus(Qt.MouseFocusReason)
     }
     function editorOwnsPaste() {
-        const window = importContent.Window.window
-        const item = window ? window.activeFocusItem : null
+        const window = dialog.contentItem.Window.window
+        return isPasteEditor(window ? window.activeFocusItem : null)
+    }
+    function isPasteEditor(item: var): bool {
+        // Keep custom input controls eligible by their editing properties.
         return !!item && (item.selectByMouse !== undefined || item.preeditText !== undefined
                          || item.editable !== undefined)
     }
@@ -350,6 +360,7 @@ Dialog {
         mapJob.text = ""
         mapDate.text = ""
         mapReflection.text = ""
+        mapEntryMode.text = ""
         pastedText.text = ""
         open()
     }
@@ -382,6 +393,19 @@ Dialog {
     }
     function value(key) { return candidate && candidate[key] !== null && candidate[key] !== undefined ? String(candidate[key]) : "" }
 
+    function entryModeIndex() {
+        const raw = candidate ? candidate.joined_in_progress : null
+        if (raw === true) return 2
+        if (raw === false) return 1
+        if (raw === null || raw === undefined || String(raw).trim() === "") return 0
+        // Text belongs to the source candidate. Display the Collector's normalized
+        // boolean without rewriting the original candidate during unrelated edits.
+        const normalized = rowData && rowData.run ? rowData.run.joined_in_progress : undefined
+        if (normalized === true) return 2
+        if (normalized === false) return 1
+        return -1
+    }
+
     // ---------------------------------------------------------- 游戏名称 --
     // A candidate stores the Chinese client's names; the dialog shows them in
     // the interface language (Theme.dutyLabel / jobLabel). The 副本 and 副本类别
@@ -398,24 +422,54 @@ Dialog {
         const name = c && c.job_name !== null && c.job_name !== undefined ? String(c.job_name) : ""
         return name.length > 0 ? (Theme.jobLabel(c.job_id, name) || name) : ""
     }
-    readonly property string candidateDutyLabel: dutyNameOf(candidate)
+    readonly property string candidateDutyLabel: {
+        const run = rowData.run || ({})
+        const id = Theme.nameId(candidate.content_id) !== null ? candidate.content_id : run.content_id
+        const choices = controller ? (controller.dutyChoices || []) : []
+        for (let i = 0; i < choices.length; ++i) {
+            if (id !== undefined && id !== null && choices[i].name_ambiguous === true
+                    && Number(choices[i].content_id) === Number(id))
+                return Theme.dutyChoiceLabel(Object.assign({}, choices[i], {duty_name: candidate.duty_name || choices[i].duty_name}))
+        }
+        return dutyNameOf(candidate)
+    }
     readonly property string candidateCategoryLabel: Theme.categoryName(value("duty_category"))
-    /// The catalogue duty whose name in the interface language is \a typed when
-    /// that is not a recorded name itself; null otherwise.
+    /// An explicit choice label, a unique exact name, or the sole preferred
+    /// same-name entry. Ambiguous names never select the first catalogue row.
     function catalogueDutyShownAs(typed) {
         const query = String(typed || "").trim().toLowerCase()
         if (!query || !controller)
             return null
         const choices = controller.dutyChoices || []
+        const matches = []
         for (let i = 0; i < choices.length; ++i) {
-            if (String(choices[i].duty_name || "").toLowerCase() === query)
-                return null
+            const row = choices[i]
+            if (row.name_ambiguous === true && Theme.dutyChoiceLabel(row).toLowerCase() === query)
+                return row
+            if (String(row.duty_name || "").toLowerCase() === query
+                    || Theme.dutyName(row).toLowerCase() === query)
+                matches.push(row)
         }
-        for (let j = 0; j < choices.length; ++j) {
-            if (Theme.dutyName(choices[j]).toLowerCase() === query)
-                return choices[j]
+        if (candidate.region === "GLOBAL") return null
+        if (matches.length === 1) return matches[0]
+        const preferred = matches.filter(function(row) { return row.preferred_for_name_matching === true })
+        return preferred.length === 1 ? preferred[0] : null
+    }
+    readonly property bool ambiguousDutyName: {
+        const run = rowData.run || ({})
+        if (Theme.nameId(candidate.content_id) !== null || Theme.nameId(run.content_id) !== null)
+            return false
+        if (!controller || candidate.region === "GLOBAL") return false
+        const name = String(candidate.duty_name || "").trim().toLowerCase()
+        if (!name) return false
+        const choices = controller.dutyChoices || []
+        let count = 0
+        for (let i = 0; i < choices.length; ++i) {
+            if (String(choices[i].duty_name || "").toLowerCase() === name
+                    || Theme.dutyName(choices[i]).toLowerCase() === name)
+                ++count
         }
-        return null
+        return count > 1 && !catalogueDutyShownAs(name)
     }
     /// Selecting a catalogue duty writes name and identity together.
     function acceptDuty(duty) {
@@ -505,7 +559,8 @@ Dialog {
     function applyMapping() {
         let mapping = {}
         const fields = [ [mapDuty.text, "duty_name"], [mapJob.text, "job_name"],
-                         [mapDate.text, "source_recorded_at"], [mapReflection.text, "reflection_text"] ]
+                         [mapDate.text, "source_recorded_at"], [mapReflection.text, "reflection_text"],
+                         [mapEntryMode.text, "joined_in_progress"] ]
         for (let field of fields)
             if (field[0].trim().length > 0)
                 mapping[field[0].trim()] = field[1]
@@ -577,7 +632,7 @@ Dialog {
                     border.color: Theme.neutral300; border.width: 1
                     ColumnLayout {
                         anchors.centerIn: parent; width: parent.width - 32; spacing: 12
-                        Image { Layout.alignment: Qt.AlignHCenter; width: 30; height: 30; source: Lucide.source("folder-open", Theme.accent) }
+                        Image { Layout.alignment: Qt.AlignHCenter; Layout.preferredWidth: 30; Layout.preferredHeight: 30; source: Lucide.source("folder-open", Theme.accent) }
                         Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: qsTr("把截图或表格文件拖到这里"); color: Theme.textPrimary; font.pixelSize: Theme.fs(16); font.bold: true; horizontalAlignment: Text.AlignHCenter }
                         Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: qsTr("截图可以一次选多张；剪贴板里的截图或表格也能直接粘贴。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter }
                         Item { id: startActions; Layout.alignment: Qt.AlignHCenter; Layout.preferredWidth: sourceActions.implicitWidth; Layout.preferredHeight: 32 }
@@ -850,8 +905,8 @@ Dialog {
                                             const choices = dialog.controller.dutyChoices || []
                                             const found = []
                                             // The recorded (Chinese) name or the one shown both find a duty.
-                                            for (let i = 0; i < choices.length && found.length < 8; ++i) {
-                                                if (Theme.nameMatches([choices[i].duty_name, Theme.dutyName(choices[i])], query))
+                                            for (let i = 0; i < choices.length; ++i) {
+                                                if (Theme.nameMatches([choices[i].duty_name, Theme.dutyChoiceLabel(choices[i])], query))
                                                     found.push(choices[i])
                                             }
                                             return found
@@ -872,7 +927,10 @@ Dialog {
                                             else dutySuggestions.close()
                                         }
                                         onPreeditTextChanged: if (preeditText.length > 0) dutySuggestions.close()
-                                        onActiveFocusChanged: if (!activeFocus) dutySuggestions.close()
+                                        onActiveFocusChanged: {
+                                            if (activeFocus) suggestionQuery = String(dialog.value("duty_name") || text)
+                                            else dutySuggestions.close()
+                                        }
                                         onEditingFinished: dialog.finishDutyName(text.trim())
                                         Keys.onPressed: function(event) {
                                             if (preeditText.length > 0 || event.modifiers !== Qt.NoModifier) return
@@ -896,7 +954,7 @@ Dialog {
                                             parent: dutyNameField
                                             x: 0; y: dutyNameField.height + 2
                                             width: dutyNameField.width
-                                            height: suggestionsList.contentHeight + 8
+                                            height: Math.min(248, suggestionsList.contentHeight + 8)
                                             padding: 4
                                             focus: false
                                             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
@@ -908,21 +966,25 @@ Dialog {
                                                 clip: true
                                                 model: dutyNameField.suggestions
                                                 currentIndex: dutyNameField.suggestionIndex
+                                                onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
+                                                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                                                 delegate: ItemDelegate {
                                                     required property var modelData
                                                     required property int index
                                                     width: suggestionsList.width
                                                     height: 30
-                                                    text: Theme.dutyName(modelData)
+                                                    text: Theme.dutyChoiceLabel(modelData)
+                                                    Accessible.name: text
                                                     focusPolicy: Qt.NoFocus
                                                     highlighted: index === dutyNameField.suggestionIndex
-                                                    contentItem: Text { text: Theme.dutyName(modelData); textFormat: Text.PlainText; color: Theme.textPrimary; font.pixelSize: Theme.fs(12); verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
+                                                    contentItem: Text { text: Theme.dutyChoiceLabel(modelData); textFormat: Text.PlainText; color: Theme.textPrimary; font.pixelSize: Theme.fs(12); verticalAlignment: Text.AlignVCenter; elide: Text.ElideMiddle }
                                                     background: Rectangle { color: parent.highlighted || parent.hovered ? Theme.accentMuted : "transparent"; radius: Theme.radiusS }
                                                     onClicked: dutyNameField.acceptSuggestion(index)
                                                 }
                                             }
                                         }
                                     }
+                                    Text { objectName: "importDutyAmbiguityWarning"; textFormat: Text.PlainText; Layout.columnSpan: 2; Layout.fillWidth: true; visible: dialog.ambiguousDutyName; text: qsTr("该名称对应多个副本，请按编号选择；暂时无法确认时可保留未知。"); color: Theme.orangeText; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
                                     FieldLabel { text: qsTr("副本类别") }
                                     StyledTextField { objectName: "importDutyCategory"; Layout.fillWidth: true; text: dialog.candidateCategoryLabel; placeholderText: qsTr("根据副本自动填写"); Accessible.description: qsTr("根据匹配的副本资料自动填写类别"); onEditingFinished: dialog.finishCategory(text.trim()) }
                                     Text { textFormat: Text.PlainText; objectName: "importJobCandidateWarning"; Layout.columnSpan: 2; Layout.fillWidth: true; visible: dialog.evidence.job_candidate_pending === true || dialog.unsupportedSourceJob; text: dialog.unsupportedSourceJob ? qsTr("原记录中的职业不适用于指导者任务，请核对并重新选择。") : qsTr("职业待复核：可能是「%1」（%2），请对照原图确认。").arg(Theme.jobLabel(dialog.evidence.job_candidate_id, dialog.evidence.job_candidate_name)).arg(dialog.iconEvidenceText); color: Theme.orangeText; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
@@ -939,6 +1001,17 @@ Dialog {
                                     FieldLabel { text: qsTr("结果") }
                                     StyledComboBox { objectName: "importResult"; Layout.fillWidth: true; model: dialog.resultOptions; textRole: "text"; currentIndex: dialog.optionIndex(model, "value", dialog.candidate.result || "COMPLETED"); onActivated: function(index) { dialog.edit("result", model[index].value) } }
                                     Text { textFormat: Text.PlainText; Layout.columnSpan: 2; Layout.fillWidth: true; text: qsTr("来源未提供结果时按通关预填，可以修改。"); color: Theme.textMuted; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap }
+                                    FieldLabel { text: qsTr("进入方式") }
+                                    StyledComboBox {
+                                        objectName: "importEntryMode"; Layout.fillWidth: true
+                                        model: dialog.entryModeOptions; textRole: "text"
+                                        currentIndex: dialog.entryModeIndex()
+                                        displayText: currentIndex >= 0 ? model[currentIndex].text : dialog.value("joined_in_progress")
+                                        onActivated: function(index) { dialog.edit("joined_in_progress", model[index].value) }
+                                        Accessible.name: qsTr("进入方式")
+                                        ToolTip.visible: hovered; ToolTip.delay: 600
+                                        ToolTip.text: qsTr("未提供进入方式时保留未知，不会自动当作正常进入。")
+                                    }
                                     FieldLabel { text: qsTr("打本心情") }
                                     StyledComboBox { objectName: "importMood"; Layout.fillWidth: true; model: dialog.moodOptions; textRole: "text"; currentIndex: dialog.optionIndex(model, "value", dialog.candidate.reflection_mood || "unknown"); onActivated: function(index) { dialog.edit("reflection_mood", model[index].value) } }
                                 }
@@ -1165,7 +1238,10 @@ Dialog {
                 StyledTextField { id: mapDate; objectName: "importMapDate"; Layout.fillWidth: true; placeholderText: qsTr("原站记录时间"); Accessible.name: qsTr("原表记录日期列名") }
                 FieldLabel { text: qsTr("心得列名") }
                 StyledTextField { id: mapReflection; objectName: "importMapReflection"; Layout.fillWidth: true; placeholderText: qsTr("如 %1").arg("评论"); Accessible.name: qsTr("原表心得列名") }
+                FieldLabel { text: qsTr("进入方式列名") }
+                StyledTextField { id: mapEntryMode; objectName: "importMapEntryMode"; Layout.fillWidth: true; placeholderText: qsTr("如 %1").arg("进入方式"); Accessible.name: qsTr("原表进入方式列名") }
             }
+            Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: qsTr("进入方式可填“正常”或“中途”，留空为未知。"); color: Theme.textMuted; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap }
             Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: qsTr("记录日期只表示原记录的时间，不会用来补填匹配、进本或结束时间。"); color: Theme.textMuted; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap }
             RowLayout {
                 Layout.fillWidth: true

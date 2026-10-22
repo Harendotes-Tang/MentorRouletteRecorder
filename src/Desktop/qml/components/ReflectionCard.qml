@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // One recent 导随心得 on the dashboard: duty, mood tag, date and the first two
 // lines of the entry.
@@ -55,9 +55,9 @@ InsetBox {
 
             Text {
                 textFormat: Text.PlainText
-                text: root.runData.matched_at_utc ? Fmt.localDate(root.runData.matched_at_utc)
+                text: root.runData.matched_at_utc ? Runtime.fmt.localDate(root.runData.matched_at_utc)
                       : root.runData.import_metadata && root.runData.import_metadata.source_recorded_at_utc
-                        ? qsTr("原站 %1").arg(Fmt.localDate(root.runData.import_metadata.source_recorded_at_utc))
+                        ? qsTr("原站 %1").arg(Runtime.fmt.localDate(root.runData.import_metadata.source_recorded_at_utc))
                       : root.runData.import_metadata && root.runData.import_metadata.source_recorded_at
                         ? qsTr("原站 %1").arg(root.runData.import_metadata.source_recorded_at.substring(0, 10))
                       : qsTr("时间未知")

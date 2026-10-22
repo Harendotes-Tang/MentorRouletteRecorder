@@ -113,8 +113,9 @@ void GameNames::load()
     for (const QVariant &row : DutyCatalog::shared()->allDuties()) {
         const QVariantMap duty = row.toMap();
         const QString name = duty.value(QStringLiteral("duty_name")).toString();
-        if (!name.isEmpty() && !m_dutyIdByName.contains(name))
-            m_dutyIdByName.insert(name, duty.value(QStringLiteral("content_id")).toLongLong());
+        const QVariantMap resolved = DutyCatalog::shared()->findByName(name);
+        if (!name.isEmpty() && !resolved.isEmpty())
+            m_dutyIdByName.insert(name, resolved.value(QStringLiteral("content_id")).toLongLong());
     }
     const JobCatalog jobs;
     for (const QVariant &row : jobs.allJobs()) {
@@ -165,6 +166,11 @@ QString GameNames::jobIn(const QString &code, const QVariant &jobId, const QStri
 QString GameNames::duty(const QVariant &contentId, const QString &recorded) const
 {
     return dutyIn(LanguageManager::currentCode(), contentId, recorded);
+}
+
+bool GameNames::dutyNameAmbiguous(const QVariant &contentId) const
+{
+    return DutyCatalog::shared()->lookup(contentId).value(QStringLiteral("name_ambiguous")).toBool();
 }
 
 QString GameNames::job(const QVariant &jobId, const QString &recorded) const

@@ -1,7 +1,6 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 设置 · 播报 · 在线语音 (docs/privacy-boundary.md §8.3). Shown only while an
 // online voice is selected.

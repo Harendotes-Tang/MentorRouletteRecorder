@@ -6687,6 +6687,42 @@ The image text was read as “%2”; confirm against the original image.</transl
         <source>拖动或滚动查看截图，关闭后继续核对当前记录。</source>
         <translation>Drag or scroll to view the screenshot; close it to continue reviewing this record.</translation>
     </message>
+    <message>
+        <source>未知</source>
+        <translation>Unknown</translation>
+    </message>
+    <message>
+        <source>正常</source>
+        <translation>Normal</translation>
+    </message>
+    <message>
+        <source>中途</source>
+        <translation>In progress</translation>
+    </message>
+    <message>
+        <source>进入方式</source>
+        <translation>Entry mode</translation>
+    </message>
+    <message>
+        <source>未提供进入方式时保留未知，不会自动当作正常进入。</source>
+        <translation>An unspecified entry mode stays unknown; it is not counted as a normal entry.</translation>
+    </message>
+    <message>
+        <source>进入方式列名</source>
+        <translation>Entry mode column</translation>
+    </message>
+    <message>
+        <source>原表进入方式列名</source>
+        <translation>Entry mode column in the original sheet</translation>
+    </message>
+    <message>
+        <source>进入方式可填“正常”或“中途”，留空为未知。</source>
+        <translation>Enter “正常” (normal) or “中途” (in progress); leave blank if unknown.</translation>
+    </message>
+    <message>
+        <source>该名称对应多个副本，请按编号选择；暂时无法确认时可保留未知。</source>
+        <translation>This name matches several duties. Choose by ID, or leave the identity unknown until you can confirm.</translation>
+    </message>
 </context>
 <context>
     <name>JobsPage</name>
@@ -7319,6 +7355,14 @@ Recorder</translation>
         <translation>avg %1</translation>
     </message>
     <message>
+        <source>同类均 %1</source>
+        <translation>type avg %1</translation>
+    </message>
+    <message>
+        <source>已进行 %1 · 同类副本平均 %2</source>
+        <translation>Elapsed %1 · this duty type averages %2</translation>
+    </message>
+    <message>
         <source>匹配后已过 %1</source>
         <translation>Matched %1 ago</translation>
     </message>
@@ -7413,6 +7457,10 @@ Recorder</translation>
         <source>暂无统计</source>
         <translation>No statistics yet</translation>
     </message>
+    <message>
+        <source>后台服务未连接</source>
+        <translation>Backend service disconnected</translation>
+    </message>
 </context>
 <context>
     <name>OverlayElapsedModule</name>
@@ -7450,8 +7498,8 @@ Recorder</translation>
 <context>
     <name>OverlayPeriodSelector</name>
     <message>
-        <source>排本次数时间范围</source>
-        <translation>Attempt count period</translation>
+        <source>统计时间范围</source>
+        <translation>Statistics period</translation>
     </message>
 </context>
 <context>
@@ -7474,6 +7522,14 @@ Recorder</translation>
     <message>
         <source>暂无统计</source>
         <translation>No statistics yet</translation>
+    </message>
+    <message>
+        <source>后台服务未连接</source>
+        <translation>Backend service disconnected</translation>
+    </message>
+    <message>
+        <source>读取中…</source>
+        <translation>Loading…</translation>
     </message>
 </context>
 <context>
@@ -9561,6 +9617,10 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>未记录</source>
         <translation>Not recorded</translation>
+    </message>
+    <message>
+        <source>编号 %1</source>
+        <translation>ID %1</translation>
     </message>
 </context>
 <context>

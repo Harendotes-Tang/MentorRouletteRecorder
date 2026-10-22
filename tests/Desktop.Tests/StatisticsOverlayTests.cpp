@@ -2,6 +2,7 @@
 #include "AppController.h"
 #include "AppSettings.h"
 #include "BundledFonts.h"
+#include "DutyCatalog.h"
 #include "Formatters.h"
 #include "GameNames.h"
 #include "JobCatalog.h"
@@ -16,15 +17,23 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QAnimationDriver>
 #include <QColor>
 #include <QDateTime>
 #include <QDir>
+#include <QElapsedTimer>
+#include <QEventLoop>
+#include <QFile>
 #include <QFont>
 #include <QGuiApplication>
 #include <QImage>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QJSValue>
 #include <QMenu>
+#include <QMutex>
+#include <QMutexLocker>
+#include <QPainter>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -38,7 +47,9 @@
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTimer>
 #include <QTimeZone>
+#include <QVariantAnimation>
 #include <QtTest/qtestwheel.h>
 #include <QSystemTrayIcon>
 #include <algorithm>
@@ -50,6 +61,60 @@
 #endif
 
 namespace {
+// Deterministic image evidence advances the same Qt animation timeline without
+// counting screenshot readback time as animation time. Native cadence is measured
+// separately, with this driver absent and without frame captures.
+class FormEvidenceClock final : public QAnimationDriver
+{
+public:
+    FormEvidenceClock()
+    {
+        QObject::connect(&m_realTime, &QTimer::timeout, &m_realTime, [this] {
+            const qint64 now = m_wall.elapsed();
+            m_elapsed += now - m_wallSeen;
+            m_wallSeen = now;
+            advance();
+        });
+        install();
+        // Keep the unified timer alive across the frozen interval and image
+        // readbacks; otherwise its restart can fall back to wall-clock time.
+        m_sentinel.setStartValue(0.0);
+        m_sentinel.setEndValue(1.0);
+        m_sentinel.setDuration(60000);
+        m_sentinel.setLoopCount(-1);
+        m_sentinel.start();
+        followRealTime(true);
+    }
+    ~FormEvidenceClock() override { m_sentinel.stop(); uninstall(); }
+    qint64 elapsed() const override { return m_elapsed; }
+    void step(int milliseconds)
+    {
+        for (int remaining = milliseconds; remaining > 0;) {
+            const int delta = std::min(4, remaining);
+            m_elapsed += delta;
+            advance();
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
+            remaining -= delta;
+        }
+    }
+    void followRealTime(bool follow)
+    {
+        if (!follow) { m_realTime.stop(); return; }
+        m_wall.start();
+        m_wallSeen = 0;
+        m_realTime.start(8);
+    }
+protected:
+    void start() override { m_elapsed = 0; QAnimationDriver::start(); }
+private:
+    qint64 m_elapsed = 0;
+    QTimer m_realTime;
+    QElapsedTimer m_wall;
+    qint64 m_wallSeen = 0;
+    QVariantAnimation m_sentinel;
+};
+FormEvidenceClock *formEvidenceClock = nullptr;
+
 const QString &kEvidence()
 {
     static const QString value = QStringLiteral("/artifacts/statistics-float-20261020");
@@ -62,16 +127,29 @@ const QString &kAttemptEvidence()
     return value;
 }
 
+QVariantList qmlList(const QVariant &value)
+{
+    return value.metaType() == QMetaType::fromType<QJSValue>()
+        ? value.value<QJSValue>().toVariant().toList() : value.toList();
+}
+
 // Hold only dashboard reads explicitly armed after startup, so the actual
 // window can exercise pending/failure/retry/zero without mocking its bindings.
 class OverlayReplyBackend : public mr::MockBackend
 {
 public:
     bool holdDashboard = false;
+    bool holdRows = false;
     QList<QPointer<mr::BackendReply>> pending;
+    QList<QPointer<mr::BackendReply>> pendingRows;
 
     mr::BackendReply *request(const QString &messageType, const QJsonObject &payload = {}) override
     {
+        if (holdRows && (messageType == QLatin1String("GetDungeonStats") || messageType == QLatin1String("GetJobStats"))) {
+            auto *reply = new mr::BackendReply(QString::number(pendingRows.size()), messageType, this);
+            pendingRows.append(reply);
+            return reply;
+        }
         if (!holdDashboard || messageType != QLatin1String("GetDashboardStats"))
             return mr::MockBackend::request(messageType, payload);
         auto *reply = new mr::BackendReply(QString::number(pending.size()), messageType, this);
@@ -111,8 +189,22 @@ QJsonArray datedAttemptRuns()
 {
     QJsonArray runs;
     int sequence = 1;
+    const QStringList categories{QStringLiteral("四人迷宫"), QStringLiteral("讨伐歼灭战"),
+                                 QStringLiteral("大型任务"), QStringLiteral("行会令")};
+    const QList<int> jobs{19, 24, 20, 23};
     for (const int daysAgo : {0, 3, 14, 45}) {
         QVariantMap run = completedRun(sequence++);
+        run.insert(QStringLiteral("duty_name"), QStringLiteral("时段验证副本 %1").arg(sequence - 1));
+        run.insert(QStringLiteral("duty_category"), categories.at(sequence - 2));
+        run.insert(QStringLiteral("job_id"), jobs.at(sequence - 2));
+        // Statistics group by observed identity; free-text names alone are one unknown duty.
+        for (const auto &entry : mr::DutyCatalog::shared()->allDuties()) {
+            const QVariantMap duty = entry.toMap();
+            if (duty.value(QStringLiteral("duty_category")).toString() == categories.at(sequence - 2)) {
+                run.insert(QStringLiteral("content_id"), duty.value(QStringLiteral("content_id")));
+                break;
+            }
+        }
         const QString timestamp = QDateTime(QDate::currentDate().addDays(-daysAgo), QTime(12, 0),
                                             QTimeZone::systemTimeZone()).toUTC().toString(Qt::ISODateWithMs);
         for (const auto &field : {QStringLiteral("created_at_utc"), QStringLiteral("matched_at_utc"),
@@ -317,6 +409,68 @@ class StatisticsOverlayTests : public QObject
 {
     Q_OBJECT
 private:
+    static void verifyInterruptedFormTransitions(const Scene &scene, const QSize &fullSize)
+    {
+        scene.overlay()->setForm(QStringLiteral("mini"));
+        QTest::qWait(35);
+        QVERIFY(scene.floating()->property("transitioning").toBool());
+        scene.overlay()->setForm(QStringLiteral("full"));
+        QTRY_VERIFY(!scene.floating()->property("transitioning").toBool());
+        QCOMPARE(scene.floating()->size(), fullSize);
+        QCOMPARE(scene.overlay()->geometry().size(), fullSize);
+
+        // At the bottom edge, expansion must move upwards with the same height
+        // transition and keep the original full size inside the available screen.
+        scene.overlay()->setForm(QStringLiteral("mini"));
+        QTRY_VERIFY(!scene.floating()->property("transitioning").toBool());
+        const QRect available = scene.floating()->screen()->availableGeometry();
+        scene.floating()->setPosition(available.x() + 100,
+                                      available.y() + available.height() - scene.floating()->height());
+        QTRY_COMPARE(scene.overlay()->geometry().topLeft(), scene.floating()->position());
+        scene.overlay()->setForm(QStringLiteral("full"));
+        QVERIFY(scene.floating()->property("transitioning").toBool());
+        QTRY_VERIFY(!scene.floating()->property("transitioning").toBool());
+        QCOMPARE(scene.floating()->size(), fullSize);
+        QVERIFY(available.contains(scene.floating()->geometry()));
+
+        scene.overlay()->setForm(QStringLiteral("mini"));
+        QTest::qWait(35);
+        QVERIFY(scene.floating()->property("transitioning").toBool());
+        scene.overlay()->hide();
+        QVERIFY(!scene.floating()->property("transitioning").toBool());
+        QCOMPARE(scene.overlay()->geometry().size(), fullSize);
+        scene.overlay()->show();
+        QTRY_VERIFY(scene.floating()->property("positionReady").toBool());
+        QVERIFY(scene.floating()->height() < 80);
+        QCOMPARE(scene.floating()->width(), 340);
+        scene.overlay()->setForm(QStringLiteral("full"));
+        QVERIFY(scene.floating()->property("transitioning").toBool());
+        scene.engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QTRY_VERIFY(!scene.floating()->property("transitioning").toBool());
+        QCOMPARE(scene.floating()->size(), fullSize);
+        QCOMPARE(scene.overlay()->geometry().size(), fullSize);
+    }
+
+    static void verifyAttemptPeriodStatistics(const Scene &scene, int count)
+    {
+        QTRY_COMPARE(scene.overlay()->dungeons()->totalAttemptCount(), count);
+        QTRY_COMPARE(scene.overlay()->dungeons()->totalCompletedCount(), count);
+        QTRY_COMPARE(scene.overlay()->jobs()->totalAttemptCount(), count);
+        QTRY_COMPARE(scene.item(QStringLiteral("floatingDungeonState"))->property("text").toString(),
+                     QStringLiteral("%1/%1").arg(count));
+        QTRY_VERIFY(!qmlList(scene.item(QStringLiteral("floatingDungeonStatistics"))->property("rows")).isEmpty());
+        QTRY_VERIFY(!qmlList(scene.item(QStringLiteral("floatingJobStatistics"))->property("columns")).isEmpty());
+        const QVariantList buckets = qmlList(scene.item(QStringLiteral("floatingDungeonStatistics"))->property("buckets"));
+        const QVariantList columns = qmlList(scene.item(QStringLiteral("floatingJobStatistics"))->property("columns"));
+        int clears = 0;
+        int attempts = 0;
+        for (const auto &bucket : buckets) clears += bucket.toMap().value(QStringLiteral("completed_count")).toInt();
+        for (const auto &column : columns) attempts += column.toMap().value(QStringLiteral("count")).toInt();
+        QCOMPARE(clears, count);
+        QCOMPARE(attempts, count);
+        QCOMPARE(qmlList(scene.item(QStringLiteral("floatingDungeonStatistics"))->property("rows")).size(), qMin(3, count));
+    }
+
     static void verifyAttemptPeriodKeyboard(const Scene &scene)
     {
         scene.floating()->requestActivate();
@@ -466,15 +620,22 @@ private Q_SLOTS:
     void moduleOrderSurvivesSwitchingOff();
     void invalidPreferencesAreBounded();
     void geometryHandlesMissingAndNegativeScreens();
+    void nativeCloseSavesGeometryBeforeTheDebounce() const;
     void realWindowCanCustomizeAndRecoverEmptyContent();
     void customizePanelTogglesFromTheTitleBar_data();
     void customizePanelTogglesFromTheTitleBar();
     void customizationFooterRemainsReachableWithSevenModules();
     void miniBarSharesThePositionAndKeepsTheSize();
+    void formControlsLeadRightActionGroup_data();
+    void formControlsLeadRightActionGroup();
+    void formTransitionKeepsStableGeometry() const;
     void miniBarStaysWhereItWasDocked();
     void miniBarTipsOpenOutsideTheBar();
     void pendingRowOpensTheFirstRecord();
     void hiddenFloatKeepsItsEndlessAnimationsStill();
+    void paceBarScalesByTheDutyThenItsCategory_data();
+    void paceBarScalesByTheDutyThenItsCategory();
+    void stateMarksStayInsideTheFloat();
     void importedTextIsShownAsWritten();
     void plusPillCountsCompletionsNotBaselineEdits();
     void entryButtonFollowsPageTheme_data();
@@ -484,6 +645,7 @@ private Q_SLOTS:
     void attemptCountRefreshesWithDashboardChanges();
     void attemptPeriodsUsePointerKeyboardAndKeepOtherStatistics();
     void attemptCountDistinguishesLoadingFailureAndZero();
+    void periodStatisticsHideOldChartsWhileLoadingAndOnFailure();
     void attemptRangeRenderedEvidence_data();
     void attemptRangeRenderedEvidence();
     void nativeInputStylesAndTrayRecovery();
@@ -653,6 +815,35 @@ void StatisticsOverlayTests::geometryHandlesMissingAndNegativeScreens()
     QCOMPARE(Overlay::validGeometry(QRect(0, 0, 100, 100)).size(), QSize(240, 150));
 }
 
+void StatisticsOverlayTests::nativeCloseSavesGeometryBeforeTheDebounce() const
+{
+    Scene scene;
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    scene.overlay()->show();
+    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QTRY_VERIFY(scene.floating()->property("positionReady").toBool());
+    const QRect previous = scene.overlay()->geometry();
+    const QRect moved = mr::StatisticsOverlayController::fitGeometry(
+        QRect(previous.x() + 24, previous.y() + 20, 420, 580), scene.floating()->screen()->availableGeometry());
+    QVERIFY(moved != previous);
+    scene.floating()->setGeometry(moved);
+    QCOMPARE(scene.floating()->geometry(), moved);
+    // No event-loop wait: closing must save the latest geometry before the
+    // 180 ms position timer can copy it into the controller's preferences.
+    QCOMPARE(scene.overlay()->geometry(), previous);
+    QVERIFY(scene.floating()->close());
+    QVERIFY(!scene.overlay()->visible());
+    QCOMPARE(scene.overlay()->geometry(), moved);
+    QCOMPARE(scene.settings.statisticsOverlayGeometry(), moved);
+    QVERIFY(!scene.floating()->isVisible());
+    scene.overlay()->show();
+    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QTRY_VERIFY(scene.floating()->property("positionReady").toBool());
+    QCOMPARE(scene.floating()->geometry(), moved);
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
 void StatisticsOverlayTests::realWindowCanCustomizeAndRecoverEmptyContent()
 {
     Scene scene;
@@ -782,7 +973,7 @@ void StatisticsOverlayTests::miniBarSharesThePositionAndKeepsTheSize()
     QCOMPARE(scene.floating()->size(), QSize(340, 520));
     QVERIFY(scene.click(QStringLiteral("floatingMiniButton")));
     QTRY_COMPARE(scene.overlay()->form(), QStringLiteral("mini"));
-    QTRY_COMPARE(scene.floating()->width(), 280);
+    QTRY_COMPARE(scene.floating()->width(), 340);
     QTRY_VERIFY(scene.floating()->height() < 80);
     QVERIFY(scene.item(QStringLiteral("floatingMiniProgress"), true));
     QVERIFY(!scene.item(QStringLiteral("floatingMiniRun"), true));
@@ -812,6 +1003,266 @@ void StatisticsOverlayTests::miniBarSharesThePositionAndKeepsTheSize()
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 
+void StatisticsOverlayTests::formControlsLeadRightActionGroup_data()
+{
+    QTest::addColumn<int>("width");
+    QTest::addColumn<bool>("dark");
+    for (bool dark : {false, true})
+        for (int width : {240, 340, 520})
+            QTest::newRow(qPrintable(QStringLiteral("%1-%2").arg(width).arg(dark ? "dark" : "light"))) << width << dark;
+}
+
+void StatisticsOverlayTests::formControlsLeadRightActionGroup()
+{
+    QFETCH(int, width);
+    QFETCH(bool, dark);
+    Scene scene;
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
+    QVERIFY2(scene.create(QStringLiteral("harendotes"), dark), qPrintable(scene.errors));
+    scene.overlay()->show();
+    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QTRY_VERIFY(scene.floating()->property("positionReady").toBool());
+    QTRY_VERIFY(scene.app->achievementSettingsLoaded());
+    QObject *data = scene.overlayData();
+    QVERIFY(data);
+    scene.app->updateAchievementBaseline(2000, scene.app->baselineCount() + 2000 - data->property("progress").toInt(),
+                                         QStringLiteral("form-width-test"));
+    QTRY_COMPARE(data->property("progress").toInt(), 2000);
+    // Do not wait for the 180 ms geometry-save timer before collapsing.
+    scene.floating()->resize(width, 520);
+    QTRY_COMPARE(scene.floating()->contentItem()->width(), width);
+    auto *collapse = scene.item(QStringLiteral("floatingMiniButton"), true);
+    auto *fullActions = scene.item(QStringLiteral("floatingFullActions"), true);
+    auto *customize = scene.item(QStringLiteral("floatingCustomizeButton"), true);
+    QVERIFY(collapse && fullActions && customize);
+    const auto polishAncestors = [](QQuickItem *item) {
+        QList<QQuickItem *> ancestors;
+        for (auto *parent = item; parent; parent = parent->parentItem()) ancestors.prepend(parent);
+        for (auto *parent : ancestors) parent->ensurePolished();
+    };
+    polishAncestors(collapse);
+    QCOMPARE(collapse->parentItem(), fullActions);
+    QCOMPARE(collapse->x(), 0);
+    QVERIFY(collapse->x() + collapse->width() < customize->x());
+    const qreal fullRight = fullActions->mapToScene(QPointF(fullActions->width(), 0)).x();
+    QVERIFY2(qAbs(width - fullRight) <= 8,
+             qPrintable(QStringLiteral("window %1, right group edge %2").arg(width).arg(fullRight)));
+    const QPoint click = collapse->mapToScene(QPointF(collapse->width() / 2, collapse->height() / 2)).toPoint();
+    QTest::mouseClick(scene.floating(), Qt::LeftButton, Qt::NoModifier, click);
+    QTRY_COMPARE(scene.overlay()->form(), QStringLiteral("mini"));
+    QTRY_COMPARE(scene.floating()->width(), width);
+    QCOMPARE(scene.overlay()->geometry().size(), QSize(width, 520));
+    QVERIFY(!scene.floating()->property("transitioning").toBool()); // Reduced motion.
+    auto *expand = scene.item(QStringLiteral("floatingExpandButton"), true);
+    auto *lock = scene.item(QStringLiteral("floatingLockButton"), true);
+    auto *progress = scene.item(QStringLiteral("floatingMiniProgress"), true);
+    auto *miniActions = scene.item(QStringLiteral("floatingMiniActions"), true);
+    QVERIFY(expand && lock && progress && miniActions);
+    polishAncestors(expand);
+    QCOMPARE(expand->parentItem(), miniActions);
+    QCOMPARE(lock->parentItem(), miniActions);
+    QCOMPARE(expand->x(), 0);
+    const qreal miniRight = miniActions->mapToScene(QPointF(miniActions->width(), 0)).x();
+    QCOMPARE(miniRight, fullRight);
+    QCOMPARE(expand->size(), collapse->size());
+    QVERIFY(expand->mapToScene(QPointF(expand->width(), 0)).x() < lock->mapToScene(QPointF()).x());
+    // All direct row children, including both controls, fit the minimum width.
+    progress->ensurePolished();
+    for (auto *child : progress->childItems()) {
+        if (!child->isVisible() || child->width() <= 0) continue;
+        const QRectF bounds(child->mapToItem(progress, QPointF()), child->size());
+        QVERIFY2(bounds.left() >= -0.5 && bounds.right() <= progress->width() + 0.5,
+                 qPrintable(QStringLiteral("%1 exceeds %2: %3..%4")
+                     .arg(QString::fromLatin1(child->metaObject()->className())).arg(width)
+                     .arg(bounds.left()).arg(bounds.right())));
+    }
+    const QString output = qEnvironmentVariable("MR_OVERLAY_FORM_EVIDENCE", QString::fromUtf8(MR_SOURCE_DIR)
+                                                + QStringLiteral("/artifacts/overlay-form-transition-20261022"));
+    QVERIFY(QDir().mkpath(output));
+    QTest::qWait(60); // Let the newly visible image and hover state reach the render thread.
+    const QString suffix = QStringLiteral("%1-%2.png").arg(width).arg(dark ? "dark" : "light");
+    QVERIFY(scene.floating()->grabWindow().save(output + QStringLiteral("/mini-") + suffix));
+    // The mini group's first action expands; it never invokes its following lock.
+    QVERIFY(scene.click(QStringLiteral("floatingExpandButton")));
+    QTRY_COMPARE(scene.overlay()->form(), QStringLiteral("full"));
+    QTRY_COMPARE(scene.floating()->size(), QSize(width, 520));
+    QVERIFY(!scene.overlay()->locked());
+    QTest::qWait(60);
+    QVERIFY(scene.floating()->grabWindow().save(output + QStringLiteral("/full-") + suffix));
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+void StatisticsOverlayTests::formTransitionKeepsStableGeometry() const
+{
+    Scene scene;
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
+    QVERIFY2(scene.create(QStringLiteral("harendotes"), false, false, false), qPrintable(scene.errors));
+    scene.overlay()->setGeometry(QRect(100, 100, 340, 520));
+    scene.overlay()->show();
+    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QTRY_VERIFY(scene.floating()->property("positionReady").toBool());
+    const QSize fullSize(340, 520);
+    const QString output = qEnvironmentVariable("MR_OVERLAY_FORM_EVIDENCE", QString::fromUtf8(MR_SOURCE_DIR)
+                                                + QStringLiteral("/artifacts/overlay-form-transition-20261022"));
+    QVERIFY(QDir().mkpath(output));
+    int frame = 0;
+    const bool captureFrames = formEvidenceClock != nullptr;
+    QFile captureLog(output + QStringLiteral("/capture-timeline.csv"));
+    if (captureFrames) {
+        QVERIFY(captureLog.open(QIODevice::WriteOnly));
+        captureLog.write("frame,driver_ms,height,blend\n");
+    }
+    const auto capture = [&] {
+        if (!captureFrames) return true;
+        captureLog.write(QStringLiteral("%1,%2,%3,%4\n").arg(frame).arg(formEvidenceClock->elapsed())
+                             .arg(scene.floating()->height()).arg(scene.floating()->property("formBlend").toReal()).toUtf8());
+        const QImage shot = scene.floating()->grabWindow();
+        QImage canvas(shot.width(), qRound(520 * shot.devicePixelRatio()), QImage::Format_ARGB32_Premultiplied);
+        canvas.setDevicePixelRatio(shot.devicePixelRatio());
+        canvas.fill(QColor(QStringLiteral("#e5e7ee")));
+        QPainter painter(&canvas);
+        painter.drawImage(QPoint(), shot);
+        painter.end();
+        return canvas.save(output + QStringLiteral("/frame-%1.png").arg(frame++, 2, 10, QLatin1Char('0')));
+    };
+    QTest::qWait(500); // Let startup charts settle before measuring the form switch.
+    QTRY_VERIFY(scene.item(QStringLiteral("floatingRoleBarFill"), true));
+    QVERIFY(scene.item(QStringLiteral("floatingRoleBarTrack"), true));
+    // The evidence driver is installed in main, before Qt Quick's own driver.
+    // Always resume real time on an assertion's early return as well.
+    struct ResumeClock {
+        FormEvidenceClock *clock;
+        ~ResumeClock() { if (clock) clock->followRealTime(true); }
+    } resumeClock{formEvidenceClock};
+    if (captureFrames) {
+        QVERIFY(formEvidenceClock->isRunning());
+        formEvidenceClock->followRealTime(false);
+    }
+    QVERIFY(capture());
+    if (captureFrames) {
+        // Synchronize the unified timer's last tick before starting a new
+        // animation; no startup/initial-grab time belongs to its first frame.
+        formEvidenceClock->advance();
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
+    }
+    struct FrameTrace {
+        QElapsedTimer clock;
+        QMutex mutex;
+        QList<qint64> times;
+    };
+    const auto trace = std::make_shared<FrameTrace>();
+    trace->clock.start();
+    const auto frameObserver = !captureFrames ? QObject::connect(scene.floating(), &QQuickWindow::frameSwapped, scene.floating(), [trace] {
+        QMutexLocker guard(&trace->mutex);
+        trace->times.append(trace->clock.nsecsElapsed());
+    }, Qt::DirectConnection) : QMetaObject::Connection(); // Render-thread timestamp, not queued delivery.
+    QVERIFY(scene.click(QStringLiteral("floatingMiniButton")));
+    QVERIFY(scene.floating()->property("transitioning").toBool());
+    auto *outgoing = scene.item(QStringLiteral("floatingFullContent"));
+    auto *incoming = scene.item(QStringLiteral("floatingMiniContent"));
+    QVERIFY(outgoing && !outgoing->isEnabled());
+    QVERIFY(incoming);
+    bool sawIntermediate = false;
+    bool overlappingForms = false;
+    bool overflowingBars = false;
+    bool sawBar = false;
+    const auto observeIntermediate = [&] {
+        sawIntermediate |= scene.floating()->height() > 80 && scene.floating()->height() < 520
+                           && outgoing->opacity() > 0 && outgoing->opacity() < 1;
+        overlappingForms |= outgoing->opacity() > 0.001 && incoming->opacity() > 0.001;
+        QList<QQuickItem *> pending{scene.floating()->contentItem()};
+        while (!pending.isEmpty()) {
+            auto *item = pending.takeLast();
+            if (item->objectName() == QLatin1String("floatingRoleBarFill")) {
+                sawBar = true;
+                overflowingBars |= item->height() > item->parentItem()->height() + 0.5 || item->y() < -0.5;
+            }
+            pending.append(item->childItems());
+        }
+    };
+    // Inspect after all animation bindings have settled, just before the render
+    // thread synchronizes: per-property notifications can expose binding order
+    // within a frame rather than a state that is actually rendered.
+    const auto visualObserver = QObject::connect(scene.floating(), &QQuickWindow::afterAnimating,
+                                                 scene.floating(), observeIntermediate);
+    if (captureFrames) {
+        // QML registers newly started jobs through queued calls. Drain those at
+        // time zero, before the first manual tick, for an accurate 200 ms run.
+        for (int round = 0; round < 3; ++round)
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
+        for (int step = 0; step < 10; ++step) {
+            formEvidenceClock->step(20);
+            QTest::qWait(20); // Native resize/render settles while the animation clock stays frozen.
+            QCOMPARE(scene.floating()->width(), 340);
+            QCOMPARE(scene.overlay()->geometry().size(), fullSize);
+            QVERIFY(capture());
+        }
+    } else {
+        // A normal event loop avoids QTest's polling sleeps and screenshot readbacks
+        // disturbing the presentation cadence that this mode measures.
+        QEventLoop eventLoop;
+        QTimer::singleShot(300, &eventLoop, &QEventLoop::quit);
+        eventLoop.exec();
+    }
+    QVERIFY(sawIntermediate);
+    QObject::disconnect(frameObserver);
+    QList<qint64> frameTimes;
+    {
+        QMutexLocker guard(&trace->mutex);
+        frameTimes = trace->times;
+    }
+    if (!captureFrames) {
+        QFile frameLog(output + QStringLiteral("/frame-cadence.csv"));
+        QVERIFY(frameLog.open(QIODevice::WriteOnly));
+        frameLog.write("frame,elapsed_ms,interval_ms\n");
+        for (qsizetype i = 0; i < frameTimes.size(); ++i) {
+            const double elapsedMs = static_cast<double>(frameTimes[i]) / 1e6;
+            const double intervalMs = i > 0 ? static_cast<double>(frameTimes[i] - frameTimes[i - 1]) / 1e6 : 0.0;
+            frameLog.write(QStringLiteral("%1,%2,%3\n").arg(i).arg(elapsedMs, 0, 'f', 3)
+                               .arg(intervalMs, 0, 'f', 3).toUtf8());
+        }
+    }
+    QTRY_VERIFY(!scene.floating()->property("transitioning").toBool());
+    QVERIFY(scene.floating()->height() < 80);
+    auto *expand = scene.item(QStringLiteral("floatingExpandButton"), true);
+    QVERIFY(expand);
+    const QPoint expandPoint = expand->mapToScene(QPointF(expand->width() / 2, expand->height() / 2)).toPoint();
+    QVERIFY(scene.click(QStringLiteral("floatingExpandButton")));
+    QVERIFY(scene.floating()->property("transitioning").toBool());
+    // The full lock occupies the mini expand button's former position. A second
+    // click while that lock is still transparent must not activate it.
+    QTest::mouseClick(scene.floating(), Qt::LeftButton, Qt::NoModifier, expandPoint);
+    QVERIFY(!scene.overlay()->locked());
+    if (captureFrames)
+        for (int round = 0; round < 3; ++round)
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
+    for (int step = 0; step < (captureFrames ? 10 : 8); ++step) {
+        if (captureFrames) formEvidenceClock->step(20);
+        QTest::qWait(captureFrames ? 20 : 30);
+        QVERIFY(capture());
+    }
+    if (captureFrames) formEvidenceClock->followRealTime(true);
+    QTRY_COMPARE(scene.floating()->size(), fullSize);
+    if (captureFrames) {
+        QObject::disconnect(visualObserver);
+        QVERIFY(sawBar);
+        QVERIFY(!overlappingForms);
+        QVERIFY(!overflowingBars);
+        QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+        // Interruption timing is checked by the normal threaded-render process
+        // below. Image readbacks/basic rendering must not skew its 35 ms waits.
+        return;
+    }
+
+    verifyInterruptedFormTransitions(scene, fullSize);
+    QVERIFY(!QTest::currentTestFailed());
+    QObject::disconnect(visualObserver);
+    QVERIFY(sawBar);
+    QVERIFY(!overlappingForms);
+    QVERIFY(!overflowingBars);
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
 // The bar docked at the bottom edge comes back there when the float is closed and
 // opened again or the program restarts, and a run's second line grows it upwards,
 // not off the screen (audit 2026-10-20, L3-1; ui-design §4.9.1 两者共用位置).
@@ -825,7 +1276,7 @@ void StatisticsOverlayTests::miniBarStaysWhereItWasDocked()
     scene.overlay()->show();
     QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
     QTRY_VERIFY(scene.floating()->property("positionReady").toBool());
-    QTRY_COMPARE(scene.floating()->width(), 280);
+    QTRY_COMPARE(scene.floating()->width(), 340);
     const int barHeight = scene.floating()->height();
     QVERIFY(barHeight < 60);
     const QRect available = scene.floating()->screen()->availableGeometry();
@@ -856,6 +1307,14 @@ void StatisticsOverlayTests::miniBarStaysWhereItWasDocked()
     QTRY_COMPARE(scene.floating()->y() + scene.floating()->height(), screenBottom);
     QTRY_COMPARE(scene.overlay()->geometry().topLeft(), scene.floating()->position());
     QCOMPARE(scene.overlay()->geometry().size(), QSize(340, 520));
+    const int grownY = scene.floating()->y();
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
+    QTRY_VERIFY(!scene.item(QStringLiteral("floatingMiniRun"), true));
+    QTRY_COMPARE(scene.floating()->height(), barHeight);
+    QCOMPARE(scene.floating()->y(), grownY);
+    scene.overlay()->setForm(QStringLiteral("full"));
+    QTRY_COMPARE(scene.floating()->size(), QSize(340, 520));
+    QVERIFY(available.contains(scene.floating()->geometry()));
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 
@@ -878,7 +1337,7 @@ void StatisticsOverlayTests::miniBarTipsOpenOutsideTheBar()
     verifyFullOverlayTips(scene, headerLockTip);
     QVERIFY(!QTest::currentTestFailed());
     scene.overlay()->setForm(QStringLiteral("mini"));
-    QTRY_COMPARE(scene.floating()->width(), 280);
+    QTRY_COMPARE(scene.floating()->width(), 340);
     QTRY_VERIFY(scene.floating()->property("positionReady").toBool());
 
     auto *lock = scene.item(QStringLiteral("floatingLockButton"), true);
@@ -1019,6 +1478,164 @@ void StatisticsOverlayTests::hiddenFloatKeepsItsEndlessAnimationsStill()
         QTRY_VERIFY(!scene.floating()->isVisible());
         QTRY_VERIFY2(scene.runningEndlessAnimations() == 0, run.state);
     }
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+void StatisticsOverlayTests::paceBarScalesByTheDutyThenItsCategory_data()
+{
+    QTest::addColumn<QString>("category");
+    QTest::addColumn<bool>("sameDuty");
+    QTest::addColumn<QString>("caption");
+    // The live run is 天狼星灯塔 (content 17), a 四人迷宫; the history holds one
+    // cleared run of 20:00.
+    QTest::newRow("own average") << QStringLiteral("四人迷宫") << true << QStringLiteral("均 20:00");
+    QTest::newRow("category average") << QStringLiteral("四人迷宫") << false << QStringLiteral("同类均 20:00");
+    QTest::newRow("nothing to measure against") << QStringLiteral("讨伐歼灭战") << false << QString();
+}
+
+// 副本用时 measures the time against the duty's average, or its category's
+// while the duty has none, and shows no bar with neither. The span used to be
+// elapsed x 1.3 for a duty without an average, which held the bar at 77 %
+// whatever the time (owner's screenshot, 2026-10-22).
+void StatisticsOverlayTests::paceBarScalesByTheDutyThenItsCategory()
+{
+    QFETCH(QString, category);
+    QFETCH(bool, sameDuty);
+    QFETCH(QString, caption);
+    QVariantMap history = completedRun();
+    if (!sameDuty) {
+        QVariantMap other;
+        for (const auto &entry : mr::DutyCatalog::shared()->allDuties()) {
+            const QVariantMap duty = entry.toMap();
+            if (duty.value(QStringLiteral("content_id")).toLongLong() != 17
+                && duty.value(QStringLiteral("duty_category")).toString() == category) {
+                other = duty;
+                break;
+            }
+        }
+        QVERIFY(!other.isEmpty());
+        history.insert(QStringLiteral("content_id"), other.value(QStringLiteral("content_id")));
+        history.insert(QStringLiteral("duty_name"), other.value(QStringLiteral("duty_name")));
+    } else {
+        history.insert(QStringLiteral("content_id"), 17);
+    }
+    history.insert(QStringLiteral("duty_category"), category);
+    history.insert(QStringLiteral("duration_ms"), 1200000);
+
+    Scene scene;
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
+    scene.backend.resetRuns({QJsonObject::fromVariantMap(history)});
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    scene.overlay()->show();
+    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    auto *dungeons = scene.app->property("dungeons").value<QObject *>();
+    QVERIFY(dungeons);
+    QTRY_VERIFY(dungeons->property("count").toInt() > 0);
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::Entered);
+    QTRY_COMPARE(scene.app->currentRunState(), QStringLiteral("ENTERED_DUTY"));
+    QObject *data = scene.overlayData();
+    QVERIFY(data);
+    QTRY_VERIFY(scene.item(QStringLiteral("floatingPaceBar")));
+    QQuickItem *bar = scene.item(QStringLiteral("floatingPaceBar"));
+
+    if (caption.isEmpty()) {
+        QTRY_VERIFY(scene.item(QStringLiteral("floatingElapsed"), true));
+        QCOMPARE(data->property("hasReference").toBool(), false);
+        QVERIFY(!bar->isVisible());
+        QVERIFY(scene.textItemsContaining(QString::fromUtf8("均 ")).isEmpty());
+        QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+        return;
+    }
+    QTRY_VERIFY(!scene.textItemsContaining(caption).isEmpty());
+    QVERIFY(bar->isVisible());
+    // The bar spans 130 % of the 20:00 and fills with the time.
+    const double first = bar->property("ratio").toDouble();
+    const double expected = data->property("elapsedMs").toDouble() / (1.3 * 1200000);
+    QVERIFY2(qAbs(first - expected) < 0.01, qPrintable(QStringLiteral("%1 vs %2").arg(first).arg(expected)));
+    QVERIFY(qAbs(first - (1 / 1.3)) > 0.1);
+    QVERIFY(qAbs(bar->property("markRatio").toDouble() - (1 / 1.3)) < 1e-9);
+    QTRY_VERIFY_WITH_TIMEOUT(bar->property("ratio").toDouble() > first, 3000);
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+// The state mark ends its row, where the float's body clips: the pulse around
+// the 已匹配 mark was cut off there (owner's screenshot, 2026-10-22). Each
+// mark's box holds its pulse at the widest; the bell inside the 已匹配 ring
+// shakes as each pulse sets off, and the hourglass beside the wait time runs
+// its sand, turns over and runs again (owner, 2026-10-22).
+void StatisticsOverlayTests::stateMarksStayInsideTheFloat()
+{
+    Scene scene;
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
+    // Classic: its accent is blue, so red can only come from the mark itself.
+    QVERIFY2(scene.create(QStringLiteral("classic"), true, false, false), qPrintable(scene.errors));
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::Matched);
+    QTRY_COMPARE(scene.app->currentRunState(), QStringLiteral("MENTOR_MATCHED"));
+    scene.overlay()->show();
+    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    // The full form's items (the mini bar's row holds a mark too, never
+    // shown), found once shown: showing the float builds its modules anew.
+    QTRY_VERIFY(scene.item(QStringLiteral("floatingMatchedBell"), true));
+    QPointer<QQuickItem> bell = scene.item(QStringLiteral("floatingMatchedBell"), true);
+    QTRY_VERIFY(scene.item(QStringLiteral("floatingWaitHourglass"), true));
+    QPointer<QQuickItem> hourglass = scene.item(QStringLiteral("floatingWaitHourglass"), true);
+    QTRY_VERIFY(hourglass->property("running").toBool());
+
+    auto *scroll = scene.item(QStringLiteral("floatingStatisticsScroll"), true);
+    QVERIFY(scroll);
+    QPointer<QQuickItem> mark = bell->parentItem()->parentItem();
+    const auto holdsThePulse = [&](double markSize) {
+        if (!mark) return false;
+        const double reach = markSize * 1.9 / 2;
+        const QPointF centre = mark->mapToItem(scroll, QPointF(mark->width() / 2, mark->height() / 2));
+        return mark->width() >= 2 * reach && centre.x() + reach <= scroll->width() + 0.5;
+    };
+    QTRY_VERIFY(holdsThePulse(18));
+
+    // Over more than one beat (1.8 s) the bell shakes, and only while the
+    // ring is setting off (it is at 1.58 x when the shake ends, 1.9 x at most).
+    QQuickItem *pulse = mark->findChild<QQuickItem *>(QStringLiteral("statusPulse"));
+    QVERIFY(pulse);
+    // Red in every style: the bell, its ring and the pulse (owner, 2026-10-22).
+    auto *theme = scene.engine.singletonInstance<QObject *>(qmlTypeId("MentorRecorder", 1, 0, "Theme"));
+    QVERIFY(theme);
+    const QColor red = theme->property("red").value<QColor>();
+    QCOMPARE(bell->property("color").value<QColor>(), red);
+    QCOMPARE(mark->property("callColor").value<QColor>(), red);
+    bool shook = false;
+    double latestShake = 0;
+    QElapsedTimer watch;
+    watch.start();
+    while (watch.elapsed() < 2200) {
+        QTest::qWait(5);
+        const double swing = qAbs(bell->rotation());
+        if (swing > 1) shook = true;
+        if (swing > 0.5) latestShake = qMax(latestShake, pulse->scale());
+    }
+    QVERIFY(shook);
+    QVERIFY2(latestShake < 1.65, qPrintable(QString::number(latestShake)));
+
+    // One pour (3 s) and the rest before the turn, then the next pour.
+    QTRY_VERIFY_WITH_TIMEOUT(hourglass->property("turn").toDouble() > 0, 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(hourglass->property("turn").toDouble() == 0
+                             && hourglass->property("sand").toDouble() < 1, 2000);
+
+    // Hidden, both stop: the bell hangs straight, the glass stands upright.
+    scene.overlay()->hide();
+    QTRY_VERIFY(!scene.floating()->isVisible());
+    QVERIFY(bell && hourglass);
+    QTRY_VERIFY(!hourglass->property("running").toBool());
+    QCOMPARE(hourglass->property("turn").toDouble(), 0.0);
+    QTRY_COMPARE(bell->rotation(), 0.0);
+
+    scene.overlay()->show();
+    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QTRY_VERIFY(scene.item(QStringLiteral("floatingMatchedBell"), true));
+    bell = scene.item(QStringLiteral("floatingMatchedBell"), true);
+    mark = bell->parentItem()->parentItem();
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::Entered);
+    QTRY_COMPARE(scene.app->currentRunState(), QStringLiteral("ENTERED_DUTY"));
+    QTRY_VERIFY(holdsThePulse(8));
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 
@@ -1170,15 +1787,16 @@ void StatisticsOverlayTests::mainWindowCanUnlockAndMinimizeIndependently()
 void StatisticsOverlayTests::sharedSnapshotsRefreshWithoutOpeningTheMainPage()
 {
     Scene scene;
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     scene.overlay()->show();
-    QTRY_VERIFY(scene.app->dungeons()->rowCountProperty() > 0 && scene.app->jobs()->rowCountProperty() > 0);
+    QTRY_VERIFY(scene.overlay()->dungeons()->rowCountProperty() > 0 && scene.overlay()->jobs()->rowCountProperty() > 0);
     auto *state = scene.item(QStringLiteral("floatingDungeonState"));
     QVERIFY(state);
-    QTRY_VERIFY(state->property("text").toString().contains(QString::number(scene.app->dungeons()->totalAttemptCount())));
-    QVERIFY(state->property("text").toString().contains(QString::number(scene.app->dungeons()->totalCompletedCount())));
-    QSignalSpy refreshed(scene.app->dungeons(), &mr::StatsRowsModel::countChanged);
-    scene.app->dungeons()->reload();
+    QTRY_COMPARE(state->property("text").toString(), QStringLiteral("%1/%2")
+                 .arg(scene.overlay()->dungeons()->totalCompletedCount()).arg(scene.overlay()->dungeons()->totalAttemptCount()));
+    QSignalSpy refreshed(scene.overlay()->dungeons(), &mr::StatsRowsModel::countChanged);
+    scene.app->refreshDashboard();
     QTRY_VERIFY(refreshed.count() > 0);
     scene.overlay()->setRowLimit(0);
     scene.overlay()->setModules({"current_duty", "elapsed", "progress"});
@@ -1214,7 +1832,7 @@ void StatisticsOverlayTests::attemptPeriodsUsePointerKeyboardAndKeepOtherStatist
     Scene scene;
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
     scene.backend.resetRuns(datedAttemptRuns());
-    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    QVERIFY2(scene.create(QStringLiteral("workbench"), false), qPrintable(scene.errors));
     scene.overlay()->show();
     QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
     QTRY_VERIFY(scene.overlay()->attemptsKnown());
@@ -1232,6 +1850,11 @@ void StatisticsOverlayTests::attemptPeriodsUsePointerKeyboardAndKeepOtherStatist
         QTRY_COMPARE(scene.overlay()->attemptPeriod(), key);
         QTRY_VERIFY(scene.overlay()->attemptsKnown());
         QTRY_COMPARE(scene.item(QStringLiteral("floatingAttemptCount"))->property("text").toString(), QString::number(period.count));
+        verifyAttemptPeriodStatistics(scene, period.count);
+        QVERIFY(!QTest::currentTestFailed());
+        QDir().mkpath(QString::fromUtf8(MR_SOURCE_DIR) + QStringLiteral("/artifacts/overlay-statistics-periods-20261022"));
+        QVERIFY(scene.floating()->grabWindow().save(QString::fromUtf8(MR_SOURCE_DIR)
+                + QStringLiteral("/artifacts/overlay-statistics-periods-20261022/") + key + QStringLiteral(".png")));
         QCOMPARE(scene.app->dashboard(), dashboard);
         QCOMPARE(scene.item(QStringLiteral("floatingAchievementProgress"))->property("text"), progress);
         QCOMPARE(scene.app->dungeons()->totalAttemptCount(), 4);
@@ -1248,12 +1871,62 @@ void StatisticsOverlayTests::attemptPeriodsUsePointerKeyboardAndKeepOtherStatist
     scene.overlay()->setModules({QStringLiteral("progress")});
     QTRY_VERIFY(!scene.item(QStringLiteral("floatingAttemptPeriods"), true));
     QVERIFY(!scene.item(QStringLiteral("floatingModule_attempts"), true));
+    for (const auto &module : {QStringLiteral("dungeons"), QStringLiteral("jobs")}) {
+        scene.overlay()->setModules({module});
+        QTRY_VERIFY(scene.item(QStringLiteral("floatingAttemptPeriods"), true));
+        QVERIFY(scene.click(QStringLiteral("floatingAttemptPeriod_last7")));
+        if (module == QLatin1String("dungeons"))
+            QTRY_COMPARE(scene.overlay()->dungeons()->totalAttemptCount(), 2);
+        else
+            QTRY_COMPARE(scene.overlay()->jobs()->totalAttemptCount(), 2);
+        QVERIFY(scene.click(QStringLiteral("floatingAttemptPeriod_today")));
+    }
     scene.overlay()->setModules({QStringLiteral("attempts"), QStringLiteral("progress")});
     QTRY_VERIFY(scene.item(QStringLiteral("floatingAttemptPeriods"), true));
     scene.overlay()->setForm(QStringLiteral("mini"));
     QTRY_VERIFY(!scene.item(QStringLiteral("floatingAttemptPeriods"), true));
     QVERIFY(scene.item(QStringLiteral("floatingMiniProgress"), true));
     QCOMPARE(scene.app->dashboard(), dashboard);
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+void StatisticsOverlayTests::periodStatisticsHideOldChartsWhileLoadingAndOnFailure()
+{
+    Scene scene;
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
+    scene.backend.resetRuns(datedAttemptRuns());
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    scene.overlay()->setModules({QStringLiteral("dungeons"), QStringLiteral("jobs")});
+    scene.overlay()->show();
+    QTRY_COMPARE(scene.item(QStringLiteral("floatingDungeonState"))->property("text").toString(), QStringLiteral("4/4"));
+    scene.backend.holdRows = true;
+    scene.overlay()->setAttemptPeriod(QStringLiteral("today"));
+    QTRY_COMPARE(scene.backend.pendingRows.size(), 2);
+    QTRY_COMPARE(scene.item(QStringLiteral("floatingDungeonState"))->property("text").toString(), QString::fromUtf8("读取中…"));
+    QTRY_COMPARE(scene.item(QStringLiteral("floatingJobMessage"))->property("text").toString(), QString::fromUtf8("读取中…"));
+    QVERIFY(!scene.item(QStringLiteral("floatingDungeonStatistics"))->property("ready").toBool());
+    QVERIFY(!scene.item(QStringLiteral("floatingJobStatistics"))->property("ready").toBool());
+    QVERIFY(qmlList(scene.item(QStringLiteral("floatingDungeonStatistics"))->property("rows")).isEmpty());
+    QVERIFY(qmlList(scene.item(QStringLiteral("floatingDungeonStatistics"))->property("buckets")).isEmpty());
+    QVERIFY(qmlList(scene.item(QStringLiteral("floatingJobStatistics"))->property("columns")).isEmpty());
+    // A second selection invalidates both pending model requests.
+    scene.overlay()->setAttemptPeriod(QStringLiteral("last7"));
+    QCOMPARE(scene.backend.pendingRows.size(), 4);
+    scene.backend.pendingRows.at(0)->fail(QStringLiteral("OLD"), QStringLiteral("stale failure"));
+    QVERIFY(scene.overlay()->dungeons()->loadError().isEmpty());
+    QVERIFY(scene.overlay()->dungeons()->isLoading());
+    scene.backend.pendingRows.at(2)->fail(QStringLiteral("ERR_TEST"), QStringLiteral("current failure"));
+    scene.backend.pendingRows.at(3)->fail(QStringLiteral("ERR_TEST"), QStringLiteral("current failure"));
+    QTRY_COMPARE(scene.item(QStringLiteral("floatingDungeonState"))->property("text").toString(), QStringLiteral("current failure"));
+    QTRY_COMPARE(scene.item(QStringLiteral("floatingJobMessage"))->property("text").toString(), QStringLiteral("current failure"));
+    QVERIFY(qmlList(scene.item(QStringLiteral("floatingDungeonStatistics"))->property("rows")).isEmpty());
+    QVERIFY(qmlList(scene.item(QStringLiteral("floatingDungeonStatistics"))->property("buckets")).isEmpty());
+    QVERIFY(qmlList(scene.item(QStringLiteral("floatingJobStatistics"))->property("columns")).isEmpty());
+    scene.backend.holdRows = false;
+    scene.backend.resetRuns({});
+    scene.overlay()->refreshAttempts();
+    QTRY_COMPARE(scene.item(QStringLiteral("floatingDungeonState"))->property("text").toString(), QStringLiteral("0/0"));
+    QTRY_COMPARE(scene.item(QStringLiteral("floatingJobMessage"))->property("text").toString(), QString::fromUtf8("暂无统计"));
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 
@@ -1443,7 +2116,7 @@ void StatisticsOverlayTests::renderedEvidence()
     QTRY_VERIFY(scene.item(QStringLiteral("floatingModule_current_duty"), true));
     QVERIFY(scene.grab(prefix + QStringLiteral("-in-duty")));
     scene.overlay()->setForm(QStringLiteral("mini"));
-    QTRY_COMPARE(scene.floating()->width(), 280);
+    QTRY_COMPARE(scene.floating()->width(), 300);
     QVERIFY(scene.grab(prefix + QStringLiteral("-mini")));
     scene.overlay()->setLocked(true);
     QVERIFY(scene.grab(prefix + QStringLiteral("-mini-locked")));
@@ -1454,14 +2127,27 @@ void StatisticsOverlayTests::renderedEvidence()
 
 int main(int argc, char **argv)
 {
+    // The threaded loop owns a competing GUI animation driver. Capture-only
+    // basic rendering permits our manual clock; normal validation is unchanged.
+    if (qEnvironmentVariableIsSet("MR_OVERLAY_CAPTURE_FRAMES"))
+        qputenv("QSG_RENDER_LOOP", "basic");
     mrtest::disableCollectorLaunch();
     QStandardPaths::setTestModeEnabled(true);
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QApplication app(argc, argv);
+    // Opt-in image evidence is a separate process from native-cadence validation.
+    // Qt Quick installs its own driver when its first window is created.
+    std::unique_ptr<FormEvidenceClock> evidenceClock;
+    if (qEnvironmentVariableIsSet("MR_OVERLAY_CAPTURE_FRAMES")) {
+        evidenceClock = std::make_unique<FormEvidenceClock>();
+        formEvidenceClock = evidenceClock.get();
+    }
     if (!mr::registerBundledFonts()) return 2;
     QApplication::setFont(QFont(QStringLiteral("Noto Sans SC")));
     StatisticsOverlayTests tests;
-    return QTest::qExec(&tests, argc, argv);
+    const int result = QTest::qExec(&tests, argc, argv);
+    formEvidenceClock = nullptr;
+    return result;
 }
 
 #include "StatisticsOverlayTests.moc"

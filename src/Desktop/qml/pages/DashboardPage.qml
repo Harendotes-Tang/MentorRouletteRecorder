@@ -1,28 +1,30 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 ScrollView {
     id: page
     objectName: "dashboardPage"
-    readonly property var visibleResultBuckets: App.resultBuckets.filter(bucket =>
+    readonly property var visibleResultBuckets: Runtime.app.resultBuckets.filter(bucket =>
         bucket.result !== "UNKNOWN" || Number(bucket.count || 0) !== 0)
 
     readonly property int resultTotal: {
         let total = 0
-        for (let index = 0; index < App.resultBuckets.length; ++index)
-            total += Number(App.resultBuckets[index].count || 0)
+        for (let index = 0; index < Runtime.app.resultBuckets.length; ++index)
+            total += Number(Runtime.app.resultBuckets[index].count || 0)
         return total
     }
 
     // The Collector's own figures, never baseline + completed_count: a COMPLETED
     // run that does not count towards the goal is in completed_count only
     // (docs/statistics-definitions.md; review OK-1).
-    readonly property int achievementProgress: Math.max(0, Number(App.dashboard.achievement_progress || 0))
-    readonly property int achievementRemaining: App.dashboard.remaining !== undefined
-        ? Math.max(0, Number(App.dashboard.remaining))
-        : Math.max(0, App.goalCount - page.achievementProgress)
+    readonly property int achievementProgress: Math.max(0, Number(Runtime.app.dashboard.achievement_progress || 0))
+    readonly property int achievementRemaining: Runtime.app.dashboard.remaining !== undefined
+        ? Math.max(0, Number(Runtime.app.dashboard.remaining))
+        : Math.max(0, Runtime.app.goalCount - page.achievementProgress)
 
     signal openManualRequested()
     signal openCaptureRequested()
@@ -33,29 +35,29 @@ ScrollView {
     signal openRunHistoryRequested(var run)
     signal openReflectionsRequested()
 
-    readonly property var reflectionSummary: (typeof App !== "undefined" && App.reflectionSummary)
-                                             ? App.reflectionSummary : ({})
+    readonly property var reflectionSummary: (typeof Runtime.app !== "undefined" && Runtime.app.reflectionSummary)
+                                             ? Runtime.app.reflectionSummary : ({})
     readonly property var recentReflections: reflectionSummary.recent
                                              ? reflectionSummary.recent : []
     // True once GetReflectionSummary has answered; until then the counts are
     // unknown and render as a dash rather than a 0 this process invented.
     readonly property bool reflectionSummaryLoaded: reflectionSummary.reflection_count !== undefined
     readonly property string reflectionCountText: reflectionSummaryLoaded
-        ? String(Number(reflectionSummary.reflection_count)) : Fmt.dash()
+        ? String(Number(reflectionSummary.reflection_count)) : Runtime.fmt.dash()
     readonly property string pendingReflectionCountText: reflectionSummaryLoaded
-        ? String(Number(reflectionSummary.pending_completed_count)) : Fmt.dash()
+        ? String(Number(reflectionSummary.pending_completed_count)) : Runtime.fmt.dash()
 
     function backfillReflection() {
         if (!page.reflectionSummaryLoaded) {
-            if (typeof App !== "undefined" && App.showToast)
-                App.showToast(qsTr("笔记数据尚未加载，请稍后再试"))
+            if (typeof Runtime.app !== "undefined" && Runtime.app.showToast)
+                Runtime.app.showToast(qsTr("笔记数据尚未加载，请稍后再试"))
             return
         }
         const pending = page.reflectionSummary.next_pending
         if (pending && pending.run_id)
             page.reflectRequested(pending, qsTr("补录笔记"))
-        else if (typeof App !== "undefined" && App.showToast)
-            App.showToast(qsTr("所有通关记录都已写过笔记"))
+        else if (typeof Runtime.app !== "undefined" && Runtime.app.showToast)
+            Runtime.app.showToast(qsTr("所有通关记录都已写过笔记"))
     }
 
     // 还差 N 次: one sentence for the translators; the figure between its two
@@ -65,7 +67,7 @@ ScrollView {
     // The header's date. The app lives in the tray for days, so the date is
     // read again every minute instead of once at start (review OK-9), and after
     // a language switch: the weekday is a word.
-    property string todayText: Theme.live(Fmt.dateWithWeekday(new Date().toISOString()))
+    property string todayText: Theme.live(Runtime.fmt.dateWithWeekday(new Date().toISOString()))
 
     Timer {
         objectName: "dashboardDateTimer"
@@ -74,7 +76,7 @@ ScrollView {
         running: true
         // A fresh binding, evaluated now and again on the next language switch.
         onTriggered: page.todayText = Qt.binding(function() {
-            return Theme.live(Fmt.dateWithWeekday(new Date().toISOString()))
+            return Theme.live(Runtime.fmt.dateWithWeekday(new Date().toISOString()))
         })
     }
 
@@ -107,11 +109,11 @@ ScrollView {
             }
 
             AppButton {
-                visible: App.maintainerToolsVisible
-                text: App.captureActionLabel
+                visible: Runtime.app.maintainerToolsVisible
+                text: Runtime.app.captureActionLabel
                 variant: "primary"
-                enabled: App.captureActionEnabled
-                onClicked: App.toggleCapture()
+                enabled: Runtime.app.captureActionEnabled
+                onClicked: Runtime.app.toggleCapture()
             }
         }
 
@@ -120,7 +122,7 @@ ScrollView {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: visible ? midstreamRow.implicitHeight + 24 : 0
-            visible: App.captureMidstreamSuspected || App.captureSilent
+            visible: Runtime.app.captureMidstreamSuspected || Runtime.app.captureSilent
             radius: Theme.radiusM
             color: "transparent"
             border.width: 1
@@ -140,7 +142,7 @@ ScrollView {
                     spacing: 3
 
                     Text {
-                        text: App.captureMidstreamSuspected
+                        text: Runtime.app.captureMidstreamSuspected
                               ? qsTr("可能错过了连接开头，暂时无法确认自动记录")
                               : qsTr("正在接收网络数据，但尚未识别出游戏消息")
                         color: Theme.orangeText
@@ -150,7 +152,7 @@ ScrollView {
 
                     Text {
                         Layout.fillWidth: true
-                        text: App.captureHealthText
+                        text: Runtime.app.captureHealthText
                         color: Theme.textPrimary
                         font.pixelSize: Theme.fs(12)
                         wrapMode: Text.WordWrap
@@ -169,7 +171,7 @@ ScrollView {
         Card {
             objectName: "dashboardPendingWorkCard"
             Layout.fillWidth: true
-            visible: App.recovery.count > 0 || App.recovery.error.length > 0
+            visible: Runtime.app.recovery.count > 0 || Runtime.app.recovery.error.length > 0
             PendingWorkContent {
                 Layout.fillWidth: true
                 limit: 1
@@ -179,12 +181,12 @@ ScrollView {
 
         Card {
             Layout.fillWidth: true
-            visible: App.maintainerToolsVisible && (App.validationActive
-                     || (!App.capturing
-                         && (App.validationState === "COMPLETED"
-                             || App.validationState === "FAILED"
-                             || (App.protocolProfileStatus !== "VERIFIED"
-                                 && App.validationStatusLoaded))))
+            visible: Runtime.app.maintainerToolsVisible && (Runtime.app.validationActive
+                     || (!Runtime.app.capturing
+                         && (Runtime.app.validationState === "COMPLETED"
+                             || Runtime.app.validationState === "FAILED"
+                             || (Runtime.app.protocolProfileStatus !== "VERIFIED"
+                                 && Runtime.app.validationStatusLoaded))))
             padding: 16
             spacing: 6
 
@@ -192,7 +194,7 @@ ScrollView {
                 Layout.fillWidth: true
                 Text {
                     Layout.fillWidth: true
-                    text: App.captureModeStatusText
+                    text: Runtime.app.captureModeStatusText
                     color: Theme.textPrimary
                     font.pixelSize: Theme.fs(14)
                     font.bold: true
@@ -206,7 +208,7 @@ ScrollView {
 
             Text {
                 Layout.fillWidth: true
-                text: App.validationNotice
+                text: Runtime.app.validationNotice
                 color: Theme.orangeText
                 font.pixelSize: Theme.fs(12)
                 wrapMode: Text.WordWrap
@@ -214,8 +216,8 @@ ScrollView {
 
             Text {
                 Layout.fillWidth: true
-                visible: App.validationError.length > 0
-                text: qsTr("验证操作失败：") + App.validationError
+                visible: Runtime.app.validationError.length > 0
+                text: qsTr("验证操作失败：") + Runtime.app.validationError
                 color: Theme.red
                 font.pixelSize: Theme.fs(12)
                 wrapMode: Text.WordWrap
@@ -235,8 +237,8 @@ ScrollView {
             Layout.preferredHeight: visible ? Math.max(68, npcapRow.implicitHeight + 20) : 0
             // Only on the Collector's own answer: without a capture status (no
             // pipe, a failed read) nothing is known about Npcap (review K2-1).
-            visible: App.backendConnected && App.captureStatus.npcap_installed !== undefined
-                     && !App.npcapInstalled
+            visible: Runtime.app.backendConnected && Runtime.app.captureStatus.npcap_installed !== undefined
+                     && !Runtime.app.npcapInstalled
             radius: Theme.radiusM
             border.width: 1
             border.color: Theme.orange
@@ -309,7 +311,7 @@ ScrollView {
                 padding: 20
 
                 CardKicker {
-                    text: qsTr("成就进度 · %1 次").arg(App.goalCount)
+                    text: qsTr("成就进度 · %1 次").arg(Runtime.app.goalCount)
                 }
 
                 Item {
@@ -322,9 +324,9 @@ ScrollView {
                         height: 200
                         anchors.centerIn: parent
                         value: page.achievementProgress
-                        maximum: Math.max(1, App.goalCount)
+                        maximum: Math.max(1, Runtime.app.goalCount)
                         label: String(page.achievementProgress)
-                        detail: Fmt.percent(Math.max(0, value / maximum), 1)
+                        detail: Runtime.fmt.percent(Math.max(0, value / maximum), 1)
                     }
 
                     AchievementConfetti {
@@ -334,7 +336,7 @@ ScrollView {
                         z: 1
                     }
                     Connections {
-                        target: App
+                        target: Runtime.app
                         function onAchievementMilestoneReached(completedLaps) {
                             achievementConfetti.burst()
                         }
@@ -377,7 +379,7 @@ ScrollView {
                     spacing: 5
 
                     Text {
-                        text: qsTr("含起始次数 %1 次").arg(App.baselineCount) + " ·"
+                        text: qsTr("含起始次数 %1 次").arg(Runtime.app.baselineCount) + " ·"
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fs(11)
                     }
@@ -400,7 +402,7 @@ ScrollView {
                 GridLayout {
                     // Two rows for the eight prototype cards; a ninth (中途加入 or 未知结果,
                     // each shown only when non-zero) adds a row rather than overflowing.
-                    readonly property int cardRows: Math.max(1, Math.ceil(App.statCards.length / 4))
+                    readonly property int cardRows: Math.max(1, Math.ceil(Runtime.app.statCards.length / 4))
                     Layout.fillWidth: true
                     Layout.preferredHeight: cardRows * 96 + (cardRows - 1) * 12
                     columns: 4
@@ -409,7 +411,7 @@ ScrollView {
 
                     Repeater {
                         objectName: "dashboardStatCards"
-                        model: App.statCards
+                        model: Runtime.app.statCards
 
                         delegate: StatCard {
                             required property var modelData
@@ -420,7 +422,7 @@ ScrollView {
                             Layout.preferredHeight: 96
                             padding: 16
                             title: modelData.k || ""
-                            value: modelData.v || Fmt.dash()
+                            value: modelData.v || Runtime.fmt.dash()
                         }
                     }
                 }
@@ -444,12 +446,12 @@ ScrollView {
                         Tag {
                             // 依据排本申请推断的档案在提交申请时即进入该状态，而非队伍
                             // 匹配成功时，因此此类档案下不得显示“已匹配”。
-                            text: App.currentRunState === "ENTERED_DUTY" ? qsTr("副本进行中")
-                                : App.currentRunState === "MENTOR_MATCHED"
-                                  ? (App.calibration && App.calibration.provisional
+                            text: Runtime.app.currentRunState === "ENTERED_DUTY" ? qsTr("副本进行中")
+                                : Runtime.app.currentRunState === "MENTOR_MATCHED"
+                                  ? (Runtime.app.calibration && Runtime.app.calibration.provisional
                                      ? qsTr("已排本，等待进本") : qsTr("已匹配，等待进本"))
                                 : qsTr("空闲")
-                            variant: App.currentRunState === "ENTERED_DUTY" ? "blue" : "neutral"
+                            variant: Runtime.app.currentRunState === "ENTERED_DUTY" ? "blue" : "neutral"
                         }
 
                         Item { Layout.fillWidth: true }
@@ -460,9 +462,9 @@ ScrollView {
                     Text {
                         objectName: "currentRunCaptureStatus"
                         Layout.fillWidth: true
-                        visible: !App.currentRun.run
-                        text: App.maintainerToolsVisible ? App.captureModeStatusText : App.recording.message
-                        color: App.recording.attention ? Theme.orangeText : Theme.textSecondary
+                        visible: !Runtime.app.currentRun.run
+                        text: Runtime.app.maintainerToolsVisible ? Runtime.app.captureModeStatusText : Runtime.app.recording.message
+                        color: Runtime.app.recording.attention ? Theme.orangeText : Theme.textSecondary
                         font.pixelSize: Theme.fs(12)
                         wrapMode: Text.WordWrap
                         // The card sits in a fixed-height row: a long status (patch-day
@@ -480,21 +482,21 @@ ScrollView {
 
                         Repeater {
                             model: [
-                                { label: qsTr("匹配时间"), value: App.currentRun.run ? Fmt.localTime(App.currentRun.run.matched_at_utc) : "—" },
+                                { label: qsTr("匹配时间"), value: Runtime.app.currentRun.run ? Runtime.fmt.localTime(Runtime.app.currentRun.run.matched_at_utc) : "—" },
                                 // The only value that may be shortened: a narrow window
                                 // (or a longer translation) elides the duty name, never
                                 // a time or the confidence.
-                                { label: qsTr("当前副本"), shrinks: true, value: App.currentRun.run ? (Theme.dutyName(App.currentRun.run) || "—") : "—" },
+                                { label: qsTr("当前副本"), shrinks: true, value: Runtime.app.currentRun.run ? (Theme.dutyName(Runtime.app.currentRun.run) || "—") : "—" },
                                 // Always shown: a run whose job the software has not read yet says so,
                                 // instead of the column disappearing and reappearing.
                                 { label: qsTr("当前职业"), kind: "job",
-                                  value: App.currentRun.run ? (App.currentRun.run.job_id > 0 ? Theme.jobName(App.currentRun.run) : qsTr("未知")) : "—" },
-                                { label: qsTr("已进行"), value: App.currentRun.run ? Fmt.duration(App.liveElapsedMs) : "—" },
-                                { label: qsTr("进本时间"), value: App.currentRun.run ? Fmt.localTime(App.currentRun.run.entered_at_utc) : "—" },
+                                  value: Runtime.app.currentRun.run ? (Runtime.app.currentRun.run.job_id > 0 ? Theme.jobName(Runtime.app.currentRun.run) : qsTr("未知")) : "—" },
+                                { label: qsTr("已进行"), value: Runtime.app.currentRun.run ? Runtime.fmt.duration(Runtime.app.liveElapsedMs) : "—" },
+                                { label: qsTr("进本时间"), value: Runtime.app.currentRun.run ? Runtime.fmt.localTime(Runtime.app.currentRun.run.entered_at_utc) : "—" },
                                 { label: qsTr("识别可信度"),
-                                  value: App.currentRun.run
-                                         ? Theme.live(Fmt.runConfidenceLabel(App.currentRun.run))
-                                         : Fmt.dash() }
+                                  value: Runtime.app.currentRun.run
+                                         ? Theme.live(Runtime.fmt.runConfidenceLabel(Runtime.app.currentRun.run))
+                                         : Runtime.fmt.dash() }
                             ]
 
                             delegate: ColumnLayout {
@@ -504,15 +506,15 @@ ScrollView {
                                 readonly property bool isJob: modelData.kind === "job"
                                 readonly property bool hasJob: liveJobId !== null
                                                                && liveJobId !== undefined
-                                readonly property var liveJobId: App.currentRun.run
-                                                                 ? App.currentRun.run.job_id : null
+                                readonly property var liveJobId: Runtime.app.currentRun.run
+                                                                 ? Runtime.app.currentRun.run.job_id : null
 
                                 objectName: isJob ? "currentRunJob" : ""
                                 Layout.fillWidth: true
                                 spacing: 4
 
                                 Text {
-                                    text: modelData.label
+                                    text: runCell.modelData.label
                                     color: Theme.textSecondary
                                     font.pixelSize: Theme.fs(11)
                                 }
@@ -521,7 +523,7 @@ ScrollView {
                                     Layout.fillWidth: true
                                     Layout.minimumWidth: runCell.modelData.shrinks === true ? 0 : implicitWidth
                                     visible: !parent.isJob
-                                    text: modelData.value
+                                    text: runCell.modelData.value
                                     textFormat: Text.PlainText
                                     color: Theme.textPrimary
                                     font.pixelSize: Theme.fs(13)
@@ -538,12 +540,12 @@ ScrollView {
                                     // question-mark badge and an empty role glyph.
                                     JobIcon {
                                         visible: runCell.hasJob
-                                        jobId: liveJobId
+                                        jobId: runCell.liveJobId
                                         size: 20
                                     }
 
                                     Text {
-                                        text: modelData.value
+                                        text: runCell.modelData.value
                                         textFormat: Text.PlainText
                                         color: Theme.textPrimary
                                         font.pixelSize: Theme.fs(13)
@@ -554,7 +556,7 @@ ScrollView {
                                     RoleIcon {
                                         Layout.fillWidth: true
                                         visible: runCell.hasJob
-                                        role: Jobs.roleGroup(liveJobId)
+                                        role: Runtime.jobs.roleGroup(runCell.liveJobId)
                                         size: 18
                                     }
                                 }
@@ -582,7 +584,7 @@ ScrollView {
                     CardKicker { text: qsTr("完成趋势") }
 
                     Text {
-                        text: String(App.completedLast7Days)
+                        text: String(Runtime.app.completedLast7Days)
                         color: Theme.textPrimary
                         font.pixelSize: Theme.fs(13)
                         font.weight: Theme.figureWeight(true)
@@ -603,13 +605,13 @@ ScrollView {
                     // are always shown whole.
                     SegmentedControl {
                         Layout.preferredWidth: Math.max(116, naturalWidth)
-                        visible: App.trendMode === "day"
+                        visible: Runtime.app.trendMode === "day"
                         options: [
                             { value: 7, label: qsTr("7 天") },
                             { value: 30, label: qsTr("30 天") }
                         ]
-                        currentValue: App.trendWindowDays
-                        onActivated: function(value) { App.setTrendWindowDays(value) }
+                        currentValue: Runtime.app.trendWindowDays
+                        onActivated: function(value) { Runtime.app.setTrendWindowDays(value) }
                     }
 
                     SegmentedControl {
@@ -619,8 +621,8 @@ ScrollView {
                             { value: "week", label: qsTr("周") },
                             { value: "month", label: qsTr("月") }
                         ]
-                        currentValue: App.trendMode
-                        onActivated: function(value) { App.setTrendMode(value) }
+                        currentValue: Runtime.app.trendMode
+                        onActivated: function(value) { Runtime.app.setTrendMode(value) }
                     }
                 }
 
@@ -631,7 +633,7 @@ ScrollView {
                 TrendChart {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    buckets: App.trendBuckets
+                    buckets: Runtime.app.trendBuckets
                 }
             }
 
@@ -646,7 +648,7 @@ ScrollView {
 
                 StackedResultBar {
                     Layout.fillWidth: true
-                    buckets: App.resultBuckets
+                    buckets: Runtime.app.resultBuckets
                 }
 
                 ColumnLayout {
@@ -658,6 +660,7 @@ ScrollView {
                         model: page.visibleResultBuckets
 
                         delegate: RowLayout {
+                            id: resultLegendRow
                             required property var modelData
                             required property int index
                             objectName: "dashboardResultLegendRow" + index
@@ -665,21 +668,23 @@ ScrollView {
                             spacing: 8
 
                             Rectangle {
-                                width: 10
-                                height: 10
+                                Layout.minimumWidth: 10
+                                Layout.maximumWidth: 10
+                                Layout.minimumHeight: 10
+                                Layout.maximumHeight: 10
                                 radius: 3
-                                color: Theme.token(modelData.color_token || "")
+                                color: Theme.token(resultLegendRow.modelData.color_token || "")
                             }
 
                             Text {
                                 Layout.fillWidth: true
-                                text: modelData.label || ""
+                                text: resultLegendRow.modelData.label || ""
                                 color: Theme.textPrimary
                                 font.pixelSize: Theme.fs(12)
                             }
 
                             Text {
-                                text: String(modelData.count || 0)
+                                text: String(resultLegendRow.modelData.count || 0)
                                 color: Theme.textPrimary
                                 font.pixelSize: Theme.fs(12)
                                 font.weight: Theme.figureWeight(true)

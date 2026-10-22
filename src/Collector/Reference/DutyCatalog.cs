@@ -12,13 +12,17 @@ namespace MentorRecorder.Collector.Reference;
 /// <param name="DutyCategory">Localized category.</param>
 /// <param name="Region">Region whose mapping supplied this row.</param>
 /// <param name="IsSyntheticSample">True when this is test/sample data, never protocol evidence.</param>
+/// <param name="PartySize">Reference party size, or null when the source does not supply it.</param>
+/// <param name="PreferredForNameMatching">Audited preference used only when inferring an id from an exact name.</param>
 public sealed record DutyInfo(
     int ContentId,
     int? TerritoryId,
     string LocalizedName,
     string? DutyCategory,
     Region Region,
-    bool IsSyntheticSample);
+    bool IsSyntheticSample,
+    int? PartySize = null,
+    bool PreferredForNameMatching = false);
 
 /// <summary>One versioned reference document, as loaded from a file or an embedded resource.</summary>
 /// <param name="Region">Region the document is for.</param>
@@ -58,6 +62,7 @@ public sealed class DutyCatalog
     {
         _byKey = byKey;
         (_byTerritory, _sharedTerritories) = IndexByTerritory(byKey.Values);
+        Categories = new DutyCategoryProjection(byKey.Values);
         Documents = documents;
     }
 
@@ -76,6 +81,9 @@ public sealed class DutyCatalog
 
     /// <summary>Documents that make up this catalogue, most preferred first.</summary>
     public IReadOnlyList<DutyDocument> Documents { get; }
+
+    /// <summary>Read-only category projection over the preferred regional reference rows.</summary>
+    public DutyCategoryProjection Categories { get; }
 
     /// <summary>
     /// Builds a catalogue for one region and data version: the exact version when it is
@@ -147,6 +155,43 @@ public sealed class DutyCatalog
         return region == Region.Unknown
             ? _byKey.Values.FirstOrDefault(row => row.ContentId == id)
             : null;
+    }
+
+    /// <summary>
+    /// Infers an identity from an exact name in the composed regional rows. A duplicate name
+    /// resolves only when precisely one candidate declares an audited name preference. For
+    /// UNKNOWN, every named region containing that name must independently resolve to the
+    /// same id; preferences from different regions never compete with one another.
+    /// </summary>
+    /// <param name="name">Exact localized name; null, blank and unmatched names return null.</param>
+    /// <param name="region">Region to search, or UNKNOWN when the source does not identify one.</param>
+    /// <returns>The unique regional identity, or null for ambiguity or regional disagreement.</returns>
+    public DutyInfo? FindByName(string? name, Region region)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return null;
+        }
+
+        var matches = _byKey.Values.Where(row =>
+            row.Region != Region.Unknown && (region == Region.Unknown || row.Region == region)
+            && string.Equals(row.LocalizedName, name, StringComparison.Ordinal));
+        DutyInfo? resolved = null;
+        foreach (var regionalMatches in matches.GroupBy(row => row.Region))
+        {
+            var candidates = regionalMatches.ToArray();
+            var preferred = candidates.Where(row => row.PreferredForNameMatching).Take(2).ToArray();
+            var candidate = candidates.Length == 1 ? candidates[0]
+                : preferred.Length == 1 ? preferred[0] : null;
+            if (candidate is null || resolved is not null && resolved.ContentId != candidate.ContentId)
+            {
+                return null;
+            }
+
+            resolved = candidate;
+        }
+
+        return resolved;
     }
 
     /// <summary>
@@ -275,7 +320,9 @@ public sealed class DutyCatalog
                     row.LocalizedName,
                     row.DutyCategory,
                     region,
-                    row.Sample));
+                    row.Sample,
+                    row.PartySize,
+                    row.PreferredForNameMatching));
             }
         }
 
@@ -418,6 +465,12 @@ public sealed class DutyCatalog
 
         [JsonPropertyName("duty_category")]
         public string? DutyCategory { get; init; }
+
+        [JsonPropertyName("party_size")]
+        public int? PartySize { get; init; }
+
+        [JsonPropertyName("preferred_for_name_matching")]
+        public bool PreferredForNameMatching { get; init; }
 
         [JsonPropertyName("enabled")]
         public bool Enabled { get; init; } = true;

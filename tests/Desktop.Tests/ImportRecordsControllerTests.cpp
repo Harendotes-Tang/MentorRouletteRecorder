@@ -4,6 +4,9 @@
 #include "JobCatalog.h"
 #include "OfflineOcrEngine.h"
 #include "JobIconClassifier.h"
+#include "DutyCatalog.h"
+#include "GameNames.h"
+#include "LanguageManager.h"
 
 #include <QCoreApplication>
 #include <QApplication>
@@ -836,6 +839,40 @@ ApplicationWindow {
         backend.calls.last().reply->succeed(singleRowPreview(preservedJob));
         QTest::keyClick(window, Qt::Key_Escape);
         QTRY_VERIFY(!dialog->property("visible").toBool());
+    }
+
+    static void verifyAndFillColumnMapping(QQuickWindow *window, QQuickItem *mappingOpen,
+                                          QObject *mappingDialog, QQuickItem *mapDuty,
+                                          QQuickItem *mapEntry, QQuickItem *mappingApply)
+    {
+        QTRY_VERIFY(mappingOpen->isVisible() && mappingOpen->isEnabled());
+        QVERIFY(!mappingDialog->property("visible").toBool());
+        QVERIFY(QRect(0, 0, window->width(), window->height()).contains(itemCenter(mappingOpen)));
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, itemCenter(mappingOpen));
+        QTRY_VERIFY(mappingDialog->property("visible").toBool());
+        QTRY_VERIFY(mapDuty->isVisible() && mapDuty->isEnabled());
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, itemCenter(mapDuty));
+        QTRY_VERIFY(mapDuty->hasActiveFocus());
+        QGuiApplication::clipboard()->setText(QStringLiteral("活动"));
+        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+        QTest::keyClick(window, Qt::Key_V, Qt::ControlModifier);
+        QTRY_COMPARE(mapDuty->property("text").toString(), QStringLiteral("活动"));
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, itemCenter(mapEntry));
+        QTRY_VERIFY(mapEntry->hasActiveFocus());
+        QGuiApplication::clipboard()->setText(QStringLiteral("入场情况"));
+        QTest::keyClick(window, Qt::Key_V, Qt::ControlModifier);
+        QTRY_COMPARE(mapEntry->property("text").toString(), QStringLiteral("入场情况"));
+        for (QQuickItem *item : {mapDuty, mapEntry, mappingApply}) {
+            const auto rect = item->mapRectToScene(QRectF(0, 0, item->width(), item->height()));
+            QVERIFY(rect.left() >= 0 && rect.right() <= window->width());
+            QVERIFY(rect.top() >= 0 && rect.bottom() <= window->height());
+        }
+        const QString evidence = qEnvironmentVariable("MR_IMPORT_ENTRY_SCREENSHOTS");
+        if (!evidence.isEmpty()) {
+            QVERIFY(QDir().mkpath(evidence));
+            QVERIFY(window->grabWindow().save(QDir(evidence).filePath(
+                QStringLiteral("mapping-%1.png").arg(QString::fromLatin1(QTest::currentDataTag())))));
+        }
     }
 
 private Q_SLOTS:
@@ -2091,6 +2128,88 @@ ApplicationWindow {
             QCOMPARE(call.type, QStringLiteral("PreviewRunImport"));
     }
 
+    void entryModeReviewPreservesUnknownFalseAndTrue_data()
+    {
+        QTest::addColumn<QJsonValue>("sourceValue");
+        QTest::addColumn<QJsonValue>("normalizedValue");
+        QTest::addColumn<int>("expectedIndex");
+        QTest::newRow("absent") << QJsonValue(QJsonValue::Undefined) << QJsonValue(QJsonValue::Null) << 0;
+        QTest::newRow("null") << QJsonValue(QJsonValue::Null) << QJsonValue(QJsonValue::Null) << 0;
+        QTest::newRow("blank") << QJsonValue(QStringLiteral("  ")) << QJsonValue(QJsonValue::Null) << 0;
+        QTest::newRow("false") << QJsonValue(false) << QJsonValue(false) << 1;
+        QTest::newRow("true") << QJsonValue(true) << QJsonValue(true) << 2;
+        QTest::newRow("normal-text") << QJsonValue(QStringLiteral("正常")) << QJsonValue(false) << 1;
+        QTest::newRow("late-text") << QJsonValue(QStringLiteral("中途")) << QJsonValue(true) << 2;
+        QTest::newRow("invalid-text") << QJsonValue(QStringLiteral("随意")) << QJsonValue(QJsonValue::Undefined) << -1;
+    }
+
+    void entryModeReviewPreservesUnknownFalseAndTrue()
+    {
+        QFETCH(QJsonValue, sourceValue);
+        QFETCH(QJsonValue, normalizedValue);
+        QFETCH(int, expectedIndex);
+#ifdef Q_OS_WIN
+        const int fontId = QFontDatabase::addApplicationFont(
+            QDir(qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows"))).filePath(QStringLiteral("Fonts/msyh.ttc")));
+        QVERIFY(fontId >= 0);
+        QApplication::setFont(QFont(QFontDatabase::applicationFontFamilies(fontId).first()));
+#endif
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.importText(QStringLiteral("副本\t进入方式\n合成副本\t正常"));
+        QJsonObject candidate{{"duty_name", QStringLiteral("合成副本")}};
+        if (!sourceValue.isUndefined()) candidate.insert("joined_in_progress", sourceValue);
+        QJsonObject run;
+        if (!normalizedValue.isUndefined()) run.insert("joined_in_progress", normalizedValue);
+        backend.calls.last().reply->succeed(singleRowPreview(candidate, run));
+        ImportThemeState theme;
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("ImportRecords"), &controller);
+        engine.rootContext()->setContextProperty(QStringLiteral("App"), &theme);
+        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 1240; height: 900; visible: true
+    ImportRecordsDialog { Component.onCompleted: open() }
+})", QUrl::fromLocalFile(QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/dialogs/ImportEntryModeProbe.qml")));
+        QTRY_VERIFY_WITH_TIMEOUT(component.status() != QQmlComponent::Loading, 5000);
+        QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(window && QTest::qWaitForWindowExposed(window));
+        auto *entry = root->findChild<QQuickItem *>(QStringLiteral("importEntryMode"));
+        QVERIFY(entry);
+        QTRY_COMPARE(entry->property("currentIndex").toInt(), expectedIndex);
+        const auto bounds = entry->mapRectToScene(QRectF(0, 0, entry->width(), entry->height()));
+        QVERIFY(bounds.left() >= 0 && bounds.right() <= window->width());
+        QVERIFY(bounds.top() >= 0 && bounds.bottom() <= window->height());
+        if (expectedIndex == -1)
+            QCOMPARE(entry->property("displayText").toString(), QStringLiteral("随意"));
+        controller.revalidate();
+        QCOMPARE(backend.calls.last().payload.value("rows").toArray().first().toObject(), candidate);
+        backend.calls.last().reply->succeed(singleRowPreview(candidate, run));
+        for (int index : {2, 1, 0}) {
+            QVERIFY(QMetaObject::invokeMethod(entry, "activated", Q_ARG(int, index)));
+            const QJsonValue expected = index == 0 ? QJsonValue(QJsonValue::Null) : QJsonValue(index == 2);
+            controller.revalidate();
+            const auto sent = backend.calls.last().payload.value("rows").toArray().first().toObject();
+            QVERIFY(sent.contains("joined_in_progress"));
+            QCOMPARE(sent.value("joined_in_progress"), expected);
+            backend.calls.last().reply->succeed(singleRowPreview(sent, {{"joined_in_progress", expected}}));
+            QTRY_COMPARE(entry->property("currentIndex").toInt(), index);
+        }
+        const QString evidence = qEnvironmentVariable("MR_IMPORT_ENTRY_SCREENSHOTS");
+        if (!evidence.isEmpty() && sourceValue == QJsonValue(QStringLiteral("正常"))) {
+            QVERIFY(QDir().mkpath(evidence));
+            QVERIFY(window->grabWindow().save(QDir(evidence).filePath(QStringLiteral("entry-review.png"))));
+        }
+    }
+
     void derivedDutyCategoryIsOnlyADisplayProjection()
     {
         ImportBackend backend;
@@ -3062,21 +3181,18 @@ ApplicationWindow {
     {
         QFETCH(bool, dark);
         QFETCH(int, width);
+#ifdef Q_OS_WIN
+        QFontDatabase::addApplicationFont(QDir(qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows")))
+            .filePath(QStringLiteral("Fonts/msyh.ttc")));
+#endif
         ImportBackend backend;
         mr::ImportRecordsController controller;
         controller.setBackend(&backend);
         controller.importText(QStringLiteral("副本\n合成副本"));
-        backend.calls.last().reply->succeed(preview());
+        backend.calls.last().reply->succeed(singleRowPreview({{"duty_name", QStringLiteral("赤土红沙")}}));
         const auto choices = controller.dutyChoices();
         QVERIFY(!choices.isEmpty());
-        QString query;
-        for (const auto &choice : choices) {
-            const QString prefix = choice.toMap().value("duty_name").toString().left(1);
-            if (!prefix.isEmpty() && std::count_if(choices.cbegin(), choices.cend(), [&prefix](const QVariant &value) {
-                    return value.toMap().value("duty_name").toString().contains(prefix);
-                }) >= 2) { query = prefix; break; }
-        }
-        QVERIFY(!query.isEmpty());
+        const QString query = QStringLiteral("赤土红沙");
         ImportThemeState theme;
         theme.dark = dark;
         QQmlEngine engine;
@@ -3106,7 +3222,15 @@ ApplicationWindow { width: 980; height: 760; visible: true
         auto *field = root->findChild<QQuickItem *>("importDutyName");
         auto *popup = root->findChild<QObject *>("importDutySuggestions");
         QVERIFY(field && popup);
+        auto *ambiguity = root->findChild<QQuickItem *>("importDutyAmbiguityWarning");
+        QVERIFY(ambiguity);
+        QVERIFY(ambiguity->isVisible());
         field->forceActiveFocus(Qt::TabFocusReason);
+        QTest::keyClick(window, Qt::Key_Down);
+        QTRY_VERIFY(popup->property("visible").toBool());
+        QCOMPARE(field->property("suggestionIndex").toInt(), 0);
+        QTest::keyClick(window, Qt::Key_Escape);
+        QVERIFY(!popup->property("visible").toBool());
         QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
         QGuiApplication::clipboard()->setText(query);
         QTest::keyClick(window, Qt::Key_V, Qt::ControlModifier);
@@ -3114,22 +3238,25 @@ ApplicationWindow { width: 980; height: 760; visible: true
         const QVariant suggestionsValue = field->property("suggestions");
         const QVariantList suggestions = suggestionsValue.metaType() == QMetaType::fromType<QJSValue>()
             ? suggestionsValue.value<QJSValue>().toVariant().toList() : suggestionsValue.toList();
-        QVERIFY(suggestions.size() >= 2);
+        QVERIFY(suggestions.size() >= 11); // Eleven same-name modes, plus any longer matching name.
         QTest::keyClick(window, Qt::Key_Down);
         QCOMPARE(field->property("suggestionIndex").toInt(), 1);
         QTest::keyClick(window, Qt::Key_Up);
         QCOMPARE(field->property("suggestionIndex").toInt(), 0);
-        QTest::keyClick(window, Qt::Key_Down);
+        for (int i = 0; i < 9; ++i) QTest::keyClick(window, Qt::Key_Down);
+        QCOMPARE(field->property("suggestionIndex").toInt(), 9);
+        QVERIFY(popup->property("height").toReal() <= 248);
         const QString evidence = qEnvironmentVariable("MR_TEST_EVIDENCE_DIR");
         if (!evidence.isEmpty()) {
             QVERIFY(QDir().mkpath(evidence));
             QVERIFY(window->grabWindow().save(QDir(evidence).filePath(QStringLiteral("import-autocomplete-%1-%2.png").arg(width).arg(dark ? "dark" : "light"))));
         }
-        const auto chosen = suggestions[1].toMap();
+        const auto chosen = suggestions[9].toMap();
         QTest::keyClick(window, Qt::Key_Tab);
         QTRY_COMPARE(controller.currentCandidate().value("duty_name").toString(), chosen.value("duty_name").toString());
         QCOMPARE(controller.currentCandidate().value("content_id").toInt(), chosen.value("content_id").toInt());
         QCOMPARE(controller.currentCandidate().value("duty_category").toString(), chosen.value("duty_category").toString());
+        QVERIFY(!ambiguity->isVisible());
         QVERIFY(field->hasActiveFocus());
         QVERIFY(!popup->property("visible").toBool());
         QTest::keyClick(window, Qt::Key_Tab); // With no candidates, normal traversal remains available.
@@ -3154,6 +3281,56 @@ ApplicationWindow { width: 980; height: 760; visible: true
         QTest::keyClick(window, Qt::Key_Tab);
         QCOMPARE(field->property("text").toString(), beforeIme); // Tab never fills during composition.
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+    }
+
+    void sameNamePreviewUsesResolvedIdentityAndRequiresAnExplicitChoiceForOtherModes()
+    {
+        for (const char *code : {"zh-CN", "zh-TW", "en", "ja"}) {
+            mr::LanguageManager language(nullptr);
+            language.initialize(QString::fromLatin1(code));
+            ImportBackend backend;
+            mr::ImportRecordsController controller;
+            controller.setBackend(&backend);
+            controller.importText(QStringLiteral("副本\n阿修罗歼灭战"));
+            backend.calls.last().reply->succeed(singleRowPreview(
+                {{"duty_name", QStringLiteral("阿修罗歼灭战")}}, {{"content_id", 944}}));
+            ImportThemeState theme;
+            QQmlEngine engine;
+            language.attachEngine(&engine);
+            engine.rootContext()->setContextProperty("ImportRecords", &controller);
+            engine.rootContext()->setContextProperty("App", &theme);
+            engine.rootContext()->setContextProperty("Lang", &language);
+            engine.rootContext()->setContextProperty("Names", mr::GameNames::shared());
+            engine.rootContext()->setContextProperty("ReduceMotion", true);
+            QQmlComponent component(&engine);
+            component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow { width: 980; height: 640; visible: true
+    ImportRecordsDialog { Component.onCompleted: open() }
+})", QUrl::fromLocalFile(QString::fromUtf8(MR_DESKTOP_QML_DIR) + "/dialogs/ImportSameNameProbe.qml"));
+            std::unique_ptr<QObject> root(component.create());
+            QVERIFY2(root, qPrintable(component.errorString()));
+            auto *dialog = root->findChild<QObject *>("importRecordsDialog");
+            QVERIFY(dialog);
+            QVERIFY(dialog->property("candidateDutyLabel").toString().endsWith(QStringLiteral("944")));
+            QVERIFY(!dialog->property("ambiguousDutyName").toBool());
+            const auto resolve = [&](const QString &text) {
+                QVariant result;
+                if (!QMetaObject::invokeMethod(dialog, "catalogueDutyShownAs", Q_RETURN_ARG(QVariant, result),
+                                               Q_ARG(QVariant, text)))
+                    return QVariantMap();
+                return result.canConvert<QJSValue>() ? result.value<QJSValue>().toVariant().toMap() : result.toMap();
+            };
+            const auto duty = mr::DutyCatalog::shared()->lookup(967);
+            const QString recorded = duty.value("duty_name").toString();
+            const QString shown = mr::GameNames::shared()->duty(967, recorded);
+            QVERIFY(resolve(recorded).isEmpty());
+            QVERIFY(resolve(shown).isEmpty());
+            const QString label = shown + QStringLiteral(" · ") + QCoreApplication::translate("Theme", "编号 %1").arg(967);
+            QCOMPARE(resolve(label).value("content_id").toInt(), 967);
+            QCOMPARE(resolve(QStringLiteral("阿修罗歼灭战")).value("content_id").toInt(), 944);
+        }
     }
 
     void pagedDialogPreservesWholeBatchAndKeyboard_data()
@@ -3402,25 +3579,35 @@ ApplicationWindow {
     {
         QTest::addColumn<bool>("dark");
         QTest::addColumn<bool>("csvSource");
-        QTest::newRow("dark-paste") << true << false;
-        QTest::newRow("light-paste") << false << false;
-        QTest::newRow("dark-csv") << true << true;
-        QTest::newRow("light-csv") << false << true;
+        QTest::addColumn<bool>("compact");
+        QTest::newRow("dark-paste") << true << false << false;
+        QTest::newRow("light-paste") << false << false << false;
+        QTest::newRow("dark-csv") << true << true << false;
+        QTest::newRow("light-csv") << false << true << false;
+        QTest::newRow("dark-compact") << true << false << true;
+        QTest::newRow("light-compact") << false << false << true;
     }
 
     void columnMappingRecoversUnrecognizedHeadersBeforeRowsExist()
     {
         QFETCH(bool, dark);
         QFETCH(bool, csvSource);
+        QFETCH(bool, compact);
+#ifdef Q_OS_WIN
+        const int fontId = QFontDatabase::addApplicationFont(
+            QDir(qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows"))).filePath(QStringLiteral("Fonts/msyh.ttc")));
+        QVERIFY(fontId >= 0);
+        QApplication::setFont(QFont(QFontDatabase::applicationFontFamilies(fontId).first()));
+#endif
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
         ImportBackend backend;
         mr::ImportRecordsController controller;
         controller.setBackend(&backend);
-        const QString pastedSource = QStringLiteral("活动\t说明\n第一副本\t合成正文\n第二副本\t另一行");
+        const QString pastedSource = QStringLiteral("活动\t说明\t入场情况\n第一副本\t合成正文\t正常\n第二副本\t另一行\t中途");
         const QString fileSource = directory.filePath(QStringLiteral("unrecognized-headers.csv"));
         if (csvSource) {
-            createFile(fileSource, QStringLiteral("活动,说明\n第一副本,合成正文\n第二副本,另一行").toUtf8());
+            createFile(fileSource, QStringLiteral("活动,说明,入场情况\n第一副本,合成正文,正常\n第二副本,另一行,中途").toUtf8());
             controller.importFiles({fileSource});
         } else {
             controller.importText(pastedSource);
@@ -3437,6 +3624,7 @@ ApplicationWindow {
         engine.rootContext()->setContextProperty(QStringLiteral("ImportRecords"), &controller);
         engine.rootContext()->setContextProperty(QStringLiteral("App"), &theme);
         engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        engine.rootContext()->setContextProperty(QStringLiteral("CompactProbe"), compact);
         QStringList warnings;
         connect(&engine, &QQmlEngine::warnings, this, [&warnings](const QList<QQmlError> &errors) {
             for (const QQmlError &error : errors)
@@ -3447,7 +3635,7 @@ ApplicationWindow {
 import QtQuick.Controls
 import MentorRecorder
 ApplicationWindow {
-    width: 980; height: 640; visible: true
+    width: CompactProbe ? 800 : 980; height: CompactProbe ? 600 : 640; visible: true
     ImportRecordsDialog { Component.onCompleted: open() }
 })", QUrl::fromLocalFile(QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/dialogs/ImportMappingProbe.qml")));
         QTRY_VERIFY_WITH_TIMEOUT(component.status() != QQmlComponent::Loading, 5000);
@@ -3460,30 +3648,20 @@ ApplicationWindow {
         auto *mappingOpen = root->findChild<QQuickItem *>(QStringLiteral("importMappingOpen"));
         auto *mappingDialog = root->findChild<QObject *>(QStringLiteral("importMappingDialog"));
         auto *mapDuty = root->findChild<QQuickItem *>(QStringLiteral("importMapDuty"));
+        auto *mapEntry = root->findChild<QQuickItem *>(QStringLiteral("importMapEntryMode"));
         auto *mappingApply = root->findChild<QQuickItem *>(QStringLiteral("importMappingApply"));
         auto *recordList = root->findChild<QQuickItem *>(QStringLiteral("importCandidates"));
         auto *duty = root->findChild<QQuickItem *>(QStringLiteral("importDutyName"));
-        QVERIFY(mappingOpen && mappingDialog && mapDuty && mappingApply && recordList && duty);
-        QTRY_VERIFY(mappingOpen->isVisible() && mappingOpen->isEnabled());
-        QVERIFY(!mappingDialog->property("visible").toBool());
-        const auto center = [](QQuickItem *item) {
-            return item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint();
-        };
-        QVERIFY(QRect(0, 0, window->width(), window->height()).contains(center(mappingOpen)));
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center(mappingOpen));
-        QTRY_VERIFY(mappingDialog->property("visible").toBool());
-        QTRY_VERIFY(mapDuty->isVisible() && mapDuty->isEnabled());
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center(mapDuty));
-        QTRY_VERIFY(mapDuty->hasActiveFocus());
-        QGuiApplication::clipboard()->setText(QStringLiteral("活动"));
-        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
-        QTest::keyClick(window, Qt::Key_V, Qt::ControlModifier);
-        QTRY_COMPARE(mapDuty->property("text").toString(), QStringLiteral("活动"));
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center(mappingApply));
+        QVERIFY(mappingOpen && mappingDialog && mapDuty && mapEntry && mappingApply && recordList && duty);
+        verifyAndFillColumnMapping(window, mappingOpen, mappingDialog, mapDuty, mapEntry, mappingApply);
+        if (QTest::currentTestFailed()) return;
+
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, itemCenter(mappingApply));
         QTRY_COMPARE(backend.calls.size(), 2);
         QCOMPARE(backend.calls.last().type, QStringLiteral("PreviewRunImport"));
         const QJsonObject request = backend.calls.last().payload;
-        const QJsonObject expectedMapping{{QStringLiteral("活动"), "duty_name"}};
+        const QJsonObject expectedMapping{{QStringLiteral("活动"), "duty_name"},
+                                         {QStringLiteral("入场情况"), "joined_in_progress"}};
         QCOMPARE(request.value("column_mapping").toObject(), expectedMapping);
         QCOMPARE(request.value("source_kind").toString(), csvSource ? QStringLiteral("CSV") : QStringLiteral("PASTE"));
         if (csvSource)
@@ -3513,7 +3691,7 @@ ApplicationWindow {
             return secondRow != nullptr;
         };
         QTRY_VERIFY(locateSecondRow());
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, center(secondRow));
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, itemCenter(secondRow));
         QTRY_COMPARE(controller.currentRow(), 1);
         QCOMPARE(controller.currentCandidate().value("duty_name").toString(), QStringLiteral("第二副本"));
         QCOMPARE(duty->property("text").toString(), QStringLiteral("第二副本"));

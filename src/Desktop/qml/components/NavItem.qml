@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 import "Lucide.js" as Lucide
 
 // One entry of the sidebar navigation: `.navi` / `.navi[data-active]`.
@@ -19,7 +19,7 @@ Button {
     property string label: ""
     // JhengHei's native rasterizer can drop 一 at fractional DPI (e.g. 150%).
     // Draw Traditional Chinese navigation text from its outlines instead.
-    readonly property int labelRenderType: typeof Lang !== "undefined" && Lang.code === "zh-TW"
+    readonly property int labelRenderType: typeof Runtime.lang !== "undefined" && Runtime.lang.code === "zh-TW"
                                           ? Text.CurveRendering : Text.NativeRendering
     readonly property bool hasIcon: iconName.length > 0 && Lucide.has(iconName)
     readonly property real pixelRatio: Screen.devicePixelRatio > 0 ? Screen.devicePixelRatio : 1

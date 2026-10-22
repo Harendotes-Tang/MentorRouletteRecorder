@@ -1,5 +1,5 @@
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // The sentence that says what 本机校准 means for the player right now, and the
 // line under it. The capture page's hero card speaks it (CaptureHeroCopy); the
@@ -9,7 +9,7 @@ import MentorRecorder
 QtObject {
     id: copy
 
-    readonly property var controller: App.calibration
+    readonly property var controller: Runtime.app.calibration
     // Item.state is a QML built-in, so the contract state travels under this name.
     readonly property string calibrationState: copy.controller ? copy.controller.state : "IDLE"
     readonly property bool active: copy.calibrationState !== "IDLE"
@@ -28,14 +28,14 @@ QtObject {
     readonly property bool sharedAuditPending: !!copy.shared && copy.shared.auditPending
     // 按排本推断的共享校准先征求一次同意，同意之前不记录。
     readonly property bool sharedConsent: !!copy.shared && copy.shared.view === "consent"
-    readonly property var captureStatus: App.captureStatus || ({})
+    readonly property var captureStatus: Runtime.app.captureStatus || ({})
     // 核对请求旁边已有档案在记录（按排本推断的或已完成但缺职业的本机档案、共享档案）：
     // 这次核对只是让之后的记录更准、更全，记录本身并不等它（审查 CS3b-X1）。
     readonly property bool recordingBesideOffer: copy.ready
         && (copy.sharedInUse || copy.captureStatus.profile_status === "VERIFIED"
             || !!(copy.captureStatus.calibration && copy.captureStatus.calibration.local_profile_id))
     readonly property int confirmCount: copy.controller ? copy.controller.confirmCount : 0
-    readonly property bool gameRunning: App.ffxivRunning
+    readonly property bool gameRunning: Runtime.app.ffxivRunning
     // Something is being recorded while calibration goes on.
     readonly property bool recording: copy.sharedRecording || copy.done || copy.provisional
                                       || copy.recordingBesideOffer

@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // "UI 缩放 [====o----] 125%" - the prototype's <input type="range"> row.
 RowLayout {

@@ -1,5 +1,5 @@
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // `.dialog`: the panel gradient, a gold-3 frame and the 2 px gradient rule
 // that `.dialog::before` paints across the top.

@@ -54,8 +54,9 @@ public:
     /// "HH:mm:ss.zzz", empty when unset), result,
     /// duty_name, job_name, contributes (bool), note, edit_mode (bool), and
     /// optionally duty_label / job_label: the same names as shown (the
-    /// interface language), which diff() displays while duty_name / job_name,
-    /// the record's own, decide whether anything changed.
+    /// interface language), which diff() displays. Recorded names and the
+    /// optional content_id decide whether the duty changed; a different ID can
+    /// select another duty with the same name. Job comparison uses job_name.
     /// incomplete_import_context (bool) is a trusted Desktop editing context:
     /// EditRunDialog sets it for every existing imported run it edits (source
     /// IMPORT or import_metadata present), confirming an imported result

@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls 6.8
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // ---------------------------------------------------------------------------
 // 这个软件做什么、不做什么 (DEC-OODLE-01, docs/privacy-boundary.md §4.1, §8.2)
@@ -112,6 +114,7 @@ Dialog {
                     id: noteDelegate
 
                     ColumnLayout {
+                        id: noteItem
                         required property var modelData
 
                         Layout.fillWidth: true
@@ -119,7 +122,7 @@ Dialog {
 
                         Text {
                             Layout.fillWidth: true
-                            text: "· " + modelData.title
+                            text: "· " + noteItem.modelData.title
                             color: Theme.textPrimary
                             font.pixelSize: Theme.fs(13)
                             font.bold: true
@@ -129,7 +132,7 @@ Dialog {
                         Text {
                             Layout.fillWidth: true
                             Layout.leftMargin: 12
-                            text: modelData.body
+                            text: noteItem.modelData.body
                             color: Theme.textSecondary
                             font.pixelSize: Theme.fs(12)
                             lineHeight: 1.35
@@ -154,8 +157,8 @@ Dialog {
                         {
                             title: qsTr("会读取磁盘上的游戏程序副本"),
                             body: qsTr("解读 FF14 流量需要游戏自带的 Oodle 解压功能。软件会把磁盘上的游戏程序复制到临时目录，只在自己的后台服务中加载、查找解压功能。游戏文件不会随软件分发。停止监听时会删除副本；文件被占用或软件被强制结束时，留待下次启动清理。当前：%1，读取游戏程序 = %2。")
-                                  .arg(App.oodleMode ? Fmt.oodleModeLabel(App.oodleMode) : qsTr("未知"))
-                                  .arg(App.readsGameExecutable ? qsTr("是") : qsTr("否"))
+                                  .arg(Runtime.app.oodleMode ? Runtime.fmt.oodleModeLabel(Runtime.app.oodleMode) : qsTr("未知"))
+                                  .arg(Runtime.app.readsGameExecutable ? qsTr("是") : qsTr("否"))
                         },
                         {
                             title: qsTr("不注入、不读取游戏进程内存"),

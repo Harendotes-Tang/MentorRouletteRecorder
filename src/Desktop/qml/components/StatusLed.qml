@@ -1,5 +1,5 @@
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // `.dg-led` of the capture page: an 8 px dot in the tone's colour with a soft
 // glow (box-shadow: 0 0 6px). The glow is a wider, translucent disc underneath

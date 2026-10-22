@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 迷你条: the goal progress on one line (crest, figure, bar, percentage) and,
 // during a run, the duty and its time on a second one with a 2 px pace line
@@ -10,6 +10,8 @@ Item {
 
     required property var ov
     required property var controller
+    property bool movingEnabled: true
+    property bool secondaryActionsEnabled: true
     signal lockRequested()
     signal expandRequested()
     signal moveRequested()
@@ -18,7 +20,7 @@ Item {
 
     MouseArea {
         anchors.fill: parent
-        enabled: !root.controller.locked
+        enabled: !root.controller.locked && root.movingEnabled
         cursorShape: root.controller.locked ? Qt.ArrowCursor : Qt.SizeAllCursor
         onPressed: root.moveRequested()
     }
@@ -28,8 +30,8 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.leftMargin: 9
-        anchors.rightMargin: 5
+        anchors.leftMargin: 6
+        anchors.rightMargin: 3
         anchors.topMargin: 6
         spacing: 0
 
@@ -37,7 +39,7 @@ Item {
             objectName: "floatingMiniProgress"
             Layout.fillWidth: true
             Layout.preferredHeight: 24
-            spacing: 5
+            spacing: 4
 
             Item {
                 Layout.preferredWidth: 16
@@ -67,7 +69,7 @@ Item {
                     MouseArea {
                         anchors.fill: parent
                         anchors.margins: -3
-                        enabled: !root.controller.locked
+                        enabled: !root.controller.locked && root.secondaryActionsEnabled
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.ov.openPending()
                     }
@@ -79,7 +81,7 @@ Item {
                 objectName: "floatingMiniCount"
                 Layout.leftMargin: 3
                 Layout.alignment: Qt.AlignBottom
-                text: root.ov.progressKnown ? String(root.ov.progress) : Fmt.dash()
+                text: root.ov.progressKnown ? String(root.ov.progress) : Runtime.fmt.dash()
                 color: root.ov.figure
                 font.family: Theme.numFamily
                 font.pixelSize: Theme.fs(16)
@@ -95,10 +97,10 @@ Item {
                 font.family: Theme.figureFamily
                 font.features: ({ "tnum": 1 })
             }
-            OverlayPlusPill { visible: root.ov.plus > 0; count: root.ov.plus; tone: root.ov.ok; Layout.alignment: Qt.AlignVCenter }
+            OverlayPlusPill { visible: root.ov.plus > 0 && root.width >= 300; count: root.ov.plus; tone: root.ov.ok; Layout.alignment: Qt.AlignVCenter }
             OverlayBar {
                 Layout.fillWidth: true
-                Layout.minimumWidth: 28
+                Layout.minimumWidth: 12
                 Layout.alignment: Qt.AlignVCenter
                 implicitHeight: 6
                 ratio: root.ov.progressKnown ? root.ov.progressRatio : 0
@@ -106,7 +108,7 @@ Item {
             }
             Text {
                 Layout.alignment: Qt.AlignVCenter
-                text: root.ov.progressKnown ? Fmt.percent(root.ov.progressRatio, 0) : ""
+                text: root.ov.progressKnown ? Runtime.fmt.percent(root.ov.progressRatio, 0) : ""
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fs(11.5)
                 font.weight: Font.Bold
@@ -114,10 +116,17 @@ Item {
                 font.features: ({ "tnum": 1 })
             }
             RowLayout {
+                objectName: "floatingMiniActions"
                 visible: !root.controller.locked
-                spacing: 0
-                OverlayIconButton { objectName: "floatingLockButton"; iconName: "lock"; tipClearOf: root; tip: qsTr("锁定位置和大小，鼠标穿透；在主窗口或托盘解锁"); onClicked: root.lockRequested() }
-                OverlayIconButton { objectName: "floatingExpandButton"; iconName: "to-full"; tipClearOf: root; tip: qsTr("展开完整浮窗"); onClicked: root.expandRequested() }
+                spacing: 4
+                OverlayIconButton {
+                    objectName: "floatingExpandButton"
+                    iconName: "to-full"
+                    tipClearOf: root
+                    tip: qsTr("展开完整浮窗")
+                    onClicked: root.expandRequested()
+                }
+                OverlayIconButton { objectName: "floatingLockButton"; enabled: root.secondaryActionsEnabled; iconName: "lock"; tipClearOf: root; tip: qsTr("锁定位置和大小，鼠标穿透；在主窗口或托盘解锁"); onClicked: root.lockRequested() }
                 // The buttons sit inside the progress row: while the pointer rests
                 // on one of them its own tip speaks, not the row's.
                 HoverHandler { id: buttonsHover }
@@ -184,7 +193,7 @@ Item {
 
     // `.mb-pace`: the time bar as a 2 px line along the bottom.
     Rectangle {
-        visible: root.ov.inRun && !root.ov.matched
+        visible: root.ov.inRun && !root.ov.matched && root.ov.hasReference
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -198,7 +207,6 @@ Item {
             color: root.ov.overAverage ? root.ov.warn : root.ov.underAverage ? root.ov.ok : root.ov.barFill
         }
         Rectangle {
-            visible: root.ov.hasAverage
             x: Math.round(parent.width * root.ov.averageRatio) - 1
             y: -4
             width: 2

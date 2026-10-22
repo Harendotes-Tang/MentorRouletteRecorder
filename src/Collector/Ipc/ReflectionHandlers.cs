@@ -37,7 +37,7 @@ public static class ReflectionHandlers
 
         if (outcome.Run is { } rendered)
         {
-            payload["run"] = Wire.Run(rendered);
+            payload["run"] = Wire.DisplayRun(rendered);
         }
 
         return payload;
@@ -79,5 +79,5 @@ public static class ReflectionHandlers
     }
 
     private static JsonNode? NextPending(CollectorHost host, string? runId) =>
-        runId is null ? null : host.Runs.Get(runId) is { } run ? Wire.Run(run) : null;
+        runId is null ? null : host.Runs.Get(runId) is { } run ? Wire.DisplayRun(run) : null;
 }

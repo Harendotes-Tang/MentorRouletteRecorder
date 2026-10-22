@@ -270,6 +270,7 @@ set(MR_QML_FILES
     qml/components/OverlayTypeBadge.qml
     qml/components/OverlayPlusPill.qml
     qml/components/OverlayStatusIcon.qml
+    qml/components/OverlayHourglass.qml
     qml/components/OverlayRunRow.qml
     qml/components/OverlayModuleLabel.qml
     qml/components/OverlayProgressModule.qml
@@ -585,14 +586,29 @@ endif()
 set_source_files_properties(qml/Theme.qml
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
+# Icon helpers are imported by file path. Exporting them again through qmldir
+# makes Qt reject the explicit versioned module import together with QTP0004's
+# implicit self-import as ambiguous. Keep them embedded, compiled and linted.
+set_source_files_properties(
+    qml/components/Lucide.js
+    qml/components/OverlayIcons.js
+    PROPERTIES QT_QML_SKIP_QMLDIR_ENTRY TRUE)
+
 # Put the QML module directly on the executable.  Keeping QML out of the
 # reusable C++ library avoids an unnecessary static QML plugin and lets the
 # unit tests link only the production logic they exercise.
+# Qt Creator's QML/JS code model reads this cache entry independently of the
+# executable. It needs the parent of the generated MentorRecorder/ directory.
+list(APPEND QML_IMPORT_PATH "${CMAKE_CURRENT_BINARY_DIR}")
+list(REMOVE_DUPLICATES QML_IMPORT_PATH)
+set(QML_IMPORT_PATH "${QML_IMPORT_PATH}" CACHE STRING "QML import paths for Qt Creator" FORCE)
+
 qt_add_qml_module(MentorRecorder.Desktop
     URI MentorRecorder
     VERSION 1.0
     RESOURCE_PREFIX /qt/qml
     NO_IMPORT_SCAN
+    SOURCES cpp/QmlRuntime.h cpp/QmlRuntime.cpp
     QML_FILES ${MR_QML_FILES})
 
 # ---------------------------------------------------------------------------

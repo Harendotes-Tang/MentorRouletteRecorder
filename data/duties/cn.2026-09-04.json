@@ -35,6 +35,23 @@
       ],
       "xivapi_sha256": "61f4b30f14ffd2bfb808bd937ba1e13771908954ee777902beb1d7646d0f4175",
       "rows_without_party_size": 0
+    },
+    "name_matching": {
+      "fields": "Name,ClassJobLevelRequired,ContentType.Name,TerritoryType.ExVersion.Name,ContentMemberType.MembersPerParty,ContentMemberType.PartyCount,HighEndDuty,MentorRoulette,TerritoryType.ContentFinderCondition.Name",
+      "fetched_at_utc": "2026-10-22T06:52:24.000Z",
+      "xivapi_game_version": "284bb7f44b9c0976",
+      "xivapi_urls": [
+        "https://v2.xivapi.com/api/sheet/ContentFinderCondition?fields=Name%2CClassJobLevelRequired%2CContentType.Name%2CTerritoryType.ExVersion.Name%2CContentMemberType.MembersPerParty%2CContentMemberType.PartyCount%2CHighEndDuty%2CMentorRoulette%2CTerritoryType.ContentFinderCondition.Name&language=en&limit=500&after=0&version=284bb7f44b9c0976",
+        "https://v2.xivapi.com/api/sheet/ContentFinderCondition?fields=Name%2CClassJobLevelRequired%2CContentType.Name%2CTerritoryType.ExVersion.Name%2CContentMemberType.MembersPerParty%2CContentMemberType.PartyCount%2CHighEndDuty%2CMentorRoulette%2CTerritoryType.ContentFinderCondition.Name&language=en&limit=500&after=500&version=284bb7f44b9c0976",
+        "https://v2.xivapi.com/api/sheet/ContentFinderCondition?fields=Name%2CClassJobLevelRequired%2CContentType.Name%2CTerritoryType.ExVersion.Name%2CContentMemberType.MembersPerParty%2CContentMemberType.PartyCount%2CHighEndDuty%2CMentorRoulette%2CTerritoryType.ContentFinderCondition.Name&language=en&limit=500&after=1000&version=284bb7f44b9c0976"
+      ],
+      "xivapi_sha256": "d40f364c1a9985d17ae2355479d34430c20b80eb03b642a301880ed16fd7e341",
+      "rules": [
+        {
+          "preferred_content_id": 944,
+          "duplicate_content_id": 69
+        }
+      ]
     }
   },
   "duties": [
@@ -7056,7 +7073,8 @@
       "expansion": "Endwalker",
       "level": 90,
       "party_size": 8,
-      "enabled": true
+      "enabled": true,
+      "preferred_for_name_matching": true
     },
     {
       "content_id": 945,

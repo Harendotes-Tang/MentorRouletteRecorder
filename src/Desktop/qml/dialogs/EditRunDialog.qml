@@ -1,7 +1,7 @@
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls 6.8
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 手动修正 / 新增遗漏记录: a three-step wizard, 结果 → 副本与职业 → 时间与原因.
 // The header, the step bar and the action row stay put; only the step body
@@ -14,6 +14,12 @@ import MentorRecorder
 // the state, the option lists and the step 2 filtering all live here.
 Dialog {
     id: dialog
+
+    component WizardSlide: Translate {
+        property real progress: 1
+        property int direction: 1
+        x: (1 - progress) * 16 * direction
+    }
 
     property var dutyOptions: []
     property var jobOptions: []
@@ -136,7 +142,7 @@ Dialog {
     readonly property bool confirmsImportedFacts: importAwaitingConfirmation
         && resultCode !== "UNKNOWN" && (importedResultSelected || resultCode !== runData.result
                                        || (hasImportedTimeChanges && !estimatedEntry))
-        && RunForm.validate(confirmationFormState, {}).ok
+        && Runtime.runForm.validate(confirmationFormState, {}).ok
     readonly property bool retainsIncompleteImportedFacts: importedHistory
     // RunFilterSql also admits an identified mentor roulette. An explicit false
     // import flag without that identity stays excluded after its facts are completed.
@@ -166,7 +172,7 @@ Dialog {
         : importAwaitingConfirmation && !confirmsImportedFacts
         ? qsTr("请确认这条导入记录的通关结果后保存；未知游戏时间可以留空。")
         : countedBefore ? qsTr("这条导随已经计入进度，修改其他信息不会重复计数。")
-        : qsTr("这条通关记录将计入 %1 次导随成就的进度。填完必填信息后保存生效。").arg(App.goalCount)
+        : qsTr("这条通关记录将计入 %1 次导随成就的进度。填完必填信息后保存生效。").arg(Runtime.app.goalCount)
 
     property string matchedDate: ""
     property string matchedTime: ""
@@ -194,7 +200,7 @@ Dialog {
     // The dialog stages adds and removals and applies them only once the
     // record itself is saved, so 取消 discards them like every other edit.
     /// The store, or null in a harness that registers no NoteImages.
-    readonly property var imageStore: typeof NoteImages !== "undefined" ? NoteImages : null
+    readonly property var imageStore: typeof Runtime.noteImages !== "undefined" ? Runtime.noteImages : null
     /// imagesFor(run_id) at open: { path, url, name, byte_count }.
     property var existingImages: []
     /// Files chosen this session, not yet copied: { path, url, name, pending: true }.
@@ -319,9 +325,10 @@ Dialog {
             ended_date: dialog.endedDate,
             ended: dialog.canonicalTime(dialog.endedTime),
             result: dialog.resultCode,
-            // duty_name / job_name decide whether the field changed; the
+            // duty_name + content_id / job_name decide whether the field changed; the
             // *_label pair is what the 修改前后对比 table shows (RunFormValidator::diff).
             duty_name: dialog.selectedDutyName(),
+            content_id: (dialog.lookupByIndex(dialog.dutyOptionList, dialog.dutyIndex) || {}).content_id,
             job_name: dialog.selectedJobName(),
             duty_label: dialog.selectedDutyLabel(),
             job_label: dialog.selectedJobLabel(),
@@ -335,7 +342,7 @@ Dialog {
 
     readonly property var beforeState: editMode && runData ? ({
         reason: "",
-        date: Fmt.localDate(runData.matched_at_utc),
+        date: Runtime.fmt.localDate(runData.matched_at_utc),
         matched: dialog.canonicalTime(dialog.timeOrEmpty(runData.matched_at_utc)),
         entered_date: dialog.dateOrEmpty(runData.entered_at_utc),
         entered: dialog.canonicalTime(dialog.timeOrEmpty(runData.entered_at_utc)),
@@ -343,15 +350,16 @@ Dialog {
         ended: dialog.canonicalTime(dialog.timeOrEmpty(runData.ended_at_utc)),
         result: runData.result || "UNKNOWN",
         duty_name: runData.duty_name || dialog.unknownDutyValue,
+        content_id: runData.content_id,
         job_name: runData.job_name || dialog.unknownJobValue,
-        duty_label: Theme.dutyName(runData) || qsTr("未知副本"),
+        duty_label: Theme.dutyChoiceLabel(runData) || qsTr("未知副本"),
         job_label: Theme.jobName(runData) || qsTr("未知"),
         contributes: !!runData.contributes_to_goal,
         entry: runData.joined_in_progress === true ? true : (runData.joined_in_progress === false ? false : null),
         note: runData.note || ""
     }) : ({})
 
-    readonly property var diffRows: editMode ? RunForm.diff(beforeState, formState) : []
+    readonly property var diffRows: editMode ? Runtime.runForm.diff(beforeState, formState) : []
 
     /// Header row plus one entry per changed field. One model entry per row
     /// (rather than per cell) so a row can size itself to its own text.
@@ -388,7 +396,7 @@ Dialog {
         // Keep a selectable copy so an unrelated correction cannot erase that duty.
         if (run && ((run.duty_name && run.duty_name !== unknown) || run.territory_id || run.content_id)
                 && !source.some(function(row) {
-                    return run.content_id != null && row.content_id === run.content_id
+                    return run.content_id !== null && run.content_id !== undefined && row.content_id === run.content_id
                         && dialog.rouletteCategory(row.duty_category)
                 })) {
             out.push(Object.assign({}, run, {
@@ -474,7 +482,7 @@ Dialog {
     /// 最近打过: App.recentDuties mapped onto dutyOptionList, at most five.
     /// RunFormValidatorTests' stub App has no such property.
     readonly property var recentDutyOptions: {
-        const recent = typeof App !== "undefined" && App && App.recentDuties ? App.recentDuties : []
+        const recent = typeof Runtime.app !== "undefined" && Runtime.app && Runtime.app.recentDuties ? Runtime.app.recentDuties : []
         const list = dialog.dutyOptionList
         const out = []
         for (let r = 0; r < recent.length && out.length < 5; ++r) {
@@ -495,7 +503,7 @@ Dialog {
     /// (a bare {job_id, job_name}) is placed by the bundled job table, and
     /// anything left over goes last under 其他.
     readonly property var jobGroups: {
-        const order = typeof Roles !== "undefined" ? Roles.roleGroups() : []
+        const order = typeof Runtime.roles !== "undefined" ? Runtime.roles.roleGroups() : []
         const buckets = {}
         const named = []
         for (let g = 0; g < order.length; ++g) {
@@ -509,14 +517,14 @@ Dialog {
         const list = dialog.jobOptionList
         for (let i = 1; i < list.length; ++i) {
             const job = list[i]
-            const hasCatalog = typeof Jobs !== "undefined"
-            const group = job.role_group || (hasCatalog ? Jobs.roleGroup(job.job_id) : "")
+            const hasCatalog = typeof Runtime.jobs !== "undefined"
+            const group = job.role_group || (hasCatalog ? Runtime.jobs.roleGroup(job.job_id) : "")
             // label: the job as shown; job_name stays the record's.
             const entry = {
                 job_id: job.job_id,
                 job_name: job.job_name || "",
                 label: Theme.jobName(job) || job.job_name || "",
-                abbreviation: job.abbreviation || (hasCatalog ? Jobs.abbreviation(job.job_id) : "?"),
+                abbreviation: job.abbreviation || (hasCatalog ? Runtime.jobs.abbreviation(job.job_id) : "?"),
                 option_index: job.option_index
             }
             if (job.preservesRunJob) {
@@ -539,7 +547,7 @@ Dialog {
                 out.push({
                     role: named[n],
                     label: Theme.roleGroupName(named[n]),
-                    token: typeof Jobs !== "undefined" ? Jobs.tokenForRoleGroup(named[n]) : "",
+                    token: typeof Runtime.jobs !== "undefined" ? Runtime.jobs.tokenForRoleGroup(named[n]) : "",
                     jobs: buckets[named[n]]
                 })
             }
@@ -588,7 +596,7 @@ Dialog {
     /// patches), and so does its name. Names match as recorded (Chinese) and
     /// as shown in the interface language.
     function dutyMatchesQuery(row, query) {
-        if (Theme.nameMatches([row.duty_name, Theme.dutyName(row)], query))
+        if (Theme.nameMatches([row.duty_name, Theme.dutyChoiceLabel(row)], query))
             return true
         if (row.duty_category
                 && Theme.nameMatches([row.duty_category, Theme.categoryName(row.duty_category)], query))
@@ -730,16 +738,16 @@ Dialog {
     }
 
     function timeOrEmpty(utc) {
-        const value = Fmt.localTime(utc)
-        if (value === Fmt.dash())
+        const value = Runtime.fmt.localTime(utc)
+        if (value === Runtime.fmt.dash())
             return ""
         const millis = new Date(utc).getMilliseconds()
         return millis > 0 ? value + "." + String(millis).padStart(3, "0") : value
     }
 
     function dateOrEmpty(utc) {
-        const value = Fmt.localDate(utc)
-        return value === Fmt.dash() ? "" : value
+        const value = Runtime.fmt.localDate(utc)
+        return value === Runtime.fmt.dash() ? "" : value
     }
 
     /// One spelling per time of day, HH:mm:ss[.zzz]: 20:41, 20:41:00 and
@@ -808,7 +816,7 @@ Dialog {
     /// The chosen duty as shown, in the interface language.
     function selectedDutyLabel() {
         const duty = lookupByIndex(dutyOptionList, dutyIndex)
-        return duty && dutyIndex > 0 ? (Theme.dutyName(duty) || qsTr("未知副本")) : qsTr("未知副本")
+        return duty && dutyIndex > 0 ? (Theme.dutyChoiceLabel(duty) || qsTr("未知副本")) : qsTr("未知副本")
     }
 
     /// 「伊弗利特讨伐战 · 20级 · 2.x」 for the step 2 header.
@@ -816,7 +824,7 @@ Dialog {
         const duty = lookupByIndex(dutyOptionList, dutyIndex)
         if (!duty || dutyIndex === 0)
             return ""
-        const parts = [Theme.dutyName(duty) || qsTr("未知副本")]
+        const parts = [Theme.dutyChoiceLabel(duty) || qsTr("未知副本")]
         if (typeof duty.duty_level === "number" && duty.duty_level > 0)
             parts.push(qsTr("%1级").arg(duty.duty_level))
         if (duty.version)
@@ -839,7 +847,7 @@ Dialog {
     function buildUtc(dateText, timeText) {
         if (!timeText || timeText.trim().length === 0)
             return null
-        const value = RunForm.toDateTime(dateText, canonicalTime(timeText))
+        const value = Runtime.runForm.toDateTime(dateText, canonicalTime(timeText))
         return value ? new Date(value).toISOString() : null
     }
 
@@ -854,8 +862,8 @@ Dialog {
     }
 
     function refreshRecentDuties() {
-        if (typeof App !== "undefined" && App && typeof App.refreshRecentDuties === "function")
-            App.refreshRecentDuties()
+        if (typeof Runtime.app !== "undefined" && Runtime.app && typeof Runtime.app.refreshRecentDuties === "function")
+            Runtime.app.refreshRecentDuties()
     }
 
     function resetWizard() {
@@ -910,7 +918,7 @@ Dialog {
         importedResultSelected = false
         editMode = true
         runData = run
-        matchedDate = Fmt.localDate(run.matched_at_utc)
+        matchedDate = Runtime.fmt.localDate(run.matched_at_utc)
         matchedTime = timeOrEmpty(run.matched_at_utc)
         // A missing entry or end starts on the match day, so typing only its
         // time is enough. A date without a time is never sent (buildUtc).
@@ -1035,8 +1043,8 @@ Dialog {
             errorText = result.error || qsTr("图片没有保存。")
             return false
         }
-        if (typeof App !== "undefined" && App && App.showToast) {
-            App.showToast(added.length > 0 && removed.length > 0
+        if (typeof Runtime.app !== "undefined" && Runtime.app && Runtime.app.showToast) {
+            Runtime.app.showToast(added.length > 0 && removed.length > 0
                           ? qsTr("已添加 %1 张图片，移除 %2 张").arg(added.length).arg(removed.length)
                           : added.length > 0 ? qsTr("已添加 %1 张图片").arg(added.length)
                                              : qsTr("已移除 %1 张图片").arg(removed.length))
@@ -1062,7 +1070,7 @@ Dialog {
     function collectFields() {
         const duty = lookupByIndex(dutyOptionList, dutyIndex)
         const preserveDuty = editMode && runData && duty && (duty.preservesRunDuty
-                || (runData.content_id != null && duty.content_id === runData.content_id))
+                || (runData.content_id !== null && runData.content_id !== undefined && duty.content_id === runData.content_id))
         const job = lookupByIndex(jobOptionList, jobIndex)
         const preserveJob = editMode && runData && job && job.preservesRunJob
         const matchedUtc = fieldUtc(matchedDate, matchedTime, "matched_at_utc")
@@ -1076,8 +1084,8 @@ Dialog {
         // match (entry = match) is such an estimate; a measured entry - a run
         // recovered after a crash, ended at the restart - gets its duration once
         // the real end is filled in (review L1-4). Qt can expose a null QVariant
-        // as either null or undefined in QML, hence the loose comparison.
-        const unknownDurationRetained = editMode && runData && runData.duration_ms == null
+        // as either null or undefined in QML; retain both forms.
+        const unknownDurationRetained = editMode && runData && (runData.duration_ms === null || runData.duration_ms === undefined)
                 && enteredUtc && enteredUtc === runData.entered_at_utc
                 && runData.entered_at_utc === runData.matched_at_utc
         const durationMs = estimatedEntry || unknownDurationRetained ? null
@@ -1128,7 +1136,7 @@ Dialog {
                 correctRequested(lastSubmission.payload, lastSubmission.reason)
             return
         }
-        const verdict = RunForm.validate(formState, beforeState)
+        const verdict = Runtime.runForm.validate(formState, beforeState)
         const confirmationOnly = editMode && confirmsImportedFacts
             && !verdict.ok && verdict.code === "ERR_NO_CHANGES"
         // An unchanged form with staged images is not "nothing to do": the
@@ -1140,7 +1148,7 @@ Dialog {
             return
         }
         errorCode = verdict.ok || confirmationOnly ? "" : verdict.code
-        errorText = verdict.ok || confirmationOnly ? "" : App.errorText(verdict.message, verdict.code)
+        errorText = verdict.ok || confirmationOnly ? "" : Runtime.app.errorText(verdict.message, verdict.code)
         if (!verdict.ok && !confirmationOnly)
             return
 
@@ -1169,7 +1177,9 @@ Dialog {
             if (key === "note" && !fields.note && !runData.note)
                 continue
             // "Not known" is null here and null or absent (an older Collector) in the record.
-            if (key === "joined_in_progress" && fields[key] == null && runData[key] == null)
+            if (key === "joined_in_progress"
+                    && (fields[key] === null || fields[key] === undefined)
+                    && (runData[key] === null || runData[key] === undefined))
                 continue
             if (JSON.stringify(fields[key]) !== JSON.stringify(runData[key]))
                 changes[key] = fields[key]
@@ -1183,7 +1193,8 @@ Dialog {
         // known by its zone alone already has a null content_id, so it is named
         // all the same (review OG-1).
         if (dutyIndex === 0 && !("content_id" in changes)
-                && (runData.content_id != null || runData.territory_id != null || !!runData.duty_name))
+                && ((runData.content_id !== null && runData.content_id !== undefined)
+                    || (runData.territory_id !== null && runData.territory_id !== undefined) || !!runData.duty_name))
             changes.content_id = null
         // A null duration must be explicit when a timestamp changed, otherwise the
         // Collector derives it and counts queue time as if it were measured duty time.
@@ -1328,11 +1339,11 @@ Dialog {
                     // Raw identifiers and column names are maintainer material; a
                     // player sees the same fact in plain Chinese.
                     text: dialog.editMode && dialog.runData
-                          ? (App.maintainerToolsVisible
+                          ? (Runtime.app.maintainerToolsVisible
                              ? qsTr("%1 · 当前修订 %2").arg(dialog.runData.run_id)
                                                         .arg(dialog.runData.revision || 1)
                              : qsTr("修正结果与进度，原记录会保留"))
-                          : (App.maintainerToolsVisible
+                          : (Runtime.app.maintainerToolsVisible
                              ? qsTr("来源：手动新增")
                              : qsTr("这条记录由你手动新增"))
                     color: Theme.textSecondary
@@ -1479,7 +1490,7 @@ Dialog {
                     Layout.fillWidth: true
                     visible: dialog.currentStep === 1
                     opacity: dialog.stepProgress
-                    transform: Translate { x: (1 - dialog.stepProgress) * 16 * dialog.stepDirection }
+                    transform: WizardSlide { progress: dialog.stepProgress; direction: dialog.stepDirection }
                     wizard: dialog
                 }
 
@@ -1492,7 +1503,7 @@ Dialog {
                     Layout.fillWidth: true
                     visible: dialog.currentStep === 2
                     opacity: dialog.stepProgress
-                    transform: Translate { x: (1 - dialog.stepProgress) * 16 * dialog.stepDirection }
+                    transform: WizardSlide { progress: dialog.stepProgress; direction: dialog.stepDirection }
                     wizard: dialog
                 }
 
@@ -1502,7 +1513,7 @@ Dialog {
                     Layout.fillWidth: true
                     visible: dialog.currentStep === 3
                     opacity: dialog.stepProgress
-                    transform: Translate { x: (1 - dialog.stepProgress) * 16 * dialog.stepDirection }
+                    transform: WizardSlide { progress: dialog.stepProgress; direction: dialog.stepDirection }
                     wizard: dialog
                 }
             }

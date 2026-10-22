@@ -1,5 +1,5 @@
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // `.tag.chip[data-on]` of the record wizard: one choice of a single-choice row
 // (等级区间, 难度, 最近打过, 未知职业). Unlike Chip it never flips itself - the

@@ -207,6 +207,103 @@ class MockBackendTests : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void importEntryTextUsesThreeStatesWithoutRelaxingOtherFlags()
+    {
+        mr::MockBackend backend;
+        QJsonArray candidates;
+        for (const QString &mode : {QStringLiteral("正常"), QStringLiteral("中途"), QStringLiteral("  "),
+                                    QStringLiteral("开局进入"), QStringLiteral("中途加入"), QStringLiteral("随意")})
+            candidates.append(QJsonObject{{QStringLiteral("duty_name"), QStringLiteral("合成副本") + mode},
+                                           {QStringLiteral("joined_in_progress"), mode}});
+        candidates.append(QJsonObject{{QStringLiteral("duty_name"), QStringLiteral("合成非法字段")},
+                                       {QStringLiteral("contributes_to_goal"), QStringLiteral("正常")}});
+        const Answer preview = ask(backend, QStringLiteral("PreviewRunImport"),
+                                   {{QStringLiteral("source_kind"), QStringLiteral("JSON")},
+                                    {QStringLiteral("rows"), candidates}});
+        QVERIFY2(preview.ok, qPrintable(preview.message));
+        const QJsonArray rows = preview.payload.value(QStringLiteral("rows")).toArray();
+        QCOMPARE(rows.size(), 7);
+        const QList<QJsonValue> expected{false, true, QJsonValue::Null, false, true};
+        for (int index = 0; index < expected.size(); ++index) {
+            const QJsonObject row = rows[index].toObject();
+            QVERIFY(row.value(QStringLiteral("can_import")).toBool());
+            QCOMPARE(row.value(QStringLiteral("run")).toObject().value(QStringLiteral("joined_in_progress")), expected[index]);
+        }
+        QVERIFY(!rows[5].toObject().value(QStringLiteral("can_import")).toBool());
+        QVERIFY(!rows[6].toObject().value(QStringLiteral("can_import")).toBool());
+    }
+
+    void unnamedAllianceStatisticsPreserveCustomCategory()
+    {
+        mr::MockBackend backend;
+        QJsonObject row = autoRun(QStringLiteral("custom-alliance"), QStringLiteral("COMPLETED"), true);
+        row.insert(QStringLiteral("content_id"), 92);
+        row.insert(QStringLiteral("duty_name"), QJsonValue::Null);
+        row.insert(QStringLiteral("duty_category"), QStringLiteral("个人分类"));
+        backend.resetRuns(QJsonArray{row});
+        const QJsonArray stats = backend.dungeonStats({});
+        QCOMPARE(stats.size(), 1);
+        QCOMPARE(stats.first().toObject().value(QStringLiteral("duty_category")).toString(),
+                 QStringLiteral("个人分类"));
+        row.insert(QStringLiteral("duty_category"), QStringLiteral("大型任务"));
+        backend.resetRuns(QJsonArray{row});
+        QCOMPARE(backend.dungeonStats({}).first().toObject()
+                     .value(QStringLiteral("duty_category")).toString(), QStringLiteral("团队任务"));
+    }
+
+    void categoryFiltersDoNotInferMissingNonAllianceFacts()
+    {
+        mr::MockBackend backend;
+        QJsonObject row = autoRun(QStringLiteral("unknown-raid-category"), QStringLiteral("COMPLETED"), true);
+        row.insert(QStringLiteral("content_id"), 986);
+        row.insert(QStringLiteral("duty_category"), QJsonValue::Null);
+        backend.resetRuns(QJsonArray{row});
+        const Answer filtered = ask(backend, QStringLiteral("QueryRuns"),
+            {{QStringLiteral("filter"), QJsonObject{{QStringLiteral("duty_category"),
+                                                    QJsonArray{QStringLiteral("大型任务")}}}}});
+        QVERIFY(filtered.ok);
+        QCOMPARE(filtered.payload.value(QStringLiteral("page_info")).toObject()
+                     .value(QStringLiteral("total")).toInt(), 0);
+        QCOMPARE(mr::DutyCatalog::shared()->enrich(row.toVariantMap())
+                     .value(QStringLiteral("duty_category")).toString(), QStringLiteral("大型任务"));
+    }
+
+    void allianceCategoryFiltersUseTheDisplayedClassification()
+    {
+        mr::MockBackend backend;
+        const Answer all = ask(backend, QStringLiteral("QueryRuns"),
+                               {{QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}});
+        QVERIFY(all.ok);
+        const QSet<int> allianceIds{92, 102, 111, 120, 168, 220, 281, 550, 636,
+                                   700, 736, 779, 866, 911, 962, 1015, 1058, 1117};
+        QSet<QString> expected;
+        for (const auto &value : all.payload.value(QStringLiteral("items")).toArray()) {
+            const QJsonObject run = value.toObject();
+            if (allianceIds.contains(run.value(QStringLiteral("content_id")).toInt())
+                || run.value(QStringLiteral("duty_category")).toString() == QString::fromUtf8("团队任务"))
+                expected.insert(run.value(QStringLiteral("run_id")).toString());
+        }
+        QVERIFY(!expected.isEmpty());
+        const auto query = [&backend](const char *category) {
+            return ask(backend, QStringLiteral("QueryRuns"),
+                       {{QStringLiteral("filter"), QJsonObject{{QStringLiteral("duty_category"),
+                                                              QJsonArray{QString::fromUtf8(category)}}}},
+                        {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200}});
+        };
+        const Answer team = query("团队任务");
+        QVERIFY(team.ok);
+        QSet<QString> actual;
+        for (const auto &value : team.payload.value(QStringLiteral("items")).toArray())
+            actual.insert(value.toObject().value(QStringLiteral("run_id")).toString());
+        QCOMPARE(actual, expected);
+        QCOMPARE(team.payload.value(QStringLiteral("page_info")).toObject().value(QStringLiteral("total")).toInt(),
+                 static_cast<int>(expected.size()));
+        const Answer raid = query("大型任务");
+        QVERIFY(raid.ok);
+        for (const auto &value : raid.payload.value(QStringLiteral("items")).toArray())
+            QVERIFY(!expected.contains(value.toObject().value(QStringLiteral("run_id")).toString()));
+    }
+
     void localizedNameSearchPreservesOriginalNotesAndOtherFilters()
     {
         mr::MockBackend backend;
@@ -2286,6 +2383,75 @@ private Q_SLOTS:
     // batch (overlapping screenshots, one picture added twice) differs only in what the reading
     // added; the later copy is a possible duplicate of the first. The twin key is the duty, the
     // clock time and the reflection text, so date-only rows of one day are never twins.
+    void nameOnlyImportUsesTheCatalogPreferenceWithoutChangingExplicitIds()
+    {
+        mr::MockBackend backend;
+        const QString asura = QString::fromUtf8("阿修罗歼灭战");
+        const Answer answer = previewImport(backend, QStringLiteral("JSON"), {
+            QJsonObject{{"duty_name", asura}},
+            QJsonObject{{"duty_name", asura}, {"content_id", 69}},
+            QJsonObject{{"duty_name", asura}, {"region", "GLOBAL"}},
+            QJsonObject{{"duty_name", QString::fromUtf8("赤土红沙")}}
+        }, QStringLiteral("names.json"));
+        QVERIFY2(answer.ok, qPrintable(answer.message));
+        const auto rows = answer.payload.value("rows").toArray();
+        QCOMPARE(rows.size(), 4);
+        QCOMPARE(rows[0].toObject().value("run").toObject().value("content_id").toInt(), 944);
+        QCOMPARE(rows[1].toObject().value("run").toObject().value("content_id").toInt(), 69);
+        QVERIFY(rows[2].toObject().value("run").toObject().value("content_id").isNull());
+        QVERIFY(rows[3].toObject().value("run").toObject().value("content_id").isNull());
+        const Answer stored = commitWholePreview(backend, answer);
+        QVERIFY2(stored.ok, qPrintable(stored.message));
+        QCOMPARE(stored.payload.value("imported_count").toInt(), 4);
+    }
+
+    void catalogPreferenceKeepsOldImportFingerprintsAndPurgeTombstones()
+    {
+        const QJsonObject source{{"duty_name", QString::fromUtf8("阿修罗歼灭战")},
+                                 {"content_id", QJsonValue(QJsonValue::Null)},
+                                 {"territory_id", QJsonValue(QJsonValue::Null)},
+                                 {"duty_category", QStringLiteral(" ")},
+                                 {"source_key", QStringLiteral("legacy-key")}};
+        mr::MockBackend backend;
+        const Answer current = previewImport(backend, QStringLiteral("JSON"), {source}, QStringLiteral("legacy.json"));
+        QVERIFY2(current.ok, qPrintable(current.message));
+        const QJsonObject previewRow = current.payload.value("rows").toArray()[0].toObject();
+        const QJsonObject candidate = previewRow.value("candidate").toObject();
+        QVERIFY(candidate.value("content_id").isNull());
+        QVERIFY(candidate.value("territory_id").isNull());
+        QCOMPARE(candidate.value("duty_category").toString(), QStringLiteral(" "));
+        QJsonObject oldRun = previewRow.value("run").toObject();
+        QCOMPARE(oldRun.value("content_id").toInt(), 944);
+        const QString oldId = QStringLiteral("aabbccdd-0000-4000-8000-000000000001");
+        oldRun.insert("run_id", oldId);
+        for (const char *field : {"content_id", "territory_id", "duty_category"})
+            oldRun.insert(QLatin1String(field), QJsonValue(QJsonValue::Null));
+        // Frozen pre-preference hash of this exact JSON/source_key; no matching by name/date.
+        backend.resetRuns({oldRun}, {{QStringLiteral("c95e3a7815dca0b7062cc00620dbe9cad56d3cfe36a37936310dfa985d4699e9"), oldId}});
+        const Answer again = previewImport(backend, QStringLiteral("JSON"), {candidate}, QStringLiteral("legacy.json"));
+        QCOMPARE(importStatuses(again), QStringList{QStringLiteral("duplicate")});
+        QCOMPARE(again.payload.value("rows").toArray()[0].toObject().value("matching_run_id").toString(), oldId);
+        const Answer committed = commitWholePreview(backend, again);
+        QVERIFY2(committed.ok, qPrintable(committed.message));
+        QCOMPARE(committed.payload.value("imported_count").toInt(), 0);
+        QCOMPARE(committed.payload.value("duplicate_count").toInt(), 1);
+        QCOMPARE(runCount(backend), 1);
+        const auto batch = [&](const char *action, int revision) {
+            return ask(backend, QStringLiteral("BatchMutateRuns"), {
+                {"action", QString::fromLatin1(action)}, {"reason", QStringLiteral("测试清理")},
+                {"runs", QJsonArray{QJsonObject{{"run_id", oldId}, {"expected_revision", revision}}}}});
+        };
+        QVERIFY(batch("soft_delete", 1).ok);
+        QVERIFY(batch("purge", 2).ok);
+        QCOMPARE(runCount(backend), 0);
+        const Answer purged = previewImport(backend, QStringLiteral("JSON"), {candidate}, QStringLiteral("legacy.json"));
+        QCOMPARE(importStatuses(purged), QStringList{QStringLiteral("duplicate")});
+        const Answer noResurrection = commitWholePreview(backend, purged);
+        QVERIFY2(noResurrection.ok, qPrintable(noResurrection.message));
+        QCOMPARE(noResurrection.payload.value("imported_count").toInt(), 0);
+        QCOMPARE(runCount(backend), 0);
+    }
+
     void theSameCardTwiceInOneBatchIsOfferedOnceAsNew()
     {
         const mr::JobCatalog jobs;

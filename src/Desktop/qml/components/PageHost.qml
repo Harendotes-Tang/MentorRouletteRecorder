@@ -1,5 +1,5 @@
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // Hosts one page of the shell and animates it in when it becomes current:
 //   * classic (workbench.css wbSlide): slides in from 12 px to the right while
@@ -12,7 +12,7 @@ Item {
     id: host
 
     property int index: -1
-    readonly property bool active: typeof App !== "undefined" && App.currentPage === index
+    readonly property bool active: typeof Runtime.app !== "undefined" && Runtime.app.currentPage === index
     readonly property bool isPageHost: true
     default property alias content: inner.data
 

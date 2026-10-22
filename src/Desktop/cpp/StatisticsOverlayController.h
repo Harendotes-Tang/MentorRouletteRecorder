@@ -9,6 +9,7 @@
 #include <QVariantList>
 #include <QTimeZone>
 #include <functional>
+#include "StatsModels.h"
 
 class QTimer;
 namespace mr {
@@ -16,8 +17,8 @@ class AppSettings;
 class IBackend;
 
 /// Owns presentation preferences/runtime state for the one statistics float.
-/// Borrows settings/backend through QPointer. The period count is independent
-/// of the shared dashboard and models; owns no window or backend.
+/// Borrows settings/backend through QPointer and owns independent period models.
+/// Counts and rows share the selected range without changing the main models.
 ///
 /// The float has two forms (docs/ui-design.md §4.9): the full window with its
 /// modules, and the one-line mini bar. Both keep the same position; only the
@@ -48,6 +49,10 @@ class StatisticsOverlayController final : public QObject
     Q_PROPERTY(bool attemptsKnown READ attemptsKnown NOTIFY attemptsChanged)
     Q_PROPERTY(bool attemptsLoading READ attemptsLoading NOTIFY attemptsChanged)
     Q_PROPERTY(QString attemptsError READ attemptsError NOTIFY attemptsChanged)
+    Q_PROPERTY(mr::DungeonStatsModel *dungeons READ dungeons CONSTANT)
+    Q_PROPERTY(mr::JobStatsModel *jobs READ jobs CONSTANT)
+    Q_PROPERTY(bool hasPeriodStatistics READ hasPeriodStatistics NOTIFY modulesChanged)
+    Q_PROPERTY(bool statisticsConnected READ statisticsConnected NOTIFY attemptsChanged)
 public:
     static constexpr int kAllRows = 1000;
     static constexpr double kDefaultOpacity = 0.85;
@@ -75,10 +80,15 @@ public:
     bool attemptsKnown() const { return m_attemptsKnown; }
     bool attemptsLoading() const { return m_attemptsLoading; }
     QString attemptsError() const;
+    DungeonStatsModel *dungeons() const { return m_dungeons; }
+    JobStatsModel *jobs() const { return m_jobs; }
+    bool hasPeriodStatistics() const;
+    bool statisticsConnected() const;
     /// Local midnight bounds paired with recorded history-day bounds. All has no filter.
     static QJsonObject attemptFilter(const QString &period, const QDate &today, const QTimeZone &zone);
     /// Borrows the backend; replacing/destroying it invalidates outstanding replies.
     void setBackend(IBackend *backend);
+    /// Refreshes every enabled full-form period module; legacy name retained for callers.
     Q_INVOKABLE void refreshAttempts();
     static QStringList defaultModules();
     static QRect validGeometry(const QRect &geometry);
@@ -125,6 +135,8 @@ Q_SIGNALS:
 private:
     QPointer<AppSettings> m_settings;
     QPointer<IBackend> m_backend;
+    DungeonStatsModel *m_dungeons;
+    JobStatsModel *m_jobs;
     CalendarClock m_clock;
     QTimer *m_calendarTimer = nullptr;
     quint64 m_attemptGeneration = 0;
@@ -137,6 +149,7 @@ private:
     bool m_attemptsLoading = false;
     bool m_attemptsFailed = false;
     bool attemptsApplicable() const;
+    bool statisticsApplicable() const;
     void invalidateAttempts();
     void updateAttemptsActivity();
     void checkAttemptCalendar();

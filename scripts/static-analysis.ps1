@@ -85,7 +85,7 @@ function Get-ToolchainPath([string]$Variable, [string]$ExampleDefault) {
     if ([string]::IsNullOrWhiteSpace($configured)) { return $ExampleDefault }
     return $configured.Replace('\', '/')
 }
-$ClangTidyExe = Get-ToolchainPath 'MR_CLANG_TIDY_EXE' 'D:/APPS/Qt/Tools/llvm-mingw1706_64/bin/clang-tidy.exe'
+$ClangTidyExe = Get-ToolchainPath 'MR_CLANG_TIDY_EXE' 'D:/APPS/Qt/Tools/QtCreator/bin/clang/bin/clang-tidy.exe'
 $CppcheckExe  = Get-ToolchainPath 'MR_CPPCHECK_EXE'   'C:/Program Files/Cppcheck/cppcheck.exe'
 
 function Write-Head([string]$Text) {
@@ -353,6 +353,12 @@ if ($Tool -in @('all', 'clang-tidy')) {
         $tidyDir = Join-Path $OutputRoot 'clang-tidy'
         New-Item -ItemType Directory -Force -Path $tidyDir | Out-Null
         Get-ChildItem -LiteralPath $tidyDir -File | Remove-Item -Force
+        $versionProbe = Start-Tool $ClangTidyExe @('--version') (Join-Path $OutputRoot 'clang-tidy-version.log')
+        if ((Wait-Tool $versionProbe) -ne 0 -or [string]::IsNullOrWhiteSpace($versionProbe.Stdout)) {
+            throw 'clang-tidy version probe failed; analyzer identity is unverified.'
+        }
+        Write-Host ('  分析器 / analyzer: {0}' -f $ClangTidyExe)
+        Write-Host $versionProbe.Stdout.Trim()
         $probeDir = Join-Path $OutputRoot 'toolchain'
         New-Item -ItemType Directory -Force -Path $probeDir | Out-Null
         $compatibility = @{}
@@ -423,8 +429,8 @@ if ($Tool -in @('all', 'clang-tidy')) {
             }
         }
 
-        # "path:line:col: severity: message [check]" - the location decides whether the
-        # finding is ours or lives in a Qt header the analyzer walked into.
+        # Preserve dependency locations for traceability. A diagnostic in a Qt header
+        # may originate in our call path and must participate in the same failure gate.
         $pattern = '^(?<file>.+?):(?<line>\d+):\d+: (?<severity>warning|error): (?<message>.*) \[(?<check>[\w.,-]+)\]\s*$'
         foreach ($log in Get-ChildItem -LiteralPath $tidyDir -Filter '*.log') {
             foreach ($line in [System.IO.File]::ReadAllLines($log.FullName, $Utf8NoBom)) {
@@ -434,7 +440,7 @@ if ($Tool -in @('all', 'clang-tidy')) {
                 $file = if ($relative) { $relative } else { $Matches.file.Replace('\', '/') }
                 $check = $Matches.check
                 $hard = ($Matches.severity -eq 'error') -or $check.StartsWith('clang-analyzer-')
-                Add-Finding 'clang-tidy' $file ([int]$Matches.line) $Matches.severity $check $Matches.message ($hard -and -not $thirdParty) $thirdParty
+                Add-Finding 'clang-tidy' $file ([int]$Matches.line) $Matches.severity $check $Matches.message $hard $thirdParty
             }
         }
     }
@@ -550,13 +556,7 @@ if ($Tool -in @('all', 'cppcheck')) {
                 $thirdParty = -not $relative
                 $file = if ($relative) { $relative } elseif ($rawFile) { $rawFile.Replace('\', '/') } else { '(none)' }
                 $hard = ($issue.GetAttribute('severity') -eq 'error')
-                if ($hard -and $thirdParty) {
-                    # cppcheck fatal errors outside our source are still analysis failures.
-                    # Only clang's documented Qt path diagnostics have a third-party exemption.
-                    $toolFailures += ("cppcheck error [{0}] at {1}: {2}" -f
-                        $issue.GetAttribute('id'), $file, $issue.GetAttribute('msg'))
-                }
-                Add-Finding 'cppcheck' $file $line $issue.GetAttribute('severity') $issue.GetAttribute('id') $issue.GetAttribute('msg') ($hard -and -not $thirdParty) $thirdParty
+                Add-Finding 'cppcheck' $file $line $issue.GetAttribute('severity') $issue.GetAttribute('id') $issue.GetAttribute('msg') $hard $thirdParty
             }
         }
     }
@@ -564,12 +564,11 @@ if ($Tool -in @('all', 'cppcheck')) {
 
 # -------------------------------------------------------------------- summary --
 Write-Head '汇总 / summary'
-$ours = @($findings | Where-Object { -not $_.ThirdParty })
-$qt = @($findings | Where-Object { $_.ThirdParty })
-$hard = @($ours | Where-Object { $_.Hard })
+$external = @($findings | Where-Object { $_.ThirdParty })
+$hard = @($findings | Where-Object { $_.Hard })
 
-if ($ours.Count -gt 0) {
-    $ours | Group-Object Tool, Severity, Check | Sort-Object -Property @{ Expression = 'Count'; Descending = $true }, Name |
+if ($findings.Count -gt 0) {
+    $findings | Group-Object Tool, Severity, Check | Sort-Object -Property @{ Expression = 'Count'; Descending = $true }, Name |
         ForEach-Object {
             $sample = $_.Group[0]
             '{0,5}  {1,-10} {2,-12} {3}' -f $_.Count, $sample.Tool, $sample.Severity, $sample.Check
@@ -581,10 +580,10 @@ if ($ours.Count -gt 0) {
         Write-Host ('  {0}:{1}  [{2}] {3}' -f $finding.File, $finding.Line, $finding.Check, $finding.Message)
     }
 } else {
-    Write-Host '  没有落在本仓库内的告警 / no findings inside the repository'
+    Write-Host '  没有告警（包含依赖头文件诊断） / no findings, including dependency-header diagnostics'
 }
-if ($qt.Count -gt 0) {
-    Write-Host ('  另有 {0} 条分析器路径告警落在 Qt 头文件内（QPointer/QSharedPointer 引用计数），已忽略；原文见 {1}' -f $qt.Count, $outputLabel)
+if ($external.Count -gt 0) {
+    Write-Host ('  其中 {0} 条位于外部头文件，同样参与门禁；完整路径见 {1}' -f $external.Count, $outputLabel)
 }
 
 $summaryPath = Join-Path $OutputRoot 'findings.csv'
@@ -593,12 +592,12 @@ Write-Host ('  明细 / details: {0}' -f (Format-PathLabel $summaryPath))
 
 foreach ($failure in $toolFailures) { Write-Host ("  工具失败 / tool failure: {0}" -f $failure) -ForegroundColor Red }
 
-$failing = $toolFailures.Count -gt 0 -or $hard.Count -gt 0 -or ($Strict -and $ours.Count -gt 0)
+$failing = $toolFailures.Count -gt 0 -or $hard.Count -gt 0 -or ($Strict -and $findings.Count -gt 0)
 if ($failing) {
     Write-Host ''
     Write-Host '静态分析未通过 / static analysis FAILED' -ForegroundColor Red
     exit 1
 }
 Write-Host ''
-Write-Host ('静态分析通过 / static analysis passed（{0} 条风格类告警未阻塞，-Strict 可令其阻塞）' -f $ours.Count) -ForegroundColor Green
+Write-Host ('静态分析通过 / static analysis passed（{0} 条风格类告警未阻塞，-Strict 可令其阻塞）' -f $findings.Count) -ForegroundColor Green
 exit 0

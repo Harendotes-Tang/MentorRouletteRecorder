@@ -1,6 +1,8 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 解析：成功率 in large figures with a sparkline of its last readings, then
 // 消息速率 / 失败 · 去重 / 最近有效事件, then the most recent parser refusals.
@@ -15,16 +17,16 @@ Card {
     id: parse
     objectName: "captureParsePanel"
 
-    readonly property var counters: App.captureCounters
-    readonly property bool maintainer: App.maintainerToolsVisible
-    readonly property bool statsAvailable: App.parserStatsAvailable
+    readonly property var counters: Runtime.app.captureCounters
+    readonly property bool maintainer: Runtime.app.maintainerToolsVisible
+    readonly property bool statsAvailable: Runtime.app.parserStatsAvailable
     readonly property int playerRowLimit: 5
     // recent_parser_errors is oldest first; the panel reads newest first.
     readonly property var failures: {
-        const rows = (App.parserErrors || []).slice().reverse()
+        const rows = (Runtime.app.parserErrors || []).slice().reverse()
         return parse.maintainer ? rows : rows.slice(0, parse.playerRowLimit)
     }
-    readonly property int hiddenFailures: (App.parserErrors || []).length - parse.failures.length
+    readonly property int hiddenFailures: (Runtime.app.parserErrors || []).length - parse.failures.length
 
     // The sparkline: the success rate as it was reported, one reading at most
     // every five seconds, the latest twelve. Only values the Collector sent are
@@ -39,8 +41,8 @@ Card {
     function recordSample() {
         // Read App directly: this runs from App's own signal, before or after
         // the `counters` binding has caught up.
-        const rate = App.captureCounters.parse_success_rate
-        const session = String(App.captureStatus.capture_session_id || "")
+        const rate = Runtime.app.captureCounters.parse_success_rate
+        const session = String(Runtime.app.captureStatus.capture_session_id || "")
         if (session !== parse.sparkSession || rate === undefined || rate === null) {
             parse.sparkSamples = []
             parse.sparkLastAt = 0
@@ -58,39 +60,39 @@ Card {
     }
 
     Connections {
-        target: App
+        target: Runtime.app
         function onStatusChanged() { parse.recordSample() }
     }
     Component.onCompleted: parse.recordSample()
 
     function counter(key) {
         const value = parse.counters[key]
-        return (value === undefined || value === null) ? Fmt.dash() : Fmt.count(value)
+        return (value === undefined || value === null) ? Runtime.fmt.dash() : Runtime.fmt.count(value)
     }
 
     function successRateText() {
         const rate = parse.counters.parse_success_rate
-        return (rate === undefined || rate === null) ? Fmt.dash() : Fmt.percent(rate)
+        return (rate === undefined || rate === null) ? Runtime.fmt.dash() : Runtime.fmt.percent(rate)
     }
 
     function messageRateText() {
         const value = parse.counters.message_rate_per_second
         if (value === undefined || value === null)
-            return Fmt.dash()
+            return Runtime.fmt.dash()
         return qsTr("%1 / s").arg(Number(value).toFixed(1))
     }
 
     function lastValidEventText() {
         const at = parse.counters.last_valid_event_at_utc
         if (!at)
-            return Fmt.dash()
-        const kind = Theme.live(Fmt.eventKindLabel(String(parse.counters.last_valid_event_kind || "")))
-        return kind.length > 0 ? Fmt.localTime(at) + " " + kind : Fmt.localTime(at)
+            return Runtime.fmt.dash()
+        const kind = Theme.live(Runtime.fmt.eventKindLabel(String(parse.counters.last_valid_event_kind || "")))
+        return kind.length > 0 ? Runtime.fmt.localTime(at) + " " + kind : Runtime.fmt.localTime(at)
     }
 
     function failureMessage(row) {
         if (!parse.maintainer)
-            return Theme.live(Fmt.parserErrorLabel(String(row.code || "")))
+            return Theme.live(Runtime.fmt.parserErrorLabel(String(row.code || "")))
         return [String(row.direction || ""), String(row.opcode || "")].join(" ").trim()
                + " · " + String(row.message || "")
     }
@@ -245,7 +247,7 @@ Card {
     ColumnLayout {
         objectName: "captureParseFailures"
         Layout.fillWidth: true
-        visible: parse.statsAvailable || App.parserErrors.length > 0
+        visible: parse.statsAvailable || Runtime.app.parserErrors.length > 0
         spacing: 0
 
         Rectangle {
@@ -284,7 +286,7 @@ Card {
                     Text {
                         Layout.preferredWidth: 64
                         Layout.alignment: Qt.AlignTop
-                        text: failureRow.modelData.at_utc ? Fmt.localTime(failureRow.modelData.at_utc) : Fmt.dash()
+                        text: failureRow.modelData.at_utc ? Runtime.fmt.localTime(failureRow.modelData.at_utc) : Runtime.fmt.dash()
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fs(12)
                         font.family: Theme.figureFamily
@@ -333,7 +335,7 @@ Card {
         Text {
             Layout.fillWidth: true
             Layout.topMargin: 6
-            visible: parse.statsAvailable && App.parserErrors.length === 0
+            visible: parse.statsAvailable && Runtime.app.parserErrors.length === 0
             text: qsTr("最近没有数据读取失败记录。")
             color: Theme.textPrimary
             font.pixelSize: Theme.fs(12)
@@ -353,7 +355,7 @@ Card {
         Text {
             Layout.fillWidth: true
             Layout.topMargin: 8
-            visible: App.usingMockData && App.parserErrors.length > 0
+            visible: Runtime.app.usingMockData && Runtime.app.parserErrors.length > 0
             text: qsTr("以上为模拟后端的示例数据，不是真实数据读取失败。")
             color: Theme.orangeText
             font.pixelSize: Theme.fs(11)

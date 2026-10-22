@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 Item {
     id: page
@@ -51,9 +53,9 @@ Item {
 
     function reloadRows() {
         const unknown = Theme.jobLabel(null, "未知")
-        rowsCache = App.jobs.topRows(0).filter(row => Number(row.attempt_count || 0) !== 0
+        rowsCache = Runtime.app.jobs.topRows(0).filter(row => Number(row.attempt_count || 0) !== 0
             || (Theme.jobName(row) || unknown) !== unknown)
-        rolesCache = App.jobs.roleBreakdown().filter(row => row.role_group !== "未知"
+        rolesCache = Runtime.app.jobs.roleBreakdown().filter(row => row.role_group !== "未知"
             || Number(row.attempt_count || 0) !== 0)
         donut.requestPaint()
     }
@@ -61,7 +63,7 @@ Item {
     Component.onCompleted: reloadRows()
 
     Connections {
-        target: App.jobs
+        target: Runtime.app.jobs
         function onCountChanged() { page.reloadRows() }
     }
 
@@ -92,7 +94,7 @@ Item {
             PageHeader {
                 objectName: "jobsHeader"
                 title: qsTr("职业统计")
-                subtitle: App.jobs.loadError.length > 0
+                subtitle: Runtime.app.jobs.loadError.length > 0
                           ? qsTr("读取失败")
                           : page.unknownCount !== 0 ? qsTr("未知职业 %1 次").arg(page.unknownCount) : ""
             }
@@ -100,8 +102,8 @@ Item {
             Text {
                 objectName: "jobsLoadError"
                 Layout.fillWidth: true
-                visible: App.jobs.loadError.length > 0
-                text: qsTr("职业统计读取失败，下方没有统计结果：%1").arg(App.jobs.loadError)
+                visible: Runtime.app.jobs.loadError.length > 0
+                text: qsTr("职业统计读取失败，下方没有统计结果：%1").arg(Runtime.app.jobs.loadError)
                 textFormat: Text.PlainText
                 wrapMode: Text.WordWrap
                 color: Theme.orangeText
@@ -140,8 +142,8 @@ Item {
                             let start = -Math.PI / 2
                             context.lineWidth = 28
                             context.lineCap = "butt"
-                            for (let index = 0; index < page.rolesCache.length; ++index) {
-                                const row = page.rolesCache[index]
+                            for (let roleIndex = 0; roleIndex < page.rolesCache.length; ++roleIndex) {
+                                const row = page.rolesCache[roleIndex]
                                 const span = Math.PI * 2 * Number(row.attempt_count || 0) / total
                                 if (span <= 0)
                                     continue
@@ -163,6 +165,7 @@ Item {
                             model: page.rolesCache
 
                             delegate: RowLayout {
+                                id: roleLegendRow
                                 required property var modelData
                                 required property int index
                                 objectName: "jobsRoleLegendRow" + index
@@ -178,25 +181,25 @@ Item {
                                     Layout.preferredWidth: 3
                                     Layout.preferredHeight: 16
                                     radius: 1.5
-                                    color: Theme.token(modelData.color_token || "neutral500")
+                                    color: Theme.token(roleLegendRow.modelData.color_token || "neutral500")
                                 }
 
                                 RoleIcon {
-                                    role: modelData.role_group || qsTr("未知")
+                                    role: roleLegendRow.modelData.role_group || qsTr("未知")
                                     size: 20
                                 }
 
                                 Text {
                                     Layout.fillWidth: true
-                                    text: Theme.roleGroupName(modelData.role_group)
+                                    text: Theme.roleGroupName(roleLegendRow.modelData.role_group)
                                     color: Theme.textPrimary
                                     font.pixelSize: Theme.fs(12)
                                 }
 
                                 Text {
                                     Layout.preferredWidth: 44
-                                    text: qsTr("%1%").arg(Math.round(1000 * Number(modelData.attempt_count || 0)
-                                                                  / Math.max(1, App.jobs.totalAttemptCount)) / 10)
+                                    text: qsTr("%1%").arg(Math.round(1000 * Number(roleLegendRow.modelData.attempt_count || 0)
+                                                                  / Math.max(1, Runtime.app.jobs.totalAttemptCount)) / 10)
                                     color: Theme.textSecondary
                                     font.pixelSize: Theme.fs(12)
                                     horizontalAlignment: Text.AlignRight
@@ -207,7 +210,7 @@ Item {
 
                                 Text {
                                     Layout.preferredWidth: 28
-                                    text: String(modelData.attempt_count || 0)
+                                    text: String(roleLegendRow.modelData.attempt_count || 0)
                                     color: Theme.textPrimary
                                     font.pixelSize: Theme.fs(12)
                                     font.weight: Theme.figureWeight(true)
@@ -314,6 +317,7 @@ Item {
                         model: page.rowsCache
 
                         delegate: Rectangle {
+                            id: jobRow
                             required property var modelData
                             required property int index
                             objectName: "jobsTableRow" + index
@@ -325,7 +329,7 @@ Item {
                                    : "transparent"
 
                             HoverHandler { id: rowHover }
-                            TapHandler { onTapped: App.showHistoryForJob(modelData.job_id) }
+                            TapHandler { onTapped: Runtime.app.showHistoryForJob(jobRow.modelData.job_id) }
 
                             RowLayout {
                                 anchors.fill: parent
@@ -340,13 +344,13 @@ Item {
                                     spacing: 8
 
                                     JobIcon {
-                                        jobId: modelData.job_id
+                                        jobId: jobRow.modelData.job_id
                                         size: 26
                                     }
 
                                     Text {
                                         Layout.fillWidth: true
-                                        text: Theme.jobName(modelData) || qsTr("未知")
+                                        text: Theme.jobName(jobRow.modelData) || qsTr("未知")
                                         textFormat: Text.PlainText
                                         color: Theme.textPrimary
                                         font.pixelSize: Theme.fs(12)
@@ -364,7 +368,7 @@ Item {
                                     // The fine-grained group of the legend
                                     // (坦克 / 治疗 / 近战 / 远程物理 / 魔法 /
                                     // 未知), never the coarse DPS bucket.
-                                    role: modelData.role_group || "未知"
+                                    role: jobRow.modelData.role_group || "未知"
                                     size: 20
                                     showLabel: true
                                     labelPixelSize: 11
@@ -382,13 +386,13 @@ Item {
                                         Layout.fillWidth: true
                                         Layout.preferredHeight: 8
                                         opacity: rowHover.hovered ? 1.0 : 0.92
-                                        ratio: Number(modelData.attempt_count || 0)
-                                               / Math.max(1, App.jobs.maxAttemptCount)
+                                        ratio: Number(jobRow.modelData.attempt_count || 0)
+                                               / Math.max(1, Runtime.app.jobs.maxAttemptCount)
                                     }
 
                                     Text {
                                         Layout.preferredWidth: 28
-                                        text: String(modelData.attempt_count || 0)
+                                        text: String(jobRow.modelData.attempt_count || 0)
                                         color: Theme.textPrimary
                                         font.pixelSize: Theme.fs(12)
                                         font.weight: Theme.figureWeight(true)
@@ -405,7 +409,7 @@ Item {
                                     objectName: "jobRowJoinedInProgress"
                                     Layout.preferredWidth: page.joinedColumnWidth
                                     Layout.minimumWidth: page.joinedColumnWidth
-                                    text: String(modelData.joined_in_progress_count || 0)
+                                    text: String(jobRow.modelData.joined_in_progress_count || 0)
                                     color: Theme.textPrimary
                                     font.pixelSize: Theme.fs(12)
                                     horizontalAlignment: Text.AlignRight
@@ -417,7 +421,7 @@ Item {
                                 Text {
                                     Layout.preferredWidth: page.rateColumnWidth
                                     Layout.minimumWidth: page.rateColumnWidth
-                                    text: Fmt.percent(modelData.completion_rate)
+                                    text: Runtime.fmt.percent(jobRow.modelData.completion_rate)
                                     color: Theme.textPrimary
                                     font.pixelSize: Theme.fs(12)
                                     horizontalAlignment: Text.AlignRight
@@ -429,7 +433,7 @@ Item {
                                 Text {
                                     Layout.preferredWidth: page.durationColumnWidth
                                     Layout.minimumWidth: page.durationColumnWidth
-                                    text: Fmt.duration(modelData.avg_duration_ms)
+                                    text: Runtime.fmt.duration(jobRow.modelData.avg_duration_ms)
                                     color: Theme.textPrimary
                                     font.pixelSize: Theme.fs(12)
                                     font.family: Theme.figureFamily

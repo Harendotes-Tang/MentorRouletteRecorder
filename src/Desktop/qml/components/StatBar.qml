@@ -1,5 +1,5 @@
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // The 8 px horizontal count bar of the 副本统计 / 职业统计 pages:
 // an inset track with a hairline frame and a square gold-3 -> gold-2 fill.

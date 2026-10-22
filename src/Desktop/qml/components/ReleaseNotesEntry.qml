@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 import "Lucide.js" as Lucide
 
 Item {
@@ -12,7 +12,7 @@ Item {
     readonly property bool highlighted: entry.highlight === true
     // 新增逐条附一句摘要；整理过标题的改进与修复只列标题，摘要随「详细」展开。
     readonly property bool compact: !highlighted && entry.curated === true && entry.category !== "added"
-    readonly property var languages: typeof Lang !== "undefined" ? Lang.languages : []
+    readonly property var languages: typeof Runtime.lang !== "undefined" ? Runtime.lang.languages : []
     readonly property int inset: highlighted ? 18 : 0
     signal languageSettingsRequested()
     signal ensureVisibleRequested(Item target)
@@ -126,7 +126,7 @@ Item {
                 Label {
                     required property var modelData
                     text: modelData.label
-                    font.family: typeof Lang !== "undefined" ? Lang.displayFamily(modelData.code) : Theme.bodyFamily
+                    font.family: typeof Runtime.lang !== "undefined" ? Runtime.lang.displayFamily(modelData.code) : Theme.bodyFamily
                     font.pixelSize: Theme.fs(11)
                     color: Theme.textPrimary
                     leftPadding: 8

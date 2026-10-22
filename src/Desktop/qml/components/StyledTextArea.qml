@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import MentorRecorder
+import MentorRecorder 1.0
 
 // `textarea.input`: same inset well as StyledTextField, wrapping and taller.
 TextArea {

@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // 对照核对：按时间列出本次捕获中发生的事件，供玩家对照自身经历或 ACT 时间线
 // 逐条判定“对 / 错 / 不确定”。
@@ -12,8 +14,8 @@ import MentorRecorder
 Item {
     id: page
     objectName: "candidateReviewPage"
-    readonly property var controller: App.candidates
-    readonly property var hypotheses: App.captureStatus.candidate_hypotheses || []
+    readonly property var controller: Runtime.app.candidates
+    readonly property var hypotheses: Runtime.app.captureStatus.candidate_hypotheses || []
     property var notes: ({})
     property var submittedNotes: ({})
     property bool showPackets: false
@@ -295,7 +297,7 @@ Item {
                     Layout.alignment: Qt.AlignHCenter
                     visible: !page.controller.loading && page.controller.total === 0
                     text: qsTr("前往捕获诊断")
-                    onClicked: App.navigate(4)
+                    onClicked: Runtime.app.navigate(4)
                 }
             }
         }

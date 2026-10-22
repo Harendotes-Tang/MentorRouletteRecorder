@@ -1,6 +1,8 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
-import MentorRecorder
+import MentorRecorder 1.0
 import "Lucide.js" as Lucide
 
 // Time-of-day entry: typed digits (2130, 21:30, 9:5) are written as HH:mm, or

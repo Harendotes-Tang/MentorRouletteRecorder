@@ -42,8 +42,8 @@ namespace mr {
 HistoryColumnsController::HistoryColumnsController(AppSettings *settings, QObject *parent)
     : QObject(parent)
     , m_settings(settings)
+    , m_order(completeOrder(settings ? settings->historyColumnOrder() : QStringList()))
 {
-    m_order = completeOrder(settings ? settings->historyColumnOrder() : QStringList());
     if (settings) {
         for (const QString &key : settings->historyHiddenColumns())
             if (known(key) && !m_hidden.contains(key))

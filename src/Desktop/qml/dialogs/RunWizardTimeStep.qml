@@ -1,7 +1,8 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // Step 3 of the record wizard (EditRunDialog): 日期与时间, 原因, 备注, the
 // before/after table and the error banner. Every refusal, local or from the
@@ -39,7 +40,7 @@ ColumnLayout {
                     value: step.wizard.matchedDate
                     restoreMode: Binding.RestoreNone
                 }
-                color: RunForm.isValidDate(text) ? Theme.textPrimary : Theme.red
+                color: Runtime.runForm.isValidDate(text) ? Theme.textPrimary : Theme.red
                 onTextChanged: step.wizard.setMatchedDate(text)
             }
         }
@@ -134,7 +135,7 @@ ColumnLayout {
                     value: step.wizard.enteredDate
                     restoreMode: Binding.RestoreNone
                 }
-                color: !step.wizard.enteredTime.trim() || RunForm.isValidDate(text)
+                color: !step.wizard.enteredTime.trim() || Runtime.runForm.isValidDate(text)
                        ? Theme.textPrimary : Theme.red
                 onTextChanged: step.wizard.enteredDate = text
             }
@@ -156,7 +157,7 @@ ColumnLayout {
                     value: step.wizard.endedDate
                     restoreMode: Binding.RestoreNone
                 }
-                color: !step.wizard.endedTime.trim() || RunForm.isValidDate(text)
+                color: !step.wizard.endedTime.trim() || Runtime.runForm.isValidDate(text)
                        ? Theme.textPrimary : Theme.red
                 onTextChanged: step.wizard.endedDate = text
             }

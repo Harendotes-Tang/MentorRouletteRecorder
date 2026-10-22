@@ -1,5 +1,5 @@
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 Item {
     id: root
@@ -26,7 +26,7 @@ Item {
         id: image
         anchors.fill: parent
         anchors.margins: 1
-        source: framed ? Jobs.framedIcon(root.jobId) : Jobs.plainIcon(root.jobId)
+        source: root.framed ? Runtime.jobs.framedIcon(root.jobId) : Runtime.jobs.plainIcon(root.jobId)
         fillMode: Image.PreserveAspectFit
         // Distributed builds ship no game art: the badge below is the normal look.
         visible: source !== "" && status === Image.Ready
@@ -34,7 +34,7 @@ Item {
 
     Text {
         anchors.centerIn: parent
-        text: Theme.live(Jobs.abbreviation(root.jobId))
+        text: Theme.live(Runtime.jobs.abbreviation(root.jobId))
         color: Theme.eorzea ? Theme.gold2 : Theme.textPrimary
         font.pixelSize: 10
         font.bold: true

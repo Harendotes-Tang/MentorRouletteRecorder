@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import MentorRecorder
+import MentorRecorder 1.0
 
 // `.panel` of the prototype: a gilded slate plate in the eorzea style; in the
 // classic one workbench's surface with a 1 px divider ring (--shadow-sm).
@@ -38,9 +38,13 @@ Rectangle {
 
     readonly property Entrance popIn: Entrance { fromScale: 0.97 }
 
+    function isPageHostItem(item: var): bool {
+        return item.isPageHost === true
+    }
+
     function findPageHost() {
         for (let item = root.parent; item; item = item.parent) {
-            if (item.isPageHost === true)
+            if (root.isPageHostItem(item))
                 return item
         }
         return null

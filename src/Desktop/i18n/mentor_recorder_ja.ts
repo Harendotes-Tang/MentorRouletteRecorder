@@ -6687,6 +6687,42 @@ SHA256：%3</translation>
         <source>拖动或滚动查看截图，关闭后继续核对当前记录。</source>
         <translation>ドラッグやスクロールでスクリーンショットを確認できます。閉じると現在の記録の確認に戻ります。</translation>
     </message>
+    <message>
+        <source>未知</source>
+        <translation>不明</translation>
+    </message>
+    <message>
+        <source>正常</source>
+        <translation>最初から</translation>
+    </message>
+    <message>
+        <source>中途</source>
+        <translation>途中参加</translation>
+    </message>
+    <message>
+        <source>进入方式</source>
+        <translation>参加方法</translation>
+    </message>
+    <message>
+        <source>未提供进入方式时保留未知，不会自动当作正常进入。</source>
+        <translation>参加方法が未記録の場合は不明のまま扱い、最初からの参加には数えません。</translation>
+    </message>
+    <message>
+        <source>进入方式列名</source>
+        <translation>参加方法の列名</translation>
+    </message>
+    <message>
+        <source>原表进入方式列名</source>
+        <translation>元の表の参加方法の列名</translation>
+    </message>
+    <message>
+        <source>进入方式可填“正常”或“中途”，留空为未知。</source>
+        <translation>「正常」（最初から）または「中途」（途中参加）を入力し、不明な場合は空欄にします。</translation>
+    </message>
+    <message>
+        <source>该名称对应多个副本，请按编号选择；暂时无法确认时可保留未知。</source>
+        <translation>同名のコンテンツが複数あります。番号を確認して選択してください。確認できない場合は不明のままにできます。</translation>
+    </message>
 </context>
 <context>
     <name>JobsPage</name>
@@ -7319,6 +7355,14 @@ SHA256：%3</translation>
         <translation>平均 %1</translation>
     </message>
     <message>
+        <source>同类均 %1</source>
+        <translation>種別平均 %1</translation>
+    </message>
+    <message>
+        <source>已进行 %1 · 同类副本平均 %2</source>
+        <translation>経過 %1 · 同じ種類のコンテンツの平均 %2</translation>
+    </message>
+    <message>
         <source>匹配后已过 %1</source>
         <translation>マッチから %1</translation>
     </message>
@@ -7413,6 +7457,10 @@ SHA256：%3</translation>
         <source>暂无统计</source>
         <translation>統計はまだありません</translation>
     </message>
+    <message>
+        <source>后台服务未连接</source>
+        <translation>バックエンドサービスに未接続</translation>
+    </message>
 </context>
 <context>
     <name>OverlayElapsedModule</name>
@@ -7450,8 +7498,8 @@ SHA256：%3</translation>
 <context>
     <name>OverlayPeriodSelector</name>
     <message>
-        <source>排本次数时间范围</source>
-        <translation>挑戦回数の集計期間</translation>
+        <source>统计时间范围</source>
+        <translation>統計期間</translation>
     </message>
 </context>
 <context>
@@ -7474,6 +7522,14 @@ SHA256：%3</translation>
     <message>
         <source>暂无统计</source>
         <translation>統計はまだありません</translation>
+    </message>
+    <message>
+        <source>后台服务未连接</source>
+        <translation>バックエンドサービスに未接続</translation>
+    </message>
+    <message>
+        <source>读取中…</source>
+        <translation>読み込み中…</translation>
     </message>
 </context>
 <context>
@@ -9561,6 +9617,10 @@ SHA256：%3</translation>
     <message>
         <source>未记录</source>
         <translation>未記録</translation>
+    </message>
+    <message>
+        <source>编号 %1</source>
+        <translation>ID %1</translation>
     </message>
 </context>
 <context>

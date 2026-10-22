@@ -1,5 +1,5 @@
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // What the statistics float shows, derived once from the application's own
 // models (docs/ui-design.md §4.9): the goal progress, the run in progress, the
@@ -9,18 +9,18 @@ import MentorRecorder
 QtObject {
     id: data
 
-    readonly property var controller: App.statisticsOverlay
+    readonly property var controller: Runtime.app.statisticsOverlay
     readonly property bool labels: controller.labels
 
     // ------------------------------------------------------------ 累计进度 --
-    readonly property bool progressKnown: App.achievementSettingsLoaded
-    readonly property int progress: Number(App.dashboard.achievement_progress || 0)
-    readonly property int goal: Math.max(1, Number(App.goalCount || 0))
-    readonly property int baseline: Number(App.baselineCount || 0)
+    readonly property bool progressKnown: Runtime.app.achievementSettingsLoaded
+    readonly property int progress: Number(Runtime.app.dashboard.achievement_progress || 0)
+    readonly property int goal: Math.max(1, Number(Runtime.app.goalCount || 0))
+    readonly property int baseline: Number(Runtime.app.baselineCount || 0)
     readonly property real progressRatio: Math.min(1, progress / goal)
     readonly property int remaining: Math.max(0, goal - progress)
     readonly property string progressTip: qsTr("累计进度 %1 / %2（%3）\n还差 %4 次 · 含起始次数 %5 次")
-        .arg(progress).arg(goal).arg(Fmt.percent(progressRatio, 1)).arg(remaining).arg(baseline)
+        .arg(progress).arg(goal).arg(Runtime.fmt.percent(progressRatio, 1)).arg(remaining).arg(baseline)
 
     // "+N": the completions counted while the float was open, shown for a
     // few seconds after each one (the design's plus pill). A new 起始次数 or
@@ -39,13 +39,13 @@ QtObject {
     // not have caught up with the same dashboard update yet.
     function primeProgress() {
         observedProgress = progress
-        observedBaseline = Number(App.baselineCount || 0)
-        observedGoal = Number(App.goalCount || 0)
+        observedBaseline = Number(Runtime.app.baselineCount || 0)
+        observedGoal = Number(Runtime.app.goalCount || 0)
     }
     onProgressChanged: {
-        const sameSettings = Number(App.baselineCount || 0) === observedBaseline
-                             && Number(App.goalCount || 0) === observedGoal
-        if (observedProgress >= 0 && progressKnown && sameSettings && !App.baselineSaving
+        const sameSettings = Number(Runtime.app.baselineCount || 0) === observedBaseline
+                             && Number(Runtime.app.goalCount || 0) === observedGoal
+        if (observedProgress >= 0 && progressKnown && sameSettings && !Runtime.app.baselineSaving
                 && progress > observedProgress) {
             plus += progress - observedProgress
             plusTimer.restart()
@@ -55,9 +55,9 @@ QtObject {
     onProgressKnownChanged: if (progressKnown) primeProgress()
 
     // ------------------------------------------------------------ 当前副本 --
-    readonly property string runState: App.currentRunState
-    readonly property var run: App.currentRun && App.currentRun.run && App.currentRun.run.run_id
-                               ? App.currentRun.run : null
+    readonly property string runState: Runtime.app.currentRunState
+    readonly property var run: Runtime.app.currentRun && Runtime.app.currentRun.run && Runtime.app.currentRun.run.run_id
+                               ? Runtime.app.currentRun.run : null
     readonly property bool matched: !!run && runState === "MENTOR_MATCHED"
     readonly property bool entered: !!run && runState === "ENTERED_DUTY"
     readonly property bool completed: !!run && runState === "COMPLETED"
@@ -86,20 +86,20 @@ QtObject {
         onTriggered: data.clockTick += 1
     }
     readonly property real elapsedMs: {
-        void clockTick
+        Theme.trackBindingDependency(clockTick)
         if (!run) return 0
         if (matched) {
             const matchedAt = Date.parse(String(run.matched_at_utc || ""))
             return isNaN(matchedAt) ? 0 : Math.max(0, Date.now() - matchedAt)
         }
-        if (entered) return Number(App.liveElapsedMs || 0)
+        if (entered) return Number(Runtime.app.liveElapsedMs || 0)
         return Number(run.duration_ms || 0)
     }
     /// This duty's average over completed runs, from the statistics page's rows.
     readonly property real averageMs: {
-        void App.dungeons.count
+        Theme.trackBindingDependency(Runtime.app.dungeons.count)
         if (!run) return 0
-        const rows = App.dungeons.topRows(0)
+        const rows = Runtime.app.dungeons.topRows(0)
         const contentId = Number(run.content_id || 0)
         const name = String(run.duty_name || "")
         for (let i = 0; i < rows.length; ++i) {
@@ -111,32 +111,58 @@ QtObject {
         return 0
     }
     readonly property bool hasAverage: averageMs > 0
-    /// The bar spans 130 % of the average, the mark sits at the average.
-    readonly property real paceSpanMs: hasAverage ? averageMs * 1.3 : Math.max(1, elapsedMs * 1.3)
-    readonly property real paceRatio: Math.min(1, elapsedMs / paceSpanMs)
-    readonly property real averageRatio: hasAverage ? averageMs / paceSpanMs : 0
-    readonly property bool overAverage: entered && hasAverage && elapsedMs > averageMs
+    /// A duty met for the first time has no average yet; until it has, the
+    /// timed runs of its category give the pace bar a scale. The rows carry no
+    /// count of timed runs, so each duty's average weighs by its completions.
+    readonly property real categoryAverageMs: {
+        Theme.trackBindingDependency(Runtime.app.dungeons.count)
+        if (!run || hasAverage || runCategory.length === 0) return 0
+        const rows = Runtime.app.dungeons.topRows(0)
+        let total = 0
+        let weight = 0
+        for (let i = 0; i < rows.length; ++i) {
+            const row = rows[i]
+            const average = Number(row.avg_duration_ms || 0)
+            if (average <= 0 || String(row.duty_category || "") !== runCategory) continue
+            const completions = Math.max(1, Number(row.completed_count || 0))
+            total += average * completions
+            weight += completions
+        }
+        return weight > 0 ? total / weight : 0
+    }
+    /// The pace bar's scale: the duty's own average, else its category's.
+    /// With neither there is nothing to measure against and the bar is not
+    /// shown (a span of elapsed × 1.3 held it at 77 % whatever the time).
+    readonly property real referenceMs: hasAverage ? averageMs : categoryAverageMs
+    readonly property bool hasReference: referenceMs > 0
+    /// The bar spans 130 % of the reference, the mark sits at the reference.
+    readonly property real paceSpanMs: Math.max(1, referenceMs * 1.3)
+    readonly property real paceRatio: hasReference ? Math.min(1, elapsedMs / paceSpanMs) : 0
+    readonly property real averageRatio: hasReference ? referenceMs / paceSpanMs : 0
+    readonly property bool overAverage: entered && hasReference && elapsedMs > referenceMs
     readonly property bool underAverage: completed && hasAverage && elapsedMs <= averageMs
-    readonly property string elapsedText: Fmt.duration(elapsedMs)
-    readonly property string averageText: qsTr("均 %1").arg(Fmt.duration(averageMs))
+    readonly property string elapsedText: Runtime.fmt.duration(elapsedMs)
+    readonly property string averageText: hasAverage ? qsTr("均 %1").arg(Runtime.fmt.duration(averageMs))
+                                                     : qsTr("同类均 %1").arg(Runtime.fmt.duration(referenceMs))
     readonly property string deltaText: {
         if (!completed || !hasAverage) return ""
         const diff = Math.abs(averageMs - elapsedMs)
-        return (elapsedMs <= averageMs ? "−" : "+") + Fmt.duration(diff)
+        return (elapsedMs <= averageMs ? "−" : "+") + Runtime.fmt.duration(diff)
     }
     readonly property string timeTip: {
         if (matched) return qsTr("匹配后已过 %1").arg(elapsedText)
-        if (entered) return hasAverage ? qsTr("已进行 %1 · 该副本平均 %2").arg(elapsedText).arg(Fmt.duration(averageMs))
-                                       : qsTr("已进行 %1").arg(elapsedText)
+        if (entered) return hasAverage ? qsTr("已进行 %1 · 该副本平均 %2").arg(elapsedText).arg(Runtime.fmt.duration(averageMs))
+                          : hasReference ? qsTr("已进行 %1 · 同类副本平均 %2").arg(elapsedText).arg(Runtime.fmt.duration(referenceMs))
+                                         : qsTr("已进行 %1").arg(elapsedText)
         if (completed && hasAverage)
             return elapsedMs <= averageMs
-                   ? qsTr("用时 %1 · 比平均快 %2").arg(elapsedText).arg(Fmt.duration(averageMs - elapsedMs))
-                   : qsTr("用时 %1 · 比平均慢 %2").arg(elapsedText).arg(Fmt.duration(elapsedMs - averageMs))
+                   ? qsTr("用时 %1 · 比平均快 %2").arg(elapsedText).arg(Runtime.fmt.duration(averageMs - elapsedMs))
+                   : qsTr("用时 %1 · 比平均慢 %2").arg(elapsedText).arg(Runtime.fmt.duration(elapsedMs - averageMs))
         return qsTr("用时 %1").arg(elapsedText)
     }
 
     // ------------------------------------------------------------ 待处理 --
-    readonly property var pending: App.recovery ? App.recovery.items : []
+    readonly property var pending: Runtime.app.recovery ? Runtime.app.recovery.items : []
     readonly property int pendingCount: pending.length
     // The count holds runs waiting for their result, for a note, or with an
     // unsaved draft, so the words claim none of those for all of them.
@@ -155,9 +181,9 @@ QtObject {
         observedPending = pendingCount
     }
     function openPending() {
-        if (!App.recovery || pendingCount === 0) return
+        if (!Runtime.app.recovery || pendingCount === 0) return
         const first = pending[0]
-        App.recovery.requestOpen(first.runId || first.run_id)
+        Runtime.app.recovery.requestOpen(first.runId || first.run_id)
     }
 
     // ------------------------------------------------------------ 颜色 --
@@ -172,9 +198,9 @@ QtObject {
     readonly property color accent: Theme.eorzea ? Theme.gold2 : Theme.accent
     readonly property color barFill: Theme.eorzea ? Theme.gold2 : Theme.accent
 
-    // The category colours and single-character badges mirror the statistics
-    // page's category legend (DungeonStatsModel::categoryBreakdown); 极神 only
-    // exists as a bucket there, so it has a badge but never a run category.
+    // The category colours mirror the statistics page's category legend
+    // (DungeonStatsModel::categoryBreakdown); 极神 is a display-only bucket
+    // and uses the trials icon, never a separate run category.
     readonly property var categoryKeys: ["四人迷宫", "讨伐歼灭战", "大型任务", "团队任务", "行会令"]
     function categoryToken(category) {
         switch (String(category || "")) {
@@ -197,13 +223,13 @@ QtObject {
         default: return "?"
         }
     }
-    /// The badge of a legend bucket, found by its localized label.
-    function badgeForLabel(label) {
-        void Theme.langRevision
+    /// Resolve a localized legend label to the game icon's canonical category.
+    function categoryForLabel(label) {
+        Theme.trackBindingDependency(Theme.langRevision)
         for (let i = 0; i < categoryKeys.length; ++i)
-            if (Theme.categoryName(categoryKeys[i]) === label) return categoryBadge(categoryKeys[i])
-        if (label === qsTr("极神")) return qsTr("极")
-        return "?"
+            if (Theme.categoryName(categoryKeys[i]) === label) return categoryKeys[i]
+        if (label === qsTr("极神")) return "讨伐歼灭战"
+        return ""
     }
-    function roleColor(group) { return Theme.token(Jobs.tokenForRoleGroup(group)) }
+    function roleColor(group) { return Theme.token(Runtime.jobs.tokenForRoleGroup(group)) }
 }

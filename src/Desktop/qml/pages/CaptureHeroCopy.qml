@@ -1,5 +1,5 @@
 import QtQuick
-import MentorRecorder
+import MentorRecorder 1.0
 
 // What the hero card says: one headline, one line under it, at most one detail
 // line, a tone and the page badge, for the state the page is in. A capture
@@ -15,24 +15,24 @@ QtObject {
     property var chain: null
     readonly property CalibrationCopy calibration: CalibrationCopy {}
 
-    readonly property var npcap: App.npcapInfo
+    readonly property var npcap: Runtime.app.npcapInfo
     readonly property string npcapStatus: String(copy.npcap.status || "")
     // The verdict of CaptureChainModel.statusKnown: without a capture status -
     // no pipe, a Collector that refused to start or exited, a failed read - a
     // missing npcap_installed is not a missing driver.
-    readonly property bool statusKnown: App.backendConnected
-                                        && App.captureStatus.npcap_installed !== undefined
-    readonly property bool npcapNotInstalled: !App.npcapInstalled || copy.npcapStatus === ""
+    readonly property bool statusKnown: Runtime.app.backendConnected
+                                        && Runtime.app.captureStatus.npcap_installed !== undefined
+    readonly property bool npcapNotInstalled: !Runtime.app.npcapInstalled || copy.npcapStatus === ""
                                               || copy.npcapStatus === "NOT_INSTALLED"
     // Installed is not enough: NOT_WINPCAP_COMPATIBLE, NPCAP_ADMIN_ONLY and
     // LOAD_FAILED are installed drivers this Collector still cannot open.
     readonly property bool npcapProblem: copy.statusKnown
-        && (!App.npcapInstalled || (copy.npcapStatus !== "" && copy.npcapStatus !== "READY"))
-    readonly property bool choosingGame: App.gameSelection.selectionRequired
-    readonly property bool gameRunning: App.ffxivRunning
-    readonly property bool silent: App.captureMidstreamSuspected || App.captureSilent
-                                   || App.recording.silent
-    readonly property string recordingState: App.recording.state
+        && (!Runtime.app.npcapInstalled || (copy.npcapStatus !== "" && copy.npcapStatus !== "READY"))
+    readonly property bool choosingGame: Runtime.app.gameSelection.selectionRequired
+    readonly property bool gameRunning: Runtime.app.ffxivRunning
+    readonly property bool silent: Runtime.app.captureMidstreamSuspected || Runtime.app.captureSilent
+                                   || Runtime.app.recording.silent
+    readonly property string recordingState: Runtime.app.recording.state
 
     // 本机校准 speaks only while the recording controller agrees: the game is
     // closed (nothing else can be said), the controller projects a calibration
@@ -40,19 +40,19 @@ QtObject {
     // listening. A capture error or an unconfirmed setting outranks a finished
     // calibration, exactly as in project().
     readonly property bool calibrationSpeaks: copy.calibration.active
-        && (!copy.gameRunning || App.recording.calibrating
+        && (!copy.gameRunning || Runtime.app.recording.calibrating
             || (copy.calibration.recording && copy.recordingState === "listening"))
 
     // connecting | broken | choosing | silent | calibration | waiting | blocked | normal | checking
     // An incident the recording controller keeps across a lost connection is
     // still what the sidebar says, so it stays the page's verdict too.
-    readonly property string kind: !copy.statusKnown ? (App.recording.blocked ? "blocked" : "connecting")
+    readonly property string kind: !copy.statusKnown ? (Runtime.app.recording.blocked ? "blocked" : "connecting")
         : copy.npcapProblem ? "broken"
         : copy.choosingGame ? "choosing"
         : (copy.silent && copy.gameRunning) ? "silent"
         : copy.calibrationSpeaks ? "calibration"
         : !copy.gameRunning ? "waiting"
-        : (App.recording.blocked || copy.recordingState === "blocked") ? "blocked"
+        : (Runtime.app.recording.blocked || copy.recordingState === "blocked") ? "blocked"
         : copy.recordingState === "listening" ? "normal"
         : "checking"
 
@@ -99,15 +99,15 @@ QtObject {
         switch (copy.kind) {
         case "connecting":
             // The recording controller's words for the same wait.
-            return App.backendConnected ? qsTr("正在获取自动记录状态…") : qsTr("正在连接自动记录服务…")
+            return Runtime.app.backendConnected ? qsTr("正在获取自动记录状态…") : qsTr("正在连接自动记录服务…")
         case "broken":
             return copy.npcapNotInstalled ? qsTr("未安装 Npcap，自动记录已停用")
                                           : qsTr("Npcap 暂时用不了，自动记录已停用")
         case "choosing":
             return qsTr("等待选择游戏")
         case "silent":
-            return App.captureMidstreamSuspected ? qsTr("已连接游戏，但还读不到游戏数据")
-                 : App.captureSilent ? qsTr("正在读取游戏数据，但还没有识别成功")
+            return Runtime.app.captureMidstreamSuspected ? qsTr("已连接游戏，但还读不到游戏数据")
+                 : Runtime.app.captureSilent ? qsTr("正在读取游戏数据，但还没有识别成功")
                  : qsTr("正在监听，但还没有收到游戏数据")
         case "calibration":
             return copy.calibration.headline()
@@ -127,7 +127,7 @@ QtObject {
         case "connecting":
             // Without a pipe the title bar's sentence says why: still starting,
             // refused to start, waiting to restart.
-            return App.backendConnected ? "" : App.collectorStatusText
+            return Runtime.app.backendConnected ? "" : Runtime.app.collectorStatusText
         case "broken":
             return copy.npcapExplanation()
         case "choosing":
@@ -136,7 +136,7 @@ QtObject {
         case "silent":
             // The Collector's hint when it sent one, otherwise the sentence the
             // recording controller chose for this silent_reason.
-            return App.captureHealthText || App.recording.message
+            return Runtime.app.captureHealthText || Runtime.app.recording.message
         case "calibration":
             return copy.calibration.explanation()
         case "waiting":
@@ -146,7 +146,7 @@ QtObject {
         case "normal":
             return qsTr("进本和出本会自动记录。识别到通关后会自动填写结果；如果没有识别到，请在离开副本后打开记录补上结果。")
         default:
-            return App.recording.message
+            return Runtime.app.recording.message
         }
     }
 
@@ -159,8 +159,8 @@ QtObject {
     }
 
     function counter(key) {
-        const value = App.captureCounters[key]
-        return (value === undefined || value === null) ? Fmt.dash() : Fmt.count(value)
+        const value = Runtime.app.captureCounters[key]
+        return (value === undefined || value === null) ? Runtime.fmt.dash() : Runtime.fmt.count(value)
     }
 
     // GetStatus.npcap.status (CaptureWire.StatusExtras), in words.
@@ -183,9 +183,9 @@ QtObject {
         // install_hint_ref renders the hint in the interface language
         // (contracts/collector-texts.md); its Chinese otherwise.
         const hint = copy.npcap.install_hint
-            ? Fmt.collectorText(copy.npcap.install_hint_ref, copy.npcap.install_hint)
-            : App.adapterInfo.install_hint
-            ? Fmt.collectorText(App.adapterInfo.install_hint_ref, App.adapterInfo.install_hint)
+            ? Runtime.fmt.collectorText(copy.npcap.install_hint_ref, copy.npcap.install_hint)
+            : Runtime.app.adapterInfo.install_hint
+            ? Runtime.fmt.collectorText(Runtime.app.adapterInfo.install_hint_ref, Runtime.app.adapterInfo.install_hint)
             : ""
         return copy.npcapReason() + (hint.length > 0 ? hint : base)
     }
@@ -210,7 +210,7 @@ QtObject {
     // the raw code it appends for an error this build has no wording for
     // (「（代码 ERR_…）」) never reaches a player's page.
     function blockedText() {
-        let text = String(App.recording.message || "")
+        let text = String(Runtime.app.recording.message || "")
         text = text.replace(/（代码 [^）]*）/g, "")
         // The same bracket in another interface language, e.g. "(code ERR_…)".
         text = text.replace(/\s*[（(][^（）()]*\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+[）)]/g, "")
