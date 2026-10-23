@@ -249,12 +249,12 @@
       "match": ".Handle"
     },
     {
-      "file": "tests/Collector.IntegrationTests/RecoveryEndToEndTests.cs",
+      "file": "tests/Collector.IntegrationTests/Replay/RecoveryEndToEndTests.cs",
       "rule": "INJ-009",
       "match": ".ExitCode"
     },
     {
-      "file": "tests/Collector.UnitTests/DatabaseIntegrityCheckTests.cs",
+      "file": "tests/Collector.UnitTests/Storage/DatabaseIntegrityCheckTests.cs",
       "rule": "INJ-009",
       "match": ".Handle"
     },
@@ -369,10 +369,10 @@
       "message": "禁止使用会打开目标进程句柄的 Process 成员（StartTime、HasExited、WaitForExit、Kill、Handle、GetProcessById，以及打开线程句柄的 ProcessThread.PriorityLevel / IdealProcessor / ResetIdealProcessor 等，含属性模式与对象初始化器中的写法，以及 PowerShell 管道中不带点号点名这些成员的写法，如 Get-Process | Select-Object StartTime、ForEach-Object Kill、Where-Object HasExited 及其别名，不分大小写）：对游戏进程而言这就是打开它的句柄；游戏只允许进程存在性检查与内核进程表。只有驱动本软件自身进程的父进程看门狗、测试与脚本按精确路径放行 / Process members that open a handle to their process (StartTime, HasExited, WaitForExit, Kill, Handle, GetProcessById, and ProcessThread.PriorityLevel / IdealProcessor / ResetIdealProcessor, which open the thread, ..., property patterns, object initialisers and PowerShell pipelines that name the member without a dot, such as Get-Process | Select-Object StartTime, ForEach-Object Kill or Where-Object HasExited and their aliases, in any letter case, included) are forbidden: on the game they are a handle to the game, which may only be checked for existence and read through the kernel process table; only the parent watchdog and the tests and scripts that drive our own processes are allowed, by exact path",
       "allow_paths": [
         "src/Collector/Diagnostics/ParentProcessWatchdog.cs",
-        "tests/Collector.IntegrationTests/LifecycleOrphanTests.cs",
-        "tests/Collector.IntegrationTests/LifecycleProcessTests.cs",
-        "tests/Collector.UnitTests/WatchdogIdentityTests.cs",
-        "tests/Collector.UnitTests/WatchdogTests.cs",
+        "tests/Collector.IntegrationTests/Ipc/LifecycleOrphanTests.cs",
+        "tests/Collector.IntegrationTests/Ipc/LifecycleProcessTests.cs",
+        "tests/Collector.UnitTests/Diagnostics/WatchdogIdentityTests.cs",
+        "tests/Collector.UnitTests/Diagnostics/WatchdogTests.cs",
         "tools/package-verification/test_package_environment.py",
         "scripts/package.ps1",
         "scripts/ocr-runtime.ps1",

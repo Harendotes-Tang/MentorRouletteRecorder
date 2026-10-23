@@ -13,7 +13,7 @@ the functions the public repository's Action publishes with - and never written 
                                                                  with each pick's two marks
   tests/Fixtures/shared-calibration/index-sample-codes/<path>    every published code file
 
-tests/Collector.UnitTests/SharedCalibrationPublicRepoSampleTests.cs feeds these to the released
+tests/Collector.UnitTests/Protocol/Sharing/SharedCalibrationPublicRepoSampleTests.cs feeds these to the released
 SharedCalibrationIndex and SharedCalibrationClient and requires the same picks; test_index_sample.py
 requires the committed files to be exactly what this generator writes.
 """

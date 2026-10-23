@@ -50,7 +50,7 @@ tests/Fixtures/
 | `two_runs_sequence_v1.fixture.json` | `COMPLETED` | 连续两次完整导随：两条记录、两次完成 |
 
 期望值不写在测试样本里，而写在
-[`../Collector.IntegrationTests/ReplayIntegrationTests.cs`](../Collector.IntegrationTests/ReplayIntegrationTests.cs)
+[`../Collector.IntegrationTests/Replay/ReplayIntegrationTests.cs`](../Collector.IntegrationTests/Replay/ReplayIntegrationTests.cs)
 的 `Expectations` 表中。该表按文档手工计算得出，并非抄录代码输出。
 
 ## 格式（语义测试样本 v1）
@@ -253,7 +253,7 @@ tests/Fixtures/
 
 - 生成方：`tests/Desktop.Tests/IpcRequestTests.cpp`
   通过 `IpcBackend::buildRequestForTest` 构造，写到构建目录后与本目录逐字段比对（`message_type`、`protocol_version` 与 `payload`，不比较 `request_id`）；
-- 校验方：[`../Collector.IntegrationTests/ContractRequestSampleTests.cs`](../Collector.IntegrationTests/ContractRequestSampleTests.cs)
+- 校验方：[`../Collector.IntegrationTests/Contracts/ContractRequestSampleTests.cs`](../Collector.IntegrationTests/Contracts/ContractRequestSampleTests.cs)
   执行三项检查：
   1. 契约中**每一条业务消息**都恰好有一个同名样本（文件名 = `message_type`）；
   2. 每个样本都满足 [`../../contracts/ipc-v1.schema.json`](../../contracts/ipc-v1.schema.json)

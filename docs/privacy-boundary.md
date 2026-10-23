@@ -59,9 +59,9 @@
   等待退出、读取退出码和超时结束这个自有进程，不查找或打开游戏进程，也不联网。
   这一例外仅按该脚本的精确路径放行 `INJ-009`，其他进程/网络规则仍适用。随软件发布的抓包代码
   一律不放行。以行内标记逐行放行的 `INJ-009` 命中都与进程句柄无关：SQLite 连接自身的句柄（`SqliteConnection.Handle`，
-  位于 `src/Collector/Storage/SqliteDatabase.cs` 与单元测试 `tests/Collector.UnitTests/DatabaseIntegrityCheckTests.cs`）、
+  位于 `src/Collector/Storage/SqliteDatabase.cs` 与单元测试 `tests/Collector.UnitTests/Storage/DatabaseIntegrityCheckTests.cs`）、
   注释中为说明取值格式而点名的 `Process.StartTime`（`src/Collector/CommandLineOptions.cs`）、测试夹具结果记录的
-  `ExitCode`（`tests/Collector.IntegrationTests/RecoveryEndToEndTests.cs`），以及打包验证与 CI 中由脚本自行启动的子进程
+  `ExitCode`（`tests/Collector.IntegrationTests/Replay/RecoveryEndToEndTests.cs`），以及打包验证与 CI 中由脚本自行启动的子进程
   的结果记录字段 `ExitCode`（`scripts/package-process-job.cs` 一行，`.github/workflows/ci.yml` 三行）。标记的规则见下文。
 - **`INJ-007` 按精确路径放行两个打包预算测试。** `tools/package-verification/test_package_runtime_budget.py` 与
   `tools/package-verification/test_static_analysis_budget.py` 各自以 `OpenProcess` 只取 `SYNCHRONIZE` 权限，等待本测试夹具

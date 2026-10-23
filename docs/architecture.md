@@ -202,7 +202,7 @@
 - 契约：[../contracts/ipc-v1.schema.json](../contracts/ipc-v1.schema.json)（JSON Schema draft 2020-12）
   与 [../contracts/error-codes.md](../contracts/error-codes.md)；
   变更记录见 [../contracts/CHANGELOG.md](../contracts/CHANGELOG.md)。
-  契约与实现的一致性由 `tests/Collector.IntegrationTests/Contract*.cs`
+  契约与实现的一致性由 `tests/Collector.IntegrationTests/Contracts/Contract*.cs`
   （校验 Collector 发出的每一条应答与事件，并按契约校验 `tests/Fixtures/ipc-requests/` 中每条消息的请求样本，
   包括 `variants/` 下同一消息的其他请求形态，如分页预览的续页请求）和 `tests/Desktop.Tests/IpcRequestTests.cpp`
   （以每一种业务消息的类型化接口构造请求，与这些样本逐字段比对 `message_type`、`protocol_version` 与 `payload`；
@@ -215,7 +215,7 @@
 ### 3.1 消息一览（业务消息 + `Event` + `Error`）
 
 规范来源是契约的 `$defs/MessageType` 枚举，本表是该枚举的分组视图。
-消息数量不在任何文档中声明：`tests/Collector.IntegrationTests/ContractSchema.cs`
+消息数量不在任何文档中声明：`tests/Collector.IntegrationTests/TestSupport/ContractSchema.cs`
 的 `BusinessMessageTypes` 从枚举中读出全部业务消息名称（枚举减去 `Event` 与 `Error`），
 覆盖断言据此逐条核对。
 

@@ -373,7 +373,7 @@ IPv6 只做路径诊断，暂不读取负载；专有代理前导或不可见的
 opcode 只计入 `ignored_count`，不再出现在该表中。客户端版本变化由 `game_build` 门禁以
 fail-closed 方式发现，不依赖对未知 opcode 的计数；对未知 opcode 计数已足以察觉游戏更新，
 无需抄录报文内容（docs/privacy-boundary.md §5）。
-该约束由 `tests/Collector.UnitTests/CaptureDiagnosticsTests.cs` 以正则逐条断言，
+该约束由 `tests/Collector.UnitTests/Capture/CaptureDiagnosticsTests.cs` 以正则逐条断言，
 而非依赖编码时的人工注意。
 
 ### 5.4 连接键
@@ -458,7 +458,7 @@ TCP 流量共用同一份预算；归属确认又需等待 30 秒，一次普通
   抓包回调一旦阻塞会造成驱动层丢包，其诊断难度高于本软件自身丢包。
 - 恒等式为 `offered == delivered + dropped`。单元测试以 10 万条报文配合一个阻塞的 sink
   验证该恒等式，并同时验证队列占用不超过容量。
-  `tests/Collector.IntegrationTests/SoakTests.cs` 在完整抓包链路上再次验证同一恒等式：
+  `tests/Collector.IntegrationTests/Capture/SoakTests.cs` 在完整抓包链路上再次验证同一恒等式：
   使用真实的 `CaptureController`、有界队列、档案解析器、状态机与 SQLite，
   以不低于 5000 msg/s 持续推送混合流量，包括合法记录、未知 opcode、畸形长度、重复报文
   与 2 万条突发，最后断言 `messages_decoded == parse_ok + parse_fail + ignored + dropped`
@@ -515,7 +515,7 @@ Machina 在自身线程内将失败写入 `Trace`，而不向调用方抛出异�
   脱敏只应移除敏感信息，不应同时删除定位问题所需的信息。
 - 替换顺序固定，匹配范围宽的规则先执行，且**宁可多删**。损失少量上下文是可接受的代价，
   遗留一个地址则是事故。
-- 五类规则全部由 `tests/Collector.UnitTests/DiagnosticsLogHygieneTests.cs` 强制，
+- 五类规则全部由 `tests/Collector.UnitTests/Diagnostics/DiagnosticsLogHygieneTests.cs` 强制，
   **不存在 Skip 用例**。其中一个用例专门反向断言 12 位指纹与 UUID 不会被误删。
 - 滚动策略：**按大小**滚动，单文件上限 2 MiB，最多保留 5 个文件，总量上限约 10 MiB，
   另按 7 天清理。
@@ -566,7 +566,7 @@ Machina 在自身线程内将失败写入 `Trace`，而不向调用方抛出异�
 `--capture-doctor --json` 在该白名单之外另加两项，因为它运行于**尚无数据库、尚无 IPC**
 的场合：`adapter_count`，以及 §9.3 的 `oodle_temp_copies`。
 
-报告**不包含**下列内容，该约束由 `tests/Collector.UnitTests/ExportDiagnosticsReportTests.cs`
+报告**不包含**下列内容，该约束由 `tests/Collector.UnitTests/Export/ExportDiagnosticsReportTests.cs`
 以正则逐条断言：任何 IPv4 / IPv6 字面量，包括已打码的地址；任何文件系统路径，以及
 `%USERPROFILE%` 等环境变量占位符；任何 Windows SID；`adapter_id` 本身；任何十六进制报文
 转储；任何 `warnings` 自由文本。
@@ -653,7 +653,7 @@ Top 40 opcode，以及按连接标识汇总的每条连接的消息数、首末�
 抓包过滤器只按本机地址过滤、不按远端地址过滤，以免在过滤条件更新之前遗漏有状态解码所需的连接初始
 数据。其他程序的报文不会被解码：只有系统 TCP 表确认属于游戏的连接才进入解码器，其余报文丢弃，且不会落盘。
 
-**不包含**（由 `tests/Collector.UnitTests/CaptureTraceTests.cs` 对产出的字节直接反向断言）：
+**不包含**（由 `tests/Collector.UnitTests/Capture/CaptureTraceTests.cs` 对产出的字节直接反向断言）：
 
 - 任何负载字节，无论以十六进制、Base64 还是其他形式书写；
 - 除 `h12` 之外**任何长于 12 位的十六进制串**。断言方式是先抹除 `h12` 字段，
@@ -889,8 +889,8 @@ opcode 与负载字节。
   `capture_sessions` 行；
 - `--replay` 与 `--replay-decoded` 能够分别以离线语义事件与解码报文驱动整个状态机。
 
-上述项目全部由 `tests/Collector.UnitTests/Capture*.cs` 与
-`tests/Collector.IntegrationTests/Capture*.cs` 自动覆盖，
+上述项目全部由 `tests/Collector.UnitTests/Capture/` 与
+`tests/Collector.IntegrationTests/Capture/` 下的测试自动覆盖，
 不依赖游戏、Npcap 与网络。
 
 真机验证流程参见 [live-validation-guide.md](live-validation-guide.md)。

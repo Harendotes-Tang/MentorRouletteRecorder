@@ -291,4 +291,4 @@ build/docs-replay/bad/synthetic-v1.json: FAILED
 | `src/Collector/Protocol/Profiles/ProfileValidationReport.cs` | 报告与 `--json` 形状 |
 | `src/Collector/Protocol/Profiles/ProfileCatalog.cs` | 目录扫描与 `AMBIGUOUS` 判定 |
 | `src/Collector/Protocol/Profiles/ProfileSelector.cs` | `region` + `game_build` 选档，`allowSynthetic` |
-| `tests/Collector.UnitTests/ProtocolProfileTests.cs` | 上述每一条检查的测试 |
+| `tests/Collector.UnitTests/Protocol/Profiles/ProtocolProfileTests.cs` | 上述每一条检查的测试 |

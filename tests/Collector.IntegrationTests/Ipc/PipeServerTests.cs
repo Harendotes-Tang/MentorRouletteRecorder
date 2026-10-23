@@ -69,7 +69,7 @@ public sealed class PipeServerTests
         // Adapters are listed even without Npcap, because enumerating them needs no driver and
         // an empty list is less useful than the cards plus the install hint. Nothing is
         // recommended without the game's connections, and every address is masked to a /24.
-        // See tests/Collector.IntegrationTests/CaptureIpcTests.cs.
+        // See tests/Collector.IntegrationTests/Capture/CaptureIpcTests.cs.
         foreach (var adapter in adapters["adapters"]!.AsArray())
         {
             Assert.False(adapter!["recommended"]!.GetValue<bool>());

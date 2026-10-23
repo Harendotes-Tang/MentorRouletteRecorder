@@ -183,13 +183,13 @@ $ # 同一个 --db 再跑一次
 
 重启恢复得到的 `INTERRUPTED_PENDING_REVIEW` 不由测试样本覆盖。该状态不是事件驱动的，
 而是启动时的一次性扫描，由
-[`../../tests/Collector.IntegrationTests/CrashRecoveryTests.cs`](../../tests/Collector.IntegrationTests/CrashRecoveryTests.cs)
+[`../../tests/Collector.IntegrationTests/Replay/CrashRecoveryTests.cs`](../../tests/Collector.IntegrationTests/Replay/CrashRecoveryTests.cs)
 覆盖。
 
 期望值分别写在
-[`../../tests/Collector.IntegrationTests/ReplayIntegrationTests.cs`](../../tests/Collector.IntegrationTests/ReplayIntegrationTests.cs)
+[`../../tests/Collector.IntegrationTests/Replay/ReplayIntegrationTests.cs`](../../tests/Collector.IntegrationTests/Replay/ReplayIntegrationTests.cs)
 与
-[`../../tests/Collector.IntegrationTests/ProtocolDecodedReplayTests.cs`](../../tests/Collector.IntegrationTests/ProtocolDecodedReplayTests.cs)
+[`../../tests/Collector.IntegrationTests/Replay/ProtocolDecodedReplayTests.cs`](../../tests/Collector.IntegrationTests/Replay/ProtocolDecodedReplayTests.cs)
 的 `Expectations` 表中，均为**按文档手工计算**的结果，并非抄录程序输出。
 
 ## 新增测试样本的步骤

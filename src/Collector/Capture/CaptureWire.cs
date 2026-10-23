@@ -135,7 +135,7 @@ public static class CaptureWire
     /// The opcode is rendered as a hex string because that is how a profile spells it, and
     /// the message is copied verbatim from the parser, which by construction never puts a
     /// payload byte in one (see <c>ProfileMessageParser.Fail</c> and
-    /// tests/Collector.UnitTests/CaptureDiagnosticsTests.cs).
+    /// tests/Collector.UnitTests/Capture/CaptureDiagnosticsTests.cs).
     /// </summary>
     /// <param name="errors">Refusals to render.</param>
     public static JsonArray ParserErrors(IReadOnlyList<ParserErrorView> errors)
