@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include "IBackend.h"
 #include "ImportRecordsController.h"
 #include "IpcFraming.h"
@@ -3769,7 +3770,7 @@ ApplicationWindow {
 };
 } // namespace
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(ImportRecordsController)
 {
     if (argc >= 3 && QFileInfo(QString::fromLocal8Bit(argv[0])).baseName() == QLatin1String("local-ai-ocr")) {
         QCoreApplication application(argc, argv);

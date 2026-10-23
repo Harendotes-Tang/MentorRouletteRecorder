@@ -13,6 +13,7 @@
 //     and never a run query, a statistics refresh or an announcement.
 // ---------------------------------------------------------------------------
 
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AutomaticRecordingController.h"
@@ -1539,7 +1540,7 @@ ApplicationWindow {
 };
 } // namespace
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(Calibration)
 {
     // Never run against the user's own Collector, database or serve lease - see
     // TestCollectorGuard.h. Must precede any construction.

@@ -14,6 +14,7 @@
 // dutyIndex / jobIndex are indices into currentDutyOptions() / currentJobOptions(), where 0
 // is 未知. The step 2 filters never change those lists.
 
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "DutyCatalog.h"
@@ -2044,7 +2045,7 @@ private Q_SLOTS:
 };
 } // namespace
 
-int main(int argc, char *argv[])
+MR_DESKTOP_TEST_SUITE(EditRunDialogBinding)
 {
     // Never run against the user's own Collector, database or serve lease - see
     // TestCollectorGuard.h. Must precede any construction.

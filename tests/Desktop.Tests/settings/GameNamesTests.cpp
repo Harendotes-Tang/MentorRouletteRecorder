@@ -6,6 +6,7 @@
 // to the recorded name, the QML helpers' re-evaluation on a switch, and that the
 // record wizard shows translated names while sending Chinese ones.
 
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "DutyCatalog.h"
@@ -585,7 +586,7 @@ ApplicationWindow {
 };
 } // namespace
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(GameNames)
 {
     // Never run against the user's own Collector, database or serve lease - see
     // TestCollectorGuard.h. Must precede any construction.

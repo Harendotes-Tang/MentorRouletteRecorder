@@ -3,6 +3,7 @@
 //
 // Real QML from src/Desktop/qml, loaded from source the way IconTests does; the
 // popup needs a Window, so the scene is one.
+#include "DesktopTestRunner.h"
 #include <QDate>
 #include <QDir>
 #include <QGuiApplication>
@@ -522,7 +523,7 @@ void DateFieldTests::rangeCalendarScreenshots()
     QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
 }
 
-int main(int argc, char *argv[])
+MR_DESKTOP_TEST_SUITE(DateField)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QQuickStyle::setStyle(QStringLiteral("Basic"));

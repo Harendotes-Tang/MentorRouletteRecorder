@@ -195,6 +195,9 @@ Qt Quick，没有任何 QWidget 参与渲染。
 ctest --test-dir build --output-on-failure
 ```
 
+桌面端测试按职责编成 12 个测试程序，每个 CTest 项只运行其中一个套件，名称、日志与超时都按套件分别计算；
+下表列出的是 CTest 名称。目录划分与单独运行某个套件的方法见 [`tests/Desktop.Tests/README.md`](../tests/Desktop.Tests/README.md)。
+
 | 测试 | 内容 |
 |---|---|
 | `MentorRecorderDesktopTests` | IPC framing、格式化、分页模型、职业统计（含契约字段 → 职能分组推导）、AppController、`RunFormValidator`（全部校验分支与前后对比 diff） |

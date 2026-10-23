@@ -1,3 +1,5 @@
+#include "DesktopTestRunner.h"
+#include <QGuiApplication>
 #include "AppSettings.h"
 #include "IBackend.h"
 #include "StatisticsOverlayController.h"
@@ -332,5 +334,5 @@ private Q_SLOTS:
 };
 } // namespace
 
-QTEST_MAIN(StatisticsOverlayRangeTests)
+MR_DESKTOP_QTEST_SUITE(StatisticsOverlayRange, StatisticsOverlayRangeTests, QGuiApplication)
 #include "StatisticsOverlayRangeTests.moc"

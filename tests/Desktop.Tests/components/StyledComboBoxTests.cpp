@@ -2,6 +2,7 @@
 // without a sectionRole gets no section headers) and is wide enough for the
 // longest option, however narrow the closed field is - an 86 px filter box must
 // neither truncate an option to 讨伐歼… nor give every row a heading of its own.
+#include "DesktopTestRunner.h"
 #include <QDir>
 #include <QGuiApplication>
 #include <QQmlComponent>
@@ -162,7 +163,7 @@ Window {
     QTRY_COMPARE(countItems(list, QStringLiteral("comboSectionHeader")), 2);
 }
 
-int main(int argc, char *argv[])
+MR_DESKTOP_TEST_SUITE(StyledComboBox)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QQuickStyle::setStyle(QStringLiteral("Basic"));

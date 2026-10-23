@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -1012,7 +1013,7 @@ private Q_SLOTS:
 };
 } // namespace
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(DungeonComposition)
 {
     mrtest::disableCollectorLaunch();
     QStandardPaths::setTestModeEnabled(true);

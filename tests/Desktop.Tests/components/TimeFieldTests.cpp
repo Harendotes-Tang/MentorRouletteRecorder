@@ -1,6 +1,7 @@
 // components/TimeField.qml: the wizard's 匹配 / 进本 / 结束 time - digits typed
 // without punctuation become HH:mm, and hour and minute can be picked from the
 // wheels behind the clock icon. Real QML from src/Desktop/qml, in a Window.
+#include "DesktopTestRunner.h"
 #include <QDir>
 #include <QGuiApplication>
 #include <QQmlComponent>
@@ -219,7 +220,7 @@ void TimeFieldTests::nowWritesTheClockWithSeconds()
     QVERIFY(field->property("valid").toBool());
 }
 
-int main(int argc, char *argv[])
+MR_DESKTOP_TEST_SUITE(TimeField)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QQuickStyle::setStyle(QStringLiteral("Basic"));

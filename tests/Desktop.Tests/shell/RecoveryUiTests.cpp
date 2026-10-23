@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -1427,7 +1428,7 @@ void RecoveryUiTests::renderedEvidence()
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(RecoveryUi)
 {
     mrtest::disableCollectorLaunch();
     QStandardPaths::setTestModeEnabled(true);

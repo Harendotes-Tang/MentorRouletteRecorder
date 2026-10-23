@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include "EvidenceSubmissionController.h"
 #include "CaptureValidationController.h"
 #include "AutomaticRecordingController.h"
@@ -545,7 +546,7 @@ ApplicationWindow {
 };
 } // namespace
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(EvidenceSubmission)
 {
     mrtest::disableCollectorLaunch();
     QStandardPaths::setTestModeEnabled(true);

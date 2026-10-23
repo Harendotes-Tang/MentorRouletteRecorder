@@ -3,6 +3,7 @@
 // URL, and AppButton draws that beside its label in the label's own colour.
 //
 // Real QML from src/Desktop/qml, loaded from source the way MotionTests does.
+#include "DesktopTestRunner.h"
 #include <QDir>
 #include <QGuiApplication>
 #include <QPointer>
@@ -363,7 +364,7 @@ ApplicationWindow {
     }
 }
 
-int main(int argc, char *argv[])
+MR_DESKTOP_TEST_SUITE(Icon)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QQuickStyle::setStyle(QStringLiteral("Basic"));

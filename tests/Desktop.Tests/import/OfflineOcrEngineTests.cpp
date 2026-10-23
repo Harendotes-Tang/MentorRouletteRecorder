@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include "OfflineOcrEngine.h"
 
 #include <QCoreApplication>
@@ -528,7 +529,7 @@ private Q_SLOTS:
 };
 } // namespace
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(OfflineOcrEngine)
 {
     if (argc >= 3 && QFileInfo(QString::fromLocal8Bit(argv[0])).baseName() == QLatin1String("local-ai-ocr"))
         return worker(argc, argv);

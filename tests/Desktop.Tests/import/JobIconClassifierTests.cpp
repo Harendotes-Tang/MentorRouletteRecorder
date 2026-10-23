@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include "JobIconClassifier.h"
 #include "JobCatalog.h"
 
@@ -280,7 +281,7 @@ void JobIconClassifierTests::hugeAndTransparentImagesHaveFiniteUnknownEvidence()
     QVERIFY(boundedEvidence(result));
 }
 
-int main(int argc, char *argv[])
+MR_DESKTOP_TEST_SUITE(JobIconClassifier)
 {
     Q_INIT_RESOURCE(mr_icons);
     qputenv("QT_QPA_PLATFORM", "offscreen");

@@ -8,6 +8,7 @@
 // never run on the machine's own voice (review S33-10).
 // ---------------------------------------------------------------------------
 
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -2321,7 +2322,7 @@ void TtsServiceTests::mockBackend_refusesSettingPendingReviewTrue()
     QTRY_VERIFY_WITH_TIMEOUT(corrected, 3000);
 }
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(TtsService)
 {
     // Never run against the user's own Collector, database or serve lease - see
     // TestCollectorGuard.h. Must precede any construction.

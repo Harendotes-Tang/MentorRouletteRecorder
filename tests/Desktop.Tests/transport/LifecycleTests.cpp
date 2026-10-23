@@ -12,6 +12,7 @@
 // real %LOCALAPPDATA% settings file.
 // ---------------------------------------------------------------------------
 
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -1889,7 +1890,7 @@ void LifecycleTests::aSettingsFileWithTheRetiredConfirmationStillLoads()
     QFile::remove(mr::AppSettings::filePath());
 }
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(Lifecycle)
 {
     // Never run against the user's own Collector, database or serve lease - see
     // TestCollectorGuard.h. Must precede any construction.

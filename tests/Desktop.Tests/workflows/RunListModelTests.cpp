@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include "IBackend.h"
 #include "RunListModel.h"
 
@@ -124,5 +125,5 @@ private Q_SLOTS:
     }
 };
 } // namespace
-QTEST_GUILESS_MAIN(RunListModelTests)
+MR_DESKTOP_QTEST_SUITE(RunListModel, RunListModelTests, QCoreApplication)
 #include "RunListModelTests.moc"

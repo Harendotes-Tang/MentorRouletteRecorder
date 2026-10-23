@@ -13,6 +13,7 @@
 // (TtsService::EngineMode::None) and the player is a recorder.
 // ---------------------------------------------------------------------------
 
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AppSettings.h"
 #include "IBackend.h"
@@ -1473,7 +1474,7 @@ void SpeechTests::audioFile_readsPcmHeaders()
     QCOMPARE(duration, 50);
 }
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(Speech)
 {
     // Never run against the user's own Collector, database or serve lease - see
     // TestCollectorGuard.h. Must precede any construction.

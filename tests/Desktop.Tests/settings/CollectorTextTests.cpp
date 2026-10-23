@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include "CollectorText.h"
 #include "CollectorTextCatalog.h"
 #include "Formatters.h"
@@ -377,5 +378,5 @@ private Q_SLOTS:
 };
 } // namespace
 
-QTEST_GUILESS_MAIN(CollectorTextTests)
+MR_DESKTOP_QTEST_SUITE(CollectorText, CollectorTextTests, QCoreApplication)
 #include "CollectorTextTests.moc"

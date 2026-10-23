@@ -1,4 +1,5 @@
 // Loads both real Image objects from ImportRecordsDialog and supplies synthetic EXIF JPEGs.
+#include "DesktopTestRunner.h"
 #include <QBuffer>
 #include <QDir>
 #include <QFile>
@@ -154,7 +155,7 @@ ApplicationWindow {
     }
 };
 } // namespace
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(ImportImageOrientation)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QQuickStyle::setStyle(QStringLiteral("Basic"));

@@ -18,6 +18,7 @@
 // SharedCalibrationCardTests uses - so it must not need Settings.
 // ---------------------------------------------------------------------------
 
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "CollectorText.h"
@@ -1516,7 +1517,7 @@ private slots:
 };
 } // namespace
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(CapturePage)
 {
     // Never run against the user's own Collector, database or serve lease - see
     // TestCollectorGuard.h. Must precede any construction.

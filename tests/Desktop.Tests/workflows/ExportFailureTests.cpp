@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "ExportController.h"
 #include "MockBackend.h"
@@ -118,7 +119,7 @@ private Q_SLOTS:
 };
 } // namespace
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(ExportFailure)
 {
     // Never run against the user's own Collector, database or serve lease - see
     // TestCollectorGuard.h. Must precede any construction.

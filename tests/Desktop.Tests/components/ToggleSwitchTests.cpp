@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include <QDir>
 #include <QGuiApplication>
 #include <QQmlComponent>
@@ -173,7 +174,7 @@ private slots:
     }
 };
 } // namespace
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(ToggleSwitch)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QQuickStyle::setStyle(QStringLiteral("Basic"));

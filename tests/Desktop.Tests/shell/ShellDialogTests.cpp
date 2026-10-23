@@ -10,6 +10,7 @@
 // in a tray app that stays up for days, the 职业占比 donut after a style switch and
 // the 关于 tab's Oodle facts.
 
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -2067,7 +2068,7 @@ private Q_SLOTS:
 };
 } // namespace
 
-int main(int argc, char *argv[])
+MR_DESKTOP_TEST_SUITE(ShellDialog)
 {
     // Never run against the user's own Collector, database or serve lease - see
     // TestCollectorGuard.h. Must precede any construction.

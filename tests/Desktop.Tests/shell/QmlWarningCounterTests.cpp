@@ -15,6 +15,7 @@
 //     never count.
 // ---------------------------------------------------------------------------
 
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "QmlWarningCounter.h"
 
@@ -171,7 +172,7 @@ private Q_SLOTS:
 };
 } // namespace
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(QmlWarningCounter)
 {
     // Never run against the user's own Collector, database or serve lease - see
     // TestCollectorGuard.h. Must precede any construction.

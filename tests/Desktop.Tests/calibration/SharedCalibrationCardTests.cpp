@@ -19,6 +19,7 @@
 //     instead, under the same one-button rule (plans/shared-calibration.md §20.6).
 // ---------------------------------------------------------------------------
 
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "CalibrationController.h"
@@ -1430,7 +1431,7 @@ private Q_SLOTS:
 };
 } // namespace
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(SharedCalibrationCard)
 {
     // Never run against the user's own Collector, database or serve lease - see
     // TestCollectorGuard.h. Must precede any construction.

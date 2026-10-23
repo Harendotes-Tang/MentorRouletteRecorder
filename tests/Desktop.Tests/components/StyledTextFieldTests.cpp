@@ -3,6 +3,7 @@
 // Every other Tab - on a field that holds text, Shift+Tab, a field without an
 // example, a Tab while an input method is composing - moves focus as before.
 // Real QML from src/Desktop/qml, in a Window, driven by real key events.
+#include "DesktopTestRunner.h"
 #include <QCoreApplication>
 #include <QDir>
 #include <QGuiApplication>
@@ -218,7 +219,7 @@ void StyledTextFieldTests::thePlaceholderEndsWithTheHint()
              QString::fromUtf8("例如：调整开始记录前已完成的导随次数（按 Tab 填入）"));
 }
 
-int main(int argc, char *argv[])
+MR_DESKTOP_TEST_SUITE(StyledTextField)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QQuickStyle::setStyle(QStringLiteral("Basic"));

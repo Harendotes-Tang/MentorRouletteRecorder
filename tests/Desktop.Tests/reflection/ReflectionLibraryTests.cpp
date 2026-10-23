@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include "IBackend.h"
 #include "ReflectionLibraryController.h"
 #include "RunListModel.h"
@@ -424,7 +425,7 @@ ApplicationWindow {
 };
 } // namespace
 
-int main(int argc, char **argv) {
+MR_DESKTOP_TEST_SUITE(ReflectionLibrary) {
     QQuickStyle::setStyle(QStringLiteral("Basic"));
     QGuiApplication app(argc, argv);
 #ifdef Q_OS_WIN

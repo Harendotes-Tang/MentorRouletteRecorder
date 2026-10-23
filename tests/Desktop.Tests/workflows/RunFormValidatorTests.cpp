@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "Formatters.h"
 #include "JobCatalog.h"
@@ -285,7 +286,7 @@ private:
 };
 } // namespace
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(RunFormValidator)
 {
     // Never run against the user's own Collector, database or serve lease - see
     // TestCollectorGuard.h. Must precede any construction.

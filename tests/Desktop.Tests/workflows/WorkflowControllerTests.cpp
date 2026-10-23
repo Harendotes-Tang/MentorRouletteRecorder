@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include "HistoryController.h"
 #include "RunListModel.h"
 #include "StatisticsController.h"
@@ -1170,5 +1171,5 @@ private Q_SLOTS:
 };
 } // namespace
 
-QTEST_GUILESS_MAIN(WorkflowControllerTests)
+MR_DESKTOP_QTEST_SUITE(WorkflowController, WorkflowControllerTests, QCoreApplication)
 #include "WorkflowControllerTests.moc"

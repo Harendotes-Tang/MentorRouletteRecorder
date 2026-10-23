@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -2153,7 +2154,7 @@ void StatisticsOverlayTests::renderedEvidence()
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(StatisticsOverlay)
 {
     // The threaded loop owns a competing GUI animation driver. Capture-only
     // basic rendering permits our manual clock; normal validation is unchanged.

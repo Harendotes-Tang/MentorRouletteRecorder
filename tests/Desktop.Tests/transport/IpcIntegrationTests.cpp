@@ -16,6 +16,7 @@
 // user's real database. main() below also applies TestCollectorGuard.h.
 // ---------------------------------------------------------------------------
 
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -955,7 +956,7 @@ void IpcIntegrationTests::personalImportPreviewCommitRetryAndCompletion()
     QCOMPARE(revisions.payload.value(QStringLiteral("items")).toList().size(), 2);
 }
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(IpcIntegration)
 {
     // The only Collector this binary may start is the fixture one in
     // initTestCase, which resolves its own path and is handed its own

@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include "AppSettings.h"
 #include "BundledFonts.h"
 #include "LanguageManager.h"
@@ -356,7 +357,7 @@ Window {
 };
 } // namespace
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(LanguageManager)
 {
     QStandardPaths::setTestModeEnabled(true);
     QGuiApplication app(argc, argv);

@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AppSettings.h"
 #include "IBackend.h"
@@ -611,7 +612,7 @@ private Q_SLOTS:
 };
 } // namespace
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(Recovery)
 {
     mrtest::disableCollectorLaunch();
     QCoreApplication app(argc, argv);

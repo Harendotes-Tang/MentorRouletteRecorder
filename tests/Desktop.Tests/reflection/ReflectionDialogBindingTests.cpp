@@ -12,6 +12,7 @@
 // believing a dialog is still on screen, silencing every further question for
 // the rest of the session.
 
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "Formatters.h"
@@ -631,7 +632,7 @@ private Q_SLOTS:
 };
 } // namespace
 
-int main(int argc, char *argv[])
+MR_DESKTOP_TEST_SUITE(ReflectionDialogBinding)
 {
     // Never run against the user's own Collector, database or serve lease - see
     // TestCollectorGuard.h. Must precede any construction.

@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include "ReflectionShareController.h"
 #include "BundledFonts.h"
 #include "AppSettings.h"
@@ -1551,7 +1552,7 @@ Window {
 };
 } // namespace
 
-int main(int argc, char **argv) {
+MR_DESKTOP_TEST_SUITE(ReflectionShare) {
 #ifdef Q_OS_WIN
     const bool bundledFontsOnly = qEnvironmentVariableIsSet("MR_REFLECTION_SHARE_BUNDLED_FONTS_ONLY");
     // 独立离屏进程从空字体目录启动，验证另一台电脑没有系统 Noto 时的真实内置资源。

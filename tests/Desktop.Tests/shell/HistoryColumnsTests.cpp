@@ -3,6 +3,7 @@
 // source tree on the mock backend with a temporary desktop.ini, drive the header
 // with synthetic mouse events and keep the offscreen window's frames under
 // artifacts/history-columns-20261021/ as evidence.
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -700,7 +701,7 @@ private Q_SLOTS:
 };
 } // namespace
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(HistoryColumns)
 {
     mrtest::disableCollectorLaunch();
     if (qEnvironmentVariableIsEmpty("QT_QPA_FONTDIR"))

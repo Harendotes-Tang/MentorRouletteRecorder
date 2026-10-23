@@ -15,6 +15,7 @@
 // write at creation, the fields a correction's diff writes, and the event types
 // of Domain/Events/SemanticEvent.cs.
 
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "Formatters.h"
@@ -913,7 +914,7 @@ private Q_SLOTS:
 };
 } // namespace
 
-int main(int argc, char *argv[])
+MR_DESKTOP_TEST_SUITE(RunDetailPanel)
 {
     // Never run against the user's own Collector, database or serve lease - see
     // TestCollectorGuard.h. Must precede any construction.

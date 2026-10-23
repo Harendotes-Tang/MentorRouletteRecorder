@@ -17,6 +17,7 @@
 // pinned the same way under variants/, named <message>.<shape>.json.
 // ---------------------------------------------------------------------------
 
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "IpcBackend.h"
 #include "IpcFraming.h"
@@ -442,7 +443,7 @@ void IpcRequestTests::variantsMatchTheCommittedFixtures()
     }
 }
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(IpcRequest)
 {
     // Never run against the user's own Collector, database or serve lease - see
     // TestCollectorGuard.h. Must precede any construction.

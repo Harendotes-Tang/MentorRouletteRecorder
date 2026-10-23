@@ -6,6 +6,7 @@
 // that took it - or signalled it - would bring that window forward.
 // ---------------------------------------------------------------------------
 
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "PipeName.h"
 #include "SingleInstanceGuard.h"
@@ -104,7 +105,7 @@ private Q_SLOTS:
 };
 } // namespace
 
-int main(int argc, char *argv[])
+MR_DESKTOP_TEST_SUITE(SingleInstance)
 {
     // Never run against the user's own Collector, database or serve lease - see
     // TestCollectorGuard.h. Must precede any construction.

@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "GameSelectionController.h"
 #include <QGuiApplication>
@@ -278,7 +279,7 @@ private slots:
 };
 } // namespace
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(GameSelection)
 {
     mrtest::disableCollectorLaunch();
     QGuiApplication app(argc, argv);

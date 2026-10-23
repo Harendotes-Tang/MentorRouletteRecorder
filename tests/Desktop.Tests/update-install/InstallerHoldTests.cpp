@@ -19,6 +19,7 @@
 // still held. Those need a real machine.
 // ---------------------------------------------------------------------------
 
+#include "DesktopTestRunner.h"
 #include "InstallerVerifier.h"
 
 #include <QByteArray>
@@ -209,6 +210,6 @@ private Q_SLOTS:
 };
 } // namespace
 
-QTEST_GUILESS_MAIN(InstallerHoldTests)
+MR_DESKTOP_QTEST_SUITE(InstallerHold, InstallerHoldTests, QCoreApplication)
 
 #include "InstallerHoldTests.moc"

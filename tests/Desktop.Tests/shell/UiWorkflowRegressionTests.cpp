@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
@@ -2654,7 +2655,7 @@ void UiWorkflowRegressionTests::noPlayerTextSaysTheClearCannotBeSeen()
     QVERIFY2(found.isEmpty(), qUtf8Printable(found.join(QLatin1Char('\n'))));
 }
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(UiWorkflowRegression)
 {
     // Never run against the user's own Collector, database or serve lease - see
     // TestCollectorGuard.h. Must precede any construction.

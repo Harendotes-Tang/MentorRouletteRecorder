@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include "ScreenshotImportParser.h"
 #include "JobCatalog.h"
 #include "JobIconClassifier.h"
@@ -1672,7 +1673,7 @@ void ScreenshotImportParserTests::neuralTextBoxesAndElevatedTypeIconDoNotSplitWe
     }
 }
 
-int main(int argc, char *argv[])
+MR_DESKTOP_TEST_SUITE(ScreenshotImportParser)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QGuiApplication app(argc, argv);

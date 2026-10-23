@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "ExportController.h"
@@ -690,7 +691,7 @@ ApplicationWindow {
     }
 };
 } // namespace
-int main(int argc, char **argv) {
+MR_DESKTOP_TEST_SUITE(HistoryBatch) {
     mrtest::disableCollectorLaunch();
     if (qEnvironmentVariableIsEmpty("QT_QPA_FONTDIR"))
         qputenv("QT_QPA_FONTDIR", "C:/Windows/Fonts");

@@ -6,8 +6,8 @@ namespace MentorRecorder.Collector.IntegrationTests;
 /// <summary>
 /// The request side of the contract, checked against the samples the Qt client generates.
 ///
-/// tests/Fixtures/ipc-requests/*.json are written by the Desktop test
-/// <c>MentorRecorderIpcRequestTests</c> straight out of the shipping <c>IBackend</c>
+/// tests/Fixtures/ipc-requests/*.json are written by the Desktop test suite
+/// <c>IpcRequest</c> (ctest <c>MentorRecorderIpcRequests</c>) straight out of the shipping <c>IBackend</c>
 /// wrappers, and pinned there. This suite validates each of them against the schema and
 /// then feeds them to a real Collector, so a request the client can build but the Collector
 /// refuses -- or that the contract does not describe -- fails here rather than in the field.

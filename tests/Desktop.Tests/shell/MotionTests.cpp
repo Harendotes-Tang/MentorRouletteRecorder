@@ -4,6 +4,7 @@
 // Every scene here is real QML from src/Desktop/qml, loaded from source the way
 // UiWorkflowRegressionTests does, on a scripted backend that answers {}.
 
+#include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "IBackend.h"
@@ -642,7 +643,7 @@ ApplicationWindow {
     }
 }
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(Motion)
 {
     // Never run against the user's own Collector, database or serve lease - see
     // TestCollectorGuard.h. Must precede any construction.

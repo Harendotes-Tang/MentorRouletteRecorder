@@ -27,13 +27,23 @@
 | `update-install/` | 检查更新、下载安装、安装包持有、本次更新 |
 | `support/` | 多个套件共用的头文件、`expect_exit.cmake` 与 QML 运行时注册 |
 
-新增套件时把文件放进对应目录，再在 `CMakeLists.txt` 中登记。
+每个目录编成一个测试程序 `MentorRecorderDesktop<目录>Tests`，例如 `transport/` 对应 `MentorRecorderDesktopTransportTests`。
+程序按第一个参数运行其中一个套件，一个进程只运行一个套件，各套件仍保留自己的应用对象、环境设置与退出码；
+`--list` 列出程序包含的套件，未知或缺少套件名时以退出码 2 结束。
+`workflows/RunCompletionCoordinatorTests.cpp` 刻意不链接桌面端库，`settings/AppSettingsIsolationTests.cpp` 编译自己的
+`AppSettings.cpp` 副本，两者各自保留独立的测试程序。
+
+新增套件时，把文件放进对应目录，把原来的 `int main(...)` 写成 `MR_DESKTOP_TEST_SUITE(<名称>)`
+（`support/DesktopTestRunner.h`），再在 `CMakeLists.txt` 中把套件名加入该目录测试程序的 `SUITES`，
+并用 `mr_desktop_suite_test` 登记 CTest 项。
 
 ## 运行
 
 ```powershell
 pwsh -File scripts/test.ps1              # 完整构建后运行全部 .NET 与 Qt 测试
 ctest --test-dir build --output-on-failure   # 仅运行本目录的套件
+ctest --test-dir build -R MentorRecorderSpeech   # 按 CTest 名称运行单个套件
+build\tests\Desktop.Tests\MentorRecorderDesktopSettingsTests.exe Speech -v2   # 直接运行，可附加 QtTest 选项
 ```
 
 运行 `ctest` 前须把 Qt 与 MinGW 的 `bin` 目录加入 `PATH`。CTest 为每个测试设置一个不存在的 `MR_COLLECTOR_PATH` 和构建目录内的 `MR_DATA_DIR`；多数套件还在 `main()` 开头调用 `support/TestCollectorGuard.h` 的守卫，单独运行时同样生效。测试只使用隔离的数据目录与管道名，不会触碰用户自己的 Collector、数据库或服务租约。

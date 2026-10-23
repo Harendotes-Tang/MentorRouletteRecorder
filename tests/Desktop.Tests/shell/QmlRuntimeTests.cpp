@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include "QmlRuntime.h"
 #include "TestCollectorGuard.h"
 
@@ -306,7 +307,7 @@ QtObject {
 
 } // namespace
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(QmlRuntime)
 {
     mrtest::disableCollectorLaunch();
     QStandardPaths::setTestModeEnabled(true);

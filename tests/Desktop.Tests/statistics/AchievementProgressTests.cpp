@@ -1,3 +1,4 @@
+#include "DesktopTestRunner.h"
 #include "AppController.h"
 #include "BundledFonts.h"
 #include "Formatters.h"
@@ -417,7 +418,7 @@ void AchievementProgressTests::renderedEvidence()
     }
 }
 
-int main(int argc, char **argv)
+MR_DESKTOP_TEST_SUITE(AchievementProgress)
 {
     mrtest::disableCollectorLaunch();
     QStandardPaths::setTestModeEnabled(true);
