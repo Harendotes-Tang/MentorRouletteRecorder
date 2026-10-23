@@ -25,6 +25,10 @@ REPO = Path(__file__).resolve().parents[2]
 PACKAGE = REPO / "scripts" / "package.ps1"
 HELPERS = REPO / "scripts" / "package-version.ps1"
 DESKTOP_MANIFEST = REPO / "src" / "Desktop" / "resources" / "app" / "MentorRecorder.Desktop.manifest"
+# The flavour stamp src/Desktop/cpp/transport/BuildFlavour.cpp compiles in (docs/build-and-package.md
+# section 3.7): a NUL-terminated narrow string, one of exactly two values.
+DISTRIBUTION_STAMP = b"MR_BUILD_FLAVOUR=distribution\0"
+DEVELOPMENT_STAMP = b"MR_BUILD_FLAVOUR=development\0"
 
 
 def portable_executable(manifest: str | None, extra: bytes = b"") -> bytes:
@@ -433,11 +437,33 @@ try {{ Assert-DesktopExecutable $path 6>$null }} catch {{ $refusal = $_.Exceptio
     def project_manifest(self):
         return DESKTOP_MANIFEST.read_text(encoding="utf-8")
 
+    def distribution_executable(self, extra: bytes = b""):
+        """What scripts/package.ps1 is given: the project manifest and the distribution stamp."""
+        return portable_executable(self.project_manifest(), DISTRIBUTION_STAMP + extra)
+
     def test_the_project_manifest_embedded_in_the_executable_is_accepted(self):
         # Review OJ-5: asInvoker, long paths and Windows 10/11 travel inside the executable.
-        outcome = self.desktop_check(portable_executable(self.project_manifest()))
+        outcome = self.desktop_check(self.distribution_executable())
         self.assertFalse(outcome["refused"], outcome["message"])
         self.assertIn('level="asInvoker"', outcome["manifest"])
+
+    def test_a_development_build_is_refused(self):
+        # MR_DEV_BUILD=ON: data under MentorRecorder-dev, a .dev pipe, a dev marker on screen.
+        # Such a binary must never ship, whatever else is right about it.
+        outcome = self.desktop_check(portable_executable(self.project_manifest(), DEVELOPMENT_STAMP))
+        self.assertTrue(outcome["refused"])
+        self.assertIn("MR_DEV_BUILD", outcome["message"])
+        self.assertIn("-Distribution", outcome["message"])
+
+    def test_an_executable_without_a_flavour_stamp_is_refused(self):
+        # Neither stamp: not a build this script knows how to vouch for.
+        outcome = self.desktop_check(portable_executable(self.project_manifest()))
+        self.assertTrue(outcome["refused"])
+        self.assertIn("MR_BUILD_FLAVOUR", outcome["message"])
+        # A stamp without its terminator is not the compiled-in string either.
+        outcome = self.desktop_check(portable_executable(self.project_manifest(), DISTRIBUTION_STAMP[:-1] + b"\x07"))
+        self.assertTrue(outcome["refused"])
+        self.assertIn("MR_BUILD_FLAVOUR", outcome["message"])
 
     def test_an_executable_without_an_embedded_manifest_is_a_packaging_error(self):
         # What the 1.5.0 build looked like: the manifest was a side file, copied only if present.
@@ -459,15 +485,17 @@ try {{ Assert-DesktopExecutable $path 6>$null }} catch {{ $refusal = $_.Exceptio
 
     def test_a_desktop_built_with_developer_collector_discovery_is_refused(self):
         # Review DT2-X3: MR_DEV_COLLECTOR_DISCOVERY compiles the MR_COLLECTOR_PATH override in.
-        outcome = self.desktop_check(portable_executable(self.project_manifest(), b"MR_COLLECTOR_PATH\0"))
+        outcome = self.desktop_check(self.distribution_executable(b"MR_COLLECTOR_PATH\0"))
         self.assertTrue(outcome["refused"])
         self.assertIn("MR_DEV_COLLECTOR_DISCOVERY", outcome["message"])
 
     def test_embedded_changelog_and_translation_mentions_are_not_developer_code(self):
-        # Release notes and QM source messages carry the name as data, not as getenv's C string.
-        for resource in ((REPO / "CHANGELOG.md").read_bytes(), b"MR_COLLECTOR_PATH\x07"):
+        # Release notes and QM source messages carry the names as data, not as the C strings
+        # the code compiles in: no NUL follows them.
+        for resource in ((REPO / "CHANGELOG.md").read_bytes(), b"MR_COLLECTOR_PATH\x07",
+                         DEVELOPMENT_STAMP[:-1] + b"\x07"):
             with self.subTest(resource=resource[:40]):
-                outcome = self.desktop_check(portable_executable(self.project_manifest(), resource))
+                outcome = self.desktop_check(self.distribution_executable(resource))
                 self.assertFalse(outcome["refused"], outcome["message"])
 
 

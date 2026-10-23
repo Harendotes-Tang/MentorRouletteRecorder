@@ -52,6 +52,12 @@ param(
     # Reuse the existing build outputs instead of rebuilding.
     [switch]$NoBuild,
 
+    # Build and test the distribution flavour of the Desktop (scripts/build.ps1
+    # -Distribution, -DMR_DEV_BUILD=OFF). Only scripts/package.ps1 passes this, so
+    # the binaries it verifies are the ones it packages; a plain run, CI included,
+    # verifies the development flavour (docs/build-and-package.md section 3.7).
+    [switch]$Distribution,
+
     # xunit trait filter forwarded to scripts/test.ps1 (which forwards it to dotnet test).
     # CI passes 'Category!=Soak': the soak suite asserts a 5000 msg/s throughput floor and a
     # shared GitHub runner has no stable throughput baseline, so that gate stays local.
@@ -274,6 +280,10 @@ Write-Head ("完整构建与全部测试 ({0}) / Build and all tests" -f $Config
 # Configuration='-Configuration', which ValidateSet rejects. A hashtable splat binds by name.
 $testArgs = @{ Configuration = $Configuration; NoRestore = $true }
 if ($NoBuild) { $testArgs['NoBuild'] = $true }
+if ($Distribution) {
+    $testArgs['Distribution'] = $true
+    Write-Host '  正式口味 / distribution flavour: -DMR_DEV_BUILD=OFF' -ForegroundColor Yellow
+}
 if ($TestFilter) {
     $testArgs['Filter'] = $TestFilter
     Write-Host ("  测试筛选 / test filter: {0}" -f $TestFilter) -ForegroundColor Yellow

@@ -29,13 +29,17 @@ set(CMAKE_AUTORCC ON)
 # ---------------------------------------------------------------------------
 # Wire primitives have a compile boundary: only Qt Core and the local Windows
 # identity API are available here, with no UI/controller include directory.
+# The build flavour lives here too: the pipe name depends on it, and the
+# library is the lowest one every Desktop target and test links.
 qt_add_library(MentorRecorderIpcWire STATIC
+    cpp/transport/BuildFlavour.cpp cpp/transport/BuildFlavour.h
     cpp/transport/IpcFraming.cpp cpp/transport/IpcFraming.h
     cpp/transport/PipeName.cpp cpp/transport/PipeName.h)
 target_compile_features(MentorRecorderIpcWire PUBLIC cxx_std_20)
 target_include_directories(MentorRecorderIpcWire PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/transport)
 target_link_libraries(MentorRecorderIpcWire PUBLIC Qt6::Core)
+target_compile_definitions(MentorRecorderIpcWire PRIVATE MR_APP_VERSION="${MR_VERSION_FULL}")
 mr_use_ascii_autogen_dir(MentorRecorderIpcWire)
 if(WIN32)
     target_link_libraries(MentorRecorderIpcWire PRIVATE advapi32)
@@ -99,6 +103,27 @@ if(MR_DEV_COLLECTOR_DISCOVERY)
     target_compile_definitions(MentorRecorderDesktopLib PUBLIC MR_DEV_COLLECTOR_DISCOVERY)
     message(STATUS "MR_DEV_COLLECTOR_DISCOVERY=ON: development Collector discovery is compiled in; "
                    "scripts/package.ps1 refuses to package this build")
+endif()
+
+# Development build versus distribution build (cpp/transport/BuildFlavour.h). ON by
+# default, so a Qt Creator build, a bare cmake configure and scripts/build.ps1
+# all produce a development build: its Collector data root defaults to
+# %LOCALAPPDATA%\MentorRecorder-dev, its pipe carries a ".dev" segment and its
+# version reads "x.y.z dev", so running it can never open - let alone migrate -
+# the installed software's database. Only scripts/package.ps1 configures OFF
+# (through scripts/build.ps1 -Distribution) and refuses to package anything
+# else (Assert-DesktopExecutable). PUBLIC on the wire library, so the pipe name,
+# the Desktop library, the application and the tests all compile as the same
+# flavour. docs/build-and-package.md section 3.7.
+option(MR_DEV_BUILD
+    "Development build: own data root (MentorRecorder-dev), own pipe, dev marker; scripts/package.ps1 turns it OFF"
+    ON)
+if(MR_DEV_BUILD)
+    target_compile_definitions(MentorRecorderIpcWire PUBLIC MR_DEV_BUILD)
+    message(STATUS "MR_DEV_BUILD=ON: development build; data under %LOCALAPPDATA%/MentorRecorder-dev, "
+                   "pipe *.dev.v1, version shown with a dev marker; scripts/package.ps1 refuses to package it")
+else()
+    message(STATUS "MR_DEV_BUILD=OFF: distribution build; data under %LOCALAPPDATA%/MentorRecorder")
 endif()
 
 target_include_directories(MentorRecorderDesktopLib

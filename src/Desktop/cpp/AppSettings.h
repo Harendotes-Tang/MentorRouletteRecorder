@@ -3,7 +3,8 @@
 // ---------------------------------------------------------------------------
 // Persisted UI preferences.
 //
-// Stored as INI in %LOCALAPPDATA%\MentorRecorder\desktop.ini. Nothing here
+// Stored as INI in %LOCALAPPDATA%\MentorRecorder\desktop.ini, or under
+// MentorRecorder-dev in a development build (BuildFlavour.h). Nothing here
 // leaves the machine and nothing here is a secret; the database itself is
 // owned by the Collector.
 //

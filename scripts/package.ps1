@@ -717,10 +717,22 @@ function Assert-DesktopExecutable([string]$ExePath) {
         $problems += '以 MR_DEV_COLLECTOR_DISCOVERY 构建（开发用的 Collector 查找），不得发布'
     }
 
+    # MR_DEV_BUILD (src/Desktop/CMakeLists.txt, src/Desktop/cpp/transport/BuildFlavour.h): a development
+    # build keeps its data under %LOCALAPPDATA%\MentorRecorder-dev and serves its own pipe, so
+    # it must never ship as the software. The binary carries exactly one NUL-terminated narrow
+    # stamp naming its flavour; the development one fails the package, and a binary without
+    # the distribution one is not a build this script knows how to vouch for.
+    if ($latin1.IndexOf('MR_BUILD_FLAVOUR=development' + [char]0, [StringComparison]::Ordinal) -ge 0) {
+        $problems += '以 MR_DEV_BUILD=ON 构建（开发构建：数据目录 MentorRecorder-dev、独立管道、dev 标记），不得发布；请经 scripts/build.ps1 -Distribution 构建'
+    }
+    elseif ($latin1.IndexOf('MR_BUILD_FLAVOUR=distribution' + [char]0, [StringComparison]::Ordinal) -lt 0) {
+        $problems += '可执行文件中没有正式构建的口味标记（MR_BUILD_FLAVOUR），无法确认其数据目录与管道'
+    }
+
     if ($problems.Count -gt 0) {
         throw ("{0}:`n{1}" -f $ExePath, (($problems | ForEach-Object { '  - ' + $_ }) -join [Environment]::NewLine))
     }
-    Write-Host '  Desktop 内嵌清单：asInvoker、长路径、Windows 10/11；不含开发用的 Collector 查找。' -ForegroundColor Green
+    Write-Host '  Desktop 内嵌清单：asInvoker、长路径、Windows 10/11；不含开发用的 Collector 查找；正式构建口味。' -ForegroundColor Green
 }
 
 Write-Head '打包 / Packaging'
@@ -740,7 +752,10 @@ $sourceStateBeforeVerify = Get-SourceTreeState -RepoRoot $RepoRoot
 
 if (-not $SkipVerify) {
     Write-Head '预验证 / Preflight verify'
-    & $VerifyScript -Configuration $Configuration
+    # -Distribution: the whole chain (verify -> test -> build) builds and tests the
+    # distribution flavour of the Desktop, which is the binary packaged below
+    # (docs/build-and-package.md section 3.7).
+    & $VerifyScript -Configuration $Configuration -Distribution
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
@@ -750,7 +765,7 @@ if (-not $SkipVerify) {
 }
 
 Write-Head '补构建 / Ensure build outputs'
-& $BuildScript -Configuration $Configuration -NoRestore
+& $BuildScript -Configuration $Configuration -NoRestore -Distribution
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }

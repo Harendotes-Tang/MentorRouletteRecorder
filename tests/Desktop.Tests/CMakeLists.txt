@@ -113,9 +113,12 @@ add_test(NAME MentorRecorderRunCompletionCoordinator
 #   settings file of older builds. Needs no Collector.
 # MockBackend: the offline backend answers in the Collector's shapes (paging, sort, event types).
 # SingleInstance: one Desktop per user - the guard and the "show the first window" request.
+# BuildFlavour: development build versus distribution build (cpp/transport/BuildFlavour.h) - the data
+#   root, the pipe name, the child's isolation and the version label, for both flavours in one
+#   binary, plus this build's own flavour. Needs no Collector.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopTransportTests
-    SUITES IpcRequest IpcIntegration Lifecycle MockBackend SingleInstance
+    SUITES IpcRequest IpcIntegration Lifecycle MockBackend SingleInstance BuildFlavour
     DEFINITIONS
         MR_IPC_REQUEST_OUTPUT_DIR="${CMAKE_BINARY_DIR}/ipc-requests"
         MR_IPC_REQUEST_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/tests/Fixtures/ipc-requests")
@@ -127,7 +130,9 @@ mr_desktop_suite_test(MentorRecorderDesktopTransportTests IpcIntegration LOG "Me
 set_tests_properties(MentorRecorderIpcIntegration PROPERTIES
     WORKING_DIRECTORY "$<TARGET_FILE_DIR:MentorRecorderDesktopTransportTests>"
     TIMEOUT 120)
-mr_desktop_suite_test(MentorRecorderDesktopTransportTests Lifecycle NO_LOG)
+foreach(suite IN ITEMS Lifecycle BuildFlavour)
+    mr_desktop_suite_test(MentorRecorderDesktopTransportTests ${suite} NO_LOG)
+endforeach()
 foreach(suite IN ITEMS MockBackend SingleInstance)
     mr_desktop_suite_test(MentorRecorderDesktopTransportTests ${suite})
 endforeach()
@@ -962,13 +967,15 @@ list(APPEND MR_RECORDING_QML_TESTS MentorRecorderQmlClosedGame_dark_shared-fetch
 
 # Regression: mock/screenshot preferences must never touch the user's Run key.
 # Compile the real implementation against a settings audit adapter in this target only.
+# AppSettings.cpp asks BuildFlavour for its folder name: linking the wire library brings
+# that unit and the flavour definition, so this copy agrees with the Desktop library's.
 add_executable(MentorRecorderAppSettingsIsolationTests
     settings/AppSettingsIsolationTests.cpp support/AppSettingsAudit.h
     ${PROJECT_SOURCE_DIR}/src/Desktop/cpp/AppSettings.cpp
     ${PROJECT_SOURCE_DIR}/src/Desktop/cpp/AppSettings.h)
 target_include_directories(MentorRecorderAppSettingsIsolationTests PRIVATE
     ${PROJECT_SOURCE_DIR}/src/Desktop/cpp)
-target_link_libraries(MentorRecorderAppSettingsIsolationTests PRIVATE Qt6::Core Qt6::Test)
+target_link_libraries(MentorRecorderAppSettingsIsolationTests PRIVATE MentorRecorderIpcWire Qt6::Core Qt6::Test)
 if(MSVC)
     target_compile_options(MentorRecorderAppSettingsIsolationTests PRIVATE
         "/FI${CMAKE_CURRENT_SOURCE_DIR}/support/AppSettingsAudit.h")

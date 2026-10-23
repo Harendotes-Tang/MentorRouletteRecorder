@@ -1,5 +1,6 @@
 #include "CollectorProcess.h"
 
+#include "BuildFlavour.h"
 #include "CollectorText.h"
 #include "PipeName.h"
 
@@ -268,7 +269,26 @@ void CollectorProcess::wireProcess()
     const QString startedAt = ownStartTimeUtcTicks();
     if (!startedAt.isEmpty())
         arguments << QStringLiteral("--parent-start-time") << startedAt;
+    // A development build keeps its child off the installed software's pipe and
+    // data root (BuildFlavour.h). A distribution build adds nothing here: its
+    // Collector derives the per-user pipe itself, and MR_DATA_DIR stays whatever
+    // the user set.
+    const QString pipeName = ipc::currentUserPipeName();
+    arguments << isolationArguments(build::thisBuild(), pipeName);
     m_process->setArguments(arguments);
+    if (build::isDevelopmentBuild()) {
+        if (pipeName.isEmpty())
+            qCWarning(lcCollector) << "development build: the user's SID is not readable, "
+                                      "so the child cannot be given its own pipe";
+        const QString dataDirectory = collectorDataDirectory();
+        if (dataDirectory.isEmpty()) {
+            qCWarning(lcCollector) << "development build: the data directory could not be "
+                                      "resolved; the Collector will fall back to its own default";
+        } else {
+            m_process->setProcessEnvironment(childEnvironment(
+                build::thisBuild(), dataDirectory, QProcessEnvironment::systemEnvironment()));
+        }
+    }
     m_process->setWorkingDirectory(QFileInfo(m_executablePath).absolutePath());
 
     connect(m_process, &QProcess::started, this, [this] {
@@ -314,6 +334,11 @@ bool CollectorProcess::isAvailable() const
 QStringList CollectorProcess::processArguments() const
 {
     return m_process ? m_process->arguments() : QStringList();
+}
+
+QProcessEnvironment CollectorProcess::processEnvironment() const
+{
+    return m_process ? m_process->processEnvironment() : QProcessEnvironment();
 }
 
 bool CollectorProcess::isRunning() const
@@ -505,17 +530,14 @@ void CollectorProcess::stop()
 // Serve-lease takeover
 // ---------------------------------------------------------------------------
 
-QString CollectorProcess::collectorDataDirectory()
+namespace {
+
+/// %LOCALAPPDATA%, asked of Windows the way .NET's
+/// GetFolderPath(LocalApplicationData) does, not through QStandardPaths: a
+/// screenshot run puts that in test mode, and the folder it then names is not
+/// the one the Collector writes serve.pid to (review OH-7).
+QString localAppDataDirectory()
 {
-    // Mirrors src/Collector/Storage/DatabasePaths.cs: MR_DATA_DIR wins, and the
-    // managed location is %LOCALAPPDATA%\MentorRecorder.
-    const QString dataDirectory = qEnvironmentVariable("MR_DATA_DIR");
-    if (!dataDirectory.trimmed().isEmpty())
-        return QDir::cleanPath(QDir(dataDirectory).absolutePath());
-    // Asked of Windows the way .NET's GetFolderPath(LocalApplicationData) does,
-    // not through QStandardPaths: a screenshot run puts that in test mode, and
-    // the folder it then names is not the one the Collector writes serve.pid
-    // to (review OH-7).
     QString local;
 #ifdef Q_OS_WIN
     wchar_t path[MAX_PATH] = {};
@@ -526,9 +548,49 @@ QString CollectorProcess::collectorDataDirectory()
 #endif
     if (local.isEmpty())
         local = QDir::fromNativeSeparators(qEnvironmentVariable("LOCALAPPDATA"));
-    if (local.isEmpty())
+    return local;
+}
+
+} // namespace
+
+QString CollectorProcess::resolveDataDirectory(const QString &dataDirectoryOverride,
+                                               const QString &localAppData,
+                                               build::Flavour flavour)
+{
+    // Mirrors src/Collector/Storage/DatabasePaths.cs: MR_DATA_DIR wins, and the
+    // managed location is a folder under %LOCALAPPDATA% - the installed
+    // software's for a distribution build, MentorRecorder-dev for a development
+    // build (BuildFlavour.h). The Collector knows only the former; a development
+    // build hands it the latter through MR_DATA_DIR (childEnvironment).
+    if (!dataDirectoryOverride.trimmed().isEmpty())
+        return QDir::cleanPath(QDir(dataDirectoryOverride).absolutePath());
+    if (localAppData.isEmpty())
         return {};
-    return QDir(local).absoluteFilePath(QStringLiteral("MentorRecorder"));
+    return QDir(localAppData).absoluteFilePath(build::dataFolderName(flavour));
+}
+
+QString CollectorProcess::collectorDataDirectory()
+{
+    return resolveDataDirectory(qEnvironmentVariable("MR_DATA_DIR"), localAppDataDirectory(),
+                                build::thisBuild());
+}
+
+QStringList CollectorProcess::isolationArguments(build::Flavour flavour, const QString &pipeName)
+{
+    if (flavour != build::Flavour::Development || pipeName.isEmpty())
+        return {};
+    return {QStringLiteral("--pipe"), pipeName};
+}
+
+QProcessEnvironment CollectorProcess::childEnvironment(build::Flavour flavour,
+                                                       const QString &dataDirectory,
+                                                       const QProcessEnvironment &inherited)
+{
+    if (flavour != build::Flavour::Development || dataDirectory.isEmpty())
+        return inherited;
+    QProcessEnvironment environment = inherited;
+    environment.insert(QStringLiteral("MR_DATA_DIR"), QDir::toNativeSeparators(dataDirectory));
+    return environment;
 }
 
 QString CollectorProcess::serveLeasePidPath()

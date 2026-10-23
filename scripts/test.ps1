@@ -39,6 +39,10 @@ param(
 
     [switch]$NoRestore,
 
+    # Build the Desktop as the distribution flavour (scripts/build.ps1 -Distribution);
+    # only scripts/package.ps1 asks for this, through verify.ps1.
+    [switch]$Distribution,
+
     # xunit trait filter passed to dotnet test, e.g. 'Category!=Soak'.
     [string]$Filter,
 
@@ -168,7 +172,8 @@ if (-not $NoBuild -and (Test-Path -LiteralPath $DesktopTests)) {
     Write-Head '完整构建（.NET + Qt） / Full build'
     & (Join-Path $PSScriptRoot 'build.ps1') `
         -Configuration $Configuration `
-        -NoRestore:$NoRestore
+        -NoRestore:$NoRestore `
+        -Distribution:$Distribution
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 

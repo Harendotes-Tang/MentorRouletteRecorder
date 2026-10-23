@@ -1144,6 +1144,7 @@ toast 中回显后端返回的 `target_path`、`byte_count`、`integrity_check_p
 MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 
 **关于**（`aboutSettingsCard`）包含 kicker「导随记录器」与 `v<App.appVersion> · GPL-3.0 或更高版本`。
+开发构建的 `App.appVersion` 以 `dev` 结尾，标题栏的版本号同理（[build-and-package.md](build-and-package.md) §3.7）。
 版本号一行（`aboutVersionText`）在 `GetStatus.update.update_available` 为真时附带
 「有新版本 x.y.z」，其右侧另有透明文字按钮「查看更新说明」（`aboutOpenReleasePageButton`，只在有新版本时出现）
 与随下载阶段变化的按钮（`aboutDownloadInstallerButton`），文字与作用和总览横幅的主按钮相同（§4.1）；

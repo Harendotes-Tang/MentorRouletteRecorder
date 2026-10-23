@@ -1,5 +1,7 @@
 #include "AppSettings.h"
 
+#include "BuildFlavour.h"
+
 #include <QCoreApplication>
 #include <QDate>
 #include <QDir>
@@ -22,9 +24,12 @@ QString settingsDirectory()
 {
     // QStandardPaths::AppLocalDataLocation depends on the application name;
     // the path is pinned here so it is the same for the app and the tests.
+    // The folder is the flavour's own (MentorRecorder, or MentorRecorder-dev for
+    // a development build), so a development build never reads or rewrites the
+    // installed software's settings (BuildFlavour.h).
     const QString base =
         QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation);
-    return QDir(base).absoluteFilePath(QStringLiteral("MentorRecorder"));
+    return QDir(base).absoluteFilePath(mr::build::dataFolderName());
 }
 
 // The five announcement lines as shipped, in Simplified Chinese; the other

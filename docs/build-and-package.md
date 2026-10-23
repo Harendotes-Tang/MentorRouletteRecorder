@@ -276,14 +276,17 @@ $env:PATH = "D:\APPS\Qt\6.11.2\mingw_64\bin;$env:PATH"
 build\src\Desktop\MentorRecorder.Desktop.exe
 ```
 
-数据库位于 Collector 的默认位置（`%LOCALAPPDATA%\MentorRecorder\`），
-顶栏显示「后台服务已启动」。
+这是开发构建（§3.7）：数据库、日志与备份位于 `%LOCALAPPDATA%\MentorRecorder-dev\`，后台服务使用独立的管道，
+顶栏版本号后带 `dev`，并显示「后台服务已启动」。正式安装版的 `%LOCALAPPDATA%\MentorRecorder\` 不会被打开。
 
 **B. 先单独启动一个 Collector（用于指定数据库或查看服务端日志）**
 
 ```powershell
+# 与开发构建的桌面端使用同一数据根目录与管道（§3.7）
+$env:MR_DATA_DIR = "$env:LOCALAPPDATA\MentorRecorder-dev"
+$pipe = (build\src\Desktop\MentorRecorder.Collector.exe --pipe-name-only) -replace '\.v1$', '.dev.v1'
 # 先用 fixture 灌一份可看的数据
-$db = "$env:LOCALAPPDATA\MentorRecorder\dev.db"
+$db = "$env:MR_DATA_DIR\dev.db"
 Get-ChildItem tests\Fixtures\*.fixture.json | ForEach-Object {
     build\src\Desktop\MentorRecorder.Collector.exe --replay $_.FullName --db $db
 }
@@ -292,7 +295,7 @@ build\src\Desktop\MentorRecorder.Collector.exe --replay-decoded `
     --profile protocol-profiles\synthetic\synthetic-v1.json
 
 # 再起服务端，然后启动桌面端
-build\src\Desktop\MentorRecorder.Collector.exe --serve --db $db
+build\src\Desktop\MentorRecorder.Collector.exe --serve --db $db --pipe $pipe
 build\src\Desktop\MentorRecorder.Desktop.exe
 ```
 
@@ -360,6 +363,37 @@ Npcap 与 FF14 等状态停留在默认值。
   以 `MR_DEV_COLLECTOR_DISCOVERY` 编译的开发构建提示「未找到 Collector（期望位置：<路径>）。请运行
   scripts/build.ps1、在 CMake 中启用 MR_STAGE_COLLECTOR，或设置 MR_COLLECTOR_PATH」，便于排查。
 
+### 3.7 开发构建与正式构建（`MR_DEV_BUILD`）
+
+数据库迁移只向前（[migrations/README.md](../migrations/README.md)）。一个带有新迁移的开发构建若与正式安装版
+共用 `%LOCALAPPDATA%\MentorRecorder`，运行一次就会把正式数据库升到正式安装版不认识的 schema，使其拒绝启动，
+而两者的标题栏此前显示同一个版本号，无法分辨。因此桌面端区分两种口味：
+
+`src/Desktop/CMakeLists.txt` 的选项 `MR_DEV_BUILD` 默认 `ON`。Qt Creator 构建、手工 `cmake` 配置与
+`scripts/build.ps1` 的产物都是**开发构建**；只有 `scripts/package.ps1` 通过 `scripts/build.ps1 -Distribution`
+（`verify.ps1` 与 `test.ps1` 的同名开关一路转发）以 `-DMR_DEV_BUILD=OFF` 配置出**正式构建**。两种口味的差别
+集中在 `src/Desktop/cpp/transport/BuildFlavour.h`，由 `MentorRecorderIpcWire` 编译，管道命名、桌面端库与测试共用同一份定义；
+Collector 没有口味之分。
+
+| 项 | 正式构建 | 开发构建 |
+|---|---|---|
+| Collector 数据根目录（`MR_DATA_DIR` 未设置时） | `%LOCALAPPDATA%\MentorRecorder` | `%LOCALAPPDATA%\MentorRecorder-dev`；桌面端拉起子进程时写入其 `MR_DATA_DIR` |
+| 后台服务管道 | `MentorRecorder.<哈希>.v1`，由 Collector 自行派生 | `MentorRecorder.<哈希>.dev.v1`，由桌面端以 `--pipe` 指定；租约、停止事件与单实例键随之独立 |
+| `desktop.ini` | `%LOCALAPPDATA%\MentorRecorder\` | `%LOCALAPPDATA%\MentorRecorder-dev\` |
+| 标题栏与关于页 | `v1.7.3` | `v1.7.3 dev` |
+
+两种口味可以在同一账户下同时运行而互不相见。显式设置的 `MR_DATA_DIR` 在两种口味下都优先，因此把开发构建指向
+正式目录仍然可行，但必须是有意为之。图标缓存 `%LOCALAPPDATA%\MentorRecorder\icons\`、默认导出目录与
+自启动注册表值不区分口味。手工启动 Collector（§3.5 方式 B）时须自行设置 `MR_DATA_DIR` 与 `--pipe`，
+否则它服务的是正式管道、写的是正式目录。
+
+可执行文件中带有一个以 NUL 结尾的窄字符串口味标记：开发构建为 `MR_BUILD_FLAVOUR=development`，正式构建为
+`MR_BUILD_FLAVOUR=distribution`。`scripts/package.ps1` 的 `Assert-DesktopExecutable` 在暂存前与解包后各核对一次：
+出现开发标记，或缺少正式标记，打包即失败（§5.1）。两种口味的目录、管道、子进程参数与环境规则均由
+`tests/Desktop.Tests/BuildFlavourTests.cpp` 在同一个测试程序中覆盖，`LifecycleTests.cpp` 另核对当前口味下
+真实监督器的行为，不依赖打包链路。CI 的 `verify.ps1` 不带 `-Distribution`，验证的是开发口味；
+正式口味由 `package.ps1 -Verify` 的整条链路构建、测试并解包验证。
+
 ## 4. 脚本
 
 全部脚本位于 `scripts/`，以 PowerShell 编写，要求 PowerShell 7（`pwsh`）：每个脚本首行为
@@ -371,9 +405,9 @@ Npcap 与 FF14 等状态停留在默认值。
 | `bootstrap.ps1` | 检查 .NET 8 运行时、CMake、Ninja、MinGW、Qt 路径；报告 Npcap 是否安装（**只检测，不下载**） |
 | `build-local-ai-ocr-worker.ps1` | 使用指定的构建 Python 和本地模型生成自包含 CPU OCR；显式传入 `-InstallBuildDependencies` 时才安装固定的构建依赖 |
 | `bootstrap-ocr.ps1` | 校验或复制已构建的固定 OCR 运行目录，核对 SHA256、文件闭包与许可证；不联网、不安装软件、不改 PATH |
-| `build.ps1` | `dotnet build -c Release`；若 `src/Desktop/CMakeLists.txt` 存在则再执行 CMake configure 与 build，将完整的 Collector 及已准备的固定 OCR 目录部署到 Desktop 同目录；未提供 OCR 时明确报告资产部署未执行 |
+| `build.ps1` | `dotnet build -c Release`；若 `src/Desktop/CMakeLists.txt` 存在则再执行 CMake configure 与 build，将完整的 Collector 及已准备的固定 OCR 目录部署到 Desktop 同目录；未提供 OCR 时明确报告资产部署未执行。默认配置为开发构建（`MR_DEV_BUILD=ON`），`-Distribution` 配置正式构建（§3.7），只由 `package.ps1` 使用 |
 | `test.ps1` | 默认完整构建后运行全部 .NET / Qt / QML 测试，并**解析 TRX 报告真实用例数**；`-NoBuild` 复用已有产物 |
-| `verify.ps1` | 环境自检 + 完整依赖安全审计 + 静态边界检查 + 架构依赖门禁 + 协议档案校验 + `tools/` 下全部 Python 自测（含检查器反向自测）+ 全部测试 + C++ cppcheck + 监听端口核对 + `LIVE_CAPTURE_STATUS` 断言 + 注入载荷扫描 + 许可证材料核对 + 构建目录已部署 OCR 时的离线 OCR 运行验证（提交前必须运行）；`-NoBuild` 复用已有构建产物，`-TestFilter` 转发 xunit 特征筛选，`-SkipGate` 显式跳过单个关卡；带其中任一参数的运行是部分验证（见 4.4） |
+| `verify.ps1` | 环境自检 + 完整依赖安全审计 + 静态边界检查 + 架构依赖门禁 + 协议档案校验 + `tools/` 下全部 Python 自测（含检查器反向自测）+ 全部测试 + C++ cppcheck + 监听端口核对 + `LIVE_CAPTURE_STATUS` 断言 + 注入载荷扫描 + 许可证材料核对 + 构建目录已部署 OCR 时的离线 OCR 运行验证（提交前必须运行）；`-NoBuild` 复用已有构建产物，`-TestFilter` 转发 xunit 特征筛选，`-SkipGate` 显式跳过单个关卡；带其中任一参数的运行是部分验证（见 4.4）；`-Distribution` 转发给 `test.ps1` 与 `build.ps1`，以正式口味构建并测试（§3.7） |
 | `package.ps1` | 先运行 `verify.ps1`，再发布 Collector、部署 Qt 运行时、补齐许可证与 docs，生成 zip 与 SHA256；`-Verify` 额外解包并运行两个可执行文件，未带 `-Verify` 的产物不得公开分发（见 §5） |
 | `static-analysis.ps1` | 对桌面端 C++ 逐编译单元运行 clang-tidy 与 cppcheck，按检查项汇总并将原始输出写入 `artifacts/static-analysis/`；只有编译错误、`clang-analyzer-*` 告警与 cppcheck 的 error 级结果令退出码非零（见 4.5） |
 
@@ -611,8 +645,8 @@ pwsh -File scripts/package.ps1 -Force -Verify   # 再解包运行一次，证明
 默认行为：
 
 1. 先读取一次源码状态（提交号、工作区是否有未提交改动、git 能否回答），再执行
-   `scripts/verify.ps1 -Configuration <...>`。
-2. 再执行 `scripts/build.ps1` 补齐构建产物，并对 `build\src\Desktop\MentorRecorder.Desktop.exe` 执行
+   `scripts/verify.ps1 -Configuration <...> -Distribution`，使整条验证链路构建并测试的是正式口味（§3.7）。
+2. 再执行 `scripts/build.ps1 -Distribution` 补齐构建产物，并对 `build\src\Desktop\MentorRecorder.Desktop.exe` 执行
    `Assert-DesktopExecutable`（见 §5.1）；随后执行
    `dotnet publish src/Collector/MentorRecorder.Collector.csproj -r win-x64 --self-contained true`。
 3. 复用 `build\src\Desktop\MentorRecorder.Desktop.exe`，对其运行 `windeployqt --release --compiler-runtime --no-translations --no-ffmpeg --exclude-plugins ffmpegmediaplugin`
@@ -661,7 +695,9 @@ pwsh -File scripts/package.ps1 -Force -Verify   # 再解包运行一次，证明
 编入），要求 `requestedExecutionLevel` 为 `asInvoker`、声明 `longPathAware = true`，并声明支持
 Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行文件中出现以 NUL 结尾的窄字符串
 `MR_COLLECTOR_PATH` 时（开发构建传给环境变量读取函数的完整名称）同样失败；内嵌更新记录和翻译
-资源中的普通文字引用不作为开发代码。该断言在暂存之前与 `-Verify`
+资源中的普通文字引用不作为开发代码。可执行文件中还必须出现正式构建的口味标记
+`MR_BUILD_FLAVOUR=distribution`（同样是以 NUL 结尾的窄字符串），且不得出现开发构建的
+`MR_BUILD_FLAVOUR=development`（§3.7）；缺少前者或出现后者同样失败。该断言在暂存之前与 `-Verify`
 解包后各执行一次。清单不再以可执行文件旁的单独文件分发，构建目录中残留的旧外部清单
 `MentorRecorder.Desktop.exe.manifest` 不进入发布包。
 

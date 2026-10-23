@@ -13,7 +13,11 @@
 // handles the orderly exit, but nothing runs on a hard kill, so the Collector
 // watches us and stops itself when we are gone rather than leaving an orphan
 // holding the per-user serve lease
-// (src/Collector/Diagnostics/ParentProcessWatchdog.cs).
+// (src/Collector/Diagnostics/ParentProcessWatchdog.cs). A development build
+// (BuildFlavour.h) adds "--pipe <its own pipe>" and sets MR_DATA_DIR in the
+// child's environment, so its Collector serves the development pipe and keeps
+// every file under %LOCALAPPDATA%\MentorRecorder-dev; a distribution build
+// adds nothing.
 //
 // Interactive runs use this by default; screenshot and unit-test runs keep the
 // deterministic MockBackend and never launch a child process.
@@ -42,6 +46,7 @@
 #include <QObject>
 #include <QDateTime>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
@@ -49,6 +54,7 @@
 #include <functional>
 #include <utility>
 
+#include "BuildFlavour.h"
 #include "LiveText.h"
 
 namespace mr {
@@ -92,6 +98,10 @@ public:
     /// handshake. Exposed because that handshake is a contract with the
     /// Collector, pinned from both ends by the lifecycle tests.
     QStringList processArguments() const;
+    /// Environment the child is launched with: empty when it simply inherits
+    /// ours (a distribution build), ours plus MR_DATA_DIR in a development
+    /// build. Exposed for the same reason as processArguments().
+    QProcessEnvironment processEnvironment() const;
     bool isRunning() const;
     QString statusText() const;
     QString stateToken() const;
@@ -283,11 +293,35 @@ public:
     bool lastStopWasGraceful() const { return m_lastStopWasGraceful; }
 
     /// Where the Collector keeps its data: MR_DATA_DIR when set, otherwise
-    /// %LOCALAPPDATA%\MentorRecorder (mirrors Storage/DatabasePaths.cs). Read
-    /// from Windows itself, never through QStandardPaths: its test mode, which
-    /// a screenshot run switches on, would move the answer under ...\qttest
-    /// while the Collector keeps writing to the real folder.
+    /// %LOCALAPPDATA%\MentorRecorder - or, in a development build,
+    /// %LOCALAPPDATA%\MentorRecorder-dev (BuildFlavour.h; mirrors
+    /// Storage/DatabasePaths.cs, which knows only the former and is handed the
+    /// latter through MR_DATA_DIR). Read from Windows itself, never through
+    /// QStandardPaths: its test mode, which a screenshot run switches on, would
+    /// move the answer under ...\qttest while the Collector keeps writing to
+    /// the real folder.
     static QString collectorDataDirectory();
+    /// The rule behind \ref collectorDataDirectory, with its inputs as
+    /// parameters so both flavours can be tested in one binary:
+    /// \a dataDirectoryOverride (MR_DATA_DIR) when not blank, otherwise the
+    /// flavour's folder under \a localAppData; empty when both are blank.
+    static QString resolveDataDirectory(const QString &dataDirectoryOverride,
+                                        const QString &localAppData,
+                                        build::Flavour flavour);
+    /// What a build of \a flavour appends to the fixed command line so its
+    /// child serves the flavour's pipe: "--pipe <pipeName>" for a development
+    /// build (nothing when \a pipeName is empty - the Collector refuses a bare
+    /// --pipe), nothing for a distribution build, whose Collector derives the
+    /// per-user name itself.
+    static QStringList isolationArguments(build::Flavour flavour, const QString &pipeName);
+    /// The environment a build of \a flavour launches its child with:
+    /// \a inherited plus MR_DATA_DIR=\a dataDirectory for a development build,
+    /// so every file the Collector owns - database, logs, backups, calibration,
+    /// profiles - lands in the development root; \a inherited untouched for a
+    /// distribution build, or when there is no directory to hand over.
+    static QProcessEnvironment childEnvironment(build::Flavour flavour,
+                                                const QString &dataDirectory,
+                                                const QProcessEnvironment &inherited);
     /// The serve.pid file the lease holder writes, or an empty string when no
     /// such file exists. Looked for in the data directory and in its logs/
     /// sub-directory, which is where --log-dir puts it.

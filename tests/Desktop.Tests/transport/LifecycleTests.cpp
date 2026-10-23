@@ -16,11 +16,13 @@
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AppSettings.h"
+#include "BuildFlavour.h"
 #include "CollectorProcess.h"
 #include "CollectorText.h"
 #include "CollectorTextTestSupport.h"
 #include "IBackend.h"
 #include "IpcClient.h"
+#include "PipeName.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -317,6 +319,7 @@ private Q_SLOTS:
     void aReleaseBuildLaunchesOnlyTheCollectorBesideIt();
     void theMissingStateSpeaksToPlayers();
     void theCollectorDataDirectoryIsTheRealOneEvenInQtTestMode();
+    void thisBuildLaunchesItsChildTheWayItsFlavourSays();
     void aRefusedStartIsReportedInsteadOfRestarted_data();
     void aRefusedStartIsReportedInsteadOfRestarted();
     void exitReasonsAreTheCollectorsOwnWords_data();
@@ -1250,10 +1253,50 @@ void LifecycleTests::theCollectorDataDirectoryIsTheRealOneEvenInQtTestMode()
     QVERIFY(!local.isEmpty());
     QVERIFY2(!directory.contains(QStringLiteral("qttest"), Qt::CaseInsensitive),
              qPrintable(directory));
+    // The flavour's own folder: MentorRecorder-dev for a development build.
     QCOMPARE(QDir::cleanPath(directory).toLower(),
-             QDir::cleanPath(QDir(local).absoluteFilePath(QStringLiteral("MentorRecorder")))
+             QDir::cleanPath(QDir(local).absoluteFilePath(mr::build::dataFolderName()))
                  .toLower());
 #endif
+}
+
+/// A development build hands its child the development data root and names
+/// its own pipe; a distribution build launches the child exactly as before,
+/// with nothing added to the command line or the environment. The rules
+/// themselves are covered for both flavours in BuildFlavourTests; this pins
+/// what the real supervisor does in the flavour it was compiled as.
+void LifecycleTests::thisBuildLaunchesItsChildTheWayItsFlavourSays()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString stub =
+        QDir(directory.path()).absoluteFilePath(QStringLiteral("collector-stub.exe"));
+
+    mr::CollectorProcess collector(stub, nullptr);
+    const QStringList arguments = collector.processArguments();
+    const QProcessEnvironment environment = collector.processEnvironment();
+    const int pipeFlag = arguments.indexOf(QStringLiteral("--pipe"));
+
+    if (mr::build::isDevelopmentBuild()) {
+        // CTest points MR_DATA_DIR at a throw-away folder; whatever it is, the
+        // child is told the same root we would read serve.pid from, on top of
+        // our own environment rather than instead of it.
+        QCOMPARE(environment.value(QStringLiteral("MR_DATA_DIR")),
+                 QDir::toNativeSeparators(mr::CollectorProcess::collectorDataDirectory()));
+        QVERIFY(environment.contains(QStringLiteral("PATH")));
+
+        const QString pipe = mr::ipc::currentUserPipeName();
+        if (pipe.isEmpty())
+            QSKIP("The user's SID is not readable here.");
+        QVERIFY2(pipeFlag >= 0, "a development build must name its own pipe to the child");
+        QVERIFY(pipeFlag + 1 < arguments.size());
+        QCOMPARE(arguments.at(pipeFlag + 1), pipe);
+        QVERIFY2(pipe.endsWith(QStringLiteral(".dev.v1")), qPrintable(pipe));
+    } else {
+        QCOMPARE(pipeFlag, -1);
+        QVERIFY(!arguments.contains(QStringLiteral("--db")));
+        QVERIFY(environment.isEmpty());
+    }
 }
 
 void LifecycleTests::aRefusedStartIsReportedInsteadOfRestarted_data()

@@ -37,6 +37,7 @@
 
 #include "AppController.h"
 #include "BundledFonts.h"
+#include "BuildFlavour.h"
 #include "CollectorProcess.h"
 #include <memory>
 #include "AppSettings.h"
@@ -57,6 +58,7 @@
 #include "QmlRuntime.h"
 #include "RoleCatalog.h"
 #include "RunFormValidator.h"
+#include "PipeName.h"
 #include "SingleInstanceGuard.h"
 #include "SpeechPlayer.h"
 #include "TrayController.h"
@@ -1009,8 +1011,17 @@ int main(int argc, char *argv[])
     // Only the production IPC composition has authority over a local process.
     // Declaration order destroys the controller before its borrowed supervisor.
     std::unique_ptr<mr::CollectorProcess> collector;
-    if (selectedBackend == QLatin1String("ipc"))
+    if (selectedBackend == QLatin1String("ipc")) {
         collector = std::make_unique<mr::CollectorProcess>();
+        // Which flavour this is and where its Collector keeps its files, for a
+        // developer reading the log (BuildFlavour.h). The stamp is also what
+        // scripts/package.ps1 looks for in the binary.
+        qInfo().noquote() << QStringLiteral("%1; collector data root %2; pipe %3")
+                                 .arg(QString::fromLatin1(mr::build::flavourStamp()),
+                                      QDir::toNativeSeparators(
+                                          mr::CollectorProcess::collectorDataDirectory()),
+                                      mr::ipc::currentUserPipeName());
+    }
     mr::AppController controller(backend, &settings, nullptr, collector.get());
     mr::EvidenceSubmissionController evidence(backend);
     QObject::connect(&controller, &mr::AppController::statusChanged, &evidence,

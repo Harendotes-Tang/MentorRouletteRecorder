@@ -27,6 +27,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include "BuildFlavour.h"
 #include "CaptureValidationController.h"
 #include "AutomaticRecordingController.h"
 #include "GameSelectionController.h"
@@ -220,7 +221,8 @@ class AppController final : public QObject, public CaptureValidationController::
     /// distinct duties of the latest runs, newest first, at most five. Filled
     /// by refreshRecentDuties().
     Q_PROPERTY(QVariantList recentDuties READ recentDuties NOTIFY recentDutiesChanged)
-    /// This build's version, shown in the title bar.
+    /// This build's version as the title bar and the 关于 page show it: the
+    /// version, followed by " dev" in a development build (BuildFlavour.h).
     Q_PROPERTY(QString appVersion READ appVersion CONSTANT)
     Q_PROPERTY(QVariantList categoryOptions READ categoryOptions NOTIFY optionsChanged)
     Q_PROPERTY(QVariantList jobOptions READ jobOptions NOTIFY optionsChanged)
@@ -428,7 +430,7 @@ public:
     /// bundled catalogue knows, as catalogue rows. Soft-deleted runs and runs
     /// without a duty are skipped.
     static QVariantList recentDutiesFromRuns(const QJsonArray &runs, int limit);
-    QString appVersion() const { return QCoreApplication::applicationVersion(); }
+    QString appVersion() const { return build::versionLabel(); }
     QVariantList categoryOptions() const;
     QVariantList jobOptions() const;
     QVariantMap historyFilter() const { return m_history->historyFilter(); }

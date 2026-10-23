@@ -9,11 +9,15 @@
     桌面端产物目录旁。
     工具链路径由 MR_QT_PREFIX / MR_MINGW_BIN / MR_NINJA_EXE / MR_CMAKE_EXE 覆盖，
     构建目录由 MR_BUILD_DIR 覆盖。
+    默认配置为开发构建（-DMR_DEV_BUILD=ON）：桌面端把数据放在
+    %LOCALAPPDATA%\MentorRecorder-dev、使用独立的后台服务管道并在版本号后显示 dev；
+    只有 scripts/package.ps1 以 -Distribution 配置正式构建（docs/build-and-package.md §3.7）。
     退出码：0 表示成功；非 0 为对应构建步骤的退出码。
 
 .EXAMPLE
     pwsh -File scripts/build.ps1
     pwsh -File scripts/build.ps1 -Configuration Debug
+    pwsh -File scripts/build.ps1 -Distribution    # 仅 package.ps1 使用
 #>
 [CmdletBinding()]
 param(
@@ -25,7 +29,14 @@ param(
 
     # Use the already restored project.assets.json files; verification uses
     # this mode so it never reaches a package source or changes dependencies.
-    [switch]$NoRestore
+    [switch]$NoRestore,
+
+    # Configure the Desktop as the distribution flavour (-DMR_DEV_BUILD=OFF): the
+    # installed software's data root and pipe, no "dev" marker. Only
+    # scripts/package.ps1 passes this (verify.ps1 and test.ps1 forward it); every
+    # other build is a development build that keeps to %LOCALAPPDATA%\MentorRecorder-dev
+    # and cannot touch the installed database (docs/build-and-package.md section 3.7).
+    [switch]$Distribution
 )
 
 Set-StrictMode -Version Latest
@@ -105,6 +116,12 @@ if (-not (Test-Path -LiteralPath $CMakeExe)) {
 }
 
 Write-Head 'cmake configure (MinGW + Ninja + Qt 6.11.2)'
+$DevBuildValue = if ($Distribution) { 'OFF' } else { 'ON' }
+if ($Distribution) {
+    Write-Host '  MR_DEV_BUILD=OFF：正式构建（package.ps1）/ distribution flavour' -ForegroundColor Yellow
+} else {
+    Write-Host '  MR_DEV_BUILD=ON：开发构建，数据位于 %LOCALAPPDATA%\MentorRecorder-dev / development flavour'
+}
 & $CMakeExe `
     -S $RepoRoot `
     -B $BuildDir `
@@ -116,6 +133,7 @@ Write-Head 'cmake configure (MinGW + Ninja + Qt 6.11.2)'
     "-DMR_STAGE_COLLECTOR=OFF" `
     "-DMR_DEV_COLLECTOR_DISCOVERY=OFF" `
     "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON" `
+    "-DMR_DEV_BUILD=$DevBuildValue" `
     "-DCMAKE_BUILD_TYPE=$Configuration"
 if ($LASTEXITCODE -ne 0) {
     Write-Host 'cmake configure 失败。' -ForegroundColor Red

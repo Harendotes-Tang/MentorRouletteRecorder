@@ -10,18 +10,37 @@
 
 namespace mr::ipc {
 
-QString pipeNameForSid(const QString &sidString)
+namespace {
+
+/// Lower-case hex of the first kSidHashBytes bytes of SHA-256(sid); empty for
+/// an empty SID.
+QString sidHashHex(const QString &sidString)
 {
     if (sidString.isEmpty())
         return {};
-
     const QByteArray digest = QCryptographicHash::hash(
         sidString.toUtf8(), QCryptographicHash::Sha256);
+    return QString::fromLatin1(digest.left(kSidHashBytes).toHex());
+}
 
-    const QString hex =
-        QString::fromLatin1(digest.left(kSidHashBytes).toHex());
+} // namespace
 
+QString pipeNameForSid(const QString &sidString)
+{
+    const QString hex = sidHashHex(sidString);
+    if (hex.isEmpty())
+        return {};
     return QStringLiteral("MentorRecorder.%1.v1").arg(hex);
+}
+
+QString pipeNameForSid(const QString &sidString, build::Flavour flavour)
+{
+    if (flavour != build::Flavour::Development)
+        return pipeNameForSid(sidString);
+    const QString hex = sidHashHex(sidString);
+    if (hex.isEmpty())
+        return {};
+    return QStringLiteral("MentorRecorder.%1.dev.v1").arg(hex);
 }
 
 QString localSocketServerName(const QString &pipeName)
@@ -73,7 +92,7 @@ QString currentUserServerName()
 
 QString currentUserPipeName()
 {
-    return pipeNameForSid(currentUserSidString());
+    return pipeNameForSid(currentUserSidString(), build::thisBuild());
 }
 
 } // namespace mr::ipc

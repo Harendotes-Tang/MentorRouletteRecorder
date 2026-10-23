@@ -116,6 +116,14 @@
 其诊断日志应当与该数据库相邻存放，其保留期清理也不应触及用户的日志目录
 （评审发现 C1）。
 
+**开发构建的默认位置。** 桌面端以 CMake 选项 `MR_DEV_BUILD`（默认 `ON`）区分开发构建与正式构建，
+只有 `scripts/package.ps1` 以 `OFF` 配置（经 `scripts/build.ps1 -Distribution`）。开发构建在 `MR_DATA_DIR`
+未设置时把数据根目录定为 `%LOCALAPPDATA%\MentorRecorder-dev`，拉起 Collector 子进程时将该目录写入子进程的
+`MR_DATA_DIR`，并以 `--pipe` 让子进程服务独立的管道名 `MentorRecorder.<哈希>.dev.v1`（租约、停止事件与
+桌面端的单实例键随之独立）；桌面端自己的 `desktop.ini` 也放在该目录。Collector 本身没有口味之分，
+手工启动时须自行设置 `MR_DATA_DIR` 与 `--pipe`。因此在 IDE 或 `build\` 目录中运行开发构建，不会打开、
+更不会迁移正式安装版的数据库（[build-and-package.md](build-and-package.md) §3.7）。
+
 ### 2.4 Collector 的退出码
 
 | 码 | 含义 | 调用方的处理方式 |
@@ -500,7 +508,7 @@ QObject 生命周期。生产部署仍为 Desktop 与 Collector 两个进程。
 
 完成协调器位于 `cpp/workflows/`，由仅依赖 Qt Core 的 `MentorRecorderCompletion` 编译，
 有不链接 DesktopLib 或 QML 的独立测试。`cpp/transport/` 收拢后端与命名管道客户端，
-其中分帧与命名另由 `MentorRecorderIpcWire` 编译，只使用 Qt Core 和本机 Windows 身份 API。
+其中分帧、命名与构建口味（`BuildFlavour.h`）另由 `MentorRecorderIpcWire` 编译，只使用 Qt Core 和本机 Windows 身份 API。
 业务后端适配器仍复用界面本地化实现，不能据目录归组声称整套传输层已完全独立。
 浮窗与校准 QML 分别归入 `qml/overlay/`、`qml/calibration/`，原类型名和资源别名保持兼容。
 
