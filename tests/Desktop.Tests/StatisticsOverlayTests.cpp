@@ -43,6 +43,7 @@
 #include <QPointer>
 #include <QSettings>
 #include <QScreen>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -1157,17 +1158,16 @@ void StatisticsOverlayTests::formTransitionKeepsStableGeometry() const
         QMutexLocker guard(&trace->mutex);
         trace->times.append(trace->clock.nsecsElapsed());
     }, Qt::DirectConnection) : QMetaObject::Connection(); // Render-thread timestamp, not queued delivery.
-    QVERIFY(scene.click(QStringLiteral("floatingMiniButton")));
-    QVERIFY(scene.floating()->property("transitioning").toBool());
     auto *outgoing = scene.item(QStringLiteral("floatingFullContent"));
     auto *incoming = scene.item(QStringLiteral("floatingMiniContent"));
-    QVERIFY(outgoing && !outgoing->isEnabled());
-    QVERIFY(incoming);
+    QVERIFY(outgoing && incoming);
     bool sawIntermediate = false;
     bool overlappingForms = false;
     bool overflowingBars = false;
     bool sawBar = false;
+    int observedFrames = 0;
     const auto observeIntermediate = [&] {
+        ++observedFrames;
         sawIntermediate |= scene.floating()->height() > 80 && scene.floating()->height() < 520
                            && outgoing->opacity() > 0 && outgoing->opacity() < 1;
         overlappingForms |= outgoing->opacity() > 0.001 && incoming->opacity() > 0.001;
@@ -1186,6 +1186,12 @@ void StatisticsOverlayTests::formTransitionKeepsStableGeometry() const
     // within a frame rather than a state that is actually rendered.
     const auto visualObserver = QObject::connect(scene.floating(), &QQuickWindow::afterAnimating,
                                                  scene.floating(), observeIntermediate);
+    const auto disconnectVisualObserver = qScopeGuard([&] { QObject::disconnect(visualObserver); });
+    // QtTest's mouse dispatch processes events before returning. Observe before
+    // clicking so the outgoing form's short fade cannot finish before sampling.
+    QVERIFY(scene.click(QStringLiteral("floatingMiniButton")));
+    QVERIFY(scene.floating()->property("transitioning").toBool());
+    QVERIFY(!outgoing->isEnabled());
     if (captureFrames) {
         // QML registers newly started jobs through queued calls. Drain those at
         // time zero, before the first manual tick, for an accurate 200 ms run.
@@ -1205,7 +1211,6 @@ void StatisticsOverlayTests::formTransitionKeepsStableGeometry() const
         QTimer::singleShot(300, &eventLoop, &QEventLoop::quit);
         eventLoop.exec();
     }
-    QVERIFY(sawIntermediate);
     QObject::disconnect(frameObserver);
     QList<qint64> frameTimes;
     {
@@ -1223,6 +1228,10 @@ void StatisticsOverlayTests::formTransitionKeepsStableGeometry() const
                                .arg(intervalMs, 0, 'f', 3).toUtf8());
         }
     }
+    QVERIFY2(sawIntermediate, qPrintable(QStringLiteral(
+        "No intermediate form sampled: frames=%1 height=%2 blend=%3 outgoingOpacity=%4")
+        .arg(observedFrames).arg(scene.floating()->height())
+        .arg(scene.floating()->property("formBlend").toReal()).arg(outgoing->opacity())));
     QTRY_VERIFY(!scene.floating()->property("transitioning").toBool());
     QVERIFY(scene.floating()->height() < 80);
     auto *expand = scene.item(QStringLiteral("floatingExpandButton"), true);
