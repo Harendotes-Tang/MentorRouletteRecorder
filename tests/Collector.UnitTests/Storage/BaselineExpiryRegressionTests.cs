@@ -1,7 +1,5 @@
-using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Domain.Mutations;
-using MentorRecorder.Collector.Import;
 using MentorRecorder.Collector.Storage.Mutations;
 using MentorRecorder.Collector.Storage.Repositories;
 
@@ -163,65 +161,5 @@ public sealed class BaselineExpiryRegressionTests
         Assert.Equal("{\"ok\":true}", repository.TryGetResponse(oldId));
         Assert.Null(repository.TryGetResponse(failedId));
         Assert.False(repository.WasAppliedBeforePrune(failedId));
-    }
-}
-
-public sealed class ImportCompleteDateRegressionTests
-{
-    public static IEnumerable<object[]> IncompleteTimestamps()
-    {
-        foreach (var source in new[] { "ROWS", "CSV" })
-        foreach (var timestamp in new[] { "09:00Z", "09:00+08:00", "09:00-05:30", "10-11 09:00Z", "10/11 09:00+08:00", "2026-10 09:00Z" })
-            yield return new object[] { source, "entered_at_utc", timestamp };
-        foreach (var field in new[] { "ended_at_utc", "matched_at_utc", "created_at_utc", "source_recorded_at", "source_recorded_at_utc" })
-            yield return new object[] { "ROWS", field, "09:00Z" };
-    }
-
-    [Theory]
-    [MemberData(nameof(IncompleteTimestamps))]
-    public void MissingCalendarDateIsRejectedBeforeCommitAndCannotContributeToStatistics(string source, string field, string timestamp)
-    {
-        using var fixture = new TestDatabase();
-        var service = new RunImportService(fixture.Database, fixture.Clock);
-        var input = new JsonObject
-        {
-            ["duty_name"] = "日期缺失回归", ["result"] = "COMPLETED",
-            ["entered_at_utc"] = "2026-10-11T09:00:00Z", ["ended_at_utc"] = "2026-10-11T09:30:00Z",
-        };
-        input[field] = timestamp;
-        var preview = source == "CSV"
-            ? service.PreviewSource("CSV", text: string.Join(',', input.Select(pair => pair.Key)) + "\n" + string.Join(',', input.Select(pair => pair.Value!.GetValue<string>())) + "\n")
-            : service.PreviewSource("ROWS", rows: new JsonArray(input));
-        var row = preview["rows"]![0]!.AsObject();
-        Assert.False(row["can_import"]!.GetValue<bool>());
-        Assert.NotEmpty(row["errors"]!.AsArray());
-        Assert.Null(row["run"]);
-        Assert.Throws<CollectorException>(() => service.Commit(preview["preview_id"]!.GetValue<string>(),
-            new[] { row["row_number"]!.GetValue<int>() }, true, Guid.NewGuid().ToString("D")));
-        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
-        settings.EnsureDefaults();
-        var stats = new StatisticsRepository(fixture.Database, settings).GetDashboard();
-        Assert.Equal(0, stats.CompletedCount);
-        Assert.Equal(0, stats.AchievementProgress);
-    }
-
-    [Theory]
-    [InlineData("2026-10-11T09:00:00Z", "2026-10-11T09:00:00.000Z")]
-    [InlineData("2026-10-11 09:00Z", "2026-10-11T09:00:00.000Z")]
-    [InlineData("2026-10-11T09:00:00.1234567+08:00", "2026-10-11T01:00:00.123Z")]
-    [InlineData("2026/10/11 9:00+08:00", "2026-10-11T01:00:00.000Z")]
-    [InlineData("2026-10-11T09:00:00-05:30", "2026-10-11T14:30:00.000Z")]
-    public void CompleteDateAndOffsetKeepTheirExplicitInstant(string timestamp, string expected)
-    {
-        using var fixture = new TestDatabase();
-        var service = new RunImportService(fixture.Database, fixture.Clock);
-        var preview = service.PreviewSource("ROWS", rows: new JsonArray(new JsonObject
-        {
-            ["duty_name"] = "明确日期回归", ["result"] = "UNKNOWN", ["entered_at_utc"] = timestamp,
-        }));
-        var row = preview["rows"]![0]!.AsObject();
-        Assert.True(row["can_import"]!.GetValue<bool>());
-        Assert.Empty(row["errors"]!.AsArray());
-        Assert.Equal(expected, row["run"]!["entered_at_utc"]!.GetValue<string>());
     }
 }

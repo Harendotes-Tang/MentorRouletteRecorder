@@ -371,7 +371,6 @@
         "src/Collector/Diagnostics/ParentProcessWatchdog.cs",
         "tests/Collector.IntegrationTests/Ipc/LifecycleOrphanTests.cs",
         "tests/Collector.IntegrationTests/Ipc/LifecycleProcessTests.cs",
-        "tests/Collector.UnitTests/Diagnostics/WatchdogIdentityTests.cs",
         "tests/Collector.UnitTests/Diagnostics/WatchdogTests.cs",
         "tools/package-verification/test_package_environment.py",
         "scripts/package.ps1",

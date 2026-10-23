@@ -1,5 +1,3 @@
-global using Xunit;
-
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain.Time;

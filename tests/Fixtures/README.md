@@ -135,7 +135,7 @@ tests/Fixtures/
   使档案校验器同样核对它们，见
   [`../../tools/protocol-profile-validator/README.md`](../../tools/protocol-profile-validator/README.md) §7。
 
-`ReplayDecodedTests` 逐条验证上述要求：同目录校验文件的哈希、`SHA256SUMS` 与文件集合一一对应、
+`ReplayTests` 的解码测试样本部分逐条验证上述要求：同目录校验文件的哈希、`SHA256SUMS` 与文件集合一一对应、
 将 `synthetic` 改为 `false` 会被拒绝、改动任一字节都会被检出。
 
 ## 格式（解码测试样本 v1）

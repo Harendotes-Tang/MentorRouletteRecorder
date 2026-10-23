@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Calendar boundaries shared with ProtocolProfileTimestampTests, without network access."""
+"""Calendar boundaries shared with ProtocolProfileMalformedFieldTests, without network access."""
 
 from __future__ import annotations
 

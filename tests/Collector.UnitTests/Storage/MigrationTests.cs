@@ -3,7 +3,6 @@ using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Storage;
 using MentorRecorder.Collector.Storage.Repositories;
-using Xunit;
 
 namespace MentorRecorder.Collector.UnitTests;
 

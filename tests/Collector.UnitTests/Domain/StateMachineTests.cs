@@ -1,7 +1,6 @@
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.StateMachine;
 using MentorRecorder.Collector.Domain.Events;
-using Xunit;
 
 namespace MentorRecorder.Collector.UnitTests;
 
