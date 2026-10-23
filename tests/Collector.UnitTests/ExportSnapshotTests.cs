@@ -99,7 +99,7 @@ public sealed class ExportSnapshotTests : IDisposable
             return first.Items.Concat(second.Items).Concat(third.Items).ToArray();
         });
 
-        Assert.Equal(originals.Reverse().Select(run => run.RunId), exported.Select(run => run.RunId));
+        Assert.Equal(Enumerable.Reverse(originals).Select(run => run.RunId), exported.Select(run => run.RunId));
         Assert.Equal(405, exported.Select(run => run.RunId).Distinct().Count());
         var oldVictim = Assert.Single(exported, run => run.RunId == victim.RunId);
         Assert.Equal(1, oldVictim.Revision);
@@ -148,7 +148,7 @@ public sealed class ExportSnapshotTests : IDisposable
         }
         else
         {
-            var positions = originals.Reverse().Select(run => content.IndexOf(run.RunId, StringComparison.Ordinal)).ToArray();
+            var positions = Enumerable.Reverse(originals).Select(run => content.IndexOf(run.RunId, StringComparison.Ordinal)).ToArray();
             Assert.All(positions, position => Assert.True(position >= 0));
             Assert.Equal(positions.Order(), positions);
         }
