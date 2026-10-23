@@ -120,9 +120,10 @@ const CatalogueEntry kEntries[] = {
     //: Placeholders: {file} shown as it is. Keep every {placeholder} exactly as written. {file} is the game's version file name, ffxivgame.ver.
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "未能在游戏目录中读取到 {file}，客户端版本未知。", "capture.game.version_file_missing"), .args = "file:text"},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "已连接游戏，但一直读不到有效数据，可能漏掉了连接开始时的信息。可在方便时登出到标题画面再重新登录（不用关闭游戏），让软件尝试捕获新连接。若仍无记录，请导出诊断报告。", "capture.hint.midstream"), .args = ""},
-    {.source = QT_TRANSLATE_NOOP3("CollectorText", "你已经重新连接过游戏，但软件仍然没能读到连接开始时的信息。请先关闭加速器、VPN 和正在进行的下载，重启本软件后再试；若仍如此，请导出诊断报告。", "capture.hint.midstream_reconnected"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "你已经重新连接过游戏，但软件仍未读到可用数据。请保留当前加速器设置，导出诊断报告以继续排查。", "capture.hint.midstream_reconnected"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "看到了网络流量，但还无法确认游戏连接，暂时不能校准或自动记录。请点“重新检测网卡”；使用加速器或代理时，可尝试切换连接模式后重新启动游戏。", "capture.hint.no_ownership"), .args = ""},
-    {.source = QT_TRANSLATE_NOOP3("CollectorText", "所选网卡上没有看到游戏流量，可能使用了加速器或 VPN。请在「捕获诊断」点「重新检测网卡」，再按网卡提示操作；也可以关闭加速器后重新登录游戏。", "capture.hint.no_packets"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "当前监听路径没有收到游戏流量。请在「捕获诊断」重新检测网络路径；仍无法恢复时，请导出诊断报告。", "capture.hint.no_packets"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "正在自动寻找可读取的游戏网络路径，请稍候；暂时无需操作。", "capture.hint.path_recovering"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "Npcap 安装时启用了 “Restrict Npcap driver's access to Administrators only”，当前进程没有管理员权限，无法打开网卡。请以管理员身份运行本软件，或重新安装 Npcap 并取消该限制选项。", "capture.npcap.admin_only"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "检测到 Npcap 的安装记录，但 wpcap.dll 或 Packet.dll 不在 %SystemRoot%\\System32\\Npcap\\ 下，安装可能不完整或已被部分卸载。请重新安装 Npcap（安装时勾选 “WinPcap API-compatible Mode”）。", "capture.npcap.load_failed"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "未检测到 Npcap。本软件需要 Npcap 才能被动读取本机网卡流量，请从 Npcap 官方站点自行下载安装（安装时请勾选 “WinPcap API-compatible Mode”），安装完成后重新启动本软件。本软件运行时不会替您下载或安装任何驱动；只有安装程序在安装时发现缺少 Npcap，才会下载 Npcap 官方安装程序，由您在它自己的向导中完成安装。", "capture.npcap.not_installed"), .args = ""},

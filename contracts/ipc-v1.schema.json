@@ -671,6 +671,17 @@
     },
     "NetworkQueryStatus": { "type": "string", "enum": ["UNMEASURED", "OK", "FAILED", "TRUNCATED"] },
 
+    "PathRecovery": {
+      "type": "object", "additionalProperties": false,
+      "description": "Optional bounded automatic recovery progress. NONE is not a claim of readable game traffic; only measured capture health establishes that. No endpoint, interface identity or native exception details.",
+      "required": ["state", "attempts", "retry_after_ms"],
+      "properties": {
+        "state": { "type": "string", "enum": ["NONE", "RECOVERING", "FAILED"] },
+        "attempts": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "retry_after_ms": { "type": "integer", "minimum": 0, "maximum": 300000 }
+      }
+    },
+
     "CaptureStatus": {
       "type": "object",
       "additionalProperties": false,
@@ -679,6 +690,7 @@
       "properties": {
         "candidate_validation_enabled": { "type": "boolean" },
         "network_path": { "$ref": "#/$defs/NetworkPath" },
+        "path_recovery": { "$ref": "#/$defs/PathRecovery" },
         "candidate_profile_id": { "type": ["string", "null"] },
         "candidate_observation_count": { "type": "integer", "minimum": 0, "maximum": 20000 },
         "candidate_hypotheses": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/CandidateHypothesis" }, "description": "Hypotheses declared by the candidate profile matching the running client, so the Desktop can label the research whitelist by purpose. Empty when no candidate profile matches. Display data only: it never affects matching, eligibility or evidence." },

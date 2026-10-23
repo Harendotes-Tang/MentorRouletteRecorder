@@ -33,6 +33,7 @@ QtObject {
     readonly property bool silent: Runtime.app.captureMidstreamSuspected || Runtime.app.captureSilent
                                    || Runtime.app.recording.silent
     readonly property string recordingState: Runtime.app.recording.state
+    readonly property bool recovering: Runtime.app.recording.recovering
 
     // 本机校准 speaks only while the recording controller agrees: the game is
     // closed (nothing else can be said), the controller projects a calibration
@@ -49,6 +50,8 @@ QtObject {
     readonly property string kind: !copy.statusKnown ? (Runtime.app.recording.blocked ? "blocked" : "connecting")
         : copy.npcapProblem ? "broken"
         : copy.choosingGame ? "choosing"
+        : copy.recovering ? "recovering"
+        : (copy.chain && copy.chain.recoveryBlocked) ? "blocked"
         : (copy.silent && copy.gameRunning) ? "silent"
         : copy.calibrationSpeaks ? "calibration"
         : !copy.gameRunning ? "waiting"
@@ -82,6 +85,8 @@ QtObject {
             return qsTr("等待选择游戏")
         case "silent":
             return qsTr("暂时读不到游戏数据")
+        case "recovering":
+            return qsTr("自动寻找网络路径")
         case "calibration":
             return copy.calibration.badge
         case "waiting":
@@ -105,6 +110,8 @@ QtObject {
                                           : qsTr("Npcap 暂时用不了，自动记录已停用")
         case "choosing":
             return qsTr("等待选择游戏")
+        case "recovering":
+            return qsTr("正在自动寻找游戏网络路径")
         case "silent":
             return Runtime.app.captureMidstreamSuspected ? qsTr("已连接游戏，但还读不到游戏数据")
                  : Runtime.app.captureSilent ? qsTr("正在读取游戏数据，但还没有识别成功")
@@ -137,6 +144,8 @@ QtObject {
             // The Collector's hint when it sent one, otherwise the sentence the
             // recording controller chose for this silent_reason.
             return Runtime.app.captureHealthText || Runtime.app.recording.message
+        case "recovering":
+            return Runtime.app.recording.message
         case "calibration":
             return copy.calibration.explanation()
         case "waiting":

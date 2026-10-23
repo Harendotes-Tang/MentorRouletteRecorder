@@ -7,6 +7,8 @@ namespace MentorRecorder.Collector.IntegrationTests;
 /// <summary>Production schema and real pipe projection tests using declared host facts only.</summary>
 public sealed class NetworkPathContractTests
 {
+    private static readonly string[] RecoveryWhitelist = { "attempts", "retry_after_ms", "state" };
+
     private static readonly string[] Whitelist =
     {
         "query_ipv4", "query_ipv6", "query_adapters", "ipv4_connections", "ipv6_connections",
@@ -155,6 +157,80 @@ public sealed class NetworkPathContractTests
 
         oldStatus["network_path"] = NetworkPathWire.ToJson(NetworkPathDiagnosticsSnapshot.Unmeasured);
         ContractSchema.Validate("$defs/CaptureStatus", oldStatus, "new unmeasured network facts");
+        Assert.Null(oldStatus["path_recovery"]);
+        oldStatus["path_recovery"] = PathRecoveryWire.ToJson(PathRecoverySnapshot.None);
+        ContractSchema.Validate("$defs/CaptureStatus", oldStatus, "new optional recovery facts");
+        ContractSchema.Validate("$defs/Responses/GetCaptureStatus", oldStatus, "new recovery response");
+    }
+
+    [Fact]
+    public void EveryRecoveryStateAndProductionBoundMatchesTheSchema()
+    {
+        var tokens = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var state in Enum.GetValues<PathRecoveryState>())
+        {
+            var wire = PathRecoveryWire.ToJson(new PathRecoverySnapshot(state, 3, 300_000));
+            ContractSchema.Validate("$defs/PathRecovery", wire, "recovery state " + state);
+            Assert.Equal(RecoveryWhitelist, wire.Select(pair => pair.Key).Order(StringComparer.Ordinal));
+            tokens.Add(wire["state"]!.GetValue<string>());
+        }
+
+        var declared = ContractSchema.Root["$defs"]!["PathRecovery"]!["properties"]!["state"]!["enum"]!.AsArray()
+            .Select(node => node!.GetValue<string>());
+        Assert.Equal(declared.Order(StringComparer.Ordinal), tokens.Order(StringComparer.Ordinal));
+        ContractSchema.Validate("$defs/PathRecovery", PathRecoveryWire.ToJson(
+            new PathRecoverySnapshot(PathRecoveryState.Recovering, 0, 0)), "zero recovery progress");
+        ContractSchema.Validate("$defs/PathRecovery", PathRecoveryWire.ToJson(
+            new PathRecoverySnapshot((PathRecoveryState)999, int.MaxValue, long.MaxValue)), "defensive recovery projection");
+    }
+
+    [Theory]
+    [InlineData("attempts", 3)]
+    [InlineData("retry_after_ms", 300000)]
+    public void RecoveryContractRejectsInvalidCounters(string field, int maximum)
+    {
+        foreach (var invalid in new JsonNode?[]
+                 { null, JsonValue.Create(-1), JsonValue.Create(maximum + 1), JsonValue.Create(0.5), JsonValue.Create("15") })
+        {
+            var wire = PathRecoveryWire.ToJson(PathRecoverySnapshot.None);
+            wire[field] = invalid;
+            Assert.False(ContractSchema.Evaluate("$defs/PathRecovery", wire).IsValid,
+                field + " must reject " + invalid);
+        }
+    }
+
+    [Theory]
+    [InlineData("state")]
+    [InlineData("attempts")]
+    [InlineData("retry_after_ms")]
+    public void RecoveryContractRequiresItsWholeSummary(string field)
+    {
+        var wire = PathRecoveryWire.ToJson(PathRecoverySnapshot.None);
+        Assert.True(wire.Remove(field));
+        Assert.False(ContractSchema.Evaluate("$defs/PathRecovery", wire).IsValid);
+    }
+
+    [Theory]
+    [InlineData("local_ip", "192.0.2.29")]
+    [InlineData("remote_endpoint", "203.0.113.29:54994")]
+    [InlineData("adapter_id", "private-interface-identity")]
+    [InlineData("failure", "private native exception text")]
+    public void RecoveryContractRejectsEndpointAndUnrecognisedFields(string field, string value)
+    {
+        var wire = PathRecoveryWire.ToJson(PathRecoverySnapshot.None);
+        wire[field] = value;
+        Assert.False(ContractSchema.Evaluate("$defs/PathRecovery", wire).IsValid);
+    }
+
+    [Theory]
+    [InlineData("UNRECOGNISED")]
+    [InlineData("192.0.2.29")]
+    [InlineData("203.0.113.29:54994")]
+    public void RecoveryContractRejectsUnknownStates(string token)
+    {
+        var wire = PathRecoveryWire.ToJson(PathRecoverySnapshot.None);
+        wire["state"] = token;
+        Assert.False(ContractSchema.Evaluate("$defs/PathRecovery", wire).IsValid);
     }
 
     [Fact]
@@ -172,6 +248,10 @@ public sealed class NetworkPathContractTests
         var status = (await fixture.CallAsync("GetCaptureStatus")).Require();
         ContractSchema.Validate("$defs/Responses/GetCaptureStatus", status, "real pipe with declared network paths");
         var statusPath = status["network_path"]!.AsObject();
+        var statusRecovery = status["path_recovery"]!.AsObject();
+        ContractSchema.Validate("$defs/PathRecovery", statusRecovery, "real pipe recovery whitelist");
+        Assert.Equal(RecoveryWhitelist, statusRecovery.Select(pair => pair.Key).Order(StringComparer.Ordinal));
+        Assert.Equal("NONE", statusRecovery["state"]!.GetValue<string>());
         Assert.Equal("OK", statusPath["query_ipv4"]!.GetValue<string>());
         Assert.Equal("OK", statusPath["query_ipv6"]!.GetValue<string>());
         Assert.Equal("SELECTED_INTERFACE", statusPath["kind"]!.GetValue<string>());
@@ -186,6 +266,10 @@ public sealed class NetworkPathContractTests
         var reportText = await File.ReadAllTextAsync(exported["target_path"]!.GetValue<string>());
         var report = JsonNode.Parse(reportText)!;
         var reportPath = report["network_path"]!.AsObject();
+        var reportRecovery = report["path_recovery"]!.AsObject();
+        Assert.True(JsonNode.DeepEquals(statusRecovery, reportRecovery),
+            "IPC and disk export must use the same recovery whitelist.");
+        ContractSchema.Validate("$defs/PathRecovery", reportRecovery, "exported recovery whitelist");
         Assert.True(JsonNode.DeepEquals(statusPath, reportPath), "IPC and disk export must project the same facts.");
         ContractSchema.Validate("$defs/NetworkPath", reportPath, "exported network whitelist");
         Assert.Equal(2, report["report_version"]!.GetValue<int>());

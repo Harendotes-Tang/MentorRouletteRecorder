@@ -36,8 +36,13 @@ if (-not $python -and -not $env:MR_PYTHON_EXE) {
     $python = Get-Command python3 -ErrorAction SilentlyContinue
 }
 if (-not $python) { throw 'Python 3 is required for the security-quality gate.' }
+$phaseArgument = switch ($Phase) {
+    'PrePush' { 'pre-push' }
+    'PostPush' { 'post-push' }
+    default { $Phase.ToLowerInvariant() }
+}
 $arguments = @('-X', 'utf8', '-B', (Join-Path $repoRoot 'tools/security-quality/check.py'),
-    '--root', $repoRoot, '--phase', $Phase.ToLowerInvariant())
+    '--root', $repoRoot, '--phase', $phaseArgument)
 if ($Commit) { $arguments += @('--commit', $Commit) }
 if ($Repository) { $arguments += @('--repository', $Repository) }
 if ($OutputDir) { $arguments += @('--output-dir', $OutputDir) }

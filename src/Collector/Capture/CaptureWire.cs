@@ -55,6 +55,7 @@ public static class CaptureWire
             ["calibration"] = CalibrationWire.Status(snapshot.Calibration),
             ["adapter_id"] = snapshot.AdapterId,
             ["network_path"] = NetworkPathWire.ToJson(snapshot.NetworkPath),
+            ["path_recovery"] = PathRecoveryWire.ToJson(snapshot.PathRecovery),
             ["started_at_utc"] = UtcTimestamp.ToTextOrNull(snapshot.StartedAtUtc),
             ["packets_observed"] = snapshot.PacketsObserved,
 

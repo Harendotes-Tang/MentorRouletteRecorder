@@ -1158,6 +1158,14 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <source>版本支持</source>
         <translation>Version support</translation>
     </message>
+    <message>
+        <source>自动寻找中</source>
+        <translation>Searching automatically</translation>
+    </message>
+    <message>
+        <source>已保存网卡偏好</source>
+        <translation>Saved adapter preference</translation>
+    </message>
 </context>
 <context>
     <name>CaptureHeroCopy</name>
@@ -1286,6 +1294,14 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <extracomment>The full stop that closes a sentence.</extracomment>
         <translation>.</translation>
     </message>
+    <message>
+        <source>自动寻找网络路径</source>
+        <translation>Finding a network path</translation>
+    </message>
+    <message>
+        <source>正在自动寻找游戏网络路径</source>
+        <translation>Finding the game’s network path automatically</translation>
+    </message>
 </context>
 <context>
     <name>CaptureHeroPanel</name>
@@ -1372,6 +1388,10 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
     <message>
         <source>连接状态</source>
         <translation>Connection status</translation>
+    </message>
+    <message>
+        <source>部分网络路径未能监听。</source>
+        <translation>Some network paths could not be monitored.</translation>
     </message>
 </context>
 <context>
@@ -2561,9 +2581,9 @@ SHA256: %3</translation>
         <translation>Connected to the game, but no valid data can be read; the information from the start of the connection may have been missed. When convenient, log out to the title screen and log in again (no need to close the game) so the app can try to capture a new connection. If there are still no records, export a diagnostic report.</translation>
     </message>
     <message>
-        <source>你已经重新连接过游戏，但软件仍然没能读到连接开始时的信息。请先关闭加速器、VPN 和正在进行的下载，重启本软件后再试；若仍如此，请导出诊断报告。</source>
+        <source>你已经重新连接过游戏，但软件仍未读到可用数据。请保留当前加速器设置，导出诊断报告以继续排查。</source>
         <comment>capture.hint.midstream_reconnected</comment>
-        <translation>You&apos;ve already reconnected to the game, but the app still couldn&apos;t read the information from the start of the connection. Close any game accelerator, VPN and downloads in progress, restart this app and try again; if it&apos;s still the same, export a diagnostic report.</translation>
+        <translation>You have already reconnected to the game, but the app still cannot read usable data. Keep your current game accelerator settings and export a diagnostic report so we can investigate further.</translation>
     </message>
     <message>
         <source>看到了网络流量，但还无法确认游戏连接，暂时不能校准或自动记录。请点“重新检测网卡”；使用加速器或代理时，可尝试切换连接模式后重新启动游戏。</source>
@@ -2571,9 +2591,9 @@ SHA256: %3</translation>
         <translation>Network traffic is visible, but the game&apos;s connections have not been identified, so calibration and automatic recording cannot continue. Click “Check adapters again”. If you use a game accelerator or proxy, you can try another connection mode and then restart the game.</translation>
     </message>
     <message>
-        <source>所选网卡上没有看到游戏流量，可能使用了加速器或 VPN。请在「捕获诊断」点「重新检测网卡」，再按网卡提示操作；也可以关闭加速器后重新登录游戏。</source>
+        <source>当前监听路径没有收到游戏流量。请在「捕获诊断」重新检测网络路径；仍无法恢复时，请导出诊断报告。</source>
         <comment>capture.hint.no_packets</comment>
-        <translation>No game traffic on the selected network adapter; a game accelerator or VPN may be in use. Click “Check adapters again” in “Capture diagnostics”, then follow the adapter note; or close the game accelerator and log in to the game again.</translation>
+        <translation>No game traffic has arrived on the current listening paths. Check the network paths again in “Capture diagnostics”; if reading still cannot resume, export a diagnostic report.</translation>
     </message>
     <message>
         <source>Npcap 安装时启用了 “Restrict Npcap driver&apos;s access to Administrators only”，当前进程没有管理员权限，无法打开网卡。请以管理员身份运行本软件，或重新安装 Npcap 并取消该限制选项。</source>
@@ -4803,6 +4823,11 @@ SHA256: %3</translation>
         <comment>update.download.withdrawn</comment>
         <translation>Update checks were turned off in Settings, so the download stopped and the downloaded installer is no longer available. To update, turn update checks back on in “Settings → General”, then click “Retry”.</translation>
     </message>
+    <message>
+        <source>正在自动寻找可读取的游戏网络路径，请稍候；暂时无需操作。</source>
+        <comment>capture.hint.path_recovering</comment>
+        <translation>Automatically searching for a readable game network path. Please wait; no action is needed yet.</translation>
+    </message>
 </context>
 <context>
     <name>CompletionPieChart</name>
@@ -4992,6 +5017,10 @@ SHA256: %3</translation>
     <message>
         <source>还没有笔记。可以在历史记录中补录，也可以开启“通关后自动弹出”提醒。</source>
         <translation>No notes yet. Add one from History, or turn on “Pop up after clears”.</translation>
+    </message>
+    <message>
+        <source>正在自动寻找游戏网络路径</source>
+        <translation>Finding the game’s network path automatically</translation>
     </message>
 </context>
 <context>
@@ -10070,6 +10099,10 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>正在检查自动记录能力…</source>
         <translation>Checking automatic recording capability…</translation>
+    </message>
+    <message>
+        <source>自动寻找网络路径未能恢复读取，请查看「捕获诊断」中的说明。</source>
+        <translation>Automatic network path discovery could not restore reading. See the instructions in “Capture diagnostics”.</translation>
     </message>
 </context>
 <context>

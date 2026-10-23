@@ -191,6 +191,9 @@ public sealed record CaptureDiagnosticsSnapshot
     /// <summary>Optional endpoint-free path facts; unknown measurements retain null counts.</summary>
     public NetworkPathDiagnosticsSnapshot NetworkPath { get; init; } = NetworkPathDiagnosticsSnapshot.Unmeasured;
 
+    /// <summary>Automatic recovery progress; independent of measured capture health.</summary>
+    public PathRecoverySnapshot PathRecovery { get; init; } = PathRecoverySnapshot.None;
+
     /// <summary>Distinct game connections observed this session.</summary>
     public int ConnectionCount { get; init; }
 
@@ -466,6 +469,7 @@ public static class SanitizedDiagnosticsReport
             },
 
             ["network_path"] = NetworkPathWire.ToJson(snapshot.NetworkPath),
+            ["path_recovery"] = PathRecoveryWire.ToJson(snapshot.PathRecovery),
 
             ["capture"] = new JsonObject
             {

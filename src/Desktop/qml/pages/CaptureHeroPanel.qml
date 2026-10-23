@@ -69,8 +69,10 @@ Card {
                 && path.ipv6_connections > 0 && path.ipv6_capture_supported === false
                 && !ipv6OnlyDescription)
             lines.push(qsTr("检测到的 IPv6 连接暂不支持读取。"))
-        if (typeof path.capture_open_failures === "number" && path.capture_open_failures > 0)
-            lines.push(qsTr("部分网络路径未能监听，请重新检测网卡或导出诊断报告。"))
+        if (!hero.chain.recovering && typeof path.capture_open_failures === "number" && path.capture_open_failures > 0)
+            lines.push(hero.chain.pathActionAvailable
+                ? qsTr("部分网络路径未能监听，请重新检测网卡或导出诊断报告。")
+                : qsTr("部分网络路径未能监听。"))
         if (path.candidate_limit_reached === true)
             lines.push(qsTr("网卡较多，目前仅监听部分候选路径。"))
         return lines.join("\n")
@@ -224,7 +226,7 @@ Card {
 
             AppButton {
                 objectName: "rescanGameButton"
-                visible: !hero.broken
+                visible: !hero.broken && !hero.chain.recovering
                 variant: "ghost"
                 text: qsTr("重新检测游戏")
                 onClicked: Runtime.app.rescanGame()
@@ -232,7 +234,7 @@ Card {
 
             AppButton {
                 objectName: "rescanAdaptersButton"
-                visible: !hero.broken
+                visible: !hero.broken && hero.chain.pathActionAvailable
                 variant: "ghost"
                 text: qsTr("重新检测网卡")
                 onClicked: Runtime.app.rescanAdapters()

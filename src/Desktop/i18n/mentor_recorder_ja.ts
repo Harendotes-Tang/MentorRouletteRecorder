@@ -1158,6 +1158,14 @@
         <source>版本支持</source>
         <translation>バージョン対応</translation>
     </message>
+    <message>
+        <source>自动寻找中</source>
+        <translation>自動検索中</translation>
+    </message>
+    <message>
+        <source>已保存网卡偏好</source>
+        <translation>保存済みのアダプター設定</translation>
+    </message>
 </context>
 <context>
     <name>CaptureHeroCopy</name>
@@ -1286,6 +1294,14 @@
         <extracomment>The full stop that closes a sentence.</extracomment>
         <translation>。</translation>
     </message>
+    <message>
+        <source>自动寻找网络路径</source>
+        <translation>ネットワーク経路を自動検索中</translation>
+    </message>
+    <message>
+        <source>正在自动寻找游戏网络路径</source>
+        <translation>ゲームのネットワーク経路を自動検索しています</translation>
+    </message>
 </context>
 <context>
     <name>CaptureHeroPanel</name>
@@ -1372,6 +1388,10 @@
     <message>
         <source>连接状态</source>
         <translation>接続状態</translation>
+    </message>
+    <message>
+        <source>部分网络路径未能监听。</source>
+        <translation>一部のネットワーク経路を監視できませんでした。</translation>
     </message>
 </context>
 <context>
@@ -2561,9 +2581,9 @@ SHA256：%3</translation>
         <translation>ゲームに接続していますが、有効なデータを読み取れない状態が続いています。接続開始時の情報を取りこぼした可能性があります。都合のよいときにタイトル画面に戻ってからログインし直すと（ゲームを終了する必要はありません）、アプリが新しい接続のキャプチャを試みます。それでも記録されない場合は、診断レポートを書き出してください。</translation>
     </message>
     <message>
-        <source>你已经重新连接过游戏，但软件仍然没能读到连接开始时的信息。请先关闭加速器、VPN 和正在进行的下载，重启本软件后再试；若仍如此，请导出诊断报告。</source>
+        <source>你已经重新连接过游戏，但软件仍未读到可用数据。请保留当前加速器设置，导出诊断报告以继续排查。</source>
         <comment>capture.hint.midstream_reconnected</comment>
-        <translation>ゲームに再接続しましたが、アプリはまだ接続開始時の情報を読み取れていません。高速化ツール、VPN、実行中のダウンロードを止めてから、このアプリを再起動してもう一度試してください。それでも同じ場合は、診断レポートを書き出してください。</translation>
+        <translation>ゲームに再接続しましたが、まだ利用可能なデータを読み取れていません。現在のゲーム用アクセラレーターの設定を維持し、診断レポートをエクスポートして調査を続けてください。</translation>
     </message>
     <message>
         <source>看到了网络流量，但还无法确认游戏连接，暂时不能校准或自动记录。请点“重新检测网卡”；使用加速器或代理时，可尝试切换连接模式后重新启动游戏。</source>
@@ -2571,9 +2591,9 @@ SHA256：%3</translation>
         <translation>ネットワーク通信は確認できましたが、ゲームの接続をまだ特定できないため、校正と自動記録を続けられません。「アダプターを再検出」をクリックしてください。高速化ツールやプロキシを使用している場合は、接続モードを切り替えてからゲームを再起動してみてください。</translation>
     </message>
     <message>
-        <source>所选网卡上没有看到游戏流量，可能使用了加速器或 VPN。请在「捕获诊断」点「重新检测网卡」，再按网卡提示操作；也可以关闭加速器后重新登录游戏。</source>
+        <source>当前监听路径没有收到游戏流量。请在「捕获诊断」重新检测网络路径；仍无法恢复时，请导出诊断报告。</source>
         <comment>capture.hint.no_packets</comment>
-        <translation>選択したアダプターにゲームの通信が見当たりません。高速化ツールや VPN を使っている可能性があります。「キャプチャ診断」で「アダプターを再検出」を押し、アダプターの案内に従って操作してください。高速化ツールを止めてからゲームにログインし直すこともできます。</translation>
+        <translation>現在監視している経路ではゲームの通信を受信していません。「キャプチャ診断」でネットワーク経路を再検出してください。再開できない場合は、診断レポートをエクスポートしてください。</translation>
     </message>
     <message>
         <source>Npcap 安装时启用了 “Restrict Npcap driver&apos;s access to Administrators only”，当前进程没有管理员权限，无法打开网卡。请以管理员身份运行本软件，或重新安装 Npcap 并取消该限制选项。</source>
@@ -4803,6 +4823,11 @@ SHA256：%3</translation>
         <comment>update.download.withdrawn</comment>
         <translation>設定で更新の確認がオフになったため、ダウンロードを停止しました。ダウンロード済みのインストーラーも使用できなくなりました。更新する場合は、先に「設定 · 一般」で更新の確認をもう一度オンにしてから、「再試行」を押してください。</translation>
     </message>
+    <message>
+        <source>正在自动寻找可读取的游戏网络路径，请稍候；暂时无需操作。</source>
+        <comment>capture.hint.path_recovering</comment>
+        <translation>読み取り可能なゲームのネットワーク経路を自動検索しています。しばらくお待ちください。今は操作の必要はありません。</translation>
+    </message>
 </context>
 <context>
     <name>CompletionPieChart</name>
@@ -4992,6 +5017,10 @@ SHA256：%3</translation>
     <message>
         <source>还没有笔记。可以在历史记录中补录，也可以开启“通关后自动弹出”提醒。</source>
         <translation>メモはまだありません。履歴からあとで書くことも、「クリア後に自動で開く」をオンにすることもできます。</translation>
+    </message>
+    <message>
+        <source>正在自动寻找游戏网络路径</source>
+        <translation>ゲームのネットワーク経路を自動検索しています</translation>
     </message>
 </context>
 <context>
@@ -10070,6 +10099,10 @@ SHA256：%3</translation>
     <message>
         <source>正在检查自动记录能力…</source>
         <translation>自動記録できるか確認中…</translation>
+    </message>
+    <message>
+        <source>自动寻找网络路径未能恢复读取，请查看「捕获诊断」中的说明。</source>
+        <translation>ネットワーク経路の自動検索では読み取りを再開できませんでした。「キャプチャ診断」の説明を確認してください。</translation>
     </message>
 </context>
 <context>

@@ -18,6 +18,9 @@ ColumnLayout {
 
     // The page's hero card already says the headline and its explanation.
     property bool headlineInHero: false
+    // The diagnosis page can continue each column without aligning their lower cards.
+    readonly property alias localPanelColumn: localColumn
+    readonly property alias sidePanelColumn: sideColumn
 
     signal confirmRequested()
 
@@ -39,6 +42,8 @@ ColumnLayout {
     // 故两者都要判断。
     readonly property bool captureSilent:
         Runtime.app.recording ? (Runtime.app.recording.silent || Runtime.app.recording.blocked) : false
+    readonly property bool recovering: !!Runtime.app.recording && Runtime.app.recording.recovering
+    readonly property bool inputBlocked: card.captureSilent || card.recovering
 
     // Evidence survives a new game connection. Compare wall clocks because the
     // session-relative clock starts over when the Collector reconnects.
@@ -129,7 +134,8 @@ ColumnLayout {
     // -- the headline, when the card stands alone ----------------------------
     ColumnLayout {
         Layout.fillWidth: true
-        visible: !card.headlineInHero && !(card.captureSilent && card.calibrationState === "OBSERVING")
+        visible: !card.headlineInHero && !card.recovering
+                 && !(card.inputBlocked && card.calibrationState === "OBSERVING")
         spacing: 4
 
         Text {
@@ -169,258 +175,278 @@ ColumnLayout {
         columnSpacing: 12
         rowSpacing: 12
 
-        Card {
-            id: local
-            objectName: "calibrationLocalPanel"
-            // 共享档案记录时，本机校准只在后台观察，不向玩家摊开进度。
-            visible: !card.sharedRecording
+        ColumnLayout {
+            id: localColumn
             Layout.fillWidth: true
             Layout.preferredWidth: row.twoColumns ? row.wideWidth : card.width
             Layout.alignment: Qt.AlignTop
-            horizontalPadding: 20
-            verticalPadding: 16
+            visible: !card.sharedRecording || children.length > 1
             spacing: 12
 
-            RowLayout {
+            Card {
+                id: local
+                objectName: "calibrationLocalPanel"
+                // 共享档案记录时，本机校准只在后台观察，不向玩家摊开进度。
+                visible: !card.sharedRecording
                 Layout.fillWidth: true
+                Layout.alignment: Qt.AlignTop
+                horizontalPadding: 20
+                verticalPadding: 16
                 spacing: 12
 
-                CardKicker {
-                    Layout.fillWidth: false
-                    Layout.alignment: Qt.AlignTop
-                    text: qsTr("本机校准")
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+
+                    CardKicker {
+                        Layout.fillWidth: false
+                        Layout.alignment: Qt.AlignTop
+                        text: qsTr("本机校准")
+                    }
+
+                    Text {
+                        objectName: "calibrationProgressContext"
+                        Layout.fillWidth: true
+                        text: card.progressMeasured
+                              ? qsTr("已识别 %1 / %2 项 · 进度会保留，显示的是已识别的步骤，不是当前游戏状态")
+                                .arg(card.seenCount).arg(card.requiredKeys.length)
+                              : qsTr("退出游戏或重启软件不会清空进度。以下是已识别的步骤，不是当前游戏状态。")
+                        textFormat: Text.PlainText
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fs(12)
+                        wrapMode: Text.WordWrap
+                    }
+                }
+
+                // The five steps joined by lines; a line turns green once the step
+                // before it is seen. Too narrow for a line of five, the steps stack.
+                GridLayout {
+                    id: stepper
+                    objectName: "calibrationStepper"
+                    Layout.fillWidth: true
+                    readonly property bool vertical: width < 400
+                    columns: stepper.vertical ? 1 : 9
+                    rowSpacing: stepper.vertical ? 6 : 0
+                    columnSpacing: 0
+
+                    Repeater {
+                        model: 9
+
+                        delegate: Item {
+                            id: cell
+                            required property int index
+
+                            readonly property bool isLine: (cell.index % 2) === 1
+                            readonly property var step: cell.isLine ? null : card.progressRows[cell.index / 2]
+                            readonly property bool seen: !!cell.step && !!card.progress[cell.step.key]
+                            readonly property bool near: !!cell.step && !cell.seen
+                                                         && cell.step.nearKey.length > 0
+                                                         && !!card.progress[cell.step.nearKey]
+                            readonly property bool previousSeen: cell.isLine
+                                && !!card.progress[card.progressRows[(cell.index - 1) / 2].key]
+
+                            objectName: cell.step ? "calibrationProgress_" + cell.step.key : "calibrationStepLine"
+                            visible: !(cell.isLine && stepper.vertical)
+                            Layout.fillWidth: cell.isLine || stepper.vertical
+                            Layout.preferredWidth: cell.isLine ? 16 : (stepper.vertical ? -1 : 92)
+                            Layout.minimumWidth: cell.isLine ? 8 : (stepper.vertical ? 0 : 72)
+                            Layout.alignment: Qt.AlignTop
+                            implicitWidth: cell.isLine ? 16 : 92
+                            implicitHeight: cell.isLine ? 24 : stepBody.implicitHeight
+
+                            Rectangle {
+                                visible: cell.isLine
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                y: 11
+                                height: 2
+                                color: cell.previousSeen ? Theme.green : Theme.border
+                            }
+
+                            GridLayout {
+                                id: stepBody
+                                visible: !cell.isLine
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.top: parent.top
+                                columns: stepper.vertical ? 3 : 1
+                                rowSpacing: 4
+                                columnSpacing: 8
+
+                                Rectangle {
+                                    Layout.alignment: stepper.vertical ? (Qt.AlignLeft | Qt.AlignVCenter) : Qt.AlignHCenter
+                                    implicitWidth: 24
+                                    implicitHeight: 24
+                                    radius: 12
+                                    border.width: 2
+                                    border.color: cell.seen ? Theme.green
+                                                  : cell.near ? Theme.orange : Theme.neutral300
+                                    color: cell.seen ? Theme.green
+                                           : cell.near ? Theme.orangeBackground : Theme.surface
+                                    Behavior on color { ColorAnimation { duration: Theme.motionControl } }
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: cell.seen ? "✓" : (cell.near ? "!" : "")
+                                        color: cell.seen ? Theme.badgeForeground : Theme.orangeText
+                                        font.pixelSize: 13
+                                        font.bold: true
+                                    }
+                                }
+
+                                Text {
+                                    objectName: cell.step ? "calibrationProgressLabel_" + cell.step.key : ""
+                                    Layout.fillWidth: !stepper.vertical
+                                    Layout.alignment: stepper.vertical ? Qt.AlignVCenter : Qt.AlignHCenter
+                                    horizontalAlignment: stepper.vertical ? Text.AlignLeft : Text.AlignHCenter
+                                    text: cell.step ? cell.step.label : ""
+                                    textFormat: Text.PlainText
+                                    color: cell.seen || cell.near ? Theme.textPrimary : Theme.textSecondary
+                                    font.pixelSize: Theme.fs(13)
+                                    font.weight: cell.seen || cell.near ? Font.DemiBold : Font.Normal
+                                    wrapMode: Text.WordWrap
+                                }
+
+                                Text {
+                                    objectName: cell.step ? "calibrationProgressText_" + cell.step.key : ""
+                                    Layout.fillWidth: true
+                                    Layout.alignment: Qt.AlignVCenter
+                                    horizontalAlignment: stepper.vertical ? Text.AlignLeft : Text.AlignHCenter
+                                    text: !cell.step ? ""
+                                          : cell.seen ? cell.step.seenText
+                                          : cell.near ? cell.step.nearText
+                                          : cell.step.unseenText
+                                    textFormat: Text.PlainText
+                                    color: cell.near ? Theme.orangeText : Theme.textSecondary
+                                    font.pixelSize: Theme.fs(12)
+                                    wrapMode: Text.WordWrap
+                                    Accessible.role: Accessible.StaticText
+                                    Accessible.name: cell.step ? cell.step.label + " · " + text : ""
+                                }
+                            }
+                        }
+                    }
                 }
 
                 Text {
-                    objectName: "calibrationProgressContext"
+                    objectName: "calibrationEvidenceTimes"
                     Layout.fillWidth: true
-                    text: card.progressMeasured
-                          ? qsTr("已识别 %1 / %2 项 · 进度会保留，显示的是已识别的步骤，不是当前游戏状态")
-                            .arg(card.seenCount).arg(card.requiredKeys.length)
-                          : qsTr("退出游戏或重启软件不会清空进度。以下是已识别的步骤，不是当前游戏状态。")
+                    visible: text.length > 0
+                    text: card.evidenceTimes()
                     textFormat: Text.PlainText
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fs(12)
                     wrapMode: Text.WordWrap
                 }
-            }
 
-            // The five steps joined by lines; a line turns green once the step
-            // before it is seen. Too narrow for a line of five, the steps stack.
-            GridLayout {
-                id: stepper
-                objectName: "calibrationStepper"
-                Layout.fillWidth: true
-                readonly property bool vertical: width < 400
-                columns: stepper.vertical ? 1 : 9
-                rowSpacing: stepper.vertical ? 6 : 0
-                columnSpacing: 0
+                // 上面五步是累计证据，这里是接下来的操作。兼容旧 Collector 的未完成证据链提示，
+                // 避免把保留的进本误述为玩家仍在副本中；其他阻塞说明原样显示。
+                RowLayout {
+                    objectName: "calibrationBlockers"
+                    Layout.fillWidth: true
+                    spacing: 12
+                    visible: card.inputBlocked || (card.controller && card.controller.blockers.length > 0)
 
-                Repeater {
-                    model: 9
-
-                    delegate: Item {
-                        id: cell
-                        required property int index
-
-                        readonly property bool isLine: (cell.index % 2) === 1
-                        readonly property var step: cell.isLine ? null : card.progressRows[cell.index / 2]
-                        readonly property bool seen: !!cell.step && !!card.progress[cell.step.key]
-                        readonly property bool near: !!cell.step && !cell.seen
-                                                     && cell.step.nearKey.length > 0
-                                                     && !!card.progress[cell.step.nearKey]
-                        readonly property bool previousSeen: cell.isLine
-                            && !!card.progress[card.progressRows[(cell.index - 1) / 2].key]
-
-                        objectName: cell.step ? "calibrationProgress_" + cell.step.key : "calibrationStepLine"
-                        visible: !(cell.isLine && stepper.vertical)
-                        Layout.fillWidth: cell.isLine || stepper.vertical
-                        Layout.preferredWidth: cell.isLine ? 16 : (stepper.vertical ? -1 : 92)
-                        Layout.minimumWidth: cell.isLine ? 8 : (stepper.vertical ? 0 : 72)
+                    Text {
+                        Layout.preferredWidth: 84
                         Layout.alignment: Qt.AlignTop
-                        implicitWidth: cell.isLine ? 16 : 92
-                        implicitHeight: cell.isLine ? 24 : stepBody.implicitHeight
+                        text: card.sharedRecording || card.recordingBesideOffer ? qsTr("接下来") : qsTr("下一步")
+                        color: Theme.eorzea ? Theme.textSecondary : Theme.textMuted
+                        font.pixelSize: Theme.fs(12)
+                    }
 
-                        Rectangle {
-                            visible: cell.isLine
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            y: 11
-                            height: 2
-                            color: cell.previousSeen ? Theme.green : Theme.border
-                        }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 4
 
-                        GridLayout {
-                            id: stepBody
-                            visible: !cell.isLine
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.top: parent.top
-                            columns: stepper.vertical ? 3 : 1
-                            rowSpacing: 4
-                            columnSpacing: 8
+                        Repeater {
+                            model: card.recovering ? [Runtime.app.recording.message]
+                                   : card.captureSilent
+                                   ? [qsTr("暂时读不到游戏数据，无法继续校准，也不能自动记录。"
+                                           + "请先按本页上方的连接状态提示处理。")]
+                                   : (card.controller ? card.controller.blockers : [])
 
-                            Rectangle {
-                                Layout.alignment: stepper.vertical ? (Qt.AlignLeft | Qt.AlignVCenter) : Qt.AlignHCenter
-                                implicitWidth: 24
-                                implicitHeight: 24
-                                radius: 12
-                                border.width: 2
-                                border.color: cell.seen ? Theme.green
-                                              : cell.near ? Theme.orange : Theme.neutral300
-                                color: cell.seen ? Theme.green
-                                       : cell.near ? Theme.orangeBackground : Theme.surface
-                                Behavior on color { ColorAnimation { duration: Theme.motionControl } }
+                            delegate: Text {
+                                id: blockerText
+                                required property string modelData
+                                required property int index
 
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: cell.seen ? "✓" : (cell.near ? "!" : "")
-                                    color: cell.seen ? Theme.badgeForeground : Theme.orangeText
-                                    font.pixelSize: 13
-                                    font.bold: true
-                                }
-                            }
-
-                            Text {
-                                objectName: cell.step ? "calibrationProgressLabel_" + cell.step.key : ""
-                                Layout.fillWidth: !stepper.vertical
-                                Layout.alignment: stepper.vertical ? Qt.AlignVCenter : Qt.AlignHCenter
-                                horizontalAlignment: stepper.vertical ? Text.AlignLeft : Text.AlignHCenter
-                                text: cell.step ? cell.step.label : ""
-                                textFormat: Text.PlainText
-                                color: cell.seen || cell.near ? Theme.textPrimary : Theme.textSecondary
-                                font.pixelSize: Theme.fs(13)
-                                font.weight: cell.seen || cell.near ? Font.DemiBold : Font.Normal
-                                wrapMode: Text.WordWrap
-                            }
-
-                            Text {
-                                objectName: cell.step ? "calibrationProgressText_" + cell.step.key : ""
+                                objectName: "calibrationBlockerText"
                                 Layout.fillWidth: true
-                                Layout.alignment: Qt.AlignVCenter
-                                horizontalAlignment: stepper.vertical ? Text.AlignLeft : Text.AlignHCenter
-                                text: !cell.step ? ""
-                                      : cell.seen ? cell.step.seenText
-                                      : cell.near ? cell.step.nearText
-                                      : cell.step.unseenText
+                                // The silent-capture line is this card's own, not a blocker.
+                                text: card.blockerMessage(blockerText.modelData,
+                                                          card.inputBlocked ? -1 : blockerText.index)
                                 textFormat: Text.PlainText
-                                color: cell.near ? Theme.orangeText : Theme.textSecondary
+                                // A capture that decodes nothing is a fault; every other sentence
+                                // is the next thing to do, in the text colour.
+                                color: card.recovering ? Theme.textSecondary
+                                       : card.captureSilent ? Theme.orangeText : Theme.textPrimary
                                 font.pixelSize: Theme.fs(12)
+                                font.weight: card.inputBlocked ? Font.Normal : Font.DemiBold
                                 wrapMode: Text.WordWrap
-                                Accessible.role: Accessible.StaticText
-                                Accessible.name: cell.step ? cell.step.label + " · " + text : ""
                             }
                         }
                     }
                 }
-            }
-
-            Text {
-                objectName: "calibrationEvidenceTimes"
-                Layout.fillWidth: true
-                visible: text.length > 0
-                text: card.evidenceTimes()
-                textFormat: Text.PlainText
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fs(12)
-                wrapMode: Text.WordWrap
-            }
-
-            // 上面五步是累计证据，这里是接下来的操作。兼容旧 Collector 的未完成证据链提示，
-            // 避免把保留的进本误述为玩家仍在副本中；其他阻塞说明原样显示。
-            RowLayout {
-                objectName: "calibrationBlockers"
-                Layout.fillWidth: true
-                spacing: 12
-                visible: card.captureSilent || (card.controller && card.controller.blockers.length > 0)
 
                 Text {
-                    Layout.preferredWidth: 84
-                    Layout.alignment: Qt.AlignTop
-                    text: card.sharedRecording || card.recordingBesideOffer ? qsTr("接下来") : qsTr("下一步")
-                    color: Theme.eorzea ? Theme.textSecondary : Theme.textMuted
-                    font.pixelSize: Theme.fs(12)
-                }
-
-                ColumnLayout {
+                    objectName: "calibrationError"
                     Layout.fillWidth: true
-                    spacing: 4
+                    visible: card.controller && card.controller.error.length > 0
+                    text: card.controller ? card.controller.error : ""
+                    textFormat: Text.PlainText
+                    color: Theme.orangeText
+                    font.pixelSize: Theme.fs(12)
+                    wrapMode: Text.WordWrap
+                }
 
-                    Repeater {
-                        model: card.captureSilent
-                               ? [qsTr("暂时读不到游戏数据，无法继续校准，也不能自动记录。"
-                                       + "请先按本页上方的连接状态提示处理。")]
-                               : (card.controller ? card.controller.blockers : [])
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: !card.recovering && (card.ready || !card.done)
+                    spacing: 8
 
-                        delegate: Text {
-                            id: blockerText
-                            required property string modelData
-                            required property int index
-
-                            objectName: "calibrationBlockerText"
-                            Layout.fillWidth: true
-                            // The silent-capture line is this card's own, not a blocker.
-                            text: card.blockerMessage(blockerText.modelData,
-                                                      card.captureSilent ? -1 : blockerText.index)
-                            textFormat: Text.PlainText
-                            // A capture that decodes nothing is a fault; every other sentence
-                            // is the next thing to do, in the text colour.
-                            color: card.captureSilent ? Theme.orangeText : Theme.textPrimary
-                            font.pixelSize: Theme.fs(12)
-                            font.weight: card.captureSilent ? Font.Normal : Font.DemiBold
-                            wrapMode: Text.WordWrap
-                        }
+                    AppButton {
+                        objectName: "calibrationConfirmButton"
+                        visible: card.ready
+                        variant: "primary"
+                        text: qsTr("核对并启用")
+                        enabled: !!card.controller && !card.controller.busy
+                        onClicked: card.confirmRequested()
                     }
+
+                    AppButton {
+                        objectName: "calibrationDiscardButton"
+                        visible: !card.done
+                        text: qsTr("清空校准进度")
+                        enabled: !!card.controller && !card.controller.busy
+                        onClicked: card.controller.discard()
+                        Accessible.description: qsTr("清空尚未完成的校准进度，从头开始。已保存的记录和正在使用的校准不受影响。")
+                    }
+
+                    Item { Layout.fillWidth: true }
                 }
             }
 
-            Text {
-                objectName: "calibrationError"
-                Layout.fillWidth: true
-                visible: card.controller && card.controller.error.length > 0
-                text: card.controller ? card.controller.error : ""
-                textFormat: Text.PlainText
-                color: Theme.orangeText
-                font.pixelSize: Theme.fs(12)
-                wrapMode: Text.WordWrap
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                visible: card.ready || !card.done
-                spacing: 8
-
-                AppButton {
-                    objectName: "calibrationConfirmButton"
-                    visible: card.ready
-                    variant: "primary"
-                    text: qsTr("核对并启用")
-                    enabled: !!card.controller && !card.controller.busy
-                    onClicked: card.confirmRequested()
-                }
-
-                AppButton {
-                    objectName: "calibrationDiscardButton"
-                    visible: !card.done
-                    text: qsTr("清空校准进度")
-                    enabled: !!card.controller && !card.controller.busy
-                    onClicked: card.controller.discard()
-                    Accessible.description: qsTr("清空尚未完成的校准进度，从头开始。已保存的记录和正在使用的校准不受影响。")
-                }
-
-                Item { Layout.fillWidth: true }
-            }
         }
 
-        SharedCalibrationSection {
-            objectName: "calibrationSharedSection"
+        ColumnLayout {
+            id: sideColumn
             Layout.fillWidth: true
             Layout.preferredWidth: row.twoColumns ? row.narrowWidth : card.width
             Layout.alignment: Qt.AlignTop
-            headlineShownByCard: card.sharedRecording
-            // 共享档案记录时本机校准面板不出现，采集服务说明「何时结束、对不上会怎样」的句子
-            // 改在这里显示。
-            retainingLines: card.sharedRecording && card.controller ? card.controller.blockers : []
+            visible: sharedSection.contentVisible || children.length > 1
+            spacing: 12
+
+            SharedCalibrationSection {
+                id: sharedSection
+                objectName: "calibrationSharedSection"
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignTop
+                headlineShownByCard: card.sharedRecording
+                // 共享档案记录时本机校准面板不出现，采集服务说明「何时结束、对不上会怎样」的句子
+                // 改在这里显示。
+                retainingLines: card.sharedRecording && card.controller ? card.controller.blockers : []
+            }
         }
     }
 }

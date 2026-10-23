@@ -357,6 +357,7 @@ void AutomaticRecordingController::project(const QVariantMap &c)
     }
     const QString error = c.value(QStringLiteral("last_error_code")).toString();
     const QString reason = silentReason(c);
+    if (projectPathRecovery(c)) return;
     if (c.value(QStringLiteral("midstream_suspected")).toBool()
         || reason == QLatin1String("MIDSTREAM")) {
         block(session + QStringLiteral("capture:midstream"), LiveText([c, reason] { return silentMessage(c, reason); })); return;
@@ -411,6 +412,10 @@ bool AutomaticRecordingController::projectCalibration(const QVariantMap &c)
         return false;
     const QVariantMap calibration = raw.toMap();
     const QString state = calibration.value(QStringLiteral("state")).toString();
+
+    if ((state == QLatin1String("WAITING") || state == QLatin1String("OBSERVING"))
+        && projectPathRecovery(c))
+        return true;
 
     if (state == QLatin1String("WAITING")
         || (state == QLatin1String("OBSERVING") && c.contains(QStringLiteral("state"))
@@ -493,6 +498,54 @@ bool AutomaticRecordingController::projectCalibration(const QVariantMap &c)
     }
     // IDLE and DONE are not calibration projections: DONE has already produced
     // a VERIFIED profile, so the ordinary listening path applies.
+    return false;
+}
+
+bool AutomaticRecordingController::projectPathRecovery(const QVariantMap &c)
+{
+    const QString state = c.value(QStringLiteral("path_recovery")).toMap()
+                              .value(QStringLiteral("state")).toString();
+    const QString error = c.value(QStringLiteral("last_error_code")).toString();
+    // Driver and version prerequisites cannot be fixed by rediscovering paths.
+    // Their independent errors retain the existing actionable projection.
+    if (!error.isEmpty() && error != QLatin1String("NONE")
+        && error != QLatin1String("UNAVAILABLE") && error != QLatin1String("ERR_INTERNAL")
+        && !error.startsWith(QLatin1String("ERR_CAPTURE_"))) {
+        if (state == QLatin1String("RECOVERING")) {
+            block(c.value(QStringLiteral("ffxiv_process_id")).toString()
+                      + QStringLiteral(":capture:") + error, LiveText([error] {
+                const QString detail = Formatters::captureErrorKnown(error)
+                    ? Formatters::captureErrorLabel(error)
+                    : tr("%1（代码 %2）").arg(Formatters::captureErrorLabel(error), error);
+                return tr("暂时不能自动记录。%1 请查看「捕获诊断」。").arg(detail);
+            }));
+            return true;
+        }
+        return false;
+    }
+    if (state == QLatin1String("RECOVERING")) {
+        clearIncident();
+        setState(QStringLiteral("recovering"), LiveText([] {
+            return collector_text::render(QVariantMap{{QStringLiteral("key"),
+                                                      QStringLiteral("capture.hint.path_recovering")}},
+                QStringLiteral("正在自动寻找可读取的游戏网络路径，请稍候；暂时无需操作。"));
+        }));
+        return true;
+    }
+    // A failed recovery is never evidence of readable traffic, even if the
+    // replacement source has not yet measured its own silent reason.
+    if (state == QLatin1String("FAILED") && silentReason(c).isEmpty()
+        && !c.value(QStringLiteral("midstream_suspected")).toBool()
+        && (error.isEmpty() || error == QLatin1String("NONE"))) {
+        block(c.value(QStringLiteral("ffxiv_process_id")).toString()
+                  + QStringLiteral(":capture:path_recovery"), LiveText([c] {
+            const QString hint = c.value(QStringLiteral("hint")).toString();
+            return hint.isEmpty()
+                ? tr("自动寻找网络路径未能恢复读取，请查看「捕获诊断」中的说明。")
+                : collector_text::render(c.value(QStringLiteral("hint_ref")), hint);
+        }));
+        return true;
+    }
     return false;
 }
 

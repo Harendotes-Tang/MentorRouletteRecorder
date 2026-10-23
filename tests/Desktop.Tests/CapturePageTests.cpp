@@ -24,7 +24,9 @@
 #include "CollectorTextTestSupport.h"
 #include "Formatters.h"
 #include "IBackend.h"
+#include "JobCatalog.h"
 #include "MockBackend.h"
+#include "RoleCatalog.h"
 
 #include <QDir>
 #include <QGuiApplication>
@@ -81,6 +83,7 @@ public:
     QJsonObject capture;
     /// GetCaptureValidationStatus; no session by default.
     QJsonObject validation{{QStringLiteral("active"), false}};
+    QJsonObject settings{{QStringLiteral("follow_game"), true}};
     /// ListCaptureAdapters when set.
     QJsonObject adapters;
     QHash<QString, int> counts;
@@ -99,7 +102,7 @@ public:
         // Follow-the-game on and no validation session: the recording controller
         // can then reach its capture verdicts instead of waiting for a setting.
         else if (type == QLatin1String("GetCaptureSettings"))
-            reply->succeed({{QStringLiteral("follow_game"), true}});
+            reply->succeed(settings);
         else if (type == QLatin1String("GetCaptureValidationStatus"))
             reply->succeed(validation);
         else if (type == QLatin1String("ListCaptureAdapters") && !adapters.isEmpty())
@@ -159,9 +162,12 @@ struct PageScene
     std::unique_ptr<mr::IBackend> other;
     std::unique_ptr<mr::AppController> app;
     std::unique_ptr<mr::Formatters> formatters;
+    mr::JobCatalog jobs;
+    mr::RoleCatalog roles;
     std::unique_ptr<QQmlEngine> engine;
     std::unique_ptr<QObject> root;
     QQuickItem *page = nullptr;
+    QString pageType = QStringLiteral("CapturePage");
 
     ~PageScene()
     {
@@ -180,16 +186,18 @@ struct PageScene
         engine = std::make_unique<QQmlEngine>();
         engine->rootContext()->setContextProperty(QStringLiteral("App"), app.get());
         engine->rootContext()->setContextProperty(QStringLiteral("Fmt"), formatters.get());
+        engine->rootContext()->setContextProperty(QStringLiteral("Jobs"), &jobs);
+        engine->rootContext()->setContextProperty(QStringLiteral("Roles"), &roles);
         engine->rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
         QQmlComponent component(engine.get());
-        component.setData(QByteArrayLiteral(R"(import QtQuick
+        component.setData(QStringLiteral(R"(import QtQuick
 import QtQuick.Controls
 import MentorRecorder
 ApplicationWindow {
     width: 1180; height: 900; visible: true
     color: Theme.surface
-    CapturePage { objectName: "capturePage"; anchors.fill: parent; anchors.margins: 16 }
-})"), QUrl());
+    %1 { objectName: "capturePage"; anchors.fill: parent; anchors.margins: 16 }
+})").arg(pageType).toUtf8(), QUrl());
         root.reset(component.create());
         if (!root) {
             qWarning("%s", qPrintable(component.errorString()));
@@ -260,6 +268,46 @@ void expectNothingClaimedAboutNpcap(const PageScene &scene, const QString &headl
     QVERIFY2(!page.contains(QStringLiteral("npcap.com")), qPrintable(page));
 }
 
+void verifyCalibrationColumns(const PageScene &scene)
+{
+    auto *tools = scene.item(QStringLiteral("captureToolsPanel"));
+    auto *shared = scene.item(QStringLiteral("calibrationSharedSection"));
+    auto *parse = scene.item(QStringLiteral("captureParsePanel"));
+    auto *local = scene.item(QStringLiteral("calibrationLocalPanel"));
+    QVERIFY(tools && shared && parse && local);
+    QTRY_COMPARE(tools->parentItem(), shared->parentItem());
+    QTRY_VERIFY(qAbs(tools->y() - shared->y() - shared->height() - 12) <= 1);
+    QTRY_COMPARE(parse->parentItem(), local->parentItem());
+    QTRY_VERIFY(qAbs(parse->y() - local->y() - local->height() - 12) <= 1);
+}
+
+void verifyToolsLayoutTransitions(const PageScene &scene, CaptureBackend &backend,
+                                 QQuickWindow &window, const QString &evidence)
+{
+    auto *tools = scene.item(QStringLiteral("captureToolsPanel"));
+    auto *shared = scene.item(QStringLiteral("calibrationSharedSection"));
+    auto *parse = scene.item(QStringLiteral("captureParsePanel"));
+    QVERIFY(tools && shared && parse);
+    // Keep controls and parser samples when changing width or leaving calibration.
+    window.setWidth(600);
+    QTRY_VERIFY(tools->parentItem() != shared->parentItem());
+    QTRY_COMPARE(tools->parentItem(), parse->parentItem());
+    QTRY_VERIFY(tools->y() >= parse->y() + parse->height() + 11);
+    if (!evidence.isEmpty()) {
+        QTest::qWait(150);
+        QVERIFY(window.grabWindow().save(QDir(evidence).filePath(
+            QStringLiteral("tools-narrow-%1.png").arg(QString::fromLatin1(QTest::currentDataTag())))));
+    }
+    window.setWidth(900);
+    QTRY_COMPARE(tools->parentItem(), shared->parentItem());
+    backend.capture["calibration"] = QJsonObject{{"state", "IDLE"}};
+    scene.app->recording()->refresh();
+    QTRY_VERIFY(!scene.shows(QStringLiteral("calibrationCard")));
+    QTRY_COMPARE(tools->parentItem(), parse->parentItem());
+    QCOMPARE(scene.item(QStringLiteral("captureToolsPanel")), tools);
+    QCOMPARE(scene.item(QStringLiteral("captureParsePanel")), parse);
+}
+
 } // namespace
 
 namespace {
@@ -268,6 +316,225 @@ class CapturePageTests : public QObject
     Q_OBJECT
 
 private slots:
+    void pathRecoveryRenderingAndTransitions_data()
+    {
+        QTest::addColumn<bool>("dark");
+        QTest::addColumn<QString>("language");
+        for (const auto &language : {"zh_CN", "zh_TW", "en", "ja"}) {
+            for (const bool dark : {false, true}) {
+                const QByteArray name = QStringLiteral("%1-%2").arg(QLatin1String(language))
+                    .arg(dark ? QStringLiteral("dark") : QStringLiteral("light")).toUtf8();
+                QTest::newRow(name.constData()) << dark << QString::fromLatin1(language);
+            }
+        }
+    }
+    void pathRecoveryRenderingAndTransitions()
+    {
+        QFETCH(bool, dark);
+        QFETCH(QString, language);
+        QTranslator translator;
+        if (language != QLatin1String("zh_CN")) {
+            const QString qm = QDir(QCoreApplication::applicationDirPath())
+                .filePath(QStringLiteral("../../src/Desktop/mentor_recorder_%1.qm").arg(language));
+            QVERIFY2(translator.load(qm), qPrintable(qm));
+            QCoreApplication::installTranslator(&translator);
+        }
+        const auto removeTranslation = qScopeGuard([&] { QCoreApplication::removeTranslator(&translator); });
+        auto fake = std::make_unique<CaptureBackend>();
+        auto *backend = fake.get();
+        fake->capture = {{"state", "STARTING"}, {"ffxiv_running", true},
+                         {"ffxiv_process_id", 8544}, {"npcap_installed", true},
+                         {"profile_status", "UNSUPPORTED_BUILD"}, {"region", "CN"},
+                         {"game_build", "2026.10.06.0000.0000"},
+                         {"messages_decoded", 0}, {"decode_errors", 0},
+                         {"silent_reason", "MIDSTREAM"}, {"midstream_suspected", true},
+                         {"last_error_code", "ERR_INTERNAL"},
+                         {"hint", QString::fromUtf8("请重新登录游戏。")},
+                         {"path_recovery", QJsonObject{{"state", "RECOVERING"}, {"attempts", 1}, {"retry_after_ms", 15000}}},
+                         {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"},
+                              {"kind", "LOOPBACK"}, {"capture_open_failures", 1}}},
+                         {"calibration", QJsonObject{{"state", "OBSERVING"},
+                              {"game_build", "2026.10.06.0000.0000"},
+                              {"blockers", QJsonArray{QString::fromUtf8("请在游戏里申请一次随机任务。")}},
+                              {"shared", QJsonObject{{"phase", "VERIFYING"},
+                                   {"candidates", QJsonArray{QJsonObject{{"match_source", "MARKER_OFFSET"},
+                                        {"provenance", "PUBLISHED"}}}}}},
+                              {"progress", QJsonObject{{"finder_request_seen", true}}}}}};
+        fake->adapters = {{"adapters", QJsonArray{
+            QJsonObject{{"adapter_id", "old"}, {"friendly_name", "Old adapter"}, {"preference_stale", true},
+                        {"is_loopback", false}, {"recommended", false}},
+            QJsonObject{{"adapter_id", "new"}, {"friendly_name", "New adapter"}, {"recommended", true},
+                        {"is_loopback", false}}}}};
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open());
+        if (scene.app->isDark() != dark) scene.app->toggleTheme();
+        auto *window = qobject_cast<QQuickWindow *>(scene.root.get());
+        QVERIFY(window);
+        window->setWidth(900);
+        QTRY_VERIFY(scene.app->recording()->recovering());
+        const QVariantMap progressRef = mrtest::textRef("capture.hint.path_recovering");
+        const QString progress = mr::collector_text::render(progressRef, QString());
+        QVERIFY(!progress.isEmpty());
+        QTRY_COMPARE(scene.text(QStringLiteral("captureHeroText")), progress);
+        QCOMPARE(scene.text(QStringLiteral("captureChainSummary")), progress);
+        QCOMPARE(scene.text(QStringLiteral("captureHeaderStatusText")),
+                 QCoreApplication::translate("CaptureHeroCopy", "自动寻找网络路径"));
+        QVERIFY(summaryReadsAsWaiting(scene));
+        QVERIFY(!scene.shows(QStringLiteral("rescanGameButton")));
+        QVERIFY(!scene.shows(QStringLiteral("rescanAdaptersButton")));
+        QVERIFY(!scene.shows(QStringLiteral("useRecommendedAdapterButton")));
+        QVERIFY(!scene.shows(QStringLiteral("calibrationHeadline")));
+        QVERIFY(!scene.shows(QStringLiteral("calibrationExplanation")));
+        QVERIFY(!scene.shows(QStringLiteral("calibrationDiscardButton")));
+        QVERIFY(!scene.shows(QStringLiteral("sharedCalibrationHeadline")));
+        QVERIFY(!scene.shows(QStringLiteral("sharedCalibrationDetail")));
+        QCOMPARE(scene.text(QStringLiteral("calibrationBlockerText")), progress);
+        // Raw health remains available for diagnosis; progress only controls the instructions.
+        QVERIFY(scene.app->captureMidstreamSuspected());
+        QVERIFY(!scene.app->recording()->pendingAlert());
+        QVERIFY(!scene.visibleTexts().join(QLatin1Char('\n')).contains(QString::fromUtf8("请重新登录游戏")));
+        QVERIFY(!scene.visibleTexts().join(QLatin1Char('\n')).contains(QString::fromUtf8("请在游戏里申请一次随机任务")));
+        if (language != QLatin1String("zh_CN"))
+            QVERIFY(!progress.contains(QString::fromUtf8("正在自动寻找")));
+        auto *hero = scene.item(QStringLiteral("captureHeroPanel"));
+        for (const auto &name : {"captureHeroHeadline", "captureHeroText", "captureChainSummary"}) {
+            auto *item = scene.item(QLatin1String(name));
+            QVERIFY(item && hero);
+            QTRY_VERIFY(item->height() + 1 >= item->property("paintedHeight").toReal());
+            QTRY_VERIFY(item->mapToItem(hero, QPointF(0, item->height())).y() <= hero->height() + 1);
+        }
+        const QString evidence = qEnvironmentVariable("MR_NETWORK_RECOVERY_EVIDENCE_DIR");
+        verifyCalibrationColumns(scene);
+        if (!evidence.isEmpty()) {
+            QVERIFY(QDir().mkpath(evidence));
+            QTest::qWait(150);
+            QVERIFY(window->grabWindow().save(QDir(evidence).filePath(
+                QStringLiteral("path-recovering-%1.png").arg(QString::fromLatin1(QTest::currentDataTag())))));
+        }
+
+        const QVariantMap hintRef = mrtest::textRef("capture.hint.no_ownership");
+        backend->capture["state"] = "RUNNING";
+        backend->capture["last_error_code"] = "NONE";
+        backend->capture["midstream_suspected"] = false;
+        backend->capture["silent_reason"] = "NO_STREAM_OWNERSHIP";
+        backend->capture["hint"] = mr::collector_text::chinese(hintRef);
+        backend->capture["hint_ref"] = QJsonObject::fromVariantMap(hintRef);
+        backend->capture["path_recovery"] = QJsonObject{{"state", "FAILED"}, {"attempts", 3}, {"retry_after_ms", 0}};
+        scene.app->recording()->refresh();
+        QTRY_VERIFY(!scene.app->recording()->recovering());
+        QTRY_COMPARE(scene.text(QStringLiteral("captureHeroText")), mr::collector_text::render(hintRef, QString()));
+        QVERIFY(scene.shows(QStringLiteral("rescanAdaptersButton")));
+        QVERIFY(!scene.shows(QStringLiteral("calibrationExplanation")));
+        if (!evidence.isEmpty()) {
+            QTest::qWait(150);
+            QVERIFY(window->grabWindow().save(QDir(evidence).filePath(
+                QStringLiteral("path-recovery-failed-%1.png").arg(QString::fromLatin1(QTest::currentDataTag())))));
+        }
+        backend->capture["path_recovery"] = QJsonObject{{"state", "NONE"}};
+        backend->capture["silent_reason"] = "NONE";
+        backend->capture["messages_decoded"] = 10;
+        scene.app->recording()->refresh();
+        QTRY_VERIFY(scene.app->recording()->calibrating());
+        QVERIFY(scene.app->calibration()->progress().value(QStringLiteral("finder_request_seen")).toBool());
+
+        verifyToolsLayoutTransitions(scene, *backend, *window, evidence);
+    }
+    void dashboardRecoveryDefersTheHealthAction()
+    {
+        auto fake = std::make_unique<CaptureBackend>();
+        auto *backend = fake.get();
+        fake->capture = {{"state", "RUNNING"}, {"ffxiv_running", true}, {"ffxiv_process_id", 123},
+                         {"npcap_installed", true}, {"profile_status", "VERIFIED"},
+                         {"silent_reason", "MIDSTREAM"}, {"midstream_suspected", true},
+                         {"hint", QString::fromUtf8("请重新登录游戏。")},
+                         {"path_recovery", QJsonObject{{"state", "RECOVERING"}}}};
+        PageScene scene;
+        scene.pageType = QStringLiteral("DashboardPage");
+        scene.other = std::move(fake);
+        QVERIFY(scene.open());
+        QTRY_VERIFY(scene.app->recording()->recovering());
+        QVERIFY(scene.shows(QStringLiteral("dashboardCaptureHealth")));
+        QCOMPARE(scene.text(QStringLiteral("dashboardCaptureHealthText")), scene.app->recording()->message());
+        QVERIFY(!scene.shows(QStringLiteral("dashboardCaptureDiagnosticsButton")));
+        QVERIFY(!scene.visibleTexts().join(QLatin1Char('\n')).contains(QString::fromUtf8("请重新登录游戏")));
+        backend->capture["path_recovery"] = QJsonObject{{"state", "FAILED"}};
+        scene.app->recording()->refresh();
+        QTRY_VERIFY(scene.shows(QStringLiteral("dashboardCaptureDiagnosticsButton")));
+        QCOMPARE(scene.text(QStringLiteral("dashboardCaptureHealthText")), QString::fromUtf8("请重新登录游戏。"));
+    }
+    void recoveryDoesNotHideIndependentPrerequisites_data()
+    {
+        QTest::addColumn<QString>("prerequisite");
+        QTest::newRow("npcap") << QStringLiteral("npcap");
+        QTest::newRow("profile") << QStringLiteral("profile");
+        QTest::newRow("database") << QStringLiteral("database");
+    }
+    void recoveryDoesNotHideIndependentPrerequisites()
+    {
+        QFETCH(QString, prerequisite);
+        auto fake = std::make_unique<CaptureBackend>();
+        fake->capture = {{"state", "RUNNING"}, {"ffxiv_running", true},
+                         {"ffxiv_process_id", 123}, {"npcap_installed", true},
+                         {"profile_status", "VERIFIED"}, {"silent_reason", "MIDSTREAM"},
+                         {"path_recovery", QJsonObject{{"state", "RECOVERING"}}}};
+        if (prerequisite == QLatin1String("npcap")) fake->capture["npcap_installed"] = false;
+        if (prerequisite == QLatin1String("profile")) fake->capture["profile_status"] = "UNSUPPORTED_BUILD";
+        if (prerequisite == QLatin1String("database")) fake->capture["last_error_code"] = "ERR_DB_INTEGRITY";
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open());
+        QTRY_VERIFY(scene.app->recording()->blocked());
+        QVERIFY(!scene.app->recording()->recovering());
+        QVERIFY(!scene.text(QStringLiteral("captureHeroHeadline")).contains(QString::fromUtf8("自动寻找")));
+        QVERIFY(!scene.text(QStringLiteral("captureHeroText")).contains(QString::fromUtf8("回到标题画面重新登录")));
+        if (prerequisite != QLatin1String("npcap"))
+            QCOMPARE(scene.text(QStringLiteral("captureChainSummary")), scene.app->recording()->message());
+    }
+    void pathActionsWaitForConfirmedRecoveryFailure_data()
+    {
+        QTest::addColumn<QString>("recovery");
+        QTest::addColumn<bool>("actions");
+        QTest::addColumn<bool>("maintainer");
+        QTest::newRow("none") << QStringLiteral("NONE") << false << false;
+        QTest::newRow("failed") << QStringLiteral("FAILED") << true << false;
+        QTest::newRow("unknown") << QStringLiteral("FUTURE_STATE") << true << false;
+        QTest::newRow("old-collector") << QString() << true << false;
+        QTest::newRow("maintenance-actions") << QStringLiteral("NONE") << true << true;
+    }
+    void pathActionsWaitForConfirmedRecoveryFailure()
+    {
+        QFETCH(QString, recovery);
+        QFETCH(bool, actions);
+        QFETCH(bool, maintainer);
+        auto fake = std::make_unique<CaptureBackend>();
+        fake->capture = {{"state", "RUNNING"}, {"ffxiv_running", true},
+                         {"ffxiv_process_id", 123}, {"npcap_installed", true},
+                         {"profile_status", "VERIFIED"}, {"silent_reason", "NONE"},
+                         {"adapter_id", "old"},
+                         {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"},
+                              {"kind", "LOOPBACK"}, {"capture_open_failures", 1}}}};
+        if (!recovery.isEmpty()) fake->capture["path_recovery"] = QJsonObject{{"state", recovery}};
+        // A remembered preference is not evidence that this run was started manually.
+        fake->settings["adapter_id"] = "old";
+        fake->adapters = {{"adapters", QJsonArray{
+            QJsonObject{{"adapter_id", "old"}, {"friendly_name", "Old adapter"}, {"preference_stale", true},
+                        {"is_loopback", false}, {"recommended", false}},
+            QJsonObject{{"adapter_id", "new"}, {"friendly_name", "New adapter"}, {"recommended", true},
+                        {"is_loopback", false}}}}};
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open(maintainer));
+        QTRY_COMPARE(scene.shows(QStringLiteral("useRecommendedAdapterButton")), actions);
+        QCOMPARE(scene.shows(QStringLiteral("rescanAdaptersButton")), actions);
+        const QString summary = scene.text(QStringLiteral("captureNetworkPathSummary"));
+        QCOMPARE(summary.contains(QString::fromUtf8("请重新检测网卡")), actions);
+        if (!actions) {
+            QVERIFY(summary.contains(QString::fromUtf8("部分网络路径未能监听。")));
+            QVERIFY(!scene.text(QStringLiteral("captureChainSummary")).contains(QString::fromUtf8("请查看下方提示")));
+            QVERIFY(!scene.app->recording()->blocked());
+        }
+    }
     void initTestCase()
     {
         // The shipping QML straight from the source tree, as the other page suites load it.
@@ -275,7 +542,7 @@ private slots:
         QVERIFY(QDir(qmlRoot).exists());
         qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
                                  "MentorRecorder", 1, 0, "Theme");
-        for (const auto &directory : {QStringLiteral("/components"), QStringLiteral("/pages")}) {
+        for (const auto &directory : {QStringLiteral("/charts"), QStringLiteral("/components"), QStringLiteral("/pages")}) {
             for (const auto &file :
                  QDir(qmlRoot + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
                 const QByteArray name = file.chopped(4).toUtf8();

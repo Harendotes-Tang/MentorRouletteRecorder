@@ -154,6 +154,14 @@ public sealed class AdapterEnumerator
     /// <param name="gameProcessId">Game process id, when one is running.</param>
     /// <param name="preferredAdapterId">Adapter the user chose previously, if any.</param>
     public IReadOnlyList<CaptureAdapterView> List(int? gameProcessId, string? preferredAdapterId = null)
+        => List(gameProcessId, preferredAdapterId, out _);
+
+    /// <summary>
+    /// Reports whether the interface inventory was actually read. An unreadable inventory
+    /// must not be treated as confirmation that previously bound interfaces disappeared.
+    /// </summary>
+    internal IReadOnlyList<CaptureAdapterView> List(int? gameProcessId, string? preferredAdapterId,
+        out bool inventoryKnown)
     {
         var gameAddresses = gameProcessId is { } pid ? SafeLocalAddresses(pid) : Array.Empty<IPAddress>();
         var gameAddressSet = new HashSet<IPAddress>(gameAddresses ?? Array.Empty<IPAddress>());
@@ -166,7 +174,7 @@ public sealed class AdapterEnumerator
         var gameIsIdle = gameProcessId is not null && gameAddresses is { Count: 0 };
 
         var views = new List<CaptureAdapterView>();
-        foreach (var adapter in SafeList())
+        foreach (var adapter in SafeList(out inventoryKnown))
         {
             var carries = adapter.IPv4Addresses.Any(gameAddressSet.Contains) ||
                 (CapturePathPlan.IsCanonicalLoopback(adapter.Id) && gameAddressSet.Any(address =>
@@ -272,14 +280,17 @@ public sealed class AdapterEnumerator
             ?? usable.FirstOrDefault(adapter => CapturePathPlan.IsCanonicalLoopback(adapter.Id)), null);
     }
 
-    private IReadOnlyList<AdapterInfo> SafeList()
+    private IReadOnlyList<AdapterInfo> SafeList(out bool inventoryKnown)
     {
         try
         {
-            return _adapters.List();
+            var adapters = _adapters.List();
+            inventoryKnown = true;
+            return adapters;
         }
         catch (NetworkInformationException)
         {
+            inventoryKnown = false;
             return Array.Empty<AdapterInfo>();
         }
     }

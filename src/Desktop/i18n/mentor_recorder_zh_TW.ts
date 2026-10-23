@@ -1158,6 +1158,14 @@
         <source>版本支持</source>
         <translation>版本支援</translation>
     </message>
+    <message>
+        <source>自动寻找中</source>
+        <translation>自動搜尋中</translation>
+    </message>
+    <message>
+        <source>已保存网卡偏好</source>
+        <translation>已儲存網卡偏好</translation>
+    </message>
 </context>
 <context>
     <name>CaptureHeroCopy</name>
@@ -1286,6 +1294,14 @@
         <extracomment>The full stop that closes a sentence.</extracomment>
         <translation>。</translation>
     </message>
+    <message>
+        <source>自动寻找网络路径</source>
+        <translation>自動尋找網路路徑</translation>
+    </message>
+    <message>
+        <source>正在自动寻找游戏网络路径</source>
+        <translation>正在自動尋找遊戲網路路徑</translation>
+    </message>
 </context>
 <context>
     <name>CaptureHeroPanel</name>
@@ -1372,6 +1388,10 @@
     <message>
         <source>连接状态</source>
         <translation>連線狀態</translation>
+    </message>
+    <message>
+        <source>部分网络路径未能监听。</source>
+        <translation>部分網路路徑未能監聽。</translation>
     </message>
 </context>
 <context>
@@ -2561,9 +2581,9 @@ SHA256：%3</translation>
         <translation>已連線遊戲，但一直讀不到有效資料，可能漏掉了連線開始時的資訊。可在方便時登出到標題畫面再重新登入（不用關閉遊戲），讓軟體嘗試擷取新連線。若仍無記錄，請匯出診斷報告。</translation>
     </message>
     <message>
-        <source>你已经重新连接过游戏，但软件仍然没能读到连接开始时的信息。请先关闭加速器、VPN 和正在进行的下载，重启本软件后再试；若仍如此，请导出诊断报告。</source>
+        <source>你已经重新连接过游戏，但软件仍未读到可用数据。请保留当前加速器设置，导出诊断报告以继续排查。</source>
         <comment>capture.hint.midstream_reconnected</comment>
-        <translation>你已經重新連線過遊戲，但軟體仍然沒能讀到連線開始時的資訊。請先關閉加速器、VPN 和正在進行的下載，重新啟動本軟體後再試；若仍如此，請匯出診斷報告。</translation>
+        <translation>你已經重新連接過遊戲，但軟體仍未讀到可用資料。請保留目前的加速器設定，匯出診斷報告以繼續排查。</translation>
     </message>
     <message>
         <source>看到了网络流量，但还无法确认游戏连接，暂时不能校准或自动记录。请点“重新检测网卡”；使用加速器或代理时，可尝试切换连接模式后重新启动游戏。</source>
@@ -2571,9 +2591,9 @@ SHA256：%3</translation>
         <translation>已看到網路流量，但仍無法確認遊戲連線，暫時無法校準或自動記錄。請點選「重新偵測網路卡」；若使用加速器或代理伺服器，可嘗試切換連線模式後重新啟動遊戲。</translation>
     </message>
     <message>
-        <source>所选网卡上没有看到游戏流量，可能使用了加速器或 VPN。请在「捕获诊断」点「重新检测网卡」，再按网卡提示操作；也可以关闭加速器后重新登录游戏。</source>
+        <source>当前监听路径没有收到游戏流量。请在「捕获诊断」重新检测网络路径；仍无法恢复时，请导出诊断报告。</source>
         <comment>capture.hint.no_packets</comment>
-        <translation>所選的網路卡上沒有看到遊戲流量，可能使用了加速器或 VPN。請在「擷取診斷」點「重新偵測網路卡」，再依網路卡提示操作；也可以關閉加速器後重新登入遊戲。</translation>
+        <translation>目前監聽的路徑沒有收到遊戲流量。請在「擷取診斷」重新偵測網路路徑；仍無法恢復時，請匯出診斷報告。</translation>
     </message>
     <message>
         <source>Npcap 安装时启用了 “Restrict Npcap driver&apos;s access to Administrators only”，当前进程没有管理员权限，无法打开网卡。请以管理员身份运行本软件，或重新安装 Npcap 并取消该限制选项。</source>
@@ -4803,6 +4823,11 @@ SHA256：%3</translation>
         <comment>update.download.withdrawn</comment>
         <translation>更新檢查已在設定中關閉，因此下載已停止，已下載的安裝程式也不再提供；如需更新，請先在「設定 · 一般」中重新開啟更新檢查，再點「重試」。</translation>
     </message>
+    <message>
+        <source>正在自动寻找可读取的游戏网络路径，请稍候；暂时无需操作。</source>
+        <comment>capture.hint.path_recovering</comment>
+        <translation>正在自動尋找可讀取的遊戲網路路徑，請稍候；暫時無需操作。</translation>
+    </message>
 </context>
 <context>
     <name>CompletionPieChart</name>
@@ -4992,6 +5017,10 @@ SHA256：%3</translation>
     <message>
         <source>还没有笔记。可以在历史记录中补录，也可以开启“通关后自动弹出”提醒。</source>
         <translation>還沒有筆記。可以在歷史記錄中補錄，也可以開啟「通關後自動彈出」提醒。</translation>
+    </message>
+    <message>
+        <source>正在自动寻找游戏网络路径</source>
+        <translation>正在自動尋找遊戲網路路徑</translation>
     </message>
 </context>
 <context>
@@ -10070,6 +10099,10 @@ SHA256：%3</translation>
     <message>
         <source>正在检查自动记录能力…</source>
         <translation>正在檢查自動記錄功能…</translation>
+    </message>
+    <message>
+        <source>自动寻找网络路径未能恢复读取，请查看「捕获诊断」中的说明。</source>
+        <translation>自動尋找網路路徑未能恢復讀取，請查看「擷取診斷」中的說明。</translation>
     </message>
 </context>
 <context>

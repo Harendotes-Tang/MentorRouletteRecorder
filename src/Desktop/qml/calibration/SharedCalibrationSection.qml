@@ -17,7 +17,7 @@ Card {
     readonly property var shared: Runtime.app.calibration ? Runtime.app.calibration.shared : null
     readonly property string view: section.shared ? section.shared.view : "none"
     readonly property bool captureSilent: !!Runtime.app.recording
-        && (Runtime.app.recording.silent || Runtime.app.recording.blocked)
+        && (Runtime.app.recording.silent || Runtime.app.recording.blocked || Runtime.app.recording.recovering)
     // 已绑定并在记录，但排本与进本仍在核对（plan §18.4）。
     readonly property bool auditPending: !!section.shared && section.shared.auditPending
     // 页面已说明「已使用其他玩家分享的校准」时，此处不再重复标题。
@@ -57,7 +57,8 @@ Card {
     property alias importDialog: importDialog
     property alias rejectDialog: rejectDialog
 
-    visible: !!section.shared && (section.view !== "none" || section.offersSomething)
+    readonly property bool contentVisible: !!section.shared && (section.view !== "none" || section.offersSomething)
+    visible: section.contentVisible
     horizontalPadding: 20
     verticalPadding: 16
     spacing: 8

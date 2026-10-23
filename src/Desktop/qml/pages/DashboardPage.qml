@@ -10,6 +10,9 @@ ScrollView {
     objectName: "dashboardPage"
     readonly property var visibleResultBuckets: Runtime.app.resultBuckets.filter(bucket =>
         bucket.result !== "UNKNOWN" || Number(bucket.count || 0) !== 0)
+    readonly property bool recoveryBlocked: !!Runtime.app.captureStatus.path_recovery
+        && Runtime.app.captureStatus.path_recovery.state === "RECOVERING"
+        && !Runtime.app.recording.recovering && Runtime.app.recording.blocked
 
     readonly property int resultTotal: {
         let total = 0
@@ -120,13 +123,15 @@ ScrollView {
         // Capture started after the client logged in: nothing decodes while the
         // status stays a green RUNNING (docs/live-validation-guide.md section 6).
         Rectangle {
+            objectName: "dashboardCaptureHealth"
             Layout.fillWidth: true
             Layout.preferredHeight: visible ? midstreamRow.implicitHeight + 24 : 0
-            visible: Runtime.app.captureMidstreamSuspected || Runtime.app.captureSilent
+            visible: !page.recoveryBlocked && (Runtime.app.recording.recovering
+                     || Runtime.app.captureMidstreamSuspected || Runtime.app.captureSilent)
             radius: Theme.radiusM
             color: "transparent"
             border.width: 1
-            border.color: Theme.orange
+            border.color: Runtime.app.recording.recovering ? Theme.border : Theme.orange
 
             RowLayout {
                 id: midstreamRow
@@ -142,17 +147,23 @@ ScrollView {
                     spacing: 3
 
                     Text {
-                        text: Runtime.app.captureMidstreamSuspected
+                        objectName: "dashboardCaptureHealthTitle"
+                        Layout.fillWidth: true
+                        text: Runtime.app.recording.recovering ? qsTr("正在自动寻找游戏网络路径")
+                              : Runtime.app.captureMidstreamSuspected
                               ? qsTr("可能错过了连接开头，暂时无法确认自动记录")
                               : qsTr("正在接收网络数据，但尚未识别出游戏消息")
-                        color: Theme.orangeText
+                        color: Runtime.app.recording.recovering ? Theme.textPrimary : Theme.orangeText
                         font.pixelSize: Theme.fs(14)
                         font.bold: true
+                        wrapMode: Text.WordWrap
                     }
 
                     Text {
+                        objectName: "dashboardCaptureHealthText"
                         Layout.fillWidth: true
-                        text: Runtime.app.captureHealthText
+                        text: Runtime.app.recording.recovering
+                              ? Runtime.app.recording.message : Runtime.app.captureHealthText
                         color: Theme.textPrimary
                         font.pixelSize: Theme.fs(12)
                         wrapMode: Text.WordWrap
@@ -160,6 +171,8 @@ ScrollView {
                 }
 
                 AppButton {
+                    objectName: "dashboardCaptureDiagnosticsButton"
+                    visible: !Runtime.app.recording.recovering
                     variant: "primary"
                     text: qsTr("查看捕获诊断")
                     onClicked: page.openCaptureRequested()

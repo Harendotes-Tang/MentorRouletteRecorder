@@ -39,6 +39,9 @@ public sealed record CaptureServices
     /// <summary>读取游戏连接的有界路径摘要；原始端点仅保留在检查器内部，测试可注入确定事实。</summary>
     public NetworkPathInspector NetworkPaths { get; init; } = new();
 
+    /// <summary>Optional injectable notification subscription; production follows .NET network changes.</summary>
+    public Func<Action, IDisposable>? SubscribeNetworkChanges { get; init; }
+
     /// <summary>Creates the capture source for one session.</summary>
     public Func<ICaptureSource>? SourceFactory { get; init; }
 
@@ -167,7 +170,7 @@ public sealed record CaptureServices
 /// when Npcap is missing, no guessed adapter when the game's connections cannot be located,
 /// and no parsing when the protocol profile is not verified.
 /// </summary>
-public sealed class CaptureController : IDisposable
+public sealed partial class CaptureController : IDisposable
 {
     /// <summary>Setting holding the adapter the user last chose.</summary>
     public const string AdapterSetting = "capture.adapter_id";
@@ -316,7 +319,6 @@ public sealed class CaptureController : IDisposable
     private long _faultRetryAtMs = -1;
     private long _faultBackoffMs;
     private long _ingressLoggedAtMs = -1;
-    private bool _adapterReevaluated;
 
     /// <summary>Starts in a row the source refused because Npcap did not list <see cref="_adapterMissingId"/>.</summary>
     private int _adapterMissingStarts;
@@ -346,6 +348,8 @@ public sealed class CaptureController : IDisposable
         var counting = new CountingSink();
         _sink = _services.Sink ?? counting;
         _parserStats = _services.ParserStats ?? (_sink as IParserStats) ?? NullParserStats.Instance;
+
+        SubscribeToNetworkChanges();
 
         if (_services.EnableFollowTimer)
         {
@@ -399,7 +403,7 @@ public sealed class CaptureController : IDisposable
         // 系统表读取和原生源状态都在控制器锁外完成；迟到的路径结果不归给新会话。
         // Start/stop also take snapshots while serializing lifecycle changes. Leave those
         // unmeasured; the next ordinary status read samples host facts outside either gate.
-        var pathStatus = pathSource?.PathStatus ?? CapturePathStatus.Unmeasured;
+        var pathStatus = ReadPathStatus(pathSource);
         var networkPath = Monitor.IsEntered(_lifecycleGate)
             ? NetworkPathDiagnosticsSnapshot.Unmeasured with
             {
@@ -453,7 +457,8 @@ public sealed class CaptureController : IDisposable
             // The game was already logged in when capture started, so the connections it
             // already held cannot be read at all. Play on them counts for nothing, and
             // calibration looks broken rather than deaf: it can only report what it received.
-            if (state == CaptureControllerState.Running && _preexistingConnections > 0)
+            if (state == CaptureControllerState.Running && _preexistingConnections > 0 &&
+                _pathRecovery.State != PathRecoveryState.Recovering)
             {
                 // Which of the two sentences depends on whether the login already happened:
                 // telling a player to go back to the title screen when they just did reads as
@@ -481,6 +486,7 @@ public sealed class CaptureController : IDisposable
                 AdapterId = run?.Adapter?.Id,
                 AdapterName = run?.Adapter?.FriendlyName,
                 AdapterMaskedIPv4 = run?.Adapter?.MaskedIPv4 ?? Array.Empty<string>(),
+                PathRecovery = _pathRecovery.Snapshot(ProcessUptimeMs),
                 NetworkPath = pathGeneration == _generation && ReferenceEquals(pathSource, _source) &&
                     _game?.ProcessId == game.ProcessId && _game?.StartedAtUtc == game.StartedAtUtc &&
                     (run is null || run.Observes(game))
@@ -515,7 +521,9 @@ public sealed class CaptureController : IDisposable
                 // MIDSTREAM predates silent_reason and keeps its original meaning, so existing
                 // clients read this field unchanged.
                 MidstreamSuspected = run is null ? null : _silentReason == CaptureSilentReason.Midstream,
-                Hint = run is null ? null : HintFor(_silentReason, ingress, _preexistingConnections),
+                Hint = _pathRecovery.State == PathRecoveryState.Recovering
+                    ? CollectorTexts.CaptureHintPathRecovering()
+                    : run is null ? null : HintFor(_silentReason, ingress, _preexistingConnections),
                 OodleSignature = _source?.SignatureUse ?? OodleSignatureUse.None,
                 LastErrorCode = _lastErrorCode,
                 LastErrorMessage = _lastErrorMessage,
@@ -579,7 +587,7 @@ public sealed class CaptureController : IDisposable
                 _game = null;
                 _followRetryAtMs = -1;
                 _faultRetryAtMs = -1;
-                _adapterReevaluated = false;
+                ResetPathRecovery();
                 _adapterMissingStarts = 0;
                 _lastErrorCode = _lastErrorMessage = null;
             }
@@ -792,6 +800,7 @@ public sealed class CaptureController : IDisposable
             }
 
             _state = CaptureControllerState.Stopping;
+            ResetPathRecovery();
         }
 
         Teardown(CaptureEndReason.UserStop);
@@ -852,6 +861,7 @@ public sealed class CaptureController : IDisposable
     {
         try
         {
+            lock (_gate) _pathRecovery.Expire(ProcessUptimeMs);
             bool running;
             GameProcessDetection game;
             // Serialize the exit decision with explicit selection, so an old poll cannot
@@ -865,6 +875,17 @@ public sealed class CaptureController : IDisposable
                     currentRun = _run;
                 }
                 game = DetectGame(force: true);
+                if (!running && game.Running)
+                {
+                    lock (_gate)
+                    {
+                        if (_recoveryRun is { } previousGame && !previousGame.Observes(game))
+                        {
+                            ResetPathRecovery();
+                            _followRetryAtMs = _faultRetryAtMs = -1;
+                        }
+                    }
+                }
                 // Detection can already have followed a restart, including a reused PID.
                 // The old source and pipeline still belong to the original incarnation.
                 if (running && currentRun?.Observes(game) != true)
@@ -878,7 +899,7 @@ public sealed class CaptureController : IDisposable
 
                         _state = CaptureControllerState.Stopping;
                         _followRetryAtMs = -1;
-                        _adapterReevaluated = false;
+                        ResetPathRecovery();
                     }
 
                     if (Teardown(CaptureEndReason.ProcessExit))
@@ -893,7 +914,7 @@ public sealed class CaptureController : IDisposable
                 EvaluateLiveness();
                 ReportHealth();
                 LogIngressStats();
-                ReevaluateAdapterIfBlind();
+                RediscoverNetworkPaths();
                 return;
             }
 
@@ -919,10 +940,7 @@ public sealed class CaptureController : IDisposable
                 if (!game.Running)
                 {
                     _followRetryAtMs = -1;
-                    // A new client is a new chance for the adapter guess, and the one-shot
-                    // re-evaluation is per game session rather than per capture attempt:
-                    // re-choosing every minute would churn instead of informing.
-                    _adapterReevaluated = false;
+                    ResetPathRecovery();
                     _adapterMissingStarts = 0;
                     return;
                 }
@@ -956,7 +974,7 @@ public sealed class CaptureController : IDisposable
                 return;
             }
 
-            Start();
+            StartFollowingWithRecovery(game);
         }
         catch (CollectorException ex)
         {
@@ -1103,6 +1121,7 @@ public sealed class CaptureController : IDisposable
                 _queue = queue;
                 _run = run;
                 _state = CaptureControllerState.Running;
+                BindPathRecovery(run);
             }
         }
         catch (Exception ex)
@@ -1169,6 +1188,11 @@ public sealed class CaptureController : IDisposable
         {
             _silentReason = CaptureSilentReason.None;
             _preexistingConnections = source.PreexistingTcpConnections;
+            // A known late attach already cannot read those connection prefixes. Give
+            // automatic discovery its bounded chance before asking the player to reconnect.
+            if (!adapterWasExplicit && FollowGameEnabled && _preexistingConnections > 0 &&
+                run.IpcMessagesDecoded == 0)
+                _pathRecovery.Begin(ProcessUptimeMs);
             // The backoff is reset by a session that lasted, not by one that started; see
             // HealthySessionMs.
             _faultRetryAtMs = -1;
@@ -1381,6 +1405,8 @@ public sealed class CaptureController : IDisposable
             }
 
             _silentReason = reason;
+            if (reason != CaptureSilentReason.None && !run.AdapterWasExplicit && FollowGameEnabled)
+                _pathRecovery.Begin(ProcessUptimeMs);
         }
 
         if (HintFor(reason) is { } hint)
@@ -1389,7 +1415,8 @@ public sealed class CaptureController : IDisposable
             {
                 ["silent_reason"] = EnumWire<CaptureSilentReason>.Format(reason),
             });
-            PublishOffThread(hint.Chinese, generation);
+            PublishOffThread(_pathRecovery.State == PathRecoveryState.Recovering
+                ? CollectorTexts.CaptureHintPathRecovering().Chinese : hint.Chinese, generation);
         }
     }
 
@@ -1510,67 +1537,6 @@ public sealed class CaptureController : IDisposable
             ["silent_reason"] = EnumWire<CaptureSilentReason>.Format(reason),
             ["uptime_ms"] = (long)run.Elapsed.TotalMilliseconds,
         });
-    }
-
-    /// <summary>
-    /// Stops a capture that has seen no packet at all on the adapter it guessed, so the next
-    /// follow tick can choose again. Once per capture, and never against an adapter the user
-    /// chose themselves: their choice is authoritative, and repeatedly restarting a capture
-    /// the user configured would be worse than the silence.
-    /// </summary>
-    private void ReevaluateAdapterIfBlind()
-    {
-        if (!FollowGameEnabled)
-        {
-            return;
-        }
-
-        CaptureRun run;
-        long generation;
-        CaptureSilentReason reason;
-        lock (_gate)
-        {
-            if (_state != CaptureControllerState.Running ||
-                _run is not { AdapterWasExplicit: false } candidate ||
-                _adapterReevaluated ||
-                _silentReason is not (CaptureSilentReason.NoPacketsOnAdapter or CaptureSilentReason.NoStreamOwnership))
-            {
-                return;
-            }
-            run = candidate;
-            generation = _generation;
-            reason = _silentReason;
-            _adapterReevaluated = true;
-        }
-
-        // Ordinary traffic can conceal a newly created virtual interface. Re-read host
-        // configuration outside the state gate, and restart only if the bounded plan changed.
-        if (reason == CaptureSilentReason.NoStreamOwnership)
-        {
-            var game = DetectGame(force: true);
-            if (!run.Observes(game)) return;
-            var adapters = _services.Adapters.List(game.ProcessId, ReadSettingString(AdapterSetting));
-            var selected = adapters.FirstOrDefault(a => a.Recommended && CapturePathPlan.IsUsable(a));
-            if (selected is null) return;
-            var next = CapturePathPlan.Create(adapters, selected, automatic: true);
-            if (SamePaths(run.PathPlan, next)) return;
-        }
-
-        lock (_gate)
-        {
-            if (_state != CaptureControllerState.Running || generation != _generation ||
-                !ReferenceEquals(run, _run) || _silentReason != reason) return;
-            _state = CaptureControllerState.Stopping;
-        }
-
-        _services.Logger.Write(LogLevel.Warn, "capture", "adapter_reevaluated", new Dictionary<string, object?>
-        {
-            ["silent_reason"] = EnumWire<CaptureSilentReason>.Format(reason),
-        });
-        if (Teardown(CaptureEndReason.Unknown))
-            Publish(Snapshot(), reason == CaptureSilentReason.NoPacketsOnAdapter
-                ? "所选网卡上没有看到游戏流量，正在重新选择网卡后重试。"
-                : "检测到网络路径变化，正在重新监听。");
     }
 
     private static bool SamePaths(CapturePathPlan? left, CapturePathPlan right)
@@ -1705,18 +1671,14 @@ public sealed class CaptureController : IDisposable
     /// <param name="generation">Session generation the reporting observer belongs to.</param>
     private void NoteDecoded(long generation)
     {
-        if (_silentReason == CaptureSilentReason.None)
-        {
-            return;
-        }
-
         lock (_gate)
         {
-            if (generation != _generation || _silentReason == CaptureSilentReason.None)
+            if (generation != _generation || _run is null)
             {
                 return;
             }
-
+            var recovered = CompletePathRecoveryIfReadable(_run);
+            if (_silentReason == CaptureSilentReason.None && !recovered) return;
             _silentReason = CaptureSilentReason.None;
         }
 
@@ -2386,6 +2348,8 @@ public sealed class CaptureController : IDisposable
         }
 
         _followTimer?.Dispose();
+        _networkChangeSubscription?.Dispose();
+        lock (_gate) ResetPathRecovery();
 
         if (_ownershipLease is not null)
         {

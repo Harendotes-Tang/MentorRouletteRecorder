@@ -217,7 +217,9 @@ public sealed class CaptureIpcTests
 
         Assert.Equal("MIDSTREAM", status["silent_reason"]!.GetValue<string>());
         Assert.True(status["midstream_suspected"]!.GetValue<bool>());
-        Assert.Contains("重新登录", status["hint"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.Equal("RECOVERING", status["path_recovery"]!["state"]!.GetValue<string>());
+        Assert.Contains("自动寻找", status["hint"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.DoesNotContain("重新登录", status["hint"]!.GetValue<string>(), StringComparison.Ordinal);
         // 1200 frames arrived and exactly one reached the message level. That gap is the
         // diagnosis, and packets_observed alone cannot show it.
         Assert.Equal(1200, status["raw_packets_observed"]!.GetValue<long>());
@@ -231,8 +233,8 @@ public sealed class CaptureIpcTests
         Assert.Equal(2, ingress["unconfirmed_tuples"]!.GetValue<long>());
         Assert.Equal(3, ingress["stream_resets"]!.GetValue<long>());
         Assert.Equal(7, ingress["adapter_dropped"]!.GetValue<long>());
-        // Two connections seen and two held at the start: the client has not reconnected, so
-        // the advice is still the one that asks for a fresh login.
+        // Raw ownership/start facts remain unchanged while automatic recovery defers
+        // manual instructions; progress is not evidence that decoding has recovered.
         Assert.Equal(40, ingress["handshakes"]!.GetValue<long>());
         Assert.Equal(2, ingress["game_connections"]!.GetValue<long>());
         Assert.Equal(2, ingress["game_connections_now"]!.GetValue<long>());

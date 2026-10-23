@@ -29,6 +29,10 @@ ColumnLayout {
     // 本机校准的卡片只在校准还在进行时出现（契约状态不是 IDLE）。
     readonly property var sharedCalibration: Runtime.app.calibration ? Runtime.app.calibration.shared : null
     readonly property bool calibrationCardVisible: !!Runtime.app.calibration && Runtime.app.calibration.state !== "IDLE"
+    readonly property Item calibrationLocalColumn: notices.calibrationCardVisible && calibration.width >= 640
+        ? calibration.localPanelColumn : null
+    readonly property Item calibrationSideColumn: notices.calibrationLocalColumn
+        ? calibration.sidePanelColumn : null
     // 校准卡片可见时由其提供「分享给其他玩家」（或「这份校准好用，告诉其他玩家」，见 shareKind），
     // 协议档案卡片让位，避免同屏出现两个相同按钮；校准卡片消失后，分享入口由协议档案卡片承担。
     readonly property bool offersShare: !!notices.sharedCalibration && notices.sharedCalibration.canShare
@@ -89,7 +93,12 @@ ColumnLayout {
     /// both are known.
     readonly property var staleAdapter: notices.findAdapter("preference_stale")
     readonly property var recommendedAdapter: notices.findAdapter("recommended")
-    readonly property bool staleVisible: !!notices.staleAdapter && !!notices.recommendedAdapter
+    readonly property string pathRecoveryState: notices.capture.path_recovery
+        ? String(notices.capture.path_recovery.state || "") : ""
+    readonly property bool staleVisible: (Runtime.app.maintainerToolsVisible
+                                        || (notices.pathRecoveryState !== "NONE"
+                                            && notices.pathRecoveryState !== "RECOVERING"))
+                                        && !!notices.staleAdapter && !!notices.recommendedAdapter
 
     readonly property bool followOn: !Runtime.app.captureSettingsLoaded || !!Runtime.app.captureSettings.follow_game
     readonly property bool readinessVisible: Runtime.app.maintainerToolsVisible && !Runtime.app.capturing
@@ -270,6 +279,7 @@ ColumnLayout {
     // 对玩家可见，不置于维护者工具之后：游戏更新后此行即为全部说明。
     // The headline of the state is the hero card's; the row keeps the progress.
     CalibrationCard {
+        id: calibration
         Layout.fillWidth: true
         visible: notices.calibrationCardVisible
         headlineInHero: notices.heroSpeaksCalibration

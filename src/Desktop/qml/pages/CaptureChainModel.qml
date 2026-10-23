@@ -80,6 +80,16 @@ QtObject {
     }
     readonly property bool silent: Runtime.app.captureMidstreamSuspected || Runtime.app.captureSilent
                                    || Runtime.app.recording.silent
+    readonly property bool recovering: Runtime.app.recording.recovering
+    readonly property string pathRecoveryState: chain.capture.path_recovery
+        ? String(chain.capture.path_recovery.state || "") : ""
+    // New Collectors own automatic retries; absent/unknown summaries keep legacy actions.
+    readonly property bool pathActionAvailable: chain.maintainer
+        || (chain.pathRecoveryState !== "NONE" && chain.pathRecoveryState !== "RECOVERING")
+    // A recovery hint cannot override a separate driver/profile/database prerequisite.
+    readonly property bool recoveryBlocked: !!chain.capture.path_recovery
+        && chain.capture.path_recovery.state === "RECOVERING"
+        && !chain.recovering && Runtime.app.recording.blocked
 
     // -- 总结 ----------------------------------------------------------------
     // The first thing in the chain that stops a record, in the order the
@@ -117,6 +127,10 @@ QtObject {
                 return [qsTr("等待游戏启动 · 游戏版本支持文件有冲突，暂时不能自动记录"), "bad"]
             return [qsTr("等待游戏启动 · 当前安装的游戏版本暂不支持自动记录"), "bad"]
         }
+        if (chain.recovering)
+            return [Runtime.app.recording.message, "wait"]
+        if (chain.recoveryBlocked)
+            return [Runtime.app.recording.message, "bad"]
         if (chain.silent)
             return [qsTr("已连接游戏，但还读不到游戏数据 · 请查看上方说明"), "bad"]
         if (chain.calibrating) {
@@ -146,7 +160,7 @@ QtObject {
                 return [qsTr("游戏版本支持文件有冲突，暂时不能自动记录"), "bad"]
             return [qsTr("还没找到适用的游戏版本支持文件，暂时不能自动记录"), "bad"]
         }
-        if (chain.adapterStale)
+        if (chain.adapterStale && chain.pathActionAvailable)
             return [qsTr("之前选择的网卡收不到游戏数据 · 请查看下方提示"), "bad"]
         if (chain.errorCode.length > 0)
             return [qsTr("暂时无法读取游戏数据 · %1").arg(Runtime.fmt.captureErrorLabel(chain.errorCode).replace(/。$/, "")), "bad"]
@@ -174,6 +188,8 @@ QtObject {
     }
 
     function adapterValue() {
+        if (chain.recovering && chain.adapterId.length === 0)
+            return qsTr("自动寻找中")
         if (chain.adapterId.length === 0)
             return qsTr("未选择")
         const row = chain.adapterRow
@@ -185,6 +201,8 @@ QtObject {
     }
 
     function adapterTone() {
+        if (chain.recovering)
+            return "off"
         if (chain.adapterStale || chain.silent)
             return "warn"
         return chain.adapterId.length > 0 && Runtime.app.capturing ? "ok" : "off"
@@ -281,8 +299,9 @@ QtObject {
         {
             key: "adapter", label: qsTr("网卡"),
             value: chain.adapterValue(),
-            sub: chain.adapterStale ? qsTr("之前选择的网卡收不到游戏数据")
-                 : Runtime.app.captureSettings.adapter_id ? qsTr("手动指定")
+            sub: chain.recovering ? qsTr("自动寻找中")
+                 : chain.adapterStale ? qsTr("之前选择的网卡收不到游戏数据")
+                 : Runtime.app.captureSettings.adapter_id ? qsTr("已保存网卡偏好")
                  : chain.silent ? "" : qsTr("自动选择（有 FF14 连接）"),
             tone: chain.adapterTone()
         },

@@ -13,7 +13,8 @@ import MentorRecorder 1.0
 //   GameSelectionPanel . 记录对象, only while there is something to choose
 //   CaptureNotices ..... adapter and readiness notices, the calibration row
 //                        (本机校准 | 共享校准), 协议档案
-//   解析 | 工具 ........ CaptureParsePanel (2) beside CaptureToolsPanel (1)
+//   解析 | 工具 ........ continue the left/right calibration columns independently;
+//                        without calibration, use the same 2:1 split
 //   CaptureMaintainerSection  维护者工具, only with App.maintainerToolsVisible
 //
 // Every value is a contract field ($defs/CaptureStatus, GetStatus extras,
@@ -92,6 +93,7 @@ Item {
             GameSelectionPanel {}
 
             CaptureNotices {
+                id: notices
                 Layout.fillWidth: true
                 // While the hero card talks about something else (Npcap, a game
                 // to choose, a silent capture, an error) the calibration row
@@ -101,24 +103,30 @@ Item {
                 onOpenRegionSettingsRequested: page.openRegionSettingsRequested()
             }
 
-            // dg-row: 解析 (flex 2) beside 工具 (flex 1), top-aligned. The two
-            // widths are set from the column's, so the split never follows the
-            // panels' own content.
-            RowLayout {
+            // Keep the same card instances while calibration appears/disappears.
+            // Wide calibration owns their columns; otherwise this grid owns them.
+            GridLayout {
                 id: lowerRow
                 Layout.fillWidth: true
-                spacing: 12
-                readonly property int available: contentColumn.width - lowerRow.spacing
+                visible: !notices.calibrationLocalColumn
+                columns: contentColumn.width >= 640 ? 2 : 1
+                columnSpacing: 12
+                rowSpacing: 12
+                readonly property int available: contentColumn.width - lowerRow.columnSpacing
 
                 CaptureParsePanel {
+                    parent: notices.calibrationLocalColumn || lowerRow
                     Layout.fillWidth: true
-                    Layout.preferredWidth: Math.round(lowerRow.available * 2 / 3)
+                    Layout.preferredWidth: lowerRow.columns === 2 ? Math.round(lowerRow.available * 2 / 3)
+                        : contentColumn.width
                     Layout.alignment: Qt.AlignTop
                 }
 
                 CaptureToolsPanel {
+                    parent: notices.calibrationSideColumn || lowerRow
                     Layout.fillWidth: true
-                    Layout.preferredWidth: lowerRow.available - Math.round(lowerRow.available * 2 / 3)
+                    Layout.preferredWidth: lowerRow.columns === 2
+                        ? lowerRow.available - Math.round(lowerRow.available * 2 / 3) : contentColumn.width
                     Layout.alignment: Qt.AlignTop
                     onToggleObservationGuideRequested: page.observationGuideExpanded = !page.observationGuideExpanded
                 }

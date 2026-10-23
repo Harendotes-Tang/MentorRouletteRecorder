@@ -75,11 +75,11 @@ public sealed class CaptureMidstreamTests : IDisposable
         Source.PushDecodeError();
         var snapshot = WaitFor(controller, status => status.MidstreamSuspected == true);
 
-        Assert.Equal(CaptureController.MidstreamHint, snapshot.Hint);
-        Assert.Contains("重新登录", snapshot.Hint!.Chinese, StringComparison.Ordinal);
+        Assert.Equal(Contracts.Texts.CollectorTexts.CaptureHintPathRecovering(), snapshot.Hint);
+        Assert.Equal(PathRecoveryState.Recovering, snapshot.PathRecovery.State);
 
         // The user has to be told without asking: the verdict is pushed as a status change.
-        WaitForStatus(CaptureController.MidstreamHint.Chinese);
+        WaitForStatus(Contracts.Texts.CollectorTexts.CaptureHintPathRecovering().Chinese);
     }
 
     [Fact]
@@ -128,7 +128,7 @@ public sealed class CaptureMidstreamTests : IDisposable
 
         var snapshot = controller.Snapshot();
         Assert.True(snapshot.MidstreamSuspected);
-        Assert.Equal(CaptureController.MidstreamHint, snapshot.Hint);
+        Assert.Equal(Contracts.Texts.CollectorTexts.CaptureHintPathRecovering(), snapshot.Hint);
         Assert.Equal(1, snapshot.MessagesDecoded);
     }
 
@@ -150,8 +150,20 @@ public sealed class CaptureMidstreamTests : IDisposable
 
         var snapshot = controller.Snapshot();
         Assert.True(snapshot.MidstreamSuspected);
-        Assert.Equal(CaptureController.MidstreamReconnectedHint, snapshot.Hint);
-        Assert.Contains(snapshot.Warnings, warning => warning.Chinese.Contains("已经重新连接过游戏", StringComparison.Ordinal));
+        Assert.Equal(Contracts.Texts.CollectorTexts.CaptureHintPathRecovering(), snapshot.Hint);
+        Assert.DoesNotContain(snapshot.Warnings, warning => warning.Chinese.Contains("重新连接", StringComparison.Ordinal));
+
+        // Only after the automatic budget expires does the measured specific hint become actionable.
+        _uptime = TimeSpan.FromSeconds(0);
+        controller.Poll();
+        _uptime = TimeSpan.FromSeconds(15);
+        controller.Poll();
+        _uptime = TimeSpan.FromSeconds(45);
+        controller.Poll();
+        _uptime = TimeSpan.FromSeconds(105);
+        controller.Poll();
+        Assert.Equal(PathRecoveryState.Failed, controller.Snapshot().PathRecovery.State);
+        Assert.Equal(CaptureController.MidstreamReconnectedHint, controller.Snapshot().Hint);
 
         // The original sentence remains correct when no new connection was ever seen.
         Source.IngressCounters = new CaptureIngressCounters(GameConnections: 2);
@@ -302,7 +314,8 @@ public sealed class CaptureMidstreamTests : IDisposable
         Assert.Equal(CaptureSilentReason.NoPacketsOnAdapter, snapshot.SilentReason);
         Assert.False(snapshot.MidstreamSuspected);
         Assert.Equal(CaptureController.NoPacketsHint, snapshot.Hint);
-        Assert.Contains("加速器", snapshot.Hint!.Chinese, StringComparison.Ordinal);
+        Assert.Contains("重新检测网络路径", snapshot.Hint!.Chinese, StringComparison.Ordinal);
+        Assert.DoesNotContain("关闭加速器", snapshot.Hint.Chinese, StringComparison.Ordinal);
         Assert.Equal("NO_PACKETS_ON_ADAPTER", CaptureWire.CaptureStatus(snapshot)["silent_reason"]!.GetValue<string>());
     }
 
@@ -325,10 +338,10 @@ public sealed class CaptureMidstreamTests : IDisposable
     }
 
     [Fact]
-    public void AnAdapterThatSawNothingIsChosenAgainOnceWhileFollowingTheGame()
+    public void AnUnchangedSilentPlanIsInspectedWithoutDiscardingItsDecoder()
     {
-        // A guessed adapter that carries nothing must be chosen again: following the game
-        // means retrying rather than reporting a healthy silence forever.
+        // Reinspect the plan before asking the player; an unchanged listener should keep
+        // waiting for new handshakes rather than losing state on an unconditional restart.
         _preexisting = 0;
         using var controller = Build();
         controller.Start();
@@ -336,19 +349,18 @@ public sealed class CaptureMidstreamTests : IDisposable
         _uptime = TimeSpan.FromSeconds(61);
         controller.Poll();
 
-        Assert.Equal(CaptureControllerState.Idle, controller.State);
+        Assert.Equal(CaptureControllerState.Running, controller.State);
         Assert.Single(_sources);
 
         controller.Poll();
         Assert.Equal(CaptureControllerState.Running, controller.State);
-        Assert.Equal(2, _sources.Count);
+        Assert.Single(_sources);
 
-        // Once. A second silent run is left alone: restarting forever would be worse than
-        // the silence, and the hint already tells the user what to do.
+        // Even after the recovery deadline, the source is not recreated without new paths.
         _uptime = TimeSpan.FromSeconds(200);
         controller.Poll();
         Assert.Equal(CaptureControllerState.Running, controller.State);
-        Assert.Equal(2, _sources.Count);
+        Assert.Single(_sources);
         Assert.Equal(CaptureSilentReason.NoPacketsOnAdapter, controller.Snapshot().SilentReason);
     }
 
@@ -535,6 +547,7 @@ public sealed class CaptureMidstreamTests : IDisposable
         StatusListener = _status,
         Clock = _database.Clock,
         Uptime = () => _uptime,
+        ProcessUptime = () => _uptime,
         Settings = _settings,
         Sessions = new CaptureSessionRepository(_database.Database),
         Database = _database.Database,

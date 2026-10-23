@@ -80,6 +80,133 @@ class AutomaticRecordingTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void recoveryProgressDefersCaptureActionsUntilFailure() {
+        RecordingBackend b;
+        b.capture["silent_reason"] = "MIDSTREAM";
+        b.capture["midstream_suspected"] = true;
+        b.capture["last_error_code"] = "ERR_INTERNAL";
+        b.capture["state"] = "STARTING";
+        b.capture["hint"] = QString::fromUtf8("请重新登录游戏。");
+        b.capture["path_recovery"] = QJsonObject{{"state", "RECOVERING"}, {"attempts", 1}, {"retry_after_ms", 15000}};
+        mr::AutomaticRecordingController c(&b);
+        QSignalSpy alerts(&c, &mr::AutomaticRecordingController::incidentRaised);
+        c.refresh();
+        QCOMPARE(c.state(), QStringLiteral("recovering"));
+        QVERIFY(c.recovering());
+        QVERIFY(!c.blocked());
+        QVERIFY(!c.pendingAlert());
+        QVERIFY(!c.attention());
+        QVERIFY(!c.retryAvailable());
+        QCOMPARE(alerts.count(), 0);
+        QVERIFY(c.message().contains(QStringLiteral("暂时无需操作")));
+        QVERIFY(!c.message().contains(QStringLiteral("请重新登录")));
+
+        b.capture["path_recovery"] = QJsonObject{{"state", "FAILED"}, {"attempts", 3}, {"retry_after_ms", 0}};
+        c.refresh();
+        QVERIFY(!c.recovering());
+        QVERIFY(c.blocked());
+        QCOMPARE(c.message(), QString::fromUtf8("请重新登录游戏。"));
+        QCOMPARE(alerts.count(), 1);
+
+        b.capture["path_recovery"] = QJsonObject{{"state", "NONE"}, {"attempts", 0}, {"retry_after_ms", 0}};
+        c.refresh();
+        QVERIFY(c.blocked()); // NONE alone does not prove game data is readable.
+        b.capture["silent_reason"] = "NONE";
+        b.capture["midstream_suspected"] = false;
+        b.capture["last_error_code"] = "NONE";
+        b.capture["state"] = "RUNNING";
+        c.refresh();
+        QCOMPARE(c.state(), QStringLiteral("listening"));
+        QVERIFY(!c.blocked());
+    }
+    void recoveryClearsAnEarlierCaptureIncidentWithoutANewPopup() {
+        RecordingBackend b; b.capture["silent_reason"] = "MIDSTREAM";
+        mr::AutomaticRecordingController c(&b); c.refresh();
+        QVERIFY(c.pendingAlert());
+        QSignalSpy alerts(&c, &mr::AutomaticRecordingController::incidentRaised);
+        b.capture["path_recovery"] = QJsonObject{{"state", "RECOVERING"}};
+        c.refresh();
+        QVERIFY(c.recovering());
+        QVERIFY(!c.blocked());
+        QVERIFY(!c.pendingAlert());
+        QCOMPARE(alerts.count(), 0);
+    }
+    void aFailedRecoveryWithoutASilentVerdictCannotTurnGreen() {
+        RecordingBackend b; b.capture["silent_reason"] = "NONE";
+        b.capture["path_recovery"] = QJsonObject{{"state", "FAILED"}};
+        mr::AutomaticRecordingController c(&b); c.refresh();
+        QVERIFY(c.blocked());
+        QVERIFY(c.message().contains(QStringLiteral("未能恢复读取")));
+    }
+    void recoveryRetainsIndependentPrerequisites_data() {
+        QTest::addColumn<QString>("prerequisite");
+        for (const auto &value : {"npcap", "profile", "game", "database"})
+            QTest::newRow(value) << QString::fromLatin1(value);
+    }
+    void recoveryRetainsIndependentPrerequisites() {
+        QFETCH(QString, prerequisite);
+        RecordingBackend b;
+        b.capture["path_recovery"] = QJsonObject{{"state", "RECOVERING"}};
+        if (prerequisite == QLatin1String("npcap")) b.capture["npcap_installed"] = false;
+        if (prerequisite == QLatin1String("profile")) b.capture["profile_status"] = "UNSUPPORTED_BUILD";
+        if (prerequisite == QLatin1String("database")) b.capture["last_error_code"] = "ERR_DB_INTEGRITY";
+        if (prerequisite == QLatin1String("game")) {
+            b.capture["game_selection_required"] = true;
+            b.capture["game_processes"] = QJsonArray{QJsonObject{{"process_id", 123}}};
+        }
+        mr::AutomaticRecordingController c(&b); c.refresh();
+        QVERIFY(!c.recovering());
+        QVERIFY(c.blocked() || c.state() == QLatin1String("choosing_game"));
+    }
+    void unknownRecoveryStatesRetainLegacySilence_data() {
+        QTest::addColumn<QString>("recovery");
+        for (const auto &value : {"", "NONE", "SOMETHING_NEW"})
+            QTest::newRow(value[0] ? value : "old-collector") << QString::fromLatin1(value);
+    }
+    void unknownRecoveryStatesRetainLegacySilence() {
+        QFETCH(QString, recovery);
+        RecordingBackend b; b.capture["silent_reason"] = "MIDSTREAM";
+        if (!recovery.isEmpty()) b.capture["path_recovery"] = QJsonObject{{"state", recovery}};
+        mr::AutomaticRecordingController c(&b); c.refresh();
+        QVERIFY(c.blocked());
+        QVERIFY(!c.recovering());
+        QVERIFY(c.message().contains(QStringLiteral("回到标题画面重新登录")));
+    }
+    void recoveryBlocksCalibrationInputWithoutDispatchingDutyInstructions() {
+        RecordingBackend b;
+        b.capture["profile_status"] = "UNSUPPORTED_BUILD";
+        b.capture["silent_reason"] = "MIDSTREAM";
+        b.capture["calibration"] = QJsonObject{{"state", "OBSERVING"}};
+        b.capture["path_recovery"] = QJsonObject{{"state", "RECOVERING"}};
+        mr::AutomaticRecordingController c(&b); c.refresh();
+        QVERIFY(c.recovering());
+        QVERIFY(!c.calibrating());
+        QVERIFY(!c.message().contains(QStringLiteral("请照常完成随机任务")));
+        b.capture["path_recovery"] = QJsonObject{{"state", "FAILED"}};
+        c.refresh();
+        QVERIFY(c.blocked());
+        b.capture["path_recovery"] = QJsonObject{{"state", "NONE"}};
+        b.capture["silent_reason"] = "NONE";
+        c.refresh();
+        QVERIFY(c.calibrating());
+    }
+    void recoveryProgressHidesCachedInitializationRetry() {
+        RecordingBackend b;
+        b.settings["follow_game"] = false;
+        b.failWrite = true;
+        b.capture["profile_status"] = "UNSUPPORTED_BUILD";
+        b.capture["silent_reason"] = "MIDSTREAM";
+        b.capture["calibration"] = QJsonObject{{"state", "OBSERVING"}};
+        b.capture["path_recovery"] = QJsonObject{{"state", "RECOVERING"}};
+        mr::AutomaticRecordingController c(&b); c.refresh();
+        QVERIFY(c.recovering());
+        QVERIFY(!c.retryAvailable());
+        QVERIFY(!c.attention());
+        b.capture["path_recovery"] = QJsonObject{{"state", "FAILED"}};
+        c.refresh();
+        QVERIFY(!c.recovering());
+        QVERIFY(c.retryAvailable()); // The cached initialization error was retained.
+    }
     void noGameHasNoPopup() {
         RecordingBackend b; b.capture["ffxiv_running"] = false; b.capture["profile_status"] = "NONE";
         mr::AutomaticRecordingController c(&b); QSignalSpy alerts(&c, &mr::AutomaticRecordingController::incidentRaised);

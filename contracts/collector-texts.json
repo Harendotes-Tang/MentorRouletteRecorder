@@ -1,6 +1,7 @@
 {
   "version": 1,
   "texts": {
+    "capture.hint.path_recovering": "正在自动寻找可读取的游戏网络路径，请稍候；暂时无需操作。",
     "ipc.request.not_json": "请求不是合法的 JSON。",
     "ipc.request.repeated_field": "请求中有重复的字段名。",
     "ipc.request.envelope_not_object": "请求信封必须是一个 JSON 对象。",
@@ -381,8 +382,8 @@
     "calibration.provisional.pop_only": "导随记录照常进行。请核对下面的时间线，再点「核对并启用」；之后检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。",
     "calibration.not_ready": "这次校准还不能启用，暂时没有可核对的时间线。请继续按校准提示操作。",
     "capture.hint.midstream": "已连接游戏，但一直读不到有效数据，可能漏掉了连接开始时的信息。可在方便时登出到标题画面再重新登录（不用关闭游戏），让软件尝试捕获新连接。若仍无记录，请导出诊断报告。",
-    "capture.hint.midstream_reconnected": "你已经重新连接过游戏，但软件仍然没能读到连接开始时的信息。请先关闭加速器、VPN 和正在进行的下载，重启本软件后再试；若仍如此，请导出诊断报告。",
-    "capture.hint.no_packets": "所选网卡上没有看到游戏流量，可能使用了加速器或 VPN。请在「捕获诊断」点「重新检测网卡」，再按网卡提示操作；也可以关闭加速器后重新登录游戏。",
+    "capture.hint.midstream_reconnected": "你已经重新连接过游戏，但软件仍未读到可用数据。请保留当前加速器设置，导出诊断报告以继续排查。",
+    "capture.hint.no_packets": "当前监听路径没有收到游戏流量。请在「捕获诊断」重新检测网络路径；仍无法恢复时，请导出诊断报告。",
     "capture.hint.no_ownership": "看到了网络流量，但还无法确认游戏连接，暂时不能校准或自动记录。请点“重新检测网卡”；使用加速器或代理时，可尝试切换连接模式后重新启动游戏。",
     "capture.warning.validation_holds": "正在进行采集验证，验证期间不会自动记录。如需恢复记录，请在捕获诊断页停止验证。",
     "capture.warning.validation_releasing": "上一次采集验证未能完全结束，正在自动重试收尾，期间不会自动记录。如长时间未恢复，请重新启动本软件。",

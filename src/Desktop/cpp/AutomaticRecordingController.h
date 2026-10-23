@@ -30,6 +30,8 @@ class AutomaticRecordingController : public QObject
     /// state token is "listening_silent"; this is the same fact as a property,
     /// for bindings that only need to know that green is not honest.
     Q_PROPERTY(bool silent READ silent NOTIFY changed)
+    /// Automatic path recovery is progress, without an incident or manual retry.
+    Q_PROPERTY(bool recovering READ recovering NOTIFY changed)
     /// True while the Collector is relearning this client build's messages.
     /// Deliberately not the same thing as blocked: it raises no alert dialog.
     Q_PROPERTY(bool calibrating READ calibrating NOTIFY changed)
@@ -42,6 +44,7 @@ public:
     int messageSerial() const { return m_messageSerial; }
     bool blocked() const { return !m_incident.isEmpty(); }
     bool silent() const { return m_state == QLatin1String("listening_silent"); }
+    bool recovering() const { return m_state == QLatin1String("recovering"); }
     /// True in the three 本机校准 projections. Calibration is never an
     /// incident - nothing is broken and there is nothing to acknowledge - but
     /// it does mean no run is being recorded, so the banner has to say so.
@@ -53,7 +56,7 @@ public:
     }
     bool attention() const { return blocked() || silent() || calibrating() || m_state == QLatin1String("choosing_game"); }
     bool pendingAlert() const { return m_pending; }
-    bool retryAvailable() const { return !m_followError.isEmpty() || !m_validationError.isEmpty(); }
+    bool retryAvailable() const { return !recovering() && (!m_followError.isEmpty() || !m_validationError.isEmpty()); }
     void setMaintenance(bool enabled);
     /// 本桌面显式采证期间暂停自动初始化；重连保留意图，旧会话仍按原逻辑清理。
     void setUserObservation(bool enabled);
@@ -93,6 +96,9 @@ private:
     /// The 本机校准 projection for \a capture, or false when that capture is
     /// not calibrating and the ordinary profile rules apply.
     bool projectCalibration(const QVariantMap &capture);
+    /// Apply the optional recovery progress or an exhausted episode with no
+    /// measured silent reason. Other failure facts keep their existing wording.
+    bool projectPathRecovery(const QVariantMap &capture);
     /// How long a RUNNING capture may decode nothing before the desktop says
     /// so on its own. Only used when the Collector reports no silent_reason.
     static constexpr qint64 kSilenceGraceMs = 60000;

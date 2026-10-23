@@ -5,7 +5,9 @@ from contextlib import redirect_stdout
 import io
 import importlib.util
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -469,6 +471,47 @@ class RemoteTests(unittest.TestCase):
                 report = json.loads((output / "report.json").read_text(encoding="utf-8"))
                 self.assertEqual((result, report["decision"]), (1, "DENY"))
                 self.assertTrue(next(item for item in report["gates"] if item["name"] == "local-remote-identity")["required"])
+
+
+@unittest.skipUnless(shutil.which("pwsh"), "PowerShell 7 is unavailable")
+class WrapperTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        (self.root / "scripts").mkdir()
+        wrapper = Path(__file__).resolve().parents[2] / "scripts/security-quality.ps1"
+        shutil.copyfile(wrapper, self.root / "scripts/security-quality.ps1")
+        checker = self.root / "tools/security-quality/check.py"
+        checker.parent.mkdir(parents=True)
+        checker.write_text(
+            "import argparse, json, os\n"
+            "parser = argparse.ArgumentParser()\n"
+            "parser.add_argument('--root')\n"
+            "parser.add_argument('--phase', choices=['local', 'pre-push', 'post-push', 'merge', 'release'])\n"
+            "print(json.dumps(vars(parser.parse_args())))\n"
+            "raise SystemExit(int(os.environ.get('MR_WRAPPER_TEST_EXIT', '0')))\n",
+            encoding="utf-8")
+
+    def invoke(self, phase, exit_code=0):
+        env = {**os.environ, "MR_PYTHON_EXE": sys.executable,
+               "MR_WRAPPER_TEST_EXIT": str(exit_code)}
+        return subprocess.run(
+            [shutil.which("pwsh"), "-NoProfile", "-File",
+             str(self.root / "scripts/security-quality.ps1"), "-Phase", phase],
+            capture_output=True, text=True, encoding="utf-8", timeout=30, env=env)
+
+    def test_every_documented_phase_reaches_the_checker(self):
+        for phase, token in (("Local", "local"), ("PrePush", "pre-push"),
+                             ("PostPush", "post-push"), ("Merge", "merge"), ("Release", "release")):
+            with self.subTest(phase=phase):
+                result = self.invoke(phase)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout)["phase"], token)
+
+    def test_checker_failure_exit_code_is_preserved(self):
+        result = self.invoke("PrePush", exit_code=7)
+        self.assertEqual(result.returncode, 7, result.stderr)
 
 
 if __name__ == "__main__":
