@@ -35,8 +35,9 @@ internal sealed class AtomicExportFile : IDisposable
     /// 刷新暂存内容，按需校验，再发布到目标。校验器返回 false 时不触碰目标。
     /// 不允许覆盖时，并发创建的目标同样使提交失败；允许覆盖时也不先截断旧文件。
     /// </summary>
-    internal void Commit(Func<string, bool>? verify = null)
+    internal void Commit(Func<string, bool>? verify = null, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         using (var file = new FileStream(
                    TemporaryPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
         {
@@ -50,22 +51,26 @@ internal sealed class AtomicExportFile : IDisposable
                 new Dictionary<string, object?> { ["target_path"] = _targetPath });
         }
 
+        // 刷盘或校验期间也可能取消；提交前最后检查，发布后不再把成功改报为取消。
+        cancellationToken.ThrowIfCancellationRequested();
         // TemporaryPath 与目标位于同一目录；系统重命名一次性完成替换或拒绝覆盖。
         File.Move(TemporaryPath, _targetPath, _overwrite);
         _committed = true;
     }
 
     /// <summary>同步写入并提交；writer 抛出的异常会清理临时文件，目标保持原状。</summary>
-    internal static void Write(string targetPath, bool overwrite, Action<Stream> writer)
+    internal static void Write(string targetPath, bool overwrite, Action<Stream> writer,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(writer);
+        cancellationToken.ThrowIfCancellationRequested();
         using var pending = new AtomicExportFile(targetPath, overwrite);
         using (var file = new FileStream(
                    pending.TemporaryPath, FileMode.Open, FileAccess.Write, FileShare.None))
         {
             writer(file);
         }
-        pending.Commit();
+        pending.Commit(cancellationToken: cancellationToken);
     }
 
     /// <summary>未提交时尽力删除自身暂存文件，不删除目标，也不覆盖原始失败。</summary>

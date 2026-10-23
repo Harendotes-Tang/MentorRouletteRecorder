@@ -73,6 +73,11 @@ public:
     /// GetDashboardStats refuses. The terminal announcement must then not
     /// invent a progress number, and the cards must keep what they had.
     bool failDashboard = false;
+    /// Exercise completion coordination when a backend has already completed
+    /// the reply, or retains it past a connection change.
+    bool synchronousDashboard = false;
+    bool holdDashboard = false;
+    QList<QPointer<mr::BackendReply>> heldDashboardReplies;
     /// GetStatus times out while the pipe stays up - a read queued behind a
     /// long BackupDatabase, say.
     bool failStatus = false;
@@ -101,6 +106,17 @@ public:
         ++m_requestsByType[messageType];
         m_lastPayloadByType.insert(messageType, payload);
         auto *reply = new mr::BackendReply(QStringLiteral("test"), messageType, this);
+        if (messageType == QLatin1String("GetDashboardStats") && holdDashboard) {
+            heldDashboardReplies.append(reply);
+            return reply;
+        }
+        if (messageType == QLatin1String("GetDashboardStats") && synchronousDashboard) {
+            if (failDashboard)
+                reply->fail(QStringLiteral("ERR_INTERNAL"), QStringLiteral("统计读取失败。"));
+            else
+                reply->succeed(m_dashboard);
+            return reply;
+        }
         if (messageType == QLatin1String("GetDashboardStats") && failDashboard) {
             QTimer::singleShot(0, reply, [reply] {
                 reply->fail(QStringLiteral("ERR_INTERNAL"),
@@ -412,6 +428,9 @@ private Q_SLOTS:
     void appController_announcesTerminalStatesFromRunFinishedOnly_data();
     void appController_announcesTerminalStatesFromRunFinishedOnly();
     void appController_finishedLineCarriesTheRefreshedProgress();
+    void appController_synchronousCompletionStatisticsKeepPromptBeforeSpeech_data();
+    void appController_synchronousCompletionStatisticsKeepPromptBeforeSpeech();
+    void appController_lateCompletionStatisticsStaySilentAfterDisconnect();
     void appController_speaksTheCollectorsAchievementProgress();
     void appController_ignoresReplayedAndOutOfOrderEvents();
     void appController_speaksTheDutyCarriedByTheStateEvent();
@@ -899,6 +918,72 @@ void TtsServiceTests::appController_finishedLineCarriesTheRefreshedProgress()
     QCOMPARE(spoke.at(0).at(0).toString(), QStringLiteral("finished"));
     QCOMPARE(spoke.at(0).at(1).toString(),
              QString::fromUtf8("导随结束，请确认是否通关，已确认 1446 次"));
+}
+
+void TtsServiceTests::appController_synchronousCompletionStatisticsKeepPromptBeforeSpeech_data()
+{
+    QTest::addColumn<bool>("statisticsOk");
+    QTest::newRow("statistics-ready") << true;
+    QTest::newRow("statistics-refused") << false;
+}
+
+void TtsServiceTests::appController_synchronousCompletionStatisticsKeepPromptBeforeSpeech()
+{
+    QFETCH(bool, statisticsOk);
+    mr::AppSettings settings;
+    const bool savedTts = settings.ttsEnabled();
+    const bool savedConfirm = settings.confirmPrompt();
+    const auto restore = qScopeGuard([&] {
+        settings.setTtsEnabled(savedTts);
+        settings.setConfirmPrompt(savedConfirm);
+    });
+    settings.setTtsEnabled(true);
+    settings.setConfirmPrompt(true);
+    EventOnlyBackend backend;
+    backend.setDashboard(12, 1400, 2000);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
+    REQUIRE_SILENT_SPEECH(controller.tts());
+    QTRY_VERIFY_WITH_TIMEOUT(controller.recovery()->identityVerified(), 3000);
+    QTRY_VERIFY_WITH_TIMEOUT(controller.achievementSettingsLoaded(), 3000);
+    backend.synchronousDashboard = true;
+    backend.failDashboard = !statisticsOk;
+    QStringList order;
+    connect(&controller, &mr::AppController::resultConfirmationRequested, &controller,
+            [&order] { order << QStringLiteral("prompt"); });
+    connect(controller.tts(), &mr::TtsService::spoke, &controller,
+            [&order] { order << QStringLiteral("speech"); });
+    backend.emitEvent(runFinishedEvent(QStringLiteral("UNKNOWN_FINAL_STATE"),
+                                      freshRun(QUuid::createUuid().toString(QUuid::WithoutBraces), true)));
+    QTRY_COMPARE_WITH_TIMEOUT(order.size(), 2, 3000);
+    QCOMPARE(order, QStringList({QStringLiteral("prompt"), QStringLiteral("speech")}));
+}
+
+void TtsServiceTests::appController_lateCompletionStatisticsStaySilentAfterDisconnect()
+{
+    mr::AppSettings settings;
+    const bool savedTts = settings.ttsEnabled();
+    const bool savedConfirm = settings.confirmPrompt();
+    const auto restore = qScopeGuard([&] {
+        settings.setTtsEnabled(savedTts);
+        settings.setConfirmPrompt(savedConfirm);
+    });
+    settings.setTtsEnabled(true);
+    settings.setConfirmPrompt(false);
+    EventOnlyBackend backend;
+    backend.setDashboard(12, 1400, 2000);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
+    REQUIRE_SILENT_SPEECH(controller.tts());
+    QTRY_VERIFY_WITH_TIMEOUT(controller.recovery()->identityVerified(), 3000);
+    QTRY_VERIFY_WITH_TIMEOUT(controller.achievementSettingsLoaded(), 3000);
+    QSignalSpy spoke(controller.tts(), &mr::TtsService::spoke);
+    backend.holdDashboard = true;
+    backend.emitEvent(runFinishedEvent(QStringLiteral("UNKNOWN_FINAL_STATE"),
+                                      freshRun(QUuid::createUuid().toString(QUuid::WithoutBraces), true)));
+    QCOMPARE(backend.heldDashboardReplies.size(), 1);
+    backend.setConnected(false);
+    backend.heldDashboardReplies.takeFirst()->succeed({{QStringLiteral("achievement_progress"), 1413}});
+    QCoreApplication::processEvents();
+    QCOMPARE(spoke.count(), 0);
 }
 
 /// 审查 OK-1：{progress} / {remaining} 是采集服务的 achievement_progress /

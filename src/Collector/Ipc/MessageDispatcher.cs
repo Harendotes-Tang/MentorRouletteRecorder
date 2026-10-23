@@ -6,6 +6,7 @@ using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Domain.Queries;
 using MentorRecorder.Collector.Domain.Time;
+using MentorRecorder.Collector.Export;
 
 namespace MentorRecorder.Collector.Ipc;
 
@@ -20,6 +21,10 @@ namespace MentorRecorder.Collector.Ipc;
 public sealed class MessageDispatcher
 {
     private readonly CollectorHost _host;
+    private readonly RunExporter _exporter;
+    // Whole-history exports materialise their results. Keep one active per host; the
+    // connection's existing deferred-response bound also limits callers waiting here.
+    private readonly SemaphoreSlim _exportGate = new(1, 1);
 
     /// <summary>
     /// 1 while a full-database scan is running, 0 otherwise.
@@ -42,6 +47,14 @@ public sealed class MessageDispatcher
     {
         ArgumentNullException.ThrowIfNull(host);
         _host = host;
+        _exporter = host.Exporter;
+    }
+
+    /// <summary>为真实数据库/管道测试替换导出读取依赖；其他服务仍使用同一 host。</summary>
+    internal MessageDispatcher(CollectorHost host, RunExporter exporter) : this(host)
+    {
+        ArgumentNullException.ThrowIfNull(exporter);
+        _exporter = exporter;
     }
 
     /// <summary>Every message type this build answers.</summary>
@@ -72,9 +85,15 @@ public sealed class MessageDispatcher
     /// other requests meanwhile and writes this answer when it is ready. <c>StartUpdateDownload</c> and
     /// <c>CancelUpdateDownload</c> are not among them: they wait on nothing - the download runs on a
     /// background task of its own - and answer at once like a status poll.
+    /// CSV/JSON exports also run off this loop, with one active snapshot/encoding job at a time;
+    /// waiting requests remain covered by the connection's deferred-response limit.
     /// </summary>
     public static IReadOnlySet<string> AsynchronousMessageTypes { get; } =
-        new HashSet<string>(StringComparer.Ordinal) { "SynthesizeSpeech", "CheckDatabaseIntegrity", "CheckUpdateNow", "PreviewRunImport", "CommitRunImport" };
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            "SynthesizeSpeech", "CheckDatabaseIntegrity", "CheckUpdateNow", "PreviewRunImport", "CommitRunImport",
+            "ExportCsv", "ExportJson",
+        };
 
     /// <summary>Host this dispatcher serves.</summary>
     public CollectorHost Host => _host;
@@ -173,8 +192,26 @@ public sealed class MessageDispatcher
             "CheckDatabaseIntegrity" => CheckDatabaseIntegrityAsync(request, cancellationToken),
             "CheckUpdateNow" => UpdateHandlers.CheckNowAsync(_host, new PayloadReader(request.Payload), cancellationToken),
             "PreviewRunImport" or "CommitRunImport" => DispatchImportAsync(request, cancellationToken),
+            "ExportCsv" or "ExportJson" => DispatchExportAsync(request, cancellationToken),
             _ => Task.FromResult(Dispatch(request)),
         };
+    }
+
+    private async Task<JsonObject> DispatchExportAsync(IpcRequest request, CancellationToken cancellationToken)
+    {
+        await _exportGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            // SQLite and file encoding are synchronous. Keep them off the connection's
+            // read loop while retaining its cancellation and deferred-response admission.
+            return await Task.Run(() => InvokeExport(
+                new PayloadReader(request.Payload), request.MessageType == "ExportCsv", cancellationToken))
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            _exportGate.Release();
+        }
     }
 
     private JsonObject DispatchImport(IpcRequest request)
@@ -595,9 +632,15 @@ public sealed class MessageDispatcher
     private JsonObject BatchMutateRuns(string requestId, PayloadReader reader)
     {
         var outcome = _host.Mutations.BatchMutateRuns(RequestParsers.BatchMutateRuns(requestId, reader));
-        if (outcome["idempotent_replay"]?.GetValue<bool>() != true)
+        if (!outcome.IdempotentReplay)
             _host.LiveEvents.PublishStatsInvalidated("历史记录已批量更新，请重新查询。");
-        return outcome;
+        return new JsonObject
+        {
+            ["changed_count"] = outcome.ChangedCount,
+            ["run_ids"] = new JsonArray(outcome.RunIds.Select(id => (JsonNode?)JsonValue.Create(id)).ToArray()),
+            ["action"] = outcome.Action,
+            ["idempotent_replay"] = outcome.IdempotentReplay,
+        };
     }
 
     private JsonObject GetHistoryRetentionSettings(PayloadReader reader)
@@ -648,6 +691,13 @@ public sealed class MessageDispatcher
 
     private JsonObject Export(PayloadReader reader, bool csv)
     {
+        _exportGate.Wait();
+        try { return InvokeExport(reader, csv, CancellationToken.None); }
+        finally { _exportGate.Release(); }
+    }
+
+    private JsonObject InvokeExport(PayloadReader reader, bool csv, CancellationToken cancellationToken)
+    {
         // include_revisions was declared and then discarded: no export ever carried revisions. It
         // is no longer part of the contract and is refused like any other undeclared field
         // (audit 2026-10-03, OF-7).
@@ -657,8 +707,8 @@ public sealed class MessageDispatcher
         var overwrite = reader.Bool("overwrite") ?? false;
 
         var outcome = csv
-            ? _host.Exporter.ExportCsv(targetPath, filter, overwrite)
-            : _host.Exporter.ExportJson(targetPath, filter, overwrite);
+            ? _exporter.ExportCsv(targetPath, filter, overwrite, cancellationToken)
+            : _exporter.ExportJson(targetPath, filter, overwrite, cancellationToken);
 
         return new JsonObject
         {

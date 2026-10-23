@@ -13,9 +13,13 @@ C++20 / Qt 6 Quick / QML / Qt Quick Controls / Qt Graphs 桌面端。
 
 | 目录 | 内容 |
 |---|---|
-| `cpp/` | `main.cpp` 以及暴露给 QML 的 IPC 客户端、模型、格式化器与进程监控 |
+| `cpp/` | 入口、界面门面、模型、格式化器与进程监督 |
+| `cpp/transport/` | 后端接口、命名管道客户端、信封分帧和管道命名；分帧与命名以 Qt Core 独立 target 编译 |
+| `cpp/workflows/` | 独立工作流协调器；通过窄回调协作，不依赖界面总控 |
 | `qml/pages/` | 页面：仪表盘、历史、统计、诊断、设置 |
 | `qml/components/` | 可复用组件 |
+| `qml/overlay/` | 统计浮窗、模块、数据投影与浮窗专用控件 |
+| `qml/calibration/` | 本机/共享校准、候选验证与校准导入组件 |
 | `qml/dialogs/` | 对话框：手工补录、更正、软删除/恢复、导出、备份 |
 | `qml/charts/` | 基于 Qt Graphs 的图表封装 |
 | `resources/` | 图标、字体、qrc、翻译文件 |
@@ -36,4 +40,6 @@ C++20 / Qt 6 Quick / QML / Qt Quick Controls / Qt Graphs 桌面端。
 
 ## UI 原型
 
-原始视觉原型仅保留在本地设计资料中，不随公开源码仓库分发。
+当前视觉依据是受控的 `qml/Theme.qml`、页面与组件，以及
+[`docs/ui-design.md`](../../docs/ui-design.md) 中的实现说明；截图参考位于 `docs/screenshots/`。
+原始视觉原型仅保留为本地历史设计材料，不随公开源码仓库分发，也不是构建或验收的必要输入。

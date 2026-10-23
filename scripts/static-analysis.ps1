@@ -140,7 +140,8 @@ $units = @()
 foreach ($entry in $entries) {
     $relative = Convert-ToRepoRelative $entry.file
     if (-not $relative) { continue }
-    if ($relative -notmatch '^(src/Desktop/cpp|tests/Desktop\.Tests)/[^/]+\.cpp$') { continue }
+    # Production sources can be grouped recursively; test inputs remain direct suite sources.
+    if ($relative -notmatch '^(src/Desktop/cpp/(?:[^/]+/)*|tests/Desktop\.Tests/)[^/]+\.cpp$') { continue }
     if ($Path) {
         $wanted = $false
         foreach ($fragment in $Path) {

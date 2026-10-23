@@ -1,24 +1,29 @@
 # 桌面端 UI 设计说明 / Desktop UI Design
 
-本文件描述 `src/Desktop`（Qt 6 Quick 桌面壳）的界面结构，以及界面与 HTML 原型之间的对应关系。
+本文件描述 `src/Desktop`（Qt 6 Quick 桌面壳）当前实现的界面结构、主题和交互约束。
 读者是桌面端的开发者与评审者。
 
-采用的视觉规范为 **`DOC/表单提交后设计/mentor-recorder-ff14.dc.html` 与 `ff14.css`**，
-下称「原型」，对应「艾欧泽亚 / eorzea」界面风格。原型是唯一的视觉基准。
-本文件只说明实现如何映射到原型，不另行定义布局。
-布局与结构以原型为准；艾欧泽亚风格的**色值**自 1.2.0 起改为对照游戏自身窗口配色（深色 = 暖灰石板配浅字，浅色 = 羊皮纸配深棕字，金色只留给标记、进度环与柱条），见 6.1 节，不再照搬 `ff14.css` 的金边深蓝。
+当前视觉依据均随源码提供：色板、字号、圆角和动效取自
+[`Theme.qml`](../src/Desktop/qml/Theme.qml)，壳与导航取自
+[`Main.qml`](../src/Desktop/qml/Main.qml)，布局与操作取自 `qml/pages/`、
+`qml/components/`、`qml/dialogs/` 及对应业务目录。`docs/screenshots/` 提供已保存的效果参考；
+核对新改动时仍需生成当前构建的截图，不能用历史截图代替运行验证。
+本文件归纳这些受控实现，不要求读者取得私有设计材料。
+
+下文「原型」及 `ff14.css`、`workbench.css` 等名称仅说明历史设计来源。
+本地 `DOC/` 不随公开仓库分发，不再承担当前布局或参数的权威来源。
+艾欧泽亚风格的**色值**自 1.2.0 起对照游戏自身窗口配色（深色 = 暖灰石板配浅字，浅色 = 羊皮纸配深棕字，金色只留给标记、进度环与柱条），当前取值见 `Theme.qml` 及 6.1 节。
 第三种风格 **Harendotes** 与艾欧泽亚共用布局与圆角，色板取自角色毛色：
 深色「夜色狼身」以海军蓝黑为底、橙焰为主色、古金仅作点缀；浅色「白胸冷光」以纯白为面板、冷调蓝灰为背景，
 顶栏与侧栏同为浅色，底边绘制一条由橙焰过渡到古金的细线。标题用冷白宋体（Noto Serif SC）而非金色 Cinzel。面板不画金色四角，外框为 1 px 对角渐变：自左上角的橙焰经古金过渡，到右下角完全透明并露出面板自身的分割线色边框（components/PanelDecoration.qml，由四段直线渐变和三段圆角弧组成，不依赖 Canvas 或 Qt Quick Shapes）；侧栏状态面板在此风格下使用同一外框。
 
-**「经典 / classic」界面风格**自 2026-09 改版起为**默认风格**，取值以
-**`DOC/表单提交后设计/workbench.css`** 为准，取代早先的 `apple.css`。
-`Settings.uiStyle` 不为 `"eorzea"` 时，`Theme.qml` 整套切换为 workbench 的取值，
-包括色板、圆角、六级字号与 IBM Plex Mono 数字；页面代码只绑定主题变量（token），见 §6。
+**「经典 / classic」界面风格**自 2026-09 改版起为**默认风格**，当前取值由
+`Theme.qml` 的 classic 分支定义，历史来源为 workbench 设计。
+`Theme.normalizeStyle()` 将设置规范化为 `classic`、`eorzea` 或 `harendotes`；classic 分支包含
+色板、圆角、六级字号与 IBM Plex Mono 数字；页面代码只绑定主题变量（token），见 §6。
 默认值仅影响从未手动选择过风格的用户。`setUiStyle()` 不写入与当前值相同的风格，
 因此配置文件中存在的 `eorzea` 必定来自用户的主动选择。
-执行 `diff mentor-recorder-v2.dc.html mentor-recorder-ff14.dc.html` 可列出两版原型之间的全部改动：
-视觉主题与新功能「导随心得」。
+历史原型可以辅助理解设计演变；当前视觉主题与「导随心得」实现直接核对对应 QML、主题及测试。
 
 ---
 
@@ -374,7 +379,7 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
 | 标题行 | `CapturePage.qml` | 始终。标题「捕获诊断」+「被动监听 · 不发包 · 不注入」；右侧普通用户是带状态点的状态标签（`captureHeaderStatus` / `captureHeaderStatusText`，`components/StatusTag.qml`：自动监听中 / 等待游戏启动 / 校准中 / 校准待核对 / 暂时读不到游戏数据 / 无法自动记录 / 需手动记录 / 等待选择游戏 / 检查中，与首张卡片的判断同源，颜色按 ok / warn / bad / off 四种语气），维护者是捕获按钮（`captureHeaderAction`，文字取 `App.captureActionLabel`，如「开始捕获」「停止捕获」，点击调用 `toggleCapture()`） |
 | 首张卡片（状态 + 连接状态） | `CaptureHeroPanel.qml`（文案 `CaptureHeroCopy.qml`，连接状态数据 `CaptureChainModel.qml`） | 始终。上半是一盏状态灯、一句标题、一句说明和该状态的按钮，降级模式也在这里；下半是「连接状态」的总结与四个节点 |
 | 记录对象 | `GameSelectionPanel.qml` | 有游戏窗口可选时 |
-| 提示与校准 | `CaptureNotices.qml` | 各自按需；全部不出现时整块不占位。含网卡提示、自动跟随提示、校准行（`components/CalibrationCard.qml`：本机校准 ｜ 共享校准）与「版本支持」一行（协议档案卡） |
+| 提示与校准 | `CaptureNotices.qml` | 各自按需；全部不出现时整块不占位。含网卡提示、自动跟随提示、校准行（`calibration/CalibrationCard.qml`：本机校准 ｜ 共享校准）与「版本支持」一行（协议档案卡） |
 | 解析 ｜ 工具 | `CaptureParsePanel.qml` ｜ `CaptureToolsPanel.qml` | 始终；并排 2 : 1，顶端对齐 |
 | 新区服采证步骤 | `CaptureValidationEvidenceCard.qml`（`guidedMode`，`templateObservationGuideCard`） | 点「工具」中的「采证步骤」后出现，再点一次收起 |
 | 维护者工具 | `CaptureMaintainerSection.qml`（+ `CaptureValidationEvidenceCard.qml`） | 仅 `App.maintainerToolsVisible` |
@@ -600,7 +605,7 @@ QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`�
   面板窄于 400 px 时改为上下排列），再是「最近检测到登录：…」「最近检测到进本：…」（`calibrationEvidenceTimes`）
   与「下一步」（已有档案在记录时为「接下来」；`calibrationBlockers`：`blockers[]` 逐句原样显示，
   Collector 写入的即是面向玩家的完整句子；读不到游戏数据时改为本卡片自己的一句橙字说明）。
-  状态本身的那句话（`components/CalibrationCopy.qml`）由首张卡片说：`READY` 时为
+  状态本身的那句话（`calibration/CalibrationCopy.qml`）由首张卡片说：`READY` 时为
   「还差最后一步：核对 N 件事，就能开始自动记录。」；若此时已有档案在记录
   （共享档案在用、`profile_status = VERIFIED`，或 `calibration.local_profile_id` 非空，例如按排本推断
   或缺职业的本机档案），改为「记录照常进行。再核对 N 件事，之后的记录会更准确。」（`recordingBesideOffer`）；
@@ -1442,7 +1447,7 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
 ### 4.9.1 导随统计浮窗
 
 入口为主窗口标题栏的「统计浮窗」按钮与托盘菜单；状态由 `StatisticsOverlayController`（`App.statisticsOverlay`）持有，
-窗口为 `components/StatisticsFloatingWindow.qml`，模块数据集中在 `components/OverlayData.qml`。
+窗口为 `overlay/StatisticsFloatingWindow.qml`，模块数据集中在 `overlay/OverlayData.qml`。
 
 * **两种形态**：完整浮窗（默认 300 × 560，可拖动右下角缩放，宽 240–520）与迷你条（沿用完整浮窗当前宽度，高度随内容）。
   两者共用位置；迷你条不改变记忆中的完整尺寸，展开恢复完整高度。切换按钮均位于右侧按钮组首位（24 px 点击区）：完整窗依次为缩小、自定义、锁定、关闭，mini 依次为展开、锁定。两组右端对齐，形态持久保存。
@@ -1463,7 +1468,7 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
   当前副本与副本用时只在有当前导随（已匹配、副本中、刚通关或结果待确认）时显示，待处理记录只在有记录时显示。
   状态标记的脉动与铃铛摇动、计时沙漏的流沙与翻转、已匹配时的滚动条纹这类循环动画只在浮窗显示（且未最小化）时运行。
 * **文字标签**默认关闭：模块名、图例名与职能名不显示，鼠标悬停在模块、分段或按钮上时以提示框给出名称与数字；打开后随内容显示。
-  提示框是独立的小窗（`components/OverlayToolTip.qml`，`popupType: Popup.Window`），不受浮窗边界约束：显示在所悬停项目的上方，
+  提示框是独立的小窗（`overlay/OverlayToolTip.qml`，`popupType: Popup.Window`），不受浮窗边界约束：显示在所悬停项目的上方，
   贴近屏幕顶端没有空间时改到下方；迷你条上的提示框以整条为基准，不会盖住条上的数字或按钮。
   按钮落在可悬停的条上（标题栏的拖动区、迷你条的进度行）时只显示按钮自己的提示，不同时显示条的提示。
 * **副本类型色**与副本统计页的类型图例一致（`DungeonStatsModel::categoryBreakdown` 的 token，§4.3），角标为单字（迷 / 讨 / 大 / 团 / 令；

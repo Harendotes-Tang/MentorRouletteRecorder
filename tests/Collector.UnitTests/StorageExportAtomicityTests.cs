@@ -53,6 +53,42 @@ public sealed class StorageExportAtomicityTests : IDisposable
     }
 
     [Fact]
+    public void CancellationDuringWritePreservesExistingFileAndCleansTemporaryFile()
+    {
+        var target = Target("cancel-write.json");
+        File.WriteAllText(target, "original content");
+        using var cancellation = new CancellationTokenSource();
+
+        Assert.Throws<OperationCanceledException>(() => AtomicExportFile.Write(target, true, stream =>
+        {
+            stream.Write(Encoding.UTF8.GetBytes("replacement"));
+            cancellation.Cancel();
+        }, cancellation.Token));
+
+        Assert.Equal("original content", File.ReadAllText(target));
+        AssertNoTemporaryFiles();
+    }
+
+    [Fact]
+    public void CancellationDuringVerificationPreservesExistingFileAndCleansTemporaryFile()
+    {
+        var target = Target("cancel-verify.json");
+        File.WriteAllText(target, "original content");
+        using var cancellation = new CancellationTokenSource();
+        using (var pending = new AtomicExportFile(target, true))
+        {
+            File.WriteAllText(pending.TemporaryPath, "replacement");
+            Assert.Throws<OperationCanceledException>(() => pending.Commit(_ =>
+            {
+                cancellation.Cancel();
+                return true;
+            }, cancellation.Token));
+            Assert.Equal("original content", File.ReadAllText(target));
+        }
+        AssertNoTemporaryFiles();
+    }
+
+    [Fact]
     public async Task ConcurrentNoOverwriteExportsPublishExactlyOneCompleteFile()
     {
         var target = Target("concurrent.json");

@@ -7,7 +7,16 @@ outside Domain in a namespace that encloses Domain's own (`MentorRecorder.Collec
 `MentorRecorder`, the global namespace), which Domain code can name with neither a using nor a
 qualifier (rule `domain-root-namespace-reference`), project-wide global and
 recursively imported MSBuild files, plus direct and transitive dependencies of
-`HistoryController` and `StatisticsController`.
+`HistoryController`, `StatisticsController` and `workflows/RunCompletionCoordinator`.
+Local includes are followed through the source directory and the Desktop's `cpp/`,
+`cpp/transport/` and `cpp/workflows/` include directories. These workflows cannot depend on
+`AppController`, `CollectorProcess`, `TtsService` or QML pages, including through helper headers.
+
+Storage C# sources are checked separately for `Ipc.Wire` dependencies, including qualified
+references, namespace/type aliases and `Wire` reached through a namespace import. Durable
+receipt serialization must not share IPC serializer options. The existing `Ipc.EnumWire`
+encoding helper and Storage's own JSON options remain allowed. Comments and string text do
+not count as dependencies.
 
 For `domain-root-namespace-reference`, a type is any namespace-level class, struct, interface,
 enum, record or delegate, and an attribute class is also matched by its short name in an

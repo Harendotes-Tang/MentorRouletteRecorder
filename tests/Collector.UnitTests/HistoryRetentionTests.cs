@@ -37,7 +37,7 @@ public sealed class HistoryRetentionTests
             Note = "purge-body-secret",
         };
         public MentorRun Create() => Mutations.CreateManualRun(NewCommand()).Run!;
-        public JsonObject Batch(string action, params MentorRun[] runs) => Mutations.BatchMutateRuns(new(
+        public BatchRunMutationOutcome Batch(string action, params MentorRun[] runs) => Mutations.BatchMutateRuns(new(
             Id(), action, runs.Select(run => new BatchRunTarget(run.RunId, run.Revision)).ToArray(), "批量操作"));
         public MentorRun Delete(MentorRun run)
         { Batch("soft_delete", run); return Runs.Get(run.RunId)!; }
@@ -81,8 +81,8 @@ public sealed class HistoryRetentionTests
         using var f = new Fixture(); var first = f.Create(); var second = f.Create();
         var command = new BatchMutateRunsCommand(Id(), "soft_delete",
             new[] { new BatchRunTarget(first.RunId, 1), new BatchRunTarget(second.RunId, 1) }, "删除");
-        Assert.Equal(2, f.Mutations.BatchMutateRuns(command)["changed_count"]!.GetValue<int>());
-        Assert.True(f.Mutations.BatchMutateRuns(command)["idempotent_replay"]!.GetValue<bool>());
+        Assert.Equal(2, f.Mutations.BatchMutateRuns(command).ChangedCount);
+        Assert.True(f.Mutations.BatchMutateRuns(command).IdempotentReplay);
         Assert.Equal(2, f.Runs.Get(first.RunId)!.Revision); Assert.Equal(2, f.Runs.Get(second.RunId)!.Revision);
         Assert.Equal(ErrorCodes.IdempotencyConflict, Assert.Throws<CollectorException>(() =>
             f.Mutations.BatchMutateRuns(command with { Action = "restore" })).Code);

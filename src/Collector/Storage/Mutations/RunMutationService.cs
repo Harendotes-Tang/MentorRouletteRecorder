@@ -1,7 +1,5 @@
 using Microsoft.Data.Sqlite;
-using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Contracts.Texts;
-using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Application.Mutations;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Domain;
@@ -239,7 +237,7 @@ public sealed class RunMutationService
         SetDeleted(command, deleted: false, ChangeKind.Restore, "RestoreRun");
 
     /// <summary>Checks every selected revision and deletion state before changing any row.</summary>
-    public JsonObject BatchMutateRuns(BatchMutateRunsCommand command)
+    public BatchRunMutationOutcome BatchMutateRuns(BatchMutateRunsCommand command)
     {
         ArgumentNullException.ThrowIfNull(command);
         if (!Guid.TryParseExact(command.RequestId, "D", out _))
@@ -258,10 +256,10 @@ public sealed class RunMutationService
             var stored = _idempotency.TryGetResponse(command.RequestId, tx);
             if (stored is not null)
             {
-                var cache = JsonNode.Parse(stored)?.AsObject();
-                if (cache?["batch_fingerprint"]?.GetValue<string>() != fingerprint || cache["outcome"] is not JsonObject prior)
+                var receipt = BatchMutationReceiptCodec.Deserialize(stored);
+                if (receipt is null || receipt.Fingerprint != fingerprint)
                     throw new CollectorException(ErrorCodes.IdempotencyConflict, CollectorTexts.HistoryBatchRequestReused(), field: "request_id");
-                var replay = prior.DeepClone().AsObject(); replay["idempotent_replay"] = true; return replay;
+                return receipt.Outcome with { IdempotentReplay = true };
             }
             if (_idempotency.WasAppliedBeforePrune(command.RequestId, tx)) throw ExpiredReplay(command.RequestId);
             var runs = sorted.Select(target =>
@@ -291,13 +289,10 @@ public sealed class RunMutationService
                         reason, auditRequestId, fingerprint, tx, markCorrected: false, clearPendingReview: deleted);
                 }
             }
-            var outcome = new JsonObject
-            {
-                ["changed_count"] = runs.Length, ["run_ids"] = new JsonArray(runs.Select(run => (JsonNode?)JsonValue.Create(run.RunId)).ToArray()),
-                ["action"] = command.Action, ["idempotent_replay"] = false,
-            };
-            _idempotency.Store(command.RequestId, "BatchMutateRuns", new JsonObject
-                { ["batch_fingerprint"] = fingerprint, ["outcome"] = outcome.DeepClone() }.ToJsonString(Wire.JsonOptions), tx);
+            var outcome = new BatchRunMutationOutcome(
+                runs.Length, runs.Select(run => run.RunId).ToArray(), command.Action, IdempotentReplay: false);
+            _idempotency.Store(command.RequestId, "BatchMutateRuns",
+                BatchMutationReceiptCodec.Serialize(fingerprint, outcome), tx);
             return outcome;
         });
     }

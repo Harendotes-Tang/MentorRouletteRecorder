@@ -17,6 +17,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'package-runtime.ps1')
 
 function Resolve-RepoPath([string]$Path) {
     if ([IO.Path]::IsPathRooted($Path)) { return [IO.Path]::GetFullPath($Path) }
@@ -98,19 +99,14 @@ $startInfo.ArgumentList.Add('--json')
 $startInfo.ArgumentList.Add($reportPath)
 $startInfo.ArgumentList.Add('--max-warnings')
 $startInfo.ArgumentList.Add('0')
-$process = [Diagnostics.Process]::Start($startInfo)
-try {
-    $stdout = $process.StandardOutput.ReadToEndAsync()
-    $stderr = $process.StandardError.ReadToEndAsync()
-    if (-not $process.WaitForExit(600000)) {
-        $process.Kill($true)
-        throw 'QML 检查超时，未完成的结果不能作为通过证据。'
-    }
-    [IO.File]::WriteAllText((Join-Path $outputRoot 'stdout.log'), $stdout.GetAwaiter().GetResult())
-    [IO.File]::WriteAllText((Join-Path $outputRoot 'stderr.log'), $stderr.GetAwaiter().GetResult())
-    $toolExitCode = $process.ExitCode
-} finally {
-    $process.Dispose()
+# The shared runner owns a Windows job from launch through bounded descendant cleanup.
+# Its returned VerificationResult contains plain data; no Process handle is exposed here.
+$result = Invoke-PackageVerificationProcess -StartInfo $startInfo -TimeoutSeconds 600
+[IO.File]::WriteAllText((Join-Path $outputRoot 'stdout.log'), $result.Stdout)
+[IO.File]::WriteAllText((Join-Path $outputRoot 'stderr.log'), $result.Stderr)
+$toolExitCode = [int]($result | Select-Object -ExpandProperty ExitCode)
+if ($result.TimedOut) {
+    throw 'QML 检查超时，未完成的结果不能作为通过证据。'
 }
 
 $report = [IO.File]::ReadAllText($reportPath, [Text.Encoding]::UTF8) | ConvertFrom-Json

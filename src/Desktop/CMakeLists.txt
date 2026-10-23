@@ -27,7 +27,32 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
 # ---------------------------------------------------------------------------
-# Core library: everything except main(). The unit tests link this target so
+# Wire primitives have a compile boundary: only Qt Core and the local Windows
+# identity API are available here, with no UI/controller include directory.
+qt_add_library(MentorRecorderIpcWire STATIC
+    cpp/transport/IpcFraming.cpp cpp/transport/IpcFraming.h
+    cpp/transport/PipeName.cpp cpp/transport/PipeName.h)
+target_compile_features(MentorRecorderIpcWire PUBLIC cxx_std_20)
+target_include_directories(MentorRecorderIpcWire PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/transport)
+target_link_libraries(MentorRecorderIpcWire PUBLIC Qt6::Core)
+mr_use_ascii_autogen_dir(MentorRecorderIpcWire)
+if(WIN32)
+    target_link_libraries(MentorRecorderIpcWire PRIVATE advapi32)
+endif()
+
+# Completion policy consumes callbacks and Qt value types, never the UI facade.
+qt_add_library(MentorRecorderCompletion STATIC
+    cpp/workflows/RunCompletionCoordinator.cpp
+    cpp/workflows/RunCompletionCoordinator.h)
+target_compile_features(MentorRecorderCompletion PUBLIC cxx_std_20)
+target_include_directories(MentorRecorderCompletion PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/workflows)
+target_link_libraries(MentorRecorderCompletion PUBLIC Qt6::Core)
+mr_use_ascii_autogen_dir(MentorRecorderCompletion)
+
+# Application library: workflows, UI adapters and reusable presentation logic.
+# The unit tests link this target so
 # the IPC framing, the pipe-name derivation and the mock statistics can be
 # exercised without starting a GUI.
 # ---------------------------------------------------------------------------
@@ -81,15 +106,18 @@ target_include_directories(MentorRecorderDesktopLib
 
 target_link_libraries(MentorRecorderDesktopLib
     PUBLIC
+        MentorRecorderIpcWire
+        MentorRecorderCompletion
         Qt6::Core
         Qt6::Gui
         Qt6::Qml
         Qt6::Quick
         Qt6::QuickControls2
+        Qt6::TextToSpeech
+    PRIVATE
         Qt6::Graphs
         Qt6::Multimedia
         Qt6::Svg
-        Qt6::TextToSpeech
         Qt6::Widgets)
 
 if(WIN32)
@@ -148,14 +176,12 @@ set(MR_CPP_SOURCES
     cpp/ExportController.h
     cpp/Formatters.cpp
     cpp/Formatters.h
-    cpp/IBackend.cpp
-    cpp/IBackend.h
-    cpp/IpcBackend.cpp
-    cpp/IpcBackend.h
-    cpp/IpcClient.cpp
-    cpp/IpcClient.h
-    cpp/IpcFraming.cpp
-    cpp/IpcFraming.h
+    cpp/transport/IBackend.cpp
+    cpp/transport/IBackend.h
+    cpp/transport/IpcBackend.cpp
+    cpp/transport/IpcBackend.h
+    cpp/transport/IpcClient.cpp
+    cpp/transport/IpcClient.h
     cpp/ImportRecordsController.cpp
     cpp/ImportRecordsController.h
     cpp/OfflineOcrEngine.cpp
@@ -182,8 +208,6 @@ set(MR_CPP_SOURCES
     cpp/MockData.h
     cpp/NoteImageStore.cpp
     cpp/NoteImageStore.h
-    cpp/PipeName.cpp
-    cpp/PipeName.h
     cpp/QmlWarningCounter.cpp
     cpp/QmlWarningCounter.h
     cpp/RoleCatalog.cpp
@@ -228,10 +252,10 @@ set(MR_QML_FILES
     qml/components/AppButton.qml
     qml/components/Card.qml
     qml/components/CardKicker.qml
-    qml/components/CalibrationCard.qml
-    qml/components/CalibrationCopy.qml
-    qml/components/CalibrationDialog.qml
-    qml/components/CandidateValidationCard.qml
+    qml/calibration/CalibrationCard.qml
+    qml/calibration/CalibrationCopy.qml
+    qml/calibration/CalibrationDialog.qml
+    qml/calibration/CandidateValidationCard.qml
     qml/components/CapCell.qml
     qml/components/CategoryIcon.qml
     qml/components/Chip.qml
@@ -243,7 +267,7 @@ set(MR_QML_FILES
     qml/components/HistoryCell.qml
     qml/components/HistoryColumnsDialog.qml
     qml/components/HistoryTableHeader.qml
-    qml/components/ImportCalibrationCodeDialog.qml
+    qml/calibration/ImportCalibrationCodeDialog.qml
     qml/components/InsetBox.qml
     qml/components/JobIcon.qml
     qml/components/Lucide.js
@@ -257,30 +281,30 @@ set(MR_QML_FILES
     qml/components/PillSwitch.qml
     qml/components/ProgressRing.qml
     qml/components/AchievementConfetti.qml
-    qml/components/StatisticsFloatingWindow.qml
-    qml/components/StatisticsFloatingContent.qml
-    qml/components/OverlayPeriodSelector.qml
-    qml/components/OverlayAttemptsModule.qml
+    qml/overlay/StatisticsFloatingWindow.qml
+    qml/overlay/StatisticsFloatingContent.qml
+    qml/overlay/OverlayPeriodSelector.qml
+    qml/overlay/OverlayAttemptsModule.qml
     qml/components/OverlayIcons.js
-    qml/components/OverlayIcon.qml
-    qml/components/OverlayIconButton.qml
-    qml/components/OverlayToolTip.qml
-    qml/components/OverlayData.qml
-    qml/components/OverlayBar.qml
-    qml/components/OverlayTypeBadge.qml
-    qml/components/OverlayPlusPill.qml
-    qml/components/OverlayStatusIcon.qml
-    qml/components/OverlayHourglass.qml
-    qml/components/OverlayRunRow.qml
-    qml/components/OverlayModuleLabel.qml
-    qml/components/OverlayProgressModule.qml
-    qml/components/OverlayCurrentDutyModule.qml
-    qml/components/OverlayElapsedModule.qml
-    qml/components/OverlayDutyStatsModule.qml
-    qml/components/OverlayRolesModule.qml
-    qml/components/OverlayPendingModule.qml
-    qml/components/OverlayMiniBar.qml
-    qml/components/OverlayCustomizePanel.qml
+    qml/overlay/OverlayIcon.qml
+    qml/overlay/OverlayIconButton.qml
+    qml/overlay/OverlayToolTip.qml
+    qml/overlay/OverlayData.qml
+    qml/overlay/OverlayBar.qml
+    qml/overlay/OverlayTypeBadge.qml
+    qml/overlay/OverlayPlusPill.qml
+    qml/overlay/OverlayStatusIcon.qml
+    qml/overlay/OverlayHourglass.qml
+    qml/overlay/OverlayRunRow.qml
+    qml/overlay/OverlayModuleLabel.qml
+    qml/overlay/OverlayProgressModule.qml
+    qml/overlay/OverlayCurrentDutyModule.qml
+    qml/overlay/OverlayElapsedModule.qml
+    qml/overlay/OverlayDutyStatsModule.qml
+    qml/overlay/OverlayRolesModule.qml
+    qml/overlay/OverlayPendingModule.qml
+    qml/overlay/OverlayMiniBar.qml
+    qml/overlay/OverlayCustomizePanel.qml
     qml/components/RecoveryInbox.qml
     qml/components/RecoveryReminderWindow.qml
     qml/components/PendingWorkContent.qml
@@ -297,7 +321,7 @@ set(MR_QML_FILES
     qml/components/SettingToggleRow.qml
     qml/components/SettingsPanel.qml
     qml/components/SettingsRow.qml
-    qml/components/SharedCalibrationSection.qml
+    qml/calibration/SharedCalibrationSection.qml
     qml/components/SliderRow.qml
     qml/components/StatCard.qml
     qml/components/StatusLed.qml
@@ -351,6 +375,16 @@ set(MR_QML_FILES
     qml/pages/SettingsGoalTab.qml
     qml/pages/SettingsPage.qml
     qml/pages/SettingsSpeechTab.qml)
+
+# Preserve published resource URLs while physical sources reflect their owner.
+# Explicit aliases also keep relative JavaScript imports stable in packaged QML.
+foreach(mr_qml_file IN LISTS MR_QML_FILES)
+    if(mr_qml_file MATCHES "^qml/(overlay|calibration)/")
+        get_filename_component(mr_qml_name "${mr_qml_file}" NAME)
+        set_source_files_properties("${mr_qml_file}" PROPERTIES
+            QT_RESOURCE_ALIAS "qml/components/${mr_qml_name}")
+    endif()
+endforeach()
 
 # ---------------------------------------------------------------------------
 # Icon resources.
@@ -552,7 +586,7 @@ mr_use_ascii_autogen_dir(MentorRecorder.Desktop)
 
 target_link_libraries(MentorRecorder.Desktop
     PRIVATE
-        MentorRecorderDesktopLib)
+        MentorRecorderDesktopLib Qt6::Widgets)
 
 # ---------------------------------------------------------------------------
 # Stage the C# Collector beside the Desktop executable.

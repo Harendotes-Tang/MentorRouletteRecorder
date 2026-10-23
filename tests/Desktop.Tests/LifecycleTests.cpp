@@ -1803,9 +1803,10 @@ void LifecycleTests::exportsAndBackupsGetTheirOwnDeadline()
 
 /// The two ends must agree on which answers take a while.
 ///
-/// The Collector answers five message types off the connection's read
+/// The Collector answers these message types off the connection's read
 /// loop (MessageDispatcher.AsynchronousMessageTypes: SynthesizeSpeech,
-/// CheckDatabaseIntegrity, CheckUpdateNow, PreviewRunImport, CommitRunImport) because each waits on something
+/// CheckDatabaseIntegrity, CheckUpdateNow, PreviewRunImport, CommitRunImport,
+/// ExportCsv, ExportJson) because each waits on something
 /// slower than a query. Every one of them therefore needs a deadline longer
 /// than a status poll's; CheckDatabaseIntegrity did not have one, so a large
 /// database reported "Collector 未在超时时间内响应。" while the scan was still
@@ -1821,7 +1822,9 @@ void LifecycleTests::everyAnswerTheCollectorDefersGetsAnExtendedDeadline()
                                QStringLiteral("CheckDatabaseIntegrity"),
                                QStringLiteral("CheckUpdateNow"),
                                QStringLiteral("PreviewRunImport"),
-                               QStringLiteral("CommitRunImport")};
+                               QStringLiteral("CommitRunImport"),
+                               QStringLiteral("ExportCsv"),
+                               QStringLiteral("ExportJson")};
     for (const QString &type : deferred) {
         QVERIFY2(mr::IpcClient::timeoutForMessageType(type, ordinary) > ordinary,
                  qPrintable(type + QStringLiteral(" shares the ordinary deadline")));

@@ -37,6 +37,9 @@ public sealed class RunRepository
         _imports = new RunImportRepository(database);
     }
 
+    /// <summary>仓库使用的数据库；导出据此打开独立快照，不复用该连接读取全量数据。</summary>
+    internal SqliteDatabase Database => _database;
+
     /// <summary>Inserts a new run. The caller supplies revision 1.</summary>
     /// <param name="run">Run to insert.</param>
     /// <param name="transaction">Enclosing transaction.</param>
@@ -167,7 +170,17 @@ public sealed class RunRepository
     /// <param name="sort">Ordering; null uses the default.</param>
     /// <param name="page">One-based page number.</param>
     /// <param name="pageSize">Page size; capped at 200 by the contract.</param>
-    public Page<MentorRun> Query(RunFilter? filter, RunSort? sort, int page, int pageSize)
+    public Page<MentorRun> Query(RunFilter? filter, RunSort? sort, int page, int pageSize) =>
+        Query(filter, sort, page, pageSize, transaction: null);
+
+    /// <summary>同一查询和附件装配逻辑，可在调用者持有的只读快照事务内分页。</summary>
+    /// <param name="filter">与普通列表相同的筛选；null 不增加条件。</param>
+    /// <param name="sort">排序；null 使用默认排序。</param>
+    /// <param name="page">从 1 开始的页码。</param>
+    /// <param name="pageSize">每页数量，1 至 200。</param>
+    /// <param name="transaction">当前连接的快照事务；null 保持普通列表读取方式。</param>
+    internal Page<MentorRun> Query(
+        RunFilter? filter, RunSort? sort, int page, int pageSize, SqliteTransaction? transaction)
     {
         if (page < 1)
         {
@@ -190,6 +203,7 @@ public sealed class RunRepository
             int total;
             using (var countCommand = _database.CreateCommand())
             {
+                countCommand.Transaction = transaction;
                 countCommand.CommandText = $"SELECT COUNT(*) FROM mentor_runs WHERE {fragment.Where};";
                 RunFilterSql.Bind(countCommand, fragment);
                 total = Convert.ToInt32(countCommand.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
@@ -198,6 +212,7 @@ public sealed class RunRepository
             var items = new List<MentorRun>(Math.Min(pageSize, 128));
             using (var command = _database.CreateCommand())
             {
+                command.Transaction = transaction;
                 // NULLs last in both directions so that unfinished runs never crowd out the
                 // rows a user actually wants to see, then run_id as a stable tie-break.
                 command.CommandText =
@@ -214,7 +229,7 @@ public sealed class RunRepository
                 }
             }
 
-            AttachAll(items, null);
+            AttachAll(items, transaction);
             return new Page<MentorRun>(items, page, pageSize, total);
         });
     }

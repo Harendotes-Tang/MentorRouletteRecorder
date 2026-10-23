@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
@@ -84,6 +85,71 @@ public sealed class HistoryBatchIpcTests
         ContractSchema.Validate("$defs/Responses/GetPendingImageCleanup", pending, "cleanup pending IPC");
         Assert.Contains(first, pending["run_ids"]!.AsArray().Select(node => node!.GetValue<string>()));
         Assert.Equal(1, (await client.SendAsync("AcknowledgeImageCleanup", new JsonObject { ["run_ids"] = new JsonArray(first) })).Require()["acknowledged_count"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public async Task RealPipe_NewBatchInvalidatesOnceAndReplayRetainsTheSameResponseFields()
+    {
+        await using var f = ServerFixture.Start();
+        await using var client = await f.ConnectAsync();
+        var runId = (await client.SendAsync("CreateManualRun", Manual())).Require()["run_id"]!.GetValue<string>();
+        var requestId = Guid.NewGuid().ToString("D");
+        var before = f.Host.LiveEvents.ReplayCount;
+        using var events = f.Host.LiveEvents.Subscribe(Guid.NewGuid().ToString("D"));
+        for (var i = 0; i < before; i++)
+            Assert.NotNull(await events.ReadAsync(TimeSpan.FromSeconds(5), CancellationToken.None));
+
+        var first = (await client.SendAsync("BatchMutateRuns", Batch("soft_delete", (runId, 1)), requestId)).Require();
+
+        ContractSchema.Validate("$defs/Responses/BatchMutateRuns", first, "new typed batch IPC");
+        Assert.False(first["idempotent_replay"]!.GetValue<bool>());
+        Assert.Equal("soft_delete", first["action"]!.GetValue<string>());
+        Assert.Equal(1, first["changed_count"]!.GetValue<int>());
+        Assert.Equal(runId, Assert.Single(first["run_ids"]!.AsArray())!.GetValue<string>());
+        Assert.Equal(before + 1, f.Host.LiveEvents.ReplayCount);
+        var invalidated = Assert.IsType<JsonObject>(await events.ReadAsync(TimeSpan.FromSeconds(5), CancellationToken.None));
+        Assert.Equal("stats_invalidated", invalidated["kind"]!.GetValue<string>());
+
+        var replay = (await client.SendAsync("BatchMutateRuns", Batch("soft_delete", (runId, 1)), requestId)).Require();
+        ContractSchema.Validate("$defs/Responses/BatchMutateRuns", replay, "typed batch replay IPC");
+        Assert.True(replay["idempotent_replay"]!.GetValue<bool>());
+        var expectedReplay = first.DeepClone().AsObject();
+        expectedReplay["idempotent_replay"] = true;
+        Assert.True(JsonNode.DeepEquals(expectedReplay, replay));
+        Assert.Equal(before + 1, f.Host.LiveEvents.ReplayCount);
+        Assert.Equal(2, f.Host.Runs.Get(runId)!.Revision);
+    }
+
+    [Fact]
+    public async Task RealPipe_LegacyReceiptReplaysWithoutInvalidationAndChangedRequestConflicts()
+    {
+        const string firstId = "11111111-1111-1111-1111-111111111111";
+        const string secondId = "22222222-2222-2222-2222-222222222222";
+        const string legacy = """
+            {"batch_fingerprint":"18d3f4fe675be4e85aa847595ff95a17f07f4a7a7bde5a6f101d13c2caf7edcb","outcome":{"changed_count":2,"run_ids":["11111111-1111-1111-1111-111111111111","22222222-2222-2222-2222-222222222222"],"action":"soft_delete","idempotent_replay":false}}
+            """;
+        var requestId = Guid.NewGuid().ToString("D");
+        await using var f = ServerFixture.Start(host => host.Database.RunInTransaction(tx =>
+            new IdempotencyRepository(host.Database, host.Clock).Store(requestId, "BatchMutateRuns", legacy, tx)));
+        await using var client = await f.ConnectAsync();
+        var payload = Batch("soft_delete", (secondId, 1), (firstId, 1));
+        payload["reason"] = "legacy reason";
+        var before = f.Host.LiveEvents.ReplayCount;
+
+        var replay = (await client.SendAsync("BatchMutateRuns", payload, requestId)).Require();
+
+        ContractSchema.Validate("$defs/Responses/BatchMutateRuns", replay, "legacy batch replay IPC");
+        Assert.True(replay["idempotent_replay"]!.GetValue<bool>());
+        Assert.Equal(2, replay["changed_count"]!.GetValue<int>());
+        Assert.Equal(new[] { firstId, secondId }, replay["run_ids"]!.AsArray().Select(node => node!.GetValue<string>()));
+        Assert.Equal(before, f.Host.LiveEvents.ReplayCount);
+
+        var changed = payload.DeepClone().AsObject();
+        changed["reason"] = "changed reason";
+        var conflict = await client.SendAsync("BatchMutateRuns", changed, requestId);
+        Assert.Equal(ErrorCodes.IdempotencyConflict, conflict.ErrorCode);
+        Assert.Equal(before, f.Host.LiveEvents.ReplayCount);
+        Assert.Equal(legacy, new IdempotencyRepository(f.Host.Database, f.Host.Clock).TryGetResponse(requestId));
     }
 
     [Fact]

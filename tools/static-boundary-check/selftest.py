@@ -990,6 +990,26 @@ def cases() -> Iterable[tuple[str, callable]]:
 
     yield "a clean tree passes", baseline
 
+    def qml_lint_uses_owned_process_runner() -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clean_tree(root)
+            source = HERE.parents[1] / "scripts" / "qml-lint.ps1"
+            plant(root, "scripts/qml-lint.ps1", source.read_text(encoding="utf-8"))
+            expect_clean(root, "the production QML lint runner without process-member allowances")
+
+    yield "QML lint uses the bounded child runner without a new allowance", qml_lint_uses_owned_process_runner
+
+    for member in ("WaitForExit(600000)", "Kill($true)", "ExitCode"):
+        def qml_lint_process_member_is_forbidden(member: str = member) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                clean_tree(root)
+                plant(root, "scripts/qml-lint.ps1", "$process." + member)
+                expect_violation(root, "a direct Process member added to the QML lint runner", "INJ-009")
+
+        yield f"QML lint cannot access Process.{member}", qml_lint_process_member_is_forbidden
+
     for key in declared:
         if key not in SAMPLES:
             continue

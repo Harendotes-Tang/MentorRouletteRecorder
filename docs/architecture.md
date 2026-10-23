@@ -193,10 +193,10 @@
   不发送任何请求（包括在线语音的密钥）。采集服务自带的 `PipeClient`（启动时探活所用）保留
   `PipeOptions.CurrentUserOnly`，由 .NET 完成同样的核对。
 - 管道名：`"MentorRecorder." + SHA-256(UTF-8(当前用户 SID 字符串)) 前 16 字节的小写十六进制 + ".v1"`。
-  两端各自实现（C# `src/Collector/Ipc/PipeNaming.cs`，C++ `src/Desktop/cpp/PipeName.cpp`），
+  两端各自实现（C# `src/Collector/Ipc/PipeNaming.cs`，C++ `src/Desktop/cpp/transport/PipeName.cpp`），
   必须逐字节一致；`--pipe-name-only` 可打印本机的名字用于核对。
 - 分帧：`4 字节小端无符号长度` + `该长度的 UTF-8 JSON`。单帧上限 **4 MiB**
-  （`FrameCodec.MaxFrameBytes` == `src/Desktop/cpp/IpcFraming.h` 的 `kMaxFrameBytes`
+  （`FrameCodec.MaxFrameBytes` == `src/Desktop/cpp/transport/IpcFraming.h` 的 `kMaxFrameBytes`
   == 契约描述文字里的 4194304，三者已对齐）。
 - 信封：`request_id`（UUID）、`protocol_version`（= 1）、`message_type`、`payload`。
 - 契约：[../contracts/ipc-v1.schema.json](../contracts/ipc-v1.schema.json)（JSON Schema draft 2020-12）
@@ -257,7 +257,7 @@
 失败：`{protocol_version, request_id, message_type, ok: false, error: {code, message, field,
 retryable, details?}, payload: <同 error>}`。
 同时填写 `error` 与 `payload`，是为了兼容 Desktop 客户端
-（`src/Desktop/cpp/IpcClient.cpp`）已实现的两条分支：`ok` 分支读取 `error`，
+（`src/Desktop/cpp/transport/IpcClient.cpp`）已实现的两条分支：`ok` 分支读取 `error`，
 `message_type == "Error"` 分支读取 `payload`。无法解析出 `message_type` 时，
 `message_type` 填 `"Error"`。
 契约的 `ResponseEnvelope` / `EventEnvelope` / `ErrorEnvelope` 均已声明 `ok` 与 `error`
@@ -331,15 +331,18 @@ payload: <LiveEvent>}`。
 连接继续服务。未预期的异常返回 `ERR_INTERNAL`，细节只写入本机日志，**不回传给客户端**。
 
 另一种连接级情形是延迟应答超限。`SynthesizeSpeech`、`CheckDatabaseIntegrity`、`CheckUpdateNow`、
-`PreviewRunImport` 与 `CommitRunImport`（`MessageDispatcher.AsynchronousMessageTypes`）不在读循环上应答，
+`PreviewRunImport`、`CommitRunImport`、`ExportCsv` 与 `ExportJson`（`MessageDispatcher.AsynchronousMessageTypes`）不在读循环上应答，
 而是各自完成后再写回，以免排在其后的状态查询被阻塞。同一连接上已受理而尚未应答（仍在处理，或已有结果
 尚未写出）的这类请求最多 8 条（`PipeConnection.MaxDeferredResponses`）；其中尚未应答的 `CheckUpdateNow`
 无论几条都只计一条，因为它们等待同一次进行中的更新检查，它们自身另以 8 条为限。超出上限的请求到达时
 Collector 不处理该请求、不作应答，直接关闭连接，尚未写出的应答随之丢弃。这一上限防止只发不读的对端让应答无限堆积；各项服务自身的准入限制（语音的有界队列、
-完整性校验与导入各自只允许一个在途任务）不覆盖这种情形。此前已受理的请求随连接一同取消，其中的变更
+完整性校验与导入各自只允许一个在途任务，导出通过专用信号量串行执行）不覆盖这种情形。此前已受理的请求随连接一同取消，其中的变更
 要么整体提交、要么整体回滚，可用原 `request_id` 重发以确认结果。桌面端在连接断开时令全部未完成的请求
-失败，然后重连；它在正常使用中同时发出的这类请求（最多 4 条语音、1 次完整性校验、1 次导入与更新检查）
-少于这一上限。
+失败，然后重连；导出同样受这项连接准入上限约束。
+
+CSV/JSON 导出以独立只读连接的同一读事务取得记录和附件。WAL 快照保持跨页结果一致，
+不持有实时写入使用的数据库门闩；快照后的新增、删除和心得修订不混入该次导出。
+编码与原子文件发布也在延迟任务中执行，普通状态请求仍由连接读循环受理。
 
 ## 4. Collector 内部线程模型
 
@@ -489,10 +492,20 @@ scripts/                PowerShell 环境自检、构建、测试、验证、打
 | `HistoryController` | 历史列表/筛选、选中与待复核记录、修订和事件加载、变更请求及一次修订冲突重试 | 通过 `IBackend` 查询和变更；拥有模型与快照，以自身作为异步回调上下文 |
 | `StatisticsController` | 仪表盘、趋势窗口与桶、近 7/30 天计数、副本选项、副本/职业统计模型、成就基线请求 | 先采纳统计并发送通知，再通知总控更新相关状态，最后完成回调 |
 | `AppController` | 保留 QML 属性/槽/信号投影，协调导航、导出筛选、心得、结果提示和 TTS | 不再保存历史/统计的第二份状态；TTS 上下文在记录结束回调之前更新；监督器由入口提供 |
+| `RunCompletionCoordinator` | 拥有完成事件的刷新顺序、结果/心得提示队列、会话去重和上下文代次 | 通过窄回调请求刷新/恢复登记，通过信号请求提示与播报；不依赖 AppController、QML 或语音实现 |
 
 两个工作流控制器借用后端及其回复对象，可以在没有 QML 引擎、AppController 或本地
 Collector 的情况下单独测试。后端销毁时清除模型中的借用引用，回复回调依附控制器的
 QObject 生命周期。生产部署仍为 Desktop 与 Collector 两个进程。
+
+完成协调器位于 `cpp/workflows/`，由仅依赖 Qt Core 的 `MentorRecorderCompletion` 编译，
+有不链接 DesktopLib 或 QML 的独立测试。`cpp/transport/` 收拢后端与命名管道客户端，
+其中分帧与命名另由 `MentorRecorderIpcWire` 编译，只使用 Qt Core 和本机 Windows 身份 API。
+业务后端适配器仍复用界面本地化实现，不能据目录归组声称整套传输层已完全独立。
+浮窗与校准 QML 分别归入 `qml/overlay/`、`qml/calibration/`，原类型名和资源别名保持兼容。
+
+批量历史变更由服务返回 `BatchRunMutationOutcome`。存储层的 `BatchMutationReceiptCodec`
+负责兼容既有幂等回执，IPC 再渲染原有响应字段；重放不重复发布统计失效事件。
 
 `scripts/build.ps1` 与 `scripts/test.ps1` 共用可选环境变量 `MR_BUILD_DIR`，
 默认目录为 `build/`，相对路径相对仓库根目录解析。`scripts/verify.ps1` 因而可以在

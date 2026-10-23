@@ -29,6 +29,12 @@ class Fixture:
             "src/Collector/Ipc/ErrorCodes.cs",
             "namespace MentorRecorder.Collector.Ipc; public static class ErrorCodes {}\n",
         )
+        self.write(
+            "src/Collector/Storage/Good.cs",
+            "using MentorRecorder.Collector.Ipc;\n"
+            "namespace MentorRecorder.Collector.Storage;\n"
+            "class Good { object Value => EnumWire.ToWire(0); }\n",
+        )
         self.write("src/Desktop/qml/pages/HistoryPage.qml", "import QtQuick\nItem {}\n")
         self.write("src/Desktop/qml/pages/DashboardPage.qml", "import QtQuick\nItem {}\n")
         self.write(
@@ -44,6 +50,14 @@ class Fixture:
                 f"src/Desktop/cpp/{controller}.cpp",
                 f"#include \"{controller}.h\"\n// AppController must remain absent.\n",
             )
+        self.write(
+            "src/Desktop/cpp/workflows/RunCompletionCoordinator.h",
+            "#pragma once\n#include <QObject>\nclass RunCompletionCoordinator {};\n",
+        )
+        self.write(
+            "src/Desktop/cpp/workflows/RunCompletionCoordinator.cpp",
+            '#include "RunCompletionCoordinator.h"\n',
+        )
 
     def write(self, relative: str, content: str | bytes) -> Path:
         path = self.root / relative
@@ -134,7 +148,7 @@ class BoundaryCheckerTests(unittest.TestCase):
         code, report, stderr = self.fixture.run()
         self.assertEqual(0, code, (report, stderr))
         self.assertEqual(1, report["scanned_counts"]["domain_files"])
-        self.assertEqual(2, report["scanned_counts"]["collector_csharp_files"])
+        self.assertEqual(3, report["scanned_counts"]["collector_csharp_files"])
 
     def test_output_like_source_folders_cannot_hide_dependencies(self) -> None:
         for folder in ("artifacts", "build", "bin", "obj", "BUILD", "__pycache__"):
@@ -561,6 +575,87 @@ class BoundaryCheckerTests(unittest.TestCase):
             '#pragma once\n#include "TtsService.h"\n',
         )
         self.assert_violation("workflow-forbidden-include", "TtsService.h", line=2, column=11)
+
+    def test_coordinator_forbids_direct_and_transitive_dependencies(self) -> None:
+        for forbidden in ("AppController", "CollectorProcess", "TtsService", "HistoryPage"):
+            with self.subTest(forbidden=forbidden):
+                self.fixture.write(
+                    "src/Desktop/cpp/workflows/RunCompletionCoordinator.cpp",
+                    f'#include "RunCompletionCoordinator.h"\nclass {forbidden};\n',
+                )
+                self.assert_violation("workflow-forbidden-reference", forbidden, line=2)
+        self.fixture.write(
+            "src/Desktop/cpp/workflows/RunCompletionCoordinator.cpp",
+            '#include "RunCompletionCoordinator.h"\n#include "CompletionHelper.h"\n',
+        )
+        self.fixture.write(
+            "src/Desktop/cpp/workflows/CompletionHelper.h", '#include "AppController.h"\n',
+        )
+        self.assert_violation("workflow-forbidden-include", "AppController.h", line=1)
+
+    def test_transport_and_workflow_include_directories_are_followed(self) -> None:
+        self.fixture.write(
+            "src/Desktop/cpp/HistoryController.cpp", '#include "IBackend.h"\n',
+        )
+        self.fixture.write(
+            "src/Desktop/cpp/transport/IBackend.h", '#include "../WorkflowHelper.h"\n',
+        )
+        code, report, stderr = self.fixture.run()
+        self.assertEqual(0, code, (report, stderr))
+        self.fixture.write(
+            "src/Desktop/cpp/WorkflowHelper.h", '#include <CompletionHelper.h>\n',
+        )
+        self.fixture.write(
+            "src/Desktop/cpp/workflows/CompletionHelper.h", "class AppController;\n",
+        )
+        item = self.assert_violation("workflow-forbidden-reference", "AppController", line=1)
+        self.assertEqual("src/Desktop/cpp/workflows/CompletionHelper.h", item["file"])
+
+    def test_storage_rejects_wire_import_alias_and_qualified_references(self) -> None:
+        sources = (
+            "using MentorRecorder.Collector.Ipc;\nclass Bad { object O = Wire.JsonOptions; }\n",
+            "namespace MentorRecorder.Collector.Storage { using Ipc;\n"
+            "class Bad { object O = Wire.JsonOptions; } }\n",
+            "using W = MentorRecorder.Collector.Ipc.Wire;\nclass Bad { object O = W.JsonOptions; }\n",
+            "using static global::MentorRecorder.Collector.Ipc.Wire;\nclass Bad {}\n",
+            "using I = MentorRecorder.Collector.Ipc;\nclass Bad { object O = I.Wire.JsonOptions; }\n",
+            "class Bad { object O = MentorRecorder.Collector.Ipc.Wire.JsonOptions; }\n",
+            "class Bad { object O = Ipc.Wire.JsonOptions; }\n",
+        )
+        for source in sources:
+            with self.subTest(source=source):
+                self.fixture.write("src/Collector/Storage/Bad.cs", source)
+                self.assert_violation("storage-ipc-wire", "Wire")
+
+    def test_storage_rejects_namespace_alias_qualifier(self) -> None:
+        for prefix in ("", "global::"):
+            with self.subTest(prefix=prefix):
+                self.fixture.write(
+                    "src/Collector/Storage/Bad.cs",
+                    f"using I = {prefix}MentorRecorder.Collector.Ipc;\n"
+                    "class Bad { object O = I::Wire.JsonOptions; }\n",
+                )
+                self.assert_violation("storage-ipc-wire", "I::Wire", line=2)
+
+    def test_storage_allows_enum_wire_and_its_own_serializer_options(self) -> None:
+        self.fixture.write(
+            "src/Collector/Storage/Good.cs",
+            "using MentorRecorder.Collector.Ipc;\nusing E = MentorRecorder.Collector.Ipc.EnumWire;\n"
+            "using I = global::MentorRecorder.Collector.Ipc;\n"
+            "namespace MentorRecorder.Collector.Storage;\n"
+            "class Good { object A = EnumWire.ToWire(0); object B = E.ToWire(0);\n"
+            "object C = I::EnumWire.ToWire(0);\n"
+            'string Text = "Wire.JsonOptions Ipc.Wire"; /* Ipc.Wire */\n'
+            "System.Text.Json.JsonSerializerOptions Options = new(); }\n",
+        )
+        code, report, stderr = self.fixture.run()
+        self.assertEqual(0, code, (report, stderr))
+
+    def test_missing_coordinator_fails_closed(self) -> None:
+        self.fixture.root.joinpath("src/Desktop/cpp/workflows/RunCompletionCoordinator.h").unlink()
+        code, report, _ = self.fixture.run()
+        self.assertEqual(2, code, report)
+        self.assertTrue(any("RunCompletionCoordinator.h" in error for error in report["errors"]))
 
     def test_local_angle_include_is_followed(self) -> None:
         self.fixture.write(

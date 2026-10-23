@@ -431,6 +431,7 @@ class Checker:
         self.errors: list[str] = []
         self.counts = {
             "domain_files": 0,
+            "storage_files": 0,
             "collector_csharp_files": 0,
             "msbuild_files": 0,
             "workflow_files": 0,
@@ -537,6 +538,7 @@ class Checker:
             r"(?:(?P<alias>[A-Za-z_]\w*)\s*=\s*)?"
             r"(?P<name>(?:global::)?[A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*)\s*;"
         )
+        self.check_storage_wire(masked_by_path, using_pattern)
         domain_set = set(domain_files)
         for path, (text, masked) in masked_by_path.items():
             for match in using_pattern.finditer(masked):
@@ -755,8 +757,43 @@ class Checker:
                     continue
                 pending_project_files.append(candidate)
 
+    def check_storage_wire(self, sources: dict[Path, tuple[str, str]],
+                           using_pattern: re.Pattern[str]) -> None:
+        """Keep durable receipts independent of IPC options; existing EnumWire uses remain valid."""
+        storage = self.root / "src" / "Collector" / "Storage"
+        storage_files = _source_files(storage, {".cs"}, project_root=storage.parent)
+        if not storage_files:
+            self.error("required scope is missing or empty: src/Collector/Storage")
+            return
+        global_imports = [match for _, masked in sources.values()
+                          for match in using_pattern.finditer(masked) if match.group("global")]
+        ipc_namespace = PROJECT_NAMESPACE + ".Ipc"
+        ipc_names = {ipc_namespace, "Collector.Ipc", "Ipc"}
+        for path in storage_files:
+            if path not in sources:
+                continue  # The C# tokenizer has already recorded the inspection error.
+            self.counts["storage_files"] += 1
+            text, masked = sources[path]
+            imports = list(using_pattern.finditer(masked)) + global_imports
+            patterns = [r"(?<!\w)Ipc\s*\.\s*Wire\b"]
+            for match in imports:
+                target = re.sub(r"\s+", "", match.group("name")).removeprefix("global::")
+                alias = match.group("alias")
+                if target in ipc_names and alias:
+                    patterns.append(rf"\b{re.escape(alias)}\s*(?:\.|::)\s*Wire\b")
+                elif target in ipc_names and not match.group("static"):
+                    patterns.append(r"(?<![\w.])Wire\b")
+                elif target in {name + ".Wire" for name in ipc_names} and alias:
+                    patterns.append(rf"(?<![\w.]){re.escape(alias)}\b")
+            for match in re.finditer("|".join(patterns), masked):
+                self.finding(path, text, match.start(), "storage-ipc-wire",
+                             re.sub(r"\s+", "", match.group(0)),
+                             "Storage must encode durable receipts independently of Ipc.Wire")
+
     def _resolve_local_include(self, source: Path, include: str, cpp_root: Path) -> Path | None:
-        candidates = [source.parent / include, cpp_root / include]
+        # Match the Desktop's explicit include directories after the source's own directory.
+        candidates = [directory / include for directory in
+                      (source.parent, cpp_root, cpp_root / "transport", cpp_root / "workflows")]
         for candidate in candidates:
             try:
                 resolved = candidate.resolve()
@@ -777,12 +814,13 @@ class Checker:
             self.error("required scope is missing: src/Desktop/qml/pages")
             page_types: set[str] = set()
         else:
-            page_types = {path.stem for path in qml_pages.glob("*.qml") if path.is_file()}
+            page_types = {path.stem for path in qml_pages.rglob("*.qml") if path.is_file()}
             if not page_types:
                 self.error("required scope is empty: src/Desktop/qml/pages contains no QML pages")
 
         queue: list[Path] = []
-        for controller in ("HistoryController", "StatisticsController"):
+        for controller in ("HistoryController", "StatisticsController",
+                           "workflows/RunCompletionCoordinator"):
             for suffix in (".h", ".cpp"):
                 path = cpp_root / f"{controller}{suffix}"
                 if not path.is_file():
@@ -884,7 +922,8 @@ def _print_human(report: dict[str, object]) -> None:
     print(
         f"Scanned {report['scanned_files']} source inputs "
         f"(Domain {counts['domain_files']}, Collector C# {counts['collector_csharp_files']}, "
-        f"MSBuild {counts['msbuild_files']}, workflow {counts['workflow_files']})."
+        f"Storage {counts['storage_files']}, MSBuild {counts['msbuild_files']}, "
+        f"workflow {counts['workflow_files']})."
     )
     if report["exit_code"] == EXIT_OK:
         print("OK: architecture dependency boundaries satisfied.")

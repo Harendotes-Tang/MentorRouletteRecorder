@@ -1,6 +1,6 @@
 import QtQuick
 import MentorRecorder 1.0
-import "OverlayIcons.js" as Icons
+import "../components/OverlayIcons.js" as Icons
 
 // One of the float's own line icons (OverlayIcons.js), drawn in `color` at
 // device pixels so the strokes stay crisp on a scaled display.

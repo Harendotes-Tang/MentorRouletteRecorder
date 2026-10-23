@@ -10,6 +10,16 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS
     TextToSpeech
     Widgets)
 
+# This workflow suite deliberately has no QML engine, DesktopLib or Collector.
+add_executable(MentorRecorderRunCompletionCoordinatorTests RunCompletionCoordinatorTests.cpp)
+target_link_libraries(MentorRecorderRunCompletionCoordinatorTests PRIVATE
+    MentorRecorderCompletion Qt6::Test)
+set_target_properties(MentorRecorderRunCompletionCoordinatorTests PROPERTIES AUTOMOC TRUE)
+mr_use_ascii_autogen_dir(MentorRecorderRunCompletionCoordinatorTests)
+add_test(NAME MentorRecorderRunCompletionCoordinator
+    COMMAND MentorRecorderRunCompletionCoordinatorTests
+        -o "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorderRunCompletionCoordinator.qtlog.txt,txt")
+
 # Personal journal/import workflows: controller lifecycle, real PNG output and
 # screenshot evidence parsing are separate from the mock-only reflection tests.
 foreach(workflow IN ITEMS ReflectionLibrary ReflectionShare ImportRecordsController ScreenshotImportParser OfflineOcrEngine JobIconClassifier DungeonComposition HistoryBatch)
@@ -236,6 +246,9 @@ foreach(MR_REVIEW_SUITE WorkflowController RunFormValidator ExportFailure UiWork
     add_executable(MentorRecorder${MR_REVIEW_SUITE}Tests ${MR_REVIEW_SUITE}Tests.cpp)
     target_link_libraries(MentorRecorder${MR_REVIEW_SUITE}Tests PRIVATE
         MentorRecorderDesktopLib Qt6::Gui Qt6::Test)
+    if(MR_REVIEW_SUITE MATCHES "^(RecoveryUi|StatisticsOverlay)$")
+        target_link_libraries(MentorRecorder${MR_REVIEW_SUITE}Tests PRIVATE Qt6::Widgets)
+    endif()
     set_target_properties(MentorRecorder${MR_REVIEW_SUITE}Tests PROPERTIES AUTOMOC TRUE)
     mr_use_ascii_autogen_dir(MentorRecorder${MR_REVIEW_SUITE}Tests)
     target_compile_definitions(MentorRecorder${MR_REVIEW_SUITE}Tests PRIVATE
@@ -1114,6 +1127,8 @@ add_library(MentorRecorderQmlRuntimeTestSupport OBJECT
     QmlRuntimeTestRegistration.cpp)
 target_include_directories(MentorRecorderQmlRuntimeTestSupport PRIVATE
     "${PROJECT_SOURCE_DIR}/src/Desktop/cpp")
+target_compile_definitions(MentorRecorderQmlRuntimeTestSupport PRIVATE
+    MR_DESKTOP_QML_DIR="${PROJECT_SOURCE_DIR}/src/Desktop/qml")
 target_link_libraries(MentorRecorderQmlRuntimeTestSupport PUBLIC Qt6::Qml)
 set_target_properties(MentorRecorderQmlRuntimeTestSupport PROPERTIES AUTOMOC TRUE)
 mr_use_ascii_autogen_dir(MentorRecorderQmlRuntimeTestSupport)
@@ -1131,7 +1146,8 @@ set_tests_properties(MentorRecorderQmlRuntime PROPERTIES
 get_property(mr_desktop_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 foreach(mr_test_target IN LISTS mr_desktop_test_targets)
     get_target_property(mr_test_target_type "${mr_test_target}" TYPE)
-    if(mr_test_target_type STREQUAL "EXECUTABLE" AND mr_test_target MATCHES "Tests$")
+    if(mr_test_target_type STREQUAL "EXECUTABLE" AND mr_test_target MATCHES "Tests$"
+       AND NOT mr_test_target STREQUAL "MentorRecorderRunCompletionCoordinatorTests")
         target_link_libraries("${mr_test_target}" PRIVATE MentorRecorderQmlRuntimeTestSupport)
     endif()
 endforeach()

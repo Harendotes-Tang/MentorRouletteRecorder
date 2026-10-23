@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
+using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
@@ -88,41 +89,49 @@ public sealed class RunExporter
         return columns;
     }
 
-    private readonly RunRepository _runs;
     private readonly IClock _clock;
-    private readonly SqliteDatabase? _database;
+    private readonly SqliteDatabase _database;
 
     /// <summary>Creates an exporter over the run repository.</summary>
     /// <param name="runs">Run repository.</param>
     /// <param name="clock">Clock used to stamp the outcome.</param>
     /// <param name="database">
-    /// Open database, so the whole paged read can be taken under one gate. Optional for callers
-    /// that build an exporter over a repository alone; without it the pages are read with no
-    /// snapshot.
+    /// Database used to open an independent read-only snapshot. When omitted, the repository's
+    /// database supplies it; both construction paths preserve one snapshot across all pages.
     /// </param>
     public RunExporter(RunRepository runs, IClock clock, SqliteDatabase? database = null)
     {
         ArgumentNullException.ThrowIfNull(runs);
         ArgumentNullException.ThrowIfNull(clock);
-        _runs = runs;
         _clock = clock;
-        _database = database;
+        _database = database ?? runs.Database;
     }
 
     /// <summary>Writes an RFC 4180 CSV file with a UTF-8 byte order mark.</summary>
     /// <param name="targetPath">Destination chosen by the user.</param>
     /// <param name="filter">Same filter as QueryRuns; null exports everything visible.</param>
     /// <param name="overwrite">Whether an existing file may be replaced.</param>
-    public ExportOutcome ExportCsv(string targetPath, RunFilter? filter, bool overwrite)
+    public ExportOutcome ExportCsv(string targetPath, RunFilter? filter, bool overwrite) =>
+        ExportCsv(targetPath, filter, overwrite, CancellationToken.None);
+
+    /// <summary>按原 CSV 契约生成文件，并允许连接断开时取消尚未发布的工作。</summary>
+    /// <param name="targetPath">用户选择的目标路径。</param>
+    /// <param name="filter">与 QueryRuns 相同的筛选；null 导出全部可见记录。</param>
+    /// <param name="overwrite">是否允许原子替换已有文件。</param>
+    /// <param name="cancellationToken">取消尚未发布的导出；已原子发布的文件仍返回成功。</param>
+    internal ExportOutcome ExportCsv(
+        string targetPath, RunFilter? filter, bool overwrite, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var fullPath = ExportPaths.Resolve(targetPath);
         ExportPaths.PrepareDestination(fullPath, overwrite);
 
-        var rows = LoadAll(filter);
+        var rows = LoadAll(filter, cancellationToken);
         var text = new StringBuilder(1024 + (rows.Count * 160));
         text.Append(string.Join(',', CsvHeader)).Append("\r\n");
         foreach (var run in rows)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             AppendCsvRow(text, run);
         }
 
@@ -135,7 +144,8 @@ public sealed class RunExporter
         preamble.CopyTo(bytes, 0);
         body.CopyTo(bytes, preamble.Length);
 
-        Write(fullPath, bytes, overwrite);
+        cancellationToken.ThrowIfCancellationRequested();
+        Write(fullPath, bytes, overwrite, cancellationToken);
         return Outcome(fullPath, rows.Count);
     }
 
@@ -143,20 +153,32 @@ public sealed class RunExporter
     /// <param name="targetPath">Destination chosen by the user.</param>
     /// <param name="filter">Same filter as QueryRuns; null exports everything visible.</param>
     /// <param name="overwrite">Whether an existing file may be replaced.</param>
-    public ExportOutcome ExportJson(string targetPath, RunFilter? filter, bool overwrite)
+    public ExportOutcome ExportJson(string targetPath, RunFilter? filter, bool overwrite) =>
+        ExportJson(targetPath, filter, overwrite, CancellationToken.None);
+
+    /// <summary>按原 JSON 契约生成文件，并允许连接断开时取消尚未发布的工作。</summary>
+    /// <param name="targetPath">用户选择的目标路径。</param>
+    /// <param name="filter">与 QueryRuns 相同的筛选；null 导出全部可见记录。</param>
+    /// <param name="overwrite">是否允许原子替换已有文件。</param>
+    /// <param name="cancellationToken">取消尚未发布的导出；已原子发布的文件仍返回成功。</param>
+    internal ExportOutcome ExportJson(
+        string targetPath, RunFilter? filter, bool overwrite, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var fullPath = ExportPaths.Resolve(targetPath);
         ExportPaths.PrepareDestination(fullPath, overwrite);
 
-        var rows = LoadAll(filter);
+        var rows = LoadAll(filter, cancellationToken);
         var array = new JsonArray();
         foreach (var run in rows)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             array.Add(Wire.Run(run));
         }
 
         var json = array.ToJsonString(Wire.IndentedJsonOptions);
-        Write(fullPath, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(json), overwrite);
+        cancellationToken.ThrowIfCancellationRequested();
+        Write(fullPath, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(json), overwrite, cancellationToken);
         return Outcome(fullPath, rows.Count);
     }
 
@@ -166,11 +188,11 @@ public sealed class RunExporter
         new FileInfo(fullPath).Length,
         UtcTimestamp.Truncate(_clock.UtcNow));
 
-    private static void Write(string fullPath, byte[] bytes, bool overwrite)
+    private static void Write(string fullPath, byte[] bytes, bool overwrite, CancellationToken cancellationToken)
     {
         try
         {
-            AtomicExportFile.Write(fullPath, overwrite, file => file.Write(bytes));
+            AtomicExportFile.Write(fullPath, overwrite, file => file.Write(bytes), cancellationToken);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -183,25 +205,24 @@ public sealed class RunExporter
     }
 
     /// <summary>
-    /// Reads every matching run, one page at a time, with the database gate held for the
-    /// whole sweep.
-    ///
-    /// Offset paging across separate reads has no snapshot: a run inserted or soft-deleted by
-    /// the capture thread between page 3 and page 4 shifts every later row by one, so the
-    /// export silently skips or duplicates a record. Holding the gate for the sweep gives the
-    /// pages one consistent view (review finding L1).
+    /// Reads every matching run and its attachments from one read-only transaction. WAL keeps
+    /// later live writes outside this snapshot without making them wait for the export.
     /// </summary>
     /// <param name="filter">Same filter as QueryRuns; null exports everything visible.</param>
-    private IReadOnlyList<MentorRun> LoadAll(RunFilter? filter) =>
-        _database is null ? LoadPages(filter) : _database.Read(_ => LoadPages(filter));
+    /// <param name="cancellationToken">取消分页读取以及尚未发布的文件。</param>
+    private IReadOnlyList<MentorRun> LoadAll(RunFilter? filter, CancellationToken cancellationToken) =>
+        _database.ReadSnapshot((snapshot, transaction) =>
+            LoadPages(new RunRepository(snapshot), transaction, filter, cancellationToken), cancellationToken);
 
-    private IReadOnlyList<MentorRun> LoadPages(RunFilter? filter)
+    private static IReadOnlyList<MentorRun> LoadPages(
+        RunRepository runs, SqliteTransaction transaction, RunFilter? filter, CancellationToken cancellationToken)
     {
         var rows = new List<MentorRun>();
         var page = 1;
         while (true)
         {
-            var batch = _runs.Query(filter, RunSort.Default, page, BatchSize);
+            cancellationToken.ThrowIfCancellationRequested();
+            var batch = runs.Query(filter, RunSort.Default, page, BatchSize, transaction);
             rows.AddRange(batch.Items);
             if (batch.Items.Count < BatchSize || rows.Count >= batch.Total)
             {

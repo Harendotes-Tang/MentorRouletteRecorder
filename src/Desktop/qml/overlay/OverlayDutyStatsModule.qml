@@ -4,7 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import MentorRecorder 1.0
-import "Lucide.js" as Lucide
+import "../components/Lucide.js" as Lucide
 
 // 副本统计: clears by duty category as one stacked bar with an icon legend,
 // then the most-played duties ranked by attempts (副本排行 in 自定义).

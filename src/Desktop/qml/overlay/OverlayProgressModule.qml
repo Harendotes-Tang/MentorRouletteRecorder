@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import MentorRecorder 1.0
-import "Lucide.js" as Lucide
+import "../components/Lucide.js" as Lucide
 
 // 累计进度: the count toward the goal as one large figure over a bar with
 // quarter ticks; a "+N" pill appears for a moment after each new completion.

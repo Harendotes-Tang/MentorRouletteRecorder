@@ -51,6 +51,7 @@ class CollectorProcess;
 class ExportController;
 class IBackend;
 class NoteImageStore;
+class RunCompletionCoordinator;
 class TtsService;
 
 // `final`: the constructor calls refreshAll(), which reaches the virtual Host slot
@@ -290,7 +291,7 @@ public:
     /// completion prompt is never offered for them, and a transition emitted
     /// before it is never announced. Defaults to construction time; tests move
     /// it so fixture runs with fixed timestamps still count.
-    void setReflectionPromptCutoffForTest(const QDateTime &utc) { m_promptCutoffUtc = utc; }
+    void setReflectionPromptCutoffForTest(const QDateTime &utc);
 
     /// Test-only: what "today" is for the daily backup.
     void setTodayForTest(std::function<QDate()> today) { m_today = std::move(today); }
@@ -723,11 +724,6 @@ private:
     /// and the toast that says which of the two things just happened.
     void applySavedReflection(const QString &runId, const QVariantMap &payload,
                               bool cleared, const QString &draftToken);
-    /// Queue reflectionPromptRequested for \a run when the settings allow it,
-    /// the run has no 心得 yet and this run_id has not been prompted before.
-    void maybePromptForReflection(const QJsonObject &run);
-    /// Raise the oldest queued 心得 prompt, unless a dialog is showing one.
-    void emitNextReflectionPrompt();
     /// True when \a event was published before this Desktop started: a replay
     /// of something the window that was open then already saw.
     bool emittedBeforeThisSession(const QVariantMap &event) const;
@@ -738,15 +734,6 @@ private:
     /// 同连接晚到的回应仍可更新下载等信息，但捕获事实须保留较新的观察。
     void adoptCollectorAnswer(const QVariantMap &payload, quint64 captureRevision);
     void readCaptureSettings(bool preserveWriteError);
-    /// Queue resultConfirmationRequested for a run that finished in
-    /// UNKNOWN_FINAL_STATE during this session.
-    void maybeConfirmResult(const QString &state, const QJsonObject &run);
-    /// Raise the oldest queued result question, unless a dialog is showing one.
-    void emitNextResultConfirmation();
-    /// False for a run that ended before this Desktop started, which is how a
-    /// replayed live event looks. Shared by the 心得 prompt, the result
-    /// confirmation and the terminal announcements.
-    bool endedDuringThisSession(const QJsonObject &run) const;
     /// Template values a real announcement would use right now. \a run is the
     /// run the announcement is about; its duty name wins over the (possibly
     /// stale) current-run card.
@@ -761,8 +748,8 @@ private:
     void adoptRunRevisionFromEvent(const QJsonObject &run);
     /// Speak the terminal line for \a state. Called from run_finished only,
     /// after the dashboard has been re-read, so {progress} is this run's number.
-    /// \a numbersKnown false (that re-read failed) selects a line without counts
-    /// rather than announcing a stale total.
+    /// \a numbersKnown false (that re-read failed) keeps an earlier snapshot;
+    /// only when no snapshot was ever read does the line omit counts.
     void announceFinished(const QString &state, const QJsonObject &run, bool numbersKnown);
     /// GetDashboardStats, calling \a then with the reply's own ok once it has
     /// been adopted. A failed read keeps the previous snapshot: the cards are
@@ -843,14 +830,14 @@ private:
     StatisticsOverlayController *m_statisticsOverlay = nullptr;
     HistoryColumnsController *m_historyColumns = nullptr;
     RecoveryController *m_recovery = nullptr;
+    /// Owns completion order, prompt queues and recovery-context tokens; the
+    /// facade only supplies model operations and renders its notification signals.
+    RunCompletionCoordinator *m_completion = nullptr;
     /// Namespace adoption accepts only the newest GetStatus issued on the
     /// current connection; an older reply must not reopen another journal.
     quint64 m_recoveryStatusReadGeneration = 0;
     quint64 m_captureSettingsEditGeneration = 0;
     quint64 m_recoveryConnectionGeneration = 0;
-    /// Invalidate delayed prompts and note acknowledgments after any scope or
-    /// connection change, including switching away from and back to one key.
-    quint64 m_recoveryPromptContextGeneration = 0;
     TtsService *m_tts = nullptr;
     CaptureValidationController *m_capture = nullptr;
     AutomaticRecordingController *m_recording = nullptr;
@@ -868,48 +855,12 @@ private:
     QJsonObject m_captureSettings;
     /// Keys still waiting for the debounce timer to send them.
     QJsonObject m_pendingCaptureSettings;
-    /// run_ids whose completion prompt really opened (\ref
-    /// reflectionPromptShown) or whose 心得 was written, so a repeated live
-    /// event never re-opens the dialog.
-    QSet<QString> m_promptedRunIds;
-    /// run_ids whose 本次导随结果 dialog really opened. Added when QML
-    /// acknowledges through \ref resultConfirmationShown, never at emit time: a
-    /// question the dialog dropped while busy has not been asked.
-    QSet<QString> m_confirmedRunIds;
-    /// Runs whose result question has been raised but not acknowledged, oldest
-    /// first. Bounded, so an old QML build that never acknowledges cannot grow
-    /// it without limit.
-    QList<QJsonObject> m_queuedResultRuns;
-    static constexpr int kMaxQueuedResultRuns = 16;
-    /// Queued runs already raised once. A request the dialog silently dropped
-    /// is not raised again until the dialog that was busy closes, or the same
-    /// finished run would be re-offered by every later one.
-    QSet<QString> m_offeredResultRunIds;
-    /// True between \ref resultConfirmationShown and \ref
-    /// resultConfirmationClosed, i.e. while a dialog is on screen.
-    bool m_resultConfirmationBusy = false;
-    /// The 心得 prompt's queue, the same shape as the result question's:
-    /// finished runs whose prompt was raised but not yet acknowledged, oldest
-    /// first and bounded; the ones raised since the dialog last closed; and
-    /// whether a prompt is on screen.
-    QList<QJsonObject> m_queuedReflectionRuns;
-    static constexpr int kMaxQueuedReflectionRuns = 16;
-    QSet<QString> m_offeredReflectionRunIds;
-    bool m_reflectionPromptBusy = false;
     /// When the capture snapshot in m_collectorStatus last came from an answer
     /// to a request. A collector_status event published before then describes
     /// an older state - one published while that request was being worked on,
     /// say in the middle of a switch to another game client - and must not
     /// replace the answer.
     QDateTime m_captureAnswerAtUtc;
-    /// "<run_id>|<state>" pairs already announced. Survives a reconnect, so a
-    /// replayed run_finished cannot speak the same run twice even though the
-    /// Collector's sequence counter restarts with it.
-    QSet<QString> m_announcedRunStates;
-    /// The Collector replays its recent events to every client that connects,
-    /// so a run that finished before this Desktop started arrives looking live.
-    /// Anything that ended before this instant is never offered as 刚刚完成.
-    QDateTime m_promptCutoffUtc;
     QVariantList m_captureAdapters;
 
     QTimer m_tickTimer;

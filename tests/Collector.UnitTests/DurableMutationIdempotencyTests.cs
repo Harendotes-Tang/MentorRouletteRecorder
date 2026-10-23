@@ -103,7 +103,7 @@ public sealed class DurableMutationIdempotencyTests
         }
         var batch = f.Batch(run, action);
         f.Mutations.BatchMutateRuns(batch);
-        Assert.True(f.Mutations.BatchMutateRuns(batch)["idempotent_replay"]!.GetValue<bool>());
+        Assert.True(f.Mutations.BatchMutateRuns(batch).IdempotentReplay);
         Assert.Equal(ErrorCodes.IdempotencyConflict, Assert.Throws<CollectorException>(() =>
             f.Mutations.BatchMutateRuns(batch with { Reason = "不同内容" })).Code);
         f.ExpireAndPrune();

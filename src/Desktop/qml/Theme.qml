@@ -6,7 +6,8 @@ import MentorRecorder 1.0
 // Single source of truth for the palette. Two visual styles share one token
 // vocabulary (docs/ui-design.md):
 //
-//   * "classic" - DOC/表单提交后设计/workbench.css (default: light work surface,
+//   * "classic" - tokens below, derived from the historical workbench design
+//                 (default: light work surface,
 //                 #2f6bd8 accent, six-step type scale, IBM Plex Mono figures)
 //   * "eorzea"  - the game's own window palette: dark = warm slate grey with
 //                 pale text, light = parchment with dark-brown text; gold is

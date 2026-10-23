@@ -186,11 +186,41 @@ public sealed class SqliteDatabase : IDisposable
         command.ExecuteNonQuery();
     }
 
-    /// <summary>Creates a command on the shared connection.</summary>
+    /// <summary>Creates a command on this database's connection.</summary>
     public SqliteCommand CreateCommand()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         return _connection.CreateCommand();
+    }
+
+    /// <summary>
+    /// 在独立只读连接的同一延迟事务中读取快照，不取得实时写入连接的门闩。
+    /// 第一次实际读取确定 WAL 快照；后续分页及附件查询必须使用传入的事务。
+    /// </summary>
+    /// <typeparam name="T">全部物化后的读取结果，不得返回尚未消费的 reader 或枚举。</typeparam>
+    /// <param name="read">仅在回调期间有效的只读数据库视图和事务；不得保存或释放它们。</param>
+    /// <param name="cancellationToken">在打开连接前和结束读取前检查的取消请求。</param>
+    internal T ReadSnapshot<T>(
+        Func<SqliteDatabase, SqliteTransaction, T> read, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(read);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            // This view owns only its read-only connection and its own gate. Reusing the
+            // repository against it keeps filtering and attachment hydration in one place.
+            using var snapshot = new SqliteDatabase(_openReadOnly(Path), Path, SchemaVersion, _openReadOnly);
+            using var transaction = snapshot._connection.BeginTransaction(IsolationLevel.Serializable, deferred: true);
+            var result = read(snapshot, transaction);
+            cancellationToken.ThrowIfCancellationRequested();
+            return result;
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode is 5 or 6)
+        {
+            throw new CollectorException(
+                ErrorCodes.DbBusy, CollectorTexts.DatabaseBusyRetry(), retryable: true, inner: ex);
+        }
     }
 
     /// <summary>

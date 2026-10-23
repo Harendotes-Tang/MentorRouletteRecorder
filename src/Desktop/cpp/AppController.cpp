@@ -13,6 +13,7 @@
 #include "RunListModel.h"
 #include "StatsModels.h"
 #include "TtsService.h"
+#include "workflows/RunCompletionCoordinator.h"
 
 #include <QDate>
 #include <QDateTime>
@@ -49,17 +50,6 @@ QDateTime parseUtc(const QJsonValue &value)
     return dt;
 }
 
-/// Whether a reply still belongs to the recovery scope captured when its request
-/// went out. An empty captured key means no database identity was known yet:
-/// the first identity is not a change of database - RecoveryController claims
-/// this process's earlier work for it and emits no scopeChanging (review P-4).
-/// Every real change also bumps the prompt context generation, which the
-/// callers compare as well.
-bool sameRecoveryScope(const QString &capturedKey, const QString &currentKey)
-{
-    return capturedKey.isEmpty() || capturedKey == currentKey;
-}
-
 /// The keys $defs/UpdateCaptureSettingsRequest accepts. An unknown key is
 /// dropped rather than sent into an additionalProperties:false schema, which
 /// would be refused outright.
@@ -90,30 +80,42 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     , m_historyColumns(new HistoryColumnsController(settings, this))
     , m_recovery(new RecoveryController(backend, settings, this))
     , m_tts(new TtsService(settings, this, speechEngine))
-    , m_promptCutoffUtc(QDateTime::currentDateTimeUtc())
 {
+    m_completion = new RunCompletionCoordinator({
+        .refreshHistory = [this] { m_history->runs()->reload(); },
+        .refreshCurrentRun = [this] { refreshCurrentRun(); },
+        .refreshReflections = [this] { refreshReflections(); },
+        .refreshRecovery = [this] { m_recovery->refresh(); },
+        .adoptRunRevision = [this](const QJsonObject &run) { adoptRunRevisionFromEvent(run); },
+        .requestDashboard = [this](RunCompletionCoordinator::DashboardDone done) {
+            requestDashboard(std::move(done));
+        },
+        .databaseKey = [this] { return m_recovery->databaseKey(); },
+        .identityVerified = [this] { return m_recovery->identityVerified(); },
+        .reflectionPromptEnabled = [this] { return !m_settings || m_settings->reflectPrompt(); },
+        .resultPromptEnabled = [this] { return !m_settings || m_settings->confirmPrompt(); },
+        .offerRecovery = [this](const QVariantMap &run, const QString &kind) { m_recovery->offer(run, kind); },
+    }, this);
+    connect(m_completion, &RunCompletionCoordinator::reflectionPromptRequested,
+            this, &AppController::reflectionPromptRequested);
+    connect(m_completion, &RunCompletionCoordinator::resultConfirmationRequested,
+            this, &AppController::resultConfirmationRequested);
+    connect(m_completion, &RunCompletionCoordinator::announcementRequested,
+            this, &AppController::announceFinished);
     m_capture = new CaptureValidationController(this, this);
     connect(m_recovery, &RecoveryController::scopeChanging, this, [this] {
-        ++m_recoveryPromptContextGeneration;
-        m_history->invalidateResultRequests();
         // QML closes the old editor before the recovery journal changes.
         // Its close callbacks must not re-offer a queued run from that scope.
-        m_queuedResultRuns.clear();
-        m_queuedReflectionRuns.clear();
-        m_offeredResultRunIds.clear();
-        m_offeredReflectionRunIds.clear();
-        m_confirmedRunIds.clear();
-        m_promptedRunIds.clear();
-        m_resultConfirmationBusy = false;
-        m_reflectionPromptBusy = false;
+        m_completion->invalidateContext(true);
+        m_history->invalidateResultRequests();
     });
     connect(m_recovery, &RecoveryController::promptReady, this,
             [this](const QVariantMap &run, const QString &kind) {
         const QJsonObject record = QJsonObject::fromVariantMap(run);
         if (kind == QLatin1String("reflection"))
-            maybePromptForReflection(record);
+            m_completion->offerReflection(record);
         else if (kind == QLatin1String("result"))
-            maybeConfirmResult(QStringLiteral("UNKNOWN_FINAL_STATE"), record);
+            m_completion->offerResult(QStringLiteral("UNKNOWN_FINAL_STATE"), record);
     });
     connect(m_statisticsOverlay, &StatisticsOverlayController::opened, this, [this] {
         m_statistics->dungeons()->reload();
@@ -297,16 +299,8 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
         // An answer given anywhere - the popup's pager, the history page -
         // settles the run's automatic prompts: a queued question is not asked
         // again when the popup closes (review L2-2).
-        if (kind == QLatin1String("review") && !runId.isEmpty()) {
-            const auto sameRun = [&runId](const QJsonObject &queued) {
-                return queued.value(QStringLiteral("run_id")).toString() == runId;
-            };
-            m_queuedResultRuns.removeIf(sameRun);
-            m_queuedReflectionRuns.removeIf(sameRun);
-            m_offeredResultRunIds.remove(runId);
-            m_offeredReflectionRunIds.remove(runId);
-            m_confirmedRunIds.insert(runId);
-        }
+        if (kind == QLatin1String("review"))
+            m_completion->runReviewed(runId);
         // A mutation reply carries no submitting database identity, and a
         // correction can leave pending_review unchanged. Only a fresh read
         // in the recovery controller's current scope decides what remains.
@@ -352,7 +346,7 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
 
     connect(m_backend, &IBackend::connectionChanged, this, [this] {
         ++m_recoveryConnectionGeneration;
-        ++m_recoveryPromptContextGeneration;
+        m_completion->invalidateContext(false);
         Q_EMIT backendChanged();
         if (m_collector)
             m_collector->noteBackendConnected(m_backend->isConnected());
@@ -478,6 +472,11 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
 }
 
 AppController::~AppController() = default;
+
+void AppController::setReflectionPromptCutoffForTest(const QDateTime &utc)
+{
+    m_completion->setCutoffForTest(utc);
+}
 
 CollectorProcess *AppController::collectorForTest() const
 {
@@ -1245,9 +1244,7 @@ void AppController::handleLiveEvent(const QVariantMap &event)
             announceState(state, run, matchFromQueue.isBool() && !matchFromQueue.toBool(),
                           event.value(QStringLiteral("match_offer")).toInt());
         }
-        refreshDashboard();
-        if (state == QLatin1String("COMPLETED"))
-            maybePromptForReflection(run);
+        m_completion->stateChanged(state, run);
         return;
     }
 
@@ -1298,41 +1295,9 @@ void AppController::handleLiveEvent(const QVariantMap &event)
         kind == QLatin1String("run_finished") || type == QLatin1String("RunFinished");
     if (kind == QLatin1String("run_created") || kind == QLatin1String("run_updated")
         || finished) {
-        m_history->runs()->reload();
-        refreshCurrentRun();
-        refreshReflections();
-        m_recovery->refresh();
-
-        // A run that arrives already finished - the Collector writes the result
-        // and the end time in one go - is the second way the 心得 prompt can be
-        // reached, so it is read from the event's own run rather than re-fetched.
         const QJsonObject run =
             QJsonObject::fromVariantMap(event.value(QStringLiteral("run")).toMap());
-        adoptRunRevisionFromEvent(run);
-        if (run.value(QStringLiteral("result")).toString() == QLatin1String("COMPLETED")
-            && run.value(QStringLiteral("ended_at_utc")).isString()) {
-            maybePromptForReflection(run);
-        }
-
-        if (!finished)
-            return;
-
-        // run_finished is the one terminal event the bus always publishes, so
-        // it - not StateChanged - is where the run is announced and where the
-        // result question is asked. Register the question while the live run
-        // is available: recovery buffers it until the database is verified.
-        // Only the announcement waits for fresh progress from the dashboard.
-        QString state = event.value(QStringLiteral("state")).toString();
-        if (state.isEmpty())
-            state = run.value(QStringLiteral("state")).toString();
-        maybeConfirmResult(state, run);
-        const QString recoveryDatabaseKey = m_recovery->databaseKey();
-        const quint64 contextGeneration = m_recoveryPromptContextGeneration;
-        requestDashboard([this, state, run, recoveryDatabaseKey, contextGeneration](bool numbersKnown) {
-            if (sameRecoveryScope(recoveryDatabaseKey, m_recovery->databaseKey())
-                && contextGeneration == m_recoveryPromptContextGeneration)
-                announceFinished(state, run, numbersKnown);
-        });
+        m_completion->runChanged(event.value(QStringLiteral("state")).toString(), run, finished);
         return;
     }
 
@@ -1379,29 +1344,7 @@ bool AppController::adoptLiveEventOnce(const QVariantMap &event)
 
 QString AppController::announcementKind(const QString &state)
 {
-    if (state == QLatin1String("MENTOR_MATCHED"))
-        return QStringLiteral("matched");
-    // A profile that infers the match from the queue enters this state when the player
-    // presses "join", not when the queue pops; announceState() suppresses the spoken line
-    // in that case, because announcing a match the player just asked for is a false alarm.
-    if (state == QLatin1String("ENTERED_DUTY"))
-        return QStringLiteral("entered");
-    // COMPLETED means a victory DUTY_RESULT really was observed. A CN duty that
-    // ends without the clear signal (docs/protocol-profile-format.md §12) lands
-    // in UNKNOWN_FINAL_STATE instead: it is announced, but with its own line that
-    // asks for a confirmation rather than claiming a 通关. Such a run does NOT
-    // count toward the goal until the user confirms it.
-    if (state == QLatin1String("COMPLETED"))
-        return QStringLiteral("completed");
-    if (state == QLatin1String("UNKNOWN_FINAL_STATE"))
-        return QStringLiteral("finished");
-    if (state == QLatin1String("LEFT_OR_ABANDONED") || state == QLatin1String("DISCONNECTED")
-        || state == QLatin1String("INTERRUPTED")
-        || state == QLatin1String("INTERRUPTED_PENDING_REVIEW"))
-        return QStringLiteral("aborted");
-    // CANCELLED_BEFORE_ENTRY is a declined duty pop. Declining is ordinary
-    // play, not an abnormal end, so it stays silent.
-    return {};
+    return RunCompletionCoordinator::announcementKind(state);
 }
 
 QVariantMap AppController::announcementValues(const QJsonObject &run) const
@@ -1447,15 +1390,8 @@ void AppController::announceState(const QString &state, const QJsonObject &run, 
     // A repeated transition for the same run says the same thing twice; a
     // replayed one after a reconnect would say it again a third time.
     const QString runId = run.value(QStringLiteral("run_id")).toString();
-    if (!runId.isEmpty()) {
-        // A match offered again (somebody withdrew, the finder re-formed the party) is the same
-        // run in the same state with a higher offer number: a new popup, not a replay.
-        const QString guard = runId + QLatin1Char('|') + state
-            + (matchOffer > 1 ? QLatin1Char('#') + QString::number(matchOffer) : QString());
-        if (m_announcedRunStates.contains(guard))
-            return;
-        m_announcedRunStates.insert(guard);
-    }
+    if (!m_completion->claimAnnouncement(runId, state, matchOffer))
+        return;
 
     const QString kind = announcementKind(state);
     // Only the event's explicit source can establish a server match: calibration may be
@@ -1492,18 +1428,6 @@ void AppController::announceFinished(const QString &state, const QJsonObject &ru
     const QString kind = announcementKind(state);
     if (kind.isEmpty())
         return;
-    // A run that ended before this process started reaches us through the
-    // bus's replay; it is history, not something to say out loud.
-    if (!endedDuringThisSession(run))
-        return;
-
-    const QString runId = run.value(QStringLiteral("run_id")).toString();
-    const QString guard = runId + QLatin1Char('|') + state;
-    if (!runId.isEmpty() && m_announcedRunStates.contains(guard))
-        return;
-    if (!runId.isEmpty())
-        m_announcedRunStates.insert(guard);
-
     const QVariantMap values = announcementValues(run);
     m_tts->setContextValues(values);
     // Stale numbers are still true numbers - they are this run behind at worst.
@@ -1588,19 +1512,17 @@ void AppController::saveReflection(const QString &runId, const QString &mood,
     }
 
     const bool cleared = text.trimmed().isEmpty();
-    const QString recoveryDatabaseKey = m_recovery->databaseKey();
-    const quint64 contextGeneration = m_recoveryPromptContextGeneration;
+    const auto completionContext = m_completion->captureContext();
     m_reflectionSaving = true;
     Q_EMIT reflectionsChanged();
 
     m_backend->setRunReflection(runId, mood, text.trimmed())
-        ->whenDone(this, [this, runId, cleared, draftToken, recoveryDatabaseKey, contextGeneration]
+        ->whenDone(this, [this, runId, cleared, draftToken, completionContext]
                    (bool ok, const QVariantMap &payload,
                                                 const QString &code,
                                                 const QString &message) {
             m_reflectionSaving = false;
-            if (!sameRecoveryScope(recoveryDatabaseKey, m_recovery->databaseKey())
-                || contextGeneration != m_recoveryPromptContextGeneration
+            if (!m_completion->isCurrentContext(completionContext)
                 || !m_recovery->identityVerified()) {
                 // The request can already have been applied to the original
                 // database. Do not adopt its row, clear another scope's draft
@@ -1634,13 +1556,7 @@ void AppController::applySavedReflection(const QString &runId, const QVariantMap
 
     // 通关后弹出：a run whose 心得 was just written - or deliberately cleared -
     // must never make the prompt pop up again in this session.
-    m_promptedRunIds.insert(runId);
-    for (int index = 0; index < m_queuedReflectionRuns.size(); ++index) {
-        if (m_queuedReflectionRuns.at(index).value(QStringLiteral("run_id")).toString() == runId) {
-            m_queuedReflectionRuns.removeAt(index);
-            break;
-        }
-    }
+    m_completion->reflectionSaved(runId);
 
     m_history->runs()->reload();
     // The just-finished run is usually still the dashboard's current run when
@@ -1666,212 +1582,39 @@ void AppController::applySavedReflection(const QString &runId, const QVariantMap
                   .arg(dutyName.isEmpty() ? tr("未知副本") : dutyName));
 }
 
-bool AppController::endedDuringThisSession(const QJsonObject &run) const
-{
-    // A replayed run_finished from before this session is not "刚刚完成"; the
-    // user reaches such runs through 稍后补录 and the 待复核 list instead. A run
-    // without a parseable end time is left to the callers' own checks.
-    const QDateTime ended = QDateTime::fromString(
-        run.value(QStringLiteral("ended_at_utc")).toString(), Qt::ISODateWithMs);
-    return !(ended.isValid() && m_promptCutoffUtc.isValid() && ended < m_promptCutoffUtc);
-}
-
 bool AppController::emittedBeforeThisSession(const QVariantMap &event) const
 {
-    // An event without a parseable time is left alone: nothing proves it old.
-    const QDateTime emitted =
-        parseUtc(QJsonValue::fromVariant(event.value(QStringLiteral("emitted_at_utc"))));
-    return emitted.isValid() && m_promptCutoffUtc.isValid() && emitted < m_promptCutoffUtc;
-}
-
-void AppController::maybePromptForReflection(const QJsonObject &run)
-{
-    if (m_settings && !m_settings->reflectPrompt())
-        return;
-    const QString runId = run.value(QStringLiteral("run_id")).toString();
-    if (runId.isEmpty() || m_promptedRunIds.contains(runId))
-        return;
-    // The 本次导随结果 window already offered this run's 心得 fields; the
-    // correction it sent comes back as a COMPLETED run and is not a new prompt.
-    if (m_confirmedRunIds.contains(runId))
-        return;
-    if (run.value(QStringLiteral("reflection")).isObject())
-        return;
-    if (!endedDuringThisSession(run))
-        return;
-    // Persist before the bounded automatic queue can drop this work, including
-    // a run whose editor cannot open while another one is still on screen.
-    m_recovery->offer(run.toVariantMap(), QStringLiteral("reflection"));
-    if (!m_recovery->identityVerified())
-        return;
-    for (const QJsonObject &queued : std::as_const(m_queuedReflectionRuns)) {
-        if (queued.value(QStringLiteral("run_id")).toString() == runId)
-            return;
-    }
-
-    // Queued, not marked prompted: the dialog drops a request it receives while
-    // it is busy with another run, and a run marked here would never be offered
-    // again (review OH-6). reflectionPromptShown() is what marks it.
-    m_queuedReflectionRuns.append(run);
-    while (m_queuedReflectionRuns.size() > kMaxQueuedReflectionRuns) {
-        m_offeredReflectionRunIds.remove(
-            m_queuedReflectionRuns.constFirst().value(QStringLiteral("run_id")).toString());
-        m_queuedReflectionRuns.removeFirst();
-    }
-    emitNextReflectionPrompt();
-}
-
-void AppController::emitNextReflectionPrompt()
-{
-    if (m_reflectionPromptBusy || m_resultConfirmationBusy)
-        return;
-    // Switched off while a prompt waited for the dialog: it is no longer wanted.
-    if (m_settings && !m_settings->reflectPrompt()) {
-        m_queuedReflectionRuns.clear();
-        m_offeredReflectionRunIds.clear();
-        return;
-    }
-    for (const QJsonObject &run : std::as_const(m_queuedReflectionRuns)) {
-        const QString runId = run.value(QStringLiteral("run_id")).toString();
-        if (m_offeredReflectionRunIds.contains(runId))
-            continue;
-        m_offeredReflectionRunIds.insert(runId);
-        Q_EMIT reflectionPromptRequested(run.toVariantMap());
-        return;
-    }
+    return m_completion->emittedBeforeThisSession(event);
 }
 
 void AppController::reflectionPromptShown(const QString &runId)
 {
-    if (runId.isEmpty())
-        return;
-    m_reflectionPromptBusy = true;
-    for (int index = 0; index < m_queuedReflectionRuns.size(); ++index) {
-        if (m_queuedReflectionRuns.at(index).value(QStringLiteral("run_id")).toString() == runId) {
-            m_queuedReflectionRuns.removeAt(index);
-            break;
-        }
-    }
-    m_offeredReflectionRunIds.remove(runId);
-    m_promptedRunIds.insert(runId);
+    m_completion->reflectionPromptShown(runId);
 }
 
 void AppController::reflectionPromptClosed()
 {
-    m_reflectionPromptBusy = false;
-    // Whatever is still queued was dropped by the dialog while it was busy.
-    m_offeredReflectionRunIds.clear();
-    emitNextReflectionPrompt();
+    m_completion->reflectionPromptClosed();
 }
 
 void AppController::reflectionPromptDeferred(const QString &runId)
 {
-    if (runId.isEmpty())
-        return;
-    m_promptedRunIds.insert(runId);
-    m_offeredReflectionRunIds.remove(runId);
-    for (qsizetype index = m_queuedReflectionRuns.size() - 1; index >= 0; --index) {
-        if (m_queuedReflectionRuns.at(index).value(QStringLiteral("run_id")).toString() == runId)
-            m_queuedReflectionRuns.removeAt(index);
-    }
-    // QML may defer directly from the offer signal. Advancing asynchronously
-    // keeps that callback out of the next offer and never pretends a dialog opened.
-    QTimer::singleShot(0, this, &AppController::emitNextReflectionPrompt);
-}
-
-void AppController::maybeConfirmResult(const QString &state, const QJsonObject &run)
-{
-    // A CN duty that ends without the clear signal (docs/protocol-profile-format.md
-    // §12) only tells the Collector that the duty ended. The program never turns
-    // that into a 通关 by itself; it asks the player once, right away, instead of
-    // leaving the run to the 待复核 list alone.
-    if (m_settings && !m_settings->confirmPrompt())
-        return;
-    if (!run.value(QStringLiteral("pending_review")).toBool(false))
-        return;
-    // $defs/Run carries no state, so the terminal state is the event's own.
-    if (state != QLatin1String("UNKNOWN_FINAL_STATE"))
-        return;
-    const QString runId = run.value(QStringLiteral("run_id")).toString();
-    if (runId.isEmpty() || m_confirmedRunIds.contains(runId))
-        return;
-    if (!endedDuringThisSession(run))
-        return;
-    m_recovery->offer(run.toVariantMap(), QStringLiteral("result"));
-    if (!m_recovery->identityVerified())
-        return;
-    for (const QJsonObject &queued : std::as_const(m_queuedResultRuns)) {
-        if (queued.value(QStringLiteral("run_id")).toString() == runId)
-            return;
-    }
-
-    // Queued, not marked asked: the dialog drops a request it receives while it
-    // is already showing one, and a run marked here would never be offered again.
-    m_queuedResultRuns.append(run);
-    while (m_queuedResultRuns.size() > kMaxQueuedResultRuns) {
-        m_offeredResultRunIds.remove(
-            m_queuedResultRuns.constFirst().value(QStringLiteral("run_id")).toString());
-        m_queuedResultRuns.removeFirst();
-    }
-    emitNextResultConfirmation();
-}
-
-void AppController::emitNextResultConfirmation()
-{
-    if (m_resultConfirmationBusy)
-        return;
-    if (m_settings && !m_settings->confirmPrompt()) {
-        m_queuedResultRuns.clear();
-        m_offeredResultRunIds.clear();
-        return;
-    }
-    for (const QJsonObject &run : std::as_const(m_queuedResultRuns)) {
-        const QString runId = run.value(QStringLiteral("run_id")).toString();
-        if (m_offeredResultRunIds.contains(runId))
-            continue;
-        m_offeredResultRunIds.insert(runId);
-        Q_EMIT resultConfirmationRequested(run.toVariantMap());
-        return;
-    }
+    m_completion->reflectionPromptDeferred(runId);
 }
 
 void AppController::resultConfirmationShown(const QString &runId)
 {
-    if (runId.isEmpty())
-        return;
-    // The dialog is on screen now, so this run really has been asked about and
-    // nothing else may be raised until it closes.
-    m_resultConfirmationBusy = true;
-    for (int index = 0; index < m_queuedResultRuns.size(); ++index) {
-        if (m_queuedResultRuns.at(index).value(QStringLiteral("run_id")).toString() == runId) {
-            m_queuedResultRuns.removeAt(index);
-            break;
-        }
-    }
-    m_offeredResultRunIds.remove(runId);
-    m_confirmedRunIds.insert(runId);
+    m_completion->resultConfirmationShown(runId);
 }
 
 void AppController::resultConfirmationClosed()
 {
-    m_resultConfirmationBusy = false;
-    // Whatever is still queued was never acknowledged, which means the dialog
-    // dropped it while it was showing this one. Now that it is free, offer it.
-    m_offeredResultRunIds.clear();
-    emitNextResultConfirmation();
+    m_completion->resultConfirmationClosed();
 }
 
 void AppController::resultConfirmationDeferred(const QString &runId)
 {
-    if (runId.isEmpty())
-        return;
-    m_confirmedRunIds.insert(runId);
-    m_offeredResultRunIds.remove(runId);
-    for (qsizetype index = m_queuedResultRuns.size() - 1; index >= 0; --index) {
-        if (m_queuedResultRuns.at(index).value(QStringLiteral("run_id")).toString() == runId)
-            m_queuedResultRuns.removeAt(index);
-    }
-    QTimer::singleShot(0, this, &AppController::emitNextResultConfirmation);
+    m_completion->resultConfirmationDeferred(runId);
 }
 
 void AppController::readGoalProgress(const QString &runId)
