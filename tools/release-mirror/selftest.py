@@ -308,9 +308,9 @@ class NetworkTests(unittest.TestCase):
         self.assertEqual(response.reads, 3)
         self.assertEqual(output.getvalue(), b"xx")
 
-    def test_release_budget_is_60_minutes(self):
+    def test_release_budget_covers_slow_large_artifact_transfers(self):
         with patch.object(m.time, "monotonic", return_value=123.0):
-            self.assertEqual(m.Http("").deadline, 123.0 + 60 * 60)
+            self.assertEqual(m.Http("").deadline, 123.0 + 5 * 60 * 60)
 
     def test_missing_secret_fails_without_network(self):
         with patch.dict(m.os.environ, {}, clear=True), patch.object(m.sys, "argv", ["sync_release.py"]):
@@ -364,7 +364,7 @@ class CurlTransportTests(unittest.TestCase):
         self.assertIsNone(failure)
         config = run.call_args.kwargs["input"]
         for expected in ('proto = "=https"', 'max-redirs = "0"', 'no-location\n', 'no-netrc\n',
-                         'globoff\n', 'http1.1\n', 'speed-limit = "1"', 'speed-time = "60"',
+                         'globoff\n', 'http1.1\n', 'speed-limit = "4096"', 'speed-time = "120"',
                          'connect-timeout = "60"', 'max-filesize = "2097152"'):
             self.assertIn(expected, config)
         self.assertLessEqual(run.call_args.kwargs["timeout"], 120)
@@ -385,7 +385,7 @@ class CurlTransportTests(unittest.TestCase):
                 self.assertIn("Native upload metrics:", output)
                 self.assertEqual(run.call_count, 1)
 
-    def test_large_upload_minimum_speed_can_finish_inside_its_budget(self):
+    def test_large_upload_keeps_a_fixed_stall_guard_when_retry_budget_shrinks(self):
         size = 145032587
         result = subprocess.CompletedProcess([], 0, f"200|{size}|2000000|75.000")
         from types import SimpleNamespace
@@ -396,8 +396,8 @@ class CurlTransportTests(unittest.TestCase):
         config = run.call_args.kwargs["input"]
         limit = int(config.split('speed-limit = "', 1)[1].split('"', 1)[0])
         duration = float(config.split('max-time = "', 1)[1].split('"', 1)[0])
-        self.assertGreater(limit, 1)
-        self.assertGreaterEqual(limit * duration, size)
+        self.assertEqual(limit, m.UPLOAD_MINIMUM_SPEED)
+        self.assertEqual(duration, 113.0)
 
     def test_untrusted_diagnostics_and_exception_output_are_not_printed(self):
         for result, error in ((subprocess.CompletedProcess([], 1, self.url), None),

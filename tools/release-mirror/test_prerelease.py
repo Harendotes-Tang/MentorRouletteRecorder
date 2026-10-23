@@ -303,6 +303,8 @@ class CatchupTests(unittest.TestCase):
         self.assertIn("python tools/release-mirror/test_prerelease.py", workflow)
         self.assertIn("ref: main", workflow)
         self.assertIn("cancel-in-progress: false", workflow)
+        self.assertIn("timeout-minutes: 360", workflow)
+        self.assertIn("timeout-minutes: 330", workflow)
 
 
 if __name__ == "__main__":

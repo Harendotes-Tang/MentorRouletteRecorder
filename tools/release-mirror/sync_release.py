@@ -34,6 +34,8 @@ PRERELEASE_TAG = re.compile(
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 MAX_INSTALLER = 2 * 1024**3
 MAX_JSON = 2 * 1024**2
+RELEASE_BUDGET_SECONDS = 5 * 60 * 60
+UPLOAD_MINIMUM_SPEED = 4 * 1024
 CDN_HOST = "file-cdn.gitcode.com"
 UPLOAD_HOST = "file-upload.gitcode.com"
 UPLOAD_FILE_HOST = "file.gitcode.com"
@@ -94,15 +96,15 @@ def upload_with_curl(url: str, headers: dict, path: Path, deadline: float) -> No
     require(remaining > 0, "Release mirror time budget exhausted")
     # Let curl emit its numeric timeout metrics before the parent hard deadline.
     transfer_seconds = max(remaining - 2.0, remaining / 2.0)
-    # Abort a route that cannot finish within the remaining budget instead of
-    # accepting a trickle until the hard deadline. Small control files keep 1 B/s.
-    minimum_speed = max(1, int(total_bytes / transfer_seconds) + 1)
+    # The hard release budget bounds total time. Keep a modest stall guard here:
+    # deriving this from the full file size and remaining budget misclassifies
+    # a healthy but slow storage route, and makes retries progressively stricter.
     # -q is first on argv, so a user curlrc cannot enable traces, netrc or redirects.
     # Signed URL/header values are never argv, persisted files, stdout or stderr.
     options = [
         ("url", url), ("upload-file", str(path.resolve())), ("request", "PUT"),
         ("proto", "=https"), ("max-redirs", "0"), ("max-time", f"{transfer_seconds:.6f}"),
-        ("connect-timeout", str(min(60, remaining))), ("speed-limit", str(minimum_speed)), ("speed-time", "60"),
+        ("connect-timeout", str(min(60, remaining))), ("speed-limit", str(UPLOAD_MINIMUM_SPEED)), ("speed-time", "120"),
         ("expect100-timeout", "1"), ("output", os.devnull), ("max-filesize", str(MAX_JSON)),
         ("user-agent", "MentorRecorder-Release-Mirror"),
         ("write-out", "%{http_code}|%{size_upload}|%{speed_upload}|%{time_total}"),
@@ -145,7 +147,7 @@ class Http:
         self.gc_token = gitcode_token
         self.gh_token = github_token
         self.opener = urllib.request.build_opener(NoRedirect())
-        self.deadline = time.monotonic() + 60 * 60
+        self.deadline = time.monotonic() + RELEASE_BUDGET_SECONDS
 
     def open(self, url, *, method="GET", data=None, headers=None, auth=False,
              redirects=()):
