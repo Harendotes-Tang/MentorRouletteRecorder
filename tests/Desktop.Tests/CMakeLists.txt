@@ -10,8 +10,24 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS
     TextToSpeech
     Widgets)
 
+# Each suite lives in the folder of the Desktop area it tests; support/ holds what
+# several suites share (the Collector guard, settings audit, expect_exit.cmake).
+set(MR_DESKTOP_TEST_AREAS
+    transport workflows shell statistics calibration import reflection components settings update-install)
+
+# mr_desktop_suite_source(<Suite> <var>): <Suite>Tests.cpp in whichever area folder holds it.
+function(mr_desktop_suite_source suite out_var)
+    foreach(area IN LISTS MR_DESKTOP_TEST_AREAS)
+        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${area}/${suite}Tests.cpp")
+            set(${out_var} "${area}/${suite}Tests.cpp" PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+    message(FATAL_ERROR "${suite}Tests.cpp is in none of the test area folders: ${MR_DESKTOP_TEST_AREAS}")
+endfunction()
+
 # This workflow suite deliberately has no QML engine, DesktopLib or Collector.
-add_executable(MentorRecorderRunCompletionCoordinatorTests RunCompletionCoordinatorTests.cpp)
+add_executable(MentorRecorderRunCompletionCoordinatorTests workflows/RunCompletionCoordinatorTests.cpp)
 target_link_libraries(MentorRecorderRunCompletionCoordinatorTests PRIVATE
     MentorRecorderCompletion Qt6::Test)
 set_target_properties(MentorRecorderRunCompletionCoordinatorTests PROPERTIES AUTOMOC TRUE)
@@ -23,7 +39,8 @@ add_test(NAME MentorRecorderRunCompletionCoordinator
 # Personal journal/import workflows: controller lifecycle, real PNG output and
 # screenshot evidence parsing are separate from the mock-only reflection tests.
 foreach(workflow IN ITEMS ReflectionLibrary ReflectionShare ImportRecordsController ScreenshotImportParser OfflineOcrEngine JobIconClassifier DungeonComposition HistoryBatch)
-    add_executable(MentorRecorder${workflow}Tests ${workflow}Tests.cpp)
+    mr_desktop_suite_source(${workflow} mr_suite_source)
+    add_executable(MentorRecorder${workflow}Tests ${mr_suite_source})
     target_link_libraries(MentorRecorder${workflow}Tests PRIVATE
         MentorRecorderDesktopLib Qt6::Gui Qt6::Quick Qt6::Qml Qt6::QuickControls2 Qt6::Test Qt6::Widgets)
     target_compile_definitions(MentorRecorder${workflow}Tests PRIVATE
@@ -71,7 +88,7 @@ if(WIN32)
 endif()
 
 add_executable(MentorRecorderDesktopTests
-    DesktopTests.cpp)
+    workflows/DesktopTests.cpp)
 
 target_link_libraries(MentorRecorderDesktopTests
     PRIVATE
@@ -89,20 +106,20 @@ add_test(NAME MentorRecorderDesktopTests
     COMMAND MentorRecorderDesktopTests
         -o "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorderDesktopTests.qtlog.txt,txt")
 
-add_executable(MentorRecorderAutomaticRecordingTests AutomaticRecordingTests.cpp)
+add_executable(MentorRecorderAutomaticRecordingTests workflows/AutomaticRecordingTests.cpp)
 target_link_libraries(MentorRecorderAutomaticRecordingTests PRIVATE
     MentorRecorderDesktopLib Qt6::Gui Qt6::Test)
 set_target_properties(MentorRecorderAutomaticRecordingTests PROPERTIES AUTOMOC TRUE)
 mr_use_ascii_autogen_dir(MentorRecorderAutomaticRecordingTests)
 add_test(NAME MentorRecorderAutomaticRecording COMMAND MentorRecorderAutomaticRecordingTests)
 
-add_executable(MentorRecorderGameSelectionTests GameSelectionTests.cpp)
+add_executable(MentorRecorderGameSelectionTests workflows/GameSelectionTests.cpp)
 target_link_libraries(MentorRecorderGameSelectionTests PRIVATE MentorRecorderDesktopLib Qt6::Gui Qt6::Test)
 set_target_properties(MentorRecorderGameSelectionTests PROPERTIES AUTOMOC TRUE)
 mr_use_ascii_autogen_dir(MentorRecorderGameSelectionTests)
 add_test(NAME MentorRecorderGameSelection COMMAND MentorRecorderGameSelectionTests)
 
-add_executable(MentorRecorderCandidateReviewTests CandidateReviewTests.cpp)
+add_executable(MentorRecorderCandidateReviewTests calibration/CandidateReviewTests.cpp)
 target_link_libraries(MentorRecorderCandidateReviewTests PRIVATE
     MentorRecorderDesktopLib Qt6::Gui Qt6::Test)
 target_compile_definitions(MentorRecorderCandidateReviewTests PRIVATE
@@ -115,7 +132,7 @@ add_test(NAME MentorRecorderCandidateReview
         -o "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorderCandidateReview.qtlog.txt,txt")
 
 # Button icons: components/Lucide.js and AppButton's icon slot, on real QML.
-add_executable(MentorRecorderIconTests IconTests.cpp)
+add_executable(MentorRecorderIconTests components/IconTests.cpp)
 target_link_libraries(MentorRecorderIconTests PRIVATE
     MentorRecorderDesktopLib Qt6::Gui Qt6::Test)
 target_compile_definitions(MentorRecorderIconTests PRIVATE
@@ -127,7 +144,7 @@ add_test(NAME MentorRecorderIcons
         -o "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorderIcons.qtlog.txt,txt")
 
 # The history filter's date picker (components/DateField.qml), on real QML.
-add_executable(MentorRecorderDateFieldTests DateFieldTests.cpp)
+add_executable(MentorRecorderDateFieldTests components/DateFieldTests.cpp)
 target_link_libraries(MentorRecorderDateFieldTests PRIVATE
     MentorRecorderDesktopLib Qt6::Gui Qt6::Test)
 target_compile_definitions(MentorRecorderDateFieldTests PRIVATE
@@ -139,7 +156,7 @@ add_test(NAME MentorRecorderDateField
         -o "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorderDateField.qtlog.txt,txt")
 
 # The wizard's time input (components/TimeField.qml), on real QML.
-add_executable(MentorRecorderTimeFieldTests TimeFieldTests.cpp)
+add_executable(MentorRecorderTimeFieldTests components/TimeFieldTests.cpp)
 target_link_libraries(MentorRecorderTimeFieldTests PRIVATE
     MentorRecorderDesktopLib Qt6::Gui Qt6::Test)
 target_compile_definitions(MentorRecorderTimeFieldTests PRIVATE
@@ -151,7 +168,7 @@ add_test(NAME MentorRecorderTimeField
         -o "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorderTimeField.qtlog.txt,txt")
 
 # Tab enters a reason or note field's example (components/StyledTextField.qml), on real QML.
-add_executable(MentorRecorderStyledTextFieldTests StyledTextFieldTests.cpp)
+add_executable(MentorRecorderStyledTextFieldTests components/StyledTextFieldTests.cpp)
 target_link_libraries(MentorRecorderStyledTextFieldTests PRIVATE
     MentorRecorderDesktopLib Qt6::Gui Qt6::Test)
 target_compile_definitions(MentorRecorderStyledTextFieldTests PRIVATE
@@ -163,7 +180,7 @@ add_test(NAME MentorRecorderStyledTextField
         -o "${CMAKE_CURRENT_BINARY_DIR}/MentorRecorderStyledTextField.qtlog.txt,txt")
 
 # The combo box popup (components/StyledComboBox.qml): no stray headers, wide enough.
-add_executable(MentorRecorderStyledComboBoxTests StyledComboBoxTests.cpp)
+add_executable(MentorRecorderStyledComboBoxTests components/StyledComboBoxTests.cpp)
 target_link_libraries(MentorRecorderStyledComboBoxTests PRIVATE
     MentorRecorderDesktopLib Qt6::Gui Qt6::Test)
 target_compile_definitions(MentorRecorderStyledComboBoxTests PRIVATE
@@ -180,7 +197,7 @@ add_test(NAME MentorRecorderStyledComboBox
 # and never to the machine's own voice; without that plugin they are skipped.
 # ---------------------------------------------------------------------------
 add_executable(MentorRecorderTtsTests
-    TtsServiceTests.cpp)
+    settings/TtsServiceTests.cpp)
 
 target_link_libraries(MentorRecorderTtsTests
     PRIVATE
@@ -203,7 +220,7 @@ add_test(NAME MentorRecorderTtsService
 # save / clear / 通关后弹出 rules. Needs no Collector and no speech engine.
 # ---------------------------------------------------------------------------
 add_executable(MentorRecorderReflectionTests
-    ReflectionTests.cpp)
+    reflection/ReflectionTests.cpp)
 
 target_link_libraries(MentorRecorderReflectionTests
     PRIVATE
@@ -243,7 +260,8 @@ foreach(MR_REVIEW_SUITE WorkflowController RunFormValidator ExportFailure UiWork
                         CapturePage Motion AchievementProgress StatisticsOverlay StatisticsOverlayRange Recovery RecoveryUi UpdateNotice UpdateInstall ReleaseNotes EvidenceSubmission LanguageManager InstallerHold NoteImageStore SingleInstance ShellDialog
                         RunDetailPanel MockBackend QmlWarningCounter RunListModel GameNames CollectorText
                         CollectorTextDisplay HistoryColumns)
-    add_executable(MentorRecorder${MR_REVIEW_SUITE}Tests ${MR_REVIEW_SUITE}Tests.cpp)
+    mr_desktop_suite_source(${MR_REVIEW_SUITE} mr_suite_source)
+    add_executable(MentorRecorder${MR_REVIEW_SUITE}Tests ${mr_suite_source})
     target_link_libraries(MentorRecorder${MR_REVIEW_SUITE}Tests PRIVATE
         MentorRecorderDesktopLib Qt6::Gui Qt6::Test)
     if(MR_REVIEW_SUITE MATCHES "^(RecoveryUi|StatisticsOverlay)$")
@@ -279,7 +297,7 @@ qt_add_resources(MentorRecorderStatisticsOverlayTests overlay_test_i18n
 # own while a contract change is being reviewed.
 # ---------------------------------------------------------------------------
 add_executable(MentorRecorderIpcRequestTests
-    IpcRequestTests.cpp)
+    transport/IpcRequestTests.cpp)
 
 target_link_libraries(MentorRecorderIpcRequestTests
     PRIVATE
@@ -306,7 +324,7 @@ add_test(NAME MentorRecorderIpcRequests
 # deliberate stop) and the settings file of older builds. Needs no Collector.
 # ---------------------------------------------------------------------------
 add_executable(MentorRecorderLifecycleTests
-    LifecycleTests.cpp)
+    transport/LifecycleTests.cpp)
 
 target_link_libraries(MentorRecorderLifecycleTests
     PRIVATE
@@ -329,7 +347,7 @@ add_test(NAME MentorRecorderLifecycle
 # has not been copied next to the Desktop binary.
 # ---------------------------------------------------------------------------
 add_executable(MentorRecorderIpcIntegrationTests
-    IpcIntegrationTests.cpp)
+    transport/IpcIntegrationTests.cpp)
 
 target_link_libraries(MentorRecorderIpcIntegrationTests
     PRIVATE
@@ -438,7 +456,7 @@ add_test(NAME MentorRecorderQmlBaselineDialog
 # CLI boundary. Each of these must exit with code 2 exactly *and* print the
 # refusal that names the option. WILL_FAIL would also accept a crash, a missing
 # Qt DLL or an unrelated exit 3, so they go through expect_exit.cmake instead.
-set(MR_EXPECT_EXIT "${CMAKE_CURRENT_SOURCE_DIR}/expect_exit.cmake")
+set(MR_EXPECT_EXIT "${CMAKE_CURRENT_SOURCE_DIR}/support/expect_exit.cmake")
 
 # An unknown backend must never silently turn a requested live run into mock
 # data. The process rejects it before loading QML.
@@ -1014,7 +1032,7 @@ list(APPEND MR_RECORDING_QML_TESTS MentorRecorderQmlClosedGame_dark_shared-fetch
 # Regression: mock/screenshot preferences must never touch the user's Run key.
 # Compile the real implementation against a settings audit adapter in this target only.
 add_executable(MentorRecorderAppSettingsIsolationTests
-    AppSettingsIsolationTests.cpp AppSettingsAudit.h
+    settings/AppSettingsIsolationTests.cpp support/AppSettingsAudit.h
     ${PROJECT_SOURCE_DIR}/src/Desktop/cpp/AppSettings.cpp
     ${PROJECT_SOURCE_DIR}/src/Desktop/cpp/AppSettings.h)
 target_include_directories(MentorRecorderAppSettingsIsolationTests PRIVATE
@@ -1022,10 +1040,10 @@ target_include_directories(MentorRecorderAppSettingsIsolationTests PRIVATE
 target_link_libraries(MentorRecorderAppSettingsIsolationTests PRIVATE Qt6::Core Qt6::Test)
 if(MSVC)
     target_compile_options(MentorRecorderAppSettingsIsolationTests PRIVATE
-        "/FI${CMAKE_CURRENT_SOURCE_DIR}/AppSettingsAudit.h")
+        "/FI${CMAKE_CURRENT_SOURCE_DIR}/support/AppSettingsAudit.h")
 else()
     target_compile_options(MentorRecorderAppSettingsIsolationTests PRIVATE
-        -include "${CMAKE_CURRENT_SOURCE_DIR}/AppSettingsAudit.h")
+        -include "${CMAKE_CURRENT_SOURCE_DIR}/support/AppSettingsAudit.h")
 endif()
 set_target_properties(MentorRecorderAppSettingsIsolationTests PROPERTIES AUTOMOC TRUE)
 mr_use_ascii_autogen_dir(MentorRecorderAppSettingsIsolationTests)
@@ -1033,7 +1051,8 @@ add_test(NAME MentorRecorderAppSettingsIsolation COMMAND MentorRecorderAppSettin
 
 # Exercise the production QML components, including real EXIF-oriented image pixels.
 foreach(regression IN ITEMS ToggleSwitch ImportImageOrientation)
-    add_executable(MentorRecorder${regression}Tests ${regression}Tests.cpp)
+    mr_desktop_suite_source(${regression} mr_suite_source)
+    add_executable(MentorRecorder${regression}Tests ${mr_suite_source})
     target_link_libraries(MentorRecorder${regression}Tests PRIVATE
         Qt6::Core Qt6::Gui Qt6::Test Qt6::Quick Qt6::Qml Qt6::QuickControls2)
     target_compile_definitions(MentorRecorder${regression}Tests PRIVATE
@@ -1124,7 +1143,7 @@ endif()
 add_library(MentorRecorderQmlRuntimeTestSupport OBJECT
     "${PROJECT_SOURCE_DIR}/src/Desktop/cpp/QmlRuntime.h"
     "${PROJECT_SOURCE_DIR}/src/Desktop/cpp/QmlRuntime.cpp"
-    QmlRuntimeTestRegistration.cpp)
+    support/QmlRuntimeTestRegistration.cpp)
 target_include_directories(MentorRecorderQmlRuntimeTestSupport PRIVATE
     "${PROJECT_SOURCE_DIR}/src/Desktop/cpp")
 target_compile_definitions(MentorRecorderQmlRuntimeTestSupport PRIVATE
@@ -1133,7 +1152,7 @@ target_link_libraries(MentorRecorderQmlRuntimeTestSupport PUBLIC Qt6::Qml)
 set_target_properties(MentorRecorderQmlRuntimeTestSupport PROPERTIES AUTOMOC TRUE)
 mr_use_ascii_autogen_dir(MentorRecorderQmlRuntimeTestSupport)
 
-add_executable(MentorRecorderQmlRuntimeTests QmlRuntimeTests.cpp)
+add_executable(MentorRecorderQmlRuntimeTests shell/QmlRuntimeTests.cpp)
 target_link_libraries(MentorRecorderQmlRuntimeTests PRIVATE
     MentorRecorderDesktopLib Qt6::Gui Qt6::Test)
 set_target_properties(MentorRecorderQmlRuntimeTests PROPERTIES AUTOMOC TRUE)
@@ -1146,8 +1165,10 @@ set_tests_properties(MentorRecorderQmlRuntime PROPERTIES
 get_property(mr_desktop_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 foreach(mr_test_target IN LISTS mr_desktop_test_targets)
     get_target_property(mr_test_target_type "${mr_test_target}" TYPE)
-    if(mr_test_target_type STREQUAL "EXECUTABLE" AND mr_test_target MATCHES "Tests$"
-       AND NOT mr_test_target STREQUAL "MentorRecorderRunCompletionCoordinatorTests")
-        target_link_libraries("${mr_test_target}" PRIVATE MentorRecorderQmlRuntimeTestSupport)
+    if(mr_test_target_type STREQUAL "EXECUTABLE" AND mr_test_target MATCHES "Tests$")
+        target_include_directories("${mr_test_target}" PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support")
+        if(NOT mr_test_target STREQUAL "MentorRecorderRunCompletionCoordinatorTests")
+            target_link_libraries("${mr_test_target}" PRIVATE MentorRecorderQmlRuntimeTestSupport)
+        endif()
     endif()
 endforeach()

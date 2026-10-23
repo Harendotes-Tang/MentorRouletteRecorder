@@ -259,27 +259,27 @@
       "match": ".Handle"
     },
     {
-      "file": "tests/Desktop.Tests/RunDetailPanelTests.cpp",
+      "file": "tests/Desktop.Tests/shell/RunDetailPanelTests.cpp",
       "rule": "NET-006",
       "match": "QNetworkAccessManager"
     },
     {
-      "file": "tests/Desktop.Tests/RunDetailPanelTests.cpp",
+      "file": "tests/Desktop.Tests/shell/RunDetailPanelTests.cpp",
       "rule": "NET-006",
       "match": "QNetworkAccessManager"
     },
     {
-      "file": "tests/Desktop.Tests/RunDetailPanelTests.cpp",
+      "file": "tests/Desktop.Tests/shell/RunDetailPanelTests.cpp",
       "rule": "NET-006",
       "match": "QNetworkAccessManager"
     },
     {
-      "file": "tests/Desktop.Tests/RunDetailPanelTests.cpp",
+      "file": "tests/Desktop.Tests/shell/RunDetailPanelTests.cpp",
       "rule": "NET-006",
       "match": "QNetworkAccessManager"
     },
     {
-      "file": "tests/Desktop.Tests/RunDetailPanelTests.cpp",
+      "file": "tests/Desktop.Tests/shell/RunDetailPanelTests.cpp",
       "rule": "NET-006",
       "match": "QNetworkAccessManager"
     },

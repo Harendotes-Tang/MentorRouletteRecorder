@@ -204,7 +204,7 @@
   变更记录见 [../contracts/CHANGELOG.md](../contracts/CHANGELOG.md)。
   契约与实现的一致性由 `tests/Collector.IntegrationTests/Contracts/Contract*.cs`
   （校验 Collector 发出的每一条应答与事件，并按契约校验 `tests/Fixtures/ipc-requests/` 中每条消息的请求样本，
-  包括 `variants/` 下同一消息的其他请求形态，如分页预览的续页请求）和 `tests/Desktop.Tests/IpcRequestTests.cpp`
+  包括 `variants/` 下同一消息的其他请求形态，如分页预览的续页请求）和 `tests/Desktop.Tests/transport/IpcRequestTests.cpp`
   （以每一种业务消息的类型化接口构造请求，与这些样本逐字段比对 `message_type`、`protocol_version` 与 `payload`；
   `GetCalibrationEvidence` 与 `GetTemplateObservation` 和 Desktop 一样经由通用入口构造）保证，任何一方发生漂移都会导致测试失败。
   Desktop 中少数调用处自行拼装载荷：统计分页（`StatsModels`）与证据预览的字段与样本相同；带 `switch_from_unsupported` 的
@@ -468,10 +468,10 @@ protocol-profiles/      协议档案（国服 cn.2026.08.05 为 VERIFIED；globa
 data/duties/            副本名称与分类映射（含生成器产出与合成样例）
 data/jobs/              职业名称映射
 migrations/             SQLite 迁移脚本
-tests/Collector.UnitTests/         C# 单元测试
-tests/Collector.IntegrationTests/  真管道 / 真数据库的集成测试
-tests/Desktop.Tests/               Qt Test 的桌面端测试
-tests/Fixtures/         语义事件固件 / decoded 解码报文固件 / ipc-requests 请求样本
+tests/Collector.UnitTests/         C# 单元测试（按 src/Collector 的模块分目录，共用替身在 TestSupport/）
+tests/Collector.IntegrationTests/  真管道 / 真数据库的集成测试（同上分目录）
+tests/Desktop.Tests/               Qt Test 的桌面端测试（按桌面端职责分目录，共用辅助在 support/）
+tests/Fixtures/         语义事件固件 / decoded 解码报文固件 / ipc-requests 请求样本 / import 导入样本
 tools/duty-data-generator/         副本数据生成器
 tools/fixture-replay/              固件重放说明（重放本身是 Collector 的模式）
 tools/protocol-profile-validator/  档案校验器（validate.py）

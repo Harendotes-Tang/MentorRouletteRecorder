@@ -585,7 +585,7 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
 本页可用的 Mock 开关：`--mock-recording-state listening|waiting`（正常 / 游戏未运行）、
 `--mock-npcap-missing`、`--maintainer-tools`、`--mock-midstream`、`--mock-calibration`、`--mock-shared`。
 模拟后端的 `GetStatus` 同样带有 `npcap` 对象，与 `CaptureWire.StatusExtras` 同形。
-QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/CapturePageTests.cpp`）覆盖：
+QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/calibration/CapturePageTests.cpp`）覆盖：
 标题行的两种身份、连接状态的各种情况（含尚未读到捕获状态与断线前保留的故障）、新区服采证步骤的玩家视图、
 最近有效事件的已知与未知类型、没有解析计数时的说明，
 以及普通用户页面不出现 opcode、`0x`、`ERR_` 与维护者文案。

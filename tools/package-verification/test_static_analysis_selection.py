@@ -72,10 +72,11 @@ class StaticAnalysisSelectionTests(unittest.TestCase):
             "src/Desktop/cpp/transport/IpcFraming.cpp",
             "src/Desktop/cpp/workflows/RunCompletionCoordinator.cpp",
             "src/Desktop/cpp/future/nested/Helper.cpp",
-            "tests/Desktop.Tests/RunCompletionCoordinatorTests.cpp",
+            "tests/Desktop.Tests/workflows/RunCompletionCoordinatorTests.cpp",
+            "tests/Desktop.Tests/support/QmlRuntimeTestRegistration.cpp",
         )
         excluded = (
-            "tests/Desktop.Tests/nested/GeneratedTest.cpp",
+            "tests/Desktop.Tests/workflows/RunCompletionCoordinatorTests.h",
             "tests/Desktop.TestsExtra/Test.cpp",
             "src/Desktop/cppExtra/Helper.cpp",
             "src/Desktop/cpp/transport/IpcFraming.h",
@@ -103,14 +104,14 @@ class StaticAnalysisSelectionTests(unittest.TestCase):
             "src/Desktop/cpp/transport/IpcFraming.cpp",
             "src/Desktop/cpp/workflows/RunCompletionCoordinator.cpp",
             "tests/Desktop.Tests/IpcFramingTests.cpp",
-            "tests/Desktop.Tests/nested/TransportTests.cpp",
+            "tests/Desktop.Tests/transport/IpcRequestTests.cpp",
         )
         entries = [{"file": path, "arguments": ["c++"], "directory": str(REPO)}
                    for path in paths]
 
         selected = self.run_selection(entries, ("TRANSPORT/", "runcompletion"))
 
-        self.assertEqual(list(paths[1:3]), [unit["Relative"] for unit in selected])
+        self.assertEqual(list(paths[1:3]) + [paths[4]], [unit["Relative"] for unit in selected])
         self.assertEqual([], self.run_selection(entries, ("no matching source",)))
 
     def test_nested_source_preserves_command_line_arguments(self) -> None:

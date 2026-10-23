@@ -251,7 +251,7 @@ tests/Fixtures/
 每个文件是一条**完整的请求信封**（`message_type` / `payload` / `protocol_version` /
 `request_id`），由 Qt 桌面端**正式发布使用的** `IBackend` 包装器生成，并固定保存于本目录：
 
-- 生成方：`tests/Desktop.Tests/IpcRequestTests.cpp`
+- 生成方：`tests/Desktop.Tests/transport/IpcRequestTests.cpp`
   通过 `IpcBackend::buildRequestForTest` 构造，写到构建目录后与本目录逐字段比对（`message_type`、`protocol_version` 与 `payload`，不比较 `request_id`）；
 - 校验方：[`../Collector.IntegrationTests/Contracts/ContractRequestSampleTests.cs`](../Collector.IntegrationTests/Contracts/ContractRequestSampleTests.cs)
   执行三项检查：
