@@ -96,6 +96,80 @@ QRect AppSettings::statisticsOverlayGeometry() const
 {
     return m_settings.value(QStringLiteral("statistics_overlay/geometry")).toRect();
 }
+
+bool AppSettings::dungeonCategoryChartVisible() const
+{
+    return m_settings.value(QStringLiteral("dungeon_charts/category_visible"), true).toBool();
+}
+
+void AppSettings::setDungeonCategoryChartVisible(bool visible)
+{
+    if (dungeonCategoryChartVisible() == visible)
+        return;
+    m_settings.setValue(QStringLiteral("dungeon_charts/category_visible"), visible);
+    Q_EMIT dungeonChartsChanged();
+}
+
+bool AppSettings::dungeonSpecialChartVisible() const
+{
+    return m_settings.value(QStringLiteral("dungeon_charts/special_visible"), true).toBool();
+}
+
+void AppSettings::setDungeonSpecialChartVisible(bool visible)
+{
+    if (dungeonSpecialChartVisible() == visible)
+        return;
+    m_settings.setValue(QStringLiteral("dungeon_charts/special_visible"), visible);
+    Q_EMIT dungeonChartsChanged();
+}
+
+QStringList AppSettings::dungeonCategoryHiddenBuckets() const
+{
+    return m_settings.value(QStringLiteral("dungeon_charts/category_hidden")).toStringList();
+}
+
+QStringList AppSettings::dungeonSpecialHiddenBuckets() const
+{
+    return m_settings.value(QStringLiteral("dungeon_charts/special_hidden")).toStringList();
+}
+
+namespace {
+QStringList normalizedBucketKeys(const QStringList &keys)
+{
+    QStringList normalized;
+    for (const QString &key : keys) {
+        const QString trimmed = key.trimmed();
+        if (!trimmed.isEmpty() && !normalized.contains(trimmed))
+            normalized.append(trimmed);
+    }
+    normalized.sort();
+    return normalized;
+}
+} // namespace
+
+void AppSettings::setDungeonCategoryHiddenBuckets(const QStringList &keys)
+{
+    const QStringList normalized = normalizedBucketKeys(keys);
+    if (dungeonCategoryHiddenBuckets() == normalized)
+        return;
+    m_settings.setValue(QStringLiteral("dungeon_charts/category_hidden"), normalized);
+    Q_EMIT dungeonChartsChanged();
+}
+
+void AppSettings::setDungeonSpecialHiddenBuckets(const QStringList &keys)
+{
+    const QStringList normalized = normalizedBucketKeys(keys);
+    if (dungeonSpecialHiddenBuckets() == normalized)
+        return;
+    m_settings.setValue(QStringLiteral("dungeon_charts/special_hidden"), normalized);
+    Q_EMIT dungeonChartsChanged();
+}
+
+void AppSettings::resetDungeonCharts()
+{
+    m_settings.remove(QStringLiteral("dungeon_charts"));
+    Q_EMIT dungeonChartsChanged();
+}
 void AppSettings::setStatisticsOverlayGeometry(const QRect &geometry)
 {
     m_settings.setValue(QStringLiteral("statistics_overlay/geometry"), geometry);

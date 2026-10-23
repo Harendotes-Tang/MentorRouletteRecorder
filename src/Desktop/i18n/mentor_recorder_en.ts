@@ -4832,6 +4832,18 @@ SHA256: %3</translation>
 <context>
     <name>CompletionPieChart</name>
     <message>
+        <source>所选通关 %1 次</source>
+        <translation>%1 selected clears</translation>
+    </message>
+    <message>
+        <source>未选择分类</source>
+        <translation>No categories selected</translation>
+    </message>
+    <message>
+        <source>所选分类暂无通关</source>
+        <translation>No clears in selected categories</translation>
+    </message>
+    <message>
         <source>%1 次通关</source>
         <translation>%1 clears</translation>
     </message>
@@ -5252,6 +5264,26 @@ SHA256: %3</translation>
 <context>
     <name>DungeonsPage</name>
     <message>
+        <source>自定义显示</source>
+        <translation>Customize charts</translation>
+    </message>
+    <message>
+        <source>设置两张饼图的显示和分类</source>
+        <translation>Choose which charts and categories to show</translation>
+    </message>
+    <message>
+        <source>仅调整本页图表，选择会自动保存。</source>
+        <translation>Changes apply to this page and are saved automatically.</translation>
+    </message>
+    <message>
+        <source>恢复默认</source>
+        <translation>Restore defaults</translation>
+    </message>
+    <message>
+        <source>显示%1</source>
+        <translation>Show %1</translation>
+    </message>
+    <message>
         <source>副本统计</source>
         <translation>Duty stats</translation>
     </message>
@@ -5280,8 +5312,8 @@ SHA256: %3</translation>
         <translation>Couldn&apos;t load duty stats, so there are no results below: %1</translation>
     </message>
     <message>
-        <source>占比按全部符合筛选的导随通关次数计算；前 10 / 前 20 只限制下方列表。</source>
-        <translation>Shares are based on all mentor run clears matching the filters; Top 10 / Top 20 only limit the list below.</translation>
+        <source>占比按所选分类的导随通关次数计算；前 10 / 前 20 只限制下方列表。</source>
+        <translation>Shares are based on mentor run clears in selected categories; Top 10 / Top 20 only limit the list below.</translation>
     </message>
     <message>
         <source>副本类型占比</source>

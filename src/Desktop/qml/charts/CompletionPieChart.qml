@@ -5,28 +5,43 @@ import QtQuick.Layouts
 import MentorRecorder 1.0
 
 // The same Canvas and bucket snapshot render with Qt Graphs present or absent.
-// Counts and null shares come from DungeonStatsModel, never from table Top-N.
+// Raw counts come from DungeonStatsModel, never from table Top-N. Only this
+// view's optional selection changes the denominator; raw buckets stay intact.
 Card {
     id: root
 
     property string title: ""
     property string detail: ""
     property var buckets: []
-    readonly property var visibleBuckets: buckets.filter(bucket =>
+    property var hiddenBucketKeys: []
+    readonly property var selectedBuckets: {
+        const selected = buckets.filter(bucket => hiddenBucketKeys.indexOf(bucket.key) < 0)
+        let total = 0
+        for (const bucket of selected)
+            total += Number(bucket.completed_count || 0)
+        return selected.map(bucket => Object.assign({}, bucket, {
+            share: total > 0 ? Number(bucket.completed_count || 0) / total : null
+        }))
+    }
+    readonly property bool selectionFiltered: selectedBuckets.length !== buckets.length
+    readonly property var visibleBuckets: selectedBuckets.filter(bucket =>
         !bucket.is_unknown || Number(bucket.completed_count || 0) !== 0)
     readonly property real completedTotal: {
         let total = 0
-        for (const bucket of buckets)
+        for (const bucket of selectedBuckets)
             total += Number(bucket.completed_count || 0)
         return total
     }
     readonly property bool stacked: width < 400
+    readonly property string totalCaption: selectionFiltered
+        ? qsTr("所选通关 %1 次").arg(completedTotal)
+        : qsTr("全部通关 %1 次").arg(completedTotal)
 
     padding: 16
     spacing: 10
 
     Accessible.role: Accessible.StaticText
-    Accessible.name: title + " · " + qsTr("%1 次通关").arg(completedTotal)
+    Accessible.name: title + " · " + totalCaption
 
     function shareText(bucket) {
         if (bucket.share === null || bucket.share === undefined || completedTotal <= 0)
@@ -34,7 +49,7 @@ Card {
         return (Number(bucket.share) * 100).toFixed(1) + "%"
     }
 
-    onBucketsChanged: pie.requestPaint()
+    onSelectedBucketsChanged: pie.requestPaint()
 
     Connections {
         target: Theme
@@ -56,7 +71,7 @@ Card {
     Text {
         objectName: "compositionTotal"
         Layout.fillWidth: true
-        text: qsTr("全部通关 %1 次").arg(root.completedTotal)
+        text: root.totalCaption
         color: Theme.textSecondary
         font.pixelSize: Theme.fs(12)
         font.family: Theme.figureFamily
@@ -96,7 +111,7 @@ Card {
                         return
                     }
                     let angle = -Math.PI / 2
-                    for (const bucket of root.buckets) {
+                    for (const bucket of root.selectedBuckets) {
                         const count = Number(bucket.completed_count || 0)
                         if (count <= 0)
                             continue
@@ -119,9 +134,13 @@ Card {
                 objectName: "completionPieEmpty"
                 anchors.centerIn: parent
                 visible: root.completedTotal <= 0
-                text: qsTr("暂无通关")
+                text: root.selectedBuckets.length === 0 ? qsTr("未选择分类")
+                      : root.selectionFiltered ? qsTr("所选分类暂无通关") : qsTr("暂无通关")
                 color: Theme.textMuted
                 font.pixelSize: Theme.fs(12)
+                width: parent.width - 12
+                wrapMode: Text.WordWrap
+                horizontalAlignment: Text.AlignHCenter
             }
         }
 

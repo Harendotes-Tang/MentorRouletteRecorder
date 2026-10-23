@@ -4832,6 +4832,18 @@ SHA256：%3</translation>
 <context>
     <name>CompletionPieChart</name>
     <message>
+        <source>所选通关 %1 次</source>
+        <translation>選択したクリア %1 回</translation>
+    </message>
+    <message>
+        <source>未选择分类</source>
+        <translation>カテゴリ未選択</translation>
+    </message>
+    <message>
+        <source>所选分类暂无通关</source>
+        <translation>選択したカテゴリにクリアなし</translation>
+    </message>
+    <message>
         <source>%1 次通关</source>
         <translation>クリア %1 回</translation>
     </message>
@@ -5252,6 +5264,26 @@ SHA256：%3</translation>
 <context>
     <name>DungeonsPage</name>
     <message>
+        <source>自定义显示</source>
+        <translation>表示をカスタマイズ</translation>
+    </message>
+    <message>
+        <source>设置两张饼图的显示和分类</source>
+        <translation>表示するグラフとカテゴリを選択</translation>
+    </message>
+    <message>
+        <source>仅调整本页图表，选择会自动保存。</source>
+        <translation>このページのグラフにのみ適用され、選択は自動保存されます。</translation>
+    </message>
+    <message>
+        <source>恢复默认</source>
+        <translation>初期設定に戻す</translation>
+    </message>
+    <message>
+        <source>显示%1</source>
+        <translation>%1を表示</translation>
+    </message>
+    <message>
         <source>副本统计</source>
         <translation>コンテンツ統計</translation>
     </message>
@@ -5280,8 +5312,8 @@ SHA256：%3</translation>
         <translation>コンテンツ統計を読み込めなかったため、下に統計は表示されません：%1</translation>
     </message>
     <message>
-        <source>占比按全部符合筛选的导随通关次数计算；前 10 / 前 20 只限制下方列表。</source>
-        <translation>比率は絞り込み条件に合うメンターのクリア回数全体から計算します。上位10／上位20 は下のリストだけを絞り込みます。</translation>
+        <source>占比按所选分类的导随通关次数计算；前 10 / 前 20 只限制下方列表。</source>
+        <translation>比率は選択したカテゴリのメンターのクリア回数から計算します。上位10／上位20 は下のリストだけを絞り込みます。</translation>
     </message>
     <message>
         <source>副本类型占比</source>

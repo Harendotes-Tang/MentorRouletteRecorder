@@ -428,6 +428,16 @@ ColumnLayout {
                 bottomPadding: 6
                 leftPadding: 9
                 rightPadding: 9
+                Keys.priority: Keys.BeforeItem
+                Keys.onPressed: function(event) {
+                    if (event.matches(StandardKey.Paste) && popup.dialog.imageStore
+                            && popup.dialog.imageStore.clipboardHasImage && !popup.dialog.busy) {
+                        popup.dialog.pasteNoteImage()
+                        event.accepted = true
+                    } else {
+                        event.accepted = false
+                    }
+                }
                 // One text, two editors: the dialog's logic reads its own. The face is
                 // created after the text was set, so it starts from the editor's text.
                 Component.onCompleted: text = popup.dialog.noteEditor.text
@@ -437,6 +447,59 @@ ColumnLayout {
                     function onTextChanged() { if (noteArea.text !== popup.dialog.noteEditor.text) noteArea.text = popup.dialog.noteEditor.text }
                 }
             }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            visible: !!popup.dialog.imageStore && popup.promptEnabled
+            spacing: 8
+            AppButton {
+                objectName: "pasteReflectionImageButtonCompact"
+                text: qsTranslate("ReflectionDialog", "粘贴图片")
+                iconName: "clipboard-paste"
+                compact: true
+                enabled: !popup.dialog.busy && !popup.dialog.unavailable && popup.dialog.pendingSwitchId.length === 0
+                onClicked: popup.dialog.pasteNoteImage()
+            }
+            Text {
+                Layout.fillWidth: true
+                text: qsTranslate("ReflectionDialog", "Ctrl+V · 图片立即保存到本条记录")
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fs(11)
+                wrapMode: Text.WordWrap
+            }
+        }
+
+        ScrollView {
+            id: imageViewport
+            objectName: "reflectionImageViewportCompact"
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.min(144, imageStrip.implicitHeight)
+            visible: !!popup.dialog.imageStore && popup.promptEnabled && popup.dialog.noteImages.length > 0
+            contentWidth: availableWidth
+            clip: true
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+            NoteImageStrip {
+                id: imageStrip
+                objectName: "reflectionNoteImagesCompact"
+                width: imageViewport.availableWidth
+                rows: popup.dialog.noteImages
+                editable: !popup.dialog.busy && !popup.dialog.unavailable && popup.dialog.pendingSwitchId.length === 0
+                thumbSize: 64
+                onAddRequested: popup.dialog.addNoteImage()
+                onRemoveRequested: function(row) { popup.dialog.removeNoteImage(row) }
+            }
+        }
+
+        Text {
+            objectName: "reflectionNoteImageErrorCompact"
+            Layout.fillWidth: true
+            visible: popup.dialog.noteImageError.length > 0
+            text: popup.dialog.noteImageError
+            textFormat: Text.PlainText
+            color: Theme.red
+            font.pixelSize: Theme.fs(12)
+            wrapMode: Text.WordWrap
         }
 
         Text {

@@ -111,10 +111,12 @@ public:
     qint64 totalCompletedCount() const;
     /// 按返回的副本类型聚合通关次数，缺类型时查本地目录，仍未知则单列。
     /// 讨伐中由目录稳定身份确认的极神另列互斥桶，排除幻巧，不改原记录类型。
-    /// 桶含 label、completed_count、share 和 color_token；分母为零时 share 为空。
+    /// 桶含稳定 key、翻译后的 label、completed_count、share 和 color_token；
+    /// 分母为全部通关次数，零时 share 为空。页面偏好只保存 key，不保存 label。
     Q_INVOKABLE QVariantList categoryBreakdown() const;
     /// 导随通关中的主线三本、行会令、其他和未知，始终保留四个桶。
     /// 主线仅使用安装资源的 content_id 成员表，行会令使用本地目录类型。
+    /// 桶结构与 categoryBreakdown 相同，key 不随语言、计数或排序改变。
     Q_INVOKABLE QVariantList specialDutyBreakdown() const;
 
 protected:

@@ -4832,6 +4832,18 @@ SHA256：%3</translation>
 <context>
     <name>CompletionPieChart</name>
     <message>
+        <source>所选通关 %1 次</source>
+        <translation>所選通關 %1 次</translation>
+    </message>
+    <message>
+        <source>未选择分类</source>
+        <translation>未選擇分類</translation>
+    </message>
+    <message>
+        <source>所选分类暂无通关</source>
+        <translation>所選分類暫無通關</translation>
+    </message>
+    <message>
         <source>%1 次通关</source>
         <translation>%1 次通關</translation>
     </message>
@@ -5252,6 +5264,26 @@ SHA256：%3</translation>
 <context>
     <name>DungeonsPage</name>
     <message>
+        <source>自定义显示</source>
+        <translation>自訂顯示</translation>
+    </message>
+    <message>
+        <source>设置两张饼图的显示和分类</source>
+        <translation>設定兩張圓餅圖的顯示和分類</translation>
+    </message>
+    <message>
+        <source>仅调整本页图表，选择会自动保存。</source>
+        <translation>僅調整本頁圖表，選擇會自動儲存。</translation>
+    </message>
+    <message>
+        <source>恢复默认</source>
+        <translation>恢復預設</translation>
+    </message>
+    <message>
+        <source>显示%1</source>
+        <translation>顯示%1</translation>
+    </message>
+    <message>
         <source>副本统计</source>
         <translation>副本統計</translation>
     </message>
@@ -5280,8 +5312,8 @@ SHA256：%3</translation>
         <translation>副本統計讀取失敗，下方沒有統計結果：%1</translation>
     </message>
     <message>
-        <source>占比按全部符合筛选的导随通关次数计算；前 10 / 前 20 只限制下方列表。</source>
-        <translation>佔比依全部符合篩選的導隨通關次數計算；前 10 / 前 20 只限制下方清單。</translation>
+        <source>占比按所选分类的导随通关次数计算；前 10 / 前 20 只限制下方列表。</source>
+        <translation>佔比依所選分類的導隨通關次數計算；前 10 / 前 20 只限制下方清單。</translation>
     </message>
     <message>
         <source>副本类型占比</source>

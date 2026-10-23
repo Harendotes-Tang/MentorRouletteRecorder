@@ -12,6 +12,7 @@ Item {
     property var rowsCache: []
     property var categoriesCache: []
     property var specialDutiesCache: []
+    property bool customizingCharts: false
     readonly property bool wideStatistics: contentColumn.width >= 1000
     // The table's 类型 column: 55 px fits every Chinese category; the names in
     // another language (Alliance Raids, 討伐・討滅戦) widen it up to 110 px and
@@ -67,6 +68,20 @@ Item {
         specialDutiesCache = Runtime.app.dungeons.specialDutyBreakdown()
     }
 
+    function setBucketSelected(special, key, selected) {
+        const hidden = (special ? Runtime.settings.dungeonSpecialHiddenBuckets
+                                : Runtime.settings.dungeonCategoryHiddenBuckets).slice()
+        const index = hidden.indexOf(key)
+        if (selected && index >= 0)
+            hidden.splice(index, 1)
+        else if (!selected && index < 0)
+            hidden.push(key)
+        if (special)
+            Runtime.settings.dungeonSpecialHiddenBuckets = hidden
+        else
+            Runtime.settings.dungeonCategoryHiddenBuckets = hidden
+    }
+
     Component.onCompleted: {
         reloadRows()
         reloadCompositions()
@@ -119,6 +134,16 @@ Item {
                     currentValue: page.topLimit
                     onActivated: function(value) { page.topLimit = value }
                 }
+
+                AppButton {
+                    objectName: "customizeDungeonCharts"
+                    text: qsTr("自定义显示")
+                    iconName: "settings"
+                    checkable: true
+                    checked: page.customizingCharts
+                    onClicked: page.customizingCharts = !page.customizingCharts
+                    Accessible.description: qsTr("设置两张饼图的显示和分类")
+                }
             }
 
             Text {
@@ -135,11 +160,100 @@ Item {
             Text {
                 Layout.fillWidth: true
                 visible: Runtime.app.dungeons.loadError.length === 0
-                text: qsTr("占比按全部符合筛选的导随通关次数计算；前 10 / 前 20 只限制下方列表。")
+                text: qsTr("占比按所选分类的导随通关次数计算；前 10 / 前 20 只限制下方列表。")
                 textFormat: Text.PlainText
                 wrapMode: Text.WordWrap
                 color: Theme.textSecondary
                 font.pixelSize: Theme.fs(12)
+            }
+
+            Card {
+                objectName: "dungeonChartCustomization"
+                Layout.fillWidth: true
+                visible: page.customizingCharts
+                padding: 16
+                spacing: 12
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("仅调整本页图表，选择会自动保存。")
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fs(12)
+                        wrapMode: Text.WordWrap
+                    }
+                    AppButton {
+                        objectName: "resetDungeonCharts"
+                        text: qsTr("恢复默认")
+                        onClicked: Runtime.settings.resetDungeonCharts()
+                    }
+                }
+
+                GridLayout {
+                    Layout.fillWidth: true
+                    columns: width >= 640 ? 2 : 1
+                    columnSpacing: 24
+                    rowSpacing: 16
+
+                    Repeater {
+                        model: [
+                            { special: false, title: qsTr("副本类型占比"), buckets: page.categoriesCache },
+                            { special: true, title: qsTr("主线副本与行会令占比"), buckets: page.specialDutiesCache }
+                        ]
+                        delegate: ColumnLayout {
+                            id: chartOptions
+                            required property var modelData
+                            readonly property bool special: modelData.special
+                            readonly property var hiddenKeys: special
+                                ? Runtime.settings.dungeonSpecialHiddenBuckets
+                                : Runtime.settings.dungeonCategoryHiddenBuckets
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignTop
+                            spacing: 4
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Layout.bottomMargin: 4
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: chartOptions.modelData.title
+                                    textFormat: Text.PlainText
+                                    wrapMode: Text.WordWrap
+                                    color: Theme.textPrimary
+                                    font.pixelSize: Theme.fs(13)
+                                    font.bold: true
+                                }
+                                ToggleSwitch {
+                                    objectName: chartOptions.special ? "specialChartVisibility" : "categoryChartVisibility"
+                                    accessibleName: qsTr("显示%1").arg(chartOptions.modelData.title)
+                                    checked: chartOptions.special
+                                        ? Runtime.settings.dungeonSpecialChartVisible
+                                        : Runtime.settings.dungeonCategoryChartVisible
+                                    onToggled: function(value) {
+                                        if (chartOptions.special)
+                                            Runtime.settings.dungeonSpecialChartVisible = value
+                                        else
+                                            Runtime.settings.dungeonCategoryChartVisible = value
+                                    }
+                                }
+                            }
+
+                            Repeater {
+                                model: chartOptions.modelData.buckets
+                                delegate: SelectionCheckBox {
+                                    required property var modelData
+                                    objectName: (chartOptions.special ? "specialBucket:" : "categoryBucket:") + modelData.key
+                                    Layout.fillWidth: true
+                                    text: modelData.label
+                                    checked: chartOptions.hiddenKeys.indexOf(modelData.key) < 0
+                                    onToggled: page.setBucketSelected(chartOptions.special, modelData.key, checked)
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             GridLayout {
@@ -162,17 +276,21 @@ Item {
                     id: categoryPie
                     objectName: "dungeonCategoryPie"
                     Layout.fillWidth: true
+                    visible: Runtime.settings.dungeonCategoryChartVisible
                     title: qsTr("副本类型占比")
                     buckets: page.categoriesCache
+                    hiddenBucketKeys: Runtime.settings.dungeonCategoryHiddenBuckets
                 }
 
                 CompletionPieChart {
                     id: specialPie
                     objectName: "dungeonSpecialPie"
                     Layout.fillWidth: true
+                    visible: Runtime.settings.dungeonSpecialChartVisible
                     title: qsTr("主线副本与行会令占比")
                     detail: qsTr("主线副本包含南方堡、天幕魔导城和究极神兵破坏作战。")
                     buckets: page.specialDutiesCache
+                    hiddenBucketKeys: Runtime.settings.dungeonSpecialHiddenBuckets
                 }
 
                 Card {

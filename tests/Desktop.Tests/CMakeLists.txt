@@ -174,7 +174,7 @@ set_tests_properties(MentorRecorderHistoryBatch PROPERTIES ENVIRONMENT "${MR_DES
 # LanguageManager cannot find the application's resource.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopStatisticsTests
-    SUITES StatisticsOverlay StatisticsOverlayRange DungeonComposition AchievementProgress
+    SUITES StatisticsOverlay StatisticsOverlayRange DungeonComposition DungeonChartDisplay AchievementProgress
     LIBRARIES ${MR_QUICK_TEST_LIBRARIES} Qt6::Widgets)
 qt_add_lrelease(
     TS_FILES
@@ -192,6 +192,8 @@ foreach(suite IN ITEMS StatisticsOverlay StatisticsOverlayRange AchievementProgr
     mr_desktop_suite_test(MentorRecorderDesktopStatisticsTests ${suite})
 endforeach()
 mr_desktop_suite_test(MentorRecorderDesktopStatisticsTests DungeonComposition)
+mr_desktop_suite_test(MentorRecorderDesktopStatisticsTests DungeonChartDisplay)
+set_tests_properties(MentorRecorderDungeonChartDisplay PROPERTIES ENVIRONMENT "${MR_DESKTOP_ISOLATED_ENVIRONMENT}")
 set_tests_properties(MentorRecorderDungeonComposition PROPERTIES ENVIRONMENT "${MR_DESKTOP_ISOLATED_ENVIRONMENT}")
 
 # ---------------------------------------------------------------------------

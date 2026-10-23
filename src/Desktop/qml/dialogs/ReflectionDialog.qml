@@ -315,14 +315,14 @@ Dialog {
     property string noteImageError: ""
 
     function addNoteImage() {
-        if (!imageStore || runId.length === 0 || busy)
+        if (!imageStore || runId.length === 0 || busy || unavailable || pendingSwitchId.length > 0)
             return
         const result = imageStore.addPicked(runId)
         noteImageError = result.ok ? "" : (result.error || "")
     }
 
     function pasteNoteImage() {
-        if (!imageStore || runId.length === 0 || busy)
+        if (!imageStore || runId.length === 0 || busy || unavailable || pendingSwitchId.length > 0)
             return
         const result = imageStore.addClipboard(runId)
         noteImageError = result.ok ? "" : (result.error || "")
@@ -333,13 +333,14 @@ Dialog {
         context: Qt.WindowShortcut
         // TextArea handles ordinary text paste itself. An image clipboard is
         // the only case this dialog claims Ctrl+V.
-        enabled: dialog.visible && !dialog.standalone && !dialog.busy && !!dialog.imageStore
+        enabled: dialog.visible && !dialog.busy && !dialog.unavailable && dialog.pendingSwitchId.length === 0
+            && !!dialog.imageStore
             && dialog.imageStore.clipboardHasImage && (!dialog.askingResult || dialog.promptEnabled)
         onActivated: dialog.pasteNoteImage()
     }
 
     function removeNoteImage(row) {
-        if (!imageStore || runId.length === 0 || busy || !row || !row.path)
+        if (!imageStore || runId.length === 0 || busy || unavailable || pendingSwitchId.length > 0 || !row || !row.path)
             return
         const result = imageStore.removeOne(runId, row.path)
         noteImageError = result.ok ? "" : (result.error || "")

@@ -16,6 +16,7 @@
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "Formatters.h"
+#include "JobCatalog.h"
 #include "MockBackend.h"
 #include "NoteImageStore.h"
 
@@ -123,6 +124,7 @@ struct DialogFixture {
     ObservedBackend backend;
     mr::AppController controller{&backend, nullptr};
     mr::Formatters formatters;
+    mr::JobCatalog jobs;
     QTemporaryDir imageRoot{QString::fromUtf8(MR_SOURCE_DIR)
                            + QStringLiteral("/artifacts/recoverable-prompts-20261020/reflection-images-XXXXXX")};
     mr::NoteImageStore images{imageRoot.path()};
@@ -134,6 +136,7 @@ struct DialogFixture {
     {
         engine.rootContext()->setContextProperty(QStringLiteral("App"), &controller);
         engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), &formatters);
+        engine.rootContext()->setContextProperty(QStringLiteral("Jobs"), &jobs);
         engine.rootContext()->setContextProperty(QStringLiteral("NoteImages"), &images);
         engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
         QQmlComponent component(&engine);
@@ -141,8 +144,19 @@ struct DialogFixture {
 import QtQuick.Controls
 import MentorRecorder
 ApplicationWindow {
+    id: mainWindow
     width: 900; height: 800; visible: true
-    ReflectionDialog { id: reflection; objectName: "reflection" }
+    RecoveryReminderWindow {
+        id: compactHost
+        objectName: "compactHost"
+        editor: reflection
+        visible: reflection.standalone && reflection.visible
+    }
+    ReflectionDialog {
+        id: reflection
+        objectName: "reflection"
+        parent: standalone ? compactHost.contentItem : Overlay.overlay
+    }
     Connections {
         target: App
         function onReflectionPromptRequested(run) { reflection.openForPrompt(run, "刚刚完成") }
@@ -180,7 +194,12 @@ ApplicationWindow {
 
     QString note() const { return textArea()->property("text").toString(); }
 
-    QQuickWindow *window() const { return qobject_cast<QQuickWindow *>(root.get()); }
+    QQuickWindow *window() const
+    {
+        return dialog()->property("standalone").toBool()
+            ? root->findChild<QQuickWindow *>(QStringLiteral("compactHost"))
+            : qobject_cast<QQuickWindow *>(root.get());
+    }
 
     bool click(const QString &name) const
     {
@@ -302,26 +321,53 @@ private Q_SLOTS:
             QVERIFY(fixture.window()->grabWindow().save(screenshot));
     }
 
+    void completedDutyPopupAcceptsClipboardImagesByButtonAndKeyboard_data()
+    {
+        QTest::addColumn<bool>("standalone");
+        QTest::addColumn<bool>("askingResult");
+        QTest::addColumn<bool>("dark");
+        QTest::newRow("full-note") << false << false << false;
+        QTest::newRow("compact-note") << true << false << false;
+        QTest::newRow("compact-result") << true << true << false;
+        QTest::newRow("compact-result-dark") << true << true << true;
+    }
+
     void completedDutyPopupAcceptsClipboardImagesByButtonAndKeyboard()
     {
+        QFETCH(bool, standalone);
+        QFETCH(bool, askingResult);
+        QFETCH(bool, dark);
         DialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        fixture.controller.setThemeMode(dark ? QStringLiteral("dark") : QStringLiteral("light"));
+        fixture.dialog()->setProperty("standalone", standalone);
         auto completed = finishedRun(kImageRunId(), QStringLiteral("伊库拉尔堡垒"), 1);
         completed.insert(QStringLiteral("job_id"), 24);
         completed.insert(QStringLiteral("result"), QStringLiteral("COMPLETED"));
         completed.insert(QStringLiteral("pending_review"), false);
+        completed.insert(QStringLiteral("duty_category"), QStringLiteral("四人迷宫"));
         auto event = runFinishedEvent(completed);
         event.insert(QStringLiteral("state"), QStringLiteral("COMPLETED"));
-        Q_EMIT fixture.backend.liveEvent(event);
+        if (askingResult)
+            QVERIFY(fixture.openForResult(completed));
+        else
+            Q_EMIT fixture.backend.liveEvent(event);
         QTRY_VERIFY(fixture.dialog()->property("visible").toBool());
         QCOMPARE(fixture.dialog()->property("runId").toString(), kImageRunId());
-        QCOMPARE(fixture.dialog()->property("kicker").toString(), QStringLiteral("刚刚完成"));
+        if (!askingResult)
+            QCOMPARE(fixture.dialog()->property("kicker").toString(), QStringLiteral("刚刚完成"));
+        QVERIFY(QTest::qWaitForWindowExposed(fixture.window()));
+        if (standalone)
+            fixture.root->setProperty("visible", false);
+        fixture.window()->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(fixture.window()));
         fixture.type(QStringLiteral("先保留正在写的心得。"));
         QImage image(36, 28, QImage::Format_ARGB32);
         image.fill(QColor(0, 80, 160, 192));
         QGuiApplication::clipboard()->setImage(image);
         fixture.backend.commands.clear();
-        QVERIFY(fixture.click(QStringLiteral("pasteReflectionImageButton")));
+        QVERIFY(fixture.click(standalone ? QStringLiteral("pasteReflectionImageButtonCompact")
+                                        : QStringLiteral("pasteReflectionImageButton")));
         QTRY_COMPARE(asList(fixture.dialog()->property("noteImages")).size(), 1);
         QCOMPARE(fixture.note(), QStringLiteral("先保留正在写的心得。"));
         fixture.pasteShortcut();
@@ -342,31 +388,82 @@ private Q_SLOTS:
         fixture.pasteShortcut();
         QTRY_COMPARE(fixture.note(), QStringLiteral("先保留正在写的心得。追加文字"));
         QCOMPARE(fixture.images.imagesFor(kImageRunId()).size(), 2);
+        if (standalone) {
+            QGuiApplication::clipboard()->setImage(image);
+            fixture.window()->contentItem()->forceActiveFocus();
+            QTest::keyClick(fixture.window(), Qt::Key_V, Qt::ControlModifier);
+            QTRY_COMPARE(fixture.images.imagesFor(kImageRunId()).size(), 3);
+        }
         const QString screenshot = qEnvironmentVariable("MR_REFLECTION_CLIPBOARD_SCREENSHOT");
-        if (!screenshot.isEmpty())
-            QVERIFY(fixture.window()->grabWindow().save(screenshot));
+        if (!screenshot.isEmpty()) {
+            const QString suffix = standalone ? (askingResult ? QStringLiteral("-compact-result.png")
+                                                              : QStringLiteral("-compact-note.png"))
+                                              : QStringLiteral("-full-note.png");
+            QVERIFY(fixture.window()->grabWindow().save(screenshot
+                + (dark ? QStringLiteral("-dark") : QStringLiteral("-light")) + suffix));
+        }
+
+        if (standalone) {
+            fixture.dialog()->setProperty("pendingSwitchId", QStringLiteral("another-run"));
+            QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "pasteNoteImage"));
+            QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "removeNoteImage",
+                Q_ARG(QVariant, QVariant(fixture.images.imagesFor(kImageRunId()).first().toMap()))));
+            QCOMPARE(fixture.images.imagesFor(kImageRunId()).size(), 3);
+            auto *strip = fixture.dialog()->findChild<QObject *>(QStringLiteral("reflectionNoteImagesCompact"));
+            QVERIFY(strip);
+            QVERIFY(!strip->property("editable").toBool());
+            fixture.dialog()->setProperty("pendingSwitchId", QString());
+
+            for (int index = 3; index < mr::NoteImageStore::kMaxImagesPerRun; ++index)
+                QVERIFY(fixture.images.addClipboard(kImageRunId()).value(QStringLiteral("ok")).toBool());
+            auto *viewport = fixture.dialog()->findChild<QQuickItem *>(QStringLiteral("reflectionImageViewportCompact"));
+            QVERIFY(viewport);
+            QTRY_COMPARE(strip->property("count").toInt(), mr::NoteImageStore::kMaxImagesPerRun);
+            QTRY_VERIFY(strip->property("implicitHeight").toDouble() > 144);
+            QTRY_COMPARE(viewport->height(), 144.0);
+            viewport->ensurePolished();
+            QTest::qWait(40);
+            if (!askingResult) {
+                auto *save = fixture.dialog()->findChild<QQuickItem *>(QStringLiteral("saveReflectionButton"));
+                QVERIFY(save);
+                const QRectF saveRect = save->mapRectToScene(save->boundingRect());
+                QVERIFY(QRectF(QPointF(), fixture.window()->size()).contains(saveRect));
+            }
+        }
 
         // Attachments already belong to the completed run, like chosen files.
         // Closing the note neither deletes them nor creates/corrects a record.
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "close"));
         QTRY_VERIFY(!fixture.dialog()->property("visible").toBool());
-        QCOMPARE(fixture.images.imagesFor(kImageRunId()).size(), 2);
+        QCOMPARE(fixture.images.imagesFor(kImageRunId()).size(), standalone ? mr::NoteImageStore::kMaxImagesPerRun : 2);
         QCOMPARE(fixture.backend.commands.count(QStringLiteral("SetRunReflection")), 0);
         QCOMPARE(fixture.backend.commands.count(QStringLiteral("CreateManualRun")), 0);
         QCOMPARE(fixture.backend.commands.count(QStringLiteral("CorrectRun")), 0);
     }
 
+    void clipboardFailureAndNoteSaveRetryKeepOneAttachmentAndNeverCreateRecords_data()
+    {
+        QTest::addColumn<bool>("standalone");
+        QTest::newRow("full-note") << false;
+        QTest::newRow("compact-note") << true;
+    }
+
     void clipboardFailureAndNoteSaveRetryKeepOneAttachmentAndNeverCreateRecords()
     {
+        QFETCH(bool, standalone);
         DialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        fixture.dialog()->setProperty("standalone", standalone);
+        const QString pasteButton = standalone ? QStringLiteral("pasteReflectionImageButtonCompact")
+                                               : QStringLiteral("pasteReflectionImageButton");
         auto completed = finishedRun(kImageRunId(), QStringLiteral("伊库拉尔堡垒"), 1);
         completed.insert(QStringLiteral("job_id"), 24);
         QVERIFY(fixture.openForRun(completed, QStringLiteral("刚刚完成")));
+        QVERIFY(QTest::qWaitForWindowExposed(fixture.window()));
         fixture.type(QStringLiteral("保存失败也要保留这段心得。"));
         fixture.backend.commands.clear();
         QGuiApplication::clipboard()->clear();
-        QVERIFY(fixture.click(QStringLiteral("pasteReflectionImageButton")));
+        QVERIFY(fixture.click(pasteButton));
         QVERIFY(fixture.dialog()->property("noteImageError").toString().contains(QStringLiteral("没有图片")));
         QCOMPARE(fixture.note(), QStringLiteral("保存失败也要保留这段心得。"));
 
@@ -374,11 +471,11 @@ private Q_SLOTS:
         image.fill(Qt::magenta);
         QGuiApplication::clipboard()->setImage(image);
         fixture.images.setCopyFunctionForTesting([](const QString &, const QString &) { return false; });
-        QVERIFY(fixture.click(QStringLiteral("pasteReflectionImageButton")));
+        QVERIFY(fixture.click(pasteButton));
         QVERIFY(!fixture.dialog()->property("noteImageError").toString().isEmpty());
         QVERIFY(fixture.images.imagesFor(kImageRunId()).isEmpty());
         fixture.images.setCopyFunctionForTesting({});
-        QVERIFY(fixture.click(QStringLiteral("pasteReflectionImageButton")));
+        QVERIFY(fixture.click(pasteButton));
         QCOMPARE(fixture.images.imagesFor(kImageRunId()).size(), 1);
         QVERIFY(fixture.dialog()->property("noteImageError").toString().isEmpty());
         QCOMPARE(fixture.backend.commands.count(QStringLiteral("SetRunReflection")), 0);

@@ -65,6 +65,12 @@ class AppSettings : public QObject
     Q_PROPERTY(int logRetentionDays READ logRetentionDays WRITE setLogRetentionDays NOTIFY dataChanged)
     Q_PROPERTY(bool diagnosticsMode READ diagnosticsMode WRITE setDiagnosticsMode NOTIFY dataChanged)
 
+    // Main dungeon page only; the floating statistics keep their own preferences.
+    Q_PROPERTY(bool dungeonCategoryChartVisible READ dungeonCategoryChartVisible WRITE setDungeonCategoryChartVisible NOTIFY dungeonChartsChanged)
+    Q_PROPERTY(bool dungeonSpecialChartVisible READ dungeonSpecialChartVisible WRITE setDungeonSpecialChartVisible NOTIFY dungeonChartsChanged)
+    Q_PROPERTY(QStringList dungeonCategoryHiddenBuckets READ dungeonCategoryHiddenBuckets WRITE setDungeonCategoryHiddenBuckets NOTIFY dungeonChartsChanged)
+    Q_PROPERTY(QStringList dungeonSpecialHiddenBuckets READ dungeonSpecialHiddenBuckets WRITE setDungeonSpecialHiddenBuckets NOTIFY dungeonChartsChanged)
+
 public:
     /// 用户手填的本机分享署名，不代表历史记录或采集到的角色身份。
     QString shareGameIdentity() const;
@@ -72,6 +78,17 @@ public:
     explicit AppSettings(QObject *parent = nullptr);
     /// Explicit INI location for isolated local harnesses.
     AppSettings(const QString &iniPath, QObject *parent);
+    bool dungeonCategoryChartVisible() const;
+    void setDungeonCategoryChartVisible(bool visible);
+    bool dungeonSpecialChartVisible() const;
+    void setDungeonSpecialChartVisible(bool visible);
+    /// Canonical bucket keys hidden on the main page. Unknown future keys are
+    /// retained; new buckets default to visible because selections are exclusions.
+    QStringList dungeonCategoryHiddenBuckets() const;
+    void setDungeonCategoryHiddenBuckets(const QStringList &keys);
+    QStringList dungeonSpecialHiddenBuckets() const;
+    void setDungeonSpecialHiddenBuckets(const QStringList &keys);
+    Q_INVOKABLE void resetDungeonCharts();
     /// Floating-window preferences; the overlay controller validates semantic bounds.
     QRect statisticsOverlayGeometry() const;
     void setStatisticsOverlayGeometry(const QRect &geometry);
@@ -230,6 +247,7 @@ Q_SIGNALS:
     void appearanceChanged();
     void ttsChanged();
     void dataChanged();
+    void dungeonChartsChanged();
 
 private:
     /// tts/<leaf> for 简体中文, tts/<language>/<leaf> otherwise.

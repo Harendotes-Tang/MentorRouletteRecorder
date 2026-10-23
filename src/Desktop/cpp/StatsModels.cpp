@@ -65,10 +65,11 @@ const MainScenarioMembership &mainScenarioMembership()
     return membership;
 }
 
-QVariantMap completionBucket(const QString &label, qint64 count, qint64 total,
+QVariantMap completionBucket(const QString &key, const QString &label, qint64 count, qint64 total,
                              const QString &token, bool unknown = false)
 {
-    return {{QStringLiteral("label"), label},
+    return {{QStringLiteral("key"), key},
+            {QStringLiteral("label"), label},
             {QStringLiteral("completed_count"), count},
             {QStringLiteral("share"), total > 0 ? QVariant(static_cast<double>(count) / static_cast<double>(total)) : QVariant()},
             {QStringLiteral("color_token"), token},
@@ -383,7 +384,9 @@ QVariantList DungeonStatsModel::categoryBreakdown() const
         // Categories are the Collector's / the catalogue's (Chinese) words,
         // shown in the interface language; the unknown bucket is this
         // program's own label.
-        out.append(completionBucket(category == unknown ? tr("未识别")
+        out.append(completionBucket(category == unknown ? QStringLiteral("unknown")
+                                                        : QStringLiteral("category:") + category,
+                   category == unknown ? tr("未识别")
                                                         : GameNames::shared()->category(category),
                    counts.value(category), total,
                    category == unknown ? QStringLiteral("neutral500") : tokens.at(i % tokens.size()),
@@ -392,7 +395,7 @@ QVariantList DungeonStatsModel::categoryBreakdown() const
         // indices/colors. Its separate count cannot collide with a supplied
         // category label, and zero remains a known bucket with the same denominator.
         if (category == trials)
-            out.append(completionBucket(tr("极神"), extremeCount, total, QStringLiteral("yellow")));
+            out.append(completionBucket(QStringLiteral("trial:extreme"), tr("极神"), extremeCount, total, QStringLiteral("yellow")));
     }
     return out;
 }
@@ -415,10 +418,10 @@ QVariantList DungeonStatsModel::specialDutyBreakdown() const
         counts[group] += completionCount(row);
     }
     const qint64 total = totalCompletedCount();
-    return {completionBucket(tr("主线副本"), counts[0], total, QStringLiteral("blue")),
-            completionBucket(tr("行会令"), counts[1], total, QStringLiteral("green")),
-            completionBucket(tr("其他副本"), counts[2], total, QStringLiteral("orange")),
-            completionBucket(tr("未识别"), counts[3], total, QStringLiteral("neutral500"), true)};
+    return {completionBucket(QStringLiteral("main-scenario"), tr("主线副本"), counts[0], total, QStringLiteral("blue")),
+            completionBucket(QStringLiteral("guildhest"), tr("行会令"), counts[1], total, QStringLiteral("green")),
+            completionBucket(QStringLiteral("other"), tr("其他副本"), counts[2], total, QStringLiteral("orange")),
+            completionBucket(QStringLiteral("unknown"), tr("未识别"), counts[3], total, QStringLiteral("neutral500"), true)};
 }
 
 QJsonObject JobStatsModel::decorate(const QJsonObject &row) const
