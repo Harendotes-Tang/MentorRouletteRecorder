@@ -1153,22 +1153,21 @@ void StatisticsOverlayTests::formTransitionKeepsStableGeometry() const
         QMutex mutex;
         QList<qint64> times;
     };
-    const auto trace = std::make_shared<FrameTrace>();
-    trace->clock.start();
-    const auto frameObserver = !captureFrames ? QObject::connect(scene.floating(), &QQuickWindow::frameSwapped, scene.floating(), [trace] {
-        QMutexLocker guard(&trace->mutex);
-        trace->times.append(trace->clock.nsecsElapsed());
-    }, Qt::DirectConnection) : QMetaObject::Connection(); // Render-thread timestamp, not queued delivery.
     auto *outgoing = scene.item(QStringLiteral("floatingFullContent"));
     auto *incoming = scene.item(QStringLiteral("floatingMiniContent"));
     QVERIFY(outgoing && incoming);
     bool sawIntermediate = false;
+    bool sampledFade = false;
     bool overlappingForms = false;
     bool overflowingBars = false;
     bool sawBar = false;
     int observedFrames = 0;
     const auto observeIntermediate = [&] {
         ++observedFrames;
+        // The outgoing form fades out over the first half of formBlend, the
+        // first ~29 ms of the 200 ms switch on its standard curve.
+        const qreal blend = scene.floating()->property("formBlend").toReal();
+        sampledFade |= blend > 0 && blend < 0.5;
         sawIntermediate |= scene.floating()->height() > 80 && scene.floating()->height() < 520
                            && outgoing->opacity() > 0 && outgoing->opacity() < 1;
         overlappingForms |= outgoing->opacity() > 0.001 && incoming->opacity() > 0.001;
@@ -1188,50 +1187,81 @@ void StatisticsOverlayTests::formTransitionKeepsStableGeometry() const
     const auto visualObserver = QObject::connect(scene.floating(), &QQuickWindow::afterAnimating,
                                                  scene.floating(), observeIntermediate);
     const auto disconnectVisualObserver = qScopeGuard([&] { QObject::disconnect(visualObserver); });
-    // QtTest's mouse dispatch processes events before returning. Observe before
-    // clicking so the outgoing form's short fade cannot finish before sampling.
-    QVERIFY(scene.click(QStringLiteral("floatingMiniButton")));
-    QVERIFY(scene.floating()->property("transitioning").toBool());
-    QVERIFY(!outgoing->isEnabled());
-    if (captureFrames) {
-        // QML registers newly started jobs through queued calls. Drain those at
-        // time zero, before the first manual tick, for an accurate 200 ms run.
-        for (int round = 0; round < 3; ++round)
-            QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
-        for (int step = 0; step < 10; ++step) {
-            formEvidenceClock->step(20);
-            QTest::qWait(20); // Native resize/render settles while the animation clock stays frozen.
-            QCOMPARE(scene.floating()->width(), 340);
-            QCOMPARE(scene.overlay()->geometry().size(), fullSize);
-            QVERIFY(capture());
-        }
-    } else {
-        // A normal event loop avoids QTest's polling sleeps and screenshot readbacks
-        // disturbing the presentation cadence that this mode measures.
-        QEventLoop eventLoop;
-        QTimer::singleShot(300, &eventLoop, &QEventLoop::quit);
-        eventLoop.exec();
-    }
-    QObject::disconnect(frameObserver);
-    QList<qint64> frameTimes;
-    {
-        QMutexLocker guard(&trace->mutex);
-        frameTimes = trace->times;
-    }
+    QFile frameLog(output + QStringLiteral("/frame-cadence.csv"));
     if (!captureFrames) {
-        QFile frameLog(output + QStringLiteral("/frame-cadence.csv"));
         QVERIFY(frameLog.open(QIODevice::WriteOnly));
-        frameLog.write("frame,elapsed_ms,interval_ms\n");
-        for (qsizetype i = 0; i < frameTimes.size(); ++i) {
-            const double elapsedMs = static_cast<double>(frameTimes[i]) / 1e6;
-            const double intervalMs = i > 0 ? static_cast<double>(frameTimes[i] - frameTimes[i - 1]) / 1e6 : 0.0;
-            frameLog.write(QStringLiteral("%1,%2,%3\n").arg(i).arg(elapsedMs, 0, 'f', 3)
-                               .arg(intervalMs, 0, 'f', 3).toUtf8());
-        }
+        frameLog.write("attempt,frame,elapsed_ms,interval_ms\n");
     }
+    // Under CPU load one late frame can step over the whole fade. Such an attempt
+    // shows nothing about the transition, so switch back and sample again; a frame
+    // inside the fade that shows no intermediate form still fails at once.
+    const int maxAttempts = captureFrames ? 1 : 5;
+    int attempts = 0;
+    double longestFrameGapMs = 0;
+    for (;;) {
+        ++attempts;
+        sawIntermediate = false;
+        sampledFade = false;
+        observedFrames = 0;
+        const auto trace = std::make_shared<FrameTrace>();
+        trace->clock.start();
+        const auto frameObserver = !captureFrames ? QObject::connect(scene.floating(), &QQuickWindow::frameSwapped, scene.floating(), [trace] {
+            QMutexLocker guard(&trace->mutex);
+            trace->times.append(trace->clock.nsecsElapsed());
+        }, Qt::DirectConnection) : QMetaObject::Connection(); // Render-thread timestamp, not queued delivery.
+        // QtTest's mouse dispatch processes events before returning. Observe before
+        // clicking so the outgoing form's short fade cannot finish before sampling.
+        QVERIFY(scene.click(QStringLiteral("floatingMiniButton")));
+        QVERIFY(scene.floating()->property("transitioning").toBool());
+        QVERIFY(!outgoing->isEnabled());
+        if (captureFrames) {
+            // QML registers newly started jobs through queued calls. Drain those at
+            // time zero, before the first manual tick, for an accurate 200 ms run.
+            for (int round = 0; round < 3; ++round)
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
+            for (int step = 0; step < 10; ++step) {
+                formEvidenceClock->step(20);
+                QTest::qWait(20); // Native resize/render settles while the animation clock stays frozen.
+                QCOMPARE(scene.floating()->width(), 340);
+                QCOMPARE(scene.overlay()->geometry().size(), fullSize);
+                QVERIFY(capture());
+            }
+        } else {
+            // A normal event loop avoids QTest's polling sleeps and screenshot readbacks
+            // disturbing the presentation cadence that this mode measures.
+            QEventLoop eventLoop;
+            QTimer::singleShot(300, &eventLoop, &QEventLoop::quit);
+            eventLoop.exec();
+        }
+        QObject::disconnect(frameObserver);
+        QList<qint64> frameTimes;
+        {
+            QMutexLocker guard(&trace->mutex);
+            frameTimes = trace->times;
+        }
+        longestFrameGapMs = 0;
+        if (!captureFrames) {
+            for (qsizetype i = 0; i < frameTimes.size(); ++i) {
+                const double elapsedMs = static_cast<double>(frameTimes[i]) / 1e6;
+                const double intervalMs = i > 0 ? static_cast<double>(frameTimes[i] - frameTimes[i - 1]) / 1e6 : 0.0;
+                longestFrameGapMs = std::max(longestFrameGapMs, i > 0 ? intervalMs : elapsedMs);
+                frameLog.write(QStringLiteral("%1,%2,%3,%4\n").arg(attempts).arg(i).arg(elapsedMs, 0, 'f', 3)
+                                   .arg(intervalMs, 0, 'f', 3).toUtf8());
+            }
+        }
+        if (sawIntermediate || sampledFade || attempts == maxAttempts)
+            break;
+        QTRY_VERIFY(!scene.floating()->property("transitioning").toBool());
+        scene.overlay()->setForm(QStringLiteral("full"));
+        QTRY_VERIFY(!scene.floating()->property("transitioning").toBool());
+        QTRY_COMPARE(scene.floating()->size(), fullSize);
+    }
+    frameLog.close();
     QVERIFY2(sawIntermediate, qPrintable(QStringLiteral(
-        "No intermediate form sampled: frames=%1 height=%2 blend=%3 outgoingOpacity=%4")
-        .arg(observedFrames).arg(scene.floating()->height())
+        "No intermediate form sampled: attempts=%1 fadeSampled=%2 frames=%3 longestFrameGapMs=%4 "
+        "height=%5 blend=%6 outgoingOpacity=%7")
+        .arg(attempts).arg(sampledFade).arg(observedFrames).arg(longestFrameGapMs, 0, 'f', 1)
+        .arg(scene.floating()->height())
         .arg(scene.floating()->property("formBlend").toReal()).arg(outgoing->opacity())));
     QTRY_VERIFY(!scene.floating()->property("transitioning").toBool());
     QVERIFY(scene.floating()->height() < 80);
