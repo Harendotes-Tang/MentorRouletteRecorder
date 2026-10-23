@@ -111,8 +111,10 @@ public sealed class TimedAnnouncementUpgradeTests : IDisposable
     /// were ignored and the run was never recorded. The machine holding the request stays until that
     /// run is over, and the rewritten profile takes over then, in the same session.
     /// </summary>
-    [Fact]
-    public async Task AConfirmationWhileQueuedKeepsTheRequestAndRebindsOnceTheRunIsOver()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AConfirmationWhileQueuedKeepsTheRequestAndRebindsOnceTheRunIsOver(bool failFirstRebind)
     {
         LocalProfileWriter.Write(
             CalibrationTrafficCases.Derive(CalibrationTrafficCases.QueueRequest), Bed.Template, Bed.Build,
@@ -141,8 +143,24 @@ public sealed class TimedAnnouncementUpgradeTests : IDisposable
         // The duty ends; from the next queue on the rewritten profile is in force and the
         // announcement is understood the moment it arrives.
         using var live = bus.Subscribe(Guid.NewGuid().ToString("D"));
-        Bed.Feed(pipeline, session, Marked(CalibrationObserverTests.Cluster(700_000, TownTerritory), 10)
-            .Append(MentorRequest(800_000, marker: 2))
+        if (failFirstRebind)
+        {
+            using var reject = _bed.Db.Database.CreateCommand();
+            reject.CommandText = "CREATE TEMP TRIGGER reject_profile_update BEFORE UPDATE OF protocol_profile_id ON capture_sessions " +
+                "BEGIN SELECT RAISE(ABORT, 'transient profile update failure'); END;";
+            reject.ExecuteNonQuery();
+        }
+
+        Bed.Feed(pipeline, session, Marked(CalibrationObserverTests.Cluster(700_000, TownTerritory), 10));
+        if (failFirstRebind)
+        {
+            using var recover = _bed.Db.Database.CreateCommand();
+            recover.CommandText = "DROP TRIGGER reject_profile_update;";
+            recover.ExecuteNonQuery();
+            Bed.Feed(pipeline, session, CalibrationObserverTests.Noise(750_000, 760_000));
+        }
+
+        Bed.Feed(pipeline, session, new[] { MentorRequest(800_000, marker: 2) }
             .Append(Announcement(810_000))
             .Concat(Marked(CalibrationObserverTests.Cluster(820_000, DutyTerritory, job: 24), 20)));
 

@@ -319,8 +319,36 @@ def _void_issue(state, account, issue):
     sessions = [key for key, row in state["sessions"].items() if key.startswith(prefix) and row["sequence"] in sequences]
     votes = [key for key, row in state["votes"].items() if row["account"] == account and row["issue"] == issue]
     candidates = {state["votes"][key]["candidate"] for key in votes}
+    invalidated_triggers = set()
+    for key in votes:
+        vote = state["votes"][key]
+        candidate = state["candidates"][vote["candidate"]]
+        trigger = candidate["triggers"].get(vote["field"])
+        if (vote["verdict"] == "CONTRADICT" and trigger is not None
+                and candidate["consumed"].get(vote["field"], 0) < vote["sequence"] <= trigger):
+            invalidated_triggers.add((vote["candidate"], vote["field"]))
     for name, keys in (("receipts", receipts), ("sessions", sessions), ("votes", votes)):
         for key in keys: del state[name][key]
+    # A copied vote is invalid evidence, unlike an account changing its valid position.
+    # Undo only a trigger it could have caused if the remaining votes no longer satisfy
+    # the original quorum/majority. Keep epochs monotonic and normal recovery rules intact.
+    for candidate_id, field in invalidated_triggers:
+        candidate = state["candidates"][candidate_id]
+        floor = candidate["consumed"].get(field, 0)
+        remaining = [v for v in state["votes"].values()
+                     if v["candidate"] == candidate_id and v["field"] == field]
+        negative = sum(v["verdict"] == "CONTRADICT" and v["sequence"] > floor for v in remaining)
+        # Later PASS positions must still satisfy the epoch-specific recovery gate;
+        # only PASS evidence already present at the trigger challenges its original majority.
+        trigger = candidate["triggers"][field]
+        # The ledger keeps only each account's latest position. A later PASS may have
+        # replaced a genuine negative quorum, which must use normal epoch recovery.
+        # Without that history, conservatively retain the trigger (or use maintainer lift).
+        if any(v["verdict"] == "PASS" and v["sequence"] > trigger for v in remaining):
+            continue
+        positive = sum(v["verdict"] == "PASS" and v["sequence"] <= trigger for v in remaining)
+        if negative < 3 or negative <= positive:
+            del candidate["triggers"][field]
     # The Issue row stays as it was: an Issue that had voted still needs a new Issue for a new position.
     for candidate_id in sorted(candidates): _recompute(state, candidate_id)
 

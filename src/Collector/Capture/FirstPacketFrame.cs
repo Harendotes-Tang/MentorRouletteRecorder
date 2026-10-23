@@ -2,11 +2,14 @@ using System.Buffers.Binary;
 
 namespace MentorRecorder.Collector.Capture;
 
-internal readonly record struct FirstPacketTuple(uint LocalIP, ushort LocalPort, uint RemoteIP, ushort RemotePort);
+internal readonly record struct FirstPacketTuple(uint LocalIP, ushort LocalPort, uint RemoteIP, ushort RemotePort)
+{
+    internal FirstPacketTuple Reverse => new(RemoteIP, RemotePort, LocalIP, LocalPort);
+}
 
 /// <summary>Validated IPv4/TCP boundaries. Addresses retain Machina's native little endian representation.</summary>
 internal readonly record struct FirstPacketFrame(FirstPacketTuple Tuple, bool Inbound, uint Sequence,
-    byte Flags, int PayloadLength, int Offset, int Length)
+    byte Flags, int PayloadLength, int Offset, int Length, bool LocalEndpoints = false)
 {
     public bool Syn => (Flags & 2) != 0;
     public bool Origin => Syn && (Flags & 16) == 0;
@@ -15,6 +18,13 @@ internal readonly record struct FirstPacketFrame(FirstPacketTuple Tuple, bool In
     // Link numbers are the libpcap DLT values, not heuristics on the packet contents.
     internal static bool TryRead(ReadOnlySpan<byte> data, int link, uint localIP,
         out FirstPacketFrame frame, out bool unsafeSelectedPacket)
+        => TryRead(data, link, new[] { localIP }, false, out frame, out unsafeSelectedPacket);
+
+    // With two local endpoints, Tuple is initially the wire source/target tuple. Inbound is
+    // only a coordinate within that wire tuple until Pump resolves the complete game-owned
+    // tuple. Neither address equality nor port magnitude establishes game direction.
+    internal static bool TryRead(ReadOnlySpan<byte> data, int link, IReadOnlyCollection<uint> localIPs,
+        bool includeLoopback, out FirstPacketFrame frame, out bool unsafeSelectedPacket)
     {
         frame = default;
         unsafeSelectedPacket = false;
@@ -39,7 +49,9 @@ internal readonly record struct FirstPacketFrame(FirstPacketTuple Tuple, bool In
         if (ip[0] >> 4 != 4 || ip[9] != 6) return false;
         var source = BinaryPrimitives.ReadUInt32LittleEndian(ip[12..]);
         var target = BinaryPrimitives.ReadUInt32LittleEndian(ip[16..]);
-        if ((source == localIP) == (target == localIP)) return false;
+        var sourceLocal = localIPs.Contains(source) || (includeLoopback && (source & 0xff) == 127);
+        var targetLocal = localIPs.Contains(target) || (includeLoopback && (target & 0xff) == 127);
+        if (!sourceLocal && !targetLocal) return false;
         unsafeSelectedPacket = true;
         var header = (ip[0] & 15) * 4;
         var size = BinaryPrimitives.ReadUInt16BigEndian(ip[2..]);
@@ -52,9 +64,14 @@ internal readonly record struct FirstPacketFrame(FirstPacketTuple Tuple, bool In
         var from = BinaryPrimitives.ReadUInt16BigEndian(tcp);
         var to = BinaryPrimitives.ReadUInt16BigEndian(tcp[2..]);
         if (from == 0 || to == 0) return false;
-        var inbound = target == localIP;
-        frame = new FirstPacketFrame(inbound ? new(localIP, to, source, from) : new(localIP, from, target, to),
-            inbound, BinaryPrimitives.ReadUInt32BigEndian(tcp[4..]), tcp[13], tcp.Length - tcpHeader, offset, size);
+        // A tuple that is its own reverse cannot identify either TCP direction, even with PID
+        // ownership. Do not let it enter the stream table as a guessed outbound connection.
+        if (sourceLocal && targetLocal && source == target && from == to) return false;
+        var localEndpoints = sourceLocal && targetLocal;
+        var inbound = !sourceLocal && targetLocal;
+        frame = new FirstPacketFrame(inbound ? new(target, to, source, from) : new(source, from, target, to),
+            inbound, BinaryPrimitives.ReadUInt32BigEndian(tcp[4..]), tcp[13], tcp.Length - tcpHeader, offset, size,
+            localEndpoints);
         unsafeSelectedPacket = false;
         return true;
     }

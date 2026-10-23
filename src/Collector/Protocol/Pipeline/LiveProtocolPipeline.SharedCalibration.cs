@@ -483,9 +483,14 @@ public sealed partial class LiveProtocolPipeline
             return;
         }
 
-        _sharedSwapOwed = null;
         if (SwapParser(profile))
         {
+            // Keep failed swaps pending; do not clear a replacement queued by a callback.
+            if (string.Equals(_sharedSwapOwed, owed, StringComparison.Ordinal))
+            {
+                _sharedSwapOwed = null;
+            }
+
             _shared.OnBoundLater(owed, _calibrationBoundAt ?? _clock.UtcNow);
             NotifyCalibrationChanged();
         }

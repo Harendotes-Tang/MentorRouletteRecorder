@@ -553,6 +553,42 @@ class ProfileEmissionTests(unittest.TestCase):
 # --------------------------------------------------------------------------------------
 
 class OutputBoundaryTests(unittest.TestCase):
+    def test_default_temp_directory_inside_game_is_rejected_before_creation(self):
+        with synthetic_executable() as path:
+            game = os.path.dirname(path)
+            before = set(os.listdir(game))
+            with mock.patch.object(find_signatures.tempfile, "tempdir", None), \
+                    mock.patch.dict(os.environ, {"TMPDIR": game}), \
+                    mock.patch.object(find_signatures.tempfile, "gettempdir") as probe, \
+                    mock.patch.object(find_signatures.tempfile, "mkdtemp") as create, \
+                    contextlib.redirect_stderr(io.StringIO()) as stderr:
+                code = find_signatures.main(["--exe", path, "--quiet"])
+            self.assertEqual(2, code)
+            create.assert_not_called()
+            probe.assert_not_called()
+            self.assertEqual(before, set(os.listdir(game)))
+            self.assertIn("refusing", stderr.getvalue())
+
+    def test_cached_temp_directory_inside_game_is_rejected_without_probe(self):
+        with synthetic_executable() as path:
+            game = os.path.dirname(path)
+            with mock.patch.object(tempfile, "tempdir", game), \
+                    mock.patch.object(tempfile, "mkdtemp") as create:
+                with self.assertRaisesRegex(ValueError, "refusing"):
+                    find_signatures.create_work_directory(game)
+            create.assert_not_called()
+
+    def test_unwritable_temp_candidate_falls_back_after_boundary_check(self):
+        with synthetic_executable() as path:
+            root = os.path.dirname(os.path.dirname(path))
+            first, second = os.path.join(root, "missing"), os.path.join(root, "safe")
+            with mock.patch.object(tempfile, "tempdir", None), \
+                    mock.patch.dict(os.environ, {"TMPDIR": first, "TEMP": second}), \
+                    mock.patch.object(tempfile, "mkdtemp", side_effect=[OSError(), "work"]) as create:
+                self.assertEqual("work", find_signatures.create_work_directory(os.path.dirname(path)))
+            self.assertEqual([mock.call(prefix="oodle-sig-", dir=first),
+                              mock.call(prefix="oodle-sig-", dir=second)], create.call_args_list)
+
     def test_a_path_below_a_link_into_the_game_directory_counts_as_inside(self):
         # `is_within` answers "is this physically inside the game folder"; main() turns a
         # True into a refusal. The link is the interesting part: abspath alone would call

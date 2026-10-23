@@ -50,6 +50,9 @@ public sealed record CaptureAdapterView(
     /// <summary>Unmasked address Machina binds its capture to. Never rendered to a client.</summary>
     public IPAddress? BindAddress { get; init; }
 
+    /// <summary>All raw local IPv4 addresses, retained only inside capture planning.</summary>
+    internal IReadOnlyList<IPAddress> LocalAddresses { get; init; } = Array.Empty<IPAddress>();
+
     /// <summary>
     /// True when this interface has an IPv4 default gateway, i.e. it is the one Windows would
     /// send a new connection over. Used only before the game has opened any connection at
@@ -119,7 +122,7 @@ public sealed class AdapterEnumerator
     public AdapterEnumerator(IAdapterProvider? adapters = null, IProcessTcpTable? tcpTable = null)
     {
         _adapters = adapters ?? SystemAdapterProvider.Instance;
-        _tcpTable = tcpTable ?? MachinaProcessTcpTable.Instance;
+        _tcpTable = tcpTable ?? SystemProcessConnectionTable.Instance;
     }
 
     /// <summary>
@@ -165,7 +168,9 @@ public sealed class AdapterEnumerator
         var views = new List<CaptureAdapterView>();
         foreach (var adapter in SafeList())
         {
-            var carries = adapter.IPv4Addresses.Any(gameAddressSet.Contains);
+            var carries = adapter.IPv4Addresses.Any(gameAddressSet.Contains) ||
+                (CapturePathPlan.IsCanonicalLoopback(adapter.Id) && gameAddressSet.Any(address =>
+                    address.AddressFamily == AddressFamily.InterNetwork && IPAddress.IsLoopback(address)));
             views.Add(new CaptureAdapterView(
                 adapter.Id,
                 adapter.FriendlyName,
@@ -177,8 +182,9 @@ public sealed class AdapterEnumerator
                 Recommended: false)
             {
                 BindAddress = carries
-                    ? adapter.IPv4Addresses.First(gameAddressSet.Contains)
+                    ? adapter.IPv4Addresses.FirstOrDefault(gameAddressSet.Contains) ?? IPAddress.Loopback
                     : adapter.IPv4Addresses.FirstOrDefault(),
+                LocalAddresses = adapter.IPv4Addresses.ToArray(),
                 HasDefaultRoute = adapter.HasDefaultRoute,
                 PreferredRoute = adapter.PreferredRoute,
             });
@@ -232,9 +238,9 @@ public sealed class AdapterEnumerator
         IReadOnlyList<CaptureAdapterView> adapters, string? preferredAdapterId, bool gameIsIdle)
     {
         var carrier = adapters.FirstOrDefault(
-            adapter => adapter.CarriesGameTraffic && adapter.IsUp && !adapter.IsLoopback);
+            adapter => adapter.CarriesGameTraffic && CapturePathPlan.IsUsable(adapter));
 
-        if (Find(adapters, preferredAdapterId) is { } remembered)
+        if (Find(adapters, preferredAdapterId) is { } remembered && CapturePathPlan.IsUsable(remembered))
         {
             return carrier is null || remembered.CarriesGameTraffic
                 ? (remembered, null)
@@ -259,10 +265,11 @@ public sealed class AdapterEnumerator
         }
 
         var usable = adapters
-            .Where(adapter => adapter.IsUp && !adapter.IsLoopback && adapter.BindAddress is not null)
+            .Where(CapturePathPlan.IsUsable)
             .ToArray();
         return (usable.FirstOrDefault(adapter => adapter.PreferredRoute)
-            ?? usable.FirstOrDefault(adapter => adapter.HasDefaultRoute), null);
+            ?? usable.FirstOrDefault(adapter => adapter.HasDefaultRoute)
+            ?? usable.FirstOrDefault(adapter => CapturePathPlan.IsCanonicalLoopback(adapter.Id)), null);
     }
 
     private IReadOnlyList<AdapterInfo> SafeList()
@@ -340,12 +347,13 @@ public sealed class SystemAdapterProvider : IAdapterProvider
                 // rather than dropped: the user may still recognise it by name.
             }
 
+            var isLoopback = nic.NetworkInterfaceType == NetworkInterfaceType.Loopback;
             results.Add(new AdapterInfo(
-                nic.Id,
+                isLoopback ? CapturePathPlan.LoopbackDeviceId : nic.Id,
                 nic.Name,
                 nic.Description,
                 nic.OperationalStatus == OperationalStatus.Up,
-                nic.NetworkInterfaceType == NetworkInterfaceType.Loopback,
+                isLoopback,
                 addresses,
                 HasDefaultRoute(nic),
                 routed is { } index && Ipv4Index(nic) == index));

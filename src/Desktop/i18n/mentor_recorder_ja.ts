@@ -1290,6 +1290,54 @@
 <context>
     <name>CaptureHeroPanel</name>
     <message>
+        <source>检测到的 IPv6 连接暂不支持读取。</source>
+        <translation>検出された IPv6 接続の読み取りには、現在対応していません。</translation>
+    </message>
+    <message>
+        <source>网络路径：暂时无法确认。</source>
+        <translation>ネットワーク経路：現在は確認できません。</translation>
+    </message>
+    <message>
+        <source>网络路径：游戏通过本机回环连接转接。</source>
+        <translation>ネットワーク経路：ゲームはこの PC のループバック接続を経由しています。</translation>
+    </message>
+    <message>
+        <source>网络路径：游戏通过本机转接。</source>
+        <translation>ネットワーク経路：ゲームはこの PC 内で転送されています。</translation>
+    </message>
+    <message>
+        <source>网络路径：游戏连接经过多个网卡。</source>
+        <translation>ネットワーク経路：ゲームの接続は複数のネットワークアダプターを使用しています。</translation>
+    </message>
+    <message>
+        <source>网络路径：游戏连接在当前网卡上。</source>
+        <translation>ネットワーク経路：ゲームの接続は現在のネットワークアダプターを使用しています。</translation>
+    </message>
+    <message>
+        <source>网络路径：游戏连接在其他网卡上。</source>
+        <translation>ネットワーク経路：ゲームの接続は別のネットワークアダプターを使用しています。</translation>
+    </message>
+    <message>
+        <source>网络路径：暂未找到游戏连接所在的网卡。</source>
+        <translation>ネットワーク経路：ゲームの接続に使われているネットワークアダプターはまだ特定できていません。</translation>
+    </message>
+    <message>
+        <source>网络路径：仅检测到 IPv6 连接，当前暂不支持读取。</source>
+        <translation>ネットワーク経路：IPv6 接続のみ検出されました。現在、この接続の読み取りには対応していません。</translation>
+    </message>
+    <message>
+        <source>网络路径：暂未检测到游戏连接。</source>
+        <translation>ネットワーク経路：ゲームの接続はまだ検出されていません。</translation>
+    </message>
+    <message>
+        <source>部分网络路径未能监听，请重新检测网卡或导出诊断报告。</source>
+        <translation>一部のネットワーク経路を監視できませんでした。ネットワークアダプターを再検出するか、診断レポートを出力してください。</translation>
+    </message>
+    <message>
+        <source>网卡较多，目前仅监听部分候选路径。</source>
+        <translation>ネットワークアダプターが多いため、現在は候補経路の一部のみを監視しています。</translation>
+    </message>
+    <message>
         <source>从 npcap.com 下载安装包（需要管理员权限）。</source>
         <translation>npcap.com からインストーラーをダウンロードします（管理者権限が必要）。</translation>
     </message>
@@ -2518,9 +2566,9 @@ SHA256：%3</translation>
         <translation>ゲームに再接続しましたが、アプリはまだ接続開始時の情報を読み取れていません。高速化ツール、VPN、実行中のダウンロードを止めてから、このアプリを再起動してもう一度試してください。それでも同じ場合は、診断レポートを書き出してください。</translation>
     </message>
     <message>
-        <source>看到了网络流量，但无法确认这些连接属于游戏。请确认没有使用加速器或代理；若仍然如此，请尝试以管理员身份运行本软件后重新开始。</source>
+        <source>看到了网络流量，但还无法确认游戏连接，暂时不能校准或自动记录。请点“重新检测网卡”；使用加速器或代理时，可尝试切换连接模式后重新启动游戏。</source>
         <comment>capture.hint.no_ownership</comment>
-        <translation>ネットワークの通信は確認できましたが、それらの接続がゲームのものか確認できません。高速化ツールやプロキシを使っていないか確認してください。それでも同じ場合は、このアプリを管理者として実行し、最初からやり直してください。</translation>
+        <translation>ネットワーク通信は確認できましたが、ゲームの接続をまだ特定できないため、校正と自動記録を続けられません。「アダプターを再検出」をクリックしてください。高速化ツールやプロキシを使用している場合は、接続モードを切り替えてからゲームを再起動してみてください。</translation>
     </message>
     <message>
         <source>所选网卡上没有看到游戏流量，可能使用了加速器或 VPN。请在「捕获诊断」点「重新检测网卡」，再按网卡提示操作；也可以关闭加速器后重新登录游戏。</source>
@@ -7034,6 +7082,10 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>NoteImageStrip</name>
+    <message>
+        <source>移除</source>
+        <translation>削除</translation>
+    </message>
     <message>
         <source>待保存</source>
         <translation>保存待ち</translation>

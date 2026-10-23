@@ -58,6 +58,8 @@ public sealed class MachinaCaptureSource : ICaptureSource
     private IMachinaMonitor? _monitor;
     private readonly Func<CaptureStartOptions, IMachinaMonitor>? _monitorFactory;
     private readonly Func<int, System.Net.IPAddress?, int?> _connectionCounter = GameTcpConnectionProbe.TryCount;
+    private readonly bool _hasCustomConnectionCounter;
+    private readonly Func<int, CapturePathPlan, int?>? _pathConnectionCounter;
     private MachinaTraceListener? _traceListener;
     private ICaptureSourceObserver? _observer;
     private CaptureStartOptions? _options;
@@ -108,11 +110,14 @@ public sealed class MachinaCaptureSource : ICaptureSource
     }
 
     internal MachinaCaptureSource(Func<CaptureStartOptions, IMachinaMonitor> monitorFactory,
-        Func<int, System.Net.IPAddress?, int?>? connectionCounter = null)
+        Func<int, System.Net.IPAddress?, int?>? connectionCounter = null,
+        Func<int, CapturePathPlan, int?>? pathConnectionCounter = null)
         : this()
     {
         _monitorFactory = monitorFactory;
         _connectionCounter = connectionCounter ?? GameTcpConnectionProbe.TryCount;
+        _hasCustomConnectionCounter = connectionCounter is not null;
+        _pathConnectionCounter = pathConnectionCounter;
     }
 
     /// <inheritdoc />
@@ -157,6 +162,17 @@ public sealed class MachinaCaptureSource : ICaptureSource
             }
 
             return monitor?.Ingress ?? CaptureIngressCounters.Empty;
+        }
+    }
+
+    /// <inheritdoc />
+    public CapturePathStatus PathStatus
+    {
+        get
+        {
+            IMachinaMonitor? monitor;
+            lock (_gate) monitor = _monitor;
+            return monitor?.PathStatus ?? CapturePathStatus.Unmeasured;
         }
     }
 
@@ -234,7 +250,9 @@ public sealed class MachinaCaptureSource : ICaptureSource
             // connection opened in between be neither (audit 2026-10-03, OA-9).
             Volatile.Write(
                 ref _preexistingTcpConnections,
-                _connectionCounter(options.ProcessId, options.BindAddress) ?? -1);
+                (options.PathPlan is { } plan && !_hasCustomConnectionCounter
+                    ? (_pathConnectionCounter ?? GameTcpConnectionProbe.TryCountPaths)(options.ProcessId, plan)
+                    : _connectionCounter(options.ProcessId, options.BindAddress)) ?? -1);
             // Own both resources before startup can fail. A rollback failure must leave
             // references on the source so its owner can retry instead of releasing Oodle.
             var signatureRuntime = OodleSignatureRuntime.TryCreate(options, logger: _logger, cleaner: _cleaner);

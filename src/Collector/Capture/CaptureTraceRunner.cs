@@ -72,6 +72,18 @@ public sealed record CaptureTraceServices
     public Func<int, IPAddress?, int?> TcpConnectionCounter { get; init; } =
         GameTcpConnectionProbe.TryCount;
 
+    /// <summary>
+    /// Counts connections over the complete capture plan. A legacy injected address counter
+    /// remains authoritative when this is unset; the production default queries all paths.
+    /// </summary>
+    public Func<int, CapturePathPlan, int?>? TcpPathConnectionCounter { get; init; }
+
+    internal int? CountConnections(int processId, CaptureAdapterView adapter, CapturePathPlan plan) =>
+        TcpPathConnectionCounter is { } countPaths ? countPaths(processId, plan) :
+        !TcpConnectionCounter.Equals((Func<int, IPAddress?, int?>)GameTcpConnectionProbe.TryCount)
+            ? TcpConnectionCounter(processId, adapter.BindAddress)
+            : GameTcpConnectionProbe.TryCountPaths(processId, plan);
+
     /// <summary>False leaves Ctrl+C alone, for tests that must not touch the console.</summary>
     public bool InstallCancelHandler { get; init; } = true;
 }
@@ -197,21 +209,22 @@ public static class CaptureTraceRunner
             return Refuse(svc, output, GameIdentityRefusal);
         }
 
-        if (isLiveSource && !GameTcpConnectionProbe.IsUsableLocalAddress(adapter.BindAddress))
+        if (!CapturePathPlan.IsUsable(adapter))
         {
             return Refuse(svc, output, AdapterRefusal);
         }
 
-        // Null means the table could not be read; treated as "none known", so an unreadable
-        // table never blocks a trace on its own.
+        var pathPlan = CapturePathPlan.Create(adapters, adapter, automatic: options.AdapterId is null);
+
+        // An unreadable table does not block capture, but remains unknown in the trace.
         var preexistingConnections = isLiveSource
-            ? svc.TcpConnectionCounter(processId, adapter.BindAddress) ?? 0
+            ? svc.CountConnections(processId, adapter, pathPlan)
             : 0;
         if (preexistingConnections > 0)
         {
             if (!options.AllowMidstream)
             {
-                return Refuse(svc, output, MidstreamRefusal(preexistingConnections));
+                return Refuse(svc, output, MidstreamRefusal(preexistingConnections.Value));
             }
 
             // Oodle state of a connection that predates the trace is unknowable, so the
@@ -222,12 +235,12 @@ public static class CaptureTraceRunner
             // login: the client may already hold one at the title screen, and a zone change
             // keeps the game connection rather than opening one (docs/live-validation-guide.md
             // sections 6.1 and 6.2).
-            output.WriteLine(MidstreamWarning(preexistingConnections));
+            output.WriteLine(MidstreamWarning(preexistingConnections.Value));
         }
 
         return Record(
             options, svc, output, status, npcap, game, adapter, processId, source,
-            preexistingConnections);
+            pathPlan, preexistingConnections);
     }
 
     /// <summary>
@@ -270,7 +283,8 @@ public static class CaptureTraceRunner
         CaptureAdapterView adapter,
         int processId,
         ICaptureSource source,
-        int preexistingConnections = 0)
+        CapturePathPlan pathPlan,
+        int? preexistingConnections = 0)
     {
         var path = Path.GetFullPath(options.OutputPath);
         var directory = Path.GetDirectoryName(path);
@@ -301,7 +315,7 @@ public static class CaptureTraceRunner
                 PreexistingConnections: preexistingConnections));
 
             (dropped, fault) = Observe(
-                options, services, output, status, sink, source, game, adapter, processId);
+                options, services, output, status, sink, source, game, adapter, processId, pathPlan);
         }
         catch (TraceDrainTimeoutException ex)
         {
@@ -348,7 +362,8 @@ public static class CaptureTraceRunner
         ICaptureSource source,
         GameProcessDetection game,
         CaptureAdapterView adapter,
-        int processId)
+        int processId,
+        CapturePathPlan pathPlan)
     {
         using var stopping = new ManualResetEventSlim(false);
 
@@ -406,7 +421,7 @@ public static class CaptureTraceRunner
                     GameExecutablePath: game.ExecutablePath,
                     Region: game.Region,
                     GameBuild: game.GameBuild,
-                    AllowCandidateOodleSignature: true),
+                    AllowCandidateOodleSignature: true) { PathPlan = pathPlan },
                 observer);
 
             // Do not tell the user capture has started, or accept markers, until the source
@@ -607,6 +622,42 @@ public static class CaptureTraceRunner
 
 internal static class GameTcpConnectionProbe
 {
+    /// <summary>
+    /// Counts each complete game tuple once even when several devices observe its address.
+    /// IPv6 is not captured yet: any such connection, or an incomplete family query, leaves
+    /// cold-start eligibility unknown instead of claiming a safe zero.
+    /// </summary>
+    public static int? TryCountPaths(int processId, CapturePathPlan plan) =>
+        TryCountPaths(processId, plan, SystemProcessConnectionTable.Instance);
+
+    internal static int? TryCountPaths(int processId, CapturePathPlan plan,
+        IProcessNetworkConnectionProvider provider)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(provider);
+        if (processId <= 0 || plan.Bindings.Count == 0) return null;
+        try
+        {
+            var tables = provider.Read(processId);
+            if (tables.IPv4.Status != NetworkQueryStatus.Success ||
+                tables.IPv6.Status != NetworkQueryStatus.Success || tables.IPv6.Connections.Count != 0)
+                return null;
+            var addresses = plan.Bindings.SelectMany(binding => binding.LocalAddresses)
+                .Where(CapturePathPlan.IsUsableAddress).ToHashSet();
+            var loopback = plan.Bindings.Any(binding => binding.IsLoopback &&
+                CapturePathPlan.IsCanonicalLoopback(binding.AdapterId));
+            return tables.IPv4.Connections.Where(connection =>
+                    addresses.Contains(connection.LocalAddress) ||
+                    (loopback && connection.LocalAddress.AddressFamily == AddressFamily.InterNetwork &&
+                        IPAddress.IsLoopback(connection.LocalAddress)))
+                .Distinct().Count();
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            return null;
+        }
+    }
+
     public static int? TryCount(int processId, IPAddress? localAddress)
     {
         if (processId <= 0 || !IsUsableLocalAddress(localAddress))

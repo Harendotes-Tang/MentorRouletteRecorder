@@ -1290,6 +1290,54 @@
 <context>
     <name>CaptureHeroPanel</name>
     <message>
+        <source>检测到的 IPv6 连接暂不支持读取。</source>
+        <translation>偵測到的 IPv6 連線暫不支援讀取。</translation>
+    </message>
+    <message>
+        <source>网络路径：暂时无法确认。</source>
+        <translation>網路路徑：暫時無法確認。</translation>
+    </message>
+    <message>
+        <source>网络路径：游戏通过本机回环连接转接。</source>
+        <translation>網路路徑：遊戲透過本機回環連線轉接。</translation>
+    </message>
+    <message>
+        <source>网络路径：游戏通过本机转接。</source>
+        <translation>網路路徑：遊戲透過本機轉接。</translation>
+    </message>
+    <message>
+        <source>网络路径：游戏连接经过多个网卡。</source>
+        <translation>網路路徑：遊戲連線經過多個網路介面卡。</translation>
+    </message>
+    <message>
+        <source>网络路径：游戏连接在当前网卡上。</source>
+        <translation>網路路徑：遊戲連線位於目前的網路介面卡。</translation>
+    </message>
+    <message>
+        <source>网络路径：游戏连接在其他网卡上。</source>
+        <translation>網路路徑：遊戲連線位於其他網路介面卡。</translation>
+    </message>
+    <message>
+        <source>网络路径：暂未找到游戏连接所在的网卡。</source>
+        <translation>網路路徑：暫未找到遊戲連線所在的網路介面卡。</translation>
+    </message>
+    <message>
+        <source>网络路径：仅检测到 IPv6 连接，当前暂不支持读取。</source>
+        <translation>網路路徑：僅偵測到 IPv6 連線，目前暫不支援讀取。</translation>
+    </message>
+    <message>
+        <source>网络路径：暂未检测到游戏连接。</source>
+        <translation>網路路徑：暫未偵測到遊戲連線。</translation>
+    </message>
+    <message>
+        <source>部分网络路径未能监听，请重新检测网卡或导出诊断报告。</source>
+        <translation>部分網路路徑未能監聽，請重新偵測網路介面卡或匯出診斷報告。</translation>
+    </message>
+    <message>
+        <source>网卡较多，目前仅监听部分候选路径。</source>
+        <translation>網路介面卡較多，目前僅監聽部分候選路徑。</translation>
+    </message>
+    <message>
         <source>从 npcap.com 下载安装包（需要管理员权限）。</source>
         <translation>從 npcap.com 下載安裝檔（需要系統管理員權限）。</translation>
     </message>
@@ -2518,9 +2566,9 @@ SHA256：%3</translation>
         <translation>你已經重新連線過遊戲，但軟體仍然沒能讀到連線開始時的資訊。請先關閉加速器、VPN 和正在進行的下載，重新啟動本軟體後再試；若仍如此，請匯出診斷報告。</translation>
     </message>
     <message>
-        <source>看到了网络流量，但无法确认这些连接属于游戏。请确认没有使用加速器或代理；若仍然如此，请尝试以管理员身份运行本软件后重新开始。</source>
+        <source>看到了网络流量，但还无法确认游戏连接，暂时不能校准或自动记录。请点“重新检测网卡”；使用加速器或代理时，可尝试切换连接模式后重新启动游戏。</source>
         <comment>capture.hint.no_ownership</comment>
-        <translation>看到了網路流量，但無法確認這些連線屬於遊戲。請確認沒有使用加速器或代理伺服器；若仍然如此，請嘗試以系統管理員身分執行本軟體後重新開始。</translation>
+        <translation>已看到網路流量，但仍無法確認遊戲連線，暫時無法校準或自動記錄。請點選「重新偵測網路卡」；若使用加速器或代理伺服器，可嘗試切換連線模式後重新啟動遊戲。</translation>
     </message>
     <message>
         <source>所选网卡上没有看到游戏流量，可能使用了加速器或 VPN。请在「捕获诊断」点「重新检测网卡」，再按网卡提示操作；也可以关闭加速器后重新登录游戏。</source>
@@ -7034,6 +7082,10 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>NoteImageStrip</name>
+    <message>
+        <source>移除</source>
+        <translation>移除</translation>
+    </message>
     <message>
         <source>待保存</source>
         <translation>待儲存</translation>

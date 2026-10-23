@@ -26,6 +26,7 @@ namespace MentorRecorder.Collector.Capture;
 /// <param name="CollectorVersion">Version of the binary that produced the trace.</param>
 /// <param name="Oodle">How the decompressor was obtained (<c>DEC-OODLE-01</c>).</param>
 /// <param name="Synthetic">True when the messages came from a fake source rather than a live capture.</param>
+/// <param name="PreexistingConnections">Connections already open, or null when the TCP table could not be read.</param>
 public sealed record CaptureTraceHeader(
     DateTimeOffset StartedAtUtc,
     string? NpcapVersion,
@@ -35,7 +36,7 @@ public sealed record CaptureTraceHeader(
     string CollectorVersion,
     OodleMode Oodle,
     bool Synthetic,
-    int PreexistingConnections = 0);
+    int? PreexistingConnections = 0);
 
 /// <summary>
 /// Writes a sanitized, opcode-level trace of a live capture as JSON Lines.
@@ -196,7 +197,7 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
                 ["oodle_mode"] = header.Oodle.ToString(),
                 // > 0 means the trace attached to a session that already had connections
                 // open; their Oodle state is incomplete and their lines are not evidence.
-                ["midstream"] = header.PreexistingConnections > 0,
+                ["midstream"] = header.PreexistingConnections is { } count ? (bool?)(count > 0) : null,
                 ["preexisting_connections"] = header.PreexistingConnections,
 
                 // A trace is raw material for a profile, never a profile. The status the whole

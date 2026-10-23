@@ -129,7 +129,7 @@ ColumnLayout {
     // -- the headline, when the card stands alone ----------------------------
     ColumnLayout {
         Layout.fillWidth: true
-        visible: !card.headlineInHero
+        visible: !card.headlineInHero && !(card.captureSilent && card.calibrationState === "OBSERVING")
         spacing: 4
 
         Text {

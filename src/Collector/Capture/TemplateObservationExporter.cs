@@ -153,7 +153,8 @@ internal static class TemplateObservationExporter
                 ["health"] = new JsonObject
                 {
                     ["silent_reason"] = Boolean(header, "synthetic") ? "SYNTHETIC_SOURCE" : "HEALTH_UNAVAILABLE",
-                    ["preexisting_connections"] = Count(header, "preexisting_connections"),
+                    ["preexisting_connections"] = header["preexisting_connections"] is null
+                        ? (long?)null : Count(header, "preexisting_connections"),
                     ["adapter_dropped"] = 0, ["decoded_messages_dropped"] = Count(summary, "dropped"),
                     ["damaged_directions"] = Count(summary, "decode_errors"), ["observation_overflow"] = candidates.Count > 128,
                 },

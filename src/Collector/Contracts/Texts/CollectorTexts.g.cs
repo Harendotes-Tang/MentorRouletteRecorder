@@ -381,9 +381,9 @@ public static partial class CollectorTexts
     public static UserText CaptureHintMidstreamReconnected() =>
         new("capture.hint.midstream_reconnected", "你已经重新连接过游戏，但软件仍然没能读到连接开始时的信息。请先关闭加速器、VPN 和正在进行的下载，重启本软件后再试；若仍如此，请导出诊断报告。");
 
-    /// <summary><c>capture.hint.no_ownership</c>: 看到了网络流量，但无法确认这些连接属于游戏。请确认没有使用加速器或代理；若仍然如此，请尝试以管理员身份运行本软件后重新开始。</summary>
+    /// <summary><c>capture.hint.no_ownership</c>: 看到了网络流量，但还无法确认游戏连接，暂时不能校准或自动记录。请点“重新检测网卡”；使用加速器或代理时，可尝试切换连接模式后重新启动游戏。</summary>
     public static UserText CaptureHintNoOwnership() =>
-        new("capture.hint.no_ownership", "看到了网络流量，但无法确认这些连接属于游戏。请确认没有使用加速器或代理；若仍然如此，请尝试以管理员身份运行本软件后重新开始。");
+        new("capture.hint.no_ownership", "看到了网络流量，但还无法确认游戏连接，暂时不能校准或自动记录。请点“重新检测网卡”；使用加速器或代理时，可尝试切换连接模式后重新启动游戏。");
 
     /// <summary><c>capture.hint.no_packets</c>: 所选网卡上没有看到游戏流量，可能使用了加速器或 VPN。请在「捕获诊断」点「重新检测网卡」，再按网卡提示操作；也可以关闭加速器后重新登录游戏。</summary>
     public static UserText CaptureHintNoPackets() =>
@@ -612,10 +612,6 @@ public static partial class CollectorTexts
     /// <summary><c>capture.validation.waiting_adapter</c>: 仅验证，不自动记录。等待可用 IPv4 网卡；无法自动确定时，请取消并明确选择网卡。</summary>
     public static UserText CaptureValidationWaitingAdapter() =>
         new("capture.validation.waiting_adapter", "仅验证，不自动记录。等待可用 IPv4 网卡；无法自动确定时，请取消并明确选择网卡。");
-
-    /// <summary><c>capture.validation.waiting_adapter_ambiguous</c>: 仅验证，不自动记录。多张网卡承载游戏连接，请取消并明确选择网卡。</summary>
-    public static UserText CaptureValidationWaitingAdapterAmbiguous() =>
-        new("capture.validation.waiting_adapter_ambiguous", "仅验证，不自动记录。多张网卡承载游戏连接，请取消并明确选择网卡。");
 
     /// <summary><c>capture.validation.waiting_connection_check</c>: 仅验证，不自动记录。无法确认游戏连接状态，正在等待系统查询恢复。</summary>
     public static UserText CaptureValidationWaitingConnectionCheck() =>

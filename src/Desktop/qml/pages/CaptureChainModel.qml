@@ -117,7 +117,11 @@ QtObject {
                 return [qsTr("等待游戏启动 · 游戏版本支持文件有冲突，暂时不能自动记录"), "bad"]
             return [qsTr("等待游戏启动 · 当前安装的游戏版本暂不支持自动记录"), "bad"]
         }
+        if (chain.silent)
+            return [qsTr("已连接游戏，但还读不到游戏数据 · 请查看上方说明"), "bad"]
         if (chain.calibrating) {
+            if (Runtime.app.recording.blocked)
+                return [qsTr("暂时不会自动记录 · 见上方说明"), "bad"]
             if (chain.calibrationState === "READY")
                 return [qsTr("请在「本机校准」中核对结果"), "bad"]
             if (chain.calibrationState === "BLOCKED")
@@ -148,8 +152,6 @@ QtObject {
             return [qsTr("暂时无法读取游戏数据 · %1").arg(Runtime.fmt.captureErrorLabel(chain.errorCode).replace(/。$/, "")), "bad"]
         if (chain.adapterId.length === 0 || !Runtime.app.capturing)
             return [qsTr("正在启动监听…"), "wait"]
-        if (chain.silent)
-            return [qsTr("已连接游戏，但还读不到游戏数据 · 请查看上方说明"), "bad"]
         // The hero card above already carries the controller's sentence.
         if (Runtime.app.recording.blocked)
             return [qsTr("暂时不会自动记录 · 见上方说明"), "bad"]
@@ -183,7 +185,7 @@ QtObject {
     }
 
     function adapterTone() {
-        if (chain.adapterStale)
+        if (chain.adapterStale || chain.silent)
             return "warn"
         return chain.adapterId.length > 0 && Runtime.app.capturing ? "ok" : "off"
     }
@@ -280,7 +282,8 @@ QtObject {
             key: "adapter", label: qsTr("网卡"),
             value: chain.adapterValue(),
             sub: chain.adapterStale ? qsTr("之前选择的网卡收不到游戏数据")
-                 : Runtime.app.captureSettings.adapter_id ? qsTr("手动指定") : qsTr("自动选择（有 FF14 连接）"),
+                 : Runtime.app.captureSettings.adapter_id ? qsTr("手动指定")
+                 : chain.silent ? "" : qsTr("自动选择（有 FF14 连接）"),
             tone: chain.adapterTone()
         },
         {

@@ -367,6 +367,151 @@ public sealed class CaptureMidstreamTests : IDisposable
         Assert.Equal(CaptureSilentReason.NoPacketsOnAdapter, controller.Snapshot().SilentReason);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NormalCapturePreparesAutomaticPathsButRetainsExplicitAdapterScope(bool manual)
+    {
+        _preexisting = 0;
+        _adapters.Add("opaque-tunnel", "Unnamed interface", addresses: new[] { "10.24.0.2", "10.24.0.3" });
+        _adapters.Add(CapturePathPlan.LoopbackDeviceId, "Any display name", isLoopback: true);
+        _adapters.Add("offline", "Offline interface", isUp: false, addresses: "10.25.0.2");
+        using var controller = Build();
+
+        controller.Start(manual ? "wifi" : null);
+
+        var options = Assert.IsType<CaptureStartOptions>(Source.LastOptions);
+        var plan = Assert.IsType<CapturePathPlan>(options.PathPlan);
+        Assert.Equal(!manual, plan.Automatic);
+        Assert.Equal("wifi", options.AdapterId);
+        if (manual)
+        {
+            Assert.Equal("wifi", Assert.Single(plan.Bindings).AdapterId);
+        }
+        else
+        {
+            Assert.Equal(3, plan.Bindings.Count);
+            Assert.Contains(plan.Bindings, binding => binding.AdapterId == "wifi");
+            var tunnel = Assert.Single(plan.Bindings, binding => binding.AdapterId == "opaque-tunnel");
+            Assert.Equal(new[] { "10.24.0.2", "10.24.0.3" }, tunnel.LocalAddresses.Select(address => address.ToString()));
+            Assert.True(Assert.Single(plan.Bindings,
+                binding => binding.AdapterId == CapturePathPlan.LoopbackDeviceId).IsLoopback);
+        }
+        Assert.DoesNotContain(plan.Bindings, binding => binding.AdapterId == "offline");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CanonicalLoopbackCanStartWithoutAnOrdinaryBindAddress(bool manual)
+    {
+        _preexisting = 0;
+        _tcp.With(4321); // Before login there is no ordinary interface to recommend.
+        var adapters = new FakeAdapterProvider()
+            .Add(CapturePathPlan.LoopbackDeviceId, "Any display name", isLoopback: true);
+        using var controller = Build(adapters);
+
+        controller.Start(manual ? CapturePathPlan.LoopbackDeviceId : null);
+
+        Assert.Equal(CaptureControllerState.Running, controller.State);
+        var options = Assert.IsType<CaptureStartOptions>(Source.LastOptions);
+        Assert.Null(options.BindAddress);
+        var plan = Assert.IsType<CapturePathPlan>(options.PathPlan);
+        var binding = Assert.Single(plan.Bindings);
+        Assert.Equal(CapturePathPlan.LoopbackDeviceId, binding.AdapterId);
+        Assert.True(binding.IsLoopback);
+        Assert.Contains(System.Net.IPAddress.Loopback, binding.LocalAddresses);
+    }
+
+    [Fact]
+    public void OrdinaryTrafficWithoutGameOwnershipReplansANewVirtualPathOnce()
+    {
+        _preexisting = 0;
+        using var controller = Build();
+        controller.Start();
+        var first = Source;
+        var originalPlan = Assert.IsType<CapturePathPlan>(first.LastOptions!.PathPlan);
+        Assert.Single(originalPlan.Bindings);
+        first.IngressCounters = new CaptureIngressCounters(RawPackets: 900, UnconfirmedTuples: 4);
+
+        // An accelerator creates a virtual interface after the original cold capture started.
+        // The old interface still has abundant ordinary traffic, and remains recommended.
+        _adapters.Add("new-tunnel", "Unnamed interface", addresses: "10.24.0.2");
+        _uptime = TimeSpan.FromSeconds(61);
+        controller.Poll();
+
+        Assert.Equal(CaptureControllerState.Idle, controller.State);
+        Assert.Single(_sources);
+        Assert.False(first.IsRunning);
+        Assert.Equal(1, first.StopCount);
+
+        // Releasing the source and starting its replacement occur on separate follow ticks.
+        controller.Poll();
+        Assert.Equal(CaptureControllerState.Running, controller.State);
+        Assert.Equal(2, _sources.Count);
+        var replacementPlan = Assert.IsType<CapturePathPlan>(Source.LastOptions!.PathPlan);
+        Assert.True(replacementPlan.Automatic);
+        Assert.Equal(2, replacementPlan.Bindings.Count);
+        Assert.Contains(replacementPlan.Bindings, binding => binding.AdapterId == "new-tunnel");
+        Assert.Equal(1, first.StopCount);
+
+        // Continued silence cannot turn the per-game recheck into a restart loop.
+        Source.IngressCounters = new CaptureIngressCounters(RawPackets: 1800, UnconfirmedTuples: 8);
+        _uptime = TimeSpan.FromSeconds(200);
+        controller.Poll();
+        controller.Poll();
+        Assert.Equal(CaptureControllerState.Running, controller.State);
+        Assert.Equal(2, _sources.Count);
+        Assert.Equal(0, Source.StopCount);
+        Assert.Equal(CaptureSilentReason.NoStreamOwnership, controller.Snapshot().SilentReason);
+    }
+
+    [Fact]
+    public void OrdinaryTrafficWithoutGameOwnershipKeepsAnUnchangedAutomaticPlan()
+    {
+        _preexisting = 0;
+        _adapters.Add("tunnel", "Unnamed interface", addresses: "10.24.0.2");
+        using var controller = Build();
+        controller.Start();
+        var source = Source;
+        var originalPlan = Assert.IsType<CapturePathPlan>(source.LastOptions!.PathPlan);
+        source.IngressCounters = new CaptureIngressCounters(RawPackets: 900, UnconfirmedTuples: 4);
+        _uptime = TimeSpan.FromSeconds(61);
+
+        controller.Poll();
+        controller.Poll();
+
+        Assert.Equal(CaptureControllerState.Running, controller.State);
+        Assert.Single(_sources);
+        Assert.Equal(0, source.StopCount);
+        Assert.Same(originalPlan, source.LastOptions!.PathPlan);
+        Assert.Equal(CaptureSilentReason.NoStreamOwnership, controller.Snapshot().SilentReason);
+    }
+
+    [Fact]
+    public void OrdinaryTrafficWithoutGameOwnershipNeverExpandsExplicitManualScope()
+    {
+        _preexisting = 0;
+        using var controller = Build();
+        controller.Start("wifi");
+        var source = Source;
+        source.IngressCounters = new CaptureIngressCounters(RawPackets: 900, UnconfirmedTuples: 4);
+        _adapters.Add("new-tunnel", "Unnamed interface", addresses: "10.24.0.2");
+        _tcp.With(4321, "10.24.0.2");
+        _uptime = TimeSpan.FromSeconds(61);
+
+        controller.Poll();
+        controller.Poll();
+
+        Assert.Equal(CaptureControllerState.Running, controller.State);
+        Assert.Single(_sources);
+        Assert.Equal(0, source.StopCount);
+        var plan = Assert.IsType<CapturePathPlan>(source.LastOptions!.PathPlan);
+        Assert.False(plan.Automatic);
+        Assert.Equal("wifi", Assert.Single(plan.Bindings).AdapterId);
+        Assert.Equal(CaptureSilentReason.NoStreamOwnership, controller.Snapshot().SilentReason);
+    }
+
     /// <inheritdoc />
     public void Dispose()
     {
@@ -378,13 +523,13 @@ public sealed class CaptureMidstreamTests : IDisposable
         _database.Dispose();
     }
 
-    private CaptureController Build() => new(new CaptureServices
+    private CaptureController Build(IAdapterProvider? adapters = null) => new(new CaptureServices
     {
         Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
         Game = new GameProcessLocator(
             _processes,
             new FakeGameFileReader().With(@"D:\SdoA\FFXIV\game\ffxivgame.ver", "2024.06.18.0000.0000")),
-        Adapters = new AdapterEnumerator(_adapters, _tcp),
+        Adapters = new AdapterEnumerator(adapters ?? _adapters, _tcp),
         SourceFactory = CreateSource,
         Profile = new FakeProfileStatusProvider(ProfileStatus.Verified),
         StatusListener = _status,

@@ -838,6 +838,34 @@ def is_within(path: str, directory: str) -> bool:
         return True
 
 
+def create_work_directory(source_directory: str) -> str:
+    """Create scratch space without tempfile's preliminary write in the game folder.
+
+    Match tempfile's cached override and default search order, but check each directory
+    before attempting any write. An unsafe selected candidate requires explicit --work.
+    """
+    if tempfile.tempdir is not None:
+        candidates = [os.fsdecode(tempfile.tempdir)]
+    else:
+        candidates = [os.environ[name] for name in ("TMPDIR", "TEMP", "TMP")
+                      if os.environ.get(name)]
+        if os.name == "nt":
+            candidates.extend([os.path.expanduser(r"~\AppData\Local\Temp"),
+                               os.path.expandvars(r"%SYSTEMROOT%\Temp"),
+                               r"c:\temp", r"c:\tmp", r"\temp", r"\tmp"])
+        else:
+            candidates.extend(["/tmp", "/var/tmp", "/usr/tmp"])
+        candidates.append(os.curdir)
+    for candidate in candidates:
+        if is_within(candidate, source_directory):
+            raise ValueError("refusing temporary working directory inside the game executable directory; pass --work")
+        try:
+            return tempfile.mkdtemp(prefix="oodle-sig-", dir=candidate)
+        except OSError:
+            continue
+    raise OSError("no writable temporary directory; pass --work")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--exe", required=True, help="path to ffxiv_dx11.exe")
@@ -864,7 +892,14 @@ def main(argv: list[str] | None = None) -> int:
 
     # The game folder is read-only to this tool: by default the analysis runs on a copy so
     # that nothing can write back to it.
-    work = args.work or tempfile.mkdtemp(prefix="oodle-sig-")
+    if args.work:
+        work = args.work
+    else:
+        try:
+            work = create_work_directory(source_directory)
+        except (OSError, ValueError) as error:
+            sys.stderr.write(f"{error}\n")
+            return 2
     cleanup = None if args.work else work
     os.makedirs(work, exist_ok=True)
     target = os.path.join(work, os.path.basename(source))

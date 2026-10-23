@@ -19,6 +19,63 @@ Card {
     readonly property string badgeTone: hero.copy.tone
     readonly property bool broken: hero.copy.kind === "broken"
 
+    // Optional in IPC v1: an older Collector has no measured network-path facts.
+    // Only closed diagnostic tokens are translated here; endpoints and device
+    // identities never become player-facing text.
+    readonly property var networkPath: hero.chain.capture.network_path
+    function networkPathSummary() {
+        const path = hero.networkPath
+        if (!hero.chain.statusKnown || !path)
+            return ""
+        const measured = function (query) {
+            return query === "OK" || query === "FAILED" || query === "TRUNCATED"
+        }
+        if (!measured(path.query_ipv4) && !measured(path.query_ipv6))
+            return ""
+
+        let description = qsTr("网络路径：暂时无法确认。")
+        if (path.query_ipv4 === "OK" && path.query_ipv6 === "OK") {
+            switch (path.kind) {
+            case "LOOPBACK":
+                description = qsTr("网络路径：游戏通过本机回环连接转接。")
+                break
+            case "LOCAL":
+                description = qsTr("网络路径：游戏通过本机转接。")
+                break
+            case "MULTIPLE_INTERFACES":
+                description = qsTr("网络路径：游戏连接经过多个网卡。")
+                break
+            case "SELECTED_INTERFACE":
+                description = qsTr("网络路径：游戏连接在当前网卡上。")
+                break
+            case "OTHER_INTERFACE":
+                description = qsTr("网络路径：游戏连接在其他网卡上。")
+                break
+            case "UNMAPPED":
+                description = qsTr("网络路径：暂未找到游戏连接所在的网卡。")
+                break
+            case "IPV6_ONLY":
+                description = qsTr("网络路径：仅检测到 IPv6 连接，当前暂不支持读取。")
+                break
+            case "NO_CONNECTIONS":
+                description = qsTr("网络路径：暂未检测到游戏连接。")
+                break
+            }
+        }
+        const lines = [description]
+        const ipv6OnlyDescription = path.kind === "IPV6_ONLY"
+            && path.query_ipv4 === "OK" && path.query_ipv6 === "OK"
+        if (path.query_ipv6 === "OK" && typeof path.ipv6_connections === "number"
+                && path.ipv6_connections > 0 && path.ipv6_capture_supported === false
+                && !ipv6OnlyDescription)
+            lines.push(qsTr("检测到的 IPv6 连接暂不支持读取。"))
+        if (typeof path.capture_open_failures === "number" && path.capture_open_failures > 0)
+            lines.push(qsTr("部分网络路径未能监听，请重新检测网卡或导出诊断报告。"))
+        if (path.candidate_limit_reached === true)
+            lines.push(qsTr("网卡较多，目前仅监听部分候选路径。"))
+        return lines.join("\n")
+    }
+
     horizontalPadding: 20
     verticalPadding: 16
     spacing: 12
@@ -78,6 +135,19 @@ Card {
                     font.family: Theme.figureFamily
                     font.weight: Theme.figureWeight(false)
                     font.features: ({ "tnum": 1 })
+                    wrapMode: Text.WordWrap
+                }
+
+                Text {
+                    objectName: "captureNetworkPathSummary"
+                    Layout.fillWidth: true
+                    Layout.topMargin: 2
+                    visible: text.length > 0
+                    text: Theme.live(hero.networkPathSummary())
+                    textFormat: Text.PlainText
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fs(12)
+                    lineHeight: 1.25
                     wrapMode: Text.WordWrap
                 }
             }

@@ -352,6 +352,24 @@ public sealed class CaptureDetectionTests
         Assert.Equal("wired", Assert.Single(adapters, adapter => adapter.PreferenceStale).Id);
     }
 
+    [Theory]
+    [InlineData(false, false, "10.1.2.3")]
+    [InlineData(true, false, "::1")]
+    [InlineData(true, true, "127.0.0.1")]
+    public void Adapter_SkipsUnusableRememberedAdapterBeforeTheFirstConnection(
+        bool isUp, bool isLoopback, string address)
+    {
+        var enumerator = new AdapterEnumerator(
+            new FakeAdapterProvider()
+                .Add("old", "Old adapter", isUp: isUp, isLoopback: isLoopback, addresses: address)
+                .Add("current", "Current route", hasDefaultRoute: true, addresses: "192.168.31.77"),
+            new FakeProcessTcpTable().With(4321));
+
+        var adapters = enumerator.List(4321, preferredAdapterId: "old");
+
+        Assert.Equal("current", Assert.Single(adapters, adapter => adapter.Recommended).Id);
+    }
+
     [Fact]
     public void Adapter_FindIsCaseInsensitiveAndRejectsBlanks()
     {

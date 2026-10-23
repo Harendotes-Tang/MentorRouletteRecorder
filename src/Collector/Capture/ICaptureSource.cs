@@ -52,7 +52,11 @@ public sealed record CaptureStartOptions(
     string? GameExecutablePath,
     Region Region = Region.Unknown,
     string? GameBuild = null,
-    bool AllowCandidateOodleSignature = false);
+    bool AllowCandidateOodleSignature = false)
+{
+    /// <summary>Private device/address configuration; null preserves the legacy single-device entry.</summary>
+    public CapturePathPlan? PathPlan { get; init; }
+}
 
 /// <summary>
 /// What a capture source reports back. Every method is called from the capture callback
@@ -244,6 +248,9 @@ public interface ICaptureSource : IDisposable
     /// not read an adapter at all.
     /// </summary>
     CaptureIngressCounters IngressCounters => CaptureIngressCounters.Empty;
+
+    /// <summary>Native candidate/open facts without device identities or addresses.</summary>
+    CapturePathStatus PathStatus => CapturePathStatus.Unmeasured;
 
     /// <summary>
     /// Which Oodle signature set this source is using, once it has started.

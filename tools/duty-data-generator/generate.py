@@ -246,12 +246,10 @@ def parse_cn_csv(text: str):
     upstream fails loudly instead of silently shifting every value by one column.
     """
     reader = csv.reader(io.StringIO(text))
-    header = None
     names = {}
     name_index = None
     for index, row in enumerate(reader):
         if index == 0:
-            header = row
             continue
         if index == 1:
             if "Name" not in row:
@@ -269,8 +267,8 @@ def parse_cn_csv(text: str):
         value = row[name_index].strip()
         if value:
             names[row_id] = value
-    if header is None:
-        raise ValueError("the CN CSV was empty")
+    if not names:
+        raise ValueError("the CN CSV contains no named duty rows; refusing an empty catalogue")
     return names
 
 
@@ -927,6 +925,8 @@ def main(argv):
     try:
         global_duties = build_rows(english_rows, chinese_names, "en")
         cn_duties = build_rows(english_rows, chinese_names, "zh-Hans")
+        if not global_duties or not cn_duties:
+            raise ValueError("no matching named duties in one source; refusing an empty catalogue")
     except (ValueError, TypeError, AttributeError) as error:
         print("FAILED to validate duty name preferences: %s" % error, file=sys.stderr)
         print("no file was written; the existing data/duties/*.json are unchanged", file=sys.stderr)

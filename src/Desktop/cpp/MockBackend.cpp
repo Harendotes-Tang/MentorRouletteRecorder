@@ -2248,6 +2248,8 @@ ImportRow normalizeImportRow(const QJsonObject &row, const QString &kind, const 
         out.compared.insert(key);
     if (row.value(QStringLiteral("reflection")).isObject())
         out.compared.unite({QStringLiteral("reflection_text"), QStringLiteral("reflection_mood")});
+    if (row.value(QStringLiteral("import_metadata")).isObject())
+        out.compared.insert(QStringLiteral("source_recorded_at_utc"));
     if (row.contains(QStringLiteral("source_recorded_at")))
         out.compared.insert(QStringLiteral("source_recorded_at_utc"));
 
@@ -2260,24 +2262,42 @@ ImportRow normalizeImportRow(const QJsonObject &row, const QString &kind, const 
         read.refuse("import.row.run_id_invalid");
     const QString runId = out.stable ? originalId.toLower() : QUuid::createUuid().toString(QUuid::WithoutBraces);
     QString recordSourceName = read.text(QStringLiteral("source_name"), 500);
+    const QJsonObject importedMetadata = row.value(QStringLiteral("import_metadata")).toObject();
+    ImportRowReader stored(importedMetadata);
+    if (recordSourceName.isEmpty())
+        recordSourceName = stored.text(QStringLiteral("source_name"), 500);
     if (recordSourceName.isEmpty())
         recordSourceName = sourceName.toString();
 
     // The source's own time is provenance, never a game time.
-    const QString sourceRecorded = read.text(QStringLiteral("source_recorded_at"), 200);
-    const QString sourceUtcText = read.text(QStringLiteral("source_recorded_at_utc"), 100);
+    const QString storedSource = stored.text(QStringLiteral("source_recorded_at"), 200);
+    const QString sourceRecorded = row.contains(QStringLiteral("source_recorded_at"))
+        ? read.text(QStringLiteral("source_recorded_at"), 200) : storedSource;
+    const bool clearedSource = row.contains(QStringLiteral("source_recorded_at")) && sourceRecorded.isEmpty()
+        && (!row.value(QStringLiteral("import_metadata")).isObject() || !storedSource.isEmpty());
+    const QString storedUtc = stored.text(QStringLiteral("source_recorded_at_utc"), 100);
+    const QString sourceUtcText = clearedSource ? QString() : row.contains(QStringLiteral("source_recorded_at_utc"))
+        ? read.text(QStringLiteral("source_recorded_at_utc"), 100) : storedUtc;
+    if (stored.failed())
+        read.refuse(stored.key(), stored.args());
+    ImportRowReader provenance(QJsonObject{{QStringLiteral("source_recorded_at"), sourceRecorded},
+                                         {QStringLiteral("source_recorded_at_utc"), sourceUtcText}});
     const bool sourceDateOnly = calendarDay(sourceRecorded).isValid();
     QJsonValue sourceUtc(QJsonValue::Null);
     if (sourceDateOnly) {
         appendSentence(out.warnings, out.warningRefs, "import.warning.source_date_only");
     } else {
-        const bool useSourceRecorded = !sourceRecorded.isEmpty()
+        const bool unchangedStoredSource = row.value(QStringLiteral("import_metadata")).isObject()
+            && !sourceUtcText.isEmpty() && sourceRecorded == storedSource && sourceUtcText == storedUtc;
+        const bool useSourceRecorded = !unchangedStoredSource && !sourceRecorded.isEmpty()
             && (!zone.isEmpty() || hasExplicitZone(sourceRecorded) || sourceUtcText.isEmpty());
         if (useSourceRecorded)
-            sourceUtc = read.time(QStringLiteral("source_recorded_at"), "import.time_field.source_recorded", zone);
+            sourceUtc = provenance.time(QStringLiteral("source_recorded_at"), "import.time_field.source_recorded", zone);
         else if (!sourceUtcText.isEmpty())
-            sourceUtc = read.time(QStringLiteral("source_recorded_at_utc"), "import.time_field.source_recorded", zone);
+            sourceUtc = provenance.time(QStringLiteral("source_recorded_at_utc"), "import.time_field.source_recorded", zone);
     }
+    if (provenance.failed())
+        read.refuse(provenance.key(), provenance.args());
     const QJsonValue entered = read.time(QStringLiteral("entered_at_utc"), "import.time_field.entered", zone);
     const QJsonValue ended = read.time(QStringLiteral("ended_at_utc"), "import.time_field.ended", zone);
     const QJsonValue matched = read.time(QStringLiteral("matched_at_utc"), "import.time_field.matched", zone);
@@ -2485,7 +2505,7 @@ ImportRow normalizeImportRow(const QJsonObject &row, const QString &kind, const 
     out.candidate.insert(QStringLiteral("run_id"), out.stable ? QJsonValue(runId) : none);
     if (!sourceRecorded.isEmpty())
         out.candidate.insert(QStringLiteral("source_recorded_at"), sourceRecorded);
-    if (!sourceUtc.isNull() || sourceDateOnly)
+    if (!sourceUtc.isNull() || clearedSource || sourceDateOnly)
         out.candidate.insert(QStringLiteral("source_recorded_at_utc"), sourceUtc);
     out.candidate.insert(QStringLiteral("source_key"), textOrNull(sourceKey));
     if (!reflectionText.isEmpty()) {

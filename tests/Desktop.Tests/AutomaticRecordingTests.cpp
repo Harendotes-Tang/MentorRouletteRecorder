@@ -403,6 +403,41 @@ private slots:
         b.failSettings = false; c.refresh(); QCOMPARE(c.state(), "listening");
     }
     // ---------------------------------------------------------------- silence --
+    void observingCalibrationHonorsCaptureSilence_data() {
+        QTest::addColumn<QString>("reason");
+        QTest::addColumn<QString>("expectedState");
+        QTest::newRow("ownership") << QStringLiteral("NO_STREAM_OWNERSHIP") << QStringLiteral("listening_silent");
+        QTest::newRow("adapter") << QStringLiteral("NO_PACKETS_ON_ADAPTER") << QStringLiteral("listening_silent");
+        QTest::newRow("midstream") << QStringLiteral("MIDSTREAM") << QStringLiteral("blocked");
+        QTest::newRow("healthy") << QStringLiteral("NONE") << QStringLiteral("calibrating");
+        QTest::newRow("fresh-legacy") << QString() << QStringLiteral("calibrating");
+    }
+    void observingCalibrationHonorsCaptureSilence() {
+        QFETCH(QString, reason);
+        QFETCH(QString, expectedState);
+        RecordingBackend b;
+        b.capture["profile_status"] = "UNSUPPORTED_BUILD";
+        b.capture["messages_decoded"] = 0;
+        b.capture["decode_errors"] = 0;
+        b.capture["uptime_ms"] = 12000;
+        if (!reason.isEmpty()) b.capture["silent_reason"] = reason;
+        b.capture["calibration"] = QJsonObject{{"state", "OBSERVING"}, {"blockers", QJsonArray()}};
+        mr::AutomaticRecordingController c(&b);
+        c.refresh();
+        QCOMPARE(c.state(), expectedState);
+        QCOMPARE(c.calibrating(), expectedState == QLatin1String("calibrating"));
+        QCOMPARE(c.silent(), expectedState == QLatin1String("listening_silent"));
+        if (expectedState != QLatin1String("calibrating"))
+            QVERIFY(!c.message().contains(QStringLiteral("请照常完成随机任务")));
+
+        // 恢复接收后继续原校准，不要求清空进度或重建校准状态。
+        b.capture["silent_reason"] = "NONE";
+        b.capture["messages_decoded"] = 10;
+        c.refresh();
+        QCOMPARE(c.state(), QStringLiteral("calibrating"));
+        QVERIFY(!c.blocked());
+        QVERIFY(!c.silent());
+    }
     // RUNNING + VERIFIED describes configuration, not traffic. Only a decoded
     // message counter is evidence that packets are actually arriving.
     void runningAndVerifiedButDecodingNothingIsNotListening() {

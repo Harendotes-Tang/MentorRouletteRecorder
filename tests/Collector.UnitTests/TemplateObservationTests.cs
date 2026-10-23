@@ -71,6 +71,21 @@ public sealed class TemplateObservationTests
     }
 
     [Theory]
+    [InlineData("0", 0L)]
+    [InlineData("null", null)]
+    public void ExportPreservesUnknownConnectionCountAndReadsExistingNumericTraces(string count, long? expected)
+    {
+        var trace = Trace().Replace("\"preexisting_connections\":0",
+            "\"preexisting_connections\":" + count, StringComparison.Ordinal);
+        var exported = Export(trace);
+        Assert.True(exported.Available, exported.Reason);
+        var health = JsonNode.Parse(exported.EvidenceJson!)!["sessions"]![0]!["health"]!.AsObject();
+        Assert.True(health.ContainsKey("preexisting_connections"));
+        Assert.Equal(expected, health["preexisting_connections"]?.GetValue<long>());
+        Assert.Equal("HEALTH_UNAVAILABLE", health["silent_reason"]!.GetValue<string>());
+    }
+
+    [Theory]
     [InlineData("incomplete")]
     [InlineData("truncated")]
     [InlineData("corrupt")]

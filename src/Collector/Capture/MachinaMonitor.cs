@@ -16,6 +16,7 @@ internal interface IMachinaMonitor : IDisposable
     /// double need not invent counters it never measured.
     /// </summary>
     CaptureIngressCounters Ingress => CaptureIngressCounters.Empty;
+    CapturePathStatus PathStatus => CapturePathStatus.Unmeasured;
     void Stop();
     void DetachCallbacks();
 }

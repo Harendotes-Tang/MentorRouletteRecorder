@@ -649,6 +649,7 @@ private Q_SLOTS:
     void attemptRangeRenderedEvidence_data();
     void attemptRangeRenderedEvidence();
     void nativeInputStylesAndTrayRecovery();
+    void trayRestoresWithoutLosingMaximizedState();
     void renderedEvidence_data();
     void renderedEvidence();
 };
@@ -2026,6 +2027,24 @@ void StatisticsOverlayTests::renderedEvidence_data()
     for (const auto &style : {QStringLiteral("classic"), QStringLiteral("eorzea"), QStringLiteral("harendotes")})
         for (bool dark : {false, true})
             QTest::newRow(qPrintable(style + (dark ? "-dark" : "-light"))) << style << dark;
+}
+
+void StatisticsOverlayTests::trayRestoresWithoutLosingMaximizedState()
+{
+    QWindow window;
+    mr::TrayController tray(nullptr, nullptr, &window);
+    window.showMaximized();
+    QTRY_COMPARE(window.windowState(), Qt::WindowMaximized);
+    window.hide();
+    tray.showWindow();
+    QVERIFY(window.isVisible());
+    QCOMPARE(window.windowState(), Qt::WindowMaximized);
+    tray.showWindow();
+    QCOMPARE(window.windowState(), Qt::WindowMaximized);
+    window.showMinimized();
+    QTRY_COMPARE(window.windowState(), Qt::WindowMinimized);
+    tray.showWindow();
+    QTRY_COMPARE(window.windowState(), Qt::WindowNoState);
 }
 
 void StatisticsOverlayTests::nativeInputStylesAndTrayRecovery()

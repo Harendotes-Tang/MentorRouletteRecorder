@@ -56,14 +56,15 @@ internal sealed class FirstPacketMonitor : IMachinaMonitor
     {
         _cleaner = cleaner ?? new OodleTempCopyCleaner();
         if (cleaner is null) _cleaner.Arm(options.GameExecutablePath);
-        _reader = reader ?? new NpcapPacketReader(options);
+        var plan = CapturePathPlan.FromOptions(options);
+        _reader = reader ?? new MultiplexedNpcapPacketReader(options);
         _message = message; _fault = fault; _connectionClosed = connectionClosed;
         _directionDamaged = directionDamaged;
         _joinTimeout = joinTimeout ?? TimeSpan.FromSeconds(5);
-        var localIP = options.BindAddress is { } ip && ip.GetAddressBytes().Length == 4
-            ? BinaryPrimitives.ReadUInt32LittleEndian(ip.GetAddressBytes())
-            : throw new InvalidOperationException("未确定所选网卡的 IPv4 地址。");
-        _buffer = new(localIP, checked((uint)options.ProcessId), c =>
+        var localIPs = plan.Bindings.SelectMany(binding => binding.LocalAddresses)
+            .Where(CapturePathPlan.IsUsableAddress)
+            .Select(ip => BinaryPrimitives.ReadUInt32LittleEndian(ip.GetAddressBytes())).Distinct().ToArray();
+        _buffer = new(localIPs, checked((uint)options.ProcessId), c =>
             new FirstPacketDecoder(c, (connection, epoch, bytes, inbound) =>
             {
                 if (_cancel.IsCancellationRequested) return;
@@ -71,12 +72,13 @@ internal sealed class FirstPacketMonitor : IMachinaMonitor
                 // very next pump is still known to have produced something.
                 if (_delivered.Count < MaxTrackedConnections) _delivered.Add(Identify(connection));
                 Volatile.Read(ref _message)?.Invoke(connection, epoch, bytes, inbound);
-            }), ownedStreamEnded: OnOwnedStreamEnded, directionDamaged: OnDirectionDamaged);
+            }), ownedStreamEnded: OnOwnedStreamEnded, directionDamaged: OnDirectionDamaged,
+            includeLoopback: plan.Bindings.Any(binding => binding.IsLoopback));
         _connections = connections ?? (() =>
         {
             // Fresh list avoids Machina's per-tuple socket lifecycle and stale removed rows.
             var rows = new List<TCPConnection>();
-            new ProcessTCPInfo { ProcessID = checked((uint)options.ProcessId), LocalIP = options.BindAddress }
+            new ProcessTCPInfo { ProcessID = checked((uint)options.ProcessId) }
                 .UpdateTCPIPConnections(rows);
             return rows;
         });
@@ -89,6 +91,8 @@ internal sealed class FirstPacketMonitor : IMachinaMonitor
     /// <inheritdoc />
     public CaptureIngressCounters Ingress =>
         _buffer.Counters with { AdapterDropped = _reader.DroppedPackets };
+
+    public CapturePathStatus PathStatus => _reader.PathStatus;
 
     public void Prepare()
     {

@@ -196,7 +196,10 @@ void TrayController::showWindow()
 {
     if (!m_window)
         return;
-    m_window->showNormal();
+    if (m_window->windowState() == Qt::WindowMinimized)
+        m_window->showNormal();
+    else
+        m_window->setVisible(true);
     m_window->raise();
     m_window->requestActivate();
 }

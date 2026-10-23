@@ -20,6 +20,8 @@
 
 #include "TestCollectorGuard.h"
 #include "AppController.h"
+#include "CollectorText.h"
+#include "CollectorTextTestSupport.h"
 #include "Formatters.h"
 #include "IBackend.h"
 #include "MockBackend.h"
@@ -37,9 +39,11 @@
 #include <QQuickWindow>
 #include <QQuickStyle>
 #include <QRegularExpression>
+#include <QScopeGuard>
 #include <QStandardPaths>
 #include <QSignalSpy>
 #include <QTest>
+#include <QTranslator>
 
 #include <memory>
 
@@ -394,6 +398,215 @@ private slots:
     }
 
     // -- 链路 ---------------------------------------------------------------
+
+    void optionalNetworkPathFactsUsePlayerWording_data()
+    {
+        QTest::addColumn<QJsonValue>("path");
+        QTest::addColumn<QString>("expected");
+        const auto measured = [](const char *kind) {
+            return QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"},
+                               {"query_adapters", "OK"}, {"kind", QLatin1String(kind)}};
+        };
+        QTest::newRow("older Collector") << QJsonValue(QJsonValue::Undefined) << QString();
+        QTest::newRow("null optional field") << QJsonValue(QJsonValue::Null) << QString();
+        QTest::newRow("unmeasured")
+            << QJsonValue(QJsonObject{{"query_ipv4", "UNMEASURED"}, {"query_ipv6", "UNMEASURED"},
+                                     {"kind", "UNKNOWN"}}) << QString();
+        QTest::newRow("kind without measured query")
+            << QJsonValue(QJsonObject{{"query_ipv4", "UNMEASURED"}, {"query_ipv6", "UNMEASURED"},
+                                     {"kind", "LOOPBACK"}}) << QString();
+        QTest::newRow("failed query")
+            << QJsonValue(QJsonObject{{"query_ipv4", "FAILED"}, {"query_ipv6", "FAILED"},
+                                     {"kind", "UNKNOWN"}}) << QString::fromUtf8("网络路径：暂时无法确认。");
+        QTest::newRow("truncated query does not imply no connection")
+            << QJsonValue(QJsonObject{{"query_ipv4", "TRUNCATED"}, {"query_ipv6", "OK"},
+                                     {"kind", "NO_CONNECTIONS"}}) << QString::fromUtf8("网络路径：暂时无法确认。");
+        QTest::newRow("unknown measured path")
+            << QJsonValue(measured("UNKNOWN")) << QString::fromUtf8("网络路径：暂时无法确认。");
+        QTest::newRow("future kind stays private")
+            << QJsonValue(measured("FUTURE_ACCELERATOR_KIND")) << QString::fromUtf8("网络路径：暂时无法确认。");
+        QTest::newRow("loopback") << QJsonValue(measured("LOOPBACK"))
+            << QString::fromUtf8("网络路径：游戏通过本机回环连接转接。");
+        QTest::newRow("local proxy") << QJsonValue(measured("LOCAL"))
+            << QString::fromUtf8("网络路径：游戏通过本机转接。");
+        QTest::newRow("multiple interfaces") << QJsonValue(measured("MULTIPLE_INTERFACES"))
+            << QString::fromUtf8("网络路径：游戏连接经过多个网卡。");
+        QTest::newRow("selected interface") << QJsonValue(measured("SELECTED_INTERFACE"))
+            << QString::fromUtf8("网络路径：游戏连接在当前网卡上。");
+        QTest::newRow("other interface") << QJsonValue(measured("OTHER_INTERFACE"))
+            << QString::fromUtf8("网络路径：游戏连接在其他网卡上。");
+        QTest::newRow("unmapped") << QJsonValue(measured("UNMAPPED"))
+            << QString::fromUtf8("网络路径：暂未找到游戏连接所在的网卡。");
+        QTest::newRow("IPv6 only is unsupported") << QJsonValue(measured("IPV6_ONLY"))
+            << QString::fromUtf8("网络路径：仅检测到 IPv6 连接，当前暂不支持读取。");
+        QTest::newRow("no connection measured") << QJsonValue(measured("NO_CONNECTIONS"))
+            << QString::fromUtf8("网络路径：暂未检测到游戏连接。");
+        auto mixed = measured("SELECTED_INTERFACE");
+        mixed.insert(QStringLiteral("ipv6_connections"), 1);
+        mixed.insert(QStringLiteral("ipv6_capture_supported"), false);
+        QTest::newRow("mixed IPv4 and IPv6 keeps the capability limit") << QJsonValue(mixed)
+            << QString::fromUtf8("网络路径：游戏连接在当前网卡上。\n检测到的 IPv6 连接暂不支持读取。");
+        mixed.insert(QStringLiteral("capture_open_failures"), 1);
+        QTest::newRow("partial coverage does not replace IPv6 warning") << QJsonValue(mixed)
+            << QString::fromUtf8("网络路径：游戏连接在当前网卡上。\n检测到的 IPv6 连接暂不支持读取。\n部分网络路径未能监听，请重新检测网卡或导出诊断报告。");
+        mixed.insert(QStringLiteral("query_ipv4"), QStringLiteral("FAILED"));
+        mixed.remove(QStringLiteral("capture_open_failures"));
+        QTest::newRow("known IPv6 limitation survives incomplete IPv4 query") << QJsonValue(mixed)
+            << QString::fromUtf8("网络路径：暂时无法确认。\n检测到的 IPv6 连接暂不支持读取。");
+        auto ipv6 = measured("IPV6_ONLY");
+        ipv6.insert(QStringLiteral("ipv6_connections"), 1);
+        ipv6.insert(QStringLiteral("ipv6_capture_supported"), false);
+        QTest::newRow("IPv6 only does not repeat the warning") << QJsonValue(ipv6)
+            << QString::fromUtf8("网络路径：仅检测到 IPv6 连接，当前暂不支持读取。");
+        auto noIPv6 = measured("SELECTED_INTERFACE");
+        noIPv6.insert(QStringLiteral("ipv6_connections"), 0);
+        noIPv6.insert(QStringLiteral("ipv6_capture_supported"), false);
+        QTest::newRow("no IPv6 connection needs no capability warning") << QJsonValue(noIPv6)
+            << QString::fromUtf8("网络路径：游戏连接在当前网卡上。");
+        auto partial = measured("OTHER_INTERFACE");
+        partial.insert(QStringLiteral("capture_open_failures"), 1);
+        partial.insert(QStringLiteral("candidate_limit_reached"), true);
+        QTest::newRow("partial capture and bounded candidates") << QJsonValue(partial)
+            << QString::fromUtf8("网络路径：游戏连接在其他网卡上。\n部分网络路径未能监听，请重新检测网卡或导出诊断报告。\n网卡较多，目前仅监听部分候选路径。");
+        auto raw = measured("LOCAL");
+        raw.insert(QStringLiteral("capture_open_failures"), QStringLiteral("ERR_NPF_127.0.0.1"));
+        raw.insert(QStringLiteral("adapter_name"), QStringLiteral("NPF_PRIVATE_DEVICE"));
+        raw.insert(QStringLiteral("local_address"), QStringLiteral("192.0.2.51:54000"));
+        QTest::newRow("unknown raw properties are never displayed") << QJsonValue(raw)
+            << QString::fromUtf8("网络路径：游戏通过本机转接。");
+    }
+
+    void optionalNetworkPathFactsUsePlayerWording()
+    {
+        QFETCH(QJsonValue, path);
+        QFETCH(QString, expected);
+        auto fake = std::make_unique<CaptureBackend>();
+        fake->capture = {{"state", "RUNNING"}, {"ffxiv_running", true},
+                         {"ffxiv_process_id", 18244}, {"npcap_installed", true},
+                         {"profile_status", "VERIFIED"}};
+        if (!path.isUndefined())
+            fake->capture.insert(QStringLiteral("network_path"), path);
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open());
+        QTRY_COMPARE(scene.text(QStringLiteral("captureNetworkPathSummary")), expected);
+        QCOMPARE(scene.shows(QStringLiteral("captureNetworkPathSummary")), !expected.isEmpty());
+        const QString summary = scene.text(QStringLiteral("captureNetworkPathSummary"));
+        for (const auto &raw : {QStringLiteral("FUTURE_ACCELERATOR_KIND"), QStringLiteral("NPF_"),
+                                QStringLiteral("192.0.2.51"), QStringLiteral("127.0.0.1"),
+                                QStringLiteral("ERR_")})
+            QVERIFY2(!summary.contains(raw), qPrintable(summary));
+    }
+
+    void networkPathSummaryUpdatesAndClearsWithCollectorFacts()
+    {
+        auto fake = std::make_unique<CaptureBackend>();
+        auto *backend = fake.get();
+        fake->capture = {{"state", "RUNNING"}, {"ffxiv_running", true},
+                         {"ffxiv_process_id", 18244}, {"npcap_installed", true},
+                         {"profile_status", "VERIFIED"},
+                         {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"},
+                                                       {"kind", "LOOPBACK"}}}};
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open());
+        QTRY_COMPARE(scene.text(QStringLiteral("captureNetworkPathSummary")),
+                     QString::fromUtf8("网络路径：游戏通过本机回环连接转接。"));
+        backend->capture.insert(QStringLiteral("network_path"),
+                                QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"}, {"kind", "IPV6_ONLY"}});
+        scene.app->refreshStatus();
+        QTRY_COMPARE(scene.text(QStringLiteral("captureNetworkPathSummary")),
+                     QString::fromUtf8("网络路径：仅检测到 IPv6 连接，当前暂不支持读取。"));
+        backend->capture.remove(QStringLiteral("network_path"));
+        scene.app->refreshStatus();
+        QTRY_VERIFY(!scene.shows(QStringLiteral("captureNetworkPathSummary")));
+        QCOMPARE(scene.text(QStringLiteral("captureNetworkPathSummary")), QString());
+    }
+
+    void networkPathFactsDisappearWhenCollectorDisconnects()
+    {
+        auto fake = std::make_unique<UnreadableBackend>();
+        auto *backend = fake.get();
+        fake->connected = true;
+        fake->statusReadable = true;
+        fake->capture = {{"state", "RUNNING"}, {"ffxiv_running", true},
+                         {"ffxiv_process_id", 18244}, {"npcap_installed", true},
+                         {"profile_status", "VERIFIED"},
+                         {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"},
+                                                       {"kind", "LOCAL"}}}};
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open());
+        QTRY_VERIFY(scene.shows(QStringLiteral("captureNetworkPathSummary")));
+        backend->setConnected(false);
+        QTRY_VERIFY(!scene.shows(QStringLiteral("captureNetworkPathSummary")));
+        QCOMPARE(scene.text(QStringLiteral("captureNetworkPathSummary")), QString());
+    }
+
+    void networkPathWarningsWrapWithinTheHero_data()
+    {
+        QTest::addColumn<bool>("dark");
+        QTest::addColumn<QString>("language");
+        for (const auto &language : {"zh_CN", "zh_TW", "en", "ja"}) {
+            for (const bool dark : {false, true}) {
+                const QByteArray name = QStringLiteral("%1-%2").arg(QLatin1String(language))
+                    .arg(dark ? QStringLiteral("dark") : QStringLiteral("light")).toUtf8();
+                QTest::newRow(name.constData()) << dark << QString::fromLatin1(language);
+            }
+        }
+    }
+
+    void networkPathWarningsWrapWithinTheHero()
+    {
+        QFETCH(bool, dark);
+        QFETCH(QString, language);
+        QTranslator translator;
+        if (language != QLatin1String("zh_CN")) {
+            const QString qm = QDir(QCoreApplication::applicationDirPath())
+                .filePath(QStringLiteral("../../src/Desktop/mentor_recorder_%1.qm").arg(language));
+            QVERIFY2(translator.load(qm), qPrintable(qm));
+            QCoreApplication::installTranslator(&translator);
+        }
+        const auto removeTranslation = qScopeGuard([&] { QCoreApplication::removeTranslator(&translator); });
+        auto fake = std::make_unique<CaptureBackend>();
+        fake->capture = {{"state", "RUNNING"}, {"ffxiv_running", true},
+                         {"ffxiv_process_id", 18244}, {"npcap_installed", true},
+                         {"profile_status", "VERIFIED"},
+                         {"network_path", QJsonObject{{"query_ipv4", "OK"}, {"query_ipv6", "OK"},
+                                                       {"kind", "LOOPBACK"}, {"capture_open_failures", 1},
+                                                       {"candidate_limit_reached", true}}}};
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open());
+        if (scene.app->isDark() != dark)
+            scene.app->toggleTheme();
+        auto *window = qobject_cast<QQuickWindow *>(scene.root.get());
+        QVERIFY(window);
+        window->setWidth(900);
+        auto *summary = scene.item(QStringLiteral("captureNetworkPathSummary"));
+        auto *hero = scene.item(QStringLiteral("captureHeroPanel"));
+        QVERIFY(summary && hero);
+        QTRY_VERIFY(summary->isVisible() && summary->width() > 0 && summary->height() > 0);
+        const QStringList expected{
+            QCoreApplication::translate("CaptureHeroPanel", "网络路径：游戏通过本机回环连接转接。"),
+            QCoreApplication::translate("CaptureHeroPanel", "部分网络路径未能监听，请重新检测网卡或导出诊断报告。"),
+            QCoreApplication::translate("CaptureHeroPanel", "网卡较多，目前仅监听部分候选路径。")};
+        QCOMPARE(summary->property("text").toString(), expected.join(QLatin1Char('\n')));
+        if (language != QLatin1String("zh_CN"))
+            QVERIFY(!summary->property("text").toString().contains(QString::fromUtf8("网络路径")));
+        QTRY_VERIFY(summary->height() + 1 >= summary->property("paintedHeight").toReal());
+        QTRY_VERIFY(summary->mapToItem(hero, QPointF(0, summary->height())).y() <= hero->height() + 1);
+        const QPointF topLeft = summary->mapToItem(hero, QPointF());
+        QVERIFY(topLeft.x() >= 0 && topLeft.x() + summary->width() <= hero->width() + 1);
+        const QString evidence = qEnvironmentVariable("MR_NETWORK_PATH_EVIDENCE_DIR");
+        if (!evidence.isEmpty()) {
+            QVERIFY(QDir().mkpath(evidence));
+            QTest::qWait(150);
+            QVERIFY(window->grabWindow().save(QDir(evidence).filePath(
+                QStringLiteral("network-path-warnings-%1.png")
+                    .arg(QString::fromLatin1(QTest::currentDataTag())))));
+        }
+    }
 
     void theChainIsWholeWhenEverythingIsUp()
     {
@@ -879,6 +1092,84 @@ private slots:
     }
 
     // -- vocabulary -----------------------------------------------------------
+
+    void captureSilenceOutranksObservingCalibration_data()
+    {
+        QTest::addColumn<bool>("dark");
+        QTest::addColumn<QString>("provenance");
+        QTest::newRow("downloaded-dark") << true << QStringLiteral("PUBLISHED");
+        QTest::newRow("downloaded-light") << false << QStringLiteral("PUBLISHED");
+        QTest::newRow("imported-dark") << true << QStringLiteral("IMPORTED");
+        QTest::newRow("imported-light") << false << QStringLiteral("IMPORTED");
+    }
+
+    void captureSilenceOutranksObservingCalibration()
+    {
+        QFETCH(bool, dark);
+        QFETCH(QString, provenance);
+        const QVariantMap hintRef = mrtest::textRef("capture.hint.no_ownership");
+        const QString hint = mr::collector_text::chinese(hintRef);
+        QVERIFY(!hint.isEmpty());
+        auto fake = std::make_unique<CaptureBackend>();
+        auto *backend = fake.get();
+        fake->capture = {{"state", "RUNNING"}, {"ffxiv_running", true},
+                         {"ffxiv_process_id", 8544}, {"npcap_installed", true},
+                         {"adapter_id", "issue38-adapter"}, {"adapter_name", QString::fromUtf8("以太网")},
+                         {"profile_status", "UNSUPPORTED_BUILD"}, {"region", "CN"},
+                         {"game_build", "2026.10.06.0000.0000"},
+                         {"messages_decoded", 0}, {"decode_errors", 0},
+                         {"raw_packets_observed", 1763421}, {"uptime_ms", 6428057},
+                         {"silent_reason", "NO_STREAM_OWNERSHIP"}, {"hint", hint},
+                         {"hint_ref", QJsonObject::fromVariantMap(hintRef)},
+                         {"calibration", QJsonObject{{"state", "OBSERVING"},
+                              {"game_build", "2026.10.06.0000.0000"},
+                              {"blockers", QJsonArray{QString::fromUtf8("请在游戏里申请一次随机任务。")}},
+                              {"shared", QJsonObject{{"phase", "VERIFYING"},
+                                   {"candidates", QJsonArray{QJsonObject{{"match_source", "MARKER_OFFSET"},
+                                        {"provenance", provenance}}}}}},
+                              {"progress", QJsonObject{{"finder_request_seen", true}}}}}};
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open());
+        if (scene.app->isDark() != dark) scene.app->toggleTheme();
+        QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("listening_silent"));
+        QTRY_COMPARE(scene.text(QStringLiteral("captureHeaderStatusText")), QString::fromUtf8("暂时读不到游戏数据"));
+        QCOMPARE(scene.text(QStringLiteral("captureHeroText")), hint);
+        QCOMPARE(scene.text(QStringLiteral("captureChainSummary")),
+                 QString::fromUtf8("已连接游戏，但还读不到游戏数据 · 请查看上方说明"));
+        QVERIFY(scene.shows(QStringLiteral("calibrationCard")));
+        QVERIFY(!scene.shows(QStringLiteral("calibrationHeadline")));
+        QVERIFY(!scene.shows(QStringLiteral("calibrationExplanation")));
+        QVERIFY(!scene.shows(QStringLiteral("sharedCalibrationHeadline")));
+        QVERIFY(!scene.shows(QStringLiteral("sharedCalibrationDetail")));
+        const QString visible = scene.visibleTexts().join(QLatin1Char('\n'));
+        QVERIFY(visible.contains(QString::fromUtf8("无法继续校准")));
+        QVERIFY(!visible.contains(QString::fromUtf8("请在游戏里申请一次随机任务")));
+        QVERIFY(!visible.contains(QString::fromUtf8("游戏和网卡已连接 · 正在重新校准")));
+        QVERIFY(!visible.contains(QString::fromUtf8("有 FF14 连接")));
+        QVERIFY(!visible.contains(QString::fromUtf8("照常完成一次随机任务")));
+        QVERIFY(!visible.contains(QString::fromUtf8("请申请随机任务并进入副本")));
+
+        const QString evidence = qEnvironmentVariable("MR_CAPTURE_RECOVERY_EVIDENCE_DIR");
+        if (!evidence.isEmpty()) {
+            QVERIFY(QDir().mkpath(evidence));
+            auto *window = qobject_cast<QQuickWindow *>(scene.root.get());
+            QVERIFY(window);
+            QTest::qWait(150);
+            QVERIFY(window->grabWindow().save(QDir(evidence).filePath(
+                QStringLiteral("issue38-calibration-no-ownership-%1-%2.png")
+                    .arg(provenance.toLower(), dark ? QStringLiteral("dark") : QStringLiteral("light")))));
+        }
+
+        backend->capture["silent_reason"] = "NONE";
+        backend->capture["messages_decoded"] = 10;
+        scene.app->recording()->refresh();
+        QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("calibrating"));
+        QTRY_VERIFY(scene.shows(QStringLiteral("sharedCalibrationDetail")));
+        QTRY_VERIFY(scene.visibleTexts().join(QLatin1Char('\n')).contains(
+            QString::fromUtf8("请在游戏里申请一次随机任务")));
+        QVERIFY(scene.app->calibration()->progress().value(QStringLiteral("finder_request_seen")).toBool());
+    }
 
     // A capture error outranks a finished calibration, as it does in
     // AutomaticRecordingController::project(): the badge and the hero say

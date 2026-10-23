@@ -896,8 +896,10 @@ public sealed class CaptureTraceTests
     private static CaptureStartOptions StartOptions() =>
         new("trace-test", 1234, null, "adapter", OodleMode.FfxivTcp, null, null);
 
-    [Fact]
-    public void TraceRun_AllowsMidstreamLiveCapture_OnlyWhenAskedAndFlagsIt()
+    [Theory]
+    [InlineData(2)]
+    [InlineData(null)]
+    public void TraceRun_PreservesKnownAndUnknownConnectionCounts(int? connectionCount)
     {
         using var directory = new TempDirectory();
         var tracePath = Path.Combine(directory.Path, "midstream-allowed.jsonl");
@@ -914,14 +916,14 @@ public sealed class CaptureTraceTests
         var source = new RecordingTraceSource(CaptureTraceRunner.LiveSourceKind);
 
         var result = CaptureTraceRunner.Run(
-            new CaptureTraceOptions(tracePath, AdapterId: "adapter", AllowMidstream: true),
+            new CaptureTraceOptions(tracePath, AdapterId: "adapter", AllowMidstream: connectionCount.HasValue),
             new CaptureTraceServices
             {
                 Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
                 Game = new GameProcessLocator(processes, files),
                 Adapters = new AdapterEnumerator(adapters, tcpTable),
                 SourceFactory = () => source,
-                TcpConnectionCounter = (_, _) => 2,
+                TcpConnectionCounter = (_, _) => connectionCount,
                 Markers = new StringReader(string.Empty),
                 Output = output,
                 Status = new StringWriter(),
@@ -933,12 +935,17 @@ public sealed class CaptureTraceTests
         Assert.Equal(1, result);
         Assert.NotNull(source.LastOptions);
         Assert.True(File.Exists(tracePath));
-        Assert.Contains(CaptureTraceRunner.MidstreamWarningPrefix, output.ToString(), StringComparison.Ordinal);
+        if (connectionCount.HasValue)
+            Assert.Contains(CaptureTraceRunner.MidstreamWarningPrefix, output.ToString(), StringComparison.Ordinal);
+        else
+            Assert.DoesNotContain(CaptureTraceRunner.MidstreamWarningPrefix, output.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain(CaptureTraceRunner.MidstreamRefusalPrefix, output.ToString(), StringComparison.Ordinal);
 
         var header = JsonNode.Parse(File.ReadLines(tracePath).First())!.AsObject();
-        Assert.True(header["midstream"]!.GetValue<bool>());
-        Assert.Equal(2, header["preexisting_connections"]!.GetValue<int>());
+        Assert.True(header.ContainsKey("midstream"));
+        Assert.True(header.ContainsKey("preexisting_connections"));
+        Assert.Equal(connectionCount.HasValue ? (bool?)true : null, header["midstream"]?.GetValue<bool>());
+        Assert.Equal(connectionCount, header["preexisting_connections"]?.GetValue<int>());
         Assert.Equal(CaptureDiagnosticsSnapshot.LiveCaptureStatus, header["live_capture_status"]!.GetValue<string>());
     }
 

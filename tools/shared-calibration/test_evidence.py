@@ -40,6 +40,107 @@ class EvidenceTests(unittest.TestCase):
                               account_created_at="2020-01-01T00:00:00Z", issue_number=issue or account,
                               now=NOW)
 
+    def test_reclaiming_copied_negatives_removes_their_quarantine(self):
+        originals = [receipt() for _ in range(3)]
+        for offset, item in enumerate(originals):
+            self.accept(item, 10 + offset, 100 + offset)
+        candidate_id = self.e.digest(self.e.scope_for(originals[0]))
+        self.assertTrue(self.state["candidates"][candidate_id]["quarantined"])
+        for offset, item in enumerate(originals):
+            self.accept(item, 1, 1 + offset)
+        candidate = self.state["candidates"][candidate_id]
+        self.assertEqual(1, len(self.state["votes"]))
+        self.assertFalse(candidate["quarantined"])
+        self.assertEqual({}, candidate["triggers"])
+        self.assertGreaterEqual(candidate["epoch"], 1, "published epochs must never move backwards")
+        previous_epoch = candidate["epoch"]
+        for account in (20, 21):
+            self.accept(receipt(epoch=1), account, 200 + account)
+        self.assertEqual(previous_epoch + 1, self.state["candidates"][candidate_id]["epoch"])
+
+    def test_reclaim_removes_a_trigger_when_negatives_no_longer_have_a_majority(self):
+        for account in (30, 31, 32):
+            self.accept(receipt("PASS"), account, account)
+        self.accept(receipt(), 1, 2)
+        for account in (11, 12):
+            self.accept(receipt(), account, account)
+        self.assertFalse(next(iter(self.state["candidates"].values()))["quarantined"])
+        original = receipt()
+        self.accept(original, 10, 100)
+        self.assertTrue(next(iter(self.state["candidates"].values()))["quarantined"])
+        self.accept(original, 1, 1)
+        candidate = next(iter(self.state["candidates"].values()))
+        self.assertEqual(3, sum(v["verdict"] == "CONTRADICT" for v in self.state["votes"].values()))
+        self.assertEqual(3, sum(v["verdict"] == "PASS" for v in self.state["votes"].values()))
+        self.assertFalse(candidate["quarantined"])
+
+    def test_reclaim_does_not_use_later_stale_pass_votes_as_recovery(self):
+        original = receipt()
+        self.accept(original, 10, 100)
+        for account in (11, 12, 13):
+            self.accept(receipt(), account, account + 100)
+        for account in (30, 31, 32):
+            self.accept(receipt("PASS", 0), account, account + 100)
+        # The author's newer issue already has a negative position, so reclaiming the
+        # earlier receipt will not add another negative and obscure the 3:3 case.
+        self.accept(receipt(), 11, 200)
+        self.accept(original, 11, 1)
+        candidate = next(iter(self.state["candidates"].values()))
+        self.assertEqual(3, sum(v["verdict"] == "CONTRADICT" for v in self.state["votes"].values()))
+        self.assertEqual(3, sum(v["verdict"] == "PASS" for v in self.state["votes"].values()))
+        self.assertTrue(candidate["quarantined"])
+
+    def test_valid_vote_changes_still_require_fresh_epoch_recovery(self):
+        for account in (1, 2, 3):
+            self.accept(receipt(), account, account)
+        for account in (1, 2, 3):
+            self.accept(receipt("PASS", 0), account, account + 10)
+        self.assertTrue(next(iter(self.state["candidates"].values()))["quarantined"])
+
+    def test_reclaim_preserves_quarantine_after_genuine_quorum_changed_positions(self):
+        original = receipt()
+        self.accept(original, 10, 100)
+        for account in (11, 12, 13):
+            self.accept(receipt(), account, account + 100)
+        for account in (11, 12):
+            self.accept(receipt("PASS", 0), account, account + 200)
+        self.accept(original, 13, 1)
+        candidate = next(iter(self.state["candidates"].values()))
+        self.assertEqual(1, sum(v["verdict"] == "CONTRADICT" for v in self.state["votes"].values()))
+        self.assertTrue(candidate["quarantined"])
+        # Ambiguous history does not disable the established recovery path.
+        for account in (11, 12, 14):
+            self.accept(receipt("PASS", candidate["epoch"]), account, account + 300)
+        self.assertFalse(next(iter(self.state["candidates"].values()))["quarantined"])
+
+    def test_reclaim_preserves_other_fields_and_independent_negative_quorum(self):
+        copied = receipt()
+        self.accept(copied, 10, 100)
+        for account in (11, 12, 13):
+            item = receipt()
+            for session in item["sessions"]:
+                session["checks"].append({"field": "match", "verdict": "CONTRADICT"})
+            self.accept(item, account, 100 + account)
+        self.accept(copied, 1, 1)
+        candidate = next(iter(self.state["candidates"].values()))
+        self.assertTrue(candidate["quarantined"])
+        self.assertEqual({"zone", "match"}, set(candidate["triggers"]))
+
+    def test_reclaim_does_not_lift_an_independent_field_trigger(self):
+        originals = [receipt() for _ in range(3)]
+        for offset, item in enumerate(originals):
+            self.accept(item, 10 + offset, 100 + offset)
+        for account in (20, 21, 22):
+            item = receipt()
+            for session in item["sessions"]:
+                session["checks"][0]["field"] = "match"
+            self.accept(item, account, 200 + account)
+        for offset, item in enumerate(originals):
+            self.accept(item, 1, 1 + offset)
+        candidate = next(iter(self.state["candidates"].values()))
+        self.assertTrue(candidate["quarantined"])
+        self.assertEqual({"match"}, set(candidate["triggers"]))
+
     def test_strict_schema_rejects_private_and_boolean_integer(self):
         for mutate in (lambda d: d.update(payload="secret"),
                        lambda d: d.update(schema_version=True),

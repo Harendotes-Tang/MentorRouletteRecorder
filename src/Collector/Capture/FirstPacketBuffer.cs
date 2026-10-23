@@ -42,7 +42,9 @@ internal sealed record FirstPacketLimits(int Bytes = 8 * 1024 * 1024, int Packet
 internal sealed class FirstPacketBuffer
 {
     private readonly object _gate = new();
-    private readonly uint _localIP, _pid;
+    private readonly uint _pid;
+    private readonly HashSet<uint> _localIPs;
+    private readonly bool _includeLoopback;
     private readonly FirstPacketLimits _limits;
     private readonly Func<TimeSpan> _clock;
     private readonly Func<TCPConnection, IFirstPacketDecoder> _decoderFactory;
@@ -116,8 +118,28 @@ internal sealed class FirstPacketBuffer
     internal FirstPacketBuffer(uint localIP, uint pid, Func<TCPConnection, IFirstPacketDecoder> decoderFactory,
         FirstPacketLimits? limits = null, Func<TimeSpan>? clock = null,
         Action<TCPConnection>? ownedStreamEnded = null, Action<TCPConnection, bool>? directionDamaged = null)
+        : this(new[] { localIP }, pid, decoderFactory, limits, clock, ownedStreamEnded, directionDamaged)
     {
-        _localIP = localIP; _pid = pid; _decoderFactory = decoderFactory;
+    }
+
+    /// <summary>Shares one bounded ingress across the retained paths' local IPv4 addresses.</summary>
+    /// <param name="localIPs">Exact selected interface addresses; copied so caller changes cannot redirect ingress.</param>
+    /// <param name="pid">Only this process's complete operating-system tuples may obtain decoders.</param>
+    /// <param name="decoderFactory">Creates independent protocol state after unique tuple ownership is confirmed.</param>
+    /// <param name="limits">Shared raw budgets and aging limits, or the documented defaults.</param>
+    /// <param name="clock">Monotonic time source, or a stopwatch.</param>
+    /// <param name="ownedStreamEnded">Reports confirmed stream endings outside the buffer lock.</param>
+    /// <param name="directionDamaged">Reports a confirmed game direction abandoned after a gap or unsafe sequence.</param>
+    /// <param name="includeLoopback">Allows the IPv4 127/8 range when an identified loopback reader is retained.</param>
+    internal FirstPacketBuffer(IReadOnlyCollection<uint> localIPs, uint pid,
+        Func<TCPConnection, IFirstPacketDecoder> decoderFactory,
+        FirstPacketLimits? limits = null, Func<TimeSpan>? clock = null,
+        Action<TCPConnection>? ownedStreamEnded = null, Action<TCPConnection, bool>? directionDamaged = null,
+        bool includeLoopback = false)
+    {
+        ArgumentNullException.ThrowIfNull(localIPs);
+        _localIPs = new(localIPs); _includeLoopback = includeLoopback;
+        _pid = pid; _decoderFactory = decoderFactory;
         _ownedStreamEnded = ownedStreamEnded;
         _directionDamaged = directionDamaged;
         _limits = limits ?? new();
@@ -134,7 +156,7 @@ internal sealed class FirstPacketBuffer
         {
             if (_stopped || Failure is not null) return;
             Expire();
-            if (!FirstPacketFrame.TryRead(data, link, _localIP, out var frame, out var unsafePacket))
+            if (!FirstPacketFrame.TryRead(data, link, _localIPs, _includeLoopback, out var frame, out var unsafePacket))
             {
                 // TCP on this address whose headers cannot be trusted: a fragment, a truncated
                 // body, a bad offset. Its tuple cannot be trusted either, so it joins no stream.
@@ -158,6 +180,12 @@ internal sealed class FirstPacketBuffer
             // allocation or decoder access -- for its own stream only (see Refuse).
             var refused = frame.Syn && frame.PayloadLength != 0;
             _streams.TryGetValue(frame.Tuple, out var stream);
+            if (stream is null && frame.LocalEndpoints && _streams.TryGetValue(frame.Tuple.Reverse, out stream))
+            {
+                // A local stream is keyed by its observed origin's wire tuple, not by a guessed
+                // game endpoint. Reverse packets share that stream and its two independent states.
+                frame = frame with { Tuple = frame.Tuple.Reverse, Inbound = true };
+            }
             if (frame.Closed && stream?.Decoder is null) { Remove(frame.Tuple); return; }
             if (frame.Origin && (stream is null || stream.OriginInbound != frame.Inbound || stream.OriginSequence != frame.Sequence))
             {
@@ -173,7 +201,7 @@ internal sealed class FirstPacketBuffer
                 if (refused) { Interlocked.Increment(ref _droppedNoStream); return; }
                 if (_streams.Count == _limits.Tuples && !EvictOldestUnowned(null))
                 { Fail(CollectorTexts.CaptureFaultConnectionTableFull()); return; }
-                stream = new(frame.Inbound, frame.Sequence, _clock());
+                stream = new(frame.Inbound, frame.Sequence, _clock(), frame.LocalEndpoints);
                 _streams.Add(frame.Tuple, stream);
                 // Every stream here began with an observed handshake, whoever it belongs to.
                 // Zero over a long session means no SYN reached us at all, which is a
@@ -221,6 +249,11 @@ internal sealed class FirstPacketBuffer
             if (sequenceEnd > uint.MaxValue ||
                 AmbiguousDistance(sequence, expected) || AmbiguousDistance((uint)sequenceEnd, expected))
             { Refuse(frame.Tuple, stream, frame.Inbound); return; }
+            // Copies seen on several interfaces are removed before any raw budget is charged.
+            // Only bounded pending storage is searched, with no second payload cache or unbounded
+            // fingerprint history. Keep consumed retransmissions for the decode-time sequence
+            // guard: earlier queued progress can make their distance ambiguous before Pump.
+            if (HasPendingCopy(stream, frame, sequence, data)) return;
             while (_bytes > _limits.Bytes - frame.Length || _packets == _limits.Packets)
             {
                 if (!EvictOldestUnowned(stream))
@@ -252,6 +285,26 @@ internal sealed class FirstPacketBuffer
             _bytes += packet.Data.Length;
             _packets++;
         }
+    }
+
+    /// <summary>
+    /// Compares an incoming IPv4 frame with its retained copies, ignoring only the TCP sequence
+    /// field that this buffer rebases before storage. Link headers are outside both slices.
+    /// </summary>
+    private static bool HasPendingCopy(StreamState stream, in FirstPacketFrame frame, uint sequence,
+        ReadOnlySpan<byte> data)
+    {
+        var ipv4 = data.Slice(frame.Offset, frame.Length);
+        var sequenceOffset = (ipv4[0] & 15) * 4 + 4;
+        foreach (var pending in stream.Pending)
+        {
+            if (pending.Frame.Inbound != frame.Inbound || pending.Frame.Sequence != sequence ||
+                pending.Frame.Length != frame.Length || pending.Frame.Flags != frame.Flags ||
+                pending.Frame.PayloadLength != frame.PayloadLength) continue;
+            if (ipv4[..sequenceOffset].SequenceEqual(pending.Data.AsSpan(0, sequenceOffset)) &&
+                ipv4[(sequenceOffset + 4)..].SequenceEqual(pending.Data.AsSpan(sequenceOffset + 4))) return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -350,8 +403,9 @@ internal sealed class FirstPacketBuffer
             // recovered by waiting.
             _decoding = true;
             var now = _clock();
-            var confirmed = owned.Where(c => c.ProcessId == _pid && c.LocalIP == _localIP)
-                .ToDictionary(c => new FirstPacketTuple(c.LocalIP, c.LocalPort, c.RemoteIP, c.RemotePort), c => c);
+            var confirmed = owned.Where(c => c.ProcessId == _pid && IsLocal(c.LocalIP))
+                .GroupBy(c => new FirstPacketTuple(c.LocalIP, c.LocalPort, c.RemoteIP, c.RemotePort))
+                .ToDictionary(group => group.Key, group => group.First());
             // A stream the system lists for the game right now is claimed by this very pump, so the
             // ownership age does not release it first: the first pump comes only after Oodle's
             // initialization, which can outlast that age (audit 2026-10-20, A1-5).
@@ -370,12 +424,27 @@ internal sealed class FirstPacketBuffer
             }
             foreach (var (tuple, stream) in _streams.ToArray())
             {
-                if (confirmed.TryGetValue(tuple, out var connection))
+                var hasDirect = confirmed.TryGetValue(tuple, out var connection);
+                TCPConnection? reversedConnection = null;
+                var hasReverse = stream.LocalEndpoints && confirmed.TryGetValue(tuple.Reverse, out reversedConnection);
+                // Both endpoints owned by the selected process do not identify a single game
+                // connection. Likewise, an already-decoding tuple may not silently switch its game
+                // endpoint when the OS table changes: a fresh SYN is needed for a replacement.
+                if (hasDirect && hasReverse || stream.Connection is not null && (hasDirect || hasReverse) &&
+                    stream.ReverseGameDirection != hasReverse)
                 {
+                    ReportEnded(stream);
+                    Remove(tuple);
+                    continue;
+                }
+                if (hasDirect || hasReverse)
+                {
+                    if (hasReverse) connection = reversedConnection;
                     stream.MissingSince = null;
                     stream.Confirmed = true;
+                    stream.ReverseGameDirection = hasReverse;
                     stream.Connection ??= connection;
-                    stream.Decoder ??= _decoderFactory(connection);
+                    stream.Decoder ??= _decoderFactory(connection!);
                 }
                 else
                 {
@@ -426,7 +495,7 @@ internal sealed class FirstPacketBuffer
                         {
                             if (direction.Next is null || end > direction.Next.Value)
                             {
-                                stream.Decoder.Feed(packet.Data, packet.Frame.Inbound);
+                                stream.Decoder.Feed(packet.Data, packet.Frame.Inbound ^ stream.ReverseGameDirection);
                                 direction.Next = end;
                             }
                         }
@@ -469,6 +538,7 @@ internal sealed class FirstPacketBuffer
     }
 
     internal void Tick() { lock (_gate) { if (!_stopped && Failure is null) Expire(); } }
+    private bool IsLocal(uint address) => _localIPs.Contains(address) || (_includeLoopback && (address & 0xff) == 127);
     private static bool AmbiguousDistance(uint left, uint right) => Math.Abs((long)left - right) >= 0x80000000L;
 
     /// <summary>
@@ -512,7 +582,8 @@ internal sealed class FirstPacketBuffer
         {
             if (stream.Decoder is null)
             {
-                if (now - stream.Created >= _limits.Ownership && confirmed?.ContainsKey(tuple) != true)
+                if (now - stream.Created >= _limits.Ownership && confirmed?.ContainsKey(tuple) != true &&
+                    (!stream.LocalEndpoints || confirmed?.ContainsKey(tuple.Reverse) != true))
                 { Interlocked.Increment(ref _expiredStreams); Remove(tuple); }
                 continue;
             }
@@ -573,7 +644,7 @@ internal sealed class FirstPacketBuffer
         // (audit 2026-10-03, CS3a-X1).
         if (stream.Connection is { } connection)
         {
-            _reports.Add((connection, inbound ? StreamReport.InboundDamaged : StreamReport.OutboundDamaged));
+            _reports.Add((connection, inbound ^ stream.ReverseGameDirection ? StreamReport.InboundDamaged : StreamReport.OutboundDamaged));
         }
 
         for (var i = stream.Pending.Count - 1; i >= 0; i--)
@@ -645,11 +716,14 @@ internal sealed class FirstPacketBuffer
         /// <summary>Sequence end of the FIN/RST accepted in this direction; nothing beyond it is.</summary>
         internal uint? ClosedAt;
     }
-    private sealed class StreamState(bool inbound, uint sequence, TimeSpan created)
+    private sealed class StreamState(bool inbound, uint sequence, TimeSpan created, bool localEndpoints)
     {
         internal readonly bool OriginInbound = inbound;
         internal readonly uint OriginSequence = sequence;
         internal readonly TimeSpan Created = created;
+        internal readonly bool LocalEndpoints = localEndpoints;
+        // True only after the reverse wire tuple is uniquely confirmed for the game PID.
+        internal bool ReverseGameDirection;
         internal readonly DirectionState Inbound = new(), Outbound = new();
         internal readonly List<Packet> Pending = new();
         internal IFirstPacketDecoder? Decoder;

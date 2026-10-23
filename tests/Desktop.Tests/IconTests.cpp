@@ -11,6 +11,7 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickStyle>
+#include <QQuickWindow>
 #include <QSignalSpy>
 #include <QTest>
 #include <QUrl>
@@ -53,6 +54,18 @@ QQuickItem *childNamed(QObject *root, const QString &name)
     return root->findChild<QQuickItem *>(name);
 }
 
+QQuickItem *visualChildNamed(QQuickItem *root, const QString &name)
+{
+    if (root->objectName() == name)
+        return root;
+    // Repeater delegates belong to the visual parent, not necessarily its QObject tree.
+    for (auto *child : root->childItems()) {
+        if (auto *found = visualChildNamed(child, name))
+            return found;
+    }
+    return nullptr;
+}
+
 } // namespace
 
 namespace {
@@ -69,6 +82,8 @@ private slots:
     void appButton_withoutAnIconIsTheOldTextButton();
     void appButton_ignoresAnUnknownIconName();
     void navItem_showsThePageIconInsteadOfTheNumber();
+    void noteImages_keyboardActions_data();
+    void noteImages_keyboardActions();
 };
 } // namespace
 
@@ -261,6 +276,91 @@ Item {
     QVERIFY(!numbered->property("hasIcon").toBool());
     QVERIFY(!numbered->findChild<QQuickItem *>(QStringLiteral("navIcon"))->isVisible());
     QVERIFY(numbered->findChild<QQuickItem *>(QStringLiteral("navNumber"))->isVisible());
+}
+
+void IconTests::noteImages_keyboardActions_data()
+{
+    QTest::addColumn<bool>("editable");
+    QTest::newRow("editable") << true;
+    QTest::newRow("read-only") << false;
+}
+
+void IconTests::noteImages_keyboardActions()
+{
+    QFETCH(bool, editable);
+    Scene scene;
+    QVERIFY2(scene.create(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+import "Lucide.js" as Lucide
+ApplicationWindow {
+    width: 480; height: 320; visible: true
+    property bool editableImages: true
+    property int removedCount: 0
+    property int addedCount: 0
+    property string removedName: ""
+    Button { objectName: "beforeImages"; text: "Before"; focusPolicy: Qt.TabFocus }
+    NoteImageStrip {
+        id: strip; y: 60; width: 300
+        editable: editableImages
+        rows: [{name: "example.svg", url: Lucide.source("plus", "#ffffff")}]
+        onRemoveRequested: function(row) {
+            removedName = row.name
+            removedCount += 1
+            rows = []
+        }
+        onAddRequested: addedCount += 1
+    }
+    Button { objectName: "afterImages"; y: 220; text: "After"; focusPolicy: Qt.TabFocus }
+})"), qPrintable(scene.errors));
+    auto *window = qobject_cast<QQuickWindow *>(scene.root.get());
+    QVERIFY(window);
+    scene.root->setProperty("editableImages", editable);
+    window->requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(window));
+    auto *before = childNamed(scene.root.get(), QStringLiteral("beforeImages"));
+    auto *after = childNamed(scene.root.get(), QStringLiteral("afterImages"));
+    auto *thumb = visualChildNamed(window->contentItem(), QStringLiteral("noteImageThumb"));
+    auto *remove = visualChildNamed(window->contentItem(), QStringLiteral("noteImageRemove"));
+    auto *add = childNamed(scene.root.get(), QStringLiteral("noteImageAdd"));
+    auto *viewer = scene.root->findChild<QObject *>(QStringLiteral("noteImageViewer"));
+    QVERIFY(before);
+    QVERIFY(after);
+    QVERIFY(thumb);
+    QVERIFY(remove);
+    QVERIFY(add);
+    QVERIFY(viewer);
+    before->forceActiveFocus(Qt::TabFocusReason);
+    QTest::keyClick(window, Qt::Key_Tab);
+    QTRY_VERIFY(thumb->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Space);
+    QTRY_VERIFY(viewer->property("visible").toBool());
+    QCOMPARE(scene.root->property("removedCount").toInt(), 0);
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!viewer->property("visible").toBool());
+    QTRY_VERIFY(thumb->hasActiveFocus());
+
+    QTest::keyClick(window, Qt::Key_Tab);
+    if (editable) {
+        QTRY_VERIFY(remove->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_Space);
+        QTRY_COMPARE(scene.root->property("removedCount").toInt(), 1);
+        QCOMPARE(scene.root->property("removedName").toString(), QStringLiteral("example.svg"));
+        QTRY_VERIFY(add->hasActiveFocus());
+        QVERIFY(!viewer->property("visible").toBool());
+        QTest::keyClick(window, Qt::Key_Space);
+        QCOMPARE(scene.root->property("addedCount").toInt(), 1);
+        QTest::keyClick(window, Qt::Key_Tab);
+        QTRY_VERIFY(after->hasActiveFocus());
+    } else {
+        QVERIFY(!remove->isVisible());
+        QVERIFY(!add->isVisible());
+        QTRY_VERIFY(after->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_Tab, Qt::ShiftModifier);
+        QTRY_VERIFY(thumb->hasActiveFocus());
+        QCOMPARE(scene.root->property("removedCount").toInt(), 0);
+        QCOMPARE(scene.root->property("addedCount").toInt(), 0);
+    }
 }
 
 int main(int argc, char *argv[])

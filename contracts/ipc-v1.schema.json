@@ -645,6 +645,32 @@
       }
     },
 
+    "NetworkPath": {
+      "type": "object", "additionalProperties": false,
+      "description": "Optional endpoint-free TCP path measurements. Missing or null counts mean unmeasured, failed or incomplete, never zero. No accelerator-brand or UDP inference. IPv6 is diagnosed but capture remains IPv4.",
+      "properties": {
+        "query_ipv4": { "$ref": "#/$defs/NetworkQueryStatus" },
+        "query_ipv6": { "$ref": "#/$defs/NetworkQueryStatus" },
+        "query_adapters": { "$ref": "#/$defs/NetworkQueryStatus" },
+        "kind": { "type": "string", "enum": ["UNKNOWN", "NO_CONNECTIONS", "IPV6_ONLY", "LOOPBACK", "LOCAL", "MULTIPLE_INTERFACES", "SELECTED_INTERFACE", "OTHER_INTERFACE", "UNMAPPED"] },
+        "ipv4_connections": { "type": ["integer", "null"], "minimum": 0, "maximum": 16384 },
+        "ipv6_connections": { "type": ["integer", "null"], "minimum": 0, "maximum": 16384 },
+        "loopback_connections": { "type": ["integer", "null"], "minimum": 0, "maximum": 32768 },
+        "local_connections": { "type": ["integer", "null"], "minimum": 0, "maximum": 32768 },
+        "selected_interface_connections": { "type": ["integer", "null"], "minimum": 0, "maximum": 16384 },
+        "other_interface_connections": { "type": ["integer", "null"], "minimum": 0, "maximum": 16384 },
+        "unmapped_ipv4_connections": { "type": ["integer", "null"], "minimum": 0, "maximum": 16384 },
+        "matching_interfaces": { "type": ["integer", "null"], "minimum": 0, "maximum": 256 },
+        "capture_interfaces": { "type": ["integer", "null"], "minimum": 0, "maximum": 8 },
+        "candidate_interfaces": { "type": ["integer", "null"], "minimum": 0, "maximum": 8 },
+        "capture_open_failures": { "type": ["integer", "null"], "minimum": 0, "maximum": 8 },
+        "candidate_limit_reached": { "type": "boolean" },
+        "loopback_capture_available": { "type": ["boolean", "null"] },
+        "ipv6_capture_supported": { "type": "boolean", "const": false }
+      }
+    },
+    "NetworkQueryStatus": { "type": "string", "enum": ["UNMEASURED", "OK", "FAILED", "TRUNCATED"] },
+
     "CaptureStatus": {
       "type": "object",
       "additionalProperties": false,
@@ -652,6 +678,7 @@
       "required": ["state", "npcap_installed", "ffxiv_running", "profile_status"],
       "properties": {
         "candidate_validation_enabled": { "type": "boolean" },
+        "network_path": { "$ref": "#/$defs/NetworkPath" },
         "candidate_profile_id": { "type": ["string", "null"] },
         "candidate_observation_count": { "type": "integer", "minimum": 0, "maximum": 20000 },
         "candidate_hypotheses": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/CandidateHypothesis" }, "description": "Hypotheses declared by the candidate profile matching the running client, so the Desktop can label the research whitelist by purpose. Empty when no candidate profile matches. Display data only: it never affects matching, eligibility or evidence." },

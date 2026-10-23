@@ -2069,6 +2069,36 @@ private Q_SLOTS:
     // J-4: the offline backend answers every message of the contract, or refuses it on
     // purpose - never with 「模拟后端不支持该消息」, the answer to a message it forgot.
     // Event and Error are what the Collector sends; nobody requests them.
+    void nativeImportPreservesNestedProvenanceAndHonorsClearing()
+    {
+        mr::MockBackend backend;
+        const QJsonObject metadata{{"source_name", "original.csv"},
+                                   {"source_recorded_at", "2026-10-08 18:00:00"},
+                                   {"source_recorded_at_utc", "2026-10-08T10:00:00.000Z"}};
+        QJsonObject row{{"duty_name", "Imported duty"}, {"import_metadata", metadata}};
+        auto preview = [&](const QJsonObject &candidate) {
+            return ask(backend, QStringLiteral("PreviewRunImport"),
+                       {{"source_kind", "JSON"}, {"source_name", "export.json"},
+                        {"time_zone", "+09:00"}, {"rows", QJsonArray{candidate}}});
+        };
+        const Answer original = preview(row);
+        QVERIFY2(original.ok, qPrintable(original.message));
+        const QJsonObject first = original.payload.value("rows").toArray().at(0).toObject();
+        QVERIFY(first.value("errors").toArray().isEmpty());
+        const QJsonObject saved = first.value("run").toObject().value("import_metadata").toObject();
+        QCOMPARE(saved.value("source_name"), metadata.value("source_name"));
+        QCOMPARE(saved.value("source_recorded_at"), metadata.value("source_recorded_at"));
+        QCOMPARE(saved.value("source_recorded_at_utc"), metadata.value("source_recorded_at_utc"));
+        row.insert("source_recorded_at", QJsonValue(QJsonValue::Null));
+        const Answer cleared = preview(row);
+        QVERIFY(cleared.ok);
+        const QJsonObject clearedRow = cleared.payload.value("rows").toArray().at(0).toObject();
+        const QJsonObject clearedMetadata = clearedRow.value("run").toObject().value("import_metadata").toObject();
+        QVERIFY(clearedMetadata.value("source_recorded_at").isNull());
+        QVERIFY(clearedMetadata.value("source_recorded_at_utc").isNull());
+        QVERIFY(clearedRow.value("candidate").toObject().value("source_recorded_at_utc").isNull());
+    }
+
     void everyContractMessageIsAnsweredOrDeliberatelyRefused()
     {
         QFile schema(QStringLiteral(MR_SOURCE_DIR "/contracts/ipc-v1.schema.json"));

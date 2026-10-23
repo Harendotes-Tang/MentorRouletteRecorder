@@ -16,6 +16,8 @@ Card {
 
     readonly property var shared: Runtime.app.calibration ? Runtime.app.calibration.shared : null
     readonly property string view: section.shared ? section.shared.view : "none"
+    readonly property bool captureSilent: !!Runtime.app.recording
+        && (Runtime.app.recording.silent || Runtime.app.recording.blocked)
     // 已绑定并在记录，但排本与进本仍在核对（plan §18.4）。
     readonly property bool auditPending: !!section.shared && section.shared.auditPending
     // 页面已说明「已使用其他玩家分享的校准」时，此处不再重复标题。
@@ -74,6 +76,7 @@ Card {
         objectName: "sharedCalibrationHeadline"
         Layout.fillWidth: true
         visible: text.length > 0 && !section.headlineShownByCard
+                 && !(section.view === "verifying" && section.captureSilent)
         text: section.shared ? section.shared.headline : ""
         textFormat: Text.PlainText
         color: section.toneColor()
@@ -86,8 +89,9 @@ Card {
         objectName: "sharedCalibrationDetail"
         Layout.fillWidth: true
         // 共享档案记录时，页面上方已原样显示采集服务的说明，此处不再重复；
-        // 但排本与进本仍在核对时，这一句灰字是唯一说明该状态的地方，须照常显示。
+        // 排本与进本仍在核对且捕获正常时保留说明；捕获故障期间不再派发验证指引。
         visible: text.length > 0 && (!section.headlineShownByCard || section.auditPending)
+                 && !(section.view === "verifying" && section.captureSilent)
         text: section.shared ? section.shared.detail : ""
         textFormat: Text.PlainText
         color: Theme.textSecondary

@@ -401,10 +401,9 @@ void AutomaticRecordingController::project(const QVariantMap &c)
 /// Returns false when \a c is not calibrating, so the caller falls through to
 /// the ordinary profile rules.
 ///
-/// None of them calls block(): calibration is a normal, expected patch-day
-/// state, not an incident, so it raises no alert dialog and there is nothing
-/// to acknowledge. It does set the attention flag, because no run is recorded
-/// while it runs and a green badge would be dishonest.
+/// Calibration itself is an expected patch-day state, so it sets attention
+/// without raising an incident. A capture fault during observation takes the
+/// same precedence and incident handling as it does during normal listening.
 bool AutomaticRecordingController::projectCalibration(const QVariantMap &c)
 {
     const QVariant raw = c.value(QStringLiteral("calibration"));
@@ -429,6 +428,22 @@ bool AutomaticRecordingController::projectCalibration(const QVariantMap &c)
         return true;
     }
     if (state == QLatin1String("OBSERVING")) {
+        // 校准观察需要有效的捕获输入；已确认的连接故障优先于排本指引。
+        // 复用正式监听的故障状态，恢复后仍投影同一份校准进度。
+        const QString reason = silentReason(c);
+        if (c.value(QStringLiteral("midstream_suspected")).toBool()
+            || reason == QLatin1String("MIDSTREAM")) {
+            block(c.value(QStringLiteral("ffxiv_process_id")).toString()
+                      + QStringLiteral(":capture:midstream"),
+                  LiveText([c, reason] { return silentMessage(c, reason); }));
+            return true;
+        }
+        if (!reason.isEmpty()) {
+            clearIncident();
+            setState(QStringLiteral("listening_silent"),
+                     LiveText([c, reason] { return silentMessage(c, reason); }));
+            return true;
+        }
         clearIncident();
         // A shared calibration that infers the match waits for the player's consent, and
         // nothing records until they give it; the banner has to send them to the card.

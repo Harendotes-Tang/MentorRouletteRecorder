@@ -36,6 +36,9 @@ public sealed record CaptureServices
     /// <summary>Adapter enumeration.</summary>
     public AdapterEnumerator Adapters { get; init; } = new();
 
+    /// <summary>读取游戏连接的有界路径摘要；原始端点仅保留在检查器内部，测试可注入确定事实。</summary>
+    public NetworkPathInspector NetworkPaths { get; init; } = new();
+
     /// <summary>Creates the capture source for one session.</summary>
     public Func<ICaptureSource>? SourceFactory { get; init; }
 
@@ -384,6 +387,30 @@ public sealed class CaptureController : IDisposable
         // taking that buffer's lock from inside _gate would invert the order and can deadlock.
         var counters = IngressCounters();
 
+        ICaptureSource? pathSource;
+        string? pathAdapterId;
+        long pathGeneration;
+        lock (_gate)
+        {
+            pathSource = _source;
+            pathAdapterId = _run?.Adapter?.Id;
+            pathGeneration = _generation;
+        }
+        // 系统表读取和原生源状态都在控制器锁外完成；迟到的路径结果不归给新会话。
+        // Start/stop also take snapshots while serializing lifecycle changes. Leave those
+        // unmeasured; the next ordinary status read samples host facts outside either gate.
+        var pathStatus = pathSource?.PathStatus ?? CapturePathStatus.Unmeasured;
+        var networkPath = Monitor.IsEntered(_lifecycleGate)
+            ? NetworkPathDiagnosticsSnapshot.Unmeasured with
+            {
+                CaptureInterfaces = pathStatus.OpenInterfaces,
+                CandidateInterfaces = pathStatus.CandidateInterfaces,
+                CaptureOpenFailures = pathStatus.OpenFailures,
+                CandidateLimitReached = pathStatus.CandidateLimitReached,
+                LoopbackCaptureAvailable = pathStatus.LoopbackOpened,
+            }
+            : _services.NetworkPaths.Inspect(game.Running ? game.ProcessId : null, pathAdapterId, pathStatus);
+
         lock (_gate)
         {
             var run = _run;
@@ -454,6 +481,10 @@ public sealed class CaptureController : IDisposable
                 AdapterId = run?.Adapter?.Id,
                 AdapterName = run?.Adapter?.FriendlyName,
                 AdapterMaskedIPv4 = run?.Adapter?.MaskedIPv4 ?? Array.Empty<string>(),
+                NetworkPath = pathGeneration == _generation && ReferenceEquals(pathSource, _source) &&
+                    _game?.ProcessId == game.ProcessId && _game?.StartedAtUtc == game.StartedAtUtc &&
+                    (run is null || run.Observes(game))
+                    ? networkPath : NetworkPathDiagnosticsSnapshot.Unmeasured,
                 ConnectionCount = run?.ConnectionCount ?? 0,
                 PacketsObserved = observed,
                 RawPacketsObserved = ingress.RawPackets,
@@ -707,7 +738,7 @@ public sealed class CaptureController : IDisposable
         }
 
         var adapter = ChooseAdapter(adapters, adapterId);
-        if (!GameTcpConnectionProbe.IsUsableLocalAddress(adapter.BindAddress))
+        if (!CapturePathPlan.IsUsable(adapter))
         {
             throw Refuse(
                 ErrorCodes.BadRequest,
@@ -738,7 +769,8 @@ public sealed class CaptureController : IDisposable
                 });
         }
 
-        return Launch(adapter, targetPid, game, profile, adapterId is not null);
+        return Launch(adapter, targetPid, game, profile, adapterId is not null,
+            CapturePathPlan.Create(adapters, adapter, automatic: adapterId is null));
     }
 
     /// <summary>Stops observing. Refuses when nothing is running, rather than succeeding silently.</summary>
@@ -971,7 +1003,8 @@ public sealed class CaptureController : IDisposable
         int processId,
         GameProcessDetection game,
         ProfileStatusSnapshot profile,
-        bool adapterWasExplicit)
+        bool adapterWasExplicit,
+        CapturePathPlan pathPlan)
     {
         var sessionId = Guid.NewGuid().ToString("D");
         var oodle = ResolveOodleMode();
@@ -1012,7 +1045,7 @@ public sealed class CaptureController : IDisposable
             oodle,
             source.ReadsGameExecutable || oodle == OodleMode.FfxivTcp,
             adapterWasExplicit,
-            _services.Uptime);
+            _services.Uptime) { PathPlan = pathPlan };
 
         var lifecycleStarted = false;
         var sourceEntered = false;
@@ -1046,7 +1079,7 @@ public sealed class CaptureController : IDisposable
                     ReadSettingString(OodleLibrarySetting),
                     game.ExecutablePath,
                     game.Region,
-                    game.GameBuild),
+                    game.GameBuild) { PathPlan = pathPlan },
                 new Observer(this, run, queue, generation));
 
             // A source is allowed to report asynchronously as soon as Start is entered. Make
@@ -1492,26 +1525,62 @@ public sealed class CaptureController : IDisposable
             return;
         }
 
+        CaptureRun run;
+        long generation;
+        CaptureSilentReason reason;
         lock (_gate)
         {
             if (_state != CaptureControllerState.Running ||
-                _run is not { AdapterWasExplicit: false } ||
+                _run is not { AdapterWasExplicit: false } candidate ||
                 _adapterReevaluated ||
-                _silentReason != CaptureSilentReason.NoPacketsOnAdapter)
+                _silentReason is not (CaptureSilentReason.NoPacketsOnAdapter or CaptureSilentReason.NoStreamOwnership))
             {
                 return;
             }
-
+            run = candidate;
+            generation = _generation;
+            reason = _silentReason;
             _adapterReevaluated = true;
+        }
+
+        // Ordinary traffic can conceal a newly created virtual interface. Re-read host
+        // configuration outside the state gate, and restart only if the bounded plan changed.
+        if (reason == CaptureSilentReason.NoStreamOwnership)
+        {
+            var game = DetectGame(force: true);
+            if (!run.Observes(game)) return;
+            var adapters = _services.Adapters.List(game.ProcessId, ReadSettingString(AdapterSetting));
+            var selected = adapters.FirstOrDefault(a => a.Recommended && CapturePathPlan.IsUsable(a));
+            if (selected is null) return;
+            var next = CapturePathPlan.Create(adapters, selected, automatic: true);
+            if (SamePaths(run.PathPlan, next)) return;
+        }
+
+        lock (_gate)
+        {
+            if (_state != CaptureControllerState.Running || generation != _generation ||
+                !ReferenceEquals(run, _run) || _silentReason != reason) return;
             _state = CaptureControllerState.Stopping;
         }
 
         _services.Logger.Write(LogLevel.Warn, "capture", "adapter_reevaluated", new Dictionary<string, object?>
         {
-            ["silent_reason"] = EnumWire<CaptureSilentReason>.Format(CaptureSilentReason.NoPacketsOnAdapter),
+            ["silent_reason"] = EnumWire<CaptureSilentReason>.Format(reason),
         });
         if (Teardown(CaptureEndReason.Unknown))
-            Publish(Snapshot(), "所选网卡上没有看到游戏流量，正在重新选择网卡后重试。");
+            Publish(Snapshot(), reason == CaptureSilentReason.NoPacketsOnAdapter
+                ? "所选网卡上没有看到游戏流量，正在重新选择网卡后重试。"
+                : "检测到网络路径变化，正在重新监听。");
+    }
+
+    private static bool SamePaths(CapturePathPlan? left, CapturePathPlan right)
+    {
+        if (left is null || left.Bindings.Count != right.Bindings.Count) return false;
+        return left.Bindings.All(binding => right.Bindings.Any(other =>
+            CapturePathPlan.NormalizeIdentity(binding.AdapterId).Equals(
+                CapturePathPlan.NormalizeIdentity(other.AdapterId), StringComparison.OrdinalIgnoreCase) &&
+            binding.IsLoopback == other.IsLoopback &&
+            binding.LocalAddresses.ToHashSet().SetEquals(other.LocalAddresses)));
     }
 
     /// <summary>
@@ -2392,6 +2461,8 @@ public sealed class CaptureController : IDisposable
 
         /// <summary>True when the user named this adapter rather than the software choosing it.</summary>
         public bool AdapterWasExplicit { get; }
+
+        public CapturePathPlan? PathPlan { get; init; }
 
         public string CaptureSessionId { get; }
 

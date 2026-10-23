@@ -188,6 +188,9 @@ public sealed record CaptureDiagnosticsSnapshot
     /// <summary>Masked addresses of the adapter in use, for display only.</summary>
     public IReadOnlyList<string> AdapterMaskedIPv4 { get; init; } = Array.Empty<string>();
 
+    /// <summary>Optional endpoint-free path facts; unknown measurements retain null counts.</summary>
+    public NetworkPathDiagnosticsSnapshot NetworkPath { get; init; } = NetworkPathDiagnosticsSnapshot.Unmeasured;
+
     /// <summary>Distinct game connections observed this session.</summary>
     public int ConnectionCount { get; init; }
 
@@ -461,6 +464,8 @@ public static class SanitizedDiagnosticsReport
                 ["fingerprint"] = Fingerprint(snapshot.AdapterId),
                 ["address_count"] = snapshot.AdapterMaskedIPv4.Count,
             },
+
+            ["network_path"] = NetworkPathWire.ToJson(snapshot.NetworkPath),
 
             ["capture"] = new JsonObject
             {

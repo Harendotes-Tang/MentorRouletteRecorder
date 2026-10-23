@@ -135,8 +135,18 @@ public sealed partial class LiveProtocolPipeline
             return;
         }
 
-        _localRebindOwed = null;
-        if (SwapParser(profile) && _popWatchSince is not null)
+        if (!SwapParser(profile))
+        {
+            // A transient session update failure must leave the rebind available for the next message.
+            return;
+        }
+
+        if (string.Equals(_localRebindOwed, owed, StringComparison.Ordinal))
+        {
+            _localRebindOwed = null;
+        }
+
+        if (_popWatchSince is not null)
         {
             // Until now the version it takes over from recorded under the same id.
             _popWatchSince = _clock.UtcNow;

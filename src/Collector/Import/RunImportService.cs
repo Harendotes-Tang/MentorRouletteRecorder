@@ -432,6 +432,15 @@ public sealed partial class RunImportService
         var sourceDay = RunImportCandidateNormalizer.SourceDay(incoming.ImportMetadata?.SourceRecordedAt);
         if (incoming.EnteredAtUtc is null && sourceTime is null && sourceDay is null) return null;
         if (incoming.ContentId is null && string.IsNullOrWhiteSpace(incoming.DutyName)) return null;
+        var entered = incoming.EnteredAtUtc?.ToUniversalTime();
+        // Valid imported timestamps can be at either endpoint of the representable range.
+        // Clip the search window there while preserving its inclusive one-minute boundary.
+        DateTimeOffset? from = entered is { } start
+            ? start < DateTimeOffset.MinValue.AddMinutes(1) ? DateTimeOffset.MinValue : start.AddMinutes(-1)
+            : null;
+        DateTimeOffset? to = entered is { } end
+            ? end > DateTimeOffset.MaxValue.AddMinutes(-1) ? DateTimeOffset.MaxValue : end.AddMinutes(1)
+            : null;
         using var command = _database.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = "SELECT r.run_id FROM mentor_runs r LEFT JOIN run_import_metadata im ON im.run_id = r.run_id " +
@@ -444,8 +453,8 @@ public sealed partial class RunImportService
         command.Parameters.AddWithValue("$content", (object?)incoming.ContentId ?? DBNull.Value);
         command.Parameters.AddWithValue("$name", (object?)incoming.DutyName ?? DBNull.Value);
         command.Parameters.AddWithValue("$entered", (object?)UtcTimestamp.ToTextOrNull(incoming.EnteredAtUtc) ?? DBNull.Value);
-        command.Parameters.AddWithValue("$from", incoming.EnteredAtUtc is { } entered ? UtcTimestamp.ToText(entered.AddMinutes(-1)) : DBNull.Value);
-        command.Parameters.AddWithValue("$to", incoming.EnteredAtUtc is { } enteredAgain ? UtcTimestamp.ToText(enteredAgain.AddMinutes(1)) : DBNull.Value);
+        command.Parameters.AddWithValue("$from", (object?)UtcTimestamp.ToTextOrNull(from) ?? DBNull.Value);
+        command.Parameters.AddWithValue("$to", (object?)UtcTimestamp.ToTextOrNull(to) ?? DBNull.Value);
         command.Parameters.AddWithValue("$source", (object?)UtcTimestamp.ToTextOrNull(sourceTime) ?? DBNull.Value);
         command.Parameters.AddWithValue("$day", (object?)sourceDay ?? DBNull.Value);
         command.Parameters.AddWithValue("$undated", incoming.EnteredAtUtc is null && sourceTime is null ? 1 : 0);

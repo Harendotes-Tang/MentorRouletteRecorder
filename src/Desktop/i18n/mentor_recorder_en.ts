@@ -1290,6 +1290,54 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
 <context>
     <name>CaptureHeroPanel</name>
     <message>
+        <source>检测到的 IPv6 连接暂不支持读取。</source>
+        <translation>Reading the detected IPv6 connections is not supported yet.</translation>
+    </message>
+    <message>
+        <source>网络路径：暂时无法确认。</source>
+        <translation>Network path: unable to confirm for now.</translation>
+    </message>
+    <message>
+        <source>网络路径：游戏通过本机回环连接转接。</source>
+        <translation>Network path: the game is forwarded through a local loopback connection.</translation>
+    </message>
+    <message>
+        <source>网络路径：游戏通过本机转接。</source>
+        <translation>Network path: the game is forwarded locally on this PC.</translation>
+    </message>
+    <message>
+        <source>网络路径：游戏连接经过多个网卡。</source>
+        <translation>Network path: game connections use multiple network adapters.</translation>
+    </message>
+    <message>
+        <source>网络路径：游戏连接在当前网卡上。</source>
+        <translation>Network path: game connections use the current network adapter.</translation>
+    </message>
+    <message>
+        <source>网络路径：游戏连接在其他网卡上。</source>
+        <translation>Network path: game connections use another network adapter.</translation>
+    </message>
+    <message>
+        <source>网络路径：暂未找到游戏连接所在的网卡。</source>
+        <translation>Network path: the network adapter carrying game connections has not been identified yet.</translation>
+    </message>
+    <message>
+        <source>网络路径：仅检测到 IPv6 连接，当前暂不支持读取。</source>
+        <translation>Network path: only IPv6 connections detected. Reading these connections is not supported yet.</translation>
+    </message>
+    <message>
+        <source>网络路径：暂未检测到游戏连接。</source>
+        <translation>Network path: no game connections detected yet.</translation>
+    </message>
+    <message>
+        <source>部分网络路径未能监听，请重新检测网卡或导出诊断报告。</source>
+        <translation>Some network paths could not be monitored. Check adapters again or export a diagnostic report.</translation>
+    </message>
+    <message>
+        <source>网卡较多，目前仅监听部分候选路径。</source>
+        <translation>There are many network adapters, so only some candidate paths are being monitored.</translation>
+    </message>
+    <message>
         <source>从 npcap.com 下载安装包（需要管理员权限）。</source>
         <translation>Download the installer from npcap.com (needs administrator rights).</translation>
     </message>
@@ -2518,9 +2566,9 @@ SHA256: %3</translation>
         <translation>You&apos;ve already reconnected to the game, but the app still couldn&apos;t read the information from the start of the connection. Close any game accelerator, VPN and downloads in progress, restart this app and try again; if it&apos;s still the same, export a diagnostic report.</translation>
     </message>
     <message>
-        <source>看到了网络流量，但无法确认这些连接属于游戏。请确认没有使用加速器或代理；若仍然如此，请尝试以管理员身份运行本软件后重新开始。</source>
+        <source>看到了网络流量，但还无法确认游戏连接，暂时不能校准或自动记录。请点“重新检测网卡”；使用加速器或代理时，可尝试切换连接模式后重新启动游戏。</source>
         <comment>capture.hint.no_ownership</comment>
-        <translation>Network traffic is visible, but these connections can&apos;t be confirmed as the game&apos;s. Make sure no game accelerator or proxy is in use; if it&apos;s still the same, try running this app as administrator and start again.</translation>
+        <translation>Network traffic is visible, but the game&apos;s connections have not been identified, so calibration and automatic recording cannot continue. Click “Check adapters again”. If you use a game accelerator or proxy, you can try another connection mode and then restart the game.</translation>
     </message>
     <message>
         <source>所选网卡上没有看到游戏流量，可能使用了加速器或 VPN。请在「捕获诊断」点「重新检测网卡」，再按网卡提示操作；也可以关闭加速器后重新登录游戏。</source>
@@ -7034,6 +7082,10 @@ Recorder</translation>
 </context>
 <context>
     <name>NoteImageStrip</name>
+    <message>
+        <source>移除</source>
+        <translation>Remove</translation>
+    </message>
     <message>
         <source>待保存</source>
         <translation>Unsaved</translation>

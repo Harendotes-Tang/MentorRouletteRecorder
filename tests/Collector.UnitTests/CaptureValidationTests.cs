@@ -58,10 +58,11 @@ public sealed class CaptureValidationTests
     }
 
     [Fact]
-    public void MultipleTrafficAdaptersAreNotGuessed()
+    public void AutomaticValidationRetainsEveryUsableTrafficAdapter()
     {
         using var db = new TestDatabase();
-        var services = Services(() => Game());
+        var source = new FakeCaptureSource();
+        var services = Services(() => Game(), source);
         services = services with { Trace = services.Trace with
         {
             Adapters = new AdapterEnumerator(new FakeAdapterProvider()
@@ -70,7 +71,12 @@ public sealed class CaptureValidationTests
         } };
         using var controller = new CaptureValidationController(db.Path, new(), services);
         controller.Start();
-        Until(controller, "reason", "WAITING_ADAPTER");
+        Until(controller, "state", "RECORDING");
+        var plan = Assert.IsType<CapturePathPlan>(source.LastOptions!.PathPlan);
+        Assert.True(plan.Automatic);
+        Assert.Equal(new[] { "a", "b" }, plan.Bindings.Select(binding => binding.AdapterId));
+        controller.Stop();
+        Until(controller, "state", "COMPLETED");
     }
 
     /// <summary>

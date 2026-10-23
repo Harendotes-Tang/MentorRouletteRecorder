@@ -46,6 +46,39 @@ def load_sample_names():
 
 
 class ParseCnCsvTests(unittest.TestCase):
+    def test_header_only_or_unnamed_source_is_rejected(self):
+        for text in ("key,0\n#,Name\nstr,str\n", "key,0\n#,Name\nstr,str\n1,\n"):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                generate.parse_cn_csv(text)
+
+    def test_empty_cn_download_does_not_replace_existing_output(self):
+        with tempfile.TemporaryDirectory() as root:
+            output = os.path.join(root, "cn.2026-10-23.json")
+            with open(output, "w", encoding="utf-8") as handle:
+                handle.write("existing catalogue")
+            with mock.patch.object(generate, "fetch_english_rows", return_value=(load_sample_rows(), [], "a", "pinned")), \
+                    mock.patch.object(generate, "name_matching_preferences", return_value={}), \
+                    mock.patch.object(generate, "http_get", return_value=b"key,0\n#,Name\nstr,str\n"), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                code = generate.main(["--out-dir", root, "--raw-dir", os.path.join(root, "raw"),
+                                      "--version", "2026-10-23"])
+            self.assertEqual(1, code)
+            with open(output, encoding="utf-8") as handle:
+                self.assertEqual("existing catalogue", handle.read())
+            self.assertFalse(os.path.exists(os.path.join(root, "global.2026-10-23.json")))
+
+    def test_nonempty_cn_names_without_matching_ids_do_not_write_catalogues(self):
+        with tempfile.TemporaryDirectory() as root:
+            with mock.patch.object(generate, "fetch_english_rows", return_value=(load_sample_rows(), [], "a", "pinned")), \
+                    mock.patch.object(generate, "name_matching_preferences", return_value={}), \
+                    mock.patch.object(generate, "fetch_chinese_names", return_value=({999999: "unknown"}, "url", "b")), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                code = generate.main(["--out-dir", root, "--raw-dir", os.path.join(root, "raw"),
+                                      "--version", "2026-10-23"])
+            self.assertEqual(1, code)
+            self.assertFalse(os.path.exists(os.path.join(root, "cn.2026-10-23.json")))
+            self.assertFalse(os.path.exists(os.path.join(root, "global.2026-10-23.json")))
+
     def test_reads_names_by_row_id_and_skips_blanks(self):
         names = load_sample_names()
 

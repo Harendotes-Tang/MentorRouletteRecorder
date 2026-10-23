@@ -181,7 +181,8 @@ public sealed partial class CaptureValidationController : IDisposable
             {
                 var npcap = _services.Trace.Npcap.Detect();
                 if (!npcap.Usable) throw new CollectorException(ErrorCodes.NpcapMissing, CollectorTexts.CaptureValidationNpcapUnavailable());
-                var session = new Session(adapterId ?? _services.RememberedAdapterId, lease, npcap);
+                var session = new Session(adapterId ?? _services.RememberedAdapterId,
+                    adapterWasExplicit: adapterId is not null, lease, npcap);
                 _session = session;
                 SetState("WAITING", "WAITING_GAME", CollectorTexts.CaptureValidationWaitingGame());
                 var snapshot = Snapshot();
@@ -278,19 +279,21 @@ public sealed partial class CaptureValidationController : IDisposable
                 }
 
                 var game = LocateWaiting(s);
-                var adapter = Candidate(s, game);
-                if (adapter is null)
+                var candidate = Candidate(s, game);
+                if (candidate is null)
                 {
                     await Task.Delay(_services.PollInterval, s.Stop.Token).ConfigureAwait(false);
                     continue;
                 }
                 // Recheck the complete identity and TCP table immediately before source creation/start.
                 var checkedGame = LocateWaiting(s);
-                var checkedAdapter = Candidate(s, checkedGame);
-                if (checkedAdapter is null || checkedGame.ProcessId != game.ProcessId ||
+                var checkedCandidate = Candidate(s, checkedGame);
+                var adapter = candidate.Adapter;
+                if (checkedCandidate is null || checkedGame.ProcessId != game.ProcessId ||
                     checkedGame.StartedAtUtc != game.StartedAtUtc || checkedGame.ExecutablePath != game.ExecutablePath ||
                     checkedGame.GameBuild != game.GameBuild || checkedGame.Region != game.Region ||
-                    checkedAdapter.Id != adapter.Id || !Equals(checkedAdapter.BindAddress, adapter.BindAddress))
+                    checkedCandidate.Adapter.Id != adapter.Id || !Equals(checkedCandidate.Adapter.BindAddress, adapter.BindAddress) ||
+                    !SamePaths(candidate.Plan, checkedCandidate.Plan))
                 {
                     await Task.Delay(_services.PollInterval, s.Stop.Token).ConfigureAwait(false);
                     continue;
@@ -318,7 +321,7 @@ public sealed partial class CaptureValidationController : IDisposable
                 observer = new Observer(queue, sink, (reason, ex) => Fault(s, ex, reason: reason));
                 try { source.Start(new CaptureStartOptions(s.Id, game.ProcessId!.Value, adapter.BindAddress, adapter.Id,
                     OodleMode.FfxivTcp, null, game.ExecutablePath, game.Region, game.GameBuild,
-                    AllowCandidateOodleSignature: true), observer); }
+                    AllowCandidateOodleSignature: true) { PathPlan = checkedCandidate.Plan }, observer); }
                 catch (Exception ex) { Fault(s, ex); }
                 lock (_gate)
                 {
@@ -458,7 +461,7 @@ public sealed partial class CaptureValidationController : IDisposable
         }
     }
 
-    private CaptureAdapterView? Candidate(Session s, GameProcessDetection game)
+    private CaptureCandidate? Candidate(Session s, GameProcessDetection game)
     {
         // Whether or not another client is listed to choose from: with none listed no choice is
         // asked for, and the wait is still for the restart this validation requested.
@@ -474,13 +477,11 @@ public sealed partial class CaptureValidationController : IDisposable
             // must not suggest it will (review finding H-9).
             return Wait("WAITING_REGION", CollectorTexts.CaptureValidationWaitingRegion());
         var adapters = _services.Trace.Adapters.List(game.ProcessId, s.AdapterId);
-        if (s.AdapterId is null && adapters.Count(a => a.CarriesGameTraffic && a.IsUp && !a.IsLoopback &&
-                GameTcpConnectionProbe.IsUsableLocalAddress(a.BindAddress)) > 1)
-            return Wait("WAITING_ADAPTER", CollectorTexts.CaptureValidationWaitingAdapterAmbiguous());
         var selected = s.AdapterId is not null ? AdapterEnumerator.Find(adapters, s.AdapterId) :
             adapters.Where(a => a.Recommended).Take(2).ToArray() is { Length: 1 } recommended ? recommended[0] : null;
-        if (selected is null || !selected.IsUp || selected.IsLoopback || !GameTcpConnectionProbe.IsUsableLocalAddress(selected.BindAddress))
+        if (selected is null || !CapturePathPlan.IsUsable(selected))
             return Wait("WAITING_ADAPTER", CollectorTexts.CaptureValidationWaitingAdapter());
+        var plan = CapturePathPlan.Create(adapters, selected, automatic: !s.AdapterWasExplicit);
         s.AdapterId ??= selected.Id;
         var identity = (game.ProcessId.Value, game.StartedAtUtc);
         if (s.BlockedClients.Contains(identity))
@@ -488,7 +489,7 @@ public sealed partial class CaptureValidationController : IDisposable
             s.RestartFrom = game;
             return Wait("WAITING_RESTART", CollectorTexts.CaptureValidationWaitingRestartConnected());
         }
-        var count = _services.Trace.TcpConnectionCounter(game.ProcessId.Value, selected.BindAddress);
+        var count = _services.Trace.CountConnections(game.ProcessId.Value, selected, plan);
         if (count is null or < 0) return Wait("WAITING_CONNECTION_CHECK", CollectorTexts.CaptureValidationWaitingConnectionCheck());
         if (count > 0)
         {
@@ -496,8 +497,17 @@ public sealed partial class CaptureValidationController : IDisposable
             s.RestartFrom = game;
             return Wait("WAITING_RESTART", CollectorTexts.CaptureValidationWaitingRestartConnected());
         }
-        return selected;
+        return new CaptureCandidate(selected, plan);
     }
+
+    private static bool SamePaths(CapturePathPlan first, CapturePathPlan second) =>
+        first.Automatic == second.Automatic && first.Bindings.Count == second.Bindings.Count &&
+        first.Bindings.All(binding => second.Bindings.FirstOrDefault(other =>
+                string.Equals(CapturePathPlan.NormalizeIdentity(binding.AdapterId),
+                    CapturePathPlan.NormalizeIdentity(other.AdapterId), StringComparison.OrdinalIgnoreCase)) is { } other &&
+            binding.IsLoopback == other.IsLoopback && binding.LocalAddresses.ToHashSet().SetEquals(other.LocalAddresses));
+
+    private sealed record CaptureCandidate(CaptureAdapterView Adapter, CapturePathPlan Plan);
 
     private async Task WriteMarkersAsync(Session s)
     {
@@ -516,7 +526,7 @@ public sealed partial class CaptureValidationController : IDisposable
 
     /// <param name="reason">The WAITING_* reason token.</param>
     /// <param name="message">The whole sentence, its "仅验证，不自动记录。" opening included.</param>
-    private CaptureAdapterView? Wait(string reason, UserText message)
+    private CaptureCandidate? Wait(string reason, UserText message)
     {
         lock (_gate) if (_state == "WAITING") SetState("WAITING", reason, message);
         return null;
@@ -574,11 +584,12 @@ public sealed partial class CaptureValidationController : IDisposable
         }
     }
 
-    private sealed class Session(string? adapterId, IDisposable lease, NpcapDetection npcap)
+    private sealed class Session(string? adapterId, bool adapterWasExplicit, IDisposable lease, NpcapDetection npcap)
     {
         public readonly string Id = Guid.NewGuid().ToString("D");
         public readonly IDisposable Lease = lease;
         public readonly NpcapDetection Npcap = npcap;
+        public readonly bool AdapterWasExplicit = adapterWasExplicit;
         public readonly CancellationTokenSource Stop = new();
         public readonly HashSet<(int ProcessId, DateTimeOffset? StartedAtUtc)> BlockedClients = new();
         public GameProcessDetection? RestartFrom;

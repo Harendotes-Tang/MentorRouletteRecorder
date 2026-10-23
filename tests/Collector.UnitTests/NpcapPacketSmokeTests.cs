@@ -7,6 +7,33 @@ namespace MentorRecorder.Collector.UnitTests;
 public sealed class NpcapPacketSmokeTests
 {
     [NpcapSmokeFact]
+    public void PlannedNativeInterfacesShareOnePollingReaderAndReleaseAllHandles()
+    {
+        var id = Environment.GetEnvironmentVariable("MR_NPCAP_SMOKE_ADAPTER")!;
+        var adapters = new AdapterEnumerator().List(Environment.ProcessId, id);
+        var selected = AdapterEnumerator.Find(adapters, id);
+        Assert.NotNull(selected);
+        var plan = CapturePathPlan.Create(adapters, selected, automatic: true);
+        var options = new CaptureStartOptions("native-plan-smoke", Environment.ProcessId,
+            selected.BindAddress, selected.Id, OodleMode.LibraryTcp, null, null) { PathPlan = plan };
+        using var reader = new MultiplexedNpcapPacketReader(options);
+        reader.Open();
+        var status = reader.PathStatus;
+        Assert.Equal(plan.Bindings.Count, status.CandidateInterfaces);
+        Assert.True(status.OpenInterfaces > 0);
+        Assert.Equal(status.CandidateInterfaces, status.OpenInterfaces + status.OpenFailures);
+        if (CapturePathPlan.IsCanonicalLoopback(id)) Assert.True(status.LoopbackOpened);
+        var until = Environment.TickCount64 + 250;
+        while (Environment.TickCount64 < until)
+        {
+            reader.Read((_, _) => { });
+            Thread.Sleep(5);
+        }
+        reader.Dispose();
+        Assert.Equal(0, reader.PathStatus.OpenInterfaces);
+    }
+
+    [NpcapSmokeFact]
     public void ExactSelectedAdapterOpensReadsAndClosesWithoutGameOrOodle()
     {
         var ip = IPAddress.Parse(Environment.GetEnvironmentVariable("MR_NPCAP_SMOKE_IP")!);

@@ -420,6 +420,7 @@ private Q_SLOTS:
     void appController_keepsTheDashboardAndDropsTheNumbersWhenItCannotBeRead();
     void appController_speaksNoNumbersWhenTheDashboardWasNeverRead();
     void appController_queuesAResultQuestionRaisedWhileTheDialogIsBusy();
+    void appController_dropsQueuedResultQuestionsWhenDisabled();
     void appController_retriesAResultConfirmationAfterARevisionConflict();
     void appController_adoptsTheRevisionARunUpdatedCarries();
     void appController_runsTheDailyBackupOnTheFirstConnection();
@@ -1168,6 +1169,28 @@ void TtsServiceTests::appController_queuesAResultQuestionRaisedWhileTheDialogIsB
                                        freshRun(QStringLiteral("run-first"), true)));
     QTest::qWait(150);
     QCOMPARE(asked.count(), 2);
+}
+
+void TtsServiceTests::appController_dropsQueuedResultQuestionsWhenDisabled()
+{
+    mr::AppSettings settings;
+    settings.setConfirmPrompt(true);
+    EventOnlyBackend backend;
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, kSilentSpeech);
+    QSignalSpy asked(&controller, &mr::AppController::resultConfirmationRequested);
+    QTRY_VERIFY_WITH_TIMEOUT(controller.recovery()->identityVerified(), 3000);
+    backend.emitEvent(runFinishedEvent(QStringLiteral("UNKNOWN_FINAL_STATE"),
+                                       freshRun(QStringLiteral("run-first"), true)));
+    QTRY_COMPARE(asked.count(), 1);
+    controller.resultConfirmationShown(QStringLiteral("run-first"));
+    backend.emitEvent(runFinishedEvent(QStringLiteral("UNKNOWN_FINAL_STATE"),
+                                       freshRun(QStringLiteral("run-second"), true)));
+    settings.setConfirmPrompt(false);
+    controller.resultConfirmationClosed();
+    QCOMPARE(asked.count(), 1);
+    settings.setConfirmPrompt(true);
+    controller.resultConfirmationClosed();
+    QCOMPARE(asked.count(), 1);
 }
 
 /// The dialog sends the revision run_finished handed it. Any automatic

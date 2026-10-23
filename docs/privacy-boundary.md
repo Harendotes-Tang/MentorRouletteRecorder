@@ -121,9 +121,11 @@ Machina.FFXIV 较新的版本支持 **Deucalion**，即一个被注入到游戏�
 具体约束：
 
 1. 本项目不使用 Machina 的 `FFXIVNetworkMonitor`，因此不存在可以开启 Deucalion 的监视器。
-   报文由 `src/Collector/Capture/NpcapPacketReader.cs` 读取：经 SharpPcap 打开所选网卡对应的唯一一个 Npcap 设备
-   （不开启混杂模式），设置过滤器 `ip and tcp and host <所选网卡的本机地址>`，以非阻塞方式逐包读取。
-   Machina.FFXIV 只承担三项工作：读取系统 TCP 表以确认连接归属、获取 Oodle 解压函数、在已确认归属的连接上
+   报文由 `src/Collector/Capture/NpcapPacketReader.cs` 读取：经 SharpPcap 每设备只打开一个 Npcap 句柄
+   （不开启混杂模式），以非阻塞方式逐包读取。自动模式最多观察 8 个接口，每接口最多 16 个 IPv4 地址；
+   手动指定接口时只观察该接口。普通接口按身份和本机地址过滤，规范回环设备 `NPF_Loopback` 使用 `ip and tcp`。
+   所有接口共用原有应用缓冲区、归属判断和解码器，不因接口增加而放大原始报文预算。
+   系统连接诊断直接有界读取 IPv4/IPv6 OWNER_PID TCP 表；Machina.FFXIV 承担 IPv4 连接归属查询、获取 Oodle 解压函数、在已确认归属的连接上
    做 TCP 重组与报文包解码（`MachinaCaptureSource.cs`、`FirstPacketMonitor.cs`）。静态规则 `DEU-001` 禁止把 `UseDeucalion` 设为开启，
    `DEU-002` 与 `DEU-004` 禁止调用 Deucalion 的接口及其注入载荷的加载入口。
 2. 只经由 Npcap 抓包，不存在 raw socket 实现，也不提供 raw socket 回退。Npcap 不可用时直接返回
@@ -244,7 +246,8 @@ Machina 在释放库时会尝试删除自己产生的临时副本，其诊断信
 
 ## 5. 原始报文的处理
 
-- 抓包过滤器只按本机地址过滤（`ip and tcp and host <所选网卡的本机地址>`），不按远端地址过滤，
+- 普通接口的抓包过滤器只按有界本机地址集合过滤（`ip and tcp and (host <地址> or …)`）；
+  规范回环接口只过滤 IPv4/TCP。不按远端地址过滤，
   以免在新连接建立与过滤条件更新之间漏掉 Oodle TCP 初始化数据（诊断日志记为 `remote_ip_filter = false`）。
   Npcap 因而会把同一本地网卡上其他程序的 TCP 报文短暂送入进程内的有界缓冲区；只有系统 TCP 表确认属于
   游戏进程的连接才会被解码，其余报文在缓冲区中丢弃。无关包不进入业务解析、trace、日志或数据库，也不会落盘。

@@ -16,6 +16,8 @@ internal interface INpcapPacketReader : IDisposable
 
     /// <summary>Packets Npcap reported as lost so far, at the driver or at the interface.</summary>
     long DroppedPackets => 0;
+
+    CapturePathStatus PathStatus => CapturePathStatus.Unmeasured;
 }
 
 /// <summary>
@@ -39,24 +41,36 @@ internal sealed class NpcapPacketReader : INpcapPacketReader
     public const string AdapterListChangedMessage =
         "网卡列表已经发生变化，刚才选中的网卡现在找不到了。正在重新扫描并挑选承载游戏流量的网卡，请稍候。";
 
-    private readonly CaptureStartOptions _options;
+    private readonly CaptureInterfaceBinding _binding;
     private readonly Func<IReadOnlyList<LibPcapLiveDevice>> _listDevices;
     private LibPcapLiveDevice? _device;
     private long _lastStatistics;
     private long _dropped, _received;
+    private bool _attempted, _opened, _failed;
 
     /// <summary>Creates a reader over the machine's live device list.</summary>
     /// <param name="options">Session and adapter selection.</param>
     /// <param name="listDevices">Device enumeration; null enumerates the live machine on every call.</param>
     internal NpcapPacketReader(
         CaptureStartOptions options, Func<IReadOnlyList<LibPcapLiveDevice>>? listDevices = null)
+        : this(options, new CaptureInterfaceBinding(options.AdapterId ?? string.Empty,
+            options.BindAddress is { } address ? new[] { address } : Array.Empty<IPAddress>(),
+            CapturePathPlan.IsCanonicalLoopback(options.AdapterId)), listDevices)
     {
-        _options = options;
+    }
+
+    internal NpcapPacketReader(CaptureStartOptions options, CaptureInterfaceBinding binding,
+        Func<IReadOnlyList<LibPcapLiveDevice>>? listDevices = null)
+    {
+        _binding = binding;
         _listDevices = listDevices ?? EnumerateDevices;
     }
 
     /// <inheritdoc />
     public long DroppedPackets => Interlocked.Read(ref _dropped);
+
+    public CapturePathStatus PathStatus => !_attempted ? CapturePathStatus.Unmeasured :
+        new(1, _opened ? 1 : 0, _failed ? 1 : 0, false, _binding.IsLoopback && _opened);
 
     /// <summary>
     /// Enumerates the machine's capture devices freshly on every call.
@@ -88,12 +102,19 @@ internal sealed class NpcapPacketReader : INpcapPacketReader
 
     public void Open()
     {
-        var address = _options.BindAddress;
-        if (address?.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
-            throw new InvalidOperationException("未确定所选网卡的 IPv4 地址。");
-        var devices = _listDevices().Where(d =>
-            Matches(d.Name, d.Addresses.Select(a => a.Addr?.ipAddress), _options.AdapterId, address)).ToArray();
-        if (devices.Length != 1) throw AdapterListChanged(_options.AdapterId);
+        if (_device is not null) throw new InvalidOperationException("Npcap 资源尚未释放。");
+        _attempted = true;
+        _failed = false;
+        try { OpenDevice(); }
+        catch { _failed = true; throw; }
+    }
+
+    private void OpenDevice()
+    {
+        ValidateBinding(_binding);
+        var devices = _listDevices().Where(d => Matches(d.Name,
+            d.Addresses.Select(a => a.Addr?.ipAddress), _binding)).ToArray();
+        if (devices.Length != 1) throw AdapterListChanged(_binding.AdapterId);
         // Retain the selected object even if Open fails midway, so rollback can close it.
         _device = devices[0];
         _device.Open(new DeviceConfiguration
@@ -106,11 +127,41 @@ internal sealed class NpcapPacketReader : INpcapPacketReader
             // connection: it cannot be framed again until the player logs in afresh.
             KernelBufferSize = 16 * 1024 * 1024,
         });
-        _device.Filter = $"ip and tcp and host {address}";
+        _device.Filter = BuildFilter(_binding);
         _device.NonBlockingMode = true;
         if (!_device.NonBlockingMode) throw new InvalidOperationException("无法启用安全停止所需的非阻塞捕获。");
         if ((int)_device.LinkType is not (0 or 1 or 12 or 101 or 108 or 228))
             throw new InvalidOperationException("所选网卡的数据链路类型不受支持。");
+        if (_binding.IsLoopback && (int)_device.LinkType is not (0 or 108))
+            throw new InvalidOperationException("回环网卡的数据链路类型不受支持。");
+        _opened = true;
+    }
+
+    internal static void ValidateBinding(CaptureInterfaceBinding binding)
+    {
+        if (binding.IsLoopback != CapturePathPlan.IsCanonicalLoopback(binding.AdapterId) ||
+            binding.LocalAddresses.Count > CapturePathPlan.MaxAddressesPerInterface ||
+            binding.LocalAddresses.Any(address => !CapturePathPlan.IsUsableAddress(address)) ||
+            (!binding.IsLoopback && (binding.LocalAddresses.Count == 0 ||
+                binding.LocalAddresses.Any(IPAddress.IsLoopback))))
+            throw new InvalidOperationException("未确定所选网卡的 IPv4 地址。");
+    }
+
+    internal static string BuildFilter(CaptureInterfaceBinding binding)
+    {
+        ValidateBinding(binding);
+        return binding.IsLoopback ? "ip and tcp" :
+            "ip and tcp and (" + string.Join(" or ", binding.LocalAddresses.Distinct()
+                .Select(address => $"host {address}")) + ")";
+    }
+
+    internal static bool Matches(string name, IEnumerable<IPAddress?> addresses, CaptureInterfaceBinding binding)
+    {
+        if (binding.IsLoopback) return CapturePathPlan.IsCanonicalLoopback(binding.AdapterId) &&
+            CapturePathPlan.IsCanonicalLoopback(name);
+        var available = addresses.ToHashSet();
+        return binding.LocalAddresses.Count > 0 && binding.LocalAddresses.All(address =>
+            Matches(name, available, binding.AdapterId, address));
     }
 
     internal static bool Matches(string name, IEnumerable<IPAddress?> addresses, string? id, IPAddress address)
@@ -157,5 +208,6 @@ internal sealed class NpcapPacketReader : INpcapPacketReader
     {
         _device?.Close();
         _device = null;
+        _opened = false;
     }
 }

@@ -118,8 +118,10 @@ public sealed class SharedCalibrationSwapTimingTests : IDisposable
         Assert.NotEqual(runs[0].ProtocolProfileId, runs[1].ProtocolProfileId);
     }
 
-    [Fact]
-    public async Task ASwapThatLandsWhileThePlayerIsAlreadyQueuedStillRecordsTheRun()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ASwapThatLandsWhileThePlayerIsAlreadyQueuedStillRecordsTheRun(bool failFirstSwap)
     {
         var pipeline = QueueInferredLocalWithBetterCodePublished();
         await Bed.Idle(pipeline);
@@ -144,7 +146,23 @@ public sealed class SharedCalibrationSwapTimingTests : IDisposable
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
         Assert.Null(pipeline.CalibrationStatus().Shared.BoundAtUtc);
 
+        if (failFirstSwap)
+        {
+            using var reject = _bed.Db.Database.CreateCommand();
+            reject.CommandText = "CREATE TEMP TRIGGER reject_profile_update BEFORE UPDATE OF protocol_profile_id ON capture_sessions " +
+                "BEGIN SELECT RAISE(ABORT, 'transient profile update failure'); END;";
+            reject.ExecuteNonQuery();
+        }
+
         await FeedSettling(pipeline, session, Bed.From(evening, 400_000));
+        if (failFirstSwap)
+        {
+            Assert.Null(pipeline.CalibrationStatus().Shared.BoundAtUtc);
+            using var recover = _bed.Db.Database.CreateCommand();
+            recover.CommandText = "DROP TRIGGER reject_profile_update;";
+            recover.ExecuteNonQuery();
+            await FeedSettling(pipeline, session, CalibrationObserverTests.Noise(440_000, 450_000));
+        }
         var runs = new RunRepository(_bed.Db.Database).Query(null, null, 1, 50).Items.OrderBy(run => run.MatchedAtUtc).ToArray();
         Assert.Equal(2, runs.Length);
         Assert.All(runs, run => Assert.NotNull(run.EnteredAtUtc));

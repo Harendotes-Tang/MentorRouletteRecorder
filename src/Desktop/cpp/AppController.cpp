@@ -1820,6 +1820,11 @@ void AppController::emitNextResultConfirmation()
 {
     if (m_resultConfirmationBusy)
         return;
+    if (m_settings && !m_settings->confirmPrompt()) {
+        m_queuedResultRuns.clear();
+        m_offeredResultRunIds.clear();
+        return;
+    }
     for (const QJsonObject &run : std::as_const(m_queuedResultRuns)) {
         const QString runId = run.value(QStringLiteral("run_id")).toString();
         if (m_offeredResultRunIds.contains(runId))

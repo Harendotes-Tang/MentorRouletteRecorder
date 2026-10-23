@@ -38,7 +38,7 @@ ColumnLayout {
         Repeater {
             model: strip.rows
 
-            delegate: Rectangle {
+            delegate: AbstractButton {
                 id: thumb
 
                 required property var modelData
@@ -47,15 +47,21 @@ ColumnLayout {
                 objectName: "noteImageThumb"
                 width: strip.thumbSize
                 height: strip.thumbSize
-                radius: Theme.radiusS
-                color: Theme.insetBackground
-                border.width: 1
-                border.color: thumbHover.hovered ? Theme.accent : Theme.insetBorder
+                focusPolicy: Qt.TabFocus
+                hoverEnabled: true
+                Accessible.name: thumb.modelData && thumb.modelData.name ? thumb.modelData.name : ""
+                onClicked: viewer.show(thumb.modelData)
+                background: Rectangle {
+                    radius: Theme.radiusS
+                    color: Theme.insetBackground
+                    border.width: thumb.activeFocus ? 3 : 1
+                    border.color: thumb.hovered || thumb.activeFocus ? Theme.accent : Theme.insetBorder
+                }
                 clip: true
 
                 Image {
                     anchors.fill: parent
-                    anchors.margins: 1
+                    anchors.margins: thumb.activeFocus ? 3 : 1
                     source: thumb.modelData && thumb.modelData.url ? thumb.modelData.url : ""
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true
@@ -76,19 +82,13 @@ ColumnLayout {
                     variant: "accent"
                 }
 
-                HoverHandler { id: thumbHover }
-
-                TapHandler {
-                    gesturePolicy: TapHandler.ReleaseWithinBounds
-                    onTapped: viewer.show(thumb.modelData)
-                }
-
-                ToolTip.visible: thumbHover.hovered && !!(thumb.modelData && thumb.modelData.name)
+                ToolTip.visible: thumb.hovered && !!(thumb.modelData && thumb.modelData.name)
                 ToolTip.delay: 600
                 ToolTip.text: thumb.modelData && thumb.modelData.name ? thumb.modelData.name : ""
 
                 // 移除: sits on the corner so it cannot be mistaken for the picture.
-                Rectangle {
+                AbstractButton {
+                    id: removeButton
                     objectName: "noteImageRemove"
                     visible: strip.editable
                     anchors.top: parent.top
@@ -96,8 +96,21 @@ ColumnLayout {
                     anchors.margins: 3
                     width: 20
                     height: 20
-                    radius: 10
-                    color: removeHover.hovered ? Theme.red : Theme.inverseBackground
+                    focusPolicy: Qt.TabFocus
+                    hoverEnabled: true
+                    Accessible.name: qsTr("移除") + " " + thumb.Accessible.name
+                    onClicked: {
+                        // The delegate may be destroyed synchronously by its owner.
+                        if (activeFocus)
+                            addButton.forceActiveFocus(Qt.TabFocusReason)
+                        strip.removeRequested(thumb.modelData)
+                    }
+                    background: Rectangle {
+                        radius: 10
+                        color: removeButton.hovered ? Theme.red : Theme.inverseBackground
+                        border.width: removeButton.activeFocus ? 2 : 0
+                        border.color: Theme.accent
+                    }
                     opacity: 0.92
 
                     Image {
@@ -110,26 +123,27 @@ ColumnLayout {
                         smooth: true
                     }
 
-                    HoverHandler { id: removeHover }
-
-                    TapHandler {
-                        gesturePolicy: TapHandler.ReleaseWithinBounds
-                        onTapped: strip.removeRequested(thumb.modelData)
-                    }
                 }
             }
         }
 
         // 添加图片 tile, a dashed well the size of a thumbnail.
-        Rectangle {
+        AbstractButton {
+            id: addButton
             objectName: "noteImageAdd"
             visible: strip.editable
             width: strip.thumbSize
             height: strip.thumbSize
-            radius: Theme.radiusS
-            color: addHover.hovered ? Theme.fill : "transparent"
-            border.width: 1
-            border.color: addHover.hovered ? Theme.accent : Theme.borderStrong
+            focusPolicy: Qt.TabFocus
+            hoverEnabled: true
+            Accessible.name: qsTr("添加图片")
+            onClicked: strip.addRequested()
+            background: Rectangle {
+                radius: Theme.radiusS
+                color: addButton.hovered ? Theme.fill : "transparent"
+                border.width: addButton.activeFocus ? 3 : 1
+                border.color: addButton.hovered || addButton.activeFocus ? Theme.accent : Theme.borderStrong
+            }
 
             Column {
                 anchors.centerIn: parent
@@ -153,12 +167,6 @@ ColumnLayout {
                 }
             }
 
-            HoverHandler { id: addHover }
-
-            TapHandler {
-                gesturePolicy: TapHandler.ReleaseWithinBounds
-                onTapped: strip.addRequested()
-            }
         }
     }
 
@@ -189,6 +197,7 @@ ColumnLayout {
             parent: Overlay.overlay
             anchors.centerIn: parent
             modal: true
+            focus: true
             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
             padding: 12
             width: Math.min(parent ? parent.width - 48 : 800, 1100)
