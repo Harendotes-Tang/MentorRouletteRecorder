@@ -1,203 +1,42 @@
 {
-  "version": "1.8.0-beta.1",
+  "version": "1.8.0-beta.3",
   "entries": [
     {
       "tag": "统计浮窗",
-      "title": "游戏内统计浮窗与结果弹窗",
-      "summary": "浮窗可常驻游戏画面并自定义模块，副本结束后在浮窗旁确认结果。",
-      "bodySha256": "0cf089d1b4a142720c69ed953c0addd3a8b8df74c18c798e4d0e34e6558648fc"
+      "title": "浮窗新增排本次数",
+      "summary": "按当日、近七天、近30天或全部查看，旧自定义布局可手动添加。",
+      "bodySha256": "5aef3fefd9d62f68c4e39fd023138f861dadc1fc0f0aeba83e762dbf0d48c42f"
     },
     {
-      "tag": "中途加入",
-      "title": "记录并统计中途加入的副本",
-      "summary": "自动区分开局进入与中途加入并单独统计，不影响既有统计。",
-      "bodySha256": "19f92be8933dea0ccb968ebd658b492c4949059b0ca36995518aab9fcb1b6fe8"
+      "tag": "历史导出",
+      "title": "导出期间继续记录",
+      "summary": "导出从一致快照读取，实时记录可继续写入，保留原筛选与排序。",
+      "bodySha256": "9280a72a8ac0bfe0ac0d32a529ccc30f46c930fd10eb7ff517963946d2d1d0c8"
     },
     {
-      "tag": "待处理",
-      "title": "待处理清单与笔记草稿",
-      "summary": "集中列出待确认的结果与待补的笔记，草稿在异常退出后仍可继续。",
-      "bodySha256": "5abf986c13197938e36a875c6a13d16b0d3d6a6d932cd16388cbd93e4ba3b10a"
-    },
-    {
-      "tag": "导入",
-      "title": "导入可分页核对整批记录",
-      "summary": "每页 100 条翻页核对；只有日期的开始时间按原记录日期保存。",
-      "bodySha256": "79c475b8e3bbefc88e8add2e7b99ba21d933c109cc7f558580f562ecea431592"
-    },
-    {
-      "tag": "成就进度",
-      "title": "成就圆环可以跑满多圈",
-      "summary": "超过目标后从顶端开始下一圈，每完成一整圈放一次彩带。",
-      "bodySha256": "46846aac4cdea8acbfbf8890d4e64623c72e46af17de381b028a5e5847272a2b"
-    },
-    {
-      "tag": "共享校准",
-      "title": "共享校准卡片精简",
-      "summary": "备用操作收入「其他方式」，这一把导随结束前不能更换校准。",
-      "bodySha256": "0203761420f6564903355521c953aeb6bba72c2a9510dd4d5100fc638f161204"
-    },
-    {
-      "tag": "副本统计",
-      "title": "类型饼图单列「极神」",
-      "summary": "极难度的讨伐歼灭战单独成块，比例仍按全部通关次数计算。",
-      "bodySha256": "c2fd6a096db6c9c3728d60ffbf1dbe656f377aef462a177b96a62e27fccc1a6f"
-    },
-    {
-      "tag": "状态提示",
-      "title": "状态未知时不再误报未装 Npcap",
-      "summary": "读到后台状态之前显示「尚未读取」，不再引导重装驱动。",
-      "bodySha256": "6e309af2883c578ae80a2979f9444a99c02c8c294623729c61225b11db78f9e0"
-    },
-    {
-      "tag": "笔记编辑",
-      "title": "编辑器行为与提醒方式一致",
-      "summary": "隐藏主窗口或断开连接时，编辑器收起到待处理并保留草稿。",
-      "bodySha256": "043c6d22436467858d19ca5b833e27af5d22309dc977e4f6bc6ddecf35c3935c",
-      "hidden": true
-    },
-    {
-      "tag": "区服采证",
-      "title": "采证步骤卡片面向玩家显示",
-      "summary": "普通模式只显示网卡、文件位置与通俗说明，维护者模式保留细节。",
-      "bodySha256": "4b12d2ae7439bc16b9b7e28114275525ef4da78ace3470ec1241bec13c538fde",
-      "hidden": true
-    },
-    {
-      "tag": "软件说明",
-      "title": "联网说明补全下载来源",
-      "summary": "补上 GitCode 与 CDN；装好语音即刷新，历史默认从新到旧。",
-      "bodySha256": "fe504b65b134cce3875df7c4b8e45d72d79c2f8d1b3c168afb368e5498dcc856",
-      "hidden": true
-    },
-    {
-      "tag": "服务提示",
-      "title": "后台服务提示去掉术语",
-      "summary": "准备失败时说明可能原因，沿用已启动的服务时在标题栏注明。",
-      "bodySha256": "de2d95006f1662843eb1c0e6b46faf1a107fc3974240f4a7a76a78dcb19290b1",
-      "hidden": true
-    },
-    {
-      "tag": "自动记录",
-      "title": "同一次登录中不再中途停止记录",
-      "summary": "网卡或游戏准备失败时逐次放慢重试，先断网再退出记为中断。",
-      "bodySha256": "94a44a8ebab9b8a01a56419e7de7cf43fc3db06ed73b44acfbf63cb95eb20bba"
-    },
-    {
-      "tag": "校准",
-      "title": "修正校准过程中的多处误判",
-      "summary": "副本内确认校准不再记成中途加入，约 20 把后校准不再停止。",
-      "bodySha256": "710a1523f1aeae8c14c7d698711838da7f565430e86b149d337731adf17a2f7c"
-    },
-    {
-      "tag": "撤回与更新",
-      "title": "撤回的校准重启后仍然有效",
-      "summary": "被撤回的校准码不会重新启用；镜像提示的新版本重启后仍指向镜像。",
-      "bodySha256": "8c0446f57be059494f51fb1f2f1e2a56063687b8d6423e786d34c7e3286c7327",
-      "hidden": true
-    },
-    {
-      "tag": "结果确认",
-      "title": "结果弹窗显示正确的前后次数",
-      "summary": "已作答的结果不再重复询问，继续处理会把编辑器带到前台。",
-      "bodySha256": "d8dfc3860eecb0c07253ffbef65f5f882b26656fb343fddfd5a803a856157b87",
-      "hidden": true
-    },
-    {
-      "tag": "历史记录",
-      "title": "日期范围不再挡住之后的筛选",
-      "summary": "修改匹配日期时估算的进本时间随之移动，恢复的记录计算用时。",
-      "bodySha256": "c7fa2c3d35d8cf1eb09ae90c15853d9cd305795f6735b0dd285daac48c2c67aa",
-      "hidden": true
-    },
-    {
-      "tag": "统计浮窗",
-      "title": "迷你条记住停靠位置",
-      "summary": "隐藏后不再运行动画，修改起始次数或目标不再计作新增。",
-      "bodySha256": "50a7744482c1ea6fa514d12216863df4d20304ab0578f9eec62f50295aeffcf8",
-      "hidden": true
-    },
-    {
-      "tag": "导入",
-      "title": "修改过的表格不再重复导入",
-      "summary": "没有编号的行按内容识别，可能重复的记录不再默认勾选。",
-      "bodySha256": "7e3c4745553413490e980b6087e4fd5207d28f2332ee28de431562a5fa369175"
-    },
-    {
-      "tag": "数据保护",
-      "title": "升级前保留可恢复的数据快照",
-      "summary": "备份未通过完整性核对时不清理旧备份，单条更正损坏只跳过该条。",
-      "bodySha256": "83308f7a11c3912ffc0f2a2dce5c78fb32e27c4860a813cd6875c9da2dd5c12c",
+      "tag": "内部维护",
+      "title": "整理模块与开发检查",
+      "summary": "拆分完成流程与业务目录，兼容旧版批量操作回执。",
+      "bodySha256": "16b0f8e346da7a3a06cc893d120a4e2bfd24c22339fb2a25ad3bdbfed2ae07fa",
       "hidden": true
     },
     {
       "tag": "副本用时",
-      "title": "用时从进入副本时开始计算",
-      "summary": "不再包含匹配到进本之间的等待，进本之前显示「—」。",
-      "bodySha256": "0ec5b709ab16a812d39ad177e9adbecf7b03fb8a17d429423760f9a00f7e8f65"
+      "title": "用时进度采用平均耗时",
+      "summary": "优先使用该副本的平均用时，缺少时使用同类平均，两者都没有时隐藏。",
+      "bodySha256": "492fff1090cec6143dc90c9dba7d76370a33145ba2f5f549d598525d087191d0"
     },
     {
-      "tag": "繁體中文",
-      "title": "缩放时导航文字不再缺笔画",
-      "summary": "150% 等非整数缩放下，「一」等笔画完整显示。",
-      "bodySha256": "c2be70386bcf9540c3139a294c7832906f70684f6736c7883ed84ccf05b9cf23",
-      "hidden": true
+      "tag": "统计浮窗",
+      "title": "已匹配标记完整显示",
+      "summary": "为脉动圆圈预留位置，匹配时铃铛摇动，沙漏流完后翻转。",
+      "bodySha256": "9f09dd72d7db29b2e7032752e9f7a221a522ec446d10f63b0b38fc53af078ed7"
     },
     {
-      "tag": "游戏进程",
-      "title": "只跟随当前 Windows 会话的游戏",
-      "summary": "同机其他账户或会话运行的游戏不再被自动跟随。",
-      "bodySha256": "3eede6185055f6e6fbd05d3989dc30e3e40b53cc018f8eec6321f75e882ebf6a",
-      "hidden": true
-    },
-    {
-      "tag": "安装程序",
-      "title": "拒绝来历不明的子文件夹",
-      "summary": "安装时指出该文件夹名称，删除或移走后重新运行即可。",
-      "bodySha256": "d5adfe797be1f13eee600c5e43078469c03bc7dede72ec20a7e26770bbdc5d92",
-      "hidden": true
-    },
-    {
-      "tag": "系统工具",
-      "title": "进程管理只用系统目录中的工具",
-      "summary": "导入文件中的副本名与分类按纯文本显示。",
-      "bodySha256": "56f31755a819cf05c171b3d15fb6e8a303392b249da89575d2b7b182ab315f19",
-      "hidden": true
-    },
-    {
-      "tag": "安全检查",
-      "title": "开发检查覆盖更多写法",
-      "summary": "补上更多读取、监听和下载写法，下载检查工具时核对完整性。",
-      "bodySha256": "315d6858fbdf4357584359321b8d1fa6c9891653e80a05082a78a3d479f2e4fc",
-      "hidden": true
-    },
-    {
-      "tag": "工具自测",
-      "title": "自测前检查所需组件",
-      "summary": "缺少时给出安装命令，跳过的测试在汇总中列出。",
-      "bodySha256": "72be980f0b1a3778c1e6472abba9e0ae1ad04d4a665cf236dad3d459255ca1d7",
-      "hidden": true
-    },
-    {
-      "tag": "打包",
-      "title": "打包期间源码变化即停止",
-      "summary": "未经解包验证的产物不得公开分发，验证失败时删除产物。",
-      "bodySha256": "21ef2ddb07960c798dff23833611ff422f46d8cd86643b5c94f351480f655e40",
-      "hidden": true
-    },
-    {
-      "tag": "发布镜像",
-      "title": "GitCode 镜像同步发布内容",
-      "summary": "编辑后的发布同步标题、说明与附件，发布事件不再同时上传。",
-      "bodySha256": "630feacbdfe79b361df0e5a575ed65189a21b696512eac3ad953549711a007b3",
-      "hidden": true
-    },
-    {
-      "tag": "公开校准工具",
-      "title": "证据归属与隔离更可靠",
-      "summary": "同一次抓包提交的多份证据不再判为无效，公开仓库同步后生效。",
-      "bodySha256": "de48816f5907525a38b8533bab905326be63fcac0fe7e098cc17c1fa9bc6da1f",
-      "hidden": true
+      "tag": "导出保护",
+      "title": "取消导出时保留原文件",
+      "summary": "写入或校验期间取消时，清理临时文件，保留已有文件。",
+      "bodySha256": "de0345800bfb39ef86385df9e4e4264039eabb68f203c9461f63e8e0a0bee197"
     }
   ]
 }
