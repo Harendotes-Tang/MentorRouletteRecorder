@@ -16,6 +16,7 @@ contracts/*.json -text
 *.png binary
 *.zip binary
 *.db binary
+*.xls binary
 
 # Lucide SVGs: the README lists their SHA-256 as downloaded, so they must round-trip byte-for-byte.
 src/Desktop/resources/icons/lucide/** -text

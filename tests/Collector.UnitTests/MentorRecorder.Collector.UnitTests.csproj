@@ -31,7 +31,6 @@
   <ItemGroup>
     <None Include="..\Fixtures\**\*" Link="Fixtures\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest" />
-    <None Update="Fixtures\Import\picture.xls" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -208,7 +208,7 @@ public sealed class RunImportXlsTests : IDisposable
     {
         Assert.False(File.Exists(Path.Combine(AppContext.BaseDirectory, "SixLabors.ImageSharp.dll")));
         // 固定样本由 HSSF 正常写入 1×1 PNG；生成图片与只读导入的依赖路径不同。
-        var path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "Import", "picture.xls");
+        var path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "import", "picture.xls");
         var row = Assert.Single(RunImportSourceParser.Parse("XLS", path));
         Assert.Empty(row.Errors); Assert.Equal("带图片的合成副本", row.Values["duty_name"]!.GetValue<string>());
         Assert.DoesNotContain(AppDomain.CurrentDomain.GetAssemblies(), assembly => assembly.GetName().Name == "SixLabors.ImageSharp");

@@ -1,12 +1,13 @@
 # 测试样本 / Test Fixtures
 
-本目录存放**三类**离线数据，均不含任何真实报文。本文面向新增或修改测试样本的维护者，说明三类数据的用途、格式与改动要求。
+本目录存放离线测试数据，均不含任何真实报文。本文面向新增或修改测试样本的维护者，说明以下四类数据的用途、格式与改动要求。
 
 ```
 tests/Fixtures/
   *.fixture.json          语义事件固件 —— 驱动状态机（--replay）
   decoded/*.decoded.json  解码报文固件 —— 驱动解析器 + 状态机（--replay-decoded）
   ipc-requests/*.json     IPC 请求样本 —— 契约测试用，不参与重放
+  import/                 记录导入样本 —— 二进制导入文件，不参与重放
 ```
 
 前两类是 [`../../docs/state-machine.md`](../../docs/state-machine.md) 与
@@ -289,3 +290,14 @@ tests/Fixtures/
 并已加入 `tst_ipcrequests` 的消息列表，生成的载荷与此处的 `{}` 逐字相同。三个语音样本的桌面端包装器在 P4b 由桌面端实现
 （`IBackend::getSpeechSettings()` / `updateSpeechSettings()` / `synthesizeSpeech()`），同样已加入消息列表，
 生成的载荷与此处完全一致。
+
+---
+
+# 四、记录导入样本 `import/`
+
+**不是用于重放的测试样本**，存放记录导入测试直接读取的二进制文件，没有 `.sha256` 校验文件，也不计入 `SHA256SUMS`。
+单元测试与集成测试项目都会把它们复制到输出目录的 `Fixtures/import/`。
+
+- `picture.xls`：内含一张 1×1 PNG 图片的合成 XLS 表格，只有一行合成副本记录。
+  `RunImportXlsTests.EmbeddedPictureCanBeIgnoredWithoutLoadingImageSharp` 用它核对：读取导入文件时会忽略嵌入的图片，
+  并且不会加载 ImageSharp。
