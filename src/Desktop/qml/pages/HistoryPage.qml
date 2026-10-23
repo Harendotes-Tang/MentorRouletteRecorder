@@ -290,15 +290,15 @@ Item {
 
     function buildFilter(withoutDates) {
         const filter = { date_field: "history_date" }
-        // Keep the original words for notes; translated names add matches
-        // within the same query, so totals, paging and the calendar agree.
+        // Keep the original words for notes; translated names add the runs
+        // they name within the same query, so totals, paging and the calendar agree.
         const text = searchField.text.trim()
         if (text.length > 0) {
             filter.text = text
-            const nameText = typeof Runtime.names !== "undefined" && Runtime.names
-                             ? Runtime.names.recordedSearchText(text) : text
-            if (nameText !== text)
-                filter.name_text = nameText
+            const names = typeof Runtime.names !== "undefined" && Runtime.names
+                          ? Runtime.names.recordedSearchNames(text) : []
+            if (names.length > 0)
+                filter.name_exact = names
         }
         const from = toUtcRange(fromField.text.trim(), false)
         const to = toUtcRange(toField.text.trim(), true)

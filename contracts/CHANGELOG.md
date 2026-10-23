@@ -1,5 +1,14 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-10-23 · 历史与心得按界面语言的名称搜索：`RunFilter.name_text` 与 `name_exact`
+
+附加式变更，不新增消息类型。
+
+- **`RunFilter.name_text`**（可选字符串或 `null`，最多 200 个字符；1.7.3-beta.1 起提供，此前未记入本文件）：只在 `duty_name` 与 `job_name` 中按原字符做子串匹配，与 `text` 取或，再与其他筛选取交集。`null` 或空白不加条件。
+- **`RunFilter.name_exact`**（可选字符串数组，最多 1000 项，每项 1–200 个字符）：`duty_name` 或 `job_name` 与其中一项完全相同（不去空格，区分大小写）的记录匹配，与 `text`、`name_text` 取或。省略或空数组不加条件；含空字符串的项答 `ERR_BAD_REQUEST`。历史列表、分页总数、统计、日历和筛选导出使用同一条件。
+- 桌面端在繁體中文、English、日本語界面下搜索时，把界面语言名称包含搜索文字的副本与职业的国服名称放进 `name_exact`，不再发送 `name_text`。国服名称会互相包含（「骑士」在「暗黑骑士」「龙骑士」里，「万魔殿 边境之狱4」在其零式里），按子串匹配会找到界面上名称并不包含搜索文字的记录。`text` 照旧原样发送，备注中的原文仍能找到。简体中文界面不发送这两个字段。
+- 兼容性：旧采集服务不认识 `name_exact`，答 `ERR_BAD_REQUEST`；两端随同一安装包发布。`name_text` 继续接受，含义不变。
+
 ## 2026-10-21 · 手动记录与更正不再要求进本、结束时间
 
 不改变任何结构。`CreateManualRun` 与 `CorrectRun` 不再因 `entered_at_utc` 或 `ended_at_utc` 为空而以 `ERR_BAD_REQUEST` 拒绝：此前除 `CANCELLED_BEFORE_ENTRY` 外的结果都必须有 `entered_at_utc`、`COMPLETED` 必须有 `ended_at_utc`（历史导入豁免），现在两者对任何结果、任何来源都可以为空；缺少任一端点时 `duration_ms` 为 `null`，不计入平均耗时。时间顺序检查（`ERR_TIME_ORDER` / `ERR_NEGATIVE_DURATION`）与「结果未知、没有结束时间且不待复核的自动记录」的拒绝不变（[docs/manual-correction.md](../docs/manual-correction.md) §7）。目录键 `mutation.entry_required` 与 `mutation.end_required` 随之删除，不再被任何应答引用。统计口径随之调整：`source = MANUAL` 的记录与历史导入一样，没有进本时间而结果不是 `UNKNOWN` / `CANCELLED_BEFORE_ENTRY` 时仍计入 `attempt_count`（[docs/statistics-definitions.md](../docs/statistics-definitions.md) §2）。

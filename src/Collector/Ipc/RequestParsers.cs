@@ -45,7 +45,7 @@ public static class RequestParsers
         reader.RejectUnknown(
             "from_utc", "to_utc", "date_field", "content_id", "duty_category", "job_id",
             "result", "source", "corrected_only", "include_deleted", "deleted_only", "with_reflection",
-            "pending_review", "text", "name_text", "run_id", "history_from_day", "history_to_day",
+            "pending_review", "text", "name_text", "name_exact", "run_id", "history_from_day", "history_to_day",
             "joined_in_progress");
 
         var filter = new RunFilter
@@ -69,6 +69,7 @@ public static class RequestParsers
             JoinedInProgress = reader.Bool("joined_in_progress"),
             Text = reader.String("text", 200),
             NameText = reader.String("name_text", 200),
+            NameExact = reader.StringArray("name_exact", RunFilter.MaxExactNames, 200, minLength: 1),
         };
 
         if (filter.FromUtc is { } from && filter.ToUtc is { } to && from > to)

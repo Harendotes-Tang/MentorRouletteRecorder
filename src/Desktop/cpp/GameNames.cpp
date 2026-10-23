@@ -10,6 +10,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLoggingCategory>
+#include <QSet>
 
 namespace {
 
@@ -184,50 +185,38 @@ QString GameNames::roulette(const QVariant &rouletteId, const QString &recorded)
                 m_rouletteIdByName.value(recorded), recorded);
 }
 
-QString GameNames::recordedSearchText(const QString &text) const
+QStringList GameNames::recordedSearchNames(const QString &text) const
 {
-    return recordedSearchTextIn(LanguageManager::currentCode(), text);
+    return recordedSearchNamesIn(LanguageManager::currentCode(), text);
 }
 
-QString GameNames::recordedSearchTextIn(const QString &code, const QString &text) const
+QStringList GameNames::recordedSearchNamesIn(const QString &code, const QString &text) const
 {
     const QString query = text.trimmed();
     if (query.isEmpty() || code == QLatin1String(kSourceCode))
-        return text;
+        return {};
 
-    QStringList recorded;
-    QString exact;  // the recorded name whose shown name IS the query
+    // The names themselves, not a piece they share: 骑士 is inside 暗黑骑士 and
+    // 龙骑士, so no substring of it finds Paladin runs alone. The Collector
+    // matches these by equality (RunFilter.name_exact).
+    QSet<QString> recorded;
     const auto collect = [&](const QHash<QString, qint64> &idByName,
                              const QHash<qint64, Names> &table) {
         for (auto it = idByName.constBegin(); it != idByName.constEnd(); ++it) {
             const QString shown = table.value(it.value()).value(code);
-            if (shown.isEmpty() || !shown.contains(query, Qt::CaseInsensitive))
-                continue;
-            if (!recorded.contains(it.key()))
-                recorded.append(it.key());
-            if (exact.isEmpty() && shown.compare(query, Qt::CaseInsensitive) == 0)
-                exact = it.key();
+            if (!shown.isEmpty() && shown.contains(query, Qt::CaseInsensitive))
+                recorded.insert(it.key());
         }
     };
     collect(m_dutyIdByName, m_duties);
     collect(m_jobIdByName, m_jobs);
-    if (recorded.isEmpty())
-        return text;
-
-    // The Collector matches a substring, so one Chinese name contained in every
-    // match finds them all. Without such a name, a query that is exactly one
-    // name finds that one (Sastasha, not its hard mode, whose Chinese name differs);
-    // anything broader stays as typed.
-    QString shortest = recorded.constFirst();
-    for (const QString &name : std::as_const(recorded)) {
-        if (name.size() < shortest.size())
-            shortest = name;
-    }
-    for (const QString &name : std::as_const(recorded)) {
-        if (!name.contains(shortest))
-            return exact.isEmpty() ? text : exact;
-    }
-    return shortest;
+    // More than the contract takes is no name search; the text still matches.
+    if (recorded.size() > kMaxSearchNames)
+        return {};
+    // Sorted, so the same text always gives the same filter.
+    QStringList names(recorded.cbegin(), recorded.cend());
+    names.sort();
+    return names;
 }
 
 QString GameNames::rouletteByName(const QString &recorded) const

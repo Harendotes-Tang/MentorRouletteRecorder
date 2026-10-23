@@ -3376,8 +3376,8 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
             QStringLiteral("job_id"), QStringLiteral("result"), QStringLiteral("source"),
             QStringLiteral("corrected_only"), QStringLiteral("include_deleted"), QStringLiteral("deleted_only"),
             QStringLiteral("with_reflection"), QStringLiteral("pending_review"), QStringLiteral("text"), QStringLiteral("name_text"),
-            QStringLiteral("run_id"), QStringLiteral("history_from_day"), QStringLiteral("history_to_day"),
-            QStringLiteral("joined_in_progress")};
+            QStringLiteral("name_exact"), QStringLiteral("run_id"), QStringLiteral("history_from_day"),
+            QStringLiteral("history_to_day"), QStringLiteral("joined_in_progress")};
         const QJsonObject filter = payload.value(QStringLiteral("filter")).toObject();
         for (auto it = filter.constBegin(); it != filter.constEnd(); ++it)
             if (!filterKeys.contains(it.key())) valid = false;

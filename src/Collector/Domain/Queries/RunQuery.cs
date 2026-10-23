@@ -125,6 +125,16 @@ public sealed record RunFilter
     /// <see cref="Text"/> before applying the remaining filters. Null or blank adds no condition.
     /// </summary>
     public string? NameText { get; init; }
+
+    /// <summary>Largest <see cref="NameExact"/> list the IPC contract accepts.</summary>
+    public const int MaxExactNames = 1000;
+
+    /// <summary>
+    /// Recorded duty or job names matched by equality, OR with <see cref="Text"/> and
+    /// <see cref="NameText"/>. A substring cannot tell 骑士 from 暗黑骑士, so a translated
+    /// search sends the exact recorded names it means. Empty adds no condition.
+    /// </summary>
+    public IReadOnlyList<string> NameExact { get; init; } = Array.Empty<string>();
 }
 
 /// <summary>Ordering of a run listing.</summary>

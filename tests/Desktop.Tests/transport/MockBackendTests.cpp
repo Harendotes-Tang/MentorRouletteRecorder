@@ -343,6 +343,51 @@ private Q_SLOTS:
         QCOMPARE(calendar.payload.value(QStringLiteral("days")).toArray(), QJsonArray{QStringLiteral("2026-09-01")});
     }
 
+    // RunFilterSql: name_exact matches duty_name or job_name by equality, OR with
+    // text; 骑士 must not find 暗黑骑士, nor 万魔殿 边境之狱4 its Savage mode.
+    void exactNamesMatchOnlyTheNamedJobsAndDuties()
+    {
+        mr::MockBackend backend;
+        const auto row = [](const QString &id, const QString &jobName, const QString &dutyName,
+                            const QString &note = QStringLiteral("unrelated")) {
+            QJsonObject run = autoRun(id, QStringLiteral("COMPLETED"), true);
+            run.insert(QStringLiteral("job_name"), jobName);
+            run.insert(QStringLiteral("duty_name"), dutyName);
+            run.insert(QStringLiteral("note"), note);
+            return run;
+        };
+        const QString whiteMage = QString::fromUtf8("白魔法师");
+        const QString sastasha = QString::fromUtf8("天然要害沙斯塔夏溶洞");
+        backend.resetRuns(QJsonArray{
+            row(QStringLiteral("paladin"), QString::fromUtf8("骑士"), sastasha),
+            row(QStringLiteral("dark-knight"), QString::fromUtf8("暗黑骑士"), sastasha),
+            row(QStringLiteral("note"), whiteMage, sastasha, QStringLiteral("helped a Paladin")),
+            row(QStringLiteral("alias-in-note"), whiteMage, sastasha, QString::fromUtf8("骑士")),
+            row(QStringLiteral("normal"), whiteMage, QString::fromUtf8("万魔殿 边境之狱4")),
+            row(QStringLiteral("savage"), whiteMage, QString::fromUtf8("零式万魔殿 边境之狱4"))});
+        const auto found = [&backend](const QJsonObject &filter) {
+            const Answer page = ask(backend, QStringLiteral("QueryRuns"),
+                                    {{QStringLiteral("filter"), filter}, {QStringLiteral("page_size"), 50}});
+            QStringList ids;
+            for (const QJsonValue &item : page.payload.value(QStringLiteral("items")).toArray())
+                ids.append(item.toObject().value(QStringLiteral("run_id")).toString());
+            ids.sort();
+            return ids;
+        };
+        const QJsonArray names{QString::fromUtf8("骑士"), QString::fromUtf8("万魔殿 边境之狱4")};
+        QCOMPARE(found({{QStringLiteral("name_exact"), names}}),
+                 (QStringList{QStringLiteral("normal"), QStringLiteral("paladin")}));
+        QCOMPARE(found({{QStringLiteral("text"), QStringLiteral("Paladin")}, {QStringLiteral("name_exact"), names}}),
+                 (QStringList{QStringLiteral("normal"), QStringLiteral("note"), QStringLiteral("paladin")}));
+        QCOMPARE(found({{QStringLiteral("name_exact"), QJsonArray{QString::fromUtf8("骑")}}}), QStringList{});
+        QCOMPARE(found({{QStringLiteral("name_exact"), QJsonArray{}}}).size(), 6);
+
+        const Answer calendar = ask(backend, QStringLiteral("QueryRunCalendarDays"),
+            {{QStringLiteral("month"), QStringLiteral("2026-09")},
+             {QStringLiteral("filter"), QJsonObject{{QStringLiteral("name_exact"), names}}}});
+        QVERIFY2(calendar.ok, qPrintable(calendar.message));
+    }
+
     void calendarDaysUseFullSetIgnoreDateBoundsAndKeepLocalHistoryDays()
     {
         mr::MockBackend backend;

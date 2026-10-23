@@ -266,8 +266,9 @@ public sealed class PayloadReader
     /// <param name="name">Property name.</param>
     /// <param name="maxItems">Largest accepted array.</param>
     /// <param name="maxLength">Longest accepted element.</param>
+    /// <param name="minLength">Shortest accepted element; 1 refuses empty strings.</param>
     public IReadOnlyList<string> StringArray(
-        string name, int maxItems, int maxLength = DefaultArrayElementLength)
+        string name, int maxItems, int maxLength = DefaultArrayElementLength, int minLength = 0)
     {
         var array = Array(name, maxItems);
         if (array is null)
@@ -287,6 +288,11 @@ public sealed class PayloadReader
             {
                 throw CollectorException.BadRequest(
                     CollectorTexts.IpcFieldItemTooLong(name, maxLength), Field(name));
+            }
+
+            if (text.Length < minLength)
+            {
+                throw CollectorException.BadRequest(CollectorTexts.IpcFieldUndeclaredValue(name), Field(name));
             }
 
             values.Add(text);

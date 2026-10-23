@@ -153,4 +153,75 @@ public sealed class LocalizedSearchIpcTests
         Assert.Equal(new[] { paladin, note }.Order(), JsonNode.Parse(File.ReadAllText(target))!
             .AsArray().Select(run => run!["run_id"]!.GetValue<string>()).Order());
     }
+
+    // 骑士 is inside 暗黑骑士 and 龙骑士, and 万魔殿 边境之狱4 inside its Savage mode's name:
+    // exact names find only the runs they name, in every query that takes the filter.
+    [Fact]
+    public async Task RealPipe_ExactNamesFindOnlyTheNamedRunsEverywhereTheFilterApplies()
+    {
+        await using var fixture = ServerFixture.Start();
+        await using var client = await fixture.ConnectAsync();
+        async Task<string> Create(int day, int jobId, int contentId, string note = "unrelated")
+        {
+            var created = (await client.SendAsync("CreateManualRun", new JsonObject
+            {
+                ["job_id"] = jobId, ["content_id"] = contentId,
+                ["matched_at_utc"] = $"2026-09-{day:00}T11:58:00.000Z",
+                ["entered_at_utc"] = $"2026-09-{day:00}T12:00:00.000Z",
+                ["ended_at_utc"] = $"2026-09-{day:00}T12:20:00.000Z",
+                ["result"] = "COMPLETED", ["contributes_to_goal"] = true,
+                ["note"] = note, ["reason"] = "搜索回归验证",
+            })).Require();
+            return created["run_id"]!.GetValue<string>();
+        }
+        var paladin = await Create(1, 19, 4);
+        _ = await Create(2, 32, 4);
+        _ = await Create(3, 22, 4);
+        var note = await Create(4, 24, 4, "helped a Paladin");
+        var normal = await Create(5, 24, 800);
+        _ = await Create(6, 24, 801);
+        var filter = new JsonObject
+        {
+            ["text"] = "Paladin", ["name_exact"] = new JsonArray("骑士", "万魔殿 边境之狱4"),
+        };
+        ContractSchema.Validate("$defs/RunFilter", filter, "exact name search");
+        var expected = new[] { paladin, note, normal }.Order().ToArray();
+
+        var seen = new List<string>();
+        for (var page = 1; page <= 3; page++)
+        {
+            var found = (await client.SendAsync("QueryRuns", new JsonObject
+            {
+                ["filter"] = filter.DeepClone(), ["page"] = page, ["page_size"] = 1,
+            })).Require();
+            Assert.Equal(3, found["page_info"]!["total"]!.GetValue<int>());
+            seen.Add(Assert.Single(found["items"]!.AsArray())!["run_id"]!.GetValue<string>());
+        }
+        Assert.Equal(expected, seen.Order());
+        var calendar = (await client.SendAsync("QueryRunCalendarDays", new JsonObject
+        {
+            ["filter"] = filter.DeepClone(), ["month"] = "2026-09",
+        })).Require();
+        Assert.Equal(new[] { "2026-09-01", "2026-09-04", "2026-09-05" },
+            calendar["days"]!.AsArray().Select(day => day!.GetValue<string>()).Order());
+        var stats = (await client.SendAsync("GetResultStats", new JsonObject
+        {
+            ["filter"] = filter.DeepClone(),
+        })).Require();
+        Assert.Equal(3, stats["attempt_count"]!.GetValue<int>());
+        var target = Path.Combine(Path.GetDirectoryName(fixture.DatabasePath)!, "exact-name-search.json");
+        var output = (await client.SendAsync("ExportJson", new JsonObject
+        {
+            ["target_path"] = target, ["filter"] = filter.DeepClone(),
+        })).Require();
+        Assert.Equal(3, output["row_count"]!.GetValue<int>());
+        Assert.Equal(expected, JsonNode.Parse(File.ReadAllText(target))!
+            .AsArray().Select(run => run!["run_id"]!.GetValue<string>()).Order());
+
+        var empty = await client.SendAsync("QueryRuns", new JsonObject
+        {
+            ["filter"] = new JsonObject { ["name_exact"] = new JsonArray("骑士", "") },
+        });
+        Assert.Equal(ErrorCodes.BadRequest, empty.ErrorCode);
+    }
 }

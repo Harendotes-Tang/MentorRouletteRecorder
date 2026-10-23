@@ -231,6 +231,13 @@ public static class RunFilterSql
                 "(IFNULL(duty_name, '') LIKE $name_text ESCAPE '\\' OR IFNULL(job_name, '') LIKE $name_text ESCAPE '\\')");
             parameters.Add(new("$name_text", "%" + EscapeLike(filter.NameText) + "%"));
         }
+        if (filter.NameExact.Count > 0)
+        {
+            // Equality, not LIKE: 骑士 must not find 暗黑骑士. One parameter list serves both
+            // columns; a NULL name equals nothing.
+            var names = BindAll(parameters, filter.NameExact, "nex");
+            textMatches.Add($"(duty_name IN ({names}) OR job_name IN ({names}))");
+        }
         if (textMatches.Count > 0)
             clauses.Add("(" + string.Join(" OR ", textMatches) + ")");
 
@@ -367,6 +374,15 @@ public static class RunFilterSql
             return;
         }
 
+        clauses.Add($"{column} IN ({BindAll(parameters, values, prefix)})");
+    }
+
+    // Binds each value as $<prefix><index> and returns the comma-separated names.
+    private static string BindAll(
+        List<KeyValuePair<string, object?>> parameters,
+        IReadOnlyList<string> values,
+        string prefix)
+    {
         var names = new List<string>(values.Count);
         for (var i = 0; i < values.Count; i++)
         {
@@ -375,7 +391,7 @@ public static class RunFilterSql
             parameters.Add(new(name, values[i]));
         }
 
-        clauses.Add($"{column} IN ({string.Join(", ", names)})");
+        return string.Join(", ", names);
     }
 
     private static string EscapeLike(string text)

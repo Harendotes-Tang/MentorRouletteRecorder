@@ -21,11 +21,14 @@
 
 #include <QDir>
 #include <QGuiApplication>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QJSValue>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickStyle>
+#include <QSet>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTest>
@@ -103,6 +106,28 @@ QVariantMap sastashaRun()
     };
 }
 
+/// The run ids MockBackend lists for \a filter, as the Collector would.
+QStringList listedRuns(mr::IBackend &backend, const QVariantMap &filter)
+{
+    bool done = false;
+    QStringList ids;
+    const QJsonObject payload{{QStringLiteral("filter"), QJsonObject::fromVariantMap(filter)},
+                              {QStringLiteral("page"), 1},
+                              {QStringLiteral("page_size"), 200}};
+    backend.request(QStringLiteral("QueryRuns"), payload)->whenDone(&backend,
+        [&done, &ids](bool ok, const QVariantMap &result, const QString &, const QString &) {
+            done = true;
+            if (!ok)
+                return;
+            for (const QVariant &item : result.value(QStringLiteral("items")).toList())
+                ids.append(item.toMap().value(QStringLiteral("run_id")).toString());
+        });
+    if (!QTest::qWaitFor([&done] { return done; }, 3000))
+        return {QStringLiteral("TEST_NO_REPLY")};
+    ids.sort();
+    return ids;
+}
+
 } // namespace
 
 namespace {
@@ -124,6 +149,54 @@ class GameNamesTests : public QObject
         ~Attachment() { language->attachEngine(nullptr); }
         Attachment(const Attachment &) = delete;
         Attachment &operator=(const Attachment &) = delete;
+    };
+
+    /// HistoryPage or ReflectionsPage on MockBackend, wired as the app wires it.
+    struct SearchPage {
+        mr::MockBackend backend;
+        mr::AppController controller{&backend, nullptr};
+        mr::ReflectionLibraryController library{&backend};
+        mr::Formatters formatters;
+        mr::JobCatalog jobs;
+        mr::RoleCatalog roles;
+        mr::RunFormValidator validator;
+        QQmlEngine engine;
+        const QString pageName;
+        const Attachment attached;
+        std::unique_ptr<QObject> page;
+        QObject *search = nullptr;
+
+        SearchPage(mr::LanguageManager *language, const QString &name)
+            : pageName(name), attached(language, &engine)
+        {
+            const auto context = engine.rootContext();
+            context->setContextProperty(QStringLiteral("App"), &controller);
+            context->setContextProperty(QStringLiteral("Reflections"), &library);
+            context->setContextProperty(QStringLiteral("Fmt"), &formatters);
+            context->setContextProperty(QStringLiteral("Jobs"), &jobs);
+            context->setContextProperty(QStringLiteral("Roles"), &roles);
+            context->setContextProperty(QStringLiteral("RunForm"), &validator);
+            context->setContextProperty(QStringLiteral("ReduceMotion"), true);
+            context->setContextProperty(QStringLiteral("Lang"), language);
+            context->setContextProperty(QStringLiteral("Names"), mr::GameNames::shared());
+            QQmlComponent component(&engine, QUrl::fromLocalFile(
+                QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/pages/") + pageName + QStringLiteral(".qml")));
+            page.reset(component.create());
+            if (!page)
+                qWarning() << component.errorString();
+            else
+                search = page->findChild<QObject *>(pageName == QLatin1String("HistoryPage")
+                    ? QStringLiteral("historySearchField") : QStringLiteral("reflectionSearchField"));
+        }
+
+        /// Types \a text into the search field and returns the filter the page hands over.
+        QVariantMap searchFor(const QString &text)
+        {
+            search->setProperty("text", text);
+            if (!QMetaObject::invokeMethod(page.get(), "applyFilter"))
+                return {};
+            return pageName == QLatin1String("HistoryPage") ? controller.historyFilter() : library.filter();
+        }
     };
 
     void switchTo(const char *code)
@@ -276,27 +349,44 @@ QtObject {
         }
     }
 
-    // A localized name supplies a recorded-name alias; the page separately
+    // A localized name gives the recorded names it names; the page separately
     // preserves the original words for notes.
     void searchUsesTheRecordedNames()
     {
-        QCOMPARE(names()->recordedSearchTextIn(QStringLiteral("en"), QStringLiteral("sastasha")),
-                 kSastashaCn());
-        QCOMPARE(names()->recordedSearchTextIn(QStringLiteral("en"), QStringLiteral("Paladin")),
-                 kPaladinCn());
-        QCOMPARE(names()->recordedSearchTextIn(QStringLiteral("ja"), QString::fromUtf8("ナイト")),
-                 kPaladinCn());
-        // Chinese typed as is, a note's words, an empty query: unchanged.
-        QCOMPARE(names()->recordedSearchTextIn(QStringLiteral("en"), kSastashaCn()), kSastashaCn());
-        QCOMPARE(names()->recordedSearchTextIn(QStringLiteral("en"), QStringLiteral("wiped twice")),
-                 QStringLiteral("wiped twice"));
-        QCOMPARE(names()->recordedSearchTextIn(QStringLiteral("en"), QString()), QString());
-        // Too broad to name one duty: sent as typed.
-        QCOMPARE(names()->recordedSearchTextIn(QStringLiteral("en"), QStringLiteral("the")),
-                 QStringLiteral("the"));
-        // 简体中文 never rewrites.
-        QCOMPARE(names()->recordedSearchTextIn(QStringLiteral("zh-CN"), QStringLiteral("Sastasha")),
-                 QStringLiteral("Sastasha"));
+        const QString sastashaHard = QString::fromUtf8("逆转要害沙斯塔夏溶洞");
+        QCOMPARE(names()->recordedSearchNamesIn(QStringLiteral("en"), QStringLiteral("sastasha")),
+                 (QStringList{kSastashaCn(), sastashaHard}));
+        QCOMPARE(names()->recordedSearchNamesIn(QStringLiteral("en"), QStringLiteral("Paladin")),
+                 QStringList{kPaladinCn()});
+        QCOMPARE(names()->recordedSearchNamesIn(QStringLiteral("ja"), QString::fromUtf8("ナイト")),
+                 QStringList{kPaladinCn()});
+        // Pharos Sirius and its hard mode share no Chinese name; both are named.
+        QCOMPARE(names()->recordedSearchNamesIn(QStringLiteral("en"), QStringLiteral("Pharos")),
+                 (QStringList{QString::fromUtf8("地脉灵灯天狼星灯塔"), QString::fromUtf8("领航明灯天狼星灯塔")}));
+        // Chinese typed as is, a note's words, an empty query: no names.
+        QVERIFY(names()->recordedSearchNamesIn(QStringLiteral("en"), kSastashaCn()).isEmpty());
+        QVERIFY(names()->recordedSearchNamesIn(QStringLiteral("en"), QStringLiteral("wiped twice")).isEmpty());
+        QVERIFY(names()->recordedSearchNamesIn(QStringLiteral("en"), QStringLiteral("  ")).isEmpty());
+        // A broad word names every duty that has it.
+        const QStringList the = names()->recordedSearchNamesIn(QStringLiteral("en"), QStringLiteral("the"));
+        QVERIFY2(the.size() > 100 && the.contains(QString::fromUtf8("运河宝物库")), qPrintable(QString::number(the.size())));
+        // 简体中文 never adds names.
+        QVERIFY(names()->recordedSearchNamesIn(QStringLiteral("zh-CN"), QStringLiteral("Sastasha")).isEmpty());
+    }
+
+    // The whole catalogue fits in one name_exact list, so no search is ever cut
+    // short by the contract's cap. A larger catalogue needs the cap raised.
+    void everyRecordedNameFitsInOneSearch()
+    {
+        QSet<QString> all;
+        for (const QVariant &row : mr::DutyCatalog::shared()->allDuties())
+            all.insert(row.toMap().value(QStringLiteral("duty_name")).toString());
+        for (const QVariant &row : mr::JobCatalog().allJobs())
+            all.insert(row.toMap().value(QStringLiteral("job_name")).toString());
+        QVERIFY2(all.size() <= mr::GameNames::kMaxSearchNames, qPrintable(QString::number(all.size())));
+        // A single letter names most of the catalogue, and all of it is sent.
+        const QStringList e = names()->recordedSearchNamesIn(QStringLiteral("en"), QStringLiteral("e"));
+        QVERIFY2(e.size() > 300, qPrintable(QString::number(e.size())));
     }
 
     void translatedSearchKeepsTheOriginalNoteQuery_data()
@@ -312,48 +402,118 @@ QtObject {
         QFETCH(QString, pageName);
         QFETCH(QString, searchName);
         switchTo("en");
-        mr::MockBackend backend;
-        mr::AppController controller{&backend, nullptr};
-        mr::ReflectionLibraryController library{&backend};
-        mr::Formatters formatters;
-        mr::JobCatalog jobs;
-        mr::RoleCatalog roles;
-        mr::RunFormValidator validator;
-        QQmlEngine engine;
-        const Attachment attached(m_language.get(), &engine);
-        auto *const context = engine.rootContext();
-        context->setContextProperty(QStringLiteral("App"), &controller);
-        context->setContextProperty(QStringLiteral("Reflections"), &library);
-        context->setContextProperty(QStringLiteral("Fmt"), &formatters);
-        context->setContextProperty(QStringLiteral("Jobs"), &jobs);
-        context->setContextProperty(QStringLiteral("Roles"), &roles);
-        context->setContextProperty(QStringLiteral("RunForm"), &validator);
-        context->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        context->setContextProperty(QStringLiteral("Lang"), m_language.get());
-        context->setContextProperty(QStringLiteral("Names"), names());
-        QQmlComponent component(&engine, QUrl::fromLocalFile(
-            QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/pages/") + pageName + QStringLiteral(".qml")));
-        std::unique_ptr<QObject> page(component.create());
-        QVERIFY2(page, qPrintable(component.errorString()));
-        auto *search = page->findChild<QObject *>(searchName);
-        QVERIFY(search);
-        search->setProperty("text", QStringLiteral("Paladin"));
-        QVERIFY(QMetaObject::invokeMethod(page.get(), "applyFilter"));
-        const QVariantMap filter = pageName == QLatin1String("HistoryPage")
-            ? controller.historyFilter() : library.filter();
+        SearchPage page(m_language.get(), pageName);
+        QVERIFY(page.page);
+        QVERIFY(page.search);
+        QCOMPARE(page.search->objectName(), searchName);
+        const QVariantMap filter = page.searchFor(QStringLiteral("Paladin"));
         // A White Mage's note such as "helped a Paladin" must remain searchable,
         // even though a Paladin's recorded job name is Chinese.
         QCOMPARE(filter.value(QStringLiteral("text")).toString(), QStringLiteral("Paladin"));
-        QCOMPARE(filter.value(QStringLiteral("name_text")).toString(), kPaladinCn());
-        QCOMPARE(search->property("text").toString(), QStringLiteral("Paladin"));
+        QCOMPARE(filter.value(QStringLiteral("name_exact")).toStringList(), QStringList{kPaladinCn()});
+        QVERIFY(!filter.contains(QStringLiteral("name_text")));
+        QCOMPARE(page.search->property("text").toString(), QStringLiteral("Paladin"));
 
-        // A later free-text query must not retain the previous name alias.
-        search->setProperty("text", QStringLiteral("wiped twice"));
-        QVERIFY(QMetaObject::invokeMethod(page.get(), "applyFilter"));
-        const QVariantMap plain = pageName == QLatin1String("HistoryPage")
-            ? controller.historyFilter() : library.filter();
+        // A later free-text query must not retain the previous names.
+        const QVariantMap plain = page.searchFor(QStringLiteral("wiped twice"));
         QCOMPARE(plain.value(QStringLiteral("text")).toString(), QStringLiteral("wiped twice"));
-        QVERIFY(!plain.contains(QStringLiteral("name_text")));
+        QVERIFY(!plain.contains(QStringLiteral("name_exact")));
+    }
+
+    // A translated name finds the runs whose name, as shown, contains it, and no
+    // others. Recorded names hold one another (骑士 in 暗黑骑士 and 龙骑士, 万魔殿
+    // 边境之狱4 in its Savage mode), so one Chinese substring finds too much.
+    void aTranslatedNameFindsOnlyTheRunsItNames_data()
+    {
+        QTest::addColumn<QString>("pageName");
+        QTest::addColumn<QString>("code");
+        QTest::addColumn<QString>("query");
+        QTest::addColumn<QStringList>("expected");
+        const QString history = QStringLiteral("HistoryPage");
+        // "note" is a White Mage run whose note says "helped a Paladin".
+        QTest::newRow("en Paladin") << history << QStringLiteral("en") << QStringLiteral("Paladin")
+                                    << QStringList{QStringLiteral("note"), QStringLiteral("paladin")};
+        QTest::newRow("en Paladin, reflections")
+            << QStringLiteral("ReflectionsPage") << QStringLiteral("en") << QStringLiteral("Paladin")
+            << QStringList{QStringLiteral("note"), QStringLiteral("paladin")};
+        QTest::newRow("en Warrior") << history << QStringLiteral("en") << QStringLiteral("Warrior")
+                                    << QStringList{QStringLiteral("warrior")};
+        QTest::newRow("en Dragoon") << history << QStringLiteral("en") << QStringLiteral("Dragoon")
+                                    << QStringList{QStringLiteral("dragoon")};
+        QTest::newRow("en Dark Knight") << history << QStringLiteral("en") << QStringLiteral("Dark Knight")
+                                        << QStringList{QStringLiteral("dark-knight")};
+        QTest::newRow("ja ナイト") << history << QStringLiteral("ja") << QString::fromUtf8("ナイト")
+                                 << QStringList{QStringLiteral("paladin")};
+        QTest::newRow("ja 戦士") << history << QStringLiteral("ja") << QString::fromUtf8("戦士")
+                               << QStringList{QStringLiteral("warrior")};
+        QTest::newRow("en Lost Canals") << history << QStringLiteral("en")
+                                        << QStringLiteral("The Lost Canals of Uznair")
+                                        << QStringList{QStringLiteral("canals")};
+        QTest::newRow("ja 辺獄編4") << history << QStringLiteral("ja")
+                                  << QString::fromUtf8("万魔殿パンデモニウム：辺獄編4")
+                                  << QStringList{QStringLiteral("p4")};
+        // A shown name that holds the query still finds its run: the Savage mode's
+        // English name contains the normal one's.
+        QTest::newRow("en Fourth Circle") << history << QStringLiteral("en")
+                                          << QStringLiteral("Asphodelos: The Fourth Circle")
+                                          << QStringList{QStringLiteral("p4"), QStringLiteral("p4s")};
+        // ... and so do names whose Chinese names hold no common name.
+        QTest::newRow("en Pharos") << history << QStringLiteral("en") << QStringLiteral("Pharos")
+                                   << QStringList{QStringLiteral("pharos"), QStringLiteral("pharos-hard")};
+        QTest::newRow("ja シリウス") << history << QStringLiteral("ja") << QString::fromUtf8("シリウス")
+                                  << QStringList{QStringLiteral("pharos"), QStringLiteral("pharos-hard")};
+        QTest::newRow("en Sastasha (Hard)") << history << QStringLiteral("en") << QStringLiteral("Sastasha (Hard)")
+                                            << QStringList{QStringLiteral("sastasha-hard")};
+    }
+
+    void aTranslatedNameFindsOnlyTheRunsItNames()
+    {
+        QFETCH(QString, pageName);
+        QFETCH(QString, code);
+        QFETCH(QString, query);
+        QFETCH(QStringList, expected);
+        switchTo(code.toLatin1().constData());
+        SearchPage page(m_language.get(), pageName);
+        QVERIFY(page.page);
+        QVERIFY(page.search);
+
+        const QString whiteMage = kWhiteMageCn();
+        const auto run = [](const QString &id, int jobId, const QString &job, int contentId,
+                            const QString &duty, const QString &note = QString()) {
+            QJsonObject row = QJsonObject::fromVariantMap(sastashaRun());
+            row.insert(QStringLiteral("run_id"), id);
+            row.insert(QStringLiteral("job_id"), jobId);
+            row.insert(QStringLiteral("job_name"), job);
+            row.insert(QStringLiteral("content_id"), contentId);
+            row.insert(QStringLiteral("duty_name"), duty);
+            row.insert(QStringLiteral("note"), note);
+            row.insert(QStringLiteral("reflection"),
+                       QJsonObject{{QStringLiteral("mood"), QStringLiteral("good")},
+                                   {QStringLiteral("text"), QStringLiteral("reflection")}});
+            return row;
+        };
+        page.backend.resetRuns(QJsonArray{
+            run(QStringLiteral("paladin"), 19, kPaladinCn(), 4, kSastashaCn()),
+            run(QStringLiteral("dark-knight"), 32, QString::fromUtf8("暗黑骑士"), 4, kSastashaCn()),
+            run(QStringLiteral("dragoon"), 22, QString::fromUtf8("龙骑士"), 4, kSastashaCn()),
+            run(QStringLiteral("warrior"), 21, QString::fromUtf8("战士"), 4, kSastashaCn()),
+            run(QStringLiteral("gunbreaker"), 37, QString::fromUtf8("绝枪战士"), 4, kSastashaCn()),
+            run(QStringLiteral("knights"), 24, whiteMage, 90, QString::fromUtf8("圆桌骑士歼灭战")),
+            run(QStringLiteral("dragonsong"), 24, whiteMage, 273, QString::fromUtf8("红血之龙骑士")),
+            run(QStringLiteral("canals"), 24, whiteMage, 268, QString::fromUtf8("运河宝物库")),
+            run(QStringLiteral("canals-deep"), 24, whiteMage, 276, QString::fromUtf8("运河宝物库深层")),
+            run(QStringLiteral("p4"), 24, whiteMage, 800, QString::fromUtf8("万魔殿 边境之狱4")),
+            run(QStringLiteral("p4s"), 24, whiteMage, 801, QString::fromUtf8("零式万魔殿 边境之狱4")),
+            run(QStringLiteral("pharos"), 24, whiteMage, 17, QString::fromUtf8("领航明灯天狼星灯塔")),
+            run(QStringLiteral("pharos-hard"), 24, whiteMage, 40, QString::fromUtf8("地脉灵灯天狼星灯塔")),
+            run(QStringLiteral("sastasha-hard"), 24, whiteMage, 28, QString::fromUtf8("逆转要害沙斯塔夏溶洞")),
+            run(QStringLiteral("note"), 24, whiteMage, 4, kSastashaCn(), QStringLiteral("helped a Paladin")),
+        });
+
+        const QVariantMap filter = page.searchFor(query);
+        QCOMPARE(filter.value(QStringLiteral("text")).toString(), query);
+        expected.sort();
+        QCOMPARE(listedRuns(page.backend, filter), expected);
     }
 
     void categoriesAndExpansions()

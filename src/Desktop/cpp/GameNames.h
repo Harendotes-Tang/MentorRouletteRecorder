@@ -10,14 +10,16 @@
 // see data/i18n/README.md), and in 简体中文 the record's own name. A name the
 // file does not know is shown as recorded.
 //
-// Display only: nothing here is written back, sent to the Collector or used to
-// identify a duty. Pickers keep the Chinese name as their value and show this
-// as their label.
+// Display only: nothing here is written back or used to identify a duty, and
+// the only thing sent to the Collector is a search's recorded names
+// (recordedSearchNames). Pickers keep the Chinese name as their value and show
+// this as their label.
 // ---------------------------------------------------------------------------
 
 #include <QHash>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QVariant>
 
 namespace mr {
@@ -56,17 +58,21 @@ public:
     /// A role group of the prototype's legend (坦克 / 治疗 / 近战 / 远程物理 / 魔法 / 其他).
     Q_INVOKABLE QString roleGroup(const QString &recorded) const;
 
-    /// A name-only search alias for the Collector's recorded Chinese names.
-    /// Outside 简体中文, text found in duty or job names becomes the Chinese name
-    /// those matches share (Sastasha -> 天然要害沙斯塔夏溶洞 includes hard mode).
-    /// Anything else returns unchanged. Callers keep the original in text and
-    /// send a differing alias in name_text; this never replaces note words.
-    Q_INVOKABLE QString recordedSearchText(const QString &text) const;
+    /// The recorded (Chinese) names of the duties and jobs whose name in the
+    /// interface language contains \a text, sorted: "Sastasha" gives
+    /// 天然要害沙斯塔夏溶洞 and its hard mode, "Paladin" gives 骑士 alone, not
+    /// 暗黑骑士. Empty in 简体中文, for no match, or for more than
+    /// kMaxSearchNames. Callers keep the original in text, so note words still
+    /// match, and send these in name_exact.
+    Q_INVOKABLE QStringList recordedSearchNames(const QString &text) const;
+
+    /// The most names one search sends ($defs/RunFilter.name_exact maxItems).
+    static constexpr int kMaxSearchNames = 1000;
 
     /// The same lookups for an explicit language code (tests, speech).
     QString dutyIn(const QString &code, const QVariant &contentId, const QString &recorded) const;
     QString jobIn(const QString &code, const QVariant &jobId, const QString &recorded) const;
-    QString recordedSearchTextIn(const QString &code, const QString &text) const;
+    QStringList recordedSearchNamesIn(const QString &code, const QString &text) const;
 
 private:
     using Names = QHash<QString, QString>;  // language code -> name

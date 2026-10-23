@@ -468,7 +468,7 @@
 
     "RunFilter": {
       "type": "object", "additionalProperties": false,
-      "description": "All fields optional; omitted fields do not constrain the query. Array fields are OR within the field and AND across fields. text and name_text are OR with each other and AND with all other fields.",
+      "description": "All fields optional; omitted fields do not constrain the query. Array fields are OR within the field and AND across fields. text, name_text and name_exact are OR with each other and AND with all other fields.",
       "properties": {
         "history_from_day": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
         "history_to_day": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
@@ -493,7 +493,8 @@
         "joined_in_progress": { "type": "boolean", "description": "true keeps only runs recorded as joined in progress, false only runs recorded as entered at the start; a run whose entry the software never saw matches neither value. Omitted means no constraint." },
         "pending_review": { "type": "boolean", "description": "true keeps only runs still flagged for review, false keeps only runs that are not. Omitted means no constraint; there is deliberately no default, because 'not asked for' and 'asked for false' are different queries." },
         "text": { "type": "string", "maxLength": 200, "description": "Case-insensitive substring match over duty_name, job_name and note." },
-        "name_text": { "type": ["string", "null"], "maxLength": 200, "description": "Optional literal substring over duty_name and job_name only, OR with text. Null or blank adds no condition." }
+        "name_text": { "type": ["string", "null"], "maxLength": 200, "description": "Optional literal substring over duty_name and job_name only, OR with text. Null or blank adds no condition." },
+        "name_exact": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 200 }, "maxItems": 1000, "description": "Recorded duty or job names. A run matches when its duty_name or job_name equals one of them exactly (no trimming, no case folding). OR with text and name_text; an omitted or empty array adds no condition. The Desktop sends the recorded names whose name in the interface language contains the search text, so 'Paladin' finds 骑士 but not 暗黑骑士." }
       }
     },
 

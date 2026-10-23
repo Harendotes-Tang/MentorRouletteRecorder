@@ -199,4 +199,106 @@ public sealed class RunFilterTests
         var filter = RequestParsers.Filter(new PayloadReader(new JsonObject { ["name_text"] = text }));
         Assert.Equal(text, filter!.NameText);
     }
+
+    // Recorded names hold one another: 骑士 is inside 暗黑骑士 and 龙骑士, and a normal
+    // duty's name inside its Savage mode's. Exact names find only the runs they name.
+    [Fact]
+    public void ExactNamesFindOnlyTheNamedJobsAndDutiesOrWithOriginalText()
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        var paladin = TestDatabase.Run() with { JobName = "骑士" };
+        var note = TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", Note = "helped a Paladin" };
+        var normal = TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", DutyName = "万魔殿 边境之狱4" };
+        fixture.Database.RunInTransaction(tx =>
+        {
+            runs.Insert(paladin, tx);
+            runs.Insert(note, tx);
+            runs.Insert(normal, tx);
+            runs.Insert(TestDatabase.Run(jobId: 32) with { JobName = "暗黑骑士" }, tx);
+            runs.Insert(TestDatabase.Run(jobId: 22) with { JobName = "龙骑士" }, tx);
+            runs.Insert(TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", DutyName = "圆桌骑士歼灭战" }, tx);
+            runs.Insert(TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", DutyName = "零式万魔殿 边境之狱4" }, tx);
+            runs.Insert(TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", Note = "骑士" }, tx);
+        });
+        var filter = RequestParsers.Filter(new PayloadReader(new JsonObject
+        {
+            ["text"] = "Paladin", ["name_exact"] = new JsonArray("骑士", "万魔殿 边境之狱4"),
+        }));
+
+        var page = runs.Query(filter, null, 1, 50);
+        Assert.Equal(new[] { paladin.RunId, note.RunId, normal.RunId }.Order(),
+            page.Items.Select(run => run.RunId).Order());
+        Assert.Equal(3, page.Total);
+    }
+
+    [Theory]
+    [InlineData("{\"name_exact\":[\"骑士\"]}", 1)]
+    [InlineData("{\"name_exact\":[\" 骑士\"]}", 0)]
+    [InlineData("{\"name_exact\":[\"骑\"]}", 0)]
+    [InlineData("{\"text\":\"Paladin\",\"name_exact\":[]}", 1)]
+    [InlineData("{\"text\":\"Paladin\",\"name_exact\":null}", 1)]
+    [InlineData("{\"text\":\"Paladin\",\"name_exact\":[\"骑士\"]}", 2)]
+    [InlineData("{\"text\":\"Paladin\",\"name_text\":\"骑士\",\"name_exact\":[\"骑士\"]}", 3)]
+    public void ExactNamesKeepTheirDeclaredScope(string json, int expected)
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        fixture.Database.RunInTransaction(tx =>
+        {
+            runs.Insert(TestDatabase.Run() with { JobName = "骑士" }, tx);
+            runs.Insert(TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", Note = "helped a Paladin" }, tx);
+            runs.Insert(TestDatabase.Run(jobId: 32) with { JobName = "暗黑骑士" }, tx);
+            runs.Insert(TestDatabase.Run(jobId: 24) with { JobName = "白魔法师", Note = "骑士" }, tx);
+        });
+        var filter = RequestParsers.Filter(new PayloadReader(JsonNode.Parse(json)!.AsObject()));
+        Assert.Equal(expected, runs.Query(filter, null, 1, 50).Total);
+    }
+
+    [Fact]
+    public void ExactNamesAcceptAThousandNamesOfTwoHundredCharacters()
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        fixture.Database.RunInTransaction(tx => runs.Insert(TestDatabase.Run() with { JobName = "骑士" }, tx));
+        var names = new JsonArray(Enumerable.Range(0, 999)
+            .Select(i => (JsonNode?)JsonValue.Create(i.ToString("D3") + new string('字', 197)))
+            .Append(JsonValue.Create("骑士"))
+            .ToArray());
+        var filter = RequestParsers.Filter(new PayloadReader(new JsonObject { ["name_exact"] = names }));
+
+        Assert.Equal(1000, filter!.NameExact.Count);
+        Assert.Equal(1, runs.Query(filter, null, 1, 50).Total);
+    }
+
+    [Theory]
+    [InlineData("\"骑士\"")]
+    [InlineData("42")]
+    [InlineData("{}")]
+    [InlineData("[42]")]
+    [InlineData("[null]")]
+    [InlineData("[\"\"]")]
+    [InlineData("[\"骑士\",\"\"]")]
+    public void ExactNamesRejectAnythingButNonEmptyStrings(string value)
+    {
+        var error = Assert.Throws<CollectorException>(() => RequestParsers.Filter(
+            new PayloadReader(JsonNode.Parse("{\"name_exact\":" + value + "}")!.AsObject())));
+        Assert.Equal("ERR_BAD_REQUEST", error.Code);
+        Assert.Equal("payload.name_exact", error.Field);
+    }
+
+    [Fact]
+    public void ExactNamesRejectAnOverlongNameAndMoreThanAThousand()
+    {
+        var overlong = Assert.Throws<CollectorException>(() => RequestParsers.Filter(new PayloadReader(
+            new JsonObject { ["name_exact"] = new JsonArray(new string('字', 201)) })));
+        Assert.Equal("payload.name_exact", overlong.Field);
+        var tooMany = Assert.Throws<CollectorException>(() => RequestParsers.Filter(new PayloadReader(
+            new JsonObject
+            {
+                ["name_exact"] = new JsonArray(Enumerable.Range(0, 1001)
+                    .Select(i => (JsonNode?)JsonValue.Create("名" + i)).ToArray()),
+            })));
+        Assert.Equal("payload.name_exact", tooMany.Field);
+    }
 }

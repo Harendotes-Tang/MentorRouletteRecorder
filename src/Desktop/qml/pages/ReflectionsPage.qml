@@ -19,13 +19,13 @@ ColumnLayout {
 
     function applyFilter() {
         if (!controller) return
-        // Keep note words as typed and add a separate recorded-name match.
+        // Keep note words as typed and add the recorded names the text names.
         const text = search.text.trim()
         const filter = { text: text }
-        const nameText = typeof Runtime.names !== "undefined" && Runtime.names
-                         ? Runtime.names.recordedSearchText(text) : text
-        if (nameText !== text)
-            filter.name_text = nameText
+        const names = typeof Runtime.names !== "undefined" && Runtime.names
+                      ? Runtime.names.recordedSearchNames(text) : []
+        if (names.length > 0)
+            filter.name_exact = names
         if (job.currentIndex > 0)
             filter.job_id = [job.model[job.currentIndex].job_id]
         if (category.currentIndex > 0)

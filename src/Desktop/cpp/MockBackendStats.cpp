@@ -178,6 +178,12 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
     const bool withReflection = filter.value(QStringLiteral("with_reflection")).toBool(false);
     const QString text = filter.value(QStringLiteral("text")).toString().trimmed();
     const QString nameText = filter.value(QStringLiteral("name_text")).toString().trimmed();
+    // RunFilterSql: name_exact matches duty_name or job_name by equality.
+    QSet<QString> nameExact;
+    for (const QJsonValue &name : filter.value(QStringLiteral("name_exact")).toArray()) {
+        if (!name.toString().isEmpty())
+            nameExact.insert(name.toString());
+    }
 
     const QString dateField = filter.value(QStringLiteral("date_field"))
                                   .toString(QStringLiteral("entered_at_utc"));
@@ -278,16 +284,16 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
                                 run.value(QStringLiteral("source"))))
             continue;
 
-        if (!text.isEmpty() || !nameText.isEmpty()) {
-            const QString haystack =
-                run.value(QStringLiteral("duty_name")).toString()
-                + run.value(QStringLiteral("job_name")).toString()
-                + run.value(QStringLiteral("note")).toString();
+        if (!text.isEmpty() || !nameText.isEmpty() || !nameExact.isEmpty()) {
+            const QString dutyName = run.value(QStringLiteral("duty_name")).toString();
+            const QString jobName = run.value(QStringLiteral("job_name")).toString();
+            const QString haystack = dutyName + jobName + run.value(QStringLiteral("note")).toString();
             const bool originalMatch = !text.isEmpty() && haystack.contains(text, Qt::CaseInsensitive);
             const bool nameMatch = !nameText.isEmpty()
-                && (run.value(QStringLiteral("duty_name")).toString().contains(nameText, Qt::CaseInsensitive)
-                    || run.value(QStringLiteral("job_name")).toString().contains(nameText, Qt::CaseInsensitive));
-            if (!originalMatch && !nameMatch)
+                && (dutyName.contains(nameText, Qt::CaseInsensitive)
+                    || jobName.contains(nameText, Qt::CaseInsensitive));
+            const bool exactMatch = nameExact.contains(dutyName) || nameExact.contains(jobName);
+            if (!originalMatch && !nameMatch && !exactMatch)
                 continue;
         }
 
