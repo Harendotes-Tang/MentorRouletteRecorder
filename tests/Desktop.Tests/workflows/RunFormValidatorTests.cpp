@@ -26,6 +26,10 @@ class TestAppProperties final : public QQmlPropertyMap
     Q_OBJECT
 public:
     TestAppProperties() : QQmlPropertyMap(this, nullptr) {}
+Q_SIGNALS:
+    void scopeChanging();
+    void reflectionSaved(const QString &runId, bool cleared);
+    void reflectionFailed(const QString &code, const QString &message);
 };
 
 QVariantMap crossMidnightForm()
@@ -92,6 +96,11 @@ private Q_SLOTS:
     {
         m_app.insert("dark", true);
         m_app.insert("goalCount", 2000);
+        // The creation form snapshots the database identity before emitting
+        // createRequested, even when this validator-only probe saves no note.
+        m_recovery.insert("databaseKey", QStringLiteral("validator-fixture"));
+        m_recovery.insert("identityVerified", true);
+        m_app.insert("recovery", QVariant::fromValue(static_cast<QObject *>(&m_recovery)));
         m_engine = std::make_unique<QQmlEngine>();
         auto *context = m_engine->rootContext();
         context->setContextProperty("App", &m_app);
@@ -280,6 +289,7 @@ private:
     mr::RunFormValidator m_validator;
     mr::JobCatalog m_jobs;
     mr::RoleCatalog m_roles;
+    TestAppProperties m_recovery;
     std::unique_ptr<QQmlEngine> m_engine;
     std::unique_ptr<QObject> m_root;
     QObject *m_dialog = nullptr;

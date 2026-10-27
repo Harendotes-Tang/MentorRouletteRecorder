@@ -18,6 +18,7 @@ ColumnLayout {
         Layout.minimumHeight: 28
         ov: root.ov
         run: root.ov.run
+        categoryArt: true
         name: root.ov.matched ? qsTr("已匹配") : root.ov.runName
         status: root.ov.matched ? "matched" : root.ov.entered ? "live"
               : root.ov.completed ? "done" : root.ov.ended ? "ended" : ""

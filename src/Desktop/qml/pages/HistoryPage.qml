@@ -1185,24 +1185,20 @@ Item {
                     objectName: "historyPreviousPage"
                     text: qsTr("上一页")
                     iconName: "chevron-left"
-                    enabled: Runtime.app.runs.page > 1
+                    enabled: !Runtime.app.runs.loading && Runtime.app.runs.page > 1
                     onClicked: Runtime.app.runs.previousPage()
                 }
 
-                Text {
-                    text: qsTr("%1 / %2").arg(Runtime.app.runs.page).arg(Runtime.app.runs.pageCount)
-                    color: Theme.textPrimary
-                    font.pixelSize: Theme.fs(12)
-                    font.family: Theme.figureFamily
-                    font.weight: Theme.figureWeight(false)
-                    font.features: ({ "tnum": 1 })
+                PageNumberInput {
+                    objectName: "historyPageJump"
+                    paginationModel: Runtime.app.runs
                 }
 
                 AppButton {
                     text: qsTr("下一页")
                     iconName: "chevron-right"
                     iconAfterText: true
-                    enabled: Runtime.app.runs.page < Runtime.app.runs.pageCount
+                    enabled: !Runtime.app.runs.loading && Runtime.app.runs.page < Runtime.app.runs.pageCount
                     onClicked: Runtime.app.runs.nextPage()
                 }
             }

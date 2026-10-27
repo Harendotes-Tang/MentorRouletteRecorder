@@ -137,12 +137,20 @@ Item {
     // position rather than from a per-bar hover handler.
     MouseArea {
         id: hoverArea
+        objectName: "trendHoverArea"
 
-        anchors.fill: view
+        // GraphsView reserves margins even when axis labels are hidden. Use
+        // the same plot rectangle as the rendered bars, not the whole view.
+        x: view.x + view.plotArea.x
+        y: view.y + view.plotArea.y
+        width: view.plotArea.width
+        height: view.plotArea.height
         hoverEnabled: true
         acceptedButtons: Qt.NoButton
 
-        readonly property int index: (root.buckets.length > 0 && containsMouse)
+        readonly property int index: (root.buckets.length > 0 && width > 0 && height > 0
+                                      && containsMouse && mouseX >= 0 && mouseX < width
+                                      && mouseY >= 0 && mouseY < height && !motion.running)
                                      ? Math.min(root.buckets.length - 1,
                                                 Math.max(0, Math.floor(mouseX / (width / root.buckets.length))))
                                      : -1

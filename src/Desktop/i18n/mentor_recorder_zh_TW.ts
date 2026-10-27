@@ -9961,6 +9961,10 @@ SHA256：%3</translation>
 <context>
     <name>mr::AutomaticRecordingController</name>
     <message>
+        <source>暂时读不到可用的游戏数据，自动记录尚未恢复。软件正在后台尝试恢复，恢复前不会自动生成记录。</source>
+        <translation>暫時讀不到可用的遊戲資料，自動記錄尚未恢復。軟體正在背景嘗試恢復，恢復前不會自動產生記錄。</translation>
+    </message>
+    <message>
         <source>无法识别游戏区服，暂时不能自动记录。请在「设置 → 通用」中选择实际区服（国服 / 国际服），保存后会重新检查。</source>
         <translation>無法辨識遊戲區服，暫時無法自動記錄。請在「設定 → 一般」中選擇實際區服（中國服 / 國際服），儲存後會重新檢查。</translation>
     </message>
@@ -12989,5 +12993,20 @@ SHA256：%3</translation>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>安裝程式沒有啟動，可能是未通過 Windows 的安裝確認。本軟體會繼續執行，可再點「立即安裝」，或點「在瀏覽器中下載」。</translation>
     </message>
+</context>
+<context>
+    <name>PageNumberInput</name>
+    <message><source>跳转页码</source><translation>跳轉頁碼</translation></message>
+    <message><source>输入 1～%1 页，按回车或点击跳转</source><translation>輸入 1～%1 頁，按 Enter 或點選跳轉</translation></message>
+    <message><source>/ %1 页</source><translation>/ %1 頁</translation></message>
+    <message><source>跳转</source><translation>跳轉</translation></message>
+</context>
+<context>
+    <name>RecordingWarningWindow</name>
+    <message><source>导随记录器 · 自动记录暂不可用</source><translation>導隨記錄器 · 自動記錄暫時無法使用</translation></message>
+    <message><source>自动记录暂不可用</source><translation>自動記錄暫時無法使用</translation></message>
+    <message><source>恢复前，副本可能无法自动记录。后台仍会继续尝试恢复。</source><translation>恢復前，副本可能無法自動記錄。背景仍會繼續嘗試恢復。</translation></message>
+    <message><source>查看诊断</source><translation>檢視診斷</translation></message>
+    <message><source>我知道了</source><translation>我知道了</translation></message>
 </context>
 </TS>

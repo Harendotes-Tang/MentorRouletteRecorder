@@ -9961,6 +9961,10 @@ SHA256：%3</translation>
 <context>
     <name>mr::AutomaticRecordingController</name>
     <message>
+        <source>暂时读不到可用的游戏数据，自动记录尚未恢复。软件正在后台尝试恢复，恢复前不会自动生成记录。</source>
+        <translation>利用可能なゲームデータを読み取れず、自動記録はまだ復旧していません。バックグラウンドで復旧を試みています。復旧するまで記録は自動作成されません。</translation>
+    </message>
+    <message>
         <source>无法识别游戏区服，暂时不能自动记录。请在「设置 → 通用」中选择实际区服（国服 / 国际服），保存后会重新检查。</source>
         <translation>ゲームのリージョンを判定できないため、現在は自動記録できません。「設定 → 一般」で利用中のリージョン（中国版 / グローバル版）を選択してください。保存後に再確認します。</translation>
     </message>
@@ -12989,5 +12993,20 @@ SHA256：%3</translation>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>インストーラーが起動しませんでした。Windows のインストール確認で許可されなかった可能性があります。このアプリは実行を続けます。もう一度「今すぐインストール」を押すか、「ブラウザでダウンロード」を押してください。</translation>
     </message>
+</context>
+<context>
+    <name>PageNumberInput</name>
+    <message><source>跳转页码</source><translation>移動先のページ</translation></message>
+    <message><source>输入 1～%1 页，按回车或点击跳转</source><translation>1～%1 のページ番号を入力し、Enter キーまたは「移動」で移動します。</translation></message>
+    <message><source>/ %1 页</source><translation>/ %1 ページ</translation></message>
+    <message><source>跳转</source><translation>移動</translation></message>
+</context>
+<context>
+    <name>RecordingWarningWindow</name>
+    <message><source>导随记录器 · 自动记录暂不可用</source><translation>メンタールーレット記録 · 自動記録を利用できません</translation></message>
+    <message><source>自动记录暂不可用</source><translation>自動記録を利用できません</translation></message>
+    <message><source>恢复前，副本可能无法自动记录。后台仍会继续尝试恢复。</source><translation>復旧するまでコンテンツが自動記録されない場合があります。バックグラウンドで復旧を続けます。</translation></message>
+    <message><source>查看诊断</source><translation>診断を確認</translation></message>
+    <message><source>我知道了</source><translation>確認しました</translation></message>
 </context>
 </TS>

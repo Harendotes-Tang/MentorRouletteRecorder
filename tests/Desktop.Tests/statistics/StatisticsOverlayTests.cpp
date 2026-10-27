@@ -638,6 +638,7 @@ private Q_SLOTS:
     void paceBarScalesByTheDutyThenItsCategory_data();
     void paceBarScalesByTheDutyThenItsCategory();
     void stateMarksStayInsideTheFloat();
+    void runRowsShowTheCategoryIcon();
     void importedTextIsShownAsWritten();
     void plusPillCountsCompletionsNotBaselineEdits();
     void entryButtonFollowsPageTheme_data();
@@ -1677,6 +1678,37 @@ void StatisticsOverlayTests::stateMarksStayInsideTheFloat()
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::Entered);
     QTRY_COMPARE(scene.app->currentRunState(), QStringLiteral("ENTERED_DUTY"));
     QTRY_VERIFY(holdsThePulse(8));
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+// The float's 当前副本 and the mini bar's run line show the duty category as the
+// game's category icon, as the result popup does, not as the one-character badge
+// (迷 / 讨 / …) (owner, 2026-10-27).
+void StatisticsOverlayTests::runRowsShowTheCategoryIcon()
+{
+    Scene scene;
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::Entered);
+    QVERIFY2(scene.create(QStringLiteral("classic"), true, false, false), qPrintable(scene.errors));
+    QTRY_VERIFY(!scene.app->currentRun().value(QStringLiteral("run")).toMap().isEmpty());
+    scene.overlay()->show();
+    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    // Empty when the row shows the icon and no badge; otherwise what is wrong.
+    const auto categoryOf = [&](const QString &rowName) {
+        QQuickItem *row = scene.item(rowName, true);
+        if (!row)
+            return QStringLiteral("%1 is not shown").arg(rowName);
+        auto *icon = row->findChild<QQuickItem *>(QStringLiteral("reminderCategoryIcon"));
+        if (!icon || !icon->isVisible())
+            return QStringLiteral("%1 shows no category icon").arg(rowName);
+        for (auto *item : row->findChildren<QQuickItem *>()) {
+            if (item->isVisible() && item->property("text").toString() == QString::fromUtf8("迷"))
+                return QStringLiteral("%1 still shows the badge").arg(rowName);
+        }
+        return QString();
+    };
+    QTRY_COMPARE(categoryOf(QStringLiteral("floatingCurrentDuty")), QString());
+    scene.overlay()->setForm(QStringLiteral("mini"));
+    QTRY_COMPARE(categoryOf(QStringLiteral("floatingMiniRun")), QString());
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 

@@ -75,7 +75,25 @@ private Q_SLOTS:
     void unverifiedIdentityPersistsWithoutOpeningPrompt();
     void replayAndRepeatedCompletionDoNotSpeakAgain();
     void scopeResetDropsOldDeferredPrompt();
+    void manualCompletionNeverOffersReflectionWork();
 };
+
+void RunCompletionCoordinatorTests::manualCompletionNeverOffersReflectionWork()
+{
+    Harness harness;
+    mr::RunCompletionCoordinator coordinator(harness.hooks(), nullptr, cutoff());
+    QSignalSpy prompts(&coordinator, &mr::RunCompletionCoordinator::reflectionPromptRequested);
+    auto manual = completedRun();
+    manual.insert(QStringLiteral("manually_created"), true);
+    coordinator.offerReflection(manual);
+    coordinator.stateChanged(QStringLiteral("COMPLETED"), manual);
+    coordinator.runChanged(QStringLiteral("COMPLETED"), manual, false);
+    QCOMPARE(prompts.count(), 0);
+    QVERIFY(!harness.calls.contains(QStringLiteral("reflection-offer")));
+    coordinator.offerReflection(completedRun(QStringLiteral("automatic")));
+    QCOMPARE(prompts.count(), 1);
+    QVERIFY(harness.calls.contains(QStringLiteral("reflection-offer")));
+}
 
 void RunCompletionCoordinatorTests::completionPreservesPromptBeforeStatisticsAndSpeech_data()
 {

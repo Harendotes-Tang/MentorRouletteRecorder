@@ -340,6 +340,28 @@ ApplicationWindow {
         select->forceActiveFocus();
         QTest::keyClick(window, Qt::Key_Space);
         QTRY_COMPARE(library.selectedCount(), 2);
+        auto *jump = findVisual(window->contentItem(), QStringLiteral("reflectionPageJump"));
+        QVERIFY(jump);
+        auto *number = findVisual(jump, QStringLiteral("pageNumberField"));
+        auto *jumpButton = findVisual(jump, QStringLiteral("pageNumberJumpButton"));
+        QVERIFY(number && jumpButton);
+        const auto filterBeforeJump = library.filter();
+        number->forceActiveFocus();
+        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+        QTest::keyClick(window, Qt::Key_1);
+        QTest::keyClick(window, Qt::Key_Return);
+        QTRY_COMPARE(library.runs()->page(), 1);
+        QTRY_VERIFY(!library.runs()->isLoading());
+        QCOMPARE(library.selectedCount(), 2);
+        QCOMPARE(library.filter(), filterBeforeJump);
+        number->forceActiveFocus();
+        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+        QTest::keyClick(window, Qt::Key_2);
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                          jumpButton->mapToScene(QPointF(jumpButton->width() / 2, jumpButton->height() / 2)).toPoint());
+        QTRY_COMPARE(library.runs()->page(), 2);
+        QTRY_VERIFY(!library.runs()->isLoading());
+        QCOMPARE(library.selectedCount(), 2);
         QSignalSpy share(page, SIGNAL(shareBatchRequested(QVariant)));
         QVERIFY(share.isValid());
         auto *generate = findVisual(window->contentItem(), QStringLiteral("shareSelectedReflections"));

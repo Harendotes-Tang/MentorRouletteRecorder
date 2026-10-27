@@ -164,6 +164,7 @@ ColumnLayout {
                 run: popup.run
                 name: popup.dialog.dutyText
                 nameSize: 14
+                categoryArt: true
             }
             RowLayout {
                 spacing: 4

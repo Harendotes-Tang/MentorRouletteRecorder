@@ -4,49 +4,27 @@
 //
 // Real QML from src/Desktop/qml, loaded from source the way MotionTests does.
 #include "DesktopTestRunner.h"
+#include "QmlComponentTestSupport.h"
 #include <QDir>
 #include <QGuiApplication>
 #include <QPointer>
-#include <QQmlComponent>
 #include <QQmlContext>
-#include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QSignalSpy>
 #include <QTest>
 #include <QUrl>
-#include <memory>
 
 namespace {
 
-QString qmlRoot()
-{
-    return QString::fromUtf8(MR_DESKTOP_QML_DIR);
-}
-
 /// One engine, one root object created from inline QML placed inside the
 /// components directory so `import "Lucide.js"` resolves like AppButton's does.
-struct Scene
+struct Scene : mrtest::QmlComponentScene
 {
-    QQmlEngine engine;
-    std::unique_ptr<QObject> root;
-    QString errors;
-
     bool create(const QByteArray &qml)
     {
-        QQmlComponent component(&engine);
-        component.setData(qml, QUrl::fromLocalFile(qmlRoot() + QStringLiteral("/components/IconProbe.qml")));
-        if (component.isError()) {
-            errors = component.errorString();
-            return false;
-        }
-        root.reset(component.create());
-        if (!root) {
-            errors = component.errorString();
-            return false;
-        }
-        return true;
+        return QmlComponentScene::create(qml, QStringLiteral("/components/IconProbe.qml"));
     }
 };
 
@@ -90,16 +68,8 @@ private slots:
 
 void IconTests::initTestCase()
 {
-    const QString root = qmlRoot();
-    QVERIFY(QDir(root).exists());
-    qmlRegisterSingletonType(QUrl::fromLocalFile(root + QStringLiteral("/Theme.qml")),
-                             "MentorRecorder", 1, 0, "Theme");
-    const auto files = QDir(root + QStringLiteral("/components")).entryList({QStringLiteral("*.qml")}, QDir::Files);
-    for (const auto &file : files) {
-        const QByteArray name = file.chopped(4).toUtf8();
-        qmlRegisterType(QUrl::fromLocalFile(root + QStringLiteral("/components/") + file),
-                        "MentorRecorder", 1, 0, name.constData());
-    }
+    QVERIFY(QDir(mrtest::qmlSourceRoot()).exists());
+    mrtest::registerSourceQmlComponents();
 }
 
 void IconTests::library_buildsADataUrlOnlyForBundledIcons()

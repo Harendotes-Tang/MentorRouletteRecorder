@@ -138,7 +138,10 @@ bool RunCompletionCoordinator::claimAnnouncement(const QString &runId, const QSt
 
 void RunCompletionCoordinator::offerReflection(const QJsonObject &run)
 {
-    if (!m_hooks.reflectionPromptEnabled()) return;
+    // Manual entry owns its optional reflection in the creation form. Its
+    // RunChanged event must not register another automatic task or popup.
+    if (!m_hooks.reflectionPromptEnabled()
+        || run.value(QStringLiteral("manually_created")).toBool(false)) return;
     const QString runId = run.value(QStringLiteral("run_id")).toString();
     if (runId.isEmpty() || m_promptedRunIds.contains(runId) || m_confirmedRunIds.contains(runId)
         || run.value(QStringLiteral("reflection")).isObject() || !endedDuringThisSession(run))

@@ -3,47 +3,23 @@
 // longest option, however narrow the closed field is - an 86 px filter box must
 // neither truncate an option to 讨伐歼… nor give every row a heading of its own.
 #include "DesktopTestRunner.h"
+#include "QmlComponentTestSupport.h"
 #include <QDir>
 #include <QGuiApplication>
-#include <QQmlComponent>
-#include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QTest>
-#include <QUrl>
-#include <memory>
 
 namespace {
 
-QString qmlRoot()
+struct Scene : mrtest::QmlComponentScene
 {
-    return QString::fromUtf8(MR_DESKTOP_QML_DIR);
-}
-
-struct Scene
-{
-    QQmlEngine engine;
-    std::unique_ptr<QObject> root;
-    QString errors;
-
     bool create(const QByteArray &qml)
     {
-        QQmlComponent component(&engine);
-        component.setData(qml, QUrl::fromLocalFile(qmlRoot() + QStringLiteral("/components/ComboProbe.qml")));
-        if (component.isError()) {
-            errors = component.errorString();
-            return false;
-        }
-        root.reset(component.create());
-        if (!root) {
-            errors = component.errorString();
-            return false;
-        }
-        return true;
+        return QmlComponentScene::create(qml, QStringLiteral("/components/ComboProbe.qml"));
     }
 
-    QQuickWindow *window() const { return qobject_cast<QQuickWindow *>(root.get()); }
 };
 
 int countItems(QQuickItem *root, const QString &name)
@@ -74,16 +50,8 @@ private slots:
 
 void StyledComboBoxTests::initTestCase()
 {
-    const QString root = qmlRoot();
-    QVERIFY(QDir(root).exists());
-    qmlRegisterSingletonType(QUrl::fromLocalFile(root + QStringLiteral("/Theme.qml")),
-                             "MentorRecorder", 1, 0, "Theme");
-    const auto files = QDir(root + QStringLiteral("/components")).entryList({QStringLiteral("*.qml")}, QDir::Files);
-    for (const auto &file : files) {
-        const QByteArray name = file.chopped(4).toUtf8();
-        qmlRegisterType(QUrl::fromLocalFile(root + QStringLiteral("/components/") + file),
-                        "MentorRecorder", 1, 0, name.constData());
-    }
+    QVERIFY(QDir(mrtest::qmlSourceRoot()).exists());
+    mrtest::registerSourceQmlComponents();
 }
 
 void StyledComboBoxTests::aBoxWithoutSectionsListsEachOptionOnce()

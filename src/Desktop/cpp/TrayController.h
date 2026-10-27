@@ -19,6 +19,7 @@
 // ---------------------------------------------------------------------------
 
 #include <QObject>
+#include <QPointer>
 
 #include <memory>
 
@@ -56,20 +57,35 @@ public:
 public Q_SLOTS:
     void showWindow();
 
+Q_SIGNALS:
+    /// Emitted once when this consumer accepts a warning serial for sound and
+    /// system notification requests. It does not attest to OS/audio delivery.
+    /// Offscreen test platforms suppress the native requests after this signal.
+    void recordingWarningRequested(quint64 serial, bool systemTrayAvailable);
+
 public:
     /// Turns the window's close into "hide to tray" while 关闭时最小化到托盘
     /// is on and a tray actually exists.
     bool eventFilter(QObject *watched, QEvent *event) override;
 
+protected:
+    /// The native delivery boundary; overriding it lets tests count real
+    /// dispatch attempts without making sounds or showing desktop messages.
+    virtual void deliverRecordingWarning(const QString &message);
+
 private:
     void refreshCaptureAction();
+    void notifyRecordingWarning();
     /// The menu's and the icon's own words, set again after a language switch.
     void retranslate();
 
-    AppController *m_controller = nullptr;
+    /// The queued startup replay can outlive the controller when a direct
+    /// warning consumer closes it before that replay reaches the event loop.
+    QPointer<AppController> m_controller;
     AppSettings *m_settings = nullptr;
     QWindow *m_window = nullptr;
     QSystemTrayIcon *m_tray = nullptr;
+    quint64 m_lastWarningSerial = 0;
     /// Owned outright: a QMenu is a QWidget and cannot be parented to a plain
     /// QObject, so nothing else would ever delete it.
     std::unique_ptr<QMenu> m_menu;

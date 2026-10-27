@@ -162,6 +162,7 @@ Item {
                 ov: root.ov
                 run: root.ov.run
                 compact: true
+                categoryArt: true
                 nameSize: 12.5
                 name: root.ov.matched ? qsTr("已匹配") : root.ov.runName
                 status: root.ov.matched ? "" : root.ov.entered ? "live"

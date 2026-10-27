@@ -29,12 +29,41 @@ ApplicationWindow {
     readonly property real pixelRatio: Screen.devicePixelRatio > 0 ? Screen.devicePixelRatio : 1
     StatisticsFloatingWindow { id: statisticsFloat }
 
+    // UI acknowledgement is separate from the tray's delivery of this episode.
+    // Source-QML fixtures predating the warning API still use the old property.
+    readonly property bool recordingWarningPending: typeof Runtime.app.recording.warningPending !== "undefined"
+                                                    ? Runtime.app.recording.warningPending
+                                                    : Runtime.app.recording.pendingAlert
+    function acknowledgeRecordingWarning() {
+        if (Runtime.app.recording.acknowledgeWarning) Runtime.app.recording.acknowledgeWarning()
+        else Runtime.app.recording.acknowledge()
+    }
     function presentRecordingAlert() {
-        if (Runtime.app.maintainerToolsVisible || !window.visible || window.visibility === Window.Minimized) return
-        if (Runtime.app.recording.pendingAlert && Runtime.app.recording.blocked && !recordingAlert.opened)
+        if (Runtime.app.maintainerToolsVisible || !window.visible || !window.active
+            || window.visibility === Window.Minimized) return
+        if (recordingWarningPending && Runtime.app.recording.pendingAlert
+            && Runtime.app.recording.blocked && !recordingAlert.opened)
             recordingAlert.open()
     }
     onVisibilityChanged: Qt.callLater(window.presentRecordingAlert)
+    onActiveChanged: Qt.callLater(window.presentRecordingAlert)
+    RecordingWarningWindow {
+        id: recordingWarning
+        recording: Runtime.app.recording
+        anchorWindow: window
+        foregroundDialogVisible: window.active && window.visible
+                                 && window.visibility !== Window.Minimized && recordingAlert.opened
+        onDiagnosisRequested: {
+            window.acknowledgeRecordingWarning()
+            recordingAlert.close()
+            Runtime.app.navigate(4)
+            if (window.visibility === Window.Minimized) window.showNormal()
+            else window.show()
+            // Only the player's explicit action may bring the main window forward.
+            window.raise()
+            window.requestActivate()
+        }
+    }
     // A note editor left open in this window when it goes to the tray would
     // hold every automatic popup back; it is put away like 稍后补录, its draft
     // kept (review L2-10).
@@ -45,7 +74,7 @@ ApplicationWindow {
     Connections {
         target: Runtime.app.recording
         function onChanged() {
-            if (!Runtime.app.recording.blocked) recordingAlert.close()
+            if (!Runtime.app.recording.blocked || !window.recordingWarningPending) recordingAlert.close()
             Qt.callLater(window.presentRecordingAlert)
         }
     }
@@ -80,13 +109,13 @@ ApplicationWindow {
                 Layout.alignment: Qt.AlignRight
                 AppButton {
                     text: qsTr("查看诊断")
-                    onClicked: { Runtime.app.recording.acknowledge(); recordingAlert.close(); Runtime.app.navigate(4) }
+                    onClicked: { window.acknowledgeRecordingWarning(); recordingAlert.close(); Runtime.app.navigate(4) }
                 }
                 AppButton {
                     objectName: "automaticRecordingAcknowledge"
                     text: qsTr("我知道了")
                     variant: "primary"
-                    onClicked: { Runtime.app.recording.acknowledge(); recordingAlert.close() }
+                    onClicked: { window.acknowledgeRecordingWarning(); recordingAlert.close() }
                 }
             }
         }

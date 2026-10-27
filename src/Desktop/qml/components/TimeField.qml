@@ -153,9 +153,30 @@ StyledTextField {
                     height: 120
                     visibleItemCount: 5
                     wrap: true
+                    // Accumulate high-resolution wheel deltas; a partial notch
+                    // must not jump a whole hour/minute on every event.
+                    property real wheelRemainder: 0
+                    function scrollBy(delta) {
+                        wheelRemainder += delta
+                        const steps = Math.trunc(wheelRemainder / 120)
+                        if (steps === 0)
+                            return
+                        wheelRemainder -= steps * 120
+                        currentIndex = ((currentIndex - steps) % count + count) % count
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        acceptedButtons: Qt.NoButton
+                        onWheel: function(event) {
+                            wheel.scrollBy(event.angleDelta.y)
+                            event.accepted = true
+                        }
+                    }
                     delegate: Text {
+                        id: numberLabel
                         required property var modelData
                         required property int index
+                        objectName: wheel.objectName + "Value" + index
                         text: field.pad(modelData)
                         color: Theme.textPrimary
                         font.pixelSize: Theme.fs(index === wheel.currentIndex ? 15 : 12)
@@ -165,6 +186,11 @@ StyledTextField {
                         opacity: 1.0 - Math.abs(Tumbler.displacement) / (wheel.visibleItemCount / 2)
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
+                        TapHandler {
+                            // DragThreshold yields to the Tumbler's flick gesture.
+                            gesturePolicy: TapHandler.DragThreshold
+                            onTapped: wheel.currentIndex = numberLabel.index
+                        }
                     }
                 }
 

@@ -4,11 +4,11 @@
 // Real QML from src/Desktop/qml, loaded from source the way IconTests does; the
 // popup needs a Window, so the scene is one.
 #include "DesktopTestRunner.h"
+#include "QmlComponentTestSupport.h"
 #include <QDate>
 #include <QDir>
 #include <QGuiApplication>
 #include <QFontDatabase>
-#include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQmlContext>
 #include <QWheelEvent>
@@ -16,39 +16,16 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QTest>
-#include <QUrl>
-#include <memory>
 
 namespace {
 
-QString qmlRoot()
+struct Scene : mrtest::QmlComponentScene
 {
-    return QString::fromUtf8(MR_DESKTOP_QML_DIR);
-}
-
-struct Scene
-{
-    QQmlEngine engine;
-    std::unique_ptr<QObject> root;
-    QString errors;
-
     bool create(const QByteArray &qml)
     {
-        QQmlComponent component(&engine);
-        component.setData(qml, QUrl::fromLocalFile(qmlRoot() + QStringLiteral("/components/DateProbe.qml")));
-        if (component.isError()) {
-            errors = component.errorString();
-            return false;
-        }
-        root.reset(component.create());
-        if (!root) {
-            errors = component.errorString();
-            return false;
-        }
-        return true;
+        return QmlComponentScene::create(qml, QStringLiteral("/components/DateProbe.qml"));
     }
 
-    QQuickWindow *window() const { return qobject_cast<QQuickWindow *>(root.get()); }
     QQuickItem *field() const { return root->findChild<QQuickItem *>(QStringLiteral("field")); }
 };
 
@@ -137,16 +114,8 @@ private slots:
 
 void DateFieldTests::initTestCase()
 {
-    const QString root = qmlRoot();
-    QVERIFY(QDir(root).exists());
-    qmlRegisterSingletonType(QUrl::fromLocalFile(root + QStringLiteral("/Theme.qml")),
-                             "MentorRecorder", 1, 0, "Theme");
-    const auto files = QDir(root + QStringLiteral("/components")).entryList({QStringLiteral("*.qml")}, QDir::Files);
-    for (const auto &file : files) {
-        const QByteArray name = file.chopped(4).toUtf8();
-        qmlRegisterType(QUrl::fromLocalFile(root + QStringLiteral("/components/") + file),
-                        "MentorRecorder", 1, 0, name.constData());
-    }
+    QVERIFY(QDir(mrtest::qmlSourceRoot()).exists());
+    mrtest::registerSourceQmlComponents();
 }
 
 void DateFieldTests::emptyFieldShowsThePlaceholderAndIsValid()

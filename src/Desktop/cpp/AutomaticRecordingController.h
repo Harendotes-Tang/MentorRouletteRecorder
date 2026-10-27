@@ -37,6 +37,12 @@ class AutomaticRecordingController : public QObject
     Q_PROPERTY(bool calibrating READ calibrating NOTIFY changed)
     Q_PROPERTY(bool pendingAlert READ pendingAlert NOTIFY changed)
     Q_PROPERTY(bool retryAvailable READ retryAvailable NOTIFY changed)
+    /// A continuous confirmed-unavailable episode, independent of the old
+    /// blocking dialog. Recovery progress can warn without becoming blocked.
+    Q_PROPERTY(bool warningActive READ warningActive NOTIFY changed)
+    Q_PROPERTY(bool warningPending READ warningPending NOTIFY changed)
+    Q_PROPERTY(quint64 warningSerial READ warningSerial NOTIFY changed)
+    Q_PROPERTY(QString warningMessage READ warningMessage NOTIFY changed)
 public:
     explicit AutomaticRecordingController(IBackend *backend, QObject *parent = nullptr);
     QString state() const { return m_state; }
@@ -57,6 +63,10 @@ public:
     bool attention() const { return blocked() || silent() || calibrating() || m_state == QLatin1String("choosing_game"); }
     bool pendingAlert() const { return m_pending; }
     bool retryAvailable() const { return !recovering() && (!m_followError.isEmpty() || !m_validationError.isEmpty()); }
+    bool warningActive() const { return m_warningActive; }
+    bool warningPending() const { return m_warningPending; }
+    quint64 warningSerial() const { return m_warningSerial; }
+    QString warningMessage() const { return m_warningMessage.text(); }
     void setMaintenance(bool enabled);
     /// 本桌面显式采证期间暂停自动初始化；重连保留意图，旧会话仍按原逻辑清理。
     void setUserObservation(bool enabled);
@@ -75,9 +85,15 @@ public:
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void retry();
     Q_INVOKABLE void acknowledge();
+    /// Acknowledge both warning surfaces without declaring capture recovered.
+    /// System notification consumption is tracked separately by TrayController.
+    Q_INVOKABLE void acknowledgeWarning();
 Q_SIGNALS:
     void changed();
     void incidentRaised();
+    /// A new warning serial is available. Late subscribers must also inspect
+    /// warningActive/serial; this signal does not prove OS notification display.
+    void warningRaised();
     void settingsConfirmed(const QVariantMap &settings);
     /// Every capture snapshot this poll read; the calibration card follows it so progress
     /// ticks appear within one poll interval instead of on the next state change.
@@ -108,6 +124,10 @@ private:
     void setPollInterval(int milliseconds);
     void block(const QString &key, const LiveText &message);
     void clearIncident();
+    /// Updates the early-warning episode from a confirmed desktop projection;
+    /// returns true only when a new serial was created. Unknown states retain it.
+    bool updateWarning(const QString &state, const LiveText &message);
+    void clearWarning();
     /// A QPointer: IpcClient fails every request still in flight from its own
     /// destructor, and those callbacks land here while the backend is already
     /// being torn down (review finding M-1).
@@ -126,6 +146,12 @@ private:
     bool m_pending = false;
     bool m_followReady = false;
     bool m_validationReady = false;
+    bool m_warningActive = false;
+    bool m_warningPending = false;
+    quint64 m_warningSerial = 0;
+    QString m_currentGame;
+    QString m_warningGame;
+    LiveText m_warningMessage;
     // Kept as recipes so a language switch re-renders them (LiveText.h).
     LiveText m_followError;
     LiveText m_validationError;

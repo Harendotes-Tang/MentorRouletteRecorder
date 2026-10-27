@@ -206,6 +206,41 @@ private:
         QTRY_COMPARE(app.checkedHistoryRunCount(), 0);
         clickItem(window, checkbox);
         QTRY_COMPARE(app.checkedHistoryRunCount(), 1);
+        const auto filterBeforeJump = app.historyFilter();
+        auto *jump = findVisual(window->contentItem(), QStringLiteral("historyPageJump"));
+        QVERIFY(jump);
+        auto *number = findVisual(jump, QStringLiteral("pageNumberField"));
+        QVERIFY(number);
+        auto *viewport = jump->parentItem();
+        while (viewport && viewport->metaObject()->indexOfProperty("contentY") < 0)
+            viewport = viewport->parentItem();
+        QVERIFY(viewport);
+        const auto revealJump = [&] {
+            const QRectF area(viewport->mapToScene(QPointF()), viewport->size());
+            for (int step = 0; step < 10; ++step) {
+                if (area.contains(QRectF(jump->mapToScene(QPointF()), jump->size()))) return true;
+                QTest::wheelEvent(window, viewport->mapToScene(QPointF(viewport->width() / 2, viewport->height() - 24)), QPoint(0, -120));
+                QTest::qWait(40);
+            }
+            return area.contains(QRectF(jump->mapToScene(QPointF()), jump->size()));
+        };
+        QVERIFY(revealJump());
+        number->forceActiveFocus();
+        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+        QTest::keyClick(window, Qt::Key_2);
+        QTest::keyClick(window, Qt::Key_Return);
+        QTRY_COMPARE(app.runs()->page(), 2);
+        QTRY_VERIFY(!app.runs()->isLoading());
+        QCOMPARE(app.checkedHistoryRunCount(), 1);
+        QCOMPARE(app.historyFilter(), filterBeforeJump);
+        number->forceActiveFocus();
+        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+        QTest::keyClick(window, Qt::Key_1);
+        QTest::keyClick(window, Qt::Key_Return);
+        QTRY_COMPARE(app.runs()->page(), 1);
+        QTRY_VERIFY(!app.runs()->isLoading());
+        QCOMPARE(app.checkedHistoryRunCount(), 1);
+        QVERIFY(revealJump());
         const QString directory = qEnvironmentVariable("MR_HISTORY_UI_EVIDENCE_DIR", QDir::currentPath());
         QVERIFY(QDir().mkpath(directory));
         QTest::qWait(50);

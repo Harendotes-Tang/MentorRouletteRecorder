@@ -9961,6 +9961,10 @@ The region cannot be changed while listening or collecting evidence.</translatio
 <context>
     <name>mr::AutomaticRecordingController</name>
     <message>
+        <source>暂时读不到可用的游戏数据，自动记录尚未恢复。软件正在后台尝试恢复，恢复前不会自动生成记录。</source>
+        <translation>Usable game data is unavailable and automatic recording has not recovered. The app is trying to recover in the background. Records will not be created automatically until it recovers.</translation>
+    </message>
+    <message>
         <source>无法识别游戏区服，暂时不能自动记录。请在「设置 → 通用」中选择实际区服（国服 / 国际服），保存后会重新检查。</source>
         <translation>The game region could not be identified, so automatic recording is unavailable. Select the region you use (China or Global) in Settings → General. It will be checked again after saving.</translation>
     </message>
@@ -12989,5 +12993,20 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>The installer didn&apos;t start, possibly because the Windows install confirmation wasn&apos;t accepted. This app keeps running; click “Install now” again, or click “Download in browser”.</translation>
     </message>
+</context>
+<context>
+    <name>PageNumberInput</name>
+    <message><source>跳转页码</source><translation>Page number</translation></message>
+    <message><source>输入 1～%1 页，按回车或点击跳转</source><translation>Enter a page from 1 to %1, then press Enter or click Go.</translation></message>
+    <message><source>/ %1 页</source><translation>/ %1</translation></message>
+    <message><source>跳转</source><translation>Go</translation></message>
+</context>
+<context>
+    <name>RecordingWarningWindow</name>
+    <message><source>导随记录器 · 自动记录暂不可用</source><translation>Mentor Recorder · Automatic recording unavailable</translation></message>
+    <message><source>自动记录暂不可用</source><translation>Automatic recording unavailable</translation></message>
+    <message><source>恢复前，副本可能无法自动记录。后台仍会继续尝试恢复。</source><translation>Duties may not be recorded automatically until recovery. The app will keep trying in the background.</translation></message>
+    <message><source>查看诊断</source><translation>View diagnostics</translation></message>
+    <message><source>我知道了</source><translation>Understood</translation></message>
 </context>
 </TS>

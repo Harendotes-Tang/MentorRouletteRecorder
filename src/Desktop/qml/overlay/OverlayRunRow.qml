@@ -16,6 +16,7 @@ RowLayout {
     property bool compact: false
     property real nameSize: 13.5
     property bool showCategory: true
+    property bool categoryArt: false
 
     readonly property string category: run ? String(run.duty_category || "") : ""
 
@@ -29,9 +30,20 @@ RowLayout {
 
     OverlayTypeBadge {
         Layout.alignment: Qt.AlignVCenter
-        visible: root.showCategory && root.status !== "matched"
+        visible: root.showCategory && !root.categoryArt && root.status !== "matched"
         text: root.ov.categoryBadge(root.category)
         tone: root.ov.categoryColor(root.category)
+    }
+
+    CategoryIcon {
+        objectName: "reminderCategoryIcon"
+        Layout.alignment: Qt.AlignVCenter
+        visible: root.showCategory && root.categoryArt && root.status !== "matched"
+        category: root.category
+        size: 20
+        Accessible.name: Theme.categoryName(root.category)
+        HoverHandler { id: categoryHover }
+        OverlayToolTip { visible: categoryHover.hovered; text: Theme.categoryName(root.category) }
     }
 
     Text {

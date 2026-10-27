@@ -7,8 +7,11 @@
 #include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
+#include "AppSettings.h"
 #include "IBackend.h"
+#include "TrayController.h"
 
+#include <QApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QGuiApplication>
@@ -23,6 +26,7 @@
 #include <QStandardPaths>
 #include <QTest>
 #include <QTimer>
+#include <QTemporaryDir>
 #include <QTimeZone>
 
 #include <algorithm>
@@ -222,6 +226,8 @@ private Q_SLOTS:
     void trendMergeKeepsSurvivingBarsAndEasing();
     void interruptedTrendSwitchEndsClean();
     void reducedMotionTrendSwitchIsInstant();
+    void trendHoverMatchesRenderedBars();
+    void renderingResumesAfterRepeatedHideAndShow();
     void classicPanelsPopWhenTheirPageOpens();
     void eorzeaPanelsKeepTheirOwnEntrance();
 
@@ -367,6 +373,87 @@ void MotionTests::secondRevealFinishesTheFirstAtOnce()
     QTRY_VERIFY_WITH_TIMEOUT(overlayOf(reveal) == nullptr, 3000);
     QCOMPARE(scene.root->property("changes").toInt(), 3);
     QCOMPARE(reveal->property("createdCount").toInt(), 2);
+}
+
+void MotionTests::renderingResumesAfterRepeatedHideAndShow()
+{
+    Scene scene;
+    QVERIFY2(scene.create(R"(import QtQuick
+import MentorRecorder
+Window {
+    id: renderWindow
+    width: 480; height: 320; visible: true
+    flags: Qt.Window | Qt.FramelessWindowHint | Qt.WindowMinimizeButtonHint
+           | Qt.WindowMaximizeButtonHint | Qt.WindowCloseButtonHint
+    property bool alternate: false
+    Rectangle { anchors.fill: parent; color: renderWindow.alternate ? "red" : "blue" }
+    Window {
+        objectName: "auxiliary"; width: 120; height: 80; color: "green"
+        transientParent: null
+        flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+    }
+})", true), qPrintable(scene.errors));
+    auto *window = scene.window();
+    auto *auxiliary = scene.root->findChild<QQuickWindow *>(QStringLiteral("auxiliary"));
+    QVERIFY(window && auxiliary);
+    QTemporaryDir settingsDirectory;
+    QVERIFY(settingsDirectory.isValid());
+    mr::AppSettings settings(settingsDirectory.filePath(QStringLiteral("desktop.ini")), nullptr);
+    settings.setMinimizeToTray(true);
+    mr::TrayController tray(nullptr, &settings, window);
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    int frames = 0;
+    QObject frameReceiver;
+    // Consume render-thread signals on the GUI thread; no cross-thread counter access.
+    const auto connection = connect(window, &QQuickWindow::frameSwapped, &frameReceiver,
+                                    [&frames] { ++frames; }, Qt::QueuedConnection);
+    const auto disconnect = qScopeGuard([&] { QObject::disconnect(connection); });
+    for (const bool auxiliaryVisible : {false, true}) {
+        auxiliary->setVisible(auxiliaryVisible);
+        for (int cycle = 0; cycle < 6; ++cycle) {
+            if (tray.isActive()) {
+                QVERIFY(!window->close()); // Close is ignored and converted to hide.
+                QVERIFY(!window->isVisible());
+            } else {
+                window->hide(); // Offscreen platforms do not have a notification area.
+            }
+            QTest::qWait(40);
+            tray.showWindow();
+            QVERIFY(QTest::qWaitForWindowExposed(window));
+            QTest::qWait(40);
+            const int before = frames;
+            QVERIFY(window->setProperty("alternate", !window->property("alternate").toBool()));
+            // Do not call grabWindow()/update(): either could wake a stalled renderer
+            // and conceal the fault this probe is intended to detect.
+            QTRY_VERIFY_WITH_TIMEOUT(frames > before, 2000);
+        }
+    }
+}
+
+void MotionTests::trendHoverMatchesRenderedBars()
+{
+    Scene scene;
+    QVERIFY2(scene.create(kTrendScene(), true), qPrintable(scene.errors));
+    auto *chart = scene.item(QStringLiteral("chart"));
+    QVERIFY(chart);
+    auto *hover = chart->findChild<QQuickItem *>(QStringLiteral("trendHoverArea"));
+    QVERIFY(hover);
+    for (const int width : {720, 1100}) {
+        scene.window()->setWidth(width);
+        for (const int count : {7, 30}) {
+            QVERIFY(chart->setProperty("buckets", buckets(QStringLiteral("day"), QList<int>(count, 5))));
+            QTRY_COMPARE(graphsBars(chart).size(), count);
+            QTest::qWait(100);
+            const auto drawn = graphsBars(chart);
+            for (int i = 0; i < count; ++i) {
+                QTest::mouseMove(scene.window(), drawn.at(i).center().toPoint());
+                QTRY_COMPARE(hover->property("index").toInt(), i);
+            }
+            // The chart's outer margin is not a data bucket.
+            QTest::mouseMove(scene.window(), chart->mapToScene(QPointF(1, 1)).toPoint());
+            QTRY_COMPARE(hover->property("index").toInt(), -1);
+        }
+    }
 }
 
 void MotionTests::verifyTrendAtRest(QQuickItem *chart, int bars)
@@ -650,7 +737,7 @@ MR_DESKTOP_TEST_SUITE(Motion)
     mrtest::disableCollectorLaunch();
     QStandardPaths::setTestModeEnabled(true);
     QQuickStyle::setStyle(QStringLiteral("Basic"));
-    QGuiApplication app(argc, argv);
+    QApplication app(argc, argv);
     MotionTests tests;
     return QTest::qExec(&tests, argc, argv);
 }

@@ -144,12 +144,14 @@ endforeach()
 # AutomaticRecording / GameSelection / Recovery: their controllers, without a Collector.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopWorkflowTests
-    SUITES Desktop WorkflowController AutomaticRecording ExportFailure Recovery RunFormValidator
-           RunListModel GameSelection)
+    SUITES Desktop WorkflowController AutomaticRecording RecordingWarning ExportFailure Recovery RunFormValidator
+           RunListModel GameSelection
+    LIBRARIES Qt6::Widgets)
 mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests Desktop NAME MentorRecorderDesktopTests)
 foreach(suite IN ITEMS AutomaticRecording GameSelection)
     mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests ${suite} NO_LOG)
 endforeach()
+mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests RecordingWarning)
 foreach(suite IN ITEMS WorkflowController ExportFailure Recovery RunFormValidator RunListModel)
     mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests ${suite})
 endforeach()
@@ -163,10 +165,10 @@ endforeach()
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopShellTests
     SUITES ShellDialog UiWorkflowRegression Motion RecoveryUi HistoryBatch HistoryColumns RunDetailPanel
-           EditRunDialogBinding NoteImageStore QmlRuntime QmlWarningCounter
+           EditRunDialogBinding ManualRunReflection RecordingWarningWindow NoteImageStore QmlRuntime QmlWarningCounter
     LIBRARIES ${MR_QUICK_TEST_LIBRARIES} Qt6::Widgets)
 foreach(suite IN ITEMS ShellDialog UiWorkflowRegression Motion RecoveryUi HistoryColumns RunDetailPanel
-                       EditRunDialogBinding NoteImageStore QmlWarningCounter)
+                       EditRunDialogBinding ManualRunReflection RecordingWarningWindow NoteImageStore QmlWarningCounter)
     mr_desktop_suite_test(MentorRecorderDesktopShellTests ${suite})
 endforeach()
 mr_desktop_suite_test(MentorRecorderDesktopShellTests HistoryBatch)
@@ -265,10 +267,10 @@ endif()
 # a field's example, the combo box popup, the toggle switch.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopComponentsTests
-    SUITES Icon DateField TimeField StyledTextField StyledComboBox ToggleSwitch
+    SUITES Icon DateField TimeField PageNumberInput StyledTextField StyledComboBox ToggleSwitch
     LIBRARIES ${MR_QUICK_TEST_LIBRARIES})
 mr_desktop_suite_test(MentorRecorderDesktopComponentsTests Icon NAME MentorRecorderIcons)
-foreach(suite IN ITEMS DateField TimeField StyledTextField StyledComboBox)
+foreach(suite IN ITEMS DateField TimeField PageNumberInput StyledTextField StyledComboBox)
     mr_desktop_suite_test(MentorRecorderDesktopComponentsTests ${suite})
 endforeach()
 mr_desktop_suite_test(MentorRecorderDesktopComponentsTests ToggleSwitch NO_LOG)

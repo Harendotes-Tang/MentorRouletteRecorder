@@ -280,6 +280,36 @@ ColumnLayout {
         }
     }
 
+    ColumnLayout {
+        Layout.fillWidth: true
+        visible: !step.wizard.editMode
+        enabled: !step.wizard.recordSaved
+        spacing: 6
+
+        FieldLabel { text: qsTr("这次感觉（可选）") }
+        SegmentedControl {
+            objectName: "manualMoodPicker"
+            Layout.fillWidth: true
+            options: [
+                { value: "", label: qsTr("不填写") },
+                { value: "good", label: qsTr("顺利") },
+                { value: "ok", label: qsTr("一般") },
+                { value: "bad", label: qsTr("糟心") }
+            ]
+            currentValue: step.wizard.reflectionMood
+            onActivated: function(value) { step.wizard.reflectionMood = value }
+        }
+        FieldLabel { text: qsTr("心得（可选）") }
+        StyledTextArea {
+            objectName: "manualReflectionText"
+            Layout.fillWidth: true
+            Layout.preferredHeight: 80
+            text: step.wizard.reflectionText
+            placeholderText: qsTr("写一句心得；只选心情时，将以心情文字保存。")
+            onTextChanged: step.wizard.reflectionText = text
+        }
+    }
+
     // ----------------------------------------- 修改前后对比 --
     ColumnLayout {
         objectName: "diffSection"

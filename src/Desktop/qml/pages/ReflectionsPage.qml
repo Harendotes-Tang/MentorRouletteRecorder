@@ -301,7 +301,7 @@ ColumnLayout {
         Layout.fillWidth: true
         spacing: 8
         AppButton { objectName: "reflectionPreviousPage"; text: qsTr("上一页"); iconName: "chevron-left"; enabled: !!page.runs && !page.runs.loading && page.runs.page > 1; onClicked: page.runs.previousPage() }
-        Text { text: page.runs ? qsTr("第 %1 / %2 页").arg(page.runs.page).arg(page.runs.pageCount) : ""; color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
+        PageNumberInput { objectName: "reflectionPageJump"; paginationModel: page.runs }
         AppButton { objectName: "reflectionNextPage"; text: qsTr("下一页"); iconName: "chevron-right"; enabled: !!page.runs && !page.runs.loading && page.runs.page < page.runs.pageCount; onClicked: page.runs.nextPage() }
         Item { Layout.fillWidth: true }
         StyledComboBox {

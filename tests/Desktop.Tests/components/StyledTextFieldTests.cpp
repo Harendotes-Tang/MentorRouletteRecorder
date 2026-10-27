@@ -4,40 +4,27 @@
 // example, a Tab while an input method is composing - moves focus as before.
 // Real QML from src/Desktop/qml, in a Window, driven by real key events.
 #include "DesktopTestRunner.h"
+#include "QmlComponentTestSupport.h"
 #include <QCoreApplication>
 #include <QDir>
 #include <QGuiApplication>
 #include <QInputMethodEvent>
-#include <QQmlComponent>
-#include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QTest>
-#include <QUrl>
-#include <memory>
 
 namespace {
 
-QString qmlRoot()
-{
-    return QString::fromUtf8(MR_DESKTOP_QML_DIR);
-}
-
 const char kExample[] = "调整开始记录前已完成的导随次数";
 
-struct Scene
+struct Scene : mrtest::QmlComponentScene
 {
-    QQmlEngine engine;
-    std::unique_ptr<QObject> root;
-    QString errors;
-
     bool create()
     {
-        QQmlComponent component(&engine);
         // The middle field is shaped like the call sites: its text is bound to a
         // property the page owns, and its onTextChanged writes back to it.
-        component.setData(R"(import QtQuick
+        return QmlComponentScene::create(R"(import QtQuick
 import QtQuick.Window
 import MentorRecorder
 Window {
@@ -57,20 +44,9 @@ Window {
         }
         StyledTextField { objectName: "after"; width: 300 }
     }
-})", QUrl::fromLocalFile(qmlRoot() + QStringLiteral("/components/StyledTextFieldProbe.qml")));
-        if (component.isError()) {
-            errors = component.errorString();
-            return false;
-        }
-        root.reset(component.create());
-        if (!root) {
-            errors = component.errorString();
-            return false;
-        }
-        return true;
+})", QStringLiteral("/components/StyledTextFieldProbe.qml"));
     }
 
-    QQuickWindow *window() const { return qobject_cast<QQuickWindow *>(root.get()); }
     QQuickItem *field(const char *name) const
     {
         return root->findChild<QQuickItem *>(QString::fromLatin1(name));
@@ -110,16 +86,8 @@ private slots:
 
 void StyledTextFieldTests::initTestCase()
 {
-    const QString root = qmlRoot();
-    QVERIFY(QDir(root).exists());
-    qmlRegisterSingletonType(QUrl::fromLocalFile(root + QStringLiteral("/Theme.qml")),
-                             "MentorRecorder", 1, 0, "Theme");
-    const auto files = QDir(root + QStringLiteral("/components")).entryList({QStringLiteral("*.qml")}, QDir::Files);
-    for (const auto &file : files) {
-        const QByteArray name = file.chopped(4).toUtf8();
-        qmlRegisterType(QUrl::fromLocalFile(root + QStringLiteral("/components/") + file),
-                        "MentorRecorder", 1, 0, name.constData());
-    }
+    QVERIFY(QDir(mrtest::qmlSourceRoot()).exists());
+    mrtest::registerSourceQmlComponents();
 }
 
 void StyledTextFieldTests::tabOnAnEmptyFieldEntersItsExampleAsIfTyped()

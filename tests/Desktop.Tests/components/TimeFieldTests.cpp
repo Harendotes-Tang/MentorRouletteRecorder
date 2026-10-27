@@ -2,54 +2,31 @@
 // without punctuation become HH:mm, and hour and minute can be picked from the
 // wheels behind the clock icon. Real QML from src/Desktop/qml, in a Window.
 #include "DesktopTestRunner.h"
+#include "QmlComponentTestSupport.h"
 #include <QDir>
 #include <QGuiApplication>
-#include <QQmlComponent>
-#include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QWheelEvent>
 #include <QTest>
 #include <QTime>
-#include <QUrl>
-#include <memory>
 
 namespace {
 
-QString qmlRoot()
+struct Scene : mrtest::QmlComponentScene
 {
-    return QString::fromUtf8(MR_DESKTOP_QML_DIR);
-}
-
-struct Scene
-{
-    QQmlEngine engine;
-    std::unique_ptr<QObject> root;
-    QString errors;
-
     bool create()
     {
-        QQmlComponent component(&engine);
-        component.setData(R"(import QtQuick
+        return QmlComponentScene::create(R"(import QtQuick
 import QtQuick.Window
 import MentorRecorder
 Window {
     width: 480; height: 360; visible: true
     TimeField { objectName: "field"; x: 20; y: 20; width: 140 }
-})", QUrl::fromLocalFile(qmlRoot() + QStringLiteral("/components/TimeProbe.qml")));
-        if (component.isError()) {
-            errors = component.errorString();
-            return false;
-        }
-        root.reset(component.create());
-        if (!root) {
-            errors = component.errorString();
-            return false;
-        }
-        return true;
+})", QStringLiteral("/components/TimeProbe.qml"));
     }
 
-    QQuickWindow *window() const { return qobject_cast<QQuickWindow *>(root.get()); }
     QQuickItem *field() const { return root->findChild<QQuickItem *>(QStringLiteral("field")); }
 };
 
@@ -58,6 +35,22 @@ void typeText(QQuickWindow *window, const QString &text)
 {
     for (const QChar &character : text)
         QTest::keyClick(window, character.toLatin1());
+}
+
+bool wheelSettled(QQuickItem *wheel)
+{
+    QList<QQuickItem *> pending{wheel};
+    const QString name = wheel->objectName() + QStringLiteral("Value")
+        + QString::number(wheel->property("currentIndex").toInt());
+    while (!pending.isEmpty()) {
+        auto *item = pending.takeFirst();
+        pending.append(item->childItems());
+        if (item->objectName() == name) {
+            const auto center = item->mapToItem(wheel, QPointF(item->width() / 2, item->height() / 2));
+            return qAbs(center.y() - wheel->height() / 2) < 0.5;
+        }
+    }
+    return false;
 }
 
 } // namespace
@@ -75,22 +68,16 @@ private slots:
     void leavingTheFieldWritesTheCanonicalForm();
     void nonsenseStaysAsTypedAndTurnsRed();
     void theWheelsOpenOnTheFieldsOwnTimeAndWriteBack();
+    void visibleNumbersCanBeClickedAndWheeled();
+    void draggingTheHourColumnStillWorks();
     void nowWritesTheClockWithSeconds();
 };
 } // namespace
 
 void TimeFieldTests::initTestCase()
 {
-    const QString root = qmlRoot();
-    QVERIFY(QDir(root).exists());
-    qmlRegisterSingletonType(QUrl::fromLocalFile(root + QStringLiteral("/Theme.qml")),
-                             "MentorRecorder", 1, 0, "Theme");
-    const auto files = QDir(root + QStringLiteral("/components")).entryList({QStringLiteral("*.qml")}, QDir::Files);
-    for (const auto &file : files) {
-        const QByteArray name = file.chopped(4).toUtf8();
-        qmlRegisterType(QUrl::fromLocalFile(root + QStringLiteral("/components/") + file),
-                        "MentorRecorder", 1, 0, name.constData());
-    }
+    QVERIFY(QDir(mrtest::qmlSourceRoot()).exists());
+    mrtest::registerSourceQmlComponents();
 }
 
 void TimeFieldTests::bareDigitsBecomeATimeAsTheyAreTyped()
@@ -203,6 +190,80 @@ void TimeFieldTests::theWheelsOpenOnTheFieldsOwnTimeAndWriteBack()
     QVERIFY(QMetaObject::invokeMethod(field, "select", Q_ARG(QVariant, 7), Q_ARG(QVariant, 45)));
     QCOMPARE(field->property("text").toString(), QStringLiteral("07:45"));
     QTRY_VERIFY(!field->property("pickerOpen").toBool());
+}
+
+void TimeFieldTests::visibleNumbersCanBeClickedAndWheeled()
+{
+    Scene scene;
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    auto *window = scene.window();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    auto *field = scene.field();
+    field->setProperty("text", QStringLiteral("15:58"));
+    QVERIFY(QMetaObject::invokeMethod(field, "openPicker"));
+    auto *hours = field->findChild<QQuickItem *>(QStringLiteral("hourWheel"));
+    auto *minutes = field->findChild<QQuickItem *>(QStringLiteral("minuteWheel"));
+    QVERIFY(hours && minutes);
+    const auto point = [](QQuickItem *wheel, qreal rowOffset) {
+        return wheel->mapToScene(QPointF(wheel->width() / 2,
+                                        wheel->height() / 2 + rowOffset * wheel->height() / 5));
+    };
+    QTRY_VERIFY(wheelSettled(hours) && wheelSettled(minutes));
+    QCOMPARE(hours->property("currentIndex").toInt(), 15);
+    QCOMPARE(minutes->property("currentIndex").toInt(), 58);
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, point(hours, -1).toPoint());
+    QTRY_COMPARE(hours->property("currentIndex").toInt(), 14);
+    QTRY_VERIFY(wheelSettled(hours));
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, point(hours, -1).toPoint());
+    QTRY_COMPARE(hours->property("currentIndex").toInt(), 13);
+    QTRY_VERIFY(wheelSettled(hours));
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, point(hours, 2).toPoint());
+    QTRY_COMPARE(hours->property("currentIndex").toInt(), 15);
+    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, point(minutes, -2).toPoint());
+    QTRY_COMPARE(minutes->property("currentIndex").toInt(), 56);
+
+    const auto wheelEvent = [&](QQuickItem *wheel, int delta) {
+        const QPointF pos = point(wheel, 0);
+        QWheelEvent event(pos, window->mapToGlobal(pos.toPoint()), {}, QPoint(0, delta),
+                          Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(window, &event);
+    };
+    wheelEvent(minutes, -120);
+    QTRY_COMPARE(minutes->property("currentIndex").toInt(), 57);
+    wheelEvent(hours, 240);
+    QTRY_COMPARE(hours->property("currentIndex").toInt(), 13);
+    minutes->setProperty("currentIndex", 0);
+    wheelEvent(minutes, 120);
+    QTRY_COMPARE(minutes->property("currentIndex").toInt(), 59);
+    wheelEvent(minutes, -60);
+    QCOMPARE(minutes->property("currentIndex").toInt(), 59);
+    wheelEvent(minutes, -60);
+    QTRY_COMPARE(minutes->property("currentIndex").toInt(), 0);
+    QCOMPARE(field->property("text").toString(), QStringLiteral("15:58"));
+    QVERIFY(QMetaObject::invokeMethod(field, "select", Q_ARG(QVariant, 13), Q_ARG(QVariant, 0)));
+    QCOMPARE(field->property("text").toString(), QStringLiteral("13:00"));
+}
+
+void TimeFieldTests::draggingTheHourColumnStillWorks()
+{
+    Scene scene;
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
+    auto *field = scene.field();
+    field->setProperty("text", QStringLiteral("15:58"));
+    QVERIFY(QMetaObject::invokeMethod(field, "openPicker"));
+    auto *hours = field->findChild<QQuickItem *>(QStringLiteral("hourWheel"));
+    auto *minutes = field->findChild<QQuickItem *>(QStringLiteral("minuteWheel"));
+    QVERIFY(hours && minutes);
+    QTRY_VERIFY(wheelSettled(hours) && wheelSettled(minutes));
+    const QPoint start = hours->mapToScene(QPointF(hours->width() / 2, hours->height() / 2)).toPoint();
+    QTest::mousePress(scene.window(), Qt::LeftButton, Qt::NoModifier, start);
+    for (int step = 1; step <= 8; ++step)
+        QTest::mouseMove(scene.window(), start + QPoint(0, step * 5), 20);
+    QTest::mouseRelease(scene.window(), Qt::LeftButton, Qt::NoModifier, start + QPoint(0, 40));
+    QTRY_VERIFY(hours->property("currentIndex").toInt() != 15);
+    QCOMPARE(minutes->property("currentIndex").toInt(), 58);
+    QCOMPARE(field->property("text").toString(), QStringLiteral("15:58"));
 }
 
 void TimeFieldTests::nowWritesTheClockWithSeconds()

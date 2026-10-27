@@ -11,6 +11,7 @@
 #include <QMenu>
 #include <QPainter>
 #include <QPixmap>
+#include <QPointer>
 #include <QSystemTrayIcon>
 #include <QTimer>
 #include <QWindow>
@@ -64,6 +65,13 @@ TrayController::TrayController(AppController *controller, AppSettings *settings,
     , m_settings(settings)
     , m_window(window)
 {
+    if (m_controller) {
+        connect(m_controller->recording(), &AutomaticRecordingController::warningRaised,
+                this, &TrayController::notifyRecordingWarning);
+        // Startup status can arrive before this tray exists. Inspect the active
+        // serial next turn, after tray setup; UI acknowledgement is independent.
+        QTimer::singleShot(0, this, &TrayController::notifyRecordingWarning);
+    }
     if (!QSystemTrayIcon::isSystemTrayAvailable())
         return;
 
@@ -127,11 +135,6 @@ TrayController::TrayController(AppController *controller, AppSettings *settings,
     m_tray->show();
 
     if (m_controller) {
-        connect(m_controller->recording(), &AutomaticRecordingController::incidentRaised, this, [this] {
-            if (m_window && (!m_window->isVisible() || m_window->windowState() == Qt::WindowMinimized))
-                m_tray->showMessage(tr("无法自动记录"), m_controller->recording()->message(),
-                                    QSystemTrayIcon::Warning);
-        });
         connect(m_controller, &AppController::maintainerToolsChanged, this, &TrayController::refreshCaptureAction);
         connect(m_controller, &AppController::validationChanged, this,
                 &TrayController::refreshCaptureAction);
@@ -163,6 +166,37 @@ bool TrayController::eventFilter(QObject *watched, QEvent *event)
 // Out of line: std::unique_ptr<QMenu> needs the complete type to destroy it,
 // and the header only forward-declares QMenu.
 TrayController::~TrayController() = default;
+
+void TrayController::notifyRecordingWarning()
+{
+    if (!m_controller)
+        return;
+    const QPointer<AutomaticRecordingController> recording(m_controller->recording());
+    const auto serial = recording->warningSerial();
+    if (!recording->warningActive() || serial == 0 || serial <= m_lastWarningSerial)
+        return;
+    m_lastWarningSerial = serial;
+    const QString message = recording->warningMessage();
+    const QPointer<TrayController> guard(this);
+    Q_EMIT recordingWarningRequested(serial, m_tray != nullptr);
+    // Direct observers may withdraw this warning or destroy either owner.
+    // This guard precedes the native boundary even on offscreen test platforms.
+    if (!guard || !recording || !recording->warningActive() || recording->warningSerial() != serial)
+        return;
+    deliverRecordingWarning(message);
+}
+
+void TrayController::deliverRecordingWarning(const QString &message)
+{
+    // Logical request tests must not make noise or notify the user's desktop.
+    // Real Windows delivery is still subject to audio and notification policies.
+    const QString platform = QGuiApplication::platformName();
+    if (platform == QLatin1String("offscreen") || platform == QLatin1String("minimal"))
+        return;
+    QApplication::beep();
+    if (m_tray)
+        m_tray->showMessage(tr("无法自动记录"), message, QSystemTrayIcon::Warning);
+}
 
 void TrayController::refreshCaptureAction()
 {

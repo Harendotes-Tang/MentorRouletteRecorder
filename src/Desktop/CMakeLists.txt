@@ -332,6 +332,7 @@ set(MR_QML_FILES
     qml/overlay/OverlayCustomizePanel.qml
     qml/components/RecoveryInbox.qml
     qml/components/RecoveryReminderWindow.qml
+    qml/components/RecordingWarningWindow.qml
     qml/components/PendingWorkContent.qml
     qml/components/ReflectionCard.qml
     qml/components/ReflectionShareCard.qml
@@ -357,6 +358,7 @@ set(MR_QML_FILES
     qml/components/Tag.qml
     qml/components/ThemeReveal.qml
     qml/components/TimeField.qml
+    qml/components/PageNumberInput.qml
     qml/components/Toast.qml
     qml/components/PageHost.qml
     qml/components/ToggleSwitch.qml

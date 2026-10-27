@@ -183,6 +183,75 @@ Dialog {
     property string resultCode: "COMPLETED"
     property string reasonText: ""
     property string noteText: ""
+    property string reflectionMood: ""
+    property string reflectionText: ""
+    property bool reflectionPending: false
+    property bool reflectionSubmitting: false
+    property string reflectionDatabaseKey: ""
+    property bool reflectionScopeChanged: false
+    readonly property bool hasManualReflection: !editMode
+        && (reflectionMood.length > 0 || reflectionText.trim().length > 0)
+
+    // Storage treats empty text as deletion. The user explicitly selected this
+    // fallback for a mood-only creation; persist source text across languages.
+    function manualReflectionText() {
+        if (reflectionText.trim().length > 0)
+            return reflectionText.trim()
+        return reflectionMood === "good" ? "顺利" : reflectionMood === "ok" ? "一般"
+             : reflectionMood === "bad" ? "糟心" : ""
+    }
+
+    function finishSavedRecord() {
+        if (!reflectionPending) {
+            finishWithImages(savedRunId)
+            return
+        }
+        if (reflectionScopeChanged || !Runtime.app.recovery.identityVerified
+                || reflectionDatabaseKey !== Runtime.app.recovery.databaseKey) {
+            errorCode = "ERR_RECOVERY_SCOPE_CHANGED"
+            errorText = qsTr("记录库连接已变化，心情和心得尚未保存。请保留输入，并在原记录库的历史记录中确认后补录。")
+            return
+        }
+        if (Runtime.app.reflectionSaving === true) {
+            errorText = qsTr("记录已保存，上一条心得仍在保存中，请稍候重试。")
+            return
+        }
+        errorText = ""
+        reflectionSubmitting = true
+        submitting = true
+        Runtime.app.saveReflection(savedRunId, reflectionMood || "good", manualReflectionText())
+    }
+
+    Connections {
+        target: Runtime.app.recovery
+        function onScopeChanging() {
+            if (!dialog.editMode && (dialog.submitting || dialog.recordSaved))
+                dialog.reflectionScopeChanged = true
+        }
+    }
+
+    Connections {
+        target: Runtime.app
+        function onReflectionSaved(runId) {
+            if (!dialog.reflectionSubmitting || runId !== dialog.savedRunId)
+                return
+            dialog.reflectionSubmitting = false
+            dialog.submitting = false
+            dialog.reflectionPending = false
+            dialog.finishWithImages(runId)
+        }
+        function onReflectionFailed(code, message) {
+            // ERR_BUSY from another editor is global too. Our request still
+            // owns the save while reflectionSaving is true; only its terminal
+            // failure clears that flag before emitting reflectionFailed.
+            if (!dialog.reflectionSubmitting || Runtime.app.reflectionSaving === true)
+                return
+            dialog.reflectionSubmitting = false
+            dialog.submitting = false
+            dialog.errorCode = code
+            dialog.errorText = qsTr("记录已保存，心情和心得未保存，请重试。") + "\n" + message
+        }
+    }
     property bool contributesToGoal: true
     /// How the duty was entered, as $defs/Run.joined_in_progress carries it: true (中途加入),
     /// false (开局进入) or null (not known). Null is a value a player may pick on purpose.
@@ -207,8 +276,8 @@ Dialog {
     property var pendingImageAdds: []
     /// Absolute paths of existing images to delete on save.
     property var removedImagePaths: []
-    /// Set once the record was accepted by the Collector. A later 保存 then
-    /// only applies the images: a second CreateManualRun would be a duplicate.
+    /// Set once the Collector accepted the record but reflection/images remain.
+    /// A retry applies only that work; a second CreateManualRun is a duplicate.
     property string savedRunId: ""
     readonly property bool recordSaved: savedRunId.length > 0
     readonly property bool imagesDirty: pendingImageAdds.length > 0 || removedImagePaths.length > 0
@@ -889,6 +958,12 @@ Dialog {
         resultCode = "COMPLETED"
         reasonText = qsTranslate("SystemReason", "补录遗漏的导随记录")
         noteText = ""
+        reflectionMood = ""
+        reflectionText = ""
+        reflectionPending = false
+        reflectionSubmitting = false
+        reflectionDatabaseKey = ""
+        reflectionScopeChanged = false
         resetNoteImages(null)
         contributesToGoal = true
         joinedInProgress = null
@@ -915,6 +990,8 @@ Dialog {
     }
 
     function openForRun(run) {
+        reflectionPending = false
+        reflectionSubmitting = false
         importedResultSelected = false
         editMode = true
         runData = run
@@ -1052,10 +1129,12 @@ Dialog {
         return true
     }
 
-    /// The record is already saved (savedRunId): only the images are left.
+    /// The record and any reflection are saved; apply only remaining images.
     function finishWithImages(runId) {
-        if (!commitNoteImages(runId))
+        if (!commitNoteImages(runId)) {
+            savedRunId = runId
             return
+        }
         savedRunId = ""
         close()
     }
@@ -1119,10 +1198,10 @@ Dialog {
     function submit() {
         if (submitting)
             return
-        // The record went through on an earlier click and only the images
-        // failed: never send the record again.
+        // The record went through on an earlier click: retry only outstanding
+        // reflection/images, never create the record again.
         if (savedRunId.length > 0) {
-            finishWithImages(savedRunId)
+            finishSavedRecord()
             return
         }
         if (awaitingRetry && lastSubmission) {
@@ -1134,6 +1213,11 @@ Dialog {
                 createRequested(lastSubmission.payload, lastSubmission.reason)
             else
                 correctRequested(lastSubmission.payload, lastSubmission.reason)
+            return
+        }
+        if (!editMode && reflectionText.trim().length > 2000) {
+            errorCode = "ERR_BAD_REQUEST"
+            errorText = qsTr("心得不能超过 2000 个字符。")
             return
         }
         const verdict = Runtime.runForm.validate(formState, beforeState)
@@ -1161,6 +1245,8 @@ Dialog {
             submissionTicket = currentTicket
             // A pre-filled reason left as it was is stored in its source text (Theme.storedReason).
             lastSubmission = { create: true, payload: fields, reason: Theme.storedReason(reasonText) }
+            reflectionDatabaseKey = Runtime.app.recovery.databaseKey
+            reflectionScopeChanged = false
             createRequested(fields, lastSubmission.reason)
             return
         }
@@ -1243,10 +1329,16 @@ Dialog {
         submissionTicket = ""
         awaitingRetry = false
         lastSubmission = null
-        // The images follow the record. A failure keeps the dialog open with
-        // the reason, and savedRunId makes the next 保存 retry only the images.
+        // Reflection and images follow creation. Keep its ID after a partial
+        // failure so retries cannot create the same record twice.
         const target = runId && runId.length > 0 ? runId
                      : (runData && runData.run_id ? runData.run_id : "")
+        if (hasManualReflection) {
+            savedRunId = target
+            reflectionPending = true
+            finishSavedRecord()
+            return true
+        }
         if (imagesDirty) {
             savedRunId = target
             if (!commitNoteImages(target))
@@ -1538,7 +1630,8 @@ Dialog {
 
             Text {
                 Layout.fillWidth: true
-                text: dialog.recordSaved ? qsTr("记录已保存，请重试图片") : dialog.progressTitle
+                text: dialog.recordSaved ? (dialog.reflectionPending
+                      ? qsTr("记录已保存，请重试心情和心得") : qsTr("记录已保存，请重试图片")) : dialog.progressTitle
                 color: dialog.progressDelta > 0 ? Theme.green : Theme.textSecondary
                 font.pixelSize: Theme.fs(12)
                 font.weight: Font.DemiBold
@@ -1577,7 +1670,7 @@ Dialog {
                              || dialog.diffRows.length > 0 || dialog.imagesDirty || dialog.confirmsImportedFacts)
                 text: dialog.submitting
                       ? qsTr("提交中…")
-                      : dialog.recordSaved ? qsTr("重试图片")
+                      : dialog.recordSaved ? (dialog.reflectionPending ? qsTr("重试心情和心得") : qsTr("重试图片"))
                       : dialog.awaitingRetry ? qsTr("原样重试")
                       : (dialog.editMode ? qsTr("保存修正") : qsTr("添加记录"))
                 onClicked: dialog.submit()

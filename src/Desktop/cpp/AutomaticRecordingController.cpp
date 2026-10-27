@@ -45,7 +45,11 @@ void AutomaticRecordingController::setMaintenance(bool enabled)
     m_followAttempted = m_stopAttempted = false;
     m_stopPending = false;
     clearIncident();
-    refresh();
+    clearWarning();
+    const QPointer<AutomaticRecordingController> guard(this);
+    Q_EMIT changed();
+    if (guard)
+        refresh();
 }
 
 void AutomaticRecordingController::setPollInterval(int milliseconds)
@@ -67,7 +71,11 @@ void AutomaticRecordingController::setUserObservation(bool enabled)
     m_stopPending = false;
     m_validationError.clear();
     clearIncident();
-    refresh();
+    clearWarning();
+    const QPointer<AutomaticRecordingController> guard(this);
+    Q_EMIT changed();
+    if (guard)
+        refresh();
 }
 
 void AutomaticRecordingController::setState(const QString &state, const LiveText &message)
@@ -78,7 +86,72 @@ void AutomaticRecordingController::setState(const QString &state, const LiveText
         ++m_messageSerial;
     m_state = state;
     m_message = message;
+    const bool freshWarning = updateWarning(state, message);
+    const auto publishedSerial = m_warningSerial;
+    const QPointer<AutomaticRecordingController> guard(this);
     Q_EMIT changed();
+    // A changed observer may synchronously accept a newer capture snapshot or
+    // enter maintenance. Never deliver the warning that observer just withdrew.
+    if (guard && freshWarning && m_warningActive && m_warningSerial == publishedSerial)
+        Q_EMIT warningRaised();
+}
+
+void AutomaticRecordingController::clearWarning()
+{
+    m_warningActive = false;
+    m_warningPending = false;
+    m_warningGame.clear();
+    m_warningMessage.clear();
+}
+
+bool AutomaticRecordingController::updateWarning(const QString &state, const LiveText &message)
+{
+    if (m_maintenance || m_userObservation || state == QLatin1String("waiting")
+        || state == QLatin1String("listening") || state == QLatin1String("observing")) {
+        clearWarning();
+        return false;
+    }
+    const bool calibrationProgress = state == QLatin1String("calibrating")
+        || state == QLatin1String("calibration_ready");
+    const bool rawRecovering = m_latestCapture.value(QStringLiteral("path_recovery")).toMap()
+        .value(QStringLiteral("state")).toString() == QLatin1String("RECOVERING");
+    const QString rawSilent = silentReason(m_latestCapture);
+    const bool rawMidstream = m_latestCapture.value(QStringLiteral("midstream_suspected")).toBool();
+    const bool calibrationUnavailable = calibrationProgress
+        && (rawRecovering || rawMidstream || !rawSilent.isEmpty());
+    if (state != QLatin1String("recovering") && state != QLatin1String("listening_silent")
+        && state != QLatin1String("blocked") && state != QLatin1String("calibration_blocked")
+        && !calibrationUnavailable) {
+        // Calibration progress is not evidence that formal recording recovered.
+        // Preserve an existing episode, including its acknowledgement, until a
+        // healthy listening projection or explicit exit withdraws it.
+        if (calibrationProgress && m_warningActive)
+            m_warningMessage = message;
+        return false; // Missing/checking facts cannot establish recovery.
+    }
+
+    const bool anotherGame = !m_currentGame.isEmpty() && !m_warningGame.isEmpty()
+        && m_currentGame != m_warningGame;
+    const bool fresh = !m_warningActive || anotherGame;
+    if (fresh) {
+        m_warningActive = true;
+        m_warningPending = true;
+        ++m_warningSerial;
+    }
+    if (!m_currentGame.isEmpty())
+        m_warningGame = m_currentGame;
+    if (state == QLatin1String("recovering") || (calibrationProgress && rawRecovering)) {
+        m_warningMessage = LiveText([] {
+            return tr("暂时读不到可用的游戏数据，自动记录尚未恢复。软件正在后台尝试恢复，恢复前不会自动生成记录。");
+        });
+    } else if (calibrationUnavailable) {
+        const QVariantMap snapshot = m_latestCapture;
+        const QString reason = rawMidstream ? QStringLiteral("MIDSTREAM") : rawSilent;
+        m_warningMessage = LiveText([snapshot, reason] { return silentMessage(snapshot, reason); });
+    } else {
+        m_warningMessage = message;
+    }
+    return fresh;
 }
 
 void AutomaticRecordingController::clearIncident()
@@ -92,12 +165,20 @@ void AutomaticRecordingController::block(const QString &key, const LiveText &mes
     const bool fresh = m_incident != key;
     m_incident = key;
     if (fresh) m_pending = true;
+    const QPointer<AutomaticRecordingController> guard(this);
     setState(QStringLiteral("blocked"), message);
-    if (fresh && !m_maintenance) Q_EMIT incidentRaised();
+    if (guard && fresh && !m_maintenance && m_incident == key) Q_EMIT incidentRaised();
 }
 
 void AutomaticRecordingController::acknowledge()
 {
+    m_pending = false;
+    Q_EMIT changed();
+}
+
+void AutomaticRecordingController::acknowledgeWarning()
+{
+    m_warningPending = false;
     m_pending = false;
     Q_EMIT changed();
 }
@@ -131,8 +212,9 @@ void AutomaticRecordingController::observeCapture(const QVariantMap &capture)
         return;
     const auto revision = ++m_captureRevision;
     m_latestCapture = capture;
+    const QPointer<AutomaticRecordingController> guard(this);
     Q_EMIT captureObserved(capture);
-    if (revision != m_captureRevision || m_maintenance || m_userObservation
+    if (!guard || revision != m_captureRevision || m_maintenance || m_userObservation
         || !m_backend || !m_backend->isConnected())
         return;
     // 初始化尚未答复时，不拿上一轮的设置错误为新会话建立故障。
@@ -267,6 +349,12 @@ void AutomaticRecordingController::readCapture(quint64 generation)
 
 void AutomaticRecordingController::project(const QVariantMap &c)
 {
+    // Keep a known identity across incomplete observations. Missing identity is
+    // not a new game; an explicit exit below clears the current warning instead.
+    bool validGame = false;
+    const auto game = c.value(QStringLiteral("ffxiv_process_id")).toULongLong(&validGame);
+    if (c.value(QStringLiteral("ffxiv_running")).toBool() && validGame && game > 0)
+        m_currentGame = QString::number(game);
     // A choice is asked for only while there is a listed client to choose. With
     // the only client closed (EXITED) or every client gone (MULTIPLE) the list
     // is empty, and that is the ordinary wait for the game below (review OD-1).
@@ -292,6 +380,7 @@ void AutomaticRecordingController::project(const QVariantMap &c)
         // and the Collector publishes a status event when it starts. Three
         // requests every two seconds all evening is pure noise.
         setPollInterval(kIdlePollMs);
+        m_currentGame.clear();
         clearIncident();
         setState(QStringLiteral("waiting"), initError.isEmpty()
                  ? LiveText([] { return tr("等待游戏启动 · 可查看历史记录与统计"); }) : initError);

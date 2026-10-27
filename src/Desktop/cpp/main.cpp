@@ -83,6 +83,7 @@
 #include <QQuickStyle>
 #include <QStandardPaths>
 #include <QQuickWindow>
+#include <QScreen>
 #include <QScopeGuard>
 #ifdef Q_OS_WIN
 #include <dwmapi.h>
@@ -271,6 +272,27 @@ void roundWindowCorners(QQuickWindow *window)
 #endif
 }
 
+/// Keep the independent warning inside its screen's exact work area, including
+/// taskbars on the top/left. Connections die with the QML-owned warning window.
+void trackRecordingWarningWorkArea(QQuickWindow *mainWindow)
+{
+    auto *warning = mainWindow->findChild<QQuickWindow *>(QStringLiteral("recordingWarningWindow"));
+    if (!warning)
+        return;
+    const auto update = [warning] {
+        if (warning->screen())
+            warning->setProperty("availableGeometry", warning->screen()->availableGeometry());
+    };
+    QObject::connect(warning, &QWindow::screenChanged, warning, update);
+    const auto trackScreen = [warning, update](QScreen *screen) {
+        QObject::connect(screen, &QScreen::availableGeometryChanged, warning, update);
+    };
+    for (auto *screen : QGuiApplication::screens())
+        trackScreen(screen);
+    QObject::connect(qGuiApp, &QGuiApplication::screenAdded, warning, trackScreen);
+    update();
+}
+
 bool sendKey(QQuickWindow *window, int key,
              Qt::KeyboardModifiers modifiers = Qt::NoModifier)
 {
@@ -341,6 +363,8 @@ bool verifyRecordingAlertFlow(QQuickWindow *window, mr::MockBackend *backend, mr
         qCritical("hidden blocker restored window or opened popup"); return false;
     }
     window->showNormal();
+    // This probe models the player's explicit return to the main window.
+    window->requestActivate();
     if (!waitFor(isOpen)) { qCritical("reopened window did not show deferred alert"); return false; }
     auto *ack = findVisualItem(window->contentItem(), QStringLiteral("automaticRecordingAcknowledge"));
     if (!ack) return false;
@@ -361,16 +385,19 @@ bool verifyRecordingAlertFlow(QQuickWindow *window, mr::MockBackend *backend, mr
         qCritical("minimized blocker restored window or opened popup"); return false;
     }
     window->showNormal();
+    window->requestActivate();
     if (!waitFor(isOpen)) return false;
     // Recovery while hidden must close even an existing modal and drop deferred state.
     window->hide();
     if (!observe(QStringLiteral("listening"), QStringLiteral("listening"))) return false;
     window->showNormal();
+    window->requestActivate();
     if (!waitFor([&] { return !isOpen(); }) || app->recording()->pendingAlert()) return false;
     window->hide();
     if (!observe(QStringLiteral("blocked"), QStringLiteral("blocked")) || isOpen()) return false;
     if (!observe(QStringLiteral("listening"), QStringLiteral("listening"))) return false;
     window->showNormal();
+    window->requestActivate();
     QCoreApplication::processEvents();
     if (isOpen() || app->recording()->pendingAlert()) { qCritical("recovered deferred fault showed stale popup"); return false; }
     for (int page = 0; page < 6; ++page) {
@@ -1176,6 +1203,7 @@ int main(int argc, char *argv[])
     }
 
     roundWindowCorners(window);
+    trackRecordingWarningWorkArea(window);
 
     if (parser.isSet(speechPreviewOption)) {
         // After the mock's speech settings and status have arrived.
