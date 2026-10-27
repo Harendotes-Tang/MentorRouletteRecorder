@@ -38,7 +38,10 @@ Window {
     flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
            | (controller.locked ? Qt.WindowTransparentForInput | Qt.WindowDoesNotAcceptFocus : 0)
 
-    function miniHeight() { return Math.max(40, Math.round(miniBar.implicitHeight)) }
+    // The bar plus the frame it sits in (one margin above and below). A floor of 40
+    // used to leave 2 px of slack under the idle bar and let the two-line bar run
+    // one px past the window's bottom edge.
+    function miniHeight() { return Math.round(miniBar.implicitHeight) + 2 * miniBar.anchors.margins }
 
     // Persist only settled geometry. Animation frames must never replace the
     // remembered full height, including when the window closes mid-transition.
@@ -70,7 +73,7 @@ Window {
         formTransition.stop()
         minimumWidth = 240
         maximumWidth = 520
-        minimumHeight = 40
+        minimumHeight = Math.min(40, miniHeight())
         maximumHeight = 1200
         const rect = controller.geometry
         if (mini) {

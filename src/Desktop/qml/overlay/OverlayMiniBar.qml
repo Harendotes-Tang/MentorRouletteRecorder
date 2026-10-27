@@ -3,8 +3,10 @@ import QtQuick.Layouts
 import MentorRecorder 1.0
 
 // 迷你条: the goal progress on one line (crest, figure, bar, percentage) and,
-// during a run, the duty and its time on a second one with a 2 px pace line
-// along the bottom edge. The whole bar is the drag handle.
+// during a run, the duty and its time on a second one. The whole bar is the
+// drag handle. The prototype's 2 px pace line along the bottom edge is not
+// drawn (owner, 2026-10-28): the time against the average stays in the full
+// float's 副本用时 module.
 Item {
     id: root
 
@@ -16,7 +18,7 @@ Item {
     signal expandRequested()
     signal moveRequested()
 
-    implicitHeight: column.implicitHeight + 6 + 8
+    implicitHeight: column.implicitHeight + 6 + 6
 
     MouseArea {
         anchors.fill: parent
@@ -189,30 +191,6 @@ Item {
             }
             HoverHandler { id: runHover }
             OverlayToolTip { clearOf: root; visible: runHover.hovered; text: root.ov.runTip + "\n" + root.ov.timeTip }
-        }
-    }
-
-    // `.mb-pace`: the time bar as a 2 px line along the bottom.
-    Rectangle {
-        visible: root.ov.inRun && !root.ov.matched && root.ov.hasReference
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: 2
-        color: Theme.insetBackgroundStrong
-        Rectangle {
-            anchors.left: parent.left
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
-            width: Math.round(parent.width * root.ov.paceRatio)
-            color: root.ov.overAverage ? root.ov.warn : root.ov.underAverage ? root.ov.ok : root.ov.barFill
-        }
-        Rectangle {
-            x: Math.round(parent.width * root.ov.averageRatio) - 1
-            y: -4
-            width: 2
-            height: 6
-            color: Theme.textPrimary
         }
     }
 }

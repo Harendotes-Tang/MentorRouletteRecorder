@@ -639,6 +639,7 @@ private Q_SLOTS:
     void paceBarScalesByTheDutyThenItsCategory();
     void stateMarksStayInsideTheFloat();
     void runRowsShowTheCategoryIcon();
+    void miniBarDrawsNothingBelowTheRunRow();
     void importedTextIsShownAsWritten();
     void plusPillCountsCompletionsNotBaselineEdits();
     void entryButtonFollowsPageTheme_data();
@@ -1675,9 +1676,15 @@ void StatisticsOverlayTests::stateMarksStayInsideTheFloat()
     QTRY_VERIFY(scene.item(QStringLiteral("floatingMatchedBell"), true));
     bell = scene.item(QStringLiteral("floatingMatchedBell"), true);
     mark = bell->parentItem()->parentItem();
+    // Entering the duty keeps the modules: inRun must not flicker between 已匹配 and
+    // 进本 (it did when derived from the four state booleans, re-evaluated one after
+    // another), or the module repeater rebuilds and this mark dies with its row.
+    QSignalSpy inRunSpy(scene.overlayData(), SIGNAL(inRunChanged()));
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::Entered);
     QTRY_COMPARE(scene.app->currentRunState(), QStringLiteral("ENTERED_DUTY"));
     QTRY_VERIFY(holdsThePulse(8));
+    QCOMPARE(inRunSpy.count(), 0);
+    QVERIFY2(mark, "the 当前副本 row was rebuilt on entering the duty");
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 
@@ -1709,6 +1716,51 @@ void StatisticsOverlayTests::runRowsShowTheCategoryIcon()
     QTRY_COMPARE(categoryOf(QStringLiteral("floatingCurrentDuty")), QString());
     scene.overlay()->setForm(QStringLiteral("mini"));
     QTRY_COMPARE(categoryOf(QStringLiteral("floatingMiniRun")), QString());
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+// The mini bar draws nothing under its second line and pads it like the first:
+// the prototype's pace line along the bottom edge is not drawn (owner,
+// 2026-10-28); the time against the average stays in the full float's 副本用时
+// module. The window is exactly the bar and its 1 px frame, idle and in a duty.
+void StatisticsOverlayTests::miniBarDrawsNothingBelowTheRunRow()
+{
+    QVariantMap history = completedRun();
+    history.insert(QStringLiteral("content_id"), 17);
+    history.insert(QStringLiteral("duration_ms"), 1200000);
+    Scene scene;
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
+    scene.backend.resetRuns({QJsonObject::fromVariantMap(history)});
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    scene.overlay()->show();
+    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    scene.overlay()->setForm(QStringLiteral("mini"));
+    QTRY_COMPARE(scene.overlay()->form(), QStringLiteral("mini"));
+    QQuickItem *bar = scene.item(QStringLiteral("floatingMiniContent"), true);
+    QVERIFY(bar);
+    QTRY_VERIFY(!scene.floating()->property("transitioning").toBool());
+    QTRY_COMPARE(scene.floating()->height(), qRound(bar->height()) + 2);
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::Entered);
+    QTRY_COMPARE(scene.app->currentRunState(), QStringLiteral("ENTERED_DUTY"));
+    // The run has an average to measure against: the full float would show its pace bar.
+    QTRY_VERIFY(scene.overlayData()->property("hasReference").toBool());
+    QTRY_VERIFY(scene.item(QStringLiteral("floatingMiniRun"), true));
+    QTRY_VERIFY(bar->height() > 60); // the second line has been laid out
+    QTRY_COMPARE(scene.floating()->height(), qRound(bar->height()) + 2);
+    QQuickItem *progress = scene.item(QStringLiteral("floatingMiniProgress"), true);
+    QQuickItem *run = scene.item(QStringLiteral("floatingMiniRun"), true);
+    QVERIFY(progress && run);
+    const qreal runBottom = run->mapToItem(bar, QPointF(0, run->height())).y();
+    QStringList below;
+    for (auto *item : bar->findChildren<QQuickItem *>()) {
+        if (!item->isVisible() || item->width() <= 0 || item->height() <= 0) continue;
+        const qreal top = item->mapToItem(bar, QPointF(0, 0)).y();
+        if (top >= runBottom - 0.5)
+            below << QStringLiteral("%1 \"%2\" at y %3").arg(QString::fromLatin1(item->metaObject()->className()), item->objectName()).arg(top);
+    }
+    QVERIFY2(below.isEmpty(), qPrintable(QStringLiteral("drawn below the run row: ") + below.join(QStringLiteral("; "))));
+    const qreal topPadding = progress->mapToItem(bar, QPointF(0, 0)).y();
+    QCOMPARE(bar->height() - runBottom, topPadding);
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 

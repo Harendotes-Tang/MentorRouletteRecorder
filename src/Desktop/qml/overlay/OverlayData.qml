@@ -62,8 +62,13 @@ QtObject {
     readonly property bool entered: !!run && runState === "ENTERED_DUTY"
     readonly property bool completed: !!run && runState === "COMPLETED"
     readonly property bool ended: !!run && runState === "UNKNOWN_FINAL_STATE"
-    /// 当前副本 / 副本用时 are shown while one of these holds.
-    readonly property bool inRun: matched || entered || completed || ended
+    /// 当前副本 / 副本用时 are shown while one of these holds. Decided from
+    /// runState in one step: built from the four booleans above it read a
+    /// stale neighbour while they were re-evaluated one after another and
+    /// flickered false between 已匹配 and 进本, which rebuilt every module
+    /// (whether it surfaced depended on which other bindings read them).
+    readonly property bool inRun: !!run && (runState === "MENTOR_MATCHED" || runState === "ENTERED_DUTY"
+                                            || runState === "COMPLETED" || runState === "UNKNOWN_FINAL_STATE")
     readonly property string runName: run ? (Theme.dutyName(run) || qsTr("未识别")) : ""
     readonly property string runCategory: run ? String(run.duty_category || "") : ""
     readonly property string runJobName: run ? (Theme.jobName(run) || qsTr("未知")) : ""
