@@ -313,8 +313,13 @@ ScrollView {
         }
 
         RowLayout {
+            objectName: "dashboardTopRow"
             Layout.fillWidth: true
-            Layout.preferredHeight: 340
+            // At least 340, and as tall as the stat grid plus 当前导随 need: a ninth card
+            // (中途加入 or 未知结果) adds a grid row, and at a fixed 340 当前导随 slid under
+            // 完成趋势. The children's minimum heights do not lift an explicit preferred
+            // height, so the row reads the column's own height.
+            Layout.preferredHeight: Math.max(340, statColumn.implicitHeight)
             spacing: 12
 
             Card {
@@ -408,6 +413,7 @@ ScrollView {
             }
 
             ColumnLayout {
+                id: statColumn
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 spacing: 12
@@ -441,6 +447,7 @@ ScrollView {
                 }
 
                 Card {
+                    objectName: "dashboardCurrentRunCard"
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     // The row above has a preferred height, not a fixed one: with a two-line
@@ -586,6 +593,7 @@ ScrollView {
             spacing: 12
 
             Card {
+                objectName: "dashboardTrendCard"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 padding: 16

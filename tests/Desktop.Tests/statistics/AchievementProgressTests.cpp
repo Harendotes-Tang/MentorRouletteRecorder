@@ -13,6 +13,7 @@
 #include <QFile>
 #include <QGuiApplication>
 #include <QImage>
+#include <QJsonArray>
 #include <QPointer>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -174,6 +175,7 @@ private Q_SLOTS:
     void hiddenRingSettlesImmediately();
     void confettiRespectsMotionVisibilityAndInput();
     void dashboardUsesUncappedPercentAndMilestoneSignal();
+    void dashboardTopRowGrowsForAThirdRowOfStatCards();
     void renderedEvidence();
 };
 } // namespace
@@ -382,6 +384,56 @@ void AchievementProgressTests::dashboardUsesUncappedPercentAndMilestoneSignal()
     QTRY_VERIFY(!confetti->property("running").toBool());
     scene.find("dashboard")->setProperty("visible", true);
     QVERIFY(!confetti->property("running").toBool());
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+// The achievement row holds the stat grid and 当前导随. A ninth card (中途加入 or 未知结果)
+// adds a third grid row; the row must grow with it instead of staying 340 px and letting
+// 当前导随 slide under 完成趋势 (found in the 1.8.0 candidate, 2026-10-27).
+void AchievementProgressTests::dashboardTopRowGrowsForAThirdRowOfStatCards()
+{
+    Scene scene;
+    QVERIFY2(scene.create(true, QStringLiteral("classic"), true, true), qPrintable(scene.errors));
+    QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
+    auto *row = qobject_cast<QQuickItem *>(scene.find("dashboardTopRow"));
+    auto *current = qobject_cast<QQuickItem *>(scene.find("dashboardCurrentRunCard"));
+    auto *trend = qobject_cast<QQuickItem *>(scene.find("dashboardTrendCard"));
+    QVERIFY(row && current && trend);
+    const auto top = [](const QQuickItem *item) { return item->mapToScene(QPointF(0, 0)).y(); };
+    const auto bottom = [](const QQuickItem *item) { return item->mapToScene(QPointF(0, item->height())).y(); };
+
+    qreal twoRowColumn = 0; // the stat grid's two rows plus 当前导随, as the column wants them
+    for (const bool ninth : {false, true}) {
+        QJsonObject snapshot = ProgressBackend::snapshot(1445);
+        if (ninth) {
+            snapshot.insert(QStringLiteral("joined_in_progress_count"), 9);
+            snapshot.insert(QStringLiteral("joined_in_progress_rate"), 0.15);
+            snapshot.insert(QStringLiteral("result_breakdown"), QJsonObject{
+                {QStringLiteral("buckets"), QJsonArray{QJsonObject{{QStringLiteral("result"), QStringLiteral("UNKNOWN")},
+                                                                   {QStringLiteral("count"), 4}}}}});
+        }
+        scene.app.refreshDashboard();
+        scene.backend.dashboards.takeLast()->succeed(snapshot);
+        QTRY_COMPARE(scene.app.statCards().size(), ninth ? 9 : 7);
+        // Never below the 340 it always had; the ninth card adds one stat row (96 + 12).
+        QTRY_VERIFY2(row->height() >= 340.0, qPrintable(QString::number(row->height())));
+        if (ninth)
+            QTRY_COMPARE(row->height(), qMax(340.0, twoRowColumn + 108.0));
+        else
+            twoRowColumn = current->parentItem()->implicitHeight();
+        const auto where = [&] {
+            const QQuickItem *column = current->parentItem();
+            const QQuickItem *grid = column->childItems().value(0);
+            return QStringLiteral("%1 cards: row %2 (implicit %6), column %7 (implicit %8), grid %9, card %10 (implicit %11); "
+                                  "card ends at %3, row at %4, trend starts at %5")
+                .arg(scene.app.statCards().size()).arg(row->height())
+                .arg(bottom(current)).arg(bottom(row)).arg(top(trend)).arg(row->implicitHeight())
+                .arg(column->height()).arg(column->implicitHeight()).arg(grid ? grid->height() : -1)
+                .arg(current->height()).arg(current->implicitHeight());
+        };
+        QTRY_VERIFY2(bottom(current) <= bottom(row) + 0.5, qPrintable(where()));
+        QVERIFY2(bottom(current) <= top(trend) + 0.5, qPrintable(where()));
+    }
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 
