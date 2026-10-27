@@ -1,42 +1,41 @@
 {
-  "version": "1.8.0-beta.3",
+  "version": "1.8.0",
   "entries": [
     {
-      "tag": "统计浮窗",
-      "title": "浮窗新增排本次数",
-      "summary": "按当日、近七天、近30天或全部查看，旧自定义布局可手动添加。",
-      "bodySha256": "5aef3fefd9d62f68c4e39fd023138f861dadc1fc0f0aeba83e762dbf0d48c42f"
+      "tag": "分页",
+      "title": "输入页码直接跳转",
+      "summary": "历史记录和全部心得支持回车或按钮跳转，保留筛选与勾选。",
+      "bodySha256": "4f6612d2b85e6ffaaeca24a3567b59adaed6f4cec8c6bd4fcbc26b017a8a15b9"
     },
     {
-      "tag": "历史导出",
-      "title": "导出期间继续记录",
-      "summary": "导出从一致快照读取，实时记录可继续写入，保留原筛选与排序。",
-      "bodySha256": "9280a72a8ac0bfe0ac0d32a529ccc30f46c930fd10eb7ff517963946d2d1d0c8"
+      "tag": "手动补录",
+      "title": "直接填写心情与心得",
+      "summary": "保存后不再弹出该条心得提醒；只选心情也可保存。",
+      "bodySha256": "8c7f683b83afbaee165b6caf583ae12b2f7d7408685d1b7d19b0415e93851c73"
     },
     {
-      "tag": "内部维护",
-      "title": "整理模块与开发检查",
-      "summary": "拆分完成流程与业务目录，兼容旧版批量操作回执。",
-      "bodySha256": "16b0f8e346da7a3a06cc893d120a4e2bfd24c22339fb2a25ad3bdbfed2ae07fa",
-      "hidden": true
+      "tag": "时间选择",
+      "title": "点击数字或滚轮选择",
+      "summary": "小时和分钟分别选择，保留拖动与手动输入。",
+      "bodySha256": "24635599730599b942bc7a6dfc49a9062358ece2f8ccba206051c87514a58147"
     },
     {
-      "tag": "副本用时",
-      "title": "用时进度采用平均耗时",
-      "summary": "优先使用该副本的平均用时，缺少时使用同类平均，两者都没有时隐藏。",
-      "bodySha256": "492fff1090cec6143dc90c9dba7d76370a33145ba2f5f549d598525d087191d0"
+      "tag": "心得提醒",
+      "title": "副本类型改用图标",
+      "summary": "使用已有的对应副本类型图标。",
+      "bodySha256": "c6d5b6bc4b9b6e9d1a60c2eff3051d33f0997b4c04a51665dee4e178d63f69c1"
     },
     {
-      "tag": "统计浮窗",
-      "title": "已匹配标记完整显示",
-      "summary": "为脉动圆圈预留位置，匹配时铃铛摇动，沙漏流完后翻转。",
-      "bodySha256": "9f09dd72d7db29b2e7032752e9f7a221a522ec446d10f63b0b38fc53af078ed7"
+      "tag": "记录提醒",
+      "title": "异常立即提醒",
+      "summary": "确认异常即提示，后台继续恢复；置顶小窗和提示音不主动切出游戏。",
+      "bodySha256": "c98b15636e50face8fce8ad98cf17791fbdb42fc55d48bee1ad8a00d63d07713"
     },
     {
-      "tag": "导出保护",
-      "title": "取消导出时保留原文件",
-      "summary": "写入或校验期间取消时，清理临时文件，保留已有文件。",
-      "bodySha256": "de0345800bfb39ef86385df9e4e4264039eabb68f203c9461f63e8e0a0bee197"
+      "tag": "已知问题",
+      "title": "跨屏无响应仍待定位",
+      "summary": "100% 缩放下等待也不恢复的问题尚未修复，需采集卡死现场。",
+      "bodySha256": "08e8047a898af5e04ab2abb2dddaa230ea5529b15fe2aa34ab8dc6c86f29032f"
     }
   ]
 }

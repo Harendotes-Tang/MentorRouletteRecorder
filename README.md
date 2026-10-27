@@ -26,7 +26,7 @@
 离开副本三个事件并生成记录，按职业、副本、耗时与结果汇总为历史与统计。不注入、不读游戏进程内存，
 监听过程不向游戏服务器发包；无遥测，游戏记录保存在本机。启用在线语音时会发送本次播报文字，见[隐私与网络边界](#隐私与网络边界)。
 
-**当前源码版本：** `1.8.0-beta.3`（测试版，版本来源为 [Directory.Build.props](Directory.Build.props)，不代表该版本安装包已发布；安装包发布状态见[正式版下载](https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/latest)）。
+**当前源码版本：** `1.8.0`（版本来源为 [Directory.Build.props](Directory.Build.props)，安装包发布状态见[正式版下载](https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/latest)）。
 下文包含本版本的记录导入、离线截图识别与心得库功能；正式版与测试版的区别见[安装](#安装)，
 本轮变更见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -48,7 +48,7 @@
 > the mirror and keeps the original SHA-256 check.
 > Setting `MR_DISABLE_SHARED_FETCH=1`, `MR_DISABLE_ONLINE_SPEECH=1` and `MR_DISABLE_UPDATE_CHECK=1`
 > disables all three.
-> The current source version is `1.8.0-beta.3` (a test build; its installer is not necessarily published); published installers are listed on the [release page](https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/latest). It also supports local record imports from CSV,
+> The current source version is `1.8.0`; published installers are listed on the [release page](https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/latest). It also supports local record imports from CSV,
 > XLS/XLSX, native JSON, database backups, pasted tables and screenshots. Screenshot OCR runs offline;
 > imports require preview and confirmation, and conflicts preserve local records. Reflection sharing
 > saves a PNG locally without uploading it.
