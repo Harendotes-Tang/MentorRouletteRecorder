@@ -11,6 +11,65 @@ public sealed class FirstPacketLifecycleTests
         null, OodleMode.LibraryTcp, null, null);
 
     [Fact]
+    public void RepeatedIngressExpiryDoesNotAllocateAConnectionSnapshot()
+    {
+        var buffer = new FirstPacketBuffer(FirstPacketTests.Local, 42, _ => new FirstPacketTests.Sink(),
+            clock: () => TimeSpan.Zero);
+        try
+        {
+            for (ushort port = 41000; port < 41128; port++)
+                buffer.Offer(FirstPacketTests.Packet(false, 100, 2, port: port), 101);
+            buffer.Pump(Array.Empty<Machina.Infrastructure.TCPConnection>());
+            // Warm the real ingress/idle paths without payload allocation or advancing expiry.
+            for (var i = 0; i < 100; i++)
+            {
+                buffer.Offer(ReadOnlySpan<byte>.Empty, 101);
+                buffer.Tick();
+            }
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            for (var i = 0; i < 1000; i++)
+            {
+                buffer.Offer(ReadOnlySpan<byte>.Empty, 101);
+                buffer.Tick();
+            }
+            var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            Assert.True(allocated <= 1024, $"Expiry scans allocated {allocated} bytes for unchanged connections.");
+            Assert.Equal(128, buffer.Usage.Tuples);
+            Assert.Equal(0, buffer.Counters.ExpiredStreams);
+        }
+        finally { buffer.Stop(); }
+    }
+
+    [Fact]
+    public void OneExpiryScanRemovesAllExpiredConnectionsAndRetainsFreshAndOwnedConnections()
+    {
+        var now = TimeSpan.Zero;
+        var buffer = new FirstPacketBuffer(FirstPacketTests.Local, 42, _ => new FirstPacketTests.Sink(),
+            clock: () => now);
+        try
+        {
+            for (ushort port = 41000; port < 41004; port++)
+                buffer.Offer(FirstPacketTests.Packet(false, 100, 2, port: port), 101);
+            buffer.Pump(new[] { FirstPacketTests.Owned(41003) });
+            now = TimeSpan.FromSeconds(25);
+            for (ushort port = 41004; port < 41006; port++)
+                buffer.Offer(FirstPacketTests.Packet(false, 100, 2, port: port), 101);
+
+            now = TimeSpan.FromSeconds(30);
+            buffer.Tick();
+            Assert.Equal(3, buffer.Counters.ExpiredStreams);
+            Assert.Equal(3, buffer.Usage.Tuples);
+
+            now = TimeSpan.FromSeconds(55);
+            buffer.Tick();
+            Assert.Equal(5, buffer.Counters.ExpiredStreams);
+            Assert.Equal(1, buffer.Usage.Tuples);
+            Assert.Null(buffer.Failure);
+        }
+        finally { buffer.Stop(); }
+    }
+
+    [Fact]
     public void PrepareDrainsBeforeOodleAndStartReplaysTheRealBundleExactlyOnce()
     {
         using var delivered = new ManualResetEventSlim();

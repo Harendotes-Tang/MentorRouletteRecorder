@@ -578,7 +578,10 @@ internal sealed class FirstPacketBuffer
     {
         if (!_decoding) return;
         var now = _clock();
-        foreach (var (tuple, stream) in _streams.ToArray())
+        // Under _gate, this pass only removes dictionary entries. .NET 8 permits
+        // Remove during enumeration, so ingress need not allocate a full snapshot
+        // for every packet and idle tick. No decoder callbacks run in this pass.
+        foreach (var (tuple, stream) in _streams)
         {
             if (stream.Decoder is null)
             {
