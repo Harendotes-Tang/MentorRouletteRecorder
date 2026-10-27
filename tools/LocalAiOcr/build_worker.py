@@ -74,6 +74,9 @@ def build(args):
                "--name", "local-ai-ocr", "--distpath", str(dist),
                "--workpath", str(build_root / "work"), "--specpath", str(build_root),
                "--hidden-import", "rapidocr.main", "--hidden-import", "rapidocr.inference_engine.onnxruntime"]
+    # setuptools builds this payload; OCR never uses its package-installation APIs.
+    # Newer PyInstaller hooks otherwise collect its vendored build tools and sample data.
+    command.extend(["--exclude-module", "setuptools"])
     for name in ("config.yaml", "default_models.yaml"):
         command.extend(["--add-data", f"{rapid_root / name};rapidocr"])
     for name in ("pytorch", "openvino", "paddle", "tensorrt", "mnn"):

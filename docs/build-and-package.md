@@ -450,7 +450,7 @@ pwsh -File scripts/bootstrap-ocr.ps1 `
 替换示例中的绝对路径；输出目录必须尚不存在，以保留已有产物。
 `-InstallBuildDependencies` 是维护者显式选择的构建阶段 pip 安装；依赖已准备好时省略此开关。
 发布 payload 必须与固定清单完全一致，构建环境或产物变化不会自动放宽哈希检查。
-`requirements-build.txt` 固定的是已发布 payload 构建时使用的版本（其中 `setuptools` 为 65.5.0）。
+`requirements-build.txt` 固定的是当前 OCR payload 构建时使用的版本，其中 `Pillow` 为 13.0.0、`certifi` 为 2026.10.19、`setuptools` 为 84.1.0。
 `tools/package-verification/test_ocr_manifest.py` 核对该文件（换行统一为 LF 后）的 SHA-256 与依赖清单记录的
 `requirements_sha256` 一致，并核对清单中每个来自 PyPI 的组件在该文件中固定为同一版本。因此升级其中任何依赖，
 包括 Dependabot 提出的升级，都必须在同一改动中重新构建 OCR payload 并更新依赖清单，否则工具自测失败。
