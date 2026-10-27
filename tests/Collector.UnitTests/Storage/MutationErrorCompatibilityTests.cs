@@ -3,8 +3,6 @@ using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Ipc;
-using MentorRecorder.Collector.Storage.Mutations;
-using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -19,35 +17,13 @@ public sealed class MutationErrorCompatibilityTests
         string Field,
         string? Result = null);
 
-    private sealed class Fixture : IDisposable
+    private sealed class Fixture : RunMutationTestContext
     {
-        public Fixture()
-        {
-            Database = new TestDatabase();
-            Settings = new SettingsRepository(Database.Database, Database.Clock);
-            Settings.EnsureDefaults();
-            Service = new RunMutationService(Database.Database, Settings, Database.Clock);
-            Runs = new RunRepository(Database.Database);
-            Revisions = new RunRevisionRepository(Database.Database);
-        }
-
-        public TestDatabase Database { get; }
-
-        public SettingsRepository Settings { get; }
-
-        public RunMutationService Service { get; }
-
-        public RunRepository Runs { get; }
-
-        public RunRevisionRepository Revisions { get; }
-
         public int RunCount => CountRows("mentor_runs");
 
         public int RevisionCount => CountRows("run_revisions");
 
         public int IdempotencyCount => CountRows("ipc_idempotency");
-
-        public void Dispose() => Database.Dispose();
 
         private int CountRows(string table)
         {

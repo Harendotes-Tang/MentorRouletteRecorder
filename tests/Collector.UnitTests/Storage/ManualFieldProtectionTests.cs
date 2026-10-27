@@ -366,28 +366,19 @@ public sealed class ManualFieldProtectionTests
         Assert.Equal(0, fixture.Statistics.GetDashboard().UnfinishedPendingReview);
     }
 
-    private sealed class Fixture : IDisposable
+    private sealed class Fixture : RunMutationTestContext
     {
         private readonly string _session = Guid.NewGuid().ToString("D");
         private readonly SemanticEventProcessor _processor;
         private readonly string _runId;
-        public TestDatabase Database { get; } = new();
         public DateTimeOffset Start { get; }
-        public RunRepository Runs { get; }
-        public RunRevisionRepository Revisions { get; }
-        public RunMutationService Service { get; }
         public StatisticsRepository Statistics { get; }
         public MentorRun Run => Runs.Get(_runId)!;
 
         public Fixture(bool canDetectResult = false, bool withContentId = true)
         {
             Start = Database.Clock.UtcNow;
-            Runs = new RunRepository(Database.Database);
-            Revisions = new RunRevisionRepository(Database.Database);
-            var settings = new SettingsRepository(Database.Database, Database.Clock);
-            settings.EnsureDefaults();
-            Service = new RunMutationService(Database.Database, settings, Database.Clock);
-            Statistics = new StatisticsRepository(Database.Database, settings);
+            Statistics = new StatisticsRepository(Database.Database, Settings);
             Database.Database.RunInTransaction(tx => new CaptureSessionRepository(Database.Database).Insert(
                 new CaptureSession
                 {
@@ -448,6 +439,5 @@ public sealed class ManualFieldProtectionTests
             _processor.Accept(value);
             Assert.Null(_processor.LastStorageError);
         }
-        public void Dispose() => Database.Dispose();
     }
 }

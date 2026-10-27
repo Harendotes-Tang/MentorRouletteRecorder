@@ -2,8 +2,6 @@ using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Reference;
-using MentorRecorder.Collector.Storage.Mutations;
-using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -30,28 +28,8 @@ public sealed class MutationTests
         public RunChangeSet Build() => Value with { Specified = Fields };
     }
 
-    private sealed class Fixture : IDisposable
+    private sealed class Fixture : RunMutationTestContext
     {
-        public Fixture()
-        {
-            Database = new TestDatabase();
-            Settings = new SettingsRepository(Database.Database, Database.Clock);
-            Settings.EnsureDefaults();
-            Runs = new RunRepository(Database.Database);
-            Revisions = new RunRevisionRepository(Database.Database);
-            Service = new RunMutationService(Database.Database, Settings, Database.Clock);
-        }
-
-        public TestDatabase Database { get; }
-
-        public SettingsRepository Settings { get; }
-
-        public RunRepository Runs { get; }
-
-        public RunRevisionRepository Revisions { get; }
-
-        public RunMutationService Service { get; }
-
         public static string NewId() => Guid.NewGuid().ToString("D");
 
         public RunMutationOutcome CreateRun(
@@ -72,8 +50,6 @@ public sealed class MutationTests
                     ? null
                     : new DateTimeOffset(2026, 9, 3, 10, 31, 0, TimeSpan.Zero),
             });
-
-        public void Dispose() => Database.Dispose();
     }
 
     [Fact]

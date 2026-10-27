@@ -329,32 +329,8 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
         Directory.CreateDirectory(directory);
         var bytes = File.ReadAllBytes(executable);
         var hash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-        var document = new Dictionary<string, object?>
-        {
-            ["schema_version"] = OodleSignatureProfile.SupportedSchemaVersion,
-            ["region"] = "CN",
-            ["game_build"] = Build,
-            ["exe_sha256"] = hash,
-            ["exe_size"] = bytes.LongLength,
-            ["generated_at_utc"] = "2026-09-05T00:00:00Z",
-            ["source"] = OodleSignatureProfile.FinderSource,
-            ["status"] = OodleSignatureProfile.CandidateStatus,
-            ["signatures"] = Enum.GetValues<SignatureType>().ToDictionary(
-                type => type.ToString(),
-                type => (object)(type is SignatureType.OodleMalloc or SignatureType.OodleFree
-                    ? "48 8b ff 15"
-                    : "48 8b 00 e8")),
-            ["resolved_rvas"] = Enum.GetValues<SignatureType>().ToDictionary(
-                type => type.ToString(),
-                _ => (object)"00000010"),
-            ["profile_sha256"] = new string('0', 64),
-        };
-        var json = JsonSerializer.Serialize(document, new JsonSerializerOptions { WriteIndented = true });
-        document["profile_sha256"] = ProfileLoader.ComputeProfileHash(json);
-        json = JsonSerializer.Serialize(document, new JsonSerializerOptions { WriteIndented = true });
-        var path = Path.Combine(directory, Guid.NewGuid().ToString("N") + ".json");
-        File.WriteAllText(path, json, new UTF8Encoding(false));
-        return path;
+        return OodleSignatureTestFiles.Write(
+            directory, Guid.NewGuid().ToString("N"), Build, hash, bytes.LongLength);
     }
 
     private static byte[] BuildMalformedPe(string malformedCase)

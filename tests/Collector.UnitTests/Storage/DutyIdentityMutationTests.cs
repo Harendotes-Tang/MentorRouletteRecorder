@@ -227,21 +227,12 @@ public sealed class DutyIdentityMutationTests
 
     private static string NewId() => Guid.NewGuid().ToString("D");
 
-    private sealed class Fixture : IDisposable
+    private sealed class Fixture : RunMutationTestContext
     {
-        public TestDatabase Database { get; } = new();
-        public RunRepository Runs { get; }
-        public RunRevisionRepository Revisions { get; }
-        public RunMutationService Service { get; }
         public MentorRun Original { get; }
 
         public Fixture(int? contentId, int? territoryId, DutySource? source)
         {
-            Runs = new RunRepository(Database.Database);
-            Revisions = new RunRevisionRepository(Database.Database);
-            var settings = new SettingsRepository(Database.Database, Database.Clock);
-            settings.EnsureDefaults();
-            Service = new RunMutationService(Database.Database, settings, Database.Clock);
             Original = TestDatabase.Run(contentId: contentId) with
             {
                 TerritoryId = territoryId, DutySource = source,
@@ -267,7 +258,5 @@ public sealed class DutyIdentityMutationTests
                 new RunChangeSet { ContentId = 2, Specified = new HashSet<string> { RunFields.ContentId } }));
             return Runs.Get(Original.RunId)!;
         }
-
-        public void Dispose() => Database.Dispose();
     }
 }

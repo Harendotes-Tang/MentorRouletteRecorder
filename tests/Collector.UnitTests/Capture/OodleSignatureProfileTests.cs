@@ -368,41 +368,8 @@ public sealed class OodleSignatureProfileTests : IDisposable
         string? directory = null,
         string? exeSha256 = null,
         bool stamp = true,
-        long exeSize = ProfileExecutableSize)
-    {
-        var targetDirectory = directory ?? Path.Combine(_root, OodleSignatureProfile.DirectoryName);
-        Directory.CreateDirectory(targetDirectory);
-
-        var document = new Dictionary<string, object?>
-        {
-            ["schema_version"] = OodleSignatureProfile.SupportedSchemaVersion,
-            ["region"] = "CN",
-            ["game_build"] = Build,
-            ["exe_sha256"] = exeSha256 ?? new string('0', 64),
-            ["exe_size"] = exeSize,
-            ["generated_at_utc"] = "2026-09-05T00:00:00Z",
-            ["source"] = OodleSignatureProfile.FinderSource,
-            ["status"] = OodleSignatureProfile.CandidateStatus,
-            ["signatures"] = Enum.GetValues<SignatureType>().ToDictionary(
-                type => type.ToString(),
-                type => (object)(type is SignatureType.OodleMalloc or SignatureType.OodleFree
-                    ? "48 8b ff 15"
-                    : "48 8b 00 e8")),
-            ["resolved_rvas"] = Enum.GetValues<SignatureType>().ToDictionary(
-                type => type.ToString(),
-                _ => (object)"00000010"),
-            ["profile_sha256"] = new string('0', 64),
-        };
-
-        var json = JsonSerializer.Serialize(document, new JsonSerializerOptions { WriteIndented = true });
-        if (stamp)
-        {
-            document["profile_sha256"] = ProfileLoader.ComputeProfileHash(json);
-            json = JsonSerializer.Serialize(document, new JsonSerializerOptions { WriteIndented = true });
-        }
-
-        var path = Path.Combine(targetDirectory, id + ".json");
-        File.WriteAllText(path, json, new UTF8Encoding(false));
-        return path;
-    }
+        long exeSize = ProfileExecutableSize) =>
+        OodleSignatureTestFiles.Write(
+            directory ?? Path.Combine(_root, OodleSignatureProfile.DirectoryName),
+            id, Build, exeSha256 ?? new string('0', 64), exeSize, stamp: stamp);
 }
