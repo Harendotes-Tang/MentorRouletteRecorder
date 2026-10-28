@@ -108,6 +108,8 @@ public sealed class OnlineSpeechService : IDisposable
     private readonly SemaphoreSlim _slot = new(1, 1);
     private readonly CancellationTokenSource _stopping = new();
     private readonly object _gate = new();
+    // Settings and the separately stored key form one update. Never hold this across network I/O.
+    private readonly object _settingsGate = new();
     private int _admitted;
     private DateTimeOffset? _lastRequestAtUtc;
     private string? _lastOutcome;
@@ -147,7 +149,13 @@ public sealed class OnlineSpeechService : IDisposable
     public SpeechKeyStore Keys => _keys;
 
     /// <summary>The settings in force, without the key.</summary>
-    public SpeechSettingsView GetSettings() => View(SpeechSettingsStore.Read(_settings));
+    public SpeechSettingsView GetSettings()
+    {
+        lock (_settingsGate)
+        {
+            return View(SpeechSettingsStore.Read(_settings));
+        }
+    }
 
     /// <summary>
     /// Applies an update. Everything is validated first. A new key is encrypted for the target the
@@ -158,6 +166,14 @@ public sealed class OnlineSpeechService : IDisposable
     public SpeechSettingsView UpdateSettings(SpeechSettingsUpdate update)
     {
         ArgumentNullException.ThrowIfNull(update);
+        lock (_settingsGate)
+        {
+            return UpdateSettingsCore(update);
+        }
+    }
+
+    private SpeechSettingsView UpdateSettingsCore(SpeechSettingsUpdate update)
+    {
         var current = SpeechSettingsStore.Read(_settings);
         var next = SpeechSettingsStore.Merge(current, update);
         var oldBinding = OnlineSpeechClient.KeyBinding(current);
@@ -233,9 +249,10 @@ public sealed class OnlineSpeechService : IDisposable
             throw Failure(SpeechOutcome.Disabled, null);
         }
 
-        var config = SpeechSettingsStore.Read(_settings);
+        var settings = GetSettings();
+        var config = settings.Config;
         var binding = OnlineSpeechClient.KeyBinding(config);
-        if (!config.IsComplete || !_keys.Has(binding))
+        if (!settings.Configured)
         {
             throw Failure(SpeechOutcome.NotConfigured, null);
         }
@@ -292,8 +309,13 @@ public sealed class OnlineSpeechService : IDisposable
 
                 // The key is read at the last moment and only for the binding in force, so a
                 // settings change while this sentence waited cannot send a key somewhere else.
+                string? key;
+                lock (_settingsGate)
+                {
+                    key = _keys.Read(binding);
+                }
                 var result = await _client
-                    .SynthesizeAsync(config, _keys.Read(binding), request.Text, request.RatePercent, linked.Token)
+                    .SynthesizeAsync(config, key, request.Text, request.RatePercent, linked.Token)
                     .ConfigureAwait(false);
                 Record(result);
                 if (result.Outcome != SpeechOutcome.Ok || result.Audio is null)

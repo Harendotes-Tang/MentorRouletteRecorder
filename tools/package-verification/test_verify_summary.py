@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -58,6 +59,7 @@ $skipped = New-Object System.Collections.Generic.List[string]
 foreach ($name in @({", ".join(ps_literal(s) for s in skipped)})) {{ $skipped.Add($name) }}
 $TestFilter = {ps_literal(test_filter)}
 $NoBuild = [switch]${"true" if no_build else "false"}
+$Result = $null
 $summary = ($statements[$start..($statements.Count - 1)] | ForEach-Object {{ $_.Extent.Text }}) -join "`n"
 . ([scriptblock]::Create($summary))
 """
@@ -167,6 +169,91 @@ Write-Host ("AFTER-STEP failures=" + ($failures -join ','))
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
         self.assertIn("AFTER-STEP failures=cpp-static-analysis", completed.stdout)
         self.assertIn("compile_commands.json is missing", completed.stdout)
+
+
+@unittest.skipUnless(os.name == "nt", "Windows verification script")
+class VerifyToolSelfTestStepTests(unittest.TestCase):
+    """Exercise the real tool runner, its verify caller and the final readiness decision."""
+
+    def run_tool_step(self, *, skip=False, runner_body=None):
+        shell = shutil.which("pwsh")
+        if not shell:
+            self.fail("PowerShell 7 is required")
+        with tempfile.TemporaryDirectory(prefix="mr verify tools ") as directory:
+            root = Path(directory)
+            (root / "scripts").mkdir()
+            (root / "tools").mkdir()
+            runner = root / "scripts/run-python-tool-tests.ps1"
+            if runner_body is None:
+                shutil.copy2(REPO / "scripts/run-python-tool-tests.ps1", runner)
+            else:
+                runner.write_text(runner_body, encoding="utf-8-sig")
+            (root / "tools/requirements-ci.txt").write_text("", encoding="utf-8")
+            (root / "tools/test_sample.py").write_text(
+                "import unittest\nclass Sample(unittest.TestCase):\n"
+                + ("    @unittest.skip('local prerequisite absent')\n" if skip else "")
+                + "    def test_sample(self): pass\nif __name__ == '__main__': unittest.main()\n",
+                encoding="utf-8")
+            script = f"""
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+[Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
+$source = [IO.File]::ReadAllText({ps_literal(VERIFY)}, [Text.Encoding]::UTF8)
+$tokens = $null; $errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors)
+if ($errors.Count) {{ throw 'Cannot parse verify.ps1' }}
+$statements = @($ast.EndBlock.Statements)
+$start = -1; $summaryStart = -1
+for ($i = 0; $i -lt $statements.Count; $i++) {{
+    if ($statements[$i].Extent.Text -match '^Write-Head\\s+''工具自测') {{ $start = $i }}
+    if ($statements[$i].Extent.Text -match '^Write-Head\\s+''结论') {{ $summaryStart = $i }}
+}}
+if ($start -lt 0 -or $summaryStart -lt 0) {{ throw 'Missing tool step or summary' }}
+$end = $start + 1
+while ($end -lt $statements.Count -and $statements[$end].Extent.Text -notmatch '^Write-Head\\s') {{ $end++ }}
+function Write-Head([string]$Text) {{ Write-Host $Text }}
+function Test-GateSkipped([string]$Name) {{ return $false }}
+function Add-Failure([string]$Name, [string]$Detail) {{ Write-Host $Detail; $failures.Add($Name) }}
+$failures = New-Object System.Collections.Generic.List[string]
+$skipped = New-Object System.Collections.Generic.List[string]
+$ToolTests = {ps_literal(runner)}
+$TestFilter = ''; $NoBuild = $false
+$verification = $null; $Result = [ref]$verification
+$step = ($statements[$start..($end - 1)] | ForEach-Object {{ $_.Extent.Text }}) -join "`n"
+. ([scriptblock]::Create($step))
+Write-Host ('RECORDED-SKIPS=' + ($skipped -join ','))
+$summary = ($statements[$summaryStart..($statements.Count - 1)] | ForEach-Object {{ $_.Extent.Text }}) -join "`n"
+# A script file provides an exit boundary; a scriptblock alone would end this harness.
+$summaryPath = {ps_literal(root / "summary.ps1")}
+[IO.File]::WriteAllText($summaryPath, $summary)
+& $summaryPath
+$summaryExit = $LASTEXITCODE
+Write-Host ('VERIFICATION-RESULT=' + ($verification | ConvertTo-Json -Compress))
+exit $summaryExit
+"""
+            path = root / "step.ps1"
+            path.write_text(script, encoding="utf-8-sig")
+            return subprocess.run([shell, "-NoProfile", "-File", str(path)], capture_output=True,
+                                  text=True, encoding="utf-8", errors="replace", timeout=120,
+                                  env={**os.environ, "MR_PYTHON_EXE": sys.executable})
+
+    def test_complete_tools_keep_verification_complete(self):
+        completed = self.run_tool_step()
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn(READY_LINE, completed.stdout)
+        self.assertIn('"Complete":true', completed.stdout)
+
+    def test_skipped_tool_test_marks_verification_partial_without_failing(self):
+        completed = self.run_tool_step(skip=True)
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("RECORDED-SKIPS=tool-selftests", completed.stdout)
+        self.assertNotIn(READY_LINE, completed.stdout)
+        self.assertIn('"Complete":false', completed.stdout)
+
+    def test_success_exit_without_structured_result_is_not_a_pass(self):
+        completed = self.run_tool_step(runner_body="param([ref]$Result)\nexit 0\n")
+        self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+        self.assertNotIn(READY_LINE, completed.stdout)
 
 
 if __name__ == "__main__":

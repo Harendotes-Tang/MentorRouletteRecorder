@@ -586,17 +586,7 @@ public sealed class MessageDispatcher
     private JsonObject UpdateCaptureSettings(PayloadReader reader)
     {
         var update = RequestParsers.CaptureSettings(reader);
-        CaptureSettingsSnapshot? applied = null;
-        if ((update.CandidateValidationEnabled.HasValue || update.ResearchPayloadOpcodes is not null) && _host.LiveProtocol is { } pipeline)
-            pipeline.ApplyCandidateSettings(update.CandidateValidationEnabled,
-                () => applied = CaptureSettingsStore.Apply(_host.Settings, update), update.ResearchPayloadOpcodes);
-        else
-            applied = CaptureSettingsStore.Apply(_host.Settings, update);
-
-        // The two settings that have an effect somewhere other than the settings table are
-        // pushed at their owners here, so "saved" and "in force" are the same moment.
-        _host.ApplyCaptureSettings(applied!, applyCandidateMode: false);
-        return CaptureSettingsStore.Wire(applied!);
+        return CaptureSettingsStore.Wire(_host.UpdateCaptureSettings(update));
     }
 
     private JsonObject CreateManualRun(string requestId, PayloadReader reader)

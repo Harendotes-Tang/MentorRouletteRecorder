@@ -21,6 +21,7 @@ class ReflectionLibraryController final : public QObject
     Q_PROPERTY(int selectedCount READ selectedCount NOTIFY selectionChanged)
     Q_PROPERTY(QStringList selectedIds READ selectedIds NOTIFY selectionChanged)
     Q_PROPERTY(QVariantList selectedRuns READ selectedRuns NOTIFY selectionChanged)
+    Q_PROPERTY(bool canShareSelection READ canShareSelection NOTIFY selectionChanged)
     Q_PROPERTY(bool currentPageSelected READ currentPageSelected NOTIFY selectionChanged)
 public:
     explicit ReflectionLibraryController(IBackend *backend, QObject *parent = nullptr);
@@ -29,7 +30,9 @@ public:
     bool active() const { return m_active; }
     int selectedCount() const { return static_cast<int>(m_selectedIds.size()); }
     QStringList selectedIds() const { return m_selectedIds; }
+    /// 未完成刷新、读取失败或断线时不暴露缓存投影；勾选 ID 仍保留供重试。
     QVariantList selectedRuns() const;
+    bool canShareSelection() const;
     bool currentPageSelected() const;
     Q_INVOKABLE bool isSelected(const QString &runId) const;
     /// 选择按稳定 ID 保存完整投影，翻页不丢失；全选只影响当前页。
@@ -50,8 +53,11 @@ Q_SIGNALS:
 private:
     void applyFilter(const QVariantMap &next);
     /// 重新读取已勾选的记录：心得已清空或记录已删除的移出选择，其余换成新投影。
-    /// 读取失败时选择保持不变。
+    /// 读取失败时保留相应选择，但整批禁止分享，直到下一次全部刷新成功。
     void refreshSelection();
+    void invalidateSelection();
+    bool setSelected(const QVariantMap &run, bool selected);
+    void selectionEdited();
     QPointer<IBackend> m_backend;
     RunListModel *m_runs;
     QVariantMap m_filter;
@@ -61,5 +67,8 @@ private:
     QHash<QString, QVariantMap> m_selectedRuns;
     QVariantMap m_pendingFilter;
     quint64 m_selectionGeneration = 0;
+    qsizetype m_selectionPending = 0;
+    bool m_selectionFailed = false;
+    bool m_selectionFresh = true;
 };
 }

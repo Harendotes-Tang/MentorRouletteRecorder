@@ -609,7 +609,7 @@ LOOK_ALIKES: tuple[tuple[str, str], ...] = (
 # table is changed with it.
 EXCLUDED_DIR_NAMES: tuple[str, ...] = (".git", ".vs", "__pycache__", "node_modules")
 EXCLUDED_PATHS: tuple[str, ...] = ("tools/static-boundary-check/",)
-# Build output, skipped only directly beside a .csproj: the .NET SDK leaves out <project>/bin and
+# Build output, skipped only directly beside an outermost .csproj: the .NET SDK leaves out <project>/bin and
 # <project>/obj and compiles a .cs in a bin/ or obj/ anywhere deeper (audit 2026-10-03, V5-7).
 EXCLUDED_OUTPUT_DIR_NAMES: tuple[str, ...] = ("bin", "obj")
 
@@ -2363,6 +2363,19 @@ def cases() -> Iterable[tuple[str, callable]]:
                 expect_violation(root, f"planted in {inside}", "INJ-004")
 
         yield f"{inside} is scanned", output_name_elsewhere_is_scanned
+
+    # A child project does not narrow its parent SDK project's recursive Compile glob.
+    for output in ("bin", "obj"):
+        def nested_project_output_is_scanned(output=output) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                clean_tree(root)
+                plant(root, "src/Collector/Parent.csproj", '<Project Sdk="Microsoft.NET.Sdk" />')
+                plant(root, "src/Collector/Capture/Child.csproj", '<Project Sdk="Microsoft.NET.Sdk" />')
+                plant(root, f"src/Collector/Capture/{output}/Hook.cs", "CreateRemoteThread(h);")
+                expect_violation(root, "nested project output compiled by parent", "INJ-004")
+
+        yield f"nested project {output}/ remains parent source", nested_project_output_is_scanned
 
     def unscanned_extension() -> None:
         with tempfile.TemporaryDirectory() as tmp:

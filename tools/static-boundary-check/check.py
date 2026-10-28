@@ -16,8 +16,8 @@ Design notes
     wherever they appear (``exclude_dir_names``); a ``build/`` or ``packages/``
     inside ``src/`` is scanned like any other directory. Build output
     (``exclude_output_dir_names``: ``bin``, ``obj``) is skipped only directly beside
-    a ``.csproj``, because that is the only place the .NET SDK leaves it out of the
-    build: a ``.cs`` in a ``bin/`` or ``obj/`` anywhere deeper is compiled.
+    an outermost ``.csproj``. A nested project does not narrow its parent's SDK
+    compile glob: a ``.cs`` in a ``bin/`` or ``obj/`` deeper down is still source.
 *   A source line may opt out of ONE rule by carrying the allow marker declared
     in ``rules.json`` in the form ``<marker>(<RULE-ID>): <reason>``, for example
     ``BOUNDARY-ALLOW(INJ-008): named only to say why it is not used``. The marker
@@ -560,6 +560,21 @@ def iter_candidate_files(root: Path, config: Config, errors: list[str],
             return False
         return True
 
+    project_directories: dict[Path, bool] = {}
+
+    def holds_project(directory: Path) -> bool:
+        if directory not in project_directories:
+            try:
+                project_directories[directory] = any(
+                    entry.name.lower().endswith(PROJECT_FILE_SUFFIX) and entry.is_file()
+                    for entry in directory.iterdir()
+                )
+            except OSError as exc:
+                unlistable(exc)
+                # An unreadable ancestor cannot establish an output exemption.
+                project_directories[directory] = True
+        return project_directories[directory]
+
     for excluded in config.exclude_paths:
         problem = missing_as_written(root, excluded, directory=True)
         if problem:
@@ -583,8 +598,13 @@ def iter_candidate_files(root: Path, config: Config, errors: list[str],
         roots.append(scan_dir)
         for dirpath, dirnames, filenames in os.walk(root / scan_dir, onerror=unlistable):
             here = relative_path(root, Path(dirpath))
-            # The SDK leaves out <project>/bin and <project>/obj only; one deeper is compiled.
-            project = any(name.lower().endswith(PROJECT_FILE_SUFFIX) for name in filenames)
+            # Only an outermost project's outputs are excluded. A child .csproj does not
+            # remove its bin/obj from the parent project's recursive Compile glob.
+            directory = Path(dirpath)
+            project_directories[directory] = any(name.lower().endswith(PROJECT_FILE_SUFFIX) for name in filenames)
+            project = project_directories[directory] and not any(
+                holds_project(parent) for parent in directory.parents if parent.is_relative_to(root)
+            )
             kept = []
             for name in sorted(dirnames):
                 if name in config.exclude_dir_names or f"{here}/{name}/" in config.exclude_paths:

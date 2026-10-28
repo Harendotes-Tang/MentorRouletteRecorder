@@ -19,7 +19,7 @@
     测试脚本在日志深处以“退出码 1”失败。
     unittest 报告的跳过数（skipped=N）按脚本汇总在末尾：跳过的测试没有验证任何东西，
     不能算作“全部通过”，但也不改变退出码。
-    退出码：0 表示全部通过；1 表示有脚本失败、缺少所需的包、未发现任何脚本，或未找到
+    退出码：0 表示没有失败（可能有跳过）；1 表示有脚本失败、缺少所需的包、未发现任何脚本，或未找到
     Python 且未指定 -SkipIfNoPython。缺少 Python 按失败处理，静默跳过的闸门等于没有闸门。
 
 .EXAMPLE
@@ -28,7 +28,10 @@
 [CmdletBinding()]
 param(
     # 未找到 Python 时以退出码 0 跳过，代表接受这些闸门在本机未被验证。
-    [switch]$SkipIfNoPython
+    [switch]$SkipIfNoPython,
+
+    # Optional in-process result for verify.ps1; logs and exit 0 alone cannot distinguish skips.
+    [ref]$Result
 )
 
 Set-StrictMode -Version Latest
@@ -40,6 +43,11 @@ try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } c
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $ToolsRoot = Join-Path $RepoRoot 'tools'
+if ($null -ne $Result) {
+    $Result.Value = [pscustomobject]@{
+        Succeeded = $false; Complete = $false; ScriptCount = 0; FailedScriptCount = 0; SkippedTestCount = 0
+    }
+}
 
 function Resolve-Python {
     # MR_PYTHON_EXE pins the interpreter: CI installs the signature tool's
@@ -60,6 +68,7 @@ function Resolve-Python {
 $python = Resolve-Python
 if (-not $python) {
     if ($SkipIfNoPython) {
+        if ($null -ne $Result) { $Result.Value.Succeeded = $true }
         Write-Host '  未找到 Python 3；按 -SkipIfNoPython 跳过工具自测。' -ForegroundColor Yellow
         Write-Host '  这台机器上的边界与签名闸门因此没有被验证过。' -ForegroundColor Yellow
         exit 0
@@ -183,6 +192,15 @@ if ($skipped.Count -gt 0) {
     foreach ($entry in $skipped) {
         Write-Host ("    {0}：跳过 {1} 项" -f $entry.Script, $entry.Count) -ForegroundColor Yellow
         $skippedTotal += $entry.Count
+    }
+}
+if ($null -ne $Result) {
+    $Result.Value = [pscustomobject]@{
+        Succeeded = $failed.Count -eq 0
+        Complete = $failed.Count -eq 0 -and $skippedTotal -eq 0
+        ScriptCount = $scripts.Count
+        FailedScriptCount = $failed.Count
+        SkippedTestCount = $skippedTotal
     }
 }
 if ($failed.Count -gt 0) {

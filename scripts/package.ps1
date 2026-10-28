@@ -749,13 +749,14 @@ Assert-File $VerifyScript '缺少验证脚本'
 # commit by another session in between would otherwise leave a clean source_commit beside
 # binaries built from another tree.
 $sourceStateBeforeVerify = Get-SourceTreeState -RepoRoot $RepoRoot
+$verificationResult = $null
 
 if (-not $SkipVerify) {
     Write-Head '预验证 / Preflight verify'
     # -Distribution: the whole chain (verify -> test -> build) builds and tests the
     # distribution flavour of the Desktop, which is the binary packaged below
     # (docs/build-and-package.md section 3.7).
-    & $VerifyScript -Configuration $Configuration -Distribution
+    & $VerifyScript -Configuration $Configuration -Distribution -Result ([ref]$verificationResult)
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
@@ -910,6 +911,9 @@ elseif ($sourceState.Dirty) {
 }
 if ($SkipVerify) {
     $distributionBlockers += '按 -SkipVerify 跳过了验证关卡'
+}
+elseif ($null -eq $verificationResult -or -not $verificationResult.Succeeded -or -not $verificationResult.Complete) {
+    $distributionBlockers += '预验证只完成部分验证或未返回完整结果（verification_complete=false）'
 }
 if (-not $Verify) {
     # docs/release-checklist.md requires the unpack-and-run check of the archive (M-2).

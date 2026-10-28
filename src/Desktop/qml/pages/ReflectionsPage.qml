@@ -133,8 +133,9 @@ ColumnLayout {
             text: qsTr("生成分享图片")
             iconName: "image"
             variant: "primary"
-            enabled: !!page.controller && page.controller.selectedCount > 0
-            onClicked: page.shareBatchRequested(page.controller.selectedRuns)
+            enabled: !!page.controller && page.controller.canShareSelection
+            onClicked: if (page.controller.canShareSelection)
+                           page.shareBatchRequested(page.controller.selectedRuns)
         }
     }
     Timer { id: debounce; interval: 300; onTriggered: page.applyFilter() }

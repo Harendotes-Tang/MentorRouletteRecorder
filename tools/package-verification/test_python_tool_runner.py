@@ -10,6 +10,7 @@ its own scripts/ directory) with a requirements file and a sample test of our ch
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import shutil
@@ -86,15 +87,24 @@ class PythonToolRunnerTests(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
-    def run_runner(self, requirements: str, sample: str):
+    def run_runner(self, requirements: str, sample: str, *, structured=False):
         tools = self.root / "tools"
         (tools / "sample").mkdir(parents=True, exist_ok=True)
         (tools / "requirements-ci.txt").write_text(textwrap.dedent(requirements), encoding="utf-8")
         (tools / "sample" / "test_sample.py").write_text(sample, encoding="utf-8")
         environment = {**os.environ, "MR_PYTHON_EXE": sys.executable, "PYTHONPATH": str(self.site)}
+        script = self.root / "scripts" / RUNNER.name
+        if structured:
+            script = self.root / "invoke.ps1"
+            script.write_text(
+                "$result = 'stale result'\n"
+                "& (Join-Path $PSScriptRoot 'scripts/run-python-tool-tests.ps1') -Result ([ref]$result)\n"
+                "$runnerExit = $LASTEXITCODE\n"
+                "$result | ConvertTo-Json | Set-Content (Join-Path $PSScriptRoot 'result.json') -Encoding utf8\n"
+                "exit $runnerExit\n", encoding="utf-8-sig")
         completed = subprocess.run(
             [self.shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-             "-File", str(self.root / "scripts" / RUNNER.name)],
+             "-File", str(script)],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             env=environment, timeout=180)
         return completed, completed.stdout + completed.stderr
@@ -130,6 +140,21 @@ class PythonToolRunnerTests(unittest.TestCase):
         summary = output[output.rindex("以下脚本有测试被跳过"):]
         self.assertIn(os.path.join("tools", "sample", "test_sample.py") + "：跳过 2 项", summary)
         self.assertIn("2 项测试被跳过", summary)
+
+    def test_skip_result_records_exact_count_and_preserves_success_exit(self):
+        completed, output = self.run_runner("fake-ok==1.0\n", SKIPPING_SAMPLE, structured=True)
+        self.assertEqual(0, completed.returncode, output)
+        result = json.loads((self.root / "result.json").read_text(encoding="utf-8-sig"))
+        self.assertEqual(dict(Succeeded=True, Complete=False, ScriptCount=1,
+                              FailedScriptCount=0, SkippedTestCount=2), result)
+
+    def test_preflight_failure_clears_any_previous_complete_result(self):
+        completed, output = self.run_runner("mr-surely-missing-package==1.0\n", PASSING_SAMPLE, structured=True)
+        self.assertEqual(1, completed.returncode, output)
+        result = json.loads((self.root / "result.json").read_text(encoding="utf-8-sig"))
+        self.assertIs(False, result["Succeeded"])
+        self.assertIs(False, result["Complete"])
+        self.assertEqual(0, result["ScriptCount"])
 
     def test_a_failing_script_still_fails_the_run(self):
         completed, output = self.run_runner("fake-ok==1.0\n", FAILING_SAMPLE)

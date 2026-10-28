@@ -16,7 +16,7 @@
 
 - `exclude_dir_names`：在任意深度按目录名跳过，只限永远不会存放本项目源码的目录，即
   `.git`、`.vs`、`__pycache__`、`node_modules`。
-- `exclude_output_dir_names`：构建输出目录 `bin`、`obj`，只在其所在目录含 `.csproj` 时跳过。
+- `exclude_output_dir_names`：构建输出目录 `bin`、`obj`，只在其所在目录含最外层 `.csproj` 时跳过；嵌套项目不会缩小父项目的默认编译范围，其 `bin/obj` 仍须扫描。
   .NET SDK 的默认编译范围只排除项目目录下的 `bin/` 与 `obj/`，更深处名为 `bin`、`obj` 的目录中的 `.cs`
   照常编译，因此照常扫描。同一个名字不得同时出现在 `exclude_dir_names` 中。
 - `exclude_paths`：按仓库相对路径精确跳过的目录，以 `/` 结尾，目前只有检查器自身所在的

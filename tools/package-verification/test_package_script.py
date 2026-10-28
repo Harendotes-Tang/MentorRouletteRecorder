@@ -178,13 +178,14 @@ Invoke-Expression (Get-FunctionDefinitions @('Test-ForbiddenMediaFile'))
 
     # ----------------------------------------------- public_distribution_ready
 
-    def distribution_claim(self, *, failing_git, verify=True):
+    def distribution_claim(self, *, failing_git, verify=True, verification_complete=True):
         return self.run_package_statements(f"""
 $RepoRoot = {ps_literal(self.repository)}
 $stagedDoctor = [pscustomobject]@{{ public_distribution_ready = $true }}
 $liveCaptureStatus = 'VERIFIED_POP_TO_EXIT'
 $verifiedProfileIds = @('global.test.verified')
 $SkipVerify = [switch]$false
+$verificationResult = [pscustomobject]@{{ Complete = ${'true' if verification_complete else 'false'}; Succeeded = $true }}
 $Verify = [switch]${'true' if verify else 'false'}
 $IsPrerelease = $false
 $Version = '9.9.9'
@@ -214,6 +215,39 @@ $Version = '9.9.9'
         claim = self.distribution_claim(failing_git=False, verify=False)
         self.assertFalse(claim["ready"])
         self.assertTrue(any("-Verify" in blocker for blocker in claim["blockers"]), claim["blockers"])
+
+    def test_partial_preflight_blocks_the_distribution_claim(self):
+        claim = self.distribution_claim(failing_git=False, verification_complete=False)
+        self.assertFalse(claim["ready"])
+        self.assertTrue(any("部分验证" in blocker for blocker in claim["blockers"]), claim["blockers"])
+
+
+    def test_preflight_call_preserves_partial_and_missing_results(self):
+        verifier = self.directory / "verify.ps1"
+        for returns_result in (True, False):
+            with self.subTest(returns_result=returns_result):
+                verifier.write_text(
+                    "param([string]$Configuration, [switch]$Distribution, [ref]$Result)\n"
+                    + ("$Result.Value = [pscustomobject]@{ Succeeded=$true; Complete=$false }\n"
+                       if returns_result else "") + "exit 0\n", encoding="utf-8-sig")
+                result = self.run_package_statements(f"""
+function Write-Head([string]$Text) {{ }}
+$SkipVerify = $false
+$Configuration = 'Release'
+$VerifyScript = {ps_literal(verifier)}
+$verificationResult = $null
+$preflight = @($statements | Where-Object {{
+    $_ -is [Management.Automation.Language.IfStatementAst] -and
+    $_.Clauses[0].Item1.Extent.Text -eq '-not $SkipVerify'
+}})
+if ($preflight.Count -ne 1) {{ throw 'The preflight verification call was not found' }}
+. ([scriptblock]::Create($preflight[0].Extent.Text))
+@{{ missing = $null -eq $verificationResult; result = $verificationResult }} | ConvertTo-Json -Compress
+""")
+                self.assertEqual(not returns_result, result["missing"])
+                if returns_result:
+                    self.assertIs(False, result["result"]["Complete"])
+                    self.assertIs(True, result["result"]["Succeeded"])
 
     def build_metadata(self, *, verify):
         metadata = self.directory / "BUILD-METADATA.json"

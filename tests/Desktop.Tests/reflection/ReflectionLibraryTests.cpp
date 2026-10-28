@@ -20,6 +20,7 @@
 #include <QTest>
 #include <QTimer>
 #include <memory>
+#include <functional>
 
 namespace {
 class QueryBackend final : public mr::IBackend
@@ -34,13 +35,16 @@ public:
         auto *reply = new mr::BackendReply(QStringLiteral("test"), type, this);
         const bool rejected = reject;
         const int page = payload.value(QStringLiteral("page")).toInt(1);
-        QTimer::singleShot(0, reply, [reply, rejected, page] {
+        QJsonArray ids = payload.value(QStringLiteral("filter")).toObject().value(QStringLiteral("run_id")).toArray();
+        if (ids.isEmpty()) ids.append(QStringLiteral("page-%1").arg(page));
+        QTimer::singleShot(0, reply, [reply, rejected, page, ids] {
             if (rejected) {
                 reply->fail(QStringLiteral("ERR_QUERY"), QStringLiteral("数据库暂不可读"));
                 return;
             }
             QJsonArray items;
-            items.append(QJsonObject{{QStringLiteral("run_id"), QStringLiteral("page-%1").arg(page)},
+            for (const auto &id : ids)
+                items.append(QJsonObject{{QStringLiteral("run_id"), id},
                 {QStringLiteral("duty_name"), QStringLiteral("长中文副本名称用于选择验证")},
                 {QStringLiteral("job_id"), 24}, {QStringLiteral("job_name"), QStringLiteral("白魔法师")},
                 {QStringLiteral("result"), QStringLiteral("COMPLETED")},
@@ -57,9 +61,15 @@ class StoreBackend final : public mr::IBackend
 {
 public:
     QString backendName() const override { return QStringLiteral("store"); }
-    bool isConnected() const override { return true; }
+    bool isConnected() const override { return connected; }
     QList<QJsonObject> runs;
     bool reject = false;
+    bool connected = true;
+    bool holdSelection = false;
+    int failingSelectionChunk = -1;
+    QList<std::function<void()>> pendingSelections;
+    void completeSelection(int index = 0) { pendingSelections.takeAt(index)(); }
+    void setConnected(bool value) { connected = value; Q_EMIT connectionChanged(); }
     void add(const QString &id, const QString &text) {
         runs.append({{QStringLiteral("run_id"), id}, {QStringLiteral("duty_name"), QStringLiteral("心得副本")},
                      {QStringLiteral("result"), QStringLiteral("COMPLETED")},
@@ -93,15 +103,21 @@ public:
         for (int index = (page - 1) * size; index < qMin(static_cast<int>(matching.size()), page * size); ++index)
             items.append(matching.at(index));
         const int total = static_cast<int>(matching.size());
-        const bool rejected = reject;
-        QTimer::singleShot(0, reply, [reply, rejected, items, page, total] {
+        const bool rejected = reject || !connected
+            || (holdSelection && filter.contains(QStringLiteral("run_id"))
+                && pendingSelections.size() == failingSelectionChunk);
+        const auto complete = [reply, rejected, items, page, total] {
             if (rejected) {
                 reply->fail(QStringLiteral("ERR_QUERY"), QStringLiteral("数据库暂不可读"));
                 return;
             }
             reply->succeed({{QStringLiteral("items"), items}, {QStringLiteral("page_info"),
                 QJsonObject{{QStringLiteral("page"), page}, {QStringLiteral("total"), total}}}});
-        });
+        };
+        if (holdSelection && filter.contains(QStringLiteral("run_id")))
+            pendingSelections.append(complete);
+        else
+            QTimer::singleShot(0, reply, complete);
         return reply;
     }
 };
@@ -369,6 +385,18 @@ ApplicationWindow {
         generate->forceActiveFocus();
         QTest::keyClick(window, Qt::Key_Space);
         QTRY_COMPARE(share.count(), 1);
+        backend.reject = true;
+        library.reload();
+        QVERIFY(!generate->isEnabled());
+        QTRY_VERIFY(!library.runs()->loadError().isEmpty());
+        QVERIFY(!generate->isEnabled());
+        QTest::keyClick(window, Qt::Key_Space);
+        QCOMPARE(share.count(), 1);
+        QCOMPARE(library.selectedCount(), 2);
+        backend.reject = false;
+        library.reload();
+        QTRY_VERIFY(generate->isEnabled());
+        QTRY_VERIFY(!library.runs()->isLoading());
         const QString evidence = qEnvironmentVariable("MR_REFLECTION_SHARE_SCREENSHOT_DIR");
         if (!evidence.isEmpty()) {
             QVERIFY(QDir().mkpath(evidence));
@@ -423,6 +451,126 @@ ApplicationWindow {
         QTRY_VERIFY(!library.runs()->loadError().isEmpty());
         QTest::qWait(50);
         QCOMPARE(library.selectedIds(), QStringList({QStringLiteral("b")}));
+    }
+    void selectionSharingWaitsForEveryRefreshChunk() {
+        StoreBackend backend;
+        for (int i = 0; i < 201; ++i)
+            backend.add(QString::number(i), QStringLiteral("旧心得"));
+        mr::ReflectionLibraryController library(&backend);
+        library.setActive(true);
+        QTRY_VERIFY(!library.runs()->isLoading());
+        for (const auto &run : backend.runs)
+            library.toggleSelected(run.toVariantMap());
+        QCOMPARE(library.selectedRuns().size(), 201);
+        backend.update(QStringLiteral("0"), QStringLiteral("reflection"),
+                       QJsonObject{{QStringLiteral("text"), QStringLiteral("新心得")}});
+        backend.holdSelection = true;
+        library.reload();
+        QCOMPARE(backend.pendingSelections.size(), 2);
+        QCOMPARE(library.selectedCount(), 201);
+        QVERIFY(library.selectedRuns().isEmpty());
+        QVERIFY(!library.property("canShareSelection").toBool());
+        backend.completeSelection(1);
+        QVERIFY(library.selectedRuns().isEmpty());
+        backend.completeSelection();
+        QVERIFY(library.property("canShareSelection").toBool());
+        QCOMPARE(library.selectedRuns().size(), 201);
+        QCOMPARE(library.selectedRuns().first().toMap().value(QStringLiteral("reflection")).toMap()
+                     .value(QStringLiteral("text")).toString(), QStringLiteral("新心得"));
+        backend.failingSelectionChunk = 0;
+        library.reload();
+        backend.completeSelection();
+        backend.completeSelection();
+        QCOMPARE(library.selectedCount(), 201);
+        QVERIFY(library.selectedRuns().isEmpty());
+        backend.failingSelectionChunk = -1;
+        library.reload();
+        backend.completeSelection();
+        QVERIFY(library.selectedRuns().isEmpty());
+        backend.completeSelection();
+        QVERIFY(library.property("canShareSelection").toBool());
+    }
+    void newSelectionDuringRefreshRequeriesOncePerPage() {
+        StoreBackend backend;
+        for (int i = 0; i < 10; ++i)
+            backend.add(QString::number(i), QStringLiteral("旧心得"));
+        mr::ReflectionLibraryController library(&backend);
+        library.setActive(true);
+        QTRY_VERIFY(!library.runs()->isLoading());
+        library.toggleSelected(library.runs()->runAt(0));
+        backend.holdSelection = true;
+        library.reload();
+        QTRY_VERIFY(!library.runs()->isLoading());
+        backend.update(QStringLiteral("0"), QStringLiteral("reflection"),
+                       QJsonObject{{QStringLiteral("text"), QStringLiteral("新心得")}});
+        library.setPageSelected(true);
+        QCOMPARE(backend.pendingSelections.size(), 2); // one old batch, one new page selection
+        QCOMPARE(library.selectedCount(), 10);
+        backend.completeSelection();
+        QVERIFY(library.selectedRuns().isEmpty());
+        backend.completeSelection();
+        QCOMPARE(library.selectedRuns().size(), 10);
+        QCOMPARE(library.selectedRuns().first().toMap().value(QStringLiteral("reflection")).toMap()
+                     .value(QStringLiteral("text")).toString(), QStringLiteral("新心得"));
+    }
+    void selectionFailureAndDisconnectKeepIdsButBlockSharing() {
+        StoreBackend backend;
+        backend.add(QStringLiteral("a"), QStringLiteral("心得"));
+        mr::ReflectionLibraryController library(&backend);
+        library.setActive(true);
+        QTRY_VERIFY(!library.runs()->isLoading());
+        library.setPageSelected(true);
+        backend.holdSelection = true;
+        backend.reject = true;
+        library.reload();
+        backend.completeSelection();
+        QCOMPARE(library.selectedIds(), QStringList{QStringLiteral("a")});
+        QVERIFY(library.selectedRuns().isEmpty());
+        backend.reject = false;
+        library.reload();
+        backend.completeSelection();
+        QVERIFY(library.property("canShareSelection").toBool());
+        library.reload();
+        backend.setConnected(false);
+        while (!backend.pendingSelections.isEmpty())
+            backend.completeSelection();
+        QCOMPARE(library.selectedCount(), 1);
+        QVERIFY(library.selectedRuns().isEmpty());
+        backend.setConnected(true);
+        backend.completeSelection();
+        QVERIFY(library.property("canShareSelection").toBool());
+        library.setActive(false);
+        Q_EMIT backend.liveEvent({{QStringLiteral("kind"), QStringLiteral("run_updated")}});
+        QVERIFY(library.selectedRuns().isEmpty());
+        library.setActive(true);
+        backend.completeSelection();
+        QVERIFY(library.property("canShareSelection").toBool());
+    }
+    void clearingAndReselectingRejectsOlderSelectionReplies() {
+        StoreBackend backend;
+        backend.add(QStringLiteral("a"), QStringLiteral("旧心得"));
+        mr::ReflectionLibraryController library(&backend);
+        library.setActive(true);
+        QTRY_VERIFY(!library.runs()->isLoading());
+        library.setPageSelected(true);
+        backend.holdSelection = true;
+        library.reload();
+        library.clearSelection();
+        QVERIFY(library.selectedRuns().isEmpty());
+        backend.update(QStringLiteral("a"), QStringLiteral("reflection"),
+                       QJsonObject{{QStringLiteral("text"), QStringLiteral("新心得")}});
+        library.toggleSelected(backend.runs.first().toVariantMap());
+        library.reload();
+        // The newest generation finishes first; old snapshots must not overwrite it.
+        backend.completeSelection(backend.pendingSelections.size() - 1);
+        QVERIFY(library.property("canShareSelection").toBool());
+        while (!backend.pendingSelections.isEmpty())
+            backend.completeSelection();
+        QTRY_VERIFY(!library.runs()->isLoading());
+        QCOMPARE(library.selectedRuns().first().toMap().value(QStringLiteral("reflection")).toMap()
+                     .value(QStringLiteral("text")).toString(), QStringLiteral("新心得"));
+        library.clearSelection();
+        QVERIFY(!library.property("canShareSelection").toBool());
     }
     void inactiveRefreshAndBackendLifetime() {
         auto *backend = new QueryBackend;

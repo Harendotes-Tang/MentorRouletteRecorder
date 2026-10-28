@@ -27,6 +27,7 @@ namespace MentorRecorder.Collector.Ipc;
 public sealed class CollectorHost : IDisposable
 {
     private readonly Stopwatch _uptime = Stopwatch.StartNew();
+    private readonly object _captureSettingsGate = new();
     private RotatingFileLogger _logger = RotatingFileLogger.Disabled;
     private bool _disposed;
 
@@ -417,7 +418,7 @@ public sealed class CollectorHost : IDisposable
     /// use, so writing them is already enough.
     /// </summary>
     /// <param name="settings">Settings as they now stand.</param>
-    public void ApplyCaptureSettings(CaptureSettingsSnapshot settings, bool applyCandidateMode = true)
+    private void ApplyCaptureSettings(CaptureSettingsSnapshot settings, bool applyCandidateMode = true)
     {
         ArgumentNullException.ThrowIfNull(settings);
         _logger.ApplyRetention(settings.LogRetentionDays);
@@ -432,6 +433,30 @@ public sealed class CollectorHost : IDisposable
 
         if (applyCandidateMode) LiveProtocol?.ApplyCandidateSettings(settings.CandidateValidationEnabled,
             researchPayloadOpcodes: settings.ResearchPayloadOpcodes);
+    }
+
+    /// <summary>
+    /// Serializes persistence and runtime application across every connection using this host.
+    /// The settings gate is acquired before pipeline and database locks; their callbacks must
+    /// not start another settings update. Startup applies its initial snapshot before publication.
+    /// </summary>
+    /// <param name="update">Validated partial update; omitted fields retain their stored values.</param>
+    /// <returns>The committed settings after all runtime owners have received the same snapshot.</returns>
+    internal CaptureSettingsSnapshot UpdateCaptureSettings(CaptureSettingsUpdate update)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+        lock (_captureSettingsGate)
+        {
+            CaptureSettingsSnapshot? applied = null;
+            if ((update.CandidateValidationEnabled.HasValue || update.ResearchPayloadOpcodes is not null) && LiveProtocol is { } pipeline)
+                pipeline.ApplyCandidateSettings(update.CandidateValidationEnabled,
+                    () => applied = CaptureSettingsStore.Apply(Settings, update), update.ResearchPayloadOpcodes);
+            else
+                applied = CaptureSettingsStore.Apply(Settings, update);
+
+            ApplyCaptureSettings(applied!, applyCandidateMode: false);
+            return applied!;
+        }
     }
 
     /// <inheritdoc />

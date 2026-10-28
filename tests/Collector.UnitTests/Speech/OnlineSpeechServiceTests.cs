@@ -676,6 +676,81 @@ public sealed class OnlineSpeechServiceTests : IDisposable
         Assert.DoesNotContain("cognitiveservices", log, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConcurrentSettingsUpdatesKeepTheLaterVoiceAndTarget(bool changeTarget)
+    {
+        using var protector = new PausingProtector();
+        var keys = new SpeechKeyStore(_directory, protector);
+        using var service = new OnlineSpeechService(Settings, keys,
+            new SpeechCache(_directory, _database.Clock), SpeechFixtures.Client(new FakeSpeechTransport()));
+        service.UpdateSettings(AzureUpdate());
+        protector.PauseNextWrite = true;
+        var first = Task.Factory.StartNew(() => service.UpdateSettings(new SpeechSettingsUpdate
+        {
+            ApiKey = "replacement-key",
+        }), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        Task<SpeechSettingsView>? second = null;
+        using var secondStarted = new ManualResetEventSlim();
+        try
+        {
+            Assert.True(protector.Entered.Wait(TimeSpan.FromSeconds(10)));
+            second = Task.Factory.StartNew(() =>
+            {
+                secondStarted.Set();
+                return service.UpdateSettings(new SpeechSettingsUpdate
+                {
+                    Voice = "zh-CN-YunxiNeural", VoiceSpecified = true,
+                    AzureRegion = changeTarget ? "westus2" : null, AzureRegionSpecified = changeTarget,
+                });
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            Assert.True(secondStarted.Wait(TimeSpan.FromSeconds(10)));
+            // Give the competing call a chance to finish while encryption is paused. With
+            // serialized updates it waits; without them its newer snapshot gets overwritten.
+            await Task.WhenAny(second, Task.Delay(TimeSpan.FromMilliseconds(500)));
+        }
+        finally
+        {
+            protector.Release.Set();
+            await first.WaitAsync(TimeSpan.FromSeconds(10));
+            if (second is not null) await second.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+
+        var settings = service.GetSettings();
+        Assert.Equal("zh-CN-YunxiNeural", settings.Config.Voice);
+        Assert.Equal(changeTarget ? "westus2" : "eastasia", settings.Config.AzureRegion);
+        Assert.Equal(!changeTarget, settings.HasKey);
+        Assert.Equal(changeTarget ? null : "replacement-key",
+            keys.Read(OnlineSpeechClient.KeyBinding(settings.Config)));
+    }
+
+    private sealed class PausingProtector : ISecretProtector, IDisposable
+    {
+        public bool PauseNextWrite { get; set; }
+        public ManualResetEventSlim Entered { get; } = new();
+        public ManualResetEventSlim Release { get; } = new();
+
+        public byte[] Protect(byte[] plaintext)
+        {
+            if (PauseNextWrite)
+            {
+                PauseNextWrite = false;
+                Entered.Set();
+                if (!Release.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException();
+            }
+            return DpapiProtector.Instance.Protect(plaintext);
+        }
+
+        public byte[] Unprotect(byte[] ciphertext) => DpapiProtector.Instance.Unprotect(ciphertext);
+
+        public void Dispose()
+        {
+            Entered.Dispose();
+            Release.Dispose();
+        }
+    }
+
     private static async Task WaitUntil(Func<bool> condition)
     {
         var deadline = DateTime.UtcNow.AddSeconds(10);

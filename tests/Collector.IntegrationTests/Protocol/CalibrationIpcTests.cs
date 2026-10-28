@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Capture;
+using MentorRecorder.Collector.Protocol.Decoded;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
@@ -105,18 +106,24 @@ public sealed class CalibrationIpcTests
 
     // ------------------------------------------------------- calibration evidence ----
 
-    [Fact]
-    public async Task CompletedMetadataSessionExportsWhitelistOverRealPipeWithoutCreatingRuns()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(30000)]
+    public async Task CompletedMetadataSessionExportsWhitelistOverRealPipeWithoutCreatingRuns(int elapsedMs)
     {
         var source = new FakeCaptureSource();
+        var elapsed = TimeSpan.FromMilliseconds(elapsedMs);
         var capture = CaptureFakes.Ready(source, "2026.09.01.0000.0000");
         var validation = new CaptureValidationServices
         {
             PollInterval = TimeSpan.FromMilliseconds(10),
+            // FakeCaptureSource normally starts its clock before host startup, while validation
+            // starts its marker clock afterward. Share one time domain even after slow startup.
+            Elapsed = () => elapsed,
             Trace = new CaptureTraceServices
             {
                 Npcap = capture.Npcap, Game = capture.Game, Adapters = capture.Adapters,
-                SourceFactory = () => source, TcpConnectionCounter = (_, _) => 0,
+                SourceFactory = () => new ObservationTimeSource(source, elapsed), TcpConnectionCounter = (_, _) => 0,
             },
         };
         await using var fixture = CaptureServerFixture.Start(capture, validation: validation);
@@ -129,6 +136,9 @@ public sealed class CalibrationIpcTests
         Assert.False((await client.SendAsync("GetTemplateObservation")).Require()["available"]!.GetValue<bool>());
         Assert.True((await client.SendAsync("StopCaptureValidation")).Ok);
         await AwaitValidationState(client, "COMPLETED");
+        var completed = (await client.SendAsync("GetCaptureValidationStatus")).Require();
+        Assert.Equal(1, completed["message_count"]!.GetValue<long>());
+        Assert.Equal(1, completed["marker_count"]!.GetValue<long>());
         var reply = (await client.SendAsync("GetTemplateObservation")).Require();
         ContractSchema.Validate("$defs/Responses/GetTemplateObservation", reply, "completed observation");
         Assert.True(reply["available"]!.GetValue<bool>(), reply.ToJsonString());
@@ -141,6 +151,25 @@ public sealed class CalibrationIpcTests
         Assert.DoesNotContain("payload", text, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(text, (await client.SendAsync("GetTemplateObservation")).Require()["evidence_json"]!.GetValue<string>());
         Assert.Empty((await client.SendAsync("QueryRuns")).Require()["items"]!.AsArray());
+    }
+
+    private sealed class ObservationTimeSource(FakeCaptureSource source, TimeSpan elapsed)
+        : ICaptureSource, ICaptureSourceObserver
+    {
+        private ICaptureSourceObserver? _observer;
+        public string Kind => source.Kind;
+        public bool IsRunning => source.IsRunning;
+        public bool ReadsGameExecutable => source.ReadsGameExecutable;
+        public void Start(CaptureStartOptions options, ICaptureSourceObserver observer)
+        {
+            _observer = observer;
+            source.Start(options, this);
+        }
+        public void OnMessage(DecodedMessage message) => _observer!.OnMessage(message with { Mono = elapsed });
+        public void OnDecodeError() => _observer!.OnDecodeError();
+        public void OnFault(string reason, Exception? error) => _observer!.OnFault(reason, error);
+        public void Stop() => source.Stop();
+        public void Dispose() => source.Dispose();
     }
 
     private static async Task AwaitValidationState(PipeClient client, string state)

@@ -37,7 +37,7 @@
     第 6、7 步不依赖 Npcap 或游戏客户端：断言对象是编译期常量，以及"本机当前无法抓包"
     这一合法结论，因此 CI 与开发机必须得到相同结果。
 
-    退出码：0 表示全部通过；1 表示任一关卡失败。
+    退出码：0 表示已执行的关卡没有失败（可能是部分验证）；1 表示任一关卡失败。
 
 .EXAMPLE
     pwsh -File scripts/verify.ps1
@@ -68,11 +68,15 @@ param(
     # Nothing in this list needs Npcap or a game client: the capture gates assert
     # compile-time boundary constants and accept the "this machine cannot capture" answer.
     [ValidateSet('tool-selftests', 'listener-check', 'live-capture-status', 'injection-payload')]
-    [string[]]$SkipGate = @()
+    [string[]]$SkipGate = @(),
+
+    # Optional in-process summary for package.ps1. Complete is false for any coverage gap.
+    [ref]$Result
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ($null -ne $Result) { $Result.Value = $null }
 
 # Force UTF-8 so a legacy code page (e.g. GBK) does not mangle the Chinese
 # output. Failure to set it is not fatal.
@@ -267,10 +271,18 @@ elseif (-not (Test-Path -LiteralPath $ToolTests)) {
     Add-Failure 'tool-selftests' ("未找到工具自测脚本: {0}" -f $ToolTests)
 }
 else {
-    & $ToolTests
-    if ($LASTEXITCODE -ne 0) {
-        Add-Failure 'tool-selftests' 'tools/ 下的 Python 自测没有全部通过。'
+    $toolTestResult = $null
+    try {
+        & $ToolTests -Result ([ref]$toolTestResult)
+        if ($LASTEXITCODE -ne 0 -or $null -eq $toolTestResult -or -not $toolTestResult.Succeeded) {
+            Add-Failure 'tool-selftests' 'tools/ 下的 Python 自测失败或没有返回完整的执行结果。'
+        }
+        elseif (-not $toolTestResult.Complete) {
+            $skipped.Add('tool-selftests')
+            Write-Host ("  [skipped] 工具自测跳过 {0} 项，本次只能算部分验证。" -f $toolTestResult.SkippedTestCount) -ForegroundColor Yellow
+        }
     }
+    catch { Add-Failure 'tool-selftests' $_.Exception.Message }
 }
 
 # --------------------------------------------------- 5. build + all the tests -----
@@ -622,6 +634,15 @@ else {
 
 # ---------------------------------------------------------------- summary --------
 Write-Head '结论 / Result'
+$verificationComplete = $failures.Count -eq 0 -and $skipped.Count -eq 0 -and -not $TestFilter -and -not $NoBuild
+if ($null -ne $Result) {
+    $Result.Value = [pscustomobject]@{
+        Succeeded = $failures.Count -eq 0
+        Complete = $verificationComplete
+        SkippedGates = @($skipped.ToArray())
+        FailedGates = @($failures.ToArray())
+    }
+}
 if ($skipped.Count -gt 0) {
     Write-Host ('  已跳过的关卡 / skipped gates: {0}' -f ($skipped -join ', ')) -ForegroundColor Yellow
     Write-Host '  这次验证没有覆盖以上内容；不要把它当成一次完整验收。' -ForegroundColor Yellow
@@ -633,14 +654,14 @@ if ($NoBuild) {
     Write-Host '  -NoBuild：没有重新构建，测试与核对针对的是磁盘上已有的构建产物。' -ForegroundColor Yellow
 }
 if ($failures.Count -eq 0) {
-    Write-Host '  全部通过。' -ForegroundColor Green
+    Write-Host '  已执行的关卡没有失败。' -ForegroundColor Green
     # PUBLIC_DISTRIBUTION_READY is a claim about a complete run. A run that skipped a gate,
     # filtered the test suite (CI passes -TestFilter 'Category!=Soak') or reused existing
     # binaries with -NoBuild (which may predate the source being verified) did not make the
     # observation the claim rests on and must not print it; the exit code is still 0 because
     # everything requested passed. Release acceptance is the complete run in
     # docs/release-checklist.md.
-    if ($skipped.Count -gt 0 -or $TestFilter -or $NoBuild) {
+    if (-not $verificationComplete) {
         Write-Host '  这是一次部分验证，不评定 PUBLIC_DISTRIBUTION_READY；' -ForegroundColor Yellow
         Write-Host '  发布验收要用不带 -SkipGate / -TestFilter / -NoBuild 的完整运行。' -ForegroundColor Yellow
     }

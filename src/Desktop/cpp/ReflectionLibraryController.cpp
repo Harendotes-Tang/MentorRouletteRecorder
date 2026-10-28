@@ -10,24 +10,21 @@ ReflectionLibraryController::ReflectionLibraryController(IBackend *backend, QObj
 {
     m_filter.insert(QStringLiteral("with_reflection"), true);
     m_runs->setBackend(backend);
-    connect(m_runs, &QAbstractItemModel::modelReset, this, [this] {
-        // 已勾选且仍出现在当前页的记录使用新投影；页外选择保留原有完整内容。
-        for (int row = 0; row < m_runs->rowCount(); ++row) {
-            const QVariantMap run = m_runs->runAt(row);
-            const QString id = run.value(QStringLiteral("run_id")).toString();
-            if (m_selectedRuns.contains(id))
-                m_selectedRuns.insert(id, run);
-        }
-        Q_EMIT selectionChanged();
-    });
+    // 列表分页回复不能覆盖选中记录的独立刷新结果：它可能来自更早的快照。
+    connect(m_runs, &QAbstractItemModel::modelReset, this, &ReflectionLibraryController::selectionChanged);
     connect(m_runs, &RunListModel::loadingChanged, this, &ReflectionLibraryController::selectionChanged);
     if (!backend)
         return;
-    connect(backend, &QObject::destroyed, this, [this] { m_runs->setBackend(nullptr); });
+    connect(backend, &QObject::destroyed, this, [this] {
+        invalidateSelection();
+        m_runs->setBackend(nullptr);
+    });
     connect(backend, &IBackend::connectionChanged, this, [this] {
         m_dirty = true;
         if (m_active)
             reload();
+        else
+            invalidateSelection();
     });
     connect(backend, &IBackend::liveEvent, this, [this](const QVariantMap &event) {
         const QString kind = event.value(QStringLiteral("kind")).toString();
@@ -38,6 +35,8 @@ ReflectionLibraryController::ReflectionLibraryController(IBackend *backend, QObj
         m_dirty = true;
         if (m_active)
             reload();
+        else
+            invalidateSelection();
     });
 }
 
@@ -87,10 +86,17 @@ void ReflectionLibraryController::applyFilter(const QVariantMap &next)
 QVariantList ReflectionLibraryController::selectedRuns() const
 {
     QVariantList result;
+    if (!canShareSelection())
+        return result;
     result.reserve(m_selectedIds.size());
     for (const QString &id : m_selectedIds)
         result.append(m_selectedRuns.value(id));
     return result;
+}
+
+bool ReflectionLibraryController::canShareSelection() const
+{
+    return m_selectionFresh && !m_selectedIds.isEmpty() && m_backend && m_backend->isConnected();
 }
 
 bool ReflectionLibraryController::isSelected(const QString &runId) const
@@ -108,37 +114,58 @@ bool ReflectionLibraryController::currentPageSelected() const
     return true;
 }
 
-void ReflectionLibraryController::toggleSelected(const QVariantMap &run)
+bool ReflectionLibraryController::setSelected(const QVariantMap &run, bool selected)
 {
     const QString id = run.value(QStringLiteral("run_id")).toString();
-    if (id.isEmpty() || run.value(QStringLiteral("reflection")).toMap()
-                            .value(QStringLiteral("text")).toString().isEmpty())
-        return;
-    if (m_selectedRuns.remove(id)) {
-        m_selectedIds.removeAll(id);
-    } else {
+    if (id.isEmpty() || isSelected(id) == selected
+        || (selected && run.value(QStringLiteral("reflection")).toMap()
+                            .value(QStringLiteral("text")).toString().isEmpty()))
+        return false;
+    if (selected) {
         m_selectedIds.append(id);
         m_selectedRuns.insert(id, run);
+    } else {
+        m_selectedRuns.remove(id);
+        m_selectedIds.removeAll(id);
     }
-    Q_EMIT selectionChanged();
+    return true;
+}
+
+void ReflectionLibraryController::selectionEdited()
+{
+    // 勾选变化使旧批次作废，尤其不能让「取消后重新勾选」接受先前的回复。
+    if (!m_selectionFresh || m_dirty || m_runs->isLoading() || !m_runs->loadError().isEmpty()
+        || !m_backend || !m_backend->isConnected())
+        refreshSelection();
+    else
+        Q_EMIT selectionChanged();
+}
+
+void ReflectionLibraryController::toggleSelected(const QVariantMap &run)
+{
+    if (setSelected(run, !isSelected(run.value(QStringLiteral("run_id")).toString())))
+        selectionEdited();
 }
 
 void ReflectionLibraryController::setPageSelected(bool selected)
 {
     if (m_runs->isLoading() || !m_runs->loadError().isEmpty())
         return;
-    for (int row = 0; row < m_runs->rowCount(); ++row) {
-        const QVariantMap run = m_runs->runAt(row);
-        const QString id = run.value(QStringLiteral("run_id")).toString();
-        if (isSelected(id) != selected)
-            toggleSelected(run);
-    }
+    bool changed = false;
+    for (int row = 0; row < m_runs->rowCount(); ++row)
+        changed = setSelected(m_runs->runAt(row), selected) || changed;
+    // 整页操作只发起一次刷新，不能为每条记录重启整批查询。
+    if (changed)
+        selectionEdited();
 }
 
 void ReflectionLibraryController::clearSelection()
 {
     if (m_selectedIds.isEmpty())
         return;
+    ++m_selectionGeneration;
+    m_selectionPending = 0;
+    m_selectionFresh = true;
     m_selectedIds.clear();
     m_selectedRuns.clear();
     Q_EMIT selectionChanged();
@@ -162,6 +189,7 @@ void ReflectionLibraryController::cancelFilterChange()
 
 void ReflectionLibraryController::reload()
 {
+    refreshSelection();
     if (!m_backend)
         return;
     if (m_dirty && m_runs->total() == 0 && m_runs->page() == 1) {
@@ -171,33 +199,50 @@ void ReflectionLibraryController::reload()
         m_dirty = false;
         m_runs->reload();
     }
-    refreshSelection();
+}
+
+void ReflectionLibraryController::invalidateSelection()
+{
+    ++m_selectionGeneration;
+    m_selectionPending = 0;
+    m_selectionFresh = m_selectedIds.isEmpty();
+    Q_EMIT selectionChanged();
 }
 
 void ReflectionLibraryController::refreshSelection()
 {
     // 页外的勾选只是一份副本：心得清空、记录删除（含批量删除，只发 stats_invalidated）
     // 或在别的页改过心得后，「生成分享图片」不能再用旧内容（审查 I4-1）。
-    if (!m_backend || m_selectedIds.isEmpty())
+    invalidateSelection();
+    if (!m_backend || !m_backend->isConnected() || m_selectedIds.isEmpty())
         return;
-    const quint64 generation = ++m_selectionGeneration;
+    const quint64 generation = m_selectionGeneration;
+    const QStringList selectedIds = m_selectedIds;
     constexpr qsizetype kChunk = 200; // RunFilter.run_id ≤ 2000，page_size ≤ 200
-    for (qsizetype start = 0; start < m_selectedIds.size(); start += kChunk) {
-        const QStringList ids = m_selectedIds.mid(start, kChunk);
+    m_selectionPending = (selectedIds.size() + kChunk - 1) / kChunk;
+    m_selectionFailed = false;
+    for (qsizetype start = 0; start < selectedIds.size(); start += kChunk) {
+        const QStringList ids = selectedIds.mid(start, kChunk);
         const QJsonObject filter{{QStringLiteral("with_reflection"), true},
                                  {QStringLiteral("run_id"), QJsonArray::fromStringList(ids)}};
         BackendReply *reply = m_backend->queryRuns(filter, 1, static_cast<int>(ids.size()));
         reply->whenDone(this, [this, generation, ids](bool ok, const QVariantMap &payload,
                                                       const QString &, const QString &) {
             // 读取失败不等于记录已删除；较早的回答让位于较新的一次。
-            if (!ok || generation != m_selectionGeneration)
+            if (generation != m_selectionGeneration)
                 return;
+            --m_selectionPending;
+            if (!ok || !payload.contains(QStringLiteral("items"))
+                || !payload.value(QStringLiteral("items")).canConvert<QVariantList>()) {
+                m_selectionFailed = true;
+                Q_EMIT selectionChanged();
+                return;
+            }
             QHash<QString, QVariantMap> fresh;
             for (const QVariant &item : payload.value(QStringLiteral("items")).toList()) {
                 const QVariantMap run = item.toMap();
                 fresh.insert(run.value(QStringLiteral("run_id")).toString(), run);
             }
-            bool changed = false;
             for (const QString &id : ids) {
                 if (!m_selectedRuns.contains(id))
                     continue;
@@ -211,10 +256,9 @@ void ReflectionLibraryController::refreshSelection()
                     m_selectedRuns.remove(id);
                     m_selectedIds.removeAll(id);
                 }
-                changed = true;
             }
-            if (changed)
-                Q_EMIT selectionChanged();
+            m_selectionFresh = m_selectionPending == 0 && !m_selectionFailed;
+            Q_EMIT selectionChanged();
         });
     }
 }
