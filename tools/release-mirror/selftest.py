@@ -4,11 +4,15 @@
 import copy
 from contextlib import redirect_stdout
 import hashlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
 import subprocess
 from pathlib import Path
 import tempfile
+import threading
+import time
+import shutil
 import unittest
 import urllib.error
 from unittest.mock import patch
@@ -402,7 +406,7 @@ class CurlTransportTests(unittest.TestCase):
 
     def invoke(self, result=None, error=None):
         output = io.StringIO()
-        with redirect_stdout(output), patch.object(m.subprocess, "run", return_value=result, side_effect=error) as run:
+        with redirect_stdout(output), patch.object(m, "run_curl", return_value=result, side_effect=error) as run:
             try:
                 m.upload_with_curl(self.url, self.headers, self.path, m.time.monotonic() + 120)
             except m.MirrorError as failure:
@@ -424,7 +428,7 @@ class CurlTransportTests(unittest.TestCase):
         self.assertNotIn("PAT-SECRET", options["input"])
         for key in ("GITCODE_MIRROR_TOKEN", "GITHUB_TOKEN", "SSLKEYLOGFILE", "CURL_HOME"):
             self.assertNotIn(key, options["env"])
-        self.assertEqual(options["stderr"], subprocess.DEVNULL)
+        self.assertIn("progress-meter\n", options["input"])
         self.assertIn("Native upload metrics: HTTP 200; bytes=8/8; average_bytes_per_second=1234.500; seconds=0.250", output)
 
     def test_transfer_is_https_nonredirecting_and_deadline_bounded(self):
@@ -481,6 +485,78 @@ class CurlTransportTests(unittest.TestCase):
                 self.assertNotIn(self.url, output + failure)
                 self.assertNotIn("CALLBACK-SECRET", output + failure)
 
+    def test_single_upload_cannot_consume_the_entire_release_budget(self):
+        result = subprocess.CompletedProcess([], 0, "200|8|8|1.000")
+        with patch.object(m, "run_curl", return_value=result) as run:
+            m.upload_with_curl(self.url, self.headers, self.path, m.time.monotonic() + 18000)
+        self.assertEqual(run.call_args.kwargs["timeout"], 1800)
+        self.assertIn('max-time = "1798.000000"', run.call_args.kwargs["input"])
+
+    def test_live_progress_discards_secrets_and_identifies_response_wait(self):
+        script = (
+            "import sys,time; sys.stdin.read(); "
+            "sys.stderr.write('https://signed.invalid/SECRET\\n' "
+            "+ '100 8 0 0 100 8 0 8 --:--:-- 0:00:01 --:--:-- 8\\r'); "
+            "sys.stderr.flush(); time.sleep(.3); sys.stdout.write('200|8|8|1.000')")
+        output = io.StringIO()
+        with redirect_stdout(output), patch.object(m, "UPLOAD_PROGRESS_SECONDS", .05):
+            result = m.run_curl([m.sys.executable, "-u", "-c", script], input="private config",
+                                env=m.os.environ.copy(), timeout=5, total_bytes=8)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "200|8|8|1.000")
+        self.assertIn("uploaded=100%", output.getvalue())
+        self.assertIn("awaiting server response", output.getvalue())
+        self.assertNotIn("SECRET", output.getvalue())
+        self.assertNotIn("private config", output.getvalue())
+
+    def test_real_curl_meter_reports_upload_while_server_delays_response(self):
+        self.assertIsNotNone(shutil.which("curl"), "curl is required by the release workflow")
+        received = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_PUT(inner):
+                received.append(inner.rfile.read(int(inner.headers["Content-Length"])))
+                time.sleep(3)
+                inner.send_response(200)
+                inner.send_header("Content-Length", "0")
+                inner.end_headers()
+
+            def log_message(inner, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        output = io.StringIO()
+        payload = b"original" * 12500
+        self.path.write_bytes(payload)
+        try:
+            config = (f'url = "http://127.0.0.1:{server.server_port}/"\n'
+                      f'upload-file = "{self.path.as_posix()}"\n'
+                      'noproxy = "*"\nprogress-meter\noutput = "' + m.os.devnull + '"\n'
+                      'write-out = "%{http_code}|%{size_upload}|%{speed_upload}|%{time_total}"\n')
+            with redirect_stdout(output), patch.object(m, "UPLOAD_PROGRESS_SECONDS", .1):
+                result = m.run_curl(["curl", "-q", "--config", "-"], input=config,
+                                    env=m.os.environ.copy(), timeout=10, total_bytes=len(payload))
+            self.assertEqual(result.returncode, 0)
+            self.assertTrue(result.stdout.startswith("200|100000|"), result.stdout)
+            self.assertEqual(received, [payload])
+            self.assertIn("uploaded=100%", output.getvalue())
+            self.assertIn("awaiting server response", output.getvalue())
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=2)
+
+    def test_parent_deadline_kills_and_reaps_stalled_transport(self):
+        process = subprocess.Popen([m.sys.executable, "-c", "import time; time.sleep(60)"],
+                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE)
+        with patch.object(m.subprocess, "Popen", return_value=process):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                m.run_curl(["curl"], input="", env={}, timeout=.1, total_bytes=8)
+        self.assertIsNotNone(process.poll())
+
     def test_control_character_injection_cannot_create_config_options(self):
         for value in ('x\nlocation', 'x\rheader: secret', 'x\0y', 'x\ty'):
             with self.assertRaises(m.MirrorError):
@@ -488,7 +564,7 @@ class CurlTransportTests(unittest.TestCase):
         self.assertEqual(m.curl_quote('a"b\\c'), '"a\\"b\\\\c"')
 
     def test_expired_budget_never_launches_transport(self):
-        with patch.object(m.subprocess, "run") as run:
+        with patch.object(m, "run_curl") as run:
             with self.assertRaisesRegex(m.MirrorError, "time budget exhausted"):
                 m.upload_with_curl(self.url, self.headers, self.path, m.time.monotonic() - 1)
             run.assert_not_called()

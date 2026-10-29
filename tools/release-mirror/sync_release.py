@@ -19,6 +19,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -37,6 +38,8 @@ MAX_INSTALLER = 2 * 1024**3
 MAX_JSON = 2 * 1024**2
 RELEASE_BUDGET_SECONDS = 5 * 60 * 60
 UPLOAD_MINIMUM_SPEED = 4 * 1024
+UPLOAD_TIMEOUT_SECONDS = 30 * 60
+UPLOAD_PROGRESS_SECONDS = 30
 CDN_HOST = "file-cdn.gitcode.com"
 UPLOAD_HOST = "file-upload.gitcode.com"
 UPLOAD_FILE_HOST = "file.gitcode.com"
@@ -86,6 +89,67 @@ def curl_quote(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def run_curl(argv, *, input, env, timeout, total_bytes):
+    """Drain curl's private stderr; expose only validated numeric progress every 30s."""
+    progress = [None]
+
+    def read_progress(stream):
+        line = ""
+        for char in iter(lambda: stream.read(1), b""):
+            char = char.decode("ascii", errors="replace")
+            if char in "\r\n":
+                fields = line.split()
+                # curl versions vary in time width and omit unknown ETA columns.
+                # Validate the complete row; never relay raw errors,
+                # URLs, headers, or a line that merely contains a numeric prefix.
+                if (9 <= len(fields) <= 12
+                        and all(re.fullmatch(r"[0-9]+(?:\.[0-9]+)?[kMGTP]?", fields[i])
+                                for i in (*range(8), len(fields) - 1))
+                        and all(re.fullmatch(r"(?:(?:[0-9]+:)?[0-9]{2}:[0-9]{2}|--:--:--)", field)
+                                for field in fields[8:-1])
+                        and fields[4].isdigit() and 0 <= int(fields[4]) <= 100):
+                    progress[0] = (int(fields[4]), fields[5], fields[7])
+                line = ""
+            elif len(line) < 512:
+                line += char
+            else:
+                # Discard the complete overlong line, including numeric tails.
+                line = "!" * 513
+
+    started = time.monotonic()
+    with subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, env=env) as process:
+        reader = threading.Thread(target=read_progress, args=(process.stderr,), daemon=True)
+        reader.start()
+        try:
+            process.stdin.write(input.encode("utf-8"))
+            process.stdin.close()
+            while True:
+                remaining = timeout - (time.monotonic() - started)
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(argv, timeout)
+                try:
+                    process.wait(timeout=min(UPLOAD_PROGRESS_SECONDS, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    elapsed = int(time.monotonic() - started)
+                    latest = progress[0]
+                    detail = "awaiting transfer progress"
+                    if latest is not None:
+                        percent, sent, speed = latest
+                        detail = (f"uploaded={percent}%; approximate_bytes={sent}/{total_bytes}; "
+                                  f"average_upload_bytes_per_second={speed}")
+                        if percent == 100:
+                            detail += "; awaiting server response"
+                    print(f"Native upload progress: elapsed_seconds={elapsed}; {detail}", flush=True)
+            return subprocess.CompletedProcess(argv, process.returncode, process.stdout.read(257).decode("utf-8", errors="replace"))
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+            reader.join(timeout=2)
+
+
 def upload_with_curl(url: str, headers: dict, path: Path, deadline: float) -> None:
     """PUT via native curl; credentials stay on stdin and only numeric metrics escape."""
     require(upload_url_allowed(url), "Refused upload storage host")
@@ -93,11 +157,11 @@ def upload_with_curl(url: str, headers: dict, path: Path, deadline: float) -> No
             and "\n" not in v for v in headers.values()), "Unexpected upload headers")
     total_bytes = path.stat().st_size
     require(0 < total_bytes <= MAX_INSTALLER, "Invalid upload size")
-    remaining = deadline - time.monotonic()
+    remaining = min(UPLOAD_TIMEOUT_SECONDS, deadline - time.monotonic())
     require(remaining > 0, "Release mirror time budget exhausted")
     # Let curl emit its numeric timeout metrics before the parent hard deadline.
     transfer_seconds = max(remaining - 2.0, remaining / 2.0)
-    # The hard release budget bounds total time. Keep a modest stall guard here:
+    # A single upload has its own hard cap. Keep a modest stall guard here:
     # deriving this from the full file size and remaining budget misclassifies
     # a healthy but slow storage route, and makes retries progressively stricter.
     # -q is first on argv, so a user curlrc cannot enable traces, netrc or redirects.
@@ -110,7 +174,7 @@ def upload_with_curl(url: str, headers: dict, path: Path, deadline: float) -> No
         ("user-agent", "MentorRecorder-Release-Mirror"),
         ("write-out", "%{http_code}|%{size_upload}|%{speed_upload}|%{time_total}"),
     ]
-    config = "silent\nfail\nno-location\nno-netrc\ngloboff\nhttp1.1\n"
+    config = "progress-meter\nfail\nno-location\nno-netrc\ngloboff\nhttp1.1\n"
     config += "\n".join(key + " = " + curl_quote(value) for key, value in options) + "\n"
     config += "\n".join("header = " + curl_quote(key + ": " + value)
                         for key, value in headers.items()) + "\n"
@@ -119,12 +183,10 @@ def upload_with_curl(url: str, headers: dict, path: Path, deadline: float) -> No
            and key.upper() != "SSLKEYLOGFILE"}
     print("Uploading to verified storage host: " + secure_url(url).hostname, flush=True)
     try:
-        result = subprocess.run(["curl", "-q", "--config", "-"], input=config,
-                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                text=True, encoding="utf-8", errors="replace", env=env,
-                                timeout=remaining, check=False)
+        result = run_curl(["curl", "-q", "--config", "-"], input=config,
+                          env=env, timeout=remaining, total_bytes=total_bytes)
     except subprocess.TimeoutExpired:
-        raise MirrorError("Native upload exceeded release time budget") from None
+        raise UploadInterrupted("Native upload exceeded single-transfer or release time budget") from None
     except OSError:
         raise MirrorError("Native upload could not start; curl is required") from None
     # Never relay curl errors: they can contain the signed URL or callback headers.
