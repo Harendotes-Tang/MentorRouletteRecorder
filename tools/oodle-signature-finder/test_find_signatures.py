@@ -602,11 +602,23 @@ class OutputBoundaryTests(unittest.TestCase):
             try:
                 os.symlink(game, link, target_is_directory=True)
             except (NotImplementedError, OSError) as error:
-                self.skipTest(f"directory links are unavailable: {error}")
+                if os.name != "nt" or getattr(error, "winerror", None) != 1314:
+                    self.skipTest(f"directory links are unavailable: {error}")
+                # A real junction exercises the same physical-path boundary without
+                # requiring the Windows symbolic-link privilege or Developer Mode.
+                import _winapi
+                _winapi.CreateJunction(game, link)
 
-            requested = os.path.join(link, "new", "finder-report.json")
-
-            self.assertTrue(find_signatures.is_within(requested, game))
+            try:
+                self.assertEqual(os.path.realpath(game), os.path.realpath(link))
+                requested = os.path.join(link, "new", "finder-report.json")
+                self.assertTrue(find_signatures.is_within(requested, game))
+            finally:
+                # Remove only the link; never recursively walk into its target.
+                if os.path.islink(link):
+                    os.unlink(link)
+                else:
+                    os.rmdir(link)
 
     def test_allows_an_unrelated_output_directory(self):
         with tempfile.TemporaryDirectory() as root:

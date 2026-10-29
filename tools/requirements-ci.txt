@@ -13,3 +13,6 @@ pefile==2024.8.26
 # in tools/LocalAiOcr/requirements-build.txt; this file does not deploy the application.
 numpy==2.4.6
 opencv-python-headless==5.0.0.93
+
+# Exercise the real Taiwan Traditional conversion used by the duty-data generator.
+opencc==1.4.2
