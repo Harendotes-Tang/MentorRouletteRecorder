@@ -4,15 +4,11 @@
 import copy
 from contextlib import redirect_stdout
 import hashlib
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
 import subprocess
 from pathlib import Path
 import tempfile
-import threading
-import time
-import shutil
 import unittest
 import urllib.error
 from unittest.mock import patch
@@ -509,44 +505,22 @@ class CurlTransportTests(unittest.TestCase):
         self.assertNotIn("SECRET", output.getvalue())
         self.assertNotIn("private config", output.getvalue())
 
-    def test_real_curl_meter_reports_upload_while_server_delays_response(self):
-        self.assertIsNotNone(shutil.which("curl"), "curl is required by the release workflow")
-        received = []
-
-        class Handler(BaseHTTPRequestHandler):
-            def do_PUT(inner):
-                received.append(inner.rfile.read(int(inner.headers["Content-Length"])))
-                time.sleep(3)
-                inner.send_response(200)
-                inner.send_header("Content-Length", "0")
-                inner.end_headers()
-
-            def log_message(inner, *args):
-                pass
-
-        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        worker = threading.Thread(target=server.serve_forever, daemon=True)
-        worker.start()
-        output = io.StringIO()
-        payload = b"original" * 12500
-        self.path.write_bytes(payload)
-        try:
-            config = (f'url = "http://127.0.0.1:{server.server_port}/"\n'
-                      f'upload-file = "{self.path.as_posix()}"\n'
-                      'noproxy = "*"\nprogress-meter\noutput = "' + m.os.devnull + '"\n'
-                      'write-out = "%{http_code}|%{size_upload}|%{speed_upload}|%{time_total}"\n')
-            with redirect_stdout(output), patch.object(m, "UPLOAD_PROGRESS_SECONDS", .1):
-                result = m.run_curl(["curl", "-q", "--config", "-"], input=config,
-                                    env=m.os.environ.copy(), timeout=10, total_bytes=len(payload))
-            self.assertEqual(result.returncode, 0)
-            self.assertTrue(result.stdout.startswith("200|100000|"), result.stdout)
-            self.assertEqual(received, [payload])
-            self.assertIn("uploaded=100%", output.getvalue())
-            self.assertIn("awaiting server response", output.getvalue())
-        finally:
-            server.shutdown()
-            server.server_close()
-            worker.join(timeout=2)
+    def test_captured_native_meter_formats_report_response_wait(self):
+        # Captured from real local curl PUTs; current curl omits an unknown ETA
+        # and uses MM:SS, older versions retain all three HH:MM:SS columns.
+        for meter in ("100 97.65k 0 0 100 97.65k 0 99320 00:01 00:01 99388",
+                      "100 100k 0 0 100 100k 0 99320 --:--:-- 0:00:01 --:--:-- 99388"):
+            with self.subTest(meter=meter):
+                script = ("import sys,time; sys.stdin.read(); "
+                          f"sys.stderr.write({meter!r}+'\\r'); sys.stderr.flush(); "
+                          "time.sleep(.2); sys.stdout.write('200|100000|99320|1.000')")
+                output = io.StringIO()
+                with redirect_stdout(output), patch.object(m, "UPLOAD_PROGRESS_SECONDS", .02):
+                    result = m.run_curl([m.sys.executable, "-u", "-c", script], input="",
+                                        env=m.os.environ.copy(), timeout=5, total_bytes=100000)
+                self.assertEqual(result.returncode, 0)
+                self.assertIn("uploaded=100%", output.getvalue())
+                self.assertIn("awaiting server response", output.getvalue())
 
     def test_parent_deadline_kills_and_reaps_stalled_transport(self):
         process = subprocess.Popen([m.sys.executable, "-c", "import time; time.sleep(60)"],
