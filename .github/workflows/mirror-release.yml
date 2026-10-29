@@ -36,7 +36,7 @@ jobs:
     defaults:
       run:
         shell: bash
-    timeout-minutes: 85
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -59,7 +59,7 @@ jobs:
         # that race fails closed, and one retry from a fresh snapshot finds the refs in place.
         run: python tools/release-mirror/sync_refs.py --repo MentorRouletteRecorder || { sleep 30; python tools/release-mirror/sync_refs.py --repo MentorRouletteRecorder; }
       - name: Mirror original assets and verify anonymous downloads
-        timeout-minutes: 65
+        timeout-minutes: 330
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITCODE_MIRROR_TOKEN: ${{ secrets.GITCODE_MIRROR_TOKEN }}

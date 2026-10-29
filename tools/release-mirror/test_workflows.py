@@ -84,6 +84,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
         for test in ("selftest.py", "test_prerelease.py"):
             self.assertIn("python tools/release-mirror/" + test, text)
         self.assertIn("ref: main", text)
+        self.assertIn("timeout-minutes: 360", text)
+        self.assertIn("timeout-minutes: 330", text)
 
 
 if __name__ == "__main__":
