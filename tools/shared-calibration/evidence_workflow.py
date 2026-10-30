@@ -125,10 +125,21 @@ def disposition(result):
             "candidate": "已归档 CANDIDATE 草案和缺口报告，协议语义尚不完整，保持不支持。",
             "invalid": "摘要未受理，请在软件中重新预览并提交完整的最小摘要。",
             "report": "已自动归类为不计票的待补证据报告。请使用软件的「共享校准证据」生成摘要后新建证据 Issue；普通文字不会撤回校准码或冻结账号。"}[status]
+    # The same verdict in English follows the Chinese one: Global and Traditional Chinese testers
+    # read these replies too, and the verdict is the only part of the intake they ever see.
+    english = {"accepted": "This account's latest valid position on this candidate and criterion is recorded; waiting for new evidence from other independent accounts.",
+               "duplicate": "This summary was already accepted; the retry adds no vote.",
+               "waiting": "The evidence waits automatically: two different, complete and healthy sessions must agree on the same criterion.",
+               "candidate": "A CANDIDATE draft and a gap report were filed; the protocol semantics are still incomplete, so the region stays unsupported.",
+               "invalid": "The summary was not accepted. Preview it again in the app and submit the complete minimal summary.",
+               "report": "Filed automatically as a non-voting evidence report. Use the app's shared calibration evidence feature to generate a summary and open a new evidence issue; plain text never revokes a calibration or freezes an account."}[status]
     if result["reason"] in ("ACCOUNT_CAPACITY_WAIT", "LEDGER_CAPACITY_WAIT", "PUBLIC_INDEX_CAPACITY_WAIT"):
         text = "已达到有界台账的受理容量，暂不新增记录或票数；已有证据与其他账号的额度保持。重试不会删除防重放记录。"
-    return (MARKER + "\n\n" + text + "\n\n原因：`" + result["reason"] + "`。\n\n"
-            "账号与会话数量只是操作门槛，不能证明真实游戏行为或参与者独立；最终仍须本机完整核实。\n")
+        english = "The bounded ledger is at capacity, so no record or vote is added for now; existing evidence and other accounts' quotas are kept. Retrying never deletes the replay guard."
+    return (MARKER + "\n\n" + text + "\n\n" + english + "\n\n原因 / Reason: `" + result["reason"] + "`。\n\n"
+            "账号与会话数量只是操作门槛，不能证明真实游戏行为或参与者独立；最终仍须本机完整核实。\n"
+            "Account and session counts are only an operational threshold; they prove neither real gameplay nor independent participants. "
+            "Everything is still verified in full on the maintainer's own machine.\n")
 
 
 def reply(repo, number, live, result):

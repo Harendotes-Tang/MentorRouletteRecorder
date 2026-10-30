@@ -1,5 +1,5 @@
-name: 新区服候选线索
-description: 提交无模板时的元数据采证摘要，自动归档候选草案与缺口。
+name: 新区服候选线索 / New-region candidate clues
+description: 提交无模板时的元数据采证摘要，自动归档候选草案与缺口。 Submit the metadata summary collected for a region without a template; candidate drafts and gaps are filed automatically.
 title: "[模板候选] "
 labels: [template-observation]
 body:
@@ -8,11 +8,15 @@ body:
       value: |
         仅接受软件预览的最小元数据摘要，不提交原始报文或个人数据。
         候选线索不是正式协议；未知字段与通关语义保持未知。正式模板随软件发布，未完成前保持不支持。
+
+        Only the minimal metadata summary previewed in Mentor Recorder is accepted; never paste raw packets or personal data.
+        Candidate clues are not a verified protocol: unknown fields and duty-clear semantics stay unknown. A real template ships with the software, and the region stays unsupported until then.
+        The field label below must stay as it is; the intake script finds the summary by that heading.
   - type: textarea
     id: evidence
     attributes:
       label: 公开证据摘要
-      description: 从无模板采证预览复制完整 JSON。
+      description: 从无模板采证预览复制完整 JSON。 Paste the complete JSON copied from the no-template collection preview (Capture diagnostics → Tools → Help support other server regions → Preview candidate summary).
       render: json
     validations:
       required: true

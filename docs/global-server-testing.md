@@ -145,8 +145,10 @@ way. Different duties or jobs should be recorded as they really were.
 
 ## 6. What to send back
 
-Put everything into one folder, zip it, and send it through the private channel we agreed
-on:
+Put everything into one folder, zip it, and email it to **mentorrecorder@gmail.com** with the
+subject `[GLOBAL evidence] <date> round <N>`, for example `[GLOBAL evidence] 2026-11-05 round 1`.
+Attachments are limited to 25 MB; split the files over two emails or attach a Google Drive link
+if you exceed it. Do not post the files in a public issue or chat:
 
 - **Always: `test-report.txt`**, filled in using the template below. Not tested, failed,
   or not eligible are all fine to write as they are.
