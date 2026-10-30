@@ -1,5 +1,7 @@
 # MentorRecorder 共有キャリブレーション
 
+ローカルの同期元は独立した TC リージョンにも対応しています。TC の検証済みプロトコルテンプレートはまだなく、観測結果は候補のままです。この変更は公開リポジトリへの配備や実機検証の完了を意味しません。
+
 [简体中文](README.md) | [繁體中文](README.zh-TW.md) | [English](README.en.md) | [日本語](README.ja.md)
 
 このリポジトリには、「导随记录器」（MentorRecorder）のプレイヤーが共有する**キャリブレーションコード**を保存しています。
@@ -51,7 +53,7 @@ Mac mini は、別途設定すればローカルでの研究やモデルによ�
 
 | 含まれる情報 | 含まれない情報 |
 |---|---|
-| 形式バージョン、リージョン（`CN` / `GLOBAL`）、クライアントバージョン | キャラクター名、サーバー、アカウント、IP アドレス |
+| 形式バージョン、リージョン（`CN` / `TC` / `GLOBAL`）、クライアントバージョン | キャラクター名、サーバー、アカウント、IP アドレス |
 | 使用する同梱テンプレートの ID とハッシュ | タイムスタンプ、サンプル数、申請したルーレットの種類 |
 | マッチングの検出方式と、それに必要なメッセージ長、バイトオフセット、状態値 | 説明文、ファイルパス、メッセージ本文 |
 | 学習したメッセージ番号（マッチング通知、ゾーン変更、コンテンツ、ジョブ） | |
@@ -227,7 +229,7 @@ python tools/publish.py revoke --repo . --code-sha256 <完整编号>
 取り消されたコードを提出したアカウントは、そのリージョンとクライアントバージョンへの提出が停止します。Action は拒否時に、提出者へ Issue での事情説明を求めます。メンテナーは再確認後に次を実行します。
 
 ```bash
-python tools/publish.py lift --repo . --account id:<数字编号> --region <CN 或 GLOBAL> --build <客户端版本>
+python tools/publish.py lift --repo . --account id:<数字编号> --region <CN、TC 或 GLOBAL> --build <客户端版本>
 ```
 
 そのアカウントは再び提出できるようになりますが、取り消し済みのコード自体は再公開しません。取り消したコードのファイル名（識別子の先頭 12 桁）は、別のコードで再使用できます。
@@ -235,7 +237,7 @@ python tools/publish.py lift --repo . --account id:<数字编号> --region <CN �
 フラグのルールを変更した後は、メンテナーが全体または指定バージョンの二つのフラグをまとめて再計算し、過去のエントリを更新できます。
 
 ```bash
-python tools/publish.py remark --repo . [--region <CN 或 GLOBAL> --build <客户端版本> …]
+python tools/publish.py remark --repo . [--region <CN、TC 或 GLOBAL> --build <客户端版本> …]
 ```
 
 バージョンを指定しない場合、インデックス内のすべてのリージョンとバージョンを再計算します。出力は 1 行の JSON で、再計算したバージョン、変更されたエントリ数、インデックスのサイズ上限によりフラグなしで書き込んだバージョンを含みます。
@@ -246,7 +248,7 @@ python tools/publish.py remark --repo . [--region <CN 或 GLOBAL> --build <客�
 インデックスにはサイズ上限があり、提出によってエントリが削除されることはありません。メンテナーは整理するクライアントバージョンを個別に指定できます。
 
 ```bash
-python tools/publish.py prune --repo . --region <CN 或 GLOBAL> --build <客户端版本> [--build <客户端版本> …]
+python tools/publish.py prune --repo . --region <CN、TC 或 GLOBAL> --build <客户端版本> [--build <客户端版本> …]
 ```
 
 `--apply` を付けない場合は、整理対象のバージョン、エントリ数、提出台帳の記録数、コードファイルを表示するだけで、ファイルは変更しません。内容を確認した後に `--apply` を付けて実行してください。

@@ -58,7 +58,7 @@ protocol-profiles/
 （见 [`../protocol-profiles/README.md`](../protocol-profiles/README.md)）。
 
 `profile_id` 必须与**文件名主干一致**，全小写，只含 `a-z0-9.-`。
-`region` 必须与所在目录一致（`cn` → `CN`，`global` → `GLOBAL`，`synthetic` → `UNKNOWN`）。
+`region` 必须与所在目录一致（`cn` → `CN`，`global` → `GLOBAL`，`tc` → `TC`，`synthetic` → `UNKNOWN`）。
 `SYNTHETIC` 档案只能放在 `synthetic/`；`synthetic/` 里也只能放 `SYNTHETIC` 档案。
 
 `profile.schema.json` 会被**内嵌进 Collector 程序集**，
@@ -70,7 +70,7 @@ protocol-profiles/
 {
   "schema_version": 1,
   "profile_id": "synthetic-v1",              // 必须等于文件名主干
-  "region": "UNKNOWN",                       // CN | GLOBAL | UNKNOWN
+  "region": "UNKNOWN",                       // CN | GLOBAL | TC | UNKNOWN
   "game_build": "synthetic-build-1",         // 客户端版本判别符，选择档案的键之一
   "generated_at": "2026-09-04T00:00:00.000Z",
   "mentor_roulette_id": 42,                  // UNSUPPORTED 时必须为 null

@@ -1,5 +1,7 @@
 # MentorRecorder 共享校准
 
+本地同步源也接受独立的 TC 区服。TC 尚无经过验证的随包协议模板，元数据观察仍为候选。本次源文件修改不代表公开仓库已经部署或繁中服客户端已经通过验收。
+
 [简体中文](README.md) | [繁體中文](README.zh-TW.md) | [English](README.en.md) | [日本語](README.ja.md)
 
 本仓库存放「导随记录器」（MentorRecorder）玩家分享的**共享校准码**。
@@ -51,7 +53,7 @@ Mac mini 可以作为另行配置的本地研究或模型辅助设备，但本�
 
 | 有 | 没有 |
 |---|---|
-| 格式版本、区服（`CN` / `GLOBAL`）、客户端版本号 | 角色名、服务器、账号、IP 地址 |
+| 格式版本、区服（`CN` / `TC` / `GLOBAL`）、客户端版本号 | 角色名、服务器、账号、IP 地址 |
 | 依据的随包模板编号与模板哈希 | 时间戳、样本数、排过哪些随机任务 |
 | 匹配方式，以及这种方式需要的报文长度、字节偏移或状态值 | 说明文字、文件路径、任何报文正文 |
 | 学到的几个报文编号（匹配弹窗、换区、副本、职业） | |
@@ -228,7 +230,7 @@ python tools/publish.py revoke --repo . --code-sha256 <完整编号>
 提交过被撤销校准码的账号，在该区服与客户端版本下暂停受理；Action 拒绝时会请提交者在 Issue 下说明情况。维护者复核后执行：
 
 ```bash
-python tools/publish.py lift --repo . --account id:<数字编号> --region <CN 或 GLOBAL> --build <客户端版本>
+python tools/publish.py lift --repo . --account id:<数字编号> --region <CN、TC 或 GLOBAL> --build <客户端版本>
 ```
 
 该账号随即可以重新提交，被撤销的校准码本身仍不会再次发布。被撤销的校准码所占用的文件名（编号前 12 位）可以由另一份校准码重新使用。
@@ -236,7 +238,7 @@ python tools/publish.py lift --repo . --account id:<数字编号> --region <CN �
 标记的规则改变之后，维护者可以一次性重算全部或指定版本的两个标记，用于补齐此前写出的条目：
 
 ```bash
-python tools/publish.py remark --repo . [--region <CN 或 GLOBAL> --build <客户端版本> …]
+python tools/publish.py remark --repo . [--region <CN、TC 或 GLOBAL> --build <客户端版本> …]
 ```
 
 不指定版本时重算索引中的全部区服与版本。输出一行 JSON，列出重算的版本、发生变化的条目数，以及因索引大小上限而写成不带标记的版本。
@@ -247,7 +249,7 @@ python tools/publish.py remark --repo . [--region <CN 或 GLOBAL> --build <客�
 索引有大小上限，条目不会因提交而删除。维护者可以逐个指定要清理的客户端版本：
 
 ```bash
-python tools/publish.py prune --repo . --region <CN 或 GLOBAL> --build <客户端版本> [--build <客户端版本> …]
+python tools/publish.py prune --repo . --region <CN、TC 或 GLOBAL> --build <客户端版本> [--build <客户端版本> …]
 ```
 
 不加 `--apply` 时只列出将被清理的版本、条目数、提交台账记录数与校准码文件，不改动任何文件；核对无误后加 `--apply` 执行。

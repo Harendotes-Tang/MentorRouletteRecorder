@@ -7,7 +7,7 @@
 > 其 `finder_state` 声明为 `"role": "selector"`（见下文）。该档案另带一个可选的
 > `calibration` 模板段（本机校准所需的报文结构，见 `../docs/protocol-profile-format.md` §11），并据此重新盖章，
 > `profile_sha256` 为 `8c6ffec309e0597f723a09e5c787759475828aaf6152402d3c94a24af92b3cd1`。
-> 每个常量的来源均记录在其 `provenance.evidence` 中。`global/` 仍只有 `UNSUPPORTED` 占位。
+> 每个常量的来源均记录在其 `provenance.evidence` 中。`global/` 与 `tc/` 仍只有 `UNSUPPORTED` 占位。
 > `synthetic/synthetic-v1.json` 的每个常量均为**编造值**，仅服务于离线测试。
 
 **协议档案**将特定客户端版本的网络协议细节从代码中分离出来，
@@ -32,6 +32,9 @@ protocol-profiles/
   global/
     README.md               国际服：为什么本目录为空
     global-unsupported.json UNSUPPORTED 占位，零消息
+  tc/
+    README.md               繁中服：身份独立于国服与界面语言，首份档案需要什么证据
+    tc-unsupported.json     UNSUPPORTED 占位，零消息
   synthetic/
     synthetic-v1.json       SYNTHETIC，全部常量为编造值，仅供离线测试
   oodle-signatures/
@@ -43,7 +46,7 @@ protocol-profiles/
 运行时校验使用构建时的那一份，而非磁盘上可被任意修改的文件。
 
 `profile_id` 必须等于文件名主干；`region` 必须与目录一致
-（`cn` → `CN`、`global` → `GLOBAL`、`synthetic` → `UNKNOWN`）。
+（`cn` → `CN`、`global` → `GLOBAL`、`tc` → `TC`、`synthetic` → `UNKNOWN`）。
 
 ## 状态
 
@@ -72,14 +75,14 @@ MentorRecorder.Collector.exe --list-profiles [--profiles-dir <path>] [--json]
 
 一条硬规则：**没有证据就不写常量。**
 
-`global/` 仍然只有占位档案，原因是没有国际服的合法证据。`cn/` 自 2026-09-07 起有 `cn.2026.08.05`，
+`global/` 与 `tc/` 仍然只有占位档案，原因是没有国际服与繁中服的合法证据。`cn/` 自 2026-09-07 起有 `cn.2026.08.05`，
 其每一条常量都可在档案的 `provenance` 中追溯到本机流量或用户核对。
 
 占位文件本身有其作用：它将"该区服已知，但没有可用档案"表达为显式且可校验的事实，
 而非目录为空的含糊状态。`UNSUPPORTED` 档案零消息、
 `mentor_roulette_id` 为 `null`，校验器强制这两点。
 
-逐目录的详细说明见 [`cn/README.md`](cn/README.md) 与 [`global/README.md`](global/README.md)。
+逐目录的详细说明见 [`cn/README.md`](cn/README.md)、[`global/README.md`](global/README.md) 与 [`tc/README.md`](tc/README.md)。
 
 ## 一份 `VERIFIED` 档案需要什么
 

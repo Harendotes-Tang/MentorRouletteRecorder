@@ -83,6 +83,11 @@ completed_count = COUNT(*) WHERE
 
 ## 4. 成就进度 `achievement_progress`
 
+成就目标、基数与进度按服务区服独立计算。下面公式中的设置与记录必须属于同一个 `region`；
+日期、职业、副本等列表筛选不改变该区服的全生命周期进度。全部区服视图使用
+`DashboardStats.achievements` 分别展示各区进度，不相加。为旧桌面端保留的标量字段在选定区服时
+投影该区服，全部区服请求时投影 CN。schema 12 将原有设置只归入 CN，繁中服 TC 从 0 基数开始。
+
 ```
 achievement_progress =
       achievement_settings.baseline_completed_count
@@ -94,7 +99,8 @@ achievement_progress =
 ```
 
 - `baseline_completed_count` 是用户自行申报的、开始使用本软件之前已完成的次数，
-  经 `UpdateAchievementBaseline` 设置。该消息必须携带 `reason`；目标或基数有变化时写入审计。
+  经 `UpdateAchievementBaseline` 设置。可选 `region` 指定所属区服，省略仍为 CN。
+  该消息必须携带 `reason`；目标或基数有变化时写入该区服的审计。
   目标与基数都与已保存的相同时不算修改：不写入设置与审计，也不发布 `stats_invalidated`，应答给出已保存的值。
 - 满足上述条件的已记录通关次数**全部**叠加在基数之上，不论何时结束（缺少结束时间的记录同样计入），
   也不论基数何时填写、修改过几次。

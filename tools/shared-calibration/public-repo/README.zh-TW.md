@@ -1,5 +1,7 @@
 # MentorRecorder 共用校準
 
+本機同步來源也接受獨立的 TC 區服。TC 尚無經驗證的隨附協議範本，中繼資料觀測仍為候選。這項來源修改不代表公開儲存庫已部署或繁中服用戶端已通過驗收。
+
 [简体中文](README.md) | [繁體中文](README.zh-TW.md) | [English](README.en.md) | [日本語](README.ja.md)
 
 本儲存庫存放「導隨記錄器」（MentorRecorder）玩家分享的**共用校準碼**。
@@ -51,7 +53,7 @@ Mac mini 可以另行設定，作為本機研究或模型輔助設備，但本�
 
 | 包含 | 不包含 |
 |---|---|
-| 格式版本、區服（`CN` / `GLOBAL`）、遊戲用戶端版本號 | 角色名稱、伺服器、帳號、IP 位址 |
+| 格式版本、區服（`CN` / `TC` / `GLOBAL`）、遊戲用戶端版本號 | 角色名稱、伺服器、帳號、IP 位址 |
 | 依據的隨附範本編號與範本雜湊 | 時間戳記、樣本數、排過哪些隨機任務 |
 | 配對方式，以及該方式所需的封包長度、位元組偏移或狀態值 | 說明文字、檔案路徑、任何封包本文 |
 | 學到的幾個封包編號（配對視窗、切換區域、副本、職業） | |
@@ -228,7 +230,7 @@ python tools/publish.py revoke --repo . --code-sha256 <完整編號>
 提交過已撤銷校準碼的帳號，在該區服與遊戲用戶端版本下暫停受理；Action 拒絕時會請提交者在 Issue 下說明情況。維護者複核後執行：
 
 ```bash
-python tools/publish.py lift --repo . --account id:<數字編號> --region <CN 或 GLOBAL> --build <遊戲用戶端版本>
+python tools/publish.py lift --repo . --account id:<數字編號> --region <CN、TC 或 GLOBAL> --build <遊戲用戶端版本>
 ```
 
 該帳號隨即可以重新提交，但已撤銷的校準碼本身仍不會再次發布。已撤銷校準碼占用的檔名（編號前 12 碼），可以由另一份校準碼重新使用。
@@ -236,7 +238,7 @@ python tools/publish.py lift --repo . --account id:<數字編號> --region <CN �
 標記規則改變後，維護者可以一次重新計算全部或指定版本的兩個標記，用來補齊先前寫出的項目：
 
 ```bash
-python tools/publish.py remark --repo . [--region <CN 或 GLOBAL> --build <遊戲用戶端版本> …]
+python tools/publish.py remark --repo . [--region <CN、TC 或 GLOBAL> --build <遊戲用戶端版本> …]
 ```
 
 未指定版本時，會重新計算索引中的全部區服與版本。輸出一行 JSON，列出重新計算的版本、變更項目數，以及因索引大小上限而寫成不帶標記的版本。
@@ -247,7 +249,7 @@ python tools/publish.py remark --repo . [--region <CN 或 GLOBAL> --build <遊�
 索引有大小上限，項目不會因為提交而刪除。維護者可以逐一指定要清理的遊戲用戶端版本：
 
 ```bash
-python tools/publish.py prune --repo . --region <CN 或 GLOBAL> --build <遊戲用戶端版本> [--build <遊戲用戶端版本> …]
+python tools/publish.py prune --repo . --region <CN、TC 或 GLOBAL> --build <遊戲用戶端版本> [--build <遊戲用戶端版本> …]
 ```
 
 未加 `--apply` 時，只列出即將清理的版本、項目數、提交台帳記錄數與校準碼檔案，不會修改任何檔案；核對無誤後，加上 `--apply` 執行。

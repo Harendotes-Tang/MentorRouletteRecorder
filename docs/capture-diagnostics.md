@@ -153,7 +153,9 @@ Npcap 的官方安装程序并启动其向导，由用户自行完成安装（[p
   不提权、不重试、不推测。
 - **区服判定**：仅依据安装路径中的关键字。`SdoA` / `Shanda` 等判为 `CN`，
   `Square Enix` / `FINAL FANTASY XIV - A Realm Reborn` 判为 `GLOBAL`，
-  无法识别时为 `UNKNOWN`；两类关键字同时出现时同样为 `UNKNOWN`，并提示在设置中手动指定区服。
+  `USERJOY GAMES` / `FINAL FANTASY XIV TC` 判为 `TC`（来自玩家公开报告的繁中服启动器默认目录
+  `C:\Program Files\USERJOY GAMES\FINAL FANTASY XIV TC`，尚未在本项目的真机验收中核对），
+  无法识别时为 `UNKNOWN`；多个区服的关键字同时出现时同样为 `UNKNOWN`，并提示在设置中手动指定区服。
 - **客户端版本**：读取 exe 同目录下启动器的 **`ffxivgame.ver` 文本文件**。
   只接受长度不超过 64、且仅含 `0-9 A-Z a-z . _ -` 的短串，否则视为读取失败。
   游戏未运行时改从记住的安装目录读取同一个文件，见本节末。

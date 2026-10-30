@@ -1,5 +1,7 @@
 # MentorRecorder Shared Calibrations
 
+Local source preparation also accepts the independent TC service region. TC has no verified bundled protocol template; metadata observations remain candidates. This source change does not confirm remote deployment or actual TC client acceptance.
+
 [简体中文](README.md) | [繁體中文](README.zh-TW.md) | [English](README.en.md) | [日本語](README.ja.md)
 
 This repository stores **shared calibration codes** contributed by players using MentorRecorder.
@@ -51,7 +53,7 @@ A calibration code consists of `MRC1.` followed by compressed, canonical JSON.
 
 | Included | Not included |
 |---|---|
-| Format version, region (`CN` / `GLOBAL`), and game client version | Character name, server, account, or IP address |
+| Format version, region (`CN` / `TC` / `GLOBAL`), and game client version | Character name, server, account, or IP address |
 | ID and hash of the bundled template used | Timestamps, sample counts, or which random duties were queued |
 | Match-detection method and the message lengths, byte offsets, or state values it requires | Descriptions, file paths, or any message payload |
 | The learned message numbers for match prompts, zone changes, duties, and jobs | |
@@ -228,7 +230,7 @@ Download sources are cached: changes appear on `raw.githubusercontent.com` withi
 Accounts that submitted a revoked code have submissions suspended for that region and game client version. When the Action rejects a submission, it asks the submitter to explain the situation in the Issue. After review, a maintainer can run:
 
 ```bash
-python tools/publish.py lift --repo . --account id:<numeric-id> --region <CN-or-GLOBAL> --build <game-client-version>
+python tools/publish.py lift --repo . --account id:<numeric-id> --region <CN-or-TC-or-GLOBAL> --build <game-client-version>
 ```
 
 The account can then submit again, but the revoked code itself will never be republished. Another code may reuse the filename—the first 12 characters of the identifier—previously occupied by a revoked code.
@@ -236,7 +238,7 @@ The account can then submit again, but the revoked code itself will never be rep
 After flag rules change, maintainers can recalculate both flags for all versions or specified versions to backfill existing entries:
 
 ```bash
-python tools/publish.py remark --repo . [--region <CN-or-GLOBAL> --build <game-client-version> …]
+python tools/publish.py remark --repo . [--region <CN-or-TC-or-GLOBAL> --build <game-client-version> …]
 ```
 
 Without a version filter, all regions and versions in the index are recalculated. The command prints one JSON line listing the recalculated versions, the number of changed entries, and versions written without flags because of the index size limit.
@@ -247,7 +249,7 @@ If a specified version is absent from the index, no files are changed.
 The index has a size limit, and submissions do not delete entries. Maintainers can explicitly select game client versions to remove:
 
 ```bash
-python tools/publish.py prune --repo . --region <CN-or-GLOBAL> --build <game-client-version> [--build <game-client-version> …]
+python tools/publish.py prune --repo . --region <CN-or-TC-or-GLOBAL> --build <game-client-version> [--build <game-client-version> …]
 ```
 
 Without `--apply`, the command only lists the versions, entry counts, submission-ledger record counts, and code files that would be removed; it changes no files. Add `--apply` after checking the preview.

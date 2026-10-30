@@ -12,6 +12,7 @@
 data/duties/
   cn.<data_version>.json         国服，简体中文名
   global.<data_version>.json     国际服，英文名
+  tc.<data_version>.json         繁中服，繁中客户端原文名及原生领地
   cn.sample.json                 合成样例（Phase 1 起就在），永远排在真实数据之后
 ```
 
@@ -24,9 +25,10 @@ data/duties/
 |---|---|---|---|
 | `cn.2026-09-04.json` | CN | 857 | XIVAPI v2 + ffxiv-datamining-cn |
 | `global.2026-09-04.json` | GLOBAL | 857 | XIVAPI v2 |
+| `tc.2026-10-24.json` | TC | 782 | 固定提交的 ffxiv-datamining-tc 原生行 |
 | `cn.sample.json` | CN | 4 启用 | 合成样例，`sample: true` |
 
-三份文件均由 `src/Collector/MentorRecorder.Collector.csproj` 以**内嵌资源**形式编入程序集
+这些文件均由 `src/Collector/MentorRecorder.Collector.csproj` 以**内嵌资源**形式编入程序集
 （`data/duties/*.json` → `MentorRecorder.Collector.Data.Duties.<file>`）。
 因此运行时既不依赖工作目录，也不依赖可执行文件同级目录中是否存在这些文件。
 `cn.sample.json` 一并纳入仓库：`ReferenceCatalogTests`、`StatisticsTests`、`ExportTests` 与
@@ -86,7 +88,7 @@ python tools/duty-data-generator/generate.py --add-name-preferences data/duties/
 ```jsonc
 {
   "schema_version": 1,
-  "region": "CN",                  // CN | GLOBAL | UNKNOWN
+  "region": "CN",                  // CN | TC | GLOBAL | UNKNOWN
   "language": "zh-Hans",
   "data_version": "2026-09-04",    // 必须与文件名中的一段一致
   "sample": false,                 // true 表示合成样例，排序时永远靠后

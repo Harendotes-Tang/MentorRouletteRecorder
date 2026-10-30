@@ -280,12 +280,13 @@ mentor_runs.revision = 1  ──►  run_revisions(revision=1, change_kind=CREAT
 
 **CSV**：UTF-8 编码并**带 BOM**，这是 Excel 正确打开中文副本名的前提；
 转义遵循 RFC 4180，含 `,`、`"` 或换行的字段加引号，字段内部的引号写成 `""`；行尾为 `CRLF`。
-表头固定为 17 列，顺序不可变，新列只能追加在末尾，既有列的位置永不变动：
+表头为 19 列，前 17 列顺序保持不变，新列只能追加在末尾，既有列的位置永不变动。
+旧 14、16、17 列原生 CSV 仍可导入：
 
 ```
 date, matched_at, entered_at, ended_at, duty_name, duty_category, job_name,
 result, duration, source, manually_corrected, run_id, content_id, job_id,
-reflection_mood, reflection_text, joined_in_progress
+reflection_mood, reflection_text, joined_in_progress, region, game_build
 ```
 
 - `date` 取 `entered_at` 的 `yyyy-MM-dd`；`entered_at` 缺失时依次回退到 `matched_at`、`ended_at`。
@@ -298,21 +299,23 @@ reflection_mood, reflection_text, joined_in_progress
   没有心得时两列均为空，字段定义见 [data-model.md](data-model.md) §1.3。
 - `joined_in_progress` 取 `1`（中途加入进行中的副本）或 `0`（开局进入），软件没有看到进入方式时为空
   （[data-model.md](data-model.md) §1.5）。
+- `region` 保存 `CN / TC / GLOBAL / UNKNOWN` 服务区服；`game_build` 保存原记录游戏版本，未知时为空。
+  两者随导入往返保留，跨区相同副本与时间的记录不互判重复。
 
 **防公式注入只作用于自由文本列。** 电子表格会把以 `=`、`+`、`-`、`@`、制表符或回车开头的
-单元格当作公式执行。因此，`duty_name`、`duty_category`、`job_name`、`reflection_text`
-这四列的内容若以上述字符开头，导出时会在引号**内部**加上一个前导撇号（`'`）。
+单元格当作公式执行。因此，`duty_name`、`duty_category`、`job_name`、`reflection_text`、`game_build`
+这五列的内容若以上述字符开头，导出时会在引号**内部**加上一个前导撇号（`'`）。
 Excel 与 LibreOffice 均会隐藏该撇号并显示原文；以脚本解析时，需去掉首字符还原原文。
 
-其余 13 列（`date`、`matched_at`、`entered_at`、`ended_at`、`result`、`duration`、
-`source`、`manually_corrected`、`run_id`、`content_id`、`job_id`、`reflection_mood`、`joined_in_progress`）
+其余 14 列（`date`、`matched_at`、`entered_at`、`ended_at`、`result`、`duration`、
+`source`、`manually_corrected`、`run_id`、`content_id`、`job_id`、`reflection_mood`、`joined_in_progress`、`region`）
 **原样导出**，不加撇号。这些列的取值来自枚举、UUID 与数字，不可能构成公式。
 早期实现对全部 16 列无差别处理，会改写心得中形如 `+1，很顺`、`-记得先清小怪` 的正文，
 导致导出结果与 `QueryRuns` 读到的不再是同一份文本。
 
 **JSON**：由契约 `$defs/Run` 对象组成的数组，`revision`、`manually_created`、`soft_deleted`、
 `pending_review`、`note`、`reflection` 等全部字段均包含在内。
-需要完整可信度信息时应导出 JSON；CSV 的 17 列是面向电子表格的精简视图。
+需要完整可信度信息时应导出 JSON；CSV 的 19 列是面向电子表格的精简视图。
 
 两种导出遵循与 `QueryRuns` **完全相同**的 `RunFilter`，导出范围与列表中可见的范围一致。
 导出目录可以选择个人文件夹之外的本地目录，例如其他盘符下的文件夹，该目录须具备写入权限。

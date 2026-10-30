@@ -52,8 +52,9 @@
 > XLS/XLSX, native JSON, database backups, pasted tables and screenshots. Screenshot OCR runs offline;
 > imports require preview and confirmation, and conflicts preserve local records. Reflection sharing
 > saves a PNG locally without uploading it.
-> Supported client: Chinese server (国服) `2026.08.05`; see
-> [protocol-profiles/README.md](protocol-profiles/README.md).
+> Supported client: Chinese server (国服) `2026.08.05`. The Traditional Chinese server (繁中服, `TC`) is
+> prepared as a region of its own but has no verified protocol profile yet, so it is not recorded
+> automatically; see [protocol-profiles/README.md](protocol-profiles/README.md).
 
 ## 目录
 
@@ -113,7 +114,7 @@
 | 项目 | 要求 |
 |---|---|
 | 操作系统 | 64 位 Windows 10 版本 1809（内部版本 17763）或更新，或 Windows 11。ARM 设备只支持 Windows 11（x64 模拟，抓包未验证）。Windows “N” 版本需安装媒体功能包才能语音播报。安装程序会检查这些条件 |
-| 游戏客户端 | 《最终幻想 14》国服客户端；已验证版本见[工作原理](#工作原理) |
+| 游戏客户端 | 《最终幻想 14》国服客户端；已验证版本见[工作原理](#工作原理)。繁中服客户端可选择区服、手动补录与导入，自动记录待协议验证 |
 | 抓包驱动 | [Npcap](https://npcap.com/)（安装程序会引导安装，需启用 *WinPcap API-compatible Mode*） |
 | 运行库 | 无需另行安装，安装包已包含 .NET 与 Qt 运行时 |
 
@@ -322,7 +323,8 @@ OCR、解析器、分类器与导入控制器测试已通过。识别专项测�
 |---|---|---|
 | 国服 | `2026.08.05` | `VERIFIED`：已识别任务确认弹窗与区域切换两类消息；档案不含通关报文，通关结算按内容识别（见下一行） |
 | 国服 | 之后的版本 | 通过本机校准或共享校准适配，见[常见问题](#常见问题)；副本内的通关结算按内容识别，不依赖校准，已在 `2026.09.15` 的一种副本上实测 |
-| 国际服 | — | 不支持：无经验证的协议档案，软件不解析、不记录 |
+| 繁中服 | — | 准备中：区服、繁中副本与随机任务目录、按区服独立的成就与筛选已就绪；无经验证的协议档案，软件不解析、不记录，见 [protocol-profiles/tc/README.md](protocol-profiles/tc/README.md) |
+| 国际服 | — | 准备中：区服、目录数据与按区服独立的成就与筛选已就绪；无经验证的协议档案，软件不解析、不记录，见 [docs/global-server-testing.md](docs/global-server-testing.md) |
 
 详见 [docs/architecture.md](docs/architecture.md)、[docs/state-machine.md](docs/state-machine.md)、
 [docs/protocol-profile-format.md](docs/protocol-profile-format.md)。
@@ -376,8 +378,16 @@ OCR、解析器、分类器与导入控制器测试已通过。识别专项测�
 只有报文结构发生变化时，才需要将证据提交给维护者。详见
 [docs/live-validation-guide.md](docs/live-validation-guide.md) §7.6。
 
+**支持繁中服吗？**
+部分支持。繁中服（`TC`）是独立区服：可以在设置里选择，手动补录、导入导出、历史与统计按区服区分，成就目标与起始次数按区服独立。
+自动记录尚不可用：繁中服还没有经过验证的协议档案，软件不解析、不记录。需要繁中服玩家按
+[docs/traditional-chinese-server-testing.md](docs/traditional-chinese-server-testing.md) 采证后才能推进，证据要求见
+[protocol-profiles/tc/README.md](protocol-profiles/tc/README.md)。
+
 **支持国际服吗？**
-不支持。国际服没有经过验证的协议档案，软件对其不解析、不记录。协议档案的证据要求见
+软件侧的准备与繁中服相同：可以选择区服，手动补录、导入导出、历史与统计按区服区分，成就按区服独立。
+自动记录尚不可用：国际服没有经过验证的协议档案，软件对其不解析、不记录。需要国际服玩家按
+[docs/global-server-testing.md](docs/global-server-testing.md) 采证后才能推进，证据要求见
 [protocol-profiles/global/README.md](protocol-profiles/global/README.md)。
 
 **使用加速器或 VPN 时能正常记录吗？**

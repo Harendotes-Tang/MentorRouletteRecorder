@@ -78,7 +78,7 @@
    `MAX_CODES_PER_ACCOUNT_BUILD`（3）份不同的码（加入别人已发布的码也算一份）；每个 UTC 日最多为
    `MAX_BUILDS_PER_ACCOUNT_DAY`（2）个区服与版本提交。超出时拒绝（`ACCOUNT_BUILD_LIMIT`、`ACCOUNT_DAILY_LIMIT`），不转交维护者。
    两条合起来，一个账号一天最多新增 6 个条目；没有这两条时，一个账号一小时即可新增约 60 条，约占 64 KB 上限的三分之一。
-   条目只能由维护者用 `publish.py prune --region <CN|GLOBAL> --build <版本> [--build <版本> …]` 成批移除：
+   条目只能由维护者用 `publish.py prune --region <CN|TC|GLOBAL> --build <版本> [--build <版本> …]` 成批移除：
    只移除逐个写明的客户端版本，连同其条目、台账行与 `.mrc` 文件，结果仍能被 `index.load` 读回；
    加 `--apply` 时还会重算该区服日期晚于被移除版本的各版本的标记，使 `shape_prior` 不再以已移除的版本为依据。
    不加 `--apply` 时只打印将要移除的版本、条目数、台账行数与文件，不改动任何文件；核对无误后加 `--apply` 执行。
@@ -174,7 +174,7 @@ python tools/publish.py remark --repo . --region CN --build 2026.10.06.0000.0000
 | ——旧码还有别的账号提交过 | 旧码不撤销，只把该账号移出台账，`submitters` 减一 |
 
 旧码**被维护者撤销**时不再按「替换」处理：台账行留在被撤销的码上，该账号在这个区服与版本下暂停受理。
-维护者复核后执行 `publish.py lift --repo . --account id:<数字编号> --region <CN|GLOBAL> --build <版本>`：
+维护者复核后执行 `publish.py lift --repo . --account id:<数字编号> --region <CN|TC|GLOBAL> --build <版本>`：
 这一行被删除，被撤销条目的 `submitters` 相应减一（最少为 1），该账号随后的提交按全新提交处理，份数上限也重新计算。
 台账行增加可选字段 `replaced`（该账号此前提交过的码，旧在前），仅供审计；`index.json` 的格式**不变**，
 被取代的码就是 `revoked: true`，旧版客户端按撤销处理，语义正确。

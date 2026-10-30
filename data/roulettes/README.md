@@ -15,12 +15,20 @@
 data/roulettes/
   cn.json       国服，简体中文名，10 个编号
   global.json   国际服，英文名，最佳努力（BEST EFFORT），未经权威来源核对
+  tc.json       繁中服，固定提交的繁中客户端原文；未经繁中服流量验收
 ```
 
-与 `data/duties/` 不同，这两份文件**不按 `data_version` 分版本**：随机任务的
+与 `data/duties/` 不同，这些文件的文件名**不按 `data_version` 分版本**：随机任务的
 编号表远比副本表稳定，目前随包仅提供一份。`RouletteCatalog` 因此不具备
 `DutyCatalog` 的版本请求与回退逻辑，仅按区服
-（`Region.Cn` / `Region.Global` / `Region.Unknown`）取名。
+（`Region.Cn` / `Region.Tc` / `Region.Global` / `Region.Unknown`）取名。
+
+`tc.json` 由 `generate.py --tc-catalogues` 独立生成，收录繁中来源的 34 条具名记录，
+其中 21 条的 `IsInDutyFinder=True` 投影为 `enabled=true`，其余保留为禁用记录。
+此处的编号与可见性仅来自客户端导出，不是繁中服线上协议映射或已开放功能的证明。
+前述 0x0323 流量证据仅属于国服，不能用于启用繁中服协议。
+完整固定提交、客户端版本、源 URL 与 SHA-256 见 `provenance`；复现入口见
+[`../../tools/duty-data-generator/README.md`](../../tools/duty-data-generator/README.md)。
 
 ## 当前收录的 10 个编号
 
@@ -53,7 +61,7 @@ data/roulettes/
 ```jsonc
 {
   "schema_version": 1,
-  "region": "CN",                 // CN | GLOBAL | UNKNOWN
+  "region": "CN",                 // CN | TC | GLOBAL | UNKNOWN
   "language": "zh-Hans",
   "source": "…",                  // 来源与授权说明
   "updated_at_utc": "…",
@@ -68,7 +76,7 @@ data/roulettes/
 }
 ```
 
-两份文件均由 `src/Collector/MentorRecorder.Collector.csproj` 以**内嵌资源**形式
+这些文件均由 `src/Collector/MentorRecorder.Collector.csproj` 以**内嵌资源**形式
 编入程序集（`data/roulettes/*.json` →
 `MentorRecorder.Collector.Data.Roulettes.<file>`）。因此运行时既不依赖工作目录，
 也不依赖可执行文件同级目录中是否存在这些文件。

@@ -46,7 +46,7 @@
 |---|---|
 | Windows 10/11 x64 | 与目标平台一致 |
 | 已安装 Npcap | 由安装程序在缺少 Npcap 时下载官方安装程序并启动向导（[privacy-boundary.md](privacy-boundary.md) §8.5），或由用户从官方站点自行安装；安装时勾选 "WinPcap API-compatible Mode"。本软件不内置 Npcap，运行中的软件不下载它 |
-| FINAL FANTASY XIV 可正常游玩 | 国服或国际服均可，但须记录所用区服 |
+| FINAL FANTASY XIV 可正常游玩 | 国服、繁中服或国际服均可，但须记录所用区服 |
 | 至少 5 次导随 | 覆盖多种结局（见 §4） |
 | 本项目 Release 构建 | `pwsh -File scripts/build.ps1` |
 | 预期认知 | 验证过程中本软件可能不产生任何记录，这是 fail-closed 的预期表现，不是缺陷 |
@@ -351,7 +351,7 @@ trace 文件本身已脱敏，但**不应提交到 issue**：
 在 `protocol-profiles/<region>/` 下的档案中补充 `evidence` 条目
 （`method = "USER_CONFIRMED"`），并在 PR 描述中写明：
 
-- 区服（CN / GLOBAL）与游戏版本；
+- 区服（CN / TC / GLOBAL）与游戏版本；
 - Npcap 版本、网卡类型；
 - 上表 8 个场景各自的实测结果，以及与本软件记录是否一致；
 - 观察到的偏差与其可能原因。

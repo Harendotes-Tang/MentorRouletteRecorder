@@ -106,6 +106,34 @@ CI 发布同步脚本 `tools/release-mirror/sync_release.py`），负责全部�
 `--out-dir` 在 `--game-names` 模式下默认为 `data/i18n`。
 来源、字段、文本规则与许可说明见 [`../../data/i18n/README.md`](../../data/i18n/README.md)。
 
+## 繁中服目录（`--tc-catalogues`）
+
+```bash
+python tools/duty-data-generator/generate.py --tc-catalogues --version 2026-10-24 --tc-ref 1cf1f9fb735bad0748848dbd3f4de05721fe619a
+python tools/duty-data-generator/test_tc_catalog.py
+```
+
+此模式仅从同一固定提交的繁中客户端导出读取 `ContentFinderCondition`、`TerritoryType`、
+`ContentType`、`ExVersion`、`ContentMemberType`、`ContentRoulette`，生成
+`data/duties/tc.<version>.json` 和 `data/roulettes/tc.json`；不改 CN/GLOBAL 或游戏译名文件。
+`--out-dir` 控制副本目录，`--roulettes-out-dir` 控制随机任务目录。
+所有联网仍由 `generate.py` 执行，`tc_catalog.py` 只做离线解析。
+
+只有 TC 源中实际具名的行才会进入目录，名称和领地直接取 TC 值，不用简转繁回退，也不继承 CN
+同名解析偏好。分类与资料片通过 TC 的链接编号投影为项目已有的稳定键，原文标签另记入来源。
+源包含该行只证明客户端导出存在该行，不能证明实服开放、线上的随机任务编号或协议可用。
+随机任务 `enabled` 对应源 `IsInDutyFinder`，不代表经过实服验收。
+
+解析器要求列名、类型、行宽、整数编号及引用完整性一致，并拒绝缺失来源、重复编号、
+空目录或无法追溯客户端版本的提交。当前 TC 导出的队伍人数列没有具名字段，因此
+`party_size` 为 `null`；不猜列号，不从其他区服补值。若未来来源提供具名的
+`MembersPerParty` / `PartyCount`，再使用其乘积。
+
+`provenance` 保存完整提交、提交消息中的客户端版本、每张 CSV 的固定 URL/SHA-256、
+抓取时间和原始/具名行数。`--tc-ref` 省略时先解析当前 `main` 为完整提交；复现时使用
+已记录的完整提交，并把 `provenance.fetched_at_utc` 传给 `--tc-fetched-at`，即可保留时间字段并生成
+字节相同的结果。原始下载仍留在仓库外，`--dry-run` 不保留文件。
+
 ## 输出
 
 字段说明与加载/回退规则见 [`../../data/duties/README.md`](../../data/duties/README.md)。

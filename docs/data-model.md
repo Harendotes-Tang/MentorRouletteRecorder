@@ -37,7 +37,7 @@ Microsoft.Data.Sqlite 仍会自行重试至命令超时（默认 5 秒）为止�
 | `run_id` | TEXT | PK | UUID |
 | `revision` | INTEGER | NOT NULL, `>= 1` | 乐观并发版本号；每次成功变更 +1 |
 | `capture_session_id` | TEXT | NULL, FK → `capture_sessions.capture_session_id` | 手工补录为 NULL |
-| `region` | TEXT | NOT NULL, IN (`CN`,`GLOBAL`,`UNKNOWN`) | 区服 |
+| `region` | TEXT | NOT NULL, IN (`CN`,`GLOBAL`,`TC`,`UNKNOWN`) | 服务区服，与界面语言独立；schema 12 通过前向迁移扩展原约束 |
 | `game_build` | TEXT | NULL | 识别到的客户端版本标识 |
 | `protocol_profile_id` | TEXT | NULL | 产生该记录所用的协议档案 id；手工补录为 NULL |
 | `mentor_roulette_id` | INTEGER | NULL | 判定为导随所依据的 roulette id |
@@ -253,11 +253,12 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 
 ## 4. `achievement_settings` —— 成就目标与基线
 
-单行表（`id = 1`），用于用户从中途开始使用本软件的场景。
+按服务区服分别保存，支持用户从中途开始使用本软件。schema 12 将旧单行设置归入 CN，TC 初始基数为 0；不复制基数，不重分类旧记录。各区服成就进度独立，全部视图分别展示。
 
 | 列 | 类型 | 约束 | 说明 |
 |---|---|---|---|
-| `id` | INTEGER | PK, CHECK (`id = 1`) | 单行 |
+| `id` | INTEGER | PK | 保留本地行标识；旧行 id 保持原值 |
+| `region` | TEXT | NOT NULL, UNIQUE, IN (`CN`,`TC`,`GLOBAL`,`UNKNOWN`) | 成就设置所属服务区服 |
 | `goal_count` | INTEGER | NOT NULL, `>= 1`, **default 2000** | 目标次数 |
 | `baseline_completed_count` | INTEGER | NOT NULL, `>= 0`, default 0 | 开始使用本软件之前已完成的次数（用户自报）。计入进度的已记录完成不论何时结束，全部叠加在其上 |
 | `baseline_effective_at` | TEXT | NOT NULL | 基数最近一次改变的时间（UTC），从未改变时为采集服务首次启动写入该行的时间；只作记录，不参与进度或任何统计。只在基数改变时更新为请求中的时间；只改目标或重新填入同一基数时保持不变（[statistics-definitions.md](statistics-definitions.md) §4）。1.5.0 及更早版本每次保存都会改写它，这些版本写入的值可能是最近一次保存的时间，升级后保持原样 |
@@ -426,8 +427,8 @@ schema v9 通过 `migrations/0009_personal_record_import.sql` 增加 `run_import
 来源缺少结果时，导入预览按用户选择默认通关并允许修改；确认本人导随及实际结果后，缺游戏时间的记录
 只显示待补充，仍计入完成次数与成就。结果未知或未经确认的导入不计统计。
 备份导入只合并记录和心得，不复制来源数据库的采集外键、设置或备注附件。
-提交带 `deduct_from_baseline = true` 时，同一事务内还会把本次新写入且计入进度的通关数从 `achievement_settings.baseline_completed_count`
-中扣除（最低到 0），并以该提交的请求编号追加一条 `achievement.baseline_history` 记录；回执中带 `baseline_deducted_count` 与扣除后的基数
+提交带 `deduct_from_baseline = true` 时，同一事务内还会按记录所属区服，把本次新写入且计入进度的通关数从该区服的 `achievement_settings.baseline_completed_count`
+中扣除（最低到 0），并以该提交的请求编号追加基数审计；回执的 `baseline_adjustments` 按区服返回扣减与扣减后基数，旧标量保留扣减总数与 CN 基数投影
 （[statistics-definitions.md](statistics-definitions.md) §4）。
 
 `contracts/ipc-v1.schema.json` 中的 `$defs/Run` 与本表一一对应，
