@@ -18,6 +18,7 @@
 #include <QTimeZone>
 
 #include <algorithm>
+#include <limits>
 
 using namespace mr::mock;
 
@@ -45,7 +46,7 @@ bool matchesIntArray(const QJsonObject &filter, const QString &key,
 
 /// DutyCatalog.UniqueTerritoriesOf: the zones of the duties asked for that host that duty
 /// and no other. A run that observed only such a zone is a run of that duty.
-QSet<qint64> zonesOfOnly(const QJsonArray &contentIds)
+QSet<qint64> zonesOfOnly(const QJsonArray &contentIds, const QString &region)
 {
     QSet<qint64> wanted;
     for (const auto &id : contentIds) {
@@ -55,7 +56,7 @@ QSet<qint64> zonesOfOnly(const QJsonArray &contentIds)
     if (wanted.isEmpty())
         return {};
     QHash<qint64, QSet<qint64>> dutiesByZone;
-    for (const QVariant &row : mr::DutyCatalog::shared()->allDuties()) {
+    for (const QVariant &row : mr::DutyCatalog::shared()->allDuties(region)) {
         const QVariantMap duty = row.toMap();
         const QVariant zone = duty.value(QStringLiteral("territory_id"));
         if (zone.isValid())
@@ -191,7 +192,8 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
     const QDateTime to = fromIso(filter.value(QStringLiteral("to_utc")));
     const QDate fromDay = QDate::fromString(filter.value(QStringLiteral("history_from_day")).toString(), Qt::ISODate);
     const QDate toDay = QDate::fromString(filter.value(QStringLiteral("history_to_day")).toString(), Qt::ISODate);
-    const QSet<qint64> contentZones = zonesOfOnly(filter.value(QStringLiteral("content_id")).toArray());
+    const QString region = filter.value(QStringLiteral("region")).toString();
+    QHash<QString, QSet<qint64>> contentZones;
     // RunFilterSql: pending_review true is the actionable review list, and imported
     // history - source IMPORT, import metadata, or an IMPORT creation revision - is never
     // on it (RunFilterSql.ImportedHistoryPredicate).
@@ -212,6 +214,11 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
     for (const auto &value : m_runs) {
         const QJsonObject run = value.toObject();
 
+        const QString owner = runRegion(run);
+        if (!region.isEmpty() && owner != region)
+            continue;
+        if (!contentZones.contains(owner))
+            contentZones.insert(owner, zonesOfOnly(filter.value(QStringLiteral("content_id")).toArray(), owner));
         // Soft-deleted runs never take part in a statistic, whatever the
         // filter says (docs/statistics-definitions.md 0).
         if ((isSoftDeleted(run) && !includeDeleted) || (deletedOnly && !isSoftDeleted(run)))
@@ -269,7 +276,7 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
                 continue;
         }
 
-        if (!matchesContentIds(filter, contentZones, run))
+        if (!matchesContentIds(filter, contentZones.value(owner), run))
             continue;
         if (!matchesIntArray(filter, QStringLiteral("job_id"),
                              run.value(QStringLiteral("job_id"))))
@@ -514,33 +521,53 @@ QJsonObject MockBackend::dashboardStats(const QJsonObject &filter,
         }
     }
 
-    // achievement_progress ignores the filter entirely: it is always the
-    // whole-database count (docs/statistics-definitions.md 4). The baseline is what was
-    // completed before the software was installed, and every contributing completion
-    // it recorded is added on top, whenever it ended; baseline_effective_at is
-    // information only (owner's report B3-1, withdrawing the CS7-D4 cutoff).
-    int goalRuns = 0;
+    // Lifetime achievements use only the region scope. Date, duty, job and review
+    // listing filters cannot remove an older contributing completion from its owner.
+    QMap<QString, int> goalRuns;
+    QSet<QString> regions{QStringLiteral("CN"), QStringLiteral("TC")};
+    for (auto it = m_achievements.constBegin(); it != m_achievements.constEnd(); ++it)
+        regions.insert(it.key());
     for (const auto &value : m_runs) {
         const QJsonObject run = value.toObject();
-        if (isSoftDeleted(run) || !isConfirmedMentor(run))
-            continue;
-        if (run.value(QStringLiteral("result")).toString() != QLatin1String("COMPLETED"))
-            continue;
-        if (!run.value(QStringLiteral("contributes_to_goal")).toBool(true))
-            continue;
-        ++goalRuns;
+        const QString owner = runRegion(run);
+        regions.insert(owner);
+        if (!isSoftDeleted(run) && isConfirmedMentor(run)
+            && run.value(QStringLiteral("result")).toString() == QLatin1String("COMPLETED")
+            && run.value(QStringLiteral("contributes_to_goal")).toBool(true))
+            ++goalRuns[owner];
     }
-
-    const int progress = m_baselineCompletedCount + goalRuns;
-    const int remaining = qMax(m_goalCount - progress, 0);
+    const QString selected = filter.value(QStringLiteral("region")).toString();
+    QStringList owners = selected.isEmpty() ? regions.values() : QStringList{selected};
+    std::ranges::sort(owners, [](const QString &left, const QString &right) {
+        const auto rank = [](const QString &owner) {
+            return owner == QLatin1String("CN") ? 0 : owner == QLatin1String("TC") ? 1 : 2;
+        };
+        return rank(left) != rank(right) ? rank(left) < rank(right) : left < right;
+    });
+    QJsonArray achievements;
+    QJsonObject legacyAchievement;
+    for (const QString &owner : std::as_const(owners)) {
+        const AchievementSettings settings = achievementSettings(owner);
+        const int counted = goalRuns.value(owner);
+        const int progress = static_cast<int>(qMin<qint64>(std::numeric_limits<int>::max(),
+            static_cast<qint64>(settings.baselineCompletedCount) + counted));
+        const QJsonObject achievement{{QStringLiteral("region"), owner},
+            {QStringLiteral("goal_count"), settings.goalCount},
+            {QStringLiteral("baseline_completed_count"), settings.baselineCompletedCount},
+            {QStringLiteral("achievement_progress"), progress},
+            {QStringLiteral("remaining"), qMax(settings.goalCount - progress, 0)},
+            {QStringLiteral("completed_count"), counted}};
+        achievements.append(achievement);
+        if (owner == (selected.isEmpty() ? QStringLiteral("CN") : selected))
+            legacyAchievement = achievement;
+    }
 
     QJsonObject stats;
     stats.insert(QStringLiteral("attempt_count"), attempts);
     stats.insert(QStringLiteral("completed_count"), completed);
-    stats.insert(QStringLiteral("baseline_completed_count"), m_baselineCompletedCount);
-    stats.insert(QStringLiteral("achievement_progress"), progress);
-    stats.insert(QStringLiteral("goal_count"), m_goalCount);
-    stats.insert(QStringLiteral("remaining"), remaining);
+    for (const auto *field : {"baseline_completed_count", "achievement_progress", "goal_count", "remaining"})
+        stats.insert(QString::fromLatin1(field), legacyAchievement.value(QString::fromLatin1(field)));
+    stats.insert(QStringLiteral("achievements"), achievements);
     stats.insert(QStringLiteral("completion_rate"),
                  nullableNumber(attempts > 0, static_cast<double>(completed) / static_cast<double>(attempts)));
     // leave_rate counts LEFT_OR_ABANDONED only. DISCONNECTED, INTERRUPTED and
@@ -611,10 +638,10 @@ qint64 idOf(const QJsonValue &value)
 /// The catalogue's duties by zone, lowest content id first. DutyCatalog.FindByTerritory
 /// names a zone by its first duty; FindUniqueByTerritory takes it as the duty's identity
 /// only when it is the zone's one duty.
-QHash<qint64, QList<qint64>> dutiesByZone()
+QHash<qint64, QList<qint64>> dutiesByZone(const QString &region)
 {
     QHash<qint64, QList<qint64>> zones;
-    for (const QVariant &row : mr::DutyCatalog::shared()->allDuties()) {
+    for (const QVariant &row : mr::DutyCatalog::shared()->allDuties(region)) {
         const QVariantMap duty = row.toMap();
         const QVariant zone = duty.value(QStringLiteral("territory_id"));
         if (!zone.isValid() || zone.isNull())
@@ -640,6 +667,7 @@ QJsonArray MockBackend::dungeonStats(const QJsonObject &filter) const
     // zone the duty table does not know, which names no duty either. A zone several duties
     // share never stands for one of them. The (null, null) row is always 未知副本.
     struct Group {
+        QString region;
         qint64 contentId = -1;
         qint64 zone = -1;
         Aggregate aggregate;
@@ -651,11 +679,15 @@ QJsonArray MockBackend::dungeonStats(const QJsonObject &filter) const
         bool hasLatestRow = false;
         QString lastSeen;
     };
-    const QHash<qint64, QList<qint64>> zones = dutiesByZone();
+    QHash<QString, QHash<qint64, QList<qint64>>> regionalZones;
     QList<Group> groups; // in order of first appearance, like LINQ's GroupBy
-    QHash<QPair<qint64, qint64>, int> indexOf;
+    QHash<QString, int> indexOf;
 
     for (const QJsonObject &run : selectRuns(filter, true)) {
+        const QString owner = runRegion(run);
+        if (!regionalZones.contains(owner))
+            regionalZones.insert(owner, dutiesByZone(owner));
+        const auto &zones = regionalZones[owner];
         qint64 contentId = idOf(run.value(QStringLiteral("content_id")));
         qint64 zone = -1;
         if (contentId < 0) {
@@ -666,10 +698,11 @@ QJsonArray MockBackend::dungeonStats(const QJsonObject &filter) const
             else if (!hosted.isEmpty())
                 zone = observed;
         }
-        const QPair<qint64, qint64> key{contentId, zone};
+        const QString key = owner + QLatin1Char('/') + QString::number(contentId)
+            + QLatin1Char('/') + QString::number(zone);
         if (!indexOf.contains(key)) {
             indexOf.insert(key, static_cast<int>(groups.size()));
-            groups.append(Group{.contentId = contentId, .zone = zone});
+            groups.append(Group{.region = owner, .contentId = contentId, .zone = zone});
         }
         Group &group = groups[indexOf.value(key)];
         accumulate(group.aggregate, run);
@@ -699,16 +732,17 @@ QJsonArray MockBackend::dungeonStats(const QJsonObject &filter) const
     QList<QJsonObject> out;
     for (const Group &group : std::as_const(groups)) {
         // What the catalogue says: the duty itself, or the lowest content id of the zone.
-        const QList<qint64> hosted = zones.value(group.zone);
+        const QList<qint64> hosted = regionalZones.value(group.region).value(group.zone);
         QVariantMap mapped;
         if (group.contentId >= 0)
-            mapped = mr::DutyCatalog::shared()->lookup(group.contentId);
+            mapped = mr::DutyCatalog::shared()->lookup(group.contentId, group.region);
         else if (!hosted.isEmpty())
-            mapped = mr::DutyCatalog::shared()->lookup(hosted.first());
+            mapped = mr::DutyCatalog::shared()->lookup(hosted.first(), group.region);
         const QString mappedName = mapped.value(QStringLiteral("duty_name")).toString();
         const QString mappedCategory = mapped.value(QStringLiteral("duty_category")).toString();
 
         QJsonObject row = aggregateToRow(group.aggregate);
+        row.insert(QStringLiteral("region"), group.region);
         row.insert(QStringLiteral("content_id"),
                    group.contentId < 0 ? QJsonValue(QJsonValue::Null) : QJsonValue(group.contentId));
         if (!group.name.isEmpty())
@@ -739,6 +773,10 @@ QJsonArray MockBackend::dungeonStats(const QJsonObject &filter) const
         const qint64 contentB = idOf(b.value(QStringLiteral("content_id")));
         if (contentA != contentB)
             return contentA < contentB;
+        const QString regionA = a.value(QStringLiteral("region")).toString();
+        const QString regionB = b.value(QStringLiteral("region")).toString();
+        if (regionA != regionB)
+            return regionA < regionB;
         return a.value(QStringLiteral("duty_name")).toString() < b.value(QStringLiteral("duty_name")).toString();
     });
 

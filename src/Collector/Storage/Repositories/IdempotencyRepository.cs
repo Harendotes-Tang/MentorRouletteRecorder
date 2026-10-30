@@ -111,7 +111,7 @@ public sealed class IdempotencyRepository
             return true;
         // Older versions deleted the response even for baselines. The surviving display
         // history is still evidence, including when another message type reuses this id.
-        return new SettingsRepository(_database, _clock).ReadBaselineAudit(transaction)
+        return new SettingsRepository(_database, _clock).ReadAllBaselineAudit(transaction)
             .Any(entry => string.Equals(entry.RequestId, requestId, StringComparison.Ordinal));
     }
 

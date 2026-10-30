@@ -279,7 +279,8 @@ public:
     BackendReply *updateAchievementBaseline(int goalCount,
                                             int baselineCompletedCount,
                                             const QString &reason,
-                                            const QString &baselineEffectiveAtUtc = {});
+                                            const QString &baselineEffectiveAtUtc = {},
+                                            const QString &region = {});
 
     // -- 已删除记录 ---------------------------------------------------------
     /// $defs/BatchMutateRunsRequest. \a action is soft_delete, restore or purge;

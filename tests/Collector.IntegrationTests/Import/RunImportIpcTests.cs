@@ -11,6 +11,65 @@ namespace MentorRecorder.Collector.IntegrationTests;
 public sealed class RunImportIpcTests
 {
     [Fact]
+    public async Task MixedRegionImportAndBaselineDeductionStayIsolatedAcrossRealPipeRetries()
+    {
+        await using var fixture = ServerFixture.Start();
+        await using var client = await fixture.ConnectAsync();
+        foreach (var (region, baseline) in new[] { ("CN", 100), ("TC", 50) })
+        {
+            var saved = (await client.SendAsync("UpdateAchievementBaseline", new JsonObject
+            {
+                ["region"] = region, ["baseline_completed_count"] = baseline,
+                ["baseline_effective_at"] = "2026-01-01T00:00:00.000Z", ["reason"] = "分区起始次数",
+            })).Require();
+            ContractSchema.Validate("$defs/Responses/UpdateAchievementBaseline", saved, "regional baseline");
+            Assert.Equal(region, saved["region"]!.GetValue<string>());
+        }
+        var preview = (await client.SendAsync("PreviewRunImport", new JsonObject
+        {
+            ["source_kind"] = "ROWS",
+            ["rows"] = new JsonArray(new[] { "CN", "TC" }.Select(region => (JsonNode)new JsonObject
+            {
+                ["region"] = region, ["game_build"] = "synthetic-region-build",
+                ["content_id"] = 900001, ["duty_name"] = "分区合成副本", ["result"] = "COMPLETED",
+                ["entered_at_utc"] = "2026-09-01T00:00:00.000Z", ["ended_at_utc"] = "2026-09-01T00:30:00.000Z",
+            }).ToArray()),
+        })).Require();
+        Assert.All(preview["rows"]!.AsArray(), row => Assert.Equal("new", row!["status"]!.GetValue<string>()));
+        var commit = new JsonObject
+        {
+            ["preview_id"] = preview["preview_id"]!.DeepClone(), ["row_numbers"] = new JsonArray(1, 2),
+            ["confirm_own_records"] = true, ["deduct_from_baseline"] = true,
+        };
+        var requestId = Guid.NewGuid().ToString("D");
+        var result = (await client.SendAsync("CommitRunImport", commit.DeepClone().AsObject(), requestId)).Require();
+        ContractSchema.Validate("$defs/Responses/CommitRunImport", result, "mixed regional import");
+        Assert.Equal(2, result["baseline_deducted_count"]!.GetValue<int>());
+        Assert.Equal(2, result["baseline_adjustments"]!.AsArray().Count);
+        var replay = (await client.SendAsync("CommitRunImport", commit.DeepClone().AsObject(), requestId)).Require();
+        Assert.True(replay["replayed"]!.GetValue<bool>());
+        Assert.True(JsonNode.DeepEquals(result["baseline_adjustments"], replay["baseline_adjustments"]));
+        var stats = (await client.SendAsync("GetDashboardStats")).Require();
+        ContractSchema.Validate("$defs/Responses/GetDashboardStats", stats, "mixed regional dashboard");
+        Assert.Equal(100, stats["achievement_progress"]!.GetValue<int>());
+        var achievements = stats["achievements"]!.AsArray();
+        Assert.Equal(100, achievements.Single(row => row!["region"]!.GetValue<string>() == "CN")!["achievement_progress"]!.GetValue<int>());
+        Assert.Equal(50, achievements.Single(row => row!["region"]!.GetValue<string>() == "TC")!["achievement_progress"]!.GetValue<int>());
+        var filter = new JsonObject { ["region"] = "TC" };
+        var query = (await client.SendAsync("QueryRuns", new JsonObject { ["filter"] = filter.DeepClone() })).Require();
+        var run = Assert.Single(query["items"]!.AsArray())!;
+        Assert.Equal("TC", run["region"]!.GetValue<string>());
+        Assert.Equal("synthetic-region-build", run["game_build"]!.GetValue<string>());
+        var regional = (await client.SendAsync("GetDashboardStats", new JsonObject
+        {
+            ["filter"] = new JsonObject { ["region"] = "TC", ["job_id"] = new JsonArray(999) },
+        })).Require();
+        Assert.Equal(0, regional["completed_count"]!.GetValue<int>());
+        Assert.Equal(50, regional["achievement_progress"]!.GetValue<int>());
+        Assert.Single(regional["achievements"]!.AsArray());
+    }
+
+    [Fact]
     public async Task MalformedSourceIsActionableBadRequestAndConnectionRemainsUsable()
     {
         await using var fixture = ServerFixture.Start();
@@ -34,7 +93,7 @@ public sealed class RunImportIpcTests
             ["source_kind"] = "SCREENSHOT", ["time_zone"] = "+08:00", ["source_name"] = "synthetic",
             ["rows"] = new JsonArray(new JsonObject
             {
-                ["duty_name"] = "合成截图副本", ["reflection_text"] = "合成截图心得",
+                ["region"] = "CN", ["duty_name"] = "合成截图副本", ["reflection_text"] = "合成截图心得",
                 ["source_recorded_at"] = "2026-10-08 20:30:00", ["job_name"] = "骑士",
             }),
         })).Require();
@@ -135,7 +194,7 @@ public sealed class RunImportIpcTests
             ["source_kind"] = "XLSX", ["time_zone"] = "+08:00", ["source_name"] = "synthetic",
             ["rows"] = new JsonArray(new JsonObject
             {
-                ["duty_name"] = "合成表格副本", ["job_name"] = "骑士", ["result"] = "COMPLETED",
+                ["region"] = "CN", ["duty_name"] = "合成表格副本", ["job_name"] = "骑士", ["result"] = "COMPLETED",
                 ["source_recorded_at"] = "2026-10-01",
             }),
         })).Require();

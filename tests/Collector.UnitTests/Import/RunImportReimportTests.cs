@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Import;
+using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Storage.Repositories;
 
@@ -12,6 +13,56 @@ namespace MentorRecorder.Collector.UnitTests;
 /// </summary>
 public sealed class RunImportReimportTests
 {
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void LegacySourceWithBuildKeepsItsFingerprintAndPurgedRecordsStayBlocked(bool stable, bool purged)
+    {
+        using var fixture = new TestDatabase();
+        var input = new JsonObject
+        {
+            ["region"] = "CN", ["game_build"] = "legacy-supplied-build",
+            ["content_id"] = 900001, ["duty_name"] = "旧来源副本", ["result"] = "COMPLETED",
+            ["entered_at_utc"] = "2026-09-01T00:00:00.000Z", ["ended_at_utc"] = "2026-09-01T00:30:00.000Z",
+        };
+        if (stable) input["run_id"] = Guid.NewGuid().ToString("D");
+        var parsed = Assert.Single(RunImportSourceParser.Parse("JSON", text: new JsonArray(input.DeepClone()).ToJsonString()));
+        if (!stable) parsed.Values["source_key"] = RunImportCandidateNormalizer.Hash(
+            RunImportCandidateNormalizer.CanonicalValues(parsed.Values)) + ":1";
+        var normalized = RunImportCandidateNormalizer.Normalize(parsed, "JSON", "legacy-source", null, fixture.Clock.UtcNow);
+        var current = normalized.Run!;
+        var old = current with { GameBuild = null }; // Earlier normalizer discarded this supplied metadata.
+        var identity = stable ? old.RunId : parsed.Values["source_key"]!.GetValue<string>();
+        var fingerprint = RunImportCandidateNormalizer.Hash(string.Join('\n', "JSON", "legacy-source", identity,
+            RunImportCandidateNormalizer.Facts(old)));
+        Assert.Equal(fingerprint, current.ImportMetadata!.SourceFingerprint);
+        old = old with { ImportMetadata = old.ImportMetadata! with { SourceFingerprint = fingerprint } };
+        fixture.Database.RunInTransaction(tx =>
+        {
+            if (purged)
+            {
+                using var tombstone = fixture.Database.CreateCommand();
+                tombstone.Transaction = tx;
+                tombstone.CommandText = "INSERT INTO purged_run_tombstones VALUES ($id,$fingerprint,'2026-10-22T00:00:00.000Z');";
+                tombstone.Parameters.AddWithValue("$id", old.RunId);
+                tombstone.Parameters.AddWithValue("$fingerprint", fingerprint);
+                tombstone.ExecuteNonQuery();
+            }
+            else
+            {
+                new RunRepository(fixture.Database).Insert(old, tx);
+                new RunImportRepository(fixture.Database).Insert(old.RunId, old.ImportMetadata!, tx);
+            }
+        });
+        var preview = new RunImportService(fixture.Database, fixture.Clock).PreviewSource("JSON",
+            text: new JsonArray(input.DeepClone()).ToJsonString(), sourceName: "legacy-source");
+        Assert.Equal(purged ? "conflict" : "duplicate", Status(preview, 0));
+        Assert.False(Row(preview, 0)["can_import"]!.GetValue<bool>());
+        Assert.Equal("legacy-supplied-build", Row(preview, 0)["run"]!["game_build"]!.GetValue<string>());
+    }
+
     private const string Duty = "异界孤城特罗亚宫廷";
 
     private static JsonObject Row(JsonObject preview, int index) => preview["rows"]![index]!.AsObject();

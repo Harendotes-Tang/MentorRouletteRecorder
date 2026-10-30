@@ -52,6 +52,25 @@ class LoaderParityTests(unittest.TestCase):
 
         self.assertEqual(0, code, errors)
 
+    def test_tc_placeholder_remains_unsupported_and_has_no_traffic_constants(self):
+        path = Path(validate.REPO) / "protocol-profiles/tc/tc-unsupported.json"
+        code, errors = validate.validate(str(path), stamp=False)
+        self.assertEqual(0, code, errors)
+        document = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(("TC", "UNSUPPORTED", [], None),
+                         (document["region"], document["compatibility_status"],
+                          document["messages"], document["mentor_roulette_id"]))
+        self.assertNotIn("calibration", document)
+
+    def test_tc_directory_never_accepts_a_cn_identity(self):
+        directory = Path(self.directory.name) / "tc"
+        directory.mkdir()
+        path = directory / self.path.name
+        path.write_bytes((Path(validate.REPO) / "protocol-profiles/cn/cn.2026.08.05.json").read_bytes())
+        code, errors = validate.validate(str(path), stamp=False)
+        self.assertEqual(1, code)
+        self.assertTrue(any("does not match directory 'tc'" in error for error in errors), errors)
+
     # --- (a) the calibration roulette field gets the ordinary field checks ----------------
 
     def test_calibration_roulette_field_with_a_length_on_a_fixed_width_type_is_refused(self):

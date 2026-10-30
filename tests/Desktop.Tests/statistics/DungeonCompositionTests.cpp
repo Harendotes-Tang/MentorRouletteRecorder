@@ -591,6 +591,15 @@ private Q_SLOTS:
         QFETCH(bool, graphs);
         Scene scene;
         scene.backend.rows[2] = duty(63, QString::fromUtf8("讨伐歼灭战"), 5);
+        // Identical content IDs from two regions remain distinct in both the
+        // ranking and the detail table, including when their recorded names match.
+        auto cn = scene.backend.rows[0].toObject();
+        cn.insert("region", "CN");
+        auto tc = cn;
+        tc.insert("region", "TC");
+        tc.insert("completed_count", 2);
+        scene.backend.rows[0] = cn;
+        scene.backend.rows[1] = tc;
         QVERIFY2(scene.create(theme, style, width, graphs), qPrintable(scene.errors));
         QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
         QTRY_COMPARE(scene.controller.dungeons()->totalCompletedCount(), static_cast<qint64>(42));
@@ -600,6 +609,18 @@ private Q_SLOTS:
         auto *grid = scene.item(QStringLiteral("dungeonCompositionGrid"));
         QVERIFY(page && category && special && grid);
         QTRY_COMPARE(category->property("completedTotal").toDouble(), 42.0);
+        const auto labelledCount = [&](const QString &region) {
+            int found = 0;
+            const QString suffix = QStringLiteral(" · ") + mr::Formatters::regionLabel(region);
+            const auto visit = [&](const auto &self, QQuickItem *item) -> void {
+                if (item->property("text").toString().endsWith(suffix)) ++found;
+                for (auto *child : item->childItems()) self(self, child);
+            };
+            visit(visit, scene.window()->contentItem());
+            return found;
+        };
+        QTRY_VERIFY(labelledCount(QStringLiteral("CN")) >= 2);
+        QTRY_VERIFY(labelledCount(QStringLiteral("TC")) >= 2);
         QCOMPARE(special->property("completedTotal").toDouble(), 42.0);
         QCOMPARE(grid->property("columns").toInt(), width >= 1000 ? 2 : 1);
         auto *charts = scene.item(QStringLiteral("dungeonChartsColumn"));

@@ -14,7 +14,7 @@ public sealed class RunImportDateTimeTests
 {
     private static JsonObject Candidate(string entered) => new()
     {
-        ["duty_name"] = "边界日期副本", ["entered_at_utc"] = entered,
+        ["duty_name"] = "边界日期副本", ["entered_at_utc"] = entered, ["region"] = "CN",
     };
 
     // ---------------------------------------- dates at either end of the calendar ----

@@ -32,8 +32,12 @@ ColumnLayout {
     // The Collector's achievement_progress, and the part of it this software
     // recorded. Not completed_count: a COMPLETED run that does not count towards
     // the goal is in that total only (review OK-1).
-    readonly property int progressCount: Runtime.app.dashboard.achievement_progress !== undefined
-        ? Number(Runtime.app.dashboard.achievement_progress) : Runtime.app.baselineCount
+    readonly property var regionalAchievement: {
+        Theme.trackBindingDependency(Runtime.app.dashboard)
+        return Runtime.app.achievementForRegion(Runtime.app.baselineRegion)
+    }
+    readonly property int progressCount: regionalAchievement.achievement_progress !== undefined
+        ? Number(regionalAchievement.achievement_progress) : Runtime.app.baselineCount
     readonly property int recordedCount: Math.max(0, tab.progressCount - Runtime.app.baselineCount)
     // The baseline field read the way 保存 reads it: a whole number of at least 0,
     // else -1. An empty field is no number, and is not saved as 0.
@@ -124,6 +128,22 @@ ColumnLayout {
         objectName: "achievementSettingsCard"
         freeLayout: true
         kicker: qsTr("成就进度")
+        SettingsRow {
+            label: qsTr("成就区服")
+            description: qsTr("各区服的目标、起始次数和累计进度分别保存。")
+            RecordRegionSelector {
+                objectName: "achievementRegionSelector"
+                Layout.preferredWidth: 170
+                includeAll: false
+                selection: Runtime.app.baselineRegion
+                enabled: !Runtime.app.baselineSaving
+                onRegionPicked: function(region) {
+                    tab.achievementEdited = false
+                    tab.baselineErrorText = ""
+                    Runtime.app.baselineRegion = region
+                }
+            }
+        }
 
         GridLayout {
             Layout.fillWidth: true

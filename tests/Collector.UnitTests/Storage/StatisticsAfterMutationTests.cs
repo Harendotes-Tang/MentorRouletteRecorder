@@ -29,6 +29,7 @@ public sealed class StatisticsAfterMutationTests : IDisposable
         {
             RequestId = Guid.NewGuid().ToString("D"),
             Reason = "补录一次导随",
+            Region = Region.Cn,
             Result = result,
             ContentId = 900001,
             JobId = 19,
@@ -47,6 +48,7 @@ public sealed class StatisticsAfterMutationTests : IDisposable
         {
             RequestId = Guid.NewGuid().ToString("D"),
             Reason = "补录一次导随",
+            Region = Region.Cn,
             Result = result,
             ContentId = 900001,
             JobId = 19,

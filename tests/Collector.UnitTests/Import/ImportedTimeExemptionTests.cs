@@ -18,6 +18,7 @@ public sealed class ImportedTimeExemptionTests
     private static string Id() => Guid.NewGuid().ToString("D");
     private static string Import(TestDatabase fixture, JsonObject candidate)
     {
+        candidate["region"] ??= "CN";
         var service = new RunImportService(fixture.Database, fixture.Clock);
         var preview = service.PreviewSource("ROWS", rows: new JsonArray(candidate), timeZone: "+08:00");
         Assert.Equal("new", preview["rows"]![0]!["status"]!.GetValue<string>());

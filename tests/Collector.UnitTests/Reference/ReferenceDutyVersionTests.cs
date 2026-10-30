@@ -115,16 +115,34 @@ public sealed class ReferenceDutyVersionTests
     }
 
     [Fact]
-    public void GeneratedTablesAreEmbeddedForBothRegions()
+    public void GeneratedTablesAreEmbeddedForEveryNamedRegion()
     {
         var cn = DutyCatalog.LoadFor(Region.Cn, null);
         var global = DutyCatalog.LoadFor(Region.Global, null);
+        var tc = DutyCatalog.LoadFor(Region.Tc, null);
 
         Assert.True(cn.Count > 100, "the generated CN duty table should be embedded");
         Assert.True(global.Count > 100, "the generated GLOBAL duty table should be embedded");
+        Assert.True(tc.Count > 100, "the independently sourced TC duty table should be embedded");
+        Assert.All(tc.Documents, document => Assert.Equal(Region.Tc, document.Region));
         Assert.All(
             cn.Documents.Where(document => !document.IsSample),
             document => Assert.Equal(Region.Cn, document.Region));
+    }
+
+    [Theory]
+    [InlineData(5, 172)]
+    [InlineData(13, 171)]
+    [InlineData(36, 434)]
+    [InlineData(235, 616)]
+    public void EmbeddedTcMappingsKeepTheirOwnTerritories(int contentId, int nativeTerritory)
+    {
+        var tc = DutyCatalog.Default.Find(contentId, Region.Tc);
+        Assert.NotNull(tc);
+        Assert.Equal(nativeTerritory, tc.TerritoryId);
+        Assert.False(tc.IsSyntheticSample);
+        Assert.NotEqual(DutyCatalog.Default.Find(contentId, Region.Cn)?.TerritoryId, tc.TerritoryId);
+        Assert.Null(tc.PartySize);
     }
 
     [Fact]

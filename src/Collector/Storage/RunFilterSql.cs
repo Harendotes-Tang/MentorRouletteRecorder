@@ -169,7 +169,13 @@ public static class RunFilterSql
             parameters.Add(new("$to_utc", UtcTimestamp.ToText(to)));
         }
 
-        AddContentIds(clauses, parameters, filter.ContentIds, duties);
+        if (filter.Region is { } region)
+        {
+            clauses.Add("region = $region");
+            parameters.Add(new("$region", EnumWire<Region>.Format(region)));
+        }
+
+        AddContentIds(clauses, parameters, filter.ContentIds, duties, filter.Region);
         AddTextList(clauses, parameters, "run_id", filter.RunIds, "rid");
         AddIntList(clauses, parameters, "job_id", filter.JobIds, "jid");
         if (filter.DutyCategories.Count > 0)
@@ -288,7 +294,7 @@ public static class RunFilterSql
         List<string> clauses,
         List<KeyValuePair<string, object?>> parameters,
         IReadOnlyList<int> contentIds,
-        DutyCatalog duties)
+        DutyCatalog duties, Region? region)
     {
         if (contentIds.Count == 0)
         {
@@ -297,16 +303,21 @@ public static class RunFilterSql
 
         var byContent = new List<string>();
         AddIntList(byContent, parameters, "content_id", contentIds, "cid");
-        var territories = contentIds.SelectMany(duties.UniqueTerritoriesOf).Distinct().ToArray();
-        if (territories.Length == 0)
+        var alternatives = new List<string> { byContent[0] };
+        foreach (var owner in region is { } selected ? new[] { selected } : Enum.GetValues<Region>())
         {
-            clauses.AddRange(byContent);
-            return;
+            var territories = contentIds.SelectMany(id => owner == Region.Unknown
+                ? duties.UniqueTerritoriesOf(id).Where(territory => duties.FindUniqueByTerritory(territory, owner)?.ContentId == id)
+                : duties.UniqueTerritoriesOf(id, owner)).Distinct().ToArray();
+            if (territories.Length == 0) continue;
+            var byTerritory = new List<string>();
+            var token = EnumWire<Region>.Format(owner);
+            AddIntList(byTerritory, parameters, "territory_id", territories, "ctid_" + token);
+            var parameter = "$content_region_" + token;
+            parameters.Add(new(parameter, token));
+            alternatives.Add($"(content_id IS NULL AND region = {parameter} AND {byTerritory[0]})");
         }
-
-        var byTerritory = new List<string>();
-        AddIntList(byTerritory, parameters, "territory_id", territories, "ctid");
-        clauses.Add($"({byContent[0]} OR (content_id IS NULL AND {byTerritory[0]}))");
+        clauses.Add("(" + string.Join(" OR ", alternatives) + ")");
     }
 
     private static void AddIntList(

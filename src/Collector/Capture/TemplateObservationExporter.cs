@@ -102,7 +102,7 @@ internal static class TemplateObservationExporter
         if ((long)metadata.Count * markerCount > 4_000_000) return Fail("OBSERVATION_LIMIT");
         var region = Text(header, "region");
         var build = Text(header, "game_build");
-        if (region is not ("CN" or "GLOBAL") || build.Length > 24 ||
+        if (region is not ("CN" or "GLOBAL" or "TC") || build.Length > 24 ||
             !Regex.IsMatch(build, @"\A[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]{4}\.[0-9]{4}\z", RegexOptions.CultureInvariant)) return Fail("OBSERVATION_IDENTITY_UNKNOWN");
 
         var candidates = new List<(Key Key, string Event, int Inside, int Outside, int Hits)>();

@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Storage;
@@ -14,7 +15,7 @@ public sealed class MigrationTests
         using var fixture = new TestDatabase();
 
         Assert.Equal(MigrationRunner.LatestVersion, fixture.Database.SchemaVersion);
-        Assert.Equal(11, MigrationRunner.LatestVersion);
+        Assert.Equal(12, MigrationRunner.LatestVersion);
 
         using var command = fixture.Database.CreateCommand();
         command.CommandText =
@@ -44,6 +45,7 @@ public sealed class MigrationTests
                 (9, "0009_personal_record_import.sql"),
                 (10, "0010_history_retention.sql"),
                 (11, "0011_run_joined_in_progress.sql"),
+                (12, "0012_regional_records.sql"),
             },
             applied);
     }
@@ -350,5 +352,130 @@ public sealed class MigrationTests
             "VALUES ('00000000-0000-4000-8000-000000000001', '2026-09-04T01:02:03Z', 'test', 'CN', 'VERIFIED');";
 
         Assert.Throws<SqliteException>(() => command.ExecuteNonQuery());
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(11)]
+    public void RegionalUpgradePreservesPopulatedHistoryAndSchemaObjects(int version)
+    {
+        using var fixture = new TestDatabase();
+        var path = fixture.Path + ".legacy";
+        using (var old = LegacyDatabase(path, fixture, version))
+        {
+            using var seed = old.CreateCommand();
+            seed.CommandText = """
+                INSERT INTO capture_sessions(capture_session_id,started_at_utc,collector_version,region)
+                VALUES ('session','2026-09-04T01:02:03.456Z','legacy','CN');
+                INSERT INTO mentor_runs(run_id,revision,capture_session_id,region,result,source,created_at_utc,updated_at_utc)
+                VALUES ('cn',1,'session','CN','COMPLETED','MANUAL','2026-09-04T01:02:03.456Z','2026-09-04T01:02:03.456Z'),
+                       ('global',1,NULL,'GLOBAL','UNKNOWN','IMPORT','2026-09-04T01:02:03.456Z','2026-09-04T01:02:03.456Z'),
+                       ('unknown',1,NULL,'UNKNOWN','UNKNOWN','IMPORT','2026-09-04T01:02:03.456Z','2026-09-04T01:02:03.456Z');
+                INSERT INTO run_events(event_id,run_id,sequence,occurred_at_utc,monotonic_offset_ms,event_type)
+                VALUES ('event','cn',0,'2026-09-04T01:02:03.456Z',0,'test');
+                INSERT INTO run_revisions(revision_id,run_id,revision,changed_at_utc,change_kind,actor,reason,changes_json)
+                VALUES ('revision','cn',1,'2026-09-04T01:02:03.456Z','CREATE_MANUAL','USER','测试旧记录','[]');
+                INSERT INTO achievement_settings(id,goal_count,baseline_completed_count,baseline_effective_at,updated_at_utc)
+                VALUES (1,2400,1700,'2026-09-04T01:02:03.456Z','2026-09-04T01:02:03.456Z');
+                CREATE TABLE custom_audit (run_id TEXT);
+                CREATE INDEX ix_custom_region ON mentor_runs(region,run_id);
+                CREATE TRIGGER custom_run_update AFTER UPDATE OF result ON mentor_runs
+                BEGIN INSERT INTO custom_audit VALUES (NEW.run_id); END;
+                CREATE VIEW custom_history AS SELECT run_id,region FROM mentor_runs;
+                CREATE INDEX ix_custom_goal ON achievement_settings(goal_count);
+                """;
+            seed.ExecuteNonQuery();
+            if (version >= 11)
+            {
+                seed.CommandText = """
+                    INSERT INTO run_reflections VALUES ('cn','good','心得','2026-09-04T01:02:03.456Z','2026-09-04T01:02:03.456Z');
+                    INSERT INTO run_import_metadata(run_id,source_kind,source_fingerprint,imported_at_utc)
+                    VALUES ('global','CSV','legacy-fingerprint','2026-09-04T01:02:03.456Z');
+                    UPDATE mentor_runs SET joined_in_progress = 1, note = '原有备注' WHERE run_id = 'cn';
+                    """;
+                seed.ExecuteNonQuery();
+            }
+        }
+
+        using var database = SqliteDatabase.Open(path, fixture.Clock);
+        var runs = new RunRepository(database);
+        Assert.Equal(3, runs.Query(null, null, 1, 50).Total);
+        Assert.Equal(Region.Cn, runs.Get("cn")!.Region);
+        Assert.Equal(Region.Global, runs.Get("global")!.Region);
+        Assert.Equal(Region.Unknown, runs.Get("unknown")!.Region);
+        var settings = new SettingsRepository(database, fixture.Clock);
+        settings.EnsureDefaults();
+        Assert.Equal(1700, settings.GetAchievementSettings().BaselineCompletedCount);
+        Assert.Equal(2400, settings.GetAchievementSettings().GoalCount);
+        Assert.Equal(0, settings.GetAchievementSettings(region: Region.Tc).BaselineCompletedCount);
+        using var check = database.CreateCommand();
+        check.CommandText = "PRAGMA foreign_key_check;";
+        Assert.Null(check.ExecuteScalar());
+        check.CommandText = "PRAGMA integrity_check;";
+        Assert.Equal("ok", check.ExecuteScalar());
+        check.CommandText = "PRAGMA foreign_keys;";
+        Assert.Equal(1L, check.ExecuteScalar());
+        check.CommandText = "SELECT count(*) FROM run_events WHERE run_id='cn';";
+        Assert.Equal(1L, check.ExecuteScalar());
+        check.CommandText = "SELECT count(*) FROM run_revisions WHERE run_id='cn';";
+        Assert.Equal(1L, check.ExecuteScalar());
+        check.CommandText = "SELECT count(*) FROM sqlite_schema WHERE name IN ('ix_custom_region','ix_custom_goal','custom_run_update','custom_history');";
+        Assert.Equal(4L, check.ExecuteScalar());
+        check.CommandText = "UPDATE mentor_runs SET result='UNKNOWN' WHERE run_id='cn'; SELECT count(*) FROM custom_audit;";
+        Assert.Equal(1L, check.ExecuteScalar());
+        check.CommandText = "UPDATE run_revisions SET actor='SYSTEM' WHERE revision_id='revision';";
+        Assert.Throws<SqliteException>(() => check.ExecuteNonQuery());
+        check.CommandText = "UPDATE mentor_runs SET region='TC' WHERE run_id='cn'; UPDATE capture_sessions SET region='TC';";
+        check.ExecuteNonQuery();
+        check.CommandText = "UPDATE mentor_runs SET region='WRONG' WHERE run_id='cn';";
+        Assert.Throws<SqliteException>(() => check.ExecuteNonQuery());
+        if (version >= 11)
+        {
+            Assert.Equal("心得", runs.Get("cn")!.Reflection!.Text);
+            Assert.True(runs.Get("cn")!.JoinedInProgress);
+            Assert.Equal("原有备注", runs.Get("cn")!.Note);
+            Assert.Equal("legacy-fingerprint", runs.Get("global")!.ImportMetadata!.SourceFingerprint);
+        }
+    }
+
+    [Fact]
+    public void RegionalUpgradeRollsBackAndRestoresPragmasWhenForeignKeysAreInvalid()
+    {
+        using var fixture = new TestDatabase();
+        using var old = LegacyDatabase(fixture.Path + ".invalid", fixture, 11);
+        using var command = old.CreateCommand();
+        command.CommandText = "PRAGMA foreign_keys=OFF; " +
+            "INSERT INTO run_events(event_id,run_id,sequence,occurred_at_utc,monotonic_offset_ms,event_type) " +
+            "VALUES ('bad','missing',0,'2026-09-04T01:02:03.456Z',0,'test'); PRAGMA foreign_keys=ON;";
+        command.ExecuteNonQuery();
+        Assert.Throws<CollectorException>(() => MigrationRunner.MigrateToLatest(old, fixture.Clock));
+        command.CommandText = "SELECT MAX(version) FROM schema_migrations;";
+        Assert.Equal(11L, command.ExecuteScalar());
+        command.CommandText = "PRAGMA foreign_keys;";
+        Assert.Equal(1L, command.ExecuteScalar());
+        command.CommandText = "PRAGMA legacy_alter_table;";
+        Assert.Equal(0L, command.ExecuteScalar());
+        command.CommandText = "SELECT count(*) FROM pragma_table_info('achievement_settings') WHERE name='region';";
+        Assert.Equal(0L, command.ExecuteScalar());
+    }
+
+    private static SqliteConnection LegacyDatabase(string path, TestDatabase fixture, int version)
+    {
+        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        { DataSource = path, Pooling = false, ForeignKeys = true }.ConnectionString);
+        connection.Open();
+        foreach (var migration in MigrationRunner.Scripts.Where(script => script.Version <= version))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = migration.Sql;
+            command.Parameters.AddWithValue("$migration_now_utc", UtcTimestamp.ToText(fixture.Clock.UtcNow));
+            command.ExecuteNonQuery();
+            command.CommandText = "INSERT INTO schema_migrations VALUES ($version,$name,$checksum,$migration_now_utc);";
+            command.Parameters.AddWithValue("$version", migration.Version);
+            command.Parameters.AddWithValue("$name", migration.Name);
+            command.Parameters.AddWithValue("$checksum", migration.Checksum);
+            command.ExecuteNonQuery();
+        }
+        return connection;
     }
 }

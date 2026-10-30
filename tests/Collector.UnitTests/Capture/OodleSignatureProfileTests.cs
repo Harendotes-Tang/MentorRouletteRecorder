@@ -199,7 +199,7 @@ public sealed class OodleSignatureProfileTests : IDisposable
     [InlineData("missing-root-field", "required root fields are missing")]
     // Scalars.
     [InlineData("schema-version", "schema_version must be")]
-    [InlineData("region-unknown", "region must be CN or GLOBAL")]
+    [InlineData("region-unknown", "region must be CN, TC or GLOBAL")]
     [InlineData("exe-hash-short", "exe_sha256 must be 64 hexadecimal characters")]
     [InlineData("exe-hash-not-hex", "exe_sha256 must be 64 hexadecimal characters")]
     [InlineData("exe-size-zero", "exe_size must be positive")]

@@ -322,6 +322,7 @@ ApplicationWindow {
     }
 
     function openImportDialog() {
+        Runtime.app.refreshAchievementRegions()
         importDialog.openDialog()
     }
 
@@ -1185,7 +1186,7 @@ ApplicationWindow {
         // Correcting a record needs the full duty and battle-job catalogues, not only
         // what this player has already recorded: the record worth correcting is
         // usually the one whose duty the software could not name.
-        dutyOptions: Runtime.app.dutyCatalogOptions
+        dutyOptions: Runtime.app.dutyChoicesForRegion(editDialog.recordRegion)
         jobOptions: Runtime.app.battleJobOptions
         onCreateRequested: function(fields, reason) {
             Runtime.app.createManualRun(fields, reason)
@@ -1321,8 +1322,11 @@ ApplicationWindow {
         anchors.centerIn: Overlay.overlay
         goalCount: Runtime.app.goalCount
         baselineCount: Runtime.app.baselineCount
-        recordedCount: Runtime.app.dashboard.achievement_progress !== undefined
-                       ? Math.max(0, Number(Runtime.app.dashboard.achievement_progress) - Runtime.app.baselineCount) : 0
+        recordedCount: {
+            Theme.trackBindingDependency(Runtime.app.dashboard)
+            const achievement = Runtime.app.achievementForRegion(Runtime.app.baselineRegion)
+            return Math.max(0, Number(achievement.achievement_progress || 0) - Runtime.app.baselineCount)
+        }
         settingsLoaded: Runtime.app.achievementSettingsLoaded
         busy: Runtime.app.baselineSaving
         // The goal typed in the dialog travels with the signal: writing it into

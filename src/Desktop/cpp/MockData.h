@@ -15,6 +15,19 @@
 
 namespace mr::mock {
 
+/// Closed service-region tokens; language locales are never accepted as regions.
+inline bool isRegion(const QString &region)
+{
+    return region == QLatin1String("CN") || region == QLatin1String("TC")
+        || region == QLatin1String("GLOBAL") || region == QLatin1String("UNKNOWN");
+}
+
+/// Legacy hand-written mock fixtures omitted region and represented CN sample records.
+inline QString runRegion(const QJsonObject &run)
+{
+    return run.value(QStringLiteral("region")).toString(QStringLiteral("CN"));
+}
+
 inline QString isoUtc(const QDateTime &dt)
 {
     return dt.toUTC().toString(Qt::ISODateWithMs);

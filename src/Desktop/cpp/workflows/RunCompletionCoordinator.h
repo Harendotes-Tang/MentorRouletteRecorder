@@ -30,6 +30,7 @@ public:
         std::function<void()> refreshRecovery;
         std::function<void(const QJsonObject &)> adoptRunRevision;
         std::function<void(DashboardDone)> requestDashboard;
+        std::function<void(const QString &region, DashboardDone)> requestRegionalAchievement;
         std::function<QString()> databaseKey;
         std::function<bool()> identityVerified;
         std::function<bool()> reflectionPromptEnabled;

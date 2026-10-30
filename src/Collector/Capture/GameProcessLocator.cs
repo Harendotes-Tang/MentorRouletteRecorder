@@ -144,6 +144,16 @@ public sealed class GameProcessLocator
         "square enix", "squareenix", "final fantasy xiv - a realm reborn", "ffxiv - a realm reborn",
     };
 
+    /// <summary>
+    /// The Traditional Chinese launcher's default folder, as players reported it in public
+    /// (<c>C:\Program Files\USERJOY GAMES\FINAL FANTASY XIV TC</c>); not yet checked on a
+    /// client of this project's own. Either half names the region on its own.
+    /// </summary>
+    private static readonly string[] TcMarkers =
+    {
+        "userjoy games", "final fantasy xiv tc",
+    };
+
     private readonly IGameProcessProvider _processes;
     private readonly IGameFileReader _files;
     private readonly Func<Region?>? _regionOverride;
@@ -306,7 +316,7 @@ public sealed class GameProcessLocator
             // carries none of the markers, or markers of both regions. That is a permanent
             // condition and waiting will never fix it, so the message has to say what the
             // user can actually do (H-9).
-            warnings.Add(HasMarkersOfBothRegions(chosen.ExecutablePath)
+            warnings.Add(HasMarkersOfSeveralRegions(chosen.ExecutablePath)
                 ? CollectorTexts.CaptureGameRegionAmbiguous()
                 : CollectorTexts.CaptureGameRegionUnmarked());
         }
@@ -388,10 +398,10 @@ public sealed class GameProcessLocator
     }
 
     /// <summary>
-    /// Guesses the service region from the install path. Only a confident match answers; an
+    /// Guesses the service region from the install path. Only a confident match answers: an
     /// unrecognised path stays <see cref="Region.Unknown"/> rather than defaulting to one, and
-    /// so does a path carrying markers of both regions (a Global client in a folder named
-    /// 最终幻想, say): which one wins would be a guess.
+    /// so does a path carrying markers of more than one region (a Global client in a folder
+    /// named 最终幻想, say): which one wins would be a guess.
     /// </summary>
     /// <param name="executablePath">Main module path, or null.</param>
     public static Region GuessRegion(string? executablePath)
@@ -401,19 +411,24 @@ public sealed class GameProcessLocator
             return Region.Unknown;
         }
 
-        var lowered = executablePath.ToLowerInvariant();
-        var cn = CnMarkers.Any(marker => lowered.Contains(marker, StringComparison.Ordinal));
-        var global = GlobalMarkers.Any(marker => lowered.Contains(marker, StringComparison.Ordinal));
-        return cn == global ? Region.Unknown : cn ? Region.Cn : Region.Global;
+        var marked = MarkedRegions(executablePath);
+        return marked.Count == 1 ? marked[0] : Region.Unknown;
     }
 
-    /// <summary>True when the path carries markers of both regions.</summary>
+    /// <summary>True when the path carries markers of more than one region.</summary>
     /// <param name="executablePath">Main module path.</param>
-    private static bool HasMarkersOfBothRegions(string executablePath)
+    private static bool HasMarkersOfSeveralRegions(string executablePath) => MarkedRegions(executablePath).Count > 1;
+
+    /// <summary>Every region whose markers the path contains, in CN, GLOBAL, TC order.</summary>
+    /// <param name="executablePath">Main module path.</param>
+    private static List<Region> MarkedRegions(string executablePath)
     {
         var lowered = executablePath.ToLowerInvariant();
-        return CnMarkers.Any(marker => lowered.Contains(marker, StringComparison.Ordinal)) &&
-               GlobalMarkers.Any(marker => lowered.Contains(marker, StringComparison.Ordinal));
+        var marked = new List<Region>(3);
+        if (CnMarkers.Any(marker => lowered.Contains(marker, StringComparison.Ordinal))) marked.Add(Region.Cn);
+        if (GlobalMarkers.Any(marker => lowered.Contains(marker, StringComparison.Ordinal))) marked.Add(Region.Global);
+        if (TcMarkers.Any(marker => lowered.Contains(marker, StringComparison.Ordinal))) marked.Add(Region.Tc);
+        return marked;
     }
 
     private Region? SafeRegionOverride()
@@ -426,7 +441,7 @@ public sealed class GameProcessLocator
         try
         {
             var region = _regionOverride();
-            return region is Region.Cn or Region.Global ? region : null;
+            return region is Region.Cn or Region.Global or Region.Tc ? region : null;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {

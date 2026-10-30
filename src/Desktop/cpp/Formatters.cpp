@@ -150,6 +150,15 @@ QString Formatters::npcapVersionLabel(const QVariant &version)
     return text.front().isDigit() ? QStringLiteral("v") + text : text;
 }
 
+QString Formatters::regionLabel(const QString &code)
+{
+    if (code == QLatin1String("CN")) return tr("国服 CN");
+    if (code == QLatin1String("TC")) return tr("繁中服 TC");
+    if (code == QLatin1String("GLOBAL")) return tr("国际服 GLOBAL");
+    if (code == QLatin1String("UNKNOWN")) return tr("未知区服");
+    return tr("全部区服");
+}
+
 QString Formatters::resultLabel(const QString &code)
 {
     if (code == QLatin1String("COMPLETED"))              return tr("通关");

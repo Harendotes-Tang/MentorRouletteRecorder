@@ -41,7 +41,7 @@ internal sealed record CalibrationEvidenceDocument(string Format, int SchemaVers
         Kind == "CODE_VERIFICATION" && Uuid(EvidenceId) && Producer is not null && Target is not null &&
         Producer.RulesVersion == RulesVersion && Producer.AppVersion is { Length: <= 64 } version &&
         Regex.IsMatch(version, @"\A[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.+-]+)?\z", RegexOptions.CultureInvariant) &&
-        Target.Region is "CN" or "GLOBAL" &&
+        Target.Region is "CN" or "GLOBAL" or "TC" &&
         Target.GameBuild is { Length: <= 24 } build && Regex.IsMatch(build, @"\A[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]{4}\.[0-9]{4}\z", RegexOptions.CultureInvariant) &&
         Target.TemplateProfileId is { Length: > 0 and <= 128 } profile &&
         Regex.IsMatch(profile, @"\A[A-Za-z0-9][A-Za-z0-9._-]*\z", RegexOptions.CultureInvariant) &&

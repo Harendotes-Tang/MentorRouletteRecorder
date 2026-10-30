@@ -3,11 +3,11 @@
 // ---------------------------------------------------------------------------
 // Game names in the interface language.
 //
-// Runs, statistics and the catalogues carry the Chinese client's names: the
-// record is written in Simplified Chinese and stays so. This class only decides
+// Runs and catalogues retain the names of their original service. Stored
+// names and territory identities stay unchanged. This class only decides
 // how such a name is SHOWN: in 繁體中文 / English / 日本語 the official game text
 // of that language, from the bundled data/i18n/game-names.<date>.json (id -> name,
-// see data/i18n/README.md), and in 简体中文 the record's own name. A name the
+// see data/i18n/README.md), with the original name retained when a translation is unavailable. A name the
 // file does not know is shown as recorded.
 //
 // Display only: nothing here is written back or used to identify a duty, and
@@ -39,7 +39,7 @@ public:
     QString dataVersion() const { return m_dataVersion; }
 
     /// The duty \a contentId in the interface language. \a recorded is the
-    /// record's own (Chinese) name: returned as is in 简体中文, and used to find
+    /// record's source name: custom text is preserved in 简体中文, and used to find
     /// the duty when \a contentId is missing.
     Q_INVOKABLE QString duty(const QVariant &contentId, const QString &recorded = QString()) const;
     /// Whether the CN catalogue gives this identity a name shared by other duties.
@@ -58,16 +58,17 @@ public:
     /// A role group of the prototype's legend (坦克 / 治疗 / 近战 / 远程物理 / 魔法 / 其他).
     Q_INVOKABLE QString roleGroup(const QString &recorded) const;
 
-    /// The recorded (Chinese) names of the duties and jobs whose name in the
+    /// The recorded names across bundled regions whose name in the
     /// interface language contains \a text, sorted: "Sastasha" gives
     /// 天然要害沙斯塔夏溶洞 and its hard mode, "Paladin" gives 骑士 alone, not
-    /// 暗黑骑士. Empty in 简体中文, for no match, or for more than
+    /// 暗黑骑士. Empty for no match or for more than
     /// kMaxSearchNames. Callers keep the original in text, so note words still
     /// match, and send these in name_exact.
     Q_INVOKABLE QStringList recordedSearchNames(const QString &text) const;
 
     /// The most names one search sends ($defs/RunFilter.name_exact maxItems).
-    static constexpr int kMaxSearchNames = 1000;
+    /// Covers the combined CN/TC/GLOBAL aliases; never truncate a broader match.
+    static constexpr int kMaxSearchNames = 4096;
 
     /// The same lookups for an explicit language code (tests, speech).
     QString dutyIn(const QString &code, const QVariant &contentId, const QString &recorded) const;
@@ -86,6 +87,7 @@ private:
     QHash<qint64, Names> m_roulettes;
     QHash<QString, Names> m_categories;   // keyed by the Simplified-Chinese label
     QHash<QString, Names> m_expansions;   // keyed by the English label
+    QMultiHash<QString, qint64> m_dutySearchIdsByName; // all regional names, including ambiguous ones
     QHash<QString, qint64> m_dutyIdByName;      // Chinese client name -> content_id
     QHash<QString, qint64> m_jobIdByName;
     QHash<QString, qint64> m_rouletteIdByName;

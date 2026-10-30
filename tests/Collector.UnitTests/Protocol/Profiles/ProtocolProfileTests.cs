@@ -33,6 +33,29 @@ public sealed class ProtocolProfileTests : IDisposable
     }
 
     [Fact]
+    public void TraditionalPlaceholderLoadsWithoutBorrowingAnyRecordingCapability()
+    {
+        var root = ProfileCatalog.FindDefaultRoot();
+        Assert.NotNull(root);
+        var path = Path.Combine(root, "tc", "tc-unsupported.json");
+        var report = ProfileLoader.Validate(path);
+        Assert.True(report.Ok, string.Join("; ", report.Errors.Select(error => error.Message)));
+        var profile = Assert.IsType<ProtocolProfile>(report.Profile);
+        Assert.Equal(Region.Tc, profile.Region);
+        Assert.Equal(ProfileCompatibilityStatus.Unsupported, profile.Status);
+        Assert.Empty(profile.Messages);
+        Assert.Null(profile.MentorRouletteId);
+        Assert.False(profile.ToBinding().IsUsable);
+        Assert.Null(Protocol.Calibration.CalibrationTemplate.Select(ProfileCatalog.LoadDefault(), Region.Tc));
+
+        var wrongDirectory = Path.Combine(_directory, "cn");
+        Directory.CreateDirectory(wrongDirectory);
+        var wrongPath = Path.Combine(wrongDirectory, Path.GetFileName(path));
+        File.Copy(path, wrongPath);
+        Assert.Contains(ProfileLoader.Validate(wrongPath).Errors, error => error.Code == "E_PROFILE_REGION");
+    }
+
+    [Fact]
     public void ValidProfile_LoadsWithEveryDeclaredMessage()
     {
         var path = ProfileTestFiles.Write(_directory, "test-valid", ProfileTestFiles.Valid());
@@ -524,14 +547,18 @@ public sealed class ProtocolProfileTests : IDisposable
     }
 
     /// <summary>The clear was observed on a CN client only; Global keeps the UNKNOWN path.</summary>
-    [Fact]
-    public void AGlobalProfileDoesNotObserveTheClear()
+    [Theory]
+    [InlineData(Region.Global)]
+    [InlineData(Region.Tc)]
+    public void AnUnverifiedRegionNeverInheritsCnContentSignals(Region region)
     {
-        var profile = InMemoryProfile(Region.Global, ProfileCompatibilityStatus.Verified, PopFromServer, ZoneChange);
+        var profile = InMemoryProfile(region, ProfileCompatibilityStatus.Verified, PopFromServer, ZoneChange);
 
         var binding = profile.ToBinding();
 
         Assert.False(profile.ObservesDutyClear);
+        Assert.False(profile.ObservesDutyStart);
+        Assert.False(binding.ObservesDutyStart);
         Assert.True(binding.IsUsable);
         Assert.False(binding.ObservesDutyClear);
         Assert.False(binding.CanDetectDutyResult);

@@ -6,6 +6,46 @@ namespace MentorRecorder.Collector.UnitTests;
 public sealed class ReferenceCatalogTests
 {
     [Fact]
+    public void TraditionalCataloguesKeepNativeTerritoriesAndNeverBorrowKnownRegionRows()
+    {
+        var duties = DutyCatalog.Compose(new[]
+        {
+            DutyCatalog.ParseDocument("""
+                {"schema_version":1,"region":"CN","duties":[
+                 {"content_id":1,"territory_id":11,"localized_name":"CN duty"},
+                 {"content_id":2,"territory_id":12,"localized_name":"Only CN"}]}
+                """),
+            DutyCatalog.ParseDocument("""
+                {"schema_version":1,"region":"TC","duties":[
+                 {"content_id":1,"territory_id":111,"localized_name":"TC duty"}]}
+                """),
+        });
+        Assert.Equal(111, duties.Find(1, Region.Tc)!.TerritoryId);
+        Assert.Equal("TC duty", duties.FindByTerritory(111, Region.Tc)!.LocalizedName);
+        Assert.Null(duties.FindByTerritory(11, Region.Tc));
+        Assert.Null(duties.Find(2, Region.Tc));
+        Assert.Null(duties.FindByName("Only CN", Region.Tc));
+        Assert.Equal(new[] { 11, 111 }, duties.UniqueTerritoriesOf(1));
+        Assert.Equal(new[] { 111 }, duties.UniqueTerritoriesOf(1, Region.Tc));
+        Assert.Equal(new[] { 11 }, duties.UniqueTerritoriesOf(1, Region.Cn));
+
+        var roulettes = RouletteCatalog.Compose(new[]
+        {
+            RouletteCatalog.ParseDocument("""
+                {"schema_version":1,"region":"CN","roulettes":[
+                 {"roulette_id":1,"localized_name":"Only CN"}]}
+                """),
+            RouletteCatalog.ParseDocument("""
+                {"schema_version":1,"region":"TC","roulettes":[
+                 {"roulette_id":2,"localized_name":"TC roulette"}]}
+                """),
+        });
+        Assert.Equal("TC roulette", roulettes.NameOf(2, Region.Tc));
+        Assert.Null(roulettes.NameOf(1, Region.Tc));
+        Assert.Null(roulettes.NameOf(2, Region.Cn));
+    }
+
+    [Fact]
     public void DefaultJobCatalog_MapsKnownAndUnknownJobs()
     {
         var catalog = JobCatalog.Default;

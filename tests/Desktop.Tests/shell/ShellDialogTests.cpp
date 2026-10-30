@@ -1175,6 +1175,9 @@ private Q_SLOTS:
         QTRY_VERIFY(shell.backend.held(QStringLiteral("GetDashboardStats")));
         shell.backend.held(QStringLiteral("GetDashboardStats"))->succeed(dashboard(1000, 640));
 
+        // The page refresh after the targeted save read still belongs to the old connection.
+        QPointer<mr::BackendReply> oldConnectionRead = shell.backend.held(QStringLiteral("GetDashboardStats"));
+        QVERIFY(oldConnectionRead);
         // The pipe drops: what is stored is unknown again until it has been re-read.
         shell.backend.setConnected(false);
         QTRY_VERIFY(!save->isEnabled());
@@ -1184,6 +1187,10 @@ private Q_SLOTS:
         QTRY_VERIFY(shell.backend.held(QStringLiteral("GetDashboardStats")));
         QTest::qWait(50);
         QVERIFY(!save->isEnabled());
+        oldConnectionRead->succeed(dashboard(1000, 640));
+        QTest::qWait(20);
+        QVERIFY(!save->isEnabled()); // A stale read must not authorize saving on the new connection.
+        QTRY_VERIFY(shell.backend.held(QStringLiteral("GetDashboardStats")));
         shell.backend.held(QStringLiteral("GetDashboardStats"))->succeed(dashboard(1200, 700));
         QTRY_VERIFY(save->isEnabled());
         QCOMPARE(goal->property("text").toString(), QStringLiteral("1200"));
@@ -1943,12 +1950,23 @@ private Q_SLOTS:
 
     // While the stored figures are still being read the field cannot take a value
     // (CS7-D3); the cursor goes into it as soon as they have arrived.
+    void editBeforeTheFiguresArriveFocusesTheFieldOnceTheyHave_data()
+    {
+        QTest::addColumn<QString>("scope");
+        QTest::addColumn<QString>("owner");
+        QTest::newRow("all-CN") << QString() << QStringLiteral("CN");
+        QTest::newRow("TC") << QStringLiteral("TC") << QStringLiteral("TC");
+    }
+
     void editBeforeTheFiguresArriveFocusesTheFieldOnceTheyHave()
     {
+        QFETCH(QString, scope);
+        QFETCH(QString, owner);
         Shell shell;
         shell.backend.holdTypes << QStringLiteral("GetDashboardStats");
         QVERIFY2(shell.create(), qPrintable(shell.errors));
         QVERIFY(QTest::qWaitForWindowExposed(shell.window()));
+        shell.controller->setRecordRegion(scope);
         QVERIFY(!shell.controller->achievementSettingsLoaded());
         QQuickItem *edit = nullptr;
         QTRY_VERIFY(shell.itemWithText(QString::fromUtf8("修改")));
@@ -1959,8 +1977,14 @@ private Q_SLOTS:
         QQuickItem *field = shell.item(QStringLiteral("baselineField"));
         QVERIFY(field);
         QVERIFY(!field->isEnabled());
+        QCOMPARE(shell.controller->baselineRegion(), owner);
 
-        shell.backend.held(QStringLiteral("GetDashboardStats"))->succeed(dashboard(2000, 640));
+        QJsonObject stored = dashboard(2000, 640);
+        stored.insert(QStringLiteral("region"), owner);
+        // Deliver all held snapshots, including superseded scope reads. The owner entry
+        // must arrive explicitly before its fields can become editable.
+        for (const auto &call : shell.backend.callsOf(QStringLiteral("GetDashboardStats")))
+            if (call.reply && !call.reply->isFinished()) call.reply->succeed({{"achievements", QJsonArray{stored}}});
         QTRY_VERIFY(field->isEnabled());
         QTRY_VERIFY(field->hasActiveFocus());
         QCOMPARE(field->property("selectedText").toString(), QStringLiteral("640"));

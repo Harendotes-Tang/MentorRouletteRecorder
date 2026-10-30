@@ -271,6 +271,16 @@ public static class Wire
             ["joined_in_progress_count"] = statistics.JoinedInProgressCount,
             ["joined_in_progress_rate"] = statistics.JoinedInProgressRate,
             ["trend"] = Trend(statistics.Trend),
+            ["achievements"] = new JsonArray((statistics.Achievements ?? Array.Empty<RegionalAchievementStatistics>())
+                .Select(value => (JsonNode?)new JsonObject
+                {
+                    ["region"] = EnumWire<Region>.Format(value.Region),
+                    ["goal_count"] = value.GoalCount,
+                    ["baseline_completed_count"] = value.BaselineCompletedCount,
+                    ["achievement_progress"] = value.AchievementProgress,
+                    ["remaining"] = value.Remaining,
+                    ["completed_count"] = value.CompletedCount,
+                }).ToArray()),
         };
     }
 
@@ -319,6 +329,7 @@ public static class Wire
 
         return new JsonObject
         {
+            ["region"] = EnumWire<Region>.Format(row.Region),
             ["content_id"] = row.ContentId,
             ["duty_name"] = row.DutyName,
             ["duty_category"] = row.DutyCategory,

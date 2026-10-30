@@ -1,5 +1,16 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-10-24 · 繁中服身份、区服筛选与独立成就
+
+- `RunFilter.name_exact` 上限扩为 4096 项，以容纳多区目录的原名搜索；每项最多 200 字符，既有 4 MiB 消息上限不变。
+
+- `Region` 新增 `TC`，服务区服与 `zh-TW` 界面语言独立；`CaptureSettings.region_override` 接受 `TC`。协议档案与公开采证摘要使用同一 token。新增区服不代表已有经验证协议，繁中服正式自动记录仍受 VERIFIED 模板门禁保护。
+- `RunFilter.region` 为可选区服或 `null`，省略或 `null` 查看全部。历史、趋势、统计与导出应用相同条件；`DungeonStatsRow.region` 标识独立分组，不跨区合并相同编号。
+- `DashboardStats.achievements` 为独立区域进度数组，每项含 `region / goal_count / baseline_completed_count / achievement_progress / remaining / completed_count`。进度只计算该区服的全生命周期有效通关，不受日期、职业或副本筛选影响。选定区服返回该项；全部视图至少含 CN、TC，其他已有记录或设置的区服也会出现。旧标量成就字段投影所选区服，全部视图投影 CN，供旧桌面端兼容；新桌面端分别展示各区进度。
+- `UpdateAchievementBaseline` 请求可选 `region`，省略仍操作 CN；应答返回所属 `region`。schema 12 迁移只将原有设置归入 CN，TC 基数从 0 开始，不复制旧基数。基数审计、幂等重发与导入扣减均按所属区服处理。
+- `CreateManualRun.region` 可选，省略继续为 UNKNOWN。`CommitRunImport.baseline_adjustments` 按区服返回本次基数扣减和扣减后的值；原有扣减总数保留，旧 `baseline_completed_count` 标量继续投影 CN。
+- 原生 CSV 保持前 17 列位置，在末尾追加 `region / game_build`，旧 14、16、17 列导入继续兼容；JSON 保留已有区服和版本字段。跨区相同时间与副本编号不会互判重复。
+
 ## 2026-10-23 · 历史与心得按界面语言的名称搜索：`RunFilter.name_text` 与 `name_exact`
 
 附加式变更，不新增消息类型。

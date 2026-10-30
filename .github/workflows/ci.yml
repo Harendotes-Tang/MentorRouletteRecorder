@@ -87,7 +87,7 @@ jobs:
       - name: Protocol profiles validate
         shell: pwsh
         run: |
-          $profiles = Get-ChildItem protocol-profiles/cn/*.json, protocol-profiles/global/*.json, protocol-profiles/synthetic/*.json -File
+          $profiles = Get-ChildItem protocol-profiles/cn/*.json, protocol-profiles/global/*.json, protocol-profiles/tc/*.json, protocol-profiles/synthetic/*.json -File
           if ($profiles.Count -eq 0) { throw 'No protocol profiles found' }
           python tools/protocol-profile-validator/validate.py @($profiles.FullName)
 

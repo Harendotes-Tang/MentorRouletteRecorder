@@ -405,9 +405,11 @@ BackendReply *IBackend::undoRevision(const QString &runId, int expectedRevision,
 BackendReply *IBackend::updateAchievementBaseline(int goalCount,
                                                   int baselineCompletedCount,
                                                   const QString &reason,
-                                                  const QString &baselineEffectiveAtUtc)
+                                                  const QString &baselineEffectiveAtUtc,
+                                                  const QString &region)
 {
     QJsonObject payload;
+    if (!region.isEmpty()) payload.insert(QStringLiteral("region"), region);
     payload.insert(QStringLiteral("goal_count"), goalCount);
     payload.insert(QStringLiteral("baseline_completed_count"), baselineCompletedCount);
 

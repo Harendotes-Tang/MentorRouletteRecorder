@@ -46,6 +46,7 @@ public sealed class RunExporter
 
         // 1 joined in progress, 0 entered at the start, empty when the software did not see.
         "joined_in_progress",
+        "region", "game_build",
     };
 
     /// <summary>
@@ -83,7 +84,7 @@ public sealed class RunExporter
         for (var i = 0; i < CsvHeader.Count; i++)
         {
             columns[i] = CsvHeader[i] is "duty_name" or "duty_category" or "job_name"
-                or "reflection_text";
+                or "reflection_text" or "game_build";
         }
 
         return columns;
@@ -259,6 +260,8 @@ public sealed class RunExporter
             run.Reflection is null ? string.Empty : ReflectionText.Format(run.Reflection.Mood),
             run.Reflection?.Text ?? string.Empty,
             run.JoinedInProgress is { } joined ? (joined ? "1" : "0") : string.Empty,
+            EnumWire<Region>.Format(run.Region),
+            run.GameBuild ?? string.Empty,
         };
 
         for (var i = 0; i < cells.Length; i++)

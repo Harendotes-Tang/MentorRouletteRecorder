@@ -533,6 +533,36 @@ class ProfileEmissionTests(unittest.TestCase):
                 self.assertEqual(f"{TCP_CALLEE_RVA:08X}",
                                  written["resolved_rvas"]["OodleNetwork1TCP_Train"])
 
+    def test_the_command_line_writes_the_profile_for_the_region_it_was_given(self):
+        # A Traditional Chinese client gets its own signature profile: the region is the
+        # directory and the identity the runtime matches, never a CN default by accident.
+        with synthetic_executable() as path:
+            with tempfile.TemporaryDirectory() as outside:
+                out = os.path.join(outside, "profile.json")
+                with contextlib.redirect_stdout(io.StringIO()), \
+                        contextlib.redirect_stderr(io.StringIO()):
+                    code = find_signatures.main(
+                        ["--exe", path, "--profile-out", out, "--region", "TC",
+                         "--game-build", "9.9.9.9999.9999", "--quiet"])
+
+                self.assertEqual(0, code)
+                import json
+                with open(out, encoding="utf-8") as handle:
+                    self.assertEqual("TC", json.load(handle)["region"])
+
+    def test_the_command_line_rejects_a_region_the_collector_does_not_know(self):
+        with synthetic_executable() as path:
+            with tempfile.TemporaryDirectory() as outside:
+                out = os.path.join(outside, "profile.json")
+                with contextlib.redirect_stdout(io.StringIO()), \
+                        contextlib.redirect_stderr(io.StringIO()), \
+                        self.assertRaises(SystemExit) as refused:
+                    find_signatures.main(
+                        ["--exe", path, "--profile-out", out, "--region", "KR",
+                         "--game-build", "9.9.9.9999.9999", "--quiet"])
+
+                self.assertEqual(2, refused.exception.code)
+                self.assertFalse(os.path.exists(out))
     def test_the_command_line_refuses_to_write_into_the_game_directory(self):
         with synthetic_executable() as path:
             out = os.path.join(os.path.dirname(path), "profile.json")

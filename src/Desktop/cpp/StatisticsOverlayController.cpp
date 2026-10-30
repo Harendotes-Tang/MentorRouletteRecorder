@@ -252,6 +252,13 @@ void StatisticsOverlayController::setBackend(IBackend *backend)
     }
     refreshAttempts();
 }
+void StatisticsOverlayController::setRecordRegion(const QString &region)
+{
+    if (region == m_recordRegion) return;
+    m_recordRegion = region;
+    refreshAttempts();
+}
+
 void StatisticsOverlayController::refreshAttempts()
 {
     if (!statisticsApplicable())
@@ -260,7 +267,8 @@ void StatisticsOverlayController::refreshAttempts()
     m_attemptDate = now.date();
     m_attemptZoneId = now.timeZone().id();
     m_attemptUtcOffset = now.offsetFromUtc();
-    const QJsonObject filter = attemptFilter(m_attemptPeriod, now.date(), now.timeZone());
+    QJsonObject filter = attemptFilter(m_attemptPeriod, now.date(), now.timeZone());
+    if (!m_recordRegion.isEmpty()) filter.insert(QStringLiteral("region"), m_recordRegion);
     if (m_modules.contains(QStringLiteral("dungeons")))
         m_dungeons->setFilter(filter.toVariantMap());
     if (m_modules.contains(QStringLiteral("jobs")))
@@ -274,6 +282,7 @@ void StatisticsOverlayController::refreshAttempts()
     Q_EMIT attemptsChanged();
     if (!m_attemptsLoading)
         return;
+    if (!m_recordRegion.isEmpty()) filter.insert(QStringLiteral("region"), m_recordRegion);
     m_backend->getDashboardStats(filter)
         ->whenDone(this, [this, generation](bool ok, const QVariantMap &payload, const QString &, const QString &) {
             if (generation != m_attemptGeneration || !attemptsApplicable())

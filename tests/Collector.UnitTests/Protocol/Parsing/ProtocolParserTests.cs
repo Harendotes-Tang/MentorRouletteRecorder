@@ -658,11 +658,13 @@ public sealed class ProtocolParserTests : IDisposable
     }
 
     /// <summary>Observed on a CN client only: a GLOBAL profile treats the content as undeclared traffic.</summary>
-    [Fact]
-    public void AGlobalProfileIgnoresTheStartContent()
+    [Theory]
+    [InlineData(Region.Global)]
+    [InlineData(Region.Tc)]
+    public void OtherRegionsIgnoreTheCnStartContent(Region region)
     {
         var sink = new RecordingSink();
-        var parser = new ProfileMessageParser(CnProfile() with { Region = Region.Global }, sink);
+        var parser = new ProfileMessageParser(CnProfile() with { Region = region }, sink);
 
         parser.Accept(Message(DirectorOpcode, DirectorBody(DutyStartSignal.CommencedCommand, 7200), segmentType: 3));
         parser.Accept(Message(DirectorOpcode, DirectorBody(DutyStartSignal.TimeRemainingCommand, 7199), segmentType: 3));

@@ -38,14 +38,14 @@ public sealed record ShareCodePop(
 /// so they are deliberately absent, as are timestamps, sample counts, the roulettes played,
 /// notes and paths.
 ///
-/// JSON keys: <c>v</c> (1), <c>region</c> (CN | GLOBAL), <c>game_build</c> (the profile schema's
+/// JSON keys: <c>v</c> (1), <c>region</c> (CN | TC | GLOBAL), <c>game_build</c> (the profile schema's
 /// build pattern), <c>template_profile_id</c>, <c>template_sha256</c> (64 lowercase hex),
 /// <c>match_source</c> (REPLY_STATE | ANNOUNCEMENT | MARKER_OFFSET | QUEUE_REQUEST),
 /// <c>pop</c> (<see cref="ShareCodePop"/>), <c>zone_opcode</c>; optional <c>territory_opcode</c>
 /// (required for QUEUE_REQUEST) and <c>job_opcode</c>. An absent optional value is an absent key,
 /// never <c>null</c>. No other key is accepted at any level.
 /// </summary>
-/// <param name="Region">CN or GLOBAL.</param>
+/// <param name="Region">CN, TC or GLOBAL.</param>
 /// <param name="GameBuild">Client build the values were learned on.</param>
 /// <param name="TemplateProfileId">Profile id of the template the sharer calibrated under.</param>
 /// <param name="TemplateSha256">Canonical hash of that template.</param>

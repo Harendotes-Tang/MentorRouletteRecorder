@@ -330,7 +330,7 @@ public static class ShareCode
             return ShareCodeRejection.For(ShareCodeRejection.MissingKey, missing);
         }
 
-        if (!EnumWire<Region>.TryParse(Text(root, "region"), out var region) || region is not (Region.Cn or Region.Global))
+        if (!EnumWire<Region>.TryParse(Text(root, "region"), out var region) || region is not (Region.Cn or Region.Global or Region.Tc))
         {
             return ShareCodeRejection.For(ShareCodeRejection.Value, "region");
         }

@@ -363,6 +363,8 @@ set(MR_QML_FILES
     qml/components/PageHost.qml
     qml/components/ToggleSwitch.qml
     qml/components/TrendBars.qml
+    qml/components/RecordRegionSelector.qml
+    qml/components/RegionalAchievementCard.qml
     qml/components/CaptureRegionSelector.qml
     qml/components/UpdateDownloadStatus.qml
     qml/components/UpdateNotice.qml
@@ -472,16 +474,19 @@ endif()
 # also propose a name from this data, with visible original OCR and user review.
 # (data/duties/README.md, docs/privacy-boundary.md section 7).
 # ---------------------------------------------------------------------------
+file(GLOB MR_DUTY_CATALOGUES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../../data/duties/*.json")
+list(FILTER MR_DUTY_CATALOGUES EXCLUDE REGEX "[.]sample[.]json$")
+file(GLOB MR_ROULETTE_CATALOGUES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../../data/roulettes/*.json")
 qt_add_resources(MentorRecorderDesktopLib "mr_duties"
     PREFIX "/"
     BASE "${CMAKE_CURRENT_SOURCE_DIR}/../.."
     FILES
-        "${CMAKE_CURRENT_SOURCE_DIR}/../../data/duties/cn.2026-09-04.json"
+        ${MR_DUTY_CATALOGUES}
         # Display names of duties, jobs and roulettes in 繁體中文 / English / 日本語
         # (GameNames, data/i18n/README.md), and the Chinese roulette names they are
         # looked up by.
         "${CMAKE_CURRENT_SOURCE_DIR}/../../data/i18n/game-names.2026-10-15.json"
-        "${CMAKE_CURRENT_SOURCE_DIR}/../../data/roulettes/cn.json")
+        ${MR_ROULETTE_CATALOGUES})
 
 # Templates are saved from embedded bytes, independent of install location/network.
 qt_add_resources(MentorRecorderDesktopLib "mr_import_templates"

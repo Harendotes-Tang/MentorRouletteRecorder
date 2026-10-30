@@ -203,6 +203,8 @@ public:
     void resetRuns(const QJsonArray &runs, const QHash<QString, QString> &importFingerprints);
     /// Test seam: set the achievement settings directly.
     void setAchievement(int goalCount, int baselineCompletedCount);
+    /// Test seam: set only the named region; omitted-region callers retain CN semantics.
+    void setAchievement(const QString &region, int goalCount, int baselineCompletedCount);
 
     /// Statistics helpers, public so the unit tests can call them without
     /// going through the asynchronous request path.
@@ -357,17 +359,19 @@ private:
     int m_historyRetentionDays = 30;
     QStringList m_pendingImageCleanup;
     QDateTime m_now;
-    int m_goalCount = 2000;
-    int m_baselineCompletedCount = 1374;
-    /// achievement_settings.baseline_effective_at (UTC), answered with every save as
-    /// information only: the progress adds every contributing completion on top of the
-    /// baseline, whenever it ended (B3-1). Set in the constructor to before the dataset.
-    QDateTime m_baselineEffectiveAt;
-    /// achievement_settings.updated_at_utc, and the id of the baseline history entry that
-    /// stored the current values - empty when none did (setAchievement). A save that
-    /// changes nothing answers these (RunMutationService.UpdateAchievementBaseline).
-    QDateTime m_achievementUpdatedAt;
-    QString m_baselineAuditEventId;
+    struct AchievementSettings {
+        int goalCount = 2000;
+        int baselineCompletedCount = 0;
+        QDateTime baselineEffectiveAt;
+        QDateTime updatedAt;
+        QString auditEventId;
+    };
+    /// Per-region lifetime settings. Missing regions start at zero, never at CN's baseline.
+    AchievementSettings achievementSettings(const QString &region) const;
+    QHash<QString, AchievementSettings> m_achievements;
+    static QJsonArray declaredCandidateHypotheses();
+    QString captureRegion() const;
+    bool unsupportedCaptureRegion() const;
     bool m_npcapMissing = false;
     bool m_capturing = true;
     bool m_midstreamSuspected = false;

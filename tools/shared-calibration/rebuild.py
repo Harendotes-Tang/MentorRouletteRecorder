@@ -125,7 +125,7 @@ def load_template(data: bytes, name: str = "template") -> Template:
     if document.get("compatibility_status") != "VERIFIED":
         raise TemplateError(name + ": not VERIFIED")
     if document.get("region") not in sharecode.REGIONS:
-        raise TemplateError(name + ": region is not CN or GLOBAL")
+        raise TemplateError(name + ": region is not CN, TC or GLOBAL")
     if not isinstance(document.get("profile_id"), str):
         raise TemplateError(name + ": no profile_id")
     if type(document.get("mentor_roulette_id")) is not int:

@@ -293,6 +293,7 @@ public sealed class LocalProfileWriterTests : IDisposable
     [Theory]
     [InlineData(Region.Cn, "2026.09.01.0000.0000", "cn.2026.09.01.0000.0000.local")]
     [InlineData(Region.Global, "2026.09.01.0000.0000", "global.2026.09.01.0000.0000.local")]
+    [InlineData(Region.Tc, "2026.09.01.0000.0000", "tc.2026.09.01.0000.0000.local")]
     [InlineData(Region.Cn, "Weird Build_1", "cn.weird-build-1.local")]
     public void ProfileIdsAreLowercaseFileSafeAndSchemaValid(Region region, string build, string expected)
     {

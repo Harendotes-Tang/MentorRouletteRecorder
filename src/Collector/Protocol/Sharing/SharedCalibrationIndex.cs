@@ -9,7 +9,7 @@ using MentorRecorder.Collector.Protocol.Profiles;
 namespace MentorRecorder.Collector.Protocol.Sharing;
 
 /// <summary>One published code as the public repository's index lists it.</summary>
-/// <param name="Region">CN or GLOBAL.</param>
+/// <param name="Region">CN, TC or GLOBAL.</param>
 /// <param name="GameBuild">Client build the code was learned on.</param>
 /// <param name="CodeSha256">Identity of the code: SHA-256 of its canonical payload.</param>
 /// <param name="MatchSource">Kind of evidence that named the match; must agree with the code itself.</param>
@@ -111,7 +111,7 @@ public static class SharedCalibrationIndex
     private static readonly Regex ShaPattern = new(@"^[0-9a-f]{64}\z", RegexOptions.CultureInvariant);
     private static readonly Regex CommitPattern = new(@"^(?:[0-9a-f]{40}|[0-9a-f]{64})\z", RegexOptions.CultureInvariant);
     private static readonly Regex CodePathPattern = new(
-        @"^(?:cn|global)/[A-Za-z0-9][A-Za-z0-9._-]{0,127}/[0-9a-f]{12}\.mrc\z", RegexOptions.CultureInvariant);
+        @"^(?:cn|global|tc)/[A-Za-z0-9][A-Za-z0-9._-]{0,127}/[0-9a-f]{12}\.mrc\z", RegexOptions.CultureInvariant);
     private static readonly Regex StampPattern = new(
         @"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,7})?Z\z", RegexOptions.CultureInvariant);
 
@@ -141,16 +141,17 @@ public static class SharedCalibrationIndex
     public static bool IsCodePath([NotNullWhen(true)] string? text) => text is not null && CodePathPattern.IsMatch(text);
 
     /// <summary>Directory name of a region in the repository and in the local store: <c>cn</c> or <c>global</c>.</summary>
-    /// <param name="region">CN or GLOBAL; anything else throws.</param>
+    /// <param name="region">CN, TC or GLOBAL; anything else throws.</param>
     public static string RegionDirectory(Region region) => region switch
     {
         Region.Cn => "cn",
         Region.Global => "global",
-        _ => throw new ArgumentException("only CN and GLOBAL have shared calibrations", nameof(region)),
+        Region.Tc => "tc",
+        _ => throw new ArgumentException("only CN, TC and GLOBAL have shared calibrations", nameof(region)),
     };
 
     /// <summary>Repository path of a code: <c>&lt;region&gt;/&lt;build&gt;/&lt;first 12 hex digits&gt;.mrc</c>.</summary>
-    /// <param name="region">CN or GLOBAL.</param>
+    /// <param name="region">CN, TC or GLOBAL.</param>
     /// <param name="gameBuild">Client build (<see cref="IsBuild"/>).</param>
     /// <param name="codeSha256">Identity of the code (<see cref="IsSha256"/>).</param>
     public static string CodePath(Region region, string gameBuild, string codeSha256)
@@ -305,7 +306,7 @@ public static class SharedCalibrationIndex
             return "MISSING:" + missing;
         }
 
-        if (!EnumWire<Region>.TryParse(Text(item, "region"), out var region) || region is not (Region.Cn or Region.Global))
+        if (!EnumWire<Region>.TryParse(Text(item, "region"), out var region) || region is not (Region.Cn or Region.Global or Region.Tc))
         {
             return "INVALID:region";
         }

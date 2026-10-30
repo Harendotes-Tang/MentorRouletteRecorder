@@ -56,8 +56,10 @@ class ImportRecordsController final : public QObject
     /// Re-read only after a language switch (choicesChanged), so an open combo box
     /// keeps its state while the import is edited.
     Q_PROPERTY(QVariantList jobChoices READ jobChoices NOTIFY choicesChanged)
-    Q_PROPERTY(QVariantList dutyChoices READ dutyChoices NOTIFY choicesChanged)
+    Q_PROPERTY(QVariantList dutyChoices READ dutyChoices NOTIFY changed)
     /// The stored achievement baseline (安装前已完成次数), fed by the owner from the dashboard.
+    Q_PROPERTY(QVariantList achievements READ achievements WRITE setAchievements NOTIFY changed)
+    Q_PROPERTY(QVariantList baselinePreviews READ baselinePreviews NOTIFY changed)
     Q_PROPERTY(int baselineCount READ baselineCount WRITE setBaselineCount NOTIFY changed)
     /// The owner has read the stored baseline on this connection; before that baselineCount is a default.
     Q_PROPERTY(bool baselineLoaded READ baselineLoaded WRITE setBaselineLoaded NOTIFY changed)
@@ -69,7 +71,7 @@ class ImportRecordsController final : public QObject
     Q_PROPERTY(bool baselineChoiceOffered READ baselineChoiceOffered NOTIFY changed)
     /// The user's answer to "already counted in the baseline?"; defaults by source kind until chosen.
     Q_PROPERTY(bool deductFromBaseline READ deductFromBaseline WRITE setDeductFromBaseline NOTIFY changed)
-    /// How many the Collector would deduct: the contributing rows, capped by the stored baseline.
+    /// Contributing rows capped separately by each stored regional baseline; -1 while any owning snapshot is unread.
     Q_PROPERTY(int baselineDeductionPreview READ baselineDeductionPreview NOTIFY changed)
 
 public:
@@ -117,16 +119,19 @@ public:
     QVariantMap commitResult() const { return m_commitResult; }
     QVariantList jobChoices() const;
     QVariantList dutyChoices() const;
+    QVariantList achievements() const { return m_achievements; }
+    void setAchievements(const QVariantList &values);
+    QVariantList baselinePreviews() const;
     int baselineCount() const { return m_baselineCount; }
     void setBaselineCount(int count);
     bool baselineLoaded() const { return m_baselineLoaded; }
     void setBaselineLoaded(bool loaded);
-    bool waitingForBaseline() const { return previewValid() && !m_baselineLoaded && contributingSelectedCount() > 0; }
+    bool waitingForBaseline() const;
     int contributingSelectedCount() const;
-    bool baselineChoiceOffered() const { return previewValid() && m_baselineCount > 0 && contributingSelectedCount() > 0; }
+    bool baselineChoiceOffered() const;
     bool deductFromBaseline() const;
     void setDeductFromBaseline(bool deduct);
-    int baselineDeductionPreview() const { return qMin(contributingSelectedCount(), m_baselineCount); }
+    int baselineDeductionPreview() const;
 
     Q_INVOKABLE void reset();
     Q_INVOKABLE void chooseFiles();
@@ -139,7 +144,7 @@ public:
     Q_INVOKABLE void importText(const QString &text);
     Q_INVOKABLE void revalidate();
     Q_INVOKABLE void updateCandidate(int row, const QVariantMap &changes);
-    /// 修改调用前已勾选的记录；只接受职业、结果和打本心情，并校验一次。
+    /// 修改调用前已勾选的记录；只接受区服、职业、结果和打本心情，并校验一次。
     Q_INVOKABLE void batchUpdateSelected(const QVariantMap &changes);
     Q_INVOKABLE void setRowSelected(int row, bool selected);
     Q_INVOKABLE void setAllImportableSelected(bool selected);
@@ -224,6 +229,7 @@ private:
     bool m_ownConfirmed = false;
     bool m_hasAcceptedPreview = false;
     bool m_batchCommitted = false;
+    QVariantList m_achievements;
     int m_baselineCount = 0;
     bool m_baselineLoaded = false;
     // 「这些记录是否已包含在基数中」: the default follows the source kind until the user answers.

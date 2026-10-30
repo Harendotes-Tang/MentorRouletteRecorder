@@ -36,6 +36,8 @@ Usage:
         # add reviewed name-resolution preferences without changing existing duty facts
     python tools/duty-data-generator/generate.py --game-names [--version 2026-10-15] [--dry-run]
         # zh-TW / en / ja names into data/i18n, pinned to the duty file's game version
+    python tools/duty-data-generator/generate.py --tc-catalogues --version 2026-10-24
+        # TC-only native duty/roulette rows; --tc-ref pins the client export commit
 """
 
 from __future__ import annotations
@@ -63,6 +65,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
 import game_names  # noqa: E402  (offline parse / merge / write half of --game-names)
+import tc_catalog  # noqa: E402  (offline TC catalogue parser; no cross-region fallback)
 
 XIVAPI_SHEET = "https://v2.xivapi.com/api/sheet/ContentFinderCondition"
 # ContentMemberType is the game's own party composition row: MembersPerParty x PartyCount is
@@ -832,7 +835,7 @@ def add_game_names_arguments(parser):
     parser.add_argument("--roulettes", default=os.path.join(REPO, "data", "roulettes", "cn.json"),
                         help="--game-names: zh-Hans roulette file")
     parser.add_argument("--tc-ref", default="main",
-                        help="--game-names: ffxiv-datamining-tc branch or commit")
+                        help="--game-names / --tc-catalogues: ffxiv-datamining-tc branch or commit")
     parser.add_argument("--cn-ref", default="master",
                         help="--game-names: ffxiv-datamining-cn branch or commit")
 
@@ -844,6 +847,41 @@ def check_game_names_arguments(parser, args):
         parser.error("--version must be a UTC date such as 2026-10-15")
     if not args.duties:
         parser.error("no data/duties/cn.<date>.json found; pass --duties")
+
+
+def run_tc_catalogues(args, raw_dir, version):
+    """Fetch one pinned TC export and validate both documents before writing either."""
+    try:
+        texts, fetched = fetch_datamining_sheets(
+            tc_catalog.REPOSITORY, args.tc_ref, tc_catalog.SHEETS, raw_dir)
+        timestamp = args.tc_fetched_at or utc_timestamp()
+        duties, roulettes = tc_catalog.build_catalogues(texts, fetched, version, timestamp)
+    except (urllib.error.URLError, ValueError, OSError, http.client.HTTPException, KeyError,
+            TypeError, AttributeError, csv.Error) as error:
+        print("FAILED to generate TC catalogues: %s" % error, file=sys.stderr)
+        print("no catalogue was written; existing TC data is unchanged", file=sys.stderr)
+        return 1
+    print("TC source commit: %s" % fetched["commit"])
+    print("TC client build: %s" % duties["provenance"]["client_build"])
+    print("TC named duties: %d; named roulettes: %d" %
+          (len(duties["duties"]), len(roulettes["roulettes"])))
+    print("TC duties without named party-size columns: %d" %
+          duties["provenance"]["party_size_missing_named_columns"])
+    print("raw downloads: %s" % (raw_dir or "not kept (dry run)"))
+    if args.dry_run:
+        print("dry run: nothing written")
+        return 0
+    duty_dir = args.out_dir or os.path.join(REPO, "data", "duties")
+    roulette_dir = args.roulettes_out_dir or os.path.join(REPO, "data", "roulettes")
+    os.makedirs(duty_dir, exist_ok=True)
+    os.makedirs(roulette_dir, exist_ok=True)
+    duty_path = os.path.join(duty_dir, "tc.%s.json" % version)
+    roulette_path = os.path.join(roulette_dir, "tc.json")
+    write_document(duty_path, duties)
+    write_document(roulette_path, roulettes)
+    print("wrote %s" % duty_path)
+    print("wrote %s" % roulette_path)
+    return 0
 
 
 def main(argv):
@@ -866,8 +904,30 @@ def main(argv):
     parser.add_argument("--add-name-preferences", nargs="+", metavar="FILE", default=None,
                         help="add reviewed preferred_for_name_matching flags and their provenance "
                              "to existing files, fetched at each file's original game version")
+    parser.add_argument("--tc-catalogues", action="store_true",
+                        help="generate TC-only duty and roulette catalogues from a pinned TC "
+                             "client export; no CN/GLOBAL or converted fallback")
+    parser.add_argument("--roulettes-out-dir", default=None,
+                        help="--tc-catalogues: roulette output directory; data/roulettes by default")
+    parser.add_argument("--tc-fetched-at", default=None,
+                        help="--tc-catalogues: recorded UTC timestamp YYYY-MM-DDTHH:MM:SS.000Z "
+                             "for byte-identical regeneration; current UTC by default")
     add_game_names_arguments(parser)
     args = parser.parse_args(argv)
+    if args.tc_catalogues:
+        if args.game_names or args.add_party_size or args.add_name_preferences:
+            parser.error("--tc-catalogues and other generator modes are separate runs")
+        if args.game_version:
+            parser.error("--tc-catalogues uses the TC commit's client build, not --game-version")
+        if args.version and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.version):
+            parser.error("--version must be a UTC date such as 2026-10-24")
+        if args.tc_fetched_at:
+            try:
+                datetime.datetime.strptime(args.tc_fetched_at, "%Y-%m-%dT%H:%M:%S.000Z")
+            except ValueError:
+                parser.error("--tc-fetched-at must be YYYY-MM-DDTHH:MM:SS.000Z")
+    elif args.roulettes_out_dir or args.tc_fetched_at:
+        parser.error("--roulettes-out-dir and --tc-fetched-at require --tc-catalogues")
     if args.game_names:
         check_game_names_arguments(parser, args)
     if args.add_party_size and args.add_name_preferences:
@@ -903,6 +963,9 @@ def main(argv):
 
     if args.game_names:
         return run_game_names(args, raw_dir, version)
+
+    if args.tc_catalogues:
+        return run_tc_catalogues(args, raw_dir, version)
 
     try:
         english_rows, urls, xivapi_digest, api_version = fetch_english_rows(

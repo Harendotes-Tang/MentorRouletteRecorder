@@ -100,9 +100,24 @@ public sealed class SharedCalibrationIndexTests
     {
         Assert.Equal("cn/" + Build + "/aaaaaaaaaaaa.mrc", SharedCalibrationIndex.CodePath(Region.Cn, Build, Sha('a')));
         Assert.Equal("global/" + Build + "/bbbbbbbbbbbb.mrc", SharedCalibrationIndex.CodePath(Region.Global, Build, Sha('b')));
+        Assert.Equal("tc/" + Build + "/aaaaaaaaaaaa.mrc", SharedCalibrationIndex.CodePath(Region.Tc, Build, Sha('a')));
         Assert.Throws<ArgumentException>(() => SharedCalibrationIndex.CodePath(Region.Unknown, Build, Sha('a')));
         Assert.Throws<ArgumentException>(() => SharedCalibrationIndex.CodePath(Region.Cn, "..", Sha('a')));
         Assert.Throws<ArgumentException>(() => SharedCalibrationIndex.CodePath(Region.Cn, Build, "abc"));
+    }
+
+    [Fact]
+    public void SameBuildIndexEntriesStayInsideTheirRequestedRegion()
+    {
+        var read = SharedCalibrationIndex.Read(Index(Entry(Sha('a')), Entry(Sha('a'), region: "TC")));
+        Assert.Empty(read.Skipped);
+        Assert.Equal(2, read.Entries.Count);
+        var tc = Assert.Single(SharedCalibrationIndex.Select(read.Entries, Region.Tc, Build));
+        Assert.Equal(Region.Tc, tc.Region);
+        Assert.StartsWith("tc/", tc.Path);
+        var wrongPath = Entry(Sha('a'), region: "TC");
+        wrongPath["path"] = "cn/" + Build + "/aaaaaaaaaaaa.mrc";
+        Assert.Empty(SharedCalibrationIndex.Read(Index(wrongPath)).Entries);
     }
 
     [Fact]

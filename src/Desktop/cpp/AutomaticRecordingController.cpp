@@ -424,7 +424,7 @@ void AutomaticRecordingController::project(const QVariantMap &c)
         }();
         block(session + reason, LiveText([pathUnreadable, regionUnknown, buildUnknown] {
             if (regionUnknown && !pathUnreadable)
-                return tr("无法识别游戏区服，暂时不能自动记录。请在「设置 → 通用」中选择实际区服（国服 / 国际服），保存后会重新检查。");
+                return tr("无法识别游戏区服，暂时不能自动记录。请在「设置 → 通用」中选择实际区服（国服 / 繁中服 / 国际服），保存后会重新检查。");
             if (buildUnknown && !pathUnreadable)
                 return tr("无法读取游戏版本，暂时不能自动记录。请确认游戏文件完整，再点「重新检测游戏」。");
             return pathUnreadable

@@ -90,6 +90,9 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
         .requestDashboard = [this](RunCompletionCoordinator::DashboardDone done) {
             requestDashboard(std::move(done));
         },
+        .requestRegionalAchievement = [this](const QString &region, RunCompletionCoordinator::DashboardDone done) {
+            m_statistics->requestRegionalAchievement(region, std::move(done));
+        },
         .databaseKey = [this] { return m_recovery->databaseKey(); },
         .identityVerified = [this] { return m_recovery->identityVerified(); },
         .reflectionPromptEnabled = [this] { return !m_settings || m_settings->reflectPrompt(); },
@@ -274,6 +277,13 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     connect(m_statistics, &StatisticsController::dashboardChanged, this, &AppController::dashboardChanged);
     connect(m_statistics, &StatisticsController::achievementMilestoneReached,
             this, &AppController::achievementMilestoneReached);
+    connect(m_statistics, &StatisticsController::regionalAchievementMilestoneReached,
+            this, &AppController::regionalAchievementMilestoneReached);
+    connect(m_statistics, &StatisticsController::recordRegionChanged, this, [this] {
+        m_statisticsOverlay->setRecordRegion(m_statistics->recordRegion());
+        Q_EMIT recordRegionChanged();
+    });
+    connect(m_statistics, &StatisticsController::baselineRegionChanged, this, &AppController::baselineRegionChanged);
     connect(this, &AppController::statusChanged, this, &AppController::captureHealthTextChanged);
     onLanguageChanged(this, &AppController::retranslate);
     connect(m_statistics, &StatisticsController::achievementSettingsLoadedChanged, this,
@@ -1055,6 +1065,11 @@ QVariantList AppController::statCards() const
     return m_statistics->statCards();
 }
 
+QVariantList AppController::dutyChoicesForRegion(const QString &region) const
+{
+    return DutyCatalog::shared()->allDuties(region);
+}
+
 int AppController::goalCount() const
 {
     return m_statistics->goalCount();
@@ -1371,8 +1386,12 @@ QVariantMap AppController::announcementValues(const QJsonObject &run) const
     const QString spokenDuty = GameNames::shared()->duty(contentId, dutyName);
     values.insert(QStringLiteral("duty"),
                   spokenDuty.isEmpty() ? tr("未知副本") : spokenDuty);
-    values.insert(QStringLiteral("progress"), m_statistics->achievementProgress());
-    values.insert(QStringLiteral("remaining"), m_statistics->remainingCount());
+    QString region = run.value(QStringLiteral("region")).toString();
+    if (region.isEmpty()) region = m_currentRun.value(QStringLiteral("run")).toObject()
+        .value(QStringLiteral("region")).toString();
+    const QVariantMap achievement = m_statistics->achievementForRegion(region.isEmpty() ? QStringLiteral("CN") : region);
+    values.insert(QStringLiteral("progress"), achievement.value(QStringLiteral("achievement_progress"), 0));
+    values.insert(QStringLiteral("remaining"), achievement.value(QStringLiteral("remaining"), 2000));
     return values;
 }
 
@@ -1423,21 +1442,17 @@ QString AppController::numberlessAnnouncement(const QString &kind)
 void AppController::announceFinished(const QString &state, const QJsonObject &run,
                                      bool numbersKnown)
 {
-    if (!m_tts)
-        return;
+    if (!m_tts) return;
     const QString kind = announcementKind(state);
-    if (kind.isEmpty())
-        return;
-    const QVariantMap values = announcementValues(run);
-    m_tts->setContextValues(values);
-    // Stale numbers are still true numbers - they are this run behind at worst.
-    // Numbers that were never read are not, so that line drops them entirely.
-    if (!numbersKnown && m_statistics->dashboardSnapshot().isEmpty()) {
-        const QString line = numberlessAnnouncement(kind);
-        if (!line.isEmpty())
-            m_tts->announceText(kind, line);
+    if (kind.isEmpty()) return;
+    const QString region = run.value(QStringLiteral("region")).toString(QStringLiteral("CN"));
+    if (!numbersKnown && !m_statistics->achievementForRegion(region)
+            .contains(QStringLiteral("achievement_progress"))) {
+        m_tts->announceText(kind, numberlessAnnouncement(kind));
         return;
     }
+    const QVariantMap values = announcementValues(run);
+    m_tts->setContextValues(values);
     m_tts->announce(kind, values);
 }
 
@@ -1617,11 +1632,12 @@ void AppController::resultConfirmationDeferred(const QString &runId)
     m_completion->resultConfirmationDeferred(runId);
 }
 
-void AppController::readGoalProgress(const QString &runId)
+void AppController::readGoalProgress(const QString &runId, const QString &region)
 {
     if (runId.isEmpty())
         return;
-    requestDashboard([this, runId](bool ok) { Q_EMIT goalProgressRead(runId, ok); });
+    m_statistics->requestRegionalAchievement(region.isEmpty() ? QStringLiteral("CN") : region,
+        [this, runId](bool ok) { Q_EMIT goalProgressRead(runId, ok); });
 }
 
 void AppController::openHistoryForRun(const QVariantMap &run)
@@ -1838,7 +1854,7 @@ void AppController::retranslate()
 // duties share, 未知职业) has no filter key: RunFilter cannot say "is null", and
 // an empty filter would open every run under that row's numbers. Such a row
 // stays where it is and says why (review OD-4).
-void AppController::showHistoryForContent(const QVariant &contentId)
+void AppController::showHistoryForContent(const QVariant &contentId, const QString &region)
 {
     if (!contentId.isValid() || contentId.isNull()) {
         showToast(tr("这一行的记录没有确定的副本，历史记录无法单独列出它们。"));
@@ -1846,6 +1862,8 @@ void AppController::showHistoryForContent(const QVariant &contentId)
     }
     QVariantMap filter;
     filter.insert(QStringLiteral("content_id"), QVariantList{contentId});
+    const QString scope = region.isEmpty() ? recordRegion() : region;
+    if (!scope.isEmpty()) filter.insert(QStringLiteral("region"), scope);
     setHistoryFilter(filter);
     clearSelection();
     navigate(1);
@@ -1859,6 +1877,7 @@ void AppController::showHistoryForJob(const QVariant &jobId)
     }
     QVariantMap filter;
     filter.insert(QStringLiteral("job_id"), QVariantList{jobId});
+    if (!recordRegion().isEmpty()) filter.insert(QStringLiteral("region"), recordRegion());
     setHistoryFilter(filter);
     clearSelection();
     navigate(1);

@@ -78,7 +78,7 @@ Card {
     Text {
         Layout.fillWidth: true
         visible: card.guidedMode
-        text: qsTr("1. 先回到游戏标题画面，确认下方区服和网卡，点击开始采证，再重新登录。\n2. 排一次随机任务；排队、匹配弹窗出现、进本、通关、离本时，依次点击对应标记。\n3. 离本后停止采证，等到“已保存”再预览摘要。仅提交候选线索，不代表此区服已经适配。")
+        text: qsTr("1. 先退出游戏，选好实际区服和网卡（繁中服选 TC），再点“开始采证”。\n2. 启动游戏，等这里显示“正在取证”后再登录；若提示重启，须完全退出游戏后重开。\n3. 离本后停止采证，等到“已保存”再取文件。本轮只收集元数据，不会新增正式记录。")
         color: Theme.textPrimary
         font.pixelSize: Theme.fs(13)
         wrapMode: Text.WordWrap
@@ -217,11 +217,20 @@ Card {
 
     Text {
         Layout.fillWidth: true
-        text: qsTr("区服“自动”由采集器从安装路径推断；装在非默认目录的国服客户端可能识别为未知，"
-                   + "此时取证与验证会被拒绝，请在此显式指定。")
+        text: qsTr("区服与界面语言分别设置。请选择实际区服：繁中服为 TC，国际服为 GLOBAL；监听或采证期间不可修改。")
         color: Theme.textSecondary
         font.pixelSize: Theme.fs(11)
         wrapMode: Text.WordWrap
+    }
+
+    Text {
+        objectName: "templateObservationMarkerGuide"
+        Layout.fillWidth: true
+        visible: card.guidedMode
+        text: qsTr("开始排队 → 已排队；匹配弹窗出现 → 已匹配；读条结束进本 → 已进入；出现通关提示 → 已胜利；离本回到外面 → 已离开。尽量在事件发生后 3 秒内点击；漏按、点晚或未通关要如实记录，不要事后补点。")
+        color: Theme.textSecondary
+        font.pixelSize: Theme.fs(12)
+        wrapMode: Text.Wrap
     }
 
     Flow {
@@ -313,6 +322,63 @@ Card {
             color: Theme.orangeText
             font.pixelSize: Theme.fs(11)
             wrapMode: Text.WordWrap
+        }
+    }
+
+    ColumnLayout {
+        objectName: "templateObservationDetailedGuide"
+        Layout.fillWidth: true
+        visible: card.guidedMode
+        spacing: 10
+
+        CardKicker { text: qsTr("先确认数据可读") }
+        Text {
+            objectName: "templateObservationReadinessGuide"
+            Layout.fillWidth: true
+            text: qsTr("登录后正常活动 30～60 秒，查看上方采证“报文”是否增加。一直为 0 或“解码失败”快速增加时，先截图、停止并导出诊断，不必继续排本。\n优先采指导者随机；没有资格可采普通随机作对照，并注明类型。先回传一轮，确认可用后再补一轮。单次最长 2 小时，含等待时间。")
+            color: Theme.textPrimary
+            font.pixelSize: Theme.fs(13)
+            wrapMode: Text.Wrap
+        }
+
+        CardKicker { text: qsTr("停止后保存这些文件") }
+        Text {
+            objectName: "templateObservationFilesGuide"
+            Layout.fillWidth: true
+            text: qsTr("1. 点“停止采证”，等“已保存”，截图保存状态和四项计数。\n2. 点“打开所在目录”，复制本轮 trace.jsonl 与 trace.jsonl.sha256；每轮分开保存，不改原文件和文件名。\n3. 在上方“工具”点“导出诊断报告”并保存 JSON。\n失败时有多少文件就回传多少，注明缺失项，不自行补造。采证目录只保留最近 10 份且不超过 7 天，请及时复制到外部文件夹。")
+            color: Theme.textPrimary
+            font.pixelSize: Theme.fs(13)
+            wrapMode: Text.Wrap
+        }
+
+        CardKicker { text: qsTr("摘要和附加文件（可选）") }
+        Text {
+            objectName: "templateObservationOptionalGuide"
+            Layout.fillWidth: true
+            text: qsTr("可先“预览候选摘要”；摘要不足或预览失败，不影响回传上述文件。预览只针对当前最近一轮，需在下一轮或重开软件前处理。\n“复制摘要并打开提交页”会复制完整 JSON 并打开 GitHub，页面可能预填摘要。可将复制内容原样保存为 JSON 回传，无需发布 Issue；不想打开 GitHub 可跳过摘要。\n无法识别游戏版本时，可附 game 目录内的 ffxivgame.ver；启动或采证异常时，可附数据目录 logs 内对应时间的 collector-*.log。")
+            color: Theme.textPrimary
+            font.pixelSize: Theme.fs(13)
+            wrapMode: Text.Wrap
+        }
+
+        CardKicker { text: qsTr("回传时一起说明") }
+        Text {
+            objectName: "templateObservationFeedbackGuide"
+            Layout.fillWidth: true
+            text: qsTr("将每轮采证文件、诊断 JSON、状态或错误截图及文字回报放在同一 ZIP，私下交给维护者。请写明：软件、游戏和 Windows 版本，测试时间及时区，加速器或 VPN，随机类型、副本、职业，是否中途加入、通关，以及漏按、延迟、断线等情况。\n不需要数据库、游戏程序或 DLL、账号密码和原始抓包；完整 trace 不要贴到公开 Issue。采证完成只代表取得候选线索，仍需维护者验证。")
+            color: Theme.textPrimary
+            font.pixelSize: Theme.fs(13)
+            wrapMode: Text.Wrap
+        }
+
+        CardKicker { text: qsTr("采证前也可检查界面") }
+        Text {
+            objectName: "templateObservationInterfaceGuide"
+            Layout.fillWidth: true
+            text: qsTr("已有正式记录可先在“设置 → 数据”备份，备份留本机。可先检查：切换界面语言后区服仍正确；各区成就分开显示且设置互不影响；手动补录能找到对应区服的副本。测试成就设置前记下原值，测试后恢复；不方便修改时可跳过并注明。")
+            color: Theme.textPrimary
+            font.pixelSize: Theme.fs(13)
+            wrapMode: Text.Wrap
         }
     }
 }

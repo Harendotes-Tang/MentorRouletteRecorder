@@ -10,6 +10,10 @@ ScrollView {
     objectName: "dashboardPage"
     readonly property var visibleResultBuckets: Runtime.app.resultBuckets.filter(bucket =>
         bucket.result !== "UNKNOWN" || Number(bucket.count || 0) !== 0)
+    readonly property var pendingAchievementRegions: {
+        const expected = Runtime.app.recordRegion ? [Runtime.app.recordRegion] : ["CN", "TC"]
+        return expected.filter(region => !Runtime.app.visibleAchievements.some(entry => entry.region === region))
+    }
     readonly property bool recoveryBlocked: !!Runtime.app.captureStatus.path_recovery
         && Runtime.app.captureStatus.path_recovery.state === "RECOVERING"
         && !Runtime.app.recording.recovering && Runtime.app.recording.blocked
@@ -95,6 +99,12 @@ ScrollView {
             objectName: "dashboardHeader"
             title: qsTr("总览")
             subtitle: page.todayText
+            RecordRegionSelector {
+                objectName: "dashboardRegionFilter"
+                Layout.preferredWidth: 170
+                selection: Runtime.app.recordRegion
+                onRegionPicked: function(region) { Runtime.app.recordRegion = region }
+            }
         }
 
         // The Collector found a newer release. Notify only: nothing is
@@ -318,96 +328,60 @@ ScrollView {
             // At least 340, and as tall as the stat grid plus 当前导随 need: a ninth card
             // (中途加入 or 未知结果) adds a grid row, and at a fixed 340 当前导随 slid under
             // 完成趋势. The children's minimum heights do not lift an explicit preferred
-            // height, so the row reads the column's own height.
-            Layout.preferredHeight: Math.max(340, statColumn.implicitHeight)
+            // height, so the row reads the columns' own heights: the stat column and
+            // the achievement column, which stacks one card per region in the all view.
+            Layout.preferredHeight: Math.max(340, statColumn.implicitHeight, achievementColumn.implicitHeight)
             spacing: 12
 
-            Card {
-                objectName: "achievementCard"
+            ColumnLayout {
+                id: achievementColumn
                 Layout.preferredWidth: 300
-                Layout.fillHeight: true
-                padding: 20
-
-                CardKicker {
-                    text: qsTr("成就进度 · %1 次").arg(Runtime.app.goalCount)
-                }
-
-                Item {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 208
-
-                    ProgressRing {
-                        objectName: "achievementRing"
-                        width: 200
-                        height: 200
-                        anchors.centerIn: parent
-                        value: page.achievementProgress
-                        maximum: Math.max(1, Runtime.app.goalCount)
-                        label: String(page.achievementProgress)
-                        detail: Runtime.fmt.percent(Math.max(0, value / maximum), 1)
-                    }
-
-                    AchievementConfetti {
-                        id: achievementConfetti
-                        objectName: "achievementConfetti"
-                        anchors.fill: parent
-                        z: 1
-                    }
-                    Connections {
-                        target: Runtime.app
-                        function onAchievementMilestoneReached(completedLaps) {
-                            achievementConfetti.burst()
+                Layout.alignment: Qt.AlignTop
+                spacing: 12
+                Repeater {
+                    model: Runtime.app.visibleAchievements.length
+                    delegate: RegionalAchievementCard {
+                        required property int index
+                        Layout.fillWidth: true
+                        // A scope change can shrink the array before the old delegate is destroyed.
+                        // Keep that outgoing card hidden; this placeholder never enters the cache.
+                        visible: index < Runtime.app.visibleAchievements.length
+                        achievement: Runtime.app.visibleAchievements[index] || ({ region: "", goal_count: 0,
+                            baseline_completed_count: 0, achievement_progress: 0, remaining: 0 })
+                        compact: Runtime.app.visibleAchievements.length > 1
+                        onEditRequested: function(region) {
+                            Runtime.app.baselineRegion = region
+                            page.openSettingsRequested()
                         }
                     }
                 }
-
-                RowLayout {
-                    Layout.alignment: Qt.AlignHCenter
-                    spacing: 5
-
-                    Text {
-                        text: page.remainingParts[0].trim()
-                        visible: text.length > 0
-                        color: Theme.textSecondary
-                        font.pixelSize: Theme.fs(13)
-                    }
-
-                    Text {
-                        objectName: "achievementRemaining"
-                        text: String(page.achievementRemaining)
-                        color: Theme.textPrimary
-                        font.pixelSize: Theme.fs(18)
-                        font.weight: Theme.figureWeight(true)
-                        font.family: Theme.figureFamily
-                        font.features: ({ "tnum": 1 })
-                    }
-
-                    Text {
-                        text: (page.remainingParts[1] || "").trim()
-                        visible: text.length > 0
-                        color: Theme.textSecondary
-                        font.pixelSize: Theme.fs(13)
-                    }
-                }
-
-                Item { Layout.fillHeight: true }
-
-                RowLayout {
-                    Layout.alignment: Qt.AlignHCenter
-                    spacing: 5
-
-                    Text {
-                        text: qsTr("含起始次数 %1 次").arg(Runtime.app.baselineCount) + " ·"
-                        color: Theme.textSecondary
-                        font.pixelSize: Theme.fs(11)
-                    }
-
-                    Text {
-                        text: qsTr("修改")
-                        color: Theme.accent
-                        font.pixelSize: Theme.fs(11)
-
-                        TapHandler { onTapped: page.openSettingsRequested() }
+                // Editing remains reachable while the first authoritative snapshot is pending.
+                // A waiting card carries only its region, never invented goal/progress numbers.
+                Repeater {
+                    model: page.pendingAchievementRegions
+                    delegate: Card {
+                        id: waitingCard
+                        required property string modelData
+                        objectName: "achievementWaiting_" + waitingCard.modelData
+                        Layout.fillWidth: true
+                        padding: 20
+                        spacing: 12
+                        CardKicker { text: Theme.live(Runtime.fmt.regionLabel(waitingCard.modelData)) }
+                        Text {
+                            Layout.fillWidth: true
+                            text: qsTranslate("SettingsGoalTab", "正在读取已保存的目标和起始次数，读取完成后才能修改和保存。")
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.fs(12)
+                            wrapMode: Text.WordWrap
+                        }
+                        AppButton {
+                            text: qsTranslate("RegionalAchievementCard", "修改")
+                            variant: "ghost"
+                            onClicked: {
+                                Runtime.app.baselineRegion = waitingCard.modelData
+                                page.openSettingsRequested()
+                            }
+                        }
                     }
                 }
             }

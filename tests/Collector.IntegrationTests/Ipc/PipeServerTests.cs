@@ -15,6 +15,7 @@ public sealed class PipeServerTests
 
     private static CreateManualRunCommand ManualRun(int index) => new()
     {
+        Region = Region.Cn,
         RequestId = NewId(),
         Reason = "补录第 " + index + " 次导随",
         Result = index % 4 == 0 ? RunResult.LeftOrAbandoned : RunResult.Completed,

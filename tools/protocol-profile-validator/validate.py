@@ -206,7 +206,7 @@ def semantic_errors(document: dict, path: str) -> list:
 
     directory = os.path.basename(os.path.dirname(os.path.abspath(path))).lower()
     region = document.get("region")
-    expected_region = {"cn": "CN", "global": "GLOBAL", "synthetic": "UNKNOWN"}.get(directory)
+    expected_region = {"cn": "CN", "global": "GLOBAL", "tc": "TC", "synthetic": "UNKNOWN"}.get(directory)
     if expected_region is not None and region != expected_region:
         errors.append("region %r does not match directory '%s'" % (region, directory))
 

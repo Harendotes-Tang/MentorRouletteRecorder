@@ -350,9 +350,12 @@ MockBackend::MockBackend(QObject *parent)
     : IBackend(parent), m_now(QDate(2026, 9, 4), QTime(21, 40, 12), QTimeZone::LocalTime)
 {
     // The sample player entered the baseline before the 60 days the dataset spans.
-    m_baselineEffectiveAt = m_now.addDays(-60).toUTC();
-    m_achievementUpdatedAt = m_baselineEffectiveAt;
-    m_baselineAuditEventId = mockUuid(QStringLiteral("baseline-audit-1"));
+    AchievementSettings settings = achievementSettings(QStringLiteral("CN"));
+    settings.baselineCompletedCount = 1374;
+    settings.baselineEffectiveAt = m_now.addDays(-60).toUTC();
+    settings.updatedAt = settings.baselineEffectiveAt;
+    settings.auditEventId = mockUuid(QStringLiteral("baseline-audit-1"));
+    m_achievements.insert(QStringLiteral("CN"), settings);
     generateRuns();
 }
 
@@ -444,7 +447,7 @@ QVariantMap MockBackend::liveEventEnvelope(const QString &eventType, const QStri
 
 void MockBackend::emitStateChanged(const QString &state)
 {
-    if (state.isEmpty())
+    if (state.isEmpty() || unsupportedCaptureRegion())
         return;
     QVariantMap event = liveEventEnvelope(QStringLiteral("StateChanged"),
                                           QStringLiteral("run_state_changed"));
@@ -461,7 +464,7 @@ void MockBackend::emitStateChanged(const QString &state)
 
 void MockBackend::emitRunFinished(const QString &state)
 {
-    if (state.isEmpty())
+    if (state.isEmpty() || unsupportedCaptureRegion())
         return;
     QVariantMap event = liveEventEnvelope(QStringLiteral("RunFinished"),
                                           QStringLiteral("run_finished"));
@@ -501,10 +504,37 @@ void MockBackend::resetRuns(const QJsonArray &runs, const QHash<QString, QString
 
 void MockBackend::setAchievement(int goalCount, int baselineCompletedCount)
 {
-    m_goalCount = goalCount;
-    m_baselineCompletedCount = baselineCompletedCount;
+    setAchievement(QStringLiteral("CN"), goalCount, baselineCompletedCount);
+}
+
+void MockBackend::setAchievement(const QString &region, int goalCount, int baselineCompletedCount)
+{
+    Q_ASSERT(isRegion(region));
+    AchievementSettings settings = achievementSettings(region);
+    settings.goalCount = goalCount;
+    settings.baselineCompletedCount = baselineCompletedCount;
     // Set behind the history's back: no entry stored these values.
-    m_baselineAuditEventId.clear();
+    settings.auditEventId.clear();
+    m_achievements.insert(region, settings);
+}
+
+MockBackend::AchievementSettings MockBackend::achievementSettings(const QString &region) const
+{
+    AchievementSettings defaults;
+    defaults.baselineEffectiveAt = m_now.toUTC();
+    defaults.updatedAt = defaults.baselineEffectiveAt;
+    return m_achievements.value(region, defaults);
+}
+
+QString MockBackend::captureRegion() const
+{
+    return captureSettings().value(QStringLiteral("region_override")).toString(QStringLiteral("CN"));
+}
+
+bool MockBackend::unsupportedCaptureRegion() const
+{
+    // All existing live/calibration fixtures describe CN; none establishes a TC template.
+    return captureRegion() != QLatin1String("CN");
 }
 
 // ---------------------------------------------------------------------------
@@ -956,6 +986,11 @@ QJsonArray mockCandidateHypotheses()
 
 } // namespace
 
+QJsonArray MockBackend::declaredCandidateHypotheses()
+{
+    return mockCandidateHypotheses();
+}
+
 QJsonObject MockBackend::captureStatus() const
 {
     const bool running = m_capturing && !m_npcapMissing;
@@ -1203,6 +1238,21 @@ QJsonObject MockBackend::captureStatus() const
             status["profile_origin"] = QJsonValue::Null;
             status["profile_matches_build"] = false;
         }
+    }
+    if (unsupportedCaptureRegion()) {
+        status.insert(QStringLiteral("region"), captureRegion());
+        status.insert(QStringLiteral("profile_status"), QStringLiteral("UNSUPPORTED_BUILD"));
+        status.insert(QStringLiteral("profile_matches_build"), false);
+        status.insert(QStringLiteral("candidate_hypotheses"), QJsonArray());
+        status.insert(QStringLiteral("recent_parser_errors"), QJsonArray());
+        for (const auto *field : {"profile_id", "profile_origin", "candidate_profile_id", "game_build",
+                                 "oodle_signature_source", "oodle_profile_id", "oodle_profile_status",
+                                 "last_valid_event_at_utc", "last_valid_event_kind", "calibration_bound_at_utc"})
+            status.insert(QString::fromLatin1(field), QJsonValue(QJsonValue::Null));
+        for (const auto *field : {"parse_ok_count", "parse_fail_count", "duplicate_count", "ignored_count",
+                                 "messages_decoded", "message_rate_per_second"})
+            status.insert(QString::fromLatin1(field), 0);
+        status.remove(QStringLiteral("calibration"));
     }
     return status;
 }
@@ -1509,6 +1559,7 @@ QJsonObject MockBackend::currentRun() const
 {
     QJsonObject payload;
     if (m_liveMode == LiveMode::None || !m_capturing || m_npcapMissing
+        || unsupportedCaptureRegion()
         || captureSettings().value(QStringLiteral("candidate_validation_enabled")).toBool()) {
         payload.insert(QStringLiteral("state"), QStringLiteral("IDLE"));
         payload.insert(QStringLiteral("run"), QJsonValue(QJsonValue::Null));
@@ -1526,6 +1577,7 @@ QJsonObject MockBackend::currentRun() const
     run.insert(QStringLiteral("revision"), 1);
     run.insert(QStringLiteral("result"), QStringLiteral("UNKNOWN"));
     run.insert(QStringLiteral("source"), QStringLiteral("AUTO_NETWORK"));
+    run.insert(QStringLiteral("region"), captureRegion());
     run.insert(QStringLiteral("mentor_roulette_id"), 9);
     run.insert(QStringLiteral("matched_at_utc"), isoUtc(matched));
     run.insert(QStringLiteral("entered_at_utc"),
@@ -1609,9 +1661,17 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
     }
 
     if (messageType == QLatin1String("UpdateAchievementBaseline")) {
+        const QJsonValue requestedRegion = payload.value(QStringLiteral("region"));
+        const QString region = requestedRegion.toString(QStringLiteral("CN"));
+        if ((!requestedRegion.isUndefined() && !requestedRegion.isString()) || !isRegion(region)) {
+            *errorCode = QStringLiteral("ERR_BAD_REQUEST");
+            *errorMessage = QString::fromUtf8("区服必须是 CN、TC、GLOBAL 或 UNKNOWN。");
+            return {};
+        }
+        AchievementSettings settings = achievementSettings(region);
         const int baseline = payload.value(QStringLiteral("baseline_completed_count"))
-                                 .toInt(m_baselineCompletedCount);
-        const int goal = payload.value(QStringLiteral("goal_count")).toInt(m_goalCount);
+                                 .toInt(settings.baselineCompletedCount);
+        const int goal = payload.value(QStringLiteral("goal_count")).toInt(settings.goalCount);
         // RunMutationService.UpdateAchievementBaseline refuses these, with its own
         // sentences, rather than storing something else than was asked.
         if (goal < 1) {
@@ -1628,37 +1688,48 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
         // goal and the same baseline change nothing, so nothing is written. The answer is
         // what is stored, under the history entry that stored it - a fresh id only when no
         // entry did - and, like the Collector, this backend announces nothing for it.
-        const bool changed = goal != m_goalCount || baseline != m_baselineCompletedCount;
-        QString auditEventId = m_baselineAuditEventId;
+        const bool changed = goal != settings.goalCount || baseline != settings.baselineCompletedCount;
+        QString auditEventId = settings.auditEventId;
         if (changed) {
             // CS-7: only a changed baseline moves its effective time. The same count - a
             // goal-only edit - keeps the stored time, whatever the request says.
-            if (baseline != m_baselineCompletedCount) {
+            if (baseline != settings.baselineCompletedCount) {
                 const QDateTime requested =
                     fromIso(payload.value(QStringLiteral("baseline_effective_at")));
-                m_baselineEffectiveAt =
+                settings.baselineEffectiveAt =
                     requested.isValid() ? requested.toUTC() : QDateTime::currentDateTimeUtc();
             }
-            m_goalCount = goal;
-            m_baselineCompletedCount = baseline;
-            m_achievementUpdatedAt = QDateTime::currentDateTimeUtc();
-            m_baselineAuditEventId = ipc::newRequestId();
-            auditEventId = m_baselineAuditEventId;
+            settings.goalCount = goal;
+            settings.baselineCompletedCount = baseline;
+            settings.updatedAt = QDateTime::currentDateTimeUtc();
+            settings.auditEventId = ipc::newRequestId();
+            auditEventId = settings.auditEventId;
         } else if (auditEventId.isEmpty()) {
             auditEventId = ipc::newRequestId();
         }
+        if (changed)
+            m_achievements.insert(region, settings);
         QJsonObject result;
-        result.insert(QStringLiteral("goal_count"), m_goalCount);
-        result.insert(QStringLiteral("baseline_completed_count"), m_baselineCompletedCount);
-        result.insert(QStringLiteral("baseline_effective_at"), isoUtc(m_baselineEffectiveAt));
-        result.insert(QStringLiteral("updated_at_utc"), isoUtc(m_achievementUpdatedAt));
+        result.insert(QStringLiteral("region"), region);
+        result.insert(QStringLiteral("goal_count"), settings.goalCount);
+        result.insert(QStringLiteral("baseline_completed_count"), settings.baselineCompletedCount);
+        result.insert(QStringLiteral("baseline_effective_at"), isoUtc(settings.baselineEffectiveAt));
+        result.insert(QStringLiteral("updated_at_utc"), isoUtc(settings.updatedAt));
         result.insert(QStringLiteral("audit_event_id"), auditEventId);
         result.insert(QStringLiteral("idempotent_replay"), false);
         return result;
     }
 
     if (messageType == QLatin1String("CreateManualRun")) {
+        const QJsonValue requestedRegion = payload.value(QStringLiteral("region"));
+        const QString region = requestedRegion.toString(QStringLiteral("UNKNOWN"));
+        if ((!requestedRegion.isUndefined() && !requestedRegion.isString()) || !isRegion(region)) {
+            *errorCode = QStringLiteral("ERR_BAD_REQUEST");
+            *errorMessage = QString::fromUtf8("区服必须是 CN、TC、GLOBAL 或 UNKNOWN。");
+            return {};
+        }
         QJsonObject run = payload;
+        run.insert(QStringLiteral("region"), region);
         run.remove(QStringLiteral("reason"));
         run.insert(QStringLiteral("run_id"), ipc::newRequestId());
         run.insert(QStringLiteral("revision"), 1);
@@ -1681,7 +1752,7 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
         // RunMutationRules.ValidateFinalValue refuses a record that cannot exist
         // before anything is stored.
         const QVariantMap duty =
-            DutyCatalog::shared()->lookup(run.value(QStringLiteral("content_id")).toVariant());
+            DutyCatalog::shared()->lookup(run.value(QStringLiteral("content_id")).toVariant(), region);
         const QVariant territory = duty.value(QStringLiteral("territory_id"));
         run.insert(QStringLiteral("territory_id"), territory.isValid()
                                                        ? QJsonValue(territory.toLongLong())
@@ -2018,12 +2089,12 @@ public:
     }
 
     /// A scalar as trimmed text; empty when absent, null or blank.
-    QString text(const QString &field, int max)
+    QString text(const QString &field, int max, bool trim = true)
     {
         const QJsonValue value = m_row.value(field);
         QString text;
         if (value.isString()) {
-            text = value.toString().trimmed();
+            text = trim ? value.toString().trimmed() : value.toString();
         } else if (value.isBool()) {
             text = value.toBool() ? QStringLiteral("true") : QStringLiteral("false");
         } else if (value.isDouble()) {
@@ -2230,7 +2301,7 @@ QString importTwinKey(const QJsonObject &run)
         return {};
     const QJsonValue content = run.value(QStringLiteral("content_id"));
     const QJsonValue text = run.value(QStringLiteral("reflection")).toObject().value(QStringLiteral("text"));
-    const QJsonArray key{content.isDouble() ? QStringLiteral("content:") + QString::number(static_cast<qint64>(content.toDouble()))
+    const QJsonArray key{runRegion(run), content.isDouble() ? QStringLiteral("content:") + QString::number(static_cast<qint64>(content.toDouble()))
                                             : QStringLiteral("name:") + run.value(QStringLiteral("duty_name")).toString(),
                          entered.isString() ? entered : QJsonValue(QJsonValue::Null),
                          sourceUtc.isString() ? sourceUtc : QJsonValue(QJsonValue::Null),
@@ -2322,7 +2393,7 @@ ImportRow normalizeImportRow(const QJsonObject &row, const QString &kind, const 
     QString region = read.text(QStringLiteral("region"), 64);
     if (region.isEmpty())
         region = QStringLiteral("UNKNOWN");
-    else if (region != QLatin1String("CN") && region != QLatin1String("GLOBAL") && region != QLatin1String("UNKNOWN"))
+    else if (!isRegion(region))
         read.refuse("import.row.field_value_unsupported", {{QStringLiteral("field"), QStringLiteral("region")}});
     const bool hasExplicitContentId = contentId >= 0;
     if (!hasExplicitContentId && !dutyName.isEmpty()) {
@@ -2330,7 +2401,7 @@ ImportRow normalizeImportRow(const QJsonObject &row, const QString &kind, const 
         if (!catalogMatch.isEmpty())
             contentId = catalogMatch.value(QStringLiteral("content_id")).toLongLong();
     }
-    const QVariantMap duty = contentId >= 0 ? DutyCatalog::shared()->lookup(contentId) : QVariantMap();
+    const QVariantMap duty = contentId >= 0 ? DutyCatalog::shared()->lookup(contentId, region) : QVariantMap();
 
     const QString resultText = read.text(QStringLiteral("result"), 64);
     static const QHash<QString, QString> spoken{
@@ -2443,7 +2514,7 @@ ImportRow normalizeImportRow(const QJsonObject &row, const QString &kind, const 
         {QStringLiteral("revision"), 1},
         {QStringLiteral("capture_session_id"), none},
         {QStringLiteral("region"), region},
-        {QStringLiteral("game_build"), none},
+        {QStringLiteral("game_build"), textOrNull(read.text(QStringLiteral("game_build"), 200, false))},
         {QStringLiteral("protocol_profile_id"), none},
         {QStringLiteral("mentor_roulette_id"), roulette >= 0 ? QJsonValue(roulette) : none},
         {QStringLiteral("content_id"), contentId >= 0 ? QJsonValue(contentId) : none},
@@ -2561,6 +2632,8 @@ std::pair<QString, QJsonValue> classifyImportRun(const QJsonObject &run, bool st
     QString nearest;
     for (const auto &value : library) {
         const QJsonObject local = value.toObject();
+        if (runRegion(local) != runRegion(run))
+            continue;
         const bool sameDuty = content.isDouble() ? local.value(QStringLiteral("content_id")) == content
                                                  : local.value(QStringLiteral("duty_name")).toString() == name;
         if (!sameDuty)
@@ -2955,25 +3028,34 @@ QJsonObject MockBackend::commitRunImport(const QJsonObject &payload, QString *er
                                     {QStringLiteral("run_id"), matching}});
     }
 
-    // RunImportService.DeductFromBaseline: the imported completions the progress counts come
-    // off the baseline the player says already holds them, never below zero.
+    // Each accepted completion deducts only its owning region's baseline. The receipt
+    // freezes the regional outcomes, so replay never deducts from any baseline again.
+    QMap<QString, int> contributing;
+    for (const auto &id : std::as_const(accepted)) {
+        const QJsonObject run = m_runs.at(indexOfRun(id.toString())).toObject();
+        if (!contributing.contains(runRegion(run)))
+            contributing.insert(runRegion(run), 0);
+        if (!isSoftDeleted(run) && isConfirmedMentor(run)
+            && run.value(QStringLiteral("result")).toString() == QLatin1String("COMPLETED")
+            && run.value(QStringLiteral("contributes_to_goal")).toBool(true))
+            ++contributing[runRegion(run)];
+    }
     int deducted = 0;
-    if (deduct && m_baselineCompletedCount > 0) {
-        int contributing = 0;
-        for (const auto &id : std::as_const(accepted)) {
-            const QJsonObject run = m_runs.at(indexOfRun(id.toString())).toObject();
-            if (!isSoftDeleted(run) && isConfirmedMentor(run)
-                && run.value(QStringLiteral("result")).toString() == QLatin1String("COMPLETED")
-                && run.value(QStringLiteral("contributes_to_goal")).toBool(true))
-                ++contributing;
+    QJsonArray adjustments;
+    for (auto it = contributing.constBegin(); it != contributing.constEnd(); ++it) {
+        AchievementSettings settings = achievementSettings(it.key());
+        const int regionalDeduction = deduct ? qMin(it.value(), settings.baselineCompletedCount) : 0;
+        if (regionalDeduction > 0) {
+            settings.baselineCompletedCount -= regionalDeduction;
+            settings.baselineEffectiveAt = QDateTime::currentDateTimeUtc();
+            settings.updatedAt = settings.baselineEffectiveAt;
+            settings.auditEventId = ipc::newRequestId();
+            m_achievements.insert(it.key(), settings);
         }
-        deducted = qMin(contributing, m_baselineCompletedCount);
-        if (deducted > 0) {
-            m_baselineCompletedCount -= deducted;
-            m_baselineEffectiveAt = QDateTime::currentDateTimeUtc();
-            m_achievementUpdatedAt = m_baselineEffectiveAt;
-            m_baselineAuditEventId = QUuid::createUuid().toString(QUuid::WithoutBraces);
-        }
+        deducted += regionalDeduction;
+        adjustments.append(QJsonObject{{QStringLiteral("region"), it.key()},
+            {QStringLiteral("baseline_deducted_count"), regionalDeduction},
+            {QStringLiteral("baseline_completed_count"), settings.baselineCompletedCount}});
     }
 
     const QJsonObject response{{QStringLiteral("preview_id"), previewId},
@@ -2985,7 +3067,8 @@ QJsonObject MockBackend::commitRunImport(const QJsonObject &payload, QString *er
                                {QStringLiteral("run_ids"), accepted},
                                {QStringLiteral("rows"), outcomes},
                                {QStringLiteral("baseline_deducted_count"), deducted},
-                               {QStringLiteral("baseline_completed_count"), m_baselineCompletedCount}};
+                               {QStringLiteral("baseline_completed_count"), achievementSettings(QStringLiteral("CN")).baselineCompletedCount},
+                               {QStringLiteral("baseline_adjustments"), adjustments}};
     m_importReceipts.append(ImportReceipt{.previewId = previewId, .requestId = requestId, .selection = selection, .response = response});
     // The request id is spent: no other mutation may be answered under it.
     m_appliedRequests.insert(requestId, AppliedRequest{.messageType = QStringLiteral("CommitRunImport"), .fingerprint = selection, .result = response});
@@ -3190,6 +3273,21 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
     QJsonObject errorDetails;
     QJsonObject result;
     bool handled = true;
+    const QJsonValue requestedRegion = payload.value(QStringLiteral("filter")).toObject().value(QStringLiteral("region"));
+    if (!requestedRegion.isUndefined() && !requestedRegion.isNull()
+        && (!requestedRegion.isString() || !isRegion(requestedRegion.toString()))) {
+        deliver(reply, {}, QStringLiteral("ERR_BAD_REQUEST"),
+                QString::fromUtf8("区服筛选必须是 CN、TC、GLOBAL、UNKNOWN 或留空。"), {}, {});
+        return reply;
+    }
+
+    if (unsupportedCaptureRegion()
+        && (messageType == QLatin1String("ConfirmCalibration") || messageType == QLatin1String("DiscardCalibration")
+            || isSharedCalibrationMessage(messageType))) {
+        deliver(reply, {}, QStringLiteral("ERR_CALIBRATION_NOT_READY"),
+                QString::fromUtf8("所选区服没有可用的模拟校准模板。"), {}, {});
+        return reply;
+    }
 
     if (messageType == QLatin1String("GetVersion")) {
         result.insert(QStringLiteral("collector_version"), QStringLiteral("0.2.2-mock"));
@@ -3218,6 +3316,13 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
                       QString::fromUtf8("模拟数据：仅离线合成事件，"
                                         "从未针对真实流量校验。"));
         result.insert(QStringLiteral("message"), QJsonValue(QJsonValue::Null));
+        if (unsupportedCaptureRegion()) {
+            result.insert(QStringLiteral("status"), QStringLiteral("UNSUPPORTED_BUILD"));
+            result.insert(QStringLiteral("region"), captureRegion());
+            result.insert(QStringLiteral("profile_id"), QJsonValue(QJsonValue::Null));
+            result.insert(QStringLiteral("game_build"), QJsonValue(QJsonValue::Null));
+            result.insert(QStringLiteral("verified_at_utc"), QJsonValue(QJsonValue::Null));
+        }
     } else if (messageType == QLatin1String("GetCaptureSettings")) {
         result = captureSettings();
     } else if (messageType == QLatin1String("UpdateCaptureSettings")) {
@@ -3269,7 +3374,7 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
             result = captureStatus();
             const bool candidate = captureSettings().value(QStringLiteral("candidate_validation_enabled")).toBool();
             QTimer::singleShot(0, this, [this, candidate] {
-                if (candidate)
+                if (candidate || unsupportedCaptureRegion())
                     emitCaptureStatusChanged();
                 else
                     emitStateChanged(currentRun().value(QStringLiteral("state")).toString());
@@ -3377,7 +3482,7 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
             QStringLiteral("corrected_only"), QStringLiteral("include_deleted"), QStringLiteral("deleted_only"),
             QStringLiteral("with_reflection"), QStringLiteral("pending_review"), QStringLiteral("text"), QStringLiteral("name_text"),
             QStringLiteral("name_exact"), QStringLiteral("run_id"), QStringLiteral("history_from_day"),
-            QStringLiteral("history_to_day"), QStringLiteral("joined_in_progress")};
+            QStringLiteral("history_to_day"), QStringLiteral("joined_in_progress"), QStringLiteral("region")};
         const QJsonObject filter = payload.value(QStringLiteral("filter")).toObject();
         for (auto it = filter.constBegin(); it != filter.constEnd(); ++it)
             if (!filterKeys.contains(it.key())) valid = false;

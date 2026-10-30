@@ -83,6 +83,10 @@ Dialog {
 
     readonly property bool hasRows: controller && controller.rows.length > 0
     readonly property bool canMapColumns: controller && ["CSV", "XLS", "XLSX", "PASTE"].indexOf(controller.sourceKind) >= 0
+    readonly property var regionOptions: [
+        {value: "UNKNOWN", text: qsTr("未知区服")}, {value: "CN", text: qsTr("国服")},
+        {value: "TC", text: qsTr("繁中服")}, {value: "GLOBAL", text: qsTr("国际服")}
+    ]
     property string activeFilter: "all"
     property string navigationHint: ""
     property bool showRecognitionHints: false
@@ -329,6 +333,7 @@ Dialog {
     function openBatch() {
         flushEditors()
         if (!controller.previewValid || controller.selectedCount === 0) return
+        batchRegion.currentIndex = 0
         batchJob.currentIndex = 0
         batchResult.currentIndex = 0
         batchMood.currentIndex = 0
@@ -450,7 +455,6 @@ Dialog {
                     || Theme.dutyName(row).toLowerCase() === query)
                 matches.push(row)
         }
-        if (candidate.region === "GLOBAL") return null
         if (matches.length === 1) return matches[0]
         const preferred = matches.filter(function(row) { return row.preferred_for_name_matching === true })
         return preferred.length === 1 ? preferred[0] : null
@@ -459,7 +463,7 @@ Dialog {
         const run = rowData.run || ({})
         if (Theme.nameId(candidate.content_id) !== null || Theme.nameId(run.content_id) !== null)
             return false
-        if (!controller || candidate.region === "GLOBAL") return false
+        if (!controller) return false
         const name = String(candidate.duty_name || "").trim().toLowerCase()
         if (!name) return false
         const choices = controller.dutyChoices || []
@@ -889,6 +893,21 @@ Dialog {
                                 GridLayout {
                                     Layout.fillWidth: true; columns: 2; columnSpacing: 8; rowSpacing: 9
                                     Text { textFormat: Text.PlainText; objectName: "importDutyCandidateWarning"; Layout.columnSpan: 2; Layout.fillWidth: true; visible: dialog.evidence.duty_candidate_pending === true; text: qsTr("副本待复核：可能是「%1」。\n图片文字识别为「%2」，请对照原图确认。").arg(Theme.dutyLabel(null, dialog.evidence.duty_candidate_name)).arg(dialog.evidence.ocr_duty_name || ""); color: Theme.orangeText; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
+                                    FieldLabel { text: qsTr("记录区服") }
+                                    StyledComboBox {
+                                        objectName: "importRegion"
+                                        Layout.fillWidth: true
+                                        model: dialog.regionOptions; textRole: "text"
+                                        currentIndex: dialog.optionIndex(model, "value", dialog.candidate.region || "UNKNOWN")
+                                        Accessible.name: qsTr("记录区服")
+                                        onActivated: function(index) { dialog.edit("region", model[index].value) }
+                                    }
+                                    Text {
+                                        textFormat: Text.PlainText; Layout.columnSpan: 2; Layout.fillWidth: true
+                                        visible: dialog.controller && dialog.controller.sourceKind === "SCREENSHOT" && dialog.candidate.region === "TC"
+                                        text: qsTr("繁中服截图识别尚未验收，请对照原图逐项确认；副本候选仅使用繁中服目录。")
+                                        color: Theme.orangeText; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap
+                                    }
                                     FieldLabel { text: qsTr("副本") }
                                     StyledTextField {
                                         id: dutyNameField
@@ -1050,7 +1069,7 @@ Dialog {
                 anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 9; spacing: 6
                 Text {
                     textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.WordWrap
-                    text: qsTr("勾选记录中有 %1 条通关会计入进度。它们已包含在起始次数 %2（开始用本软件记录前，已经完成的导随次数）中吗？").arg(dialog.controller ? dialog.controller.contributingSelectedCount : 0).arg(dialog.controller ? dialog.controller.baselineCount : 0)
+                    text: qsTr("勾选记录中有 %1 条通关会计入各自区服的进度。它们已包含在对应区服的起始次数中吗？").arg(dialog.controller ? dialog.controller.contributingSelectedCount : 0)
                     color: Theme.textPrimary; font.pixelSize: Theme.fs(12)
                 }
                 Flow {
@@ -1059,7 +1078,7 @@ Dialog {
                         objectName: "importBaselineDeduct"
                         checked: dialog.controller ? dialog.controller.deductFromBaseline : false
                         enabled: !dialog.inputLocked
-                        text: qsTr("已包含：保存时扣除 %1 次，起始次数改为 %2").arg(dialog.controller ? dialog.controller.baselineDeductionPreview : 0).arg(dialog.controller ? dialog.controller.baselineCount - dialog.controller.baselineDeductionPreview : 0)
+                        text: qsTr("已包含：按区服扣除已计入的次数")
                         onPicked: if (dialog.controller) dialog.controller.deductFromBaseline = true
                     }
                     PickChip {
@@ -1070,11 +1089,19 @@ Dialog {
                         onPicked: if (dialog.controller) dialog.controller.deductFromBaseline = false
                     }
                 }
-                Text {
-                    textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.WordWrap
-                    visible: dialog.controller && dialog.controller.deductFromBaseline && dialog.controller.contributingSelectedCount > dialog.controller.baselineCount
-                    text: qsTr("起始次数只有 %1，只能扣到 0；其余 %2 次照常加在起始次数之上。").arg(dialog.controller ? dialog.controller.baselineCount : 0).arg(dialog.controller ? dialog.controller.contributingSelectedCount - dialog.controller.baselineCount : 0)
-                    color: Theme.textSecondary; font.pixelSize: Theme.fs(11)
+                Repeater {
+                    model: dialog.controller ? dialog.controller.baselinePreviews : []
+                    delegate: Text {
+                        required property var modelData
+                        textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.WordWrap
+                        text: dialog.controller.deductFromBaseline
+                            ? qsTr("%1：起始次数 %2，扣除 %3 次后为 %4；本次计入 %5 条通关。")
+                                .arg(modelData.label).arg(modelData.baseline_count).arg(modelData.deducted_count)
+                                .arg(modelData.remaining_baseline).arg(modelData.contributing_count)
+                            : qsTr("%1：保留起始次数 %2，本次另计 %3 条通关。")
+                                .arg(modelData.label).arg(modelData.baseline_count).arg(modelData.contributing_count)
+                        color: Theme.textSecondary; font.pixelSize: Theme.fs(11)
+                    }
                 }
             }
         }
@@ -1289,6 +1316,8 @@ Dialog {
             Text { textFormat: Text.PlainText; text: qsTr("只应用到已勾选的 %1 条记录").arg(dialog.controller ? dialog.controller.selectedCount : 0); color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
             GridLayout {
                 columns: 2; Layout.fillWidth: true; columnSpacing: 10; rowSpacing: 10
+                FieldLabel { text: qsTr("记录区服") }
+                StyledComboBox { id: batchRegion; objectName: "importBatchRegion"; Layout.fillWidth: true; model: [{text: qsTr("不修改"), noChange: true}].concat(dialog.regionOptions); textRole: "text" }
                 FieldLabel { text: qsTr("职业") }
                 StyledComboBox { id: batchJob; objectName: "importBatchJob"; Layout.fillWidth: true; model: [{job_name: qsTr("不修改"), label: qsTr("不修改"), noChange: true}].concat(Theme.labelledJobs(dialog.controller ? dialog.controller.jobChoices : [])); textRole: "label" }
                 FieldLabel { text: qsTr("结果") }
@@ -1302,9 +1331,10 @@ Dialog {
                 AppButton { text: qsTr("取消"); onClicked: batchDialog.close() }
                 AppButton {
                     objectName: "importBatchApply"; text: qsTr("应用到已勾选记录"); variant: "primary"
-                    enabled: !dialog.inputLocked && dialog.controller && dialog.controller.previewValid && dialog.controller.selectedCount > 0 && (batchJob.currentIndex > 0 || batchResult.currentIndex > 0 || batchMood.currentIndex > 0)
+                    enabled: !dialog.inputLocked && dialog.controller && dialog.controller.previewValid && dialog.controller.selectedCount > 0 && (batchRegion.currentIndex > 0 || batchJob.currentIndex > 0 || batchResult.currentIndex > 0 || batchMood.currentIndex > 0)
                     onClicked: {
                         let changes = {}
+                        if (batchRegion.currentIndex > 0) changes.region = batchRegion.model[batchRegion.currentIndex].value
                         if (batchJob.currentIndex > 0) { const job = batchJob.model[batchJob.currentIndex]; changes.job_id = job.job_id; changes.job_name = job.job_id === null ? null : job.job_name }
                         if (batchResult.currentIndex > 0) changes.result = batchResult.model[batchResult.currentIndex].value
                         if (batchMood.currentIndex > 0) changes.reflection_mood = batchMood.model[batchMood.currentIndex].value

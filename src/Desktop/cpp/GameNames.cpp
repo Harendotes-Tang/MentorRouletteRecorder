@@ -110,13 +110,28 @@ void GameNames::load()
     for (auto it = expansions.constBegin(); it != expansions.constEnd(); ++it)
         m_expansions.insert(it.key(), namesOf(it.value().toObject()));
 
-    // The Chinese client's names find the id of a record that carries none.
-    for (const QVariant &row : DutyCatalog::shared()->allDuties()) {
-        const QVariantMap duty = row.toMap();
-        const QString name = duty.value(QStringLiteral("duty_name")).toString();
-        const QVariantMap resolved = DutyCatalog::shared()->findByName(name);
-        if (!name.isEmpty() && !resolved.isEmpty())
-            m_dutyIdByName.insert(name, resolved.value(QStringLiteral("content_id")).toLongLong());
+    // Record names from every bundled service are search aliases, without
+    // extending any service's actual catalogue membership or territory data.
+    QSet<QString> conflictingAliases;
+    for (const QString &region : {QStringLiteral("CN"), QStringLiteral("GLOBAL"), QStringLiteral("TC")}) {
+        for (const QVariant &row : DutyCatalog::shared()->allDuties(region)) {
+            const QVariantMap duty = row.toMap();
+            const QString name = duty.value(QStringLiteral("duty_name")).toString();
+            const QVariantMap resolved = DutyCatalog::shared()->findByName(name, region);
+            if (!name.isEmpty())
+                m_dutySearchIdsByName.insert(name, duty.value(QStringLiteral("content_id")).toLongLong());
+            if (!name.isEmpty() && !resolved.isEmpty() && !conflictingAliases.contains(name)) {
+                const qint64 id = resolved.value(QStringLiteral("content_id")).toLongLong();
+                if (m_dutyIdByName.contains(name) && m_dutyIdByName.value(name) != id) {
+                    m_dutyIdByName.remove(name);
+                    conflictingAliases.insert(name);
+                } else {
+                    m_dutyIdByName.insert(name, id);
+                }
+            }
+            if (region == QLatin1String("CN"))
+                m_duties[duty.value(QStringLiteral("content_id")).toLongLong()].insert(QStringLiteral("zh-CN"), name);
+        }
     }
     const JobCatalog jobs;
     for (const QVariant &row : jobs.allJobs()) {
@@ -152,6 +167,22 @@ QString GameNames::pick(const QHash<qint64, Names> &table, const QString &code,
 QString GameNames::dutyIn(const QString &code, const QVariant &contentId,
                           const QString &recorded) const
 {
+    if (code == QLatin1String(kSourceCode) && !recorded.isEmpty()) {
+        // Preserve user-supplied/legacy CN wording; recognized TC/GLOBAL
+        // source names can still display the Simplified Chinese translation.
+        qint64 alias = m_dutyIdByName.value(recorded);
+        qint64 explicitId = 0;
+        if (toId(contentId, &explicitId)) {
+            for (const QString &region : {QStringLiteral("CN"), QStringLiteral("GLOBAL"), QStringLiteral("TC")}) {
+                if (DutyCatalog::shared()->lookup(contentId, region).value(QStringLiteral("duty_name")).toString() == recorded) {
+                    alias = explicitId;
+                    break;
+                }
+            }
+        }
+        const QString translated = m_duties.value(alias).value(code);
+        return translated.isEmpty() ? recorded : translated;
+    }
     QString name = pick(m_duties, code, contentId, m_dutyIdByName.value(recorded), recorded);
     if (!name.isEmpty() || code != QLatin1String(kSourceCode))
         return name;
@@ -193,23 +224,24 @@ QStringList GameNames::recordedSearchNames(const QString &text) const
 QStringList GameNames::recordedSearchNamesIn(const QString &code, const QString &text) const
 {
     const QString query = text.trimmed();
-    if (query.isEmpty() || code == QLatin1String(kSourceCode))
+    if (query.isEmpty())
         return {};
 
     // The names themselves, not a piece they share: 骑士 is inside 暗黑骑士 and
     // 龙骑士, so no substring of it finds Paladin runs alone. The Collector
     // matches these by equality (RunFilter.name_exact).
     QSet<QString> recorded;
-    const auto collect = [&](const QHash<QString, qint64> &idByName,
+    const auto collect = [&](const auto &idByName,
                              const QHash<qint64, Names> &table) {
         for (auto it = idByName.constBegin(); it != idByName.constEnd(); ++it) {
             const QString shown = table.value(it.value()).value(code);
-            if (!shown.isEmpty() && shown.contains(query, Qt::CaseInsensitive))
+            if (!shown.isEmpty() && shown != it.key() && shown.contains(query, Qt::CaseInsensitive))
                 recorded.insert(it.key());
         }
     };
-    collect(m_dutyIdByName, m_duties);
-    collect(m_jobIdByName, m_jobs);
+    collect(m_dutySearchIdsByName, m_duties);
+    if (code != QLatin1String(kSourceCode))
+        collect(m_jobIdByName, m_jobs);
     // More than the contract takes is no name search; the text still matches.
     if (recorded.size() > kMaxSearchNames)
         return {};

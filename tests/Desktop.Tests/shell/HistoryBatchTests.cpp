@@ -215,16 +215,26 @@ private:
         while (viewport && viewport->metaObject()->indexOfProperty("contentY") < 0)
             viewport = viewport->parentItem();
         QVERIFY(viewport);
-        const auto revealJump = [&] {
+        // The page scrolls: the jump sits at the bottom and the filter bar at the top, and the
+        // bar's 记录区服 row can push the content a few pixels past the viewport. Each control
+        // is wheeled into view before a click, and the click waits for the wheel's scroll to
+        // settle: a Flickable still moving takes the press for itself and the control never
+        // sees it.
+        const auto reveal = [&](QQuickItem *item) {
             const QRectF area(viewport->mapToScene(QPointF()), viewport->size());
             for (int step = 0; step < 10; ++step) {
-                if (area.contains(QRectF(jump->mapToScene(QPointF()), jump->size()))) return true;
-                QTest::wheelEvent(window, viewport->mapToScene(QPointF(viewport->width() / 2, viewport->height() - 24)), QPoint(0, -120));
+                const QRectF where(item->mapToScene(QPointF()), item->size());
+                if (area.contains(where)) break;
+                QTest::wheelEvent(window, viewport->mapToScene(QPointF(viewport->width() / 2, viewport->height() - 24)),
+                                  QPoint(0, where.top() < area.top() ? 120 : -120));
                 QTest::qWait(40);
             }
-            return area.contains(QRectF(jump->mapToScene(QPointF()), jump->size()));
+            for (int wait = 0; wait < 100 && viewport->property("moving").toBool(); ++wait)
+                QTest::qWait(20);
+            return !viewport->property("moving").toBool()
+                && area.contains(QRectF(item->mapToScene(QPointF()), item->size()));
         };
-        QVERIFY(revealJump());
+        QVERIFY(reveal(jump));
         number->forceActiveFocus();
         QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
         QTest::keyClick(window, Qt::Key_2);
@@ -240,11 +250,12 @@ private:
         QTRY_COMPARE(app.runs()->page(), 1);
         QTRY_VERIFY(!app.runs()->isLoading());
         QCOMPARE(app.checkedHistoryRunCount(), 1);
-        QVERIFY(revealJump());
+        QVERIFY(reveal(jump));
         const QString directory = qEnvironmentVariable("MR_HISTORY_UI_EVIDENCE_DIR", QDir::currentPath());
         QVERIFY(QDir().mkpath(directory));
         QTest::qWait(50);
         QVERIFY(window->grabWindow().save(directory + QStringLiteral("/history-") + QString::fromLatin1(QTest::currentDataTag()) + QStringLiteral(".png")));
+        QVERIFY(reveal(mark));
         clickItem(window, mark);
         QTRY_VERIFY(pending->isVisible());
         clickItem(window, pending);
@@ -256,6 +267,7 @@ private:
         QTRY_VERIFY(!app.historyFilterConfirmationPending());
         QCOMPARE(app.checkedHistoryRunCount(), 1);
         QVERIFY(!app.historyFilter().value(QStringLiteral("pending_review")).toBool());
+        QVERIFY(reveal(mark));
         clickItem(window, mark);
         QTRY_VERIFY(pending->isVisible());
         clickItem(window, pending);

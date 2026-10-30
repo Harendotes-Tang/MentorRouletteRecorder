@@ -53,53 +53,143 @@ public static class MigrationRunner
         var applied = ReadAppliedMigrations(connection);
         VerifyHistory(applied, DatabasePath(connection));
 
-        using var transaction = connection.BeginTransaction();
+        // SQLite's documented create/copy/drop/rename rebuild requires FK enforcement to
+        // be disabled outside BEGIN. legacy_alter_table keeps dependent trigger/view text
+        // referring to the final table name while the original table is briefly absent.
+        var rebuild = !applied.ContainsKey(12);
+        var foreignKeys = Pragma(connection, "foreign_keys");
+        var legacyAlter = Pragma(connection, "legacy_alter_table");
+        if (rebuild) Execute(connection, null, "PRAGMA foreign_keys = OFF; PRAGMA legacy_alter_table = ON;");
         try
         {
-            foreach (var script in Scripts)
+            using var transaction = connection.BeginTransaction();
+            try
             {
-                if (applied.ContainsKey(script.Version))
+                foreach (var script in Scripts)
                 {
-                    continue;
+                    if (applied.ContainsKey(script.Version))
+                    {
+                        continue;
+                    }
+
+                    IReadOnlyList<string> achievementObjects = Array.Empty<string>();
+                    if (script.Version == 12)
+                    {
+                        RebuildRegionTable(connection, transaction, "capture_sessions");
+                        RebuildRegionTable(connection, transaction, "mentor_runs");
+                        achievementObjects = SchemaObjects(connection, transaction, "achievement_settings");
+                    }
+
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.Transaction = transaction;
+                        command.CommandText = script.Sql;
+                        command.Parameters.AddWithValue("$migration_now_utc", UtcTimestamp.ToText(UtcTimestamp.Truncate(clock.UtcNow)));
+                        command.ExecuteNonQuery();
+                    }
+
+                    foreach (var sql in achievementObjects) Execute(connection, transaction, sql);
+
+                    using (var record = connection.CreateCommand())
+                    {
+                        record.Transaction = transaction;
+                        record.CommandText =
+                            "INSERT INTO schema_migrations (version, name, checksum, applied_at_utc) " +
+                            "VALUES ($version, $name, $checksum, $applied);";
+                        record.Parameters.AddWithValue("$version", script.Version);
+                        record.Parameters.AddWithValue("$name", script.Name);
+                        record.Parameters.AddWithValue("$checksum", script.Checksum);
+                        record.Parameters.AddWithValue("$applied", UtcTimestamp.ToText(clock.UtcNow));
+                        record.ExecuteNonQuery();
+                    }
                 }
 
-                using (var command = connection.CreateCommand())
+                if (rebuild)
                 {
-                    command.Transaction = transaction;
-                    command.CommandText = script.Sql;
-                    command.Parameters.AddWithValue("$migration_now_utc", UtcTimestamp.ToText(UtcTimestamp.Truncate(clock.UtcNow)));
-                    command.ExecuteNonQuery();
+                    using var check = connection.CreateCommand();
+                    check.Transaction = transaction;
+                    check.CommandText = "PRAGMA foreign_key_check;";
+                    using var reader = check.ExecuteReader();
+                    if (reader.Read())
+                        throw new CollectorException(ErrorCodes.DbIntegrity,
+                            CollectorTexts.StartupMigrationFailedNoPath(),
+                            new Dictionary<string, object?> { ["foreign_key_table"] = reader.GetString(0) });
                 }
-
-                using (var record = connection.CreateCommand())
-                {
-                    record.Transaction = transaction;
-                    record.CommandText =
-                        "INSERT INTO schema_migrations (version, name, checksum, applied_at_utc) " +
-                        "VALUES ($version, $name, $checksum, $applied);";
-                    record.Parameters.AddWithValue("$version", script.Version);
-                    record.Parameters.AddWithValue("$name", script.Name);
-                    record.Parameters.AddWithValue("$checksum", script.Checksum);
-                    record.Parameters.AddWithValue("$applied", UtcTimestamp.ToText(clock.UtcNow));
-                    record.ExecuteNonQuery();
-                }
+                transaction.Commit();
+            }
+            catch (SqliteException ex)
+            {
+                transaction.Rollback();
+                throw new CollectorException(
+                    ErrorCodes.DbIntegrity,
+                    DatabasePath(connection) is { } path
+                        ? CollectorTexts.StartupMigrationFailed(path)
+                        : CollectorTexts.StartupMigrationFailedNoPath(),
+                    new Dictionary<string, object?> { ["sqlite_error"] = ex.SqliteErrorCode },
+                    inner: ex);
             }
 
-            transaction.Commit();
         }
-        catch (SqliteException ex)
+        finally
         {
-            transaction.Rollback();
-            throw new CollectorException(
-                ErrorCodes.DbIntegrity,
-                DatabasePath(connection) is { } path
-                    ? CollectorTexts.StartupMigrationFailed(path)
-                    : CollectorTexts.StartupMigrationFailedNoPath(),
-                new Dictionary<string, object?> { ["sqlite_error"] = ex.SqliteErrorCode },
-                inner: ex);
+            if (rebuild) Execute(connection, null,
+                $"PRAGMA foreign_keys = {foreignKeys}; PRAGMA legacy_alter_table = {legacyAlter};");
         }
 
         return LatestVersion;
+    }
+
+    private static long Pragma(SqliteConnection connection, string name)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA " + name + ";";
+        return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
+    private static void Execute(SqliteConnection connection, SqliteTransaction? transaction, string sql)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = sql;
+        command.ExecuteNonQuery();
+    }
+
+    private static IReadOnlyList<string> SchemaObjects(SqliteConnection connection, SqliteTransaction transaction, string table)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT sql FROM sqlite_schema WHERE tbl_name = $table AND type IN ('index', 'trigger') " +
+            "AND sql IS NOT NULL ORDER BY type, name;";
+        command.Parameters.AddWithValue("$table", table);
+        using var reader = command.ExecuteReader();
+        var sql = new List<string>();
+        while (reader.Read()) sql.Add(reader.GetString(0));
+        return sql;
+    }
+
+    /// <summary>
+    /// Rebuilds only the region whitelist; copying the actual schema retains every added
+    /// column/constraint and explicit schema object. Child tables and audit rows are untouched.
+    /// Names here are fixed migration-owned identifiers, never request text.
+    /// </summary>
+    private static void RebuildRegionTable(SqliteConnection connection, SqliteTransaction transaction, string table)
+    {
+        var objects = SchemaObjects(connection, transaction, table);
+        using var schema = connection.CreateCommand();
+        schema.Transaction = transaction;
+        schema.CommandText = "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = $table;";
+        schema.Parameters.AddWithValue("$table", table);
+        var sql = (string)schema.ExecuteScalar()!;
+        const string oldRegion = "region IN ('CN', 'GLOBAL', 'UNKNOWN')";
+        if (!sql.Contains(oldRegion, StringComparison.Ordinal))
+            throw new CollectorException(ErrorCodes.DbIntegrity, CollectorTexts.StartupMigrationFailedNoPath());
+        var replacement = "_regional_" + table;
+        var body = sql[sql.IndexOf('(')..].Replace(oldRegion,
+            "region IN ('CN', 'TC', 'GLOBAL', 'UNKNOWN')", StringComparison.Ordinal);
+        Execute(connection, transaction, $"CREATE TABLE {replacement} " + body + ";");
+        Execute(connection, transaction, $"INSERT INTO {replacement} SELECT * FROM {table}; DROP TABLE {table}; " +
+            $"ALTER TABLE {replacement} RENAME TO {table};");
+        foreach (var statement in objects) Execute(connection, transaction, statement);
     }
 
     /// <summary>Reads the migration rows already recorded in the database.</summary>

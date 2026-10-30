@@ -48,12 +48,12 @@ public static class CalibrationEvidenceStore
     public static string RootPath => Path.Combine(DatabasePaths.RootDirectory, DirectoryName);
 
     /// <summary>File name for a region and build, e.g. <c>cn.2026.09.01.0000.0000.json</c>.</summary>
-    /// <param name="region">CN or GLOBAL.</param>
+    /// <param name="region">CN, TC or GLOBAL.</param>
     /// <param name="gameBuild">Client build as read from disk.</param>
     public static string FileNameFor(Region region, string gameBuild)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(gameBuild);
-        var builder = new StringBuilder(region == Region.Global ? "global" : "cn").Append('.');
+        var builder = new StringBuilder(LocalProfileWriter.RegionDirectory(region)).Append('.');
         foreach (var c in gameBuild.ToLowerInvariant())
         {
             builder.Append(char.IsAsciiLetterOrDigit(c) || c is '.' or '-' ? c : '-');

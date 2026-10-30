@@ -29,7 +29,7 @@ public static class LocalProfileWriter
     public const string ProfileIdSuffix = ".local";
 
     /// <summary>Profile id for a region and build, e.g. <c>cn.2026.09.01.0000.0000.local</c>.</summary>
-    /// <param name="region">CN or GLOBAL.</param>
+    /// <param name="region">CN, TC or GLOBAL.</param>
     /// <param name="gameBuild">Client build as read from disk.</param>
     public static string ProfileIdFor(Region region, string gameBuild) => ProfileIdFor(region, gameBuild, ProfileIdSuffix);
 
@@ -37,7 +37,7 @@ public static class LocalProfileWriter
     /// Profile id for a region, a build and an origin suffix: lowercase, file-safe, and within the
     /// schema's 64 characters with the suffix always kept.
     /// </summary>
-    /// <param name="region">CN or GLOBAL.</param>
+    /// <param name="region">CN, TC or GLOBAL.</param>
     /// <param name="gameBuild">Client build as read from disk.</param>
     /// <param name="suffix">Origin suffix such as <c>.local</c> or <c>.shared</c>.</param>
     internal static string ProfileIdFor(Region region, string gameBuild, string suffix)
@@ -54,12 +54,13 @@ public static class LocalProfileWriter
     }
 
     /// <summary>Directory under the local root that a region's profiles live in.</summary>
-    /// <param name="region">CN or GLOBAL.</param>
+    /// <param name="region">CN, TC or GLOBAL.</param>
     public static string RegionDirectory(Region region) => region switch
     {
         Region.Cn => "cn",
         Region.Global => "global",
-        _ => throw new ArgumentException("a local profile needs a CN or GLOBAL region", nameof(region)),
+        Region.Tc => "tc",
+        _ => throw new ArgumentException("a local profile needs a CN, TC or GLOBAL region", nameof(region)),
     };
 
     /// <summary>

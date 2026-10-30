@@ -586,7 +586,9 @@ void HistoryController::createManualRun(const QVariantMap &fields, const QString
         return;
     }
 
-    const QJsonObject run = contractRunFields(QJsonObject::fromVariantMap(fields));
+    QJsonObject run = contractRunFields(QJsonObject::fromVariantMap(fields));
+    if (fields.contains(QStringLiteral("region")))
+        run.insert(QStringLiteral("region"), QJsonValue::fromVariant(fields.value(QStringLiteral("region"))));
     const QString requestId = requestIdFor(
         m_unansweredCreate,
         QJsonDocument(QJsonObject{{QStringLiteral("run"), run},

@@ -270,8 +270,9 @@ public sealed class DutyCatalog
     /// section 10). A territory shared by several duties is never listed.
     /// </summary>
     /// <param name="contentId">Content id whose territories are wanted.</param>
-    public IReadOnlyList<int> UniqueTerritoriesOf(int contentId) => _byKey.Values
-        .Where(row => row.ContentId == contentId && row.TerritoryId is { } territory
+    /// <param name="region">Restrict mappings to this region; null preserves the all-region lookup.</param>
+    public IReadOnlyList<int> UniqueTerritoriesOf(int contentId, Region? region = null) => _byKey.Values
+        .Where(row => (region is null || row.Region == region.Value) && row.ContentId == contentId && row.TerritoryId is { } territory
                       && !_sharedTerritories.Contains((row.Region, territory)))
         .Select(row => row.TerritoryId!.Value)
         .Distinct()

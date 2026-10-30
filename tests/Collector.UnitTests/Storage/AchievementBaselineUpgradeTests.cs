@@ -1,4 +1,6 @@
 using MentorRecorder.Collector.Capture;
+using System.Text.Json.Nodes;
+using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Ipc;
@@ -84,6 +86,59 @@ public sealed class AchievementBaselineUpgradeTests : IDisposable
         Assert.Equal("true", host.Settings.GetSetting(BetaCheckedSetting));
     }
 
+    [Fact]
+    public void RegionalBaselinesAuditsAndRetryIdentitiesRemainIndependent()
+    {
+        var settings = SettingsOf();
+        settings.EnsureDefaults();
+        var mutations = new RunMutationService(_database.Database, settings, _database.Clock);
+        var cn = new UpdateAchievementBaselineCommand(NewId(), 2000, 1200, Entered, "国服进度");
+        var tc = new UpdateAchievementBaselineCommand(NewId(), 1000, 500, Entered, "繁中进度", Region.Tc);
+        var cnResult = mutations.UpdateAchievementBaseline(cn);
+        var tcResult = mutations.UpdateAchievementBaseline(tc);
+        Assert.Equal(Region.Cn, cnResult.Settings.Region);
+        Assert.Equal(Region.Tc, tcResult.Settings.Region);
+        Assert.Equal(1200, settings.GetAchievementSettings().BaselineCompletedCount);
+        Assert.Equal(500, settings.GetAchievementSettings(region: Region.Tc).BaselineCompletedCount);
+        Assert.Equal(Region.Cn, Assert.Single(settings.ReadBaselineAudit()).Region);
+        Assert.Equal(Region.Tc, Assert.Single(settings.ReadBaselineAudit(region: Region.Tc)).Region);
+        Assert.True(mutations.UpdateAchievementBaseline(tc).IdempotentReplay);
+        Assert.Equal(ErrorCodes.IdempotencyConflict, Assert.Throws<CollectorException>(() =>
+            mutations.UpdateAchievementBaseline(tc with { Region = Region.Cn })).Code);
+
+        // Updating the TC audit past its retention cap must not rotate out a CN entry.
+        for (var i = 1; i <= SettingsRepository.MaxBaselineAuditEntries; i++)
+            mutations.UpdateAchievementBaseline(tc with { RequestId = NewId(), BaselineCompletedCount = 500 + i });
+        Assert.Equal(cnResult.AuditEventId, Assert.Single(settings.ReadBaselineAudit()).AuditEventId);
+        Assert.Equal(SettingsRepository.MaxBaselineAuditEntries, settings.ReadBaselineAudit(region: Region.Tc).Count);
+    }
+
+    [Fact]
+    public void LegacyMutationSnapshotWithoutRegionStillReplaysAsCn()
+    {
+        var settings = SettingsOf();
+        settings.EnsureDefaults();
+        var mutations = new RunMutationService(_database.Database, settings, _database.Clock);
+        var request = new UpdateAchievementBaselineCommand(NewId(), 2000, 100, Entered, "旧请求");
+        var first = mutations.UpdateAchievementBaseline(request);
+        using (var command = _database.Database.CreateCommand())
+        {
+            command.CommandText = "SELECT response_json FROM ipc_idempotency WHERE request_id=$id;";
+            command.Parameters.AddWithValue("$id", request.RequestId);
+            var snapshot = JsonNode.Parse((string)command.ExecuteScalar()!)!.AsObject();
+            Assert.True(snapshot["settings"]!.AsObject().Remove("Region"));
+            command.CommandText = "UPDATE ipc_idempotency SET response_json=$json WHERE request_id=$id;";
+            command.Parameters.AddWithValue("$json", snapshot.ToJsonString());
+            command.ExecuteNonQuery();
+        }
+        mutations.UpdateAchievementBaseline(request with { RequestId = NewId(), Region = Region.Tc, BaselineCompletedCount = 50 });
+        var replay = mutations.UpdateAchievementBaseline(request);
+        Assert.True(replay.IdempotentReplay);
+        Assert.Equal(Region.Cn, replay.Settings.Region);
+        Assert.Equal(first.Settings, replay.Settings);
+        Assert.Equal(50, settings.GetAchievementSettings(region: Region.Tc).BaselineCompletedCount);
+    }
+
     private static string NewId() => Guid.NewGuid().ToString("D");
 
     private SettingsRepository SettingsOf() => new(_database.Database, _database.Clock);
@@ -142,6 +197,7 @@ public sealed class AchievementBaselineUpgradeTests : IDisposable
         {
             RequestId = NewId(),
             Reason = "补录一次导随",
+            Region = Region.Cn,
             Result = RunResult.Completed,
             ContentId = 900001,
             JobId = 19,

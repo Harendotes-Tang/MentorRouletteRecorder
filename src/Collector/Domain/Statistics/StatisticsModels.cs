@@ -35,6 +35,15 @@ public sealed record TrendBucket(DateTimeOffset StartUtc, int CompletedCount);
 /// <param name="Buckets">Buckets, oldest first.</param>
 public sealed record TrendSeries(TrendGranularity Granularity, IReadOnlyList<TrendBucket> Buckets);
 
+/// <summary>One region's achievement, independent of date, duty and job listing filters.</summary>
+public sealed record RegionalAchievementStatistics(
+    Region Region,
+    int GoalCount,
+    int BaselineCompletedCount,
+    int AchievementProgress,
+    int Remaining,
+    int CompletedCount);
+
 /// <summary>Fixed dashboard statistics defined by docs/statistics-definitions.md.</summary>
 public sealed record DashboardStatistics(
     int AttemptCount,
@@ -50,7 +59,8 @@ public sealed record DashboardStatistics(
     int UnfinishedPendingReview,
     TrendSeries Trend,
     int JoinedInProgressCount,
-    double? JoinedInProgressRate);
+    double? JoinedInProgressRate,
+    IReadOnlyList<RegionalAchievementStatistics> Achievements);
 
 /// <summary>
 /// Statistics aggregated by duty identity: the observed content id when there is one, and
@@ -70,7 +80,8 @@ public sealed record DungeonStatisticsRow(
     double? CompletionRate,
     [property: JsonPropertyName("avg_duration_ms")] double? AverageDurationMs,
     [property: JsonPropertyName("last_seen_utc")] DateTimeOffset? LastSeenUtc = null,
-    [property: JsonPropertyName("joined_in_progress_count")] int JoinedInProgressCount = 0);
+    [property: JsonPropertyName("joined_in_progress_count")] int JoinedInProgressCount = 0,
+    Region Region = Region.Unknown);
 
 /// <summary>Statistics aggregated by job id.</summary>
 public sealed record JobStatisticsRow(

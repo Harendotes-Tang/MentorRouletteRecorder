@@ -94,6 +94,12 @@ Item {
             PageHeader {
                 objectName: "jobsHeader"
                 title: qsTr("职业统计")
+                RecordRegionSelector {
+                    objectName: "statisticsRegionFilter"
+                    Layout.preferredWidth: 150
+                    selection: Runtime.app.recordRegion
+                    onRegionPicked: function(region) { Runtime.app.recordRegion = region }
+                }
                 subtitle: Runtime.app.jobs.loadError.length > 0
                           ? qsTr("读取失败")
                           : page.unknownCount !== 0 ? qsTr("未知职业 %1 次").arg(page.unknownCount) : ""

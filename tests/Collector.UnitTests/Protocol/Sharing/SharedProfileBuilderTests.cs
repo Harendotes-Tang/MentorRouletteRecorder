@@ -272,6 +272,7 @@ public sealed class SharedProfileBuilderTests : IDisposable
     [Theory]
     [InlineData(Region.Cn, "2026.09.01.0000.0000", "cn.2026.09.01.0000.0000.shared")]
     [InlineData(Region.Global, "2026.09.01.0000.0000", "global.2026.09.01.0000.0000.shared")]
+    [InlineData(Region.Tc, "2026.09.01.0000.0000", "tc.2026.09.01.0000.0000.shared")]
     public void SharedProfileIdsKeepTheirSuffixAndTheSchemaPattern(Region region, string build, string expected)
     {
         Assert.Equal(expected, SharedProfileBuilder.ProfileIdFor(region, build));

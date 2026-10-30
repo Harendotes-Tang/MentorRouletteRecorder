@@ -67,9 +67,10 @@ public enum DetectionConfidence
 /// <summary>Service region. Mirrors <c>mentor_runs.region</c>.</summary>
 public enum Region
 {
-    Cn,
-    Global,
-    Unknown,
+    Cn = 0,
+    Global = 1,
+    Unknown = 2,
+    Tc = 3,
 }
 
 /// <summary>Role bucket derived from <c>job_id</c>. Mirrors <c>mentor_runs.role</c>.</summary>

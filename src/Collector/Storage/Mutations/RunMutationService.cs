@@ -84,18 +84,22 @@ public sealed class RunMutationService
             command.Note,
             reason,
             command.JoinedInProgress is { } joined ? (joined ? "1" : "0") : null);
+        // Old manual requests asserted no region. Retain their exact durable fingerprint;
+        // every explicit owning region gets a separate identity.
+        if (command.Region != Region.Unknown)
+            fingerprint = MutationSnapshotCodec.Fingerprint(fingerprint, EnumWire<Region>.Format(command.Region));
 
         return Apply(command.RequestId, "CreateManualRun", fingerprint, tx =>
         {
             var now = UtcTimestamp.Truncate(_clock.UtcNow);
             var job = _jobs.Find(command.JobId);
-            var duty = _duties.Find(command.ContentId, Region.Unknown);
+            var duty = _duties.Find(command.ContentId, command.Region);
             var candidate = new MentorRun
             {
                 RunId = Guid.NewGuid().ToString("D"),
                 Revision = 1,
                 CaptureSessionId = null,
-                Region = Region.Unknown,
+                Region = command.Region,
                 GameBuild = null,
                 ProtocolProfileId = null,
                 MentorRouletteId = null,
@@ -407,11 +411,14 @@ public sealed class RunMutationService
             command.BaselineCompletedCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
             UtcTimestamp.ToText(command.BaselineEffectiveAt),
             reason);
+        // CN is the legacy implicit owner, so its pre-upgrade replay key remains valid.
+        if (command.Region != Region.Cn)
+            fingerprint = MutationSnapshotCodec.Fingerprint(fingerprint, EnumWire<Region>.Format(command.Region));
 
         var changed = false;
         var snapshot = ApplySnapshot(command.RequestId, "UpdateAchievementBaseline", fingerprint, tx =>
         {
-            var stored = _settings.GetAchievementSettings(tx);
+            var stored = _settings.GetAchievementSettings(tx, command.Region);
 
             // The same goal and the same baseline change nothing - the effective time stays with an
             // unchanged baseline - so nothing is written: no history entry pushes an older one out of
@@ -439,7 +446,7 @@ public sealed class RunMutationService
             // Every contributing completion is added on top of the baseline, whenever it ended,
             // exactly as the dashboard adds them (audit 2026-10-03, B3-1).
             var completed = new StatisticsRepository(_database, _settings, _jobs, _duties, _clock)
-                .CountContributingCompleted(tx);
+                .CountContributingCompleted(tx, command.Region);
             if (completed > int.MaxValue - (long)command.BaselineCompletedCount)
             {
                 throw CollectorException.BadRequest(
@@ -450,6 +457,7 @@ public sealed class RunMutationService
             var now = UtcTimestamp.Truncate(_clock.UtcNow);
             var settings = new AchievementSettings
             {
+                Region = command.Region,
                 GoalCount = command.GoalCount,
                 BaselineCompletedCount = command.BaselineCompletedCount,
                 BaselineEffectiveAt = effectiveAt,
@@ -466,7 +474,7 @@ public sealed class RunMutationService
         // database gate of its own; SettingsRepository.GetAchievementSettings takes it when no
         // transaction is supplied (review finding H2).
         return new BaselineMutationOutcome(
-            snapshot.Snapshot.Settings ?? _settings.GetAchievementSettings(),
+            snapshot.Snapshot.Settings ?? _settings.GetAchievementSettings(region: command.Region),
             snapshot.Snapshot.AuditEventId,
             snapshot.Replayed,
             changed && !snapshot.Replayed);
@@ -481,7 +489,7 @@ public sealed class RunMutationService
     /// <param name="transaction">Enclosing transaction.</param>
     private string StoredAuditEventId(AchievementSettings stored, SqliteTransaction transaction)
     {
-        var history = _settings.ReadBaselineAudit(transaction);
+        var history = _settings.ReadBaselineAudit(transaction, stored.Region);
         if (history.Count > 0 && history[^1] is { } newest &&
             newest.GoalCount == stored.GoalCount &&
             newest.BaselineCompletedCount == stored.BaselineCompletedCount &&
@@ -728,7 +736,7 @@ public sealed class RunMutationService
         return _database.RunInTransaction(tx =>
         {
             if (messageType == "UpdateAchievementBaseline")
-                _idempotency.RememberBaselineHistory(_settings.ReadBaselineAudit(tx), tx);
+                _idempotency.RememberBaselineHistory(_settings.ReadAllBaselineAudit(tx), tx);
             if (_idempotency.TryGetResponse(requestId, tx) is { } stored)
             {
                 var snapshot = MutationSnapshotCodec.Deserialize(stored)

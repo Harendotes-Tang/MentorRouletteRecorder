@@ -179,8 +179,43 @@ public sealed class CaptureDetectionTests
     }
 
     [Theory]
+    [InlineData(@"C:\Program Files\USERJOY GAMES\FINAL FANTASY XIV TC\game\ffxiv_dx11.exe")]
+    [InlineData(@"D:\Games\FINAL FANTASY XIV TC\game\ffxiv_dx11.exe")]
+    [InlineData(@"E:\userjoy games\ffxiv\game\ffxiv_dx11.exe")]
+    public void Game_RecognisesTheTraditionalChineseLauncherFolder(string exe)
+    {
+        // The launcher's default folder as players reported it; either half of it is enough.
+        var processes = new FakeGameProcessProvider().Add(GameProcessLocator.Dx11ProcessName, 7, null, exe);
+        var version = Path.Combine(Path.GetDirectoryName(exe)!, GameProcessLocator.VersionFileName);
+        var files = new FakeGameFileReader().With(version, "2026.09.14.0000.0000");
+
+        var detection = new GameProcessLocator(processes, files).Locate();
+
+        Assert.Equal(Region.Tc, detection.Region);
+        Assert.Equal("2026.09.14.0000.0000", detection.GameBuild);
+        Assert.Empty(detection.Warnings);
+    }
+
+    [Fact]
+    public void AnUnprovenTraditionalClientPathNeedsExplicitRegionSelection()
+    {
+        const string exe = @"D:\Games\TC\game\ffxiv_dx11.exe";
+        var processes = new FakeGameProcessProvider().Add(GameProcessLocator.Dx11ProcessName, 7, null, exe);
+        var files = new FakeGameFileReader().With(@"D:\Games\TC\game\ffxivgame.ver", "2026.10.01.0000.0000");
+        var locator = new GameProcessLocator(processes, files);
+
+        Assert.Equal(Region.Unknown, locator.Locate().Region);
+        var selected = locator.WithRegionOverride(() => Region.Tc).Locate();
+        Assert.Equal(Region.Tc, selected.Region);
+        Assert.Equal("2026.10.01.0000.0000", selected.GameBuild);
+        Assert.Equal("TC", EnumWire<Region>.Format(selected.Region));
+    }
+
+    [Theory]
     [InlineData(@"D:\最终幻想\SquareEnix\FINAL FANTASY XIV - A Realm Reborn\game\ffxiv_dx11.exe")]
     [InlineData(@"E:\ff14cn\Square Enix\FINAL FANTASY XIV - A Realm Reborn\game\ffxiv_dx11.exe")]
+    [InlineData(@"D:\最终幻想\USERJOY GAMES\FINAL FANTASY XIV TC\game\ffxiv_dx11.exe")]
+    [InlineData(@"F:\Square Enix\FINAL FANTASY XIV TC\game\ffxiv_dx11.exe")]
     public void Game_LeavesTheRegionUnknownAndSaysWhy_WhenThePathCarriesMarkersOfBothRegions(string exe)
     {
         var processes = new FakeGameProcessProvider().Add(GameProcessLocator.Dx11ProcessName, 7, null, exe);

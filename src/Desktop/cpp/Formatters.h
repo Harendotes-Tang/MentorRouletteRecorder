@@ -63,6 +63,8 @@ public:
     /// (audit 2026-10-03, OB8-D1). Null and empty give an empty string.
     Q_INVOKABLE static QString npcapVersionLabel(const QVariant &version);
 
+    Q_INVOKABLE static QString regionLabel(const QString &code);
+
     // -- enums --------------------------------------------------------------
     /// Chinese label for a RunResult code.
     Q_INVOKABLE static QString resultLabel(const QString &code);

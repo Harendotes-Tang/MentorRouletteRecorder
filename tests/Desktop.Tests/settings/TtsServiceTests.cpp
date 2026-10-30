@@ -980,11 +980,15 @@ void TtsServiceTests::appController_lateCompletionStatisticsStaySilentAfterDisco
     backend.holdDashboard = true;
     backend.emitEvent(runFinishedEvent(QStringLiteral("UNKNOWN_FINAL_STATE"),
                                       freshRun(QUuid::createUuid().toString(QUuid::WithoutBraces), true)));
-    QCOMPARE(backend.heldDashboardReplies.size(), 1);
+    // The view refresh and the run's own regional progress are separate reads.
+    QCOMPARE(backend.heldDashboardReplies.size(), 2);
     backend.setConnected(false);
-    backend.heldDashboardReplies.takeFirst()->succeed({{QStringLiteral("achievement_progress"), 1413}});
-    QCoreApplication::processEvents();
-    QCOMPARE(spoke.count(), 0);
+    while (!backend.heldDashboardReplies.isEmpty()) {
+        backend.heldDashboardReplies.takeFirst()->succeed({{QStringLiteral("achievement_progress"), 1413}});
+        QCoreApplication::processEvents();
+        // Neither late answer may speak after this connection was lost.
+        QCOMPARE(spoke.count(), 0);
+    }
 }
 
 /// 审查 OK-1：{progress} / {remaining} 是采集服务的 achievement_progress /

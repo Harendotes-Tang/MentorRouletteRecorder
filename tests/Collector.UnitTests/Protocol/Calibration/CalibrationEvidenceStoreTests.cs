@@ -31,6 +31,21 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         }
     }
 
+    [Fact]
+    public void SameBuildCnAndTcEvidenceCanBeSavedAndDeletedIndependently()
+    {
+        var snapshot = Observe(CalibrationObserverTests.Session1());
+        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, snapshot));
+        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Tc, Build, TemplateSha, snapshot));
+        Assert.NotEqual(CalibrationEvidenceStore.FileNameFor(Region.Cn, Build),
+            CalibrationEvidenceStore.FileNameFor(Region.Tc, Build));
+        Assert.StartsWith("tc.", CalibrationEvidenceStore.FileNameFor(Region.Tc, Build));
+        CalibrationEvidenceStore.Delete(_root, Region.Tc, Build);
+        Assert.Null(CalibrationEvidenceStore.Load(_root, Region.Tc, Build, TemplateSha));
+        Assert.NotNull(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha));
+        Assert.Throws<ArgumentException>(() => CalibrationEvidenceStore.FileNameFor(Region.Unknown, Build));
+    }
+
     /// <summary>The session id the shared traffic helpers stamp their messages with.</summary>
     private const string FirstSession = "calibration-session";
 

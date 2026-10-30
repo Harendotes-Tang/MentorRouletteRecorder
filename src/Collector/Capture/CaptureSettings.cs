@@ -235,6 +235,7 @@ public static class CaptureSettingsStore
     {
         "CN" => Region.Cn,
         "GLOBAL" => Region.Global,
+        "TC" => Region.Tc,
         _ => null,
     };
 

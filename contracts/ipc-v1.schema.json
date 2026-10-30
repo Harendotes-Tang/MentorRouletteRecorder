@@ -72,7 +72,7 @@
       "enum": ["good", "ok", "bad", "unknown"],
       "description": "User-selected good = 顺利, ok = 一般, bad = 糟心. unknown means an imported source did not record a mood; only IMPORT records may store it."
     },
-    "Region": { "type": "string", "enum": ["CN", "GLOBAL", "UNKNOWN"] },
+    "Region": { "type": "string", "enum": ["CN", "GLOBAL", "TC", "UNKNOWN"] },
     "Role": { "type": "string", "enum": ["TANK", "HEALER", "DPS", "UNKNOWN"] },
     "CaptureState": { "type": "string", "enum": ["STOPPED", "STARTING", "RUNNING", "DEGRADED", "FAILED"] },
     "ProfileStatus": {
@@ -367,7 +367,8 @@
         "conflict_count": { "type": "integer", "minimum": 0 }, "skipped_count": { "type": "integer", "minimum": 0 },
         "replayed": { "type": "boolean" }, "run_ids": { "type": "array", "items": { "$ref": "#/$defs/Uuid" } },
         "baseline_deducted_count": { "type": "integer", "minimum": 0, "description": "How many completions this commit deducted from baseline_completed_count; 0 unless deduct_from_baseline was true. Absent from receipts written before the field existed." },
-        "baseline_completed_count": { "type": "integer", "minimum": 0, "description": "The baseline as stored after this commit." },
+        "baseline_completed_count": { "type": "integer", "minimum": 0, "description": "The CN baseline as stored after this commit, retained for older clients. Regional deductions are reported in baseline_adjustments." },
+        "baseline_adjustments": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/RegionalBaselineAdjustment" }, "description": "The independent regional baselines changed by this commit; absent from old receipts." },
         "rows": { "type": "array", "items": {
           "type": "object", "additionalProperties": false, "required": ["row_number", "status", "run_id"],
           "properties": {
@@ -470,6 +471,7 @@
       "type": "object", "additionalProperties": false,
       "description": "All fields optional; omitted fields do not constrain the query. Array fields are OR within the field and AND across fields. text, name_text and name_exact are OR with each other and AND with all other fields.",
       "properties": {
+        "region": { "oneOf": [{ "$ref": "#/$defs/Region" }, { "type": "null" }], "description": "Service region. Omitted or null lists all regions; this is independent of UI language." },
         "history_from_day": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
         "history_to_day": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
         "run_id": { "type": "array", "items": { "$ref": "#/$defs/Uuid" }, "maxItems": 2000, "uniqueItems": true },
@@ -494,7 +496,7 @@
         "pending_review": { "type": "boolean", "description": "true keeps only runs still flagged for review, false keeps only runs that are not. Omitted means no constraint; there is deliberately no default, because 'not asked for' and 'asked for false' are different queries." },
         "text": { "type": "string", "maxLength": 200, "description": "Case-insensitive substring match over duty_name, job_name and note." },
         "name_text": { "type": ["string", "null"], "maxLength": 200, "description": "Optional literal substring over duty_name and job_name only, OR with text. Null or blank adds no condition." },
-        "name_exact": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 200 }, "maxItems": 1000, "description": "Recorded duty or job names. A run matches when its duty_name or job_name equals one of them exactly (no trimming, no case folding). OR with text and name_text; an omitted or empty array adds no condition. The Desktop sends the recorded names whose name in the interface language contains the search text, so 'Paladin' finds 骑士 but not 暗黑骑士." }
+        "name_exact": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 200 }, "maxItems": 4096, "description": "Recorded duty or job names. A run matches when its duty_name or job_name equals one of them exactly (no trimming, no case folding). OR with text and name_text; an omitted or empty array adds no condition. The Desktop sends the recorded names whose name in the interface language contains the search text, so 'Paladin' finds 骑士 but not 暗黑骑士." }
       }
     },
 
@@ -523,6 +525,7 @@
         "completion_rate", "leave_rate", "avg_duration_ms", "result_breakdown"
       ],
       "properties": {
+        "achievements": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/RegionalAchievement" }, "description": "Independent lifetime achievement progress per region, unaffected by date/job/duty filters. A region filter selects one entry; all-region results include CN and TC, plus other regions with records/settings. Legacy scalar achievement fields project the selected region, or CN for an all-region request." },
         "attempt_count": { "type": "integer", "minimum": 0 },
         "completed_count": { "type": "integer", "minimum": 0 },
         "baseline_completed_count": { "type": "integer", "minimum": 0 },
@@ -540,6 +543,27 @@
       }
     },
 
+    "RegionalAchievement": {
+      "type": "object", "additionalProperties": false,
+      "required": ["region", "goal_count", "baseline_completed_count", "achievement_progress", "remaining", "completed_count"],
+      "properties": {
+        "region": { "$ref": "#/$defs/Region" },
+        "goal_count": { "type": "integer", "minimum": 1 },
+        "baseline_completed_count": { "type": "integer", "minimum": 0 },
+        "achievement_progress": { "type": "integer", "minimum": 0 },
+        "remaining": { "type": "integer", "minimum": 0 },
+        "completed_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "RegionalBaselineAdjustment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["region", "baseline_deducted_count", "baseline_completed_count"],
+      "properties": {
+        "region": { "$ref": "#/$defs/Region" },
+        "baseline_deducted_count": { "type": "integer", "minimum": 0 },
+        "baseline_completed_count": { "type": "integer", "minimum": 0 }
+      }
+    },
     "TrendSeries": {
       "type": "object",
       "description": "Completion trend, aggregated by the Collector. Buckets are defined on matched_at_utc in UTC and are gap-free: an empty period is present with completed_count 0. See docs/statistics-definitions.md section 12.1.",
@@ -599,6 +623,7 @@
       "additionalProperties": false,
       "required": ["content_id", "duty_name", "attempt_count", "completed_count"],
       "properties": {
+        "region": { "$ref": "#/$defs/Region", "description": "Region owning this duty group. Equal IDs from different regions are separate groups." },
         "content_id": { "type": ["integer", "null"], "minimum": 0 },
         "duty_name": { "type": "string" },
         "duty_category": { "type": ["string", "null"] },
@@ -1315,6 +1340,7 @@
       "required": ["result", "reason"],
       "description": "Creates a run with source MANUAL and manually_created true. entered_at_utc <= ended_at_utc must hold (ERR_TIME_ORDER); duration_ms must be >= 0 (ERR_NEGATIVE_DURATION). Omitted duration_ms is derived from entry/end times; explicit null retains unknown duration and is excluded from average duration statistics.",
       "properties": {
+        "region": { "$ref": "#/$defs/Region", "default": "UNKNOWN", "description": "Service region of this manual record. Legacy requests without it retain UNKNOWN." },
         "content_id": { "type": ["integer", "null"], "minimum": 0 },
         "duty_name": { "type": ["string", "null"], "maxLength": 200 },
         "duty_category": { "type": ["string", "null"], "maxLength": 100 },
@@ -1394,6 +1420,7 @@
       "additionalProperties": false,
       "required": ["baseline_completed_count", "baseline_effective_at", "reason"],
       "properties": {
+        "region": { "$ref": "#/$defs/Region", "default": "CN", "description": "The region whose independent baseline and goal are edited. Omitted targets CN for legacy requests." },
         "goal_count": { "type": "integer", "minimum": 1, "default": 2000 },
         "baseline_completed_count": { "type": "integer", "minimum": 0 },
         "baseline_effective_at": { "$ref": "#/$defs/UtcTimestamp", "description": "When the baseline count was changed. Stored and reported as information only: the progress adds every contributing completion on top of the baseline, whatever its time. Used only when baseline_completed_count differs from the stored baseline; a request that leaves the count as stored (a goal-only change, or the same number entered again) keeps the stored time, whatever this field says." },
@@ -1692,7 +1719,7 @@
         "adapter_id": { "type": ["string", "null"], "maxLength": 400, "description": "null clears the remembered adapter and returns to automatic selection." },
         "log_retention_days": { "type": "integer", "minimum": 1, "maximum": 90 },
         "allow_without_profile": { "type": "boolean" },
-        "region_override": { "type": ["string", "null"], "enum": ["CN", "GLOBAL", null], "description": "Forces the service region when it cannot be derived from the install path. null returns to path-based detection." }
+        "region_override": { "type": ["string", "null"], "enum": ["CN", "GLOBAL", "TC", null], "description": "Forces the service region when it cannot be derived from the install path. null returns to path-based detection." }
       }
     },
 
@@ -1712,7 +1739,7 @@
         "adapter_id": { "type": ["string", "null"], "description": "Remembered adapter; null means automatic selection." },
         "log_retention_days": { "type": "integer", "minimum": 1, "maximum": 90, "description": "Days of diagnostic log history the Collector keeps. Drives RotatingFileLogger retention directly." },
         "allow_without_profile": { "type": "boolean", "description": "Allows capture to run while the protocol profile is not VERIFIED. Counters only: nothing is parsed and no run is ever recorded." },
-        "region_override": { "type": ["string", "null"], "enum": ["CN", "GLOBAL", null], "description": "Forced service region, or null when the region is derived from the install path." }
+        "region_override": { "type": ["string", "null"], "enum": ["CN", "GLOBAL", "TC", null], "description": "Forced service region, or null when the region is derived from the install path." }
       }
     },
 
@@ -1915,6 +1942,7 @@
         "additionalProperties": false,
         "required": ["goal_count", "baseline_completed_count", "baseline_effective_at", "updated_at_utc", "audit_event_id"],
         "properties": {
+          "region": { "$ref": "#/$defs/Region", "description": "The owning region of the returned achievement settings." },
           "goal_count": { "type": "integer", "minimum": 1 },
           "baseline_completed_count": { "type": "integer", "minimum": 0 },
           "baseline_effective_at": { "$ref": "#/$defs/UtcTimestamp", "description": "The effective time as stored: the requested one when the baseline changed, otherwise the time kept from before." },

@@ -638,14 +638,20 @@ private Q_SLOTS:
         // The reply has no progress to tell; the re-read has.
         QVERIFY2(toasts.isEmpty(), qPrintable(toasts.join(QLatin1Char('\n'))));
         QCOMPARE(backend.count(QStringLiteral("GetDashboardStats")), 2);
+        QCOMPARE(backend.last(QStringLiteral("GetDashboardStats")).payload.value(QStringLiteral("filter")).toObject()
+                     .value(QStringLiteral("region")).toString(), QStringLiteral("CN"));
         backend.last(QStringLiteral("GetDashboardStats")).reply->succeed(achievement(2000, 120, 131));
         QCOMPARE(toasts, QStringList{QString::fromUtf8("起始次数已设为 120 · 目标 2000 · 总进度 131")});
+
+        // The following page refresh is independent of the read that authored the toast.
+        backend.last(QStringLiteral("GetDashboardStats")).reply->succeed(achievement(2000, 120, 131));
+        const int readsBeforeNextSave = backend.count(QStringLiteral("GetDashboardStats"));
 
         // The re-read fails: the save stands, and no figure is made up for it.
         toasts.clear();
         statistics.updateAchievementBaseline(1800, 120, QStringLiteral("reason"));
         backend.last(QStringLiteral("UpdateAchievementBaseline")).reply->succeed(baselineSaved(1800, 120));
-        QCOMPARE(backend.count(QStringLiteral("GetDashboardStats")), 3);
+        QCOMPARE(backend.count(QStringLiteral("GetDashboardStats")), readsBeforeNextSave + 1);
         backend.last(QStringLiteral("GetDashboardStats")).reply->fail(QStringLiteral("ERR_INTERNAL"),
                                                                       QStringLiteral("gone"));
         QCOMPARE(toasts, QStringList{QString::fromUtf8("起始次数已设为 120 · 目标 1800 · 已保存")});

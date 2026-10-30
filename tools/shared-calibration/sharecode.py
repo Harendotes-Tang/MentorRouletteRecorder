@@ -50,7 +50,7 @@ MAX_INFLATED_BYTES = 16 * 1024
 MAX_SELECTOR_VALUES = 32
 MAX_JSON_DEPTH = 8
 
-REGIONS = ("CN", "GLOBAL")
+REGIONS = ("CN", "GLOBAL", "TC")
 MATCH_SOURCES = ("REPLY_STATE", "ANNOUNCEMENT", "MARKER_OFFSET", "QUEUE_REQUEST")
 
 # The pop keys each match source learns (CalibratedShape.InputsFor). All of them are required and

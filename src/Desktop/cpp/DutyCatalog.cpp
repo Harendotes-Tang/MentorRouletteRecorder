@@ -1,5 +1,7 @@
 #include "DutyCatalog.h"
 
+#include <QDir>
+#include <QDate>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -14,11 +16,6 @@
 namespace {
 
 Q_LOGGING_CATEGORY(lcDuties, "mr.duties")
-
-/// The bundled catalogue. Only content_id, level and expansion are consumed
-/// for the fields the contract cannot carry. The localized name fills missing
-/// names; party size also corrects standard alliance raids at display boundaries.
-constexpr auto kResource = ":/data/duties/cn.2026-09-04.json";
 
 bool hasValue(const QVariantMap &map, const QString &key)
 {
@@ -71,31 +68,64 @@ DutyCatalog *DutyCatalog::shared()
 
 void DutyCatalog::load()
 {
-    QFile file(QString::fromLatin1(kResource));
+    const QDir directory(QStringLiteral(":/data/duties"));
+    for (const QString &name : directory.entryList({QStringLiteral("*.json")}, QDir::Files, QDir::Name)) {
+        const QString region = name.section(QLatin1Char('.'), 0, 0).toUpper();
+        if (region == QLatin1String("CN") || region == QLatin1String("TC") || region == QLatin1String("GLOBAL"))
+            loadRegion(directory.filePath(name), region);
+    }
+}
+
+const DutyCatalog::Catalogue &DutyCatalog::catalogue(const QString &region) const
+{
+    // Regionless records keep the historical CN presentation. A known or invalid
+    // region never borrows another service's territory or content identity.
+    const QString key = region.isEmpty() || region == QLatin1String("UNKNOWN") ? QStringLiteral("CN") : region;
+    const auto found = m_catalogues.constFind(key);
+    static const Catalogue empty;
+    return found == m_catalogues.cend() ? empty : found.value();
+}
+
+void DutyCatalog::loadRegion(const QString &resource, const QString &region)
+{
+    QFile file(resource);
     if (!file.open(QIODevice::ReadOnly)) {
-        qCWarning(lcDuties) << "cannot open" << kResource;
+        qCWarning(lcDuties) << "cannot open" << resource;
         return;
     }
     QJsonParseError error{};
     const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &error);
     if (error.error != QJsonParseError::NoError) {
-        qCWarning(lcDuties) << kResource << "parse error" << error.errorString();
+        qCWarning(lcDuties) << resource << "parse error" << error.errorString();
         return;
     }
 
     const QJsonObject root = doc.object();
-    m_dataVersion = root.value(QStringLiteral("data_version")).toString();
+    const QString version = root.value(QStringLiteral("data_version")).toString();
+    const QDate parsedVersion = QDate::fromString(version, Qt::ISODate);
+    if (root.value(QStringLiteral("region")).toString() != region
+        || root.value(QStringLiteral("schema_version")).toInt() != 1
+        || root.value(QStringLiteral("sample")).toBool()
+        || !parsedVersion.isValid() || parsedVersion.toString(Qt::ISODate) != version)
+        return;
+    const auto installed = m_catalogues.constFind(region);
+    if (installed != m_catalogues.cend() && installed->dataVersion >= version)
+        return;
+    Catalogue data;
+    data.dataVersion = version;
 
     QList<QVariantMap> rows;
     const QJsonArray duties = root.value(QStringLiteral("duties")).toArray();
     rows.reserve(duties.size());
     for (const auto &value : duties) {
         const QJsonObject duty = value.toObject();
+        if (!duty.value(QStringLiteral("enabled")).toBool(true)) continue;
         const QJsonValue contentId = duty.value(QStringLiteral("content_id"));
         if (!contentId.isDouble())
             continue;
 
         QVariantMap row;
+        row.insert(QStringLiteral("region"), region);
         row.insert(QStringLiteral("content_id"), static_cast<qint64>(contentId.toDouble()));
         if (duty.value(QStringLiteral("territory_id")).isDouble()) {
             row.insert(QStringLiteral("territory_id"),
@@ -111,7 +141,7 @@ void DutyCatalog::load()
             && duty.value(QStringLiteral("party_size")).isDouble()
             && duty.value(QStringLiteral("party_size")).toDouble() == 24;
         if (allianceRaid)
-            m_allianceRaidIds.insert(static_cast<qint64>(contentId.toDouble()));
+            data.allianceRaidIds.insert(static_cast<qint64>(contentId.toDouble()));
         row.insert(QStringLiteral("duty_category"),
                    allianceRaid ? QString::fromUtf8("团队任务") : sourceCategory);
         if (duty.value(QStringLiteral("level")).isDouble())
@@ -120,8 +150,9 @@ void DutyCatalog::load()
         row.insert(QStringLiteral("duty_expansion"), expansion);
         const QString category = duty.value(QStringLiteral("duty_category")).toString();
         row.insert(QStringLiteral("party_size"),
-                   partySizeGroup(category,
-                                  duty.value(QStringLiteral("party_size")).toVariant()));
+                   region != QLatin1String("CN") && category == QString::fromUtf8("大型任务")
+                       && !duty.value(QStringLiteral("party_size")).isDouble()
+                       ? 0 : partySizeGroup(category, duty.value(QStringLiteral("party_size")).toVariant()));
         row.insert(QStringLiteral("difficulty"),
                    difficultyForName(duty.value(QStringLiteral("localized_name")).toString()));
         row.insert(QStringLiteral("version"), versionForExpansion(expansion));
@@ -135,10 +166,10 @@ void DutyCatalog::load()
     for (auto &row : rows) {
         const QString name = row.value(QStringLiteral("duty_name")).toString();
         row.insert(QStringLiteral("name_ambiguous"), !name.isEmpty() && nameCounts.value(name) > 1);
-        m_byContentId.insert(row.value(QStringLiteral("content_id")).toLongLong(), row);
-        m_byName[name].append(row);
+        data.byContentId.insert(row.value(QStringLiteral("content_id")).toLongLong(), row);
+        data.byName[name].append(row);
         if (row.contains(QStringLiteral("territory_id")))
-            m_byTerritoryId[row.value(QStringLiteral("territory_id")).toLongLong()].append(row);
+            data.byTerritoryId[row.value(QStringLiteral("territory_id")).toLongLong()].append(row);
     }
 
     std::ranges::stable_sort(rows,
@@ -163,9 +194,10 @@ void DutyCatalog::load()
                                 < b.value(QStringLiteral("content_id")).toLongLong();
                      });
 
-    m_ordered.reserve(rows.size());
+    data.ordered.reserve(rows.size());
     for (const QVariantMap &row : std::as_const(rows))
-        m_ordered.append(row);
+        data.ordered.append(row);
+    m_catalogues.insert(region, data);
 }
 
 int DutyCatalog::partySizeGroup(const QString &category, const QVariant &partySize)
@@ -210,7 +242,13 @@ QString DutyCatalog::difficultyForName(const QString &name)
         QString::fromUtf8("幻巧战"),
     };
     const QString trimmed = name.trimmed();
-    if (trimmed == QString::fromUtf8("终极之战"))
+    if (trimmed.startsWith(QString::fromUtf8("極 "))
+        || trimmed.startsWith(QString::fromUtf8("極王"))
+        || trimmed.startsWith(QString::fromUtf8("幻 "))
+        || trimmed == QString::fromUtf8("究極幻想 究極武器破壞作戰")
+        || trimmed == QString::fromUtf8("蒼天幻想 圓桌騎士殲滅戰"))
+        return QString::fromUtf8("极");
+    if (trimmed == QString::fromUtf8("终极之战") || trimmed == QString::fromUtf8("終極之戰"))
         return QString::fromUtf8("极");
     for (const QString &suffix : extremeSuffixes) {
         if (trimmed.endsWith(suffix))
@@ -219,7 +257,7 @@ QString DutyCatalog::difficultyForName(const QString &name)
     return QString::fromUtf8("普通");
 }
 
-bool DutyCatalog::isExtremeTrial(const QVariant &contentId) const
+bool DutyCatalog::isExtremeTrial(const QVariant &contentId, const QString &region) const
 {
     // The IPC identity is numeric. Do not let a display string or a rounded
     // fractional value acquire a known duty's identity through QVariant coercion.
@@ -237,12 +275,13 @@ bool DutyCatalog::isExtremeTrial(const QVariant &contentId) const
     const double numericId = contentId.toDouble();
     if (!std::isfinite(numericId))
         return false;
-    const QVariantMap duty = lookup(contentId);
+    const QVariantMap duty = lookup(contentId, region);
     if (duty.isEmpty() || duty.value(QStringLiteral("content_id")).toDouble() != numericId
         || duty.value(QStringLiteral("duty_category")).toString() != QString::fromUtf8("讨伐歼灭战"))
         return false;
     const QString name = duty.value(QStringLiteral("duty_name")).toString().trimmed();
-    return !name.endsWith(QString::fromUtf8("幻巧战"))
+    return !name.startsWith(QString::fromUtf8("幻 ")) && !name.endsWith(QString::fromUtf8("幻巧戰"))
+           && !name.endsWith(QString::fromUtf8("幻巧战"))
            && difficultyForName(name) == QString::fromUtf8("极");
 }
 
@@ -259,20 +298,20 @@ QString DutyCatalog::versionForExpansion(const QString &expansion)
     return versions.value(expansion);
 }
 
-QVariantMap DutyCatalog::lookup(const QVariant &contentId) const
+QVariantMap DutyCatalog::lookup(const QVariant &contentId, const QString &region) const
 {
+    const auto &data = catalogue(region);
     if (!contentId.isValid() || contentId.isNull())
         return {};
     bool ok = false;
     const qint64 key = contentId.toLongLong(&ok);
-    return ok ? m_byContentId.value(key) : QVariantMap();
+    return ok ? data.byContentId.value(key) : QVariantMap();
 }
 
 QVariantMap DutyCatalog::findByName(const QString &name, const QString &region) const
 {
-    if (!region.isEmpty() && region != QLatin1String("CN") && region != QLatin1String("UNKNOWN"))
-        return {};
-    const auto rows = m_byName.value(name);
+    const auto &data = catalogue(region);
+    const auto rows = data.byName.value(name);
     if (rows.size() == 1)
         return rows.first();
     QVariantMap preferred;
@@ -286,15 +325,16 @@ QVariantMap DutyCatalog::findByName(const QString &name, const QString &region) 
     return preferred;
 }
 
-QVariantMap DutyCatalog::lookupByTerritory(const QVariant &territoryId) const
+QVariantMap DutyCatalog::lookupByTerritory(const QVariant &territoryId, const QString &region) const
 {
+    const auto &data = catalogue(region);
     if (!territoryId.isValid() || territoryId.isNull())
         return {};
     bool ok = false;
     const qint64 key = territoryId.toLongLong(&ok);
     if (!ok)
         return {};
-    const QList<QVariantMap> rows = m_byTerritoryId.value(key);
+    const QList<QVariantMap> rows = data.byTerritoryId.value(key);
     if (rows.isEmpty())
         return {};
 
@@ -320,26 +360,24 @@ QString DutyCatalog::displayedCategory(const QVariantMap &run, bool fillMissingF
     if (!recorded.trimmed().isEmpty() && recorded != QString::fromUtf8("大型任务"))
         return recorded;
     const QString region = run.value(QStringLiteral("region")).toString();
-    // This is the CN display catalogue; GLOBAL classifications arrive from the Collector.
-    if (!region.isEmpty() && region != QLatin1String("CN") && region != QLatin1String("UNKNOWN"))
-        return recorded;
+    const auto &data = catalogue(region);
 
     QVariantMap identity;
     if (hasValue(run, QStringLiteral("content_id"))) {
         qint64 content = 0;
         if (!numericIdentity(run.value(QStringLiteral("content_id")), content))
             return recorded;
-        identity = lookup(content);
+        identity = lookup(content, region);
     } else {
         qint64 territory = 0;
         const bool ok = numericIdentity(run.value(QStringLiteral("territory_id")), territory);
-        const auto candidates = ok ? m_byTerritoryId.value(territory) : QList<QVariantMap>();
+        const auto candidates = ok ? data.byTerritoryId.value(territory) : QList<QVariantMap>();
         if (candidates.size() == 1)
             identity = candidates.first();
     }
     if (identity.isEmpty())
         return recorded;
-    if (m_allianceRaidIds.contains(identity.value(QStringLiteral("content_id")).toLongLong()))
+    if (data.allianceRaidIds.contains(identity.value(QStringLiteral("content_id")).toLongLong()))
         return QString::fromUtf8("团队任务");
     if (fillMissingFromCatalog && recorded.trimmed().isEmpty())
         return identity.value(QStringLiteral("duty_category")).toString();
@@ -348,9 +386,10 @@ QString DutyCatalog::displayedCategory(const QVariantMap &run, bool fillMissingF
 
 QVariantMap DutyCatalog::enrich(const QVariantMap &run) const
 {
-    QVariantMap row = lookup(run.value(QStringLiteral("content_id")));
+    const QString region = run.value(QStringLiteral("region")).toString();
+    QVariantMap row = lookup(run.value(QStringLiteral("content_id")), region);
     if (row.isEmpty())
-        row = lookupByTerritory(run.value(QStringLiteral("territory_id")));
+        row = lookupByTerritory(run.value(QStringLiteral("territory_id")), region);
     if (row.isEmpty())
         return run;
 

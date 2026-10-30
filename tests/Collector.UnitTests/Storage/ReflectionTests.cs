@@ -365,9 +365,11 @@ public sealed class ReflectionTests : IDisposable
                 exporter.ExportCsv(Path.Combine(directory, "runs.csv"), null, false).TargetPath);
             var header = RunExporter.CsvHeader;
             // Appended after the original fourteen; joined_in_progress came after them in turn.
-            Assert.Equal("reflection_mood", header[^3]);
-            Assert.Equal("reflection_text", header[^2]);
-            Assert.Equal("joined_in_progress", header[^1]);
+            Assert.Equal("reflection_mood", header[14]);
+            Assert.Equal("reflection_text", header[15]);
+            Assert.Equal("joined_in_progress", header[16]);
+            Assert.Equal("region", header[17]);
+            Assert.Equal("game_build", header[18]);
             Assert.Contains("good,带新人，一次过。", csv, StringComparison.Ordinal);
 
             var json = JsonNode.Parse(File.ReadAllText(

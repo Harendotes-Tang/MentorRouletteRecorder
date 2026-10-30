@@ -2252,7 +2252,8 @@ void StatisticsOverlayTests::renderedEvidence()
     QVERIFY(scene.grab(prefix + QStringLiteral("-english")));
     const auto first = scene.app->dungeons()->topRows(1).first().toMap();
     const QString englishDuty = mr::GameNames::shared()->duty(first.value(QStringLiteral("content_id")), first.value(QStringLiteral("duty_name")).toString());
-    QVERIFY2(scene.texts().contains(englishDuty), qPrintable(scene.texts().join(QLatin1Char('\n'))));
+    QVERIFY2(scene.texts().join(QLatin1Char('\n')).contains(englishDuty + QStringLiteral(" · ")),
+             qPrintable(scene.texts().join(QLatin1Char('\n'))));
     scene.language.setLanguage(QStringLiteral("zh-CN"));
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::Entered);
     QTRY_VERIFY(!scene.app->currentRun().value(QStringLiteral("run")).toMap().isEmpty());

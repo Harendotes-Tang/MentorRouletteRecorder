@@ -18,12 +18,12 @@ public sealed class TemplateObservationTests
     private const string EvidenceId = "d67c38ad-3a98-4c9e-b570-740edda90525";
     private const string SessionAlias = "54174a36-0660-4ad6-8773-7b2ab8e719b2";
 
-    private static string Trace(bool summary = true, bool synthetic = false)
+    private static string Trace(bool summary = true, bool synthetic = false, Region region = Region.Global)
     {
         var writer = new StringWriter();
         var sink = new CaptureTraceSink(writer, elapsed: () => TimeSpan.FromSeconds(4));
         sink.WriteHeader(new(DateTimeOffset.UnixEpoch, "private-driver", "2026.10.15.0000.0000",
-            Region.Global, "private-device-hash", "0.0.0", OodleMode.FfxivTcp, synthetic));
+            region, "private-device-hash", "0.0.0", OodleMode.FfxivTcp, synthetic));
         void Message(int time, ushort segment, byte[]? payload = null) => sink.Accept(new DecodedMessage(
             "private-session", MessageDirection.Inbound, DateTimeOffset.UnixEpoch, TimeSpan.FromSeconds(time),
             123456, segment, 0xabcd, payload ?? Encoding.UTF8.GetBytes("private-payload"), "private-connection"));
@@ -45,14 +45,16 @@ public sealed class TemplateObservationTests
         return TemplateObservationExporter.Export(path, CaptureTraceDigest.Compute(path), EvidenceId, SessionAlias);
     }
 
-    [Fact]
-    public void ExactMetadataBucketsPreserveSegmentAndUnionOverlappingWindowsWithoutPublishingLocalIdentity()
+    [Theory]
+    [InlineData(Region.Global, "GLOBAL")]
+    [InlineData(Region.Tc, "TC")]
+    public void ExactMetadataBucketsPreserveSegmentAndUnionOverlappingWindowsWithoutPublishingLocalIdentity(Region region, string token)
     {
-        var exported = Export(Trace());
+        var exported = Export(Trace(region: region));
         Assert.True(exported.Available, exported.Reason);
         var root = JsonNode.Parse(exported.EvidenceJson!)!;
         Assert.Equal("TEMPLATE_OBSERVATION", root["kind"]!.GetValue<string>());
-        Assert.Equal("GLOBAL", root["target"]!["region"]!.GetValue<string>());
+        Assert.Equal(token, root["target"]!["region"]!.GetValue<string>());
         Assert.Null(root["target"]!["template_profile_id"]);
         Assert.Null(root["target"]!["code_sha256"]);
         var rows = root["observations"]!.AsArray();
@@ -67,7 +69,7 @@ public sealed class TemplateObservationTests
         Assert.DoesNotContain("private", exported.EvidenceJson!);
         foreach (var forbidden in new[] { "h12", "at_utc", "t_ms", "conn", "adapter_fingerprint", "epoch\"", "trace_path", "payload" })
             Assert.DoesNotContain("\"" + forbidden, exported.EvidenceJson!);
-        Assert.Equal(exported.EvidenceJson, Export(Trace()).EvidenceJson);
+        Assert.Equal(exported.EvidenceJson, Export(Trace(region: region)).EvidenceJson);
     }
 
     [Theory]

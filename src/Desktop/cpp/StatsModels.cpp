@@ -80,7 +80,7 @@ QString dutyCategory(const QJsonObject &row)
 {
     QString category = row.value(QStringLiteral("duty_category")).toString().trimmed();
     if (category.isEmpty()) {
-        category = DutyCatalog::shared()->lookup(row.value(QStringLiteral("content_id")).toVariant())
+        category = DutyCatalog::shared()->lookup(row.value(QStringLiteral("content_id")).toVariant(), row.value(QStringLiteral("region")).toString())
                        .value(QStringLiteral("duty_category")).toString().trimmed();
     }
     // The key of the unknown bucket; categoryBreakdown() labels it for display.
@@ -289,7 +289,7 @@ QJsonObject DungeonStatsModel::decorate(const QJsonObject &row) const
     // of each row for display only; a value the Collector did send always wins.
     QJsonObject out = row;
     const QVariantMap catalogue =
-        DutyCatalog::shared()->lookup(row.value(QStringLiteral("content_id")).toVariant());
+        DutyCatalog::shared()->lookup(row.value(QStringLiteral("content_id")).toVariant(), row.value(QStringLiteral("region")).toString());
 
     if (!out.value(QStringLiteral("duty_level")).isDouble()
         && catalogue.contains(QStringLiteral("duty_level"))) {
@@ -362,7 +362,7 @@ QVariantList DungeonStatsModel::categoryBreakdown() const
     for (const QJsonObject &row : m_rows) {
         const QString category = dutyCategory(row);
         if (category == trials
-            && DutyCatalog::shared()->isExtremeTrial(row.value(QStringLiteral("content_id")).toVariant()))
+            && DutyCatalog::shared()->isExtremeTrial(row.value(QStringLiteral("content_id")).toVariant(), row.value(QStringLiteral("region")).toString()))
             extremeCount += completionCount(row);
         else
             counts[category] += completionCount(row);

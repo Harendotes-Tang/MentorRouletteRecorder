@@ -557,6 +557,21 @@ public sealed class RunImportSourceParserTests : IDisposable
         Assert.Throws<InvalidDataException>(() => RunImportSourceParser.Parse("BACKUP", path));
     }
 
+    [Theory]
+    [InlineData(14)]
+    [InlineData(16)]
+    [InlineData(17)]
+    public void LegacyNativeCsvLayoutsRestoreFormulaProtectionWithoutInventingRegion(int width)
+    {
+        var headers = MentorRecorder.Collector.Export.RunExporter.CsvHeader.Take(width).ToArray();
+        var cells = headers.Select(field => field == "duty_name" ? "\"'=旧副本\"" : string.Empty).ToArray();
+        var csv = string.Join(',', headers) + "\r\n" + string.Join(',', cells) + "\r\n";
+        var row = Assert.Single(RunImportSourceParser.Parse("CSV", text: csv));
+        Assert.Equal("=旧副本", row.Values["duty_name"]!.GetValue<string>());
+        Assert.False(row.Values.ContainsKey("region"));
+        Assert.False(row.Values.ContainsKey("game_build"));
+    }
+
     private static string Text(ImportSourceRow row, string field) => row.Values[field]!.GetValue<string>();
 
     private string WriteText(string name, string text)

@@ -354,15 +354,18 @@ QtObject {
     void searchUsesTheRecordedNames()
     {
         const QString sastashaHard = QString::fromUtf8("逆转要害沙斯塔夏溶洞");
-        QCOMPARE(names()->recordedSearchNamesIn(QStringLiteral("en"), QStringLiteral("sastasha")),
-                 (QStringList{kSastashaCn(), sastashaHard}));
+        QStringList sastashaNames{kSastashaCn(), sastashaHard, QString::fromUtf8("逆轉要害沙斯塔夏溶洞")};
+        sastashaNames.sort();
+        QCOMPARE(names()->recordedSearchNamesIn(QStringLiteral("en"), QStringLiteral("sastasha")), sastashaNames);
         QCOMPARE(names()->recordedSearchNamesIn(QStringLiteral("en"), QStringLiteral("Paladin")),
                  QStringList{kPaladinCn()});
         QCOMPARE(names()->recordedSearchNamesIn(QStringLiteral("ja"), QString::fromUtf8("ナイト")),
                  QStringList{kPaladinCn()});
         // Pharos Sirius and its hard mode share no Chinese name; both are named.
-        QCOMPARE(names()->recordedSearchNamesIn(QStringLiteral("en"), QStringLiteral("Pharos")),
-                 (QStringList{QString::fromUtf8("地脉灵灯天狼星灯塔"), QString::fromUtf8("领航明灯天狼星灯塔")}));
+        QStringList pharosNames{QString::fromUtf8("地脉灵灯天狼星灯塔"), QString::fromUtf8("领航明灯天狼星灯塔"),
+                                QString::fromUtf8("地脈靈燈天狼星燈塔"), QString::fromUtf8("領航明燈天狼星燈塔")};
+        pharosNames.sort();
+        QCOMPARE(names()->recordedSearchNamesIn(QStringLiteral("en"), QStringLiteral("Pharos")), pharosNames);
         // Chinese typed as is, a note's words, an empty query: no names.
         QVERIFY(names()->recordedSearchNamesIn(QStringLiteral("en"), kSastashaCn()).isEmpty());
         QVERIFY(names()->recordedSearchNamesIn(QStringLiteral("en"), QStringLiteral("wiped twice")).isEmpty());
@@ -379,14 +382,18 @@ QtObject {
     void everyRecordedNameFitsInOneSearch()
     {
         QSet<QString> all;
-        for (const QVariant &row : mr::DutyCatalog::shared()->allDuties())
-            all.insert(row.toMap().value(QStringLiteral("duty_name")).toString());
+        for (const QString &region : {QStringLiteral("CN"), QStringLiteral("TC"), QStringLiteral("GLOBAL")})
+            for (const QVariant &row : mr::DutyCatalog::shared()->allDuties(region))
+                all.insert(row.toMap().value(QStringLiteral("duty_name")).toString());
         for (const QVariant &row : mr::JobCatalog().allJobs())
             all.insert(row.toMap().value(QStringLiteral("job_name")).toString());
+        QVERIFY2(all.size() > 1000, "The combined region aliases exercise the former CN-only capacity");
         QVERIFY2(all.size() <= mr::GameNames::kMaxSearchNames, qPrintable(QString::number(all.size())));
         // A single letter names most of the catalogue, and all of it is sent.
         const QStringList e = names()->recordedSearchNamesIn(QStringLiteral("en"), QStringLiteral("e"));
-        QVERIFY2(e.size() > 300, qPrintable(QString::number(e.size())));
+        QVERIFY2(e.size() > 1000, qPrintable(QString::number(e.size())));
+        QVERIFY(e.size() <= mr::GameNames::kMaxSearchNames);
+        QVERIFY(e.contains(kTotoRakCn()));
     }
 
     void translatedSearchKeepsTheOriginalNoteQuery_data()

@@ -1923,6 +1923,9 @@ private Q_SLOTS:
         QCOMPARE(fromMock.first().toMap().value(QStringLiteral("content_id")).toInt(), 1015);
         QCOMPARE(fromMock.first().toMap().value(QStringLiteral("party_size")).toInt(), 24);
 
+        // A new record starts UNKNOWN; CN history appears only after its region is chosen.
+        QVERIFY(asList(fixture.dialog()->property("recentDutyOptions")).isEmpty());
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "selectRegion", Q_ARG(QVariant, QVariant(QStringLiteral("CN")))));
         const auto chips = asList(fixture.dialog()->property("recentDutyOptions"));
         QCOMPARE(chips.size(), 5);
         QVERIFY(fixture.goToStep(2));
@@ -1938,6 +1941,8 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(&fixture.controller, "refreshRecentDuties"));
         QTest::qWait(300);
         QCOMPARE(changed.count(), 1);
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "selectRegion", Q_ARG(QVariant, QVariant(QStringLiteral("TC")))));
+        QVERIFY(asList(fixture.dialog()->property("recentDutyOptions")).isEmpty());
     }
 
     void dutyCatalogDerivesPartySizeDifficultyAndVersion()

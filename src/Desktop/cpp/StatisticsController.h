@@ -2,6 +2,8 @@
 
 #include <functional>
 #include <QJsonObject>
+#include <QHash>
+#include <QSet>
 #include <QObject>
 #include <QPointer>
 #include <QVariantList>
@@ -22,6 +24,13 @@ public:
     explicit StatisticsController(IBackend *backend, QObject *parent = nullptr);
     QJsonObject dashboardSnapshot() const { return m_dashboard; }
     QVariantMap dashboard() const { return m_dashboard.toVariantMap(); }
+    QVariantList achievements() const;
+    QVariantList allAchievements() const;
+    QVariantMap achievementForRegion(const QString &region) const;
+    QString recordRegion() const { return m_recordRegion; }
+    void setRecordRegion(const QString &region);
+    QString baselineRegion() const { return m_baselineRegion; }
+    void setBaselineRegion(const QString &region);
     DungeonStatsModel *dungeons() const { return m_dungeons; }
     JobStatsModel *jobs() const { return m_jobs; }
     QVariantList dutyOptions() const { return m_dutyOptions; }
@@ -32,6 +41,9 @@ public:
 
     void refreshDashboard();
     void requestDashboard(std::function<void(bool ok)> then);
+    /// Reads lifetime progress without replacing the listing scope or its trend.
+    void requestRegionalAchievement(const QString &region, std::function<void(bool ok)> then = {});
+    void refreshAchievementRegions();
     void refreshTrend();
     void setTrendMode(const QString &mode);
     void setTrendWindowDays(int days);
@@ -60,6 +72,9 @@ Q_SIGNALS:
     /// A newly observed whole-goal milestone; first reads/settings/reconnects
     /// only prime the observation. UI consumers may discard it while hidden.
     void achievementMilestoneReached(int completedLaps);
+    void regionalAchievementMilestoneReached(const QString &region, int completedLaps);
+    void recordRegionChanged();
+    void baselineRegionChanged();
     void trendChanged();
     void optionsChanged();
     void achievementSettingsLoadedChanged();
@@ -74,7 +89,9 @@ Q_SIGNALS:
     void toastRequested(const QString &message);
 
 private:
-    void observeAchievement(const QJsonObject &dashboard);
+    void observeAchievement(const QJsonObject &dashboard, quint64 serial);
+    void adoptAchievements(const QJsonObject &dashboard, const QString &region, quint64 serial);
+    QJsonObject regionFilter() const;
     void applyTrendSeries(const QJsonObject &trend);
     void applyDayCounts(const QJsonObject &trend);
     void rebuildDutyOptions();
@@ -82,6 +99,19 @@ private:
     DungeonStatsModel *m_dungeons;
     JobStatsModel *m_jobs;
     QJsonObject m_dashboard;
+    QString m_recordRegion;
+    QString m_baselineRegion = QStringLiteral("CN");
+    QHash<QString, QJsonObject> m_achievements;
+    QSet<QString> m_loadedAchievementRegions;
+    struct AchievementObservation {
+        bool ready = false;
+        int goal = 0;
+        int baseline = 0;
+        int highestLap = 0;
+    };
+    QHash<QString, AchievementObservation> m_regionalObservations;
+    QHash<QString, quint64> m_acceptedRegionalSerial;
+    quint64 m_scopeGeneration = 0;
     QVariantList m_trendBuckets;
     /// Granularity of m_trendBuckets as the Collector named it; empty when none.
     QString m_trendSeriesGranularity;
@@ -94,10 +124,6 @@ private:
     quint64 m_achievementObservationGeneration = 0;
     quint64 m_achievementReadSerial = 0;
     quint64 m_lastAchievementReadSerial = 0;
-    bool m_achievementObservationReady = false;
-    int m_observedGoal = 0;
-    int m_observedBaseline = 0;
-    int m_highestCompletedLap = 0;
     bool m_achievementSettingsLoaded = false;
     int m_baselineSavesInFlight = 0;
     int m_completedLast7Days = 0;

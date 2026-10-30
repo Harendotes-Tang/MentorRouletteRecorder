@@ -77,19 +77,19 @@ public sealed class StatisticsRepository
 
         // Each of the dashboard's reads is its own trip through the database gate; this
         // repository gates itself, see SettingsRepository.GetAchievementSettings.
-        var settings = _settings.GetAchievementSettings();
+        var achievements = GetAchievements(filter?.Region);
+        var achievement = achievements.Single(value => value.Region == (filter?.Region ?? Region.Cn));
 
         // Progress deliberately ignores the dashboard date/filter and always uses the full
         // confirmed, live data set. The baseline counts the completions from before the software
         // was installed, so every recorded completion is added on top, whenever it ended; the
         // baseline's effective time only records when its count last changed (audit 2026-10-03,
         // B3-1: a cutoff at that time dropped the recorded runs whenever the count was edited).
-        var contributingCompleted = CountContributingCompleted();
+        var settings = _settings.GetAchievementSettings(region: achievement.Region);
         // The wire contract remains Int32. A later completion or an older oversized
         // baseline must not make every dashboard request fail; preserve the stored
         // counts and cap only the displayed aggregate at the representable maximum.
-        var progress = settings.BaselineCompletedCount + (int)Math.Min(
-            contributingCompleted, int.MaxValue - (long)settings.BaselineCompletedCount);
+        var progress = achievement.AchievementProgress;
 
         return new DashboardStatistics(
             attemptCount,
@@ -105,7 +105,21 @@ public sealed class StatisticsRepository
             rows.Count(row => row.PendingReview && !row.ImportedHistory),
             GetTrend(filter, granularity),
             joinedInProgress,
-            Ratio(joinedInProgress, entryKnown));
+            Ratio(joinedInProgress, entryKnown), achievements);
+    }
+
+    private IReadOnlyList<RegionalAchievementStatistics> GetAchievements(Region? selected)
+    {
+        var regions = selected is { } region ? new[] { region } : _settings.GetAchievementRegions();
+        return regions.Select(owner =>
+        {
+            var settings = _settings.GetAchievementSettings(region: owner);
+            var count = CountContributingCompleted(region: owner);
+            var progress = settings.BaselineCompletedCount + (int)Math.Min(count,
+                int.MaxValue - (long)settings.BaselineCompletedCount);
+            return new RegionalAchievementStatistics(owner, settings.GoalCount, settings.BaselineCompletedCount,
+                progress, Math.Max(settings.GoalCount - progress, 0), (int)Math.Min(count, int.MaxValue));
+        }).ToArray();
     }
 
     /// <summary>
@@ -114,19 +128,19 @@ public sealed class StatisticsRepository
     /// formal-record boundary. The caller may supply its update transaction.
     /// </summary>
     /// <param name="transaction">Existing baseline update transaction, or null for a gated read.</param>
-    internal long CountContributingCompleted(SqliteTransaction? transaction = null)
+    internal long CountContributingCompleted(SqliteTransaction? transaction = null, Region region = Region.Cn)
     {
         if (transaction is null)
         {
-            return _database.Read(_ => CountContributingCompletedCore(null));
+            return _database.Read(_ => CountContributingCompletedCore(null, region));
         }
 
-        return CountContributingCompletedCore(transaction);
+        return CountContributingCompletedCore(transaction, region);
     }
 
-    private long CountContributingCompletedCore(SqliteTransaction? transaction)
+    private long CountContributingCompletedCore(SqliteTransaction? transaction, Region region)
     {
-        var filter = RunFilterSql.Build(null, forStatistics: true);
+        var filter = RunFilterSql.Build(new RunFilter { Region = region }, forStatistics: true);
         using var command = _database.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = $"SELECT COUNT(*) FROM mentor_runs WHERE {filter.Where} "
@@ -293,7 +307,8 @@ public sealed class StatisticsRepository
                 var completed = group.Count(row => row.Result == RunResult.Completed);
                 // The (null, null) group has no duty identity, so no run in it names the row: it is 未知副本 whatever an
                 // imported row's free text says (statistics-definitions §10; re-review 2026-10-20, RV2-4).
-                var recent = group.Key is (null, null)
+                var unidentified = group.Key.ContentId is null && group.Key.TerritoryId is null;
+                var recent = unidentified
                     ? null
                     : group.OrderByDescending(row => row.UpdatedAtUtc)
                         .FirstOrDefault(row => !string.IsNullOrWhiteSpace(row.DutyName));
@@ -304,7 +319,7 @@ public sealed class StatisticsRepository
                 // Category facts need not have a recorded display name. Preserve a custom
                 // category even when the name is supplied by the reference catalogue.
                 var categoryRow = recent ?? group.OrderByDescending(row => row.UpdatedAtUtc).First();
-                var category = group.Key is (null, null) ? null
+                var category = unidentified ? null
                     : _duties.Categories.Resolve(categoryRow.DutyCategory,
                         categoryRow.ContentId, categoryRow.TerritoryId, categoryRow.Region) ?? mapped?.DutyCategory;
                 return new DungeonStatisticsRow(
@@ -318,7 +333,7 @@ public sealed class StatisticsRepository
                     // MAX(matched_at_utc): when this duty was last matched into, not when its
                     // row was last touched, so a correction does not make an old duty recent.
                     group.Max(row => row.MatchedAtUtc),
-                    group.Count(JoinedInProgress));
+                    group.Count(JoinedInProgress), group.Key.Region);
             })
             .OrderByDescending(row => row.AttemptCount)
             .ThenBy(row => row.ContentId)
@@ -334,19 +349,20 @@ public sealed class StatisticsRepository
     /// and so joins the one 未知副本 row (audit 2026-10-20 H1-4).
     /// </summary>
     /// <param name="row">Row read for the statistics.</param>
-    private (int? ContentId, int? TerritoryId) DutyKey(StatRow row)
+    private (Region Region, int? ContentId, int? TerritoryId) DutyKey(StatRow row)
     {
         if (row.ContentId is { } contentId)
         {
-            return (contentId, null);
+            return (row.Region, contentId, null);
         }
 
         if (_duties.FindUniqueByTerritory(row.TerritoryId, row.Region) is { } duty)
         {
-            return (duty.ContentId, null);
+            return (row.Region, duty.ContentId, null);
         }
 
-        return _duties.FindByTerritory(row.TerritoryId, row.Region) is null ? (null, null) : (null, row.TerritoryId);
+        return _duties.FindByTerritory(row.TerritoryId, row.Region) is null
+            ? (row.Region, null, null) : (row.Region, null, row.TerritoryId);
     }
 
     /// <summary>Aggregates by job id, keeping null as a visible unknown group.</summary>

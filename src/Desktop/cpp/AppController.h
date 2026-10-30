@@ -152,6 +152,10 @@ class AppController final : public QObject, public CaptureValidationController::
 
     // -- statistics ---------------------------------------------------------
     Q_PROPERTY(QVariantMap dashboard READ dashboard NOTIFY dashboardChanged)
+    Q_PROPERTY(QVariantList achievements READ achievements NOTIFY dashboardChanged)
+    Q_PROPERTY(QVariantList visibleAchievements READ visibleAchievements NOTIFY dashboardChanged)
+    Q_PROPERTY(QString recordRegion READ recordRegion WRITE setRecordRegion NOTIFY recordRegionChanged)
+    Q_PROPERTY(QString baselineRegion READ baselineRegion WRITE setBaselineRegion NOTIFY baselineRegionChanged)
     Q_PROPERTY(QVariantList resultBuckets READ resultBuckets NOTIFY dashboardChanged)
     Q_PROPERTY(QVariantList statCards READ statCards NOTIFY dashboardChanged)
     Q_PROPERTY(QVariantList trendBuckets READ trendBuckets NOTIFY trendChanged)
@@ -383,6 +387,15 @@ public:
     QVariant liveElapsedMs() const;
 
     QVariantMap dashboard() const { return m_statistics->dashboard(); }
+    QVariantList achievements() const { return m_statistics->allAchievements(); }
+    QVariantList visibleAchievements() const { return m_statistics->achievements(); }
+    QString recordRegion() const { return m_statistics->recordRegion(); }
+    void setRecordRegion(const QString &region) { m_statistics->setRecordRegion(region); }
+    QString baselineRegion() const { return m_statistics->baselineRegion(); }
+    void setBaselineRegion(const QString &region) { m_statistics->setBaselineRegion(region); }
+    Q_INVOKABLE QVariantMap achievementForRegion(const QString &region) const
+    { return m_statistics->achievementForRegion(region); }
+    Q_INVOKABLE QVariantList dutyChoicesForRegion(const QString &region) const;
     QVariantList resultBuckets() const;
     QVariantList statCards() const;
     QVariantList trendBuckets() const;
@@ -546,7 +559,7 @@ public Q_SLOTS:
     void updateHistoryRetentionSettings(int days);
     void retryHistoryImageCleanup();
     /// Jump to the history page pre-filtered by one duty or one job.
-    void showHistoryForContent(const QVariant &contentId);
+    void showHistoryForContent(const QVariant &contentId, const QString &region = {});
     void showHistoryForJob(const QVariant &jobId);
 
     void createManualRun(const QVariantMap &fields, const QString &reason);
@@ -630,7 +643,8 @@ public Q_SLOTS:
     /// \ref goalProgressRead. The read is sent now, so its answer counts every
     /// run that already counted when it was called - unlike a dashboard reply
     /// that was requested earlier and merely arrives later (review L2-1).
-    Q_INVOKABLE void readGoalProgress(const QString &runId);
+    Q_INVOKABLE void readGoalProgress(const QString &runId, const QString &region = {});
+    Q_INVOKABLE void refreshAchievementRegions() { m_statistics->refreshAchievementRegions(); }
 
 Q_SIGNALS:
     void currentPageChanged();
@@ -693,6 +707,9 @@ Q_SIGNALS:
     void baselineSaved(int goal, int baseline);
     /// Presentation-only milestone from the statistics snapshot observer.
     void achievementMilestoneReached(int completedLaps);
+    void regionalAchievementMilestoneReached(const QString &region, int completedLaps);
+    void recordRegionChanged();
+    void baselineRegionChanged();
 
     void reflectionsChanged();
     /// \a cleared is true when the text was empty and the reflection was removed.

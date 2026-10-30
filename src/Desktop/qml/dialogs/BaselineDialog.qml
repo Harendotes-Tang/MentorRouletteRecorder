@@ -119,6 +119,19 @@ Dialog {
 
         CardKicker { text: dialog.reopened ? qsTr("起始次数") : qsTr("首次启动 · 1 / 1") }
 
+        RecordRegionSelector {
+            objectName: "baselineRegionSelector"
+            Layout.fillWidth: true
+            includeAll: false
+            selection: Runtime.app.baselineRegion
+            enabled: !dialog.saving && !dialog.busy
+            onRegionPicked: function(region) {
+                dialog.edited = false
+                Runtime.app.baselineRegion = region
+                dialog.refill()
+            }
+        }
+
         HeadingLabel {
             Layout.fillWidth: true
             text: qsTr("开始记录前，你已完成多少次导随？")

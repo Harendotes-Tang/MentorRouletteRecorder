@@ -1634,7 +1634,8 @@ void UiWorkflowRegressionTests::achievementProgressIsTheCollectorsFigure()
     QVERIFY(remaining);
     QCOMPARE(ring->property("label").toString(), QStringLiteral("104"));
     QCOMPARE(ring->property("value").toInt(), 104);
-    QCOMPARE(remaining->property("text").toString(), QStringLiteral("1896"));
+    QCOMPARE(remaining->property("text").toString(),
+             QCoreApplication::translate("RegionalAchievementCard", "还差 %1 次").arg(1896));
 
     SettingsFixture settings;
     settings.backend.answers.insert(QStringLiteral("GetDashboardStats"), dashboard);
@@ -2050,16 +2051,15 @@ void UiWorkflowRegressionTests::regionSettingIsReachableWithKeyboard()
 
 void UiWorkflowRegressionTests::regionSettingWritesExistingOverride_data()
 {
-    QTest::addColumn<int>("index");
     QTest::addColumn<QJsonValue>("value");
-    QTest::newRow("automatic") << 0 << QJsonValue(QJsonValue::Null);
-    QTest::newRow("CN") << 1 << QJsonValue(QStringLiteral("CN"));
-    QTest::newRow("GLOBAL") << 2 << QJsonValue(QStringLiteral("GLOBAL"));
+    QTest::newRow("automatic") << QJsonValue(QJsonValue::Null);
+    QTest::newRow("CN") << QJsonValue(QStringLiteral("CN"));
+    QTest::newRow("TC") << QJsonValue(QStringLiteral("TC"));
+    QTest::newRow("GLOBAL") << QJsonValue(QStringLiteral("GLOBAL"));
 }
 
 void UiWorkflowRegressionTests::regionSettingWritesExistingOverride()
 {
-    QFETCH(int, index);
     QFETCH(QJsonValue, value);
     SettingsFixture fixture;
     fixture.backend.answers.insert(QStringLiteral("GetCaptureSettings"),
@@ -2070,8 +2070,17 @@ void UiWorkflowRegressionTests::regionSettingWritesExistingOverride()
     QVERIFY2(fixture.create(), qPrintable(fixture.errors));
     auto *control = fixture.item(QStringLiteral("captureRegionSettingControl"));
     QVERIFY(control);
-    QTRY_COMPARE(control->property("currentIndex").toInt(), 2);
-    QCOMPARE(control->property("count").toInt(), 3);
+    const auto indexFor = [control](const QVariant &token) {
+        QVariant index;
+        if (!QMetaObject::invokeMethod(control, "regionIndex", Q_RETURN_ARG(QVariant, index), Q_ARG(QVariant, token)))
+            return -1;
+        return index.toInt();
+    };
+    const int globalIndex = indexFor(QStringLiteral("GLOBAL"));
+    const int index = indexFor(value.toVariant());
+    QVERIFY(globalIndex >= 0 && index >= 0);
+    QTRY_COMPARE(control->property("currentIndex").toInt(), globalIndex);
+    QCOMPARE(control->property("count").toInt(), 4);
     QVERIFY(QMetaObject::invokeMethod(control, "activated", Q_ARG(int, index)));
     QTRY_COMPARE(fixture.backend.counts.value(QStringLiteral("UpdateCaptureSettings")), 1);
     QCOMPARE(fixture.backend.lastPayloads.value(QStringLiteral("UpdateCaptureSettings")),

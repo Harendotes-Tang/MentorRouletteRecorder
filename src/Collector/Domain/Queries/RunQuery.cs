@@ -55,6 +55,9 @@ public enum SortDirection
 /// </summary>
 public sealed record RunFilter
 {
+    /// <summary>Owning service region; null includes every region.</summary>
+    public Region? Region { get; init; }
+
     /// <summary>An empty filter that constrains nothing.</summary>
     public static RunFilter Empty { get; } = new();
 
@@ -126,8 +129,12 @@ public sealed record RunFilter
     /// </summary>
     public string? NameText { get; init; }
 
-    /// <summary>Largest <see cref="NameExact"/> list the IPC contract accepts.</summary>
-    public const int MaxExactNames = 1000;
+    /// <summary>
+    /// Largest <see cref="NameExact"/> list the IPC contract accepts, allowing translated
+    /// searches across regional catalogues. Each name remains limited to 200 characters;
+    /// the enclosing request must also fit the existing IPC frame byte limit.
+    /// </summary>
+    public const int MaxExactNames = 4096;
 
     /// <summary>
     /// Recorded duty or job names matched by equality, OR with <see cref="Text"/> and

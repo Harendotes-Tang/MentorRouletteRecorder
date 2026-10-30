@@ -18,7 +18,7 @@ public sealed class RunImportServiceTests
     private static string Id() => Guid.NewGuid().ToString("D");
     private static JsonObject History(string text = "合成测试心得") => new()
     {
-        ["duty_name"] = "合成测试副本", ["job_name"] = "骑士", ["reflection_text"] = text,
+        ["region"] = "CN", ["duty_name"] = "合成测试副本", ["job_name"] = "骑士", ["reflection_text"] = text,
         ["source_recorded_at"] = "2026-10-08 20:30:00", ["result"] = "UNKNOWN",
     };
     private static JsonObject Row(JsonObject preview, int index = 0) => preview["rows"]![index]!.AsObject();
@@ -47,6 +47,45 @@ public sealed class RunImportServiceTests
     }
     private static JsonObject CompletedRun(int hour, bool contributesToGoal = true) =>
         Wire.Run(TestDatabase.Run(enteredAt: new DateTimeOffset(2026, 9, 4, hour, 0, 0, TimeSpan.Zero), contributesToGoal: contributesToGoal));
+
+    [Fact]
+    public void MixedRegionImportDeductsOnlyItsOwnBaselinesAndRetryKeepsBothAudits()
+    {
+        using var fixture = new TestDatabase();
+        SetBaseline(fixture, 100);
+        var settings = Settings(fixture);
+        fixture.Database.RunInTransaction(tx => settings.UpdateAchievementSettings(
+            settings.GetAchievementSettings(tx, Region.Tc) with { BaselineCompletedCount = 50 }, tx));
+        var cn = CompletedRun(1);
+        var tc = CompletedRun(1); tc["region"] = "TC";
+        var unknown = History(); unknown.Remove("region"); unknown["result"] = "COMPLETED";
+        var service = new RunImportService(fixture.Database, fixture.Clock);
+        var preview = service.PreviewSource("JSON", rows: new JsonArray(cn, tc, unknown), timeZone: "+08:00");
+        Assert.All(preview["rows"]!.AsArray(), row => Assert.Equal("new", row!["status"]!.GetValue<string>()));
+        var requestId = Id();
+        var result = service.Commit(preview["preview_id"]!.GetValue<string>(), new[] { 1, 2, 3 }, true, requestId, true);
+        Assert.Equal(2, result["baseline_deducted_count"]!.GetValue<int>());
+        Assert.Equal(99, settings.GetAchievementSettings().BaselineCompletedCount);
+        Assert.Equal(49, settings.GetAchievementSettings(region: Region.Tc).BaselineCompletedCount);
+        Assert.Equal(0, settings.GetAchievementSettings(region: Region.Unknown).BaselineCompletedCount);
+        Assert.Equal(3, result["baseline_adjustments"]!.AsArray().Count);
+        Assert.Single(settings.ReadBaselineAudit());
+        Assert.Single(settings.ReadBaselineAudit(region: Region.Tc));
+        var replay = service.Commit(preview["preview_id"]!.GetValue<string>(), new[] { 1, 2, 3 }, true, requestId, true);
+        Assert.True(replay["replayed"]!.GetValue<bool>());
+        Assert.True(JsonNode.DeepEquals(result["baseline_adjustments"], replay["baseline_adjustments"]));
+        var all = new StatisticsRepository(fixture.Database, settings).GetDashboard();
+        Assert.Equal(100, all.AchievementProgress);
+        Assert.Equal(50, all.Achievements!.Single(row => row.Region == Region.Tc).AchievementProgress);
+        Assert.Equal(1, all.Achievements.Single(row => row.Region == Region.Unknown).AchievementProgress);
+        // Reimporting either region is an exact duplicate. A third region at the same instant
+        // must remain new rather than an approximate match to CN or TC.
+        var again = service.PreviewSource("JSON", rows: new JsonArray(cn.DeepClone(), tc.DeepClone()));
+        Assert.All(again["rows"]!.AsArray(), row => Assert.Equal("duplicate", row!["status"]!.GetValue<string>()));
+        var global = CompletedRun(1); global["region"] = "GLOBAL";
+        var fresh = service.PreviewSource("JSON", rows: new JsonArray(global));
+        Assert.Equal("new", Row(fresh)["status"]!.GetValue<string>());
+    }
 
     [Fact]
     public void MissingOutcomeUsesReviewedDefaultCompletionAndUnknownTimesRemainInformational()

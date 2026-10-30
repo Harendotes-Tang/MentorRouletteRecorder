@@ -29,6 +29,25 @@ ColumnLayout {
         dutyList.positionViewAtBeginning()
     }
 
+    RowLayout {
+        Layout.fillWidth: true
+        FieldLabel { text: qsTr("记录区服") }
+        StyledComboBox {
+            objectName: "manualRunRegion"
+            Layout.fillWidth: true
+            model: step.wizard.regionOptions
+            textRole: "text"
+            enabled: !step.wizard.editMode
+            currentIndex: {
+                for (let i = 0; i < model.length; ++i)
+                    if (model[i].value === step.wizard.recordRegion) return i
+                return 0
+            }
+            onActivated: function(index) { step.wizard.selectRegion(model[index].value) }
+            Accessible.name: qsTr("记录区服")
+        }
+    }
+
     // ------------------------------------------------------------ 副本 --
     ColumnLayout {
         Layout.fillWidth: true

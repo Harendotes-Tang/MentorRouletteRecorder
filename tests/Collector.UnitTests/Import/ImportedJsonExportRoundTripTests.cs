@@ -63,6 +63,7 @@ public sealed class ImportedJsonExportRoundTripTests
         var candidate = new JsonObject
         {
             ["duty_name"] = "合成 JSON 往返副本",
+            ["region"] = "CN",
             ["job_id"] = 19,
             ["matched_at_utc"] = "2026-09-04T00:59:50.000Z",
             ["entered_at_utc"] = "2026-09-04T01:00:00.000Z",

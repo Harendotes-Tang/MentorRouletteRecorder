@@ -35,7 +35,7 @@ public sealed class SettingsRepository
     }
 
     /// <summary>
-    /// Creates the single achievement row and the default application settings when they are
+    /// Creates CN/TC achievement rows and the default application settings when they are
     /// missing. Safe to call on every startup.
     /// </summary>
     public void EnsureDefaults()
@@ -48,8 +48,8 @@ public sealed class SettingsRepository
                 command.Transaction = tx;
                 command.CommandText =
                     "INSERT OR IGNORE INTO achievement_settings " +
-                    "(id, goal_count, baseline_completed_count, baseline_effective_at, updated_at_utc) " +
-                    "VALUES (1, $goal, 0, $now, $now);";
+                    "(region, goal_count, baseline_completed_count, baseline_effective_at, updated_at_utc) " +
+                    "VALUES ('CN', $goal, 0, $now, $now), ('TC', $goal, 0, $now, $now);";
                 command.Parameters.AddWithValue("$goal", AchievementSettings.DefaultGoalCount);
                 command.Parameters.AddWithValue("$now", UtcTimestamp.ToText(now));
                 command.ExecuteNonQuery();
@@ -83,24 +83,26 @@ public sealed class SettingsRepository
     /// gate while another transaction is open is refused by ADO.NET (review finding H2).
     /// </summary>
     /// <param name="transaction">Enclosing transaction, or null for a standalone read.</param>
-    public AchievementSettings GetAchievementSettings(SqliteTransaction? transaction = null) =>
+    public AchievementSettings GetAchievementSettings(SqliteTransaction? transaction = null, Region region = Region.Cn) =>
         transaction is null
-            ? _database.Read(_ => ReadAchievementSettings(transaction: null))
-            : ReadAchievementSettings(transaction);
+            ? _database.Read(_ => ReadAchievementSettings(null, region))
+            : ReadAchievementSettings(transaction, region);
 
-    private AchievementSettings ReadAchievementSettings(SqliteTransaction? transaction)
+    private AchievementSettings ReadAchievementSettings(SqliteTransaction? transaction, Region region)
     {
         using var command = _database.CreateCommand();
         command.Transaction = transaction;
         command.CommandText =
             "SELECT goal_count, baseline_completed_count, baseline_effective_at, updated_at_utc " +
-            "FROM achievement_settings WHERE id = 1;";
+            "FROM achievement_settings WHERE region = $region;";
+        command.Parameters.AddWithValue("$region", EnumWire<Region>.Format(region));
         using var reader = command.ExecuteReader();
         if (!reader.Read())
         {
             var now = UtcTimestamp.Truncate(_clock.UtcNow);
             return new AchievementSettings
             {
+                Region = region,
                 GoalCount = AchievementSettings.DefaultGoalCount,
                 BaselineCompletedCount = 0,
                 BaselineEffectiveAt = now,
@@ -110,6 +112,7 @@ public sealed class SettingsRepository
 
         return new AchievementSettings
         {
+            Region = region,
             GoalCount = reader.GetInt32(0),
             BaselineCompletedCount = reader.GetInt32(1),
             BaselineEffectiveAt = UtcTimestamp.Parse(reader.GetString(2)),
@@ -129,10 +132,11 @@ public sealed class SettingsRepository
         command.Transaction = transaction;
         command.CommandText =
             "INSERT INTO achievement_settings " +
-            "(id, goal_count, baseline_completed_count, baseline_effective_at, updated_at_utc) " +
-            "VALUES (1, $goal, $baseline, $effective, $updated) " +
-            "ON CONFLICT(id) DO UPDATE SET goal_count = $goal, baseline_completed_count = $baseline, " +
+            "(region, goal_count, baseline_completed_count, baseline_effective_at, updated_at_utc) " +
+            "VALUES ($region, $goal, $baseline, $effective, $updated) " +
+            "ON CONFLICT(region) DO UPDATE SET goal_count = $goal, baseline_completed_count = $baseline, " +
             "baseline_effective_at = $effective, updated_at_utc = $updated;";
+        command.Parameters.AddWithValue("$region", EnumWire<Region>.Format(settings.Region));
         command.Parameters.AddWithValue("$goal", settings.GoalCount);
         command.Parameters.AddWithValue("$baseline", settings.BaselineCompletedCount);
         command.Parameters.AddWithValue("$effective", UtcTimestamp.ToText(settings.BaselineEffectiveAt));
@@ -165,7 +169,7 @@ public sealed class SettingsRepository
         ArgumentException.ThrowIfNullOrEmpty(reason);
         ArgumentNullException.ThrowIfNull(transaction);
 
-        var history = ReadBaselineAudit(transaction).ToList();
+        var history = ReadBaselineAudit(transaction, settings.Region).ToList();
         history.Add(new BaselineAuditEntry(
             auditEventId,
             requestId,
@@ -173,7 +177,7 @@ public sealed class SettingsRepository
             settings.BaselineCompletedCount,
             UtcTimestamp.ToText(settings.BaselineEffectiveAt),
             UtcTimestamp.ToText(settings.UpdatedAtUtc),
-            reason));
+            reason, settings.Region));
 
         var trimmed = history.Count > MaxBaselineAuditEntries
             ? history.GetRange(history.Count - MaxBaselineAuditEntries, MaxBaselineAuditEntries)
@@ -185,7 +189,7 @@ public sealed class SettingsRepository
             "INSERT INTO application_settings (key, value_json, updated_at_utc) " +
             "VALUES ($key, $value, $now) " +
             "ON CONFLICT(key) DO UPDATE SET value_json = $value, updated_at_utc = $now;";
-        command.Parameters.AddWithValue("$key", BaselineHistoryKey);
+        command.Parameters.AddWithValue("$key", AuditKey(settings.Region));
         command.Parameters.AddWithValue("$value", JsonSerializer.Serialize(trimmed));
         command.Parameters.AddWithValue("$now", UtcTimestamp.ToText(settings.UpdatedAtUtc));
         command.ExecuteNonQuery();
@@ -196,17 +200,36 @@ public sealed class SettingsRepository
     /// supplied, for the same reason as <see cref="GetAchievementSettings"/>.
     /// </summary>
     /// <param name="transaction">Enclosing transaction, or null for a standalone read.</param>
-    public IReadOnlyList<BaselineAuditEntry> ReadBaselineAudit(SqliteTransaction? transaction = null) =>
+    public IReadOnlyList<BaselineAuditEntry> ReadBaselineAudit(SqliteTransaction? transaction = null, Region region = Region.Cn) =>
         transaction is null
-            ? _database.Read(_ => ReadBaselineAuditRow(transaction: null))
-            : ReadBaselineAuditRow(transaction);
+            ? _database.Read(_ => ReadBaselineAuditRow(null, region))
+            : ReadBaselineAuditRow(transaction, region);
 
-    private IReadOnlyList<BaselineAuditEntry> ReadBaselineAuditRow(SqliteTransaction? transaction)
+    private static string AuditKey(Region region) => region == Region.Cn ? BaselineHistoryKey
+        : BaselineHistoryKey + "." + EnumWire<Region>.Format(region);
+
+    /// <summary>Every surviving regional audit, including old CN entries with no region field.</summary>
+    internal IReadOnlyList<BaselineAuditEntry> ReadAllBaselineAudit(SqliteTransaction? transaction = null) =>
+        Enum.GetValues<Region>().SelectMany(region => ReadBaselineAudit(transaction, region)).ToArray();
+
+    /// <summary>Regions with records/settings plus the always-visible CN and TC defaults.</summary>
+    public IReadOnlyList<Region> GetAchievementRegions() => _database.Read(_ =>
+    {
+        using var command = _database.CreateCommand();
+        command.CommandText = "SELECT region FROM achievement_settings UNION SELECT region FROM mentor_runs;";
+        using var reader = command.ExecuteReader();
+        var regions = new HashSet<Region> { Region.Cn, Region.Tc };
+        while (reader.Read()) regions.Add(EnumWire<Region>.Parse(reader.GetString(0)));
+        return (IReadOnlyList<Region>)regions.OrderBy(value => value == Region.Cn ? 0 : value == Region.Tc ? 1 : 2)
+            .ThenBy(value => EnumWire<Region>.Format(value), StringComparer.Ordinal).ToArray();
+    });
+
+    private IReadOnlyList<BaselineAuditEntry> ReadBaselineAuditRow(SqliteTransaction? transaction, Region region)
     {
         using var command = _database.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = "SELECT value_json FROM application_settings WHERE key = $key;";
-        command.Parameters.AddWithValue("$key", BaselineHistoryKey);
+        command.Parameters.AddWithValue("$key", AuditKey(region));
         if (command.ExecuteScalar() is not string json)
         {
             return Array.Empty<BaselineAuditEntry>();
@@ -214,7 +237,8 @@ public sealed class SettingsRepository
 
         try
         {
-            return JsonSerializer.Deserialize<BaselineAuditEntry[]>(json) ?? Array.Empty<BaselineAuditEntry>();
+            return (JsonSerializer.Deserialize<BaselineAuditEntry[]>(json) ?? Array.Empty<BaselineAuditEntry>())
+                .Select(entry => entry with { Region = region }).ToArray();
         }
         catch (JsonException)
         {
@@ -304,4 +328,5 @@ public sealed record BaselineAuditEntry(
     [property: JsonPropertyName("baseline_completed_count")] int BaselineCompletedCount,
     [property: JsonPropertyName("baseline_effective_at")] string BaselineEffectiveAt,
     [property: JsonPropertyName("changed_at_utc")] string ChangedAtUtc,
-    [property: JsonPropertyName("reason")] string Reason);
+    [property: JsonPropertyName("reason")] string Reason,
+    [property: JsonPropertyName("region")] Region Region = Region.Cn);

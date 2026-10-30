@@ -12,6 +12,7 @@ public sealed class ManualRunDurationTests
     private static JsonObject Payload() => new()
     {
         ["reason"] = "补录遗漏记录",
+        ["region"] = "CN",
         ["result"] = "COMPLETED",
         ["matched_at_utc"] = "2026-09-13T12:00:00.000Z",
         ["entered_at_utc"] = "2026-09-13T12:00:00.000Z",

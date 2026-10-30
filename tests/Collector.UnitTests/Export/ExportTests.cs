@@ -4,6 +4,7 @@ using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Queries;
 using MentorRecorder.Collector.Export;
 using MentorRecorder.Collector.Ipc;
+using MentorRecorder.Collector.Import;
 using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.UnitTests;
@@ -137,6 +138,55 @@ public sealed class ExportTests : IDisposable
             overwrite: false);
 
         Assert.Equal(1, completedOnly.RowCount);
+    }
+
+    [Theory]
+    [InlineData("CSV")]
+    [InlineData("JSON")]
+    public void RegionalExportsRoundTripWithoutCrossRegionDuplicates(string format)
+    {
+        var cn = TestDatabase.Run() with { Region = Region.Cn, GameBuild = "same-build" };
+        var tc = TestDatabase.Run() with { Region = Region.Tc, GameBuild = "same-build" };
+        Seed(cn, tc);
+        var path = Target("regional." + format.ToLowerInvariant());
+        if (format == "CSV") _exporter.ExportCsv(path, null, false);
+        else _exporter.ExportJson(path, null, false);
+        using var target = new TestDatabase();
+        var importer = new RunImportService(target.Database, target.Clock);
+        var preview = importer.PreviewSource(format, filePath: path);
+        Assert.All(preview["rows"]!.AsArray(), row => Assert.Equal("new", row!["status"]!.GetValue<string>()));
+        var response = importer.Commit(preview["preview_id"]!.GetValue<string>(),
+            preview["rows"]!.AsArray().Select(row => row!["row_number"]!.GetValue<int>()).ToArray(),
+            true, Guid.NewGuid().ToString("D"));
+        Assert.Equal(2, response["imported_count"]!.GetValue<int>());
+        var stored = new RunRepository(target.Database).Query(null, null, 1, 50).Items;
+        Assert.Equal(2, stored.Count);
+        Assert.Contains(stored, run => run.Region == Region.Cn && run.GameBuild == "same-build");
+        Assert.Contains(stored, run => run.Region == Region.Tc && run.GameBuild == "same-build");
+        var filtered = Target("tc-only." + format.ToLowerInvariant());
+        var result = format == "CSV" ? _exporter.ExportCsv(filtered, new RunFilter { Region = Region.Tc }, false)
+            : _exporter.ExportJson(filtered, new RunFilter { Region = Region.Tc }, false);
+        Assert.Equal(1, result.RowCount);
+    }
+
+    [Theory]
+    [InlineData("=HYPERLINK(\"local\")")]
+    [InlineData("+SUM(1,2)")]
+    [InlineData("-1+2")]
+    [InlineData("@SUM(1)")]
+    [InlineData("\t=SUM(1)")]
+    [InlineData("\r=SUM(1)")]
+    public void GameBuildIsFormulaProtectedAndNativeCsvRestoresItsOriginalText(string build)
+    {
+        Seed(TestDatabase.Run() with { Region = Region.Tc, GameBuild = build });
+        var path = Target("build.csv");
+        _exporter.ExportCsv(path, null, false);
+        Assert.Contains(RunExporter.Escape(build), File.ReadAllText(path), StringComparison.Ordinal);
+        var parsed = Assert.Single(RunImportSourceParser.Parse("CSV", path));
+        Assert.Equal(build, parsed.Values["game_build"]!.GetValue<string>());
+        using var target = new TestDatabase();
+        var preview = new RunImportService(target.Database, target.Clock).PreviewSource("CSV", filePath: path);
+        Assert.Equal(build, preview["rows"]![0]!["run"]!["game_build"]!.GetValue<string>());
     }
 
     [Fact]

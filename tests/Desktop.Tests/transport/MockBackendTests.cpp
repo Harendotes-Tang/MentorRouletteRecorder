@@ -26,6 +26,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMap>
 #include <QPointer>
 #include <QScopeGuard>
 #include <QSet>
@@ -2183,10 +2184,10 @@ private Q_SLOTS:
         const QString sastasha = mr::DutyCatalog::shared()->lookup(4).value(QStringLiteral("duty_name")).toString();
         QVERIFY(!sastasha.isEmpty());
         const QJsonArray rows{
-            QJsonObject{{QStringLiteral("duty_name"), sastasha}, {QStringLiteral("job_name"), jobs.jobName(19)},
+            QJsonObject{{QStringLiteral("region"), QStringLiteral("CN")}, {QStringLiteral("duty_name"), sastasha}, {QStringLiteral("job_name"), jobs.jobName(19)},
                         {QStringLiteral("result"), QStringLiteral("COMPLETED")},
                         {QStringLiteral("source_recorded_at"), QStringLiteral("2026-08-01")}},
-            QJsonObject{{QStringLiteral("content_id"), 17}, {QStringLiteral("job_id"), 24},
+            QJsonObject{{QStringLiteral("region"), QStringLiteral("CN")}, {QStringLiteral("content_id"), 17}, {QStringLiteral("job_id"), 24},
                         {QStringLiteral("result"), QString::fromUtf8("完成")},
                         {QStringLiteral("entered_at_utc"), QStringLiteral("2026-08-02T12:01:00.000Z")},
                         {QStringLiteral("ended_at_utc"), QStringLiteral("2026-08-02T12:20:00.000Z")}},

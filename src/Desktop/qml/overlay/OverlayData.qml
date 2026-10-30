@@ -14,13 +14,25 @@ QtObject {
 
     // ------------------------------------------------------------ 累计进度 --
     readonly property bool progressKnown: Runtime.app.achievementSettingsLoaded
-    readonly property int progress: Number(Runtime.app.dashboard.achievement_progress || 0)
-    readonly property int goal: Math.max(1, Number(Runtime.app.goalCount || 0))
-    readonly property int baseline: Number(Runtime.app.baselineCount || 0)
+    readonly property var regionalAchievements: Runtime.app.visibleAchievements
+    readonly property var primaryAchievement: regionalAchievements.length > 0 ? regionalAchievements[0] : ({})
+    readonly property string primaryRegion: primaryAchievement.region || "CN"
+    readonly property int progress: Number(primaryAchievement.achievement_progress || 0)
+    readonly property int goal: Math.max(1, Number(primaryAchievement.goal_count || 2000))
+    readonly property int baseline: Number(primaryAchievement.baseline_completed_count || 0)
     readonly property real progressRatio: Math.min(1, progress / goal)
     readonly property int remaining: Math.max(0, goal - progress)
-    readonly property string progressTip: qsTr("累计进度 %1 / %2（%3）\n还差 %4 次 · 含起始次数 %5 次")
+    readonly property string primaryProgressTip: qsTr("累计进度 %1 / %2（%3）\n还差 %4 次 · 含起始次数 %5 次")
         .arg(progress).arg(goal).arg(Runtime.fmt.percent(progressRatio, 1)).arg(remaining).arg(baseline)
+
+    readonly property string progressTip: regionalAchievements.map(function(row) {
+        return Theme.live(Runtime.fmt.regionLabel(row.region)) + " · "
+            + qsTr("累计进度 %1 / %2（%3）\n还差 %4 次 · 含起始次数 %5 次")
+              .arg(row.achievement_progress).arg(row.goal_count)
+              .arg(Runtime.fmt.percent(row.achievement_progress / Math.max(1, row.goal_count), 1))
+              .arg(row.remaining).arg(row.baseline_completed_count)
+    }).join("\n\n")
+    onPrimaryRegionChanged: { plus = 0; observedProgress = -1; primeProgress() }
 
     // "+N": the completions counted while the float was open, shown for a
     // few seconds after each one (the design's plus pill). A new 起始次数 or
@@ -39,12 +51,12 @@ QtObject {
     // not have caught up with the same dashboard update yet.
     function primeProgress() {
         observedProgress = progress
-        observedBaseline = Number(Runtime.app.baselineCount || 0)
-        observedGoal = Number(Runtime.app.goalCount || 0)
+        observedBaseline = Number(primaryAchievement.baseline_completed_count || 0)
+        observedGoal = Number(primaryAchievement.goal_count || 0)
     }
     onProgressChanged: {
-        const sameSettings = Number(Runtime.app.baselineCount || 0) === observedBaseline
-                             && Number(Runtime.app.goalCount || 0) === observedGoal
+        const sameSettings = Number(primaryAchievement.baseline_completed_count || 0) === observedBaseline
+                             && Number(primaryAchievement.goal_count || 0) === observedGoal
         if (observedProgress >= 0 && progressKnown && sameSettings && !Runtime.app.baselineSaving
                 && progress > observedProgress) {
             plus += progress - observedProgress
@@ -109,6 +121,7 @@ QtObject {
         const name = String(run.duty_name || "")
         for (let i = 0; i < rows.length; ++i) {
             const row = rows[i]
+            if (String(row.region || "UNKNOWN") !== String(run.region || "UNKNOWN")) continue
             const sameId = contentId > 0 && Number(row.content_id || 0) === contentId
             const sameName = contentId <= 0 && name.length > 0 && String(row.duty_name || "") === name
             if (sameId || sameName) return Number(row.avg_duration_ms || 0)
@@ -127,6 +140,7 @@ QtObject {
         let weight = 0
         for (let i = 0; i < rows.length; ++i) {
             const row = rows[i]
+            if (String(row.region || "UNKNOWN") !== String(run.region || "UNKNOWN")) continue
             const average = Number(row.avg_duration_ms || 0)
             if (average <= 0 || String(row.duty_category || "") !== runCategory) continue
             const completions = Math.max(1, Number(row.completed_count || 0))

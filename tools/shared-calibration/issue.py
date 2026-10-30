@@ -60,7 +60,7 @@ REPORT_BUILD_LABEL = "游戏版本"
 REPORT_SYMPTOM_LABEL = "现象"
 REPORT_NOTE_LABEL = "说明"
 REPORT_TITLE_PREFIX = "[校准有误] "
-REPORT_REGIONS = ("CN", "GLOBAL")
+REPORT_REGIONS = ("CN", "GLOBAL", "TC")
 REPORT_SYMPTOMS = ("弹窗时误报匹配", "记录不到", "职业或副本不对", "其他")
 
 REPORT_REGION_MISSING = "REPORT_REGION_MISSING"
@@ -75,7 +75,7 @@ REPORT_SYMPTOM_INVALID = "REPORT_SYMPTOM_INVALID"
 
 _HEADING = re.compile(r"### (.*)")
 _CHECKED = re.compile(r"[ \t]*[-*] \[[xX]\] (.*?)[ \t]*")
-_TITLE = re.compile(r"\[共享校准\] (CN|GLOBAL) ([A-Za-z0-9][A-Za-z0-9._-]{0,127})")
+_TITLE = re.compile(r"\[共享校准\] (CN|GLOBAL|TC) ([A-Za-z0-9][A-Za-z0-9._-]{0,127})")
 # The same client build a code carries (index.is_build); anything else is not a build the maintainer can look up.
 _REPORT_BUILD = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 

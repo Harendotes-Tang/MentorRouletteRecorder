@@ -216,6 +216,18 @@ public sealed class ShareCodeTests
     }
 
     [Fact]
+    public void TcCodeRoundTripsWithAnIdentityDistinctFromCnAtTheSameBuild()
+    {
+        var cn = Payload(CalibrationMatchSource.Announcement, new ShareCodePop(0xF00D, Length: 64));
+        var tc = cn with { Region = Region.Tc, TemplateProfileId = "tc.template" };
+        var decoded = ShareCode.Decode(ShareCode.Encode(tc));
+        Assert.Null(decoded.Rejection);
+        Assert.Equal(tc, decoded.Payload);
+        Assert.NotEqual(ShareCode.Sha256(cn), decoded.CodeSha256);
+        Assert.Contains("\"region\":\"TC\"", ShareCode.Canonical(tc), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ThePayloadCarriesOnlyTheLearnedValues()
     {
         var payload = ShareCode.Decode(Vector("valid", "reply_state").GetProperty("code").GetString()).Payload!;

@@ -5,6 +5,7 @@ using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Storage;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Storage.Repositories;
+using MentorRecorder.Collector.Reference;
 
 namespace MentorRecorder.Collector.UnitTests;
 
@@ -14,6 +15,70 @@ namespace MentorRecorder.Collector.UnitTests;
 /// </summary>
 public sealed class RunFilterTests
 {
+    [Theory]
+    [InlineData("CN", Region.Cn)]
+    [InlineData("TC", Region.Tc)]
+    [InlineData("GLOBAL", Region.Global)]
+    [InlineData("UNKNOWN", Region.Unknown)]
+    [InlineData(null, null)]
+    public void RegionalFilterAppliesToQueriesAndCounts(string? token, Region? expected)
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        fixture.Database.RunInTransaction(tx =>
+        {
+            foreach (var region in Enum.GetValues<Region>())
+                runs.Insert(TestDatabase.Run() with { Region = region }, tx);
+        });
+        var parsed = RequestParsers.Filter(new PayloadReader(new JsonObject { ["region"] = token }))!;
+        Assert.Equal(expected, parsed.Region);
+        var page = runs.Query(parsed, null, 1, 50);
+        Assert.Equal(expected is null ? 4 : 1, page.Total);
+        if (expected is { } owner) Assert.Equal(owner, Assert.Single(page.Items).Region);
+        Assert.Equal(4, runs.Query(RequestParsers.Filter(new PayloadReader(new JsonObject())), null, 1, 50).Total);
+    }
+
+    [Theory]
+    [InlineData("TW")]
+    [InlineData("tc")]
+    [InlineData("ALL")]
+    public void RegionalFilterRejectsUndeclaredTokens(string token)
+    {
+        Assert.Throws<CollectorException>(() => RequestParsers.Filter(new PayloadReader(new JsonObject { ["region"] = token })));
+    }
+
+    [Fact]
+    public void DutyFilterUsesOnlyTheOwningRegionTerritoryAndUnknownRequiresConsensus()
+    {
+        var catalog = DutyCatalog.Compose(new[]
+        {
+            new DutyDocument(Region.Cn, "test", true, new Dictionary<int, DutyInfo>
+                { [1] = new(1, 100, "国服副本", null, Region.Cn, true) }),
+            new DutyDocument(Region.Tc, "test", true, new Dictionary<int, DutyInfo>
+                { [1] = new(1, 200, "繁中副本", null, Region.Tc, true), [2] = new(2, 100, "繁中另一个副本", null, Region.Tc, true) }),
+        });
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        fixture.Database.RunInTransaction(tx =>
+        {
+            foreach (var owner in new[] { Region.Cn, Region.Tc, Region.Unknown })
+                foreach (var territory in new[] { 100, 200 })
+                    runs.Insert(TestDatabase.Run(contentId: null) with { Region = owner, TerritoryId = territory }, tx);
+        });
+        int Count(Region? owner)
+        {
+            var filter = RunFilterSql.Build(new RunFilter { Region = owner, ContentIds = new[] { 1 } }, false, catalog);
+            using var command = fixture.Database.CreateCommand();
+            command.CommandText = "SELECT COUNT(*) FROM mentor_runs WHERE " + filter.Where;
+            RunFilterSql.Bind(command, filter);
+            return Convert.ToInt32(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
+        }
+        Assert.Equal(1, Count(Region.Cn));
+        Assert.Equal(1, Count(Region.Tc));
+        Assert.Equal(1, Count(Region.Unknown)); // Territory 100 disagrees, 200 has one unambiguous owner.
+        Assert.Equal(3, Count(null));
+    }
+
     // --------------------------------------------------------------- deleted only ----
 
     [Theory]
@@ -271,6 +336,29 @@ public sealed class RunFilterTests
         Assert.Equal(1, runs.Query(filter, null, 1, 50).Total);
     }
 
+    [Fact]
+    public void ExactNamesAccept4096ShortNamesAndMatchTheLastNameInSql()
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        var matching = TestDatabase.Run() with { JobName = "骑士" };
+        fixture.Database.RunInTransaction(tx =>
+        {
+            runs.Insert(matching, tx);
+            runs.Insert(TestDatabase.Run() with { JobName = "暗黑骑士" }, tx);
+        });
+        var names = new JsonArray(Enumerable.Range(0, 4095)
+            .Select(i => (JsonNode?)JsonValue.Create("名" + i))
+            .Append(JsonValue.Create("骑士"))
+            .ToArray());
+        var filter = RequestParsers.Filter(new PayloadReader(new JsonObject { ["name_exact"] = names }));
+
+        Assert.Equal(4096, filter!.NameExact.Count);
+        var page = runs.Query(filter, null, 1, 50);
+        Assert.Equal(1, page.Total);
+        Assert.Equal(matching.RunId, Assert.Single(page.Items).RunId);
+    }
+
     [Theory]
     [InlineData("\"骑士\"")]
     [InlineData("42")]
@@ -288,7 +376,7 @@ public sealed class RunFilterTests
     }
 
     [Fact]
-    public void ExactNamesRejectAnOverlongNameAndMoreThanAThousand()
+    public void ExactNamesReject201CharactersAnd4097Names()
     {
         var overlong = Assert.Throws<CollectorException>(() => RequestParsers.Filter(new PayloadReader(
             new JsonObject { ["name_exact"] = new JsonArray(new string('字', 201)) })));
@@ -296,7 +384,7 @@ public sealed class RunFilterTests
         var tooMany = Assert.Throws<CollectorException>(() => RequestParsers.Filter(new PayloadReader(
             new JsonObject
             {
-                ["name_exact"] = new JsonArray(Enumerable.Range(0, 1001)
+                ["name_exact"] = new JsonArray(Enumerable.Range(0, 4097)
                     .Select(i => (JsonNode?)JsonValue.Create("名" + i)).ToArray()),
             })));
         Assert.Equal("payload.name_exact", tooMany.Field);

@@ -222,6 +222,7 @@ public sealed partial class RunImportService
                 throw CollectorException.BadRequest(CollectorTexts.ImportCommitRowsHaveErrors(), "row_numbers");
             var outcomes = new JsonArray();
             var accepted = new List<string>();
+            var acceptedByRegion = new Dictionary<Region, List<string>>();
             var duplicateCount = 0;
             var conflictCount = 0;
             foreach (var candidate in candidates)
@@ -247,19 +248,24 @@ public sealed partial class RunImportService
                         Changes = Wire.Run(run).Select(pair => new RunFieldChange(pair.Key, null, AuditValue(pair.Value))).ToArray(),
                     }, transaction);
                     accepted.Add(run.RunId);
+                    if (!acceptedByRegion.TryGetValue(run.Region, out var owned))
+                        acceptedByRegion.Add(run.Region, owned = new List<string>());
+                    owned.Add(run.RunId);
                     status = "imported";
                     matching = run.RunId;
                 }
                 outcomes.Add(new JsonObject { ["row_number"] = candidate.RowNumber, ["status"] = status, ["run_id"] = matching });
             }
-            var (deducted, baseline) = DeductFromBaseline(deductFromBaseline ? accepted : Array.Empty<string>(), requestId, transaction);
+            var adjustments = DeductFromBaseline(acceptedByRegion, deductFromBaseline, requestId, transaction);
             var response = new JsonObject
             {
                 ["preview_id"] = previewId, ["imported_count"] = accepted.Count,
                 ["duplicate_count"] = duplicateCount, ["conflict_count"] = conflictCount,
                 ["skipped_count"] = 0, ["replayed"] = false,
                 ["run_ids"] = Wire.Strings(accepted), ["rows"] = outcomes,
-                ["baseline_deducted_count"] = deducted, ["baseline_completed_count"] = baseline,
+                ["baseline_deducted_count"] = adjustments.Sum(row => row!["baseline_deducted_count"]!.GetValue<int>()),
+                ["baseline_completed_count"] = _settings.GetAchievementSettings(transaction).BaselineCompletedCount,
+                ["baseline_adjustments"] = adjustments,
             };
             StoreReceipt(previewId, requestId, selectionFingerprint, response, transaction);
             _idempotency.Store(requestId, "CommitRunImport",
@@ -275,35 +281,47 @@ public sealed partial class RunImportService
     /// already in the library, and the eligibility test is the statistics query itself.
     /// </summary>
     /// <returns>How many completions were deducted, and the baseline as stored afterwards.</returns>
-    private (int Deducted, int Baseline) DeductFromBaseline(IReadOnlyList<string> importedRunIds, string requestId, SqliteTransaction transaction)
+    private JsonArray DeductFromBaseline(IReadOnlyDictionary<Region, List<string>> importedRuns, bool deduct,
+        string requestId, SqliteTransaction transaction)
     {
-        var stored = _settings.GetAchievementSettings(transaction);
-        if (importedRunIds.Count == 0 || stored.BaselineCompletedCount == 0) return (0, stored.BaselineCompletedCount);
-        var contributing = CountContributingCompleted(importedRunIds, transaction);
-        var deducted = (int)Math.Min(contributing, stored.BaselineCompletedCount);
-        if (deducted == 0) return (0, stored.BaselineCompletedCount);
-        var now = UtcTimestamp.Truncate(_clock.UtcNow);
-        var settings = stored with
+        var output = new JsonArray();
+        foreach (var (owner, importedRunIds) in importedRuns)
         {
-            BaselineCompletedCount = stored.BaselineCompletedCount - deducted,
-            BaselineEffectiveAt = now,
-            UpdatedAtUtc = now,
-        };
-        _settings.UpdateAchievementSettings(settings, transaction);
-        var reason = deducted == contributing
-            ? string.Format(CultureInfo.InvariantCulture, "导入 {0} 条已包含在起始次数中的历史通关，从起始次数中扣除", contributing)
-            : string.Format(CultureInfo.InvariantCulture, "导入 {0} 条已包含在起始次数中的历史通关，起始次数只有 {1}，扣到 0", contributing, stored.BaselineCompletedCount);
-        _settings.AppendBaselineAudit(Guid.NewGuid().ToString("D"), settings, reason, requestId, transaction);
-        return (deducted, settings.BaselineCompletedCount);
+            var stored = _settings.GetAchievementSettings(transaction, owner);
+            var contributing = deduct ? CountContributingCompleted(importedRunIds, transaction, owner) : 0;
+            var deducted = (int)Math.Min(contributing, stored.BaselineCompletedCount);
+            var settings = stored;
+            if (deducted > 0)
+            {
+                var now = UtcTimestamp.Truncate(_clock.UtcNow);
+                settings = stored with
+                {
+                    BaselineCompletedCount = stored.BaselineCompletedCount - deducted,
+                    BaselineEffectiveAt = now, UpdatedAtUtc = now,
+                };
+                _settings.UpdateAchievementSettings(settings, transaction);
+                var reason = deducted == contributing
+                    ? string.Format(CultureInfo.InvariantCulture, "导入 {0} 条已包含在起始次数中的历史通关，从起始次数中扣除", contributing)
+                    : string.Format(CultureInfo.InvariantCulture, "导入 {0} 条已包含在起始次数中的历史通关，起始次数只有 {1}，扣到 0", contributing, stored.BaselineCompletedCount);
+                _settings.AppendBaselineAudit(Guid.NewGuid().ToString("D"), settings, reason, requestId, transaction);
+            }
+            output.Add(new JsonObject
+            {
+                ["region"] = EnumWire<Region>.Format(owner),
+                ["baseline_deducted_count"] = deducted,
+                ["baseline_completed_count"] = settings.BaselineCompletedCount,
+            });
+        }
+        return output;
     }
 
     /// <summary>Counts, among the given runs, those the dashboard adds to the progress: the statistics filter plus COMPLETED and contributing.</summary>
-    private long CountContributingCompleted(IReadOnlyList<string> runIds, SqliteTransaction transaction)
+    private long CountContributingCompleted(IReadOnlyList<string> runIds, SqliteTransaction transaction, Region region)
     {
         var total = 0L;
         foreach (var chunk in runIds.Chunk(500))
         {
-            var filter = RunFilterSql.Build(null, forStatistics: true);
+            var filter = RunFilterSql.Build(new MentorRecorder.Collector.Domain.Queries.RunFilter { Region = region }, forStatistics: true);
             var names = chunk.Select((_, index) => "$imported" + index.ToString(CultureInfo.InvariantCulture)).ToArray();
             using var command = _database.CreateCommand();
             command.Transaction = transaction;
@@ -382,6 +400,7 @@ public sealed partial class RunImportService
     private static string? TwinKey(MentorRun run) =>
         run.EnteredAtUtc is null && run.ImportMetadata?.SourceRecordedAtUtc is null ? null
             : new JsonArray(
+                EnumWire<Region>.Format(run.Region),
                 run.ContentId is { } content ? "content:" + content.ToString(CultureInfo.InvariantCulture) : "name:" + run.DutyName,
                 UtcTimestamp.ToTextOrNull(run.EnteredAtUtc), UtcTimestamp.ToTextOrNull(run.ImportMetadata?.SourceRecordedAtUtc),
                 run.Reflection?.Text).ToJsonString(Wire.JsonOptions);
@@ -444,12 +463,13 @@ public sealed partial class RunImportService
         using var command = _database.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = "SELECT r.run_id FROM mentor_runs r LEFT JOIN run_import_metadata im ON im.run_id = r.run_id " +
-            "WHERE (r.content_id = $content OR ($content IS NULL AND r.duty_name = $name)) AND " +
+            "WHERE r.region = $region AND (r.content_id = $content OR ($content IS NULL AND r.duty_name = $name)) AND " +
             "(($entered IS NOT NULL AND r.entered_at_utc BETWEEN $from AND $to) OR " +
             "($source IS NOT NULL AND im.source_recorded_at_utc = $source) OR " +
             "($day IS NOT NULL AND ($undated = 1 OR (r.entered_at_utc IS NULL AND im.source_recorded_at_utc IS NULL)) " +
             "AND ($job IS NULL OR r.job_id IS NULL OR r.job_id = $job) AND " + SourceDaySql("im.source_recorded_at") + " = $day)) " +
             "ORDER BY r.run_id LIMIT 1;";
+        command.Parameters.AddWithValue("$region", EnumWire<Region>.Format(incoming.Region));
         command.Parameters.AddWithValue("$content", (object?)incoming.ContentId ?? DBNull.Value);
         command.Parameters.AddWithValue("$name", (object?)incoming.DutyName ?? DBNull.Value);
         command.Parameters.AddWithValue("$entered", (object?)UtcTimestamp.ToTextOrNull(incoming.EnteredAtUtc) ?? DBNull.Value);

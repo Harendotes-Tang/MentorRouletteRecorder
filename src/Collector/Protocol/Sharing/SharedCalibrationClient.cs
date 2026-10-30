@@ -162,15 +162,15 @@ public sealed class SharedCalibrationClient
     /// Fetches the index and the codes it lists for a region and build. Never throws once its
     /// arguments are valid: cancellation and every network failure end up on the result.
     /// </summary>
-    /// <param name="region">CN or GLOBAL.</param>
+    /// <param name="region">CN, TC or GLOBAL.</param>
     /// <param name="gameBuild">Client build (<see cref="SharedCalibrationIndex.IsBuild"/>).</param>
     /// <param name="cancellationToken">Stops the fetch; the result then says CANCELLED.</param>
     public async Task<SharedCalibrationFetchResult> FetchAsync(
         Region region, string gameBuild, CancellationToken cancellationToken = default)
     {
-        if (region is not (Region.Cn or Region.Global))
+        if (region is not (Region.Cn or Region.Global or Region.Tc))
         {
-            throw new ArgumentException("only CN and GLOBAL have shared calibrations", nameof(region));
+            throw new ArgumentException("only CN, TC and GLOBAL have shared calibrations", nameof(region));
         }
 
         if (!SharedCalibrationIndex.IsBuild(gameBuild))

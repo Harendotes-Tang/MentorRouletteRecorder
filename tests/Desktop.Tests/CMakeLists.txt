@@ -118,7 +118,7 @@ add_test(NAME MentorRecorderRunCompletionCoordinator
 #   binary, plus this build's own flavour. Needs no Collector.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopTransportTests
-    SUITES IpcRequest IpcIntegration Lifecycle MockBackend SingleInstance BuildFlavour
+    SUITES IpcRequest IpcIntegration Lifecycle MockBackend MockBackendRegional SingleInstance BuildFlavour
     DEFINITIONS
         MR_IPC_REQUEST_OUTPUT_DIR="${CMAKE_BINARY_DIR}/ipc-requests"
         MR_IPC_REQUEST_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/tests/Fixtures/ipc-requests")
@@ -133,7 +133,7 @@ set_tests_properties(MentorRecorderIpcIntegration PROPERTIES
 foreach(suite IN ITEMS Lifecycle BuildFlavour)
     mr_desktop_suite_test(MentorRecorderDesktopTransportTests ${suite} NO_LOG)
 endforeach()
-foreach(suite IN ITEMS MockBackend SingleInstance)
+foreach(suite IN ITEMS MockBackend MockBackendRegional SingleInstance)
     mr_desktop_suite_test(MentorRecorderDesktopTransportTests ${suite})
 endforeach()
 
@@ -221,9 +221,9 @@ endforeach()
 # ImportImageOrientation exercises real EXIF-oriented image pixels in the production QML.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopImportTests
-    SUITES ImportRecordsController ScreenshotImportParser OfflineOcrEngine JobIconClassifier ImportImageOrientation
+    SUITES ImportRecordsController RegionalImport ScreenshotImportParser OfflineOcrEngine JobIconClassifier ImportImageOrientation
     LIBRARIES ${MR_QUICK_TEST_LIBRARIES} Qt6::Widgets)
-foreach(suite IN ITEMS ImportRecordsController ScreenshotImportParser OfflineOcrEngine JobIconClassifier)
+foreach(suite IN ITEMS ImportRecordsController RegionalImport ScreenshotImportParser OfflineOcrEngine JobIconClassifier)
     mr_desktop_suite_test(MentorRecorderDesktopImportTests ${suite})
     set_tests_properties(MentorRecorder${suite} PROPERTIES ENVIRONMENT "${MR_DESKTOP_ISOLATED_ENVIRONMENT}")
 endforeach()
@@ -349,8 +349,8 @@ add_test(NAME MentorRecorderQmlEditDialog
         --screenshot-delay 1700
         --verify-text "修正结果与进度，原记录会保留")
 
-# The 新增遗漏记录 wizard on its 副本与职业 step: the whole catalogue list and the
-# 最近打过 chips from the mock runs.
+# The 新增遗漏记录 wizard on its 副本与职业 step starts with UNKNOWN region.
+# Region-filtered recent chips are exercised after selecting CN in EditRunDialogBinding.
 add_test(NAME MentorRecorderQmlCreateWizard
     COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
         --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-create-wizard.png"
@@ -360,7 +360,8 @@ add_test(NAME MentorRecorderQmlCreateWizard
         --mock-open-create
         --mock-wizard-step 2
         --verify-text "共 380 个副本"
-        --verify-text "最近打过"
+        --verify-text "记录区服"
+        --verify-text "未知区服"
         --screenshot-delay 1500)
 
 # A mock run's fixture records keep their images out of the install folder

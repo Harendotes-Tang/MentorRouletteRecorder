@@ -122,6 +122,7 @@ struct ChartScene {
         QTest::qWait(40);
         QQuickItem *control = nullptr;
         QPoint position;
+        QRectF clickable;
         if (!QTest::qWaitFor([&] {
             control = find(name);
             if (!control || !control->isVisible() || !control->isEnabled())
@@ -132,10 +133,20 @@ struct ChartScene {
             for (auto *parent : ancestors)
                 parent->ensurePolished();
             position = control->mapToScene(QPointF(control->width() / 2, control->height() / 2)).toPoint();
-            return control->width() > 0 && control->height() > 0
-                && QRect(QPoint(), window()->size()).contains(position);
-        }, 1500))
+            clickable = QRectF(QPointF(), window()->size());
+            for (auto *parent = control->parentItem(); parent; parent = parent->parentItem())
+                if (parent->clip())
+                    clickable = clickable.intersected(parent->mapRectToScene(QRectF(0, 0, parent->width(), parent->height())));
+            return control->width() > 0 && control->height() > 0 && clickable.contains(position);
+        }, 1500)) {
+            qWarning().noquote() << "Unreachable control" << name << "center" << position << "ancestor clip intersection" << clickable;
+            capture(QStringLiteral("unreachable-%1-%2.png").arg(QString::fromLatin1(QTest::currentDataTag()), name));
             return false;
+        }
+        const bool customize = name == QLatin1String("customizeDungeonCharts");
+        const bool toggle = name.endsWith(QLatin1String("ChartVisibility")) || name.startsWith(QLatin1String("specialBucket:"));
+        const bool before = customize ? find(QStringLiteral("chartPage"))->property("customizingCharts").toBool()
+                                      : control->property("checked").toBool();
         if (keyboard) {
             control->forceActiveFocus(Qt::TabFocusReason);
             QTest::keyClick(window(), Qt::Key_Space);
@@ -143,6 +154,13 @@ struct ChartScene {
             QTest::mouseClick(window(), Qt::LeftButton, Qt::NoModifier, position);
         }
         QCoreApplication::processEvents();
+        const bool after = customize ? find(QStringLiteral("chartPage"))->property("customizingCharts").toBool()
+                                     : control->property("checked").toBool();
+        if ((customize || toggle) && before == after) {
+            qWarning().noquote() << "Control did not change" << name << "checked/customizingCharts" << before << after
+                                 << "center" << position << "ancestor clip intersection" << clickable;
+            return false;
+        }
         return true;
     }
     bool capture(const QString &name) const

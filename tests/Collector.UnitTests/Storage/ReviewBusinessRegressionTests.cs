@@ -305,7 +305,7 @@ public sealed class ReviewBusinessRegressionTests
         RunResult result = RunResult.Completed) =>
         service.CreateManualRun(new CreateManualRunCommand
         {
-            RequestId = NewId(), Reason = "回归记录", Result = result,
+            RequestId = NewId(), Reason = "回归记录", Result = result, Region = Region.Cn,
             EnteredAtUtc = db.Clock.UtcNow, EndedAtUtc = db.Clock.UtcNow.AddSeconds(60),
             DurationMs = duration, ContributesToGoal = contributes,
         });

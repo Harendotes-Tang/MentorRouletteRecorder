@@ -134,7 +134,7 @@ INDEX_FULL_BYTES = "INDEX_FULL_BYTES"
 LEDGER_FULL_BYTES = "LEDGER_FULL_BYTES"
 MAINTAINER_REFUSALS = frozenset({PATH_COLLISION, INDEX_FULL_ENTRIES, INDEX_FULL_BYTES, LEDGER_FULL_BYTES})
 
-_REGION_DIRECTORIES = {"CN": "cn", "GLOBAL": "global"}
+_REGION_DIRECTORIES = {"CN": "cn", "GLOBAL": "global", "TC": "tc"}
 _BUILD = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 # What every real client build looks like (ffxivgame.ver, e.g. 2026.09.01.0000.0000): a date and two
 # four-digit counters. The client reads any _BUILD, and so does every reader here; only add_submission
@@ -199,7 +199,7 @@ class SubmissionOutcome:
 
 def region_directory(region: str) -> str:
     if region not in _REGION_DIRECTORIES:
-        raise ValueError("only CN and GLOBAL have shared calibrations")
+        raise ValueError("only CN, TC and GLOBAL have shared calibrations")
     return _REGION_DIRECTORIES[region]
 
 
@@ -232,7 +232,7 @@ def is_commit(text: Any) -> bool:
 
 
 def code_path(region: str, build: str, code_sha256: str) -> str:
-    """SharedCalibrationIndex.CodePath: ``<cn|global>/<build>/<first 12 hex digits>.mrc``."""
+    """SharedCalibrationIndex.CodePath: ``<cn|tc|global>/<build>/<first 12 hex digits>.mrc``."""
     directory = region_directory(region)
     if not is_build(build):
         raise ValueError("not a client build")

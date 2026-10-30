@@ -10,6 +10,7 @@ StyledComboBox {
     readonly property var regionChoices: [
         { value: null, label: qsTr("自动（按安装路径）") },
         { value: "CN", label: qsTr("国服 CN") },
+        { value: "TC", label: qsTr("繁中服 TC") },
         { value: "GLOBAL", label: qsTr("国际服 GLOBAL") }
     ]
 
@@ -39,5 +40,5 @@ StyledComboBox {
             Runtime.app.updateCaptureSetting("region_override", control.regionChoices[index].value)
     }
     Accessible.name: qsTr("游戏区服")
-    Accessible.description: qsTr("自动按安装路径识别；无法识别时，请选择实际使用的国服或国际服。")
+    Accessible.description: qsTr("自动按安装路径识别；无法识别时，请选择实际使用的国服、繁中服或国际服。")
 }

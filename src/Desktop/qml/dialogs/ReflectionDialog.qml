@@ -462,7 +462,9 @@ Dialog {
 
     /// The Collector's achievement_progress as last read, or -1 when none was.
     function collectorProgress() {
-        const value = typeof Runtime.app !== "undefined" && Runtime.app.dashboard ? Runtime.app.dashboard.achievement_progress : undefined
+        const achievement = typeof Runtime.app !== "undefined" && Runtime.app.achievementForRegion
+            ? Runtime.app.achievementForRegion(dialog.runData.region || "CN") : (Runtime.app.dashboard || {})
+        const value = achievement.achievement_progress
         return typeof value === "number" && isFinite(value) && value >= 0 ? Math.floor(value) : -1
     }
 
@@ -482,7 +484,7 @@ Dialog {
             && typeof Runtime.app !== "undefined" && typeof Runtime.app.readGoalProgress === "function") {
             dialog.progressFrom = dialog.collectorProgress()
             if (dialog.progressFrom >= 0)
-                Runtime.app.readGoalProgress(run.run_id)
+                Runtime.app.readGoalProgress(run.run_id, run.region || "CN")
         }
         if (!managedPresentation && dialog.visible && dialog.runId === run.run_id
             && typeof Runtime.app !== "undefined"
@@ -641,7 +643,7 @@ Dialog {
                 if (dialog.recovery) dialog.recovery.markResultSaved(dialog.runId)
                 if (dialog.answeredResult === "COMPLETED" && dialog.runData.contributes_to_goal === true
                     && dialog.progressFrom >= 0 && typeof Runtime.app.readGoalProgress === "function")
-                    Runtime.app.readGoalProgress(dialog.runId)
+                    Runtime.app.readGoalProgress(dialog.runId, dialog.runData.region || "CN")
                 return
             }
             dialog.completedAction = true

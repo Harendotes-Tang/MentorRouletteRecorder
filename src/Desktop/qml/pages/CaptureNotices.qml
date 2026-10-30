@@ -160,7 +160,7 @@ ColumnLayout {
             return qsTr("能自动记录指导者任务的匹配、进入和离开；副本内收到通关结算时自动记为通关。"
                         + "没有收到结算就离开副本时，记录会标为“待复核”，在记录里用“手动修正”填上结果。")
         if (notices.offersRegionSetting)
-            return qsTr("无法从安装路径判断区服。请在「设置 → 通用」中选择实际使用的国服或国际服，保存后会重新检查。")
+            return qsTr("无法从安装路径判断区服。请在「设置 → 通用」中选择实际使用的国服、繁中服或国际服，保存后会重新检查。")
         // message_ref renders the Collector's sentence in the interface language.
         const detail = notices.profile.message
             ? " " + Runtime.fmt.collectorText(notices.profile.message_ref, notices.profile.message) : ""

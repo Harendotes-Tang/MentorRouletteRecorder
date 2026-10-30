@@ -164,6 +164,7 @@ internal static class RunImportCandidateNormalizer
             var run = new MentorRun
             {
                 RunId = id, Revision = 1, Source = RunSource.Import, Region = region,
+                GameBuild = Text(input, "game_build", 200, trim: false),
                 MentorRouletteId = Int(input, "mentor_roulette_id"),
                 ContentId = contentId is null ? null : (int)contentId,
                 TerritoryId = suppliedTerritoryId ?? duty?.TerritoryId,
@@ -374,15 +375,18 @@ internal static class RunImportCandidateNormalizer
         {
             facts["joined_in_progress"] = joined;
         }
+        // Build is preserved provenance, but was historically absent from personal-fact
+        // fingerprints. Retaining that identity keeps earlier imports and purge markers
+        // recognizable when the original JSON/backup already supplied a build.
 
         return facts;
     }
 
-    private static string? Text(JsonObject input, string key, int max)
+    private static string? Text(JsonObject input, string key, int max, bool trim = true)
     {
         if (input[key] is null) return null;
         if (input[key] is not JsonValue value) throw Bad(CollectorTexts.ImportRowFieldNotScalar(key));
-        var text = value.TryGetValue<string>(out var raw) ? raw.Trim() : value.ToString();
+        var text = value.TryGetValue<string>(out var raw) ? (trim ? raw.Trim() : raw) : value.ToString();
         if (text.Length > max) throw Bad(CollectorTexts.ImportRowFieldTooLong(key, max));
         return string.IsNullOrWhiteSpace(text) ? null : text;
     }

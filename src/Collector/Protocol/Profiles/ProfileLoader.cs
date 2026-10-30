@@ -285,6 +285,7 @@ public static class ProfileLoader
         {
             "cn" => "CN",
             "global" => "GLOBAL",
+            "tc" => "TC",
             "synthetic" => "UNKNOWN",
             _ => null,
         };

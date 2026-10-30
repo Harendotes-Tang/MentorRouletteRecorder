@@ -165,7 +165,7 @@ public sealed class LocalizedSearchIpcTests
         {
             var created = (await client.SendAsync("CreateManualRun", new JsonObject
             {
-                ["job_id"] = jobId, ["content_id"] = contentId,
+                ["region"] = "CN", ["job_id"] = jobId, ["content_id"] = contentId,
                 ["matched_at_utc"] = $"2026-09-{day:00}T11:58:00.000Z",
                 ["entered_at_utc"] = $"2026-09-{day:00}T12:00:00.000Z",
                 ["ended_at_utc"] = $"2026-09-{day:00}T12:20:00.000Z",

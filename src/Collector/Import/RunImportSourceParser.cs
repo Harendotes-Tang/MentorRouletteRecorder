@@ -356,9 +356,8 @@ public static partial class RunImportSourceParser
         var headerSet = header.Cells.Select(cell => cell.Text).ToHashSet(StringComparer.Ordinal);
         // The current export, or the sixteen-column export of every version before
         // joined_in_progress was appended: both were written by this software's exporter.
-        var native = nativeCsv && mapping is null &&
-            ((headers.Length == RunExporter.CsvHeader.Count && headerSet.SetEquals(RunExporter.CsvHeader)) ||
-             (headers.Length == RunExporter.LegacyCsvHeader.Count && headerSet.SetEquals(RunExporter.LegacyCsvHeader)));
+        var native = nativeCsv && mapping is null && new[] { 14, 16, 17, RunExporter.CsvHeader.Count }
+            .Any(length => headers.Length == length && headerSet.SetEquals(RunExporter.CsvHeader.Take(length)));
         var fields = headers.Select(name => ResolveHeader(name, mapping)).ToArray();
         if (fields.All(field => field is null)) throw Invalid(CollectorTexts.ImportTableNoKnownColumns());
         var duplicates = fields.Where(field => field is not null).GroupBy(field => field, StringComparer.Ordinal)
@@ -380,7 +379,7 @@ public static partial class RunImportSourceParser
                 // Exporter 只在四个自由文本列、危险首字符前加 apostrophe，并总是使用引号。
                 // 未引号的真实 "'=..." 和 "''=..." 不剥离。原本就以 "'=..." 开头且因逗号/换行
                 // 被引号包裹的文本与保护前缀在原格式中无法区别；此有损歧义仅限完整原生表头。
-                if (native && cell.Quoted && (field is "duty_name" or "duty_category" or "job_name" or "reflection_text") &&
+                if (native && cell.Quoted && (field is "duty_name" or "duty_category" or "job_name" or "reflection_text" or "game_build") &&
                     value.Length > 1 && value[0] == '\'' && "=+-@\t\r".Contains(value[1]))
                     value = value[1..];
                 values[field] = value;

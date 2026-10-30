@@ -129,7 +129,7 @@ UNEXPECTED_STATUS = "UNEXPECTED_STATUS"
 CODE_FILE_MISSING = "CODE_FILE_MISSING"
 
 _LOGIN = re.compile(r"[A-Za-z0-9-]{1,39}")
-_CODE_PATH = re.compile(r"(?:cn|global)/[A-Za-z0-9][A-Za-z0-9._-]{0,127}/[0-9a-f]{12}\.mrc")
+_CODE_PATH = re.compile(r"(?:cn|global|tc)/[A-Za-z0-9][A-Za-z0-9._-]{0,127}/[0-9a-f]{12}\.mrc")
 _COMMIT_MESSAGE = re.compile(r"[A-Za-z0-9 ._:#()/-]{1,200}")
 _ISSUE_NUMBER = re.compile(r"[1-9][0-9]{0,9}")
 _ECHOED_DETAILS = frozenset({sharecode.E_UNKNOWN_KEY, sharecode.E_DUPLICATE_KEY})
@@ -401,7 +401,7 @@ _REPORT_PROBLEMS = {
     issue_form.BODY_TOO_LARGE: "Issue 正文太长，不是表单填出来的。",
     issue_form.REPORT_REGION_MISSING: "没有在「区服」栏目读到内容。",
     issue_form.REPORT_REGION_AMBIGUOUS: "正文里有不止一个「区服」栏目。",
-    issue_form.REPORT_REGION_INVALID: "「区服」栏目的内容不是表单里的选项（CN 或 GLOBAL）。",
+    issue_form.REPORT_REGION_INVALID: "「区服」栏目的内容不是表单里的选项（CN、TC 或 GLOBAL）。",
     issue_form.REPORT_BUILD_MISSING: "没有在「游戏版本」栏目读到内容。",
     issue_form.REPORT_BUILD_AMBIGUOUS: "正文里有不止一个「游戏版本」栏目。",
     issue_form.REPORT_BUILD_INVALID: "「游戏版本」栏目里的不是一个客户端版本号（形如 2026.09.01.0000.0000）。",
@@ -1015,7 +1015,7 @@ def command_remark(args: argparse.Namespace) -> int:
     """
     regions, builds = args.region or [], args.build or []
     if len(regions) != len(builds):
-        raise UsageError("name every build with its region: --region <CN|GLOBAL> --build <build>, repeated")
+        raise UsageError("name every build with its region: --region <CN|TC|GLOBAL> --build <build>, repeated")
     repo = Path(args.repo)
     state = repo_index.load(repo)
     listed = sorted({(entry["region"], entry["game_build"]) for entry in state.entries})
@@ -1095,7 +1095,7 @@ def command_prune(args: argparse.Namespace) -> int:
     if not args.apply:
         return 0
     repo_index.write_files(repo, _remark_after_prune(repo, pruned, args.region, removed))
-    # The paths come from entries read_index accepted, so each is <cn|global>/<build>/<12 hex>.mrc and
+    # The paths come from entries read_index accepted, so each is <cn|tc|global>/<build>/<12 hex>.mrc and
     # stays inside the checkout. Git history keeps every file, and clients download codes by commit.
     for relative in gone:
         (repo / relative).unlink(missing_ok=True)
@@ -1213,7 +1213,7 @@ def _parser() -> argparse.ArgumentParser:
 
     remark = commands.add_parser("remark")
     remark.add_argument("--repo", required=True)
-    remark.add_argument("--region", action="append", choices=("CN", "GLOBAL"),
+    remark.add_argument("--region", action="append", choices=("CN", "GLOBAL", "TC"),
                         help="the region of a build to recompute; repeatable, each with its --build")
     remark.add_argument("--build", action="append",
                         help="a client build to recompute; repeatable; default: every build index.json lists")
@@ -1222,13 +1222,13 @@ def _parser() -> argparse.ArgumentParser:
     lift = commands.add_parser("lift")
     lift.add_argument("--repo", required=True)
     lift.add_argument("--account", required=True, help="the account as submissions.json names it: id:<number>")
-    lift.add_argument("--region", required=True, help="CN or GLOBAL")
+    lift.add_argument("--region", required=True, help="CN, TC or GLOBAL")
     lift.add_argument("--build", required=True, help="the client build the hold is for")
     lift.set_defaults(run=command_lift)
 
     prune = commands.add_parser("prune")
     prune.add_argument("--repo", required=True)
-    prune.add_argument("--region", required=True, choices=("CN", "GLOBAL"), help="the region the builds belong to")
+    prune.add_argument("--region", required=True, choices=("CN", "GLOBAL", "TC"), help="the region the builds belong to")
     prune.add_argument("--build", required=True, action="append",
                        help="a client build to take out, with its entries, ledger rows and code files; repeatable")
     prune.add_argument("--apply", action="store_true",

@@ -39,7 +39,7 @@ RUNTIME_FILES = (
 RENAMED = {"dot-gitattributes": ".gitattributes", "dot-gitignore": ".gitignore"}
 EXTERNAL_RUNTIME_FILES = {"tools/sync_refs.py": "tools/release-mirror/sync_refs.py",
                           "schemas/calibration-evidence-v1.schema.json": "contracts/calibration-evidence-v1.schema.json"}
-PROFILE_REGIONS = ("cn", "global")
+PROFILE_REGIONS = ("cn", "global", "tc")
 LICENSE_TARGET = "LICENSES/GPL-3.0-or-later.txt"
 
 

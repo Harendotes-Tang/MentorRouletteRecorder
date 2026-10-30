@@ -871,7 +871,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--exe", required=True, help="path to ffxiv_dx11.exe")
     parser.add_argument("--out", help="write the JSON report to this path")
     parser.add_argument("--profile-out", help="write a collector signature profile here")
-    parser.add_argument("--region", default="CN", help="region token for the profile")
+    parser.add_argument("--region", default="CN", choices=("CN", "TC", "GLOBAL"),
+                        help="service region the profile belongs to (default: CN)")
     parser.add_argument("--game-build", help="client build string for the profile")
     parser.add_argument("--work", help="directory for the working copy (default: a temp dir)")
     parser.add_argument("--quiet", action="store_true", help="suppress the human report")

@@ -88,6 +88,7 @@ public:
     static QJsonObject attemptFilter(const QString &period, const QDate &today, const QTimeZone &zone);
     /// Borrows the backend; replacing/destroying it invalidates outstanding replies.
     void setBackend(IBackend *backend);
+    void setRecordRegion(const QString &region);
     /// Refreshes every enabled full-form period module; legacy name retained for callers.
     Q_INVOKABLE void refreshAttempts();
     static QStringList defaultModules();
@@ -143,6 +144,7 @@ private:
     QDate m_attemptDate;
     QByteArray m_attemptZoneId;
     int m_attemptUtcOffset = 0;
+    QString m_recordRegion;
     QString m_attemptPeriod;
     int m_attemptCount = 0;
     bool m_attemptsKnown = false;

@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "profile_id": "tc-unsupported",
+  "region": "TC",
+  "game_build": "unknown",
+  "generated_at": "2026-10-24T00:00:00.000Z",
+  "mentor_roulette_id": null,
+  "compatibility_status": "UNSUPPORTED",
+  "messages": [],
+  "fixtures": [],
+  "provenance": {
+    "summary": "繁中服软件准备占位：尚无独立验证的客户端协议模板。不得继承 CN/GLOBAL 的 opcode、结构、指导者轮盘编号或通关/开场内容识别。正式自动记录保持不可用；显式观察只产生候选证据。",
+    "capture_fixture": null,
+    "capture_fixture_sha256": null,
+    "evidence": []
+  },
+  "profile_sha256": "1daeaf4c9fe8de7ff85030cecce4d7cd24c6835b688a751f7cb542c07ee7dea5"
+}

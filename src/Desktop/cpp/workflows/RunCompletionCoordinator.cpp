@@ -81,13 +81,22 @@ void RunCompletionCoordinator::runChanged(const QString &state, const QJsonObjec
     offerResult(terminalState, run);
     if (!guard || !isCurrentContext(context))
         return;
-    m_hooks.requestDashboard([guard, context, terminalState, run](bool numbersKnown) {
+    DashboardDone ready = [guard, context, terminalState, run](bool numbersKnown) {
         if (!guard || !guard->isCurrentContext(context)
             || !guard->endedDuringThisSession(run) || announcementKind(terminalState).isEmpty())
             return;
         if (guard->claimAnnouncement(run.value(QStringLiteral("run_id")).toString(), terminalState))
             Q_EMIT guard->announcementRequested(terminalState, run, numbersKnown);
-    });
+    };
+    if (m_hooks.requestRegionalAchievement) {
+        // Refresh the selected dashboard's totals and pending-review count as before.
+        // Only the run's own regional read supplies the terminal speech numbers.
+        m_hooks.requestDashboard({});
+        if (!guard || !isCurrentContext(context)) return;
+        m_hooks.requestRegionalAchievement(run.value(QStringLiteral("region")).toString(QStringLiteral("CN")), std::move(ready));
+    } else {
+        m_hooks.requestDashboard(std::move(ready));
+    }
 }
 
 bool RunCompletionCoordinator::endedDuringThisSession(const QJsonObject &run) const

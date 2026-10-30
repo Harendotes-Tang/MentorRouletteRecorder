@@ -856,6 +856,25 @@ void IpcIntegrationTests::personalImportPreviewCommitRetryAndCompletion()
     const auto statsBefore = await(m_backend->getDashboardStats());
     QVERIFY(settingsBefore.ok);
     QVERIFY(statsBefore.ok);
+    // All-region scalars retain the CN projection. An unused UNKNOWN entry
+    // may be absent from that array, so read its authoritative default directly.
+    const auto unknownBefore = await(m_backend->getDashboardStats({{QStringLiteral("region"), QStringLiteral("UNKNOWN")}}));
+    QVERIFY(unknownBefore.ok);
+    const auto achievement = [](const Outcome &snapshot, const QString &region) {
+        for (const QVariant &value : snapshot.payload.value(QStringLiteral("achievements")).toList()) {
+            const QVariantMap entry = value.toMap();
+            if (entry.value(QStringLiteral("region")).toString() == region)
+                return entry;
+        }
+        return QVariantMap();
+    };
+    const auto cnBefore = achievement(statsBefore, QStringLiteral("CN"));
+    const auto tcBefore = achievement(statsBefore, QStringLiteral("TC"));
+    const auto unknownAchievementBefore = achievement(unknownBefore, QStringLiteral("UNKNOWN"));
+    QVERIFY(!cnBefore.isEmpty());
+    QVERIFY(!tcBefore.isEmpty());
+    QVERIFY(!unknownAchievementBefore.isEmpty());
+    QCOMPARE(unknownBefore.payload.value(QStringLiteral("achievements")).toList().size(), 1);
     const QJsonObject filter{{QStringLiteral("text"), QString::fromUtf8("导入真实IPC验证")},
                              {QStringLiteral("with_reflection"), true}};
     const auto before = await(m_backend->queryRuns(filter, 1, 10));
@@ -901,6 +920,7 @@ void IpcIntegrationTests::personalImportPreviewCommitRetryAndCompletion()
     QCOMPARE(importedItems.size(), 1);
     const auto run = importedItems.front().toMap();
     QCOMPARE(run.value(QStringLiteral("source")).toString(), QStringLiteral("IMPORT"));
+    QCOMPARE(run.value(QStringLiteral("region")).toString(), QStringLiteral("UNKNOWN"));
     QCOMPARE(run.value(QStringLiteral("result")).toString(), QStringLiteral("COMPLETED"));
     QVERIFY(!run.value(QStringLiteral("pending_review")).toBool());
     QVERIFY(run.value(QStringLiteral("entered_at_utc")).isNull());
@@ -912,8 +932,24 @@ void IpcIntegrationTests::personalImportPreviewCommitRetryAndCompletion()
     QVERIFY(metadata.value(QStringLiteral("incomplete")).toBool());
     const auto statsImported = await(m_backend->getDashboardStats());
     QVERIFY(statsImported.ok);
-    for (const auto &field : {QStringLiteral("attempt_count"), QStringLiteral("completed_count"), QStringLiteral("achievement_progress")})
+    for (const auto &field : {QStringLiteral("attempt_count"), QStringLiteral("completed_count")})
         QCOMPARE(statsImported.payload.value(field).toInt(), statsBefore.payload.value(field).toInt() + 1);
+    for (const auto &field : {QStringLiteral("goal_count"), QStringLiteral("baseline_completed_count"),
+                              QStringLiteral("achievement_progress"), QStringLiteral("remaining")})
+        QCOMPARE(statsImported.payload.value(field), statsBefore.payload.value(field));
+    QCOMPARE(achievement(statsImported, QStringLiteral("CN")), cnBefore);
+    QCOMPARE(achievement(statsImported, QStringLiteral("TC")), tcBefore);
+    const auto unknownImported = await(m_backend->getDashboardStats({{QStringLiteral("region"), QStringLiteral("UNKNOWN")}}));
+    QVERIFY(unknownImported.ok);
+    for (const auto &field : {QStringLiteral("attempt_count"), QStringLiteral("completed_count"), QStringLiteral("achievement_progress")})
+        QCOMPARE(unknownImported.payload.value(field).toInt(), unknownBefore.payload.value(field).toInt() + 1);
+    const auto unknownAchievementImported = achievement(unknownImported, QStringLiteral("UNKNOWN"));
+    QVERIFY(!unknownAchievementImported.isEmpty());
+    for (const auto &field : {QStringLiteral("completed_count"), QStringLiteral("achievement_progress")})
+        QCOMPARE(unknownAchievementImported.value(field).toInt(), unknownAchievementBefore.value(field).toInt() + 1);
+    QCOMPARE(unknownAchievementImported.value(QStringLiteral("goal_count")), unknownAchievementBefore.value(QStringLiteral("goal_count")));
+    QCOMPARE(unknownAchievementImported.value(QStringLiteral("baseline_completed_count")), unknownAchievementBefore.value(QStringLiteral("baseline_completed_count")));
+    QCOMPARE(achievement(statsImported, QStringLiteral("UNKNOWN")), unknownAchievementImported);
     QVERIFY(statsImported.payload.contains(QStringLiteral("unfinished_pending_review")));
     QCOMPARE(statsImported.payload.value(QStringLiteral("unfinished_pending_review")),
              statsBefore.payload.value(QStringLiteral("unfinished_pending_review")));
@@ -951,6 +987,14 @@ void IpcIntegrationTests::personalImportPreviewCommitRetryAndCompletion()
     QCOMPARE(statsCompleted.payload.value(QStringLiteral("completed_count")).toInt(), statsBefore.payload.value(QStringLiteral("completed_count")).toInt() + 1);
     QCOMPARE(statsCompleted.payload.value(QStringLiteral("attempt_count")), statsImported.payload.value(QStringLiteral("attempt_count")));
     QCOMPARE(statsCompleted.payload.value(QStringLiteral("achievement_progress")), statsImported.payload.value(QStringLiteral("achievement_progress")));
+    QCOMPARE(achievement(statsCompleted, QStringLiteral("CN")), cnBefore);
+    QCOMPARE(achievement(statsCompleted, QStringLiteral("TC")), tcBefore);
+    QCOMPARE(achievement(statsCompleted, QStringLiteral("UNKNOWN")), unknownAchievementImported);
+    const auto unknownCompleted = await(m_backend->getDashboardStats({{QStringLiteral("region"), QStringLiteral("UNKNOWN")}}));
+    QVERIFY(unknownCompleted.ok);
+    for (const auto &field : {QStringLiteral("attempt_count"), QStringLiteral("completed_count"), QStringLiteral("achievement_progress")})
+        QCOMPARE(unknownCompleted.payload.value(field), unknownImported.payload.value(field));
+    QCOMPARE(achievement(unknownCompleted, QStringLiteral("UNKNOWN")), unknownAchievementImported);
     const auto revisions = await(m_backend->getRunRevisions(run.value(QStringLiteral("run_id")).toString()));
     QVERIFY(revisions.ok);
     QCOMPARE(revisions.payload.value(QStringLiteral("items")).toList().size(), 2);

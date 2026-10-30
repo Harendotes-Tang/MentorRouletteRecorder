@@ -18,6 +18,7 @@
 #include <QJsonDocument>
 #include <QLocale>
 #include <QMimeData>
+#include <QMap>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QScopedValueRollback>
@@ -265,6 +266,20 @@ QString ImportRecordsController::statusText() const
         if (deducted <= 0)
             return tr("已导入 %1 条，跳过重复 %2 条；冲突 %3 条，保留本地记录。")
                 .arg(importedCount).arg(duplicateCount).arg(conflictCount);
+        const QVariantList adjustments = m_commitResult.value(QStringLiteral("baseline_adjustments")).toList();
+        if (!adjustments.isEmpty()) {
+            QStringList details;
+            for (const QVariant &value : adjustments) {
+                const QVariantMap adjustment = value.toMap();
+                const int regionDeducted = adjustment.value(QStringLiteral("baseline_deducted_count")).toInt();
+                if (regionDeducted <= 0) continue;
+                details.append(tr("%1：扣除 %2 次，起始次数改为 %3")
+                    .arg(adjustment.value(QStringLiteral("region")).toString()).arg(regionDeducted)
+                    .arg(adjustment.value(QStringLiteral("baseline_completed_count")).toInt()));
+            }
+            return tr("已导入 %1 条，跳过重复 %2 条；冲突 %3 条，保留本地记录。")
+                .arg(importedCount).arg(duplicateCount).arg(conflictCount) + QStringLiteral("\n") + details.join(QStringLiteral("；"));
+        }
         const int baseline = m_commitResult.value(QStringLiteral("baseline_completed_count")).toInt();
         return tr("已导入 %1 条，跳过重复 %2 条；冲突 %3 条，保留本地记录。"
                   "起始次数已从 %4 改为 %5，扣除已包含的 %6 次通关，避免重复计算。")
@@ -961,6 +976,14 @@ void ImportRecordsController::updateCandidate(int row, const QVariantMap &change
     bool recordedTimeChanged = false;
     bool dutyNameChanged = false;
     bool dutyCategoryChanged = false;
+    const bool regionChanged = changes.contains(QStringLiteral("region"))
+        && changes.value(QStringLiteral("region")).toString() != candidate.value(QStringLiteral("region")).toString(QStringLiteral("UNKNOWN"));
+    if (regionChanged) {
+        const QString region = changes.value(QStringLiteral("region")).toString();
+        if (region != QLatin1String("CN") && region != QLatin1String("TC")
+            && region != QLatin1String("GLOBAL") && region != QLatin1String("UNKNOWN"))
+            return;
+    }
     for (auto it = changes.cbegin(); it != changes.cend(); ++it)
     {
         const QJsonValue value = QJsonValue::fromVariant(it.value());
@@ -984,15 +1007,32 @@ void ImportRecordsController::updateCandidate(int row, const QVariantMap &change
             dutyCategoryChanged |= it.key() == QLatin1String("duty_category");
         }
     }
+    if (regionChanged) {
+        for (const QString &key : {QStringLiteral("content_id"), QStringLiteral("territory_id"),
+                                  QStringLiteral("duty_category"), QStringLiteral("duty_source")})
+            candidate.remove(key);
+        if (row < m_evidence.size() && changes.value(QStringLiteral("region")).toString() != QLatin1String("CN")) {
+            const QVariantMap evidence = m_evidence[row].toMap();
+            if (evidence.contains(QStringLiteral("ocr_duty_name"))) {
+                candidate.insert(QStringLiteral("duty_name"), evidence.value(QStringLiteral("ocr_duty_name")).toString());
+                dutyNameChanged = true;
+            }
+        }
+    }
     // Before anything changes, the job evidence included: a refused edit leaves no trace.
     if (candidateChanged && !m_batchEditing && !revalidationFits(row, candidate)) {
         fail(LiveText([] { return tr("修改后这批记录太大，无法重新校验，这次修改没有保存。请缩短内容后再改。"); }));
         return;
     }
     bool evidenceReviewed = false;
-    if ((changes.contains(QStringLiteral("job_id")) || changes.contains(QStringLiteral("duty_name")))
+    if ((regionChanged || changes.contains(QStringLiteral("job_id")) || changes.contains(QStringLiteral("duty_name")))
         && row < m_evidence.size()) {
         QVariantMap evidence = m_evidence[row].toMap();
+        if (regionChanged && changes.value(QStringLiteral("region")).toString() != QLatin1String("CN")) {
+            evidence.remove(QStringLiteral("duty_candidate_name"));
+            evidence.insert(QStringLiteral("duty_candidate_pending"), false);
+            evidenceReviewed = true;
+        }
         if (changes.contains(QStringLiteral("job_id"))
             && evidence.value(QStringLiteral("job_candidate_pending")).toBool()) {
             evidence.insert(QStringLiteral("job_candidate_pending"), false);
@@ -1039,11 +1079,12 @@ void ImportRecordsController::updateCandidate(int row, const QVariantMap &change
     if (row < m_rows.size()) {
         QVariantMap display = m_rows[row].toMap();
         display.insert(QStringLiteral("candidate"), candidate.toVariantMap());
-        if (dutyNameChanged) {
+        if (dutyNameChanged || regionChanged) {
             QVariantMap run = display.value(QStringLiteral("run")).toMap();
             for (const QString &key : {QStringLiteral("content_id"), QStringLiteral("territory_id"),
                                       QStringLiteral("duty_category"), QStringLiteral("duty_source")})
                 run.remove(key);
+            if (regionChanged) run.insert(QStringLiteral("region"), changes.value(QStringLiteral("region")));
             display.insert(QStringLiteral("run"), run);
         } else if (dutyCategoryChanged) {
             QVariantMap run = display.value(QStringLiteral("run")).toMap();
@@ -1055,6 +1096,7 @@ void ImportRecordsController::updateCandidate(int row, const QVariantMap &change
     invalidatePreview();
     m_commitResult.clear();
     m_phase = QStringLiteral("editing");
+    if (regionChanged) Q_EMIT choicesChanged();
     Q_EMIT changed();
 }
 
@@ -1063,14 +1105,19 @@ void ImportRecordsController::batchUpdateSelected(const QVariantMap &changes)
     if (busy() || pendingCommitConfirmation() || !previewValid() || m_selected.isEmpty() || changes.isEmpty())
         return;
     const QSet<QString> allowed{QStringLiteral("job_id"), QStringLiteral("job_name"),
-                               QStringLiteral("result"), QStringLiteral("reflection_mood")};
+                               QStringLiteral("result"), QStringLiteral("reflection_mood"), QStringLiteral("region")};
     for (auto it = changes.cbegin(); it != changes.cend(); ++it) {
         if (!allowed.contains(it.key())) {
-            fail(LiveText([] { return tr("批量设置只能修改职业、结果和打本心情。"); }));
+            fail(LiveText([] { return tr("批量设置只能修改区服、职业、结果和打本心情。"); }));
             return;
         }
     }
     QVariantMap normalized = changes;
+    if (changes.contains(QStringLiteral("region"))) {
+        const QSet<QString> regions{QStringLiteral("CN"), QStringLiteral("TC"), QStringLiteral("GLOBAL"), QStringLiteral("UNKNOWN")};
+        if (!regions.contains(changes.value(QStringLiteral("region")).toString()))
+            return;
+    }
     if (changes.contains(QStringLiteral("job_name")) && !changes.contains(QStringLiteral("job_id"))) {
         fail(LiveText([] { return tr("请选择批量设置的职业。"); }));
         return;
@@ -1372,6 +1419,97 @@ int ImportRecordsController::contributingSelectedCount() const
     return count;
 }
 
+void ImportRecordsController::setAchievements(const QVariantList &values)
+{
+    if (m_achievements == values)
+        return;
+    m_achievements = values;
+    Q_EMIT changed();
+}
+
+QVariantList ImportRecordsController::baselinePreviews() const
+{
+    QMap<QString, int> counts;
+    for (const QVariant &value : m_rows) {
+        const QVariantMap row = value.toMap();
+        const QVariantMap run = row.value(QStringLiteral("run")).toMap();
+        if (!row.value(QStringLiteral("selected")).toBool()
+            || run.value(QStringLiteral("result")).toString() != QLatin1String("COMPLETED")
+            || (run.contains(QStringLiteral("contributes_to_goal")) && !run.value(QStringLiteral("contributes_to_goal")).toBool())
+            || run.value(QStringLiteral("soft_deleted")).toBool() || run.value(QStringLiteral("pending_review")).toBool())
+            continue;
+        const QVariant roulette = run.value(QStringLiteral("mentor_roulette_id"));
+        if (!run.value(QStringLiteral("import_metadata")).toMap().value(QStringLiteral("mentor_confirmed")).toBool()
+            && (!roulette.isValid() || roulette.isNull()))
+            continue;
+        const QString region = run.value(QStringLiteral("region"), QStringLiteral("UNKNOWN")).toString();
+        ++counts[region.isEmpty() ? QStringLiteral("UNKNOWN") : region];
+    }
+    QVariantList previews;
+    for (auto it = counts.cbegin(); it != counts.cend(); ++it) {
+        // Missing is unread, never an inferred zero. The scalar belongs only
+        // to CN on legacy backends and is reliable only after this connection
+        // has loaded it. Other regions require their own explicit snapshot.
+        int baseline = 0;
+        bool known = false;
+        if (m_baselineLoaded) {
+            if (m_achievements.isEmpty() && it.key() == QLatin1String("CN")) {
+                baseline = m_baselineCount;
+                known = true;
+            }
+            for (const QVariant &value : m_achievements) {
+                const QVariantMap achievement = value.toMap();
+                if (achievement.value(QStringLiteral("region")).toString() == it.key()) {
+                    known = boundedInteger(achievement.value(QStringLiteral("baseline_completed_count")),
+                                           0, std::numeric_limits<int>::max(), baseline);
+                    break;
+                }
+            }
+        }
+        const int deducted = qMin(baseline, it.value());
+        const QString label = it.key() == QLatin1String("CN") ? tr("国服")
+            : it.key() == QLatin1String("TC") ? tr("繁中服")
+            : it.key() == QLatin1String("GLOBAL") ? tr("国际服") : tr("未知区服");
+        previews.append(QVariantMap{{QStringLiteral("region"), it.key()}, {QStringLiteral("label"), label},
+            {QStringLiteral("baseline_known"), known},
+            {QStringLiteral("baseline_count"), known ? QVariant(baseline) : QVariant()},
+            {QStringLiteral("contributing_count"), it.value()},
+            {QStringLiteral("deducted_count"), known ? QVariant(deducted) : QVariant()},
+            {QStringLiteral("remaining_baseline"), known ? QVariant(baseline - deducted) : QVariant()}});
+    }
+    return previews;
+}
+
+bool ImportRecordsController::waitingForBaseline() const
+{
+    if (!previewValid())
+        return false;
+    const QVariantList previews = baselinePreviews();
+    return std::ranges::any_of(previews, [](const QVariant &value) {
+        return !value.toMap().value(QStringLiteral("baseline_known")).toBool();
+    });
+}
+
+bool ImportRecordsController::baselineChoiceOffered() const
+{
+    if (!previewValid() || waitingForBaseline())
+        return false;
+    const QVariantList previews = baselinePreviews();
+    return std::ranges::any_of(previews, [](const QVariant &value) {
+        return value.toMap().value(QStringLiteral("deducted_count")).toInt() > 0;
+    });
+}
+
+int ImportRecordsController::baselineDeductionPreview() const
+{
+    if (waitingForBaseline())
+        return -1;
+    int count = 0;
+    for (const QVariant &value : baselinePreviews())
+        count += value.toMap().value(QStringLiteral("deducted_count")).toInt();
+    return count;
+}
+
 bool ImportRecordsController::deductFromBaseline() const
 {
     if (m_deductChosen)
@@ -1406,6 +1544,7 @@ void ImportRecordsController::setCurrentRow(int row)
     if (row < -1 || row >= m_rows.size() || row == m_current)
         return;
     m_current = row;
+    Q_EMIT choicesChanged();
     Q_EMIT changed();
 }
 
@@ -1503,7 +1642,7 @@ QVariantList ImportRecordsController::jobChoices() const
 
 QVariantList ImportRecordsController::dutyChoices() const
 {
-    return DutyCatalog::shared()->allDuties();
+    return DutyCatalog::shared()->allDuties(currentCandidate().value(QStringLiteral("region"), QStringLiteral("UNKNOWN")).toString());
 }
 
 } // namespace mr

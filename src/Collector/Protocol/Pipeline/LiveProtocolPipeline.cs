@@ -1463,7 +1463,7 @@ public sealed partial class LiveProtocolPipeline :
     /// <summary>Whether calibration runs beside the selection in force, and in which role. Changes nothing.</summary>
     private (bool Eligible, bool Upgrading, bool Retaining, bool Completing) CalibrationRoles()
     {
-        var calibratable = _game.Region is Region.Cn or Region.Global;
+        var calibratable = _game.Region is Region.Cn or Region.Global or Region.Tc;
         // A provisional profile is in force and working, and is still the wrong answer: it
         // infers the match instead of reading it. Calibration stays armed underneath it so the
         // announcement can still be found and the profile replaced. Read off the profile itself

@@ -61,18 +61,29 @@ void StatisticsController::requestDashboard(std::function<void(bool ok)> then)
     // Always day granularity here. The dashboard's two "近 N 天完成" cards are
     // defined on days, so they are read off this series no matter which
     // granularity the chart happens to be showing.
-    m_backend->getDashboardStats({}, QStringLiteral("day"))
+    m_backend->getDashboardStats(regionFilter(), QStringLiteral("day"))
         ->whenDone(this, [this, then = std::move(then), connection = m_connectionGeneration,
                          observation = m_achievementObservationGeneration,
-                         serial = ++m_achievementReadSerial](
+                         serial = ++m_achievementReadSerial, scope = m_scopeGeneration, region = m_recordRegion](
                              bool ok, const QVariantMap &payload, const QString &,
                              const QString &) {
             // A failed read is not evidence that the numbers changed: wiping the
             // snapshot would blank every card and make the achievement progress
             // read as "baseline + 0". The previous answer is only a moment stale.
+            if (scope != m_scopeGeneration || connection != m_connectionGeneration
+                || observation != m_achievementObservationGeneration
+                || serial < m_lastAchievementReadSerial) {
+                if (then) then(false);
+                return;
+            }
             if (ok) {
                 m_dashboard = QJsonObject::fromVariantMap(payload);
 
+                adoptAchievements(m_dashboard, region, serial);
+                const auto achievement = m_achievements.value(region.isEmpty() ? QStringLiteral("CN") : region);
+                for (const QString &key : {QStringLiteral("goal_count"), QStringLiteral("baseline_completed_count"),
+                        QStringLiteral("achievement_progress"), QStringLiteral("remaining")})
+                    if (achievement.contains(key)) m_dashboard.insert(key, achievement.value(key));
                 const QJsonObject trend = m_dashboard.value(QStringLiteral("trend")).toObject();
                 applyDayCounts(trend);
                 if (m_trendMode == QLatin1String("day"))
@@ -84,7 +95,8 @@ void StatisticsController::requestDashboard(std::function<void(bool ok)> then)
 
                 // After dashboardChanged, so a form that refills itself on the
                 // flag already reads the new goal and baseline.
-                if (connection == m_connectionGeneration && !m_achievementSettingsLoaded) {
+                if (connection == m_connectionGeneration && !m_achievementSettingsLoaded
+                    && m_loadedAchievementRegions.contains(m_baselineRegion)) {
                     m_achievementSettingsLoaded = true;
                     Q_EMIT achievementSettingsLoadedChanged();
                 }
@@ -92,7 +104,7 @@ void StatisticsController::requestDashboard(std::function<void(bool ok)> then)
                     && observation == m_achievementObservationGeneration
                     && serial > m_lastAchievementReadSerial) {
                     m_lastAchievementReadSerial = serial;
-                    observeAchievement(QJsonObject::fromVariantMap(payload));
+                    observeAchievement(QJsonObject::fromVariantMap(payload), serial);
                 }
             }
             // Projections may coordinate dependent workflows before completion.
@@ -106,26 +118,188 @@ void StatisticsController::requestDashboard(std::function<void(bool ok)> then)
         });
 }
 
-void StatisticsController::observeAchievement(const QJsonObject &dashboard)
+QJsonObject StatisticsController::regionFilter() const
 {
-    const int goal = dashboard.value(QStringLiteral("goal_count")).toInt(0);
-    const int baseline = dashboard.value(QStringLiteral("baseline_completed_count")).toInt(-1);
-    const int progress = dashboard.value(QStringLiteral("achievement_progress")).toInt(-1);
-    if (goal < 1 || baseline < 0 || progress < 0)
-        return;
+    return m_recordRegion.isEmpty() ? QJsonObject()
+        : QJsonObject{{QStringLiteral("region"), m_recordRegion}};
+}
 
-    const bool sameSettings = goal == m_observedGoal && baseline == m_observedBaseline;
-    const int lap = progress / goal;
-    const bool celebrate = m_achievementObservationReady && sameSettings
-        && !baselineSaving() && lap > m_highestCompletedLap;
-    // Preserve the high-water mark through reconnects and decreasing counts,
-    // so restoring a deleted completion cannot celebrate the same lap again.
-    m_highestCompletedLap = sameSettings ? qMax(m_highestCompletedLap, lap) : lap;
-    m_observedGoal = goal;
-    m_observedBaseline = baseline;
-    m_achievementObservationReady = !baselineSaving();
-    if (celebrate)
-        Q_EMIT achievementMilestoneReached(lap);
+QVariantList StatisticsController::achievements() const
+{
+    QVariantList out;
+    if (!m_recordRegion.isEmpty()) {
+        if (m_loadedAchievementRegions.contains(m_recordRegion))
+            out.append(m_achievements.value(m_recordRegion).toVariantMap());
+        return out;
+    }
+    // Render known regional entries while a scope read is in flight. Implicit
+    // zero defaults for import validation do not add empty regions to this view.
+    QSet<QString> shown{QStringLiteral("CN"), QStringLiteral("TC")};
+    for (const auto &entry : m_dashboard.value(QStringLiteral("achievements")).toArray())
+        shown.insert(entry.toObject().value(QStringLiteral("region")).toString());
+    for (const QString &region : {QStringLiteral("CN"), QStringLiteral("TC"),
+                                 QStringLiteral("GLOBAL"), QStringLiteral("UNKNOWN")}) {
+        if (shown.contains(region) && m_loadedAchievementRegions.contains(region))
+            out.append(m_achievements.value(region).toVariantMap());
+    }
+    return out;
+}
+
+QVariantList StatisticsController::allAchievements() const
+{
+    QVariantList out;
+    for (const QString &region : {QStringLiteral("CN"), QStringLiteral("TC"),
+                                 QStringLiteral("GLOBAL"), QStringLiteral("UNKNOWN")}) {
+        if (m_loadedAchievementRegions.contains(region))
+            out.append(m_achievements.value(region).toVariantMap());
+    }
+    return out;
+}
+
+QVariantMap StatisticsController::achievementForRegion(const QString &region) const
+{
+    return m_achievements.value(region).toVariantMap();
+}
+
+void StatisticsController::adoptAchievements(const QJsonObject &dashboard, const QString &region, quint64 serial)
+{
+    QJsonArray entries = dashboard.value(QStringLiteral("achievements")).toArray();
+    // A Collector predating regional achievements only owns CN. Never label its
+    // compatibility scalar as a TC achievement.
+    if (!dashboard.contains(QStringLiteral("achievements"))
+        && (region.isEmpty() || region == QLatin1String("CN"))) {
+        QJsonObject legacy = dashboard;
+        legacy.insert(QStringLiteral("region"), region.isEmpty() ? QStringLiteral("CN") : region);
+        entries.append(legacy);
+    }
+    for (const auto &entry : entries) {
+        const auto row = entry.toObject();
+        const QString key = row.value(QStringLiteral("region")).toString();
+        if (!key.isEmpty() && serial >= m_acceptedRegionalSerial.value(key)) {
+            m_acceptedRegionalSerial.insert(key, serial);
+            m_achievements.insert(key, row);
+            m_loadedAchievementRegions.insert(key);
+        }
+    }
+    const bool loaded = m_loadedAchievementRegions.contains(m_baselineRegion);
+    if (loaded != m_achievementSettingsLoaded) {
+        m_achievementSettingsLoaded = loaded;
+        Q_EMIT achievementSettingsLoadedChanged();
+    }
+}
+
+void StatisticsController::setRecordRegion(const QString &region)
+{
+    if (region == m_recordRegion || (!region.isEmpty() && region != QLatin1String("CN")
+        && region != QLatin1String("TC") && region != QLatin1String("GLOBAL")
+        && region != QLatin1String("UNKNOWN"))) return;
+    m_recordRegion = region;
+    m_dashboard = {};
+    m_trendBuckets.clear();
+    m_trendSeriesGranularity.clear();
+    m_completedLast7Days = 0;
+    m_completedLast30Days = 0;
+    Q_EMIT dashboardChanged();
+    Q_EMIT trendChanged();
+    ++m_scopeGeneration;
+    ++m_trendGeneration;
+    // A scope change observes existing progress; it is never a completion.
+    for (auto &observation : m_regionalObservations) observation.ready = false;
+    const QVariantMap filter = regionFilter().toVariantMap();
+    m_dungeons->setFilter(filter);
+    m_jobs->setFilter(filter);
+    Q_EMIT recordRegionChanged();
+    refreshDashboard();
+    refreshTrend();
+}
+
+void StatisticsController::setBaselineRegion(const QString &region)
+{
+    if (region == m_baselineRegion || (region != QLatin1String("CN") && region != QLatin1String("TC")
+        && region != QLatin1String("GLOBAL") && region != QLatin1String("UNKNOWN"))) return;
+    m_baselineRegion = region;
+    m_achievementSettingsLoaded = m_loadedAchievementRegions.contains(region);
+    Q_EMIT baselineRegionChanged();
+    Q_EMIT dashboardChanged();
+    Q_EMIT achievementSettingsLoadedChanged();
+    if (m_achievementSettingsLoaded || !m_backend) return;
+    requestRegionalAchievement(region);
+
+}
+
+void StatisticsController::requestRegionalAchievement(const QString &region, std::function<void(bool)> then)
+{
+    if (!m_backend) { if (then) then(false); return; }
+    const QJsonObject filter = region.isEmpty() ? QJsonObject()
+        : QJsonObject{{QStringLiteral("region"), region}};
+    const quint64 serial = ++m_achievementReadSerial;
+    m_backend->getDashboardStats(filter, QStringLiteral("day"))
+        ->whenDone(this, [this, region, serial, connection = m_connectionGeneration,
+                         write = m_achievementObservationGeneration, then = std::move(then)](
+                bool ok, const QVariantMap &payload, const QString &, const QString &) {
+            if (connection != m_connectionGeneration || write != m_achievementObservationGeneration
+                || (!region.isEmpty() && serial < m_acceptedRegionalSerial.value(region))) {
+                if (then) then(false);
+                return;
+            }
+            if (ok) {
+                adoptAchievements(QJsonObject::fromVariantMap(payload), region, serial);
+                const QString projection = m_recordRegion.isEmpty() ? QStringLiteral("CN") : m_recordRegion;
+                if (!m_dashboard.isEmpty() && region == projection) {
+                    const QJsonObject row = m_achievements.value(region);
+                    for (const QString &key : {QStringLiteral("goal_count"), QStringLiteral("baseline_completed_count"),
+                            QStringLiteral("achievement_progress"), QStringLiteral("remaining")})
+                        if (row.contains(key)) m_dashboard.insert(key, row.value(key));
+                }
+                observeAchievement(QJsonObject::fromVariantMap(payload), serial);
+                Q_EMIT dashboardChanged();
+            }
+            if (then) then(ok && (region.isEmpty() || m_loadedAchievementRegions.contains(region)));
+        });
+}
+
+void StatisticsController::refreshAchievementRegions()
+{
+    requestRegionalAchievement(QString(), [this](bool ok) {
+        if (!ok) return;
+        // All-region arrays omit an unused GLOBAL/UNKNOWN region. Ask the owner
+        // for its default entry rather than interpreting absence as baseline 0.
+        for (const QString &region : {QStringLiteral("GLOBAL"), QStringLiteral("UNKNOWN")})
+            if (!m_loadedAchievementRegions.contains(region)) requestRegionalAchievement(region);
+    });
+}
+
+void StatisticsController::observeAchievement(const QJsonObject &dashboard, quint64 serial)
+{
+    QJsonArray entries = dashboard.value(QStringLiteral("achievements")).toArray();
+    if (entries.isEmpty()) {
+        QJsonObject legacy = dashboard;
+        legacy.insert(QStringLiteral("region"), QStringLiteral("CN"));
+        entries.append(legacy);
+    }
+    for (const auto &entry : entries) {
+        const QString region = entry.toObject().value(QStringLiteral("region")).toString();
+        if (m_acceptedRegionalSerial.value(region) != serial) continue;
+        const QJsonObject row = m_achievements.value(region, entry.toObject());
+        const int goal = row.value(QStringLiteral("goal_count")).toInt(0);
+        const int baseline = row.value(QStringLiteral("baseline_completed_count")).toInt(-1);
+        const int progress = row.value(QStringLiteral("achievement_progress")).toInt(-1);
+        if (region.isEmpty() || goal < 1 || baseline < 0 || progress < 0) continue;
+        auto &observation = m_regionalObservations[region];
+        const bool sameSettings = goal == observation.goal && baseline == observation.baseline;
+        const int lap = progress / goal;
+        const bool celebrate = observation.ready && sameSettings && !baselineSaving()
+            && lap > observation.highestLap;
+        observation.highestLap = sameSettings ? qMax(observation.highestLap, lap) : lap;
+        observation.goal = goal;
+        observation.baseline = baseline;
+        observation.ready = !baselineSaving();
+        if (celebrate) {
+            Q_EMIT regionalAchievementMilestoneReached(region, lap);
+            if (region == (m_recordRegion.isEmpty() ? QStringLiteral("CN") : m_recordRegion))
+                Q_EMIT achievementMilestoneReached(lap);
+        }
+    }
 }
 
 void StatisticsController::refreshTrend()
@@ -144,7 +318,7 @@ void StatisticsController::refreshTrend()
         return;
     }
 
-    m_backend->getDashboardStats({}, m_trendMode)
+    m_backend->getDashboardStats(regionFilter(), m_trendMode)
         ->whenDone(this, [this, generation](bool ok, const QVariantMap &payload, const QString &,
                                 const QString &) {
             if (generation != m_trendGeneration)
@@ -254,6 +428,7 @@ void StatisticsController::rebuildDutyOptions()
 
         QVariantMap option;
         option.insert(QStringLiteral("content_id"), contentId);
+        option.insert(QStringLiteral("region"), row.value(QStringLiteral("region")));
         option.insert(QStringLiteral("duty_name"), row.value(QStringLiteral("duty_name")));
         option.insert(QStringLiteral("duty_category"),
                       row.value(QStringLiteral("duty_category")));
@@ -348,12 +523,12 @@ QVariantList StatisticsController::statCards() const
 
 int StatisticsController::goalCount() const
 {
-    return m_dashboard.value(QStringLiteral("goal_count")).toInt(2000);
+    return m_achievements.value(m_baselineRegion).value(QStringLiteral("goal_count")).toInt(2000);
 }
 
 int StatisticsController::baselineCount() const
 {
-    return m_dashboard.value(QStringLiteral("baseline_completed_count")).toInt(0);
+    return m_achievements.value(m_baselineRegion).value(QStringLiteral("baseline_completed_count")).toInt(0);
 }
 
 int StatisticsController::achievementProgress() const
@@ -380,7 +555,9 @@ int StatisticsController::pendingReviewCount() const
 void StatisticsController::forgetAchievementSettings()
 {
     ++m_connectionGeneration;
-    m_achievementObservationReady = false;
+    m_loadedAchievementRegions.clear();
+    Q_EMIT dashboardChanged();
+    for (auto &observation : m_regionalObservations) observation.ready = false;
     if (!m_achievementSettingsLoaded)
         return;
     m_achievementSettingsLoaded = false;
@@ -403,14 +580,14 @@ void StatisticsController::updateAchievementBaseline(int goal, int baseline, con
     }
     // Old reads cannot prime a milestone observation after a settings write.
     ++m_achievementObservationGeneration;
-    m_achievementObservationReady = false;
+    m_regionalObservations[m_baselineRegion].ready = false;
     // Counted before the request: a pipe that is down answers inside the call.
     if (m_baselineSavesInFlight++ == 0)
         Q_EMIT baselineSavingChanged();
-    m_backend->updateAchievementBaseline(goal, baseline, reason)
-        ->whenDone(this, [this](bool ok, const QVariantMap &payload, const QString &code,
+    m_backend->updateAchievementBaseline(goal, baseline, reason, {}, m_baselineRegion)
+        ->whenDone(this, [this, region = m_baselineRegion](bool ok, const QVariantMap &payload, const QString &code,
                                 const QString &message) {
-            m_achievementObservationReady = false;
+            m_regionalObservations[region].ready = false;
             // Before the outcome, so whoever takes the answer may already send again.
             if (--m_baselineSavesInFlight == 0)
                 Q_EMIT baselineSavingChanged();
@@ -431,20 +608,16 @@ void StatisticsController::updateAchievementBaseline(int goal, int baseline, con
             // fails the toast names none rather than a wrong one (CS7-D1). The
             // Collector also publishes stats_invalidated for this change, but the
             // read here keeps the page correct even without the event.
-            requestDashboard([this, savedBaseline, savedGoal](bool reread) {
-                const QJsonValue progress =
-                    m_dashboard.value(QStringLiteral("achievement_progress"));
-                if (reread && progress.isDouble()) {
-                    Q_EMIT toastRequested(
-                        tr("起始次数已设为 %1 · 目标 %2 · 总进度 %3")
-                            .arg(savedBaseline)
-                            .arg(savedGoal)
-                            .arg(progress.toInt()));
+            requestRegionalAchievement(region, [this, region, savedBaseline, savedGoal](bool reread) {
+                if (reread) {
+                    Q_EMIT toastRequested(tr("起始次数已设为 %1 · 目标 %2 · 总进度 %3")
+                        .arg(savedBaseline).arg(savedGoal)
+                        .arg(m_achievements.value(region).value(QStringLiteral("achievement_progress")).toInt()));
                 } else {
                     Q_EMIT toastRequested(tr("起始次数已设为 %1 · 目标 %2 · 已保存")
-                                              .arg(savedBaseline)
-                                              .arg(savedGoal));
+                        .arg(savedBaseline).arg(savedGoal));
                 }
+                refreshDashboard();
             });
             refreshTrend();
         });

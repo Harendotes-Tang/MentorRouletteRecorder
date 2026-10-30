@@ -34,8 +34,22 @@ public sealed class CandidateProfileTests : IDisposable
         Assert.Equal("UNSUPPORTED", selector.GetProfileStatus().Status);
     }
 
+    [Fact]
+    public void TcCandidateIsObservableOnlyForTcAndNeverEnablesFormalRecording()
+    {
+        var candidate = Candidate();
+        candidate["region"] = "TC";
+        Write("tc-candidate", candidate);
+        var selector = new ProfileSelector(ProfileCatalog.Load(_directory, allowCandidate: true));
+        Assert.NotNull(selector.SelectCandidate(Region.Tc, Build, enabled: true));
+        Assert.Null(selector.SelectCandidate(Region.Cn, Build, enabled: true));
+        Assert.Null(selector.SelectCandidate(Region.Tc, Build, enabled: false));
+        Assert.False(selector.Select(Region.Tc, Build).IsUsable);
+    }
+
     [Theory]
     [InlineData(Region.Global, Build)]
+    [InlineData(Region.Tc, Build)]
     [InlineData(Region.Unknown, Build)]
     [InlineData(Region.Cn, "2026.08.06.0000.0000")]
     [InlineData(Region.Cn, null)]

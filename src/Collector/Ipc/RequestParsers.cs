@@ -46,10 +46,11 @@ public static class RequestParsers
             "from_utc", "to_utc", "date_field", "content_id", "duty_category", "job_id",
             "result", "source", "corrected_only", "include_deleted", "deleted_only", "with_reflection",
             "pending_review", "text", "name_text", "name_exact", "run_id", "history_from_day", "history_to_day",
-            "joined_in_progress");
+            "joined_in_progress", "region");
 
         var filter = new RunFilter
         {
+            Region = reader.Enum<Region>("region"),
             FromUtc = reader.Timestamp("from_utc"),
             RunIds = RunIds(reader, "run_id"),
             HistoryFromDay = HistoryDay(reader, "history_from_day"),
@@ -121,10 +122,11 @@ public static class RequestParsers
         reader.RejectUnknown(
             "content_id", "duty_name", "duty_category", "job_id", "matched_at_utc",
             "entered_at_utc", "ended_at_utc", "duration_ms", "result", "contributes_to_goal",
-            "reason", "note", "joined_in_progress");
+            "reason", "note", "joined_in_progress", "region");
 
         return new CreateManualRunCommand
         {
+            Region = reader.Has("region") ? reader.RequiredEnum<Region>("region") : Region.Unknown,
             RequestId = requestId,
             Reason = RequireReason(reader),
             Result = reader.RequiredEnum<RunResult>("result"),
@@ -245,13 +247,14 @@ public static class RequestParsers
         ArgumentNullException.ThrowIfNull(reader);
 
         reader.RejectUnknown(
-            "goal_count", "baseline_completed_count", "baseline_effective_at", "reason");
+            "goal_count", "baseline_completed_count", "baseline_effective_at", "reason", "region");
         return new UpdateAchievementBaselineCommand(
             requestId,
             reader.Int("goal_count", 1) ?? AchievementSettings.DefaultGoalCount,
             reader.RequiredInt("baseline_completed_count", 0),
             reader.RequiredTimestamp("baseline_effective_at"),
-            RequireReason(reader));
+            RequireReason(reader),
+            reader.Has("region") ? reader.RequiredEnum<Region>("region") : Region.Cn);
     }
 
     /// <summary>Reads a <c>$defs/SetRunReflectionRequest</c>.</summary>
@@ -344,10 +347,10 @@ public static class RequestParsers
             throw CollectorException.BadRequest(CollectorTexts.IpcFieldNotBoolean("update_check_enabled"), "payload.update_check_enabled");
         var regionSpecified = reader.Has("region_override");
         var regionText = reader.String("region_override", 16);
-        if (regionSpecified && regionText is not (null or "CN" or "GLOBAL"))
+        if (regionSpecified && regionText is not (null or "CN" or "TC" or "GLOBAL"))
         {
             throw CollectorException.BadRequest(
-                CollectorTexts.IpcFieldEither("region_override", "CN / GLOBAL", "null"), "payload.region_override");
+                CollectorTexts.IpcFieldEither("region_override", "CN / TC / GLOBAL", "null"), "payload.region_override");
         }
 
         return new Capture.CaptureSettingsUpdate
@@ -370,6 +373,7 @@ public static class RequestParsers
             RegionOverride = regionText switch
             {
                 "CN" => Domain.Region.Cn,
+                "TC" => Domain.Region.Tc,
                 "GLOBAL" => Domain.Region.Global,
                 _ => null,
             },

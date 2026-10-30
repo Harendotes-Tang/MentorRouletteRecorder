@@ -597,6 +597,98 @@ public sealed class ContractSchemaTests
         Assert.All(emittedTypes, type => Assert.Contains(type, declaredTypes));
     }
 
+    [Fact]
+    public async Task RegionalRecords_RealPipeKeepsTcProgressAndFilterIndependent()
+    {
+        await using var fixture = ServerFixture.Start();
+        await using var client = await fixture.ConnectAsync();
+        async Task<JsonObject> Send(string message, JsonObject payload)
+        {
+            var result = (await client.SendAsync(message, payload)).Require();
+            ContractSchema.Validate("$defs/Responses/" + message, result, message + " regional response");
+            return result;
+        }
+
+        foreach (var (region, baseline) in new[] { ("CN", 100), ("TC", 20) })
+        {
+            var created = await Send("CreateManualRun", new JsonObject
+            {
+                ["region"] = region, ["result"] = "COMPLETED", ["contributes_to_goal"] = true,
+                ["matched_at_utc"] = "2026-10-24T01:00:00.000Z",
+                ["entered_at_utc"] = "2026-10-24T01:01:00.000Z",
+                ["ended_at_utc"] = "2026-10-24T01:11:00.000Z",
+                ["content_id"] = 5, ["job_id"] = 19, ["reason"] = "按区服补录测试",
+            });
+            Assert.Equal(region, created["run"]!["region"]!.GetValue<string>());
+            var changed = await Send("UpdateAchievementBaseline", new JsonObject
+            {
+                ["region"] = region, ["baseline_completed_count"] = baseline, ["goal_count"] = 2000,
+                ["baseline_effective_at"] = "2026-10-24T01:20:00.000Z", ["reason"] = "按区服设定基数",
+            });
+            Assert.Equal(region, changed["region"]!.GetValue<string>());
+        }
+
+        var all = await Send("GetDashboardStats", new JsonObject());
+        var progress = all["achievements"]!.AsArray().ToDictionary(
+            row => row!["region"]!.GetValue<string>(), row => row!["achievement_progress"]!.GetValue<int>());
+        Assert.Equal(101, progress["CN"]);
+        Assert.Equal(21, progress["TC"]);
+
+        var tc = await Send("GetDashboardStats", new JsonObject
+        {
+            ["filter"] = new JsonObject { ["region"] = "TC", ["from_utc"] = "2027-01-01T00:00:00.000Z" },
+        });
+        Assert.Equal(0, tc["completed_count"]!.GetValue<int>());
+        var tcAchievement = Assert.Single(tc["achievements"]!.AsArray())!;
+        Assert.Equal("TC", tcAchievement["region"]!.GetValue<string>());
+        Assert.Equal(21, tcAchievement["achievement_progress"]!.GetValue<int>());
+
+        var page = await Send("QueryRuns", new JsonObject
+        {
+            ["filter"] = new JsonObject { ["region"] = "TC" }, ["page"] = 1, ["page_size"] = 10,
+        });
+        Assert.Equal("TC", Assert.Single(page["items"]!.AsArray())!["region"]!.GetValue<string>());
+        var capture = await Send("UpdateCaptureSettings", new JsonObject { ["region_override"] = "TC" });
+        Assert.Equal("TC", capture["region_override"]!.GetValue<string>());
+    }
+
+    [Theory]
+    [InlineData("TC", true)]
+    [InlineData("CN", true)]
+    [InlineData("GLOBAL", true)]
+    [InlineData("UNKNOWN", true)]
+    [InlineData("TW", false)]
+    [InlineData("tc", false)]
+    public void RegionSchema_KeepsOneCanonicalTokenPerService(string region, bool accepted)
+    {
+        Assert.Equal(accepted, ContractSchema.Evaluate("$defs/Region", JsonValue.Create(region)).IsValid);
+        Assert.Equal(accepted, ContractSchema.Evaluate("$defs/RunFilter",
+            new JsonObject { ["region"] = region }).IsValid);
+    }
+
+    [Theory]
+    [InlineData(1000, true)]
+    [InlineData(4096, true)]
+    [InlineData(4097, false)]
+    public async Task ExactNameLimit_MatchesSchemaAndRealPipe(int count, bool accepted)
+    {
+        var names = new JsonArray(Enumerable.Range(0, count)
+            .Select(index => (JsonNode?)JsonValue.Create("name-" + index)).ToArray());
+        var filter = new JsonObject { ["name_exact"] = names };
+        Assert.Equal(accepted, ContractSchema.Evaluate("$defs/RunFilter", filter).IsValid);
+        await using var fixture = ServerFixture.Start();
+        await using var client = await fixture.ConnectAsync();
+        var response = await client.SendAsync("QueryRuns", new JsonObject
+        {
+            ["filter"] = filter, ["page"] = 1, ["page_size"] = 1,
+        });
+        Assert.Equal(accepted, response.Ok);
+        if (accepted)
+            ContractSchema.Validate("$defs/Responses/QueryRuns", response.Require(), "bounded exact names");
+        else
+            Assert.Equal(ErrorCodes.BadRequest, response.ErrorCode);
+    }
+
     private static async Task<string> CreateRunAsync(
         PipeClient client, string result, int contentId, int jobId)
     {

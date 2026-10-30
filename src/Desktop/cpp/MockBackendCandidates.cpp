@@ -508,13 +508,17 @@ QJsonObject MockBackend::applyCaptureSettings(const QJsonObject &payload,
                 return badRequest(errorCode, errorMessage, QString::fromUtf8("网卡标识必须是字符串或留空。"));
         } else if (key == QLatin1String("region_override")) {
             if (!value.isNull() && (!value.isString() || (value.toString() != QLatin1String("CN")
-                                                         && value.toString() != QLatin1String("GLOBAL"))))
-                return badRequest(errorCode, errorMessage, QString::fromUtf8("区服只能是 CN、GLOBAL 或留空。"));
+                                                         && value.toString() != QLatin1String("GLOBAL")
+                                                         && value.toString() != QLatin1String("TC"))))
+                return badRequest(errorCode, errorMessage, QString::fromUtf8("区服只能是 CN、TC、GLOBAL 或留空。"));
         } else if (key == QLatin1String("research_payload_opcodes") && !value.isArray()) {
             return badRequest(errorCode, errorMessage, QString::fromUtf8("研究白名单必须是数组，清空请传 []。"));
         }
         next.insert(key, value);
     }
+    const QString nextRegion = next.value(QStringLiteral("region_override")).toString(QStringLiteral("CN"));
+    if (nextRegion != QLatin1String("CN") && !payload.contains(QStringLiteral("research_payload_opcodes")))
+        next.insert(QStringLiteral("research_payload_opcodes"), QJsonArray());
     if (payload.contains(QStringLiteral("research_payload_opcodes"))) {
         const QJsonArray requested = next.value(QStringLiteral("research_payload_opcodes")).toArray();
         if (requested.size() > 32)
@@ -526,7 +530,8 @@ QJsonObject MockBackend::applyCaptureSettings(const QJsonObject &payload,
         // declared, bounded, non-obfuscated hypotheses of at most 512 bytes.
         // No unknown or unbounded opcode can be enabled through manual input.
         QSet<QString> eligible;
-        const auto hypotheses = captureStatus().value(QStringLiteral("candidate_hypotheses")).toArray();
+        const auto hypotheses = nextRegion == QLatin1String("CN")
+            ? declaredCandidateHypotheses() : QJsonArray();
         for (const auto &value : hypotheses) {
             const auto hypothesis = value.toObject();
             if (hypothesis.value(QStringLiteral("research_eligible")).toBool())

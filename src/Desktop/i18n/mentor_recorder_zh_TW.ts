@@ -1147,10 +1147,6 @@
         <translation>先前選擇的網路卡收不到遊戲資料</translation>
     </message>
     <message>
-        <source>手动指定</source>
-        <translation>手動指定</translation>
-    </message>
-    <message>
         <source>自动选择（有 FF14 连接）</source>
         <translation>自動選擇（有 FF14 連線）</translation>
     </message>
@@ -1620,8 +1616,8 @@
         <translation>尚未辨識遊戲區服</translation>
     </message>
     <message>
-        <source>无法从安装路径判断区服。请在「设置 → 通用」中选择实际使用的国服或国际服，保存后会重新检查。</source>
-        <translation>無法依安裝路徑判斷區服。請在「設定 → 一般」中選擇實際使用的中國服或國際服，儲存後會重新檢查。</translation>
+        <source>无法从安装路径判断区服。请在「设置 → 通用」中选择实际使用的国服、繁中服或国际服，保存后会重新检查。</source>
+        <translation>無法依安裝路徑判斷區服。請在「設定 → 一般」中選擇實際使用的中國服、繁中服或國際服，儲存後會重新檢查。</translation>
     </message>
     <message>
         <source>设置区服</source>
@@ -1845,6 +1841,10 @@
         <translation>中國服 CN</translation>
     </message>
     <message>
+        <source>繁中服 TC</source>
+        <translation>繁中服 TC</translation>
+    </message>
+    <message>
         <source>国际服 GLOBAL</source>
         <translation>國際服 GLOBAL</translation>
     </message>
@@ -1853,8 +1853,8 @@
         <translation>遊戲區服</translation>
     </message>
     <message>
-        <source>自动按安装路径识别；无法识别时，请选择实际使用的国服或国际服。</source>
-        <translation>自動依安裝路徑辨識；無法辨識時，請選擇實際使用的中國服或國際服。</translation>
+        <source>自动按安装路径识别；无法识别时，请选择实际使用的国服、繁中服或国际服。</source>
+        <translation>自動依安裝路徑識別；無法識別時，請選擇實際使用的國服、繁中服或國際服。</translation>
     </message>
 </context>
 <context>
@@ -1983,12 +1983,12 @@
         <translation>新伺服器地區採證步驟</translation>
     </message>
     <message>
-        <source>1. 先回到游戏标题画面，确认下方区服和网卡，点击开始采证，再重新登录。
-2. 排一次随机任务；排队、匹配弹窗出现、进本、通关、离本时，依次点击对应标记。
-3. 离本后停止采证，等到“已保存”再预览摘要。仅提交候选线索，不代表此区服已经适配。</source>
-        <translation>1. 先回到遊戲標題畫面，確認下方的伺服器地區和網路卡，點選「開始採證」，再重新登入。
-2. 排一次隨機任務；在排隊、配對彈出視窗出現、進本、通關、離本時，依序點選對應的標記。
-3. 離本後停止採證，等到「已儲存」再預覽摘要。這只是送出候選線索，不代表此伺服器地區已經支援。</translation>
+        <source>1. 先退出游戏，选好实际区服和网卡（繁中服选 TC），再点“开始采证”。
+2. 启动游戏，等这里显示“正在取证”后再登录；若提示重启，须完全退出游戏后重开。
+3. 离本后停止采证，等到“已保存”再取文件。本轮只收集元数据，不会新增正式记录。</source>
+        <translation>1. 先退出遊戲，選好實際區服和網路介面（繁中服選 TC），再點「開始採證」。
+2. 啟動遊戲，等這裡顯示「正在取證」後再登入；若提示重啟，須完全退出遊戲後重開。
+3. 離本後停止採證，等到「已儲存」再取檔案。本輪只收集中繼資料，不會新增正式記錄。</translation>
     </message>
     <message>
         <source>取消等待</source>
@@ -2067,8 +2067,66 @@
         <translation>伺服器地區</translation>
     </message>
     <message>
-        <source>区服“自动”由采集器从安装路径推断；装在非默认目录的国服客户端可能识别为未知，此时取证与验证会被拒绝，请在此显式指定。</source>
-        <translation>伺服器地區「自動」由採集器依安裝路徑推斷；安裝在非預設資料夾的國服用戶端可能被辨識為未知，此時取證與驗證會被拒絕，請在此明確指定。</translation>
+        <source>区服与界面语言分别设置。请选择实际区服：繁中服为 TC，国际服为 GLOBAL；监听或采证期间不可修改。</source>
+        <translation>區服與介面語言分別設定。請選擇實際區服：繁中服為 TC，國際服為 GLOBAL；監聽或採證期間不可修改。</translation>
+    </message>
+    <message>
+        <source>开始排队 → 已排队；匹配弹窗出现 → 已匹配；读条结束进本 → 已进入；出现通关提示 → 已胜利；离本回到外面 → 已离开。尽量在事件发生后 3 秒内点击；漏按、点晚或未通关要如实记录，不要事后补点。</source>
+        <translation>開始排隊 → 已排隊；配對視窗出現 → 已配對；讀取結束進本 → 已進入；出現通關提示 → 已勝利；離本回到外面 → 已離開。盡量在事件發生後 3 秒內點擊；漏按、點晚或未通關要如實記錄，不要事後補點。</translation>
+    </message>
+    <message>
+        <source>先确认数据可读</source>
+        <translation>先確認資料可讀</translation>
+    </message>
+    <message>
+        <source>登录后正常活动 30～60 秒，查看上方采证“报文”是否增加。一直为 0 或“解码失败”快速增加时，先截图、停止并导出诊断，不必继续排本。
+优先采指导者随机；没有资格可采普通随机作对照，并注明类型。先回传一轮，确认可用后再补一轮。单次最长 2 小时，含等待时间。</source>
+        <translation>登入後正常活動 30～60 秒，查看上方採證「封包」是否增加。一直為 0 或「解碼失敗」快速增加時，先截圖、停止並匯出診斷，不必繼續排本。
+優先採指導者隨機；沒有資格可採一般隨機作對照，並註明類型。先回傳一輪，確認可用後再補一輪。單次最長 2 小時，含等待時間。</translation>
+    </message>
+    <message>
+        <source>停止后保存这些文件</source>
+        <translation>停止後保存這些檔案</translation>
+    </message>
+    <message>
+        <source>1. 点“停止采证”，等“已保存”，截图保存状态和四项计数。
+2. 点“打开所在目录”，复制本轮 trace.jsonl 与 trace.jsonl.sha256；每轮分开保存，不改原文件和文件名。
+3. 在上方“工具”点“导出诊断报告”并保存 JSON。
+失败时有多少文件就回传多少，注明缺失项，不自行补造。采证目录只保留最近 10 份且不超过 7 天，请及时复制到外部文件夹。</source>
+        <translation>1. 點「停止採證」，等「已儲存」，截圖保存狀態和四項計數。
+2. 點「開啟所在資料夾」，複製本輪 trace.jsonl 與 trace.jsonl.sha256；每輪分開保存，不改原檔案和檔名。
+3. 在上方「工具」點「匯出診斷報告」並保存 JSON。
+失敗時有多少檔案就回傳多少，註明缺失項，不自行補造。採證目錄只保留最近 10 份且不超過 7 天，請及時複製到外部資料夾。</translation>
+    </message>
+    <message>
+        <source>摘要和附加文件（可选）</source>
+        <translation>摘要和附加檔案（選填）</translation>
+    </message>
+    <message>
+        <source>可先“预览候选摘要”；摘要不足或预览失败，不影响回传上述文件。预览只针对当前最近一轮，需在下一轮或重开软件前处理。
+“复制摘要并打开提交页”会复制完整 JSON 并打开 GitHub，页面可能预填摘要。可将复制内容原样保存为 JSON 回传，无需发布 Issue；不想打开 GitHub 可跳过摘要。
+无法识别游戏版本时，可附 game 目录内的 ffxivgame.ver；启动或采证异常时，可附数据目录 logs 内对应时间的 collector-*.log。</source>
+        <translation>可先「預覽候選摘要」；摘要不足或預覽失敗，不影響回傳上述檔案。預覽只針對目前最近一輪，需在下一輪或重開軟體前處理。
+「複製摘要並開啟送出頁面」會複製完整 JSON 並開啟 GitHub，頁面可能預填摘要。可將複製內容原樣保存為 JSON 回傳，無需發布 Issue；不想開啟 GitHub 可跳過摘要。
+無法識別遊戲版本時，可附 game 目錄內的 ffxivgame.ver；啟動或採證異常時，可附資料目錄 logs 內對應時間的 collector-*.log。</translation>
+    </message>
+    <message>
+        <source>回传时一起说明</source>
+        <translation>回傳時一起說明</translation>
+    </message>
+    <message>
+        <source>将每轮采证文件、诊断 JSON、状态或错误截图及文字回报放在同一 ZIP，私下交给维护者。请写明：软件、游戏和 Windows 版本，测试时间及时区，加速器或 VPN，随机类型、副本、职业，是否中途加入、通关，以及漏按、延迟、断线等情况。
+不需要数据库、游戏程序或 DLL、账号密码和原始抓包；完整 trace 不要贴到公开 Issue。采证完成只代表取得候选线索，仍需维护者验证。</source>
+        <translation>將每輪採證檔案、診斷 JSON、狀態或錯誤截圖及文字回報放在同一 ZIP，私下交給維護者。請寫明：軟體、遊戲和 Windows 版本，測試時間及時區，加速器或 VPN，隨機類型、副本、職業，是否途中加入、通關，以及漏按、延遲、斷線等情況。
+不需要資料庫、遊戲程式或 DLL、帳號密碼和原始抓包；完整 trace 不要貼到公開 Issue。採證完成只代表取得候選線索，仍需維護者驗證。</translation>
+    </message>
+    <message>
+        <source>采证前也可检查界面</source>
+        <translation>採證前也可檢查介面</translation>
+    </message>
+    <message>
+        <source>已有正式记录可先在“设置 → 数据”备份，备份留本机。可先检查：切换界面语言后区服仍正确；各区成就分开显示且设置互不影响；手动补录能找到对应区服的副本。测试成就设置前记下原值，测试后恢复；不方便修改时可跳过并注明。</source>
+        <translation>已有正式記錄可先在「設定 → 資料」備份，備份留本機。可先檢查：切換介面語言後區服仍正確；各區成就分開顯示且設定互不影響；手動補錄能找到對應區服的副本。測試成就設定前記下原值，測試後恢復；不方便修改時可跳過並註明。</translation>
     </message>
     <message>
         <source>已排队</source>
@@ -2847,11 +2905,6 @@ SHA256：%3</translation>
         <translation>僅驗證，不自動記錄。等待可用的 IPv4 網路卡；無法自動確定時，請取消並明確選擇網路卡。</translation>
     </message>
     <message>
-        <source>仅验证，不自动记录。多张网卡承载游戏连接，请取消并明确选择网卡。</source>
-        <comment>capture.validation.waiting_adapter_ambiguous</comment>
-        <translation>僅驗證，不自動記錄。多張網路卡承載遊戲連線，請取消並明確選擇網路卡。</translation>
-    </message>
-    <message>
         <source>仅验证，不自动记录。无法确认游戏连接状态，正在等待系统查询恢复。</source>
         <comment>capture.validation.waiting_connection_check</comment>
         <translation>僅驗證，不自動記錄。無法確認遊戲連線狀態，正在等待系統查詢恢復。</translation>
@@ -2867,9 +2920,9 @@ SHA256：%3</translation>
         <translation>僅驗證，不自動記錄。正在等待可讀取的遊戲路徑與用戶端版本。</translation>
     </message>
     <message>
-        <source>仅验证，不自动记录。无法从安装路径判断区服。请在设置里手动指定区服（国服 / 国际服）后重试。</source>
+        <source>仅验证，不自动记录。无法从安装路径判断区服。请在设置里手动指定区服（国服 / 繁中服 / 国际服）后重试。</source>
         <comment>capture.validation.waiting_region</comment>
-        <translation>僅驗證，不自動記錄。無法從安裝路徑判斷伺服器地區。請在設定中手動指定伺服器地區（國服 / 國際服）後重試。</translation>
+        <translation>僅驗證，不自動記錄。無法從安裝路徑判斷伺服器地區。請在設定中手動指定伺服器地區（國服 / 繁中服 / 國際服）後重試。</translation>
     </message>
     <message>
         <source>仅验证，不自动记录。游戏已有连接，请退出并重新启动游戏，验证将自动继续。</source>
@@ -3089,14 +3142,14 @@ SHA256：%3</translation>
         <translation>無法確定遊戲安裝路徑，伺服器地區與用戶端版本將保持未知；此時不會進行任何自動記錄。</translation>
     </message>
     <message>
-        <source>无法从安装路径判断区服（路径同时含有国服与国际服的标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录。</source>
+        <source>无法从安装路径判断区服（路径同时含有多个区服的标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。</source>
         <comment>capture.game.region_ambiguous</comment>
-        <translation>無法從安裝路徑判斷伺服器地區（路徑同時含有國服與國際服的標記）。請到設定中手動指定伺服器地區（國服 / 國際服）；在此之前不會進行任何自動記錄。</translation>
+        <translation>無法從安裝路徑判斷伺服器地區（路徑同時含有多個伺服器地區的標記）。請到設定中手動指定伺服器地區（國服 / 繁中服 / 國際服）；在此之前不會進行任何自動記錄。</translation>
     </message>
     <message>
-        <source>无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录。</source>
+        <source>无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。</source>
         <comment>capture.game.region_unmarked</comment>
-        <translation>無法從安裝路徑判斷伺服器地區（路徑可讀取，但不含可辨識的伺服器地區標記）。請到設定中手動指定伺服器地區（國服 / 國際服）；在此之前不會進行任何自動記錄。</translation>
+        <translation>無法從安裝路徑判斷伺服器地區（路徑可讀取，但不含可辨識的伺服器地區標記）。請到設定中手動指定伺服器地區（國服 / 繁中服 / 國際服）；在此之前不會進行任何自動記錄。</translation>
     </message>
     <message>
         <source>上次自动记录尚未完全停止，本次监听未开始。请稍后重试；仍失败时重启软件并导出诊断报告。</source>
@@ -4417,9 +4470,9 @@ SHA256：%3</translation>
         <translation>這份校準碼不能用於目前的遊戲。它適用於遊戲版本 {code_build}，你目前的版本是 {current_build}；請匯入相同遊戲版本的校準碼，或使用「本機校準」。</translation>
     </message>
     <message>
-        <source>这份校准码不能用于当前游戏，国服与国际服不能通用。请导入当前区服的校准码，或使用「本机校准」。</source>
+        <source>这份校准码不能用于当前游戏，不同区服的校准码不能通用。请导入当前区服的校准码，或使用「本机校准」。</source>
         <comment>sharing.import.other_region</comment>
-        <translation>這份校準碼不能用於目前的遊戲，國服與國際服不能通用。請匯入目前伺服器地區的校準碼，或使用「本機校準」。</translation>
+        <translation>這份校準碼不能用於目前的遊戲，不同伺服器地區的校準碼不能通用。請匯入目前伺服器地區的校準碼，或使用「本機校準」。</translation>
     </message>
     <message>
         <source>这份校准码不能用于当前导随记录器。请你和分享者先更新到同一版本，再「导入校准码」。</source>
@@ -4844,10 +4897,6 @@ SHA256：%3</translation>
         <translation>所選分類暫無通關</translation>
     </message>
     <message>
-        <source>%1 次通关</source>
-        <translation>%1 次通關</translation>
-    </message>
-    <message>
         <source>全部通关 %1 次</source>
         <translation>全部通關 %1 次</translation>
     </message>
@@ -4921,18 +4970,6 @@ SHA256：%3</translation>
     <message>
         <source>查看安装说明</source>
         <translation>檢視安裝說明</translation>
-    </message>
-    <message>
-        <source>成就进度 · %1 次</source>
-        <translation>成就進度 · %1 次</translation>
-    </message>
-    <message>
-        <source>含起始次数 %1 次</source>
-        <translation>含起始次數 %1 次</translation>
-    </message>
-    <message>
-        <source>修改</source>
-        <translation>修改</translation>
     </message>
     <message>
         <source>当前导随</source>
@@ -5403,6 +5440,22 @@ SHA256：%3</translation>
         <translation>進本時間依配對時間估算；實際耗時不詳，不計入平均耗時。</translation>
     </message>
     <message>
+        <source>未知区服</source>
+        <translation>未知區服</translation>
+    </message>
+    <message>
+        <source>国服</source>
+        <translation>國服</translation>
+    </message>
+    <message>
+        <source>繁中服</source>
+        <translation>繁中服</translation>
+    </message>
+    <message>
+        <source>国际服</source>
+        <translation>國際服</translation>
+    </message>
+    <message>
         <source>保存后，成就进度 +1</source>
         <translation>儲存後，成就進度 +1</translation>
     </message>
@@ -5861,6 +5914,10 @@ SHA256：%3</translation>
         <translation>新增記錄</translation>
     </message>
     <message>
+        <source>记录区服</source>
+        <translation>記錄區服</translation>
+    </message>
+    <message>
         <source>搜索 副本 / 职业 / 备注</source>
         <translation>搜尋 副本 / 職業 / 備註</translation>
     </message>
@@ -6214,6 +6271,22 @@ SHA256：%3</translation>
         <translation>其他地區（自訂）</translation>
     </message>
     <message>
+        <source>未知区服</source>
+        <translation>未知區服</translation>
+    </message>
+    <message>
+        <source>国服</source>
+        <translation>國服</translation>
+    </message>
+    <message>
+        <source>繁中服</source>
+        <translation>繁中服</translation>
+    </message>
+    <message>
+        <source>国际服</source>
+        <translation>國際服</translation>
+    </message>
+    <message>
         <source>未知 / 待补充</source>
         <translation>未知 / 待補充</translation>
     </message>
@@ -6464,6 +6537,14 @@ SHA256：%3</translation>
 圖片文字辨識為「%2」，請對照原圖確認。</translation>
     </message>
     <message>
+        <source>记录区服</source>
+        <translation>記錄區服</translation>
+    </message>
+    <message>
+        <source>繁中服截图识别尚未验收，请对照原图逐项确认；副本候选仅使用繁中服目录。</source>
+        <translation>繁中服截圖辨識尚未驗收，請對照原圖逐項確認；副本候選僅使用繁中服目錄。</translation>
+    </message>
+    <message>
         <source>副本</source>
         <translation>副本</translation>
     </message>
@@ -6560,20 +6641,8 @@ SHA256：%3</translation>
         <translation>確認是自己的指導者任務並核對結果後，通關才會計入成就。不知道遊戲時間和耗時可以留空，以後再補，不影響已確認的通關計數。</translation>
     </message>
     <message>
-        <source>勾选记录中有 %1 条通关会计入进度。它们已包含在起始次数 %2（开始用本软件记录前，已经完成的导随次数）中吗？</source>
-        <translation>勾選的記錄中有 %1 筆通關會計入進度。它們已包含在起始次數 %2（開始用本軟體記錄前已經完成的導隨次數）中嗎？</translation>
-    </message>
-    <message>
-        <source>已包含：保存时扣除 %1 次，起始次数改为 %2</source>
-        <translation>已包含：儲存時扣除 %1 次，起始次數改為 %2</translation>
-    </message>
-    <message>
         <source>未包含：照常加在起始次数之上</source>
         <translation>未包含：照常加在起始次數之上</translation>
-    </message>
-    <message>
-        <source>起始次数只有 %1，只能扣到 0；其余 %2 次照常加在起始次数之上。</source>
-        <translation>起始次數只有 %1，只能扣到 0；其餘 %2 次照常加在起始次數之上。</translation>
     </message>
     <message>
         <source>已勾选 %1 条</source>
@@ -6815,6 +6884,22 @@ SHA256：%3</translation>
     <message>
         <source>未提供进入方式时保留未知，不会自动当作正常进入。</source>
         <translation>未提供進入方式時保留未知，不會自動當作正常進入。</translation>
+    </message>
+    <message>
+        <source>勾选记录中有 %1 条通关会计入各自区服的进度。它们已包含在对应区服的起始次数中吗？</source>
+        <translation>勾選記錄中有 %1 筆通關會計入各自區服的進度。它們已包含在對應區服的起始次數中嗎？</translation>
+    </message>
+    <message>
+        <source>已包含：按区服扣除已计入的次数</source>
+        <translation>已包含：依區服扣除已計入的次數</translation>
+    </message>
+    <message>
+        <source>%1：起始次数 %2，扣除 %3 次后为 %4；本次计入 %5 条通关。</source>
+        <translation>%1：起始次數 %2，扣除 %3 次後為 %4；本次計入 %5 筆通關。</translation>
+    </message>
+    <message>
+        <source>%1：保留起始次数 %2，本次另计 %3 条通关。</source>
+        <translation>%1：保留起始次數 %2，本次另計 %3 筆通關。</translation>
     </message>
     <message>
         <source>进入方式列名</source>
@@ -7527,10 +7612,6 @@ SHA256：%3</translation>
         <source>极神</source>
         <translation>極討伐戰</translation>
     </message>
-    <message>
-        <source>极</source>
-        <translation>極</translation>
-    </message>
 </context>
 <context>
     <name>OverlayDutyStatsModule</name>
@@ -7694,6 +7775,17 @@ SHA256：%3</translation>
     <message>
         <source>查看全部待处理</source>
         <translation>查看全部待處理</translation>
+    </message>
+</context>
+<context>
+    <name>RecordRegionSelector</name>
+    <message>
+        <source>全部区服</source>
+        <translation>全部區服</translation>
+    </message>
+    <message>
+        <source>记录区服</source>
+        <translation>記錄區服</translation>
     </message>
 </context>
 <context>
@@ -8226,6 +8318,25 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>RegionalAchievementCard</name>
+    <message>
+        <source>成就进度 · %1 次</source>
+        <translation>成就進度 · %1 次</translation>
+    </message>
+    <message>
+        <source>还差 %1 次</source>
+        <translation>還差 %1 次</translation>
+    </message>
+    <message>
+        <source>含起始次数 %1 次</source>
+        <translation>含起始次數 %1 次</translation>
+    </message>
+    <message>
+        <source>修改</source>
+        <translation>修改</translation>
+    </message>
+</context>
+<context>
     <name>ReleaseNotesDialog</name>
     <message>
         <source>本次更新</source>
@@ -8734,6 +8845,10 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>RunWizardDutyStep</name>
+    <message>
+        <source>记录区服</source>
+        <translation>記錄區服</translation>
+    </message>
     <message>
         <source>副本</source>
         <translation>副本</translation>
@@ -9306,6 +9421,14 @@ SHA256：%3</translation>
     <message>
         <source>成就进度</source>
         <translation>成就進度</translation>
+    </message>
+    <message>
+        <source>成就区服</source>
+        <translation>成就區服</translation>
+    </message>
+    <message>
+        <source>各区服的目标、起始次数和累计进度分别保存。</source>
+        <translation>各區服的目標、起始次數和累計進度分別儲存。</translation>
     </message>
     <message>
         <source>目标值</source>
@@ -9965,8 +10088,8 @@ SHA256：%3</translation>
         <translation>暫時讀不到可用的遊戲資料，自動記錄尚未恢復。軟體正在背景嘗試恢復，恢復前不會自動產生記錄。</translation>
     </message>
     <message>
-        <source>无法识别游戏区服，暂时不能自动记录。请在「设置 → 通用」中选择实际区服（国服 / 国际服），保存后会重新检查。</source>
-        <translation>無法辨識遊戲區服，暫時無法自動記錄。請在「設定 → 一般」中選擇實際區服（中國服 / 國際服），儲存後會重新檢查。</translation>
+        <source>无法识别游戏区服，暂时不能自动记录。请在「设置 → 通用」中选择实际区服（国服 / 繁中服 / 国际服），保存后会重新检查。</source>
+        <translation>無法辨識遊戲區服，暫時無法自動記錄。請在「設定 → 一般」中選擇實際區服（中國服 / 繁中服 / 國際服），儲存後會重新檢查。</translation>
     </message>
     <message>
         <source>无法读取游戏版本，暂时不能自动记录。请确认游戏文件完整，再点「重新检测游戏」。</source>
@@ -10761,6 +10884,26 @@ SHA256：%3</translation>
         <translation>週日</translation>
     </message>
     <message>
+        <source>国服 CN</source>
+        <translation>中國服 CN</translation>
+    </message>
+    <message>
+        <source>繁中服 TC</source>
+        <translation>繁中服 TC</translation>
+    </message>
+    <message>
+        <source>国际服 GLOBAL</source>
+        <translation>國際服 GLOBAL</translation>
+    </message>
+    <message>
+        <source>未知区服</source>
+        <translation>未知區服</translation>
+    </message>
+    <message>
+        <source>全部区服</source>
+        <translation>全部區服</translation>
+    </message>
+    <message>
         <source>通关</source>
         <translation>通關</translation>
     </message>
@@ -11353,6 +11496,10 @@ SHA256：%3</translation>
         <translation>已匯入 %1 筆，略過重複 %2 筆；衝突 %3 筆，保留本機記錄。</translation>
     </message>
     <message>
+        <source>%1：扣除 %2 次，起始次数改为 %3</source>
+        <translation>%1：扣除 %2 次，起始次數改為 %3</translation>
+    </message>
+    <message>
         <source>上次保存结果尚未确认，暂时不能修改内容和勾选。请点「重试确认保存」确认同一批次，避免重复保存。</source>
         <translation>上次的儲存結果尚未確認，暫時無法修改內容和勾選。請點「重試確認儲存」確認同一批次，避免重複儲存。</translation>
     </message>
@@ -11403,6 +11550,10 @@ SHA256：%3</translation>
     <message>
         <source>JSON 文件 (*.json)</source>
         <translation>JSON 檔案 (*.json)</translation>
+    </message>
+    <message>
+        <source>批量设置只能修改区服、职业、结果和打本心情。</source>
+        <translation>批次設定只能修改區服、職業、結果和打本心情。</translation>
     </message>
     <message>
         <source>已导入 %1 条，跳过重复 %2 条；冲突 %3 条，保留本地记录。起始次数已从 %4 改为 %5，扣除已包含的 %6 次通关，避免重复计算。</source>
@@ -11537,10 +11688,6 @@ SHA256：%3</translation>
         <translation>修改後這批記錄太大，無法重新驗證，這次修改沒有儲存。請縮短內容後再改。</translation>
     </message>
     <message>
-        <source>批量设置只能修改职业、结果和打本心情。</source>
-        <translation>批次設定只能修改職業、結果和打本心情。</translation>
-    </message>
-    <message>
         <source>请选择批量设置的职业。</source>
         <translation>請選擇批次設定的職業。</translation>
     </message>
@@ -11567,6 +11714,22 @@ SHA256：%3</translation>
     <message>
         <source>追加已取消，原批次已保留。</source>
         <translation>追加已取消，原批次已保留。</translation>
+    </message>
+    <message>
+        <source>国服</source>
+        <translation>國服</translation>
+    </message>
+    <message>
+        <source>繁中服</source>
+        <translation>繁中服</translation>
+    </message>
+    <message>
+        <source>国际服</source>
+        <translation>國際服</translation>
+    </message>
+    <message>
+        <source>未知区服</source>
+        <translation>未知區服</translation>
     </message>
     <message>
         <source>这批记录太大，更改地区后无法重新校验，地区没有更改。</source>

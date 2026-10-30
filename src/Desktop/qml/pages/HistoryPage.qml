@@ -290,6 +290,7 @@ Item {
 
     function buildFilter(withoutDates) {
         const filter = { date_field: "history_date" }
+        if (regionBox.selection.length > 0) filter.region = regionBox.selection
         // Keep the original words for notes; translated names add the runs
         // they name within the same query, so totals, paging and the calendar agree.
         const text = searchField.text.trim()
@@ -353,6 +354,7 @@ Item {
         toField.text = ""
         page.contentFilter = null
         page.retainedJobFilter = null
+        regionBox.selection = ""
         categoryBox.currentIndex = 0
         jobBox.currentIndex = 0
         resultBox.currentIndex = 0
@@ -400,6 +402,7 @@ Item {
         page.suspendFilter = true
         dateRange.selectionPending = false
         searchField.text = filter.text || ""
+        regionBox.selection = filter.region || ""
         fromField.text = filter.from_utc ? Runtime.fmt.localDate(filter.from_utc) : ""
         toField.text = filter.to_utc ? Runtime.fmt.localDate(filter.to_utc) : ""
         categoryBox.currentIndex = filterIndex(categoryBox.model, "value", filter.duty_category)
@@ -510,6 +513,19 @@ Item {
                     variant: "primary"
                     onClicked: page.openManualRequested()
                 }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                FieldLabel { text: qsTr("记录区服") }
+                RecordRegionSelector {
+                    id: regionBox
+                    objectName: "historyRegionFilter"
+                    Layout.preferredWidth: 180
+                    enabled: !Runtime.app.historyBatchRunning
+                    onRegionPicked: function(region) { selection = region; page.scheduleFilter() }
+                }
+                Item { Layout.fillWidth: true }
             }
 
             // -------------------------------------------------- 筛选栏 --

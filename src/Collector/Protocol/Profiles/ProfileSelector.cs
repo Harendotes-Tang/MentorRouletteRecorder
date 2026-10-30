@@ -168,7 +168,7 @@ public sealed class ProfileSelector : IProfileStatusProvider
     /// <returns>唯一、无歧义的候选档案；关闭、缺失或歧义时返回 null。</returns>
     public ProtocolProfile? SelectCandidate(Region region, string? gameBuild, bool enabled)
     {
-        if (!enabled || region is not (Region.Cn or Region.Global) ||
+        if (!enabled || region is not (Region.Cn or Region.Global or Region.Tc) ||
             string.IsNullOrWhiteSpace(gameBuild) || _catalog.IsAmbiguous(region, gameBuild, candidate: true))
         {
             return null;

@@ -83,7 +83,7 @@ Item {
                 objectName: "floatingMiniCount"
                 Layout.leftMargin: 3
                 Layout.alignment: Qt.AlignBottom
-                text: root.ov.progressKnown ? String(root.ov.progress) : Runtime.fmt.dash()
+                text: root.ov.progressKnown ? root.ov.primaryRegion + " " + String(root.ov.progress) : Runtime.fmt.dash()
                 color: root.ov.figure
                 font.family: Theme.numFamily
                 font.pixelSize: Theme.fs(16)

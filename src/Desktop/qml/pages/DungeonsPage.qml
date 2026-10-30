@@ -157,14 +157,25 @@ Item {
                 font.pixelSize: Theme.fs(13)
             }
 
-            Text {
+            RowLayout {
                 Layout.fillWidth: true
-                visible: Runtime.app.dungeons.loadError.length === 0
-                text: qsTr("占比按所选分类的导随通关次数计算；前 10 / 前 20 只限制下方列表。")
-                textFormat: Text.PlainText
-                wrapMode: Text.WordWrap
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fs(12)
+                spacing: 12
+                Text {
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    visible: Runtime.app.dungeons.loadError.length === 0
+                    text: qsTr("占比按所选分类的导随通关次数计算；前 10 / 前 20 只限制下方列表。")
+                    textFormat: Text.PlainText
+                    wrapMode: Text.WordWrap
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fs(12)
+                }
+                RecordRegionSelector {
+                    objectName: "statisticsRegionFilter"
+                    Layout.preferredWidth: 150
+                    selection: Runtime.app.recordRegion
+                    onRegionPicked: function(region) { Runtime.app.recordRegion = region }
+                }
             }
 
             Card {
@@ -331,7 +342,8 @@ Item {
                             Text {
                                 Layout.preferredWidth: Math.max(110, Math.min(160, dungeonAttemptsCard.width * 0.38))
                                 Layout.minimumWidth: 0
-                                text: Theme.dutyChoiceLabel(attemptRow.modelData) || qsTr("未知副本")
+                                text: (Theme.dutyChoiceLabel(attemptRow.modelData) || qsTr("未知副本"))
+                                    + (Runtime.app.recordRegion === "" ? " · " + Theme.live(Runtime.fmt.regionLabel(attemptRow.modelData.region || "UNKNOWN")) : "")
                                 textFormat: Text.PlainText
                                 color: Theme.textPrimary
                                 font.pixelSize: Theme.fs(12)
@@ -361,7 +373,7 @@ Item {
 
                             HoverHandler { id: barHover }
                             TapHandler {
-                                onTapped: Runtime.app.showHistoryForContent(attemptRow.modelData.content_id)
+                                onTapped: Runtime.app.showHistoryForContent(attemptRow.modelData.content_id, attemptRow.modelData.region || "")
                             }
                         }
                     }
@@ -431,7 +443,7 @@ Item {
                                    : "transparent"
 
                             HoverHandler { id: rowHover }
-                            TapHandler { onTapped: Runtime.app.showHistoryForContent(dungeonRow.modelData.content_id) }
+                            TapHandler { onTapped: Runtime.app.showHistoryForContent(dungeonRow.modelData.content_id, dungeonRow.modelData.region || "") }
 
                             RowLayout {
                                 anchors.fill: parent
@@ -455,7 +467,8 @@ Item {
 
                                         Text {
                                             Layout.fillWidth: true
-                                            text: Theme.dutyChoiceLabel(dungeonRow.modelData) || qsTr("未知副本")
+                                            text: (Theme.dutyChoiceLabel(dungeonRow.modelData) || qsTr("未知副本"))
+                                    + (Runtime.app.recordRegion === "" ? " · " + Theme.live(Runtime.fmt.regionLabel(dungeonRow.modelData.region || "UNKNOWN")) : "")
                                             textFormat: Text.PlainText
                                             color: Theme.textPrimary
                                             font.pixelSize: Theme.fs(12)

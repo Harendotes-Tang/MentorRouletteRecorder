@@ -420,8 +420,8 @@
         "count": "number"
       }
     },
-    "capture.game.region_ambiguous": "无法从安装路径判断区服（路径同时含有国服与国际服的标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录。",
-    "capture.game.region_unmarked": "无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录。",
+    "capture.game.region_ambiguous": "无法从安装路径判断区服（路径同时含有多个区服的标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。",
+    "capture.game.region_unmarked": "无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。",
     "capture.game.version_file_missing": {
       "zh": "未能在游戏目录中读取到 {file}，客户端版本未知。",
       "args": {
@@ -472,7 +472,7 @@
     "capture.validation.waiting_adapter": "仅验证，不自动记录。等待可用 IPv4 网卡；无法自动确定时，请取消并明确选择网卡。",
     "capture.validation.waiting_restart_connected": "仅验证，不自动记录。游戏已有连接，请退出并重新启动游戏，验证将自动继续。",
     "capture.validation.waiting_connection_check": "仅验证，不自动记录。无法确认游戏连接状态，正在等待系统查询恢复。",
-    "capture.validation.waiting_region": "仅验证，不自动记录。无法从安装路径判断区服。请在设置里手动指定区服（国服 / 国际服）后重试。",
+    "capture.validation.waiting_region": "仅验证，不自动记录。无法从安装路径判断区服。请在设置里手动指定区服（国服 / 繁中服 / 国际服）后重试。",
     "capture.validation.marker_invalid": {
       "zh": "标记只能为 {markers}。",
       "args": {
@@ -658,7 +658,7 @@
     "sharing.import.applied_at_login": "校准码已导入，通过登录检查后可用。请保持软件开启并登录游戏；如果提示需要同意，请在「共享校准」中点「同意，开始记录」。启用后还会继续检查排队和进出副本。",
     "sharing.import.applied": "校准码已导入。请保持软件开启，照常申请随机任务并进出副本。通过检查后即可使用；如果提示需要同意，请在「共享校准」中点「同意，开始记录」。",
     "sharing.import.not_calibrating": "当前没有正在进行的校准，暂时无需「导入校准码」。",
-    "sharing.import.other_region": "这份校准码不能用于当前游戏，国服与国际服不能通用。请导入当前区服的校准码，或使用「本机校准」。",
+    "sharing.import.other_region": "这份校准码不能用于当前游戏，不同区服的校准码不能通用。请导入当前区服的校准码，或使用「本机校准」。",
     "sharing.import.other_template": "这份校准码不能用于当前导随记录器。请你和分享者先更新到同一版本，再「导入校准码」。",
     "sharing.import.rejected": "这份校准码未通过检查，已停用。请改用其他校准码；如需重新尝试，先点「清空校准进度」，再「导入校准码」。",
     "sharing.import.revoked": "这份共享校准已被撤回，不能继续用于记录。请向分享者获取新校准码，或使用「本机校准」。",

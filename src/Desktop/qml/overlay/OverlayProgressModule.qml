@@ -1,7 +1,8 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
 import MentorRecorder 1.0
-import "../components/Lucide.js" as Lucide
 
 // 累计进度: the count toward the goal as one large figure over a bar with
 // quarter ticks; a "+N" pill appears for a moment after each new completion.
@@ -13,50 +14,46 @@ ColumnLayout {
 
     OverlayModuleLabel { ov: root.ov; text: qsTr("累计进度"); Layout.bottomMargin: 5 }
 
-    RowLayout {
-        Layout.fillWidth: true
-        spacing: 6
-
-        OverlayIcon { source: Lucide.source("target", color); color: Theme.textSecondary; Layout.alignment: Qt.AlignVCenter }
-
-        Text {
-            objectName: "floatingAchievementProgress"
-            text: root.ov.progressKnown ? String(root.ov.progress) : Runtime.fmt.dash()
-            color: root.ov.figure
-            font.family: Theme.numFamily
-            font.pixelSize: Theme.fs(26)
-            font.weight: Theme.eorzea ? Font.Bold : Font.DemiBold
-            font.features: ({ "tnum": 1 })
-            Layout.alignment: Qt.AlignVCenter
+    Repeater {
+        model: root.ov.regionalAchievements
+        delegate: ColumnLayout {
+            id: regionalProgress
+            required property var modelData
+            Layout.fillWidth: true
+            spacing: 4
+            Text {
+                Layout.fillWidth: true
+                text: Theme.live(Runtime.fmt.regionLabel(regionalProgress.modelData.region))
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fs(11)
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    objectName: regionalProgress.modelData.region === "CN" ? "floatingAchievementProgress" : "floatingAchievementProgress_" + regionalProgress.modelData.region
+                    text: root.ov.progressKnown ? String(regionalProgress.modelData.achievement_progress) : Runtime.fmt.dash()
+                    color: root.ov.figure
+                    font.family: Theme.numFamily
+                    font.pixelSize: Theme.fs(26)
+                    font.features: ({"tnum": 1})
+                }
+                Text { text: "/" + regionalProgress.modelData.goal_count; color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
+                Item { Layout.fillWidth: true }
+                Text {
+                    text: Runtime.fmt.percent(regionalProgress.modelData.achievement_progress / Math.max(1, regionalProgress.modelData.goal_count), 1)
+                    color: root.ov.accent
+                    font.pixelSize: Theme.fs(13)
+                }
+            }
+            OverlayBar {
+                Layout.fillWidth: true
+                Layout.bottomMargin: 8
+                implicitHeight: 8
+                ratio: Math.min(1, regionalProgress.modelData.achievement_progress / Math.max(1, regionalProgress.modelData.goal_count))
+                fillColor: root.ov.barFill
+                ticks: true
+            }
         }
-        Text {
-            text: "/" + root.ov.goal
-            color: Theme.textSecondary
-            font.pixelSize: Theme.fs(12)
-            font.family: Theme.figureFamily
-            font.features: ({ "tnum": 1 })
-            Layout.alignment: Qt.AlignVCenter
-        }
-        OverlayPlusPill { visible: root.ov.plus > 0; count: root.ov.plus; tone: root.ov.ok; Layout.alignment: Qt.AlignVCenter }
-        Item { Layout.fillWidth: true }
-        Text {
-            text: root.ov.progressKnown ? Runtime.fmt.percent(root.ov.progressRatio, 1) : ""
-            color: root.ov.accent
-            font.pixelSize: Theme.fs(13)
-            font.weight: Font.Bold
-            font.family: Theme.figureFamily
-            font.features: ({ "tnum": 1 })
-            Layout.alignment: Qt.AlignVCenter
-        }
-    }
-
-    OverlayBar {
-        Layout.fillWidth: true
-        Layout.topMargin: 8
-        implicitHeight: 8
-        ratio: root.ov.progressKnown ? root.ov.progressRatio : 0
-        fillColor: root.ov.barFill
-        ticks: true
     }
 
     HoverHandler { id: hover }

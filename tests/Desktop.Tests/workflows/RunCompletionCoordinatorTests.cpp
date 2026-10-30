@@ -61,6 +61,7 @@ class RunCompletionCoordinatorTests : public QObject
 {
     Q_OBJECT
 private Q_SLOTS:
+    void regionalSpeechReadKeepsTheSelectedDashboardFresh();
     void completionPreservesPromptBeforeStatisticsAndSpeech_data();
     void completionPreservesPromptBeforeStatisticsAndSpeech();
     void lateStatisticsIgnoreChangedContext_data();
@@ -93,6 +94,36 @@ void RunCompletionCoordinatorTests::manualCompletionNeverOffersReflectionWork()
     coordinator.offerReflection(completedRun(QStringLiteral("automatic")));
     QCOMPARE(prompts.count(), 1);
     QVERIFY(harness.calls.contains(QStringLiteral("reflection-offer")));
+}
+
+void RunCompletionCoordinatorTests::regionalSpeechReadKeepsTheSelectedDashboardFresh()
+{
+    Harness harness;
+    auto hooks = harness.hooks();
+    mr::RunCompletionCoordinator::DashboardDone regionalDone;
+    QString requestedRegion;
+    bool dashboardRefreshed = false;
+    hooks.requestDashboard = [&](mr::RunCompletionCoordinator::DashboardDone done) {
+        dashboardRefreshed = true;
+        QVERIFY(!done); // Current-view data cannot authorize another region's spoken progress.
+    };
+    hooks.requestRegionalAchievement = [&](const QString &region, mr::RunCompletionCoordinator::DashboardDone done) {
+        QVERIFY(dashboardRefreshed);
+        requestedRegion = region;
+        regionalDone = std::move(done);
+    };
+    mr::RunCompletionCoordinator coordinator(std::move(hooks), nullptr, cutoff());
+    QSignalSpy speech(&coordinator, &mr::RunCompletionCoordinator::announcementRequested);
+    auto run = completedRun();
+    run.insert(QStringLiteral("region"), QStringLiteral("TC"));
+    coordinator.runChanged(QStringLiteral("COMPLETED"), run, true);
+    QVERIFY(dashboardRefreshed);
+    QCOMPARE(requestedRegion, QStringLiteral("TC"));
+    QCOMPARE(speech.size(), 0);
+    QVERIFY(regionalDone);
+    regionalDone(true);
+    QCOMPARE(speech.size(), 1);
+    QVERIFY(speech.first().at(2).toBool());
 }
 
 void RunCompletionCoordinatorTests::completionPreservesPromptBeforeStatisticsAndSpeech_data()

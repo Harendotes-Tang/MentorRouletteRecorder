@@ -413,7 +413,7 @@ public sealed class OodleSignatureProfile
         if (!EnumWire<Region>.TryParse(region, out var parsedRegion) ||
             parsedRegion == MentorRecorder.Collector.Domain.Region.Unknown)
         {
-            reason = "region must be CN or GLOBAL";
+            reason = "region must be CN, TC or GLOBAL";
             return null;
         }
 

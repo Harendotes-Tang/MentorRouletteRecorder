@@ -22,6 +22,23 @@ Dialog {
     }
 
     property var dutyOptions: []
+    property string recordRegion: "UNKNOWN"
+    readonly property var regionOptions: [
+        {value: "UNKNOWN", text: qsTr("未知区服")}, {value: "CN", text: qsTr("国服")},
+        {value: "TC", text: qsTr("繁中服")}, {value: "GLOBAL", text: qsTr("国际服")}
+    ]
+    readonly property int regionalGoalCount: {
+        const entries = Runtime.app && Runtime.app.achievements ? Runtime.app.achievements : []
+        for (let i = 0; i < entries.length; ++i)
+            if (entries[i].region === recordRegion) return Number(entries[i].goal_count || 2000)
+        return Runtime.app ? Runtime.app.goalCount : 2000
+    }
+    function selectRegion(region) {
+        if (editMode || region === recordRegion) return
+        recordRegion = region
+        dutyIndex = 0
+        dutyQuery = ""
+    }
     property var jobOptions: []
     property var runData: null
     property bool editMode: false
@@ -172,7 +189,7 @@ Dialog {
         : importAwaitingConfirmation && !confirmsImportedFacts
         ? qsTr("请确认这条导入记录的通关结果后保存；未知游戏时间可以留空。")
         : countedBefore ? qsTr("这条导随已经计入进度，修改其他信息不会重复计数。")
-        : qsTr("这条通关记录将计入 %1 次导随成就的进度。填完必填信息后保存生效。").arg(Runtime.app.goalCount)
+        : qsTr("这条通关记录将计入 %1 次导随成就的进度。填完必填信息后保存生效。").arg(dialog.regionalGoalCount)
 
     property string matchedDate: ""
     property string matchedTime: ""
@@ -555,6 +572,7 @@ Dialog {
         const list = dialog.dutyOptionList
         const out = []
         for (let r = 0; r < recent.length && out.length < 5; ++r) {
+            if (recent[r].region && recent[r].region !== dialog.recordRegion) continue
             const id = recent[r].content_id
             if (id === null || id === undefined)
                 continue
@@ -949,6 +967,7 @@ Dialog {
         importedResultSelected = false
         editMode = false
         runData = null
+        recordRegion = "UNKNOWN"
         matchedDate = Qt.formatDateTime(new Date(), "yyyy-MM-dd")
         enteredDate = matchedDate
         endedDate = matchedDate
@@ -995,6 +1014,7 @@ Dialog {
         importedResultSelected = false
         editMode = true
         runData = run
+        recordRegion = run.region || "UNKNOWN"
         matchedDate = Runtime.fmt.localDate(run.matched_at_utc)
         matchedTime = timeOrEmpty(run.matched_at_utc)
         // A missing entry or end starts on the match day, so typing only its
@@ -1173,8 +1193,9 @@ Dialog {
                 : null
 
         return {
+            region: recordRegion,
             content_id: preserveDuty ? runData.content_id : duty && duty.content_id !== undefined ? duty.content_id : null,
-            territory_id: runData && runData.territory_id !== undefined ? runData.territory_id : null,
+            territory_id: preserveDuty ? runData.territory_id : duty && duty.territory_id !== undefined ? duty.territory_id : null,
             duty_name: preserveDuty ? runData.duty_name : duty && duty.content_id !== null && duty.duty_name !== undefined
                        ? duty.duty_name : null,
             duty_category: preserveDuty ? runData.duty_category : duty && duty.duty_category !== undefined ? duty.duty_category : null,

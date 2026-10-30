@@ -35,13 +35,17 @@ class ProgressBackend final : public mr::IBackend
 public:
     QString backendName() const override { return QStringLiteral("mock"); }
     bool isConnected() const override { return true; }
-    mr::BackendReply *request(const QString &type, const QJsonObject & = {}) override
+    mr::BackendReply *request(const QString &type, const QJsonObject &payload = {}) override
     {
         auto *reply = new mr::BackendReply(QString::number(++serial), type, this);
-        if (type == QLatin1String("GetDashboardStats"))
+        if (type == QLatin1String("GetDashboardStats")) {
             dashboards.append(reply);
-        else if (type == QLatin1String("UpdateAchievementBaseline"))
+            lastDashboardPayload = payload;
+        }
+        else if (type == QLatin1String("UpdateAchievementBaseline")) {
             settingsReply = reply;
+            settingsPayload = payload;
+        }
         else
             QTimer::singleShot(0, reply, [reply] { reply->succeed({}); });
         return reply;
@@ -62,6 +66,8 @@ public:
 
     QList<QPointer<mr::BackendReply>> dashboards;
     QPointer<mr::BackendReply> settingsReply;
+    QJsonObject settingsPayload;
+    QJsonObject lastDashboardPayload;
     int serial = 0;
 };
 
@@ -119,7 +125,18 @@ ApplicationWindow {
     }
 
     QQuickWindow *window() const { return qobject_cast<QQuickWindow *>(root.get()); }
-    QObject *find(const char *name) const { return root->findChild<QObject *>(QLatin1String(name)); }
+    QObject *find(const char *name) const
+    {
+        if (auto *owned = root->findChild<QObject *>(QLatin1String(name))) return owned;
+        // Repeater delegates belong to their creation context, while their visual
+        // parent is the page. Inspect the rendered item tree as well.
+        std::function<QQuickItem *(QQuickItem *)> visit = [&](QQuickItem *item) -> QQuickItem * {
+            if (item->objectName() == QLatin1String(name)) return item;
+            for (auto *child : item->childItems()) if (auto *match = visit(child)) return match;
+            return nullptr;
+        };
+        return window() ? visit(window()->contentItem()) : nullptr;
+    }
 };
 
 constexpr int kCelebrationFrames = 40;
@@ -177,6 +194,14 @@ private Q_SLOTS:
     void dashboardUsesUncappedPercentAndMilestoneSignal();
     void dashboardTopRowGrowsForAThirdRowOfStatCards();
     void renderedEvidence();
+    void regionalMilestonesDoNotReplayAcrossScopes();
+    void regionalBaselineEditsOwnTheirRegion();
+    void regionalDashboardRendersSeparateProgress();
+    void regionalReadsProtectSettingsAndListingScope();
+    void failedScopeReadNeverRetainsAnotherRegionsCounts();
+    void regionalGoalReadUsesTheRunsRegion();
+    void targetedReadsRejectOlderDashboardMilestones();
+    void unusedRegionsReadTheirOwnAuthoritativeDefaults();
 };
 } // namespace
 
@@ -416,11 +441,16 @@ void AchievementProgressTests::dashboardTopRowGrowsForAThirdRowOfStatCards()
         scene.backend.dashboards.takeLast()->succeed(snapshot);
         QTRY_COMPARE(scene.app.statCards().size(), ninth ? 9 : 7);
         // Never below the 340 it always had; the ninth card adds one stat row (96 + 12).
+        // The all-regions view stacks one achievement card per region beside the stats,
+        // and that column may be the taller one: the row follows whichever is tallest.
         QTRY_VERIFY2(row->height() >= 340.0, qPrintable(QString::number(row->height())));
-        if (ninth)
-            QTRY_COMPARE(row->height(), qMax(340.0, twoRowColumn + 108.0));
-        else
+        if (ninth) {
+            QTRY_VERIFY(scene.find("achievementCard"));
+            const QQuickItem *achievementColumn = qobject_cast<QQuickItem *>(scene.find("achievementCard"))->parentItem();
+            QTRY_COMPARE(row->height(), qMax(qMax(340.0, twoRowColumn + 108.0), achievementColumn->implicitHeight()));
+        } else {
             twoRowColumn = current->parentItem()->implicitHeight();
+        }
         const auto where = [&] {
             const QQuickItem *column = current->parentItem();
             const QQuickItem *grid = column->childItems().value(0);
@@ -435,6 +465,191 @@ void AchievementProgressTests::dashboardTopRowGrowsForAThirdRowOfStatCards()
         QVERIFY2(bottom(current) <= top(trend) + 0.5, qPrintable(where()));
     }
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+namespace {
+QJsonObject regionalSnapshot(int cn, int tc)
+{
+    QJsonObject snapshot = ProgressBackend::snapshot(cn);
+    QJsonObject cnEntry = ProgressBackend::snapshot(cn);
+    cnEntry.insert(QStringLiteral("region"), QStringLiteral("CN"));
+    QJsonObject tcEntry = ProgressBackend::snapshot(tc, 100, 0);
+    tcEntry.insert(QStringLiteral("region"), QStringLiteral("TC"));
+    snapshot.insert(QStringLiteral("achievements"), QJsonArray{cnEntry, tcEntry});
+    return snapshot;
+}
+}
+
+void AchievementProgressTests::regionalMilestonesDoNotReplayAcrossScopes()
+{
+    ProgressBackend backend;
+    mr::StatisticsController stats(&backend);
+    QSignalSpy reached(&stats, &mr::StatisticsController::regionalAchievementMilestoneReached);
+    auto read = [&](int cn, int tc) {
+        stats.refreshDashboard();
+        backend.dashboards.takeLast()->succeed(regionalSnapshot(cn, tc));
+    };
+    read(1999, 99);
+    read(1999, 100);
+    QCOMPARE(reached.size(), 1);
+    QCOMPARE(reached.last().at(0).toString(), QStringLiteral("TC"));
+    stats.setRecordRegion(QStringLiteral("TC"));
+    backend.dashboards.takeLast()->succeed(regionalSnapshot(1999, 200));
+    QCOMPARE(reached.size(), 1); // Adopting an existing milestone after switching is a read.
+    read(1999, 300);
+    QCOMPARE(reached.size(), 2);
+    stats.setRecordRegion(QString());
+    backend.dashboards.takeLast()->succeed(regionalSnapshot(2000, 300));
+    QCOMPARE(reached.size(), 2);
+    read(4000, 300);
+    QCOMPARE(reached.size(), 3);
+    QCOMPARE(reached.last().at(0).toString(), QStringLiteral("CN"));
+    stats.forgetAchievementSettings();
+    read(6000, 500);
+    QCOMPARE(reached.size(), 3);
+}
+
+void AchievementProgressTests::regionalBaselineEditsOwnTheirRegion()
+{
+    ProgressBackend backend;
+    mr::StatisticsController stats(&backend);
+    stats.refreshDashboard();
+    backend.dashboards.takeLast()->succeed(regionalSnapshot(1500, 7));
+    stats.setBaselineRegion(QStringLiteral("TC"));
+    QCOMPARE(stats.goalCount(), 100);
+    QCOMPARE(stats.baselineCount(), 0);
+    QVERIFY(stats.achievementSettingsLoaded());
+    stats.updateAchievementBaseline(200, 12, QStringLiteral("TC baseline"));
+    QCOMPARE(backend.settingsPayload.value(QStringLiteral("region")).toString(), QStringLiteral("TC"));
+    QCOMPARE(backend.settingsPayload.value(QStringLiteral("baseline_completed_count")).toInt(), 12);
+    QCOMPARE(stats.achievementForRegion(QStringLiteral("CN")).value(QStringLiteral("achievement_progress")).toInt(), 1500);
+}
+
+void AchievementProgressTests::regionalDashboardRendersSeparateProgress()
+{
+    Scene scene;
+    QVERIFY2(scene.create(true, QStringLiteral("classic"), false, true), qPrintable(scene.errors));
+    QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
+    scene.app.refreshDashboard();
+    scene.backend.dashboards.takeLast()->succeed(regionalSnapshot(1500, 7));
+    QTRY_VERIFY(scene.find("achievementRing") && scene.find("achievementRing_TC"));
+    QCOMPARE(scene.find("achievementRing")->property("value").toInt(), 1500);
+    QCOMPARE(scene.find("achievementRing_TC")->property("value").toInt(), 7);
+    QCOMPARE(scene.find("achievementRing_TC")->property("maximum").toInt(), 100);
+    const QString output = qEnvironmentVariable("MR_TC_UI_EVIDENCE_DIR");
+    if (!output.isEmpty()) {
+        QVERIFY(QDir().mkpath(output));
+        QTest::qWait(150);
+        QVERIFY(scene.window()->grabWindow().save(output + QStringLiteral("/regional-dashboard-classic-light.png")));
+    }
+    // Shrink and regrow the real Repeater while its outgoing delegates still
+    // receive bindings; no removed row may become an undefined achievement.
+    for (const QString &region : {QStringLiteral("TC"), QStringLiteral("CN"), QString()}) {
+        scene.app.setRecordRegion(region);
+        scene.backend.dashboards.takeLast()->succeed(regionalSnapshot(1500, 7));
+        QTest::qWait(30);
+        QVERIFY(scene.find(region == QLatin1String("TC") ? "achievementRing_TC" : "achievementRing"));
+    }
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+void AchievementProgressTests::regionalReadsProtectSettingsAndListingScope()
+{
+    ProgressBackend backend;
+    mr::StatisticsController stats(&backend);
+    stats.refreshDashboard();
+    backend.dashboards.takeLast()->succeed(regionalSnapshot(1500, 7));
+    stats.requestRegionalAchievement(QStringLiteral("TC"));
+    const auto oldRead = backend.dashboards.takeLast();
+    stats.setBaselineRegion(QStringLiteral("TC"));
+    stats.updateAchievementBaseline(200, 12, QStringLiteral("TC baseline"));
+    backend.settingsReply->succeed({{"region", "TC"}, {"goal_count", 200}, {"baseline_completed_count", 12}});
+    QJsonObject fresh = ProgressBackend::snapshot(19, 200, 12);
+    fresh.insert(QStringLiteral("region"), QStringLiteral("TC"));
+    backend.dashboards.takeLast()->succeed({{"achievements", QJsonArray{fresh}}});
+    oldRead->succeed(regionalSnapshot(1500, 7));
+    QCOMPARE(stats.goalCount(), 200);
+    QCOMPARE(stats.baselineCount(), 12);
+    QCOMPARE(stats.achievementForRegion(QStringLiteral("TC")).value(QStringLiteral("achievement_progress")).toInt(), 19);
+    QCOMPARE(stats.dashboardSnapshot().value(QStringLiteral("achievement_progress")).toInt(), 1500);
+}
+
+void AchievementProgressTests::failedScopeReadNeverRetainsAnotherRegionsCounts()
+{
+    ProgressBackend backend;
+    mr::StatisticsController stats(&backend);
+    stats.refreshDashboard();
+    QJsonObject cn = regionalSnapshot(1500, 7);
+    cn.insert(QStringLiteral("attempt_count"), 82);
+    backend.dashboards.takeLast()->succeed(cn);
+    stats.setRecordRegion(QStringLiteral("TC"));
+    backend.dashboards.takeLast()->fail(QStringLiteral("ERR_INTERNAL"), QStringLiteral("read failed"));
+    QVERIFY(stats.dashboardSnapshot().isEmpty());
+    QCOMPARE(stats.completedLast7Days(), 0);
+    QVERIFY(stats.trendBuckets().isEmpty());
+    QCOMPARE(stats.achievements().size(), 1);
+    QCOMPARE(stats.achievements().first().toMap().value(QStringLiteral("region")).toString(), QStringLiteral("TC"));
+}
+
+void AchievementProgressTests::regionalGoalReadUsesTheRunsRegion()
+{
+    ProgressBackend backend;
+    mr::AppController app(&backend, nullptr);
+    app.setRecordRegion(QStringLiteral("CN"));
+    backend.dashboards.takeLast()->succeed(regionalSnapshot(1500, 7));
+    QSignalSpy read(&app, &mr::AppController::goalProgressRead);
+    app.readGoalProgress(QStringLiteral("tc-run"), QStringLiteral("TC"));
+    QCOMPARE(backend.lastDashboardPayload.value(QStringLiteral("filter")).toObject()
+        .value(QStringLiteral("region")).toString(), QStringLiteral("TC"));
+    QJsonObject tc = ProgressBackend::snapshot(8, 100, 0);
+    tc.insert(QStringLiteral("region"), QStringLiteral("TC"));
+    backend.dashboards.takeLast()->succeed({{"achievements", QJsonArray{tc}}});
+    QCOMPARE(read.size(), 1);
+    QVERIFY(read.first().at(1).toBool());
+    QCOMPARE(app.recordRegion(), QStringLiteral("CN"));
+    QCOMPARE(app.dashboard().value(QStringLiteral("achievement_progress")).toInt(), 1500);
+    QCOMPARE(app.achievementForRegion(QStringLiteral("TC")).value(QStringLiteral("achievement_progress")).toInt(), 8);
+}
+
+void AchievementProgressTests::targetedReadsRejectOlderDashboardMilestones()
+{
+    ProgressBackend backend;
+    mr::StatisticsController stats(&backend);
+    backend.read(stats, 1999);
+    QSignalSpy reached(&stats, &mr::StatisticsController::regionalAchievementMilestoneReached);
+    stats.refreshDashboard();
+    const auto oldRead = backend.dashboards.takeLast();
+    stats.requestRegionalAchievement(QStringLiteral("CN"));
+    QJsonObject current = ProgressBackend::snapshot(1900);
+    current.insert(QStringLiteral("region"), QStringLiteral("CN"));
+    backend.dashboards.takeLast()->succeed({{"achievements", QJsonArray{current}}});
+    oldRead->succeed(ProgressBackend::snapshot(2000));
+    QCOMPARE(reached.size(), 0);
+    QCOMPARE(stats.achievementForRegion(QStringLiteral("CN")).value(QStringLiteral("achievement_progress")).toInt(), 1900);
+    QCOMPARE(stats.dashboardSnapshot().value(QStringLiteral("achievement_progress")).toInt(), 1900);
+}
+
+void AchievementProgressTests::unusedRegionsReadTheirOwnAuthoritativeDefaults()
+{
+    ProgressBackend backend;
+    mr::StatisticsController stats(&backend);
+    stats.refreshAchievementRegions();
+    backend.dashboards.takeLast()->succeed(regionalSnapshot(0, 0));
+    QCOMPARE(stats.allAchievements().size(), 2);
+    QVERIFY(stats.achievementForRegion(QStringLiteral("UNKNOWN")).isEmpty());
+    QCOMPARE(backend.dashboards.size(), 2);
+    for (const QString &region : {QStringLiteral("GLOBAL"), QStringLiteral("UNKNOWN")}) {
+        QJsonObject empty = ProgressBackend::snapshot(0);
+        empty.insert(QStringLiteral("region"), region);
+        backend.dashboards.takeFirst()->succeed({{"achievements", QJsonArray{empty}}});
+    }
+    QCOMPARE(stats.allAchievements().size(), 4);
+    QCOMPARE(stats.achievementForRegion(QStringLiteral("UNKNOWN")).value(QStringLiteral("baseline_completed_count")).toInt(), 0);
+    stats.forgetAchievementSettings();
+    stats.refreshAchievementRegions();
+    backend.dashboards.takeLast()->succeed(ProgressBackend::snapshot(0));
+    for (const auto &reply : std::as_const(backend.dashboards)) reply->succeed(ProgressBackend::snapshot(0));
+    QCOMPARE(stats.allAchievements().size(), 1); // An old scalar cannot authorize other regions.
 }
 
 void AchievementProgressTests::renderedEvidence()

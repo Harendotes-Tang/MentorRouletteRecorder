@@ -245,7 +245,7 @@ QJsonObject pagedPreview(int total, int page, int pageSize = 100, const QString 
             {"reflection_text", QStringLiteral("仅用于分页测试的记录 %1").arg(i + 1)}};
         rows.append(QJsonObject{{"row_number", i + 1 + rowOffset}, {"status", "new"}, {"can_import", true},
             {"candidate", candidate}, {"errors", QJsonArray{}}, {"warnings", QJsonArray{}},
-            {"run", QJsonObject{{"job_id", 21}, {"job_name", QStringLiteral("战士")}, {"result", "COMPLETED"},
+            {"run", QJsonObject{{"region", "CN"}, {"job_id", 21}, {"job_name", QStringLiteral("战士")}, {"result", "COMPLETED"},
                 {"import_metadata", QJsonObject{{"mentor_confirmed", true}}}}}});
     }
     return {{"preview_id", id}, {"source_kind", "PASTE"}, {"source_name", QStringLiteral("粘贴的表格")},
@@ -2927,7 +2927,7 @@ ApplicationWindow {
         QJsonArray rows = response.value("rows").toArray();
         QJsonObject first = rows[0].toObject();
         first.insert("incomplete", true); // Time gaps are informational, including in the baseline question.
-        first.insert("run", QJsonObject{{"result", "COMPLETED"}, {"contributes_to_goal", true}, {"soft_deleted", false},
+        first.insert("run", QJsonObject{{"region", "CN"}, {"result", "COMPLETED"}, {"contributes_to_goal", true}, {"soft_deleted", false},
                                         {"import_metadata", QJsonObject{{"mentor_confirmed", true}}}});
         rows[0] = first;
         response.insert("rows", rows);
@@ -3013,7 +3013,7 @@ ApplicationWindow {
         QJsonObject response = preview();
         QJsonArray rows = response.value("rows").toArray();
         QJsonObject first = rows[0].toObject();
-        first.insert("run", QJsonObject{{"result", "COMPLETED"}, {"contributes_to_goal", true},
+        first.insert("run", QJsonObject{{"region", "CN"}, {"result", "COMPLETED"}, {"contributes_to_goal", true},
                                         {"import_metadata", QJsonObject{{"mentor_confirmed", true}}}});
         rows[0] = first;
         response.insert("rows", rows);
@@ -3090,6 +3090,7 @@ ApplicationWindow {
             mr::ImportRecordsController controller;
             controller.setBackend(&backend);
             controller.setBaselineCount(1500);
+            controller.setBaselineLoaded(true);
             QTemporaryDir dir;
             const QString extension = [&kind] {
                 if (kind == QLatin1String("BACKUP")) return QStringLiteral("db");
@@ -3109,7 +3110,7 @@ ApplicationWindow {
             QJsonArray rows = response.value("rows").toArray();
             QJsonObject first = rows[0].toObject();
             first.insert("incomplete", false);
-            first.insert("run", QJsonObject{{"result", "COMPLETED"}, {"contributes_to_goal", true},
+            first.insert("run", QJsonObject{{"region", "CN"}, {"result", "COMPLETED"}, {"contributes_to_goal", true},
                 {"import_metadata", QJsonObject{{"mentor_confirmed", true}}}});
             rows[0] = first;
             if (variant != QLatin1String("JSON")) {

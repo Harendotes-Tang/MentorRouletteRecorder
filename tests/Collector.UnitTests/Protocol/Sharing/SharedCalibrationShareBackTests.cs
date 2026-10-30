@@ -273,6 +273,53 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
         Assert.Equal(SharedShareBasis.Verified, code.Basis);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task APastedCodeCanProveOnlyTheSessionItsBindingActuallyReplayed(bool bindBeforeStop)
+    {
+        var pasted = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        var stored = Bed.Encode(pasted.Payload with { ZoneOpcode = 0xA1F7 });
+        _bed.Publish(stored);
+        var pipeline = _bed.Pipeline(_bed.Services());
+        pipeline.Refresh(Bed.Game());
+        await Bed.Idle(pipeline);
+        pipeline.ImportCalibrationCode(pasted.Code);
+
+        using var release = new ManualResetEventSlim();
+        var writing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _bed.BeforeReload = () =>
+        {
+            writing.TrySetResult();
+            Assert.True(release.Wait(TimeSpan.FromSeconds(30)));
+        };
+        var session = _bed.Start(pipeline);
+        try
+        {
+            Bed.Feed(pipeline, session, Bed.Evening());
+            await writing.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.Empty(RunsOf(session));
+            if (bindBeforeStop)
+            {
+                release.Set();
+                await Bed.Idle(pipeline);
+            }
+
+            pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+        }
+        finally
+        {
+            release.Set();
+            await Bed.Idle(pipeline);
+        }
+
+        var summary = Assert.Single(pipeline.CalibrationStatus().Shared.Candidates);
+        Assert.Equal(bindBeforeStop ? SharedCandidateStatus.Proven : SharedCandidateStatus.InUse, summary.Status);
+        Assert.Equal(bindBeforeStop ? 1 : 0, RunsOf(session).Count);
+        AssertRefused(pipeline.GetCalibrationShareCode(),
+            bindBeforeStop ? SharedShareCodeRefusal.Shared : SharedShareCodeRefusal.SharedNotProven);
+    }
+
     [Fact]
     public async Task AProvenCodeThePlayerPastedAndNoIndexListedHasNoStoredTextToHandBack()
     {
@@ -288,6 +335,10 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
 
         var session = _bed.Start(pipeline);
         Bed.Feed(pipeline, session, Bed.Evening());
+        // This scenario requires the pasted code to have replayed a complete duty. Stopping before
+        // its background bind commits discards the session's staging and cannot prove that duty.
+        await Bed.Idle(pipeline);
+        Assert.Single(RunsOf(session));
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
         await Bed.Idle(pipeline);
         var proven = Assert.Single(pipeline.CalibrationStatus().Shared.Candidates);

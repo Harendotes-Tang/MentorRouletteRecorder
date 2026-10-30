@@ -177,7 +177,8 @@ ColumnLayout {
                     id: rankRow
                     required property var modelData
                     readonly property color tone: root.ov.categoryColor(modelData.duty_category)
-                    readonly property string dutyName: Theme.dutyName(modelData) || qsTr("未识别")
+                    readonly property string dutyName: (Theme.dutyName(modelData) || qsTr("未识别"))
+                        + (Runtime.app.recordRegion === "" ? " · " + Theme.live(Runtime.fmt.regionLabel(modelData.region || "UNKNOWN")) : "")
                     Layout.fillWidth: true
                     implicitHeight: 20
                     Rectangle {

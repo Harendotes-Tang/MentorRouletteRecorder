@@ -9,7 +9,7 @@
 
 ## 数据：CC0-1.0
 
-`index.json`、`submissions.json` 与 `cn/`、`global/` 下的校准码是玩家提交的数据，按
+`index.json`、`submissions.json` 与 `tc/`、`cn/`、`global/` 下的校准码是玩家提交的数据，按
 **[CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/legalcode)（公共领域贡献）** 发布：
 任何人可以任意复制、修改、再分发，不需要署名，也不需要获得许可（维护者于 2026-09-16 决定）。
 

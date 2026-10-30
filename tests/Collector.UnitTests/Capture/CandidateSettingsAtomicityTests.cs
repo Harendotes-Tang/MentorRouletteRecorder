@@ -16,6 +16,24 @@ namespace MentorRecorder.Collector.UnitTests;
 
 public sealed class CandidateSettingsAtomicityTests
 {
+    [Fact]
+    public void ExplicitTcSettingPersistsAndCanReturnToAutomaticDetection()
+    {
+        using var db = new TestDatabase();
+        var settings = new SettingsRepository(db.Database, db.Clock);
+        var selected = CaptureSettingsStore.Apply(settings, new CaptureSettingsUpdate
+        {
+            RegionOverrideSpecified = true, RegionOverride = Region.Tc,
+        });
+        Assert.Equal(Region.Tc, selected.RegionOverride);
+        Assert.Equal("TC", CaptureSettingsStore.Wire(selected)["region_override"]!.GetValue<string>());
+        db.Reopen();
+        settings = new SettingsRepository(db.Database, db.Clock);
+        Assert.Equal(Region.Tc, CaptureSettingsStore.ReadRegionOverride(settings));
+        CaptureSettingsStore.Apply(settings, new CaptureSettingsUpdate { RegionOverrideSpecified = true });
+        Assert.Null(CaptureSettingsStore.ReadRegionOverride(settings));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

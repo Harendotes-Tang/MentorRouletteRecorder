@@ -411,4 +411,47 @@ public sealed class StatisticsTests
         Assert.Equal(1, jobs.Single(row => row.JobId == 19).JoinedInProgressCount);
         Assert.Equal(1, jobs.Single(row => row.JobId == 21).JoinedInProgressCount);
     }
+
+    [Fact]
+    public void RegionalAchievementsUseLifetimeCountsAndNeverCombineBaselinesOrDuties()
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
+        settings.EnsureDefaults();
+        fixture.Database.RunInTransaction(tx =>
+        {
+            runs.Insert(TestDatabase.Run() with { Region = Region.Cn }, tx);
+            runs.Insert(TestDatabase.Run() with { Region = Region.Tc }, tx);
+            runs.Insert(TestDatabase.Run() with { Region = Region.Tc }, tx);
+            runs.Insert(TestDatabase.Run() with { Region = Region.Global }, tx);
+            runs.Insert(TestDatabase.Run() with { Region = Region.Unknown }, tx);
+            settings.UpdateAchievementSettings(settings.GetAchievementSettings(tx) with
+                { BaselineCompletedCount = 1500, GoalCount = 2000 }, tx);
+            settings.UpdateAchievementSettings(settings.GetAchievementSettings(tx, Region.Tc) with
+                { BaselineCompletedCount = 100, GoalCount = 1000 }, tx);
+        });
+        var statistics = new StatisticsRepository(fixture.Database, settings, clock: fixture.Clock);
+        var all = statistics.GetDashboard();
+        Assert.Equal(5, all.CompletedCount);
+        Assert.Equal(1501, all.AchievementProgress); // Legacy scalar projects CN in all view.
+        Assert.Equal(4, all.Achievements!.Count);
+        Assert.Equal(102, all.Achievements.Single(row => row.Region == Region.Tc).AchievementProgress);
+        Assert.Equal(1, all.Achievements.Single(row => row.Region == Region.Global).CompletedCount);
+        var filtered = statistics.GetDashboard(new RunFilter
+        {
+            Region = Region.Tc, FromUtc = fixture.Clock.UtcNow.AddYears(1),
+            JobIds = new[] { 99 }, ContentIds = new[] { 1234567 },
+        });
+        Assert.Equal(0, filtered.CompletedCount);
+        Assert.Equal(102, filtered.AchievementProgress);
+        Assert.Equal(Region.Tc, Assert.Single(filtered.Achievements!).Region);
+        var dungeons = statistics.GetDungeonStats();
+        Assert.Equal(4, dungeons.Count);
+        Assert.Equal(2, dungeons.Single(row => row.Region == Region.Tc).CompletedCount);
+        Assert.Equal(2, Assert.Single(statistics.GetDungeonStats(new RunFilter { Region = Region.Tc })).CompletedCount);
+        Assert.Equal(2, statistics.GetTrend(new RunFilter { Region = Region.Tc }).Buckets.Sum(row => row.CompletedCount));
+        Assert.Equal(2, Assert.Single(statistics.GetJobStats(new RunFilter { Region = Region.Tc })).CompletedCount);
+        Assert.Equal(2, statistics.GetResultStats(new RunFilter { Region = Region.Tc }).AttemptCount);
+    }
 }

@@ -61,7 +61,7 @@ internal sealed partial class SharedCalibrationSession
         }
 
         var selection = _host.SharedSelection();
-        return selection.Region is Region.Cn or Region.Global && SharedCalibrationIndex.IsBuild(selection.GameBuild)
+        return selection.Region is Region.Cn or Region.Global or Region.Tc && SharedCalibrationIndex.IsBuild(selection.GameBuild)
             ? (selection.Region, selection.GameBuild!)
             : null;
     }

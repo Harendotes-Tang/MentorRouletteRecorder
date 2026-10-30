@@ -40,8 +40,8 @@ public:
     /// JSON, so the models, the controller and QML share one parse.
     static DutyCatalog *shared();
 
-    int count() const { return static_cast<int>(m_byContentId.size()); }
-    QString dataVersion() const { return m_dataVersion; }
+    int count() const { return static_cast<int>(catalogue(QString()).byContentId.size()); }
+    QString dataVersion() const { return catalogue(QString()).dataVersion; }
 
     /// The catalogue row for \a contentId, or an empty map. Keys:
     /// content_id, territory_id, duty_name, duty_category, duty_level,
@@ -52,11 +52,11 @@ public:
     /// is 普通 / 极 / 零式 and version the "2.x" .. "7.x" label (empty when the
     /// expansion is unknown). See partySizeGroup(), difficultyForName() and
     /// versionForExpansion().
-    Q_INVOKABLE QVariantMap lookup(const QVariant &contentId) const;
+    Q_INVOKABLE QVariantMap lookup(const QVariant &contentId, const QString &region = QString()) const;
 
-    /// Exact CN name resolution: one identity, or one explicitly preferred
+    /// Exact region-specific name resolution: one identity, or one explicitly preferred
     /// identity among same-name rows. Other ambiguous names remain unresolved.
-    /// GLOBAL cannot be inferred from this CN-only catalogue.
+    /// Known regions never fall back to a different region; omitted/UNKNOWN retains legacy CN lookup.
     Q_INVOKABLE QVariantMap findByName(const QString &name,
                                       const QString &region = QString()) const;
 
@@ -65,7 +65,7 @@ public:
     /// from ZONE_TERRITORY carries no content_id (docs/data-model.md, schema 8),
     /// and this is how its 资料片 · 等级 line is still filled in. Two duties that
     /// share a zone but differ in level keep that field empty rather than guess.
-    Q_INVOKABLE QVariantMap lookupByTerritory(const QVariant &territoryId) const;
+    Q_INVOKABLE QVariantMap lookupByTerritory(const QVariant &territoryId, const QString &region = QString()) const;
 
     /// 人数 group of a duty: 四人迷宫 4, 讨伐歼灭战 8, 团队任务 24, 行会令 and
     /// anything else 0. 大型任务 holds both 8-player raids and 24-player
@@ -81,7 +81,7 @@ public:
     /// 通关占比的极神身份：仅接受目录中已知的整数 content_id，并使用目录
     /// 中文类型和名称判断讨伐极难度，排除幻巧战；不改变 difficulty 字段、
     /// 难度筛选或记录中的类型，也不根据调用方的显示名称推断身份。
-    bool isExtremeTrial(const QVariant &contentId) const;
+    bool isExtremeTrial(const QVariant &contentId, const QString &region = QString()) const;
 
     /// "2.x" for A Realm Reborn up to "7.x" for Dawntrail; empty otherwise.
     static QString versionForExpansion(const QString &expansion);
@@ -98,17 +98,21 @@ public:
 
     /// Every row, sorted by expansion then level then name. Used by the
     /// history page's duty filter.
-    QVariantList allDuties() const { return m_ordered; }
+    Q_INVOKABLE QVariantList allDuties(const QString &region = QString()) const { return catalogue(region).ordered; }
 
 private:
+    struct Catalogue {
+        QHash<qint64, QVariantMap> byContentId;
+        QHash<QString, QList<QVariantMap>> byName;
+        QHash<qint64, QList<QVariantMap>> byTerritoryId;
+        QSet<qint64> allianceRaidIds;
+        QVariantList ordered;
+        QString dataVersion;
+    };
     void load();
-
-    QHash<qint64, QVariantMap> m_byContentId;
-    QHash<QString, QList<QVariantMap>> m_byName;
-    QHash<qint64, QList<QVariantMap>> m_byTerritoryId;
-    QSet<qint64> m_allianceRaidIds;
-    QVariantList m_ordered;
-    QString m_dataVersion;
+    void loadRegion(const QString &resource, const QString &region);
+    const Catalogue &catalogue(const QString &region) const;
+    QHash<QString, Catalogue> m_catalogues;
 };
 
 } // namespace mr

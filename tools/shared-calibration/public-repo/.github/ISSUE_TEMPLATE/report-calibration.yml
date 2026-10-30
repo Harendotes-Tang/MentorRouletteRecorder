@@ -23,6 +23,7 @@ body:
       options:
         - CN
         - GLOBAL
+        - TC
     validations:
       required: true
   - type: input

@@ -1,11 +1,14 @@
 namespace MentorRecorder.Collector.Domain;
 
 /// <summary>
-/// The single row of achievement_settings (docs/data-model.md section 4). It supports the
+/// One region's row of achievement_settings. It supports the
 /// case where the user starts using this software part-way through the achievement.
 /// </summary>
 public sealed record AchievementSettings
 {
+    /// <summary>Owning service region; snapshots written before regional settings belong to CN.</summary>
+    public Region Region { get; init; } = Region.Cn;
+
     /// <summary>Default goal for the mentor roulette achievement.</summary>
     public const int DefaultGoalCount = 2000;
 

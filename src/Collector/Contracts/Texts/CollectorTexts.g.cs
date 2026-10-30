@@ -357,17 +357,17 @@ public static partial class CollectorTexts
     public static UserText CaptureGamePathUnknown() =>
         new("capture.game.path_unknown", "无法确定游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录。");
 
-    /// <summary><c>capture.game.region_ambiguous</c>: 无法从安装路径判断区服（路径同时含有国服与国际服的标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录。</summary>
+    /// <summary><c>capture.game.region_ambiguous</c>: 无法从安装路径判断区服（路径同时含有多个区服的标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。</summary>
     public static UserText CaptureGameRegionAmbiguous() =>
-        new("capture.game.region_ambiguous", "无法从安装路径判断区服（路径同时含有国服与国际服的标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录。");
+        new("capture.game.region_ambiguous", "无法从安装路径判断区服（路径同时含有多个区服的标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。");
 
     /// <summary><c>capture.game.region_override_mismatch</c>: 设置中手动指定的区服与安装路径推断出的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除区服覆盖。</summary>
     public static UserText CaptureGameRegionOverrideMismatch() =>
         new("capture.game.region_override_mismatch", "设置中手动指定的区服与安装路径推断出的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除区服覆盖。");
 
-    /// <summary><c>capture.game.region_unmarked</c>: 无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录。</summary>
+    /// <summary><c>capture.game.region_unmarked</c>: 无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。</summary>
     public static UserText CaptureGameRegionUnmarked() =>
-        new("capture.game.region_unmarked", "无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 国际服）；在此之前不会进行任何自动记录。");
+        new("capture.game.region_unmarked", "无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。");
 
     /// <summary><c>capture.game.version_file_missing</c>: 未能在游戏目录中读取到 {file}，客户端版本未知。</summary>
     public static UserText CaptureGameVersionFileMissing(string file) =>
@@ -629,9 +629,9 @@ public static partial class CollectorTexts
     public static UserText CaptureValidationWaitingIdentity() =>
         new("capture.validation.waiting_identity", "仅验证，不自动记录。正在等待可读取的游戏路径与客户端版本。");
 
-    /// <summary><c>capture.validation.waiting_region</c>: 仅验证，不自动记录。无法从安装路径判断区服。请在设置里手动指定区服（国服 / 国际服）后重试。</summary>
+    /// <summary><c>capture.validation.waiting_region</c>: 仅验证，不自动记录。无法从安装路径判断区服。请在设置里手动指定区服（国服 / 繁中服 / 国际服）后重试。</summary>
     public static UserText CaptureValidationWaitingRegion() =>
-        new("capture.validation.waiting_region", "仅验证，不自动记录。无法从安装路径判断区服。请在设置里手动指定区服（国服 / 国际服）后重试。");
+        new("capture.validation.waiting_region", "仅验证，不自动记录。无法从安装路径判断区服。请在设置里手动指定区服（国服 / 繁中服 / 国际服）后重试。");
 
     /// <summary><c>capture.validation.waiting_restart_connected</c>: 仅验证，不自动记录。游戏已有连接，请退出并重新启动游戏，验证将自动继续。</summary>
     public static UserText CaptureValidationWaitingRestartConnected() =>
@@ -1765,9 +1765,9 @@ public static partial class CollectorTexts
     public static UserText SharingImportOtherBuild(string codeBuild, string currentBuild) =>
         new("sharing.import.other_build", "这份校准码不能用于当前游戏。它适用于游戏版本 {code_build}，你当前的版本是 {current_build}；请导入相同游戏版本的校准码，或使用「本机校准」。", UserTextArg.Text("code_build", codeBuild), UserTextArg.Text("current_build", currentBuild));
 
-    /// <summary><c>sharing.import.other_region</c>: 这份校准码不能用于当前游戏，国服与国际服不能通用。请导入当前区服的校准码，或使用「本机校准」。</summary>
+    /// <summary><c>sharing.import.other_region</c>: 这份校准码不能用于当前游戏，不同区服的校准码不能通用。请导入当前区服的校准码，或使用「本机校准」。</summary>
     public static UserText SharingImportOtherRegion() =>
-        new("sharing.import.other_region", "这份校准码不能用于当前游戏，国服与国际服不能通用。请导入当前区服的校准码，或使用「本机校准」。");
+        new("sharing.import.other_region", "这份校准码不能用于当前游戏，不同区服的校准码不能通用。请导入当前区服的校准码，或使用「本机校准」。");
 
     /// <summary><c>sharing.import.other_template</c>: 这份校准码不能用于当前导随记录器。请你和分享者先更新到同一版本，再「导入校准码」。</summary>
     public static UserText SharingImportOtherTemplate() =>

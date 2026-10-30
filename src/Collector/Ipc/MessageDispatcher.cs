@@ -670,6 +670,7 @@ public sealed class MessageDispatcher
 
         return new JsonObject
         {
+            ["region"] = EnumWire<Region>.Format(outcome.Settings.Region),
             ["goal_count"] = outcome.Settings.GoalCount,
             ["baseline_completed_count"] = outcome.Settings.BaselineCompletedCount,
             ["baseline_effective_at"] = UtcTimestamp.ToText(outcome.Settings.BaselineEffectiveAt),
