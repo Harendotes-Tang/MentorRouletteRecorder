@@ -19,7 +19,7 @@
     <PackageReference Include="SharpPcap" Version="6.3.1" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
     <!-- Keep the existing ADO.NET API while replacing its vulnerable native SQLite bundle. -->
-    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="[2.1.14]" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="[3.0.5]" />
     <!-- 2.7.6 is the Apache-2.0 release used solely for genuine BIFF8 XLS input. -->
     <PackageReference Include="NPOI" Version="[2.7.6]" />
     <!-- HSSF import never decodes pictures. Resolve a patched ImageSharp reference
