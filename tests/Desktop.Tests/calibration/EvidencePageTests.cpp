@@ -134,6 +134,10 @@ private Q_SLOTS:
         QTest::newRow("recording") << QStringLiteral("RECORDING") << 3 << QString::fromUtf8("正在取证");
         QTest::newRow("stopping") << QStringLiteral("STOPPING") << 4 << QString::fromUtf8("正在保存");
         QTest::newRow("completed") << QStringLiteral("COMPLETED") << 4 << QString::fromUtf8("已保存");
+        // 取消等待: STOPPING with nothing counted stays at step 2, then the Collector
+        // reports COMPLETED with reason CANCELLED and no trace.
+        QTest::newRow("cancelling") << QStringLiteral("CANCELLING") << 2 << QString::fromUtf8("正在取消等待");
+        QTest::newRow("cancelled") << QStringLiteral("CANCELLED") << 1 << QString::fromUtf8("尚未开始");
     }
 
     void stepsFollowTheCollectorsState()
@@ -143,7 +147,9 @@ private Q_SLOTS:
         QFETCH(QString, badge);
         EvidenceScene scene;
         QVERIFY(scene.open(state));
-        QTRY_COMPARE(scene.app->validationState(), state);
+        const QString reported = state == QStringLiteral("CANCELLED") ? QStringLiteral("COMPLETED")
+                               : state == QStringLiteral("CANCELLING") ? QStringLiteral("STOPPING") : state;
+        QTRY_COMPARE(scene.app->validationState(), reported);
         QTRY_COMPARE(scene.stepStatus(step), QStringLiteral("cur"));
         for (int number = 1; number <= 5; ++number) {
             QCOMPARE(scene.stepStatus(number), number < step ? QStringLiteral("done")
@@ -156,12 +162,34 @@ private Q_SLOTS:
         // The one action button of the round: 开始采证 before, 取消等待 / 停止采证 while it
         // runs; while the Collector saves, and once it has, there is nothing to press.
         auto *action = scene.item(QStringLiteral("templateObservationActionButton"));
-        if (state == QStringLiteral("STOPPING") || state == QStringLiteral("COMPLETED")) {
+        if (state == QStringLiteral("STOPPING") || state == QStringLiteral("CANCELLING")
+            || state == QStringLiteral("COMPLETED")) {
             QVERIFY(!action);
         } else {
             QVERIFY(action);
             QVERIFY(action->isVisible());
         }
+        QCOMPARE(scene.warnings->size(), 0);
+    }
+
+    void cancellingTheWaitReturnsToStepOne()
+    {
+        EvidenceScene scene;
+        QVERIFY(scene.open(QStringLiteral("WAITING")));
+        QTRY_COMPARE(scene.stepStatus(2), QStringLiteral("cur"));
+        QVERIFY(scene.click(QStringLiteral("templateObservationActionButton")));
+        // Nothing was recorded: step 1 again, with the Collector's sentence and no
+        // round to show in the sidebar - not 已结束，文件不完整 at step 4.
+        QTRY_COMPARE(scene.stepStatus(1), QStringLiteral("cur"));
+        QCOMPARE(scene.app->validationState(), QStringLiteral("COMPLETED"));
+        for (int number = 2; number <= 5; ++number)
+            QCOMPARE(scene.stepStatus(number), QStringLiteral("todo"));
+        QCOMPARE(scene.text(QStringLiteral("evidenceStatusBadgeText")), QString::fromUtf8("尚未开始"));
+        auto *cancelled = scene.item(QStringLiteral("evidenceCancelledText"));
+        QVERIFY(cancelled && cancelled->isVisible());
+        QCOMPARE(cancelled->property("text").toString(), QString::fromUtf8("已取消等待，未创建取证文件。"));
+        QCOMPARE(scene.text(QStringLiteral("evidenceCounter_message_count")), mr::Formatters::dash());
+        QVERIFY(scene.item(QStringLiteral("templateObservationActionButton")));
         QCOMPARE(scene.warnings->size(), 0);
     }
 

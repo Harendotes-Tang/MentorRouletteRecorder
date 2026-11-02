@@ -12,7 +12,9 @@ EvidenceStep {
 
     required property EvidenceSession session
 
-    readonly property bool waiting: step.session.phase === "waiting"
+    // The wait, and the moment it is being given up: the same quiet card.
+    readonly property bool waiting: step.session.phase === "waiting" || step.cancelling
+    readonly property bool cancelling: step.session.phase === "cancelling"
     readonly property string liveTone: step.waiting ? "warn" : "ok"
 
     number: 2
@@ -44,7 +46,8 @@ EvidenceStep {
                     objectName: "evidenceLiveTitle"
                     Layout.fillWidth: true
                     textFormat: Text.PlainText
-                    text: step.waiting ? qsTr("等待游戏启动")
+                    text: step.cancelling ? qsTr("正在取消等待…")
+                          : step.waiting ? qsTr("等待游戏启动")
                           : step.session.recording ? qsTr("正在取证 · 可以登录了")
                           : step.session.badgeText
                     color: Theme.textPrimary
@@ -53,16 +56,18 @@ EvidenceStep {
                     wrapMode: Text.Wrap
                 }
                 EvidenceHint {
-                    // The Collector's own sentence when it has one (message_ref).
-                    text: step.session.status.message
+                    // The Collector's own sentence when it has one (message_ref) - except
+                    // while the wait is given up, when its 正在停止并保存 would mislead.
+                    text: step.cancelling ? qsTr("没有录到数据，不会保存文件。")
+                          : step.session.status.message
                           ? Theme.live(Runtime.fmt.collectorText(step.session.status.message_ref, step.session.status.message))
                           : step.waiting ? qsTr("启动游戏后会自动开始取证，看到「正在取证」再登录。")
                                          : qsTr("如果提示重启，完全退出游戏后再重开。")
                 }
             }
             AppButton {
-                objectName: step.waiting ? "templateObservationActionButton" : "evidenceCancelWaitButton"
-                visible: step.waiting
+                objectName: step.session.phase === "waiting" ? "templateObservationActionButton" : "evidenceCancelWaitButton"
+                visible: step.waiting && !step.cancelling
                 Layout.alignment: Qt.AlignVCenter
                 compact: true
                 text: qsTr("取消等待")

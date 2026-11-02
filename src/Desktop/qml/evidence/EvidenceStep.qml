@@ -31,18 +31,32 @@ Card {
     decorated: false
     borderColor: current ? Theme.accent : Theme.border
 
-    // `inset 3px 0 0 var(--color-accent)`
+    // `inset 3px 0 0 var(--color-accent)`: an accent plate under the surface and
+    // the surface itself set 3 px to the right, both with the frame's inner
+    // radius, so the bar bends into the rounded corners the way the prototype's
+    // inset shadow does instead of poking out of them.
     Rectangle {
         parent: step
-        z: 2
+        z: 0
         visible: step.current
-        anchors.left: parent.left
-        anchors.top: parent.top
-        anchors.bottom: parent.bottom
-        anchors.margins: 1
-        width: 3
-        radius: 1
+        anchors.fill: parent
+        anchors.margins: step.borderWidth
+        radius: Math.max(0, step.radius - step.borderWidth)
         color: Theme.accent
+    }
+    Rectangle {
+        parent: step
+        // Above the plate whatever order the two were reparented in, below the body.
+        z: 0.5
+        visible: step.current
+        anchors.fill: parent
+        anchors.margins: step.borderWidth
+        anchors.leftMargin: step.borderWidth + 3
+        radius: Math.max(0, step.radius - step.borderWidth)
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: Theme.eorzea ? Theme.panelTop : step.fillColor }
+            GradientStop { position: 1.0; color: Theme.eorzea ? Theme.panelBottom : step.fillColor }
+        }
     }
 
     Item {
@@ -140,10 +154,12 @@ Card {
         }
     }
 
-    // `.ev-sb`: padding 0 18px 16px 52px
+    // `.ev-sb`: padding 0 18px 16px 52px, plus 8 px of air under the header so
+    // the body does not sit on the title row.
     ColumnLayout {
         id: bodyColumn
         Layout.fillWidth: true
+        Layout.topMargin: 8
         Layout.leftMargin: 52
         Layout.rightMargin: 18
         Layout.bottomMargin: 16

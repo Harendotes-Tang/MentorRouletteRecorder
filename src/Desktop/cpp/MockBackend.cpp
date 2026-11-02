@@ -1381,20 +1381,30 @@ QJsonArray MockBackend::runEvents(const QString &runId) const
 
 QJsonObject MockBackend::captureValidationStatus() const
 {
-    const QString state = m_validationState;
+    // A wait that is given up (取消等待, or the time limit) passes through STOPPING
+    // and ends COMPLETED with reason CANCELLED; recording never started, so the
+    // counts, the start time and the trace stay null (CaptureValidationController).
+    const bool cancelling = m_validationState == QLatin1String("CANCELLING");
+    const bool cancelled = m_validationState == QLatin1String("CANCELLED");
+    const QString state = cancelling ? QStringLiteral("STOPPING")
+                          : cancelled ? QStringLiteral("COMPLETED") : m_validationState;
     const bool active = state == QLatin1String("WAITING")
                         || state == QLatin1String("RECORDING")
                         || state == QLatin1String("STOPPING");
-    const bool measured = state == QLatin1String("RECORDING")
-                          || state == QLatin1String("STOPPING")
-                          || state == QLatin1String("COMPLETED");
-    const bool completed = state == QLatin1String("COMPLETED");
+    const bool measured = !cancelling && !cancelled
+                          && (state == QLatin1String("RECORDING")
+                              || state == QLatin1String("STOPPING")
+                              || state == QLatin1String("COMPLETED"));
+    const bool completed = !cancelled && state == QLatin1String("COMPLETED");
     const bool failed = state == QLatin1String("FAILED");
     // The Collector's sentence for each state (CaptureValidationService), with its
     // catalogue reference beside it.
     QString reason = state;
     const char *messageKey = "capture.validation.idle";
-    if (state == QLatin1String("WAITING")) {
+    if (cancelled) {
+        reason = QStringLiteral("CANCELLED");
+        messageKey = "capture.validation.cancelled";
+    } else if (state == QLatin1String("WAITING")) {
         reason = QStringLiteral("WAITING_RESTART");
         messageKey = "capture.validation.waiting_restart_connected";
     } else if (state == QLatin1String("RECORDING")) {
@@ -1425,7 +1435,7 @@ QJsonObject MockBackend::captureValidationStatus() const
         {QStringLiteral("started_at_utc"), measured
                                                   ? QJsonValue(isoUtc(m_now.addSecs(-312)))
                                                   : nullValue},
-        {QStringLiteral("ended_at_utc"), completed || failed
+        {QStringLiteral("ended_at_utc"), completed || failed || cancelled
                                                 ? QJsonValue(isoUtc(m_now))
                                                 : nullValue},
         {QStringLiteral("message_count"), measured ? QJsonValue(1842) : nullValue},
@@ -3421,7 +3431,7 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         }
     } else if (messageType == QLatin1String("StopCaptureValidation")) {
         if (m_validationState == QLatin1String("WAITING"))
-            m_validationState = QStringLiteral("IDLE");
+            m_validationState = QStringLiteral("CANCELLED");
         else if (m_validationState == QLatin1String("RECORDING"))
             m_validationState = QStringLiteral("COMPLETED");
         result = captureValidationStatus();

@@ -635,7 +635,8 @@ int main(int argc, char *argv[])
         QStringLiteral("Enable manual capture, validation and candidate maintenance tools."));
     QCommandLineOption validationOption(
         QStringLiteral("mock-validation-state"),
-        QStringLiteral("Validation screenshot state: waiting, recording, stopping, completed or failed."),
+        QStringLiteral("Validation screenshot state: waiting, recording, stopping, completed, "
+                       "cancelling / cancelled (the wait is being / was given up) or failed."),
         QStringLiteral("state"));
     QCommandLineOption formalRunningOption(
         QStringLiteral("mock-formal-running"),
@@ -882,9 +883,10 @@ int main(int argc, char *argv[])
     if (selectedBackend == QLatin1String("mock") && parser.isSet(validationOption)
         && !QStringList{QStringLiteral("WAITING"), QStringLiteral("RECORDING"),
                         QStringLiteral("STOPPING"), QStringLiteral("COMPLETED"),
+                        QStringLiteral("CANCELLING"), QStringLiteral("CANCELLED"),
                         QStringLiteral("FAILED")}.contains(mockValidationState)) {
         std::fprintf(stderr,
-                     "invalid --mock-validation-state value: %s (expected waiting, recording, stopping, completed or failed)\n",
+                     "invalid --mock-validation-state value: %s (expected waiting, recording, stopping, completed, cancelling, cancelled or failed)\n",
                      qPrintable(parser.value(validationOption)));
         return 2;
     }

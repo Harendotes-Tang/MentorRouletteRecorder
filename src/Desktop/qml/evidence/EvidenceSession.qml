@@ -47,20 +47,29 @@ QtObject {
     property string dismissedRound: ""
     readonly property bool dismissed: dismissedRound.length > 0 && dismissedRound === roundKey && !active
 
-    // "idle" | "failed" | "waiting" | "capturing" | "stopping" | "saved"
+    // "idle" | "failed" | "cancelled" | "waiting" | "cancelling" | "capturing"
+    // | "stopping" | "saved"
+    // A wait that is given up (取消等待, or the time limit ran out) passes through
+    // STOPPING and ends COMPLETED with reason CANCELLED and no trace. The
+    // Collector only counts once recording has started, so a null message_count
+    // tells that STOPPING apart from one that is saving a file: the page stays at
+    // step 2 meanwhile and is back at step 1 with the Collector's sentence after.
     readonly property string phase: {
         if (session.active)
             return session.state === "WAITING" ? "waiting"
-                 : session.state === "STOPPING" ? "stopping" : "capturing"
+                 : session.state === "STOPPING" ? (session.messageCount === null ? "cancelling" : "stopping")
+                 : "capturing"
         if (session.dismissed)
             return "idle"
         if (session.state === "COMPLETED")
-            return "saved"
+            return session.status.reason === "CANCELLED" ? "cancelled" : "saved"
         if (session.state === "FAILED")
             return "failed"
         return "idle"
     }
-    readonly property bool idle: phase === "idle" || phase === "failed"
+    readonly property bool idle: phase === "idle" || phase === "failed" || phase === "cancelled"
+    // Nothing of a round to show: the clock, the counters and the summary rest.
+    readonly property bool blank: phase === "idle" || phase === "cancelled"
     readonly property bool saved: phase === "saved"
 
     // The game, as the Collector last saw it (GetStatus.game).
@@ -75,8 +84,8 @@ QtObject {
 
     // ------------------------------------------------------ the clock --
     readonly property EvidenceClock clock: EvidenceClock {}
-    readonly property int elapsedSeconds: clock.elapsedSeconds
-    readonly property string elapsedText: clock.elapsedText
+    readonly property int elapsedSeconds: blank ? 0 : clock.elapsedSeconds
+    readonly property string elapsedText: clock.durationText(elapsedSeconds)
     readonly property int maxSeconds: 2 * 3600
     function durationText(seconds) { return session.clock.durationText(seconds) }
 
@@ -122,6 +131,7 @@ QtObject {
     readonly property int step: {
         switch (session.phase) {
         case "waiting": return 2
+        case "cancelling": return 2
         case "capturing": return (session.readable || session.markedAny) && !session.anomaly ? 3 : 2
         case "stopping": return 4
         case "saved": return session.reportOpen ? 5 : 4
@@ -356,6 +366,7 @@ QtObject {
     readonly property string badgeTone: {
         switch (session.phase) {
         case "waiting": return "warn"
+        case "cancelling": return "warn"
         case "capturing": return session.anomaly ? "bad" : "ok"
         case "stopping": return "warn"
         case "saved": return session.fileSaved ? "ok" : "warn"
@@ -366,6 +377,7 @@ QtObject {
     readonly property string badgeText: {
         switch (session.phase) {
         case "waiting": return qsTr("等待游戏启动")
+        case "cancelling": return qsTr("正在取消等待")
         case "capturing": return session.anomaly ? qsTr("数据异常") : qsTr("正在取证")
         case "stopping": return qsTr("正在保存")
         case "saved": return session.fileSaved ? qsTr("已保存") : qsTr("已结束，文件不完整")

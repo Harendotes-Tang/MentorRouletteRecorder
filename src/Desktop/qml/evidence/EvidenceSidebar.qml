@@ -78,7 +78,7 @@ ColumnLayout {
         Text {
             Layout.fillWidth: true
             textFormat: Text.PlainText
-            text: side.session.idle && !side.session.startedAt ? qsTr("还没开始")
+            text: side.session.blank ? qsTr("还没开始")
                   : side.session.regionLabel + " · " + side.session.adapterLabel
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)
@@ -117,7 +117,7 @@ ColumnLayout {
                     Text {
                         objectName: "evidenceCounter_" + counter.modelData.key
                         textFormat: Text.PlainText
-                        text: side.session.idle && !side.session.startedAt ? Runtime.fmt.dash()
+                        text: side.session.blank ? Runtime.fmt.dash()
                               : side.session.countText(side.session.counter(counter.modelData.key))
                         color: counter.modelData.tone === "bad" ? Theme.red
                                : counter.modelData.tone === "warn" ? Theme.orangeText : Theme.textPrimary

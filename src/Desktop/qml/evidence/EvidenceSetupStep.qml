@@ -65,6 +65,19 @@ EvidenceStep {
         font.weight: Font.DemiBold
         wrapMode: Text.Wrap
     }
+    // The wait was cancelled, or ran out of time: the Collector's sentence, in
+    // the ordinary colour - nothing went wrong.
+    Text {
+        objectName: "evidenceCancelledText"
+        Layout.fillWidth: true
+        visible: step.session.phase === "cancelled" && !!step.session.status.message
+        textFormat: Text.PlainText
+        text: step.session.status.message
+              ? Theme.live(Runtime.fmt.collectorText(step.session.status.message_ref, step.session.status.message)) : ""
+        color: Theme.textSecondary
+        font.pixelSize: Theme.fs(12)
+        wrapMode: Text.Wrap
+    }
     Text {
         Layout.fillWidth: true
         visible: Runtime.app.validationError.length > 0
