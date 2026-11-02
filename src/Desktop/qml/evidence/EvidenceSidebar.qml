@@ -149,8 +149,8 @@ ColumnLayout {
         Repeater {
             model: [
                 { icon: "clipboard-check", text: qsTr("仅验证，不自动记录") },
-                { icon: "server", text: qsTr("取证文件只存在本机") },
-                { icon: "network", text: qsTr("不会自动上传") },
+                { icon: "hard-drive", text: qsTr("取证文件只存在本机") },
+                { icon: "cloud-off", text: qsTr("不会自动上传") },
                 { icon: "clock", text: qsTr("单轮最长 2 小时，含等待时间") }
             ]
             delegate: RowLayout {
