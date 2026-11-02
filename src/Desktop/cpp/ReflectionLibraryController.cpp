@@ -54,11 +54,14 @@ void ReflectionLibraryController::setFilter(const QVariantMap &filter)
 {
     QVariantMap next{{QStringLiteral("with_reflection"), true}};
     // text keeps note words; name_exact adds only the duties and jobs a
-    // translated name names. Neither searches reflection text. Keep both across
-    // selection confirmation.
+    // translated name names. The same words also go out as reflection_text, so
+    // the library finds the notes whose body says them (RunFilter ORs the
+    // three). Keep all of it across selection confirmation.
     const QString text = filter.value(QStringLiteral("text")).toString().trimmed().left(200);
-    if (!text.isEmpty())
+    if (!text.isEmpty()) {
         next.insert(QStringLiteral("text"), text);
+        next.insert(QStringLiteral("reflection_text"), text);
+    }
     for (const QString &key : {QStringLiteral("job_id"), QStringLiteral("duty_category"),
                                QStringLiteral("name_exact")}) {
         const QVariantList values = filter.value(key).toList();

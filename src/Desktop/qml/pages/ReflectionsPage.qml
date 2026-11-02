@@ -92,7 +92,7 @@ ColumnLayout {
             id: search
             objectName: "reflectionSearchField"
             width: Math.min(toolbar.width, Math.max(150, Math.min(300, toolbar.flexibleWidth)))
-            placeholderText: qsTr("搜索副本 / 职业 / 记录备注")
+            placeholderText: qsTr("搜索副本 / 职业 / 备注 / 心得内容")
             onTextEdited: debounce.restart()
             onAccepted: { debounce.stop(); page.applyFilter() }
         }

@@ -62,6 +62,9 @@ class QmlRuntime final : public QObject
     Q_PROPERTY(bool forceOpenEdit READ forceOpenEdit NOTIFY forceOpenEditChanged)
     Q_PROPERTY(bool forceOpenCreate READ forceOpenCreate NOTIFY forceOpenCreateChanged)
     Q_PROPERTY(int forceWizardStep READ forceWizardStep NOTIFY forceWizardStepChanged)
+    /// Launched by the Windows Run entry with a system tray present: the main
+    /// window starts closed and the program waits in the tray.
+    Q_PROPERTY(bool startInTray READ startInTray NOTIFY startInTrayChanged)
 
 public:
     /// 与迁移前的上下文入口逐项对应，仅供 C++ 配置入口使用。
@@ -98,7 +101,8 @@ public:
         ForceOpenDetail,
         ForceOpenEdit,
         ForceOpenCreate,
-        ForceWizardStep
+        ForceWizardStep,
+        StartInTray
     };
 
     /**
@@ -166,6 +170,7 @@ public:
     bool forceOpenEdit() const { return value(Field::ForceOpenEdit).toBool(); }
     bool forceOpenCreate() const { return value(Field::ForceOpenCreate).toBool(); }
     int forceWizardStep() const { return value(Field::ForceWizardStep).toInt(); }
+    bool startInTray() const { return value(Field::StartInTray).toBool(); }
 
 signals:
     void langChanged();
@@ -201,11 +206,12 @@ signals:
     void forceOpenEditChanged();
     void forceOpenCreateChanged();
     void forceWizardStepChanged();
+    void startInTrayChanged();
 
 private:
     explicit QmlRuntime(QQmlEngine *engine);
 
-    static constexpr std::size_t FieldCount = static_cast<std::size_t>(Field::ForceWizardStep) + 1;
+    static constexpr std::size_t FieldCount = static_cast<std::size_t>(Field::StartInTray) + 1;
 
     QVariant value(Field field) const { return m_values[static_cast<std::size_t>(field)]; }
     static QVariant normalizedValue(Field field, const QVariant &value);

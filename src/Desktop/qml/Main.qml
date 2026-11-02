@@ -13,7 +13,11 @@ ApplicationWindow {
     height: 800
     minimumWidth: 1100
     minimumHeight: 720
-    visible: true
+    // Started by the Windows Run entry (--autostart) with a system tray present:
+    // the program sits in the tray until the player asks for it. Everything that
+    // waits for window.visible (release notes, reminders) waits with it.
+    readonly property bool startInTray: typeof Runtime.startInTray !== "undefined" ? Runtime.startInTray : false
+    visible: !startInTray
     color: Theme.contentBackground
     title: qsTr("FF14 导随记录器")
 

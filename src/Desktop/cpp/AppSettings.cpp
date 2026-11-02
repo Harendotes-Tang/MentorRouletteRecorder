@@ -18,6 +18,7 @@ constexpr int kDefaultUiScale = 100;
 constexpr char kRunKey[] = "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows"
                            "\\CurrentVersion\\Run";
 constexpr char kRunValue[] = "MentorRecorder";
+constexpr char kAutostartArgument[] = "--autostart";
 #endif
 
 QString settingsDirectory()
@@ -376,11 +377,29 @@ void AppSettings::applyAutostartRegistration(bool enabled)
         run.remove(QString::fromLatin1(kRunValue));
         return;
     }
+    // The switch keeps a login start in the tray (main.cpp). Users who turned
+    // 开机启动 on before it existed get it through refreshAutostartRegistration().
     const QString exe = QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
-    run.setValue(QString::fromLatin1(kRunValue), QStringLiteral("\"%1\"").arg(exe));
+    run.setValue(QString::fromLatin1(kRunValue),
+                 QStringLiteral("\"%1\" %2").arg(exe, autostartArgument()));
 #else
     Q_UNUSED(enabled)
 #endif
+}
+
+QString AppSettings::autostartArgument()
+{
+    return QString::fromLatin1(kAutostartArgument);
+}
+
+void AppSettings::refreshAutostartRegistration()
+{
+    // Only the real program refreshes (autostartWritable excludes harness runs),
+    // and only while the player wants it: an absent value is never recreated
+    // behind a setting that says off.
+    if (!autostartWritable() || !autostart())
+        return;
+    applyAutostartRegistration(true);
 }
 
 bool AppSettings::autostart() const

@@ -8209,8 +8209,8 @@ SHA256：%3</translation>
         <translation>このページの感想をすべて選択</translation>
     </message>
     <message>
-        <source>搜索副本 / 职业 / 记录备注</source>
-        <translation>コンテンツ・ジョブ・記録の備考で検索</translation>
+        <source>搜索副本 / 职业 / 备注 / 心得内容</source>
+        <translation>コンテンツ・ジョブ・備考・メモ本文で検索</translation>
     </message>
     <message>
         <source>全部职业</source>
@@ -9240,8 +9240,8 @@ SHA256：%3</translation>
         <translation>PC 起動時に起動</translation>
     </message>
     <message>
-        <source>登录 Windows 后自动启动，显示在系统托盘中</source>
-        <translation>Windows へのサインイン後に自動で起動し、タスクトレイに表示します</translation>
+        <source>登录 Windows 后在后台自动启动，只显示托盘图标，不打开主窗口</source>
+        <translation>Windows へのサインイン後にバックグラウンドで自動起動し、タスクトレイのアイコンのみ表示してメインウィンドウは開きません</translation>
     </message>
     <message>
         <source>当前系统不支持开机启动</source>

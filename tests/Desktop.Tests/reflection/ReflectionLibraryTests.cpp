@@ -205,8 +205,15 @@ private Q_SLOTS:
         QCOMPARE(library.runs()->page(), 1);
         const auto filter = backend.queries.last().value(QStringLiteral("filter")).toObject();
         QCOMPARE(filter.value(QStringLiteral("text")).toString(), QStringLiteral("心得副本"));
+        // The same words search the reflection bodies; the history page never sends this.
+        QCOMPARE(filter.value(QStringLiteral("reflection_text")).toString(), QStringLiteral("心得副本"));
         QVERIFY(filter.value(QStringLiteral("with_reflection")).toBool());
         QVERIFY(!filter.contains(QStringLiteral("include_deleted")));
+        library.setFilter({{QStringLiteral("text"), QStringLiteral("   ")}});
+        QTRY_VERIFY(!library.runs()->isLoading());
+        const auto blank = backend.queries.last().value(QStringLiteral("filter")).toObject();
+        QVERIFY(!blank.contains(QStringLiteral("text")));
+        QVERIFY(!blank.contains(QStringLiteral("reflection_text")));
         history.reload();
         QTRY_VERIFY(!history.isLoading());
         QCOMPARE(backend.queries.last().value(QStringLiteral("filter")).toObject().value(QStringLiteral("text")).toString(), QStringLiteral("历史筛选"));

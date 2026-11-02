@@ -92,7 +92,9 @@ private slots:
         QCOMPARE(write.value("operation").toString(), QStringLiteral("set"));
         QCOMPARE(write.value("key").toString(), QStringLiteral("MentorRecorder"));
         QCOMPARE(write.value("target").toString(), QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"));
-        QCOMPARE(write.value("value").toString(), QStringLiteral("\"%1\"").arg(QDir::toNativeSeparators(QCoreApplication::applicationFilePath())));
+        // The switch keeps a login start in the tray (main.cpp --autostart).
+        QCOMPARE(write.value("value").toString(), QStringLiteral("\"%1\" --autostart").arg(QDir::toNativeSeparators(QCoreApplication::applicationFilePath())));
+        QCOMPARE(mr::AppSettings::autostartArgument(), QStringLiteral("--autostart"));
         settings.setAutostart(false);
         QCOMPARE(nativeSettingsAccesses().size(), 4);
         QCOMPARE(nativeSettingsAccesses()[3].toObject().value("operation").toString(), QStringLiteral("remove"));
@@ -100,6 +102,35 @@ private slots:
 #else
         QVERIFY(!mr::AppSettings::autostartWritable());
         settings.setAutostart(true);
+        QVERIFY(nativeSettingsAccesses().isEmpty());
+#endif
+        QStandardPaths::setTestModeEnabled(true);
+    }
+    void refreshRewritesTheRunValueOnlyWhileAutostartIsOn()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        settingsAuditRoot() = directory.path();
+        nativeSettingsAccesses() = {};
+        QStandardPaths::setTestModeEnabled(false);
+        mr::AppSettings settings;
+        // Off: a start-up refresh must not recreate a value the player removed.
+        settings.setValue(QStringLiteral("general/autostart"), false);
+        settings.refreshAutostartRegistration();
+        QVERIFY2(nativeSettingsAccesses().isEmpty(), "refresh wrote the Run key while autostart is off");
+#ifdef Q_OS_WIN
+        // On: an installation registered before --autostart existed gets the switch.
+        settings.setValue(QStringLiteral("general/autostart"), true);
+        settings.refreshAutostartRegistration();
+        QCOMPARE(nativeSettingsAccesses().size(), 2);
+        const auto write = nativeSettingsAccesses()[1].toObject();
+        QCOMPARE(write.value("operation").toString(), QStringLiteral("set"));
+        QCOMPARE(write.value("key").toString(), QStringLiteral("MentorRecorder"));
+        QCOMPARE(write.value("value").toString(), QStringLiteral("\"%1\" --autostart").arg(QDir::toNativeSeparators(QCoreApplication::applicationFilePath())));
+        QVERIFY(settings.autostart());
+#else
+        settings.setValue(QStringLiteral("general/autostart"), true);
+        settings.refreshAutostartRegistration();
         QVERIFY(nativeSettingsAccesses().isEmpty());
 #endif
         QStandardPaths::setTestModeEnabled(true);

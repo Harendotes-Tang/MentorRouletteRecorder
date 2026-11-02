@@ -142,6 +142,13 @@ public sealed record RunFilter
     /// search sends the exact recorded names it means. Empty adds no condition.
     /// </summary>
     public IReadOnlyList<string> NameExact { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Case-insensitive substring matched against the text of the run's 导随心得, OR with
+    /// <see cref="Text"/>, <see cref="NameText"/> and <see cref="NameExact"/>. A run without a
+    /// reflection never matches this field. Null or blank adds no condition.
+    /// </summary>
+    public string? ReflectionText { get; init; }
 }
 
 /// <summary>Ordering of a run listing.</summary>

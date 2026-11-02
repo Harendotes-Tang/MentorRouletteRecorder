@@ -81,7 +81,7 @@ ColumnLayout {
         SettingToggleRow {
             label: qsTr("开机启动")
             description: Runtime.settings.autostartWritable
-                         ? qsTr("登录 Windows 后自动启动，显示在系统托盘中")
+                         ? qsTr("登录 Windows 后在后台自动启动，只显示托盘图标，不打开主窗口")
                          : qsTr("当前系统不支持开机启动")
             toggleEnabled: Runtime.settings.autostartWritable
             checked: Runtime.settings.autostart

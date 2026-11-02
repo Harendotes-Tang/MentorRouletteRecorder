@@ -8209,8 +8209,8 @@ SHA256：%3</translation>
         <translation>全選目前頁面的心得</translation>
     </message>
     <message>
-        <source>搜索副本 / 职业 / 记录备注</source>
-        <translation>搜尋副本 / 職業 / 記錄備註</translation>
+        <source>搜索副本 / 职业 / 备注 / 心得内容</source>
+        <translation>搜尋副本 / 職業 / 備註 / 心得內容</translation>
     </message>
     <message>
         <source>全部职业</source>
@@ -9240,8 +9240,8 @@ SHA256：%3</translation>
         <translation>開機啟動</translation>
     </message>
     <message>
-        <source>登录 Windows 后自动启动，显示在系统托盘中</source>
-        <translation>登入 Windows 後自動啟動，顯示在系統匣中</translation>
+        <source>登录 Windows 后在后台自动启动，只显示托盘图标，不打开主窗口</source>
+        <translation>登入 Windows 後在背景自動啟動，只顯示系統匣圖示，不開啟主視窗</translation>
     </message>
     <message>
         <source>当前系统不支持开机启动</source>

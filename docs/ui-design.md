@@ -875,8 +875,13 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
 桌面端的全部设置持久化在 `AppSettings`（QSettings INI）中。
 
 * 开机启动写入 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 下名为
-  `MentorRecorder` 的值（`QSettings::NativeFormat`）。本软件只写 HKCU，不安装服务，
-  也不创建计划任务，因此删除程序目录即完成卸载。该开关默认**关闭**，
+  `MentorRecorder` 的值（`QSettings::NativeFormat`），内容为 `"<exe>" --autostart`。
+  带该参数启动且系统托盘可用时，`Main.qml` 以 `Runtime.startInTray` 让主窗口保持关闭，程序只在托盘中等待，
+  等待 `window.visible` 的更新说明与提醒随之推后到用户打开窗口时；托盘不可用则照常打开窗口。
+  带该参数的第二个实例发现已有实例时直接退出，不把已有窗口拉到前台（快捷方式启动仍会）。
+  程序每次启动时若该开关为开，会重写这一个 Run 值（`AppSettings::refreshAutostartRegistration`），
+  使早于该参数注册的安装、以及移动过位置的程序都拿到当前路径与参数；开关为关时不写任何东西。
+  本软件只写 HKCU，不安装服务，也不创建计划任务，因此删除程序目录即完成卸载。该开关默认**关闭**，
   安装即写入注册表属于用户不会预期的副作用。
 * 托盘由 `TrayController`（`QSystemTrayIcon`）实现，菜单项自上而下为：「显示主窗口」；
   「待处理（N）」（N 为待处理的条数），显示主窗口并打开待处理列表（`RecoveryController::requestInbox`，§4.5.2）；
@@ -1174,6 +1179,7 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 | 「补录笔记」按钮 | `next_pending` 存在则打开对话框，否则 toast「所有通关记录都已写过笔记」 |
 | 近期心得卡片（最多 3 张） | `App.openHistoryForRun(run)`，同时把详情浮层切到「笔记」页签 |
 | 历史筛选「有笔记」 | `RunFilter.with_reflection` |
+| 「全部心得」搜索框 | `RunFilter.text` 与 `RunFilter.reflection_text` 同时发送同一段文字（`ReflectionLibraryController::setFilter`），副本名、职业名、记录备注与心得正文任一包含即列出；界面译名另经 `name_exact` 扩展，与历史页相同 |
 | 详情浮层「笔记」页签 | `run.reflection`；有则 心情 tag + 时间 + 正文 +「编辑笔记」，正文非空时另有「生成分享图片」；无则空状态框 +「补录笔记」 |
 | `dialogs/ReflectionDialog.qml` | `App.saveReflection(runId, mood, text)`；`App.reflectionSaved` 关闭，`App.reflectionFailed` 在对话框内红字显示 |
 | 通关后自动提醒 | `App.reflectionPromptRequested(run)` → `Main.qml` 的 `offerReminder(run, "reflection")`：按提醒方式（§4.5.2）在紧凑弹窗中 `openForPrompt(run, "刚刚完成")`，或只记入待处理；弹窗正忙时请求留在队列中，弹窗关闭后再弹出（`reflectionPromptShown` / `reflectionPromptClosed`），期间关闭「通关后提醒记笔记」则清空队列；已在结果问句中弹出过的记录不再单独提示 |
@@ -1266,6 +1272,8 @@ kicker（补录笔记 / 编辑笔记，或打开方给出的文字）与右侧�
   （`Runtime.names.recordedSearchNames`），作为 `filter.name_exact` 一并发送；已知区服不借用其他区服条目，全部视图包含各区原名。
   采集服务按名称完全相同匹配副本名与职业名，结果与 `filter.text` 的匹配合并。国服名称会互相包含（「骑士」在「暗黑骑士」「龙骑士」里），所以这里不按子串匹配。
   多区目录的名称扩展最多 4096 项，每项最多 200 字符，仍受 4 MiB 消息上限约束；超过名称项数时不截断成部分匹配。
+  「全部心得」页的搜索框另把同一段文字作为 `filter.reflection_text` 发送，由采集服务在心得正文（`run_reflections.text`）中匹配，
+  与 `text`、`name_exact` 取或；历史记录页不发送该字段。
 * 截图与测试可用 `--ui-language zh-CN|zh-TW|en|ja` 固定本次运行的语言，不改写 `desktop.ini`（§7）。
 
 ### 4.6 首次启动与软件说明（DEC-OODLE-01）

@@ -252,6 +252,8 @@ build\src\Desktop\MentorRecorder.Desktop.exe --screenshot out.png --page 5 --the
 `--mock-detail-tab info|events|revs|refl`（详情浮层默认页签，会一并打开浮层）、
 `--mock-ui-style eorzea|classic`（本次运行固定界面风格，不改写 desktop.ini）、
 `--export-target <dir>`、`--screenshot-delay <ms>`、`--screenshot-size <WxH>`。
+`--autostart` 是开机启动的 Run 值传入的参数（§3.7 与 [ui-design.md](ui-design.md) §4.5）：系统托盘可用时主窗口保持关闭，
+程序只在托盘中等待；截图模式忽略它。
 默认使用 offscreen 平台，设置 `QT_QPA_PLATFORM=windows` 可渲染真实窗口。
 详见 [ui-design.md](ui-design.md) §7。
 
@@ -384,7 +386,8 @@ Collector 没有口味之分。
 
 两种口味可以在同一账户下同时运行而互不相见。显式设置的 `MR_DATA_DIR` 在两种口味下都优先，因此把开发构建指向
 正式目录仍然可行，但必须是有意为之。图标缓存 `%LOCALAPPDATA%\MentorRecorder\icons\`、默认导出目录与
-自启动注册表值不区分口味。手工启动 Collector（§3.5 方式 B）时须自行设置 `MR_DATA_DIR` 与 `--pipe`，
+自启动注册表值不区分口味（开发构建在「开机启动」为开时同样会在启动时把该值重写为自己的路径，见
+[ui-design.md](ui-design.md) §4.5，开发机上请勿在开发口味里打开该开关）。手工启动 Collector（§3.5 方式 B）时须自行设置 `MR_DATA_DIR` 与 `--pipe`，
 否则它服务的是正式管道、写的是正式目录。
 
 可执行文件中带有一个以 NUL 结尾的窄字符串口味标记：开发构建为 `MR_BUILD_FLAVOUR=development`，正式构建为

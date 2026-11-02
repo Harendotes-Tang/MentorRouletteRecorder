@@ -306,6 +306,49 @@ private Q_SLOTS:
             QVERIFY(!expected.contains(value.toObject().value(QStringLiteral("run_id")).toString()));
     }
 
+    // RunFilterSql: reflection_text is a substring of the reflection body, OR with
+    // text; a run without a reflection never matches it, and QueryRunCalendarDays
+    // accepts the field.
+    void reflectionTextSearchesOnlyReflectionBodiesOrWithOriginalText()
+    {
+        mr::MockBackend backend;
+        const auto row = [](const QString &id, const QString &note, const QString &reflection) {
+            QJsonObject run = autoRun(id, QStringLiteral("COMPLETED"), true);
+            run.insert(QStringLiteral("note"), note);
+            if (!reflection.isEmpty())
+                run.insert(QStringLiteral("reflection"), QJsonObject{{QStringLiteral("mood"), QStringLiteral("good")},
+                                                                     {QStringLiteral("text"), reflection}});
+            return run;
+        };
+        backend.resetRuns(QJsonArray{
+            row(QStringLiteral("reflected"), QStringLiteral("unrelated"), QString::fromUtf8("带新人打灯塔，一次过")),
+            row(QStringLiteral("note"), QString::fromUtf8("备注提到灯塔"), QString()),
+            row(QStringLiteral("other"), QStringLiteral("unrelated"), QStringLiteral("nothing in common")),
+            row(QStringLiteral("none"), QStringLiteral("unrelated"), QString())});
+        const auto found = [&backend](const QJsonObject &filter) {
+            const Answer answer = ask(backend, QStringLiteral("QueryRuns"), {{QStringLiteral("filter"), filter}});
+            QStringList ids;
+            for (const auto &value : answer.payload.value(QStringLiteral("items")).toArray())
+                ids.append(value.toObject().value(QStringLiteral("run_id")).toString());
+            ids.sort();
+            return ids;
+        };
+        QCOMPARE(found({{QStringLiteral("reflection_text"), QString::fromUtf8("灯塔")}}),
+                 QStringList{QStringLiteral("reflected")});
+        QCOMPARE(found({{QStringLiteral("text"), QString::fromUtf8("灯塔")},
+                        {QStringLiteral("reflection_text"), QString::fromUtf8("灯塔")}}),
+                 (QStringList{QStringLiteral("note"), QStringLiteral("reflected")}));
+        QCOMPARE(found({{QStringLiteral("text"), QString::fromUtf8("灯塔")},
+                        {QStringLiteral("reflection_text"), QString::fromUtf8("灯塔")},
+                        {QStringLiteral("with_reflection"), true}}),
+                 QStringList{QStringLiteral("reflected")});
+        QCOMPARE(found({{QStringLiteral("reflection_text"), QStringLiteral("  ")}}).size(), 4);
+        const Answer calendar = ask(backend, QStringLiteral("QueryRunCalendarDays"),
+            {{QStringLiteral("month"), QStringLiteral("2026-09")},
+             {QStringLiteral("filter"), QJsonObject{{QStringLiteral("reflection_text"), QString::fromUtf8("灯塔")}}}});
+        QVERIFY2(calendar.ok, qPrintable(calendar.message));
+    }
+
     void localizedNameSearchPreservesOriginalNotesAndOtherFilters()
     {
         mr::MockBackend backend;

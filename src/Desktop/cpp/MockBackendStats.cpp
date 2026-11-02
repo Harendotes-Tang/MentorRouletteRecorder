@@ -179,6 +179,9 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
     const bool withReflection = filter.value(QStringLiteral("with_reflection")).toBool(false);
     const QString text = filter.value(QStringLiteral("text")).toString().trimmed();
     const QString nameText = filter.value(QStringLiteral("name_text")).toString().trimmed();
+    // RunFilterSql: reflection_text is a substring of the reflection's body, OR with
+    // the other text fields; a run without a reflection never matches it.
+    const QString reflectionText = filter.value(QStringLiteral("reflection_text")).toString().trimmed();
     // RunFilterSql: name_exact matches duty_name or job_name by equality.
     QSet<QString> nameExact;
     for (const QJsonValue &name : filter.value(QStringLiteral("name_exact")).toArray()) {
@@ -291,7 +294,7 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
                                 run.value(QStringLiteral("source"))))
             continue;
 
-        if (!text.isEmpty() || !nameText.isEmpty() || !nameExact.isEmpty()) {
+        if (!text.isEmpty() || !nameText.isEmpty() || !nameExact.isEmpty() || !reflectionText.isEmpty()) {
             const QString dutyName = run.value(QStringLiteral("duty_name")).toString();
             const QString jobName = run.value(QStringLiteral("job_name")).toString();
             const QString haystack = dutyName + jobName + run.value(QStringLiteral("note")).toString();
@@ -300,7 +303,11 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
                 && (dutyName.contains(nameText, Qt::CaseInsensitive)
                     || jobName.contains(nameText, Qt::CaseInsensitive));
             const bool exactMatch = nameExact.contains(dutyName) || nameExact.contains(jobName);
-            if (!originalMatch && !nameMatch && !exactMatch)
+            const QJsonValue reflection = run.value(QStringLiteral("reflection"));
+            const bool reflectionMatch = !reflectionText.isEmpty() && reflection.isObject()
+                && reflection.toObject().value(QStringLiteral("text")).toString()
+                       .contains(reflectionText, Qt::CaseInsensitive);
+            if (!originalMatch && !nameMatch && !exactMatch && !reflectionMatch)
                 continue;
         }
 

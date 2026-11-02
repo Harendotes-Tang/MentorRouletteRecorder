@@ -154,6 +154,13 @@ public:
     void setAutostart(bool enabled);
     /// False in mock/screenshot/test runs and on unsupported platforms.
     static bool autostartWritable();
+    /// The switch the Run value passes, so a login start begins in the tray
+    /// instead of opening the main window (main.cpp --autostart).
+    static QString autostartArgument();
+    /// With 开机启动 on, rewrite the Run value for this executable: a value
+    /// registered before the switch existed, or by a copy since moved, is
+    /// brought up to date. Nothing is written while the setting is off.
+    void refreshAutostartRegistration();
 
     bool followFfxiv() const;
     void setFollowFfxiv(bool enabled);

@@ -244,6 +244,15 @@ public static class RunFilterSql
             var names = BindAll(parameters, filter.NameExact, "nex");
             textMatches.Add($"(duty_name IN ({names}) OR job_name IN ({names}))");
         }
+        if (!string.IsNullOrWhiteSpace(filter.ReflectionText))
+        {
+            // The reflection lives in its own table; EXISTS keeps the fragment usable by the
+            // listing, the count and the statistics queries alike (see WithReflection above).
+            textMatches.Add(
+                "EXISTS (SELECT 1 FROM run_reflections rt WHERE rt.run_id = mentor_runs.run_id " +
+                "AND rt.text LIKE $reflection_text ESCAPE '\\')");
+            parameters.Add(new("$reflection_text", "%" + EscapeLike(filter.ReflectionText) + "%"));
+        }
         if (textMatches.Count > 0)
             clauses.Add("(" + string.Join(" OR ", textMatches) + ")");
 

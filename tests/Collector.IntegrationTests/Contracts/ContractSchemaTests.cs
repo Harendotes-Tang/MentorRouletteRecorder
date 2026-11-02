@@ -689,6 +689,27 @@ public sealed class ContractSchemaTests
             Assert.Equal(ErrorCodes.BadRequest, response.ErrorCode);
     }
 
+    [Theory]
+    [InlineData(200, true)]
+    [InlineData(201, false)]
+    public async Task ReflectionTextLimit_MatchesSchemaAndRealPipe(int length, bool accepted)
+    {
+        var filter = new JsonObject { ["reflection_text"] = new string('字', length), ["with_reflection"] = true };
+        Assert.Equal(accepted, ContractSchema.Evaluate("$defs/RunFilter", filter).IsValid);
+        Assert.True(ContractSchema.Evaluate("$defs/RunFilter", new JsonObject { ["reflection_text"] = null }).IsValid);
+        await using var fixture = ServerFixture.Start();
+        await using var client = await fixture.ConnectAsync();
+        var response = await client.SendAsync("QueryRuns", new JsonObject
+        {
+            ["filter"] = filter, ["page"] = 1, ["page_size"] = 1,
+        });
+        Assert.Equal(accepted, response.Ok);
+        if (accepted)
+            ContractSchema.Validate("$defs/Responses/QueryRuns", response.Require(), "bounded reflection text");
+        else
+            Assert.Equal(ErrorCodes.BadRequest, response.ErrorCode);
+    }
+
     private static async Task<string> CreateRunAsync(
         PipeClient client, string result, int contentId, int jobId)
     {

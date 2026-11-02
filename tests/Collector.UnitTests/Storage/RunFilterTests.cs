@@ -389,4 +389,101 @@ public sealed class RunFilterTests
             })));
         Assert.Equal("payload.name_exact", tooMany.Field);
     }
+
+    [Theory]
+    [InlineData("灯塔")]
+    [InlineData("一次过")]
+    [InlineData("50%")]
+    [InlineData("a_b")]
+    [InlineData(@"a")]
+    public void ReflectionTextFindsOnlyRunsWhoseReflectionContainsItOrWithOriginalText(string words)
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        var reflections = new RunReflectionRepository(fixture.Database);
+        var now = fixture.Clock.UtcNow;
+        var reflected = TestDatabase.Run() with { JobName = "白魔法师", Note = "unrelated" };
+        var noteMatch = TestDatabase.Run() with { JobName = "白魔法师", Note = "note says " + words };
+        var otherReflection = TestDatabase.Run() with { JobName = "白魔法师", Note = "unrelated" };
+        var lookalike = TestDatabase.Run() with { JobName = "白魔法师", Note = "unrelated" };
+        fixture.Database.RunInTransaction(tx =>
+        {
+            runs.Insert(reflected, tx);
+            runs.Insert(noteMatch, tx);
+            runs.Insert(otherReflection, tx);
+            runs.Insert(lookalike, tx);
+            runs.Insert(TestDatabase.Run() with { JobName = "白魔法师", Note = "unrelated" }, tx);
+            reflections.Upsert(reflected.RunId, ReflectionMood.Good, "带新人打 " + words + " 的心得", now, tx);
+            reflections.Upsert(otherReflection.RunId, ReflectionMood.Ok, "nothing in common", now, tx);
+            // The LIKE wildcards in the search text are literal: 50 percent, axb and a/b stay out.
+            reflections.Upsert(lookalike.RunId, ReflectionMood.Bad, "50 percent, axb, a/b, ab", now, tx);
+        });
+
+        var onlyReflections = runs.Query(RequestParsers.Filter(new PayloadReader(new JsonObject
+        {
+            ["reflection_text"] = words,
+        })), null, 1, 50);
+        Assert.Equal(new[] { reflected.RunId }, onlyReflections.Items.Select(run => run.RunId));
+
+        var either = runs.Query(RequestParsers.Filter(new PayloadReader(new JsonObject
+        {
+            ["text"] = words, ["reflection_text"] = words,
+        })), null, 1, 50);
+        Assert.Equal(new[] { reflected.RunId, noteMatch.RunId }.Order(),
+            either.Items.Select(run => run.RunId).Order());
+
+        var narrowed = runs.Query(RequestParsers.Filter(new PayloadReader(new JsonObject
+        {
+            ["text"] = words, ["reflection_text"] = words, ["with_reflection"] = true,
+        })), null, 1, 50);
+        Assert.Equal(new[] { reflected.RunId }, narrowed.Items.Select(run => run.RunId));
+    }
+
+    [Theory]
+    [InlineData("{\"reflection_text\":null}", 3)]
+    [InlineData("{\"reflection_text\":\"\"}", 3)]
+    [InlineData("{\"reflection_text\":\"  \"}", 3)]
+    [InlineData("{\"reflection_text\":\"灯塔\"}", 1)]
+    [InlineData("{\"text\":\"灯塔\"}", 1)]
+    [InlineData("{\"text\":\"灯塔\",\"reflection_text\":\"灯塔\"}", 2)]
+    public void ReflectionTextKeepsItsDeclaredScope(string json, int expected)
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        var reflections = new RunReflectionRepository(fixture.Database);
+        var reflected = TestDatabase.Run() with { JobName = "白魔法师", Note = "unrelated" };
+        fixture.Database.RunInTransaction(tx =>
+        {
+            runs.Insert(reflected, tx);
+            runs.Insert(TestDatabase.Run() with { JobName = "白魔法师", Note = "灯塔 in the note" }, tx);
+            runs.Insert(TestDatabase.Run() with { JobName = "白魔法师", Note = "unrelated" }, tx);
+            reflections.Upsert(reflected.RunId, ReflectionMood.Good, "灯塔一次过", fixture.Clock.UtcNow, tx);
+        });
+        var filter = RequestParsers.Filter(new PayloadReader(JsonNode.Parse(json)!.AsObject()));
+        Assert.Equal(expected, runs.Query(filter, null, 1, 50).Total);
+    }
+
+    [Theory]
+    [InlineData("42")]
+    [InlineData("[]")]
+    [InlineData("{}")]
+    [InlineData("true")]
+    public void ReflectionTextRejectsNonStringValues(string value)
+    {
+        var error = Assert.Throws<CollectorException>(() => RequestParsers.Filter(
+            new PayloadReader(JsonNode.Parse("{\"reflection_text\":" + value + "}")!.AsObject())));
+        Assert.Equal("ERR_BAD_REQUEST", error.Code);
+        Assert.Equal("payload.reflection_text", error.Field);
+    }
+
+    [Fact]
+    public void ReflectionTextAcceptsTwoHundredCharactersAndRejectsMore()
+    {
+        var accepted = RequestParsers.Filter(new PayloadReader(
+            new JsonObject { ["reflection_text"] = new string('字', 200) }));
+        Assert.Equal(200, accepted!.ReflectionText!.Length);
+        var overlong = Assert.Throws<CollectorException>(() => RequestParsers.Filter(new PayloadReader(
+            new JsonObject { ["reflection_text"] = new string('字', 201) })));
+        Assert.Equal("payload.reflection_text", overlong.Field);
+    }
 }

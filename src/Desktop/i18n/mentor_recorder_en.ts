@@ -8209,8 +8209,8 @@ Recorder</translation>
         <translation>Select all notes on this page</translation>
     </message>
     <message>
-        <source>搜索副本 / 职业 / 记录备注</source>
-        <translation>Search duty / job / record remarks</translation>
+        <source>搜索副本 / 职业 / 备注 / 心得内容</source>
+        <translation>Search duty / job / remarks / note text</translation>
     </message>
     <message>
         <source>全部职业</source>
@@ -9240,8 +9240,8 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <translation>Launch at startup</translation>
     </message>
     <message>
-        <source>登录 Windows 后自动启动，显示在系统托盘中</source>
-        <translation>Starts automatically when you sign in to Windows and shows in the system tray</translation>
+        <source>登录 Windows 后在后台自动启动，只显示托盘图标，不打开主窗口</source>
+        <translation>Starts in the background when you sign in to Windows: only the tray icon shows, the main window stays closed</translation>
     </message>
     <message>
         <source>当前系统不支持开机启动</source>

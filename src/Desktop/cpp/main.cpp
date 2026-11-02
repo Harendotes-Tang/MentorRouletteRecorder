@@ -85,6 +85,7 @@
 #include <QQuickWindow>
 #include <QScreen>
 #include <QScopeGuard>
+#include <QSystemTrayIcon>
 #ifdef Q_OS_WIN
 #include <dwmapi.h>
 #include <windows.h>
@@ -735,6 +736,11 @@ int main(int argc, char *argv[])
                        "at 0-600 ms beside the screenshot."),
         QStringLiteral("scenario"));
     motionProbeOption.setFlags(QCommandLineOption::HiddenFromHelp);
+    QCommandLineOption autostartOption(
+        QStringLiteral("autostart"),
+        QStringLiteral("Passed by the Windows Run value that 开机启动 writes: start in the "
+                       "system tray without opening the main window, and leave an already "
+                       "running instance alone. Without a system tray the window opens as usual."));
     QCommandLineOption exportTargetOption(
         QStringLiteral("export-target"),
         QStringLiteral("Write exports and diagnostics reports into <dir> instead of "
@@ -777,6 +783,7 @@ int main(int argc, char *argv[])
     parser.addOption(verifyTextOption);
     parser.addOption(midstreamOption);
     parser.addOption(exportTargetOption);
+    parser.addOption(autostartOption);
     parser.addOption(speechOption);
     parser.addOption(speechConfirmOption);
     parser.addOption(speechPreviewOption);
@@ -838,6 +845,9 @@ int main(int argc, char *argv[])
 
     // 设置先于控制器和 QML 引擎创建，确保它们销毁时设置对象仍然存活。
     mr::AppSettings settings;
+    // 开机启动 registered before --autostart existed, or by a copy since moved,
+    // is brought up to date here; harness runs never touch the Run key.
+    settings.refreshAutostartRegistration();
     mr::ReleaseNotesController releaseNotes(&settings);
 
     // 界面语言先于控制器生效：它们在构造时就会拼出界面文字。
@@ -968,7 +978,10 @@ int main(int argc, char *argv[])
         instanceGuard =
             std::make_unique<mr::SingleInstanceGuard>(mr::SingleInstanceGuard::defaultKey());
         if (!instanceGuard->isPrimary()) {
-            instanceGuard->signalPrimary();
+            // A login start finding the player's own instance must not pull
+            // that window to the front; the shortcut still does.
+            if (!parser.isSet(autostartOption))
+                instanceGuard->signalPrimary();
             return 0;
         }
     }
@@ -1146,6 +1159,11 @@ int main(int argc, char *argv[])
                                              parser.isSet(firstRunOption));
     runtime->setValue(mr::QmlRuntime::Field::ForceDisclosure,
                                              parser.isSet(disclosureOption));
+    // The Run value passes --autostart. With a tray to wait in, Main.qml starts
+    // with the window closed; without one there is nowhere to hide, so it opens.
+    const bool startInTray = parser.isSet(autostartOption) && !screenshotMode
+        && QSystemTrayIcon::isSystemTrayAvailable();
+    runtime->setValue(mr::QmlRuntime::Field::StartInTray, startInTray);
     const QString uiStyle = parser.value(uiStyleOption);
     if (!uiStyle.isEmpty() && uiStyle != QLatin1String("eorzea")
         && uiStyle != QLatin1String("classic") && uiStyle != QLatin1String("harendotes")) {
@@ -1224,6 +1242,10 @@ int main(int argc, char *argv[])
         // Without a tray there is nowhere to minimise to, so closing the last
         // window must still end the process.
         QApplication::setQuitOnLastWindowClosed(!tray.isActive());
+        // The tray was available a moment ago but did not come up: a closed
+        // window with no icon would be a program the player cannot reach.
+        if (startInTray && !tray.isActive())
+            tray.showWindow();
         controller.runDailyBackupIfDue();
         const int exitCode = QApplication::exec();
         // The window is gone; stopping the Collector can take seconds. A launch

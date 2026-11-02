@@ -1,5 +1,13 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-11-02 · 按心得正文搜索：`RunFilter.reflection_text`
+
+附加式变更，不新增消息类型。
+
+- **`RunFilter.reflection_text`**（可选字符串或 `null`，最多 200 个字符）：在该记录的导随心得正文（`run_reflections.text`）中按子串匹配（与 `text` 相同的 `LIKE` 规则，`%`、`_`、`\` 按字面匹配），与 `text`、`name_text`、`name_exact` 取或，再与其他筛选取交集。没有心得的记录不匹配该字段；`null` 或空白不加条件。历史列表、分页总数、统计、日历和筛选导出使用同一条件。
+- 桌面端「全部心得」页的搜索框把输入同时放进 `text` 与 `reflection_text`，因此副本名、职业名、记录备注与心得正文中包含搜索文字的记录都会列出；历史记录页不发送该字段。
+- 兼容性：旧采集服务不认识 `reflection_text`，答 `ERR_BAD_REQUEST`；两端随同一安装包发布。
+
 ## 2026-10-24 · 繁中服身份、区服筛选与独立成就
 
 - `RunFilter.name_exact` 上限扩为 4096 项，以容纳多区目录的原名搜索；每项最多 200 字符，既有 4 MiB 消息上限不变。
