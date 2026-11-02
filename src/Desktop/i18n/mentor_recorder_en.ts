@@ -1880,12 +1880,24 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>Help support other server regions</translation>
     </message>
     <message>
-        <source>按步骤采集报文元数据，未适配区服仍不正式记录</source>
-        <translation>Collect packet metadata step by step; unsupported regions still aren&apos;t recorded for real</translation>
+        <source>采证中 · %1</source>
+        <translation>Capturing · %1</translation>
+    </message>
+    <message>
+        <source>已保存，等回传</source>
+        <translation>Saved, ready to send</translation>
+    </message>
+    <message>
+        <source>按步骤采集报文元数据，未适配的区服仍不正式记录</source>
+        <translation>Collect packet metadata step by step. Unsupported regions still aren't recorded.</translation>
     </message>
     <message>
         <source>采证步骤</source>
         <translation>Collection steps</translation>
+    </message>
+    <message>
+        <source>继续</source>
+        <translation>Continue</translation>
     </message>
     <message>
         <source>导出诊断报告</source>
@@ -1925,10 +1937,6 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
     <message>
         <source>未命名适配器</source>
         <translation>Unnamed adapter</translation>
-    </message>
-    <message>
-        <source>%1 · 推荐</source>
-        <translation>%1 · recommended</translation>
     </message>
     <message>
         <source>%1 · %2 · 推荐</source>
@@ -1979,56 +1987,12 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>Desktop validation capture</translation>
     </message>
     <message>
-        <source>新区服采证步骤</source>
-        <translation>Steps to collect evidence for a new region</translation>
-    </message>
-    <message>
-        <source>1. 先退出游戏，选好实际区服和网卡（繁中服选 TC），再点“开始采证”。
-2. 启动游戏，等这里显示“正在取证”后再登录；若提示重启，须完全退出游戏后重开。
-3. 离本后停止采证，等到“已保存”再取文件。本轮只收集元数据，不会新增正式记录。</source>
-        <translation>1. Exit the game, select the actual service region and network adapter (TC for the Traditional Chinese service), then click “Start collecting”.
-2. Start the game and wait for “Capturing evidence” here before logging in. If a restart is requested, fully exit and reopen the game.
-3. After leaving the duty, stop collecting and wait for “Saved” before copying files. This session collects metadata only and does not add regular records.</translation>
-    </message>
-    <message>
-        <source>取消等待</source>
-        <translation>Cancel wait</translation>
-    </message>
-    <message>
-        <source>停止采证</source>
-        <translation>Stop collecting</translation>
-    </message>
-    <message>
-        <source>切换为采证</source>
-        <translation>Switch to collecting</translation>
-    </message>
-    <message>
-        <source>开始采证</source>
-        <translation>Start collecting</translation>
-    </message>
-    <message>
-        <source>预览候选摘要</source>
-        <translation>Preview candidate summary</translation>
-    </message>
-    <message>
-        <source>当前正在正式记录，不能切换为候选采证。已有模板的校准核实请使用上方“共享校准证据”。</source>
-        <translation>Real recording is in progress, so you can&apos;t switch to candidate collection. To verify a calibration that already has a template, use “Calibration evidence” above.</translation>
-    </message>
-    <message>
-        <source>点击“切换为采证”会停止当前被动监听，改为只保存本机元数据；停止采证后自动监听可恢复。</source>
-        <translation>Clicking “Switch to collecting” stops the current passive listening and saves only local metadata instead; automatic listening can resume after you stop collecting.</translation>
-    </message>
-    <message>
         <source>候选验证仅写入独立观测账本；以下是单独的桌面验证取证工具。</source>
         <translation>Candidate validation only writes to a separate observation ledger; below is the standalone desktop validation capture tool.</translation>
     </message>
     <message>
         <source>当前正在正式记录；以下为最近一次验证取证证据。</source>
         <translation>Real recording is in progress; below is the evidence from the last validation capture.</translation>
-    </message>
-    <message>
-        <source>点击上方按钮开始或停止采证。</source>
-        <translation>Use the button above to start or stop collecting.</translation>
     </message>
     <message>
         <source>点击标题行的按钮开始或停止。</source>
@@ -2071,64 +2035,6 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>The service region and interface language are separate settings. Select the actual service: TC for Traditional Chinese or GLOBAL for the international service. It cannot be changed while listening or collecting.</translation>
     </message>
     <message>
-        <source>开始排队 → 已排队；匹配弹窗出现 → 已匹配；读条结束进本 → 已进入；出现通关提示 → 已胜利；离本回到外面 → 已离开。尽量在事件发生后 3 秒内点击；漏按、点晚或未通关要如实记录，不要事后补点。</source>
-        <translation>Start queueing → Queued; match prompt appears → Matched; loading finishes inside the duty → Entered; clear notice appears → Cleared; back outside → Left. Try to mark each event within 3 seconds. Report missed, late or unsuccessful events honestly; do not add markers afterwards.</translation>
-    </message>
-    <message>
-        <source>先确认数据可读</source>
-        <translation>Check that data can be read</translation>
-    </message>
-    <message>
-        <source>登录后正常活动 30～60 秒，查看上方采证“报文”是否增加。一直为 0 或“解码失败”快速增加时，先截图、停止并导出诊断，不必继续排本。
-优先采指导者随机；没有资格可采普通随机作对照，并注明类型。先回传一轮，确认可用后再补一轮。单次最长 2 小时，含等待时间。</source>
-        <translation>After logging in, play normally for 30–60 seconds and check whether the Packets count above increases. If it stays at 0 or the Decode failures count rises rapidly, take a screenshot, stop collecting and export diagnostics. There is no need to queue for a duty yet.
-Prefer Duty Roulette: Mentor. If you are not eligible, an ordinary roulette can provide comparison data; state its type. Send one session first and add another once it is confirmed usable. Each session is limited to 2 hours, including waiting.</translation>
-    </message>
-    <message>
-        <source>停止后保存这些文件</source>
-        <translation>Save these files after stopping</translation>
-    </message>
-    <message>
-        <source>1. 点“停止采证”，等“已保存”，截图保存状态和四项计数。
-2. 点“打开所在目录”，复制本轮 trace.jsonl 与 trace.jsonl.sha256；每轮分开保存，不改原文件和文件名。
-3. 在上方“工具”点“导出诊断报告”并保存 JSON。
-失败时有多少文件就回传多少，注明缺失项，不自行补造。采证目录只保留最近 10 份且不超过 7 天，请及时复制到外部文件夹。</source>
-        <translation>1. Click “Stop collecting”, wait for “Saved”, and capture the status and all four counters.
-2. Click “Open containing folder” and copy this session’s trace.jsonl and trace.jsonl.sha256. Keep sessions in separate folders and preserve the original files and names.
-3. Under Tools above, select “Export diagnostic report” and save the JSON.
-If collection fails, send whichever files exist and list anything missing; do not create replacements. The collection folder keeps only the latest 10 sessions for up to 7 days, so copy files elsewhere promptly.</translation>
-    </message>
-    <message>
-        <source>摘要和附加文件（可选）</source>
-        <translation>Optional summary and extra files</translation>
-    </message>
-    <message>
-        <source>可先“预览候选摘要”；摘要不足或预览失败，不影响回传上述文件。预览只针对当前最近一轮，需在下一轮或重开软件前处理。
-“复制摘要并打开提交页”会复制完整 JSON 并打开 GitHub，页面可能预填摘要。可将复制内容原样保存为 JSON 回传，无需发布 Issue；不想打开 GitHub 可跳过摘要。
-无法识别游戏版本时，可附 game 目录内的 ffxivgame.ver；启动或采证异常时，可附数据目录 logs 内对应时间的 collector-*.log。</source>
-        <translation>You may use “Preview candidate summary”. An incomplete summary or failed preview does not prevent sending the files above. Only the latest session is available for preview; handle it before starting another session or restarting the app.
-“Copy summary and open submission page” copies the full JSON and opens GitHub, possibly with the summary prefilled. Save the copied content unchanged as JSON to send privately; no Issue is required. Skip the summary if you do not want to open GitHub.
-If the game version cannot be identified, include ffxivgame.ver from the game directory. For startup or collection errors, include the relevant collector-*.log from the data directory’s logs folder.</translation>
-    </message>
-    <message>
-        <source>回传时一起说明</source>
-        <translation>Include these details when sending</translation>
-    </message>
-    <message>
-        <source>将每轮采证文件、诊断 JSON、状态或错误截图及文字回报放在同一 ZIP，私下交给维护者。请写明：软件、游戏和 Windows 版本，测试时间及时区，加速器或 VPN，随机类型、副本、职业，是否中途加入、通关，以及漏按、延迟、断线等情况。
-不需要数据库、游戏程序或 DLL、账号密码和原始抓包；完整 trace 不要贴到公开 Issue。采证完成只代表取得候选线索，仍需维护者验证。</source>
-        <translation>Put each session’s files, diagnostic JSON, status or error screenshots, and a written report in one ZIP and send it privately to the maintainer. State the app, game and Windows versions; test times and time zone; accelerator or VPN; roulette, duty and job; whether you joined in progress or cleared; and any missed or late markers or disconnections.
-Do not send databases, game executables or DLLs, account credentials or raw packet captures. Do not post the full trace in a public Issue. Completed collection provides candidate clues only; maintainer verification is still required.</translation>
-    </message>
-    <message>
-        <source>采证前也可检查界面</source>
-        <translation>Optional interface checks before collecting</translation>
-    </message>
-    <message>
-        <source>已有正式记录可先在“设置 → 数据”备份，备份留本机。可先检查：切换界面语言后区服仍正确；各区成就分开显示且设置互不影响；手动补录能找到对应区服的副本。测试成就设置前记下原值，测试后恢复；不方便修改时可跳过并注明。</source>
-        <translation>If you have existing records, back them up under Settings → Data and keep the backup locally. Check that switching the interface language preserves the service region, regional achievements display separately without settings affecting each other, and manual entry lists duties for the selected region. Note original achievement settings and restore them after testing. Skip edits if inconvenient and state that they were not tested.</translation>
-    </message>
-    <message>
         <source>已排队</source>
         <translation>Queued</translation>
     </message>
@@ -2167,10 +2073,6 @@ Do not send databases, game executables or DLLs, account credentials or raw pack
     <message>
         <source>队列丢弃 %1</source>
         <translation>Queue drops %1</translation>
-    </message>
-    <message>
-        <source>采证文件：%1</source>
-        <translation>Evidence file: %1</translation>
     </message>
     <message>
         <source>Trace：%1
@@ -5496,6 +5398,18 @@ SHA256: %3</translation>
         <translation>This clear will count toward the %1-run mentor achievement. Fill in the required fields and save to apply.</translation>
     </message>
     <message>
+        <source>记录库连接已变化，心情和心得尚未保存。请保留输入，并在原记录库的历史记录中确认后补录。</source>
+        <translation>The record store changed, and the mood and reflection were not saved. Keep what you typed, confirm the run in the original store's history, then add them there.</translation>
+    </message>
+    <message>
+        <source>记录已保存，上一条心得仍在保存中，请稍候重试。</source>
+        <translation>The run is saved; the previous reflection is still being saved, please retry in a moment.</translation>
+    </message>
+    <message>
+        <source>记录已保存，心情和心得未保存，请重试。</source>
+        <translation>The run is saved, but the mood and reflection were not. Please retry.</translation>
+    </message>
+    <message>
         <source>通关</source>
         <translation>Cleared</translation>
     </message>
@@ -5660,6 +5574,10 @@ SHA256: %3</translation>
         <translation>Removed %1 images</translation>
     </message>
     <message>
+        <source>心得不能超过 2000 个字符。</source>
+        <translation>A reflection cannot exceed 2000 characters.</translation>
+    </message>
+    <message>
         <source>还没有修改记录内容。</source>
         <translation>Nothing in the record has been changed yet.</translation>
     </message>
@@ -5708,6 +5626,10 @@ SHA256: %3</translation>
         <translation>Record saved; retry the images</translation>
     </message>
     <message>
+        <source>记录已保存，请重试心情和心得</source>
+        <translation>Run saved; retry the mood and reflection</translation>
+    </message>
+    <message>
         <source>关闭</source>
         <translation>Close</translation>
     </message>
@@ -5732,6 +5654,10 @@ SHA256: %3</translation>
         <translation>Retry images</translation>
     </message>
     <message>
+        <source>重试心情和心得</source>
+        <translation>Retry mood and reflection</translation>
+    </message>
+    <message>
         <source>原样重试</source>
         <translation>Retry as is</translation>
     </message>
@@ -5742,6 +5668,777 @@ SHA256: %3</translation>
     <message>
         <source>添加记录</source>
         <translation>Add record</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceMarkingStep</name>
+    <message>
+        <source>随机类型</source>
+        <translation>Roulette</translation>
+    </message>
+    <message>
+        <source>指导者随机</source>
+        <translation>Mentor roulette</translation>
+    </message>
+    <message>
+        <source>其他随机</source>
+        <translation>Other roulette</translation>
+    </message>
+    <message>
+        <source>注明类型，例：练级随机</source>
+        <translation>Which one, e.g. Leveling</translation>
+    </message>
+    <message>
+        <source>优先采指导者随机</source>
+        <translation>Mentor roulette first</translation>
+    </message>
+    <message>
+        <source>没有导随资格时，用其他随机作对照</source>
+        <translation>If you can't queue Mentor, use another roulette for comparison</translation>
+    </message>
+    <message>
+        <source>事件标记</source>
+        <translation>Event markers</translation>
+    </message>
+    <message>
+        <source>漏按</source>
+        <translation>Missed</translation>
+    </message>
+    <message>
+        <source>事件发生后 3 秒内点。漏按的会自动记为「漏按」，不要事后补点。</source>
+        <translation>Press within 3 seconds of the event. A marker you skip is recorded as missed; never add it afterwards.</translation>
+    </message>
+    <message>
+        <source>这一轮的情况</source>
+        <translation>This round</translation>
+    </message>
+    <message>
+        <source>如实勾选，不要事后补点</source>
+        <translation>Be honest; don't add marks afterwards</translation>
+    </message>
+    <message>
+        <source>处理中…</source>
+        <translation>Processing…</translation>
+    </message>
+    <message>
+        <source>停止采证</source>
+        <translation>Stop capture</translation>
+    </message>
+    <message>
+        <source>离本回到外面再停止</source>
+        <translation>Stop once you're back outside</translation>
+    </message>
+</context>
+<context>
+    <name>EvidencePage</name>
+    <message>
+        <source>捕获诊断</source>
+        <translation>Capture diagnostics</translation>
+    </message>
+    <message>
+        <source>新区服采证</source>
+        <translation>New region capture</translation>
+    </message>
+    <message>
+        <source>帮助适配其他区服 · 不新增正式记录</source>
+        <translation>Helps support other regions · creates no records</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceReadinessStep</name>
+    <message>
+        <source>等待游戏启动</source>
+        <translation>Waiting for the game</translation>
+    </message>
+    <message>
+        <source>正在取证 · 可以登录了</source>
+        <translation>Capturing · you can log in now</translation>
+    </message>
+    <message>
+        <source>启动游戏后会自动开始取证，看到「正在取证」再登录。</source>
+        <translation>Capture starts when the game launches. Log in only after you see “Capturing”.</translation>
+    </message>
+    <message>
+        <source>如果提示重启，完全退出游戏后再重开。</source>
+        <translation>If you're asked to restart, quit the game completely and open it again.</translation>
+    </message>
+    <message>
+        <source>取消等待</source>
+        <translation>Cancel wait</translation>
+    </message>
+    <message>
+        <source>登录后正常活动 30～60 秒，报文要一直增加</source>
+        <translation>Play normally for 30–60 s after logging in; the packet count should keep rising</translation>
+    </message>
+    <message>
+        <source>报文 %1</source>
+        <translation>%1 packets</translation>
+    </message>
+    <message>
+        <source>数据可读，接着排本</source>
+        <translation>Data is readable, go ahead and queue</translation>
+    </message>
+    <message>
+        <source>先截图，再停止并导出诊断，不用继续排本。</source>
+        <translation>Take a screenshot, then stop and export diagnostics. No need to keep queuing.</translation>
+    </message>
+    <message>
+        <source>停止并导出诊断</source>
+        <translation>Stop and export diagnostics</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceReportStep</name>
+    <message>
+        <source>加速器或 VPN</source>
+        <translation>Game booster or VPN</translation>
+    </message>
+    <message>
+        <source>未使用</source>
+        <translation>None</translation>
+    </message>
+    <message>
+        <source>加速器</source>
+        <translation>Booster</translation>
+    </message>
+    <message>
+        <source>名称</source>
+        <translation>Name</translation>
+    </message>
+    <message>
+        <source>加速器或 VPN 的名称</source>
+        <translation>Name of the booster or VPN</translation>
+    </message>
+    <message>
+        <source>副本</source>
+        <translation>Duty</translation>
+    </message>
+    <message>
+        <source>例：天狼星灯塔</source>
+        <translation>e.g. Pharos Sirius</translation>
+    </message>
+    <message>
+        <source>职业</source>
+        <translation>Job</translation>
+    </message>
+    <message>
+        <source>例：白魔法师</source>
+        <translation>e.g. White Mage</translation>
+    </message>
+    <message>
+        <source>这一轮的情况</source>
+        <translation>This round</translation>
+    </message>
+    <message>
+        <source>回传说明</source>
+        <translation>Note for the maintainer</translation>
+    </message>
+    <message>
+        <source>版本、时间、区服、标记和计数已自动填好</source>
+        <translation>Versions, times, region, markers and counts are filled in</translation>
+    </message>
+    <message>
+        <source>已复制</source>
+        <translation>Copied</translation>
+    </message>
+    <message>
+        <source>复制回传说明</source>
+        <translation>Copy note</translation>
+    </message>
+    <message>
+        <source>已复制回传说明，粘贴到 ZIP 旁边的文字里就行</source>
+        <translation>Note copied. Paste it into the message that goes with the ZIP.</translation>
+    </message>
+    <message>
+        <source>打包成一个 ZIP，私下交给维护者：采证文件、诊断 JSON、截图和这段说明。</source>
+        <translation>Put the capture files, diagnostic JSON, screenshots and this note into one ZIP and send it to the maintainer privately.</translation>
+    </message>
+    <message>
+        <source>不要附数据库、游戏程序或 DLL、账号密码和原始抓包；完整 trace 不要贴到公开 Issue。</source>
+        <translation>Don't include the database, game files or DLLs, account passwords or raw packet captures, and never post the full trace in a public issue.</translation>
+    </message>
+    <message>
+        <source>候选摘要（可选）</source>
+        <translation>Candidate summary (optional)</translation>
+    </message>
+    <message>
+        <source>收起</source>
+        <translation>Hide</translation>
+    </message>
+    <message>
+        <source>展开</source>
+        <translation>Expand</translation>
+    </message>
+    <message>
+        <source>预览候选摘要</source>
+        <translation>Preview summary</translation>
+    </message>
+    <message>
+        <source>预览只针对最近一轮，要在下一轮或重开软件前处理。确认后会复制摘要并打开 GitHub 提交页；也可以把复制的 JSON 存成文件一起回传，不必发 Issue。</source>
+        <translation>The preview covers only the latest round; handle it before the next round or a restart. Confirming copies the summary and opens the GitHub form; you can also save the copied JSON as a file and send it along instead of filing an issue.</translation>
+    </message>
+    <message>
+        <source>采证完成只代表拿到候选线索，仍需维护者验证。先回传一轮，确认可用后再补一轮。</source>
+        <translation>A finished capture is only a lead; the maintainer still has to verify it. Send one round first, then do another once it's confirmed useful.</translation>
+    </message>
+    <message>
+        <source>开始下一轮</source>
+        <translation>Start another round</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceSaveStep</name>
+    <message>
+        <source>打开所在目录</source>
+        <translation>Open folder</translation>
+    </message>
+    <message>
+        <source>导出诊断报告</source>
+        <translation>Export report</translation>
+    </message>
+    <message>
+        <source>打开日志目录</source>
+        <translation>Open logs</translation>
+    </message>
+    <message>
+        <source>处理中…</source>
+        <translation>Processing…</translation>
+    </message>
+    <message>
+        <source>停止采证</source>
+        <translation>Stop capture</translation>
+    </message>
+    <message>
+        <source>离本回到外面再停止</source>
+        <translation>Stop once you're back outside</translation>
+    </message>
+    <message>
+        <source>正在保存…</source>
+        <translation>Saving…</translation>
+    </message>
+    <message>
+        <source>已保存 · %1</source>
+        <translation>Saved · %1</translation>
+    </message>
+    <message>
+        <source>已结束，文件不完整</source>
+        <translation>Ended; file incomplete</translation>
+    </message>
+    <message>
+        <source>先截一张图，留下状态和四项计数</source>
+        <translation>Take a screenshot of the status and the four counts</translation>
+    </message>
+    <message>
+        <source>有多少文件就回传多少，缺的会写进回传说明。</source>
+        <translation>Send whatever files there are; the missing ones go into the note.</translation>
+    </message>
+    <message>
+        <source>采证文件：%1</source>
+        <translation>Evidence file: %1</translation>
+    </message>
+    <message>
+        <source>Trace：%1
+SHA256 文件：%2
+SHA256：%3</source>
+        <translation>Trace: %1
+SHA256 file: %2
+SHA256: %3</translation>
+    </message>
+    <message>
+        <source>当前是截图用模拟路径，不会当作可打开的真实取证。</source>
+        <translation>This is a mock path for screenshots, not a real capture that can be opened.</translation>
+    </message>
+    <message>
+        <source>按需附加</source>
+        <translation>ONLY IF NEEDED</translation>
+    </message>
+    <message>
+        <source>每轮分开保存，不改原文件和文件名。</source>
+        <translation>Keep each round separate and don't rename or edit the files.</translation>
+    </message>
+    <message>
+        <source>采证目录只留最近 10 份、7 天内，记得及时复制出去。</source>
+        <translation>The capture folder keeps only the latest 10 rounds from the last 7 days, so copy them out soon.</translation>
+    </message>
+    <message>
+        <source>失败也照样回传已有的文件，缺的会写进回传说明。</source>
+        <translation>Even if something failed, send what you have; missing files are listed in the note.</translation>
+    </message>
+    <message>
+        <source>下一步：生成回传说明</source>
+        <translation>Next: write the note</translation>
+    </message>
+    <message>
+        <source>还缺 %1 项，也能继续，回传说明里会注明</source>
+        <translation>%1 missing. You can still continue; the note will say so.</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceSession</name>
+    <message>
+        <source>报文一直为 0，解码失败在快速增加</source>
+        <translation>Packets stay at 0 and decode failures are climbing fast</translation>
+    </message>
+    <message>
+        <source>报文一直为 0</source>
+        <translation>Packets stay at 0</translation>
+    </message>
+    <message>
+        <source>解码失败在快速增加</source>
+        <translation>Decode failures are climbing fast</translation>
+    </message>
+    <message>
+        <source>选择区服和网卡</source>
+        <translation>Pick the region and adapter</translation>
+    </message>
+    <message>
+        <source>启动游戏，登录后确认数据可读</source>
+        <translation>Start the game and check the data is readable</translation>
+    </message>
+    <message>
+        <source>排一把随机，按事件标记</source>
+        <translation>Queue one roulette and mark each event</translation>
+    </message>
+    <message>
+        <source>停止采证，保存文件</source>
+        <translation>Stop capturing and save the files</translation>
+    </message>
+    <message>
+        <source>打包回传给维护者</source>
+        <translation>Zip it up and send it to the maintainer</translation>
+    </message>
+    <message>
+        <source>国服 CN</source>
+        <translation>China (CN)</translation>
+    </message>
+    <message>
+        <source>繁中服 TC</source>
+        <translation>Traditional Chinese (TC)</translation>
+    </message>
+    <message>
+        <source>国际服 GLOBAL</source>
+        <translation>Global (GLOBAL)</translation>
+    </message>
+    <message>
+        <source>自动</source>
+        <translation>Auto</translation>
+    </message>
+    <message>
+        <source>自动选择（唯一推荐网卡）</source>
+        <translation>Auto (the one recommended adapter)</translation>
+    </message>
+    <message>
+        <source>未命名适配器</source>
+        <translation>Unnamed adapter</translation>
+    </message>
+    <message>
+        <source>%1 · 推荐</source>
+        <translation>%1 · recommended</translation>
+    </message>
+    <message>
+        <source>%1 · %2 · 推荐</source>
+        <translation>%1 · %2 · recommended</translation>
+    </message>
+    <message>
+        <source>%1 · %2</source>
+        <translation>%1 · %2</translation>
+    </message>
+    <message>
+        <source>自动选择</source>
+        <translation>Automatic</translation>
+    </message>
+    <message>
+        <source>已排队</source>
+        <translation>Queued</translation>
+    </message>
+    <message>
+        <source>开始排队</source>
+        <translation>You start queuing</translation>
+    </message>
+    <message>
+        <source>已匹配</source>
+        <translation>Matched</translation>
+    </message>
+    <message>
+        <source>匹配弹窗出现</source>
+        <translation>The duty pops</translation>
+    </message>
+    <message>
+        <source>已进入</source>
+        <translation>Entered</translation>
+    </message>
+    <message>
+        <source>读条结束进本</source>
+        <translation>Loaded into the duty</translation>
+    </message>
+    <message>
+        <source>已胜利</source>
+        <translation>Victory</translation>
+    </message>
+    <message>
+        <source>出现通关提示</source>
+        <translation>The clear message shows</translation>
+    </message>
+    <message>
+        <source>已离开</source>
+        <translation>Left</translation>
+    </message>
+    <message>
+        <source>离本回到外面</source>
+        <translation>You're back outside</translation>
+    </message>
+    <message>
+        <source>指导者随机</source>
+        <translation>Mentor roulette</translation>
+    </message>
+    <message>
+        <source>其他随机（%1）</source>
+        <translation>Other roulette (%1)</translation>
+    </message>
+    <message>
+        <source>其他随机</source>
+        <translation>Other roulette</translation>
+    </message>
+    <message>
+        <source>中途加入</source>
+        <translation>Joined midway</translation>
+    </message>
+    <message>
+        <source>未通关</source>
+        <translation>Not cleared</translation>
+    </message>
+    <message>
+        <source>漏按</source>
+        <translation>Missed</translation>
+    </message>
+    <message>
+        <source>点晚</source>
+        <translation>Late</translation>
+    </message>
+    <message>
+        <source>断线</source>
+        <translation>Disconnected</translation>
+    </message>
+    <message>
+        <source>状态截图</source>
+        <translation>Status screenshot</translation>
+    </message>
+    <message>
+        <source>含状态和四项计数</source>
+        <translation>Status plus the four counts</translation>
+    </message>
+    <message>
+        <source>本轮取证数据</source>
+        <translation>This round's capture</translation>
+    </message>
+    <message>
+        <source>校验文件，和上面同一目录</source>
+        <translation>Checksum, same folder</translation>
+    </message>
+    <message>
+        <source>诊断报告 JSON</source>
+        <translation>Diagnostic report (JSON)</translation>
+    </message>
+    <message>
+        <source>不含游戏内容、网络地址与账号</source>
+        <translation>No game content, network addresses or account info</translation>
+    </message>
+    <message>
+        <source>无法识别游戏版本时，在游戏目录</source>
+        <translation>If the game version isn't recognized; in the game folder</translation>
+    </message>
+    <message>
+        <source>启动或采证出错时，在数据目录 logs</source>
+        <translation>If startup or capture failed; in the data folder's logs</translation>
+    </message>
+    <message>
+        <source>已在「设置 › 数据」备份正式记录（备份只留在本机）</source>
+        <translation>Backed up my records in Settings › Data (the backup stays on this PC)</translation>
+    </message>
+    <message>
+        <source>切换界面语言后，区服仍然正确</source>
+        <translation>The region stays correct after switching the interface language</translation>
+    </message>
+    <message>
+        <source>各区服的成就分开显示，设置互不影响</source>
+        <translation>Each region's achievement shows separately and its settings don't affect the others</translation>
+    </message>
+    <message>
+        <source>手动补录能找到对应区服的副本</source>
+        <translation>Manual entry can find that region's duties</translation>
+    </message>
+    <message>
+        <source>无</source>
+        <translation>none</translation>
+    </message>
+    <message>
+        <source>（未填）</source>
+        <translation>(not filled in)</translation>
+    </message>
+    <message>
+        <source>未使用</source>
+        <translation>None</translation>
+    </message>
+    <message>
+        <source>加速器</source>
+        <translation>Booster</translation>
+    </message>
+    <message>
+        <source>【导随记录器 · 新区服采证回报】</source>
+        <translation>[Mentor Recorder · new region capture report]</translation>
+    </message>
+    <message>
+        <source>软件版本：%1</source>
+        <translation>App version: %1</translation>
+    </message>
+    <message>
+        <source>游戏版本：%1</source>
+        <translation>Game version: %1</translation>
+    </message>
+    <message>
+        <source>系统：%1</source>
+        <translation>System: %1</translation>
+    </message>
+    <message>
+        <source>测试时间：%1 – %2（%3）</source>
+        <translation>Tested: %1 – %2 (%3)</translation>
+    </message>
+    <message>
+        <source>进行中</source>
+        <translation>In progress</translation>
+    </message>
+    <message>
+        <source>区服 / 网卡：%1 · %2</source>
+        <translation>Region / adapter: %1 · %2</translation>
+    </message>
+    <message>
+        <source>加速器或 VPN：%1</source>
+        <translation>Booster or VPN: %1</translation>
+    </message>
+    <message>
+        <source>随机类型：%1</source>
+        <translation>Roulette: %1</translation>
+    </message>
+    <message>
+        <source>副本 / 职业：%1 · %2</source>
+        <translation>Duty / job: %1 · %2</translation>
+    </message>
+    <message>
+        <source>标记：%1</source>
+        <translation>Markers: %1</translation>
+    </message>
+    <message>
+        <source>情况：%1</source>
+        <translation>Notes: %1</translation>
+    </message>
+    <message>
+        <source>、</source>
+        <translation>, </translation>
+    </message>
+    <message>
+        <source>计数：报文 %1 · 已写入标记 %2 · 解码失败 %3 · 队列丢弃 %4</source>
+        <translation>Counts: %1 packets · %2 markers written · %3 decode failures · %4 queue drops</translation>
+    </message>
+    <message>
+        <source>附件：%1</source>
+        <translation>Attached: %1</translation>
+    </message>
+    <message>
+        <source>缺失：%1</source>
+        <translation>Missing: %1</translation>
+    </message>
+    <message>
+        <source>开始于 %1</source>
+        <translation>started %1</translation>
+    </message>
+    <message>
+        <source>数据异常，已停止</source>
+        <translation>Data problem, stopped</translation>
+    </message>
+    <message>
+        <source>数据可读 · 报文 %1</source>
+        <translation>Data readable · %1 packets</translation>
+    </message>
+    <message>
+        <source>%1 · 标记 %2 / 5</source>
+        <translation>%1 · %2 / 5 marked</translation>
+    </message>
+    <message>
+        <source>已保存 · 文件 %1 / %2</source>
+        <translation>Saved · %1 / %2 files</translation>
+    </message>
+    <message>
+        <source>等待游戏启动</source>
+        <translation>Waiting for the game</translation>
+    </message>
+    <message>
+        <source>数据异常</source>
+        <translation>Data problem</translation>
+    </message>
+    <message>
+        <source>正在取证</source>
+        <translation>Capturing</translation>
+    </message>
+    <message>
+        <source>正在保存</source>
+        <translation>Saving</translation>
+    </message>
+    <message>
+        <source>已保存</source>
+        <translation>Saved</translation>
+    </message>
+    <message>
+        <source>已结束，文件不完整</source>
+        <translation>Ended; file incomplete</translation>
+    </message>
+    <message>
+        <source>失败</source>
+        <translation>Failed</translation>
+    </message>
+    <message>
+        <source>尚未开始</source>
+        <translation>Not started</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceSetupStep</name>
+    <message>
+        <source>未安装 Npcap，暂时不能采证</source>
+        <translation>Npcap isn't installed, so capture isn't available</translation>
+    </message>
+    <message>
+        <source>游戏正在运行：先完全退出游戏，再开始采证</source>
+        <translation>The game is running: quit it completely before you start</translation>
+    </message>
+    <message>
+        <source>游戏未运行，可以开始</source>
+        <translation>The game isn't running, ready to start</translation>
+    </message>
+    <message>
+        <source>已经退出了，重新检测</source>
+        <translation>I've quit, check again</translation>
+    </message>
+    <message>
+        <source>采证操作失败：</source>
+        <translation>Capture command failed: </translation>
+    </message>
+    <message>
+        <source>错误码：</source>
+        <translation>Error code: </translation>
+    </message>
+    <message>
+        <source>当前正在正式记录，不能切换为采证。已有版本的校准核实请用「工具 › 共享校准证据」。</source>
+        <translation>A formal recording is running, so it cannot switch to a capture. To verify a calibration for a known build, use Tools › Calibration evidence.</translation>
+    </message>
+    <message>
+        <source>Trace：%1
+SHA256 文件：%2
+SHA256：%3</source>
+        <translation>Trace: %1
+SHA256 file: %2
+SHA256: %3</translation>
+    </message>
+    <message>
+        <source>区服</source>
+        <translation>Region</translation>
+    </message>
+    <message>
+        <source>和界面语言分开设置；监听或采证期间不能修改</source>
+        <translation>Set separately from the interface language. Locked while listening or capturing.</translation>
+    </message>
+    <message>
+        <source>网络适配器</source>
+        <translation>Network adapter</translation>
+    </message>
+    <message>
+        <source>采证网络适配器</source>
+        <translation>Capture network adapter</translation>
+    </message>
+    <message>
+        <source>处理中…</source>
+        <translation>Processing…</translation>
+    </message>
+    <message>
+        <source>开始采证</source>
+        <translation>Start capture</translation>
+    </message>
+    <message>
+        <source>采证前可选检查</source>
+        <translation>Optional checks first</translation>
+    </message>
+    <message>
+        <source>收起</source>
+        <translation>Hide</translation>
+    </message>
+    <message>
+        <source>展开</source>
+        <translation>Expand</translation>
+    </message>
+    <message>
+        <source>测成就设置前先记下原值，测完恢复；不方便就跳过，回传时注明。</source>
+        <translation>Note the original values before testing achievement settings and restore them afterwards. If that's inconvenient, skip it and mention it when you send the files.</translation>
+    </message>
+    <message>
+        <source>去「设置 › 数据」备份</source>
+        <translation>Back up in Settings › Data</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceSidebar</name>
+    <message>
+        <source>本轮状态</source>
+        <translation>This round</translation>
+    </message>
+    <message>
+        <source>还没开始</source>
+        <translation>Not started yet</translation>
+    </message>
+    <message>
+        <source>报文</source>
+        <translation>Packets</translation>
+    </message>
+    <message>
+        <source>+%1 / 秒</source>
+        <translation>+%1 / s</translation>
+    </message>
+    <message>
+        <source>已写入标记</source>
+        <translation>Markers written</translation>
+    </message>
+    <message>
+        <source>解码失败</source>
+        <translation>Decode failures</translation>
+    </message>
+    <message>
+        <source>队列丢弃</source>
+        <translation>Queue drops</translation>
+    </message>
+    <message>
+        <source>仅验证，不自动记录</source>
+        <translation>Verification only, nothing is recorded</translation>
+    </message>
+    <message>
+        <source>取证文件只存在本机</source>
+        <translation>Capture files stay on this PC</translation>
+    </message>
+    <message>
+        <source>不会自动上传</source>
+        <translation>Nothing is uploaded automatically</translation>
+    </message>
+    <message>
+        <source>单轮最长 2 小时，含等待时间</source>
+        <translation>Up to 2 hours per round, waiting included</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceStep</name>
+    <message>
+        <source>当前</source>
+        <translation>Current</translation>
+    </message>
+    <message>
+        <source>完成</source>
+        <translation>Done</translation>
     </message>
 </context>
 <context>
@@ -6104,10 +6801,6 @@ SHA256: %3</translation>
     <message>
         <source>上一页</source>
         <translation>Previous</translation>
-    </message>
-    <message>
-        <source>%1 / %2</source>
-        <translation>%1 / %2</translation>
     </message>
     <message>
         <source>下一页</source>
@@ -7088,6 +7781,14 @@ The image text was read as “%2”; confirm against the original image.</transl
         <translation>Mentor Recorder</translation>
     </message>
     <message>
+        <source>采证中</source>
+        <translation>Capturing</translation>
+    </message>
+    <message>
+        <source>打开新区服采证</source>
+        <translation>Open new region capture</translation>
+    </message>
+    <message>
         <source>浅色</source>
         <translation>Light</translation>
     </message>
@@ -7727,6 +8428,25 @@ Recorder</translation>
     </message>
 </context>
 <context>
+    <name>PageNumberInput</name>
+    <message>
+        <source>跳转页码</source>
+        <translation>Page number</translation>
+    </message>
+    <message>
+        <source>输入 1～%1 页，按回车或点击跳转</source>
+        <translation>Enter a page from 1 to %1, then press Enter or click Go.</translation>
+    </message>
+    <message>
+        <source>/ %1 页</source>
+        <translation>/ %1</translation>
+    </message>
+    <message>
+        <source>跳转</source>
+        <translation>Go</translation>
+    </message>
+</context>
+<context>
     <name>PendingWorkContent</name>
     <message>
         <source>正在读取待处理记录…</source>
@@ -7786,6 +8506,29 @@ Recorder</translation>
     <message>
         <source>记录区服</source>
         <translation>Record region</translation>
+    </message>
+</context>
+<context>
+    <name>RecordingWarningWindow</name>
+    <message>
+        <source>导随记录器 · 自动记录暂不可用</source>
+        <translation>Mentor Recorder · Automatic recording unavailable</translation>
+    </message>
+    <message>
+        <source>自动记录暂不可用</source>
+        <translation>Automatic recording unavailable</translation>
+    </message>
+    <message>
+        <source>恢复前，副本可能无法自动记录。后台仍会继续尝试恢复。</source>
+        <translation>Duties may not be recorded automatically until recovery. The app will keep trying in the background.</translation>
+    </message>
+    <message>
+        <source>查看诊断</source>
+        <translation>View diagnostics</translation>
+    </message>
+    <message>
+        <source>我知道了</source>
+        <translation>Understood</translation>
     </message>
 </context>
 <context>
@@ -8295,10 +9038,6 @@ Recorder</translation>
     <message>
         <source>上一页</source>
         <translation>Previous</translation>
-    </message>
-    <message>
-        <source>第 %1 / %2 页</source>
-        <translation>Page %1 / %2</translation>
     </message>
     <message>
         <source>下一页</source>
@@ -8997,6 +9736,34 @@ Turning this off excludes the clear from achievement progress, but the run still
     <message>
         <source>图片保存在软件安装目录：%1</source>
         <translation>Images are saved in the app&apos;s install folder: %1</translation>
+    </message>
+    <message>
+        <source>这次感觉（可选）</source>
+        <translation>How it felt (optional)</translation>
+    </message>
+    <message>
+        <source>不填写</source>
+        <translation>Leave blank</translation>
+    </message>
+    <message>
+        <source>顺利</source>
+        <translation>Smooth</translation>
+    </message>
+    <message>
+        <source>一般</source>
+        <translation>So-so</translation>
+    </message>
+    <message>
+        <source>糟心</source>
+        <translation>Rough</translation>
+    </message>
+    <message>
+        <source>心得（可选）</source>
+        <translation>Reflection (optional)</translation>
+    </message>
+    <message>
+        <source>写一句心得；只选心情时，将以心情文字保存。</source>
+        <translation>Write a short reflection; with only a mood chosen, the mood's words are saved.</translation>
     </message>
     <message>
         <source>修改前后对比</source>
@@ -10034,6 +10801,10 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <translation>Checked again: %1 network adapters found (Npcap isn&apos;t installed yet, so no automatic recording for now)</translation>
     </message>
     <message>
+        <source>无法访问剪贴板。</source>
+        <translation>The clipboard could not be accessed.</translation>
+    </message>
+    <message>
         <source>已打开 Npcap 官方网站，请在浏览器中下载驱动。</source>
         <translation>Opened the official Npcap website. Download the driver in your browser.</translation>
     </message>
@@ -10831,6 +11602,14 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>已打开 %1</source>
         <translation>Opened %1</translation>
+    </message>
+    <message>
+        <source>找不到日志文件夹。</source>
+        <translation>The log folder could not be found.</translation>
+    </message>
+    <message>
+        <source>日志文件夹还不存在：%1。后台服务写入日志后会创建它。</source>
+        <translation>The log folder does not exist yet: %1. The background service creates it when it writes a log.</translation>
     </message>
 </context>
 <context>
@@ -13156,20 +13935,5 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>The installer didn&apos;t start, possibly because the Windows install confirmation wasn&apos;t accepted. This app keeps running; click “Install now” again, or click “Download in browser”.</translation>
     </message>
-</context>
-<context>
-    <name>PageNumberInput</name>
-    <message><source>跳转页码</source><translation>Page number</translation></message>
-    <message><source>输入 1～%1 页，按回车或点击跳转</source><translation>Enter a page from 1 to %1, then press Enter or click Go.</translation></message>
-    <message><source>/ %1 页</source><translation>/ %1</translation></message>
-    <message><source>跳转</source><translation>Go</translation></message>
-</context>
-<context>
-    <name>RecordingWarningWindow</name>
-    <message><source>导随记录器 · 自动记录暂不可用</source><translation>Mentor Recorder · Automatic recording unavailable</translation></message>
-    <message><source>自动记录暂不可用</source><translation>Automatic recording unavailable</translation></message>
-    <message><source>恢复前，副本可能无法自动记录。后台仍会继续尝试恢复。</source><translation>Duties may not be recorded automatically until recovery. The app will keep trying in the background.</translation></message>
-    <message><source>查看诊断</source><translation>View diagnostics</translation></message>
-    <message><source>我知道了</source><translation>Understood</translation></message>
 </context>
 </TS>

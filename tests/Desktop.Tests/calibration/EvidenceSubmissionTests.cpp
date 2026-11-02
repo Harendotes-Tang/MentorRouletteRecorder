@@ -410,7 +410,7 @@ ApplicationWindow {
     width: 1100; height: 720; visible: true; color: Theme.contentBackground
     ScrollView { anchors.fill: parent
         contentWidth: availableWidth
-        CaptureValidationEvidenceCard { width: parent.width; guidedMode: true }
+        EvidencePage { width: parent.width }
     }
 })", QUrl());
         std::unique_ptr<QObject> root(component.create());

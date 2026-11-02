@@ -751,6 +751,22 @@ ApplicationWindow {
                         Layout.maximumWidth: 420
                     }
 
+                    // `.ev-pill`: a 采证 round in progress, with its clock; the page
+                    // is one click away from anywhere.
+                    EvidenceClock { id: evidenceClock }
+                    AppButton {
+                        objectName: "evidenceTitlePill"
+                        visible: Runtime.app.validationActive
+                        compact: true
+                        variant: "secondary"
+                        text: qsTr("采证中") + "  " + evidenceClock.elapsedText
+                        onClicked: {
+                            Runtime.app.navigate(4)
+                            capturePage.openObservationGuide()
+                        }
+                        Accessible.description: qsTr("打开新区服采证")
+                    }
+
                     AppButton {
                         id: themeToggleButton
                         objectName: "themeToggleButton"
@@ -1101,11 +1117,16 @@ ApplicationWindow {
                             anchors.fill: parent
 
                         CapturePage {
+                            id: capturePage
                             anchors.fill: parent
                             onOpenCalibrationRequested: calibrationDialog.openDialog()
                             onOpenRegionSettingsRequested: {
                                 Runtime.app.navigate(5)
                                 settingsPage.openRegionSettings()
+                            }
+                            onOpenDataSettingsRequested: {
+                                Runtime.app.navigate(5)
+                                settingsPage.selectTab("data")
                             }
                         }
                         }

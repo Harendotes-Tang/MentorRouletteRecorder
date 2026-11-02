@@ -289,4 +289,19 @@ void ExportController::openDatabaseFolder(const QString &databasePath)
     Q_EMIT toastRequested(tr("已打开 %1").arg(QDir::toNativeSeparators(folder)));
 }
 
+void ExportController::openLogsFolder()
+{
+    const QString dataDir = CollectorProcess::collectorDataDirectory();
+    const QString folder = dataDir.isEmpty() ? QString() : QDir(dataDir).filePath(QStringLiteral("logs"));
+    if (folder.isEmpty() || !QDir(folder).exists()) {
+        Q_EMIT toastRequested(folder.isEmpty()
+            ? tr("找不到日志文件夹。")
+            : tr("日志文件夹还不存在：%1。后台服务写入日志后会创建它。").arg(QDir::toNativeSeparators(folder)));
+        return;
+    }
+    // A local folder only, as openDatabaseFolder() above.
+    QDesktopServices::openUrl(QUrl::fromLocalFile(folder));
+    Q_EMIT toastRequested(tr("已打开 %1").arg(QDir::toNativeSeparators(folder)));
+}
+
 } // namespace mr

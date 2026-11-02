@@ -24,7 +24,8 @@ void registerTestRuntime()
     // Existing source fixtures register shared controls themselves. Feature
     // folders retain the same public type names after physical regrouping.
     const QString root = QString::fromUtf8(MR_DESKTOP_QML_DIR);
-    for (const QString &folder : {QStringLiteral("/overlay"), QStringLiteral("/calibration")}) {
+    for (const QString &folder : {QStringLiteral("/overlay"), QStringLiteral("/calibration"),
+                                  QStringLiteral("/evidence")}) {
         const QDir directory(root + folder);
         if (!directory.exists())
             qFatal("Feature QML test source directory is missing: %s", qPrintable(directory.path()));

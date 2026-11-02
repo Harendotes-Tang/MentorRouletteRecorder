@@ -59,6 +59,7 @@ class QmlRuntime final : public QObject
     Q_PROPERTY(bool forceOpenShare READ forceOpenShare NOTIFY forceOpenShareChanged)
     Q_PROPERTY(bool forceOpenImport READ forceOpenImport NOTIFY forceOpenImportChanged)
     Q_PROPERTY(bool forceOpenDetail READ forceOpenDetail NOTIFY forceOpenDetailChanged)
+    Q_PROPERTY(QString forceOpenEvidence READ forceOpenEvidence NOTIFY forceOpenEvidenceChanged)
     Q_PROPERTY(bool forceOpenEdit READ forceOpenEdit NOTIFY forceOpenEditChanged)
     Q_PROPERTY(bool forceOpenCreate READ forceOpenCreate NOTIFY forceOpenCreateChanged)
     Q_PROPERTY(int forceWizardStep READ forceWizardStep NOTIFY forceWizardStepChanged)
@@ -102,6 +103,7 @@ public:
         ForceOpenEdit,
         ForceOpenCreate,
         ForceWizardStep,
+        ForceOpenEvidence,
         StartInTray
     };
 
@@ -170,6 +172,9 @@ public:
     bool forceOpenEdit() const { return value(Field::ForceOpenEdit).toBool(); }
     bool forceOpenCreate() const { return value(Field::ForceOpenCreate).toBool(); }
     int forceWizardStep() const { return value(Field::ForceWizardStep).toInt(); }
+    /// Screenshot mode: "" (nothing), "steps" (新区服采证 open on its current step) or
+    /// "report" (the finished round's 回传说明 step).
+    QString forceOpenEvidence() const { return value(Field::ForceOpenEvidence).toString(); }
     bool startInTray() const { return value(Field::StartInTray).toBool(); }
 
 signals:
@@ -206,6 +211,7 @@ signals:
     void forceOpenEditChanged();
     void forceOpenCreateChanged();
     void forceWizardStepChanged();
+    void forceOpenEvidenceChanged();
     void startInTrayChanged();
 
 private:

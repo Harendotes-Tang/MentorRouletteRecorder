@@ -16,6 +16,7 @@
 #include "workflows/RunCompletionCoordinator.h"
 
 #include <QDate>
+#include <QClipboard>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
@@ -25,6 +26,7 @@
 #include <QJsonValue>
 #include <QStandardPaths>
 #include <QStyleHints>
+#include <QSysInfo>
 #include <QUrl>
 #include <QTimeZone>
 
@@ -2136,6 +2138,26 @@ void AppController::openDatabaseFolder()
 {
     m_export->openDatabaseFolder(
         m_collectorStatus.value(QStringLiteral("database_path")).toString());
+}
+
+void AppController::openLogsFolder()
+{
+    m_export->openLogsFolder();
+}
+
+void AppController::copyToClipboard(const QString &text)
+{
+    auto *clipboard = QGuiApplication::clipboard();
+    if (!clipboard) {
+        showToast(tr("无法访问剪贴板。"));
+        return;
+    }
+    clipboard->setText(text);
+}
+
+QString AppController::systemVersion() const
+{
+    return QStringLiteral("%1 (%2)").arg(QSysInfo::prettyProductName(), QSysInfo::kernelVersion());
 }
 
 void AppController::rereadCaptureStatus()

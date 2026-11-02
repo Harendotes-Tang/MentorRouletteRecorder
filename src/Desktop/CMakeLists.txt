@@ -368,6 +368,19 @@ set(MR_QML_FILES
     qml/components/CaptureRegionSelector.qml
     qml/components/UpdateDownloadStatus.qml
     qml/components/UpdateNotice.qml
+    qml/evidence/EvidenceClock.qml
+    qml/evidence/EvidenceHint.qml
+    qml/evidence/EvidenceIcon.qml
+    qml/evidence/EvidenceMarkingStep.qml
+    qml/evidence/EvidencePage.qml
+    qml/evidence/EvidencePulse.qml
+    qml/evidence/EvidenceReadinessStep.qml
+    qml/evidence/EvidenceReportStep.qml
+    qml/evidence/EvidenceSaveStep.qml
+    qml/evidence/EvidenceSession.qml
+    qml/evidence/EvidenceSetupStep.qml
+    qml/evidence/EvidenceSidebar.qml
+    qml/evidence/EvidenceStep.qml
     qml/dialogs/BaselineDialog.qml
     qml/dialogs/DisclosureDialog.qml
     qml/dialogs/ReleaseNotesDialog.qml

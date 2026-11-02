@@ -50,6 +50,9 @@ public:
     /// \a databasePath is GetStatus.database_path; empty falls back to the
     /// per-user data directory.
     void openDatabaseFolder(const QString &databasePath);
+    /// Open the Collector's `logs` folder (collector-*.log) under the data
+    /// directory; the 新区服采证 file list points a player there.
+    void openLogsFolder();
 
     /// 完整性校验: CheckDatabaseIntegrity. Ignored while one is running.
     void checkDatabaseIntegrity();

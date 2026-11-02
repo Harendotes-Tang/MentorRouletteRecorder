@@ -17,6 +17,11 @@ Card {
     readonly property var warnings: Theme.live(Runtime.app.collectorWarnings) || []
     readonly property var evidence: typeof Runtime.calibrationEvidence !== "undefined" ? Runtime.calibrationEvidence : null
     signal toggleObservationGuideRequested()
+    // 帮助适配其他区服 follows the round: 采证中 with the clock, 已保存 waiting
+    // for the hand-over, else the standing sentence.
+    readonly property EvidenceClock evidenceClock: EvidenceClock {}
+    readonly property bool evidenceActive: Runtime.app.validationActive
+    readonly property bool evidenceSaved: Runtime.app.validationState === "COMPLETED"
 
     horizontalPadding: 20
     verticalPadding: 16
@@ -45,10 +50,13 @@ Card {
         objectName: "templateObservationGuideRow"
         visible: !!tools.evidence
         label: qsTr("帮助适配其他区服")
-        description: qsTr("按步骤采集报文元数据，未适配区服仍不正式记录")
+        description: tools.evidenceActive ? qsTr("采证中 · %1").arg(tools.evidenceClock.elapsedText)
+                     : tools.evidenceSaved ? qsTr("已保存，等回传")
+                     : qsTr("按步骤采集报文元数据，未适配的区服仍不正式记录")
+        descriptionColor: tools.evidenceActive ? Theme.orangeText : Theme.textSecondary
         AppButton {
             objectName: "templateObservationGuideButton"
-            text: qsTr("采证步骤")
+            text: tools.evidenceActive || tools.evidenceSaved ? qsTr("继续") : qsTr("采证步骤")
             onClicked: tools.toggleObservationGuideRequested()
         }
     }

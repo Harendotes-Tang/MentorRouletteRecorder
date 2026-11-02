@@ -1301,7 +1301,7 @@ private slots:
         scene.app->refreshStatus();
         QTRY_COMPARE(scene.app->protocolProfileStatus(), QStringLiteral("VERIFIED"));
         QTRY_VERIFY(scene.visibleTexts().join(QLatin1Char('\n'))
-                        .contains(QString::fromUtf8("当前正在正式记录；以下为最近一次验证取证证据。")));
+                        .contains(QString::fromUtf8("当前正在正式记录，不能切换为采证")));
     }
 
     // -- 解析 ---------------------------------------------------------------

@@ -1880,12 +1880,24 @@
         <translation>協助支援其他伺服器地區</translation>
     </message>
     <message>
-        <source>按步骤采集报文元数据，未适配区服仍不正式记录</source>
-        <translation>依步驟採集封包中繼資料；尚未支援的伺服器地區仍不會正式記錄</translation>
+        <source>采证中 · %1</source>
+        <translation>採證中 · %1</translation>
+    </message>
+    <message>
+        <source>已保存，等回传</source>
+        <translation>已儲存，等回傳</translation>
+    </message>
+    <message>
+        <source>按步骤采集报文元数据，未适配的区服仍不正式记录</source>
+        <translation>按步驟採集報文中繼資料，未適配的區服仍不正式記錄</translation>
     </message>
     <message>
         <source>采证步骤</source>
         <translation>採證步驟</translation>
+    </message>
+    <message>
+        <source>继续</source>
+        <translation>繼續</translation>
     </message>
     <message>
         <source>导出诊断报告</source>
@@ -1925,10 +1937,6 @@
     <message>
         <source>未命名适配器</source>
         <translation>未命名網路介面</translation>
-    </message>
-    <message>
-        <source>%1 · 推荐</source>
-        <translation>%1 · 推薦</translation>
     </message>
     <message>
         <source>%1 · %2 · 推荐</source>
@@ -1979,56 +1987,12 @@
         <translation>桌面驗證取證</translation>
     </message>
     <message>
-        <source>新区服采证步骤</source>
-        <translation>新伺服器地區採證步驟</translation>
-    </message>
-    <message>
-        <source>1. 先退出游戏，选好实际区服和网卡（繁中服选 TC），再点“开始采证”。
-2. 启动游戏，等这里显示“正在取证”后再登录；若提示重启，须完全退出游戏后重开。
-3. 离本后停止采证，等到“已保存”再取文件。本轮只收集元数据，不会新增正式记录。</source>
-        <translation>1. 先退出遊戲，選好實際區服和網路介面（繁中服選 TC），再點「開始採證」。
-2. 啟動遊戲，等這裡顯示「正在取證」後再登入；若提示重啟，須完全退出遊戲後重開。
-3. 離本後停止採證，等到「已儲存」再取檔案。本輪只收集中繼資料，不會新增正式記錄。</translation>
-    </message>
-    <message>
-        <source>取消等待</source>
-        <translation>取消等待</translation>
-    </message>
-    <message>
-        <source>停止采证</source>
-        <translation>停止採證</translation>
-    </message>
-    <message>
-        <source>切换为采证</source>
-        <translation>切換為採證</translation>
-    </message>
-    <message>
-        <source>开始采证</source>
-        <translation>開始採證</translation>
-    </message>
-    <message>
-        <source>预览候选摘要</source>
-        <translation>預覽候選摘要</translation>
-    </message>
-    <message>
-        <source>当前正在正式记录，不能切换为候选采证。已有模板的校准核实请使用上方“共享校准证据”。</source>
-        <translation>目前正在正式記錄，無法切換為候選採證。已有範本的校準核實請使用上方的「共享校準證據」。</translation>
-    </message>
-    <message>
-        <source>点击“切换为采证”会停止当前被动监听，改为只保存本机元数据；停止采证后自动监听可恢复。</source>
-        <translation>點選「切換為採證」會停止目前的被動監聽，改為只儲存本機中繼資料；停止採證後可恢復自動監聽。</translation>
-    </message>
-    <message>
         <source>候选验证仅写入独立观测账本；以下是单独的桌面验证取证工具。</source>
         <translation>候選驗證僅寫入獨立的觀測帳本；以下是另外的桌面驗證取證工具。</translation>
     </message>
     <message>
         <source>当前正在正式记录；以下为最近一次验证取证证据。</source>
         <translation>目前正在正式記錄；以下為最近一次驗證取證的證據。</translation>
-    </message>
-    <message>
-        <source>点击上方按钮开始或停止采证。</source>
-        <translation>點選上方按鈕開始或停止採證。</translation>
     </message>
     <message>
         <source>点击标题行的按钮开始或停止。</source>
@@ -2071,64 +2035,6 @@
         <translation>區服與介面語言分別設定。請選擇實際區服：繁中服為 TC，國際服為 GLOBAL；監聽或採證期間不可修改。</translation>
     </message>
     <message>
-        <source>开始排队 → 已排队；匹配弹窗出现 → 已匹配；读条结束进本 → 已进入；出现通关提示 → 已胜利；离本回到外面 → 已离开。尽量在事件发生后 3 秒内点击；漏按、点晚或未通关要如实记录，不要事后补点。</source>
-        <translation>開始排隊 → 已排隊；配對視窗出現 → 已配對；讀取結束進本 → 已進入；出現通關提示 → 已勝利；離本回到外面 → 已離開。盡量在事件發生後 3 秒內點擊；漏按、點晚或未通關要如實記錄，不要事後補點。</translation>
-    </message>
-    <message>
-        <source>先确认数据可读</source>
-        <translation>先確認資料可讀</translation>
-    </message>
-    <message>
-        <source>登录后正常活动 30～60 秒，查看上方采证“报文”是否增加。一直为 0 或“解码失败”快速增加时，先截图、停止并导出诊断，不必继续排本。
-优先采指导者随机；没有资格可采普通随机作对照，并注明类型。先回传一轮，确认可用后再补一轮。单次最长 2 小时，含等待时间。</source>
-        <translation>登入後正常活動 30～60 秒，查看上方採證「封包」是否增加。一直為 0 或「解碼失敗」快速增加時，先截圖、停止並匯出診斷，不必繼續排本。
-優先採指導者隨機；沒有資格可採一般隨機作對照，並註明類型。先回傳一輪，確認可用後再補一輪。單次最長 2 小時，含等待時間。</translation>
-    </message>
-    <message>
-        <source>停止后保存这些文件</source>
-        <translation>停止後保存這些檔案</translation>
-    </message>
-    <message>
-        <source>1. 点“停止采证”，等“已保存”，截图保存状态和四项计数。
-2. 点“打开所在目录”，复制本轮 trace.jsonl 与 trace.jsonl.sha256；每轮分开保存，不改原文件和文件名。
-3. 在上方“工具”点“导出诊断报告”并保存 JSON。
-失败时有多少文件就回传多少，注明缺失项，不自行补造。采证目录只保留最近 10 份且不超过 7 天，请及时复制到外部文件夹。</source>
-        <translation>1. 點「停止採證」，等「已儲存」，截圖保存狀態和四項計數。
-2. 點「開啟所在資料夾」，複製本輪 trace.jsonl 與 trace.jsonl.sha256；每輪分開保存，不改原檔案和檔名。
-3. 在上方「工具」點「匯出診斷報告」並保存 JSON。
-失敗時有多少檔案就回傳多少，註明缺失項，不自行補造。採證目錄只保留最近 10 份且不超過 7 天，請及時複製到外部資料夾。</translation>
-    </message>
-    <message>
-        <source>摘要和附加文件（可选）</source>
-        <translation>摘要和附加檔案（選填）</translation>
-    </message>
-    <message>
-        <source>可先“预览候选摘要”；摘要不足或预览失败，不影响回传上述文件。预览只针对当前最近一轮，需在下一轮或重开软件前处理。
-“复制摘要并打开提交页”会复制完整 JSON 并打开 GitHub，页面可能预填摘要。可将复制内容原样保存为 JSON 回传，无需发布 Issue；不想打开 GitHub 可跳过摘要。
-无法识别游戏版本时，可附 game 目录内的 ffxivgame.ver；启动或采证异常时，可附数据目录 logs 内对应时间的 collector-*.log。</source>
-        <translation>可先「預覽候選摘要」；摘要不足或預覽失敗，不影響回傳上述檔案。預覽只針對目前最近一輪，需在下一輪或重開軟體前處理。
-「複製摘要並開啟送出頁面」會複製完整 JSON 並開啟 GitHub，頁面可能預填摘要。可將複製內容原樣保存為 JSON 回傳，無需發布 Issue；不想開啟 GitHub 可跳過摘要。
-無法識別遊戲版本時，可附 game 目錄內的 ffxivgame.ver；啟動或採證異常時，可附資料目錄 logs 內對應時間的 collector-*.log。</translation>
-    </message>
-    <message>
-        <source>回传时一起说明</source>
-        <translation>回傳時一起說明</translation>
-    </message>
-    <message>
-        <source>将每轮采证文件、诊断 JSON、状态或错误截图及文字回报放在同一 ZIP，私下交给维护者。请写明：软件、游戏和 Windows 版本，测试时间及时区，加速器或 VPN，随机类型、副本、职业，是否中途加入、通关，以及漏按、延迟、断线等情况。
-不需要数据库、游戏程序或 DLL、账号密码和原始抓包；完整 trace 不要贴到公开 Issue。采证完成只代表取得候选线索，仍需维护者验证。</source>
-        <translation>將每輪採證檔案、診斷 JSON、狀態或錯誤截圖及文字回報放在同一 ZIP，私下交給維護者。請寫明：軟體、遊戲和 Windows 版本，測試時間及時區，加速器或 VPN，隨機類型、副本、職業，是否途中加入、通關，以及漏按、延遲、斷線等情況。
-不需要資料庫、遊戲程式或 DLL、帳號密碼和原始抓包；完整 trace 不要貼到公開 Issue。採證完成只代表取得候選線索，仍需維護者驗證。</translation>
-    </message>
-    <message>
-        <source>采证前也可检查界面</source>
-        <translation>採證前也可檢查介面</translation>
-    </message>
-    <message>
-        <source>已有正式记录可先在“设置 → 数据”备份，备份留本机。可先检查：切换界面语言后区服仍正确；各区成就分开显示且设置互不影响；手动补录能找到对应区服的副本。测试成就设置前记下原值，测试后恢复；不方便修改时可跳过并注明。</source>
-        <translation>已有正式記錄可先在「設定 → 資料」備份，備份留本機。可先檢查：切換介面語言後區服仍正確；各區成就分開顯示且設定互不影響；手動補錄能找到對應區服的副本。測試成就設定前記下原值，測試後恢復；不方便修改時可跳過並註明。</translation>
-    </message>
-    <message>
         <source>已排队</source>
         <translation>已排隊</translation>
     </message>
@@ -2167,10 +2073,6 @@
     <message>
         <source>队列丢弃 %1</source>
         <translation>佇列丟棄 %1</translation>
-    </message>
-    <message>
-        <source>采证文件：%1</source>
-        <translation>採證檔案：%1</translation>
     </message>
     <message>
         <source>Trace：%1
@@ -5496,6 +5398,18 @@ SHA256：%3</translation>
         <translation>這筆通關記錄將計入 %1 次導隨成就的進度。填完必填資訊後儲存即生效。</translation>
     </message>
     <message>
+        <source>记录库连接已变化，心情和心得尚未保存。请保留输入，并在原记录库的历史记录中确认后补录。</source>
+        <translation>記錄庫連線已變化，心情和心得尚未儲存。請保留輸入，並在原記錄庫的歷史記錄中確認後補錄。</translation>
+    </message>
+    <message>
+        <source>记录已保存，上一条心得仍在保存中，请稍候重试。</source>
+        <translation>記錄已儲存，上一條心得仍在儲存中，請稍候重試。</translation>
+    </message>
+    <message>
+        <source>记录已保存，心情和心得未保存，请重试。</source>
+        <translation>記錄已儲存，心情和心得未儲存，請重試。</translation>
+    </message>
+    <message>
         <source>通关</source>
         <translation>通關</translation>
     </message>
@@ -5660,6 +5574,10 @@ SHA256：%3</translation>
         <translation>已移除 %1 張圖片</translation>
     </message>
     <message>
+        <source>心得不能超过 2000 个字符。</source>
+        <translation>心得不能超過 2000 個字元。</translation>
+    </message>
+    <message>
         <source>还没有修改记录内容。</source>
         <translation>還沒有修改記錄內容。</translation>
     </message>
@@ -5708,6 +5626,10 @@ SHA256：%3</translation>
         <translation>記錄已儲存，請重試圖片</translation>
     </message>
     <message>
+        <source>记录已保存，请重试心情和心得</source>
+        <translation>記錄已儲存，請重試心情和心得</translation>
+    </message>
+    <message>
         <source>关闭</source>
         <translation>關閉</translation>
     </message>
@@ -5732,6 +5654,10 @@ SHA256：%3</translation>
         <translation>重試圖片</translation>
     </message>
     <message>
+        <source>重试心情和心得</source>
+        <translation>重試心情和心得</translation>
+    </message>
+    <message>
         <source>原样重试</source>
         <translation>原樣重試</translation>
     </message>
@@ -5742,6 +5668,777 @@ SHA256：%3</translation>
     <message>
         <source>添加记录</source>
         <translation>新增記錄</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceMarkingStep</name>
+    <message>
+        <source>随机类型</source>
+        <translation>隨機類型</translation>
+    </message>
+    <message>
+        <source>指导者随机</source>
+        <translation>指導者隨機</translation>
+    </message>
+    <message>
+        <source>其他随机</source>
+        <translation>其他隨機</translation>
+    </message>
+    <message>
+        <source>注明类型，例：练级随机</source>
+        <translation>註明類型，例：練級隨機</translation>
+    </message>
+    <message>
+        <source>优先采指导者随机</source>
+        <translation>優先採指導者隨機</translation>
+    </message>
+    <message>
+        <source>没有导随资格时，用其他随机作对照</source>
+        <translation>沒有導隨資格時，用其他隨機作對照</translation>
+    </message>
+    <message>
+        <source>事件标记</source>
+        <translation>事件標記</translation>
+    </message>
+    <message>
+        <source>漏按</source>
+        <translation>漏按</translation>
+    </message>
+    <message>
+        <source>事件发生后 3 秒内点。漏按的会自动记为「漏按」，不要事后补点。</source>
+        <translation>事件發生後 3 秒內點。漏按的會自動記為「漏按」，不要事後補點。</translation>
+    </message>
+    <message>
+        <source>这一轮的情况</source>
+        <translation>這一輪的情況</translation>
+    </message>
+    <message>
+        <source>如实勾选，不要事后补点</source>
+        <translation>如實勾選，不要事後補點</translation>
+    </message>
+    <message>
+        <source>处理中…</source>
+        <translation>處理中…</translation>
+    </message>
+    <message>
+        <source>停止采证</source>
+        <translation>停止採證</translation>
+    </message>
+    <message>
+        <source>离本回到外面再停止</source>
+        <translation>離本回到外面再停止</translation>
+    </message>
+</context>
+<context>
+    <name>EvidencePage</name>
+    <message>
+        <source>捕获诊断</source>
+        <translation>擷取診斷</translation>
+    </message>
+    <message>
+        <source>新区服采证</source>
+        <translation>新區服採證</translation>
+    </message>
+    <message>
+        <source>帮助适配其他区服 · 不新增正式记录</source>
+        <translation>幫助適配其他區服 · 不新增正式記錄</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceReadinessStep</name>
+    <message>
+        <source>等待游戏启动</source>
+        <translation>等待遊戲啟動</translation>
+    </message>
+    <message>
+        <source>正在取证 · 可以登录了</source>
+        <translation>正在取證 · 可以登入了</translation>
+    </message>
+    <message>
+        <source>启动游戏后会自动开始取证，看到「正在取证」再登录。</source>
+        <translation>啟動遊戲後會自動開始取證，看到「正在取證」再登入。</translation>
+    </message>
+    <message>
+        <source>如果提示重启，完全退出游戏后再重开。</source>
+        <translation>如果提示重新啟動，完全結束遊戲後再重開。</translation>
+    </message>
+    <message>
+        <source>取消等待</source>
+        <translation>取消等待</translation>
+    </message>
+    <message>
+        <source>登录后正常活动 30～60 秒，报文要一直增加</source>
+        <translation>登入後正常活動 30～60 秒，報文要一直增加</translation>
+    </message>
+    <message>
+        <source>报文 %1</source>
+        <translation>報文 %1</translation>
+    </message>
+    <message>
+        <source>数据可读，接着排本</source>
+        <translation>資料可讀，接著排本</translation>
+    </message>
+    <message>
+        <source>先截图，再停止并导出诊断，不用继续排本。</source>
+        <translation>先截圖，再停止並匯出診斷，不用繼續排本。</translation>
+    </message>
+    <message>
+        <source>停止并导出诊断</source>
+        <translation>停止並匯出診斷</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceReportStep</name>
+    <message>
+        <source>加速器或 VPN</source>
+        <translation>加速器或 VPN</translation>
+    </message>
+    <message>
+        <source>未使用</source>
+        <translation>未使用</translation>
+    </message>
+    <message>
+        <source>加速器</source>
+        <translation>加速器</translation>
+    </message>
+    <message>
+        <source>名称</source>
+        <translation>名稱</translation>
+    </message>
+    <message>
+        <source>加速器或 VPN 的名称</source>
+        <translation>加速器或 VPN 的名稱</translation>
+    </message>
+    <message>
+        <source>副本</source>
+        <translation>副本</translation>
+    </message>
+    <message>
+        <source>例：天狼星灯塔</source>
+        <translation>例：天狼星燈塔</translation>
+    </message>
+    <message>
+        <source>职业</source>
+        <translation>職業</translation>
+    </message>
+    <message>
+        <source>例：白魔法师</source>
+        <translation>例：白魔法師</translation>
+    </message>
+    <message>
+        <source>这一轮的情况</source>
+        <translation>這一輪的情況</translation>
+    </message>
+    <message>
+        <source>回传说明</source>
+        <translation>回傳說明</translation>
+    </message>
+    <message>
+        <source>版本、时间、区服、标记和计数已自动填好</source>
+        <translation>版本、時間、區服、標記和計數已自動填好</translation>
+    </message>
+    <message>
+        <source>已复制</source>
+        <translation>已複製</translation>
+    </message>
+    <message>
+        <source>复制回传说明</source>
+        <translation>複製回傳說明</translation>
+    </message>
+    <message>
+        <source>已复制回传说明，粘贴到 ZIP 旁边的文字里就行</source>
+        <translation>已複製回傳說明，貼到 ZIP 旁邊的文字裡就行</translation>
+    </message>
+    <message>
+        <source>打包成一个 ZIP，私下交给维护者：采证文件、诊断 JSON、截图和这段说明。</source>
+        <translation>打包成一個 ZIP，私下交給維護者：採證檔案、診斷 JSON、截圖和這段說明。</translation>
+    </message>
+    <message>
+        <source>不要附数据库、游戏程序或 DLL、账号密码和原始抓包；完整 trace 不要贴到公开 Issue。</source>
+        <translation>不要附資料庫、遊戲程式或 DLL、帳號密碼和原始封包；完整 trace 不要貼到公開 Issue。</translation>
+    </message>
+    <message>
+        <source>候选摘要（可选）</source>
+        <translation>候選摘要（可選）</translation>
+    </message>
+    <message>
+        <source>收起</source>
+        <translation>收起</translation>
+    </message>
+    <message>
+        <source>展开</source>
+        <translation>展開</translation>
+    </message>
+    <message>
+        <source>预览候选摘要</source>
+        <translation>預覽候選摘要</translation>
+    </message>
+    <message>
+        <source>预览只针对最近一轮，要在下一轮或重开软件前处理。确认后会复制摘要并打开 GitHub 提交页；也可以把复制的 JSON 存成文件一起回传，不必发 Issue。</source>
+        <translation>預覽只針對最近一輪，要在下一輪或重開軟體前處理。確認後會複製摘要並開啟 GitHub 提交頁；也可以把複製的 JSON 存成檔案一起回傳，不必發 Issue。</translation>
+    </message>
+    <message>
+        <source>采证完成只代表拿到候选线索，仍需维护者验证。先回传一轮，确认可用后再补一轮。</source>
+        <translation>採證完成只代表拿到候選線索，仍需維護者驗證。先回傳一輪，確認可用後再補一輪。</translation>
+    </message>
+    <message>
+        <source>开始下一轮</source>
+        <translation>開始下一輪</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceSaveStep</name>
+    <message>
+        <source>打开所在目录</source>
+        <translation>開啟所在資料夾</translation>
+    </message>
+    <message>
+        <source>导出诊断报告</source>
+        <translation>匯出診斷報告</translation>
+    </message>
+    <message>
+        <source>打开日志目录</source>
+        <translation>開啟日誌資料夾</translation>
+    </message>
+    <message>
+        <source>处理中…</source>
+        <translation>處理中…</translation>
+    </message>
+    <message>
+        <source>停止采证</source>
+        <translation>停止採證</translation>
+    </message>
+    <message>
+        <source>离本回到外面再停止</source>
+        <translation>離本回到外面再停止</translation>
+    </message>
+    <message>
+        <source>正在保存…</source>
+        <translation>正在儲存…</translation>
+    </message>
+    <message>
+        <source>已保存 · %1</source>
+        <translation>已儲存 · %1</translation>
+    </message>
+    <message>
+        <source>已结束，文件不完整</source>
+        <translation>已結束，檔案不完整</translation>
+    </message>
+    <message>
+        <source>先截一张图，留下状态和四项计数</source>
+        <translation>先截一張圖，留下狀態和四項計數</translation>
+    </message>
+    <message>
+        <source>有多少文件就回传多少，缺的会写进回传说明。</source>
+        <translation>有多少檔案就回傳多少，缺的會寫進回傳說明。</translation>
+    </message>
+    <message>
+        <source>采证文件：%1</source>
+        <translation>採證檔案：%1</translation>
+    </message>
+    <message>
+        <source>Trace：%1
+SHA256 文件：%2
+SHA256：%3</source>
+        <translation>Trace：%1
+SHA256 檔案：%2
+SHA256：%3</translation>
+    </message>
+    <message>
+        <source>当前是截图用模拟路径，不会当作可打开的真实取证。</source>
+        <translation>目前是截圖用的模擬路徑，不會當作可開啟的真實取證。</translation>
+    </message>
+    <message>
+        <source>按需附加</source>
+        <translation>按需附加</translation>
+    </message>
+    <message>
+        <source>每轮分开保存，不改原文件和文件名。</source>
+        <translation>每輪分開儲存，不改原檔案和檔名。</translation>
+    </message>
+    <message>
+        <source>采证目录只留最近 10 份、7 天内，记得及时复制出去。</source>
+        <translation>採證資料夾只留最近 10 份、7 天內，記得及時複製出去。</translation>
+    </message>
+    <message>
+        <source>失败也照样回传已有的文件，缺的会写进回传说明。</source>
+        <translation>失敗也照樣回傳已有的檔案，缺的會寫進回傳說明。</translation>
+    </message>
+    <message>
+        <source>下一步：生成回传说明</source>
+        <translation>下一步：產生回傳說明</translation>
+    </message>
+    <message>
+        <source>还缺 %1 项，也能继续，回传说明里会注明</source>
+        <translation>還缺 %1 項，也能繼續，回傳說明裡會註明</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceSession</name>
+    <message>
+        <source>报文一直为 0，解码失败在快速增加</source>
+        <translation>報文一直為 0，解碼失敗在快速增加</translation>
+    </message>
+    <message>
+        <source>报文一直为 0</source>
+        <translation>報文一直為 0</translation>
+    </message>
+    <message>
+        <source>解码失败在快速增加</source>
+        <translation>解碼失敗在快速增加</translation>
+    </message>
+    <message>
+        <source>选择区服和网卡</source>
+        <translation>選擇區服和網卡</translation>
+    </message>
+    <message>
+        <source>启动游戏，登录后确认数据可读</source>
+        <translation>啟動遊戲，登入後確認資料可讀</translation>
+    </message>
+    <message>
+        <source>排一把随机，按事件标记</source>
+        <translation>排一把隨機，按事件標記</translation>
+    </message>
+    <message>
+        <source>停止采证，保存文件</source>
+        <translation>停止採證，儲存檔案</translation>
+    </message>
+    <message>
+        <source>打包回传给维护者</source>
+        <translation>打包回傳給維護者</translation>
+    </message>
+    <message>
+        <source>国服 CN</source>
+        <translation>國服 CN</translation>
+    </message>
+    <message>
+        <source>繁中服 TC</source>
+        <translation>繁中服 TC</translation>
+    </message>
+    <message>
+        <source>国际服 GLOBAL</source>
+        <translation>國際服 GLOBAL</translation>
+    </message>
+    <message>
+        <source>自动</source>
+        <translation>自動</translation>
+    </message>
+    <message>
+        <source>自动选择（唯一推荐网卡）</source>
+        <translation>自動選擇（唯一推薦網卡）</translation>
+    </message>
+    <message>
+        <source>未命名适配器</source>
+        <translation>未命名網路介面</translation>
+    </message>
+    <message>
+        <source>%1 · 推荐</source>
+        <translation>%1 · 推薦</translation>
+    </message>
+    <message>
+        <source>%1 · %2 · 推荐</source>
+        <translation>%1 · %2 · 推薦</translation>
+    </message>
+    <message>
+        <source>%1 · %2</source>
+        <translation>%1 · %2</translation>
+    </message>
+    <message>
+        <source>自动选择</source>
+        <translation>自動選擇</translation>
+    </message>
+    <message>
+        <source>已排队</source>
+        <translation>已排隊</translation>
+    </message>
+    <message>
+        <source>开始排队</source>
+        <translation>開始排隊</translation>
+    </message>
+    <message>
+        <source>已匹配</source>
+        <translation>已配對</translation>
+    </message>
+    <message>
+        <source>匹配弹窗出现</source>
+        <translation>配對彈窗出現</translation>
+    </message>
+    <message>
+        <source>已进入</source>
+        <translation>已進入</translation>
+    </message>
+    <message>
+        <source>读条结束进本</source>
+        <translation>讀條結束進本</translation>
+    </message>
+    <message>
+        <source>已胜利</source>
+        <translation>已勝利</translation>
+    </message>
+    <message>
+        <source>出现通关提示</source>
+        <translation>出現通關提示</translation>
+    </message>
+    <message>
+        <source>已离开</source>
+        <translation>已離開</translation>
+    </message>
+    <message>
+        <source>离本回到外面</source>
+        <translation>離本回到外面</translation>
+    </message>
+    <message>
+        <source>指导者随机</source>
+        <translation>指導者隨機</translation>
+    </message>
+    <message>
+        <source>其他随机（%1）</source>
+        <translation>其他隨機（%1）</translation>
+    </message>
+    <message>
+        <source>其他随机</source>
+        <translation>其他隨機</translation>
+    </message>
+    <message>
+        <source>中途加入</source>
+        <translation>中途加入</translation>
+    </message>
+    <message>
+        <source>未通关</source>
+        <translation>未通關</translation>
+    </message>
+    <message>
+        <source>漏按</source>
+        <translation>漏按</translation>
+    </message>
+    <message>
+        <source>点晚</source>
+        <translation>點晚</translation>
+    </message>
+    <message>
+        <source>断线</source>
+        <translation>斷線</translation>
+    </message>
+    <message>
+        <source>状态截图</source>
+        <translation>狀態截圖</translation>
+    </message>
+    <message>
+        <source>含状态和四项计数</source>
+        <translation>含狀態和四項計數</translation>
+    </message>
+    <message>
+        <source>本轮取证数据</source>
+        <translation>本輪取證資料</translation>
+    </message>
+    <message>
+        <source>校验文件，和上面同一目录</source>
+        <translation>校驗檔案，和上面同一資料夾</translation>
+    </message>
+    <message>
+        <source>诊断报告 JSON</source>
+        <translation>診斷報告 JSON</translation>
+    </message>
+    <message>
+        <source>不含游戏内容、网络地址与账号</source>
+        <translation>不含遊戲內容、網路位址與帳號</translation>
+    </message>
+    <message>
+        <source>无法识别游戏版本时，在游戏目录</source>
+        <translation>無法識別遊戲版本時，在遊戲資料夾</translation>
+    </message>
+    <message>
+        <source>启动或采证出错时，在数据目录 logs</source>
+        <translation>啟動或採證出錯時，在資料目錄 logs</translation>
+    </message>
+    <message>
+        <source>已在「设置 › 数据」备份正式记录（备份只留在本机）</source>
+        <translation>已在「設定 › 資料」備份正式記錄（備份只留在本機）</translation>
+    </message>
+    <message>
+        <source>切换界面语言后，区服仍然正确</source>
+        <translation>切換介面語言後，區服仍然正確</translation>
+    </message>
+    <message>
+        <source>各区服的成就分开显示，设置互不影响</source>
+        <translation>各區服的成就分開顯示，設定互不影響</translation>
+    </message>
+    <message>
+        <source>手动补录能找到对应区服的副本</source>
+        <translation>手動補錄能找到對應區服的副本</translation>
+    </message>
+    <message>
+        <source>无</source>
+        <translation>無</translation>
+    </message>
+    <message>
+        <source>（未填）</source>
+        <translation>（未填）</translation>
+    </message>
+    <message>
+        <source>未使用</source>
+        <translation>未使用</translation>
+    </message>
+    <message>
+        <source>加速器</source>
+        <translation>加速器</translation>
+    </message>
+    <message>
+        <source>【导随记录器 · 新区服采证回报】</source>
+        <translation>【導隨記錄器 · 新區服採證回報】</translation>
+    </message>
+    <message>
+        <source>软件版本：%1</source>
+        <translation>軟體版本：%1</translation>
+    </message>
+    <message>
+        <source>游戏版本：%1</source>
+        <translation>遊戲版本：%1</translation>
+    </message>
+    <message>
+        <source>系统：%1</source>
+        <translation>系統：%1</translation>
+    </message>
+    <message>
+        <source>测试时间：%1 – %2（%3）</source>
+        <translation>測試時間：%1 – %2（%3）</translation>
+    </message>
+    <message>
+        <source>进行中</source>
+        <translation>進行中</translation>
+    </message>
+    <message>
+        <source>区服 / 网卡：%1 · %2</source>
+        <translation>區服 / 網卡：%1 · %2</translation>
+    </message>
+    <message>
+        <source>加速器或 VPN：%1</source>
+        <translation>加速器或 VPN：%1</translation>
+    </message>
+    <message>
+        <source>随机类型：%1</source>
+        <translation>隨機類型：%1</translation>
+    </message>
+    <message>
+        <source>副本 / 职业：%1 · %2</source>
+        <translation>副本 / 職業：%1 · %2</translation>
+    </message>
+    <message>
+        <source>标记：%1</source>
+        <translation>標記：%1</translation>
+    </message>
+    <message>
+        <source>情况：%1</source>
+        <translation>情況：%1</translation>
+    </message>
+    <message>
+        <source>、</source>
+        <translation>、</translation>
+    </message>
+    <message>
+        <source>计数：报文 %1 · 已写入标记 %2 · 解码失败 %3 · 队列丢弃 %4</source>
+        <translation>計數：報文 %1 · 已寫入標記 %2 · 解碼失敗 %3 · 佇列丟棄 %4</translation>
+    </message>
+    <message>
+        <source>附件：%1</source>
+        <translation>附件：%1</translation>
+    </message>
+    <message>
+        <source>缺失：%1</source>
+        <translation>缺失：%1</translation>
+    </message>
+    <message>
+        <source>开始于 %1</source>
+        <translation>開始於 %1</translation>
+    </message>
+    <message>
+        <source>数据异常，已停止</source>
+        <translation>資料異常，已停止</translation>
+    </message>
+    <message>
+        <source>数据可读 · 报文 %1</source>
+        <translation>資料可讀 · 報文 %1</translation>
+    </message>
+    <message>
+        <source>%1 · 标记 %2 / 5</source>
+        <translation>%1 · 標記 %2 / 5</translation>
+    </message>
+    <message>
+        <source>已保存 · 文件 %1 / %2</source>
+        <translation>已儲存 · 檔案 %1 / %2</translation>
+    </message>
+    <message>
+        <source>等待游戏启动</source>
+        <translation>等待遊戲啟動</translation>
+    </message>
+    <message>
+        <source>数据异常</source>
+        <translation>資料異常</translation>
+    </message>
+    <message>
+        <source>正在取证</source>
+        <translation>正在取證</translation>
+    </message>
+    <message>
+        <source>正在保存</source>
+        <translation>正在儲存</translation>
+    </message>
+    <message>
+        <source>已保存</source>
+        <translation>已儲存</translation>
+    </message>
+    <message>
+        <source>已结束，文件不完整</source>
+        <translation>已結束，檔案不完整</translation>
+    </message>
+    <message>
+        <source>失败</source>
+        <translation>失敗</translation>
+    </message>
+    <message>
+        <source>尚未开始</source>
+        <translation>尚未開始</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceSetupStep</name>
+    <message>
+        <source>未安装 Npcap，暂时不能采证</source>
+        <translation>未安裝 Npcap，暫時不能採證</translation>
+    </message>
+    <message>
+        <source>游戏正在运行：先完全退出游戏，再开始采证</source>
+        <translation>遊戲正在執行：先完全結束遊戲，再開始採證</translation>
+    </message>
+    <message>
+        <source>游戏未运行，可以开始</source>
+        <translation>遊戲未執行，可以開始</translation>
+    </message>
+    <message>
+        <source>已经退出了，重新检测</source>
+        <translation>已經結束了，重新偵測</translation>
+    </message>
+    <message>
+        <source>采证操作失败：</source>
+        <translation>採證操作失敗：</translation>
+    </message>
+    <message>
+        <source>错误码：</source>
+        <translation>錯誤碼：</translation>
+    </message>
+    <message>
+        <source>当前正在正式记录，不能切换为采证。已有版本的校准核实请用「工具 › 共享校准证据」。</source>
+        <translation>目前正在正式記錄，不能切換為採證。已有版本的校準核實請用「工具 › 共享校準證據」。</translation>
+    </message>
+    <message>
+        <source>Trace：%1
+SHA256 文件：%2
+SHA256：%3</source>
+        <translation>Trace：%1
+SHA256 檔案：%2
+SHA256：%3</translation>
+    </message>
+    <message>
+        <source>区服</source>
+        <translation>區服</translation>
+    </message>
+    <message>
+        <source>和界面语言分开设置；监听或采证期间不能修改</source>
+        <translation>和介面語言分開設定；監聽或採證期間不能修改</translation>
+    </message>
+    <message>
+        <source>网络适配器</source>
+        <translation>網路介面卡</translation>
+    </message>
+    <message>
+        <source>采证网络适配器</source>
+        <translation>採證網路介面卡</translation>
+    </message>
+    <message>
+        <source>处理中…</source>
+        <translation>處理中…</translation>
+    </message>
+    <message>
+        <source>开始采证</source>
+        <translation>開始採證</translation>
+    </message>
+    <message>
+        <source>采证前可选检查</source>
+        <translation>採證前可選檢查</translation>
+    </message>
+    <message>
+        <source>收起</source>
+        <translation>收起</translation>
+    </message>
+    <message>
+        <source>展开</source>
+        <translation>展開</translation>
+    </message>
+    <message>
+        <source>测成就设置前先记下原值，测完恢复；不方便就跳过，回传时注明。</source>
+        <translation>測成就設定前先記下原值，測完恢復；不方便就跳過，回傳時註明。</translation>
+    </message>
+    <message>
+        <source>去「设置 › 数据」备份</source>
+        <translation>去「設定 › 資料」備份</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceSidebar</name>
+    <message>
+        <source>本轮状态</source>
+        <translation>本輪狀態</translation>
+    </message>
+    <message>
+        <source>还没开始</source>
+        <translation>還沒開始</translation>
+    </message>
+    <message>
+        <source>报文</source>
+        <translation>報文</translation>
+    </message>
+    <message>
+        <source>+%1 / 秒</source>
+        <translation>+%1 / 秒</translation>
+    </message>
+    <message>
+        <source>已写入标记</source>
+        <translation>已寫入標記</translation>
+    </message>
+    <message>
+        <source>解码失败</source>
+        <translation>解碼失敗</translation>
+    </message>
+    <message>
+        <source>队列丢弃</source>
+        <translation>佇列丟棄</translation>
+    </message>
+    <message>
+        <source>仅验证，不自动记录</source>
+        <translation>僅驗證，不自動記錄</translation>
+    </message>
+    <message>
+        <source>取证文件只存在本机</source>
+        <translation>取證檔案只存在本機</translation>
+    </message>
+    <message>
+        <source>不会自动上传</source>
+        <translation>不會自動上傳</translation>
+    </message>
+    <message>
+        <source>单轮最长 2 小时，含等待时间</source>
+        <translation>單輪最長 2 小時，含等待時間</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceStep</name>
+    <message>
+        <source>当前</source>
+        <translation>目前</translation>
+    </message>
+    <message>
+        <source>完成</source>
+        <translation>完成</translation>
     </message>
 </context>
 <context>
@@ -6104,10 +6801,6 @@ SHA256：%3</translation>
     <message>
         <source>上一页</source>
         <translation>上一頁</translation>
-    </message>
-    <message>
-        <source>%1 / %2</source>
-        <translation>%1 / %2</translation>
     </message>
     <message>
         <source>下一页</source>
@@ -7088,6 +7781,14 @@ SHA256：%3</translation>
         <translation>導隨記錄器</translation>
     </message>
     <message>
+        <source>采证中</source>
+        <translation>採證中</translation>
+    </message>
+    <message>
+        <source>打开新区服采证</source>
+        <translation>開啟新區服採證</translation>
+    </message>
+    <message>
         <source>浅色</source>
         <translation>淺色</translation>
     </message>
@@ -7727,6 +8428,25 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>PageNumberInput</name>
+    <message>
+        <source>跳转页码</source>
+        <translation>跳轉頁碼</translation>
+    </message>
+    <message>
+        <source>输入 1～%1 页，按回车或点击跳转</source>
+        <translation>輸入 1～%1 頁，按 Enter 或點選跳轉</translation>
+    </message>
+    <message>
+        <source>/ %1 页</source>
+        <translation>/ %1 頁</translation>
+    </message>
+    <message>
+        <source>跳转</source>
+        <translation>跳轉</translation>
+    </message>
+</context>
+<context>
     <name>PendingWorkContent</name>
     <message>
         <source>正在读取待处理记录…</source>
@@ -7786,6 +8506,29 @@ SHA256：%3</translation>
     <message>
         <source>记录区服</source>
         <translation>記錄區服</translation>
+    </message>
+</context>
+<context>
+    <name>RecordingWarningWindow</name>
+    <message>
+        <source>导随记录器 · 自动记录暂不可用</source>
+        <translation>導隨記錄器 · 自動記錄暫時無法使用</translation>
+    </message>
+    <message>
+        <source>自动记录暂不可用</source>
+        <translation>自動記錄暫時無法使用</translation>
+    </message>
+    <message>
+        <source>恢复前，副本可能无法自动记录。后台仍会继续尝试恢复。</source>
+        <translation>恢復前，副本可能無法自動記錄。背景仍會繼續嘗試恢復。</translation>
+    </message>
+    <message>
+        <source>查看诊断</source>
+        <translation>檢視診斷</translation>
+    </message>
+    <message>
+        <source>我知道了</source>
+        <translation>我知道了</translation>
     </message>
 </context>
 <context>
@@ -8295,10 +9038,6 @@ SHA256：%3</translation>
     <message>
         <source>上一页</source>
         <translation>上一頁</translation>
-    </message>
-    <message>
-        <source>第 %1 / %2 页</source>
-        <translation>第 %1 / %2 頁</translation>
     </message>
     <message>
         <source>下一页</source>
@@ -8997,6 +9736,34 @@ SHA256：%3</translation>
     <message>
         <source>图片保存在软件安装目录：%1</source>
         <translation>圖片儲存在軟體安裝資料夾：%1</translation>
+    </message>
+    <message>
+        <source>这次感觉（可选）</source>
+        <translation>這次感覺（可選）</translation>
+    </message>
+    <message>
+        <source>不填写</source>
+        <translation>不填寫</translation>
+    </message>
+    <message>
+        <source>顺利</source>
+        <translation>順利</translation>
+    </message>
+    <message>
+        <source>一般</source>
+        <translation>一般</translation>
+    </message>
+    <message>
+        <source>糟心</source>
+        <translation>糟心</translation>
+    </message>
+    <message>
+        <source>心得（可选）</source>
+        <translation>心得（可選）</translation>
+    </message>
+    <message>
+        <source>写一句心得；只选心情时，将以心情文字保存。</source>
+        <translation>寫一句心得；只選心情時，將以心情文字儲存。</translation>
     </message>
     <message>
         <source>修改前后对比</source>
@@ -10034,6 +10801,10 @@ SHA256：%3</translation>
         <translation>已重新偵測到 %1 張網路卡（尚未安裝 Npcap，暫時無法自動記錄）</translation>
     </message>
     <message>
+        <source>无法访问剪贴板。</source>
+        <translation>無法存取剪貼簿。</translation>
+    </message>
+    <message>
         <source>已打开 Npcap 官方网站，请在浏览器中下载驱动。</source>
         <translation>已開啟 Npcap 官方網站，請在瀏覽器中下載驅動程式。</translation>
     </message>
@@ -10831,6 +11602,14 @@ SHA256：%3</translation>
     <message>
         <source>已打开 %1</source>
         <translation>已開啟 %1</translation>
+    </message>
+    <message>
+        <source>找不到日志文件夹。</source>
+        <translation>找不到日誌資料夾。</translation>
+    </message>
+    <message>
+        <source>日志文件夹还不存在：%1。后台服务写入日志后会创建它。</source>
+        <translation>日誌資料夾還不存在：%1。背景服務寫入日誌後會建立它。</translation>
     </message>
 </context>
 <context>
@@ -13156,20 +13935,5 @@ SHA256：%3</translation>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>安裝程式沒有啟動，可能是未通過 Windows 的安裝確認。本軟體會繼續執行，可再點「立即安裝」，或點「在瀏覽器中下載」。</translation>
     </message>
-</context>
-<context>
-    <name>PageNumberInput</name>
-    <message><source>跳转页码</source><translation>跳轉頁碼</translation></message>
-    <message><source>输入 1～%1 页，按回车或点击跳转</source><translation>輸入 1～%1 頁，按 Enter 或點選跳轉</translation></message>
-    <message><source>/ %1 页</source><translation>/ %1 頁</translation></message>
-    <message><source>跳转</source><translation>跳轉</translation></message>
-</context>
-<context>
-    <name>RecordingWarningWindow</name>
-    <message><source>导随记录器 · 自动记录暂不可用</source><translation>導隨記錄器 · 自動記錄暫時無法使用</translation></message>
-    <message><source>自动记录暂不可用</source><translation>自動記錄暫時無法使用</translation></message>
-    <message><source>恢复前，副本可能无法自动记录。后台仍会继续尝试恢复。</source><translation>恢復前，副本可能無法自動記錄。背景仍會繼續嘗試恢復。</translation></message>
-    <message><source>查看诊断</source><translation>檢視診斷</translation></message>
-    <message><source>我知道了</source><translation>我知道了</translation></message>
 </context>
 </TS>

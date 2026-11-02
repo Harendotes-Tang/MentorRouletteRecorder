@@ -15,6 +15,7 @@
 //                          [--mock-calibration done] [--mock-shared consent]
 //                          [--mock-update-available] [--mock-update-download ready]
 //                          [--mock-recording-state waiting-verified]
+//                          [--mock-validation-state recording] [--mock-open-evidence steps|report]
 //                          [--export-target DIR] [--open-detail] [--open-edit]
 //                          [--screenshot-size WxH] [--mock-speech azure]
 //                          [--mock-open-speech-confirm] [--mock-speech-preview]
@@ -639,6 +640,11 @@ int main(int argc, char *argv[])
     QCommandLineOption formalRunningOption(
         QStringLiteral("mock-formal-running"),
         QStringLiteral("Keep a formal capture RUNNING while validation evidence is historical."));
+    QCommandLineOption openEvidenceOption(
+        QStringLiteral("mock-open-evidence"),
+        QStringLiteral("Open 新区服采证 under the capture page: steps (its current step) or "
+                       "report (the finished round's 回传说明)."),
+        QStringLiteral("view"), QString());
     QCommandLineOption validationKeyboardOption(
         QStringLiteral("mock-validation-keyboard"),
         QStringLiteral("Verify marker Tab/Shift+Tab/Space behavior before a mock screenshot."));
@@ -764,6 +770,7 @@ int main(int argc, char *argv[])
     parser.addOption(alertFlowOption);
     parser.addOption(formalRunningOption);
     parser.addOption(validationKeyboardOption);
+    parser.addOption(openEvidenceOption);
     parser.addOption(firstRunOption);
     parser.addOption(openDetailOption);
     parser.addOption(openEditOption);
@@ -894,6 +901,7 @@ int main(int argc, char *argv[])
             || parser.isSet(validationOption)
             || parser.isSet(formalRunningOption)
             || parser.isSet(validationKeyboardOption)
+            || parser.isSet(openEvidenceOption)
             || parser.isSet(firstRunOption)
             || parser.isSet(openDetailOption)
             || parser.isSet(openEditOption)
@@ -1171,6 +1179,14 @@ int main(int argc, char *argv[])
                      qPrintable(uiStyle));
         return 2;
     }
+    const QString openEvidence = parser.value(openEvidenceOption);
+    if (!openEvidence.isEmpty() && openEvidence != QLatin1String("steps")
+        && openEvidence != QLatin1String("report")) {
+        std::fprintf(stderr, "invalid --mock-open-evidence value: %s (expected steps or report)\n",
+                     qPrintable(openEvidence));
+        return 2;
+    }
+    runtime->setValue(mr::QmlRuntime::Field::ForceOpenEvidence, openEvidence);
     const QString detailTab = parser.value(detailTabOption);
     if (!detailTab.isEmpty()
         && !QStringList{QStringLiteral("info"), QStringLiteral("events"),

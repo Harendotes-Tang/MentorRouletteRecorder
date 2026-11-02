@@ -228,6 +228,9 @@ class AppController final : public QObject, public CaptureValidationController::
     /// This build's version as the title bar and the 关于 page show it: the
     /// version, followed by " dev" in a development build (BuildFlavour.h).
     Q_PROPERTY(QString appVersion READ appVersion CONSTANT)
+    /// The operating system as the 新区服采证 report names it ("Windows 11
+    /// Version 24H2 (10.0.26100)"); never a machine name or a user name.
+    Q_PROPERTY(QString systemVersion READ systemVersion CONSTANT)
     Q_PROPERTY(QVariantList categoryOptions READ categoryOptions NOTIFY optionsChanged)
     Q_PROPERTY(QVariantList jobOptions READ jobOptions NOTIFY optionsChanged)
     Q_PROPERTY(QVariantMap historyFilter READ historyFilter NOTIFY historyFilterChanged)
@@ -444,6 +447,7 @@ public:
     /// without a duty are skipped.
     static QVariantList recentDutiesFromRuns(const QJsonArray &runs, int limit);
     QString appVersion() const { return build::versionLabel(); }
+    QString systemVersion() const;
     QVariantList categoryOptions() const;
     QVariantList jobOptions() const;
     QVariantMap historyFilter() const { return m_history->historyFilter(); }
@@ -601,6 +605,11 @@ public Q_SLOTS:
     Q_INVOKABLE void checkDatabaseIntegrity();
     /// Open the folder holding the database in the system file manager.
     void openDatabaseFolder();
+    /// Open the Collector's logs folder (新区服采证 › 停止采证，保存文件).
+    void openLogsFolder();
+    /// Put a text the page composed itself (the 新区服采证 回传说明) on the
+    /// clipboard. Only ever called from an explicit click.
+    Q_INVOKABLE void copyToClipboard(const QString &text);
     /// Opens https://npcap.com in the system browser. The only external link in
     /// the product; it is opened only on an explicit user click and nothing is
     /// fetched by this process.

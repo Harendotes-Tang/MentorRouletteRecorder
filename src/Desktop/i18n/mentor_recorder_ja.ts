@@ -1880,12 +1880,24 @@
         <translation>ほかのリージョンへの対応に協力</translation>
     </message>
     <message>
-        <source>按步骤采集报文元数据，未适配区服仍不正式记录</source>
-        <translation>手順に従ってパケットのメタデータを収集します。未対応のリージョンでは引き続き正式な記録は行いません</translation>
+        <source>采证中 · %1</source>
+        <translation>採取中 · %1</translation>
+    </message>
+    <message>
+        <source>已保存，等回传</source>
+        <translation>保存済み・送付待ち</translation>
+    </message>
+    <message>
+        <source>按步骤采集报文元数据，未适配的区服仍不正式记录</source>
+        <translation>手順どおりにパケットのメタデータを採取します。未対応の地域は正式には記録されません。</translation>
     </message>
     <message>
         <source>采证步骤</source>
         <translation>証拠収集の手順</translation>
+    </message>
+    <message>
+        <source>继续</source>
+        <translation>続ける</translation>
     </message>
     <message>
         <source>导出诊断报告</source>
@@ -1925,10 +1937,6 @@
     <message>
         <source>未命名适配器</source>
         <translation>名前のないアダプター</translation>
-    </message>
-    <message>
-        <source>%1 · 推荐</source>
-        <translation>%1 · おすすめ</translation>
     </message>
     <message>
         <source>%1 · %2 · 推荐</source>
@@ -1979,56 +1987,12 @@
         <translation>デスクトップの検証キャプチャ</translation>
     </message>
     <message>
-        <source>新区服采证步骤</source>
-        <translation>新しいリージョンの証拠収集の手順</translation>
-    </message>
-    <message>
-        <source>1. 先退出游戏，选好实际区服和网卡（繁中服选 TC），再点“开始采证”。
-2. 启动游戏，等这里显示“正在取证”后再登录；若提示重启，须完全退出游戏后重开。
-3. 离本后停止采证，等到“已保存”再取文件。本轮只收集元数据，不会新增正式记录。</source>
-        <translation>1. ゲームを終了し、実際のリージョンとネットワークアダプター（繁体字中国語版は TC）を選んで「証拠収集を開始」を押します。
-2. ゲームを起動し、ここが「検証データを記録中」になってからログインします。再起動を求められた場合は、ゲームを完全に終了して起動し直してください。
-3. コンテンツから退出したら収集を停止し、「保存済み」になってからファイルをコピーします。この収集はメタデータのみを記録し、正式な記録は追加しません。</translation>
-    </message>
-    <message>
-        <source>取消等待</source>
-        <translation>待機を取り消し</translation>
-    </message>
-    <message>
-        <source>停止采证</source>
-        <translation>証拠収集を停止</translation>
-    </message>
-    <message>
-        <source>切换为采证</source>
-        <translation>証拠収集に切り替え</translation>
-    </message>
-    <message>
-        <source>开始采证</source>
-        <translation>証拠収集を開始</translation>
-    </message>
-    <message>
-        <source>预览候选摘要</source>
-        <translation>候補の概要をプレビュー</translation>
-    </message>
-    <message>
-        <source>当前正在正式记录，不能切换为候选采证。已有模板的校准核实请使用上方“共享校准证据”。</source>
-        <translation>現在は正式に記録中のため、候補の証拠収集に切り替えられません。テンプレートがある校正の確認には、上の「共有された校正の証拠」を使ってください。</translation>
-    </message>
-    <message>
-        <source>点击“切换为采证”会停止当前被动监听，改为只保存本机元数据；停止采证后自动监听可恢复。</source>
-        <translation>「証拠収集に切り替え」を押すと、現在の受信のみの監視を停止し、この PC のメタデータだけを保存するようになります。証拠収集を停止すると自動監視に戻せます。</translation>
-    </message>
-    <message>
         <source>候选验证仅写入独立观测账本；以下是单独的桌面验证取证工具。</source>
         <translation>候補検証は独立した観測台帳にのみ書き込みます。以下は別個のデスクトップ検証キャプチャツールです。</translation>
     </message>
     <message>
         <source>当前正在正式记录；以下为最近一次验证取证证据。</source>
         <translation>現在は正式に記録中です。以下は直近の検証キャプチャの証拠です。</translation>
-    </message>
-    <message>
-        <source>点击上方按钮开始或停止采证。</source>
-        <translation>上のボタンで証拠収集を開始・停止します。</translation>
     </message>
     <message>
         <source>点击标题行的按钮开始或停止。</source>
@@ -2071,64 +2035,6 @@
         <translation>リージョンと表示言語は別の設定です。実際のサービスに合わせ、繁体字中国語版は TC、グローバル版は GLOBAL を選択してください。監視中や証拠収集中は変更できません。</translation>
     </message>
     <message>
-        <source>开始排队 → 已排队；匹配弹窗出现 → 已匹配；读条结束进本 → 已进入；出现通关提示 → 已胜利；离本回到外面 → 已离开。尽量在事件发生后 3 秒内点击；漏按、点晚或未通关要如实记录，不要事后补点。</source>
-        <translation>申請開始 → 申請済み、マッチ通知 → マッチ済み、読み込み後の突入 → 突入済み、クリア表示 → クリア済み、コンテンツ外への退出 → 退出済み。できるだけ発生後 3 秒以内に押してください。押し忘れ、遅れ、未クリアはそのまま報告し、後からまとめて押さないでください。</translation>
-    </message>
-    <message>
-        <source>先确认数据可读</source>
-        <translation>データを読み取れるか確認</translation>
-    </message>
-    <message>
-        <source>登录后正常活动 30～60 秒，查看上方采证“报文”是否增加。一直为 0 或“解码失败”快速增加时，先截图、停止并导出诊断，不必继续排本。
-优先采指导者随机；没有资格可采普通随机作对照，并注明类型。先回传一轮，确认可用后再补一轮。单次最长 2 小时，含等待时间。</source>
-        <translation>ログイン後、通常どおり 30～60 秒ほど操作し、上の収集パネルのパケット数が増えるか確認します。0 のまま、またはデコード失敗が急増する場合は、画面を保存して収集を停止し、診断レポートを書き出してください。無理にコンテンツ申請を続ける必要はありません。
-可能ならコンテンツルーレット：メンターを優先します。参加条件を満たさない場合は、通常のルーレットを比較用に収集し、種類を明記してください。まず 1 回分を送り、有効と確認できてから追加します。1 回の上限は待機時間を含めて 2 時間です。</translation>
-    </message>
-    <message>
-        <source>停止后保存这些文件</source>
-        <translation>停止後に保存するファイル</translation>
-    </message>
-    <message>
-        <source>1. 点“停止采证”，等“已保存”，截图保存状态和四项计数。
-2. 点“打开所在目录”，复制本轮 trace.jsonl 与 trace.jsonl.sha256；每轮分开保存，不改原文件和文件名。
-3. 在上方“工具”点“导出诊断报告”并保存 JSON。
-失败时有多少文件就回传多少，注明缺失项，不自行补造。采证目录只保留最近 10 份且不超过 7 天，请及时复制到外部文件夹。</source>
-        <translation>1. 「証拠収集を停止」を押し、「保存済み」になるまで待って、状態と 4 項目のカウンターを撮影します。
-2. 「保存先フォルダーを開く」から、その回の trace.jsonl と trace.jsonl.sha256 をコピーします。回ごとに別フォルダーへ保存し、元の内容とファイル名を変更しないでください。
-3. 上の「ツール」で「診断レポートを書き出す」を選び、JSON を保存します。
-失敗時は存在するファイルだけを送り、不足分を明記してください。代わりのファイルは作成しないでください。収集フォルダーの保持対象は最新 10 回分、最大 7 日間なので、早めに別の場所へコピーしてください。</translation>
-    </message>
-    <message>
-        <source>摘要和附加文件（可选）</source>
-        <translation>概要と追加ファイル（任意）</translation>
-    </message>
-    <message>
-        <source>可先“预览候选摘要”；摘要不足或预览失败，不影响回传上述文件。预览只针对当前最近一轮，需在下一轮或重开软件前处理。
-“复制摘要并打开提交页”会复制完整 JSON 并打开 GitHub，页面可能预填摘要。可将复制内容原样保存为 JSON 回传，无需发布 Issue；不想打开 GitHub 可跳过摘要。
-无法识别游戏版本时，可附 game 目录内的 ffxivgame.ver；启动或采证异常时，可附数据目录 logs 内对应时间的 collector-*.log。</source>
-        <translation>必要なら「候補の概要をプレビュー」を使えます。概要が不足していたりプレビューに失敗しても、上記のファイルは送れます。対象は直近 1 回の収集だけなので、次の収集やアプリの再起動前に行ってください。
-「概要をコピーして送信ページを開く」は JSON 全文をコピーし、概要が入力された GitHub ページを開くことがあります。コピーした内容を変更せず JSON として保存し、非公開で送ればよく、Issue の投稿は不要です。GitHub を開きたくない場合は概要を省略できます。
-ゲームのバージョンを認識できない場合は game フォルダーの ffxivgame.ver を、起動や収集に異常がある場合はデータフォルダー内の logs にある該当時間の collector-*.log を添えてください。</translation>
-    </message>
-    <message>
-        <source>回传时一起说明</source>
-        <translation>送付時に添える情報</translation>
-    </message>
-    <message>
-        <source>将每轮采证文件、诊断 JSON、状态或错误截图及文字回报放在同一 ZIP，私下交给维护者。请写明：软件、游戏和 Windows 版本，测试时间及时区，加速器或 VPN，随机类型、副本、职业，是否中途加入、通关，以及漏按、延迟、断线等情况。
-不需要数据库、游戏程序或 DLL、账号密码和原始抓包；完整 trace 不要贴到公开 Issue。采证完成只代表取得候选线索，仍需维护者验证。</source>
-        <translation>各回の収集ファイル、診断 JSON、状態やエラーの画像、文章による報告を 1 つの ZIP にまとめ、メンテナーへ非公開で送ってください。アプリ・ゲーム・Windows のバージョン、テスト日時とタイムゾーン、アクセラレーターや VPN、ルーレットの種類・コンテンツ名・ジョブ、途中参加やクリアの有無、マーカーの押し忘れや遅れ、切断などを記載してください。
-データベース、ゲームの実行ファイルや DLL、アカウント情報、未加工のパケットキャプチャーは不要です。trace 全体を公開 Issue に貼らないでください。収集完了は候補情報が得られたことを示すだけで、メンテナーの検証が必要です。</translation>
-    </message>
-    <message>
-        <source>采证前也可检查界面</source>
-        <translation>収集前の画面確認（任意）</translation>
-    </message>
-    <message>
-        <source>已有正式记录可先在“设置 → 数据”备份，备份留本机。可先检查：切换界面语言后区服仍正确；各区成就分开显示且设置互不影响；手动补录能找到对应区服的副本。测试成就设置前记下原值，测试后恢复；不方便修改时可跳过并注明。</source>
-        <translation>既存の記録がある場合は「設定 → データ」でバックアップし、手元に保管してください。表示言語を切り替えてもリージョンが変わらないこと、リージョン別のアチーブメント表示と設定が互いに影響しないこと、手動登録で該当リージョンのコンテンツを選べることを確認できます。設定変更の前に元の値を控え、テスト後に戻してください。変更が難しい場合は省略し、その旨を記載してください。</translation>
-    </message>
-    <message>
         <source>已排队</source>
         <translation>申請済み</translation>
     </message>
@@ -2167,10 +2073,6 @@
     <message>
         <source>队列丢弃 %1</source>
         <translation>キュー破棄 %1</translation>
-    </message>
-    <message>
-        <source>采证文件：%1</source>
-        <translation>証拠ファイル：%1</translation>
     </message>
     <message>
         <source>Trace：%1
@@ -5496,6 +5398,18 @@ SHA256：%3</translation>
         <translation>このクリア記録はメンター %1 回のアチーブメントの進捗に加算されます。必須項目を入力して保存すると反映されます。</translation>
     </message>
     <message>
+        <source>记录库连接已变化，心情和心得尚未保存。请保留输入，并在原记录库的历史记录中确认后补录。</source>
+        <translation>記録データベースの接続が変わり、気分と感想は保存されていません。入力を残したまま、元のデータベースの履歴で記録を確認してから追記してください。</translation>
+    </message>
+    <message>
+        <source>记录已保存，上一条心得仍在保存中，请稍候重试。</source>
+        <translation>記録は保存されました。前の感想はまだ保存中です。しばらくしてからやり直してください。</translation>
+    </message>
+    <message>
+        <source>记录已保存，心情和心得未保存，请重试。</source>
+        <translation>記録は保存されましたが、気分と感想は保存されませんでした。やり直してください。</translation>
+    </message>
+    <message>
         <source>通关</source>
         <translation>クリア</translation>
     </message>
@@ -5660,6 +5574,10 @@ SHA256：%3</translation>
         <translation>画像を %1 枚削除しました</translation>
     </message>
     <message>
+        <source>心得不能超过 2000 个字符。</source>
+        <translation>感想は 2000 文字以内にしてください。</translation>
+    </message>
+    <message>
         <source>还没有修改记录内容。</source>
         <translation>記録の内容はまだ変更されていません。</translation>
     </message>
@@ -5708,6 +5626,10 @@ SHA256：%3</translation>
         <translation>記録は保存しました。画像を再試行してください</translation>
     </message>
     <message>
+        <source>记录已保存，请重试心情和心得</source>
+        <translation>記録は保存済み。気分と感想をやり直してください</translation>
+    </message>
+    <message>
         <source>关闭</source>
         <translation>閉じる</translation>
     </message>
@@ -5732,6 +5654,10 @@ SHA256：%3</translation>
         <translation>画像を再試行</translation>
     </message>
     <message>
+        <source>重试心情和心得</source>
+        <translation>気分と感想をやり直す</translation>
+    </message>
+    <message>
         <source>原样重试</source>
         <translation>同じ内容で再試行</translation>
     </message>
@@ -5742,6 +5668,777 @@ SHA256：%3</translation>
     <message>
         <source>添加记录</source>
         <translation>記録を追加</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceMarkingStep</name>
+    <message>
+        <source>随机类型</source>
+        <translation>ルーレット</translation>
+    </message>
+    <message>
+        <source>指导者随机</source>
+        <translation>メンタールーレット</translation>
+    </message>
+    <message>
+        <source>其他随机</source>
+        <translation>その他のルーレット</translation>
+    </message>
+    <message>
+        <source>注明类型，例：练级随机</source>
+        <translation>種類を記入（例：レベリング）</translation>
+    </message>
+    <message>
+        <source>优先采指导者随机</source>
+        <translation>メンタールーレットを優先</translation>
+    </message>
+    <message>
+        <source>没有导随资格时，用其他随机作对照</source>
+        <translation>メンターに参加できない場合は、比較用に別のルーレットで</translation>
+    </message>
+    <message>
+        <source>事件标记</source>
+        <translation>出来事のマーク</translation>
+    </message>
+    <message>
+        <source>漏按</source>
+        <translation>押し忘れ</translation>
+    </message>
+    <message>
+        <source>事件发生后 3 秒内点。漏按的会自动记为「漏按」，不要事后补点。</source>
+        <translation>イベント発生から 3 秒以内に押してください。押し忘れは自動的に「押し忘れ」として記録され、後から追加はできません。</translation>
+    </message>
+    <message>
+        <source>这一轮的情况</source>
+        <translation>今回の状況</translation>
+    </message>
+    <message>
+        <source>如实勾选，不要事后补点</source>
+        <translation>ありのまま選び、後から押し直さないでください</translation>
+    </message>
+    <message>
+        <source>处理中…</source>
+        <translation>処理中…</translation>
+    </message>
+    <message>
+        <source>停止采证</source>
+        <translation>採取を停止</translation>
+    </message>
+    <message>
+        <source>离本回到外面再停止</source>
+        <translation>外に戻ってから停止</translation>
+    </message>
+</context>
+<context>
+    <name>EvidencePage</name>
+    <message>
+        <source>捕获诊断</source>
+        <translation>キャプチャ診断</translation>
+    </message>
+    <message>
+        <source>新区服采证</source>
+        <translation>新しい地域のデータ採取</translation>
+    </message>
+    <message>
+        <source>帮助适配其他区服 · 不新增正式记录</source>
+        <translation>他の地域への対応に協力 · 正式な記録は作りません</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceReadinessStep</name>
+    <message>
+        <source>等待游戏启动</source>
+        <translation>ゲームの起動待ち</translation>
+    </message>
+    <message>
+        <source>正在取证 · 可以登录了</source>
+        <translation>採取中 · ログインしてください</translation>
+    </message>
+    <message>
+        <source>启动游戏后会自动开始取证，看到「正在取证」再登录。</source>
+        <translation>ゲームを起動すると自動で採取が始まります。「採取中」と表示されてからログインしてください。</translation>
+    </message>
+    <message>
+        <source>如果提示重启，完全退出游戏后再重开。</source>
+        <translation>再起動を求められたら、ゲームを完全に終了してから起動し直してください。</translation>
+    </message>
+    <message>
+        <source>取消等待</source>
+        <translation>待機を取り消し</translation>
+    </message>
+    <message>
+        <source>登录后正常活动 30～60 秒，报文要一直增加</source>
+        <translation>ログイン後 30〜60 秒ふつうに行動し、パケット数が増え続けるか確認</translation>
+    </message>
+    <message>
+        <source>报文 %1</source>
+        <translation>パケット %1</translation>
+    </message>
+    <message>
+        <source>数据可读，接着排本</source>
+        <translation>データを読み取れています。申請へ進んでください</translation>
+    </message>
+    <message>
+        <source>先截图，再停止并导出诊断，不用继续排本。</source>
+        <translation>スクリーンショットを撮ってから停止し、診断を書き出してください。申請を続ける必要はありません。</translation>
+    </message>
+    <message>
+        <source>停止并导出诊断</source>
+        <translation>停止して診断を書き出す</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceReportStep</name>
+    <message>
+        <source>加速器或 VPN</source>
+        <translation>ブースター・VPN</translation>
+    </message>
+    <message>
+        <source>未使用</source>
+        <translation>なし</translation>
+    </message>
+    <message>
+        <source>加速器</source>
+        <translation>ブースター</translation>
+    </message>
+    <message>
+        <source>名称</source>
+        <translation>名前</translation>
+    </message>
+    <message>
+        <source>加速器或 VPN 的名称</source>
+        <translation>ブースターまたは VPN の名前</translation>
+    </message>
+    <message>
+        <source>副本</source>
+        <translation>コンテンツ</translation>
+    </message>
+    <message>
+        <source>例：天狼星灯塔</source>
+        <translation>例：シリウス大灯台</translation>
+    </message>
+    <message>
+        <source>职业</source>
+        <translation>ジョブ</translation>
+    </message>
+    <message>
+        <source>例：白魔法师</source>
+        <translation>例：白魔道士</translation>
+    </message>
+    <message>
+        <source>这一轮的情况</source>
+        <translation>今回の状況</translation>
+    </message>
+    <message>
+        <source>回传说明</source>
+        <translation>送付メモ</translation>
+    </message>
+    <message>
+        <source>版本、时间、区服、标记和计数已自动填好</source>
+        <translation>バージョン・時刻・地域・マーク・カウントは自動入力済み</translation>
+    </message>
+    <message>
+        <source>已复制</source>
+        <translation>コピーしました</translation>
+    </message>
+    <message>
+        <source>复制回传说明</source>
+        <translation>メモをコピー</translation>
+    </message>
+    <message>
+        <source>已复制回传说明，粘贴到 ZIP 旁边的文字里就行</source>
+        <translation>送付メモをコピーしました。ZIP に添えるメッセージに貼り付けてください</translation>
+    </message>
+    <message>
+        <source>打包成一个 ZIP，私下交给维护者：采证文件、诊断 JSON、截图和这段说明。</source>
+        <translation>採取ファイル・診断 JSON・スクリーンショット・このメモを 1 つの ZIP にまとめ、開発者に個別に送ってください。</translation>
+    </message>
+    <message>
+        <source>不要附数据库、游戏程序或 DLL、账号密码和原始抓包；完整 trace 不要贴到公开 Issue。</source>
+        <translation>データベース・ゲーム本体や DLL・アカウントのパスワード・生のパケットキャプチャは含めないでください。trace 全体を公開 Issue に貼らないでください。</translation>
+    </message>
+    <message>
+        <source>候选摘要（可选）</source>
+        <translation>候補の概要（任意）</translation>
+    </message>
+    <message>
+        <source>收起</source>
+        <translation>閉じる</translation>
+    </message>
+    <message>
+        <source>展开</source>
+        <translation>展開</translation>
+    </message>
+    <message>
+        <source>预览候选摘要</source>
+        <translation>概要をプレビュー</translation>
+    </message>
+    <message>
+        <source>预览只针对最近一轮，要在下一轮或重开软件前处理。确认后会复制摘要并打开 GitHub 提交页；也可以把复制的 JSON 存成文件一起回传，不必发 Issue。</source>
+        <translation>プレビューは最新の 1 回分だけが対象です。次の回や再起動の前に処理してください。確認すると要約をコピーして GitHub の送信ページを開きます。コピーした JSON をファイルとして保存し、Issue を立てずに一緒に送ることもできます。</translation>
+    </message>
+    <message>
+        <source>采证完成只代表拿到候选线索，仍需维护者验证。先回传一轮，确认可用后再补一轮。</source>
+        <translation>採取が終わっても候補の手がかりが得られただけで、開発者の確認が必要です。まず 1 回分を送り、使えると分かってからもう 1 回行ってください。</translation>
+    </message>
+    <message>
+        <source>开始下一轮</source>
+        <translation>次の回を始める</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceSaveStep</name>
+    <message>
+        <source>打开所在目录</source>
+        <translation>フォルダーを開く</translation>
+    </message>
+    <message>
+        <source>导出诊断报告</source>
+        <translation>レポートを書き出す</translation>
+    </message>
+    <message>
+        <source>打开日志目录</source>
+        <translation>ログを開く</translation>
+    </message>
+    <message>
+        <source>处理中…</source>
+        <translation>処理中…</translation>
+    </message>
+    <message>
+        <source>停止采证</source>
+        <translation>採取を停止</translation>
+    </message>
+    <message>
+        <source>离本回到外面再停止</source>
+        <translation>外に戻ってから停止</translation>
+    </message>
+    <message>
+        <source>正在保存…</source>
+        <translation>保存中…</translation>
+    </message>
+    <message>
+        <source>已保存 · %1</source>
+        <translation>保存済み · %1</translation>
+    </message>
+    <message>
+        <source>已结束，文件不完整</source>
+        <translation>終了（ファイルが不完全）</translation>
+    </message>
+    <message>
+        <source>先截一张图，留下状态和四项计数</source>
+        <translation>状態と 4 つのカウントをスクリーンショットに残してください</translation>
+    </message>
+    <message>
+        <source>有多少文件就回传多少，缺的会写进回传说明。</source>
+        <translation>あるファイルだけ送ってください。足りないものは送付メモに書かれます。</translation>
+    </message>
+    <message>
+        <source>采证文件：%1</source>
+        <translation>証拠ファイル：%1</translation>
+    </message>
+    <message>
+        <source>Trace：%1
+SHA256 文件：%2
+SHA256：%3</source>
+        <translation>Trace：%1
+SHA256 ファイル：%2
+SHA256：%3</translation>
+    </message>
+    <message>
+        <source>当前是截图用模拟路径，不会当作可打开的真实取证。</source>
+        <translation>これはスクリーンショット用の模擬パスで、実際に開ける検証データとしては扱いません。</translation>
+    </message>
+    <message>
+        <source>按需附加</source>
+        <translation>必要なときだけ</translation>
+    </message>
+    <message>
+        <source>每轮分开保存，不改原文件和文件名。</source>
+        <translation>回ごとに分けて保存し、ファイルやファイル名は変えないでください。</translation>
+    </message>
+    <message>
+        <source>采证目录只留最近 10 份、7 天内，记得及时复制出去。</source>
+        <translation>採取フォルダーには直近 10 回分（7 日以内）しか残らないので、早めにコピーしてください。</translation>
+    </message>
+    <message>
+        <source>失败也照样回传已有的文件，缺的会写进回传说明。</source>
+        <translation>失敗しても手元のファイルは送ってください。足りないものは送付メモに記載されます。</translation>
+    </message>
+    <message>
+        <source>下一步：生成回传说明</source>
+        <translation>次へ：送付メモを作成</translation>
+    </message>
+    <message>
+        <source>还缺 %1 项，也能继续，回传说明里会注明</source>
+        <translation>%1 件足りませんが続行できます。送付メモに記載されます</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceSession</name>
+    <message>
+        <source>报文一直为 0，解码失败在快速增加</source>
+        <translation>パケットが 0 のまま、デコード失敗が急増しています</translation>
+    </message>
+    <message>
+        <source>报文一直为 0</source>
+        <translation>パケットがずっと 0 のままです</translation>
+    </message>
+    <message>
+        <source>解码失败在快速增加</source>
+        <translation>デコード失敗が急増しています</translation>
+    </message>
+    <message>
+        <source>选择区服和网卡</source>
+        <translation>地域とアダプターを選ぶ</translation>
+    </message>
+    <message>
+        <source>启动游戏，登录后确认数据可读</source>
+        <translation>ゲームを起動し、ログイン後にデータが読めるか確認</translation>
+    </message>
+    <message>
+        <source>排一把随机，按事件标记</source>
+        <translation>ルーレットを1回申請し、出来事ごとにマーク</translation>
+    </message>
+    <message>
+        <source>停止采证，保存文件</source>
+        <translation>採取を止めてファイルを保存</translation>
+    </message>
+    <message>
+        <source>打包回传给维护者</source>
+        <translation>ZIP にまとめて開発者に送る</translation>
+    </message>
+    <message>
+        <source>国服 CN</source>
+        <translation>中国版 (CN)</translation>
+    </message>
+    <message>
+        <source>繁中服 TC</source>
+        <translation>繁体字版 (TC)</translation>
+    </message>
+    <message>
+        <source>国际服 GLOBAL</source>
+        <translation>グローバル版 (GLOBAL)</translation>
+    </message>
+    <message>
+        <source>自动</source>
+        <translation>自動</translation>
+    </message>
+    <message>
+        <source>自动选择（唯一推荐网卡）</source>
+        <translation>自動選択（推奨アダプターのみ）</translation>
+    </message>
+    <message>
+        <source>未命名适配器</source>
+        <translation>名前のないアダプター</translation>
+    </message>
+    <message>
+        <source>%1 · 推荐</source>
+        <translation>%1 · おすすめ</translation>
+    </message>
+    <message>
+        <source>%1 · %2 · 推荐</source>
+        <translation>%1 · %2 · おすすめ</translation>
+    </message>
+    <message>
+        <source>%1 · %2</source>
+        <translation>%1 · %2</translation>
+    </message>
+    <message>
+        <source>自动选择</source>
+        <translation>自動選択</translation>
+    </message>
+    <message>
+        <source>已排队</source>
+        <translation>申請</translation>
+    </message>
+    <message>
+        <source>开始排队</source>
+        <translation>申請したとき</translation>
+    </message>
+    <message>
+        <source>已匹配</source>
+        <translation>マッチ</translation>
+    </message>
+    <message>
+        <source>匹配弹窗出现</source>
+        <translation>突入確認が出たとき</translation>
+    </message>
+    <message>
+        <source>已进入</source>
+        <translation>突入</translation>
+    </message>
+    <message>
+        <source>读条结束进本</source>
+        <translation>読み込み後に突入</translation>
+    </message>
+    <message>
+        <source>已胜利</source>
+        <translation>クリア</translation>
+    </message>
+    <message>
+        <source>出现通关提示</source>
+        <translation>クリア表示が出たとき</translation>
+    </message>
+    <message>
+        <source>已离开</source>
+        <translation>退出</translation>
+    </message>
+    <message>
+        <source>离本回到外面</source>
+        <translation>外に戻ったとき</translation>
+    </message>
+    <message>
+        <source>指导者随机</source>
+        <translation>メンタールーレット</translation>
+    </message>
+    <message>
+        <source>其他随机（%1）</source>
+        <translation>その他のルーレット（%1）</translation>
+    </message>
+    <message>
+        <source>其他随机</source>
+        <translation>その他のルーレット</translation>
+    </message>
+    <message>
+        <source>中途加入</source>
+        <translation>途中参加</translation>
+    </message>
+    <message>
+        <source>未通关</source>
+        <translation>未クリア</translation>
+    </message>
+    <message>
+        <source>漏按</source>
+        <translation>押し忘れ</translation>
+    </message>
+    <message>
+        <source>点晚</source>
+        <translation>遅れて押した</translation>
+    </message>
+    <message>
+        <source>断线</source>
+        <translation>切断</translation>
+    </message>
+    <message>
+        <source>状态截图</source>
+        <translation>状態のスクリーンショット</translation>
+    </message>
+    <message>
+        <source>含状态和四项计数</source>
+        <translation>状態と 4 つのカウント</translation>
+    </message>
+    <message>
+        <source>本轮取证数据</source>
+        <translation>今回の採取データ</translation>
+    </message>
+    <message>
+        <source>校验文件，和上面同一目录</source>
+        <translation>チェックサム（同じフォルダー）</translation>
+    </message>
+    <message>
+        <source>诊断报告 JSON</source>
+        <translation>診断レポート（JSON）</translation>
+    </message>
+    <message>
+        <source>不含游戏内容、网络地址与账号</source>
+        <translation>ゲーム内容・ネットワークアドレス・アカウント情報は含みません</translation>
+    </message>
+    <message>
+        <source>无法识别游戏版本时，在游戏目录</source>
+        <translation>ゲームのバージョンを識別できないとき（ゲームフォルダー）</translation>
+    </message>
+    <message>
+        <source>启动或采证出错时，在数据目录 logs</source>
+        <translation>起動や採取でエラーが出たとき（データフォルダーの logs）</translation>
+    </message>
+    <message>
+        <source>已在「设置 › 数据」备份正式记录（备份只留在本机）</source>
+        <translation>「設定 › データ」で記録をバックアップした（バックアップはこの PC に残ります）</translation>
+    </message>
+    <message>
+        <source>切换界面语言后，区服仍然正确</source>
+        <translation>表示言語を切り替えても地域が正しい</translation>
+    </message>
+    <message>
+        <source>各区服的成就分开显示，设置互不影响</source>
+        <translation>地域ごとのアチーブメントが別々に表示され、設定が互いに影響しない</translation>
+    </message>
+    <message>
+        <source>手动补录能找到对应区服的副本</source>
+        <translation>手動入力でその地域のコンテンツが見つかる</translation>
+    </message>
+    <message>
+        <source>无</source>
+        <translation>なし</translation>
+    </message>
+    <message>
+        <source>（未填）</source>
+        <translation>（未記入）</translation>
+    </message>
+    <message>
+        <source>未使用</source>
+        <translation>なし</translation>
+    </message>
+    <message>
+        <source>加速器</source>
+        <translation>ブースター</translation>
+    </message>
+    <message>
+        <source>【导随记录器 · 新区服采证回报】</source>
+        <translation>【メンター記録 · 新しい地域の採取レポート】</translation>
+    </message>
+    <message>
+        <source>软件版本：%1</source>
+        <translation>アプリのバージョン：%1</translation>
+    </message>
+    <message>
+        <source>游戏版本：%1</source>
+        <translation>ゲームのバージョン：%1</translation>
+    </message>
+    <message>
+        <source>系统：%1</source>
+        <translation>システム：%1</translation>
+    </message>
+    <message>
+        <source>测试时间：%1 – %2（%3）</source>
+        <translation>テスト日時：%1 – %2（%3）</translation>
+    </message>
+    <message>
+        <source>进行中</source>
+        <translation>進行中</translation>
+    </message>
+    <message>
+        <source>区服 / 网卡：%1 · %2</source>
+        <translation>地域 / アダプター：%1 · %2</translation>
+    </message>
+    <message>
+        <source>加速器或 VPN：%1</source>
+        <translation>ブースター・VPN：%1</translation>
+    </message>
+    <message>
+        <source>随机类型：%1</source>
+        <translation>ルーレット：%1</translation>
+    </message>
+    <message>
+        <source>副本 / 职业：%1 · %2</source>
+        <translation>コンテンツ / ジョブ：%1 · %2</translation>
+    </message>
+    <message>
+        <source>标记：%1</source>
+        <translation>マーク：%1</translation>
+    </message>
+    <message>
+        <source>情况：%1</source>
+        <translation>状況：%1</translation>
+    </message>
+    <message>
+        <source>、</source>
+        <translation>、</translation>
+    </message>
+    <message>
+        <source>计数：报文 %1 · 已写入标记 %2 · 解码失败 %3 · 队列丢弃 %4</source>
+        <translation>カウント：パケット %1 · 書き込んだマーカー %2 · デコード失敗 %3 · キュー破棄 %4</translation>
+    </message>
+    <message>
+        <source>附件：%1</source>
+        <translation>添付：%1</translation>
+    </message>
+    <message>
+        <source>缺失：%1</source>
+        <translation>不足：%1</translation>
+    </message>
+    <message>
+        <source>开始于 %1</source>
+        <translation>%1 に開始</translation>
+    </message>
+    <message>
+        <source>数据异常，已停止</source>
+        <translation>データ異常のため停止</translation>
+    </message>
+    <message>
+        <source>数据可读 · 报文 %1</source>
+        <translation>データ読み取り可 · パケット %1</translation>
+    </message>
+    <message>
+        <source>%1 · 标记 %2 / 5</source>
+        <translation>%1 · マーク %2 / 5</translation>
+    </message>
+    <message>
+        <source>已保存 · 文件 %1 / %2</source>
+        <translation>保存済み · ファイル %1 / %2</translation>
+    </message>
+    <message>
+        <source>等待游戏启动</source>
+        <translation>ゲームの起動待ち</translation>
+    </message>
+    <message>
+        <source>数据异常</source>
+        <translation>データ異常</translation>
+    </message>
+    <message>
+        <source>正在取证</source>
+        <translation>採取中</translation>
+    </message>
+    <message>
+        <source>正在保存</source>
+        <translation>保存中</translation>
+    </message>
+    <message>
+        <source>已保存</source>
+        <translation>保存済み</translation>
+    </message>
+    <message>
+        <source>已结束，文件不完整</source>
+        <translation>終了（ファイルが不完全）</translation>
+    </message>
+    <message>
+        <source>失败</source>
+        <translation>失敗</translation>
+    </message>
+    <message>
+        <source>尚未开始</source>
+        <translation>未開始</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceSetupStep</name>
+    <message>
+        <source>未安装 Npcap，暂时不能采证</source>
+        <translation>Npcap が未インストールのため採取できません</translation>
+    </message>
+    <message>
+        <source>游戏正在运行：先完全退出游戏，再开始采证</source>
+        <translation>ゲームが起動中です。完全に終了してから開始してください</translation>
+    </message>
+    <message>
+        <source>游戏未运行，可以开始</source>
+        <translation>ゲームは起動していません。開始できます</translation>
+    </message>
+    <message>
+        <source>已经退出了，重新检测</source>
+        <translation>終了した。再確認</translation>
+    </message>
+    <message>
+        <source>采证操作失败：</source>
+        <translation>採取の操作に失敗しました：</translation>
+    </message>
+    <message>
+        <source>错误码：</source>
+        <translation>エラーコード：</translation>
+    </message>
+    <message>
+        <source>当前正在正式记录，不能切换为采证。已有版本的校准核实请用「工具 › 共享校准证据」。</source>
+        <translation>現在は正式な記録中のため、データ採取には切り替えられません。既知バージョンのキャリブレーション確認は「ツール › 共有キャリブレーションの証拠」を使ってください。</translation>
+    </message>
+    <message>
+        <source>Trace：%1
+SHA256 文件：%2
+SHA256：%3</source>
+        <translation>Trace：%1
+SHA256 ファイル：%2
+SHA256：%3</translation>
+    </message>
+    <message>
+        <source>区服</source>
+        <translation>地域</translation>
+    </message>
+    <message>
+        <source>和界面语言分开设置；监听或采证期间不能修改</source>
+        <translation>表示言語とは別に設定します。監視中・採取中は変更できません。</translation>
+    </message>
+    <message>
+        <source>网络适配器</source>
+        <translation>ネットワークアダプター</translation>
+    </message>
+    <message>
+        <source>采证网络适配器</source>
+        <translation>採取用ネットワークアダプター</translation>
+    </message>
+    <message>
+        <source>处理中…</source>
+        <translation>処理中…</translation>
+    </message>
+    <message>
+        <source>开始采证</source>
+        <translation>採取を開始</translation>
+    </message>
+    <message>
+        <source>采证前可选检查</source>
+        <translation>採取前の任意チェック</translation>
+    </message>
+    <message>
+        <source>收起</source>
+        <translation>閉じる</translation>
+    </message>
+    <message>
+        <source>展开</source>
+        <translation>展開</translation>
+    </message>
+    <message>
+        <source>测成就设置前先记下原值，测完恢复；不方便就跳过，回传时注明。</source>
+        <translation>アチーブメント設定を試す前に元の値を控え、終わったら戻してください。難しければ飛ばして、送付時に書き添えてください。</translation>
+    </message>
+    <message>
+        <source>去「设置 › 数据」备份</source>
+        <translation>「設定 › データ」でバックアップ</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceSidebar</name>
+    <message>
+        <source>本轮状态</source>
+        <translation>今回の状態</translation>
+    </message>
+    <message>
+        <source>还没开始</source>
+        <translation>まだ始まっていません</translation>
+    </message>
+    <message>
+        <source>报文</source>
+        <translation>パケット</translation>
+    </message>
+    <message>
+        <source>+%1 / 秒</source>
+        <translation>+%1 / 秒</translation>
+    </message>
+    <message>
+        <source>已写入标记</source>
+        <translation>書き込んだマーカー</translation>
+    </message>
+    <message>
+        <source>解码失败</source>
+        <translation>デコード失敗</translation>
+    </message>
+    <message>
+        <source>队列丢弃</source>
+        <translation>キュー破棄</translation>
+    </message>
+    <message>
+        <source>仅验证，不自动记录</source>
+        <translation>検証のみ。自動では記録しません</translation>
+    </message>
+    <message>
+        <source>取证文件只存在本机</source>
+        <translation>採取ファイルはこの PC にだけ保存</translation>
+    </message>
+    <message>
+        <source>不会自动上传</source>
+        <translation>自動ではアップロードしません</translation>
+    </message>
+    <message>
+        <source>单轮最长 2 小时，含等待时间</source>
+        <translation>1 回は最長 2 時間（待ち時間を含む）</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceStep</name>
+    <message>
+        <source>当前</source>
+        <translation>現在</translation>
+    </message>
+    <message>
+        <source>完成</source>
+        <translation>完了</translation>
     </message>
 </context>
 <context>
@@ -6104,10 +6801,6 @@ SHA256：%3</translation>
     <message>
         <source>上一页</source>
         <translation>前へ</translation>
-    </message>
-    <message>
-        <source>%1 / %2</source>
-        <translation>%1 / %2</translation>
     </message>
     <message>
         <source>下一页</source>
@@ -7088,6 +7781,14 @@ SHA256：%3</translation>
         <translation>メンターレコーダー</translation>
     </message>
     <message>
+        <source>采证中</source>
+        <translation>採取中</translation>
+    </message>
+    <message>
+        <source>打开新区服采证</source>
+        <translation>新しい地域のデータ採取を開く</translation>
+    </message>
+    <message>
         <source>浅色</source>
         <translation>ライト</translation>
     </message>
@@ -7727,6 +8428,25 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>PageNumberInput</name>
+    <message>
+        <source>跳转页码</source>
+        <translation>移動先のページ</translation>
+    </message>
+    <message>
+        <source>输入 1～%1 页，按回车或点击跳转</source>
+        <translation>1～%1 のページ番号を入力し、Enter キーまたは「移動」で移動します。</translation>
+    </message>
+    <message>
+        <source>/ %1 页</source>
+        <translation>/ %1 ページ</translation>
+    </message>
+    <message>
+        <source>跳转</source>
+        <translation>移動</translation>
+    </message>
+</context>
+<context>
     <name>PendingWorkContent</name>
     <message>
         <source>正在读取待处理记录…</source>
@@ -7786,6 +8506,29 @@ SHA256：%3</translation>
     <message>
         <source>记录区服</source>
         <translation>記録のサービス地域</translation>
+    </message>
+</context>
+<context>
+    <name>RecordingWarningWindow</name>
+    <message>
+        <source>导随记录器 · 自动记录暂不可用</source>
+        <translation>メンタールーレット記録 · 自動記録を利用できません</translation>
+    </message>
+    <message>
+        <source>自动记录暂不可用</source>
+        <translation>自動記録を利用できません</translation>
+    </message>
+    <message>
+        <source>恢复前，副本可能无法自动记录。后台仍会继续尝试恢复。</source>
+        <translation>復旧するまでコンテンツが自動記録されない場合があります。バックグラウンドで復旧を続けます。</translation>
+    </message>
+    <message>
+        <source>查看诊断</source>
+        <translation>診断を確認</translation>
+    </message>
+    <message>
+        <source>我知道了</source>
+        <translation>確認しました</translation>
     </message>
 </context>
 <context>
@@ -8295,10 +9038,6 @@ SHA256：%3</translation>
     <message>
         <source>上一页</source>
         <translation>前へ</translation>
-    </message>
-    <message>
-        <source>第 %1 / %2 页</source>
-        <translation>%1 / %2 ページ</translation>
     </message>
     <message>
         <source>下一页</source>
@@ -8997,6 +9736,34 @@ SHA256：%3</translation>
     <message>
         <source>图片保存在软件安装目录：%1</source>
         <translation>画像はアプリのインストール先に保存されます：%1</translation>
+    </message>
+    <message>
+        <source>这次感觉（可选）</source>
+        <translation>今回の気分（任意）</translation>
+    </message>
+    <message>
+        <source>不填写</source>
+        <translation>入力しない</translation>
+    </message>
+    <message>
+        <source>顺利</source>
+        <translation>順調</translation>
+    </message>
+    <message>
+        <source>一般</source>
+        <translation>ふつう</translation>
+    </message>
+    <message>
+        <source>糟心</source>
+        <translation>しんどい</translation>
+    </message>
+    <message>
+        <source>心得（可选）</source>
+        <translation>感想（任意）</translation>
+    </message>
+    <message>
+        <source>写一句心得；只选心情时，将以心情文字保存。</source>
+        <translation>ひとこと感想を書いてください。気分だけ選んだ場合は、その気分の言葉で保存されます。</translation>
     </message>
     <message>
         <source>修改前后对比</source>
@@ -10034,6 +10801,10 @@ SHA256：%3</translation>
         <translation>アダプターを %1 個再検出しました（Npcap が未インストールのため、現在は自動記録できません）</translation>
     </message>
     <message>
+        <source>无法访问剪贴板。</source>
+        <translation>クリップボードにアクセスできません。</translation>
+    </message>
+    <message>
         <source>已打开 Npcap 官方网站，请在浏览器中下载驱动。</source>
         <translation>Npcap の公式サイトを開きました。ブラウザでドライバーをダウンロードしてください。</translation>
     </message>
@@ -10831,6 +11602,14 @@ SHA256：%3</translation>
     <message>
         <source>已打开 %1</source>
         <translation>%1 を開きました</translation>
+    </message>
+    <message>
+        <source>找不到日志文件夹。</source>
+        <translation>ログフォルダーが見つかりません。</translation>
+    </message>
+    <message>
+        <source>日志文件夹还不存在：%1。后台服务写入日志后会创建它。</source>
+        <translation>ログフォルダーはまだありません：%1。バックグラウンドサービスがログを書き込むと作成されます。</translation>
     </message>
 </context>
 <context>
@@ -13156,20 +13935,5 @@ SHA256：%3</translation>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>インストーラーが起動しませんでした。Windows のインストール確認で許可されなかった可能性があります。このアプリは実行を続けます。もう一度「今すぐインストール」を押すか、「ブラウザでダウンロード」を押してください。</translation>
     </message>
-</context>
-<context>
-    <name>PageNumberInput</name>
-    <message><source>跳转页码</source><translation>移動先のページ</translation></message>
-    <message><source>输入 1～%1 页，按回车或点击跳转</source><translation>1～%1 のページ番号を入力し、Enter キーまたは「移動」で移動します。</translation></message>
-    <message><source>/ %1 页</source><translation>/ %1 ページ</translation></message>
-    <message><source>跳转</source><translation>移動</translation></message>
-</context>
-<context>
-    <name>RecordingWarningWindow</name>
-    <message><source>导随记录器 · 自动记录暂不可用</source><translation>メンタールーレット記録 · 自動記録を利用できません</translation></message>
-    <message><source>自动记录暂不可用</source><translation>自動記録を利用できません</translation></message>
-    <message><source>恢复前，副本可能无法自动记录。后台仍会继续尝试恢复。</source><translation>復旧するまでコンテンツが自動記録されない場合があります。バックグラウンドで復旧を続けます。</translation></message>
-    <message><source>查看诊断</source><translation>診断を確認</translation></message>
-    <message><source>我知道了</source><translation>確認しました</translation></message>
 </context>
 </TS>

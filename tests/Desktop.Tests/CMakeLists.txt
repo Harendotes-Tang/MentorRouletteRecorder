@@ -208,9 +208,10 @@ set_tests_properties(MentorRecorderDungeonComposition PROPERTIES ENVIRONMENT "${
 # CapturePage: 捕获诊断 in shipping QML - title row, 链路, 解析, player vocabulary.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopCalibrationTests
-    SUITES Calibration SharedCalibration SharedCalibrationCard CapturePage CandidateReview EvidenceSubmission)
+    SUITES Calibration SharedCalibration SharedCalibrationCard CapturePage CandidateReview EvidenceSubmission
+           EvidencePage)
 foreach(suite IN ITEMS Calibration SharedCalibration SharedCalibrationCard CapturePage CandidateReview
-                       EvidenceSubmission)
+                       EvidenceSubmission EvidencePage)
     mr_desktop_suite_test(MentorRecorderDesktopCalibrationTests ${suite})
 endforeach()
 
@@ -446,6 +447,31 @@ foreach(MR_VALIDATION_STATE waiting recording stopping completed failed)
             --verify-text "${MR_VALIDATION_TEXT_${MR_VALIDATION_STATE}}"
             --mock-validation-state ${MR_VALIDATION_STATE})
 endforeach()
+
+# 新区服采证 (evidence/EvidencePage.qml): the player's sub-page on its current
+# step while a round records, and the finished round's 回传说明 step.
+add_test(NAME MentorRecorderQmlEvidenceSteps
+    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
+        --backend mock
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/evidence-steps.png"
+        --page 5
+        --theme dark
+        --screenshot-size 1280x900
+        --screenshot-delay 1000
+        --mock-validation-state recording
+        --mock-open-evidence steps
+        --verify-text "排一把随机，按事件标记")
+add_test(NAME MentorRecorderQmlEvidenceReport
+    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
+        --backend mock
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/evidence-report.png"
+        --page 5
+        --theme light
+        --screenshot-size 1280x900
+        --screenshot-delay 1000
+        --mock-validation-state completed
+        --mock-open-evidence report
+        --verify-text "【导随记录器 · 新区服采证回报】")
 
 # The midstream banner: capture RUNNING, nothing decoded, decode errors rising.
 # docs/live-validation-guide.md section 6. Recording is otherwise possible (a
