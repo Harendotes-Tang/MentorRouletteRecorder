@@ -1,5 +1,9 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-11-04 · 系统连接表读取原因
+
+- `CaptureStatus.network_path`（`$defs/NetworkPath`）新增可选的 `query_ipv4_detail` / `query_ipv6_detail`：封闭词表的字符串，由 schema 的 `pattern` 逐字限定（与 Collector 的准入正则相同），不含地址、标识或异常文本。`query_ipv4` / `query_ipv6` 为 `FAILED` / `TRUNCATED` 时说明放弃的检查（`native_size:<code>`、`native_read:<code>`、`size_too_small`、`returned_length`、`header_short`、`row_count`、`family`、`no_pid`、`exception:<type>`、`provider_exception`、`frozen_row`、`table_too_large`、`table_growing`、`rows_too_many`、`rows_untrusted`（整张表没有一行可读）、`own_rows_unreadable`（游戏自己的行全都读不出））；为 `OK` 时说明解析时跳过的行数（`skipped_rows:<n>[;unknown_state:<value>]`，值为一个字节或 `other`）；无话可说时为 `null`，旧 Collector 没有该字段。诊断报告的同名对象同样带这两个字段。同期 Collector 行为变化（契约形状不变）：连接表中状态不在 1–12 的行、以及游戏自己缺少端口或地址的行改为跳过并计数，不再判整族失败，状态 100（已绑定未连接）视同 LISTEN；但游戏自己的行全都读不出或整张表没有一行可读时仍为 `FAILED`；IPv6 表读不出时按 IPv4 表选择网卡，IPv4 表读不出仍不猜测（2026-11-03 诊断报告：两族均 `FAILED`，自动开始被 `capture.start.adapter_undetermined` 拒绝）。
+
 ## 2026-11-03 · 审查修复
 
 - 共享校准、更新、宿主（审查 2026-11-03 X3）：七条共享校准导入与拒绝文案（`sharing.code.newer_version`，`sharing.import.changed` / `not_calibrating` / `other_template` / `rejected` / `user_rejected` / `check_pending`）把按钮名改为界面上的「手动导入校准码」，公开仓库 `sharecode.py` 的回复同步（E-4）。读取安装程序校验值时应答中途断开，下载结果由 `TRANSPORT_FAILED` 改报 `CHECKSUM_UNAVAILABLE`；`update.download.transport_failed` 改写为在剩余路径（安装程序下载中断、后台意外错误）上都成立的说法（F-2）。`startup.log_dir_unwritable` 新增 `{path}` 参数（日志文件夹），不再提命令行选项（G-4）。以管理员身份运行的采集服务给管道加 High 强制完整性标签（不可向上写、不可向上读），未提权的进程连不上它；未提权运行时管道不变（G-1）。共享校准状态：副本进行中读到的隔离与撤回一样等到这一场结束才停用（结束时已通过完整检查的不再停用，E-1）；撤回或停用之后同一区服与版本重新进入校准时，`shared.last_refusal` 与被拒校准码的 `REJECTED` 条目保留（E-3）。

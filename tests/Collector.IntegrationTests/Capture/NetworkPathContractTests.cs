@@ -15,7 +15,7 @@ public sealed class NetworkPathContractTests
         "loopback_connections", "local_connections", "selected_interface_connections",
         "other_interface_connections", "unmapped_ipv4_connections", "matching_interfaces", "kind",
         "capture_interfaces", "candidate_interfaces", "capture_open_failures", "candidate_limit_reached",
-        "loopback_capture_available", "ipv6_capture_supported",
+        "loopback_capture_available", "ipv6_capture_supported", "query_ipv4_detail", "query_ipv6_detail",
     };
 
     [Fact]
@@ -124,14 +124,57 @@ public sealed class NetworkPathContractTests
     [InlineData("query_ipv4")]
     [InlineData("query_ipv6")]
     [InlineData("query_adapters")]
+    [InlineData("query_ipv4_detail")]
+    [InlineData("query_ipv6_detail")]
     public void ContractRejectsUnrecognisedTokensAndEndpointTextInTokenFields(string field)
     {
-        foreach (var token in new[] { "UNRECOGNISED", "192.0.2.29", "203.0.113.29:54994" })
+        foreach (var token in new[]
+                 {
+                     "UNRECOGNISED", "192.0.2.29", "203.0.113.29:54994", "fe80::1", "2001:db8::29", "aa:bb:cc:dd:ee:ff",
+                 })
         {
             var wire = NetworkPathWire.ToJson(NetworkPathDiagnosticsSnapshot.Unmeasured);
             wire[field] = token;
             Assert.False(ContractSchema.Evaluate("$defs/NetworkPath", wire).IsValid);
         }
+    }
+
+    [Fact]
+    public void ContractAcceptsEveryProductionQueryDetailTokenAndNothingElse()
+    {
+        foreach (var detail in new[]
+                 {
+                     "native_size:50", "native_read:87", "size_too_small", "returned_length", "header_short",
+                     "row_count", "family", "no_pid", "exception:win32exception", "exception:boom1",
+                     "provider_exception", "frozen_row", "table_too_large", "table_growing", "rows_too_many",
+                     "rows_untrusted", "own_rows_unreadable", "skipped_rows:3", "skipped_rows:3;unknown_state:100",
+                     "skipped_rows:3;unknown_state:other",
+                 })
+        {
+            var wire = NetworkPathWire.ToJson(NetworkPathDiagnosticsSnapshot.Unmeasured with
+            {
+                QueryIPv4Detail = detail,
+                QueryIPv6Detail = detail,
+            });
+            ContractSchema.Validate("$defs/NetworkPath", wire, detail);
+            Assert.Equal(detail, wire["query_ipv4_detail"]!.GetValue<string>());
+        }
+
+        foreach (var invalid in new[] { new string('a', 65), "exception:" + new string('a', 41), "native_size:", "skipped_rows:3;" })
+        {
+            var wire = NetworkPathWire.ToJson(NetworkPathDiagnosticsSnapshot.Unmeasured);
+            wire["query_ipv4_detail"] = invalid;
+            Assert.False(ContractSchema.Evaluate("$defs/NetworkPath", wire).IsValid, invalid);
+        }
+    }
+
+    /// <summary>The wire's admission check and the contract's pattern are one grammar, not two that drift.</summary>
+    [Fact]
+    public void ContractAndWireShareOneDetailGrammar()
+    {
+        var properties = ContractSchema.Root["$defs"]!["NetworkPath"]!["properties"]!;
+        Assert.Equal(NetworkPathWire.DetailPattern, properties["query_ipv4_detail"]!["pattern"]!.GetValue<string>());
+        Assert.Equal(NetworkPathWire.DetailPattern, properties["query_ipv6_detail"]!["pattern"]!.GetValue<string>());
     }
 
     [Fact]

@@ -91,8 +91,10 @@ public interface IAdapterProvider
 public interface IProcessTcpTable
 {
     /// <summary>
-    /// Local IPv4 addresses of the process's current TCP connections. Throws when the table
-    /// cannot be read: an empty list means "no connection", which is a different answer.
+    /// Local addresses of the process's current TCP connections. Throws when the IPv4 table
+    /// cannot be read: an empty list means "no connection", which is a different answer. An
+    /// IPv6 table that cannot be read is tolerated, since capture reads IPv4 only
+    /// (<see cref="SystemProcessConnectionTable.LocalAddresses"/>).
     /// </summary>
     /// <param name="processId">Process identifier.</param>
     IReadOnlyList<IPAddress> LocalAddresses(int processId);
@@ -296,8 +298,10 @@ public sealed class AdapterEnumerator
     }
 
     /// <summary>
-    /// Whether the game holds any TCP connection, on any interface; null when the table could not
-    /// be read. False is the title screen, before the client has connected anywhere.
+    /// Whether the game holds any TCP connection, on any interface the readable tables show; null
+    /// when the IPv4 table could not be read. False is the title screen, before the client has
+    /// connected anywhere. An IPv6 table that could not be read is not consulted: capture reads
+    /// IPv4 only (<see cref="SystemProcessConnectionTable.LocalAddresses"/>).
     /// </summary>
     /// <param name="processId">Game process id.</param>
     internal bool? GameHoldsConnections(int processId) =>

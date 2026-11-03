@@ -281,3 +281,31 @@ internal sealed class RecordingLifecycleListener : ICaptureLifecycleListener
         }
     }
 }
+
+/// <summary>A monotonic clock a test advances by hand; one tick is one millisecond.</summary>
+internal sealed class ManualTimeProvider : TimeProvider
+{
+    private long _milliseconds;
+    public override long TimestampFrequency => 1000;
+    public override long GetTimestamp() => _milliseconds;
+    public void Advance(int milliseconds) => _milliseconds += milliseconds;
+}
+
+/// <summary>
+/// System connection tables a test scripts outright, one answer per family (the IPv4 answer
+/// serves both when no IPv6 answer is given). Swap <see cref="IPv4"/> or <see cref="IPv6"/>
+/// between reads to script a table that fails, then reads again.
+/// </summary>
+internal sealed class ScriptedConnections(
+    ProcessNetworkConnectionQuery ipv4, ProcessNetworkConnectionQuery? ipv6 = null) : IProcessNetworkConnectionProvider
+{
+    public ProcessNetworkConnectionQuery IPv4 { get; set; } = ipv4;
+    public ProcessNetworkConnectionQuery IPv6 { get; set; } = ipv6 ?? ipv4;
+    public int Reads { get; private set; }
+
+    public ProcessNetworkConnectionTables Read(int processId)
+    {
+        Reads++;
+        return new ProcessNetworkConnectionTables(IPv4, IPv6);
+    }
+}

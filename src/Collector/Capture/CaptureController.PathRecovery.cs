@@ -115,8 +115,9 @@ public sealed partial class CaptureController
             var selected = adapters.FirstOrDefault(a => a.Recommended && CapturePathPlan.IsUsable(a))
                 ?? adapters.FirstOrDefault(a => a.Id == run.Adapter?.Id && CapturePathPlan.IsUsable(a));
             if (selected is not null) next = CapturePathPlan.Create(adapters, selected, automatic: true);
-            // No interface carries the game: the title screen, or a connection table that cannot be
-            // read, which only the table itself can tell apart (re-review 2026-11-03, RV1-4).
+            // No interface carries the game: the title screen, or an IPv4 connection table that
+            // cannot be read, which only the table itself can tell apart (re-review 2026-11-03,
+            // RV1-4). An IPv6 table that cannot be read is not consulted; capture reads IPv4 only.
             var carriersUnknown = !adapters.Any(IsGameCarrier) && game.ProcessId is { } processId &&
                 _services.Adapters.GameHoldsConnections(processId) is null;
             gamePathsIntact = next is not null && GamePathsIntact(run.PathPlan, next, adapters, carriersUnknown);

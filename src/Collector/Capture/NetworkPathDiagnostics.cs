@@ -20,7 +20,8 @@ public enum NetworkPathKind
 /// <summary>
 /// Export-safe network facts. Counts are null when their source query was not complete;
 /// local/loopback counts cover both families, interface counts cover IPv4 only.
-/// No endpoint, PID, interface identity, name or exception belongs in this model.
+/// No endpoint, PID, interface identity, name or exception belongs in this model; the query
+/// details are the closed tokens of <see cref="ProcessNetworkConnectionQuery.Detail"/>.
 /// </summary>
 public sealed record NetworkPathDiagnosticsSnapshot
 {
@@ -28,6 +29,8 @@ public sealed record NetworkPathDiagnosticsSnapshot
     public NetworkQueryStatus QueryIPv4 { get; init; }
     public NetworkQueryStatus QueryIPv6 { get; init; }
     public NetworkQueryStatus QueryAdapters { get; init; }
+    public string? QueryIPv4Detail { get; init; }
+    public string? QueryIPv6Detail { get; init; }
     public int? IPv4Connections { get; init; }
     public int? IPv6Connections { get; init; }
     public int? LoopbackConnections { get; init; }
@@ -124,7 +127,8 @@ public sealed class NetworkPathInspector
         catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException)
         {
             return new ProcessNetworkConnectionTables(
-                ProcessNetworkConnectionQuery.Failed, ProcessNetworkConnectionQuery.Failed);
+                ProcessNetworkConnectionQuery.FailedBecause("provider_exception"),
+                ProcessNetworkConnectionQuery.FailedBecause("provider_exception"));
         }
     }
 
@@ -132,17 +136,15 @@ public sealed class NetworkPathInspector
     {
         if (query.Status != NetworkQueryStatus.Success)
         {
-            return query.Status switch
-            {
-                NetworkQueryStatus.Unmeasured => ProcessNetworkConnectionQuery.Unmeasured,
-                NetworkQueryStatus.Truncated => ProcessNetworkConnectionQuery.Truncated,
-                _ => ProcessNetworkConnectionQuery.Failed,
-            };
+            // The status and its closed-vocabulary detail survive; an injected list does not.
+            return query.Connections.Count == 0
+                ? query
+                : query with { Connections = Array.Empty<ProcessNetworkConnection>() };
         }
 
         if (query.Connections.Count > SystemProcessConnectionTable.MaxTableRows)
         {
-            return ProcessNetworkConnectionQuery.Truncated;
+            return ProcessNetworkConnectionQuery.TruncatedBecause("rows_too_many");
         }
 
         var frozen = new ProcessNetworkConnection[query.Connections.Count];
@@ -152,7 +154,7 @@ public sealed class NetworkPathInspector
             if (connection.LocalAddress.AddressFamily != family || connection.RemoteAddress.AddressFamily != family ||
                 connection.LocalPort == 0 || connection.RemotePort == 0)
             {
-                return ProcessNetworkConnectionQuery.Failed;
+                return ProcessNetworkConnectionQuery.FailedBecause("frozen_row");
             }
 
             frozen[index] = connection with
@@ -162,7 +164,7 @@ public sealed class NetworkPathInspector
             };
         }
 
-        return new ProcessNetworkConnectionQuery(NetworkQueryStatus.Success, frozen);
+        return new ProcessNetworkConnectionQuery(NetworkQueryStatus.Success, frozen, query.Detail);
     }
 
     private (IReadOnlyList<AdapterInfo> Adapters, NetworkQueryStatus Status) ReadAdapters()
@@ -259,6 +261,8 @@ public sealed class NetworkPathInspector
             QueryIPv4 = tables.IPv4.Status,
             QueryIPv6 = tables.IPv6.Status,
             QueryAdapters = adapterQuery,
+            QueryIPv4Detail = tables.IPv4.Detail,
+            QueryIPv6Detail = tables.IPv6.Detail,
             IPv4Connections = ipv4Complete ? ipv4.Count : null,
             IPv6Connections = ipv6Complete ? ipv6.Count : null,
             LoopbackConnections = ipv4Complete && ipv6Complete ? loopback : null,

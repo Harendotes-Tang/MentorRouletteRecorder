@@ -325,6 +325,14 @@ public sealed partial class CaptureController : IDisposable
     private int? _preexistingConnections;
 
     /// <summary>
+    /// Status and detail of the system TCP tables as last logged, so that a failure that keeps
+    /// repeating is one line; see <see cref="LogTcpTableReadability"/>. Guarded by
+    /// <see cref="_tcpTableLogGate"/>, which is held across the compare and the write.
+    /// </summary>
+    private string? _tcpTableFailureLogged;
+    private readonly object _tcpTableLogGate = new();
+
+    /// <summary>
     /// True once a reading this session found the game holding a TCP connection on any interface,
     /// or could not tell; see <see cref="ObserveGameConnections"/>.
     /// </summary>
@@ -428,6 +436,7 @@ public sealed partial class CaptureController : IDisposable
                 LoopbackCaptureAvailable = pathStatus.LoopbackOpened,
             }
             : _services.NetworkPaths.Inspect(game.Running ? game.ProcessId : null, pathAdapterId, pathStatus);
+        LogTcpTableReadability(networkPath, game.Running);
 
         lock (_gate)
         {
@@ -1466,8 +1475,9 @@ public sealed partial class CaptureController : IDisposable
     /// judged (see <see cref="Classify"/>). The ingress only counts the game's connections on the
     /// paths being watched, which is exactly what is missing when the game talks over another card,
     /// so the system table is asked -- only while that judgement is pending, from the poll thread and
-    /// outside both gates. A table that cannot be read counts as connected, keeping the verdicts as
-    /// they were (audit 2026-11-03, A1-5).
+    /// outside both gates. An IPv4 table that cannot be read counts as connected, keeping the verdicts
+    /// as they were (audit 2026-11-03, A1-5); an IPv6 table that cannot be read is not consulted,
+    /// since capture reads IPv4 only.
     /// </summary>
     /// <param name="game">The game the running session observes, as this poll found it.</param>
     private void ObserveGameConnections(GameProcessDetection game)
@@ -2401,6 +2411,75 @@ public sealed partial class CaptureController : IDisposable
         {
             _lastErrorCode = error.Code;
             _lastErrorMessage = error.Message;
+        }
+    }
+
+    /// <summary>
+    /// Writes one line when a system TCP table stops being readable and one when both are again.
+    /// An unreadable IPv4 table costs the game its card (<see cref="AdapterEnumerator"/> cannot
+    /// tell idle from unreadable), and until the 2026-11-03 report the only trace was FAILED in
+    /// the diagnostics with no reason. The closed detail tokens name the check that gave up and
+    /// carry no endpoint. Keyed on the unreadable families' status and detail: a failure that
+    /// keeps repeating is one line, not one per status read, and a readable family counts by
+    /// status alone, since its skip count moves with every process on the machine. The key is
+    /// cleared when the game is gone, so the next session's first failure is news again.
+    /// </summary>
+    /// <param name="path">The network-path facts of this status read.</param>
+    /// <param name="gameRunning">Whether a game was there to ask the tables about.</param>
+    private void LogTcpTableReadability(NetworkPathDiagnosticsSnapshot path, bool gameRunning)
+    {
+        static bool Unreadable(NetworkQueryStatus status) =>
+            status is NetworkQueryStatus.Failed or NetworkQueryStatus.Truncated;
+        static string Family(NetworkQueryStatus status, string? detail) =>
+            Unreadable(status) ? NetworkPathWire.Query(status) + ":" + detail : NetworkPathWire.Query(status);
+
+        var ipv4Detail = NetworkPathWire.Detail(path.QueryIPv4Detail);
+        var ipv6Detail = NetworkPathWire.Detail(path.QueryIPv6Detail);
+        var key = Unreadable(path.QueryIPv4) || Unreadable(path.QueryIPv6)
+            ? Family(path.QueryIPv4, ipv4Detail) + "|" + Family(path.QueryIPv6, ipv6Detail)
+            : null;
+
+        // Held across the compare and the write: two status reads racing on either side of the
+        // inspector's one-second cache must not leave the log ending on a line the stored key
+        // contradicts. Nothing else is taken under this gate.
+        lock (_tcpTableLogGate)
+        {
+            if (!gameRunning)
+            {
+                _tcpTableFailureLogged = null;
+                return;
+            }
+
+            // A snapshot taken under the lifecycle gate asked nothing of the tables.
+            if (path.QueryIPv4 == NetworkQueryStatus.Unmeasured && path.QueryIPv6 == NetworkQueryStatus.Unmeasured)
+            {
+                return;
+            }
+
+            if (string.Equals(key, _tcpTableFailureLogged, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            var previous = _tcpTableFailureLogged;
+            _tcpTableFailureLogged = key;
+            if (key is null)
+            {
+                if (previous is not null)
+                {
+                    _services.Logger.Write(LogLevel.Info, "capture", "tcp_table_readable");
+                }
+
+                return;
+            }
+
+            _services.Logger.Write(LogLevel.Warn, "capture", "tcp_table_unreadable", new Dictionary<string, object?>
+            {
+                ["ipv4"] = NetworkPathWire.Query(path.QueryIPv4),
+                ["ipv4_detail"] = ipv4Detail,
+                ["ipv6"] = NetworkPathWire.Query(path.QueryIPv6),
+                ["ipv6_detail"] = ipv6Detail,
+            });
         }
     }
 

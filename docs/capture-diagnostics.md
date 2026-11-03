@@ -257,7 +257,15 @@ IPv6 只做路径诊断，暂不读取负载；专有代理前导或不可见的
 `CaptureStatus.network_path` 与导出报告的同名可选对象共用一份白名单：仅包含查询状态、路径类型、
 有界连接/接口计数与能力布尔值，不含地址、端口、网卡名/标识或原始异常。查询失败、截断、未测量时
 计数保持 `null`；旧 Collector 没有该对象时界面不作已测判断。`query_ipv4` / `query_ipv6` /
-`query_adapters` 分别表示测量是否完整；`local_connections` 在 IPv6 本地地址事实不足时也保持未知。
+`query_adapters` 分别表示测量是否完整；`query_ipv4_detail` / `query_ipv6_detail` 是封闭词表的说明
+（失败、截断时是放弃的检查，如 `native_size:5`；成功时是解析跳过的行数，如
+`skipped_rows:3;unknown_state:100`；无话可说时为 `null`），不含地址与异常文本，同一原因只写一次本机日志
+（`tcp_table_unreadable` / `tcp_table_readable`，只按读不出的那一族计原因，游戏退出后重新计）。
+解析只因结构损坏判整族失败：状态 100（已绑定、未连接）视同 LISTEN；其他未知状态的行和游戏自己缺少
+端口或地址的行只跳过并计数。跳过只能发生在证据旁边，不能代替证据：游戏自己的行全都读不出
+（`own_rows_unreadable`）或整张表没有一行可读（`rows_untrusted`）时仍判读取失败，不作猜测。
+IPv6 表读不出时按 IPv4 表选择网卡；IPv4 表读不出仍不猜测。`local_connections` 在 IPv6 本地地址
+事实不足时也保持未知。
 `capture_open_failures`、`candidate_limit_reached` 和 `loopback_capture_available` 表示当前监听覆盖，
 并不证明已经收到游戏报文。普通状态读取复用一秒内的系统测量；启动/停止持生命周期锁时的快照保持未测。
 自动跟随游戏会监听网络地址/可用性变化，合并连续通知，并每 15 秒复查路径以补偿遗漏通知。

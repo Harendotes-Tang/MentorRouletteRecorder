@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using MentorRecorder.Collector.Capture;
+using MentorRecorder.Collector.Diagnostics;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Storage.Repositories;
 
@@ -118,6 +119,63 @@ public sealed class NetworkPathControllerTests
         Assert.Equal(new[] { Fixture.FirstPid }, fixture.Connections.RequestedPids);
     }
 
+    /// <summary>
+    /// The 2026-11-03 report said FAILED for both tables and nothing else. The log names the check
+    /// that gave up, once per distinct failure rather than once per status read, ignores the skip
+    /// count of a family that reads fine, and says once when both tables read again.
+    /// </summary>
+    [Fact]
+    public void AnUnreadableTcpTableIsLoggedOncePerReasonAndItsRecoveryOnce()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.TcpTableLog", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var time = new ManualTimeProvider();
+            var connections = new ScriptedConnections(ProcessNetworkConnectionQuery.FailedBecause("native_size:5"));
+            using var fixture = new Fixture(connections, time, directory);
+            var controller = fixture.Controller;
+
+            controller.Snapshot();
+            time.Advance(1001);
+            controller.Snapshot();
+            connections.IPv4 = new ProcessNetworkConnectionQuery(
+                NetworkQueryStatus.Success, Array.Empty<ProcessNetworkConnection>(), "skipped_rows:1");
+            connections.IPv6 = ProcessNetworkConnectionQuery.FailedBecause("native_size:50");
+            time.Advance(1001);
+            controller.Snapshot();
+            connections.IPv4 = new ProcessNetworkConnectionQuery(
+                NetworkQueryStatus.Success, Array.Empty<ProcessNetworkConnection>(), "skipped_rows:2");
+            time.Advance(1001);
+            controller.Snapshot();
+            connections.IPv6 = new ProcessNetworkConnectionQuery(
+                NetworkQueryStatus.Success, Array.Empty<ProcessNetworkConnection>());
+            time.Advance(1001);
+            controller.Snapshot();
+            time.Advance(1001);
+            controller.Snapshot();
+
+            var lines = File.ReadAllLines(fixture.Log.CurrentPath);
+            var unreadable = lines
+                .Where(text => text.Contains("\"tcp_table_unreadable\"", StringComparison.Ordinal))
+                .ToArray();
+            Assert.Equal(2, unreadable.Length);
+            Assert.Contains("\"ipv4\":\"FAILED\"", unreadable[0], StringComparison.Ordinal);
+            Assert.Contains("\"ipv4_detail\":\"native_size:5\"", unreadable[0], StringComparison.Ordinal);
+            Assert.Contains("\"ipv6_detail\":\"native_size:5\"", unreadable[0], StringComparison.Ordinal);
+            Assert.Contains("\"ipv4\":\"OK\"", unreadable[1], StringComparison.Ordinal);
+            Assert.Contains("\"ipv4_detail\":\"skipped_rows:1\"", unreadable[1], StringComparison.Ordinal);
+            Assert.Contains("\"ipv6_detail\":\"native_size:50\"", unreadable[1], StringComparison.Ordinal);
+            Assert.Single(lines, text => text.Contains("\"tcp_table_readable\"", StringComparison.Ordinal));
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
     private sealed class Fixture : IDisposable
     {
         internal const int FirstPid = 4321, SecondPid = 9876;
@@ -126,9 +184,14 @@ public sealed class NetworkPathControllerTests
         internal readonly GatedProfile Profile = new();
         internal readonly GatedConnections Connections = new();
         internal readonly List<FakeCaptureSource> Sources = new();
+        internal readonly RotatingFileLogger Log;
         internal readonly CaptureController Controller;
 
-        internal Fixture()
+        /// <param name="connections">Replaces the gated provider when a test scripts the tables itself.</param>
+        /// <param name="time">The inspector's clock, so a test can step past its one-second cache.</param>
+        /// <param name="logDirectory">When given, the controller writes a real log there.</param>
+        internal Fixture(IProcessNetworkConnectionProvider? connections = null, TimeProvider? time = null,
+            string? logDirectory = null)
         {
             var settings = new SettingsRepository(_database.Database, _database.Clock);
             settings.EnsureDefaults();
@@ -136,6 +199,9 @@ public sealed class NetworkPathControllerTests
                 @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe");
             var adapters = new FakeAdapterProvider().Add("wifi", "Wi-Fi", addresses: "192.0.2.10");
             var tcp = new FakeProcessTcpTable().With(FirstPid, "192.0.2.10").With(SecondPid, "192.0.2.10");
+            Log = logDirectory is null
+                ? RotatingFileLogger.Disabled
+                : new RotatingFileLogger(logDirectory, _database.Clock);
             Controller = new CaptureController(new CaptureServices
             {
                 Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
@@ -143,7 +209,8 @@ public sealed class NetworkPathControllerTests
                     .With(@"D:\SdoA\FFXIV\game\ffxivgame.ver", "2024.06.18.0000.0000")
                     .With(@"D:\SdoA\Other\game\ffxivgame.ver", "2024.06.18.0000.0000")),
                 Adapters = new AdapterEnumerator(adapters, tcp),
-                NetworkPaths = new NetworkPathInspector(adapters, Connections),
+                NetworkPaths = new NetworkPathInspector(adapters, connections ?? Connections, time),
+                Logger = Log,
                 SourceFactory = () =>
                 {
                     var source = new FakeCaptureSource { PreexistingTcpConnections = 0 };
@@ -167,6 +234,7 @@ public sealed class NetworkPathControllerTests
             Profile.Release();
             Connections.Release();
             Controller.Dispose();
+            if (!ReferenceEquals(Log, RotatingFileLogger.Disabled)) Log.Dispose();
             foreach (var source in Sources) source.Dispose();
             Profile.Dispose();
             Connections.Dispose();

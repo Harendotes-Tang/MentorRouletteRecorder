@@ -27,19 +27,36 @@ public sealed record ProcessNetworkConnection(
     public override string ToString() => nameof(ProcessNetworkConnection);
 }
 
-/// <summary>A complete per-family answer, or an explicit reason that counts are unknown.</summary>
+/// <summary>
+/// A complete per-family answer, or an explicit reason that counts are unknown.
+///
+/// <see cref="Detail"/> is a closed-vocabulary token for the diagnostics report and the log,
+/// never an endpoint, an identity or exception text (contracts/ipc-v1.schema.json
+/// <c>NetworkPath.query_ipv4_detail</c>). On a failed or truncated query it names the check
+/// that gave up: <c>native_size:&lt;code&gt;</c>, <c>native_read:&lt;code&gt;</c>,
+/// <c>size_too_small</c>, <c>returned_length</c>, <c>header_short</c>, <c>row_count</c>,
+/// <c>family</c>, <c>no_pid</c>, <c>exception:&lt;type&gt;</c>, <c>provider_exception</c>,
+/// <c>frozen_row</c>, <c>table_too_large</c>, <c>table_growing</c>, <c>rows_too_many</c>.
+/// On success it counts the rows the parser passed over,
+/// <c>skipped_rows:&lt;n&gt;[;unknown_state:&lt;value&gt;]</c>, and is null when there were none.
+/// </summary>
 public sealed record ProcessNetworkConnectionQuery(
     NetworkQueryStatus Status,
-    IReadOnlyList<ProcessNetworkConnection> Connections)
+    IReadOnlyList<ProcessNetworkConnection> Connections,
+    string? Detail = null)
 {
     public static ProcessNetworkConnectionQuery Unmeasured { get; } =
         new(NetworkQueryStatus.Unmeasured, Array.Empty<ProcessNetworkConnection>());
 
-    public static ProcessNetworkConnectionQuery Failed { get; } =
-        new(NetworkQueryStatus.Failed, Array.Empty<ProcessNetworkConnection>());
+    /// <summary>A failed query that names the check which gave up.</summary>
+    /// <param name="detail">Closed-vocabulary token; see the type summary.</param>
+    public static ProcessNetworkConnectionQuery FailedBecause(string detail) =>
+        new(NetworkQueryStatus.Failed, Array.Empty<ProcessNetworkConnection>(), detail);
 
-    public static ProcessNetworkConnectionQuery Truncated { get; } =
-        new(NetworkQueryStatus.Truncated, Array.Empty<ProcessNetworkConnection>());
+    /// <summary>A truncated query that names the bound it ran into.</summary>
+    /// <param name="detail">Closed-vocabulary token; see the type summary.</param>
+    public static ProcessNetworkConnectionQuery TruncatedBecause(string detail) =>
+        new(NetworkQueryStatus.Truncated, Array.Empty<ProcessNetworkConnection>(), detail);
 }
 
 /// <summary>Independent IPv4 and IPv6 query results for the same requested PID.</summary>
@@ -74,6 +91,12 @@ public sealed class SystemProcessConnectionTable : IProcessTcpTable, IProcessNet
     public const int MaxTableRows = 16_384;
     public const int MaxReadAttempts = 3;
     private const uint InsufficientBuffer = 122;
+
+    /// <summary><c>MIB_TCP_STATE_RESERVED</c>: a socket bound to a port but neither listening nor connected.</summary>
+    private const uint BoundState = 100;
+
+    /// <summary>Longest exception type name kept in an <c>exception:</c> token (contract grammar bound).</summary>
+    private const int MaxExceptionTokenLength = 40;
     private readonly IExtendedTcpTableReader _reader;
 
     public static SystemProcessConnectionTable Instance { get; } = new(new NativeTcpTableReader());
@@ -87,8 +110,12 @@ public sealed class SystemProcessConnectionTable : IProcessTcpTable, IProcessNet
         : new(ReadFamily(processId, AddressFamily.InterNetwork), ReadFamily(processId, AddressFamily.InterNetworkV6));
 
     /// <summary>
-    /// Returns distinct addresses from both complete family queries. A partial failure throws
-    /// a fixed, endpoint-free error so adapter selection cannot mistake unreadable for idle.
+    /// Returns distinct local addresses from the complete family queries. An IPv4 table that
+    /// could not be read throws a fixed, endpoint-free error so adapter selection cannot mistake
+    /// unreadable for idle (audit 2026-10-03, OB-4). An IPv6 table that could not be read is
+    /// tolerated: capture reads IPv4 only, so the IPv6 answer can at most veto the title-screen
+    /// rule, and a machine whose IPv6 table fails must still get its card from the IPv4 table
+    /// (report 2026-11-03).
     /// </summary>
     public IReadOnlyList<IPAddress> LocalAddresses(int processId)
     {
@@ -98,12 +125,15 @@ public sealed class SystemProcessConnectionTable : IProcessTcpTable, IProcessNet
         }
 
         var tables = Read(processId);
-        if (tables.IPv4.Status != NetworkQueryStatus.Success || tables.IPv6.Status != NetworkQueryStatus.Success)
+        if (tables.IPv4.Status != NetworkQueryStatus.Success)
         {
-            throw new InvalidOperationException("System TCP tables are not completely available.");
+            throw new InvalidOperationException("System IPv4 TCP table is not available.");
         }
 
-        return tables.IPv4.Connections.Concat(tables.IPv6.Connections)
+        var ipv6 = tables.IPv6.Status == NetworkQueryStatus.Success
+            ? tables.IPv6.Connections
+            : Array.Empty<ProcessNetworkConnection>();
+        return tables.IPv4.Connections.Concat(ipv6)
             .Select(connection => connection.LocalAddress).Distinct().ToArray();
     }
 
@@ -115,19 +145,19 @@ public sealed class SystemProcessConnectionTable : IProcessTcpTable, IProcessNet
             var result = _reader.Read(IntPtr.Zero, ref required, (int)family);
             if (result != 0 && result != InsufficientBuffer)
             {
-                return ProcessNetworkConnectionQuery.Failed;
+                return ProcessNetworkConnectionQuery.FailedBecause(FormattableString.Invariant($"native_size:{result}"));
             }
 
             for (var attempt = 0; attempt < MaxReadAttempts; attempt++)
             {
                 if (required > MaxTableBytes)
                 {
-                    return ProcessNetworkConnectionQuery.Truncated;
+                    return ProcessNetworkConnectionQuery.TruncatedBecause("table_too_large");
                 }
 
                 if (required < sizeof(uint))
                 {
-                    return ProcessNetworkConnectionQuery.Failed;
+                    return ProcessNetworkConnectionQuery.FailedBecause("size_too_small");
                 }
 
                 var allocated = checked((int)required);
@@ -142,9 +172,14 @@ public sealed class SystemProcessConnectionTable : IProcessTcpTable, IProcessNet
                         continue;
                     }
 
-                    if (result != 0 || returned < sizeof(uint) || returned > allocated)
+                    if (result != 0)
                     {
-                        return ProcessNetworkConnectionQuery.Failed;
+                        return ProcessNetworkConnectionQuery.FailedBecause(FormattableString.Invariant($"native_read:{result}"));
+                    }
+
+                    if (returned < sizeof(uint) || returned > allocated)
+                    {
+                        return ProcessNetworkConnectionQuery.FailedBecause("returned_length");
                     }
 
                     var bytes = new byte[checked((int)returned)];
@@ -157,16 +192,47 @@ public sealed class SystemProcessConnectionTable : IProcessTcpTable, IProcessNet
                 }
             }
 
-            return ProcessNetworkConnectionQuery.Truncated;
+            return ProcessNetworkConnectionQuery.TruncatedBecause("table_growing");
         }
         catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException)
         {
-            // Query state only leaves this boundary; exceptions can contain native or host data.
-            return ProcessNetworkConnectionQuery.Failed;
+            // Query state and the exception's type leave this boundary; its message can contain
+            // native or host data and does not.
+            return ProcessNetworkConnectionQuery.FailedBecause(ExceptionToken(exception));
         }
     }
 
-    /// <summary>Parses documented DWORD-aligned OWNER_PID rows, rejecting incomplete tables.</summary>
+    /// <summary>
+    /// <c>exception:&lt;type&gt;</c> from the type name alone: lower-cased, reduced to the token
+    /// alphabet (a generic arity marker such as <c>`1</c> is dropped) and bounded, so that the
+    /// token always fits the contract grammar (<see cref="NetworkPathWire.DetailPattern"/>).
+    /// </summary>
+    /// <param name="exception">The exception; only its type is read.</param>
+    private static string ExceptionToken(Exception exception)
+    {
+        var name = new string(exception.GetType().Name.ToLowerInvariant()
+            .Where(character => char.IsAsciiLetterLower(character) || char.IsAsciiDigit(character) || character == '_')
+            .Take(MaxExceptionTokenLength)
+            .ToArray());
+        return "exception:" + (name.Length == 0 || !char.IsAsciiLetterLower(name[0]) ? "unknown" : name);
+    }
+
+    /// <summary>
+    /// Parses documented DWORD-aligned OWNER_PID rows.
+    ///
+    /// Structural damage -- a short header, more rows than the buffer holds -- fails the family.
+    /// A single row beside the evidence does not: a state outside the twelve MIB states or a game
+    /// row without both ports and both addresses is passed over and counted in
+    /// <see cref="ProcessNetworkConnectionQuery.Detail"/>, because failing the table for one such
+    /// row left a whole session without a card (report 2026-11-03,
+    /// <c>capture.start.adapter_undetermined</c>). Skipping is never allowed to stand in for the
+    /// evidence itself: when the only rows the game owns are rows that could not be read, or when
+    /// no row of the table could be read at all, the family is unreadable, so that adapter
+    /// selection refuses rather than applies the title-screen rule to a game that may be talking
+    /// on another card (audit 2026-10-03, OB-4). A bound, unconnected socket
+    /// (<c>MIB_TCP_STATE_RESERVED</c>, 100; "Bound" to Get-NetTCPConnection) is a known
+    /// non-path state like LISTEN, not an unreadable row.
+    /// </summary>
     internal static ProcessNetworkConnectionQuery Parse(ReadOnlySpan<byte> bytes, AddressFamily family, int processId)
     {
         var rowBytes = family switch
@@ -175,36 +241,65 @@ public sealed class SystemProcessConnectionTable : IProcessTcpTable, IProcessNet
             AddressFamily.InterNetworkV6 => 56,
             _ => 0,
         };
-        if (rowBytes == 0 || bytes.Length < sizeof(uint) || bytes.Length > MaxTableBytes || processId <= 0)
+        if (rowBytes == 0)
         {
-            return ProcessNetworkConnectionQuery.Failed;
+            return ProcessNetworkConnectionQuery.FailedBecause("family");
+        }
+
+        if (processId <= 0)
+        {
+            return ProcessNetworkConnectionQuery.FailedBecause("no_pid");
+        }
+
+        if (bytes.Length < sizeof(uint))
+        {
+            return ProcessNetworkConnectionQuery.FailedBecause("header_short");
+        }
+
+        if (bytes.Length > MaxTableBytes)
+        {
+            return ProcessNetworkConnectionQuery.TruncatedBecause("table_too_large");
         }
 
         var count = BinaryPrimitives.ReadUInt32LittleEndian(bytes);
         if (count > MaxTableRows)
         {
-            return ProcessNetworkConnectionQuery.Truncated;
+            return ProcessNetworkConnectionQuery.TruncatedBecause("rows_too_many");
         }
 
         if (count > (uint)((bytes.Length - sizeof(uint)) / rowBytes))
         {
-            return ProcessNetworkConnectionQuery.Failed;
+            return ProcessNetworkConnectionQuery.FailedBecause("row_count");
         }
 
         var connections = new List<ProcessNetworkConnection>();
+        var untrusted = 0;
+        var ownUntrusted = 0;
+        uint? unknownState = null;
         for (var index = 0; index < count; index++)
         {
             var row = bytes.Slice(sizeof(uint) + index * rowBytes, rowBytes);
             var ipv4 = family == AddressFamily.InterNetwork;
             var state = BinaryPrimitives.ReadUInt32LittleEndian(row[(ipv4 ? 0 : 48)..]);
-            if (state is < 1 or > 12)
+            var pid = BinaryPrimitives.ReadUInt32LittleEndian(row[(ipv4 ? 20 : 52)..]);
+            var own = pid == (uint)processId;
+
+            // LISTEN/CLOSED/DELETE_TCB and a bound, unconnected socket are not active paths.
+            if (state is 1 or 2 or 12 or BoundState)
             {
-                return ProcessNetworkConnectionQuery.Failed;
+                continue;
             }
 
-            // LISTEN/CLOSED/DELETE_TCB are not active paths. Other PIDs are never retained.
-            var pid = BinaryPrimitives.ReadUInt32LittleEndian(row[(ipv4 ? 20 : 52)..]);
-            if (pid != (uint)processId || state is 1 or 2 or 12)
+            if (state is < 1 or > 12)
+            {
+                untrusted++;
+                if (own) ownUntrusted++;
+                unknownState ??= state;
+                continue;
+            }
+
+            // Other PIDs are never retained.
+            if (!own)
             {
                 continue;
             }
@@ -213,7 +308,9 @@ public sealed class SystemProcessConnectionTable : IProcessTcpTable, IProcessNet
             var remotePort = BinaryPrimitives.ReadUInt16BigEndian(row[(ipv4 ? 16 : 44)..]);
             if (localPort == 0 || remotePort == 0)
             {
-                return ProcessNetworkConnectionQuery.Failed;
+                untrusted++;
+                ownUntrusted++;
+                continue;
             }
 
             var local = ipv4
@@ -225,14 +322,38 @@ public sealed class SystemProcessConnectionTable : IProcessTcpTable, IProcessNet
             if (local.Equals(IPAddress.Any) || local.Equals(IPAddress.IPv6Any) ||
                 remote.Equals(IPAddress.Any) || remote.Equals(IPAddress.IPv6Any))
             {
-                return ProcessNetworkConnectionQuery.Failed;
+                untrusted++;
+                ownUntrusted++;
+                continue;
             }
 
             connections.Add(new ProcessNetworkConnection(local, localPort, remote, remotePort));
         }
 
-        return new ProcessNetworkConnectionQuery(NetworkQueryStatus.Success, connections.ToArray());
+        if (count > 0 && untrusted == count)
+        {
+            return ProcessNetworkConnectionQuery.FailedBecause("rows_untrusted");
+        }
+
+        if (connections.Count == 0 && ownUntrusted > 0)
+        {
+            return ProcessNetworkConnectionQuery.FailedBecause("own_rows_unreadable");
+        }
+
+        return new ProcessNetworkConnectionQuery(
+            NetworkQueryStatus.Success, connections.ToArray(), SkippedDetail(untrusted, unknownState));
     }
+
+    /// <summary>
+    /// <c>skipped_rows:&lt;n&gt;[;unknown_state:&lt;value&gt;]</c>. A sound table holds only the
+    /// twelve MIB states and 100; a value beyond a byte is a misread row's bytes rendered as an
+    /// integer and is reported as <c>other</c> rather than copied out.
+    /// </summary>
+    private static string? SkippedDetail(int skipped, uint? unknownState) => skipped == 0
+        ? null
+        : unknownState is { } state
+            ? FormattableString.Invariant($"skipped_rows:{skipped};unknown_state:{(state <= byte.MaxValue ? state.ToString(System.Globalization.CultureInfo.InvariantCulture) : "other")}")
+            : FormattableString.Invariant($"skipped_rows:{skipped}");
 
     private sealed class NativeTcpTableReader : IExtendedTcpTableReader
     {
