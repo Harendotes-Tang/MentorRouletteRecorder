@@ -45,6 +45,9 @@ protocol-profiles/
   global/
     README.md
     global-unsupported.json UNSUPPORTED 占位，无任何消息定义
+  tc/
+    README.md
+    tc-unsupported.json     UNSUPPORTED 占位，无任何消息定义
   synthetic/
     synthetic-v1.json       SYNTHETIC，全部常量为编造值，仅供离线测试
     synthetic-cn-shape-v1.json SYNTHETIC，照国服档案的形状编（进本标记无字段 +
@@ -246,7 +249,7 @@ protocol-profiles/
 长度规则沿用 §3.3：精确长度与区间二选一，最小值不得大于最大值。
 
 只声明非空 `hypotheses` 时允许 `messages: []`，并且要求 `mentor_roulette_id: null`；
-不再要求三条正式消息。含字段 `messages` 的旧候选继续满足原有完整消息和字段规则。
+不再要求 §3.1 规定必须齐全的两条正式消息（`CONTENT_FINDER_POP` 与 `ZONE_INITIALIZATION`）。含字段 `messages` 的旧候选继续满足原有完整消息和字段规则。
 `hypotheses` 即使为空也不允许出现在 VERIFIED、UNSUPPORTED 或 SYNTHETIC 档案中。
 
 `cn.2026.08.05.candidate` 包括排队候选、相邻 `0x0104` 及全部 18 个区域簇成员。
@@ -301,6 +304,13 @@ python tools/protocol-profile-validator/validate.py --stamp protocol-profiles/**
 **不允许**的来源：猜测、"试出来的"、"看着像"；从 AGPL 项目复制的常量表；
 从游戏客户端反编译/逆向得到的内部结构；任何无法在本文件中说明来源的数字。
 
+> **待决事项（随包档案的两处字段偏移）。** 随包 VERIFIED 档案 `cn.2026.08.05` 中
+> `ZONE_TERRITORY.territory_id`（偏移 2，u16）与 `PLAYER_JOB.job_id`（偏移 0，u8）两处偏移的证据条目为
+> `PUBLIC_DOCUMENTATION`，引自 Sapphire 项目公开的结构体定义（`ServerZoneDef.h`），尚未用本机负载样本核对；
+> 这两条消息的 opcode 另引自 FFXIVOpcodes 并经本机抓包复现。这两处偏移只决定记录对应的副本与职业，不参与任何状态判定。
+> 它们与上文"从 AGPL 项目复制的常量表"一条的关系，以及是改用本机负载样本作证还是保留现状，由项目所有者决定；
+> 在此之前档案保持不变。
+
 `compatibility_status = "VERIFIED"` 时，**每一条消息的 opcode** 都必须在
 `provenance.evidence` 里有一条 `field = "messages.<NAME>.opcode"` 且 `method`
 不是 `SYNTHETIC` 的条目，否则档案被拒绝。
@@ -347,7 +357,7 @@ python tools/protocol-profile-validator/validate.py [--stamp] <file>...
 已知的差异都是 Python 侧更严格，即 Python 拒绝而 Collector 接受。
 
 > **已知差异**：例如 `SYNTHETIC` 档案的位置检查。C# 侧只在目录名恰好是
-> `cn` / `global` / `synthetic` 时执行该检查，Python 侧无条件执行。
+> `cn` / `global` / `tc` / `synthetic` 时执行该检查，Python 侧无条件执行。
 > 因此，放在**其他任意目录**中的 `SYNTHETIC` 档案会被 `validate.py` 拒绝，
 > 被 `--validate-profile` 接受。其余几处（重复的 JSON 键、UTF-8 BOM、非法 UTF-8 字节）与逐条比较见
 > [`../tools/protocol-profile-validator/README.md`](../tools/protocol-profile-validator/README.md)
@@ -405,7 +415,7 @@ UI 相应地显示"协议不受支持"或"协议解析异常"。
 ## 10. 贡献一份档案
 
 1. 复制 `protocol-profiles/<region>/<region>-unsupported.json`，
-   改名为 `<region>-<游戏版本>-<构建判别符>.json`；
+   改名为 `<region>.<游戏版本>.json`（例如 `cn.2026.08.05.json`；`profile_id` 与文件名主干一致，本机校准写出的档案另以 `.local` 结尾，见 §11.2）；
 2. `compatibility_status` 先设为 `"CANDIDATE"`；
 3. 只填写**在本机亲自观察到**且可复现的常量，同时补齐 `evidence` 条目；
 4. `python tools/protocol-profile-validator/validate.py --stamp <file>`；
@@ -426,7 +436,7 @@ UI 相应地显示"协议不受支持"或"协议解析异常"。
 
 ### 11.1 `calibration` 段（模板）
 
-只有 `VERIFIED` 与 `SYNTHETIC` 档案可以携带（`E_PROFILE_CALIBRATION_STATUS`）：
+只有 `VERIFIED` 档案可以携带（`E_PROFILE_CALIBRATION_STATUS`）：
 
 | 字段 | 含义 |
 |---|---|
@@ -464,7 +474,7 @@ VERIFIED 模板还必须有 `field = "calibration.finder_request.roulette_field"
 
 | 消息 | 判据 |
 |---|---|
-| `CONTENT_FINDER_POP` | 同一连接上，形状等于 `finder_request` 且编号在轮盘表内的客户端报文，在 `finder_reply_max_ms` 内被一条形状等于模板 `CONTENT_FINDER_POP`、回传同一编号的服务器报文回应。同一对 opcode 命中 ≥ 2 次（不同编号、相隔 ≥ 1 秒）或命中 1 次并另见一次**非回执**的弹窗（选择器字段命中）即锁定；两对都达标则阻塞。弹窗若落在回执窗口内，判为结构变化，阻塞。另有三条约束，因为客户端的移动报文与排本申请形状相同且持续发送：本会话出现超过 2000 次的客户端 opcode 从不算作申请；某个回执 opcode 已有占多数的申请 opcode 后，只有该申请 opcode 能与它配对；形状相符的客户端报文只是候选，得到服务器回执之后才算玩家的排本，才打开回执窗口，并据此开始轮盘编号回显、任意位置扫描与按出现时机的统计 |
+| `CONTENT_FINDER_POP` | 同一连接上，形状等于 `finder_request` 且编号在轮盘表内的客户端报文，在 `finder_reply_max_ms` 内被一条形状等于模板 `CONTENT_FINDER_POP`、回传同一编号的服务器报文回应。同一对 opcode 命中 ≥ 2 次（不同编号、相隔 ≥ 1 秒）或命中 1 次并另见一次**非回执**的弹窗（选择器字段命中）即锁定；两对都达标则阻塞。弹窗若落在回执窗口内，判为结构变化，阻塞。另有三条约束，因为客户端的移动报文与排本申请形状相同且持续发送：在任一抓包会话中出现超过 2000 次的客户端 opcode 从不算作申请（计数按会话进行，每个新会话从零开始；超过上限的形状记入证据文件的 `frequent`，同一版本此后的会话中仍被排除，见 [capture-diagnostics.md](capture-diagnostics.md) §9.4.1）；某个回执 opcode 已有占多数的申请 opcode 后，只有该申请 opcode 能与它配对；形状相符的客户端报文只是候选，得到服务器回执之后才算玩家的排本，才打开回执窗口，并据此开始轮盘编号回显、任意位置扫描与按出现时机的统计 |
 | `ZONE_INITIALIZATION` | 换区簇（3 秒内 ≥ 1 条 ≥ 2000 字节且 ≥ 5 种 ≥ 256 字节的服务器报文，开簇前 5 秒静默）里长度等于模板长度的服务器报文：至少在 3 个簇里各恰好出现一次，所选匹配对应的进本簇与出本簇里也各恰好一次；簇外出现不超过 2 次，或簇外次数乘以 3 不超过它恰好出现一次的簇数（包括已移出的簇，见表后说明；换区簇的边界由本软件自行划定，一次较慢的加载会把簇内的标记计到簇外） |
 | `ZONE_TERRITORY` | 进本簇里恰好一次、长度等于模板、区域编号命中副本表的报文；未找到时不声明 |
 | `PLAYER_JOB` | 进本簇与出本簇都出现、至少半数簇出现、簇内取值稳定且满足约束、没有任何簇与之矛盾。满足条件的 opcode 不止一个时，若它们在每个簇内读到的职业编号都一致（2026.09.15 国服客户端同时用两条报文通告职业），取 opcode 最小者，以便同一版本的所有机器写出相同的档案与校准码；读数不一致则不声明 |
@@ -478,12 +488,19 @@ VERIFIED 模板还必须有 `field = "calibration.finder_request.roulette_field"
 这张计数表写满时不再新增形状，只会让计数偏小、更难达标，不算溢出。
 其余任何有界表溢出都会使"簇外出现次数"的统计失效并阻塞，而不是退化为更小的样本。
 
-时间线上标为「错」的一行只否定它自己所说的内容：「排本」一行否定该次申请与回执的配对；「进入副本」「离开副本」
+时间线上标为「错」的一行只否定它自己所说的内容：「开始排队」一行否定该次申请与回执的配对；「进入副本」「离开副本」
 一行否定该次换区是这场匹配所进、所出的副本，不否定换区标记本身；「匹配弹窗」一行否定宣布匹配的那条报文
 （按出现时机认出的通知、回执中表示"已匹配"的状态取值，或独立的匹配报文），不否定回执 opcode（它仍回应每一次申请）。
 标错之后校准重新观察，再完成一次随机任务后可重新核对。这些否定与观察证据一同保存在证据文件中
 （[capture-diagnostics.md](capture-diagnostics.md) §9.4.1），重启后仍然有效；「清空校准进度」清除已保存的观察证据
-与此前的全部否定，只保留被本机流量证伪的弹窗 opcode（§11.4）。
+与此前的全部否定（连同草稿与 `frequent` 名单），只保留被本机流量证伪的弹窗 opcode（§11.4）。这些 opcode 在证据文件中单独记为
+`rejections.disproved`，因此重启之后再点「清空校准进度」同样保留，包括游戏尚未开始新的抓包会话、证据刚从文件载入还未被采用的时候。
+清空时若没有抓包会话在观察，证据文件删除之后随即重新写出一份只含这些 opcode 的文件，所以在两次会话之间重启也不会丢失它们
+（[capture-diagnostics.md](capture-diagnostics.md) §9.4.1）。
+
+时间线中的「开始排队」行只列出草稿所依据的「匹配弹窗」「进入副本」行所在本地日期的排本申请，另加每个这样的行之前
+最近的一次申请（即使在前一天）；其他日期的排本申请不再列出。草稿尚无需要核对的弹窗或进本行时，只列出最近一天的申请。
+列出的行仍须逐条作答。
 
 「匹配成功」作为独立报文识别时（回执不携带匹配状态的版本），候选还须通过一致性检查：
 排本申请尚未结束期间，同一形状（opcode 与长度）的报文在轮盘编号偏移上携带其他取值达到 2 次，即不予采信。

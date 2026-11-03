@@ -43,6 +43,11 @@ data/duties/
 5. 所有版本均查不到的 `content_id` 显示为 `未知副本`，**不作推测**，并自成一类
    （见 [`../../docs/statistics-definitions.md`](../../docs/statistics-definitions.md) §10）。
 6. 文件全部缺失时本软件必须正常运行（`duty_name` 保持 `NULL`），不得崩溃。
+7. 未指明区服（`UNKNOWN`：补录或导入时没有区服）的记录按 CN → GLOBAL → TC 的固定顺序取第一个
+   收录该编号或领地的区服，与各文件的数据版本先后无关；按名称推断编号时，取上述顺序中第一个
+   给出一致答案的区服的那一行，其领地与分类也取自这一行。
+8. 组合各区服时，缺少 `party_size` 的行（繁中服数据没有人数列）借用其他区服对同一编号一致给出的人数；
+   各区服不一致时不借，合成样例既不出借也不借用。单独装载繁中服一个文件时仍为 `null`。
 
 ## 生成
 
@@ -74,6 +79,9 @@ python tools/duty-data-generator/generate.py --add-name-preferences data/duties/
 生成器按原游戏版本复核同名、分类、等级、人数、资格及领地回指事实，校验后记录
 `provenance.name_matching`（抓取字段、时间、固定版本、逐页 URL、摘要和显式规则）。
 资格或领地回指不是通用消歧规则；未经审计的其他同名副本仍不能自动选取编号。
+繁中服文件不是由 XIVAPI 生成的，没有可复核的英文名与资格字段：`--add-name-preferences` 对它离线处理，
+只在 69 与 944 两行均启用、同名、等级相同且领地不同时为 944 标记偏好，并在 `provenance.name_matching`
+写明依据；`--tc-catalogues` 重新生成时按同一规则处理。
 
 生成器仅执行两项操作：从 XIVAPI v2 分页读取 `ContentFinderCondition`（英文名、
 `TerritoryType`、`ContentType`、等级需求、`ContentMemberType` 人数）；从 ffxiv-datamining-cn 的 CSV 读取中文名。

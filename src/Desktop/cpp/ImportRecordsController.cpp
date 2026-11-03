@@ -32,6 +32,10 @@
 #include <limits>
 #include <mutex>
 
+#ifdef Q_OS_WIN
+#include <qt_windows.h>
+#endif
+
 static void initializeImportTemplateResources()
 {
     static std::once_flag initialized;
@@ -75,6 +79,72 @@ QString imageIdentity(const QString &path)
 #else
     return identity;
 #endif
+}
+
+/// \a path (absolute, '/' separators) is on a network drive.
+bool systemNetworkPath(const QString &path)
+{
+#ifdef Q_OS_WIN
+    const std::wstring root = QDir::toNativeSeparators(path.left(3)).toStdWString();
+    return GetDriveTypeW(root.c_str()) == DRIVE_REMOTE;
+#else
+    Q_UNUSED(path);
+    return false;
+#endif
+}
+
+/// The Collector's rule for an import source (ExportPaths.IsLocalFilePath): a lettered drive that
+/// is not a network drive - never a share, a device path or an alternate data stream.
+bool onLocalDrive(const QString &path, const std::function<bool(const QString &)> &isNetwork)
+{
+    if (path.size() < 3 || !path.at(0).isLetter() || path.at(0).unicode() > 0x7F || path.at(1) != u':'
+        || path.at(2) != u'/' || path.indexOf(u':', 2) >= 0)
+        return false;
+    return !isNetwork(path);
+}
+
+/// A link's target as a path with '/' separators, the Win32 namespace prefixes removed.
+QString linkTargetPath(QString target)
+{
+    target = QDir::fromNativeSeparators(target);
+    if (target.startsWith(QLatin1String("//?/UNC/"), Qt::CaseInsensitive))
+        return QStringLiteral("//") + target.mid(8);
+    if (target.startsWith(QLatin1String("//?/")) || target.startsWith(QLatin1String("/?\?/")))
+        return target.mid(4);
+    return target;
+}
+
+/// ExportPaths.ResolveFinalPath: follows junctions and symbolic links one hop at a time, and stops
+/// at the first one that leaves the local drives, so nothing beyond it is ever opened.
+bool staysOnLocalDrives(const QString &path, const std::function<bool(const QString &)> &isNetwork, int &linksLeft)
+{
+    if (!onLocalDrive(path, isNetwork))
+        return false;
+    QString resolved = path.left(3);
+    const QStringList parts = path.mid(3).split(u'/', Qt::SkipEmptyParts);
+    for (qsizetype i = 0; i < parts.size(); ++i) {
+        const QString next = resolved.endsWith(u'/') ? resolved + parts[i] : resolved + u'/' + parts[i];
+        const QFileInfo entry(next);
+        QString target;
+        if (entry.isJunction()) {
+            target = entry.junctionTarget();
+        } else if (entry.isSymbolicLink()) {
+            target = linkTargetPath(entry.readSymLink());
+            if (!target.isEmpty() && QDir::isRelativePath(target))
+                target = QDir(resolved).filePath(target);
+        }
+        if (target.isEmpty()) {
+            resolved = next;
+            continue;
+        }
+        if (--linksLeft < 0)
+            return false; // Too many links, or a loop: not a path that can be checked.
+        target = linkTargetPath(target);
+        for (qsizetype rest = i + 1; rest < parts.size(); ++rest)
+            target += u'/' + parts[rest];
+        return staysOnLocalDrives(QDir::cleanPath(target), isNetwork, linksLeft);
+    }
+    return true;
 }
 
 bool unsupportedPreviewPaging(const QPointer<BackendReply> &reply, const QString &code, const QString &message)
@@ -250,6 +320,33 @@ void ImportRecordsController::setOcrApplicationDirectoryForTesting(const QString
     m_ocr->setApplicationDirectoryForTesting(directory);
 }
 
+void ImportRecordsController::setNetworkPathCheckForTesting(std::function<bool(const QString &)> isNetwork)
+{
+    m_networkPath = std::move(isNetwork);
+}
+
+void ImportRecordsController::setDefaultRegion(const QString &region)
+{
+    const bool named = region == QLatin1String("CN") || region == QLatin1String("TC")
+        || region == QLatin1String("GLOBAL");
+    const QString value = named ? region : QString();
+    if (m_defaultRegion == value)
+        return;
+    m_defaultRegion = value;
+    Q_EMIT changed();
+}
+
+QString ImportRecordsController::regionName(const QString &region)
+{
+    if (region == QLatin1String("CN"))
+        return tr("国服");
+    if (region == QLatin1String("TC"))
+        return tr("繁中服");
+    if (region == QLatin1String("GLOBAL"))
+        return tr("国际服");
+    return tr("未知区服");
+}
+
 QString ImportRecordsController::statusText() const
 {
     if (m_phase == QLatin1String("ocr"))
@@ -273,8 +370,9 @@ QString ImportRecordsController::statusText() const
                 const QVariantMap adjustment = value.toMap();
                 const int regionDeducted = adjustment.value(QStringLiteral("baseline_deducted_count")).toInt();
                 if (regionDeducted <= 0) continue;
+                // Named as the baseline preview the user confirmed named it (audit 2026-11-03 L2-5).
                 details.append(tr("%1：扣除 %2 次，起始次数改为 %3")
-                    .arg(adjustment.value(QStringLiteral("region")).toString()).arg(regionDeducted)
+                    .arg(regionName(adjustment.value(QStringLiteral("region")).toString())).arg(regionDeducted)
                     .arg(adjustment.value(QStringLiteral("baseline_completed_count")).toInt()));
             }
             return tr("已导入 %1 条，跳过重复 %2 条；冲突 %3 条，保留本地记录。")
@@ -344,6 +442,7 @@ void ImportRecordsController::beginInput(const QString &kind, const QString &nam
     m_appendPreviousPhase.clear();
     m_restoreSelection.clear();
     m_hasAcceptedPreview = false;
+    m_preselectAgain = false;
     m_batchCommitted = false;
     m_evidence.clear();
     m_rows.clear();
@@ -358,6 +457,14 @@ void ImportRecordsController::beginInput(const QString &kind, const QString &nam
     m_deduct = false;
     m_phase = QStringLiteral("editing");
     invalidatePreview(false);
+}
+
+bool ImportRecordsController::appendsToScreenshotBatch() const
+{
+    // Cards whose first preview failed were never shown: they are no batch to add to, and they
+    // neither refuse the same screenshot again nor count toward the 20 images (audit 2026-11-03 I3-1).
+    return m_sourceKind == QLatin1String("SCREENSHOT") && m_hasAcceptedPreview && !m_rows.isEmpty()
+        && !m_sourceImages.isEmpty() && !m_candidates.isEmpty() && !m_batchCommitted;
 }
 
 QString ImportRecordsController::screenshotSourceName(const QStringList &paths, bool forDisplay) const
@@ -500,6 +607,17 @@ void ImportRecordsController::importFiles(const QVariantList &pathsOrUrls)
     for (const QVariant &value : pathsOrUrls) {
         const QString path = localPath(value);
         const QString nextKind = sourceKindForPath(path);
+        // Every source on this computer's own disks, as the Collector requires of the ones it
+        // reads, checked before anything is read: a screenshot on a network drive, or behind a
+        // link that leads onto one, is never opened (audit 2026-11-03 I3-4).
+        int linksLeft = 64;
+        if (!path.isEmpty() && !nextKind.isEmpty()
+            && !staysOnLocalDrives(QDir::cleanPath(QFileInfo(path).absoluteFilePath()),
+                                   m_networkPath ? m_networkPath : std::function<bool(const QString &)>(systemNetworkPath),
+                                   linksLeft)) {
+            fail(collector_text::live(collector_text::textRef("import.preview.path_not_local"), QString()));
+            return;
+        }
         if (path.isEmpty() || nextKind.isEmpty() || !QFileInfo(path).isFile()) {
             fail(LiveText([] { return tr("请选择可读取的本地 CSV、XLS、XLSX、JSON、数据库或截图文件。"); }));
             return;
@@ -516,8 +634,7 @@ void ImportRecordsController::importFiles(const QVariantList &pathsOrUrls)
         return;
     }
     if (kind == QLatin1String("SCREENSHOT")) {
-        const bool append = m_sourceKind == QLatin1String("SCREENSHOT")
-            && !m_sourceImages.isEmpty() && !m_candidates.isEmpty() && !m_batchCommitted;
+        const bool append = appendsToScreenshotBatch();
         // The same image twice would make every card on it a second "new" row (audit I3-1).
         QSet<QString> inBatch;
         if (append) {
@@ -583,8 +700,7 @@ void ImportRecordsController::pasteClipboard()
         return;
     }
     if (mime->hasImage()) {
-        if (m_sourceKind == QLatin1String("SCREENSHOT") && !m_batchCommitted
-            && !m_candidates.isEmpty() && m_sourceImages.size() >= OfflineOcrEngine::MaxImages) {
+        if (appendsToScreenshotBatch() && m_sourceImages.size() >= OfflineOcrEngine::MaxImages) {
             fail(LiveText([] { return tr("同一批次最多 %1 张截图；原批次已保留。").arg(OfflineOcrEngine::MaxImages); }));
             return;
         }
@@ -746,10 +862,14 @@ void ImportRecordsController::revalidate()
         return;
     }
     if (!m_backend || !m_backend->isConnected()) {
+        // 重新校验 is on screen only with rows; before any were shown the batch is added again (I3-1).
         if (!m_appendImages.isEmpty())
             discardAppend(LiveText([] { return tr("后台服务尚未连接，未添加新记录，原批次已保留。连接恢复后可重试。"); }));
         else
-            fail(LiveText([] { return tr("后台服务尚未连接，输入已保留。连接恢复后请点「重新校验」。"); }));
+            fail(LiveText([shown = !m_rows.isEmpty()] {
+                return shown ? tr("后台服务尚未连接，输入已保留。连接恢复后请点「重新校验」。")
+                             : tr("后台服务尚未连接，这批记录还没有读取。连接恢复后请重新添加这批文件、截图或表格。");
+            }));
         return;
     }
     // Every candidate goes back. A batch the Collector would refuse to re-check, or that would
@@ -777,7 +897,10 @@ void ImportRecordsController::requestPreviewPage(const RunImportSource &source, 
         return;
     if (!m_backend || !m_backend->isConnected()) {
         m_phase = QStringLiteral("editing");
-        const LiveText error([] { return tr("后台服务尚未连接，输入已保留。连接恢复后请点「重新校验」。"); });
+        const LiveText error([shown = !m_rows.isEmpty()] {
+            return shown ? tr("后台服务尚未连接，输入已保留。连接恢复后请点「重新校验」。")
+                         : tr("后台服务尚未连接，这批记录还没有读取。连接恢复后请重新添加这批文件、截图或表格。");
+        });
         if (!m_appendImages.isEmpty()) discardAppend(error); else fail(error);
         return;
     }
@@ -797,10 +920,14 @@ void ImportRecordsController::requestPreviewPage(const RunImportSource &source, 
                     return;
                 }
                 m_phase = QStringLiteral("editing");
-                const LiveText error([code, refusal = collector_text::replyErrorText(previewGuard, message)] {
+                const LiveText error([code, refusal = collector_text::replyErrorText(previewGuard, message),
+                                      shown = !m_rows.isEmpty()] {
                     if (code == QLatin1String("ERR_UNKNOWN_MESSAGE"))
                         return tr("当前后台服务版本不支持导入，请更新软件后重试。");
-                    return refusal.isEmpty() ? tr("预览未完成，输入已保留。请点「重新校验」重试。") : refusal.text();
+                    if (!refusal.isEmpty())
+                        return refusal.text();
+                    return shown ? tr("预览未完成，输入已保留。请点「重新校验」重试。")
+                                 : tr("预览未完成，这批记录还没有读取。请重新添加这批文件、截图或表格后重试。");
                 });
                 if (!m_appendImages.isEmpty())
                     discardAppend(error);
@@ -849,7 +976,10 @@ void ImportRecordsController::requestPreviewPage(const RunImportSource &source, 
             }
             if (!valid) {
                 m_phase = QStringLiteral("editing");
-                const LiveText error([] { return tr("未收到完整预览，暂时不能导入。请点「重新校验」重试；仍失败时请更新软件。"); });
+                const LiveText error([shown = !m_rows.isEmpty()] {
+                    return shown ? tr("未收到完整预览，暂时不能导入。请点「重新校验」重试；仍失败时请更新软件。")
+                                 : tr("未收到完整预览，这批记录还没有读取。请重新添加这批文件、截图或表格后重试；仍失败时请更新软件。");
+                });
                 if (!m_appendImages.isEmpty()) discardAppend(error); else fail(error);
                 return;
             }
@@ -889,13 +1019,18 @@ void ImportRecordsController::acceptPreview(const QVariantMap &payload)
     // A legacy full response must prove its completeness too: a missing page_info
     // must not turn the first page of a damaged response into a committable batch.
     if (!complete) {
-        const LiveText error([] { return tr("未收到完整预览，暂时不能导入。请点「重新校验」重试；仍失败时请更新软件。"); });
+        const LiveText error([shown = !m_rows.isEmpty()] {
+            return shown ? tr("未收到完整预览，暂时不能导入。请点「重新校验」重试；仍失败时请更新软件。")
+                         : tr("未收到完整预览，这批记录还没有读取。请重新添加这批文件、截图或表格后重试；仍失败时请更新软件。");
+        });
         if (!m_appendImages.isEmpty())
             discardAppend(error);
         else
             fail(error);
         return;
     }
+    // The rows this reading shows for the first time: all of a first reading, the new cards of an append.
+    const int firstNew = !m_appendImages.isEmpty() ? static_cast<int>(m_candidates.size()) : m_hasAcceptedPreview ? -1 : 0;
     if (!m_appendImages.isEmpty()
         && payload.value(QStringLiteral("rows")).toList().size() != m_candidates.size() + m_appendCandidates.size()) {
         discardAppend(LiveText([] { return tr("未收到新截图的完整预览，原批次已保留。请重新添加截图并校验。"); }));
@@ -928,7 +1063,8 @@ void ImportRecordsController::acceptPreview(const QVariantMap &payload)
         // the source. Duplicate/conflict/invalid rows never become selected, and a
         // possible duplicate is only ever ticked by the user (audit H2-1).
         const int number = row.value(QStringLiteral("row_number")).toInt();
-        const bool selected = selectable && (m_hasAcceptedPreview ? m_restoreSelection.contains(i)
+        // Reading a first preview again with the default region decides afresh (applyDefaultRegion).
+        const bool selected = selectable && (m_hasAcceptedPreview && !m_preselectAgain ? m_restoreSelection.contains(i)
             : m_sourceKind != QLatin1String("SCREENSHOT")
                 && row.value(QStringLiteral("status")).toString() != QLatin1String("possible_duplicate"));
         row.insert(QStringLiteral("selected"), selected);
@@ -937,10 +1073,51 @@ void ImportRecordsController::acceptPreview(const QVariantMap &payload)
         m_rows[i] = row;
     }
     m_hasAcceptedPreview = true;
+    m_preselectAgain = false;
     m_restoreSelection.clear();
     m_current = m_rows.isEmpty() ? -1 : qBound(0, m_current, static_cast<int>(m_rows.size()) - 1);
     m_commitRequestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     Q_EMIT changed();
+    if (firstNew >= 0)
+        applyDefaultRegion(firstNew);
+}
+
+void ImportRecordsController::applyDefaultRegion(int firstNew)
+{
+    // Rows shown for the first time whose source names no region - no 区服 column, a blank cell, a
+    // screenshot - take the default region through the user's batch pick path: on the previewed
+    // candidates, which keep the identity (source_key) the first reading gave them, so an earlier
+    // import of the same row is still recognised (audit 2026-11-03 H1-1). Only the region changes
+    // (m_settingDefaultRegion). A record of this software (with its run_id) keeps the 未知区服 it
+    // was recorded with.
+    if (m_defaultRegion.isEmpty() || !m_backend || !m_backend->isConnected())
+        return;
+    QList<int> targets;
+    for (int i = qMax(0, firstNew); i < m_candidates.size(); ++i) {
+        const QJsonObject candidate = m_candidates[i].toObject();
+        const QString region = candidate.value(QStringLiteral("region")).toString();
+        if (region.isEmpty() || (region == QLatin1String("UNKNOWN")
+                                 && candidate.value(QStringLiteral("run_id")).toString().isEmpty()))
+            targets.append(i);
+    }
+    // A screenshot is a dlog record, a CN source by nature: its duty names are Simplified-Chinese
+    // CN names, matched against the CN catalogue, so it takes 国服 whatever the dashboard shows
+    // (re-review 2026-11-03 RV3-1). The user can still pick another region by hand.
+    const QString region = m_sourceKind == QLatin1String("SCREENSHOT") ? QStringLiteral("CN") : m_defaultRegion;
+    const QVariantMap change{{QStringLiteral("region"), region}};
+    // Too large to be read again: shown as read, and the region can still be picked by hand.
+    if (targets.isEmpty()
+        || !revalidationFits(-1, {}, collectorJsonBytes(QJsonObject::fromVariantMap(change)) * targets.size()))
+        return;
+    // A first preview is preselected again on the second reading, from what that reading says.
+    m_preselectAgain = firstNew == 0;
+    {
+        const QScopedValueRollback<bool> batchEditing(m_batchEditing, true);
+        const QScopedValueRollback<bool> settingDefault(m_settingDefaultRegion, true);
+        for (int index : targets)
+            updateCandidate(index, change);
+    }
+    revalidate();
 }
 
 void ImportRecordsController::rememberSelectedIndices()
@@ -1007,7 +1184,10 @@ void ImportRecordsController::updateCandidate(int row, const QVariantMap &change
             dutyCategoryChanged |= it.key() == QLatin1String("duty_category");
         }
     }
-    if (regionChanged) {
+    // The default region (applyDefaultRegion) sets the region only: nobody looked at the row, so
+    // its duty keeps its identity, and a duty waiting for review keeps the suggestion and the
+    // 「副本待复核」 flag (re-review 2026-11-03 RV3-1). A region the user picks does both below.
+    if (regionChanged && !m_settingDefaultRegion) {
         for (const QString &key : {QStringLiteral("content_id"), QStringLiteral("territory_id"),
                                   QStringLiteral("duty_category"), QStringLiteral("duty_source")})
             candidate.remove(key);
@@ -1028,7 +1208,8 @@ void ImportRecordsController::updateCandidate(int row, const QVariantMap &change
     if ((regionChanged || changes.contains(QStringLiteral("job_id")) || changes.contains(QStringLiteral("duty_name")))
         && row < m_evidence.size()) {
         QVariantMap evidence = m_evidence[row].toMap();
-        if (regionChanged && changes.value(QStringLiteral("region")).toString() != QLatin1String("CN")) {
+        if (regionChanged && !m_settingDefaultRegion
+            && changes.value(QStringLiteral("region")).toString() != QLatin1String("CN")) {
             evidence.remove(QStringLiteral("duty_candidate_name"));
             evidence.insert(QStringLiteral("duty_candidate_pending"), false);
             evidenceReviewed = true;
@@ -1467,9 +1648,7 @@ QVariantList ImportRecordsController::baselinePreviews() const
             }
         }
         const int deducted = qMin(baseline, it.value());
-        const QString label = it.key() == QLatin1String("CN") ? tr("国服")
-            : it.key() == QLatin1String("TC") ? tr("繁中服")
-            : it.key() == QLatin1String("GLOBAL") ? tr("国际服") : tr("未知区服");
+        const QString label = regionName(it.key());
         previews.append(QVariantMap{{QStringLiteral("region"), it.key()}, {QStringLiteral("label"), label},
             {QStringLiteral("baseline_known"), known},
             {QStringLiteral("baseline_count"), known ? QVariant(baseline) : QVariant()},

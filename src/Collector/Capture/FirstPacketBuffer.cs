@@ -59,8 +59,22 @@ internal sealed class FirstPacketBuffer
     private readonly List<(TCPConnection Connection, StreamReport Kind)> _reports = new();
     private int _bytes, _packets;
     private long _rawPackets, _droppedNoStream, _droppedNoSyn, _expiredStreams, _unconfirmedTuples, _streamResets;
-    private long _handshakes, _gameConnections, _gameConnectionsNow;
+    private long _handshakes, _gameConnections, _gameConnectionsNow, _gameConnectionsReadable;
     private long _damagedGameDirections;
+
+    /// <summary>
+    /// The same counts for frames and streams between two local endpoints, kept apart while only
+    /// other programs talk that way: an overlay's local socket or a local proxy is not traffic on
+    /// the monitored paths, and counted with it made "nothing reached the capture" unreachable and
+    /// read as connections the game might own (audit 2026-11-03, A3-2). They join the counters once
+    /// the game itself holds such a connection, a local proxy for instance.
+    /// </summary>
+    private long _localRawPackets, _localDroppedNoStream, _localDroppedNoSyn, _localExpiredStreams,
+        _localUnconfirmedTuples, _localStreamResets, _localHandshakes;
+    private int _gameUsesLocal;
+
+    /// <summary>Local addresses of the game's connections seen this session; copied on write, read lock-free.</summary>
+    private uint[] _gameLocalIPs = Array.Empty<uint>();
     private readonly HashSet<FirstPacketTuple> _gameSeen = new();
     private bool _stopped, _decoding;
     internal UserText? Failure { get; private set; }
@@ -75,17 +89,49 @@ internal sealed class FirstPacketBuffer
     /// the capture source and then the controller. A status read holding this lock could close
     /// that cycle with the decode thread and hang the collector.
     /// </summary>
-    internal CaptureIngressCounters Counters => new(
-        Interlocked.Read(ref _rawPackets),
-        Interlocked.Read(ref _droppedNoStream),
-        Interlocked.Read(ref _droppedNoSyn),
-        Interlocked.Read(ref _expiredStreams),
-        Interlocked.Read(ref _unconfirmedTuples),
-        Interlocked.Read(ref _streamResets),
-        Handshakes: Interlocked.Read(ref _handshakes),
-        GameConnections: Interlocked.Read(ref _gameConnections),
-        GameConnectionsNow: Interlocked.Read(ref _gameConnectionsNow),
-        DamagedGameDirections: Interlocked.Read(ref _damagedGameDirections));
+    internal CaptureIngressCounters Counters
+    {
+        get
+        {
+            var local = Volatile.Read(ref _gameUsesLocal) != 0;
+            long Read(ref long counter, ref long localCounter) =>
+                Interlocked.Read(ref counter) + (local ? Interlocked.Read(ref localCounter) : 0);
+            return new(
+                Read(ref _rawPackets, ref _localRawPackets),
+                Read(ref _droppedNoStream, ref _localDroppedNoStream),
+                Read(ref _droppedNoSyn, ref _localDroppedNoSyn),
+                Read(ref _expiredStreams, ref _localExpiredStreams),
+                Read(ref _unconfirmedTuples, ref _localUnconfirmedTuples),
+                Read(ref _streamResets, ref _localStreamResets),
+                Handshakes: Read(ref _handshakes, ref _localHandshakes),
+                GameConnections: Interlocked.Read(ref _gameConnections),
+                GameConnectionsNow: Interlocked.Read(ref _gameConnectionsNow),
+                DamagedGameDirections: Interlocked.Read(ref _damagedGameDirections),
+                GameConnectionsReadable: Interlocked.Read(ref _gameConnectionsReadable));
+        }
+    }
+
+    /// <summary>
+    /// Whether one of the game's connections this session ran over <paramref name="binding"/>: its
+    /// local address is one of the path's, or, for the loopback path, the game talked between two
+    /// local endpoints. Lock-free like <see cref="Counters"/>; only such paths' loss is the game's
+    /// (audit 2026-11-03, A1-2).
+    /// </summary>
+    /// <param name="binding">A capture path of this session.</param>
+    internal bool CarriedGame(CaptureInterfaceBinding binding)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        var addresses = Volatile.Read(ref _gameLocalIPs);
+        if (binding.IsLoopback && (Volatile.Read(ref _gameUsesLocal) != 0 || addresses.Any(address => (address & 0xff) == 127)))
+            return true;
+        return binding.LocalAddresses.Any(address =>
+            address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
+            Array.IndexOf(addresses, BinaryPrimitives.ReadUInt32LittleEndian(address.GetAddressBytes())) >= 0);
+    }
+
+    /// <summary>Counts one event in the ordinary counter, or in its local twin for traffic between two local endpoints.</summary>
+    private static void Count(bool local, ref long counter, ref long localCounter) =>
+        Interlocked.Increment(ref local ? ref localCounter : ref counter);
 
     /// <summary>Distinct game connections remembered before the tally stops growing.</summary>
     private const int MaxTrackedGameConnections = 256;
@@ -173,8 +219,10 @@ internal sealed class FirstPacketBuffer
             }
             // Counted here, after structural validation and before any policy decision: this
             // is "the adapter really is carrying the game's TCP traffic", which is the fact
-            // the diagnostics page cannot infer from any other counter.
-            Interlocked.Increment(ref _rawPackets);
+            // the diagnostics page cannot infer from any other counter. Traffic between two local
+            // endpoints is counted apart (see _localRawPackets).
+            var local = frame.LocalEndpoints;
+            Count(local, ref _rawPackets, ref _localRawPackets);
             // Machina's TCP decoder consumes SYN sequence space but ignores any SYN payload, so
             // TCP Fast Open would start the bundle decoder after a lost prefix. Refused before
             // allocation or decoder access -- for its own stream only (see Refuse).
@@ -192,13 +240,13 @@ internal sealed class FirstPacketBuffer
                 if (stream is not null)
                 {
                     // A new handshake replaces a live stream; one that was decoding is over.
-                    Interlocked.Increment(ref _streamResets);
+                    Count(local, ref _streamResets, ref _localStreamResets);
                     ReportEnded(stream);
                 }
                 Remove(frame.Tuple);
                 // A handshake that cannot be decoded safely opens nothing: the rest of that
                 // connection is dropped for want of a stream, and counted as such.
-                if (refused) { Interlocked.Increment(ref _droppedNoStream); return; }
+                if (refused) { Count(local, ref _droppedNoStream, ref _localDroppedNoStream); return; }
                 if (_streams.Count == _limits.Tuples && !EvictOldestUnowned(null))
                 { Fail(CollectorTexts.CaptureFaultConnectionTableFull()); return; }
                 stream = new(frame.Inbound, frame.Sequence, _clock(), frame.LocalEndpoints);
@@ -206,9 +254,9 @@ internal sealed class FirstPacketBuffer
                 // Every stream here began with an observed handshake, whoever it belongs to.
                 // Zero over a long session means no SYN reached us at all, which is a
                 // different fault from "the game's own handshake was missed".
-                Interlocked.Increment(ref _handshakes);
+                Count(local, ref _handshakes, ref _localHandshakes);
             }
-            if (stream is null) { Interlocked.Increment(ref _droppedNoStream); return; } // Already-open and expired streams cannot resume without a new SYN.
+            if (stream is null) { Count(local, ref _droppedNoStream, ref _localDroppedNoStream); return; } // Already-open and expired streams cannot resume without a new SYN.
             if (refused) { Refuse(frame.Tuple, stream, frame.Inbound); return; }
             var direction = frame.Inbound ? stream.Inbound : stream.Outbound;
             // Once a close was accepted, only that direction's data at or before it may still
@@ -219,7 +267,7 @@ internal sealed class FirstPacketBuffer
                 direction.SynSequence is not { } origin || Rebase(frame, origin).End > closedAt)) return;
             // A direction abandoned after an unfillable gap accepts nothing more: its Machina
             // state is past the hole and would decode the remainder as garbage.
-            if (direction.Damaged) { Interlocked.Increment(ref _droppedNoStream); return; }
+            if (direction.Damaged) { Count(local, ref _droppedNoStream, ref _localDroppedNoStream); return; }
             if (frame.Syn)
             {
                 if (direction.SynSequence is { } initial && initial != frame.Sequence)
@@ -230,7 +278,7 @@ internal sealed class FirstPacketBuffer
             // A stream that already decodes keeps its other direction (audit 2026-10-03, OA-5).
             if (direction.SynSequence is null)
             {
-                Interlocked.Increment(ref _droppedNoSyn);
+                Count(local, ref _droppedNoSyn, ref _localDroppedNoSyn);
                 if (stream.Decoder is null) Remove(frame.Tuple);
                 else Abandon(stream, frame.Inbound);
                 return;
@@ -263,7 +311,7 @@ internal sealed class FirstPacketBuffer
                     // the budget can justify ending the capture and all its other streams.
                     if (stream.Decoder is null)
                     {
-                        Interlocked.Increment(ref _expiredStreams);
+                        Count(local, ref _expiredStreams, ref _localExpiredStreams);
                         Remove(frame.Tuple);
                         return;
                     }
@@ -417,11 +465,22 @@ internal sealed class FirstPacketBuffer
             Interlocked.Exchange(ref _gameConnectionsNow, confirmed.Count);
             foreach (var tuple in confirmed.Keys)
             {
+                // Which paths carried the game, and whether it talks between local endpoints
+                // itself; both only ever grow within a session (audit 2026-11-03, A1-2, A3-2).
+                // Published before the tally below, so a reader that sees the game connection
+                // also sees its path (re-review 2026-11-03, RV1-7).
+                if (IsLocal(tuple.RemoteIP)) Volatile.Write(ref _gameUsesLocal, 1);
+                if (_gameLocalIPs.Length < MaxTrackedGameConnections && Array.IndexOf(_gameLocalIPs, tuple.LocalIP) < 0)
+                    Volatile.Write(ref _gameLocalIPs, _gameLocalIPs.Append(tuple.LocalIP).ToArray());
+
                 if (_gameSeen.Count < MaxTrackedGameConnections && _gameSeen.Add(tuple))
                 {
                     Interlocked.Increment(ref _gameConnections);
                 }
             }
+            // Of the connections listed now, those this capture saw open and decodes. Fewer means a
+            // connection the game held at start is still in use (re-review 2026-11-03, RV1-2).
+            var readable = 0;
             foreach (var (tuple, stream) in _streams.ToArray())
             {
                 var hasDirect = confirmed.TryGetValue(tuple, out var connection);
@@ -445,6 +504,7 @@ internal sealed class FirstPacketBuffer
                     stream.ReverseGameDirection = hasReverse;
                     stream.Connection ??= connection;
                     stream.Decoder ??= _decoderFactory(connection!);
+                    readable++;
                 }
                 else
                 {
@@ -452,7 +512,10 @@ internal sealed class FirstPacketBuffer
                     // "how many observed connections were never the game's", which separates
                     // a wrong adapter from a wrong process.
                     if (!stream.Confirmed && !stream.CountedUnconfirmed)
-                    { stream.CountedUnconfirmed = true; Interlocked.Increment(ref _unconfirmedTuples); }
+                    {
+                        stream.CountedUnconfirmed = true;
+                        Count(stream.LocalEndpoints, ref _unconfirmedTuples, ref _localUnconfirmedTuples);
+                    }
                     if (stream.Decoder is null) continue;
                     // An owned, decoding stream the OS no longer lists is a connection that went
                     // away under us -- the fact DISCONNECTED is made of -- once the absence has
@@ -520,6 +583,7 @@ internal sealed class FirstPacketBuffer
                     Remove(tuple);
                 }
             }
+            Interlocked.Exchange(ref _gameConnectionsReadable, readable);
         }
     }
 
@@ -587,7 +651,7 @@ internal sealed class FirstPacketBuffer
             {
                 if (now - stream.Created >= _limits.Ownership && confirmed?.ContainsKey(tuple) != true &&
                     (!stream.LocalEndpoints || confirmed?.ContainsKey(tuple.Reverse) != true))
-                { Interlocked.Increment(ref _expiredStreams); Remove(tuple); }
+                { Count(stream.LocalEndpoints, ref _expiredStreams, ref _localExpiredStreams); Remove(tuple); }
                 continue;
             }
 
@@ -626,7 +690,7 @@ internal sealed class FirstPacketBuffer
     private void Refuse(FirstPacketTuple tuple, StreamState stream, bool inbound)
     {
         if (stream.Decoder is not null) { Abandon(stream, inbound); return; }
-        Interlocked.Increment(ref _streamResets);
+        Count(stream.LocalEndpoints, ref _streamResets, ref _localStreamResets);
         Remove(tuple);
     }
 
@@ -693,7 +757,7 @@ internal sealed class FirstPacketBuffer
             return false;
         }
 
-        Interlocked.Increment(ref _expiredStreams);
+        Count(_streams[victim].LocalEndpoints, ref _expiredStreams, ref _localExpiredStreams);
         Remove(victim);
         return true;
     }

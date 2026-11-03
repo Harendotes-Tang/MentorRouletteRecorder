@@ -68,6 +68,9 @@ def snapshot(issue):
 
 def extract(body):
     if not isinstance(body, str) or len(body.encode("utf-8")) > 65536: raise evidence.EvidenceError("ISSUE_BODY_LIMIT")
+    # GitHub's web editor stores an edited body with CRLF line breaks, and editing is how a waiting Issue is
+    # supplemented; read every ending as LF, as issue.parse_body does. JSON strings cannot hold a raw CR or LF.
+    body = body.replace("\r\n", "\n").replace("\r", "\n")
     headings = list(re.finditer(r"^### ([^\r\n]+)\r?$", body, re.M))
     sections = []
     for i, heading in enumerate(headings):
@@ -139,7 +142,7 @@ def disposition(result):
     return (MARKER + "\n\n" + text + "\n\n" + english + "\n\n原因 / Reason: `" + result["reason"] + "`。\n\n"
             "账号与会话数量只是操作门槛，不能证明真实游戏行为或参与者独立；最终仍须本机完整核实。\n"
             "Account and session counts are only an operational threshold; they prove neither real gameplay nor independent participants. "
-            "Everything is still verified in full on the maintainer's own machine.\n")
+            "Ultimately, the app on each player's own computer must still verify every code in full.\n")
 
 
 def reply(repo, number, live, result):

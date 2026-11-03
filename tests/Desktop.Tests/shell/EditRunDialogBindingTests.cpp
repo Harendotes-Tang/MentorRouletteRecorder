@@ -1923,7 +1923,10 @@ private Q_SLOTS:
         QCOMPARE(fromMock.first().toMap().value(QStringLiteral("content_id")).toInt(), 1015);
         QCOMPARE(fromMock.first().toMap().value(QStringLiteral("party_size")).toInt(), 24);
 
-        // A new record starts UNKNOWN; CN history appears only after its region is chosen.
+        // With the dashboard on 全部区服 a new record starts in 国服 (audit 2026-11-03
+        // L1-1), so its CN history is offered at once; 未知区服 offers none.
+        QCOMPARE(fixture.dialog()->property("recordRegion").toString(), QStringLiteral("CN"));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "selectRegion", Q_ARG(QVariant, QVariant(QStringLiteral("UNKNOWN")))));
         QVERIFY(asList(fixture.dialog()->property("recentDutyOptions")).isEmpty());
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "selectRegion", Q_ARG(QVariant, QVariant(QStringLiteral("CN")))));
         const auto chips = asList(fixture.dialog()->property("recentDutyOptions"));
@@ -2012,6 +2015,120 @@ private Q_SLOTS:
         QCOMPARE(difficulties.value(u("极")), 47);
         QCOMPARE(difficulties.value(u("零式")), 64);
         QCOMPARE(difficulties.value(u("普通")), 269);
+    }
+
+    // Audit 2026-11-03 L1-3: data/duties/tc.*.json carries no party_size, and every
+    // TC 大型任务 row was filed under 其他 with the 行会令 badge 「令」. A row borrows
+    // the size another region's catalogue gives the same content id, as the
+    // Collector's catalogue composition does (H2-2); with none to borrow, the size
+    // stays unknown, never 「令」.
+    void aTraditionalChineseRaidBorrowsItsPartySize()
+    {
+        using mr::DutyCatalog;
+        const auto u = [](const char *text) { return QString::fromUtf8(text); };
+        const DutyCatalog *catalog = DutyCatalog::shared();
+        // A standard alliance raid: CN and GLOBAL both state 24 for content 92.
+        const QVariantMap labyrinth = catalog->lookup(92, QStringLiteral("TC"));
+        QCOMPARE(labyrinth.value(QStringLiteral("region")).toString(), QStringLiteral("TC"));
+        QCOMPARE(labyrinth.value(QStringLiteral("party_size")).toInt(), 24);
+        QCOMPARE(labyrinth.value(QStringLiteral("duty_category")).toString(), u("团队任务"));
+        const QVariantMap alliance = catalog->lookup(1015, QStringLiteral("TC"));
+        QCOMPARE(alliance.value(QStringLiteral("region")).toString(), QStringLiteral("TC"));
+        QCOMPARE(alliance.value(QStringLiteral("party_size")).toInt(), 24);
+        QCOMPARE(alliance.value(QStringLiteral("duty_category")).toString(), u("团队任务"));
+        QCOMPARE(catalog->displayedCategory({{QStringLiteral("region"), QStringLiteral("TC")},
+                                             {QStringLiteral("content_id"), 1015},
+                                             {QStringLiteral("duty_category"), u("大型任务")}}),
+                 u("团队任务"));
+        const QVariantMap savage = catalog->lookup(986, QStringLiteral("TC"));
+        QCOMPARE(savage.value(QStringLiteral("party_size")).toInt(), 8);
+        QCOMPARE(savage.value(QStringLiteral("duty_category")).toString(), u("大型任务"));
+        int raids = 0;
+        for (const QVariant &value : catalog->allDuties(QStringLiteral("TC"))) {
+            const QVariantMap row = value.toMap();
+            const QString category = row.value(QStringLiteral("duty_category")).toString();
+            if (category != u("大型任务") && category != u("团队任务"))
+                continue;
+            ++raids;
+            const int size = row.value(QStringLiteral("party_size")).toInt();
+            QVERIFY2(size == 8 || size == 24, qPrintable(row.value(QStringLiteral("duty_name")).toString()));
+        }
+        QVERIFY(raids > 100);
+
+        // In the wizard, 繁中服's raids are where the 8人本 / 24人本 filters look.
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "openForCreate"));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "selectRegion", Q_ARG(QVariant, QVariant(QStringLiteral("TC")))));
+        fixture.dialog()->setProperty("dutyOptions", fixture.controller.dutyChoicesForRegion(QStringLiteral("TC")));
+        fixture.dialog()->setProperty("partyFilter", QStringLiteral("24"));
+        QVERIFY(fixture.visibleIds().contains(1015));
+        QVERIFY(fixture.visibleIds().contains(92));
+        fixture.dialog()->setProperty("partyFilter", QStringLiteral("8"));
+        QVERIFY(fixture.visibleIds().contains(986));
+        fixture.dialog()->setProperty("partyFilter", QStringLiteral("0"));
+        QVERIFY(!fixture.visibleIds().contains(1015));
+        QVERIFY(!fixture.visibleIds().contains(986));
+        QVariant icon;
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "partyIcon", Q_RETURN_ARG(QVariant, icon),
+                                          Q_ARG(QVariant, QVariant())));
+        QCOMPARE(icon.toString(), QStringLiteral("·"));
+    }
+
+    // Audit 2026-11-03 L1-1: a new record was filed under 未知区服 - a separate
+    // achievement - while step 1 promised it counted toward 「2000 次导随成就」,
+    // a goal borrowed from another region. It now starts in the dashboard's
+    // named region, else 国服, and the sentence names the region and its goal.
+    void aNewRecordStartsInTheDashboardsRegionAndSaysWhichAchievementItCounts()
+    {
+        DialogFixture fixture;
+        fixture.backend.setAchievement(QStringLiteral("TC"), 1500, 0);
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        auto *dialog = fixture.dialog();
+        const auto openNew = [&] {
+            QVERIFY(QMetaObject::invokeMethod(dialog, "openForCreate"));
+        };
+        const auto collected = [&] {
+            QVariant fields;
+            QMetaObject::invokeMethod(dialog, "collectFields", Q_RETURN_ARG(QVariant, fields));
+            return asMap(fields);
+        };
+
+        // 全部区服 on the dashboard: 国服.
+        fixture.controller.setRecordRegion(QString());
+        openNew();
+        QCOMPARE(dialog->property("recordRegion").toString(), QStringLiteral("CN"));
+        QCOMPARE(collected().value(QStringLiteral("region")).toString(), QStringLiteral("CN"));
+        QVERIFY2(dialog->property("progressExplanation").toString().contains(QString::fromUtf8("国服")),
+                 qPrintable(dialog->property("progressExplanation").toString()));
+
+        // A named region on the dashboard is the new record's, with that region's goal.
+        fixture.controller.refreshAchievementRegions();
+        QTRY_VERIFY([&] {
+            for (const QVariant &entry : fixture.controller.achievements())
+                if (entry.toMap().value(QStringLiteral("region")).toString() == QLatin1String("TC"))
+                    return true;
+            return false;
+        }());
+        fixture.controller.setRecordRegion(QStringLiteral("TC"));
+        openNew();
+        QCOMPARE(dialog->property("recordRegion").toString(), QStringLiteral("TC"));
+        QCOMPARE(collected().value(QStringLiteral("region")).toString(), QStringLiteral("TC"));
+        const QString tc = dialog->property("progressExplanation").toString();
+        QVERIFY2(tc.contains(QString::fromUtf8("繁中服")) && tc.contains(QStringLiteral("1500")), qPrintable(tc));
+
+        // 未知区服 is not a region a player picks on the dashboard to mean "this one".
+        fixture.controller.setRecordRegion(QStringLiteral("UNKNOWN"));
+        openNew();
+        QCOMPARE(dialog->property("recordRegion").toString(), QStringLiteral("CN"));
+
+        // Chosen in the wizard, it says the record counts only toward that separate progress.
+        QVERIFY(QMetaObject::invokeMethod(dialog, "selectRegion", Q_ARG(QVariant, QVariant(QStringLiteral("UNKNOWN")))));
+        const QString unknown = dialog->property("progressExplanation").toString();
+        QVERIFY2(unknown.contains(QString::fromUtf8("未知区服")) && !unknown.contains(QStringLiteral("2000")),
+                 qPrintable(unknown));
+        QCOMPARE(collected().value(QStringLiteral("region")).toString(), QStringLiteral("UNKNOWN"));
+        fixture.controller.setRecordRegion(QString());
     }
 
     // 动效: the incoming step slides in from the side it comes from; with the

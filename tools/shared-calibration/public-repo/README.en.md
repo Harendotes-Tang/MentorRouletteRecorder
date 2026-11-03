@@ -1,6 +1,6 @@
 # MentorRecorder Shared Calibrations
 
-Local source preparation also accepts the independent TC service region. TC has no verified bundled protocol template; metadata observations remain candidates. This source change does not confirm remote deployment or actual TC client acceptance.
+Traditional Chinese (`TC`) is a separate region and shares no calibration codes with the Chinese or Global regions. It has no verified bundled protocol template yet, so this repository cannot publish TC codes for now; template observations from TC are only archived as candidate drafts.
 
 [简体中文](README.md) | [繁體中文](README.zh-TW.md) | [English](README.en.md) | [日本語](README.ja.md)
 
@@ -140,7 +140,7 @@ and explicitly submit it. The repository validates and deduplicates it, records 
 
 **Counts and format checks are operational thresholds. They cannot prove that a submitter played the game, that the content is truthful, or that accounts are independent.** The app ultimately still relies on full local verification.
 Older software ignores quarantine fields and continues using its existing local rules; updating this repository alone adds no new requirements to old software.
-All repository writes share a publication concurrency lock, and push conflicts are recalculated from the latest `main`. Automatic replies use one bot comment per Issue, updating it on retries instead of adding duplicates.
+Publication and evidence each have their own concurrency lock (reports share the evidence lock), so evidence and report Issues that stay open cannot hold up publication; push conflicts are recalculated from the latest `main`. Automatic replies use one bot comment per Issue, updating it on retries instead of adding duplicates.
 A scheduled sweep uses a persistent cursor to process missed events in batches. The ledger has capacity limits and waits when full; replay-prevention records are not deleted to make old evidence appear new.
 Current global limits are 4096 summaries, 32768 session aliases, and 16384 latest field positions, with a ledger no larger than 8 MiB, plus up to 4096 receipts for ordinary text reports.
 Each account is limited to 128 summaries, 1024 session aliases, and 64 text reports. Exceeding these limits returns `ACCOUNT_CAPACITY_WAIT` without allocating a new record, freezing the account, or changing existing votes.
@@ -286,6 +286,7 @@ Both commands change only local files; they take effect after you review the dif
 | `submissions.json` | Submission ledger: which account (numeric ID) submitted which code for which version, whether it followed successful verification (`basis`), and the previous code it replaced; not downloaded by the app |
 | `cn/<game-client-version>/<first-12-identifier-characters>.mrc` | Chinese-region code text, downloaded by the app at the commit that added it |
 | `global/<game-client-version>/<first-12-identifier-characters>.mrc` | Global-region code text |
+| `tc/<game-client-version>/<first-12-identifier-characters>.mrc` | Traditional Chinese-region code text |
 | `templates/<template-id>.json` | Byte-for-byte copies of the app's bundled templates, used by the Action for structural reconstruction and validation |
 | `tools/` | Validation and publication scripts copied from the main MentorRecorder repository; do not edit them manually here |
 | `.github/ISSUE_TEMPLATE/share-calibration.yml` | Submission form |

@@ -237,7 +237,7 @@ OFL 条件同 §3.2。IBM Plex 的保留字体名为 “Plex”；本项目只�
 | 项 | 值 |
 |---|---|
 | 上游 | <https://lucide.dev>，<https://github.com/lucide-icons/lucide>；取自官方仓库标签 `1.61.0` 的 SVG，按同标签 `lucide-static` 发布脚本添加版本许可证注释与 `class`；来源及别名见资源目录 `README.md` |
-| 许可证 | **ISC**（全文随附于 `src/Desktop/resources/icons/lucide/LICENSE`）。同一文件的后半段说明：Lucide 从 **Feather** 派生的那些图标同时受 **The MIT License (MIT)**，Copyright (c) 2013-present Cole Bemis 约束。本项目所用的 35 个图标中有 11 个在该名单上：`calendar`、`chevron-left`、`chevron-right`、`chevrons-down`、`clock`、`moon`、`plus`、`radio`、`server`、`target`、`x` |
+| 许可证 | **ISC**（全文随附于 `src/Desktop/resources/icons/lucide/LICENSE`）。同一文件的后半段说明：Lucide 从 **Feather** 派生的那些图标同时受 **The MIT License (MIT)**，Copyright (c) 2013-present Cole Bemis 约束。本项目所用的 37 个图标中有 11 个在该名单上：`calendar`、`chevron-left`、`chevron-right`、`chevrons-down`、`clock`、`moon`、`plus`、`radio`、`server`、`target`、`x` |
 | 版权 | Copyright (c) 2026 Lucide Icons and Contributors；Feather 派生部分另有 Copyright (c) 2013-present Cole Bemis |
 | 文件 | `src/Desktop/resources/icons/lucide/*.svg`（绘制元素原样保留；SHA-256 见同目录 `README.md`） |
 | 是否进入构建产物 | **是**，但进入产物的不是 SVG 本身：`tools/lucide-icons/generate.py` 将每个图标的绘制元素生成到 `src/Desktop/qml/components/Lucide.js`。该文件头部带有 ISC 的版权与许可声明，并在包含 Feather 派生图标时一并带上 MIT 的版权与许可声明，随 QML 模块编入 `MentorRecorder.Desktop.exe`。生成器从 LICENSE 文件读取 Feather 名单，`tools/lucide-icons/test_generate.py` 保证生成文件与 SVG、名单一致 |
@@ -385,7 +385,9 @@ IPC 契约不存在这一层顾虑，因此测试侧直接使用成熟的库，�
     `data/duties/cn.<version>.json` 随包分发；文件 `source` 字段、`THIRD_PARTY_NOTICES.md`
     与“设置 → 版权与来源”注明该社区导出为来源、名称为 SQUARE ENIX 游戏文本，仅限非商业展示。
     界面多语言（2026-10-15）新增的 `data/i18n/game-names.<date>.json` 以同样方式随包分发，
-    其繁體中文名称来自同样没有 LICENSE 文件的 `thewakingsands/ffxiv-datamining-tc`（见 §10）。
+    其繁體中文名称来自同样没有 LICENSE 文件的 `thewakingsands/ffxiv-datamining-tc`（见 §10）；
+    繁中服的副本表 `data/duties/tc.<version>.json`、随机任务表 `data/roulettes/tc.json` 与 `data/jobs/jobs.json` 中的
+    繁中服职业名同样取自该仓库，以同样方式随包分发。
 
 上述 11 项已全部落实。其中第 10、11 项以随包分发并附来源与版权声明的方式落实，
 相应风险由维护者承担。
@@ -404,6 +406,14 @@ IPC 契约不存在这一层顾虑，因此测试侧直接使用成熟的库，�
 - `https://doc.qt.io/qt-6/licensing.html` —— Qt 6 GPLv3-only 模块清单
 - `https://doc.qt.io/qt-6/qtgraphs-index.html`、`https://doc.qt.io/qt-6/qtcharts-index.html` —— Qt Graphs / Qt Charts 的许可与弃用说明
 - `https://npcap.com/#download` —— Npcap 许可与再分发限制
+
+随包国服协议档案 `protocol-profiles/cn/cn.2026.08.05.json` 的证据记录另引用了两个项目（只作参考，未复制代码，
+另见 `THIRD_PARTY_NOTICES.md`「代码来源声明」）：
+
+- `https://github.com/karashiiro/FFXIVOpcodes` —— 国服 7.55a 的 opcode 与报文长度（`ZONE_TERRITORY`、`PLAYER_JOB`）
+- `https://github.com/SapphireServer/Sapphire/blob/master/src/common/Network/PacketDef/Zone/ServerZoneDef.h` ——
+  这两条消息中区域编号与职业编号的字段偏移；该项目的许可证尚未核对，偏移也尚未用本机报文样本核对
+  （[protocol-profile-format.md](protocol-profile-format.md) §5）
 
 在本机核对的材料：还原后的 `.nuspec` 与 `LICENSE.md`（位于 `%USERPROFILE%\.nuget\packages\`）、
 Qt 安装目录中的 `LICENSE` 与 `COPYING.txt`、MinGW 的 `licenses/gcc/COPYING3`。
@@ -451,6 +461,7 @@ Qt 安装目录中的 `LICENSE` 与 `COPYING.txt`、MinGW 的 `licenses/gcc/COPY
 |---|---|---|
 | **XIVAPI v2**（<https://v2.xivapi.com>） | 英文名、`TerritoryType`、`ContentType`、等级需求；分页请求，上限 10 次 | 公开的只读 API；社区服务，本身不拥有游戏数据的版权 |
 | **thewakingsands/ffxiv-datamining-cn**（<https://github.com/thewakingsands/ffxiv-datamining-cn>） | 简体中文名，只请求 `ContentFinderCondition.csv` 一次 | ⚠️ **没有 LICENSE 文件** |
+| **thewakingsands/ffxiv-datamining-tc**（<https://github.com/thewakingsands/ffxiv-datamining-tc>） | 繁中服副本表 `data/duties/tc.<version>.json`（`ContentFinderCondition.csv`、`TerritoryType.csv`、`ContentType.csv` 等，固定到一个提交）与随机任务表 `data/roulettes/tc.json`；繁中服客户端的职业名另作为 `data/jobs/jobs.json` 的 `aliases_zh_tw`，只用于导入识别 | ⚠️ **没有 LICENSE 文件**，与 `ffxiv-datamining-cn` 情况相同 |
 
 > **未决问题（2026-09-04 核对）**：
 > `GET /repos/thewakingsands/ffxiv-datamining-cn` 返回 `license: null`，

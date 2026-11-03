@@ -170,6 +170,14 @@ public sealed partial class LiveProtocolPipeline :
     public event Action<DutyStartNote>? DutyStartObserved;
 
     /// <summary>
+    /// Raised when a confirmed calibration could not be written or selected: an event name, the
+    /// selector's English reason when there is one, and the exception when there is one. For the local
+    /// diagnostic log only; the player is told in a catalogue sentence that carries neither the
+    /// system's words nor a path (audit 2026-11-03, C-7).
+    /// </summary>
+    public event Action<string, string?, Exception?>? CalibrationFault;
+
+    /// <summary>
     /// How much captured time passes between two re-derivations of the calibration draft.
     /// Measured on the capture source's own clock, the one every message carries, so the
     /// throttle is the same whether the traffic is live or replayed.
@@ -463,6 +471,23 @@ public sealed partial class LiveProtocolPipeline :
             lock (_gate)
             {
                 return _processor?.Machine.State ?? Domain.RunState.Idle;
+            }
+        }
+    }
+
+    /// <summary>
+    /// True while a run is matched or in its duty, or a queue request is parked that the machine would still
+    /// turn into a run when the duty loads; false with no state machine. The test profile swaps and rebinds
+    /// already wait on (<see cref="RunUnderWay"/>), read under the gate for the capture controller, which must not
+    /// replace a reading session while it holds (audit 2026-11-03, A1-1).
+    /// </summary>
+    public bool RunUnderWayNow
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _processor is { } recording && RunUnderWay(recording);
             }
         }
     }
@@ -1172,9 +1197,64 @@ public sealed partial class LiveProtocolPipeline :
                 null,
                 game.Region,
                 game.GameBuild,
-                "profile selection failed: " + ex.GetType().Name);
+                "profile selection failed: " + ex.GetType().Name,
+                ReasonCode: ProfileSelectionReason.Failed);
         }
     }
+
+    /// <summary>
+    /// What a confirmation that could not be written is refused with: a catalogue sentence per kind of
+    /// failure. The system's explanation - for a file another program holds, the profile's path under the
+    /// player's Windows user name - goes to <see cref="CalibrationFault"/> for the local log only (audit
+    /// 2026-11-03, C-7). The draft stays ready to be confirmed again.
+    /// </summary>
+    /// <param name="ex">What preparing or publishing the profile threw.</param>
+    private CollectorException CalibrationWriteRefused(Exception ex)
+    {
+        RaiseCalibrationFault("calibration_write_failed", null, ex);
+        const int sharingViolation = 32;
+        const int lockViolation = 33;
+        var text = ex switch
+        {
+            InvalidOperationException => CollectorTexts.CalibrationWriteFailedRefused(),
+            UnauthorizedAccessException => CollectorTexts.CalibrationWriteFailedBusy(),
+            IOException io when (io.HResult & 0xFFFF) is sharingViolation or lockViolation =>
+                CollectorTexts.CalibrationWriteFailedBusy(),
+            _ => CollectorTexts.CalibrationWriteFailedDisk(),
+        };
+        return new CollectorException(ErrorCodes.ExportFailed, text, inner: ex);
+    }
+
+    /// <summary>Tells the log about a calibration fault; a listener that throws costs nothing here.</summary>
+    /// <param name="eventName">What went wrong, as a log event name.</param>
+    /// <param name="reason">The selector's English reason, when there is one.</param>
+    /// <param name="error">The exception, when there is one.</param>
+    private void RaiseCalibrationFault(string eventName, string? reason, Exception? error)
+    {
+        try
+        {
+            CalibrationFault?.Invoke(eventName, reason, error);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+        }
+    }
+
+    /// <summary>
+    /// The player's sentence for why nothing records under <paramref name="selection"/>: one catalogue text
+    /// per reason, never the selector's English, which is for logs and diagnostics (audit 2026-11-03, D2-1).
+    /// </summary>
+    /// <param name="selection">A selection that does not record.</param>
+    private static UserText ProfileUnavailableText(ProfileSelection selection) => selection.ReasonCode switch
+    {
+        ProfileSelectionReason.BuildUnknown => CollectorTexts.ProfileUnavailableBuildUnknown(),
+        ProfileSelectionReason.RegionUnknown => CollectorTexts.ProfileUnavailableRegionUnknown(),
+        ProfileSelectionReason.Ambiguous => CollectorTexts.ProfileUnavailableAmbiguous(),
+        ProfileSelectionReason.NoMatch => CollectorTexts.ProfileUnavailableNoMatch(),
+        ProfileSelectionReason.RegionUnsupported => CollectorTexts.ProfileUnavailableRegionUnsupported(),
+        ProfileSelectionReason.Selected or ProfileSelectionReason.NotUsable => CollectorTexts.ProfileUnavailableNotUsable(),
+        _ => CollectorTexts.ProfileUnavailableFailed(),
+    };
 
     private CaptureProfileSnapshot ToCaptureStatus(ProfileSelection selection)
     {
@@ -1196,7 +1276,7 @@ public sealed partial class LiveProtocolPipeline :
             status == ProfileStatus.Verified ? profile?.ProvenanceSummary : null,
             status == ProfileStatus.Verified
                 ? null
-                : CollectorTexts.CaptureProfileUnavailable(selection.Reason),
+                : ProfileUnavailableText(selection),
             selection.Origin,
             _calibration.Armed);
     }
@@ -1299,7 +1379,7 @@ public sealed partial class LiveProtocolPipeline :
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
-            throw new CollectorException(ErrorCodes.ExportFailed, CollectorTexts.CalibrationWriteFailed(ex.Message), inner: ex);
+            throw CalibrationWriteRefused(ex);
         }
 
         using var pending = prepared;
@@ -1322,7 +1402,7 @@ public sealed partial class LiveProtocolPipeline :
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
             {
-                throw new CollectorException(ErrorCodes.ExportFailed, CollectorTexts.CalibrationWriteFailed(ex.Message), inner: ex);
+                throw CalibrationWriteRefused(ex);
             }
 
             _withdrawnLocalProfiles.Remove(written.ProfileId);
@@ -1333,9 +1413,10 @@ public sealed partial class LiveProtocolPipeline :
                 profile.Status != ProfileCompatibilityStatus.Verified ||
                 !string.Equals(profile.ProfileId, written.ProfileId, StringComparison.Ordinal))
             {
+                RaiseCalibrationFault("calibration_written_not_selected", selection.Reason, null);
                 throw new CollectorException(
                     ErrorCodes.Internal,
-                    CollectorTexts.CalibrationWrittenNotSelected(selection.Reason),
+                    CollectorTexts.CalibrationWrittenNotSelected(),
                     new Dictionary<string, object?> { ["profile_id"] = written.ProfileId, ["reason"] = selection.Reason });
             }
 
@@ -1388,6 +1469,15 @@ public sealed partial class LiveProtocolPipeline :
             // that gained the job must stop being offered the job.
             var (_, upgrading, retaining, completing) = CalibrationRoles();
             UseCalibrationRole(upgrading, retaining, completing);
+            if (completing && _active && _sessionId is { } observed && _calibration.Armed && !_calibration.Active)
+            {
+                // A profile written without the job goes on looking for it at once, in this very
+                // session, rather than after the next start of the Collector (audit 2026-11-03, C-3).
+                _calibration.Begin(observed);
+                _calibrationLastDerive = TimeSpan.Zero;
+                _calibrationLastSave = TimeSpan.Zero;
+            }
+
             _shared.Sync();
             NotifyCalibrationChanged();
             return new CalibrationConfirmation(written.ProfileId, written.Path, bound);
@@ -1413,11 +1503,20 @@ public sealed partial class LiveProtocolPipeline :
             return;
         }
 
-        // The client version is unknown -- no client is running and none is remembered as
-        // installed: keep whatever was armed, so a client that comes back on the same build
-        // does not lose its template.
+        // The client version is unknown. With no client running and none remembered as installed,
+        // keep whatever was armed, so a client that comes back on the same build does not lose its
+        // template. A client that IS running with an unreadable version file may be another
+        // region's: its traffic must never feed, or be saved into, the evidence armed for the
+        // first one, and without a build nothing it shows could be confirmed anyway (audit
+        // 2026-11-03, C-1). The evidence was saved when the earlier session stopped, and comes
+        // back when its client does.
         if (string.IsNullOrWhiteSpace(_game.GameBuild))
         {
+            if (_game.Running && _calibration.Template is not null)
+            {
+                _calibration.Disarm();
+            }
+
             return;
         }
 
@@ -1547,8 +1646,9 @@ public sealed partial class LiveProtocolPipeline :
         {
             foreach (var renaming in renamings)
             {
+                // Under the region the timeline was calibrated for, like its evidence (C-1).
                 _calibrationServices.RecordRouletteName(
-                    _selection.Region, renaming.RouletteId, renaming.Name, _clock.UtcNow);
+                    _calibration.Region, renaming.RouletteId, renaming.Name, _clock.UtcNow);
             }
 
             _calibration.UseRoulettes(_calibrationServices.LoadRoulettes());
@@ -1566,7 +1666,10 @@ public sealed partial class LiveProtocolPipeline :
             return;
         }
 
-        DeleteCalibrationEvidence(_game.Region, build);
+        // The region calibration was armed for, not the locator's latest answer: with the game
+        // closed that is "unknown", and the armed region's file would survive 清空校准进度
+        // (audit 2026-11-03, C-1).
+        DeleteCalibrationEvidence(_calibration.Region, build);
     }
 
     /// <summary>Removes one evidence file. Failure is never allowed to matter.</summary>
@@ -1599,7 +1702,7 @@ public sealed partial class LiveProtocolPipeline :
             return;
         }
 
-        WriteCalibrationEvidence(_game.Region, build, template.Source.ProfileSha256, evidence, ++_evidenceFrozen);
+        WriteCalibrationEvidence(_calibration.Region, build, template.Source.ProfileSha256, evidence, ++_evidenceFrozen);
     }
 
     /// <summary>Writes one frozen snapshot. Failure is never allowed to matter.</summary>
@@ -1667,7 +1770,7 @@ public sealed partial class LiveProtocolPipeline :
         _calibrationLastSave = mono;
         _calibrationSaveInFlight = true;
         _calibrationSavePending =
-            (_game.Region, build, template.Source.ProfileSha256, evidence, _calibration.Generation, ++_evidenceFrozen);
+            (_calibration.Region, build, template.Source.ProfileSha256, evidence, _calibration.Generation, ++_evidenceFrozen);
     }
 
     /// <summary>

@@ -25,6 +25,7 @@
 #include <QDir>
 #include <QFile>
 #include <QGuiApplication>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -342,6 +343,20 @@ QList<RequestVariant> requestVariants()
     };
 }
 
+/// Keeps the payload of every request the shipping IBackend wrappers build.
+class PayloadRecorder final : public mr::IBackend
+{
+public:
+    QHash<QString, QJsonObject> payloads;
+    QString backendName() const override { return QStringLiteral("payload-recorder"); }
+    bool isConnected() const override { return true; }
+    mr::BackendReply *request(const QString &messageType, const QJsonObject &payload) override
+    {
+        payloads.insert(messageType, payload);
+        return new mr::BackendReply(QStringLiteral("recorded"), messageType, this);
+    }
+};
+
 QJsonObject readSample(const QString &path)
 {
     QFile file(path);
@@ -361,6 +376,7 @@ private Q_SLOTS:
     void buildsOneSamplePerMessageType();
     void samplesMatchTheCommittedFixtures();
     void variantsMatchTheCommittedFixtures();
+    void exportRequestsReplaceOnlyAConfirmedTarget();
 };
 } // namespace
 
@@ -440,6 +456,31 @@ void IpcRequestTests::variantsMatchTheCommittedFixtures()
         QCOMPARE(sample.value(QStringLiteral("protocol_version")), envelope.value(QStringLiteral("protocol_version")));
         QVERIFY2(sample.value(QStringLiteral("payload")) == envelope.value(QStringLiteral("payload")),
                  qPrintable(variant.file + QStringLiteral(" drifted from its committed sample")));
+    }
+}
+
+// Audit 2026-11-03 G-2: a target the save dialog already confirmed replacing travels with
+// overwrite = true (contracts/ipc-v1.schema.json ExportRequest, ExportDiagnosticsReportRequest);
+// every other export leaves the field out, so the Collector keeps refusing an existing file
+// and the committed samples above stay as they are.
+void IpcRequestTests::exportRequestsReplaceOnlyAConfirmedTarget()
+{
+    PayloadRecorder backend;
+    const QString target = QStringLiteral("D:/exports/mentor.out");
+    for (const bool confirmed : {false, true}) {
+        backend.exportCsv(target, sampleFilter(), confirmed);
+        backend.exportJson(target, sampleFilter(), confirmed);
+        backend.exportDiagnosticsReport(target, confirmed);
+        for (const QString type : {QStringLiteral("ExportCsv"), QStringLiteral("ExportJson"),
+                                   QStringLiteral("ExportDiagnosticsReport")}) {
+            const QJsonObject payload = backend.payloads.value(type);
+            QCOMPARE(payload.value(QStringLiteral("target_path")).toString(), target);
+            QCOMPARE(payload.contains(QStringLiteral("overwrite")), confirmed);
+            if (confirmed)
+                QCOMPARE(payload.value(QStringLiteral("overwrite")), QJsonValue(true));
+        }
+        QCOMPARE(backend.payloads.value(QStringLiteral("ExportCsv")).value(QStringLiteral("filter")).toObject(),
+                 sampleFilter());
     }
 }
 

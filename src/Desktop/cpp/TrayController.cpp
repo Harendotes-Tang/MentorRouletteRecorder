@@ -71,6 +71,11 @@ TrayController::TrayController(AppController *controller, AppSettings *settings,
         // Startup status can arrive before this tray exists. Inspect the active
         // serial next turn, after tray setup; UI acknowledgement is independent.
         QTimer::singleShot(0, this, &TrayController::notifyRecordingWarning);
+        // A Collector found missing while AppController was built is reported
+        // before this tray exists, so the same replay looks for it.
+        connect(m_controller, &AppController::serviceUnavailable,
+                this, &TrayController::notifyServiceUnavailable);
+        QTimer::singleShot(0, this, &TrayController::notifyServiceUnavailable);
     }
     if (!QSystemTrayIcon::isSystemTrayAvailable())
         return;
@@ -183,6 +188,23 @@ void TrayController::notifyRecordingWarning()
     // This guard precedes the native boundary even on offscreen test platforms.
     if (!guard || !recording || !recording->warningActive() || recording->warningSerial() != serial)
         return;
+    deliverRecordingWarning(message);
+}
+
+void TrayController::notifyServiceUnavailable()
+{
+    if (!m_controller)
+        return;
+    const auto serial = m_controller->serviceNoticeSerial();
+    const QString message = m_controller->serviceUnavailableMessage();
+    if (message.isEmpty() || serial == m_lastServiceNoticeSerial)
+        return;
+    // A window on screen says it itself, in its toast and title bar. Started in
+    // the tray at login it is hidden, and nothing else would say that nothing
+    // is being recorded.
+    if (m_window && m_window->isVisible() && m_window->visibility() != QWindow::Minimized)
+        return;
+    m_lastServiceNoticeSerial = serial;
     deliverRecordingWarning(message);
 }
 

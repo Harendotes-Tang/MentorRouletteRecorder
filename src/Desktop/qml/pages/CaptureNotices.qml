@@ -48,6 +48,22 @@ ColumnLayout {
         && (!notices.capture.region || notices.capture.region === "UNKNOWN")
         && notices.capture.install_path_readable !== false
         && !Runtime.app.gameSelection.selectionRequired
+    // The region is also unknown when a region chosen in settings for another
+    // client contradicts this client's install path: GetStatus.warning_refs then
+    // carries capture.game.region_override_mismatch, whose sentence says how to
+    // fix it (choose again while this client runs, or clear the choice). The
+    // install path names a region then, so the path sentence would be untrue
+    // (review RV1-5).
+    readonly property string regionMismatchText: {
+        const status = Runtime.app.collectorStatus
+        const refs = status.warning_refs || []
+        const lines = status.warnings || []
+        for (let index = 0; index < refs.length; ++index) {
+            if (refs[index] && refs[index].key === "capture.game.region_override_mismatch")
+                return Runtime.fmt.collectorText(refs[index], String(lines[index] || ""))
+        }
+        return ""
+    }
     // 本机校准出来的档案生效后，校准卡片连同「清空校准进度」「导入校准码」一起消失，
     // 玩家再无入口可用。「重新校准」只在这种情况下出现：别人分享的校准由「不用共享的，
     // 我自己校准」停用，随包档案不是本机的猜测，没有档案时也无从停用。
@@ -143,8 +159,6 @@ ColumnLayout {
         if (status === "UNSUPPORTED_BUILD")
             return Runtime.app.ffxivRunning ? qsTr("当前游戏版本暂不支持自动记录")
                                     : qsTr("已安装的游戏版本暂不支持自动记录")
-        if (status === "AMBIGUOUS")
-            return qsTr("游戏版本支持文件有冲突，暂时不能自动记录")
         return qsTr("还没找到适用的游戏版本支持文件")
     }
 
@@ -160,7 +174,8 @@ ColumnLayout {
             return qsTr("能自动记录指导者任务的匹配、进入和离开；副本内收到通关结算时自动记为通关。"
                         + "没有收到结算就离开副本时，记录会标为“待复核”，在记录里用“手动修正”填上结果。")
         if (notices.offersRegionSetting)
-            return qsTr("无法从安装路径判断区服。请在「设置 → 通用」中选择实际使用的国服、繁中服或国际服，保存后会重新检查。")
+            return notices.regionMismatchText.length > 0 ? notices.regionMismatchText
+                 : qsTr("无法从安装路径判断区服。请在「设置 → 通用」中选择实际使用的国服、繁中服或国际服，保存后会重新检查。")
         // message_ref renders the Collector's sentence in the interface language.
         const detail = notices.profile.message
             ? " " + Runtime.fmt.collectorText(notices.profile.message_ref, notices.profile.message) : ""

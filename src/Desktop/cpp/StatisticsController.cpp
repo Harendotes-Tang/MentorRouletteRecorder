@@ -106,6 +106,23 @@ void StatisticsController::requestDashboard(std::function<void(bool ok)> then)
                     m_lastAchievementReadSerial = serial;
                     observeAchievement(QJsonObject::fromVariantMap(payload), serial);
                 }
+                // The scope read restores only the regions it covers. A region
+                // something on screen still needs - the 成就 editor's, and every
+                // region once the import dialog has asked for them all - is read
+                // once per connection, after this first read (review I3-2 / K1-3).
+                if (connection == m_connectionGeneration && !m_achievementRegionsSwept) {
+                    m_achievementRegionsSwept = true;
+                    QStringList wanted{m_baselineRegion};
+                    if (m_allAchievementRegionsWanted) {
+                        wanted << QStringLiteral("CN") << QStringLiteral("TC")
+                               << QStringLiteral("GLOBAL") << QStringLiteral("UNKNOWN");
+                    }
+                    wanted.removeDuplicates();
+                    for (const QString &other : std::as_const(wanted)) {
+                        if (!m_loadedAchievementRegions.contains(other))
+                            requestRegionalAchievement(other);
+                    }
+                }
             }
             // Projections may coordinate dependent workflows before completion.
             Q_EMIT dashboardRequestFinished(ok);
@@ -260,6 +277,9 @@ void StatisticsController::requestRegionalAchievement(const QString &region, std
 
 void StatisticsController::refreshAchievementRegions()
 {
+    // Asked for again after every reconnect, and after the first connection when
+    // this read could not be sent yet (review I3-2).
+    m_allAchievementRegionsWanted = true;
     requestRegionalAchievement(QString(), [this](bool ok) {
         if (!ok) return;
         // All-region arrays omit an unused GLOBAL/UNKNOWN region. Ask the owner
@@ -556,6 +576,7 @@ void StatisticsController::forgetAchievementSettings()
 {
     ++m_connectionGeneration;
     m_loadedAchievementRegions.clear();
+    m_achievementRegionsSwept = false;
     Q_EMIT dashboardChanged();
     for (auto &observation : m_regionalObservations) observation.ready = false;
     if (!m_achievementSettingsLoaded)

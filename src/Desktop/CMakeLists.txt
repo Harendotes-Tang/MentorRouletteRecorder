@@ -106,15 +106,18 @@ if(MR_DEV_COLLECTOR_DISCOVERY)
 endif()
 
 # Development build versus distribution build (cpp/transport/BuildFlavour.h). ON by
-# default, so a Qt Creator build, a bare cmake configure and scripts/build.ps1
-# all produce a development build: its Collector data root defaults to
-# %LOCALAPPDATA%\MentorRecorder-dev, its pipe carries a ".dev" segment and its
-# version reads "x.y.z dev", so running it can never open - let alone migrate -
-# the installed software's database. Only scripts/package.ps1 configures OFF
-# (through scripts/build.ps1 -Distribution) and refuses to package anything
-# else (Assert-DesktopExecutable). PUBLIC on the wire library, so the pipe name,
-# the Desktop library, the application and the tests all compile as the same
-# flavour. docs/build-and-package.md section 3.7.
+# default, so a Qt Creator build and a bare cmake configure of a new build directory
+# produce a development build, and scripts/build.ps1 passes ON explicitly: its
+# Collector data root defaults to %LOCALAPPDATA%\MentorRecorder-dev, its pipe
+# carries a ".dev" segment and its version reads "x.y.z dev", so running it can
+# never open - let alone migrate - the installed software's database. Only
+# scripts/package.ps1 configures OFF (through scripts/build.ps1 -Distribution),
+# in a directory of its own (build-distribution\ by default, never build\), and
+# refuses to package anything else (Assert-DesktopExecutable). option() keeps a
+# cached value, so a directory once configured OFF stays OFF until it is
+# configured again with -DMR_DEV_BUILD=ON. PUBLIC on the wire library, so the pipe
+# name, the Desktop library, the application and the tests all compile as the
+# same flavour. docs/build-and-package.md section 3.7.
 option(MR_DEV_BUILD
     "Development build: own data root (MentorRecorder-dev), own pipe, dev marker; scripts/package.ps1 turns it OFF"
     ON)
@@ -632,6 +635,23 @@ mr_use_ascii_autogen_dir(MentorRecorder.Desktop)
 target_link_libraries(MentorRecorder.Desktop
     PRIVATE
         MentorRecorderDesktopLib Qt6::Widgets)
+
+# Distribution build only: pin Qt's prefix to the application folder (audit 2026-11-03
+# Z4-1). Beside a deployed Qt6Core.dll, Qt takes the PARENT folder as its prefix whenever
+# <parent>\lib\libQt6Core.a exists - for D:\MentorRecorder that is D:\lib, which any local
+# account can create - and then looks for plugins and QML modules in <parent>\plugins and
+# <parent>\qml ahead of the application's own. Qt reads an embedded :/qt/etc/qt.conf before
+# any qt.conf or qt6.conf on disk, and "[Paths] Prefix = ." makes the prefix the application
+# folder, which is what an untouched installation gets anyway. A development build loads Qt
+# from the SDK and must keep the SDK as its prefix, so it gets nothing; the distribution
+# build tree has no plugins beside the executable, so its tests name the SDK's through
+# QT_PLUGIN_PATH and QML_IMPORT_PATH (tests/Desktop.Tests/CMakeLists.txt).
+if(NOT MR_DEV_BUILD)
+    set(MR_QT_CONF "${CMAKE_CURRENT_BINARY_DIR}/qt-conf/qt.conf")
+    file(CONFIGURE OUTPUT "${MR_QT_CONF}" CONTENT "[Paths]\nPrefix = .\n")
+    set_source_files_properties("${MR_QT_CONF}" PROPERTIES QT_RESOURCE_ALIAS qt.conf)
+    qt_add_resources(MentorRecorder.Desktop "mr_qt_conf" PREFIX "/qt/etc" FILES "${MR_QT_CONF}")
+endif()
 
 # ---------------------------------------------------------------------------
 # Stage the C# Collector beside the Desktop executable.

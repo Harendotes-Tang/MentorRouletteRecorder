@@ -237,7 +237,10 @@ Item {
         // 标注以首行基线（单条 304、长卷 y0+128）定义，消除字体引擎留白差异。
         y: entry.bodyTop + 36 - baselineOffset
         width: entry.single ? 972 : 794
-        text: entry.reflection.text || ""
+        // A note that is only a mood's word reads in the interface language,
+        // as its mood tag does (re-review RV4-5).
+        readonly property string moodWord: ["good", "ok", "bad"][["顺利", "一般", "糟心"].indexOf(entry.reflection.text)] || ""
+        text: moodWord ? Theme.moodLabel(moodWord) : (entry.reflection.text || "")
         textFormat: Text.PlainText; wrapMode: Text.Wrap; color: "#45342A"
         font { family: "MR Reflection Serif"; pixelSize: 28 }
         lineHeightMode: Text.FixedHeight; lineHeight: 48

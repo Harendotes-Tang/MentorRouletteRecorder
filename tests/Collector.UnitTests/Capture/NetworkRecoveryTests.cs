@@ -37,8 +37,13 @@ public sealed class NetworkRecoveryTests
         }
     }
 
+    /// <summary>
+    /// Audit 2026-11-03, A1-1. An interface that does not carry the game appearing, flapping or
+    /// going away must not end a session that is reading the game: the replacement could never
+    /// read the game's open connections again, and the run in flight would be closed as stopped.
+    /// </summary>
     [Fact]
-    public void AddedVirtualInterfaceIsFoundAfterAnEarlierIpcDecoded()
+    public void AnUnrelatedInterfaceChangeNeverReplacesASessionThatReadsTheGame()
     {
         using var fixture = new Fixture();
         fixture.Start();
@@ -47,22 +52,124 @@ public sealed class NetworkRecoveryTests
         fixture.Adapters.Add("virtual", "10.24.0.2");
 
         fixture.Notify(100);
-        fixture.Tick(2_099);
+        fixture.Tick(2_100);
+        fixture.Tick(2_100);
+        fixture.Adapters.Remove("virtual");
+        fixture.Notify(3_000);
+        fixture.Tick(5_000);
+        fixture.Adapters.Add("virtual", "10.24.0.3");
+        fixture.Notify(6_000);
+        fixture.Tick(8_000);
+        fixture.Tick(40_000);
+
         Assert.Single(fixture.Sources);
         Assert.Equal(0, original.Inner.StopCount);
+        Assert.Equal(CaptureControllerState.Running, fixture.Controller.State);
+        Assert.Equal(PathRecoverySnapshot.None, fixture.Status.PathRecovery);
+        Assert.DoesNotContain(fixture.Lifecycle.Events, entry => entry.StartsWith("stopped:", StringComparison.Ordinal));
+        original.Inner.PushOpcode(0x143);
+        Assert.Equal(2, fixture.Status.MessagesDecoded);
+    }
+
+    /// <summary>
+    /// Re-review 2026-11-03, RV1-4. With the connection table unreadable nobody can tell which
+    /// interface carries the game; a reader whose every path is still there, unchanged, is kept,
+    /// since an interface that appears cannot hold a connection the game already had. A path of the
+    /// running plan that changed still justifies a replacement.
+    /// </summary>
+    [Fact]
+    public void AnUnreadableConnectionTableKeepsAReaderWhosePathsAreAllUnchanged()
+    {
+        using var fixture = new Fixture();
+        fixture.Start();
+        var original = fixture.Source;
+        original.Inner.PushOpcode(0x142);
+        fixture.Tcp.Failure = new InvalidOperationException("synthetic unavailable TCP table");
+        fixture.Adapters.Add("virtual", "10.24.0.2");
+
+        fixture.Notify(100);
+        fixture.Tick(2_100);
         fixture.Tick(2_100);
 
-        Assert.Equal(CaptureControllerState.Idle, fixture.Controller.State);
+        Assert.Single(fixture.Sources);
+        Assert.Equal(0, original.Inner.StopCount);
+        Assert.Equal(CaptureControllerState.Running, fixture.Controller.State);
+
+        fixture.Adapters.Replace("wifi", "192.0.2.11");
+        fixture.Notify(3_000);
+        fixture.Tick(5_000);
         Assert.Equal(1, original.Inner.StopCount);
-        Assert.Equal(PathRecoveryState.Recovering, fixture.Status.PathRecovery.State);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-03, A1-1. Even a replacement the game's own path needs waits while a run is
+    /// matched, inside its duty or a queue request is parked; once it is unavoidable it ends the
+    /// session as an error stop, so a run that was matched in that instant waits for review.
+    /// </summary>
+    [Theory]
+    [InlineData(RunState.MentorMatched, false)]
+    [InlineData(RunState.EnteredDuty, false)]
+    [InlineData(RunState.Idle, true)]
+    public void ARunUnderWayDefersANecessaryReplacementWhichThenEndsAsAnErrorStop(RunState state, bool parkedQueue)
+    {
+        using var fixture = new Fixture();
+        fixture.Start();
+        var original = fixture.Source;
+        original.Inner.PushOpcode(0x142);
+        fixture.CurrentRunState = state;
+        fixture.ParkedQueue = parkedQueue;
+        // The game's traffic moves to an interface the running plan does not cover.
+        fixture.Adapters.Add("virtual", "10.24.0.2");
+        fixture.Tcp.With(Fixture.FirstPid, "10.24.0.2");
+
+        fixture.Notify(100);
         fixture.Tick(2_100);
+        fixture.Tick(17_100);
+
+        Assert.Single(fixture.Sources);
+        Assert.Equal(0, original.Inner.StopCount);
+        Assert.Equal(CaptureControllerState.Running, fixture.Controller.State);
+
+        fixture.CurrentRunState = RunState.Idle;
+        fixture.ParkedQueue = false;
+        fixture.Tick(32_100);
+
+        Assert.Equal(1, original.Inner.StopCount);
+        Assert.Contains("stopped:Error", fixture.Lifecycle.Events);
+        Assert.Equal(CaptureControllerState.Idle, fixture.Controller.State);
+        fixture.Tick(32_100);
         Assert.Equal(2, fixture.Sources.Count);
+        Assert.Equal(CaptureControllerState.Running, fixture.Controller.State);
         Assert.Contains(fixture.Plan.Bindings, binding => binding.AdapterId == "virtual");
-        Assert.Equal(PathRecoveryState.Recovering, fixture.Status.PathRecovery.State);
-        fixture.Source.Inner.PushRaw(FakeCaptureSource.BuildIpcMessage(0, 8, 7));
-        Assert.Equal(PathRecoveryState.Recovering, fixture.Status.PathRecovery.State);
-        fixture.Source.Inner.PushOpcode(0x143);
-        Assert.Equal(PathRecoverySnapshot.None, fixture.Status.PathRecovery);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-03, A1-3. A late attach exhausts its recovery budget, then an ordinary fault
+    /// ends the session that had been running. The ordinary fault back-off governs the restart;
+    /// the exhausted episode must not keep automatic recording off for the rest of the game.
+    /// </summary>
+    [Fact]
+    public void AFaultAfterExhaustedRecoveryRestartsAfterTheOrdinaryFaultBackOff()
+    {
+        using var fixture = new Fixture();
+        fixture.NewSourcePreexisting = 2;
+        fixture.Start();
+        fixture.Tick(0);
+        fixture.Tick(15_000);
+        fixture.Tick(45_000);
+        fixture.Tick(105_000);
+        Assert.Equal(PathRecoveryState.Failed, fixture.Status.PathRecovery.State);
+        Assert.Single(fixture.Sources);
+
+        fixture.Source.Inner.Fault("synthetic read failure");
+        Assert.True(SpinWait.SpinUntil(() => fixture.Controller.State == CaptureControllerState.Faulted,
+            TimeSpan.FromSeconds(5)), "the fault never ended the session");
+        fixture.Tick(134_999);
+        Assert.Single(fixture.Sources);
+        fixture.Tick(135_000);
+
+        Assert.Equal(2, fixture.Sources.Count);
+        Assert.Equal(CaptureControllerState.Running, fixture.Controller.State);
     }
 
     [Theory]
@@ -357,7 +464,9 @@ public sealed class NetworkRecoveryTests
         fixture.Tick(2_100);
         fixture.Tick(2_100);
         fixture.Source.Inner.PushOpcode(0x142);
+        // The game moves to the new interface; an unrelated one would not justify a replacement.
         fixture.Adapters.Add("second", "10.25.0.2");
+        fixture.Tcp.With(Fixture.FirstPid, "10.25.0.2");
         fixture.Notify(3_000);
         fixture.Tick(5_000);
 
@@ -385,7 +494,9 @@ public sealed class NetworkRecoveryTests
         fixture.Source.Inner.PushOpcode(0x142);
         Assert.Equal(PathRecoverySnapshot.None, fixture.Status.PathRecovery);
 
+        // The game moves to the new interface; an unrelated one would not justify a replacement.
         fixture.Adapters.Add("second", "10.25.0.2");
+        fixture.Tcp.With(Fixture.FirstPid, "10.25.0.2");
         fixture.Notify(3_000);
         fixture.Tick(5_000);
         fixture.Tick(6_000);
@@ -779,6 +890,9 @@ public sealed class NetworkRecoveryTests
         internal int SubscriptionCount, UnsubscriptionCount, FactoryAttempts, NewSourceOpenFailures;
         internal int? NewSourcePreexisting = 0;
         internal bool FactoryFails, NewSourceStartFails;
+        internal readonly RecordingLifecycleListener Lifecycle = new();
+        internal volatile RunState CurrentRunState = RunState.Idle;
+        internal volatile bool ParkedQueue;
         internal SourceDouble Source => Sources[^1];
         internal CapturePathPlan Plan => Assert.IsType<CapturePathPlan>(Source.Inner.LastOptions!.PathPlan);
         internal CaptureDiagnosticsSnapshot Status => Controller.Snapshot();
@@ -819,6 +933,9 @@ public sealed class NetworkRecoveryTests
                     return source;
                 },
                 Profile = new FakeProfileStatusProvider(ProfileStatus.Verified),
+                Lifecycle = Lifecycle,
+                RunState = () => CurrentRunState,
+                RunUnderWay = () => ParkedQueue || CurrentRunState is RunState.MentorMatched or RunState.EnteredDuty,
                 Clock = _database.Clock,
                 Uptime = () => TimeSpan.FromMilliseconds(Interlocked.Read(ref _now)),
                 ProcessUptime = () => TimeSpan.FromMilliseconds(Interlocked.Read(ref _now)),

@@ -17,15 +17,35 @@ namespace MentorRecorder.Collector.Capture;
 /// </summary>
 public sealed class MachinaCaptureSource : ICaptureSource
 {
-    /// <summary>Trace fragments from Machina that mean this capture will never produce data.</summary>
-    private static readonly string[] FatalTraceMarkers =
+    /// <summary>
+    /// Trace fragments Machina itself writes when this capture will never produce data. Pinned
+    /// against the referenced Machina assembly by <c>MachinaTraceContractTests</c>, which reads
+    /// this very list (audit 2026-11-03, A3-3).
+    /// </summary>
+    internal static readonly string[] MachinaFatalTraceMarkers =
     {
         "Cannot load",
         "Unable to retrieve network data",
-        "PcapException",
-        "Error opening",
         "Cannot find one or more signatures",
     };
+
+    /// <summary>Fatal trace fragments that come from SharpPcap, a separate contract.</summary>
+    internal static readonly string[] SharpPcapFatalTraceMarkers =
+    {
+        "PcapException",
+        "Error opening",
+    };
+
+    /// <summary>Both halves of Machina's "the game executable does not exist" line; fatal only together.</summary>
+    internal static readonly string[] MissingExecutableTraceMarkers =
+    {
+        "OodleNative_Ffxiv: ffxiv_dx11 executable at path",
+        "does not exist",
+    };
+
+    /// <summary>Trace fragments that mean this capture will never produce data.</summary>
+    internal static readonly string[] FatalTraceMarkers =
+        MachinaFatalTraceMarkers.Concat(SharpPcapFatalTraceMarkers).ToArray();
 
     /// <summary>
     /// Trace fragments from Machina's bundle decoder that mean a bundle could not be
@@ -545,8 +565,8 @@ public sealed class MachinaCaptureSource : ICaptureSource
         var sanitized = RotatingFileLogger.Sanitize(text);
         var fatal = Array.Exists(
             FatalTraceMarkers, marker => sanitized.Contains(marker, StringComparison.OrdinalIgnoreCase)) ||
-            (sanitized.Contains("OodleNative_Ffxiv: ffxiv_dx11 executable at path", StringComparison.OrdinalIgnoreCase) &&
-             sanitized.Contains("does not exist", StringComparison.OrdinalIgnoreCase));
+            Array.TrueForAll(MissingExecutableTraceMarkers,
+                marker => sanitized.Contains(marker, StringComparison.OrdinalIgnoreCase));
         // Bundle decompression fails upstream of MessageReceived/MessageSent. Machina 2.4.7.7
         // only emits a trace and returns null, so OnMessage cannot count those failures.
         // Do not count the following "Resetting stream" line a second time.

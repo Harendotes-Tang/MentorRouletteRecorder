@@ -44,6 +44,17 @@ Window {
         show()
         if (manual) requestActivate()
     }
+    /// The editor grows after prepare(): an answer brings the note row, and the
+    /// note field grows while writing. Its bottom, with 完成, stays on the
+    /// screen the window is on, as RecordingWarningWindow's does (audit
+    /// 2026-11-03 K1-6); a window that fits is left where it is.
+    function keepOnScreen() {
+        const screenTop = reminder.screen ? reminder.screen.virtualY : Screen.virtualY
+        const screenBottom = screenTop + (reminder.screen ? reminder.screen.height : Screen.height)
+        const fitted = Math.max(screenTop + 8, Math.min(screenBottom - height - 8, y))
+        if (fitted !== y) y = fitted
+    }
+    onHeightChanged: if (visible) keepOnScreen()
     Connections {
         target: reminder
         function onClosing(event) {

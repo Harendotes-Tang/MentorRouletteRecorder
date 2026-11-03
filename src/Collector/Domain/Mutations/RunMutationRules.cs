@@ -60,6 +60,16 @@ public static class RunMutationRules
                 run);
         }
 
+        // Without an entry time the two rules above never meet, and a record could end before it was
+        // matched; the Desktop already refuses that input (audit 2026-11-03, D1-3).
+        if (run.MatchedAtUtc is { } matchedAt && run.EndedAtUtc is { } endedAt && matchedAt > endedAt)
+        {
+            throw Violation(
+                RunRuleViolationKind.MatchedAfterEnded,
+                RunRuleProperty.MatchedAtUtc,
+                run);
+        }
+
         // A run may have no recalled endpoints, whatever its result and source: a hand-entered
         // or imported record keeps its known outcome without an entry or end time, and the
         // duration stays unknown (docs/manual-correction.md §7). Supplied times still cross

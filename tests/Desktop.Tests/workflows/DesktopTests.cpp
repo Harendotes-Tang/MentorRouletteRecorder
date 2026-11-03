@@ -8,6 +8,7 @@
 #include "MockBackend.h"
 #include "RoleCatalog.h"
 #include "RunFormValidator.h"
+#include "RecoveryController.h"
 #include "RunListModel.h"
 #include "StatsModels.h"
 #include "AppSettings.h"
@@ -155,6 +156,24 @@ public:
         QFAIL(qPrintable(QStringLiteral("no pending reply for ") + messageType));
     }
 
+    /// Answers every pending \a messageType with \a payload; returns how many.
+    int completeEvery(const QString &messageType, const QJsonObject &payload)
+    {
+        // Taken out first: an answer may send the next request synchronously.
+        QList<QPointer<mr::BackendReply>> due;
+        for (qsizetype i = 0; i < m_pending.size();) {
+            if (m_pending.at(i) && m_pending.at(i)->messageType() == messageType)
+                due.append(m_pending.takeAt(i));
+            else
+                ++i;
+        }
+        for (const auto &reply : due) {
+            if (reply)
+                reply->succeed(payload);
+        }
+        return static_cast<int>(due.size());
+    }
+
 private:
     QJsonObject payloadFor(const QString &messageType) const
     {
@@ -300,6 +319,13 @@ private Q_SLOTS:
     void appController_prioritizesCurrentFormalCaptureOverTerminalValidation();
     void appController_waitsForValidationModeBeforeNewStart();
     void appController_notifiesAggregateCaptureProjectionForFormalStatus();
+    void appController_recentDutiesKeepEachRunsRegion();
+    void appController_offersTheAllianceRaidCategory();
+    void appController_rescanBeforeTheFirstStatusStillVerifiesTheDatabase();
+    void appController_redetectReadsTheNpcapStatusAgain();
+    void appController_recordingPollRefreshesNpcapWithTheCapture();
+    void appController_forwardsTheBackupInProgress();
+    void appController_keepsTheAdapterListWhenAListingFails();
     void runFormValidator_rejectsEveryPrototypeCase();
     void runFormValidator_buildsTheBeforeAfterDiff();
 };
@@ -1207,6 +1233,162 @@ void DesktopTests::appController_rescanNamesTheRunningGameWithoutProcessDetails(
                                                   {QStringLiteral("game_build"), QStringLiteral("2026.10.06.0000.0000")}}}});
     QCOMPARE(controller.toastMessage(), QString::fromUtf8("已重新检测，找到正在运行的 FF14。"));
     QCOMPARE(controller.gameInfo().value(QStringLiteral("process_id")).toInt(), 4321);
+}
+
+namespace {
+QJsonObject npcapStatus(bool installed)
+{
+    return QJsonObject{
+        {QStringLiteral("capture"),
+         QJsonObject{{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                     {QStringLiteral("npcap_installed"), installed},
+                     {QStringLiteral("ffxiv_running"), false}}},
+        {QStringLiteral("npcap"),
+         QJsonObject{{QStringLiteral("status"),
+                      installed ? QStringLiteral("READY") : QStringLiteral("NOT_INSTALLED")}}},
+        {QStringLiteral("game"), QJsonObject{{QStringLiteral("running"), false}}}};
+}
+} // namespace
+
+void DesktopTests::appController_recentDutiesKeepEachRunsRegion()
+{
+    // 最近打过 looks each run up in its own region's catalogue: a duty only TC has
+    // is offered to a TC record, a duty played on TC is not a CN chip, and one
+    // region's runs never take another region's five places (review I1-4).
+    const auto run = [](int contentId, const char *region) {
+        return QJsonObject{{QStringLiteral("content_id"), contentId},
+                           {QStringLiteral("region"), QString::fromLatin1(region)}};
+    };
+    QJsonArray runs{run(1029, "TC"), run(4, "TC")};
+    for (int id : {4, 2, 3, 11, 15, 239})
+        runs.append(run(id, "CN"));
+    QStringList got;
+    for (const QVariant &value : mr::AppController::recentDutiesFromRuns(runs, 5)) {
+        const QVariantMap row = value.toMap();
+        got.append(row.value(QStringLiteral("region")).toString() + QLatin1Char(':')
+                   + QString::number(row.value(QStringLiteral("content_id")).toLongLong()));
+    }
+    QCOMPARE(got, (QStringList{QStringLiteral("TC:1029"), QStringLiteral("TC:4"), QStringLiteral("CN:4"),
+                               QStringLiteral("CN:2"), QStringLiteral("CN:3"), QStringLiteral("CN:11"),
+                               QStringLiteral("CN:15")}));
+}
+
+void DesktopTests::appController_offersTheAllianceRaidCategory()
+{
+    // The Collector files standard 24-player raids under 团队任务 and filters on it;
+    // the type pickers offer it next to 大型任务 (review K3-2).
+    DeferredBackend backend;
+    mr::AppController controller(&backend, nullptr);
+    const QVariantList options = controller.categoryOptions();
+    const auto alliance = options.indexOf(QString::fromUtf8("团队任务"));
+    QVERIFY(alliance > 0);
+    QCOMPARE(alliance, options.indexOf(QString::fromUtf8("大型任务")) + 1);
+}
+
+void DesktopTests::appController_rescanBeforeTheFirstStatusStillVerifiesTheDatabase()
+{
+    // 重新检测游戏 pressed while the connection's first status read is still out
+    // supersedes that read. Its own answer names the database, so recovery is
+    // verified without waiting for some later status read (review I1-5).
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    mr::AppSettings settings(directory.filePath(QStringLiteral("desktop.ini")), nullptr);
+    DeferredBackend backend;
+    backend.setAutoRespond(false);
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, mr::TtsService::EngineMode::Mock);
+    backend.setConnected(true);
+    QVERIFY(!controller.recovery()->identityVerified());
+    controller.rescanGame();
+    QJsonObject status = npcapStatus(true);
+    status.insert(QStringLiteral("database_path"), directory.filePath(QStringLiteral("mentor.db")));
+    QVERIFY(backend.completeEvery(QStringLiteral("GetStatus"), status) >= 2);
+    QVERIFY(controller.recovery()->identityVerified());
+    QCOMPARE(controller.toastMessage(), QString::fromUtf8("已重新检测，未找到正在运行的 FF14。"));
+}
+
+void DesktopTests::appController_redetectReadsTheNpcapStatusAgain()
+{
+    // Npcap installed with the game closed, then 「重新检测」: the adapters and the
+    // Npcap verdict are read again together, so the page leaves 降级模式 (review K2-1).
+    DeferredBackend backend;
+    backend.setAutoRespond(false);
+    mr::AppController controller(&backend, nullptr);
+    backend.setConnected(true);
+    QVERIFY(backend.completeEvery(QStringLiteral("GetStatus"), npcapStatus(false)) >= 1);
+    QCOMPARE(controller.npcapInfo().value(QStringLiteral("status")).toString(), QStringLiteral("NOT_INSTALLED"));
+
+    controller.rescanAdapters();
+    QVERIFY(backend.completeEvery(QStringLiteral("ListCaptureAdapters"),
+                                  QJsonObject{{QStringLiteral("adapters"), QJsonArray{}},
+                                              {QStringLiteral("npcap_installed"), true}}) >= 1);
+    QCOMPARE(backend.completeEvery(QStringLiteral("GetStatus"), npcapStatus(true)), 1);
+    QCOMPARE(controller.npcapInfo().value(QStringLiteral("status")).toString(), QStringLiteral("READY"));
+    QVERIFY(controller.npcapInstalled());
+}
+
+void DesktopTests::appController_recordingPollRefreshesNpcapWithTheCapture()
+{
+    // The automatic-recording poll reads the whole status. Npcap and the game are
+    // taken from that snapshot together with the capture; otherwise an install
+    // made with the game closed keeps reading as missing (review K2-1).
+    DeferredBackend backend;
+    backend.setAutoRespond(false);
+    mr::AppController controller(&backend, nullptr);
+    backend.setConnected(true);
+    QVERIFY(backend.completeEvery(QStringLiteral("GetStatus"), npcapStatus(false)) >= 1);
+    QCOMPARE(controller.npcapInfo().value(QStringLiteral("status")).toString(), QStringLiteral("NOT_INSTALLED"));
+
+    // The poll: settings, then the validation tool, then the status.
+    QVERIFY(backend.completeEvery(QStringLiteral("GetCaptureSettings"),
+                                  QJsonObject{{QStringLiteral("follow_game"), true}}) >= 1);
+    QVERIFY(backend.completeEvery(QStringLiteral("GetCaptureValidationStatus"),
+                                  validationSnapshot(QStringLiteral("IDLE"))) >= 1);
+    QCOMPARE(backend.completeEvery(QStringLiteral("GetStatus"), npcapStatus(true)), 1);
+    QCOMPARE(controller.npcapInfo().value(QStringLiteral("status")).toString(), QStringLiteral("READY"));
+    QCOMPARE(controller.gameInfo().value(QStringLiteral("running")).toBool(), false);
+    QVERIFY(controller.npcapInstalled());
+}
+
+void DesktopTests::appController_forwardsTheBackupInProgress()
+{
+    // 设置 · 数据 binds App.backupRunning: 「正在备份…」 and a disabled 立即备份
+    // while one backup is on the wire (review K1-8, ExportController's flag).
+    DeferredBackend backend;
+    backend.setConnected(true);
+    mr::AppController controller(&backend, nullptr);
+    QTRY_VERIFY_WITH_TIMEOUT(backend.count(QStringLiteral("GetStatus")) >= 1, 3000);
+    QTest::qWait(50);
+    backend.setAutoRespond(false);
+    QSignalSpy changes(&controller, &mr::AppController::backupRunningChanged);
+    QVERIFY(!controller.property("backupRunning").toBool());
+    controller.backupDatabase();
+    QVERIFY(controller.property("backupRunning").toBool());
+    QCOMPARE(changes.count(), 1);
+    backend.completeNext(QStringLiteral("BackupDatabase"),
+                         QJsonObject{{QStringLiteral("backup_path"), QStringLiteral("D:/backups/mentor.db")}});
+    QVERIFY(!controller.property("backupRunning").toBool());
+    QCOMPARE(changes.count(), 2);
+}
+
+void DesktopTests::appController_keepsTheAdapterListWhenAListingFails()
+{
+    // A failed ListCaptureAdapters says nothing about the adapters: the chosen
+    // one must not read as gone until the next listing that answers.
+    DeferredBackend backend;
+    backend.setAutoRespond(false);
+    mr::AppController controller(&backend, nullptr);
+    backend.setConnected(true);
+    const QJsonArray adapters{QJsonObject{{QStringLiteral("id"), QStringLiteral("adapter-1")},
+                                          {QStringLiteral("name"), QStringLiteral("Ethernet")}}};
+    QVERIFY(backend.completeEvery(QStringLiteral("ListCaptureAdapters"),
+                                  QJsonObject{{QStringLiteral("adapters"), adapters},
+                                              {QStringLiteral("npcap_installed"), true}}) >= 1);
+    QCOMPARE(controller.captureAdapters().size(), 1);
+    controller.refreshStatus();
+    backend.completeNext(QStringLiteral("ListCaptureAdapters"), {}, false,
+                         QStringLiteral("ERR_TIMEOUT"), QString::fromUtf8("网卡列表读取超时"));
+    QCOMPARE(controller.captureAdapters().size(), 1);
+    QVERIFY(controller.adapterInfo().value(QStringLiteral("npcap_installed")).toBool());
 }
 
 void DesktopTests::appController_ignoresStaleValidationStatusAfterStop()

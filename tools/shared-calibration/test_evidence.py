@@ -12,6 +12,13 @@ from pathlib import Path
 import test_workflow_script as _workflow_tests
 
 NOW = dt.datetime(2026, 10, 15, tzinfo=dt.timezone.utc)
+# N1-5: artifacts/ is git-ignored, so these producer outputs exist only where someone generated them by hand
+# (and then only as a snapshot). The tracked producer check is on the C# side.
+PRODUCER_FIXTURE_SKIP = ("producer-generated fixture under artifacts/automate-calibration-evidence/ is not present "
+                         "(git-ignored, never committed); the tracked producer check is "
+                         "SharedCalibrationContractTests.TheEvidenceDocumentTheCollectorWritesIsValidAgainstTheEvidenceSchema "
+                         "(tests/Collector.IntegrationTests/Protocol), which validates CalibrationEvidenceDocument.Serialize() "
+                         "against contracts/calibration-evidence-v1.schema.json")
 
 
 def receipt(verdict="CONTRADICT", epoch=0, kind="CODE_VERIFICATION"):
@@ -499,18 +506,33 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(("CANDIDATE", "BLOCKED"), (artifact["status"], artifact["readiness"]))
         self.assertTrue(artifact["blockers"])
         fixture = Path(__file__).resolve().parents[2] / "artifacts/automate-calibration-evidence/template-observation-produced.json"
-        if fixture.exists(): self.e.parse(fixture.read_bytes())
+        with self.subTest("real producer fixture"):
+            if not fixture.exists(): self.skipTest(PRODUCER_FIXTURE_SKIP)
+            self.e.parse(fixture.read_bytes())
 
     def test_producer_one_to_two_session_growth_contract(self):
         directory = Path(__file__).resolve().parents[2] / "artifacts/automate-calibration-evidence"
         one = directory / "producer-code-evidence.one-session.json"
         two = directory / "producer-code-evidence.json"
-        if not one.exists() or not two.exists(): self.skipTest("producer-generated integration fixture not built")
+        if not one.exists() or not two.exists(): self.skipTest(PRODUCER_FIXTURE_SKIP)
         for number, path in enumerate((one, two), 1):
             result = self.e.receive(self.state, path.read_bytes(), account_id=12,
                                     account_created_at="2020-01-01T00:00:00Z", issue_number=number, now=NOW)
             self.assertEqual("waiting" if number == 1 else "accepted", result["status"])
         self.assertEqual(4, len(self.state["votes"]))
+
+    def test_a_summary_saved_with_crlf_or_cr_line_endings_reads_like_lf(self):
+        # N1-1: GitHub's web editor stores an edited body with CRLF line breaks, and editing is the only way
+        # to supplement an evidence Issue; issue.parse_body already reads such bodies the same.
+        import evidence_workflow
+        item = receipt()
+        for fence in ("```json", "```"):
+            body = "### 公开证据摘要\n\n" + fence + "\n" + json.dumps(item) + "\n```\n\n### 说明\n\n_No response_\n"
+            for name, text in (("LF", body), ("CRLF", body.replace("\n", "\r\n")), ("CR", body.replace("\n", "\r"))):
+                with self.subTest(fence=fence, endings=name):
+                    raw = evidence_workflow.extract(text)
+                    self.assertEqual(item, json.loads(raw))
+                    self.assertEqual(item["evidence_id"], self.e.parse(raw)["evidence_id"])
 
     def test_index_hint_roundtrip_and_type_boundaries(self):
         import index as repo_index
@@ -634,6 +656,24 @@ elif a[:2] == ["issue", "comment"]:
         item = receipt(verdict)
         item["target"].update(template_profile_id=payload["template_profile_id"], template_sha256=payload["template_sha256"], code_sha256=sha)
         return item
+
+    def test_a_waiting_issue_supplemented_in_the_web_editor_counts(self):
+        # N1-1 end to end: the form-created body (LF) waits for a second session; the player adds it by editing
+        # the Issue in GitHub's web editor, which stores CRLF line breaks. The edit must count, not turn invalid.
+        payload, sha = self.seed_published_code()
+        one = self.published_item(payload, sha); one["sessions"] = one["sessions"][:1]
+        event, _ = self.event_for(one, 61); self.execute(event)
+        two = copy.deepcopy(one); two["evidence_id"] = str(uuid.uuid4()); two["sessions"].append(receipt("PASS")["sessions"][0])
+        event, edited = self.event_for(two, 61)
+        edited["body"] = edited["body"].replace("\n", "\r\n")
+        (self.stub / "repos_owner_calibrations_issues_61.json").write_text(json.dumps(edited), encoding="utf-8")
+        self.execute(event)
+        ledger = json.loads(self.origin_show("main:evidence-ledger.json"))
+        self.assertEqual({12}, {vote["account"] for vote in ledger["votes"].values()})
+        self.assertEqual(61, ledger["receipts"][two["evidence_id"]]["issue"])
+        calls = self.gh_calls()
+        self.assertIn("issue close 61 --reason completed", calls)
+        self.assertFalse(any("evidence-invalid" in call for call in calls if call.startswith("issue edit ")))
 
     def test_every_answered_issue_is_recorded_whatever_the_outcome(self):
         # RV4-1: only an Issue never answered may claim a copied summary, so every answer is recorded.

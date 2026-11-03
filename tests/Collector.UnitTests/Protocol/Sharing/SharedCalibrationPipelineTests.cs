@@ -585,6 +585,60 @@ public sealed class SharedCalibrationPipelineTests : IDisposable
         Assert.NotEqual(SharedCalibrationPhase.Verifying, shared.Phase);
     }
 
+    /// <summary>
+    /// Audit 2026-11-03, E-2: a candidate dropped while its profile is being written - the setting switched off,
+    /// 不用共享的, the service stopping - leaves no document behind on the build's one path, so the next catalogue read
+    /// or restart does not adopt a code the player turned away or that was never committed.
+    /// </summary>
+    [Theory]
+    [InlineData("setting-off")]
+    [InlineData("player-refusal")]
+    [InlineData("service-stop")]
+    public async Task ACandidateDroppedWhileItsProfileIsWrittenLeavesNoProfileBehind(string how)
+    {
+        _bed.Publish(_bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState));
+        var pipeline = _bed.Pipeline(_bed.Services());
+        pipeline.Refresh(Bed.Game());
+        await Bed.Idle(pipeline);
+        using var writing = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        _bed.BeforeReload = () =>
+        {
+            writing.Set();
+            Assert.True(release.Wait(TimeSpan.FromSeconds(30)));
+        };
+        var session = _bed.Start(pipeline);
+        try
+        {
+            Bed.Feed(pipeline, session, Bed.Before(Bed.Evening(), 30_000));
+            Assert.True(writing.Wait(TimeSpan.FromSeconds(30)));
+            Assert.True(File.Exists(_bed.SharedProfilePath));
+            switch (how)
+            {
+                case "setting-off":
+                    pipeline.ApplySharedCalibrationSetting(false);
+                    break;
+                case "player-refusal":
+                    pipeline.RejectSharedCalibration();
+                    break;
+                default:
+                    pipeline.StopSharedCalibration();
+                    break;
+            }
+        }
+        finally
+        {
+            release.Set();
+            await Bed.Idle(pipeline);
+            _bed.BeforeReload = null;
+        }
+
+        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+        Assert.False(File.Exists(_bed.SharedProfilePath));
+        Assert.NotEqual(ProfileOrigin.Shared, _bed.DiskSelect()(Bed.Game()).Origin);
+        Assert.NotEqual(ProfileOrigin.Shared, pipeline.Current.Origin);
+    }
+
     [Fact]
     public async Task TheKillSwitchMeansTheTransportIsNeverCalled()
     {

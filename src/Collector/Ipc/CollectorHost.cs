@@ -358,6 +358,10 @@ public sealed class CollectorHost : IDisposable
             // the time limit or time left it carried - nothing about the message itself.
             pipeline.DutyStartObserved += note =>
                 _logger.Write(LogLevel.Info, "protocol", note.LogEvent, note.LogFields());
+            // A confirmed calibration that could not be written or selected: the system's own words go to the local
+            // log only, sanitized like every line, and never to the player (audit 2026-11-03, C-7).
+            pipeline.CalibrationFault += (eventName, reason, error) =>
+                _logger.WriteError("calibration", eventName, error, reason);
             services = services with
             {
                 Sink = pipeline,
@@ -366,6 +370,7 @@ public sealed class CollectorHost : IDisposable
                 Lifecycle = pipeline,
                 Health = pipeline,
                 RunState = () => pipeline.RunState,
+                RunUnderWay = () => pipeline.RunUnderWayNow,
                 CandidateStatus = () => (pipeline.CandidateValidationEnabled, pipeline.CandidateProfileId, Candidates.Count()),
                 CandidateHypotheses = pipeline.DescribeCandidateHypotheses,
                 CalibrationStatus = pipeline.CalibrationStatus,

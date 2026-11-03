@@ -36,6 +36,7 @@
 #include <algorithm>
 #include <functional>
 #include <memory>
+#include <tuple>
 
 namespace {
 
@@ -527,6 +528,9 @@ class UiWorkflowRegressionTests : public QObject
 private Q_SLOTS:
     void initTestCase();
     void historyPageSizesItsPagesToTheWindow();
+    void historyPagerStaysInsideTheWindow_data();
+    void historyPagerStaysInsideTheWindow();
+    void achievementTabDropsADraftWhenTheRegionChangesElsewhere();
     void immediateModelFailureClearsLoadingAndOldRows();
     void historyLoadFailureIsNotShownAsNoMatches();
     void statisticsLoadFailureIsNotShownAsZero();
@@ -636,6 +640,130 @@ void UiWorkflowRegressionTests::historyPageSizesItsPagesToTheWindow()
     QTRY_COMPARE_WITH_TIMEOUT(runs->pageSize(), minimum, 3000);
     window->setHeight(720);
     QTRY_COMPARE_WITH_TIMEOUT(runs->property("pageSize").toInt(), atDefault, 3000);
+}
+
+void UiWorkflowRegressionTests::historyPagerStaysInsideTheWindow_data()
+{
+    QTest::addColumn<QString>("style");
+    QTest::newRow("classic") << QStringLiteral("classic");
+    QTest::newRow("eorzea") << QStringLiteral("eorzea");
+}
+
+/// 翻页行在任何窗口高度下都完整留在页面里（含「记录区服」一行，审查 K3-1），
+/// 页面底部被「无法自动记录」提示占用的部分也不放翻页按钮。
+void UiWorkflowRegressionTests::historyPagerStaysInsideTheWindow()
+{
+    QFETCH(QString, style);
+    UiFixture fixture;
+    // Every page is full, so the pager sits right under the last row.
+    fixture.backend.answerFor = [](const QString &type, const QJsonObject &payload) -> QJsonObject {
+        if (type != QLatin1String("QueryRuns"))
+            return {};
+        const int page = payload.value(QStringLiteral("page")).toInt(1);
+        const int size = payload.value(QStringLiteral("page_size")).toInt(10);
+        QJsonArray items;
+        for (int index = 0; index < size; ++index) {
+            items.append(QJsonObject{{QStringLiteral("run_id"), QStringLiteral("pager-%1-%2").arg(page).arg(index)},
+                                     {QStringLiteral("revision"), 1},
+                                     {QStringLiteral("duty_name"), QStringLiteral("fixture duty")},
+                                     {QStringLiteral("result"), QStringLiteral("COMPLETED")}});
+        }
+        return {{QStringLiteral("items"), items},
+                {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("page"), page},
+                                                          {QStringLiteral("page_size"), size},
+                                                          {QStringLiteral("total"), 5000}}}};
+    };
+    fixture.engine.rootContext()->setContextProperty(QStringLiteral("ForceUiStyle"), style);
+    QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+    auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
+    auto *page = qobject_cast<QQuickItem *>(fixture.history());
+    QVERIFY(window && page);
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    auto *jump = findWithProperty(window->contentItem(), "objectName", QStringLiteral("historyPageJump"));
+    QVERIFY(jump);
+    auto *pager = jump->parentItem();
+    QVERIFY(pager);
+    const auto *runs = fixture.controller.runs();
+    for (const int reserved : {0, 64}) {
+        page->setProperty("reservedBottom", reserved);
+        for (const int height : {560, 640, 700, 720, 777, 860, 1000, 1180, 1400}) {
+            window->setHeight(height);
+            QTRY_COMPARE_WITH_TIMEOUT(runs->pageSize(), page->property("rowsThatFit").toInt(), 3000);
+            QTRY_VERIFY_WITH_TIMEOUT(!runs->isLoading() && runs->rowCount() == runs->pageSize(), 3000);
+            if (runs->pageSize() == page->property("minimumRowsPerPage").toInt())
+                continue; // Too short to fit even the minimum: the page scrolls by design.
+            window->contentItem()->polish();
+            QTest::qWait(30);
+            const qreal bottom = pager->mapToItem(page, QPointF(0, pager->height())).y();
+            QVERIFY2(bottom <= page->height() - reserved + 0.5,
+                     qPrintable(QStringLiteral("%1 px window, %2 reserved: pager ends at %3 of %4")
+                                    .arg(height).arg(reserved).arg(bottom).arg(page->height())));
+        }
+    }
+}
+
+/// 设置 · 成就：成就区服在别处（总览卡片的「修改」、首次引导）被改掉时，
+/// 页面丢掉上一区服未保存的数字，换成新区服保存的目标与起始次数（审查 K1-2）。
+void UiWorkflowRegressionTests::achievementTabDropsADraftWhenTheRegionChangesElsewhere()
+{
+    WorkflowBackend backend;
+    backend.answerFor = [](const QString &type, const QJsonObject &payload) -> QJsonObject {
+        if (type != QLatin1String("GetDashboardStats"))
+            return {};
+        const QString asked = payload.value(QStringLiteral("filter")).toObject()
+                                  .value(QStringLiteral("region")).toString();
+        QJsonArray achievements;
+        for (const auto &[region, goal, baseline] : {std::tuple{QStringLiteral("CN"), 2000, 640},
+                                                    std::tuple{QStringLiteral("TC"), 1500, 70}}) {
+            if (!asked.isEmpty() && asked != region)
+                continue;
+            achievements.append(QJsonObject{{QStringLiteral("region"), region},
+                                            {QStringLiteral("goal_count"), goal},
+                                            {QStringLiteral("baseline_completed_count"), baseline},
+                                            {QStringLiteral("achievement_progress"), baseline},
+                                            {QStringLiteral("remaining"), goal - baseline}});
+        }
+        return {{QStringLiteral("achievements"), achievements}};
+    };
+    mr::AppController controller(&backend, nullptr);
+    mr::Formatters formatters;
+    QQmlEngine engine;
+    engine.rootContext()->setContextProperty(QStringLiteral("App"), &controller);
+    engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), &formatters);
+    engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+    QQmlComponent component(&engine);
+    component.setData(R"(import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import MentorRecorder
+ApplicationWindow {
+    width: 900; height: 760; visible: true
+    ColumnLayout { anchors.fill: parent; SettingsGoalTab { objectName: "goalTab" } }
+})", QUrl());
+    const std::unique_ptr<QObject> root(component.create());
+    QVERIFY2(root, qPrintable(component.errorString()));
+    auto *window = qobject_cast<QQuickWindow *>(root.get());
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    auto *tab = findWithProperty(window->contentItem(), "objectName", QStringLiteral("goalTab"));
+    auto *goal = findWithProperty(window->contentItem(), "objectName", QStringLiteral("goalField"));
+    auto *baseline = findWithProperty(window->contentItem(), "objectName", QStringLiteral("baselineField"));
+    QVERIFY(tab && goal && baseline);
+    QTRY_VERIFY(controller.achievementSettingsLoaded());
+    QTRY_COMPARE(baseline->property("text").toString(), QStringLiteral("640"));
+    // A CN draft, typed and left unsaved.
+    goal->forceActiveFocus();
+    goal->setProperty("text", QStringLiteral("3000"));
+    baseline->forceActiveFocus();
+    baseline->setProperty("text", QStringLiteral("999"));
+    QVERIFY(tab->property("achievementEdited").toBool());
+
+    // Another page picks 繁中服.
+    controller.setBaselineRegion(QStringLiteral("TC"));
+    QTRY_VERIFY(controller.achievementSettingsLoaded());
+    QTRY_COMPARE(goal->property("text").toString(), QStringLiteral("1500"));
+    QCOMPARE(baseline->property("text").toString(), QStringLiteral("70"));
+    QVERIFY(!tab->property("achievementEdited").toBool());
+    QCOMPARE(tab->property("baselineErrorText").toString(), QString());
 }
 
 void UiWorkflowRegressionTests::immediateModelFailureClearsLoadingAndOldRows()
@@ -785,7 +913,12 @@ void UiWorkflowRegressionTests::historyRefusesAnInvertedRangeAndCapsTheSearch()
     from->setProperty("text", QStringLiteral("2026-09-10"));
     to->setProperty("text", QStringLiteral("2026-09-01"));
     QTest::qWait(450);
-    QCOMPARE(fixture.backend.counts.value(QStringLiteral("QueryRuns")), queries);
+    // The hint below the filter bar takes a row's room, so the page may ask for
+    // one row fewer (review K3-1) - with the filter it already had, never with
+    // the inverted range.
+    QVERIFY(fixture.backend.counts.value(QStringLiteral("QueryRuns")) <= queries + 1);
+    QVERIFY(!fixture.backend.lastPayloads.value(QStringLiteral("QueryRuns"))
+                 .value(QStringLiteral("filter")).toObject().contains(QStringLiteral("to_utc")));
     QVERIFY(!fixture.controller.historyFilter().contains(QStringLiteral("to_utc")));
     auto *hint = fixture.history()->findChild<QObject *>(QStringLiteral("historyRangeHint"));
     QVERIFY(hint);

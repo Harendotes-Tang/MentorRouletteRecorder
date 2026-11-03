@@ -222,12 +222,8 @@ QString SpeechController::describeTarget(const QString &provider, const QString 
                                          const QString &baseUrl) const
 {
     QString host = targetHost();
-    if (available() && provider == m_provider && !host.isEmpty()) {
-        if (provider == kAzure && region.trimmed().toLower() == azureRegion())
-            return host;
-        if (provider == kOpenAi && normalizedUrl(baseUrl) == openaiBaseUrl())
-            return host;
-    }
+    if (!host.isEmpty() && draftInForce(provider, region, baseUrl))
+        return host;
     if (provider == kOpenAi) {
         const QString typed = hostOfUrl(baseUrl);
         return typed.isEmpty() ? tr("你填写的地址") : typed;
@@ -236,6 +232,18 @@ QString SpeechController::describeTarget(const QString &provider, const QString 
     return typedRegion.isEmpty()
                ? tr("微软 Azure 语音服务")
                : tr("微软 Azure 语音（%1 区域）").arg(typedRegion);
+}
+
+bool SpeechController::draftInForce(const QString &provider, const QString &region,
+                                    const QString &baseUrl) const
+{
+    if (!available() || provider != m_provider)
+        return false;
+    if (provider == kAzure)
+        return region.trimmed().toLower() == azureRegion();
+    if (provider == kOpenAi)
+        return normalizedUrl(baseUrl) == openaiBaseUrl();
+    return false;
 }
 
 QString SpeechController::hostOfUrl(const QString &url)

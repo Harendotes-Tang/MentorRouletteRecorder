@@ -13,6 +13,34 @@
 #include <QTest>
 
 namespace {
+
+/// What makes \a presentation stale for \a version of \a changelog: another version's
+/// file, or an annotation that matches no entry or more than one. parseEntries() drops
+/// such annotations silently, so 本次更新 would lose its titles and hidden list while
+/// every other check stays green (audit 2026-11-03 I3-5). A file with no entries is
+/// uncurated on purpose and fits every version.
+QStringList presentationProblems(const QString &changelog, const QString &version, const QByteArray &presentation)
+{
+    const QJsonObject root = QJsonDocument::fromJson(presentation).object();
+    const QJsonArray annotations = root.value("entries").toArray();
+    if (annotations.isEmpty())
+        return {};
+    if (root.value("version").toString() != version)
+        return {QStringLiteral("presentation.json is for %1, the application is %2: curate it for %2, or empty its entries")
+                    .arg(root.value("version").toString(), version)};
+    QStringList problems;
+    for (const auto &value : annotations) {
+        const QJsonObject single{{"version", version}, {"entries", QJsonArray{value}}};
+        qsizetype matches = 0;
+        for (const auto &entry : mr::ReleaseNotesController::parseEntries(changelog, version, QJsonDocument(single).toJson()))
+            matches += entry.toMap().value("curated").toBool() ? 1 : 0;
+        if (matches != 1)
+            problems.append(QStringLiteral("annotation \"%1\" matches %2 entries of %3")
+                                .arg(value.toObject().value("title").toString()).arg(matches).arg(version));
+    }
+    return problems;
+}
+
 class ReleaseNotesTests : public QObject
 {
     Q_OBJECT
@@ -278,6 +306,39 @@ private Q_SLOTS:
             QCOMPARE(highlights, 1);
             QVERIFY(notes.prerelease());
         }
+    }
+
+    // Audit 2026-11-03 I3-5: the curation of 本次更新 is checked for the version this build
+    // is, whatever that is, not only for the versions named above.
+    void bundledPresentationMatchesTheCurrentVersionEntryByEntry()
+    {
+        mr::AppSettings settings;
+        mr::ReleaseNotesController notes(&settings);
+        QFile source(QString::fromUtf8(MR_SOURCE_DIR) + QStringLiteral("/CHANGELOG.md"));
+        QVERIFY(source.open(QIODevice::ReadOnly));
+        const QString log = QString::fromUtf8(source.readAll());
+        QFile file(QString::fromUtf8(MR_SOURCE_DIR) + QStringLiteral("/src/Desktop/resources/release-notes/presentation.json"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QByteArray presentation = file.readAll();
+        const QStringList problems = presentationProblems(log, notes.version(), presentation);
+        QVERIFY2(problems.isEmpty(), qPrintable(problems.join(QLatin1Char('\n'))));
+
+        // The check itself: a bumped version, a reworded bullet and a bullet written twice are all caught.
+        const QString changelog = QString::fromUtf8("## [2.0.0]\n### 新增\n- 新的条目。\n- 重复的条目。\n- 重复的条目。\n");
+        const auto digestOf = [](const QString &text) {
+            return QString::fromLatin1(QCryptographicHash::hash(text.toUtf8(), QCryptographicHash::Sha256).toHex());
+        };
+        const QJsonObject current{{"bodySha256", digestOf(QString::fromUtf8("新的条目。"))}, {"title", "Current"}};
+        const auto curated = [&](const QString &version, const QJsonArray &entries) {
+            return QJsonDocument(QJsonObject{{"version", version}, {"entries", entries}}).toJson();
+        };
+        QVERIFY(presentationProblems(changelog, "2.0.0", curated("2.0.0", {current})).isEmpty());
+        QVERIFY(presentationProblems(changelog, "2.0.0", curated("1.9.0", {})).isEmpty());
+        QCOMPARE(presentationProblems(changelog, "2.0.0", curated("1.9.0", {current})).size(), 1);
+        const QJsonObject reworded{{"bodySha256", digestOf(QString::fromUtf8("旧的条目。"))}, {"title", "Reworded"}};
+        QCOMPARE(presentationProblems(changelog, "2.0.0", curated("2.0.0", {current, reworded})).size(), 1);
+        const QJsonObject twice{{"bodySha256", digestOf(QString::fromUtf8("重复的条目。"))}, {"title", "Twice"}};
+        QCOMPARE(presentationProblems(changelog, "2.0.0", curated("2.0.0", {twice})).size(), 1);
     }
 
     void productionResourceMatchesSource()

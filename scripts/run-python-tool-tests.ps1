@@ -92,7 +92,7 @@ if (-not (Test-Path -LiteralPath $Requirements -PathType Leaf)) {
 }
 $preflight = @'
 import importlib, re, sys
-MODULES = {'opencv-python-headless': 'cv2', 'opencv-python': 'cv2'}
+MODULES = {'opencv-python-headless': 'cv2', 'opencv-python': 'cv2', 'pyyaml': 'yaml'}
 missing = 0
 with open(sys.argv[1], encoding='utf-8') as handle:
     for raw in handle:

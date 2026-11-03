@@ -324,15 +324,19 @@ public:
     BackendReply *getReflectionSummary(int recentLimit = 3);
 
     // -- export and backup --------------------------------------------------
-    BackendReply *exportCsv(const QString &targetPath, const QJsonObject &filter = {});
-    BackendReply *exportJson(const QString &targetPath, const QJsonObject &filter = {});
+    /// \a replace sends `overwrite: true`: the user already confirmed replacing an existing
+    /// \a targetPath (the save dialog asked). Otherwise the field is left out and the Collector
+    /// refuses an existing file.
+    BackendReply *exportCsv(const QString &targetPath, const QJsonObject &filter = {}, bool replace = false);
+    BackendReply *exportJson(const QString &targetPath, const QJsonObject &filter = {}, bool replace = false);
     /// An empty \a targetPath omits the field, which selects the Collector's
     /// managed backups folder.
     BackendReply *backupDatabase(const QString &targetPath = {});
     /// Writes the sanitized diagnostics report (docs/capture-diagnostics.md
     /// section 9). An empty \a targetPath omits the field, which selects
     /// <db dir>/diagnostics/diag_<yyyyMMdd_HHmm>.json on the Collector side.
-    BackendReply *exportDiagnosticsReport(const QString &targetPath = {});
+    /// \a replace as for exportCsv().
+    BackendReply *exportDiagnosticsReport(const QString &targetPath = {}, bool replace = false);
     /// Read-only PRAGMA integrity_check of the open database ({} ->
     /// {passed, detail, checked_at_utc}). A Collector older than the message
     /// refuses it with ERR_UNKNOWN_MESSAGE.

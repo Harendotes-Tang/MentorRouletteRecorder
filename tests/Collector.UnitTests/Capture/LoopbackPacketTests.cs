@@ -186,12 +186,49 @@ public sealed class LoopbackPacketTests
         }
         Assert.Equal((196, 3, 1), initialUsage);
         Assert.Equal(initialUsage, buffer.Usage);
-        Assert.Equal(1, buffer.Counters.Handshakes);
+        // A handshake between two local endpoints counts once the game itself holds such a
+        // connection, which only the pump below confirms (audit 2026-11-03, A3-2).
+        Assert.Equal(localEndpoints ? 0 : 1, buffer.Counters.Handshakes);
         Assert.Equal(0, buffer.Counters.ExpiredStreams);
         buffer.Pump(new[] { owned });
         Assert.Equal(new[] { (true, (ushort)9) }, messages);
         Assert.Equal((0, 0, 1), buffer.Usage);
+        Assert.Equal(1, buffer.Counters.Handshakes);
         Assert.Null(buffer.Failure);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-03, A3-2. With the loopback path retained, two other local programs talking
+    /// to each other -- an overlay's local socket, a local proxy -- are not traffic on the monitored
+    /// paths: they must not make "nothing reached the capture" unreachable or read as connections
+    /// the game might own. Once the game itself holds a connection between two local endpoints,
+    /// local traffic counts like any other, including what arrived before that was known.
+    /// </summary>
+    [Fact]
+    public void LocalChatterCountsOnlyOnceTheGameItselfTalksBetweenLocalEndpoints()
+    {
+        var chatter = Connection(FirstPacketTests.Address("127.0.0.1"), Loopback, 50000);
+        var buffer = new FirstPacketBuffer(new[] { FirstPacketTests.Local }, 42,
+            _ => new FirstPacketTests.Sink(), includeLoopback: true);
+        Handshake(buffer, chatter);
+        buffer.Offer(Packet(chatter, true, 501, 24, FirstPacketTests.Bundle(1)), 101);
+        buffer.Pump(Array.Empty<TCPConnection>());
+
+        var quiet = buffer.Counters;
+        Assert.Equal(0, quiet.RawPackets);
+        Assert.Equal(0, quiet.Handshakes);
+        Assert.Equal(0, quiet.UnconfirmedTuples);
+        Assert.Equal(1, buffer.Usage.Tuples);
+
+        var game = Connection(Loopback, Loopback, 41001);
+        Handshake(buffer, game);
+        buffer.Pump(new[] { game });
+
+        var counted = buffer.Counters;
+        Assert.Equal(5, counted.RawPackets);
+        Assert.Equal(2, counted.Handshakes);
+        Assert.Equal(1, counted.UnconfirmedTuples);
+        Assert.Equal(1, counted.GameConnections);
     }
 
     [Fact]

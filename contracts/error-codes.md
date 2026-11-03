@@ -45,8 +45,9 @@
   仅当**同一个 `request_id` 配上不同的请求内容**时才拒绝，错误码为
   `ERR_IDEMPOTENCY_CONFLICT`（见下表）。
 - 并非每个请求都会得到应答。分帧错误答复一次后关闭连接；同一连接上已受理而尚未完成的延迟应答类请求
-  （`SynthesizeSpeech` / `CheckDatabaseIntegrity` / `CheckUpdateNow` / `PreviewRunImport` / `CommitRunImport`；
-  尚未应答的 `CheckUpdateNow` 无论几条只计一条，自身另以 8 条为限）达到 8 条时，再到达的一条不被处理，
+  （`SynthesizeSpeech` / `CheckDatabaseIntegrity` / `CheckUpdateNow` / `PreviewRunImport` / `CommitRunImport` /
+  `ExportCsv` / `ExportJson`；尚未应答的 `CheckUpdateNow` 无论几条只计一条，自身另以 8 条为限；`ExportCsv` 与
+  `ExportJson` 在整个采集服务内逐个执行，跨连接也不并行）达到 8 条时，再到达的一条不被处理，
   Collector 直接关闭连接，不发送错误信封，尚未写出的应答一并丢弃
   （[docs/architecture.md](../docs/architecture.md) §3.3）。客户端应把连接断开视为全部未完成请求的失败，
   变更类请求重连后以原 `request_id` 重发，以得到确定结果。
@@ -64,7 +65,7 @@
 | `ERR_NOT_FOUND` | `run_id` 不存在（含从未创建过的 UUID） | `CorrectRun` `SoftDeleteRun` `RestoreRun` `GetRunRevisions` `SetRunReflection` | false | 刷新列表 |
 | `ERR_CANDIDATE_OBSERVATION_NOT_FOUND` | 候选观测不存在或已按容量/保留期清理 | `ReviewCandidateObservation` | false | 刷新对照核对列表 |
 | `ERR_REASON_REQUIRED` | 需要理由的操作未提供非空 `reason` | `CreateManualRun` `CorrectRun` `SoftDeleteRun` `RestoreRun` `UpdateAchievementBaseline` | false | 在 UI 中强制填写理由后重试（新 `request_id`） |
-| `ERR_TIME_ORDER` | 时间顺序非法：`matched_at > entered_at`，或 `entered_at > ended_at` | `CreateManualRun` `CorrectRun` | false | 在对话框内高亮时间字段 |
+| `ERR_TIME_ORDER` | 时间顺序非法：`matched_at > entered_at`、`entered_at > ended_at`，或两者均非空时 `matched_at > ended_at`（没有进本时间时由这一条约束；`field = "matched_at_utc"`）。按变更后的整行校验，因此已有的时间也可能触发 | `CreateManualRun` `CorrectRun` `UndoRevision`；`PreviewRunImport` 与 `CommitRunImport` 按同一规则把违反的行判为无效行 | false | 在对话框内高亮时间字段 |
 | `ERR_NEGATIVE_DURATION` | 显式给出的 `duration_ms < 0`，或按修改后的时间推算出的时长为负 | `CreateManualRun` `CorrectRun` | false | 高亮时长字段 |
 | `ERR_NO_CHANGES` | `changes` 为空，或所有字段的新值与当前值相同（不产生新 revision） | `CorrectRun` | false | 不写入修订记录；提示"未做任何修改" |
 | `ERR_REVISION_CONFLICT` | `expected_revision` 不等于当前 `revision`（并发修改） | `CorrectRun` `SoftDeleteRun` `RestoreRun` | false | 重新拉取记录，展示差异后由用户决定是否重试 |
@@ -88,7 +89,7 @@
 | `ERR_SPEECH_TIMEOUT` | 单次请求连接与读取合计超过 8 秒；或队列已满（同时一条发送中、三条等待，第五条直接失败，`details.reason = QUEUE_FULL`）；或等待超过 8 秒仍未轮到（`QUEUE_WAIT`）；或请求被取消，即采集服务正在停止或该请求所在的连接已断开（`CANCELLED`，正在发送与仍在排队的句子相同） | `SynthesizeSpeech` | true | 该句改用本机语音播报。超出队列的句子不排队，以免播报持续滞后 |
 | `ERR_SPEECH_FORMAT` | 响应 `Content-Type` 不是 `audio/*` / `application/octet-stream`（`details.reason = CONTENT_TYPE`）、超过 5 MB（`TOO_LARGE`）、不是 RIFF/WAVE 16 位 PCM（`NOT_RIFF_WAVE`、`NOT_PCM`、`NOT_16_BIT`、`BAD_FMT`、`NO_DATA` 等），或音频无法写入 `tts-cache\`（`CACHE_WRITE`） | `SynthesizeSpeech` | false | 用本机语音播报，并提示一次；这样的响应不写缓存 |
 | `ERR_DB_BUSY` | SQLite 返回 `SQLITE_BUSY` / `SQLITE_LOCKED`，且已超过重试预算；或 `CheckDatabaseIntegrity` 请求到达时已有一次全库校验在执行（同时只允许一次，不排队）；或 `PreviewRunImport` / `CommitRunImport` 到达时已有一次导入预览或提交在执行（两者共用一个名额，跨连接，不排队）；**以及**进程启动时数据库文件被其他程序锁定 | 任意写操作；`CheckDatabaseIntegrity`；`PreviewRunImport` `CommitRunImport`；进程启动（不经由 IPC 返回） | true | 稍后以相同 `request_id` 重试（幂等）。启动时的情形：采集服务拒绝启动，退出码 **3**，标准错误的最后一行为带数据库文件位置的中文说明，本机日志记 `startup/open_failed` |
-| `ERR_DB_INTEGRITY` | `PRAGMA integrity_check` 失败、迁移失败或迁移校验失败、检测到 schema 版本高于本程序支持的版本；**以及** SQLite 在打开数据库时报告的其他错误（不是数据库文件或文件已损坏、无法以读写方式打开、磁盘已满、读写出错） | 进程启动（不经由 IPC 返回） | false | 采集服务拒绝启动，退出码 **3**，管道不会打开，因此桌面端收不到这个码；没有只读模式，也无法调用 `BackupDatabase`。标准错误的最后一行为 `ERR_DB_INTEGRITY: <中文说明>`，说明中给出数据库文件位置；同一原因连同 SQLite 的原话记入本机日志 `startup/open_failed`。先把该文件复制一份留底再排查 |
+| `ERR_DB_INTEGRITY` | `PRAGMA integrity_check` 失败、迁移失败或迁移校验失败、检测到 schema 版本高于本程序支持的版本、升级前快照未能写出或未通过完整性校验（文案键 `startup.pre_upgrade_copy_failed`，此前为 `ERR_EXPORT_FAILED`）；**以及** SQLite 在打开数据库时报告的其他错误（不是数据库文件或文件已损坏、无法以读写方式打开、磁盘已满、读写出错） | 进程启动（不经由 IPC 返回） | false | 采集服务拒绝启动，退出码 **3**，管道不会打开，因此桌面端收不到这个码；没有只读模式，也无法调用 `BackupDatabase`。标准错误的最后一行为 `ERR_DB_INTEGRITY: <中文说明>`，说明中给出数据库文件位置；同一原因连同 SQLite 的原话记入本机日志 `startup/open_failed`。先把该文件复制一份留底再排查 |
 | `ERR_EXPORT_FAILED` | 目标路径不可写、磁盘空间不足、目标已存在且 `overwrite = false`、路径穿越等；**以及** `BackupDatabase` 的副本未通过完整性校验（此时不清理既有备份） | `ExportCsv` `ExportJson` `BackupDatabase` `ExportDiagnosticsReport` `ExportCandidateEvidence` | false | 让用户重新选择路径 |
 | `ERR_ALREADY_RUNNING` | 本机已有一个 Collector 在服务同一条管道：单实例租约已被占用，或管道已存在 | 进程启动（`--serve`，不经由 IPC 返回） | false | 连接正在运行的实例，不再启动新实例；进程退出码为 **4**，与本机数据故障（3）区分。仅当管道**存在且可接受连接**、占用者却连续 6 次（每次 500 ms，合计 ≥ 3 秒）不应答 `GetVersion` 探活时，退出码改为 **6**，表示占用者已无响应：应先请其停止并等待退出，必要时结束该进程（进程号记录在日志目录下的 `serve.pid`，或 `--pipe` 自定义管道对应的 `serve.<管道名>.pid`），然后重试。租约被占用但管道尚未建立或已拆除（对方正在启动或停止），以及管道实例已满（对方正在服务其他客户端），退出码仍为 **4**。探活连接因管道属于另一个 Windows 账户（或以管理员身份运行的进程）而被拒绝时，退出码为 **3**：没有可复用的实例，也没有本账户的进程可结束；标准错误给出中文说明，日志 `startup/already_running` 记 `holder = OTHER_ACCOUNT` |
 | `ERR_INTERNAL` | 其他未归类的异常；**以及**旧采集的协议处理线程或数据源尚未退出、会话资源被保留时请求 `StopCapture` 或 `SelectGameProcess`（此时选择不会改变） | 任意 | false | 记录到本地诊断日志（不含报文负载），提示用户上报**手动复制**的日志；资源被保留的情形可稍后再试一次 |
@@ -110,7 +111,8 @@
 9. 导出诊断报告时目标文件已存在，且该文件名**不是**本程序自己生成的
    `diag_<yyyyMMdd_HHmm>.json` → `ERR_EXPORT_FAILED`（而不是直接覆盖）。
    只有请求里显式带上 `overwrite = true` 才允许替换，以免文件对话框中的一次误操作
-   覆盖用户既有的文档。
+   覆盖用户既有的文档。桌面端只对用户在系统保存对话框中选定（对话框已就替换征得同意）的路径发送
+   `overwrite = true`（`ExportCsv`、`ExportJson`、`ExportDiagnosticsReport` 相同），`--export-target` 给出的路径从不替换已有文件。
 10. 本机已有 Collector 在服务时再启动一个 → `ERR_ALREADY_RUNNING`，退出码 4
     （而不是 `ERR_INTERNAL` + 退出码 3）。这是正常结果，不是故障，
     调用方应当连接正在运行的那一个实例。
@@ -138,5 +140,5 @@
 
 ## 与 HTTP 的关系
 
-无。IPC 只经由命名管道 `MentorRecorder.<UserSidHash>.v1`。
+无。IPC 只经由命名管道 `MentorRecorder.<UserSidHash>.v1`（开发构建为 `MentorRecorder.<UserSidHash>.dev.v1`）。
 不存在 HTTP 状态码映射，也不存在任何监听端口。

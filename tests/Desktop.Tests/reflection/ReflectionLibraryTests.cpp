@@ -19,6 +19,8 @@
 #include <QSignalSpy>
 #include <QTest>
 #include <QTimer>
+#include <QScopeGuard>
+#include <QTranslator>
 #include <memory>
 #include <functional>
 
@@ -95,6 +97,20 @@ public:
                 continue;
             if (filter.contains(QStringLiteral("run_id")) && !ids.contains(run.value(QStringLiteral("run_id")).toString()))
                 continue;
+            // text over duty, job and note, OR reflection_text over the note's body
+            // (RunFilter, case-insensitive substrings).
+            const QString text = filter.value(QStringLiteral("text")).toString();
+            const QString body = filter.value(QStringLiteral("reflection_text")).toString();
+            if (!text.isEmpty() || !body.isEmpty()) {
+                const auto has = [](const QJsonValue &value, const QString &part) {
+                    return !part.isEmpty() && value.toString().contains(part, Qt::CaseInsensitive);
+                };
+                const bool found = has(run.value(QStringLiteral("duty_name")), text)
+                    || has(run.value(QStringLiteral("job_name")), text) || has(run.value(QStringLiteral("note")), text)
+                    || has(run.value(QStringLiteral("reflection")).toObject().value(QStringLiteral("text")), body);
+                if (!found)
+                    continue;
+            }
             matching.append(run);
         }
         const int page = payload.value(QStringLiteral("page")).toInt(1);
@@ -268,6 +284,95 @@ private Q_SLOTS:
         QCOMPARE(library.runs()->page(), 1);
         QCOMPARE(library.filter().value(QStringLiteral("text")).toString(), QStringLiteral("新条件"));
     }
+    // The search field keeps what the player typed, the trailing space included:
+    // the filter the page hands over is trimmed, the field is not (review K1-4).
+    void searchKeepsTheSpaceJustTyped() {
+        QueryBackend backend;
+        mr::ReflectionLibraryController library(&backend);
+        LibraryThemeState theme;
+        mr::Formatters formatters;
+        mr::JobCatalog jobs;
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("App"), &theme);
+        engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), &formatters);
+        engine.rootContext()->setContextProperty(QStringLiteral("Jobs"), &jobs);
+        engine.rootContext()->setContextProperty(QStringLiteral("Reflections"), &library);
+        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    visible: true; width: 1100; height: 560
+    ReflectionsPage { objectName: "page"; anchors.fill: parent }
+})", QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        QObject *page = root->findChild<QObject *>(QStringLiteral("page"));
+        QObject *search = root->findChild<QObject *>(QStringLiteral("reflectionSearchField"));
+        QVERIFY(page && search);
+        search->setProperty("text", QStringLiteral("The Aurum "));
+        // What the 300 ms debounce runs.
+        QVERIFY(QMetaObject::invokeMethod(page, "applyFilter"));
+        QCOMPARE(library.filter().value(QStringLiteral("text")).toString(), QStringLiteral("The Aurum"));
+        QCOMPARE(search->property("text").toString(), QStringLiteral("The Aurum "));
+        // A filter set from elsewhere is still mirrored into the field.
+        library.setFilter({{QStringLiteral("text"), QStringLiteral("Vale")}});
+        QCOMPARE(search->property("text").toString(), QStringLiteral("Vale"));
+    }
+
+    // A note that is only a mood's word is shown as that mood's label in the
+    // interface language ("Rough" for 糟心). Searching the label on screen finds
+    // it: the page asks for the stored word, as name_exact does for names (RV6-3).
+    void searchingTheShownMoodLabelFindsTheStoredWord() {
+        QTranslator english;
+        QVERIFY(english.load(QStringLiteral(":/i18n/mentor_recorder_en.qm")));
+        QCoreApplication::installTranslator(&english);
+        const auto removeTranslator = qScopeGuard([&english] { QCoreApplication::removeTranslator(&english); });
+        StoreBackend backend;
+        backend.add(QStringLiteral("rough"), QString::fromUtf8("糟心"));
+        backend.add(QStringLiteral("smooth"), QString::fromUtf8("顺利"));
+        backend.add(QStringLiteral("other"), QStringLiteral("held the boss well"));
+        mr::ReflectionLibraryController library(&backend);
+        LibraryThemeState theme;
+        mr::Formatters formatters;
+        mr::JobCatalog jobs;
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("App"), &theme);
+        engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), &formatters);
+        engine.rootContext()->setContextProperty(QStringLiteral("Jobs"), &jobs);
+        engine.rootContext()->setContextProperty(QStringLiteral("Reflections"), &library);
+        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    visible: true; width: 1100; height: 560
+    ReflectionsPage { objectName: "page"; anchors.fill: parent }
+})", QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        QObject *page = root->findChild<QObject *>(QStringLiteral("page"));
+        QObject *search = root->findChild<QObject *>(QStringLiteral("reflectionSearchField"));
+        QVERIFY(page && search);
+        library.setActive(true);
+        QTRY_COMPARE(library.runs()->total(), 3);
+        search->setProperty("text", QStringLiteral("rough"));
+        QVERIFY(QMetaObject::invokeMethod(page, "applyFilter"));
+        // The typed words still look in duty, job and note; the body is asked for the stored word.
+        QCOMPARE(library.filter().value(QStringLiteral("text")).toString(), QStringLiteral("rough"));
+        QCOMPARE(library.filter().value(QStringLiteral("reflection_text")).toString(), QString::fromUtf8("糟心"));
+        QTRY_COMPARE(library.runs()->total(), 1);
+        QCOMPARE(library.runs()->runAt(0).value(QStringLiteral("run_id")).toString(), QStringLiteral("rough"));
+        // Any other words go to the body as typed.
+        search->setProperty("text", QStringLiteral("boss"));
+        QVERIFY(QMetaObject::invokeMethod(page, "applyFilter"));
+        QCOMPARE(library.filter().value(QStringLiteral("reflection_text")).toString(), QStringLiteral("boss"));
+        QTRY_COMPARE(library.runs()->runAt(0).value(QStringLiteral("run_id")).toString(), QStringLiteral("other"));
+        QCOMPARE(library.runs()->total(), 1);
+    }
+
     void realLibraryKeyboardSelectionAndFilterCancel_data() {
         QTest::addColumn<QSize>("size");
         QTest::addColumn<bool>("dark");

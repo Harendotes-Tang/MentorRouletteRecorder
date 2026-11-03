@@ -8,6 +8,7 @@ public enum RunRuleViolationKind
     EnteredAfterEnded,
     NegativeDuration,
     NoChanges,
+    MatchedAfterEnded,
 }
 
 /// <summary>Domain property associated with a run-rule violation.</summary>

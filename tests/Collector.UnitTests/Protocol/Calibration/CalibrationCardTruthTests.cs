@@ -99,6 +99,8 @@ public sealed class CalibrationCardTruthTests
     [InlineData(CalibrationTrafficCases.QueueRequestAnnounced, "MATCH_ANNOUNCED", "匹配弹窗")]
     [InlineData(CalibrationTrafficCases.QueueRequest, "PLAYER_JOB", "职业")]
     [InlineData(CalibrationTrafficCases.MarkerOffset, "PLAYER_JOB", "匹配弹窗")]
+    // Audit 2026-11-03, C-5: the profile in force reads the popup already and lacks only the job.
+    [InlineData(CalibrationTrafficCases.QueueRequestAnnounced, "PLAYER_JOB", "职业")]
     public void AnUpgradeReadyToCheckSaysWhatConfirmingItBrings(string traffic, string lacking, string brings)
     {
         var coordinator = new CalibrationCoordinator();
@@ -125,6 +127,12 @@ public sealed class CalibrationCardTruthTests
                                                  text.Chinese.Contains(brings, StringComparison.Ordinal));
         Assert.Contains(status.Blockers, text => text.Chinese.Contains("记录照常", StringComparison.Ordinal));
         Assert.All(status.Blockers, text => Assert.DoesNotContain("0x", text.Chinese, StringComparison.Ordinal));
+        if (inForce.Any(message => message.Name == "MATCH_ANNOUNCED"))
+        {
+            // Beside a profile that reads the popup, "recorded at queue time" is untrue (C-7/RV1-3 family).
+            Assert.All(status.Blockers, text =>
+                Assert.DoesNotContain("仅靠排队和进本核对", text.Chinese, StringComparison.Ordinal));
+        }
     }
 
     /// <summary>
@@ -379,5 +387,35 @@ public sealed class CalibrationCardTruthTests
         Assert.Single(named);
         Assert.Contains(named[0].DutyName!, named[0].Label.Chinese, StringComparison.Ordinal);
         Assert.False(named[0].RequiresConfirmation);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-03, C-6. The kept queue requests span the whole life of a build's evidence, and
+    /// every one of them was a line the player had to answer, with a time but no date: an upgrade found
+    /// after weeks asked for about a hundred clicks on queues nobody can remember. The player is asked
+    /// about the queues of the evening the draft rests on; the queues of other days are not listed.
+    /// </summary>
+    [Fact]
+    public void OnlyTheRequestsTheDraftRestsOnAreAskedAbout()
+    {
+        var evening = CalibrationTrafficCases.Observe(CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequest));
+        var first = evening.Pairs[0];
+        // A hundred queues over the previous weeks, each answered by the server like tonight's.
+        var weeks = Enumerable.Range(0, 100).Select(index => first with
+        {
+            RouletteId = 1 + index % 3,
+            ReplyAtUtc = first.ReplyAtUtc - TimeSpan.FromDays(2 + index / 4) - TimeSpan.FromMinutes(index % 4 * 30),
+        });
+
+        var draft = CalibrationDraft.Derive(
+            evening with { Pairs = weeks.Concat(evening.Pairs).ToArray() }, CalibrationObserverTests.Template());
+
+        Assert.Equal(CalibrationDraftStatus.Ready, draft.Status);
+        var anchors = draft.Events.Count(item => item.RequiresConfirmation && item.Kind is "pop" or "duty_enter");
+        Assert.True(draft.Events.Count(item => item.RequiresConfirmation) <= anchors * 2 + 2,
+            string.Join(" | ", draft.Events.Where(item => item.RequiresConfirmation).Select(item => item.Label.Chinese)));
+        Assert.Contains(draft.Events, item => item.Kind == "finder_request" && item.RequiresConfirmation);
+        var tonight = evening.Pairs.Min(pair => pair.ReplyAtUtc) - TimeSpan.FromDays(1);
+        Assert.DoesNotContain(draft.Events, item => item.Kind == "finder_request" && item.AtUtc < tonight);
     }
 }

@@ -295,4 +295,140 @@ public sealed class RunImportReimportTests
         Assert.Equal("new", Status(preview, 0));
         Assert.Equal("new", Status(preview, 1));
     }
+    /// <summary>
+    /// Audit 2026-11-03 H2-4. A template names no region, so its rows start as 未知区服, and the person picks 国服 in
+    /// the preview before importing; that choice is part of the stored identity. Reading the same file again, each
+    /// row - with a clock time, with only a day, or with no time at all - is still found under the region it was
+    /// imported with, and offered as a possible duplicate rather than pre-selected as new. It is never merged.
+    /// </summary>
+    [Fact]
+    public void RowsImportedUnderAChosenRegionAreStillFoundWhenTheSameFileIsReadAgain()
+    {
+        using var fixture = new TestDatabase();
+        var service = new RunImportService(fixture.Database, fixture.Clock);
+        var path = CsvPath(fixture);
+        const string text = "副本,职业,开始时间,记录时间,结果\n" + Duty + ",战士,2026/9/1,,通关\n"
+            + Duty + ",战士,,2026-09-02 20:30,通关\n" + Duty + ",骑士,,,通关\n";
+        var first = PreviewCsv(service, path, text);
+        Assert.All(first["rows"]!.AsArray(), row => Assert.Equal("UNKNOWN", row!["run"]!["region"]!.GetValue<string>()));
+        var chosen = new JsonArray(first["rows"]!.AsArray().Select(row =>
+        {
+            var candidate = row!["candidate"]!.DeepClone().AsObject();
+            candidate["region"] = "CN";
+            return (JsonNode)candidate;
+        }).ToArray());
+        var edited = service.PreviewSource("CSV", rows: chosen, timeZone: "+08:00", sourceName: Path.GetFileName(path));
+        Assert.All(edited["rows"]!.AsArray(), row => Assert.Equal("CN", row!["run"]!["region"]!.GetValue<string>()));
+        var imported = CommitAll(service, edited)["rows"]!.AsArray()
+            .Select(row => row!["run_id"]!.GetValue<string>()).ToArray();
+
+        var again = PreviewCsv(service, path, text);
+
+        for (var index = 0; index < 3; index++)
+        {
+            Assert.Equal("possible_duplicate", Status(again, index));
+            Assert.Equal(imported[index], Row(again, index)["matching_run_id"]!.GetValue<string>());
+        }
+        Assert.Equal(3, new RunRepository(fixture.Database).Query(null, null, 1, 20).Total);
+    }
+    /// <summary>
+    /// Audit 2026-11-03 H2-4 with H1-1. 1.8.0 imported a region-less row as UNKNOWN; schema 13 made it a CN record, and
+    /// the new Desktop picks 国服 for a region-less source. Reading the same file again with 国服 picked, the row - even
+    /// one with no time at all - is offered as a possible duplicate of the record it became, not as new.
+    /// </summary>
+    [Fact]
+    public void ARowImportedWithoutARegionBeforeIsFoundWhenTheSameFileIsReadWithARegion()
+    {
+        using var fixture = new TestDatabase();
+        var service = new RunImportService(fixture.Database, fixture.Clock);
+        var path = CsvPath(fixture);
+        const string text = "副本,职业,结果\n" + Duty + ",骑士,通关\n";
+        var earlier = CommitAll(service, PreviewCsv(service, path, text))["run_ids"]![0]!.GetValue<string>();
+        using (var migrate = fixture.Database.CreateCommand())
+        {
+            migrate.CommandText = "UPDATE mentor_runs SET region = 'CN' WHERE region = 'UNKNOWN' AND capture_session_id IS NULL;";
+            migrate.ExecuteNonQuery();
+        }
+
+        var first = PreviewCsv(service, path, text);
+        var chosen = first["rows"]![0]!["candidate"]!.DeepClone().AsObject();
+        chosen["region"] = "CN";
+        var again = service.PreviewSource("CSV", rows: new JsonArray(chosen), timeZone: "+08:00", sourceName: Path.GetFileName(path));
+
+        Assert.Equal("possible_duplicate", Status(again, 0));
+        Assert.Equal(earlier, Row(again, 0)["matching_run_id"]!.GetValue<string>());
+        Assert.Equal("duplicate", Status(first, 0));
+        Assert.True(Row(again, 0)["can_import"]!.GetValue<bool>());
+    }
+    /// <summary>
+    /// Re-review 2026-11-03 RV2-2. The Desktop gives every region-less row a region (the dashboard's, else 国服) and
+    /// reads the batch again; what it selects comes from that second reading. A sheet imported as 繁中服 and read again
+    /// with the default on 国服 is therefore found in the second reading too - with a clock time, a day only, or no time.
+    /// </summary>
+    [Fact]
+    public void ARowImportedUnderOneRegionIsFoundWhenTheNextReadingGivesItAnother()
+    {
+        using var fixture = new TestDatabase();
+        var service = new RunImportService(fixture.Database, fixture.Clock);
+        var path = CsvPath(fixture);
+        const string text = "副本,职业,开始时间,记录时间,结果\n" + Duty + ",战士,2026/9/1,,通关\n"
+            + Duty + ",战士,,2026-09-02 20:30,通关\n" + Duty + ",骑士,,,通关\n";
+        var imported = CommitAll(service, WithRegion(service, PreviewCsv(service, path, text), "TC", path))["rows"]!.AsArray()
+            .Select(row => row!["run_id"]!.GetValue<string>()).ToArray();
+
+        var again = WithRegion(service, PreviewCsv(service, path, text), "CN", path);
+
+        for (var index = 0; index < 3; index++)
+        {
+            Assert.Equal("CN", Row(again, index)["run"]!["region"]!.GetValue<string>());
+            Assert.Equal("possible_duplicate", Status(again, index));
+            Assert.Equal(imported[index], Row(again, index)["matching_run_id"]!.GetValue<string>());
+        }
+    }
+
+    /// <summary>
+    /// Re-review 2026-11-03 RV2-3. 1.8.0 imported an untimed row whose 职业 cell is a Traditional job name (騎士): no job
+    /// then, region UNKNOWN, under the row's own-content key; schema 13 made it a CN record. Read again now, the job
+    /// resolves, yet the row is still that record - an exact duplicate in the first reading, and a possible duplicate
+    /// once the Desktop gives it 国服.
+    /// </summary>
+    [Fact]
+    public void AnUntimedRowWhoseJobOnlyATraditionalNameResolvesStillMatchesWhat180Imported()
+    {
+        using var fixture = new TestDatabase();
+        var service = new RunImportService(fixture.Database, fixture.Clock);
+        var path = CsvPath(fixture);
+        const string text = "副本,职业,结果\n" + Duty + ",騎士,通关\n";
+        var row = RunImportSourceParser.Parse("CSV", text: text)[0];
+        var sourceKey = RunImportCandidateNormalizer.Hash(RunImportCandidateNormalizer.CanonicalValues(row.Values)) + ":1";
+        row.Values["source_key"] = sourceKey;
+        var current = RunImportCandidateNormalizer.Normalize(row, "CSV", Path.GetFileName(path), "+08:00", fixture.Clock.UtcNow).Run!;
+        Assert.Equal(19, current.JobId);
+        var stored = current with { JobId = null, Role = Role.Unknown, Region = Region.Unknown };
+        var fingerprint = RunImportCandidateNormalizer.Hash(string.Join('\n', "CSV", Path.GetFileName(path), sourceKey,
+            RunImportCandidateNormalizer.Facts(stored)));
+        stored = stored with { Region = Region.Cn, ImportMetadata = stored.ImportMetadata! with { SourceFingerprint = fingerprint } };
+        fixture.Database.RunInTransaction(transaction =>
+        {
+            new RunRepository(fixture.Database).Insert(stored, transaction);
+            new RunImportRepository(fixture.Database).Insert(stored.RunId, stored.ImportMetadata!, transaction);
+        });
+
+        var first = PreviewCsv(service, path, text);
+        var second = WithRegion(service, first, "CN", path);
+
+        Assert.Equal("duplicate", Status(first, 0));
+        Assert.Equal(stored.RunId, Row(first, 0)["matching_run_id"]!.GetValue<string>());
+        Assert.Equal("possible_duplicate", Status(second, 0));
+        Assert.Equal(stored.RunId, Row(second, 0)["matching_run_id"]!.GetValue<string>());
+    }
+
+    /// <summary>The Desktop's second reading: every candidate of a preview with the given region, read again.</summary>
+    private static JsonObject WithRegion(RunImportService service, JsonObject preview, string region, string path) =>
+        service.PreviewSource("CSV", rows: new JsonArray(preview["rows"]!.AsArray().Select(row =>
+        {
+            var candidate = row!["candidate"]!.DeepClone().AsObject();
+            candidate["region"] = region;
+            return (JsonNode)candidate;
+        }).ToArray()), timeZone: "+08:00", sourceName: Path.GetFileName(path));
 }

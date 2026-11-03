@@ -321,7 +321,6 @@ bool acceptableFinalValue(const QJsonObject &run, QString *errorCode, QString *e
     const QDateTime matched = fromIso(run.value(QStringLiteral("matched_at_utc")));
     const QDateTime entered = fromIso(run.value(QStringLiteral("entered_at_utc")));
     const QDateTime ended = fromIso(run.value(QStringLiteral("ended_at_utc")));
-    const QString result = run.value(QStringLiteral("result")).toString();
     const auto refuse = [errorCode, errorMessage](const char *code, const char *message) {
         *errorCode = QString::fromLatin1(code);
         *errorMessage = QString::fromUtf8(message);
@@ -331,11 +330,11 @@ bool acceptableFinalValue(const QJsonObject &run, QString *errorCode, QString *e
         return refuse("ERR_TIME_ORDER", "匹配时间不能晚于进入副本的时间。");
     if (entered.isValid() && ended.isValid() && entered > ended)
         return refuse("ERR_TIME_ORDER", "进入副本的时间不能晚于结束时间。");
-    if (result != QLatin1String("CANCELLED_BEFORE_ENTRY") && !entered.isValid())
-        return refuse("ERR_BAD_REQUEST",
-                      "只有「未进入副本即取消」可以没有进入时间，其余结果都必须填写进入时间。");
-    if (result == QLatin1String("COMPLETED") && !ended.isValid())
-        return refuse("ERR_BAD_REQUEST", "判定为「已完成」的记录必须填写结束时间。");
+    // Without an entry time the two rules above never meet (D1-3, audit 2026-11-03).
+    if (matched.isValid() && ended.isValid() && matched > ended)
+        return refuse("ERR_TIME_ORDER", "匹配时间不能晚于结束时间。");
+    // A run may have no recalled endpoints, whatever its result and source (1d16faa,
+    // docs/manual-correction.md §7): the duration then stays unknown.
     const QJsonValue duration = run.value(QStringLiteral("duration_ms"));
     if (duration.isDouble() && duration.toDouble() < 0.0)
         return refuse("ERR_NEGATIVE_DURATION", "时长不能为负数。");
@@ -1240,12 +1239,14 @@ QJsonObject MockBackend::captureStatus() const
         }
     }
     if (unsupportedCaptureRegion()) {
+        // The client's build is still read from its install directory, so the profile
+        // decides: LiveProtocolPipeline.ToCaptureStatus keeps it with UNSUPPORTED_BUILD.
         status.insert(QStringLiteral("region"), captureRegion());
         status.insert(QStringLiteral("profile_status"), QStringLiteral("UNSUPPORTED_BUILD"));
         status.insert(QStringLiteral("profile_matches_build"), false);
         status.insert(QStringLiteral("candidate_hypotheses"), QJsonArray());
         status.insert(QStringLiteral("recent_parser_errors"), QJsonArray());
-        for (const auto *field : {"profile_id", "profile_origin", "candidate_profile_id", "game_build",
+        for (const auto *field : {"profile_id", "profile_origin", "candidate_profile_id",
                                  "oodle_signature_source", "oodle_profile_id", "oodle_profile_status",
                                  "last_valid_event_at_utc", "last_valid_event_kind", "calibration_bound_at_utc"})
             status.insert(QString::fromLatin1(field), QJsonValue(QJsonValue::Null));
@@ -1503,7 +1504,24 @@ QJsonObject MockBackend::collectorStatus() const
                   QDir::toNativeSeparators(dataDirectory()
                                            + QStringLiteral("/mentor_recorder.db")));
     status.insert(QStringLiteral("uptime_ms"), static_cast<double>((2 * 3600 * 1000) + (14 * 60 * 1000)));
-    status.insert(QStringLiteral("capture"), captureStatus());
+    const QJsonObject capture = captureStatus();
+    status.insert(QStringLiteral("capture"), capture);
+    // GetStatus.game and the two Oodle disclosures exactly as CaptureWire.StatusExtras
+    // reports them: the game facts are the capture snapshot's, the install path is known
+    // whenever a client is followed, and the default Oodle mode reads a copy of the game
+    // executable (DEC-OODLE-01). Without install_path_readable the status projection waits
+    // for it whenever the build is unknown (AutomaticRecordingController::project).
+    const bool gameRunning = capture.value(QStringLiteral("ffxiv_running")).toBool();
+    status.insert(QStringLiteral("game"), QJsonObject{
+        {QStringLiteral("running"), gameRunning},
+        {QStringLiteral("process_id"), capture.value(QStringLiteral("ffxiv_process_id"))},
+        {QStringLiteral("region"), capture.value(QStringLiteral("region"))},
+        {QStringLiteral("game_build"), capture.value(QStringLiteral("game_build"))},
+        {QStringLiteral("instance_count"),
+         static_cast<int>(capture.value(QStringLiteral("game_processes")).toArray().size())},
+        {QStringLiteral("install_path_readable"), gameRunning}});
+    status.insert(QStringLiteral("oodle_mode"), QStringLiteral("FfxivTcp"));
+    status.insert(QStringLiteral("reads_game_executable"), true);
     // GetStatus.npcap exactly as CaptureWire.StatusExtras reports it, so the
     // 链路 panel's Npcap column reads the same fields offline as live.
     const CollectorSentence npcapGuidance = collectorSentence("capture.npcap.not_installed");
@@ -1905,11 +1923,15 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
             derive(QStringLiteral("role_group"), jobs.roleGroup(jobId));
         }
         if (changes.contains(QStringLiteral("content_id"))) {
-            const auto duty = DutyCatalog::shared()->lookup(changes.value(QStringLiteral("content_id")).toVariant());
-            // RunMutationService.ApplyChangeSet: the zone moves with the duty; a
-            // duty the catalogue does not know keeps the zone that was observed.
+            const QJsonValue contentId = changes.value(QStringLiteral("content_id"));
+            const auto duty = DutyCatalog::shared()->lookup(contentId.toVariant(), runRegion(run));
+            // RunMutationService.ApplyChangeSet: the duty comes from the run's own region's
+            // catalogue and the zone moves with it; a duty the catalogue does not know keeps
+            // the zone that was observed, and an explicit null (未知副本) clears it (OG-1).
             const QVariant territory = duty.value(QStringLiteral("territory_id"));
-            if (territory.isValid())
+            if (contentId.isNull())
+                derive(QStringLiteral("territory_id"), QJsonValue(QJsonValue::Null));
+            else if (territory.isValid())
                 derive(QStringLiteral("territory_id"), QJsonValue(territory.toLongLong()));
             for (const auto *field : {"duty_name", "duty_category"}) {
                 const QString key = QString::fromLatin1(field);
@@ -3330,7 +3352,7 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
             result.insert(QStringLiteral("status"), QStringLiteral("UNSUPPORTED_BUILD"));
             result.insert(QStringLiteral("region"), captureRegion());
             result.insert(QStringLiteral("profile_id"), QJsonValue(QJsonValue::Null));
-            result.insert(QStringLiteral("game_build"), QJsonValue(QJsonValue::Null));
+            result.insert(QStringLiteral("game_build"), captureStatus().value(QStringLiteral("game_build")));
             result.insert(QStringLiteral("verified_at_utc"), QJsonValue(QJsonValue::Null));
         }
     } else if (messageType == QLatin1String("GetCaptureSettings")) {

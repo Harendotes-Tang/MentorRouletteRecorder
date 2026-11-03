@@ -447,13 +447,16 @@ public sealed class StatisticsRepository
     }
 
     /// <summary>
-    /// A run the player actually entered. A capture proves it by its entry time; an imported or
-    /// hand-entered record may have no recalled times, so its known result stands in for them
-    /// (docs/statistics-definitions.md §2).
+    /// A run the player actually entered: one with an entry time, or one whose result says it was
+    /// entered. An imported or hand-entered record may have no recalled times, and since 2026-10-21
+    /// neither need a capture the player corrected (docs/manual-correction.md §7), so its known result
+    /// stands in for them (docs/statistics-definitions.md §2). The capture itself never ends a run it
+    /// did not see entered with any result but CANCELLED_BEFORE_ENTRY or UNKNOWN, so only a person's
+    /// correction reaches the second half for one; every completion is then an attempt, and the
+    /// completion rate cannot exceed 1 (audit 2026-11-03 D1-2).
     /// </summary>
     private static bool IsAttempt(StatRow row) => row.EnteredAtUtc is not null
-        || ((row.ImportedHistory || row.Source == RunSource.Manual)
-            && row.Result is not (RunResult.Unknown or RunResult.CancelledBeforeEntry));
+        || row.Result is not (RunResult.Unknown or RunResult.CancelledBeforeEntry);
 
     /// <summary>An attempt whose duty was already under way when the player entered it.</summary>
     private static bool JoinedInProgress(StatRow row) => IsAttempt(row) && row.JoinedInProgress == true;

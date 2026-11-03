@@ -52,6 +52,12 @@ public sealed class DutyCatalog
     public const string UnknownDutyName = "未知副本";
 
     private const string ResourcePrefix = "MentorRecorder.Collector.Data.Duties.";
+    /// <summary>
+    /// The order an UNKNOWN lookup tries the named regions in: CN first, as every region-less record was a CN one
+    /// before schema 12, then GLOBAL, then TC. Ranking by data version put the TC table first once it was installed,
+    /// which changed the territory - and with it the import fingerprint - of rows 1.8.0 had stored (audit 2026-11-03 H2-3).
+    /// </summary>
+    private static readonly Region[] UnknownFallbackOrder = { Region.Cn, Region.Global, Region.Tc };
     private readonly IReadOnlyDictionary<(Region Region, int ContentId), DutyInfo> _byKey;
     private readonly IReadOnlyDictionary<(Region Region, int TerritoryId), DutyInfo> _byTerritory;
     private readonly IReadOnlySet<(Region Region, int TerritoryId)> _sharedTerritories;
@@ -151,17 +157,30 @@ public sealed class DutyCatalog
 
         // UNKNOWN is not a service: it is what a hand-entered run carries when the user never
         // said which client they play. There is no region to stay inside, so any installed
-        // mapping is the best available answer.
-        return region == Region.Unknown
-            ? _byKey.Values.FirstOrDefault(row => row.ContentId == id)
-            : null;
+        // mapping is an answer, taken in a fixed order rather than the newest table first.
+        if (region != Region.Unknown)
+        {
+            return null;
+        }
+
+        foreach (var named in UnknownFallbackOrder)
+        {
+            if (_byKey.TryGetValue((named, id), out var row))
+            {
+                return row;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
     /// Infers an identity from an exact name in the composed regional rows. A duplicate name
     /// resolves only when precisely one candidate declares an audited name preference. For
     /// UNKNOWN, every named region containing that name must independently resolve to the
-    /// same id; preferences from different regions never compete with one another.
+    /// same id; preferences from different regions never compete with one another. The row returned
+    /// for UNKNOWN is that of the first agreeing region in the UNKNOWN fallback order, so its facts
+    /// (territory, category) are the ones <see cref="Find"/> gives for the id (audit 2026-11-03 H2-3).
     /// </summary>
     /// <param name="name">Exact localized name; null, blank and unmatched names return null.</param>
     /// <param name="region">Region to search, or UNKNOWN when the source does not identify one.</param>
@@ -176,22 +195,23 @@ public sealed class DutyCatalog
         var matches = _byKey.Values.Where(row =>
             row.Region != Region.Unknown && (region == Region.Unknown || row.Region == region)
             && string.Equals(row.LocalizedName, name, StringComparison.Ordinal));
-        DutyInfo? resolved = null;
+        var resolved = new Dictionary<Region, DutyInfo>();
         foreach (var regionalMatches in matches.GroupBy(row => row.Region))
         {
             var candidates = regionalMatches.ToArray();
             var preferred = candidates.Where(row => row.PreferredForNameMatching).Take(2).ToArray();
             var candidate = candidates.Length == 1 ? candidates[0]
                 : preferred.Length == 1 ? preferred[0] : null;
-            if (candidate is null || resolved is not null && resolved.ContentId != candidate.ContentId)
+            if (candidate is null || resolved.Values.Any(other => other.ContentId != candidate.ContentId))
             {
                 return null;
             }
 
-            resolved = candidate;
+            resolved[regionalMatches.Key] = candidate;
         }
 
-        return resolved;
+        return UnknownFallbackOrder.Where(resolved.ContainsKey).Select(named => resolved[named]).FirstOrDefault()
+            ?? resolved.Values.FirstOrDefault();
     }
 
     /// <summary>
@@ -221,13 +241,21 @@ public sealed class DutyCatalog
             return exact;
         }
 
-        return region == Region.Unknown
-            ? _byTerritory
-                .Where(pair => pair.Key.TerritoryId == id)
-                .OrderBy(pair => pair.Value.ContentId)
-                .Select(pair => pair.Value)
-                .FirstOrDefault()
-            : null;
+        if (region != Region.Unknown)
+        {
+            return null;
+        }
+
+        // Each region's own tie-break stands; the regions are tried in the UNKNOWN fallback order (H2-3).
+        foreach (var named in UnknownFallbackOrder)
+        {
+            if (_byTerritory.TryGetValue((named, id), out var row))
+            {
+                return row;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -356,7 +384,31 @@ public sealed class DutyCatalog
             }
         }
 
+        BorrowPartySizes(combined);
         return new DutyCatalog(combined, documents);
+    }
+
+    /// <summary>
+    /// A real row with no party size takes the one every other region's real row for the same content id
+    /// gives, when they agree. The TC table is sourced without a size column, and a duty has the same party
+    /// on every service; without this its alliance raids could never project as 团队任务 (audit 2026-11-03
+    /// H2-2). Regions that disagree lend nothing, and synthetic samples neither lend nor borrow.
+    /// </summary>
+    /// <param name="rows">The composed rows, rewritten in place.</param>
+    private static void BorrowPartySizes(Dictionary<(Region, int), DutyInfo> rows)
+    {
+        var sizes = rows.Values
+            .Where(row => row.PartySize is not null && !row.IsSyntheticSample)
+            .GroupBy(row => row.ContentId)
+            .ToDictionary(group => group.Key, group => group.Select(row => row.PartySize!.Value).Distinct().ToArray());
+        foreach (var (key, row) in rows.ToArray())
+        {
+            if (row.PartySize is null && !row.IsSyntheticSample
+                && sizes.TryGetValue(row.ContentId, out var known) && known.Length == 1)
+            {
+                rows[key] = row with { PartySize = known[0] };
+            }
+        }
     }
 
     /// <summary>

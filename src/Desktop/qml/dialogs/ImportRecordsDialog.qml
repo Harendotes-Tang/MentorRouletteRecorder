@@ -125,6 +125,37 @@ Dialog {
         target: dialog.controller
         function onChanged() { Qt.callLater(dialog.syncPageToCurrent) }
     }
+    // Rows whose source names no region - no 区服 column, a blank cell - take the region the dashboard
+    // shows, or 国服 while it shows every region or 未知区服; screenshot cards (dlog, a CN source) take
+    // 国服. The controller sets it after the first reading (audit 2026-11-03 H1-1, re-review RV3-1).
+    // Without the application object (the dialog on its own) nothing is defaulted.
+    Binding {
+        target: dialog.controller
+        property: "defaultRegion"
+        when: !!dialog.controller
+        value: {
+            const app = typeof Runtime.app === "undefined" ? null : Runtime.app
+            const shown = app && typeof app.recordRegion === "string" ? app.recordRegion : null
+            if (shown === null) return ""
+            return ["CN", "TC", "GLOBAL"].indexOf(shown) >= 0 ? shown : "CN"
+        }
+    }
+
+    /// A field showing one stored value (of the current candidate, or the batch's time zone). Every
+    /// re-read of the candidate writes the stored value in, as a binding would, but only while the
+    /// field is not being edited: a re-read - the baseline chips, a dashboard update, a reconnect -
+    /// never replaces what the user is typing (audit 2026-11-03 L2-1).
+    component CandidateField: StyledTextField {
+        id: candidateField
+        property string storedText: ""
+        function showStored() { if (!activeFocus) text = storedText }
+        onStoredTextChanged: showStored()
+        Component.onCompleted: text = storedText
+        Connections {
+            target: dialog
+            function onCandidateChanged() { candidateField.showStored() }
+        }
+    }
 
     component FieldLabel: Text {
         textFormat: Text.PlainText
@@ -611,7 +642,15 @@ Dialog {
                 Item { id: reviewZone; Layout.preferredWidth: sourceZone.implicitWidth; Layout.fillHeight: true }
             }
         }
-        Text { textFormat: Text.PlainText; Layout.fillWidth: true; objectName: "importStatus"; visible: dialog.working || (dialog.controller && dialog.controller.phase === "complete") || (dialog.hasRows && !dialog.controller.previewValid); text: dialog.controller ? dialog.controller.statusText : ""; color: Theme.textSecondary; font.pixelSize: Theme.fs(12); maximumLineCount: 2; elide: Text.ElideRight; wrapMode: Text.WordWrap }
+        Text {
+            id: importStatusLabel
+            textFormat: Text.PlainText; Layout.fillWidth: true; objectName: "importStatus"; visible: dialog.working || (dialog.controller && dialog.controller.phase === "complete") || (dialog.hasRows && !dialog.controller.previewValid); text: dialog.controller ? dialog.controller.statusText : ""; color: Theme.textSecondary; font.pixelSize: Theme.fs(12)
+            // The import result keeps its per-region baseline lines whole; a long file name while
+            // recognising stays clamped, its full text a hover away (audit 2026-11-03 L2-5).
+            maximumLineCount: dialog.controller && dialog.controller.phase === "complete" ? 8 : 2; elide: Text.ElideRight; wrapMode: Text.WordWrap
+            PlainToolTip { objectName: "importStatusToolTip"; visible: importStatusHover.hovered && importStatusLabel.truncated; text: importStatusLabel.text }
+            HoverHandler { id: importStatusHover }
+        }
         Text {
             textFormat: Text.PlainText
             id: importErrorLabel
@@ -858,9 +897,17 @@ Dialog {
                                     objectName: "importReflectionText"
                                     property int editingRow: -1
                                     property string originalText: ""
+                                    // Written in only while not being edited, as CandidateField (L2-1).
+                                    property string storedText: dialog.value("reflection_text")
+                                    function showStored() { if (!activeFocus) text = storedText }
+                                    onStoredTextChanged: showStored()
+                                    Component.onCompleted: text = storedText
+                                    Connections {
+                                        target: dialog
+                                        function onCandidateChanged() { reflectionEditor.showStored() }
+                                    }
                                     width: reflectionScroll.availableWidth
                                     height: Math.max(190, contentHeight + topPadding + bottomPadding)
-                                    text: dialog.value("reflection_text")
                                     color: Theme.textPrimary; placeholderTextColor: Theme.textMuted; palette.placeholderText: Theme.textMuted
                                     font.pixelSize: Theme.fs(13); wrapMode: TextEdit.Wrap; selectByMouse: true; enabled: !dialog.inputLocked
                                     leftPadding: 10; rightPadding: 10; topPadding: 10; bottomPadding: 10
@@ -909,12 +956,12 @@ Dialog {
                                         color: Theme.orangeText; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap
                                     }
                                     FieldLabel { text: qsTr("副本") }
-                                    StyledTextField {
+                                    CandidateField {
                                         id: dutyNameField
                                         objectName: "importDutyName"
                                         Layout.fillWidth: true
                                         // Shown in the interface language; finishDutyName stores a Chinese name.
-                                        text: dialog.candidateDutyLabel
+                                        storedText: dialog.candidateDutyLabel
                                         Accessible.description: qsTr("输入副本名称联想，方向键选择，Tab 填入候选。")
                                         property string suggestionQuery: ""
                                         property int suggestionIndex: 0
@@ -937,6 +984,7 @@ Dialog {
                                             dialog.acceptDuty(suggestions[index])
                                             dutySuggestions.close()
                                             suggestionQuery = ""
+                                            text = storedText // The chosen duty, as it is now stored.
                                             cursorPosition = length
                                         }
                                         onTextEdited: {
@@ -1005,7 +1053,7 @@ Dialog {
                                     }
                                     Text { objectName: "importDutyAmbiguityWarning"; textFormat: Text.PlainText; Layout.columnSpan: 2; Layout.fillWidth: true; visible: dialog.ambiguousDutyName; text: qsTr("该名称对应多个副本，请按编号选择；暂时无法确认时可保留未知。"); color: Theme.orangeText; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
                                     FieldLabel { text: qsTr("副本类别") }
-                                    StyledTextField { objectName: "importDutyCategory"; Layout.fillWidth: true; text: dialog.candidateCategoryLabel; placeholderText: qsTr("根据副本自动填写"); Accessible.description: qsTr("根据匹配的副本资料自动填写类别"); onEditingFinished: dialog.finishCategory(text.trim()) }
+                                    CandidateField { objectName: "importDutyCategory"; Layout.fillWidth: true; storedText: dialog.candidateCategoryLabel; placeholderText: qsTr("根据副本自动填写"); Accessible.description: qsTr("根据匹配的副本资料自动填写类别"); onEditingFinished: dialog.finishCategory(text.trim()) }
                                     Text { textFormat: Text.PlainText; objectName: "importJobCandidateWarning"; Layout.columnSpan: 2; Layout.fillWidth: true; visible: dialog.evidence.job_candidate_pending === true || dialog.unsupportedSourceJob; text: dialog.unsupportedSourceJob ? qsTr("原记录中的职业不适用于指导者任务，请核对并重新选择。") : qsTr("职业待复核：可能是「%1」（%2），请对照原图确认。").arg(Theme.jobLabel(dialog.evidence.job_candidate_id, dialog.evidence.job_candidate_name)).arg(dialog.iconEvidenceText); color: Theme.orangeText; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
                                     FieldLabel { text: qsTr("职业") }
                                     StyledComboBox {
@@ -1015,7 +1063,7 @@ Dialog {
                                         onActivated: function(index) { dialog.flushReflection(); dialog.controller.updateCandidate(dialog.controller.currentRow, {job_id: model[index].job_id, job_name: index ? model[index].job_name : null}) }
                                     }
                                     FieldLabel { text: qsTr("原记录时间") }
-                                    StyledTextField { objectName: "importSourceRecordedAt"; Layout.fillWidth: true; text: dialog.value("source_recorded_at"); placeholderText: "yyyy-MM-dd HH:mm:ss"; onEditingFinished: dialog.edit("source_recorded_at", text.trim() || null) }
+                                    CandidateField { objectName: "importSourceRecordedAt"; Layout.fillWidth: true; storedText: dialog.value("source_recorded_at"); placeholderText: "yyyy-MM-dd HH:mm:ss"; onEditingFinished: dialog.edit("source_recorded_at", text.trim() || null) }
                                     Text { textFormat: Text.PlainText; Layout.columnSpan: 2; Layout.fillWidth: true; text: qsTr("此时间按所选地区的时区读取，不代表实际匹配、进本或结束时间。"); color: Theme.textMuted; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap }
                                     FieldLabel { text: qsTr("结果") }
                                     StyledComboBox { objectName: "importResult"; Layout.fillWidth: true; model: dialog.resultOptions; textRole: "text"; currentIndex: dialog.optionIndex(model, "value", dialog.candidate.result || "COMPLETED"); onActivated: function(index) { dialog.edit("result", model[index].value) } }
@@ -1038,14 +1086,14 @@ Dialog {
                                 GridLayout {
                                     Layout.fillWidth: true; visible: dialog.showGameFacts; columns: 2; columnSpacing: 8; rowSpacing: 8
                                     FieldLabel { text: qsTr("匹配时间") }
-                                    StyledTextField { Layout.fillWidth: true; text: dialog.value("matched_at_utc"); placeholderText: qsTr("例如 2026-10-08 18:00"); onEditingFinished: dialog.edit("matched_at_utc", text.trim() || null) }
+                                    CandidateField { Layout.fillWidth: true; storedText: dialog.value("matched_at_utc"); placeholderText: qsTr("例如 2026-10-08 18:00"); onEditingFinished: dialog.edit("matched_at_utc", text.trim() || null) }
                                     FieldLabel { text: qsTr("进本时间") }
-                                    StyledTextField { Layout.fillWidth: true; text: dialog.value("entered_at_utc"); placeholderText: qsTr("例如 2026-10-08 18:00"); onEditingFinished: dialog.edit("entered_at_utc", text.trim() || null) }
+                                    CandidateField { Layout.fillWidth: true; storedText: dialog.value("entered_at_utc"); placeholderText: qsTr("例如 2026-10-08 18:00"); onEditingFinished: dialog.edit("entered_at_utc", text.trim() || null) }
                                     FieldLabel { text: qsTr("结束时间") }
-                                    StyledTextField { Layout.fillWidth: true; text: dialog.value("ended_at_utc"); placeholderText: qsTr("例如 2026-10-08 18:00"); onEditingFinished: dialog.edit("ended_at_utc", text.trim() || null) }
+                                    CandidateField { Layout.fillWidth: true; storedText: dialog.value("ended_at_utc"); placeholderText: qsTr("例如 2026-10-08 18:00"); onEditingFinished: dialog.edit("ended_at_utc", text.trim() || null) }
                                     Text { textFormat: Text.PlainText; Layout.columnSpan: 2; Layout.fillWidth: true; text: qsTr("未标注时区的时间按所选地区读取；也可填写带 Z 或 +08:00 的时间，例如 2026-10-08T18:00:00+08:00。不知道的时间可以留空。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(11); wrapMode: Text.WordWrap }
                                     FieldLabel { text: qsTr("耗时（毫秒）") }
-                                    StyledTextField { Layout.fillWidth: true; text: dialog.value("duration_ms"); placeholderText: qsTr("未知可留空"); onEditingFinished: dialog.edit("duration_ms", text.trim().length ? Number(text) : null) }
+                                    CandidateField { Layout.fillWidth: true; storedText: dialog.value("duration_ms"); placeholderText: qsTr("未知可留空"); onEditingFinished: dialog.edit("duration_ms", text.trim().length ? Number(text) : null) }
                                 }
                                 Rectangle { Layout.fillWidth: true; Layout.preferredHeight: incompleteHint.implicitHeight + 18; color: Theme.insetBackground; radius: Theme.radiusS
                                     Text { textFormat: Text.PlainText; id: incompleteHint; anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 9; text: qsTr("确认是自己的指导者任务并核对结果后，通关才会计入成就。游戏时间和耗时不知道可以留空，以后再补，不影响已确认的通关计数。"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12); wrapMode: Text.WordWrap }
@@ -1079,14 +1127,15 @@ Dialog {
                         checked: dialog.controller ? dialog.controller.deductFromBaseline : false
                         enabled: !dialog.inputLocked
                         text: qsTr("已包含：按区服扣除已计入的次数")
-                        onPicked: if (dialog.controller) dialog.controller.deductFromBaseline = true
+                        // A chip takes no focus: what an editor still holds is saved first (L2-1).
+                        onPicked: { dialog.flushEditors(); if (dialog.controller) dialog.controller.deductFromBaseline = true }
                     }
                     PickChip {
                         objectName: "importBaselineKeep"
                         checked: dialog.controller ? !dialog.controller.deductFromBaseline : false
                         enabled: !dialog.inputLocked
                         text: qsTr("未包含：照常加在起始次数之上")
-                        onPicked: if (dialog.controller) dialog.controller.deductFromBaseline = false
+                        onPicked: { dialog.flushEditors(); if (dialog.controller) dialog.controller.deductFromBaseline = false }
                     }
                 }
                 Repeater {
@@ -1175,7 +1224,7 @@ Dialog {
         RowLayout {
             visible: timeZonePreset.currentIndex === dialog.timeZoneOptions.length - 1
             Text { textFormat: Text.PlainText; text: qsTr("自定义时区"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
-            StyledTextField { objectName: "importTimeZone"; Layout.fillWidth: true; Layout.preferredWidth: 130; enabled: !dialog.inputLocked; text: dialog.controller ? dialog.controller.timeZone : "+08:00"; placeholderText: qsTr("例如 +05:30"); onEditingFinished: if (dialog.controller) dialog.controller.timeZone = text.trim(); Accessible.name: qsTr("自定义原记录时区") }
+            CandidateField { objectName: "importTimeZone"; Layout.fillWidth: true; Layout.preferredWidth: 130; enabled: !dialog.inputLocked; storedText: dialog.controller ? dialog.controller.timeZone : "+08:00"; placeholderText: qsTr("例如 +05:30"); onEditingFinished: if (dialog.controller) dialog.controller.timeZone = text.trim(); Accessible.name: qsTr("自定义原记录时区") }
         }
     }
     Shortcut {

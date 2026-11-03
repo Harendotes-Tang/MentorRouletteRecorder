@@ -179,6 +179,17 @@ public sealed partial class CalibrationObserver
     private readonly Dictionary<MessageKey, int> _outside = new();
     private readonly Dictionary<MessageKey, int> _retiredOnce = new();
     private readonly Dictionary<(PacketDirection, ushort), int> _opcodeCounts = new();
+
+    /// <summary>
+    /// Occurrences per direction and opcode in the capture session being observed, emptied when the
+    /// next session is adopted. <see cref="_opcodeCounts"/> spans the evidence's whole life and feeds
+    /// the report; the "seen more than <see cref="CalibrationDraft.MaxCandidateOccurrences"/> times"
+    /// tests are of one session (docs/protocol-profile-format.md §11.3; audit 2026-11-03, C-4).
+    /// </summary>
+    private readonly Dictionary<(PacketDirection, ushort), int> _sessionOpcodeCounts = new();
+
+    /// <summary>Shapes some single session saw more often than a queue request ever is; carried with the evidence.</summary>
+    private readonly HashSet<(PacketDirection, ushort)> _frequent = new();
     private readonly Dictionary<ushort, int> _jobViolations = new();
     private readonly Dictionary<ushort, long> _latestJobValues = new();
     private readonly HashSet<ushort> _replyOpcodes = new();
@@ -252,6 +263,7 @@ public sealed partial class CalibrationObserver
         var key = new MessageKey(direction, message.Opcode, payload.Length);
 
         Count(_opcodeCounts, (direction, message.Opcode), MaxOpcodeCounts);
+        CountInSession((direction, message.Opcode));
 
         if (!TryGetConnection(message.CaptureSessionId, message.ConnectionKey, out var connection))
         {
@@ -306,6 +318,7 @@ public sealed partial class CalibrationObserver
         _sessions.Count + _adoptedSessions)
     {
         PopShapeSeen = _popShapeSeen,
+        FrequentOpcodes = new HashSet<(PacketDirection, ushort)>(_frequent),
         RetiredOnceCounts = new Dictionary<MessageKey, int>(_retiredOnce),
         LatestJobValues = new Dictionary<ushort, long>(_latestJobValues),
         PopRefusals = new Dictionary<(ushort, string), int>(_popRefusals),
@@ -353,7 +366,12 @@ public sealed partial class CalibrationObserver
     public void AdoptSession(string captureSessionId, bool preservePlayerJob = true)
     {
         ArgumentException.ThrowIfNullOrEmpty(captureSessionId);
-        _sessions.Add(captureSessionId);
+        if (_sessions.Add(captureSessionId))
+        {
+            // The frequency gates are of one session; what an earlier one found frequent stays so.
+            _sessionOpcodeCounts.Clear();
+        }
+
         if (!preservePlayerJob)
         {
             _latestJobValues.Clear();
@@ -492,6 +510,7 @@ public sealed partial class CalibrationObserver
         _nextClusterIndex = carried.Clusters.Count == 0 ? 0 : carried.Clusters.Max(cluster => cluster.Index) + 1;
         Merge(_outside, carried.OutsideCounts);
         Merge(_opcodeCounts, carried.OpcodeCounts);
+        _frequent.UnionWith(carried.FrequentOpcodes.Take(MaxOpcodeCounts));
         Merge(_jobViolations, carried.JobViolations);
         Merge(_popRefusals, carried.PopRefusals);
         Merge(_finderLengths, carried.FinderLengths);
@@ -560,6 +579,27 @@ public sealed partial class CalibrationObserver
         connection = new Connection(tag, sessionId);
         _connections.Add(tag, connection);
         return true;
+    }
+
+    /// <summary>
+    /// Counts one message in <see cref="_sessionOpcodeCounts"/> and marks its shape frequent once this
+    /// session alone has seen it more often than a queue request ever is. A full table counts nothing
+    /// new: the lifetime table beside it already reports that as an overflow.
+    /// </summary>
+    /// <param name="key">Direction and opcode of the message.</param>
+    private void CountInSession((PacketDirection, ushort) key)
+    {
+        var count = _sessionOpcodeCounts.GetValueOrDefault(key);
+        if (count == 0 && _sessionOpcodeCounts.Count >= MaxOpcodeCounts)
+        {
+            return;
+        }
+
+        _sessionOpcodeCounts[key] = ++count;
+        if (count > CalibrationDraft.MaxCandidateOccurrences && _frequent.Count < MaxOpcodeCounts)
+        {
+            _frequent.Add(key);
+        }
     }
 
     private void Count<TKey>(Dictionary<TKey, int> table, TKey key, int capacity)
@@ -1264,11 +1304,9 @@ public sealed partial class CalibrationObserver
         }
     }
 
-    /// <summary>True for a client opcode seen more often than a queue request ever is.</summary>
+    /// <summary>True for a client opcode some single capture session saw more often than a queue request ever is.</summary>
     /// <param name="opcode">Client opcode.</param>
-    private bool Chatty(ushort opcode) =>
-        _opcodeCounts.TryGetValue((PacketDirection.ClientToServer, opcode), out var count) &&
-        count > CalibrationDraft.MaxCandidateOccurrences;
+    private bool Chatty(ushort opcode) => _frequent.Contains((PacketDirection.ClientToServer, opcode));
 
     /// <summary>
     /// Counts server messages of ANY length that carry, at the template's roulette offset, an id

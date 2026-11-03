@@ -122,6 +122,172 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         Assert.NotEqual(CalibrationState.Ready, restarted.Snapshot().State);
     }
 
+    /// <summary>
+    /// Audit 2026-11-03, C-2. A pop opcode the traffic itself disproved stays refused when 清空校准进度
+    /// is pressed after a restart, exactly as it does within one run
+    /// (<c>CalibrationVerdictTests.ObservingAgainKeepsWhatTheTrafficDisproved</c>). The file kept it in
+    /// one list with what the player rejected, and a restarted Collector could not tell the two apart.
+    /// </summary>
+    [Fact]
+    public void APopOpcodeTheTrafficDisprovedSurvivesARestartAndObservingAgain()
+    {
+        var template = CalibrationObserverTests.Template();
+        var traffic = CalibrationTrafficCases.Traffic(CalibrationTrafficCases.MarkerOffset);
+        var coordinator = new CalibrationCoordinator();
+        coordinator.Arm(template, Region.Cn, Build);
+        coordinator.Begin(FirstSession);
+        foreach (var message in traffic)
+        {
+            coordinator.Accept(message);
+        }
+
+        Assert.Equal(CalibrationMatchSource.MarkerOffset, coordinator.CurrentDraft()!.MatchSource);
+        coordinator.RejectPopOpcode(CalibrationTrafficCases.Announce);
+        coordinator.Stop();
+        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, coordinator.Evidence()!));
+
+        var restarted = new CalibrationCoordinator();
+        restarted.Arm(template, Region.Cn, Build);
+        restarted.Carry(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha));
+        restarted.Begin(FirstSession);
+        restarted.Discard(FirstSession);
+        foreach (var message in traffic)
+        {
+            restarted.Accept(message);
+        }
+
+        Assert.NotEqual(CalibrationMatchSource.MarkerOffset, restarted.CurrentDraft()!.MatchSource);
+    }
+
+    /// <summary>
+    /// Re-review 2026-11-03, RV1-3. The same, when 清空校准进度 is pressed before any session has begun: the
+    /// Collector started in the tray with the game closed, calibration armed from the remembered install and
+    /// the evidence carried but not yet adopted. The discard drops that evidence unread; what the traffic
+    /// disproved must already have been kept.
+    /// </summary>
+    [Fact]
+    public void APopOpcodeTheTrafficDisprovedSurvivesObservingAgainBeforeAnySessionBegins()
+    {
+        var template = CalibrationObserverTests.Template();
+        var traffic = CalibrationTrafficCases.Traffic(CalibrationTrafficCases.MarkerOffset);
+        var coordinator = new CalibrationCoordinator();
+        coordinator.Arm(template, Region.Cn, Build);
+        coordinator.Begin(FirstSession);
+        foreach (var message in traffic)
+        {
+            coordinator.Accept(message);
+        }
+
+        coordinator.RejectPopOpcode(CalibrationTrafficCases.Announce);
+        coordinator.Stop();
+        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, coordinator.Evidence()!));
+
+        var restarted = new CalibrationCoordinator();
+        restarted.Arm(template, Region.Cn, Build);
+        restarted.Carry(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha));
+        restarted.Discard(null);
+        restarted.Begin(FirstSession);
+        foreach (var message in traffic)
+        {
+            restarted.Accept(message);
+        }
+
+        Assert.NotEqual(CalibrationMatchSource.MarkerOffset, restarted.CurrentDraft()!.MatchSource);
+    }
+
+    /// <summary>
+    /// Re-review 2026-11-03, RV6-1. 清空校准进度 deletes the evidence file, and with no session running nothing wrote
+    /// the disproved opcodes back: quitting, a reboot or a re-arm before the next session forgot them. What the pipeline
+    /// now writes after the discard holds them, and nothing else of the discarded evidence.
+    /// </summary>
+    [Fact]
+    public void WhatTheDiscardLeavesOnDiskKeepsTheDisprovedOpcodesAcrossTheNextRestart()
+    {
+        var template = CalibrationObserverTests.Template();
+        var traffic = CalibrationTrafficCases.Traffic(CalibrationTrafficCases.MarkerOffset);
+        var coordinator = new CalibrationCoordinator();
+        coordinator.Arm(template, Region.Cn, Build);
+        coordinator.Begin(FirstSession);
+        foreach (var message in traffic)
+        {
+            coordinator.Accept(message);
+        }
+
+        coordinator.RejectPopOpcode(CalibrationTrafficCases.Announce);
+        coordinator.Stop();
+        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, coordinator.Evidence()!));
+
+        // The Collector restarts with the game closed, and the player presses 清空校准进度 before any session.
+        var discarding = new CalibrationCoordinator();
+        discarding.Arm(template, Region.Cn, Build);
+        discarding.Carry(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha));
+        discarding.Discard(null);
+        Assert.Null(discarding.Evidence());
+        // What the pipeline does: delete the file, then write what the coordinator says must stay.
+        CalibrationEvidenceStore.Delete(_root, Region.Cn, Build);
+        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, discarding.DisprovedOnly()!));
+        var kept = CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha)!;
+        Assert.Equal(0, kept.MessagesSeen);
+        Assert.Empty(kept.Pairs);
+        Assert.Empty(kept.Clusters);
+        Assert.Empty(kept.FrequentOpcodes);
+        Assert.Equal(new HashSet<ushort> { CalibrationTrafficCases.Announce }, kept.Rejections.PopOpcodes);
+        Assert.Equal(new HashSet<ushort> { CalibrationTrafficCases.Announce }, kept.Rejections.DisprovedPopOpcodes);
+
+        // And the Collector restarts again before any session began - where the player may press 清空 once more.
+        var third = new CalibrationCoordinator();
+        third.Arm(template, Region.Cn, Build);
+        third.Carry(CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha));
+        third.Discard(null);
+        third.Begin(FirstSession);
+        foreach (var message in traffic)
+        {
+            third.Accept(message);
+        }
+
+        Assert.NotEqual(CalibrationMatchSource.MarkerOffset, third.CurrentDraft()!.MatchSource);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-03, C-4. The frequency gates count one session at a time now, so what an earlier
+    /// session found to be ordinary traffic is kept with the evidence: after a restart, the movement
+    /// packet is still not the queue before the new session has counted it past the ceiling again.
+    /// </summary>
+    [Fact]
+    public void AnOpcodeOneSessionSawTooOftenStaysTooFrequentAfterARestart()
+    {
+        const ushort movement = 0xD001;
+        const string afterRestart = "after-restart";
+        var chatter = Enumerable.Range(0, CalibrationDraft.MaxCandidateOccurrences + 1)
+            .Select(index => CalibrationObserverTests.Message(
+                MessageDirection.Outbound, movement, CalibrationObserverTests.Bytes(24, (0, 200)), 10_000 + index * 20));
+        Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha,
+            Observe(CalibrationObserverTests.Cluster(5_000, 5000).Concat(chatter))));
+        var carried = CalibrationEvidenceStore.Load(_root, Region.Cn, Build, TemplateSha)!;
+        Assert.Contains((PacketDirection.ClientToServer, movement), carried.FrequentOpcodes);
+
+        var observer = new CalibrationObserver(CalibrationObserverTests.Template(), Region.Cn, afterRestart);
+        observer.AdoptEvidence(carried);
+        // The next evening's first queue, with a movement packet carrying the queued roulette between
+        // the request and its echo; nothing has paired yet, so no request opcode is dominant.
+        foreach (var message in new[]
+                 {
+                     CalibrationObserverTests.Message(
+                         MessageDirection.Outbound, CalibrationTrafficCases.Request, CalibrationObserverTests.Bytes(24, (0, 2)), 300_000),
+                     CalibrationObserverTests.Message(
+                         MessageDirection.Outbound, movement, CalibrationObserverTests.Bytes(24, (0, 2)), 300_050),
+                     CalibrationObserverTests.Message(
+                         MessageDirection.Inbound, CalibrationTrafficCases.Reply,
+                         CalibrationObserverTests.Bytes(40, (9, 5), (16, 2)), 300_120),
+                 })
+        {
+            observer.Accept(message with { CaptureSessionId = afterRestart });
+        }
+
+        var pair = Assert.Single(observer.Snapshot().Pairs);
+        Assert.Equal(CalibrationTrafficCases.Request, pair.RequestOpcode);
+    }
+
     /// <summary>Every kind of rejection reads back as it was written; a file without any reads as none.</summary>
     [Fact]
     public void RejectionsRoundTripThroughTheFile()
@@ -139,6 +305,7 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
             Requests = new HashSet<DateTimeOffset> { at },
             Entries = new HashSet<DateTimeOffset> { at.AddMinutes(1) },
             Exits = new HashSet<DateTimeOffset> { at.AddMinutes(2) },
+            DisprovedPopOpcodes = new HashSet<ushort> { 0xC002 },
         };
         var plain = Observe(CalibrationObserverTests.Session1());
         Assert.True(CalibrationEvidenceStore.Save(_root, Region.Cn, Build, TemplateSha, plain));
@@ -158,6 +325,7 @@ public sealed class CalibrationEvidenceStoreTests : IDisposable
         Assert.Equal(rejections.Requests, read.Requests);
         Assert.Equal(rejections.Entries, read.Entries);
         Assert.Equal(rejections.Exits, read.Exits);
+        Assert.Equal(rejections.DisprovedPopOpcodes, read.DisprovedPopOpcodes);
     }
 
     [Fact]

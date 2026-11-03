@@ -33,7 +33,8 @@ Usage:
     python tools/duty-data-generator/generate.py --add-party-size data/duties/cn.2026-09-04.json
         # add party_size to an existing file, pinned to the game version it was built from
     python tools/duty-data-generator/generate.py --add-name-preferences data/duties/cn.2026-09-04.json
-        # add reviewed name-resolution preferences without changing existing duty facts
+        # add reviewed name-resolution preferences without changing existing duty facts;
+        # a TC file is handled offline against its own rows (with_tc_name_preferences)
     python tools/duty-data-generator/generate.py --game-names [--version 2026-10-15] [--dry-run]
         # zh-TW / en / ja names into data/i18n, pinned to the duty file's game version
     python tools/duty-data-generator/generate.py --tc-catalogues --version 2026-10-24
@@ -438,6 +439,52 @@ def with_name_preferences(document, english_rows, source):
     return dict(document, provenance=provenance, duties=duties)
 
 
+TC_NAME_MATCHING_BASIS = (
+    "Content ids reviewed against XIVAPI for the CN/GLOBAL tables (NAME_MATCHING_PREFERENCES); "
+    "a content id is the same duty on every service. The TC export carries no English name or "
+    "MentorRoulette flag to review again, so each rule was applied offline only after the TC rows "
+    "were checked: both enabled, one shared localized name, the same required level, two territories."
+)
+
+
+def with_tc_name_preferences(document):
+    """Apply the reviewed name preferences to a TC duty document, offline (audit 2026-11-03 H2-6).
+
+    TC lists 69 and 944 under one name, so without the preference a TC record named that way
+    resolves to no duty. A rule applies only while the TC pair still looks like the reviewed one;
+    a pair the export lacks is left alone, and a pair that no longer matches is refused for review.
+    Row order, every other field and the rest of the provenance stay as they are.
+    """
+    rows = {row.get("content_id"): row for row in document.get("duties") or []}
+    applied = {}
+    for preferred, duplicate in NAME_MATCHING_PREFERENCES.items():
+        pair = [rows.get(preferred), rows.get(duplicate)]
+        if pair[0] is None or pair[1] is None:
+            continue
+        names = [row.get("localized_name") for row in pair]
+        if (any(row.get("enabled") is not True for row in pair)
+                or not all(isinstance(name, str) and name.strip() for name in names)
+                or names[0].strip() != names[1].strip()
+                or pair[0].get("level") != pair[1].get("level")
+                or pair[0].get("territory_id") == pair[1].get("territory_id")):
+            raise ValueError("TC rows %d/%d no longer match the reviewed name preference"
+                             % (preferred, duplicate))
+        applied[preferred] = duplicate
+    duties = []
+    for row in document.get("duties") or []:
+        updated = dict(row)
+        if row.get("content_id") in applied:
+            updated["preferred_for_name_matching"] = True
+        elif row.get("preferred_for_name_matching") is True:
+            raise ValueError("unreviewed preferred_for_name_matching at row %s"
+                             % row.get("content_id"))
+        duties.append(updated)
+    provenance = dict(document.get("provenance") or {})
+    provenance["name_matching"] = {"basis": TC_NAME_MATCHING_BASIS,
+                                   "rules": preference_rules(applied)}
+    return dict(document, provenance=provenance, duties=duties)
+
+
 def add_name_preferences_to_files(paths, raw_dir, game_version=None, *, dry_run=False):
     """Backfill at each file's original game version, validating all files before writing."""
     try:
@@ -445,6 +492,12 @@ def add_name_preferences_to_files(paths, raw_dir, game_version=None, *, dry_run=
         for path in paths:
             with io.open(path, "r", encoding="utf-8") as handle:
                 document = json.load(handle)
+            if document.get("region") == "TC":
+                # Built from the TC client export, not XIVAPI: checked offline against its own rows.
+                if game_version is not None:
+                    raise ValueError("%s is a TC table; --game-version does not apply" % path)
+                documents.append((path, document, None))
+                continue
             pinned = (document.get("provenance") or {}).get("xivapi_game_version")
             if not isinstance(pinned, str) or not pinned:
                 raise ValueError("%s records no xivapi_game_version" % path)
@@ -454,7 +507,7 @@ def add_name_preferences_to_files(paths, raw_dir, game_version=None, *, dry_run=
             documents.append((path, document, pinned))
         fetched = {}
         for _, _, pinned in documents:
-            if pinned not in fetched:
+            if pinned is not None and pinned not in fetched:
                 rows, urls, digest, api_version = fetch_english_rows(raw_dir, pinned)
                 if api_version != pinned:
                     raise ValueError("asked XIVAPI for game version %s, got %s"
@@ -463,7 +516,8 @@ def add_name_preferences_to_files(paths, raw_dir, game_version=None, *, dry_run=
                 fetched[pinned] = (rows, {"fields": XIVAPI_FIELDS,
                     "fetched_at_utc": utc_timestamp(), "xivapi_game_version": api_version,
                     "xivapi_urls": urls, "xivapi_sha256": digest})
-        updated = [(path, with_name_preferences(document, *fetched[pinned]))
+        updated = [(path, with_tc_name_preferences(document) if pinned is None
+                        else with_name_preferences(document, *fetched[pinned]))
                    for path, document, pinned in documents]
     except (urllib.error.URLError, ValueError, OSError, TypeError, AttributeError) as error:
         print("FAILED to add name preferences: %s" % error, file=sys.stderr)
@@ -856,6 +910,7 @@ def run_tc_catalogues(args, raw_dir, version):
             tc_catalog.REPOSITORY, args.tc_ref, tc_catalog.SHEETS, raw_dir)
         timestamp = args.tc_fetched_at or utc_timestamp()
         duties, roulettes = tc_catalog.build_catalogues(texts, fetched, version, timestamp)
+        duties = with_tc_name_preferences(duties)
     except (urllib.error.URLError, ValueError, OSError, http.client.HTTPException, KeyError,
             TypeError, AttributeError, csv.Error) as error:
         print("FAILED to generate TC catalogues: %s" % error, file=sys.stderr)

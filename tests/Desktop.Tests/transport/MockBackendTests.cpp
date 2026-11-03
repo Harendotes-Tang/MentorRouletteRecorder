@@ -727,22 +727,26 @@ private Q_SLOTS:
     }
 
     // OJ-6: StatisticsRepository.BuildDashboard - leave_rate counts
-    // LEFT_OR_ABANDONED among the attempts only.
+    // LEFT_OR_ABANDONED among the attempts only. A run without an entry time is an
+    // attempt by its result (D1-2, audit 2026-11-03); 进本前取消 never is.
     void theLeaveRateCountsOnlyRunsThatEnteredADuty()
     {
         mr::MockBackend backend;
         backend.resetRuns(QJsonArray{
             autoRun(QStringLiteral("11111111-1111-4111-8111-111111111111"), QStringLiteral("COMPLETED"), true),
             autoRun(QStringLiteral("22222222-2222-4222-8222-222222222222"), QStringLiteral("LEFT_OR_ABANDONED"), true),
-            autoRun(QStringLiteral("33333333-3333-4333-8333-333333333333"), QStringLiteral("LEFT_OR_ABANDONED"), false)});
+            autoRun(QStringLiteral("33333333-3333-4333-8333-333333333333"), QStringLiteral("LEFT_OR_ABANDONED"), false),
+            autoRun(QStringLiteral("44444444-4444-4444-8444-444444444444"), QStringLiteral("CANCELLED_BEFORE_ENTRY"), false)});
         const QJsonObject stats = backend.dashboardStats({});
-        QCOMPARE(stats.value(QStringLiteral("attempt_count")).toInt(), 2);
-        QCOMPARE(stats.value(QStringLiteral("leave_rate")).toDouble(), 0.5);
+        QCOMPARE(stats.value(QStringLiteral("attempt_count")).toInt(), 3);
+        QCOMPARE(stats.value(QStringLiteral("leave_rate")).toDouble(), 2.0 / 3.0);
     }
 
     // OJ-6: RunMutationService.ApplyChangeSet moves territory_id with the
     // content_id, and RunMutationRules.ValidateFinalValue refuses a record that
-    // cannot exist and derives the duration when an end point moved.
+    // cannot exist and derives the duration when an end point moved. Since
+    // 1d16faa a record may lose its entry or end time whatever its result; the
+    // duration then becomes unknown (docs/manual-correction.md §7).
     void aCorrectionIsCheckedAsAWholeLikeTheCollectorDoes()
     {
         mr::MockBackend backend;
@@ -762,11 +766,6 @@ private Q_SLOTS:
         QCOMPARE(correct(backend, runId, {{QStringLiteral("matched_at_utc"),
                                            QStringLiteral("2026-09-02T12:05:00.000Z")}}).code,
                  QStringLiteral("ERR_TIME_ORDER"));
-        QCOMPARE(correct(backend, runId, {{QStringLiteral("ended_at_utc"), QJsonValue(QJsonValue::Null)}}).code,
-                 QStringLiteral("ERR_BAD_REQUEST"));
-        QCOMPARE(correct(backend, runId, {{QStringLiteral("result"), QStringLiteral("LEFT_OR_ABANDONED")},
-                                          {QStringLiteral("entered_at_utc"), QJsonValue(QJsonValue::Null)}}).code,
-                 QStringLiteral("ERR_BAD_REQUEST"));
         QCOMPARE(correct(backend, runId, {{QStringLiteral("duration_ms"), -1.0}}).code,
                  QStringLiteral("ERR_NEGATIVE_DURATION"));
 
@@ -775,6 +774,96 @@ private Q_SLOTS:
         QVERIFY(shorter.ok);
         QCOMPARE(shorter.payload.value(QStringLiteral("run")).toObject()
                      .value(QStringLiteral("duration_ms")).toDouble(), 600000.0);
+
+        const Answer endless = correct(backend, runId, {{QStringLiteral("ended_at_utc"), QJsonValue(QJsonValue::Null)}});
+        QVERIFY2(endless.ok, qPrintable(endless.message));
+        QCOMPARE(endless.payload.value(QStringLiteral("run")).toObject()
+                     .value(QStringLiteral("result")).toString(), QStringLiteral("COMPLETED"));
+        QVERIFY(endless.payload.value(QStringLiteral("run")).toObject()
+                    .value(QStringLiteral("duration_ms")).isNull());
+        const Answer entryless = correct(backend, runId, {{QStringLiteral("result"), QStringLiteral("LEFT_OR_ABANDONED")},
+                                                          {QStringLiteral("entered_at_utc"), QJsonValue(QJsonValue::Null)}});
+        QVERIFY2(entryless.ok, qPrintable(entryless.message));
+        QVERIFY(entryless.payload.value(QStringLiteral("run")).toObject()
+                    .value(QStringLiteral("entered_at_utc")).isNull());
+    }
+
+    // D1-3 (audit 2026-11-03): RunMutationRules.ValidateFinalValue also refuses a record that
+    // ends before it was matched, which the two other ordering rules miss without an entry
+    // time - whether a hand-entered record, a correction or an undo would store it.
+    void aRecordThatEndsBeforeItWasMatchedIsRefusedLikeTheCollectorDoes()
+    {
+        const QString refusal = collectorChinese("mutation.matched_after_ended");
+        QVERIFY(!refusal.isEmpty());
+        mr::MockBackend backend;
+        const Answer created = ask(backend, QStringLiteral("CreateManualRun"), {
+            {QStringLiteral("matched_at_utc"), QStringLiteral("2026-09-02T12:00:00.000Z")},
+            {QStringLiteral("ended_at_utc"), QStringLiteral("2026-09-02T11:59:00.000Z")},
+            {QStringLiteral("result"), QStringLiteral("COMPLETED")},
+            {QStringLiteral("reason"), QString::fromUtf8("补录")}});
+        QCOMPARE(created.code, QStringLiteral("ERR_TIME_ORDER"));
+        QCOMPARE(created.message, refusal);
+
+        const QString runId = createManualRun(backend);
+        QVERIFY(!runId.isEmpty());
+        const Answer corrected = correct(backend, runId, {
+            {QStringLiteral("entered_at_utc"), QJsonValue(QJsonValue::Null)},
+            {QStringLiteral("ended_at_utc"), QStringLiteral("2026-09-02T11:59:00.000Z")}});
+        QCOMPARE(corrected.code, QStringLiteral("ERR_TIME_ORDER"));
+        QCOMPARE(corrected.message, refusal);
+
+        // A record stored before the rule existed: matched 12:00, no entry, ended 11:50.
+        QJsonObject legacy = autoRun(QStringLiteral("11111111-1111-4111-8111-111111111111"),
+                                     QStringLiteral("CANCELLED_BEFORE_ENTRY"), false);
+        legacy.insert(QStringLiteral("ended_at_utc"), QStringLiteral("2026-09-01T11:50:00.000Z"));
+        backend.resetRuns(QJsonArray{legacy});
+        const QString legacyId = legacy.value(QStringLiteral("run_id")).toString();
+        const Answer repaired = correct(backend, legacyId, {{QStringLiteral("ended_at_utc"),
+                                                            QStringLiteral("2026-09-01T12:10:00.000Z")}});
+        QVERIFY2(repaired.ok, qPrintable(repaired.code + QLatin1Char(' ') + repaired.message));
+        const Answer undone = ask(backend, QStringLiteral("UndoRevision"),
+                                  {{QStringLiteral("run_id"), legacyId},
+                                   {QStringLiteral("expected_revision"), 2},
+                                   {QStringLiteral("reason"), QString::fromUtf8("撤销")}});
+        QCOMPARE(undone.code, QStringLiteral("ERR_TIME_ORDER"));
+        QCOMPARE(undone.message, refusal);
+    }
+
+    // D1-2 (audit 2026-11-03): a correction may leave an automatic record without an entry
+    // time too. StatisticsRepository.IsAttempt counts such a record by its result, unless
+    // that is 未知 or 进本前取消, so a completion is always an attempt and completion_rate
+    // stays at most 1.
+    void aCaptureRunCorrectedWithoutAnEntryTimeCountsByItsResult()
+    {
+        mr::MockBackend backend;
+        const QString cancelledA = QStringLiteral("22222222-2222-4222-8222-222222222222");
+        const QString cancelledB = QStringLiteral("33333333-3333-4333-8333-333333333333");
+        backend.resetRuns(QJsonArray{
+            autoRun(QStringLiteral("11111111-1111-4111-8111-111111111111"), QStringLiteral("LEFT_OR_ABANDONED"), true),
+            autoRun(cancelledA, QStringLiteral("CANCELLED_BEFORE_ENTRY"), false),
+            autoRun(cancelledB, QStringLiteral("CANCELLED_BEFORE_ENTRY"), false),
+            autoRun(QStringLiteral("44444444-4444-4444-8444-444444444444"), QStringLiteral("CANCELLED_BEFORE_ENTRY"), false)});
+        for (const QString &runId : {cancelledA, cancelledB}) {
+            const Answer corrected = correct(backend, runId, {{QStringLiteral("result"), QStringLiteral("COMPLETED")}});
+            QVERIFY2(corrected.ok, qPrintable(corrected.message));
+            QVERIFY(corrected.payload.value(QStringLiteral("run")).toObject()
+                        .value(QStringLiteral("entered_at_utc")).isNull());
+        }
+
+        const QJsonObject stats = backend.dashboardStats({});
+        QCOMPARE(stats.value(QStringLiteral("completed_count")).toInt(), 2);
+        QCOMPARE(stats.value(QStringLiteral("attempt_count")).toInt(), 3);
+        QCOMPARE(stats.value(QStringLiteral("completion_rate")).toDouble(), 2.0 / 3.0);
+        QCOMPARE(stats.value(QStringLiteral("leave_rate")).toDouble(), 1.0 / 3.0);
+        QCOMPARE(backend.resultStats({}).value(QStringLiteral("attempt_count")).toInt(), 3);
+        const auto attempts = [](const QJsonArray &rows) {
+            int total = 0;
+            for (const auto &row : rows)
+                total += row.toObject().value(QStringLiteral("attempt_count")).toInt();
+            return total;
+        };
+        QCOMPARE(attempts(backend.dungeonStats({})), 3);
+        QCOMPARE(attempts(backend.jobStats({})), 3);
     }
 
     // DT4-X4: RunFilterSql.Build(forStatistics) - an automatic run still in flight
@@ -961,13 +1050,30 @@ private Q_SLOTS:
                  QStringLiteral("ERR_TIME_ORDER"));
         QCOMPARE(refused({{QStringLiteral("matched_at_utc"), QStringLiteral("2026-09-02T12:05:00.000Z")}}),
                  QStringLiteral("ERR_TIME_ORDER"));
-        QCOMPARE(refused({{QStringLiteral("ended_at_utc"), QJsonValue(QJsonValue::Null)}}),
-                 QStringLiteral("ERR_BAD_REQUEST"));
-        QCOMPARE(refused({{QStringLiteral("result"), QStringLiteral("LEFT_OR_ABANDONED")},
-                          {QStringLiteral("entered_at_utc"), QJsonValue(QJsonValue::Null)}}),
-                 QStringLiteral("ERR_BAD_REQUEST"));
         QCOMPARE(refused({{QStringLiteral("duration_ms"), -1.0}}), QStringLiteral("ERR_NEGATIVE_DURATION"));
         QCOMPARE(total(), before + 2);
+
+        // 1d16faa: a hand-entered record keeps its known outcome without recalled times.
+        // The duration stays unknown, and StatisticsRepository.IsAttempt counts the record
+        // by its result (docs/manual-correction.md §7, docs/statistics-definitions.md §2).
+        const QJsonObject statsBefore = backend.dashboardStats({});
+        QJsonObject timeless = request;
+        for (const auto *field : {"matched_at_utc", "entered_at_utc", "ended_at_utc"})
+            timeless.remove(QString::fromLatin1(field));
+        const Answer completed = ask(backend, QStringLiteral("CreateManualRun"), timeless);
+        QVERIFY2(completed.ok, qPrintable(completed.message));
+        QVERIFY(completed.payload.value(QStringLiteral("run")).toObject()
+                    .value(QStringLiteral("duration_ms")).isNull());
+        timeless.insert(QStringLiteral("result"), QStringLiteral("LEFT_OR_ABANDONED"));
+        timeless.insert(QStringLiteral("ended_at_utc"), QStringLiteral("2026-09-02T12:20:00.000Z"));
+        const Answer left = ask(backend, QStringLiteral("CreateManualRun"), timeless);
+        QVERIFY2(left.ok, qPrintable(left.message));
+        QCOMPARE(total(), before + 4);
+        const QJsonObject statsAfter = backend.dashboardStats({});
+        QCOMPARE(statsAfter.value(QStringLiteral("attempt_count")).toInt(),
+                 statsBefore.value(QStringLiteral("attempt_count")).toInt() + 2);
+        QCOMPARE(statsAfter.value(QStringLiteral("completed_count")).toInt(),
+                 statsBefore.value(QStringLiteral("completed_count")).toInt() + 1);
     }
 
     // CS7-D4: RunMutationService.UpdateAchievementBaseline - only a changed baseline moves

@@ -56,6 +56,19 @@ public:
 Q_SIGNALS:
     void changed();
 };
+
+/// The application object as far as the dialog's default region reads it.
+class ImportAppState : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(bool dark MEMBER dark NOTIFY changed)
+    Q_PROPERTY(QString recordRegion MEMBER recordRegion NOTIFY changed)
+public:
+    bool dark = false;
+    QString recordRegion;
+Q_SIGNALS:
+    void changed();
+};
 } // namespace
 
 namespace {
@@ -1841,6 +1854,202 @@ ApplicationWindow {
         QCOMPARE(controller.currentEvidence().value("source_image").toString(), nextImage);
     }
 
+    // Audit 2026-11-03 I3-1: when the first preview of a new batch fails - the service not yet
+    // connected, or no answer - nothing was shown. The recognised cards are no batch to add
+    // to: the same screenshot again is read afresh, and the message never names the
+    // 重新校验 button, which is only on screen with rows.
+    void failedFirstPreviewLeavesNoHiddenBatch()
+    {
+        ScopedImportOcrEnvironment environment;
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        qputenv("LOCALAPPDATA", directory.path().toUtf8());
+        const QString tsvPath = directory.filePath(QStringLiteral("synthetic.tsv"));
+        createFile(tsvPath, syntheticOcrCard());
+        qputenv("MR_TEST_OCR_TSV_FILE", tsvPath.toUtf8());
+        const QString app = installTestWorker(directory);
+        QVERIFY(!app.isEmpty());
+        const QString image = directory.filePath(QStringLiteral("first.png"));
+        QVERIFY(syntheticImportImage().save(image));
+        ImportBackend backend;
+        backend.connected = false;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.setOcrApplicationDirectoryForTesting(app);
+        controller.importFiles({image});
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 10000);
+        QVERIFY(backend.calls.isEmpty());
+        QVERIFY(controller.rows().isEmpty());
+        QVERIFY(!controller.errorText().isEmpty());
+        QVERIFY2(!controller.errorText().contains(QStringLiteral("重新校验")), qPrintable(controller.errorText()));
+
+        backend.connected = true;
+        controller.importFiles({image});
+        QTRY_COMPARE_WITH_TIMEOUT(backend.calls.size(), 1, 10000);
+        QCOMPARE(backend.calls.last().payload.value("rows").toArray().size(), 1);
+        QCOMPARE(backend.calls.last().payload.value("source_name").toString(), QStringLiteral("first.png"));
+        QVERIFY(controller.errorText().isEmpty());
+        backend.calls.last().reply->failTransport(QStringLiteral("ERR_TIMEOUT"), QString());
+        QVERIFY(!controller.busy());
+        QVERIFY(controller.rows().isEmpty());
+        QVERIFY(!controller.errorText().isEmpty());
+        QVERIFY2(!controller.errorText().contains(QStringLiteral("重新校验")), qPrintable(controller.errorText()));
+
+        controller.importFiles({image});
+        QTRY_COMPARE_WITH_TIMEOUT(backend.calls.size(), 2, 10000);
+        QCOMPARE(backend.calls.last().payload.value("rows").toArray().size(), 1);
+        backend.calls.last().reply->succeed(previewCandidates(backend.calls.last().payload.value("rows").toArray(), "fresh"));
+        QVERIFY(controller.previewValid());
+        QCOMPARE(controller.sourceImageCount(), 1);
+        QCOMPARE(controller.rows().size(), 1);
+    }
+
+    // Audit 2026-11-03 I3-4: an import source must sit on this computer's own disks - the
+    // Collector's rule for every other source, with its sentence. A screenshot on a network
+    // drive, or reached through a link that leads onto one, is refused before it is read.
+    void sourcesOutsideTheLocalDisksAreRefusedBeforeTheyAreRead()
+    {
+        ScopedImportOcrEnvironment environment;
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        qputenv("LOCALAPPDATA", directory.path().toUtf8());
+        const QString tsvPath = directory.filePath(QStringLiteral("synthetic.tsv"));
+        createFile(tsvPath, syntheticOcrCard());
+        qputenv("MR_TEST_OCR_TSV_FILE", tsvPath.toUtf8());
+        const QString app = installTestWorker(directory);
+        QVERIFY(!app.isEmpty());
+        const QString share = QDir::cleanPath(directory.filePath(QStringLiteral("share")));
+        const QString local = QDir::cleanPath(directory.filePath(QStringLiteral("local")));
+        QVERIFY(QDir().mkpath(share) && QDir().mkpath(local));
+        const QString shared = share + QStringLiteral("/shared.png");
+        const QString kept = local + QStringLiteral("/kept.png");
+        QVERIFY(syntheticImportImage().save(shared));
+        QVERIFY(syntheticImportImage().save(kept));
+        createFile(share + QStringLiteral("/records.csv"), "副本\n合成副本\n");
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.setOcrApplicationDirectoryForTesting(app);
+        // This folder stands for a network drive: no test machine can be relied on to have one.
+        QStringList asked;
+        controller.setNetworkPathCheckForTesting([&](const QString &path) {
+            asked.append(path);
+            return path.compare(share, Qt::CaseInsensitive) == 0
+                || path.startsWith(share + QLatin1Char('/'), Qt::CaseInsensitive);
+        });
+        const QString refusal = QStringLiteral("只能导入本机磁盘上的文件，不支持网络共享或设备路径。请先把文件复制到本机文件夹再导入。");
+        for (const QString &source : {shared, share + QStringLiteral("/records.csv")}) {
+            controller.importFiles({source});
+            QVERIFY(!controller.busy());
+            QCOMPARE(controller.errorText(), refusal);
+            QCOMPARE(controller.sourceImageCount(), 0);
+            QVERIFY(backend.calls.isEmpty());
+        }
+        QVERIFY(!asked.isEmpty());
+
+        // A junction in an ordinary folder that leads onto the "network drive".
+        const QString link = local + QStringLiteral("/link");
+        const int made = QProcess::execute(QStringLiteral("cmd.exe"), {QStringLiteral("/c"), QStringLiteral("mklink"),
+            QStringLiteral("/J"), QDir::toNativeSeparators(link), QDir::toNativeSeparators(share)});
+        if (made == 0 && QFileInfo(link + QStringLiteral("/shared.png")).exists()) {
+            controller.importFiles({link + QStringLiteral("/shared.png")});
+            QVERIFY(!controller.busy());
+            QCOMPARE(controller.errorText(), refusal);
+            QVERIFY(backend.calls.isEmpty());
+        } else {
+            qWarning("mklink /J is unavailable here; the junction case was not exercised");
+        }
+
+        controller.importFiles({kept}); // The local screenshot beside it is read as before.
+        QTRY_COMPARE_WITH_TIMEOUT(backend.calls.size(), 1, 10000);
+        QCOMPARE(backend.calls.last().payload.value("source_name").toString(), QStringLiteral("kept.png"));
+    }
+
+    // Audit 2026-11-03 H1-1 (decision) and re-review RV3-1: a screenshot names no region. Its cards
+    // are first read as they are - the identity (source_key) an earlier import gave the same card
+    // stays the same - and then take a region through the batch region pick's path. A dlog
+    // screenshot is a CN source, so with the dashboard on 国际服 the cards still take 国服, and only
+    // the region changes: a duty that waits for review keeps its suggestion and its 「副本待复核」
+    // flag. An appended screenshot's cards take it too; the rows already in the batch keep theirs.
+    void screenshotCardsTakeTheDefaultRegion()
+    {
+        ScopedImportOcrEnvironment environment;
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        qputenv("LOCALAPPDATA", directory.path().toUtf8());
+        const QString tsvPath = directory.filePath(QStringLiteral("synthetic.tsv"));
+        createFile(tsvPath, syntheticOcrCard());
+        qputenv("MR_TEST_OCR_TSV_FILE", tsvPath.toUtf8());
+        const QString app = installTestWorker(directory);
+        QVERIFY(!app.isEmpty());
+        const QString image = directory.filePath(QStringLiteral("first.png"));
+        const QString appended = directory.filePath(QStringLiteral("second.png"));
+        QVERIFY(syntheticImportImage().save(image));
+        QVERIFY(syntheticImportImage().save(appended));
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.setOcrApplicationDirectoryForTesting(app);
+        controller.setDefaultRegion(QStringLiteral("GLOBAL"));
+        const auto keyed = [](const QJsonArray &rows, int from) {
+            QJsonArray read;
+            for (int i = 0; i < rows.size(); ++i) {
+                QJsonObject candidate = rows[i].toObject();
+                if (i >= from)
+                    candidate.insert("source_key", QStringLiteral("card-%1").arg(i));
+                read.append(candidate);
+            }
+            return read;
+        };
+        controller.importFiles({image});
+        QTRY_COMPARE_WITH_TIMEOUT(backend.calls.size(), 1, 10000);
+        const QJsonArray cards = backend.calls.last().payload.value("rows").toArray();
+        QCOMPARE(cards.size(), 1);
+        QVERIFY(!cards.first().toObject().contains("region")); // Read as recognised.
+        // The synthetic card's duty title is a near miss of a catalogue name: a suggestion waits for review.
+        const QString suggested = QStringLiteral("天然要害沙斯塔夏溶洞");
+        QCOMPARE(cards.first().toObject().value("duty_name").toString(), suggested);
+        backend.calls.last().reply->succeed(previewCandidates(keyed(cards, 0), "read"));
+        QCOMPARE(backend.calls.size(), 2);
+        QJsonArray picked = backend.calls.last().payload.value("rows").toArray();
+        QCOMPARE(picked.first().toObject().value("region").toString(), QStringLiteral("CN"));
+        QCOMPARE(picked.first().toObject().value("source_key").toString(), QStringLiteral("card-0"));
+        QCOMPARE(picked.first().toObject().value("duty_name").toString(), suggested);
+        backend.calls.last().reply->succeed(previewCandidates(picked, "cn"));
+        QVERIFY(controller.previewValid());
+        QCOMPARE(backend.calls.size(), 2);
+        QCOMPARE(controller.currentCandidate().value("region").toString(), QStringLiteral("CN"));
+        QCOMPARE(controller.currentCandidate().value("duty_name").toString(), suggested);
+        QVERIFY(controller.currentEvidence().value("duty_candidate_pending").toBool()); // 「副本待复核」 stays.
+        QCOMPARE(controller.currentEvidence().value("duty_candidate_name").toString(), suggested);
+        QCOMPARE(controller.selectedCount(), 0); // Screenshot rows are still only ever ticked by the user.
+
+        // The user sets the first card to 未知区服; adding a screenshot leaves that choice alone.
+        controller.updateCandidate(0, {{"region", "UNKNOWN"}});
+        controller.revalidate();
+        backend.calls.last().reply->succeed(previewCandidates(backend.calls.last().payload.value("rows").toArray(), "unknown"));
+        QVERIFY(controller.previewValid());
+        const qsizetype beforeAppend = backend.calls.size();
+        controller.importFiles({appended});
+        QTRY_COMPARE_WITH_TIMEOUT(backend.calls.size(), beforeAppend + 1, 10000);
+        const QJsonArray withNew = backend.calls.last().payload.value("rows").toArray();
+        QCOMPARE(withNew.size(), 2);
+        QVERIFY(!withNew[1].toObject().contains("region"));
+        backend.calls.last().reply->succeed(previewCandidates(keyed(withNew, 1), "appended"));
+        QCOMPARE(backend.calls.size(), beforeAppend + 2);
+        picked = backend.calls.last().payload.value("rows").toArray();
+        QCOMPARE(picked[0].toObject().value("region").toString(), QStringLiteral("UNKNOWN"));
+        QCOMPARE(picked[1].toObject().value("region").toString(), QStringLiteral("CN"));
+        QCOMPARE(picked[1].toObject().value("source_key").toString(), QStringLiteral("card-1"));
+        QCOMPARE(picked[1].toObject().value("duty_name").toString(), suggested);
+        backend.calls.last().reply->succeed(previewCandidates(picked, "appended-cn"));
+        QVERIFY(controller.previewValid());
+        QCOMPARE(controller.sourceImageCount(), 2);
+        controller.setCurrentRow(1);
+        QVERIFY(controller.currentEvidence().value("duty_candidate_pending").toBool());
+        QCOMPARE(backend.calls.size(), beforeAppend + 2);
+    }
+
     void partialScreenshotCommitKeepsOnlyRemainingEvidenceAndAllowsAppend()
     {
         ScopedImportOcrEnvironment environment;
@@ -3079,6 +3288,120 @@ ApplicationWindow {
         controller.commit();
         QCOMPARE(backend.calls.last().requestId, id);
         QCOMPARE(backend.calls.last().payload, asked);
+    }
+
+    // Audit 2026-11-03 L2-1: what the user is typing survives every re-read of the candidate -
+    // the 已包含 / 未包含 chips, which take no focus, and a dashboard update in the background -
+    // and reaches the candidate when the field is left.
+    void typedTextSurvivesTheBaselineChipsAndBackgroundUpdates()
+    {
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.setBaselineCount(1500);
+        controller.setBaselineLoaded(true);
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        QJsonObject response = preview();
+        QJsonArray rows = response.value("rows").toArray();
+        QJsonObject first = rows[0].toObject();
+        first.insert("run", QJsonObject{{"region", "CN"}, {"result", "COMPLETED"}, {"contributes_to_goal", true},
+                                        {"import_metadata", QJsonObject{{"mentor_confirmed", true}}}});
+        rows[0] = first;
+        response.insert("rows", rows);
+        backend.calls.last().reply->succeed(response);
+        QVERIFY(controller.baselineChoiceOffered());
+        QCOMPARE(controller.currentRow(), 0);
+
+        ImportThemeState theme;
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("ImportRecords"), &controller);
+        engine.rootContext()->setContextProperty(QStringLiteral("App"), &theme);
+        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 1240; height: 800; visible: true
+    ImportRecordsDialog { Component.onCompleted: open() }
+})", QUrl::fromLocalFile(QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/dialogs/ImportTypingProbe.qml")));
+        QTRY_VERIFY_WITH_TIMEOUT(component.status() != QQmlComponent::Loading, 5000);
+        QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(window && QTest::qWaitForWindowExposed(window));
+        auto *dialog = root->findChild<QObject *>(QStringLiteral("importRecordsDialog"));
+        auto *reflection = root->findChild<QQuickItem *>(QStringLiteral("importReflectionText"));
+        auto *keep = root->findChild<QQuickItem *>(QStringLiteral("importBaselineKeep"));
+        auto *recorded = root->findChild<QQuickItem *>(QStringLiteral("importSourceRecordedAt"));
+        QVERIFY(dialog && reflection && keep && recorded);
+        QTRY_VERIFY(keep->isVisible());
+
+        reflection->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(reflection->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+        typeAscii(window, "Corrected while reading");
+        QTRY_COMPARE(reflection->property("text").toString(), QStringLiteral("Corrected while reading"));
+        // A duty ends in the background: the dashboard hands the dialog new figures.
+        controller.setAchievements({QVariantMap{{"region", "CN"}, {"baseline_completed_count", 1500}}});
+        QCOMPARE(reflection->property("text").toString(), QStringLiteral("Corrected while reading"));
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, itemCenter(keep));
+        QTRY_COMPARE(controller.rows()[0].toMap().value("candidate").toMap().value("reflection_text").toString(),
+                     QStringLiteral("Corrected while reading"));
+        QCOMPARE(reflection->property("text").toString(), QStringLiteral("Corrected while reading"));
+        QVERIFY(!controller.deductFromBaseline());
+
+        recorded->forceActiveFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(recorded->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+        typeAscii(window, "2026-10-09 20:15:00");
+        controller.setAchievements({QVariantMap{{"region", "CN"}, {"baseline_completed_count", 1499}}});
+        QCOMPARE(recorded->property("text").toString(), QStringLiteral("2026-10-09 20:15:00"));
+        QVERIFY(QMetaObject::invokeMethod(dialog, "flushEditors"));
+        QTRY_COMPARE(controller.rows()[0].toMap().value("candidate").toMap().value("source_recorded_at").toString(),
+                     QStringLiteral("2026-10-09 20:15:00"));
+        QCOMPARE(recorded->property("text").toString(), QStringLiteral("2026-10-09 20:15:00"));
+        // Switching rows still shows the other row's own values.
+        QVERIFY(QMetaObject::invokeMethod(dialog, "selectRow", Q_ARG(QVariant, QVariant(1))));
+        QTRY_COMPARE(reflection->property("text").toString(), QStringLiteral("合成正文"));
+        QCOMPARE(recorded->property("text").toString(), QStringLiteral("2026-10-08 18:00:00"));
+    }
+
+    // Audit 2026-11-03 H1-1 (decision): the dialog hands the controller the region the
+    // dashboard shows, or 国服 when it shows every region or 未知区服.
+    void dialogDefaultsImportsToTheDashboardRegion()
+    {
+        ImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        ImportAppState app;
+        app.recordRegion = QStringLiteral("TC");
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("ImportRecords"), &controller);
+        engine.rootContext()->setContextProperty(QStringLiteral("App"), &app);
+        engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QQmlComponent component(&engine);
+        component.setData(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 1240; height: 800; visible: true
+    ImportRecordsDialog {}
+})", QUrl::fromLocalFile(QString::fromUtf8(MR_DESKTOP_QML_DIR) + QStringLiteral("/dialogs/ImportRegionProbe.qml")));
+        QTRY_VERIFY_WITH_TIMEOUT(component.status() != QQmlComponent::Loading, 5000);
+        QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root != nullptr, qPrintable(component.errorString()));
+        QTRY_COMPARE(controller.defaultRegion(), QStringLiteral("TC"));
+        for (const auto &[shown, expected] : {std::pair{QStringLiteral(""), QStringLiteral("CN")},
+                                              std::pair{QStringLiteral("UNKNOWN"), QStringLiteral("CN")},
+                                              std::pair{QStringLiteral("GLOBAL"), QStringLiteral("GLOBAL")},
+                                              std::pair{QStringLiteral("CN"), QStringLiteral("CN")}}) {
+            app.recordRegion = shown;
+            Q_EMIT app.changed();
+            QTRY_COMPARE(controller.defaultRegion(), expected);
+        }
     }
 
     void backupAndNativeJsonDefaultToKeepingTheBaseline()

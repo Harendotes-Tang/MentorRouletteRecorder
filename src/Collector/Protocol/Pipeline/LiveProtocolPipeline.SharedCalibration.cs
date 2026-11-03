@@ -661,7 +661,8 @@ public sealed partial class LiveProtocolPipeline
             // calibration is allowed to act on, so nothing disarms it in between.
             _selection = new ProfileSelection(
                 ProfileCompatibilityStatus.Unsupported, ProfileBinding.FailClosed, null,
-                _selection.Region, _selection.GameBuild, ProfileSelector.NoProfileMatchesReason);
+                _selection.Region, _selection.GameBuild, ProfileSelector.NoProfileMatchesReason,
+                ReasonCode: ProfileSelectionReason.NoMatch);
         }
 
         UseCalibrationRole(upgrading: false, retaining: false);

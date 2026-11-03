@@ -228,6 +228,35 @@ void AutomaticRecordingController::observeCapture(const QVariantMap &capture)
     project(capture);
 }
 
+void AutomaticRecordingController::observeStatusWarnings(const QVariantMap &status)
+{
+    static const QString kMismatch = QStringLiteral("capture.game.region_override_mismatch");
+    m_regionMismatchRef.clear();
+    m_regionMismatchText.clear();
+    const QVariantList refs = status.value(QStringLiteral("warning_refs")).toList();
+    const QVariantList texts = status.value(QStringLiteral("warnings")).toList();
+    for (qsizetype i = 0; i < refs.size(); ++i) {
+        if (refs.at(i).toMap().value(QStringLiteral("key")).toString() != kMismatch)
+            continue;
+        m_regionMismatchRef = refs.at(i);
+        // warning_refs parallels warnings; another length is not trusted.
+        if (refs.size() == texts.size())
+            m_regionMismatchText = texts.at(i).toString();
+        return;
+    }
+    // A Collector that sends no warning_refs: its Chinese line, word for word the
+    // catalogue's, is the same sentence and is shown in the interface language.
+    const QVariantMap ref = collector_text::textRef("capture.game.region_override_mismatch");
+    const QString chinese = collector_text::chinese(ref);
+    for (const QVariant &text : texts) {
+        if (!chinese.isEmpty() && text.toString() == chinese) {
+            m_regionMismatchRef = ref;
+            m_regionMismatchText = chinese;
+            return;
+        }
+    }
+}
+
 void AutomaticRecordingController::finishUnknown(const LiveText &message)
 {
     // Missing facts cannot clear an incident, or resurrect a green status.
@@ -343,6 +372,16 @@ void AutomaticRecordingController::readCapture(quint64 generation)
         if (capture.value(QStringLiteral("ffxiv_running")).metaType().id() != QMetaType::Bool) {
             finishUnknown(LiveText([] { return tr("正在获取自动记录状态，请稍候…"); })); return;
         }
+        observeStatusWarnings(p);
+        QVariantMap sections;
+        for (const auto *name : {"npcap", "game"}) {
+            const auto key = QString::fromLatin1(name);
+            if (p.value(key).metaType().id() == QMetaType::QVariantMap)
+                sections.insert(key, p.value(key));
+        }
+        const QPointer<AutomaticRecordingController> guard(this);
+        Q_EMIT statusSectionsRead(sections);
+        if (!guard) return;
         observeCapture(capture);
     });
 }
@@ -422,7 +461,14 @@ void AutomaticRecordingController::project(const QVariantMap &c)
                 return QStringLiteral("build");
             return QStringLiteral("profile:") + profile;
         }();
-        block(session + reason, LiveText([pathUnreadable, regionUnknown, buildUnknown] {
+        const bool regionMismatch = m_regionMismatchRef.isValid() || !m_regionMismatchText.isEmpty();
+        block(session + reason, LiveText([pathUnreadable, regionUnknown, buildUnknown, regionMismatch,
+                                          mismatchRef = m_regionMismatchRef, mismatchText = m_regionMismatchText] {
+            // A manual region chosen for another client contradicts this one's
+            // install path: the Collector's sentence says so and what to change
+            // in 设置; choosing "the actual region" would not explain it.
+            if (regionUnknown && !pathUnreadable && regionMismatch)
+                return collector_text::render(mismatchRef, mismatchText);
             if (regionUnknown && !pathUnreadable)
                 return tr("无法识别游戏区服，暂时不能自动记录。请在「设置 → 通用」中选择实际区服（国服 / 繁中服 / 国际服），保存后会重新检查。");
             if (buildUnknown && !pathUnreadable)

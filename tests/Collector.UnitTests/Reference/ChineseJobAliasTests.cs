@@ -189,5 +189,36 @@ public sealed class ChineseJobAliasTests : IDisposable
         entry.Delete(); using var output = zip.CreateEntry("xl/worksheets/sheet1.xml").Open(); document.Save(output);
     }
 
+    /// <summary>
+    /// Audit 2026-11-03 H2-6. A TC sheet names jobs as the TC client does (騎士, 白魔道士). Those names are catalogue
+    /// aliases of their own, taken from the TC client export, so they resolve on import; they change no other
+    /// name's resolution and are not search aliases. A name only converted from Simplified Chinese is not one.
+    /// </summary>
+    [Fact]
+    public void TheTcClientsJobNamesResolveWithoutChangingAnyOtherName()
+    {
+        Assert.Equal(19, JobCatalog.Default.FindByName("騎士")!.JobId);
+        Assert.Equal(24, JobCatalog.Default.FindByName("白魔道士")!.JobId);
+        Assert.Equal(42, JobCatalog.Default.FindByName(" 繪靈法師 ")!.JobId);
+        Assert.Empty(JobCatalog.Default.Find(43)!.AliasesZhTw);
+        Assert.Equal(42, JobCatalog.Default.Jobs.Count(job => job.AliasesZhTw.Count == 1));
+        foreach (var job in JobCatalog.Default.Jobs)
+        {
+            foreach (var name in new[] { job.NameZh, job.NameEn, job.Abbreviation }.Concat(job.AliasesZh).Concat(job.AliasesZhTw))
+                Assert.Equal(job.JobId, JobCatalog.Default.FindByName(name)!.JobId);
+        }
+        Assert.Null(JobCatalog.Default.FindByChineseSearchText("騎士"));
+        Assert.Null(JobCatalog.Default.FindByChineseSearchText("白魔道士"));
+
+        using var database = new TestDatabase();
+        var preview = new RunImportService(database.Database, database.Clock).PreviewSource("CSV",
+            text: "duty_name,job_name,region\n阿修羅殲滅戰,騎士,TC\n");
+        var run = preview["rows"]![0]!["run"]!;
+        Assert.Equal(944, run["content_id"]!.GetValue<int>());
+        Assert.Equal(19, run["job_id"]!.GetValue<int>());
+        Assert.DoesNotContain(preview["rows"]![0]!["warning_refs"]!.AsArray(), warning =>
+            warning?["key"]?.GetValue<string>() == "import.warning.job_unmatched");
+    }
+
     public void Dispose() => Directory.Delete(_directory, recursive: true);
 }

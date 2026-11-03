@@ -15,7 +15,7 @@ public sealed class MigrationTests
         using var fixture = new TestDatabase();
 
         Assert.Equal(MigrationRunner.LatestVersion, fixture.Database.SchemaVersion);
-        Assert.Equal(12, MigrationRunner.LatestVersion);
+        Assert.Equal(13, MigrationRunner.LatestVersion);
 
         using var command = fixture.Database.CreateCommand();
         command.CommandText =
@@ -46,6 +46,7 @@ public sealed class MigrationTests
                 (10, "0010_history_retention.sql"),
                 (11, "0011_run_joined_in_progress.sql"),
                 (12, "0012_regional_records.sql"),
+                (13, "0013_legacy_region_cn.sql"),
             },
             applied);
     }
@@ -397,12 +398,15 @@ public sealed class MigrationTests
             }
         }
 
+        // The upgrade happens after the history was written (0013 compares creation with the schema-12 record).
+        fixture.Clock.UtcNow = fixture.Clock.UtcNow.AddDays(1);
         using var database = SqliteDatabase.Open(path, fixture.Clock);
         var runs = new RunRepository(database);
         Assert.Equal(3, runs.Query(null, null, 1, 50).Total);
         Assert.Equal(Region.Cn, runs.Get("cn")!.Region);
         Assert.Equal(Region.Global, runs.Get("global")!.Region);
-        Assert.Equal(Region.Unknown, runs.Get("unknown")!.Region);
+        // A regionless import from before schema 12 was a CN record; 0013 says so (audit 2026-11-03 H1-1).
+        Assert.Equal(Region.Cn, runs.Get("unknown")!.Region);
         var settings = new SettingsRepository(database, fixture.Clock);
         settings.EnsureDefaults();
         Assert.Equal(1700, settings.GetAchievementSettings().BaselineCompletedCount);
@@ -448,7 +452,11 @@ public sealed class MigrationTests
             "INSERT INTO run_events(event_id,run_id,sequence,occurred_at_utc,monotonic_offset_ms,event_type) " +
             "VALUES ('bad','missing',0,'2026-09-04T01:02:03.456Z',0,'test'); PRAGMA foreign_keys=ON;";
         command.ExecuteNonQuery();
-        Assert.Throws<CollectorException>(() => MigrationRunner.MigrateToLatest(old, fixture.Clock));
+        var refusal = Assert.Throws<CollectorException>(() => MigrationRunner.MigrateToLatest(old, fixture.Clock));
+        // The refusal names the file to copy, like every other one (audit 2026-11-03 H1-4).
+        Assert.Equal(ErrorCodes.DbIntegrity, refusal.Code);
+        Assert.Equal("startup.migration_failed", refusal.Text?.Key);
+        Assert.Contains(System.IO.Path.GetFileName(fixture.Path + ".invalid"), refusal.Message, StringComparison.Ordinal);
         command.CommandText = "SELECT MAX(version) FROM schema_migrations;";
         Assert.Equal(11L, command.ExecuteScalar());
         command.CommandText = "PRAGMA foreign_keys;";
@@ -457,6 +465,110 @@ public sealed class MigrationTests
         Assert.Equal(0L, command.ExecuteScalar());
         command.CommandText = "SELECT count(*) FROM pragma_table_info('achievement_settings') WHERE name='region';";
         Assert.Equal(0L, command.ExecuteScalar());
+    }
+
+    /// <summary>
+    /// Audit 2026-11-03 H1-4: a region whitelist the rebuild does not recognise is refused naming the file.
+    /// </summary>
+    [Fact]
+    public void RegionalUpgradeOfAnUnrecognisedTableNamesTheFile()
+    {
+        using var fixture = new TestDatabase();
+        var path = fixture.Path + ".reworded";
+        using (var old = LegacyDatabase(path, fixture, 11))
+        {
+            using var command = old.CreateCommand();
+            command.CommandText = "PRAGMA writable_schema = ON; " +
+                "UPDATE sqlite_schema SET sql = replace(sql, 'region IN (''CN'', ''GLOBAL'', ''UNKNOWN'')', " +
+                "'region IN (''CN'',''GLOBAL'',''UNKNOWN'')') WHERE type = 'table' AND name = 'capture_sessions'; " +
+                "PRAGMA writable_schema = OFF;";
+            command.ExecuteNonQuery();
+        }
+
+        SqliteConnection.ClearAllPools();
+        var refusal = Assert.Throws<CollectorException>(() => SqliteDatabase.Open(path, fixture.Clock).Dispose());
+
+        Assert.Equal(ErrorCodes.DbIntegrity, refusal.Code);
+        Assert.Equal("startup.migration_failed", refusal.Text?.Key);
+        Assert.Contains(System.IO.Path.GetFileName(path), refusal.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-03 H1-1. Until schema 12 the product served CN only, and 1.8.0 stored every hand-entered run and
+    /// every import without a region column as UNKNOWN; those completions counted towards the one achievement, and a
+    /// 「已包含」 import deducted them from its baseline, which 0012 moved to CN. After the upgrade they are CN records,
+    /// so CN progress is what it was (statistics-definitions §4). A run a capture wrote keeps its session's region.
+    /// </summary>
+    [Fact]
+    public void RegionlessManualAndImportedRunsCountTowardsChinaAfterTheUpgrade()
+    {
+        using var fixture = new TestDatabase();
+        var path = fixture.Path + ".before-regions";
+        using (var old = LegacyDatabase(path, fixture, 11))
+        {
+            using var seed = old.CreateCommand();
+            seed.CommandText = """
+                INSERT INTO achievement_settings(id,goal_count,baseline_completed_count,baseline_effective_at,updated_at_utc)
+                VALUES (1,2000,200,'2026-09-04T01:02:03.456Z','2026-09-04T01:02:03.456Z');
+                WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 1500)
+                INSERT INTO mentor_runs(run_id,revision,region,result,source,created_at_utc,updated_at_utc)
+                SELECT printf('imported-%04d', i),1,'UNKNOWN','COMPLETED','IMPORT','2026-09-04T01:02:03.456Z','2026-09-04T01:02:03.456Z' FROM n;
+                INSERT INTO run_import_metadata(run_id,source_kind,source_fingerprint,imported_at_utc)
+                SELECT run_id,'XLSX','fingerprint-' || run_id,'2026-09-04T01:02:03.456Z' FROM mentor_runs;
+                INSERT INTO mentor_runs(run_id,revision,region,result,source,created_at_utc,updated_at_utc)
+                VALUES ('manual',1,'UNKNOWN','LEFT_OR_ABANDONED','MANUAL','2026-09-04T01:02:03.456Z','2026-09-04T01:02:03.456Z');
+                INSERT INTO capture_sessions(capture_session_id,started_at_utc,collector_version,region)
+                VALUES ('session','2026-09-04T01:02:03.456Z','legacy','UNKNOWN');
+                INSERT INTO mentor_runs(run_id,revision,capture_session_id,region,result,source,created_at_utc,updated_at_utc)
+                VALUES ('captured',1,'session','UNKNOWN','UNKNOWN','AUTO_NETWORK','2026-09-04T01:02:03.456Z','2026-09-04T01:02:03.456Z');
+                """;
+            seed.ExecuteNonQuery();
+        }
+
+        // The upgrade happens after the history was written (0013 compares creation with the schema-12 record).
+        fixture.Clock.UtcNow = fixture.Clock.UtcNow.AddDays(1);
+        using var database = SqliteDatabase.Open(path, fixture.Clock);
+        var settings = new SettingsRepository(database, fixture.Clock);
+        settings.EnsureDefaults();
+        var dashboard = new StatisticsRepository(database, settings, clock: fixture.Clock).GetDashboard();
+
+        Assert.Equal(1700, dashboard.AchievementProgress);
+        Assert.Equal(200, dashboard.BaselineCompletedCount);
+        Assert.Equal(1500, dashboard.Achievements!.Single(row => row.Region == Region.Cn).CompletedCount);
+        Assert.Equal(0, dashboard.Achievements!.Single(row => row.Region == Region.Unknown).CompletedCount);
+        var runs = new RunRepository(database);
+        Assert.Equal(Region.Cn, runs.Get("imported-0001")!.Region);
+        Assert.Equal(Region.Cn, runs.Get("manual")!.Region);
+        Assert.Equal(Region.Unknown, runs.Get("captured")!.Region);
+    }
+
+    /// <summary>
+    /// Re-review 2026-11-03 RV2-4. A database that already reached schema 12 may hold runs stored as UNKNOWN on purpose
+    /// (未知区服 picked in a schema-12 build, which deducted nothing from CN). 0013 moves only the runs created before the
+    /// database reached schema 12.
+    /// </summary>
+    [Fact]
+    public void RunsStoredAsUnknownAfterSchemaTwelveKeepTheirRegion()
+    {
+        using var fixture = new TestDatabase();
+        var path = fixture.Path + ".schema12";
+        using (var old = LegacyDatabase(path, fixture, 12))
+        {
+            using var seed = old.CreateCommand();
+            seed.CommandText = """
+                INSERT INTO mentor_runs(run_id,revision,region,result,source,created_at_utc,updated_at_utc)
+                VALUES ('before-12',1,'UNKNOWN','COMPLETED','MANUAL','2026-09-03T01:02:03.456Z','2026-09-03T01:02:03.456Z'),
+                       ('after-12',1,'UNKNOWN','COMPLETED','MANUAL','2026-09-05T01:02:03.456Z','2026-09-05T01:02:03.456Z');
+                """;
+            seed.ExecuteNonQuery();
+        }
+
+        fixture.Clock.UtcNow = fixture.Clock.UtcNow.AddDays(2);
+        using var database = SqliteDatabase.Open(path, fixture.Clock);
+        var runs = new RunRepository(database);
+
+        Assert.Equal(Region.Cn, runs.Get("before-12")!.Region);
+        Assert.Equal(Region.Unknown, runs.Get("after-12")!.Region);
     }
 
     private static SqliteConnection LegacyDatabase(string path, TestDatabase fixture, int version)

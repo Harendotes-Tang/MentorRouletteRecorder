@@ -322,9 +322,19 @@ public:
     static QProcessEnvironment childEnvironment(build::Flavour flavour,
                                                 const QString &dataDirectory,
                                                 const QProcessEnvironment &inherited);
-    /// The serve.pid file the lease holder writes, or an empty string when no
-    /// such file exists. Looked for in the data directory and in its logs/
-    /// sub-directory, which is where --log-dir puts it.
+    /// Name of the pid file a Collector launched by a build of \a flavour
+    /// writes while it holds the lease, as the Collector names it
+    /// (Program.ServePidFileNameFor): "serve.pid" when the child derives the
+    /// per-user pipe itself (no --pipe, \ref isolationArguments), otherwise
+    /// "serve.<pipe name, characters other than ASCII letters, digits, '.', '-'
+    /// and '_' as '_'>.pid". A development build therefore never reads the
+    /// bare serve.pid an installed Collector writes beside a shared MR_DATA_DIR.
+    static QString servePidFileName(build::Flavour flavour, const QString &pipeName);
+    /// servePidFileName() for this build and the current user's pipe.
+    static QString servePidFileName();
+    /// The pid file the lease holder writes (\ref servePidFileName), or an
+    /// empty string when no such file exists. Looked for in the data directory
+    /// and in its logs/ sub-directory, which is where --log-dir puts it.
     static QString serveLeasePidPath();
     /// PID recorded in serve.pid, or 0 when there is none to read.
     static qint64 readServeLeasePid();
@@ -420,9 +430,11 @@ private:
     /// Stops an attempt whose lease changed. No old callback may resume it.
     bool validateTakeoverHolder();
     /// Start our own child now that the serve lease is believed to be free.
-    /// False when \ref kMaxTakeoverAttempts is already spent, which is what
-    /// keeps a child that exits on the lease again from looping.
-    bool tryRelaunchForLease();
+    /// Counts one attempt against \ref kMaxTakeoverAttempts, unless \a counted
+    /// says continueTakeover() already counted this takeover: one list, kill and
+    /// relaunch is one attempt (review I5-4). False when the attempts are spent,
+    /// which is what keeps a child that exits on the lease again from looping.
+    bool tryRelaunchForLease(bool counted = false);
     /// \ref leaseTakeover, at most once per attempt.
     void emitTakeoverOnce(bool ok, const QString &message);
     /// Run a tool from the system directory and hand \a then its exit code and

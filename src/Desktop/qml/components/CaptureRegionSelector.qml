@@ -40,5 +40,5 @@ StyledComboBox {
             Runtime.app.updateCaptureSetting("region_override", control.regionChoices[index].value)
     }
     Accessible.name: qsTr("游戏区服")
-    Accessible.description: qsTr("自动按安装路径识别；无法识别时，请选择实际使用的国服、繁中服或国际服。")
+    Accessible.description: qsTr("按当前运行的客户端的安装路径自动识别；无法识别时，请选择它实际使用的国服、繁中服或国际服。")
 }

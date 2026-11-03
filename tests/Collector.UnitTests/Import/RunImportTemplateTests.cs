@@ -12,7 +12,7 @@ namespace MentorRecorder.Collector.UnitTests;
 public sealed class RunImportTemplateTests : IDisposable
 {
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.TemplateTests", Guid.NewGuid().ToString("N"));
-    private static readonly string[] Fields = { "duty_name", "job_name", "entered_at_utc", "ended_at_utc", "result", "duration_ms", "reflection_text", "reflection_mood", "source_recorded_at", "note", "joined_in_progress" };
+    private static readonly string[] Fields = { "duty_name", "job_name", "entered_at_utc", "ended_at_utc", "result", "duration_ms", "reflection_text", "reflection_mood", "source_recorded_at", "note", "joined_in_progress", "region" };
     public RunImportTemplateTests() => Directory.CreateDirectory(_directory);
 
     [Fact]
@@ -39,7 +39,7 @@ public sealed class RunImportTemplateTests : IDisposable
     [InlineData("XLSX", "", null)]
     public void FilledTemplateCanPreviewAndCommitWithoutInventingIdentity(string kind, string entryMode, bool? joinedInProgress)
     {
-        var facts = new[] { "合成模板副本", "骑士", "2026-10-09T20:00:00+08:00", "2026-10-09T20:20:00+08:00", "COMPLETED", "1200000", "合成模板心得", "good", "2026-10-09T20:30:00+08:00", "合成模板备注", entryMode };
+        var facts = new[] { "合成模板副本", "骑士", "2026-10-09T20:00:00+08:00", "2026-10-09T20:20:00+08:00", "COMPLETED", "1200000", "合成模板心得", "good", "2026-10-09T20:30:00+08:00", "合成模板备注", entryMode, "国服" };
         var path = Path.Combine(_directory, "filled." + kind.ToLowerInvariant());
         File.Copy(Template("personal-records." + kind.ToLowerInvariant()), path);
         if (kind == "JSON")
@@ -74,6 +74,7 @@ public sealed class RunImportTemplateTests : IDisposable
         Assert.Equal("合成模板备注", run.Note); Assert.Equal(kind, run.ImportMetadata!.SourceKind);
         Assert.Equal("合成模板心得", run.Reflection!.Text); Assert.Equal(1200000, run.DurationMs);
         Assert.Equal(joinedInProgress, run.JoinedInProgress);
+        Assert.Equal(MentorRecorder.Collector.Domain.Region.Cn, run.Region);
         Assert.Equal(new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero), run.EnteredAtUtc);
         Assert.Equal(new DateTimeOffset(2026, 10, 9, 12, 30, 0, TimeSpan.Zero), run.ImportMetadata.SourceRecordedAtUtc);
     }
@@ -144,6 +145,78 @@ public sealed class RunImportTemplateTests : IDisposable
             Assert.Equal(jobs[i].Role, run.Role);
             Assert.Equal(names[i], run.JobName);
         }
+    }
+
+    /// <summary>
+    /// Audit 2026-11-03 H2-5: the templates carry a 区服 column. 国服 / 繁中服 / 国际服 name the record's region (the
+    /// Traditional spellings too); the Collector leaves a blank cell UNKNOWN, and the Desktop's preview fills it with
+    /// the dashboard's selected region (国服 when none is selected), as the instructions say.
+    /// </summary>
+    [Fact]
+    public void TheRegionColumnNamesTheRecordRegionAndABlankCellLeavesItUnknown()
+    {
+        const string csv = "副本,区服\n合成甲,国服\n合成乙,繁中服\n合成丙,国际服\n合成丁,國服\n合成戊,\n";
+        using var database = new TestDatabase();
+        var preview = new RunImportService(database.Database, database.Clock).PreviewSource("CSV", text: csv);
+        Assert.Equal(new[] { "CN", "TC", "GLOBAL", "CN", "UNKNOWN" },
+            preview["rows"]!.AsArray().Select(row => row!["run"]!["region"]!.GetValue<string>()));
+        Assert.Contains("区服 → region：", File.ReadAllText(Template("instructions.txt")), StringComparison.Ordinal);
+        Assert.Contains("留空时按总览所选区服（未选具体区服时为国服）填入，导入前可在预览中修改。",
+            File.ReadAllText(Template("instructions.txt")), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-03 H2-7: the generator is the source of the shipped templates. Its FIELDS list names exactly the
+    /// columns of the Excel template, the keys of the JSON template and the lines of the instructions' field table,
+    /// in the same order, and every label is a header the parser maps to that key, so regenerating cannot drop a column.
+    /// </summary>
+    [Fact]
+    public void TheGeneratorFieldsAreTheShippedTemplateColumns()
+    {
+        var script = File.ReadAllText(Repository("scripts", "generate-import-templates.py"));
+        var fields = System.Text.RegularExpressions.Regex.Matches(script, "^    [(]" + Quote + "([^" + Quote + "]+)" + Quote + ", " + Quote + "([a-z_]+)" + Quote + ", ",
+                System.Text.RegularExpressions.RegexOptions.Multiline)
+            .Select(match => (Label: match.Groups[1].Value, Key: match.Groups[2].Value)).ToArray();
+        Assert.Equal(Fields, fields.Select(field => field.Key));
+
+        using (var zip = ZipFile.OpenRead(Template("personal-records.xlsx")))
+        {
+            XDocument sheet;
+            using (var stream = zip.GetEntry("xl/worksheets/sheet1.xml")!.Open()) sheet = XDocument.Load(stream);
+            var ns = sheet.Root!.Name.Namespace;
+            var header = sheet.Root.Element(ns + "sheetData")!.Elements(ns + "row").First()
+                .Elements(ns + "c").Select(cell => cell.Value).ToArray();
+            Assert.Equal(fields.Select(field => field.Label), header);
+        }
+        Assert.Equal(fields.Select(field => field.Key),
+            JsonNode.Parse(File.ReadAllText(Template("personal-records.json")))!.AsArray()[0]!.AsObject().Select(pair => pair.Key));
+        var instructions = File.ReadAllText(Template("instructions.txt"));
+        Assert.Equal(fields.Select(field => field.Label + " → " + field.Key), FieldTable(instructions));
+        // A Windows checkout has the text templates with CRLF (git text=auto; re-review 2026-11-03 RV2-1).
+        Assert.Equal(FieldTable(instructions), FieldTable(instructions.Replace("\r", "").Replace("\n", "\r\n")));
+        var parsed = Assert.Single(RunImportSourceParser.Parse("CSV", text: string.Join(',', fields.Select(field => field.Label))
+            + "\n" + string.Join(',', fields.Select(_ => "x"))));
+        Assert.Equal(fields.Select(field => field.Key).Order(StringComparer.Ordinal),
+            parsed.Values.Select(pair => pair.Key).Order(StringComparer.Ordinal));
+    }
+
+    private const string Quote = "\"";
+
+    /// <summary>The 「字段对照」 lines of the instructions as "label → key", whatever the line endings.</summary>
+    private static string[] FieldTable(string instructions) =>
+        instructions.Replace("\r\n", "\n").Split("字段对照\n")[1]
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(line => line[..line.IndexOf('：')]).ToArray();
+
+    private static string Repository(params string[] parts)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var path = Path.Combine(new[] { directory.FullName }.Concat(parts).ToArray());
+            if (File.Exists(path)) return path;
+            directory = directory.Parent;
+        }
+        throw new FileNotFoundException("Repository file unavailable", Path.Combine(parts));
     }
 
     private static string Template(string name)

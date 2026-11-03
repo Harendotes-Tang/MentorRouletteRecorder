@@ -392,6 +392,23 @@ private Q_SLOTS:
         QCOMPARE(count(model.categoryBreakdown(), "行会令"), static_cast<qint64>(7));
     }
 
+    void specialClassificationLooksEachRowUpInItsOwnRegion()
+    {
+        // Content 1029 is in the TC catalogue only: a TC record of it is a known
+        // duty in both pies, never 未识别 because the CN catalogue lacks it.
+        StatisticsBackend backend;
+        auto tc = duty(1029, QJsonValue::Null, 4, 10);
+        tc.insert(QStringLiteral("region"), QStringLiteral("TC"));
+        backend.rows = {tc};
+        mr::DungeonStatsModel model;
+        model.setBackend(&backend);
+        model.reload();
+        QTRY_COMPARE(model.rowCount(), 1);
+        QCOMPARE(count(model.categoryBreakdown(), "讨伐歼灭战"), static_cast<qint64>(4));
+        QCOMPARE(count(model.specialDutyBreakdown(), "其他副本"), static_cast<qint64>(4));
+        QCOMPARE(count(model.specialDutyBreakdown(), "未识别"), static_cast<qint64>(0));
+    }
+
     void extremeTrialsUseBundledIdentityWithoutChangingDifficultySelection()
     {
         const auto *catalogue = mr::DutyCatalog::shared();

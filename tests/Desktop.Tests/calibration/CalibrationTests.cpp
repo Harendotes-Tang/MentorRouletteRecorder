@@ -417,6 +417,33 @@ private Q_SLOTS:
         QVERIFY(controller.events().isEmpty());
     }
 
+    // The latest queue request before a pop or a duty entry may be from an earlier local
+    // day: such a line carries its date (「11-02 23:48」); today's lines keep the time alone.
+    void aTimelineLineFromAnotherDayCarriesItsDate()
+    {
+        mr::CalibrationController controller;
+        // Local noon today and 23:48 the evening before: neither is near midnight.
+        const QDateTime noon(QDate::currentDate(), QTime(12, 0));
+        const QDateTime lastEvening(QDate::currentDate().addDays(-1), QTime(23, 48));
+        const QJsonArray wire = readyTimeline().value(QStringLiteral("events")).toArray();
+        QJsonObject queued = wire.at(1).toObject();
+        queued.insert(QStringLiteral("at_utc"), lastEvening.toUTC().toString(Qt::ISODateWithMs));
+        QJsonObject pop = wire.at(2).toObject();
+        pop.insert(QStringLiteral("at_utc"), noon.toUTC().toString(Qt::ISODateWithMs));
+        QJsonObject calibration = readyTimeline();
+        calibration.insert(QStringLiteral("events"), QJsonArray{pop, queued});
+        controller.refreshFromCaptureStatus(
+            QJsonObject{{QStringLiteral("calibration"), calibration}}.toVariantMap());
+
+        QCOMPARE(controller.events().size(), 2);
+        const QVariantMap first = controller.events().at(0).toMap();
+        const QVariantMap second = controller.events().at(1).toMap();
+        QCOMPARE(first.value(QStringLiteral("event_id")).toString(), queued.value(QStringLiteral("event_id")).toString());
+        QCOMPARE(first.value(QStringLiteral("time_text")).toString(), lastEvening.toString(QStringLiteral("MM-dd HH:mm")));
+        QVERIFY(first.value(QStringLiteral("time_text")).toString().endsWith(QStringLiteral(" 23:48")));
+        QCOMPARE(second.value(QStringLiteral("time_text")).toString(), QStringLiteral("12:00"));
+    }
+
     void allCorrectSendsTheCommittedPayloadShape()
     {
         CalibrationBackend backend;

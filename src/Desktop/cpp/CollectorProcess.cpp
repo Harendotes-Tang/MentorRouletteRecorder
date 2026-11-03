@@ -593,16 +593,41 @@ QProcessEnvironment CollectorProcess::childEnvironment(build::Flavour flavour,
     return environment;
 }
 
+QString CollectorProcess::servePidFileName(build::Flavour flavour, const QString &pipeName)
+{
+    // The child is given a pipe exactly when isolationArguments() says so; without
+    // one it serves the default per-user pipe and keeps the bare name.
+    if (isolationArguments(flavour, pipeName).isEmpty())
+        return QStringLiteral("serve.pid");
+    QString sanitized;
+    sanitized.reserve(pipeName.size());
+    for (const QChar character : pipeName) {
+        const char16_t unit = character.unicode();
+        const bool kept = (unit >= u'a' && unit <= u'z') || (unit >= u'A' && unit <= u'Z')
+                          || (unit >= u'0' && unit <= u'9') || unit == u'.' || unit == u'-'
+                          || unit == u'_';
+        sanitized.append(kept ? character : QLatin1Char('_'));
+    }
+    return QStringLiteral("serve.%1.pid").arg(sanitized);
+}
+
+QString CollectorProcess::servePidFileName()
+{
+    return servePidFileName(build::thisBuild(), ipc::currentUserPipeName());
+}
+
 QString CollectorProcess::serveLeasePidPath()
 {
     const QString root = collectorDataDirectory();
     if (root.isEmpty())
         return {};
     // The Collector writes it beside its logs; the managed layout puts those in
-    // a logs/ folder under the same root, so both places are looked at.
+    // a logs/ folder under the same root, so both places are looked at. Its name
+    // follows the pipe our child serves (review I5-2).
+    const QString name = servePidFileName();
     const QStringList candidates{
-        QDir(root).absoluteFilePath(QStringLiteral("serve.pid")),
-        QDir(root).absoluteFilePath(QStringLiteral("logs/serve.pid")),
+        QDir(root).absoluteFilePath(name),
+        QDir(root).absoluteFilePath(QStringLiteral("logs/") + name),
     };
     for (const QString &candidate : candidates) {
         if (QFileInfo::exists(candidate))
@@ -771,15 +796,19 @@ void CollectorProcess::runTool(const QString &tool, const QStringList &arguments
 /// Start our own child now that the lease is free (or believed to be). Clears
 /// the backoff and the "another instance owns this" belief, and is bounded by
 /// the attempt cap, because the child started here can exit on the same lease.
-bool CollectorProcess::tryRelaunchForLease()
+bool CollectorProcess::tryRelaunchForLease(bool counted)
 {
     if (m_stopRequested)
         return false;
-    if (m_takeoverAttempts >= kMaxTakeoverAttempts) {
-        setState(State::Reused, LiveText([] { return tr("占用者无响应"); }));
-        return false;
+    // A takeover counted itself in continueTakeover(), under the same cap: its
+    // relaunch is part of that one attempt (review I5-4).
+    if (!counted) {
+        if (m_takeoverAttempts >= kMaxTakeoverAttempts) {
+            setState(State::Reused, LiveText([] { return tr("占用者无响应"); }));
+            return false;
+        }
+        ++m_takeoverAttempts;
     }
-    ++m_takeoverAttempts;
     m_backendConnected = false;
     m_backoffMs = minBackoffMs();
     m_restartTimer.stop();
@@ -968,7 +997,7 @@ void CollectorProcess::continueTakeover()
     ++m_takeoverAttempts;
     if (serveLeaseLooksVacant()) {
         finishTakeover();
-        if (tryRelaunchForLease()) {
+        if (tryRelaunchForLease(/*counted=*/true)) {
             emitTakeoverOnce(
                 true, tr("未找到占用采集服务的进程，已重新启动采集服务。"));
         }
@@ -1000,7 +1029,7 @@ void CollectorProcess::onHolderListed(int exitCode, const QString &output)
     if (!tasklistNamesCollector(output, m_takeoverPid)) {
         // Whatever serve.pid named, it is not a Collector any more.
         finishTakeover();
-        if (tryRelaunchForLease()) {
+        if (tryRelaunchForLease(/*counted=*/true)) {
             emitTakeoverOnce(
                 true, tr("未找到占用采集服务的进程，已重新启动采集服务。"));
         }
@@ -1021,7 +1050,7 @@ void CollectorProcess::onPoliteKillFinished(int exitCode, const QString &output)
         return;
     if (exitCode == kTaskkillNoSuchProcess) {
         finishTakeover();
-        if (tryRelaunchForLease()) {
+        if (tryRelaunchForLease(/*counted=*/true)) {
             emitTakeoverOnce(
                 true, tr("未找到占用采集服务的进程，已重新启动采集服务。"));
         }
@@ -1050,7 +1079,7 @@ void CollectorProcess::onHolderRelisted(int exitCode, const QString &output)
         qCInfo(lcCollector) << "serve-lease holder" << m_takeoverPid
                             << "left on request; starting our own";
         finishTakeover();
-        if (tryRelaunchForLease()) {
+        if (tryRelaunchForLease(/*counted=*/true)) {
             emitTakeoverOnce(true,
                              tr("采集服务被一个没有响应的旧实例（进程 %1）占用，"
                                 "已请求它退出并重新启动采集服务。")
@@ -1081,7 +1110,7 @@ void CollectorProcess::onForcedKillFinished(int exitCode, const QString &output)
         return;
     }
     qCInfo(lcCollector) << "stalled serve-lease holder" << pid << "ended; starting our own";
-    if (tryRelaunchForLease()) {
+    if (tryRelaunchForLease(/*counted=*/true)) {
         emitTakeoverOnce(true,
                          tr("采集服务被一个没有响应的旧实例（进程 %1）占用，"
                             "已结束它并重新启动采集服务。")

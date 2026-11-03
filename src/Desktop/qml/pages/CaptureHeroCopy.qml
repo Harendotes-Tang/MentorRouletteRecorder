@@ -34,6 +34,9 @@ QtObject {
                                    || Runtime.app.recording.silent
     readonly property string recordingState: Runtime.app.recording.state
     readonly property bool recovering: Runtime.app.recording.recovering
+    // A 采证 round holds the capture: the formal recording is paused on purpose
+    // until it stops (review K2-4).
+    readonly property bool observing: copy.recordingState === "observing" || Runtime.app.validationActive
 
     // 本机校准 speaks only while the recording controller agrees: the game is
     // closed (nothing else can be said), the controller projects a calibration
@@ -44,12 +47,14 @@ QtObject {
         && (!copy.gameRunning || Runtime.app.recording.calibrating
             || (copy.calibration.recording && copy.recordingState === "listening"))
 
-    // connecting | broken | choosing | silent | calibration | waiting | blocked | normal | checking
+    // connecting | broken | choosing | observing | recovering | silent | calibration
+    // | waiting | blocked | normal | checking
     // An incident the recording controller keeps across a lost connection is
     // still what the sidebar says, so it stays the page's verdict too.
     readonly property string kind: !copy.statusKnown ? (Runtime.app.recording.blocked ? "blocked" : "connecting")
         : copy.npcapProblem ? "broken"
         : copy.choosingGame ? "choosing"
+        : copy.observing ? "observing"
         : copy.recovering ? "recovering"
         : (copy.chain && copy.chain.recoveryBlocked) ? "blocked"
         : (copy.silent && copy.gameRunning) ? "silent"
@@ -63,6 +68,7 @@ QtObject {
         switch (copy.kind) {
         case "broken":
         case "choosing":
+        case "observing":
         case "silent":
             return "warn"
         case "calibration":
@@ -83,6 +89,8 @@ QtObject {
             return qsTr("需手动记录")
         case "choosing":
             return qsTr("等待选择游戏")
+        case "observing":
+            return qsTr("采证中")
         case "silent":
             return qsTr("暂时读不到游戏数据")
         case "recovering":
@@ -110,6 +118,11 @@ QtObject {
                                           : qsTr("Npcap 暂时用不了，自动记录已停用")
         case "choosing":
             return qsTr("等待选择游戏")
+        case "observing":
+            // Only a supported version records before and after the round
+            // (review RV4-2); on a new region nothing is paused.
+            return copy.chain && copy.chain.profileReady ? qsTr("新区服采证进行中，自动记录已暂停")
+                                                         : qsTr("新区服采证进行中")
         case "recovering":
             return qsTr("正在自动寻找游戏网络路径")
         case "silent":
@@ -140,12 +153,17 @@ QtObject {
         case "choosing":
             // The reason is on the 记录对象 card and in the chain summary.
             return qsTr("在下方「记录对象」里点选要记录的游戏窗口。")
+        case "observing":
+            return copy.chain && copy.chain.profileReady ? qsTr("停止采证后会恢复自动记录。")
+                 : copy.chain && copy.chain.profileStatus !== ""
+                 ? qsTr("停止采证后恢复正常检测；当前游戏版本暂不自动记录。")
+                 : qsTr("停止采证后恢复正常检测。")
         case "silent":
             // The Collector's hint when it sent one, otherwise the sentence the
             // recording controller chose for this silent_reason.
-            return Runtime.app.captureHealthText || Runtime.app.recording.message
+            return copy.withoutPagePointer(Runtime.app.captureHealthText || Runtime.app.recording.message)
         case "recovering":
-            return Runtime.app.recording.message
+            return copy.withoutPagePointer(Runtime.app.recording.message)
         case "calibration":
             return copy.calibration.explanation()
         case "waiting":
@@ -209,21 +227,57 @@ QtObject {
             return qsTr("正在检查已安装的游戏版本。启动游戏后会自动继续。")
         if (chain.profileReady)
             return qsTr("已支持安装在这台电脑上的游戏版本。启动游戏后会自动记录。")
-        if (chain.profileStatus === "AMBIGUOUS")
-            return qsTr("当前游戏版本的支持文件有冲突，暂时不能自动记录。请更新软件或导出诊断报告。")
         return qsTr("当前安装的游戏版本暂不支持自动记录。启动游戏后会再次检查。")
     }
 
+    // The recording controller's sentences point at 「捕获诊断」 (since 5ee8133;
+    // 「请查看诊断」 before), which is pointless on 捕获诊断 itself (review K2-3).
+    // The pointer goes wherever it stands - a sentence of its own, a closing or
+    // an opening clause, an alternative - and the rest of the sentence stays:
+    // Chinese and Traditional Chinese by their phrasing (「查看 / 檢視」). Only
+    // 查看 is a pointer; 「请在「捕获诊断」重新检测…」 is an instruction and stays.
+    function withoutPagePointer(message) {
+        const original = String(message || "").trim()
+        const pointer = "(?:查看|檢視)(?:「捕获诊断」|「擷取診斷」)(?:中的(?:说明|說明))?"
+        let text = original
+        // 「…，请查看「捕获诊断」中的说明。」 / 「…，再查看「捕获诊断」。」: the clause goes, its stop stays.
+        text = text.replace(new RegExp("[，,]\\s*(?:请|請|并|並|再)?" + pointer + "(?=[。.]|$)", "g"), "")
+        // 「请点「重试自动记录」或查看「捕获诊断」」: the alternative goes.
+        text = text.replace(new RegExp("或" + pointer, "g"), "")
+        // 「请查看「捕获诊断」，期间可以先手动记录」 / 「…，也可以回到…」: the opening
+        // clause goes, and the 也 that leaned on it.
+        text = text.replace(new RegExp("(?:请|請|再)?" + pointer + "[，,]\\s*(?:也(?=可以))?", "g"), "")
+        // A sentence of its own goes with its full stop.
+        text = text.replace(new RegExp("\\s*(?:请|請|并|並|再)?" + pointer + "[。.]?", "g"), "")
+        text = text.replace(/[，,]?\s*(?:请|并)?查看诊断。?\s*$/, "")
+        // Another interface language: only a sentence that is nothing but the
+        // pointer goes, as the translations (i18n/*.ts) word it; a sentence that
+        // also says what to do stays whole (review RV4-1).
+        const page = qsTranslate("CapturePage", "捕获诊断")
+        if (page !== "捕获诊断") {
+            const name = page.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+            const alone = ["See (?:the instructions in )?“" + name + "”\\.",
+                           "「" + name + "」(?:の説明)?を確認してください。"]
+            for (let index = 0; index < alone.length; ++index)
+                text = text.replace(new RegExp("(^|[。.!?！？])\\s*" + alone[index], "g"), "$1")
+        }
+        text = text.trim()
+        if (text !== original && text.length > 0 && !/[。！？.!?]$/.test(text))
+            //: The full stop that closes a sentence.
+            text += qsTr("。")
+        return text
+    }
+
     // The recording controller's sentence is already written for the player.
-    // Its closing "请查看诊断" is pointless on the diagnostics page itself, and
-    // the raw code it appends for an error this build has no wording for
-    // (「（代码 ERR_…）」) never reaches a player's page.
+    // Its pointer to this page goes (withoutPagePointer), and the raw code it
+    // appends for an error this build has no wording for (「（代码 ERR_…）」)
+    // never reaches a player's page.
     function blockedText() {
         let text = String(Runtime.app.recording.message || "")
         text = text.replace(/（代码 [^）]*）/g, "")
         // The same bracket in another interface language, e.g. "(code ERR_…)".
         text = text.replace(/\s*[（(][^（）()]*\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+[）)]/g, "")
-        text = text.replace(/[，,]?\s*(?:请|并)?查看诊断。?\s*$/, "").trim()
+        text = copy.withoutPagePointer(text)
         if (text.length > 0 && !/[。！？.!?]$/.test(text))
             //: The full stop that closes a sentence.
             text += qsTr("。")

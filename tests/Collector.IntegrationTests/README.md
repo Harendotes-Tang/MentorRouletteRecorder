@@ -11,8 +11,9 @@
 `PipeServerTests` —— 端到端的 IPC 协议：
 
 - `GetVersion` 握手；`GetStatus` 报告 schema 版本与实际抓包状态；
-- 抓包类消息的 Phase 1 占位答复（`ERR_NPCAP_MISSING` / `ERR_CAPTURE_NOT_RUNNING`，
-  `npcap_installed = false`，`injected_hook_enabled = false`）；
+- 未安装 Npcap 时抓包类消息的真实答复：`ListCaptureAdapters` 报告 `npcap_installed = false` 并给出安装提示、
+  不推荐任何网卡，`StartCapture` 返回 `ERR_NPCAP_MISSING` 且不启动抓包，`StopCapture` 返回 `ERR_CAPTURE_NOT_RUNNING`，
+  `GetStatus` 报告 `injected_hook_enabled = false`；
 - `QueryRuns` 分页（页间不重叠）与 `page_size > 200` 被拒；
 - `CorrectRun` 与 `GetRunRevisions` 呈现完整修订链，创建时的原值仍可自 revision 1 读出；
 - 同一 `request_id` 重发 `CorrectRun` 仅应用一次，`idempotent_replay = true`；

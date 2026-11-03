@@ -192,17 +192,20 @@ Type: filesandordirs; Name: "{app}\styles"
 Type: filesandordirs; Name: "{app}\texttospeech"
 Type: filesandordirs; Name: "{app}\tls"
 Type: filesandordirs; Name: "{app}\vectorimageformats"
-; A DLL loose in {app}, or a planted qt.conf, is loaded by the Desktop and the Collector from
-; their own directory (DLL search order; Qt's settings file). The package ships neither a
-; foreign DLL nor a qt.conf, so clearing every top-level *.dll and qt.conf before [Files]
-; copies the real binaries removes anything an unprivileged user planted here before Setup ran
-; (a fresh install into a folder someone pre-created, or an upgrade over 1.5.0, whose folder
-; every local user could write). The DLLs we ship are re-copied immediately afterwards; this
-; is files-only, so no directory is followed. Executables are not auto-loaded this way and are
-; handled by ProtectInstallDirectory (ownership), so they are not blanket-deleted here - that
-; would also catch the uninstaller's own unins*.exe. qt.conf is listed before *.dll only for
-; readability; [InstallDelete] order does not matter.
+; A DLL loose in {app}, or a planted qt.conf or qt6.conf, is loaded by the Desktop and the
+; Collector from their own directory (DLL search order; Qt's settings file - Qt 6 reads qt6.conf
+; there and prefers it to qt.conf when both exist, Qt documentation "Using qt.conf"). The package
+; ships neither a foreign DLL nor either settings file, so clearing every top-level *.dll,
+; qt.conf and qt6.conf before [Files] copies the real binaries removes anything an unprivileged
+; user planted here before Setup ran (a fresh install into a folder someone pre-created, or an
+; upgrade over 1.5.0, whose folder every local user could write). Any other loose file is kept,
+; re-owned and reset by ProtectTopLevelFiles. The DLLs we ship are re-copied immediately
+; afterwards; this is files-only, so no directory is followed. Executables are not auto-loaded
+; this way and are handled by ProtectInstallDirectory (ownership), so they are not
+; blanket-deleted here - that would also catch the uninstaller's own unins*.exe. The settings
+; files are listed before *.dll only for readability; [InstallDelete] order does not matter.
 Type: files; Name: "{app}\qt.conf"
+Type: files; Name: "{app}\qt6.conf"
 Type: files; Name: "{app}\*.dll"
 ; 1.5.0 and earlier installed the application manifest as a side file. It is embedded in the
 ; executable now and no longer shipped, so an upgrade removes the old copy.
@@ -235,6 +238,11 @@ Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchAfterInstall}"; Flags: nowa
 const
   UserDataRegKey = 'SOFTWARE\MentorRecorder';
   UserDataRegValue = 'UserLocalAppData';
+  // The login entry the Desktop writes in the user's own registry when 开机启动 is on
+  // (AppSettings.cpp, kRunKey and kRunValue): HKCU\RunKey, value RunValueName. Setup never writes
+  // it; the uninstaller removes it (RemoveLoginEntry).
+  RunKey = 'Software\Microsoft\Windows\CurrentVersion\Run';
+  RunValueName = 'MentorRecorder';
   { GetDriveType return values (winbase.h). Only a fixed local disk may be defaulted to. }
   DriveFixed = 3;
   { The staged package is ~150 MB and the database grows with play history; a drive with
@@ -574,15 +582,16 @@ begin
   end;
 end;
 
-// True for the names [InstallDelete] removes right after ssInstall: every "{app}\*.dll" and
-// "{app}\qt.conf". A long name ends in ".dll" exactly when it matches the *.dll wildcard, and
-// both comparisons ignore case as Windows does, so every name skipped here is one that
-// [InstallDelete] deletes. (The wildcard may also match a few more names through their short
-// 8.3 forms; those are not skipped, so they are re-owned and then deleted - harmless.)
+// True for the names [InstallDelete] removes right after ssInstall: every "{app}\*.dll",
+// "{app}\qt.conf" and "{app}\qt6.conf". A long name ends in ".dll" exactly when it matches the
+// *.dll wildcard, and every comparison ignores case as Windows does, so every name skipped here is
+// one that [InstallDelete] deletes. (The wildcard may also match a few more names through their
+// short 8.3 forms; those are not skipped, so they are re-owned and then deleted - harmless.)
 function IsRemovedByInstallDelete(const Name: String): Boolean;
 begin
   Result := (CompareText(ExtractFileExt(Name), '.dll') = 0)
-    or (CompareText(Name, 'qt.conf') = 0);
+    or (CompareText(Name, 'qt.conf') = 0)
+    or (CompareText(Name, 'qt6.conf') = 0);
 end;
 
 // The number of names (hard links) the file at Path has, or 0 when it cannot be read. Also
@@ -627,13 +636,13 @@ end;
 // change), so a junction planted in Dir is skipped, never traversed - there is no recursion and
 // no /T.
 //
-// Names that [InstallDelete] removes right afterwards (*.dll, qt.conf) are skipped: an installed
-// folder holds about 250 files directly in {app}, nearly all of them DLLs, and two icacls runs
-// each before deleting them anyway would cost some 500 process launches on every upgrade. That
-// is sound because those names are deleted, not kept: Setup re-copies our own DLLs as new files
-// that inherit the protected ACL. What it leaves open: [InstallDelete] ignores a failed delete,
-// so a planted DLL that some process holds open without delete sharing is then neither removed
-// nor re-owned (a check for the real machine; see the install matrix).
+// Names that [InstallDelete] removes right afterwards (*.dll, qt.conf, qt6.conf) are skipped: an
+// installed folder holds about 250 files directly in {app}, nearly all of them DLLs, and two
+// icacls runs each before deleting them anyway would cost some 500 process launches on every
+// upgrade. That is sound because those names are deleted, not kept: Setup re-copies our own DLLs
+// as new files that inherit the protected ACL. What it leaves open: [InstallDelete] ignores a
+// failed delete, so a planted DLL that some process holds open without delete sharing is then
+// neither removed nor re-owned (a check for the real machine; see the install matrix).
 //
 // Before icacls touches a file, its link count is read: a name that is a reparse point, that has
 // more than one hard link, or whose count cannot be read stops Setup and nothing is changed or
@@ -876,9 +885,9 @@ end;
 //      already inside keep the ACLs they were created with and are never touched;
 //   6. re-own and reset every file already sitting directly in Dir, so one an ordinary user
 //      placed here before Setup ran cannot keep its owner or an explicit grant - except the
-//      *.dll and qt.conf names [InstallDelete] deletes next; a file that is a link (reparse
-//      point or extra hard link), or whose link count cannot be read, stops Setup instead
-//      (ProtectTopLevelFiles);
+//      *.dll, qt.conf and qt6.conf names [InstallDelete] deletes next; a file that is a link
+//      (reparse point or extra hard link), or whose link count cannot be read, stops Setup
+//      instead (ProtectTopLevelFiles);
 //   7. write the resulting ACLs of Dir and note-images to the Setup log.
 // Not here: the folders [InstallDelete] would clear next are deleted by ClearCodeDirectories, the
 // BeforeInstall of the first [InstallDelete] entry, because Setup closes the running application
@@ -896,8 +905,8 @@ end;
 //     removes them whole right before [InstallDelete] (a link among them is removed, not
 //     followed) and stops Setup on one it cannot remove, and [Files] recreates them; a folder
 //     Setup creates inherits Dir's entries on creation;
-//   - files directly in Dir: re-owned and reset in step 6, or - *.dll and qt.conf - deleted by
-//     [InstallDelete] and, for ours, copied again;
+//   - files directly in Dir: re-owned and reset in step 6, or - *.dll, qt.conf, qt6.conf -
+//     deleted by [InstallDelete] and, for ours, copied again;
 //   - files [Files] replaces: Setup writes each one to a new temporary file in the destination
 //     folder, deletes the old file and renames the new one into place (Inno Setup source,
 //     Setup.Install.pas, ProcessFileEntry: GenerateUniqueName ... TFile.Create(TempFile,
@@ -920,6 +929,8 @@ end;
 //   {app}\unins000.dat               Authenticated Users or Everyone; owner Administrators
 //   {app}\*.dll, loose top-level     a planted one is gone ([InstallDelete]); ours are
 //                                    inherited entries only, owner Administrators
+//   {app}\qt.conf, {app}\qt6.conf    a planted one is gone ([InstallDelete]); none is shipped -
+//                                    with QT_DEBUG_PLUGINS=1 the Desktop loads plugins from {app}
 //   {app}\qml\... and plugin folders inherited entries only (recreated by Setup)
 //   {app}\note-images                protected; Administrators F, SYSTEM F, Users M, each
 //                                    (OI)(CI); no other entry
@@ -1229,12 +1240,52 @@ begin
   end;
 end;
 
+// True when Command, the data of the login entry, starts the Desktop of the installation in Dir:
+// it begins with that program's full path in double quotes, the form every version of the Desktop
+// writes (the path, then the start-up argument if any). Case is ignored, as by Windows. A command
+// that names another folder - another copy, a development build - or that is not in that form is
+// not this installation's and is left alone.
+function RunCommandStartsThisInstallation(const Command, Dir: String): Boolean;
+var
+  Expected: String;
+begin
+  Expected := '"' + AddBackslash(Dir) + '{#AppExe}' + '"';
+  Result := CompareText(Copy(TrimLeft(Command), 1, Length(Expected)), Expected) = 0;
+end;
+
+// Removes the login entry when it starts this installation's Desktop, which is about to be
+// deleted: otherwise Windows tries the missing program at every sign-in, and an account that
+// later recreates the folder (once the note-images left behind are deleted) would have its own
+// program started in this user's session. HKEY_CURRENT_USER here is the registry of the account
+// the uninstaller runs as - the person who installed and uses the application in the usual case,
+// an administrator confirming the UAC prompt. An entry in another account's registry, including the
+// user's own when the uninstaller was elevated with another administrator's password, is out of
+// reach and stays. The 开机启动 setting is kept with the rest of the data, so a later installation
+// registers itself again when it starts with that setting on.
+procedure RemoveLoginEntry(const Dir: String);
+var
+  Command: String;
+begin
+  if RegQueryStringValue(HKEY_CURRENT_USER, RunKey, RunValueName, Command) then
+    if RunCommandStartsThisInstallation(Command, Dir) then
+    begin
+      if RegDeleteValue(HKEY_CURRENT_USER, RunKey, RunValueName) then
+        Log('Removed the login entry: ' + Command)
+      else
+        Log('Could not remove the login entry: ' + Command);
+    end;
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   DataRoot: String;
   DataDir: String;
   ImagesDir: String;
 begin
+  // Before the files go, while {app} still names them; nothing here asks or deletes data.
+  if CurUninstallStep = usUninstall then
+    RemoveLoginEntry(ExpandConstant('{app}'));
+
   if CurUninstallStep = usPostUninstall then
   begin
     // The profile the *installing* user named, not the one this uninstaller happens to

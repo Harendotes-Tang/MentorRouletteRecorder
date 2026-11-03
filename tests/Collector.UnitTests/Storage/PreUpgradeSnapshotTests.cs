@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Domain.Time;
+using MentorRecorder.Collector.Export;
 using MentorRecorder.Collector.Storage;
 
 namespace MentorRecorder.Collector.UnitTests;
@@ -66,6 +67,51 @@ public sealed class PreUpgradeSnapshotTests : IDisposable
         Assert.Equal(previous, Scalar(snapshot, "SELECT MAX(version) FROM schema_migrations;"));
         Assert.Equal(1, Scalar(snapshot, "SELECT COUNT(*) FROM mentor_runs;"));
         Assert.Empty(Directory.GetFiles(BackupDirectory, "mentor_*.db"));
+    }
+
+    /// <summary>
+    /// Audit 2026-11-03 H1-2: an upgrade that fails leaves the file as it was, so the copy taken for it is removed again.
+    /// A failure that repeats on every start (the Desktop retries a refused start every five minutes) therefore never
+    /// piles up full copies of the database; the upgrade that finally succeeds keeps exactly one.
+    /// </summary>
+    [Fact]
+    public void RepeatedFailedUpgradesKeepNoCopiesAndTheSuccessfulOneKeepsOne()
+    {
+        CreateAtVersion(11);
+        using (var orphan = new SqliteConnection("Data Source=" + DatabasePath + ";Pooling=False"))
+        {
+            orphan.Open();
+            using var command = orphan.CreateCommand();
+            command.CommandText = "PRAGMA foreign_keys = OFF; " +
+                "INSERT INTO run_events(event_id,run_id,sequence,occurred_at_utc,monotonic_offset_ms,event_type) " +
+                "VALUES ('orphan','missing',0,'2026-10-20T12:00:00.000Z',0,'test');";
+            command.ExecuteNonQuery();
+        }
+
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            _clock.UtcNow = _clock.UtcNow.AddMinutes(5);
+            var refusal = Assert.Throws<CollectorException>(() => SqliteDatabase.Open(DatabasePath, _clock).Dispose());
+            Assert.Contains(Path.GetFileName(DatabasePath), refusal.Message, StringComparison.Ordinal);
+        }
+
+        Assert.Empty(Directory.GetFiles(BackupDirectory, "pre_schema_*_upgrade_*.db"));
+        Assert.Empty(Directory.GetFiles(BackupDirectory, AtomicExportFile.TemporaryPrefix + "*"));
+        Assert.Equal(11, Scalar(DatabasePath, "SELECT MAX(version) FROM schema_migrations;"));
+
+        using (var repair = new SqliteConnection("Data Source=" + DatabasePath + ";Pooling=False"))
+        {
+            repair.Open();
+            using var command = repair.CreateCommand();
+            command.CommandText = "DELETE FROM run_events WHERE event_id = 'orphan';";
+            command.ExecuteNonQuery();
+        }
+
+        using (var database = SqliteDatabase.Open(DatabasePath, _clock))
+            Assert.Equal(MigrationRunner.LatestVersion, database.SchemaVersion);
+        var snapshot = Assert.Single(Directory.GetFiles(BackupDirectory, "pre_schema_*_upgrade_*.db"));
+        Assert.StartsWith("pre_schema_11_upgrade_", Path.GetFileName(snapshot), StringComparison.Ordinal);
+        Assert.Equal(11, Scalar(snapshot, "SELECT MAX(version) FROM schema_migrations;"));
     }
 
     [Fact]

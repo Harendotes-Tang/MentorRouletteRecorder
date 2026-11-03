@@ -127,8 +127,12 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
         m_statistics->jobs()->reload();
     });
     m_statisticsOverlay->setBackend(backend);
-    connect(m_statistics, &StatisticsController::dashboardChanged,
-            m_statisticsOverlay, &StatisticsOverlayController::refreshAttempts);
+    // After a dashboard read that answered, not on every dashboardChanged: a
+    // region pick or a regional read changes no attempt (review I2-4).
+    connect(m_statistics, &StatisticsController::dashboardRequestFinished, m_statisticsOverlay, [this](bool ok) {
+        if (ok)
+            m_statisticsOverlay->refreshAttempts();
+    });
     m_capture->setBackend(backend);
     m_recording = new AutomaticRecordingController(backend, this);
     connect(m_capture, &CaptureValidationController::metadataOwnershipChanged,
@@ -136,6 +140,14 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     m_gameSelection = new GameSelectionController(backend, this);
     connect(this, &AppController::statusChanged, this,
             [this] { m_gameSelection->observe(captureStatus()); });
+    // The poll's whole status: Npcap and the game belong to the same snapshot as
+    // the capture that follows, or a repaired Npcap keeps reading as missing
+    // until some other status read (review K2-1).
+    connect(m_recording, &AutomaticRecordingController::statusSectionsRead,
+            this, [this](const QVariantMap &sections) {
+        for (auto it = sections.cbegin(); it != sections.cend(); ++it)
+            m_collectorStatus.insert(it.key(), QJsonObject::fromVariantMap(it.value().toMap()));
+    });
     connect(m_recording, &AutomaticRecordingController::captureObserved,
             this, [this](const QVariantMap &capture) {
         m_collectorStatus.insert(QStringLiteral("capture"), QJsonObject::fromVariantMap(capture));
@@ -271,6 +283,8 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
             this, &AppController::showToast);
     connect(m_export, &ExportController::integrityCheckChanged,
             this, &AppController::integrityCheckChanged);
+    connect(m_export, &ExportController::backupRunningChanged,
+            this, &AppController::backupRunningChanged);
     connect(m_export, &ExportController::backupSucceeded, this, [this] {
         if (m_settings)
             m_settings->setLastAutoBackupDate(m_today().toString(QStringLiteral("yyyy-MM-dd")));
@@ -356,6 +370,19 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
         });
     }
 
+    // Started in the tray at login, the window is hidden: a service that cannot
+    // start is reported where the player can see it (review I1-2). A refusal and
+    // a missing executable are reported at once; a crash loop, or a holder that
+    // never answers, once no connection has come up for a while.
+    m_serviceNoticeTimer.setSingleShot(true);
+    m_serviceNoticeTimer.setInterval(kServiceNoticeMs);
+    // A fixed sentence, not the supervisor's live status: that one carries an exit
+    // code and a retry countdown frozen the moment the balloon shows, and the
+    // service may be running but still busy (review RV3-3).
+    connect(&m_serviceNoticeTimer, &QTimer::timeout, this, [this] {
+        raiseServiceUnavailable(tr("已经一分钟没有连上后台服务，软件会继续自动重试。"));
+    });
+
     connect(m_backend, &IBackend::connectionChanged, this, [this] {
         ++m_recoveryConnectionGeneration;
         m_completion->invalidateContext(false);
@@ -397,6 +424,9 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
                     m_collector->start();
                 }
             }
+            if (m_serviceUnavailableMessage.isEmpty() && !m_serviceNoticeTimer.isActive())
+                m_serviceNoticeTimer.start();
+            noticeMissingCollector();
             m_collectorStatus = QJsonObject();
             m_captureAnswerAtUtc = QDateTime();
             m_currentRun = QJsonObject();
@@ -421,6 +451,8 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
 
         m_reusedConnectFailures = 0;
         m_reusedVacantRelaunch = false;
+        m_serviceNoticeTimer.stop();
+        m_serviceUnavailableMessage.clear();
         retryHistoryImageCleanup();
         m_backend->subscribeLiveEvents();
         // The daily backup needs a Collector: due at start-up, when there was
@@ -440,7 +472,9 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
         // The Collector's own explanation, once, in place of a restart loop.
         connect(m_collector, &CollectorProcess::startRefused, this, [this](const QString &reason) {
             showToast(tr("后台服务无法启动：%1").arg(reason));
+            raiseServiceUnavailable(reason);
         });
+        connect(m_collector, &CollectorProcess::stateChanged, this, &AppController::noticeMissingCollector);
     }
 
     if (m_collector) {
@@ -450,6 +484,10 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
         m_collector->noteBackendConnected(m_backend->isConnected());
         if (!m_backend->isConnected())
             m_collector->start();
+    }
+    if (!m_backend->isConnected()) {
+        m_serviceNoticeTimer.start();
+        noticeMissingCollector();
     }
     if (m_backend->isConnected())
         m_backend->subscribeLiveEvents();
@@ -653,6 +691,8 @@ void AppController::adoptCollectorAnswer(const QVariantMap &payload, quint64 cap
     const auto game = m_collectorStatus.value(QStringLiteral("game")).toObject();
     if (game.contains(QStringLiteral("install_path_readable")))
         capture.insert(QStringLiteral("install_path_readable"), game.value(QStringLiteral("install_path_readable")));
+    // Why a region is unknown is said only in the full status's warnings.
+    m_recording->observeStatusWarnings(payload);
     if (captureRevision == m_recording->captureRevision()
         && capture.value(QStringLiteral("ffxiv_running")).isBool()) {
         adoptCaptureAnswer(capture);
@@ -1005,8 +1045,12 @@ void AppController::refreshCaptureDetail()
     m_backend->listCaptureAdapters()->whenDone(
         this, [this](bool ok, const QVariantMap &payload, const QString &,
                      const QString &) {
-            const QJsonObject object =
-                ok ? QJsonObject::fromVariantMap(payload) : QJsonObject();
+            // A failed listing says nothing about the adapters: the last list
+            // stays, or a chosen adapter would read as gone (「已选网卡不可用」)
+            // until the next listing that answers.
+            if (!ok)
+                return;
+            const QJsonObject object = QJsonObject::fromVariantMap(payload);
             m_captureAdapters =
                 object.value(QStringLiteral("adapters")).toArray().toVariantList();
             m_adapterInfo = object;
@@ -1658,8 +1702,11 @@ QVariantList AppController::categoryOptions() const
 {
     // $defs/Run.duty_category values: sent back as RunFilter.duty_category, so
     // they stay the Collector's words in every interface language.
+    // 团队任务: the category the Collector files and filters standard 24-player
+    // raids under (review K3-2).
     return {QString::fromUtf8("四人迷宫"), QString::fromUtf8("讨伐歼灭战"),
-            QString::fromUtf8("大型任务"), QString::fromUtf8("行会令")};
+            QString::fromUtf8("大型任务"), QString::fromUtf8("团队任务"),
+            QString::fromUtf8("行会令")};
 }
 
 QVariantList AppController::jobOptions() const
@@ -1704,11 +1751,13 @@ void AppController::refreshRecentDuties()
 
 QVariantList AppController::recentDutiesFromRuns(const QJsonArray &runs, int limit)
 {
+    // Each run is looked up in its own region's catalogue, and the row keeps
+    // that region: the dialog offers a record only its own region's duties, so
+    // each region has its own \a limit places (review I1-4).
     QVariantList out;
-    QSet<qint64> seen;
+    QSet<QString> seen;
+    QHash<QString, int> perRegion;
     for (const auto &value : runs) {
-        if (out.size() >= limit)
-            break;
         const QJsonObject run = value.toObject();
         if (run.value(QStringLiteral("soft_deleted")).toBool(false))
             continue;
@@ -1716,12 +1765,15 @@ QVariantList AppController::recentDutiesFromRuns(const QJsonArray &runs, int lim
         if (!id.isDouble())
             continue;
         const qint64 contentId = static_cast<qint64>(id.toDouble());
-        if (seen.contains(contentId))
-            continue;
-        const QVariantMap row = DutyCatalog::shared()->lookup(contentId);
+        const QVariantMap row = DutyCatalog::shared()->lookup(contentId, run.value(QStringLiteral("region")).toString());
         if (row.isEmpty())
             continue;
-        seen.insert(contentId);
+        const QString region = row.value(QStringLiteral("region")).toString();
+        const QString key = region + QLatin1Char(':') + QString::number(contentId);
+        if (seen.contains(key) || perRegion.value(region) >= limit)
+            continue;
+        seen.insert(key);
+        ++perRegion[region];
         out.append(row);
     }
     return out;
@@ -1963,20 +2015,28 @@ void AppController::rescanGame()
     m_backend->getStatus()->whenDone(
         this, [this, generation, connectionGeneration, captureRevision](bool ok, const QVariantMap &payload, const QString &code,
                      const QString &message) {
-            if (generation != m_recoveryStatusReadGeneration
-                || connectionGeneration != m_recoveryConnectionGeneration)
+            if (connectionGeneration != m_recoveryConnectionGeneration)
                 return;
+            // Only the newest status read is adopted. A rescan a later read has
+            // superseded still answers the button the player pressed (review I1-5).
+            const bool current = generation == m_recoveryStatusReadGeneration;
             if (!ok) {
-                showToast(message.isEmpty() ? code : message);
+                if (current)
+                    showToast(message.isEmpty() ? code : message);
                 return;
             }
-            adoptCollectorAnswer(payload, captureRevision);
-            Q_EMIT backendChanged();
-
-            const QJsonObject game =
-                m_collectorStatus.value(QStringLiteral("game")).toObject();
-            const QJsonObject capture =
-                m_collectorStatus.value(QStringLiteral("capture")).toObject();
+            if (current) {
+                adoptCollectorAnswer(payload, captureRevision);
+                // It may have superseded the read that would have named the
+                // database, so it names it itself (review I1-5).
+                const QString path = payload.value(QStringLiteral("database_path")).toString();
+                if (!path.isEmpty())
+                    m_recovery->setDatabasePath(path);
+                Q_EMIT backendChanged();
+            }
+            const QJsonObject status = current ? m_collectorStatus : QJsonObject::fromVariantMap(payload);
+            const QJsonObject game = status.value(QStringLiteral("game")).toObject();
+            const QJsonObject capture = status.value(QStringLiteral("capture")).toObject();
             // Only a listed client can be chosen; with none listed this is the
             // "nothing running" answer below (review OD-1).
             if (capture.value(QStringLiteral("game_selection_required")).toBool()
@@ -2001,6 +2061,10 @@ void AppController::rescanAdapters()
     m_backend->listCaptureAdapters()->whenDone(
         this, [this](bool ok, const QVariantMap &payload, const QString &code,
                      const QString &message) {
+            // 「重新检测」 is what the Npcap card says to press after installing
+            // or repairing it: the Npcap verdict is part of GetStatus, not of
+            // this listing, so it is read again as well (review K2-1).
+            readCollectorStatus();
             if (!ok) {
                 showToast(message.isEmpty() ? code : message);
                 return;
@@ -2124,6 +2188,11 @@ bool AppController::integrityCheckRunning() const
     return m_export->integrityCheckRunning();
 }
 
+bool AppController::backupRunning() const
+{
+    return m_export->backupRunning();
+}
+
 QVariantMap AppController::integrityCheckResult() const
 {
     return m_export->integrityCheckResult();
@@ -2236,6 +2305,31 @@ void AppController::showToast(const QString &message)
     m_toastMessage = message;
     Q_EMIT toastChanged();
     m_toastTimer.start(kToastMs);
+}
+
+void AppController::raiseServiceUnavailable(const QString &reason)
+{
+    if ((m_backend && m_backend->isConnected()) || !m_serviceUnavailableMessage.isEmpty())
+        return;
+    m_serviceNoticeTimer.stop();
+    // Neutral: true of a refused start, a missing program and a service that is
+    // running but not answering alike; the reason sentence says which.
+    m_serviceUnavailableMessage = tr("后台服务不可用，暂时不能自动记录。%1").arg(reason);
+    ++m_serviceNoticeSerial;
+    Q_EMIT serviceUnavailable();
+}
+
+void AppController::noticeMissingCollector()
+{
+    if (m_collector && m_collector->state() == CollectorProcess::State::Missing)
+        raiseServiceUnavailable(m_collector->statusText());
+}
+
+void AppController::setServiceNoticeDelayForTest(int milliseconds)
+{
+    m_serviceNoticeTimer.setInterval(milliseconds);
+    if (m_serviceNoticeTimer.isActive())
+        m_serviceNoticeTimer.start();
 }
 
 QString AppController::errorText(const QString &message, const QString &code) const

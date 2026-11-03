@@ -1,4 +1,6 @@
-# Issue text is data. Fixed commands only; all mutations share the publication lock.
+# Issue text is data. Fixed commands only. Evidence and report jobs share their own lock, never publication's:
+# their Issues can stay open and start a job on every edit, and in publication's group a stream of edits would
+# keep cancelling the queued publish job and its sweep. A refused push is redone from the new main.
 name: evidence-calibration
 on:
   issues:
@@ -22,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     concurrency:
-      group: publish-calibration
+      group: evidence-intake
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

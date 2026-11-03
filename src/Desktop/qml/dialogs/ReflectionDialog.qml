@@ -55,6 +55,8 @@ Dialog {
     property bool conflictUnresolved: false
     property string draftToken: ""
     property string submittedDraftToken: ""
+    /// The text the last saveReflection sent: the note, or a mood word.
+    property string submittedNote: ""
     property string baselineText: ""
     property string baselineMood: "good"
     property string automaticKind: ""
@@ -104,7 +106,7 @@ Dialog {
         const saved = recovery ? recovery.draft(run) : ({})
         if (saved && saved.token) {
             draftToken = saved.token
-            textArea.text = saved.text || ""
+            showNote(saved.text || "")
             mood = saved.mood || "good"
             for (let i = 1; i < jobOptions.length; ++i)
                 if (Number(jobOptions[i].job_id) === Number(saved.jobId)) jobIndex = i
@@ -117,17 +119,19 @@ Dialog {
         draftTimer.stop()
         if (!recovery || loadingDraft || !runId || completedAction) return true
         if (editScope !== recovery.databaseKey) return false
-        const changed = textArea.text !== baselineText || mood !== baselineMood || selectedJobId > 0
+        // Drafts hold the text as it would be stored (a mood word in its source text).
+        const text = storedNote(textArea.text)
+        const changed = text !== baselineText || mood !== baselineMood || selectedJobId > 0
         if (!changed && !conflictUnresolved) {
             if (draftToken) recovery.clearDraft(runId, draftToken)
             draftToken = ""
             return true
         }
         // saveDraft retains the original baseline until resetBaseline is explicit.
-        const saved = recovery.saveDraft(runData, {text: textArea.text, mood: mood, jobId: selectedJobId,
+        const saved = recovery.saveDraft(runData, {text: text, mood: mood, jobId: selectedJobId,
                                                   resetBaseline: resetBaseline === true})
         draftToken = recovery.draftTokenForFields(runId, {
-            text: textArea.text, mood: mood, jobId: selectedJobId
+            text: text, mood: mood, jobId: selectedJobId
         })
         return saved
     }
@@ -152,6 +156,61 @@ Dialog {
         if (visible && !loadingDraft && !completedAction) draftTimer.restart()
     }
 
+    /// A mood's word in its source text, whatever the interface language - the
+    /// record wizard's manualReflectionText words.
+    function moodOnlyText(value) {
+        return value === "good" ? "顺利" : value === "ok" ? "一般" : value === "bad" ? "糟心" : ""
+    }
+
+    /// A stored note as the editor shows it: a note that is only a mood's word
+    /// reads in the interface language (re-review RV4-5); any other as written.
+    function displayNote(text) {
+        const value = text || ""
+        const word = value === "顺利" ? "good" : value === "一般" ? "ok" : value === "糟心" ? "bad" : ""
+        return word ? Theme.moodLabel(word) : value
+    }
+
+    /// The interface-language word showNote() last put into the editor for a
+    /// note that is only a mood's word, and the stored word it stands for; both
+    /// empty for any other note. Kept rather than recomputed: a live language
+    /// switch does not rewrite the editor's text, so the word on screen can be
+    /// another language's than Theme.moodLabel() now returns (re-review RV6-3).
+    property string shownMoodLabel: ""
+    property string shownMoodWord: ""
+
+    /// Puts a stored note into the editor as displayNote() shows it.
+    function showNote(text) {
+        const value = text || ""
+        const shown = displayNote(value)
+        shownMoodLabel = shown !== value ? shown : ""
+        shownMoodWord = shown !== value ? value : ""
+        textArea.text = shown
+    }
+
+    /// The editor's text as stored: the mood word showNote() put there, still
+    /// untouched, stays the stored word; anything typed is kept as typed.
+    function storedNote(text) {
+        const value = text || ""
+        return shownMoodLabel.length > 0 && value.trim() === shownMoodLabel ? shownMoodWord : value
+    }
+
+    /// The text a save sends. A mood chosen without text is saved with its
+    /// word as the note, as the record wizard does (the owner's rule, audit
+    /// 2026-11-03 L2-3): storage needs a text and treats an empty one as
+    /// deletion. A note that is only the stored mood's word follows a new mood,
+    /// and an emptied note stays a deliberate clearing. \a explicit: the mood
+    /// on show counts as chosen even unchanged (保存笔记); the popup's faces
+    /// start on 顺利, so there only a changed face is a choice.
+    function noteToSave(explicit) {
+        const typed = storedNote(textArea.text).trim()
+        const stored = baselineText.trim()
+        if (typed.length > 0)
+            return typed === stored && stored === moodOnlyText(baselineMood) ? moodOnlyText(mood) : typed
+        if (stored.length > 0)
+            return ""
+        return explicit || mood !== baselineMood ? moodOnlyText(mood) : ""
+    }
+
     // ---------------------------------------------------------------- 弹窗 --
     /// 完成: a changed note is saved and the window closes on the reply; with
     /// nothing to save the reminder is spent and the window closes at once.
@@ -161,7 +220,7 @@ Dialog {
             resolveWith("", QT_TRANSLATE_NOOP("SystemReason", "补录本次导随职业"))
             return
         }
-        const note = textArea.text.trim()
+        const note = noteToSave(false)
         const changed = note !== baselineText.trim() || mood !== baselineMood
         // An emptied note is a deliberate clearing; saveReflection with "" deletes it.
         if (changed && (note.length > 0 || baselineText.trim().length > 0)) {
@@ -176,6 +235,7 @@ Dialog {
             errorText = ""
             persistDraft()
             submittedDraftToken = draftToken
+            submittedNote = note
             submitting = true
             Runtime.app.saveReflection(runId, mood, note, submittedDraftToken)
             return
@@ -205,7 +265,7 @@ Dialog {
     function useLatestNote() {
         if (recovery) recovery.clearDraft(runId, draftToken)
         loadingDraft = true
-        textArea.text = baselineText
+        showNote(baselineText)
         mood = baselineMood
         draftToken = ""
         conflictUnresolved = false
@@ -229,7 +289,12 @@ Dialog {
     /// has been asked: it is reported, so the controller does not ask it again
     /// once the popup closes (review L2-2).
     function switchTo(run, kind) {
-        if (!run || !run.run_id || busy) return
+        // A page that cannot be applied is not waited for any longer: the note
+        // field and the image controls stay locked while one is (audit 2026-11-03 L2-4).
+        if (!run || !run.run_id || busy) {
+            pendingSwitchId = ""
+            return
+        }
         persistDraft()
         pendingSwitchId = ""
         runData = run
@@ -247,7 +312,7 @@ Dialog {
         resultFlow = askingResult
         kicker = askingResult ? qsTr("刚刚结束") : qsTr("继续处理")
         mood = run.reflection && run.reflection.mood ? run.reflection.mood : "good"
-        textArea.text = run.reflection && run.reflection.text ? run.reflection.text : ""
+        dialog.showNote(run.reflection && run.reflection.text ? run.reflection.text : "")
         restoreDraft(run)
         automaticKind = ""
         if (askingResult && managedPresentation && typeof Runtime.app !== "undefined"
@@ -443,7 +508,7 @@ Dialog {
                         ? kickerText
                         : (existing ? qsTr("编辑笔记") : qsTr("补录笔记"))
         dialog.mood = existing && existing.mood ? existing.mood : "good"
-        textArea.text = existing && existing.text ? existing.text : ""
+        dialog.showNote(existing && existing.text ? existing.text : "")
         dialog.errorText = ""
         dialog.noteImageError = ""
         dialog.submitting = false
@@ -505,7 +570,7 @@ Dialog {
         dialog.kicker = qsTr("刚刚结束")
         dialog.jobIndex = 0
         dialog.mood = run.reflection && run.reflection.mood ? run.reflection.mood : "good"
-        textArea.text = run.reflection && run.reflection.text ? run.reflection.text : ""
+        dialog.showNote(run.reflection && run.reflection.text ? run.reflection.text : "")
         dialog.errorText = ""
         // An image refusal belongs to the add that caused it, never to the next
         // question (review OD-5).
@@ -543,7 +608,7 @@ Dialog {
             return
         }
         dialog.errorText = ""
-        const note = textArea.text.trim()
+        const note = dialog.noteToSave(false)
         // The popup keeps the result on screen after an answer and saves the
         // note at 完成; a job-only 完成 still saves the note first.
         const saveNote = !(dialog.compact && result.length > 0)
@@ -562,6 +627,9 @@ Dialog {
             dialog.errorText = qsTr("上一条笔记仍在保存中，请稍候再试。")
             return
         }
+        // The answer is for the record on screen: a page asked for before it is
+        // no longer awaited (audit 2026-11-03 L2-4).
+        dialog.pendingSwitchId = ""
         dialog.pendingResult = result
         dialog.pendingReason = reasonText
         dialog.resolving = true
@@ -571,6 +639,7 @@ Dialog {
             dialog.waitingForReflection = true
             dialog.persistDraft()
             dialog.submittedDraftToken = dialog.draftToken
+            dialog.submittedNote = note
             Runtime.app.saveReflection(dialog.runId, dialog.mood, note, dialog.submittedDraftToken)
         } else {
             submitPendingResult()
@@ -600,8 +669,14 @@ Dialog {
                 || (!dialog.submitting && !dialog.waitingForReflection))
                 return
             dialog.submitting = false
-            dialog.baselineText = textArea.text.trim()
+            // What was stored, a mood word included, is what the editor shows.
+            dialog.baselineText = dialog.submittedNote
             dialog.baselineMood = dialog.mood
+            if (dialog.storedNote(textArea.text).trim() !== dialog.submittedNote) {
+                dialog.loadingDraft = true
+                dialog.showNote(dialog.submittedNote)
+                dialog.loadingDraft = false
+            }
             dialog.draftToken = ""
             dialog.runData = Object.assign({}, dialog.runData, {
                 reflection: cleared ? null : {text: dialog.baselineText, mood: dialog.baselineMood}
@@ -645,6 +720,15 @@ Dialog {
                     && dialog.progressFrom >= 0 && typeof Runtime.app.readGoalProgress === "function")
                     Runtime.app.readGoalProgress(dialog.runId, dialog.runData.region || "CN")
                 return
+            }
+            // The job is saved, and with it the draft that held it. A note left
+            // empty is the 完成 without one: handled, not 待补笔记 (audit
+            // 2026-11-03 L2-2; a note that was saved first is already marked).
+            if (kind === "supplement_job" && dialog.recovery) {
+                if (textArea.text.trim().length === 0)
+                    dialog.recovery.markReflectionSaved(dialog.runId, dialog.draftToken)
+                else if (dialog.draftToken)
+                    dialog.recovery.clearDraft(dialog.runId, dialog.draftToken)
             }
             dialog.completedAction = true
             dialog.close()
@@ -797,7 +881,7 @@ Dialog {
             Text {
                 Layout.fillWidth: true
                 text: qsTr("已保存的笔记有变化。下面保留了旧草稿，请选择要继续编辑的内容。最新笔记：\n%1")
-                      .arg(dialog.baselineText || qsTr("（空）"))
+                      .arg(dialog.displayNote(dialog.baselineText) || qsTr("（空）"))
                 textFormat: Text.PlainText
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fs(12)
@@ -1142,8 +1226,11 @@ Dialog {
                     dialog.errorText = ""
                     dialog.persistDraft()
                     dialog.submittedDraftToken = dialog.draftToken
+                    // The mood on show is the one chosen: without text its word is
+                    // the note, never an empty text that "clears" a run without one.
+                    dialog.submittedNote = dialog.noteToSave(true)
                     dialog.submitting = true
-                    Runtime.app.saveReflection(dialog.runId, dialog.mood, textArea.text.trim(), dialog.submittedDraftToken)
+                    Runtime.app.saveReflection(dialog.runId, dialog.mood, dialog.submittedNote, dialog.submittedDraftToken)
                 }
             }
         }

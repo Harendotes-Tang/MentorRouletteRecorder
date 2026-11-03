@@ -454,4 +454,62 @@ public sealed class StatisticsTests
         Assert.Equal(2, Assert.Single(statistics.GetJobStats(new RunFilter { Region = Region.Tc })).CompletedCount);
         Assert.Equal(2, statistics.GetResultStats(new RunFilter { Region = Region.Tc }).AttemptCount);
     }
+    /// <summary>
+    /// Audit 2026-11-03 D1-2. Entry and end times are optional for every source (owner's rule of 2026-10-21), so a
+    /// capture the player corrects to 实际已通关 may have no entry time. Every completion is an attempt: a result that
+    /// says the duty was entered counts the run as one whatever its source, so the completion rate never exceeds 1
+    /// (the contract's maximum) and the COMPLETED share stays a share.
+    /// </summary>
+    [Fact]
+    public void CorrectedCapturesWithoutAnEntryTimeAreAttemptsByTheirResult()
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
+        settings.EnsureDefaults();
+        var left = TestDatabase.Run(result: RunResult.LeftOrAbandoned, source: RunSource.AutoNetwork);
+        var cancelled = new[]
+        {
+            TestDatabase.Run(result: RunResult.CancelledBeforeEntry, source: RunSource.AutoNetwork),
+            TestDatabase.Run(result: RunResult.CancelledBeforeEntry, source: RunSource.AutoNetwork),
+        };
+        var untouched = TestDatabase.Run(result: RunResult.CancelledBeforeEntry, source: RunSource.AutoNetwork);
+        var revisions = new RunRevisionRepository(fixture.Database);
+        fixture.Database.RunInTransaction(tx =>
+        {
+            foreach (var run in cancelled.Append(left).Append(untouched))
+            {
+                runs.Insert(run, tx);
+                revisions.Append(new RunRevision
+                {
+                    RevisionId = Guid.NewGuid().ToString("D"), RunId = run.RunId, Revision = 1,
+                    ChangedAtUtc = run.UpdatedAtUtc, ChangeKind = ChangeKind.CreateAuto, Actor = RevisionActor.System,
+                    Changes = Array.Empty<RunFieldChange>(),
+                }, tx);
+            }
+        });
+        var mutations = new MentorRecorder.Collector.Storage.Mutations.RunMutationService(fixture.Database, settings, fixture.Clock);
+        foreach (var run in cancelled)
+        {
+            mutations.CorrectRun(new MentorRecorder.Collector.Domain.Mutations.CorrectRunCommand(
+                Guid.NewGuid().ToString("D"), run.RunId, 1, "实际已通关", new MentorRecorder.Collector.Domain.Mutations.RunChangeSet
+                {
+                    Specified = new HashSet<string> { MentorRecorder.Collector.Domain.Mutations.RunFields.Result },
+                    Result = RunResult.Completed,
+                }));
+            Assert.Null(runs.Get(run.RunId)!.EnteredAtUtc);
+        }
+
+        var statistics = new StatisticsRepository(fixture.Database, settings, clock: fixture.Clock);
+        var dashboard = statistics.GetDashboard();
+
+        Assert.Equal(3, dashboard.AttemptCount);
+        Assert.Equal(2, dashboard.CompletedCount);
+        Assert.Equal(2d / 3, dashboard.CompletionRate!.Value, 9);
+        Assert.Equal(2d / 3, dashboard.ResultBreakdown.Buckets.Single(bucket => bucket.Result == RunResult.Completed).Share!.Value, 9);
+        Assert.Equal(3, statistics.GetResultStats().AttemptCount);
+        Assert.Equal(3, statistics.GetDungeonStats().Sum(row => row.AttemptCount));
+        Assert.All(statistics.GetDungeonStats(), row => Assert.True(row.CompletionRate is null or <= 1));
+        Assert.Equal(3, statistics.GetJobStats().Sum(row => row.AttemptCount));
+    }
 }

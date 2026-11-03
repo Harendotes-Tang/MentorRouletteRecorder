@@ -69,10 +69,14 @@ DutyCatalog *DutyCatalog::shared()
 void DutyCatalog::load()
 {
     const QDir directory(QStringLiteral(":/data/duties"));
-    for (const QString &name : directory.entryList({QStringLiteral("*.json")}, QDir::Files, QDir::Name)) {
-        const QString region = name.section(QLatin1Char('.'), 0, 0).toUpper();
-        if (region == QLatin1String("CN") || region == QLatin1String("TC") || region == QLatin1String("GLOBAL"))
-            loadRegion(directory.filePath(name), region);
+    const QStringList names = directory.entryList({QStringLiteral("*.json")}, QDir::Files, QDir::Name);
+    // TC last: its rows borrow a party size from the regions that carry one
+    // (loadRegion), so those are loaded first.
+    for (const QString &wanted : {QStringLiteral("CN"), QStringLiteral("GLOBAL"), QStringLiteral("TC")}) {
+        for (const QString &name : names) {
+            if (name.section(QLatin1Char('.'), 0, 0).toUpper() == wanted)
+                loadRegion(directory.filePath(name), wanted);
+        }
     }
 }
 
@@ -114,6 +118,25 @@ void DutyCatalog::loadRegion(const QString &resource, const QString &region)
     Catalogue data;
     data.dataVersion = version;
 
+    // data/duties/tc.*.json carries no party_size: null is no information. A
+    // 大型任务 row without one borrows the size every other region's row for the
+    // same content id states, when they agree - as the Collector composes its
+    // catalogue (audit 2026-11-03 H2-2 / L1-3). A TC raid is then an 8- or
+    // 24-player duty and a 团队任务, not 其他 with the 「令」 badge.
+    const QString raidCategory = QString::fromUtf8("大型任务");
+    const auto borrowedPartySize = [this, &region](qint64 id) {
+        int agreed = 0;
+        for (auto it = m_catalogues.cbegin(); it != m_catalogues.cend(); ++it) {
+            const auto stated = it->statedPartySizes.constFind(id);
+            if (it.key() == region || stated == it->statedPartySizes.cend())
+                continue;
+            if (agreed != 0 && stated.value() != agreed)
+                return QJsonValue();
+            agreed = stated.value();
+        }
+        return agreed > 0 ? QJsonValue(agreed) : QJsonValue();
+    };
+
     QList<QVariantMap> rows;
     const QJsonArray duties = root.value(QStringLiteral("duties")).toArray();
     rows.reserve(duties.size());
@@ -137,9 +160,13 @@ void DutyCatalog::loadRegion(const QString &resource, const QString &region)
                    duty.value(QStringLiteral("preferred_for_name_matching")).isBool()
                        && duty.value(QStringLiteral("preferred_for_name_matching")).toBool());
         const QString sourceCategory = duty.value(QStringLiteral("duty_category")).toString();
-        const bool allianceRaid = sourceCategory == QString::fromUtf8("大型任务")
-            && duty.value(QStringLiteral("party_size")).isDouble()
-            && duty.value(QStringLiteral("party_size")).toDouble() == 24;
+        QJsonValue partySize = duty.value(QStringLiteral("party_size"));
+        if (partySize.isDouble() && partySize.toDouble() > 0)
+            data.statedPartySizes.insert(static_cast<qint64>(contentId.toDouble()), partySize.toInt());
+        else if (sourceCategory == raidCategory)
+            partySize = borrowedPartySize(static_cast<qint64>(contentId.toDouble()));
+        const bool allianceRaid = sourceCategory == raidCategory && partySize.isDouble()
+            && partySize.toDouble() == 24;
         if (allianceRaid)
             data.allianceRaidIds.insert(static_cast<qint64>(contentId.toDouble()));
         row.insert(QStringLiteral("duty_category"),
@@ -149,10 +176,10 @@ void DutyCatalog::loadRegion(const QString &resource, const QString &region)
         const QString expansion = duty.value(QStringLiteral("expansion")).toString();
         row.insert(QStringLiteral("duty_expansion"), expansion);
         const QString category = duty.value(QStringLiteral("duty_category")).toString();
-        row.insert(QStringLiteral("party_size"),
-                   region != QLatin1String("CN") && category == QString::fromUtf8("大型任务")
-                       && !duty.value(QStringLiteral("party_size")).isDouble()
-                       ? 0 : partySizeGroup(category, duty.value(QStringLiteral("party_size")).toVariant()));
+        // A raid of another region with no size to borrow has no 人数 group:
+        // unknown, never 0 (其他, the 行会令's group).
+        if (region == QLatin1String("CN") || category != raidCategory || partySize.isDouble())
+            row.insert(QStringLiteral("party_size"), partySizeGroup(category, partySize.toVariant()));
         row.insert(QStringLiteral("difficulty"),
                    difficultyForName(duty.value(QStringLiteral("localized_name")).toString()));
         row.insert(QStringLiteral("version"), versionForExpansion(expansion));

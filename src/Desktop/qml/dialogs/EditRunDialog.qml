@@ -27,11 +27,27 @@ Dialog {
         {value: "UNKNOWN", text: qsTr("未知区服")}, {value: "CN", text: qsTr("国服")},
         {value: "TC", text: qsTr("繁中服")}, {value: "GLOBAL", text: qsTr("国际服")}
     ]
+    /// recordRegion as regionOptions words it.
+    readonly property string recordRegionText: {
+        for (let i = 0; i < regionOptions.length; ++i)
+            if (regionOptions[i].value === recordRegion) return regionOptions[i].text
+        return regionOptions[0].text
+    }
+    /// A new record's region: the region the dashboard shows, when it shows one
+    /// named region, else 国服 - never 未知区服, whose progress is a separate
+    /// achievement (audit 2026-11-03 L1-1).
+    function defaultRecordRegion() {
+        const shown = typeof Runtime.app !== "undefined" && Runtime.app && Runtime.app.recordRegion
+                      ? Runtime.app.recordRegion : ""
+        return shown === "CN" || shown === "TC" || shown === "GLOBAL" ? shown : "CN"
+    }
+    /// The goal of recordRegion's achievement as last read, or 0 while none was:
+    /// never another region's goal.
     readonly property int regionalGoalCount: {
         const entries = Runtime.app && Runtime.app.achievements ? Runtime.app.achievements : []
         for (let i = 0; i < entries.length; ++i)
-            if (entries[i].region === recordRegion) return Number(entries[i].goal_count || 2000)
-        return Runtime.app ? Runtime.app.goalCount : 2000
+            if (entries[i].region === recordRegion) return Number(entries[i].goal_count || 0)
+        return 0
     }
     function selectRegion(region) {
         if (editMode || region === recordRegion) return
@@ -189,7 +205,15 @@ Dialog {
         : importAwaitingConfirmation && !confirmsImportedFacts
         ? qsTr("请确认这条导入记录的通关结果后保存；未知游戏时间可以留空。")
         : countedBefore ? qsTr("这条导随已经计入进度，修改其他信息不会重复计数。")
-        : qsTr("这条通关记录将计入 %1 次导随成就的进度。填完必填信息后保存生效。").arg(dialog.regionalGoalCount)
+        // The achievement is the record's region's (audit 2026-11-03 L1-1).
+        : recordRegion === "UNKNOWN" && editMode
+        ? qsTr("这条通关记录将计入「未知区服」的单独进度，不计入国服、繁中服或国际服的导随成就。")
+        : recordRegion === "UNKNOWN"
+        ? qsTr("这条通关记录将计入「未知区服」的单独进度，不计入国服、繁中服或国际服的导随成就。可在「副本与职业」一步选择区服。")
+        : dialog.regionalGoalCount > 0
+        ? qsTr("这条通关记录将计入%1 %2 次导随成就的进度。填完必填信息后保存生效。")
+              .arg(dialog.recordRegionText).arg(dialog.regionalGoalCount)
+        : qsTr("这条通关记录将计入%1导随成就的进度。填完必填信息后保存生效。").arg(dialog.recordRegionText)
 
     property string matchedDate: ""
     property string matchedTime: ""
@@ -236,7 +260,8 @@ Dialog {
         errorText = ""
         reflectionSubmitting = true
         submitting = true
-        Runtime.app.saveReflection(savedRunId, reflectionMood || "good", manualReflectionText())
+        // submit() refused a 心得 without a mood, so the mood here is the player's.
+        Runtime.app.saveReflection(savedRunId, reflectionMood, manualReflectionText())
     }
 
     Connections {
@@ -967,7 +992,7 @@ Dialog {
         importedResultSelected = false
         editMode = false
         runData = null
-        recordRegion = "UNKNOWN"
+        recordRegion = defaultRecordRegion()
         matchedDate = Qt.formatDateTime(new Date(), "yyyy-MM-dd")
         enteredDate = matchedDate
         endedDate = matchedDate
@@ -1239,6 +1264,13 @@ Dialog {
         if (!editMode && reflectionText.trim().length > 2000) {
             errorCode = "ERR_BAD_REQUEST"
             errorText = qsTr("心得不能超过 2000 个字符。")
+            return
+        }
+        // A manual record's 心得 is stored with a mood the player chose; 不填写
+        // beside a written 心得 was stored as 顺利 (audit 2026-11-03 L1-4).
+        if (!editMode && reflectionText.trim().length > 0 && reflectionMood.length === 0) {
+            errorCode = "ERR_BAD_REQUEST"
+            errorText = qsTr("写了心得时，请在「这次感觉」中选择顺利、一般或糟心。")
             return
         }
         const verdict = Runtime.runForm.validate(formState, beforeState)

@@ -156,7 +156,7 @@ public sealed class GameProcessLocator
 
     private readonly IGameProcessProvider _processes;
     private readonly IGameFileReader _files;
-    private readonly Func<Region?>? _regionOverride;
+    private readonly Func<CaptureRegionOverride?>? _regionOverride;
     private readonly IGameInstallMemory _installMemory;
     private readonly Action<bool>? _listingObserved;
 
@@ -168,7 +168,8 @@ public sealed class GameProcessLocator
     /// <see cref="GuessRegion"/> matches substrings of the install path, and an ordinary CN
     /// installation under, say, <c>D:\Games\FF14\</c> contains none of the markers; without an
     /// override such a user is permanently locked out of every path that requires a known
-    /// region.
+    /// region. Such an override is bound to no installation: it never relabels a client whose
+    /// path names another region (audit 2026-11-03, A2-1).
     /// </param>
     /// <param name="installMemory">
     /// Where the install path is remembered across runs; inert by default, so only the shipping
@@ -179,14 +180,14 @@ public sealed class GameProcessLocator
         IGameFileReader? files = null,
         Func<Region?>? regionOverride = null,
         IGameInstallMemory? installMemory = null)
-        : this(processes, files, regionOverride, installMemory, listingObserved: null)
+        : this(processes, files, Unbound(regionOverride), installMemory, listingObserved: null)
     {
     }
 
     private GameProcessLocator(
         IGameProcessProvider? processes,
         IGameFileReader? files,
-        Func<Region?>? regionOverride,
+        Func<CaptureRegionOverride?>? regionOverride,
         IGameInstallMemory? installMemory,
         Action<bool>? listingObserved)
     {
@@ -197,13 +198,31 @@ public sealed class GameProcessLocator
         _listingObserved = listingObserved;
     }
 
-    /// <summary>Returns a copy of this locator that consults an explicit region override.</summary>
+    /// <summary>
+    /// Returns a copy of this locator that consults an explicit region bound to no installation: it
+    /// applies only to a client whose path names no region, or several, such as one given on the
+    /// trace command line.
+    /// </summary>
     /// <param name="regionOverride">Source of the override; may return null for "not set".</param>
     public GameProcessLocator WithRegionOverride(Func<Region?> regionOverride)
     {
         ArgumentNullException.ThrowIfNull(regionOverride);
+        return new GameProcessLocator(_processes, _files, Unbound(regionOverride), _installMemory, _listingObserved);
+    }
+
+    /// <summary>
+    /// Returns a copy of this locator that consults the region the user chose and the installation
+    /// it was chosen for (<see cref="CaptureSettingsStore.ReadRegionOverride"/>).
+    /// </summary>
+    /// <param name="regionOverride">Source of the override; may return null for "not set".</param>
+    public GameProcessLocator WithRegionOverride(Func<CaptureRegionOverride?> regionOverride)
+    {
+        ArgumentNullException.ThrowIfNull(regionOverride);
         return new GameProcessLocator(_processes, _files, regionOverride, _installMemory, _listingObserved);
     }
+
+    private static Func<CaptureRegionOverride?>? Unbound(Func<Region?>? regionOverride) =>
+        regionOverride is null ? null : () => regionOverride() is { } region ? new CaptureRegionOverride(region, null) : null;
 
     /// <summary>
     /// Returns a copy of this locator that reports the outcome of every process listing: true when
@@ -303,11 +322,27 @@ public sealed class GameProcessLocator
         var region = detected;
         if (SafeRegionOverride() is { } forced)
         {
-            region = forced;
-            if (detected != Region.Unknown && detected != forced)
+            // A choice not yet bound belongs to the client running when it is first seen: the one
+            // the user was looking at when choosing (audit 2026-11-03, A2-1).
+            if (forced.Bind is { } bind && !string.IsNullOrWhiteSpace(chosen.ExecutablePath))
             {
-                warnings.Add(
-                    CollectorTexts.CaptureGameRegionOverrideMismatch());
+                SafeBind(bind, chosen.ExecutablePath);
+                forced = forced with { InstallFingerprint = CaptureRegionOverride.Fingerprint(chosen.ExecutablePath), Bind = null };
+            }
+
+            region = RegionUnder(forced, detected, chosen.ExecutablePath);
+            if (region == Region.Unknown)
+            {
+                // Chosen for another installation, and this path names another region: neither
+                // is applied. Recording waits for the user to choose again or to clear the choice.
+                warnings.Add(CollectorTexts.CaptureGameRegionOverrideMismatch());
+            }
+            else if (detected != Region.Unknown && detected != region)
+            {
+                // Chosen for this installation against what its path names: applied, and said so,
+                // since a choice made with the game closed binds to whichever client runs next
+                // (re-review 2026-11-03, RV1-5).
+                warnings.Add(CollectorTexts.CaptureGameRegionOverrideApplied());
             }
         }
         else if (detected == Region.Unknown && chosen.ExecutablePath is not null)
@@ -391,10 +426,38 @@ public sealed class GameProcessLocator
         // Everything about a session stays empty: no process was found, and the path is not
         // carried out of here either, so nothing downstream can read this as a client to
         // observe or render a path it must not (docs/privacy-boundary.md section 5).
+        var detected = GuessRegion(remembered);
         return new GameProcessDetection(
             false, null, null, null,
-            SafeRegionOverride() ?? GuessRegion(remembered),
+            SafeRegionOverride() is { } forced ? RegionUnder(forced, detected, remembered) : detected,
             build, 0, null, Array.Empty<UserText>());
+    }
+
+    /// <summary>
+    /// The region of a client under a chosen region: the choice where the path names no region
+    /// (or several), or where the choice was made for this very installation, whatever its path
+    /// says; the path's own region where both agree; and Unknown -- fail closed -- where a choice
+    /// made for another installation meets a path that names another region (audit 2026-11-03, A2-1).
+    /// </summary>
+    /// <param name="forced">The user's choice.</param>
+    /// <param name="detected">The region the path names.</param>
+    /// <param name="executablePath">The client's executable path.</param>
+    private static Region RegionUnder(CaptureRegionOverride forced, Region detected, string? executablePath) =>
+        detected == Region.Unknown || detected == forced.Region || forced.IsBoundTo(executablePath)
+            ? forced.Region
+            : Region.Unknown;
+
+    /// <summary>Binds a choice; a settings table that cannot be written leaves it unbound for the next look.</summary>
+    private static void SafeBind(Action<string> bind, string executablePath)
+    {
+        try
+        {
+            bind(executablePath);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // Applied to this look all the same; the next one binds it.
+        }
     }
 
     /// <summary>
@@ -431,7 +494,7 @@ public sealed class GameProcessLocator
         return marked;
     }
 
-    private Region? SafeRegionOverride()
+    private CaptureRegionOverride? SafeRegionOverride()
     {
         if (_regionOverride is null)
         {
@@ -440,8 +503,8 @@ public sealed class GameProcessLocator
 
         try
         {
-            var region = _regionOverride();
-            return region is Region.Cn or Region.Global or Region.Tc ? region : null;
+            var forced = _regionOverride();
+            return forced?.Region is Region.Cn or Region.Global or Region.Tc ? forced : null;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {

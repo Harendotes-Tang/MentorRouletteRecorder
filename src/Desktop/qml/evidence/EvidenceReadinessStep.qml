@@ -74,7 +74,31 @@ EvidenceStep {
                 enabled: Runtime.app.templateObservationActionEnabled && !Runtime.app.captureCommandBusy
                 onClicked: step.session.stop()
             }
+            // Recording before the data is readable (the title screen, a wrong
+            // region or adapter): a plain way out (review K4-5).
+            AppButton {
+                objectName: "evidenceReadinessStopButton"
+                visible: step.session.recording
+                Layout.alignment: Qt.AlignVCenter
+                compact: true
+                text: Runtime.app.captureCommandBusy ? qsTr("处理中…") : qsTr("停止采证")
+                enabled: Runtime.app.templateObservationActionEnabled && !Runtime.app.captureCommandBusy
+                onClicked: step.session.stop()
+            }
         }
+    }
+
+    // A refused stop or cancel, said where it was pressed (review I4-1).
+    Text {
+        objectName: "evidenceReadinessError"
+        Layout.fillWidth: true
+        visible: Runtime.app.validationError.length > 0
+        textFormat: Text.PlainText
+        text: qsTr("采证操作失败：") + Runtime.app.validationError
+        color: Theme.red
+        font.pixelSize: Theme.fs(12)
+        font.weight: Font.DemiBold
+        wrapMode: Text.Wrap
     }
 
     // `.ev-read`

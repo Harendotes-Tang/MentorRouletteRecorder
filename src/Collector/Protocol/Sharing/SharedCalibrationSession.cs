@@ -39,6 +39,9 @@ internal sealed partial class SharedCalibrationSession
     /// <summary>Import refusal while the store's bookkeeping cannot be read, so nothing about the build is known (audit 2026-10-20, E-2).</summary>
     internal const string StateUnreadableReason = "STATE_UNREADABLE";
 
+    /// <summary>Last refusal after an unproven profile was taken out of use because the index quarantined its code.</summary>
+    internal const string QuarantinedReason = "QUARANTINED";
+
     /// <summary>
     /// How long a download runs before the card is told about it, so one that answers at once - the
     /// kill switch, an unreachable network - never flickers the card.
@@ -96,7 +99,8 @@ internal sealed partial class SharedCalibrationSession
     private DateTimeOffset? _lastSentAtUtc;
     private SharedFetchStatus? _lastSentStatus;
     private SharedRecheckRecord? _recheck;
-    private IReadOnlyList<Prepared>? _deferred;
+    private DeferredWithdrawal? _deferred;
+    private (Region Region, string Build)? _withdrawnFrom;
     private int _pending;
     private TaskCompletionSource _idle = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -260,6 +264,7 @@ internal sealed partial class SharedCalibrationSession
         _contradictions.Clear();
         _superseded = false;
         _lastRefusal = null;
+        _withdrawnFrom = null;
         _nextAutoFetchAt = null;
         if (_host.SharedContext() is { } context)
         {
@@ -457,20 +462,41 @@ internal sealed partial class SharedCalibrationSession
     }
 
     /// <summary>
-    /// A revocation that arrived mid-duty takes effect now the run has ended, and the rest of the index it
-    /// came with is offered as a fresh download would offer it. Runs before anything else in
+    /// A revocation or a quarantine that arrived mid-duty takes effect now the run has ended, and the rest of the
+    /// index it came with is offered as a fresh download would offer it. Runs before anything else in
     /// <see cref="Evaluate"/>, and whatever the candidate list holds, because a settled profile no longer
     /// answers any of the questions below.
+    ///
+    /// A quarantine is judged again here (audit 2026-11-03, E-1): it asks for full verification on this machine of a
+    /// profile that has not had it, so one the run just ended proved - a whole duty recorded with nothing left to audit -
+    /// keeps recording, exactly as it would had the index been read a moment later.
     /// </summary>
     private void ReleaseDeferredWithdrawal()
     {
-        if (_deferred is not { } prepared || _host.SharedRunInFlight())
+        if (_deferred is not { } deferred || _host.SharedRunInFlight())
         {
             return;
         }
 
         _deferred = null;
-        Supersede("REVOKED", pending: prepared);
+        if (deferred.Reason != QuarantinedReason)
+        {
+            Supersede(deferred.Reason, pending: deferred.Pending);
+            return;
+        }
+
+        if (_bound is { Proven: true })
+        {
+            RegisterDownloaded(deferred.Pending);
+            return;
+        }
+
+        if (_bound is { } bound)
+        {
+            bound.WatchGate = SharedCandidateProvenance.Imported;
+        }
+
+        Supersede(QuarantinedReason, contradicted: false, pending: deferred.Pending);
     }
 
     /// <summary>Verifies the profile in use while it is still watched. True when that withdrew it.</summary>
@@ -890,6 +916,12 @@ internal sealed partial class SharedCalibrationSession
     private sealed record BindTicket(
         SharedKey Key, CalibrationTemplate Template, Candidate Candidate, IReadOnlyDictionary<string, int> Counts, DateTimeOffset? ConsentAt,
         SharedCandidateProvenance Gate, int QuarantineEpoch);
+
+    /// <summary>
+    /// A withdrawal of the profile in use held until the run under way has ended: <c>REVOKED</c> or <c>QUARANTINED</c>, with
+    /// the other codes of the index that asked for it, offered once it has happened.
+    /// </summary>
+    private sealed record DeferredWithdrawal(string Reason, IReadOnlyList<Prepared> Pending);
 
     private sealed class Candidate
     {

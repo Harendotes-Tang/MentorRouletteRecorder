@@ -78,21 +78,31 @@ public sealed class SqliteDatabase : IDisposable
             var applied = MigrationRunner.ReadAppliedMigrations(connection);
             var priorVersion = applied.Count == 0 ? 0 : applied.Keys.Max();
             var database = new SqliteDatabase(connection, fullPath, priorVersion, openReadOnly ?? OpenReadOnlyConnection);
+            string? snapshot = null;
             if (priorVersion > 0 && priorVersion < MigrationRunner.LatestVersion)
             {
                 // Every upgrade keeps a verified copy of the file as the previous version left it, so
                 // that version can still open the user's history (audit 2026-10-20 H1-2; the daily
                 // backup is taken after connecting, so on upgrade day it is already the new schema).
-                // The copy is named outside the ordinary rolling-backup pattern and never pruned.
-                var snapshot = ExportPaths.Resolve(System.IO.Path.Combine(
-                    System.IO.Path.GetDirectoryName(fullPath)!, "backups",
-                    "pre_schema_" + priorVersion.ToString(System.Globalization.CultureInfo.InvariantCulture) + "_upgrade_"
-                    + clock.UtcNow.ToUniversalTime().ToString("yyyyMMdd_HHmmss", System.Globalization.CultureInfo.InvariantCulture)
-                    + "_" + Guid.NewGuid().ToString("N") + ".db"));
-                ExportPaths.PrepareDestination(snapshot, overwrite: false);
-                database.BackupDatabase(snapshot, overwrite: false);
+                // The copy is named outside the ordinary rolling-backup pattern and never pruned; only
+                // the copy of an upgrade that then fails is removed again, below.
+                snapshot = TakePreUpgradeSnapshot(database, fullPath, priorVersion, clock);
             }
-            var version = MigrationRunner.MigrateToLatest(connection, clock);
+
+            int version;
+            try
+            {
+                version = MigrationRunner.MigrateToLatest(connection, clock);
+            }
+            catch
+            {
+                // The migration rolled back, so the file is still the copy's twin. A failure that
+                // repeats on every start must not leave one more full copy each time (audit
+                // 2026-11-03 H1-2); the upgrade that succeeds takes its own.
+                DiscardSnapshot(snapshot);
+                throw;
+            }
+
             database.SchemaVersion = version;
             return database;
         }
@@ -105,6 +115,55 @@ public sealed class SqliteDatabase : IDisposable
         {
             connection.Dispose();
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Writes the verified pre-upgrade copy into the <c>backups</c> folder next to the database and returns its path.
+    /// A copy that cannot be written or fails its check stops the upgrade; the person reads a refusal to start that
+    /// says so and names the database, not an export's or a backup's message (audit 2026-11-03 H1-3).
+    /// </summary>
+    /// <param name="database">The database being opened.</param>
+    /// <param name="fullPath">The database file.</param>
+    /// <param name="priorVersion">The schema version the file is at.</param>
+    /// <param name="clock">Clock that stamps the copy's name.</param>
+    private static string TakePreUpgradeSnapshot(SqliteDatabase database, string fullPath, int priorVersion, IClock clock)
+    {
+        var name = "pre_schema_" + priorVersion.ToString(System.Globalization.CultureInfo.InvariantCulture) + "_upgrade_"
+            + clock.UtcNow.ToUniversalTime().ToString("yyyyMMdd_HHmmss", System.Globalization.CultureInfo.InvariantCulture)
+            + "_" + Guid.NewGuid().ToString("N") + ".db";
+        try
+        {
+            var snapshot = ExportPaths.Resolve(System.IO.Path.Combine(
+                System.IO.Path.GetDirectoryName(fullPath)!, "backups", name));
+            ExportPaths.PrepareDestination(snapshot, overwrite: false);
+            database.BackupDatabase(snapshot, overwrite: false);
+            return snapshot;
+        }
+        catch (Exception ex) when (ex is CollectorException { Code: ErrorCodes.ExportFailed }
+                                       or IOException or UnauthorizedAccessException)
+        {
+            throw new CollectorException(
+                ErrorCodes.DbIntegrity,
+                CollectorTexts.StartupPreUpgradeCopyFailed(fullPath),
+                new Dictionary<string, object?> { ["snapshot_name"] = name },
+                inner: ex);
+        }
+    }
+
+    /// <summary>Removes the copy an upgrade that did not happen took; best effort, the refusal is what matters.</summary>
+    /// <param name="snapshot">The copy, or null when none was taken.</param>
+    private static void DiscardSnapshot(string? snapshot)
+    {
+        if (snapshot is null) return;
+        try
+        {
+            File.Delete(snapshot);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The refusal that follows is the error the person needs; a copy left behind is only
+            // disk space, and the next upgrade attempt does not depend on it.
         }
     }
 

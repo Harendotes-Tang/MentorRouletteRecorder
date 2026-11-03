@@ -7,7 +7,9 @@
 # * Only the event's numeric issue number is used; contents and immutable author identity come from
 #   fresh REST snapshots. Issue text remains data. run contains no untrusted interpolation.
 # * Reports persist bounded no-vote receipts and reconcile one bot reply, so contents:write is needed
-#   and this workflow shares publication's lock. Ordinary text never revokes or quarantines a code.
+#   and this workflow shares the evidence lane's lock (evidence-intake), never publication's: reports stay
+#   open and start a job on every edit, which in publication's group would keep cancelling the queued
+#   publish job. A refused push is redone from the new main. Ordinary text never revokes or quarantines a code.
 # * Insufficient text reports wait automatically and link to structured evidence, without requiring
 #   the maintainer to own that region's game. The scheduled evidence sweep catches missed events.
 # * Every `uses:` is pinned to a commit id, with the release in the trailing comment. A tag can be
@@ -40,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:
-      group: publish-calibration
+      group: evidence-intake
       cancel-in-progress: false
     steps:
       - name: Check out main

@@ -469,7 +469,7 @@
 
     "RunFilter": {
       "type": "object", "additionalProperties": false,
-      "description": "All fields optional; omitted fields do not constrain the query. Array fields are OR within the field and AND across fields. text, name_text and name_exact are OR with each other and AND with all other fields.",
+      "description": "All fields optional; omitted fields do not constrain the query. Array fields are OR within the field and AND across fields. text, name_text, name_exact and reflection_text are OR with each other and AND with all other fields.",
       "properties": {
         "region": { "oneOf": [{ "$ref": "#/$defs/Region" }, { "type": "null" }], "description": "Service region. Omitted or null lists all regions; this is independent of UI language." },
         "history_from_day": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
@@ -788,13 +788,13 @@
           "items": { "$ref": "#/$defs/ParserErrorEntry" }
         },
 
-        "raw_packets_observed": { "type": "integer", "minimum": 0, "description": "IPv4/TCP frames the selected adapter delivered, before stream reassembly. packets_observed counts only messages that survived reassembly and framing, so it reads 0 both when nothing arrives and when everything arrives and is discarded; this counter separates the two." },
-        "preexisting_connections": { "type": ["integer", "null"], "minimum": 0, "description": "TCP connections the game already held when this capture started, or null when the table could not be read or nothing is running. Above zero means Oodle state for those connections is unrecoverable and a fresh login is needed." },
+        "raw_packets_observed": { "type": "integer", "minimum": 0, "description": "IPv4/TCP frames to or from this machine that the monitored capture paths delivered, before stream reassembly. Frames between two local endpoints (two programs on this machine, over the loopback path) are left out of this and of the ingress counters until the game itself holds such a connection; from then on they count, including those seen earlier. packets_observed counts only messages that survived reassembly and framing, so it reads 0 both when nothing arrives and when everything arrives and is discarded; this counter separates the two." },
+        "preexisting_connections": { "type": ["integer", "null"], "minimum": 0, "description": "TCP connections the game already held when this capture started, counted on IPv4 first: a positive IPv4 count is reported even when the game also holds IPv6 connections. Null when the tables could not be read, when the IPv4 table is truncated, when IPv4 holds none while IPv6 holds a connection or is truncated (the count is then unknown), or when nothing is running. Above zero means Oodle state for those connections is unrecoverable and a fresh login is needed." },
         "silent_reason": {
           "type": "string",
           "enum": ["NONE", "MIDSTREAM", "NO_PACKETS_ON_ADAPTER", "NO_STREAM_OWNERSHIP"],
           "default": "NONE",
-          "description": "Why a running capture is producing nothing. NONE: healthy, or too early to say (nothing is judged in the first 60 seconds unless the evidence is conclusive). MIDSTREAM: capture attached after the client had already connected, so that connection can never be decompressed. NO_PACKETS_ON_ADAPTER: no game traffic at all on the selected card. NO_STREAM_OWNERSHIP: traffic arrives but no connection is confirmed as the game's. hint carries the matching sentence for the user."
+          "description": "Why a running capture is producing nothing. NONE: healthy, or too early to say (nothing is judged in the first 60 seconds unless the evidence is conclusive), or the game has not yet held a connection on any interface since this capture started (the title screen), when silence says nothing about where its traffic goes. MIDSTREAM: capture attached after the client had already connected, so that connection can never be decompressed. NO_PACKETS_ON_ADAPTER: no game traffic at all on the selected card. NO_STREAM_OWNERSHIP: traffic arrives but no connection is confirmed as the game's. hint carries the matching sentence for the user."
         },
         "ingress": {
           "type": "object",
@@ -804,10 +804,10 @@
             "dropped_no_stream": { "type": "integer", "minimum": 0, "description": "Frames whose connection had no tracked stream, or whose direction was abandoned after an unfillable gap." },
             "dropped_no_syn": { "type": "integer", "minimum": 0, "description": "Frames dropped because their direction never showed its own SYN: the classic signature of attaching mid-connection." },
             "expired_streams": { "type": "integer", "minimum": 0, "description": "Streams released after waiting too long for the OS to confirm ownership." },
-            "unconfirmed_tuples": { "type": "integer", "minimum": 0, "description": "Distinct connections the OS TCP table never confirmed as the game's." },
+            "unconfirmed_tuples": { "type": "integer", "minimum": 0, "description": "Distinct connections the OS TCP table never confirmed as the game's (between two local endpoints only as raw_packets_observed says)." },
             "stream_resets": { "type": "integer", "minimum": 0, "description": "Streams and directions given up: every direction counted in damaged_game_directions, a stream nobody owned yet released over a frame it could not decode safely, and a tracked stream a new handshake replaced." },
-            "adapter_dropped": { "type": "integer", "minimum": 0, "description": "Packets Npcap reported as lost at the driver or the interface. Small values degrade the capture; sustained loss faults it." },
-            "handshakes": { "type": "integer", "minimum": 0, "description": "Connections opened because their TCP handshake was observed, whichever program they belong to. Zero over a long session means no handshake reached this card at all." },
+            "adapter_dropped": { "type": "integer", "minimum": 0, "description": "Packets Npcap reported as lost at the driver or the interface, on the capture paths that carried one of the game's connections this session; loss on other paths is not counted. Small values degrade the capture. Sustained loss or a read failure on the selected path, or on any path that carried one of the game's connections, faults it; on another path it closes only that path, which network_path counts in capture_interfaces and capture_open_failures." },
+            "handshakes": { "type": "integer", "minimum": 0, "description": "Connections opened because their TCP handshake was observed, whichever program they belong to (between two local endpoints only as raw_packets_observed says). Zero over a long session means no handshake reached the monitored paths at all." },
             "game_connections": { "type": "integer", "minimum": 0, "description": "Distinct connections the OS attributed to the game since capture started. Above preexisting_connections it means the client reconnected while this capture was running, so a capture that still decodes nothing lost the handshake rather than started too late." },
             "game_connections_now": { "type": "integer", "minimum": 0, "description": "Connections the OS attributes to the game in the most recent reading." },
             "damaged_game_directions": { "type": "integer", "minimum": 0, "description": "Directions of owned, decoding game connections given up for good, session-wide: a sequence gap not filled in time, a frame that could not be decoded safely, or a direction that never showed its own SYN. Any of them makes the session's silence worthless as calibration evidence, as do packets_dropped." }
@@ -1243,7 +1243,7 @@
       "properties": {
         "state": { "enum": ["IDLE", "WAITING", "RECORDING", "STOPPING", "COMPLETED", "FAILED"] },
         "active": { "type": "boolean" },
-        "reason": { "enum": ["IDLE", "WAITING_GAME", "WAITING_IDENTITY", "WAITING_ADAPTER", "WAITING_RESTART", "WAITING_CONNECTION_CHECK", "RECORDING", "STOPPING", "COMPLETED", "CANCELLED", "FAILED"] },
+        "reason": { "enum": ["IDLE", "WAITING_GAME", "WAITING_IDENTITY", "WAITING_REGION", "WAITING_ADAPTER", "WAITING_RESTART", "WAITING_CONNECTION_CHECK", "RECORDING", "STOPPING", "COMPLETED", "CANCELLED", "FAILED"] },
         "message": { "type": "string" },
         "message_ref": { "$ref": "#/$defs/TextRef", "description": "message as a catalogue reference (contracts/collector-texts.md). Optional: a Collector before 2026-10-15 does not send it." },
         "session_id": { "type": ["string", "null"] },
@@ -1720,7 +1720,7 @@
         "adapter_id": { "type": ["string", "null"], "maxLength": 400, "description": "null clears the remembered adapter and returns to automatic selection." },
         "log_retention_days": { "type": "integer", "minimum": 1, "maximum": 90 },
         "allow_without_profile": { "type": "boolean" },
-        "region_override": { "type": ["string", "null"], "enum": ["CN", "GLOBAL", "TC", null], "description": "Forces the service region when it cannot be derived from the install path. null returns to path-based detection." }
+        "region_override": { "type": ["string", "null"], "enum": ["CN", "GLOBAL", "TC", null], "description": "The service region for the game installation it is chosen for: the client running when it is set, or the first one seen afterwards. It applies to a client whose install path names no region (or several), and to that installation whatever its path says; a different client whose path names another region is not relabelled, records nothing while this stands, and says so in its warnings. Setting it again re-binds it. null returns to path-based detection." }
       }
     },
 
@@ -1740,7 +1740,7 @@
         "adapter_id": { "type": ["string", "null"], "description": "Remembered adapter; null means automatic selection." },
         "log_retention_days": { "type": "integer", "minimum": 1, "maximum": 90, "description": "Days of diagnostic log history the Collector keeps. Drives RotatingFileLogger retention directly." },
         "allow_without_profile": { "type": "boolean", "description": "Allows capture to run while the protocol profile is not VERIFIED. Counters only: nothing is parsed and no run is ever recorded." },
-        "region_override": { "type": ["string", "null"], "enum": ["CN", "GLOBAL", "TC", null], "description": "Forced service region, or null when the region is derived from the install path." }
+        "region_override": { "type": ["string", "null"], "enum": ["CN", "GLOBAL", "TC", null], "description": "The chosen service region (see UpdateCaptureSettingsRequest.region_override for which clients it applies to), or null when the region is derived from the install path." }
       }
     },
 

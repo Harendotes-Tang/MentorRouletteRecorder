@@ -37,6 +37,7 @@ protocol-profiles/
     tc-unsupported.json     UNSUPPORTED 占位，零消息
   synthetic/
     synthetic-v1.json       SYNTHETIC，全部常量为编造值，仅供离线测试
+    synthetic-cn-shape-v1.json SYNTHETIC，国服档案的形状（区域报文先于换区标记）配编造的值，仅供离线测试
   oodle-signatures/
     README.md               Oodle 签名档案：状态规则、reproduction 字段、验证记录
     cn.<build>.json         按 exe 哈希绑定的 Oodle 函数签名表（与协议档案是两回事）

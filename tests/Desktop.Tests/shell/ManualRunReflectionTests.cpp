@@ -161,8 +161,7 @@ private slots:
         QTest::newRow("good-only") << QStringLiteral("good") << QString() << QString::fromUtf8("顺利");
         QTest::newRow("ok-only") << QStringLiteral("ok") << QString() << QString::fromUtf8("一般");
         QTest::newRow("bad-only") << QStringLiteral("bad") << QString() << QString::fromUtf8("糟心");
-        QTest::newRow("text-only") << QString() << QStringLiteral("  note  ") << QStringLiteral("note");
-        QTest::newRow("both") << QStringLiteral("bad") << QStringLiteral("my note") << QStringLiteral("my note");
+        QTest::newRow("both") << QStringLiteral("bad") << QStringLiteral("  my note  ") << QStringLiteral("my note");
         QTest::newRow("neither") << QString() << QStringLiteral("  ") << QString();
     }
     void optionalReflection()
@@ -183,9 +182,34 @@ private slots:
         if (!expected.isEmpty()) {
             QCOMPARE(saved.count(), 1);
             QCOMPARE(scene.backend.notes.last().value(QStringLiteral("text")).toString(), expected);
-            QCOMPARE(scene.backend.notes.last().value(QStringLiteral("mood")).toString(),
-                     mood.isEmpty() ? QStringLiteral("good") : mood);
+            QCOMPARE(scene.backend.notes.last().value(QStringLiteral("mood")).toString(), mood);
         }
+    }
+
+    // Audit 2026-11-03 L1-4: a 心得 written with the mood left at 「不填写」 was
+    // stored as 顺利, a mood nobody chose. A manual record cannot store a 心得
+    // without a mood (only imported ones may), so the wizard asks for one
+    // before anything is created.
+    void textWithoutAMoodAsksForOneBeforeCreating()
+    {
+        Scene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        scene.dialog()->setProperty("reflectionMood", QString());
+        scene.dialog()->setProperty("reflectionText", QStringLiteral("  note  "));
+        QVERIFY(QMetaObject::invokeMethod(scene.dialog(), "submit"));
+        QCOMPARE(scene.backend.creations, 0);
+        QVERIFY(scene.backend.notes.isEmpty());
+        QVERIFY(scene.dialog()->property("visible").toBool());
+        QVERIFY(scene.dialog()->property("errorText").toString().contains(QString::fromUtf8("这次感觉")));
+
+        scene.dialog()->setProperty("reflectionMood", QStringLiteral("ok"));
+        QVERIFY(QMetaObject::invokeMethod(scene.dialog(), "submit"));
+        QTRY_VERIFY2(!scene.dialog()->property("visible").toBool(),
+                     qPrintable(scene.dialog()->property("errorText").toString()));
+        QCOMPARE(scene.backend.creations, 1);
+        QCOMPARE(scene.backend.notes.size(), 1);
+        QCOMPARE(scene.backend.notes.last().value(QStringLiteral("mood")).toString(), QStringLiteral("ok"));
+        QCOMPARE(scene.backend.notes.last().value(QStringLiteral("text")).toString(), QStringLiteral("note"));
     }
 
     void failedReflectionRetriesTheSameRun()

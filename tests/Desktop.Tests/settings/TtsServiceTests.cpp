@@ -277,10 +277,10 @@ int launchesOf(const QString &directory)
 }
 
 /// Record \a pid as the holder of the per-user serve lease, the way the
-/// Collector does.
+/// Collector does, under the name this build's supervisor reads (review I5-2).
 bool writeServePid(const QString &directory, qint64 pid)
 {
-    QFile file(QDir(directory).absoluteFilePath(QStringLiteral("serve.pid")));
+    QFile file(QDir(directory).absoluteFilePath(mr::CollectorProcess::servePidFileName()));
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
         return false;
     file.write(QByteArray::number(pid));
@@ -292,7 +292,7 @@ bool writeServePid(const QString &directory, qint64 pid)
 /// ago", which is the one state in which nothing may be ended.
 bool backdateServePid(const QString &directory, qint64 milliseconds)
 {
-    QFile file(QDir(directory).absoluteFilePath(QStringLiteral("serve.pid")));
+    QFile file(QDir(directory).absoluteFilePath(mr::CollectorProcess::servePidFileName()));
     if (!file.open(QIODevice::ReadWrite))
         return false;
     const bool ok = file.setFileTime(QDateTime::currentDateTime().addMSecs(-milliseconds),

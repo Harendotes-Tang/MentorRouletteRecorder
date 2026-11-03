@@ -11,6 +11,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include <functional>
 #include <memory>
 
 #include "LiveText.h"
@@ -73,6 +74,11 @@ class ImportRecordsController final : public QObject
     Q_PROPERTY(bool deductFromBaseline READ deductFromBaseline WRITE setDeductFromBaseline NOTIFY changed)
     /// Contributing rows capped separately by each stored regional baseline; -1 while any owning snapshot is unread.
     Q_PROPERTY(int baselineDeductionPreview READ baselineDeductionPreview NOTIFY changed)
+    /// The region a row takes when its source names none (CN, TC or GLOBAL; empty: none, the
+    /// Collector's UNKNOWN), set on the previewed row through the batch region pick's path. The dialog
+    /// sets the dashboard's region, else CN (audit 2026-11-03 H1-1). Screenshots, dlog records, take
+    /// CN whenever a default is set (re-review RV3-1).
+    Q_PROPERTY(QString defaultRegion READ defaultRegion WRITE setDefaultRegion NOTIFY changed)
 
 public:
     explicit ImportRecordsController(QObject *parent = nullptr);
@@ -132,6 +138,8 @@ public:
     bool deductFromBaseline() const;
     void setDeductFromBaseline(bool deduct);
     int baselineDeductionPreview() const;
+    QString defaultRegion() const { return m_defaultRegion; }
+    void setDefaultRegion(const QString &region);
 
     Q_INVOKABLE void reset();
     Q_INVOKABLE void chooseFiles();
@@ -155,6 +163,9 @@ public:
 
     /// Test seam for a packaged OCR layout in an isolated directory.
     void setOcrApplicationDirectoryForTesting(const QString &directory);
+    /// Test seam for the network-drive test of the local-disk rule: \a isNetwork answers for
+    /// an absolute path with '/' separators. No test machine can be relied on to have a network drive.
+    void setNetworkPathCheckForTesting(std::function<bool(const QString &)> isNetwork);
     static QString sourceKindForPath(const QString &path);
     static QString localPath(const QVariant &pathOrUrl);
 
@@ -167,6 +178,15 @@ Q_SIGNALS:
 private:
     struct PreviewPages;
     void beginInput(const QString &kind, const QString &name);
+    /// The next screenshots are added to the batch on screen. A batch nothing was shown of -
+    /// its first preview failed - is none (audit 2026-11-03 I3-1).
+    bool appendsToScreenshotBatch() const;
+    /// Rows from \a firstNew on, shown for the first time, whose source names no region: sets the
+    /// default region on their previewed candidates, as the batch region pick does, and reads the
+    /// batch again. Nothing when there is no default, no such row or no connection.
+    void applyDefaultRegion(int firstNew);
+    /// 国服 / 繁中服 / 国际服 / 未知区服, as the baseline preview and the import result name a region.
+    static QString regionName(const QString &region);
     void rememberSelectedIndices();
     void invalidatePreview(bool rememberSelection = true);
     void acceptPreview(const QVariantMap &payload);
@@ -237,6 +257,12 @@ private:
     bool m_deduct = false;
     // batchUpdateSelected has already checked the size of its whole batch of edits.
     bool m_batchEditing = false;
+    QString m_defaultRegion;
+    // The next reading preselects as a first preview does: the default region was set on one.
+    bool m_preselectAgain = false;
+    // applyDefaultRegion is setting the region: no identity or duty review changes with it.
+    bool m_settingDefaultRegion = false;
+    std::function<bool(const QString &)> m_networkPath;
 };
 
 } // namespace mr

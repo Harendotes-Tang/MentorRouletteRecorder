@@ -18,6 +18,7 @@
 #include "AppSettings.h"
 #include "IBackend.h"
 #include "MockBackend.h"
+#include "QmlComponentTestSupport.h"
 #include "SpeechAudioFile.h"
 #include "SpeechController.h"
 #include "SpeechPlayer.h"
@@ -30,6 +31,9 @@
 #include <QJsonDocument>
 #include <QPointer>
 #include <QProcess>
+#include <QQmlContext>
+#include <QQuickItem>
+#include <QQuickStyle>
 #include <QRegularExpression>
 #include <QScopeGuard>
 #include <QSignalSpy>
@@ -336,6 +340,8 @@ private Q_SLOTS:
     void controller_syncsTheVoiceButNeverTheService();
     void controller_retriesAVoiceSyncTheCollectorCouldNotTake();
     void controller_describesTargetsWithoutGuessing();
+    void controller_tellsWhetherADraftKeepsTheKey();
+    void panel_aDraftForAnotherTargetDoesNotPromiseTheKey();
     void mock_writesASilentWaveIntoTtsCache();
 
     // -- TtsService routing ---------------------------------------------------
@@ -773,6 +779,67 @@ void SpeechTests::controller_describesTargetsWithoutGuessing()
     QCOMPARE(mr::SpeechController::providerOfVoiceId(QStringLiteral("openai:nova")), openai);
     QCOMPARE(mr::SpeechController::voiceIdFor(openai, QStringLiteral(" nova ")), QStringLiteral("openai:nova"));
     QCOMPARE(mr::SpeechController::voiceIdFor(QStringLiteral("none"), QStringLiteral("x")), QString());
+}
+
+// Review K2-5: a key is bound to the Azure region or the whole OpenAI-compatible
+// address (OnlineSpeechClient.KeyBinding); a draft for another one does not keep it.
+void SpeechTests::controller_tellsWhetherADraftKeepsTheKey()
+{
+    const QString azure = QStringLiteral("azure");
+    const QString openai = QStringLiteral("openai_compatible");
+    MockFixture az(azure);
+    QVERIFY(az.loaded());
+    QVERIFY(az.speech.draftInForce(azure, QStringLiteral(" EastAsia "), {}));
+    QVERIFY(!az.speech.draftInForce(azure, QStringLiteral("japaneast"), {}));
+    QVERIFY(!az.speech.draftInForce(openai, {}, QStringLiteral("https://api.example.com/v1")));
+
+    MockFixture compatible(QStringLiteral("openai"));
+    QVERIFY(compatible.loaded());
+    QVERIFY(compatible.speech.draftInForce(openai, {}, QStringLiteral(" https://api.example.com/v1/ ")));
+    QVERIFY(!compatible.speech.draftInForce(openai, {}, QStringLiteral("https://tts.example.org/v1")));
+    QVERIFY(!compatible.speech.draftInForce(azure, QStringLiteral("eastasia"), {}));
+}
+
+// Review K2-5: editing the region or the address without a new key clears the stored key
+// on 保存, so the key field and the hint say so instead of offering to keep it.
+void SpeechTests::panel_aDraftForAnotherTargetDoesNotPromiseTheKey()
+{
+    QQuickStyle::setStyle(QStringLiteral("Basic"));
+    mrtest::registerSourceQmlComponents();
+    MockFixture fixture(QStringLiteral("azure"));
+    QVERIFY(fixture.loaded());
+    QVERIFY(fixture.speech.hasKey());
+    mrtest::QmlComponentScene scene;
+    scene.engine.rootContext()->setContextProperty(QStringLiteral("App"), QVariantMap{{QStringLiteral("dark"), false}});
+    scene.engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+    scene.engine.rootContext()->setContextProperty(QStringLiteral("Speech"), &fixture.speech);
+    QVERIFY2(scene.create(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 900; height: 760; visible: true
+    OnlineSpeechPanel { width: 860; speech: Speech; voiceId: "azure:zh-CN-XiaoxiaoNeural" }
+})", QStringLiteral("/components/OnlineSpeechProbe.qml")), qPrintable(scene.errors));
+    const auto find = [&scene](const char *name) {
+        return scene.root->findChild<QQuickItem *>(QString::fromLatin1(name));
+    };
+    QQuickItem *panel = find("onlineSpeechCard");
+    QQuickItem *region = find("onlineSpeechRegionField");
+    QQuickItem *key = find("onlineSpeechKeyField");
+    QQuickItem *hint = find("onlineSpeechRebindHint");
+    QVERIFY(panel && region && key && hint);
+    QTRY_VERIFY(panel->property("keyStored").toBool());
+    QCOMPARE(key->property("placeholderText").toString(), QString::fromUtf8("留空则保留已保存的密钥"));
+    QVERIFY(!hint->isVisible());
+
+    // The same region typed differently is still the one in force.
+    region->setProperty("text", QStringLiteral(" EastAsia "));
+    QVERIFY(panel->property("keyStored").toBool());
+    // Another region: 保存 without a key would clear it.
+    region->setProperty("text", QStringLiteral("japaneast"));
+    QVERIFY(!panel->property("keyStored").toBool());
+    QCOMPARE(key->property("placeholderText").toString(), QString::fromUtf8("粘贴你的密钥"));
+    QVERIFY(hint->isVisible());
 }
 
 void SpeechTests::mock_writesASilentWaveIntoTtsCache()

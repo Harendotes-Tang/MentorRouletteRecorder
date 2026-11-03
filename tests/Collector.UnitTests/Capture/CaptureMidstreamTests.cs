@@ -337,6 +337,90 @@ public sealed class CaptureMidstreamTests : IDisposable
         Assert.Equal(4, CaptureWire.CaptureStatus(snapshot)["ingress"]!["unconfirmed_tuples"]!.GetValue<long>());
     }
 
+    /// <summary>
+    /// Audit 2026-11-03, A1-5. At the title screen the game holds no connection on any interface,
+    /// so other programs' traffic after a quiet minute says nothing about where the game's traffic
+    /// goes: no verdict, no advice and no recovery episode. Once the game holds a connection that
+    /// this capture does not see, the verdict stands as before.
+    /// </summary>
+    [Fact]
+    public void AGameThatHasNotConnectedAnywhereIsNotJudgedSilent()
+    {
+        _preexisting = 0;
+        using var controller = Build();
+        controller.Start();
+        _tcp.With(4321);
+        Source.IngressCounters = new CaptureIngressCounters(RawPackets: 900, UnconfirmedTuples: 4);
+
+        _uptime = TimeSpan.FromSeconds(61);
+        controller.Poll();
+        _uptime = TimeSpan.FromSeconds(200);
+        controller.Poll();
+
+        var snapshot = controller.Snapshot();
+        Assert.Equal(CaptureSilentReason.None, snapshot.SilentReason);
+        Assert.Null(snapshot.Hint);
+        Assert.Equal(PathRecoverySnapshot.None, snapshot.PathRecovery);
+        Assert.Single(_sources);
+
+        _tcp.With(4321, "10.9.9.9");
+        _uptime = TimeSpan.FromSeconds(201);
+        controller.Poll();
+        Assert.Equal(CaptureSilentReason.NoStreamOwnership, controller.Snapshot().SilentReason);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-03, A1-4. Once the game is readable -- the player logged in again, as asked --
+    /// neither "already connected" sentence may remain: following it would restart the software
+    /// while logged in and cause the very late attach it warns about.
+    /// </summary>
+    [Fact]
+    public void TheAlreadyConnectedWarningsStopOnceTheGameIsReadable()
+    {
+        _preexisting = 2;
+        using var controller = Build();
+        controller.Start();
+        Source.IngressCounters = new CaptureIngressCounters(GameConnections: 5);
+
+        Source.PushOpcode(0x0142, payloadLength: 16);
+
+        var snapshot = WaitFor(controller, status => status.PathRecovery.State == PathRecoveryState.None);
+        Assert.DoesNotContain(snapshot.Warnings,
+            warning => warning.Key == Contracts.Texts.CollectorTexts.CaptureWarningPreexisting().Key);
+        Assert.DoesNotContain(snapshot.Warnings,
+            warning => warning.Key == Contracts.Texts.CollectorTexts.CaptureWarningPreexistingReconnected().Key);
+    }
+
+    /// <summary>
+    /// Re-review 2026-11-03, RV1-2. A connection that reconnected on its own -- the chat server --
+    /// decodes, while the zone connection the game held at start is still listed and still
+    /// unreadable. The plain sentence stays until every listed connection is one this capture saw
+    /// open; only the "you already reconnected" sentence stops at the first decoded message.
+    /// </summary>
+    [Fact]
+    public void TheAlreadyConnectedWarningStaysWhileAConnectionHeldAtStartIsStillInUse()
+    {
+        _preexisting = 2;
+        using var controller = Build();
+        controller.Start();
+        Source.IngressCounters = new CaptureIngressCounters(
+            GameConnections: 3, GameConnectionsNow: 2, GameConnectionsReadable: 1);
+
+        Source.PushOpcode(0x0142, payloadLength: 16);
+
+        var snapshot = WaitFor(controller, status => status.PathRecovery.State == PathRecoveryState.None);
+        Assert.Contains(snapshot.Warnings,
+            warning => warning.Key == Contracts.Texts.CollectorTexts.CaptureWarningPreexisting().Key);
+        Assert.DoesNotContain(snapshot.Warnings,
+            warning => warning.Key == Contracts.Texts.CollectorTexts.CaptureWarningPreexistingReconnected().Key);
+
+        // After the relog every listed connection is one this capture saw open.
+        Source.IngressCounters = new CaptureIngressCounters(
+            GameConnections: 5, GameConnectionsNow: 3, GameConnectionsReadable: 3);
+        Assert.DoesNotContain(controller.Snapshot().Warnings,
+            warning => warning.Key == Contracts.Texts.CollectorTexts.CaptureWarningPreexisting().Key);
+    }
+
     [Fact]
     public void AnUnchangedSilentPlanIsInspectedWithoutDiscardingItsDecoder()
     {

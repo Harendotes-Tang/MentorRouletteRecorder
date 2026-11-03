@@ -11,8 +11,9 @@ on:
 permissions:
   contents: read
 
-# Shared with the branch cleanup and the scheduled release catch-up. A release-event run holds
-# a per-tag lock and pushes its own tag before any asset (mirror-release.yml).
+# Shared with the branch cleanup only. Every run of mirror-release.yml, release event or
+# catch-up, holds the separate gitcode-release- lock and pushes the release tags before any
+# asset, so its ref sync may overlap this mirror (it retries once after losing a lease race).
 concurrency:
   group: gitcode-mirror-${{ github.repository }}
   cancel-in-progress: false

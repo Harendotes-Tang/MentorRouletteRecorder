@@ -34,11 +34,13 @@
   "ContentRoulette": {
     "en": [
       { "row_id": 1, "fields": { "Name": "Duty Roulette: Sample Leveling", "Category": "Sample Leveling" } },
-      { "row_id": 9, "fields": { "Name": "Duty Roulette: Sample Mentor", "Category": "Sample Mentor" } }
+      { "row_id": 9, "fields": { "Name": "Duty Roulette: Sample Mentor", "Category": "Sample Mentor" } },
+      { "row_id": 15, "fields": { "Name": "Duty Roulette: Alliance Raids", "Category": "Alliance Raids" } }
     ],
     "ja": [
       { "row_id": 1, "fields": { "Name": "コンテンツルーレット：サンプルレベリング", "Category": "サンプルレベリング" } },
-      { "row_id": 9, "fields": { "Name": "コンテンツルーレット：サンプルメンター", "Category": "サンプルメンター" } }
+      { "row_id": 9, "fields": { "Name": "コンテンツルーレット：サンプルメンター", "Category": "サンプルメンター" } },
+      { "row_id": 15, "fields": { "Name": "コンテンツルーレット：アライアンスレイド", "Category": "アライアンスレイド" } }
     ]
   },
   "ContentType": {

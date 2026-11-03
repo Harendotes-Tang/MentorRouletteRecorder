@@ -334,6 +334,15 @@ public static class CalibrationEvidenceStore
             ["opcode"] = entry.Key.Opcode,
             ["count"] = entry.Value,
         }),
+        // Added without changing the layout version (audit 2026-11-03, C-4): an earlier file reads back as
+        // "no session has seen anything that often", and the session under way finds out again.
+        ["frequent"] = Array(
+            snapshot.FrequentOpcodes.OrderBy(entry => entry.Direction).ThenBy(entry => entry.Opcode),
+            entry => new JsonObject
+            {
+                ["inbound"] = entry.Direction == PacketDirection.ServerToClient,
+                ["opcode"] = entry.Opcode,
+            }),
         ["job_violations"] = Array(snapshot.JobViolations, entry => new JsonObject
         {
             ["opcode"] = entry.Key,
@@ -431,12 +440,12 @@ public static class CalibrationEvidenceStore
     {
         if (rejections.PopOpcodes.Count + rejections.ZoneKeys.Count + rejections.TimedOpcodes.Count +
             rejections.MatchStates.Count + rejections.Requests.Count + rejections.Entries.Count +
-            rejections.Exits.Count == 0)
+            rejections.Exits.Count + rejections.DisprovedPopOpcodes.Count == 0)
         {
             return null;
         }
 
-        return new JsonObject
+        var written = new JsonObject
         {
             ["pops"] = new JsonArray(rejections.PopOpcodes.OrderBy(opcode => opcode)
                 .Select(opcode => (JsonNode?)JsonValue.Create(opcode)).ToArray()),
@@ -461,6 +470,14 @@ public static class CalibrationEvidenceStore
             ["entries"] = Stamps(rejections.Entries),
             ["exits"] = Stamps(rejections.Exits),
         };
+        // Written only when there is one, so a file without reads exactly as before (audit 2026-11-03, C-2).
+        if (rejections.DisprovedPopOpcodes.Count > 0)
+        {
+            written["disproved"] = new JsonArray(rejections.DisprovedPopOpcodes.OrderBy(opcode => opcode)
+                .Select(opcode => (JsonNode?)JsonValue.Create(opcode)).ToArray());
+        }
+
+        return written;
     }
 
     private static JsonArray Stamps(IEnumerable<DateTimeOffset> times) =>
@@ -550,6 +567,10 @@ public static class CalibrationEvidenceStore
             Math.Max(1, Int32(node, "sessions")))
         {
             PopShapeSeen = Int32(node, "pop_shapes"),
+            FrequentOpcodes = Items(node, "frequent")
+                .Select(item => (Bool(item, "inbound") ? PacketDirection.ServerToClient : PacketDirection.ClientToServer,
+                    (ushort)Int32(item, "opcode")))
+                .ToHashSet(),
             RetiredOnceCounts = KeyCounts(node, "retired_once"),
             PopRefusals = Items(node, "pop_refusals").ToDictionary(
                 item => ((ushort)Int32(item, "opcode"), Text(item, "field") ?? string.Empty),
@@ -634,6 +655,7 @@ public static class CalibrationEvidenceStore
             Requests = Times(rejections, "requests"),
             Entries = Times(rejections, "entries"),
             Exits = Times(rejections, "exits"),
+            DisprovedPopOpcodes = Values(rejections, "disproved").Select(opcode => checked((ushort)opcode)).ToHashSet(),
         };
     }
 

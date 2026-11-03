@@ -140,6 +140,8 @@ class AppController final : public QObject, public CaptureValidationController::
     Q_PROPERTY(bool integrityCheckRunning READ integrityCheckRunning NOTIFY integrityCheckChanged)
     /// Empty before the first check; see ExportController::integrityCheckResult().
     Q_PROPERTY(QVariantMap integrityCheckResult READ integrityCheckResult NOTIFY integrityCheckChanged)
+    /// 立即备份 is under way (ExportController::backupRunning, review K1-8).
+    Q_PROPERTY(bool backupRunning READ backupRunning NOTIFY backupRunningChanged)
     Q_PROPERTY(mr::CandidateReviewController *candidates READ candidates CONSTANT)
     /// 本机校准: the capture page card and the confirmation dialog bind to this.
     Q_PROPERTY(mr::CalibrationController *calibration READ calibration CONSTANT)
@@ -378,6 +380,7 @@ public:
     QString captureSettingsError() const { return m_captureSettingsError.text(); }
     bool integrityCheckRunning() const;
     QVariantMap integrityCheckResult() const;
+    bool backupRunning() const;
     CandidateReviewController *candidates() const { return m_candidates; }
     CalibrationController *calibration() const { return m_calibration; }
     SpeechController *speech() const { return m_speech; }
@@ -423,6 +426,15 @@ public:
     StatisticsOverlayController *statisticsOverlay() const { return m_statisticsOverlay; }
     HistoryColumnsController *historyColumns() const { return m_historyColumns; }
     RecoveryController *recovery() const { return m_recovery; }
+    /// 「后台服务不可用，暂时不能自动记录。…」 while the background service is
+    /// known not to serve - it refused to start, its executable is missing, or
+    /// no connection came up within \ref kServiceNoticeMs - and empty once a
+    /// connection is up. TrayController tells it to a player who cannot see the
+    /// window (review I1-2).
+    QString serviceUnavailableMessage() const { return m_serviceUnavailableMessage; }
+    /// Counts the episodes \ref serviceUnavailable was emitted for.
+    quint64 serviceNoticeSerial() const { return m_serviceNoticeSerial; }
+    void setServiceNoticeDelayForTest(int milliseconds);
 
     QVariantMap selectedRun() const;
     bool hasSelection() const { return m_history->hasSelection(); }
@@ -442,9 +454,9 @@ public:
     QVariantList recentDuties() const { return m_recentDuties; }
     /// Re-reads 最近打过: QueryRuns, matched_at_utc desc, page 1 of 50.
     Q_INVOKABLE void refreshRecentDuties();
-    /// The first \a limit distinct content_ids of \a runs (in order) that the
-    /// bundled catalogue knows, as catalogue rows. Soft-deleted runs and runs
-    /// without a duty are skipped.
+    /// For each region, the first \a limit distinct content_ids of \a runs (in
+    /// order) that the run's own region's catalogue knows, as catalogue rows of
+    /// that region. Soft-deleted runs and runs without a duty are skipped.
     static QVariantList recentDutiesFromRuns(const QJsonArray &runs, int limit);
     QString appVersion() const { return build::versionLabel(); }
     QString systemVersion() const;
@@ -677,6 +689,8 @@ Q_SIGNALS:
     void historyFilterConfirmationChanged();
     void historyRetentionChanged();
     void historyImageCleanupChanged();
+    /// Once per disconnected episode; see \ref serviceUnavailableMessage.
+    void serviceUnavailable();
     void toastChanged();
     void firstRunChanged();
     void adaptersChanged();
@@ -684,6 +698,7 @@ Q_SIGNALS:
     void captureAdapterIdChanged();
     void captureSettingsChanged();
     void integrityCheckChanged();
+    void backupRunningChanged();
     void tick();
     void captureHealthTextChanged();
     /// The interface language changed: dutyCatalogOptions and battleJobOptions
@@ -894,6 +909,19 @@ private:
     QTimer m_tickTimer;
     QTimer m_toastTimer;
     QTimer m_captureSettingsTimer;
+
+    /// How long a missing connection is waited out before it is reported: long
+    /// enough for a Collector starting on a busy login, and for one restart.
+    static constexpr int kServiceNoticeMs = 60000;
+    /// Running while no connection is up and nothing has been reported yet.
+    QTimer m_serviceNoticeTimer;
+    QString m_serviceUnavailableMessage;
+    quint64 m_serviceNoticeSerial = 0;
+    /// Records \a reason and emits serviceUnavailable, unless this episode
+    /// was already reported or a connection is up.
+    void raiseServiceUnavailable(const QString &reason);
+    /// A Collector executable that is not there never emits startRefused.
+    void noticeMissingCollector();
 
     /// event_ids already acted on, and the order they arrived in. The bus
     /// replays up to 64 recent events to every new subscriber without marking

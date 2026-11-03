@@ -406,7 +406,9 @@ QVariantList DungeonStatsModel::specialDutyBreakdown() const
     qint64 counts[4]{};
     for (const QJsonObject &row : m_rows) {
         const QJsonValue id = row.value(QStringLiteral("content_id"));
-        const QVariantMap catalogue = DutyCatalog::shared()->lookup(id.toVariant());
+        // The row's own region, as dutyCategory() does: a TC-only duty is no
+        // 未识别 because the CN catalogue lacks it (review I2-3).
+        const QVariantMap catalogue = DutyCatalog::shared()->lookup(id.toVariant(), row.value(QStringLiteral("region")).toString());
         int group = 3; // Missing/unknown identity is not evidence of an "other" duty.
         if (id.isDouble() && membership.available && membership.contentIds.contains(id.toInteger()))
             group = 0;

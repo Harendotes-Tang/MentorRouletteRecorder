@@ -67,7 +67,13 @@ public sealed class BackupIntegrityTests : IDisposable
             }
         }
 
-        Assert.Throws<CollectorException>(() => SqliteDatabase.Open(DatabasePath, _clock, CopyFailsItsCheck).Dispose());
+        var refusal = Assert.Throws<CollectorException>(() => SqliteDatabase.Open(DatabasePath, _clock, CopyFailsItsCheck).Dispose());
+        // A refusal to start, worded as one: the copy an upgrade needs failed, and the file to save is named
+        // (audit 2026-11-03 H1-3) - not an export's or a backup's message.
+        Assert.Equal(ErrorCodes.DbIntegrity, refusal.Code);
+        Assert.Equal("startup.pre_upgrade_copy_failed", refusal.Text?.Key);
+        Assert.Contains("无法启动", refusal.Message, StringComparison.Ordinal);
+        Assert.Contains(Path.GetFileName(DatabasePath), refusal.Message, StringComparison.Ordinal);
         SqliteConnection.ClearAllPools();
         using var check = new SqliteConnection("Data Source=" + DatabasePath + ";Mode=ReadOnly;Pooling=False");
         check.Open();

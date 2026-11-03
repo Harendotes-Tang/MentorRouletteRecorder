@@ -32,7 +32,7 @@ public sealed class ProcessListingLogTests : IDisposable
         var seen = new List<bool>();
         var locator = new GameProcessLocator(processes, new FakeGameFileReader())
             .WithListingObserver(seen.Add)
-            .WithRegionOverride(() => null);
+            .WithRegionOverride(() => (Domain.Region?)null);
 
         locator.Locate();
         processes.Fails = true;

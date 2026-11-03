@@ -6,13 +6,17 @@ import MentorRecorder 1.0
 
 // ④ 停止采证，保存文件: the round stops and is written; the player ticks off the
 // files as they copy them out, with a button to the folder each one lives in.
+// A failed round lands here too, with why it failed: whatever it left is still
+// handed over (review K4-4).
 EvidenceStep {
     id: step
 
     required property EvidenceSession session
 
     readonly property bool stopping: step.session.phase === "stopping"
-    readonly property bool filesLocked: !step.session.saved
+    readonly property bool failed: step.session.phase === "failed"
+    readonly property bool whole: step.session.saved && step.session.fileSaved
+    readonly property bool filesLocked: !step.session.ended
 
     number: 4
     title: step.session.stepTitles[3]
@@ -100,15 +104,15 @@ EvidenceStep {
 
         // `.ev-okc`
         Rectangle {
-            visible: step.session.saved
+            visible: step.session.ended
             implicitWidth: 22
             implicitHeight: 22
             radius: 11
-            color: step.session.fileSaved ? Theme.green : Theme.orange
+            color: step.whole ? Theme.green : step.failed ? Theme.red : Theme.orange
             Text {
                 anchors.centerIn: parent
                 textFormat: Text.PlainText
-                text: step.session.fileSaved ? "✓" : "!"
+                text: step.whole ? "✓" : "!"
                 color: Theme.badgeForeground
                 font.pixelSize: Theme.fs(12)
                 font.weight: Font.Bold
@@ -116,20 +120,57 @@ EvidenceStep {
         }
         Text {
             objectName: "evidenceSavedText"
-            visible: step.session.saved
+            visible: step.session.ended
             textFormat: Text.PlainText
-            text: step.session.fileSaved
+            text: step.failed ? qsTr("采证失败")
+                  : step.session.fileSaved
                   ? qsTr("已保存 · %1").arg(step.session.endedAt ? Runtime.fmt.localTime(step.session.endedAt) : Runtime.fmt.dash())
                   : qsTr("已结束，文件不完整")
-            color: step.session.fileSaved ? Theme.textPrimary : Theme.orangeText
+            color: step.whole ? Theme.textPrimary : step.failed ? Theme.red : Theme.orangeText
             font.pixelSize: Theme.fs(13)
             font.weight: Font.Bold
         }
         EvidenceHint {
-            visible: step.session.saved
-            text: step.session.fileSaved ? qsTr("先截一张图，留下状态和四项计数")
-                                         : qsTr("有多少文件就回传多少，缺的会写进回传说明。")
+            visible: step.session.ended
+            text: step.whole ? qsTr("先截一张图，留下状态和四项计数")
+                             : qsTr("有多少文件就回传多少，缺的会写进回传说明。")
         }
+    }
+
+    // Why the round failed: the Collector's sentence (or the one for its code),
+    // and the code itself only in the maintainer's view (K2-4).
+    Text {
+        objectName: "evidenceFailureText"
+        Layout.fillWidth: true
+        visible: step.failed && step.session.failureText.length > 0
+        textFormat: Text.PlainText
+        text: step.session.failureText
+        color: Theme.red
+        font.pixelSize: Theme.fs(12)
+        font.weight: Font.DemiBold
+        wrapMode: Text.Wrap
+    }
+    Text {
+        Layout.fillWidth: true
+        visible: step.failed && step.session.technical && !!step.session.status.error_code
+        textFormat: Text.PlainText
+        text: qsTr("错误码：") + (step.session.status.error_code || "")
+        color: Theme.red
+        font.pixelSize: Theme.fs(12)
+        font.weight: Font.DemiBold
+        wrapMode: Text.Wrap
+    }
+    // A refused stop, said where it was pressed (review I4-1).
+    Text {
+        objectName: "evidenceSaveError"
+        Layout.fillWidth: true
+        visible: Runtime.app.validationError.length > 0
+        textFormat: Text.PlainText
+        text: qsTr("采证操作失败：") + Runtime.app.validationError
+        color: Theme.red
+        font.pixelSize: Theme.fs(12)
+        font.weight: Font.DemiBold
+        wrapMode: Text.Wrap
     }
 
     // The Collector's trace, folded to %USERPROFILE% exactly as it logs it
@@ -313,11 +354,11 @@ EvidenceStep {
             variant: "primary"
             iconName: "chevron-right"
             iconAfterText: true
-            enabled: step.session.saved
+            enabled: step.session.ended
             onClicked: step.session.reportOpen = true
         }
         EvidenceHint {
-            visible: step.session.saved && step.session.missingFiles.length > 0
+            visible: step.session.ended && step.session.missingFiles.length > 0
             text: qsTr("还缺 %1 项，也能继续，回传说明里会注明").arg(step.session.missingFiles.length)
         }
     }

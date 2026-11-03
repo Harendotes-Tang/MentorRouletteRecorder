@@ -18,7 +18,8 @@ constexpr int kDefaultUiScale = 100;
 constexpr char kRunKey[] = "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows"
                            "\\CurrentVersion\\Run";
 constexpr char kRunValue[] = "MentorRecorder";
-constexpr char kAutostartArgument[] = "--autostart";
+// Positional, never an option: see AppSettings::autostartArgument().
+constexpr char kAutostartArgument[] = "autostart";
 #endif
 
 QString settingsDirectory()
@@ -92,10 +93,27 @@ AppSettings::AppSettings(QObject *parent)
 }
 
 AppSettings::AppSettings(const QString &iniPath, QObject *parent)
+    : AppSettings(iniPath, build::thisBuild(), parent)
+{
+}
+
+AppSettings::AppSettings(const QString &iniPath, build::Flavour flavour, QObject *parent)
     : QObject(parent)
     , m_settings(iniPath, QSettings::IniFormat)
+    , m_flavour(flavour)
 {
     QDir().mkpath(QFileInfo(iniPath).absolutePath());
+}
+
+bool AppSettings::hasRawOption(const QStringList &arguments, const QString &name)
+{
+    const QString attached = name + QLatin1Char('=');
+    for (qsizetype index = 1; index < arguments.size(); ++index) {
+        const QString &argument = arguments.at(index);
+        if (argument == name || argument.startsWith(attached))
+            return true;
+    }
+    return false;
 }
 
 QRect AppSettings::statisticsOverlayGeometry() const
@@ -355,35 +373,61 @@ void AppSettings::setFirstRunCompleted(bool completed)
 // 通用
 // ---------------------------------------------------------------------------
 
-bool AppSettings::autostartWritable()
+QString AppSettings::autostartUnavailableReason() const
 {
 #ifdef Q_OS_WIN
-    return !QStandardPaths::isTestModeEnabled();
+    // The account has one Run value and it is the installed copy's. A
+    // development build (BuildFlavour.h) never registers itself, and never
+    // rewrites or removes that value either: it does not open the key at all.
+    if (m_flavour == build::Flavour::Development)
+        return QStringLiteral("development");
+    // Mock/screenshot runs use Qt test paths, but an explicit HKCU path would
+    // bypass that isolation.
+    if (QStandardPaths::isTestModeEnabled())
+        return QStringLiteral("harness");
+    return {};
 #else
-    return false;
+    return QStringLiteral("platform");
 #endif
 }
 
-void AppSettings::applyAutostartRegistration(bool enabled)
+bool AppSettings::autostartWritable() const
+{
+    return autostartUnavailableReason().isEmpty();
+}
+
+bool AppSettings::applyAutostartRegistration(bool enabled, bool onlyWhenDifferent)
 {
 #ifdef Q_OS_WIN
     if (!autostartWritable())
-        return;
+        return false;
     // Per-user Run key only. Never HKLM, never a service, never a scheduled
     // task - uninstalling the app by deleting it must not leave anything that
     // survives outside this one value.
     QSettings run(QString::fromLatin1(kRunKey), QSettings::NativeFormat);
+    const QString valueName = QString::fromLatin1(kRunValue);
+    // The switch keeps a login start in the tray (main.cpp).
+    const QString command =
+        QStringLiteral("\"%1\" %2")
+            .arg(QDir::toNativeSeparators(QCoreApplication::applicationFilePath()),
+                 autostartArgument());
     if (!enabled) {
-        run.remove(QString::fromLatin1(kRunValue));
-        return;
+        run.remove(valueName);
+    } else {
+        if (onlyWhenDifferent && run.value(valueName).toString() == command)
+            return true;
+        run.setValue(valueName, command);
     }
-    // The switch keeps a login start in the tray (main.cpp). Users who turned
-    // 开机启动 on before it existed get it through refreshAutostartRegistration().
-    const QString exe = QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
-    run.setValue(QString::fromLatin1(kRunValue),
-                 QStringLiteral("\"%1\" %2").arg(exe, autostartArgument()));
+    run.sync();
+    // Security software guarding the Run key may refuse the write, or claim
+    // success and drop it, so the value is read back as well (review I5-5).
+    if (run.status() != QSettings::NoError)
+        return false;
+    return enabled ? run.value(valueName).toString() == command : !run.contains(valueName);
 #else
     Q_UNUSED(enabled)
+    Q_UNUSED(onlyWhenDifferent)
+    return false;
 #endif
 }
 
@@ -392,14 +436,31 @@ QString AppSettings::autostartArgument()
     return QString::fromLatin1(kAutostartArgument);
 }
 
+bool AppSettings::isAutostartLaunch(const QStringList &positionalArguments, bool autostartOptionSet)
+{
+    return autostartOptionSet || positionalArguments.contains(autostartArgument());
+}
+
 void AppSettings::refreshAutostartRegistration()
 {
-    // Only the real program refreshes (autostartWritable excludes harness runs),
-    // and only while the player wants it: an absent value is never recreated
-    // behind a setting that says off.
+    // Only the real program refreshes (autostartWritable excludes development
+    // builds and harness runs), and only while the player wants it: an absent
+    // value is never recreated behind a setting that says off.
     if (!autostartWritable() || !autostart())
         return;
-    applyAutostartRegistration(true);
+    const bool failed = !applyAutostartRegistration(true, /*onlyWhenDifferent=*/true);
+    if (failed == m_autostartRegistrationFailed)
+        return;
+    m_autostartRegistrationFailed = failed;
+    Q_EMIT generalChanged();
+}
+
+bool AppSettings::refreshAutostartRegistrationAtStartUp(bool primaryInstance)
+{
+    if (!primaryInstance || !autostartWritable() || !autostart())
+        return false;
+    refreshAutostartRegistration();
+    return true;
 }
 
 bool AppSettings::autostart() const
@@ -409,12 +470,15 @@ bool AppSettings::autostart() const
 
 void AppSettings::setAutostart(bool enabled)
 {
-    // Mock/screenshot runs use Qt test paths, but an explicit HKCU path would
-    // bypass that isolation. Reject direct writes as well as disabling the UI.
+    // Reject direct writes as well as disabling the UI (autostartWritable).
     if (!autostartWritable() || autostart() == enabled)
         return;
-    m_settings.setValue(QStringLiteral("general/autostart"), enabled);
-    applyAutostartRegistration(enabled);
+    // The setting follows what Windows accepted: a refused write or removal
+    // leaves the switch where it was and the settings row says why.
+    const bool accepted = applyAutostartRegistration(enabled);
+    if (accepted)
+        m_settings.setValue(QStringLiteral("general/autostart"), enabled);
+    m_autostartRegistrationFailed = !accepted;
     Q_EMIT generalChanged();
 }
 

@@ -3,6 +3,7 @@ using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Protocol.Sharing;
+using MentorRecorder.Collector.Storage.Repositories;
 using Bed = MentorRecorder.Collector.UnitTests.SharedCalibrationTestBed;
 
 namespace MentorRecorder.Collector.UnitTests;
@@ -93,6 +94,83 @@ public sealed class SharedCalibrationQuarantineTests
         Assert.NotNull(bed.Store.CodeText(Region.Cn, Bed.Build, code.Sha));
         Assert.True(pipeline.CalibrationStatus().Shared.Candidates.Count <= SharedCalibrationIndex.MaxCandidates);
         pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-03, E-1: a quarantine read mid-duty waits for the run to end, as a revocation does, instead of
+    /// closing the duty the player is completing as interrupted. A quarantine asks only for full verification on this
+    /// machine, and a duty recorded in full with every audit passed is exactly that, so the profile stays afterwards.
+    /// </summary>
+    [Fact]
+    public async Task AQuarantineReadDuringADutyWaitsForTheRunAndADutyRecordedInFullKeepsTheProfile()
+    {
+        using var bed = new Bed();
+        var code = bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        bed.Publish(code);
+        var pipeline = bed.Pipeline(bed.Services());
+        pipeline.Refresh(Bed.Game());
+        await Bed.Idle(pipeline);
+        var evening = Bed.Evening().ToArray();
+        var session = bed.Start(pipeline);
+        Bed.Feed(pipeline, session, Bed.Before(evening, 200_000));
+        await Bed.Idle(pipeline);
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+        Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
+
+        bed.PublishListed(new Bed.Listing(code, Quarantined: true, QuarantineEpoch: 1));
+        Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
+        await Bed.Idle(pipeline);
+
+        Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
+        Assert.True(File.Exists(bed.SharedProfilePath));
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+
+        Bed.Feed(pipeline, session, Bed.From(evening, 200_000));
+        await Bed.Idle(pipeline);
+
+        var recorded = Assert.Single(new RunRepository(bed.Db.Database).Query(null, null, 1, 50).Items);
+        Assert.NotNull(recorded.EndedAtUtc);
+        Assert.NotEqual(RunResult.Interrupted, recorded.Result);
+        Assert.True(File.Exists(bed.SharedProfilePath));
+        Assert.Equal(ProfileStatus.Verified, pipeline.Current.Status);
+        Assert.False(bed.Store.IsRejected(Region.Cn, Bed.Build, Bed.TemplateSha, code.Sha));
+        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-03, E-1: held while the player is matched, the quarantine still takes the unproven profile out of use
+    /// once the run is over - here when the capture stops before the duty is entered - without accusing the code.
+    /// </summary>
+    [Fact]
+    public async Task AQuarantineReadWhileMatchedUnloadsTheUnprovenProfileOnceTheRunHasEnded()
+    {
+        using var bed = new Bed();
+        var code = bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
+        bed.Publish(code);
+        var pipeline = bed.Pipeline(bed.Services());
+        pipeline.Refresh(Bed.Game());
+        await Bed.Idle(pipeline);
+        var session = bed.Start(pipeline);
+        Bed.Feed(pipeline, session, Bed.Before(Bed.Evening(), 123_000));
+        await Bed.Idle(pipeline);
+        Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+        Assert.Equal(RunState.MentorMatched, pipeline.RunState);
+
+        bed.PublishListed(new Bed.Listing(code, Quarantined: true, QuarantineEpoch: 1));
+        Assert.Equal(SharedCheckOutcome.Started, pipeline.CheckSharedCalibrationNow());
+        await Bed.Idle(pipeline);
+
+        Assert.Equal(RunState.MentorMatched, pipeline.RunState);
+        Assert.True(File.Exists(bed.SharedProfilePath));
+
+        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+        await Bed.Idle(pipeline);
+
+        Assert.False(File.Exists(bed.SharedProfilePath));
+        Assert.Equal(ProfileStatus.UnsupportedBuild, pipeline.Current.Status);
+        Assert.Equal("QUARANTINED", pipeline.CalibrationStatus().Shared.LastRefusal);
+        Assert.False(bed.Store.IsRejected(Region.Cn, Bed.Build, Bed.TemplateSha, code.Sha));
+        Assert.NotNull(bed.Store.CodeText(Region.Cn, Bed.Build, code.Sha));
     }
 
     [Fact]

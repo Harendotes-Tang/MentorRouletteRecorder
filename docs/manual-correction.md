@@ -117,12 +117,13 @@ mentor_runs.revision = 1  ──►  run_revisions(revision=1, change_kind=CREAT
 ## 6. 校验规则
 
 `CreateManualRun` 与 `CorrectRun` 的字段校验以**变更后的最终值**为对象，
-而不仅校验请求中出现的字段：
+而不仅校验请求中出现的字段；导入的每一行（预览与提交）按下表中的同一组时间规则校验：
 
 | 规则 | 违反时的错误码 |
 |---|---|
 | `matched_at_utc <= entered_at_utc`（两者均非空时） | `ERR_TIME_ORDER` |
 | `entered_at_utc <= ended_at_utc`（两者均非空时） | `ERR_TIME_ORDER` |
+| `matched_at_utc <= ended_at_utc`（两者均非空时；没有进本时间时由这一条约束匹配与结束的先后） | `ERR_TIME_ORDER`（`field = "matched_at_utc"`） |
 | `duration_ms >= 0` | `ERR_NEGATIVE_DURATION` |
 | 时间戳为带毫秒的 UTC ISO-8601 | `ERR_BAD_REQUEST` |
 | `result` 属于六个合法取值 | `ERR_BAD_REQUEST` |
@@ -180,14 +181,15 @@ mentor_runs.revision = 1  ──►  run_revisions(revision=1, change_kind=CREAT
   会被当作仍在进行：不计入任何统计，不出现在待复核中，此后也不会再被收尾
   （[statistics-definitions.md](statistics-definitions.md) §0）。「更正之后」的待复核状态已计入本次确认：
   提交 `result`（包括再次提交 `UNKNOWN`）或 `pending_review=false` 都会清除待复核，因此确认一条结果未知、
-  没有结束时间的待复核自动记录时，须同时补上结束时间或改选实际结果。
+  没有结束时间的待复核自动记录时，须同时补上结束时间或改选实际结果。违反这一条时返回 `ERR_BAD_REQUEST`，
+  `payload.field = "ended_at_utc"`。
 
 `entered_at_utc` 与 `ended_at_utc` 都可以为空，与结果和来源无关（2026-10-21 起；此前除 `CANCELLED_BEFORE_ENTRY`
 外都必须有进本时间、`COMPLETED` 必须有结束时间，只有历史导入豁免）：未知时间无需补造，已知结果仍计数——
-手动记录与历史导入一样，没有进本时间而结果不是未知、也不是进本前取消时照常计入 `attempt_count`
-（[statistics-definitions.md](statistics-definitions.md) §2）；缺少任一端点时 `duration_ms` 为 `null`，不计入平均耗时。
+任何来源的记录（手动记录、历史导入，以及用户更正过的采集记录）没有进本时间而结果不是未知、也不是进本前取消时，
+照常计入 `attempt_count`（[statistics-definitions.md](statistics-definitions.md) §2）；例如把一条进本前取消的
+采集记录更正为通关，它即计为一次尝试。缺少任一端点时 `duration_ms` 为 `null`，不计入平均耗时。
 历史导入缺时间的事实在历史页显示「待补充」，手动记录不作标记；都不会仅因缺时间进入总览待复核。
-违反上一条时返回 `ERR_BAD_REQUEST`，`payload.field = "ended_at_utc"`。
 若进本时间或结束时间实际发生变化，而请求未显式给出 `duration_ms`，
 采集服务按 `ended - entered` 重算时长。起止时间未发生变化时保留原时长，
 包括自动记录的单调时长与用户此前明确填写的时长。

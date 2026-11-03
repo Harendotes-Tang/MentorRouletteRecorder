@@ -182,6 +182,18 @@ EvidenceStep {
         font.weight: Font.DemiBold
         wrapMode: Text.Wrap
     }
+    // A refused marker or stop, said where it was pressed (review I4-1).
+    Text {
+        objectName: "evidenceMarkingError"
+        Layout.fillWidth: true
+        visible: Runtime.app.validationError.length > 0
+        textFormat: Text.PlainText
+        text: qsTr("采证操作失败：") + Runtime.app.validationError
+        color: Theme.red
+        font.pixelSize: Theme.fs(12)
+        font.weight: Font.DemiBold
+        wrapMode: Text.Wrap
+    }
 
     // `.ev-cond`
     Flow {
@@ -193,9 +205,10 @@ EvidenceStep {
             model: step.session.chipDefs
             delegate: Chip {
                 required property var modelData
+                objectName: "evidenceRoundChip_" + modelData.key
                 text: modelData.label
                 checked: !!step.session.chips[modelData.key]
-                onToggled: step.session.toggleChip(modelData.key)
+                onToggled: function(checked) { step.session.toggleChip(modelData.key, checked) }
             }
         }
         Text {

@@ -76,6 +76,7 @@ public sealed partial class LiveProtocolPipeline
             // exactly what they asked the software to forget.
             ForgetCalibrationEvidence();
             _calibration.Discard(_active ? _sessionId : null);
+            KeepDisprovedAfterDiscard();
             // 重新观察 also forgets which shared calibrations this build's traffic contradicted.
             _shared.OnDiscard();
             NotifyCalibrationChanged();
@@ -85,6 +86,23 @@ public sealed partial class LiveProtocolPipeline
                 RetiredLocalProfileAvailable = RetiredLocalProfileAvailable(),
             };
         }
+    }
+
+    /// <summary>
+    /// Writes back, where the discarded evidence was, the pop opcodes the traffic disproved, when no session is there to
+    /// save them later: with the game closed, a restart or a re-arm before the next session would otherwise forget them,
+    /// and the opcode could be learned and offered again (audit 2026-11-03, C-2; re-review RV6-1). A running session's
+    /// observer holds them and is saved as usual. Failure is never allowed to matter.
+    /// </summary>
+    private void KeepDisprovedAfterDiscard()
+    {
+        if (_calibration.DisprovedOnly() is not { } kept || _calibration.Template is not { } template ||
+            _calibration.GameBuild is not { } build)
+        {
+            return;
+        }
+
+        WriteCalibrationEvidence(_calibration.Region, build, template.Source.ProfileSha256, kept, ++_evidenceFrozen);
     }
 
     /// <summary>

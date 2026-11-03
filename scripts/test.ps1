@@ -39,7 +39,8 @@ param(
 
     [switch]$NoRestore,
 
-    # Build the Desktop as the distribution flavour (scripts/build.ps1 -Distribution);
+    # Build the Desktop as the distribution flavour (scripts/build.ps1 -Distribution), in
+    # build-distribution\ unless MR_BUILD_DIR names another directory, never in build\;
     # only scripts/package.ps1 asks for this, through verify.ps1.
     [switch]$Distribution,
 
@@ -65,14 +66,18 @@ try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } c
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $TestsRoot = Join-Path $RepoRoot 'tests'
 $DesktopTests = Join-Path $RepoRoot 'tests\Desktop.Tests\CMakeLists.txt'
-# Keep the CTest target directory aligned with build.ps1 for isolated builds.
+# Keep the CTest target directory aligned with build.ps1 for isolated builds, the distribution
+# flavour's build-distribution\ default and refusal of build\ included (RV5-2).
 $configuredBuildDir = [Environment]::GetEnvironmentVariable('MR_BUILD_DIR')
 $BuildDir = if ([string]::IsNullOrWhiteSpace($configuredBuildDir)) {
-    Join-Path $RepoRoot 'build'
+    Join-Path $RepoRoot $(if ($Distribution) { 'build-distribution' } else { 'build' })
 } elseif ([System.IO.Path]::IsPathRooted($configuredBuildDir)) {
     [System.IO.Path]::GetFullPath($configuredBuildDir)
 } else {
     [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $configuredBuildDir))
+}
+if ($Distribution -and [string]::Equals($BuildDir.TrimEnd('\', '/'), (Join-Path $RepoRoot 'build'), [StringComparison]::OrdinalIgnoreCase)) {
+    throw ("MR_BUILD_DIR 指向开发构建目录 {0}；正式构建会把它配置成正式口味并留在那里。请取消 MR_BUILD_DIR（-Distribution 默认使用 build-distribution）或改用其他目录。" -f $BuildDir)
 }
 # Example default (see docs/build-and-package.md); override with MR_CTEST_EXE to
 # test against another CMake installation.

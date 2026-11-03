@@ -101,6 +101,43 @@ public sealed class LocalProfileJobCompletionTests : IDisposable
     }
 
     /// <summary>
+    /// Audit 2026-11-03, C-3. The completing role starts in the run that wrote a profile without the
+    /// job, not only after the Collector restarts: with login autostart into the tray a restart can be
+    /// days away, and every record meanwhile says 职业未知. Right after the confirmation the card still
+    /// says calibration is done.
+    /// </summary>
+    [Fact]
+    public void AProfileConfirmedWithoutTheJobIsCompletedWithoutARestart()
+    {
+        var pipeline = Pipeline();
+        pipeline.Refresh(Bed.Game());
+        Assert.True(pipeline.CalibrationArmed);
+        var first = _bed.Start(pipeline);
+        // The exit burst carried no job, so the evening's draft is ready without PLAYER_JOB.
+        Bed.Feed(pipeline, first, Evening(CalibrationTrafficCases.Announcement).Where(message =>
+            !(message.Opcode == CalibrationTrafficCases.Job &&
+              message.Mono >= TimeSpan.FromMilliseconds(215_000) && message.Mono < TimeSpan.FromMilliseconds(216_000))));
+        var offered = pipeline.CalibrationStatus();
+        Assert.Equal(CalibrationState.Ready, offered.State);
+
+        pipeline.ConfirmCalibration(AllCorrect(offered));
+
+        Assert.DoesNotContain("PLAYER_JOB", File.ReadAllText(ProfilePath), StringComparison.Ordinal);
+        Assert.Equal(CalibrationState.Done, pipeline.CalibrationStatus().State);
+        pipeline.OnCaptureStopped(first, CaptureEndReason.UserStop);
+
+        // The next evening, in the same run of the Collector, carries the job.
+        var second = _bed.Start(pipeline);
+        Bed.Feed(pipeline, second, Evening(CalibrationTrafficCases.Announcement), hour: 24);
+
+        var completion = pipeline.CalibrationStatus();
+        Assert.Equal(CalibrationState.Ready, completion.State);
+        pipeline.ConfirmCalibration(AllCorrect(completion));
+        Assert.Contains("PLAYER_JOB", File.ReadAllText(ProfilePath), StringComparison.Ordinal);
+        pipeline.OnCaptureStopped(second, CaptureEndReason.UserStop);
+    }
+
+    /// <summary>
     /// While the job is still missing the card must stay away entirely. The player is recording
     /// correctly; the only thing wrong with their records is a field, and a card that says
     /// 正在重新校准…期间不会生成记录 over a profile that is recording would be a lie.

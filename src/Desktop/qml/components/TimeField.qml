@@ -77,8 +77,13 @@ StyledTextField {
         field.text = pad(parsed.hour) + ":" + pad(parsed.minute) + seconds + msec
     }
 
+    /// The wheels pick an hour and a minute only: confirming the ones already
+    /// in the field keeps its seconds, so 确定 without moving them is no edit
+    /// (audit 2026-11-03 L1-7).
     function select(hour, minute) {
-        field.text = pad(hour) + ":" + pad(minute)
+        const shown = field.parse(field.text)
+        if (!shown || shown.hour !== hour || shown.minute !== minute)
+            field.text = pad(hour) + ":" + pad(minute)
         popup.close()
     }
 

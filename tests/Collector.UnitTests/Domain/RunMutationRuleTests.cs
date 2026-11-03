@@ -40,7 +40,31 @@ public sealed class RunMutationRuleTests
             RunRuleViolationKind.NegativeDuration,
             RunRuleProperty.DurationMs
         },
+        {
+            // Audit 2026-11-03, D1-3: without an entry time the first two rules never meet.
+            ValidRun() with { MatchedAtUtc = Start.AddMinutes(2), EnteredAtUtc = null, EndedAtUtc = Start.AddMinutes(1), DurationMs = null },
+            RunRuleViolationKind.MatchedAfterEnded,
+            RunRuleProperty.MatchedAtUtc
+        },
     };
+
+    /// <summary>
+    /// Audit 2026-11-03, D1-3. A record that ends before it was matched is refused by the Collector as
+    /// the Desktop already refuses it (结束时间早于匹配时间), with the time-order code every client knows.
+    /// </summary>
+    [Fact]
+    public void AMatchAfterTheEndIsATimeOrderError()
+    {
+        var run = ValidRun() with { MatchedAtUtc = Start.AddMinutes(40), EnteredAtUtc = null, DurationMs = null };
+
+        var error = Assert.Throws<CollectorException>(
+            () => Application.Mutations.RunMutationValidation.ValidateFinalValue(run, durationExplicit: false));
+
+        Assert.Equal(ErrorCodes.TimeOrder, error.Code);
+        Assert.Equal("matched_at_utc", error.Field);
+        Assert.Equal("mutation.matched_after_ended", error.Text!.Key);
+        Assert.Null(RunMutationRules.ValidateFinalValue(run with { MatchedAtUtc = Start.AddMinutes(31) }, false).EnteredAtUtc);
+    }
 
     [Theory]
     [MemberData(nameof(InvalidRuns))]
@@ -173,7 +197,9 @@ public sealed class RunMutationRuleTests
             // Unknown and cancelled-before-entry prove no entry, so they are no attempt.
             runs.Insert(Timeless(RunResult.Unknown), tx);
             runs.Insert(TestDatabase.Run(result: RunResult.CancelledBeforeEntry, source: RunSource.Manual), tx);
-            // A capture without an entry time was never entered, whatever it says.
+            // A capture without an entry time whose result says it was entered - only a person's
+            // correction gives it one - counts by that result too, so a corrected completion is never
+            // a completion without an attempt (audit 2026-11-03, D1-2).
             runs.Insert(TestDatabase.Run(result: RunResult.Interrupted, source: RunSource.AutoNetwork) with
             {
                 EnteredAtUtc = null,
@@ -185,10 +211,10 @@ public sealed class RunMutationRuleTests
 
         var dashboard = new StatisticsRepository(fixture.Database, settings).GetDashboard();
 
-        Assert.Equal(2, dashboard.AttemptCount);
+        Assert.Equal(3, dashboard.AttemptCount);
         Assert.Equal(1, dashboard.CompletedCount);
         Assert.Equal(1, dashboard.AchievementProgress);
-        Assert.Equal(0.5, dashboard.CompletionRate);
+        Assert.Equal(1.0 / 3, dashboard.CompletionRate!.Value, 6);
         Assert.Null(dashboard.AverageDurationMs);
     }
 

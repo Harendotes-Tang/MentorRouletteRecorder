@@ -23,7 +23,7 @@ python tools/duty-data-generator/test_generate.py            # 离线单元测�
 | `--dry-run` | 关 | 抓取并打印统计，**不写任何文件**：不写输出、不保存原始下载、不创建临时目录 |
 | `--game-version <key>` | XIVAPI 当前版本 | 将每一页请求固定到该游戏版本，即 `provenance.xivapi_game_version` 记录的键。无论是否指定，`ContentFinderCondition` 的每一页都必须报告同一个游戏版本：某页未报告版本、与指定的版本不同或与第 1 页不同时，生成器报错退出（退出码 1），不写任何文件 |
 | `--add-party-size <file>…` | — | 不生成新版本，只为这些已有文件逐行补写 `party_size`（置于 `level` 之后），行顺序与其余字段逐字不变；按各文件记录的 `xivapi_game_version` 抓取，来源记入 `provenance.party_size`。任一步骤失败均不写文件 |
-| `--add-name-preferences <file>…` | — | 按文件原有游戏版本复核显式规则，只为经审计的编号补 `preferred_for_name_matching: true`，来源记入 `provenance.name_matching`；不抓取当前中文名称，不改旧来源、字段或顺序。拒绝覆盖游戏版本；校验失败不写任何文件。与其他生成／补写模式分开运行 |
+| `--add-name-preferences <file>…` | — | 按文件原有游戏版本复核显式规则，只为经审计的编号补 `preferred_for_name_matching: true`，来源记入 `provenance.name_matching`；不抓取当前中文名称，不改旧来源、字段或顺序。拒绝覆盖游戏版本；校验失败不写任何文件。与其他生成／补写模式分开运行。繁中服文件（`region` 为 `TC`）不经 XIVAPI，离线按该文件自身的行复核同一规则（见「繁中服目录」）；对它指定 `--game-version` 即拒绝运行 |
 
 一次运行**同时**写出 `global.<version>.json` 与 `cn.<version>.json`。
 两者共用同一次 XIVAPI 抓取，仅名称所用的列不同。
@@ -48,6 +48,7 @@ XIVAPI 侧只请求这些字段：
 上述事实任一变化即拒绝生成优先项，要求重新核对。完整生成和补写模式采用同一校验；
 补写另检查旧文件中的两个启用条目仍同名。只为 944 增加 `true`，保留 69 的真实身份。
 这些资格字段仅用于验证这条规则，不对其他同名副本自动套用；不能把领地回指理解为身份合并。
+繁中服目录中 69 与 944 同样同名（`阿修羅殲滅戰`），同一规则也写入 TC 文件，复核方式见「繁中服目录」一节。
 
 两个来源按 `ContentFinderCondition` 的**行号**（`content_id`）关联。
 TLS 最低版本为 1.2，证书校验开启。两项均定义在 `http_get()` 中，任何降级都会是一次可见的改动。
@@ -83,6 +84,9 @@ XIVAPI 侧的链接字段允许缺失：取不到时写 `null` / `UNKNOWN` / `�
 `generate.py --game-names` 生成 `data/i18n/game-names.<data_version>.json`：
 为基准简体中文数据（`data/duties/cn.<date>.json`、`data/jobs/jobs.json`、`data/roulettes/cn.json`）
 中的每个编号补充繁体中文（zh-TW）、英文（en）、日文（ja）名称，并给出副本分类与资料片标签的译名。
+副本分类的译名取该分类所由来的 `ContentType` 的名称；`团队任务` 例外，取随机任务编号 15（Alliance Raids）的名称
+（`game_names.py` 的 `CATEGORY_LABEL_ROULETTES`），因为软件把全部标准 24 人团队任务显示为这一分类，
+而它所由来的 `Chaotic Alliance Raid` 只是其中一个副本。该编号缺少名称而分类又被用到时，生成器报错退出。
 
 ```bash
 python tools/duty-data-generator/generate.py --game-names --version 2026-10-15
@@ -100,7 +104,9 @@ CI 发布同步脚本 `tools/release-mirror/sync_release.py`），负责全部�
 - 繁体中文取自 `thewakingsands/ffxiv-datamining-tc`（繁體中文版客户端的 SaintCoinach 导出），固定为运行时解析出的提交；
 - 繁中客户端尚未收录的名称以 OpenCC `s2twp` 由简体中文转换，并列入 `zh-TW_converted`。
   OpenCC 是本工具唯一的第三方依赖，且只在需要转换时才导入（`python -m pip install opencc`）；
-  离线测试以替身函数代替，未安装 OpenCC 时仍可运行。
+  离线测试多以替身函数代替，未安装 OpenCC 时单独运行仍可执行，只跳过核对真实转换的一项。
+  经 `scripts/run-python-tool-tests.ps1`（`verify.ps1` 的工具自测关卡）运行时则必须安装：`tools/requirements-ci.txt`
+  固定了 `opencc==1.4.2`，缺少它时自测在运行前即失败；任何一项被跳过也会使该次验证只算部分验证。
 
 `--raw-dir`、`--dry-run` 与失败时不写文件的规则与生成副本数据时相同；
 `--out-dir` 在 `--game-names` 模式下默认为 `data/i18n`。
@@ -119,15 +125,22 @@ python tools/duty-data-generator/test_tc_catalog.py
 `--out-dir` 控制副本目录，`--roulettes-out-dir` 控制随机任务目录。
 所有联网仍由 `generate.py` 执行，`tc_catalog.py` 只做离线解析。
 
-只有 TC 源中实际具名的行才会进入目录，名称和领地直接取 TC 值，不用简转繁回退，也不继承 CN
-同名解析偏好。分类与资料片通过 TC 的链接编号投影为项目已有的稳定键，原文标签另记入来源。
+只有 TC 源中实际具名的行才会进入目录，名称和领地直接取 TC 值，不用简转繁回退，也不从 CN 文件
+继承任何字段。经审计的同名解析偏好（当前为 `{944: 69}`，见「数据来源与字段」）是按 `content_id` 定义、
+已对照 XIVAPI 审计过的规则，生成目录时离线套用于 TC 行：两行均启用、本地化名称相同、等级相同、领地不同时，
+为 944 写入 `preferred_for_name_matching: true`，并在 `provenance.name_matching` 记录依据与规则；
+TC 导出缺少其中一行时不套用，两行不再符合上述条件时报错退出，留待重新核对。对已有 TC 文件补写同一偏好用
+`--add-name-preferences`，同样离线完成。
+分类与资料片通过 TC 的链接编号投影为项目已有的稳定键，原文标签另记入来源。
 源包含该行只证明客户端导出存在该行，不能证明实服开放、线上的随机任务编号或协议可用。
 随机任务 `enabled` 对应源 `IsInDutyFinder`，不代表经过实服验收。
 
 解析器要求列名、类型、行宽、整数编号及引用完整性一致，并拒绝缺失来源、重复编号、
 空目录或无法追溯客户端版本的提交。当前 TC 导出的队伍人数列没有具名字段，因此
-`party_size` 为 `null`；不猜列号，不从其他区服补值。若未来来源提供具名的
-`MembersPerParty` / `PartyCount`，再使用其乘积。
+`party_size` 为 `null`；生成器不猜列号，也不在文件中从其他区服补值。若未来来源提供具名的
+`MembersPerParty` / `PartyCount`，再使用其乘积。文件中的 `null` 表示「没有信息」：采集服务与桌面端组装目录时，
+让这样的行借用其他区服同一 `content_id` 的行一致给出的人数（各区服不一致时不借），TC 的标准团队任务因此按 24 人归入
+`团队任务`，见 [`../../data/duties/README.md`](../../data/duties/README.md)。
 
 `provenance` 保存完整提交、提交消息中的客户端版本、每张 CSV 的固定 URL/SHA-256、
 抓取时间和原始/具名行数。`--tc-ref` 省略时先解析当前 `main` 为完整提交；复现时使用

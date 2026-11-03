@@ -219,4 +219,76 @@ public sealed class DutyCategoryProjectionTests
         Assert.Equal("大型任务", new RunRepository(target.Database).Get(targetCommit["run_ids"]![0]!.GetValue<string>())!.DutyCategory);
         Assert.Equal("duplicate", targetService.PreviewSource("JSON", filePath: path)["rows"]![0]!["status"]!.GetValue<string>());
     }
+    /// <summary>
+    /// Audit 2026-11-03 H2-2 / N3-1. The TC table carries no party size. A missing size is no information, not a
+    /// disagreement: an UNKNOWN record of a standard alliance raid still projects as 团队任务 in the history, the
+    /// 团队任务 filter and the statistics, as it did before TC was installed; and a TC row borrows the size every other
+    /// installed region gives the same content id, so a TC record of the raid projects too.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(StandardAllianceRaids))]
+    public void AMissingTcPartySizeNeitherHidesNorBlocksTheAllianceProjection(int contentId)
+    {
+        var cn = DutyCatalog.Default.Find(contentId, Region.Cn)!;
+        Assert.Equal("团队任务", DutyCatalog.Default.Categories.Resolve("大型任务", contentId, cn.TerritoryId, Region.Unknown));
+        Assert.Equal("团队任务", DutyCatalog.Default.Categories.Resolve("大型任务", null, cn.TerritoryId, Region.Unknown));
+        Assert.Contains(contentId, DutyCatalog.Default.Categories.AllianceContentIds(Region.Unknown));
+        if (DutyCatalog.Default.Find(contentId, Region.Tc) is { } tc)
+        {
+            Assert.Equal(24, tc.PartySize);
+            Assert.Equal("团队任务", DutyCatalog.Default.Categories.Resolve("大型任务", contentId, tc.TerritoryId, Region.Tc));
+            Assert.Contains(contentId, DutyCatalog.Default.Categories.AllianceContentIds(Region.Tc));
+        }
+    }
+
+    [Fact]
+    public void UnknownAndTcAllianceRunsMatchTheAllianceFilterAndStatistics()
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        var unknown = TestDatabase.Run(contentId: 92) with { Region = Region.Unknown, DutyCategory = "大型任务", TerritoryId = 174 };
+        var tc = TestDatabase.Run(contentId: 92) with { Region = Region.Tc, DutyCategory = "大型任务", TerritoryId = 174 };
+        fixture.Database.RunInTransaction(tx => { runs.Insert(unknown, tx); runs.Insert(tc, tx); });
+
+        var filter = new RunFilter { DutyCategories = new[] { "团队任务" } };
+        Assert.Equal(2, runs.Query(filter, null, 1, 20).Total);
+        var settings = new SettingsRepository(fixture.Database, fixture.Clock);
+        settings.EnsureDefaults();
+        Assert.All(new StatisticsRepository(fixture.Database, settings).GetDungeonStats(),
+            row => Assert.Equal("团队任务", row.DutyCategory));
+        Assert.All(Wire.Runs(runs.Query(null, null, 1, 20))["items"]!.AsArray(),
+            item => Assert.Equal("团队任务", item!["duty_category"]!.GetValue<string>()));
+    }
+
+    [Fact]
+    public void OnlyAgreeingRealRowsLendAPartySize()
+    {
+        var catalog = DutyCatalog.Compose(new[]
+        {
+            DutyCatalog.ParseDocument("""
+            {"schema_version":1,"region":"CN","duties":[
+              {"content_id":1,"territory_id":101,"localized_name":"A","duty_category":"大型任务","party_size":24},
+              {"content_id":2,"territory_id":102,"localized_name":"B","duty_category":"大型任务","party_size":24}]}
+            """),
+            DutyCatalog.ParseDocument("""
+            {"schema_version":1,"region":"GLOBAL","duties":[
+              {"content_id":1,"territory_id":101,"localized_name":"A","duty_category":"大型任务","party_size":24},
+              {"content_id":2,"territory_id":102,"localized_name":"B","duty_category":"大型任务","party_size":8}]}
+            """),
+            DutyCatalog.ParseDocument("""
+            {"schema_version":1,"region":"TC","duties":[
+              {"content_id":1,"territory_id":101,"localized_name":"甲","duty_category":"大型任务"},
+              {"content_id":2,"territory_id":102,"localized_name":"乙","duty_category":"大型任务"},
+              {"content_id":3,"territory_id":103,"localized_name":"丙","duty_category":"大型任务"}]}
+            """),
+        });
+
+        Assert.Equal(24, catalog.Find(1, Region.Tc)!.PartySize);
+        Assert.Null(catalog.Find(2, Region.Tc)!.PartySize);
+        Assert.Null(catalog.Find(3, Region.Tc)!.PartySize);
+        Assert.Equal("团队任务", catalog.Categories.Resolve("大型任务", 1, null, Region.Unknown));
+        Assert.Equal("大型任务", catalog.Categories.Resolve("大型任务", 2, null, Region.Unknown));
+        Assert.Equal("大型任务", catalog.Categories.Resolve("大型任务", 3, null, Region.Unknown));
+        Assert.Null(DutyCatalog.LoadFor(Region.Tc, null).Find(92, Region.Tc)!.PartySize);
+    }
 }

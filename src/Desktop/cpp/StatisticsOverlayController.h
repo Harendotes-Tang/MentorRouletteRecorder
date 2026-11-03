@@ -147,6 +147,9 @@ private:
     QString m_recordRegion;
     QString m_attemptPeriod;
     int m_attemptCount = 0;
+    /// The filter m_attemptCount answers. A refresh with the same filter keeps
+    /// the count on screen until the new one arrives (review I2-4).
+    QJsonObject m_attemptsFilter;
     bool m_attemptsKnown = false;
     bool m_attemptsLoading = false;
     bool m_attemptsFailed = false;

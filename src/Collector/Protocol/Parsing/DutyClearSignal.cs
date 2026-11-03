@@ -12,8 +12,9 @@ namespace MentorRecorder.Collector.Protocol.Parsing;
 /// message, whose opcode moves with every game patch, so it cannot be declared in a profile
 /// and calibration cannot learn it. Its content is fully determined instead: a 40-byte body
 /// whose first twelve bytes are fixed (except the duty's director number) and whose remaining
-/// 28 bytes are zero. This is the one place in the Collector that recognises a message by
-/// constants in code (docs/protocol-profile-format.md section 12). The opcode is never read.
+/// 28 bytes are zero. It and <see cref="DutyStartSignal"/>, two more contents of the same message,
+/// are the only places in the Collector that recognise a message by constants in code
+/// (docs/protocol-profile-format.md sections 12 and 13). The opcode is never read.
 ///
 /// Layout (little-endian):
 /// <code>

@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Json.Schema;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
@@ -196,5 +197,101 @@ public sealed class SharedCalibrationContractTests
 
         var origins = Declared("$defs", "CaptureStatus", "properties", "profile_origin", "enum");
         Assert.All(Enum.GetValues<ProfileOrigin>(), origin => Assert.Contains(CalibrationWire.Origin(origin) ?? "UNMAPPED", origins));
+    }
+
+    // ------------------------------------------------------------------ the public evidence document
+
+    private static readonly Lazy<JsonSchema> EvidenceSchema = new(() => JsonSchema.FromText(File.ReadAllText(
+        Path.Combine(ContractSchema.RepositoryRoot, "contracts", "calibration-evidence-v1.schema.json"))), isThreadSafe: true);
+
+    private static readonly object EvidenceEvaluation = new();
+
+    /// <summary>
+    /// Audit 2026-11-03, N1-5: the evidence document the Collector hands to the public repository, written by the receipt
+    /// store and <c>CalibrationEvidenceDocument.Serialize()</c> exactly as a player's machine writes it - eight sessions at
+    /// most, every field and verdict, every region - is valid against contracts/calibration-evidence-v1.schema.json, the one
+    /// schema the repository's intake reads; and so is every document of the receipts file the store keeps on disk. The
+    /// types are internal and reached by reflection, so a renamed member fails here rather than silently checking nothing.
+    /// </summary>
+    [Fact]
+    public void TheEvidenceDocumentTheCollectorWritesIsValidAgainstTheEvidenceSchema()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "MentorRecorder.Evidence", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var store = new CalibrationEvidenceReceiptStore(root);
+            var fields = new[] { "zone", "territory", "job", "match" };
+            var verdicts = new[] { "PASS", "CONTRADICT", "WAIT" };
+            foreach (var (region, index) in new[] { "CN", "GLOBAL", "TC" }.Select((region, index) => (region, index)))
+            {
+                var target = Evidence("CalibrationEvidenceTarget", region, "2026.10.28.0000.0000", "shared-template-" + region.ToLowerInvariant(),
+                    new string((char)('a' + index), 64), new string((char)('d' + index), 64), index);
+                for (var session = 0; session < 9; session++)
+                {
+                    var checks = Array.CreateInstance(EvidenceType("CalibrationEvidenceCheck"), fields.Length - session % 2);
+                    for (var check = 0; check < checks.Length; check++)
+                    {
+                        checks.SetValue(Evidence("CalibrationEvidenceCheck", fields[check], verdicts[(check + session) % verdicts.Length]), check);
+                    }
+
+                    var health = Evidence("CalibrationEvidenceHealth", "NONE", (int?)0, 0L, 0L, 0L, false);
+                    var frozen = Evidence("CalibrationEvidenceSession", Guid.NewGuid().ToString("D"), true, health, checks);
+                    Assert.True((bool)Invoke(store, "Append", target, frozen)!, "the store refused a session it should keep");
+                }
+
+                var document = Invoke(store, "Find", target);
+                Assert.NotNull(document);
+                var json = JsonNode.Parse((string)Invoke(document!, "Serialize")!)!;
+                Assert.Equal(8, json["sessions"]!.AsArray().Count);
+                AssertValidEvidence(json, "evidence for " + region);
+
+                // Not vacuous: one field the schema does not declare is refused.
+                var widened = json.DeepClone();
+                widened["sessions"]![0]!["connection_tag"] = "0";
+                Assert.False(EvaluateEvidence(widened).IsValid, "the evidence schema accepted a field it does not declare");
+            }
+
+            var receipts = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "receipts.json")))!.AsArray();
+            Assert.Equal(3, receipts.Count);
+            Assert.All(receipts, receipt => AssertValidEvidence(receipt, "a stored receipt"));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    private static Type EvidenceType(string name) =>
+        typeof(CalibrationEvidenceReceiptStore).Assembly.GetType("MentorRecorder.Collector.Protocol.Sharing." + name)
+        ?? throw new InvalidOperationException(name + " has been renamed; update this test rather than deleting it.");
+
+    private static object Evidence(string name, params object?[] arguments) =>
+        Activator.CreateInstance(EvidenceType(name), System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public |
+            System.Reflection.BindingFlags.NonPublic, null, arguments, null)!;
+
+    private static object? Invoke(object target, string method, params object?[] arguments) =>
+        (target.GetType().GetMethod(method, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public |
+            System.Reflection.BindingFlags.NonPublic)
+         ?? throw new InvalidOperationException(method + " has been renamed; update this test rather than deleting it."))
+        .Invoke(target, arguments);
+
+    private static EvaluationResults EvaluateEvidence(JsonNode? instance)
+    {
+        lock (EvidenceEvaluation)
+        {
+            return EvidenceSchema.Value.Evaluate(instance, new EvaluationOptions { OutputFormat = OutputFormat.List });
+        }
+    }
+
+    private static void AssertValidEvidence(JsonNode? instance, string what)
+    {
+        var results = EvaluateEvidence(instance);
+        Assert.True(results.IsValid, what + " does not match calibration-evidence-v1.schema.json: " + string.Join("; ",
+            (results.Details ?? Array.Empty<EvaluationResults>()).Where(detail => detail.HasErrors)
+            .SelectMany(detail => detail.Errors!.Select(error => detail.InstanceLocation + " " + error.Key + ": " + error.Value))) +
+            "\n" + instance?.ToJsonString());
     }
 }

@@ -33,6 +33,8 @@ public:
                          {"research_payload_opcodes", QJsonArray{17, 29}}};
     QJsonObject validation{{"active", false}, {"state", "IDLE"}};
     QJsonObject game{{"install_path_readable", true}};
+    /// GetStatus.warnings / warning_refs, sent only when not empty.
+    QJsonArray warnings, warningRefs;
     QJsonObject capture{{"ffxiv_running", true}, {"ffxiv_process_id", 123},
                         {"profile_status", "VERIFIED"}, {"state", "RUNNING"},
                         {"candidate_validation_enabled", true}};
@@ -67,7 +69,10 @@ public:
             if (failStop) { r->fail("ERR_TEST", "stop refused");
             } else { validation.insert("active", false); r->succeed(validation); }
         } else if (type == QLatin1String("GetStatus")) {
-            if (holdStatus) { held = r; holdStatus = false; } else { r->succeed({{"capture", capture}, {"game", game}});
+            QJsonObject status{{"capture", capture}, {"game", game}};
+            if (!warnings.isEmpty()) status.insert("warnings", warnings);
+            if (!warningRefs.isEmpty()) status.insert("warning_refs", warningRefs);
+            if (holdStatus) { held = r; holdStatus = false; } else { r->succeed(status);
 }
         } else { r->succeed({});
 }
@@ -386,6 +391,41 @@ private slots:
         QVERIFY(c.message().contains(QStringLiteral("设置 → 通用")));
         QVERIFY(!c.message().contains(QStringLiteral("支持文件")));
         QVERIFY(!b.calls.contains(QStringLiteral("StartCaptureValidation")));
+    }
+    // The Collector also reports an unknown region when a manual region choice made
+    // for another client contradicts this client's install path. The blocked
+    // reason is then its own sentence, which says why and where to fix it; the
+    // generic one stays for an install path without a region mark.
+    void unknownRegionFromAMismatchedOverrideSaysWhy_data() {
+        QTest::addColumn<bool>("withRefs");
+        QTest::newRow("warning_refs") << true;
+        QTest::newRow("older collector: warnings only") << false;
+    }
+    void unknownRegionFromAMismatchedOverrideSaysWhy() {
+        QFETCH(bool, withRefs);
+        const QVariantMap ref = mr::collector_text::textRef("capture.game.region_override_mismatch");
+        const QString chinese = mr::collector_text::chinese(ref);
+        QVERIFY(chinese.contains(QString::fromUtf8("手动指定的区服")));
+        RecordingBackend b;
+        b.capture["region"] = "UNKNOWN";
+        b.capture["game_build"] = "2026.09.15.0000.0000";
+        b.capture["profile_status"] = "NONE";
+        b.warnings = QJsonArray{QString::fromUtf8("另一条与区服无关的提示。"), chinese};
+        if (withRefs)
+            b.warningRefs = QJsonArray{QJsonObject{{"key", "status.unrelated_for_test"}},
+                                       QJsonObject::fromVariantMap(ref)};
+        mr::AutomaticRecordingController c(&b);
+        c.refresh();
+        QVERIFY(c.blocked());
+        QCOMPARE(c.message(), mr::collector_text::render(ref, chinese));
+        QVERIFY(c.message().contains(QString::fromUtf8("设置")));
+        // Fixed (the warning gone, the region still unknown for another reason):
+        // back to the generic sentence.
+        b.warnings = {};
+        b.warningRefs = {};
+        c.refresh();
+        QVERIFY(c.message().contains(QStringLiteral("设置 → 通用")));
+        QVERIFY(!c.message().contains(QString::fromUtf8("手动指定的区服")));
     }
     void unknownBuildIsNotReportedAsAnUnsupportedBuild() {
         RecordingBackend b;

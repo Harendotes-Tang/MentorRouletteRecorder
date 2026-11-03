@@ -106,6 +106,27 @@ private Q_SLOTS:
                      .contains(QStringLiteral("MR_DATA_DIR")));
     }
 
+    /// The lease holder's pid file is named the way the Collector names it for the
+    /// pipe it serves (Program.ServePidFileNameFor): the bare serve.pid only for a
+    /// child that derives the per-user pipe itself, the pipe's own file for a child
+    /// given --pipe. A development build therefore never takes an installed
+    /// Collector's serve.pid for its own child's (review I5-2).
+    void theServePidFileIsNamedAfterThePipeTheChildServes()
+    {
+        const QString pipe = QStringLiteral("MentorRecorder.0123abcd.dev.v1");
+        QCOMPARE(mr::CollectorProcess::servePidFileName(Flavour::Distribution, pipe),
+                 QStringLiteral("serve.pid"));
+        QCOMPARE(mr::CollectorProcess::servePidFileName(Flavour::Development, pipe),
+                 QStringLiteral("serve.MentorRecorder.0123abcd.dev.v1.pid"));
+        // Without a pipe to hand over the child serves the default one, and keeps the bare name.
+        QCOMPARE(mr::CollectorProcess::servePidFileName(Flavour::Development, QString()),
+                 QStringLiteral("serve.pid"));
+        // The Collector's sanitising: ASCII letters, digits, '.', '-' and '_' stay.
+        QCOMPARE(mr::CollectorProcess::servePidFileName(Flavour::Development,
+                                                        QString::fromUtf8("a b:c-d_e.f\xC3\xA9")),
+                 QStringLiteral("serve.a_b_c-d_e.f_.pid"));
+    }
+
     void thePipeNameCarriesADevSegmentOnlyForADevelopmentBuild()
     {
         const QString sid = QStringLiteral("S-1-5-21-1111111111-2222222222-3333333333-1001");

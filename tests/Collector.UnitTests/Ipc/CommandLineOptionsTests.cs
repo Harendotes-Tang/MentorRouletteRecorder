@@ -86,6 +86,23 @@ public sealed class CommandLineOptionsTests
         Assert.Equal(500, options.MaxLines);
     }
 
+    /// <summary>
+    /// Audit 2026-11-03, A2-4: a live trace reads no settings, so the service region of a client whose install path does
+    /// not name it is given on the command line - CN, TC or GLOBAL, in any letter case. Without it nothing is assumed.
+    /// </summary>
+    [Theory]
+    [InlineData("CN", Domain.Region.Cn)]
+    [InlineData("tc", Domain.Region.Tc)]
+    [InlineData("Global", Domain.Region.Global)]
+    public void CaptureTraceMode_TakesTheRegion(string value, Domain.Region expected)
+    {
+        var options = CommandLineOptions.Parse(new[] { "--capture-trace", "trace.jsonl", "--region", value });
+
+        Assert.Equal(CollectorMode.CaptureTrace, options.Mode);
+        Assert.Equal(expected, options.Region);
+        Assert.Null(CommandLineOptions.Parse(new[] { "--capture-trace", "trace.jsonl" }).Region);
+    }
+
     [Fact]
     public void TraceReportMode_IsParsedWithItsOwnFlags()
     {
@@ -122,6 +139,12 @@ public sealed class CommandLineOptionsTests
     [InlineData("--capture-trace t.jsonl --duration-seconds 999999")]
     [InlineData("--capture-trace t.jsonl --max-lines 0")]
     [InlineData("--trace-report t.jsonl --window-ms 0")]
+    [InlineData("--capture-trace t.jsonl --region")]
+    [InlineData("--capture-trace t.jsonl --region UNKNOWN")]
+    [InlineData("--capture-trace t.jsonl --region JP")]
+    [InlineData("--trace-report t.jsonl --region CN")]
+    [InlineData("--serve --region CN")]
+    [InlineData("--capture-doctor --region TC")]
     public void TraceFlags_AreRefusedOutsideTheirMode(string commandLine)
     {
         var args = commandLine.Split(' ', StringSplitOptions.RemoveEmptyEntries);

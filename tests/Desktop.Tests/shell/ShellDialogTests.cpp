@@ -1897,6 +1897,37 @@ private Q_SLOTS:
         QCOMPARE(header->property("subtitle").toString(), today);
     }
 
+    // Audit 2026-11-03 K1-7: the sidebar's 捕获 row said 「检查中」 while the page
+    // said the path was being looked for, and while the player's own 采证 ran.
+    void theSidebarNamesPathRecoveryAndTheEvidenceRound()
+    {
+        Shell shell;
+        QVERIFY2(shell.create(), qPrintable(shell.errors));
+        const auto badge = [&shell] {
+            QVariant text;
+            QMetaObject::invokeMethod(shell.root.get(), "captureBadgeText", Q_RETURN_ARG(QVariant, text));
+            return text.toString();
+        };
+        const QJsonObject recovering{
+            {QStringLiteral("state"), QStringLiteral("STARTING")}, {QStringLiteral("ffxiv_running"), true},
+            {QStringLiteral("ffxiv_process_id"), 8544}, {QStringLiteral("npcap_installed"), true},
+            {QStringLiteral("profile_status"), QStringLiteral("UNSUPPORTED_BUILD")},
+            {QStringLiteral("region"), QStringLiteral("CN")},
+            {QStringLiteral("game_build"), QStringLiteral("2026.10.06.0000.0000")},
+            {QStringLiteral("last_error_code"), QStringLiteral("ERR_INTERNAL")},
+            {QStringLiteral("path_recovery"), QJsonObject{{QStringLiteral("state"), QStringLiteral("RECOVERING")}}},
+            {QStringLiteral("calibration"), QJsonObject{{QStringLiteral("state"), QStringLiteral("OBSERVING")},
+                                                        {QStringLiteral("game_build"), QStringLiteral("2026.10.06.0000.0000")}}}};
+        shell.controller->recording()->observeCapture(recovering.toVariantMap());
+        QVERIFY(shell.controller->recording()->recovering());
+        QCOMPARE(badge(), QString::fromUtf8("自动寻找网络路径"));
+
+        shell.controller->recording()->setUserObservation(true);
+        QTRY_COMPARE(shell.controller->recording()->state(), QStringLiteral("observing"));
+        QCOMPARE(badge(), QString::fromUtf8("采证中"));
+        shell.controller->recording()->setUserObservation(false);
+    }
+
     // 审查 OK-9：职业占比的圆环只在深浅色切换时重画，换界面风格后仍是旧配色。
     void theJobDonutRepaintsWhenTheStyleChanges()
     {

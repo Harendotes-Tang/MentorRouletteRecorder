@@ -143,7 +143,11 @@ bool CaptureValidationController::actionEnabled() const
 
 bool CaptureValidationController::metadataActionEnabled() const
 {
-    if (!m_backend || !m_backend->isConnected() || m_commandBusy || state() == QLatin1String("STOPPING"))
+    // A marker in flight is answered before the round can be stopped: a stop
+    // would drop its answer, refusal included, and the 采证 page would count a
+    // marker the trace may not hold (review RV4-6).
+    if (!m_backend || !m_backend->isConnected() || m_commandBusy || m_markerBusy
+        || state() == QLatin1String("STOPPING"))
         return false;
     if (active()) return true;
     return m_statusLoaded && m_available && !(m_host && m_host->formalCapturing()

@@ -283,6 +283,13 @@ internal sealed partial class SharedCalibrationSession
             Drop(candidate, rejected: true);
         }
 
+        // A quarantine held for the end of a run answers to the index read last: this one holds it again below if it
+        // still quarantines the code in use, and otherwise lets it go (audit 2026-11-03, E-1).
+        if (_deferred is { Reason: QuarantinedReason })
+        {
+            _deferred = null;
+        }
+
         // Permanent revocation precedes reversible quarantine and also applies to settled profiles.
         if (_bound is { Sha: { } inUse } && _revoked.Contains(inUse))
         {
@@ -319,13 +326,40 @@ internal sealed partial class SharedCalibrationSession
             {
                 // A login-only binding has not earned the exemption reserved for a proven local profile.
                 // Keep its MRC and prior records; temporarily unload only the unproven derived profile.
-                bound.WatchGate = SharedCandidateProvenance.Imported;
-                Supersede("QUARANTINED", contradicted: false, pending: prepared);
+                WithdrawQuarantined(bound, prepared);
                 return true;
             }
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Takes an unproven profile whose code the index quarantined out of use, or - while a run is under way - arranges for
+    /// that to happen once the machine is back between runs, exactly as a revocation is held (audit 2026-11-03, E-1).
+    /// Unloading it mid-duty would close the duty the player is completing the way a stopped capture closes it, and a
+    /// quarantine is reversible and no accusation: it must not do what a revocation, the stronger of the two, never does.
+    /// The rest of the index waits for the withdrawal either way; a revocation already held stays held, the quarantine
+    /// adding nothing to it.
+    /// </summary>
+    /// <param name="bound">The profile in use.</param>
+    /// <param name="prepared">The codes that index offered, the quarantined one among them.</param>
+    /// <returns>True when the profile was taken out of use now.</returns>
+    private bool WithdrawQuarantined(BoundProfile bound, IReadOnlyList<Prepared> prepared)
+    {
+        if (_host.SharedRunInFlight())
+        {
+            if (_deferred is not { Reason: "REVOKED" })
+            {
+                _deferred = new DeferredWithdrawal(QuarantinedReason, prepared);
+            }
+
+            return false;
+        }
+
+        bound.WatchGate = SharedCandidateProvenance.Imported;
+        Supersede(QuarantinedReason, contradicted: false, pending: prepared);
+        return true;
     }
 
     /// <summary>
@@ -342,7 +376,7 @@ internal sealed partial class SharedCalibrationSession
     {
         if (_host.SharedRunInFlight())
         {
-            _deferred = prepared;
+            _deferred = new DeferredWithdrawal("REVOKED", prepared);
             return;
         }
 

@@ -85,6 +85,10 @@ public enum CollectorMode
 /// alone can name a stranger; the pair (id, start time) is unique in practice. When it is
 /// absent the watchdog matches on the id alone.
 /// </param>
+/// <param name="Region">
+/// Service region a live trace names with <c>--region</c> (CN, TC or GLOBAL), or null. The trace reads no
+/// settings, so this is how a client whose install path does not say its region is traced (audit 2026-11-03, A2-4).
+/// </param>
 public sealed record CommandLineOptions(
     CollectorMode Mode,
     string? DatabasePath,
@@ -102,7 +106,8 @@ public sealed record CommandLineOptions(
     bool AllowMidstream = false,
     string? PipeName = null,
     string? LogDirectory = null,
-    DateTimeOffset? ParentStartTime = null)
+    DateTimeOffset? ParentStartTime = null,
+    Domain.Region? Region = null)
 {
     /// <summary>
     /// Longest live trace the command line accepts, in seconds (24 hours). A trace is a
@@ -133,6 +138,7 @@ public sealed record CommandLineOptions(
         string? aroundMarker = null;
         int? windowMs = null;
         var allowMidstream = false;
+        Domain.Region? region = null;
         string? pipeName = null;
         string? logDirectory = null;
         DateTimeOffset? parentStartTime = null;
@@ -218,6 +224,11 @@ public sealed record CommandLineOptions(
                     allowMidstream = true;
                     break;
 
+                case Capture.CaptureTraceCli.RegionFlag:
+                    region = Capture.CaptureTraceCli.ParseRegion(Value(args, ref i, Capture.CaptureTraceCli.RegionFlag))
+                        ?? throw new FormatException(Capture.CaptureTraceCli.RegionFlag + " requires CN, TC or GLOBAL");
+                    break;
+
                 case Capture.CaptureTraceCli.WindowFlag:
                     windowMs = ParseBounded(
                         Value(args, ref i, Capture.CaptureTraceCli.WindowFlag),
@@ -290,7 +301,7 @@ public sealed record CommandLineOptions(
         // than ignored by the other. A typo must not silently produce an unbounded capture, or
         // a report with the wrong window, discovered only after the session is over.
         var traceOnly = durationSeconds is not null || adapterId is not null || maxLines is not null ||
-                        allowMidstream;
+                        allowMidstream || region is not null;
         var reportOnly = aroundMarker is not null || windowMs is not null;
         var storageArguments =
             databasePath is not null || fixturePath is not null || profilePath is not null ||
@@ -300,7 +311,7 @@ public sealed record CommandLineOptions(
         if (mode == CollectorMode.CaptureTrace && (reportOnly || json || storageArguments))
         {
             throw new FormatException(
-                "--capture-trace accepts only --duration-seconds, --adapter, --max-lines and --allow-midstream");
+                "--capture-trace accepts only --duration-seconds, --adapter, --max-lines, --allow-midstream and --region");
         }
 
         if (mode == CollectorMode.TraceReport && (traceOnly || json || storageArguments))
@@ -312,8 +323,8 @@ public sealed record CommandLineOptions(
             (traceOnly || reportOnly))
         {
             throw new FormatException(
-                "--duration-seconds, --adapter, --max-lines, --around and --window-ms apply to " +
-                "--capture-trace and --trace-report only");
+                "--duration-seconds, --adapter, --max-lines, --allow-midstream, --region, --around and --window-ms " +
+                "apply to --capture-trace and --trace-report only");
         }
 
         // The switch only means anything for the mode that keeps running. Accepting it
@@ -358,7 +369,7 @@ public sealed record CommandLineOptions(
         return new CommandLineOptions(
             mode, databasePath, fixturePath, profilePath, profilesDirectory, json, parentProcessId,
             tracePath, durationSeconds, adapterId, maxLines, aroundMarker, windowMs, allowMidstream,
-            pipeName, logDirectory, parentStartTime);
+            pipeName, logDirectory, parentStartTime, region);
     }
 
     /// <summary>Folder this run writes its rotated diagnostic log to.</summary>

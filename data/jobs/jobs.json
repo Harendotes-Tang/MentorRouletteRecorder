@@ -3,6 +3,7 @@
   "schema_version": 1,
   "language": "zh-Hans",
   "source": "job id / abbreviation / English name from the public xivapi v2 ClassJob sheet (https://v2.xivapi.com/api/sheet/ClassJob, exdschema rev 83e965d0, accessed 2026-09-04); Simplified Chinese names and the six role groups are maintained by this project, because the public endpoint does not serve Chinese. No game file, asset or binary is copied here - only an id-to-name mapping, per docs/privacy-boundary.md section 7.",
+  "aliases_zh_tw_source": "aliases_zh_tw is each job's name in the Traditional Chinese (TC) client, as the thewakingsands/ffxiv-datamining-tc ClassJob export at commit 1cf1f9fb735bad0748848dbd3f4de05721fe619a spells it (recorded in data/i18n/game-names.2026-10-15.json). A name only converted from Simplified Chinese is not listed. Import resolves these names; search does not.",
   "role_values": [
     "坦克",
     "治疗",
@@ -30,6 +31,7 @@
       "abbreviation": "GLA",
       "name_en": "gladiator",
       "name_zh": "剑术师",
+      "aliases_zh_tw": ["劍術士"],
       "role": "坦克"
     },
     {
@@ -37,6 +39,7 @@
       "abbreviation": "PGL",
       "name_en": "pugilist",
       "name_zh": "格斗家",
+      "aliases_zh_tw": ["格鬥士"],
       "role": "近战"
     },
     {
@@ -44,6 +47,7 @@
       "abbreviation": "MRD",
       "name_en": "marauder",
       "name_zh": "斧术师",
+      "aliases_zh_tw": ["斧術士"],
       "role": "坦克"
     },
     {
@@ -51,6 +55,7 @@
       "abbreviation": "LNC",
       "name_en": "lancer",
       "name_zh": "枪术师",
+      "aliases_zh_tw": ["槍術士"],
       "role": "近战"
     },
     {
@@ -58,6 +63,7 @@
       "abbreviation": "ARC",
       "name_en": "archer",
       "name_zh": "弓箭手",
+      "aliases_zh_tw": ["弓術士"],
       "role": "远程物理"
     },
     {
@@ -65,6 +71,7 @@
       "abbreviation": "CNJ",
       "name_en": "conjurer",
       "name_zh": "幻术师",
+      "aliases_zh_tw": ["幻術士"],
       "role": "治疗"
     },
     {
@@ -72,6 +79,7 @@
       "abbreviation": "THM",
       "name_en": "thaumaturge",
       "name_zh": "咒术师",
+      "aliases_zh_tw": ["咒術士"],
       "role": "魔法"
     },
     {
@@ -79,6 +87,7 @@
       "abbreviation": "CRP",
       "name_en": "carpenter",
       "name_zh": "刻木匠",
+      "aliases_zh_tw": ["木工師"],
       "role": "其他"
     },
     {
@@ -86,6 +95,7 @@
       "abbreviation": "BSM",
       "name_en": "blacksmith",
       "name_zh": "锻铁匠",
+      "aliases_zh_tw": ["鍛造師"],
       "role": "其他"
     },
     {
@@ -93,6 +103,7 @@
       "abbreviation": "ARM",
       "name_en": "armorer",
       "name_zh": "铸甲匠",
+      "aliases_zh_tw": ["甲冑師"],
       "role": "其他"
     },
     {
@@ -100,6 +111,7 @@
       "abbreviation": "GSM",
       "name_en": "goldsmith",
       "name_zh": "雕金匠",
+      "aliases_zh_tw": ["金工師"],
       "role": "其他"
     },
     {
@@ -107,6 +119,7 @@
       "abbreviation": "LTW",
       "name_en": "leatherworker",
       "name_zh": "制革匠",
+      "aliases_zh_tw": ["皮革師"],
       "role": "其他"
     },
     {
@@ -114,6 +127,7 @@
       "abbreviation": "WVR",
       "name_en": "weaver",
       "name_zh": "裁衣匠",
+      "aliases_zh_tw": ["裁縫師"],
       "role": "其他"
     },
     {
@@ -121,6 +135,7 @@
       "abbreviation": "ALC",
       "name_en": "alchemist",
       "name_zh": "炼金术士",
+      "aliases_zh_tw": ["鍊金術師"],
       "role": "其他"
     },
     {
@@ -128,6 +143,7 @@
       "abbreviation": "CUL",
       "name_en": "culinarian",
       "name_zh": "烹调师",
+      "aliases_zh_tw": ["烹調師"],
       "role": "其他"
     },
     {
@@ -135,6 +151,7 @@
       "abbreviation": "MIN",
       "name_en": "miner",
       "name_zh": "采矿工",
+      "aliases_zh_tw": ["採掘師"],
       "role": "其他"
     },
     {
@@ -142,6 +159,7 @@
       "abbreviation": "BTN",
       "name_en": "botanist",
       "name_zh": "园艺工",
+      "aliases_zh_tw": ["園藝師"],
       "role": "其他"
     },
     {
@@ -149,6 +167,7 @@
       "abbreviation": "FSH",
       "name_en": "fisher",
       "name_zh": "捕鱼人",
+      "aliases_zh_tw": ["漁師"],
       "role": "其他"
     },
     {
@@ -156,6 +175,7 @@
       "abbreviation": "PLD",
       "name_en": "paladin",
       "name_zh": "骑士",
+      "aliases_zh_tw": ["騎士"],
       "role": "坦克"
     },
     {
@@ -163,6 +183,7 @@
       "abbreviation": "MNK",
       "name_en": "monk",
       "name_zh": "武僧",
+      "aliases_zh_tw": ["武僧"],
       "role": "近战"
     },
     {
@@ -170,6 +191,7 @@
       "abbreviation": "WAR",
       "name_en": "warrior",
       "name_zh": "战士",
+      "aliases_zh_tw": ["戰士"],
       "role": "坦克"
     },
     {
@@ -178,6 +200,7 @@
       "name_en": "dragoon",
       "name_zh": "龙骑士",
       "aliases_zh": ["龙骑"],
+      "aliases_zh_tw": ["龍騎士"],
       "role": "近战"
     },
     {
@@ -186,6 +209,7 @@
       "name_en": "bard",
       "name_zh": "吟游诗人",
       "aliases_zh": ["诗人"],
+      "aliases_zh_tw": ["吟遊詩人"],
       "role": "远程物理"
     },
     {
@@ -194,6 +218,7 @@
       "name_en": "white mage",
       "name_zh": "白魔法师",
       "aliases_zh": ["白魔"],
+      "aliases_zh_tw": ["白魔道士"],
       "role": "治疗"
     },
     {
@@ -202,6 +227,7 @@
       "name_en": "black mage",
       "name_zh": "黑魔法师",
       "aliases_zh": ["黑魔"],
+      "aliases_zh_tw": ["黑魔道士"],
       "role": "魔法"
     },
     {
@@ -209,6 +235,7 @@
       "abbreviation": "ACN",
       "name_en": "arcanist",
       "name_zh": "秘术师",
+      "aliases_zh_tw": ["巴術士"],
       "role": "魔法"
     },
     {
@@ -217,6 +244,7 @@
       "name_en": "summoner",
       "name_zh": "召唤师",
       "aliases_zh": ["召唤"],
+      "aliases_zh_tw": ["召喚士"],
       "role": "魔法"
     },
     {
@@ -224,6 +252,7 @@
       "abbreviation": "SCH",
       "name_en": "scholar",
       "name_zh": "学者",
+      "aliases_zh_tw": ["學者"],
       "role": "治疗"
     },
     {
@@ -231,6 +260,7 @@
       "abbreviation": "ROG",
       "name_en": "rogue",
       "name_zh": "双剑师",
+      "aliases_zh_tw": ["雙劍士"],
       "role": "近战"
     },
     {
@@ -238,6 +268,7 @@
       "abbreviation": "NIN",
       "name_en": "ninja",
       "name_zh": "忍者",
+      "aliases_zh_tw": ["忍者"],
       "role": "近战"
     },
     {
@@ -246,6 +277,7 @@
       "name_en": "machinist",
       "name_zh": "机工士",
       "aliases_zh": ["机工"],
+      "aliases_zh_tw": ["機工士"],
       "role": "远程物理"
     },
     {
@@ -254,6 +286,7 @@
       "name_en": "dark knight",
       "name_zh": "暗黑骑士",
       "aliases_zh": ["暗骑", "黑骑"],
+      "aliases_zh_tw": ["暗黑騎士"],
       "role": "坦克"
     },
     {
@@ -262,6 +295,7 @@
       "name_en": "astrologian",
       "name_zh": "占星术士",
       "aliases_zh": ["占星"],
+      "aliases_zh_tw": ["占星術師"],
       "role": "治疗"
     },
     {
@@ -269,6 +303,7 @@
       "abbreviation": "SAM",
       "name_en": "samurai",
       "name_zh": "武士",
+      "aliases_zh_tw": ["武士"],
       "role": "近战"
     },
     {
@@ -277,6 +312,7 @@
       "name_en": "red mage",
       "name_zh": "赤魔法师",
       "aliases_zh": ["赤魔"],
+      "aliases_zh_tw": ["赤魔道士"],
       "role": "魔法"
     },
     {
@@ -285,6 +321,7 @@
       "name_en": "blue mage",
       "name_zh": "青魔法师",
       "aliases_zh": ["青魔"],
+      "aliases_zh_tw": ["青魔道士"],
       "role": "魔法"
     },
     {
@@ -293,6 +330,7 @@
       "name_en": "gunbreaker",
       "name_zh": "绝枪战士",
       "aliases_zh": ["绝枪", "枪刃"],
+      "aliases_zh_tw": ["絕槍戰士"],
       "role": "坦克"
     },
     {
@@ -300,6 +338,7 @@
       "abbreviation": "DNC",
       "name_en": "dancer",
       "name_zh": "舞者",
+      "aliases_zh_tw": ["舞者"],
       "role": "远程物理"
     },
     {
@@ -308,6 +347,7 @@
       "name_en": "reaper",
       "name_zh": "钐镰客",
       "aliases_zh": ["钐镰", "镰刀"],
+      "aliases_zh_tw": ["奪魂者"],
       "role": "近战"
     },
     {
@@ -315,6 +355,7 @@
       "abbreviation": "SGE",
       "name_en": "sage",
       "name_zh": "贤者",
+      "aliases_zh_tw": ["賢者"],
       "role": "治疗"
     },
     {
@@ -323,6 +364,7 @@
       "name_en": "viper",
       "name_zh": "蝰蛇剑士",
       "aliases_zh": ["蝰蛇"],
+      "aliases_zh_tw": ["毒蛇劍士"],
       "role": "近战"
     },
     {
@@ -331,6 +373,7 @@
       "name_en": "pictomancer",
       "name_zh": "绘灵法师",
       "aliases_zh": ["绘灵", "画家"],
+      "aliases_zh_tw": ["繪靈法師"],
       "role": "魔法"
     },
     {

@@ -5,7 +5,8 @@
 表结构以 `migrations/` 下的迁移脚本为准，本文档与其保持一致。
 
 存储引擎：**SQLite**（通过 `Microsoft.Data.Sqlite`）。
-文件位置：`%LOCALAPPDATA%\MentorRecorder\mentor_recorder.db`。
+文件位置：`%LOCALAPPDATA%\MentorRecorder\mentor_recorder.db`（开发构建的桌面端改用
+`%LOCALAPPDATA%\MentorRecorder-dev\mentor_recorder.db`，见 [architecture.md](architecture.md) §2.3）。
 数据库文件可由 `--db <path>` 单独指定，也可由环境变量 `MR_DATA_DIR` 连同日志、备份、
 默认导出目录一并迁移（见 [architecture.md](architecture.md) §2.3）。
 只有 `MentorRecorder.Collector.exe` 打开写连接，Desktop 端**永不**直接访问数据库。
@@ -37,7 +38,7 @@ Microsoft.Data.Sqlite 仍会自行重试至命令超时（默认 5 秒）为止�
 | `run_id` | TEXT | PK | UUID |
 | `revision` | INTEGER | NOT NULL, `>= 1` | 乐观并发版本号；每次成功变更 +1 |
 | `capture_session_id` | TEXT | NULL, FK → `capture_sessions.capture_session_id` | 手工补录为 NULL |
-| `region` | TEXT | NOT NULL, IN (`CN`,`GLOBAL`,`TC`,`UNKNOWN`) | 服务区服，与界面语言独立；schema 12 通过前向迁移扩展原约束 |
+| `region` | TEXT | NOT NULL, IN (`CN`,`GLOBAL`,`TC`,`UNKNOWN`) | 服务区服，与界面语言独立；schema 12 通过前向迁移扩展原约束，schema 13 把 schema 12 之前写下的无区服手工与导入记录归入 `CN`（§4） |
 | `game_build` | TEXT | NULL | 识别到的客户端版本标识 |
 | `protocol_profile_id` | TEXT | NULL | 产生该记录所用的协议档案 id；手工补录为 NULL |
 | `mentor_roulette_id` | INTEGER | NULL | 判定为导随所依据的 roulette id |
@@ -50,7 +51,7 @@ Microsoft.Data.Sqlite 仍会自行重试至命令超时（默认 5 秒）为止�
 | `job_name` | TEXT | NULL | 职业名称；`job_id IS NULL` 时为 `未知` |
 | `role` | TEXT | NOT NULL, IN (`TANK`,`HEALER`,`DPS`,`UNKNOWN`) | 由 `job_id` 推导 |
 | `matched_at_utc` | TEXT | NULL | 匹配弹窗出现时间 |
-| `entered_at_utc` | TEXT | NULL | 进入副本时间。采集记录据此判定 attempt；已确认且结果已知的历史导入与手动记录允许保持未知（[statistics-definitions.md](statistics-definitions.md) §2） |
+| `entered_at_utc` | TEXT | NULL | 进入副本时间。非空即计为 attempt；为空的记录按结果判定，结果既非 `UNKNOWN` 也非 `CANCELLED_BEFORE_ENTRY` 时同样计为 attempt，不分来源（[statistics-definitions.md](statistics-definitions.md) §2） |
 | `ended_at_utc` | TEXT | NULL | 结束时间 |
 | `duration_ms` | INTEGER | NULL, `>= 0` | 单调时钟测得的时长 |
 | `result` | TEXT | NOT NULL, IN (`COMPLETED`,`LEFT_OR_ABANDONED`,`CANCELLED_BEFORE_ENTRY`,`DISCONNECTED`,`INTERRUPTED`,`UNKNOWN`) | 结果 |
@@ -80,6 +81,7 @@ INDEX ix_runs_job          ON mentor_runs(job_id)
 INDEX ix_runs_live         ON mentor_runs(soft_deleted, entered_at_utc)
 INDEX ix_runs_session      ON mentor_runs(capture_session_id)
 INDEX ix_runs_pending_review ON mentor_runs(pending_review) WHERE pending_review = 1
+INDEX ix_runs_region       ON mentor_runs(region, soft_deleted, entered_at_utc)   -- schema 12
 ```
 
 违反时间顺序 → `ERR_TIME_ORDER`；`duration_ms < 0` → `ERR_NEGATIVE_DURATION`。
@@ -253,7 +255,13 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 
 ## 4. `achievement_settings` —— 成就目标与基线
 
-按服务区服分别保存，支持用户从中途开始使用本软件。schema 12 将旧单行设置归入 CN，TC 初始基数为 0；不复制基数，不重分类旧记录。各区服成就进度独立，全部视图分别展示。
+按服务区服分别保存，支持用户从中途开始使用本软件。schema 12 将旧单行设置归入 CN，TC 初始基数为 0；不复制基数。
+schema 13（`0013_legacy_region_cn.sql`）再把没有抓包会话、且创建时间（`created_at_utc`）早于 `schema_migrations`
+中第 12 版应用时间的 `UNKNOWN` 记录（即 1.8.0 及更早版本写下的手工补录与无区服列的导入）归入 `CN`：
+这些版本只服务国服，这些通关原本计入唯一的成就，「已包含」导入的扣减也随旧基数归入了 CN。数据库升到 12 之后才创建的
+`UNKNOWN` 记录是在区服划分之后有意选择的「未知区服」，保持不变；同一次升级从 11 直接到 13 时，第 12 版的应用记录先于 0013
+在同一事务中写入。该迁移只改 `region` 一列，不写修订、不改 `updated_at_utc`；采集记录保留其会话记下的区服。
+各区服成就进度独立，全部视图分别展示。
 
 | 列 | 类型 | 约束 | 说明 |
 |---|---|---|---|
@@ -278,21 +286,26 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 | `checksum` | TEXT | NOT NULL | 迁移脚本内容的 SHA-256，检测被篡改的历史迁移 |
 | `applied_at_utc` | TEXT | NOT NULL | |
 
-启动时向前迁移到本程序支持的最高版本（当前为 **11**，`0011_run_joined_in_progress.sql`；
+启动时向前迁移到本程序支持的最高版本（当前为 **13**，`0013_legacy_region_cn.sql`；
 逐版说明见 [migrations/README.md](../migrations/README.md)）。若库中版本**高于**本程序支持的版本，
-或历史迁移 checksum 不匹配，则以 `ERR_DB_INTEGRITY` 拒绝启动（进程退出码 3，IPC 管道不会打开）；
-错误信息会给出数据库文件位置，提示先把该文件复制一份留底再处理。本软件没有只读模式。
+或历史迁移的名称或 checksum 不匹配，则以 `ERR_DB_INTEGRITY` 拒绝启动（进程退出码 3，IPC 管道不会打开）；
+错误信息会给出数据库文件位置，提示先把该文件复制一份留底再处理。历史中缺少的版本不导致拒绝，而是补执行该脚本。本软件没有只读模式。
 
 ## 6. `application_settings` —— 键值设置
 
 | 列 | 类型 | 约束 | 说明 |
 |---|---|---|---|
-| `key` | TEXT | PK | 如 `ui.language`、`tts.enabled`、`capture.adapter_id` |
+| `key` | TEXT | PK | 如 `capture.adapter_id`、`capture.region_override`、`update.check_enabled` |
 | `value_json` | TEXT | NOT NULL | JSON 编码的值 |
 | `updated_at_utc` | TEXT | NOT NULL | |
 
-默认值：`ui.language = "zh-Hans"`、`tts.enabled = false`、`capture.follow_game = true`（未写入时视为开启；
-旧键 `capture.autostart` 的初始值仍为 `false`，只有显式取值 `true` 才被视为用户意图）。
+默认值：`capture.follow_game = true`（未写入时视为开启；
+旧键 `capture.autostart` 的初始值仍为 `false`，只有显式取值 `true` 才被视为用户意图）。采集服务启动时仍写入
+早期版本的默认项 `ui.language = "zh-Hans"` 与 `tts.enabled = false`，但没有任何代码读取它们：界面语言与播报设置
+保存在桌面端的 `desktop.ini` 中。
+`capture.region_override` 保存用户手动指定的区服；`capture.region_override_install` 保存这次选择所绑定的那份客户端安装：
+空字符串表示已选择、尚未绑定，64 位十六进制为该客户端程序路径（转为大写）的 SHA-256 指纹，不保存路径本身；
+缺失或为 `null` 表示未绑定（1.8.x 保存的选择即是如此）。绑定规则见 [capture-diagnostics.md](capture-diagnostics.md) §3。
 先行版 1.5.1-beta.1 与 1.5.1-beta.2 曾在启动时检查一次成就基数的 `baseline_effective_at` 并视情况改动，可能留下键
 `achievement.baseline_effective_at_checked`，以及 `achievement.baseline_history` 中请求标识为
 `system:baseline-effective-at-repair` 的一条审计记录。现行版本不再读写前者，后者按普通审计记录对待，两者都不影响进度。
@@ -324,7 +337,7 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 |---|---|---|---|
 | `request_id` | TEXT | PK | 客户端信封里的 `request_id` |
 | `message_type` | TEXT | NOT NULL | 首次应用时的消息类型 |
-| `response_json` | TEXT | NOT NULL | 首次成功时的变更快照（含请求内容的**指纹**），用于原样重放；过期基数请求为 JSON 文本 `null`，仅保留已执行标记 |
+| `response_json` | TEXT | NOT NULL | 首次成功时的变更快照（含请求内容的**指纹**），用于原样重放；过期的基数、心得与批量变更请求为 JSON 文本 `null`，仅保留已执行标记 |
 | `created_at_utc` | TEXT | NOT NULL | UTC ISO-8601（毫秒） |
 
 `INDEX ix_idempotency_created ON ipc_idempotency(created_at_utc)`。
@@ -334,18 +347,19 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 指纹**不同**时（同一个 `request_id` 被复用于另一份内容）返回
 `ERR_IDEMPOTENCY_CONFLICT`。回放旧结果会使客户端误认为其**新**改动已经生效，
 拒绝是唯一安全的处理方式。
-该表存**结果快照**与指纹，以及基数请求的轻量已执行标记，不存请求原文。
+该表存**结果快照**与指纹，以及上述三类请求的轻量已执行标记，不存请求原文。
 
 **结果快照保留期是 24 小时。** 每次写入后按 `created_at_utc` 清理过期响应
 （`IdempotencyRepository.RetentionWindow`）。普通请求删除幂等行；
-`UpdateAchievementBaseline` 将 `response_json` 改为 JSON 文本 `null`，保留
-`request_id`、消息类型及执行时间。包括成功的同值保存，这些标记都跨进程重启保留，
-防止旧请求把后续修改的基数写回旧值。展示用 `achievement.baseline_history` 仍只保留最近 100 条；
-永久执行标记不保存基数正文，并随基数请求次数增长。
+`UpdateAchievementBaseline`、`SetRunReflection` 与 `BatchMutateRuns` 将 `response_json` 改为 JSON 文本 `null`，保留
+`request_id`、消息类型及执行时间：基数审计历史有上限、心得没有修订号、批量修订带派生的子编号，三者在快照清理之后
+都无法再证明原请求已经执行。包括成功的同值保存，这些标记都跨进程重启保留，
+防止旧请求把后续修改的基数（或心得、批量变更）写回旧值。展示用 `achievement.baseline_history` 仍只保留最近 100 条；
+永久执行标记不保存基数、心得或变更的正文，并随这三类请求的次数增长。
 
 因此“同一 `request_id` 原样重放”的保证只在 24 小时响应窗口内成立。
 超过保留期后，`run_revisions.request_id` / `candidate_reviews.request_id` /
-`run_import_batches.request_id` 的持久审计，或基数执行标记，仍证明请求已执行。
+`run_import_batches.request_id` 的持久审计，或上述已执行标记，仍证明请求已执行。
 此时**不会**再次应用变更，也不会笼统地报告内部错误，而是返回
 `ERR_IDEMPOTENCY_CONFLICT`，`details = {conflict: "idempotency", request_id, reason: "RESPONSE_EXPIRED"}`、
 `field = "request_id"`，提示调用方换用新的 `request_id` 重发。
@@ -387,8 +401,11 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
   **本软件一律不清理该目录**。备份是数据库的完整副本，因此可能包含 §8.1 的研究负载，
   不是脱敏产物（见 [privacy-boundary.md](privacy-boundary.md) §8.1）。
 - 升级前快照：数据库结构需要升级时，采集服务在执行迁移之前把整个数据库复制为
-  `backups/pre_schema_<旧版本>_upgrade_<UTC 时间>_<编号>.db` 并核对副本的完整性；复制或核对失败时不执行迁移。
-  这类快照保留升级前的结构，供旧版程序打开，不参加上述 14 份的滚动清理，也不会被本软件删除。
+  `backups/pre_schema_<旧版本>_upgrade_<UTC 时间>_<编号>.db` 并核对副本的完整性；复制或核对失败时不执行迁移，
+  采集服务以 `ERR_DB_INTEGRITY`（文案 `startup.pre_upgrade_copy_failed`，点名数据库文件）拒绝启动。
+  迁移随后失败并回滚时，数据库文件保持原样，本次刚写出的快照随即删除，因此反复失败的升级不会每次多留一份副本；
+  迁移进行中进程被强行结束时，该次快照仍会留下。升级成功后的快照保留升级前的结构，供旧版程序打开，
+  不参加上述 14 份的滚动清理，也不会被本软件删除。
 
 ### 8.1 候选研究负载
 
@@ -420,12 +437,24 @@ schema v9 通过 `migrations/0009_personal_record_import.sql` 增加 `run_import
 没有 `run_id` 与 `source_key` 的行以自身内容识别：采集服务对该行解析出的各单元格取值（按列名排序、去掉首尾空白、
 省略空值）计算哈希，附上它在完全相同的行中的序号，作为默认 `source_key` 计入来源指纹。在表格中增删或移动其他行之后
 再次导入，原有的行仍判为重复。此前的版本以整份文件的哈希加行号作为默认键；这种旧键仍会一并计算，并与已保存的来源指纹
-及永久清理留下的墓碑核对，此前导入过的文件因此照常识别。职业只能靠中文别名（如「白魔」）识别的行，还会按早先版本的职业解析结果再算一份指纹一并核对，早先版本导入或清理过的这类行因此也照常识别。
+及永久清理留下的墓碑核对，此前导入过的文件因此照常识别。职业只能靠中文别名（如「白魔」）或繁中服客户端的职业名（如「騎士」）识别的行，还会按早先版本的职业解析结果再算指纹一并核对
+（旧的整文件键与按自身内容计算的键下各一份），早先版本（包括 1.8.0）导入或清理过的这类行因此也照常识别。
 「可能重复」（`possible_duplicate`，仍可导入，桌面端不预先勾选）包括：与某条本地记录副本相同，且进本时间相差不超过
 1 分钟、原站时间相同，或双方至少一方没有具体时刻而原站日期相同（双方都有职业时职业也须相同）；以及同一批次中与前面
 某一行副本、进本时间、原站时间与心得正文都相同且带有具体时刻的行，其 `matching_run_id` 指向前面那一行。
+记录的区服取自来源中的 `region` 列（表头也可写作「区服」或「區服」；取值为 国服 / 國服 / 繁中服 / 国际服 / 國際服 /
+未知区服 / 未知區服，或 `CN` / `TC` / `GLOBAL` / `UNKNOWN`）。没有该列或单元格留空的行，采集服务一律按 `UNKNOWN` 预览；
+桌面端在第一次读取之后，把这类行（带 `run_id` 的本软件记录除外，它们保留原有区服）改为默认区服：截图来源（dlog 记录）一律为 `CN`；
+其他来源为总览所选的区服（`CN`、`TC` 或 `GLOBAL`；总览为「全部区服」或「未知区服」时为 `CN`）。默认值只改候选的 `region`，
+不像用户手动改选区服那样清除来源给出的副本编号、领地与类别或确认待复核的识别结果；行的 `source_key` 不变，导入前仍可在预览中修改。
+同一行在其他区服下的身份也一并核对：每一行都在自身区服之外的每个区服（`CN`、`GLOBAL`、`TC`、`UNKNOWN`）下各算一份
+来源指纹，副本身份与目录事实按该区服重新解析，因此同一行曾以另一区服导入过（例如上一次在预览中改选了区服，或 1.8.0
+不带区服导入、经 schema 13 归入 `CN`）时同样能找到，带不带具体时刻都一样。以这些身份命中的本地记录只报告为「可能重复」，
+不判为重复或合并。按时间查找相近记录时，只有区服仍为 `UNKNOWN` 的行（命令行或 JSON 调用方，或桌面端导入中保留「未知区服」的候选）
+查所有区服；桌面端填入默认区服的行与写明区服的行一样，只在本区服与 `UNKNOWN` 中按时间查找，但指纹仍在其他每个区服下比对；
+两个具名区服之间不按时间互判（契约 2026-10-24：跨区相同时间与副本编号不会互判重复）。
 来源缺少结果时，导入预览按用户选择默认通关并允许修改；确认本人导随及实际结果后，缺游戏时间的记录
-只显示待补充，仍计入完成次数与成就。结果未知或未经确认的导入不计统计。
+只显示待补充，仍计入完成次数与所属区服的成就。结果未知或未经确认的导入不计统计。
 备份导入只合并记录和心得，不复制来源数据库的采集外键、设置或备注附件。
 提交带 `deduct_from_baseline = true` 时，同一事务内还会按记录所属区服，把本次新写入且计入进度的通关数从该区服的 `achievement_settings.baseline_completed_count`
 中扣除（最低到 0），并以该提交的请求编号追加基数审计；回执的 `baseline_adjustments` 按区服返回扣减与扣减后基数，旧标量保留扣减总数与 CN 基数投影
@@ -438,7 +467,7 @@ IPC 不暴露 `run_events.detail_json` 的原始内容，只暴露归纳后的�
 
 导出同样包含心得：JSON 导出的每个 run 对象含 `reflection`（对象或 `null`），
 CSV 在原有 14 列**之后**追加 `reflection_mood`、`reflection_text` 两列（无心得时为空），
-schema 11 起再追加 `joined_in_progress`（`1` / `0` / 空），共 17 列。列顺序只增不改，
+schema 11 起再追加 `joined_in_progress`（`1` / `0` / 空），schema 12 起再追加 `region` 与 `game_build`，共 19 列。列顺序只增不改，
 见 [manual-correction.md](manual-correction.md) §10.1。
 
 CSV 的 `date` 列是**UTC 日历日**（取 `entered_at` / `matched_at` / `ended_at` 里第一个非空的
@@ -453,7 +482,7 @@ CSV 的 `date` 列是**UTC 日历日**（取 `entered_at` / `matched_at` / `ende
 `history_retention_settings`（0 为永不自动清理）以及索引。旧软删除记录的计时起点为升级时刻，
 恢复后时间清空，再次软删除重新计时。升级旧库前保留并验证数据库快照，即 §8 所述的升级前快照
 `backups/pre_schema_<旧版本>_upgrade_<UTC 时间>_<编号>.db`，不参加常规备份的滚动清理；
-快照未能完成或校验失败时中止升级。
+快照未能完成或校验失败时中止升级并拒绝启动，升级失败时删除该次快照（§8）。
 
 永久清理事务仅处理已软删除记录，删除记录、事件、修订、心得、导入来源及包含正文的旧回执。
 `run_purge_authorizations` 临时授权对应修订删除，事务结束不保留授权；

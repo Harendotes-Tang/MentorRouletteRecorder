@@ -67,6 +67,7 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "后台的进一步校准已无法继续。如需继续完善，请先点「清空校准进度」（现用校准会继续记录），保持软件开启，再尝试不同的随机任务并进出副本；组队时请由你来申请。", "calibration.provisional.blocked_more"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "导随记录照常进行。请核对下面的时间线，再点「核对并启用」；之后的新记录会带上职业，检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。", "calibration.provisional.job_and_pop"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "导随记录照常进行。仅靠排队和进本核对时，记入的是排队时间；取消排队不会产生记录。请核对下面的时间线，再点「核对并启用」；之后的新记录会自动带上职业。", "calibration.provisional.job_only"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "导随记录照常进行。检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。请核对下面的时间线，再点「核对并启用」；之后的新记录会自动带上职业。", "calibration.provisional.job_only_popup"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "导随记录照常进行。已找到匹配弹窗，请核对下面的时间线，再点「核对并启用」；之后会记入匹配成功的时间。", "calibration.provisional.pop_found"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "导随记录照常进行。请核对下面的时间线，再点「核对并启用」；之后检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。", "calibration.provisional.pop_only"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "导随记录照常进行。仅靠排队和进本核对时，记入的是排队时间；取消排队不会产生记录。", "calibration.provisional.recording"), .args = ""},
@@ -91,10 +92,10 @@ const CatalogueEntry kEntries[] = {
     //: Placeholders: {event} another sentence, already translated. Keep every {placeholder} exactly as written.
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "请先核对这条时间线：{event}", "calibration.verdict_missing"), .args = "event:text_ref"},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "verdicts 不能为空。", "calibration.verdicts_empty"), .args = ""},
-    //: Placeholders: {error} shown as it is. Keep every {placeholder} exactly as written. {error} is the operating system's explanation.
-    {.source = QT_TRANSLATE_NOOP3("CollectorText", "无法写出本机校准档案：{error}", "calibration.write_failed"), .args = "error:text"},
-    //: Placeholders: {reason} shown as it is. Keep every {placeholder} exactly as written. {reason} is the profile directory's English explanation.
-    {.source = QT_TRANSLATE_NOOP3("CollectorText", "本机校准档案已写出，但档案目录没有选中它：{reason}", "calibration.written_not_selected"), .args = "reason:text"},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "无法写出本机校准档案：文件正被其他程序占用，或系统拒绝了写入（例如安全软件正在检查它）。请稍后再点「核对并启用」。", "calibration.write_failed.busy"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "无法写出本机校准档案：写入磁盘时出错。请确认磁盘空间充足，然后再点「核对并启用」。", "calibration.write_failed.disk"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "这次的校准结果没有通过软件的自检，因此没有写出档案。请点「清空校准进度」重新校准。", "calibration.write_failed.refused"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "本机校准档案已写出，但软件没有选用它，暂时还不会按它自动记录。", "calibration.written_not_selected"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "from_utc 不得晚于 to_utc。", "candidate.from_after_to"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "幂等记录已损坏，无法安全重放核对请求。", "candidate.idempotency_damaged"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "核对幂等结果缺失。", "candidate.idempotency_missing"), .args = ""},
@@ -115,7 +116,8 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "没有权限读取游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录。", "capture.game.path_denied"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "无法确定游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录。", "capture.game.path_unknown"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "无法从安装路径判断区服（路径同时含有多个区服的标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。", "capture.game.region_ambiguous"), .args = ""},
-    {.source = QT_TRANSLATE_NOOP3("CollectorText", "设置中手动指定的区服与安装路径推断出的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除区服覆盖。", "capture.game.region_override_mismatch"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "这个客户端的安装路径表明的区服与设置中为它手动指定的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除手动指定的区服。", "capture.game.region_override_applied"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致，因此暂不进行任何自动记录。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。", "capture.game.region_override_mismatch"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。", "capture.game.region_unmarked"), .args = ""},
     //: Placeholders: {file} shown as it is. Keep every {placeholder} exactly as written. {file} is the game's version file name, ffxivgame.ver.
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "未能在游戏目录中读取到 {file}，客户端版本未知。", "capture.game.version_file_missing"), .args = "file:text"},
@@ -134,8 +136,6 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "准备读取游戏数据时出错，本次监听未开始。可能是磁盘空间不足、安全软件拦截了游戏程序文件，或游戏更新后暂不兼容。请稍后重试；仍失败时导出诊断报告。", "capture.oodle.profile_load_failed"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "正式采集或验证会话尚未结束，请先停止并等待资源释放。", "capture.ownership_busy"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "仓库中没有任何协议档案。为避免记错，本版本不会解析任何报文，也不会自动写入任何记录，只能手工补录。", "capture.profile.none"), .args = ""},
-    //: Placeholders: {reason} shown as it is. Keep every {placeholder} exactly as written. {reason} is the profile directory's English explanation, for example: no profile matches this region and build.
-    {.source = QT_TRANSLATE_NOOP3("CollectorText", "协议档案不可用，暂时不会自动记录：{reason}", "capture.profile.unavailable"), .args = "reason:text"},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "所选游戏已退出或重新启动，请重新选择游戏窗口。", "capture.select.game_exited"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "旧的采集尚未结束，请稍后再选择游戏窗口。", "capture.select.previous_not_finished"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "暂时无法确认该游戏的启动时间，请重新检测后再选择。", "capture.select.start_time_unknown"), .args = ""},
@@ -186,6 +186,7 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "仅验证，不自动记录。正在等待游戏启动。", "capture.validation.waiting_game"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "仅验证，不自动记录。正在等待可读取的游戏路径与客户端版本。", "capture.validation.waiting_identity"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "仅验证，不自动记录。无法从安装路径判断区服。请在设置里手动指定区服（国服 / 繁中服 / 国际服）后重试。", "capture.validation.waiting_region"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "仅验证，不自动记录。设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。", "capture.validation.waiting_region_mismatch"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "仅验证，不自动记录。游戏已有连接，请退出并重新启动游戏，验证将自动继续。", "capture.validation.waiting_restart_connected"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "仅验证，不自动记录。正在等待所选游戏重新启动。若游戏已启动仍未继续，请停止验证，重新检测并选择窗口。", "capture.validation.waiting_restart_selected"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "仅验证，不自动记录。请先停止验证，在总览或捕获诊断页选择游戏窗口后再开始。", "capture.validation.waiting_selection"), .args = ""},
@@ -484,6 +485,7 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "该记录已经处于删除状态。", "mutation.already_deleted"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "时长不能为负数。", "mutation.duration_negative"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "进入副本的时间不能晚于结束时间。", "mutation.entered_after_ended"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "匹配时间不能晚于结束时间。", "mutation.matched_after_ended"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "匹配时间不能晚于进入副本的时间。", "mutation.matched_after_entered"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "未做任何修改，不会写入修订记录。", "mutation.no_changes"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "该记录并未被删除，无需恢复。", "mutation.not_deleted"), .args = ""},
@@ -497,13 +499,20 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "这条修订是程序为未完结的记录自动写下的。撤销它会让记录回到无法统计、也无法确认的状态，因此不能撤销；如果判断有误，请直接更正这条记录。", "mutation.undo.system_settlement"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "修订记录包含无法还原的字段，已拒绝撤销以免部分还原。", "mutation.undo.unrestorable_field"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "结果为「未知」的自动记录必须填写结束时间：没有结束时间的未知结果会被当作仍在进行的记录，既不计入统计，也不会出现在待复核中。请填写结束时间，或选择实际结果。", "mutation.unknown_needs_end"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "有不止一份游戏版本支持文件对应这个版本，软件不会从中任选一份。", "profile.unavailable.ambiguous"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "还不知道游戏的版本号。", "profile.unavailable.build_unknown"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "读取游戏版本支持文件时出错。", "profile.unavailable.failed"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "还没有适用于这个游戏版本的支持文件。", "profile.unavailable.no_match"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "找到的游戏版本支持文件不能用于自动记录。", "profile.unavailable.not_usable"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "还不知道游戏属于哪个区服。", "profile.unavailable.region_unknown"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "目前还不支持这个区服的自动记录。", "profile.unavailable.region_unsupported"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "未记录心情仅适用于导入的心得。", "reflection.unrecorded_mood_import_only"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "暂时读不到本机保存的共享校准记录（可能被其他程序占用），请稍后再查找。", "sharing.check.state_unreadable"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "校准码中有无法识别的字符。请重新完整复制，不要带上其他文字。", "sharing.code.characters"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "校准码的内容有误，无法导入。请重新完整复制；若仍无法导入，请分享者重新生成校准码。", "sharing.code.content_invalid"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "校准码已损坏，无法读取。请重新完整复制一次。", "sharing.code.damaged"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "还没有校准码，请粘贴完整的校准码。", "sharing.code.empty"), .args = ""},
-    {.source = QT_TRANSLATE_NOOP3("CollectorText", "当前导随记录器无法读取这份校准码。请先更新软件，再「导入校准码」。", "sharing.code.newer_version"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "当前导随记录器无法读取这份校准码。请先更新软件，再「手动导入校准码」。", "sharing.code.newer_version"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "无法识别这份校准码。请完整复制以 MRC1. 开头的校准码。", "sharing.code.not_a_code"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "请粘贴完整的校准码。", "sharing.code.paste_whole"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "这份校准码无法识别你进入的副本，不能用于记录。请向分享者获取新的校准码，或使用「本机校准」。", "sharing.code.territory_required"), .args = ""},
@@ -514,22 +523,22 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "校准码已导入。请保持软件开启，照常申请随机任务并进出副本。通过检查后即可使用；如果提示需要同意，请在「共享校准」中点「同意，开始记录」。", "sharing.import.applied"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "校准码已导入，通过登录检查后可用。请保持软件开启并登录游戏；如果提示需要同意，请在「共享校准」中点「同意，开始记录」。启用后还会继续检查排队和进出副本。", "sharing.import.applied_at_login"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "校准码已导入，暂未查到公开发布信息。请保持软件开启，照常登录、申请随机任务并进出副本。通过检查后即可使用；如果提示需要同意，请在「共享校准」中点「同意，开始记录」。", "sharing.import.applied_unpublished"), .args = ""},
-    {.source = QT_TRANSLATE_NOOP3("CollectorText", "这次导入未完成，不能用它开始记录。导入时游戏版本或校准进度发生了变化，请重新「导入校准码」。", "sharing.import.changed"), .args = ""},
-    {.source = QT_TRANSLATE_NOOP3("CollectorText", "暂时无法检查这份校准码。请等当前的共享校准检查有结果后，再「导入校准码」。", "sharing.import.check_pending"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "这次导入未完成，不能用它开始记录。导入时游戏版本或校准进度发生了变化，请重新「手动导入校准码」。", "sharing.import.changed"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "暂时无法检查这份校准码。请等当前的共享校准检查有结果后，再「手动导入校准码」。", "sharing.import.check_pending"), .args = ""},
     //: Placeholders: {max} a number. Keep every {placeholder} exactly as written.
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "校准码太长，无法导入，最多支持 {max} 个字符。请重新复制校准码，不要带上其他文字。", "sharing.import.code_too_long"), .args = "max:number"},
-    {.source = QT_TRANSLATE_NOOP3("CollectorText", "当前没有正在进行的校准，暂时无需「导入校准码」。", "sharing.import.not_calibrating"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "当前没有正在进行的校准，暂时无需「手动导入校准码」。", "sharing.import.not_calibrating"), .args = ""},
     //: Placeholders: {reason} another sentence, already translated. Keep every {placeholder} exactly as written. reason is one of the sharing.code.* sentences.
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "校准码未导入：{reason}", "sharing.import.not_imported"), .args = "reason:text_ref"},
     //: Placeholders: {code_build} shown as it is; {current_build} shown as it is. Keep every {placeholder} exactly as written. code_build and current_build are game build strings such as 2026.10.06.0000.0000.
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "这份校准码不能用于当前游戏。它适用于游戏版本 {code_build}，你当前的版本是 {current_build}；请导入相同游戏版本的校准码，或使用「本机校准」。", "sharing.import.other_build"), .args = "code_build:text,current_build:text"},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "这份校准码不能用于当前游戏，不同区服的校准码不能通用。请导入当前区服的校准码，或使用「本机校准」。", "sharing.import.other_region"), .args = ""},
-    {.source = QT_TRANSLATE_NOOP3("CollectorText", "这份校准码不能用于当前导随记录器。请你和分享者先更新到同一版本，再「导入校准码」。", "sharing.import.other_template"), .args = ""},
-    {.source = QT_TRANSLATE_NOOP3("CollectorText", "这份校准码未通过检查，已停用。请改用其他校准码；如需重新尝试，先点「清空校准进度」，再「导入校准码」。", "sharing.import.rejected"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "这份校准码不能用于当前导随记录器。请你和分享者先更新到同一版本，再「手动导入校准码」。", "sharing.import.other_template"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "这份校准码未通过检查，已停用。请改用其他校准码；如需重新尝试，先点「清空校准进度」，再「手动导入校准码」。", "sharing.import.rejected"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "这份共享校准已被撤回，不能继续用于记录。请向分享者获取新校准码，或使用「本机校准」。", "sharing.import.revoked"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "暂时读不到本机保存的共享校准记录（可能被其他程序占用），请稍后再导入。", "sharing.import.state_unreadable"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "这份校准码暂时无法使用。请更新导随记录器，或请分享者重新生成校准码。", "sharing.import.unbuildable"), .args = ""},
-    {.source = QT_TRANSLATE_NOOP3("CollectorText", "当前游戏版本已选择只用「本机校准」，暂时不能「导入校准码」。如需使用共享校准，请先点「清空校准进度」，再「导入校准码」。", "sharing.import.user_rejected"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "当前游戏版本已选择只用「本机校准」，暂时不能「手动导入校准码」。如需使用共享校准，请先点「清空校准进度」，再「手动导入校准码」。", "sharing.import.user_rejected"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "本机校准的档案暂时不能使用、读不出来或已被改动，无法生成校准码。", "sharing.share_code.local_unusable"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "当前没有正在使用的协议档案，没有可以分享的校准。", "sharing.share_code.no_profile"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "当前使用的是随包档案，不是本机校准出来的，不需要分享。", "sharing.share_code.not_local"), .args = ""},
@@ -585,7 +594,8 @@ const CatalogueEntry kEntries[] = {
     //: Placeholders: {path} shown as it is. Keep every {placeholder} exactly as written.
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "无法打开数据库，本软件无法启动。读写该文件时出错。请先把数据库文件复制一份保存到别处，再排查问题。数据库文件：{path}", "startup.db_open_io"), .args = "path:text"},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "无法建立 Collector 单实例锁，详情见本机日志。", "startup.lock_failed"), .args = ""},
-    {.source = QT_TRANSLATE_NOOP3("CollectorText", "无法写入日志目录，采集服务未启动。请检查 --log-dir 指向的位置是否存在、是否是文件、以及当前用户是否有写入权限。", "startup.log_dir_unwritable"), .args = ""},
+    //: Placeholders: {path} shown as it is. Keep every {placeholder} exactly as written. {path} is the folder the diagnostic logs are written to.
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "无法在日志文件夹中写入文件，采集服务无法启动。可能是磁盘空间已满、当前用户没有写入权限，或该位置已有一个同名的文件。日志文件夹：{path}", "startup.log_dir_unwritable"), .args = "path:text"},
     //: Placeholders: {path} shown as it is. Keep every {placeholder} exactly as written.
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "数据库迁移失败，已整体回滚，本软件无法启动。请先把数据库文件复制一份保存到别处，再排查问题。数据库文件：{path}", "startup.migration_failed"), .args = "path:text"},
     //: The same refusal for a database with no file behind it.
@@ -597,6 +607,8 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "无法读取当前用户 SID，命名管道 ACL 无法设置。", "startup.pipe_acl_sid_unknown"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "本机的通信管道已被另一个 Windows 账户（或以管理员身份运行）的程序占用，本软件不会连接它，采集服务因此无法启动。请先结束那个程序（例如在另一个账户中退出本软件）后重试。", "startup.pipe_other_account"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "无法读取当前用户的 SID，命名管道名称无法确定。", "startup.pipe_sid_unknown"), .args = ""},
+    //: Placeholders: {path} shown as it is. Keep every {placeholder} exactly as written. backups is the folder's name on disk; keep it as it is.
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "升级数据库前要先在数据库旁的 backups 文件夹里保存一份完整副本，这份副本没有保存成功（可能是磁盘空间不足、该文件夹不可写，或副本未通过完整性校验）。数据库没有升级，本软件无法启动。请先把数据库文件复制一份保存到别处，再检查磁盘空间。数据库文件：{path}", "startup.pre_upgrade_copy_failed"), .args = "path:text"},
     //: Placeholders: {path} shown as it is. Keep every {placeholder} exactly as written.
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "数据库的结构版本高于本程序支持的版本，本软件无法启动。请先把数据库文件复制一份保存到别处，再升级本软件。数据库文件：{path}", "startup.schema_too_new"), .args = "path:text"},
     //: The same refusal for a database with no file behind it.
@@ -620,7 +632,7 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "下载长时间没有进展或耗时过长，已经停止；请检查网络连接后重试，或点击「在浏览器中下载」。", "update.download.timeout"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "无法与下载服务器建立安全连接；请检查系统时间和网络环境后重试，或点击「在浏览器中下载」。", "update.download.tls_failed"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "安装程序的大小超出了合理范围，为安全起见已停止下载；请点击「在浏览器中下载」。", "update.download.too_large"), .args = ""},
-    {.source = QT_TRANSLATE_NOOP3("CollectorText", "下载过程中网络连接中断，安装程序不完整，已将其删除；请重试，或点击「在浏览器中下载」。", "update.download.transport_failed"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "下载未能完成：连接中途断开，或出现了意外错误，不完整的文件不会保留；请重试，或点击「在浏览器中下载」。", "update.download.transport_failed"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "更新检查已在设置中关闭，因此下载已停止，已下载的安装程序也不再提供；如需更新，请先在「设置 · 通用」中重新开启更新检查，再点「重试」。", "update.download.withdrawn"), .args = ""},
 };
 

@@ -7,10 +7,15 @@ Rectangle {
     id: root
 
     property string text: ""
+    // A pure view of the owner's state, like ToggleSwitch: the chip never flips
+    // itself, since assigning to `checked` from inside would destroy the
+    // caller's binding for good (review L3-1).
     property bool checked: false
     // A chip that only removes a filter (e.g. the duty drill-down) shows a ×.
     property bool removable: false
 
+    /// Emitted with the value the user asked for. The owner stores it; the
+    /// binding on checked brings it back.
     signal toggled(bool checked)
     // Emitted instead of toggled when the chip is removable.
     signal removed()
@@ -46,8 +51,7 @@ Rectangle {
                 root.removed()
                 return
             }
-            root.checked = !root.checked
-            root.toggled(root.checked)
+            root.toggled(!root.checked)
         }
     }
 }

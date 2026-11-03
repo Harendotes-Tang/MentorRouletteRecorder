@@ -60,7 +60,10 @@ void ReflectionLibraryController::setFilter(const QVariantMap &filter)
     const QString text = filter.value(QStringLiteral("text")).toString().trimmed().left(200);
     if (!text.isEmpty()) {
         next.insert(QStringLiteral("text"), text);
-        next.insert(QStringLiteral("reflection_text"), text);
+        // The page may name the body's words itself: a mood's label on screen
+        // stands for the stored word (re-review RV6-3).
+        const QString body = filter.value(QStringLiteral("reflection_text")).toString().trimmed().left(200);
+        next.insert(QStringLiteral("reflection_text"), body.isEmpty() ? text : body);
     }
     for (const QString &key : {QStringLiteral("job_id"), QStringLiteral("duty_category"),
                                QStringLiteral("name_exact")}) {

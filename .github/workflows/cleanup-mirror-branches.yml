@@ -16,8 +16,9 @@ on:
 permissions:
   contents: read
 
-# Shared with the repository mirror and the scheduled release catch-up; a release-event run
-# holds a per-tag lock and only pushes refs that exist on GitHub (mirror-release.yml).
+# Shared with the repository mirror only. Every run of mirror-release.yml, release event or
+# catch-up, holds the separate gitcode-release- lock and only pushes refs that exist on GitHub,
+# so it may overlap this cleanup.
 concurrency:
   group: gitcode-mirror-${{ github.repository }}
   cancel-in-progress: false

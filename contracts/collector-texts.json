@@ -165,6 +165,7 @@
     "import.request.mapping_too_wide": "列映射超过 200 列。",
     "mutation.matched_after_entered": "匹配时间不能晚于进入副本的时间。",
     "mutation.entered_after_ended": "进入副本的时间不能晚于结束时间。",
+    "mutation.matched_after_ended": "匹配时间不能晚于结束时间。",
     "mutation.no_changes": "未做任何修改，不会写入修订记录。",
     "ipc.internal_error": "内部错误，详情见本机诊断日志。",
     "ipc.already_subscribed": "该连接已订阅实时事件。请复用现有订阅，或断开后重新连接。",
@@ -250,7 +251,7 @@
     "update.download.timeout": "下载长时间没有进展或耗时过长，已经停止；请检查网络连接后重试，或点击「在浏览器中下载」。",
     "update.download.dns_or_connect": "无法连接到下载服务器；请检查网络连接后重试，或点击「在浏览器中下载」。",
     "update.download.tls_failed": "无法与下载服务器建立安全连接；请检查系统时间和网络环境后重试，或点击「在浏览器中下载」。",
-    "update.download.transport_failed": "下载过程中网络连接中断，安装程序不完整，已将其删除；请重试，或点击「在浏览器中下载」。",
+    "update.download.transport_failed": "下载未能完成：连接中途断开，或出现了意外错误，不完整的文件不会保留；请重试，或点击「在浏览器中下载」。",
     "update.download.checksum_unavailable": "无法读取官方发布的安装程序校验值，因此没有下载安装程序；请稍后重试，或点击「在浏览器中下载」。",
     "update.download.checksum_mismatch": "下载的安装程序与官方发布的校验值不一致，已将其删除；请重试，或点击「在浏览器中下载」。",
     "update.download.disk_failed": "无法在本机保存安装程序；请确认磁盘空间充足、数据文件夹可以写入后重试，或点击「在浏览器中下载」。",
@@ -379,6 +380,7 @@
     "calibration.provisional.pop_found": "导随记录照常进行。已找到匹配弹窗，请核对下面的时间线，再点「核对并启用」；之后会记入匹配成功的时间。",
     "calibration.provisional.job_and_pop": "导随记录照常进行。请核对下面的时间线，再点「核对并启用」；之后的新记录会带上职业，检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。",
     "calibration.provisional.job_only": "导随记录照常进行。仅靠排队和进本核对时，记入的是排队时间；取消排队不会产生记录。请核对下面的时间线，再点「核对并启用」；之后的新记录会自动带上职业。",
+    "calibration.provisional.job_only_popup": "导随记录照常进行。检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。请核对下面的时间线，再点「核对并启用」；之后的新记录会自动带上职业。",
     "calibration.provisional.pop_only": "导随记录照常进行。请核对下面的时间线，再点「核对并启用」；之后检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。",
     "calibration.not_ready": "这次校准还不能启用，暂时没有可核对的时间线。请继续按校准提示操作。",
     "capture.hint.midstream": "已连接游戏，但一直读不到有效数据，可能漏掉了连接开始时的信息。可在方便时登出到标题画面再重新登录（不用关闭游戏），让软件尝试捕获新连接。若仍无记录，请导出诊断报告。",
@@ -431,7 +433,8 @@
     },
     "capture.game.path_denied": "没有权限读取游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录。",
     "capture.game.path_unknown": "无法确定游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录。",
-    "capture.game.region_override_mismatch": "设置中手动指定的区服与安装路径推断出的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除区服覆盖。",
+    "capture.game.region_override_mismatch": "设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致，因此暂不进行任何自动记录。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。",
+    "capture.game.region_override_applied": "这个客户端的安装路径表明的区服与设置中为它手动指定的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除手动指定的区服。",
     "capture.profile.none": "仓库中没有任何协议档案。为避免记错，本版本不会解析任何报文，也不会自动写入任何记录，只能手工补录。",
     "status.recovered_runs": {
       "zh": "启动时恢复了 {count} 条未完结记录，请在「待复核」中确认。",
@@ -473,6 +476,7 @@
     "capture.validation.waiting_restart_connected": "仅验证，不自动记录。游戏已有连接，请退出并重新启动游戏，验证将自动继续。",
     "capture.validation.waiting_connection_check": "仅验证，不自动记录。无法确认游戏连接状态，正在等待系统查询恢复。",
     "capture.validation.waiting_region": "仅验证，不自动记录。无法从安装路径判断区服。请在设置里手动指定区服（国服 / 繁中服 / 国际服）后重试。",
+    "capture.validation.waiting_region_mismatch": "仅验证，不自动记录。设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。",
     "capture.validation.marker_invalid": {
       "zh": "标记只能为 {markers}。",
       "args": {
@@ -493,27 +497,17 @@
     "capture.validation.npcap_unavailable": "Npcap 不可用，请安装官方 Npcap 并启用兼容模式后重试。",
     "capture.validation.marker_not_recording": "仅在验证录制期间可以添加标记。",
     "capture.validation.marker_queue_full": "标记队列或会话标记总数已满，请等待已接收标记写入。",
-    "capture.profile.unavailable": {
-      "zh": "协议档案不可用，暂时不会自动记录：{reason}",
-      "args": {
-        "reason": "text"
-      },
-      "note": "{reason} is the profile directory's English explanation, for example: no profile matches this region and build."
-    },
-    "calibration.write_failed": {
-      "zh": "无法写出本机校准档案：{error}",
-      "args": {
-        "error": "text"
-      },
-      "note": "{error} is the operating system's explanation."
-    },
-    "calibration.written_not_selected": {
-      "zh": "本机校准档案已写出，但档案目录没有选中它：{reason}",
-      "args": {
-        "reason": "text"
-      },
-      "note": "{reason} is the profile directory's English explanation."
-    },
+    "profile.unavailable.build_unknown": "还不知道游戏的版本号。",
+    "profile.unavailable.region_unknown": "还不知道游戏属于哪个区服。",
+    "profile.unavailable.ambiguous": "有不止一份游戏版本支持文件对应这个版本，软件不会从中任选一份。",
+    "profile.unavailable.no_match": "还没有适用于这个游戏版本的支持文件。",
+    "profile.unavailable.region_unsupported": "目前还不支持这个区服的自动记录。",
+    "profile.unavailable.not_usable": "找到的游戏版本支持文件不能用于自动记录。",
+    "profile.unavailable.failed": "读取游戏版本支持文件时出错。",
+    "calibration.write_failed.busy": "无法写出本机校准档案：文件正被其他程序占用，或系统拒绝了写入（例如安全软件正在检查它）。请稍后再点「核对并启用」。",
+    "calibration.write_failed.disk": "无法写出本机校准档案：写入磁盘时出错。请确认磁盘空间充足，然后再点「核对并启用」。",
+    "calibration.write_failed.refused": "这次的校准结果没有通过软件的自检，因此没有写出档案。请点「清空校准进度」重新校准。",
+    "calibration.written_not_selected": "本机校准档案已写出，但软件没有选用它，暂时还不会按它自动记录。",
     "capture.settings.stop_before_validation": "请先停止捕获，再开启候选档案验证。",
     "calibration.rejected": "有事件被标为不对，这次校准作废；再打一把随机任务后会重新核对。",
     "calibration.build_unknown": "客户端版本未知，无法写出档案。",
@@ -625,9 +619,22 @@
       "zh": "历史迁移脚本的校验和与记录不符，数据库可能已被篡改，本软件无法启动。请先把数据库文件复制一份保存到别处，再排查问题。",
       "note": "The same refusal for a database with no file behind it."
     },
+    "startup.pre_upgrade_copy_failed": {
+      "zh": "升级数据库前要先在数据库旁的 backups 文件夹里保存一份完整副本，这份副本没有保存成功（可能是磁盘空间不足、该文件夹不可写，或副本未通过完整性校验）。数据库没有升级，本软件无法启动。请先把数据库文件复制一份保存到别处，再检查磁盘空间。数据库文件：{path}",
+      "args": {
+        "path": "text"
+      },
+      "note": "backups is the folder's name on disk; keep it as it is."
+    },
     "startup.pipe_sid_unknown": "无法读取当前用户的 SID，命名管道名称无法确定。",
     "startup.pipe_acl_sid_unknown": "无法读取当前用户 SID，命名管道 ACL 无法设置。",
-    "startup.log_dir_unwritable": "无法写入日志目录，采集服务未启动。请检查 --log-dir 指向的位置是否存在、是否是文件、以及当前用户是否有写入权限。",
+    "startup.log_dir_unwritable": {
+      "zh": "无法在日志文件夹中写入文件，采集服务无法启动。可能是磁盘空间已满、当前用户没有写入权限，或该位置已有一个同名的文件。日志文件夹：{path}",
+      "args": {
+        "path": "text"
+      },
+      "note": "{path} is the folder the diagnostic logs are written to."
+    },
     "startup.pipe_other_account": "本机的通信管道已被另一个 Windows 账户（或以管理员身份运行）的程序占用，本软件不会连接它，采集服务因此无法启动。请先结束那个程序（例如在另一个账户中退出本软件）后重试。",
     "startup.collector_unresponsive": {
       "zh": "本机已有一个 Collector 占用着通信管道，但它没有响应，无法复用。请在任务管理器中结束 MentorRecorder.Collector 后重试；它的进程号记录在日志目录下的 {file}。",
@@ -644,7 +651,7 @@
     "sharing.code.empty": "还没有校准码，请粘贴完整的校准码。",
     "sharing.code.too_long": "校准码太长，无法导入。请重新复制完整的校准码，不要带上其他文字。",
     "sharing.code.not_a_code": "无法识别这份校准码。请完整复制以 MRC1. 开头的校准码。",
-    "sharing.code.newer_version": "当前导随记录器无法读取这份校准码。请先更新软件，再「导入校准码」。",
+    "sharing.code.newer_version": "当前导随记录器无法读取这份校准码。请先更新软件，再「手动导入校准码」。",
     "sharing.code.characters": "校准码中有无法识别的字符。请重新完整复制，不要带上其他文字。",
     "sharing.code.truncated": "校准码不完整，可能复制时少了一截；请重新完整复制一次。",
     "sharing.code.damaged": "校准码已损坏，无法读取。请重新完整复制一次。",
@@ -653,17 +660,17 @@
     "sharing.code.territory_required": "这份校准码无法识别你进入的副本，不能用于记录。请向分享者获取新的校准码，或使用「本机校准」。",
     "sharing.code.unusable": "这份校准码暂时无法使用。请重新完整复制，或使用「本机校准」。",
     "sharing.import.unbuildable": "这份校准码暂时无法使用。请更新导随记录器，或请分享者重新生成校准码。",
-    "sharing.import.changed": "这次导入未完成，不能用它开始记录。导入时游戏版本或校准进度发生了变化，请重新「导入校准码」。",
+    "sharing.import.changed": "这次导入未完成，不能用它开始记录。导入时游戏版本或校准进度发生了变化，请重新「手动导入校准码」。",
     "sharing.import.applied_unpublished": "校准码已导入，暂未查到公开发布信息。请保持软件开启，照常登录、申请随机任务并进出副本。通过检查后即可使用；如果提示需要同意，请在「共享校准」中点「同意，开始记录」。",
     "sharing.import.applied_at_login": "校准码已导入，通过登录检查后可用。请保持软件开启并登录游戏；如果提示需要同意，请在「共享校准」中点「同意，开始记录」。启用后还会继续检查排队和进出副本。",
     "sharing.import.applied": "校准码已导入。请保持软件开启，照常申请随机任务并进出副本。通过检查后即可使用；如果提示需要同意，请在「共享校准」中点「同意，开始记录」。",
-    "sharing.import.not_calibrating": "当前没有正在进行的校准，暂时无需「导入校准码」。",
+    "sharing.import.not_calibrating": "当前没有正在进行的校准，暂时无需「手动导入校准码」。",
     "sharing.import.other_region": "这份校准码不能用于当前游戏，不同区服的校准码不能通用。请导入当前区服的校准码，或使用「本机校准」。",
-    "sharing.import.other_template": "这份校准码不能用于当前导随记录器。请你和分享者先更新到同一版本，再「导入校准码」。",
-    "sharing.import.rejected": "这份校准码未通过检查，已停用。请改用其他校准码；如需重新尝试，先点「清空校准进度」，再「导入校准码」。",
+    "sharing.import.other_template": "这份校准码不能用于当前导随记录器。请你和分享者先更新到同一版本，再「手动导入校准码」。",
+    "sharing.import.rejected": "这份校准码未通过检查，已停用。请改用其他校准码；如需重新尝试，先点「清空校准进度」，再「手动导入校准码」。",
     "sharing.import.revoked": "这份共享校准已被撤回，不能继续用于记录。请向分享者获取新校准码，或使用「本机校准」。",
-    "sharing.import.user_rejected": "当前游戏版本已选择只用「本机校准」，暂时不能「导入校准码」。如需使用共享校准，请先点「清空校准进度」，再「导入校准码」。",
-    "sharing.import.check_pending": "暂时无法检查这份校准码。请等当前的共享校准检查有结果后，再「导入校准码」。",
+    "sharing.import.user_rejected": "当前游戏版本已选择只用「本机校准」，暂时不能「手动导入校准码」。如需使用共享校准，请先点「清空校准进度」，再「手动导入校准码」。",
+    "sharing.import.check_pending": "暂时无法检查这份校准码。请等当前的共享校准检查有结果后，再「手动导入校准码」。",
     "sharing.import.state_unreadable": "暂时读不到本机保存的共享校准记录（可能被其他程序占用），请稍后再导入。",
     "sharing.check.state_unreadable": "暂时读不到本机保存的共享校准记录（可能被其他程序占用），请稍后再查找。",
     "sharing.code.paste_whole": "请粘贴完整的校准码。",

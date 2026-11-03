@@ -137,10 +137,12 @@
     "loop's, ssl's) and ssl.get_server_certificate, and NET-009 adds Qt.createComponent and",
     "QQmlComponent::loadUrl with a remote address. Matching import",
     "statements and calls, not names, keeps the tests quiet that fake a download (a fake",
-    "function, mock.patch of a name in a string). It allows exactly one file, by exact path:",
+    "function, mock.patch of a name in a string). It allows exactly two files, by exact path:",
     "tools/duty-data-generator/generate.py, the dev-time generator that downloads the duty",
-    "tables from two public sources (XIVAPI and the thewakingsands datamining CSV) and the only",
-    "Python file that opens a connection. The shared-calibration tools need no allowance: their",
+    "tables and game names from XIVAPI and from the thewakingsands datamining CSVs (the cn and",
+    "the tc repository) and pins those CSVs to a commit through GitHub's commits API, and",
+    "tools/release-mirror/sync_release.py, the CI step that mirrors a GitHub release to GitCode;",
+    "no other Python file opens a connection. The shared-calibration tools need no allowance: their",
     "Python only reads saved gh output from files; the gh calls that reach GitHub are in the",
     "shell scripts and workflows beside them.",
     "",
@@ -156,7 +158,29 @@
     "entry has its own pattern and its own allowances, so the shared-calibration",
     "client may name its CDN hosts but not the speech host, the online-speech",
     "client the speech host but not the CDN hosts, and the update-check client the",
-    "content host but neither the CDN hosts nor the speech host."
+    "content host but neither the CDN hosts nor the speech host.",
+    "",
+    "Audit 2026-11-03. N2-1: PowerShell, batch, workflow scripts and Inno Setup Pascal resolve type,",
+    "member and COM names in any letter case, so INJ-007, INJ-008, INJ-009, NET-001, NET-002, NET-003,",
+    "NET-006, NET-008 and AUT-001 carry 'ignore_case_extensions' (.bat .cmd .isl .iss .ps1 .psm1 .yaml",
+    ".yml): in those file types a case-insensitive copy of the pattern is matched; C#, C++ and Python",
+    "keep the case as written (Python's Popen.kill() is lower case by design). INJ-008's C# property-",
+    "pattern alternative stays case-sensitive with (?-i:...), so a YAML 'modules:' key is not a module",
+    "table. N2-2: NET-009/launchers reads compiled code, the installer and MSBuild files and refuses",
+    "curl, wget, bitsadmin and certutil -urlcache as the program literal of a process launcher, and a",
+    "download command in an MSBuild <Exec Command=...>; NET-009/downloads adds CMake's file(DOWNLOAD|",
+    "UPLOAD), FetchContent and ExternalProject_Add and MSBuild's DownloadFile. N2-5: a Toolhelp heap",
+    "snapshot and Get-Process -IncludeUserName (INJ-008) and Debug-Process (INJ-007). N2-6: the",
+    "PowerShell cmdlets that ping, resolve, connect or mail (NET-008) and gallery downloads",
+    "(Install-/Save-Module, -Package, -PSResource; NET-009/downloads). N2-8: an allow_markers entry may",
+    "say \"in_comment\": true; its marker then lifts the hit only inside a comment on its line, so the",
+    "two doc-comment pins (ProcessImagePath.cs, CommandLineOptions.cs) cannot be moved onto code.",
+    "",
+    "Re-review RV5 (audit 2026-11-03). RV5-1: DEU-001..004 and CAP-001, CAP-003, CAP-004 and CAP-005",
+    "fold letter case in the same script and installer types ('$True', 'deucalionclient',",
+    "'sendpacket'), and CAP-003 also reads PowerShell's [NetworkMonitorType]::RawSocket. RV5-3:",
+    "NET-009/launchers also refuses cmd / powershell / pwsh (and Inno Setup's {cmd}) as the program",
+    "when the same line then hands it /c, -c or -Command and a download command."
   ],
   "version": 6,
   "allow_marker": "BOUNDARY-ALLOW",
@@ -236,12 +260,14 @@
     {
       "file": "src/Collector/Capture/ProcessImagePath.cs",
       "rule": "INJ-008",
-      "match": ".MainModule"
+      "match": ".MainModule",
+      "in_comment": true
     },
     {
       "file": "src/Collector/CommandLineOptions.cs",
       "rule": "INJ-009",
-      "match": ".StartTime"
+      "match": ".StartTime",
+      "in_comment": true
     },
     {
       "file": "src/Collector/Storage/SqliteDatabase.cs",
@@ -349,18 +375,38 @@
     {
       "id": "INJ-007",
       "category": "process-injection",
-      "pattern": "\\bOpenProcess\\b|\\b(?:Nt|Zw)OpenProcess\\b|\\bDebugActiveProcess\\b|\\bEnterDebugMode\\b|\\bGetProcessHandleFromHwnd\\b|\\b(?:Nt|Zw)GetNextProcess\\b|\\bOpenThread\\b|\\b(?:Nt|Zw)OpenThread\\b|(?i:\\b(?:win32|cim)_process\\b)",
-      "message": "禁止打开游戏进程或其线程的句柄，或为此取得调试特权（OpenProcess、OpenThread、按窗口取进程句柄的 GetProcessHandleFromHwnd、逐个打开进程的 NtGetNextProcess、DebugActiveProcess、Process.EnterDebugMode，以及 WMI 的 Win32_Process / CIM_Process：其提供程序会打开所列的每个进程，读取映像路径与命令行）；只允许不打开任何进程句柄的查询：内核进程表快照（进程编号、映像名、创建时间）与单个进程的映像路径查询、系统 TCP 表、系统路由表，以及桌面端点选游戏窗口时读取前台窗口所属的进程编号。只有两个打包预算测试按精确路径放行：它们只以 SYNCHRONIZE 权限等待自己启动的夹具子进程 / opening a handle to another process or one of its threads, or taking the debug privilege to do so (OpenProcess, OpenThread, GetProcessHandleFromHwnd, which opens one from a window, NtGetNextProcess, which opens one process after another, DebugActiveProcess, Process.EnterDebugMode, and the WMI classes Win32_Process / CIM_Process, whose provider opens every process it lists to read its image path and command line), is forbidden; only queries that open no process handle are allowed: the kernel process-table snapshot (ids, image names, creation times) and its per-process image-path lookup, the system TCP table, the system routing table, and the Desktop reading the foreground window's process id while the player picks the game window. Only the two packaging budget tests are allowed, by exact path: each waits, with SYNCHRONIZE access only, on a child its own fixture started",
+      "pattern": "\\bOpenProcess\\b|\\b(?:Nt|Zw)OpenProcess\\b|\\bDebugActiveProcess\\b|\\bEnterDebugMode\\b|\\bGetProcessHandleFromHwnd\\b|\\b(?:Nt|Zw)GetNextProcess\\b|\\bOpenThread\\b|\\b(?:Nt|Zw)OpenThread\\b|(?i:\\b(?:win32|cim)_process\\b)|(?i:\\bDebug-Process\\b)",
+      "message": "禁止打开游戏进程或其线程的句柄，或为此取得调试特权（OpenProcess、OpenThread、按窗口取进程句柄的 GetProcessHandleFromHwnd、逐个打开进程的 NtGetNextProcess、DebugActiveProcess、附加调试器的 PowerShell Debug-Process、Process.EnterDebugMode，以及 WMI 的 Win32_Process / CIM_Process：其提供程序会打开所列的每个进程，读取映像路径与命令行）；只允许不打开任何进程句柄的查询：内核进程表快照（进程编号、映像名、创建时间）与单个进程的映像路径查询、系统 TCP 表、系统路由表，以及桌面端点选游戏窗口时读取前台窗口所属的进程编号。只有两个打包预算测试按精确路径放行：它们只以 SYNCHRONIZE 权限等待自己启动的夹具子进程 / opening a handle to another process or one of its threads, or taking the debug privilege to do so (OpenProcess, OpenThread, GetProcessHandleFromHwnd, which opens one from a window, NtGetNextProcess, which opens one process after another, DebugActiveProcess, PowerShell's Debug-Process, which attaches a debugger, Process.EnterDebugMode, and the WMI classes Win32_Process / CIM_Process, whose provider opens every process it lists to read its image path and command line), is forbidden; only queries that open no process handle are allowed: the kernel process-table snapshot (ids, image names, creation times) and its per-process image-path lookup, the system TCP table, the system routing table, and the Desktop reading the foreground window's process id while the player picks the game window. Only the two packaging budget tests are allowed, by exact path: each waits, with SYNCHRONIZE access only, on a child its own fixture started",
       "allow_paths": [
         "tools/package-verification/test_package_runtime_budget.py",
         "tools/package-verification/test_static_analysis_budget.py"
+      ],
+      "ignore_case_extensions": [
+        ".bat",
+        ".cmd",
+        ".isl",
+        ".iss",
+        ".ps1",
+        ".psm1",
+        ".yaml",
+        ".yml"
       ]
     },
     {
       "id": "INJ-008",
       "category": "process-injection",
-      "pattern": "(?:\\.|\\s+\\.\\s*)@?(?:MainModule|Modules)\\b|(?:^|(?<=[{,]))\\s*@?(?:MainModule|Modules)\\s*[.:]|(?i:^(?=[^|\\r\\n]*\\|)[^#\\r\\n]*?(?:(?<![\\w$.-])(?:get-process|gps|ps)(?![\\w-])|\\bGetProcesses\\w*)[^#\\r\\n]*?\\|\\s*(?:(?:select|foreach|sort|where|group|measure)(?:-object)?|format-(?:table|list)|f[tl]|%|\\?)(?![\\w-])[^#|;{}\\r\\n]*?(?<![\\w$.-])(?:MainModule|Modules)(?![\\w-]))|(?i:^[^#\\r\\n]*?(?<![\\w$.-])(?:get-process|gps|ps)(?![\\w-])[^#|;\\r\\n]*?\\s-(?:m\\w*|fi\\w*|fv)(?![\\w-]))|\\bModule32(?:First|Next)W?\\b|\\bTH32CS_SNAP(?:MODULE(?:32)?|ALL)\\b",
-      "message": "禁止使用 Process.MainModule / Process.Modules（含属性模式与 PowerShell 管道中的写法，以及 Get-Process 的 -Module / -FileVersionInfo）与 Toolhelp 模块快照（TH32CS_SNAPMODULE / TH32CS_SNAPALL、Module32First / Module32Next）：它们都会打开目标进程并读取其模块表，请改用内核进程表（ProcessImagePath） / Process.MainModule and Process.Modules are forbidden, property patterns, PowerShell pipelines and Get-Process -Module / -FileVersionInfo included, and so is a Toolhelp module snapshot (TH32CS_SNAPMODULE / TH32CS_SNAPALL, Module32First / Module32Next): each opens the target and reads its module table; use the kernel process table (ProcessImagePath) instead"
+      "pattern": "(?:\\.|\\s+\\.\\s*)@?(?:MainModule|Modules)\\b|(?-i:(?:^|(?<=[{,]))\\s*@?(?:MainModule|Modules)\\s*[.:])|(?i:^(?=[^|\\r\\n]*\\|)[^#\\r\\n]*?(?:(?<![\\w$.-])(?:get-process|gps|ps)(?![\\w-])|\\bGetProcesses\\w*)[^#\\r\\n]*?\\|\\s*(?:(?:select|foreach|sort|where|group|measure)(?:-object)?|format-(?:table|list)|f[tl]|%|\\?)(?![\\w-])[^#|;{}\\r\\n]*?(?<![\\w$.-])(?:MainModule|Modules)(?![\\w-]))|(?i:^[^#\\r\\n]*?(?<![\\w$.-])(?:get-process|gps|ps)(?![\\w-])[^#|;\\r\\n]*?\\s-(?:m\\w*|fi\\w*|fv|inc\\w*)(?![\\w-]))|\\bModule32(?:First|Next)W?\\b|\\bTH32CS_SNAP(?:MODULE(?:32)?|ALL|HEAPLIST)\\b|\\bHeap32(?:ListFirst|ListNext|First|Next)\\b",
+      "message": "禁止使用 Process.MainModule / Process.Modules（含属性模式与 PowerShell 管道中的写法，以及 Get-Process 的 -Module / -FileVersionInfo / -IncludeUserName）与 Toolhelp 模块或堆快照（TH32CS_SNAPMODULE / TH32CS_SNAPALL / TH32CS_SNAPHEAPLIST、Module32First / Module32Next、Heap32ListFirst / Heap32First 及其 Next）：它们都会打开目标进程并读取其模块表、堆或令牌，请改用内核进程表（ProcessImagePath） / Process.MainModule and Process.Modules are forbidden, property patterns, PowerShell pipelines and Get-Process -Module / -FileVersionInfo / -IncludeUserName included, and so is a Toolhelp module or heap snapshot (TH32CS_SNAPMODULE / TH32CS_SNAPALL / TH32CS_SNAPHEAPLIST, Module32First / Module32Next, Heap32ListFirst / Heap32First and their Next): each opens the target and reads its module table, heaps or token; use the kernel process table (ProcessImagePath) instead",
+      "ignore_case_extensions": [
+        ".bat",
+        ".cmd",
+        ".isl",
+        ".iss",
+        ".ps1",
+        ".psm1",
+        ".yaml",
+        ".yml"
+      ]
     },
     {
       "id": "INJ-009",
@@ -377,37 +423,97 @@
         "scripts/ocr-runtime.ps1",
         "scripts/static-analysis.ps1",
         "scripts/verify.ps1"
+      ],
+      "ignore_case_extensions": [
+        ".bat",
+        ".cmd",
+        ".isl",
+        ".iss",
+        ".ps1",
+        ".psm1",
+        ".yaml",
+        ".yml"
       ]
     },
     {
       "id": "DEU-001",
       "category": "injected-hook",
       "pattern": "UseDeucalion\\s*(=|:)\\s*(true|1|\\$true)",
-      "message": "Deucalion 注入式钩子必须保持关闭 / the Deucalion injected hook must stay disabled"
+      "message": "Deucalion 注入式钩子必须保持关闭 / the Deucalion injected hook must stay disabled",
+      "ignore_case_extensions": [
+        ".bat",
+        ".cmd",
+        ".isl",
+        ".iss",
+        ".ps1",
+        ".psm1",
+        ".yaml",
+        ".yml"
+      ]
     },
     {
       "id": "DEU-002",
       "category": "injected-hook",
       "pattern": "\\bDeucalion(Client|Injector|Message|Broadcast)\\w*\\b",
-      "message": "禁止使用 Deucalion 注入式抓包 API / the Deucalion injected-capture API must not be used"
+      "message": "禁止使用 Deucalion 注入式抓包 API / the Deucalion injected-capture API must not be used",
+      "ignore_case_extensions": [
+        ".bat",
+        ".cmd",
+        ".isl",
+        ".iss",
+        ".ps1",
+        ".psm1",
+        ".yaml",
+        ".yml"
+      ]
     },
     {
       "id": "DEU-003",
       "category": "injected-hook",
       "pattern": "deucalion[-_][0-9A-Za-z.]*\\.dll",
-      "message": "禁止引用/分发 Deucalion 注入载荷 / the Deucalion injection payload must not be referenced or shipped"
+      "message": "禁止引用/分发 Deucalion 注入载荷 / the Deucalion injection payload must not be referenced or shipped",
+      "ignore_case_extensions": [
+        ".bat",
+        ".cmd",
+        ".isl",
+        ".iss",
+        ".ps1",
+        ".psm1",
+        ".yaml",
+        ".yml"
+      ]
     },
     {
       "id": "DEU-004",
       "category": "injected-hook",
       "pattern": "\\bInjectLibrary\\b|\\bValidateLibraryChecksum\\b",
-      "message": "禁止调用注入载荷的加载入口 / the injection payload's loader entry points must not be called"
+      "message": "禁止调用注入载荷的加载入口 / the injection payload's loader entry points must not be called",
+      "ignore_case_extensions": [
+        ".bat",
+        ".cmd",
+        ".isl",
+        ".iss",
+        ".ps1",
+        ".psm1",
+        ".yaml",
+        ".yml"
+      ]
     },
     {
       "id": "CAP-001",
       "category": "packet-send",
       "pattern": "\\bpcap_sendpacket\\b|\\bpcap_sendqueue_\\w+|\\bSendPacket\\b|\\bSendQueue\\b|\\bPacketSendPackets?\\b",
-      "message": "禁止发送数据包（含 libpcap 的发送队列、Packet.dll 的 PacketSendPacket 与 SharpPcap 的 SendPacket / SendQueue） / sending packets is forbidden, including libpcap's send queue, Packet.dll's PacketSendPacket and SharpPcap's SendPacket / SendQueue (capture is strictly passive)"
+      "message": "禁止发送数据包（含 libpcap 的发送队列、Packet.dll 的 PacketSendPacket 与 SharpPcap 的 SendPacket / SendQueue） / sending packets is forbidden, including libpcap's send queue, Packet.dll's PacketSendPacket and SharpPcap's SendPacket / SendQueue (capture is strictly passive)",
+      "ignore_case_extensions": [
+        ".bat",
+        ".cmd",
+        ".isl",
+        ".iss",
+        ".ps1",
+        ".psm1",
+        ".yaml",
+        ".yml"
+      ]
     },
     {
       "id": "CAP-002",
@@ -418,20 +524,50 @@
     {
       "id": "CAP-003",
       "category": "capture-mode",
-      "pattern": "NetworkMonitorType\\s*\\.\\s*RawSocket",
-      "message": "只允许 Npcap/WinPCap 抓包模式，禁止 RawSocket 回退 / only the Npcap (WinPCap) monitor type is allowed, no raw-socket fallback"
+      "pattern": "NetworkMonitorType\\s*(?:\\]\\s*::|\\.)\\s*RawSocket",
+      "message": "只允许 Npcap/WinPCap 抓包模式，禁止 RawSocket 回退 / only the Npcap (WinPCap) monitor type is allowed, no raw-socket fallback",
+      "ignore_case_extensions": [
+        ".bat",
+        ".cmd",
+        ".isl",
+        ".iss",
+        ".ps1",
+        ".psm1",
+        ".yaml",
+        ".yml"
+      ]
     },
     {
       "id": "CAP-004",
       "category": "capture-mode",
       "pattern": "\\bRawCaptureSocket\\b",
-      "message": "只允许 Npcap/WinPCap 抓包，禁止使用 raw socket 抓包实现 / only the Npcap (WinPCap) capture socket is allowed, never the raw-socket one"
+      "message": "只允许 Npcap/WinPCap 抓包，禁止使用 raw socket 抓包实现 / only the Npcap (WinPCap) capture socket is allowed, never the raw-socket one",
+      "ignore_case_extensions": [
+        ".bat",
+        ".cmd",
+        ".isl",
+        ".iss",
+        ".ps1",
+        ".psm1",
+        ".yaml",
+        ".yml"
+      ]
     },
     {
       "id": "CAP-005",
       "category": "packet-persistence",
       "pattern": "\\bpcap_dump\\w*\\b|\\bpcap_breakloop\\b|\\bCaptureFileWriterDevice\\b",
-      "message": "禁止把原始报文写入抓包文件（含 SharpPcap 的 CaptureFileWriterDevice） / dumping raw packets to a capture file is forbidden, including SharpPcap's CaptureFileWriterDevice"
+      "message": "禁止把原始报文写入抓包文件（含 SharpPcap 的 CaptureFileWriterDevice） / dumping raw packets to a capture file is forbidden, including SharpPcap's CaptureFileWriterDevice",
+      "ignore_case_extensions": [
+        ".bat",
+        ".cmd",
+        ".isl",
+        ".iss",
+        ".ps1",
+        ".psm1",
+        ".yaml",
+        ".yml"
+      ]
     },
     {
       "id": "CAP-006",
@@ -443,19 +579,49 @@
       "id": "NET-001",
       "category": "network-listener",
       "pattern": "\\w*HttpListener\\b",
-      "message": "禁止 HTTP 监听器，进程间通信只允许命名管道 / no HTTP listener; IPC is Named Pipe only"
+      "message": "禁止 HTTP 监听器，进程间通信只允许命名管道 / no HTTP listener; IPC is Named Pipe only",
+      "ignore_case_extensions": [
+        ".bat",
+        ".cmd",
+        ".isl",
+        ".iss",
+        ".ps1",
+        ".psm1",
+        ".yaml",
+        ".yml"
+      ]
     },
     {
       "id": "NET-002",
       "category": "network-listener",
       "pattern": "\\w*TcpListener\\b",
-      "message": "禁止 TCP 监听器，进程间通信只允许命名管道 / no TCP listener; IPC is Named Pipe only"
+      "message": "禁止 TCP 监听器，进程间通信只允许命名管道 / no TCP listener; IPC is Named Pipe only",
+      "ignore_case_extensions": [
+        ".bat",
+        ".cmd",
+        ".isl",
+        ".iss",
+        ".ps1",
+        ".psm1",
+        ".yaml",
+        ".yml"
+      ]
     },
     {
       "id": "NET-003",
       "category": "network-listener",
       "pattern": "WebSocket\\w*",
-      "message": "禁止 WebSocket，进程间通信只允许命名管道 / no WebSocket; IPC is Named Pipe only"
+      "message": "禁止 WebSocket，进程间通信只允许命名管道 / no WebSocket; IPC is Named Pipe only",
+      "ignore_case_extensions": [
+        ".bat",
+        ".cmd",
+        ".isl",
+        ".iss",
+        ".ps1",
+        ".psm1",
+        ".yaml",
+        ".yml"
+      ]
     },
     {
       "id": "NET-004",
@@ -478,6 +644,16 @@
         "src/Collector/Protocol/Sharing/SharedCalibrationClient.cs",
         "src/Collector/Speech/OnlineSpeechClient.cs",
         "src/Collector/Update/UpdateCheckClient.cs"
+      ],
+      "ignore_case_extensions": [
+        ".bat",
+        ".cmd",
+        ".isl",
+        ".iss",
+        ".ps1",
+        ".psm1",
+        ".yaml",
+        ".yml"
       ]
     },
     {
@@ -556,15 +732,25 @@
     {
       "id": "NET-008",
       "category": "network-socket",
-      "pattern": "\\bTcpClient\\b|\\bUdpClient\\b|\\bSocket\\b|\\bQTcpSocket\\b|\\bQUdpSocket\\b|\\bQSslSocket\\b|\\bQAbstractSocket\\b|\\bQSctpSocket\\b|\\bQDnsLookup\\b|\\bQHostInfo\\s*::\\s*(?:lookupHost|fromName)\\b|\\bDns\\s*(?:\\]\\s*::|\\.)\\s*\\w+|\\bnew\\s+(?:[\\w.]*\\.)?Ping\\s*\\(|\\bPing\\s+\\w+\\s*=\\s*new\\b|\\bSendPingAsync\\b|\\bSmtpClient\\b|\\bQuic(?:Connection|Listener|Stream)\\b|\\bWSA(?:Startup|Socket[AW]?|Connect\\w*)\\b|\\bsocket\\s*\\(\\s*(?:socket\\.)?(?:AF|PF)_|\\b(?:getaddrinfo|gethostbyname|GetAddrInfo(?:Ex)?[AW]?)\\b",
-      "message": "禁止直接使用网络：TCP / UDP / QUIC 套接字（TcpClient、UdpClient、Socket、Winsock、Qt 套接字类）、域名解析（Dns、QHostInfo、getaddrinfo）、Ping 与 SmtpClient；既不得外连也不得监听；进程间通信只用命名管道，三个出站客户端也只经由 HTTP 客户端 / no direct network use: TCP, UDP or QUIC sockets (TcpClient, UdpClient, Socket, Winsock, the Qt socket classes), name resolution (Dns, QHostInfo, getaddrinfo), Ping and SmtpClient, neither connecting nor listening; IPC is Named Pipe only and the three outbound clients go through the HTTP client only"
+      "pattern": "\\bTcpClient\\b|\\bUdpClient\\b|\\bSocket\\b|\\bQTcpSocket\\b|\\bQUdpSocket\\b|\\bQSslSocket\\b|\\bQAbstractSocket\\b|\\bQSctpSocket\\b|\\bQDnsLookup\\b|\\bQHostInfo\\s*::\\s*(?:lookupHost|fromName)\\b|\\bDns\\s*(?:\\]\\s*::|\\.)\\s*\\w+|\\bnew\\s+(?:[\\w.]*\\.)?Ping\\s*\\(|\\bPing\\s+\\w+\\s*=\\s*new\\b|\\bSendPingAsync\\b|\\bSmtpClient\\b|\\bQuic(?:Connection|Listener|Stream)\\b|\\bWSA(?:Startup|Socket[AW]?|Connect\\w*)\\b|\\bsocket\\s*\\(\\s*(?:socket\\.)?(?:AF|PF)_|\\b(?:getaddrinfo|gethostbyname|GetAddrInfo(?:Ex)?[AW]?)\\b|\\b(?:Test-NetConnection|Test-Connection|Resolve-DnsName|Send-MailMessage)\\b",
+      "message": "禁止直接使用网络：TCP / UDP / QUIC 套接字（TcpClient、UdpClient、Socket、Winsock、Qt 套接字类）、域名解析（Dns、QHostInfo、getaddrinfo）、Ping 与 SmtpClient，以及 PowerShell 中做同样事情的 Test-NetConnection、Test-Connection、Resolve-DnsName、Send-MailMessage；既不得外连也不得监听；进程间通信只用命名管道，三个出站客户端也只经由 HTTP 客户端 / no direct network use: TCP, UDP or QUIC sockets (TcpClient, UdpClient, Socket, Winsock, the Qt socket classes), name resolution (Dns, QHostInfo, getaddrinfo), Ping and SmtpClient, and the PowerShell cmdlets that do the same (Test-NetConnection, Test-Connection, Resolve-DnsName, Send-MailMessage), neither connecting nor listening; IPC is Named Pipe only and the three outbound clients go through the HTTP client only",
+      "ignore_case_extensions": [
+        ".bat",
+        ".cmd",
+        ".isl",
+        ".iss",
+        ".ps1",
+        ".psm1",
+        ".yaml",
+        ".yml"
+      ]
     },
     {
       "id": "NET-009",
       "variant": "downloads",
       "category": "outbound-network",
-      "pattern": "(?i:\\bInvoke-WebRequest\\b|\\bInvoke-RestMethod\\b|\\bStart-BitsTransfer\\b)|(?i:\\b(?:DownloadTemporaryFile\\w*|CreateDownloadPage)\\s*\\()|\\bXMLHttpRequest\\b|\\bsource\\s*:\\s*[\"']https?://|(?i:\\b(?:MSXML2\\.(?:Server)?XMLHTTP|Microsoft\\.XMLHTTP)\\b)|\\b(?:load|loadUrl|setSource)\\s*\\(\\s*(?:QUrl\\s*\\(\\s*)?(?:QStringLiteral\\s*\\(\\s*)?u?\"https?://",
-      "message": "禁止脚本、安装程序、QML 与桌面端自行下载或请求网络资源（Invoke-WebRequest、Invoke-RestMethod、BITS、Inno Setup 下载页（不分大小写）、XMLHttpRequest 与 MSXML2.XMLHTTP、远程 source、把远程地址交给 QML 引擎的 load / loadUrl / setSource）；唯一例外是安装程序在缺少 Npcap 时从 npcap.com 下载固定版本、校验 SHA-256 的官方安装程序，创建下载页的那一行带有登记在案的行内标记（Npcap 的免费许可证不允许随包分发，见 README.md 与 THIRD_PARTY_NOTICES.md） / scripts, the installer, QML and the Desktop must not download or request network resources themselves (Invoke-WebRequest, Invoke-RestMethod, BITS, Inno Setup download pages in any letter case, XMLHttpRequest and MSXML2.XMLHTTP, a remote source, load / loadUrl / setSource handing the QML engine a remote address); the one exception is the installer downloading the official Npcap installer (pinned version, SHA-256 checked) from npcap.com when Npcap is missing, whose one line creating the download page carries a pinned marker, because Npcap's free licence forbids bundling it (see README.md and THIRD_PARTY_NOTICES.md)"
+      "pattern": "(?i:\\bInvoke-WebRequest\\b|\\bInvoke-RestMethod\\b|\\bStart-BitsTransfer\\b)|(?i:\\b(?:DownloadTemporaryFile\\w*|CreateDownloadPage)\\s*\\()|\\bXMLHttpRequest\\b|\\bsource\\s*:\\s*[\"']https?://|(?i:\\b(?:MSXML2\\.(?:Server)?XMLHTTP|Microsoft\\.XMLHTTP)\\b)|\\b(?:load|loadUrl|setSource)\\s*\\(\\s*(?:QUrl\\s*\\(\\s*)?(?:QStringLiteral\\s*\\(\\s*)?u?\"https?://|(?i:\\b(?:Install|Save)-(?:Module|Package|PSResource)\\b)|(?i:\\bfile\\s*\\(\\s*(?:DOWNLOAD|UPLOAD)\\b|\\b(?:FetchContent_(?:Declare|Populate)|ExternalProject_Add)\\b|<\\s*DownloadFile\\b)",
+      "message": "禁止脚本、安装程序、QML 与桌面端自行下载或请求网络资源（Invoke-WebRequest、Invoke-RestMethod、BITS、Inno Setup 下载页（不分大小写）、XMLHttpRequest 与 MSXML2.XMLHTTP、远程 source、把远程地址交给 QML 引擎的 load / loadUrl / setSource、从 PowerShell 库下载的 Install-/Save-Module、-Package、-PSResource，以及 CMake 的 file(DOWNLOAD|UPLOAD)、FetchContent_Declare / FetchContent_Populate、ExternalProject_Add 与 MSBuild 的 DownloadFile 任务）；唯一例外是安装程序在缺少 Npcap 时从 npcap.com 下载固定版本、校验 SHA-256 的官方安装程序，创建下载页的那一行带有登记在案的行内标记（Npcap 的免费许可证不允许随包分发，见 README.md 与 THIRD_PARTY_NOTICES.md） / scripts, the installer, QML and the Desktop must not download or request network resources themselves (Invoke-WebRequest, Invoke-RestMethod, BITS, Inno Setup download pages in any letter case, XMLHttpRequest and MSXML2.XMLHTTP, a remote source, load / loadUrl / setSource handing the QML engine a remote address, Install-/Save-Module, -Package and -PSResource downloading from a PowerShell gallery, and CMake's file(DOWNLOAD|UPLOAD), FetchContent_Declare / FetchContent_Populate, ExternalProject_Add and MSBuild's DownloadFile task); the one exception is the installer downloading the official Npcap installer (pinned version, SHA-256 checked) from npcap.com when Npcap is missing, whose one line creating the download page carries a pinned marker, because Npcap's free licence forbids bundling it (see README.md and THIRD_PARTY_NOTICES.md)"
     },
     {
       "id": "NET-009",
@@ -596,6 +782,25 @@
     },
     {
       "id": "NET-009",
+      "variant": "launchers",
+      "category": "outbound-network",
+      "pattern": "(?:\\bProcessStartInfo\\s*\\(|\\b(?:Start|start|startDetached|setProgram|runTool|CreateProcess[AW]?|_?w?system|_?w?popen)\\s*\\(|\\bFileName\\s*=(?!=)|(?i:\\bExec(?:AsOriginalUser)?\\s*\\(|\\bShellExec(?:AsOriginalUser)?\\s*\\(\\s*'[^'\\r\\n]*'\\s*,|^\\s*Filename\\s*:))[^\\\"'\\r\\n;)]*[\\\"'](?:[^\\\"'\\r\\n]*[\\\\/])?(?i:(?:curl|wget|bitsadmin)(?:\\.exe)?(?=[\\\"'\\s])|certutil(?:\\.exe)?(?=[\\\"'\\s])[^\\r\\n]*[-/]urlcache\\b|(?:(?:cmd|powershell|pwsh)(?:\\.exe)?|\\{cmd\\})[\\\"'][^\\r\\n]*?(?<![\\w-])(?:/c|-c(?:ommand)?)(?![\\w-])[^\\r\\n]*?(?<![\\w.$-])(?:(?:curl|wget|iwr|irm|bitsadmin|invoke-webrequest|invoke-restmethod|start-bitstransfer)(?:\\.exe)?(?![\\w.-])|certutil(?:\\.exe)?\\b[^\\r\\n]*[-/]urlcache\\b))|(?i:<\\s*Exec\\b[^>\\r\\n]*?\\bCommand\\s*=\\s*[\\\"'][^\\\"'\\r\\n]*?(?<![\\w.-])(?:(?:curl|wget|iwr|irm|bitsadmin)(?:\\.exe)?(?![\\w.-])|certutil(?:\\.exe)?\\b[^\\\"'\\r\\n]*[-/]urlcache\\b))",
+      "message": "编译型代码、安装程序与 MSBuild 不得启动下载命令：交给进程启动接口（ProcessStartInfo(、Process.Start(、QProcess 的 start / startDetached / setProgram、runTool、CreateProcess、system、popen、赋给 FileName，以及 Inno Setup 的 Exec / ShellExec 与 [Run] 段的 Filename:）作为所启动程序的字符串字面量是 curl、wget、bitsadmin（可带路径与 .exe）或带 -urlcache 的 certutil，或者程序是 cmd / powershell / pwsh（含 Inno Setup 的 {cmd}）而同一行随后以 /c、-c 或 -Command 交给它下载命令（curl、wget、iwr、irm、bitsadmin、Invoke-WebRequest、Invoke-RestMethod、Start-BitsTransfer、certutil -urlcache），以及 MSBuild 的 <Exec Command=\"…\"> 中出现这些命令或 iwr / irm / compiled code, the installer and MSBuild must not start a download command: curl, wget or bitsadmin (with or without a path and .exe), or certutil with -urlcache, as the program literal handed to a process launcher, or cmd / powershell / pwsh (Inno Setup's {cmd} included) as that program with /c, -c or -Command followed on the same line by a download command (curl, wget, iwr, irm, bitsadmin, Invoke-WebRequest, Invoke-RestMethod, Start-BitsTransfer, certutil -urlcache) (ProcessStartInfo(, Process.Start(, QProcess's start / startDetached / setProgram, runTool, CreateProcess, system, popen, an assignment to FileName, and Inno Setup's Exec / ShellExec and a [Run] entry's Filename:), or any of these commands or iwr / irm in an MSBuild <Exec Command=\"...\">",
+      "only_extensions": [
+        ".cc",
+        ".cpp",
+        ".cs",
+        ".csproj",
+        ".cxx",
+        ".h",
+        ".hpp",
+        ".iss",
+        ".props",
+        ".targets"
+      ]
+    },
+    {
+      "id": "NET-009",
       "variant": "xml-loads",
       "category": "outbound-network",
       "pattern": "(?i:(?:\\]\\s*::|\\.)\\s*Load\\s*\\(\\s*(?:\\w+\\s*:\\s*)?[@$]*[\"']+https?://|\\bXmlReader\\s*(?:\\]\\s*::|\\.)\\s*Create\\s*\\(\\s*(?:\\w+\\s*:\\s*)?[@$]*[\"']+https?://|\\b(?:XmlTextReader|XPathDocument)\\b[^\"'\\r\\n]*[\"']+https?://)",
@@ -618,7 +823,17 @@
       "id": "AUT-001",
       "category": "game-automation",
       "pattern": "\\bSendInput\\b|\\bkeybd_event\\b|\\bmouse_event\\b|\\bSendKeys\\b|\\bPostMessage[AW]?\\b|\\bPostThreadMessage[AW]?\\b|\\bSendMessage(?:[AW]|Timeout[AW]?|Callback[AW]?)?\\b|\\bSendNotifyMessage[AW]?\\b|\\bCloseMainWindow\\b|(?:\\.|\\s+\\.\\s*)@?Responding\\b|(?:^|(?<=[{,]))\\s*@?Responding\\s*[.:=]",
-      "message": "禁止任何形式的游戏自动化/模拟输入（含 SendKeys、向窗口投递消息的 PostMessage / SendMessage，向主窗口发送关闭消息的 Process.CloseMainWindow，以及经 SendMessageTimeout 向主窗口发送 WM_NULL 的 Process.Responding） / synthetic input and game automation are forbidden, including SendKeys, posting window messages with PostMessage / SendMessage, Process.CloseMainWindow, which posts a close message to a process's main window, and Process.Responding, which sends it WM_NULL through SendMessageTimeout"
+      "message": "禁止任何形式的游戏自动化/模拟输入（含 SendKeys、向窗口投递消息的 PostMessage / SendMessage，向主窗口发送关闭消息的 Process.CloseMainWindow，以及经 SendMessageTimeout 向主窗口发送 WM_NULL 的 Process.Responding） / synthetic input and game automation are forbidden, including SendKeys, posting window messages with PostMessage / SendMessage, Process.CloseMainWindow, which posts a close message to a process's main window, and Process.Responding, which sends it WM_NULL through SendMessageTimeout",
+      "ignore_case_extensions": [
+        ".bat",
+        ".cmd",
+        ".isl",
+        ".iss",
+        ".ps1",
+        ".psm1",
+        ".yaml",
+        ".yml"
+      ]
     }
   ],
   "scan_files": [

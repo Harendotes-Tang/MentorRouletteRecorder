@@ -71,7 +71,11 @@ InsetBox {
 
         Text {
             Layout.fillWidth: true
-            text: root.reflection.text || ""
+            // A note that is only a mood's word - stored in its source text when a
+            // mood was chosen without writing - reads in the interface language
+            // (re-review RV4-5).
+            readonly property string moodWord: ["good", "ok", "bad"][["顺利", "一般", "糟心"].indexOf(root.reflection.text)] || ""
+            text: moodWord ? Theme.moodLabel(moodWord) : (root.reflection.text || "")
             // Stored/imported text is literal: AutoText can fetch HTML image URLs.
             textFormat: Text.PlainText
             color: Theme.textPrimary

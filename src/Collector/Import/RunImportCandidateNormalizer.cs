@@ -27,10 +27,22 @@ namespace MentorRecorder.Collector.Import;
 /// when an audited catalog preference newly resolves the name. Read only for duplicate/purge
 /// checks; supplied content ids never produce these compatibility identities.
 /// </param>
+/// <param name="RegionalFingerprints">
+/// The fingerprints this row would have had under every other region (CN, GLOBAL, TC and UNKNOWN except its own): the
+/// identity a preview gives it once a region is picked for it, and the one 1.8.0 gave a region-less row, which schema 13
+/// made a CN record - the latter also with the job its 职业 text named before the Traditional job names. Read only to offer
+/// an earlier import of the row as a possible duplicate, never to merge it (audit 2026-11-03 H2-4, re-review RV2-2/RV2-3).
+/// </param>
+/// <param name="PreAliasKeyFingerprint">
+/// <paramref name="PreAliasFingerprint"/> under the row's own-content source key when that one is under the earlier
+/// whole-file key: 1.8.0 stored its imports under the own-content key, and a 职业 text that only a Traditional job name
+/// resolves now named no job then (re-review 2026-11-03 RV2-3); null otherwise.
+/// </param>
 internal sealed record ImportCandidate(int RowNumber, JsonObject Input, MentorRun? Run,
     bool HasStableId, IReadOnlySet<string> ComparedFields, IReadOnlyList<ImportRowText> Errors, IReadOnlyList<ImportRowText> Warnings,
     string? LegacyFingerprint = null, string? PreAliasFingerprint = null,
-    IReadOnlyList<string>? PreviousDutyNameFingerprints = null);
+    IReadOnlyList<string>? PreviousDutyNameFingerprints = null, IReadOnlyList<string>? RegionalFingerprints = null,
+    string? PreAliasKeyFingerprint = null);
 
 /// <summary>
 /// One sentence of a preview row (<c>rows[].errors</c> / <c>rows[].warnings</c>): the Simplified Chinese the row has
@@ -136,12 +148,16 @@ internal static class RunImportCandidateNormalizer
                 jobBeforeAliases = JobBeforeAliases(jobName);
             }
             var dutyName = Text(input, "duty_name", 500);
-            var region = ParseEnum(input, "region", Region.Unknown);
+            var region = ParseRegion(input);
+            DutyInfo? named = null;
             if (contentId is null && dutyName is not null)
             {
-                contentId = DutyCatalog.Default.FindByName(dutyName, region)?.ContentId;
+                named = DutyCatalog.Default.FindByName(dutyName, region);
+                contentId = named?.ContentId;
             }
-            var duty = DutyCatalog.Default.Find(contentId is null ? null : (int)contentId, region);
+            // The facts of the row the name resolved to, not of whichever region's row a second lookup
+            // by id meets (audit 2026-11-03 H2-3).
+            var duty = named ?? DutyCatalog.Default.Find(contentId is null ? null : (int)contentId, region);
             var suppliedTerritoryId = Int(input, "territory_id");
             var suppliedDutyCategory = Text(input, "duty_category", 200);
             var job = JobCatalog.Default.Find(jobId is null ? null : (int)jobId);
@@ -202,8 +218,10 @@ internal static class RunImportCandidateNormalizer
                 warnings.AddRange(sourceWarnings.OfType<JsonValue>().Select(value => ImportRowText.Verbatim(value.ToString())).Take(20));
             var signature = Facts(run);
             var key = Text(input, "source_key", 500);
-            var fingerprint = Hash(string.Join('\n', sourceKind, recordSourceName ?? string.Empty,
-                stable ? id : key ?? string.Empty, signature));
+            var identity = string.Join('\n', sourceKind, recordSourceName ?? string.Empty, stable ? id : key ?? string.Empty);
+            var fingerprint = Hash(identity + '\n' + signature);
+            var regionalFingerprints = RegionalFingerprints(run, dutyName, hasExplicitContentId, suppliedTerritoryId,
+                suppliedDutyCategory, identity, jobBeforeAliases);
             var legacyFingerprint = stable || legacySourceKey is null ? null
                 : Hash(string.Join('\n', sourceKind, recordSourceName ?? string.Empty, legacySourceKey, signature));
             // job_id is one of the hashed facts: a 职业 text 1.7.3 resolved otherwise gave the row other facts then (RV5-3).
@@ -211,6 +229,8 @@ internal static class RunImportCandidateNormalizer
                 : Hash(string.Join('\n', sourceKind, recordSourceName ?? string.Empty,
                     stable ? id : legacySourceKey ?? key ?? string.Empty,
                     Facts(run with { JobId = jobBeforeAliases is null ? null : (int)jobBeforeAliases })));
+            var preAliasKeyFingerprint = jobBeforeAliases == jobId || stable || legacySourceKey is null ? null
+                : Hash(identity + '\n' + Facts(run with { JobId = jobBeforeAliases is null ? null : (int)jobBeforeAliases }));
             var previousDutyNameFingerprints = !hasExplicitContentId && duty?.PreferredForNameMatching == true
                 ? PreviousDutyNameFingerprints(input, run, stable, key, legacySourceKey, jobBeforeAliases)
                 : Array.Empty<string>();
@@ -245,7 +265,7 @@ internal static class RunImportCandidateNormalizer
                 if (moodText is not null) input["reflection_mood"] = ReflectionText.Format(mood);
             }
             return new ImportCandidate(row.RowNumber, input, run, stable, comparedFields, errors, warnings, legacyFingerprint,
-                preAliasFingerprint, previousDutyNameFingerprints);
+                preAliasFingerprint, previousDutyNameFingerprints, regionalFingerprints, preAliasKeyFingerprint);
         }
         catch (Exception failure) when (failure is CollectorException or FormatException or ArgumentException or InvalidOperationException or TimeZoneNotFoundException or InvalidTimeZoneException)
         {
@@ -257,6 +277,33 @@ internal static class RunImportCandidateNormalizer
     }
 
     public static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+
+    /// <summary>
+    /// The fingerprints of <see cref="ImportCandidate.RegionalFingerprints"/>: the duty identity and its catalogue facts
+    /// resolved as that region's preview resolves them, everything else as it is.
+    /// </summary>
+    private static IReadOnlyList<string> RegionalFingerprints(MentorRun run, string? dutyName, bool hasExplicitContentId,
+        int? suppliedTerritoryId, string? suppliedDutyCategory, string identity, long? jobBeforeAliases)
+    {
+        var fingerprints = new List<string>(4);
+        foreach (var other in new[] { Region.Cn, Region.Global, Region.Tc, Region.Unknown }.Where(region => region != run.Region))
+        {
+            var byName = hasExplicitContentId || dutyName is null ? null : DutyCatalog.Default.FindByName(dutyName, other);
+            var contentId = hasExplicitContentId ? run.ContentId : byName?.ContentId;
+            var duty = byName ?? DutyCatalog.Default.Find(contentId, other);
+            var regional = run with
+            {
+                Region = other, ContentId = contentId,
+                TerritoryId = suppliedTerritoryId ?? duty?.TerritoryId,
+                DutyName = dutyName ?? duty?.LocalizedName,
+                DutyCategory = suppliedDutyCategory ?? duty?.DutyCategory,
+            };
+            fingerprints.Add(Hash(identity + '\n' + Facts(regional)));
+            if (other == Region.Unknown && jobBeforeAliases != run.JobId)
+                fingerprints.Add(Hash(identity + '\n' + Facts(regional with { JobId = jobBeforeAliases is null ? null : (int)jobBeforeAliases })));
+        }
+        return fingerprints;
+    }
 
     /// <summary>
     /// Reproduces the pre-preference name scan solely for matching earlier import provenance.
@@ -421,6 +468,18 @@ internal static class RunImportCandidateNormalizer
         Text(input, key, 64) is { } text
             ? EnumWire<T>.TryParse(text, out var parsed) ? parsed : throw Bad(CollectorTexts.ImportRowFieldValueUnsupported(key))
             : fallback;
+    /// <summary>
+    /// The record's region: the template's 区服 words (国服 / 繁中服 / 国际服, also in Traditional spelling) or the wire
+    /// tokens; a blank cell is UNKNOWN (audit 2026-11-03 H2-5).
+    /// </summary>
+    private static Region ParseRegion(JsonObject input) => Text(input, "region", 64) switch
+    {
+        "国服" or "國服" => Region.Cn,
+        "繁中服" => Region.Tc,
+        "国际服" or "國際服" => Region.Global,
+        "未知区服" or "未知區服" => Region.Unknown,
+        _ => ParseEnum(input, "region", Region.Unknown),
+    };
     private static RunResult ParseResult(JsonObject input)
     {
         var text = Text(input, "result", 64);

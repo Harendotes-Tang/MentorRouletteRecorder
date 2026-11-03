@@ -135,7 +135,16 @@
       "4": "Endwalker",
       "5": "Dawntrail"
     },
-    "note": "Only TC source rows/names/territories are used; no cross-region fallback. Client-export presence does not establish live availability or wire IDs. Raw downloads are kept outside the repository; only their SHA-256 digests are recorded here so the result stays reproducible without redistributing upstream data."
+    "note": "Only TC source rows/names/territories are used; no cross-region fallback. Client-export presence does not establish live availability or wire IDs. Raw downloads are kept outside the repository; only their SHA-256 digests are recorded here so the result stays reproducible without redistributing upstream data.",
+    "name_matching": {
+      "basis": "Content ids reviewed against XIVAPI for the CN/GLOBAL tables (NAME_MATCHING_PREFERENCES); a content id is the same duty on every service. The TC export carries no English name or MentorRoulette flag to review again, so each rule was applied offline only after the TC rows were checked: both enabled, one shared localized name, the same required level, two territories.",
+      "rules": [
+        {
+          "preferred_content_id": 944,
+          "duplicate_content_id": 69
+        }
+      ]
+    }
   },
   "sample": false,
   "duties": [
@@ -7157,7 +7166,8 @@
       "expansion": "Endwalker",
       "level": 90,
       "party_size": null,
-      "enabled": true
+      "enabled": true,
+      "preferred_for_name_matching": true
     },
     {
       "content_id": 945,

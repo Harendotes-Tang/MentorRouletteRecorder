@@ -10,6 +10,7 @@ test, no probe process runs. The same technique as test_package_build_directory.
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import shutil
@@ -142,9 +143,12 @@ function Write-Head([string]$Text) {{ Write-Host "== $Text" }}
 function Add-Failure([string]$Name, [string]$Detail) {{ Write-Host "  $Detail"; $failures.Add($Name) }}
 $failures = New-Object System.Collections.Generic.List[string]
 $StaticAnalysisScript = {ps_literal(analyzer)}
+$BuildDir = 'X:\\verify build dir'
+$env:MR_BUILD_DIR = $null
 $step = ($statements[$start..($end - 1)] | ForEach-Object {{ $_.Extent.Text }}) -join "`n"
 . ([scriptblock]::Create($step))
 Write-Host ("AFTER-STEP failures=" + ($failures -join ','))
+Write-Host ("AFTER-STEP env=" + [string]$env:MR_BUILD_DIR + "|")
 """
             path = Path(directory) / "step.ps1"
             path.write_text(script, encoding="utf-8-sig")
@@ -152,6 +156,15 @@ Write-Host ("AFTER-STEP failures=" + ($failures -join ','))
                 [self.shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                  "-File", str(path)],
                 capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+
+    def test_the_analyzer_reads_verifys_own_build_directory(self):
+        # RV5-2: static-analysis.ps1 reads only MR_BUILD_DIR. Under -Distribution with the variable
+        # unset, verify.ps1 builds in build-distribution\, so it hands the analyzer that directory
+        # for the call and leaves the caller's environment as it was.
+        completed = self.run_step('Write-Host ("ANALYZER-SAW=" + $env:MR_BUILD_DIR); exit 0')
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertIn("ANALYZER-SAW=X:\\verify build dir", completed.stdout)
+        self.assertIn("AFTER-STEP env=|", completed.stdout)
 
     def test_a_passing_analyzer_records_no_failure(self):
         # Guards the harness: the step ran and the script went on past it.
@@ -254,6 +267,85 @@ exit $summaryExit
         completed = self.run_tool_step(runner_body="param([ref]$Result)\nexit 0\n")
         self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
         self.assertNotIn(READY_LINE, completed.stdout)
+
+
+@unittest.skipUnless(os.name == "nt", "Windows verification script")
+class VerifyImportTemplateStepTests(unittest.TestCase):
+    """The import-template step of verify.ps1, run alone against a stand-in generator.
+
+    The Desktop embeds the templates under src/Desktop/resources/import-templates/, which
+    scripts/generate-import-templates.py renders; its --check mode fails when a checked-in file
+    differs from what it renders. The gate must run it, isolated, and fail when it fails.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        shell = shutil.which("pwsh")
+        if shell is None:
+            raise unittest.SkipTest("PowerShell 7 (pwsh) is required")
+        cls.shell = shell
+
+    def run_step(self, exit_code):
+        with tempfile.TemporaryDirectory(prefix="mr verify templates ") as directory:
+            record = Path(directory) / "invocation.json"
+            generator = Path(directory) / "generate-import-templates.py"
+            generator.write_text(
+                "import json, sys\n"
+                f"with open({str(record)!r}, 'w', encoding='utf-8') as handle:\n"
+                "    json.dump({'arguments': sys.argv[1:], 'isolated': sys.flags.isolated}, handle)\n"
+                f"sys.exit({exit_code})\n", encoding="utf-8")
+            script = f"""
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+[Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
+$source = [IO.File]::ReadAllText({ps_literal(VERIFY)}, [Text.Encoding]::UTF8)
+$tokens = $null; $errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors)
+if ($errors.Count) {{ throw 'Cannot parse verify.ps1' }}
+$statements = @($ast.EndBlock.Statements)
+$start = -1
+for ($i = 0; $i -lt $statements.Count; $i++) {{
+    if ($statements[$i].Extent.Text -match '^Write-Head\\s+''导入模板') {{ $start = $i; break }}
+}}
+if ($start -lt 0) {{ throw 'The import-template step of verify.ps1 was not found' }}
+$end = $start + 1
+while ($end -lt $statements.Count -and $statements[$end].Extent.Text -notmatch '^Write-Head\\s') {{ $end++ }}
+function Write-Head([string]$Text) {{ Write-Host "== $Text" }}
+function Add-Failure([string]$Name, [string]$Detail) {{ Write-Host "  $Detail"; $failures.Add($Name) }}
+$failures = New-Object System.Collections.Generic.List[string]
+$python = [pscustomobject]@{{ Source = {ps_literal(sys.executable)} }}
+$ImportTemplateGenerator = {ps_literal(generator)}
+$step = ($statements[$start..($end - 1)] | ForEach-Object {{ $_.Extent.Text }}) -join "`n"
+. ([scriptblock]::Create($step))
+Write-Host ("AFTER-STEP failures=" + ($failures -join ','))
+"""
+            path = Path(directory) / "step.ps1"
+            path.write_text(script, encoding="utf-8-sig")
+            completed = subprocess.run(
+                [self.shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                 "-File", str(path)],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+            invocation = json.loads(record.read_text(encoding="utf-8")) if record.is_file() else None
+            return completed, invocation
+
+    def test_the_gate_runs_the_generator_check_in_isolated_mode(self):
+        completed, invocation = self.run_step(0)
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual({"arguments": ["--check"], "isolated": 1}, invocation)
+        self.assertIn("AFTER-STEP failures=\n", completed.stdout + "\n")
+
+    def test_stale_templates_fail_the_gate(self):
+        completed, invocation = self.run_step(1)
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual(["--check"], invocation["arguments"])
+        self.assertIn("AFTER-STEP failures=import-templates", completed.stdout)
+
+    def test_the_checked_in_templates_are_current(self):
+        # What the gate checks, against the real generator and the real templates.
+        completed = subprocess.run(
+            [sys.executable, "-I", str(REPO / "scripts" / "generate-import-templates.py"), "--check"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+        self.assertEqual(0, completed.returncode, completed.stderr)
 
 
 if __name__ == "__main__":

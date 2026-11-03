@@ -367,6 +367,65 @@ public sealed class DutyNameResolutionTests
         }
     }
 
+    /// <summary>
+    /// Audit 2026-11-03 H2-3. A record that names no region is resolved as it was before the TC table was installed:
+    /// a content id or territory looked up for UNKNOWN falls back through CN, GLOBAL and TC in that order (never the
+    /// newest table first), and a row resolved by its name takes its duty facts from the row the name resolved to. So a
+    /// regionless row keeps the territory, and therefore the fingerprint, 1.8.0 stored for it.
+    /// </summary>
+    [Theory]
+    [InlineData(5)]
+    [InlineData(13)]
+    [InlineData(36)]
+    [InlineData(235)]
+    public void RegionlessLookupsPreferChinaOverTheNewerTcTable(int contentId)
+    {
+        var cn = DutyCatalog.Default.Find(contentId, Region.Cn)!;
+        Assert.NotEqual(cn.TerritoryId, DutyCatalog.Default.Find(contentId, Region.Tc)!.TerritoryId);
+
+        Assert.Equal(cn, DutyCatalog.Default.Find(contentId, Region.Unknown));
+        Assert.Equal(Region.Cn, DutyCatalog.Default.FindByTerritory(cn.TerritoryId, Region.Unknown)!.Region);
+        var named = Normalize(new JsonObject { ["duty_name"] = cn.LocalizedName, ["job_name"] = "骑士" }).Run!;
+        Assert.Equal(Region.Unknown, named.Region);
+        Assert.Equal(contentId, named.ContentId);
+        Assert.Equal(cn.TerritoryId, named.TerritoryId);
+        Assert.Equal(cn.DutyCategory, named.DutyCategory);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-03 H2-3: the compatibility identities made for the 阿修罗歼灭战 preference are computed for a
+    /// regionless row too - real templates from 1.8.0 and earlier had no region column - so its earlier import still
+    /// reads as a duplicate.
+    /// </summary>
+    [Fact]
+    public void RegionlessAsuraRowsStillMatchTheirImportFromBeforeThePreference()
+    {
+        using var fixture = new TestDatabase();
+        const string csv = "duty_name,job_name,source_recorded_at\n阿修罗歼灭战,骑士,2026-10-01\n";
+        var row = RunImportSourceParser.Parse("CSV", text: csv)[0];
+        var sourceKey = RunImportCandidateNormalizer.Hash(RunImportCandidateNormalizer.CanonicalValues(row.Values)) + ":1";
+        row.Values["source_key"] = sourceKey;
+        var current = RunImportCandidateNormalizer.Normalize(row, "CSV", "synthetic-upgrade", null, fixture.Clock.UtcNow);
+        Assert.Equal(944, current.Run!.ContentId);
+        Assert.Equal(Region.Unknown, current.Run.Region);
+
+        var old = current.Run with { ContentId = null, TerritoryId = null, DutyCategory = null, DutySource = null };
+        var fingerprint = RunImportCandidateNormalizer.Hash(string.Join('\n', "CSV", "synthetic-upgrade", sourceKey,
+            RunImportCandidateNormalizer.Facts(old)));
+        Assert.Contains(fingerprint, current.PreviousDutyNameFingerprints!);
+        old = old with { ImportMetadata = old.ImportMetadata! with { SourceFingerprint = fingerprint } };
+        fixture.Database.RunInTransaction(transaction =>
+        {
+            new RunRepository(fixture.Database).Insert(old, transaction);
+            new RunImportRepository(fixture.Database).Insert(old.RunId, old.ImportMetadata!, transaction);
+        });
+
+        var preview = new RunImportService(fixture.Database, fixture.Clock)
+            .PreviewSource("CSV", text: csv, sourceName: "synthetic-upgrade");
+        Assert.Equal("duplicate", preview["rows"]![0]!["status"]!.GetValue<string>());
+        Assert.Equal(old.RunId, preview["rows"]![0]!["matching_run_id"]!.GetValue<string>());
+    }
+
     private static DutyCatalog Parse(string rows) => DutyCatalog.Compose(new[] { Document("CN", "v1", rows) });
 
     private static DutyDocument Document(string region, string version, string rows) => DutyCatalog.ParseDocument(

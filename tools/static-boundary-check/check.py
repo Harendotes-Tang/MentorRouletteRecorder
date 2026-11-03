@@ -38,9 +38,20 @@ Design notes
     hatch exists for code whose purpose is to *enforce* the boundary, and for a
     file's single hit that is not the forbidden thing at all (a doc comment naming
     a format, a record's ``ExitCode``).
+    A pin may also say ``"in_comment": true``: its marker then lifts the hit only
+    when the hit lies inside a comment on its line (after ``//`` or inside ``/* */``
+    in C-family files and Inno Setup Pascal, after ``#`` in the others, or after
+    ``<!--``; an opener inside a quoted string or a closed block comment does not
+    count), so a pin written for a doc comment
+    cannot be moved onto a real member access in the same file.
 *   A rule entry with ``only_extensions`` applies to those file types only, so a
     pattern written for one language's syntax (a shell command at command
     position) is not matched against another language's prose.
+*   A rule entry with ``ignore_case_extensions`` is matched without regard to letter
+    case in those file types: PowerShell, batch files, workflow scripts and Inno
+    Setup Pascal resolve type, member and COM names case-insensitively, while C#,
+    C++ and Python (``Popen.kill()``) do not, so the pattern as written keeps its
+    case everywhere else.
 *   A rule may also name the files it does not apply to: ``allow_paths`` lists
     repository-relative, forward-slash file paths matched exactly, and
     ``allow_path_prefixes`` lists directory prefixes that must end in ``/``.
@@ -117,11 +128,22 @@ class Rule:
     # applies to: a pattern written for one language's syntax, such as a shell command at
     # command position, is not matched against prose in another.
     only_extensions: frozenset[str] = frozenset()
+    # File extensions whose language resolves names without regard to letter case (PowerShell,
+    # batch, Inno Setup Pascal): there ``folded``, a case-insensitive copy of ``regex``, is used.
+    ignore_case_extensions: frozenset[str] = frozenset()
+    folded: "re.Pattern[str] | None" = None
 
     @property
     def key(self) -> str:
         """``id`` for a rule declared once, ``id/variant`` for one of several entries."""
         return f"{self.identifier}/{self.variant}" if self.variant else self.identifier
+
+    def regex_for(self, relative: str) -> "re.Pattern[str]":
+        """The pattern to match ``relative`` with: the case-insensitive copy in a file type listed
+        in ``ignore_case_extensions``, the pattern as written everywhere else."""
+        if self.folded is not None and Path(relative).suffix.lower() in self.ignore_case_extensions:
+            return self.folded
+        return self.regex
 
     def applies_to(self, relative: str) -> bool:
         """True unless ``relative`` (repository-relative, forward slashes) is allowed."""
@@ -269,6 +291,8 @@ class Config:
     # (file, rule id, matched text) of every allow marker the repository is expected to carry, one
     # entry per marker. A marker not listed here lifts nothing and fails the run.
     pinned_markers: tuple[tuple[str, str, str], ...] = ()
+    # The pins above that say "in_comment": their markers lift a hit only inside a comment.
+    comment_pins: frozenset[tuple[str, str, str]] = frozenset()
 
 
 def load_config(rules_path: Path) -> Config:
@@ -312,6 +336,12 @@ def load_config(rules_path: Path) -> Config:
             regex = re.compile(pattern)
         except re.error as exc:
             raise RulesError(f"rule {identifier} has an invalid regex: {exc}") from exc
+        only_extensions = read_only_extensions(key, entry, include_extensions)
+        ignore_case = read_only_extensions(key, entry, include_extensions, "ignore_case_extensions")
+        unreachable = sorted(ignore_case - only_extensions) if only_extensions else []
+        if unreachable:
+            raise RulesError(f"rule {key}: ignore_case_extensions entry {unreachable[0]!r} is not "
+                             "in its only_extensions, so it could never apply")
         rules.append(
             Rule(
                 identifier=identifier,
@@ -325,7 +355,9 @@ def load_config(rules_path: Path) -> Config:
                     identifier, entry, "allow_path_prefixes", directory=True
                 ),
                 variant=variant,
-                only_extensions=read_only_extensions(key, entry, include_extensions),
+                only_extensions=only_extensions,
+                ignore_case_extensions=ignore_case,
+                folded=re.compile(pattern, re.IGNORECASE) if ignore_case else None,
             )
         )
 
@@ -359,6 +391,7 @@ def load_config(rules_path: Path) -> Config:
         # Skipped everywhere or only beside a project file: a name cannot be both.
         raise RulesError(f"{both[0]!r} is in both exclude_dir_names and exclude_output_dir_names")
 
+    pinned_markers, comment_pins = read_pinned_markers(raw, {rule.identifier for rule in rules})
     return Config(
         allow_marker=allow_marker,
         marker=marker_regex(allow_marker),
@@ -370,7 +403,8 @@ def load_config(rules_path: Path) -> Config:
         include_extensions=include_extensions,
         max_file_bytes=max_file_bytes,
         rules=tuple(rules),
-        pinned_markers=read_pinned_markers(raw, {rule.identifier for rule in rules}),
+        pinned_markers=pinned_markers,
+        comment_pins=comment_pins,
     )
 
 
@@ -392,23 +426,25 @@ def read_include_extensions(raw: dict) -> frozenset[str]:
     return frozenset(raw_extensions)
 
 
-def read_only_extensions(key: str, entry: dict, scanned: frozenset[str]) -> frozenset[str]:
-    """A rule's ``only_extensions``: absent, or a non-empty list of scanned extensions."""
-    if "only_extensions" not in entry:
+def read_only_extensions(key: str, entry: dict, scanned: frozenset[str],
+                         field: str = "only_extensions") -> frozenset[str]:
+    """A rule's ``only_extensions`` (or ``ignore_case_extensions``, named by ``field``): absent, or
+    a non-empty list of scanned extensions."""
+    if field not in entry:
         return frozenset()
-    values = entry["only_extensions"]
+    values = entry[field]
     if not isinstance(values, list) or not values:
-        raise RulesError(f"rule {key}: 'only_extensions' must be a non-empty array")
+        raise RulesError(f"rule {key}: '{field}' must be a non-empty array")
     for extension in values:
         if not isinstance(extension, str) or not _EXTENSION.match(extension):
             raise RulesError(
-                f"rule {key}: only_extensions entry {extension!r} must be a lower-case suffix "
+                f"rule {key}: {field} entry {extension!r} must be a lower-case suffix "
                 "with its leading dot"
             )
         if extension not in scanned:
             # The rule would never see such a file: an entry that cannot apply is a mistake.
             raise RulesError(
-                f"rule {key}: only_extensions entry {extension!r} is not in include_extensions"
+                f"rule {key}: {field} entry {extension!r} is not in include_extensions"
             )
     return frozenset(values)
 
@@ -464,28 +500,37 @@ def read_exclude_paths(raw: dict, scan_dirs: tuple[str, ...],
     return checked
 
 
-def read_pinned_markers(raw: dict, declared: set[str]) -> tuple[tuple[str, str, str], ...]:
-    """``allow_markers``: one {"file", "rule", "match"} object per marker the repository carries.
+def read_pinned_markers(raw: dict, declared: set[str]
+                        ) -> tuple[tuple[tuple[str, str, str], ...], frozenset[tuple[str, str, str]]]:
+    """``allow_markers``: one {"file", "rule", "match"} object per marker the repository carries,
+    and the (file, rule, match) of every pin that also says ``"in_comment": true``.
 
     ``match`` is the exact text of the one hit the marker lifts, as the rule's pattern matches it,
-    so the pin says what is allowed and not merely where.
+    so the pin says what is allowed and not merely where. ``in_comment`` (optional, a boolean)
+    says where on its line: inside a comment (audit 2026-11-03, N2-8).
     """
     values = raw.get("allow_markers", [])
     if not isinstance(values, list):
         raise RulesError("'allow_markers' must be an array of {\"file\", \"rule\", \"match\"} objects")
     pins = []
+    in_comment = set()
     for value in values:
-        if not isinstance(value, dict) or set(value) != {"file", "rule", "match"}:
-            raise RulesError(
-                f"allow_markers entry {value!r} must have exactly 'file', 'rule' and 'match'")
+        if not isinstance(value, dict) or not {"file", "rule", "match"} <= set(value) <= {
+                "file", "rule", "match", "in_comment"}:
+            raise RulesError(f"allow_markers entry {value!r} must have exactly 'file', 'rule' and "
+                             "'match', and optionally 'in_comment'")
         relative = check_relative_path("allow_markers file", value["file"], directory=False)
         if value["rule"] not in declared:
             raise RulesError(f"allow_markers entry {value!r} names a rule that is not declared")
         match = value["match"]
         if not isinstance(match, str) or not match or "\n" in match or "\r" in match:
             raise RulesError(f"allow_markers entry {value!r}: 'match' must be the text of one hit")
+        if not isinstance(value.get("in_comment", False), bool):
+            raise RulesError(f"allow_markers entry {value!r}: 'in_comment' must be true or false")
         pins.append((relative, value["rule"], match))
-    return tuple(pins)
+        if value.get("in_comment", False):
+            in_comment.add((relative, value["rule"], match))
+    return tuple(pins), frozenset(in_comment)
 
 
 def missing_as_written(root: Path, relative: str, directory: bool) -> str | None:
@@ -715,9 +760,10 @@ def scan_file(path: Path, config: Config, relative: str,
         # Every hit of a marked rule id on this line, each with the rule entry that made it.
         marked: dict[str, list[tuple[Rule, re.Match[str]]]] = {rule_id: [] for rule_id in allowed}
         for rule in rules:
+            regex = rule.regex_for(relative)
             if rule.identifier in allowed:
-                marked[rule.identifier].extend((rule, hit) for hit in rule.regex.finditer(line))
-            elif rule.regex.search(line):
+                marked[rule.identifier].extend((rule, hit) for hit in regex.finditer(line))
+            elif regex.search(line):
                 violations.append(
                     Violation(path=path, line_number=line_number, rule=rule, line=line)
                 )
@@ -725,9 +771,10 @@ def scan_file(path: Path, config: Config, relative: str,
             found = [(rule, hit.group(0)) for rule, hit in marked[rule_id]]
             if len(found) == 1:
                 found += further_hits(line, marked[rule_id][0][1],
-                                      [rule for rule in rules if rule.identifier == rule_id])
+                                      [rule for rule in rules if rule.identifier == rule_id], relative)
+            in_comment = len(found) == 1 and comment_holds(line, relative, marked[rule_id][0][1].start())
             hit = lifted_hit(config, relative, line_number, rule_id,
-                             [matched for _, matched in found], errors)
+                             [matched for _, matched in found], errors, in_comment)
             if hit is not None:
                 markers.append(AllowMarker(path, line_number, rule_id, reason, hit))
                 continue
@@ -738,7 +785,8 @@ def scan_file(path: Path, config: Config, relative: str,
     return violations, markers
 
 
-def further_hits(line: str, lifted: re.Match[str], rules: Sequence[Rule]) -> list[tuple[Rule, str]]:
+def further_hits(line: str, lifted: re.Match[str], rules: Sequence[Rule],
+                 relative: str = "") -> list[tuple[Rule, str]]:
     """Hits of ``rules`` that ``line`` still holds once its one hit ``lifted`` is set aside.
 
     A pattern anchored at the start of the line (NET-009's shell commands) yields one hit per
@@ -750,16 +798,54 @@ def further_hits(line: str, lifted: re.Match[str], rules: Sequence[Rule]) -> lis
     """
     start, end = lifted.span()
     masked = line[:start] + re.sub(r"[^\"'#]", " ", line[start:end]) + line[end:]
-    return [(rule, line[hit.start():hit.end()]) for rule in rules for hit in rule.regex.finditer(masked)]
+    return [(rule, line[hit.start():hit.end()])
+            for rule in rules for hit in rule.regex_for(relative).finditer(masked)]
+
+
+# Files whose comments open with "//" (and whose '#' is not a comment): C#, C++, QML/JavaScript,
+# and Inno Setup Pascal. Everywhere else a comment opens with '#'; "<!--" opens one in any file.
+_SLASH_COMMENT_EXTENSIONS = frozenset({".cc", ".cpp", ".cs", ".cxx", ".h", ".hpp", ".iss", ".js",
+                                       ".mjs", ".qml"})
+
+
+def comment_holds(line: str, relative: str, position: int) -> bool:
+    """True when ``position`` on ``line`` lies inside a comment: after the first comment opener
+    that is not inside a quoted string, or, in a C-family file, inside a ``/* ... */`` block. A
+    closed block is skipped whole, so a ``//`` in it (a URL) opens no line comment and the code
+    after its ``*/`` stays code (re-review RV5-4)."""
+    slash = Path(relative).suffix.lower() in _SLASH_COMMENT_EXTENSIONS
+    quote = None
+    index = 0
+    while index < min(position, len(line)):
+        char = line[index]
+        if quote is not None:
+            if char == "\\":
+                index += 2
+                continue
+            if char == quote:
+                quote = None
+        elif char in "\"'":
+            quote = char
+        elif slash and line.startswith("/*", index):
+            end = line.find("*/", index + 2)
+            if end < 0 or position < end + 2:
+                return True
+            index = end + 2
+            continue
+        elif line.startswith("<!--", index) or (line.startswith("//", index) if slash else char == "#"):
+            return True
+        index += 1
+    return False
 
 
 def lifted_hit(config: Config, relative: str, line_number: int, rule_id: str, hits: list[str],
-               errors: list[str]) -> str | None:
+               errors: list[str], in_comment: bool = False) -> str | None:
     """The one hit a pinned marker lifts on its line, or None with the reason in ``errors``.
 
     The marker lifts a hit only when it is the rule's one hit on the line and its text is the text
     a pin of this file and rule names: a second hit added to a marked line, or another one in its
-    place, is reported rather than lifted along with it.
+    place, is reported rather than lifted along with it. A pin that says ``in_comment`` lifts its
+    hit only when ``in_comment`` (the hit lies inside a comment on its line) holds too.
     """
     marker = f"{relative}:{line_number}: {config.allow_marker}({rule_id})"
     if not hits:
@@ -768,6 +854,10 @@ def lifted_hit(config: Config, relative: str, line_number: int, rule_id: str, hi
         return None
     pinned = sorted({match for file, rule, match in config.pinned_markers if (file, rule) == (relative, rule_id)})
     if len(hits) == 1 and hits[0] in pinned:
+        if (relative, rule_id, hits[0]) in config.comment_pins and not in_comment:
+            errors.append(f"{marker} lifts nothing: rules.json pins {hits[0]!r} in this file to a comment, "
+                          "and on this line it is code")
+            return None
         return hits[0]
     errors.append(f"{marker} lifts nothing: its line holds the hit(s) {hits!r}, and rules.json pins it "
                   f"to lift exactly one of {pinned!r}")

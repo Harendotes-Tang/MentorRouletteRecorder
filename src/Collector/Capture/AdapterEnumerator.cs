@@ -295,6 +295,14 @@ public sealed class AdapterEnumerator
         }
     }
 
+    /// <summary>
+    /// Whether the game holds any TCP connection, on any interface; null when the table could not
+    /// be read. False is the title screen, before the client has connected anywhere.
+    /// </summary>
+    /// <param name="processId">Game process id.</param>
+    internal bool? GameHoldsConnections(int processId) =>
+        SafeLocalAddresses(processId) is { } addresses ? addresses.Count > 0 : null;
+
     /// <summary>The game's local addresses, or null when the table could not be read.</summary>
     private IReadOnlyList<IPAddress>? SafeLocalAddresses(int processId)
     {

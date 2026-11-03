@@ -52,9 +52,10 @@
 > XLS/XLSX, native JSON, database backups, pasted tables and screenshots. Screenshot OCR runs offline;
 > imports require preview and confirmation, and conflicts preserve local records. Reflection sharing
 > saves a PNG locally without uploading it.
-> Supported client: Chinese server (国服) `2026.08.05`. The Traditional Chinese server (繁中服, `TC`) is
-> prepared as a region of its own but has no verified protocol profile yet, so it is not recorded
-> automatically; see [protocol-profiles/README.md](protocol-profiles/README.md).
+> Supported client: Chinese server (国服) `2026.08.05`. The Traditional Chinese server (繁中服, `TC`) and
+> the Global server (国际服, `GLOBAL`) are each prepared as a region of their own but have no verified
+> protocol profile yet, so they are not recorded automatically; see
+> [protocol-profiles/README.md](protocol-profiles/README.md).
 
 ## 目录
 
@@ -87,7 +88,7 @@
 - **离线截图识别**：支持 dlog 手机卡片与网页记录列表，使用随包 OCR 在本机识别，
   可对照原图修改副本、职业、时间、结果与心得；缺失的实际游戏时间保留未知。
   架构、同图测试对比及资源占用见[离线截图 OCR](#离线截图-ocr)。
-- **心得库与分享图片**：按副本、职业与记录备注搜索心得，查看记录图片附件，
+- **心得库与分享图片**：按副本、职业、记录备注与心得正文搜索心得，查看记录图片附件，
   预览并保存包含完整心得的 PNG 分享图片，文件留在本机。
 - **导出与备份**：支持导出 CSV / JSON；数据库每日自动备份，也可手动备份。
 - **语音播报（可选）**：默认使用系统语音，可在设置中更换音色或关闭；也可改用在线语音
@@ -315,13 +316,13 @@ OCR、解析器、分类器与导入控制器测试已通过。识别专项测�
 | `MentorRecorder.Desktop.exe` | C++20 / Qt 6 Quick | 界面；命名管道客户端；启动并监控 Collector |
 
 协议常量不写入代码，而是存放在可审计的**协议档案**（`protocol-profiles/`）中，每个常量均注明证据来源。
-唯一的例外是国服的通关结算：它与报文编号无关，按固定内容识别，常量写在代码中，
-证据见 [docs/protocol-profile-format.md](docs/protocol-profile-format.md) §12。
+例外是国服的通关结算与副本开始、剩余时间信号：它们与报文编号无关，按固定内容识别，常量写在代码中，
+证据见 [docs/protocol-profile-format.md](docs/protocol-profile-format.md) §12 与 §13。
 档案与客户端版本不匹配时停止记录，不写入可能错误的数据。
 
 | 区服 | 客户端版本 | 状态 |
 |---|---|---|
-| 国服 | `2026.08.05` | `VERIFIED`：已识别任务确认弹窗与区域切换两类消息；档案不含通关报文，通关结算按内容识别（见下一行） |
+| 国服 | `2026.08.05` | `VERIFIED`：档案声明四类消息，其中任务确认弹窗与区域切换两类决定记录状态，另两类（所在区域、当前职业）用于记下副本与职业；档案不含通关报文，通关结算按内容识别（见下一行） |
 | 国服 | 之后的版本 | 通过本机校准或共享校准适配，见[常见问题](#常见问题)；副本内的通关结算按内容识别，不依赖校准，已在 `2026.09.15` 的一种副本上实测 |
 | 繁中服 | — | 准备中：区服、繁中副本与随机任务目录、按区服独立的成就与筛选已就绪；无经验证的协议档案，软件不解析、不记录，见 [protocol-profiles/tc/README.md](protocol-profiles/tc/README.md) |
 | 国际服 | — | 准备中：区服、目录数据与按区服独立的成就与筛选已就绪；无经验证的协议档案，软件不解析、不记录，见 [docs/global-server-testing.md](docs/global-server-testing.md) |
@@ -391,7 +392,8 @@ OCR、解析器、分类器与导入控制器测试已通过。识别专项测�
 [protocol-profiles/global/README.md](protocol-profiles/global/README.md)。
 
 **使用加速器或 VPN 时能正常记录吗？**
-游戏流量可能不经过软件所监听的网卡。请到"捕获诊断"页重新选择网卡；仍无法读取时，关闭加速器后重启本软件。
+游戏流量可能不经过软件所监听的网卡。软件会自动寻找承载游戏流量的网络路径；仍读不到时，请在"捕获诊断"页点"重新检测网卡"；
+仍无法读取时，关闭加速器后重启本软件。
 
 **数据保存在哪里？**
 `%LOCALAPPDATA%\MentorRecorder\`（或环境变量 `MR_DATA_DIR` 指定的目录）。记录保存在 `mentor_recorder.db`，
@@ -406,9 +408,13 @@ OCR、解析器、分类器与导入控制器测试已通过。识别专项测�
 
 ## 从源码构建
 
-依赖：.NET 8 SDK、Qt 6.11.2（MinGW 13）、CMake ≥ 3.24、Ninja、PowerShell 7，以及验证脚本使用的 Python 3.11。
+依赖：.NET 8 SDK、Qt 6.11.2（MinGW 13）、CMake ≥ 3.24、Ninja、PowerShell 7，以及验证脚本使用的 Python 3.11
+和 [`tools/requirements-ci.txt`](tools/requirements-ci.txt) 所列的包（`python -m pip install -r tools/requirements-ci.txt`；
+缺少其中任何一个，工具自测在运行前即失败）。
 工具链路径由环境变量 `MR_QT_PREFIX`、`MR_MINGW_BIN`、`MR_NINJA_EXE`、`MR_CMAKE_EXE` 指定；
 运行 Qt 测试时也可用 `MR_CTEST_EXE` 指定 `ctest.exe`，`MR_BUILD_DIR` 可指定独立的 CMake 构建目录。
+打包（`scripts/package.ps1`）默认在单独的 `build-distribution\` 中构建正式口味；设置了 `MR_BUILD_DIR` 时改用该目录，
+但拒绝开发用的 `build\`，见 [docs/build-and-package.md](docs/build-and-package.md) §3.7。
 未设置时使用 [docs/build-and-package.md](docs/build-and-package.md) 中的示例路径。
 
 **截图识别依赖需单独准备。** 按[离线截图识别依赖](docs/build-and-package.md#离线截图识别依赖)的固定清单，
@@ -437,8 +443,8 @@ Desktop 的截图与模拟参数见 [docs/build-and-package.md](docs/build-and-p
 src/Collector/          C# Collector（抓包、协议、状态机、存储、IPC、导入 / 导出）
 src/Desktop/            C++20 Qt 6 Quick 桌面端（界面、本地 OCR、心得分享与图片附件）
 contracts/              IPC 契约：JSON Schema、错误码、变更记录
-protocol-profiles/      协议档案（cn/ 正式与候选档案，global/ 占位，synthetic/ 离线测试）
-data/duties/ data/jobs/ 副本与职业名称映射（仅用于显示）
+protocol-profiles/      协议档案（cn/ 正式与候选档案，tc/ 与 global/ 占位，synthetic/ 离线测试）
+data/                   参考数据：duties/ 副本、jobs/ 职业、roulettes/ 随机任务目录，i18n/ 游戏名称译名（仅用于显示）
 migrations/             SQLite 迁移
 installer/              Inno Setup 安装器脚本
 scripts/                环境检查、构建、测试、验证、打包

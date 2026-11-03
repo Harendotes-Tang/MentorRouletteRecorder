@@ -525,16 +525,87 @@ QtObject {
 
     void categoriesAndExpansions()
     {
+        // 团队任务 is the category of every standard alliance raid, not only of
+        // the Chaotic one (review K3-3).
+        const QString alliance = QString::fromUtf8("团队任务");
         switchTo("en");
         QCOMPARE(names()->category(kDungeonsCn()), QStringLiteral("Dungeons"));
+        QCOMPARE(names()->category(alliance), QStringLiteral("Alliance Raids"));
         QCOMPARE(names()->expansion(QStringLiteral("A Realm Reborn")), QStringLiteral("A Realm Reborn"));
         switchTo("ja");
         QCOMPARE(names()->category(kDungeonsCn()), QString::fromUtf8("ダンジョン"));
+        QCOMPARE(names()->category(alliance), QString::fromUtf8("アライアンスレイド"));
         QCOMPARE(names()->expansion(QStringLiteral("Dawntrail")), QString::fromUtf8("黄金のレガシー"));
         switchTo("zh-TW");
         QCOMPARE(names()->category(kDungeonsCn()), QString::fromUtf8("迷宮挑戰"));
+        QCOMPARE(names()->category(alliance), QString::fromUtf8("團隊任務"));
         switchTo("zh-CN");
         QCOMPARE(names()->expansion(QStringLiteral("A Realm Reborn")), QString::fromUtf8("重生之境"));
+    }
+
+    void allianceRaidsCanBeChosenInBothTypePickers_data()
+    {
+        QTest::addColumn<QString>("pageName");
+        QTest::newRow("history") << QStringLiteral("HistoryPage");
+        QTest::newRow("reflections") << QStringLiteral("ReflectionsPage");
+    }
+
+    // The Collector filters and shows standard alliance raids as 团队任务; both type
+    // pickers offer it, labelled in the interface language and sent in Chinese (review K3-2).
+    void allianceRaidsCanBeChosenInBothTypePickers()
+    {
+        QFETCH(QString, pageName);
+        switchTo("en");
+        SearchPage page(m_language.get(), pageName);
+        QVERIFY(page.page);
+        const bool history = pageName == QLatin1String("HistoryPage");
+        auto *box = page.page->findChild<QObject *>(history ? QStringLiteral("historyCategoryFilter")
+                                                            : QStringLiteral("reflectionCategoryFilter"));
+        QVERIFY(box);
+        const QVariantList model = asList(box->property("model"));
+        int alliance = -1;
+        for (int index = 0; index < model.size(); ++index) {
+            if (asMap(model.at(index)).value(QStringLiteral("value")).toString() == QString::fromUtf8("团队任务"))
+                alliance = index;
+        }
+        QVERIFY(alliance > 0);
+        QCOMPARE(asMap(model.at(alliance)).value(QStringLiteral("label")).toString(), QStringLiteral("Alliance Raids"));
+        box->setProperty("currentIndex", alliance);
+        QVERIFY(QMetaObject::invokeMethod(page.page.get(), "applyFilter"));
+        const QVariantMap filter = history ? page.controller.historyFilter() : page.library.filter();
+        QCOMPARE(asList(filter.value(QStringLiteral("duty_category"))), QVariantList{QString::fromUtf8("团队任务")});
+    }
+
+    void anUntouchedSearchKeepsItsFilterAcrossALanguageSwitch_data()
+    {
+        QTest::addColumn<QString>("pageName");
+        QTest::newRow("history") << QStringLiteral("HistoryPage");
+        QTest::newRow("reflections") << QStringLiteral("ReflectionsPage");
+    }
+
+    // The names a search adds are worked out in the language it was typed in. A page
+    // that re-applies its controls later (a reload's calendarChanged, the debounce)
+    // with the text untouched sends the same filter after a language switch, so no
+    // 「更改筛选并取消勾选？」 appears and the list does not change under it (review K3-4).
+    void anUntouchedSearchKeepsItsFilterAcrossALanguageSwitch()
+    {
+        QFETCH(QString, pageName);
+        switchTo("en");
+        SearchPage page(m_language.get(), pageName);
+        QVERIFY(page.page && page.search);
+        const bool history = pageName == QLatin1String("HistoryPage");
+        const QVariantMap applied = page.searchFor(QStringLiteral("Paladin"));
+        QVERIFY(asList(applied.value(QStringLiteral("name_exact"))).contains(kPaladinCn()));
+        if (history) {
+            page.controller.setHistoryRunChecked(sastashaRun(), true);
+            QCOMPARE(page.controller.checkedHistoryRunCount(), 1);
+        }
+        switchTo("zh-CN");
+        QVERIFY(QMetaObject::invokeMethod(page.page.get(), "applyFilter"));
+        QCOMPARE(history ? page.controller.historyFilter() : page.library.filter(), applied);
+        if (history)
+            QVERIFY(!page.controller.historyFilterConfirmationPending());
+        QCOMPARE(page.search->property("text").toString(), QStringLiteral("Paladin"));
     }
 
     void revisionLogShowsRecordedNamesInTheInterfaceLanguage()

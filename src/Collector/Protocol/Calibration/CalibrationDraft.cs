@@ -79,6 +79,14 @@ public sealed record CalibrationRejections(IReadOnlySet<ushort> PopOpcodes, IRea
 
     /// <summary>Load starts of bursts rejected as the exit of that duty (a 离开副本 line).</summary>
     public IReadOnlySet<DateTimeOffset> Exits { get; init; } = new HashSet<DateTimeOffset>();
+
+    /// <summary>
+    /// The opcodes of <see cref="PopOpcodes"/> the traffic itself disproved rather than the player
+    /// (<see cref="CalibrationCoordinator.RejectPopOpcode"/>). The draft reads only
+    /// <see cref="PopOpcodes"/>; this set travels with the evidence so 清空校准进度 after a restart
+    /// still keeps them refused (audit 2026-11-03, C-2).
+    /// </summary>
+    public IReadOnlySet<ushort> DisprovedPopOpcodes { get; init; } = new HashSet<ushort>();
 }
 
 /// <summary>One line of the timeline the user is asked to confirm.</summary>
@@ -1047,8 +1055,9 @@ public sealed partial record CalibrationDraft(
     private static DateTimeOffset RequestAt(FinderPairHit pair) =>
         pair.ReplyAtUtc - TimeSpan.FromMilliseconds(pair.ReplyTMs - pair.RequestTMs);
 
+    /// <summary>True for a shape some single capture session saw more than <see cref="MaxCandidateOccurrences"/> times (C-4).</summary>
     private static bool TooFrequent(CalibrationSnapshot snapshot, PacketDirection direction, ushort opcode) =>
-        snapshot.OpcodeCounts.TryGetValue((direction, opcode), out var count) && count > MaxCandidateOccurrences;
+        snapshot.FrequentOpcodes.Contains((direction, opcode));
 
     internal static IReadOnlyList<MessageKey> OncePerCluster(CalibrationSnapshot snapshot, int length)
     {
@@ -1349,6 +1358,7 @@ public sealed partial record CalibrationDraft(
         var events = new List<CalibrationEvent>();
         events.AddRange(TimedEvents(timed, roulettes, region));
         var territoryOpcode = messages.FirstOrDefault(message => message.Name == "ZONE_TERRITORY")?.Opcode;
+        var requests = new List<CalibrationEvent>();
         DateTimeOffset? lastRequest = null;
         foreach (var pair in pairs.Where(pair => pair.ReplyOpcode == lockedReply).OrderBy(pair => pair.ReplyAtUtc))
         {
@@ -1359,7 +1369,7 @@ public sealed partial record CalibrationDraft(
             }
 
             lastRequest = requestedAt;
-            events.Add(new CalibrationEvent(
+            requests.Add(new CalibrationEvent(
                 Id("finder_request", pair.ReplyAtUtc - TimeSpan.FromMilliseconds(pair.ReplyTMs - pair.RequestTMs)),
                 "finder_request", pair.RequestTMs,
                 pair.ReplyAtUtc - TimeSpan.FromMilliseconds(pair.ReplyTMs - pair.RequestTMs),
@@ -1448,6 +1458,7 @@ public sealed partial record CalibrationDraft(
                 null, territoryId, dutyName, required));
         }
 
+        events.AddRange(RequestLines(requests, events));
         var ordered = events.OrderBy(item => item.AtUtc)
             .ThenBy(item => item.Kind, StringComparer.Ordinal)
             .ToArray();
@@ -1475,6 +1486,53 @@ public sealed partial record CalibrationDraft(
 
         return ordered;
     }
+
+    /// <summary>
+    /// The 开始排队 lines of the timeline (audit 2026-11-03, C-6). The requests are kept for the life of a
+    /// build's evidence, and listing every one as a line to answer asked the player, after weeks of
+    /// evidence, about a hundred queues shown by time of day alone - nobody can check those, and a check
+    /// nobody can make is clicked through. The queues asked about are those of the local days the
+    /// popup and duty-entry lines fall on - the evenings the draft rests on, which the player can
+    /// remember - plus, for each such line, the latest request before it even when that was the day
+    /// before. Queues of other days are not listed.
+    /// </summary>
+    /// <param name="requests">One line per request, each marked to be answered.</param>
+    /// <param name="others">Every other line of the timeline.</param>
+    private static IEnumerable<CalibrationEvent> RequestLines(
+        IReadOnlyList<CalibrationEvent> requests, IReadOnlyList<CalibrationEvent> others)
+    {
+        var anchors = others.Where(item => item.RequiresConfirmation && item.Kind is "pop" or "duty_enter").ToArray();
+        var days = anchors.Select(item => LocalDay(item.AtUtc)).ToHashSet();
+        if (days.Count == 0 && requests.Count > 0)
+        {
+            // Nothing to confirm yet: the latest evening's queues show what has been seen so far.
+            days.Add(LocalDay(requests.Max(item => item.AtUtc)));
+        }
+
+        var asked = new HashSet<int>();
+        foreach (var anchor in anchors)
+        {
+            var latest = -1;
+            for (var index = 0; index < requests.Count; index++)
+            {
+                if (requests[index].AtUtc <= anchor.AtUtc && (latest < 0 || requests[index].AtUtc >= requests[latest].AtUtc))
+                {
+                    latest = index;
+                }
+            }
+
+            if (latest >= 0)
+            {
+                asked.Add(latest);
+            }
+        }
+
+        return requests.Where((item, index) => asked.Contains(index) || days.Contains(LocalDay(item.AtUtc)));
+    }
+
+    /// <summary>The local calendar day of an instant: the day the player played on.</summary>
+    /// <param name="at">Instant to place.</param>
+    private static DateTime LocalDay(DateTimeOffset at) => at.ToLocalTime().Date;
 
     private static string Id(string kind, DateTimeOffset at) =>
         string.Create(CultureInfo.InvariantCulture, $"{kind}-{at.ToUnixTimeMilliseconds()}");

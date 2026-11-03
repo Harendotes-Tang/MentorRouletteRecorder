@@ -72,6 +72,40 @@ Rectangle {
                 root.noteImageSerial += 1
         }
     }
+
+    // A record opened from elsewhere (在历史记录中复核) while 事件摘要 is the tab
+    // on show resets the events to idle without a tab switch, and only a tab
+    // switch read them (audit 2026-11-03 L1-5).
+    Connections {
+        target: Runtime.app
+        ignoreUnknownSignals: true
+        function onRunEventsChanged() {
+            if (root.activeTab !== "events" || Runtime.app.runEventsState !== "idle")
+                return
+            Qt.callLater(function() {
+                if (root.activeTab === "events" && Runtime.app.runEventsState === "idle")
+                    Runtime.app.refreshRunEvents()
+            })
+        }
+    }
+
+    /// A note that is only a mood's word - stored in its source text when a mood
+    /// was chosen without writing - reads in the interface language (re-review RV4-5).
+    function noteText(text) {
+        const value = text || ""
+        const mood = value === "顺利" ? "good" : value === "一般" ? "ok" : value === "糟心" ? "bad" : ""
+        return mood ? Theme.moodLabel(mood) : value
+    }
+
+    /// The record's region in words; a record without one is 未知区服.
+    function regionName(code) {
+        switch (code) {
+        case "CN": return qsTr("国服")
+        case "TC": return qsTr("繁中服")
+        case "GLOBAL": return qsTr("国际服")
+        default: return qsTr("未知区服")
+        }
+    }
     readonly property bool pendingReview: !!(runData && runData.source !== "IMPORT" && runData.pending_review)
     readonly property bool importIncomplete: {
         if (!runData || runData.source !== "IMPORT") return false
@@ -124,6 +158,8 @@ Rectangle {
                  ? qsTr("%1 · %2级").arg(Theme.expansionName(runData.duty_expansion)).arg(runData.duty_level || 0)
                  : Runtime.fmt.dash() },
             { k: qsTr("结果"), v: Runtime.fmt.runResultLabel(runData) },
+            // The achievement the record counts toward (audit 2026-11-03 L1-1).
+            { k: qsTr("区服"), v: root.regionName(runData.region) },
             // Rendered by the delegate as job icon + name + role icon + label;
             // `v` stays filled so the field degrades to plain text when the
             // catalogue is empty.
@@ -783,7 +819,7 @@ Rectangle {
                 Text {
                     Layout.fillWidth: true
                     visible: !!root.reflection
-                    text: root.reflection ? (root.reflection.text || "") : ""
+                    text: root.reflection ? root.noteText(root.reflection.text) : ""
                     textFormat: Text.PlainText
                     color: Theme.textPrimary
                     font.pixelSize: Theme.fs(13)

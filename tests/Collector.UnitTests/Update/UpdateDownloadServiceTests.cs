@@ -278,6 +278,31 @@ public sealed class UpdateDownloadServiceTests : UpdateDownloadTestBase
         Assert.Equal(2, transport.Requests.Count);
     }
 
+    /// <summary>
+    /// Audit 2026-11-03, F-2: an unexpected error while a READY installer is checked again ends in TRANSPORT_FAILED with
+    /// nothing downloaded, so that sentence must hold without a download: it may not claim a broken connection as the
+    /// cause or an incomplete installer deleted.
+    /// </summary>
+    [Fact]
+    public async Task AnUnexpectedErrorWhileAReadyInstallerIsCheckedAgainIsNotReportedAsABrokenDownload()
+    {
+        var transport = new Transport().Publish(Published, Installer);
+        var service = Service(transport);
+        service.Start();
+        Assert.Equal(State.Ready, (await SettleAsync(service)).State);
+        service.BeforeOutcome = () => throw new InvalidOperationException("unexpected");
+
+        Advance(TimeSpan.FromSeconds(10));
+        Assert.Equal(State.Verifying, service.Start().State);
+        var failed = await SettleAsync(service);
+
+        Assert.Equal(State.Failed, failed.State);
+        Assert.Equal(Failure.TransportFailed, failed.Failure);
+        Assert.Equal(2, transport.Requests.Count);
+        Assert.DoesNotContain("已将其删除", failed.Message!.Chinese, StringComparison.Ordinal);
+        Assert.DoesNotContain("网络连接中断", failed.Message!.Chinese, StringComparison.Ordinal);
+    }
+
     /// <summary>A READY whose file has gone is not reported again, even while no new download may start yet.</summary>
     [Fact]
     public async Task AReadyWhoseFileHasGoneIsNotReportedWhileNothingMayStart()

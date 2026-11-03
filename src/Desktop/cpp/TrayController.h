@@ -76,6 +76,9 @@ protected:
 private:
     void refreshCaptureAction();
     void notifyRecordingWarning();
+    /// AppController::serviceUnavailable, told through deliverRecordingWarning
+    /// once per episode, and only while the window is not on screen (review I1-2).
+    void notifyServiceUnavailable();
     /// The menu's and the icon's own words, set again after a language switch.
     void retranslate();
 
@@ -86,6 +89,7 @@ private:
     QWindow *m_window = nullptr;
     QSystemTrayIcon *m_tray = nullptr;
     quint64 m_lastWarningSerial = 0;
+    quint64 m_lastServiceNoticeSerial = 0;
     /// Owned outright: a QMenu is a QWidget and cannot be parented to a plain
     /// QObject, so nothing else would ever delete it.
     std::unique_ptr<QMenu> m_menu;

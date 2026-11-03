@@ -238,6 +238,32 @@ class BuildLabelTests(unittest.TestCase):
         # Ultimate Raids is not in the sample's ContentType sheet and not used: skipped.
         self.assertNotIn("绝境战", labels)
 
+    # 团队任务 is how the app shows the standard alliance raids: the duties of the Alliance Raids
+    # roulette (15), not the one Chaotic Alliance Raid duty whose ContentType the label is also
+    # derived from. It takes that roulette's official names (audit 2026-11-03 K3-3).
+    def test_the_alliance_label_takes_the_alliance_roulettes_names(self):
+        maps = game_names.build_maps(base(), self.xivapi, self.tc, self.cn, mark,
+                                     dict(CATEGORIES, **{"Chaotic Alliance Raid": "团队任务"}))
+
+        self.assertEqual(maps["roulettes"]["15"], maps["duty_categories"]["团队任务"])
+        self.assertNotIn("团队任务", maps["zh-TW_converted"]["duty_categories"])
+        with self.assertRaises(game_names.SourceError):
+            game_names.build_duty_categories({"团队任务"}, self.xivapi["ContentType"],
+                                             self.tc["ContentType"], mark, CATEGORIES,
+                                             roulettes={})
+
+    def test_regenerating_from_the_samples_keeps_the_committed_alliance_label(self):
+        paths = sorted(glob.glob(os.path.join(game_names.REPO, "data", "i18n",
+                                              "game-names.*.json")))
+        if not paths:
+            self.skipTest("no data/i18n/game-names.*.json bundled yet")
+        with io.open(paths[-1], "r", encoding="utf-8") as handle:
+            committed = json.load(handle)["duty_categories"]["团队任务"]
+
+        maps = game_names.build_maps(base(), self.xivapi, self.tc, self.cn, mark, CATEGORIES)
+
+        self.assertEqual(committed, maps["duty_categories"]["团队任务"])
+
     def test_a_used_category_without_its_content_type_stops_the_run(self):
         with self.assertRaises(game_names.SourceError):
             game_names.build_duty_categories({"绝境战"}, self.xivapi["ContentType"],
@@ -411,6 +437,11 @@ class BundledDataTests(unittest.TestCase):
 
         self.assertEqual(game_names.repository_path(game_names.latest_duty_file()),
                          document["provenance"]["base_files"]["duties"])
+
+    def test_the_alliance_label_is_the_alliance_roulette(self):
+        document = self.latest()
+
+        self.assertEqual(document["roulettes"]["15"], document["duty_categories"]["团队任务"])
 
     def test_converted_and_project_lists_only_name_existing_entries(self):
         document = self.latest()

@@ -215,24 +215,16 @@ private:
         while (viewport && viewport->metaObject()->indexOfProperty("contentY") < 0)
             viewport = viewport->parentItem();
         QVERIFY(viewport);
-        // The page scrolls: the jump sits at the bottom and the filter bar at the top, and the
-        // bar's 记录区服 row can push the content a few pixels past the viewport. Each control
-        // is wheeled into view before a click, and the click waits for the wheel's scroll to
-        // settle: a Flickable still moving takes the press for itself and the control never
-        // sees it.
+        // A page of rows is sized to the window (review K3-1): the jump at the bottom and the
+        // filter bar at the top are both on screen without scrolling, once a change in the
+        // bar above the table (the batch bar appearing) has resized the page.
         const auto reveal = [&](QQuickItem *item) {
-            const QRectF area(viewport->mapToScene(QPointF()), viewport->size());
-            for (int step = 0; step < 10; ++step) {
-                const QRectF where(item->mapToScene(QPointF()), item->size());
-                if (area.contains(where)) break;
-                QTest::wheelEvent(window, viewport->mapToScene(QPointF(viewport->width() / 2, viewport->height() - 24)),
-                                  QPoint(0, where.top() < area.top() ? 120 : -120));
-                QTest::qWait(40);
-            }
-            for (int wait = 0; wait < 100 && viewport->property("moving").toBool(); ++wait)
-                QTest::qWait(20);
-            return !viewport->property("moving").toBool()
-                && area.contains(QRectF(item->mapToScene(QPointF()), item->size()));
+            return QTest::qWaitFor([&] {
+                const QRectF area(viewport->mapToScene(QPointF()), viewport->size());
+                return !app.runs()->isLoading() && !viewport->property("moving").toBool()
+                    && qFuzzyIsNull(viewport->property("contentY").toReal())
+                    && area.contains(QRectF(item->mapToScene(QPointF()), item->size()));
+            }, 3000);
         };
         QVERIFY(reveal(jump));
         number->forceActiveFocus();

@@ -61,6 +61,28 @@ public sealed class UpdateDownloadFailureTests : UpdateDownloadTestBase
         Assert.Equal(new[] { ChecksumUri(Published), UpdateCheckClient.GitCodeAssetUri(Published, "MentorRecorder-" + Published + "-setup.exe.sha256") }, transport.Requests);
     }
 
+    /// <summary>
+    /// Audit 2026-11-03, F-2: a checksum answer that breaks off mid-body leaves no checksum to go by, and no installer is
+    /// asked for. That is CHECKSUM_UNAVAILABLE, whose sentence says nothing was downloaded - not a broken download whose
+    /// incomplete installer was deleted.
+    /// </summary>
+    [Fact]
+    public async Task AChecksumAnswerThatBreaksOffIsUnavailableAndNoInstallerIsAsked()
+    {
+        var transport = new Transport().Publish(Published, Installer);
+        transport.On(ChecksumUri(Published), (uri, _) => Task.FromResult(new UpdateTransportResponse(
+            200, uri, null, 64, new FailingStream(System.Text.Encoding.ASCII.GetBytes(Sha(Installer)[..16])))));
+        var service = Service(transport);
+
+        service.Start();
+        var failed = await SettleAsync(service);
+
+        AssertFailed(failed, Failure.ChecksumUnavailable);
+        Assert.DoesNotContain("删除", failed.Message!.Chinese, StringComparison.Ordinal);
+        Assert.Equal(new[] { ChecksumUri(Published), UpdateCheckClient.GitCodeAssetUri(Published, "MentorRecorder-" + Published + "-setup.exe.sha256") }, transport.Requests);
+        AssertNothingKept();
+    }
+
     [Fact]
     public async Task AnInstallerThatDoesNotMatchItsChecksumIsDeleted()
     {

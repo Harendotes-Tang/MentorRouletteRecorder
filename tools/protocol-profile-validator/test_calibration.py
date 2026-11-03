@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The optional ``calibration`` template section, mirrored against
 ProfileLoader.ReadCalibration / CheckStatusRules in src/Collector/Protocol/Profiles/ProfileLoader.cs
-so the Python validator and the Collector agree (docs/protocol-profile-format.md section 3.6).
+so the Python validator and the Collector agree (docs/protocol-profile-format.md section 11.1).
 """
 
 from __future__ import annotations

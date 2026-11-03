@@ -276,15 +276,21 @@ void StatisticsOverlayController::refreshAttempts()
     if (!attemptsApplicable())
         return;
     const quint64 generation = ++m_attemptGeneration;
-    m_attemptsKnown = false;
-    m_attemptsLoading = m_backend && m_backend->isConnected();
-    m_attemptsFailed = !m_attemptsLoading;
-    Q_EMIT attemptsChanged();
-    if (!m_attemptsLoading)
+    const bool connected = m_backend && m_backend->isConnected();
+    // The same period, day and region asked again (a dashboard refresh during a
+    // run): the count on screen stays until the new one arrives, without a
+    // 「读取中…」 line (review I2-4). Anything else is another figure.
+    const bool quiet = connected && m_attemptsKnown && filter == m_attemptsFilter;
+    if (!quiet) {
+        m_attemptsKnown = false;
+        m_attemptsLoading = connected;
+        m_attemptsFailed = !connected;
+        Q_EMIT attemptsChanged();
+    }
+    if (!connected)
         return;
-    if (!m_recordRegion.isEmpty()) filter.insert(QStringLiteral("region"), m_recordRegion);
     m_backend->getDashboardStats(filter)
-        ->whenDone(this, [this, generation](bool ok, const QVariantMap &payload, const QString &, const QString &) {
+        ->whenDone(this, [this, generation, filter](bool ok, const QVariantMap &payload, const QString &, const QString &) {
             if (generation != m_attemptGeneration || !attemptsApplicable())
                 return;
             const QJsonValue value = QJsonValue::fromVariant(payload.value(QStringLiteral("attempt_count")));
@@ -294,8 +300,10 @@ void StatisticsOverlayController::refreshAttempts()
             m_attemptsKnown = valid;
             m_attemptsLoading = false;
             m_attemptsFailed = !valid;
-            if (valid)
+            if (valid) {
                 m_attemptCount = static_cast<int>(count);
+                m_attemptsFilter = filter;
+            }
             Q_EMIT attemptsChanged();
         });
 }

@@ -68,6 +68,7 @@ private slots:
     void leavingTheFieldWritesTheCanonicalForm();
     void nonsenseStaysAsTypedAndTurnsRed();
     void theWheelsOpenOnTheFieldsOwnTimeAndWriteBack();
+    void confirmingTheShownTimeKeepsItsSeconds();
     void visibleNumbersCanBeClickedAndWheeled();
     void draggingTheHourColumnStillWorks();
     void nowWritesTheClockWithSeconds();
@@ -190,6 +191,28 @@ void TimeFieldTests::theWheelsOpenOnTheFieldsOwnTimeAndWriteBack()
     QVERIFY(QMetaObject::invokeMethod(field, "select", Q_ARG(QVariant, 7), Q_ARG(QVariant, 45)));
     QCOMPARE(field->property("text").toString(), QStringLiteral("07:45"));
     QTRY_VERIFY(!field->property("pickerOpen").toBool());
+}
+
+// Audit 2026-11-03 L1-7: the wheels pick only an hour and a minute. 确定 on a
+// recorded 20:41:37.125 without moving them wrote 20:41, which the record
+// wizard sent as a manual change of that time. The time already shown stays.
+void TimeFieldTests::confirmingTheShownTimeKeepsItsSeconds()
+{
+    Scene scene;
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    QQuickItem *field = scene.field();
+    field->setProperty("text", QStringLiteral("20:41:37.125"));
+    QVERIFY(QMetaObject::invokeMethod(field, "openPicker"));
+    QTRY_VERIFY(field->property("pickerOpen").toBool());
+    QVERIFY(QMetaObject::invokeMethod(field, "select", Q_ARG(QVariant, 20), Q_ARG(QVariant, 41)));
+    QCOMPARE(field->property("text").toString(), QStringLiteral("20:41:37.125"));
+    QTRY_VERIFY(!field->property("pickerOpen").toBool());
+
+    // Another minute is a new time: the seconds of the old one do not carry over.
+    QVERIFY(QMetaObject::invokeMethod(field, "openPicker"));
+    QTRY_VERIFY(field->property("pickerOpen").toBool());
+    QVERIFY(QMetaObject::invokeMethod(field, "select", Q_ARG(QVariant, 20), Q_ARG(QVariant, 42)));
+    QCOMPARE(field->property("text").toString(), QStringLiteral("20:42"));
 }
 
 void TimeFieldTests::visibleNumbersCanBeClickedAndWheeled()

@@ -284,19 +284,27 @@ public sealed class GameInstallMemoryTests : IDisposable
     {
         var memory = new RecordingInstallMemory { Stored = CnExecutable };
         var files = VersionFile();
+        // Chosen for this very installation, so it applies although the path names CN
+        // (audit 2026-11-03, A2-1); an override chosen elsewhere would not.
+        var chosen = new CaptureRegionOverride(Region.Global, CaptureRegionOverride.Fingerprint(CnExecutable));
 
         var overrideFirst = new GameProcessLocator(new FakeGameProcessProvider(), files)
-            .WithRegionOverride(() => Region.Global)
+            .WithRegionOverride(() => chosen)
             .WithInstallMemory(memory);
         var memoryFirst = new GameProcessLocator(new FakeGameProcessProvider(), files)
             .WithInstallMemory(memory)
-            .WithRegionOverride(() => Region.Global);
+            .WithRegionOverride(() => chosen);
 
         foreach (var detection in new[] { overrideFirst.Locate(), memoryFirst.Locate() })
         {
             Assert.Equal(Build, detection.GameBuild);
             Assert.Equal(Region.Global, detection.Region);
         }
+
+        var unbound = new GameProcessLocator(new FakeGameProcessProvider(), files)
+            .WithInstallMemory(memory)
+            .WithRegionOverride(() => Region.Global);
+        Assert.Equal(Region.Unknown, unbound.Locate().Region);
     }
 
     [Fact]

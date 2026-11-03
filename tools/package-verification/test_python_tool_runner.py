@@ -133,6 +133,22 @@ class PythonToolRunnerTests(unittest.TestCase):
         self.assertEqual(0, completed.returncode, output)
         self.assertIn("SAMPLE RAN", output)
 
+    def test_pyyaml_is_imported_by_its_module_name(self):
+        (self.site / "yaml.py").write_text("VALUE = 1\n", encoding="utf-8")
+        completed, output = self.run_runner("PyYAML==6.0.3\n", PASSING_SAMPLE)
+        self.assertEqual(0, completed.returncode, output)
+        self.assertIn("SAMPLE RAN", output)
+
+    def test_the_ci_requirements_pin_pyyaml(self):
+        # Audit 2026-11-03, N2-3: without PyYAML the structural checks of the three public-repo
+        # workflows that issues trigger (permission sets, job permissions, the label guards) do not
+        # run. CI installs only this file, and the preflight above imports what it lists.
+        lines = [line.split("#", 1)[0].strip()
+                 for line in (REPO / "tools" / "requirements-ci.txt").read_text(encoding="utf-8").splitlines()]
+        pins = [line for line in lines if line.lower().startswith("pyyaml")]
+        self.assertEqual(1, len(pins), pins)
+        self.assertRegex(pins[0], r"^PyYAML==\d+\.\d+\.\d+$")
+
     def test_skipped_tests_are_listed_in_the_summary(self):
         completed, output = self.run_runner("fake-ok==1.0\n", SKIPPING_SAMPLE)
         self.assertEqual(0, completed.returncode, output)

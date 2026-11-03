@@ -87,6 +87,8 @@ public:
     QJsonObject settings{{QStringLiteral("follow_game"), true}};
     /// ListCaptureAdapters when set.
     QJsonObject adapters;
+    /// Further GetStatus members beside capture (warnings, warning_refs).
+    QJsonObject extras;
     QHash<QString, int> counts;
 
     QString backendName() const override { return QStringLiteral("mock"); }
@@ -96,8 +98,11 @@ public:
     {
         ++counts[type];
         auto *reply = new mr::BackendReply(type, type, this);
-        if (type == QLatin1String("GetStatus"))
-            reply->succeed({{QStringLiteral("capture"), capture}});
+        if (type == QLatin1String("GetStatus")) {
+            QJsonObject status = extras;
+            status.insert(QStringLiteral("capture"), capture);
+            reply->succeed(status);
+        }
         else if (type == QLatin1String("GetCaptureStatus"))
             reply->succeed(capture);
         // Follow-the-game on and no validation session: the recording controller
@@ -644,6 +649,48 @@ private slots:
                         .arg(dark ? QStringLiteral("dark") : QStringLiteral("light")))));
             }
         }
+    }
+
+    // Review RV1-5 (X1): a region chosen in settings for another client that contradicts
+    // this client's install path also leaves the region unknown. The card says why in the
+    // Collector's words, not 「无法从安装路径判断区服」, and still offers 设置区服. The
+    // informational 已按手动指定的区服处理 is listed with the other Collector notes.
+    void aRegionChosenForAnotherClientSaysSo()
+    {
+        const QString mismatch = QString::fromUtf8(
+            "设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致，因此暂不进行任何自动记录。"
+            "若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。");
+        auto fake = std::make_unique<CaptureBackend>();
+        auto *backend = fake.get();
+        fake->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                         {QStringLiteral("ffxiv_running"), true},
+                         {QStringLiteral("npcap_installed"), true},
+                         {QStringLiteral("profile_status"), QStringLiteral("NONE")},
+                         {QStringLiteral("region"), QStringLiteral("UNKNOWN")},
+                         {QStringLiteral("game_build"), QStringLiteral("2026.10.20.0000.0000")},
+                         {QStringLiteral("install_path_readable"), true}};
+        fake->extras = {{QStringLiteral("warnings"), QJsonArray{mismatch}},
+                        {QStringLiteral("warning_refs"), QJsonArray{QJsonObject{
+                             {QStringLiteral("key"), QStringLiteral("capture.game.region_override_mismatch")}}}}};
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open());
+        QTRY_VERIFY(scene.shows(QStringLiteral("openRegionSettingsButton")));
+        QTRY_COMPARE(scene.text(QStringLiteral("protocolProfileExplanation")), mismatch);
+        QVERIFY(!scene.text(QStringLiteral("protocolProfileExplanation")).contains(QString::fromUtf8("无法从安装路径判断区服")));
+
+        // A choice applied against the path is an ordinary note in the tools panel.
+        const QString applied = QString::fromUtf8(
+            "这个客户端的安装路径表明的区服与设置中为它手动指定的区服不一致，已按手动指定的区服处理。"
+            "若这不是你想要的，请到设置里清除手动指定的区服。");
+        backend->capture.insert(QStringLiteral("region"), QStringLiteral("TC"));
+        backend->extras = {{QStringLiteral("warnings"), QJsonArray{applied}},
+                           {QStringLiteral("warning_refs"), QJsonArray{QJsonObject{
+                                {QStringLiteral("key"), QStringLiteral("capture.game.region_override_applied")}}}}};
+        scene.app->refreshStatus();
+        QTRY_VERIFY(!scene.shows(QStringLiteral("openRegionSettingsButton")));
+        QTRY_VERIFY(scene.shows(QStringLiteral("collectorWarningsList")));
+        QVERIFY(scene.visibleTexts().contains(QStringLiteral("· ") + applied));
     }
 
     void maintainersKeepTheCaptureButtonAndTheirTools()
@@ -1300,6 +1347,12 @@ private slots:
         source->capture = verified;
         scene.app->refreshStatus();
         QTRY_COMPARE(scene.app->protocolProfileStatus(), QStringLiteral("VERIFIED"));
+        // The sentence is about starting, so it stands in step 1, which the failed round has
+        // left behind for its files (review K4-4): the player reopens it.
+        auto *setup = scene.item(QStringLiteral("evidenceStep_1"));
+        QVERIFY(setup);
+        QCOMPARE(setup->property("status").toString(), QStringLiteral("done"));
+        QVERIFY(QMetaObject::invokeMethod(setup, "toggleRequested"));
         QTRY_VERIFY(scene.visibleTexts().join(QLatin1Char('\n'))
                         .contains(QString::fromUtf8("当前正在正式记录，不能切换为采证")));
     }
@@ -1469,10 +1522,263 @@ private slots:
         QCOMPARE(scene.text(QStringLiteral("captureHeroHeadline")), QString::fromUtf8("暂时不会自动记录"));
         const QString text = scene.text(QStringLiteral("captureHeroText"));
         QVERIFY2(!text.contains(QStringLiteral("ERR_")), qPrintable(text));
-        QVERIFY2(!text.contains(QString::fromUtf8("查看诊断")), qPrintable(text));
+        // On 捕获诊断 itself the sentence does not send the player to 捕获诊断 (review K2-3).
+        QVERIFY2(!text.contains(QString::fromUtf8("捕获诊断")), qPrintable(text));
         QVERIFY2(text.endsWith(QString::fromUtf8("。")), qPrintable(text));
         QVERIFY(scene.shows(QStringLiteral("calibrationCard")));
         QVERIFY(scene.shows(QStringLiteral("calibrationHeadline")));
+    }
+
+    // Review K2-3: the controller's pointer to 「捕获诊断」 is dropped wherever it stands in
+    // the sentence, and the rest of the sentence stays.
+    void theHeroDropsThePointerToItsOwnPage_data()
+    {
+        QTest::addColumn<QString>("language");
+        QTest::addColumn<QString>("message");
+        QTest::addColumn<QString>("expected");
+        const QString zh = QStringLiteral("zh_CN");
+        QTest::newRow("closing") << zh << QString::fromUtf8("暂时不能自动记录。网卡打不开。 请查看「捕获诊断」。")
+                                 << QString::fromUtf8("暂时不能自动记录。网卡打不开。");
+        QTest::newRow("clause") << zh << QString::fromUtf8("自动寻找网络路径未能恢复读取，请查看「捕获诊断」中的说明。")
+                                << QString::fromUtf8("自动寻找网络路径未能恢复读取。");
+        QTest::newRow("then") << zh << QString::fromUtf8("找不到游戏的安装位置，暂时不能自动记录。请确认游戏已启动，再查看「捕获诊断」。")
+                              << QString::fromUtf8("找不到游戏的安装位置，暂时不能自动记录。请确认游戏已启动。");
+        QTest::newRow("middle") << zh << QString::fromUtf8("还没有适用于当前游戏版本的支持文件，暂时不能自动记录。请查看「捕获诊断」，期间可以先手动记录。")
+                                << QString::fromUtf8("还没有适用于当前游戏版本的支持文件，暂时不能自动记录。期间可以先手动记录。");
+        QTest::newRow("or") << zh << QString::fromUtf8("没能开启自动记录，请点「重试自动记录」或查看「捕获诊断」。管道已断开。")
+                            << QString::fromUtf8("没能开启自动记录，请点「重试自动记录」。管道已断开。");
+        QTest::newRow("also") << zh << QString::fromUtf8("暂时不能自动记录。请查看「捕获诊断」，也可以回到游戏标题画面后重新登录。")
+                              << QString::fromUtf8("暂时不能自动记录。可以回到游戏标题画面后重新登录。");
+        QTest::newRow("traditional") << zh << QString::fromUtf8("暫時無法自動記錄。網卡打不開。 請檢視「擷取診斷」。")
+                                     << QString::fromUtf8("暫時無法自動記錄。網卡打不開。");
+        QTest::newRow("before 5ee8133") << zh << QString::fromUtf8("暂时不能自动记录，请查看诊断。")
+                                        << QString::fromUtf8("暂时不能自动记录。");
+        // An instruction that names the page is not a pointer (capture.hint.no_packets).
+        const QString noPackets = QString::fromUtf8("当前监听路径没有收到游戏流量。请在「捕获诊断」重新检测网络路径；仍无法恢复时，请导出诊断报告。");
+        QTest::newRow("no_packets") << zh << noPackets << noPackets;
+
+        // The other interface languages (review RV4-1): only a sentence that is
+        // nothing but the pointer goes; one that also says what to do stays whole.
+        const QString en = QStringLiteral("en");
+        const QString enNoPackets = QString::fromUtf8("No game traffic has arrived on the current listening paths. Check the network paths again in “Capture diagnostics”; if reading still cannot resume, export a diagnostic report.");
+        QTest::newRow("en no_packets") << en << enNoPackets << enNoPackets;
+        QTest::newRow("en closing") << en << QString::fromUtf8("Automatic recording is unavailable for now. The adapter cannot be opened. See “Capture diagnostics”.")
+                                    << QStringLiteral("Automatic recording is unavailable for now. The adapter cannot be opened.");
+        QTest::newRow("en instructions") << en << QString::fromUtf8("Automatic network path discovery could not restore reading. See the instructions in “Capture diagnostics”.")
+                                         << QStringLiteral("Automatic network path discovery could not restore reading.");
+        const QString enThen = QString::fromUtf8("Can't find where the game is installed, so its version can't be confirmed and automatic recording is unavailable for now. Make sure the game is running, then see “Capture diagnostics”.");
+        QTest::newRow("en then") << en << enThen << enThen;
+        const QString enMeanwhile = QString::fromUtf8("There's no support file for this game version yet, so automatic recording is unavailable for now. See “Capture diagnostics”; meanwhile you can record manually.");
+        QTest::newRow("en meanwhile") << en << enMeanwhile << enMeanwhile;
+        const QString ja = QStringLiteral("ja");
+        QTest::newRow("ja closing") << ja << QString::fromUtf8("現在は自動記録できません。アダプターを開けません。 「キャプチャ診断」を確認してください。")
+                                    << QString::fromUtf8("現在は自動記録できません。アダプターを開けません。");
+        QTest::newRow("ja middle") << ja << QString::fromUtf8("現在のゲームバージョンに使える対応ファイルがまだないため、自動記録できません。「キャプチャ診断」を確認してください。その間は手動で記録できます。")
+                                   << QString::fromUtf8("現在のゲームバージョンに使える対応ファイルがまだないため、自動記録できません。その間は手動で記録できます。");
+        const QString jaThen = QString::fromUtf8("ゲームのインストール先が見つからず、バージョンを確認できないため、自動記録できません。ゲームが起動していることを確かめてから、「キャプチャ診断」を確認してください。");
+        QTest::newRow("ja then") << ja << jaThen << jaThen;
+        const QString tw = QStringLiteral("zh_TW");
+        const QString twNoPackets = QString::fromUtf8("目前監聽的路徑沒有收到遊戲流量。請在「擷取診斷」重新偵測網路路徑；仍無法恢復時，請匯出診斷報告。");
+        QTest::newRow("zh_TW no_packets") << tw << twNoPackets << twNoPackets;
+        QTest::newRow("zh_TW closing") << tw << QString::fromUtf8("暫時無法自動記錄。網卡打不開。 請檢視「擷取診斷」。")
+                                       << QString::fromUtf8("暫時無法自動記錄。網卡打不開。");
+    }
+
+    void theHeroDropsThePointerToItsOwnPage()
+    {
+        QFETCH(QString, language);
+        QFETCH(QString, message);
+        QFETCH(QString, expected);
+        QTranslator translator;
+        if (language != QLatin1String("zh_CN")) {
+            const QString qm = QDir(QCoreApplication::applicationDirPath())
+                .filePath(QStringLiteral("../../src/Desktop/mentor_recorder_%1.qm").arg(language));
+            QVERIFY2(translator.load(qm), qPrintable(qm));
+            QCoreApplication::installTranslator(&translator);
+        }
+        const auto removeTranslation = qScopeGuard([&] { QCoreApplication::removeTranslator(&translator); });
+        PageScene scene;
+        QVERIFY(scene.open());
+        auto *hero = scene.item(QStringLiteral("captureHeroPanel"));
+        QVERIFY(hero);
+        auto *copy = hero->property("copy").value<QObject *>();
+        QVERIFY(copy);
+        QVariant result;
+        QVERIFY(QMetaObject::invokeMethod(copy, "withoutPagePointer", Q_RETURN_ARG(QVariant, result),
+                                          Q_ARG(QVariant, message)));
+        QCOMPARE(result.toString(), expected);
+    }
+
+    // Review K2-4: while a 采证 round holds the capture the page says so - not 检查中, and
+    // not 正在启动监听.
+    // Review RV4-2: only a supported version records again once the round stops; on a
+    // new region nothing is paused, and the page does not promise it.
+    void anEvidenceRoundPausesRecordingInWords_data()
+    {
+        QTest::addColumn<QString>("profile");
+        QTest::addColumn<QString>("region");
+        QTest::addColumn<QString>("headline");
+        QTest::addColumn<QString>("text");
+        QTest::addColumn<QString>("summary");
+        QTest::newRow("verified-cn") << QStringLiteral("VERIFIED") << QStringLiteral("CN")
+                                     << QString::fromUtf8("新区服采证进行中，自动记录已暂停")
+                                     << QString::fromUtf8("停止采证后会恢复自动记录。")
+                                     << QString::fromUtf8("正在采证 · 停止采证后恢复自动记录");
+        QTest::newRow("unsupported-tc") << QStringLiteral("UNSUPPORTED_BUILD") << QStringLiteral("TC")
+                                        << QString::fromUtf8("新区服采证进行中")
+                                        << QString::fromUtf8("停止采证后恢复正常检测；当前游戏版本暂不自动记录。")
+                                        << QString::fromUtf8("正在采证 · 停止采证后恢复正常检测");
+    }
+
+    void anEvidenceRoundPausesRecordingInWords()
+    {
+        QFETCH(QString, profile);
+        QFETCH(QString, region);
+        QFETCH(QString, headline);
+        QFETCH(QString, text);
+        QFETCH(QString, summary);
+        auto fake = std::make_unique<CaptureBackend>();
+        fake->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                         {QStringLiteral("ffxiv_running"), true},
+                         {QStringLiteral("ffxiv_process_id"), 18244},
+                         {QStringLiteral("npcap_installed"), true},
+                         {QStringLiteral("profile_status"), profile},
+                         {QStringLiteral("region"), region},
+                         {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")}};
+        fake->validation = {{QStringLiteral("active"), true},
+                            {QStringLiteral("state"), QStringLiteral("RECORDING")},
+                            {QStringLiteral("reason"), QStringLiteral("RECORDING")},
+                            {QStringLiteral("session_id"), QStringLiteral("round-observing")}};
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open());
+        QTRY_VERIFY(scene.app->validationActive());
+        scene.app->recording()->setUserObservation(true);
+        QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("observing"));
+        QTRY_COMPARE(scene.text(QStringLiteral("captureHeroHeadline")), headline);
+        QCOMPARE(scene.text(QStringLiteral("captureHeroText")), text);
+        QCOMPARE(scene.text(QStringLiteral("captureHeaderStatusText")), QString::fromUtf8("采证中"));
+        QCOMPARE(scene.text(QStringLiteral("captureChainSummary")), summary);
+        const QString page = scene.visibleTexts().join(QLatin1Char('\n'));
+        QVERIFY2(!page.contains(QString::fromUtf8("正在启动监听")), qPrintable(page));
+        QVERIFY2(!page.contains(QString::fromUtf8("正在检查能否自动记录")), qPrintable(page));
+    }
+
+    // Review K2-4: a verified build the recording controller has blocked is not 「正在启动监听…」.
+    void aBlockedVerifiedBuildIsNotStartingToListen()
+    {
+        auto fake = std::make_unique<CaptureBackend>();
+        fake->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                         {QStringLiteral("ffxiv_running"), true},
+                         {QStringLiteral("ffxiv_process_id"), 18244},
+                         {QStringLiteral("npcap_installed"), true},
+                         {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")},
+                         {QStringLiteral("region"), QStringLiteral("CN")},
+                         {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")}};
+        // Follow-the-game is off and the Collector does not take it: the controller blocks.
+        fake->settings = {{QStringLiteral("follow_game"), false}};
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open());
+        QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("blocked"));
+        QTRY_COMPARE(scene.text(QStringLiteral("captureChainSummary")),
+                     QString::fromUtf8("暂时不会自动记录 · 见上方说明"));
+        const QString hero = scene.text(QStringLiteral("captureHeroText"));
+        QVERIFY2(hero.contains(QString::fromUtf8("重试自动记录")), qPrintable(hero));
+        QVERIFY2(!hero.contains(QString::fromUtf8("捕获诊断")), qPrintable(hero));
+    }
+
+    // Review RV4-3: the decode-failure sentence (App.captureHealthText) loses its pointer to
+    // this page too, and keeps the other way out.
+    void aSilentCaptureDoesNotPointAtItsOwnPage()
+    {
+        auto fake = std::make_unique<CaptureBackend>();
+        fake->capture = {{QStringLiteral("state"), QStringLiteral("RUNNING")},
+                         {QStringLiteral("ffxiv_running"), true},
+                         {QStringLiteral("ffxiv_process_id"), 18244},
+                         {QStringLiteral("npcap_installed"), true},
+                         {QStringLiteral("adapter_id"), QStringLiteral("silent-adapter")},
+                         {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")},
+                         {QStringLiteral("region"), QStringLiteral("CN")},
+                         {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")},
+                         {QStringLiteral("messages_decoded"), 0},
+                         {QStringLiteral("decode_errors"), 7}};
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open());
+        QTRY_VERIFY(scene.app->captureSilent());
+        QTRY_COMPARE(scene.text(QStringLiteral("captureHeroHeadline")),
+                     QString::fromUtf8("正在读取游戏数据，但还没有识别成功"));
+        QCOMPARE(scene.text(QStringLiteral("captureHeroText")),
+                 QString::fromUtf8("正在读取游戏数据，但还没有识别成功，失败次数仍在增加。暂时不能自动记录。"
+                                   "可以回到游戏标题画面后重新登录。"));
+    }
+
+    // Review K2-2 / P-5: the tools row says 已保存 only for a round the 采证 page itself
+    // calls saved - not a cancelled wait, not a file without its checksum, not a round the
+    // page has moved past with 开始下一轮.
+    void theToolsRowFollowsTheEvidenceRound()
+    {
+        const QString sha = QStringLiteral("9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08");
+        const auto completed = [](const QString &reason, const QString &trace, const QString &hash) {
+            const QJsonValue null(QJsonValue::Null);
+            return QJsonObject{{QStringLiteral("active"), false},
+                               {QStringLiteral("state"), QStringLiteral("COMPLETED")},
+                               {QStringLiteral("reason"), reason},
+                               {QStringLiteral("message"), QString()},
+                               {QStringLiteral("session_id"), QStringLiteral("round-tools")},
+                               {QStringLiteral("trace_path"), trace.isEmpty() ? null : QJsonValue(trace)},
+                               {QStringLiteral("sha256_path"), hash.isEmpty() ? null : QJsonValue(trace + QStringLiteral(".sha256"))},
+                               {QStringLiteral("sha256"), hash.isEmpty() ? null : QJsonValue(hash)}};
+        };
+        const QString trace = QStringLiteral("D:/MentorRecorder/data/validation/trace.jsonl");
+        auto fake = std::make_unique<CaptureBackend>();
+        fake->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                         {QStringLiteral("ffxiv_running"), false},
+                         {QStringLiteral("npcap_installed"), true},
+                         {QStringLiteral("profile_status"), QStringLiteral("UNSUPPORTED_BUILD")},
+                         {QStringLiteral("region"), QStringLiteral("GLOBAL")},
+                         {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")}};
+        fake->validation = completed(QStringLiteral("CANCELLED"), QString(), QString());
+        auto *source = fake.get();
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open());
+        QTRY_COMPARE(scene.app->validationState(), QStringLiteral("COMPLETED"));
+        auto *row = scene.item(QStringLiteral("templateObservationGuideRow"));
+        QVERIFY(row);
+        const QString standing = QString::fromUtf8("按步骤采集报文元数据，未适配的区服仍不正式记录");
+        QTRY_COMPARE(row->property("description").toString(), standing);
+        QCOMPARE(scene.text(QStringLiteral("templateObservationGuideButton")), QString::fromUtf8("采证步骤"));
+
+        // A trace without its checksum file: ended, not saved.
+        source->validation = completed(QStringLiteral("COMPLETED"), trace, QString());
+        scene.app->refreshCaptureValidation();
+        QTRY_COMPARE(row->property("description").toString(), QString::fromUtf8("已结束，文件不完整"));
+        QCOMPARE(scene.text(QStringLiteral("templateObservationGuideButton")), QString::fromUtf8("继续"));
+
+        // A failed round says so, as the page does (review RV4-4).
+        QJsonObject failed = completed(QStringLiteral("FAILED"), QString(), QString());
+        failed.insert(QStringLiteral("state"), QStringLiteral("FAILED"));
+        failed.insert(QStringLiteral("session_id"), QStringLiteral("round-failed"));
+        failed.insert(QStringLiteral("error_code"), QStringLiteral("ERR_CAPTURE_START_FAILED"));
+        source->validation = failed;
+        scene.app->refreshCaptureValidation();
+        QTRY_COMPARE(row->property("description").toString(), QString::fromUtf8("采证失败，可回传已有文件"));
+        QCOMPARE(scene.text(QStringLiteral("templateObservationGuideButton")), QString::fromUtf8("继续"));
+
+        // A whole file waits for the hand-over - until the page moves on to the next round.
+        source->validation = completed(QStringLiteral("COMPLETED"), trace, sha);
+        scene.app->refreshCaptureValidation();
+        QTRY_COMPARE(row->property("description").toString(), QString::fromUtf8("已保存，等回传"));
+        scene.page->setProperty("observationGuideExpanded", true);
+        auto *guide = scene.item(QStringLiteral("templateObservationGuideCard"));
+        QVERIFY(guide);
+        auto *session = guide->property("session").value<QObject *>();
+        QVERIFY(session);
+        QVERIFY(QMetaObject::invokeMethod(session, "startNextRound"));
+        QTRY_COMPARE(row->property("description").toString(), standing);
+        QCOMPARE(scene.text(QStringLiteral("templateObservationGuideButton")), QString::fromUtf8("采证步骤"));
     }
 
     void aPlayersPageCarriesNoWireVocabulary()

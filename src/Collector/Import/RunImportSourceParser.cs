@@ -57,6 +57,7 @@ public static partial class RunImportSourceParser
         ["matched_at"] = "matched_at_utc", ["entered_at"] = "entered_at_utc",
         ["ended_at"] = "ended_at_utc", ["duration"] = "duration_ms",
         ["进入方式"] = "joined_in_progress", ["进本方式"] = "joined_in_progress",
+        ["区服"] = "region", ["區服"] = "region",
     };
 
     /// <summary>

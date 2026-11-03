@@ -118,23 +118,28 @@ class OcrRuntimeTests(unittest.TestCase):
         self.assertTrue((target / "ocr/local-ai-ocr.exe").is_file())
 
     def test_tampered_missing_and_extra_files_are_rejected_before_destination_changes(self):
+        # N2-7 (audit 2026-11-03): the target does not exist yet, so nothing about it can refuse the
+        # copy; each refusal must be the source check's own, named by its message. (A target holding
+        # an unregistered file is refused for that alone: test_valid_source_does_not_erase_...)
         destination = self.root / "destination"
-        destination.mkdir()
-        sentinel = destination / "preserved.txt"
-        sentinel.write_text("preserve me")
+        body = ("[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)\n"
+                f"Copy-PinnedOcrRuntime -SourceDirectory $source -TargetDirectory {ps(destination)} -RepoRoot $repo")
         victim = self.runtime / "local-ai-ocr.exe"
         original = victim.read_bytes()
-        victim.write_bytes(bytes(byte ^ 1 for byte in original))
-        body = f"Copy-PinnedOcrRuntime -SourceDirectory $source -TargetDirectory {ps(destination)} -RepoRoot $repo"
-        self.run_ps(body, False)
-        self.assertEqual("preserve me", sentinel.read_text())
+        victim.write_bytes(bytes(byte ^ 1 for byte in original))  # same size: only the SHA-256 differs
+        self.assertIn("离线 OCR 文件与固定清单不一致，拒绝使用: local-ai-ocr.exe", self.run_ps(body, False))
+        self.assertFalse(destination.exists())
         victim.unlink()
-        self.run_ps(body, False)
-        self.assertEqual("preserve me", sentinel.read_text())
+        self.assertIn("离线 OCR 缺少 local-ai-ocr.exe", self.run_ps(body, False))
+        self.assertFalse(destination.exists())
         victim.write_bytes(original)
         (self.runtime / "undeclared.dll").write_bytes(b"extra")
-        self.run_ps(body, False)
-        self.assertEqual("preserve me", sentinel.read_text())
+        self.assertIn("离线 OCR 目录含有清单之外的文件，拒绝部署: undeclared.dll", self.run_ps(body, False))
+        self.assertFalse(destination.exists())
+        # Guards the harness: the same copy of the intact source succeeds.
+        (self.runtime / "undeclared.dll").unlink()
+        self.run_ps(body)
+        self.assertTrue((destination / "local-ai-ocr.exe").is_file())
 
     def test_bad_manifest_paths_and_uncovered_components_are_rejected(self):
         original = json.loads(json.dumps(self.manifest))

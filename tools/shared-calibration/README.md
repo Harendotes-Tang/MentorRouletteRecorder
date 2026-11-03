@@ -19,7 +19,7 @@
 | `rebuild.py` | 按随包模板结构重建校准码并拒绝无效内容；文件开头列明已移植的 C# 规则与留给客户端本机核实的部分 | 是 |
 | `index.py` | `index.json`（客户端读取格式的精确移植）与 `submissions.json` 台账；`add_submission`、`revoke`、`lift_hold`、`prune`；两个标记的 `update_marks` / `refresh_marks` 与字段级比对 `disputes` | 是 |
 | `issue.py` | 读两个 Issue 表单的正文（提交表单、报告表单）；标题只用来发现不一致；回显内容的转义 | 是 |
-| `publish.py` | Action 的命令行：`check`、`update-index`、`push-failed`、`field`、`event-field`、`pending`、`wrap-event`、`report`；维护者命令 `revoke`、`lift`、`prune`、`remark`、`evidence lift`、`evidence compact` | 是 |
+| `publish.py` | Action 的命令行：`check`、`update-index`、`push-failed`、`field`、`event-field`、`unchanged`、`pending`、`wrap-event`、`report`；维护者命令 `revoke`、`lift`、`prune`、`remark`、`evidence lift`、`evidence compact` | 是 |
 | `publish_issue.sh` | 处理一个提交 Issue：实时查询状态与标签 → 查账号 → 校验、提交、推送（推送被拒时从新的 main 重新开始）→ 回复、打标签、关闭；有不一致的校准码时通知对方 Issue | 是 |
 | `sweep_issues.sh` | 定时补处理：逐个处理尚未回复的提交 | 是 |
 | `report_issue.sh` | 旧接口：处理一个「报告校准有误」Issue（校验栏目、回复一次、打两个标签）。现已没有工作流调用它，报告由 `evidence_workflow.py` 处理 | 是 |
@@ -198,7 +198,7 @@ python tools/publish.py remark --repo . --region CN --build 2026.10.06.0000.0000
    指引玩家用软件的「共享校准证据」生成摘要后新建证据 Issue，并打上 `evidence-waiting` 标签。
 3. 每份报告在 `evidence-ledger.json` 的 `reports` 中按 Issue 编号记一条无票收据（只含账号数字编号），用于去重与容量控制：
    全局最多 4096 条、每个账号最多 64 条，超出时回复 `LEDGER_CAPACITY_WAIT` 或 `ACCOUNT_CAPACITY_WAIT` 并保持等待。
-   收据随台账提交并推送 `main`，因此该工作流需要 `contents: write`，并与发布共用 `publish-calibration` 并发组。
+   收据随台账提交并推送 `main`，因此该工作流需要 `contents: write`，并与证据工作流共用 `evidence-intake` 并发组（不与发布共用，见「工作流的安全措施」）。
 4. **不做任何自动撤回或隔离**，也不按报告数量设阈值：报告只是维护者查看的理由，**Issue 保持打开**。撤回始终由维护者执行 `publish.py revoke`。
 5. 状态、标签、作者与正文一律以实时 REST 查询为准，事件只用来定位 Issue 编号；回复前后各核对一次 Issue 未被改动。
    每个 Issue 只有一条机器人评论（按评论开头的标记识别），重投的事件与重试只原地更新它，不重复回复。
@@ -274,8 +274,12 @@ python tools/publish.py evidence compact --repo . --apply  # 写回 evidence-led
   `contents: write`、`issues: write`：三者都会推送 `main`（证据台账、索引的隔离提示、候选草案与报告收据也要提交）。
   只有 `mirror-repository.yml` 读取 secret `GITCODE_MIRROR_TOKEN`；它只检出可信的 `main`，`persist-credentials: false`，权限仅 `contents: read`。
   所有工作流都不用 `pull_request_target`。
-- 发布、证据与报告三个工作流的 job 共用同一个 `publish-calibration` 并发组，该配置写在 job 上，被 `if` 跳过的事件不占用队列；
-  运行中的任务从不取消。三者都写 `main`，证据与报告还写同一份 `evidence-ledger.json`，因此不能并行。
+- 发布工作流的两个 job（发布与补处理）共用 `publish-calibration` 并发组；证据工作流的 job（含它的定时 sweep）与报告工作流的 job
+  共用 `evidence-intake` 并发组。并发组写在 job 上，被 `if` 跳过的事件不占用队列；运行中的任务从不取消。
+  证据与报告写同一份 `evidence-ledger.json`，因此彼此不并行。两条通道分组，是因为报告与等待中、未受理的证据 Issue 一直打开，
+  每次编辑都会启动一个任务：与发布同组时，任何账号持续编辑这样一个 Issue，就能不断取消排队中的发布任务与补处理。
+  现在这样的编辑只能拖延证据通道，停止编辑后由证据 sweep 补处理。发布与证据通道都会写 `index.json`（证据写隔离提示），
+  两者可以同时运行：推送被拒绝时各自从最新的 `main` 重新判定（见下文「不执行 rebase」一条），不会丢失对方的更新。
 - `mirror-repository.yml` 在推送、每 30 分钟的定时任务，以及上述三个工作流任意一次运行结束后（不论结论，因为一次运行可能先推送再失败）
   把公开仓库的分支与标签同步到 GitCode 上的同名镜像。
 - 推送被拒绝时**不执行 rebase**。索引按提交 sha 指向码文件，rebase 会改写该提交，因此每次重试都从最新的 main 重新判定、
@@ -302,6 +306,7 @@ index.json                                   已发布校准码的索引（客�
 submissions.json                             提交台账：账号数字编号 → 校准码（客户端不下载）
 cn/<客户端版本>/<编号前12位>.mrc              校准码文本（客户端按提交 sha 下载）
 global/<客户端版本>/<编号前12位>.mrc
+tc/<客户端版本>/<编号前12位>.mrc
 templates/cn.2026.08.05.json                 随包模板的逐字节副本
 tools/                                       本目录的运行文件
 .github/ISSUE_TEMPLATE/share-calibration.yml  提交表单（字段 id: code）
@@ -370,6 +375,11 @@ pwsh -NoProfile -File scripts/run-python-tool-tests.ps1   # verify.ps1 的工具
 > `.github/workflows/report-calibration.yml`、`.github/workflows/mirror-repository.yml` 与四份 README 同步到公开仓库并推送；
 > 补建 `calibration-evidence`、`template-observation` 与四个证据结果标签（第 6 步）；添加 secret `GITCODE_MIRROR_TOKEN`（第 7 步）。
 > 证据台账 `evidence-ledger.json` 与补处理游标 `evidence-sweep.json` 由工作流第一次处理时创建并提交，不需要手工准备。
+>
+> **2026-11-03 审计修复需要补做的同步**，同样须先向用户确认：把 `sync_public_repo.py` 生成的 `tools/evidence_workflow.py`、
+> `tools/sharecode.py`、`.github/workflows/publish-calibration.yml`、`.github/workflows/evidence-calibration.yml`、
+> `.github/workflows/report-calibration.yml` 与四份 README 同步到公开仓库并推送。不需要新标签、secret，也不改写既有的索引与台账。
+> 同步后证据 sweep 会把仍打开的证据与报告 Issue 的机器人回复原地更新一次（英文结尾一句改了措辞）。
 
 以下每一步都会对外产生效果，**执行前逐项向用户确认**：
 

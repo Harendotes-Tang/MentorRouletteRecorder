@@ -203,6 +203,10 @@ public sealed class SharedCalibrationShareBackTests : IDisposable
         var shared = again.CalibrationStatus().Shared;
         Assert.Equal(SharedCandidateStatus.Verifying, Assert.Single(shared.Candidates, item => item.Sha12 == other.Sha[..12]).Status);
         Assert.DoesNotContain(shared.Candidates, item => item.Sha12 == code.Sha[..12] && item.Status != SharedCandidateStatus.Rejected);
+        // The re-arm that follows the withdrawal keeps what the withdrawal said (audit 2026-11-03, E-3): the code is listed
+        // as rejected and the last refusal names the revocation.
+        Assert.Contains(shared.Candidates, item => item.Sha12 == code.Sha[..12] && item.Status == SharedCandidateStatus.Rejected);
+        Assert.Equal("REVOKED", shared.LastRefusal);
         Assert.Equal(requests, _bed.Transport.Requests.Count);
     }
 

@@ -227,8 +227,12 @@ Item {
     /// underneath it. The shell binds this; alone, the page reserves nothing.
     property real reservedBottom: 0
     readonly property int rowsThatFit: {
-        const fixed = pageHeader.height + filterRow.height + (activeFilterRow.visible ? activeFilterRow.height : 0) + (batchBar.visible ? batchBar.height : 0) + (batchFeedback.visible ? batchFeedback.height : 0) + filterSeparator.height
-                    + tableHeader.height + pagerRow.height + contentColumn.spacing * (5 + (batchBar.visible ? 1 : 0) + (activeFilterRow.visible ? 1 : 0) + (batchFeedback.visible ? 1 : 0))
+        // Everything above the rows is measured where the layout put it - the
+        // header, the 记录区服 row, the filter bar and whatever of it is showing -
+        // rather than summed from a list that misses the next row added to it
+        // (review K3-1). Below the table header: the spacing before and after the
+        // rows, and the pagination row.
+        const fixed = tableHeader.y + tableHeader.height + contentColumn.spacing * 2 + pagerRow.height
                     + Math.max(0, page.reservedBottom)
         return Math.max(page.minimumRowsPerPage, Math.floor((page.height - fixed) / page.rowHeight))
     }
@@ -296,10 +300,16 @@ Item {
         const text = searchField.text.trim()
         if (text.length > 0) {
             filter.text = text
-            const names = typeof Runtime.names !== "undefined" && Runtime.names
+            // The names come from the language the text was typed in. While the
+            // text is unchanged the applied filter's names stand: this function
+            // runs again on every calendarChanged, and a language switch alone
+            // must not turn the same search into another filter (review K3-4).
+            const applied = Runtime.app.historyFilter || ({})
+            const names = applied.text === text ? (applied.name_exact || [])
+                          : typeof Runtime.names !== "undefined" && Runtime.names
                           ? Runtime.names.recordedSearchNames(text) : []
             if (names.length > 0)
-                filter.name_exact = names
+                filter.name_exact = Array.from(names)
         }
         const from = toUtcRange(fromField.text.trim(), false)
         const to = toUtcRange(toField.text.trim(), true)
@@ -621,6 +631,7 @@ Item {
 
                 StyledComboBox {
                     id: categoryBox
+                    objectName: "historyCategoryFilter"
                     width: Math.max(78, Math.ceil(typeLabelMetrics.advanceWidth) + 36
                                      + leftPadding + rightPadding)
                     // value: the Chinese category RunFilter.duty_category carries; label: as shown.

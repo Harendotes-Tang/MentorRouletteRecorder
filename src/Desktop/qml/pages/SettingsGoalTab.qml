@@ -86,6 +86,16 @@ ColumnLayout {
             tab.baselineText = String(Runtime.app.baselineCount)
             tab.goalText = String(Runtime.app.goalCount)
         }
+        // A region picked anywhere - this tab, the dashboard card's 修改, the
+        // first-run guide - drops the previous region's unsaved numbers: saved,
+        // they would be written onto the new region (review K1-2).
+        function onBaselineRegionChanged() {
+            tab.baselineErrorText = ""
+            tab.baselineText = String(Runtime.app.baselineCount)
+            tab.goalText = String(Runtime.app.goalCount)
+            // Last: refilling a focused field counts as typing in it.
+            tab.achievementEdited = false
+        }
         // The Collector's own refusal (ERR_REASON_REQUIRED, ERR_BAD_REQUEST …)
         // of this card's save is shown next to the field, not only in a toast
         // that scrolls away.

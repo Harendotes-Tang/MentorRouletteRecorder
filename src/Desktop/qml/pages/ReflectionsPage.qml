@@ -17,20 +17,52 @@ ColumnLayout {
     signal openRunRequested(var run)
     spacing: 16
 
+    // True while applyFilter hands its own filter over: the change comes straight
+    // back through filterChanged, trimmed, and mirroring it would delete the space
+    // the player just typed (review K1-4; HistoryPage does the same).
+    property bool applying: false
+
     function applyFilter() {
         if (!controller) return
         // Keep note words as typed and add the recorded names the text names.
         const text = search.text.trim()
         const filter = { text: text }
-        const names = typeof Runtime.names !== "undefined" && Runtime.names
+        // The names come from the language the text was typed in: while it is
+        // unchanged, the applied filter's names stand, so a language switch alone
+        // never turns the same search into another filter (review K3-4).
+        const applied = controller.filter || ({})
+        const names = applied.text === text ? (applied.name_exact || [])
+                      : typeof Runtime.names !== "undefined" && Runtime.names
                       ? Runtime.names.recordedSearchNames(text) : []
         if (names.length > 0)
-            filter.name_exact = names
+            filter.name_exact = Array.from(names)
+        // A note that is only a mood's word is shown as the mood's label in the
+        // interface language ("Rough" for 糟心); the label on screen asks the
+        // notes' body for the stored word, as name_exact does for names, and from
+        // the same language as the text (re-review RV6-3).
+        const body = applied.text === text && applied.reflection_text ? applied.reflection_text
+                     : page.storedMoodWord(text)
+        if (body.length > 0)
+            filter.reflection_text = body
         if (job.currentIndex > 0)
             filter.job_id = [job.model[job.currentIndex].job_id]
         if (category.currentIndex > 0)
             filter.duty_category = [category.model[category.currentIndex].value]
+        page.applying = true
         controller.setFilter(filter)
+        page.applying = false
+    }
+    /// The stored word (顺利 / 一般 / 糟心) whose mood label in the interface
+    /// language is \a text, ignoring case; empty for any other text.
+    function storedMoodWord(text) {
+        const moods = ["good", "ok", "bad"]
+        const words = ["顺利", "一般", "糟心"]
+        const folded = String(text).toLowerCase()
+        for (let i = 0; i < moods.length; ++i) {
+            if (folded.length > 0 && Theme.moodLabel(moods[i]).toLowerCase() === folded)
+                return words[i]
+        }
+        return ""
     }
     function dateLabel(run) {
         if (run.matched_at_utc)
@@ -43,7 +75,7 @@ ColumnLayout {
         return qsTr("游玩时间未知")
     }
     function syncFilters() {
-        if (!controller) return
+        if (!controller || page.applying) return
         search.text = controller.filter.text || ""
         const jobs = controller.filter.job_id || []
         job.currentIndex = 0
@@ -107,6 +139,7 @@ ColumnLayout {
         }
         StyledComboBox {
             id: category
+            objectName: "reflectionCategoryFilter"
             width: 110
             // value: the Chinese category RunFilter.duty_category carries; label: as shown.
             model: [{ value: null, label: qsTr("全部类型") }]
@@ -251,7 +284,10 @@ ColumnLayout {
                     Text {
                         objectName: "reflectionLibraryFullText"
                         Layout.fillWidth: true
-                        text: entry.reflection.text || ""
+                        // A note that is only a mood's word reads in the interface
+                        // language (re-review RV4-5).
+                        readonly property string moodWord: ["good", "ok", "bad"][["顺利", "一般", "糟心"].indexOf(entry.reflection.text)] || ""
+                        text: moodWord ? Theme.moodLabel(moodWord) : (entry.reflection.text || "")
                         textFormat: Text.PlainText
                         color: Theme.textPrimary
                         font.family: Qt.fontFamilies().indexOf("Noto Sans SC") >= 0

@@ -153,7 +153,8 @@
    空洞（或无法安全解码的报文）被放弃、且该连接的这一方向本次会话交出过当前档案能解析的报文（尚无任何方向交出过时
    一律计入），二者都作为 `EVENT_SEQUENCE_GAP` 交给状态机（§7.5），其他方向受损（例如聊天服务器连接的任一方向，
    或档案只解析服务器下发的报文时区域连接的上行方向）不在此列；抓包因错误停止
-   （监视器故障等，`end_reason = ERROR`），此时停止观察而玩家仍可能进本。取消或改排的消息可能恰在缺失的那一段之中，
+   （监视器故障等，`end_reason = ERROR`；自动路径恢复不得不更换一个已解出数据的监听会话时同样按错误停止收尾，
+   见 [capture-diagnostics.md](capture-diagnostics.md) §4），此时停止观察而玩家仍可能进本。取消或改排的消息可能恰在缺失的那一段之中，
    本次匹配与其后任何副本的关联不再可信。档案在会话中途变为不可用（§3.8），以及程序重启时发现的从未进本的
    未完结记录（§3.9），同样按此收尾。
 4. 档案不能区分副本区域（`is_duty_instance` 为 null）时，匹配窗口过后出现的任何
@@ -273,7 +274,7 @@
 触发条件：
 
 1. 游戏进程退出（崩溃或用户关闭客户端）；
-2. 抓包会话被用户停止、因错误停止，或 Collector 正常退出，而记录仍处于 `ENTERED_DUTY`；
+2. 抓包会话被用户停止、因错误停止（含自动路径恢复更换监听会话，§3.3 第 3 条），或 Collector 正常退出，而记录仍处于 `ENTERED_DUTY`；
 3. 事件序列出现明确空洞，无法继续可靠判定：有界队列溢出，或一条游戏连接的某个方向因无法补齐的空洞
    （或无法安全解码的报文）被放弃，该方向此后不再交出任何报文，且该方向本次会话交出过当前档案能解析的报文
    （尚无任何方向交出过时一律计入；其他方向受损不在此列，§7.5）。
@@ -284,8 +285,9 @@
 
 适用于上述任何条件均不满足、但必须收尾的情况，例如档案在会话中途变为不可用（`ProfileLost`）。
 已进入副本的记录此时 `result = UNKNOWN`，`detection_confidence = NONE`。尚未进本的匹配不进入本状态，
-而是按 §3.3 第 3 条收尾为 `CANCELLED_BEFORE_ENTRY`（`LOW`，待复核）：没有进本时间的 `UNKNOWN`
-记录无法被用户确认或补充说明（[manual-correction.md](manual-correction.md)）。
+而是按 §3.3 第 3 条收尾为 `CANCELLED_BEFORE_ENTRY`（`LOW`，待复核）：从未进本的匹配不是一次尝试，
+`CANCELLED_BEFORE_ENTRY` 如实说明它止于进本之前（[statistics-definitions.md](statistics-definitions.md) §2），
+`UNKNOWN` 则会把它写成一场结局不明的副本。
 
 实时采集链路目前不产生 `ProfileLost`，该事件只出现在离线重放测试样本中。在用档案在会话中途被撤下时
 （本机流量证伪、共享校准被撤回或对不上、用户选择不用共享校准或要求重新校准），进行中的记录按抓包停止的方式收尾
@@ -308,8 +310,8 @@ Collector 启动时：
    - 已进入副本（`entered_at_utc` 非空）的，置为 `result = INTERRUPTED`，并在 `run_events` 追加一条
      `PROCESS_RESTART` 事件，`to_state = INTERRUPTED_PENDING_REVIEW`；
    - 从未进入副本的，置为 `result = CANCELLED_BEFORE_ENTRY`（与 §3.3 第 3 条一致：这是一次无人看到结局的匹配），
-     `PROCESS_RESTART` 事件的 `to_state = CANCELLED_BEFORE_ENTRY`。这样的记录可以由用户确认或补充说明；
-     记为 `INTERRUPTED` 却没有进本时间的记录，确认、备注与更正都会被规则拒绝。
+     `PROCESS_RESTART` 事件的 `to_state = CANCELLED_BEFORE_ENTRY`。从未进本的匹配不是一次尝试：
+     记为 `INTERRUPTED` 会把它当作一场中途被打断的副本计入尝试次数（[statistics-definitions.md](statistics-definitions.md) §2）。
 3. 将所有仍处于打开状态的会话（本进程的会话除外）的 `ended_at_utc` 补为发现时间，
    `end_reason = UNKNOWN`；
 4. 通过 `GetDashboardStats.unfinished_pending_review` 与实时事件提示用户复核。
@@ -420,7 +422,7 @@ Collector 启动时：
 | 当前状态 | 事件 | 结果 |
 |---|---|---|
 | `IDLE`，持有未过期的指导者排本申请 | `MATCH_ANNOUNCED` | 开启记录进入 `MENTOR_MATCHED`。匹配时刻取通知的时刻，轮盘取申请；待定申请清空 |
-| `IDLE`，没有指导者申请 | `MATCH_ANNOUNCED` | **静默忽略**。可能是别的轮盘，也可能玩家是队员：没有申请就不知道排的是什么。不计解析错误 |
+| `IDLE`，没有指导者申请 | `MATCH_ANNOUNCED` | **静默忽略**。导随只能单人申请，没有本人的指导者申请，这次匹配就不是导随（是别的轮盘或别的排本方式）。不计解析错误 |
 | `MENTOR_MATCHED`（由通知开启） | `MATCH_ANNOUNCED` | `RefreshMatch`：有人拒绝后重新匹配，或一次匹配连发数条（该客户端连发 3–4 条），都是同一条记录，窗口随之前移。同一条记录最多刷新 16 次（`MaxAnnouncedRefreshes`），此后忽略，避免因误认频繁出现的报文而无限写入事件行 |
 | `MENTOR_MATCHED`（由通知开启） | `CONTENT_FINDER_POP`（即新的排本申请） | 上一条按「进本前取消」收尾（MEDIUM，不待复核）；新申请若为指导者轮盘则成为新的待定申请 |
 | `MENTOR_MATCHED`（由通知开启） | 进入已知副本 | 与 §3.2 相同，但窗口用下面的 `AnnouncedWindow` |
@@ -559,10 +561,11 @@ DecodedMessageQueue —— 有界队列（默认 4096，最小 512，最大 6553
       ▼
 LiveProtocolPipeline.Accept  —— 会话守卫 + 档案选择的持有者
       ▼
-ProfileMessageParser —— 档案驱动；唯一按内容识别的常量见 protocol-profile-format.md §12
+ProfileMessageParser —— 档案驱动；按内容识别的常量只有 protocol-profile-format.md §12、§13 两处
       │  SemanticEvent（ContentFinderPop / ZoneInitialization / DutyResult /
       │                 PlayerJob / TerritoryObserved / ZoneLeft / InstanceLeft /
-      │                 MatchCancelled）
+      │                 MatchCancelled / MatchAnnounced / DutyCommenced /
+      │                 DutyTimeRemaining）
       ▼
 SemanticEventProcessor —— 唯一一条"事件 → 数据库行"的路径
       │  ├─► MentorRunStateMachine （本文件第 3 节的规则）
@@ -589,14 +592,17 @@ LiveEventBus —— 每订阅者 256 条有界缓冲
 2. **通关结算**：绑定的档案按内容识别国服通关结算时（§3.4.1），先把报文与
    [protocol-profile-format.md](protocol-profile-format.md) §12 的固定内容比较。命中即产生胜利的
    `DutyResult`，计入成功，不再认领；不命中**不构成失败**，报文照常进入下一步。
-3. **认领**：查找一条 `(opcode, direction)` 相同的档案消息；档案若声明了 `segment_type`，
+3. **副本开始宣布与剩余时间**：绑定的档案属于国服（离线测试中另含合成档案）时，再把报文与
+   [protocol-profile-format.md](protocol-profile-format.md) §13 的两种固定内容比较。命中即产生
+   `DutyCommenced` 或 `DutyTimeRemaining`（用于判定进入方式，§3.14），不再认领；不命中同样**不构成失败**。
+4. **认领**：查找一条 `(opcode, direction)` 相同的档案消息；档案若声明了 `segment_type`，
    还必须相等。**找不到不构成失败**。档案只声明记录所需的少数几条消息，而客户端每分钟要发送数百个
    其他 opcode；将其计为失败会使诊断页显示"成功率 0.0%、失败 4298"，从而掩盖真正需要关注的
    长度、偏移与约束违规。因此认领失败走 `Ignore()`，单独计入"与记录无关"，
    既不进入错误环，也不写入 `parser_errors`。
-4. **长度**：报文体长度必须满足档案声明的 `expected_length` 或 `min_length`/`max_length`，
+5. **长度**：报文体长度必须满足档案声明的 `expected_length` 或 `min_length`/`max_length`，
    否则记 `E_LEN_MISMATCH`。
-5. **逐字段**：`offset + 大小` 必须落在**实际**报文体内。加载时已按声明长度检查过一遍，
+6. **逐字段**：`offset + 大小` 必须落在**实际**报文体内。加载时已按声明长度检查过一遍，
    此处是第二遍检查，不满足时记 `E_OFFSET_OOB`。读出的值必须满足 `constraints`，
    否则记 `E_FIELD_CONSTRAINT`。`bytes` 字段只做越界检查，内容不读入任何值。
    **例外**：档案将该字段声明为 `role: "selector"`（筛选器）时，约束不命中同样走

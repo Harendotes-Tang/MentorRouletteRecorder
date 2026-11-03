@@ -244,6 +244,13 @@ public sealed class CalibrationCoordinator
         {
             _carried = carried;
             _carriedSource = source;
+            // What the traffic disproved is kept at once, not only when a session adopts the evidence:
+            // 清空校准进度 before the first session drops the carried evidence unread, and must still keep
+            // these refused (audit 2026-11-03, C-2; re-review RV1-3).
+            if (carried is not null)
+            {
+                _disproved.UnionWith(carried.Rejections.DisprovedPopOpcodes);
+            }
         }
     }
 
@@ -257,8 +264,42 @@ public sealed class CalibrationCoordinator
     /// again (audit 2026-10-20, C-6).
     /// </summary>
     public CalibrationSnapshot? Evidence() => _observer?.Snapshot() is { } snapshot
-        ? snapshot with { Rejections = _rejections }
+        ? snapshot with
+        {
+            // Which of the refused pop opcodes the traffic disproved, so a restart can still tell them
+            // from what the player rejected (audit 2026-11-03, C-2).
+            Rejections = _rejections with { DisprovedPopOpcodes = new HashSet<ushort>(_disproved) },
+        }
         : null;
+
+    /// <summary>
+    /// What has to stay on disk after 清空校准进度 while no session observes: an empty snapshot carrying only the pop
+    /// opcodes the traffic disproved, or null when there are none, or when evidence is still being observed or carried
+    /// (those are written by the ordinary saves). Without it the discard deleted the only file that held them, and a
+    /// restart or a re-arm before the next session forgot them (audit 2026-11-03, C-2; re-review RV6-1). Nothing else
+    /// survives the discard: no observation, no rejection of the player's, no frequency list.
+    /// </summary>
+    public CalibrationSnapshot? DisprovedOnly() =>
+        _observer is null && _carried is null && _template is not null && _disproved.Count > 0
+            ? new CalibrationSnapshot(
+                string.Empty,
+                Array.Empty<FinderPairHit>(),
+                Array.Empty<PopHit>(),
+                Array.Empty<ZoneCluster>(),
+                new Dictionary<MessageKey, int>(),
+                new Dictionary<(PacketDirection, ushort), int>(),
+                new Dictionary<ushort, int>(),
+                0,
+                0,
+                0)
+            {
+                Rejections = CalibrationRejections.None with
+                {
+                    PopOpcodes = new HashSet<ushort>(_disproved),
+                    DisprovedPopOpcodes = new HashSet<ushort>(_disproved),
+                },
+            }
+            : null;
 
     /// <summary>Forgets everything; the build got a profile or the game went away for good.</summary>
     public void Disarm()
@@ -306,6 +347,14 @@ public sealed class CalibrationCoordinator
             {
                 _observer.AdoptEvidence(carried);
                 _rejections = Union(_rejections, carried.Rejections);
+                // What the traffic disproved in an earlier run stays apart from what the player rejected,
+                // so 清空校准进度 keeps it refused after a restart too (audit 2026-11-03, C-2).
+                _disproved.UnionWith(carried.Rejections.DisprovedPopOpcodes);
+                if (!_disproved.IsSubsetOf(_rejections.PopOpcodes))
+                {
+                    _rejections = _rejections with { PopOpcodes = _rejections.PopOpcodes.Union(_disproved).ToHashSet() };
+                }
+
                 _carried = null;
             }
 
@@ -443,6 +492,16 @@ public sealed class CalibrationCoordinator
         _completingInForce = messages;
         _draft = null;
         _draftAtMessage = -1;
+        if (completing && _state == CalibrationState.Done && _template is not null)
+        {
+            // The confirmation just written finished calibration without the job. The completing
+            // role starts now, on the same template and build, not at the next start of the
+            // Collector (audit 2026-11-03, C-3); the caller begins observing.
+            _observer = null;
+            _carried = null;
+            _state = CalibrationState.Idle;
+            _generation++;
+        }
     }
 
     /// <summary>
@@ -670,9 +729,10 @@ public sealed class CalibrationCoordinator
         return new CalibrationStatusSnapshot(
             // A finished profile that is quietly looking for the job reports IDLE, so the card
             // stays off the page: the player is recording, nothing is wrong, and there is
-            // nothing for them to do until the job can actually be added.
+            // nothing for them to do until the job can actually be added. One this run of the
+            // Collector just wrote still reads DONE, as any other confirmation does (C-3).
             _completing && _state != CalibrationState.Ready
-                ? CalibrationState.Idle
+                ? _localProfileId is null ? CalibrationState.Idle : CalibrationState.Done
                 : _state == CalibrationState.Idle && Armed ? CalibrationState.Waiting : _state,
             _build,
             _template?.Source.ProfileId,
@@ -712,7 +772,11 @@ public sealed class CalibrationCoordinator
             job && announced
                 ? CollectorTexts.CalibrationProvisionalJobAndPop()
                 : job
-                    ? CollectorTexts.CalibrationProvisionalJobOnly()
+                    // Beside a profile that reads the popup already, "recorded at queue time" is untrue,
+                    // as on the searching and the stuck card (audit 2026-11-03, C-5).
+                    ? _provisionalLacks.Contains(CalibratedShape.AnnouncedName)
+                        ? CollectorTexts.CalibrationProvisionalJobOnly()
+                        : CollectorTexts.CalibrationProvisionalJobOnlyPopup()
                     : CollectorTexts.CalibrationProvisionalPopOnly(),
         };
     }

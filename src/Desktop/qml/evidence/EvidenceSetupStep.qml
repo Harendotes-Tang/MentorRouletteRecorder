@@ -15,11 +15,15 @@ EvidenceStep {
 
     property bool preChecksOpen: false
 
+    // What the game is doing, whatever the round is doing; the advice to quit
+    // it, and the 可以开始, only while a round could be started (review K4-7).
     readonly property string gameTone: !step.session.npcapInstalled ? "bad"
                                        : step.session.gameRunning && step.session.idle ? "warn" : "ok"
     readonly property string gameText: !step.session.npcapInstalled ? qsTr("未安装 Npcap，暂时不能采证")
-                                       : step.session.gameRunning && step.session.idle ? qsTr("游戏正在运行：先完全退出游戏，再开始采证")
-                                       : qsTr("游戏未运行，可以开始")
+                                       : step.session.gameRunning
+                                       ? (step.session.idle ? qsTr("游戏正在运行：先完全退出游戏，再开始采证")
+                                                            : qsTr("游戏正在运行"))
+                                       : step.session.idle ? qsTr("游戏未运行，可以开始") : qsTr("游戏未运行")
     readonly property bool lockFields: step.session.active || Runtime.app.capturing || Runtime.app.captureCommandBusy
 
     number: 1
@@ -156,18 +160,35 @@ EvidenceStep {
             valueRole: "adapter_id"
             // Qt Quick Controls writes currentIndex before it emits activated, which
             // destroys an inline binding; the Binding keeps the box on the adapter
-            // StartCaptureValidation will actually be sent for.
+            // StartCaptureValidation will actually be sent for. Delayed, so a
+            // change of the rows themselves (an adapter that is gone gets one)
+            // cannot reset the box after the index was written.
             Binding {
                 target: adapterBox
                 property: "currentIndex"
                 value: step.session.adapterIndex(Runtime.app.captureAdapterId)
                 restoreMode: Binding.RestoreNone
+                delayed: true
             }
             enabled: !step.lockFields
             onActivated: function(index) {
                 Runtime.app.captureAdapterId = step.session.adapterChoices[index].adapter_id
             }
             Accessible.name: qsTr("采证网络适配器")
+        }
+
+        // The chosen adapter is no longer listed (review I4-2).
+        Item { visible: !step.session.adapterAvailable; implicitWidth: 1; implicitHeight: 1 }
+        Text {
+            objectName: "evidenceAdapterUnavailable"
+            Layout.fillWidth: true
+            Layout.maximumWidth: 360
+            visible: !step.session.adapterAvailable
+            textFormat: Text.PlainText
+            text: qsTr("之前选择的网卡现在不可用。请改选「自动选择」或其他网卡后再开始。")
+            color: Theme.orangeText
+            font.pixelSize: Theme.fs(12)
+            wrapMode: Text.Wrap
         }
     }
 

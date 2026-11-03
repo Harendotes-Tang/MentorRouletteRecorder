@@ -151,6 +151,73 @@ public sealed class CaptureValidationIpcTests
         Assert.Null((await fixture.CallAsync("GetCaptureValidationStatus")).Require()["trace_path"]);
     }
 
+    /// <summary>
+    /// Audit 2026-11-03, A2-5. Every waiting reason the validation can send is one the contract
+    /// declares, read from the controller's own source so a new one cannot be added unnoticed.
+    /// </summary>
+    [Fact]
+    public void EveryWaitingReasonTheValidationSendsIsInTheContract()
+    {
+        var code = File.ReadAllText(Path.Combine(ContractSchema.RepositoryRoot,
+            "src", "Collector", "Capture", "CaptureValidationController.cs"));
+        var reasons = System.Text.RegularExpressions.Regex.Matches(code, "Wait\\(\"([A-Z_]+)\"")
+            .Select(match => match.Groups[1].Value).Distinct().ToArray();
+        var declared = ContractSchema.Root["$defs"]!["CaptureValidationStatus"]!["properties"]!["reason"]!["enum"]!
+            .AsArray().Select(value => value!.GetValue<string>()).ToHashSet(StringComparer.Ordinal);
+
+        Assert.Contains("WAITING_REGION", reasons);
+        Assert.All(reasons, reason => Assert.Contains(reason, declared));
+    }
+
+    /// <summary>
+    /// Audit 2026-11-03, A2-5. The WAITING_REGION status itself, validated as it is sent. When the
+    /// region is unknown because a manual choice made for another installation contradicts this
+    /// client's path, the message says that rather than "the path names no region"
+    /// (re-review 2026-11-03, RV1-5).
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AValidationWaitingForTheRegionMatchesTheContract(bool contradictedChoice)
+    {
+        var capture = CaptureFakes.Ready(new FakeCaptureSource(), "2026.01");
+        var warnings = contradictedChoice
+            ? new[] { Contracts.Texts.CollectorTexts.CaptureGameRegionOverrideMismatch() }
+            : Array.Empty<Contracts.Texts.UserText>();
+        var expectedKey = contradictedChoice
+            ? Contracts.Texts.CollectorTexts.CaptureValidationWaitingRegionMismatch().Key
+            : Contracts.Texts.CollectorTexts.CaptureValidationWaitingRegion().Key;
+        var directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            using var controller = new CaptureValidationController(Path.Combine(directory, "test.db"), new(),
+                new CaptureValidationServices
+                {
+                    PollInterval = TimeSpan.FromMilliseconds(10),
+                    LocateGame = () => capture.Game.Locate() with { Region = Domain.Region.Unknown, Warnings = warnings },
+                    Trace = new CaptureTraceServices
+                    {
+                        Npcap = capture.Npcap, Game = capture.Game, Adapters = capture.Adapters,
+                        SourceFactory = () => new FakeCaptureSource(), TcpConnectionCounter = (_, _) => 0,
+                    },
+                });
+            controller.Start("{TEST-ADAPTER}");
+            Assert.True(SpinWait.SpinUntil(
+                () => controller.Snapshot()["reason"]!.GetValue<string>() == "WAITING_REGION", 5000),
+                controller.Snapshot().ToJsonString());
+
+            var status = controller.Snapshot();
+            ContractSchema.Validate("$defs/CaptureValidationStatus", status, "validation waiting for the region");
+            Assert.Equal(expectedKey, status["message_ref"]!["key"]!.GetValue<string>());
+            controller.Stop();
+        }
+        finally
+        {
+            try { Directory.Delete(directory, recursive: true); } catch (IOException) { }
+        }
+    }
+
     private static async Task<JsonObject> AwaitState(PipeClient client, string state)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));

@@ -711,8 +711,14 @@ public sealed class LifecycleProcessTests : IDisposable
             "--serve", "--db", databasePath, "--log-dir", occupied, "--json");
 
         Assert.Equal(3, refused.ExitCode);
-        Assert.Contains("日志目录", refused.StandardError, StringComparison.Ordinal);
         Assert.False(File.Exists(databasePath), "a refused instance must not create its database");
+
+        // The sentence names the folder and no command-line option, which the player never typed (audit 2026-11-03, G-4).
+        var reference = AssertStartupTextRef(refused.StandardError, "startup.log_dir_unwritable");
+        Assert.Equal(occupied, reference["args"]!["path"]!.GetValue<string>());
+        var lastLine = LastLine(refused.StandardError);
+        Assert.Contains(occupied, lastLine, StringComparison.Ordinal);
+        Assert.DoesNotContain("--log-dir", lastLine, StringComparison.Ordinal);
     }
 
     [Fact]

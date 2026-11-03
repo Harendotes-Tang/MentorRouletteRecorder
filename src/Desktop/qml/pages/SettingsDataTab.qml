@@ -12,6 +12,8 @@ ColumnLayout {
     spacing: 16
 
     readonly property var integrity: Runtime.app.integrityCheckResult || ({})
+    // A backup in progress: 立即备份 waits for its answer (audit 2026-11-03 K1-8).
+    readonly property bool backupRunning: Runtime.app.backupRunning === true
     signal openImportRequested()
     Component.onCompleted: Runtime.app.refreshHistoryRetentionSettings()
 
@@ -55,8 +57,9 @@ ColumnLayout {
                     readOnly: true
                     font.family: Theme.monoFamily
                     font.pixelSize: Theme.fs(12)
-                    text: Runtime.app.collectorStatus.database_path
-                          || "%LOCALAPPDATA%\\MentorRecorder\\mentor_recorder.db"
+                    // Only the path the Collector named: the folder differs by build and by
+                    // MR_DATA_DIR, so nothing is guessed before it answers (audit 2026-11-03 K1-9).
+                    text: Runtime.app.collectorStatus.database_path || Runtime.fmt.dash()
                 }
                 AppButton {
                     text: qsTr("打开目录")
@@ -122,7 +125,8 @@ ColumnLayout {
 
             AppButton {
                 objectName: "backupNowButton"
-                text: qsTr("立即备份")
+                text: tab.backupRunning ? qsTr("正在备份…") : qsTr("立即备份")
+                enabled: !tab.backupRunning
                 onClicked: Runtime.app.backupDatabase()
             }
             AppButton {

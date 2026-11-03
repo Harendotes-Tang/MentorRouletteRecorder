@@ -209,6 +209,9 @@ ApplicationWindow {
              : Runtime.app.recording.state === "calibrating" ? qsTr("校准中")
              : Runtime.app.recording.state === "calibration_ready" ? qsTr("待核对")
              : Runtime.app.recording.state === "calibration_blocked" ? qsTr("无法自动记录")
+             // The page badge's words for the same states (audit 2026-11-03 K1-7).
+             : Runtime.app.recording.state === "recovering" ? qsTr("自动寻找网络路径")
+             : Runtime.app.recording.state === "observing" ? qsTr("采证中")
              : Runtime.app.recording.blocked ? qsTr("无法自动记录") : qsTr("检查中")
     }
 
@@ -233,7 +236,12 @@ ApplicationWindow {
     // automatic prompt after a COMPLETED run goes through openForPrompt, which
     // tells the controller whether it really opened.
     function openReflection(run, kicker) {
-        if (reflectionDialog.visible || reflectionDialog.busy) return
+        // The editor is open for a record already, maybe in the popup beside
+        // the float: show it rather than doing nothing (audit 2026-11-03 K1-5).
+        if (reflectionDialog.visible || reflectionDialog.busy) {
+            window.raiseEditorHost()
+            return
+        }
         prepareReflection(false, false)
         reflectionDialog.openForRun(run, kicker || "")
     }
@@ -309,6 +317,9 @@ ApplicationWindow {
                 reflectionDialog.switchTo(run, kind)
                 return
             }
+            // Another record's open supersedes the page read still out: its
+            // reply is dropped, so nothing is awaited any more (audit 2026-11-03 L2-4).
+            reflectionDialog.pendingSwitchId = ""
             if (reflectionDialog.visible || reflectionDialog.busy) {
                 window.raiseEditorHost()
                 return

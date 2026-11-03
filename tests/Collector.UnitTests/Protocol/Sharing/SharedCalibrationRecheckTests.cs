@@ -464,9 +464,11 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
         Bed.Feed(pipeline, session, Bed.From(evening, 200_000));
         await Bed.Idle(pipeline);
 
-        // The duty was recorded in full and only then did the profile go, with its records flagged.
+        // The duty was recorded in full and only then did the profile go, with its records flagged. The re-arm that
+        // follows keeps what the withdrawal said (audit 2026-11-03, E-3).
         Assert.False(File.Exists(_bed.SharedProfilePath));
         Assert.Null(pipeline.CalibrationStatus().Shared.ProfileId);
+        Assert.Equal("REVOKED", pipeline.CalibrationStatus().Shared.LastRefusal);
         Assert.True(pipeline.CalibrationArmed);
         var recorded = Assert.Single(new RunRepository(_bed.Db.Database).Query(null, null, 1, 50).Items);
         Assert.NotNull(recorded.EndedAtUtc);

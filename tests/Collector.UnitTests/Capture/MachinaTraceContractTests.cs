@@ -49,23 +49,34 @@ public sealed class MachinaTraceContractTests
 
     /// <summary>
     /// The fatal markers that come from Machina rather than from SharpPcap are pinned the same
-    /// way. <c>PcapException</c> and <c>Error opening</c> are deliberately absent from this
-    /// list: they are SharpPcap's, and matching them is a separate contract.
+    /// way, read from the list the product matches on, so a misspelt or invented marker fails
+    /// here (audit 2026-11-03, A3-3). <c>PcapException</c> and <c>Error opening</c> are SharpPcap's,
+    /// kept in a list of their own: matching them is a separate contract.
     /// </summary>
-    [Theory]
-    [InlineData("Cannot load")]
-    [InlineData("Unable to retrieve network data")]
-    [InlineData("Cannot find one or more signatures")]
-    [InlineData("OodleNative_Ffxiv: ffxiv_dx11 executable at path")]
-    [InlineData("does not exist")]
-    public void MachinaStillContainsTheFatalTraceMarkersThisBuildMatchesOn(string marker)
+    [Fact]
+    public void MachinaStillContainsTheFatalTraceMarkersThisBuildMatchesOn()
     {
         var image = File.ReadAllBytes(MachinaAssembly().Location);
+        var markers = MachinaCaptureSource.MachinaFatalTraceMarkers
+            .Concat(MachinaCaptureSource.MissingExecutableTraceMarkers).ToArray();
 
-        Assert.True(
-            Contains(image, Encoding.Unicode.GetBytes(marker)),
-            "Machina.FFXIV " + PinnedVersion + " no longer contains the fatal trace marker \"" +
-            marker + "\"; a capture that died on startup would read as merely idle.");
+        Assert.NotEmpty(MachinaCaptureSource.MachinaFatalTraceMarkers);
+        foreach (var marker in markers)
+        {
+            Assert.True(
+                Contains(image, Encoding.Unicode.GetBytes(marker)),
+                "Machina.FFXIV " + PinnedVersion + " no longer contains the fatal trace marker \"" +
+                marker + "\"; a capture that died on startup would read as merely idle.");
+        }
+    }
+
+    [Fact]
+    public void EveryFatalTraceMarkerIsEitherMachinasOrSharpPcaps()
+    {
+        Assert.Equal(
+            MachinaCaptureSource.MachinaFatalTraceMarkers.Concat(MachinaCaptureSource.SharpPcapFatalTraceMarkers),
+            MachinaCaptureSource.FatalTraceMarkers);
+        Assert.Empty(MachinaCaptureSource.MachinaFatalTraceMarkers.Intersect(MachinaCaptureSource.SharpPcapFatalTraceMarkers));
     }
 
     private static Assembly MachinaAssembly()

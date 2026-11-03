@@ -187,7 +187,8 @@ public sealed partial class LiveProtocolPipeline
             return selection.Profile is { } profile && _withdrawnLocalProfiles.Contains(profile.ProfileId)
                 ? new ProfileSelection(
                     ProfileCompatibilityStatus.Unsupported, ProfileBinding.FailClosed, null,
-                    selection.Region, selection.GameBuild, ProfileSelector.NoProfileMatchesReason)
+                    selection.Region, selection.GameBuild, ProfileSelector.NoProfileMatchesReason,
+                    ReasonCode: ProfileSelectionReason.NoMatch)
                 : selection;
         };
 

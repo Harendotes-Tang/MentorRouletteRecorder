@@ -159,4 +159,39 @@ public sealed class CalibrationQueueNoiseTests
         Assert.Equal(2, snapshot.Pairs.Count(pair => pair.RequestOpcode == CalibrationTrafficCases.Request));
         Assert.Equal(CalibrationTrafficCases.Request, CalibrationDraft.DominantRequest(snapshot.Pairs));
     }
+
+    /// <summary>
+    /// Audit 2026-11-03, C-4. "Seen more than 2000 times" is a test of one capture session, as
+    /// docs/protocol-profile-format.md §11.3 says: the movement packet passes it within minutes of play.
+    /// Counted over the evidence's whole life instead, the real request and reply opcodes crossed it
+    /// after weeks of evidence carried from session to session, and the search stopped pairing and
+    /// locking while the card still said it was looking.
+    /// </summary>
+    [Fact]
+    public void AnOpcodeSentOftenOnlyAcrossManySessionsIsStillTheQueueRequest()
+    {
+        const string nextEvening = "next-evening";
+        var earlier = CalibrationTrafficCases.Observe(CalibrationTrafficCases.Traffic(CalibrationTrafficCases.QueueRequest));
+        var counts = new Dictionary<(PacketDirection Direction, ushort Opcode), int>(earlier.OpcodeCounts)
+        {
+            [(PacketDirection.ClientToServer, CalibrationTrafficCases.Request)] = CalibrationDraft.MaxCandidateOccurrences - 1,
+            [(PacketDirection.ServerToClient, CalibrationTrafficCases.Reply)] = CalibrationDraft.MaxCandidateOccurrences - 1,
+        };
+        var observer = new CalibrationObserver(CalibrationObserverTests.Template(), Domain.Region.Cn, nextEvening);
+        observer.AdoptEvidence(earlier with { OpcodeCounts = counts });
+
+        foreach (var message in CalibrationTrafficCases.SecondQueue(roulette: 3, at: 600_000)
+                     .Concat(CalibrationTrafficCases.SecondQueue(roulette: 4, at: 700_000)))
+        {
+            observer.Accept(message with { CaptureSessionId = nextEvening });
+        }
+
+        observer.Flush();
+        var snapshot = observer.Snapshot();
+
+        Assert.Equal(earlier.Pairs.Count + 2, snapshot.Pairs.Count);
+        var draft = CalibrationDraft.Derive(snapshot, CalibrationObserverTests.Template());
+        Assert.Equal(CalibrationDraftStatus.Ready, draft.Status);
+        Assert.Equal(CalibrationTrafficCases.Request, draft.FinderRequestOpcode);
+    }
 }

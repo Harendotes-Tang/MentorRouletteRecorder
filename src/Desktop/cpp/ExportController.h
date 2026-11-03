@@ -34,6 +34,12 @@ public:
     /// on a modal dialog.
     void setTargetOverride(const QString &directory);
     QString targetOverride() const { return m_targetOverride; }
+    /// Test seam: stands in for the save dialog, which has confirmed replacing whatever path
+    /// it returns (\a suggestedPath, \a filter as the dialog gets them; empty is 取消).
+    void setSaveDialogForTesting(std::function<QString(const QString &suggestedPath, const QString &filter)> dialog)
+    {
+        m_saveDialog = std::move(dialog);
+    }
 
     /// The filter QueryRuns is currently showing, so an export covers exactly
     /// the rows the user is looking at.
@@ -44,7 +50,10 @@ public:
 
     void exportCsv();
     void exportJson();
+    /// 立即备份 and the daily backup. Ignored while one runs: each would write another copy
+    /// and push the oldest kept one out of the managed folder (audit 2026-11-03 K1-8).
     void backupDatabase();
+    bool backupRunning() const { return m_backupRunning; }
     void exportDiagnosticsReport();
     /// Open the folder holding the database in the system file manager.
     /// \a databasePath is GetStatus.database_path; empty falls back to the
@@ -75,10 +84,16 @@ Q_SIGNALS:
     /// A BackupDatabase request completed and the Collector confirmed the copy.
     /// The daily auto-backup stamps its date from this, never from the attempt.
     void backupSucceeded();
+    void backupRunningChanged();
     void integrityCheckChanged();
 
 private:
-    QString chooseExportPath(const QString &suggestedName, const QString &filter);
+    /// The path to write, and in \a confirmedReplace whether the user already agreed to replace a
+    /// file there: the save dialog asks about an existing one; the --export-target folder never did.
+    QString chooseExportPath(const QString &suggestedName, const QString &filter, bool *confirmedReplace);
+
+    std::function<QString(const QString &, const QString &)> m_saveDialog;
+    bool m_backupRunning = false;
 
     IBackend *m_backend = nullptr;
     QJsonObject m_historyFilter;

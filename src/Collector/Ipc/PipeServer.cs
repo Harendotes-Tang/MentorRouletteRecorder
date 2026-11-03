@@ -11,7 +11,8 @@ namespace MentorRecorder.Collector.Ipc;
 /// The Named Pipe server. The only inbound surface this process has.
 ///
 /// It is a pipe, not a socket: nothing binds a port, nothing listens on the network, and the
-/// ACL grants the current user's SID alone.
+/// ACL grants the current user's SID alone. Run elevated, the Collector also labels the pipe
+/// High, so the user's ordinary processes cannot open it either (<see cref="PipeIntegrityLabel"/>).
 ///
 /// The restriction is an explicit <see cref="PipeSecurity"/> with a single allow rule rather
 /// than <see cref="PipeOptions.CurrentUserOnly"/>, because .NET refuses the two together
@@ -46,8 +47,12 @@ public sealed class PipeServer : IAsyncDisposable
     /// How long a connection may go without a single byte in either direction before it is
     /// closed.
     ///
-    /// This is not a privilege boundary. The ACL grants the current user's SID alone, so
-    /// whoever can open the pipe could also end this process or delete the database outright.
+    /// This is not a privilege boundary. The ACL grants the current user's SID alone, and an
+    /// elevated Collector labels the pipe High (<see cref="PipeIntegrityLabel"/>), so whoever can
+    /// open the pipe runs as this user - and, for an elevated Collector, elevated too - and could
+    /// also end this process or delete the database outright. Without that label an elevated
+    /// Collector would be reachable from the user's ordinary processes, for which this did not
+    /// hold (audit 2026-11-03, G-1).
     /// What the deadline buys is robustness: a client that connects and then freezes -- a
     /// wedged Desktop, a process stopped at a breakpoint, a tool that forgot to close -- holds
     /// one of <see cref="MaxConcurrentConnections"/> instances for as long as it lives, and
@@ -92,6 +97,7 @@ public sealed class PipeServer : IAsyncDisposable
     private readonly string _pipeName;
     private readonly TimeSpan _idleTimeout;
     private readonly Action<string, Exception?>? _log;
+    private readonly int? _label = PipeIntegrityLabel.ForThisProcess();
     private readonly CancellationTokenSource _stopping = new();
     private readonly List<Task> _workers = new();
     private int _accepted;
@@ -303,25 +309,80 @@ public sealed class PipeServer : IAsyncDisposable
 
     private NamedPipeServerStream CreateStream()
     {
-        var security = new PipeSecurity();
         using var identity = WindowsIdentity.GetCurrent();
         var user = identity.User
             ?? throw new CollectorException(
                 ErrorCodes.Internal, CollectorTexts.StartupPipeAclSidUnknown());
 
-        // Exactly one entry. No Everyone, no Authenticated Users, no NETWORK.
-        security.AddAccessRule(new PipeAccessRule(user, PipeAccessRights.FullControl, AccessControlType.Allow));
+        return CreatePipeInstance(_pipeName, user, _label);
+    }
 
-        return NamedPipeServerStreamAcl.Create(
-            _pipeName,
+    /// <summary>
+    /// One instance of the pipe, granted to <paramref name="user"/> alone and, when <paramref name="label"/> is given,
+    /// labelled at that mandatory level (<see cref="PipeIntegrityLabel"/>). The instance that creates a labelled pipe is
+    /// created shut - its access list denies the user - and gets the label and its one grant together, so no client
+    /// opens it in between. Every later instance shares that security, whatever it passes itself, and Windows refuses it
+    /// the owner rights a label takes: it is served only when the pipe is found to carry the label.
+    /// </summary>
+    /// <param name="pipeName">Bare pipe name.</param>
+    /// <param name="user">The only identity granted access.</param>
+    /// <param name="label">The mandatory level, or null for none: the pipe of a Collector that is not elevated.</param>
+    private static NamedPipeServerStream CreatePipeInstance(string pipeName, SecurityIdentifier user, int? label)
+    {
+        // Exactly one entry. No Everyone, no Authenticated Users, no NETWORK.
+        var security = new PipeSecurity();
+        security.AddAccessRule(new PipeAccessRule(user, PipeAccessRights.FullControl, AccessControlType.Allow));
+        if (label is not { } level)
+        {
+            return Create(pipeName, security, additionalAccessRights: 0);
+        }
+
+        var shut = new PipeSecurity();
+        shut.AddAccessRule(new PipeAccessRule(user, PipeAccessRights.FullControl, AccessControlType.Deny));
+        NamedPipeServerStream stream;
+        var first = true;
+        try
+        {
+            stream = Create(pipeName, shut, PipeAccessRights.ChangePermissions | PipeAccessRights.TakeOwnership);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            stream = Create(pipeName, shut, additionalAccessRights: 0);
+            first = false;
+        }
+
+        try
+        {
+            if (first)
+            {
+                PipeIntegrityLabel.Apply(stream.SafePipeHandle, security, level);
+            }
+            else if (!PipeIntegrityLabel.Holds(stream.SafePipeHandle, level))
+            {
+                throw new IOException("the pipe this instance joined does not carry the integrity label");
+            }
+
+            return stream;
+        }
+        catch
+        {
+            stream.Dispose();
+            throw;
+        }
+    }
+
+    private static NamedPipeServerStream Create(string pipeName, PipeSecurity security, PipeAccessRights additionalAccessRights) =>
+        NamedPipeServerStreamAcl.Create(
+            pipeName,
             PipeDirection.InOut,
             MaxConcurrentConnections,
             PipeTransmissionMode.Byte,
             PipeOptions.Asynchronous | PipeOptions.WriteThrough,
             inBufferSize: 64 * 1024,
             outBufferSize: 64 * 1024,
-            security);
-    }
+            security,
+            HandleInheritability.None,
+            additionalAccessRights);
 
     private async Task ServeAsync(NamedPipeServerStream stream, CancellationToken serverToken)
     {

@@ -165,6 +165,7 @@ Item {
 
                 CaptureToolsPanel {
                     parent: notices.calibrationSideColumn || lowerRow
+                    evidenceSession: evidencePage.session
                     Layout.fillWidth: true
                     Layout.preferredWidth: lowerRow.columns === 2
                         ? lowerRow.available - Math.round(lowerRow.available * 2 / 3) : contentColumn.width

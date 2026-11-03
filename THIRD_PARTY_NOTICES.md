@@ -227,8 +227,15 @@ FINAL FANTASY XIV 是 SQUARE ENIX CO., LTD. 的商标。
   引用地址已记录在 [`docs/third-party-licenses.md`](docs/third-party-licenses.md) §8。
 - `data/duties/`、`data/jobs/` 中的 id ↔ 名称映射为本项目自行整理的公开信息，
   每个文件需注明来源；**不复制游戏数据文件**。
+- 随包的国服协议档案 `protocol-profiles/cn/cn.2026.08.05.json` 在证据记录中引用了两个公开项目，均只作参考、
+  未复制代码：**karashiiro/FFXIVOpcodes**（<https://github.com/karashiiro/FFXIVOpcodes>，`opcodes.json` 中国服 7.55a 的
+  opcode 与长度，`ZONE_TERRITORY` 与 `PLAYER_JOB` 两条消息的 opcode 另经本机抓包核对），以及
+  **SapphireServer/Sapphire**（<https://github.com/SapphireServer/Sapphire>，`ServerZoneDef.h` 中的公开结构体定义，
+  是 `ZONE_TERRITORY.territory_id` 与 `PLAYER_JOB.job_id` 两个字段偏移的唯一出处）。这两个偏移尚未用本机报文样本核对，
+  只影响区域与职业的显示；Sapphire 的许可证本项目尚未核对，是否改以本机样本作为依据由维护者决定
+  （见 [`docs/protocol-profile-format.md`](docs/protocol-profile-format.md) §5）。
 
-### `data/duties/*.json` 的两个上游
+### `data/duties/*.json` 的上游
 
 由 `tools/duty-data-generator/generate.py` 生成。逐页 URL、抓取时间、行数与原始下载的
 SHA-256 均记录在每个文件的 `provenance` 中。**原始下载不纳入仓库。**
@@ -237,6 +244,7 @@ SHA-256 均记录在每个文件的 `provenance` 中。**原始下载不纳入�
 |---|---|---|
 | **XIVAPI v2**（<https://v2.xivapi.com>） | 英文名、`TerritoryType`、`ContentType`、等级需求 | 公开的只读 API；社区服务，本身不拥有游戏数据的版权 |
 | **thewakingsands/ffxiv-datamining-cn**（<https://github.com/thewakingsands/ffxiv-datamining-cn>） | 简体中文名（`ContentFinderCondition.csv`） | ⚠️ **没有 LICENSE 文件** |
+| **thewakingsands/ffxiv-datamining-tc**（<https://github.com/thewakingsands/ffxiv-datamining-tc>） | 繁中服副本表 `data/duties/tc.<version>.json` 与随机任务表 `data/roulettes/tc.json`（固定提交的台湾繁体中文版客户端社区导出）；`data/jobs/jobs.json` 的 `aliases_zh_tw`（繁中服客户端的职业名，只用于导入识别） | ⚠️ **没有 LICENSE 文件**，按与 `ffxiv-datamining-cn` 相同的方式处理 |
 
 > **未决的许可问题**：2026-09-04 核对，
 > `GET /repos/thewakingsands/ffxiv-datamining-cn` 返回 `license: null`，
@@ -244,7 +252,7 @@ SHA-256 均记录在每个文件的 `provenance` 中。**原始下载不纳入�
 > 本项目仅保存由其派生的 `content_id → 中文名` 映射，
 > 且映射的原始内容为 © SQUARE ENIX 的游戏文本。
 >
-> 在该问题解决之前，`data/duties/cn.<version>.json` 应视为可随时移出仓库、
+> `ffxiv-datamining-tc` 的情况相同。在该问题解决之前，`data/duties/cn.<version>.json` 与 `tc.<version>.json` 应视为可随时移出仓库、
 > 改为安装时在本地生成的数据。详见
 > [`data/duties/README.md`](data/duties/README.md) 与
 > [`docs/third-party-licenses.md`](docs/third-party-licenses.md)。

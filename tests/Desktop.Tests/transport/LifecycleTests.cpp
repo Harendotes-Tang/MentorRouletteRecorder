@@ -200,11 +200,20 @@ void crashChild(mr::CollectorProcess &collector)
         process->closeWriteChannel();
 }
 
-/// Write \a pid into a serve.pid file inside \a directory, the way the
-/// Collector records the holder of the per-user serve lease.
+/// The pid file the child of this build writes: serve.pid, or the development
+/// pipe's own file (CollectorProcess::servePidFileName, BuildFlavourTests).
+QString servePidName()
+{
+    const QString pipe = mr::ipc::currentUserPipeName();
+    return mr::build::isDevelopmentBuild() && !pipe.isEmpty()
+        ? QStringLiteral("serve.%1.pid").arg(pipe) : QStringLiteral("serve.pid");
+}
+
+/// Write \a pid into this build's serve.pid file inside \a directory, the way
+/// the Collector records the holder of the per-user serve lease.
 bool writeServePid(const QString &directory, qint64 pid)
 {
-    QFile file(QDir(directory).absoluteFilePath(QStringLiteral("serve.pid")));
+    QFile file(QDir(directory).absoluteFilePath(servePidName()));
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
         return false;
     file.write(QByteArray::number(pid));
@@ -216,7 +225,7 @@ bool writeServePid(const QString &directory, qint64 pid)
 /// ago", which is the one state in which nothing may be ended.
 bool ageServePid(const QString &directory, qint64 milliseconds)
 {
-    QFile file(QDir(directory).absoluteFilePath(QStringLiteral("serve.pid")));
+    QFile file(QDir(directory).absoluteFilePath(servePidName()));
     if (!file.open(QIODevice::ReadWrite))
         return false;
     const bool ok = file.setFileTime(QDateTime::currentDateTime().addMSecs(-milliseconds),
@@ -312,6 +321,7 @@ private Q_SLOTS:
     void anAbortedTakeoverCannotContinueInsideANewAttempt();
     void anAbortedPoliteKillTimerCannotContinueInsideANewAttempt();
     void aHolderThatRefusesToBeEndedIsReportedRatherThanClaimedEnded();
+    void eachTakeoverCountsOnceAgainstTheCap();
     void anUnresponsiveHolderExitAsksBeforeItEndsAnything();
     void aVanishedHolderJustLetsOurOwnChildTakeTheLease();
     void aFailedRequestFromADestroyedBackendNeverReachesAController();
@@ -636,10 +646,25 @@ void LifecycleTests::theServeLeasePidIsReadFromTheCollectorsDataDirectory()
     QCOMPARE(mr::CollectorProcess::readServeLeasePid(), static_cast<qint64>(0));
 
     // And the logs/ layout is looked at as well.
-    QFile::remove(QDir(directory.path()).absoluteFilePath(QStringLiteral("serve.pid")));
+    QFile::remove(QDir(directory.path()).absoluteFilePath(servePidName()));
     QVERIFY(QDir(directory.path()).mkpath(QStringLiteral("logs")));
     QVERIFY(writeServePid(QDir(directory.path()).absoluteFilePath(QStringLiteral("logs")), 77));
     QCOMPARE(mr::CollectorProcess::readServeLeasePid(), static_cast<qint64>(77));
+
+    // A development child serves its own pipe and writes that pipe's file; the bare
+    // serve.pid beside a shared MR_DATA_DIR is the installed Collector's, never ours
+    // to stop, list or end (review I5-2).
+    if (mr::build::isDevelopmentBuild() && !mr::ipc::currentUserPipeName().isEmpty()) {
+        QCOMPARE(QFileInfo(mr::CollectorProcess::serveLeasePidPath()).fileName(), servePidName());
+        QVERIFY(QFile::remove(QDir(directory.path()).absoluteFilePath(
+            QStringLiteral("logs/") + servePidName())));
+        QFile installed(QDir(directory.path()).absoluteFilePath(QStringLiteral("logs/serve.pid")));
+        QVERIFY(installed.open(QIODevice::WriteOnly | QIODevice::Text));
+        installed.write("5151");
+        installed.close();
+        QCOMPARE(mr::CollectorProcess::readServeLeasePid(), static_cast<qint64>(0));
+        QVERIFY(mr::CollectorProcess::serveLeasePidPath().isEmpty());
+    }
 
     qputenv("MR_DATA_DIR", previous);
 }
@@ -819,7 +844,7 @@ void LifecycleTests::aHolderThatLeavesOnItsOwnIsNeverEnded()
     QVERIFY(!collector.isRunning());
 
     // The holder acts on the stop event and removes its serve.pid on the way out.
-    QVERIFY(QFile::remove(QDir(data.path()).absoluteFilePath(QStringLiteral("serve.pid"))));
+    QVERIFY(QFile::remove(QDir(data.path()).absoluteFilePath(servePidName())));
 
     QTRY_VERIFY_WITH_TIMEOUT(collector.isRunning(), 5000);
     QVERIFY2(calls.isEmpty(), "the holder left on its own; nothing may have been run at it");
@@ -1056,6 +1081,63 @@ void LifecycleTests::aHolderThatRefusesToBeEndedIsReportedRatherThanClaimedEnded
     QVERIFY(!message.contains(QString::fromUtf8("已结束它")));
 
     qputenv("MR_DATA_DIR", previous);
+}
+
+/// One takeover - list, ask, end, relaunch - is one of the kMaxTakeoverAttempts.
+///
+/// The child started after a takeover can lose the race for the freed lease, and the
+/// ended holder never removed its serve.pid. The next round must then still find the
+/// holder gone and start our own child, instead of having spent two attempts on the
+/// first round and reporting 「占用者无响应」 with nobody there (review I5-4).
+void LifecycleTests::eachTakeoverCountsOnceAgainstTheCap()
+{
+    QTemporaryDir data;
+    QVERIFY(data.isValid());
+    const QByteArray previous = qgetenv("MR_DATA_DIR");
+    const auto restore = qScopeGuard([previous] { qputenv("MR_DATA_DIR", previous); });
+    qputenv("MR_DATA_DIR", QFile::encodeName(data.path()));
+    QVERIFY(writeServePid(data.path(), 424242));
+    QVERIFY(ageServePid(data.path(), 60000));
+
+    // No executable: every relaunch is a start() that changes nothing on the machine.
+    mr::CollectorProcess collector(data.filePath(QStringLiteral("absent.exe")), nullptr);
+    collector.setStopEventNameForTest(isolatedStopEventName());
+    collector.setTakeoverTimingsForTest(0, 0);
+    bool holderAlive = true;
+    collector.setToolRunnerForTest([&holderAlive](const QString &tool, const QStringList &arguments) {
+        if (tool == QStringLiteral("tasklist.exe")) {
+            return mr::CollectorProcess::ToolResult{
+                .exitCode=0,
+                .output=holderAlive ? QStringLiteral("\"MentorRecorder.Collector.exe\",\"424242\","
+                                                     "\"Console\",\"1\",\"31 K\"\r\n")
+                                    : QString::fromUtf8("信息: 没有运行的任务匹配指定标准。")};
+        }
+        if (arguments.contains(QStringLiteral("/F")))
+            holderAlive = false;
+        return mr::CollectorProcess::ToolResult{.exitCode=0, .output=QString()};
+    });
+    QSignalSpy takeovers(&collector, &mr::CollectorProcess::leaseTakeover);
+
+    // Round 1: the wedged holder is ended and our own child started.
+    collector.requestServeLeaseTakeover();
+    QTRY_COMPARE_WITH_TIMEOUT(takeovers.count(), 1, 4000);
+    QVERIFY(takeovers.at(0).at(1).toString().contains(QString::fromUtf8("已结束它")));
+
+    // Rounds 2 and 3: the stale serve.pid names nobody now, so each relaunches.
+    for (int round = 2; round <= mr::CollectorProcess::kMaxTakeoverAttempts; ++round) {
+        collector.requestServeLeaseTakeover();
+        QTRY_COMPARE_WITH_TIMEOUT(takeovers.count(), round, 4000);
+        QVERIFY(takeovers.last().at(0).toBool());
+        QVERIFY2(takeovers.last().at(1).toString().contains(QString::fromUtf8("已重新启动采集服务")),
+                 qPrintable(takeovers.last().at(1).toString()));
+        QVERIFY2(!collector.statusText().contains(QString::fromUtf8("占用者无响应")),
+                 qPrintable(collector.statusText()));
+    }
+
+    // The cap still bounds it: a fourth request before any connection does nothing.
+    collector.requestServeLeaseTakeover();
+    QTest::qWait(100);
+    QCOMPARE(takeovers.count(), mr::CollectorProcess::kMaxTakeoverAttempts);
 }
 
 /// Exit code 6 says the lease holder did not answer a probe. It does not say

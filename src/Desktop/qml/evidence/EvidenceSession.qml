@@ -71,6 +71,9 @@ QtObject {
     // Nothing of a round to show: the clock, the counters and the summary rest.
     readonly property bool blank: phase === "idle" || phase === "cancelled"
     readonly property bool saved: phase === "saved"
+    // A round that is over with something to hand over: saved, or failed with
+    // whatever it left (review K4-4: 失败也照样回传已有的文件).
+    readonly property bool ended: phase === "saved" || phase === "failed"
 
     // The game, as the Collector last saw it (GetStatus.game).
     readonly property bool gameRunning: Runtime.app.ffxivRunning
@@ -79,6 +82,7 @@ QtObject {
     readonly property bool formalRecording: Runtime.app.capturing
                                             && Runtime.app.protocolProfileStatus === "VERIFIED"
     readonly property bool canStart: idle && npcapInstalled && !gameRunning && !formalRecording
+                                     && adapterAvailable
                                      && Runtime.app.templateObservationActionEnabled
                                      && !Runtime.app.captureCommandBusy
 
@@ -107,7 +111,39 @@ QtObject {
 
     // ----------------------------------------------------- readability --
     // 报文 never arriving, or decode failures outrunning them: stop and export.
-    readonly property bool stalled: recording && messageCount === 0 && elapsedSeconds >= 60
+    // The Collector starts recording at the title screen, where the game holds
+    // no connection and nothing can arrive (review K4-1). The 60 s therefore run
+    // from the first status that counts a TCP connection of the game
+    // (GetStatus.capture.network_path), never from the start of the recording;
+    // an unmeasured path (null counts) starts nothing.
+    readonly property bool gameConnected: {
+        const path = Runtime.app.captureStatus.network_path
+        if (!path)
+            return false
+        const total = Number(path.ipv4_connections || 0) + Number(path.ipv6_connections || 0)
+                      - Number(path.loopback_connections || 0)
+        return total > 0
+    }
+    // Date.now() of that first status in this round; 0 while there has been none.
+    property real connectedSince: 0
+    function noteConnection() {
+        if (session.recording && session.gameConnected && session.connectedSince === 0)
+            session.connectedSince = Date.now()
+    }
+    onGameConnectedChanged: session.noteConnection()
+    onRecordingChanged: session.noteConnection()
+    readonly property int connectedSeconds: session.connectedSince > 0
+                                            ? Math.max(0, Math.floor((session.clock.now - session.connectedSince) / 1000)) : 0
+    // While a recording has counted nothing and the game is not yet known to be
+    // online, GetStatus is read now and then: during a 采证 round nothing else
+    // reads it (the recording controller is paused).
+    readonly property Timer connectionProbe: Timer {
+        interval: 10000
+        repeat: true
+        running: session.recording && session.messageCount === 0 && session.connectedSince === 0
+        onTriggered: Runtime.app.refreshStatus()
+    }
+    readonly property bool stalled: recording && messageCount === 0 && connectedSince > 0 && connectedSeconds >= 60
     readonly property bool decodeStorm: recording && decodeErrors !== null && decodeErrors > 0
                                         && decodeErrors >= Math.max(10, messageCount || 0)
     readonly property bool anomaly: stalled || decodeStorm
@@ -134,7 +170,8 @@ QtObject {
         case "cancelling": return 2
         case "capturing": return (session.readable || session.markedAny) && !session.anomaly ? 3 : 2
         case "stopping": return 4
-        case "saved": return session.reportOpen ? 5 : 4
+        case "saved":
+        case "failed": return session.reportOpen ? 5 : 4
         default: return 1
         }
     }
@@ -160,6 +197,20 @@ QtObject {
     }
     // The maintainer's view keeps the adapter id beside the name (K2-4).
     readonly property bool technical: Runtime.app.maintainerToolsVisible
+    // The adapter the player chose is still listed. StartCaptureValidation sends
+    // the chosen id whatever the list says, and the Collector then waits for that
+    // adapter until the round is cancelled, so a chosen adapter that is gone is
+    // shown as such and blocks 开始采证 - never shown as 自动选择 (review I4-2).
+    readonly property bool adapterAvailable: {
+        const id = Runtime.app.captureAdapterId
+        if (!id)
+            return true
+        for (let index = 0; index < Runtime.app.captureAdapters.length; ++index) {
+            if (Runtime.app.captureAdapters[index].adapter_id === id)
+                return true
+        }
+        return false
+    }
     readonly property var adapterChoices: {
         const choices = [{ adapter_id: "", label: qsTr("自动选择（唯一推荐网卡）") }]
         for (let index = 0; index < Runtime.app.captureAdapters.length; ++index) {
@@ -173,6 +224,12 @@ QtObject {
                          .arg(name).arg(row.adapter_id)
             })
         }
+        if (!session.adapterAvailable)
+            choices.push({
+                adapter_id: Runtime.app.captureAdapterId,
+                label: !session.technical ? qsTr("已选网卡不可用")
+                                          : qsTr("%1 · %2").arg(qsTr("已选网卡不可用")).arg(Runtime.app.captureAdapterId)
+            })
         return choices
     }
     function adapterIndex(adapterId) {
@@ -189,7 +246,7 @@ QtObject {
             if (row.adapter_id === id)
                 return row.friendly_name || row.description || qsTr("未命名适配器")
         }
-        return qsTr("自动选择")
+        return id ? qsTr("已选网卡不可用") : qsTr("自动选择")
     }
 
     // ---------------------------------------------------------- markers --
@@ -209,6 +266,11 @@ QtObject {
         return session.recording && Runtime.app.validationMarkerEnabled && session.marks[index] === null
     }
     // Pressing a later marker records the earlier ones as 漏按 (never back-dated).
+    // The press is drawn at once but stays pending until the Collector answers:
+    // a refusal or a lost answer puts back what the press changed, so a marker
+    // trace.jsonl does not hold is never ticked or reported (review I4-1). One
+    // marker is in flight at a time (validationMarkerEnabled waits for it).
+    property var pendingMark: null
     function mark(index) {
         if (!session.markerEnabled(index))
             return
@@ -221,10 +283,42 @@ QtObject {
             }
         }
         copy[index] = { at: new Date().toISOString() }
+        session.pendingMark = { marks: session.marks, missWasSet: !!session.chips.miss, skipped: skipped }
         session.marks = copy
         if (skipped)
             session.chips = Object.assign({}, session.chips, { miss: true })
         Runtime.app.addTemplateObservationMarker(session.markerDefs[index].code)
+        // Not sent at all (no connection, another command running): nothing to wait for.
+        if (session.pendingMark && !Runtime.app.markerCommandBusy)
+            session.revertMark()
+    }
+    function revertMark() {
+        const pending = session.pendingMark
+        if (!pending)
+            return
+        session.pendingMark = null
+        session.marks = pending.marks
+        if (pending.skipped && !pending.missWasSet)
+            session.chips = Object.assign({}, session.chips, { miss: false })
+    }
+    readonly property Connections markerReplies: Connections {
+        target: Runtime.app
+        // A refused or timed-out marker (AddCaptureValidationMarker's failure is
+        // reported as a "validation" mutation).
+        function onMutationFailed(code, message, kind) {
+            if (kind === "validation")
+                session.revertMark()
+        }
+        // The answer arrived: taken, unless the connection it was sent on is gone,
+        // in which case nothing says it reached the trace.
+        function onValidationChanged() {
+            if (!session.pendingMark || Runtime.app.markerCommandBusy)
+                return
+            if (Runtime.app.validationStatusLoaded)
+                session.pendingMark = null
+            else
+                session.revertMark()
+        }
     }
 
     // --------------------------------------------- roulette and the round --
@@ -241,9 +335,10 @@ QtObject {
         { key: "dc", label: qsTr("断线") }
     ]
     property var chips: ({})
-    function toggleChip(key) {
+    // \a value: what the chip asked for (Chip.toggled); a flip when omitted.
+    function toggleChip(key, value) {
         const copy = Object.assign({}, session.chips)
-        copy[key] = !copy[key]
+        copy[key] = value === undefined ? !copy[key] : !!value
         session.chips = copy
     }
     readonly property var chipsOn: chipDefs.filter(function(chip) { return !!session.chips[chip.key] })
@@ -299,6 +394,11 @@ QtObject {
         return "UTC" + sign + two(Math.floor(abs / 60)) + ":" + two(abs % 60)
     }
     function countText(value) { return value === null ? Runtime.fmt.dash() : Runtime.fmt.count(value) }
+    // Why a failed round failed, in the Collector's words when it sent some
+    // (message_ref), else the sentence for its code - never the code itself.
+    readonly property string failureText: session.status.message
+        ? Theme.live(Runtime.fmt.collectorText(session.status.message_ref, session.status.message))
+        : Runtime.app.errorText("", session.status.error_code || "")
     readonly property string markerLine: {
         const parts = []
         for (let index = 0; index < session.markerDefs.length; ++index) {
@@ -336,6 +436,8 @@ QtObject {
                 .arg(session.countText(session.decodeErrors)).arg(session.countText(session.queueDropped)),
             qsTr("附件：%1").arg(attached.length > 0 ? attached.join(qsTr("、")) : qsTr("无"))
         ]
+        if (session.phase === "failed")
+            lines.push(qsTr("结果：%1").arg(session.failureText))
         if (session.missingFiles.length > 0)
             lines.push(qsTr("缺失：%1").arg(session.missingFiles.map(function(file) { return file.name }).join(qsTr("、"))))
         return lines.join("\n")
@@ -348,15 +450,19 @@ QtObject {
             return session.regionLabel + " · " + session.adapterLabel
                    + (session.startedAt ? " · " + qsTr("开始于 %1").arg(Runtime.fmt.localTime(session.startedAt)) : "")
         case 2:
+            // A round stopped or failed before the data was readable says only its count.
             return session.anomaly ? qsTr("数据异常，已停止")
-                                   : qsTr("数据可读 · 报文 %1").arg(session.countText(session.messageCount))
+                 : (session.messageCount || 0) >= session.readableAt
+                   ? qsTr("数据可读 · 报文 %1").arg(session.countText(session.messageCount))
+                   : qsTr("报文 %1").arg(session.countText(session.messageCount))
         case 3:
             // The Collector's count of written markers outlives this page; the
             // page's own clicks stand in until it has reported one.
             return qsTr("%1 · 标记 %2 / 5").arg(session.rouletteLabel)
                    .arg(session.markerCount !== null ? Math.max(session.markerCount, session.markedCount) : session.markedCount)
         case 4:
-            return qsTr("已保存 · 文件 %1 / %2").arg(session.copiedRequired).arg(session.requiredFiles.length)
+            return (session.saved && session.fileSaved ? qsTr("已保存 · 文件 %1 / %2") : qsTr("文件不完整 · 文件 %1 / %2"))
+                   .arg(session.copiedRequired).arg(session.requiredFiles.length)
         default:
             return ""
         }
@@ -400,8 +506,26 @@ QtObject {
         Runtime.app.exportDiagnosticsReport()
     }
     // A new Collector session clears what the page remembered of the last one.
-    onRoundKeyChanged: if (session.active) session.resetRound()
+    // The page remembers which round its data belongs to: a status that names no
+    // round (the pipe dropped, the status was cleared) changes nothing, the same
+    // round seen again keeps everything, and any other round starts clean -
+    // whatever order its state and its id are notified in (review K4-3).
+    property string dataRound: ""
+    onRoundKeyChanged: {
+        if (session.roundKey.length === 0 || session.roundKey === session.dataRound)
+            return
+        const first = session.dataRound.length === 0
+        session.dataRound = session.roundKey
+        if (!first)
+            session.resetRound()
+    }
+    Component.onCompleted: {
+        session.dataRound = session.roundKey
+        session.noteConnection()
+    }
     function resetRound() {
+        session.pendingMark = null
+        session.connectedSince = 0
         session.marks = [null, null, null, null, null]
         session.chips = {}
         session.files = {}

@@ -142,11 +142,19 @@ class OverlayReplyBackend : public mr::MockBackend
 public:
     bool holdDashboard = false;
     bool holdRows = false;
+    /// A region whose own dashboard reads stay unanswered.
+    QString holdRegion;
     QList<QPointer<mr::BackendReply>> pending;
     QList<QPointer<mr::BackendReply>> pendingRows;
 
     mr::BackendReply *request(const QString &messageType, const QJsonObject &payload = {}) override
     {
+        if (!holdRegion.isEmpty() && messageType == QLatin1String("GetDashboardStats")
+            && payload.value(QStringLiteral("filter")).toObject().value(QStringLiteral("region")).toString() == holdRegion) {
+            auto *reply = new mr::BackendReply(QString::number(pending.size()), messageType, this);
+            pending.append(reply);
+            return reply;
+        }
         if (holdRows && (messageType == QLatin1String("GetDungeonStats") || messageType == QLatin1String("GetJobStats"))) {
             auto *reply = new mr::BackendReply(QString::number(pendingRows.size()), messageType, this);
             pendingRows.append(reply);
@@ -642,6 +650,7 @@ private Q_SLOTS:
     void miniBarDrawsNothingBelowTheRunRow();
     void importedTextIsShownAsWritten();
     void plusPillCountsCompletionsNotBaselineEdits();
+    void progressRowsShowTheirOwnFiguresWhileAnotherRegionIsRead();
     void entryButtonFollowsPageTheme_data();
     void entryButtonFollowsPageTheme();
     void mainWindowCanUnlockAndMinimizeIndependently();
@@ -952,6 +961,17 @@ void StatisticsOverlayTests::customizationFooterRemainsReachableWithSevenModules
     QVERIFY(scene.click(QStringLiteral("floatingCustomizeButton")));
     QTRY_VERIFY(scene.item(QStringLiteral("floatingCustomizePanel"), true));
     QCOMPARE(scene.overlay()->moduleRows().size(), 7);
+    // Every module row carries its own mark: 排本次数 does not borrow 待处理's inbox.
+    QStringList icons;
+    for (const QVariant &value : scene.overlay()->moduleRows()) {
+        const QString key = value.toMap().value(QStringLiteral("key")).toString();
+        auto *icon = scene.item(QStringLiteral("floatingModuleIcon_") + key);
+        QVERIFY2(icon, qPrintable(key));
+        const QString source = icon->property("source").toUrl().toString();
+        QVERIFY2(!source.isEmpty(), qPrintable(key));
+        QVERIFY2(!icons.contains(source), qPrintable(key));
+        icons.append(source);
+    }
     QVERIFY(scene.revealCustomizationFooter());
     QVERIFY(scene.grabAttempts(QStringLiteral("240-customization-footer")));
     QVERIFY(scene.click(QStringLiteral("floatingCustomizationReset")));
@@ -1844,6 +1864,34 @@ void StatisticsOverlayTests::plusPillCountsCompletionsNotBaselineEdits()
     scene.app->refreshDashboard();
     QTRY_COMPARE(data->property("progress").toInt(), start + 301);
     QCOMPARE(data->property("plus").toInt(), 1);
+    // The full float shows it beside the first region's figure (review L3-2).
+    QQuickItem *pill = nullptr;
+    QTRY_VERIFY((pill = scene.item(QStringLiteral("floatingProgressPlus"), true)) != nullptr);
+    QCOMPARE(pill->property("count").toInt(), 1);
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+// Each region's 累计进度 row is listed once that region has been read, and shows
+// its figure then: choosing a region whose settings are still being read in the
+// 成就 editor blanks no other row (review L3-2).
+void StatisticsOverlayTests::progressRowsShowTheirOwnFiguresWhileAnotherRegionIsRead()
+{
+    Scene scene;
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
+    scene.backend.resetRuns({});
+    scene.backend.holdRegion = QStringLiteral("GLOBAL");
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    scene.overlay()->show();
+    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QTRY_VERIFY(scene.app->achievementSettingsLoaded());
+    QTRY_VERIFY(scene.item(QStringLiteral("floatingAchievementProgress"), true));
+    const QString figure = QString::number(scene.app->achievementForRegion(QStringLiteral("CN"))
+                                               .value(QStringLiteral("achievement_progress")).toInt());
+    QTRY_COMPARE(scene.item(QStringLiteral("floatingAchievementProgress"))->property("text").toString(), figure);
+    scene.app->setBaselineRegion(QStringLiteral("GLOBAL"));
+    QVERIFY(!scene.app->achievementSettingsLoaded());
+    QTest::qWait(60);
+    QCOMPARE(scene.item(QStringLiteral("floatingAchievementProgress"))->property("text").toString(), figure);
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 

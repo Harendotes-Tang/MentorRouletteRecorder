@@ -142,7 +142,10 @@ public sealed class ReferenceDutyVersionTests
         Assert.Equal(nativeTerritory, tc.TerritoryId);
         Assert.False(tc.IsSyntheticSample);
         Assert.NotEqual(DutyCatalog.Default.Find(contentId, Region.Cn)?.TerritoryId, tc.TerritoryId);
-        Assert.Null(tc.PartySize);
+        // The TC table has no party size; the composed catalogue borrows the one the other regions agree on
+        // (audit 2026-11-03 H2-2), while the TC table on its own still has none.
+        Assert.Equal(DutyCatalog.Default.Find(contentId, Region.Cn)!.PartySize, tc.PartySize);
+        Assert.Null(DutyCatalog.LoadFor(Region.Tc, null).Find(contentId, Region.Tc)!.PartySize);
     }
 
     [Fact]

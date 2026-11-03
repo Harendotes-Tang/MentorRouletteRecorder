@@ -105,6 +105,12 @@ QtObject {
             return Runtime.app.npcapInstalled
                    ? [qsTr("Npcap 暂时用不了 · 按上方说明处理后点“重新检测”"), "bad"]
                    : [qsTr("Npcap 未安装 · 安装前只能手动记录"), "bad"]
+        // A 采证 round holds the capture: nothing below starts until it stops,
+        // whether the game runs or not (review K2-4). Only a supported version
+        // records again afterwards (review RV4-2).
+        if (Runtime.app.validationActive)
+            return [chain.profileReady ? qsTr("正在采证 · 停止采证后恢复自动记录")
+                                       : qsTr("正在采证 · 停止采证后恢复正常检测"), "wait"]
         // 游戏未运行. The chain is never whole here, but with the installed
         // version known the profile question already has a real answer, so it
         // is given instead of being deferred to the game's launch.
@@ -123,8 +129,6 @@ QtObject {
                 return [qsTr("等待游戏启动 · 请查看「共享校准」中的进度"), "bad"]
             if (chain.calibrating)
                 return [qsTr("等待游戏启动 · 当前安装的游戏版本需要重新校准"), "bad"]
-            if (chain.profileStatus === "AMBIGUOUS")
-                return [qsTr("等待游戏启动 · 游戏版本支持文件有冲突，暂时不能自动记录"), "bad"]
             return [qsTr("等待游戏启动 · 当前安装的游戏版本暂不支持自动记录"), "bad"]
         }
         if (chain.recovering)
@@ -156,19 +160,19 @@ QtObject {
                 return [qsTr("尚未识别游戏版本或区服 · 暂时不会自动记录"), "bad"]
             if (chain.profileStatus === "UNSUPPORTED_BUILD")
                 return [qsTr("当前游戏版本暂不支持自动记录"), "bad"]
-            if (chain.profileStatus === "AMBIGUOUS")
-                return [qsTr("游戏版本支持文件有冲突，暂时不能自动记录"), "bad"]
             return [qsTr("还没找到适用的游戏版本支持文件，暂时不能自动记录"), "bad"]
         }
         if (chain.adapterStale && chain.pathActionAvailable)
             return [qsTr("之前选择的网卡收不到游戏数据 · 请查看下方提示"), "bad"]
         if (chain.errorCode.length > 0)
             return [qsTr("暂时无法读取游戏数据 · %1").arg(Runtime.fmt.captureErrorLabel(chain.errorCode).replace(/。$/, "")), "bad"]
-        if (chain.adapterId.length === 0 || !Runtime.app.capturing)
-            return [qsTr("正在启动监听…"), "wait"]
-        // The hero card above already carries the controller's sentence.
+        // The hero card above already carries the controller's sentence. A
+        // blocked controller does not start listening, so it is said before
+        // 正在启动监听 (review K2-4).
         if (Runtime.app.recording.blocked)
             return [qsTr("暂时不会自动记录 · 见上方说明"), "bad"]
+        if (chain.adapterId.length === 0 || !Runtime.app.capturing)
+            return [qsTr("正在启动监听…"), "wait"]
         return [qsTr("游戏、驱动、网卡和版本支持均已就绪"), "ok"]
     }
     readonly property var summaryLine: chain.summary()
@@ -232,8 +236,6 @@ QtObject {
                 ? qsTr("未识别区服") : qsTr("未识别版本")
         if (chain.profileStatus === "UNSUPPORTED_BUILD")
             return qsTr("版本不支持")
-        if (chain.profileStatus === "AMBIGUOUS")
-            return qsTr("支持文件有冲突")
         return qsTr("未匹配")
     }
 
@@ -254,8 +256,6 @@ QtObject {
         if (chain.buildUnknown)
             return chain.regionUnknown && chain.capture.game_build
                 ? qsTr("尚未识别游戏区服") : qsTr("尚未识别游戏版本或区服")
-        if (chain.profileStatus === "AMBIGUOUS")
-            return qsTr("游戏版本支持文件有冲突")
         return chain.gameRunning ? qsTr("当前版本暂时不会自动记录")
                                  : qsTr("已安装版本暂时不会自动记录")
     }

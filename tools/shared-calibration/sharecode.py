@@ -98,7 +98,7 @@ MESSAGES: Mapping[str, str] = {
     E_EMPTY: "还没有校准码，请粘贴完整的校准码。",
     E_TOO_LONG: "校准码太长，无法导入。请重新复制完整的校准码，不要带上其他文字。",
     E_NOT_A_CODE: "无法识别这份校准码。请完整复制以 MRC1. 开头的校准码。",
-    E_VERSION: "当前导随记录器无法读取这份校准码。请先更新软件，再「导入校准码」。",
+    E_VERSION: "当前导随记录器无法读取这份校准码。请先更新软件，再「手动导入校准码」。",
     E_CHARACTERS: "校准码中有无法识别的字符。请重新完整复制，不要带上其他文字。",
     E_BASE64: "校准码不完整，可能复制时少了一截；请重新完整复制一次。",
     E_COMPRESSION: "校准码已损坏，无法读取。请重新完整复制一次。",
@@ -111,7 +111,7 @@ MESSAGES: Mapping[str, str] = {
     E_POP_KEY_FORBIDDEN: _CONTENT_WRONG,
     E_POP_KEY_MISSING: _CONTENT_WRONG,
     E_NOT_CANONICAL: _CONTENT_WRONG,
-    E_PAYLOAD_VERSION: "当前导随记录器无法读取这份校准码。请先更新软件，再「导入校准码」。",
+    E_PAYLOAD_VERSION: "当前导随记录器无法读取这份校准码。请先更新软件，再「手动导入校准码」。",
     E_TERRITORY_REQUIRED: "这份校准码无法识别你进入的副本，不能用于记录。请向分享者获取新的校准码，或使用「本机校准」。",
 }
 _FALLBACK_MESSAGE = "这份校准码暂时无法使用。请重新完整复制，或使用「本机校准」。"

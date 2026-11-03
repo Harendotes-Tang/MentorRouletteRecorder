@@ -82,10 +82,10 @@ Collector 侧只校验，不写入。
 | 检查 | 代码 |
 |---|---|
 | `profile_id` 必须等于文件名主干 | `E_PROFILE_ID` |
-| `region` 必须与所在目录一致（`cn`→`CN`、`global`→`GLOBAL`、`synthetic`→`UNKNOWN`） | `E_PROFILE_REGION` |
+| `region` 必须与所在目录一致（`cn`→`CN`、`global`→`GLOBAL`、`tc`→`TC`、`synthetic`→`UNKNOWN`） | `E_PROFILE_REGION` |
 | `SYNTHETIC` 只能在 `synthetic/`，`synthetic/` 里也只能放 `SYNTHETIC` | `E_PROFILE_SYNTHETIC_LOCATION` |
 
-目录名不是 `cn` / `global` / `synthetic` 时，C# 侧跳过后两项检查，因此校验临时目录中的
+目录名不是 `cn` / `global` / `tc` / `synthetic` 时，C# 侧跳过后两项检查，因此校验临时目录中的
 草稿档案不受目录名影响。Python 侧的 `SYNTHETIC` 位置检查则是无条件的。
 对于放在任意目录中的同一份 `SYNTHETIC` 档案，Python 会报错而 Collector 不会。
 这是两份实现已知的行为差异之一，全部差异见文末。
@@ -219,10 +219,14 @@ $ MentorRecorder.Collector.exe --validate-profile protocol-profiles/cn/cn-unsupp
 $ MentorRecorder.Collector.exe --list-profiles --profiles-dir protocol-profiles
 protocol profiles root: <repo-root>\protocol-profiles
   cn-unsupported       CN       unknown                UNSUPPORTED fail-closed messages=0
+  cn.2026.08.05        CN       2026.08.05.0000.0000   VERIFIED    usable      messages=4
   global-unsupported   GLOBAL   unknown                UNSUPPORTED fail-closed messages=0
-  synthetic-cn-shape-v1 UNKNOWN synthetic-build-3      SYNTHETIC   usable      messages=4
+  synthetic-cn-shape-v1 UNKNOWN  synthetic-build-3      SYNTHETIC   usable      messages=4
   synthetic-v1         UNKNOWN  synthetic-build-1      SYNTHETIC   usable      messages=7
+  tc-unsupported       TC       unknown                UNSUPPORTED fail-closed messages=0
 ```
+
+各行按文件路径排序。候选档案（`cn/cn.2026.08.05.candidate.json`，状态 `CANDIDATE`）不出现在此列表中。
 
 第四列为**目录级**状态，取值可能为 `AMBIGUOUS`；第五列表示该绑定是否允许状态机工作。
 `synthetic-v1` 显示 `usable`，因为合成绑定对**离线重放**可用；

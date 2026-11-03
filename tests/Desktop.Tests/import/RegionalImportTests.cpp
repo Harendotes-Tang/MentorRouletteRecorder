@@ -80,7 +80,11 @@ private Q_SLOTS:
         const QString name = catalogue->lookup(69, QStringLiteral("TC")).value("duty_name").toString();
         QVERIFY(!name.isEmpty());
         QCOMPARE(catalogue->lookup(944, QStringLiteral("TC")).value("duty_name").toString(), name);
-        QVERIFY(catalogue->findByName(name, QStringLiteral("TC")).isEmpty());
+        // The shared name resolves to the row the TC data prefers, as on CN (audit 2026-11-03
+        // H2-6), and to a TC row, never to the CN identity.
+        const QVariantMap byName = catalogue->findByName(name, QStringLiteral("TC"));
+        QCOMPARE(byName.value("content_id").toInt(), 944);
+        QCOMPARE(byName.value("region").toString(), QStringLiteral("TC"));
         const QVariantMap raw{{"region", "TC"}, {"content_id", 1011}};
         QCOMPARE(catalogue->enrich(raw), raw);
         QVERIFY(catalogue->allDuties(QStringLiteral("INVALID")).isEmpty());
@@ -239,6 +243,113 @@ private Q_SLOTS:
         QVERIFY(!rows[0].toObject().contains("territory_id"));
         QCOMPARE(rows[1].toObject().value("region").toString(), QStringLiteral("GLOBAL"));
         QCOMPARE(rows[1].toObject().value("territory_id").toInt(), 1331);
+    }
+
+    // Audit 2026-11-03 I3-3 / L2-5: the result line names each region as the preview did
+    // (国服 / 繁中服 / 未知区服), never by its wire code.
+    void completedImportNamesRegionsAsThePreviewDid()
+    {
+        RegionalImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.setBaselineLoaded(true);
+        controller.setAchievements({QVariantMap{{"region", "CN"}, {"baseline_completed_count", 100}},
+            QVariantMap{{"region", "TC"}, {"baseline_completed_count", 1}},
+            QVariantMap{{"region", "UNKNOWN"}, {"baseline_completed_count", 3}}});
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        answerPreview(backend, {previewRow(1, "CN"), previewRow(2, "TC"), previewRow(3, "UNKNOWN")});
+        QTRY_VERIFY(controller.previewValid());
+        QStringList shown;
+        for (const QVariant &value : controller.baselinePreviews())
+            shown.append(value.toMap().value("label").toString());
+        QCOMPARE(shown, (QStringList{QStringLiteral("国服"), QStringLiteral("繁中服"), QStringLiteral("未知区服")}));
+        controller.setOwnRecordsConfirmed(true);
+        controller.setDeductFromBaseline(true);
+        controller.commit();
+        backend.pending->succeed({{"imported_count", 3}, {"duplicate_count", 0}, {"conflict_count", 0},
+            {"baseline_deducted_count", 3},
+            {"baseline_adjustments", QJsonArray{
+                QJsonObject{{"region", "CN"}, {"baseline_deducted_count", 1}, {"baseline_completed_count", 99}},
+                QJsonObject{{"region", "TC"}, {"baseline_deducted_count", 1}, {"baseline_completed_count", 0}},
+                QJsonObject{{"region", "UNKNOWN"}, {"baseline_deducted_count", 1}, {"baseline_completed_count", 2}}}}});
+        QCOMPARE(controller.phase(), QStringLiteral("complete"));
+        const QString status = controller.statusText();
+        QVERIFY2(status.contains(QStringLiteral("国服：扣除 1 次，起始次数改为 99")), qPrintable(status));
+        QVERIFY2(status.contains(QStringLiteral("繁中服：扣除 1 次，起始次数改为 0")), qPrintable(status));
+        QVERIFY2(status.contains(QStringLiteral("未知区服：扣除 1 次，起始次数改为 2")), qPrintable(status));
+        for (const QString &code : {QStringLiteral("CN"), QStringLiteral("TC"), QStringLiteral("UNKNOWN")})
+            QVERIFY2(!status.contains(code), qPrintable(status));
+    }
+
+    // Audit 2026-11-03 H1-1 (decision): a row whose source names no region - no 区服 column, a blank
+    // cell (read back as 未知区服) - takes the region the dialog was given, the dashboard's else 国服.
+    // It is set on the previewed candidate the way the batch region pick sets it, so the identity the
+    // first reading gave the row (source_key) is kept and an earlier import of it is still found; the
+    // source itself is read unchanged. A stated region, and a record of this software, are kept.
+    void regionlessRowsTakeTheDefaultRegionAsTheBatchPickSetsIt()
+    {
+        RegionalImportBackend backend;
+        mr::ImportRecordsController controller;
+        controller.setBackend(&backend);
+        controller.setDefaultRegion(QStringLiteral("TC"));
+        QCOMPARE(controller.defaultRegion(), QStringLiteral("TC"));
+        controller.importText(QStringLiteral("副本\n合成副本"));
+        QCOMPARE(backend.requestCount, 1);
+        QVERIFY(!backend.payload.contains("rows")); // The first reading is the source as it is.
+        const auto readRow = [](int number, const QJsonValue &region, const QString &runId = {}) {
+            QJsonObject row = previewRow(number, "UNKNOWN");
+            QJsonObject candidate = row.value("candidate").toObject();
+            candidate.remove("region");
+            if (!region.isUndefined())
+                candidate.insert("region", region);
+            candidate.insert("source_key", QStringLiteral("source-key-%1").arg(number));
+            if (!runId.isEmpty())
+                candidate.insert("run_id", runId);
+            row.insert("candidate", candidate);
+            return row;
+        };
+        answerPreview(backend, {readRow(1, QJsonValue::Undefined), readRow(2, QStringLiteral("")),
+                                readRow(3, QStringLiteral("UNKNOWN")),
+                                readRow(4, QStringLiteral("UNKNOWN"), QStringLiteral("6f1d2c3b-4a5e-4f60-8b7c-9d0e1f2a3b4c")),
+                                previewRow(5, "GLOBAL")});
+        QCOMPARE(backend.requestCount, 2); // Read again at once, as after a batch pick.
+        QVERIFY(controller.busy());
+        const QJsonArray sent = backend.payload.value("rows").toArray();
+        QCOMPARE(sent.size(), 5);
+        for (int i = 0; i < 3; ++i) {
+            QCOMPARE(sent[i].toObject().value("region").toString(), QStringLiteral("TC"));
+            QCOMPARE(sent[i].toObject().value("source_key").toString(), QStringLiteral("source-key-%1").arg(i + 1));
+            // Only the region changes (re-review RV3-1): what the source stated about the duty stays.
+            QCOMPARE(sent[i].toObject().value("content_id").toInt(), 5);
+            QCOMPARE(sent[i].toObject().value("territory_id").toInt(), 1331);
+            QCOMPARE(sent[i].toObject().value("duty_category").toString(), QStringLiteral("四人迷宫"));
+        }
+        QCOMPARE(sent[3].toObject().value("region").toString(), QStringLiteral("UNKNOWN"));
+        QCOMPARE(sent[4].toObject().value("region").toString(), QStringLiteral("GLOBAL"));
+        QJsonObject possible = previewRow(2, "TC");
+        possible.insert("status", "possible_duplicate");
+        answerPreview(backend, {previewRow(1, "TC"), possible, previewRow(3, "TC"), previewRow(4, "UNKNOWN"),
+                                previewRow(5, "GLOBAL")});
+        QTRY_VERIFY(controller.previewValid());
+        QCOMPARE(backend.requestCount, 2); // Once.
+        QCOMPARE(controller.currentCandidate().value("region").toString(), QStringLiteral("TC"));
+        // The second reading decides what is preselected, as a first preview: a possible duplicate never is.
+        QVERIFY(controller.rows()[0].toMap().value("selected").toBool());
+        QVERIFY(!controller.rows()[1].toMap().value("selected").toBool());
+        QVERIFY(controller.rows()[4].toMap().value("selected").toBool());
+
+        // Only a named region is a default; without one the rows stay as the Collector read them.
+        for (const QString &none : {QString(), QStringLiteral("UNKNOWN"), QStringLiteral("all")}) {
+            RegionalImportBackend plain;
+            mr::ImportRecordsController unset;
+            unset.setBackend(&plain);
+            unset.setDefaultRegion(none);
+            QCOMPARE(unset.defaultRegion(), QString());
+            unset.importText(QStringLiteral("副本\n合成副本"));
+            answerPreview(plain, {readRow(1, QJsonValue::Undefined)});
+            QTRY_VERIFY(unset.previewValid());
+            QCOMPARE(plain.requestCount, 1);
+        }
     }
 };
 } // namespace

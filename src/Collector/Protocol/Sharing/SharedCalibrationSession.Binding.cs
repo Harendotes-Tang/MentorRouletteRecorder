@@ -73,11 +73,14 @@ internal sealed partial class SharedCalibrationSession
 
         if (_stopped || _key != ticket.Key || !_candidates.Contains(candidate))
         {
-            // Disarmed, rebuilt, dropped or refused by the player meanwhile. A revoked code's
-            // unfinished write must not leave a selectable document after its candidate was dropped.
+            // Disarmed, rebuilt, dropped or refused by the player meanwhile, or the service is stopping. Nothing adopted the
+            // document this ticket wrote, and left on the build's one path the next catalogue read or restart would select
+            // it: a code the player switched off or refused, or one contradicted meanwhile, would record after all, the
+            // last flagging every run under the build's profile id when withdrawn again (audit 2026-11-03, E-2). So it
+            // goes whatever dropped it - a stop included, which keeps nothing the next start must not verify afresh -
+            // and only that exact document: another one at the path survives.
             _lastRefusal = "STALE";
-            if (_revoked.Contains(candidate.Sha) || BindingRestrictionChanged(ticket))
-                DiscardUnadoptedWrite(ticket, writtenSha);
+            DiscardUnadoptedWrite(ticket, writtenSha);
         }
         else if (refusal is not null || profileId is null || select is null)
         {
@@ -215,6 +218,7 @@ internal sealed partial class SharedCalibrationSession
         _bound = null;
         _superseded = true;
         _lastRefusal = reason;
+        _withdrawnFrom = (bound.Region, bound.GameBuild);
         _withdrawn.Add(bound.ProfileId);
         if (contradicted && bound.Sha is { } sha)
         {
@@ -518,15 +522,15 @@ internal sealed partial class SharedCalibrationSession
                 return;
             }
 
+            // Held for the end of a run in flight like a revocation (audit 2026-11-03, E-1); meanwhile it keeps being watched.
             if (!bound.Proven && storedEvidence?.Quarantined == true && declared.CandidateId == bound.Sha &&
-                Prepare(bound.Sha, payload, context.Template, _clock.UtcNow) is { } restricted)
-            {
-                bound.WatchGate = SharedCandidateProvenance.Imported;
-                Supersede("QUARANTINED", contradicted: false, pending: new[]
+                Prepare(bound.Sha, payload, context.Template, _clock.UtcNow) is { } restricted &&
+                WithdrawQuarantined(bound, new[]
                 {
                     restricted with { Submitters = storedEvidence.Submitters, ShapePrior = storedEvidence.ShapePrior,
                         Quarantined = true, QuarantineEpoch = storedEvidence.QuarantineEpoch },
-                });
+                }))
+            {
                 return;
             }
         }
@@ -644,14 +648,23 @@ internal sealed partial class SharedCalibrationSession
                                Array.Empty<string>());
         }
 
-        _rejected.Clear();
-        _rejectedSummaries.Clear();
+        // What a withdrawal said - the code rejected, the last refusal, the REJECTED phase - outlives a key change to the
+        // same region and build: that is the re-arm the withdrawal itself sets off, a settled profile recording with
+        // calibration disarmed, so taking it out of use arms calibration afresh (audit 2026-11-03, E-3).
+        if (key is not { } armed || _withdrawnFrom is not { } scope || scope.Region != armed.Region ||
+            !string.Equals(scope.Build, armed.GameBuild, StringComparison.Ordinal))
+        {
+            _rejected.Clear();
+            _rejectedSummaries.Clear();
+            _superseded = false;
+            _lastRefusal = null;
+            _withdrawnFrom = null;
+        }
+
         _contradictions.Clear();
         _nextAutoFetchAt = null;
         _lastFetchStatus = null;
         _lastAttempts = Array.Empty<SharedSourceAttempt>();
-        _superseded = false;
-        _lastRefusal = null;
         _consent = null;
     }
 

@@ -104,6 +104,7 @@ public sealed partial class CaptureController
         CapturePathPlan? next = null;
         var inventoryKnown = false;
         var pathsUnavailable = false;
+        var gamePathsIntact = false;
         try
         {
             var adapters = _services.Adapters.List(game.ProcessId, ReadSettingString(AdapterSetting),
@@ -114,6 +115,11 @@ public sealed partial class CaptureController
             var selected = adapters.FirstOrDefault(a => a.Recommended && CapturePathPlan.IsUsable(a))
                 ?? adapters.FirstOrDefault(a => a.Id == run.Adapter?.Id && CapturePathPlan.IsUsable(a));
             if (selected is not null) next = CapturePathPlan.Create(adapters, selected, automatic: true);
+            // No interface carries the game: the title screen, or a connection table that cannot be
+            // read, which only the table itself can tell apart (re-review 2026-11-03, RV1-4).
+            var carriersUnknown = !adapters.Any(IsGameCarrier) && game.ProcessId is { } processId &&
+                _services.Adapters.GameHoldsConnections(processId) is null;
+            gamePathsIntact = next is not null && GamePathsIntact(run.PathPlan, next, adapters, carriersUnknown);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
@@ -124,6 +130,8 @@ public sealed partial class CaptureController
         lock (_lifecycleGate)
         {
             if (_disposed || !run.Observes(DetectGame(force: true))) return;
+            // Read before the state gate, like every pipeline callback (see CandidateStatus).
+            var runUnderWay = SafeRunUnderWay();
             bool replace;
             lock (_gate)
             {
@@ -135,6 +143,26 @@ public sealed partial class CaptureController
                 var pathsLost = inventoryKnown && pathsUnavailable && !_knownPathsUnavailable;
                 var pathsReturned = inventoryKnown && !pathsUnavailable && next is not null &&
                     _knownPathsUnavailable;
+
+                // A session that reads the game keeps its reader: a replacement can never read the
+                // game's open connections again, and would close the run in flight as stopped. It
+                // keeps it while the interfaces carrying the game are planned exactly as before,
+                // whatever unrelated interface comes, goes or flaps, and while a run is matched, in
+                // its duty or a queue request is parked, however the paths changed; the next
+                // inspection decides again (audit 2026-11-03, A1-1).
+                var gamePathKept = gamePathsIntact && !pathsReturned && !_pathReopenPending &&
+                    !_knownPathsUnavailable && !(inventoryKnown && pathsUnavailable);
+                if (run.IpcMessagesDecoded > 0 && (gamePathKept || runUnderWay))
+                {
+                    if (gamePathKept)
+                    {
+                        _lastDiscoveredPlan = run.PathPlan;
+                        CompletePathRecoveryIfReadable(run);
+                    }
+
+                    return;
+                }
+
                 if (inventoryKnown && pathsUnavailable) _knownPathsUnavailable = true;
                 if (pathsReturned)
                 {
@@ -168,8 +196,58 @@ public sealed partial class CaptureController
                 _replacementStartPending = true;
                 _state = CaptureControllerState.Stopping;
             }
-            if (TeardownCore(CaptureEndReason.Unknown))
+            // Ended as an error stop: whatever the pipeline still had open is closed as unobserved,
+            // a matched run waiting for review, while capture restarts at once (A1-1).
+            if (TeardownCore(CaptureEndReason.Unknown, endsAs: CaptureEndReason.Error))
                 Publish(Snapshot(), CollectorTexts.CaptureHintPathRecovering().Chinese);
+        }
+    }
+
+    /// <summary>
+    /// True when every interface carrying the game's connections now is planned in the running
+    /// session exactly as it would be planned now: same identity, loopback role and addresses. When
+    /// the connection table cannot say which interfaces carry the game, every path of the running
+    /// plan must still be planned unchanged: an interface that appears cannot hold a connection the
+    /// game already had (re-review 2026-11-03, RV1-4). At the title screen nothing is intact.
+    /// </summary>
+    /// <param name="running">The running session's plan.</param>
+    /// <param name="next">The plan discovery would make now.</param>
+    /// <param name="adapters">The interface inventory <paramref name="next"/> was made from.</param>
+    /// <param name="carriersUnknown">No interface was found carrying the game because the table could not be read.</param>
+    private static bool GamePathsIntact(CapturePathPlan? running, CapturePathPlan next,
+        IReadOnlyList<CaptureAdapterView> adapters, bool carriersUnknown)
+    {
+        if (running is null) return false;
+        var kept = carriersUnknown
+            ? running.Bindings.Select(binding => CapturePathPlan.NormalizeIdentity(binding.AdapterId)).ToArray()
+            : adapters.Where(IsGameCarrier).Select(adapter => CapturePathPlan.NormalizeIdentity(adapter.Id)).ToArray();
+        return kept.Length > 0 && kept.All(identity =>
+            Binding(next, identity) is { } planned && Binding(running, identity) is { } current &&
+            planned.IsLoopback == current.IsLoopback &&
+            planned.LocalAddresses.ToHashSet().SetEquals(current.LocalAddresses));
+    }
+
+    private static bool IsGameCarrier(CaptureAdapterView adapter) =>
+        adapter.CarriesGameTraffic && CapturePathPlan.IsUsable(adapter);
+
+    private static CaptureInterfaceBinding? Binding(CapturePathPlan plan, string identity) =>
+        plan.Bindings.FirstOrDefault(binding => string.Equals(
+            CapturePathPlan.NormalizeIdentity(binding.AdapterId), identity, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Whether a run is under way that a replacement would cut short. A hook that fails counts as
+    /// yes: keeping a working reader costs less than closing a run the player is in.
+    /// </summary>
+    private bool SafeRunUnderWay()
+    {
+        try
+        {
+            return _services.RunUnderWay?.Invoke() ??
+                _services.RunState() is RunState.MentorMatched or RunState.EnteredDuty;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            return true;
         }
     }
 

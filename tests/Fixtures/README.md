@@ -10,6 +10,12 @@ tests/Fixtures/
   import/                 记录导入样本 —— 二进制导入文件，不参与重放
 ```
 
+本目录另有三个子目录，同样纳入版本库，由各自的测试直接读取，本文不再展开：
+`calibration-evidence/` 是早期版本写出的本机校准证据文件，用于确认新版本仍能读取（`CalibrationObserverSharedStateTests`）；
+`calibration-golden/` 是本机校准写出的档案应当逐字节一致的期望结果（`LocalProfileWriterTests`）；
+`shared-calibration/` 存放共享校准码的测试向量 `vectors.json`，以及由 `tools/shared-calibration/generate_index_sample.py`
+生成、不得手改的公开仓库索引样本 `index-sample*`。
+
 前两类是 [`../../docs/state-machine.md`](../../docs/state-machine.md) 与
 [`../../docs/protocol-profile-format.md`](../../docs/protocol-profile-format.md)
 的**可执行形式**：文档中写明的每一条终态、每一种解析拒绝，本目录都有相应的测试样本用于验证。
@@ -265,7 +271,7 @@ tests/Fixtures/
 一一对应，数量以契约为准，由上述第 1 项检查核对。
 
 子目录 `variants/` 存放同一条消息的其他请求形状（例如分页导入的后续页、从文件导入、不分页的回退请求），
-文件名为 `<MessageType>.<variant>.json`，同样由 `tst_ipcrequests` 生成并与本目录逐字段比对。
+文件名为 `<MessageType>.<variant>.json`，同样由 `MentorRecorderIpcRequests` 生成并与本目录逐字段比对。
 `ContractRequestSampleTests.EveryVariantSampleMatchesTheRequestEnvelopeSchema` 核对每个变体的
 `message_type` 是契约中的业务消息、文件名以该消息名加 `.` 开头，并按根形状与 `$defs/RequestEnvelope` 校验；
 变体不计入第 1 项，也不发送给真实 Collector。
@@ -274,12 +280,12 @@ tests/Fixtures/
 `adapter_id`（`NPF_TEST_ADAPTER`），仅为覆盖该字段而不绑定真实网卡。
 它被拒绝反映的是本机的情况，而非契约的情况。
 
-改动方式：**不得手写这些文件**。应修改 Desktop 侧的请求构造，运行 `tst_ipcrequests`，
+改动方式：**不得手写这些文件**。应修改 Desktop 侧的请求构造，运行 `MentorRecorderIpcRequests`，
 将其写入构建目录的新文件复制回本目录，并审阅 diff。
 
 **例外（共享校准，2026-09-15）**：`GetCalibrationShareCode`、`CheckSharedCalibration`、`ImportCalibrationCode`、
 `AcceptSharedQueueInference`、`RejectSharedCalibration` 五个样本最初由 Collector 侧手写，以满足第 1 步“契约中每条消息都有样本”的要求。
-桌面端包装器现已实现并加入 `tst_ipcrequests` 的消息列表，生成的载荷与此处完全一致。`ImportCalibrationCode` 使用 `shared-calibration/vectors.json` 的第一条合法码。
+桌面端包装器现已实现并加入 `MentorRecorderIpcRequests` 的消息列表，生成的载荷与此处完全一致。`ImportCalibrationCode` 使用 `shared-calibration/vectors.json` 的第一条合法码。
 
 **例外（在线语音与完整性校验，2026-09-16）**：`GetSpeechSettings`、`UpdateSpeechSettings`、`SynthesizeSpeech`、
 `CheckDatabaseIntegrity` 四个样本同样最初由 Collector 侧手写。
@@ -287,7 +293,7 @@ tests/Fixtures/
 `SynthesizeSpeech` 为 `{text, rate_percent: 100, test: false}`。ServerFixture 为 Collector 注入的是一个拒绝发送的传输层，
 因此第 3 步中这两个样本即使配置齐全也不会联网。
 其中 `CheckDatabaseIntegrity` 的桌面端包装器已在界面改版 P4a 实现（`IBackend::checkDatabaseIntegrity()`），
-并已加入 `tst_ipcrequests` 的消息列表，生成的载荷与此处的 `{}` 逐字相同。三个语音样本的桌面端包装器在 P4b 由桌面端实现
+并已加入 `MentorRecorderIpcRequests` 的消息列表，生成的载荷与此处的 `{}` 逐字相同。三个语音样本的桌面端包装器在 P4b 由桌面端实现
 （`IBackend::getSpeechSettings()` / `updateSpeechSettings()` / `synthesizeSpeech()`），同样已加入消息列表，
 生成的载荷与此处完全一致。
 

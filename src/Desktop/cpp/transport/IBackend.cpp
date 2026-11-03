@@ -523,19 +523,23 @@ BackendReply *IBackend::getReflectionSummary(int recentLimit)
     return request(QStringLiteral("GetReflectionSummary"), payload);
 }
 
-BackendReply *IBackend::exportCsv(const QString &targetPath, const QJsonObject &filter)
+BackendReply *IBackend::exportCsv(const QString &targetPath, const QJsonObject &filter, bool replace)
 {
     QJsonObject payload;
     payload.insert(QStringLiteral("target_path"), targetPath);
     payload.insert(QStringLiteral("filter"), filter);
+    if (replace)
+        payload.insert(QStringLiteral("overwrite"), true);
     return request(QStringLiteral("ExportCsv"), payload);
 }
 
-BackendReply *IBackend::exportJson(const QString &targetPath, const QJsonObject &filter)
+BackendReply *IBackend::exportJson(const QString &targetPath, const QJsonObject &filter, bool replace)
 {
     QJsonObject payload;
     payload.insert(QStringLiteral("target_path"), targetPath);
     payload.insert(QStringLiteral("filter"), filter);
+    if (replace)
+        payload.insert(QStringLiteral("overwrite"), true);
     return request(QStringLiteral("ExportJson"), payload);
 }
 
@@ -547,11 +551,13 @@ BackendReply *IBackend::backupDatabase(const QString &targetPath)
     return request(QStringLiteral("BackupDatabase"), payload);
 }
 
-BackendReply *IBackend::exportDiagnosticsReport(const QString &targetPath)
+BackendReply *IBackend::exportDiagnosticsReport(const QString &targetPath, bool replace)
 {
     QJsonObject payload;
     if (!targetPath.isEmpty())
         payload.insert(QStringLiteral("target_path"), targetPath);
+    if (replace)
+        payload.insert(QStringLiteral("overwrite"), true);
     return request(QStringLiteral("ExportDiagnosticsReport"), payload);
 }
 

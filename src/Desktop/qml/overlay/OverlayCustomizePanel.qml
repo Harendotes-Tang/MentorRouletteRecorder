@@ -4,6 +4,8 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import MentorRecorder 1.0
+import "../components/Lucide.js" as Lucide
+import "../components/OverlayIcons.js" as Icons
 
 // 自定义: the float's own settings, in place of its content; the modules are
 // reordered by dragging the grip (or with ↑ / ↓ on it, or the arrows that
@@ -155,9 +157,14 @@ Item {
                             }
 
                             OverlayIcon {
+                                objectName: "floatingModuleIcon_" + row.key
                                 name: row.key === "progress" ? "progress" : row.key === "current_duty" ? "current"
                                     : row.key === "elapsed" ? "time" : row.key === "dungeons" ? "duty"
-                                    : row.key === "jobs" ? "roles" : "pending"
+                                    : row.key === "jobs" ? "roles" : row.key === "pending_work" ? "pending" : ""
+                                // 排本次数 has no mark of the float's own; the bundled Lucide
+                                // history mark, not 待处理's inbox (review L3-3).
+                                source: row.key === "attempts" ? Lucide.source("history", color)
+                                      : name.length > 0 ? Icons.source(name, color) : ""
                                 color: Theme.textSecondary
                                 opacity: row.on ? 1 : 0.5
                                 Layout.alignment: Qt.AlignVCenter

@@ -102,13 +102,16 @@ internal sealed class UpdateDownloadTransfer
 
     /// <summary>
     /// What a request outcome comes to for the download. A refusal of the checksum that means "there is no usable
-    /// checksum" - not there, too large, not a checksum - is CHECKSUM_UNAVAILABLE; every other outcome keeps its name.
+    /// checksum" - not there, too large, not a checksum, or an answer that broke off - is CHECKSUM_UNAVAILABLE; every
+    /// other outcome keeps its name. A broken-off checksum is not TRANSPORT_FAILED, whose sentence speaks of a broken
+    /// download: without a checksum no installer is asked for at all (audit 2026-11-03, F-2).
     /// </summary>
     /// <param name="outcome">The client's outcome; never OK or CANCELLED by the caller.</param>
     /// <param name="checksum">True for the checksum request.</param>
     internal static UpdateDownloadFailure Map(UpdateCheckOutcome outcome, bool checksum) => outcome switch
     {
-        UpdateCheckOutcome.NotFound or UpdateCheckOutcome.TooLarge or UpdateCheckOutcome.Malformed when checksum =>
+        UpdateCheckOutcome.NotFound or UpdateCheckOutcome.TooLarge or UpdateCheckOutcome.Malformed or
+            UpdateCheckOutcome.TransportFailed when checksum =>
             UpdateDownloadFailure.ChecksumUnavailable,
         UpdateCheckOutcome.NotFound => UpdateDownloadFailure.NotFound,
         UpdateCheckOutcome.RateLimited => UpdateDownloadFailure.RateLimited,

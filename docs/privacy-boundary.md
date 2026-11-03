@@ -30,7 +30,7 @@
 | 1 | 不做 ACT / Dalamud 插件，不以插件形态挂载到任何第三方宿主 | 人工评审 |
 | 2 | 不进行进程注入 | `INJ-*` |
 | 3 | 不读写其他进程的内存、不在其中分配内存或修改内存保护、不创建远程线程或投递 APC、不安装窗口钩子或事件钩子：`ReadProcessMemory` / `WriteProcessMemory` / `VirtualAllocEx` / `VirtualProtectEx` / `CreateRemoteThread` / `QueueUserAPC` / `SetWindowsHookEx` / `SetWinEventHook`（其 `WINEVENT_INCONTEXT` 方式会把调用方的 DLL 映射进目标进程，因此整个函数一律禁止），以及对应的 `Nt*` / `Zw*` 原语、`RtlCreateUserThread` 与转储进程内存的 `MiniDumpWriteDump` | `INJ-001`…`INJ-006` |
-| 3b | 不打开游戏进程或其线程的句柄：不调用 `OpenProcess`（含 `NtOpenProcess` / `ZwOpenProcess`）/ `OpenThread`（含 `NtOpenThread` / `ZwOpenThread`）/ 按窗口取进程句柄的 `GetProcessHandleFromHwnd` / 逐个打开进程的 `NtGetNextProcess`（含 `ZwGetNextProcess`）/ `DebugActiveProcess` / `Process.EnterDebugMode`，不使用内部会打开目标进程句柄的 `Process` 成员（`MainModule` / `Modules`、`StartTime`、`HasExited`、`WaitForExit`、`Kill`、`Handle`、`Process.GetProcessById` 等；属性模式与对象初始化器中的写法同样拒绝，PowerShell 管道中不带点号点名这些成员的写法（`Get-Process \| Select-Object StartTime`、`ForEach-Object Kill` 等）也在其列），也不使用会打开线程句柄的 `ProcessThread` 成员（`PriorityLevel`、`IdealProcessor`、`ResetIdealProcessor`）、读取其他进程模块表的 Toolhelp 模块快照（`TH32CS_SNAPMODULE` / `TH32CS_SNAPALL`、`Module32First` / `Module32Next`）与 `Get-Process` 的 `-Module` / `-FileVersionInfo` 参数，以及其提供程序会打开所列每个进程的 WMI 类 `Win32_Process` / `CIM_Process`。涉及进程、窗口与网络的操作系统查询只允许下列几类，均不打开任何进程的句柄：内核进程表（`NtQuerySystemInformation` 的 `SystemProcessInformation` 快照读取进程编号、映像名、创建时间与所属 Windows 会话编号，只认与采集服务处于同一会话的游戏进程；`SystemProcessIdInformation` 读取单个进程的镜像路径）、系统 TCP 表（`GetExtendedTcpTable`）、系统路由表（`GetBestInterface`，与任何进程无关），以及桌面端在「点选游戏窗口」期间读取前台窗口所属的进程编号（`GetForegroundWindow` / `GetWindowThreadProcessId`）。本软件对自身进程的操作见 §2.1 | `INJ-007` `INJ-008` `INJ-009` |
+| 3b | 不打开游戏进程或其线程的句柄：不调用 `OpenProcess`（含 `NtOpenProcess` / `ZwOpenProcess`）/ `OpenThread`（含 `NtOpenThread` / `ZwOpenThread`）/ 按窗口取进程句柄的 `GetProcessHandleFromHwnd` / 逐个打开进程的 `NtGetNextProcess`（含 `ZwGetNextProcess`）/ `DebugActiveProcess`（含 PowerShell 的 `Debug-Process`）/ `Process.EnterDebugMode`，不使用内部会打开目标进程句柄的 `Process` 成员（`MainModule` / `Modules`、`StartTime`、`HasExited`、`WaitForExit`、`Kill`、`Handle`、`Process.GetProcessById` 等；属性模式与对象初始化器中的写法同样拒绝，PowerShell 管道中不带点号点名这些成员的写法（`Get-Process \| Select-Object StartTime`、`ForEach-Object Kill` 等）也在其列），也不使用会打开线程句柄的 `ProcessThread` 成员（`PriorityLevel`、`IdealProcessor`、`ResetIdealProcessor`）、读取其他进程模块表或堆列表的 Toolhelp 快照（`TH32CS_SNAPMODULE` / `TH32CS_SNAPALL` / `TH32CS_SNAPHEAPLIST`、`Module32First` / `Module32Next`、`Heap32ListFirst` / `Heap32ListNext` / `Heap32First` / `Heap32Next`）与 `Get-Process` 的 `-Module` / `-FileVersionInfo` / `-IncludeUserName` 参数，以及其提供程序会打开所列每个进程的 WMI 类 `Win32_Process` / `CIM_Process`。涉及进程、窗口与网络的操作系统查询只允许下列几类，均不打开任何进程的句柄：内核进程表（`NtQuerySystemInformation` 的 `SystemProcessInformation` 快照读取进程编号、映像名、创建时间与所属 Windows 会话编号，只认与采集服务处于同一会话的游戏进程；`SystemProcessIdInformation` 读取单个进程的镜像路径）、系统 TCP 表（`GetExtendedTcpTable`）、系统路由表（`GetBestInterface`，与任何进程无关）、本机网卡列表（`NetworkInterface.GetAllNetworkInterfaces`，读取网卡名称、状态与地址，与任何进程无关）、网卡地址与可用性的变化通知（.NET 的 `NetworkChange.NetworkAddressChanged` / `NetworkAvailabilityChanged`，只等待系统的变化通知、不收发数据，用于在网卡变化后重新寻找网络路径），以及桌面端在「点选游戏窗口」期间读取前台窗口所属的进程编号（`GetForegroundWindow` / `GetWindowThreadProcessId`）。本软件对自身进程的操作见 §2.1 | `INJ-007` `INJ-008` `INJ-009` |
 | 4 | 不发送任何数据包（`pcap_sendpacket` / `pcap_inject`、libpcap 的发送队列、Packet.dll 的 `PacketSendPacket`、SharpPcap 的 `SendPacket` / `SendQueue`），抓包严格只读 | `CAP-001` `CAP-002` |
 | 4b | 只用 Npcap/WinPCap 抓包实现，不用 raw socket 实现；不直接加载 pcap 原生库（`DllImport` / `LibraryImport` / `NativeLibrary.Load` / `LoadLibrary` / `QLibrary`），抓包只经由 SharpPcap 的 Npcap 设备 | `CAP-003` `CAP-004` `CAP-006` |
 | 4c | 不把原始报文写成抓包文件（`pcap_dump*`、SharpPcap 的 `CaptureFileWriterDevice`） | `CAP-005` |
@@ -75,7 +75,8 @@
   桌面端读取自身进程的创建时间（`GetProcessTimes(GetCurrentProcess())`）并作为 `--parent-start-time` 传给采集服务；
   桌面端读取自身令牌的用户 SID（`OpenProcessToken(GetCurrentProcess())`），据此算出管道名，并在连上管道后用
   `GetSecurityInfo` 读取管道的所有者，只接受当前用户（或其令牌的默认所有者）的管道；采集服务用 `WaitNamedPipe`
-  询问管道是否存在；两个进程用命名事件与命名互斥体（`Local\<管道名>.stop`、桌面端的单实例互斥体与唤起事件等）
+  询问管道是否存在；采集服务读取自身令牌的强制完整性级别（`GetTokenInformation(TokenIntegrityLevel)`），以管理员身份
+  运行时用 `SetSecurityInfo` 为自己的管道加上 High 强制完整性标签，并用 `GetSecurityInfo` 读回核对（§8）；两个进程用命名事件与命名互斥体（`Local\<管道名>.stop`、桌面端的单实例互斥体与唤起事件等）
   协调停止与单实例；采集服务无应答时，桌面端用系统自带的 `tasklist.exe` / `taskkill.exe` 核对并结束 `serve.pid` 所记的
   采集服务进程；两者的路径取自 Windows 报告的系统目录（`GetSystemDirectoryW`），不经由 `%SystemRoot%` 环境变量或 `PATH` 查找。
 - **`NET-009` 只放行两处登记在案的行。** 安装程序在缺少 Npcap 时以 Inno Setup 的下载页下载
@@ -85,14 +86,29 @@
   官方安装包；启动该下载的一行带有登记在案的行内标记，随后核对文件大小与 SHA-256，不一致即失败。该下载只在 CI 中发生，
   所得工具不进入软件或安装包。除这两处外，脚本、工作流、QML 与桌面端不得自行下载或请求网络资源：QML 不得把远程地址
   用作 `source`、`import` 或 `url` 属性，也不得以 `Qt.resolvedUrl` / `Qt.include` / `Qt.createComponent` 加载远程地址；
-  桌面端也不得以 `load` / `loadUrl` / `setSource` 把远程地址交给 QML 引擎。下载命令写在进程启动参数中时（`-Executable` /
-  `-FilePath`、`.FileName =` 或 `ProcessStartInfo(` 之后的 `curl` 等）同样被识别。任何代码也不得把远程地址
-  交给 XML 读取接口（`XDocument.Load`、`XmlReader.Create` 等）。CI 与开发脚本中的 `pip` / `npx` 安装不在任何静态规则的
-  识别范围内，它们安装的内容见 §8。
+  桌面端也不得以 `load` / `loadUrl` / `setSource` 把远程地址交给 QML 引擎。脚本与工作流中，下载命令写在进程启动参数中时
+  （`-Executable` / `-FilePath`、`.FileName =` 或 `ProcessStartInfo(` 之后的 `curl` 等）同样被识别；C#、C++、安装程序与
+  MSBuild 文件中，把 `curl` / `wget` / `bitsadmin`（或带 `-urlcache` 的 `certutil`）作为程序名字面量交给进程启动接口
+  （`ProcessStartInfo(`、`Process.Start(`、`QProcess` 的 `start` / `startDetached` / `setProgram`、`runTool`、`CreateProcess`、
+  `system`、`popen`、`FileName =`，以及 Inno Setup 的 `Exec` / `ShellExec` 与 `[Run]` 段的 `Filename:`），或写在 MSBuild 的
+  `<Exec Command="…">` 中，由 `NET-009` 的 `launchers` 条目识别。CMake 的 `file(DOWNLOAD|UPLOAD …)`、`FetchContent`、
+  `ExternalProject_Add`，MSBuild 的 `<DownloadFile>`，以及 PowerShell 从网络安装模块或包的 `Install-` / `Save-Module`
+  （`-Package`、`-PSResource`）同样被识别；PowerShell 的网络 cmdlet（`Test-NetConnection`、`Test-Connection`、
+  `Resolve-DnsName`、`Send-MailMessage`）由 `NET-008` 禁止。PowerShell 与 Inno Setup 不区分大小写，因此 `INJ-007`…`INJ-009`、
+  `NET-001`…`NET-003`、`NET-006`、`NET-008`、`AUT-001`、`DEU-001`…`DEU-004` 与 `CAP-001`、`CAP-003`、`CAP-004`、`CAP-005`
+  在 `.bat` `.cmd` `.isl` `.iss` `.ps1` `.psm1` `.yaml` `.yml` 文件中不区分大小写；`CAP-003` 另识别 PowerShell 的枚举写法
+  `[NetworkMonitorType]::RawSocket`。程序名为 `cmd`、`powershell` 或 `pwsh`（可带路径与 `.exe`，含 Inno Setup 的 `{cmd}`），
+  同一行随后有 `/c`、`-c` 或 `-Command` 与下载命令（`curl`、`wget`、`iwr`、`irm`、`bitsadmin`、`Invoke-WebRequest`、
+  `Invoke-RestMethod`、`Start-BitsTransfer` 或带 `-urlcache` 的 `certutil`）时，同样由 `launchers` 条目识别。程序名或交给 shell 的命令来自变量或写在另一行、C++ 的 `ShellExecute*`、
+  跨行书写的 `<Exec>` 以及 CMake 的 `execute_process(COMMAND curl …)` 不在识别范围内，见
+  `tools/static-boundary-check/README.md` 的「已知局限」。
+  任何代码也不得把远程地址交给 XML 读取接口（`XDocument.Load`、`XmlReader.Create` 等）。CI 与开发脚本中的 `pip` / `npx`
+  安装不在任何静态规则的识别范围内，它们安装的内容见 §8。
 - **`NET-010` 按精确路径放行两个维护工具。** Python 代码不得引入或调用联网模块，也不得自行监听：`http.server`、
   `socketserver`、`xmlrpc.server`、`asyncio.start_server`、事件循环或 `ssl` 的 `create_connection` / `create_server`
-  与 `ssl.get_server_certificate` 同样在列。例外是开发期下载公开副本数据表的 `tools/duty-data-generator/generate.py`，
-  以及 CI 发布同步入口 `tools/release-mirror/sync_release.py`。后者只在维护者的发布工作流中运行，不随软件运行：
+  与 `ssl.get_server_certificate` 同样在列。例外是开发期下载公开副本数据表的 `tools/duty-data-generator/generate.py`
+  （从 XIVAPI 与 thewakingsands 的 `ffxiv-datamining-cn` / `ffxiv-datamining-tc` CSV 导出下载副本表与游戏名称，并经 GitHub 的
+  提交 API 把这些 CSV 固定到某一提交；只由维护者在开发期运行，不随软件运行），以及 CI 发布同步入口 `tools/release-mirror/sync_release.py`。后者只在维护者的发布工作流中运行，不随软件运行：
   它复制本项目原始 Release 附件并匿名回读校验；GitHub 上已发布版本的标题或说明修改后，它先核对标签、发布类型与全部附件，
   再以带令牌的 `PATCH` 更新 GitCode 上已有发布的标题与说明；定时补同步时，它还匿名读取 GitCode 的发行版清单，
   逐个向 GitHub 查询其中的正式版本标签，已在 GitHub 删除、仍在 GitCode 发布的版本使该次运行失败并留待维护者手动删除。
@@ -292,7 +308,7 @@ Machina 在释放库时会尝试删除自己产生的临时副本，其诊断信
   - 保留：界面通路的会话目录只保留**最近 10 个**，且不超过 **7 天**；启动时与每次会话
     结束后各清理一次，只删除本服务自身按 `<时间戳>-<GUID>` 命名写下的整个会话目录。
     命令行通路写入用户指定的文件，本软件不清理该文件，也不覆盖已有输出。
-- 摘要前缀只用于本地关联，不构成加密或匿名化保证；整份 trace 不作为公开 issue 附件。
+- 摘要前缀只用于本地关联，不构成加密或匿名化保证；整份 trace 不作为公开 issue 附件，新区服采证时只由测试者私下交给维护者（§8.2「新区服采证的私下回传」）。
   完整格式见 [capture-diagnostics.md](capture-diagnostics.md) §9.2。
 - 除下述经任务书明确批准的研究模式外，发布构建不保存原始负载；既有 trace、
   正式记录和诊断导出继续执行上述限制。
@@ -386,10 +402,10 @@ opcode，按 opcode 与字段名分组，**不与轮盘编号、连接标签或�
 | 　· 在线语音合成 | **默认关闭** | 用户在设置中选择在线语音并填写密钥后，播报时将该条文字 `POST` 给用户选定的语音服务，取回 WAV 音频，条件与限制见 §8.3 |
 | 　· 更新检查与用户主动下载 | 检查默认开启，可关闭；下载只在用户点击时 | 启动时及持续运行期间定期检查（详见 §8.4），只读 `GET` 固定仓库的发布元数据与必要的镜像发行版清单，GitHub 优先，条件与限制见 §8.4；用户点击「下载安装包」后，只读 `GET` 该版本的校验值与安装程序，核对一致才保留，采集服务从不执行它，条件与限制见 §8.6。不自动下载，不自动安装 |
 | 安装程序下载 Npcap | 仅在安装过程中、且本机没有 Npcap 时 | 由安装程序（而非运行中的软件）从 `npcap.com` 下载固定版本的 Npcap 官方安装程序，校验 SHA-256 后启动，见 §8.5 |
-| 本机 IPC | 是 | 仅命名管道 `MentorRecorder.<UserSidHash>.v1`，ACL 限当前用户；桌面端连上后核对管道的所有者，不属于当前用户即断开 |
+| 本机 IPC | 是 | 仅命名管道 `MentorRecorder.<UserSidHash>.v1`（开发构建为 `MentorRecorder.<UserSidHash>.dev.v1`），ACL 限当前用户；采集服务以管理员身份运行时，管道另带 High 强制完整性标签（不可向上写、不可向上读），同一用户未提权的进程也无法打开；桌面端连上后核对管道的所有者，不属于当前用户即断开 |
 | 抓包 | 是（只读） | Npcap，仅读取，从不发送 |
 
-开发与发布期间另有联网行为，均不随软件运行：NuGet 包还原；`tools/duty-data-generator` 下载公开数据表、`tools/release-mirror/sync_release.py` 在 CI 同步 Release（两个 Python 精确路径例外见 §2.1）；CI 工作流 `.github/workflows/ci.yml` 经固定到提交号的 Actions 安装 .NET、Python、Node.js 与 Qt，以 `pip install -r tools/requirements-ci.txt` 安装固定版本的 Python 测试依赖，以 `npx` 安装固定版本的 markdownlint-cli，并从 github.com 上 cppcheck 的发布页下载固定版本的安装包、核对其大小与 SHA-256（§2.1）；维护者构建本地 OCR 组件时，`scripts/build-local-ai-ocr-worker.ps1` 在指定 `-InstallBuildDependencies` 时以 pip 安装 `tools/LocalAiOcr/requirements-build.txt` 中固定版本的构建依赖；以及开发者查阅文档。其中 pip 与 npx 的安装不在任何静态规则的识别范围内。
+开发与发布期间另有联网行为，均不随软件运行：NuGet 包还原；`tools/duty-data-generator` 从 XIVAPI、thewakingsands 的 `ffxiv-datamining-cn` / `ffxiv-datamining-tc` CSV 导出与 GitHub 的提交 API 下载公开数据表、`tools/release-mirror/sync_release.py` 在 CI 同步 Release（两个 Python 精确路径例外见 §2.1）；CI 工作流 `.github/workflows/ci.yml` 经固定到提交号的 Actions 安装 .NET、Python、Node.js 与 Qt，以 `pip install -r tools/requirements-ci.txt` 安装固定版本的 Python 测试依赖，以 `npx` 安装固定版本的 markdownlint-cli，并从 github.com 上 cppcheck 的发布页下载固定版本的安装包、核对其大小与 SHA-256（§2.1）；维护者构建本地 OCR 组件时，`scripts/build-local-ai-ocr-worker.ps1` 在指定 `-InstallBuildDependencies` 时以 pip 安装 `tools/LocalAiOcr/requirements-build.txt` 中固定版本的构建依赖；以及开发者查阅文档。其中 pip 与 npx 的安装不在任何静态规则的识别范围内。
 
 仓库引用同步另由 CI 中的 `tools/release-mirror/sync_refs.py` 调用 Git 完成：只向固定的两个 GitCode 仓库推送 GitHub 的 heads/tags，使用精确 lease、原子推送并回读验证，同步本身不删除目标独有引用。凭据仅在 Git 子进程环境中按目标 URL 限定，不写入仓库或软件。校准仓库通过源模板映射部署同一个脚本，在推送时、每 30 分钟，以及校准发布、证据与报告三个工作流每次运行结束后（不论成败）运行，覆盖 GITHUB_TOKEN 提交不触发 push 工作流的情况。
 GitCode 上的分支只由 `tools/release-mirror/cleanup_refs.py` 删除：它只处理维护者在 `tools/release-mirror/cleanup-plan.json` 中逐条批准的分支（精确分支名与预期提交号；`main`、`dev` 与标签不得列入），且只在该分支已不在 GitHub 上、GitCode 上的提交号与批准的一致、批准时登记的锚点提交已并入 GitHub 的 `main` 时删除。删除使用精确 lease 的原子推送，随后匿名回读核对；删除后分支在 GitHub 上重新出现时，工具把它恢复到 GitCode 并使该次运行失败。该工具使用同一个 `GITCODE_MIRROR_TOKEN`，由 `.github/workflows/cleanup-mirror-branches.yml` 每 6 小时运行一次，另在批准清单或工具的变更推送到 `main` 时、以及 GitHub 上删除分支时运行。
@@ -519,7 +535,9 @@ GitCode 只允许 `/api/v5/repos/Harendotes-Tang/MentorRecorder-Calibrations/raw
   "公开仓库的证据与隔离"。隔离不是撤回：本软件仍下载并核实这份码，只是它须按导入码的门槛完整核实才能生成档案。
   按登录时换区报文生成、尚未完整记录过一次随机任务并通过全部判据的共享档案，读到隔离提示后暂停使用
   （诊断中 `last_refusal` 为 `QUARANTINED`），这份码回到核实中，它此前生成的记录不标记待复核；已完整记录过一次且判据
-  全部通过的共享档案不因隔离撤下。档案写出期间这份码被隔离或门槛发生变化时，须按新门槛重新核实，未通过即丢弃写出的档案
+  全部通过的共享档案不因隔离撤下。读到隔离提示时若一场导随正在进行（已匹配或已进本），暂停推迟到这一场结束之后，
+  与撤回在这种情况下的处理相同；届时重新判断：档案此时（包括刚结束的这一场）已完整记录过一次随机任务且判据全部通过的，
+  继续使用，否则照上文暂停。推迟期间再读到的索引取代这次推迟：仍隔离这份码时重新推迟，不再隔离时不再暂停。档案写出期间这份码被隔离或门槛发生变化时，须按新门槛重新核实，未通过即丢弃写出的档案
   （`RECHECK_REQUIRED`）。
 - 无论门槛如何，两个抓包完整的会话都对不上时撤下档案，它生成的记录标记待复核。每份共享档案开始记录的时间随档案
   保存在本机（§9 的 `state.json`），撤下时只标记这份校准自己生成的记录，重启之后同样如此。系统时钟回拨后，这份校准
@@ -537,7 +555,8 @@ GitCode 只允许 `/api/v5/repos/Harendotes-Tang/MentorRecorder-Calibrations/raw
 表单里的「这份校准码的来源」一栏由地址参数预先填为"其他玩家分享，已在我的软件里核实通过并正常记录"（本机校准的分享同样预填对应的一句），提交后仓库把它计为又一个提交账号，让其他玩家的软件更优先核实它。
 软件仍然不发送任何数据，核实结果从不自动回传。
 
-捕获诊断页「工具」中的「共享校准证据」，以及「帮助适配其他区服」的采证步骤，以同样的方式交由玩家提交证据摘要。
+捕获诊断页「工具」中的「共享校准证据」，以及「帮助适配其他区服」采证页第 ⑤ 步可选的「候选摘要」，以同样的方式交由玩家提交证据摘要。
+采证页的主要回传方式不经过公开仓库，见本节下文「新区服采证的私下回传」。
 点击「预览」（采证完成后为「预览候选摘要」）时，桌面端经命名管道向采集服务请求摘要（`GetCalibrationEvidence` /
 `GetTemplateObservation`）；采集服务只读取本机已保存的内容，不发出任何网络请求。预览窗口显示将要公开的完整 JSON，
 其格式固定为 `calibration-evidence-v1`（`contracts/calibration-evidence-v1.schema.json`）。两类摘要都只含区服、客户端版本、
@@ -567,6 +586,23 @@ opcode、长度与窗口内外的计数。两者都不含报文正文、负载�
   这样的会话出现在多份候选的摘要中时，只计入最先受理它的候选，其他候选的摘要照常受理。
 - 已计入结论的证据 Issue 与已归档候选草案的 Issue 在回复后自动关闭；仍在等待或未受理的 Issue 保持打开。新区服候选线索
   按元数据去重归档为仓库中的候选草案，始终为 CANDIDATE / BLOCKED，不会成为可用档案。
+
+**新区服采证的私下回传。** 「帮助适配其他区服」采证页第 ⑤ 步请测试者把本轮的文件打包成一个 ZIP，私下交给维护者；
+两份测试指南（[traditional-chinese-server-testing.md](traditional-chinese-server-testing.md)、
+[global-server-testing.md](global-server-testing.md)）给出的方式是以电子邮件寄到 **mentorrecorder@gmail.com**，附件过大时改附 Google 云端硬盘链接。
+本软件从不发送这些文件：页面只提供「打开所在目录」「导出诊断报告」「打开日志目录」等本机操作与「复制回传说明」，
+是否回传、通过何种渠道回传，由测试者自行决定。页面列出的回传内容为：
+
+- 本轮的取证文件 `trace.jsonl` 与校验文件 `trace.jsonl.sha256`（格式见 §5；不含负载字节与地址，但含每条消息的本机 UTC 时间
+  与报文所属压缩包的服务器 epoch，可据此还原本轮的游戏时间线）；
+- 诊断报告 JSON（[capture-diagnostics.md](capture-diagnostics.md) §9）；
+- 测试者自己截取的状态截图；
+- 视需要附上的 `collector-*.log` 诊断日志（已按 §5 脱敏）与游戏目录中的 `ffxivgame.ver`；
+- 测试者复制的「回传说明」文字：软件与游戏版本、Windows 版本（产品名与内核版本）、测试起止时间与时区、区服与所选网卡的名称、
+  加速器或 VPN 的类别与测试者填写的名称、随机类型、测试者填写的副本与职业、事件标记、这一轮的情况、四项计数、附件清单，
+  失败时另有失败原因。
+
+页面同时提示不要附数据库、游戏程序或 DLL、账号密码与原始抓包，完整 trace 不要贴到公开 Issue。
 
 **只有采集服务联网。** 桌面端继续禁止 `QNetworkAccessManager`（`NET-006`），打开网页一律交由系统浏览器处理。
 
@@ -709,7 +745,9 @@ GitCode API 主机仅放行共享校准客户端、更新客户端与该发布�
   并提供「检查更新」按钮（1.1.1 起）：点击后立即检查一次，结果以一句提示说明；有新版本时该按钮随下载的状态变为「下载安装包」「取消」「立即安装」或「重试」，旁边另有「查看更新说明」。开关关闭时「检查更新」不可用。
 - 设置页"关于"在有新版本时，于版本号一行附带「有新版本 x.y.z」，并同样提供「查看更新说明」与随下载状态变化的同一个按钮；没有新版本时该位置是「检查更新」（1.1.1 起）。
 - 设置页"关于"中「查看软件说明」打开的说明窗口「这个软件做什么、不做什么」列出三类联网，其中「联网三」写明检查新版本
-  （默认开启，可关闭），以及只有在用户点击「下载安装包」之后才下载、再点击「立即安装」才启动安装程序。
+  （默认开启，可关闭），以及只有在用户点击「下载安装包」之后才下载、再点击「立即安装」才启动安装程序；
+  它写明检查与下载都先访问本项目在 GitHub 的发布页、读取失败时改用 GitCode 上的同名镜像，并说明 GitHub、GitCode 及其下载服务
+  能看到用户的 IP 地址。
   该窗口是普通的说明窗口，不需勾选或确认，首次启动时也不弹出；此前记录确认状态与说明版本号的做法已经取消。
 
 **请求不携带标识信息。** 请求没有正文、Cookie、安装 id、账号或客户端令牌，也不发送 Windows 凭据；
@@ -886,9 +924,13 @@ GitCode 起始地址为固定的 `/api/v5/repos/Harendotes-Tang/MentorRouletteRe
 见 §4.2"退出路径"），退出时才释放该文件，由安装程序的向导完成更新：替换本软件文件的是用户启动的安装程序，
 而不是运行中的本软件。启动没有成功时（例如用户在批准提示中选择了「否」），桌面端立即释放该文件，本软件继续运行并说明原因。
 
-**校验值能防什么、不能防什么。** 校验值与安装程序发布在同一个发布页上。它能发现传输中或磁盘上的损坏、不完整的下载，
-以及文件被混淆或替换为另一个文件；它**不能**防范能够向本项目发布页上传资产的一方，这一方可以同时替换安装程序与校验值。
-安装程序没有代码签名。这是已知的限制：软件内下载的可信程度与用户在浏览器中从同一发布页下载相同，并不更高。
+**校验值能防什么、不能防什么。** 校验值与安装程序发布在同一个发布页上。读到 GitHub 的校验值时，它是唯一的预期值，
+镜像只能提供与之一致的安装程序；GitHub 的校验值读不到时（无法连接、限流、超时、内容不合格或超出大小上限等，见上文），
+GitCode 镜像发行版公布的校验值就成为核对安装程序的唯一依据。校验值能发现传输中或磁盘上的损坏、不完整的下载，
+以及文件被混淆或替换为另一个文件；它**不能**防范能够向本项目 GitHub 发布页上传附件的一方，也不能在 GitHub 的校验值
+读不到时防范能够向 GitCode 镜像发行版（项目 `11065764`，由 CI 以 `GITCODE_MIRROR_TOKEN` 写入）上传附件的一方，
+这一方可以同时替换安装程序与校验值。安装程序没有代码签名。这是已知的限制：软件内下载的可信程度与用户在浏览器中
+从 GitHub 发布页或其 GitCode 镜像下载相同，并不更高。
 此外，系统外壳按用户自己的设置决定由哪个程序处理 `.exe` 文件，以同一用户身份运行的其他程序可能事先改动这一设置；
 与未签名的安装程序和同源的校验值一样，这超出了本软件能够核对的范围。
 
@@ -945,17 +987,17 @@ GitCode 起始地址为固定的 `/api/v5/repos/Harendotes-Tang/MentorRouletteRe
    |---|---|---|---|
    | `mentor_recorder.db`（含 `-wal` / `-shm`） | 首次运行 | 用户的记录本身 | 记录全部丢失 |
    | `logs\` | 首次运行 | 结构化诊断日志，无报文正文；2 MiB × 5，7 天清理 | 仅损失排查材料 |
-   | `backups\` | 每日自动备份（默认开启）、显式 `BackupDatabase`，以及每次升级数据库结构之前 | 数据库的完整副本：每日备份保留 14 份；升级前快照 `pre_schema_<旧版本>_upgrade_<时间>_<编号>.db` 不参加滚动清理（[data-model.md](data-model.md) §8） | 损失本地回滚点；删除升级前快照后，旧版程序无法再打开升级前的数据 |
+   | `backups\` | 每日自动备份（默认开启）、显式 `BackupDatabase`，以及每次升级数据库结构之前 | 数据库的完整副本：每日备份保留 14 份；升级前快照 `pre_schema_<旧版本>_upgrade_<时间>_<编号>.db` 不参加滚动清理，升级失败时本次快照随即删除（[data-model.md](data-model.md) §8） | 损失本地回滚点；删除升级前快照后，旧版程序无法再打开升级前的数据 |
    | `exports\` | 仅在导出候选取证且未指定路径时 | 候选证据 JSON + `.sha256` | 无影响 |
    | `diagnostics\` | 仅在导出脱敏诊断报告且未指定路径时 | `diag_<时间>.json`，白名单字段 | 无影响 |
    | `traces\` | 仅在界面上开始过"验证"时 | opcode 级取证会话；保留最近 10 个 / 7 天 | 无影响 |
    | `oodle-temp.json` | 仅在产生过游戏程序临时副本时 | 待回收的副本路径清单（§4.2） | 相应副本需由用户自行删除 |
-   | `game-install.json` | 仅在本软件运行期间检测到过游戏进程之后 | 上次看到的游戏程序路径，只用于在游戏未运行时读取同目录的 `ffxivgame.ver` 以得知客户端版本；只记录本地盘符上的路径，位于网络共享、映射的网络驱动器或设备路径上的游戏不记录，也不会据此读取（否则读取版本号本身就是一次未列明的出站连接）；该路径不进入 IPC 应答、日志、诊断报告、导出文件与数据库 | 在下次启动游戏之前客户端版本重新变为未知，档案匹配与共享校准获取相应推迟 |
-   | `serve.pid` | 采集服务**开始服务之后**（位于 `logs\` 或 `--log-dir` 指定的目录下）；迁移与崩溃恢复期间尚无该文件，停止时它最先被删除 | 占用通信管道的进程号；干净退出时自动删除。用 `--pipe` 指定其他管道名时，文件名为 `serve.<管道名>.pid` | 无影响 |
+   | `game-install.json` | 仅在本软件运行期间检测到过游戏进程之后 | 上次看到的游戏程序路径，只用于在游戏未运行时读取同目录的 `ffxivgame.ver` 以得知客户端版本；只记录本地盘符上的路径，位于网络共享、映射的网络驱动器或设备路径上的游戏不记录，也不会据此读取（否则读取版本号本身就是一次未列明的出站连接）；该路径不进入 IPC 应答、日志、诊断报告、导出文件与数据库。用户在设置中手动指定区服时，数据库设置 `capture.region_override_install` 只保存选定时正在运行（或此后第一个运行）的客户端路径的 SHA-256 指纹（路径转为大写后计算，无法还原为路径），用于把这次选择限定在该份安装上 | 在下次启动游戏之前客户端版本重新变为未知，档案匹配与共享校准获取相应推迟 |
+   | `serve.pid` | 采集服务**开始服务之后**（位于 `logs\` 或 `--log-dir` 指定的目录下）；迁移与崩溃恢复期间尚无该文件，停止时它最先被删除 | 占用通信管道的进程号；干净退出时自动删除。用 `--pipe` 指定其他管道名时，文件名为 `serve.<管道名>.pid`（管道名中字母、数字与 `.` `_` `-` 以外的字符替换为 `_`）；开发构建的桌面端总以 `--pipe` 启动采集服务，因此开发构建写的是这种文件名 | 无影响 |
    | `icons\` | 仅在用户自行放入时 | 用户自备的图标 | 回退到内置图标 |
    | `desktop.ini` | 首次运行桌面端时；始终位于 `%LOCALAPPDATA%\MentorRecorder\`（开发构建为 `MentorRecorder-dev\`），不随 `MR_DATA_DIR` 移动 | 桌面端的界面、播报与数据设置，以及首次启动是否已完成、上次自动备份的日期与被忽略的新版本号；早先版本写下的说明确认记录可能仍留在其中，不再使用 | 设置恢复默认，首次启动的基数引导再出现一次 |
-   | `recovery\` | 有需要用户确认结局或填写心得的记录之后，以及用户在任一记录（含导入的记录）的心得编辑器中输入了尚未保存的文字之后（由桌面端写入）；与 `desktop.ini` 一样始终位于 `%LOCALAPPDATA%\MentorRecorder\`，不随 `MR_DATA_DIR` 移动 | 每个数据库一份 `<sha256>.json`（文件名为该数据库完整路径的 SHA-256），以及保存期间存在的锁文件 `<sha256>.json.lock`：浮窗「待处理」中尚未处理完的记录（采集服务发来的完整记录内容）、它们是等待确认结局还是填写心得，以及用户已输入、尚未保存的心得草稿（含心情与补选的职业，主窗口内编辑器的草稿同样保存）；处理完的条目随即移出，记录已不存在时带草稿的条目保留到用户点「移除提醒」 | 「待处理」中的提醒与未保存的草稿丢失；数据库中的记录不受影响 |
-   | `calibration\` | 仅在本机校准观察过流量之后 | 每个区服与客户端版本一份 `<区服>.<客户端版本>.json`：本机校准积累的观察，只有 opcode、报文长度、字节偏移、id 类数值（轮盘、区域、职业）以及脱敏后的连接标签与时间，不含报文正文（§5.2）；另有用户在核对时间线时判为「错」的条目与本机流量已否定的匹配报文（被否定的 opcode、报文形状、状态字段取值与对应时间），只在存在时写入，使这些判定在重启后继续有效；「清空校准进度」或校准结束后删除 | 本机校准从头积累观察 |
+   | `recovery\` | 有需要用户确认结局或填写心得的记录之后，以及用户在任一记录（含导入的记录）的心得编辑器中输入了尚未保存的文字之后（由桌面端写入）；与 `desktop.ini` 一样始终位于 `%LOCALAPPDATA%\MentorRecorder\`（开发构建为 `MentorRecorder-dev\`），不随 `MR_DATA_DIR` 移动 | 每个数据库一份 `<sha256>.json`（文件名为该数据库完整路径的 SHA-256），以及保存期间存在的锁文件 `<sha256>.json.lock`：浮窗「待处理」中尚未处理完的记录（采集服务发来的完整记录内容）、它们是等待确认结局还是填写心得，以及用户已输入、尚未保存的心得草稿（含心情与补选的职业，主窗口内编辑器的草稿同样保存）；处理完的条目随即移出，记录已不存在时带草稿的条目保留到用户点「移除提醒」 | 「待处理」中的提醒与未保存的草稿丢失；数据库中的记录不受影响 |
+   | `calibration\` | 仅在本机校准观察过流量之后 | 每个区服与客户端版本一份 `<区服>.<客户端版本>.json`：本机校准积累的观察，只有 opcode、报文长度、字节偏移、id 类数值（轮盘、区域、职业）以及脱敏后的连接标签与时间，不含报文正文（§5.2）；另有用户在核对时间线时判为「错」的条目与本机流量已否定的匹配报文（被否定的 opcode、报文形状、状态字段取值与对应时间），只在存在时写入，使这些判定在重启后继续有效；以及单次抓包会话中出现超过 2000 次的报文（方向与 opcode），使其在之后的会话中继续不参与配对；「清空校准进度」时删除，本机流量否定过匹配报文而当时没有抓包会话时随即重新写出一份只含这些 opcode 的文件（不含观察）；写出本机档案、校准结束后删除 | 本机校准从头积累观察（被本机流量否定的匹配报文 opcode 一并遗忘） |
    | `reference\` | 仅在用户于校准时间线上更正过随机任务名称之后 | `roulette-names.json`：用户更正的随机任务编号与名称，只用于显示 | 回退到随软件提供的名称 |
    | `protocol-profiles\` | 仅在用户确认过一次本机校准之后 | 本机校准写出的协议档案（每区服最新 3 份；不含任何报文正文，只有 opcode、长度、偏移与证据说明） | 下次游戏时重新校准一次 |
    | `shared-calibrations\` | 仅在获取过共享校准之后（§8.2；默认开启，可关闭） | 按 `<区服>\<客户端版本>\` 分目录：下载的校准码 `<sha前12位>.mrc`，以及 `state.json`，其中含上次获取的时间、每个源的结果码、索引给出的排序信息、读到过的撤回名单（只增不减，每个版本最多 512 个）与隔离提示、拒绝记录（校准码编号与在本机流量中判出矛盾的抓包会话编号）、用户选择「改为本机校准」的时间、已结束看护的共享档案的文档校验值，以及在用共享档案的文档校验值、对应校准码编号与开始记录的时间；不含报文正文、地址或账号。该文件存在却无法打开时（例如被其他程序独占），按拒绝处理：不获取、不导入、不绑定新的共享校准，已在使用的不因此撤下，直到能够读取 | 下次需要时重新获取；拒绝记录、撤回名单与「改为本机校准」的选择一并清空，此后以下次读到的索引为准 |
@@ -975,6 +1017,19 @@ GitCode 起始地址为固定的 `/api/v5/repos/Harendotes-Tang/MentorRouletteRe
    同一版本另有可用档案时，先看谁认得出服务器的匹配报文，再按随包、本机、共享的顺序选取。
    共享档案有独立的目录，界面标签为「共享校准」，记录中为 `profile_origin = SHARED_CALIBRATION`。
    `shared-calibrations\` 中的校准码本身不是档案，档案目录不读取它。
+
+   **注册表。** 除上述目录与安装目录中的 `note-images\` 外，运行中的本软件只写一处注册表值：
+   `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` 下的 `MentorRecorder`，
+   内容为 `"<安装目录>\MentorRecorder.Desktop.exe" autostart`，用于登录 Windows 后在托盘中启动桌面端。
+   它只在用户于「设置 → 通用」打开「开机启动」时写入，关闭时删除；开关打开期间，正式版每次启动在命令行通过校验、
+   且确认自己是唯一运行的实例之后读取该值，与自身的命令行不同（例如早先版本写下的形式、或指向另一份副本）时改写为自身。
+   开发构建与测试运行从不读取、写入或删除该值。卸载程序只删除指向被卸载目录中 `MentorRecorder.Desktop.exe` 的该值，
+   且只在运行卸载程序的账户中删除；手动删除程序目录不会删除它。本软件不安装服务，也不创建计划任务。
+   删除该值的影响：登录后不再自动启动；若「开机启动」仍为打开，正式版下次启动时重新写入。
+   安装程序另写两处 `HKEY_LOCAL_MACHINE` 下的值：安装结束时在 `HKEY_LOCAL_MACHINE\SOFTWARE\MentorRecorder` 的 `UserLocalAppData`
+   记下安装时用户的本地数据目录（即该用户的 `%LOCALAPPDATA%` 路径，因此含 Windows 用户名），供以管理员身份运行的卸载程序
+   找到要询问是否删除的数据目录，卸载时随该键一并删除；Inno Setup 另写入自己的卸载登记
+   `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{AppId}_is1`，由卸载程序移除。
 
 5. 在诊断页查看 `monitor_type = WinPCap` 与 `injected_hook_enabled = false`。
 6. 阅读源码。本项目采用 GPLv3，源码必须随发布一并提供。

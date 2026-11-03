@@ -354,4 +354,61 @@ public sealed class LocalProfileWriterTests : IDisposable
         File.WriteAllBytes(Path.Combine(dump, name + ".json"), actual);
         Assert.Fail($"profile for '{name}' differs from {golden}; actual output written to {dump}");
     }
+
+    /// <summary>
+    /// Audit 2026-11-03, C-7. A confirmation that could not be written put the system's English
+    /// explanation on the calibration card - for a file another program held open, the whole path
+    /// under the player's Windows user name. Each kind of failure is a catalogue sentence of its own,
+    /// and the draft stays ready to confirm again.
+    /// </summary>
+    [Theory]
+    [InlineData("busy", "calibration.write_failed.busy")]
+    [InlineData("denied", "calibration.write_failed.busy")]
+    [InlineData("disk", "calibration.write_failed.disk")]
+    [InlineData("refused", "calibration.write_failed.refused")]
+    [InlineData("not_selected", "calibration.written_not_selected")]
+    public void AConfirmationThatCannotBeWrittenIsExplainedInPlainWords(string failure, string key)
+    {
+        using var bed = new SharedCalibrationTestBed();
+        const string path = "C:\\Users\\someone\\AppData\\Local\\MentorRecorder\\protocol-profiles\\cn\\cn.local.json";
+        Exception? thrown = failure switch
+        {
+            "busy" => new IOException(
+                $"The process cannot access the file '{path}' because it is being used by another process.",
+                unchecked((int)0x80070020)),
+            "denied" => new UnauthorizedAccessException($"Access to the path '{path}' is denied."),
+            "disk" => new IOException("There is not enough space on the disk.", unchecked((int)0x80070070)),
+            "refused" => new InvalidOperationException("the calibrated profile was refused before writing: E_PROFILE_SCHEMA x"),
+            _ => null,
+        };
+        var services = bed.Services(fetch: false);
+        services = thrown is null
+            ? services with
+            {
+                ReloadSelect = () => game => new ProfileSelection(
+                    ProfileCompatibilityStatus.Unsupported, Domain.StateMachine.ProfileBinding.FailClosed, null,
+                    game.Region, game.GameBuild, ProfileSelector.NoProfileMatchesReason),
+            }
+            : services with { PrepareWrite = (_, _, _, _) => throw thrown };
+        var pipeline = bed.Pipeline(services);
+        pipeline.Refresh(SharedCalibrationTestBed.Game());
+        var session = bed.Start(pipeline);
+        SharedCalibrationTestBed.Feed(pipeline, session, CalibrationObserverTests.Session1());
+        var ready = pipeline.CalibrationStatus();
+        Assert.Equal(CalibrationState.Ready, ready.State);
+
+        var refusal = Assert.Throws<CollectorException>(() => pipeline.ConfirmCalibration(
+            ready.Events.Where(item => item.RequiresConfirmation)
+                .ToDictionary(item => item.EventId, _ => CalibrationVerdict.Correct, StringComparer.Ordinal)));
+
+        Assert.Equal(key, refusal.Text!.Key);
+        Assert.Empty(refusal.Text.Args);
+        Assert.DoesNotMatch("[A-Za-z]", refusal.Message);
+        if (thrown is not null)
+        {
+            Assert.Equal(CalibrationState.Ready, pipeline.CalibrationStatus().State);
+        }
+
+        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+    }
 }

@@ -1,3 +1,4 @@
+using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Protocol.Calibration;
 using MentorRecorder.Collector.Protocol.Profiles;
@@ -59,6 +60,127 @@ public sealed class InstalledBuildPipelineTests : IDisposable
         Assert.NotNull(status.TemplateProfileId);
         Assert.Empty(status.Events);
     }
+
+    /// <summary>
+    /// A client that is running but whose version file cannot be read: another region's client, as
+    /// often as not. Audit 2026-11-03, C-1: the arming made for the client before it stayed in force,
+    /// so that client's traffic fed - and was saved into - the first client's evidence. The arming is
+    /// kept only while no client runs at all.
+    /// </summary>
+    [Fact]
+    public void ARunningClientWhoseBuildCannotBeReadDisarmsCalibration()
+    {
+        var pipeline = _bed.Pipeline(_bed.Services(fetch: false));
+        pipeline.Refresh(Bed.Game());
+        Assert.True(pipeline.CalibrationArmed);
+
+        // The game closed and nothing is remembered: the template is kept for the client's return.
+        Assert.True(pipeline.Refresh(GameProcessDetection.NotRunning).CalibrationActive);
+        Assert.True(pipeline.CalibrationArmed);
+
+        var current = pipeline.Refresh(RunningClient(Region.Tc, build: null));
+
+        Assert.False(current.CalibrationActive);
+        Assert.False(pipeline.CalibrationArmed);
+        var session = _bed.Start(pipeline);
+        Assert.Equal(CalibrationState.Idle, pipeline.CalibrationStatus().State);
+        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+    }
+
+    /// <summary>
+    /// The evidence belongs to the region calibration was armed for, not to whatever the locator says
+    /// now: 清空校准进度 with the game closed removed an "unknown region" file and left the armed
+    /// region's evidence to come back at the next launch (audit 2026-11-03, C-1).
+    /// </summary>
+    [Fact]
+    public void ObservingAgainWithTheGameClosedForgetsTheArmedRegionsEvidence()
+    {
+        var deleted = new List<(Region Region, string Build)>();
+        var services = _bed.Services(fetch: false) with
+        {
+            DeleteEvidence = (region, build) => deleted.Add((region, build)),
+        };
+        var pipeline = _bed.Pipeline(services);
+        pipeline.Refresh(Bed.Game());
+        pipeline.Refresh(GameProcessDetection.NotRunning);
+        Assert.True(pipeline.CalibrationArmed);
+
+        pipeline.DiscardCalibration();
+
+        Assert.Equal(new[] { (Region.Cn, Bed.Build) }, deleted);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-03, D2-1. The capture card's explanation of why nothing records was the profile
+    /// directory's English reason inside a Chinese frame, in every interface language, and on the main
+    /// path of every traditional-Chinese and global client. Each reason is now a catalogue sentence of
+    /// its own, with nothing untranslated inside it.
+    /// </summary>
+    [Theory]
+    [InlineData(Region.Tc, "2026.10.01.0000.0000", false, "profile.unavailable.region_unsupported")]
+    [InlineData(Region.Global, "2026.10.01.0000.0000", false, "profile.unavailable.region_unsupported")]
+    [InlineData(Region.Cn, "2099.01.01.0000.0000", false, "profile.unavailable.no_match")]
+    [InlineData(Region.Cn, null, false, "profile.unavailable.build_unknown")]
+    [InlineData(Region.Unknown, "2026.08.05.0000.0000", false, "profile.unavailable.region_unknown")]
+    [InlineData(Region.Cn, "2099.01.01.0000.0000", true, "profile.unavailable.failed")]
+    public void WhyNothingRecordsIsACatalogueSentence(Region region, string? build, bool selectorFails, string key)
+    {
+        var shipped = new ProfileSelector(ProfileCatalog.LoadDefault());
+        var pipeline = new Protocol.Pipeline.LiveProtocolPipeline(
+            _bed.Db.Database, _bed.Db.Clock, new Ipc.LiveEventBus(_bed.Db.Clock),
+            game => selectorFails
+                ? throw new IOException("C:\\Users\\someone\\AppData\\Local\\MentorRecorder is locked")
+                : shipped.Select(game.Region, game.GameBuild),
+            null, _bed.Services(fetch: false));
+
+        var message = pipeline.Refresh(RunningClient(region, build)).Message;
+
+        Assert.NotNull(message);
+        Assert.Equal(key, message!.Key);
+        Assert.Empty(message.Args);
+        Assert.DoesNotMatch("[A-Za-z]", message.Chinese);
+    }
+
+    /// <summary>
+    /// Re-review 2026-11-03, RV6-1, through the request the desktop sends. With the game closed and calibration armed from
+    /// the remembered install, 清空校准进度 deletes the evidence file; the pop opcode the traffic disproved is written
+    /// back, alone, so the next start still refuses it. Nothing else of the discarded evidence comes back.
+    /// </summary>
+    [Fact]
+    public void ObservingAgainWithTheGameClosedKeepsTheDisprovedOpcodesOnDisk()
+    {
+        var evidence = Path.Combine(_bed.Root, "evidence");
+        var observed = CalibrationTrafficCases.Observe(CalibrationTrafficCases.Traffic(CalibrationTrafficCases.MarkerOffset));
+        var disproved = new HashSet<ushort> { CalibrationTrafficCases.Announce };
+        Assert.True(CalibrationEvidenceStore.Save(evidence, Region.Cn, Bed.Build, Bed.TemplateSha, observed with
+        {
+            Rejections = CalibrationRejections.None with { PopOpcodes = disproved, DisprovedPopOpcodes = disproved },
+        }));
+        var pipeline = _bed.Pipeline(_bed.Services(fetch: false).WithEvidenceIn(evidence));
+        pipeline.Refresh(Bed.Game());
+        Assert.True(pipeline.CalibrationArmed);
+
+        pipeline.DiscardCalibration();
+
+        var kept = CalibrationEvidenceStore.Load(evidence, Region.Cn, Bed.Build, Bed.TemplateSha);
+        Assert.NotNull(kept);
+        Assert.Equal(0, kept!.MessagesSeen);
+        Assert.Empty(kept.Pairs);
+        Assert.Equal(disproved, kept.Rejections.DisprovedPopOpcodes);
+        Assert.Equal(disproved, kept.Rejections.PopOpcodes);
+    }
+
+    private static GameProcessDetection RunningClient(Region region, string? build) =>
+        GameProcessDetection.NotRunning with
+        {
+            Running = true,
+            ProcessId = 4242,
+            ProcessName = "ffxiv_dx11",
+            StartedAtUtc = Bed.Confirmed,
+            Region = region,
+            GameBuild = build,
+            InstanceCount = 1,
+        };
 
     [Fact]
     public async Task OneDownloadIsSentHoweverOftenTheStatusIsPolled()

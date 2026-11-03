@@ -48,14 +48,15 @@
 | 单一写入者 | SQLite 只有 Collector 打开写句柄，彻底避免多个写入者之间的锁竞争与部分写入状态。 |
 | 语言分工 | Machina.FFXIV 是 .NET 库，Qt 6 Quick 属于 C++ 生态。两侧各自采用最合适的技术。 |
 | 许可证边界清晰 | 两个进程都受 GPLv3 约束（见 [third-party-licenses.md](third-party-licenses.md)），但各自的依赖独立，便于审计。 |
-| 崩溃隔离 | 抓包或解析异常不会影响 UI，UI 崩溃不会丢失正在进行的一次记录。 |
+| 崩溃隔离 | 抓包或解析异常不会影响 UI；UI 崩溃时 Collector 按正常的停止路径收尾（§2.2），已写入的记录不受影响，正在进行的一次记录按生命周期规则结束（已进本的记为 `INTERRUPTED`）。 |
 
 ### 2.2 进程生命周期
 
 - Desktop 启动时以子进程方式启动 Collector，可执行文件取自同一目录（或其 `collector\` 子目录）下的固定文件名，
   不接受路径参数注入；环境变量 `MR_COLLECTOR_PATH` 与源码树查找只在以 `MR_DEV_COLLECTOR_DISCOVERY`
-  编译的开发构建中生效。命令行固定为 `--serve --parent-pid <Desktop 的 pid>`，
-  可另带 `--parent-start-time <UTC ticks|ISO-8601>`。
+  编译的开发构建中生效。命令行为 `--serve --parent-pid <Desktop 的 pid>`，
+  可另带 `--parent-start-time <UTC ticks|ISO-8601>`；开发构建另带 `--pipe <开发管道名>`，
+  并在子进程环境中设置 `MR_DATA_DIR`（§2.3）。
 - 生产 IPC 入口由 `main.cpp` 创建 `CollectorProcess` 并显式传给 `AppController`，
   控制器先于借用的监督器析构。未提供监督器的后端不能启动、停止或接管本地 Collector；
   后端名称本身不赋予进程管理权限。
@@ -117,12 +118,16 @@
 （评审发现 C1）。
 
 **开发构建的默认位置。** 桌面端以 CMake 选项 `MR_DEV_BUILD`（默认 `ON`）区分开发构建与正式构建，
-只有 `scripts/package.ps1` 以 `OFF` 配置（经 `scripts/build.ps1 -Distribution`）。开发构建在 `MR_DATA_DIR`
+只有 `scripts/package.ps1` 以 `OFF` 配置（经 `scripts/build.ps1 -Distribution`），且在正式口味自己的构建目录
+（默认 `build-distribution\`）中配置，不改动开发用的 `build\`：`build.ps1`、`test.ps1`、`verify.ps1` 带 `-Distribution`
+时同样默认使用该目录，`MR_BUILD_DIR` 解析为 `build\` 时拒绝运行。开发构建在 `MR_DATA_DIR`
 未设置时把数据根目录定为 `%LOCALAPPDATA%\MentorRecorder-dev`，拉起 Collector 子进程时将该目录写入子进程的
 `MR_DATA_DIR`，并以 `--pipe` 让子进程服务独立的管道名 `MentorRecorder.<哈希>.dev.v1`（租约、停止事件与
 桌面端的单实例键随之独立）；桌面端自己的 `desktop.ini` 也放在该目录。Collector 本身没有口味之分，
 手工启动时须自行设置 `MR_DATA_DIR` 与 `--pipe`。因此在 IDE 或 `build\` 目录中运行开发构建，不会打开、
-更不会迁移正式安装版的数据库（[build-and-package.md](build-and-package.md) §3.7）。
+更不会迁移正式安装版的数据库（[build-and-package.md](build-and-package.md) §3.7）。登录启动项
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run\MentorRecorder` 只属于正式构建：开发构建从不读取、写入或删除它，
+「开机启动」开关显示为不可用并说明原因。
 
 ### 2.4 Collector 的退出码
 
@@ -162,7 +167,9 @@
 桌面端的接管流程因而不会指向它（评审 2 H-B）。
 用 `--pipe` 指定了其他管道名时，写入的文件名为 `serve.<管道名>.pid`，
 其中既非字母数字、也不属于 `.-_` 的字符替换为 `_`；默认的每用户管道仍使用 `serve.pid`。
-开发用的第二个实例因此不会覆盖并删除用户实例的进程号（评审 R-10）。
+开发用的第二个实例因此不会覆盖并删除用户实例的进程号（评审 R-10）。桌面端按同一规则推算自己子进程的文件名：
+开发构建以 `--pipe` 启动子进程，因此只查找 `serve.<开发管道名>.pid`，从不读取正式实例的 `serve.pid`，
+即使两种口味共用同一个 `MR_DATA_DIR`，也不会把正式版的 Collector 当作自己的租约持有者结束。
 
 该进程同时创建一个手动重置事件 `Local\<管道名>.stop`。本机任意进程置位该事件的效果
 等同于 Ctrl+C，走完全相同的停止路径。没有控制台的桌面端因此可以让 Collector 正常退出，
@@ -188,13 +195,19 @@
 
 ## 3. 进程间通信（IPC）
 
-- 传输：Windows 命名管道，名称 `MentorRecorder.<UserSidHash>.v1`。
+- 传输：Windows 命名管道，名称 `MentorRecorder.<UserSidHash>.v1`（开发构建为 `MentorRecorder.<UserSidHash>.dev.v1`，§2.3）。
   `<UserSidHash>` 是当前用户 SID 的稳定哈希（截断的十六进制），用于同机多用户隔离。
 - ACL：仅当前用户（`PipeSecurity`：当前用户 SID 完全控制；不授予 `Everyone`、
   `Authenticated Users`、`NETWORK`）。
   **服务端**使用显式 `PipeSecurity`，**不**附加 `PipeOptions.CurrentUserOnly`：
   .NET 明确拒绝二者同时出现（`NamedPipeServerStreamAcl.Create` 会抛 `ArgumentException`）。
   显式 ACL 是二者中更强的一项，并且可以从进程外审计。
+  Collector 以管理员身份运行（提权令牌，完整性级别为 High 或以上）时，管道另带 High 强制完整性标签
+  （`NO_WRITE_UP | NO_READ_UP`，`PipeIntegrityLabel`）：同一用户未提权的普通进程同样无法打开它，否则这些进程
+  可以借提权的 Collector 以管理员权限读写本机文件。`PipeSecurity` 会丢弃标签项，因此第一个管道实例先以拒绝当前用户
+  的 ACL 创建，再用 `SetSecurityInfo` 一次写入 DACL 与标签，期间任何客户端都无法连上。Windows 让同名管道的后续实例
+  沿用第一个实例的安全描述符，因此后续实例不再设置安全信息，只在用 `GetSecurityInfo` 确认管道带有该标签后才提供服务。
+  未提权时管道与此前完全相同，不带标签。
   ACL 无法完成的检查由客户端负责：校验刚连上的服务端确实属于同一个用户。管道名可以预先推算，
   同机的其他账户有可能抢先以该名字建立管道。桌面端（`IpcClient`）连上后用 `GetSecurityInfo` 读取管道句柄的
   所有者 SID，只接受当前用户或其令牌的默认所有者（以管理员身份运行时为 Administrators 组），否则立即断开，
@@ -410,7 +423,7 @@ CSV/JSON 导出以独立只读连接的同一读事务取得记录和附件。WA
 | 客户端版本未知 / 无对应协议档案 | `ProfileStatus = UNSUPPORTED_BUILD`，`ERR_PROFILE_UNSUPPORTED`，**不解析任何报文，不写入任何记录** |
 | 档案存在但未经证据验证 | `ProfileStatus = UNVERIFIED`，同样不用于自动记录 |
 | 关键字段缺失（如无法确定 `content_id`） | 记录 `detection_confidence` 降级，字段留 `NULL`，不猜测 |
-| 队列溢出，或一条游戏连接的某一方向被放弃（该方向本次会话交出过当前档案能解析的报文；尚无任何方向交出过时任一方向均算，见 [state-machine.md](state-machine.md) §7.5），导致事件丢失 | 进行中的记录以低置信度收尾：已进本的为 `INTERRUPTED`，尚未进本的为 `CANCELLED_BEFORE_ENTRY` 并标记待复核；不补全。被放弃方向的会话累计数与网卡丢包计数单独不结束任何记录 |
+| 队列溢出，或一条游戏连接的某一方向被放弃（该方向本次会话交出过当前档案能解析的报文；尚无任何方向交出过时任一方向均算，见 [state-machine.md](state-machine.md) §7.5），导致事件丢失 | 进行中的记录以低置信度收尾：已进本的为 `INTERRUPTED`，尚未进本的为 `CANCELLED_BEFORE_ENTRY` 并标记待复核；不补全。被放弃方向的会话累计数单独不结束任何记录；网卡丢包只按承载过游戏连接的路径计入，少量丢包只降级：自动路径计划中从未承载过游戏连接的可选网卡读取失败或持续丢包时只关闭这一条路径，抓包照常进行；所选网卡，以及本次会话中承载过游戏连接的可选网卡，读取失败或持续丢包（超过 64 个且超过已收报文的 5 %）时抓包按故障结束，进行中的记录按错误停止收尾（[state-machine.md](state-machine.md) §3.3），经故障退避后重新打开全部路径 |
 | 数据库完整性校验失败，或数据库无法打开 | `ERR_DB_INTEGRITY`（被其他程序占用时为 `ERR_DB_BUSY`），采集服务拒绝启动（退出码 3，IPC 管道不会打开），错误信息给出数据库文件位置并提示先复制一份留底；原因同时写入本机日志（`startup/open_failed`） |
 
 **绝不**在没有证据的情况下猜测 opcode 或结构偏移。协议档案的证据要求见
@@ -439,7 +452,7 @@ CSV/JSON 导出以独立只读连接的同一读事务取得记录和附件。WA
 | Capture / Validation | `src/Collector/Capture/` | 显式开启的被动验证会话：脱敏 opcode 级 trace、标记、保留策略（最近 10 次会话 / 7 天）、界面会话 2 小时上限 | `CaptureValidationController` `CaptureTraceRunner` `CaptureTraceSink` |
 | Export | `src/Collector/Export/` | CSV / JSON 导出、数据库备份与保留 | `RunExporter` `BackupService` `ExportPaths` |
 | Diagnostics | `src/Collector/Diagnostics/` | 结构化轮转日志（**无报文正文**）、速率估计 | `RotatingFileLogger` `ExponentialRateEstimator` |
-| Update | `src/Collector/Update/` | 更新检查（每日至多一次读取发布元数据，[privacy-boundary.md](privacy-boundary.md) §8.4）；用户要求时下载新版本的安装程序，从不执行（§8.6）。网络请求只经由 `UpdateCheckClient.cs`：下载的两个请求按 `ReleaseAsset(version)` 判定每一跳，`github.com` 上只接受本项目该版本的发布目录，其余只接受 `AssetHosts` 中的两个发布资产主机，比检查所用的 `*.githubusercontent.com` 更窄。`UpdateDownloadTransfer.cs` 先取公布的 SHA-256，再把安装程序写入数据目录下 `updates\` 的 `.part`，核对一致才改名，改名后对保留的文件再算一次 SHA-256，仍一致才报告 `READY`。`UpdateDownloadFiles.cs` 在使用 `updates` 期间以不共享删除的方式持有该文件夹的句柄（`CreateFileW`，不跟随重解析点），文件夹是重解析点时拒绝。`UpdateDownloadService.cs` 同一时刻只运行一个后台任务，上一个任务完全结束之前、以及距上一次开始不足 `UpdateDownloadLimits.StartInterval`（5 秒）时不开始新的下载；`CollectorHost.ApplyCaptureSettings` 在 `update_check_enabled` 关闭时调用 `Withdraw()`，停止进行中的下载并删除已就绪的安装程序。下载不经过抓包线程与数据库；`StartUpdateDownload` / `CancelUpdateDownload` 在读循环上立即应答，进度经 `GetStatus` 读取；采集服务停止时取消进行中的下载，最多等待 5 秒 | `UpdateCheckClient` `UpdateCheckService` `UpdateDownloadService` `UpdateDownloadTransfer` `UpdateDownloadFiles` `UpdateChecksum` |
+| Update | `src/Collector/Update/` | 更新检查（每个进程启动后检查一次，距上次检查不足 1 小时则跳过，之后每 24 小时最多一次并附加 0–2 小时随机抖动；先读 GitHub 发布元数据，失败时回退 GitCode，[privacy-boundary.md](privacy-boundary.md) §8.4）；用户要求时下载新版本的安装程序，从不执行（§8.6）。网络请求只经由 `UpdateCheckClient.cs`：下载的两个请求按 `ReleaseAsset(version)` 判定每一跳，`github.com` 上只接受本项目该版本的发布目录，其余只接受 `AssetHosts` 中的两个发布资产主机，比检查所用的 `*.githubusercontent.com` 更窄。`UpdateDownloadTransfer.cs` 先取公布的 SHA-256，再把安装程序写入数据目录下 `updates\` 的 `.part`，核对一致才改名，改名后对保留的文件再算一次 SHA-256，仍一致才报告 `READY`。`UpdateDownloadFiles.cs` 在使用 `updates` 期间以不共享删除的方式持有该文件夹的句柄（`CreateFileW`，不跟随重解析点），文件夹是重解析点时拒绝。`UpdateDownloadService.cs` 同一时刻只运行一个后台任务，上一个任务完全结束之前、以及距上一次开始不足 `UpdateDownloadLimits.StartInterval`（5 秒）时不开始新的下载；`CollectorHost.ApplyCaptureSettings` 在 `update_check_enabled` 关闭时调用 `Withdraw()`，停止进行中的下载并删除已就绪的安装程序。下载不经过抓包线程与数据库；`StartUpdateDownload` / `CancelUpdateDownload` 在读循环上立即应答，进度经 `GetStatus` 读取；采集服务停止时取消进行中的下载，最多等待 5 秒 | `UpdateCheckClient` `UpdateCheckService` `UpdateDownloadService` `UpdateDownloadTransfer` `UpdateDownloadFiles` `UpdateChecksum` |
 
 ### 7.2 自动记录的数据流
 
@@ -472,9 +485,11 @@ LiveEventBus（每订阅者 256 条有界缓冲）
 src/Collector/          C# Collector（见 7.1）
 src/Desktop/            C++20 / Qt 6 Quick 桌面端（cpp/ + qml/ + resources/）
 contracts/              IPC 契约（JSON Schema + 错误码 + CHANGELOG）
-protocol-profiles/      协议档案（国服 cn.2026.08.05 为 VERIFIED；global 仍是 unsupported 占位；synthetic 仅供离线测试）
-data/duties/            副本名称与分类映射（含生成器产出与合成样例）
+protocol-profiles/      协议档案（国服 cn.2026.08.05 为 VERIFIED；global、tc 仍是 unsupported 占位；synthetic 仅供离线测试；oodle-signatures 为 Oodle 特征说明）
+data/duties/            副本名称与分类映射（国服、国际服、繁中服各一份，含生成器产出与合成样例）
 data/jobs/              职业名称映射
+data/roulettes/         随机任务编号与名称
+data/i18n/              界面语言的游戏名称显示表（只用于显示）
 migrations/             SQLite 迁移脚本
 tests/Collector.UnitTests/         C# 单元测试（按 src/Collector 的模块分目录，共用替身在 TestSupport/）
 tests/Collector.IntegrationTests/  真管道 / 真数据库的集成测试（同上分目录）
@@ -485,12 +500,23 @@ tools/fixture-replay/              固件重放说明（重放本身是 Collecto
 tools/protocol-profile-validator/  档案校验器（validate.py）
 tools/static-boundary-check/       硬边界静态检查
 tools/architecture-boundary-check/ 模块依赖方向检查及正反例自测
+tools/security-quality/            依赖与安全质量门禁（security-quality.ps1 调用）
+tools/package-verification/        打包、安装程序、OCR 组件与验证脚本的自测
+tools/collector-texts/             采集服务文案目录的生成与核对
+tools/import-templates/            内置导入模板生成脚本的离线自测
+tools/lucide-icons/                内置 Lucide 图标的生成与来源核对
+tools/candidate-evidence/          候选证据导出文件的离线字段推导
+tools/oodle-signature-finder/      Oodle 特征查找（维护者工具）
+tools/shared-calibration/          共享校准公开仓库的发布工具与工作流源文件
+tools/release-mirror/              CI 中把 Release 与仓库引用同步到 GitCode 镜像的工具
+tools/LocalAiOcr/                  离线 OCR 组件的构建脚本与自测
 docs/                   本目录
 scripts/                PowerShell 环境自检、构建、测试、验证、打包
 ```
 
 > 公开仓库包含测试、工具、合成档案与全部脚本，克隆后可完整构建与验证。
-> 不纳入仓库的内容只有设计原型（`DOC/`）和各类日志（见 `.gitignore`）。
+> 不纳入仓库的内容见 `.gitignore`：构建输出、各类日志、设计原型（`DOC/`），以及只保留在维护者本机的
+> 工作文档（`openspec/`、`docs/plans/`、`docs/reviews/`、`docs/diagrams/`）与本地代理配置（`.claude/`、`.superpowers/`）。
 > 合成档案与测试材料同样不会进入发行包，`scripts/package.ps1` 对此设有断言。
 
 ### 7.4 Desktop 工作流归属
@@ -515,9 +541,14 @@ QObject 生命周期。生产部署仍为 Desktop 与 Collector 两个进程。
 批量历史变更由服务返回 `BatchRunMutationOutcome`。存储层的 `BatchMutationReceiptCodec`
 负责兼容既有幂等回执，IPC 再渲染原有响应字段；重放不重复发布统计失效事件。
 
-`scripts/build.ps1` 与 `scripts/test.ps1` 共用可选环境变量 `MR_BUILD_DIR`，
-默认目录为 `build/`，相对路径相对仓库根目录解析。`scripts/verify.ps1` 因而可以在
-同一个新目录中完成构建、Collector 部署及 CTest 验证。
+`scripts/build.ps1`、`scripts/test.ps1` 与 `scripts/verify.ps1` 共用可选环境变量 `MR_BUILD_DIR`，
+开发口味的默认目录为 `build/`，相对路径相对仓库根目录解析。`scripts/verify.ps1` 因而可以在
+同一个新目录中完成构建、Collector 部署及 CTest 验证；它调用只读取 `MR_BUILD_DIR` 的 `static-analysis.ps1` 时，
+临时把该变量设为本次验证的构建目录，结束后恢复调用方的原值。带 `-Distribution` 时，这三个脚本在 `MR_BUILD_DIR`
+未设置时使用 `build-distribution/`，它解析为 `build/` 时（不区分大小写、忽略末尾的斜杠）在启动时即拒绝。
+`scripts/package.ps1` 同样默认在 `build-distribution/` 中构建正式口味，只在调用方显式设置 `MR_BUILD_DIR` 时改用该目录
+（指向 `build/` 时拒绝），并在验证与构建期间把 `MR_BUILD_DIR` 设为自己的目录，结束后恢复调用方的原值
+（[build-and-package.md](build-and-package.md) §3.7）。
 架构门禁的反向自测由现有 Python 工具发现流程执行。
 
 ## 8. 阶段计划 / Phase plan

@@ -214,7 +214,7 @@ ColumnLayout {
             Text {
                 Layout.fillWidth: true
                 text: qsTr("已保存的笔记有变化。下面保留了旧草稿，请选择要继续编辑的内容。最新笔记：\n%1")
-                      .arg(popup.dialog.baselineText || qsTr("（空）"))
+                      .arg(popup.dialog.displayNote(popup.dialog.baselineText) || qsTr("（空）"))
                 textFormat: Text.PlainText
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fs(12)

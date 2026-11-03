@@ -56,6 +56,7 @@
 | `$defs/CalibrationEvent` | `label` | `label_ref` |
 | `$defs/UpdateDownload` | `message` | `message_ref` |
 | `ImportCalibrationCode` 应答 | `message` | `message_ref` |
+| `CheckSharedCalibration` 应答 | `message` | `message_ref` |
 | `$defs/RunImportPreview.rows[]` | `errors` / `warnings` | `error_refs` / `warning_refs` |
 | `$defs/SpeechVoiceOption` | `label` | `label_ref` |
 

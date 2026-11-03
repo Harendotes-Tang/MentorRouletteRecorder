@@ -1,9 +1,11 @@
 using System.IO.Pipes;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Ipc;
+using Microsoft.Win32.SafeHandles;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
@@ -80,6 +82,97 @@ public sealed class LifecyclePipeSecurityTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// Audit 2026-11-03, G-1: an elevated Collector labels its pipe High, so the user's ordinary (Medium) processes cannot
+    /// open it and borrow administrator rights for exports, backups and import previews. One that is not elevated is left
+    /// exactly as before: no label at all. Run elevated, the same test checks the label itself.
+    /// </summary>
+    [Fact]
+    public async Task ThePipeCarriesAHighIntegrityLabelOnlyWhenTheCollectorRunsElevated()
+    {
+        await using var pipe = CreateShippingPipe();
+        using var identity = WindowsIdentity.GetCurrent();
+        var elevated = new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
+
+        Assert.Equal(elevated ? "S:(ML;;NWNR;;;HI)" : string.Empty, LabelOf(pipe.Stream));
+    }
+
+    /// <summary>
+    /// Audit 2026-11-03, G-1: the label is decided by the integrity level the Collector runs at - High for High and above,
+    /// nothing below High, where a label could add nothing the user's own processes could not undo.
+    /// </summary>
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData(0x1000, null)]
+    [InlineData(0x2000, null)]
+    [InlineData(0x2100, null)]
+    [InlineData(0x3000, 0x3000)]
+    [InlineData(0x4000, 0x3000)]
+    public void ThePipeIsLabelledHighExactlyWhenTheProcessRunsAtHighIntegrityOrAbove(int? process, int? label)
+    {
+        var decide = LabelType().GetMethod("For", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+        Assert.True(decide is not null, "PipeIntegrityLabel.For has been renamed; update this test rather than deleting it.");
+
+        Assert.Equal(label, (int?)decide!.Invoke(null, new object?[] { process }));
+    }
+
+    /// <summary>
+    /// Audit 2026-11-03, G-1: the path an elevated Collector takes, run end to end at the level a test process has. The
+    /// instance is created shut and gets its label and its one grant together; afterwards it still grants the current user
+    /// alone and admits a client at the label's level.
+    /// </summary>
+    [Fact]
+    public async Task ALabelledPipeKeepsItsOneGrantAndAdmitsAClientAtTheLabelsLevel()
+    {
+        var create = typeof(PipeServer).GetMethod("CreatePipeInstance", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.True(create is not null, "PipeServer.CreatePipeInstance has been renamed; update this test rather than deleting it.");
+        var name = "MentorRecorder.acltest." + Guid.NewGuid().ToString("N") + ".v1";
+        using var identity = WindowsIdentity.GetCurrent();
+
+        await using var stream = (NamedPipeServerStream)create!.Invoke(null, new object?[] { name, identity.User, 0x2000 })!;
+
+        Assert.Equal("S:(ML;;NWNR;;;ME)", LabelOf(stream));
+        var rule = Assert.Single(stream.GetAccessControl()
+            .GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier))
+            .Cast<PipeAccessRule>());
+        Assert.Equal(AccessControlType.Allow, rule.AccessControlType);
+        Assert.Equal(identity.User, rule.IdentityReference);
+        Assert.Equal(PipeAccessRights.FullControl, rule.PipeAccessRights & PipeAccessRights.FullControl);
+
+        var accepted = stream.WaitForConnectionAsync();
+        await using var client = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client.ConnectAsync(5_000);
+        await accepted.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(client.IsConnected);
+
+        // The next instance, created the same way while the first is connected - what the accept loop does.
+        await using var next = (NamedPipeServerStream)create.Invoke(null, new object?[] { name, identity.User, 0x2000 })!;
+        Assert.Equal("S:(ML;;NWNR;;;ME)", LabelOf(next));
+        var acceptedNext = next.WaitForConnectionAsync();
+        await using var second = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await second.ConnectAsync(5_000);
+        await acceptedNext.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(second.IsConnected);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-03, G-1: a later instance shares the security of the pipe's first one, so a labelled Collector does
+    /// not serve an instance of a pipe that already stands without the label.
+    /// </summary>
+    [Fact]
+    public async Task ALabelledInstanceIsNotServedOnAPipeThatStandsWithoutTheLabel()
+    {
+        var create = typeof(PipeServer).GetMethod("CreatePipeInstance", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.True(create is not null, "PipeServer.CreatePipeInstance has been renamed; update this test rather than deleting it.");
+        var name = "MentorRecorder.acltest." + Guid.NewGuid().ToString("N") + ".v1";
+        using var identity = WindowsIdentity.GetCurrent();
+        await using var plain = (NamedPipeServerStream)create!.Invoke(null, new object?[] { name, identity.User, null })!;
+        Assert.Equal(string.Empty, LabelOf(plain));
+
+        var refused = Assert.Throws<TargetInvocationException>(() => create.Invoke(null, new object?[] { name, identity.User, 0x2000 }));
+        Assert.IsType<IOException>(refused.InnerException);
+    }
+
     [Fact]
     public void ThePipeNameCarriesADigestOfTheUserSidRatherThanTheSidItself()
     {
@@ -128,6 +221,53 @@ public sealed class LifecyclePipeSecurityTests : IDisposable
             throw;
         }
     }
+
+    private static Type LabelType() =>
+        typeof(PipeServer).Assembly.GetType("MentorRecorder.Collector.Ipc.PipeIntegrityLabel")
+        ?? throw new InvalidOperationException("PipeIntegrityLabel has been renamed; update this test rather than deleting it.");
+
+    /// <summary>
+    /// The mandatory label Windows keeps on the pipe, as SDDL (<c>S:(ML;;NWNR;;;HI)</c>), or the empty string when it has
+    /// none. Read off the handle itself: <see cref="PipeSecurity"/> drops label entries, so it cannot answer this.
+    /// </summary>
+    private static string LabelOf(NamedPipeServerStream stream)
+    {
+        const int kernelObject = 6;
+        const uint labelInformation = 0x10;
+        var error = GetSecurityInfo(stream.SafePipeHandle, kernelObject, labelInformation,
+            IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, out var descriptor);
+        Assert.Equal(0u, error);
+        try
+        {
+            Assert.True(ConvertSecurityDescriptorToStringSecurityDescriptorW(descriptor, 1, labelInformation, out var text, out _),
+                "the label could not be converted to SDDL: " + Marshal.GetLastWin32Error());
+            try
+            {
+                return Marshal.PtrToStringUni(text) ?? string.Empty;
+            }
+            finally
+            {
+                LocalFree(text);
+            }
+        }
+        finally
+        {
+            LocalFree(descriptor);
+        }
+    }
+
+    [DllImport("advapi32.dll", ExactSpelling = true)]
+    private static extern uint GetSecurityInfo(
+        SafePipeHandle handle, int objectType, uint securityInfo,
+        IntPtr owner, IntPtr group, IntPtr dacl, IntPtr sacl, out IntPtr descriptor);
+
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ConvertSecurityDescriptorToStringSecurityDescriptorW(
+        IntPtr descriptor, int revision, uint securityInfo, out IntPtr text, out int length);
+
+    [DllImport("kernel32.dll", ExactSpelling = true)]
+    private static extern IntPtr LocalFree(IntPtr memory);
 
     /// <summary>
     /// The server and the pipe it created, so both are released. The server owns a

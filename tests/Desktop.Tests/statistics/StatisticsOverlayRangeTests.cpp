@@ -206,6 +206,36 @@ private Q_SLOTS:
         QCOMPARE(backend.requests.size(), disabledRequests + 1);
     }
 
+    // A dashboard refresh during a run re-reads the count. The figure on the float
+    // stays until the new one arrives instead of blanking to 「—」 with a 「读取中…」
+    // line; another period or region is another figure and is read afresh (review I2-4).
+    void refreshKeepsTheKnownCountUntilTheNewOneArrives()
+    {
+        RangeBackend backend;
+        mr::StatisticsOverlayController overlay(nullptr);
+        overlay.setModules({QStringLiteral("attempts")});
+        overlay.setBackend(&backend);
+        overlay.show();
+        backend.replies.last()->succeed({{QStringLiteral("attempt_count"), 5}});
+        QVERIFY(overlay.attemptsKnown());
+        overlay.refreshAttempts();
+        QCOMPARE(backend.requests.size(), 2);
+        QVERIFY(overlay.attemptsKnown());
+        QVERIFY(!overlay.attemptsLoading());
+        QCOMPARE(overlay.attemptCount(), 5);
+        backend.replies.last()->succeed({{QStringLiteral("attempt_count"), 6}});
+        QVERIFY(overlay.attemptsKnown());
+        QCOMPARE(overlay.attemptCount(), 6);
+        overlay.setRecordRegion(QStringLiteral("TC"));
+        QVERIFY(!overlay.attemptsKnown());
+        QVERIFY(overlay.attemptsLoading());
+        backend.replies.last()->succeed({{QStringLiteral("attempt_count"), 2}});
+        QCOMPARE(overlay.attemptCount(), 2);
+        overlay.setAttemptPeriod(QStringLiteral("today"));
+        QVERIFY(!overlay.attemptsKnown());
+        QVERIFY(overlay.attemptsLoading());
+    }
+
     void malformedBackendAndDestruction()
     {
         auto backend = std::make_unique<RangeBackend>();

@@ -43,6 +43,25 @@ ColumnLayout {
         return text
     }
 
+    // What the 开机启动 switch can do here, said as it is: the account has one
+    // login entry, which belongs to the installed copy, so a development build
+    // never touches it; a test run keeps away from it; and an entry Windows did
+    // not accept is reported instead of shown as working.
+    function autostartDescription() {
+        if (Runtime.settings.autostartRegistrationFailed)
+            return qsTr("Windows 未接受对开机启动项的更改，可能被安全软件拦截。请在安全软件中允许后重新设置。")
+        switch (Runtime.settings.autostartUnavailableReason) {
+        case "":
+            return qsTr("登录 Windows 后在后台自动启动，只显示托盘图标，不打开主窗口")
+        case "development":
+            return qsTr("开发构建不登记开机启动，以免替换已安装版本的开机启动项")
+        case "harness":
+            return qsTr("测试运行不修改开机启动")
+        default:
+            return qsTr("当前系统不支持开机启动")
+        }
+    }
+
     // ------------------------------------------------------------ 语言 --
     // The kicker keeps "Language" beside the translated word, so a player who
     // landed in a language they cannot read still finds the way back.
@@ -79,12 +98,12 @@ ColumnLayout {
         kicker: qsTr("启动与托盘")
 
         SettingToggleRow {
+            objectName: "autostartToggle"
             label: qsTr("开机启动")
-            description: Runtime.settings.autostartWritable
-                         ? qsTr("登录 Windows 后在后台自动启动，只显示托盘图标，不打开主窗口")
-                         : qsTr("当前系统不支持开机启动")
+            description: tab.autostartDescription()
             toggleEnabled: Runtime.settings.autostartWritable
-            checked: Runtime.settings.autostart
+            // A copy that may not register shows the switch off, whatever its own settings file says.
+            checked: Runtime.settings.autostartWritable && Runtime.settings.autostart
             onToggled: function(value) { Runtime.settings.autostart = value }
         }
 

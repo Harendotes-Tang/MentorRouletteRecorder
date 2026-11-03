@@ -208,6 +208,80 @@ public sealed class NetworkPathFlowTests
         Until(controller, "state", "COMPLETED");
     }
 
+    /// <summary>
+    /// Audit 2026-11-03, A2-3. A game holding an IPv6 connection, or a system table too large to
+    /// read whole, is not a query that will recover: waiting for it held the capture for the
+    /// whole two-hour cap. The validation proceeds and records the count as unknown, as the
+    /// command-line trace does; a failed query still waits.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ValidationProceedsWithAnUnknownCountWhenTheTablesCannotAnswer(bool ipv6)
+    {
+        var provider = new ConnectionProvider(ipv6
+            ? new(Complete(), Complete(Connection("2001:db8::2", remote: "2001:db8::1")))
+            : new(new(NetworkQueryStatus.Truncated, Array.Empty<ProcessNetworkConnection>()), Complete()));
+        using var db = new TestDatabase();
+        var source = new FakeCaptureSource();
+        using var controller = new CaptureValidationController(db.Path, new(), ValidationServices(source) with
+        {
+            Trace = TraceServices(source) with
+            {
+                TcpConnectionCounter = GameTcpConnectionProbe.TryCount, ConnectionTables = provider,
+            },
+        });
+
+        controller.Start();
+        Until(controller, "state", "RECORDING");
+        Assert.Equal(1, source.StartCount);
+        controller.Stop();
+        Until(controller, "state", "COMPLETED");
+
+        var header = System.Text.Json.Nodes.JsonNode.Parse(
+            File.ReadLines(controller.Snapshot()["trace_path"]!.GetValue<string>()).First())!;
+        Assert.Null(header["preexisting_connections"]);
+        Assert.Null(header["midstream"]);
+
+        provider.Fail = true;
+        controller.Start();
+        Until(controller, "reason", "WAITING_CONNECTION_CHECK");
+        controller.Stop();
+        Until(controller, "state", "COMPLETED");
+    }
+
+    /// <summary>
+    /// Re-review 2026-11-03, RV1-6. IPv6 is never captured, so the IPv4 count over the plan is exact
+    /// whatever IPv6 holds: a game already connected over IPv4 still asks for a restart, IPv6 or a
+    /// truncated IPv6 table beside it notwithstanding.
+    /// </summary>
+    [Theory]
+    [InlineData(NetworkQueryStatus.Success)]
+    [InlineData(NetworkQueryStatus.Truncated)]
+    public void AnIpv4ConnectionBesideIpv6StillAsksForARestart(NetworkQueryStatus ipv6)
+    {
+        var provider = new ConnectionProvider(new(Complete(Connection("192.0.2.10")),
+            new(ipv6, ipv6 == NetworkQueryStatus.Success
+                ? new[] { Connection("2001:db8::2", remote: "2001:db8::1") }
+                : Array.Empty<ProcessNetworkConnection>())));
+        using var db = new TestDatabase();
+        var source = new FakeCaptureSource();
+        using var controller = new CaptureValidationController(db.Path, new(), ValidationServices(source) with
+        {
+            Trace = TraceServices(source) with
+            {
+                TcpConnectionCounter = GameTcpConnectionProbe.TryCount, ConnectionTables = provider,
+            },
+        });
+
+        controller.Start();
+        Until(controller, "reason", "WAITING_RESTART");
+        Assert.Equal(0, source.StartCount);
+        Assert.Equal(1, GameTcpConnectionProbe.TryCountPaths(42, Plan(Binding("physical", "192.0.2.10")), provider));
+        controller.Stop();
+        Until(controller, "state", "COMPLETED");
+    }
+
     [Fact]
     public void SourceQueriesEveryPlannedPathAfterPrepareAndForwardsNativeCoverage()
     {

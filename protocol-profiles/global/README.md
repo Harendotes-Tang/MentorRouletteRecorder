@@ -4,14 +4,14 @@
 >
 > 本目录**没有**任何真实的协议档案，`LIVE_CAPTURE_STATUS = UNVERIFIED`。
 > 本目录**不含任何 opcode、任何结构偏移、任何 `mentor_roulette_id`**。
-> 因此 Collector 在国际服上的协议档案状态为 `NONE`：
+> 因此 Collector 在国际服上的协议档案状态为 `UNSUPPORTED_BUILD`（读不到客户端版本时为 `NONE`）：
 > `StartCapture` 返回 `ERR_PROFILE_UNSUPPORTED`（fail-closed），
 > 不解析任何报文，也不写入任何记录。
 
 ## 档案文件格式
 
 档案是一个 JSON 文件，命名为 `<profile-id>.json`，
-`profile-id` 形如 `global-<游戏版本>-<构建判别符>`（全小写，只含 `a-z0-9.-`），
+`profile-id` 形如 `global.<游戏版本>`（与国服的 `cn.2026.08.05` 同一写法；全小写，只含 `a-z0-9.-`），
 且必须与文件名一致，`region` 字段必须为 `GLOBAL`。
 
 完整的字段说明、类型、健壮性检查要求与**证据（evidence）要求**，
@@ -35,8 +35,7 @@
 **不接受**：推测值、试错得出的数值、从 AGPL 项目复制的常量表、
 从客户端逆向得到的内部结构，以及任何无法说明来源的数字。
 
-开发机上既未安装 FINAL FANTASY XIV，也未安装 Npcap
-（`LIVE_CAPTURE_STATUS = UNVERIFIED`），因此**不存在**任何合法证据，
+本项目还没有任何国际服客户端在本机观察到的抓包样本，因此**不存在**任何合法证据，
 本目录未提供真实档案。这是有意设置的限制，并非遗漏。
 
 ## 贡献档案

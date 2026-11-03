@@ -35,6 +35,7 @@
 | `clipboard-check.svg` | `4ac5ba3c2308b50d29c6cd5ba499166dc45ac433d355041eebd38a985197d6d9` |
 | `clipboard-paste.svg` | `7a780940d3b4f6009d6ea174db51521a8bac9bdfbc0e8c16be41cb6d1b476723` |
 | `clock.svg` | `2a50ff1030ae5591447dd5b278bdbd24e7dda3c24e2133348e7a66231fd6e787` |
+| `cloud-off.svg` | `1d604c85417975248f5378283560df9668aa9d0a474edcf74d0dc6b69e1c3659` |
 | `file-check.svg` | `dacdcd0514471272bb11c18769f42399dd068ff52151030b0b0a8463a8262945` |
 | `file-down.svg` | `1256558eaa140c1ac65b3f6cf1291ae5898a79ebe9ca5cc23873d45e4551216f` |
 | `file-input.svg` | `8b978cfd489cd92ca0ce4d0303bd0729cf9700ecee77daaf004b356440d6fd46` |
@@ -43,6 +44,7 @@
 | `flag.svg` | `e84d0cd56503debfaebf1f6c1c587cae253db067c1ff69a0737e2c4dd5296398` |
 | `folder-open.svg` | `5adf2987a25d174cb7c0ecfd241f12c40e35953217d7c4ee5ced8d29a3baef6f` |
 | `gamepad-2.svg` | `0a25090b8e0cf03d14a58e3fe5e85335402485c58c610034e64eb73c2c70241a` |
+| `hard-drive.svg` | `86c8c22e2e65cb913348935228c857de676f658cae3eb9acda7b79de53168bc6` |
 | `history.svg` | `15a0aa9c5c97acef0295b80e9d6a7d1d34f1e82f85c9f2866fc78187bce4d0d8` |
 | `image-down.svg` | `add0e62da3c12f3a04013d5cda5ea0d85e9019a23c06d7e3c68ca0bd102e0265` |
 | `image.svg` | `eb8267cf5cd811745284486e5494d022c37c0fb7cfc3e0c3c543675c3268db13` |

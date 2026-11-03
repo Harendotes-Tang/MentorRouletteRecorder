@@ -20,10 +20,11 @@ public sealed record MigrationScript(int Version, string Name, string Sql, strin
 /// Applies migrations forward, in one transaction, before IPC is opened.
 ///
 /// Scripts are embedded resources, so the runtime never depends on the working directory
-/// or on files a user could edit next to the executable. Three things make a database
-/// refuse to open: a script whose recorded checksum no longer matches, a gap in the version
-/// sequence, and a database whose version is higher than this build supports. All three
-/// surface as <c>ERR_DB_INTEGRITY</c> (migrations/README.md, rules 1 and 5).
+/// or on files a user could edit next to the executable. Two things make a database refuse
+/// to open before anything is applied: a script whose recorded name or checksum no longer
+/// matches, and a recorded version this build does not know (a newer build's). Both surface as
+/// <c>ERR_DB_INTEGRITY</c> (migrations/README.md, rules 1 and 5). A version missing from the
+/// recorded history is not refused: the loop below applies the missing script.
 ///
 /// Refusing to open means the Collector does not start at all: there is no read-only fallback
 /// anywhere in the tree (2026-09-21 full audit, finding 15). The messages below say so, and
@@ -112,7 +113,7 @@ public static class MigrationRunner
                     using var reader = check.ExecuteReader();
                     if (reader.Read())
                         throw new CollectorException(ErrorCodes.DbIntegrity,
-                            CollectorTexts.StartupMigrationFailedNoPath(),
+                            MigrationFailed(connection),
                             new Dictionary<string, object?> { ["foreign_key_table"] = reader.GetString(0) });
                 }
                 transaction.Commit();
@@ -122,9 +123,7 @@ public static class MigrationRunner
                 transaction.Rollback();
                 throw new CollectorException(
                     ErrorCodes.DbIntegrity,
-                    DatabasePath(connection) is { } path
-                        ? CollectorTexts.StartupMigrationFailed(path)
-                        : CollectorTexts.StartupMigrationFailedNoPath(),
+                    MigrationFailed(connection),
                     new Dictionary<string, object?> { ["sqlite_error"] = ex.SqliteErrorCode },
                     inner: ex);
             }
@@ -182,7 +181,7 @@ public static class MigrationRunner
         var sql = (string)schema.ExecuteScalar()!;
         const string oldRegion = "region IN ('CN', 'GLOBAL', 'UNKNOWN')";
         if (!sql.Contains(oldRegion, StringComparison.Ordinal))
-            throw new CollectorException(ErrorCodes.DbIntegrity, CollectorTexts.StartupMigrationFailedNoPath());
+            throw new CollectorException(ErrorCodes.DbIntegrity, MigrationFailed(connection));
         var replacement = "_regional_" + table;
         var body = sql[sql.IndexOf('(')..].Replace(oldRegion,
             "region IN ('CN', 'TC', 'GLOBAL', 'UNKNOWN')", StringComparison.Ordinal);
@@ -262,6 +261,12 @@ public static class MigrationRunner
     /// </summary>
     private static string? DatabasePath(SqliteConnection connection) =>
         string.IsNullOrWhiteSpace(connection.DataSource) ? null : connection.DataSource;
+
+    /// <summary>The refusal of a migration that did not complete, naming the file when there is one (audit 2026-11-03 H1-4).</summary>
+    private static UserText MigrationFailed(SqliteConnection connection) =>
+        DatabasePath(connection) is { } path
+            ? CollectorTexts.StartupMigrationFailed(path)
+            : CollectorTexts.StartupMigrationFailedNoPath();
 
     private static bool TableExists(SqliteConnection connection, string table)
     {

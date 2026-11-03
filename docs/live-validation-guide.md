@@ -9,8 +9,9 @@
 > ## `LIVE_CAPTURE_STATUS = VERIFIED_POP_TO_EXIT`（2026-09-07）
 >
 > 国服 `2026.08.05` 已有正式档案 `protocol-profiles/cn/cn.2026.08.05.json`，
-> 其中声明弹窗与换区两条消息：弹窗为 S2C `0x0323`，第 16 字节为随机任务编号，
-> 指导者任务的编号为 9，第 9 字节为 3 表示已匹配；换区为 S2C `0x014a`。
+> 其中声明四条消息，决定记录状态的是弹窗与换区两条：弹窗为 S2C `0x0323`，第 16 字节为随机任务编号，
+> 指导者任务的编号为 9，第 9 字节为 3 表示已匹配；换区为 S2C `0x014a`。另两条为区域（S2C `0x028d`，`ZONE_TERRITORY`）
+> 与职业（S2C `0x0350`，`PLAYER_JOB`），只为记录补充所在副本的区域与职业，不决定记录的开始与收尾。
 > 本软件可自动记录从匹配、进入副本到离开副本的全过程。
 > 档案中没有通关判定的报文；2026-10-05 之前，每条记录在离开副本后以“未知 · 待复核”收尾，
 > 由用户在记录中填写结果（§7.5），此后的变化见下一段。候选验证同时开启时会在副本内采样
@@ -46,7 +47,7 @@
 |---|---|
 | Windows 10/11 x64 | 与目标平台一致 |
 | 已安装 Npcap | 由安装程序在缺少 Npcap 时下载官方安装程序并启动向导（[privacy-boundary.md](privacy-boundary.md) §8.5），或由用户从官方站点自行安装；安装时勾选 "WinPcap API-compatible Mode"。本软件不内置 Npcap，运行中的软件不下载它 |
-| FINAL FANTASY XIV 可正常游玩 | 国服、繁中服或国际服均可，但须记录所用区服 |
+| FINAL FANTASY XIV 可正常游玩 | 国服、繁中服或国际服均可，但须记录所用区服。安装路径不含区服标记时，命令行取证须用 `--region` 指明区服（§3.5.2） |
 | 至少 5 次导随 | 覆盖多种结局（见 §4） |
 | 本项目 Release 构建 | `pwsh -File scripts/build.ps1` |
 | 预期认知 | 验证过程中本软件可能不产生任何记录，这是 fail-closed 的预期表现，不是缺陷 |
@@ -73,9 +74,13 @@ pwsh -File scripts/bootstrap.ps1
 2. 打开诊断页，确认握手成功（显示 Collector 版本与 `protocol_version = 1`）。
 3. 用 `netstat -ano | findstr <两个进程的 PID>` 确认**没有任何 LISTENING 端口**，桌面端也没有出站连接。
    采集服务只在 [privacy-boundary.md](privacy-boundary.md) §8.2 所列条件下（当前版本没有可用档案，或在用档案属于
-   仍读取索引的两种情形）且共享校准开启时，才会短暂连向 GitHub 或 jsDelivr 的 443 端口。若用户在「设置 → 播报」中
-   选择了在线语音，播报时还会连向所选的语音服务（§8.3）。桌面端处于连接状态时，更新检查（§8.4，默认开启）每 24 小时
-   最多一次连向 `github.com` 及其重定向的 `*.githubusercontent.com` 的 443 端口。要验证完全不联网，应先在设置中关闭
+   仍读取索引的两种情形）且共享校准开启时，才会短暂连向 `raw.githubusercontent.com`、`api.gitcode.com`、
+   `cdn.jsdelivr.net` 或 `fastly.jsdelivr.net` 的 443 端口（依次尝试，前一个可用即不再尝试后面的）。若用户在「设置 → 播报」中
+   选择了在线语音，播报时还会连向所选的语音服务（§8.3）。桌面端处于连接状态时，更新检查（§8.4，默认开启）在每个
+   采集服务进程启动后检查一次（距上次检查不足 1 小时则跳过），之后每 24 小时外加 0–2 小时随机抖动最多一次，
+   连向 `github.com` 及其重定向的 `*.githubusercontent.com` 的 443 端口；GitHub 不可用时改连 GitCode 镜像
+   （`api.gitcode.com`，以及固定项目下载重定向的 `gitcode.com`、`file-cdn.gitcode.com`）。
+   用户点击「下载安装包」后的下载（§8.6）使用同样的主机。以上主机均属允许范围。要验证完全不联网，应先在设置中关闭
    「游戏更新后获取其他玩家的共享校准」与「检查新版本并提示」，并把语音引擎改回本机语音，
    或设置 `MR_DISABLE_SHARED_FETCH=1`、`MR_DISABLE_ONLINE_SPEECH=1` 与 `MR_DISABLE_UPDATE_CHECK=1` 后重启本软件。
 4. 用 Process Explorer 确认 Collector **没有打开游戏进程的句柄**（具体做法见
@@ -112,13 +117,14 @@ pwsh -File scripts/bootstrap.ps1
 ### 第 4 层：抓包链路（有 `VERIFIED` 档案后）
 
 1. 启动游戏并登录。
-2. 在本软件中选择适配器，点击开始抓包。
+2. 在本软件中确认推荐的适配器，点击开始抓包。应沿用自动选择：手动指定适配器时只监听该适配器，
+   并关闭自动路径恢复（[capture-diagnostics.md](capture-diagnostics.md) §4），验证的就不再是默认配置。
 3. 观察诊断页：`state` 应为 `RUNNING`，`packets_observed` 应持续增长，
    `packets_dropped` 应保持 0，`monitor_type = WinPCap`，
    `injected_hook_enabled = false`。
 
 若 `packets_observed` 始终为 0，见
-[capture-diagnostics.md](capture-diagnostics.md) §7 的排查表。
+[capture-diagnostics.md](capture-diagnostics.md) §10 的排查表。
 
 ### 第 5 层：判定正确性
 
@@ -166,7 +172,8 @@ MentorRecorder.Collector.exe --capture-doctor
 ```
 
 `npcap.status` 必须为 `READY`，`游戏进程 running` 必须为 `True`，
-且网卡列表中有一张被标记为 `[*]`（`游戏流量=True`）。
+且网卡列表中有一张被标记为 `[*]`（推荐网卡）。游戏停在标题画面、尚无连接时，`[*]` 网卡显示 `游戏流量=False`
+属于正常：此时按系统路由表推荐网卡；取证只要求存在推荐网卡，`游戏流量=True` 反而说明游戏已有连接（见第 3 步）。
 任一条不满足时应先行解决：取证模式会输出同一段文字并以退出码 1 终止。
 自检的「协议档案」一节显示 `NONE`：命令行的 `--capture-doctor` 与 `--capture-trace` 不加载协议档案，
 这并不表示本软件没有可用的档案，本软件实际使用的档案及其状态见「捕获诊断」页。
@@ -176,24 +183,38 @@ MentorRecorder.Collector.exe --capture-doctor
 ```powershell
 MentorRecorder.Collector.exe --capture-trace trace.jsonl
 # 可选：--duration-seconds 1800   限时（0 或省略 = 直到 Ctrl+C 或游戏退出）
-#       --adapter <id>            指定网卡（自检里那张 [*] 的 id）
+#       --adapter <id>            指定网卡（见下文；省略时使用自检里标记为 [*] 的网卡）
+#       --region CN|TC|GLOBAL     安装路径不含区服标记时指明客户端所属的区服（见下文）
 #       --max-lines 200000        行数上限，默认 20 万行，最多 25 万行
 #       --allow-midstream         游戏已有连接时仍然开始（见下文）
 ```
+
+`--adapter` 的 `id` 是 Windows 的网卡标识（形如 `{GUID}` 的字符串，可用 PowerShell 的
+`Get-NetAdapter | Format-Table Name, InterfaceGuid` 查到；`ListCaptureAdapters` 返回的 `adapter_id` 即此值）。
+`--capture-doctor` 的网卡列表只显示名称，不打印该标识。一般无需指定：省略时取证使用推荐网卡。
+
+客户端的区服只按安装路径中的关键字判定（[capture-diagnostics.md](capture-diagnostics.md) §3），命令行取证不读取设置中的区服。
+安装路径不含区服标记时（例如经 Steam 安装的国际服），命令以“无法确定这个客户端所属的区服，取证未开始”拒绝启动，
+此时加上 `--region CN`、`--region TC` 或 `--region GLOBAL` 指明区服。该参数只用于不含区服标记的路径：
+路径已表明另一个区服时同样拒绝，不会被改标。
 
 该命令**不打开数据库、不建立命名管道、不解析任何字段**，只写入指定的文件。
 若目标文件已存在，命令拒绝覆盖，因此每轮取证应使用新的文件名。
 
 **本步必须从新的游戏 TCP 连接开始。** 若命令发现游戏已在所选适配器的本地地址上存在 TCP 连接，
 则拒绝启动并以退出码 1 结束：中途接入会使 Oodle 流状态不完整，既有连接上只会得到大量 `decode_errors`，
-不能作为候选 opcode 证据。
-所选适配器没有可绑定的 IPv4 地址时同样拒绝启动，此时应回到 `--capture-doctor` 选择带 IPv4
-地址的实际流量网卡，不能由抓包源自行猜测。
+不能作为候选 opcode 证据。连接数先按 IPv4 计：游戏同时持有 IPv6 连接、或系统的 IPv6 连接表过大而读不全时，
+只要计划中的网卡上已有游戏的 IPv4 连接，同样拒绝启动；只有 IPv4 上没有游戏连接、而 IPv6 有连接或读不全
+（或 IPv4 连接表本身读不全、读取失败）时，连接数记为未知，取证照常开始，文件头的 `preexisting_connections` 为 `null`。
+界面上的“开始验证”使用同一计数：IPv4 上已有连接时等待游戏退出并重新启动（`WAITING_RESTART`），连接数答不出时以未知开始，
+只有查询失败时才等待查询恢复（`WAITING_CONNECTION_CHECK`）。
+所选适配器没有可绑定的 IPv4 地址时同样拒绝启动，此时应在 `--capture-doctor` 的网卡列表中按名称选出带 IPv4
+地址的实际流量网卡，再按上文查出它的 `id`，用 `--adapter <id>` 重试，不能由抓包源自行猜测。
 
 取证应在游戏停在标题画面、**尚未登录**时开始（已登录时先登出），然后登录。
 国服客户端停在标题画面时也可能已有连接（2026-10-05 的取证中为一条，§6.2），此时命令同样拒绝启动。
 按拒绝时的提示处理：游戏仍停在标题画面，加上 `--allow-midstream` 重新运行 `--capture-trace`
-（需要指定网卡时再加 `--adapter <id>`，`id` 取自 `--capture-doctor` 中标记为 `[*]` 的网卡），然后登录。
+（需要指定网卡时再加 `--adapter <id>`，`id` 的查法见上文），然后登录。
 加上 `--allow-midstream` 后，命令先提示本次为中途接入并给出既有连接数，然后照常记录；
 文件头记下 `midstream = true` 与 `preexisting_connections`，summary 按连接分别统计。
 既有连接上的报文无法完整解压，不能作为证据；登录时建立的游戏连接从建立起完整记录。
@@ -260,6 +281,7 @@ MentorRecorder.Collector.exe --trace-report trace.jsonl --around pop --window-ms
 | 现象 | 含义 | 处理 |
 |---|---|---|
 | 立刻退出 1，并先打印一份自检 | Npcap 不可用 / 游戏未运行 / 网卡无法确定 | 按自检输出的指引处理；网卡不确定时用 `--adapter` 显式指定 |
+| 立刻退出 1，提示“无法确定这个客户端所属的区服，取证未开始” | 安装路径不含区服标记，或与 `--region` 指定的区服不一致 | 加上 `--region CN`、`--region TC` 或 `--region GLOBAL` 指明这个客户端所属的区服（§3.5.2 第 3 步） |
 | 立刻退出 1，提示“检测到游戏已经存在活动 TCP 连接，取证未开始” | 游戏已有连接；国服客户端停在标题画面时也可能如此 | 让游戏停在标题画面、尚未登录，加上 `--allow-midstream` 重新运行，然后登录（§3.5.2 第 3 步） |
 | 已开始，但 `消息 0` 且提示“抓包中断” | 监视器致命错误 | 查看 `%LOCALAPPDATA%\MentorRecorder\logs\` 中的 `monitor_trace` 行 |
 | 日志中出现 `Cannot find one or more signatures in ffxiv_dx11` | 当前 Machina 版本的 Oodle 特征与该客户端版本不匹配，取不到解压函数 | 本项目无法在代码中绕过：需等待 Machina 更新特征，或按 `DEC-OODLE-01` 的选项 A 自备 `oo2net_9_win64.dll`（本项目不分发该文件） |
@@ -575,12 +597,14 @@ trace 文件本身已脱敏，但**不应提交到 issue**：
 
 ### 7.5 正式识别（2026-09-07 起）
 
-正式档案 `cn.2026.08.05` 只声明两条消息，且都在服务器方向：
+正式档案 `cn.2026.08.05` 声明四条消息，都在服务器方向；决定记录状态的只有前两条，后两条只为记录补充所在副本的区域与职业：
 
 | 消息 | 报文 | 字段 |
 |---|---|---|
 | `CONTENT_FINDER_POP` | S2C `0x0323`，40 字节 | 第 9 字节必须为 3（已匹配），第 16 字节 = 随机任务编号 |
 | `ZONE_INITIALIZATION` | S2C `0x014a`，456 字节 | 无字段；每次换区恰好一次 |
+| `ZONE_TERRITORY` | S2C `0x028d`，136 字节 | 第 2 字节起的 u16（小端）= 区域编号 |
+| `PLAYER_JOB` | S2C `0x0350`，16 字节 | 第 0 字节 = 职业编号（1–43） |
 
 `mentor_roulette_id = 9`，`match_window_seconds = 120`；该取值的依据是 09-06 练级迷宫
 的两次弹窗相隔 97 秒后才进入副本。
@@ -593,7 +617,7 @@ trace 文件本身已脱敏，但**不应提交到 issue**：
    （[protocol-profile-format.md](protocol-profile-format.md) §12）时，记录在结算到达时即收尾为 `COMPLETED`，
    随后的离开不再改动它；没有收到时，结果为 **`UNKNOWN`、待复核**：
    记录出现在仪表盘的“待复核”中，打开后用“修正”填写通关或离开。本软件**不会**按时长推测通关。
-4. 中途启动的问题仍只能通过在登录前开始抓包解决。这两条消息都在服务器方向，该方向偶尔能
+4. 中途启动的问题仍只能通过在登录前开始抓包解决。这些消息都在服务器方向，该方向偶尔能
    自行对齐，但不能依赖这一偶发现象。
 
 候选验证可以持续开启：它不再阻挡正式记录，副本内采样会将进入副本至离开副本之间每种报文的
@@ -607,13 +631,16 @@ S2C 报文，找到后在档案中补充 `DUTY_RESULT`。2026-10-05 的取证（
 
 补丁之后随包档案不再匹配。此时不需要维护者介入，也不需要新版本软件：
 
-1. 先启动本软件，再登录游戏。捕获页显示“游戏更新到了新版本，正在重新校准”，抓包以计数模式运行。
+1. 先启动本软件，再登录游戏。捕获页显示“游戏更新了，正在重新校准。”，抓包以计数模式运行。
 2. 正常完成一次随机任务（不必是指导者任务）：申请、匹配、进入副本、完成后离开副本。
-   卡片上的四项进度会依次勾选。
-3. 离开副本后，横幅变为“校准完成，核对 4 件事就能开始自动记录”。点击“核对并启用”，逐条确认
-   “排本：xx”、“匹配弹窗：xx”、“进入副本：xx”、“离开副本”是否属实。全部选择“对”时，本机写出档案并
-   **立即**开始自动记录，侧栏“协议”显示“本机校准”。任一项选择“错”时本次校准作废，需要重新完成一次随机任务。
-4. 仅当校准卡片提示“报文结构和上一版不同”时，才需要按 §7.1 进行候选验证并导出证据交给维护者。
+   卡片上的进度会依次勾选。
+3. 证据足够后，提示变为“还差最后一步：核对 N 件事，就能开始自动记录。”。点击“核对并启用”，逐条确认
+   时间线上的“开始排队：xx”、“匹配弹窗：xx”、“进入副本”、“离开副本”等行是否属实。全部选择“对”时，本机写出档案并
+   **立即**开始自动记录，捕获诊断页的协议一项显示“本机校准”。某一行选择“错”只否定该行所说的内容，不会作废整次校准：
+   校准继续观察，再完成一次随机任务后可重新核对（[protocol-profile-format.md](protocol-profile-format.md) §11.3）。
+4. 校准卡片提示“请更新导随记录器，或「导出诊断报告」交给维护者”时（例如“还无法区分排队中和匹配成功”
+   “还无法识别当前游戏版本的进出副本”），说明报文结构可能已经变化，本机校准无法继续。此时导出诊断报告交给维护者；
+   维护者需要字段级证据时，再按 §7.1 进行候选验证并导出证据。
 
 判据与产物见 [protocol-profile-format.md §11](protocol-profile-format.md#11-本机校准档案与-calibration-模板段)。
 §7.1 与 §7.2 属于维护者路径，仅在报文结构变化、或需要将本机档案提升为随包档案时使用。
@@ -631,16 +658,17 @@ S2C 报文，找到后在档案中补充 `DUTY_RESULT`。2026-10-05 的取证（
 按下列顺序查看 `GetCaptureStatus` 的三个字段，不要先看 `parse_fail_count`：
 
 1. `raw_packets_observed`：网卡层读取到的报文数。
-   运行超过一分钟仍为 0，说明游戏流量不在这张网卡上，常见原因是加速器、VPN 或选错
-   网卡，此时 `silent_reason` 为 `NO_PACKETS_ON_ADAPTER`。
+   游戏已经联网、运行超过一分钟仍为 0，说明游戏流量不在所监听的路径上，常见原因是加速器、VPN 或选错
+   网卡，此时 `silent_reason` 为 `NO_PACKETS_ON_ADAPTER`。游戏停在标题画面、尚未建立任何连接时不作此判定。
+   两端都在本机的流量（本机程序之间经回环的通信）在游戏自己持有这类连接之前不计入该值。
 2. `preexisting_connections`：开始抓包时游戏已有的连接数。
    该值大于 0 且始终解不出 IPC，即为中途接入：Oodle 的 TCP 解压状态按连接维护，这条连接
    无法解开。此时 `silent_reason` 为 `MIDSTREAM`，处理方式是退回标题画面重新登录，或先启动
    本软件再启动游戏。
-3. `ingress.dropped_no_syn` / `ingress.unconfirmed_tuples`：报文已到达、但在重组阶段被丢弃的
-   数量。前者偏大说明没有观察到握手，同样属于中途接入；后者偏大说明系统没有将这些连接确认为
-   游戏的连接，原因可能是存在代理进程，或权限不足无法读取连接表，此时 `silent_reason` 为
-   `NO_STREAM_OWNERSHIP`。
+3. `ingress.dropped_no_stream` / `ingress.dropped_no_syn` / `ingress.unconfirmed_tuples`：报文已到达、但在重组阶段被丢弃的
+   数量。前两项偏大说明没有观察到握手，同样属于中途接入，其典型形态是 `dropped_no_stream`；后者偏大说明系统没有将这些连接确认为
+   游戏的连接，常见原因是流量经由代理或加速器转接，此时 `silent_reason` 为 `NO_STREAM_OWNERSHIP`
+   （不据此推断权限不足，见 [capture-diagnostics.md](capture-diagnostics.md) §5.5）。
 
 `packets_observed` 只统计**已通过重组与分帧**的报文，因此在上述三种情况下它与
 `decode_errors` 会同时停在 0，界面表现正常。实际应查看的是上述三个字段

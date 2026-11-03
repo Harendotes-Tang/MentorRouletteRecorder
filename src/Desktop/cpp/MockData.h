@@ -75,16 +75,16 @@ inline bool isConfirmedMentor(const QJsonObject &run)
     return false;
 }
 
-/// Mirrors StatisticsRepository.IsAttempt: known imported outcomes count even
-/// when source history did not provide the gameplay timestamps.
+/// Mirrors StatisticsRepository.IsAttempt: an entry time proves the attempt. Without
+/// one - imported history, a hand-entered record (1d16faa) or a corrected capture
+/// (D1-2, audit 2026-11-03) - a known result other than CANCELLED_BEFORE_ENTRY stands
+/// in for it.
 inline bool hasEntered(const QJsonObject &run)
 {
     const QJsonValue value = run.value(QStringLiteral("entered_at_utc"));
     if (value.isString() && !value.toString().isEmpty()) return true;
     const QString result = run.value(QStringLiteral("result")).toString();
-    return (run.value(QStringLiteral("source")).toString() == QLatin1String("IMPORT")
-            || run.value(QStringLiteral("import_metadata")).isObject())
-        && result != QLatin1String("UNKNOWN") && result != QLatin1String("CANCELLED_BEFORE_ENTRY");
+    return result != QLatin1String("UNKNOWN") && result != QLatin1String("CANCELLED_BEFORE_ENTRY");
 }
 
 inline bool isSoftDeleted(const QJsonObject &run)

@@ -74,6 +74,8 @@ internal sealed class FirstPacketMonitor : IMachinaMonitor
                 Volatile.Read(ref _message)?.Invoke(connection, epoch, bytes, inbound);
             }), ownedStreamEnded: OnOwnedStreamEnded, directionDamaged: OnDirectionDamaged,
             includeLoopback: plan.Bindings.Any(binding => binding.IsLoopback));
+        // A path that carried the game is as essential as the selected one (re-review 2026-11-03, RV1-1).
+        if (_reader is MultiplexedNpcapPacketReader multiplexed) multiplexed.TreatAsRequired(_buffer.CarriedGame);
         _connections = connections ?? (() =>
         {
             // Fresh list avoids Machina's per-tuple socket lifecycle and stale removed rows.
@@ -89,8 +91,14 @@ internal sealed class FirstPacketMonitor : IMachinaMonitor
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Loss counts only on the paths that carried one of the game's connections this session: the
+    /// loopback full of other programs' traffic, or an idle tunnel, losing packets says nothing
+    /// about the game's stream, and must neither degrade the capture nor spoil its calibration
+    /// evidence (audit 2026-11-03, A1-2).
+    /// </remarks>
     public CaptureIngressCounters Ingress =>
-        _buffer.Counters with { AdapterDropped = _reader.DroppedPackets };
+        _buffer.Counters with { AdapterDropped = _reader.DroppedPacketsOn(_buffer.CarriedGame) };
 
     public CapturePathStatus PathStatus => _reader.PathStatus;
 

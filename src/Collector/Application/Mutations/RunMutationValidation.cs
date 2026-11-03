@@ -66,6 +66,11 @@ public static class RunMutationValidation
                 CollectorTexts.MutationEnteredAfterEnded(),
                 details,
                 field: "entered_at_utc"),
+            RunRuleViolationKind.MatchedAfterEnded => new CollectorException(
+                ErrorCodes.TimeOrder,
+                CollectorTexts.MutationMatchedAfterEnded(),
+                details,
+                field: "matched_at_utc"),
             RunRuleViolationKind.NegativeDuration => new CollectorException(
                 ErrorCodes.NegativeDuration,
                 CollectorTexts.MutationDurationNegative(),

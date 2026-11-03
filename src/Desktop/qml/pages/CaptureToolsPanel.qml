@@ -17,11 +17,18 @@ Card {
     readonly property var warnings: Theme.live(Runtime.app.collectorWarnings) || []
     readonly property var evidence: typeof Runtime.calibrationEvidence !== "undefined" ? Runtime.calibrationEvidence : null
     signal toggleObservationGuideRequested()
-    // 帮助适配其他区服 follows the round: 采证中 with the clock, 已保存 waiting
-    // for the hand-over, else the standing sentence.
+    // 帮助适配其他区服 follows the round as the 采证 page tells it - the page's own
+    // EvidenceSession, so a cancelled wait, an incomplete file and 开始下一轮 read
+    // the same here (review K2-2): 采证中 with the clock, 已保存 waiting for the
+    // hand-over, 已结束 with an incomplete file, 采证失败 for a failed round
+    // (review RV4-4), else the standing sentence.
+    property EvidenceSession evidenceSession: null
     readonly property EvidenceClock evidenceClock: EvidenceClock {}
     readonly property bool evidenceActive: Runtime.app.validationActive
-    readonly property bool evidenceSaved: Runtime.app.validationState === "COMPLETED"
+    readonly property bool evidenceEnded: !!tools.evidenceSession && tools.evidenceSession.ended
+    readonly property bool evidenceFailed: tools.evidenceEnded && tools.evidenceSession.phase === "failed"
+    readonly property bool evidenceSaved: tools.evidenceEnded && tools.evidenceSession.saved
+                                          && tools.evidenceSession.fileSaved
 
     horizontalPadding: 20
     verticalPadding: 16
@@ -52,11 +59,13 @@ Card {
         label: qsTr("帮助适配其他区服")
         description: tools.evidenceActive ? qsTr("采证中 · %1").arg(tools.evidenceClock.elapsedText)
                      : tools.evidenceSaved ? qsTr("已保存，等回传")
+                     : tools.evidenceFailed ? qsTr("采证失败，可回传已有文件")
+                     : tools.evidenceEnded ? qsTr("已结束，文件不完整")
                      : qsTr("按步骤采集报文元数据，未适配的区服仍不正式记录")
         descriptionColor: tools.evidenceActive ? Theme.orangeText : Theme.textSecondary
         AppButton {
             objectName: "templateObservationGuideButton"
-            text: tools.evidenceActive || tools.evidenceSaved ? qsTr("继续") : qsTr("采证步骤")
+            text: tools.evidenceActive || tools.evidenceEnded ? qsTr("继续") : qsTr("采证步骤")
             onClicked: tools.toggleObservationGuideRequested()
         }
     }

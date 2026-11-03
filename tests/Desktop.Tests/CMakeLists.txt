@@ -236,7 +236,7 @@ mr_desktop_suite_test(MentorRecorderDesktopImportTests ImportImageOrientation NO
 # The share image is checked in English and Japanese, so those catalogues are compiled in.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopReflectionTests
-    SUITES Reflection ReflectionLibrary ReflectionShare ReflectionDialogBinding
+    SUITES Reflection ReflectionLibrary ReflectionShare ReflectionDialogBinding ReflectionDialogMoodNote
     LIBRARIES ${MR_QUICK_TEST_LIBRARIES} Qt6::Widgets)
 qt_add_lrelease(
     TS_FILES
@@ -251,6 +251,7 @@ qt_add_resources(MentorRecorderDesktopReflectionTests reflection_share_test_i18n
     FILES ${MR_SHARE_TEST_QM})
 mr_desktop_suite_test(MentorRecorderDesktopReflectionTests Reflection NAME MentorRecorderReflections NO_LOG)
 mr_desktop_suite_test(MentorRecorderDesktopReflectionTests ReflectionDialogBinding)
+mr_desktop_suite_test(MentorRecorderDesktopReflectionTests ReflectionDialogMoodNote)
 foreach(suite IN ITEMS ReflectionLibrary ReflectionShare)
     mr_desktop_suite_test(MentorRecorderDesktopReflectionTests ${suite})
     set_tests_properties(MentorRecorder${suite} PROPERTIES ENVIRONMENT "${MR_DESKTOP_ISOLATED_ENVIRONMENT}")
@@ -350,8 +351,8 @@ add_test(NAME MentorRecorderQmlEditDialog
         --screenshot-delay 1700
         --verify-text "修正结果与进度，原记录会保留")
 
-# The 新增遗漏记录 wizard on its 副本与职业 step starts with UNKNOWN region.
-# Region-filtered recent chips are exercised after selecting CN in EditRunDialogBinding.
+# The 新增遗漏记录 wizard on its 副本与职业 step starts in the dashboard's named region,
+# else 国服 (audit 2026-11-03 L1-1); the region choices are exercised in EditRunDialogBinding.
 add_test(NAME MentorRecorderQmlCreateWizard
     COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
         --screenshot "${CMAKE_CURRENT_BINARY_DIR}/qml-create-wizard.png"
@@ -362,7 +363,7 @@ add_test(NAME MentorRecorderQmlCreateWizard
         --mock-wizard-step 2
         --verify-text "共 380 个副本"
         --verify-text "记录区服"
-        --verify-text "未知区服"
+        --verify-text "国服"
         --screenshot-delay 1500)
 
 # A mock run's fixture records keep their images out of the install folder
@@ -696,6 +697,34 @@ foreach(MR_SETTINGS_TAB general tts goal data about)
             --verify-text "${MR_SETTINGS_TEXT_${MR_SETTINGS_TAB}}")
     list(APPEND MR_SETTINGS_QML_TESTS MentorRecorderQmlSettings_${MR_SETTINGS_TAB})
 endforeach()
+# 开机启动 says why it cannot be switched here: a development build never registers itself
+# (it would replace the installed copy's login entry), and a test run of the distribution
+# keeps away from the real Run key (AppSettings::autostartUnavailableReason).
+if(MR_DEV_BUILD)
+    set(MR_AUTOSTART_TEXT "开发构建不登记开机启动")
+else()
+    set(MR_AUTOSTART_TEXT "测试运行不修改开机启动")
+endif()
+add_test(NAME MentorRecorderQmlSettings_autostart
+    COMMAND $<TARGET_FILE:MentorRecorder.Desktop>
+        --backend mock --mock-recording-state listening --mock-live none --page 6 --theme dark
+        --settings-tab general
+        --screenshot "${CMAKE_CURRENT_BINARY_DIR}/settings-general-autostart.png"
+        --screenshot-size 1280x800 --screenshot-delay 900
+        --verify-text "${MR_AUTOSTART_TEXT}")
+list(APPEND MR_SETTINGS_QML_TESTS MentorRecorderQmlSettings_autostart)
+
+# Only a distribution build embeds :/qt/etc/qt.conf (src/Desktop/CMakeLists.txt, audit 2026-11-03 Z4-1).
+if(MR_DEV_BUILD)
+    set(MR_EXPECT_QT_CONF OFF)
+else()
+    set(MR_EXPECT_QT_CONF ON)
+endif()
+add_test(NAME MentorRecorderDesktopQtConfFollowsFlavour
+    COMMAND ${CMAKE_COMMAND}
+        -DMR_EXECUTABLE=$<TARGET_FILE:MentorRecorder.Desktop>
+        -DMR_EXPECT_QT_CONF=${MR_EXPECT_QT_CONF}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/support/expect_qt_conf.cmake")
 
 # 在线语音 on the 播报 tab (docs/ui-design.md §4.5): each mock state, asserted
 # through the line the header shows. Nothing is sent: the mock has no client.
@@ -1077,6 +1106,15 @@ set_tests_properties(${MR_QML_TESTS} ${MR_VALIDATION_QML_TESTS} ${MR_RECORDING_Q
 set_property(TEST ${MR_ALL_DESKTOP_TESTS} PROPERTY ENVIRONMENT_MODIFICATION
     "PATH=path_list_prepend:${MR_QT_RUNTIME_DIR}"
     "PATH=path_list_prepend:${MR_CXX_RUNTIME_DIR}")
+# A distribution build embeds a qt.conf that pins Qt's prefix to the executable's own folder
+# (src/Desktop/CMakeLists.txt, audit 2026-11-03 Z4-1). The build tree keeps no plugins or QML
+# modules there - it runs on the SDK's - so its test runs name the SDK's explicitly.
+if(NOT MR_DEV_BUILD)
+    get_filename_component(MR_QT_PREFIX_DIR "${MR_QT_RUNTIME_DIR}" DIRECTORY)
+    set_property(TEST ${MR_ALL_DESKTOP_TESTS} APPEND PROPERTY ENVIRONMENT_MODIFICATION
+        "QT_PLUGIN_PATH=set:${MR_QT_PREFIX_DIR}/plugins"
+        "QML_IMPORT_PATH=set:${MR_QT_PREFIX_DIR}/qml")
+endif()
 
 set_property(TEST MentorRecorderAppSettingsIsolation MentorRecorderToggleSwitch
     MentorRecorderImportImageOrientation APPEND PROPERTY ENVIRONMENT

@@ -33,7 +33,12 @@ never applies to another, which is why this round is needed at all.
    it under **Settings → General → Interface language**. In Settings, set **Game region**
    explicitly to **Global (GLOBAL)**; do not leave it on **Automatic (installation path)**
    and do not pick another region. If the region cannot be changed, make sure the game is
-   closed and wait for listening or collection to stop.
+   closed and wait for listening or collection to stop. The choice is bound to the first game
+   client that runs after you make it, which for this round is your Global client. A client
+   whose installation path clearly names another region is never relabelled as Global;
+   instead the app shows a notice and does not record it automatically. If you also play on
+   another region's client on this PC, set **Game region** back to **Automatic (installation
+   path)** when testing is over.
 5. Keep your usual network and accelerator setup for the whole round. If you change the
    setup or lose the connection midway, write it in the report; do not treat two different
    setups as one normal round.
@@ -62,24 +67,36 @@ For anything odd, a screenshot and the steps to reproduce are enough.
 ## 3. Start collecting
 
 1. Go to **Capture diagnostics → Tools → Help support other server regions → Collection
-   steps**.
-2. Confirm the region shows **Global (GLOBAL)** again. Leave the network adapter on
-   auto-select first; only if the app cannot pick a single recommended adapter, choose the
-   adapter the game is using, as the screen suggests.
-3. Click **Start collecting**, then launch the game and stop at the title screen. If the
-   game is already running, the button may read **Switch to collecting**; it does the same
-   thing.
-4. Wait until the collection panel shows **Capturing evidence**, then log in to your
+   steps**. This opens the **New region capture** page; while a round is under way or has
+   just ended, the button reads **Continue** instead. The page walks through five steps,
+   numbered ① to ⑤ below.
+2. Step ①, **Pick the region and adapter**: confirm the region shows **Global (GLOBAL)**
+   again. Leave the network adapter on **Auto (the one recommended adapter)** first; only if
+   the app cannot pick a single recommended adapter, choose the adapter the game is using, as
+   the screen suggests. If an adapter you chose
+   earlier is no longer available, the page asks you to pick again and will not start until
+   you do.
+3. **Quit the game completely first.** While the game is running, **Start capture** cannot
+   be clicked and the page says **The game is running: quit it completely before you
+   start**; after quitting, click **I've quit, check again**. Once the page says **The game
+   isn't running, ready to start**, click **Start capture**, then launch the game and stop at
+   the title screen.
+4. Step ②: wait until the page shows **Capturing · you can log in now**, then log in to your
    character. If it says it is waiting for the game, for a client choice or for an adapter,
-   follow that prompt first; markers cannot be added while it is waiting.
+   follow that prompt first; markers cannot be added while it is waiting, and **Cancel
+   wait** gives up the round.
 5. **If it says a connection already exists and the game must be restarted: keep the
    collection waiting, close the game client completely and start it again.** Logging out
    to the title screen or teleporting does not replace this restart. If it still never
-   reaches **Capturing evidence**, send a screenshot; there is no need to keep retrying.
+   reaches **Capturing**, send a screenshot; there is no need to keep retrying.
 6. After logging in, walk around normally for about 30 to 60 seconds and watch whether the
-   **Packets** counter keeps increasing. If **Packets** stays at 0, or **Decode failures**
-   climbs quickly, take a screenshot, stop collecting and export the diagnostics; you do
-   not need to queue a full duty. The parse and record counts in the real-recording area
+   **Packets** counter keeps increasing; once the page says **Data is readable, go ahead and
+   queue**, move on to step ③. If the page shows **Data problem** (**Packets stay at 0**, or
+   decode failures climbing quickly), take a screenshot and click **Stop and export
+   diagnostics**; you do not need to queue a full duty. **Packets stay at 0** only appears
+   once the game has been connected to a server for 60 seconds without any packet, so
+   waiting at the title screen does not trigger it. Step ② also has **Stop capture** to end
+   the round at any time. The parse and record counts in the real-recording area
    staying at 0 does not by itself mean the collection failed. The Global client is the one
    the capture library was written against, so decoding is expected to work; if it does
    not, the second round will include a separate tool and steps for it.
@@ -91,19 +108,22 @@ eligible, say so; you can also collect one ordinary duty roulette for comparison
 cannot stand in as mentor roulette evidence. Note the roulette type, the duty you actually
 entered and your job.
 
-At the moment each event happens in the game, switch to the collection panel and click the
-matching button, ideally within about 3 seconds:
+First pick the **Roulette** type (**Mentor roulette** or **Other roulette**) in step ③,
+**Queue one roulette and mark each event**. At the moment each event happens in the game,
+switch to that step and click the matching button, ideally within about 3 seconds:
 
 1. After you press the game's queue button → click **Queued**.
 2. When the game shows the match found / duty confirmation window → click **Matched**.
 3. When loading finishes and you are inside the duty → click **Entered**.
-4. When the duty completion message appears → click **Cleared**.
+4. When the duty completion message appears → click **Victory**.
 5. After you leave the duty and are back outside → click **Left**.
 
 Missed clicks, duplicate clicks, long delays, a withdrawn queue, a declined match, joining
 in progress, a disconnect or an uncleared duty should all be written in the report exactly
-as they happened. Do not click the remaining buttons afterwards to make a complete-looking
-sequence, and do not click **Cleared** if the duty was not cleared.
+as they happened. Joining midway, not clearing, a missed or late click and a disconnect can
+also be ticked under **This round**; they go into the note for the maintainer. Do not click
+the remaining buttons afterwards to make a complete-looking sequence, and do not click
+**Victory** if the duty was not cleared.
 
 One collection may last at most 2 hours including waiting and restarts. Save each round
 separately. If the first round is usable and you have time, collect a second round the same
@@ -111,28 +131,34 @@ way. Different duties or jobs should be recorded as they really were.
 
 ## 5. Stop and save
 
-1. After leaving the duty and placing the last marker, click **Stop collecting** and wait
-   for the status to become **Saved**. Do not quit the app while it shows
-   **Stopping and draining**.
-2. Take a screenshot of the collection panel including the save status, **Packets**,
-   **Markers written**, **Decode failures** and **Queue drops**. If it shows **Failed** or
-   **Ended; file incomplete**, keep that screenshot and say so; do not count it as a normal
-   completion.
-3. Click **Open containing folder** and copy the whole collection folder for this round to
-   your desktop. It should contain `trace.jsonl` and `trace.jsonl.sha256`. Keep the original
-   file names and contents and keep both files together; do not edit the JSONL by hand or
-   regenerate the checksum file.
-4. Back under **Tools**, click **Export diagnostic report** and choose where to save it.
-   Saving it into the same return folder is easiest. The app suggests a name like
-   `mentor_diagnostics_<date-time>.json`; keep whatever name it generated.
-5. Copy this round's files before starting the next round, restarting the app or changing
-   networks. The app keeps only the latest 10 collection folders and nothing older than
-   7 days; keep your desktop copy until I confirm it arrived.
+1. After leaving the duty and placing the last marker, click **Stop capture** and wait
+   for the status to become **Saved**. Do not quit the app while it shows **Saving**.
+2. Take a screenshot of the collection page including the save status and the four
+   counters **Packets**, **Markers written**, **Decode failures** and **Queue drops**. If it
+   shows **Capture failed** or **Ended; file incomplete**, keep that screenshot and say so;
+   do not count it as a normal completion. Step ④ still lists whatever files the round left;
+   send them all the same, and the missing ones are named in the note for the maintainer.
+3. In step ④'s file list, click **Open folder** on the `trace.jsonl` row and copy the whole
+   collection folder for this round to your desktop. It should contain `trace.jsonl` and
+   `trace.jsonl.sha256`. Keep the original file names and contents and keep both files
+   together; do not edit the JSONL by hand or regenerate the checksum file.
+4. Click **Export report** on the **Diagnostic report (JSON)** row and choose where to save
+   it. Saving it into the same return folder is easiest. The app suggests a name like
+   `mentor_diagnostics_<date-time>.json`; keep whatever name it generated. If logs are
+   needed, **Open logs** on the `collector-*.log` row opens their folder.
+5. Click **Next: write the note** to reach step ⑤. Fill in the duty, your job and the VPN or
+   accelerator, check **This round**, then click **Copy note**. The note already carries the
+   versions, times, region, markers and counters; paste it at the top of `test-report.txt`
+   and complete the rest of the template below.
+6. Copy this round's files before clicking **Start another round**, restarting the app or
+   changing networks. The app keeps only the latest 10 collection folders and nothing older
+   than 7 days; keep your desktop copy until I confirm it arrived.
 
 **The candidate summary is optional; do not get stuck on it:**
 
-- After **Saved**, you can click **Preview candidate summary**. It only reflects candidate
-  clues and does not prove that automatic recording works.
+- After **Saved**, you can open **Candidate summary (optional)** in step ⑤ and click
+  **Preview summary**. It only reflects candidate clues and does not prove that automatic
+  recording works.
 - If you are willing to use **Copy summary and open submission page**, it copies the full
   JSON and opens a GitHub form that may be pre-filled with the summary. You do not need to
   submit an issue this round. Paste the clipboard into Notepad, save it as UTF-8 with "All
@@ -165,8 +191,8 @@ if you exceed it. Do not post the files in a public issue or chat:
   label which round they belong to. Blur character names, chat and anything else personal.
 - **If available: `global_observation_01.json` and any further candidate summaries.**
 - **Only for startup or collection problems: the `collector-*.log` diagnostic logs from
-  the same time.** Reach the database folder via **Settings → Data → Open folder**, then
-  open the `logs` subfolder; copy only the logs for this round, not the database. If you
+  the same time.** Click **Open logs** in step ④, or reach the database folder via
+  **Settings → Data → Open folder** and open the `logs` subfolder; copy only the logs for this round, not the database. If you
   cannot find them, send the rest and say so.
 - **Only if the game version could not be identified: the small text file
   `ffxivgame.ver` from the client's `game` folder.** Just that file, not the game folder.

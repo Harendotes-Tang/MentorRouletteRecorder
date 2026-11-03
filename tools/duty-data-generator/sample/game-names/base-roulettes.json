@@ -4,6 +4,7 @@
   "language": "zh-Hans",
   "roulettes": [
     { "roulette_id": 1, "localized_name": "样例练级", "enabled": true },
-    { "roulette_id": 9, "localized_name": "样例指导者", "enabled": true }
+    { "roulette_id": 9, "localized_name": "样例指导者", "enabled": true },
+    { "roulette_id": 15, "localized_name": "团队任务", "enabled": true }
   ]
 }

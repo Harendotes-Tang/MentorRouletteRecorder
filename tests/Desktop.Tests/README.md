@@ -7,7 +7,7 @@
 - 纯逻辑：IPC 分帧编解码（与 Collector 侧用同一批样本对拍，见 [`../Fixtures/README.md`](../Fixtures/README.md)）、格式化、分页模型、职业统计、表单校验。
 - 控制器：`AppController` 及其拆出的各控制器，使用 `MockBackend` 或真实 IPC 后端。
 - 界面：从源码目录加载 QML 组件、对话框与页面，离屏渲染后按对象名核对文案与状态。
-- 进程：`CollectorProcess` 的重启退避、租约复用与停止路径；`MentorRecorderIpcIntegration` 与 `MentorRecorderLifecycle` 会拉起真实的 Collector 子进程（临时数据库）。
+- 进程：`CollectorProcess` 的重启退避、租约复用与停止路径。`MentorRecorderIpcIntegration` 会拉起真实的 Collector 子进程（临时数据库）；`MentorRecorderLifecycle` 以替身可执行文件驱动子进程监护，不需要 Collector。
 
 ## 目录
 
@@ -25,7 +25,7 @@
 | `components/` | 通用 QML 控件：图标、日期与时间输入、文本框、下拉框、开关 |
 | `settings/` | 设置隔离、界面语言、游戏名称、Collector 文本、语音 |
 | `update-install/` | 检查更新、下载安装、安装包持有、本次更新 |
-| `support/` | 多个套件共用的头文件、`expect_exit.cmake` 与 QML 运行时注册 |
+| `support/` | 多个套件共用的头文件、`expect_exit.cmake`、`expect_qt_conf.cmake`（核对正式构建内嵌 `qt.conf`、开发构建不含）与 QML 运行时注册 |
 
 每个目录编成一个测试程序 `MentorRecorderDesktop<目录>Tests`，例如 `transport/` 对应 `MentorRecorderDesktopTransportTests`。
 程序按第一个参数运行其中一个套件，一个进程只运行一个套件，各套件仍保留自己的应用对象、环境设置与退出码；
@@ -46,7 +46,9 @@ ctest --test-dir build -R MentorRecorderSpeech   # 按 CTest 名称运行单个�
 build\tests\Desktop.Tests\MentorRecorderDesktopSettingsTests.exe Speech -v2   # 直接运行，可附加 QtTest 选项
 ```
 
-运行 `ctest` 前须把 Qt 与 MinGW 的 `bin` 目录加入 `PATH`。CTest 为每个测试设置一个不存在的 `MR_COLLECTOR_PATH` 和构建目录内的 `MR_DATA_DIR`；多数套件还在 `main()` 开头调用 `support/TestCollectorGuard.h` 的守卫，单独运行时同样生效。测试只使用隔离的数据目录与管道名，不会触碰用户自己的 Collector、数据库或服务租约。
+运行 `ctest` 前须把 Qt 与 MinGW 的 `bin` 目录加入 `PATH`。CTest 为每个测试设置一个不存在的 `MR_COLLECTOR_PATH` 和构建目录内的 `MR_DATA_DIR`；正式口味（`-DMR_DEV_BUILD=OFF`）的构建另把
+`QT_PLUGIN_PATH` 与 `QML_IMPORT_PATH` 指向 Qt SDK 的 `plugins`、`qml`，因为其可执行文件内嵌的 `qt.conf` 把 Qt 前缀固定在构建目录中，
+那里没有插件与 QML 模块（[`../../docs/build-and-package.md`](../../docs/build-and-package.md) §3.7）；多数套件还在 `main()` 开头调用 `support/TestCollectorGuard.h` 的守卫，单独运行时同样生效。测试只使用隔离的数据目录与管道名，不会触碰用户自己的 Collector、数据库或服务租约。
 
 ## 约定
 

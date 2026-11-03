@@ -236,10 +236,11 @@ $SkipVerify = $false
 $Configuration = 'Release'
 $VerifyScript = {ps_literal(verifier)}
 $verificationResult = $null
-$preflight = @($statements | Where-Object {{
-    $_ -is [Management.Automation.Language.IfStatementAst] -and
-    $_.Clauses[0].Item1.Extent.Text -eq '-not $SkipVerify'
-}})
+$preflight = @($ast.FindAll({{
+    param($node)
+    $node -is [Management.Automation.Language.IfStatementAst] -and
+    $node.Clauses[0].Item1.Extent.Text -eq '-not $SkipVerify'
+}}, $true))
 if ($preflight.Count -ne 1) {{ throw 'The preflight verification call was not found' }}
 . ([scriptblock]::Create($preflight[0].Extent.Text))
 @{{ missing = $null -eq $verificationResult; result = $verificationResult }} | ConvertTo-Json -Compress
@@ -248,6 +249,131 @@ if ($preflight.Count -ne 1) {{ throw 'The preflight verification call was not fo
                 if returns_result:
                     self.assertIs(False, result["result"]["Complete"])
                     self.assertIs(True, result["result"]["Succeeded"])
+
+    # ------------------------------- the distribution build directory (J-3 = M-2, audit 2026-11-03)
+
+    def packaging_directory(self, configured):
+        value = "$null" if configured is None else ps_literal(configured)
+        return self.run_package_statements(f"""
+$RepoRoot = {ps_literal(self.repository)}
+$env:MR_BUILD_DIR = {value}
+$BuildDir = $null
+$refusal = $null
+try {{
+    . ([scriptblock]::Create((Get-StatementRange '^\\$configuredBuildDir\\s*=' '^\\$DesktopExe\\s*=')))
+}}
+catch {{ $refusal = $_.Exception.Message }}
+[ordered]@{{ directory = [string]$BuildDir; refused = [bool]$refusal; message = [string]$refusal }} |
+    ConvertTo-Json -Compress
+""")
+
+    def test_packaging_builds_in_its_own_directory_by_default(self):
+        # MR_DEV_BUILD is a cached CMake option: configured OFF in the developers' build\, it stays
+        # OFF for every later plain configure and build there, and that exe opens the installed
+        # copy's data and migrates it. The distribution flavour gets a directory of its own.
+        for configured in (None, "", "  "):
+            with self.subTest(configured=configured):
+                outcome = self.packaging_directory(configured)
+                self.assertFalse(outcome["refused"], outcome["message"])
+                self.assertEqual(self.repository / "build-distribution", Path(outcome["directory"]))
+
+    def test_an_explicit_packaging_directory_is_honoured(self):
+        for configured, expected in (
+            ("isolated package", self.repository / "isolated package"),
+            (str(self.directory / "elsewhere"), self.directory / "elsewhere"),
+        ):
+            with self.subTest(configured=configured):
+                outcome = self.packaging_directory(configured)
+                self.assertFalse(outcome["refused"], outcome["message"])
+                self.assertEqual(expected, Path(outcome["directory"]))
+
+    def test_packaging_refuses_the_developers_build_directory(self):
+        for configured in ("build", "build\\", ".\\BUILD", str(self.repository / "build")):
+            with self.subTest(configured=configured):
+                outcome = self.packaging_directory(configured)
+                self.assertTrue(outcome["refused"], outcome)
+                self.assertIn("MR_BUILD_DIR", outcome["message"])
+                self.assertIn("build-distribution", outcome["message"])
+
+    def test_verify_and_build_run_in_the_packaging_directory_and_the_caller_keeps_its_own(self):
+        record = self.directory / "children.json"
+        child = (
+            "param([string]$Configuration, [switch]$Distribution, [switch]$NoRestore, [ref]$Result)\n"
+            "$entry = [ordered]@{ script = (Split-Path -Leaf $PSCommandPath); "
+            "directory = $env:MR_BUILD_DIR; distribution = [bool]$Distribution }\n"
+            f"Add-Content -LiteralPath {ps_literal(record)} -Value (ConvertTo-Json $entry -Compress) "
+            "-Encoding utf8\n"
+            "exit 0\n")
+        for name in ("verify.ps1", "build.ps1"):
+            (self.directory / name).write_text(child, encoding="utf-8-sig")
+        for caller in (None, "caller build"):
+            with self.subTest(caller=caller):
+                record.unlink(missing_ok=True)
+                value = "$null" if caller is None else ps_literal(caller)
+                outcome = self.run_package_statements(f"""
+function Write-Head([string]$Text) {{ }}
+$SkipVerify = $false
+$Configuration = 'Release'
+$VerifyScript = {ps_literal(self.directory / "verify.ps1")}
+$BuildScript = {ps_literal(self.directory / "build.ps1")}
+$BuildDir = {ps_literal(self.directory / "package build")}
+$verificationResult = $null
+$env:MR_BUILD_DIR = {value}
+$steps = @($statements | Where-Object {{
+    $_ -is [Management.Automation.Language.TryStatementAst] -and
+    $_.Body.Extent.Text.Contains('$VerifyScript') -and $_.Body.Extent.Text.Contains('$BuildScript')
+}})
+if ($steps.Count -ne 1) {{ throw 'The verify and build steps were not found in one try block' }}
+. ([scriptblock]::Create((Get-StatementRange '^\\$callerBuildDir\\s*=' '^Assert-File \\$DesktopExe\\b')))
+[ordered]@{{ after = [Environment]::GetEnvironmentVariable('MR_BUILD_DIR') }} | ConvertTo-Json -Compress
+""")
+                children = [json.loads(line) for line in
+                            record.read_text(encoding="utf-8-sig").splitlines() if line.strip()]
+                self.assertEqual(["verify.ps1", "build.ps1"], [c["script"] for c in children])
+                for entry in children:
+                    self.assertEqual(self.directory / "package build", Path(entry["directory"]))
+                    self.assertTrue(entry["distribution"])
+                self.assertEqual(caller, outcome["after"])
+
+    def version_preflight(self, heading, version):
+        changelog = self.directory / "CHANGELOG.md"
+        changelog.write_text(f"# Changelog\n\n## [{heading}]\n\n- entry\n", encoding="utf-8")
+        return self.run_package_statements(f"""
+$RepoRoot = {ps_literal(self.repository)}
+$ChangelogPath = {ps_literal(changelog)}
+$Version = {ps_literal(version)}
+. ([scriptblock]::Create((Get-FunctionDefinitions @('Write-Head', 'Assert-ReleasedChangelogSectionsUnchanged'))))
+$refusal = $null
+try {{
+    . ([scriptblock]::Create((Get-StatementRange '^\\$changelogRefusal\\s*=' '^Assert-ReleasedChangelogSectionsUnchanged\\b' -Inclusive))) 6>$null
+}}
+catch {{ $refusal = $_.Exception.Message }}
+$order = @{{}}
+for ($i = 0; $i -lt $statements.Count; $i++) {{
+    $text = $statements[$i].Extent.Text
+    if (-not $order.Contains('preflight') -and $text -match '^\\$changelogRefusal\\s*=') {{ $order['preflight'] = $i }}
+    if ($statements[$i] -is [Management.Automation.Language.TryStatementAst] -and
+        $statements[$i].Body.Extent.Text.Contains('$VerifyScript')) {{ $order['verify'] = $i }}
+}}
+[ordered]@{{ refused = [bool]$refusal; message = [string]$refusal;
+             preflight = $order['preflight']; verify = $order['verify'] }} | ConvertTo-Json -Compress
+""")
+
+    def test_the_changelog_rule_is_checked_before_verify_and_build(self):
+        # M-2: at a formal version with [Unreleased] on top, the run used to verify and build the
+        # distribution flavour for twenty minutes and only then refuse in Assert-StagedVersion.
+        outcome = self.version_preflight("Unreleased", "9.9.9")
+        self.assertTrue(outcome["refused"])
+        self.assertIn("CHANGELOG.md 最上方应为 ## [9.9.9]", outcome["message"])
+        self.assertIsNotNone(outcome["preflight"])
+        self.assertIsNotNone(outcome["verify"])
+        self.assertLess(outcome["preflight"], outcome["verify"])
+
+    def test_a_consistent_changelog_passes_the_preflight(self):
+        for heading, version in (("9.9.9", "9.9.9"), ("Unreleased", "9.9.9-beta.1")):
+            with self.subTest(version=version):
+                outcome = self.version_preflight(heading, version)
+                self.assertFalse(outcome["refused"], outcome["message"])
 
     def build_metadata(self, *, verify):
         metadata = self.directory / "BUILD-METADATA.json"

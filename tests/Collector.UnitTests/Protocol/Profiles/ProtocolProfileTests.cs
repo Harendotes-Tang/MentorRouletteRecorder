@@ -397,6 +397,8 @@ public sealed class ProtocolProfileTests : IDisposable
             Assert.Equal(ProfileCompatibilityStatus.Ambiguous, entry.Status));
         Assert.Empty(catalog.UsableFor(Region.Unknown));
         Assert.True(catalog.IsAmbiguous(Region.Unknown, "test-build-1"));
+        Assert.Equal(ProfileSelectionReason.Ambiguous,
+            new ProfileSelector(catalog, allowSynthetic: true).Select(Region.Unknown, "test-build-1").ReasonCode);
     }
 
     [Fact]
@@ -441,6 +443,26 @@ public sealed class ProtocolProfileTests : IDisposable
         Assert.Equal("UNSUPPORTED", snapshot.Status);
         Assert.Equal(0, snapshot.MessageCount);
         Assert.NotNull(snapshot.LastError);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-03, D2-1. The selector's English reason is for logs and diagnostics; why nothing
+    /// was selected also comes as a token, so the player is told in their own language - and a
+    /// traditional-Chinese or global client is told plainly that its region is not supported yet,
+    /// rather than that its build is unknown.
+    /// </summary>
+    [Fact]
+    public void Selector_SaysWhyAsAToken()
+    {
+        var selector = new ProfileSelector(ProfileCatalog.LoadDefault());
+
+        Assert.Equal(ProfileSelectionReason.Selected, selector.Select(Region.Cn, "2026.08.05.0000.0000").ReasonCode);
+        Assert.Equal(ProfileSelectionReason.BuildUnknown, selector.Select(Region.Cn, null).ReasonCode);
+        Assert.Equal(ProfileSelectionReason.NoMatch, selector.Select(Region.Cn, "2099.01.01.0000.0000").ReasonCode);
+        Assert.Equal(ProfileSelectionReason.NotUsable, selector.Select(Region.Cn, "unknown").ReasonCode);
+        Assert.Equal(ProfileSelectionReason.RegionUnsupported, selector.Select(Region.Tc, "2026.10.01.0000.0000").ReasonCode);
+        Assert.Equal(ProfileSelectionReason.RegionUnsupported, selector.Select(Region.Global, "2026.10.01.0000.0000").ReasonCode);
+        Assert.Equal(ProfileSelectionReason.RegionUnknown, selector.Select(Region.Unknown, "2026.08.05.0000.0000").ReasonCode);
     }
 
     [Fact]
@@ -675,7 +697,9 @@ public sealed class ProtocolProfileTests : IDisposable
             Assert.Empty(profile.Messages);
             Assert.Null(profile.MentorRouletteId);
             Assert.False(profile.ToBinding().IsUsable);
-            Assert.Contains("no verified capture yet", profile.ProvenanceSummary, StringComparison.Ordinal);
+            // Each says it is a placeholder. "No verified capture yet" stopped being true of CN on
+            // 2026-09-07 and is said only of GLOBAL now (audit 2026-11-03, D2-3).
+            Assert.Contains("占位符", profile.ProvenanceSummary, StringComparison.Ordinal);
         }
     }
 

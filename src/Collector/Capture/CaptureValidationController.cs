@@ -302,7 +302,11 @@ public sealed partial class CaptureValidationController : IDisposable
                 source = trace.SourceFactory?.Invoke()
                     ?? new MachinaCaptureSource(trace.Logger, oodleTempManifestPath: _oodleTempManifest);
                 s.Stop.Token.ThrowIfCancellationRequested();
-                var path = Path.Combine(_directory, trace.Clock.UtcNow.ToString("yyyyMMddTHHmmssfff") + "-" + s.Id, "trace.jsonl");
+                // Named in the invariant calendar, the one SweepTraces ages it in: under an Umm
+                // al-Qura or Persian calendar the session read as centuries old and was deleted
+                // as soon as it was saved; under the Thai one it never aged (audit 2026-11-03, A2-2).
+                var path = Path.Combine(_directory, trace.Clock.UtcNow.ToString(
+                    "yyyyMMddTHHmmssfff", System.Globalization.CultureInfo.InvariantCulture) + "-" + s.Id, "trace.jsonl");
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
                 lock (_gate) s.Path = path;
                 writer = trace.TraceWriterFactory?.Invoke(path) ?? new StreamWriter(
@@ -313,7 +317,8 @@ public sealed partial class CaptureValidationController : IDisposable
                 lock (_gate) { s.Sink = sink; s.Started = UtcTimestamp.Truncate(trace.Clock.UtcNow); }
                 sink.WriteHeader(new CaptureTraceHeader(s.Started.Value, s.Npcap.Version, game.GameBuild,
                     game.Region, SanitizedDiagnosticsReport.Fingerprint(adapter.Id), trace.CollectorVersion,
-                    OodleMode.FfxivTcp, source.Kind != CaptureTraceRunner.LiveSourceKind));
+                    OodleMode.FfxivTcp, source.Kind != CaptureTraceRunner.LiveSourceKind,
+                    checkedCandidate.PreexistingConnections));
                 s.MarkerWork = Task.Run(() => WriteMarkersAsync(s));
                 var queue = new DecodedMessageQueue(sink, onSinkError: ex => Fault(s, ex, writeFailed: true));
                 lock (_gate) s.Queue = queue;
@@ -474,8 +479,13 @@ public sealed partial class CaptureValidationController : IDisposable
         if (game.Region == Region.Unknown)
             // Not the same thing as "still initialising": the path was read and simply does
             // not say which service region it is. Waiting will never fix that, so the message
-            // must not suggest it will (review finding H-9).
-            return Wait("WAITING_REGION", CollectorTexts.CaptureValidationWaitingRegion());
+            // must not suggest it will (review finding H-9). A path that does name a region, set
+            // aside because a manual choice made for another installation contradicts it, is said
+            // as such (re-review 2026-11-03, RV1-5).
+            return Wait("WAITING_REGION", game.Warnings.Any(warning =>
+                    warning.Key == CollectorTexts.CaptureGameRegionOverrideMismatch().Key)
+                ? CollectorTexts.CaptureValidationWaitingRegionMismatch()
+                : CollectorTexts.CaptureValidationWaitingRegion());
         var adapters = _services.Trace.Adapters.List(game.ProcessId, s.AdapterId);
         var selected = s.AdapterId is not null ? AdapterEnumerator.Find(adapters, s.AdapterId) :
             adapters.Where(a => a.Recommended).Take(2).ToArray() is { Length: 1 } recommended ? recommended[0] : null;
@@ -489,15 +499,20 @@ public sealed partial class CaptureValidationController : IDisposable
             s.RestartFrom = game;
             return Wait("WAITING_RESTART", CollectorTexts.CaptureValidationWaitingRestartConnected());
         }
-        var count = _services.Trace.CountConnections(game.ProcessId.Value, selected, plan);
-        if (count is null or < 0) return Wait("WAITING_CONNECTION_CHECK", CollectorTexts.CaptureValidationWaitingConnectionCheck());
+        var probe = _services.Trace.ProbeConnections(game.ProcessId.Value, selected, plan);
+        var count = probe.Count;
+        // A count the tables can never give -- an IPv6 connection, a system table too large to read
+        // whole -- is recorded as unknown, as the command-line trace does; only a failed query is
+        // waited for, and it says so (audit 2026-11-03, A2-3).
+        if ((count is null or < 0) && !probe.Unanswerable)
+            return Wait("WAITING_CONNECTION_CHECK", CollectorTexts.CaptureValidationWaitingConnectionCheck());
         if (count > 0)
         {
             s.BlockedClients.Add(identity);
             s.RestartFrom = game;
             return Wait("WAITING_RESTART", CollectorTexts.CaptureValidationWaitingRestartConnected());
         }
-        return new CaptureCandidate(selected, plan);
+        return new CaptureCandidate(selected, plan, count is null or < 0 ? null : count);
     }
 
     private static bool SamePaths(CapturePathPlan first, CapturePathPlan second) =>
@@ -507,7 +522,10 @@ public sealed partial class CaptureValidationController : IDisposable
                     CapturePathPlan.NormalizeIdentity(other.AdapterId), StringComparison.OrdinalIgnoreCase)) is { } other &&
             binding.IsLoopback == other.IsLoopback && binding.LocalAddresses.ToHashSet().SetEquals(other.LocalAddresses));
 
-    private sealed record CaptureCandidate(CaptureAdapterView Adapter, CapturePathPlan Plan);
+    /// <param name="Adapter">Selected adapter.</param>
+    /// <param name="Plan">Paths to capture.</param>
+    /// <param name="PreexistingConnections">The game's connections at the check: 0, or null when the tables cannot tell.</param>
+    private sealed record CaptureCandidate(CaptureAdapterView Adapter, CapturePathPlan Plan, int? PreexistingConnections);
 
     private async Task WriteMarkersAsync(Session s)
     {

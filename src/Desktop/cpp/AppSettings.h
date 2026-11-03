@@ -13,6 +13,8 @@
 // key strings around.
 // ---------------------------------------------------------------------------
 
+#include "BuildFlavour.h"
+
 #include <QObject>
 #include <QSettings>
 #include <QString>
@@ -32,6 +34,8 @@ class AppSettings : public QObject
     Q_PROPERTY(bool followFfxiv READ followFfxiv WRITE setFollowFfxiv NOTIFY generalChanged)
     Q_PROPERTY(bool minimizeToTray READ minimizeToTray WRITE setMinimizeToTray NOTIFY generalChanged)
     Q_PROPERTY(bool autostartWritable READ autostartWritable CONSTANT)
+    Q_PROPERTY(QString autostartUnavailableReason READ autostartUnavailableReason CONSTANT)
+    Q_PROPERTY(bool autostartRegistrationFailed READ autostartRegistrationFailed NOTIFY generalChanged)
     /// 通关后弹出心得窗口 - DUTY_RESULT 到达后弹出；可稍后在历史记录补录。
     Q_PROPERTY(bool reflectPrompt READ reflectPrompt WRITE setReflectPrompt NOTIFY generalChanged)
     /// 结束后询问本次结果 - 离开副本前没有收到通关结算时，一局导随停在
@@ -79,6 +83,9 @@ public:
     explicit AppSettings(QObject *parent = nullptr);
     /// Explicit INI location for isolated local harnesses.
     AppSettings(const QString &iniPath, QObject *parent);
+    /// As above, with the login-autostart rules of a build of \a flavour instead
+    /// of this one's (build::thisBuild()), so one test binary covers both.
+    AppSettings(const QString &iniPath, build::Flavour flavour, QObject *parent = nullptr);
     bool dungeonCategoryChartVisible() const;
     void setDungeonCategoryChartVisible(bool visible);
     bool dungeonSpecialChartVisible() const;
@@ -134,6 +141,12 @@ public:
     /// otherwise land in the real files (review OH-7). main() then puts
     /// QStandardPaths into test mode before the first AppSettings exists.
     static bool isHarnessRun(bool screenshotMode, const QString &backend);
+    /// True when the raw command line \a arguments (program name first) carries
+    /// the valued option \a name ("--screenshot") in either spelling the parser
+    /// accepts: "--screenshot FILE" or "--screenshot=FILE". main() reads it this
+    /// way before the application exists, so the harness isolation it decides
+    /// agrees with the branch the parser takes later (review I1-6).
+    static bool hasRawOption(const QStringList &arguments, const QString &name);
 
     /// "dark", "light" or "system".
     QString themeMode() const;
@@ -151,16 +164,46 @@ public:
     void setFirstRunCompleted(bool completed);
 
     bool autostart() const;
+    /// Registers or removes the Run value. When Windows does not accept the
+    /// change the setting keeps its value and autostartRegistrationFailed() is
+    /// set until a later change goes through.
     void setAutostart(bool enabled);
-    /// False in mock/screenshot/test runs and on unsupported platforms.
-    static bool autostartWritable();
-    /// The switch the Run value passes, so a login start begins in the tray
-    /// instead of opening the main window (main.cpp --autostart).
+    /// True only when autostartUnavailableReason() is empty.
+    bool autostartWritable() const;
+    /// Why this run may not touch the login Run value, for the settings row:
+    /// "" when it may; "development" for a development build, which never
+    /// registers itself nor rewrites or removes the installed copy's value
+    /// (the account has one); "harness" for mock/screenshot/test runs;
+    /// "platform" off Windows.
+    QString autostartUnavailableReason() const;
+    /// True when Windows refused the last write or removal of the Run value
+    /// (security software guarding the key, a policy). In memory only.
+    bool autostartRegistrationFailed() const { return m_autostartRegistrationFailed; }
+    /// The marker the Run value passes after the executable, so a login start
+    /// begins in the tray instead of opening the main window. A positional
+    /// argument, not an option: 1.8.x and older stop with "Unknown option" on
+    /// an option they do not know but ignore an extra positional argument, so
+    /// a player who goes back to one keeps a working login start (review I1-3).
     static QString autostartArgument();
-    /// With 开机启动 on, rewrite the Run value for this executable: a value
-    /// registered before the switch existed, or by a copy since moved, is
-    /// brought up to date. Nothing is written while the setting is off.
+    /// True for a launch the Run value made: \a positionalArguments holds
+    /// autostartArgument(), or the option --autostart (\a autostartOptionSet)
+    /// that unreleased builds registered was given.
+    static bool isAutostartLaunch(const QStringList &positionalArguments, bool autostartOptionSet);
+    /// With 开机启动 on, bring the Run value up to date for this executable when
+    /// it holds anything else: a value registered before the marker existed, in
+    /// the option form, or by a copy since moved. Nothing is written while the
+    /// setting is off or when the value already matches. main() reaches it only
+    /// through refreshAutostartRegistrationAtStartUp().
     void refreshAutostartRegistration();
+    /// The start-up step main() takes once the whole command line was accepted:
+    /// refreshAutostartRegistration() for the account's one instance only.
+    /// \a primaryInstance is true only for a run that holds the single-instance
+    /// guard, which main() creates for a non-harness IPC run alone, so a refused
+    /// option, a second copy that only wakes the first and every harness run
+    /// leave the Run value alone (review I5-3, J-1). True when the Run value was
+    /// looked at: a primary instance whose flavour and run may register, with
+    /// 开机启动 on.
+    bool refreshAutostartRegistrationAtStartUp(bool primaryInstance);
 
     bool followFfxiv() const;
     void setFollowFfxiv(bool enabled);
@@ -263,11 +306,16 @@ private:
     QString templateValue(const char *leaf) const;
     void setTemplateValue(const char *leaf, const QString &value);
 
-    /// Add or remove the HKCU\...\Run value. No-op off Windows or in Qt test mode.
-    static void applyAutostartRegistration(bool enabled);
+    /// Add or remove the HKCU\...\Run value; with \a onlyWhenDifferent a value
+    /// that already holds this executable's command line is left alone. False
+    /// when Windows did not accept the change, and without touching anything
+    /// when autostartWritable() is false.
+    bool applyAutostartRegistration(bool enabled, bool onlyWhenDifferent = false);
 
     QSettings m_settings;
     QString m_speechLanguage = QStringLiteral("zh-CN");
+    build::Flavour m_flavour = build::thisBuild();
+    bool m_autostartRegistrationFailed = false;
 };
 
 /// Read the persisted UI scale before QApplication exists, so the value can be

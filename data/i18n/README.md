@@ -129,9 +129,10 @@ data/i18n/
 - **副本分类**的译名取该分类所由来的 `ContentType` 的名称。分类由
   `tools/duty-data-generator/generate.py` 的 `CATEGORY_BY_CONTENT_TYPE` 从 `ContentType` 得出，
   简体中文标签由本项目自定，因此译名的措辞可能与简体中文标签不同。例如：
-  `四人迷宫` → `迷宮挑戰` / `Dungeons` / `ダンジョン`；
-  `团队任务` → `滅激鬥戰` / `Chaotic Alliance Raid` / `滅アライアンスレイド`
-  （该分类仅由 `Chaotic Alliance Raid` 这一 `ContentType` 得出，其余团队任务归入 `大型任务`）。
+  `四人迷宫` → `迷宮挑戰` / `Dungeons` / `ダンジョン`。
+  `团队任务` 是例外：副本文件中只有 `Chaotic Alliance Raid` 这一 `ContentType` 归入该分类，
+  但软件把全部标准 24 人团队任务都显示为 `团队任务`，因此它的译名取随机任务编号 15 的名称
+  `團隊任務` / `Alliance Raids` / `アライアンスレイド`，而不是 `Chaotic Alliance Raid` 的名称。
   映射表中当前数据表已不存在的 `ContentType`（`Adventuring Forays`）不生成译名；
   副本文件实际用到的分类缺少译名时，生成器报错退出。
 - **资料片**按 `ExVersion` 的行号关联，键为英文名。

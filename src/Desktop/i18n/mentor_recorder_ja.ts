@@ -883,10 +883,6 @@
         <translation>ゲームの起動待ち · インストール済みのゲームバージョンは再校正が必要です</translation>
     </message>
     <message>
-        <source>等待游戏启动 · 游戏版本支持文件有冲突，暂时不能自动记录</source>
-        <translation>ゲームの起動待ち · バージョン対応ファイルが競合しているため、現在は自動記録できません</translation>
-    </message>
-    <message>
         <source>等待游戏启动 · 当前安装的游戏版本暂不支持自动记录</source>
         <translation>ゲームの起動待ち · インストール済みのゲームバージョンは自動記録にまだ対応していません</translation>
     </message>
@@ -919,10 +915,6 @@
         <translation>現在のゲームバージョンは自動記録にまだ対応していません</translation>
     </message>
     <message>
-        <source>游戏版本支持文件有冲突，暂时不能自动记录</source>
-        <translation>バージョン対応ファイルが競合しているため、現在は自動記録できません</translation>
-    </message>
-    <message>
         <source>还没找到适用的游戏版本支持文件，暂时不能自动记录</source>
         <translation>使えるバージョン対応ファイルがまだ見つからないため、現在は自動記録できません</translation>
     </message>
@@ -941,6 +933,14 @@
     <message>
         <source>已连接游戏，但还读不到游戏数据 · 请查看上方说明</source>
         <translation>ゲームに接続しましたが、まだゲームデータを読み取れません · 上の説明を確認してください</translation>
+    </message>
+    <message>
+        <source>正在采证 · 停止采证后恢复自动记录</source>
+        <translation>採取中 · 採取を停止すると自動記録を再開します</translation>
+    </message>
+    <message>
+        <source>正在采证 · 停止采证后恢复正常检测</source>
+        <translation>採取中 · 採取を停止すると通常の確認を再開します</translation>
     </message>
     <message>
         <source>暂时不会自动记录 · 见上方说明</source>
@@ -1039,10 +1039,6 @@
         <translation>バージョン非対応</translation>
     </message>
     <message>
-        <source>支持文件有冲突</source>
-        <translation>対応ファイルが競合</translation>
-    </message>
-    <message>
         <source>未匹配</source>
         <translation>不一致</translation>
     </message>
@@ -1081,10 +1077,6 @@
     <message>
         <source>尚未识别游戏版本或区服</source>
         <translation>ゲームのバージョンまたはリージョンが不明</translation>
-    </message>
-    <message>
-        <source>游戏版本支持文件有冲突</source>
-        <translation>バージョン対応ファイルが競合</translation>
     </message>
     <message>
         <source>当前版本暂时不会自动记录</source>
@@ -1174,6 +1166,10 @@
         <translation>ゲームの選択待ち</translation>
     </message>
     <message>
+        <source>采证中</source>
+        <translation>採取中</translation>
+    </message>
+    <message>
         <source>暂时读不到游戏数据</source>
         <translation>ゲームデータを読み取れません</translation>
     </message>
@@ -1210,6 +1206,14 @@
         <translation>Npcap が使用できないため、自動記録を停止しています</translation>
     </message>
     <message>
+        <source>新区服采证进行中，自动记录已暂停</source>
+        <translation>新しい地域のデータ採取中のため、自動記録を一時停止しています</translation>
+    </message>
+    <message>
+        <source>新区服采证进行中</source>
+        <translation>新しい地域のデータ採取中</translation>
+    </message>
+    <message>
         <source>已连接游戏，但还读不到游戏数据</source>
         <translation>ゲームに接続しましたが、まだゲームデータを読み取れません</translation>
     </message>
@@ -1236,6 +1240,18 @@
     <message>
         <source>在下方「记录对象」里点选要记录的游戏窗口。</source>
         <translation>下の「記録対象」で、記録するゲームウィンドウを選んでください。</translation>
+    </message>
+    <message>
+        <source>停止采证后会恢复自动记录。</source>
+        <translation>採取を停止すると自動記録を再開します。</translation>
+    </message>
+    <message>
+        <source>停止采证后恢复正常检测；当前游戏版本暂不自动记录。</source>
+        <translation>採取を停止すると通常の確認を再開します。現在のゲームバージョンはまだ自動記録できません。</translation>
+    </message>
+    <message>
+        <source>停止采证后恢复正常检测。</source>
+        <translation>採取を停止すると通常の確認を再開します。</translation>
     </message>
     <message>
         <source>进本和出本会自动记录。识别到通关后会自动填写结果；如果没有识别到，请在离开副本后打开记录补上结果。</source>
@@ -1276,10 +1292,6 @@
     <message>
         <source>已支持安装在这台电脑上的游戏版本。启动游戏后会自动记录。</source>
         <translation>この PC にインストールされているゲームバージョンに対応済みです。ゲームを起動すると自動で記録します。</translation>
-    </message>
-    <message>
-        <source>当前游戏版本的支持文件有冲突，暂时不能自动记录。请更新软件或导出诊断报告。</source>
-        <translation>現在のゲームバージョンの対応ファイルが競合しているため、自動記録できません。アプリを更新するか、診断レポートを書き出してください。</translation>
     </message>
     <message>
         <source>当前安装的游戏版本暂不支持自动记录。启动游戏后会再次检查。</source>
@@ -1660,10 +1672,6 @@
         <translation>インストール済みのゲームバージョンは自動記録にまだ対応していません</translation>
     </message>
     <message>
-        <source>游戏版本支持文件有冲突，暂时不能自动记录</source>
-        <translation>バージョン対応ファイルが競合しているため、現在は自動記録できません</translation>
-    </message>
-    <message>
         <source>还没找到适用的游戏版本支持文件</source>
         <translation>使えるバージョン対応ファイルがまだ見つかりません</translation>
     </message>
@@ -1853,8 +1861,8 @@
         <translation>ゲームのリージョン</translation>
     </message>
     <message>
-        <source>自动按安装路径识别；无法识别时，请选择实际使用的国服、繁中服或国际服。</source>
-        <translation>インストール先から自動判別します。判別できない場合は、利用中の中国版、繁体字中国語版、グローバル版を選んでください。</translation>
+        <source>按当前运行的客户端的安装路径自动识别；无法识别时，请选择它实际使用的国服、繁中服或国际服。</source>
+        <translation>実行中のクライアントのインストール先から自動判別します。判別できない場合は、そのクライアントが利用している中国版、繁体字中国語版、グローバル版を選んでください。</translation>
     </message>
 </context>
 <context>
@@ -1886,6 +1894,14 @@
     <message>
         <source>已保存，等回传</source>
         <translation>保存済み・送付待ち</translation>
+    </message>
+    <message>
+        <source>采证失败，可回传已有文件</source>
+        <translation>採取失敗・あるファイルを送付できます</translation>
+    </message>
+    <message>
+        <source>已结束，文件不完整</source>
+        <translation>終了（ファイルが不完全）</translation>
     </message>
     <message>
         <source>按步骤采集报文元数据，未适配的区服仍不正式记录</source>
@@ -2335,6 +2351,11 @@ SHA256：%3</translation>
         <translation>メンタールーレットの記録は通常どおり行います。申請と突入だけで照合する場合、記録されるのは申請の時刻です。申請を取り消しても記録は作成されません。下のタイムラインを確認してから「確認して有効化」を押してください。以降の新しい記録には自動でジョブが入ります。</translation>
     </message>
     <message>
+        <source>导随记录照常进行。检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。请核对下面的时间线，再点「核对并启用」；之后的新记录会自动带上职业。</source>
+        <comment>calibration.provisional.job_only_popup</comment>
+        <translation>メンタールーレットの記録は通常どおり行います。突入確認を検出した場合はその時刻を、検出できなかった場合は引き続き申請の時刻を記録します。申請を取り消しても記録は作成されません。下のタイムラインを確認してから「確認して有効化」を押してください。以降の新しい記録には自動でジョブが入ります。</translation>
+    </message>
+    <message>
         <source>导随记录照常进行。已找到匹配弹窗，请核对下面的时间线，再点「核对并启用」；之后会记入匹配成功的时间。</source>
         <comment>calibration.provisional.pop_found</comment>
         <translation>メンタールーレットの記録は通常どおり行います。突入確認が見つかりました。下のタイムラインを確認してから「確認して有効化」を押してください。以降はマッチ成立の時刻を記録します。</translation>
@@ -2432,18 +2453,6 @@ SHA256：%3</translation>
         <translation>verdicts を空にすることはできません。</translation>
     </message>
     <message>
-        <source>无法写出本机校准档案：{error}</source>
-        <comment>calibration.write_failed</comment>
-        <extracomment>Placeholders: {error} shown as it is. Keep every {placeholder} exactly as written. {error} is the operating system&apos;s explanation.</extracomment>
-        <translation>この PC での校正のプロファイルを書き出せません：{error}</translation>
-    </message>
-    <message>
-        <source>本机校准档案已写出，但档案目录没有选中它：{reason}</source>
-        <comment>calibration.written_not_selected</comment>
-        <extracomment>Placeholders: {reason} shown as it is. Keep every {placeholder} exactly as written. {reason} is the profile directory&apos;s English explanation.</extracomment>
-        <translation>この PC での校正のプロファイルを書き出しましたが、プロファイルフォルダーで選択されませんでした：{reason}</translation>
-    </message>
-    <message>
         <source>from_utc 不得晚于 to_utc。</source>
         <comment>candidate.from_after_to</comment>
         <translation>from_utc を to_utc より後にすることはできません。</translation>
@@ -2523,11 +2532,6 @@ SHA256：%3</translation>
         <comment>capture.game.instances</comment>
         <extracomment>Placeholders: {count} a number. Keep every {placeholder} exactly as written.</extracomment>
         <translation>FFXIV のプロセスを {count} 個検出しました。概要またはキャプチャ診断ページで、現在の記録対象を確認してください。</translation>
-    </message>
-    <message>
-        <source>设置中手动指定的区服与安装路径推断出的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除区服覆盖。</source>
-        <comment>capture.game.region_override_mismatch</comment>
-        <translation>設定で手動指定したリージョンが、インストール先から推定したリージョンと一致しないため、手動指定のリージョンとして扱いました。意図したものでない場合は、設定でリージョンの上書きを解除してください。</translation>
     </message>
     <message>
         <source>未能在游戏目录中读取到 {file}，客户端版本未知。</source>
@@ -3034,6 +3038,26 @@ SHA256：%3</translation>
         <translation>メンタールーレットの記録は通常どおり行います。突入確認を検出した場合はその時刻を、検出できなかった場合は引き続き申請の時刻を記録します。申請を取り消しても記録は作成されません。バックグラウンドで校正を続けており、新たに見つかったものがあればタイムラインの確認をお願いします。そのままプレイを続けても、別のルーレットを試して校正に協力してもかまいません。パーティで参加する場合は、あなたが申請してください。</translation>
     </message>
     <message>
+        <source>无法写出本机校准档案：文件正被其他程序占用，或系统拒绝了写入（例如安全软件正在检查它）。请稍后再点「核对并启用」。</source>
+        <comment>calibration.write_failed.busy</comment>
+        <translation>この PC での校正のプロファイルを書き出せません：ファイルがほかのプログラムに使用されているか、システムに書き込みを拒否されました（たとえばセキュリティソフトがファイルをチェックしています）。しばらくしてからもう一度「確認して有効化」を押してください。</translation>
+    </message>
+    <message>
+        <source>无法写出本机校准档案：写入磁盘时出错。请确认磁盘空间充足，然后再点「核对并启用」。</source>
+        <comment>calibration.write_failed.disk</comment>
+        <translation>この PC での校正のプロファイルを書き出せません：ディスクへの書き込み中にエラーが発生しました。ディスクの空き容量が十分にあることを確認してから、もう一度「確認して有効化」を押してください。</translation>
+    </message>
+    <message>
+        <source>这次的校准结果没有通过软件的自检，因此没有写出档案。请点「清空校准进度」重新校准。</source>
+        <comment>calibration.write_failed.refused</comment>
+        <translation>今回の校正結果はアプリの自己チェックに合格しなかったため、プロファイルを書き出していません。「校正の進捗をリセット」を押して校正し直してください。</translation>
+    </message>
+    <message>
+        <source>本机校准档案已写出，但软件没有选用它，暂时还不会按它自动记录。</source>
+        <comment>calibration.written_not_selected</comment>
+        <translation>この PC での校正のプロファイルを書き出しましたが、アプリに選択されなかったため、まだこのプロファイルでは自動記録しません。</translation>
+    </message>
+    <message>
         <source>没有权限读取游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录。</source>
         <comment>capture.game.path_denied</comment>
         <translation>ゲームのインストール先を読み取る権限がないため、リージョンとクライアントのバージョンは不明のままです。この間、自動記録は一切行いません。</translation>
@@ -3047,6 +3071,16 @@ SHA256：%3</translation>
         <source>无法从安装路径判断区服（路径同时含有多个区服的标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。</source>
         <comment>capture.game.region_ambiguous</comment>
         <translation>インストール先からリージョンを判定できません（パスに複数のリージョンの目印が含まれています）。設定でリージョン（中国版 / 繁体字中国語版 / グローバル版）を手動で指定してください。指定するまで、自動記録は一切行いません。</translation>
+    </message>
+    <message>
+        <source>这个客户端的安装路径表明的区服与设置中为它手动指定的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除手动指定的区服。</source>
+        <comment>capture.game.region_override_applied</comment>
+        <translation>このクライアントのインストール先が示すリージョンは、設定でこのクライアント用に手動指定したリージョンと一致しないため、手動指定したリージョンとして扱っています。意図したものでない場合は、設定で手動指定したリージョンを解除してください。</translation>
+    </message>
+    <message>
+        <source>设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致，因此暂不进行任何自动记录。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。</source>
+        <comment>capture.game.region_override_mismatch</comment>
+        <translation>設定で手動指定したリージョンはまだこのクライアントに関連付けられておらず、インストール先が示すリージョンとも一致しないため、現在は自動記録を一切行いません。このクライアントが本当に手動指定したリージョンのものである場合は、クライアントの起動中に設定でリージョンをもう一度選択してください。そうでない場合は、手動指定したリージョンを解除してください。</translation>
     </message>
     <message>
         <source>无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。</source>
@@ -3069,15 +3103,14 @@ SHA256：%3</translation>
         <translation>リポジトリにプロトコルプロファイルが1つもありません。誤った記録を防ぐため、このバージョンはパケットを一切解析せず、記録も一切自動で書き込みません。記録は手動で追加するしかありません。</translation>
     </message>
     <message>
-        <source>协议档案不可用，暂时不会自动记录：{reason}</source>
-        <comment>capture.profile.unavailable</comment>
-        <extracomment>Placeholders: {reason} shown as it is. Keep every {placeholder} exactly as written. {reason} is the profile directory&apos;s English explanation, for example: no profile matches this region and build.</extracomment>
-        <translation>プロトコルプロファイルを使用できないため、現在は自動記録しません：{reason}</translation>
-    </message>
-    <message>
         <source>协议档案不可用，未启动抓包：本版本不会解析任何报文，也不会自动写入任何记录。若只是想验证抓包链路本身，请先把设置 capture.allow_without_profile 打开（仅统计，不记录）。</source>
         <comment>capture.start.profile_unavailable</comment>
         <translation>プロトコルプロファイルを使用できないため、キャプチャを開始していません。このバージョンはパケットを一切解析せず、記録も一切自動で書き込みません。キャプチャ経路そのものを検証したいだけの場合は、先に設定 capture.allow_without_profile をオンにしてください（統計のみで、記録はしません）。</translation>
+    </message>
+    <message>
+        <source>仅验证，不自动记录。设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。</source>
+        <comment>capture.validation.waiting_region_mismatch</comment>
+        <translation>検証のみで、自動記録はしません。設定で手動指定したリージョンはまだこのクライアントに関連付けられておらず、インストール先が示すリージョンとも一致しません。このクライアントが本当に手動指定したリージョンのものである場合は、クライアントの起動中に設定でリージョンをもう一度選択してください。そうでない場合は、手動指定したリージョンを解除してください。</translation>
     </message>
     <message>
         <source>上一次采集验证未能完全结束，正在自动重试收尾，期间不会自动记录。如长时间未恢复，请重新启动本软件。</source>
@@ -4189,6 +4222,11 @@ SHA256：%3</translation>
         <translation>突入時刻を終了時刻より後にすることはできません。</translation>
     </message>
     <message>
+        <source>匹配时间不能晚于结束时间。</source>
+        <comment>mutation.matched_after_ended</comment>
+        <translation>マッチ時刻を終了時刻より後にすることはできません。</translation>
+    </message>
+    <message>
         <source>匹配时间不能晚于进入副本的时间。</source>
         <comment>mutation.matched_after_entered</comment>
         <translation>マッチ時刻を突入時刻より後にすることはできません。</translation>
@@ -4254,6 +4292,41 @@ SHA256：%3</translation>
         <translation>結果が「不明」の自動記録には終了時刻が必要です。終了時刻のない不明な結果は進行中の記録として扱われ、統計に含まれず、「要確認」にも表示されません。終了時刻を入力するか、実際の結果を選んでください。</translation>
     </message>
     <message>
+        <source>有不止一份游戏版本支持文件对应这个版本，软件不会从中任选一份。</source>
+        <comment>profile.unavailable.ambiguous</comment>
+        <translation>このバージョンに対応するバージョン対応ファイルが複数あるため、アプリはその中から 1 つを勝手に選ぶことはしません。</translation>
+    </message>
+    <message>
+        <source>还不知道游戏的版本号。</source>
+        <comment>profile.unavailable.build_unknown</comment>
+        <translation>ゲームのバージョン番号がまだわかりません。</translation>
+    </message>
+    <message>
+        <source>读取游戏版本支持文件时出错。</source>
+        <comment>profile.unavailable.failed</comment>
+        <translation>バージョン対応ファイルの読み込み中にエラーが発生しました。</translation>
+    </message>
+    <message>
+        <source>还没有适用于这个游戏版本的支持文件。</source>
+        <comment>profile.unavailable.no_match</comment>
+        <translation>このゲームバージョンに使える対応ファイルがまだありません。</translation>
+    </message>
+    <message>
+        <source>找到的游戏版本支持文件不能用于自动记录。</source>
+        <comment>profile.unavailable.not_usable</comment>
+        <translation>見つかったバージョン対応ファイルは自動記録に使えません。</translation>
+    </message>
+    <message>
+        <source>还不知道游戏属于哪个区服。</source>
+        <comment>profile.unavailable.region_unknown</comment>
+        <translation>ゲームがどのリージョンのものか、まだわかりません。</translation>
+    </message>
+    <message>
+        <source>目前还不支持这个区服的自动记录。</source>
+        <comment>profile.unavailable.region_unsupported</comment>
+        <translation>このリージョンの自動記録にはまだ対応していません。</translation>
+    </message>
+    <message>
         <source>未记录心情仅适用于导入的心得。</source>
         <comment>reflection.unrecorded_mood_import_only</comment>
         <translation>「気分は未記録」はインポートした感想にのみ使用できます。</translation>
@@ -4284,9 +4357,50 @@ SHA256：%3</translation>
         <translation>校正コードがまだ入力されていません。校正コード全体を貼り付けてください。</translation>
     </message>
     <message>
-        <source>当前导随记录器无法读取这份校准码。请先更新软件，再「导入校准码」。</source>
+        <source>当前导随记录器无法读取这份校准码。请先更新软件，再「手动导入校准码」。</source>
         <comment>sharing.code.newer_version</comment>
-        <translation>現在のメンターレコーダーではこの校正コードを読み取れません。先にアプリを更新してから「校正コードをインポート」を押してください。</translation>
+        <translation>現在のメンターレコーダーではこの校正コードを読み取れません。先にアプリを更新してから「手動でインポート」を押してください。</translation>
+    </message>
+    <message>
+        <source>这次导入未完成，不能用它开始记录。导入时游戏版本或校准进度发生了变化，请重新「手动导入校准码」。</source>
+        <comment>sharing.import.changed</comment>
+        <translation>今回のインポートは完了していないため、これを使って記録を始めることはできません。インポート中にゲームバージョンまたは校正の進捗が変わりました。もう一度「手動でインポート」を押してください。</translation>
+    </message>
+    <message>
+        <source>暂时无法检查这份校准码。请等当前的共享校准检查有结果后，再「手动导入校准码」。</source>
+        <comment>sharing.import.check_pending</comment>
+        <translation>この校正コードは現在チェックできません。現在の共有された校正のチェック結果が出てから、「手動でインポート」を押してください。</translation>
+    </message>
+    <message>
+        <source>当前没有正在进行的校准，暂时无需「手动导入校准码」。</source>
+        <comment>sharing.import.not_calibrating</comment>
+        <translation>現在進行中の校正がないため、「手動でインポート」する必要はありません。</translation>
+    </message>
+    <message>
+        <source>这份校准码不能用于当前导随记录器。请你和分享者先更新到同一版本，再「手动导入校准码」。</source>
+        <comment>sharing.import.other_template</comment>
+        <translation>この校正コードは現在のメンターレコーダーでは使えません。あなたと共有した人のアプリを同じバージョンに更新してから、「手動でインポート」を押してください。</translation>
+    </message>
+    <message>
+        <source>这份校准码未通过检查，已停用。请改用其他校准码；如需重新尝试，先点「清空校准进度」，再「手动导入校准码」。</source>
+        <comment>sharing.import.rejected</comment>
+        <translation>この校正コードはチェックに合格しなかったため、使用を停止しました。別の校正コードを使ってください。もう一度試す場合は、先に「校正の進捗をリセット」を押してから「手動でインポート」を押してください。</translation>
+    </message>
+    <message>
+        <source>当前游戏版本已选择只用「本机校准」，暂时不能「手动导入校准码」。如需使用共享校准，请先点「清空校准进度」，再「手动导入校准码」。</source>
+        <comment>sharing.import.user_rejected</comment>
+        <translation>現在のゲームバージョンでは「この PC での校正」のみを使うよう選択しているため、「手動でインポート」はできません。共有された校正を使う場合は、先に「校正の進捗をリセット」を押してから「手動でインポート」を押してください。</translation>
+    </message>
+    <message>
+        <source>无法在日志文件夹中写入文件，采集服务无法启动。可能是磁盘空间已满、当前用户没有写入权限，或该位置已有一个同名的文件。日志文件夹：{path}</source>
+        <comment>startup.log_dir_unwritable</comment>
+        <extracomment>Placeholders: {path} shown as it is. Keep every {placeholder} exactly as written. {path} is the folder the diagnostic logs are written to.</extracomment>
+        <translation>ログフォルダーにファイルを書き込めないため、収集サービスを起動できません。ディスクの空き容量がない、現在のユーザーに書き込み権限がない、またはその場所に同じ名前のファイルがすでにある可能性があります。ログフォルダー：{path}</translation>
+    </message>
+    <message>
+        <source>下载未能完成：连接中途断开，或出现了意外错误，不完整的文件不会保留；请重试，或点击「在浏览器中下载」。</source>
+        <comment>update.download.transport_failed</comment>
+        <translation>ダウンロードを完了できませんでした。接続が途中で切れたか、予期しないエラーが発生しました。不完全なファイルは残しません。再試行するか、「ブラウザでダウンロード」を押してください。</translation>
     </message>
     <message>
         <source>无法识别这份校准码。请完整复制以 MRC1. 开头的校准码。</source>
@@ -4339,25 +4453,10 @@ SHA256：%3</translation>
         <translation>校正コードをインポートしました。公開済みの情報はまだ見つかっていません。アプリを開いたまま、いつも通りログインし、ルーレットに申請してコンテンツに出入りしてください。チェックに合格すると使用できます。同意が必要と表示された場合は、「共有された校正」で「同意して記録を開始」を押してください。</translation>
     </message>
     <message>
-        <source>这次导入未完成，不能用它开始记录。导入时游戏版本或校准进度发生了变化，请重新「导入校准码」。</source>
-        <comment>sharing.import.changed</comment>
-        <translation>今回のインポートは完了していないため、これを使って記録を始めることはできません。インポート中にゲームバージョンまたは校正の進捗が変わりました。もう一度「校正コードをインポート」を押してください。</translation>
-    </message>
-    <message>
-        <source>暂时无法检查这份校准码。请等当前的共享校准检查有结果后，再「导入校准码」。</source>
-        <comment>sharing.import.check_pending</comment>
-        <translation>この校正コードは現在チェックできません。現在の共有された校正のチェック結果が出てから、「校正コードをインポート」を押してください。</translation>
-    </message>
-    <message>
         <source>校准码太长，无法导入，最多支持 {max} 个字符。请重新复制校准码，不要带上其他文字。</source>
         <comment>sharing.import.code_too_long</comment>
         <extracomment>Placeholders: {max} a number. Keep every {placeholder} exactly as written.</extracomment>
         <translation>校正コードが長すぎるため、インポートできません（{max} 文字まで）。ほかの文字を含めずに、校正コードをコピーし直してください。</translation>
-    </message>
-    <message>
-        <source>当前没有正在进行的校准，暂时无需「导入校准码」。</source>
-        <comment>sharing.import.not_calibrating</comment>
-        <translation>現在進行中の校正がないため、「校正コードをインポート」する必要はありません。</translation>
     </message>
     <message>
         <source>校准码未导入：{reason}</source>
@@ -4377,16 +4476,6 @@ SHA256：%3</translation>
         <translation>この校正コードは現在のゲームには使えません。リージョンが異なる校正コードは共用できません。現在のリージョンの校正コードをインポートするか、「この PC での校正」を使ってください。</translation>
     </message>
     <message>
-        <source>这份校准码不能用于当前导随记录器。请你和分享者先更新到同一版本，再「导入校准码」。</source>
-        <comment>sharing.import.other_template</comment>
-        <translation>この校正コードは現在のメンターレコーダーでは使えません。あなたと共有した人のアプリを同じバージョンに更新してから、「校正コードをインポート」を押してください。</translation>
-    </message>
-    <message>
-        <source>这份校准码未通过检查，已停用。请改用其他校准码；如需重新尝试，先点「清空校准进度」，再「导入校准码」。</source>
-        <comment>sharing.import.rejected</comment>
-        <translation>この校正コードはチェックに合格しなかったため、使用を停止しました。別の校正コードを使ってください。もう一度試す場合は、先に「校正の進捗をリセット」を押してから「校正コードをインポート」を押してください。</translation>
-    </message>
-    <message>
         <source>这份共享校准已被撤回，不能继续用于记录。请向分享者获取新校准码，或使用「本机校准」。</source>
         <comment>sharing.import.revoked</comment>
         <translation>この共有された校正は取り下げられたため、記録には使えなくなりました。共有した人から新しい校正コードを受け取るか、「この PC での校正」を使ってください。</translation>
@@ -4400,11 +4489,6 @@ SHA256：%3</translation>
         <source>这份校准码暂时无法使用。请更新导随记录器，或请分享者重新生成校准码。</source>
         <comment>sharing.import.unbuildable</comment>
         <translation>この校正コードは現在使用できません。メンターレコーダーを更新するか、共有した人に校正コードを作り直してもらってください。</translation>
-    </message>
-    <message>
-        <source>当前游戏版本已选择只用「本机校准」，暂时不能「导入校准码」。如需使用共享校准，请先点「清空校准进度」，再「导入校准码」。</source>
-        <comment>sharing.import.user_rejected</comment>
-        <translation>現在のゲームバージョンでは「この PC での校正」のみを使うよう選択しているため、「校正コードをインポート」はできません。共有された校正を使う場合は、先に「校正の進捗をリセット」を押してから「校正コードをインポート」を押してください。</translation>
     </message>
     <message>
         <source>本机校准的档案暂时不能使用、读不出来或已被改动，无法生成校准码。</source>
@@ -4626,11 +4710,6 @@ SHA256：%3</translation>
         <translation>Collector の単一インスタンスロックを作成できません。詳細はこの PC のログを確認してください。</translation>
     </message>
     <message>
-        <source>无法写入日志目录，采集服务未启动。请检查 --log-dir 指向的位置是否存在、是否是文件、以及当前用户是否有写入权限。</source>
-        <comment>startup.log_dir_unwritable</comment>
-        <translation>ログフォルダーに書き込めないため、収集サービスを起動していません。--log-dir で指定した場所が存在するか、ファイルになっていないか、現在のユーザーに書き込み権限があるかを確認してください。</translation>
-    </message>
-    <message>
         <source>数据库迁移失败，已整体回滚，本软件无法启动。请先把数据库文件复制一份保存到别处，再排查问题。数据库文件：{path}</source>
         <comment>startup.migration_failed</comment>
         <extracomment>Placeholders: {path} shown as it is. Keep every {placeholder} exactly as written.</extracomment>
@@ -4668,6 +4747,12 @@ SHA256：%3</translation>
         <source>无法读取当前用户的 SID，命名管道名称无法确定。</source>
         <comment>startup.pipe_sid_unknown</comment>
         <translation>現在のユーザーの SID を読み取れないため、名前付きパイプの名前を決定できません。</translation>
+    </message>
+    <message>
+        <source>升级数据库前要先在数据库旁的 backups 文件夹里保存一份完整副本，这份副本没有保存成功（可能是磁盘空间不足、该文件夹不可写，或副本未通过完整性校验）。数据库没有升级，本软件无法启动。请先把数据库文件复制一份保存到别处，再检查磁盘空间。数据库文件：{path}</source>
+        <comment>startup.pre_upgrade_copy_failed</comment>
+        <extracomment>Placeholders: {path} shown as it is. Keep every {placeholder} exactly as written. backups is the folder&apos;s name on disk; keep it as it is.</extracomment>
+        <translation>データベースを更新する前に、データベースの隣の backups フォルダーに完全なコピーを保存する必要がありますが、そのコピーを保存できませんでした（ディスクの空き容量不足、フォルダーに書き込めない、またはコピーが整合性チェックに通らなかった可能性があります）。データベースは更新していないため、このアプリを起動できません。先にデータベースファイルのコピーを別の場所に保存してから、ディスクの空き容量を確認してください。データベースファイル：{path}</translation>
     </message>
     <message>
         <source>数据库的结构版本高于本程序支持的版本，本软件无法启动。请先把数据库文件复制一份保存到别处，再升级本软件。数据库文件：{path}</source>
@@ -4767,11 +4852,6 @@ SHA256：%3</translation>
         <source>安装程序的大小超出了合理范围，为安全起见已停止下载；请点击「在浏览器中下载」。</source>
         <comment>update.download.too_large</comment>
         <translation>インストーラーのサイズが妥当な範囲を超えているため、安全のためダウンロードを停止しました。「ブラウザでダウンロード」を押してください。</translation>
-    </message>
-    <message>
-        <source>下载过程中网络连接中断，安装程序不完整，已将其删除；请重试，或点击「在浏览器中下载」。</source>
-        <comment>update.download.transport_failed</comment>
-        <translation>ダウンロード中にネットワーク接続が切れ、インストーラーが不完全になったため、削除しました。再試行するか、「ブラウザでダウンロード」を押してください。</translation>
     </message>
     <message>
         <source>更新检查已在设置中关闭，因此下载已停止，已下载的安装程序也不再提供；如需更新，请先在「设置 · 通用」中重新开启更新检查，再点「重试」。</source>
@@ -5160,8 +5240,8 @@ SHA256：%3</translation>
         <translation>通信 3：更新の確認と、操作に応じた新バージョンのダウンロード</translation>
     </message>
     <message>
-        <source>默认在启动软件时及持续运行期间定期检查更新，从本项目公开发布页读取版本信息，有新版本时在总览提示。也可点「检查更新」主动检查。点「下载安装包」只下载安装包，并核对发布时公布的校验值；通过后还需点「立即安装」启动安装程序，本软件随后关闭，由安装程序完成更新。请求不含账号、安装编号或设备身份信息，发布平台及其下载服务能看到你的 IP 地址。软件不会自行下载或安装。可在「设置 → 通用 → 更新」关闭「检查新版本并提示」，关闭后「检查更新」也不可用，正在进行的下载会取消，已准备好的安装包会删除。</source>
-        <translation>既定では、起動時と実行中に定期的に更新を確認します。本プロジェクトの公開リリースページからバージョン情報を読み取り、新しいバージョンがあれば概要に表示します。「更新を確認」から手動でも確認できます。「インストーラーをダウンロード」はダウンロードと公開チェックサムによる検証のみを行います。準備ができたら「今すぐインストール」で起動すると、このアプリは終了し、インストーラーが更新を行います。リクエストにアカウント、インストールID、端末識別情報は含まれません。配布先とダウンロードサービスにはIPアドレスが伝わります。アプリが勝手に更新をダウンロードまたはインストールすることはありません。設定 → 全般 → 更新で「新しいバージョンを確認して通知」をオフにすると、確認が無効になり、ダウンロードが中止され、準備済みのインストーラーも削除されます。</translation>
+        <source>默认在启动软件时及持续运行期间定期检查更新，先从本项目在 GitHub 的公开发布页读取版本信息（GitHub 读取失败时，改从它在 GitCode 上的同名镜像读取），有新版本时在总览提示。也可点「检查更新」主动检查。点「下载安装包」只下载安装包（同样先从 GitHub 下载，失败时改从 GitCode 镜像下载），并核对发布时公布的校验值；通过后还需点「立即安装」启动安装程序，本软件随后关闭，由安装程序完成更新。请求不含账号、安装编号或设备身份信息，GitHub、GitCode 及其下载服务能看到你的 IP 地址。软件不会自行下载或安装。可在「设置 → 通用 → 更新」关闭「检查新版本并提示」，关闭后「检查更新」也不可用，正在进行的下载会取消，已准备好的安装包会删除。</source>
+        <translation>既定では、起動時と実行中に定期的に更新を確認します。まず GitHub 上の本プロジェクトの公開リリースページからバージョン情報を読み取り（GitHub から読み込めない場合は、GitCode 上の同名のミラーから読み込みます）、新しいバージョンがあれば概要に表示します。「更新を確認」から手動でも確認できます。「インストーラーをダウンロード」はダウンロード（こちらもまず GitHub から行い、失敗した場合は GitCode のミラーから行います）と公開チェックサムによる検証のみを行います。準備ができたら「今すぐインストール」で起動すると、このアプリは終了し、インストーラーが更新を行います。リクエストにアカウント、インストールID、端末識別情報は含まれません。GitHub、GitCode とそれらのダウンロードサービスにはIPアドレスが伝わります。アプリが勝手に更新をダウンロードまたはインストールすることはありません。設定 → 全般 → 更新で「新しいバージョンを確認して通知」をオフにすると、確認が無効になり、ダウンロードが中止され、準備済みのインストーラーも削除されます。</translation>
     </message>
     <message>
         <source>运行顺序</source>
@@ -5394,8 +5474,20 @@ SHA256：%3</translation>
         <translation>このメンターはすでに進捗に加算済みです。ほかの情報を変更しても二重には数えません。</translation>
     </message>
     <message>
-        <source>这条通关记录将计入 %1 次导随成就的进度。填完必填信息后保存生效。</source>
-        <translation>このクリア記録はメンター %1 回のアチーブメントの進捗に加算されます。必須項目を入力して保存すると反映されます。</translation>
+        <source>这条通关记录将计入「未知区服」的单独进度，不计入国服、繁中服或国际服的导随成就。</source>
+        <translation>このクリア記録は「不明なサービス地域」の個別の進捗に加算され、中国版・繁体字中国語版・グローバル版のメンターのアチーブメントには加算されません。</translation>
+    </message>
+    <message>
+        <source>这条通关记录将计入「未知区服」的单独进度，不计入国服、繁中服或国际服的导随成就。可在「副本与职业」一步选择区服。</source>
+        <translation>このクリア記録は「不明なサービス地域」の個別の進捗に加算され、中国版・繁体字中国語版・グローバル版のメンターのアチーブメントには加算されません。サービス地域は「コンテンツとジョブ」のステップで選べます。</translation>
+    </message>
+    <message>
+        <source>这条通关记录将计入%1 %2 次导随成就的进度。填完必填信息后保存生效。</source>
+        <translation>このクリア記録は%1のメンター %2 回のアチーブメントの進捗に加算されます。必須項目を入力して保存すると反映されます。</translation>
+    </message>
+    <message>
+        <source>这条通关记录将计入%1导随成就的进度。填完必填信息后保存生效。</source>
+        <translation>このクリア記録は%1のメンターのアチーブメントの進捗に加算されます。必須項目を入力して保存すると反映されます。</translation>
     </message>
     <message>
         <source>记录库连接已变化，心情和心得尚未保存。请保留输入，并在原记录库的历史记录中确认后补录。</source>
@@ -5578,6 +5670,10 @@ SHA256：%3</translation>
         <translation>感想は 2000 文字以内にしてください。</translation>
     </message>
     <message>
+        <source>写了心得时，请在「这次感觉」中选择顺利、一般或糟心。</source>
+        <translation>感想を書いた場合は、「今回の気分」で順調・ふつう・しんどいのいずれかを選んでください。</translation>
+    </message>
+    <message>
         <source>还没有修改记录内容。</source>
         <translation>記録の内容はまだ変更されていません。</translation>
     </message>
@@ -5709,6 +5805,10 @@ SHA256：%3</translation>
         <translation>イベント発生から 3 秒以内に押してください。押し忘れは自動的に「押し忘れ」として記録され、後から追加はできません。</translation>
     </message>
     <message>
+        <source>采证操作失败：</source>
+        <translation>採取の操作に失敗しました：</translation>
+    </message>
+    <message>
         <source>这一轮的情况</source>
         <translation>今回の状況</translation>
     </message>
@@ -5747,12 +5847,20 @@ SHA256：%3</translation>
 <context>
     <name>EvidenceReadinessStep</name>
     <message>
+        <source>正在取消等待…</source>
+        <translation>待機を取り消しています…</translation>
+    </message>
+    <message>
         <source>等待游戏启动</source>
         <translation>ゲームの起動待ち</translation>
     </message>
     <message>
         <source>正在取证 · 可以登录了</source>
         <translation>採取中 · ログインしてください</translation>
+    </message>
+    <message>
+        <source>没有录到数据，不会保存文件。</source>
+        <translation>データは記録されていないため、ファイルは保存しません。</translation>
     </message>
     <message>
         <source>启动游戏后会自动开始取证，看到「正在取证」再登录。</source>
@@ -5765,6 +5873,18 @@ SHA256：%3</translation>
     <message>
         <source>取消等待</source>
         <translation>待機を取り消し</translation>
+    </message>
+    <message>
+        <source>处理中…</source>
+        <translation>処理中…</translation>
+    </message>
+    <message>
+        <source>停止采证</source>
+        <translation>採取を停止</translation>
+    </message>
+    <message>
+        <source>采证操作失败：</source>
+        <translation>採取の操作に失敗しました：</translation>
     </message>
     <message>
         <source>登录后正常活动 30～60 秒，报文要一直增加</source>
@@ -5917,6 +6037,10 @@ SHA256：%3</translation>
         <translation>保存中…</translation>
     </message>
     <message>
+        <source>采证失败</source>
+        <translation>採取に失敗しました</translation>
+    </message>
+    <message>
         <source>已保存 · %1</source>
         <translation>保存済み · %1</translation>
     </message>
@@ -5931,6 +6055,14 @@ SHA256：%3</translation>
     <message>
         <source>有多少文件就回传多少，缺的会写进回传说明。</source>
         <translation>あるファイルだけ送ってください。足りないものは送付メモに書かれます。</translation>
+    </message>
+    <message>
+        <source>错误码：</source>
+        <translation>エラーコード：</translation>
+    </message>
+    <message>
+        <source>采证操作失败：</source>
+        <translation>採取の操作に失敗しました：</translation>
     </message>
     <message>
         <source>采证文件：%1</source>
@@ -6042,6 +6174,10 @@ SHA256：%3</translation>
     <message>
         <source>%1 · %2</source>
         <translation>%1 · %2</translation>
+    </message>
+    <message>
+        <source>已选网卡不可用</source>
+        <translation>選択したアダプターは使用できません</translation>
     </message>
     <message>
         <source>自动选择</source>
@@ -6244,6 +6380,10 @@ SHA256：%3</translation>
         <translation>添付：%1</translation>
     </message>
     <message>
+        <source>结果：%1</source>
+        <translation>結果：%1</translation>
+    </message>
+    <message>
         <source>缺失：%1</source>
         <translation>不足：%1</translation>
     </message>
@@ -6260,6 +6400,10 @@ SHA256：%3</translation>
         <translation>データ読み取り可 · パケット %1</translation>
     </message>
     <message>
+        <source>报文 %1</source>
+        <translation>パケット %1</translation>
+    </message>
+    <message>
         <source>%1 · 标记 %2 / 5</source>
         <translation>%1 · マーク %2 / 5</translation>
     </message>
@@ -6268,8 +6412,16 @@ SHA256：%3</translation>
         <translation>保存済み · ファイル %1 / %2</translation>
     </message>
     <message>
+        <source>文件不完整 · 文件 %1 / %2</source>
+        <translation>ファイルが不完全 · ファイル %1 / %2</translation>
+    </message>
+    <message>
         <source>等待游戏启动</source>
         <translation>ゲームの起動待ち</translation>
+    </message>
+    <message>
+        <source>正在取消等待</source>
+        <translation>待機を取り消し中</translation>
     </message>
     <message>
         <source>数据异常</source>
@@ -6311,8 +6463,16 @@ SHA256：%3</translation>
         <translation>ゲームが起動中です。完全に終了してから開始してください</translation>
     </message>
     <message>
+        <source>游戏正在运行</source>
+        <translation>ゲームが起動中です</translation>
+    </message>
+    <message>
         <source>游戏未运行，可以开始</source>
         <translation>ゲームは起動していません。開始できます</translation>
+    </message>
+    <message>
+        <source>游戏未运行</source>
+        <translation>ゲームは起動していません</translation>
     </message>
     <message>
         <source>已经退出了，重新检测</source>
@@ -6353,6 +6513,10 @@ SHA256：%3</translation>
     <message>
         <source>采证网络适配器</source>
         <translation>採取用ネットワークアダプター</translation>
+    </message>
+    <message>
+        <source>之前选择的网卡现在不可用。请改选「自动选择」或其他网卡后再开始。</source>
+        <translation>以前に選んだアダプターは現在使用できません。「自動選択」またはほかのアダプターを選んでから開始してください。</translation>
     </message>
     <message>
         <source>处理中…</source>
@@ -7785,6 +7949,10 @@ SHA256：%3</translation>
         <translation>採取中</translation>
     </message>
     <message>
+        <source>自动寻找网络路径</source>
+        <translation>ネットワーク経路を自動検索中</translation>
+    </message>
+    <message>
         <source>打开新区服采证</source>
         <translation>新しい地域のデータ採取を開く</translation>
     </message>
@@ -8100,8 +8268,8 @@ SHA256：%3</translation>
         <translation>オンライン読み上げが必要なときに、テキストを %1 に送信します。送信先にはあなたの IP が見え、テキストは送信先のプライバシーポリシーに従って扱われます。キーは Windows によって暗号化されてこの PC に保存されます。サービス、リージョン、アドレスを変更した場合はキーを入力し直してください。使わない場合は「音声エンジン」でローカル音声に戻します。キーは保持されます。</translation>
     </message>
     <message>
-        <source>改选服务后需填写对应的密钥。点「保存」时若未填新密钥，原密钥会被清除。</source>
-        <translation>サービスを変更したら、そのサービスのキーを入力してください。新しいキーを入力せずに「保存」を押すと、元のキーは消去されます。</translation>
+        <source>改了服务、区域或地址后需填写对应的密钥。点「保存」时若未填新密钥，原密钥会被清除。</source>
+        <translation>サービス、リージョン、アドレスを変更したら、対応するキーを入力してください。新しいキーを入力せずに「保存」を押すと、元のキーは消去されます。</translation>
     </message>
     <message>
         <source>正在测试…</source>
@@ -9454,6 +9622,26 @@ SHA256：%3</translation>
         <translation>アチーブメント加算設定</translation>
     </message>
     <message>
+        <source>国服</source>
+        <translation>中国版</translation>
+    </message>
+    <message>
+        <source>繁中服</source>
+        <translation>繁体字中国語版</translation>
+    </message>
+    <message>
+        <source>国际服</source>
+        <translation>グローバル版</translation>
+    </message>
+    <message>
+        <source>未知区服</source>
+        <translation>不明なサービス地域</translation>
+    </message>
+    <message>
+        <source>区服</source>
+        <translation>サービス地域</translation>
+    </message>
+    <message>
         <source>开启</source>
         <translation>オン</translation>
     </message>
@@ -9888,6 +10076,10 @@ SHA256：%3</translation>
         <translation>今すぐバックアップ</translation>
     </message>
     <message>
+        <source>正在备份…</source>
+        <translation>バックアップ中…</translation>
+    </message>
+    <message>
         <source>导入记录</source>
         <translation>記録をインポート</translation>
     </message>
@@ -10009,6 +10201,18 @@ SHA256：%3</translation>
     <message>
         <source>登录 Windows 后在后台自动启动，只显示托盘图标，不打开主窗口</source>
         <translation>Windows へのサインイン後にバックグラウンドで自動起動し、タスクトレイのアイコンのみ表示してメインウィンドウは開きません</translation>
+    </message>
+    <message>
+        <source>Windows 未接受对开机启动项的更改，可能被安全软件拦截。请在安全软件中允许后重新设置。</source>
+        <translation>Windows が PC 起動時の起動設定の変更を受け付けませんでした。セキュリティソフトにブロックされた可能性があります。セキュリティソフトで許可してから、もう一度設定してください。</translation>
+    </message>
+    <message>
+        <source>开发构建不登记开机启动，以免替换已安装版本的开机启动项</source>
+        <translation>開発ビルドは PC 起動時の起動を登録しません（インストール済みバージョンの起動設定を置き換えないため）</translation>
+    </message>
+    <message>
+        <source>测试运行不修改开机启动</source>
+        <translation>テスト実行では PC 起動時の起動を変更しません</translation>
     </message>
     <message>
         <source>当前系统不支持开机启动</source>
@@ -10671,7 +10875,22 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>main</name>
+    <message>
+        <source>FF14 导随记录器</source>
+        <translation>FF14 メンターレコーダー</translation>
+    </message>
+    <message>
+        <source>界面文件缺失或已损坏，软件无法打开。请重新安装本软件后再试。</source>
+        <translation>画面のファイルが見つからないか壊れているため、アプリを開けません。このアプリをインストールし直してから、もう一度お試しください。</translation>
+    </message>
+</context>
+<context>
     <name>mr::AppController</name>
+    <message>
+        <source>已经一分钟没有连上后台服务，软件会继续自动重试。</source>
+        <translation>1 分間バックグラウンドサービスに接続できていません。アプリが自動で再試行を続けます。</translation>
+    </message>
     <message>
         <source>后台服务已退出，已自动重启（第 %1 次）</source>
         <translation>バックグラウンドサービスが終了したため、自動で再起動しました（%1回目）。</translation>
@@ -10811,6 +11030,10 @@ SHA256：%3</translation>
     <message>
         <source>没能打开浏览器，请手动访问 https://npcap.com 下载驱动。</source>
         <translation>ブラウザを開けませんでした。https://npcap.com に手動でアクセスしてドライバーをダウンロードしてください。</translation>
+    </message>
+    <message>
+        <source>后台服务不可用，暂时不能自动记录。%1</source>
+        <translation>バックグラウンドサービスを利用できないため、現在は自動記録できません。%1</translation>
     </message>
     <message>
         <source>操作没有完成，原因不明。</source>
@@ -12329,6 +12552,18 @@ SHA256：%3</translation>
     <message>
         <source>JSON 文件 (*.json)</source>
         <translation>JSON ファイル (*.json)</translation>
+    </message>
+    <message>
+        <source>后台服务尚未连接，这批记录还没有读取。连接恢复后请重新添加这批文件、截图或表格。</source>
+        <translation>バックグラウンドサービスが未接続のため、このバッチの記録はまだ読み込んでいません。接続が回復したら、これらのファイル、スクリーンショット、表をもう一度追加してください。</translation>
+    </message>
+    <message>
+        <source>预览未完成，这批记录还没有读取。请重新添加这批文件、截图或表格后重试。</source>
+        <translation>プレビューが完了していないため、このバッチの記録はまだ読み込んでいません。これらのファイル、スクリーンショット、表をもう一度追加して再試行してください。</translation>
+    </message>
+    <message>
+        <source>未收到完整预览，这批记录还没有读取。请重新添加这批文件、截图或表格后重试；仍失败时请更新软件。</source>
+        <translation>完全なプレビューを受け取れなかったため、このバッチの記録はまだ読み込んでいません。これらのファイル、スクリーンショット、表をもう一度追加して再試行してください。それでも失敗する場合はアプリを更新してください。</translation>
     </message>
     <message>
         <source>批量设置只能修改区服、职业、结果和打本心情。</source>

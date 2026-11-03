@@ -105,6 +105,12 @@ public:
     /// The panel's 播报文字会发送到 <…> for a draft that may not be saved yet.
     Q_INVOKABLE QString describeTarget(const QString &provider, const QString &region,
                                        const QString &baseUrl) const;
+    /// True when a draft names the target the stored key is bound to: the service in
+    /// force with the same Azure region or the same OpenAI-compatible address
+    /// (OnlineSpeechClient.KeyBinding). 保存 for any other target without a new key
+    /// clears the key, so the panel must not offer to keep it (review K2-5).
+    Q_INVOKABLE bool draftInForce(const QString &provider, const QString &region,
+                                  const QString &baseUrl) const;
     /// Host of an address the user typed, or "" when it is not an absolute URL.
     Q_INVOKABLE static QString hostOfUrl(const QString &url);
 

@@ -5,7 +5,8 @@
 
 .DESCRIPTION
     生成自带运行时的 Windows 发布目录、zip 和 Inno Setup 安装器：
-      1. 先运行 scripts/verify.ps1
+      1. 先核对 CHANGELOG 与版本号，再运行 scripts/verify.ps1；正式构建在独立目录
+         build-distribution\ 中进行（MR_BUILD_DIR 可另指，但不得是开发用的 build\）
       2. dotnet publish Collector（self-contained, win-x64）
       3. 复制 Desktop 可执行文件并用 windeployqt 收集 Qt 运行时
       4. 补齐 MinGW 运行时、许可证、README、docs 与校验和
@@ -54,14 +55,21 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $VerifyScript = Join-Path $PSScriptRoot 'verify.ps1'
 $BuildScript = Join-Path $PSScriptRoot 'build.ps1'
 $CollectorProject = Join-Path $RepoRoot 'src\Collector\MentorRecorder.Collector.csproj'
-# Use the same directory that build.ps1 and test.ps1 build and verify.
+# The distribution flavour is built in a directory of its own, build-distribution\ unless the
+# caller sets MR_BUILD_DIR for this packaging run, and verify.ps1 and build.ps1 are pointed at it
+# below. MR_DEV_BUILD is a cached CMake option: configured OFF in the developers' build\, it would
+# stay OFF for every later plain configure and build there, and that exe opens the installed
+# copy's data directory and migrates its database (audit 2026-11-03, J-3 = M-2).
 $configuredBuildDir = [Environment]::GetEnvironmentVariable('MR_BUILD_DIR')
 $BuildDir = if ([string]::IsNullOrWhiteSpace($configuredBuildDir)) {
-    Join-Path $RepoRoot 'build'
+    Join-Path $RepoRoot 'build-distribution'
 } elseif ([System.IO.Path]::IsPathRooted($configuredBuildDir)) {
     [System.IO.Path]::GetFullPath($configuredBuildDir)
 } else {
     [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $configuredBuildDir))
+}
+if ([string]::Equals($BuildDir.TrimEnd('\', '/'), (Join-Path $RepoRoot 'build'), [StringComparison]::OrdinalIgnoreCase)) {
+    throw ("MR_BUILD_DIR 指向开发构建目录 {0}；打包会把它配置成正式构建并留在那里。请取消 MR_BUILD_DIR（默认使用 build-distribution）或改用其他目录。" -f $BuildDir)
 }
 $DesktopExe = Join-Path $BuildDir 'src\Desktop\MentorRecorder.Desktop.exe'
 $DesktopManifest = Join-Path $BuildDir 'src\Desktop\MentorRecorder.Desktop.exe.manifest'
@@ -744,6 +752,16 @@ Assert-File $Windeployqt '缺少 windeployqt'
 Assert-File $BuildScript '缺少构建脚本'
 Assert-File $VerifyScript '缺少验证脚本'
 
+# The CHANGELOG rules need nothing built, so they are checked before the verify and build steps:
+# a run that cannot pass them stops here instead of after twenty minutes of building the
+# distribution flavour (audit 2026-11-03, M-2). Assert-StagedVersion checks the binaries later.
+Write-Head '版本预检 / Version preflight'
+$changelogRefusal = Get-ChangelogTopRefusal -Heading (Get-TopChangelogHeading $ChangelogPath) -Version $Version
+if ($changelogRefusal) {
+    throw ("版本不一致：Directory.Build.props 是 {0}，但 {1}" -f $Version, $changelogRefusal)
+}
+Assert-ReleasedChangelogSectionsUnchanged
+
 # The source the binaries are built from, read before verify.ps1 and build.ps1 run and required
 # unchanged where BUILD-METADATA.json records it (audit 2026-10-20, M-2): a checkout, stash or
 # commit by another session in between would otherwise leave a clean source_commit beside
@@ -751,24 +769,33 @@ Assert-File $VerifyScript '缺少验证脚本'
 $sourceStateBeforeVerify = Get-SourceTreeState -RepoRoot $RepoRoot
 $verificationResult = $null
 
-if (-not $SkipVerify) {
-    Write-Head '预验证 / Preflight verify'
-    # -Distribution: the whole chain (verify -> test -> build) builds and tests the
-    # distribution flavour of the Desktop, which is the binary packaged below
-    # (docs/build-and-package.md section 3.7).
-    & $VerifyScript -Configuration $Configuration -Distribution -Result ([ref]$verificationResult)
+# verify.ps1, build.ps1 and the scripts they run read their CMake directory from MR_BUILD_DIR:
+# point them at this run's $BuildDir, and give the caller's value back however the steps end.
+$callerBuildDir = [Environment]::GetEnvironmentVariable('MR_BUILD_DIR')
+$env:MR_BUILD_DIR = $BuildDir
+try {
+    if (-not $SkipVerify) {
+        Write-Head '预验证 / Preflight verify'
+        # -Distribution: the whole chain (verify -> test -> build) builds and tests the
+        # distribution flavour of the Desktop, which is the binary packaged below
+        # (docs/build-and-package.md section 3.7).
+        & $VerifyScript -Configuration $Configuration -Distribution -Result ([ref]$verificationResult)
+        if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+        }
+    } else {
+        Write-Head '预验证 / Preflight verify'
+        Write-Host '按 -SkipVerify 跳过；该产物只适合本地快速联调。' -ForegroundColor Yellow
+    }
+
+    Write-Head '补构建 / Ensure build outputs'
+    & $BuildScript -Configuration $Configuration -NoRestore -Distribution
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
-} else {
-    Write-Head '预验证 / Preflight verify'
-    Write-Host '按 -SkipVerify 跳过；该产物只适合本地快速联调。' -ForegroundColor Yellow
-}
-
-Write-Head '补构建 / Ensure build outputs'
-& $BuildScript -Configuration $Configuration -NoRestore -Distribution
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
+} finally {
+    # $null removes the variable again; [Environment]::SetEnvironmentVariable would get ''.
+    $env:MR_BUILD_DIR = $callerBuildDir
 }
 
 Assert-File $DesktopExe '缺少 Desktop 可执行文件'

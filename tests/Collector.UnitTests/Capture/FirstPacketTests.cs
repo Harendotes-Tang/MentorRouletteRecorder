@@ -287,6 +287,30 @@ public sealed class FirstPacketTests
         Assert.False(buffer.Counters.ReconnectedUnreadable(2));
     }
 
+    /// <summary>
+    /// Re-review 2026-11-03, RV6-4. Of the game's listed connections, only those whose handshake
+    /// this capture saw count as readable: a connection the game held before capture started stays
+    /// unreadable while it is listed, which is what keeps the late-attach warning up (RV1-2).
+    /// </summary>
+    [Fact]
+    public void OnlyListedConnectionsThisCaptureSawOpenCountAsReadable()
+    {
+        var buffer = new FirstPacketBuffer(Local, 42, _ => new Sink());
+        var heldAtStart = Owned(41005);
+        buffer.Offer(Packet(false, 100, 2), 101); // the new connection's own SYN
+
+        buffer.Pump(new[] { heldAtStart, Owned() });
+
+        Assert.Equal(2, buffer.Counters.GameConnectionsNow);
+        Assert.Equal(1, buffer.Counters.GameConnectionsReadable);
+
+        // The connection held at start closes: everything listed is readable.
+        buffer.Pump(new[] { Owned() });
+
+        Assert.Equal(1, buffer.Counters.GameConnectionsNow);
+        Assert.Equal(buffer.Counters.GameConnectionsNow, buffer.Counters.GameConnectionsReadable);
+    }
+
     [Fact]
     public void AStreamThatIsNeverConfirmedIsCountedAndReleasedOnTheOwnershipAge()
     {

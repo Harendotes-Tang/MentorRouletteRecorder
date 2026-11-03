@@ -77,6 +77,10 @@ public:
     quint64 captureRevision() const { return m_captureRevision; }
     /// 接纳其他已确认的捕获回应。只发布有效的游戏运行事实；不会启动采证或写设置。
     void observeCapture(const QVariantMap &capture);
+    /// Reads a full GetStatus answer's `warnings` / `warning_refs` for the one the
+    /// blocked-region sentence depends on (capture.game.region_override_mismatch).
+    /// Captures from events carry no warnings, so the last full answer stands.
+    void observeStatusWarnings(const QVariantMap &status);
     /// One observation is three serialized IPC requests, hence the long idle
     /// period: while the game is not running nothing this reads can change except
     /// "the game started", which arrives as a status event anyway.
@@ -98,6 +102,10 @@ Q_SIGNALS:
     /// Every capture snapshot this poll read; the calibration card follows it so progress
     /// ticks appear within one poll interval instead of on the next state change.
     void captureObserved(const QVariantMap &capture);
+    /// The `npcap` and `game` sections of the GetStatus this poll read, emitted
+    /// just before captureObserved for the same snapshot; only the sections the
+    /// answer carried.
+    void statusSectionsRead(const QVariantMap &sections);
 private:
     void readSettings(quint64 generation);
     void readValidation(quint64 generation);
@@ -136,6 +144,11 @@ private:
     quint64 m_generation = 0;
     quint64 m_captureRevision = 0;
     QVariantMap m_latestCapture;
+    /// The Collector's own sentence for a region left unknown because a manual
+    /// choice made for another client contradicts this one's install path: its
+    /// TextRef and Chinese, both empty when the last full status had none.
+    QVariant m_regionMismatchRef;
+    QString m_regionMismatchText;
     bool m_initializationPending = false;
     bool m_busy = false;
     bool m_maintenance = false;

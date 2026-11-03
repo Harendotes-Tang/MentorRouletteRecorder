@@ -15,12 +15,17 @@ namespace MentorRecorder.Collector.Capture;
 /// <param name="DurationSeconds">Seconds to run; 0 means until Ctrl+C or the game exits.</param>
 /// <param name="AdapterId">Adapter to use; null selects the one carrying the game's traffic.</param>
 /// <param name="MaxLines">Cap on message lines written.</param>
+/// <param name="Region">
+/// Service region named on the command line (<c>--region</c>), for a client whose install path names
+/// none; it never relabels a path that names another region. The trace reads no settings.
+/// </param>
 public sealed record CaptureTraceOptions(
     string OutputPath,
     int DurationSeconds = 0,
     string? AdapterId = null,
     int MaxLines = CaptureTraceSink.DefaultMaxLines,
-    bool AllowMidstream = false);
+    bool AllowMidstream = false,
+    Domain.Region? Region = null);
 
 /// <summary>Everything <see cref="CaptureTraceRunner"/> depends on, so all of it can be substituted.</summary>
 public sealed record CaptureTraceServices
@@ -78,11 +83,26 @@ public sealed record CaptureTraceServices
     /// </summary>
     public Func<int, CapturePathPlan, int?>? TcpPathConnectionCounter { get; init; }
 
+    /// <summary>
+    /// Tables the default count reads; the system tables when null. Tests declare host facts here
+    /// to tell a count the tables cannot give from a query that failed.
+    /// </summary>
+    internal IProcessNetworkConnectionProvider? ConnectionTables { get; init; }
+
     internal int? CountConnections(int processId, CaptureAdapterView adapter, CapturePathPlan plan) =>
-        TcpPathConnectionCounter is { } countPaths ? countPaths(processId, plan) :
+        ProbeConnections(processId, adapter, plan).Count;
+
+    /// <summary>
+    /// The game's connections over the plan. An injected counter answers a count or null for
+    /// "query failed"; only the default probe can also say that the tables cannot answer at all
+    /// (audit 2026-11-03, A2-3).
+    /// </summary>
+    internal GameConnectionCount ProbeConnections(int processId, CaptureAdapterView adapter, CapturePathPlan plan) =>
+        TcpPathConnectionCounter is { } countPaths ? new(countPaths(processId, plan), false) :
         !TcpConnectionCounter.Equals((Func<int, IPAddress?, int?>)GameTcpConnectionProbe.TryCount)
-            ? TcpConnectionCounter(processId, adapter.BindAddress)
-            : GameTcpConnectionProbe.TryCountPaths(processId, plan);
+            ? new(TcpConnectionCounter(processId, adapter.BindAddress), false)
+            : GameTcpConnectionProbe.ProbePaths(processId, plan,
+                ConnectionTables ?? SystemProcessConnectionTable.Instance);
 
     /// <summary>False leaves Ctrl+C alone, for tests that must not touch the console.</summary>
     public bool InstallCancelHandler { get; init; } = true;
@@ -124,13 +144,32 @@ public static class CaptureTraceRunner
 
     /// <summary>Printed before opening a live trace if the client's identity is not yet readable.</summary>
     public const string GameIdentityRefusal =
-        "客户端路径、区服或版本尚未确认，取证未开始。" +
+        "客户端路径或版本尚未确认，取证未开始。" +
         "请等待客户端初始化完成并确认安装路径可读后重试；未知版本不能用于选择 Oodle 签名或关联取证。";
+
+    /// <summary>
+    /// Printed when the client's install path does not tell its service region, or contradicts the
+    /// region given on the command line. Waiting never fixes either, and this command reads no
+    /// settings, so the sentence names the one thing that does (audit 2026-11-03, A2-4).
+    /// </summary>
+    public const string RegionRefusal =
+        "无法确定这个客户端所属的区服，取证未开始：安装路径不含可识别的区服标记，或与命令行指定的区服不一致。" +
+        "命令行取证不读取设置里的区服；请加上 " + CaptureTraceCli.RegionFlag +
+        " CN、TC 或 GLOBAL 指明这个客户端所属的区服后重试。";
+
+    /// <summary>
+    /// Where the <c>--adapter</c> id can be read. The doctor block lists adapters by name only: their
+    /// identifier is stable across reboots and identifies the machine, so it stays out of a report
+    /// that gets shared (docs/privacy-boundary.md section 5).
+    /// </summary>
+    public const string AdapterIdSource =
+        "id 是 Windows 的网卡标识，可在 PowerShell 中运行 Get-NetAdapter | Format-Table Name, InterfaceGuid 查到" +
+        "（按上面网卡列表中的名称找到对应行，取 InterfaceGuid 一列）";
 
     /// <summary>Printed when the adapter carrying the game's traffic cannot be determined.</summary>
     public const string AdapterRefusal =
         "无法确定游戏流量所在的网卡（不做猜测），取证未开始。" +
-        "请从上面的网卡列表中挑一张，用 --adapter <id> 指定后重试。";
+        "请用 --adapter <id> 指定网卡后重试；" + AdapterIdSource + "。";
 
     /// <summary>
     /// Prefix of the refusal shown when trace would attach to an already-live TCP session.
@@ -169,6 +208,10 @@ public static class CaptureTraceRunner
         ArgumentNullException.ThrowIfNull(options);
 
         var svc = services ?? new CaptureTraceServices();
+        // A region named on the command line serves only a path that names none; the doctor block
+        // printed with a refusal sees the same answer (audit 2026-11-03, A2-4).
+        if (options.Region is { } named)
+            svc = svc with { Game = svc.Game.WithRegionOverride(() => (Domain.Region?)named) };
         var output = svc.Output ?? Console.Out;
         var status = svc.Status ?? Console.Error;
 
@@ -203,10 +246,16 @@ public static class CaptureTraceRunner
         // that partial snapshot would skip the exact-build Oodle profile and permanently
         // stamp UNKNOWN/null onto this evidence file, even when the next query is ready.
         if (isLiveSource &&
-            (string.IsNullOrWhiteSpace(game.ExecutablePath) ||
-             string.IsNullOrWhiteSpace(game.GameBuild) || game.Region == Domain.Region.Unknown))
+            (string.IsNullOrWhiteSpace(game.ExecutablePath) || string.IsNullOrWhiteSpace(game.GameBuild)))
         {
             return Refuse(svc, output, GameIdentityRefusal);
+        }
+
+        // A readable path that does not tell the region is permanent: waiting never fixes it, so
+        // it has its own sentence (audit 2026-11-03, A2-4).
+        if (isLiveSource && game.Region == Domain.Region.Unknown)
+        {
+            return Refuse(svc, output, RegionRefusal);
         }
 
         if (!CapturePathPlan.IsUsable(adapter))
@@ -594,7 +643,7 @@ public static class CaptureTraceRunner
         $"{MidstreamRefusalPrefix} 当前连接数: {connectionCount.ToString(CultureInfo.InvariantCulture)}。" +
         "国服客户端停在标题画面时也可能已有连接，此时在登录前启动同样会被拒绝。" +
         "请让游戏停在标题画面、尚未登录（已登录时先登出），加上 --allow-midstream 重新运行 --capture-trace" +
-        "（需要指定网卡时再加 --adapter <id>，id 见 --capture-doctor），然后登录：登录时建立的游戏连接会从建立起完整记录。";
+        "（需要指定网卡时再加 --adapter <id>；" + AdapterIdSource + "），然后登录：登录时建立的游戏连接会从建立起完整记录。";
 
     /// <summary>Carries a fault reason across threads.</summary>
     private sealed class FaultBox
@@ -620,41 +669,69 @@ public static class CaptureTraceRunner
     }
 }
 
+/// <summary>
+/// The game's connections over a capture plan: a count, or none -- with
+/// <paramref name="Unanswerable"/> true when the tables cannot give one (an IPv6 connection, a
+/// truncated system table) rather than a query that failed.
+/// </summary>
+/// <param name="Count">Distinct game connections on the plan's paths, or null when unknown.</param>
+/// <param name="Unanswerable">True when waiting will not make the count known.</param>
+internal readonly record struct GameConnectionCount(int? Count, bool Unanswerable)
+{
+    internal static GameConnectionCount Failed => new(null, false);
+    internal static GameConnectionCount NoAnswer => new(null, true);
+}
+
 internal static class GameTcpConnectionProbe
 {
     /// <summary>
     /// Counts each complete game tuple once even when several devices observe its address.
-    /// IPv6 is not captured yet: any such connection, or an incomplete family query, leaves
-    /// cold-start eligibility unknown instead of claiming a safe zero.
+    /// IPv6 is not captured yet: when the IPv4 count over the plan is zero, any IPv6 connection,
+    /// or an incomplete family query, leaves cold-start eligibility unknown instead of claiming a
+    /// safe zero. A positive IPv4 count is exact whatever IPv6 holds (re-review 2026-11-03, RV1-6).
     /// </summary>
     public static int? TryCountPaths(int processId, CapturePathPlan plan) =>
         TryCountPaths(processId, plan, SystemProcessConnectionTable.Instance);
 
     internal static int? TryCountPaths(int processId, CapturePathPlan plan,
+        IProcessNetworkConnectionProvider provider) => ProbePaths(processId, plan, provider).Count;
+
+    /// <summary>
+    /// Like <see cref="TryCountPaths(int, CapturePathPlan)"/>, and when there is no count, also
+    /// whether the tables simply cannot give one -- the game holds an IPv6 connection, which is
+    /// never captured, or a system table is too large to read whole -- rather than a query that
+    /// failed and may succeed on the next try (audit 2026-11-03, A2-3).
+    /// </summary>
+    internal static GameConnectionCount ProbePaths(int processId, CapturePathPlan plan,
         IProcessNetworkConnectionProvider provider)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(provider);
-        if (processId <= 0 || plan.Bindings.Count == 0) return null;
+        if (processId <= 0 || plan.Bindings.Count == 0) return GameConnectionCount.Failed;
         try
         {
             var tables = provider.Read(processId);
-            if (tables.IPv4.Status != NetworkQueryStatus.Success ||
-                tables.IPv6.Status != NetworkQueryStatus.Success || tables.IPv6.Connections.Count != 0)
-                return null;
+            if (tables.IPv4.Status == NetworkQueryStatus.Truncated) return GameConnectionCount.NoAnswer;
+            if (tables.IPv4.Status != NetworkQueryStatus.Success) return GameConnectionCount.Failed;
             var addresses = plan.Bindings.SelectMany(binding => binding.LocalAddresses)
                 .Where(CapturePathPlan.IsUsableAddress).ToHashSet();
             var loopback = plan.Bindings.Any(binding => binding.IsLoopback &&
                 CapturePathPlan.IsCanonicalLoopback(binding.AdapterId));
-            return tables.IPv4.Connections.Where(connection =>
+            var count = tables.IPv4.Connections.Where(connection =>
                     addresses.Contains(connection.LocalAddress) ||
                     (loopback && connection.LocalAddress.AddressFamily == AddressFamily.InterNetwork &&
                         IPAddress.IsLoopback(connection.LocalAddress)))
                 .Distinct().Count();
+            // IPv4 connections on the plan already decide it: the game is connected.
+            if (count > 0) return new(count, false);
+            if (tables.IPv6.Status == NetworkQueryStatus.Truncated ||
+                (tables.IPv6.Status == NetworkQueryStatus.Success && tables.IPv6.Connections.Count != 0))
+                return GameConnectionCount.NoAnswer;
+            return tables.IPv6.Status == NetworkQueryStatus.Success ? new(0, false) : GameConnectionCount.Failed;
         }
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
         {
-            return null;
+            return GameConnectionCount.Failed;
         }
     }
 

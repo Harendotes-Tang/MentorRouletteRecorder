@@ -273,6 +273,69 @@ public sealed class LocalProfileRetirementTests : IDisposable
         pipeline.OnCaptureStopped(restarted, CaptureEndReason.UserStop);
     }
 
+    /// <summary>
+    /// Audit 2026-11-03, A1-1. The capture controller must not replace a reading session while a run is under way, and
+    /// asks the pipeline through <see cref="LiveProtocolPipeline.RunUnderWayNow"/>: the very test the retirement above
+    /// waits on. True while a queue request is parked, false once its hour has gone by; false with no state machine.
+    /// </summary>
+    [Fact]
+    public void ARunIsUnderWayWhileAQueueRequestIsParked()
+    {
+        WriteLocalProfile(CalibrationTrafficCases.QueueRequest);
+        var pipeline = _bed.Pipeline(Services());
+        pipeline.Refresh(Bed.Game());
+        Assert.False(pipeline.RunUnderWayNow);
+        var session = _bed.Start(pipeline);
+        Bed.Feed(pipeline, session, new[] { Background(30_000) });
+        Assert.False(pipeline.RunUnderWayNow);
+
+        Bed.Feed(pipeline, session, new[] { MentorQueue(60_000), Background(180_000) });
+        Assert.Equal(RunState.Idle, pipeline.RunState);
+        Assert.True(pipeline.RunUnderWayNow);
+
+        Bed.Feed(pipeline, session, new[] { Background(60_000 + 60 * 60_000 + 1_000) });
+        Assert.False(pipeline.RunUnderWayNow);
+        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+        Assert.False(pipeline.RunUnderWayNow);
+    }
+
+    /// <summary>A1-1: true from the match through the duty, false again once the player has left it.</summary>
+    [Fact]
+    public void ARunIsUnderWayFromTheMatchUntilTheDutyIsLeft()
+    {
+        WriteLocalProfile(CalibrationTrafficCases.Announcement);
+        var pipeline = _bed.Pipeline(Services());
+        pipeline.Refresh(Bed.Game());
+        var session = _bed.Start(pipeline);
+        Bed.Feed(pipeline, session, new[] { Background(5_000) });
+        Assert.False(pipeline.RunUnderWayNow);
+
+        Bed.Feed(pipeline, session, new[] { Announced(9, 60_000) });
+        Assert.Equal(RunState.MentorMatched, pipeline.RunState);
+        Assert.True(pipeline.RunUnderWayNow);
+
+        Bed.Feed(pipeline, session, ZoneChange(1039, 80_000, marker: 1));
+        Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
+        Assert.True(pipeline.RunUnderWayNow);
+
+        Bed.Feed(pipeline, session, ZoneChange(5000, 400_000, marker: 2));
+        Assert.NotEqual(RunState.EnteredDuty, pipeline.RunState);
+        Assert.False(pipeline.RunUnderWayNow);
+        pipeline.OnCaptureStopped(session, CaptureEndReason.UserStop);
+    }
+
+    /// <summary>A zone change as the learned profile reads it; the marker byte keeps two of them apart for deduplication.</summary>
+    /// <param name="territory">Territory id announced.</param>
+    /// <param name="at">Session time in milliseconds.</param>
+    /// <param name="marker">A byte that differs between zone changes.</param>
+    private static DecodedMessage[] ZoneChange(int territory, long at, byte marker) => new[]
+    {
+        CalibrationObserverTests.Message(MessageDirection.Inbound, CalibrationTrafficCases.Territory,
+            CalibrationObserverTests.Bytes(136, (2, (byte)(territory & 0xff)), (3, (byte)(territory >> 8))), at),
+        CalibrationObserverTests.Message(MessageDirection.Inbound, CalibrationTrafficCases.ZoneInit,
+            CalibrationObserverTests.Bytes(456, (100, marker)), at + 100),
+    };
+
     // ------------------------------------------------------------------ failure paths
 
     /// <summary>

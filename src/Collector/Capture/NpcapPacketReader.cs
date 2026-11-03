@@ -17,6 +17,13 @@ internal interface INpcapPacketReader : IDisposable
     /// <summary>Packets Npcap reported as lost so far, at the driver or at the interface.</summary>
     long DroppedPackets => 0;
 
+    /// <summary>
+    /// Packets lost on the capture paths <paramref name="include"/> selects, kept per path, also
+    /// for a path closed after a read failure. A reader that does not know its paths reports them all.
+    /// </summary>
+    /// <param name="include">Selects the paths whose loss counts.</param>
+    long DroppedPacketsOn(Func<CaptureInterfaceBinding, bool> include) => DroppedPackets;
+
     CapturePathStatus PathStatus => CapturePathStatus.Unmeasured;
 }
 
@@ -68,6 +75,9 @@ internal sealed class NpcapPacketReader : INpcapPacketReader
 
     /// <inheritdoc />
     public long DroppedPackets => Interlocked.Read(ref _dropped);
+
+    /// <inheritdoc />
+    public long DroppedPacketsOn(Func<CaptureInterfaceBinding, bool> include) => include(_binding) ? DroppedPackets : 0;
 
     public CapturePathStatus PathStatus => !_attempted ? CapturePathStatus.Unmeasured :
         new(1, _opened ? 1 : 0, _failed ? 1 : 0, false, _binding.IsLoopback && _opened);

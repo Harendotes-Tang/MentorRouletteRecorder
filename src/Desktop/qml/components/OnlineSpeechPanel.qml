@@ -25,8 +25,12 @@ SettingsPanel {
     readonly property string selectedProvider: panel.ready ? panel.speech.providerOfVoiceId(panel.voiceId) : ""
     property string draftProvider: selectedProvider
     readonly property bool azureDraft: panel.draftProvider !== "openai_compatible"
-    /// The Collector has this service in force (it may still lack a key).
-    readonly property bool draftInForce: panel.ready && panel.speech.provider === panel.draftProvider
+    /// The Collector has this target in force (it may still lack a key): the same
+    /// service with the same region or address. A key is bound to exactly that,
+    /// and 保存 for any other target without a new key clears it (review K2-5).
+    /// Reading provider subscribes the binding to the controller's settings.
+    readonly property bool draftInForce: panel.ready && panel.speech.provider.length > 0
+        && panel.speech.draftInForce(panel.draftProvider, regionField.text, urlField.text)
     readonly property bool keyStored: panel.draftInForce && panel.speech.hasKey
     readonly property bool selectedConfigured: panel.ready && panel.speech.configured
                                                && panel.speech.provider === panel.selectedProvider
@@ -229,7 +233,7 @@ SettingsPanel {
             objectName: "onlineSpeechRebindHint"
             Layout.fillWidth: true
             visible: panel.ready && panel.speech.hasKey && !panel.draftInForce
-            text: qsTr("改选服务后需填写对应的密钥。点「保存」时若未填新密钥，原密钥会被清除。")
+            text: qsTr("改了服务、区域或地址后需填写对应的密钥。点「保存」时若未填新密钥，原密钥会被清除。")
             color: Theme.orangeText
             font.pixelSize: Theme.fs(12)
             wrapMode: Text.WordWrap

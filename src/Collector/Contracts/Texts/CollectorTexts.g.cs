@@ -189,6 +189,10 @@ public static partial class CollectorTexts
     public static UserText CalibrationProvisionalJobOnly() =>
         new("calibration.provisional.job_only", "导随记录照常进行。仅靠排队和进本核对时，记入的是排队时间；取消排队不会产生记录。请核对下面的时间线，再点「核对并启用」；之后的新记录会自动带上职业。");
 
+    /// <summary><c>calibration.provisional.job_only_popup</c>: 导随记录照常进行。检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。请核对下面的时间线，再点「核对并启用」；之后的新记录会自动带上职业。</summary>
+    public static UserText CalibrationProvisionalJobOnlyPopup() =>
+        new("calibration.provisional.job_only_popup", "导随记录照常进行。检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。请核对下面的时间线，再点「核对并启用」；之后的新记录会自动带上职业。");
+
     /// <summary><c>calibration.provisional.pop_found</c>: 导随记录照常进行。已找到匹配弹窗，请核对下面的时间线，再点「核对并启用」；之后会记入匹配成功的时间。</summary>
     public static UserText CalibrationProvisionalPopFound() =>
         new("calibration.provisional.pop_found", "导随记录照常进行。已找到匹配弹窗，请核对下面的时间线，再点「核对并启用」；之后会记入匹配成功的时间。");
@@ -277,13 +281,21 @@ public static partial class CollectorTexts
     public static UserText CalibrationVerdictsEmpty() =>
         new("calibration.verdicts_empty", "verdicts 不能为空。");
 
-    /// <summary><c>calibration.write_failed</c>: 无法写出本机校准档案：{error}</summary>
-    public static UserText CalibrationWriteFailed(string error) =>
-        new("calibration.write_failed", "无法写出本机校准档案：{error}", UserTextArg.Text("error", error));
+    /// <summary><c>calibration.write_failed.busy</c>: 无法写出本机校准档案：文件正被其他程序占用，或系统拒绝了写入（例如安全软件正在检查它）。请稍后再点「核对并启用」。</summary>
+    public static UserText CalibrationWriteFailedBusy() =>
+        new("calibration.write_failed.busy", "无法写出本机校准档案：文件正被其他程序占用，或系统拒绝了写入（例如安全软件正在检查它）。请稍后再点「核对并启用」。");
 
-    /// <summary><c>calibration.written_not_selected</c>: 本机校准档案已写出，但档案目录没有选中它：{reason}</summary>
-    public static UserText CalibrationWrittenNotSelected(string reason) =>
-        new("calibration.written_not_selected", "本机校准档案已写出，但档案目录没有选中它：{reason}", UserTextArg.Text("reason", reason));
+    /// <summary><c>calibration.write_failed.disk</c>: 无法写出本机校准档案：写入磁盘时出错。请确认磁盘空间充足，然后再点「核对并启用」。</summary>
+    public static UserText CalibrationWriteFailedDisk() =>
+        new("calibration.write_failed.disk", "无法写出本机校准档案：写入磁盘时出错。请确认磁盘空间充足，然后再点「核对并启用」。");
+
+    /// <summary><c>calibration.write_failed.refused</c>: 这次的校准结果没有通过软件的自检，因此没有写出档案。请点「清空校准进度」重新校准。</summary>
+    public static UserText CalibrationWriteFailedRefused() =>
+        new("calibration.write_failed.refused", "这次的校准结果没有通过软件的自检，因此没有写出档案。请点「清空校准进度」重新校准。");
+
+    /// <summary><c>calibration.written_not_selected</c>: 本机校准档案已写出，但软件没有选用它，暂时还不会按它自动记录。</summary>
+    public static UserText CalibrationWrittenNotSelected() =>
+        new("calibration.written_not_selected", "本机校准档案已写出，但软件没有选用它，暂时还不会按它自动记录。");
 
     /// <summary><c>candidate.from_after_to</c>: from_utc 不得晚于 to_utc。</summary>
     public static UserText CandidateFromAfterTo() =>
@@ -361,9 +373,13 @@ public static partial class CollectorTexts
     public static UserText CaptureGameRegionAmbiguous() =>
         new("capture.game.region_ambiguous", "无法从安装路径判断区服（路径同时含有多个区服的标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。");
 
-    /// <summary><c>capture.game.region_override_mismatch</c>: 设置中手动指定的区服与安装路径推断出的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除区服覆盖。</summary>
+    /// <summary><c>capture.game.region_override_applied</c>: 这个客户端的安装路径表明的区服与设置中为它手动指定的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除手动指定的区服。</summary>
+    public static UserText CaptureGameRegionOverrideApplied() =>
+        new("capture.game.region_override_applied", "这个客户端的安装路径表明的区服与设置中为它手动指定的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除手动指定的区服。");
+
+    /// <summary><c>capture.game.region_override_mismatch</c>: 设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致，因此暂不进行任何自动记录。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。</summary>
     public static UserText CaptureGameRegionOverrideMismatch() =>
-        new("capture.game.region_override_mismatch", "设置中手动指定的区服与安装路径推断出的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除区服覆盖。");
+        new("capture.game.region_override_mismatch", "设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致，因此暂不进行任何自动记录。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。");
 
     /// <summary><c>capture.game.region_unmarked</c>: 无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。</summary>
     public static UserText CaptureGameRegionUnmarked() =>
@@ -432,10 +448,6 @@ public static partial class CollectorTexts
     /// <summary><c>capture.profile.none</c>: 仓库中没有任何协议档案。为避免记错，本版本不会解析任何报文，也不会自动写入任何记录，只能手工补录。</summary>
     public static UserText CaptureProfileNone() =>
         new("capture.profile.none", "仓库中没有任何协议档案。为避免记错，本版本不会解析任何报文，也不会自动写入任何记录，只能手工补录。");
-
-    /// <summary><c>capture.profile.unavailable</c>: 协议档案不可用，暂时不会自动记录：{reason}</summary>
-    public static UserText CaptureProfileUnavailable(string reason) =>
-        new("capture.profile.unavailable", "协议档案不可用，暂时不会自动记录：{reason}", UserTextArg.Text("reason", reason));
 
     /// <summary><c>capture.select.game_exited</c>: 所选游戏已退出或重新启动，请重新选择游戏窗口。</summary>
     public static UserText CaptureSelectGameExited() =>
@@ -632,6 +644,10 @@ public static partial class CollectorTexts
     /// <summary><c>capture.validation.waiting_region</c>: 仅验证，不自动记录。无法从安装路径判断区服。请在设置里手动指定区服（国服 / 繁中服 / 国际服）后重试。</summary>
     public static UserText CaptureValidationWaitingRegion() =>
         new("capture.validation.waiting_region", "仅验证，不自动记录。无法从安装路径判断区服。请在设置里手动指定区服（国服 / 繁中服 / 国际服）后重试。");
+
+    /// <summary><c>capture.validation.waiting_region_mismatch</c>: 仅验证，不自动记录。设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。</summary>
+    public static UserText CaptureValidationWaitingRegionMismatch() =>
+        new("capture.validation.waiting_region_mismatch", "仅验证，不自动记录。设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。");
 
     /// <summary><c>capture.validation.waiting_restart_connected</c>: 仅验证，不自动记录。游戏已有连接，请退出并重新启动游戏，验证将自动继续。</summary>
     public static UserText CaptureValidationWaitingRestartConnected() =>
@@ -1621,6 +1637,10 @@ public static partial class CollectorTexts
     public static UserText MutationEnteredAfterEnded() =>
         new("mutation.entered_after_ended", "进入副本的时间不能晚于结束时间。");
 
+    /// <summary><c>mutation.matched_after_ended</c>: 匹配时间不能晚于结束时间。</summary>
+    public static UserText MutationMatchedAfterEnded() =>
+        new("mutation.matched_after_ended", "匹配时间不能晚于结束时间。");
+
     /// <summary><c>mutation.matched_after_entered</c>: 匹配时间不能晚于进入副本的时间。</summary>
     public static UserText MutationMatchedAfterEntered() =>
         new("mutation.matched_after_entered", "匹配时间不能晚于进入副本的时间。");
@@ -1673,6 +1693,34 @@ public static partial class CollectorTexts
     public static UserText MutationUnknownNeedsEnd() =>
         new("mutation.unknown_needs_end", "结果为「未知」的自动记录必须填写结束时间：没有结束时间的未知结果会被当作仍在进行的记录，既不计入统计，也不会出现在待复核中。请填写结束时间，或选择实际结果。");
 
+    /// <summary><c>profile.unavailable.ambiguous</c>: 有不止一份游戏版本支持文件对应这个版本，软件不会从中任选一份。</summary>
+    public static UserText ProfileUnavailableAmbiguous() =>
+        new("profile.unavailable.ambiguous", "有不止一份游戏版本支持文件对应这个版本，软件不会从中任选一份。");
+
+    /// <summary><c>profile.unavailable.build_unknown</c>: 还不知道游戏的版本号。</summary>
+    public static UserText ProfileUnavailableBuildUnknown() =>
+        new("profile.unavailable.build_unknown", "还不知道游戏的版本号。");
+
+    /// <summary><c>profile.unavailable.failed</c>: 读取游戏版本支持文件时出错。</summary>
+    public static UserText ProfileUnavailableFailed() =>
+        new("profile.unavailable.failed", "读取游戏版本支持文件时出错。");
+
+    /// <summary><c>profile.unavailable.no_match</c>: 还没有适用于这个游戏版本的支持文件。</summary>
+    public static UserText ProfileUnavailableNoMatch() =>
+        new("profile.unavailable.no_match", "还没有适用于这个游戏版本的支持文件。");
+
+    /// <summary><c>profile.unavailable.not_usable</c>: 找到的游戏版本支持文件不能用于自动记录。</summary>
+    public static UserText ProfileUnavailableNotUsable() =>
+        new("profile.unavailable.not_usable", "找到的游戏版本支持文件不能用于自动记录。");
+
+    /// <summary><c>profile.unavailable.region_unknown</c>: 还不知道游戏属于哪个区服。</summary>
+    public static UserText ProfileUnavailableRegionUnknown() =>
+        new("profile.unavailable.region_unknown", "还不知道游戏属于哪个区服。");
+
+    /// <summary><c>profile.unavailable.region_unsupported</c>: 目前还不支持这个区服的自动记录。</summary>
+    public static UserText ProfileUnavailableRegionUnsupported() =>
+        new("profile.unavailable.region_unsupported", "目前还不支持这个区服的自动记录。");
+
     /// <summary><c>reflection.unrecorded_mood_import_only</c>: 未记录心情仅适用于导入的心得。</summary>
     public static UserText ReflectionUnrecordedMoodImportOnly() =>
         new("reflection.unrecorded_mood_import_only", "未记录心情仅适用于导入的心得。");
@@ -1697,9 +1745,9 @@ public static partial class CollectorTexts
     public static UserText SharingCodeEmpty() =>
         new("sharing.code.empty", "还没有校准码，请粘贴完整的校准码。");
 
-    /// <summary><c>sharing.code.newer_version</c>: 当前导随记录器无法读取这份校准码。请先更新软件，再「导入校准码」。</summary>
+    /// <summary><c>sharing.code.newer_version</c>: 当前导随记录器无法读取这份校准码。请先更新软件，再「手动导入校准码」。</summary>
     public static UserText SharingCodeNewerVersion() =>
-        new("sharing.code.newer_version", "当前导随记录器无法读取这份校准码。请先更新软件，再「导入校准码」。");
+        new("sharing.code.newer_version", "当前导随记录器无法读取这份校准码。请先更新软件，再「手动导入校准码」。");
 
     /// <summary><c>sharing.code.not_a_code</c>: 无法识别这份校准码。请完整复制以 MRC1. 开头的校准码。</summary>
     public static UserText SharingCodeNotACode() =>
@@ -1741,21 +1789,21 @@ public static partial class CollectorTexts
     public static UserText SharingImportAppliedUnpublished() =>
         new("sharing.import.applied_unpublished", "校准码已导入，暂未查到公开发布信息。请保持软件开启，照常登录、申请随机任务并进出副本。通过检查后即可使用；如果提示需要同意，请在「共享校准」中点「同意，开始记录」。");
 
-    /// <summary><c>sharing.import.changed</c>: 这次导入未完成，不能用它开始记录。导入时游戏版本或校准进度发生了变化，请重新「导入校准码」。</summary>
+    /// <summary><c>sharing.import.changed</c>: 这次导入未完成，不能用它开始记录。导入时游戏版本或校准进度发生了变化，请重新「手动导入校准码」。</summary>
     public static UserText SharingImportChanged() =>
-        new("sharing.import.changed", "这次导入未完成，不能用它开始记录。导入时游戏版本或校准进度发生了变化，请重新「导入校准码」。");
+        new("sharing.import.changed", "这次导入未完成，不能用它开始记录。导入时游戏版本或校准进度发生了变化，请重新「手动导入校准码」。");
 
-    /// <summary><c>sharing.import.check_pending</c>: 暂时无法检查这份校准码。请等当前的共享校准检查有结果后，再「导入校准码」。</summary>
+    /// <summary><c>sharing.import.check_pending</c>: 暂时无法检查这份校准码。请等当前的共享校准检查有结果后，再「手动导入校准码」。</summary>
     public static UserText SharingImportCheckPending() =>
-        new("sharing.import.check_pending", "暂时无法检查这份校准码。请等当前的共享校准检查有结果后，再「导入校准码」。");
+        new("sharing.import.check_pending", "暂时无法检查这份校准码。请等当前的共享校准检查有结果后，再「手动导入校准码」。");
 
     /// <summary><c>sharing.import.code_too_long</c>: 校准码太长，无法导入，最多支持 {max} 个字符。请重新复制校准码，不要带上其他文字。</summary>
     public static UserText SharingImportCodeTooLong(long max) =>
         new("sharing.import.code_too_long", "校准码太长，无法导入，最多支持 {max} 个字符。请重新复制校准码，不要带上其他文字。", UserTextArg.Number("max", max));
 
-    /// <summary><c>sharing.import.not_calibrating</c>: 当前没有正在进行的校准，暂时无需「导入校准码」。</summary>
+    /// <summary><c>sharing.import.not_calibrating</c>: 当前没有正在进行的校准，暂时无需「手动导入校准码」。</summary>
     public static UserText SharingImportNotCalibrating() =>
-        new("sharing.import.not_calibrating", "当前没有正在进行的校准，暂时无需「导入校准码」。");
+        new("sharing.import.not_calibrating", "当前没有正在进行的校准，暂时无需「手动导入校准码」。");
 
     /// <summary><c>sharing.import.not_imported</c>: 校准码未导入：{reason}</summary>
     public static UserText SharingImportNotImported(UserText reason) =>
@@ -1769,13 +1817,13 @@ public static partial class CollectorTexts
     public static UserText SharingImportOtherRegion() =>
         new("sharing.import.other_region", "这份校准码不能用于当前游戏，不同区服的校准码不能通用。请导入当前区服的校准码，或使用「本机校准」。");
 
-    /// <summary><c>sharing.import.other_template</c>: 这份校准码不能用于当前导随记录器。请你和分享者先更新到同一版本，再「导入校准码」。</summary>
+    /// <summary><c>sharing.import.other_template</c>: 这份校准码不能用于当前导随记录器。请你和分享者先更新到同一版本，再「手动导入校准码」。</summary>
     public static UserText SharingImportOtherTemplate() =>
-        new("sharing.import.other_template", "这份校准码不能用于当前导随记录器。请你和分享者先更新到同一版本，再「导入校准码」。");
+        new("sharing.import.other_template", "这份校准码不能用于当前导随记录器。请你和分享者先更新到同一版本，再「手动导入校准码」。");
 
-    /// <summary><c>sharing.import.rejected</c>: 这份校准码未通过检查，已停用。请改用其他校准码；如需重新尝试，先点「清空校准进度」，再「导入校准码」。</summary>
+    /// <summary><c>sharing.import.rejected</c>: 这份校准码未通过检查，已停用。请改用其他校准码；如需重新尝试，先点「清空校准进度」，再「手动导入校准码」。</summary>
     public static UserText SharingImportRejected() =>
-        new("sharing.import.rejected", "这份校准码未通过检查，已停用。请改用其他校准码；如需重新尝试，先点「清空校准进度」，再「导入校准码」。");
+        new("sharing.import.rejected", "这份校准码未通过检查，已停用。请改用其他校准码；如需重新尝试，先点「清空校准进度」，再「手动导入校准码」。");
 
     /// <summary><c>sharing.import.revoked</c>: 这份共享校准已被撤回，不能继续用于记录。请向分享者获取新校准码，或使用「本机校准」。</summary>
     public static UserText SharingImportRevoked() =>
@@ -1789,9 +1837,9 @@ public static partial class CollectorTexts
     public static UserText SharingImportUnbuildable() =>
         new("sharing.import.unbuildable", "这份校准码暂时无法使用。请更新导随记录器，或请分享者重新生成校准码。");
 
-    /// <summary><c>sharing.import.user_rejected</c>: 当前游戏版本已选择只用「本机校准」，暂时不能「导入校准码」。如需使用共享校准，请先点「清空校准进度」，再「导入校准码」。</summary>
+    /// <summary><c>sharing.import.user_rejected</c>: 当前游戏版本已选择只用「本机校准」，暂时不能「手动导入校准码」。如需使用共享校准，请先点「清空校准进度」，再「手动导入校准码」。</summary>
     public static UserText SharingImportUserRejected() =>
-        new("sharing.import.user_rejected", "当前游戏版本已选择只用「本机校准」，暂时不能「导入校准码」。如需使用共享校准，请先点「清空校准进度」，再「导入校准码」。");
+        new("sharing.import.user_rejected", "当前游戏版本已选择只用「本机校准」，暂时不能「手动导入校准码」。如需使用共享校准，请先点「清空校准进度」，再「手动导入校准码」。");
 
     /// <summary><c>sharing.share_code.local_unusable</c>: 本机校准的档案暂时不能使用、读不出来或已被改动，无法生成校准码。</summary>
     public static UserText SharingShareCodeLocalUnusable() =>
@@ -1957,9 +2005,9 @@ public static partial class CollectorTexts
     public static UserText StartupLockFailed() =>
         new("startup.lock_failed", "无法建立 Collector 单实例锁，详情见本机日志。");
 
-    /// <summary><c>startup.log_dir_unwritable</c>: 无法写入日志目录，采集服务未启动。请检查 --log-dir 指向的位置是否存在、是否是文件、以及当前用户是否有写入权限。</summary>
-    public static UserText StartupLogDirUnwritable() =>
-        new("startup.log_dir_unwritable", "无法写入日志目录，采集服务未启动。请检查 --log-dir 指向的位置是否存在、是否是文件、以及当前用户是否有写入权限。");
+    /// <summary><c>startup.log_dir_unwritable</c>: 无法在日志文件夹中写入文件，采集服务无法启动。可能是磁盘空间已满、当前用户没有写入权限，或该位置已有一个同名的文件。日志文件夹：{path}</summary>
+    public static UserText StartupLogDirUnwritable(string path) =>
+        new("startup.log_dir_unwritable", "无法在日志文件夹中写入文件，采集服务无法启动。可能是磁盘空间已满、当前用户没有写入权限，或该位置已有一个同名的文件。日志文件夹：{path}", UserTextArg.Text("path", path));
 
     /// <summary><c>startup.migration_failed</c>: 数据库迁移失败，已整体回滚，本软件无法启动。请先把数据库文件复制一份保存到别处，再排查问题。数据库文件：{path}</summary>
     public static UserText StartupMigrationFailed(string path) =>
@@ -1988,6 +2036,10 @@ public static partial class CollectorTexts
     /// <summary><c>startup.pipe_sid_unknown</c>: 无法读取当前用户的 SID，命名管道名称无法确定。</summary>
     public static UserText StartupPipeSidUnknown() =>
         new("startup.pipe_sid_unknown", "无法读取当前用户的 SID，命名管道名称无法确定。");
+
+    /// <summary><c>startup.pre_upgrade_copy_failed</c>: 升级数据库前要先在数据库旁的 backups 文件夹里保存一份完整副本，这份副本没有保存成功（可能是磁盘空间不足、该文件夹不可写，或副本未通过完整性校验）。数据库没有升级，本软件无法启动。请先把数据库文件复制一份保存到别处，再检查磁盘空间。数据库文件：{path}</summary>
+    public static UserText StartupPreUpgradeCopyFailed(string path) =>
+        new("startup.pre_upgrade_copy_failed", "升级数据库前要先在数据库旁的 backups 文件夹里保存一份完整副本，这份副本没有保存成功（可能是磁盘空间不足、该文件夹不可写，或副本未通过完整性校验）。数据库没有升级，本软件无法启动。请先把数据库文件复制一份保存到别处，再检查磁盘空间。数据库文件：{path}", UserTextArg.Text("path", path));
 
     /// <summary><c>startup.schema_too_new</c>: 数据库的结构版本高于本程序支持的版本，本软件无法启动。请先把数据库文件复制一份保存到别处，再升级本软件。数据库文件：{path}</summary>
     public static UserText StartupSchemaTooNew(string path) =>
@@ -2065,9 +2117,9 @@ public static partial class CollectorTexts
     public static UserText UpdateDownloadTooLarge() =>
         new("update.download.too_large", "安装程序的大小超出了合理范围，为安全起见已停止下载；请点击「在浏览器中下载」。");
 
-    /// <summary><c>update.download.transport_failed</c>: 下载过程中网络连接中断，安装程序不完整，已将其删除；请重试，或点击「在浏览器中下载」。</summary>
+    /// <summary><c>update.download.transport_failed</c>: 下载未能完成：连接中途断开，或出现了意外错误，不完整的文件不会保留；请重试，或点击「在浏览器中下载」。</summary>
     public static UserText UpdateDownloadTransportFailed() =>
-        new("update.download.transport_failed", "下载过程中网络连接中断，安装程序不完整，已将其删除；请重试，或点击「在浏览器中下载」。");
+        new("update.download.transport_failed", "下载未能完成：连接中途断开，或出现了意外错误，不完整的文件不会保留；请重试，或点击「在浏览器中下载」。");
 
     /// <summary><c>update.download.withdrawn</c>: 更新检查已在设置中关闭，因此下载已停止，已下载的安装程序也不再提供；如需更新，请先在「设置 · 通用」中重新开启更新检查，再点「重试」。</summary>
     public static UserText UpdateDownloadWithdrawn() =>

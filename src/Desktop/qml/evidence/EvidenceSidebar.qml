@@ -25,7 +25,10 @@ ColumnLayout {
         // `.ev-big`
         RowLayout {
             spacing: 9
-            EvidencePulse { tone: side.session.active ? side.session.badgeTone : "off" }
+            EvidencePulse {
+                objectName: "evidenceStatusPulse"
+                tone: side.session.active ? side.session.badgeTone : "off"
+            }
             Text {
                 objectName: "evidenceStatusHeadline"
                 textFormat: Text.PlainText

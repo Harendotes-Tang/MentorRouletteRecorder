@@ -48,7 +48,8 @@ public:
     /// duty_expansion, party_size, difficulty, version, name_ambiguous and
     /// preferred_for_name_matching (both selection metadata, never stored names).
     ///
-    /// party_size is the wizard's 人数 group (4 / 8 / 24, 0 = 其他), difficulty
+    /// party_size is the wizard's 人数 group (4 / 8 / 24, 0 = 其他; absent for
+    /// a non-CN 大型任务 whose size no region's catalogue knows), difficulty
     /// is 普通 / 极 / 零式 and version the "2.x" .. "7.x" label (empty when the
     /// expansion is unknown). See partySizeGroup(), difficultyForName() and
     /// versionForExpansion().
@@ -106,6 +107,8 @@ private:
         QHash<QString, QList<QVariantMap>> byName;
         QHash<qint64, QList<QVariantMap>> byTerritoryId;
         QSet<qint64> allianceRaidIds;
+        /// content_id -> the data file's own party_size, for the rows that carry one.
+        QHash<qint64, int> statedPartySizes;
         QVariantList ordered;
         QString dataVersion;
     };

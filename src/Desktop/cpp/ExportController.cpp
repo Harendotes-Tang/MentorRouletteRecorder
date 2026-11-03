@@ -57,7 +57,7 @@ void ExportController::setTargetOverride(const QString &directory)
 }
 
 QString ExportController::chooseExportPath(const QString &suggestedName,
-                                           const QString &filter)
+                                           const QString &filter, bool *confirmedReplace)
 {
     // The Collector refuses any target outside the user's own profile
     // (ERR_EXPORT_FAILED), so the dialog starts in 文档 and the non-interactive
@@ -66,11 +66,17 @@ QString ExportController::chooseExportPath(const QString &suggestedName,
         QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
 
     if (!m_targetOverride.isEmpty()) {
+        *confirmedReplace = false; // Nobody was asked: an existing file stays refused.
         QDir().mkpath(m_targetOverride);
         return QDir(m_targetOverride).absoluteFilePath(suggestedName);
     }
 
+    // The save dialog (default options) asks 「是否替换」 about an existing file, so the path
+    // it returns may be replaced (audit 2026-11-03 G-2).
+    *confirmedReplace = true;
     const QString suggested = QDir(documents).absoluteFilePath(suggestedName);
+    if (m_saveDialog)
+        return m_saveDialog(suggested, filter);
     return QFileDialog::getSaveFileName(nullptr, tr("选择保存位置"),
                                         suggested, filter);
 }
@@ -89,14 +95,15 @@ void ExportController::exportCsv()
 {
     if (!m_backend)
         return;
+    bool replace = false;
     const QString path = chooseExportPath(
         QStringLiteral("mentor_runs_") + stamp(QStringLiteral("yyyy-MM-dd"))
             + QStringLiteral(".csv"),
-        QString::fromUtf8("CSV (*.csv)"));
+        QString::fromUtf8("CSV (*.csv)"), &replace);
     if (path.isEmpty())
         return;
 
-    m_backend->exportCsv(path, effectiveHistoryFilter())
+    m_backend->exportCsv(path, effectiveHistoryFilter(), replace)
         ->whenDone(this, [this](bool ok, const QVariantMap &payload, const QString &code,
                                 const QString &message) {
             if (!ok) {
@@ -116,14 +123,15 @@ void ExportController::exportJson()
 {
     if (!m_backend)
         return;
+    bool replace = false;
     const QString path = chooseExportPath(
         QStringLiteral("mentor_runs_") + stamp(QStringLiteral("yyyy-MM-dd"))
             + QStringLiteral(".json"),
-        QString::fromUtf8("JSON (*.json)"));
+        QString::fromUtf8("JSON (*.json)"), &replace);
     if (path.isEmpty())
         return;
 
-    m_backend->exportJson(path, effectiveHistoryFilter())
+    m_backend->exportJson(path, effectiveHistoryFilter(), replace)
         ->whenDone(this, [this](bool ok, const QVariantMap &payload, const QString &code,
                                 const QString &message) {
             if (!ok) {
@@ -141,14 +149,20 @@ void ExportController::exportJson()
 
 void ExportController::backupDatabase()
 {
-    if (!m_backend)
+    if (!m_backend || m_backupRunning)
         return;
+    m_backupRunning = true;
+    Q_EMIT backupRunningChanged();
     // No target_path: that selects the Collector's managed backups folder next
     // to the database, which is also the folder it prunes to 14 copies. A path
     // of our own would defeat both.
+    // whenDone() also covers a request that failed before it was sent, so the
+    // flag always comes down.
     m_backend->backupDatabase()->whenDone(
         this, [this](bool ok, const QVariantMap &payload, const QString &code,
                      const QString &message) {
+            m_backupRunning = false;
+            Q_EMIT backupRunningChanged();
             if (!ok) {
                 Q_EMIT toastRequested(tr("备份失败：%1").arg(message.isEmpty() ? code : message));
                 return;
@@ -179,10 +193,11 @@ void ExportController::exportDiagnosticsReport()
         return;
     }
 
+    bool replace = false;
     const QString target = chooseExportPath(
         QStringLiteral("mentor_diagnostics_")
             + stamp(QStringLiteral("yyyy-MM-dd_HHmmss")) + QStringLiteral(".json"),
-        tr("诊断报告 (*.json)"));
+        tr("诊断报告 (*.json)"), &replace);
 
     // Empty means the user closed the dialog. The contract would read an
     // omitted target_path as "the managed folder", which is not what somebody
@@ -190,7 +205,7 @@ void ExportController::exportDiagnosticsReport()
     if (target.isEmpty())
         return;
 
-    m_backend->exportDiagnosticsReport(target)
+    m_backend->exportDiagnosticsReport(target, replace)
         ->whenDone(this, [this](bool ok, const QVariantMap &payload, const QString &code,
                                 const QString &message) {
             if (!ok) {

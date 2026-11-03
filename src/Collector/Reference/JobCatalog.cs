@@ -22,6 +22,12 @@ public sealed record JobInfo(
 {
     /// <summary>Approved complete Chinese aliases; absent in legacy catalog rows.</summary>
     public IReadOnlyList<string> AliasesZh { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// The job's name as the Traditional Chinese (TC) client spells it, from the TC client export. It resolves a
+    /// name on import (audit 2026-11-03 H2-6) but is not a search alias; absent in older catalog rows.
+    /// </summary>
+    public IReadOnlyList<string> AliasesZhTw { get; init; } = Array.Empty<string>();
 }
 
 /// <summary>
@@ -76,7 +82,8 @@ public sealed class JobCatalog
             string.Equals(job.NameZh, query, StringComparison.OrdinalIgnoreCase)
             || string.Equals(job.NameEn, query, StringComparison.OrdinalIgnoreCase)
             || string.Equals(job.Abbreviation, query, StringComparison.OrdinalIgnoreCase)
-            || job.AliasesZh.Contains(query, StringComparer.OrdinalIgnoreCase)).Take(2).ToArray();
+            || job.AliasesZh.Contains(query, StringComparer.OrdinalIgnoreCase)
+            || job.AliasesZhTw.Contains(query, StringComparer.OrdinalIgnoreCase)).Take(2).ToArray();
         return matches.Length == 1 ? matches[0] : null;
     }
 
@@ -143,14 +150,17 @@ public sealed class JobCatalog
                 group,
                 MapRole(group))
             {
-                AliasesZh = Array.AsReadOnly((row.AliasesZh ?? Array.Empty<string>())
-                    .Where(alias => !string.IsNullOrWhiteSpace(alias)).Select(alias => alias.Trim())
-                    .Distinct(StringComparer.OrdinalIgnoreCase).ToArray()),
+                AliasesZh = Aliases(row.AliasesZh),
+                AliasesZhTw = Aliases(row.AliasesZhTw),
             };
         }
 
         return new JobCatalog(byId);
     }
+
+    private static IReadOnlyList<string> Aliases(string[]? aliases) => Array.AsReadOnly((aliases ?? Array.Empty<string>())
+        .Where(alias => !string.IsNullOrWhiteSpace(alias)).Select(alias => alias.Trim())
+        .Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
 
     /// <summary>
     /// Maps a display role group onto the four-value statistics role. The three damage groups
@@ -204,6 +214,9 @@ public sealed class JobCatalog
 
         [JsonPropertyName("aliases_zh")]
         public string[]? AliasesZh { get; init; }
+
+        [JsonPropertyName("aliases_zh_tw")]
+        public string[]? AliasesZhTw { get; init; }
 
         [JsonPropertyName("role")]
         public string? Role { get; init; }

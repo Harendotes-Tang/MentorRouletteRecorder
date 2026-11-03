@@ -13,8 +13,11 @@ QtObject {
     readonly property bool labels: controller.labels
 
     // ------------------------------------------------------------ 累计进度 --
-    readonly property bool progressKnown: Runtime.app.achievementSettingsLoaded
+    // Known once the first listed region has been read on this connection: the
+    // list holds read regions only. Not App.achievementSettingsLoaded, which is
+    // the 成就 editor's region and says nothing about these (review L3-2).
     readonly property var regionalAchievements: Runtime.app.visibleAchievements
+    readonly property bool progressKnown: regionalAchievements.length > 0
     readonly property var primaryAchievement: regionalAchievements.length > 0 ? regionalAchievements[0] : ({})
     readonly property string primaryRegion: primaryAchievement.region || "CN"
     readonly property int progress: Number(primaryAchievement.achievement_progress || 0)

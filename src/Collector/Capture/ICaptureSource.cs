@@ -146,9 +146,11 @@ public sealed record OodleSignatureUse(string? Source, string? ProfileId, string
 /// (docs/capture-diagnostics.md section 5).
 /// </summary>
 /// <param name="RawPackets">
-/// IPv4/TCP frames to or from the selected address read from the adapter, before reassembly. A frame
-/// whose IP or TCP header cannot be trusted (a fragment, a truncated body) is counted here and in
-/// <paramref name="DroppedNoStream"/>.
+/// IPv4/TCP frames to or from this machine's addresses on the monitored paths, before reassembly. A
+/// frame whose IP or TCP header cannot be trusted (a fragment, a truncated body) is counted here and in
+/// <paramref name="DroppedNoStream"/>. Frames between two local endpoints -- other programs talking
+/// over the loopback path -- count here and in the other stream counters only once the game itself
+/// holds such a connection (audit 2026-11-03, A3-2).
 /// </param>
 /// <param name="DroppedNoStream">
 /// Frames dropped before reassembly for want of a stream that could take them: their tuple had no
@@ -163,7 +165,10 @@ public sealed record OodleSignatureUse(string? Source, string? ProfileId, string
 /// a stream nobody owned yet released over a frame it could not decode safely, and a tracked stream a
 /// new handshake replaced.
 /// </param>
-/// <param name="AdapterDropped">Packets Npcap reported as lost, at the driver or the interface.</param>
+/// <param name="AdapterDropped">
+/// Packets Npcap reported as lost, at the driver or the interface, on the paths that carried one of
+/// the game's connections this session (audit 2026-11-03, A1-2).
+/// </param>
 /// <param name="Handshakes">Streams opened because their TCP handshake was observed, any program.</param>
 /// <param name="GameConnections">Distinct connections the OS attributed to the game since the start.</param>
 /// <param name="GameConnectionsNow">Connections the OS attributes to the game in the latest reading.</param>
@@ -172,6 +177,11 @@ public sealed record OodleSignatureUse(string? Source, string? ProfileId, string
 /// that could not be decoded safely, or a direction that never showed its own SYN. Session-wide; each one
 /// is also reported on its own, with its connection, through
 /// <see cref="ICaptureSourceObserver.OnDirectionDamaged"/>.
+/// </param>
+/// <param name="GameConnectionsReadable">
+/// Of <paramref name="GameConnectionsNow"/>, the connections this capture saw open and is decoding.
+/// Fewer means a connection the game already held when capture started is still in use, which no
+/// later decoded message makes readable (re-review 2026-11-03, RV1-2). Diagnostics only, not on the wire.
 /// </param>
 public sealed record CaptureIngressCounters(
     long RawPackets = 0,
@@ -184,7 +194,8 @@ public sealed record CaptureIngressCounters(
     long Handshakes = 0,
     long GameConnections = 0,
     long GameConnectionsNow = 0,
-    long DamagedGameDirections = 0)
+    long DamagedGameDirections = 0,
+    long GameConnectionsReadable = 0)
 {
     /// <summary>Nothing measured: the reading of a source that does not observe an adapter.</summary>
     public static CaptureIngressCounters Empty { get; } = new();

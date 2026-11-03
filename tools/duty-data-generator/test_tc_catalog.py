@@ -202,6 +202,61 @@ class TcCatalogTests(unittest.TestCase):
             self.assertEqual(0, generate.main(["--tc-catalogues", "--dry-run"]))
         self.assertIsNone(fetched.call_args.args[3])
 
+    # Audit 2026-11-03 H2-6: TC lists 69 and 944 under one name, so a TC record named 阿修羅殲滅戰
+    # resolved to nothing. The preference reviewed against XIVAPI for these content ids applies to
+    # the TC rows offline, while those rows still look like the reviewed pair.
+    def asura_sources(self, name_944="阿修羅殲滅戰", level_944=90):
+        texts = synthetic_sources()
+        texts["ContentFinderCondition"] = csv_text("ContentFinderCondition", [
+            (5, ["樣例五", 172, 2, 50, 2]),
+            (69, ["阿修羅殲滅戰", 509, 4, 90, 2]),
+            (944, [name_944, 1136, 4, level_944, 2]),
+        ])
+        texts["TerritoryType"] = csv_text("TerritoryType", [(172, [0]), (509, [4]), (1136, [4])])
+        texts["ExVersion"] = csv_text("ExVersion", [(0, ["新生艾奧傑亞"]), (4, ["曉月終焉"])])
+        return texts
+
+    def test_reviewed_name_preference_marks_the_tc_pair(self):
+        duties, _ = self.build(self.asura_sources())
+        marked = generate.with_tc_name_preferences(duties)
+        rows = {row["content_id"]: row for row in marked["duties"]}
+        self.assertIs(True, rows[944]["preferred_for_name_matching"])
+        self.assertNotIn("preferred_for_name_matching", rows[69])
+        self.assertNotIn("preferred_for_name_matching", rows[5])
+        self.assertEqual([{"preferred_content_id": 944, "duplicate_content_id": 69}],
+                         marked["provenance"]["name_matching"]["rules"])
+        self.assertEqual([row["content_id"] for row in duties["duties"]],
+                         [row["content_id"] for row in marked["duties"]])
+        self.assertEqual(marked, generate.with_tc_name_preferences(marked))
+        self.assertEqual([], generate.with_tc_name_preferences(self.build()[0])
+                         ["provenance"]["name_matching"]["rules"])
+
+    def test_a_tc_pair_that_no_longer_matches_the_review_is_refused(self):
+        for texts in (self.asura_sources(name_944="另一個名稱"), self.asura_sources(level_944=100)):
+            duties, _ = self.build(texts)
+            with self.assertRaises(ValueError):
+                generate.with_tc_name_preferences(duties)
+
+    def test_cli_marks_new_tc_catalogues_and_backfills_an_existing_one_offline(self):
+        with tempfile.TemporaryDirectory() as root:
+            with mock.patch.object(generate, "fetch_datamining_sheets",
+                                   return_value=(self.asura_sources(), provenance())), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(0, generate.main([
+                    "--tc-catalogues", "--version", "2026-10-24", "--tc-fetched-at", STAMP,
+                    "--out-dir", root, "--roulettes-out-dir", root,
+                    "--raw-dir", os.path.join(root, "raw")]))
+            path = Path(root) / "tc.2026-10-24.json"
+            generated = path.read_bytes()
+            self.assertIn("preferred_for_name_matching", generated.decode("utf-8"))
+            unmarked, _ = self.build(self.asura_sources())
+            generate.write_document(str(path), unmarked)
+            with mock.patch.object(generate, "fetch_english_rows", side_effect=AssertionError), \
+                    mock.patch.object(generate, "http_get", side_effect=AssertionError), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(0, generate.main(["--add-name-preferences", str(path)]))
+            self.assertEqual(generated, path.read_bytes())
+
     def test_bundled_tc_rows_exclude_converted_missing_ids_and_keep_native_divergences(self):
         root = Path(__file__).resolve().parents[2]
         duty_doc = json.loads((root / "data/duties/tc.2026-10-24.json").read_text(encoding="utf-8"))
@@ -217,7 +272,11 @@ class TcCatalogTests(unittest.TestCase):
         for row_id, territory in {5: 172, 13: 171, 36: 434, 235: 616}.items():
             self.assertEqual(territory, tc[row_id]["territory_id"])
         self.assertNotEqual(tc[69]["territory_id"], tc[944]["territory_id"])
-        self.assertNotIn("preferred_for_name_matching", tc[944])
+        # The reviewed 944-over-69 preference applies to the TC table too (audit 2026-11-03 H2-6).
+        self.assertIs(True, tc[944]["preferred_for_name_matching"])
+        self.assertNotIn("preferred_for_name_matching", tc[69])
+        self.assertEqual([{"preferred_content_id": 944, "duplicate_content_id": 69}],
+                         duty_doc["provenance"]["name_matching"]["rules"])
         self.assertEqual(COMMIT, duty_doc["provenance"]["datamining_tc"]["commit"])
         self.assertEqual("2026.09.14.0000.0000", duty_doc["provenance"]["client_build"])
 

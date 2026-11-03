@@ -484,6 +484,73 @@ public sealed class CaptureTraceTests
         }
     }
 
+    /// <summary>
+    /// Audit 2026-11-03, A2-4. A client whose path names no region (a Steam install, a custom
+    /// folder) is refused with a sentence that says so and names the one way out on the command
+    /// line, never "wait for the client" or "use the settings", which the trace does not read. A
+    /// region given with <c>--region</c> is used for such a path, but never relabels a path that
+    /// names another region.
+    /// </summary>
+    [Fact]
+    public void TraceRun_NamesTheMissingRegion_AndTakesItFromTheCommandLine()
+    {
+        const string steam = @"D:\Steam\steamapps\common\FINAL FANTASY XIV Online\game\ffxiv_dx11.exe";
+        const string userjoy = @"C:\Program Files\USERJOY GAMES\FINAL FANTASY XIV TC\game\ffxiv_dx11.exe";
+        using var directory = new TempDirectory();
+        var files = new FakeGameFileReader()
+            .With(Path.Combine(Path.GetDirectoryName(steam)!, GameProcessLocator.VersionFileName), "2026.10.01.0000.0000")
+            .With(Path.Combine(Path.GetDirectoryName(userjoy)!, GameProcessLocator.VersionFileName), "2026.10.01.0000.0000");
+
+        (int Result, string Output, RecordingTraceSource Source) Run(string exe, Region? region, string name)
+        {
+            var source = new RecordingTraceSource(CaptureTraceRunner.LiveSourceKind);
+            var output = new StringWriter();
+            var result = CaptureTraceRunner.Run(
+                new CaptureTraceOptions(Path.Combine(directory.Path, name), AdapterId: "adapter", Region: region),
+                new CaptureTraceServices
+                {
+                    Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
+                    Game = new GameProcessLocator(new FakeGameProcessProvider()
+                        .Add(GameProcessLocator.Dx11ProcessName, 1234, path: exe), files),
+                    Adapters = new AdapterEnumerator(new FakeAdapterProvider().Add("adapter", "Ethernet", addresses: "10.0.0.2"),
+                        new FakeProcessTcpTable()),
+                    SourceFactory = () => source,
+                    TcpConnectionCounter = (_, _) => 0,
+                    Markers = new StringReader(string.Empty),
+                    Output = output,
+                    Status = new StringWriter(),
+                    InstallCancelHandler = false,
+                });
+            return (result, output.ToString(), source);
+        }
+
+        var refused = Run(steam, null, "unmarked.jsonl");
+        Assert.Equal(1, refused.Result);
+        Assert.Null(refused.Source.LastOptions);
+        Assert.Contains(CaptureTraceRunner.RegionRefusal, refused.Output, StringComparison.Ordinal);
+        Assert.Contains(CaptureTraceCli.RegionFlag, CaptureTraceRunner.RegionRefusal, StringComparison.Ordinal);
+        Assert.DoesNotContain(CaptureTraceRunner.GameIdentityRefusal, refused.Output, StringComparison.Ordinal);
+
+        var named = Run(steam, Region.Global, "named.jsonl");
+        Assert.Equal(Region.Global, Assert.IsType<CaptureStartOptions>(named.Source.LastOptions).Region);
+        Assert.True(File.Exists(Path.Combine(directory.Path, "named.jsonl")));
+
+        var contradicted = Run(userjoy, Region.Cn, "contradicted.jsonl");
+        Assert.Equal(1, contradicted.Result);
+        Assert.Null(contradicted.Source.LastOptions);
+        Assert.Contains(CaptureTraceRunner.RegionRefusal, contradicted.Output, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("CN", Region.Cn)]
+    [InlineData("tc", Region.Tc)]
+    [InlineData("Global", Region.Global)]
+    [InlineData("UNKNOWN", null)]
+    [InlineData("JP", null)]
+    [InlineData("", null)]
+    public void TraceCli_ReadsOnlyTheThreeNamedRegions(string text, Region? expected) =>
+        Assert.Equal(expected, CaptureTraceCli.ParseRegion(text));
+
     [Fact]
     public void TraceRun_RefusesMidstreamLiveCapture_BeforeStartingTheSource()
     {
@@ -521,6 +588,9 @@ public sealed class CaptureTraceTests
         Assert.False(File.Exists(tracePath));
         Assert.Contains(CaptureTraceRunner.MidstreamRefusalPrefix, output.ToString(), StringComparison.Ordinal);
         Assert.Contains("当前连接数: 2", output.ToString(), StringComparison.Ordinal);
+        // The doctor block above lists adapters by name only; the advice names where the id is.
+        Assert.Contains(CaptureTraceRunner.AdapterIdSource, output.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("id 见 --capture-doctor", output.ToString(), StringComparison.Ordinal);
         // On CN the client already holds a connection at the title screen, so "start before logging in"
         // alone is refused again: the advice names the flag that lets the trace start there.
         Assert.Contains(CaptureTraceCli.AllowMidstreamFlag, output.ToString(), StringComparison.Ordinal);
@@ -591,6 +661,9 @@ public sealed class CaptureTraceTests
         Assert.Null(source.LastOptions);
         Assert.False(File.Exists(tracePath));
         Assert.Contains(CaptureTraceRunner.AdapterRefusal, output.ToString(), StringComparison.Ordinal);
+        // The doctor block above lists adapters by name only; the advice names where the id is.
+        Assert.Contains(CaptureTraceRunner.AdapterIdSource, CaptureTraceRunner.AdapterRefusal, StringComparison.Ordinal);
+        Assert.DoesNotContain("网卡列表中挑一张", CaptureTraceRunner.AdapterRefusal, StringComparison.Ordinal);
         Assert.True(source.Disposed);
     }
 

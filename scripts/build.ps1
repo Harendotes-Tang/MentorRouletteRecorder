@@ -8,7 +8,8 @@
     则用 MinGW + Ninja + Qt 6 configure 并构建桌面端，并把 Collector 输出部署到
     桌面端产物目录旁。
     工具链路径由 MR_QT_PREFIX / MR_MINGW_BIN / MR_NINJA_EXE / MR_CMAKE_EXE 覆盖，
-    构建目录由 MR_BUILD_DIR 覆盖。
+    构建目录由 MR_BUILD_DIR 覆盖；-Distribution 时默认为 build-distribution\，
+    并拒绝开发用的 build\（缓存的 MR_DEV_BUILD=OFF 会留在那里）。
     默认配置为开发构建（-DMR_DEV_BUILD=ON）：桌面端把数据放在
     %LOCALAPPDATA%\MentorRecorder-dev、使用独立的后台服务管道并在版本号后显示 dev；
     只有 scripts/package.ps1 以 -Distribution 配置正式构建（docs/build-and-package.md §3.7）。
@@ -35,7 +36,8 @@ param(
     # installed software's data root and pipe, no "dev" marker. Only
     # scripts/package.ps1 passes this (verify.ps1 and test.ps1 forward it); every
     # other build is a development build that keeps to %LOCALAPPDATA%\MentorRecorder-dev
-    # and cannot touch the installed database (docs/build-and-package.md section 3.7).
+    # and cannot touch the installed database (docs/build-and-package.md section 3.7). It builds
+    # in build-distribution\ unless MR_BUILD_DIR names another directory, and never in build\.
     [switch]$Distribution
 )
 
@@ -54,12 +56,18 @@ $DesktopCMake = Join-Path $RepoRoot 'src\Desktop\CMakeLists.txt'
 # Shared with test.ps1 so a verify run can use a fresh CMake directory without
 # touching the developer's existing build/.
 $configuredBuildDir = [Environment]::GetEnvironmentVariable('MR_BUILD_DIR')
+# The distribution flavour never lands in the developers' build\: MR_DEV_BUILD is a cached CMake
+# option, and a build\ configured OFF stays OFF for every later plain build there, whose exe opens
+# the installed copy's data and migrates its database (audit 2026-11-03, J-3 = M-2, RV5-2).
 $BuildDir = if ([string]::IsNullOrWhiteSpace($configuredBuildDir)) {
-    Join-Path $RepoRoot 'build'
+    Join-Path $RepoRoot $(if ($Distribution) { 'build-distribution' } else { 'build' })
 } elseif ([System.IO.Path]::IsPathRooted($configuredBuildDir)) {
     [System.IO.Path]::GetFullPath($configuredBuildDir)
 } else {
     [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $configuredBuildDir))
+}
+if ($Distribution -and [string]::Equals($BuildDir.TrimEnd('\', '/'), (Join-Path $RepoRoot 'build'), [StringComparison]::OrdinalIgnoreCase)) {
+    throw ("MR_BUILD_DIR 指向开发构建目录 {0}；正式构建会把它配置成正式口味并留在那里。请取消 MR_BUILD_DIR（-Distribution 默认使用 build-distribution）或改用其他目录。" -f $BuildDir)
 }
 $CollectorOutput = Join-Path $RepoRoot ("src\Collector\bin\x64\{0}\net8.0-windows\win-x64" -f $Configuration)
 $DesktopOutput = Join-Path $BuildDir 'src\Desktop'

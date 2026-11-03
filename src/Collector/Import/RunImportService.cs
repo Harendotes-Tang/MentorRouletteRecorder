@@ -426,6 +426,7 @@ public sealed partial class RunImportService
         if (_idempotency.IsPurgedRun(incoming.RunId, incoming.ImportMetadata?.SourceFingerprint, transaction)
             || candidate.LegacyFingerprint is { } purgedBefore && _idempotency.IsPurgedRun(incoming.RunId, purgedBefore, transaction)
             || candidate.PreAliasFingerprint is { } purgedPreAlias && _idempotency.IsPurgedRun(incoming.RunId, purgedPreAlias, transaction)
+            || candidate.PreAliasKeyFingerprint is { } purgedPreAliasKey && _idempotency.IsPurgedRun(incoming.RunId, purgedPreAliasKey, transaction)
             || previousDutyNames.Any(fingerprint => _idempotency.IsPurgedRun(incoming.RunId, fingerprint, transaction)))
             return ("conflict", incoming.RunId);
         if (candidate.HasStableId && _runs.GetInternal(incoming.RunId, transaction) is { } local)
@@ -433,9 +434,18 @@ public sealed partial class RunImportService
         if ((_imports.FindFingerprint(incoming.ImportMetadata!.SourceFingerprint, transaction)
             ?? (candidate.LegacyFingerprint is { } before ? _imports.FindFingerprint(before, transaction) : null)
             ?? (candidate.PreAliasFingerprint is { } preAlias ? _imports.FindFingerprint(preAlias, transaction) : null)
+            ?? (candidate.PreAliasKeyFingerprint is { } preAliasKey ? _imports.FindFingerprint(preAliasKey, transaction) : null)
             ?? previousDutyNames.Select(fingerprint => _imports.FindFingerprint(fingerprint, transaction))
                 .FirstOrDefault(runId => runId is not null)) is { } exact)
             return ("duplicate", exact);
+        // The row may be one an earlier import stored under another region: a region-less row that got a region in
+        // that preview (picked by the person or the Desktop's default), one this reading gives a different region,
+        // or one 1.8.0 imported without a region that schema 13 made a CN record. It is offered as a possible
+        // duplicate, never merged (audit 2026-11-03 H2-4, re-review RV2-2).
+        if ((candidate.RegionalFingerprints ?? Array.Empty<string>())
+            .Select(fingerprint => _imports.FindFingerprint(fingerprint, transaction))
+            .FirstOrDefault(runId => runId is not null) is { } regional)
+            return ("possible_duplicate", regional);
         var nearby = FindNearby(incoming, transaction);
         return nearby is null ? ("new", null) : ("possible_duplicate", nearby);
     }
@@ -444,6 +454,11 @@ public sealed partial class RunImportService
     /// A local run of the same duty that may be this record: entered within a minute, the same source
     /// time, or - when one of the two has no clock time - the same source day as written in the source
     /// and, where both name one, the same job (audit 2026-10-20 H2-1). Two clock times decide on their own.
+    /// Only a row that stays UNKNOWN - from a command-line or JSON caller, or a Desktop candidate that keeps 未知区服 -
+    /// is looked for in every region, since a region may have been picked for it when it was imported before (audit
+    /// 2026-11-03 H2-4). A row with a named region, including one the Desktop gave its default region before this
+    /// reading, is looked for in that region and among UNKNOWN runs only; its fingerprints are still compared under
+    /// every other region (see Classify). Two named regions are never compared by time (contracts/CHANGELOG.md 2026-10-24).
     /// </summary>
     private string? FindNearby(MentorRun incoming, SqliteTransaction? transaction)
     {
@@ -463,13 +478,14 @@ public sealed partial class RunImportService
         using var command = _database.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = "SELECT r.run_id FROM mentor_runs r LEFT JOIN run_import_metadata im ON im.run_id = r.run_id " +
-            "WHERE r.region = $region AND (r.content_id = $content OR ($content IS NULL AND r.duty_name = $name)) AND " +
+            "WHERE ($region IS NULL OR r.region = $region OR r.region = 'UNKNOWN') AND " +
+            "(r.content_id = $content OR ($content IS NULL AND r.duty_name = $name)) AND " +
             "(($entered IS NOT NULL AND r.entered_at_utc BETWEEN $from AND $to) OR " +
             "($source IS NOT NULL AND im.source_recorded_at_utc = $source) OR " +
             "($day IS NOT NULL AND ($undated = 1 OR (r.entered_at_utc IS NULL AND im.source_recorded_at_utc IS NULL)) " +
             "AND ($job IS NULL OR r.job_id IS NULL OR r.job_id = $job) AND " + SourceDaySql("im.source_recorded_at") + " = $day)) " +
             "ORDER BY r.run_id LIMIT 1;";
-        command.Parameters.AddWithValue("$region", EnumWire<Region>.Format(incoming.Region));
+        command.Parameters.AddWithValue("$region", incoming.Region == Region.Unknown ? DBNull.Value : (object)EnumWire<Region>.Format(incoming.Region));
         command.Parameters.AddWithValue("$content", (object?)incoming.ContentId ?? DBNull.Value);
         command.Parameters.AddWithValue("$name", (object?)incoming.DutyName ?? DBNull.Value);
         command.Parameters.AddWithValue("$entered", (object?)UtcTimestamp.ToTextOrNull(incoming.EnteredAtUtc) ?? DBNull.Value);

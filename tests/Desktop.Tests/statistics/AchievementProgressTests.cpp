@@ -41,6 +41,7 @@ public:
         if (type == QLatin1String("GetDashboardStats")) {
             dashboards.append(reply);
             lastDashboardPayload = payload;
+            dashboardPayloadOf.insert(reply, payload);
         }
         else if (type == QLatin1String("UpdateAchievementBaseline")) {
             settingsReply = reply;
@@ -68,6 +69,7 @@ public:
     QPointer<mr::BackendReply> settingsReply;
     QJsonObject settingsPayload;
     QJsonObject lastDashboardPayload;
+    QHash<const mr::BackendReply *, QJsonObject> dashboardPayloadOf;
     int serial = 0;
 };
 
@@ -202,6 +204,7 @@ private Q_SLOTS:
     void regionalGoalReadUsesTheRunsRegion();
     void targetedReadsRejectOlderDashboardMilestones();
     void unusedRegionsReadTheirOwnAuthoritativeDefaults();
+    void reconnectReadsEveryRegionTheScopeReadLeftOut();
 };
 } // namespace
 
@@ -650,6 +653,79 @@ void AchievementProgressTests::unusedRegionsReadTheirOwnAuthoritativeDefaults()
     backend.dashboards.takeLast()->succeed(ProgressBackend::snapshot(0));
     for (const auto &reply : std::as_const(backend.dashboards)) reply->succeed(ProgressBackend::snapshot(0));
     QCOMPARE(stats.allAchievements().size(), 1); // An old scalar cannot authorize other regions.
+}
+
+// A disconnect forgets every region's settings; the reconnect's scope read brings
+// back only the regions it covers. The 成就 editor's region is read once after
+// that first read, and so are GLOBAL and UNKNOWN once the import dialog has asked
+// for every region, so neither stays 「正在读取…」 for good (review I3-2 / K1-3).
+void AchievementProgressTests::reconnectReadsEveryRegionTheScopeReadLeftOut()
+{
+    ProgressBackend backend;
+    mr::StatisticsController stats(&backend);
+    const auto regionOf = [&backend](const mr::BackendReply *reply) {
+        return backend.dashboardPayloadOf.value(reply).value(QStringLiteral("filter")).toObject()
+            .value(QStringLiteral("region")).toString();
+    };
+    const auto answer = [&regionOf](mr::BackendReply *reply) {
+        const QString asked = regionOf(reply);
+        QJsonArray entries;
+        for (const QString &region : {QStringLiteral("CN"), QStringLiteral("TC"),
+                                      QStringLiteral("GLOBAL"), QStringLiteral("UNKNOWN")}) {
+            if (asked.isEmpty() ? region == QLatin1String("CN") || region == QLatin1String("TC") : region == asked) {
+                const int figure = region == QLatin1String("TC") ? 70 : 640;
+                QJsonObject entry = ProgressBackend::snapshot(figure, 2000, figure);
+                entry.insert(QStringLiteral("region"), region);
+                entries.append(entry);
+            }
+        }
+        reply->succeed({{QStringLiteral("achievements"), entries}});
+    };
+    const auto drain = [&backend, &answer] {
+        while (!backend.dashboards.isEmpty()) {
+            const QPointer<mr::BackendReply> reply = backend.dashboards.takeFirst();
+            if (reply && !reply->isFinished())
+                answer(reply);
+        }
+    };
+    // The pipe drops and comes back; the reconnect's scope read is for CN only.
+    // Returns the regions asked for once that read has answered.
+    const auto reconnect = [&] {
+        stats.forgetAchievementSettings();
+        stats.refreshDashboard();
+        QStringList asked;
+        if (backend.dashboards.size() != 1 || regionOf(backend.dashboards.first()) != QLatin1String("CN"))
+            return QStringList{QStringLiteral("unexpected scope read")};
+        answer(backend.dashboards.takeFirst());
+        for (const auto &reply : std::as_const(backend.dashboards))
+            asked.append(regionOf(reply));
+        asked.sort();
+        return asked;
+    };
+    stats.setRecordRegion(QStringLiteral("CN"));
+    stats.setBaselineRegion(QStringLiteral("TC"));
+    drain();
+    QVERIFY(stats.achievementSettingsLoaded());
+
+    QCOMPARE(reconnect(), QStringList{QStringLiteral("TC")});
+    QVERIFY(!stats.achievementSettingsLoaded());
+    drain();
+    QVERIFY(stats.achievementSettingsLoaded());
+    QCOMPARE(stats.baselineCount(), 70);
+
+    // The import dialog asks for every region.
+    stats.refreshAchievementRegions();
+    drain();
+    QCOMPARE(stats.allAchievements().size(), 4);
+    QCOMPARE(reconnect(), (QStringList{QStringLiteral("GLOBAL"), QStringLiteral("TC"), QStringLiteral("UNKNOWN")}));
+    drain();
+    QVERIFY(stats.achievementSettingsLoaded());
+    QCOMPARE(stats.allAchievements().size(), 4);
+    // Once per connection: later reads ask for nothing more.
+    stats.refreshDashboard();
+    QCOMPARE(backend.dashboards.size(), 1);
+    answer(backend.dashboards.takeFirst());
+    QVERIFY(backend.dashboards.isEmpty());
 }
 
 void AchievementProgressTests::renderedEvidence()

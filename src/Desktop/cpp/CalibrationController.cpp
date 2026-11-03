@@ -92,9 +92,14 @@ void CalibrationController::refreshFromCaptureStatus(const QVariantMap &capture)
             continue;
         // Local wall-clock, because that is the clock the user watched while
         // playing. The raw stamp stays on the map for anything that needs it.
+        // The latest queue request before a pop or an entry may be from an
+        // earlier day: a line not from today carries its date (「11-02 23:48」).
         const QDateTime at = parseUtc(event.value(QStringLiteral("at_utc")));
+        const QDateTime local = at.isValid() ? at.toLocalTime() : QDateTime();
         event.insert(QStringLiteral("time_text"),
-                     at.isValid() ? at.toLocalTime().toString(QStringLiteral("HH:mm")) : QString());
+                     !local.isValid() ? QString()
+                     : local.date() == QDate::currentDate() ? local.toString(QStringLiteral("HH:mm"))
+                                                            : local.toString(QStringLiteral("MM-dd HH:mm")));
         events.append(event);
     }
     std::ranges::stable_sort(events, [](const QVariant &left, const QVariant &right) {

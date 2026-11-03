@@ -99,7 +99,7 @@ tag 中原本不含该段落时，跳过。找不到 git 或当前目录不是�
 `tools/package-verification/test_package_version.py` 逐条自测；该自测由
 `scripts/run-python-tool-tests.ps1` 自动发现，`verify.ps1` 的「工具自测」关卡会运行它。
 `run-python-tool-tests.ps1` 运行任何自测脚本之前，先在所用的解释器中逐个导入 `tools/requirements-ci.txt`
-列出的包（`opencv-python-headless` 按 `cv2` 导入）；缺少任何一个即以退出码 1 失败，列出缺少的包，并提示运行
+列出的包（`opencv-python-headless` 按 `cv2` 导入，`PyYAML` 按 `yaml` 导入）；缺少任何一个即以退出码 1 失败，列出缺少的包，并提示运行
 `python -m pip install -r tools/requirements-ci.txt`，或将 `MR_PYTHON_EXE` 指向已安装这些包的解释器。
 unittest 报告的跳过数按脚本列在汇总末尾；跳过不改变退出码，但被跳过的测试在本机没有得到验证。
 
@@ -118,9 +118,14 @@ Machina.FFXIV 包中附带的原生注入载荷 `deucalion-*.dll` 从所有构�
 | `Machina.FFXIV` | 2.4.7.7 | GPL-3.0 |
 | `Machina`（传递依赖） | 2.3.1.3 | GPL-3.0 |
 | `Microsoft.Data.Sqlite` | 8.0.11 | MIT |
-| `SQLitePCLRaw.*`（传递依赖） | 随上 | Apache-2.0 / MIT / public domain（SQLite 本体） |
+| `SQLitePCLRaw.bundle_e_sqlite3`（直接固定，替换 `Microsoft.Data.Sqlite` 自带的原生 SQLite；其余 `SQLitePCLRaw.*` 为传递依赖） | 2.1.14 | Apache-2.0；SQLite 本体为 public domain |
 | `SharpPcap` | 6.3.1 | MIT |
 | `PacketDotNet`（传递依赖） | 1.4.8 | MPL-2.0 |
+| `NPOI`（仅用于读取 XLS） | 2.7.6 | Apache-2.0 |
+| `NPOI` 的传递依赖 | 见 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) | 同上文件逐项列出 |
+| `SixLabors.Fonts`（直接固定，NPOI 公式解析引用） | 1.0.1 | Apache-2.0 |
+| `System.Security.Cryptography.Xml`（直接固定） | 8.0.5 | MIT |
+| `SixLabors.ImageSharp`（仅取编译期资产，不进入运行与发布内容） | 4.1.3 | Six Labors Split License，对本项目授予 Apache-2.0（见 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)） |
 | `xunit` / `xunit.runner.visualstudio`（仅测试） | 2.9.3 / 4.0.0 | Apache-2.0 |
 | `Microsoft.NET.Test.Sdk`（仅测试） | 18.10.1 | MIT |
 | `JsonSchema.Net`（仅集成测试） | 7.3.4 | MIT |
@@ -226,7 +231,9 @@ QML 测试通过 `QQmlApplicationEngine::objectCreationFailed` 将 QML 错误转
 截图运行期间出现任何 QML / JavaScript 运行时警告时，画面照常写出，进程以退出码 10 结束，
 ctest 另以 `FAIL_REGULAR_EXPRESSION` 匹配警告输出，任一检查命中都会导致用例失败。
 模拟后端截图用例要求核对文字时，若测试目标并非「无法自动记录」提示、而该提示却遮挡了被测页面，画面仍会写出，
-进程以退出码 13 结束；不以该提示为测试目标的截图用例因此都带 `--mock-recording-state listening`。
+进程以退出码 13 结束；不以该提示为测试目标、而所测状态下该提示又会出现的截图用例因此带 `--mock-recording-state listening`，
+所测状态下该提示本就不出现的用例（如 `MentorRecorderQmlValidation_*`、`MentorRecorderQmlCalibration_*`、
+`MentorRecorderQmlSharedCalibration_*`）不带该参数。
 
 ### 3.3 截图
 
@@ -246,14 +253,19 @@ build\src\Desktop\MentorRecorder.Desktop.exe --screenshot out.png --page 5 --the
 为导入后命中／未命中公开仓库索引的校准码）、
 `--mock-update-available`（更新检查报告有新版本）、
 `--mock-update-download downloading|verifying|ready|failed`（软件内下载停在指定阶段，隐含 `--mock-update-available`；
-不联网，模拟运行从不启动安装程序）。
+不联网，模拟运行从不启动安装程序）、
+`--mock-validation-state waiting|recording|stopping|completed|cancelling|cancelled|failed`（采证轮次的状态；
+`cancelling` / `cancelled` 为正在放弃 / 已放弃等待）、
+`--mock-open-evidence steps|report`（在「捕获诊断」下打开「新区服采证」子页：`steps` 停在当前步骤，`report` 打开已结束一轮的回传说明）。
+其余模拟开关见 `MentorRecorder.Desktop.exe --help`。
 两种后端都可用：`--open-detail`、`--open-edit`、`--show-disclosure`、
 `--mock-open-create`（打开「新增遗漏记录」向导）、`--mock-wizard-step 1|2|3`（向导停留的步骤序号）、
 `--mock-detail-tab info|events|revs|refl`（详情浮层默认页签，会一并打开浮层）、
-`--mock-ui-style eorzea|classic`（本次运行固定界面风格，不改写 desktop.ini）、
+`--mock-ui-style eorzea|classic|harendotes`（本次运行固定界面风格，不改写 desktop.ini）、
 `--export-target <dir>`、`--screenshot-delay <ms>`、`--screenshot-size <WxH>`。
-`--autostart` 是开机启动的 Run 值传入的参数（§3.7 与 [ui-design.md](ui-design.md) §4.5）：系统托盘可用时主窗口保持关闭，
-程序只在托盘中等待；截图模式忽略它。
+开机启动的 Run 值写作 `"<exe>" autostart`（位置参数，§3.7 与 [ui-design.md](ui-design.md) §4.5）；`--autostart` 选项同样接受，
+两者作用相同：系统托盘可用时主窗口保持关闭，程序只在托盘中等待；截图模式忽略它们。1.8.x 不认识 `--autostart`
+选项、遇到时报错退出，但会忽略位置参数，因此登录项改用位置参数后，换回 1.8.x 的用户登录时仍能正常打开程序。
 默认使用 offscreen 平台，设置 `QT_QPA_PLATFORM=windows` 可渲染真实窗口。
 详见 [ui-design.md](ui-design.md) §7。
 
@@ -373,7 +385,13 @@ Npcap 与 FF14 等状态停留在默认值。
 
 `src/Desktop/CMakeLists.txt` 的选项 `MR_DEV_BUILD` 默认 `ON`。Qt Creator 构建、手工 `cmake` 配置与
 `scripts/build.ps1` 的产物都是**开发构建**；只有 `scripts/package.ps1` 通过 `scripts/build.ps1 -Distribution`
-（`verify.ps1` 与 `test.ps1` 的同名开关一路转发）以 `-DMR_DEV_BUILD=OFF` 配置出**正式构建**。两种口味的差别
+（`verify.ps1` 与 `test.ps1` 的同名开关一路转发）以 `-DMR_DEV_BUILD=OFF` 配置出**正式构建**，并且在自己的构建目录中进行：
+默认为 `build-distribution\`；调用方为本次打包显式设置 `MR_BUILD_DIR` 时使用该目录，但它解析为开发用的 `build\` 时打包直接拒绝。
+打包期间 `MR_BUILD_DIR` 指向这一目录，`verify.ps1`、`build.ps1` 及其调用的脚本都在其中构建，结束后恢复调用方原来的值。
+单独运行 `build.ps1`、`test.ps1` 或 `verify.ps1` 并带 `-Distribution` 时规则相同：`MR_BUILD_DIR` 未设置即使用 `build-distribution\`，
+解析为 `<仓库>\build`（不区分大小写、忽略末尾的斜杠）时在脚本启动时就拒绝，提示与 `package.ps1` 相同；不带 `-Distribution` 时行为不变。
+这样安排是因为 `option()` 会把取值保存在 CMake 缓存中：一个目录一旦以 `OFF` 配置，之后不带该选项的配置与构建仍是正式构建；
+`build.ps1` 每次都显式传入 `-DMR_DEV_BUILD`，手工 `cmake` 与 Qt Creator 则沿用缓存。`build\` 因此始终是开发构建（§3.5 方式 A）。两种口味的差别
 集中在 `src/Desktop/cpp/transport/BuildFlavour.h`，由 `MentorRecorderIpcWire` 编译，管道命名、桌面端库与测试共用同一份定义；
 Collector 没有口味之分。
 
@@ -385,34 +403,58 @@ Collector 没有口味之分。
 | 标题栏与关于页 | `v1.7.3` | `v1.7.3 dev` |
 
 两种口味可以在同一账户下同时运行而互不相见。显式设置的 `MR_DATA_DIR` 在两种口味下都优先，因此把开发构建指向
-正式目录仍然可行，但必须是有意为之。图标缓存 `%LOCALAPPDATA%\MentorRecorder\icons\`、默认导出目录与
-自启动注册表值不区分口味（开发构建在「开机启动」为开时同样会在启动时把该值重写为自己的路径，见
-[ui-design.md](ui-design.md) §4.5，开发机上请勿在开发口味里打开该开关）。手工启动 Collector（§3.5 方式 B）时须自行设置 `MR_DATA_DIR` 与 `--pipe`，
-否则它服务的是正式管道、写的是正式目录。
+正式目录仍然可行，但必须是有意为之。图标缓存 `%LOCALAPPDATA%\MentorRecorder\icons\` 与默认导出目录不区分口味。
+开机启动的注册表值 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\MentorRecorder` 只属于正式构建：开发构建从不打开
+该注册表键，既不登记自己，也不改写或删除正式安装版登记的值，「开机启动」开关显示为不可用，并说明
+「开发构建不登记开机启动，以免替换已安装版本的开机启动项」（[ui-design.md](ui-design.md) §4.5）。
+手工启动 Collector（§3.5 方式 B）时须自行设置 `MR_DATA_DIR` 与 `--pipe`，否则它服务的是正式管道、写的是正式目录。
+开发构建的桌面端以 `--pipe` 拉起子进程，后者把租约进程号写入 `serve.<管道名>.pid`（管道名中 `[A-Za-z0-9._-]` 以外的
+字符替换为 `_`），开发构建的桌面端也只读取这个文件，从不读取正式 Collector 的 `serve.pid`。
+
+正式构建另把一份 `qt.conf`（`[Paths]`、`Prefix = .`）嵌入可执行文件（资源 `:/qt/etc/qt.conf`）。Qt 读取它先于磁盘上的
+任何 `qt.conf` 或 `qt6.conf`，它把 Qt 的前缀固定为可执行文件所在的文件夹：否则只要安装文件夹的上一级存在
+`lib\libQt6Core.a`（默认安装位置 `D:\MentorRecorder` 对应 `D:\lib`），Qt 就会把上一级当作前缀，先于安装文件夹从
+`D:\plugins`、`D:\qml` 加载插件与 QML 模块（§5.3）。开发构建从 Qt SDK 加载 Qt、须以 SDK 为前缀，因此不嵌入。
+正式构建在构建目录中运行时，旁边没有插件与 QML 模块，只有在 `QT_PLUGIN_PATH` 与 `QML_IMPORT_PATH` 指向 SDK 的
+`plugins`、`qml` 时才能启动；ctest 为正式口味的每个桌面端测试设置这两个变量，手工从构建目录启动正式构建则会停在
+Qt 报告无法加载平台插件的错误提示框。打包后的目录由 `windeployqt` 把插件与 QML 模块放在程序旁边，不受影响。
+CTest 项 `MentorRecorderDesktopQtConfFollowsFlavour` 核对构建出的可执行文件：正式构建必须含有该 `qt.conf`，开发构建不得含有。
 
 可执行文件中带有一个以 NUL 结尾的窄字符串口味标记：开发构建为 `MR_BUILD_FLAVOUR=development`，正式构建为
 `MR_BUILD_FLAVOUR=distribution`。`scripts/package.ps1` 的 `Assert-DesktopExecutable` 在暂存前与解包后各核对一次：
 出现开发标记，或缺少正式标记，打包即失败（§5.1）。两种口味的目录、管道、子进程参数与环境规则均由
-`tests/Desktop.Tests/BuildFlavourTests.cpp` 在同一个测试程序中覆盖，`LifecycleTests.cpp` 另核对当前口味下
+`tests/Desktop.Tests/transport/BuildFlavourTests.cpp` 在同一个测试程序中覆盖，`transport/LifecycleTests.cpp` 另核对当前口味下
 真实监督器的行为，不依赖打包链路。CI 的 `verify.ps1` 不带 `-Distribution`，验证的是开发口味；
 正式口味由 `package.ps1 -Verify` 的整条链路构建、测试并解包验证。
 
 ## 4. 脚本
 
-全部脚本位于 `scripts/`，以 PowerShell 编写，要求 PowerShell 7（`pwsh`）：每个脚本首行为
-`#Requires -Version 7.0`，在 Windows PowerShell 5.1 中运行会被直接拒绝，而不是在中文 Windows 上因编码
-误读而出错。
+脚本位于 `scripts/`，除少数 Python 辅助脚本（如 `generate-import-templates.py`）外均以 PowerShell 编写，要求 PowerShell 7（`pwsh`）：
+每个 `.ps1` 首行为 `#Requires -Version 7.0`，在 Windows PowerShell 5.1 中运行会被直接拒绝，而不是在中文 Windows 上因编码
+误读而出错。下表列出直接运行的脚本；`package-runtime.ps1`、`package-version.ps1` 与 `ocr-runtime.ps1` 由其他脚本点源引入，
+`run-bounded-process.ps1` 由 `tools/` 下的 Python 工具调用。
 
 | 脚本 | 作用 |
 |---|---|
 | `bootstrap.ps1` | 检查 .NET 8 运行时、CMake、Ninja、MinGW、Qt 路径；报告 Npcap 是否安装（**只检测，不下载**） |
 | `build-local-ai-ocr-worker.ps1` | 使用指定的构建 Python 和本地模型生成自包含 CPU OCR；显式传入 `-InstallBuildDependencies` 时才安装固定的构建依赖 |
 | `bootstrap-ocr.ps1` | 校验或复制已构建的固定 OCR 运行目录，核对 SHA256、文件闭包与许可证；不联网、不安装软件、不改 PATH |
-| `build.ps1` | `dotnet build -c Release`；若 `src/Desktop/CMakeLists.txt` 存在则再执行 CMake configure 与 build，将完整的 Collector 及已准备的固定 OCR 目录部署到 Desktop 同目录；未提供 OCR 时明确报告资产部署未执行。默认配置为开发构建（`MR_DEV_BUILD=ON`），`-Distribution` 配置正式构建（§3.7），只由 `package.ps1` 使用 |
+| `build.ps1` | `dotnet build -c Release`；若 `src/Desktop/CMakeLists.txt` 存在则再执行 CMake configure 与 build，将完整的 Collector 及已准备的固定 OCR 目录部署到 Desktop 同目录；未提供 OCR 时明确报告资产部署未执行。默认配置为开发构建（`MR_DEV_BUILD=ON`），`-Distribution` 配置正式构建（§3.7），只由 `package.ps1` 使用；正式构建默认位于 `build-distribution\`（`MR_BUILD_DIR` 可另指），指向开发用的 `build\` 时拒绝运行 |
 | `test.ps1` | 默认完整构建后运行全部 .NET / Qt / QML 测试，并**解析 TRX 报告真实用例数**；`-NoBuild` 复用已有产物 |
-| `verify.ps1` | 环境自检 + 完整依赖安全审计 + 静态边界检查 + 架构依赖门禁 + 协议档案校验 + `tools/` 下全部 Python 自测（含检查器反向自测）+ 全部测试 + C++ cppcheck + 监听端口核对 + `LIVE_CAPTURE_STATUS` 断言 + 注入载荷扫描 + 许可证材料核对 + 构建目录已部署 OCR 时的离线 OCR 运行验证（提交前必须运行）；`-NoBuild` 复用已有构建产物，`-TestFilter` 转发 xunit 特征筛选，`-SkipGate` 显式跳过单个关卡；带其中任一参数的运行是部分验证（见 4.4）；`-Distribution` 转发给 `test.ps1` 与 `build.ps1`，以正式口味构建并测试（§3.7） |
-| `package.ps1` | 先运行 `verify.ps1`，再发布 Collector、部署 Qt 运行时、补齐许可证与 docs，生成 zip 与 SHA256；`-Verify` 额外解包并运行两个可执行文件，未带 `-Verify` 的产物不得公开分发（见 §5） |
+| `verify.ps1` | 环境自检 + 完整依赖安全审计 + 静态边界检查 + 架构依赖门禁 + 协议档案校验 + 内置导入模板与 `generate-import-templates.py --check` 的生成结果一致（见表后说明）+ `tools/` 下全部 Python 自测（含检查器反向自测）+ 全部测试 + 全量 QML/JS 检查（`qml-lint.ps1`）+ C++ cppcheck + 监听端口核对 + `LIVE_CAPTURE_STATUS` 断言 + 注入载荷扫描 + 许可证材料核对 + 构建目录已部署 OCR 时的离线 OCR 运行验证（提交前必须运行）；`-NoBuild` 复用已有构建产物，`-TestFilter` 转发 xunit 特征筛选，`-SkipGate` 显式跳过单个关卡；带其中任一参数的运行是部分验证（见 4.4）；`-Distribution` 只供 `package.ps1` 使用：转发给 `test.ps1` 与 `build.ps1`，在 `build-distribution\`（或 `MR_BUILD_DIR` 所指、但不得是开发用的 `build\` 的目录）中以正式口味构建并测试（§3.7） |
+| `package.ps1` | 先核对版本号与 CHANGELOG，再在 `build-distribution\` 中运行 `verify.ps1` 并构建正式口味（§3.7），然后发布 Collector、部署 Qt 运行时、补齐许可证与 docs，生成 zip 与 SHA256；`-Verify` 额外解包并运行两个可执行文件，未带 `-Verify` 的产物不得公开分发（见 §5） |
 | `static-analysis.ps1` | 对桌面端 C++ 逐编译单元运行 clang-tidy 与 cppcheck，按检查项汇总并将原始输出写入 `artifacts/static-analysis/`；只有编译错误、`clang-analyzer-*` 告警与 cppcheck 的 error 级结果令退出码非零（见 4.5） |
+| `qml-lint.ps1` | 读取当前 CMake 构建生成的 qmllint 参数与模块类型信息，检查全部桌面端 QML/JS；任何诊断警告均令其失败，`verify.ps1` 第 5a 步调用它 |
+| `run-python-tool-tests.ps1` | 先逐个导入 `tools/requirements-ci.txt` 所列的包，再运行 `tools/` 下全部 Python 自测并按脚本汇总跳过数；`verify.ps1` 第 4 步调用它（见 §2） |
+| `security-quality.ps1` | `-Phase Local` 运行本地完整依赖安全审计（`verify.ps1` 第 1b 步）；`PrePush`、`PostPush`、`Merge`、`Release` 只读读回 GitHub 上当前提交的安全门禁结果，不做任何远端写入（见 [安全与质量门禁](security-quality-gates.md)） |
+
+`generate-import-templates.py` 按自身的字段表生成桌面端内置的导入模板（`src/Desktop/resources/import-templates/`
+下的 `instructions.txt`、`personal-records.json` 与 `personal-records.xlsx`）；不带参数时写出这三个文件，`--out-dir <目录>`
+改为写到（或配合 `--check` 检查）指定目录。`--check` 不写任何文件，任一模板缺失或内容与生成结果不同（工作簿无法作为压缩包读取时同样算不同）即以 1 退出：
+两个文本模板在换行统一为 LF 之后逐行比较（Windows 上按 `text=auto` 检出为 CRLF 同样算一致），工作簿按解压后的各成员
+（名称与内容，按归档内顺序）比较，因此压缩所用的 zlib 版本不影响结果。`verify.ps1` 第 3c 步以 `python -I` 运行
+`--check`；它的离线自测 `tools/import-templates/test_generate_import_templates.py` 由 `run-python-tool-tests.ps1` 按
+`tools/**/test_*.py` 找到并在第 4 步运行，C# 测试 `RunImportTemplateTests` 另核对字段表与模板各列一致。
 
 用法：
 
@@ -457,6 +499,11 @@ pwsh -File scripts/bootstrap-ocr.ps1 `
 `tools/package-verification/test_ocr_manifest.py` 核对该文件（换行统一为 LF 后）的 SHA-256 与依赖清单记录的
 `requirements_sha256` 一致，并核对清单中每个来自 PyPI 的组件在该文件中固定为同一版本。因此升级其中任何依赖，
 包括 Dependabot 提出的升级，都必须在同一改动中重新构建 OCR payload 并更新依赖清单，否则工具自测失败。
+该自测同样核对 `scripts/local-ai-ocr-worker.py` 与 `tools/LocalAiOcr/build_worker.py` 的 SHA-256 与清单记录的
+`worker_source_sha256`、`builder_source_sha256` 一致：`build_worker.py` 记录的是它所在检出中文件原样的字节，
+现有清单为 Windows 检出的 CRLF 形式，因此自测把源文件的文本分别按 LF 与 CRLF 换行计算，清单值与其中任一相符即可，
+LF 与 CRLF 检出得到同一结论；下次重建 payload 时改为只记录、只接受 LF 形式（自测中注明的待办），
+因此修改这两个源文件而不重新构建 payload、更新清单，同样会使工具自测失败，不会继续分发旧的冻结程序。
 准备结果默认位于已忽略的 `artifacts/dependencies/ocr/<cache_id>/runtime`。
 `MR_OCR_DIR` 可指定已有的完整离线运行目录；不带参数运行 `bootstrap-ocr.ps1` 可校验并试运行已准备的目录。
 常规应用构建、打包、准备缓存和用户运行均不为 OCR 下载文件，不搜索系统 Python、Tesseract 或 PATH。
@@ -521,9 +568,10 @@ pwsh -File scripts/verify.ps1 -Configuration Release -TestFilter 'Category!=Soak
 ```
 
 CI 因此执行 `verify.ps1` 的绝大部分关卡：完整 NuGet 解析图审计、静态边界检查与架构依赖门禁、
-`tools/` 下的 Python 自测、桌面端与真实 Collector 之间的
-`MentorRecorderIpcIntegration` 与 `MentorRecorderLifecycle`（`build.ps1` 会把
-Collector 运行目录部署到测试二进制旁边）、TRX 真实计数与空测试保护、C++ cppcheck、监听端口核对、
+协议档案校验、内置导入模板一致性、`tools/` 下的 Python 自测、桌面端与真实 Collector 之间的
+`MentorRecorderIpcIntegration`（`build.ps1` 会把 Collector 运行目录部署到测试二进制旁边；
+`MentorRecorderLifecycle` 则以替身可执行文件驱动子进程监护，不需要 Collector）、TRX 真实计数与空测试保护、
+全量 QML/JS 检查（`qml-lint.ps1`）、C++ cppcheck、监听端口核对、
 `LIVE_CAPTURE_STATUS` 断言、注入载荷扫描与许可证材料核对。CI 不执行的部分见下列差异。
 
 与本地发布验收相比有以下差异：
@@ -552,10 +600,12 @@ Collector 运行目录部署到测试二进制旁边）、TRX 真实计数与空
 `injection-payload`。被跳过的关卡会在跳过时与结论中各提示一次，不会静默通过。
 
 `PUBLIC_DISTRIBUTION_READY` 是对一次完整运行的判断。带 `-SkipGate`、`-TestFilter` 或 `-NoBuild`
-的运行，以及构建目录中未部署 OCR、`ocr-runtime` 关卡因此被记为跳过的运行，即使全部通过、退出码为 0，
+的运行，构建目录中未部署 OCR、`ocr-runtime` 关卡因此被记为跳过的运行，以及 `tools/` 下的 Python 自测有任何一项被
+跳过、`tool-selftests` 关卡因此被记为跳过的运行，即使全部通过、退出码为 0，
 结论中也只说明这是一次部分验证，不打印 `PUBLIC_DISTRIBUTION_READY = true`；`-NoBuild` 复用磁盘上
 已有的构建产物，它们可能早于正在验证的源码。
-这类运行不能作为发布验收。
+这类运行不能作为发布验收；`package.ps1` 预验证得到这类结果时，`public_distribution_ready` 为 `false`，
+阻断原因写明「预验证只完成部分验证或未返回完整结果（verification_complete=false）」（[release-checklist.md](release-checklist.md) §7）。
 
 另有一个 `markdown` job，使用固定版本的 `markdownlint-cli@0.49.1` 检查 `docs/`、`README.md`、
 `CHANGELOG.md`、`CONTRIBUTING.md`、`SECURITY.md`；该版本号写在工作流中，Dependabot 不跟踪，需手动升级。
@@ -569,8 +619,9 @@ Collector 运行目录部署到测试二进制旁边）、TRX 真实计数与空
 
 ### 4.5 `static-analysis.ps1`：clang-tidy 与 cppcheck
 
-输入是 `build/compile_commands.json`（`MR_BUILD_DIR` 与 `build.ps1` 同义），因此需要先
-完成一次构建再运行。分析范围是 `src/Desktop/cpp` 与 `tests/Desktop.Tests` 下的每个
+输入是 `build/compile_commands.json`（`MR_BUILD_DIR` 与 `build.ps1` 同义；该脚本只从这个变量读取构建目录），因此需要先
+完成一次构建再运行。由 `verify.ps1` 调用时，`verify.ps1` 在这一步把 `MR_BUILD_DIR` 设为本次验证的构建目录
+（带 `-Distribution` 时即 `build-distribution\`），结束后恢复调用方的原值。分析范围是 `src/Desktop/cpp` 与 `tests/Desktop.Tests` 下的每个
 `.cpp`；C# 侧由编译器的 `TreatWarningsAsErrors` 与 `tools/static-boundary-check`
 覆盖，不在这里。
 
@@ -606,8 +657,8 @@ pwsh -File scripts/static-analysis.ps1 -Strict            # 任何告警都算�
 - llvm-mingw 的 clang-tidy 默认找 libc++，而 `compile_commands.json` 来自 MinGW g++，
   标准库头文件只在 GCC 目录里，因此脚本加 `--extra-arg=-stdlib=libstdc++`。
 - cppcheck 用 ANSI 文件 API，带非 ASCII 字符的绝对路径打不开；脚本以仓库根为工作目录
-  只传相对路径，编译宏写进一个强制包含的头文件（`artifacts/static-analysis/cppcheck/
-  compile-defines.h`）而不是命令行。
+  只传相对路径，编译宏写进一个强制包含的头文件（本次运行输出目录下的 `cppcheck/compile-defines.h`，
+  默认即 `artifacts/static-analysis/run-<id>/cppcheck/compile-defines.h`）而不是命令行。
 - cppcheck 不解析 Qt 头文件（太慢，`--library=qt` 已描述其语义），因此
   `Q_OS_WIN` 这类由 Qt 头文件从编译器宏推导出来的宏要显式定义，否则
   `#ifdef Q_OS_WIN` 分支会被当作死代码而报出恒真/恒假条件。
@@ -647,12 +698,16 @@ pwsh -File scripts/package.ps1 -Force -Verify   # 再解包运行一次，证明
 
 默认行为：
 
-1. 先读取一次源码状态（提交号、工作区是否有未提交改动、git 能否回答），再执行
+1. 先做「版本预检」：按 §2 的规则核对 `CHANGELOG.md` 最上方的段落与版本号，并执行
+   `Assert-ReleasedChangelogSectionsUnchanged`。这两项不需要任何构建产物，因此在验证与构建之前进行，不符即打包失败，
+   不必等正式口味构建完毕；可执行文件中的版本号仍在装配后由 `Assert-StagedVersion` 核对。
+   随后读取一次源码状态（提交号、工作区是否有未提交改动、git 能否回答），再执行
    `scripts/verify.ps1 -Configuration <...> -Distribution`，使整条验证链路构建并测试的是正式口味（§3.7）。
-2. 再执行 `scripts/build.ps1 -Distribution` 补齐构建产物，并对 `build\src\Desktop\MentorRecorder.Desktop.exe` 执行
+   验证与下一步的构建都在打包专用的构建目录（默认 `build-distribution\`，下文记作 `<构建目录>`）中进行。
+2. 再执行 `scripts/build.ps1 -Distribution` 补齐构建产物，并对 `<构建目录>\src\Desktop\MentorRecorder.Desktop.exe` 执行
    `Assert-DesktopExecutable`（见 §5.1）；随后执行
    `dotnet publish src/Collector/MentorRecorder.Collector.csproj -r win-x64 --self-contained true`。
-3. 复用 `build\src\Desktop\MentorRecorder.Desktop.exe`，对其运行 `windeployqt --release --compiler-runtime --no-translations --no-ffmpeg --exclude-plugins ffmpegmediaplugin`
+3. 复用 `<构建目录>\src\Desktop\MentorRecorder.Desktop.exe`，对其运行 `windeployqt --release --compiler-runtime --no-translations --no-ffmpeg --exclude-plugins ffmpegmediaplugin`
    （在线语音只播放 WAV，只需要 Windows 多媒体后端，见 [third-party-licenses.md](third-party-licenses.md) §3）。
 4. 若 `windeployqt` 未补齐 MinGW 运行时，则显式复制 `libgcc_s_seh-1.dll`、`libstdc++-6.dll`、`libwinpthread-1.dll`。
 5. 显式补入 `platforms\qoffscreen.dll`，保证发布包中的 `--screenshot` 离屏验收入口可运行。
@@ -668,10 +723,11 @@ pwsh -File scripts/package.ps1 -Force -Verify   # 再解包运行一次，证明
 `multimedia\windowsmediaplugin.dll`、`LICENSE`、
 `THIRD_PARTY_NOTICES.md`、`README.md`、`SOURCE_CODE.md`、`BUILD-METADATA.json`、
 `SHA256SUMS.txt`、`docs\`（含 `privacy-boundary.md`、`third-party-licenses.md`、
-`release-checklist.md`）。
+`release-checklist.md`）、`ocr\OCR-DEPENDENCIES.json`；`ocr\` 另须按固定清单通过离线 OCR 运行目录的核对（`Assert-OcrRuntime`）。
 
 **必须不包含**：`deucalion*`、`oo2net*.dll`、`wpcap.dll` / `Packet.dll` / `*npcap*`、
-`ffxiv*.exe`、`*.pcap` / `*.pcapng`、`*.db` / `*.db-wal` / `*.db-shm` / `*.sqlite*`、
+`ffxiv.exe` / `ffxiv_dx11.exe`（按完整文件名匹配）、`*.pcap` / `*.pcapng`、
+`*.db` / `*.db-wal` / `*.db-shm` / `*.sqlite` / `*.sqlite3`（按扩展名匹配）、
 `*.log`、`*.trx`、**`*.pdb`**、FFmpeg（所有文件名含 `ffmpeg` 的文件，含 OpenCV 可选视频 DLL；`avcodec-*.dll`、`avformat-*.dll`、
 `avutil-*.dll`、`avdevice-*.dll`、`avfilter-*.dll`、`swresample-*.dll`、`swscale-*.dll`、`postproc-*.dll`）、
 以及整个 `protocol-profiles/synthetic/`。
@@ -818,7 +874,7 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
   安装即停止并指出该文件夹；安装程序不删除它，也不改动 `note-images` 与 `{app}` 中的文件，由用户删除或移走
   该文件夹后重新运行安装程序。通过这项检查之后，安装程序逐个处理此前已直接位于 `{app}` 中的文件：
   所有者改为 Administrators，并清除其显式授权，使其只继承上述 ACL——安装之前由其他账户放入的
-  文件因此不能保留原属主或自带的授权。随后即被 `[InstallDelete]` 删除的 `*.dll` 与 `qt.conf` 跳过。
+  文件因此不能保留原属主或自带的授权。随后即被 `[InstallDelete]` 删除的 `*.dll`、`qt.conf` 与 `qt6.conf` 跳过。
   处理每个文件之前先读取其硬链接数：文件是重解析点、另有硬链接，或链接数无法读取时，安装停止并指出该文件，
   不删除也不改动任何内容。允许留下的子文件夹分两类：代码与资源目录不在 ssInstall 删除，而是由 `[InstallDelete]`
   首条目的 `BeforeInstall`（`ClearCodeDirectories`）在该段落执行之前整个删除（遇到链接只删除链接本身，不进入链接
@@ -843,9 +899,11 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
   Windows 11 与 Windows 10 22H2 上阻止安装与卸载程序跟随非提升进程创建的链接；更早的系统靠上述自行检查。
 - **`[InstallDelete]` 在复制文件之前清除旧内容。** 各代码与资源子文件夹此时已由上一条的删除步骤删除，
   `[InstallDelete]` 仍列出它们，`package.ps1` 据此核对发布的每个子文件夹都在清除之列。此外还删除直接位于 `{app}` 的
-  全部 `*.dll` 与 `qt.conf`：安装包不附带 `qt.conf`，自带的 DLL 随后照常写回，安装之前被放入该文件夹的
-  DLL 或 `qt.conf` 因此不会被程序加载。可执行文件不在此列（卸载程序 `unins*.exe` 由 Setup 在每次升级时
-  重写）。从 1.5.0 及更早版本升级时，另删除已不再使用的外部应用程序清单
+  全部 `*.dll`、`qt.conf` 与 `qt6.conf`：安装包不附带这两个配置文件，自带的 DLL 随后照常写回，安装之前被放入该文件夹的
+  DLL、`qt.conf` 或 `qt6.conf` 因此不会被程序加载（两者同时存在时 Qt 6 优先读取 `qt6.conf`，只删 `qt.conf` 不足以防范）。
+  此外正式构建的桌面端内嵌 `:/qt/etc/qt.conf`（§3.7），Qt 读取它先于磁盘上的这两个文件，因此即使在 `[InstallDelete]`
+  执行之前，放入 `{app}` 的 `qt.conf` 或 `qt6.conf` 也不能改变桌面端加载插件与 QML 模块的位置；Collector 不读取这两个文件。
+  可执行文件不在此列（卸载程序 `unins*.exe` 由 Setup 在每次升级时重写）。从 1.5.0 及更早版本升级时，另删除已不再使用的外部应用程序清单
   `{app}\MentorRecorder.Desktop.exe.manifest`（清单已内嵌在程序中）。
 - **这项保护的范围。** 它针对的是安装文件夹自身，以下情形不在其内，与不受信任的用户共用的电脑应安装到
   `Program Files`：上级目录若允许普通用户删除或重命名其中的条目（例如对 Users 授予完全控制的数据盘根目录），
@@ -853,6 +911,9 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
   Setup 不报错：被其他进程占用而删不掉的外来 DLL 会留在原处（代码与资源目录不在此列：删不掉时安装停止，
   见上）；从文件夹可被任何用户写入的 1.5.0 升级时，
   原有的卸载日志 `unins000.dat` 会被沿用一次。
+  上级目录允许普通用户新建条目时，其他本机用户还可以在其中放入 `lib\libQt6Core.a`（默认安装位置对应 `D:\lib`），
+  使 Qt 把上级目录当作前缀、先于安装文件夹加载其中的插件与 QML 模块；这类文件位于 `{app}` 之外，也可以在安装之后放入，
+  安装程序无法防范。正式构建内嵌的 `qt.conf` 把 Qt 的前缀固定为安装文件夹（§3.7），这一情形因此不再改变桌面端的加载位置。
 - **最低要求在 `InitializeSetup`（`[Code]`）中检查**：低于 Windows 10 版本 1809（内部版本 17763，Qt 6.11 的下限；
   .NET 8 只需 1607）直接拒绝并说明所需版本；ARM 处理器上的 Windows 10 拒绝安装，因为没有 x64 模拟；
   Windows 11 on ARM 提示抓包未验证后继续；`System32\mfplat.dll` 不存在（Windows “N” 版本）时提示
@@ -864,6 +925,13 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
 - 卸载时询问是否删除 `%LOCALAPPDATA%\MentorRecorder`（记录、备份、设置），默认保留。
   提示同时写明备注图片不在其中：它们保存在安装文件夹的 `note-images` 中，无论选择哪一项都会保留
   （`uninsneveruninstall`），不再需要时可在卸载完成后手动删除。
+- 卸载程序在删除程序文件之前（`usUninstall`）检查当前账户的开机启动项
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\MentorRecorder`：只有其内容以带双引号的本安装文件夹中
+  `MentorRecorder.Desktop.exe` 的完整路径开头（不区分大小写）时才删除它，并写入 Setup 日志；指向其他文件夹的值
+  （另一份副本、构建目录中的开发构建）以及其他形式的值保持不变。这里的 HKCU 是运行卸载程序的账户的注册表：
+  其他账户中的启动项，包括以另一位管理员的凭据提升卸载程序时用户自己账户中的启动项，都不会被删除。
+  「开机启动」设置随其余数据保留，以后的安装在该设置为开时启动一次即重新登记。安装程序本身从不写入该值。
+  手动删除程序文件夹不会删除该启动项。
 - 中文界面来自 `installer/ChineseSimplified.isl`（Inno Setup 官方仓库的用户贡献翻译）。
 
 ### 5.4 GitCode 镜像

@@ -65,6 +65,20 @@ class ConcurrencyTests(unittest.TestCase):
             with self.subTest(workflow=name):
                 self.assertEqual(concurrency_group(name), SHARED_LOCK)
 
+    def test_the_shared_lock_comments_describe_the_single_release_lock(self):
+        # N3-4 (audit 2026-11-03): RV4-3 replaced the per-tag release lock, but the comments above
+        # the shared lock still said the release catch-up shares it and a release run locks its tag.
+        for name in ("mirror-repository.yml", "cleanup-mirror-branches.yml"):
+            with self.subTest(workflow=name):
+                lines = read(name).split("\n")
+                end = lines.index("concurrency:")
+                start = end
+                while start > 0 and lines[start - 1].startswith("#"):
+                    start -= 1
+                comment = " ".join(lines[start:end])
+                self.assertNotIn("per-tag", comment)
+                self.assertIn("gitcode-release-", comment)
+
     def test_no_mirror_run_is_cancelled_while_in_progress(self):
         for name in ("mirror-release.yml", "mirror-repository.yml", "cleanup-mirror-branches.yml"):
             with self.subTest(workflow=name):

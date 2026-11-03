@@ -35,12 +35,12 @@ public sealed class DutyCategoryProjection
         // identity must agree on the raw category and party size; names may be translated.
         foreach (var group in rows.GroupBy(row => row.ContentId))
         {
-            if (Consistent(group)) content[(Region.Unknown, group.Key)] = group.First();
+            if (Consistent(group)) content[(Region.Unknown, group.Key)] = Representative(group);
             else content.Remove((Region.Unknown, group.Key));
         }
         foreach (var group in rows.Where(row => row.TerritoryId.HasValue).GroupBy(row => row.TerritoryId!.Value))
         {
-            if (Consistent(group)) territories[(Region.Unknown, group.Key)] = group.First();
+            if (Consistent(group)) territories[(Region.Unknown, group.Key)] = Representative(group);
             else territories.Remove((Region.Unknown, group.Key));
         }
         _content = content;
@@ -75,10 +75,18 @@ public sealed class DutyCategoryProjection
 
     private static bool IsAlliance(DutyInfo duty) => duty.PartySize == 24 && duty.DutyCategory == RaidCategory;
 
+    /// <summary>
+    /// Whether the regions that know an identity agree on it. A missing party size is no information rather than
+    /// a disagreement (the TC table has none; audit 2026-11-03 H2-2), so only the sizes the rows do carry must agree.
+    /// </summary>
     private static bool Consistent(IEnumerable<DutyInfo> candidates)
     {
         var first = candidates.First();
-        return candidates.All(row => row.ContentId == first.ContentId && row.PartySize == first.PartySize
-            && row.DutyCategory == first.DutyCategory);
+        return candidates.All(row => row.ContentId == first.ContentId && row.DutyCategory == first.DutyCategory)
+            && candidates.Where(row => row.PartySize is not null).Select(row => row.PartySize).Distinct().Count() <= 1;
     }
+
+    /// <summary>The row that speaks for a consistent group: one that carries a party size when any does.</summary>
+    private static DutyInfo Representative(IEnumerable<DutyInfo> candidates) =>
+        candidates.FirstOrDefault(row => row.PartySize is not null) ?? candidates.First();
 }

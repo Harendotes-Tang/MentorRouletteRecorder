@@ -19,10 +19,12 @@ namespace MentorRecorder.Collector.Protocol.Parsing;
 /// is a new data file rather than a code change, and why an unverified profile can only ever
 /// produce refusals (docs/protocol-profile-format.md section 1).
 ///
-/// The one exception is the CN duty-clear signal. No profile can declare it, because it is a
-/// content of a generic message whose opcode moves with every patch, so it is recognised by
-/// content in <see cref="DutyClearSignal"/>, ahead of the declared messages and only for a
-/// profile whose binding observes it (docs/protocol-profile-format.md section 12).
+/// The exceptions are the CN director signals: the duty clear and the duty start with its
+/// remaining-time reports. No profile can declare them, because they are contents of a generic
+/// message whose opcode moves with every patch, so they are recognised by content in
+/// <see cref="DutyClearSignal"/> and <see cref="DutyStartSignal"/>, ahead of the declared messages
+/// and only for a profile whose binding observes them (docs/protocol-profile-format.md sections 12
+/// and 13).
 ///
 /// The class implements the Phase 2 hand-off contract <see cref="IDecodedMessageSink"/> and
 /// therefore must never throw: the capture thread owns the bounded queue and cannot afford

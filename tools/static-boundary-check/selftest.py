@@ -91,7 +91,8 @@ SAMPLES: dict[str, str] = {
     "NET-009/downloads": "        Invoke-WebRequest -Uri $url -OutFile $target",
     "NET-009/qml-remote": '        banner.source = "https://example.invalid/banner.png"',
     "NET-009/shell-commands": "curl -fsSL $url -o $target",
-    "NET-009/xml-loads": '        var feed = XDocument.Load("https://example.invalid/feed.xml");',
+    "NET-009/launchers": '        using var probe = Process.Start(new ProcessStartInfo("curl.exe", "--version"));',
+    "NET-009/xml-loads":'        var feed = XDocument.Load("https://example.invalid/feed.xml");',
     "NET-010": "import urllib.request",
     "AUT-001": "        SendInput(1, ref input, Marshal.SizeOf(input));",
 }
@@ -479,6 +480,101 @@ MORE_SAMPLES: tuple[tuple[str, str, str], ...] = (
     ("AUT-001", "        if (game is { Responding: false }) return;", DEFAULT_SITE),
     ("AUT-001", "        var alive = game . Responding;", DEFAULT_SITE),
     ("AUT-001", "            Responding: true,", DEFAULT_SITE),
+    # N2-1 (audit 2026-11-03): PowerShell, batch, workflow scripts and Inno Setup Pascal resolve type,
+    # member and COM names in any letter case, so these rules match case-insensitively there
+    # ('ignore_case_extensions'); none of these rows is caught by the pattern in its written case.
+    # (The samples name no address: endpoint protection on the development machine removes a file
+    # that looks like a download cradle.)
+    ("NET-006", "$client = new-object net.webclient", PS1_SITE),
+    ("NET-006", "$request = [net.webrequest]::create($u)", PS1_SITE),
+    ("NET-006", "  Request := CreateOleObject('winhttp.winhttprequest.5.1');", "installer/Sample.iss"),
+    ("NET-008", "$c = [net.sockets.tcpclient]::new($hostName, 443)", PS1_SITE),
+    ("NET-008", "          $addresses = [net.dns]::gethostaddresses($h)", ".github/workflows/sample.yml"),
+    ("NET-008", "pwsh -NoProfile -Command \"[net.dns]::gethostaddresses($env:COMPUTERNAME)\"", "scripts/sample.cmd"),
+    ("INJ-007", "  Handle := openprocess($10, False, GamePid);", "installer/Sample.iss"),
+    ("INJ-008", "$path = (Get-Process -Name ffxiv_dx11).mainmodule.filename", PS1_SITE),
+    ("INJ-009", "[diagnostics.process]::getprocessbyid($gamePid).kill()", PS1_SITE),
+    ("INJ-009", "          $started = $game.starttime", ".github/workflows/sample.yml"),
+    ("NET-001", "$listener = [net.httplistener]::new()", PS1_SITE),
+    ("NET-002", "$listener = [net.sockets.tcplistener]::new(8080)", "scripts/sample.psm1"),
+    ("NET-003", "$socket = [net.websockets.clientwebsocket]::new()", PS1_SITE),
+    ("AUT-001", "[windows.forms.sendkeys]::sendwait('{ENTER}')", PS1_SITE),
+    # N2-2 (audit 2026-11-03): a download command handed to a process launcher from compiled code or
+    # the elevated installer, and an MSBuild Exec running one (NET-009/launchers)...
+    ("NET-009/launchers", '        var info = new ProcessStartInfo("curl.exe", arguments);', DEFAULT_SITE),
+    ("NET-009/launchers", '        using var probe = Process.Start("wget", arguments);', DEFAULT_SITE),
+    ("NET-009/launchers", '        process.start(QStringLiteral("curl"), arguments);', CPP_SITE),
+    ("NET-009/launchers", '        QProcess::startDetached(QStringLiteral("bitsadmin.exe"), arguments);', CPP_SITE),
+    ("NET-009/launchers", '        process.setProgram(QStringLiteral("wget"));', CPP_SITE),
+    ("NET-009/launchers", '    runTool(QStringLiteral("curl.exe"), arguments, timeout);', CPP_SITE),
+    ("NET-009/launchers", '        CreateProcessW(nullptr, L"curl.exe --version", nullptr, nullptr, FALSE, 0,', CPP_SITE),
+    ("NET-009/launchers", '        std::system("curl --version");', "src/Desktop/cpp/Sample.h"),
+    ("NET-009/launchers", '        auto *pipe = _popen("wget --version", "r");', CPP_SITE),
+    ("NET-009/launchers", '        psi.FileName = @"C:\\Windows\\System32\\curl.exe";', DEFAULT_SITE),
+    ("NET-009/launchers", "  Exec(ExpandConstant('{sys}\\curl.exe'), Params, '', SW_HIDE, ewWaitUntilTerminated, Code);",
+     "installer/Sample.iss"),
+    ("NET-009/launchers", "  ShellExec('', 'bitsadmin.exe', Params, '', SW_HIDE, ewNoWait, Code);", "installer/Sample.iss"),
+    ("NET-009/launchers", 'Filename: "{sys}\\certutil.exe"; Parameters: "-urlcache {code:GetParams}"', "installer/Sample.iss"),
+    ("NET-009/launchers", '    <Exec Command="curl.exe --version" />', "src/Collector/Sample.targets"),
+    ("NET-009/launchers", '    <Exec Command="wget --version" />', "src/Collector/Sample.csproj"),
+    ("NET-009/launchers", '    <Exec Command="pwsh -Command iwr $(SourceUrl)" />', "src/Collector/Sample.targets"),
+    ("NET-009/launchers", '    <Exec Command="pwsh -Command irm $(SourceUrl)" />', "src/Collector/Sample.props"),
+    ("NET-009/launchers", '    <Exec Command="bitsadmin /list" />', "src/Collector/Sample.targets"),
+    ("NET-009/launchers", '    <Exec WorkingDirectory="$(OutDir)" Command="certutil -urlcache $(Params)" />',
+     "src/Collector/Sample.targets"),
+    # ...and the build systems' own download primitives, and PowerShell gallery downloads (N2-6).
+    ("NET-009/downloads", "file(DOWNLOAD ${SOURCE_URL} ${CMAKE_CURRENT_BINARY_DIR}/x.dll)", "src/Desktop/CMakeLists.txt"),
+    ("NET-009/downloads", "file(UPLOAD ${CMAKE_BINARY_DIR}/report.txt ${UPLOAD_URL})", "src/Desktop/cmake/Sample.cmake"),
+    ("NET-009/downloads", "FetchContent_Declare(sample URL ${SAMPLE_URL})", "src/Desktop/cmake/Sample.cmake"),
+    ("NET-009/downloads", "fetchcontent_populate(sample URL ${SAMPLE_URL})", "src/Desktop/CMakeLists.txt"),
+    ("NET-009/downloads", "ExternalProject_Add(sample URL ${SAMPLE_URL})", "src/Desktop/CMakeLists.txt"),
+    ("NET-009/downloads", '    <DownloadFile SourceUrl="$(SourceUrl)" DestinationFolder="$(OutDir)" />',
+     "src/Collector/Sample.targets"),
+    ("NET-009/downloads", "Install-Module -Name PSScriptAnalyzer -Scope CurrentUser", PS1_SITE),
+    ("NET-009/downloads", "save-psresource -Name Pester -Path $modules", PS1_SITE),
+    ("NET-009/downloads", "Install-Package -Name Newtonsoft.Json -ProviderName NuGet", PS1_SITE),
+    # N2-5 (audit 2026-11-03): a Toolhelp heap snapshot of another process, Get-Process reading every
+    # listed process's token, and a debugger attached by PowerShell.
+    ("INJ-008", "        HANDLE heaps = CreateToolhelp32Snapshot(TH32CS_SNAPHEAPLIST, gamePid);", CPP_SITE),
+    ("INJ-008", "        HEAPLIST32 list{sizeof list}; Heap32ListFirst(heaps, &list);", CPP_SITE),
+    ("INJ-008", "        while (Heap32ListNext(heaps, &list)) { }", CPP_SITE),
+    ("INJ-008", "        HEAPENTRY32 entry{sizeof entry}; Heap32First(&entry, gamePid, list.th32HeapID);", CPP_SITE),
+    ("INJ-008", "        while (Heap32Next(&entry)) { }", CPP_SITE),
+    ("INJ-008", "$owner = Get-Process ffxiv_dx11 -IncludeUserName", PS1_SITE),
+    ("INJ-007", "Debug-Process -Name ffxiv_dx11", PS1_SITE),
+    # N2-6 (audit 2026-11-03): the PowerShell cmdlets that ping, connect, resolve or send mail.
+    ("NET-008", "if (Test-NetConnection -ComputerName $hostName -Port 443 -InformationLevel Quiet) { }", PS1_SITE),
+    ("NET-008", "test-connection $hostName -Count 1", PS1_SITE),
+    ("NET-008", "Resolve-DnsName $hostName", PS1_SITE),
+    ("NET-008", "Send-MailMessage -To $to -Subject $subject -SmtpServer $server", PS1_SITE),
+    # RV5-1 (re-review of N2-1): the Deucalion and packet-send/capture rules fold letter case in
+    # scripts and the installer too; '$True' is PowerShell's customary spelling.
+    ("DEU-001", "$monitor.UseDeucalion = $True", PS1_SITE),
+    ("DEU-001", "$monitor.usedeucalion = $true", PS1_SITE),
+    ("DEU-002", "$client = [machina.ffxiv.deucalion.deucalionclient]::new($gameId)", PS1_SITE),
+    ("DEU-003", "Copy-Item Deucalion-1.1.0.distrib.dll $destination", PS1_SITE),
+    ("DEU-004", "[injector]::injectlibrary($gameId, $payloadPath)", PS1_SITE),
+    ("CAP-001", "$device.sendpacket($bytes)", PS1_SITE),
+    ("CAP-003", "$monitor.MonitorType = [machina.infrastructure.networkmonitortype]::rawsocket", PS1_SITE),
+    ("CAP-004", "$socket = new-object rawcapturesocket $address", PS1_SITE),
+    ("CAP-005", "$writer = new-object sharppcap.capturefilewriterdevice $capturePath", PS1_SITE),
+    # RV5-3: a shell handed a download command - cmd /c, powershell or pwsh with -Command or -c, and
+    # Inno Setup's {cmd} - from compiled code or the installer (NET-009/launchers). The address is a
+    # variable here; endpoint protection removes a file that looks like a download cradle.
+    ("NET-009/launchers",
+     "  Exec(ExpandConstant('{cmd}'), '/C curl.exe -o \"' + Tmp + '\" ' + Url, '', SW_HIDE, ewWaitUntilTerminated, Code);",
+     "installer/Sample.iss"),
+    ("NET-009/launchers", '        Process.Start("cmd.exe", "/c curl -o x " + url);', DEFAULT_SITE),
+    ("NET-009/launchers", '        var info = new ProcessStartInfo("powershell", "-NoProfile -Command iwr " + url + " -OutFile x");',
+     DEFAULT_SITE),
+    ("NET-009/launchers", '    runTool(QStringLiteral("pwsh.exe"), {QStringLiteral("-c"), QStringLiteral("irm ") + url}, timeout);',
+     CPP_SITE),
+    ("NET-009/launchers", '        Process.Start("cmd.exe", "/c wget -q " + url);', DEFAULT_SITE),
+    ("NET-009/launchers", '        Process.Start("cmd.exe", "/C bitsadmin /list");', DEFAULT_SITE),
+    ("NET-009/launchers", '        Process.Start("powershell.exe", "-Command Invoke-WebRequest " + url);', DEFAULT_SITE),
+    ("NET-009/launchers", '        Process.Start("pwsh", "-Command Invoke-RestMethod " + url);', DEFAULT_SITE),
+    ("NET-009/launchers", '        Process.Start("powershell", "-c Start-BitsTransfer " + url);', DEFAULT_SITE),
+    ("NET-009/launchers", '        Process.Start("cmd.exe", "/c certutil -urlcache " + arguments);', DEFAULT_SITE),
 )
 
 # Lines that look like a forbidden token but are not one, each in the file it would live in.
@@ -601,6 +697,34 @@ LOOK_ALIKES: tuple[tuple[str, str], ...] = (
     ('    component.loadUrl(QUrl(QStringLiteral("qrc:/qt/qml/MentorRecorder/Main.qml")));',
      "src/Desktop/cpp/Sample.cpp"),
     ("import requests", "tools/some-tool/notes.txt"),
+    # N2-1 (audit 2026-11-03): letter case is ignored only where the language ignores it. Python's
+    # Popen.kill() and a C# member that only shares a lower-case name stay allowed, and a YAML
+    # 'modules:' key (the Qt installer action's input) is not a C# property pattern.
+    ("    child.kill(); child.wait(timeout=5)", PY_SITE),
+    ("        var raw = native.handle; var started = record.starttime;", DEFAULT_SITE),
+    ("          modules: qtgraphs qtmultimedia qtspeech", ".github/workflows/sample.yml"),
+    # N2-6: the cmdlet names fold only in scripts; a C# test's session name is not a cmdlet.
+    ('        var session = CaptureSession.Start("test-connection");', DEFAULT_SITE),
+    # N2-2: launchers handed another program, certutil without -urlcache, a dialog's exec() followed
+    # by prose, an installer starting our own program, and a build tool whose name contains curl.
+    ('        var info = new ProcessStartInfo("certutil.exe", "-hashfile x SHA256");', DEFAULT_SITE),
+    ('        Process.Start("explorer.exe", "curl");', DEFAULT_SITE),
+    ('        runTool(QStringLiteral("tasklist.exe"), arguments, timeout);', "src/Desktop/cpp/Sample.cpp"),
+    ('        if (!dialog.exec()) log(QStringLiteral("curl.exe is not used"));', "src/Desktop/cpp/Sample.cpp"),
+    ("  Exec(ExpandConstant('{app}\\MentorRecorder.Collector.exe'), '--version', '', SW_HIDE, ewWaitUntilTerminated, Code);",
+     "installer/Sample.iss"),
+    ('Filename: "{app}\\MentorRecorder.Desktop.exe"; Description: "{cm:LaunchProgram}"', "installer/Sample.iss"),
+    ('    <Exec Command="python tools/curl_free_check.py $(OutDir)" />', "Directory.Build.targets"),
+    ("file(READ ${CMAKE_CURRENT_SOURCE_DIR}/download-notes.txt notes)", "src/Desktop/CMakeLists.txt"),
+    ("$analyzer = Get-Module -ListAvailable -Name PSScriptAnalyzer", "scripts/sample.ps1"),
+    # N2-5: the program's own heap.
+    ("        var heap = GetProcessHeap(); var block = HeapAlloc(heap, 0, size);", DEFAULT_SITE),
+    # RV5-3: a shell started for something that is not a download, and a script whose name only
+    # starts with a download command's name.
+    ('        Process.Start("cmd.exe", "/c dir");', DEFAULT_SITE),
+    ('        Process.Start("pwsh", "-NoProfile -File scripts/curl-notes.ps1");', DEFAULT_SITE),
+    # RV5-1: Machina's own monitor setting, which names no Deucalion member.
+    ("$monitor.MonitorType = [machina.infrastructure.networkmonitortype]::winpcap", "scripts/sample.ps1"),
 )
 
 # The exclusions, pinned (audit 2026-10-03, R2T-1). A name here is skipped at any depth, so it
@@ -621,6 +745,64 @@ SCANNED_EXTENSIONS: tuple[str, ...] = (
     ".iss", ".js", ".json", ".mjs", ".props", ".ps1", ".psm1", ".py", ".qml", ".qrc", ".sh",
     ".sln", ".targets", ".txt", ".ui", ".yaml", ".yml",
 )
+
+# Every rule entry's own scope, pinned (audit 2026-11-03, N2-4): narrowing a rule to fewer file types
+# ('only_extensions'), dropping a file type it matches in any letter case ('ignore_case_extensions')
+# or adding an allowance fails the self-test until this table changes with it. Most samples sit in a
+# .cs file, so a rule narrowed to .cs would otherwise stay green. An entry not listed has none of them.
+SCRIPT_TYPES = (".bat", ".cmd", ".isl", ".iss", ".ps1", ".psm1", ".yaml", ".yml")
+SHARED_CLIENT = "src/Collector/Protocol/Sharing/SharedCalibrationClient.cs"
+SPEECH_CLIENT = "src/Collector/Speech/OnlineSpeechClient.cs"
+UPDATE_CLIENT = "src/Collector/Update/UpdateCheckClient.cs"
+DUTY_GENERATOR = "tools/duty-data-generator/generate.py"
+RELEASE_MIRROR = "tools/release-mirror/sync_release.py"
+RULE_SCOPES: dict[str, dict[str, tuple[str, ...]]] = {
+    "INJ-007": {"ignore_case_extensions": SCRIPT_TYPES,
+                "allow_paths": ("tools/package-verification/test_package_runtime_budget.py",
+                                "tools/package-verification/test_static_analysis_budget.py")},
+    "INJ-008": {"ignore_case_extensions": SCRIPT_TYPES},
+    "INJ-009": {"ignore_case_extensions": SCRIPT_TYPES,
+                "allow_paths": ("src/Collector/Diagnostics/ParentProcessWatchdog.cs",
+                                "tests/Collector.IntegrationTests/Ipc/LifecycleOrphanTests.cs",
+                                "tests/Collector.IntegrationTests/Ipc/LifecycleProcessTests.cs",
+                                "tests/Collector.UnitTests/Diagnostics/WatchdogTests.cs",
+                                "tools/package-verification/test_package_environment.py",
+                                "scripts/package.ps1", "scripts/ocr-runtime.ps1",
+                                "scripts/static-analysis.ps1", "scripts/verify.ps1")},
+    "NET-001": {"ignore_case_extensions": SCRIPT_TYPES},
+    "NET-002": {"ignore_case_extensions": SCRIPT_TYPES},
+    "NET-003": {"ignore_case_extensions": SCRIPT_TYPES},
+    "NET-006": {"ignore_case_extensions": SCRIPT_TYPES,
+                "allow_paths": (SHARED_CLIENT, SPEECH_CLIENT, UPDATE_CLIENT)},
+    "NET-007/shared-calibration-hosts": {"allow_paths": (SHARED_CLIENT, DUTY_GENERATOR),
+                                         "allow_path_prefixes": ("tools/shared-calibration/",)},
+    "NET-007/github-content-hosts": {"allow_paths": (SHARED_CLIENT, UPDATE_CLIENT, DUTY_GENERATOR, RELEASE_MIRROR),
+                                     "allow_path_prefixes": ("tools/shared-calibration/",)},
+    "NET-007/gitcode-api-host": {"allow_paths": (SHARED_CLIENT, UPDATE_CLIENT, RELEASE_MIRROR)},
+    "NET-007/gitcode-asset-hosts": {"allow_paths": (UPDATE_CLIENT, RELEASE_MIRROR)},
+    "NET-007/gitcode-upload-host": {"allow_paths": (RELEASE_MIRROR,)},
+    "NET-007/speech-host": {"allow_paths": (SPEECH_CLIENT,)},
+    # RV5-1: the Deucalion and packet-send/capture rules fold letter case in the same file types.
+    "DEU-001": {"ignore_case_extensions": SCRIPT_TYPES},
+    "DEU-002": {"ignore_case_extensions": SCRIPT_TYPES},
+    "DEU-003": {"ignore_case_extensions": SCRIPT_TYPES},
+    "DEU-004": {"ignore_case_extensions": SCRIPT_TYPES},
+    "CAP-001": {"ignore_case_extensions": SCRIPT_TYPES},
+    "CAP-003": {"ignore_case_extensions": SCRIPT_TYPES},
+    "CAP-004": {"ignore_case_extensions": SCRIPT_TYPES},
+    "CAP-005": {"ignore_case_extensions": SCRIPT_TYPES},
+    "NET-008": {"ignore_case_extensions": SCRIPT_TYPES},
+    "NET-009/qml-remote": {"only_extensions": (".js", ".mjs", ".qml")},
+    "NET-009/shell-commands": {"only_extensions": (".bat", ".cmd", ".ps1", ".psm1", ".sh", ".yaml", ".yml")},
+    "NET-009/launchers": {"only_extensions": (".cc", ".cpp", ".cs", ".csproj", ".cxx", ".h", ".hpp", ".iss",
+                                              ".props", ".targets")},
+    "NET-010": {"only_extensions": (".py",), "allow_paths": (DUTY_GENERATOR, RELEASE_MIRROR)},
+    "AUT-001": {"ignore_case_extensions": SCRIPT_TYPES},
+}
+RULE_SCOPE_FIELDS = ("only_extensions", "ignore_case_extensions", "allow_paths", "allow_path_prefixes")
+# The allow markers that name a forbidden member in a doc comment, pinned with "in_comment" (N2-8).
+COMMENT_PINS = {("src/Collector/Capture/ProcessImagePath.cs", "INJ-008", ".MainModule"),
+                ("src/Collector/CommandLineOptions.cs", "INJ-009", ".StartTime")}
 
 # Tokens the specification names one by one. Each must be rejected wherever it
 # appears, regardless of which rule happens to catch it.
@@ -1064,6 +1246,33 @@ def cases() -> Iterable[tuple[str, callable]]:
 
     yield "every alternative of every pattern is needed by a planted sample", every_alternative_is_needed
 
+    # --- letter case (audit 2026-11-03, N2-1) --------------------------------------------------------
+    # A rule that ignores letter case in script and installer files must have a planted sample that
+    # only the case-insensitive copy reports: without its 'ignore_case_extensions' the rule must miss
+    # at least one of its samples.
+    def ignore_case_is_needed() -> None:
+        check = import_checker()
+        unproved: list[str] = []
+        for entry in rules["rules"]:
+            if not entry.get("ignore_case_extensions"):
+                continue
+            key = rule_key(entry)
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                clean_tree(root)
+                for number, (site, line) in enumerate(planted_samples(key)):
+                    stem, dot, suffix = site.rpartition(".")
+                    plant(root, f"{stem}_c{number}{dot}{suffix}", line)
+                single = {**base_rules(), "rules": [entry]}
+                as_written = {name: value for name, value in entry.items() if name != "ignore_case_extensions"}
+                if reported(check, root, {**single, "rules": [as_written]}, key) == reported(check, root, single, key):
+                    unproved.append(key)
+        if unproved:
+            raise Failure("no planted sample needs ignore_case_extensions (add a lower-case MORE_SAMPLES row "
+                          "in a script or installer file): " + ", ".join(unproved))
+
+    yield "every rule that ignores letter case has a sample only that catches", ignore_case_is_needed
+
     for key, sample, site in MORE_SAMPLES:
 
         def one_spelling(key: str = key, sample: str = sample, site: str = site) -> None:
@@ -1143,6 +1352,30 @@ def cases() -> Iterable[tuple[str, callable]]:
             )
 
     yield "include_extensions is exactly the pinned set", extensions_are_pinned
+
+    def rule_scopes_are_pinned() -> None:
+        keys = {rule_key(entry) for entry in rules["rules"]}
+        differences = [f"{key} is pinned but not declared" for key in sorted(set(RULE_SCOPES) - keys)]
+        for entry in rules["rules"]:
+            key = rule_key(entry)
+            for field in RULE_SCOPE_FIELDS:
+                configured = sorted(entry.get(field, []))
+                pinned = sorted(RULE_SCOPES.get(key, {}).get(field, ()))
+                if configured != pinned:
+                    differences.append(f"{key} {field}: rules.json {configured}, pinned {pinned}")
+        if differences:
+            raise Failure("a rule's own scope differs from RULE_SCOPES (update it only together with the "
+                          "rule): " + "; ".join(differences))
+
+    yield "every rule entry's own scope and allowances are exactly the pinned ones", rule_scopes_are_pinned
+
+    def doc_comment_pins_say_in_comment() -> None:
+        flagged = {(pin["file"], pin["rule"], pin["match"])
+                   for pin in rules.get("allow_markers", []) if pin.get("in_comment")}
+        if flagged != COMMENT_PINS:
+            raise Failure(f"allow_markers pinned to a comment: {sorted(flagged)}; expected {sorted(COMMENT_PINS)}")
+
+    yield "the doc-comment markers are pinned to a comment", doc_comment_pins_say_in_comment
 
     for suffix in SCANNED_EXTENSIONS:
 
@@ -1944,6 +2177,33 @@ def cases() -> Iterable[tuple[str, callable]]:
 
         yield f"only_extensions {bad!r} is refused as a rules error", malformed_only_extensions
 
+        def malformed_ignore_case(bad=bad) -> None:
+            raw = base_rules()
+            for rule in raw["rules"]:
+                if rule["id"] == "NET-001":
+                    rule["ignore_case_extensions"] = bad
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                clean_tree(root)
+                if run_check_with_rules(root, raw) != EXIT_ERROR:
+                    raise Failure(f"ignore_case_extensions {bad!r}: expected exit 2 (unusable rules)")
+
+        yield f"ignore_case_extensions {bad!r} is refused as a rules error", malformed_ignore_case
+
+    def ignore_case_outside_only_extensions() -> None:
+        # NET-010 reads .py only: a case-insensitive .ps1 could never apply to it.
+        raw = base_rules()
+        for rule in raw["rules"]:
+            if rule["id"] == "NET-010":
+                rule["ignore_case_extensions"] = [".ps1"]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clean_tree(root)
+            if run_check_with_rules(root, raw) != EXIT_ERROR:
+                raise Failure("ignore_case_extensions outside only_extensions: expected exit 2 (unusable rules)")
+
+    yield "ignore_case_extensions outside the rule's only_extensions is refused", ignore_case_outside_only_extensions
+
     def download_commands_only_in_scripts() -> None:
         # The same command line is a violation in a script and nothing at all in Python source,
         # where only the rules written for Python syntax apply.
@@ -2149,7 +2409,72 @@ def cases() -> Iterable[tuple[str, callable]]:
                 raise Failure(f"two pins in one file: exit {code}, matches {matches}, "
                               f"errors {report.get('errors')}")
 
-        yield "two markers in one file each lift the hit their own pin names", each_pin_lifts_its_own_hit
+    yield "two markers in one file each lift the hit their own pin names", each_pin_lifts_its_own_hit
+
+    # --- a pin written for a comment lifts its hit only in a comment (audit 2026-11-03, N2-8) --------
+    # The hit text of a member rule is just ".MainModule": a pin made for a doc comment used to lift
+    # a real game.MainModule access moved under the marker anywhere in the same file.
+    image_path = "src/Collector/Capture/ProcessImagePath.cs"
+    image_reason = "(INJ-008): named here only to say why it is not used"
+    comment_pin = {"file": image_path, "rule": "INJ-008", "match": ".MainModule", "in_comment": True}
+    comment_rules = {**base_rules(), "allow_markers": [comment_pin]}
+    for name, line, honoured in (
+        ("a doc comment", '/// <see cref="System.Diagnostics.Process.MainModule"/> (' + allow_marker + image_reason,
+         True),
+        ("a member access before the comment",
+         "        var image = game.MainModule!.FileName; // " + allow_marker + image_reason, False),
+        ("a member access after a string holding //",
+         '        Log("see a//b"); var image = game.MainModule!.FileName; // ' + allow_marker + image_reason, False),
+        # RV5-4: a '//' inside a closed /* ... */ block comment opens no line comment, so the code
+        # after the block is code; a hit inside the block is in a comment.
+        ("a member access after a block comment holding //",
+         "/* see https://example.invalid */ var image = game.MainModule!.FileName; // " + allow_marker
+         + image_reason, False),
+        ("a block comment",
+         "/* game.MainModule is never read here */ // " + allow_marker + image_reason, True),
+    ):
+
+        def comment_pin_case(name: str = name, line: str = line, honoured: bool = honoured) -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                clean_tree(root)
+                plant(root, image_path, line)
+                code, report = run_check(root, comment_rules)
+                found = [v["rule_id"] for v in report.get("violations", [])]
+                if honoured and (code != EXIT_OK or report.get("allow_marker_count") != 1):
+                    raise Failure(f"{name}: expected the marker honoured; got exit {code}, {report.get('errors')}")
+                if not honoured and (code != EXIT_ERROR or "INJ-008" not in found or report.get("allow_marker_count")
+                                     or not any("comment" in error for error in report.get("errors", []))):
+                    raise Failure(f"{name}: expected INJ-008 reported and the comment pin refused; got exit "
+                                  f"{code}, {found}, {report.get('errors')}")
+
+        yield f"a pin to a comment {'lifts' if honoured else 'does not lift'} {name}", comment_pin_case
+
+    def plain_pin_lifts_code() -> None:
+        # Guards the cases above: without "in_comment" the same pin lifts the code line.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clean_tree(root)
+            plant(root, image_path, "        var image = game.MainModule!.FileName; // " + allow_marker + image_reason)
+            plain = {key: value for key, value in comment_pin.items() if key != "in_comment"}
+            code, report = run_check(root, {**base_rules(), "allow_markers": [plain]})
+            if code != EXIT_OK or report.get("allow_marker_count") != 1:
+                raise Failure(f"a plain pin on a code line: exit {code}, {report.get('errors')}")
+
+    yield "a pin without in_comment still lifts its hit on a code line", plain_pin_lifts_code
+
+    def hash_comment_in_a_script() -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clean_tree(root)
+            plant(root, PS1_SITE, "# $game.StartTime is never read here " + allow_marker
+                  + "(INJ-009): names the member only")
+            pin = {"file": PS1_SITE, "rule": "INJ-009", "match": ".StartTime", "in_comment": True}
+            code, report = run_check(root, {**base_rules(), "allow_markers": [pin]})
+            if code != EXIT_OK or report.get("allow_marker_count") != 1:
+                raise Failure(f"a '#' comment in a script: exit {code}, {report.get('errors')}")
+
+    yield "a pin to a comment lifts its hit after '#' in a script", hash_comment_in_a_script
 
     # --- a second command on a line whose marked hit is anchored (audit 2026-10-20, RV4-5) ------
     # NET-009's shell-commands variant starts at the beginning of the line, so it yields one hit per
@@ -2200,6 +2525,7 @@ def cases() -> Iterable[tuple[str, callable]]:
         {"file": DEFAULT_SITE, "rule": "INJ-004", "match": ""},
         {"file": DEFAULT_SITE, "rule": "INJ-004", "match": 7},
         {"file": DEFAULT_SITE, "rule": "INJ-004", "match": "Create\nRemoteThread"},
+        {"file": DEFAULT_SITE, "rule": "INJ-004", "match": "CreateRemoteThread", "in_comment": "yes"},
         {"file": DEFAULT_SITE},
         "src/Collector/Capture/Sample.cs",
     ):

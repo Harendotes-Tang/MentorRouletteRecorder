@@ -42,9 +42,11 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QRegularExpression>
+#include <QScopeGuard>
 #include <QStandardPaths>
 #include <QTest>
 #include <QTimer>
+#include <QTranslator>
 
 #include <memory>
 #include <atomic>
@@ -105,6 +107,24 @@ public:
     {
         return new ResourceRequestManager(parent, requests);
     }
+};
+
+/// An English interface for the three mood words only (Theme.moodLabel), without
+/// the build's .qm files.
+class MoodWordTranslator final : public QTranslator
+{
+public:
+    QString translate(const char *context, const char *sourceText, const char *, int) const override
+    {
+        if (QByteArrayView(context) != "Theme")
+            return {};
+        const QString source = QString::fromUtf8(sourceText);
+        if (source == QString::fromUtf8("顺利")) return QStringLiteral("Smooth");
+        if (source == QString::fromUtf8("一般")) return QStringLiteral("So-so");
+        if (source == QString::fromUtf8("糟心")) return QStringLiteral("Rough");
+        return {};
+    }
+    bool isEmpty() const override { return false; }
 };
 
 const QString &kRunId()
@@ -871,6 +891,75 @@ private Q_SLOTS:
             return QString();
         };
         QTRY_COMPARE(pendingRow(), shown);
+    }
+
+    // Audit 2026-11-03 L1-5: a record opened onto 事件摘要 from elsewhere (the
+    // result popup's 在历史记录中复核) reset the events to idle and nothing read
+    // them again: the tab kept saying 「打开“事件摘要”后会读取。」.
+    void aRecordOpenedOntoTheEventTabReadsItsEvents()
+    {
+        HistoryScene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        QVERIFY(scene.openRun());
+        QVERIFY(scene.showTab(QStringLiteral("events")));
+        QTRY_COMPARE(scene.controller->runEventsState(), QStringLiteral("ready"));
+
+        QJsonObject other = run();
+        other.insert(QStringLiteral("run_id"), QStringLiteral("7a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"));
+        scene.controller->openHistoryForRun(other.toVariantMap());
+        QCOMPARE(scene.panel()->property("activeTab").toString(), QStringLiteral("events"));
+        QTRY_COMPARE(scene.controller->runEventsState(), QStringLiteral("ready"));
+        QTRY_VERIFY(scene.panelTexts().join(QLatin1Char('\n')).contains(QString::fromUtf8("副本结算")));
+    }
+
+    // Audit 2026-11-03 L1-1: the record's region decides which achievement it
+    // counts toward, and 详情 never said which one it was.
+    void theInfoTabNamesTheRecordsRegion()
+    {
+        HistoryScene scene;
+        scene.backend.runItem.insert(QStringLiteral("region"), QStringLiteral("TC"));
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        QVERIFY(QTest::qWaitFor([&] { return scene.controller->runs()->rowCount() > 0; }, 3000));
+        QJsonObject tc = run();
+        tc.insert(QStringLiteral("region"), QStringLiteral("TC"));
+        scene.controller->selectRun(tc.toVariantMap());
+        QTRY_VERIFY(scene.panel() && scene.panel()->isVisible());
+        QTRY_VERIFY(scene.panelTexts().contains(QString::fromUtf8("区服")));
+        QVERIFY(scene.panelTexts().contains(QString::fromUtf8("繁中服")));
+        verifyNoWireVocabulary(scene.panelTexts());
+
+        // A record from before regions were stored reads as not known, never as 国服.
+        scene.controller->openHistoryForRun(run().toVariantMap());
+        QTRY_VERIFY(scene.panelTexts().contains(QString::fromUtf8("未知区服")));
+    }
+
+    // Re-review RV4-5: a note that is only a mood's word is stored in Chinese
+    // and reads in the interface language.
+    void aMoodWordNoteReadsInTheInterfaceLanguage()
+    {
+        MoodWordTranslator english;
+        QCoreApplication::installTranslator(&english);
+        const auto removeTranslation = qScopeGuard([&] { QCoreApplication::removeTranslator(&english); });
+        HistoryScene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        QVERIFY(QTest::qWaitFor([&] { return scene.controller->runs()->rowCount() > 0; }, 3000));
+        QJsonObject noted = run();
+        noted.insert(QStringLiteral("reflection"),
+                     QJsonObject{{QStringLiteral("mood"), QStringLiteral("bad")},
+                                 {QStringLiteral("text"), QString::fromUtf8("糟心")}});
+        scene.controller->selectRun(noted.toVariantMap());
+        QTRY_VERIFY(scene.panel() && scene.panel()->isVisible());
+        QVERIFY(scene.showTab(QStringLiteral("refl")));
+        QTRY_VERIFY(scene.panelTexts().contains(QStringLiteral("Rough")));
+        QVERIFY2(!scene.panelTexts().join(QLatin1Char('\n')).contains(QString::fromUtf8("糟心")),
+                 qPrintable(scene.panelTexts().join(QLatin1Char('|'))));
+
+        // Text the player wrote stays as written.
+        noted.insert(QStringLiteral("reflection"),
+                     QJsonObject{{QStringLiteral("mood"), QStringLiteral("bad")},
+                                 {QStringLiteral("text"), QString::fromUtf8("糟心的一次")}});
+        scene.controller->openHistoryForRun(noted.toVariantMap());
+        QTRY_VERIFY(scene.panelTexts().contains(QString::fromUtf8("糟心的一次")));
     }
 
     void maintainersReadTheRawEvents()

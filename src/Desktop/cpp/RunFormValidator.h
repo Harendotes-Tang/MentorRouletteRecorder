@@ -3,22 +3,25 @@
 // ---------------------------------------------------------------------------
 // Validation and before/after diffing for the manual-correction dialog.
 //
-// The rules are the ones the prototype spells out (DOC/.../submit()) and the
-// error codes are the ones contracts/ipc-v1.schema.json defines, so the dialog
-// refuses locally with exactly the code the Collector would return:
+// The rules are the ones the prototype spells out (DOC/.../submit()), with the
+// error codes contracts/ipc-v1.schema.json defines:
 //
 //   ERR_REASON_REQUIRED    - no reason text
 //   ERR_TIME_ORDER         - entered < matched, or ended < matched with no entry
 //   ERR_NEGATIVE_DURATION  - ended < entered
 //   ERR_NO_CHANGES         - a correction that changes nothing
 //
-// Two rules have no dedicated code because they are shape rules, not ordering
-// rules: a non-CANCELLED_BEFORE_ENTRY result needs an entry time, and a
-// COMPLETED result needs an end time. Both report ERR_BAD_REQUEST, as do a
-// reason over 500 characters and a note over 1000, the Collector's limits.
-// An edit retaining incomplete imported facts may omit endpoints, but any
-// supplied date/time and order must still be valid. Result confirmation uses
-// the ordinary required-endpoint rules.
+// One of them is not the Collector's own: it answers ended < entered with
+// ERR_TIME_ORDER (RunMutationValidation, EnteredAfterEnded); an end before the
+// match is ERR_TIME_ORDER on both sides (MatchedAfterEnded). A time that is not a
+// time, a reason over 500 characters and a note over 1000 (the Collector's
+// limits) report ERR_BAD_REQUEST.
+//
+// The entry and end times may both be left empty whatever the result: the record
+// keeps its outcome and its duration stays unknown (docs/manual-correction.md
+// §7). The match date and time are required, except in an edit that keeps an
+// imported record's missing facts (incomplete_import_context). Every time that
+// is supplied is still checked for format and order.
 //
 // This lives in C++ (not in the QML dialog) so the unit tests can drive every
 // branch without a scene graph.

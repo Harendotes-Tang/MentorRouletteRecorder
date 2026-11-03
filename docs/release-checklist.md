@@ -53,21 +53,21 @@
 | 1 | Windows x64 能构建出两个可执行文件 | `pwsh -File scripts/build.ps1`（dotnet + CMake/Ninja/Qt） | **PASS** | `src/Collector/bin/x64/Release/net8.0-windows/win-x64/MentorRecorder.Collector.exe`、`build/src/Desktop/MentorRecorder.Desktop.exe` |
 | 2 | 两个可执行文件都能启动 | `package.ps1 -Verify`：解包后运行 `--version`、`--capture-doctor --json`、`--screenshot` | **PASS** | 见第 2 节「打包验证」输出 |
 | 3 | 没有 Npcap 时优雅降级（不崩溃、给指引） | `CaptureControllerTests.RefusesToStart_WithoutNpcap`、`ReportsUnavailable_WhenNpcapIsMissing`；`--capture-doctor` 退出码 1 并打印安装指引 | **PASS** | `artifacts/test-results/run-<UTC 时间>-<随机编号>/MentorRecorder.Collector.UnitTests.trx`；`LifecycleProcessTests.TheVersionAndDoctorModesRunWithoutOpeningAnythingAtAll` |
-| 4 | 合成样本重放能产出 COMPLETED / LEFT_OR_ABANDONED / CANCELLED_BEFORE_ENTRY / INTERRUPTED / UNKNOWN | `ProtocolDecodedReplayTests`（10 个 decoded 测试样本 × 2）、`ReplayIntegrationTests`（10 个语义测试样本）、`StateMachineTests.EnteredDuty_FinalOutcomesRemainDistinct` | **PASS** | 两个 TRX；`tests/Fixtures/` |
-| 5 | 同一份测试样本重放两次不重复计数 | `ProtocolDecodedReplayTests.ReplayingTheSameFixtureTwiceWritesNothingTheSecondTime`（10 组参数） | **PASS** | 集成 TRX；第二次 `RunsCreated = 0`、`EventsAppended = 0` |
+| 4 | 合成样本重放能产出 COMPLETED / LEFT_OR_ABANDONED / CANCELLED_BEFORE_ENTRY / INTERRUPTED / UNKNOWN | `ProtocolDecodedReplayTests`（14 个 decoded 测试样本 × 2）、`ReplayIntegrationTests`（10 个语义测试样本）、`StateMachineTests.EnteredDuty_FinalOutcomesRemainDistinct` | **PASS** | 两个 TRX；`tests/Fixtures/` |
+| 5 | 同一份测试样本重放两次不重复计数 | `ProtocolDecodedReplayTests.ReplayingTheSameFixtureTwiceWritesNothingTheSecondTime`（14 组参数） | **PASS** | 集成 TRX；第二次 `RunsCreated = 0`、`EventsAppended = 0` |
 | 6 | 成就基线可设置并影响进度 | `MutationTests.UpdateAchievementBaseline_StoresGoalBaselineAndAudit`、`StatisticsAfterMutationTests.BaselineChange_RecomputesProgressAndRemaining`、`PipeServerTests.UpdateAchievementBaseline_IsServedAndIdempotent` | **PASS** | 两个 TRX |
-| 7 | 仪表盘数字与固定数据集一致 | `StatisticsTests.Dashboard_*`（3 项）、`ReplayTests.Replay_ProducesTransitionsFinalRunDatabaseWritesAndStatistics` | **PASS** | 单元 TRX；期望值在测试中独立计算，不取自实现 |
+| 7 | 仪表盘数字与固定数据集一致 | `StatisticsTests.Dashboard_*`（6 项）、`ReplayTests.Replay_ProducesTransitionsFinalRunDatabaseWritesAndStatistics` | **PASS** | 单元 TRX；期望值在测试中独立计算，不取自实现 |
 | 8 | 按副本分组的次数统计 | `PipeServerTests.Statistics_AreServedForEveryTable`（`GetDungeonStats`）、`StatisticsTests.GroupedStats_KeepUnknownJobAndUseDutyFallback` | **PASS** | 两个 TRX |
 | 9 | 各项比率（完成率 / 中途退出率 / 断线率）互不混淆 | `StatisticsTests.Dashboard_KeepsCompletionLeaveAndDisconnectSeparate`、`StatisticsAfterMutationTests.DisconnectedAndInterrupted_AreNeverFoldedIntoTheLeaveRate` | **PASS** | 单元 TRX |
 | 10 | 未知职业单独分组，不丢弃 | `StatisticsTests.GroupedStats_KeepUnknownJobAndUseDutyFallback`、`ReferenceCatalogTests.DefaultJobCatalog_MapsKnownAndUnknownJobs` | **PASS** | 单元 TRX |
 | 11 | 平均时长只统计有真实时长的记录 | `StatisticsAfterMutationTests.CancelledBeforeEntry_IsNeverAnAttemptAndItsShareIsNull`、`ReplayIntegrationTests.CancelledFixture_HasNoEntryTimeAndNoDuration`、`CompletedFixture_MeasuresDurationFromTheMonotonicReadings` | **PASS** | 两个 TRX |
-| 12 | 手工订正产生可追溯的 revision 链 | `MutationTests`（25 项，含 `CorrectRun_KeepsTheOriginalValuesReachableThroughRevisionOne`、`RunRevisions_RefuseUpdateAndDelete`） | **PASS** | 单元 TRX |
+| 12 | 手工订正产生可追溯的 revision 链 | `MutationTests`（35 项，含 `CorrectRun_KeepsTheOriginalValuesReachableThroughRevisionOne`、`RunRevisions_RefuseUpdateAndDelete`） | **PASS** | 单元 TRX |
 | 13 | 软删除后从统计中排除，恢复后重新计入 | `StatisticsAfterMutationTests.SoftDeletedRun_LeavesEveryStatistic`、`RestoredRun_ReturnsToEveryStatistic`、`MutationTests.SoftDeleteThenRestore_KeepsTheWholeRevisionChain` | **PASS** | 单元 TRX |
 | 14 | CSV / JSON 导出 | `ExportTests`（12 项，含 RFC 4180 转义、BOM、列顺序、路径越界拒绝） | **PASS** | 单元 TRX |
 | 15 | 图表能渲染 | ctest `MentorRecorderQmlLoad` / `QmlDetailPanel` / `QmlEditDialog` / `QmlBaselineDialog`（offscreen 截图） | **PASS** | `build/tests/Desktop.Tests/qml-*.png`；图表实现在 `src/Desktop/qml/charts/` |
-| 16 | 高 DPI | `main.cpp` 设置 `HighDpiScaleFactorRoundingPolicy::PassThrough`；截图用例在 1280×800 下渲染通过 | **PARTIAL** | `src/Desktop/cpp/main.cpp:158`。**尚未**在缩放大于 100% 的真实显示器上人工核对；offscreen 截图恒为 1.0 倍。逐项步骤见第 8 节「高 DPI 人工核对」，该节待人工执行 |
+| 16 | 高 DPI | `main.cpp` 设置 `HighDpiScaleFactorRoundingPolicy::PassThrough`；截图用例在 1280×800 下渲染通过 | **PARTIAL** | `src/Desktop/cpp/main.cpp:569-570`。**尚未**在缩放大于 100% 的真实显示器上人工核对；offscreen 截图恒为 1.0 倍。逐项步骤见第 8 节「高 DPI 人工核对」，该节待人工执行 |
 | 17 | 命名管道 ACL 只授权当前用户 | `LifecyclePipeSecurityTests`（3 项）：从真实管道句柄读 DACL，断言只有一条 Allow 规则且身份是当前用户 SID；并断言 Everyone / Authenticated Users / NETWORK / ANONYMOUS / Users / INTERACTIVE 都不在其中 | **PASS** | 集成 TRX |
-| 18 | 进程不监听任何端口 | `LifecycleProcessTests.AServingCollectorOwnsNoTcpEndpointAtAll`（真进程 + `netstat -ano`）；`verify.ps1` 第 5 步（`Get-NetTCPConnection -OwningProcess` + `netstat -ano`） | **PASS** | 集成 TRX；`verify.ps1` 输出「该进程没有任何 TCP 端点」 |
+| 18 | 进程不监听任何端口 | `LifecycleProcessTests.AServingCollectorOwnsNoTcpEndpointAtAll`（真进程 + `netstat -ano`）；`verify.ps1` 第 6 步（`Get-NetTCPConnection -OwningProcess` + `netstat -ano`） | **PASS** | 集成 TRX；`verify.ps1` 输出「该进程没有任何 TCP 端点」 |
 | 19 | 不出现任何被禁 API | `python tools/static-boundary-check/check.py`（`rules.json` 中的全部规则，扫描范围见第 3 节）＋ `selftest.py`（反向用例） | **PASS** | 见第 3 节；规则数、文件数与用例数以当次输出为准 |
 | 20 | 协议档案不可用时 fail-closed（不解析、不记录） | `CaptureControllerTests.RefusesToStart_WhenTheProfileIsNotVerified`、`ProtocolDecodedReplayTests.ABuildMismatchWritesNoRunAndLeavesTheStateMachineUntouched`、`SoakBoundsTests.AFailClosedParserRefusesIndefinitelyWithoutGrowing` | **PASS** | 两个 TRX |
 | 21 | 可追溯性：记录携带协议档案与事件摘要 | 档案侧：`CaptureIpcTests.VerifiedProfileFlowsFromCaptureThroughParserIntoLiveIpcAndStorage` 断言 `protocol_profile_id` / `game_build` / `capture_session_id`。事件侧：`run_events` 表有完整轨迹，`RecoveryEndToEndTests` 直接读它 | **PASS** | 事件轨迹现已可读取：`GetRunEvents` 是契约中的一条只读消息，对应第 5 节缺口 G1，该缺口已关闭 |
@@ -75,7 +75,7 @@
 | 23 | 崩溃后重启：已进入副本的未完结记录变 INTERRUPTED + 待复核（从未进本的记为 CANCELLED_BEFORE_ENTRY + 待复核），重启第二次不再变化 | `RecoveryEndToEndTests.ARunLeftUnfinishedByADeadProcessComesBackAsInterruptedAndPendingReview`（真进程 → 真进程） | **PASS** | 集成 TRX |
 | 24 | 单实例：第二个 `--serve` 非零退出，第一个继续服务 | `LifecycleProcessTests.ASecondServeIsRefusedAndTheFirstKeepsServing` | **PASS** | 集成 TRX |
 | 25 | 长时间运行不泄漏、计数自洽 | `SoakTests.AMixedStreamSustainedForTheWholeDurationLeavesEveryInvariantIntact`（默认 15 s，`MR_SOAK_MINUTES` 可延长） | **PASS** | 见第 4 节实测数字 |
-| 26 | 诊断日志不写入敏感数据、按大小滚动 | `DiagnosticsLogHygieneTests`（11 项，**0 跳过**）：profile 路径 / IPv4 / IPv6 / SID / 长十六进制串五类全部兜底脱敏，另有一项反向断言 12 位短哈希 id 不被误删 | **PASS** | 见第 6 节 |
+| 26 | 诊断日志不写入敏感数据、按大小滚动 | `DiagnosticsLogHygieneTests`（14 项，**0 跳过**）：profile 路径 / IPv4 / IPv6 / SID / 长十六进制串五类全部兜底脱敏，另有一项反向断言 12 位短哈希 id 不被误删 | **PASS** | 见第 6 节 |
 | 27 | 发布包不含禁止内容、含齐全许可证材料 | `package.ps1` 的 `Assert-NoForbiddenPayload` + `Assert-RequiredContent`，打包目录与**解包目录**各查一次；另由 `Assert-DesktopExecutable` 在暂存前与解包后核对桌面端内嵌的应用程序清单，并拒绝以开发用 Collector 查找（`MR_DEV_COLLECTOR_DISCOVERY`）编译的程序与开发构建（`MR_DEV_BUILD`：带有开发口味标记，或缺少正式口味标记） | **PASS** | 见第 2 节 |
 | 28 | 桌面端被强杀后不留孤儿 Collector | 桌面端固定以 `--serve --parent-pid <自身 pid>` 拉起子进程；`ParentProcessWatchdog` 用 `Process.GetProcessById` + `WaitForExitAsync`（**进程存在性检查，非 `OpenProcess`**）等父进程结束，随后走与 Ctrl+C 完全相同的停止路径，10 秒硬退出兜底。`LifecycleOrphanTests`（2 项，真进程：杀掉替身父进程后断言 Collector 15 s 内退出、退出码 0、`integrity_check = ok`、无残留未关闭的抓包会话）、`WatchdogTests`（21 项，含父进程身份核对）、Qt `LifecycleTests::theCollectorIsAlwaysToldOurProcessIdSoItCannotBeOrphaned` | **PASS** | 集成 TRX；ctest |
 | 29 | 已发布的 CHANGELOG 段落在打 tag 之后不被改写 | `package.ps1` 的 `Assert-ReleasedChangelogSectionsUnchanged`：对每个 `vX.Y.Z` tag，把工作区 `CHANGELOG.md` 里的 `## [X.Y.Z]` 段落与 `git show <tag>:CHANGELOG.md` 的同名段落比较，标题行（含日期）与正文逐字一致；段落被删除或标题被改名同样算作改动，任一不符即打包失败。新的变更只能写进 `[Unreleased]` 或下一个版本 | **PASS** | 打包脚本；缘由见内部工作文档 `reviews/2026-09-08/fix-status.md` 第 H-9 条，该文档不随仓库分发 |
@@ -137,7 +137,8 @@ pwsh -NoProfile -File scripts/package.ps1 -Force -Verify
 `MentorRecorder.Collector.exe`、`MentorRecorder.Desktop.exe`、`Qt6Multimedia.dll`、
 `multimedia/windowsmediaplugin.dll`、`LICENSE`、
 `THIRD_PARTY_NOTICES.md`、`README.md`、`SOURCE_CODE.md`、`BUILD-METADATA.json`、
-`SHA256SUMS.txt`、`docs/`（含 `privacy-boundary.md`、`third-party-licenses.md`、本文件）。
+`SHA256SUMS.txt`、`docs/`（含 `privacy-boundary.md`、`third-party-licenses.md`、本文件）、
+`ocr/OCR-DEPENDENCIES.json`（`ocr/` 另须按固定清单通过离线 OCR 运行目录的核对）。
 
 ### 发布页必须附带 / release assets
 
@@ -162,9 +163,9 @@ pwsh -NoProfile -File scripts/package.ps1 -Force -Verify
 | 注入载荷 | `deucalion*` | [privacy-boundary.md](privacy-boundary.md) §3 |
 | 专有 Oodle 库 | `oo2net*.dll` | §4，不分发 RAD 的专有组件 |
 | pcap 运行时 | `wpcap.dll` / `Packet.dll` / `*npcap*` | §2 第 14 条，不内置不分发 Npcap |
-| 游戏文件 | `ffxiv.exe` / `ffxiv_dx11.exe` | §7 |
+| 游戏文件 | `ffxiv.exe` / `ffxiv_dx11.exe`（按完整文件名匹配，其他以 `ffxiv` 开头的文件名不在此列） | §7 |
 | 原始抓包 | `*.pcap` / `*.pcapng` | §5 |
-| 用户数据 | `*.db` / `*.db-wal` / `*.db-shm` / `*.sqlite*` | 属于他人的游玩记录 |
+| 用户数据 | `*.db` / `*.db-wal` / `*.db-shm` / `*.sqlite` / `*.sqlite3`（按扩展名匹配） | 属于他人的游玩记录 |
 | 诊断日志 | `*.log` | 属于他人机器的诊断数据 |
 | 测试产物 | `*.trx` | 出现即说明测试输出漏入 staging 目录 |
 | 调试符号 | `*.pdb` | 可移植 PDB 按路径段存储源码路径，会把维护者本机的绝对路径（含用户名与仓库名）随包发出去。Release 构建改为 `DebugType=embedded` + `PathMap`，符号内嵌在程序集里、路径重写成 `/_/`，崩溃堆栈仍带文件名与行号 |
@@ -280,7 +281,7 @@ UUID 的分段更短。将这些短串一并删除不会额外隐藏任何秘密
 `AnIPv6AddressIsNeverWrittenInClearInEitherForm` 覆盖完整式与 `::` 压缩式，
 两种形态各包含单独出现与嵌在句子中两种写法；
 `TheShortHashPrefixesUsedAsIdentifiersSurviveTheRedaction` 反向断言 12 位指纹与
-UUID 原样保留。`DiagnosticsLogHygieneTests` 现共 11 项，**0 跳过**。
+UUID 原样保留。`DiagnosticsLogHygieneTests` 现共 14 项，**0 跳过**。
 
 其余约束仍然成立：异常只记录类型与消息，不记录堆栈；每行是一个带固定信封的 JSON 对象；
 诊断所需的计数字段照常放行；日志按大小滚动，最多 5 个文件，每个 2 MiB；
@@ -310,7 +311,7 @@ Get-Content <解包目录>\BUILD-METADATA.json | ConvertFrom-Json |
 | `packaged_verified_profile_status` | 该产物自身的 `--list-profiles --json`，取 `status == VERIFIED && usable` 的 `profile_id`，格式为 `VERIFIED (id1, id2)`；一份都没有时取 `NONE`。这一条是对**包内档案文件**的真实检查，记录在 `packaged_verified_profile_status_source` |
 | `source_protocol_profile_status` | [`../protocol-profiles/README.md`](../protocol-profiles/README.md) 顶部的 `PROTOCOL_PROFILE_STATUS = <状态>` 标记 |
 | `unpack_verified` | 本次是否带 `-Verify` 运行。解包运行在写出元数据之后进行，失败时整次打包失败，`unpack_verified_source` 如实写明这一点；失败时此前写出、记为 `true` 的压缩包、它的 `.sha256` 与暂存目录中的 `BUILD-METADATA.json` 随之删除 |
-| `public_distribution_ready` | **计算值**，下列前提全部满足才为 `true`；`public_distribution_ready_source` 列出参与计算的五类输入：编译期常量、包内档案、git 工作区状态、`-SkipVerify` 与 `-Verify`（版本号是否为先行版另由 `prerelease` 字段给出） |
+| `public_distribution_ready` | **计算值**，下列前提全部满足才为 `true`；`public_distribution_ready_source` 列出参与计算的五类输入：编译期常量、包内档案、git 工作区状态、`-SkipVerify` 与 `-Verify`。另有两类输入不在该字符串中：预验证 `verify.ps1` 返回的结果是否完整（第 8 条），以及版本号是否为先行版（由 `prerelease` 字段给出） |
 | `public_distribution_blockers` | 未满足的前提，逐条列出；全部满足时为空数组 |
 
 `public_distribution_ready` 的前提如下，任何一条不成立即不得公开分发：
@@ -332,10 +333,13 @@ Get-Content <解包目录>\BUILD-METADATA.json | ConvertFrom-Json |
 6. 版本号不带先行版后缀。`X.Y.Z-beta.N` 的测试包按定义不作为正式发布分发（第 9.2 节），
    打包本身照常成功；
 7. 带 `-Verify` 打包（`unpack_verified = true`），即产物解包后实际运行过两个可执行文件。
-   未带 `-Verify` 时阻断原因写明「未按 -Verify 解包并运行产物（unpack_verified=false）」。
+   未带 `-Verify` 时阻断原因写明「未按 -Verify 解包并运行产物（unpack_verified=false）」；
+8. 预验证 `verify.ps1` 全部通过并返回完整结果（`verification_complete`）。任何关卡被跳过（含 `tools/` 下有任何一项
+   Python 自测被跳过，以及构建目录中未部署离线 OCR），或没有返回结果时，阻断原因写明「预验证只完成部分验证或未返回完整结果（verification_complete=false）」；
+   已使用 `-SkipVerify` 时只按第 5 条记录（见 [build-and-package.md](build-and-package.md) §4.4）。
 
 > 第 1、2 条是二进制中的声明，只要源码未改动即恒为真，因此并**不**构成这道闸门的实际约束力；
-> 真正可能与事实不符、也真正起到阻断作用的是第 3 至 7 条。
+> 真正可能与事实不符、也真正起到阻断作用的是第 3 至 8 条。
 > 阻断原因 `public_distribution_blockers` 与控制台输出对前两条均标注「编译期常量」。
 
 源码状态在运行 `verify.ps1` 与 `build.ps1` 之前读取一次，写入 `BUILD-METADATA.json` 时再读一次。
@@ -357,8 +361,8 @@ Get-Content <解包目录>\BUILD-METADATA.json | ConvertFrom-Json |
 > 因此，第 1 节第 16 项与第 5 节 G5 目前仅有策略代码正确这一半证据。
 > 判定 PASS 之前，必须在**真实显示器**上按下列条目逐项核对，并将结果回填至第 16 项与 G5。
 
-代码侧已经成立、无须重测的部分：`src/Desktop/cpp/main.cpp:320-321` 设置
-`Qt::HighDpiScaleFactorRoundingPolicy::PassThrough`；`:316-318` 仅在用户设置了非 100 的
+代码侧已经成立、无须重测的部分：`src/Desktop/cpp/main.cpp:569-570` 设置
+`Qt::HighDpiScaleFactorRoundingPolicy::PassThrough`；`:564-567` 仅在用户设置了非 100 的
 界面缩放，且 `QT_SCALE_FACTOR` 未被外部指定时才写入该变量。
 待确认的是**布局在放大后是否仍能正常显示和操作**。
 
@@ -449,7 +453,13 @@ git tag v1.4.0-beta.1                             # 可选：仅当需要作为�
 ```
 
 `CHANGELOG.md` 此时最上方必须仍是 `## [Unreleased]`：测试包携带的条目尚未发布。
-打包脚本会核对这一点。下一个测试包把 `VersionSuffix` 改为 `beta.2`，依此类推。
+打包脚本在运行验证与构建之前（「版本预检」，见 [build-and-package.md](build-and-package.md) §5）核对这一点。
+下一个测试包把 `VersionSuffix` 改为 `beta.2`，依此类推。
+
+改动版本号（测试包与正式版都一样）的同一提交中，须同时整理「本次更新」的展示文件
+`src/Desktop/resources/release-notes/presentation.json`：把其中的 `version` 改为新的完整版本号，并让每条注解按
+`bodySha256` 恰好对应新版本 CHANGELOG 段落中的一条；不打算整理时清空其 `entries`。否则 ctest
+`MentorRecorderReleaseNotes`（`bundledPresentationMatchesTheCurrentVersionEntryByEntry`）失败，`verify.ps1` 随之失败。
 
 ### 9.4 切一个正式发布
 

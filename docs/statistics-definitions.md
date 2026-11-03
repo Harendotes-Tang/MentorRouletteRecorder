@@ -55,7 +55,7 @@ NOT (source = 'AUTO_NETWORK' AND result = 'UNKNOWN' AND ended_at_utc IS NULL AND
 ```
 attempt_count = COUNT(*) WHERE
       (entered_at_utc IS NOT NULL
-       OR ((imported_history OR source = 'MANUAL') AND result NOT IN ('UNKNOWN', 'CANCELLED_BEFORE_ENTRY')))
+       OR result NOT IN ('UNKNOWN', 'CANCELLED_BEFORE_ENTRY'))
   AND soft_deleted = 0
   AND confirmed_mentor
 ```
@@ -64,9 +64,11 @@ attempt_count = COUNT(*) WHERE
 
 - 记录**必须真正进入过副本**。因此 `CANCELLED_BEFORE_ENTRY` 的记录
   （`entered_at_utc IS NULL`）**不计入** `attempt_count`，也不出现在完成率与离开率的分母中。
-- 采集记录以进本时间为凭。历史导入与手动记录（`source = 'MANUAL'`）可以没有进本时间
-  （[manual-correction.md](manual-correction.md) §7，手动记录自 2026-10-21 起），
-  这时以结果为凭：结果不是未知、也不是进本前取消的记录计入，耗时保持未知。
+- 有进本时间的记录一律计入。没有进本时间时以结果为凭，不分来源：结果不是未知、也不是进本前取消的记录计入，
+  耗时保持未知。历史导入与手动记录（`source = 'MANUAL'`）可以没有进本时间；自 2026-10-21 起，用户更正过的
+  采集记录同样可以没有进本时间（[manual-correction.md](manual-correction.md) §7），例如把一条进本前取消的采集记录
+  改为通关。采集服务自己只会把没有看到进本的记录收尾为进本前取消或未知，因此按结果计入的采集记录都出自人工更正。
+  这样每一条通关记录都是一次尝试，完成率不会超过 1。
 - `attempt_count` 是所有比率指标的**唯一分母**。
 
 ## 3. 完成次数 `completed_count`
@@ -78,8 +80,10 @@ completed_count = COUNT(*) WHERE
   AND confirmed_mentor
 ```
 
-采集记录只有经历 `ENTERED_DUTY` 才能迁移到 `COMPLETED`。已确认历史导入可在未知进本时间时记为通关，
-不将原站日期写成真实进本或结束时间；手动记录同样可以在没有进本或结束时间时记为通关，耗时保持未知（§8）。
+采集服务只有在记录经历 `ENTERED_DUTY` 之后才把它判为 `COMPLETED`；用户更正采集记录时可以把没有进本时间的记录
+改为通关（[manual-correction.md](manual-correction.md) §7），这样的记录按 §2 同样计为一次尝试。已确认历史导入可在
+未知进本时间时记为通关，不将原站日期写成真实进本或结束时间；手动记录同样可以在没有进本或结束时间时记为通关，
+耗时保持未知（§8）。
 
 ## 4. 成就进度 `achievement_progress`
 
@@ -87,6 +91,9 @@ completed_count = COUNT(*) WHERE
 日期、职业、副本等列表筛选不改变该区服的全生命周期进度。全部区服视图使用
 `DashboardStats.achievements` 分别展示各区进度，不相加。为旧桌面端保留的标量字段在选定区服时
 投影该区服，全部区服请求时投影 CN。schema 12 将原有设置只归入 CN，繁中服 TC 从 0 基数开始。
+schema 13 把 1.8.0 及更早版本写下的无区服手工补录与导入记录（`region = 'UNKNOWN'`、没有抓包会话，且创建于数据库升到 schema 12 之前）归入 CN
+（[data-model.md](data-model.md) §4）：这些版本只服务国服，这些通关原本计入唯一的成就，「已包含」导入的扣减也已随
+旧基数归入 CN，因此两者在升级后仍留在同一个区服，国服进度与升级前相同。
 
 ```
 achievement_progress =
@@ -229,6 +236,11 @@ avg_duration_ms = AVG(duration_ms) WHERE
   该记录因此归入这一行，不会再按区域算回原来的副本。
 - 每行输出 `attempt_count`、`completed_count`、`completion_rate`、`avg_duration_ms`，
   口径与上文完全一致，仅将候选集限制在该组之内。
+- `duty_category` 按有效分类返回，`RunFilter.duty_category` 的筛选按同一口径（`DutyCategoryProjection`）：
+  副本表分类为「大型任务」且小队人数为 24 的标准团本显示为「团队任务」，其余保持记录的分类。记录所属区服的副本表
+  决定这一点；区服为 `UNKNOWN` 的记录只在各区服副本表对该副本的分类一致、且写明的人数一致时投影（未写人数的行不参与比较）。
+  繁中服副本表不含人数，组合副本表时，未写人数的行借用其他区服对同一 `content_id` 一致给出的人数；
+  各区服给出的人数不一致时不借用。
 - `duty_name` 取该组下最近一次非空的名称，查不到时回退到 `data/duties/` 映射表。
   「未知副本」一行除外：它没有副本身份，`duty_name` 恒为「未知副本」，`duty_category` 为 `null`，
   不取组内记录的名称或类型（例如导入时填写、未能对应到副本表的副本名）。
@@ -255,6 +267,7 @@ avg_duration_ms = AVG(duration_ms) WHERE
 | `baseline_completed_count` | `achievement_settings` |
 | `achievement_progress` | §4（全量口径，不受时间过滤影响） |
 | `goal_count` | `achievement_settings`，默认 2000 |
+| `achievements` | 按区服分别给出的成就数组，不受日期、职业、副本筛选影响；选定区服时只含该区服，全部区服请求时含 CN 与 TC，以及另有记录或设置的其他区服，见 §4 |
 | `remaining` | §5 |
 | `completion_rate` | §6 |
 | `leave_rate` | §7 |
@@ -262,6 +275,7 @@ avg_duration_ms = AVG(duration_ms) WHERE
 | `result_breakdown` | §9 |
 | `unfinished_pending_review` | 具备统计资格的非历史导入记录中满足未删除条件及当前筛选、且 `pending_review = 1` 的条数（见下） |
 | `trend` | §12.1 |
+| `joined_in_progress_count` / `joined_in_progress_rate` | §12.2 |
 
 `unfinished_pending_review` 在具备统计资格的非历史导入记录中读取 `pending_review` 标志，而非
 `result = 'INTERRUPTED'`。历史导入的时间缺口不产生该提示；有明确导入审计的旧标志在兼容维护时纠正。
@@ -295,8 +309,10 @@ avg_duration_ms = AVG(duration_ms) WHERE
 
 ## 12.1 完成趋势 `trend`
 
-副本统计中的类型饼图与「主线 / 行会令 / 其他 / 未识别」饼图均使用同一筛选下全量
-`completed_count` 为分母，不受 Top10 展示限制，不使用尝试次数或成就基数。分母为零时比例为空。
+副本统计中的类型饼图与「主线 / 行会令 / 其他 / 未识别」饼图以同一筛选下的通关次数为分母，不受 Top10 展示限制，
+不使用尝试次数或成就基数。用户在「自定义显示」中隐藏某些分类后，被隐藏的分类同时从分母中去掉，各块的比例按**所选分类**的
+通关次数之和计算，图注随之由「全部通关 N 次」改为「所选通关 N 次」；未隐藏任何分类时分母即全量 `completed_count`。
+隐藏只改变这两张饼图的显示，不改变任何统计接口的返回值。分母为零时比例为空。
 类型饼图按副本分类计数，另在「讨伐歼灭战」之后单列一块「极神」：带数字 `content_id`、在本地副本目录中
 分类为讨伐歼灭战、名称按目录判定为「极」难度且不以「幻巧战」结尾的副本，其通关次数计入「极神」，
 不计入「讨伐歼灭战」；「讨伐歼灭战」一块因此只含其余的讨伐歼灭战。没有副本编号的行仍按其分类计入。
@@ -371,6 +387,18 @@ joined_in_progress_rate = null                （分母为 0）
   行级不给出占比。
 - 用户提供的 `RunFilter` 照常叠加；`RunFilter.joined_in_progress = true / false` 只命中该列为 1 / 0 的记录，
   `NULL` 两种取值都不命中。
+
+## 12.3 浮窗的「排本次数」
+
+统计浮窗的「排本次数」模块显示的是 §2 的 `attempt_count`，不是排队的次数：只计进入过副本（或按 §2 以结果计入）的
+导随，匹配后未进本即取消的记录（`CANCELLED_BEFORE_ENTRY`）不计入。桌面端以 `GetDashboardStats` 读取它，筛选为：
+
+- 周期「当日」「近七天」「近30天」：按本机时区的自然日划定窗口（含今天在内的最近 1 / 7 / 30 天），以
+  `history_date` 投影（§12.1）判断记录落在哪一天；跨过零点或本机时区变化后重新读取；
+- 周期「全部」：不加日期条件；
+- 总览选定了具体区服时只计该区服，选「全部区服」时不限区服。
+
+浮窗中的副本统计与职业统计模块使用同一个周期与区服筛选。
 
 ## 13. 边界用例（必须有测试覆盖）
 

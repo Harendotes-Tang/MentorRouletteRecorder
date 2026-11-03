@@ -1045,6 +1045,18 @@ ApplicationWindow {
         // About new versions only: 联网一 downloads shared calibrations by itself.
         QVERIFY(all.contains(QString::fromUtf8("软件不会自行下载或安装")));
         QVERIFY(!all.contains(QString::fromUtf8("本软件从不自动下载、也从不安装新版本")));
+        // Audit 2026-11-03 L1-6: the check and the download fall back to the GitCode
+        // mirror (docs/privacy-boundary.md §8.4, §8.6), another operator that sees the
+        // player's IP address; 联网三 names it, as 联网一 does.
+        QString update;
+        for (const QString &text : texts) {
+            if (text.startsWith(QString::fromUtf8("默认在启动软件时")))
+                update = text;
+        }
+        QVERIFY2(update.contains(QString::fromUtf8("GitCode 上的同名镜像")), qUtf8Printable(update));
+        QVERIFY2(update.contains(QString::fromUtf8("GitHub、GitCode 及其下载服务能看到你的 IP 地址")),
+                 qUtf8Printable(update));
+        QVERIFY(!update.contains(QString::fromUtf8("发布平台及其下载服务")));
     }
 };
 } // namespace

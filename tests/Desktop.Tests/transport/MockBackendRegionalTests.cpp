@@ -1,5 +1,6 @@
 #include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
+#include "AutomaticRecordingController.h"
 #include "DutyCatalog.h"
 #include "MockBackend.h"
 
@@ -287,6 +288,89 @@ private Q_SLOTS:
         crossRegion.resetRuns({existing});
         QCOMPARE(importStatuses(previewImport(crossRegion, QStringLiteral("JSON"), {tc}, QStringLiteral("new-tc.json"))),
                  QStringList{QStringLiteral("new")});
+    }
+
+    // RunMutationService.ApplyChangeSet: a corrected duty comes from the run's own region's
+    // catalogue (rule 8: a CN duty catalogue never names a TC record), and an explicit null
+    // (未知副本) takes the observed zone with it (OG-1).
+    void aCorrectedDutyComesFromTheRunsRegionAndAClearedDutyTakesItsZone()
+    {
+        mr::MockBackend backend;
+        backend.resetRuns({});
+        const Answer created = ask(backend, QStringLiteral("CreateManualRun"),
+            {{"region", "TC"}, {"content_id", 4}, {"result", "COMPLETED"},
+             {"entered_at_utc", "2026-09-01T12:01:00.000Z"}, {"ended_at_utc", "2026-09-01T12:10:00.000Z"},
+             {"reason", "manual"}});
+        QVERIFY2(created.ok, qPrintable(created.message));
+        const QString runId = created.payload.value("run_id").toString();
+        int revision = created.payload.value("revision").toInt();
+        const auto correctDuty = [&](const QJsonValue &contentId) {
+            const Answer answer = ask(backend, QStringLiteral("CorrectRun"),
+                {{"run_id", runId}, {"expected_revision", revision},
+                 {"changes", QJsonObject{{"content_id", contentId}}}, {"reason", "check"}});
+            if (answer.ok)
+                revision = answer.payload.value("revision").toInt();
+            return answer;
+        };
+        const auto *duties = mr::DutyCatalog::shared();
+
+        const QVariantMap tcName = duties->lookup(17, QStringLiteral("TC"));
+        QVERIFY(!tcName.isEmpty());
+        QVERIFY(tcName.value("duty_name") != duties->lookup(17, QStringLiteral("CN")).value("duty_name"));
+        const Answer renamed = correctDuty(17);
+        QVERIFY2(renamed.ok, qPrintable(renamed.message));
+        QCOMPARE(renamed.payload.value("run").toObject().value("duty_name").toString(),
+                 tcName.value("duty_name").toString());
+
+        const QVariantMap tcZone = duties->lookup(5, QStringLiteral("TC"));
+        QVERIFY(tcZone.value("territory_id") != duties->lookup(5, QStringLiteral("CN")).value("territory_id"));
+        const Answer moved = correctDuty(5);
+        QVERIFY2(moved.ok, qPrintable(moved.message));
+        QCOMPARE(moved.payload.value("run").toObject().value("territory_id").toInteger(),
+                 tcZone.value("territory_id").toLongLong());
+
+        const Answer cleared = correctDuty(QJsonValue(QJsonValue::Null));
+        QVERIFY2(cleared.ok, qPrintable(cleared.message));
+        const QJsonObject unknown = cleared.payload.value("run").toObject();
+        QVERIFY(unknown.value("content_id").isNull());
+        QVERIFY(unknown.value("territory_id").isNull());
+        QVERIFY(unknown.value("duty_name").isNull());
+    }
+
+    // CaptureWire.StatusExtras: GetStatus always carries the game (with install_path_readable)
+    // and the two Oodle disclosures. Under a TC override the client's build is still read
+    // from disk, so the profile decides, and the projection reaches the live 「还没有适用于
+    // 当前游戏版本的支持文件」 instead of waiting for the install path for good.
+    void theStatusCarriesTheGameAndATcOverrideLetsTheProfileDecide()
+    {
+        mr::MockBackend backend;
+        const Answer cn = ask(backend, QStringLiteral("GetStatus"));
+        QVERIFY(cn.ok);
+        const QJsonObject game = cn.payload.value("game").toObject();
+        QVERIFY(game.value("running").toBool());
+        QVERIFY(game.value("install_path_readable").toBool());
+        QCOMPARE(game.value("region").toString(), QStringLiteral("CN"));
+        QCOMPARE(game.value("game_build").toString(),
+                 cn.payload.value("capture").toObject().value("game_build").toString());
+        QCOMPARE(game.value("instance_count").toInt(), 1);
+        QCOMPARE(cn.payload.value("oodle_mode").toString(), QStringLiteral("FfxivTcp"));
+        QVERIFY(cn.payload.value("reads_game_executable").toBool());
+
+        QVERIFY(ask(backend, QStringLiteral("UpdateCaptureSettings"), {{"region_override", "TC"}}).ok);
+        const Answer tc = ask(backend, QStringLiteral("GetStatus"));
+        const QJsonObject capture = tc.payload.value("capture").toObject();
+        QCOMPARE(capture.value("profile_status").toString(), QStringLiteral("UNSUPPORTED_BUILD"));
+        QVERIFY(!capture.value("game_build").toString().isEmpty());
+        QCOMPARE(tc.payload.value("game").toObject().value("region").toString(), QStringLiteral("TC"));
+        QCOMPARE(tc.payload.value("game").toObject().value("game_build").toString(),
+                 capture.value("game_build").toString());
+        QCOMPARE(ask(backend, QStringLiteral("GetProtocolProfileStatus")).payload.value("game_build").toString(),
+                 capture.value("game_build").toString());
+
+        mr::AutomaticRecordingController recording(&backend);
+        QTRY_COMPARE(recording.state(), QStringLiteral("blocked"));
+        QVERIFY2(recording.message().contains(QString::fromUtf8("还没有适用于当前游戏版本的支持文件")),
+                 qPrintable(recording.message()));
     }
 };
 } // namespace

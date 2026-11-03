@@ -196,6 +196,84 @@ public sealed class CaptureDetectionTests
         Assert.Empty(detection.Warnings);
     }
 
+    /// <summary>
+    /// Audit 2026-11-03, A2-1. A manual region that was not chosen for this client never relabels
+    /// a client whose install path names another region: a TC tester's override must not make the
+    /// CN client unrecordable as TC, and a CN override must not arm CN calibration on a TC client.
+    /// The client fails closed and says why.
+    /// </summary>
+    [Theory]
+    [InlineData(Region.Cn, @"C:\Program Files\USERJOY GAMES\FINAL FANTASY XIV TC\game\ffxiv_dx11.exe")]
+    [InlineData(Region.Tc, @"D:\最终幻想XIV\game\ffxiv_dx11.exe")]
+    [InlineData(Region.Global, @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe")]
+    public void AManualRegionNotChosenForThisClientNeverRelabelsAPathThatNamesAnotherRegion(Region chosen, string exe)
+    {
+        var processes = new FakeGameProcessProvider().Add(GameProcessLocator.Dx11ProcessName, 7, null, exe);
+
+        var detection = new GameProcessLocator(processes, new FakeGameFileReader())
+            .WithRegionOverride(() => chosen).Locate();
+
+        Assert.Equal(Region.Unknown, detection.Region);
+        Assert.Contains(detection.Warnings, warning =>
+            warning.Key == Contracts.Texts.CollectorTexts.CaptureGameRegionOverrideMismatch().Key);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-03, A2-1. A region chosen while a client runs is bound to that installation:
+    /// it keeps fixing a client whose path is misleading (a TC client in a folder named in
+    /// Simplified Chinese), still applies to any client whose path names no region, and fails
+    /// closed for a different client whose path names another region. Only a fingerprint of the
+    /// path is stored, never the path (docs/privacy-boundary.md).
+    /// </summary>
+    [Fact]
+    public void AManualRegionStaysBoundToTheInstallationItWasChosenFor()
+    {
+        const string misleading = @"D:\最终幻想14繁中服\game\ffxiv_dx11.exe";
+        const string cn = @"D:\SdoA\FFXIV\game\ffxiv_dx11.exe";
+        const string unmarked = @"D:\Games\FF14\game\ffxiv_dx11.exe";
+        using var db = new TestDatabase();
+        var settings = new Storage.Repositories.SettingsRepository(db.Database, db.Clock);
+        settings.EnsureDefaults();
+        var processes = new FakeGameProcessProvider().Add(GameProcessLocator.Dx11ProcessName, 7, null, misleading);
+        var locator = new GameProcessLocator(processes, new FakeGameFileReader())
+            .WithRegionOverride(() => CaptureSettingsStore.ReadRegionOverride(settings));
+
+        CaptureSettingsStore.Apply(settings, new CaptureSettingsUpdate { RegionOverride = Region.Tc, RegionOverrideSpecified = true });
+        var chosenFor = locator.Locate();
+        Assert.Equal(Region.Tc, chosenFor.Region);
+        Assert.DoesNotContain(chosenFor.Warnings, warning =>
+            warning.Key == Contracts.Texts.CollectorTexts.CaptureGameRegionOverrideMismatch().Key);
+        // The path still names CN, so the relabelling is said out loud (re-review 2026-11-03, RV1-5).
+        Assert.Contains(chosenFor.Warnings, warning =>
+            warning.Key == Contracts.Texts.CollectorTexts.CaptureGameRegionOverrideApplied().Key);
+        var stored = settings.GetSetting(CaptureSettingsStore.RegionOverrideInstallSetting);
+        Assert.NotNull(stored);
+        Assert.DoesNotContain("繁中服", stored, StringComparison.Ordinal);
+        Assert.DoesNotContain("ffxiv_dx11", stored, StringComparison.OrdinalIgnoreCase);
+
+        processes.Clear();
+        processes.Add(GameProcessLocator.Dx11ProcessName, 8, null, cn);
+        var other = locator.Locate();
+        Assert.Equal(Region.Unknown, other.Region);
+        Assert.Contains(other.Warnings, warning =>
+            warning.Key == Contracts.Texts.CollectorTexts.CaptureGameRegionOverrideMismatch().Key);
+
+        processes.Clear();
+        processes.Add(GameProcessLocator.Dx11ProcessName, 9, null, unmarked);
+        var unmarkedClient = locator.Locate();
+        Assert.Equal(Region.Tc, unmarkedClient.Region);
+        Assert.DoesNotContain(unmarkedClient.Warnings, warning =>
+            warning.Key == Contracts.Texts.CollectorTexts.CaptureGameRegionOverrideApplied().Key);
+
+        processes.Clear();
+        processes.Add(GameProcessLocator.Dx11ProcessName, 10, null, misleading.ToUpperInvariant());
+        Assert.Equal(Region.Tc, locator.Locate().Region);
+
+        CaptureSettingsStore.Apply(settings, new CaptureSettingsUpdate { RegionOverride = null, RegionOverrideSpecified = true });
+        Assert.Equal(Region.Cn, locator.Locate().Region);
+        Assert.Equal("null", settings.GetSetting(CaptureSettingsStore.RegionOverrideInstallSetting));
+    }
+
     [Fact]
     public void AnUnprovenTraditionalClientPathNeedsExplicitRegionSelection()
     {

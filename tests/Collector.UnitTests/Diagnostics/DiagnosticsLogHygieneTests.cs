@@ -365,6 +365,44 @@ public sealed class DiagnosticsLogHygieneTests : IDisposable
         Assert.DoesNotContain("6d0000", line, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Audit 2026-11-03 (C-7 / X3): a confirmed calibration that could not be written or selected is told to the player
+    /// in a catalogue sentence without the system's words, and the host writes those words to the local log instead -
+    /// redacted like every line, so the profile's path under another Windows user's folder never reaches the file.
+    /// </summary>
+    [Fact]
+    public void TheHostWritesACalibrationFaultToTheDiagnosticLogWithItsPathRedacted()
+    {
+        var clock = new TestClock(new DateTimeOffset(2026, 11, 3, 3, 0, 0, TimeSpan.Zero));
+        using var logger = new RotatingFileLogger(Path.Combine(_directory, "logs"), clock);
+        var selection = Protocol.Profiles.ProfileSelector.SelectExplicit(
+            Path.Combine(AppContext.BaseDirectory, "protocol-profiles", "synthetic", "synthetic-cn-shape-v1.json"),
+            allowSynthetic: true);
+        string logPath;
+        using (var host = CollectorHost.Open(
+                   Path.Combine(_directory, "host.db"), clock, new CaptureServices(), logger, _ => selection))
+        {
+            // The event is raised only by the pipeline itself; its backing delegate is what a raise calls.
+            var raise = (Action<string, string?, Exception?>?)typeof(LiveProtocolPipeline)
+                .GetField("CalibrationFault", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .GetValue(host.LiveProtocol!);
+            Assert.NotNull(raise);
+            raise!("calibration_write_failed", null, new IOException("The process cannot access the file '" + ProfilePath + "'."));
+            raise("calibration_written_not_selected", "no profile matches this build", null);
+            logPath = logger.CurrentPath;
+        }
+
+        var lines = File.ReadAllLines(logPath, new UTF8Encoding(false));
+        var failed = JsonNode.Parse(Assert.Single(lines, raw => raw.Contains("\"calibration_write_failed\"", StringComparison.Ordinal)))!;
+        Assert.Equal("calibration", failed["component"]!.GetValue<string>());
+        Assert.Equal("ERROR", failed["level"]!.GetValue<string>());
+        Assert.Equal(nameof(IOException), failed["error_type"]!.GetValue<string>());
+        Assert.Contains("%USERPROFILE%", failed["error_message"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.DoesNotContain("SomebodyElse", string.Join("\n", lines), StringComparison.OrdinalIgnoreCase);
+        var notSelected = JsonNode.Parse(Assert.Single(lines, raw => raw.Contains("\"calibration_written_not_selected\"", StringComparison.Ordinal)))!;
+        Assert.Equal("no profile matches this build", notSelected["reason"]!.GetValue<string>());
+    }
+
     /// <summary>Writes with a fresh logger in this test's directory and returns the file text.</summary>
     private string Write(Action<RotatingFileLogger> write)
     {

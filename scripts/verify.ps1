@@ -13,6 +13,7 @@
       2.  静态硬边界检查（tools/static-boundary-check/check.py）
       3.  架构依赖门禁（tools/architecture-boundary-check/check.py）
       3b. 协议档案校验（tools/protocol-profile-validator/validate.py），覆盖随包全部档案
+      3c. 内置导入模板与生成脚本一致（scripts/generate-import-templates.py --check）
       4.  tools/ 下全部 Python 自测（scripts/run-python-tool-tests.ps1），其中边界检查器的
           反向自测（selftest.py）验证它确实会拦截；运行前先逐个导入
           tools/requirements-ci.txt 所列的包，缺少任何一个即失败；`dotnet test` 与 `ctest`
@@ -55,7 +56,9 @@ param(
     # Build and test the distribution flavour of the Desktop (scripts/build.ps1
     # -Distribution, -DMR_DEV_BUILD=OFF). Only scripts/package.ps1 passes this, so
     # the binaries it verifies are the ones it packages; a plain run, CI included,
-    # verifies the development flavour (docs/build-and-package.md section 3.7).
+    # verifies the development flavour (docs/build-and-package.md section 3.7). The
+    # distribution flavour is built in build-distribution\ unless MR_BUILD_DIR names
+    # another directory, and never in the developers' build\.
     [switch]$Distribution,
 
     # xunit trait filter forwarded to scripts/test.ps1 (which forwards it to dotnet test).
@@ -93,13 +96,17 @@ $env:MR_DISABLE_UPDATE_CHECK = '1'
 
 $RepoRoot   = Split-Path -Parent $PSScriptRoot
 # The tree build.ps1 / test.ps1 / package.ps1 work in; the payload scan below must look there.
+# -Distribution resolves it as build.ps1 does: build-distribution\ by default, never build\ (RV5-2).
 $configuredBuildDir = [Environment]::GetEnvironmentVariable('MR_BUILD_DIR')
 $BuildDir = if ([string]::IsNullOrWhiteSpace($configuredBuildDir)) {
-    Join-Path $RepoRoot 'build'
+    Join-Path $RepoRoot $(if ($Distribution) { 'build-distribution' } else { 'build' })
 } elseif ([System.IO.Path]::IsPathRooted($configuredBuildDir)) {
     [System.IO.Path]::GetFullPath($configuredBuildDir)
 } else {
     [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $configuredBuildDir))
+}
+if ($Distribution -and [string]::Equals($BuildDir.TrimEnd('\', '/'), (Join-Path $RepoRoot 'build'), [StringComparison]::OrdinalIgnoreCase)) {
+    throw ("MR_BUILD_DIR 指向开发构建目录 {0}；正式构建会把它配置成正式口味并留在那里。请取消 MR_BUILD_DIR（-Distribution 默认使用 build-distribution）或改用其他目录。" -f $BuildDir)
 }
 $CheckPy             = Join-Path $RepoRoot 'tools\static-boundary-check\check.py'
 $ArchitectureCheckPy = Join-Path $RepoRoot 'tools\architecture-boundary-check\check.py'
@@ -108,6 +115,7 @@ $ToolTests           = Join-Path $PSScriptRoot 'run-python-tool-tests.ps1'
 $SecurityQualityScript = Join-Path $PSScriptRoot 'security-quality.ps1'
 $StaticAnalysisScript = Join-Path $PSScriptRoot 'static-analysis.ps1'
 $QmlLintScript = Join-Path $PSScriptRoot 'qml-lint.ps1'
+$ImportTemplateGenerator = Join-Path $PSScriptRoot 'generate-import-templates.py'
 
 $failures = New-Object System.Collections.Generic.List[string]
 $skipped = New-Object System.Collections.Generic.List[string]
@@ -252,6 +260,31 @@ else {
     }
 }
 
+# ---------------------------------------------- 3c. import template freshness ----
+Write-Head '导入模板一致性 / Import template freshness'
+
+# The Desktop embeds the import templates under src/Desktop/resources/import-templates/, which
+# scripts/generate-import-templates.py renders from its field list. --check renders them in
+# memory, writes nothing and exits 1 when a checked-in file differs: the text templates line by
+# line with CRLF read as LF (a CRLF checkout is current), the workbook by its uncompressed members.
+# So a template edited by hand, or a field list changed without regenerating, cannot ship
+# (audit 2026-11-03, RV2-1).
+if (-not $python) {
+    Add-Failure 'import-templates' '未找到 Python 3。导入模板一致性检查是强制的，不能跳过。'
+}
+elseif (-not (Test-Path -LiteralPath $ImportTemplateGenerator)) {
+    Add-Failure 'import-templates' ("未找到导入模板生成脚本: {0}" -f $ImportTemplateGenerator)
+}
+else {
+    & $python.Source -I $ImportTemplateGenerator --check
+    if ($LASTEXITCODE -ne 0) {
+        Add-Failure 'import-templates' '内置导入模板与生成脚本不一致；请运行 python scripts/generate-import-templates.py 重新生成，并与脚本一并提交。'
+    }
+    else {
+        Write-Host '内置导入模板与生成脚本一致。' -ForegroundColor Green
+    }
+}
+
 # ------------------------------------------------------ 4. tool self-tests --------
 Write-Head '工具自测 / Tool self-tests'
 
@@ -330,13 +363,21 @@ if (-not (Test-Path -LiteralPath $StaticAnalysisScript)) {
 else {
     # static-analysis.ps1 throws when it cannot run at all (no compile_commands.json, a failed
     # configure); record that as this gate's failure so the gates below and the summary still run.
+    # It reads the build directory from MR_BUILD_DIR only: hand it this run's $BuildDir, which under
+    # -Distribution is build-distribution\ even when the variable is unset (RV5-2), and give the
+    # caller's value back afterwards.
+    $callerBuildDir = [Environment]::GetEnvironmentVariable('MR_BUILD_DIR')
     try {
+        $env:MR_BUILD_DIR = $BuildDir
         & $StaticAnalysisScript -Tool cppcheck -Jobs ([Math]::Min(2, [Environment]::ProcessorCount))
         $staticAnalysisExit = $LASTEXITCODE
     }
     catch {
         Add-Failure 'cpp-static-analysis' ("C++ analyzer could not run: {0}" -f $_.Exception.Message)
         $staticAnalysisExit = $null
+    }
+    finally {
+        $env:MR_BUILD_DIR = $callerBuildDir
     }
     if ($null -ne $staticAnalysisExit -and $staticAnalysisExit -ne 0) {
         Add-Failure 'cpp-static-analysis' 'C++ analyzer failed or reported hard findings.'

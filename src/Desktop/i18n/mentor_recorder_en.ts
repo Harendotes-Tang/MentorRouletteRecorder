@@ -883,10 +883,6 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>Waiting for the game · the installed game version needs recalibrating</translation>
     </message>
     <message>
-        <source>等待游戏启动 · 游戏版本支持文件有冲突，暂时不能自动记录</source>
-        <translation>Waiting for the game · game version support files conflict; no automatic recording for now</translation>
-    </message>
-    <message>
         <source>等待游戏启动 · 当前安装的游戏版本暂不支持自动记录</source>
         <translation>Waiting for the game · the installed game version doesn&apos;t support automatic recording yet</translation>
     </message>
@@ -919,10 +915,6 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>This game version doesn&apos;t support automatic recording yet</translation>
     </message>
     <message>
-        <source>游戏版本支持文件有冲突，暂时不能自动记录</source>
-        <translation>Game version support files conflict; no automatic recording for now</translation>
-    </message>
-    <message>
         <source>还没找到适用的游戏版本支持文件，暂时不能自动记录</source>
         <translation>No matching game version support file found yet; no automatic recording for now</translation>
     </message>
@@ -941,6 +933,14 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
     <message>
         <source>已连接游戏，但还读不到游戏数据 · 请查看上方说明</source>
         <translation>Connected to the game, but no game data can be read yet · see the notes above</translation>
+    </message>
+    <message>
+        <source>正在采证 · 停止采证后恢复自动记录</source>
+        <translation>Capturing · automatic recording resumes when you stop capturing</translation>
+    </message>
+    <message>
+        <source>正在采证 · 停止采证后恢复正常检测</source>
+        <translation>Capturing · normal checks resume when you stop capturing</translation>
     </message>
     <message>
         <source>暂时不会自动记录 · 见上方说明</source>
@@ -1039,10 +1039,6 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>Version not supported</translation>
     </message>
     <message>
-        <source>支持文件有冲突</source>
-        <translation>Support files conflict</translation>
-    </message>
-    <message>
         <source>未匹配</source>
         <translation>No match</translation>
     </message>
@@ -1081,10 +1077,6 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
     <message>
         <source>尚未识别游戏版本或区服</source>
         <translation>Game version or server region not recognized yet</translation>
-    </message>
-    <message>
-        <source>游戏版本支持文件有冲突</source>
-        <translation>Game version support files conflict</translation>
     </message>
     <message>
         <source>当前版本暂时不会自动记录</source>
@@ -1174,6 +1166,10 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>Waiting for a game to be selected</translation>
     </message>
     <message>
+        <source>采证中</source>
+        <translation>Capturing</translation>
+    </message>
+    <message>
         <source>暂时读不到游戏数据</source>
         <translation>Can&apos;t read game data right now</translation>
     </message>
@@ -1210,6 +1206,14 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>Npcap is unavailable right now — automatic recording is off</translation>
     </message>
     <message>
+        <source>新区服采证进行中，自动记录已暂停</source>
+        <translation>New region capture in progress; automatic recording is paused</translation>
+    </message>
+    <message>
+        <source>新区服采证进行中</source>
+        <translation>New region capture in progress</translation>
+    </message>
+    <message>
         <source>已连接游戏，但还读不到游戏数据</source>
         <translation>Connected to the game, but no game data can be read yet</translation>
     </message>
@@ -1236,6 +1240,18 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
     <message>
         <source>在下方「记录对象」里点选要记录的游戏窗口。</source>
         <translation>Pick the game window to record under “Game to record” below.</translation>
+    </message>
+    <message>
+        <source>停止采证后会恢复自动记录。</source>
+        <translation>Automatic recording resumes when you stop capturing.</translation>
+    </message>
+    <message>
+        <source>停止采证后恢复正常检测；当前游戏版本暂不自动记录。</source>
+        <translation>Normal checks resume when you stop capturing; this game version isn&apos;t recorded automatically yet.</translation>
+    </message>
+    <message>
+        <source>停止采证后恢复正常检测。</source>
+        <translation>Normal checks resume when you stop capturing.</translation>
     </message>
     <message>
         <source>进本和出本会自动记录。识别到通关后会自动填写结果；如果没有识别到，请在离开副本后打开记录补上结果。</source>
@@ -1276,10 +1292,6 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
     <message>
         <source>已支持安装在这台电脑上的游戏版本。启动游戏后会自动记录。</source>
         <translation>The game version installed on this PC is supported. Records automatically once the game starts.</translation>
-    </message>
-    <message>
-        <source>当前游戏版本的支持文件有冲突，暂时不能自动记录。请更新软件或导出诊断报告。</source>
-        <translation>The support files for this game version conflict, so automatic recording is unavailable for now. Update the app or export a diagnostic report.</translation>
     </message>
     <message>
         <source>当前安装的游戏版本暂不支持自动记录。启动游戏后会再次检查。</source>
@@ -1660,10 +1672,6 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>The installed game version doesn&apos;t support automatic recording yet</translation>
     </message>
     <message>
-        <source>游戏版本支持文件有冲突，暂时不能自动记录</source>
-        <translation>Game version support files conflict; no automatic recording for now</translation>
-    </message>
-    <message>
         <source>还没找到适用的游戏版本支持文件</source>
         <translation>No matching game version support file found yet</translation>
     </message>
@@ -1853,8 +1861,8 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>Game region</translation>
     </message>
     <message>
-        <source>自动按安装路径识别；无法识别时，请选择实际使用的国服、繁中服或国际服。</source>
-        <translation>Detect from the installation path; if detection fails, select your actual Chinese, Traditional Chinese or Global service.</translation>
+        <source>按当前运行的客户端的安装路径自动识别；无法识别时，请选择它实际使用的国服、繁中服或国际服。</source>
+        <translation>Detect from the installation path of the running client; if detection fails, select the Chinese, Traditional Chinese or Global service it actually uses.</translation>
     </message>
 </context>
 <context>
@@ -1888,8 +1896,16 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>Saved, ready to send</translation>
     </message>
     <message>
+        <source>采证失败，可回传已有文件</source>
+        <translation>Capture failed; send the files there are</translation>
+    </message>
+    <message>
+        <source>已结束，文件不完整</source>
+        <translation>Ended; file incomplete</translation>
+    </message>
+    <message>
         <source>按步骤采集报文元数据，未适配的区服仍不正式记录</source>
-        <translation>Collect packet metadata step by step. Unsupported regions still aren't recorded.</translation>
+        <translation>Collect packet metadata step by step. Unsupported regions still aren&apos;t recorded.</translation>
     </message>
     <message>
         <source>采证步骤</source>
@@ -2335,6 +2351,11 @@ SHA256: %3</translation>
         <translation>Mentor run recording continues as usual. While only queueing and duty entry can be checked, the queue time is recorded; canceling a queue creates no record. Review the timeline below, then click “Review and enable”; new records will then include the job automatically.</translation>
     </message>
     <message>
+        <source>导随记录照常进行。检测到匹配弹窗时会记入弹窗时间，未检测到时仍记入排队时间；取消排队不会产生记录。请核对下面的时间线，再点「核对并启用」；之后的新记录会自动带上职业。</source>
+        <comment>calibration.provisional.job_only_popup</comment>
+        <translation>Mentor run recording continues as usual. When a duty pop is detected, the pop time is recorded, and otherwise the queue time is still recorded; canceling a queue creates no record. Review the timeline below, then click “Review and enable”; new records will then include the job automatically.</translation>
+    </message>
+    <message>
         <source>导随记录照常进行。已找到匹配弹窗，请核对下面的时间线，再点「核对并启用」；之后会记入匹配成功的时间。</source>
         <comment>calibration.provisional.pop_found</comment>
         <translation>Mentor run recording continues as usual. The duty pop was found; review the timeline below, then click “Review and enable”. The time the match is found will then be recorded.</translation>
@@ -2432,18 +2453,6 @@ SHA256: %3</translation>
         <translation>verdicts can&apos;t be empty.</translation>
     </message>
     <message>
-        <source>无法写出本机校准档案：{error}</source>
-        <comment>calibration.write_failed</comment>
-        <extracomment>Placeholders: {error} shown as it is. Keep every {placeholder} exactly as written. {error} is the operating system&apos;s explanation.</extracomment>
-        <translation>Can&apos;t write the local calibration profile: {error}</translation>
-    </message>
-    <message>
-        <source>本机校准档案已写出，但档案目录没有选中它：{reason}</source>
-        <comment>calibration.written_not_selected</comment>
-        <extracomment>Placeholders: {reason} shown as it is. Keep every {placeholder} exactly as written. {reason} is the profile directory&apos;s English explanation.</extracomment>
-        <translation>The local calibration profile was written, but the profile directory didn&apos;t select it: {reason}</translation>
-    </message>
-    <message>
         <source>from_utc 不得晚于 to_utc。</source>
         <comment>candidate.from_after_to</comment>
         <translation>from_utc can&apos;t be later than to_utc.</translation>
@@ -2523,11 +2532,6 @@ SHA256: %3</translation>
         <comment>capture.game.instances</comment>
         <extracomment>Placeholders: {count} a number. Keep every {placeholder} exactly as written.</extracomment>
         <translation>{count} FFXIV processes detected. Confirm the game to record on Overview or the Capture diagnostics page.</translation>
-    </message>
-    <message>
-        <source>设置中手动指定的区服与安装路径推断出的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除区服覆盖。</source>
-        <comment>capture.game.region_override_mismatch</comment>
-        <translation>The server region set manually in Settings doesn&apos;t match the one inferred from the install path; the manually set region is used. If that&apos;s not what you want, clear the server region override in Settings.</translation>
     </message>
     <message>
         <source>未能在游戏目录中读取到 {file}，客户端版本未知。</source>
@@ -3034,6 +3038,26 @@ SHA256: %3</translation>
         <translation>Mentor run recording continues as usual. When a duty pop is detected, the pop time is recorded, and otherwise the queue time is still recorded; canceling a queue creates no record. Calibration continues in the background, and the app will ask you to review the timeline if it finds something new. You can play as usual, or try different roulettes to help calibration; if you&apos;re in a party, be the one who queues.</translation>
     </message>
     <message>
+        <source>无法写出本机校准档案：文件正被其他程序占用，或系统拒绝了写入（例如安全软件正在检查它）。请稍后再点「核对并启用」。</source>
+        <comment>calibration.write_failed.busy</comment>
+        <translation>Can&apos;t write the local calibration profile: the file is in use by another program, or the system refused the write (for example, security software is checking it). Click “Review and enable” again later.</translation>
+    </message>
+    <message>
+        <source>无法写出本机校准档案：写入磁盘时出错。请确认磁盘空间充足，然后再点「核对并启用」。</source>
+        <comment>calibration.write_failed.disk</comment>
+        <translation>Can&apos;t write the local calibration profile: an error occurred while writing to the disk. Make sure there&apos;s enough disk space, then click “Review and enable” again.</translation>
+    </message>
+    <message>
+        <source>这次的校准结果没有通过软件的自检，因此没有写出档案。请点「清空校准进度」重新校准。</source>
+        <comment>calibration.write_failed.refused</comment>
+        <translation>This calibration result didn&apos;t pass the app&apos;s self-check, so no profile was written. Click “Clear calibration progress” and calibrate again.</translation>
+    </message>
+    <message>
+        <source>本机校准档案已写出，但软件没有选用它，暂时还不会按它自动记录。</source>
+        <comment>calibration.written_not_selected</comment>
+        <translation>The local calibration profile was written, but the app didn&apos;t select it, so it isn&apos;t used for automatic recording yet.</translation>
+    </message>
+    <message>
         <source>没有权限读取游戏安装路径，区服与客户端版本将保持未知；此时不会进行任何自动记录。</source>
         <comment>capture.game.path_denied</comment>
         <translation>No permission to read the game&apos;s install path, so the server region and client version stay unknown; nothing is recorded automatically in this state.</translation>
@@ -3047,6 +3071,16 @@ SHA256: %3</translation>
         <source>无法从安装路径判断区服（路径同时含有多个区服的标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。</source>
         <comment>capture.game.region_ambiguous</comment>
         <translation>The server region can&apos;t be determined from the install path (it contains markers for more than one region). Set the server region manually in Settings (CN / TC / Global); nothing is recorded automatically until then.</translation>
+    </message>
+    <message>
+        <source>这个客户端的安装路径表明的区服与设置中为它手动指定的区服不一致，已按手动指定的区服处理。若这不是你想要的，请到设置里清除手动指定的区服。</source>
+        <comment>capture.game.region_override_applied</comment>
+        <translation>The server region this client&apos;s install path indicates doesn&apos;t match the server region set manually for it in Settings, so the manually set region is used. If this isn&apos;t what you want, clear the manually set region in Settings.</translation>
+    </message>
+    <message>
+        <source>设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致，因此暂不进行任何自动记录。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。</source>
+        <comment>capture.game.region_override_mismatch</comment>
+        <translation>The server region set manually in Settings isn&apos;t bound to this client yet and doesn&apos;t match the region its install path indicates, so nothing is recorded automatically for now. If this client really belongs to the manually set region, select the server region again in Settings while the client is running; otherwise, clear the manually set region.</translation>
     </message>
     <message>
         <source>无法从安装路径判断区服（路径可读，但不含可识别的区服标记）。请到设置里手动指定区服（国服 / 繁中服 / 国际服）；在此之前不会进行任何自动记录。</source>
@@ -3069,15 +3103,14 @@ SHA256: %3</translation>
         <translation>There are no protocol profiles in the repository. To avoid recording anything wrong, this version won&apos;t parse any packets or write any records automatically; records can only be added manually.</translation>
     </message>
     <message>
-        <source>协议档案不可用，暂时不会自动记录：{reason}</source>
-        <comment>capture.profile.unavailable</comment>
-        <extracomment>Placeholders: {reason} shown as it is. Keep every {placeholder} exactly as written. {reason} is the profile directory&apos;s English explanation, for example: no profile matches this region and build.</extracomment>
-        <translation>Protocol profile unavailable, so nothing is recorded automatically for now: {reason}</translation>
-    </message>
-    <message>
         <source>协议档案不可用，未启动抓包：本版本不会解析任何报文，也不会自动写入任何记录。若只是想验证抓包链路本身，请先把设置 capture.allow_without_profile 打开（仅统计，不记录）。</source>
         <comment>capture.start.profile_unavailable</comment>
         <translation>Protocol profile unavailable, so capture didn&apos;t start: this version won&apos;t parse any packets or write any records automatically. If you only want to test the capture chain itself, turn on the capture.allow_without_profile setting first (counts only, no records).</translation>
+    </message>
+    <message>
+        <source>仅验证，不自动记录。设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。</source>
+        <comment>capture.validation.waiting_region_mismatch</comment>
+        <translation>Validation only, no automatic recording. The server region set manually in Settings isn&apos;t bound to this client yet and doesn&apos;t match the region its install path indicates. If this client really belongs to the manually set region, select the server region again in Settings while the client is running; otherwise, clear the manually set region.</translation>
     </message>
     <message>
         <source>上一次采集验证未能完全结束，正在自动重试收尾，期间不会自动记录。如长时间未恢复，请重新启动本软件。</source>
@@ -4189,6 +4222,11 @@ SHA256: %3</translation>
         <translation>The duty entry time can&apos;t be later than the end time.</translation>
     </message>
     <message>
+        <source>匹配时间不能晚于结束时间。</source>
+        <comment>mutation.matched_after_ended</comment>
+        <translation>The match time can&apos;t be later than the end time.</translation>
+    </message>
+    <message>
         <source>匹配时间不能晚于进入副本的时间。</source>
         <comment>mutation.matched_after_entered</comment>
         <translation>The match time can&apos;t be later than the duty entry time.</translation>
@@ -4254,6 +4292,41 @@ SHA256: %3</translation>
         <translation>An automatic record with an “Unknown” result must have an end time: an unknown result without an end time is treated as a record still in progress, so it neither counts in stats nor appears under “Needs review”. Fill in the end time, or choose the actual result.</translation>
     </message>
     <message>
+        <source>有不止一份游戏版本支持文件对应这个版本，软件不会从中任选一份。</source>
+        <comment>profile.unavailable.ambiguous</comment>
+        <translation>More than one game version support file matches this version, and the app won&apos;t just pick one of them.</translation>
+    </message>
+    <message>
+        <source>还不知道游戏的版本号。</source>
+        <comment>profile.unavailable.build_unknown</comment>
+        <translation>The game&apos;s version number isn&apos;t known yet.</translation>
+    </message>
+    <message>
+        <source>读取游戏版本支持文件时出错。</source>
+        <comment>profile.unavailable.failed</comment>
+        <translation>An error occurred while reading the game version support files.</translation>
+    </message>
+    <message>
+        <source>还没有适用于这个游戏版本的支持文件。</source>
+        <comment>profile.unavailable.no_match</comment>
+        <translation>There&apos;s no support file for this game version yet.</translation>
+    </message>
+    <message>
+        <source>找到的游戏版本支持文件不能用于自动记录。</source>
+        <comment>profile.unavailable.not_usable</comment>
+        <translation>The game version support file that was found can&apos;t be used for automatic recording.</translation>
+    </message>
+    <message>
+        <source>还不知道游戏属于哪个区服。</source>
+        <comment>profile.unavailable.region_unknown</comment>
+        <translation>It isn&apos;t known yet which server region the game belongs to.</translation>
+    </message>
+    <message>
+        <source>目前还不支持这个区服的自动记录。</source>
+        <comment>profile.unavailable.region_unsupported</comment>
+        <translation>Automatic recording isn&apos;t supported for this server region yet.</translation>
+    </message>
+    <message>
         <source>未记录心情仅适用于导入的心得。</source>
         <comment>reflection.unrecorded_mood_import_only</comment>
         <translation>“No mood” only applies to imported notes.</translation>
@@ -4284,9 +4357,50 @@ SHA256: %3</translation>
         <translation>There&apos;s no calibration code yet. Paste the full calibration code.</translation>
     </message>
     <message>
-        <source>当前导随记录器无法读取这份校准码。请先更新软件，再「导入校准码」。</source>
+        <source>当前导随记录器无法读取这份校准码。请先更新软件，再「手动导入校准码」。</source>
         <comment>sharing.code.newer_version</comment>
-        <translation>This version of Mentor Recorder can&apos;t read this calibration code. Update the app first, then click “Import calibration code”.</translation>
+        <translation>This version of Mentor Recorder can&apos;t read this calibration code. Update the app first, then click “Import code manually”.</translation>
+    </message>
+    <message>
+        <source>这次导入未完成，不能用它开始记录。导入时游戏版本或校准进度发生了变化，请重新「手动导入校准码」。</source>
+        <comment>sharing.import.changed</comment>
+        <translation>This import didn&apos;t finish and can&apos;t be used to start recording. The game version or calibration progress changed during the import; click “Import code manually” again.</translation>
+    </message>
+    <message>
+        <source>暂时无法检查这份校准码。请等当前的共享校准检查有结果后，再「手动导入校准码」。</source>
+        <comment>sharing.import.check_pending</comment>
+        <translation>This calibration code can&apos;t be checked right now. Wait until the current shared calibration check has a result, then click “Import code manually”.</translation>
+    </message>
+    <message>
+        <source>当前没有正在进行的校准，暂时无需「手动导入校准码」。</source>
+        <comment>sharing.import.not_calibrating</comment>
+        <translation>No calibration is in progress, so there&apos;s no need to click “Import code manually” right now.</translation>
+    </message>
+    <message>
+        <source>这份校准码不能用于当前导随记录器。请你和分享者先更新到同一版本，再「手动导入校准码」。</source>
+        <comment>sharing.import.other_template</comment>
+        <translation>This calibration code can&apos;t be used with this version of Mentor Recorder. You and the person who shared it should update to the same version first, then click “Import code manually”.</translation>
+    </message>
+    <message>
+        <source>这份校准码未通过检查，已停用。请改用其他校准码；如需重新尝试，先点「清空校准进度」，再「手动导入校准码」。</source>
+        <comment>sharing.import.rejected</comment>
+        <translation>This calibration code failed the checks and has been turned off. Use a different calibration code; to try again, click “Clear calibration progress” first, then “Import code manually”.</translation>
+    </message>
+    <message>
+        <source>当前游戏版本已选择只用「本机校准」，暂时不能「手动导入校准码」。如需使用共享校准，请先点「清空校准进度」，再「手动导入校准码」。</source>
+        <comment>sharing.import.user_rejected</comment>
+        <translation>You chose to use only “Local calibration” for the current game version, so you can&apos;t use “Import code manually” for now. To use a shared calibration, click “Clear calibration progress” first, then “Import code manually”.</translation>
+    </message>
+    <message>
+        <source>无法在日志文件夹中写入文件，采集服务无法启动。可能是磁盘空间已满、当前用户没有写入权限，或该位置已有一个同名的文件。日志文件夹：{path}</source>
+        <comment>startup.log_dir_unwritable</comment>
+        <extracomment>Placeholders: {path} shown as it is. Keep every {placeholder} exactly as written. {path} is the folder the diagnostic logs are written to.</extracomment>
+        <translation>Can&apos;t write files in the log folder, so the capture service can&apos;t start. The disk may be full, the current user may not have write permission, or a file with the same name may already be at that location. Log folder: {path}</translation>
+    </message>
+    <message>
+        <source>下载未能完成：连接中途断开，或出现了意外错误，不完整的文件不会保留；请重试，或点击「在浏览器中下载」。</source>
+        <comment>update.download.transport_failed</comment>
+        <translation>The download didn&apos;t finish: the connection dropped partway through, or an unexpected error occurred. Incomplete files aren&apos;t kept. Try again, or click “Download in browser”.</translation>
     </message>
     <message>
         <source>无法识别这份校准码。请完整复制以 MRC1. 开头的校准码。</source>
@@ -4339,25 +4453,10 @@ SHA256: %3</translation>
         <translation>Calibration code imported; no public release information was found for it yet. Keep the app open, log in, queue for roulettes and enter and leave duties as usual. It can be used once it passes the checks; if you&apos;re asked to agree, click “Agree and start recording” under “Shared calibrations”.</translation>
     </message>
     <message>
-        <source>这次导入未完成，不能用它开始记录。导入时游戏版本或校准进度发生了变化，请重新「导入校准码」。</source>
-        <comment>sharing.import.changed</comment>
-        <translation>This import didn&apos;t finish and can&apos;t be used to start recording. The game version or calibration progress changed during the import; click “Import calibration code” again.</translation>
-    </message>
-    <message>
-        <source>暂时无法检查这份校准码。请等当前的共享校准检查有结果后，再「导入校准码」。</source>
-        <comment>sharing.import.check_pending</comment>
-        <translation>This calibration code can&apos;t be checked right now. Wait until the current shared calibration check has a result, then click “Import calibration code”.</translation>
-    </message>
-    <message>
         <source>校准码太长，无法导入，最多支持 {max} 个字符。请重新复制校准码，不要带上其他文字。</source>
         <comment>sharing.import.code_too_long</comment>
         <extracomment>Placeholders: {max} a number. Keep every {placeholder} exactly as written.</extracomment>
         <translation>The calibration code is too long to import; at most {max} characters are supported. Copy the calibration code again, without any other text.</translation>
-    </message>
-    <message>
-        <source>当前没有正在进行的校准，暂时无需「导入校准码」。</source>
-        <comment>sharing.import.not_calibrating</comment>
-        <translation>No calibration is in progress, so there&apos;s no need to click “Import calibration code” right now.</translation>
     </message>
     <message>
         <source>校准码未导入：{reason}</source>
@@ -4377,16 +4476,6 @@ SHA256: %3</translation>
         <translation>This calibration code can&apos;t be used with your current game; calibrations from different server regions aren&apos;t interchangeable. Import a calibration code for your current server region, or use “Local calibration”.</translation>
     </message>
     <message>
-        <source>这份校准码不能用于当前导随记录器。请你和分享者先更新到同一版本，再「导入校准码」。</source>
-        <comment>sharing.import.other_template</comment>
-        <translation>This calibration code can&apos;t be used with this version of Mentor Recorder. You and the person who shared it should update to the same version first, then click “Import calibration code”.</translation>
-    </message>
-    <message>
-        <source>这份校准码未通过检查，已停用。请改用其他校准码；如需重新尝试，先点「清空校准进度」，再「导入校准码」。</source>
-        <comment>sharing.import.rejected</comment>
-        <translation>This calibration code failed the checks and has been turned off. Use a different calibration code; to try again, click “Clear calibration progress” first, then “Import calibration code”.</translation>
-    </message>
-    <message>
         <source>这份共享校准已被撤回，不能继续用于记录。请向分享者获取新校准码，或使用「本机校准」。</source>
         <comment>sharing.import.revoked</comment>
         <translation>This shared calibration has been withdrawn and can no longer be used for recording. Get a new calibration code from the person who shared it, or use “Local calibration”.</translation>
@@ -4400,11 +4489,6 @@ SHA256: %3</translation>
         <source>这份校准码暂时无法使用。请更新导随记录器，或请分享者重新生成校准码。</source>
         <comment>sharing.import.unbuildable</comment>
         <translation>This calibration code can&apos;t be used right now. Update Mentor Recorder, or ask the person who shared it to generate a new calibration code.</translation>
-    </message>
-    <message>
-        <source>当前游戏版本已选择只用「本机校准」，暂时不能「导入校准码」。如需使用共享校准，请先点「清空校准进度」，再「导入校准码」。</source>
-        <comment>sharing.import.user_rejected</comment>
-        <translation>You chose to use only “Local calibration” for the current game version, so you can&apos;t click “Import calibration code” for now. To use a shared calibration, click “Clear calibration progress” first, then “Import calibration code”.</translation>
     </message>
     <message>
         <source>本机校准的档案暂时不能使用、读不出来或已被改动，无法生成校准码。</source>
@@ -4626,11 +4710,6 @@ SHA256: %3</translation>
         <translation>Can&apos;t create the Collector single-instance lock. See the local log for details.</translation>
     </message>
     <message>
-        <source>无法写入日志目录，采集服务未启动。请检查 --log-dir 指向的位置是否存在、是否是文件、以及当前用户是否有写入权限。</source>
-        <comment>startup.log_dir_unwritable</comment>
-        <translation>Can&apos;t write to the log folder, so the capture service didn&apos;t start. Check that the location given by --log-dir exists and isn&apos;t a file, and that the current user has write permission.</translation>
-    </message>
-    <message>
         <source>数据库迁移失败，已整体回滚，本软件无法启动。请先把数据库文件复制一份保存到别处，再排查问题。数据库文件：{path}</source>
         <comment>startup.migration_failed</comment>
         <extracomment>Placeholders: {path} shown as it is. Keep every {placeholder} exactly as written.</extracomment>
@@ -4668,6 +4747,12 @@ SHA256: %3</translation>
         <source>无法读取当前用户的 SID，命名管道名称无法确定。</source>
         <comment>startup.pipe_sid_unknown</comment>
         <translation>Can&apos;t read the current user&apos;s SID, so the named pipe name can&apos;t be determined.</translation>
+    </message>
+    <message>
+        <source>升级数据库前要先在数据库旁的 backups 文件夹里保存一份完整副本，这份副本没有保存成功（可能是磁盘空间不足、该文件夹不可写，或副本未通过完整性校验）。数据库没有升级，本软件无法启动。请先把数据库文件复制一份保存到别处，再检查磁盘空间。数据库文件：{path}</source>
+        <comment>startup.pre_upgrade_copy_failed</comment>
+        <extracomment>Placeholders: {path} shown as it is. Keep every {placeholder} exactly as written. backups is the folder&apos;s name on disk; keep it as it is.</extracomment>
+        <translation>Before the database is upgraded, a complete copy has to be saved in the backups folder next to it, and that copy couldn&apos;t be saved (the disk may be full, the folder may not be writable, or the copy failed its integrity check). The database wasn&apos;t upgraded, so this app can&apos;t start. Copy the database file somewhere else to keep it, then check the disk space. Database file: {path}</translation>
     </message>
     <message>
         <source>数据库的结构版本高于本程序支持的版本，本软件无法启动。请先把数据库文件复制一份保存到别处，再升级本软件。数据库文件：{path}</source>
@@ -4767,11 +4852,6 @@ SHA256: %3</translation>
         <source>安装程序的大小超出了合理范围，为安全起见已停止下载；请点击「在浏览器中下载」。</source>
         <comment>update.download.too_large</comment>
         <translation>The installer&apos;s size is outside a reasonable range, so the download was stopped for safety. Click “Download in browser”.</translation>
-    </message>
-    <message>
-        <source>下载过程中网络连接中断，安装程序不完整，已将其删除；请重试，或点击「在浏览器中下载」。</source>
-        <comment>update.download.transport_failed</comment>
-        <translation>The network connection dropped during the download and the installer is incomplete, so it was deleted. Try again, or click “Download in browser”.</translation>
     </message>
     <message>
         <source>更新检查已在设置中关闭，因此下载已停止，已下载的安装程序也不再提供；如需更新，请先在「设置 · 通用」中重新开启更新检查，再点「重试」。</source>
@@ -5160,8 +5240,8 @@ SHA256: %3</translation>
         <translation>Online use 3: checking for updates, and downloading a new version when you ask</translation>
     </message>
     <message>
-        <source>默认在启动软件时及持续运行期间定期检查更新，从本项目公开发布页读取版本信息，有新版本时在总览提示。也可点「检查更新」主动检查。点「下载安装包」只下载安装包，并核对发布时公布的校验值；通过后还需点「立即安装」启动安装程序，本软件随后关闭，由安装程序完成更新。请求不含账号、安装编号或设备身份信息，发布平台及其下载服务能看到你的 IP 地址。软件不会自行下载或安装。可在「设置 → 通用 → 更新」关闭「检查新版本并提示」，关闭后「检查更新」也不可用，正在进行的下载会取消，已准备好的安装包会删除。</source>
-        <translation>By default, the app checks for updates at startup and periodically while running. It reads version information from this project’s public release page and shows new versions on Overview. You can also click “Check for updates”. “Download installer” only downloads the installer and verifies the published checksum. Once ready, click “Install now” to launch it; this app then closes and the installer completes the update. Requests contain no account, installation ID or device identity. The release platform and download services can see your IP address. The app does not download or install updates on its own. Turn off “Check for new versions and notify me” in Settings → General → Updates to disable checks, cancel any download and remove the prepared installer.</translation>
+        <source>默认在启动软件时及持续运行期间定期检查更新，先从本项目在 GitHub 的公开发布页读取版本信息（GitHub 读取失败时，改从它在 GitCode 上的同名镜像读取），有新版本时在总览提示。也可点「检查更新」主动检查。点「下载安装包」只下载安装包（同样先从 GitHub 下载，失败时改从 GitCode 镜像下载），并核对发布时公布的校验值；通过后还需点「立即安装」启动安装程序，本软件随后关闭，由安装程序完成更新。请求不含账号、安装编号或设备身份信息，GitHub、GitCode 及其下载服务能看到你的 IP 地址。软件不会自行下载或安装。可在「设置 → 通用 → 更新」关闭「检查新版本并提示」，关闭后「检查更新」也不可用，正在进行的下载会取消，已准备好的安装包会删除。</source>
+        <translation>By default, the app checks for updates at startup and periodically while running. It first reads version information from this project’s public release page on GitHub (if reading from GitHub fails, it falls back to the project’s mirror of the same name on GitCode) and shows new versions on Overview. You can also click “Check for updates”. “Download installer” only downloads the installer (again from GitHub first, falling back to the GitCode mirror if that fails) and verifies the published checksum. Once ready, click “Install now” to launch it; this app then closes and the installer completes the update. Requests contain no account, installation ID or device identity. GitHub, GitCode and their download services can see your IP address. The app does not download or install updates on its own. Turn off “Check for new versions and notify me” in Settings → General → Updates to disable checks, cancel any download and remove the prepared installer.</translation>
     </message>
     <message>
         <source>运行顺序</source>
@@ -5394,12 +5474,24 @@ SHA256: %3</translation>
         <translation>This run already counts toward progress; editing other details won&apos;t count it twice.</translation>
     </message>
     <message>
-        <source>这条通关记录将计入 %1 次导随成就的进度。填完必填信息后保存生效。</source>
-        <translation>This clear will count toward the %1-run mentor achievement. Fill in the required fields and save to apply.</translation>
+        <source>这条通关记录将计入「未知区服」的单独进度，不计入国服、繁中服或国际服的导随成就。</source>
+        <translation>This clear will count toward the separate “Unknown region” progress, not toward the China, Traditional Chinese or Global mentor achievement.</translation>
+    </message>
+    <message>
+        <source>这条通关记录将计入「未知区服」的单独进度，不计入国服、繁中服或国际服的导随成就。可在「副本与职业」一步选择区服。</source>
+        <translation>This clear will count toward the separate “Unknown region” progress, not toward the China, Traditional Chinese or Global mentor achievement. You can choose the region in the “Duty &amp; job” step.</translation>
+    </message>
+    <message>
+        <source>这条通关记录将计入%1 %2 次导随成就的进度。填完必填信息后保存生效。</source>
+        <translation>This clear will count toward the %1 %2-run mentor achievement. Fill in the required fields and save to apply.</translation>
+    </message>
+    <message>
+        <source>这条通关记录将计入%1导随成就的进度。填完必填信息后保存生效。</source>
+        <translation>This clear will count toward the %1 mentor achievement. Fill in the required fields and save to apply.</translation>
     </message>
     <message>
         <source>记录库连接已变化，心情和心得尚未保存。请保留输入，并在原记录库的历史记录中确认后补录。</source>
-        <translation>The record store changed, and the mood and reflection were not saved. Keep what you typed, confirm the run in the original store's history, then add them there.</translation>
+        <translation>The record store changed, and the mood and reflection were not saved. Keep what you typed, confirm the run in the original store&apos;s history, then add them there.</translation>
     </message>
     <message>
         <source>记录已保存，上一条心得仍在保存中，请稍候重试。</source>
@@ -5578,6 +5670,10 @@ SHA256: %3</translation>
         <translation>A reflection cannot exceed 2000 characters.</translation>
     </message>
     <message>
+        <source>写了心得时，请在「这次感觉」中选择顺利、一般或糟心。</source>
+        <translation>If you write a reflection, choose Smooth, So-so or Rough under “How it felt”.</translation>
+    </message>
+    <message>
         <source>还没有修改记录内容。</source>
         <translation>Nothing in the record has been changed yet.</translation>
     </message>
@@ -5694,7 +5790,7 @@ SHA256: %3</translation>
     </message>
     <message>
         <source>没有导随资格时，用其他随机作对照</source>
-        <translation>If you can't queue Mentor, use another roulette for comparison</translation>
+        <translation>If you can&apos;t queue Mentor, use another roulette for comparison</translation>
     </message>
     <message>
         <source>事件标记</source>
@@ -5709,12 +5805,16 @@ SHA256: %3</translation>
         <translation>Press within 3 seconds of the event. A marker you skip is recorded as missed; never add it afterwards.</translation>
     </message>
     <message>
+        <source>采证操作失败：</source>
+        <translation>Capture command failed: </translation>
+    </message>
+    <message>
         <source>这一轮的情况</source>
         <translation>This round</translation>
     </message>
     <message>
         <source>如实勾选，不要事后补点</source>
-        <translation>Be honest; don't add marks afterwards</translation>
+        <translation>Be honest; don&apos;t add marks afterwards</translation>
     </message>
     <message>
         <source>处理中…</source>
@@ -5726,7 +5826,7 @@ SHA256: %3</translation>
     </message>
     <message>
         <source>离本回到外面再停止</source>
-        <translation>Stop once you're back outside</translation>
+        <translation>Stop once you&apos;re back outside</translation>
     </message>
 </context>
 <context>
@@ -5747,6 +5847,10 @@ SHA256: %3</translation>
 <context>
     <name>EvidenceReadinessStep</name>
     <message>
+        <source>正在取消等待…</source>
+        <translation>Canceling the wait…</translation>
+    </message>
+    <message>
         <source>等待游戏启动</source>
         <translation>Waiting for the game</translation>
     </message>
@@ -5755,16 +5859,32 @@ SHA256: %3</translation>
         <translation>Capturing · you can log in now</translation>
     </message>
     <message>
+        <source>没有录到数据，不会保存文件。</source>
+        <translation>No data was recorded, so no file will be saved.</translation>
+    </message>
+    <message>
         <source>启动游戏后会自动开始取证，看到「正在取证」再登录。</source>
         <translation>Capture starts when the game launches. Log in only after you see “Capturing”.</translation>
     </message>
     <message>
         <source>如果提示重启，完全退出游戏后再重开。</source>
-        <translation>If you're asked to restart, quit the game completely and open it again.</translation>
+        <translation>If you&apos;re asked to restart, quit the game completely and open it again.</translation>
     </message>
     <message>
         <source>取消等待</source>
         <translation>Cancel wait</translation>
+    </message>
+    <message>
+        <source>处理中…</source>
+        <translation>Processing…</translation>
+    </message>
+    <message>
+        <source>停止采证</source>
+        <translation>Stop capture</translation>
+    </message>
+    <message>
+        <source>采证操作失败：</source>
+        <translation>Capture command failed: </translation>
     </message>
     <message>
         <source>登录后正常活动 30～60 秒，报文要一直增加</source>
@@ -5855,7 +5975,7 @@ SHA256: %3</translation>
     </message>
     <message>
         <source>不要附数据库、游戏程序或 DLL、账号密码和原始抓包；完整 trace 不要贴到公开 Issue。</source>
-        <translation>Don't include the database, game files or DLLs, account passwords or raw packet captures, and never post the full trace in a public issue.</translation>
+        <translation>Don&apos;t include the database, game files or DLLs, account passwords or raw packet captures, and never post the full trace in a public issue.</translation>
     </message>
     <message>
         <source>候选摘要（可选）</source>
@@ -5879,7 +5999,7 @@ SHA256: %3</translation>
     </message>
     <message>
         <source>采证完成只代表拿到候选线索，仍需维护者验证。先回传一轮，确认可用后再补一轮。</source>
-        <translation>A finished capture is only a lead; the maintainer still has to verify it. Send one round first, then do another once it's confirmed useful.</translation>
+        <translation>A finished capture is only a lead; the maintainer still has to verify it. Send one round first, then do another once it&apos;s confirmed useful.</translation>
     </message>
     <message>
         <source>开始下一轮</source>
@@ -5910,11 +6030,15 @@ SHA256: %3</translation>
     </message>
     <message>
         <source>离本回到外面再停止</source>
-        <translation>Stop once you're back outside</translation>
+        <translation>Stop once you&apos;re back outside</translation>
     </message>
     <message>
         <source>正在保存…</source>
         <translation>Saving…</translation>
+    </message>
+    <message>
+        <source>采证失败</source>
+        <translation>Capture failed</translation>
     </message>
     <message>
         <source>已保存 · %1</source>
@@ -5931,6 +6055,14 @@ SHA256: %3</translation>
     <message>
         <source>有多少文件就回传多少，缺的会写进回传说明。</source>
         <translation>Send whatever files there are; the missing ones go into the note.</translation>
+    </message>
+    <message>
+        <source>错误码：</source>
+        <translation>Error code: </translation>
+    </message>
+    <message>
+        <source>采证操作失败：</source>
+        <translation>Capture command failed: </translation>
     </message>
     <message>
         <source>采证文件：%1</source>
@@ -5954,7 +6086,7 @@ SHA256: %3</translation>
     </message>
     <message>
         <source>每轮分开保存，不改原文件和文件名。</source>
-        <translation>Keep each round separate and don't rename or edit the files.</translation>
+        <translation>Keep each round separate and don&apos;t rename or edit the files.</translation>
     </message>
     <message>
         <source>采证目录只留最近 10 份、7 天内，记得及时复制出去。</source>
@@ -6044,6 +6176,10 @@ SHA256: %3</translation>
         <translation>%1 · %2</translation>
     </message>
     <message>
+        <source>已选网卡不可用</source>
+        <translation>Selected adapter unavailable</translation>
+    </message>
+    <message>
         <source>自动选择</source>
         <translation>Automatic</translation>
     </message>
@@ -6085,7 +6221,7 @@ SHA256: %3</translation>
     </message>
     <message>
         <source>离本回到外面</source>
-        <translation>You're back outside</translation>
+        <translation>You&apos;re back outside</translation>
     </message>
     <message>
         <source>指导者随机</source>
@@ -6129,7 +6265,7 @@ SHA256: %3</translation>
     </message>
     <message>
         <source>本轮取证数据</source>
-        <translation>This round's capture</translation>
+        <translation>This round&apos;s capture</translation>
     </message>
     <message>
         <source>校验文件，和上面同一目录</source>
@@ -6145,11 +6281,11 @@ SHA256: %3</translation>
     </message>
     <message>
         <source>无法识别游戏版本时，在游戏目录</source>
-        <translation>If the game version isn't recognized; in the game folder</translation>
+        <translation>If the game version isn&apos;t recognized; in the game folder</translation>
     </message>
     <message>
         <source>启动或采证出错时，在数据目录 logs</source>
-        <translation>If startup or capture failed; in the data folder's logs</translation>
+        <translation>If startup or capture failed; in the data folder&apos;s logs</translation>
     </message>
     <message>
         <source>已在「设置 › 数据」备份正式记录（备份只留在本机）</source>
@@ -6161,11 +6297,11 @@ SHA256: %3</translation>
     </message>
     <message>
         <source>各区服的成就分开显示，设置互不影响</source>
-        <translation>Each region's achievement shows separately and its settings don't affect the others</translation>
+        <translation>Each region&apos;s achievement shows separately and its settings don&apos;t affect the others</translation>
     </message>
     <message>
         <source>手动补录能找到对应区服的副本</source>
-        <translation>Manual entry can find that region's duties</translation>
+        <translation>Manual entry can find that region&apos;s duties</translation>
     </message>
     <message>
         <source>无</source>
@@ -6244,6 +6380,10 @@ SHA256: %3</translation>
         <translation>Attached: %1</translation>
     </message>
     <message>
+        <source>结果：%1</source>
+        <translation>Result: %1</translation>
+    </message>
+    <message>
         <source>缺失：%1</source>
         <translation>Missing: %1</translation>
     </message>
@@ -6260,6 +6400,10 @@ SHA256: %3</translation>
         <translation>Data readable · %1 packets</translation>
     </message>
     <message>
+        <source>报文 %1</source>
+        <translation>%1 packets</translation>
+    </message>
+    <message>
         <source>%1 · 标记 %2 / 5</source>
         <translation>%1 · %2 / 5 marked</translation>
     </message>
@@ -6268,8 +6412,16 @@ SHA256: %3</translation>
         <translation>Saved · %1 / %2 files</translation>
     </message>
     <message>
+        <source>文件不完整 · 文件 %1 / %2</source>
+        <translation>Incomplete · %1 / %2 files</translation>
+    </message>
+    <message>
         <source>等待游戏启动</source>
         <translation>Waiting for the game</translation>
+    </message>
+    <message>
+        <source>正在取消等待</source>
+        <translation>Canceling the wait</translation>
     </message>
     <message>
         <source>数据异常</source>
@@ -6304,19 +6456,27 @@ SHA256: %3</translation>
     <name>EvidenceSetupStep</name>
     <message>
         <source>未安装 Npcap，暂时不能采证</source>
-        <translation>Npcap isn't installed, so capture isn't available</translation>
+        <translation>Npcap isn&apos;t installed, so capture isn&apos;t available</translation>
     </message>
     <message>
         <source>游戏正在运行：先完全退出游戏，再开始采证</source>
         <translation>The game is running: quit it completely before you start</translation>
     </message>
     <message>
+        <source>游戏正在运行</source>
+        <translation>The game is running</translation>
+    </message>
+    <message>
         <source>游戏未运行，可以开始</source>
-        <translation>The game isn't running, ready to start</translation>
+        <translation>The game isn&apos;t running, ready to start</translation>
+    </message>
+    <message>
+        <source>游戏未运行</source>
+        <translation>The game isn&apos;t running</translation>
     </message>
     <message>
         <source>已经退出了，重新检测</source>
-        <translation>I've quit, check again</translation>
+        <translation>I&apos;ve quit, check again</translation>
     </message>
     <message>
         <source>采证操作失败：</source>
@@ -6355,6 +6515,10 @@ SHA256: %3</translation>
         <translation>Capture network adapter</translation>
     </message>
     <message>
+        <source>之前选择的网卡现在不可用。请改选「自动选择」或其他网卡后再开始。</source>
+        <translation>The adapter you chose before isn&apos;t available now. Pick “Automatic” or another adapter, then start.</translation>
+    </message>
+    <message>
         <source>处理中…</source>
         <translation>Processing…</translation>
     </message>
@@ -6376,7 +6540,7 @@ SHA256: %3</translation>
     </message>
     <message>
         <source>测成就设置前先记下原值，测完恢复；不方便就跳过，回传时注明。</source>
-        <translation>Note the original values before testing achievement settings and restore them afterwards. If that's inconvenient, skip it and mention it when you send the files.</translation>
+        <translation>Note the original values before testing achievement settings and restore them afterwards. If that&apos;s inconvenient, skip it and mention it when you send the files.</translation>
     </message>
     <message>
         <source>去「设置 › 数据」备份</source>
@@ -7785,6 +7949,10 @@ The image text was read as “%2”; confirm against the original image.</transl
         <translation>Capturing</translation>
     </message>
     <message>
+        <source>自动寻找网络路径</source>
+        <translation>Finding a network path</translation>
+    </message>
+    <message>
         <source>打开新区服采证</source>
         <translation>Open new region capture</translation>
     </message>
@@ -8100,8 +8268,8 @@ Recorder</translation>
         <translation>Online announcements send text to %1 when needed. The service can see your IP and handles the text under its own privacy policy. The key is encrypted by Windows and stored on this PC. Enter the key again when you change the service, region or URL. To stop, choose a local voice again under “Voice engine”; the key is kept.</translation>
     </message>
     <message>
-        <source>改选服务后需填写对应的密钥。点「保存」时若未填新密钥，原密钥会被清除。</source>
-        <translation>After switching services, enter the matching key. If you click “Save” without a new key, the old key is cleared.</translation>
+        <source>改了服务、区域或地址后需填写对应的密钥。点「保存」时若未填新密钥，原密钥会被清除。</source>
+        <translation>After changing the service, region or URL, enter the matching key. If you click “Save” without a new key, the old key is cleared.</translation>
     </message>
     <message>
         <source>正在测试…</source>
@@ -9454,6 +9622,26 @@ Collapsing keeps your draft; pick it up again from To review in the overlay.</tr
         <translation>Achievement counting</translation>
     </message>
     <message>
+        <source>国服</source>
+        <translation>China</translation>
+    </message>
+    <message>
+        <source>繁中服</source>
+        <translation>Traditional Chinese</translation>
+    </message>
+    <message>
+        <source>国际服</source>
+        <translation>Global</translation>
+    </message>
+    <message>
+        <source>未知区服</source>
+        <translation>Unknown region</translation>
+    </message>
+    <message>
+        <source>区服</source>
+        <translation>Region</translation>
+    </message>
+    <message>
         <source>开启</source>
         <translation>On</translation>
     </message>
@@ -9763,7 +9951,7 @@ Turning this off excludes the clear from achievement progress, but the run still
     </message>
     <message>
         <source>写一句心得；只选心情时，将以心情文字保存。</source>
-        <translation>Write a short reflection; with only a mood chosen, the mood's words are saved.</translation>
+        <translation>Write a short reflection; with only a mood chosen, the mood&apos;s words are saved.</translation>
     </message>
     <message>
         <source>修改前后对比</source>
@@ -9888,6 +10076,10 @@ Turning this off excludes the clear from achievement progress, but the run still
         <translation>Back up now</translation>
     </message>
     <message>
+        <source>正在备份…</source>
+        <translation>Backing up…</translation>
+    </message>
+    <message>
         <source>导入记录</source>
         <translation>Import records</translation>
     </message>
@@ -10009,6 +10201,18 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>登录 Windows 后在后台自动启动，只显示托盘图标，不打开主窗口</source>
         <translation>Starts in the background when you sign in to Windows: only the tray icon shows, the main window stays closed</translation>
+    </message>
+    <message>
+        <source>Windows 未接受对开机启动项的更改，可能被安全软件拦截。请在安全软件中允许后重新设置。</source>
+        <translation>Windows didn&apos;t accept the change to the startup entry; security software may have blocked it. Allow it in your security software, then set it again.</translation>
+    </message>
+    <message>
+        <source>开发构建不登记开机启动，以免替换已安装版本的开机启动项</source>
+        <translation>Development builds don&apos;t register launch at startup, so the installed version&apos;s startup entry isn&apos;t replaced</translation>
+    </message>
+    <message>
+        <source>测试运行不修改开机启动</source>
+        <translation>Test runs don&apos;t change launch at startup</translation>
     </message>
     <message>
         <source>当前系统不支持开机启动</source>
@@ -10671,7 +10875,22 @@ The region cannot be changed while listening or collecting evidence.</translatio
     </message>
 </context>
 <context>
+    <name>main</name>
+    <message>
+        <source>FF14 导随记录器</source>
+        <translation>FFXIV Mentor Recorder</translation>
+    </message>
+    <message>
+        <source>界面文件缺失或已损坏，软件无法打开。请重新安装本软件后再试。</source>
+        <translation>The interface files are missing or damaged, so the app can&apos;t open. Reinstall this app and try again.</translation>
+    </message>
+</context>
+<context>
     <name>mr::AppController</name>
+    <message>
+        <source>已经一分钟没有连上后台服务，软件会继续自动重试。</source>
+        <translation>There has been no connection to the background service for a minute. The app keeps retrying automatically.</translation>
+    </message>
     <message>
         <source>后台服务已退出，已自动重启（第 %1 次）</source>
         <translation>The background service exited and was restarted automatically (attempt %1).</translation>
@@ -10811,6 +11030,10 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>没能打开浏览器，请手动访问 https://npcap.com 下载驱动。</source>
         <translation>Couldn&apos;t open the browser. Go to https://npcap.com yourself to download the driver.</translation>
+    </message>
+    <message>
+        <source>后台服务不可用，暂时不能自动记录。%1</source>
+        <translation>The background service isn&apos;t available, so automatic recording can&apos;t run for now. %1</translation>
     </message>
     <message>
         <source>操作没有完成，原因不明。</source>
@@ -12329,6 +12552,18 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>JSON 文件 (*.json)</source>
         <translation>JSON file (*.json)</translation>
+    </message>
+    <message>
+        <source>后台服务尚未连接，这批记录还没有读取。连接恢复后请重新添加这批文件、截图或表格。</source>
+        <translation>The background service isn&apos;t connected, so this batch hasn&apos;t been read. Once the connection is back, add these files, screenshots or tables again.</translation>
+    </message>
+    <message>
+        <source>预览未完成，这批记录还没有读取。请重新添加这批文件、截图或表格后重试。</source>
+        <translation>The preview didn&apos;t finish, so this batch hasn&apos;t been read. Add these files, screenshots or tables again and retry.</translation>
+    </message>
+    <message>
+        <source>未收到完整预览，这批记录还没有读取。请重新添加这批文件、截图或表格后重试；仍失败时请更新软件。</source>
+        <translation>No complete preview received, so this batch hasn&apos;t been read. Add these files, screenshots or tables again and retry; if it still fails, update the app.</translation>
     </message>
     <message>
         <source>批量设置只能修改区服、职业、结果和打本心情。</source>

@@ -64,6 +64,14 @@ public static class CaptureSettingsStore
     public const string RegionOverrideSetting = "capture.region_override";
 
     /// <summary>
+    /// The installation <see cref="RegionOverrideSetting"/> was chosen for: a SHA-256 fingerprint of
+    /// its executable path, never the path itself (docs/privacy-boundary.md keeps game paths out of
+    /// the database). An empty string means "chosen, not yet bound": the next running client binds
+    /// it. Absent or null means unbound, as an override saved by 1.8.0 is (audit 2026-11-03, A2-1).
+    /// </summary>
+    public const string RegionOverrideInstallSetting = "capture.region_override_install";
+
+    /// <summary>
     /// Whether a build with no profile is calibrated automatically from the shipped template.
     /// On by default: the alternative is silence on every patch day.
     /// </summary>
@@ -189,6 +197,9 @@ public static class CaptureSettingsStore
                 update.RegionOverride is { } region
                     ? JsonValue.Create(EnumWire<Region>.Format(region))!.ToJsonString()
                     : "null";
+            // A new choice is bound to the client running when it is next seen, a cleared one to
+            // nothing; choosing again re-binds it (audit 2026-11-03, A2-1).
+            values[RegionOverrideInstallSetting] = update.RegionOverride is null ? "null" : "\"\"";
         }
 
         return settings.SetSettings(values, transaction => Read(settings, transaction));
@@ -226,10 +237,29 @@ public static class CaptureSettingsStore
         : Math.Clamp(
             days.Value, RotatingFileLogger.MinRetentionDays, RotatingFileLogger.MaxRetentionDays);
 
-    /// <summary>Reads the region override alone, for the game locator.</summary>
+    /// <summary>
+    /// Reads the region override and the installation it is bound to, for the game locator; null
+    /// when no region is chosen. A choice not yet bound carries the means to bind it.
+    /// </summary>
     /// <param name="settings">Settings repository, or null.</param>
-    public static Region? ReadRegionOverride(SettingsRepository? settings) =>
-        ParseRegionOverride(ReadString(settings, RegionOverrideSetting));
+    public static CaptureRegionOverride? ReadRegionOverride(SettingsRepository? settings)
+    {
+        if (ParseRegionOverride(ReadString(settings, RegionOverrideSetting)) is not { } region) return null;
+        var install = ReadSetting(settings, RegionOverrideInstallSetting) is JsonValue value &&
+            value.TryGetValue<string>(out var text) ? text : null;
+        if (install is null) return new CaptureRegionOverride(region, null);
+        if (install.Length == 0) return new CaptureRegionOverride(region, null, path => BindRegionOverride(settings!, path));
+        return CaptureRegionOverride.IsFingerprint(install)
+            ? new CaptureRegionOverride(region, install)
+            : new CaptureRegionOverride(region, null);
+    }
+
+    /// <summary>Binds a chosen region to the installation it is first applied to. Only its fingerprint is stored.</summary>
+    /// <param name="settings">Settings repository.</param>
+    /// <param name="executablePath">Executable path of the running client.</param>
+    private static void BindRegionOverride(SettingsRepository settings, string executablePath) =>
+        settings.SetSetting(RegionOverrideInstallSetting,
+            JsonValue.Create(CaptureRegionOverride.Fingerprint(executablePath))!.ToJsonString());
 
     private static Region? ParseRegionOverride(string? text) => text switch
     {
@@ -332,4 +362,34 @@ public sealed record CaptureSettingsUpdate
 
     /// <summary>True when the request named <c>region_override</c> at all.</summary>
     public bool RegionOverrideSpecified { get; init; }
+}
+
+/// <summary>
+/// The region the user chose and the installation it was chosen for (audit 2026-11-03, A2-1). It
+/// applies to a client whose install path names no region, or several, and to the installation it
+/// is bound to whatever that path says; a different client whose path names another region is
+/// never relabelled by it.
+/// </summary>
+/// <param name="Region">The region the user chose.</param>
+/// <param name="InstallFingerprint">Fingerprint of the executable path it is bound to; null while unbound.</param>
+/// <param name="Bind">Binds a choice not yet bound to a running client's executable; null when there is nothing to bind.</param>
+public sealed record CaptureRegionOverride(Region Region, string? InstallFingerprint, Action<string>? Bind = null)
+{
+    /// <summary>True when this choice is bound to exactly this executable.</summary>
+    /// <param name="executablePath">Executable path of a client, or null.</param>
+    public bool IsBoundTo(string? executablePath) =>
+        InstallFingerprint is not null && !string.IsNullOrWhiteSpace(executablePath) &&
+        string.Equals(Fingerprint(executablePath), InstallFingerprint, StringComparison.Ordinal);
+
+    /// <summary>
+    /// SHA-256 of the path, ignoring letter case as Windows does; lower-case hex. Lets the database
+    /// recognise an installation without ever holding its path (docs/privacy-boundary.md).
+    /// </summary>
+    /// <param name="executablePath">Executable path.</param>
+    public static string Fingerprint(string executablePath) => Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(executablePath.Trim().ToUpperInvariant()))).ToLowerInvariant();
+
+    internal static bool IsFingerprint(string text) =>
+        text.Length == 64 && text.All(character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
 }

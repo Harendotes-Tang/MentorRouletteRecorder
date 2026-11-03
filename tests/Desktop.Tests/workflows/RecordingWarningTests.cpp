@@ -2,6 +2,7 @@
 #include "TestCollectorGuard.h"
 #include "AppController.h"
 #include "AutomaticRecordingController.h"
+#include "CollectorProcess.h"
 #include "LanguageManager.h"
 #include "TrayController.h"
 
@@ -9,8 +10,10 @@
 #include <QJsonArray>
 #include <QSignalSpy>
 #include <QScopeGuard>
+#include <QTemporaryDir>
 #include <QTest>
 #include <QTranslator>
+#include <QWindow>
 
 #include <memory>
 
@@ -85,13 +88,19 @@ private:
 class WarningTray : public mr::TrayController
 {
 public:
-    WarningTray(mr::AppController *controller, int &deliveries)
-        : mr::TrayController(controller, nullptr, nullptr), m_deliveries(deliveries)
+    WarningTray(mr::AppController *controller, int &deliveries, QWindow *window = nullptr)
+        : mr::TrayController(controller, nullptr, window), m_deliveries(deliveries)
     {
     }
 
+    QString lastMessage;
+
 protected:
-    void deliverRecordingWarning(const QString &) override { ++m_deliveries; }
+    void deliverRecordingWarning(const QString &message) override
+    {
+        ++m_deliveries;
+        lastMessage = message;
+    }
 
 private:
     int &m_deliveries;
@@ -551,6 +560,59 @@ private slots:
         app.recording()->refresh();
         QTRY_COMPARE(notifications.count(), 2);
         QCOMPARE(notifications.last().first().toULongLong(), serial + 1);
+    }
+
+    // Started in the tray at login, a background service that cannot start is
+    // said once in the notification area: the hidden window's toast and title
+    // bar reach nobody (review I1-2).
+    void hiddenWindowIsToldOnceThatAMissingServiceCannotRecord()
+    {
+        WarningBackend backend;
+        backend.connected = false;
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        mr::CollectorProcess collector(directory.filePath(QStringLiteral("absent/MentorRecorder.Collector.exe")), nullptr);
+        QCOMPARE(collector.state(), mr::CollectorProcess::State::Missing);
+        mr::AppController app(&backend, nullptr, nullptr, &collector);
+        QWindow window; // never shown, as under --autostart
+        int deliveries = 0;
+        WarningTray tray(&app, deliveries, &window);
+        QTRY_COMPARE(deliveries, 1);
+        // The headline holds for every cause; the reason is the supervisor's own sentence.
+        QCOMPARE(tray.lastMessage, QString::fromUtf8("后台服务不可用，暂时不能自动记录。") + collector.statusText());
+        QTest::qWait(100);
+        QCOMPARE(deliveries, 1);
+    }
+
+    void unreachableServiceIsReportedOncePerEpisodeAndOnlyToAHiddenWindow()
+    {
+        WarningBackend backend;
+        backend.connected = false;
+        mr::AppController app(&backend, nullptr);
+        app.setServiceNoticeDelayForTest(30);
+        QWindow window;
+        int deliveries = 0;
+        WarningTray tray(&app, deliveries, &window);
+        QTRY_COMPARE(deliveries, 1);
+        // A fixed sentence: no exit code, no retry countdown that is stale once
+        // shown, and nothing claiming the service never started (review RV3-3).
+        QCOMPARE(tray.lastMessage, QString::fromUtf8("后台服务不可用，暂时不能自动记录。"
+                                                     "已经一分钟没有连上后台服务，软件会继续自动重试。"));
+        QTest::qWait(120);
+        QCOMPARE(deliveries, 1);
+        backend.reconnect(true);
+        QVERIFY(app.serviceUnavailableMessage().isEmpty());
+        // A window on screen says it itself, in its toast and title bar.
+        window.show();
+        backend.reconnect(false);
+        QTRY_VERIFY(!app.serviceUnavailableMessage().isEmpty());
+        QTest::qWait(60);
+        QCOMPARE(deliveries, 1);
+        // A new episode while the window is hidden is told again.
+        window.hide();
+        backend.reconnect(true);
+        backend.reconnect(false);
+        QTRY_COMPARE(deliveries, 2);
     }
 
     void trayDoesNotDeliverWarningThatRecoveredBeforeReplay()

@@ -29,7 +29,7 @@ public sealed class CandidateSettingsAtomicityTests
         Assert.Equal("TC", CaptureSettingsStore.Wire(selected)["region_override"]!.GetValue<string>());
         db.Reopen();
         settings = new SettingsRepository(db.Database, db.Clock);
-        Assert.Equal(Region.Tc, CaptureSettingsStore.ReadRegionOverride(settings));
+        Assert.Equal(Region.Tc, CaptureSettingsStore.ReadRegionOverride(settings)?.Region);
         CaptureSettingsStore.Apply(settings, new CaptureSettingsUpdate { RegionOverrideSpecified = true });
         Assert.Null(CaptureSettingsStore.ReadRegionOverride(settings));
     }

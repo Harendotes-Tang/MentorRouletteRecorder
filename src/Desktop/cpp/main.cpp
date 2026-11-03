@@ -125,14 +125,32 @@ void stderrMessageHandler(QtMsgType type, const QMessageLogContext &context, con
     std::fflush(stderr);
 }
 
-/// True when \a name appears in the raw argument vector.
+/// True when the valued option \a name appears in the raw argument vector, as
+/// "--name value" or "--name=value" - both spellings the parser accepts
+/// (AppSettings::hasRawOption, review I1-6).
 bool hasRawArgument(int argc, char **argv, const char *name)
 {
-    for (int i = 1; i < argc; ++i) {
-        if (qstrcmp(argv[i], name) == 0)
-            return true;
-    }
-    return false;
+    QStringList arguments;
+    arguments.reserve(argc);
+    for (int i = 0; i < argc; ++i)
+        arguments.append(QString::fromLocal8Bit(argv[i]));
+    return mr::AppSettings::hasRawOption(arguments, QString::fromLatin1(name));
+}
+
+/// The interface could not be loaded, which for a player means a damaged or
+/// incomplete installation. A GUI-subsystem process has no console for the
+/// diagnostics, so without this the program would simply never appear - at a
+/// login start included (review I1-7). Harness runs keep failing quietly.
+void reportInterfaceFailure()
+{
+#ifdef Q_OS_WIN
+    const QString title = QCoreApplication::translate("main", "FF14 导随记录器");
+    const QString text = QCoreApplication::translate(
+        "main", "界面文件缺失或已损坏，软件无法打开。请重新安装本软件后再试。");
+    ::MessageBoxW(nullptr, reinterpret_cast<const wchar_t *>(text.utf16()),
+                  reinterpret_cast<const wchar_t *>(title.utf16()),
+                  MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+#endif
 }
 
 /// Application font stack.
@@ -745,9 +763,10 @@ int main(int argc, char *argv[])
     motionProbeOption.setFlags(QCommandLineOption::HiddenFromHelp);
     QCommandLineOption autostartOption(
         QStringLiteral("autostart"),
-        QStringLiteral("Passed by the Windows Run value that 开机启动 writes: start in the "
-                       "system tray without opening the main window, and leave an already "
-                       "running instance alone. Without a system tray the window opens as usual."));
+        QStringLiteral("Start in the system tray without opening the main window, and leave an "
+                       "already running instance alone. Without a system tray the window opens "
+                       "as usual. The Windows Run value that 开机启动 writes passes the same "
+                       "request as the bare word \"autostart\", which older versions ignore."));
     QCommandLineOption exportTargetOption(
         QStringLiteral("export-target"),
         QStringLiteral("Write exports and diagnostics reports into <dir> instead of "
@@ -853,9 +872,6 @@ int main(int argc, char *argv[])
 
     // 设置先于控制器和 QML 引擎创建，确保它们销毁时设置对象仍然存活。
     mr::AppSettings settings;
-    // 开机启动 registered before --autostart existed, or by a copy since moved,
-    // is brought up to date here; harness runs never touch the Run key.
-    settings.refreshAutostartRegistration();
     mr::ReleaseNotesController releaseNotes(&settings);
 
     // 界面语言先于控制器生效：它们在构造时就会拼出界面文字。
@@ -983,6 +999,9 @@ int main(int argc, char *argv[])
     // the shortcut double-clicked while the first window sits in the tray -
     // brings that window forward and leaves. Screenshot and mock runs are not
     // the player's program and may run beside it.
+    // The Run value passes the positional marker; the option form is still read.
+    const bool autostartLaunch = mr::AppSettings::isAutostartLaunch(
+        parser.positionalArguments(), parser.isSet(autostartOption));
     std::unique_ptr<mr::SingleInstanceGuard> instanceGuard;
     if (!screenshotMode && selectedBackend == QLatin1String("ipc")) {
         instanceGuard =
@@ -990,7 +1009,7 @@ int main(int argc, char *argv[])
         if (!instanceGuard->isPrimary()) {
             // A login start finding the player's own instance must not pull
             // that window to the front; the shortcut still does.
-            if (!parser.isSet(autostartOption))
+            if (!autostartLaunch)
                 instanceGuard->signalPrimary();
             return 0;
         }
@@ -1169,9 +1188,9 @@ int main(int argc, char *argv[])
                                              parser.isSet(firstRunOption));
     runtime->setValue(mr::QmlRuntime::Field::ForceDisclosure,
                                              parser.isSet(disclosureOption));
-    // The Run value passes --autostart. With a tray to wait in, Main.qml starts
-    // with the window closed; without one there is nowhere to hide, so it opens.
-    const bool startInTray = parser.isSet(autostartOption) && !screenshotMode
+    // A launch from the Run value: with a tray to wait in, Main.qml starts with
+    // the window closed; without one there is nowhere to hide, so it opens.
+    const bool startInTray = autostartLaunch && !screenshotMode
         && QSystemTrayIcon::isSystemTrayAvailable();
     runtime->setValue(mr::QmlRuntime::Field::StartInTray, startInTray);
     const QString uiStyle = parser.value(uiStyleOption);
@@ -1197,6 +1216,13 @@ int main(int argc, char *argv[])
                      qPrintable(detailTab));
         return 2;
     }
+    // 开机启动 registered before the marker existed, in the option form, or by a
+    // copy since moved, is brought up to date - only here, once the whole command
+    // line was accepted and this is the account's one instance (the guard above),
+    // so a refused option or a second copy that only wakes the first never
+    // repoints the login start (review I5-3, J-1). A development build and a
+    // harness run never touch the Run key (AppSettings::autostartWritable).
+    settings.refreshAutostartRegistrationAtStartUp(instanceGuard && instanceGuard->isPrimary());
     runtime->setValue(mr::QmlRuntime::Field::ForceUiStyle, uiStyle);
     runtime->setValue(mr::QmlRuntime::Field::ForceSettingsTab, settingsTab);
     runtime->setValue(mr::QmlRuntime::Field::ForceSpeechConfirm, forceSpeechConfirm);
@@ -1230,12 +1256,18 @@ int main(int argc, char *argv[])
                      [] { QCoreApplication::exit(2); }, Qt::QueuedConnection);
     engine.loadFromModule("MentorRecorder", "Main");
 
-    if (engine.rootObjects().isEmpty())
+    const bool harnessRun = mr::AppSettings::isHarnessRun(screenshotMode, selectedBackend);
+    if (engine.rootObjects().isEmpty()) {
+        if (!harnessRun)
+            reportInterfaceFailure();
         return 2;
+    }
 
     auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
     if (!window) {
         std::fputs("root object is not a window\n", stderr);
+        if (!harnessRun)
+            reportInterfaceFailure();
         return 3;
     }
 

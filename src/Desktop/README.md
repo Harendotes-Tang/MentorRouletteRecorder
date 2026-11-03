@@ -2,9 +2,10 @@
 
 C++20 / Qt 6 Quick / QML / Qt Quick Controls / Qt Graphs 桌面端。
 
-> ## Phase 1 状态
+> ## 当前状态
 >
-> 本目录包含可构建的 Qt 6 CMake 目标、Named Pipe 客户端边界、模拟后端与六页 QML 界面。
+> 本目录包含可构建的 Qt 6 CMake 目标、Named Pipe 客户端边界、模拟后端与 QML 界面：侧栏有七个玩家页面
+> （总览、历史记录、全部心得、副本统计、职业统计、捕获诊断、设置），另有只在维护者工具开启时显示的「对照核对」页。
 > 交互运行默认连接真实 Collector，`--screenshot` 与单元测试仍默认使用模拟数据。
 > 使用仓库的 `scripts/build.ps1` 构建时，Collector 运行文件部署至 Desktop 可执行文件的同级目录。
 > C++ 单元测试与 QML 离屏加载测试位于 `tests/Desktop.Tests/`。
@@ -16,13 +17,15 @@ C++20 / Qt 6 Quick / QML / Qt Quick Controls / Qt Graphs 桌面端。
 | `cpp/` | 入口、界面门面、模型、格式化器与进程监督 |
 | `cpp/transport/` | 后端接口、命名管道客户端、信封分帧和管道命名；分帧与命名以 Qt Core 独立 target 编译 |
 | `cpp/workflows/` | 独立工作流协调器；通过窄回调协作，不依赖界面总控 |
-| `qml/pages/` | 页面：仪表盘、历史、统计、诊断、设置 |
+| `qml/pages/` | 页面：总览、历史记录、全部心得、副本与职业统计、捕获诊断、设置、对照核对 |
+| `qml/evidence/` | 「捕获诊断」下的「新区服采证」子页：步骤、轮次状态、计时与回传说明 |
 | `qml/components/` | 可复用组件 |
 | `qml/overlay/` | 统计浮窗、模块、数据投影与浮窗专用控件 |
 | `qml/calibration/` | 本机/共享校准、候选验证与校准导入组件 |
 | `qml/dialogs/` | 对话框：手工补录、更正、软删除/恢复、导出、备份 |
 | `qml/charts/` | 基于 Qt Graphs 的图表封装 |
-| `resources/` | 图标、字体、qrc、翻译文件 |
+| `resources/` | 应用图标与版本资源、界面图标、字体、导入模板、本次更新的展示文件、职业图标分类模型、心得分享图模板与统计用数据 |
+| `i18n/` | 界面翻译文件 `mentor_recorder_{zh_TW,en,ja}.ts`，构建时编译为 `.qm` 并嵌入可执行文件 |
 
 ## 硬约束
 

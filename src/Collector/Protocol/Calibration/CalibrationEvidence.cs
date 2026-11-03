@@ -210,7 +210,10 @@ public sealed record ZoneCluster(
 /// <param name="Pops">Pop-shaped messages that satisfied the template.</param>
 /// <param name="Clusters">Closed zone-load bursts, in order.</param>
 /// <param name="OutsideCounts">Occurrences per shape outside every cluster.</param>
-/// <param name="OpcodeCounts">Occurrences per direction and opcode over the whole session.</param>
+/// <param name="OpcodeCounts">
+/// Occurrences per direction and opcode over the evidence's whole life, carried sessions included; for
+/// the report. The frequency gates read <see cref="CalibrationSnapshot.FrequentOpcodes"/> instead.
+/// </param>
 /// <param name="JobViolations">Job-shaped messages per opcode whose value broke the template's constraints.</param>
 /// <param name="OverflowCount">Anything dropped because a bounded table was full; non-zero voids every "never" claim.</param>
 /// <param name="MessagesSeen">Messages accepted.</param>
@@ -229,6 +232,15 @@ public sealed record CalibrationSnapshot(
 {
     /// <summary>Server messages that had the pop's direction and the template's exact length.</summary>
     public int PopShapeSeen { get; init; }
+
+    /// <summary>
+    /// Direction and opcode of every shape some single capture session saw more than
+    /// <see cref="CalibrationDraft.MaxCandidateOccurrences"/> times: ordinary traffic, never the queue
+    /// request or an uncorroborated pop (docs/protocol-profile-format.md §11.3). Counted per session, so
+    /// weeks of carried evidence cannot push a rare opcode over the line (audit 2026-11-03, C-4).
+    /// </summary>
+    public IReadOnlySet<(PacketDirection Direction, ushort Opcode)> FrequentOpcodes { get; init; } =
+        new HashSet<(PacketDirection, ushort)>();
 
     /// <summary>
     /// Per server shape of the zone marker's or the territory's length, how many of the bursts let go to keep

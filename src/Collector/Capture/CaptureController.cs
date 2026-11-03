@@ -70,6 +70,14 @@ public sealed record CaptureServices
     public Func<RunState> RunState { get; init; } = static () => Domain.RunState.Idle;
 
     /// <summary>
+    /// True while a run is matched or in its duty, or a queue request is parked that would still
+    /// become a run; path recovery never replaces a session that is reading the game then
+    /// (audit 2026-11-03, A1-1). Null reads <see cref="RunState"/>, which cannot see a parked
+    /// request. Same threading rule as <see cref="CandidateStatus"/>.
+    /// </summary>
+    public Func<bool>? RunUnderWay { get; init; }
+
+    /// <summary>
     /// Candidate observer status, read before the controller lock. The callback must not
     /// call back into the capture controller while holding a pipeline or database lock.
     /// </summary>
@@ -315,6 +323,12 @@ public sealed partial class CaptureController : IDisposable
     private bool _disposed;
     private volatile CaptureSilentReason _silentReason;
     private int? _preexistingConnections;
+
+    /// <summary>
+    /// True once a reading this session found the game holding a TCP connection on any interface,
+    /// or could not tell; see <see cref="ObserveGameConnections"/>.
+    /// </summary>
+    private bool _gameConnectionSeen;
     private long _followRetryAtMs = -1;
     private long _faultRetryAtMs = -1;
     private long _faultBackoffMs;
@@ -457,15 +471,28 @@ public sealed partial class CaptureController : IDisposable
             // The game was already logged in when capture started, so the connections it
             // already held cannot be read at all. Play on them counts for nothing, and
             // calibration looks broken rather than deaf: it can only report what it received.
+            // Once the game is readable -- the player logged in again, as asked -- the "you already
+            // reconnected" sentence is untrue, and following "restart the software" would cause the
+            // very late attach it warns about (audit 2026-11-03, A1-4). The plain sentence stays
+            // while a connection the game held at start is still in use: a chat connection that
+            // reconnected on its own decodes while the zone connection stays unreadable
+            // (re-review 2026-11-03, RV1-2).
             if (state == CaptureControllerState.Running && _preexistingConnections > 0 &&
                 _pathRecovery.State != PathRecoveryState.Recovering)
             {
                 // Which of the two sentences depends on whether the login already happened:
                 // telling a player to go back to the title screen when they just did reads as
                 // the software not listening to them, and is the wrong instruction besides.
-                warnings.Add(ingress.ReconnectedUnreadable(_preexistingConnections)
-                    ? CollectorTexts.CaptureWarningPreexistingReconnected()
-                    : CollectorTexts.CaptureWarningPreexisting());
+                if (run is { IpcMessagesDecoded: 0 })
+                {
+                    warnings.Add(ingress.ReconnectedUnreadable(_preexistingConnections)
+                        ? CollectorTexts.CaptureWarningPreexistingReconnected()
+                        : CollectorTexts.CaptureWarningPreexisting());
+                }
+                else if (ingress.GameConnectionsNow > ingress.GameConnectionsReadable)
+                {
+                    warnings.Add(CollectorTexts.CaptureWarningPreexisting());
+                }
             }
 
             return new CaptureDiagnosticsSnapshot
@@ -911,6 +938,7 @@ public sealed partial class CaptureController : IDisposable
             {
                 // A running capture is checked too: without these, it reports RUNNING and
                 // healthy for a whole session while every packet is discarded uncounted.
+                ObserveGameConnections(game);
                 EvaluateLiveness();
                 ReportHealth();
                 LogIngressStats();
@@ -1187,6 +1215,7 @@ public sealed partial class CaptureController : IDisposable
         lock (_gate)
         {
             _silentReason = CaptureSilentReason.None;
+            _gameConnectionSeen = false;
             _preexistingConnections = source.PreexistingTcpConnections;
             // A known late attach already cannot read those connection prefixes. Give
             // automatic discovery its bounded chance before asking the player to reconnect.
@@ -1260,7 +1289,13 @@ public sealed partial class CaptureController : IDisposable
     /// player asked for (audit 2026-10-03, V2-4). The controller state that follows is this
     /// teardown's own.
     /// </param>
-    private bool TeardownCore(CaptureEndReason reason)
+    /// <param name="endsAs">
+    /// The reason the session itself ends with -- the pipeline, the session row and the log -- when it
+    /// differs from <paramref name="reason"/>, which still decides the controller's next state. A
+    /// path replacement ends its session as an error stop, so a run matched in that instant waits
+    /// for review, while capture restarts at once (audit 2026-11-03, A1-1).
+    /// </param>
+    private bool TeardownCore(CaptureEndReason reason, CaptureEndReason? endsAs = null)
     {
         ICaptureSource? source;
         DecodedMessageQueue? queue;
@@ -1275,7 +1310,7 @@ public sealed partial class CaptureController : IDisposable
             run = _run;
             silentReason = _silentReason;
             preexisting = _preexistingConnections;
-            ended = _releaseFailed ? _releaseReason : reason;
+            ended = _releaseFailed ? _releaseReason : endsAs ?? reason;
             _source = null;
             _queue = null;
         }
@@ -1357,11 +1392,17 @@ public sealed partial class CaptureController : IDisposable
                 ? ProcessUptimeMs + _faultBackoffMs
                 : -1;
             _silentReason = CaptureSilentReason.None;
+            // A session that ran and then faulted is retried by the ordinary fault back-off. A
+            // recovery episode it had exhausted -- a late attach, a quiet title screen -- must not
+            // keep refusing every later start for the rest of the game (audit 2026-11-03, A1-3).
+            // Replacement starts that never reached Running keep their bounded budget.
+            if (reason == CaptureEndReason.Error && run is not null) ResetPathRecovery();
         }
 
         _services.Logger.Write(LogLevel.Info, "capture", "session_closed", new Dictionary<string, object?>
         {
             ["reason"] = EnumWire<CaptureEndReason>.Format(ended),
+            ["path_replaced"] = endsAs is not null,
             ["packets_observed"] = run?.PacketsObserved ?? 0,
             ["messages_decoded"] = run?.MessagesDecoded ?? 0,
             ["decode_errors"] = run?.DecodeErrors ?? 0,
@@ -1398,7 +1439,7 @@ public sealed partial class CaptureController : IDisposable
             }
 
             generation = _generation;
-            reason = Classify(run, counters, _preexistingConnections);
+            reason = Classify(run, counters, _preexistingConnections, _gameConnectionSeen);
             if (reason == _silentReason)
             {
                 return;
@@ -1421,14 +1462,46 @@ public sealed partial class CaptureController : IDisposable
     }
 
     /// <summary>
+    /// Notes whether the game has held a TCP connection on any interface, before a quiet minute is
+    /// judged (see <see cref="Classify"/>). The ingress only counts the game's connections on the
+    /// paths being watched, which is exactly what is missing when the game talks over another card,
+    /// so the system table is asked -- only while that judgement is pending, from the poll thread and
+    /// outside both gates. A table that cannot be read counts as connected, keeping the verdicts as
+    /// they were (audit 2026-11-03, A1-5).
+    /// </summary>
+    /// <param name="game">The game the running session observes, as this poll found it.</param>
+    private void ObserveGameConnections(GameProcessDetection game)
+    {
+        CaptureRun run;
+        lock (_gate)
+        {
+            if (_state != CaptureControllerState.Running || _run is not { } current || _gameConnectionSeen ||
+                _preexistingConnections > 0 || current.IpcMessagesDecoded > 0 || current.Elapsed < LivenessGrace)
+            {
+                return;
+            }
+
+            run = current;
+        }
+
+        if (IngressCounters().GameConnections > 0 || game.ProcessId is not { } processId) return;
+        if (_services.Adapters.GameHoldsConnections(processId) == false) return;
+        lock (_gate)
+        {
+            if (ReferenceEquals(run, _run)) _gameConnectionSeen = true;
+        }
+    }
+
+    /// <summary>
     /// Reads one verdict out of the counters. Pure, so the table of cases is testable without
     /// a controller, a clock or a source.
     /// </summary>
     /// <param name="run">Counters of the capture in flight.</param>
     /// <param name="ingress">What the adapter delivered and what was discarded.</param>
     /// <param name="preexisting">Connections the game already held at start, when known.</param>
+    /// <param name="gameConnectionSeen">The game held a connection on some interface, or the table could not tell.</param>
     private static CaptureSilentReason Classify(
-        CaptureRun run, CaptureIngressCounters ingress, int? preexisting)
+        CaptureRun run, CaptureIngressCounters ingress, int? preexisting, bool gameConnectionSeen)
     {
         // One decoded IPC segment proves the compressed stream is readable. Control segments
         // do not: they stay readable exactly when Oodle state is missing.
@@ -1469,6 +1542,15 @@ public sealed partial class CaptureController : IDisposable
         if (preexisting > 0)
         {
             return CaptureSilentReason.Midstream;
+        }
+
+        // The game has held no connection on any interface since this capture started: the
+        // title screen, an opening movie. Silence then says nothing about where its traffic goes,
+        // and other programs' frames say nothing about ownership: no verdict, no advice, no
+        // recovery episode, the same rule as OA-6 above (audit 2026-11-03, A1-5).
+        if (!gameConnectionSeen && ingress.GameConnections == 0)
+        {
+            return CaptureSilentReason.None;
         }
 
         // Nothing at all on this card for a whole minute while the game is running: the

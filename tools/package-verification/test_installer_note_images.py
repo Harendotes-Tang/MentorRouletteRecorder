@@ -23,6 +23,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[2]
 INSTALLER = REPO / "installer/MentorRecorder.iss"
+DESKTOP_CMAKE = REPO / "src/Desktop/CMakeLists.txt"
 IMAGE_DIRECTORY = r"{app}\note-images"
 
 ADMINISTRATORS = "S-1-5-32-544"
@@ -352,6 +353,24 @@ class PlantedForeignContentTests(unittest.TestCase):
         self.assertIn(r"{app}\*.dll", files_cleared)
         self.assertIn(r"{app}\qt.conf", files_cleared)
 
+    def test_the_versioned_qt_conf_is_cleared_and_skipped_like_qt_conf(self):
+        # Audit 2026-11-03 M-1. Qt also reads qt<major>.conf (qt6.conf) from the application's
+        # folder and prefers it to qt.conf when both exist (Qt 6.11 documentation, "Using
+        # qt.conf"). Its [Paths] entries can point Plugins or QmlImports at a folder another
+        # account controls, so a planted one must go the way a planted qt.conf goes: deleted by
+        # [InstallDelete] before [Files] runs, and skipped by the top-level file sweep because it
+        # is deleted rather than kept. The name follows the Qt major version the Desktop builds
+        # against, so moving to another Qt major cannot leave the new name uncovered.
+        major = re.search(r"find_package\(\s*Qt(\d+)\b", DESKTOP_CMAKE.read_text(encoding="utf-8"))
+        self.assertTrue(major, "src/Desktop/CMakeLists.txt must name the Qt major version")
+        entries = [entry_fields(line) for line in installer_sections().get("installdelete", [])]
+        files_cleared = {entry.get("name") for entry in entries if entry.get("type") == "files"}
+        skip = routine(self.code, "IsRemovedByInstallDelete")
+        for name in ("qt.conf", f"qt{major.group(1)}.conf"):
+            with self.subTest(name=name):
+                self.assertIn("{app}\\" + name, files_cleared)
+                self.assertRegex(skip, rf"CompareText\(Name,\s*'{re.escape(name)}'\)\s*=\s*0")
+
     def test_executables_are_not_blanket_deleted(self):
         # A blanket {app}\*.exe delete would also remove the uninstaller's own unins*.exe. Our
         # exes are overwritten by [Files]; a foreign exe is re-owned by the sweep, not deleted.
@@ -591,8 +610,8 @@ class InstallDirectoryProtectionTests(unittest.TestCase):
     def test_the_sweep_skips_exactly_the_names_install_delete_removes(self):
         # ~236 of the ~250 files directly in an installed {app} are DLLs that [InstallDelete]
         # deletes right after ssInstall; re-owning them first would cost ~500 icacls launches.
-        # The sweep skips *.dll and qt.conf - and those must be exactly what [InstallDelete]
-        # removes, or a skipped name would be neither deleted nor re-owned.
+        # The sweep skips *.dll, qt.conf and qt6.conf - and those must be exactly what
+        # [InstallDelete] removes, or a skipped name would be neither deleted nor re-owned.
         sweep = routine(self.code, "ProtectTopLevelFiles")
         self.assertIn("IsRemovedByInstallDelete(FindRec.Name)", sweep)
         skip = routine(self.code, "IsRemovedByInstallDelete")
@@ -603,7 +622,7 @@ class InstallDirectoryProtectionTests(unittest.TestCase):
         deleted = {entry.get("name") for entry in
                    (entry_fields(line) for line in installer_sections().get("installdelete", []))
                    if entry.get("type") == "files"}
-        self.assertEqual({r"{app}\*.dll", r"{app}\qt.conf"}, skipped)
+        self.assertEqual({r"{app}\*.dll", r"{app}\qt.conf", r"{app}\qt6.conf"}, skipped)
         self.assertTrue(skipped <= deleted, (skipped, deleted))
 
     def test_no_icacls_is_reachable_for_a_file_before_the_link_count_guard(self):
@@ -808,10 +827,11 @@ class InstallDirectoryAclRunTests(unittest.TestCase):
         self.protect_app_like_setup()
 
         # Mirror ProtectTopLevelFiles: every top-level FILE, directories skipped (so the
-        # junction 'link' and note-images are never touched, never followed), *.dll and qt.conf
-        # skipped, and the link count read before any icacls.
+        # junction 'link' and note-images are never touched, never followed), *.dll, qt.conf and
+        # qt6.conf skipped, and the link count read before any icacls.
         for entry in os.scandir(self.app):
-            if entry.is_dir() or entry.name.lower().endswith(".dll") or entry.name.lower() == "qt.conf":
+            if (entry.is_dir() or entry.name.lower().endswith(".dll")
+                    or entry.name.lower() in ("qt.conf", "qt6.conf")):
                 continue
             links, attributes = probe_link_count(entry.path, numbers)
             self.assertEqual(1, links, entry.name)

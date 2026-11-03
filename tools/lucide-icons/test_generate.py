@@ -95,6 +95,22 @@ class CommittedFilesTests(unittest.TestCase):
             current = handle.read().replace("\r\n", "\n")
         self.assertEqual(generate.render(version, icons, generate.feather_icons()), current)
 
+    def test_every_svg_has_its_sha256_row_in_the_readme(self):
+        # N3-5 (audit 2026-11-03): cloud-off.svg and hard-drive.svg were bundled without the
+        # provenance row the README asks for, and nothing compared the table with the directory.
+        import hashlib
+        import re
+
+        with io.open(os.path.join(generate.ICON_DIR, "README.md"), "r", encoding="utf-8") as handle:
+            rows = dict(re.findall(r"^\| `([a-z0-9-]+\.svg)` \| `([0-9a-f]{64})` \|$", handle.read(), re.M))
+        on_disk = {}
+        for name in sorted(os.listdir(generate.ICON_DIR)):
+            if name.endswith(".svg"):
+                with open(os.path.join(generate.ICON_DIR, name), "rb") as handle:
+                    on_disk[name] = hashlib.sha256(handle.read()).hexdigest()
+        self.assertTrue(on_disk)
+        self.assertEqual(on_disk, rows)
+
     def test_licence_file_is_beside_the_icons_and_names_the_feather_subset(self):
         with io.open(os.path.join(generate.ICON_DIR, "LICENSE"), "r", encoding="utf-8") as handle:
             self.assertIn("ISC License", handle.read())

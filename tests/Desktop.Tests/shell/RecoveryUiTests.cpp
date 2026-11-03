@@ -31,6 +31,7 @@
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QScreen>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -288,6 +289,9 @@ private Q_SLOTS:
     void sameRunWithoutDraftUsesLatestCommittedNote();
     void answerStaysOpenForTheNote();
     void answerWithAJobThenFinishClosesCleanly();
+    void aJobOnlyFinishLeavesNothingPending();
+    void aPageRequestOvertakenByAnAnswerLeavesTheNoteEditable();
+    void theGrowingPopupStaysOnTheScreen();
     void aRefusedNoteAfterTheAnswerStillCollapses();
     void aDeletedRecordsReminderCanBeRemoved();
     void reviewFromTheNoteEditorOpensTheReasonDialogForThatRecord();
@@ -732,6 +736,101 @@ void RecoveryUiTests::answerWithAJobThenFinishClosesCleanly()
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 
+void RecoveryUiTests::aJobOnlyFinishLeavesNothingPending()
+{
+    // Audit 2026-11-03 L2-2: a cleared run without a job, the job picked in
+    // the note popup and 完成 pressed without a note. The job was saved, but the
+    // draft holding it and the 待补笔记 reminder stayed, so the run was still
+    // listed as pending with a draft.
+    Scene scene;
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    scene.mainWindow()->hide();
+    auto run = finishedRun(true);
+    run.insert(QStringLiteral("job_id"), 0);
+    run.insert(QStringLiteral("job_name"), QString::fromUtf8("未知"));
+    scene.publish(run);
+    QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
+    QVERIFY(!scene.editor()->property("askingResult").toBool());
+    QVERIFY(scene.editor()->property("needsJob").toBool());
+    scene.editor()->setProperty("jobIndex", 1);
+    QVERIFY(scene.editor()->property("selectedJobId").toInt() > 0);
+    // The 250 ms draft timer has written the job down.
+    QTRY_VERIFY(!scene.app->recovery()->draft(run).isEmpty());
+    QVERIFY(scene.click(QStringLiteral("saveReflectionButton")));
+    QTRY_VERIFY(!scene.host()->isVisible());
+    QCOMPARE(scene.backend.commands.count(QStringLiteral("CorrectRun")), 1);
+    QCOMPARE(scene.backend.commands.count(QStringLiteral("SetRunReflection")), 0);
+    QTRY_VERIFY(scene.app->recovery()->draft(run).isEmpty());
+    QTRY_COMPARE(scene.app->recovery()->count(), 0);
+    QTest::qWait(400); // No late draft brings the entry back.
+    QCOMPARE(scene.app->recovery()->count(), 0);
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+void RecoveryUiTests::aPageRequestOvertakenByAnAnswerLeavesTheNoteEditable()
+{
+    // Audit 2026-11-03 L2-4: 「下一条」 and then 「通关 +1」 before the page read
+    // came back. The busy popup dropped the page, but kept waiting for it: the
+    // note field stayed read-only and the image controls locked.
+    Scene scene;
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    scene.mainWindow()->hide();
+    scene.settings.setPromptPresentation(QStringLiteral("inbox"));
+    const auto first = finishedRun(false, 91);
+    const auto second = finishedRun(false, 92);
+    scene.publish(first);
+    scene.publish(second);
+    QTRY_COMPARE(scene.app->recovery()->count(), 2);
+    scene.settings.setPromptPresentation(QStringLiteral("window"));
+    scene.app->recovery()->requestOpen(first.value(QStringLiteral("run_id")).toString());
+    QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
+    QTRY_VERIFY(scene.editor()->property("askingResult").toBool());
+    QTRY_VERIFY(scene.item(QStringLiteral("popupNextButton")) || scene.item(QStringLiteral("popupPreviousButton")));
+    const QString shown = scene.editor()->property("runId").toString();
+    const int direction = scene.editor()->property("queueIndex").toInt() == 0 ? 1 : -1;
+    // Both before the event loop runs again: the page read is still out when
+    // the answer makes the popup busy.
+    QVERIFY(QMetaObject::invokeMethod(scene.editor(), "pageQueue", Q_ARG(QVariant, QVariant(direction))));
+    QVERIFY(QMetaObject::invokeMethod(scene.editor(), "resolveWith",
+                                      Q_ARG(QVariant, QVariant(QStringLiteral("COMPLETED"))),
+                                      Q_ARG(QVariant, QVariant(QStringLiteral("用户确认通关")))));
+    QTRY_VERIFY(scene.editor()->property("answered").toBool());
+    QTest::qWait(300); // The page read has been answered meanwhile.
+    QCOMPARE(scene.editor()->property("runId").toString(), shown);
+    QCOMPARE(scene.editor()->property("pendingSwitchId").toString(), QString());
+    QVERIFY(!scene.note()->property("readOnly").toBool());
+    QVERIFY(scene.enterNote(QStringLiteral("still writable")));
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+void RecoveryUiTests::theGrowingPopupStaysOnTheScreen()
+{
+    // Audit 2026-11-03 K1-6: the popup was placed once. Docked at the bottom
+    // of the screen, the note field growing while writing pushed the field and
+    // 完成 below the screen edge.
+    Scene scene;
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    scene.mainWindow()->hide();
+    scene.publish(finishedRun());
+    QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
+    QScreen *screen = scene.host()->screen();
+    QVERIFY(screen);
+    const QRect bounds = screen->geometry();
+    // The window follows the editor's height; let the first layout settle.
+    QTRY_COMPARE(scene.host()->height(), qRound(scene.editor()->property("implicitHeight").toReal()));
+    QTest::qWait(200);
+    const int before = scene.host()->height();
+    scene.host()->setY(bounds.y() + bounds.height() - before - 8);
+    QTRY_COMPARE(scene.host()->y(), bounds.y() + bounds.height() - before - 8);
+    QVERIFY(scene.enterNote(QStringLiteral("一\n二\n三\n四\n五\n六")));
+    QTRY_VERIFY_WITH_TIMEOUT(scene.host()->height() > before, 10000);
+    QTRY_VERIFY2(scene.host()->y() + scene.host()->height() <= bounds.y() + bounds.height() - 8,
+                 qPrintable(QStringLiteral("%1 + %2 > %3").arg(scene.host()->y()).arg(scene.host()->height())
+                                .arg(bounds.y() + bounds.height() - 8)));
+    QVERIFY(scene.host()->y() >= bounds.y() + 8);
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
 void RecoveryUiTests::aRefusedNoteAfterTheAnswerStillCollapses()
 {
     // 收起 after an answer saves like 完成; when that save is refused, the next
@@ -1062,6 +1161,15 @@ void RecoveryUiTests::openingAnotherRecordBringsTheOpenEditorForward()
     QTRY_VERIFY(scene.mainWindow()->visibility() != QWindow::Minimized);
     QCOMPARE(scene.editor()->property("runId").toString(), open.value(QStringLiteral("run_id")).toString());
     QVERIFY(scene.editor()->property("visible").toBool());
+
+    // Audit 2026-11-03 K1-5: 总览「补录笔记」, 心得页「编辑心得」 and 「写心得」
+    // (openReflection) still did nothing at all in that case.
+    scene.mainWindow()->showMinimized();
+    QTRY_VERIFY(scene.mainWindow()->visibility() == QWindow::Minimized);
+    QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openReflection",
+                                      Q_ARG(QVariant, QVariant(other)), Q_ARG(QVariant, QVariant(QString()))));
+    QTRY_VERIFY(scene.mainWindow()->visibility() != QWindow::Minimized);
+    QCOMPARE(scene.editor()->property("runId").toString(), open.value(QStringLiteral("run_id")).toString());
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 

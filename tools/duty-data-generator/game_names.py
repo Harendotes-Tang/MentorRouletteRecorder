@@ -68,6 +68,11 @@ MIN_TERRITORY_CHECKED_RATIO = 0.9
 PROJECT_LABELS = {
     "其他": {"zh-TW": "其他", "en": "Other", "ja": "その他"},
 }
+# A category label that stands for the duties of one roulette takes that roulette's official names
+# (ContentRoulette.Category) instead of its ContentType's. 团队任务 is how the app shows the standard
+# alliance raids, the duties of the Alliance Raids roulette (15); the Chaotic Alliance Raid
+# ContentType it is also derived from is a single duty (audit 2026-11-03 K3-3).
+CATEGORY_LABEL_ROULETTES = {"团队任务": 15}
 RAW_NOTE = ("Raw downloads are kept outside the repository; only their SHA-256 digests are "
             "recorded here so the result stays reproducible without redistributing upstream "
             "data.")
@@ -305,17 +310,35 @@ def build_roulettes(base_roulettes, xivapi, tc, convert):
     return names, converted
 
 
-def build_duty_categories(used, xivapi, tc, convert, category_by_content_type):
+def build_duty_categories(used, xivapi, tc, convert, category_by_content_type, *,
+                          roulettes=None, roulettes_converted=()):
     """(labels, converted, project) for every category label, each from its own ContentType.
 
     category_by_content_type is generate.CATEGORY_BY_CONTENT_TYPE: a label translates to the
     official name of the ContentType it is derived from, so the wording can differ from the
-    zh-Hans label (四人迷宫 <- Dungeons <- 迷宮挑戰).
+    zh-Hans label (四人迷宫 <- Dungeons <- 迷宮挑戰). A label in CATEGORY_LABEL_ROULETTES takes
+    the names build_roulettes made for its roulette (roulettes, keyed by id as text) instead.
     """
     rows_by_english = {(fields.get("Name") or "").strip(): row_id
                        for row_id, fields in xivapi["en"].items()}
     labels, converted = {}, []
+
+    def from_roulette(label):
+        roulette_id = CATEGORY_LABEL_ROULETTES[label]
+        names = (roulettes or {}).get(str(roulette_id))
+        if names is None:
+            if label in used:
+                raise SourceError("roulette %d (category %s) has no names" % (roulette_id, label))
+            return
+        labels[label] = {language: names[language] for language in ("zh-TW", "en", "ja")}
+        if roulette_id in roulettes_converted:
+            converted.append(label)
+
     for content_type, label in category_by_content_type.items():
+        if label in CATEGORY_LABEL_ROULETTES:
+            # Kept at its ContentType's place, so a regenerated file keeps its line order.
+            from_roulette(label)
+            continue
         row_id = rows_by_english.get(content_type)
         if row_id is None:
             if label in used:
@@ -328,6 +351,9 @@ def build_duty_categories(used, xivapi, tc, convert, category_by_content_type):
                                        "ja ContentType %d" % row_id)}
         if was_converted:
             converted.append(label)
+    for label in CATEGORY_LABEL_ROULETTES:
+        if label not in labels and label not in category_by_content_type.values():
+            from_roulette(label)
     project = []
     for label, names in PROJECT_LABELS.items():
         labels[label] = dict(names)
@@ -371,7 +397,7 @@ def build_maps(base, xivapi, tc, cn, convert, category_by_content_type):
     used_categories = {duty.get("duty_category") for duty in base["duties"]}
     categories, categories_converted, project = build_duty_categories(
         used_categories, xivapi["ContentType"], tc["ContentType"], convert,
-        category_by_content_type)
+        category_by_content_type, roulettes=roulettes, roulettes_converted=roulettes_converted)
     used_expansions = {duty.get("expansion") for duty in base["duties"]}
     expansions, expansions_converted = build_expansions(
         used_expansions, xivapi["ExVersion"], tc["ExVersion"], cn["ExVersion"], convert)

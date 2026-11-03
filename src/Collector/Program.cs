@@ -195,7 +195,7 @@ public static class Program
                 CollectorMode.ValidateProfile => ValidateProfile(options),
                 CollectorMode.ListProfiles => ListProfiles(options),
                 CollectorMode.CaptureDoctor => CaptureCli.Run(args),
-                CollectorMode.CaptureTrace => CaptureTraceCli.RunCapture(options),
+                CollectorMode.CaptureTrace => CaptureTraceCli.RunCapture(options, region: options.Region),
                 CollectorMode.TraceReport => CaptureTraceCli.RunReport(options),
                 _ => ServeAsync(options).GetAwaiter().GetResult(),
             };
@@ -663,7 +663,9 @@ public static class Program
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
             or NotSupportedException or ArgumentException)
         {
-            throw new LogDirectoryUnwritableException(CollectorTexts.StartupLogDirUnwritable(), ex);
+            // The folder itself, never the option that named it: the Desktop passes none, and the player typed none
+            // (audit 2026-11-03, G-4).
+            throw new LogDirectoryUnwritableException(CollectorTexts.StartupLogDirUnwritable(logDirectory), ex);
         }
     }
 
@@ -1156,7 +1158,7 @@ public static class Program
             Environment.NewLine +
             "       MentorRecorder.Collector --capture-doctor [--json]" + Environment.NewLine +
             "       MentorRecorder.Collector --capture-trace <out.jsonl> [--duration-seconds <n>]" +
-            " [--adapter <id>] [--max-lines <n>] [--allow-midstream]" + Environment.NewLine +
+            " [--adapter <id>] [--max-lines <n>] [--allow-midstream] [--region CN|TC|GLOBAL]" + Environment.NewLine +
             "       MentorRecorder.Collector --trace-report <in.jsonl> [--around <marker>]" +
             " [--window-ms <n>]" + Environment.NewLine +
             "       MentorRecorder.Collector --pipe-name-only [--json]" + Environment.NewLine +

@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """The public repository's workflow and issue form: the security rules, and the contracts with the client.
 
-Structural checks use PyYAML when it is installed; the text checks below run either way, so a machine
-without PyYAML (the CI runner) still enforces every security rule.
+Structural checks (permission sets, job-level permissions, triggers, concurrency, the jobs' `if:` guards)
+need PyYAML, which tools/requirements-ci.txt pins, CI installs and scripts/run-python-tool-tests.ps1
+requires. The text checks run either way; without PyYAML each test that has structural checks runs its
+text checks and then reports itself skipped, so a run that missed them is never a full pass.
 """
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import json
 import re
@@ -14,6 +17,7 @@ import sys
 import unittest
 
 import testsupport
+import evidence_workflow
 import index as repo_index
 import issue as issue_form
 import publish
@@ -24,6 +28,10 @@ try:
     import yaml
 except ImportError:  # pragma: no cover - depends on the machine
     yaml = None
+
+# Audit 2026-11-03, N2-3: a test whose structural checks cannot run is skipped, not passed.
+YAML_MISSING = ("PyYAML is not installed, so the structural checks did not run "
+                "(python -m pip install -r tools/requirements-ci.txt)")
 
 PUBLIC = testsupport.HERE / "public-repo"
 WORKFLOW = PUBLIC / ".github" / "workflows" / "publish-calibration.yml"
@@ -141,7 +149,7 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.assertNotIn("cancel-in-progress: true", self.text)
         if yaml is None:
             self.assertIn("permissions:\n  contents: write\n  issues: write\n", self.text)
-            return
+            self.skipTest(YAML_MISSING)
         data = yaml.safe_load(self.text)
         triggers = data.get("on", data.get(True))
         self.assertEqual({"issues", "schedule", "workflow_dispatch"}, set(triggers))
@@ -158,6 +166,21 @@ class WorkflowSecurityTests(unittest.TestCase):
                          "contains(github.event.issue.labels.*.name, 'share-calibration')",
                          "github.event.label.name == 'share-calibration'"):
             self.assertIn(fragment, condition)
+
+    def test_issues_that_never_close_cannot_hold_the_publication_queue(self):
+        # N1-2: GitHub keeps one pending job per concurrency group, and a newer one cancels it. Reports and waiting
+        # or invalid evidence Issues stay open and start a job on every edit, so in a group shared with publication a
+        # stream of edits would keep cancelling the queued publish job and the publish sweep. Both lanes redo their
+        # decision from the new main when a push is refused, so they need no shared lock to stay correct.
+        def groups(path):
+            return re.findall(r"^\s*group:\s*(\S+)\s*$", path.read_text(encoding="utf-8"), re.M)
+        self.assertEqual(["publish-calibration", "publish-calibration"], groups(WORKFLOW))
+        self.assertEqual(["evidence-intake"], groups(EVIDENCE_WORKFLOW))
+        self.assertEqual(["evidence-intake"], groups(REPORT_WORKFLOW))
+        for path in sorted((PUBLIC / ".github" / "workflows").glob("*.yml")):
+            if path != WORKFLOW:
+                with self.subTest(path.name):
+                    self.assertNotIn("publish-calibration", groups(path))
 
     def test_actions_are_pinned_to_a_commit_id_and_taken_from_the_main_ci_set(self):
         used = assert_every_action_is_pinned(self, self.text, "publish-calibration.yml")
@@ -266,7 +289,7 @@ class MirrorWorkflowSecurityTests(unittest.TestCase):
         if yaml is None:
             for name in ("push:", "schedule:", "workflow_dispatch:", "workflow_run:"):
                 self.assertIn(name, self.text)
-            return
+            self.skipTest(YAML_MISSING)
         data = yaml.safe_load(self.text)
         triggers = data.get("on", data.get(True))
         self.assertEqual({"push", "schedule", "workflow_dispatch", "workflow_run"}, set(triggers))
@@ -309,18 +332,18 @@ class ReportWorkflowSecurityTests(unittest.TestCase):
         expressions = set(re.findall(r"\$\{\{\s*(.*?)\s*\}\}", self.text))
         self.assertLessEqual(expressions, {"github.token", "github.repository", "github.event.issue.number"})
 
-    def test_reports_share_the_atomic_evidence_ledger_and_publication_lock(self):
+    def test_reports_share_the_atomic_evidence_ledger_and_the_evidence_intake_lock(self):
         self.assertIn("contents: write", self.text)
-        self.assertIn("group: publish-calibration", self.text)
+        self.assertIn("group: evidence-intake", self.text)
         self.assertIn('python -B tools/evidence_workflow.py --event "$GITHUB_EVENT_PATH"', self.text)
         if yaml is None:
             self.assertIn("permissions:\n  contents: write\n  issues: write\n", self.text)
-            return
+            self.skipTest(YAML_MISSING)
         data = yaml.safe_load(self.text)
         self.assertEqual({"contents": "write", "issues": "write"}, data["permissions"])
         self.assertEqual({"issues"}, set(data.get("on", data.get(True))))
         for job in data["jobs"].values():
-            self.assertEqual(False, job["concurrency"]["cancel-in-progress"])
+            self.assertEqual({"group": "evidence-intake", "cancel-in-progress": False}, job["concurrency"])
             self.assertIn("timeout-minutes", job)
             self.assertNotIn("permissions", job)
         condition = next(iter(data["jobs"].values()))["if"]
@@ -375,12 +398,12 @@ class EvidenceWorkflowSecurityTests(unittest.TestCase):
         available = assert_every_action_is_pinned(self, CI.read_text(encoding="utf-8"), "ci.yml")
         self.assertLessEqual(used, available)
 
-    def test_permissions_triggers_and_the_shared_concurrency_group(self):
-        self.assertIn("group: publish-calibration", self.text)
+    def test_permissions_triggers_and_the_evidence_intake_concurrency_group(self):
+        self.assertIn("group: evidence-intake", self.text)
         self.assertNotIn("cancel-in-progress: true", self.text)
         if yaml is None:
             self.assertIn("permissions:\n  contents: write\n  issues: write\n", self.text)
-            return
+            self.skipTest(YAML_MISSING)
         data = yaml.safe_load(self.text)
         triggers = data.get("on", data.get(True))
         self.assertEqual({"issues", "schedule", "workflow_dispatch"}, set(triggers))
@@ -388,7 +411,7 @@ class EvidenceWorkflowSecurityTests(unittest.TestCase):
         self.assertEqual({"contents": "write", "issues": "write"}, data["permissions"])
         self.assertNotIn("concurrency", data, "a workflow-level group would let skipped events cancel pending jobs")
         for job in data["jobs"].values():
-            self.assertEqual({"group": "publish-calibration", "cancel-in-progress": False}, job["concurrency"])
+            self.assertEqual({"group": "evidence-intake", "cancel-in-progress": False}, job["concurrency"])
             self.assertIn("timeout-minutes", job)
             self.assertNotIn("permissions", job)
             for fragment in ("github.event.issue.state == 'open'",
@@ -407,7 +430,7 @@ class ReportFormTests(unittest.TestCase):
             with self.subTest(fragment):
                 self.assertIn(fragment, text)
         if yaml is None:
-            return
+            self.skipTest(YAML_MISSING)
         data = yaml.safe_load(text)
         self.assertEqual(issue_form.REPORT_TITLE_PREFIX, data["title"])
         self.assertEqual([publish.REPORT_LABEL], data["labels"])
@@ -457,7 +480,7 @@ class IssueFormTests(unittest.TestCase):
             self.assertIn(fragment, text)
         self.assertEqual(2, text.count("required: true"), "the code and the confirmation; the basis stays optional")
         if yaml is None:
-            return
+            self.skipTest(YAML_MISSING)
         data = yaml.safe_load(text)
         self.assertEqual(issue_form.TITLE_PREFIX, data["title"])
         self.assertEqual([publish.SUBMISSION_LABEL], data["labels"])
@@ -513,6 +536,8 @@ FALSE_CLAIMS = (
     "撤销即释放名额",
     "没有任何脚本会创建仓库、推送或调用 GitHub API",
     "never records from a code before it passes",
+    # N1-3: the evidence and report replies; it is the app on each player's computer that verifies.
+    "maintainer's own machine",
 )
 
 
@@ -533,6 +558,9 @@ def published_texts() -> dict:
     texts["notice:conflict"] = publish.compose_conflict_notice(disputed, 3)
     for reason in publish._REFUSALS:
         texts["reply:refused:" + reason] = publish.compose_comment(publish.Result(publish.REFUSED, reason, **described))
+    for status in ("accepted", "duplicate", "waiting", "candidate", "invalid", "report"):
+        texts["evidence:" + status] = evidence_workflow.disposition({"status": status, "reason": "STRUCTURED_EVIDENCE_REQUIRED"})
+    texts["evidence:capacity"] = evidence_workflow.disposition({"status": "waiting", "reason": "LEDGER_CAPACITY_WAIT"})
     return texts
 
 
@@ -552,6 +580,31 @@ class PublicClaimTests(unittest.TestCase):
             with self.subTest(name):
                 self.assertIn("换区报文", texts[name], "the one check a published code must pass before it records")
                 self.assertIn("待复核", texts[name], "what happens to records once a code is contradicted")
+
+    def test_the_layout_tables_name_every_region_folder_and_no_readme_opens_with_a_change_note(self):
+        # N1-4: TC codes have their own folder, as CN and Global do; and a note about a source change would sit on
+        # the deployed repository denying its own deployment.
+        readmes = [testsupport.HERE / "README.md", *sorted(PUBLIC.glob("README*.md"))]
+        for path in readmes:
+            text = path.read_text(encoding="utf-8")
+            name = path.relative_to(testsupport.HERE).as_posix()
+            for directory in sorted(set(repo_index._REGION_DIRECTORIES.values())):
+                with self.subTest(readme=name, directory=directory):
+                    self.assertRegex(text, r"(?m)^(?:\| `)?%s/<[^>\n]+>/<[^>\n]+>\.mrc" % re.escape(directory))
+            for note in ("本次源文件修改", "這項來源修改", "This source change", "この変更は公開リポジトリ"):
+                with self.subTest(readme=name, note=note):
+                    self.assertNotIn(note, text)
+
+    def test_the_maintainer_readme_lists_every_publish_command(self):
+        # Q-13: the file table names every command publish.py accepts; `unchanged` is the one the scripts run before a push.
+        row = next(line for line in (testsupport.HERE / "README.md").read_text(encoding="utf-8").splitlines()
+                   if line.startswith("| `publish.py` |"))
+        commands = next(a for a in publish._parser()._actions if isinstance(a, argparse._SubParsersAction)).choices
+        for name, sub in commands.items():
+            nested = [a for a in sub._actions if isinstance(a, argparse._SubParsersAction)]
+            for command in (["%s %s" % (name, child) for child in nested[0].choices] if nested else [name]):
+                with self.subTest(command):
+                    self.assertIn("`%s`" % command, row)
 
     def test_the_maintainer_readme_names_the_action_releases_the_workflows_are_pinned_to(self):
         readme = (testsupport.HERE / "README.md").read_text(encoding="utf-8")

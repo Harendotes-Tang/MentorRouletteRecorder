@@ -13,7 +13,9 @@
 #   the log and be taken for a workflow command.
 # * Both jobs share one concurrency group (set on the jobs, so an event whose job is skipped never
 #   takes part) and a running job is never cancelled, so two submissions never race on index.json.
-#   A push that still loses a race (a maintainer pushed) is redone from the new main.
+#   The group is theirs alone: evidence and report Issues can stay open and start a job on every edit,
+#   so they use their own group (evidence-intake) and cannot keep cancelling a queued publish job.
+#   A push that still loses a race (a maintainer or the evidence lane pushed) is redone from the new main.
 # * Every `uses:` is pinned to a commit id, with the release in the trailing comment. A tag can be
 #   moved to another commit, so a mutable reference lets a third-party action change under a job
 #   that holds this repository's token - and everything published here is downloaded by every

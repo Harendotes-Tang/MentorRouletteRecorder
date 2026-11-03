@@ -125,6 +125,12 @@ private:
     quint64 m_achievementReadSerial = 0;
     quint64 m_lastAchievementReadSerial = 0;
     bool m_achievementSettingsLoaded = false;
+    /// Set once the regions the first dashboard read of this connection left
+    /// out have been asked for; cleared on disconnect (review I3-2 / K1-3).
+    bool m_achievementRegionsSwept = false;
+    /// Set by refreshAchievementRegions(): every region's settings are wanted,
+    /// GLOBAL and UNKNOWN included, on this connection and the following ones.
+    bool m_allAchievementRegionsWanted = false;
     int m_baselineSavesInFlight = 0;
     int m_completedLast7Days = 0;
     int m_completedLast30Days = 0;

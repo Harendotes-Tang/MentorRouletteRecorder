@@ -93,9 +93,10 @@ EvidenceStep {
                     model: step.session.chipDefs
                     delegate: Chip {
                         required property var modelData
+                        objectName: "evidenceReportChip_" + modelData.key
                         text: modelData.label
                         checked: !!step.session.chips[modelData.key]
-                        onToggled: step.session.toggleChip(modelData.key)
+                        onToggled: function(checked) { step.session.toggleChip(modelData.key, checked) }
                     }
                 }
             }
