@@ -47,6 +47,12 @@ public:
     void setCheckedRunIds(const QStringList &ids) { m_checkedRunIds = ids; }
     /// 勾选时只按精确 ID 导出，包括明确选中的回收站记录。
     QJsonObject effectiveHistoryFilter() const;
+    /// The sort the history list is showing (RunListModel::sortField / sortAscending), so a
+    /// file reads top to bottom the way the list does: 最早在前 on screen is earliest first in
+    /// the file. Until it is set, no sort is sent and the Collector writes newest entered first.
+    void setHistorySort(const QString &field, bool ascending);
+    /// The $defs/RunSort an export sends; empty until setHistorySort().
+    QJsonObject historySort() const;
 
     void exportCsv();
     void exportJson();
@@ -98,6 +104,8 @@ private:
     IBackend *m_backend = nullptr;
     QJsonObject m_historyFilter;
     QStringList m_checkedRunIds;
+    QString m_sortField;
+    bool m_sortAscending = false;
     QString m_targetOverride;
     bool m_integrityRunning = false;
     QVariantMap m_integrityResult;

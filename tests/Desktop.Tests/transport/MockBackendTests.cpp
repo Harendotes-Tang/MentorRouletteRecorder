@@ -726,6 +726,54 @@ private Q_SLOTS:
         QVERIFY(sawNull);
     }
 
+    // RequestParsers.Sort and RunExporter.LoadPages (contracts/CHANGELOG.md 2026-11-03): an
+    // export takes the RunSort QueryRuns takes, counts the rows QueryRuns lists, and refuses
+    // the sorts QueryRuns refuses; an omitted sort is still accepted.
+    void anExportTakesTheSortQueryRunsTakesAndRefusesWhatItRefuses()
+    {
+        mr::MockBackend backend;
+        const QJsonObject earliestFirst{{QStringLiteral("field"), QStringLiteral("history_date")},
+                                        {QStringLiteral("direction"), QStringLiteral("asc")}};
+        const QString target = QStringLiteral("D:/exports/mentor.out");
+        const Answer page = ask(backend, QStringLiteral("QueryRuns"),
+                                {{QStringLiteral("filter"), QJsonObject()},
+                                 {QStringLiteral("page"), 1}, {QStringLiteral("page_size"), 200},
+                                 {QStringLiteral("sort"), earliestFirst}});
+        QVERIFY(page.ok);
+        const int total = page.payload.value(QStringLiteral("page_info")).toObject()
+                              .value(QStringLiteral("total")).toInt();
+        QVERIFY(total > 1);
+        for (const QString &type : {QStringLiteral("ExportCsv"), QStringLiteral("ExportJson")}) {
+            const Answer exported = ask(backend, type,
+                                        {{QStringLiteral("target_path"), target},
+                                         {QStringLiteral("filter"), QJsonObject()},
+                                         {QStringLiteral("sort"), earliestFirst}});
+            QVERIFY2(exported.ok, qPrintable(type + QLatin1String(": ") + exported.code));
+            QCOMPARE(exported.payload.value(QStringLiteral("row_count")).toInt(), total);
+        }
+        const Answer omitted = ask(backend, QStringLiteral("ExportCsv"),
+                                   {{QStringLiteral("target_path"), target},
+                                    {QStringLiteral("filter"), QJsonObject()}});
+        QVERIFY(omitted.ok);
+        QCOMPARE(omitted.payload.value(QStringLiteral("row_count")).toInt(), total);
+        for (const QJsonObject &bad : {
+                 QJsonObject{{QStringLiteral("field"), QStringLiteral("history_date")},
+                             {QStringLiteral("direction"), QStringLiteral("sideways")}},
+                 QJsonObject{{QStringLiteral("field"), QStringLiteral("run_id")}},
+                 QJsonObject{{QStringLiteral("field"), QStringLiteral("history_date")},
+                             {QStringLiteral("page"), 1}}}) {
+            const Answer refused = ask(backend, QStringLiteral("ExportJson"),
+                                       {{QStringLiteral("target_path"), target},
+                                        {QStringLiteral("filter"), QJsonObject()},
+                                        {QStringLiteral("sort"), bad}});
+            QCOMPARE(refused.code, QStringLiteral("ERR_BAD_REQUEST"));
+            QVERIFY(!refused.payload.contains(QStringLiteral("row_count")));
+            QCOMPARE(ask(backend, QStringLiteral("QueryRuns"),
+                         {{QStringLiteral("filter"), QJsonObject()}, {QStringLiteral("sort"), bad}}).code,
+                     QStringLiteral("ERR_BAD_REQUEST"));
+        }
+    }
+
     // OJ-6: StatisticsRepository.BuildDashboard - leave_rate counts
     // LEFT_OR_ABANDONED among the attempts only. A run without an entry time is an
     // attempt by its result (D1-2, audit 2026-11-03); 进本前取消 never is.

@@ -176,6 +176,15 @@ public:
         return reply;
     }
 };
+/// Keeps the payload of every export request and answers it like the mock.
+class ExportRecordingBackend final : public mr::MockBackend {
+public:
+    QHash<QString, QJsonObject> exports;
+    mr::BackendReply *request(const QString &type, const QJsonObject &payload = {}) override {
+        if (type.startsWith(QLatin1String("Export"))) exports.insert(type, payload);
+        return MockBackend::request(type, payload);
+    }
+};
 bool putFile(const QString &path) {
     QFile file(path); return file.open(QIODevice::WriteOnly) && file.write("fixture") == 7;
 }
@@ -440,6 +449,24 @@ private Q_SLOTS:
         QVERIFY(history.historyFilter().value(QStringLiteral("pending_review")).toBool());
         QVERIFY(backend.last(QStringLiteral("QueryRuns")).reply);
     }
+    // The sort the 「日期」 column shows reaches the export through the application
+    // object: flipping the list to 最早在前 flips the next export's sort.
+    void theApplicationSendsTheListsSortWithAnExport() {
+        ExportRecordingBackend backend;
+        mr::AppController app(&backend, nullptr);
+        QTemporaryDir dir;
+        app.setExportTargetOverride(dir.path());
+        app.exportCsv();
+        QCOMPARE(backend.exports.value(QStringLiteral("ExportCsv")).value(QStringLiteral("sort")).toObject(),
+                 QJsonObject({{QStringLiteral("field"), QStringLiteral("history_date")},
+                              {QStringLiteral("direction"), QStringLiteral("desc")}}));
+        app.runs()->sortBy(QStringLiteral("history_date"));
+        QVERIFY(app.runs()->sortAscending());
+        app.exportJson();
+        QCOMPARE(backend.exports.value(QStringLiteral("ExportJson")).value(QStringLiteral("sort")).toObject(),
+                 QJsonObject({{QStringLiteral("field"), QStringLiteral("history_date")},
+                              {QStringLiteral("direction"), QStringLiteral("asc")}}));
+    }
     void exactExportIdsIgnoreOtherFiltersAndIncludeExplicitlySelectedDeletedRows() {
         ControlledBackend backend;
         QTemporaryDir dir;
@@ -456,6 +483,31 @@ private Q_SLOTS:
         exporter.setCheckedRunIds({});
         exporter.exportJson();
         QCOMPARE(backend.last(QStringLiteral("ExportJson")).payload.value(QStringLiteral("filter")).toObject().value(QStringLiteral("text")).toString(), QStringLiteral("原筛选"));
+    }
+    // contracts/CHANGELOG.md 2026-11-03: an export carries the sort the history list is showing,
+    // whether the whole filter or the checked rows are exported; until the list's sort is known
+    // nothing is sent, and the Collector keeps newest entered first.
+    void exportsCarryTheHistoryListsCurrentSort() {
+        ControlledBackend backend;
+        QTemporaryDir dir;
+        mr::ExportController exporter;
+        exporter.setBackend(&backend);
+        exporter.setTargetOverride(dir.path());
+        exporter.exportCsv();
+        QVERIFY(!backend.last(QStringLiteral("ExportCsv")).payload.contains(QStringLiteral("sort")));
+        exporter.setHistorySort(QStringLiteral("history_date"), true);
+        exporter.exportCsv();
+        const QJsonObject earliestFirst{{QStringLiteral("field"), QStringLiteral("history_date")},
+                                        {QStringLiteral("direction"), QStringLiteral("asc")}};
+        QCOMPARE(backend.last(QStringLiteral("ExportCsv")).payload.value(QStringLiteral("sort")).toObject(), earliestFirst);
+        exporter.setCheckedRunIds({firstId()});
+        exporter.exportJson();
+        QCOMPARE(backend.last(QStringLiteral("ExportJson")).payload.value(QStringLiteral("sort")).toObject(), earliestFirst);
+        exporter.setHistorySort(QStringLiteral("duty_name"), false);
+        exporter.exportJson();
+        QCOMPARE(backend.last(QStringLiteral("ExportJson")).payload.value(QStringLiteral("sort")).toObject(),
+                 QJsonObject({{QStringLiteral("field"), QStringLiteral("duty_name")},
+                              {QStringLiteral("direction"), QStringLiteral("desc")}}));
     }
     void purgeAndRestoreRefuseLiveOrMixedSelectionBeforeSending() {
         ControlledBackend backend;

@@ -156,8 +156,14 @@ QJsonObject argsFor(const QString &messageType)
         args.insert(QStringLiteral("recent_limit"), 3);
     } else if (messageType == QLatin1String("ExportCsv") ||
                messageType == QLatin1String("ExportJson")) {
+        // The history list's sort travels with an export (contracts/CHANGELOG.md
+        // 2026-11-03); the sample pins the shape, earliest first.
+        QJsonObject sort;
+        sort.insert(QStringLiteral("field"), QStringLiteral("history_date"));
+        sort.insert(QStringLiteral("direction"), QStringLiteral("asc"));
         args.insert(QStringLiteral("target_path"), QStringLiteral("D:/exports/mentor.out"));
         args.insert(QStringLiteral("filter"), sampleFilter());
+        args.insert(QStringLiteral("sort"), sort);
     } else if (messageType == QLatin1String("BackupDatabase")) {
         args.insert(QStringLiteral("target_path"), QStringLiteral("D:/backups/mentor.db"));
     } else if (messageType == QLatin1String("ExportDiagnosticsReport") ||

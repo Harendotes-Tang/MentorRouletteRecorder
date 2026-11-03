@@ -1,5 +1,13 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-11-03 · 历史导出按当前排序输出：`ExportRequest.sort`
+
+附加式变更，不新增消息类型。
+
+- **`ExportRequest.sort`**（可选，`$defs/RunSort`，即 `QueryRuns.sort` 的同一结构）：`ExportCsv` 与 `ExportJson` 按它排列写出的行，取值与拒绝情形与 `QueryRuns` 相同（未声明的 `field` 或 `asc` / `desc` 之外的 `direction` 答 `ERR_BAD_REQUEST`，`field` 分别为 `sort.field` 与 `sort.direction`）。省略时与此前一样按 `entered_at_utc` 降序写出，最新在前。筛选（`filter`）与文件内容不变。
+- 桌面端把历史记录列表当前的排序（点击表头选定的列与升降序，默认「日期」列由新到旧）作为 `sort` 发送，因此在列表上切到「最早在前」后导出的文件第一行就是最早的记录；勾选记录只导出所选时同样按该排序。
+- 兼容性：旧采集服务不认识 `sort`，答 `ERR_BAD_REQUEST`；两端随同一安装包发布。旧桌面端不发送该字段，导出顺序不变。
+
 ## 2026-11-03 · 审查修复
 
 - 共享校准、更新、宿主（审查 2026-11-03 X3）：七条共享校准导入与拒绝文案（`sharing.code.newer_version`，`sharing.import.changed` / `not_calibrating` / `other_template` / `rejected` / `user_rejected` / `check_pending`）把按钮名改为界面上的「手动导入校准码」，公开仓库 `sharecode.py` 的回复同步（E-4）。读取安装程序校验值时应答中途断开，下载结果由 `TRANSPORT_FAILED` 改报 `CHECKSUM_UNAVAILABLE`；`update.download.transport_failed` 改写为在剩余路径（安装程序下载中断、后台意外错误）上都成立的说法（F-2）。`startup.log_dir_unwritable` 新增 `{path}` 参数（日志文件夹），不再提命令行选项（G-4）。以管理员身份运行的采集服务给管道加 High 强制完整性标签（不可向上写、不可向上读），未提权的进程连不上它；未提权运行时管道不变（G-1）。共享校准状态：副本进行中读到的隔离与撤回一样等到这一场结束才停用（结束时已通过完整检查的不再停用，E-1）；撤回或停用之后同一区服与版本重新进入校准时，`shared.last_refusal` 与被拒校准码的 `REJECTED` 条目保留（E-3）。

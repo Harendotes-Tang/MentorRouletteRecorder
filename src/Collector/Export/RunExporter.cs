@@ -27,9 +27,10 @@ public sealed record ExportOutcome(
 /// <summary>
 /// Writes the run history to a local file the user chose.
 ///
-/// The export honours exactly the same <see cref="RunFilter"/> as <c>QueryRuns</c>, so what
-/// a user exports is what the list in front of them showed. Nothing is uploaded anywhere:
-/// the only destination is a local path, validated by <see cref="ExportPaths"/>.
+/// The export honours exactly the same <see cref="RunFilter"/> and <see cref="RunSort"/> as
+/// <c>QueryRuns</c>, so what a user exports is what the list in front of them showed, in the
+/// order it showed it. Nothing is uploaded anywhere: the only destination is a local path,
+/// validated by <see cref="ExportPaths"/>.
 /// </summary>
 public sealed class RunExporter
 {
@@ -112,22 +113,24 @@ public sealed class RunExporter
     /// <param name="targetPath">Destination chosen by the user.</param>
     /// <param name="filter">Same filter as QueryRuns; null exports everything visible.</param>
     /// <param name="overwrite">Whether an existing file may be replaced.</param>
-    public ExportOutcome ExportCsv(string targetPath, RunFilter? filter, bool overwrite) =>
-        ExportCsv(targetPath, filter, overwrite, CancellationToken.None);
+    /// <param name="sort">Same sort as QueryRuns; null writes newest entered first.</param>
+    public ExportOutcome ExportCsv(string targetPath, RunFilter? filter, bool overwrite, RunSort? sort = null) =>
+        ExportCsv(targetPath, filter, overwrite, sort, CancellationToken.None);
 
     /// <summary>按原 CSV 契约生成文件，并允许连接断开时取消尚未发布的工作。</summary>
     /// <param name="targetPath">用户选择的目标路径。</param>
     /// <param name="filter">与 QueryRuns 相同的筛选；null 导出全部可见记录。</param>
     /// <param name="overwrite">是否允许原子替换已有文件。</param>
+    /// <param name="sort">与 QueryRuns 相同的排序；null 按进本时间由新到旧。</param>
     /// <param name="cancellationToken">取消尚未发布的导出；已原子发布的文件仍返回成功。</param>
     internal ExportOutcome ExportCsv(
-        string targetPath, RunFilter? filter, bool overwrite, CancellationToken cancellationToken)
+        string targetPath, RunFilter? filter, bool overwrite, RunSort? sort, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var fullPath = ExportPaths.Resolve(targetPath);
         ExportPaths.PrepareDestination(fullPath, overwrite);
 
-        var rows = LoadAll(filter, cancellationToken);
+        var rows = LoadAll(filter, sort ?? RunSort.Default, cancellationToken);
         var text = new StringBuilder(1024 + (rows.Count * 160));
         text.Append(string.Join(',', CsvHeader)).Append("\r\n");
         foreach (var run in rows)
@@ -154,22 +157,24 @@ public sealed class RunExporter
     /// <param name="targetPath">Destination chosen by the user.</param>
     /// <param name="filter">Same filter as QueryRuns; null exports everything visible.</param>
     /// <param name="overwrite">Whether an existing file may be replaced.</param>
-    public ExportOutcome ExportJson(string targetPath, RunFilter? filter, bool overwrite) =>
-        ExportJson(targetPath, filter, overwrite, CancellationToken.None);
+    /// <param name="sort">Same sort as QueryRuns; null writes newest entered first.</param>
+    public ExportOutcome ExportJson(string targetPath, RunFilter? filter, bool overwrite, RunSort? sort = null) =>
+        ExportJson(targetPath, filter, overwrite, sort, CancellationToken.None);
 
     /// <summary>按原 JSON 契约生成文件，并允许连接断开时取消尚未发布的工作。</summary>
     /// <param name="targetPath">用户选择的目标路径。</param>
     /// <param name="filter">与 QueryRuns 相同的筛选；null 导出全部可见记录。</param>
     /// <param name="overwrite">是否允许原子替换已有文件。</param>
+    /// <param name="sort">与 QueryRuns 相同的排序；null 按进本时间由新到旧。</param>
     /// <param name="cancellationToken">取消尚未发布的导出；已原子发布的文件仍返回成功。</param>
     internal ExportOutcome ExportJson(
-        string targetPath, RunFilter? filter, bool overwrite, CancellationToken cancellationToken)
+        string targetPath, RunFilter? filter, bool overwrite, RunSort? sort, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var fullPath = ExportPaths.Resolve(targetPath);
         ExportPaths.PrepareDestination(fullPath, overwrite);
 
-        var rows = LoadAll(filter, cancellationToken);
+        var rows = LoadAll(filter, sort ?? RunSort.Default, cancellationToken);
         var array = new JsonArray();
         foreach (var run in rows)
         {
@@ -210,20 +215,22 @@ public sealed class RunExporter
     /// later live writes outside this snapshot without making them wait for the export.
     /// </summary>
     /// <param name="filter">Same filter as QueryRuns; null exports everything visible.</param>
+    /// <param name="sort">Order of the rows, applied by the repository on every page.</param>
     /// <param name="cancellationToken">取消分页读取以及尚未发布的文件。</param>
-    private IReadOnlyList<MentorRun> LoadAll(RunFilter? filter, CancellationToken cancellationToken) =>
+    private IReadOnlyList<MentorRun> LoadAll(RunFilter? filter, RunSort sort, CancellationToken cancellationToken) =>
         _database.ReadSnapshot((snapshot, transaction) =>
-            LoadPages(new RunRepository(snapshot), transaction, filter, cancellationToken), cancellationToken);
+            LoadPages(new RunRepository(snapshot), transaction, filter, sort, cancellationToken), cancellationToken);
 
     private static IReadOnlyList<MentorRun> LoadPages(
-        RunRepository runs, SqliteTransaction transaction, RunFilter? filter, CancellationToken cancellationToken)
+        RunRepository runs, SqliteTransaction transaction, RunFilter? filter, RunSort sort,
+        CancellationToken cancellationToken)
     {
         var rows = new List<MentorRun>();
         var page = 1;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var batch = runs.Query(filter, RunSort.Default, page, BatchSize, transaction);
+            var batch = runs.Query(filter, sort, page, BatchSize, transaction);
             rows.AddRange(batch.Items);
             if (batch.Items.Count < BatchSize || rows.Count >= batch.Total)
             {

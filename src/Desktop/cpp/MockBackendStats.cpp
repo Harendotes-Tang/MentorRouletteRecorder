@@ -340,12 +340,9 @@ QJsonObject MockBackend::queryRunCalendarDaysPayload(const QJsonObject &payload)
     return {{QStringLiteral("month"), month}, {QStringLiteral("days"), days}};
 }
 
-QJsonObject MockBackend::queryRunsPayload(const QJsonObject &payload) const
+QList<QJsonObject> MockBackend::sortedRuns(const QJsonObject &filter, const QJsonObject &sort) const
 {
-    const QJsonObject filter = payload.value(QStringLiteral("filter")).toObject();
     QList<QJsonObject> rows = selectRuns(filter, false);
-
-    const QJsonObject sort = payload.value(QStringLiteral("sort")).toObject();
     const QString field =
         sort.value(QStringLiteral("field")).toString(QStringLiteral("entered_at_utc"));
     const bool ascending =
@@ -356,6 +353,54 @@ QJsonObject MockBackend::queryRunsPayload(const QJsonObject &payload) const
                      [&](const QJsonObject &a, const QJsonObject &b) {
                          return sortsBefore(a, b, field, ascending);
                      });
+    return rows;
+}
+
+bool MockBackend::refusedSort(const QJsonObject &payload, QString *errorCode, QString *errorMessage)
+{
+    const QJsonValue value = payload.value(QStringLiteral("sort"));
+    if (value.isUndefined() || value.isNull())
+        return false;
+    if (!value.isObject()) {
+        refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "ipc.field.not_object",
+                   {{QStringLiteral("field"), QStringLiteral("sort")}});
+        return true;
+    }
+    const QJsonObject sort = value.toObject();
+    for (auto it = sort.constBegin(); it != sort.constEnd(); ++it) {
+        if (it.key() != QLatin1String("field") && it.key() != QLatin1String("direction")) {
+            refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "ipc.field.unknown",
+                       {{QStringLiteral("field"), it.key()}});
+            return true;
+        }
+    }
+    static const QStringList kFields{
+        QStringLiteral("history_date"), QStringLiteral("matched_at_utc"), QStringLiteral("entered_at_utc"),
+        QStringLiteral("ended_at_utc"), QStringLiteral("duration_ms"), QStringLiteral("duty_name")};
+    const QJsonValue field = sort.value(QStringLiteral("field"));
+    if (!field.isUndefined() && !field.isNull() && (!field.isString() || !kFields.contains(field.toString()))) {
+        refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "ipc.field.undeclared_value",
+                   {{QStringLiteral("field"), QStringLiteral("sort.field")}});
+        return true;
+    }
+    const QJsonValue direction = sort.value(QStringLiteral("direction"));
+    if (!direction.isUndefined() && !direction.isNull()
+        && (!direction.isString()
+            || (direction.toString() != QLatin1String("asc") && direction.toString() != QLatin1String("desc")))) {
+        refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "ipc.field.either",
+                   {{QStringLiteral("field"), QStringLiteral("sort.direction")},
+                    {QStringLiteral("first"), QStringLiteral("asc")},
+                    {QStringLiteral("second"), QStringLiteral("desc")}});
+        return true;
+    }
+    return false;
+}
+
+QJsonObject MockBackend::queryRunsPayload(const QJsonObject &payload) const
+{
+    const QJsonObject filter = payload.value(QStringLiteral("filter")).toObject();
+    const QList<QJsonObject> rows =
+        sortedRuns(filter, payload.value(QStringLiteral("sort")).toObject());
 
     // RunRepository.Query: the page asked for, even past the end (then empty). The request
     // path has already refused a page or page_size out of range (RequestParsers.Paging).

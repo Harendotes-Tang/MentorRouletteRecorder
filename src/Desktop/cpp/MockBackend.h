@@ -324,6 +324,13 @@ private:
 
     // -- querying -----------------------------------------------------------
     QList<QJsonObject> selectRuns(const QJsonObject &filter, bool forStatistics) const;
+    /// selectRuns(filter, false) in the order a $defs/RunSort asks for; an empty \a sort is
+    /// entered_at_utc descending (RunSort.Default). QueryRuns and the exports share it.
+    QList<QJsonObject> sortedRuns(const QJsonObject &filter, const QJsonObject &sort) const;
+    /// RequestParsers.Sort: a sort with an undeclared field, a direction other than asc /
+    /// desc, or a key the contract does not declare is refused as ERR_BAD_REQUEST. Omitted or
+    /// null is the default and passes.
+    bool refusedSort(const QJsonObject &payload, QString *errorCode, QString *errorMessage);
     QJsonObject queryRunCalendarDaysPayload(const QJsonObject &payload) const;
     QJsonObject queryRunsPayload(const QJsonObject &payload) const;
     QJsonObject queryCandidatePayload(const QJsonObject &payload, QString *errorCode,
