@@ -1357,7 +1357,7 @@ void LifecycleTests::thisBuildLaunchesItsChildTheWayItsFlavourSays()
     mr::CollectorProcess collector(stub, nullptr);
     const QStringList arguments = collector.processArguments();
     const QProcessEnvironment environment = collector.processEnvironment();
-    const int pipeFlag = arguments.indexOf(QStringLiteral("--pipe"));
+    const qsizetype pipeFlag = arguments.indexOf(QStringLiteral("--pipe"));
 
     if (mr::build::isDevelopmentBuild()) {
         // CTest points MR_DATA_DIR at a throw-away folder; whatever it is, the

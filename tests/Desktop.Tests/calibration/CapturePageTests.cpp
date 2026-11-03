@@ -103,18 +103,20 @@ public:
             status.insert(QStringLiteral("capture"), capture);
             reply->succeed(status);
         }
-        else if (type == QLatin1String("GetCaptureStatus"))
+        else if (type == QLatin1String("GetCaptureStatus")) {
             reply->succeed(capture);
+        }
         // Follow-the-game on and no validation session: the recording controller
         // can then reach its capture verdicts instead of waiting for a setting.
-        else if (type == QLatin1String("GetCaptureSettings"))
+        else if (type == QLatin1String("GetCaptureSettings")) {
             reply->succeed(settings);
-        else if (type == QLatin1String("GetCaptureValidationStatus"))
+        } else if (type == QLatin1String("GetCaptureValidationStatus")) {
             reply->succeed(validation);
-        else if (type == QLatin1String("ListCaptureAdapters") && !adapters.isEmpty())
+        } else if (type == QLatin1String("ListCaptureAdapters") && !adapters.isEmpty()) {
             reply->succeed(adapters);
-        else
+        } else {
             reply->succeed({});
+        }
         return reply;
     }
 };

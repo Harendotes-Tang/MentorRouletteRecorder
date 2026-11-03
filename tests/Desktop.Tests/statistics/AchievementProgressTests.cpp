@@ -47,8 +47,9 @@ public:
             settingsReply = reply;
             settingsPayload = payload;
         }
-        else
+        else {
             QTimer::singleShot(0, reply, [reply] { reply->succeed({}); });
+        }
         return reply;
     }
 

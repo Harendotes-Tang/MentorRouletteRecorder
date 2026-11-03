@@ -177,6 +177,8 @@ void TrayController::notifyRecordingWarning()
     if (!m_controller)
         return;
     const QPointer<AutomaticRecordingController> recording(m_controller->recording());
+    if (recording.isNull())
+        return;
     const auto serial = recording->warningSerial();
     if (!recording->warningActive() || serial == 0 || serial <= m_lastWarningSerial)
         return;
@@ -186,7 +188,10 @@ void TrayController::notifyRecordingWarning()
     Q_EMIT recordingWarningRequested(serial, m_tray != nullptr);
     // Direct observers may withdraw this warning or destroy either owner.
     // This guard precedes the native boundary even on offscreen test platforms.
-    if (!guard || !recording || !recording->warningActive() || recording->warningSerial() != serial)
+    if (guard.isNull())
+        return;
+    const auto *currentRecording = recording.data();
+    if (!currentRecording || !currentRecording->warningActive() || currentRecording->warningSerial() != serial)
         return;
     deliverRecordingWarning(message);
 }

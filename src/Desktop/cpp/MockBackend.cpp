@@ -1387,8 +1387,11 @@ QJsonObject MockBackend::captureValidationStatus() const
     // counts, the start time and the trace stay null (CaptureValidationController).
     const bool cancelling = m_validationState == QLatin1String("CANCELLING");
     const bool cancelled = m_validationState == QLatin1String("CANCELLED");
-    const QString state = cancelling ? QStringLiteral("STOPPING")
-                          : cancelled ? QStringLiteral("COMPLETED") : m_validationState;
+    QString state = m_validationState;
+    if (cancelling)
+        state = QStringLiteral("STOPPING");
+    else if (cancelled)
+        state = QStringLiteral("COMPLETED");
     const bool active = state == QLatin1String("WAITING")
                         || state == QLatin1String("RECORDING")
                         || state == QLatin1String("STOPPING");
@@ -2379,8 +2382,11 @@ ImportRow normalizeImportRow(const QJsonObject &row, const QString &kind, const 
     const bool clearedSource = row.contains(QStringLiteral("source_recorded_at")) && sourceRecorded.isEmpty()
         && (!row.value(QStringLiteral("import_metadata")).isObject() || !storedSource.isEmpty());
     const QString storedUtc = stored.text(QStringLiteral("source_recorded_at_utc"), 100);
-    const QString sourceUtcText = clearedSource ? QString() : row.contains(QStringLiteral("source_recorded_at_utc"))
-        ? read.text(QStringLiteral("source_recorded_at_utc"), 100) : storedUtc;
+    QString sourceUtcText;
+    if (!clearedSource) {
+        sourceUtcText = row.contains(QStringLiteral("source_recorded_at_utc"))
+            ? read.text(QStringLiteral("source_recorded_at_utc"), 100) : storedUtc;
+    }
     if (stored.failed())
         read.refuse(stored.key(), stored.args());
     ImportRowReader provenance(QJsonObject{{QStringLiteral("source_recorded_at"), sourceRecorded},

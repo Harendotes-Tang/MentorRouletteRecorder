@@ -30,9 +30,11 @@
 
 #include <QString>
 
+#include <cstdint>
+
 namespace mr::build {
 
-enum class Flavour {
+enum class Flavour : std::uint8_t {
     /// The packaged software: %LOCALAPPDATA%\MentorRecorder and the per-user pipe
     /// the Collector derives itself.
     Distribution,

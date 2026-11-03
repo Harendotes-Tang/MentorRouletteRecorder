@@ -24,6 +24,7 @@
 #include "NoteImageStore.h"
 #include "RoleCatalog.h"
 #include "RunFormValidator.h"
+#include <algorithm>
 
 #include <QDir>
 #include <QDateTime>
@@ -2104,12 +2105,9 @@ private Q_SLOTS:
 
         // A named region on the dashboard is the new record's, with that region's goal.
         fixture.controller.refreshAchievementRegions();
-        QTRY_VERIFY([&] {
-            for (const QVariant &entry : fixture.controller.achievements())
-                if (entry.toMap().value(QStringLiteral("region")).toString() == QLatin1String("TC"))
-                    return true;
-            return false;
-        }());
+        QTRY_VERIFY(std::ranges::any_of(fixture.controller.achievements(), [](const QVariant &entry) {
+            return entry.toMap().value(QStringLiteral("region")).toString() == QLatin1String("TC");
+        }));
         fixture.controller.setRecordRegion(QStringLiteral("TC"));
         openNew();
         QCOMPARE(dialog->property("recordRegion").toString(), QStringLiteral("TC"));

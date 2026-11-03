@@ -24,6 +24,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <memory>
+#include <bit>
 
 #ifdef Q_OS_WIN
 #  ifndef NOMINMAX
@@ -226,9 +227,9 @@ private slots:
     void nativeWarningKeepsTheOtherWindowForeground_data()
     {
         QTest::addColumn<int>("mainVisibility");
-        QTest::newRow("visible-behind-game") << int(QWindow::Windowed);
-        QTest::newRow("hidden") << int(QWindow::Hidden);
-        QTest::newRow("minimized") << int(QWindow::Minimized);
+        QTest::newRow("visible-behind-game") << static_cast<int>(QWindow::Windowed);
+        QTest::newRow("hidden") << static_cast<int>(QWindow::Hidden);
+        QTest::newRow("minimized") << static_cast<int>(QWindow::Minimized);
     }
 
     void nativeWarningKeepsTheOtherWindowForeground()
@@ -245,21 +246,22 @@ private slots:
         other.show();
         other.requestActivate();
         QVERIFY(QTest::qWaitForWindowActive(&other));
-        QTRY_COMPARE(::GetForegroundWindow(), reinterpret_cast<HWND>(other.winId()));
-        const auto foreground = ::GetForegroundWindow();
+        QTRY_COMPARE(::GetForegroundWindow(), std::bit_cast<HWND>(other.winId()));
+        auto *const foreground = ::GetForegroundWindow();
         // Establish the game-like foreground before hiding/minimizing the
         // background main window; otherwise Windows may revoke this test
         // process's permission to establish a new foreground sentinel.
-        if (mainVisibility == int(QWindow::Hidden)) scene.window()->hide();
-        else if (mainVisibility == int(QWindow::Minimized)) {
+        if (mainVisibility == static_cast<int>(QWindow::Hidden)) {
+            scene.window()->hide();
+        } else if (mainVisibility == static_cast<int>(QWindow::Minimized)) {
             scene.window()->showMinimized();
-            QTRY_VERIFY(::IsIconic(reinterpret_cast<HWND>(scene.window()->winId())));
+            QTRY_VERIFY(::IsIconic(std::bit_cast<HWND>(scene.window()->winId())));
         }
         QTRY_COMPARE(::GetForegroundWindow(), foreground);
         scene.recovering();
         QTRY_VERIFY(scene.warning()->isVisible());
         const auto recoveringSerial = scene.app.recording()->warningSerial();
-        const auto handle = reinterpret_cast<HWND>(scene.warning()->winId());
+        auto *const handle = std::bit_cast<HWND>(scene.warning()->winId());
         const auto style = ::GetWindowLongPtrW(handle, GWL_EXSTYLE);
         QVERIFY(style & WS_EX_NOACTIVATE);
         QVERIFY(style & WS_EX_TOPMOST);

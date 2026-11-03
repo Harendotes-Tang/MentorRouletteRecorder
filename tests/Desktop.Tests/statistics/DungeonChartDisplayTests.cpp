@@ -115,7 +115,7 @@ struct ChartScene {
     }
     QQuickWindow *window() const { return qobject_cast<QQuickWindow *>(root.get()); }
     QQuickItem *find(const QString &name) const { return item(window()->contentItem(), name); }
-    bool click(const QString &name, bool keyboard = false)
+    bool click(const QString &name, bool keyboard = false) const
     {
         // Expanding the panel and changing languages rebuild its layouts. Wait
         // for a frame, then polish ancestors before mapping native coordinates.

@@ -228,7 +228,7 @@ ApplicationWindow {
     bool marksAreEmpty() const
     {
         const QVariantList marks = sessionValue("marks").toList();
-        return marks.size() == 5 && std::all_of(marks.cbegin(), marks.cend(),
+        return marks.size() == 5 && std::ranges::all_of(marks,
                                                 [](const QVariant &mark) { return mark.isNull(); });
     }
 };
@@ -275,13 +275,20 @@ private Q_SLOTS:
         QFETCH(QString, badge);
         EvidenceScene scene;
         QVERIFY(scene.open(state));
-        const QString reported = state == QStringLiteral("CANCELLED") ? QStringLiteral("COMPLETED")
-                               : state == QStringLiteral("CANCELLING") ? QStringLiteral("STOPPING") : state;
+        QString reported = state;
+        if (state == QStringLiteral("CANCELLED"))
+            reported = QStringLiteral("COMPLETED");
+        else if (state == QStringLiteral("CANCELLING"))
+            reported = QStringLiteral("STOPPING");
         QTRY_COMPARE(scene.app->validationState(), reported);
         QTRY_COMPARE(scene.stepStatus(step), QStringLiteral("cur"));
         for (int number = 1; number <= 5; ++number) {
-            QCOMPARE(scene.stepStatus(number), number < step ? QStringLiteral("done")
-                                               : number == step ? QStringLiteral("cur") : QStringLiteral("todo"));
+            QString expectedStatus = QStringLiteral("todo");
+            if (number < step)
+                expectedStatus = QStringLiteral("done");
+            else if (number == step)
+                expectedStatus = QStringLiteral("cur");
+            QCOMPARE(scene.stepStatus(number), expectedStatus);
             // Only the current step is open until a done one is reopened.
             QCOMPARE(scene.stepOpen(number), number == step);
         }

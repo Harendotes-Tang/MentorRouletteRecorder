@@ -48,7 +48,7 @@ void AutomaticRecordingController::setMaintenance(bool enabled)
     clearWarning();
     const QPointer<AutomaticRecordingController> guard(this);
     Q_EMIT changed();
-    if (guard)
+    if (!guard.isNull())
         refresh();
 }
 
@@ -74,7 +74,7 @@ void AutomaticRecordingController::setUserObservation(bool enabled)
     clearWarning();
     const QPointer<AutomaticRecordingController> guard(this);
     Q_EMIT changed();
-    if (guard)
+    if (!guard.isNull())
         refresh();
 }
 
@@ -92,7 +92,7 @@ void AutomaticRecordingController::setState(const QString &state, const LiveText
     Q_EMIT changed();
     // A changed observer may synchronously accept a newer capture snapshot or
     // enter maintenance. Never deliver the warning that observer just withdrew.
-    if (guard && freshWarning && m_warningActive && m_warningSerial == publishedSerial)
+    if (!guard.isNull() && freshWarning && m_warningActive && m_warningSerial == publishedSerial)
         Q_EMIT warningRaised();
 }
 
@@ -167,7 +167,7 @@ void AutomaticRecordingController::block(const QString &key, const LiveText &mes
     if (fresh) m_pending = true;
     const QPointer<AutomaticRecordingController> guard(this);
     setState(QStringLiteral("blocked"), message);
-    if (guard && fresh && !m_maintenance && m_incident == key) Q_EMIT incidentRaised();
+    if (!guard.isNull() && fresh && !m_maintenance && m_incident == key) Q_EMIT incidentRaised();
 }
 
 void AutomaticRecordingController::acknowledge()
@@ -214,7 +214,7 @@ void AutomaticRecordingController::observeCapture(const QVariantMap &capture)
     m_latestCapture = capture;
     const QPointer<AutomaticRecordingController> guard(this);
     Q_EMIT captureObserved(capture);
-    if (!guard || revision != m_captureRevision || m_maintenance || m_userObservation
+    if (guard.isNull() || revision != m_captureRevision || m_maintenance || m_userObservation
         || !m_backend || !m_backend->isConnected())
         return;
     // 初始化尚未答复时，不拿上一轮的设置错误为新会话建立故障。
@@ -381,7 +381,7 @@ void AutomaticRecordingController::readCapture(quint64 generation)
         }
         const QPointer<AutomaticRecordingController> guard(this);
         Q_EMIT statusSectionsRead(sections);
-        if (!guard) return;
+        if (guard.isNull()) return;
         observeCapture(capture);
     });
 }

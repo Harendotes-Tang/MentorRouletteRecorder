@@ -21,6 +21,7 @@
 #include <QTest>
 #include <QTranslator>
 #include <QVariantMap>
+#include <cstdint>
 
 namespace {
 
@@ -31,7 +32,7 @@ using namespace mrtest::reflectiondialog;
 class MoodWordTranslator final : public QTranslator
 {
 public:
-    enum class Language { English, Japanese };
+    enum class Language : std::uint8_t { English, Japanese };
     explicit MoodWordTranslator(Language language) : m_language(language) {}
 
     QString translate(const char *context, const char *sourceText, const char *, int) const override

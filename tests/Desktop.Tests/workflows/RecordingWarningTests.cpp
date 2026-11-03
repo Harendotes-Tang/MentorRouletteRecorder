@@ -51,17 +51,18 @@ public:
     mr::BackendReply *request(const QString &type, const QJsonObject & = {}) override
     {
         auto *reply = new mr::BackendReply(QString::number(++requests), type, this);
-        if (type == QLatin1String("GetCaptureSettings"))
+        if (type == QLatin1String("GetCaptureSettings")) {
             reply->succeed({{"follow_game", true}});
-        else if (type == QLatin1String("GetCaptureValidationStatus"))
+        } else if (type == QLatin1String("GetCaptureValidationStatus")) {
             reply->succeed({{"active", false}, {"state", "IDLE"}});
-        else if (type == QLatin1String("GetStatus")) {
+        } else if (type == QLatin1String("GetStatus")) {
             if (statusFails)
                 reply->fail(QStringLiteral("ERR_TEST"), QStringLiteral("unavailable"));
             else
                 reply->succeed({{"capture", capture}, {"game", QJsonObject{{"install_path_readable", true}}}});
-        } else
+        } else {
             reply->succeed({});
+        }
         return reply;
     }
 
@@ -145,11 +146,11 @@ private slots:
         QFETCH(QString, fixture);
         QFETCH(QString, state);
         WarningBackend backend;
-        if (fixture == QLatin1String("silent"))
+        if (fixture == QLatin1String("silent")) {
             backend.capture["silent_reason"] = "NO_PACKETS_ON_ADAPTER";
-        else if (fixture == QLatin1String("blocked"))
+        } else if (fixture == QLatin1String("blocked")) {
             backend.capture["profile_status"] = "NONE";
-        else {
+        } else {
             backend.capture["profile_status"] = "NONE";
             backend.capture["calibration"] = QJsonObject{{"state", "BLOCKED"},
                 {"blockers", QJsonArray{QStringLiteral("需要重新核对")}}};

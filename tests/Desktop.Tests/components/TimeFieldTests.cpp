@@ -47,7 +47,7 @@ bool wheelSettled(QQuickItem *wheel)
         pending.append(item->childItems());
         if (item->objectName() == name) {
             const auto center = item->mapToItem(wheel, QPointF(item->width() / 2, item->height() / 2));
-            return qAbs(center.y() - wheel->height() / 2) < 0.5;
+            return qAbs(center.y() - (wheel->height() / 2)) < 0.5;
         }
     }
     return false;
@@ -229,7 +229,7 @@ void TimeFieldTests::visibleNumbersCanBeClickedAndWheeled()
     QVERIFY(hours && minutes);
     const auto point = [](QQuickItem *wheel, qreal rowOffset) {
         return wheel->mapToScene(QPointF(wheel->width() / 2,
-                                        wheel->height() / 2 + rowOffset * wheel->height() / 5));
+                                        (wheel->height() / 2) + (rowOffset * wheel->height() / 5)));
     };
     QTRY_VERIFY(wheelSettled(hours) && wheelSettled(minutes));
     QCOMPARE(hours->property("currentIndex").toInt(), 15);

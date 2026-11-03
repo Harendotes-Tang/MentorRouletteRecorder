@@ -192,7 +192,7 @@ private Q_SLOTS:
         controller.exportJson();
         controller.exportDiagnosticsReport();
         QCOMPARE(suggested.size(), 3);
-        for (const QString type : {QStringLiteral("ExportCsv"), QStringLiteral("ExportJson"),
+        for (const QString &type : {QStringLiteral("ExportCsv"), QStringLiteral("ExportJson"),
                                    QStringLiteral("ExportDiagnosticsReport")}) {
             QVERIFY2(backend.exports.contains(type), qPrintable(type));
             QCOMPARE(backend.exports.value(type).value(QStringLiteral("overwrite")), QJsonValue(true));
@@ -204,7 +204,7 @@ private Q_SLOTS:
         controller.exportJson();
         controller.exportDiagnosticsReport();
         QCOMPARE(suggested.size(), 3); // No dialog for the harness target.
-        for (const QString type : {QStringLiteral("ExportCsv"), QStringLiteral("ExportJson"),
+        for (const QString &type : {QStringLiteral("ExportCsv"), QStringLiteral("ExportJson"),
                                    QStringLiteral("ExportDiagnosticsReport")}) {
             QVERIFY2(backend.exports.contains(type), qPrintable(type));
             QVERIFY2(!backend.exports.value(type).contains(QStringLiteral("overwrite")), qPrintable(type));

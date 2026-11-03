@@ -184,7 +184,7 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
     const QString reflectionText = filter.value(QStringLiteral("reflection_text")).toString().trimmed();
     // RunFilterSql: name_exact matches duty_name or job_name by equality.
     QSet<QString> nameExact;
-    for (const QJsonValue &name : filter.value(QStringLiteral("name_exact")).toArray()) {
+    for (const auto &name : filter.value(QStringLiteral("name_exact")).toArray()) {
         if (!name.toString().isEmpty())
             nameExact.insert(name.toString());
     }
@@ -547,7 +547,11 @@ QJsonObject MockBackend::dashboardStats(const QJsonObject &filter,
     QStringList owners = selected.isEmpty() ? regions.values() : QStringList{selected};
     std::ranges::sort(owners, [](const QString &left, const QString &right) {
         const auto rank = [](const QString &owner) {
-            return owner == QLatin1String("CN") ? 0 : owner == QLatin1String("TC") ? 1 : 2;
+            if (owner == QLatin1String("CN"))
+                return 0;
+            if (owner == QLatin1String("TC"))
+                return 1;
+            return 2;
         };
         return rank(left) != rank(right) ? rank(left) < rank(right) : left < right;
     });

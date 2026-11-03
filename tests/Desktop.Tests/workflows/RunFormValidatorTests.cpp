@@ -28,8 +28,8 @@ public:
     TestAppProperties() : QQmlPropertyMap(this, nullptr) {}
 Q_SIGNALS:
     void scopeChanging();
-    void reflectionSaved(const QString &runId, bool cleared);
-    void reflectionFailed(const QString &code, const QString &message);
+    void reflectionSaved(const QString & /*runId*/, bool /*cleared*/);
+    void reflectionFailed(const QString & /*code*/, const QString & /*message*/);
 };
 
 QVariantMap crossMidnightForm()

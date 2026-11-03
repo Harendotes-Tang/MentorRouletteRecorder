@@ -1030,7 +1030,9 @@ void ImportRecordsController::acceptPreview(const QVariantMap &payload)
         return;
     }
     // The rows this reading shows for the first time: all of a first reading, the new cards of an append.
-    const int firstNew = !m_appendImages.isEmpty() ? static_cast<int>(m_candidates.size()) : m_hasAcceptedPreview ? -1 : 0;
+    int firstNew = m_hasAcceptedPreview ? -1 : 0;
+    if (!m_appendImages.isEmpty())
+        firstNew = static_cast<int>(m_candidates.size());
     if (!m_appendImages.isEmpty()
         && payload.value(QStringLiteral("rows")).toList().size() != m_candidates.size() + m_appendCandidates.size()) {
         discardAppend(LiveText([] { return tr("未收到新截图的完整预览，原批次已保留。请重新添加截图并校验。"); }));

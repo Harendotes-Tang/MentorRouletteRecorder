@@ -34,6 +34,7 @@
 #include <QTest>
 
 #include <memory>
+#include <utility>
 
 namespace {
 
@@ -166,10 +167,10 @@ class GameNamesTests : public QObject
         std::unique_ptr<QObject> page;
         QObject *search = nullptr;
 
-        SearchPage(mr::LanguageManager *language, const QString &name)
-            : pageName(name), attached(language, &engine)
+        SearchPage(mr::LanguageManager *language, QString name)
+            : pageName(std::move(name)), attached(language, &engine)
         {
-            const auto context = engine.rootContext();
+            auto *const context = engine.rootContext();
             context->setContextProperty(QStringLiteral("App"), &controller);
             context->setContextProperty(QStringLiteral("Reflections"), &library);
             context->setContextProperty(QStringLiteral("Fmt"), &formatters);
@@ -484,7 +485,7 @@ QtObject {
         QVERIFY(page.page);
         QVERIFY(page.search);
 
-        const QString whiteMage = kWhiteMageCn();
+        const QString &whiteMage = kWhiteMageCn();
         const auto run = [](const QString &id, int jobId, const QString &job, int contentId,
                             const QString &duty, const QString &note = QString()) {
             QJsonObject row = QJsonObject::fromVariantMap(sastashaRun());

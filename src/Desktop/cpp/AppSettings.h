@@ -310,7 +310,7 @@ private:
     /// that already holds this executable's command line is left alone. False
     /// when Windows did not accept the change, and without touching anything
     /// when autostartWritable() is false.
-    bool applyAutostartRegistration(bool enabled, bool onlyWhenDifferent = false);
+    bool applyAutostartRegistration(bool enabled, bool onlyWhenDifferent = false) const;
 
     QSettings m_settings;
     QString m_speechLanguage = QStringLiteral("zh-CN");

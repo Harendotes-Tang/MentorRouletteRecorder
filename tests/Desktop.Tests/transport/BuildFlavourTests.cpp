@@ -28,6 +28,8 @@
 
 using mr::build::Flavour;
 
+namespace {
+
 class BuildFlavourTests : public QObject
 {
     Q_OBJECT
@@ -234,6 +236,8 @@ private Q_SLOTS:
                                    + QStringLiteral("/desktop.ini")));
     }
 };
+
+} // namespace
 
 MR_DESKTOP_TEST_SUITE(BuildFlavour)
 {

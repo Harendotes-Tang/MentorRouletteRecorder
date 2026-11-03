@@ -396,7 +396,7 @@ bool AppSettings::autostartWritable() const
     return autostartUnavailableReason().isEmpty();
 }
 
-bool AppSettings::applyAutostartRegistration(bool enabled, bool onlyWhenDifferent)
+bool AppSettings::applyAutostartRegistration(bool enabled, bool onlyWhenDifferent) const
 {
 #ifdef Q_OS_WIN
     if (!autostartWritable())

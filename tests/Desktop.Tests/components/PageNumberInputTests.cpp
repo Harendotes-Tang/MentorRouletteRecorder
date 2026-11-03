@@ -67,7 +67,7 @@ Window {
     QQuickItem *pager() const { return root->findChild<QQuickItem *>(QStringLiteral("pager")); }
     QQuickItem *field() const { return root->findChild<QQuickItem *>(QStringLiteral("pageNumberField")); }
     QQuickItem *button() const { return root->findChild<QQuickItem *>(QStringLiteral("pageNumberJumpButton")); }
-    void type(const QString &text)
+    void type(const QString &text) const
     {
         field()->forceActiveFocus();
         QTest::keyClick(window(), Qt::Key_A, Qt::ControlModifier);

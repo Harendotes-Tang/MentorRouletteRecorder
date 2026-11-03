@@ -1866,7 +1866,10 @@ void StatisticsOverlayTests::plusPillCountsCompletionsNotBaselineEdits()
     QCOMPARE(data->property("plus").toInt(), 1);
     // The full float shows it beside the first region's figure (review L3-2).
     QQuickItem *pill = nullptr;
-    QTRY_VERIFY((pill = scene.item(QStringLiteral("floatingProgressPlus"), true)) != nullptr);
+    QTRY_VERIFY([&] {
+        pill = scene.item(QStringLiteral("floatingProgressPlus"), true);
+        return pill != nullptr;
+    }());
     QCOMPARE(pill->property("count").toInt(), 1);
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }

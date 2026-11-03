@@ -471,7 +471,7 @@ void IpcRequestTests::exportRequestsReplaceOnlyAConfirmedTarget()
         backend.exportCsv(target, sampleFilter(), confirmed);
         backend.exportJson(target, sampleFilter(), confirmed);
         backend.exportDiagnosticsReport(target, confirmed);
-        for (const QString type : {QStringLiteral("ExportCsv"), QStringLiteral("ExportJson"),
+        for (const QString &type : {QStringLiteral("ExportCsv"), QStringLiteral("ExportJson"),
                                    QStringLiteral("ExportDiagnosticsReport")}) {
             const QJsonObject payload = backend.payloads.value(type);
             QCOMPARE(payload.value(QStringLiteral("target_path")).toString(), target);

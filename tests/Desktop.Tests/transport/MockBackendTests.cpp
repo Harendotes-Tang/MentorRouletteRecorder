@@ -413,7 +413,7 @@ private Q_SLOTS:
             const Answer page = ask(backend, QStringLiteral("QueryRuns"),
                                     {{QStringLiteral("filter"), filter}, {QStringLiteral("page_size"), 50}});
             QStringList ids;
-            for (const QJsonValue &item : page.payload.value(QStringLiteral("items")).toArray())
+            for (const auto &item : page.payload.value(QStringLiteral("items")).toArray())
                 ids.append(item.toObject().value(QStringLiteral("run_id")).toString());
             ids.sort();
             return ids;

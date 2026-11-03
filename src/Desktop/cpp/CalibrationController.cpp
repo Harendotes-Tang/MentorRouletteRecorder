@@ -96,10 +96,13 @@ void CalibrationController::refreshFromCaptureStatus(const QVariantMap &capture)
         // earlier day: a line not from today carries its date (「11-02 23:48」).
         const QDateTime at = parseUtc(event.value(QStringLiteral("at_utc")));
         const QDateTime local = at.isValid() ? at.toLocalTime() : QDateTime();
-        event.insert(QStringLiteral("time_text"),
-                     !local.isValid() ? QString()
-                     : local.date() == QDate::currentDate() ? local.toString(QStringLiteral("HH:mm"))
-                                                            : local.toString(QStringLiteral("MM-dd HH:mm")));
+        QString timeText;
+        if (local.isValid()) {
+            const QString format = local.date() == QDate::currentDate()
+                ? QStringLiteral("HH:mm") : QStringLiteral("MM-dd HH:mm");
+            timeText = local.toString(format);
+        }
+        event.insert(QStringLiteral("time_text"), timeText);
         events.append(event);
     }
     std::ranges::stable_sort(events, [](const QVariant &left, const QVariant &right) {

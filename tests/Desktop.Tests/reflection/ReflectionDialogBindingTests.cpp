@@ -224,9 +224,9 @@ private Q_SLOTS:
         }
         const QString screenshot = qEnvironmentVariable("MR_REFLECTION_CLIPBOARD_SCREENSHOT");
         if (!screenshot.isEmpty()) {
-            const QString suffix = standalone ? (askingResult ? QStringLiteral("-compact-result.png")
-                                                              : QStringLiteral("-compact-note.png"))
-                                              : QStringLiteral("-full-note.png");
+            QString suffix = QStringLiteral("-full-note.png");
+            if (standalone)
+                suffix = askingResult ? QStringLiteral("-compact-result.png") : QStringLiteral("-compact-note.png");
             QVERIFY(fixture.window()->grabWindow().save(screenshot
                 + (dark ? QStringLiteral("-dark") : QStringLiteral("-light")) + suffix));
         }

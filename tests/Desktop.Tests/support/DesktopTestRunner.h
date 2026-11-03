@@ -9,7 +9,10 @@
 #include <QtTest/QTest>
 
 // The entry function a suite's former main() becomes; the body stays as it was.
-#define MR_DESKTOP_TEST_SUITE(Name) int mrDesktopSuite_##Name(int argc, char **argv)
+// DesktopTestMain.cpp calls these entries across translation units; declare that linkage explicitly.
+#define MR_DESKTOP_TEST_SUITE(Name) \
+    extern int mrDesktopSuite_##Name(int argc, char **argv); \
+    int mrDesktopSuite_##Name(int argc, char **argv)
 
 // QTEST_MAIN / QTEST_GUILESS_MAIN as a suite entry, step for step. The application class is
 // named here because an area executable that links Qt Widgets would otherwise turn

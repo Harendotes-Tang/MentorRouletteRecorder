@@ -194,6 +194,49 @@ namespace {
 class HistoryBatchTests final : public QObject {
     Q_OBJECT
 private:
+    template <typename Reveal>
+    static void exerciseFilterConfirmationAndDelete(QQuickWindow *window, mr::AppController &app,
+                                                    QQuickItem *page, QQuickItem *mark, QQuickItem *pending,
+                                                    const Reveal &reveal, const QStringList &warnings)
+    {
+        const QString directory = qEnvironmentVariable("MR_HISTORY_UI_EVIDENCE_DIR", QDir::currentPath());
+        QVERIFY(QDir().mkpath(directory));
+        QTest::qWait(50);
+        QVERIFY(window->grabWindow().save(directory + QStringLiteral("/history-") + QString::fromLatin1(QTest::currentDataTag()) + QStringLiteral(".png")));
+        QVERIFY(reveal(mark));
+        clickItem(window, mark);
+        QTRY_VERIFY(pending->isVisible());
+        clickItem(window, pending);
+        QTRY_VERIFY(app.historyFilterConfirmationPending());
+        auto *keep = findVisual(window->contentItem(), QStringLiteral("historyKeepSelection"));
+        QTRY_VERIFY(keep && keep->isVisible());
+        QVERIFY(keep->hasActiveFocus());
+        QTest::keyClick(window, Qt::Key_Escape);
+        QTRY_VERIFY(!app.historyFilterConfirmationPending());
+        QCOMPARE(app.checkedHistoryRunCount(), 1);
+        QVERIFY(!app.historyFilter().value(QStringLiteral("pending_review")).toBool());
+        QVERIFY(reveal(mark));
+        clickItem(window, mark);
+        QTRY_VERIFY(pending->isVisible());
+        clickItem(window, pending);
+        QTRY_VERIFY(app.historyFilterConfirmationPending());
+        auto *accept = findVisual(window->contentItem(), QStringLiteral("historyConfirmFilter"));
+        QVERIFY(accept);
+        clickItem(window, accept);
+        QTRY_COMPARE(app.checkedHistoryRunCount(), 0);
+        QTRY_VERIFY(app.historyFilter().value(QStringLiteral("pending_review")).toBool());
+        app.resetHistoryFilter();
+        QTRY_VERIFY(!app.runs()->isLoading() && app.runs()->rowCount() > 0);
+        app.setHistoryRunChecked(app.runs()->runAt(0), true);
+        QVERIFY(QMetaObject::invokeMethod(page, "requestBatch", Q_ARG(QVariant, QStringLiteral("soft_delete"))));
+        auto *confirm = findVisual(window->contentItem(), QStringLiteral("historyConfirmBatch"));
+        QTRY_VERIFY(confirm && confirm->isVisible());
+        QVERIFY(window->grabWindow().save(directory + QStringLiteral("/history-confirm-") + QString::fromLatin1(QTest::currentDataTag()) + QStringLiteral(".png")));
+        clickItem(window, confirm);
+        QTRY_VERIFY(!app.historyBatchRunning() && app.checkedHistoryRunCount() == 0);
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join(QLatin1Char('\n'))));
+    }
+
     static void exerciseSelectionAndFilterConfirmation(QQuickWindow *window, mr::AppController &app, QQuickItem *page, QQuickItem *checkbox, QQuickItem *selectAll, QQuickItem *mark, QQuickItem *pending, const QStringList &warnings)
     {
         clickItem(window, checkbox);
@@ -243,42 +286,8 @@ private:
         QTRY_VERIFY(!app.runs()->isLoading());
         QCOMPARE(app.checkedHistoryRunCount(), 1);
         QVERIFY(reveal(jump));
-        const QString directory = qEnvironmentVariable("MR_HISTORY_UI_EVIDENCE_DIR", QDir::currentPath());
-        QVERIFY(QDir().mkpath(directory));
-        QTest::qWait(50);
-        QVERIFY(window->grabWindow().save(directory + QStringLiteral("/history-") + QString::fromLatin1(QTest::currentDataTag()) + QStringLiteral(".png")));
-        QVERIFY(reveal(mark));
-        clickItem(window, mark);
-        QTRY_VERIFY(pending->isVisible());
-        clickItem(window, pending);
-        QTRY_VERIFY(app.historyFilterConfirmationPending());
-        auto *keep = findVisual(window->contentItem(), QStringLiteral("historyKeepSelection"));
-        QTRY_VERIFY(keep && keep->isVisible());
-        QVERIFY(keep->hasActiveFocus());
-        QTest::keyClick(window, Qt::Key_Escape);
-        QTRY_VERIFY(!app.historyFilterConfirmationPending());
-        QCOMPARE(app.checkedHistoryRunCount(), 1);
-        QVERIFY(!app.historyFilter().value(QStringLiteral("pending_review")).toBool());
-        QVERIFY(reveal(mark));
-        clickItem(window, mark);
-        QTRY_VERIFY(pending->isVisible());
-        clickItem(window, pending);
-        QTRY_VERIFY(app.historyFilterConfirmationPending());
-        auto *accept = findVisual(window->contentItem(), QStringLiteral("historyConfirmFilter"));
-        QVERIFY(accept);
-        clickItem(window, accept);
-        QTRY_COMPARE(app.checkedHistoryRunCount(), 0);
-        QTRY_VERIFY(app.historyFilter().value(QStringLiteral("pending_review")).toBool());
-        app.resetHistoryFilter();
-        QTRY_VERIFY(!app.runs()->isLoading() && app.runs()->rowCount() > 0);
-        app.setHistoryRunChecked(app.runs()->runAt(0), true);
-        QVERIFY(QMetaObject::invokeMethod(page, "requestBatch", Q_ARG(QVariant, QStringLiteral("soft_delete"))));
-        auto *confirm = findVisual(window->contentItem(), QStringLiteral("historyConfirmBatch"));
-        QTRY_VERIFY(confirm && confirm->isVisible());
-        QVERIFY(window->grabWindow().save(directory + QStringLiteral("/history-confirm-") + QString::fromLatin1(QTest::currentDataTag()) + QStringLiteral(".png")));
-        clickItem(window, confirm);
-        QTRY_VERIFY(!app.historyBatchRunning() && app.checkedHistoryRunCount() == 0);
-        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join(QLatin1Char('\n'))));
+        exerciseFilterConfirmationAndDelete(window, app, page, mark, pending, reveal, warnings);
+        QVERIFY(!QTest::currentTestFailed());
     }
 
 private Q_SLOTS:

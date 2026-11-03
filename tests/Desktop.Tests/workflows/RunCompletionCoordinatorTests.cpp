@@ -57,6 +57,8 @@ QDateTime cutoff()
 }
 } // namespace
 
+namespace {
+
 class RunCompletionCoordinatorTests : public QObject
 {
     Q_OBJECT
@@ -78,6 +80,8 @@ private Q_SLOTS:
     void scopeResetDropsOldDeferredPrompt();
     void manualCompletionNeverOffersReflectionWork();
 };
+
+} // namespace
 
 void RunCompletionCoordinatorTests::manualCompletionNeverOffersReflectionWork()
 {
@@ -103,7 +107,7 @@ void RunCompletionCoordinatorTests::regionalSpeechReadKeepsTheSelectedDashboardF
     mr::RunCompletionCoordinator::DashboardDone regionalDone;
     QString requestedRegion;
     bool dashboardRefreshed = false;
-    hooks.requestDashboard = [&](mr::RunCompletionCoordinator::DashboardDone done) {
+    hooks.requestDashboard = [&](const mr::RunCompletionCoordinator::DashboardDone &done) {
         dashboardRefreshed = true;
         QVERIFY(!done); // Current-view data cannot authorize another region's spoken progress.
     };
