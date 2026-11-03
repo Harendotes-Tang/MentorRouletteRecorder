@@ -8963,6 +8963,18 @@ SHA256：%3</translation>
 <context>
     <name>ReflectionShareDialog</name>
     <message>
+        <source>排列顺序</source>
+        <translation>排列順序</translation>
+    </message>
+    <message>
+        <source>最新在前</source>
+        <translation>最新在前</translation>
+    </message>
+    <message>
+        <source>最早在前</source>
+        <translation>最早在前</translation>
+    </message>
+    <message>
         <source>显示游戏 ID</source>
         <translation>顯示遊戲 ID</translation>
     </message>
@@ -8987,8 +8999,8 @@ SHA256：%3</translation>
         <translation>產生分享圖片</translation>
     </message>
     <message>
-        <source>已选 %1 条。下方按选择顺序预览完整心得及副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。</source>
-        <translation>已選 %1 則。下方依選擇順序預覽完整心得及副本、職業等資訊。點選儲存後，圖片會儲存到你選擇的位置；如需分享，請自行傳送圖片。</translation>
+        <source>已选 %1 条。下方按所选排列顺序预览完整心得及副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。</source>
+        <translation>已選 %1 則。下方依所選排列順序預覽完整心得及副本、職業等資訊。點選儲存後，圖片會儲存到你選擇的位置；如需分享，請自行傳送圖片。</translation>
     </message>
     <message>
         <source>下方预览完整心得和副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。</source>
@@ -9084,6 +9096,22 @@ SHA256：%3</translation>
 <context>
     <name>ReflectionsPage</name>
     <message>
+        <source>心得日期范围</source>
+        <translation>心得日期範圍</translation>
+    </message>
+    <message>
+        <source>最早在前</source>
+        <translation>最早在前</translation>
+    </message>
+    <message>
+        <source>最新在前</source>
+        <translation>最新在前</translation>
+    </message>
+    <message>
+        <source>切换心得排列顺序</source>
+        <translation>切換心得排列順序</translation>
+    </message>
+    <message>
         <source>原站记录时间：%1</source>
         <translation>原網站記錄時間：%1</translation>
     </message>
@@ -9120,8 +9148,8 @@ SHA256：%3</translation>
         <translation>全選目前頁面的心得</translation>
     </message>
     <message>
-        <source>搜索副本 / 职业 / 备注 / 心得内容</source>
-        <translation>搜尋副本 / 職業 / 備註 / 心得內容</translation>
+        <source>搜索心得、副本、职业、备注</source>
+        <translation>搜尋心得、副本、職業、備註</translation>
     </message>
     <message>
         <source>全部职业</source>

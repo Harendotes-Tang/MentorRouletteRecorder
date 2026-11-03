@@ -8963,6 +8963,18 @@ SHA256：%3</translation>
 <context>
     <name>ReflectionShareDialog</name>
     <message>
+        <source>排列顺序</source>
+        <translation>並び順</translation>
+    </message>
+    <message>
+        <source>最新在前</source>
+        <translation>新しい順</translation>
+    </message>
+    <message>
+        <source>最早在前</source>
+        <translation>古い順</translation>
+    </message>
+    <message>
         <source>显示游戏 ID</source>
         <translation>ゲーム ID を表示</translation>
     </message>
@@ -8987,8 +8999,8 @@ SHA256：%3</translation>
         <translation>共有用画像を作成</translation>
     </message>
     <message>
-        <source>已选 %1 条。下方按选择顺序预览完整心得及副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。</source>
-        <translation>%1 件を選択中です。下に、選んだ順で感想の全文とコンテンツ・ジョブなどの情報をプレビューしています。保存を押すと、選んだ場所に画像を保存します。共有する場合は、ご自身で画像を送ってください。</translation>
+        <source>已选 %1 条。下方按所选排列顺序预览完整心得及副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。</source>
+        <translation>%1 件を選択中です。下に、上で選んだ並び順で感想の全文とコンテンツ・ジョブなどの情報をプレビューしています。保存を押すと、選んだ場所に画像を保存します。共有する場合は、ご自身で画像を送ってください。</translation>
     </message>
     <message>
         <source>下方预览完整心得和副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。</source>
@@ -9084,6 +9096,22 @@ SHA256：%3</translation>
 <context>
     <name>ReflectionsPage</name>
     <message>
+        <source>心得日期范围</source>
+        <translation>感想の日付範囲</translation>
+    </message>
+    <message>
+        <source>最早在前</source>
+        <translation>古い順</translation>
+    </message>
+    <message>
+        <source>最新在前</source>
+        <translation>新しい順</translation>
+    </message>
+    <message>
+        <source>切换心得排列顺序</source>
+        <translation>感想の並び順を切り替える</translation>
+    </message>
+    <message>
         <source>原站记录时间：%1</source>
         <translation>元サイトの記録時刻：%1</translation>
     </message>
@@ -9120,8 +9148,8 @@ SHA256：%3</translation>
         <translation>このページの感想をすべて選択</translation>
     </message>
     <message>
-        <source>搜索副本 / 职业 / 备注 / 心得内容</source>
-        <translation>コンテンツ・ジョブ・備考・メモ本文で検索</translation>
+        <source>搜索心得、副本、职业、备注</source>
+        <translation>感想・コンテンツ・ジョブ・備考で検索</translation>
     </message>
     <message>
         <source>全部职业</source>

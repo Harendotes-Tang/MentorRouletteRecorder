@@ -45,6 +45,11 @@ public:
     /// 只接受列表现有筛选字段，始终限定为未删除且有心得的记录。
     Q_INVOKABLE void setFilter(const QVariantMap &filter);
     Q_INVOKABLE void reload();
+    /// \a runs ordered by the same date the list sorts on (RunFilterSql's
+    /// history date: matched, entered or ended time, else the import's source
+    /// time or day). Stable: equal dates keep their order; undated records go
+    /// last either way. The share dialog lays its images out in this order.
+    Q_INVOKABLE QVariantList orderedByDate(const QVariantList &runs, bool ascending) const;
 Q_SIGNALS:
     void filterChanged();
     void activeChanged();

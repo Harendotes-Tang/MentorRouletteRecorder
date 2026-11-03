@@ -1378,6 +1378,8 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 | 近期心得卡片（最多 3 张） | `App.openHistoryForRun(run)`，同时把详情浮层切到「笔记」页签 |
 | 历史筛选「有笔记」 | `RunFilter.with_reflection` |
 | 「全部心得」搜索框 | `RunFilter.text` 与 `RunFilter.reflection_text` 同时发送同一段文字（`ReflectionLibraryController::setFilter`），副本名、职业名、记录备注与心得正文任一包含即列出；界面译名另经 `name_exact` 扩展，与历史页相同。搜索文字（去掉首尾空白）恰为界面语言中的某个心情标签（顺利 / 一般 / 糟心或其译名，不区分大小写）时，`reflection_text` 改为存储的中文心情词，`text` 仍为输入的文字（见 §4.5.3） |
+| 「全部心得」日期范围与排列顺序 | 工具栏在搜索框之后放历史页同款的日期范围控件（`reflectionDateRange`，`DateField` 范围模式，200 px，月历只列该列表自己的日历中有心得的日子），填写后以 `from_utc` / `to_utc` 加 `history_from_day` / `history_to_day`（`date_field = history_date`）发送，与历史页相同；开始晚于结束或鼠标范围未选完时不发送日期。页头「刷新」左侧的「最新在前 / 最早在前」按钮（`reflectionSortOrder`）调用 `runs.sortBy("history_date")` 只翻转方向，列表始终按记录日期排序；换方向不清空勾选 |
+| 分享图片的排列顺序 | `ReflectionShareDialog` 批量时在「输出方式」前有「排列顺序」下拉（`reflectionImageOrder`，最新在前 / 最早在前），打开时取「全部心得」当前的排序方向，改选即按记录日期重排预览，逐条 PNG 的编号与合成长图都按此顺序（`ReflectionLibraryController::orderedByDate`：日期同采集服务的 history_date，相同日期保持原顺序，没有日期的记录排最后） |
 | 详情浮层「笔记」页签 | `run.reflection`；有则 心情 tag + 时间 + 正文 +「编辑笔记」，正文非空时另有「生成分享图片」；无则空状态框 +「补录笔记」 |
 | `dialogs/ReflectionDialog.qml` | `App.saveReflection(runId, mood, text)`；`App.reflectionSaved` 关闭，`App.reflectionFailed` 在对话框内红字显示 |
 | 通关后自动提醒 | `App.reflectionPromptRequested(run)` → `Main.qml` 的 `offerReminder(run, "reflection")`：按提醒方式（§4.5.2）在紧凑弹窗中 `openForPrompt(run, "刚刚完成")`，或只记入待处理；弹窗正忙时请求留在队列中，弹窗关闭后再弹出（`reflectionPromptShown` / `reflectionPromptClosed`），期间关闭「通关后提醒记笔记」则清空队列；已在结果问句中弹出过的记录不再单独提示 |

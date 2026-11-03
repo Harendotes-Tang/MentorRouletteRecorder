@@ -21,12 +21,45 @@ ColumnLayout {
     // back through filterChanged, trimmed, and mirroring it would delete the space
     // the player just typed (review K1-4; HistoryPage does the same).
     property bool applying: false
+    // True while syncFilters mirrors the applied filter into the date fields:
+    // their change handlers must not schedule another request for it.
+    property bool syncing: false
+
+    /// The UTC instant that starts (or, with \a endOfDay, ends) the local day
+    /// \a dateText names, as the history page computes it; null when blank or
+    /// not a real date.
+    function toUtcRange(dateText, endOfDay) {
+        if (!dateText || dateText.length === 0) return null
+        const date = dateRange.parse(dateText)
+        if (date === null) return null
+        return new Date(date.getFullYear(), date.getMonth(), date.getDate(),
+                        endOfDay ? 23 : 0, endOfDay ? 59 : 0,
+                        endOfDay ? 59 : 0, endOfDay ? 999 : 0).toISOString()
+    }
+    function scheduleDateFilter() {
+        if (page.syncing) return
+        if (page.runs) {
+            page.runs.ensureCalendarDay(dateRange.startText.trim())
+            page.runs.ensureCalendarDay(dateRange.endText.trim())
+        }
+        debounce.restart()
+    }
 
     function applyFilter() {
         if (!controller) return
         // Keep note words as typed and add the recorded names the text names.
         const text = search.text.trim()
         const filter = { text: text }
+        // 日期范围: both bounds go out as UTC instants plus the typed local days
+        // (imported records may only have a day). A half-picked mouse range and
+        // an inverted range (开始 after 结束, which the Collector refuses) send
+        // no dates at all.
+        const fromDay = dateRange.startText.trim(), toDay = dateRange.endText.trim()
+        const from = page.toUtcRange(fromDay, false), to = page.toUtcRange(toDay, true)
+        if (!dateRange.selectionPending && !(from && to && from > to)) {
+            if (from) { filter.from_utc = from; filter.history_from_day = fromDay }
+            if (to) { filter.to_utc = to; filter.history_to_day = toDay }
+        }
         // The names come from the language the text was typed in: while it is
         // unchanged, the applied filter's names stand, so a language switch alone
         // never turns the same search into another filter (review K3-4).
@@ -77,6 +110,11 @@ ColumnLayout {
     function syncFilters() {
         if (!controller || page.applying) return
         search.text = controller.filter.text || ""
+        page.syncing = true
+        dateRange.selectionPending = false
+        dateRange.startText = controller.filter.history_from_day || ""
+        dateRange.endText = controller.filter.history_to_day || ""
+        page.syncing = false
         const jobs = controller.filter.job_id || []
         job.currentIndex = 0
         for (let i = 1; i < job.model.length; ++i)
@@ -98,14 +136,25 @@ ColumnLayout {
                   : page.runs.loadError.length > 0 ? qsTr("读取失败")
                   : page.runs.loading ? qsTr("正在读取…")
                   : qsTr("%1 条心得 · 第 %2 / %3 页").arg(page.runs.total).arg(page.runs.page).arg(page.runs.pageCount)
+        // Newest or oldest first. The list is always sorted by its date, so a
+        // click only turns the direction; the share dialog starts from it too.
+        AppButton {
+            id: sortOrder
+            objectName: "reflectionSortOrder"
+            text: !!page.runs && page.runs.sortAscending ? qsTr("最早在前") : qsTr("最新在前")
+            iconName: "clock"
+            enabled: !!page.runs && !page.runs.loading
+            Accessible.name: qsTr("切换心得排列顺序")
+            onClicked: if (page.runs) page.runs.sortBy("history_date")
+        }
         AppButton { text: qsTr("刷新"); enabled: !!page.runs && !page.runs.loading; onClicked: page.controller.reload() }
     }
 
     Flow {
         id: toolbar
         objectName: "reflectionToolbar"
-        readonly property real fixedWidth: job.width + category.width + clearFilter.implicitWidth
-            + selectPage.implicitWidth + clearSelection.implicitWidth + shareSelected.implicitWidth + spacing * 6
+        readonly property real fixedWidth: dateRange.width + job.width + category.width + clearFilter.implicitWidth
+            + selectPage.implicitWidth + clearSelection.implicitWidth + shareSelected.implicitWidth + spacing * 7
         readonly property real flexibleWidth: width - fixedWidth
         Layout.fillWidth: true
         spacing: 8
@@ -123,10 +172,44 @@ ColumnLayout {
         StyledTextField {
             id: search
             objectName: "reflectionSearchField"
+            // Beside the date range the 1280 px default window leaves this about
+            // 190 px on one row; the placeholder is short enough to read whole there.
             width: Math.min(toolbar.width, Math.max(150, Math.min(300, toolbar.flexibleWidth)))
-            placeholderText: qsTr("搜索副本 / 职业 / 备注 / 心得内容")
+            placeholderText: qsTr("搜索心得、副本、职业、备注")
             onTextEdited: debounce.restart()
             onAccepted: { debounce.stop(); page.applyFilter() }
+        }
+        // The history page's range picker over this list's own calendar: the
+        // month grid offers only days that have a reflection under the other
+        // filters (RunListModel::setCalendarFilter drops the dates themselves).
+        DateField {
+            id: dateRange
+            objectName: "reflectionDateRange"
+            // Narrower than the history page's 238: with it the toolbar still
+            // fits one row at the 1100 px minimum window (ReflectionLibraryTests).
+            width: 200
+            rangeMode: true
+            restrictToRecords: true
+            availableDays: page.runs ? page.runs.calendarAvailableDays : []
+            knownMonths: page.runs ? page.runs.calendarKnownMonths : []
+            availabilityLoading: !!page.runs && page.runs.calendarLoading
+            availabilityError: page.runs
+                ? Theme.live(page.runs.calendarError || page.runs.calendarDayError(startText.trim())
+                             || page.runs.calendarDayError(endText.trim()))
+                : ""
+            onCalendarRequested: function(month) {
+                if (!page.runs) return
+                for (const date of [startText.trim(), endText.trim()]) {
+                    if (page.runs.calendarDayError(date).length > 0)
+                        page.runs.requestCalendarDays(date.slice(0, 7))
+                }
+                page.runs.requestCalendarDays(month)
+            }
+            onEndpointRequested: function(date) { if (page.runs) page.runs.ensureCalendarDay(date) }
+            Accessible.name: qsTr("心得日期范围")
+            onStartTextChanged: page.scheduleDateFilter()
+            onEndTextChanged: page.scheduleDateFilter()
+            onSelectionPendingChanged: page.scheduleDateFilter()
         }
         StyledComboBox {
             id: job
@@ -151,7 +234,18 @@ ColumnLayout {
             id: clearFilter
             text: qsTr("清除筛选")
             iconName: "filter-x"
-            onClicked: { debounce.stop(); search.text = ""; job.currentIndex = 0; category.currentIndex = 0; page.applyFilter() }
+            onClicked: {
+                debounce.stop()
+                search.text = ""
+                page.syncing = true
+                dateRange.selectionPending = false
+                dateRange.startText = ""
+                dateRange.endText = ""
+                page.syncing = false
+                job.currentIndex = 0
+                category.currentIndex = 0
+                page.applyFilter()
+            }
         }
         AppButton {
             id: clearSelection

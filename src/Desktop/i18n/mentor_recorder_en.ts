@@ -8963,6 +8963,18 @@ Recorder</translation>
 <context>
     <name>ReflectionShareDialog</name>
     <message>
+        <source>排列顺序</source>
+        <translation>Order</translation>
+    </message>
+    <message>
+        <source>最新在前</source>
+        <translation>Newest first</translation>
+    </message>
+    <message>
+        <source>最早在前</source>
+        <translation>Oldest first</translation>
+    </message>
+    <message>
         <source>显示游戏 ID</source>
         <translation>Show game ID</translation>
     </message>
@@ -8987,8 +8999,8 @@ Recorder</translation>
         <translation>Create share image</translation>
     </message>
     <message>
-        <source>已选 %1 条。下方按选择顺序预览完整心得及副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。</source>
-        <translation>%1 selected. Below is a preview of the full notes with duty, job and other details, in the order you selected them. When you click Save, the images are saved where you choose; to share them, send the images yourself.</translation>
+        <source>已选 %1 条。下方按所选排列顺序预览完整心得及副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。</source>
+        <translation>%1 selected. Below is a preview of the full notes with duty, job and other details, in the order chosen above. When you click Save, the images are saved where you choose; to share them, send the images yourself.</translation>
     </message>
     <message>
         <source>下方预览完整心得和副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。</source>
@@ -9084,6 +9096,22 @@ Recorder</translation>
 <context>
     <name>ReflectionsPage</name>
     <message>
+        <source>心得日期范围</source>
+        <translation>Note date range</translation>
+    </message>
+    <message>
+        <source>最早在前</source>
+        <translation>Oldest first</translation>
+    </message>
+    <message>
+        <source>最新在前</source>
+        <translation>Newest first</translation>
+    </message>
+    <message>
+        <source>切换心得排列顺序</source>
+        <translation>Switch the order of the notes</translation>
+    </message>
+    <message>
         <source>原站记录时间：%1</source>
         <translation>Source timestamp: %1</translation>
     </message>
@@ -9120,8 +9148,8 @@ Recorder</translation>
         <translation>Select all notes on this page</translation>
     </message>
     <message>
-        <source>搜索副本 / 职业 / 备注 / 心得内容</source>
-        <translation>Search duty / job / remarks / note text</translation>
+        <source>搜索心得、副本、职业、备注</source>
+        <translation>Search notes, duties, jobs, remarks</translation>
     </message>
     <message>
         <source>全部职业</source>

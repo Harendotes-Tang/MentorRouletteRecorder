@@ -1,8 +1,40 @@
 #include "ReflectionLibraryController.h"
 #include "IBackend.h"
 
+#include <QDate>
+#include <QDateTime>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QTimeZone>
+
+#include <algorithm>
+#include <utility>
+
+namespace {
+/// The instant RunFilterSql.HistoryDateExpression orders by, or an invalid
+/// QDateTime for a record that has none (MockBackendStats::fieldForSort agrees).
+QDateTime historyInstant(const QVariantMap &run)
+{
+    for (const QString &key : {QStringLiteral("matched_at_utc"), QStringLiteral("entered_at_utc"),
+                               QStringLiteral("ended_at_utc")}) {
+        const QDateTime value = QDateTime::fromString(run.value(key).toString(), Qt::ISODateWithMs);
+        if (value.isValid())
+            return value;
+    }
+    const QVariantMap source = run.value(QStringLiteral("import_metadata")).toMap();
+    const QDateTime recorded =
+        QDateTime::fromString(source.value(QStringLiteral("source_recorded_at_utc")).toString(), Qt::ISODateWithMs);
+    if (recorded.isValid())
+        return recorded;
+    const QString raw = source.value(QStringLiteral("source_recorded_at")).toString().trimmed();
+    QDate day = QDate::fromString(raw, QStringLiteral("yyyy-MM-dd"));
+    if (!day.isValid())
+        day = QDate::fromString(raw, QStringLiteral("yyyy/M/d"));
+    if (!day.isValid())
+        day = QDate::fromString(raw, QStringLiteral("yyyy.M.d"));
+    return day.isValid() ? day.startOfDay(QTimeZone::UTC) : QDateTime();
+}
+} // namespace
 
 namespace mr {
 ReflectionLibraryController::ReflectionLibraryController(IBackend *backend, QObject *parent)
@@ -71,6 +103,20 @@ void ReflectionLibraryController::setFilter(const QVariantMap &filter)
         if (!values.isEmpty())
             next.insert(key, values);
     }
+    // 日期范围 as the history page sends it: UTC bounds plus the local calendar
+    // days, so an imported record that only has a source day is kept by its day
+    // (RunFilter.history_from_day / history_to_day). Blank endpoints are open.
+    bool dated = false;
+    for (const QString &key : {QStringLiteral("from_utc"), QStringLiteral("to_utc"),
+                               QStringLiteral("history_from_day"), QStringLiteral("history_to_day")}) {
+        const QString value = filter.value(key).toString().trimmed();
+        if (value.isEmpty())
+            continue;
+        next.insert(key, value);
+        dated = true;
+    }
+    if (dated)
+        next.insert(QStringLiteral("date_field"), QStringLiteral("history_date"));
     if (m_filter == next && !m_dirty)
         return;
     if (m_filter != next && selectedCount() > 0) {
@@ -87,6 +133,25 @@ void ReflectionLibraryController::applyFilter(const QVariantMap &next)
     Q_EMIT filterChanged();
     m_dirty = false;
     m_runs->setFilter(next);
+}
+
+QVariantList ReflectionLibraryController::orderedByDate(const QVariantList &runs, bool ascending) const
+{
+    QList<std::pair<QDateTime, QVariant>> keyed;
+    keyed.reserve(runs.size());
+    for (const QVariant &run : runs)
+        keyed.append({historyInstant(run.toMap()), run});
+    std::stable_sort(keyed.begin(), keyed.end(), [ascending](const auto &a, const auto &b) {
+        // An undated record sorts after every dated one in both directions.
+        if (!a.first.isValid() || !b.first.isValid())
+            return a.first.isValid() && !b.first.isValid();
+        return ascending ? a.first < b.first : a.first > b.first;
+    });
+    QVariantList result;
+    result.reserve(keyed.size());
+    for (const auto &entry : keyed)
+        result.append(entry.second);
+    return result;
 }
 
 QVariantList ReflectionLibraryController::selectedRuns() const

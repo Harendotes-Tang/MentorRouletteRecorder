@@ -42,8 +42,12 @@ Dialog {
             valid.push(run)
         }
         if (valid.length === 0) return
-        runsData = valid
-        runData = valid[0]
+        // Start from the library's own order; the player can turn it here so a
+        // long image for friends reads oldest first without a reminder.
+        const library = typeof Runtime.reflections !== "undefined" ? Runtime.reflections : null
+        orderMode.currentIndex = library && library.runs && library.runs.sortAscending ? 1 : 0
+        runsData = ordered(valid)
+        runData = runsData[0]
         outputMode.currentIndex = 0
         attribution.checked = true
         identityOption.checked = true
@@ -51,6 +55,16 @@ Dialog {
         exportDate = Qt.formatDate(new Date(), "yyyy.MM.dd")
         if (controller) controller.resetFeedback()
         open()
+    }
+    /// \a runs in the order the 排列顺序 choice names, by the records' dates.
+    function ordered(runs) {
+        const library = typeof Runtime.reflections !== "undefined" ? Runtime.reflections : null
+        return library && runs.length > 1 ? library.orderedByDate(runs, orderMode.currentIndex === 1) : runs
+    }
+    function reorder() {
+        runsData = ordered(runsData)
+        runData = runsData[0]
+        if (controller) controller.resetFeedback()
     }
     function captureEntries() {
         const entries = []
@@ -103,7 +117,7 @@ Dialog {
         }
         Text {
             Layout.fillWidth: true
-            text: dialog.batch ? qsTr("已选 %1 条。下方按选择顺序预览完整心得及副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。").arg(dialog.runsData.length)
+            text: dialog.batch ? qsTr("已选 %1 条。下方按所选排列顺序预览完整心得及副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。").arg(dialog.runsData.length)
                               : qsTr("下方预览完整心得和副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。")
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)
@@ -113,6 +127,16 @@ Dialog {
             Layout.fillWidth: true
             visible: dialog.batch
             spacing: 8
+            // Before 输出方式 so Tab from the output mode still lands on 显示游戏 ID.
+            Text { text: qsTr("排列顺序"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
+            StyledComboBox {
+                id: orderMode
+                objectName: "reflectionImageOrder"
+                Layout.preferredWidth: 120
+                model: [qsTr("最新在前"), qsTr("最早在前")]
+                enabled: !dialog.busy
+                onActivated: dialog.reorder()
+            }
             Text { text: qsTr("输出方式"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
             StyledComboBox {
                 id: outputMode

@@ -295,6 +295,57 @@ private Q_SLOTS:
         QTRY_VERIFY(!history.isLoading());
         QCOMPARE(backend.queries.last().value(QStringLiteral("filter")).toObject().value(QStringLiteral("text")).toString(), QStringLiteral("历史筛选"));
     }
+    void dateRangeFilterAndDateOrdering() {
+        QueryBackend backend;
+        mr::ReflectionLibraryController library(&backend);
+        library.setActive(true);
+        QTRY_VERIFY(!library.runs()->isLoading());
+        // Both UTC bounds and the typed local days go out; a blank endpoint is open.
+        library.setFilter({{QStringLiteral("from_utc"), QStringLiteral("2026-08-31T16:00:00.000Z")},
+                           {QStringLiteral("history_from_day"), QStringLiteral(" 2026-09-01 ")},
+                           {QStringLiteral("to_utc"), QStringLiteral("   ")},
+                           {QStringLiteral("history_to_day"), QString()}});
+        QTRY_VERIFY(!library.runs()->isLoading());
+        const auto dated = backend.queries.last().value(QStringLiteral("filter")).toObject();
+        QCOMPARE(dated.value(QStringLiteral("from_utc")).toString(), QStringLiteral("2026-08-31T16:00:00.000Z"));
+        QCOMPARE(dated.value(QStringLiteral("history_from_day")).toString(), QStringLiteral("2026-09-01"));
+        QCOMPARE(dated.value(QStringLiteral("date_field")).toString(), QStringLiteral("history_date"));
+        QVERIFY(!dated.contains(QStringLiteral("to_utc")));
+        QVERIFY(!dated.contains(QStringLiteral("history_to_day")));
+        QVERIFY(dated.value(QStringLiteral("with_reflection")).toBool());
+        library.setFilter({});
+        QTRY_VERIFY(!library.runs()->isLoading());
+        const auto cleared = backend.queries.last().value(QStringLiteral("filter")).toObject();
+        QVERIFY(!cleared.contains(QStringLiteral("from_utc")));
+        QVERIFY(!cleared.contains(QStringLiteral("date_field")));
+
+        // Ordering follows the history date; equal dates keep their order and
+        // undated records come last in both directions.
+        const QVariantMap matched{{QStringLiteral("run_id"), QStringLiteral("matched")},
+                                  {QStringLiteral("matched_at_utc"), QStringLiteral("2026-09-02T10:00:00.000Z")}};
+        const QVariantMap entered{{QStringLiteral("run_id"), QStringLiteral("entered")},
+                                  {QStringLiteral("entered_at_utc"), QStringLiteral("2026-09-01T10:00:00Z")}};
+        const QVariantMap sourceDay{{QStringLiteral("run_id"), QStringLiteral("source-day")},
+                                    {QStringLiteral("import_metadata"),
+                                     QVariantMap{{QStringLiteral("source_recorded_at"), QStringLiteral("2026/9/3")}}}};
+        const QVariantMap sourceTime{{QStringLiteral("run_id"), QStringLiteral("source-time")},
+                                     {QStringLiteral("import_metadata"),
+                                      QVariantMap{{QStringLiteral("source_recorded_at_utc"), QStringLiteral("2026-09-01T10:00:00.000Z")}}}};
+        const QVariantMap undated{{QStringLiteral("run_id"), QStringLiteral("undated")}};
+        const auto ids = [](const QVariantList &runs) {
+            QStringList result;
+            for (const QVariant &run : runs) result.append(run.toMap().value(QStringLiteral("run_id")).toString());
+            return result;
+        };
+        const QVariantList given{undated, matched, entered, sourceDay, sourceTime};
+        QCOMPARE(ids(library.orderedByDate(given, true)),
+                 (QStringList{QStringLiteral("entered"), QStringLiteral("source-time"), QStringLiteral("matched"),
+                              QStringLiteral("source-day"), QStringLiteral("undated")}));
+        QCOMPARE(ids(library.orderedByDate(given, false)),
+                 (QStringList{QStringLiteral("source-day"), QStringLiteral("matched"), QStringLiteral("entered"),
+                              QStringLiteral("source-time"), QStringLiteral("undated")}));
+        QCOMPARE(ids(library.orderedByDate({}, true)), QStringList{});
+    }
     void failureIsNotAnEmptyResultAndRetryWorks() {
         QueryBackend backend;
         backend.reject = true;
