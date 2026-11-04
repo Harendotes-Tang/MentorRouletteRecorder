@@ -51,7 +51,7 @@ public sealed class MachinaCaptureSource : ICaptureSource
     /// Trace fragments from Machina's bundle decoder that mean a bundle could not be
     /// decompressed.
     ///
-    /// These are Machina's own internal debug strings, matched as text because Machina 2.4.7.7
+    /// These are Machina's own internal debug strings, matched as text because Machina 2.4.8.2
     /// reports a decompression failure by writing a trace line and returning null -- it never
     /// raises the message, so <c>OnMessage</c> can never count it. Depending on another
     /// project's debug wording is guarded rather than hoped for:
@@ -567,7 +567,7 @@ public sealed class MachinaCaptureSource : ICaptureSource
             FatalTraceMarkers, marker => sanitized.Contains(marker, StringComparison.OrdinalIgnoreCase)) ||
             Array.TrueForAll(MissingExecutableTraceMarkers,
                 marker => sanitized.Contains(marker, StringComparison.OrdinalIgnoreCase));
-        // Bundle decompression fails upstream of MessageReceived/MessageSent. Machina 2.4.7.7
+        // Bundle decompression fails upstream of MessageReceived/MessageSent. Machina 2.4.8.2
         // only emits a trace and returns null, so OnMessage cannot count those failures.
         // Do not count the following "Resetting stream" line a second time.
         var decodeError = false;

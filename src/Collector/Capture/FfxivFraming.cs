@@ -31,7 +31,7 @@ public readonly record struct FfxivFrame(
 /// knowledge about any particular message; see docs/protocol-profile-format.md for what does
 /// require evidence.
 ///
-/// Layout, matching <c>Server_MessageHeader</c> in Machina.FFXIV 2.4.7.7 field for field
+/// Layout, matching <c>Server_MessageHeader</c> in Machina.FFXIV 2.4.8.2 field for field
 /// (MessageLength, ActorID, LoginUserID, Unknown1, Unknown2, MessageType, Unknown3, Seconds,
 /// Unknown4 -- 32 bytes total, little-endian):
 ///

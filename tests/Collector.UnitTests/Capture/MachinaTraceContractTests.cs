@@ -7,7 +7,7 @@ namespace MentorRecorder.Collector.UnitTests;
 /// <summary>
 /// The version gate under <see cref="MachinaCaptureSource.DecodeFailureTraceMarkers"/>.
 ///
-/// Machina 2.4.7.7 reports a bundle decompression failure by writing an English debug line to
+/// Machina 2.4.8.2 reports a bundle decompression failure by writing an English debug line to
 /// <see cref="System.Diagnostics.Trace"/> and returning null. It never raises the message, so
 /// nothing downstream can count the failure and <c>decode_error_count</c> is derived from the
 /// text of those lines. An upgrade that rewords one string must fail here; otherwise the
@@ -21,7 +21,7 @@ namespace MentorRecorder.Collector.UnitTests;
 public sealed class MachinaTraceContractTests
 {
     /// <summary>The exact Machina.FFXIV release the trace markers were read from.</summary>
-    public const string PinnedVersion = "2.4.7.7";
+    public const string PinnedVersion = "2.4.8.2";
 
     [Fact]
     public void TheReferencedMachinaPackageIsStillTheOneTheMarkersWereReadFrom()

@@ -31,7 +31,7 @@ public sealed record OodleTempManifestReading(int Present, long Bytes, int Missi
 /// exit kills this process outright, so a finally-block deletion never runs
 /// (review finding H-2).
 ///
-/// Registration sees every copy Machina makes. Machina 2.4.7.7 stores the copy's path in
+/// Registration sees every copy Machina makes. Machina 2.4.8.2 stores the copy's path in
 /// <c>_libraryTempPath</c> before it copies the file, publishes the native instance before
 /// initializing it, and writes a trace line on the initializing thread before any failure path
 /// clears the path again; <see cref="TrackInitialization"/> reads the path on each of those lines.

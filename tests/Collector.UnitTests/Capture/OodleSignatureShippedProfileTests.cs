@@ -98,7 +98,7 @@ public sealed class OodleSignatureShippedProfileTests
     [Fact]
     public void MachinaDecodeFailureTraceContractIsPinnedToTheReferencedPackage()
     {
-        // decode_error_count is derived from Machina's own debug trace text: 2.4.7.7 reports a
+        // decode_error_count is derived from Machina's own debug trace text: 2.4.8.2 reports a
         // failed bundle decompression by writing a line and returning null rather than by
         // raising the message. A reworded string would leave the counter at 0 for ever with
         // every test still green, and docs/live-validation-guide.md section 3.5.3 treats "zero

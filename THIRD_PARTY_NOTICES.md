@@ -15,7 +15,7 @@
 
 ### Machina / Machina.FFXIV
 
-- 版本：`Machina.FFXIV` 2.4.7.7、`Machina` 2.3.1.3
+- 版本：`Machina.FFXIV` 2.4.8.2、`Machina` 2.3.1.3
 - 作者：Ravahn
 - 许可证：**GNU General Public License v3.0**
 - 来源：https://github.com/ravahn/machina

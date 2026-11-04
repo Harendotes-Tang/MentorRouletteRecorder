@@ -115,7 +115,7 @@ Machina.FFXIV 包中附带的原生注入载荷 `deucalion-*.dll` 从所有构�
 
 | 包 | 版本 | 许可证 |
 |---|---|---|
-| `Machina.FFXIV` | 2.4.7.7 | GPL-3.0 |
+| `Machina.FFXIV` | 2.4.8.2 | GPL-3.0 |
 | `Machina`（传递依赖） | 2.3.1.3 | GPL-3.0 |
 | `Microsoft.Data.Sqlite` | 8.0.11 | MIT |
 | `SQLitePCLRaw.bundle_e_sqlite3`（直接固定，替换 `Microsoft.Data.Sqlite` 自带的原生 SQLite；其余 `SQLitePCLRaw.*` 为传递依赖） | 2.1.14 | Apache-2.0；SQLite 本体为 public domain |

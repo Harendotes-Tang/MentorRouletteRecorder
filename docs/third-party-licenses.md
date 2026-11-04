@@ -43,7 +43,7 @@ Apache-2.0；原始许可全文和适用条件一并保留。
 | 项 | 值 |
 |---|---|
 | NuGet 包 id | `Machina.FFXIV` |
-| 最新稳定版（调查时） | **2.4.7.7** |
+| 当前固定版本 | **2.4.8.2** |
 | 作者 | Ravahn |
 | 许可证 | **GPL-3.0**（nuspec 为 `<license type="file">LICENSE.md`；该 LICENSE.md 即 GNU GPL v3 全文，673 行） |
 | 项目地址 | https://github.com/ravahn/machina |
@@ -97,8 +97,8 @@ SharpPcap 与 PacketDotNet 均不修改上游源码，表中前两个仓库链�
 ### 2.2 Deucalion（注入式钩子）：本项目禁用
 
 较新版本的 Machina.FFXIV 支持 **Deucalion**，即一个注入到游戏进程的 DLL 钩子。
-`Machina.FFXIV 2.4.7.7` 包的 `lib/netstandard2.0/` 目录中附带原生载荷
-**`deucalion-1.5.0.dll`**，该文件在还原后的包目录中可以确认，
+`Machina.FFXIV 2.4.8.2` 包的 `lib/netstandard2.0/` 目录中附带原生载荷
+**`deucalion-1.5.1.dll`**，该文件在还原后的包目录中可以确认，
 且默认构建会将其复制到输出目录。
 
 上游的 `Machina.FFXIV/Deucalion/DeucalionClient.cs` 仅通过命名管道 `deucalion-<pid>`
@@ -274,7 +274,7 @@ ISC 与 MIT 的条件均只有一条：在所有副本中保留版权声明与�
 
 | 包 | 版本 | 许可证 | 说明 |
 |---|---|---|---|
-| `Machina.FFXIV` | 2.4.7.7 | **GPL-3.0** | 直接依赖 |
+| `Machina.FFXIV` | 2.4.8.2 | **GPL-3.0** | 直接依赖 |
 | `Machina` | 2.3.1.3 | **GPL-3.0** | 传递依赖 |
 | `Microsoft.Data.Sqlite` | 8.0.11 | MIT | 直接依赖 |
 | `Microsoft.Data.Sqlite.Core` | 8.0.11 | MIT | 传递依赖 |

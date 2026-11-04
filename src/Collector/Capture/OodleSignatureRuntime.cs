@@ -153,7 +153,7 @@ public sealed class OodleSignatureScan : ISigScan
 }
 
 /// <summary>
-/// Scoped installation of one exact-match signature profile into Machina 2.4.7.7.
+/// Scoped installation of one exact-match signature profile into Machina 2.4.8.2.
 ///
 /// <see cref="OodleFactory"/> stores the native implementation in private static state and
 /// returns early whenever that object is already an <see cref="OodleNative_Ffxiv"/>. The
@@ -165,7 +165,7 @@ public sealed class OodleSignatureScan : ISigScan
 public sealed class OodleSignatureRuntime : IDisposable
 {
     /// <summary>Exact Machina build whose private factory layout this code supports.</summary>
-    public const string SupportedMachinaVersion = "2.4.7.7";
+    public const string SupportedMachinaVersion = "2.4.8.2";
 
     private readonly string _gameExecutablePath;
     private readonly OodleImplementation _implementation;
