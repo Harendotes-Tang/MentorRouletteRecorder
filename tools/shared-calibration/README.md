@@ -287,7 +287,7 @@ python tools/publish.py evidence compact --repo . --apply  # 写回 evidence-led
 - 脚本的全部语句写在函数内，最后一行以 `exit` 结尾，因为 `git reset --hard` 可能在运行中替换脚本文件本身。
 - 每个 `uses:` 都按提交号固定，版本写在行尾注释里；标签可以被改指向别的提交，而这里的任务持有可写本仓库的令牌。
   所用 Action 与主仓库 CI 取自同一组提交号（`test_public_repo_files.py` 比对 `.github/workflows/ci.yml` 中的 `uses:`），
-  目前为 `actions/checkout`（v7.0.1，按提交号固定）与 `actions/setup-python`（v7.0.0，按提交号固定）。
+  目前为 `actions/checkout`（v7.0.1，按提交号固定）与 `actions/setup-python`（v7.1.0，按提交号固定）。
 
 **定时补处理（`sweep`）的原因。** GitHub 的并发组中**只保留一个排队中的任务**，较新的排队任务会取消较早的任务
 （`cancel-in-progress: false` 只保护正在运行的任务）。补丁日大量玩家同时分享时，部分 Issue 的任务会在开始前被取消。
