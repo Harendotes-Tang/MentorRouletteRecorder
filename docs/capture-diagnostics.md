@@ -313,6 +313,7 @@ IPv6 只做路径诊断，暂不读取负载；专有代理前导或不可见的
 | `monitor_type` | 恒为 `WinPCap` | `WinPCap` |
 | `injected_hook_enabled` | 恒为 `false` | `false` |
 | `last_error_code` | 最近一次错误码，抓包链路完全不可用时为 `UNAVAILABLE` | `null` |
+| `last_error_text` / `last_error_ref` | 错误码背后那句写给玩家的话（与报告的 `last_error_detail` 同样脱敏）及其目录引用（契约 2026-11-04）；错误码为 `null`、或 `UNAVAILABLE` 而没有具体拒绝时为 `null`，旧版本不发送 | `null` |
 | `connection_count` | 本会话观察到的不同游戏连接数 | ≥ 1 |
 | `messages_decoded` | 分帧读取成功的报文数 | 持续增长 |
 | `decode_errors` | 分帧读取失败的报文数 | 保持 0 或增长极慢 |

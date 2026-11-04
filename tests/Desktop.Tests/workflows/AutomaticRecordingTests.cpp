@@ -751,6 +751,54 @@ private slots:
         // The raw token may only trail the sentence, never replace the explanation.
         QVERIFY(c.message().indexOf(QStringLiteral("ERR_SOMETHING_NEW")) > 10);
     }
+    // The 2026-11-03 report: a code this build has no wording for, with the
+    // Collector's own sentence beside it (last_error_text / last_error_ref,
+    // contracts/CHANGELOG.md 2026-11-04). The sentence is the whole explanation,
+    // in the interface language; no generic line, no token.
+    void anUnknownCaptureErrorReadsTheCollectorsOwnSentence() {
+        const QVariantMap ref = mrtest::textRef("capture.start.adapter_undetermined");
+        RecordingBackend b; b.capture["last_error_code"] = "ERR_BAD_REQUEST";
+        b.capture["last_error_text"] = mr::collector_text::chinese(ref);
+        b.capture["last_error_ref"] = QJsonObject::fromVariantMap(ref);
+        mr::AutomaticRecordingController c(&b); c.refresh();
+        QVERIFY(c.blocked());
+        QCOMPARE(c.message(), QString::fromUtf8("暂时不能自动记录。%1 请查看「捕获诊断」。")
+                                  .arg(mr::collector_text::render(ref, QString())));
+        QVERIFY(!c.message().contains(QStringLiteral("ERR_BAD_REQUEST")));
+        QVERIFY(!c.message().contains(QString::fromUtf8("无法识别")));
+    }
+    // A code this build words itself keeps that wording, whatever the Collector sent.
+    void aKnownCaptureErrorKeepsThisBuildsWording() {
+        RecordingBackend b; b.capture["last_error_code"] = "ERR_NPCAP_MISSING";
+        b.capture["last_error_text"] = QString::fromUtf8("采集服务的原话。");
+        mr::AutomaticRecordingController c(&b); c.refresh();
+        QVERIFY(c.message().contains(QStringLiteral("Npcap")));
+        QVERIFY(!c.message().contains(QString::fromUtf8("采集服务的原话")));
+    }
+    // A sentence without a reference - worded outside the catalogue, or changed by
+    // the Collector's scrubber - is shown as the Collector's own Chinese.
+    void aSentenceWithoutAReferenceIsShownAsSent() {
+        RecordingBackend b; b.capture["last_error_code"] = "ERR_SOMETHING_NEW";
+        b.capture["last_error_text"] = QString::fromUtf8("采集源未能释放，已阻止再次采集。");
+        b.capture["last_error_ref"] = QJsonValue(QJsonValue::Null);
+        mr::AutomaticRecordingController c(&b); c.refresh();
+        QCOMPARE(c.message(), QString::fromUtf8("暂时不能自动记录。采集源未能释放，已阻止再次采集。 请查看「捕获诊断」。"));
+    }
+    // While calibration waits for the game, the Collector's sentence stands as a
+    // sentence of its own instead of inside the bracket the generic line used.
+    void theCalibratingStateSaysTheCollectorsSentenceToo() {
+        const QVariantMap ref = mrtest::textRef("capture.start.adapter_undetermined");
+        RecordingBackend b; b.capture["profile_status"] = "UNSUPPORTED_BUILD"; b.capture["state"] = "STOPPED";
+        b.capture["calibration"] = QJsonObject{{"state", "WAITING"}};
+        b.capture["last_error_code"] = "ERR_BAD_REQUEST";
+        b.capture["last_error_text"] = mr::collector_text::chinese(ref);
+        b.capture["last_error_ref"] = QJsonObject::fromVariantMap(ref);
+        mr::AutomaticRecordingController c(&b); c.refresh();
+        QCOMPARE(c.state(), QStringLiteral("calibrating"));
+        QVERIFY2(c.message().contains(mr::collector_text::render(ref, QString())), qPrintable(c.message()));
+        QVERIFY(!c.message().contains(QString::fromUtf8("无法识别")));
+        QVERIFY(!c.message().contains(QStringLiteral("ERR_")));
+    }
     // ---------------------------------------------------------------- polling --
     // Three requests every two seconds while the game is not running is wasted
     // traffic: nothing they read can change until the game starts.

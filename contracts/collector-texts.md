@@ -47,6 +47,7 @@
 |---|---|---|
 | `$defs/ErrorPayload` | `message` | `message_ref` |
 | `$defs/CaptureStatus` | `hint` | `hint_ref` |
+| `$defs/CaptureStatus` | `last_error_text` | `last_error_ref` |
 | `$defs/CollectorStatus` | `warnings` | `warning_refs` |
 | `$defs/CollectorStatus.npcap` | `install_hint` | `install_hint_ref` |
 | `ListCaptureAdapters` 应答 | `install_hint` | `install_hint_ref` |

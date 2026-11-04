@@ -1,5 +1,9 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-11-04 · 自动记录拒绝原因
+
+- `$defs/CaptureStatus` 新增可选的 `last_error_text` / `last_error_ref`：`last_error_code` 背后的那句话。`last_error_text` 是采集服务拒绝或故障时写给玩家的简体中文句子，与脱敏诊断报告的 `last_error_detail` 经同一脱敏处理；`last_error_code` 为 `null` 时、以及 `UNAVAILABLE` 而没有具体拒绝时为 `null`。`last_error_ref` 是同一句话的目录引用（`$defs/TextRef`，contracts/collector-texts.md §2.1），句子不出自目录、或脱敏改动了句子时为 `null`，引用因此从不与另一句话同行。旧 Collector 没有这两个字段，桌面端照旧按错误码措辞。背景：2026-11-03 的诊断报告中自动开始被 `capture.start.adapter_undetermined` 拒绝（`ERR_BAD_REQUEST`），桌面端只收到错误码，显示为「暂时无法识别的问题」，采集服务请玩家手动选择网卡的那句话到不了界面；桌面端同期在捕获诊断页提供网卡选择，写入 `CaptureSettings.adapter_id`（契约形状不变）。
+
 ## 2026-11-03 · 审查修复
 
 - 共享校准、更新、宿主（审查 2026-11-03 X3）：七条共享校准导入与拒绝文案（`sharing.code.newer_version`，`sharing.import.changed` / `not_calibrating` / `other_template` / `rejected` / `user_rejected` / `check_pending`）把按钮名改为界面上的「手动导入校准码」，公开仓库 `sharecode.py` 的回复同步（E-4）。读取安装程序校验值时应答中途断开，下载结果由 `TRANSPORT_FAILED` 改报 `CHECKSUM_UNAVAILABLE`；`update.download.transport_failed` 改写为在剩余路径（安装程序下载中断、后台意外错误）上都成立的说法（F-2）。`startup.log_dir_unwritable` 新增 `{path}` 参数（日志文件夹），不再提命令行选项（G-4）。以管理员身份运行的采集服务给管道加 High 强制完整性标签（不可向上写、不可向上读），未提权的进程连不上它；未提权运行时管道不变（G-1）。共享校准状态：副本进行中读到的隔离与撤回一样等到这一场结束才停用（结束时已通过完整检查的不再停用，E-1）；撤回或停用之后同一区服与版本重新进入校准时，`shared.last_refusal` 与被拒校准码的 `REJECTED` 条目保留（E-3）。

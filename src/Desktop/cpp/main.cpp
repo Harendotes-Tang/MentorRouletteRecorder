@@ -6,6 +6,7 @@
 //
 //   MentorRecorder.Desktop --screenshot out.png --page 1 --theme dark
 //                          [--mock-npcap-missing] [--mock-live entered]
+//                          [--mock-adapter-undetermined]
 //                          [--mock-first-run] [--mock-open-detail]
 //                          [--mock-open-edit] [--show-disclosure]
 //                          [--mock-open-create] [--mock-wizard-step 1|2|3]
@@ -610,6 +611,10 @@ int main(int argc, char *argv[])
     QCommandLineOption npcapOption(
         QStringLiteral("mock-npcap-missing"),
         QStringLiteral("Pretend the Npcap driver is not installed."));
+    QCommandLineOption adapterUndeterminedOption(
+        QStringLiteral("mock-adapter-undetermined"),
+        QStringLiteral("Pretend the Collector refused to start capture because no card visibly "
+                       "carries the game: the capture page shows its sentence and the card picker."));
     QCommandLineOption candidatesOption(
         QStringLiteral("mock-candidates"),
         QStringLiteral("Use deterministic candidate review fixtures; research payload remains disabled."));
@@ -778,6 +783,7 @@ int main(int argc, char *argv[])
     parser.addOption(pageOption);
     parser.addOption(themeOption);
     parser.addOption(npcapOption);
+    parser.addOption(adapterUndeterminedOption);
     parser.addOption(candidatesOption);
     parser.addOption(calibrationOption);
     parser.addOption(sharedOption);
@@ -1023,6 +1029,7 @@ int main(int argc, char *argv[])
         auto *mock = new mr::MockBackend(&app);
         mockBackend = mock;
         mock->setNpcapMissing(parser.isSet(npcapOption));
+        mock->setAdapterUndetermined(parser.isSet(adapterUndeterminedOption));
         if (mockLiveMode == QLatin1String("none")) {
             mock->setLiveMode(mr::MockBackend::LiveMode::None);
         } else if (mockLiveMode == QLatin1String("matched")) {

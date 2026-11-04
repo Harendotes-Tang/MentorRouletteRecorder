@@ -4,6 +4,7 @@ using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Profiles;
+using MentorRecorder.Collector.Tests;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
@@ -30,10 +31,39 @@ public sealed class CaptureIpcTests
         Assert.Equal("NONE", payload["profile_status"]!.GetValue<string>());
         Assert.Equal("UNAVAILABLE", payload["last_error_code"]!.GetValue<string>());
         Assert.Null(payload["capture_session_id"]);
+        // UNAVAILABLE that no refusal worded: the sentence fields are sent, and empty.
+        Assert.True(payload.ContainsKey("last_error_text"));
+        Assert.True(payload.ContainsKey("last_error_ref"));
+        Assert.Null(payload["last_error_text"]);
+        Assert.Null(payload["last_error_ref"]);
 
         // The two boundary constants are reported at runtime so a user can check them.
         Assert.Equal("WinPCap", payload["monitor_type"]!.GetValue<string>());
         Assert.False(payload["injected_hook_enabled"]!.GetValue<bool>());
+    }
+
+    /// <summary>
+    /// The 2026-11-03 report: a start the Collector refused left the Desktop with the code alone,
+    /// and a code it could not word became "an unrecognised problem" while the refusal had told the
+    /// player what to do. The status now carries the refusal's own sentence beside the code, with
+    /// its catalogue reference for the interface language (contracts/CHANGELOG.md 2026-11-04).
+    /// </summary>
+    [Fact]
+    public async Task GetCaptureStatus_CarriesTheRefusalSentenceBesideItsCode()
+    {
+        await using var fixture = CaptureServerFixture.Start(CaptureFakes.NoGame(npcapInstalled: true));
+
+        var refusal = await fixture.CallAsync("StartCapture");
+        Assert.False(refusal.Ok);
+        Assert.Equal(ErrorCodes.FfxivNotRunning, refusal.ErrorCode);
+
+        var payload = (await fixture.CallAsync("GetCaptureStatus")).Require();
+
+        ContractSchema.Validate("$defs/CaptureStatus", payload, "the capture status after a refused start");
+        Assert.Equal(ErrorCodes.FfxivNotRunning, payload["last_error_code"]!.GetValue<string>());
+        Assert.Equal(refusal.ErrorMessage, payload["last_error_text"]!.GetValue<string>());
+        Assert.Equal("capture.start.game_not_running", payload["last_error_ref"]!["key"]!.GetValue<string>());
+        CollectorTextCatalogue.AssertParallel(payload["last_error_text"], payload["last_error_ref"]);
     }
 
     [Fact]

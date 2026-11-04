@@ -475,6 +475,17 @@ Npcap 的结论 `npcap.status` 随之更新），页面标签为「需手动记�
 * 记住的网卡没有游戏流量（`adapterPreferenceStaleNotice`，标题「记住的网卡上已经没有游戏流量了」）：
   `preference_stale` 与 `recommended` 两个适配器都已知时出现。「使用推荐网卡」（`useRecommendedAdapterButton`）
   写入 `CaptureSettings.adapter_id`。
+* 网卡选择（`captureAdapterPicker`，`CaptureAdapterPicker.qml`，标题「请选择游戏流量所在的网卡」）：游戏运行、Npcap 可用、
+  没有采证轮次、采集服务也不在自动寻找网络路径时，采集服务拒绝自己开始抓包而原因是网卡
+  （`last_error_code` 为 `ERR_BAD_REQUEST`，且 `last_error_ref` 的键以 `capture.start.adapter_` 开头；没有
+  `last_error_text` 字段的旧采集服务只看错误码），或连接表把游戏的连接放在没有网卡对应的位置
+  （`network_path.kind` 为 `UNMAPPED` / `IPV6_ONLY` / `LOOPBACK`，且没有在读取数据）时出现；上一条网卡提示在场时让位。
+  一句说明「还没有确定哪张网卡承载游戏流量。开着加速器或 VPN 时，游戏流量往往走它们的网卡；选错了可以随时改回自动选择。」，
+  下面按 `ListCaptureAdapters` 逐行列出网卡：状态点（`is_up`）、名称（`friendly_name`，没有时用 `description`）、
+  硬件名与采集服务掩码后的 IPv4（`192.168.1.x`）、「本机回环」「推荐」标记，每行一个「使用这张网卡」
+  （`captureAdapterUseButton_<n>`，写入 `CaptureSettings.adapter_id`，采集服务在下一次尝试时读取）；
+  已在设置中选中的一行显示「已选择」，底部另有「改回自动选择」（`captureAdapterAutoButton`，写入 `null`）。
+  普通用户从不看到 `adapter_id`。判断在 `CaptureChainModel.adapterChoiceOffered`，此时连接状态的网卡一列副行为「请在下方选择网卡」。
 * 自动跟随（`captureReadinessNotice`，仅维护者可见，且仅在未捕获时出现）：关闭时显示橙框与「开启自动跟随」。
 * 校准行（`calibrationCard`，本机校准面板 `calibrationLocalPanel` 在左、共享校准面板
   `calibrationSharedSection` 在右，宽度 2 : 1，卡片窄于 640 px 时上下叠放，见 4.4.1、4.4.2）：
@@ -509,7 +520,7 @@ Npcap 的结论 `npcap.status` 随之更新），页面标签为「需手动记�
 读不到游戏数据（「已连接游戏，但还读不到游戏数据 · 请查看上方说明」）；
 待核对 / 校准受阻 / 正在重新校准（控制器受阻时为「暂时不会自动记录 · 见上方说明」）；正在检查版本支持；
 区服或版本未识别、版本不支持或没有适用的支持文件（与协议档案卡使用同一套说法）；
-记住的网卡没有流量；`last_error_code`（「暂时无法读取游戏数据 · <`Fmt.captureErrorLabel`>」）；
+记住的网卡没有流量；`last_error_code`（「暂时无法读取游戏数据 · <`Fmt.captureErrorLabel`>」；本版本没有措辞的错误码，而采集服务随状态送来了自己的句子（`last_error_text`，经 `last_error_ref` 按界面语言显示，契约 2026-11-04）时，用那句话代替通用句）；
 其他受阻情况（「暂时不会自动记录 · 见上方说明」）；监听尚未启动（「正在启动监听…」）。
 受阻排在「正在启动监听…」之前：控制器受阻时不会开始监听，因此不说正在启动。
 以上均不成立时，总结为「游戏、驱动、网卡和版本支持均已就绪」。问题用橙字，等待与就绪用灰字。
@@ -696,7 +707,8 @@ Npcap 的结论 `npcap.status` 随之更新），页面标签为「需手动记�
 采集服务返回的 `ERR_NPCAP_MISSING` 文案（含安装指引）放入 toast。
 
 本页可用的 Mock 开关：`--mock-recording-state listening|waiting`（正常 / 游戏未运行）、
-`--mock-npcap-missing`、`--maintainer-tools`、`--mock-midstream`、`--mock-calibration`、`--mock-shared`；
+`--mock-npcap-missing`、`--mock-adapter-undetermined`（采集服务因无法确定网卡而拒绝开始：首张卡片显示它的句子，
+下方出现网卡选择，两张网卡都不推荐）、`--maintainer-tools`、`--mock-midstream`、`--mock-calibration`、`--mock-shared`；
 新区服采证子页另有 `--mock-validation-state` 与 `--mock-open-evidence steps|report`（§7）。
 模拟后端的 `GetStatus` 同样带有 `npcap` 对象，与 `CaptureWire.StatusExtras` 同形。
 QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/calibration/CapturePageTests.cpp`）覆盖：
@@ -2117,6 +2129,7 @@ build/src/Desktop/MentorRecorder.Desktop.exe --screenshot <png> --page N
   仅 mock 后端：
     [--mock-live entered|matched|none]
     [--mock-npcap-missing]
+    [--mock-adapter-undetermined]  # 采集服务无法确定网卡、拒绝开始抓包（§4.4 网卡选择）
     [--mock-first-run]       # 首次启动 baseline 对话框
     [--mock-open-detail]     # 选中第一条记录，打开详情浮层
     [--mock-open-edit]       # 在详情浮层之上打开手动修正对话框

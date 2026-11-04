@@ -63,6 +63,12 @@ public:
     /// Synthetic-only UI capability fixture; never used by IpcBackend.
     void setRecordingFixture(const QString &state) { m_recordingFixture = state; }
     bool npcapMissing() const { return m_npcapMissing; }
+    /// Simulate the Collector refusing to start capture because no card visibly
+    /// carries the game (the 2026-11-03 report): its sentence beside
+    /// ERR_BAD_REQUEST, no recommended card, and the game's connections on no
+    /// card of Npcap's (network_path.kind UNMAPPED).
+    void setAdapterUndetermined(bool undetermined);
+    bool adapterUndetermined() const { return m_adapterUndetermined; }
 
     /// Simulate the live run state shown on the dashboard.
     void setLiveMode(LiveMode mode);
@@ -373,6 +379,7 @@ private:
     QString captureRegion() const;
     bool unsupportedCaptureRegion() const;
     bool m_npcapMissing = false;
+    bool m_adapterUndetermined = false;
     bool m_capturing = true;
     bool m_midstreamSuspected = false;
     bool m_updateAvailable = false;

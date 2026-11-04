@@ -317,6 +317,7 @@ public sealed partial class CaptureController : IDisposable
     private long _gameTakenAtMs;
     private string? _lastErrorCode;
     private string? _lastErrorMessage;
+    private UserText? _lastErrorText;
     private string? _pendingStartFaultReason;
     private UserText? _pendingStartFaultText;
     private Exception? _pendingStartFaultError;
@@ -554,6 +555,7 @@ public sealed partial class CaptureController : IDisposable
                 OodleSignature = _source?.SignatureUse ?? OodleSignatureUse.None,
                 LastErrorCode = _lastErrorCode,
                 LastErrorMessage = _lastErrorMessage,
+                LastErrorText = _lastErrorText,
                 Warnings = warnings,
             };
         }
@@ -617,6 +619,7 @@ public sealed partial class CaptureController : IDisposable
                 ResetPathRecovery();
                 _adapterMissingStarts = 0;
                 _lastErrorCode = _lastErrorMessage = null;
+                _lastErrorText = null;
             }
             // Read only: a listing that fails here counts as "still running".
             var stillRunning = _services.Game.IsRunning(chosen.ProcessId, chosen.StartedAtUtc);
@@ -1061,6 +1064,7 @@ public sealed partial class CaptureController : IDisposable
             _state = CaptureControllerState.Starting;
             _lastErrorCode = null;
             _lastErrorMessage = null;
+            _lastErrorText = null;
             _pendingStartFaultReason = null;
             _pendingStartFaultText = null;
             _pendingStartFaultError = null;
@@ -1331,6 +1335,7 @@ public sealed partial class CaptureController : IDisposable
                 _releaseReason = ended;
                 _state = CaptureControllerState.Faulted;
                 _lastErrorCode = ErrorCodes.Internal;
+                _lastErrorText = null;
                 _lastErrorMessage =
                     $"协议处理线程尚未退出（{queue?.Stage}，积压 {queue?.Depth}），已保留会话资源供停止操作重试。";
             }
@@ -1377,6 +1382,7 @@ public sealed partial class CaptureController : IDisposable
             else
             {
                 _lastErrorCode = ErrorCodes.Internal;
+                _lastErrorText = null;
                 _lastErrorMessage = "采集源未能释放，已阻止再次采集。请退出采集服务后重试。";
             }
             if (reason != CaptureEndReason.Error ||
@@ -2076,6 +2082,7 @@ public sealed partial class CaptureController : IDisposable
                 _pendingStartFaultError ??= error;
                 _lastErrorCode = ErrorCodes.Internal;
                 _lastErrorMessage = reason;
+                _lastErrorText = text;
                 deferredUntilStartReturns = true;
             }
             else if (_state == CaptureControllerState.Running)
@@ -2083,6 +2090,7 @@ public sealed partial class CaptureController : IDisposable
                 _state = CaptureControllerState.Stopping;
                 _lastErrorCode = ErrorCodes.Internal;
                 _lastErrorMessage = reason;
+                _lastErrorText = text;
             }
             else
             {
@@ -2395,12 +2403,19 @@ public sealed partial class CaptureController : IDisposable
         return error;
     }
 
+    /// <summary>
+    /// Keeps the refusal for <c>last_error_code</c>, and its sentence for <c>last_error_text</c> /
+    /// <c>last_error_ref</c>: the code alone left the 2026-11-03 report's player reading "an
+    /// unrecognised problem" while this refusal had told them which card to choose.
+    /// </summary>
+    /// <param name="error">The refusal or fault being recorded.</param>
     private void RecordError(CollectorException error)
     {
         lock (_gate)
         {
             _lastErrorCode = error.Code;
             _lastErrorMessage = error.Message;
+            _lastErrorText = error.Text;
         }
     }
 

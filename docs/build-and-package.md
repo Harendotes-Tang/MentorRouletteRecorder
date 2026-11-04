@@ -242,7 +242,7 @@ $env:PATH = "D:\APPS\Qt\6.11.2\mingw_64\bin;$env:PATH"
 build\src\Desktop\MentorRecorder.Desktop.exe --screenshot out.png --page 5 --theme dark
 ```
 
-仅 mock 后端可用：`--mock-live entered|matched|none`、`--mock-npcap-missing`、
+仅 mock 后端可用：`--mock-live entered|matched|none`、`--mock-npcap-missing`、`--mock-adapter-undetermined`（采集服务无法确定网卡而拒绝开始抓包）、
 `--mock-first-run`、`--mock-open-detail`、`--mock-open-edit`、
 `--mock-open-reflection`（对第一条记录打开导随心得对话框）、
 `--mock-calibration observing|ready|blocked|done`（本机校准卡片）、

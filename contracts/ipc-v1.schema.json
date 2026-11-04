@@ -755,6 +755,14 @@
         "queue_depth": { "type": "integer", "minimum": 0 },
         "queue_capacity": { "type": "integer", "minimum": 0 },
         "last_error_code": { "type": ["string", "null"] },
+        "last_error_text": {
+          "type": ["string", "null"],
+          "description": "The sentence behind last_error_code, in Simplified Chinese: the refusal's own wording for the player (capture.start.adapter_undetermined asks for a card to be chosen, for one), scrubbed like the diagnostics report's last_error_detail. Null exactly when last_error_code is, and for an UNAVAILABLE no refusal worded. Optional: a Collector before 2026-11-04 does not send it, and a Desktop then words the code itself."
+        },
+        "last_error_ref": {
+          "oneOf": [{ "$ref": "#/$defs/TextRef" }, { "type": "null" }],
+          "description": "last_error_text as a catalogue reference (contracts/collector-texts.md); null when last_error_text is, when the sentence was worded outside the catalogue, or when scrubbing changed it, so the reference never travels beside a sentence other than its own. Optional: a Collector before 2026-11-04 does not send it."
+        },
         "monitor_type": {
           "type": "string",
           "const": "WinPCap",

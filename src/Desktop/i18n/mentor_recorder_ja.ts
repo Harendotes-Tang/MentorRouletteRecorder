@@ -821,6 +821,61 @@
     </message>
 </context>
 <context>
+    <name>CaptureAdapterPicker</name>
+    <message>
+        <source>未命名网卡</source>
+        <translation>名前のないアダプター</translation>
+    </message>
+    <message>
+        <source>没有 IPv4 地址</source>
+        <translation>IPv4 アドレスなし</translation>
+    </message>
+    <message>
+        <source>未连接</source>
+        <translation>未接続</translation>
+    </message>
+    <message>
+        <source>请选择游戏流量所在的网卡</source>
+        <translation>ゲームの通信が通るアダプターを選んでください</translation>
+    </message>
+    <message>
+        <source>还没有确定哪张网卡承载游戏流量。开着加速器或 VPN 时，游戏流量往往走它们的网卡；选错了可以随时改回自动选择。</source>
+        <translation>ゲームの通信がどのアダプターを通っているか、まだ特定できていません。アクセラレーターや VPN を使っていると、ゲームの通信はそれらのアダプターを通ることがよくあります。選び間違えても、いつでも自動選択に戻せます。</translation>
+    </message>
+    <message>
+        <source>当前后台服务版本无法保存网卡选择，请更新软件后重试。</source>
+        <translation>現在のバックグラウンドサービスのバージョンではアダプターの選択を保存できません。アプリを更新してから再試行してください。</translation>
+    </message>
+    <message>
+        <source>本机回环</source>
+        <translation>ループバック</translation>
+    </message>
+    <message>
+        <source>推荐</source>
+        <translation>おすすめ</translation>
+    </message>
+    <message>
+        <source>已选择</source>
+        <translation>選択中</translation>
+    </message>
+    <message>
+        <source>使用这张网卡</source>
+        <translation>このアダプターを使う</translation>
+    </message>
+    <message>
+        <source>没有找到网卡。请点连接状态旁的“重新检测网卡”重试。</source>
+        <translation>アダプターが見つかりません。「接続状態」の横にある「アダプターを再検出」を押して再試行してください。</translation>
+    </message>
+    <message>
+        <source>选择的网卡会一直使用，直到改回自动选择。</source>
+        <translation>選んだアダプターは、自動選択に戻すまで使われ続けます。</translation>
+    </message>
+    <message>
+        <source>改回自动选择</source>
+        <translation>自動選択に戻す</translation>
+    </message>
+</context>
+<context>
     <name>CaptureChainModel</name>
     <message>
         <source>尚未识别游戏区服 · 暂时不会自动记录</source>
@@ -1137,6 +1192,10 @@
     <message>
         <source>之前选择的网卡收不到游戏数据</source>
         <translation>前回選択したアダプターでゲームデータを受信できません</translation>
+    </message>
+    <message>
+        <source>请在下方选择网卡</source>
+        <translation>下でアダプターを選んでください</translation>
     </message>
     <message>
         <source>自动选择（有 FF14 连接）</source>
@@ -11240,6 +11299,10 @@ SHA256：%3</translation>
     <message>
         <source>正在连接游戏，暂时不能自动记录。</source>
         <translation>ゲームに接続中のため、まだ自動記録できません。</translation>
+    </message>
+    <message>
+        <source>暂时读不到游戏数据，正在重试。%1 请查看「捕获诊断」。</source>
+        <translation>ゲームデータを読み取れないため、再試行しています。%1 「キャプチャ診断」を確認してください。</translation>
     </message>
     <message>
         <source>游戏更新了，需要重新校准。%1</source>

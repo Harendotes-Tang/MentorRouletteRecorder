@@ -395,6 +395,51 @@ public sealed class CaptureControllerTests : IDisposable
 
         Assert.Equal(ErrorCodes.BadRequest, error.Code);
         Assert.Equal("adapter_id", error.Field);
+
+        // The 2026-11-03 report: the Desktop had the code alone and called this "an unrecognised
+        // problem" while the refusal had said which card to choose. The status carries the
+        // refusal's sentence beside the code, with its catalogue reference for the interface
+        // language (contracts/CHANGELOG.md 2026-11-04).
+        var snapshot = controller.Snapshot();
+        Assert.Equal(ErrorCodes.BadRequest, snapshot.LastErrorCode);
+        Assert.Equal("capture.start.adapter_undetermined", snapshot.LastErrorText?.Key);
+        var wire = CaptureWire.CaptureStatus(snapshot);
+        Assert.Equal(ErrorCodes.BadRequest, wire["last_error_code"]!.GetValue<string>());
+        Assert.Equal(error.Message, wire["last_error_text"]!.GetValue<string>());
+        Assert.Equal("capture.start.adapter_undetermined", wire["last_error_ref"]!["key"]!.GetValue<string>());
+    }
+
+    /// <summary>
+    /// <c>last_error_text</c> travels scrubbed like the report's <c>last_error_detail</c>, and
+    /// <c>last_error_ref</c> only beside exactly the sentence it names: never beside a redacted
+    /// one, whose arguments would carry what the scrubber took out, never for a message worded
+    /// outside the catalogue, and never without a code.
+    /// </summary>
+    [Fact]
+    public void TheLastErrorSentenceIsScrubbedAndReferencedOnlyWhenUnchanged()
+    {
+        WithGame(withTraffic: false);
+        using var controller = Build();
+        Assert.Throws<CollectorException>(() => controller.Start());
+        var refused = controller.Snapshot();
+        var text = CollectorTexts.CaptureStartAdapterUndetermined();
+
+        var redacted = CaptureWire.CaptureStatus(refused with
+        {
+            LastErrorMessage = text.Chinese + " 10.0.0.7",
+            LastErrorText = text,
+        });
+        Assert.Equal(text.Chinese + " [ip]", redacted["last_error_text"]!.GetValue<string>());
+        Assert.Null(redacted["last_error_ref"]);
+
+        var plain = CaptureWire.CaptureStatus(refused with { LastErrorText = null });
+        Assert.Equal(text.Chinese, plain["last_error_text"]!.GetValue<string>());
+        Assert.Null(plain["last_error_ref"]);
+
+        var healthy = CaptureWire.CaptureStatus(refused with { LastErrorCode = null });
+        Assert.Null(healthy["last_error_code"]);
+        Assert.Null(healthy["last_error_text"]);
+        Assert.Null(healthy["last_error_ref"]);
     }
 
     [Fact]

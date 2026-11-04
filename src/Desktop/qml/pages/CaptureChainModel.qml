@@ -8,7 +8,8 @@ import MentorRecorder 1.0
 //   FF14 进程  capture.ffxiv_running / ffxiv_process_id, and while the game is
 //              closed the installed capture.game_build the Collector read off disk
 //   Npcap      GetStatus.npcap.version / status, capture.npcap_*
-//   适配器     capture.adapter_id joined on ListCaptureAdapters; captureSettings.adapter_id
+//   适配器     capture.adapter_id joined on ListCaptureAdapters; captureSettings.adapter_id;
+//              whether 网卡选择 is offered (adapterChoiceOffered)
 //   协议档案   capture.profile_status / profile_origin, App.calibration.state;
 //              maintainers read the profile id and the raw status
 // A node's tone is "ok", "warn", "bad" or "off"; the summary's is "ok", "wait"
@@ -78,6 +79,45 @@ QtObject {
         const code = String(chain.capture.last_error_code || "")
         return code === "NONE" ? "" : code
     }
+    // The Collector's own sentence behind the code (last_error_text, with
+    // last_error_ref for the interface language; contracts/CHANGELOG.md
+    // 2026-11-04). A Collector before that sends neither key.
+    readonly property bool errorSentenceKnown: chain.capture.last_error_text !== undefined
+    readonly property string errorRefKey: chain.capture.last_error_ref && chain.capture.last_error_ref.key
+                                          ? String(chain.capture.last_error_ref.key) : ""
+    // A function rather than a property: read inside the bindings that say it,
+    // so a language switch re-renders it with them. Empty for a code this
+    // build words itself, and from a Collector that sent no sentence.
+    function collectorErrorSentence() {
+        if (chain.errorCode.length === 0 || Runtime.fmt.captureErrorKnown(chain.errorCode))
+            return ""
+        const text = String(chain.capture.last_error_text || "")
+        return text.length > 0 ? Runtime.fmt.collectorText(chain.capture.last_error_ref, text) : ""
+    }
+    // The 2026-11-03 report: the Collector refused its own start because it
+    // could not tell which card carries the game, and asked for a choice this
+    // page did not offer. The catalogue key says which refusal it was; an
+    // older Collector sends none, and the only ERR_BAD_REQUEST it records
+    // while the game runs is about the card (CaptureController.ChooseAdapter,
+    // CapturePathPlan.IsUsable, NpcapPacketReader.AdapterListChanged).
+    readonly property bool adapterRefused: chain.errorCode === "ERR_BAD_REQUEST"
+        && (!chain.errorSentenceKnown || chain.errorRefKey.indexOf("capture.start.adapter_") === 0)
+    // Where the Collector's TCP-table reading put the game's connections:
+    // UNMAPPED (on no card of Npcap's), IPV6_ONLY and LOOPBACK (an accelerator's
+    // or VPN's local proxy) leave the automatic choice nothing to go on.
+    readonly property string pathKind: chain.capture.network_path
+                                       ? String(chain.capture.network_path.kind || "") : ""
+    readonly property bool pathNeedsChoice: ["UNMAPPED", "IPV6_ONLY", "LOOPBACK"].indexOf(chain.pathKind) >= 0
+    // 网卡选择 (CaptureAdapterPicker): while the game runs and the Collector
+    // either refused to pick a card or cannot map the game's connections to
+    // one, and nothing else owns the problem - a running recovery is the
+    // Collector's own search, and a capture that reads data has no card
+    // problem. The stale-card notice, with its one-click answer, is weighed by
+    // CaptureNotices.
+    readonly property bool adapterChoiceOffered: chain.gameRunning && !chain.choosingGame
+        && chain.npcapReady && !Runtime.app.validationActive
+        && chain.pathRecoveryState !== "RECOVERING"
+        && (chain.adapterRefused || (chain.pathNeedsChoice && (!Runtime.app.capturing || chain.silent)))
     readonly property bool silent: Runtime.app.captureMidstreamSuspected || Runtime.app.captureSilent
                                    || Runtime.app.recording.silent
     readonly property bool recovering: Runtime.app.recording.recovering
@@ -164,8 +204,12 @@ QtObject {
         }
         if (chain.adapterStale && chain.pathActionAvailable)
             return [qsTr("之前选择的网卡收不到游戏数据 · 请查看下方提示"), "bad"]
-        if (chain.errorCode.length > 0)
-            return [qsTr("暂时无法读取游戏数据 · %1").arg(Runtime.fmt.captureErrorLabel(chain.errorCode).replace(/。$/, "")), "bad"]
+        if (chain.errorCode.length > 0) {
+            // This build's wording for a code it knows, else the Collector's own
+            // sentence, else the generic line; never the raw token.
+            const sentence = chain.collectorErrorSentence() || Runtime.fmt.captureErrorLabel(chain.errorCode)
+            return [qsTr("暂时无法读取游戏数据 · %1").arg(sentence.replace(/。$/, "")), "bad"]
+        }
         // The hero card above already carries the controller's sentence. A
         // blocked controller does not start listening, so it is said before
         // 正在启动监听 (review K2-4).
@@ -207,7 +251,7 @@ QtObject {
     function adapterTone() {
         if (chain.recovering)
             return "off"
-        if (chain.adapterStale || chain.silent)
+        if (chain.adapterStale || chain.silent || chain.adapterChoiceOffered)
             return "warn"
         return chain.adapterId.length > 0 && Runtime.app.capturing ? "ok" : "off"
     }
@@ -301,6 +345,7 @@ QtObject {
             value: chain.adapterValue(),
             sub: chain.recovering ? qsTr("自动寻找中")
                  : chain.adapterStale ? qsTr("之前选择的网卡收不到游戏数据")
+                 : chain.adapterChoiceOffered ? qsTr("请在下方选择网卡")
                  : Runtime.app.captureSettings.adapter_id ? qsTr("已保存网卡偏好")
                  : chain.silent ? "" : qsTr("自动选择（有 FF14 连接）"),
             tone: chain.adapterTone()

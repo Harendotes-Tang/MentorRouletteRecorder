@@ -328,6 +328,13 @@ public sealed record CaptureDiagnosticsSnapshot
     /// <summary>User-facing message of the most recent failure, free of paths and addresses.</summary>
     public string? LastErrorMessage { get; init; }
 
+    /// <summary>
+    /// <see cref="LastErrorMessage"/> as the catalogue text it was worded with, so the wire can
+    /// carry it by reference (<c>last_error_ref</c>, contracts/collector-texts.md); null when the
+    /// failure was worded outside the catalogue, or when there is none.
+    /// </summary>
+    public UserText? LastErrorText { get; init; }
+
     /// <summary>Non-sensitive notes for the diagnostics page.</summary>
     public IReadOnlyList<UserText> Warnings { get; init; } = Array.Empty<UserText>();
 

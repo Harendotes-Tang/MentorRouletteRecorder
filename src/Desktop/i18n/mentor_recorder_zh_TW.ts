@@ -821,6 +821,61 @@
     </message>
 </context>
 <context>
+    <name>CaptureAdapterPicker</name>
+    <message>
+        <source>未命名网卡</source>
+        <translation>未命名的網路卡</translation>
+    </message>
+    <message>
+        <source>没有 IPv4 地址</source>
+        <translation>沒有 IPv4 位址</translation>
+    </message>
+    <message>
+        <source>未连接</source>
+        <translation>未連線</translation>
+    </message>
+    <message>
+        <source>请选择游戏流量所在的网卡</source>
+        <translation>請選擇遊戲流量所在的網路卡</translation>
+    </message>
+    <message>
+        <source>还没有确定哪张网卡承载游戏流量。开着加速器或 VPN 时，游戏流量往往走它们的网卡；选错了可以随时改回自动选择。</source>
+        <translation>還沒有確定哪張網路卡承載遊戲流量。開著加速器或 VPN 時，遊戲流量往往走它們的網路卡；選錯了可以隨時改回自動選擇。</translation>
+    </message>
+    <message>
+        <source>当前后台服务版本无法保存网卡选择，请更新软件后重试。</source>
+        <translation>目前的背景服務版本無法儲存網路卡選擇，請更新軟體後重試。</translation>
+    </message>
+    <message>
+        <source>本机回环</source>
+        <translation>本機回送</translation>
+    </message>
+    <message>
+        <source>推荐</source>
+        <translation>推薦</translation>
+    </message>
+    <message>
+        <source>已选择</source>
+        <translation>已選擇</translation>
+    </message>
+    <message>
+        <source>使用这张网卡</source>
+        <translation>使用這張網路卡</translation>
+    </message>
+    <message>
+        <source>没有找到网卡。请点连接状态旁的“重新检测网卡”重试。</source>
+        <translation>找不到網路卡。請點連線狀態旁的「重新偵測網路卡」重試。</translation>
+    </message>
+    <message>
+        <source>选择的网卡会一直使用，直到改回自动选择。</source>
+        <translation>選擇的網路卡會一直使用，直到改回自動選擇。</translation>
+    </message>
+    <message>
+        <source>改回自动选择</source>
+        <translation>改回自動選擇</translation>
+    </message>
+</context>
+<context>
     <name>CaptureChainModel</name>
     <message>
         <source>尚未识别游戏区服 · 暂时不会自动记录</source>
@@ -1137,6 +1192,10 @@
     <message>
         <source>之前选择的网卡收不到游戏数据</source>
         <translation>先前選擇的網路卡收不到遊戲資料</translation>
+    </message>
+    <message>
+        <source>请在下方选择网卡</source>
+        <translation>請在下方選擇網路卡</translation>
     </message>
     <message>
         <source>自动选择（有 FF14 连接）</source>
@@ -11240,6 +11299,10 @@ SHA256：%3</translation>
     <message>
         <source>正在连接游戏，暂时不能自动记录。</source>
         <translation>正在連線到遊戲，暫時無法自動記錄。</translation>
+    </message>
+    <message>
+        <source>暂时读不到游戏数据，正在重试。%1 请查看「捕获诊断」。</source>
+        <translation>暫時讀不到遊戲資料，正在重試。%1 請檢視「擷取診斷」。</translation>
     </message>
     <message>
         <source>游戏更新了，需要重新校准。%1</source>

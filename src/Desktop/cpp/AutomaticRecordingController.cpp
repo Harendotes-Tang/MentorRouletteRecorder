@@ -498,14 +498,10 @@ void AutomaticRecordingController::project(const QVariantMap &c)
         block(session + QStringLiteral("capture:midstream"), LiveText([c, reason] { return silentMessage(c, reason); })); return;
     }
     if (!error.isEmpty() && error != QLatin1String("NONE")) {
-        // A player cannot act on "ERR_DB_BUSY". The sentence is the whole
-        // explanation; the raw token only ever trails it, and only for a code
-        // this build has no wording for.
-        block(session + QStringLiteral("capture:") + error, LiveText([error] {
-            const QString detail = Formatters::captureErrorKnown(error)
-                ? Formatters::captureErrorLabel(error)
-                : tr("%1（代码 %2）").arg(Formatters::captureErrorLabel(error), error);
-            return tr("暂时不能自动记录。%1 请查看「捕获诊断」。").arg(detail);
+        // The whole explanation is a sentence (captureErrorMessage): this
+        // build's for a code it knows, else the Collector's own.
+        block(session + QStringLiteral("capture:") + error, LiveText([c, error] {
+            return captureErrorMessage(c, error);
         })); return;
     }
     if (c.value(QStringLiteral("state")).toString() != QLatin1String("RUNNING")) {
@@ -559,10 +555,15 @@ bool AutomaticRecordingController::projectCalibration(const QVariantMap &c)
         // roulette the player is about to run will be seen.
         const QString error = c.value(QStringLiteral("last_error_code")).toString();
         clearIncident();
-        setState(QStringLiteral("calibrating"), LiveText([error] {
-            const QString detail = (!error.isEmpty() && error != QLatin1String("NONE"))
-                ? tr("暂时读不到游戏数据（%1），正在重试。请查看「捕获诊断」。").arg(Formatters::captureErrorLabel(error))
-                : tr("正在连接游戏，暂时不能自动记录。");
+        setState(QStringLiteral("calibrating"), LiveText([c, error] {
+            // The Collector's own sentence for a code this build cannot word
+            // stands as a sentence of its own, not inside the bracket.
+            const QString sentence = collectorErrorSentence(c, error);
+            const QString detail = (error.isEmpty() || error == QLatin1String("NONE"))
+                ? tr("正在连接游戏，暂时不能自动记录。")
+                : !sentence.isEmpty()
+                ? tr("暂时读不到游戏数据，正在重试。%1 请查看「捕获诊断」。").arg(sentence)
+                : tr("暂时读不到游戏数据（%1），正在重试。请查看「捕获诊断」。").arg(Formatters::captureErrorLabel(error));
             return tr("游戏更新了，需要重新校准。%1").arg(detail);
         }));
         return true;
@@ -648,11 +649,8 @@ bool AutomaticRecordingController::projectPathRecovery(const QVariantMap &c)
         && !error.startsWith(QLatin1String("ERR_CAPTURE_"))) {
         if (state == QLatin1String("RECOVERING")) {
             block(c.value(QStringLiteral("ffxiv_process_id")).toString()
-                      + QStringLiteral(":capture:") + error, LiveText([error] {
-                const QString detail = Formatters::captureErrorKnown(error)
-                    ? Formatters::captureErrorLabel(error)
-                    : tr("%1（代码 %2）").arg(Formatters::captureErrorLabel(error), error);
-                return tr("暂时不能自动记录。%1 请查看「捕获诊断」。").arg(detail);
+                      + QStringLiteral(":capture:") + error, LiveText([c, error] {
+                return captureErrorMessage(c, error);
             }));
             return true;
         }
@@ -725,5 +723,35 @@ QString AutomaticRecordingController::silentMessage(const QVariantMap &c, const 
         return tr("所选网卡上没有游戏流量（可能在用加速器/VPN），"
                   "请在「捕获诊断」点「重新检测网卡」，再按网卡提示操作。");
     return tr("正在监听，但还没有收到可识别的游戏数据。");
+}
+
+/// The 2026-11-03 report: the Collector refused to start because it could not
+/// tell which card carries the game, and said so in a sentence that told the
+/// player what to do; this build had no wording for the code and answered "an
+/// unrecognised problem". The status now carries that sentence beside the code
+/// (last_error_text / last_error_ref, contracts/CHANGELOG.md 2026-11-04), and it
+/// is what a player reads for a code this build cannot word itself.
+QString AutomaticRecordingController::collectorErrorSentence(const QVariantMap &c, const QString &code)
+{
+    if (Formatters::captureErrorKnown(code))
+        return {};
+    const QString text = c.value(QStringLiteral("last_error_text")).toString();
+    if (text.isEmpty())
+        return {};
+    // last_error_ref renders it in the interface language; an older Collector
+    // or a sentence from outside the catalogue leaves the Chinese.
+    return collector_text::render(c.value(QStringLiteral("last_error_ref")), text);
+}
+
+/// A player cannot act on "ERR_DB_BUSY". The sentence is the whole explanation;
+/// the raw token only ever trails it, and only for a code neither this build
+/// nor the Collector has wording for.
+QString AutomaticRecordingController::captureErrorMessage(const QVariantMap &c, const QString &code)
+{
+    const QString sentence = collectorErrorSentence(c, code);
+    const QString detail = !sentence.isEmpty() ? sentence
+        : Formatters::captureErrorKnown(code) ? Formatters::captureErrorLabel(code)
+        : tr("%1（代码 %2）").arg(Formatters::captureErrorLabel(code), code);
+    return tr("暂时不能自动记录。%1 请查看「捕获诊断」。").arg(detail);
 }
 }
