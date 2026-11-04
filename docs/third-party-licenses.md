@@ -4,8 +4,8 @@
 文档同时登记与对外分发相关的决策、生效日期与未决事项，面向维护者，
 以及需要评估分发合规性的读者。
 
-离线 OCR 依赖于 2026-10-10 更新为本地冻结的自包含 CPU 程序：RapidOCR
-3.10.0、ONNX Runtime 1.31.0、CPython 3.11.9，以及固定 PP-OCRv6 小型检测/
+离线 OCR 自 2026-10-10 起使用本地冻结的自包含 CPU 程序；当前固定为 RapidOCR
+3.10.0、ONNX Runtime 1.31.0、CPython 3.12.16，以及固定 PP-OCRv6 小型检测/
 识别模型和 mobile 方向模型。运行时不需要宿主 Python 或 GPU，也不下载模型或上传图片。
 机器可核验的来源、哈希、实际文件和内嵌组件归属、许可证正文及源码地址以
 `docs/licenses/ocr/dependency-manifest.json` schema 2 为准，随包副本为

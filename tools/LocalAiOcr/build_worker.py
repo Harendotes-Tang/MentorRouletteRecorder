@@ -42,8 +42,8 @@ def remove_unused_video_runtime(output):
 
 
 def build(args):
-    if sys.platform != "win32" or sys.version_info[:2] != (3, 11):
-        raise RuntimeError("Windows x64 Python 3.11 is required for this Windows executable")
+    if sys.platform != "win32" or sys.version_info[:3] != (3, 12, 16):
+        raise RuntimeError("Windows x64 Python 3.12.16 is required for this Windows executable")
     import struct
     if struct.calcsize("P") != 8:
         raise RuntimeError("A 64-bit build interpreter is required")

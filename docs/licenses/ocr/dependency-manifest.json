@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "cache_id": "local-ai-ocr-2-rapidocr-3_10_0-ort-1_31_0-win-x64-images-only-security-20261026",
+  "cache_id": "local-ai-ocr-2-rapidocr-3_10_0-ort-1_31_0-cpython-3_12_16-numpy-2_5_4-win-x64-20261103",
   "runtime": {
     "version": "MentorRecorder local AI OCR 2; RapidOCR 3.10.0; ONNX Runtime 1.31.0; CPU-only",
     "entry_point": "local-ai-ocr.exe",
@@ -8,12 +8,18 @@
     "platform": "Windows x64",
     "dependency_scope": "Actual PyInstaller onedir file closure plus external local models and complete copied upstream notices. No Tesseract, GPU libraries or host Python dependency. Optional OpenCV video FFmpeg DLL excluded; still-image OCR only.",
     "worker_source_sha256": "2bc439bee4ad7ea3dc8eb960942a3ef52ffa9bfca63bdae007671b815c8f0f0e",
-    "requirements_sha256": "1fbba87f6b699c73fd0bcb26132cf05761af994f61a5af8d7aa8843fb0c47eaf",
-    "python_version": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
-    "payload_bytes": 230309930,
-    "payload_files": 235,
-    "build_inventory_reference": "artifacts/dependabot-20261026/runtime-final-build-inventory.json",
-    "builder_source_sha256": "991196fc40f30f29cb95fdb12556ef02d4c8d63cc9a6206ff8edb143879a398c"
+    "requirements_sha256": "0ebc2941c906708b004215d612efc0856aefd01b33ed29d6e088640cbdb390f3",
+    "python_version": "3.12.16 (main, Oct 26 2026, 14:10:56) [MSC v.1944 64 bit (AMD64)]",
+    "payload_bytes": 234852191,
+    "payload_files": 238,
+    "build_inventory_reference": "artifacts/dependabot-20261103/ocr-runtime-final-build-inventory.json",
+    "builder_source_sha256": "c9ba91be1121dfcbf4affd9af4b81c20579ef2ef7745b04d530ecc9cea143b33",
+    "python_distribution": "Astral python-build-standalone 20261026 Windows x64 install_only",
+    "python_source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
+    "python_archive_sha256": "590dfcbe3a34c07301e6332e13e2188b98655cd072b08afa45a7998dc4c22bc5",
+    "python_archive_bytes": 47113364,
+    "python_full_archive_sha256": "37b4eb2818fee605fefa75ed156c4f2e1aaeaebaf662f9b30177c842ee16c48f",
+    "python_full_archive_bytes": 43768992
   },
   "components": [
     {
@@ -94,35 +100,35 @@
     {
       "id": "numpy",
       "name": "numpy",
-      "version": "2.4.6",
+      "version": "2.5.4",
       "licence": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "texts": [
-        "numpy__numpy-2.4.6.dist-info_licenses_LICENSE.txt",
-        "numpy__numpy-2.4.6.dist-info_licenses_numpy__core_include_numpy_libdivide_LICENSE.txt",
-        "numpy__numpy-2.4.6.dist-info_licenses_numpy__core_src_common_pythoncapi-compat_COPYING",
-        "numpy__numpy-2.4.6.dist-info_licenses_numpy__core_src_highway_LICENSE",
-        "numpy__numpy-2.4.6.dist-info_licenses_numpy__core_src_npysort_x86-simd-sort_LICENSE.md",
-        "numpy__numpy-2.4.6.dist-info_licenses_numpy__core_src_umath_svml_LICENSE",
-        "numpy__numpy-2.4.6.dist-info_licenses_numpy_fft_pocketfft_LICENSE.md",
-        "numpy__numpy-2.4.6.dist-info_licenses_numpy_linalg_lapack_lite_LICENSE.txt",
-        "numpy__numpy-2.4.6.dist-info_licenses_numpy_ma_LICENSE",
-        "numpy__numpy-2.4.6.dist-info_licenses_numpy_random_LICENSE.md",
-        "numpy__numpy-2.4.6.dist-info_licenses_numpy_random_src_distributions_LICENSE.md",
-        "numpy__numpy-2.4.6.dist-info_licenses_numpy_random_src_mt19937_LICENSE.md",
-        "numpy__numpy-2.4.6.dist-info_licenses_numpy_random_src_pcg64_LICENSE.md",
-        "numpy__numpy-2.4.6.dist-info_licenses_numpy_random_src_philox_LICENSE.md",
-        "numpy__numpy-2.4.6.dist-info_licenses_numpy_random_src_sfc64_LICENSE.md",
-        "numpy__numpy-2.4.6.dist-info_licenses_numpy_random_src_splitmix64_LICENSE.md",
+        "numpy__numpy-2.5.4.dist-info_licenses_LICENSE.txt",
+        "numpy__numpy-2.5.4.dist-info_licenses_numpy__core_include_numpy_libdivide_LICENSE.txt",
+        "numpy__numpy-2.5.4.dist-info_licenses_numpy__core_src_common_pythoncapi-compat_COPYING",
+        "numpy__numpy-2.5.4.dist-info_licenses_numpy__core_src_highway_LICENSE",
+        "numpy__numpy-2.5.4.dist-info_licenses_numpy__core_src_multiarray_dragon4_LICENSE.txt",
+        "numpy__numpy-2.5.4.dist-info_licenses_numpy__core_src_npysort_x86-simd-sort_LICENSE.md",
+        "numpy__numpy-2.5.4.dist-info_licenses_numpy__core_src_umath_svml_LICENSE",
+        "numpy__numpy-2.5.4.dist-info_licenses_numpy_fft_pocketfft_LICENSE.md",
+        "numpy__numpy-2.5.4.dist-info_licenses_numpy_linalg_lapack_lite_LICENSE.txt",
+        "numpy__numpy-2.5.4.dist-info_licenses_numpy_ma_LICENSE",
+        "numpy__numpy-2.5.4.dist-info_licenses_numpy_random_LICENSE.md",
+        "numpy__numpy-2.5.4.dist-info_licenses_numpy_random_src_distributions_LICENSE.md",
+        "numpy__numpy-2.5.4.dist-info_licenses_numpy_random_src_mt19937_LICENSE.md",
+        "numpy__numpy-2.5.4.dist-info_licenses_numpy_random_src_pcg64_LICENSE.md",
+        "numpy__numpy-2.5.4.dist-info_licenses_numpy_random_src_philox_LICENSE.md",
+        "numpy__numpy-2.5.4.dist-info_licenses_numpy_random_src_sfc64_LICENSE.md",
+        "numpy__numpy-2.5.4.dist-info_licenses_numpy_random_src_splitmix64_LICENSE.md",
         "numpy__numpy__core_include_numpy_random_LICENSE.txt",
         "numpy__numpy_ma_LICENSE",
-        "numpy__numpy_random_LICENSE.md",
-        "numpy__numpy-2.4.6.dist-info_licenses_numpy__core_src_multiarray_dragon4_LICENSE.txt"
+        "numpy__numpy_random_LICENSE.md"
       ],
       "embedded_in": [
         "local-ai-ocr.exe"
       ],
-      "frozen_python_module_count": 139,
+      "frozen_python_module_count": 138,
       "scope": "runtime"
     },
     {
@@ -382,11 +388,11 @@
     {
       "id": "pyinstaller-hooks-contrib",
       "name": "pyinstaller-hooks-contrib",
-      "version": "2026.8",
+      "version": "2026.9",
       "licence": "GPL-2.0-or-later with PyInstaller bootloader exception and Apache-2.0 runtime hooks",
-      "source": "https://pypi.org/project/pyinstaller-hooks-contrib/2026.8/",
+      "source": "https://pypi.org/project/pyinstaller-hooks-contrib/2026.9/",
       "texts": [
-        "pyinstaller-hooks-contrib__pyinstaller_hooks_contrib-2026.8.dist-info_licenses_LICENSE"
+        "pyinstaller-hooks-contrib__pyinstaller_hooks_contrib-2026.9.dist-info_licenses_LICENSE"
       ],
       "embedded_in": [
         "local-ai-ocr.exe"
@@ -410,11 +416,11 @@
     {
       "id": "setuptools",
       "name": "setuptools",
-      "version": "84.1.0",
+      "version": "84.2.1",
       "licence": "MIT",
-      "source": "https://pypi.org/project/setuptools/84.1.0/",
+      "source": "https://pypi.org/project/setuptools/84.2.1/",
       "texts": [
-        "setuptools__setuptools-84.1.0.dist-info_licenses_LICENSE",
+        "setuptools__setuptools-84.2.1.dist-info_licenses_LICENSE",
         "setuptools__setuptools__vendor_autocommand-2.2.2.dist-info_LICENSE",
         "setuptools__setuptools__vendor_backports.tarfile-1.2.0.dist-info_LICENSE",
         "setuptools__setuptools__vendor_importlib_metadata-8.7.1.dist-info_licenses_LICENSE",
@@ -422,9 +428,9 @@
         "setuptools__setuptools__vendor_jaraco_context-6.1.0.dist-info_licenses_LICENSE",
         "setuptools__setuptools__vendor_jaraco_functools-4.4.0.dist-info_licenses_LICENSE",
         "setuptools__setuptools__vendor_more_itertools-10.8.0.dist-info_licenses_LICENSE",
-        "setuptools__setuptools__vendor_packaging-26.0.dist-info_licenses_LICENSE",
-        "setuptools__setuptools__vendor_packaging-26.0.dist-info_licenses_LICENSE.APACHE",
-        "setuptools__setuptools__vendor_packaging-26.0.dist-info_licenses_LICENSE.BSD",
+        "setuptools__setuptools__vendor_packaging-26.3.dist-info_licenses_LICENSE",
+        "setuptools__setuptools__vendor_packaging-26.3.dist-info_licenses_LICENSE.APACHE",
+        "setuptools__setuptools__vendor_packaging-26.3.dist-info_licenses_LICENSE.BSD",
         "setuptools__setuptools__vendor_platformdirs-4.4.0.dist-info_licenses_LICENSE",
         "setuptools__setuptools__vendor_tomli-2.4.0.dist-info_licenses_LICENSE",
         "setuptools__setuptools__vendor_wheel-0.46.3.dist-info_licenses_LICENSE.txt",
@@ -439,13 +445,16 @@
     {
       "id": "cpython",
       "name": "CPython",
-      "version": "3.11.9",
+      "version": "3.12.16",
       "licence": "PSF-2.0 and bundled third-party notices",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "texts": [
         "Python-LICENSE.txt",
-        "Python-3.11.9-license.rst",
-        "Python-3.11.9-expat-COPYING.txt"
+        "Python-3.12.16-cpython-LICENSE.txt",
+        "Python-3.12.16-expat-LICENSE.txt",
+        "Python-3.12.16-bzip2-LICENSE.txt",
+        "Python-3.12.16-mpdecimal-LICENSE.txt",
+        "Python-3.12.16-libffi-LICENSE.txt"
       ],
       "embedded_in": [
         "local-ai-ocr.exe"
@@ -486,23 +495,25 @@
     {
       "id": "openssl",
       "name": "OpenSSL bundled with CPython",
-      "version": "3.0.13",
+      "version": "3.5.9",
       "licence": "Apache-2.0",
-      "source": "https://github.com/openssl/openssl/tree/openssl-3.0.13",
+      "source": "https://github.com/openssl/openssl/tree/openssl-3.5.9",
       "texts": [
-        "OpenSSL-3.0.13-APACHE-2.0.txt",
-        "OpenSSL-3.0.13-README.md"
+        "OpenSSL-3.5.9-APACHE-2.0.txt"
       ],
-      "embedded_in": []
+      "embedded_in": [
+        "_internal/libcrypto-3-x64.dll",
+        "_internal/libssl-3-x64.dll"
+      ]
     },
     {
       "id": "xz-liblzma",
       "name": "XZ liblzma bundled with CPython",
-      "version": "5.2.5 (CPython 3.11.9 build configuration)",
-      "licence": "LicenseRef-Public-Domain",
-      "source": "https://github.com/tukaani-project/xz/tree/v5.2.5",
+      "version": "5.8.4 (Astral CPython 3.12.16 build, confirmed by _lzma.pdb)",
+      "licence": "0BSD",
+      "source": "https://github.com/tukaani-project/xz/tree/v5.8.4",
       "texts": [
-        "xz-5.2.5-COPYING.txt"
+        "xz-5.8.4-0BSD.txt"
       ],
       "embedded_in": [
         "_internal/_lzma.pyd"
@@ -511,14 +522,14 @@
     {
       "id": "zlib",
       "name": "zlib bundled with CPython",
-      "version": "1.3.1 (CPython 3.11.9 build configuration)",
+      "version": "1.3.2 (queried from CPython 3.12.16 zlib runtime)",
       "licence": "Zlib",
-      "source": "https://github.com/madler/zlib/tree/v1.3.1",
+      "source": "https://github.com/madler/zlib/tree/v1.3.2",
       "texts": [
-        "zlib-1.3.1-LICENSE.txt"
+        "zlib-1.3.2-LICENSE.txt"
       ],
       "embedded_in": [
-        "_internal/python311.dll"
+        "_internal/python312.dll"
       ]
     },
     {
@@ -530,7 +541,7 @@
       "texts": [
         "Python-LICENSE.txt",
         "shapely__shapely-2.2.0.dist-info_licenses_LICENSE_win32",
-        "numpy__numpy-2.4.6.dist-info_licenses_LICENSE.txt"
+        "numpy__numpy-2.5.4.dist-info_licenses_LICENSE.txt"
       ],
       "embedded_in": []
     }
@@ -538,111 +549,120 @@
   "files": [
     {
       "path": "_internal/_asyncio.pyd",
-      "bytes": 65304,
-      "sha256": "746bc8fa88282afe19dc60e426cc0a75bea3bd137cca06a0b57a30bd31459403",
+      "bytes": 59392,
+      "sha256": "f3c20d7c7d8184d0f9cf5c8b1daa38119f08a9bc0558e929544bb6a0c4bbe88c",
       "component": "cpython",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/_asyncio.pyd"
     },
     {
       "path": "_internal/_bz2.pyd",
-      "bytes": 84760,
-      "sha256": "00b8ca9a338d2b47285c9e56d6d893db2a999b47216756f18439997fb80a56e3",
+      "bytes": 73216,
+      "sha256": "6e4575d9435991e262e71490c7879d139aa91023e78af6819cdecac05e6df510",
       "component": "cpython",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/_bz2.pyd"
     },
     {
       "path": "_internal/_ctypes.pyd",
-      "bytes": 124696,
-      "sha256": "c148292328f0aab7863af82f54f613961e7cb95b7215f7a81cafaf45bd4c42b7",
+      "bytes": 116224,
+      "sha256": "ed4c254ff01b0a59c5935fa7cf3c3f29e0ef6183d8cea631cf791e6252759bcb",
       "component": "cpython",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/_ctypes.pyd"
     },
     {
       "path": "_internal/_decimal.pyd",
-      "bytes": 255768,
-      "sha256": "980a63f2b39cf16910f44384398e25f24482346a482addb00de42555b17d4278",
+      "bytes": 248832,
+      "sha256": "198737ca0284230f22ba2b9608ae3b471345d2329dac1a52fd7b19e27c282b6b",
       "component": "cpython",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/_decimal.pyd"
     },
     {
       "path": "_internal/_elementtree.pyd",
-      "bytes": 128792,
-      "sha256": "02e30b6a2bee5be5336e40a9c89575603051bde86f9c9cdc78b7fa7d9b7bd1f0",
+      "bytes": 122368,
+      "sha256": "679ef96b0cbb1649262ce8647592f9bf4de2c93733d25de4cf34bef8e21db2a9",
       "component": "cpython",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/_elementtree.pyd"
     },
     {
       "path": "_internal/_hashlib.pyd",
-      "bytes": 65304,
-      "sha256": "87dd0c858620287454fd6d31d52b6a48eddbb2a08e09e8b2d9fdb0b92200d766",
+      "bytes": 54784,
+      "sha256": "71c71022b34ccb680bb51e77de3ce9cf2999e11abca7d969f0f8f7955d53c486",
       "component": "cpython",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/_hashlib.pyd"
     },
     {
       "path": "_internal/_lzma.pyd",
-      "bytes": 159512,
-      "sha256": "f5e01b516c2c23035f7703e23569dec26c5616c05a929b2580ae474a5c6722c5",
+      "bytes": 153088,
+      "sha256": "7ea33a9b474b26798f87e8107cb5c002d9eac3368ad28fc2349b41189809207a",
       "component": "cpython",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/_lzma.pyd"
     },
     {
       "path": "_internal/_multiprocessing.pyd",
-      "bytes": 34584,
-      "sha256": "975c1947798e3c39898c86675ca1eb68249f77361f41f172f9800275227213b9",
+      "bytes": 24064,
+      "sha256": "a47d6119891cd711a84cb4c151168db131c6fce2e49391e478a5677eccf451f6",
       "component": "cpython",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/_multiprocessing.pyd"
     },
     {
       "path": "_internal/_overlapped.pyd",
-      "bytes": 51480,
-      "sha256": "ca106e4dfdeafeabf9e98956d3d8d0cb73e109f1a96f1a7e35bc47dbd7c7e164",
+      "bytes": 44032,
+      "sha256": "286a1982e05b07e8656e10e2d2d586790cc8ea32505e4e995a9372352d636cf7",
       "component": "cpython",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/_overlapped.pyd"
     },
     {
       "path": "_internal/_queue.pyd",
-      "bytes": 32024,
-      "sha256": "3f8e7e6aa13b417acc78b63434fb1144e6319a010a9fc376c54d6e69b638fe4c",
+      "bytes": 20480,
+      "sha256": "c57200f2cc54cbfcfa65a7214d812c8f278932e69a7068eedcd378702583f145",
       "component": "cpython",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/_queue.pyd"
     },
     {
       "path": "_internal/_socket.pyd",
-      "bytes": 79640,
-      "sha256": "a19e3c7c03ef1b5625790b1c9c42594909311ab6df540fbf43c6aa93300ab166",
+      "bytes": 71680,
+      "sha256": "0da585ed76deaf150982d81c6be4f4b235d14c4412828ecd8ea87b1dd9033aa0",
       "component": "cpython",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/_socket.pyd"
     },
     {
       "path": "_internal/_ssl.pyd",
-      "bytes": 178456,
-      "sha256": "ba5388d6a6557d431e086734a3323621dc447f63ba299b0a815e5837cf869678",
+      "bytes": 165888,
+      "sha256": "5322a75da94cc3839355451b574cd5a0e0ab5b8e7da01c9fa6ad1e1aedf2e429",
       "component": "cpython",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/_ssl.pyd"
+    },
+    {
+      "path": "_internal/_wmi.pyd",
+      "bytes": 25600,
+      "sha256": "8ae4f38dd1b3c2d0329e6fc2ebf4b204dbfe8f18246f96f66e332e5f964d9f52",
+      "component": "cpython",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
+      "origin": "frozen-build",
+      "source_path": "frozen-build/_internal/_wmi.pyd"
     },
     {
       "path": "_internal/api-ms-win-core-console-l1-1-0.dll",
@@ -1033,10 +1053,10 @@
     },
     {
       "path": "_internal/base_library.zip",
-      "bytes": 1443565,
-      "sha256": "c421ba729ebced22e78f5cf1d035d141b04da99587f6cfa07b535e55105ea45a",
+      "bytes": 1333525,
+      "sha256": "3833abb9b9b511b22554508d09203f3182de7afe6b834405196ea222fb6f1fd9",
       "component": "cpython",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/base_library.zip"
     },
@@ -1059,22 +1079,22 @@
       "source_path": "frozen-build/_internal/certifi/py.typed"
     },
     {
-      "path": "_internal/charset_normalizer/cd.cp311-win_amd64.pyd",
-      "bytes": 116736,
-      "sha256": "71f058fba64042b52ffa94a5637e57208fa9a3e027be2ea8ed2ddb3ce8ea462f",
+      "path": "_internal/charset_normalizer/cd.cp312-win_amd64.pyd",
+      "bytes": 115712,
+      "sha256": "2bdbc0805f85565d76f8d6166e451bfafa6d5490b06b36c9f423cd0102b4f149",
       "component": "charset-normalizer",
       "source": "https://pypi.org/project/charset-normalizer/3.5.2/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/charset_normalizer/cd.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/charset_normalizer/cd.cp312-win_amd64.pyd"
     },
     {
-      "path": "_internal/charset_normalizer/md.cp311-win_amd64.pyd",
-      "bytes": 215552,
-      "sha256": "d5c25e49d631c6160db27f126ba83c4621212a9be45c9f5c0a2ddc415692c945",
+      "path": "_internal/charset_normalizer/md.cp312-win_amd64.pyd",
+      "bytes": 208384,
+      "sha256": "b08be5d29125f39a92e22d0abe4b9160753f7a790fffd07258319a8e16394afa",
       "component": "charset-normalizer",
       "source": "https://pypi.org/project/charset-normalizer/3.5.2/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/charset_normalizer/md.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/charset_normalizer/md.cp312-win_amd64.pyd"
     },
     {
       "path": "_internal/cv2/__init__.py",
@@ -1185,31 +1205,31 @@
       "source_path": "frozen-build/_internal/cv2/version.py"
     },
     {
-      "path": "_internal/libcrypto-3.dll",
-      "bytes": 5191960,
-      "sha256": "05fe080eab7fc535c51e10c1bd76a2f3e6217f9c91a25034774588881c3f99de",
+      "path": "_internal/libcrypto-3-x64.dll",
+      "bytes": 7856640,
+      "sha256": "b1b422db706bae5429819cfbf77bb860fbb15843e4f812afc444d7345ded7dbf",
       "component": "openssl",
-      "source": "https://github.com/openssl/openssl/tree/openssl-3.0.13",
+      "source": "https://github.com/openssl/openssl/tree/openssl-3.5.9",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/libcrypto-3.dll"
+      "source_path": "frozen-build/_internal/libcrypto-3-x64.dll"
     },
     {
       "path": "_internal/libffi-8.dll",
-      "bytes": 39696,
-      "sha256": "eff52743773eb550fcc6ce3efc37c85724502233b6b002a35496d828bd7b280a",
+      "bytes": 28160,
+      "sha256": "4725c5067272cff1efb7dc9f25d43520a76473c9eeaff59ad3c9b1a1a3f17d95",
       "component": "cpython",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/libffi-8.dll"
     },
     {
-      "path": "_internal/libssl-3.dll",
-      "bytes": 787224,
-      "sha256": "2e9fbcd8f7fdc13a5179533239811456554f2b3aa2fb10e1b17be0df81c79006",
+      "path": "_internal/libssl-3-x64.dll",
+      "bytes": 1571840,
+      "sha256": "c1a0ea16b3fe79b3ef9c6861533ddd8c5661f1b3244f67fcf1b53b2576ab809a",
       "component": "openssl",
-      "source": "https://github.com/openssl/openssl/tree/openssl-3.0.13",
+      "source": "https://github.com/openssl/openssl/tree/openssl-3.5.9",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/libssl-3.dll"
+      "source_path": "frozen-build/_internal/libssl-3-x64.dll"
     },
     {
       "path": "_internal/msvcp140.dll",
@@ -1230,229 +1250,229 @@
       "source_path": "frozen-build/_internal/MSVCP140_1.dll"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/DELVEWHEEL",
+      "path": "_internal/numpy-2.5.4.dist-info/DELVEWHEEL",
       "bytes": 462,
-      "sha256": "0399822db132f754a7e3ba5eac8e564e4049b30df55d53bfeba6d38b812de58d",
+      "sha256": "071835e9599badbf48ff13018c74eec31bf7e6e566cf17cc6a131eeff34b09ea",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/DELVEWHEEL"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/DELVEWHEEL"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/entry_points.txt",
+      "path": "_internal/numpy-2.5.4.dist-info/entry_points.txt",
       "bytes": 220,
       "sha256": "ec26fade0c8bdac211a6c1dd003a65eb16885b925395423e93fcaa115af4052c",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/entry_points.txt"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/entry_points.txt"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/INSTALLER",
+      "path": "_internal/numpy-2.5.4.dist-info/INSTALLER",
       "bytes": 4,
       "sha256": "ceebae7b8927a3227e5303cf5e0f1f7b34bb542ad7250ac03fbcde36ec2f1508",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/INSTALLER"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/INSTALLER"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/licenses/LICENSE.txt",
+      "path": "_internal/numpy-2.5.4.dist-info/licenses/LICENSE.txt",
       "bytes": 45831,
       "sha256": "a804dff0ead9fadc5293456410bcbfc32bf024be9c4513459663fb7b442d2341",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/licenses/LICENSE.txt"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/licenses/LICENSE.txt"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/licenses/numpy/_core/include/numpy/libdivide/LICENSE.txt",
+      "path": "_internal/numpy-2.5.4.dist-info/licenses/numpy/_core/include/numpy/libdivide/LICENSE.txt",
       "bytes": 1039,
       "sha256": "d544761558b510866c21f7e8a2d5716fca76e0b98117e3b6b86314db7244d150",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/licenses/numpy/_core/include/numpy/libdivide/LICENSE.txt"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/licenses/numpy/_core/include/numpy/libdivide/LICENSE.txt"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/licenses/numpy/_core/src/common/pythoncapi-compat/COPYING",
+      "path": "_internal/numpy-2.5.4.dist-info/licenses/numpy/_core/src/common/pythoncapi-compat/COPYING",
       "bytes": 704,
       "sha256": "aea41976c720f91bd19725c16916a1ace40eb1ea42620d340e587a5de4bbcea0",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/licenses/numpy/_core/src/common/pythoncapi-compat/COPYING"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/licenses/numpy/_core/src/common/pythoncapi-compat/COPYING"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/licenses/numpy/_core/src/highway/LICENSE",
+      "path": "_internal/numpy-2.5.4.dist-info/licenses/numpy/_core/src/highway/LICENSE",
       "bytes": 21155,
       "sha256": "d208152e2777ffd0126eacc1bd21c0320d69e4e6b622d21a2a12a47e8ef73763",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/licenses/numpy/_core/src/highway/LICENSE"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/licenses/numpy/_core/src/highway/LICENSE"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/licenses/numpy/_core/src/multiarray/dragon4_LICENSE.txt",
+      "path": "_internal/numpy-2.5.4.dist-info/licenses/numpy/_core/src/multiarray/dragon4_LICENSE.txt",
       "bytes": 1441,
       "sha256": "b0fd592d4ead563148e3977e7b589169d46a5ef2ff133c755a81af880a3fc919",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/licenses/numpy/_core/src/multiarray/dragon4_LICENSE.txt"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/licenses/numpy/_core/src/multiarray/dragon4_LICENSE.txt"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/licenses/numpy/_core/src/npysort/x86-simd-sort/LICENSE.md",
+      "path": "_internal/numpy-2.5.4.dist-info/licenses/numpy/_core/src/npysort/x86-simd-sort/LICENSE.md",
       "bytes": 1542,
       "sha256": "a732977853530066790c42817087f4829b518dd98d340c916acbfd227e39d3cb",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/licenses/numpy/_core/src/npysort/x86-simd-sort/LICENSE.md"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/licenses/numpy/_core/src/npysort/x86-simd-sort/LICENSE.md"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/licenses/numpy/_core/src/umath/svml/LICENSE",
+      "path": "_internal/numpy-2.5.4.dist-info/licenses/numpy/_core/src/umath/svml/LICENSE",
       "bytes": 1573,
       "sha256": "585483905b13d4b42f800c55ba99e89d6e2e33ccd5f503e201c07531d148ff41",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/licenses/numpy/_core/src/umath/svml/LICENSE"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/licenses/numpy/_core/src/umath/svml/LICENSE"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/licenses/numpy/fft/pocketfft/LICENSE.md",
+      "path": "_internal/numpy-2.5.4.dist-info/licenses/numpy/fft/pocketfft/LICENSE.md",
       "bytes": 1523,
       "sha256": "8db000e158c162e7249787852d8c69764706502ccee725c06641b31c1e95c8af",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/licenses/numpy/fft/pocketfft/LICENSE.md"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/licenses/numpy/fft/pocketfft/LICENSE.md"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/licenses/numpy/linalg/lapack_lite/LICENSE.txt",
+      "path": "_internal/numpy-2.5.4.dist-info/licenses/numpy/linalg/lapack_lite/LICENSE.txt",
       "bytes": 2314,
       "sha256": "19060ef465e1797d682ee0fc3081bd25ab1395e995e43d25c9d13c95d9a3cd6b",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/licenses/numpy/linalg/lapack_lite/LICENSE.txt"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/licenses/numpy/linalg/lapack_lite/LICENSE.txt"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/licenses/numpy/ma/LICENSE",
+      "path": "_internal/numpy-2.5.4.dist-info/licenses/numpy/ma/LICENSE",
       "bytes": 1616,
       "sha256": "d78dbb208b80d92b4d333e41a4baae50d12444f46e53199fa7726a91de6e2da7",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/licenses/numpy/ma/LICENSE"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/licenses/numpy/ma/LICENSE"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/licenses/numpy/random/LICENSE.md",
+      "path": "_internal/numpy-2.5.4.dist-info/licenses/numpy/random/LICENSE.md",
       "bytes": 3582,
       "sha256": "b4bc2f4fa1c95778f1ed3dd8f14706bece399475b978f9f34b5d3cd72521b48a",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/licenses/numpy/random/LICENSE.md"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/licenses/numpy/random/LICENSE.md"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/licenses/numpy/random/src/distributions/LICENSE.md",
+      "path": "_internal/numpy-2.5.4.dist-info/licenses/numpy/random/src/distributions/LICENSE.md",
       "bytes": 2805,
       "sha256": "cf5619f25b112d5ce7c896efffc8e610bcb345dfadcc19f2c1460aa48fff2c9e",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/licenses/numpy/random/src/distributions/LICENSE.md"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/licenses/numpy/random/src/distributions/LICENSE.md"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/licenses/numpy/random/src/mt19937/LICENSE.md",
+      "path": "_internal/numpy-2.5.4.dist-info/licenses/numpy/random/src/mt19937/LICENSE.md",
       "bytes": 2986,
       "sha256": "92c10699884321f1c2947fe2a70ab23b0fbf1507f756d89dd08f38c61fc3d4fa",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/licenses/numpy/random/src/mt19937/LICENSE.md"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/licenses/numpy/random/src/mt19937/LICENSE.md"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/licenses/numpy/random/src/pcg64/LICENSE.md",
+      "path": "_internal/numpy-2.5.4.dist-info/licenses/numpy/random/src/pcg64/LICENSE.md",
       "bytes": 1176,
       "sha256": "41190663b77bee5302386495a07b7eabfbfa571aa0ae2f11da6764162062fc4f",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/licenses/numpy/random/src/pcg64/LICENSE.md"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/licenses/numpy/random/src/pcg64/LICENSE.md"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/licenses/numpy/random/src/philox/LICENSE.md",
+      "path": "_internal/numpy-2.5.4.dist-info/licenses/numpy/random/src/philox/LICENSE.md",
       "bytes": 1540,
       "sha256": "322ac46d870c8aeead6c53adcccc839296fb3c8e456eae155081297daf7f8013",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/licenses/numpy/random/src/philox/LICENSE.md"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/licenses/numpy/random/src/philox/LICENSE.md"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/licenses/numpy/random/src/sfc64/LICENSE.md",
+      "path": "_internal/numpy-2.5.4.dist-info/licenses/numpy/random/src/sfc64/LICENSE.md",
       "bytes": 1253,
       "sha256": "28cad82ce1379dc529df30da78ec012d7d0d1d576b03ddcb93388aee53659f59",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/licenses/numpy/random/src/sfc64/LICENSE.md"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/licenses/numpy/random/src/sfc64/LICENSE.md"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/licenses/numpy/random/src/splitmix64/LICENSE.md",
+      "path": "_internal/numpy-2.5.4.dist-info/licenses/numpy/random/src/splitmix64/LICENSE.md",
       "bytes": 340,
       "sha256": "454ec7350e478e037061850b67395753b425b1cb0a34bbc26290b020bf89d763",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/licenses/numpy/random/src/splitmix64/LICENSE.md"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/licenses/numpy/random/src/splitmix64/LICENSE.md"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/METADATA",
-      "bytes": 6608,
-      "sha256": "b082c52ccbe3b880bae177c35171b52ed6c947f3ad71e3762f2723f60a411de0",
+      "path": "_internal/numpy-2.5.4.dist-info/METADATA",
+      "bytes": 6635,
+      "sha256": "e2b909d6a37d76c2bc130f528d7fed0c517322bce16dc7846b6a6df30e200403",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/METADATA"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/METADATA"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/RECORD",
-      "bytes": 129345,
-      "sha256": "ddceac5151125d67fd0d5459aa2cd00d42fc91b91996546e1d944b7eb0e307f6",
+      "path": "_internal/numpy-2.5.4.dist-info/RECORD",
+      "bytes": 113361,
+      "sha256": "542be04bec5cb3e06dd7910b47f9a69f8ed1ad774ce488ddfc3d4185cdfb91a2",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/RECORD"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/RECORD"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/REQUESTED",
+      "path": "_internal/numpy-2.5.4.dist-info/REQUESTED",
       "bytes": 0,
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/REQUESTED"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/REQUESTED"
     },
     {
-      "path": "_internal/numpy-2.4.6.dist-info/WHEEL",
+      "path": "_internal/numpy-2.5.4.dist-info/WHEEL",
       "bytes": 85,
-      "sha256": "25d2d35a173bde827e96a4c16068225689edaffbe1cf0cdba403a29ffd9bc532",
+      "sha256": "e743de01ba6503a3e4234858398a1e69c07d512d51e8482ec9f3a7b1c707d165",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy-2.4.6.dist-info/WHEEL"
+      "source_path": "frozen-build/_internal/numpy-2.5.4.dist-info/WHEEL"
     },
     {
-      "path": "_internal/numpy.libs/libscipy_openblas64_-63c857e738469261263c764a36be9436.dll",
-      "bytes": 20415488,
-      "sha256": "63c857e738469261263c764a36be9436ebdeaa272e340a828f42047a97131080",
+      "path": "_internal/numpy.libs/libscipy_openblas64_-ed4f167a5330424524f45258e7ca2c8d.dll",
+      "bytes": 20589056,
+      "sha256": "ed4f167a5330424524f45258e7ca2c8d7f03c0cba1f30ee4985553ac1f88ecf8",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy.libs/libscipy_openblas64_-63c857e738469261263c764a36be9436.dll"
+      "source_path": "frozen-build/_internal/numpy.libs/libscipy_openblas64_-ed4f167a5330424524f45258e7ca2c8d.dll"
     },
     {
       "path": "_internal/numpy.libs/msvcp140-a4c2229bdc2a2a630acdc095b4d86008.dll",
@@ -1464,126 +1484,126 @@
       "source_path": "frozen-build/_internal/numpy.libs/msvcp140-a4c2229bdc2a2a630acdc095b4d86008.dll"
     },
     {
-      "path": "_internal/numpy/_core/_multiarray_tests.cp311-win_amd64.pyd",
-      "bytes": 64512,
-      "sha256": "adf0e01de577f4ccc2a11099c817cb41c8a78b6174175356dd62e745075cfac8",
+      "path": "_internal/numpy/_core/_multiarray_tests.cp312-win_amd64.pyd",
+      "bytes": 65536,
+      "sha256": "f09f60242eaed510e1af6384284f53ff56ae42770a62e630bd415bc2b6854d66",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy/_core/_multiarray_tests.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/numpy/_core/_multiarray_tests.cp312-win_amd64.pyd"
     },
     {
-      "path": "_internal/numpy/_core/_multiarray_umath.cp311-win_amd64.pyd",
-      "bytes": 3703296,
-      "sha256": "4fb4c5d62a6bd766eea716350eaf5396580e33cf7dc159e305488d1b7d72dad2",
+      "path": "_internal/numpy/_core/_multiarray_umath.cp312-win_amd64.pyd",
+      "bytes": 3855872,
+      "sha256": "9c10617e66e992b5ac6d9f78fe7cedd0011618e1c2f89d09a185bb63073e2c90",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy/_core/_multiarray_umath.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/numpy/_core/_multiarray_umath.cp312-win_amd64.pyd"
     },
     {
-      "path": "_internal/numpy/fft/_pocketfft_umath.cp311-win_amd64.pyd",
+      "path": "_internal/numpy/fft/_pocketfft_umath.cp312-win_amd64.pyd",
       "bytes": 276480,
-      "sha256": "e22ee51c9761e8cb2e153efc321d09cb656c5573488e55167f69d6e070d22466",
+      "sha256": "4f008612d6b9e2ab3820ee17a1c758c499e45e80a36764c9dfb7bf304b066f03",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy/fft/_pocketfft_umath.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/numpy/fft/_pocketfft_umath.cp312-win_amd64.pyd"
     },
     {
-      "path": "_internal/numpy/linalg/_umath_linalg.cp311-win_amd64.pyd",
-      "bytes": 112128,
-      "sha256": "8742391ee3d6dfb4a6e41418626bb45048b102e05229d424279ddefb877d9cd6",
+      "path": "_internal/numpy/linalg/_umath_linalg.cp312-win_amd64.pyd",
+      "bytes": 112640,
+      "sha256": "03bc9de2d6d8e2d9ea3ec781f3c16bcbc9960095cc02ca588f4229cd1560c661",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy/linalg/_umath_linalg.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/numpy/linalg/_umath_linalg.cp312-win_amd64.pyd"
     },
     {
-      "path": "_internal/numpy/random/_bounded_integers.cp311-win_amd64.pyd",
-      "bytes": 220160,
-      "sha256": "418dc5293b11f83a70c63ef77c3c9ca0dc4b9f20c7fadb4625805480305ddcef",
+      "path": "_internal/numpy/random/_bounded_integers.cp312-win_amd64.pyd",
+      "bytes": 208896,
+      "sha256": "927c1673ba698a85e6253b4d8d2223eb019b021792c54604489767c694d2ab93",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy/random/_bounded_integers.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/numpy/random/_bounded_integers.cp312-win_amd64.pyd"
     },
     {
-      "path": "_internal/numpy/random/_common.cp311-win_amd64.pyd",
-      "bytes": 169984,
-      "sha256": "f2cdbaa3d3d0dd8f5b74b7b4630470d609be4e4d31f8e37f8681e6c3c5aca895",
+      "path": "_internal/numpy/random/_common.cp312-win_amd64.pyd",
+      "bytes": 174080,
+      "sha256": "712a7bb4b2d3e56548cdf255eb4e6c1ca0737d7d81d76f09bdccebb0703ae572",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy/random/_common.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/numpy/random/_common.cp312-win_amd64.pyd"
     },
     {
-      "path": "_internal/numpy/random/_generator.cp311-win_amd64.pyd",
-      "bytes": 608768,
-      "sha256": "91f53ff9a803213ea5fa38b73be057b448be1728b4a353586d10f08d4f2c021c",
+      "path": "_internal/numpy/random/_generator.cp312-win_amd64.pyd",
+      "bytes": 624640,
+      "sha256": "0fa509dcf5ae21910cb2b3c74271977d0fac7fab15ffd5f32017e08b97e71de6",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy/random/_generator.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/numpy/random/_generator.cp312-win_amd64.pyd"
     },
     {
-      "path": "_internal/numpy/random/_mt19937.cp311-win_amd64.pyd",
-      "bytes": 84992,
-      "sha256": "e66de88dbf0b9a2ae67576cf2f4e7c220e10729d445403787bc8b58f4e8a6750",
+      "path": "_internal/numpy/random/_mt19937.cp312-win_amd64.pyd",
+      "bytes": 92672,
+      "sha256": "e6938df4dd3a193b7d9171d3e192702be3a70de2ebe866cf6fcd92f9e368349d",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy/random/_mt19937.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/numpy/random/_mt19937.cp312-win_amd64.pyd"
     },
     {
-      "path": "_internal/numpy/random/_pcg64.cp311-win_amd64.pyd",
-      "bytes": 96768,
-      "sha256": "16e4f9401783c502d82bce06263d98c985c841f3115d301741b22413bbbff851",
+      "path": "_internal/numpy/random/_pcg64.cp312-win_amd64.pyd",
+      "bytes": 105984,
+      "sha256": "8eb5569b221d40884093def83d897376bddd99c9279f182b9db3145b9b897d34",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy/random/_pcg64.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/numpy/random/_pcg64.cp312-win_amd64.pyd"
     },
     {
-      "path": "_internal/numpy/random/_philox.cp311-win_amd64.pyd",
-      "bytes": 79872,
-      "sha256": "56c44540e500dfb820e5a75004b5cf9945a648a87d0e40d64672325dd22fa3c1",
+      "path": "_internal/numpy/random/_philox.cp312-win_amd64.pyd",
+      "bytes": 89088,
+      "sha256": "cc0c03e2c1443e8981300ddb9cc5ceb504e7f8494323d4ec0a1ad95ae16fbf75",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy/random/_philox.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/numpy/random/_philox.cp312-win_amd64.pyd"
     },
     {
-      "path": "_internal/numpy/random/_sfc64.cp311-win_amd64.pyd",
-      "bytes": 59392,
-      "sha256": "23f03f25c5528ca51c11846bcbb5aaaee7c1c518897249865c47dca913c43863",
+      "path": "_internal/numpy/random/_sfc64.cp312-win_amd64.pyd",
+      "bytes": 64000,
+      "sha256": "20c551734cd2b2be2425c8773b795f1e92de8826ebbe6c1103cd0fa6b5c94408",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy/random/_sfc64.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/numpy/random/_sfc64.cp312-win_amd64.pyd"
     },
     {
-      "path": "_internal/numpy/random/bit_generator.cp311-win_amd64.pyd",
-      "bytes": 165888,
-      "sha256": "eafa63966c1b3e34397bec8fef991dee5a7944b09058b38afd9f2de40acfd141",
+      "path": "_internal/numpy/random/bit_generator.cp312-win_amd64.pyd",
+      "bytes": 173056,
+      "sha256": "c7f637df1fa0db9fe4bba6c05dac680d89aed245401423f1ffd16d93366a35a7",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy/random/bit_generator.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/numpy/random/bit_generator.cp312-win_amd64.pyd"
     },
     {
-      "path": "_internal/numpy/random/mtrand.cp311-win_amd64.pyd",
-      "bytes": 512512,
-      "sha256": "6f8a3d3ce835c6cd4fea9e4425b757b268ad69b0cef201a225f6cbd1b453182a",
+      "path": "_internal/numpy/random/mtrand.cp312-win_amd64.pyd",
+      "bytes": 522752,
+      "sha256": "e8bdaf22830ceaabc596854a816d39d96d1d60e96c2e12a9a17950b624d480a1",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/numpy/random/mtrand.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/numpy/random/mtrand.cp312-win_amd64.pyd"
     },
     {
       "path": "_internal/onnxruntime/capi/onnxruntime.dll",
-      "bytes": 19288888,
-      "sha256": "7f6af4d294cf33d84dd66211d2d7a385e45108ac34716f1717dfbbd40e932952",
+      "bytes": 19288928,
+      "sha256": "aa7737cc5c987286f09f6f12304fa786ea697b11b4ca7ab59a027ff4ce343a9c",
       "component": "onnxruntime",
       "source": "https://pypi.org/project/onnxruntime/1.31.0/",
       "origin": "frozen-build",
@@ -1592,7 +1612,7 @@
     {
       "path": "_internal/onnxruntime/capi/onnxruntime_providers_shared.dll",
       "bytes": 21856,
-      "sha256": "f82cd03f748ade80791c2150b968ce1d767bdf94394a5d1f249f1fc77f5eccc6",
+      "sha256": "029af27204cff24103c5837a0eb507e4a31ef269116f400c6b25c5457ddc9a32",
       "component": "onnxruntime",
       "source": "https://pypi.org/project/onnxruntime/1.31.0/",
       "origin": "frozen-build",
@@ -1600,102 +1620,102 @@
     },
     {
       "path": "_internal/onnxruntime/capi/onnxruntime_pybind11_state.pyd",
-      "bytes": 19964768,
-      "sha256": "9b8782388e4cd190e15107c95d13cac52e21424c4d2cbd6306ed7b1a6380ab40",
+      "bytes": 19998048,
+      "sha256": "f514d95a3095e85a3708ba051f8747edd8e4b968fb7b86f6e3478e1df3292d76",
       "component": "onnxruntime",
       "source": "https://pypi.org/project/onnxruntime/1.31.0/",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/onnxruntime/capi/onnxruntime_pybind11_state.pyd"
     },
     {
-      "path": "_internal/PIL/_avif.cp311-win_amd64.pyd",
-      "bytes": 7888896,
-      "sha256": "93d18fd6e9170db341560cc3b3909e01346fcaad6ac26128bb8fafca65b4c546",
+      "path": "_internal/PIL/_avif.cp312-win_amd64.pyd",
+      "bytes": 7893504,
+      "sha256": "3c31d65c8b3b4c91ac2838d5c843a6b2479d775b6904fe654d60b56d41772411",
       "component": "pillow",
       "source": "https://pypi.org/project/pillow/13.0.0/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/PIL/_avif.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/PIL/_avif.cp312-win_amd64.pyd"
     },
     {
-      "path": "_internal/PIL/_imaging.cp311-win_amd64.pyd",
+      "path": "_internal/PIL/_imaging.cp312-win_amd64.pyd",
       "bytes": 2662400,
-      "sha256": "1ead5ef5fb2b0b40d5a92c4baa5e4e111b187e9f9f4e895a1ab8cea8e12318f2",
+      "sha256": "7140f56d38dd6cd51512f8122386bcb914c5df2a82eb5f719c973527d9213cee",
       "component": "pillow",
       "source": "https://pypi.org/project/pillow/13.0.0/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/PIL/_imaging.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/PIL/_imaging.cp312-win_amd64.pyd"
     },
     {
-      "path": "_internal/PIL/_imagingcms.cp311-win_amd64.pyd",
-      "bytes": 275968,
-      "sha256": "6b2b71a29b684727c100cbe2810a69cde03d32fd489150f90ef7ca155556a5fe",
+      "path": "_internal/PIL/_imagingcms.cp312-win_amd64.pyd",
+      "bytes": 275456,
+      "sha256": "2640857cace64d69735bdcaa3987e9ad70f85168abc1a8662079c77ac44b5301",
       "component": "pillow",
       "source": "https://pypi.org/project/pillow/13.0.0/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/PIL/_imagingcms.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/PIL/_imagingcms.cp312-win_amd64.pyd"
     },
     {
-      "path": "_internal/PIL/_imagingft.cp311-win_amd64.pyd",
-      "bytes": 2250240,
-      "sha256": "6661a925b55bc9c0465699a64327b3b7602d1b04391caf5ab88efa77e8569838",
+      "path": "_internal/PIL/_imagingft.cp312-win_amd64.pyd",
+      "bytes": 2250752,
+      "sha256": "985228f6086171978abb5d04f2f625c489fdc9d7f0a92f2077a621ff184a599e",
       "component": "pillow",
       "source": "https://pypi.org/project/pillow/13.0.0/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/PIL/_imagingft.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/PIL/_imagingft.cp312-win_amd64.pyd"
     },
     {
-      "path": "_internal/PIL/_imagingtk.cp311-win_amd64.pyd",
+      "path": "_internal/PIL/_imagingtk.cp312-win_amd64.pyd",
       "bytes": 14336,
-      "sha256": "d3a5ebaf8a550fe1e3a5baed6eac89e6e21a5ccd3c8f8f22ae577a57248173c7",
+      "sha256": "e1c87f73e96d2269395624d03b3808300f4b0f795f5fad1ecc3d1492e5dcc7c2",
       "component": "pillow",
       "source": "https://pypi.org/project/pillow/13.0.0/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/PIL/_imagingtk.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/PIL/_imagingtk.cp312-win_amd64.pyd"
     },
     {
-      "path": "_internal/PIL/_webp.cp311-win_amd64.pyd",
+      "path": "_internal/PIL/_webp.cp312-win_amd64.pyd",
       "bytes": 415744,
-      "sha256": "2d5846f349212f73e613ab18076851d360d3deb0dd7b41db76357ed06e65f39d",
+      "sha256": "bb9c64d38a6e4857bd3358e14dbe6cf3a4593b1efcd1185fdba1ef8931550896",
       "component": "pillow",
       "source": "https://pypi.org/project/pillow/13.0.0/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/PIL/_webp.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/PIL/_webp.cp312-win_amd64.pyd"
     },
     {
-      "path": "_internal/pyclipper/_pyclipper.cp311-win_amd64.pyd",
-      "bytes": 219136,
-      "sha256": "34669b3306ad18b3f3842544926c1670839e3ea7a6d07f4b31eb7f97b909645b",
+      "path": "_internal/pyclipper/_pyclipper.cp312-win_amd64.pyd",
+      "bytes": 222720,
+      "sha256": "19123cdf15a7cfc6611f69bd13214c817a15d995cedc4f3d4bc777eb39348baa",
       "component": "pyclipper",
       "source": "https://pypi.org/project/pyclipper/1.4.0/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/pyclipper/_pyclipper.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/pyclipper/_pyclipper.cp312-win_amd64.pyd"
     },
     {
       "path": "_internal/pyexpat.pyd",
-      "bytes": 199448,
-      "sha256": "c7c7564f7f874fb660a46384980a2cf28bc3e245ca83628a197ccf861eab5560",
+      "bytes": 211456,
+      "sha256": "aa76736b35ba6d0b37f85ff02e2a812c5f88cbea3655542ba018006622959744",
       "component": "cpython",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/pyexpat.pyd"
     },
     {
       "path": "_internal/python3.dll",
-      "bytes": 67352,
-      "sha256": "db84bc052cfb121fe4db36242ba5f1d2c031b600ef5d8d752cf25b7c02b6bac6",
+      "bytes": 56320,
+      "sha256": "d054a745b92a230114251975f7296178131a284f872ea97817d4b820453c5c90",
       "component": "cpython",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/python3.dll"
     },
     {
-      "path": "_internal/python311.dll",
-      "bytes": 5800216,
-      "sha256": "0817a2a657a24c0d5fbb60df56960f42fc66b3039d522ec952dab83e2d869364",
+      "path": "_internal/python312.dll",
+      "bytes": 6970368,
+      "sha256": "9e67d875d9584d69ed772850c4142af3a388a0d8dff7f0017854c460a0db5815",
       "component": "cpython",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/python311.dll"
+      "source_path": "frozen-build/_internal/python312.dll"
     },
     {
       "path": "_internal/rapidocr/config.yaml",
@@ -1717,10 +1737,10 @@
     },
     {
       "path": "_internal/select.pyd",
-      "bytes": 30488,
-      "sha256": "bae0974390945520eb99ab32486c6a964691f8f4a028ac408d98fa8fb0db7d90",
+      "bytes": 18944,
+      "sha256": "8557ed7328239bdaf2a1f8940a895f696d9251a896399d4efe9f1db1c24ee260",
       "component": "cpython",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/select.pyd"
     },
@@ -1752,31 +1772,31 @@
       "source_path": "frozen-build/_internal/Shapely.libs/msvcp140-0fa7eb792d3fbcf2233e4ea47e9144b9.dll"
     },
     {
-      "path": "_internal/shapely/_geometry_helpers.cp311-win_amd64.pyd",
-      "bytes": 238592,
-      "sha256": "39d2b4b38296d4546e27013b98525af5a1ed91947a0feef41825a0dc6c08d3bc",
+      "path": "_internal/shapely/_geometry_helpers.cp312-win_amd64.pyd",
+      "bytes": 234496,
+      "sha256": "707cb47e19233d313681192f086b22268e72b98adcc21c41e131891c51569180",
       "component": "shapely",
       "source": "https://pypi.org/project/shapely/2.2.0/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/shapely/_geometry_helpers.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/shapely/_geometry_helpers.cp312-win_amd64.pyd"
     },
     {
-      "path": "_internal/shapely/_geos.cp311-win_amd64.pyd",
-      "bytes": 50176,
-      "sha256": "218c857d0bd5499f5c82c5235baca0e6c632f7cc0e503efc24c4286e9b59993b",
+      "path": "_internal/shapely/_geos.cp312-win_amd64.pyd",
+      "bytes": 51200,
+      "sha256": "5de4fb9704e89549eab873cc7b0e92b49e602d407f61d8eb8d2575a67edd83cd",
       "component": "shapely",
       "source": "https://pypi.org/project/shapely/2.2.0/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/shapely/_geos.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/shapely/_geos.cp312-win_amd64.pyd"
     },
     {
-      "path": "_internal/shapely/lib.cp311-win_amd64.pyd",
-      "bytes": 166400,
-      "sha256": "50be0f564d51f7ed88d4ebf6db0ea72fd7c1c1c89321614b3df71c6a72cb8f58",
+      "path": "_internal/shapely/lib.cp312-win_amd64.pyd",
+      "bytes": 166912,
+      "sha256": "13aa4a38abab3e313cd42704e258bbc40cb2a68b6820224b9508708d7863ae85",
       "component": "shapely",
       "source": "https://pypi.org/project/shapely/2.2.0/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/shapely/lib.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/shapely/lib.cp312-win_amd64.pyd"
     },
     {
       "path": "_internal/tqdm-4.70.1.dist-info/entry_points.txt",
@@ -1817,7 +1837,7 @@
     {
       "path": "_internal/tqdm-4.70.1.dist-info/RECORD",
       "bytes": 4637,
-      "sha256": "efc90790640c33e35ad858d1fdf0b6620af6f7cf7e63ca1e4fe59efeca9992f8",
+      "sha256": "c0316d86368b38d1196736e5d07d9d31784bb8bfabaeca9aaf0ea1a4a7fc3408",
       "component": "tqdm",
       "source": "https://pypi.org/project/tqdm/4.70.1/",
       "origin": "frozen-build",
@@ -1861,10 +1881,10 @@
     },
     {
       "path": "_internal/unicodedata.pyd",
-      "bytes": 1140504,
-      "sha256": "37c68617fa02a2cadced17ef724e2d450ef12a8a37215da789a4679fde1c5c02",
+      "bytes": 1127936,
+      "sha256": "23f0f170cfb7d17d1636fa4ea733f380d529eacfd5952155302181e8707dfd57",
       "component": "cpython",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/unicodedata.pyd"
     },
@@ -1887,13 +1907,13 @@
       "source_path": "frozen-build/_internal/vcruntime140_1.dll"
     },
     {
-      "path": "_internal/yaml/_yaml.cp311-win_amd64.pyd",
-      "bytes": 258560,
-      "sha256": "ee7df83fa5dca1467bfd841dc08189b10361f31700cf57a6aacddaf0c05706f4",
+      "path": "_internal/yaml/_yaml.cp312-win_amd64.pyd",
+      "bytes": 253952,
+      "sha256": "4fd0e84f50261ed0886cffcdd8008b055af3352546e649c3d741b50eae1f9b5f",
       "component": "pyyaml",
       "source": "https://pypi.org/project/PyYAML/6.0.3/",
       "origin": "frozen-build",
-      "source_path": "frozen-build/_internal/yaml/_yaml.cp311-win_amd64.pyd"
+      "source_path": "frozen-build/_internal/yaml/_yaml.cp312-win_amd64.pyd"
     },
     {
       "path": "licenses/altgraph__altgraph-0.17.5.dist-info_LICENSE",
@@ -1959,164 +1979,164 @@
       "source_path": "docs/licenses/ocr/local-ai/MentorRecorder-GPL-3.0.txt"
     },
     {
-      "path": "licenses/numpy__numpy-2.4.6.dist-info_licenses_LICENSE.txt",
+      "path": "licenses/numpy__numpy-2.5.4.dist-info_licenses_LICENSE.txt",
       "bytes": 45831,
       "sha256": "a804dff0ead9fadc5293456410bcbfc32bf024be9c4513459663fb7b442d2341",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.4.6.dist-info_licenses_LICENSE.txt"
+      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.5.4.dist-info_licenses_LICENSE.txt"
     },
     {
-      "path": "licenses/numpy__numpy-2.4.6.dist-info_licenses_numpy__core_include_numpy_libdivide_LICENSE.txt",
+      "path": "licenses/numpy__numpy-2.5.4.dist-info_licenses_numpy__core_include_numpy_libdivide_LICENSE.txt",
       "bytes": 1039,
       "sha256": "d544761558b510866c21f7e8a2d5716fca76e0b98117e3b6b86314db7244d150",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.4.6.dist-info_licenses_numpy__core_include_numpy_libdivide_LICENSE.txt"
+      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.5.4.dist-info_licenses_numpy__core_include_numpy_libdivide_LICENSE.txt"
     },
     {
-      "path": "licenses/numpy__numpy-2.4.6.dist-info_licenses_numpy__core_src_common_pythoncapi-compat_COPYING",
+      "path": "licenses/numpy__numpy-2.5.4.dist-info_licenses_numpy__core_src_common_pythoncapi-compat_COPYING",
       "bytes": 704,
       "sha256": "aea41976c720f91bd19725c16916a1ace40eb1ea42620d340e587a5de4bbcea0",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.4.6.dist-info_licenses_numpy__core_src_common_pythoncapi-compat_COPYING"
+      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.5.4.dist-info_licenses_numpy__core_src_common_pythoncapi-compat_COPYING"
     },
     {
-      "path": "licenses/numpy__numpy-2.4.6.dist-info_licenses_numpy__core_src_highway_LICENSE",
+      "path": "licenses/numpy__numpy-2.5.4.dist-info_licenses_numpy__core_src_highway_LICENSE",
       "bytes": 21155,
       "sha256": "d208152e2777ffd0126eacc1bd21c0320d69e4e6b622d21a2a12a47e8ef73763",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.4.6.dist-info_licenses_numpy__core_src_highway_LICENSE"
+      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.5.4.dist-info_licenses_numpy__core_src_highway_LICENSE"
     },
     {
-      "path": "licenses/numpy__numpy-2.4.6.dist-info_licenses_numpy__core_src_multiarray_dragon4_LICENSE.txt",
+      "path": "licenses/numpy__numpy-2.5.4.dist-info_licenses_numpy__core_src_multiarray_dragon4_LICENSE.txt",
       "bytes": 1441,
       "sha256": "b0fd592d4ead563148e3977e7b589169d46a5ef2ff133c755a81af880a3fc919",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.4.6.dist-info_licenses_numpy__core_src_multiarray_dragon4_LICENSE.txt"
+      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.5.4.dist-info_licenses_numpy__core_src_multiarray_dragon4_LICENSE.txt"
     },
     {
-      "path": "licenses/numpy__numpy-2.4.6.dist-info_licenses_numpy__core_src_npysort_x86-simd-sort_LICENSE.md",
+      "path": "licenses/numpy__numpy-2.5.4.dist-info_licenses_numpy__core_src_npysort_x86-simd-sort_LICENSE.md",
       "bytes": 1542,
       "sha256": "a732977853530066790c42817087f4829b518dd98d340c916acbfd227e39d3cb",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.4.6.dist-info_licenses_numpy__core_src_npysort_x86-simd-sort_LICENSE.md"
+      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.5.4.dist-info_licenses_numpy__core_src_npysort_x86-simd-sort_LICENSE.md"
     },
     {
-      "path": "licenses/numpy__numpy-2.4.6.dist-info_licenses_numpy__core_src_umath_svml_LICENSE",
+      "path": "licenses/numpy__numpy-2.5.4.dist-info_licenses_numpy__core_src_umath_svml_LICENSE",
       "bytes": 1573,
       "sha256": "585483905b13d4b42f800c55ba99e89d6e2e33ccd5f503e201c07531d148ff41",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.4.6.dist-info_licenses_numpy__core_src_umath_svml_LICENSE"
+      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.5.4.dist-info_licenses_numpy__core_src_umath_svml_LICENSE"
     },
     {
-      "path": "licenses/numpy__numpy-2.4.6.dist-info_licenses_numpy_fft_pocketfft_LICENSE.md",
+      "path": "licenses/numpy__numpy-2.5.4.dist-info_licenses_numpy_fft_pocketfft_LICENSE.md",
       "bytes": 1523,
       "sha256": "8db000e158c162e7249787852d8c69764706502ccee725c06641b31c1e95c8af",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.4.6.dist-info_licenses_numpy_fft_pocketfft_LICENSE.md"
+      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.5.4.dist-info_licenses_numpy_fft_pocketfft_LICENSE.md"
     },
     {
-      "path": "licenses/numpy__numpy-2.4.6.dist-info_licenses_numpy_linalg_lapack_lite_LICENSE.txt",
+      "path": "licenses/numpy__numpy-2.5.4.dist-info_licenses_numpy_linalg_lapack_lite_LICENSE.txt",
       "bytes": 2314,
       "sha256": "19060ef465e1797d682ee0fc3081bd25ab1395e995e43d25c9d13c95d9a3cd6b",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.4.6.dist-info_licenses_numpy_linalg_lapack_lite_LICENSE.txt"
+      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.5.4.dist-info_licenses_numpy_linalg_lapack_lite_LICENSE.txt"
     },
     {
-      "path": "licenses/numpy__numpy-2.4.6.dist-info_licenses_numpy_ma_LICENSE",
+      "path": "licenses/numpy__numpy-2.5.4.dist-info_licenses_numpy_ma_LICENSE",
       "bytes": 1616,
       "sha256": "d78dbb208b80d92b4d333e41a4baae50d12444f46e53199fa7726a91de6e2da7",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.4.6.dist-info_licenses_numpy_ma_LICENSE"
+      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.5.4.dist-info_licenses_numpy_ma_LICENSE"
     },
     {
-      "path": "licenses/numpy__numpy-2.4.6.dist-info_licenses_numpy_random_LICENSE.md",
+      "path": "licenses/numpy__numpy-2.5.4.dist-info_licenses_numpy_random_LICENSE.md",
       "bytes": 3582,
       "sha256": "b4bc2f4fa1c95778f1ed3dd8f14706bece399475b978f9f34b5d3cd72521b48a",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.4.6.dist-info_licenses_numpy_random_LICENSE.md"
+      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.5.4.dist-info_licenses_numpy_random_LICENSE.md"
     },
     {
-      "path": "licenses/numpy__numpy-2.4.6.dist-info_licenses_numpy_random_src_distributions_LICENSE.md",
+      "path": "licenses/numpy__numpy-2.5.4.dist-info_licenses_numpy_random_src_distributions_LICENSE.md",
       "bytes": 2805,
       "sha256": "cf5619f25b112d5ce7c896efffc8e610bcb345dfadcc19f2c1460aa48fff2c9e",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.4.6.dist-info_licenses_numpy_random_src_distributions_LICENSE.md"
+      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.5.4.dist-info_licenses_numpy_random_src_distributions_LICENSE.md"
     },
     {
-      "path": "licenses/numpy__numpy-2.4.6.dist-info_licenses_numpy_random_src_mt19937_LICENSE.md",
+      "path": "licenses/numpy__numpy-2.5.4.dist-info_licenses_numpy_random_src_mt19937_LICENSE.md",
       "bytes": 2986,
       "sha256": "92c10699884321f1c2947fe2a70ab23b0fbf1507f756d89dd08f38c61fc3d4fa",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.4.6.dist-info_licenses_numpy_random_src_mt19937_LICENSE.md"
+      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.5.4.dist-info_licenses_numpy_random_src_mt19937_LICENSE.md"
     },
     {
-      "path": "licenses/numpy__numpy-2.4.6.dist-info_licenses_numpy_random_src_pcg64_LICENSE.md",
+      "path": "licenses/numpy__numpy-2.5.4.dist-info_licenses_numpy_random_src_pcg64_LICENSE.md",
       "bytes": 1176,
       "sha256": "41190663b77bee5302386495a07b7eabfbfa571aa0ae2f11da6764162062fc4f",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.4.6.dist-info_licenses_numpy_random_src_pcg64_LICENSE.md"
+      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.5.4.dist-info_licenses_numpy_random_src_pcg64_LICENSE.md"
     },
     {
-      "path": "licenses/numpy__numpy-2.4.6.dist-info_licenses_numpy_random_src_philox_LICENSE.md",
+      "path": "licenses/numpy__numpy-2.5.4.dist-info_licenses_numpy_random_src_philox_LICENSE.md",
       "bytes": 1540,
       "sha256": "322ac46d870c8aeead6c53adcccc839296fb3c8e456eae155081297daf7f8013",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.4.6.dist-info_licenses_numpy_random_src_philox_LICENSE.md"
+      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.5.4.dist-info_licenses_numpy_random_src_philox_LICENSE.md"
     },
     {
-      "path": "licenses/numpy__numpy-2.4.6.dist-info_licenses_numpy_random_src_sfc64_LICENSE.md",
+      "path": "licenses/numpy__numpy-2.5.4.dist-info_licenses_numpy_random_src_sfc64_LICENSE.md",
       "bytes": 1253,
       "sha256": "28cad82ce1379dc529df30da78ec012d7d0d1d576b03ddcb93388aee53659f59",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.4.6.dist-info_licenses_numpy_random_src_sfc64_LICENSE.md"
+      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.5.4.dist-info_licenses_numpy_random_src_sfc64_LICENSE.md"
     },
     {
-      "path": "licenses/numpy__numpy-2.4.6.dist-info_licenses_numpy_random_src_splitmix64_LICENSE.md",
+      "path": "licenses/numpy__numpy-2.5.4.dist-info_licenses_numpy_random_src_splitmix64_LICENSE.md",
       "bytes": 340,
       "sha256": "454ec7350e478e037061850b67395753b425b1cb0a34bbc26290b020bf89d763",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.4.6.dist-info_licenses_numpy_random_src_splitmix64_LICENSE.md"
+      "source_path": "docs/licenses/ocr/local-ai/numpy__numpy-2.5.4.dist-info_licenses_numpy_random_src_splitmix64_LICENSE.md"
     },
     {
       "path": "licenses/numpy__numpy__core_include_numpy_random_LICENSE.txt",
       "bytes": 1039,
       "sha256": "d544761558b510866c21f7e8a2d5716fca76e0b98117e3b6b86314db7244d150",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "repository",
       "source_path": "docs/licenses/ocr/local-ai/numpy__numpy__core_include_numpy_random_LICENSE.txt"
     },
@@ -2125,7 +2145,7 @@
       "bytes": 1616,
       "sha256": "d78dbb208b80d92b4d333e41a4baae50d12444f46e53199fa7726a91de6e2da7",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "repository",
       "source_path": "docs/licenses/ocr/local-ai/numpy__numpy_ma_LICENSE"
     },
@@ -2134,7 +2154,7 @@
       "bytes": 3582,
       "sha256": "b4bc2f4fa1c95778f1ed3dd8f14706bece399475b978f9f34b5d3cd72521b48a",
       "component": "numpy",
-      "source": "https://pypi.org/project/numpy/2.4.6/",
+      "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "repository",
       "source_path": "docs/licenses/ocr/local-ai/numpy__numpy_random_LICENSE.md"
     },
@@ -2211,22 +2231,13 @@
       "source_path": "docs/licenses/ocr/local-ai/opencv-python-headless__opencv_python_headless-5.0.0.93.dist-info_LICENSE.txt"
     },
     {
-      "path": "licenses/OpenSSL-3.0.13-APACHE-2.0.txt",
-      "bytes": 10175,
-      "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
+      "path": "licenses/OpenSSL-3.5.9-APACHE-2.0.txt",
+      "bytes": 10352,
+      "sha256": "ed72ce2b51ee58f117e5a021e2e04af158857f40269fbc03491f0b2a99dbcc96",
       "component": "openssl",
-      "source": "https://github.com/openssl/openssl/tree/openssl-3.0.13",
+      "source": "https://github.com/openssl/openssl/tree/openssl-3.5.9",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/OpenSSL-3.0.13-APACHE-2.0.txt"
-    },
-    {
-      "path": "licenses/OpenSSL-3.0.13-README.md",
-      "bytes": 6633,
-      "sha256": "9d91b81580e7c70c94df047da8f2d4e32ba747db556eee0b7cc94d2758273ca3",
-      "component": "openssl",
-      "source": "https://github.com/openssl/openssl/tree/openssl-3.0.13",
-      "origin": "repository",
-      "source_path": "docs/licenses/ocr/OpenSSL-3.0.13-README.md"
+      "source_path": "docs/licenses/ocr/local-ai/OpenSSL-3.5.9-APACHE-2.0.txt"
     },
     {
       "path": "licenses/packaging__packaging-26.3.dist-info_licenses_LICENSE",
@@ -2292,13 +2303,13 @@
       "source_path": "docs/licenses/ocr/local-ai/pyclipper__pyclipper-1.4.0.dist-info_licenses_LICENSE"
     },
     {
-      "path": "licenses/pyinstaller-hooks-contrib__pyinstaller_hooks_contrib-2026.8.dist-info_licenses_LICENSE",
+      "path": "licenses/pyinstaller-hooks-contrib__pyinstaller_hooks_contrib-2026.9.dist-info_licenses_LICENSE",
       "bytes": 27666,
       "sha256": "91d0baaff00773038e72c0a1fc9d5d2d38706b7a2b9c04f34296608f931b9cd0",
       "component": "pyinstaller-hooks-contrib",
-      "source": "https://pypi.org/project/pyinstaller-hooks-contrib/2026.8/",
+      "source": "https://pypi.org/project/pyinstaller-hooks-contrib/2026.9/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/pyinstaller-hooks-contrib__pyinstaller_hooks_contrib-2026.8.dist-info_licenses_LICENSE"
+      "source_path": "docs/licenses/ocr/local-ai/pyinstaller-hooks-contrib__pyinstaller_hooks_contrib-2026.9.dist-info_licenses_LICENSE"
     },
     {
       "path": "licenses/pyinstaller__pyinstaller-6.19.0.dist-info_licenses_COPYING.txt",
@@ -2310,29 +2321,56 @@
       "source_path": "docs/licenses/ocr/local-ai/pyinstaller__pyinstaller-6.19.0.dist-info_licenses_COPYING.txt"
     },
     {
-      "path": "licenses/Python-3.11.9-expat-COPYING.txt",
-      "bytes": 1144,
-      "sha256": "122f2c27000472a201d337b9b31f7eb2b52d091b02857061a8880371612d9534",
+      "path": "licenses/Python-3.12.16-bzip2-LICENSE.txt",
+      "bytes": 1780,
+      "sha256": "bd5628cc76fb0ebf9c657d1dd4d1a240a1a7b216c31663e7bbf1131c0b70a910",
       "component": "cpython",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/Python-3.11.9-expat-COPYING.txt"
+      "source_path": "docs/licenses/ocr/local-ai/Python-3.12.16-bzip2-LICENSE.txt"
     },
     {
-      "path": "licenses/Python-3.11.9-license.rst",
-      "bytes": 53753,
-      "sha256": "2b734ec5975b21b29ae8b9756a00fc3dfe701abe51687cec4c98a21c51005bca",
+      "path": "licenses/Python-3.12.16-cpython-LICENSE.txt",
+      "bytes": 36935,
+      "sha256": "8fe98bf9822926d854f56ffd8d97877d8b942617aa44eb7ea77fd99e22f2537e",
       "component": "cpython",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/Python-3.11.9-license.rst"
+      "source_path": "docs/licenses/ocr/local-ai/Python-3.12.16-cpython-LICENSE.txt"
+    },
+    {
+      "path": "licenses/Python-3.12.16-expat-LICENSE.txt",
+      "bytes": 1165,
+      "sha256": "8a9cfe4b5924f4b25881aa0c9f5e4561c5f31065d0c4a13cdcdbcf917edf39aa",
+      "component": "cpython",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/local-ai/Python-3.12.16-expat-LICENSE.txt"
+    },
+    {
+      "path": "licenses/Python-3.12.16-libffi-LICENSE.txt",
+      "bytes": 1153,
+      "sha256": "9afb8970cd29fc1031fa647278e4bef613399e2e3468a1e3a397f4d158c6101c",
+      "component": "cpython",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/local-ai/Python-3.12.16-libffi-LICENSE.txt"
+    },
+    {
+      "path": "licenses/Python-3.12.16-mpdecimal-LICENSE.txt",
+      "bytes": 1308,
+      "sha256": "f094277cd46e1f6e4d87916cc4b51e22f613d45eb81f48231c3cb7caf8fc8a6a",
+      "component": "cpython",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
+      "origin": "repository",
+      "source_path": "docs/licenses/ocr/local-ai/Python-3.12.16-mpdecimal-LICENSE.txt"
     },
     {
       "path": "licenses/Python-LICENSE.txt",
-      "bytes": 36874,
-      "sha256": "e502c6b880ff58d614901495a9009c136539cd0b1e2a2abb8fc00b934c203419",
+      "bytes": 25066,
+      "sha256": "886a0ead2d89030ee62dbff52b04e47ab91998341295bb9c56fb952b4e081c7a",
       "component": "cpython",
-      "source": "https://www.python.org/downloads/release/python-3119/",
+      "source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
       "origin": "repository",
       "source_path": "docs/licenses/ocr/local-ai/Python-LICENSE.txt"
     },
@@ -2391,20 +2429,20 @@
       "source_path": "docs/licenses/ocr/local-ai/requests__requests-2.34.2.dist-info_licenses_NOTICE"
     },
     {
-      "path": "licenses/setuptools__setuptools-84.1.0.dist-info_licenses_LICENSE",
+      "path": "licenses/setuptools__setuptools-84.2.1.dist-info_licenses_LICENSE",
       "bytes": 1023,
       "sha256": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741",
       "component": "setuptools",
-      "source": "https://pypi.org/project/setuptools/84.1.0/",
+      "source": "https://pypi.org/project/setuptools/84.2.1/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/setuptools__setuptools-84.1.0.dist-info_licenses_LICENSE"
+      "source_path": "docs/licenses/ocr/local-ai/setuptools__setuptools-84.2.1.dist-info_licenses_LICENSE"
     },
     {
       "path": "licenses/setuptools__setuptools__vendor_autocommand-2.2.2.dist-info_LICENSE",
       "bytes": 7634,
       "sha256": "ade78d04982d69972d444a8e14a94f87a2334dd3855cc80348ea8e240aa0df2d",
       "component": "setuptools",
-      "source": "https://pypi.org/project/setuptools/84.1.0/",
+      "source": "https://pypi.org/project/setuptools/84.2.1/",
       "origin": "repository",
       "source_path": "docs/licenses/ocr/local-ai/setuptools__setuptools__vendor_autocommand-2.2.2.dist-info_LICENSE"
     },
@@ -2413,7 +2451,7 @@
       "bytes": 1023,
       "sha256": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741",
       "component": "setuptools",
-      "source": "https://pypi.org/project/setuptools/84.1.0/",
+      "source": "https://pypi.org/project/setuptools/84.2.1/",
       "origin": "repository",
       "source_path": "docs/licenses/ocr/local-ai/setuptools__setuptools__vendor_backports.tarfile-1.2.0.dist-info_LICENSE"
     },
@@ -2422,7 +2460,7 @@
       "bytes": 10278,
       "sha256": "458502e12d97bbf64438606a20044aa85eb05fb0a8a807bb35dbec253fd1fc04",
       "component": "setuptools",
-      "source": "https://pypi.org/project/setuptools/84.1.0/",
+      "source": "https://pypi.org/project/setuptools/84.2.1/",
       "origin": "repository",
       "source_path": "docs/licenses/ocr/local-ai/setuptools__setuptools__vendor_importlib_metadata-8.7.1.dist-info_licenses_LICENSE"
     },
@@ -2431,7 +2469,7 @@
       "bytes": 1023,
       "sha256": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741",
       "component": "setuptools",
-      "source": "https://pypi.org/project/setuptools/84.1.0/",
+      "source": "https://pypi.org/project/setuptools/84.2.1/",
       "origin": "repository",
       "source_path": "docs/licenses/ocr/local-ai/setuptools__setuptools__vendor_jaraco.text-4.0.0.dist-info_LICENSE"
     },
@@ -2440,7 +2478,7 @@
       "bytes": 1076,
       "sha256": "9755a18519666e5f0f4cae3daad3d7012bcae48a600b31237d75e9fe134e6683",
       "component": "setuptools",
-      "source": "https://pypi.org/project/setuptools/84.1.0/",
+      "source": "https://pypi.org/project/setuptools/84.2.1/",
       "origin": "repository",
       "source_path": "docs/licenses/ocr/local-ai/setuptools__setuptools__vendor_jaraco_context-6.1.0.dist-info_licenses_LICENSE"
     },
@@ -2449,7 +2487,7 @@
       "bytes": 1076,
       "sha256": "5a57cb4db85e2a2dd88c290628908add57e3451449e0a9a71fdfb38776fd759d",
       "component": "setuptools",
-      "source": "https://pypi.org/project/setuptools/84.1.0/",
+      "source": "https://pypi.org/project/setuptools/84.2.1/",
       "origin": "repository",
       "source_path": "docs/licenses/ocr/local-ai/setuptools__setuptools__vendor_jaraco_functools-4.4.0.dist-info_licenses_LICENSE"
     },
@@ -2458,43 +2496,43 @@
       "bytes": 1053,
       "sha256": "09f1c8c9e941af3e584d59641ea9b87d83c0cb0fd007eb5ef391a7e2643c1a46",
       "component": "setuptools",
-      "source": "https://pypi.org/project/setuptools/84.1.0/",
+      "source": "https://pypi.org/project/setuptools/84.2.1/",
       "origin": "repository",
       "source_path": "docs/licenses/ocr/local-ai/setuptools__setuptools__vendor_more_itertools-10.8.0.dist-info_licenses_LICENSE"
     },
     {
-      "path": "licenses/setuptools__setuptools__vendor_packaging-26.0.dist-info_licenses_LICENSE",
+      "path": "licenses/setuptools__setuptools__vendor_packaging-26.3.dist-info_licenses_LICENSE",
       "bytes": 197,
       "sha256": "cad1ef5bd340d73e074ba614d26f7deaca5c7940c3d8c34852e65c4909686c48",
       "component": "setuptools",
-      "source": "https://pypi.org/project/setuptools/84.1.0/",
+      "source": "https://pypi.org/project/setuptools/84.2.1/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/setuptools__setuptools__vendor_packaging-26.0.dist-info_licenses_LICENSE"
+      "source_path": "docs/licenses/ocr/local-ai/setuptools__setuptools__vendor_packaging-26.3.dist-info_licenses_LICENSE"
     },
     {
-      "path": "licenses/setuptools__setuptools__vendor_packaging-26.0.dist-info_licenses_LICENSE.APACHE",
+      "path": "licenses/setuptools__setuptools__vendor_packaging-26.3.dist-info_licenses_LICENSE.APACHE",
       "bytes": 10174,
       "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
       "component": "setuptools",
-      "source": "https://pypi.org/project/setuptools/84.1.0/",
+      "source": "https://pypi.org/project/setuptools/84.2.1/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/setuptools__setuptools__vendor_packaging-26.0.dist-info_licenses_LICENSE.APACHE"
+      "source_path": "docs/licenses/ocr/local-ai/setuptools__setuptools__vendor_packaging-26.3.dist-info_licenses_LICENSE.APACHE"
     },
     {
-      "path": "licenses/setuptools__setuptools__vendor_packaging-26.0.dist-info_licenses_LICENSE.BSD",
+      "path": "licenses/setuptools__setuptools__vendor_packaging-26.3.dist-info_licenses_LICENSE.BSD",
       "bytes": 1344,
       "sha256": "b70e7e9b742f1cc6f948b34c16aa39ffece94196364bc88ff0d2180f0028fac5",
       "component": "setuptools",
-      "source": "https://pypi.org/project/setuptools/84.1.0/",
+      "source": "https://pypi.org/project/setuptools/84.2.1/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/setuptools__setuptools__vendor_packaging-26.0.dist-info_licenses_LICENSE.BSD"
+      "source_path": "docs/licenses/ocr/local-ai/setuptools__setuptools__vendor_packaging-26.3.dist-info_licenses_LICENSE.BSD"
     },
     {
       "path": "licenses/setuptools__setuptools__vendor_platformdirs-4.4.0.dist-info_licenses_LICENSE",
       "bytes": 1089,
       "sha256": "29e0fd62e929850e86eb28c3fdccf0cefdf4fa94879011cffb3d0d4bed6d4db6",
       "component": "setuptools",
-      "source": "https://pypi.org/project/setuptools/84.1.0/",
+      "source": "https://pypi.org/project/setuptools/84.2.1/",
       "origin": "repository",
       "source_path": "docs/licenses/ocr/local-ai/setuptools__setuptools__vendor_platformdirs-4.4.0.dist-info_licenses_LICENSE"
     },
@@ -2503,7 +2541,7 @@
       "bytes": 1072,
       "sha256": "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe",
       "component": "setuptools",
-      "source": "https://pypi.org/project/setuptools/84.1.0/",
+      "source": "https://pypi.org/project/setuptools/84.2.1/",
       "origin": "repository",
       "source_path": "docs/licenses/ocr/local-ai/setuptools__setuptools__vendor_tomli-2.4.0.dist-info_licenses_LICENSE"
     },
@@ -2512,7 +2550,7 @@
       "bytes": 1107,
       "sha256": "30c23618679108f3e8ea1d2a658c7ca417bdfc891c98ef1a89fa4ff0c9828654",
       "component": "setuptools",
-      "source": "https://pypi.org/project/setuptools/84.1.0/",
+      "source": "https://pypi.org/project/setuptools/84.2.1/",
       "origin": "repository",
       "source_path": "docs/licenses/ocr/local-ai/setuptools__setuptools__vendor_wheel-0.46.3.dist-info_licenses_LICENSE.txt"
     },
@@ -2521,7 +2559,7 @@
       "bytes": 1076,
       "sha256": "5a57cb4db85e2a2dd88c290628908add57e3451449e0a9a71fdfb38776fd759d",
       "component": "setuptools",
-      "source": "https://pypi.org/project/setuptools/84.1.0/",
+      "source": "https://pypi.org/project/setuptools/84.2.1/",
       "origin": "repository",
       "source_path": "docs/licenses/ocr/local-ai/setuptools__setuptools__vendor_zipp-3.23.0.dist-info_licenses_LICENSE"
     },
@@ -2530,7 +2568,7 @@
       "bytes": 18737,
       "sha256": "09c9bcea95ca086f8bc5bed174e40bc835b297d40fb5f86bbbb570fe0a5581a7",
       "component": "setuptools",
-      "source": "https://pypi.org/project/setuptools/84.1.0/",
+      "source": "https://pypi.org/project/setuptools/84.2.1/",
       "origin": "repository",
       "source_path": "docs/licenses/ocr/local-ai/setuptools__setuptools_config__validate_pyproject_NOTICE"
     },
@@ -2539,7 +2577,7 @@
       "bytes": 493,
       "sha256": "2dddf08818297a3b89d43d95ff659d8da85741108c9136dfa3a4d856c0623bd8",
       "component": "setuptools",
-      "source": "https://pypi.org/project/setuptools/84.1.0/",
+      "source": "https://pypi.org/project/setuptools/84.2.1/",
       "origin": "repository",
       "source_path": "docs/licenses/ocr/local-ai/setuptools__setuptools_config_NOTICE"
     },
@@ -2598,27 +2636,27 @@
       "source_path": "docs/licenses/ocr/local-ai/urllib3__urllib3-2.8.0.dist-info_licenses_LICENSE.txt"
     },
     {
-      "path": "licenses/xz-5.2.5-COPYING.txt",
-      "bytes": 2775,
-      "sha256": "bcb02973ef6e87ea73d331b3a80df7748407f17efdb784b61b47e0e610d3bb5c",
+      "path": "licenses/xz-5.8.4-0BSD.txt",
+      "bytes": 673,
+      "sha256": "d87d218dd908b3243ec4cbc72af400e5b7437513ea9d9229291d0812b8464fec",
       "component": "xz-liblzma",
-      "source": "https://github.com/tukaani-project/xz/tree/v5.2.5",
+      "source": "https://github.com/tukaani-project/xz/tree/v5.8.4",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/xz-5.2.5-COPYING.txt"
+      "source_path": "docs/licenses/ocr/local-ai/xz-5.8.4-0BSD.txt"
     },
     {
-      "path": "licenses/zlib-1.3.1-LICENSE.txt",
-      "bytes": 1002,
-      "sha256": "845efc77857d485d91fb3e0b884aaa929368c717ae8186b66fe1ed2495753243",
+      "path": "licenses/zlib-1.3.2-LICENSE.txt",
+      "bytes": 1016,
+      "sha256": "365e36720db366054863235aea5d6f440142ab968834bfaf81fa9d187c99b9b8",
       "component": "zlib",
-      "source": "https://github.com/madler/zlib/tree/v1.3.1",
+      "source": "https://github.com/madler/zlib/tree/v1.3.2",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/zlib-1.3.1-LICENSE.txt"
+      "source_path": "docs/licenses/ocr/local-ai/zlib-1.3.2-LICENSE.txt"
     },
     {
       "path": "local-ai-ocr.exe",
-      "bytes": 6647324,
-      "sha256": "417b636007f6363f7174265d2a7a068e73e1bb6ac15d4c695538470ff1afa327",
+      "bytes": 6433722,
+      "sha256": "8600eacee6254f1639662e998a3204e305b39cc6c15402771ae858c74c45b77f",
       "component": "mentorrecorder-helper",
       "source": "https://github.com/Harendotes-Tang/MentorRouletteRecorder",
       "origin": "frozen-build",

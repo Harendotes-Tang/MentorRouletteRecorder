@@ -17,7 +17,7 @@
 | C 编译器 | 同上 | `D:\APPS\Qt\Tools\mingw1310_64\bin\gcc.exe` |
 | Ninja | 随 Qt 安装 | `D:\APPS\Qt\Tools\Ninja\ninja.exe` |
 | CMake | 随 Qt 安装（另有系统 cmake 3.28 在 PATH 上） | `D:\APPS\Qt\Tools\CMake_64\bin\cmake.exe` |
-| Python | 3.11 | 在 PATH 上（`python`） |
+| Python | 3.12 | 在 PATH 上（`python`） |
 | PowerShell | 7（`pwsh`），脚本要求 7 及以上；另有 Windows PowerShell 5.1（`powershell`），脚本拒绝在其中运行 | 在 PATH 上 |
 
 > 开发机**未安装 MSVC C++ 工具集与 Windows SDK**，C++ 一律使用 MinGW 构建。
@@ -469,7 +469,7 @@ pwsh -File scripts/package.ps1 -Force -Verify
 ### 离线截图识别依赖
 
 截图识别随应用部署 `ocr/local-ai-ocr.exe`、随包运行依赖及 `models/` 下的三份模型。
-当前固定版本为 CPython 3.11.9、RapidOCR 3.10.0、ONNX Runtime 1.31.0，采用 CPU。
+当前固定版本为 CPython 3.12.16、RapidOCR 3.10.0、ONNX Runtime 1.31.0，采用 CPU。
 当前 helper 2 在整图检测后对符号区域限量复读，文字模型和职业分类器权重不变；完整源代码与冻结产物仍逐文件固定。
 文字检测、识别和方向分类模型分别为 `PP-OCRv6_det_small.onnx`、`PP-OCRv6_rec_small.onnx`、
 `ch_ppocr_mobile_v2.0_cls_mobile.onnx`；来源、SHA256、完整运行依赖及许可证登记在
@@ -478,12 +478,14 @@ pwsh -File scripts/package.ps1 -Force -Verify
 [job-icon-classifier.metadata.json](../src/Desktop/resources/models/job-icon-classifier.metadata.json)。
 架构、旧新同图测试与本机资源测量见 [README 的 OCR 部分](../README.md#离线截图-ocr)。
 
-维护者先准备 Windows x64 的 Python 3.11.9 与本地模型，使用固定的
+构建解释器固定为 [Astral python-build-standalone 20261026](https://github.com/astral-sh/python-build-standalone/releases/tag/20261026)
+提供的 CPython 3.12.16 Windows x64 `install_only`；原始归档的大小与 SHA-256 登记在依赖清单的 `runtime` 中。
+维护者将解释器解压到独立目录，再准备本地模型，使用固定的
 [requirements-build.txt](../tools/LocalAiOcr/requirements-build.txt) 构建自包含运行目录，再校验并准备缓存：
 
 ```powershell
 pwsh -File scripts/build-local-ai-ocr-worker.ps1 `
-    -PythonExecutable C:/Tools/Python311/python.exe `
+    -PythonExecutable C:/Tools/Python312/python.exe `
     -ModelsDirectory D:/OCR/models `
     -OutputDirectory D:/OCR/runtime `
     -InstallBuildDependencies
@@ -495,7 +497,7 @@ pwsh -File scripts/bootstrap-ocr.ps1 `
 替换示例中的绝对路径；输出目录必须尚不存在，以保留已有产物。
 `-InstallBuildDependencies` 是维护者显式选择的构建阶段 pip 安装；依赖已准备好时省略此开关。
 发布 payload 必须与固定清单完全一致，构建环境或产物变化不会自动放宽哈希检查。
-`requirements-build.txt` 固定的是当前 OCR payload 构建时使用的版本，其中 `Pillow` 为 13.0.0、`certifi` 为 2026.10.19、`setuptools` 为 84.1.0。
+`requirements-build.txt` 固定的是当前 OCR payload 构建时使用的版本，其中 `Pillow` 为 13.0.0、`certifi` 为 2026.10.19、`setuptools` 为 84.2.1。
 `tools/package-verification/test_ocr_manifest.py` 核对该文件（换行统一为 LF 后）的 SHA-256 与依赖清单记录的
 `requirements_sha256` 一致，并核对清单中每个来自 PyPI 的组件在该文件中固定为同一版本。因此升级其中任何依赖，
 包括 Dependabot 提出的升级，都必须在同一改动中重新构建 OCR payload 并更新依赖清单，否则工具自测失败。

@@ -408,7 +408,7 @@ OCR、解析器、分类器与导入控制器测试已通过。识别专项测�
 
 ## 从源码构建
 
-依赖：.NET 8 SDK、Qt 6.11.2（MinGW 13）、CMake ≥ 3.24、Ninja、PowerShell 7，以及验证脚本使用的 Python 3.11
+依赖：.NET 8 SDK、Qt 6.11.2（MinGW 13）、CMake ≥ 3.24、Ninja、PowerShell 7，以及验证脚本使用的 Python 3.12
 和 [`tools/requirements-ci.txt`](tools/requirements-ci.txt) 所列的包（`python -m pip install -r tools/requirements-ci.txt`；
 缺少其中任何一个，工具自测在运行前即失败）。
 工具链路径由环境变量 `MR_QT_PREFIX`、`MR_MINGW_BIN`、`MR_NINJA_EXE`、`MR_CMAKE_EXE` 指定；

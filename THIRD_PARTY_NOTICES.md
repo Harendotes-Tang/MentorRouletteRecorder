@@ -81,7 +81,7 @@ GPL-3.0-or-later 开源使用授予 Apache-2.0，适用说明和原始全文均�
 ### 离线截图文字识别
 
 随包的 `ocr/` 使用 **RapidOCR 3.10.0**（Apache-2.0）、**ONNX Runtime
-1.31.0**（MIT）和 **CPython 3.11.9**（PSF-2.0 及内嵌第三方声明）。固定本地模型为
+1.31.0**（MIT）和 **CPython 3.12.16**（PSF-2.0 及内嵌第三方声明）。固定本地模型为
 `PP-OCRv6_det_small.onnx`、`PP-OCRv6_rec_small.onnx` 和
 `ch_ppocr_mobile_v2.0_cls_mobile.onnx`（Apache-2.0）。
 识别程序由 PyInstaller 冻结为自包含 Windows x64 CPU 程序；PyInstaller 按
