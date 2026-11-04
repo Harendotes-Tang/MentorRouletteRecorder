@@ -276,12 +276,13 @@ ISC 与 MIT 的条件均只有一条：在所有副本中保留版权声明与�
 |---|---|---|---|
 | `Machina.FFXIV` | 2.4.8.2 | **GPL-3.0** | 直接依赖 |
 | `Machina` | 2.3.1.3 | **GPL-3.0** | 传递依赖 |
-| `Microsoft.Data.Sqlite` | 8.0.11 | MIT | 直接依赖 |
-| `Microsoft.Data.Sqlite.Core` | 8.0.11 | MIT | 传递依赖 |
-| `SQLitePCLRaw.core` | 2.1.14 | Apache-2.0 | 传递依赖 |
-| `SQLitePCLRaw.bundle_e_sqlite3` | 2.1.14 | Apache-2.0 | 直接固定安全修复版本 |
-| `SQLitePCLRaw.lib.e_sqlite3` | 2.1.14 | Apache-2.0 | 传递依赖（内含 SQLite 3.54.0，**SQLite 本身是 public domain**） |
-| `SQLitePCLRaw.provider.e_sqlite3` | 2.1.14 | Apache-2.0 | 传递依赖 |
+| `Microsoft.Data.Sqlite` | 10.0.14 | MIT | 直接依赖 |
+| `Microsoft.Data.Sqlite.Core` | 10.0.14 | MIT | 传递依赖 |
+| `SQLitePCLRaw.core` | 3.0.5 | Apache-2.0 | 传递依赖 |
+| `SQLitePCLRaw.bundle_e_sqlite3` | 3.0.5 | Apache-2.0 | 直接固定版本；元包自身无运行 DLL |
+| `SQLitePCLRaw.config.e_sqlite3` | 3.0.5 | Apache-2.0 | 传递依赖，提供 `SQLitePCLRaw.batteries_v2.dll` |
+| `SQLite` | 3.53.4 | Public Domain | 传递依赖，提供原生 `e_sqlite3.dll` |
+| `SQLitePCLRaw.provider.e_sqlite3` | 3.0.5 | Apache-2.0 | 传递依赖 |
 | `System.IO.Hashing` | 8.0.0 | MIT | ImageSharp 的传递依赖，保留运行资产 |
 | `SharpPcap` | 6.3.1 | MIT | 直接依赖 |
 | `PacketDotNet` | 1.4.8 | MPL-2.0 | 传递依赖（SharpPcap） |
@@ -290,7 +291,7 @@ ISC 与 MIT 的条件均只有一条：在所有副本中保留版权声明与�
 | `System.Runtime.CompilerServices.Unsafe` | 6.0.0 | MIT | 传递依赖 |
 | `xunit` | 2.9.3 | Apache-2.0 | 仅测试 |
 | `xunit.runner.visualstudio` | 4.0.0 | Apache-2.0 | 仅测试 |
-| `Microsoft.NET.Test.Sdk` | 18.10.1 | MIT | 仅测试 |
+| `Microsoft.NET.Test.Sdk` | 18.11.0 | MIT | 仅测试 |
 | `JsonSchema.Net` | 7.3.4 | MIT | 仅测试（集成测试直接依赖） |
 | `Json.More.Net` | 2.1.1 | MIT | 仅测试（`JsonSchema.Net` 的传递依赖） |
 | `JsonPointer.Net` | 5.3.1 | MIT | 仅测试（`JsonSchema.Net` 的传递依赖） |
@@ -300,9 +301,11 @@ ISC 与 MIT 的条件均只有一条：在所有副本中保留版权声明与�
 或 `<license type="file">LICENSE.md`（Machina 系列，内容为 GPL v3 全文）。
 .NET 运行时与 SDK 本身为 MIT。
 
-SQLitePCLRaw 2.1.14 的四个原始包声明、包 SHA256/内容 SHA512、实际发布 DLL 哈希和
-Apache-2.0 全文保存在 [`licenses/sqlite/`](licenses/sqlite/)。本机实际发布的原生库查询
-结果为 SQLite 3.54.0，超过 CVE-2025-6965 修复所需的 3.50.2；这不改变现有数据库结构。
+Microsoft.Data.Sqlite 10.0.14、SQLitePCLRaw 3.0.5 和 SQLite 3.53.4 的七个原始包声明、
+包 SHA256/内容 SHA512、已还原 win-x64 运行 DLL 哈希，以及 MIT、Apache-2.0 和
+SQLite public domain 原文保存在 [`licenses/sqlite/`](licenses/sqlite/)。2026-11-03 直接加载
+已还原包的原生 DLL，`sqlite3_libversion()` 返回 3.53.4；清单记录的是本次依赖图实际
+提供的版本，构建输出与发行包仍由相应验证流程核对。这次依赖替换不修改数据库迁移脚本。
 
 MIT 与 Apache-2.0 均与 GPL-3.0 兼容，因此不构成障碍。
 Apache-2.0 与 **GPLv2** 不兼容，但与 GPLv3 兼容。

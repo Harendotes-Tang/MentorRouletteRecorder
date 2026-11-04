@@ -1,27 +1,64 @@
 {
   "schema": 1,
-  "scope": "Existing Microsoft.Data.Sqlite 8.0.11 API with patched SQLitePCLRaw 2.1.14 native bundle",
+  "scope": "Restored Microsoft.Data.Sqlite 10.0.14 with SQLitePCLRaw 3.0.5 and SQLite 3.53.4; runtime asset hashes are taken from the resolved win-x64 package graph",
   "target": "net8.0-windows7.0/win-x64",
-  "verified_date": "2026-10-19",
+  "verified_date": "2026-11-03",
+  "native_version": "3.53.4",
+  "native_source_id": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
   "packages": [
+    {
+      "runtime_assets": [],
+      "compile_only": false,
+      "copyright": "© Microsoft Corporation. All rights reserved.",
+      "license": "MIT",
+      "repository_commit": "0427b9abbead3fa64c6655eb4290c537397131fa",
+      "authors": "Microsoft",
+      "nuspec_file": "Microsoft.Data.Sqlite-10.0.14.nuspec.txt",
+      "package_sha256": "34ee7848923872dcbf341e89b6c192170f222815cb9cb2604ac707b25b7fb0b4",
+      "nuget_content_sha512": "K37udQU2dojYZuCUT9F8TlZTAxzE0XOkqUfgIM2+2Lj7yJnfoNhpLmxAp6eSL281R6ncc4uhIAvTxSpv1qjgVA==",
+      "license_file": "MIT.txt",
+      "nuget_url": "https://www.nuget.org/packages/Microsoft.Data.Sqlite/10.0.14",
+      "version": "10.0.14",
+      "id": "Microsoft.Data.Sqlite",
+      "repository_url": "https://github.com/dotnet/dotnet",
+      "license_source": "NuGet package declares MIT; text retained from docs/licenses/dotnet-MIT.txt"
+    },
     {
       "runtime_assets": [
         {
-          "sha256": "29c9cf3060789066682ba5fbf81dea584563e6ab60b5d9861c73ba8b29ed1142",
-          "file": "SQLitePCLRaw.batteries_v2.dll"
+          "sha256": "5a0627964721a7acdf5d242fa59db4e8452305d23789dd30c5d03227a370518b",
+          "file": "Microsoft.Data.Sqlite.dll",
+          "package_path": "lib/net8.0/Microsoft.Data.Sqlite.dll"
         }
       ],
       "compile_only": false,
-      "copyright": "Copyright 2014-2024 SourceGear, LLC",
+      "copyright": "© Microsoft Corporation. All rights reserved.",
+      "license": "MIT",
+      "repository_commit": "0427b9abbead3fa64c6655eb4290c537397131fa",
+      "authors": "Microsoft",
+      "nuspec_file": "Microsoft.Data.Sqlite.Core-10.0.14.nuspec.txt",
+      "package_sha256": "df0828e3861a1e0240c9a3ec1891cdc1942cdc47b61c8d2fb36ce2542f02b092",
+      "nuget_content_sha512": "/DjPbRUdkJvNKWR5f+OmjxN3jT3WBlNc/TlwJXVkg0CBpKcoWZRrJZSGsdmMgR0g3nNQQ9e1CQdArX6jrhxifA==",
+      "license_file": "MIT.txt",
+      "nuget_url": "https://www.nuget.org/packages/Microsoft.Data.Sqlite.Core/10.0.14",
+      "version": "10.0.14",
+      "id": "Microsoft.Data.Sqlite.Core",
+      "repository_url": "https://github.com/dotnet/dotnet",
+      "license_source": "NuGet package declares MIT; text retained from docs/licenses/dotnet-MIT.txt"
+    },
+    {
+      "runtime_assets": [],
+      "compile_only": false,
+      "copyright": "Copyright 2014-2026 SourceGear, LLC",
       "license": "Apache-2.0",
       "repository_commit": "",
       "authors": "Eric Sink",
-      "nuspec_file": "SQLitePCLRaw.bundle_e_sqlite3-2.1.14.nuspec.txt",
-      "package_sha256": "68b2e8062a383bdce8a0bccac87d19493d2797fd5f8d2745b464644bbc076a3b",
-      "nuget_content_sha512": "j/g9F8XbcmnNbrllJ9wTj3+CP2PjwKWFASgtrO8ClSPT3qQrAAwbhjUhHef3s4i4L4baIrJH5EPfbn1sRx/KHg==",
+      "nuspec_file": "SQLitePCLRaw.bundle_e_sqlite3-3.0.5.nuspec.txt",
+      "package_sha256": "e325ce61a86bca381fbd35487264481e1c6a39663546fec82035fa661198c2a1",
+      "nuget_content_sha512": "EvmAAUwl8MPiDHszFBiTP8hMdjW2VZfOqwnCDqAMBVBDyGa++GFOprw416SE2P8znUOHu+dgvIkvTicCzSOrLw==",
       "license_file": "Apache-2.0.txt",
-      "nuget_url": "https://www.nuget.org/packages/SQLitePCLRaw.bundle_e_sqlite3/2.1.14",
-      "version": "2.1.14",
+      "nuget_url": "https://www.nuget.org/packages/SQLitePCLRaw.bundle_e_sqlite3/3.0.5",
+      "version": "3.0.5",
       "id": "SQLitePCLRaw.bundle_e_sqlite3",
       "repository_url": "https://github.com/ericsink/SQLitePCL.raw",
       "license_source": "NuGet package declares Apache-2.0; full text from https://www.apache.org/licenses/LICENSE-2.0.txt"
@@ -29,21 +66,45 @@
     {
       "runtime_assets": [
         {
-          "sha256": "e60e22452ba79c306a59ecc01a97c29bafe69d9fa612f40253852ed450ad27e8",
-          "file": "SQLitePCLRaw.core.dll"
+          "sha256": "1ee3c6ff4d39171690d6ff6f84b4d876ed038ca28e39bb6e74995f52d2aacf8b",
+          "file": "SQLitePCLRaw.batteries_v2.dll",
+          "package_path": "lib/net8.0/SQLitePCLRaw.batteries_v2.dll"
         }
       ],
       "compile_only": false,
-      "copyright": "Copyright 2014-2024 SourceGear, LLC",
+      "copyright": "Copyright 2014-2026 SourceGear, LLC",
       "license": "Apache-2.0",
-      "repository_commit": "",
+      "repository_commit": "96043b8cff323f21919df86a431c136655d81b4a",
       "authors": "Eric Sink",
-      "nuspec_file": "SQLitePCLRaw.core-2.1.14.nuspec.txt",
-      "package_sha256": "699d899a12951f8a790cff8cfd03bc4bb4ca5b8b069f8fa3ca1e8d6a5c19360b",
-      "nuget_content_sha512": "vxQqUv9cJrqFcFTzufoRAG3eumjsyO/FEVcFlSRxp/Bf8D7Y7TTC2aFi0gPQJcccstNo4sliSN9/THCHDgIWuw==",
+      "nuspec_file": "SQLitePCLRaw.config.e_sqlite3-3.0.5.nuspec.txt",
+      "package_sha256": "1c3908111a4a14e898839836bea9c4da390edc669b297c404de92422abee3ab1",
+      "nuget_content_sha512": "CiXpXuMj3f64/JINJlUbSv7YVKPZ3agzw1BzMasgQ+DJ8W1iwhAFYDc6/CDlTT9p9Cq91tpude99zA6oYbWvEg==",
       "license_file": "Apache-2.0.txt",
-      "nuget_url": "https://www.nuget.org/packages/SQLitePCLRaw.core/2.1.14",
-      "version": "2.1.14",
+      "nuget_url": "https://www.nuget.org/packages/SQLitePCLRaw.config.e_sqlite3/3.0.5",
+      "version": "3.0.5",
+      "id": "SQLitePCLRaw.config.e_sqlite3",
+      "repository_url": "https://github.com/ericsink/SQLitePCL.raw",
+      "license_source": "NuGet package declares Apache-2.0; full text from https://www.apache.org/licenses/LICENSE-2.0.txt"
+    },
+    {
+      "runtime_assets": [
+        {
+          "sha256": "b72c9dfe1479a568d6b84e249eaf949e76c757888f8056fb6ddb9c0480e0dd25",
+          "file": "SQLitePCLRaw.core.dll",
+          "package_path": "lib/net8.0/SQLitePCLRaw.core.dll"
+        }
+      ],
+      "compile_only": false,
+      "copyright": "Copyright 2014-2025 SourceGear, LLC",
+      "license": "Apache-2.0",
+      "repository_commit": "ed046114d5a30534e13294d94d78eb73de896ad4",
+      "authors": "Eric Sink",
+      "nuspec_file": "SQLitePCLRaw.core-3.0.5.nuspec.txt",
+      "package_sha256": "7476b4b8e067d88c4cb598a31893b511037b88e05c28d524f4b4433fe9f69048",
+      "nuget_content_sha512": "JCCdZVJ+D4K7ThUbYQGV05y0cyiRzh8OK6CWU3HaOB8eY2zZJWrn3Ft2xgTjbTO3ymOv3gnmqKQKmy/LXwGqAw==",
+      "license_file": "Apache-2.0.txt",
+      "nuget_url": "https://www.nuget.org/packages/SQLitePCLRaw.core/3.0.5",
+      "version": "3.0.5",
       "id": "SQLitePCLRaw.core",
       "repository_url": "https://github.com/ericsink/SQLitePCL.raw",
       "license_source": "NuGet package declares Apache-2.0; full text from https://www.apache.org/licenses/LICENSE-2.0.txt"
@@ -51,46 +112,48 @@
     {
       "runtime_assets": [
         {
-          "sha256": "b082e8a72ad4ce908234eac970b09b7d328d16157cec34a3ebccfd9dfe2221c6",
-          "file": "e_sqlite3.dll"
+          "sha256": "6d6cb90de643c6b4b15f973d1e304f7dd91e8bf053c35013e4ea095d85b53655",
+          "file": "SQLitePCLRaw.provider.e_sqlite3.dll",
+          "package_path": "lib/net8.0-windows7.0/SQLitePCLRaw.provider.e_sqlite3.dll"
         }
       ],
       "compile_only": false,
-      "copyright": "Copyright 2014-2024 SourceGear, LLC",
+      "copyright": "Copyright 2014-2025 SourceGear, LLC",
       "license": "Apache-2.0",
-      "repository_commit": "",
+      "repository_commit": "ed046114d5a30534e13294d94d78eb73de896ad4",
       "authors": "Eric Sink",
-      "nuspec_file": "SQLitePCLRaw.lib.e_sqlite3-2.1.14.nuspec.txt",
-      "package_sha256": "b7e9e18df72c812df2c4769b6ab685de0447f8080f39c5a28ab11145d79a36f0",
-      "nuget_content_sha512": "6oIc2tLdN5JFjHgm6Csa/NbKMfy2U0yww0VN5lO7u5K0dPC8Eo5MwPjZKpF4QHLrhAFpy67CBx1LuXArlQgDJw==",
+      "nuspec_file": "SQLitePCLRaw.provider.e_sqlite3-3.0.5.nuspec.txt",
+      "package_sha256": "10c6d3daac432bb382dda06c35e5f7ffcce3618792141bd91656527f06ef5b25",
+      "nuget_content_sha512": "cW7pWhJGlc5bLiyDRQnmaZFYW1rRhDtMxtE1/geN/i0uhnoug5eN7wm4aRgzNwgDJR95JTflkgNFUFSsJPgsyQ==",
       "license_file": "Apache-2.0.txt",
-      "nuget_url": "https://www.nuget.org/packages/SQLitePCLRaw.lib.e_sqlite3/2.1.14",
-      "version": "2.1.14",
-      "id": "SQLitePCLRaw.lib.e_sqlite3",
+      "nuget_url": "https://www.nuget.org/packages/SQLitePCLRaw.provider.e_sqlite3/3.0.5",
+      "version": "3.0.5",
+      "id": "SQLitePCLRaw.provider.e_sqlite3",
       "repository_url": "https://github.com/ericsink/SQLitePCL.raw",
       "license_source": "NuGet package declares Apache-2.0; full text from https://www.apache.org/licenses/LICENSE-2.0.txt"
     },
     {
       "runtime_assets": [
         {
-          "sha256": "04d57c32e7f780a9040776b8b0dc6ba59d42dfcc9363521ac4fd6b800b6de500",
-          "file": "SQLitePCLRaw.provider.e_sqlite3.dll"
+          "sha256": "6ad8e149f8ce3ed3716402b4b3a2268ebbdc7b64391b5fafed747e03bb1b9418",
+          "file": "e_sqlite3.dll",
+          "package_path": "runtimes/win-x64/native/e_sqlite3.dll"
         }
       ],
       "compile_only": false,
-      "copyright": "Copyright 2014-2024 SourceGear, LLC",
-      "license": "Apache-2.0",
+      "copyright": "Copyright 2014-2026 SourceGear, LLC",
+      "license": "Public Domain",
       "repository_commit": "",
       "authors": "Eric Sink",
-      "nuspec_file": "SQLitePCLRaw.provider.e_sqlite3-2.1.14.nuspec.txt",
-      "package_sha256": "d870df546696a372330d592e462fa48d81dccd21ba38277495112905f2147869",
-      "nuget_content_sha512": "EERldz5SfCg2vJf/yaHstvuGSM9CD5rHSWq34fn3oyADLMInrlQ5qwkemmy2Cp0eEGvpl2awYFsfWhPS7PtLlA==",
-      "license_file": "Apache-2.0.txt",
-      "nuget_url": "https://www.nuget.org/packages/SQLitePCLRaw.provider.e_sqlite3/2.1.14",
-      "version": "2.1.14",
-      "id": "SQLitePCLRaw.provider.e_sqlite3",
-      "repository_url": "https://github.com/ericsink/SQLitePCL.raw",
-      "license_source": "NuGet package declares Apache-2.0; full text from https://www.apache.org/licenses/LICENSE-2.0.txt"
+      "nuspec_file": "SQLite-3.53.4.nuspec.txt",
+      "package_sha256": "5641eb58e88429fd73d09fc294bdaa610a6e99099f4141de912a5e4aa6d773ca",
+      "nuget_content_sha512": "gdFFZIus/ztMjNF5TfmVbEeyKSZEZ6pwAeqaMG5CnOsoVeySllCVQcgvw8m8/wRherPoYWmTJwC9rVsMA8SC7w==",
+      "license_file": "SQLite-Public-Domain.txt",
+      "nuget_url": "https://www.nuget.org/packages/SQLite/3.53.4",
+      "version": "3.53.4",
+      "id": "SQLite",
+      "repository_url": "https://sqlite.org/",
+      "license_source": "NuGet package LICENSE.txt; https://sqlite.org/copyright.html"
     }
   ]
 }

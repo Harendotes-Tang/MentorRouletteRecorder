@@ -8,6 +8,10 @@ updates:
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 5
+    # Keep the MIT-only test validator; newer major binary packages add OSMF terms.
+    ignore:
+      - dependency-name: "JsonSchema.Net"
+        update-types: ["version-update:semver-major"]
   # The workflows pin every action to a commit id; Dependabot reads those pins and proposes the
   # upgrade as a commit bump, so pinning costs nothing in maintenance.
   - package-ecosystem: "github-actions"

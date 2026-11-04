@@ -117,8 +117,8 @@ Machina.FFXIV 包中附带的原生注入载荷 `deucalion-*.dll` 从所有构�
 |---|---|---|
 | `Machina.FFXIV` | 2.4.8.2 | GPL-3.0 |
 | `Machina`（传递依赖） | 2.3.1.3 | GPL-3.0 |
-| `Microsoft.Data.Sqlite` | 8.0.11 | MIT |
-| `SQLitePCLRaw.bundle_e_sqlite3`（直接固定，替换 `Microsoft.Data.Sqlite` 自带的原生 SQLite；其余 `SQLitePCLRaw.*` 为传递依赖） | 2.1.14 | Apache-2.0；SQLite 本体为 public domain |
+| `Microsoft.Data.Sqlite` | 10.0.14 | MIT |
+| `SQLitePCLRaw.bundle_e_sqlite3`（直接固定，原生库由传递依赖 `SQLite` 提供；其余 `SQLitePCLRaw.*` 为传递依赖） | 3.0.5 | Apache-2.0；SQLite 本体为 public domain |
 | `SharpPcap` | 6.3.1 | MIT |
 | `PacketDotNet`（传递依赖） | 1.4.8 | MPL-2.0 |
 | `NPOI`（仅用于读取 XLS） | 2.7.6 | Apache-2.0 |
@@ -127,7 +127,7 @@ Machina.FFXIV 包中附带的原生注入载荷 `deucalion-*.dll` 从所有构�
 | `System.Security.Cryptography.Xml`（直接固定） | 8.0.5 | MIT |
 | `SixLabors.ImageSharp`（仅取编译期资产，不进入运行与发布内容） | 4.1.3 | Six Labors Split License，对本项目授予 Apache-2.0（见 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)） |
 | `xunit` / `xunit.runner.visualstudio`（仅测试） | 2.9.3 / 4.0.0 | Apache-2.0 |
-| `Microsoft.NET.Test.Sdk`（仅测试） | 18.10.1 | MIT |
+| `Microsoft.NET.Test.Sdk`（仅测试） | 18.11.0 | MIT |
 | `JsonSchema.Net`（仅集成测试） | 7.3.4 | MIT |
 
 ## 3. C++ / Qt 侧（Desktop）

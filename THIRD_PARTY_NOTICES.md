@@ -106,9 +106,9 @@ OpenSSL、Expat、XZ liblzma 和 zlib。构建来源记录还保留 PyInstaller 
 
 | 组件 | 版本 | 许可证 |
 |---|---|---|
-| Microsoft.Data.Sqlite / .Core | 8.0.11 | MIT |
-| SQLitePCLRaw.core / .bundle_e_sqlite3 / .lib_e_sqlite3 / .provider.e_sqlite3 | 2.1.14 | Apache-2.0 |
-| SQLite（`e_sqlite3`，经由 SQLitePCLRaw 附带） | 3.54.0 | Public Domain |
+| Microsoft.Data.Sqlite / .Core | 10.0.14 | MIT |
+| SQLitePCLRaw.core / .bundle_e_sqlite3 / .config.e_sqlite3 / .provider.e_sqlite3 | 3.0.5 | Apache-2.0 |
+| SQLite（`e_sqlite3`，经由 `SQLite` 包附带） | 3.53.4 | Public Domain |
 | SharpPcap | 6.3.1 | MIT |
 | PacketDotNet（SharpPcap 的传递依赖） | 1.4.8 | MPL-2.0 |
 | System.Memory | 4.6.3 | MIT |
@@ -118,7 +118,7 @@ OpenSSL、Expat、XZ liblzma 和 zlib。构建来源记录还保留 PyInstaller 
 | MinGW-w64 GCC 运行时（`libstdc++`、`libgcc`） | GCC 13.1 | GPL-3.0 **with GCC Runtime Library Exception** |
 | xUnit.net（仅测试，不随发布分发） | 2.9.3 | Apache-2.0 |
 | xunit.runner.visualstudio（仅测试） | 4.0.0 | Apache-2.0 |
-| Microsoft.NET.Test.Sdk（仅测试） | 18.10.1 | MIT |
+| Microsoft.NET.Test.Sdk（仅测试） | 18.11.0 | MIT |
 | JsonSchema.Net（仅测试） | 7.3.4 | MIT |
 | Json.More.Net（仅测试，JsonSchema.Net 的传递依赖） | 2.1.1 | MIT |
 | JsonPointer.Net（仅测试，JsonSchema.Net 的传递依赖） | 5.3.1 | MIT |
