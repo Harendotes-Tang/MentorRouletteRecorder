@@ -52,10 +52,16 @@
 > XLS/XLSX, native JSON, database backups, pasted tables and screenshots. Screenshot OCR runs offline;
 > imports require preview and confirmation, and conflicts preserve local records. Reflection sharing
 > saves a PNG locally without uploading it.
+> The interface is available in Simplified Chinese, Traditional Chinese, English and Japanese and can be
+> switched at any time in Settings; duty and job names follow the game text of the chosen language, and
+> speech announcements follow the interface language.
 > Supported client: Chinese server (国服) `2026.08.05`. The Traditional Chinese server (繁中服, `TC`) and
 > the Global server (国际服, `GLOBAL`) are each prepared as a region of their own but have no verified
 > protocol profile yet, so they are not recorded automatically; see
 > [protocol-profiles/README.md](protocol-profiles/README.md).
+> Testers on those servers can follow [docs/global-server-testing.md](docs/global-server-testing.md)
+> (English) or [docs/traditional-chinese-server-testing.md](docs/traditional-chinese-server-testing.md)
+> (繁體中文).
 
 ## 目录
 

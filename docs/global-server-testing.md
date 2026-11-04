@@ -6,8 +6,12 @@ decoded, and which signals appear from queueing until you leave the duty. Please
 round first and send the files back; once the data is confirmed usable, a second round
 follows.
 
-Use the complete "Global server test build" that is provided to you separately. If you have
-not received it yet, do not start, and do not substitute a public release. Automatic
+Download the **1.9.0-beta.1** test build (marked Pre-release) from the GitHub releases page,
+<https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/tag/v1.9.0-beta.1>, and run
+`MentorRecorder-1.9.0-beta.1-setup.exe` to install it; if a newer test build is listed there, use the
+newest one. The page also has a `.sha256` file beside each download, which you can check with
+PowerShell's `Get-FileHash -Algorithm SHA256`. The in-app update check only offers formal releases,
+so test builds have to be downloaded by hand. Automatic
 recording for the Global server currently shows as "unsupported"; during evidence
 collection no real mentor roulette records are created automatically. That is expected for
 this round.
@@ -190,6 +194,9 @@ if you exceed it. Do not post the files in a public issue or chat:
   add the match confirmation window, the in-game duty name or the completion message, and
   label which round they belong to. Blur character names, chat and anything else personal.
 - **If available: `global_observation_01.json` and any further candidate summaries.**
+- **If you would like to be credited:** put the name you want listed (for example
+  `Character@World` or a nickname) in the email, and it will be added to the README
+  acknowledgements. Without one, nothing is listed.
 - **Only for startup or collection problems: the `collector-*.log` diagnostic logs from
   the same time.** Click **Open logs** in step ④, or reach the database folder via
   **Settings → Data → Open folder** and open the `logs` subfolder; copy only the logs for this round, not the database. If you
