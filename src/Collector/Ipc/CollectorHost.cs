@@ -42,8 +42,9 @@ public sealed class CollectorHost : IDisposable
         Sessions = new CaptureSessionRepository(database);
         Settings = new SettingsRepository(database, clock);
         Statistics = new StatisticsRepository(database, Settings, JobCatalog.Default, DutyCatalog.Default);
-        Mutations = new RunMutationService(database, Settings, clock);
-        HistoryRetention = new HistoryRetentionService(database, clock);
+        LiveEvents = new LiveEventBus(clock);
+        Mutations = new RunMutationService(database, Settings, clock, onPurged: LiveEvents.ForgetRuns);
+        HistoryRetention = new HistoryRetentionService(database, clock, LiveEvents.ForgetRuns);
         Reflections = new RunReflectionRepository(database);
         ReflectionWrites = new RunReflectionService(database, clock);
         Candidates = new CandidateObservationRepository(database, clock);
@@ -52,7 +53,6 @@ public sealed class CollectorHost : IDisposable
         Backups = new BackupService(database, clock);
         Imports = new RunImportService(database, clock);
         DiagnosticsReports = new DiagnosticsReportExport(database.Path, clock);
-        LiveEvents = new LiveEventBus(clock);
     }
 
     /// <summary>Open database; the single writer.</summary>

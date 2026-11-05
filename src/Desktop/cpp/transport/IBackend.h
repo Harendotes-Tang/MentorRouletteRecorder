@@ -327,8 +327,12 @@ public:
     /// \a replace sends `overwrite: true`: the user already confirmed replacing an existing
     /// \a targetPath (the save dialog asked). Otherwise the field is left out and the Collector
     /// refuses an existing file.
-    BackendReply *exportCsv(const QString &targetPath, const QJsonObject &filter = {}, bool replace = false);
-    BackendReply *exportJson(const QString &targetPath, const QJsonObject &filter = {}, bool replace = false);
+    /// \a sort is the $defs/RunSort QueryRuns takes; an empty object omits the field, which
+    /// the Collector reads as newest entered first (contracts/CHANGELOG.md 2026-11-03).
+    BackendReply *exportCsv(const QString &targetPath, const QJsonObject &filter = {}, bool replace = false,
+                            const QJsonObject &sort = {});
+    BackendReply *exportJson(const QString &targetPath, const QJsonObject &filter = {}, bool replace = false,
+                             const QJsonObject &sort = {});
     /// An empty \a targetPath omits the field, which selects the Collector's
     /// managed backups folder.
     BackendReply *backupDatabase(const QString &targetPath = {});

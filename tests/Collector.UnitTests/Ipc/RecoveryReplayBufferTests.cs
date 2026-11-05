@@ -15,6 +15,67 @@ namespace MentorRecorder.Collector.UnitTests;
 public sealed class RecoveryReplayBufferTests
 {
     [Fact]
+    public async Task PurgeRemovesBodiesFromReplayAndUnreadQueuesWithoutReorderingOtherEvents()
+    {
+        var bus = new LiveEventBus(new TestClock(DateTimeOffset.UtcNow));
+        var purged = TestDatabase.Run() with { Note = "private body" };
+        var kept = TestDatabase.Run();
+        using var existing = bus.Subscribe("existing");
+        bus.PublishRun(LiveEventKind.RunUpdated, purged);
+        bus.PublishStatsInvalidated("keep this hint");
+        bus.PublishRun(LiveEventKind.RunUpdated, kept);
+        bus.PublishRunFinished(purged, Domain.RunState.InterruptedPendingReview);
+        bus.ForgetRuns(new[] { purged.RunId });
+        bus.ForgetRuns(new[] { purged.RunId });
+        bus.PublishRun(LiveEventKind.RunUpdated, purged);
+        bus.PublishRunFinished(purged, Domain.RunState.InterruptedPendingReview);
+        bus.PublishState(Domain.RunState.InterruptedPendingReview, purged);
+        Assert.Equal(2, bus.ReplayCount);
+        using var newcomer = bus.Subscribe("newcomer");
+        foreach (var subscription in new[] { existing, newcomer })
+        {
+            var events = await DrainAsync(subscription, 2);
+            Assert.Equal(new long[] { 2, 3 }, events.Select(e => e["sequence"]!.GetValue<long>()));
+            Assert.Equal(kept.RunId, events[1]["run"]!["run_id"]!.GetValue<string>());
+            Assert.DoesNotContain("private body", string.Join(',', events));
+            Assert.Null(await subscription.ReadAsync(TimeSpan.FromMilliseconds(20), CancellationToken.None));
+        }
+    }
+
+    [Fact]
+    public async Task SnapshotPreparedBeforePurgeCannotPublishAfterIt()
+    {
+        var bus = new LiveEventBus(new TestClock(DateTimeOffset.UtcNow));
+        var run = TestDatabase.Run();
+        using var ready = new ManualResetEventSlim();
+        using var resume = new ManualResetEventSlim();
+        var publish = Task.Run(() => bus.Publish(LiveEventKind.RunUpdated, payload =>
+        {
+            payload["run"] = Wire.Run(run);
+            ready.Set();
+            Assert.True(resume.Wait(TimeSpan.FromSeconds(10)));
+        }));
+        try
+        {
+            Assert.True(ready.Wait(TimeSpan.FromSeconds(10)));
+            bus.ForgetRuns(new[] { run.RunId });
+        }
+        finally { resume.Set(); }
+        await publish;
+        Assert.Equal(0, bus.ReplayCount);
+        using var subscription = bus.Subscribe("waiting");
+        var waiting = subscription.ReadAsync(TimeSpan.FromSeconds(2), CancellationToken.None);
+        bus.ForgetRuns(new[] { run.RunId });
+        bus.PublishStatsInvalidated("still alive");
+        Assert.Equal("still alive", (await waiting)!["message"]!.GetValue<string>());
+        using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
+        Assert.Null(await subscription.ReadAsync(cancelled.Token));
+        var closing = subscription.ReadAsync(CancellationToken.None);
+        subscription.Dispose();
+        Assert.Null(await closing.WaitAsync(TimeSpan.FromSeconds(2)));
+    }
+
+    [Fact]
     public async Task ASubscriberThatArrivesAfterwardsStillReceivesWhatItMissed()
     {
         var bus = new LiveEventBus(new TestClock(new DateTimeOffset(2026, 9, 4, 7, 0, 0, TimeSpan.Zero)));

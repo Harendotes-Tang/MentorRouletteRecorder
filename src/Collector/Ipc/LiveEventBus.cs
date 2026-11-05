@@ -92,6 +92,8 @@ public sealed class LiveEventBus
     /// </summary>
     private readonly object _gate = new();
     private readonly Queue<JsonObject> _replay = new(ReplayCapacity);
+    // IDs only: reject snapshots prepared before a committed purge for this host's lifetime.
+    private readonly HashSet<string> _purgedRuns = new(StringComparer.OrdinalIgnoreCase);
     private readonly IClock _clock;
     private long _sequence;
 
@@ -140,6 +142,32 @@ public sealed class LiveEventBus
 
         return subscription;
     }
+
+    /// <summary>
+    /// Removes committed deletions from replay and unread subscriber queues, and rejects late
+    /// snapshots. Call only after the database transaction commits. Already delivered events
+    /// cannot be recalled. Lock order is bus gate, then subscription queue; neither calls storage.
+    /// </summary>
+    /// <param name="runIds">Permanently deleted record IDs; retained without their bodies.</param>
+    public void ForgetRuns(IReadOnlyList<string> runIds)
+    {
+        lock (_gate)
+        {
+            _purgedRuns.UnionWith(runIds);
+            var count = _replay.Count;
+            for (var index = 0; index < count; index++)
+            {
+                var payload = _replay.Dequeue();
+                if (!IsPurged(payload)) _replay.Enqueue(payload);
+            }
+            foreach (var subscription in _subscriptions.Values)
+                subscription.ForgetRuns(_purgedRuns);
+        }
+    }
+
+    private bool IsPurged(JsonObject payload) =>
+        payload["run"]?["run_id"] is JsonValue id && id.TryGetValue<string>(out var value)
+        && _purgedRuns.Contains(value);
 
     /// <summary>Publishes a run-shaped event.</summary>
     /// <param name="kind">Semantic kind.</param>
@@ -270,6 +298,7 @@ public sealed class LiveEventBus
 
         lock (_gate)
         {
+            if (IsPurged(payload)) return;
             // Taken inside the lock that fans the event out: outside it, two publishers could
             // enqueue out of order and a subscriber would see sequence numbers move backwards.
             // The contract defines a gap but not a backwards number (review finding M1).
@@ -344,8 +373,9 @@ public sealed class LiveEventBus
 public abstract class LiveEventSubscription : IDisposable
 {
     private readonly System.Threading.Channels.Channel<JsonObject> _channel;
+    private readonly object _queueGate = new();
     private long _dropped;
-    private bool _disposed;
+    private volatile bool _disposed;
 
     /// <summary>Creates a subscription with a bounded, drop-oldest buffer.</summary>
     /// <param name="subscriptionId">Identifier returned to the client.</param>
@@ -356,7 +386,7 @@ public abstract class LiveEventSubscription : IDisposable
             new System.Threading.Channels.BoundedChannelOptions(LiveEventBus.SubscriberCapacity)
             {
                 FullMode = System.Threading.Channels.BoundedChannelFullMode.DropOldest,
-                SingleReader = true,
+                SingleReader = false,
                 SingleWriter = false,
             });
     }
@@ -376,7 +406,15 @@ public abstract class LiveEventSubscription : IDisposable
     {
         try
         {
-            return await _channel.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+            while (await _channel.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                // A purge may consume the signalled item before we acquire this lock.
+                lock (_queueGate)
+                {
+                    if (_channel.Reader.TryRead(out var payload)) return payload;
+                }
+            }
+            return null;
         }
         catch (Exception ex)
             when (ex is OperationCanceledException or System.Threading.Channels.ChannelClosedException)
@@ -399,24 +437,33 @@ public abstract class LiveEventSubscription : IDisposable
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(timeout);
 
-        try
-        {
-            return await _channel.Reader.ReadAsync(deadline.Token).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-            when (ex is OperationCanceledException or System.Threading.Channels.ChannelClosedException)
-        {
-            return null;
-        }
+        return await ReadAsync(deadline.Token).ConfigureAwait(false);
     }
 
     /// <summary>Offers one event, dropping the oldest when the buffer is full.</summary>
     /// <param name="payload">Rendered event payload.</param>
     internal void Offer(JsonObject payload)
     {
-        if (!_channel.Writer.TryWrite(payload.DeepClone().AsObject()))
+        lock (_queueGate)
         {
-            Interlocked.Increment(ref _dropped);
+            if (!_channel.Writer.TryWrite(payload.DeepClone().AsObject()))
+                Interlocked.Increment(ref _dropped);
+        }
+    }
+
+    /// <summary>Scrubs unread copies while preserving all other event order and sequence numbers.</summary>
+    internal void ForgetRuns(IReadOnlySet<string> runIds)
+    {
+        lock (_queueGate)
+        {
+            var retained = new List<JsonObject>();
+            while (_channel.Reader.TryRead(out var payload))
+            {
+                if (payload["run"]?["run_id"] is not JsonValue id
+                    || !id.TryGetValue<string>(out var value) || !runIds.Contains(value))
+                    retained.Add(payload);
+            }
+            foreach (var payload in retained) _channel.Writer.TryWrite(payload);
         }
     }
 
@@ -426,13 +473,12 @@ public abstract class LiveEventSubscription : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
-        if (_disposed)
+        lock (_queueGate)
         {
-            return;
+            if (_disposed) return;
+            _disposed = true;
+            _channel.Writer.TryComplete();
         }
-
-        _disposed = true;
-        _channel.Writer.TryComplete();
         OnDispose();
         GC.SuppressFinalize(this);
     }

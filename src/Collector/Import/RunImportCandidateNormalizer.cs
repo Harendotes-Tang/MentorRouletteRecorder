@@ -390,6 +390,12 @@ internal static class RunImportCandidateNormalizer
     {
         var importedFacts = FactValues(incoming.Run!);
         var localFacts = FactValues(local);
+        // Comparison includes explicit optional facts even when the historical fingerprint
+        // omitted their keys. Keep FactValues unchanged so old import identities still match.
+        importedFacts["mentor_confirmed"] = incoming.Run!.ImportMetadata?.MentorConfirmed;
+        localFacts["mentor_confirmed"] = local.ImportMetadata?.MentorConfirmed;
+        importedFacts["joined_in_progress"] = incoming.Run.JoinedInProgress;
+        localFacts["joined_in_progress"] = local.JoinedInProgress;
         return incoming.ComparedFields.Where(importedFacts.ContainsKey).All(field =>
             JsonNode.DeepEquals(importedFacts[field], localFacts[field]));
     }

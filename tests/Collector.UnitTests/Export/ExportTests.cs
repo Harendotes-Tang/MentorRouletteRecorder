@@ -189,6 +189,81 @@ public sealed class ExportTests : IDisposable
         Assert.Equal(build, preview["rows"]![0]!["run"]!["game_build"]!.GetValue<string>());
     }
 
+    private static readonly int RunIdColumn = RunExporter.CsvHeader.ToList().IndexOf("run_id");
+
+    private (MentorRun Earliest, MentorRun Middle, MentorRun Latest) SeedThreeDays()
+    {
+        var earliest = TestDatabase.Run(enteredAt: new DateTimeOffset(2026, 9, 1, 1, 0, 0, TimeSpan.Zero));
+        var middle = TestDatabase.Run(enteredAt: new DateTimeOffset(2026, 9, 2, 1, 0, 0, TimeSpan.Zero));
+        var latest = TestDatabase.Run(enteredAt: new DateTimeOffset(2026, 9, 3, 1, 0, 0, TimeSpan.Zero));
+
+        // Inserted out of order on purpose: the file's order must come from the sort, not
+        // from insertion.
+        Seed(middle, latest, earliest);
+        return (earliest, middle, latest);
+    }
+
+    private static string[] CsvRunIds(string path) =>
+        File.ReadAllLines(path).Skip(1).Select(line => line.Split(',')[RunIdColumn]).ToArray();
+
+    private static string[] JsonRunIds(string path) =>
+        JsonNode.Parse(File.ReadAllText(path))!.AsArray()
+            .Select(item => item!["run_id"]!.GetValue<string>()).ToArray();
+
+    /// <summary>
+    /// contracts/CHANGELOG.md 2026-11-03: a request without <c>sort</c> is written the way every
+    /// export before the field was: newest entered first.
+    /// </summary>
+    [Fact]
+    public void Export_WithoutASortKeepsNewestEnteredFirst()
+    {
+        var (earliest, middle, latest) = SeedThreeDays();
+        var expected = new[] { latest.RunId, middle.RunId, earliest.RunId };
+
+        var csv = _exporter.ExportCsv(Target("default.csv"), null, overwrite: false);
+        var json = _exporter.ExportJson(Target("default.json"), null, overwrite: false);
+
+        Assert.Equal(expected, CsvRunIds(csv.TargetPath));
+        Assert.Equal(expected, JsonRunIds(json.TargetPath));
+    }
+
+    /// <summary>
+    /// The history list switched to 最早在前 sends history_date ascending; the first data row of
+    /// the file is then the earliest run, in CSV and in JSON alike.
+    /// </summary>
+    [Fact]
+    public void Export_AscendingHistoryDatePutsTheEarliestRunFirst()
+    {
+        var (earliest, middle, latest) = SeedThreeDays();
+        var earliestFirst = new RunSort(RunSortField.HistoryDate, SortDirection.Asc);
+        var expected = new[] { earliest.RunId, middle.RunId, latest.RunId };
+
+        var csv = _exporter.ExportCsv(Target("asc.csv"), null, overwrite: false, earliestFirst);
+        var json = _exporter.ExportJson(Target("asc.json"), null, overwrite: false, earliestFirst);
+
+        Assert.Equal(expected, CsvRunIds(csv.TargetPath));
+        Assert.Equal(expected, JsonRunIds(json.TargetPath));
+        Assert.Equal(earliest.RunId, CsvRunIds(csv.TargetPath)[0]);
+    }
+
+    /// <summary>The sort is applied with the filter, and a descending history_date is explicit too.</summary>
+    [Fact]
+    public void Export_SortsTheFilteredRowsOnly()
+    {
+        var (earliest, _, latest) = SeedThreeDays();
+        var selected = new RunFilter { RunIds = new[] { earliest.RunId, latest.RunId } };
+
+        var ascending = _exporter.ExportCsv(
+            Target("selected-asc.csv"), selected, overwrite: false,
+            new RunSort(RunSortField.HistoryDate, SortDirection.Asc));
+        var descending = _exporter.ExportCsv(
+            Target("selected-desc.csv"), selected, overwrite: false,
+            new RunSort(RunSortField.HistoryDate, SortDirection.Desc));
+
+        Assert.Equal(new[] { earliest.RunId, latest.RunId }, CsvRunIds(ascending.TargetPath));
+        Assert.Equal(new[] { latest.RunId, earliest.RunId }, CsvRunIds(descending.TargetPath));
+    }
+
     [Fact]
     public void Export_RefusesANetworkDestination()
     {

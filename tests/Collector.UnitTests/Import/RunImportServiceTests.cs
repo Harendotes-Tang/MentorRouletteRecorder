@@ -48,6 +48,50 @@ public sealed class RunImportServiceTests
     private static JsonObject CompletedRun(int hour, bool contributesToGoal = true) =>
         Wire.Run(TestDatabase.Run(enteredAt: new DateTimeOffset(2026, 9, 4, hour, 0, 0, TimeSpan.Zero), contributesToGoal: contributesToGoal));
 
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    [InlineData(false, null)]
+    public void ExplicitMentorConfirmationParticipatesInStableIdConflictChecks(bool original, bool? incoming)
+    {
+        using var fixture = new TestDatabase();
+        var service = new RunImportService(fixture.Database, fixture.Clock);
+        var row = new JsonObject { ["run_id"] = Id(), ["region"] = "CN", ["duty_name"] = "确认字段测试",
+            ["result"] = "COMPLETED", ["mentor_confirmed"] = original };
+        Assert.Equal(1, Commit(service, service.PreviewSource("JSON", rows: new JsonArray(row.DeepClone())))["imported_count"]!.GetValue<int>());
+        if (incoming.HasValue) row["mentor_confirmed"] = incoming.Value;
+        else row.Remove("mentor_confirmed");
+        var preview = service.PreviewSource("JSON", rows: new JsonArray(row));
+        var conflict = incoming.HasValue && incoming != original;
+        Assert.Equal(conflict ? "conflict" : "duplicate", Row(preview)["status"]!.GetValue<string>());
+        var result = Commit(service, preview);
+        Assert.Equal(1, result[conflict ? "conflict_count" : "duplicate_count"]!.GetValue<int>());
+        Assert.Equal(0, result["imported_count"]!.GetValue<int>());
+        var stored = new RunRepository(fixture.Database).Query(null, null, 1, 50).Items.Single();
+        Assert.Equal(original, stored.ImportMetadata!.MentorConfirmed);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ExplicitUnknownEntryModeConflictsWithKnownValueButOmissionDoesNot(bool original)
+    {
+        using var fixture = new TestDatabase();
+        var service = new RunImportService(fixture.Database, fixture.Clock);
+        var row = new JsonObject { ["run_id"] = Id(), ["region"] = "CN", ["duty_name"] = "进入方式测试",
+            ["result"] = "COMPLETED", ["joined_in_progress"] = original };
+        Commit(service, service.PreviewSource("JSON", rows: new JsonArray(row.DeepClone())));
+        row.Remove("joined_in_progress");
+        Assert.Equal("duplicate", Row(service.PreviewSource("JSON", rows: new JsonArray(row.DeepClone())))["status"]!.GetValue<string>());
+        row["joined_in_progress"] = null;
+        var preview = service.PreviewSource("JSON", rows: new JsonArray(row));
+        Assert.Equal("conflict", Row(preview)["status"]!.GetValue<string>());
+        Assert.Equal(1, Commit(service, preview)["conflict_count"]!.GetValue<int>());
+        Assert.Equal(original, new RunRepository(fixture.Database).Query(null, null, 1, 50).Items.Single().JoinedInProgress);
+    }
+
     [Fact]
     public void MixedRegionImportDeductsOnlyItsOwnBaselinesAndRetryKeepsBothAudits()
     {

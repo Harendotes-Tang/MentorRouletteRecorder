@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
+using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Mutations;
@@ -24,11 +25,13 @@ public sealed class HistoryRetentionTests
         public readonly RunMutationService Mutations;
         public readonly HistoryRetentionService Retention;
         public readonly RunRepository Runs;
+        public readonly LiveEventBus LiveEvents;
         public Fixture()
         {
             var settings = new SettingsRepository(Db.Database, Db.Clock); settings.EnsureDefaults();
-            Mutations = new RunMutationService(Db.Database, settings, Db.Clock);
-            Retention = new HistoryRetentionService(Db.Database, Db.Clock); Runs = new RunRepository(Db.Database);
+            LiveEvents = new LiveEventBus(Db.Clock);
+            Mutations = new RunMutationService(Db.Database, settings, Db.Clock, onPurged: LiveEvents.ForgetRuns);
+            Retention = new HistoryRetentionService(Db.Database, Db.Clock, LiveEvents.ForgetRuns); Runs = new RunRepository(Db.Database);
         }
         public CreateManualRunCommand NewCommand() => new()
         {
@@ -167,9 +170,10 @@ public sealed class HistoryRetentionTests
     }
 
     [Fact]
-    public void PurgeDatabaseFailureRollsBackBodiesReceiptsTombstonesAndAttachments()
+    public async Task PurgeDatabaseFailureRollsBackBodiesReceiptsTombstonesAndAttachments()
     {
         using var f = new Fixture(); var first = f.Delete(f.Create()); var second = f.Delete(f.Create());
+        f.LiveEvents.PublishRun(LiveEventKind.RunUpdated, first);
         var lastId = new[] { first.RunId, second.RunId }.OrderBy(id => id, StringComparer.Ordinal).Last();
         using (var trigger = f.Db.Database.CreateCommand())
         {
@@ -181,6 +185,63 @@ public sealed class HistoryRetentionTests
         Assert.Empty(f.Retention.PendingImageCleanup());
         Assert.Equal(0, f.Count("purged_run_tombstones", first.RunId)); Assert.Equal(0, f.Count("purged_run_tombstones", second.RunId));
         Assert.Equal(0, f.Count("run_purge_authorizations", first.RunId));
+        f.LiveEvents.PublishRun(LiveEventKind.RunUpdated, second);
+        using var subscriber = f.LiveEvents.Subscribe(Id());
+        Assert.Equal(2, f.LiveEvents.ReplayCount);
+        foreach (var expected in new[] { first.RunId, second.RunId })
+            Assert.Equal(expected, (await subscriber.ReadAsync(TimeSpan.FromSeconds(2), CancellationToken.None))!["run"]!["run_id"]!.GetValue<string>());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task HostPurgesLiveBodiesAfterManualAndExpiredDeletion(bool expired)
+    {
+        using var fixture = new TestDatabase();
+        using var host = CollectorHost.Open(Path.Combine(Path.GetDirectoryName(fixture.Path)!, "live-purge.db"),
+            fixture.Clock, capture: new CaptureServices
+            {
+                Npcap = new NpcapDetector(new FakeNpcapEnvironment()),
+                Game = new GameProcessLocator(new FakeGameProcessProvider(), new FakeGameFileReader()),
+                Adapters = new AdapterEnumerator(new FakeAdapterProvider(), new FakeProcessTcpTable()),
+                EnableFollowTimer = false,
+            });
+        var run = host.Mutations.CreateManualRun(new CreateManualRunCommand
+        {
+            RequestId = Id(), Reason = "测试删除", Result = RunResult.Completed, JobId = 19,
+            EnteredAtUtc = fixture.Clock.UtcNow.AddHours(-1), EndedAtUtc = fixture.Clock.UtcNow.AddMinutes(-30),
+            Note = "private-purge-body",
+        }).Run!;
+        host.ReflectionWrites.Set(new SetRunReflectionCommand(Id(), run.RunId, ReflectionMood.Good, "private-reflection-body"));
+        run = host.Runs.Get(run.RunId)!;
+        run = host.Mutations.SoftDeleteRun(new RunReasonCommand(Id(), run.RunId, run.Revision, "删除")).Run!;
+        Assert.Equal("private-reflection-body", run.Reflection!.Text);
+        host.LiveEvents.PublishRun(LiveEventKind.RunUpdated, run);
+        using var existing = host.LiveEvents.Subscribe("existing");
+        if (expired)
+        {
+            fixture.Clock.UtcNow += TimeSpan.FromDays(31);
+            Assert.Equal(1, host.HistoryRetention.CheckExpired());
+        }
+        else
+        {
+            var request = new BatchMutateRunsCommand(Id(), "purge", new[] { new BatchRunTarget(run.RunId, run.Revision) }, "清除");
+            host.Mutations.BatchMutateRuns(request);
+            Assert.True(host.Mutations.BatchMutateRuns(request).IdempotentReplay);
+        }
+        Assert.Null(host.Runs.Get(run.RunId));
+        host.LiveEvents.PublishRun(LiveEventKind.RunUpdated, run);
+        using var newcomer = host.LiveEvents.Subscribe("newcomer");
+        foreach (var subscription in new[] { existing, newcomer })
+        {
+            JsonObject? payload;
+            while ((payload = await subscription.ReadAsync(TimeSpan.FromMilliseconds(20), CancellationToken.None)) is not null)
+            {
+                Assert.DoesNotContain("private-purge-body", payload.ToJsonString());
+                Assert.DoesNotContain("private-reflection-body", payload.ToJsonString());
+                Assert.NotEqual(run.RunId, payload["run"]?["run_id"]?.GetValue<string>());
+            }
+        }
     }
 
     [Fact]

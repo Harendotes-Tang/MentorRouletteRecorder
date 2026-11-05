@@ -1,4 +1,12 @@
 # IPC 契约变更记录 / IPC contract changelog
+## 2026-11-03 · 历史导出按当前排序输出：`ExportRequest.sort`
+
+附加式变更，不新增消息类型。
+
+- **`ExportRequest.sort`**（可选，`$defs/RunSort`，即 `QueryRuns.sort` 的同一结构）：`ExportCsv` 与 `ExportJson` 按它排列写出的行，取值与拒绝情形与 `QueryRuns` 相同（未声明的 `field` 或 `asc` / `desc` 之外的 `direction` 答 `ERR_BAD_REQUEST`，`field` 分别为 `sort.field` 与 `sort.direction`）。省略时与此前一样按 `entered_at_utc` 降序写出，最新在前。筛选（`filter`）与文件内容不变。
+- 桌面端把历史记录列表当前的排序（点击表头选定的列与升降序，默认「日期」列由新到旧）作为 `sort` 发送，因此在列表上切到「最早在前」后导出的文件第一行就是最早的记录；勾选记录只导出所选时同样按该排序。
+- 兼容性：旧采集服务不认识 `sort`，答 `ERR_BAD_REQUEST`；两端随同一安装包发布。旧桌面端不发送该字段，导出顺序不变。
+
 
 ## 2026-11-04 · 系统连接表读取原因
 

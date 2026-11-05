@@ -91,6 +91,21 @@ QJsonObject ExportController::effectiveHistoryFilter() const
     return {{QStringLiteral("run_id"), ids}, {QStringLiteral("include_deleted"), true}};
 }
 
+void ExportController::setHistorySort(const QString &field, bool ascending)
+{
+    m_sortField = field;
+    m_sortAscending = ascending;
+}
+
+QJsonObject ExportController::historySort() const
+{
+    if (m_sortField.isEmpty())
+        return {};
+    return {{QStringLiteral("field"), m_sortField},
+            {QStringLiteral("direction"),
+             m_sortAscending ? QStringLiteral("asc") : QStringLiteral("desc")}};
+}
+
 void ExportController::exportCsv()
 {
     if (!m_backend)
@@ -103,7 +118,7 @@ void ExportController::exportCsv()
     if (path.isEmpty())
         return;
 
-    m_backend->exportCsv(path, effectiveHistoryFilter(), replace)
+    m_backend->exportCsv(path, effectiveHistoryFilter(), replace, historySort())
         ->whenDone(this, [this](bool ok, const QVariantMap &payload, const QString &code,
                                 const QString &message) {
             if (!ok) {
@@ -131,7 +146,7 @@ void ExportController::exportJson()
     if (path.isEmpty())
         return;
 
-    m_backend->exportJson(path, effectiveHistoryFilter(), replace)
+    m_backend->exportJson(path, effectiveHistoryFilter(), replace, historySort())
         ->whenDone(this, [this](bool ok, const QVariantMap &payload, const QString &code,
                                 const QString &message) {
             if (!ok) {

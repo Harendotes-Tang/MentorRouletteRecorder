@@ -15,13 +15,15 @@ public sealed class HistoryRetentionService : IDisposable
     public const int MaxRetentionDays = 36500;
     private readonly SqliteDatabase _database;
     private readonly IClock _clock;
+    private readonly Action<IReadOnlyList<string>>? _onPurged;
     private readonly object _maintenanceGate = new();
     private DateTimeOffset? _lastCheck;
     private Timer? _timer;
     private bool _disposed;
 
-    public HistoryRetentionService(SqliteDatabase database, IClock clock)
-    { _database = database; _clock = clock; }
+    /// <summary>Creates retention maintenance; onPurged cleans caches after commit and must not throw.</summary>
+    public HistoryRetentionService(SqliteDatabase database, IClock clock, Action<IReadOnlyList<string>>? onPurged = null)
+    { _database = database; _clock = clock; _onPurged = onPurged; }
 
     public int GetRetentionDays() => _database.Read(_ =>
     {
@@ -150,22 +152,23 @@ public sealed class HistoryRetentionService : IDisposable
             if (_disposed) return 0;
             var now = UtcTimestamp.Truncate(_clock.UtcNow);
             if (!force && _lastCheck is { } last && now - last < TimeSpan.FromDays(1)) return 0;
-            var count = _database.RunInTransaction(tx =>
+            var purgedIds = _database.RunInTransaction(tx =>
             {
                 using var command = _database.CreateCommand(); command.Transaction = tx;
                 command.CommandText = "SELECT retention_days FROM history_retention_settings WHERE id=1;";
                 var days = Convert.ToInt32(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
-                if (days == 0) return 0;
+                if (days == 0) return new List<string>();
                 command.CommandText = "SELECT run_id FROM mentor_runs WHERE soft_deleted=1 AND deleted_at_utc <= $cutoff ORDER BY run_id;";
                 command.Parameters.AddWithValue("$cutoff", UtcTimestamp.ToText(now - TimeSpan.FromDays(days)));
                 var ids = new List<string>(); using (var reader = command.ExecuteReader())
                     while (reader.Read()) ids.Add(reader.GetString(0));
                 var repository = new Repositories.RunRepository(_database);
                 var runs = ids.Select(id => repository.GetInternal(id, tx)!).ToArray();
-                Purge(runs, tx); return runs.Length;
+                Purge(runs, tx); return ids;
             });
+            if (purgedIds.Count > 0) _onPurged?.Invoke(purgedIds);
             _lastCheck = now;
-            return count;
+            return purgedIds.Count;
         }
     }
 

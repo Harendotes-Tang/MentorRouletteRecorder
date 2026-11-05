@@ -5,6 +5,7 @@
 #include <QHash>
 #include <QStringList>
 #include <QVariantMap>
+#include <QTimeZone>
 
 #include "RunListModel.h"
 
@@ -50,6 +51,8 @@ public:
     /// time or day). Stable: equal dates keep their order; undated records go
     /// last either way. The share dialog lays its images out in this order.
     Q_INVOKABLE QVariantList orderedByDate(const QVariantList &runs, bool ascending) const;
+    /// 日期型来源按 zone 的本地午夜参与排序；真实时间保持原始时刻。
+    QVariantList orderedByDate(const QVariantList &runs, bool ascending, const QTimeZone &zone) const;
 Q_SIGNALS:
     void filterChanged();
     void activeChanged();

@@ -11,9 +11,9 @@
 #include <utility>
 
 namespace {
-/// The instant RunFilterSql.HistoryDateExpression orders by, or an invalid
+/// The instant RunFilterSql.HistorySortDateExpression orders by, or an invalid
 /// QDateTime for a record that has none (MockBackendStats::fieldForSort agrees).
-QDateTime historyInstant(const QVariantMap &run)
+QDateTime historyInstant(const QVariantMap &run, const QTimeZone &zone)
 {
     for (const QString &key : {QStringLiteral("matched_at_utc"), QStringLiteral("entered_at_utc"),
                                QStringLiteral("ended_at_utc")}) {
@@ -32,7 +32,7 @@ QDateTime historyInstant(const QVariantMap &run)
         day = QDate::fromString(raw, QStringLiteral("yyyy/M/d"));
     if (!day.isValid())
         day = QDate::fromString(raw, QStringLiteral("yyyy.M.d"));
-    return day.isValid() ? day.startOfDay(QTimeZone::UTC) : QDateTime();
+    return day.isValid() ? day.startOfDay(zone) : QDateTime();
 }
 } // namespace
 
@@ -137,10 +137,16 @@ void ReflectionLibraryController::applyFilter(const QVariantMap &next)
 
 QVariantList ReflectionLibraryController::orderedByDate(const QVariantList &runs, bool ascending) const
 {
+    return orderedByDate(runs, ascending, QTimeZone::systemTimeZone());
+}
+
+QVariantList ReflectionLibraryController::orderedByDate(const QVariantList &runs, bool ascending,
+                                                       const QTimeZone &zone) const
+{
     QList<std::pair<QDateTime, QVariant>> keyed;
     keyed.reserve(runs.size());
     for (const QVariant &run : runs)
-        keyed.append({historyInstant(run.toMap()), run});
+        keyed.append({historyInstant(run.toMap(), zone), run});
     std::stable_sort(keyed.begin(), keyed.end(), [ascending](const auto &a, const auto &b) {
         // An undated record sorts after every dated one in both directions.
         if (!a.first.isValid() || !b.first.isValid())

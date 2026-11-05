@@ -270,6 +270,7 @@ public sealed class ContractSchemaTests
                     ["target_path"] = Path.Combine(workspace, "runs.csv"),
                     ["filter"] = new JsonObject(),
                     ["overwrite"] = true,
+                    ["sort"] = new JsonObject { ["field"] = "history_date", ["direction"] = "asc" },
                 })).Ok);
             Assert.True((await client.SendAsync(
                 "ExportJson",

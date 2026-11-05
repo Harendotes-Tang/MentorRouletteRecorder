@@ -33,6 +33,7 @@ public sealed class RunMutationService
     private readonly JobCatalog _jobs;
     private readonly DutyCatalog _duties;
     private readonly IClock _clock;
+    private readonly Action<IReadOnlyList<string>>? _onPurged;
 
     /// <summary>Creates the service over an open database.</summary>
     /// <param name="database">Open database; the single writer.</param>
@@ -40,12 +41,14 @@ public sealed class RunMutationService
     /// <param name="clock">Clock used to stamp rows.</param>
     /// <param name="jobs">Job reference table; the embedded one when omitted.</param>
     /// <param name="duties">Duty reference table; the embedded one when omitted.</param>
+    /// <param name="onPurged">Synchronous cache cleanup after a purge commits; must not throw.</param>
     public RunMutationService(
         SqliteDatabase database,
         SettingsRepository settings,
         IClock clock,
         JobCatalog? jobs = null,
-        DutyCatalog? duties = null)
+        DutyCatalog? duties = null,
+        Action<IReadOnlyList<string>>? onPurged = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(settings);
@@ -54,6 +57,7 @@ public sealed class RunMutationService
         _database = database;
         _settings = settings;
         _clock = clock;
+        _onPurged = onPurged;
         _runs = new RunRepository(database);
         _revisions = new RunRevisionRepository(database);
         _idempotency = new IdempotencyRepository(database, clock);
@@ -255,7 +259,7 @@ public sealed class RunMutationService
         var sorted = command.Runs.OrderBy(run => run.RunId, StringComparer.Ordinal).ToArray();
         var fingerprint = MutationSnapshotCodec.Fingerprint("BatchMutateRuns", command.Action, reason,
             string.Join(',', sorted.Select(run => run.RunId + ":" + run.ExpectedRevision.ToString(System.Globalization.CultureInfo.InvariantCulture))));
-        return _database.RunInTransaction(tx =>
+        var committed = _database.RunInTransaction(tx =>
         {
             var stored = _idempotency.TryGetResponse(command.RequestId, tx);
             if (stored is not null)
@@ -299,6 +303,8 @@ public sealed class RunMutationService
                 BatchMutationReceiptCodec.Serialize(fingerprint, outcome), tx);
             return outcome;
         });
+        if (committed.Action == "purge") _onPurged?.Invoke(committed.RunIds);
+        return committed;
     }
 
     /// <summary>

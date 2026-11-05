@@ -3554,7 +3554,8 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
             }
             return false;
         };
-        if (!refusedPaging("page", std::numeric_limits<int>::max()) && !refusedPaging("page_size", 200))
+        if (!refusedPaging("page", std::numeric_limits<int>::max()) && !refusedPaging("page_size", 200)
+            && !refusedSort(payload, &errorCode, &errorMessage))
             result = queryRunsPayload(payload);
     } else if (messageType == QLatin1String("GetHistoryRetentionSettings")) {
         result.insert(QStringLiteral("retention_days"), m_historyRetentionDays);
@@ -3736,13 +3737,19 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         result = reflectionSummary(limit.isDouble() ? limit.toInt() : 3);
     } else if (messageType == QLatin1String("ExportCsv")
                || messageType == QLatin1String("ExportJson")) {
-        result.insert(QStringLiteral("target_path"),
-                      payload.value(QStringLiteral("target_path")));
-        const qsizetype count = selectRuns(payload.value(QStringLiteral("filter")).toObject(), false).size();
-        result.insert(QStringLiteral("row_count"), count);
-        result.insert(QStringLiteral("byte_count"), count * 240);
-        result.insert(QStringLiteral("completed_at_utc"),
-                      isoUtc(QDateTime::currentDateTimeUtc()));
+        // RunExporter.LoadPages reads the same filter and the same RunSort QueryRuns takes
+        // (contracts/CHANGELOG.md 2026-11-03). The mock writes no file, so the order only
+        // decides which rows would come first; the refusals are the Collector's.
+        if (!refusedSort(payload, &errorCode, &errorMessage)) {
+            result.insert(QStringLiteral("target_path"),
+                          payload.value(QStringLiteral("target_path")));
+            const qsizetype count = sortedRuns(payload.value(QStringLiteral("filter")).toObject(),
+                                               payload.value(QStringLiteral("sort")).toObject()).size();
+            result.insert(QStringLiteral("row_count"), count);
+            result.insert(QStringLiteral("byte_count"), count * 240);
+            result.insert(QStringLiteral("completed_at_utc"),
+                          isoUtc(QDateTime::currentDateTimeUtc()));
+        }
     } else if (messageType == QLatin1String("BackupDatabase")) {
         result.insert(QStringLiteral("target_path"),
                       payload.value(QStringLiteral("target_path")));

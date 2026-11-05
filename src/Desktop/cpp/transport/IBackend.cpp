@@ -523,23 +523,29 @@ BackendReply *IBackend::getReflectionSummary(int recentLimit)
     return request(QStringLiteral("GetReflectionSummary"), payload);
 }
 
-BackendReply *IBackend::exportCsv(const QString &targetPath, const QJsonObject &filter, bool replace)
+BackendReply *IBackend::exportCsv(const QString &targetPath, const QJsonObject &filter, bool replace,
+                                  const QJsonObject &sort)
 {
     QJsonObject payload;
     payload.insert(QStringLiteral("target_path"), targetPath);
     payload.insert(QStringLiteral("filter"), filter);
     if (replace)
         payload.insert(QStringLiteral("overwrite"), true);
+    if (!sort.isEmpty())
+        payload.insert(QStringLiteral("sort"), sort);
     return request(QStringLiteral("ExportCsv"), payload);
 }
 
-BackendReply *IBackend::exportJson(const QString &targetPath, const QJsonObject &filter, bool replace)
+BackendReply *IBackend::exportJson(const QString &targetPath, const QJsonObject &filter, bool replace,
+                                   const QJsonObject &sort)
 {
     QJsonObject payload;
     payload.insert(QStringLiteral("target_path"), targetPath);
     payload.insert(QStringLiteral("filter"), filter);
     if (replace)
         payload.insert(QStringLiteral("overwrite"), true);
+    if (!sort.isEmpty())
+        payload.insert(QStringLiteral("sort"), sort);
     return request(QStringLiteral("ExportJson"), payload);
 }
 

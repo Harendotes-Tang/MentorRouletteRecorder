@@ -1438,6 +1438,7 @@
       "properties": {
         "target_path": { "type": "string", "minLength": 1, "description": "Absolute local path chosen by the user. The Collector never uploads anywhere." },
         "filter": { "$ref": "#/$defs/RunFilter" },
+        "sort": { "$ref": "#/$defs/RunSort", "description": "Order of the exported rows, the same RunSort QueryRuns takes. The Desktop sends the history list's current sort, so a file reads top to bottom the way the list does. Omitted: entered_at_utc descending, newest first, as every export before this field was written." },
         "overwrite": { "type": "boolean", "default": false }
       }
     },

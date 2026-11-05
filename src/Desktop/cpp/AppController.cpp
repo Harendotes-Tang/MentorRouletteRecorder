@@ -353,6 +353,15 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
             m_export->setHistoryFilter(QJsonObject::fromVariantMap(m_history->historyFilter()));
         Q_EMIT historyFilterChanged();
     });
+    // An export reads top to bottom the way the list does: the sort a column header is
+    // showing travels with ExportCsv / ExportJson (contracts/CHANGELOG.md 2026-11-03), so
+    // 最早在前 on screen is earliest first in the file.
+    const auto pushHistorySort = [this] {
+        if (m_export)
+            m_export->setHistorySort(m_history->runs()->sortField(), m_history->runs()->sortAscending());
+    };
+    connect(m_history->runs(), &RunListModel::sortChanged, this, pushHistorySort);
+    pushHistorySort();
     connect(m_statistics, &StatisticsController::dashboardRequestFinished, this, [this](bool) {
         if (m_tts)
             m_tts->setContextValues(announcementValues());

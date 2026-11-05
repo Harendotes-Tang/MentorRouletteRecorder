@@ -264,6 +264,8 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   页面宽度不足 1020 px 时「来源」收进「更多筛选」，其余筛选仍在原位；已选的来源以可移除的 chip 显示在筛选栏下方。
 * 行首复选框按稳定编号跨页保留选择，全选仅覆盖当前页。改变筛选前提示清空选择，取消时保留原筛选与选择。
   已选记录可导出 CSV/JSON、批量软删除或恢复；永久删除只允许已软删除记录，并明确提示数量及不可恢复。
+  导出按历史记录当前的排序写出（`ExportRequest.sort` 取 `RunListModel.sortField / sortAscending`）：
+  表头切到最早在前后，文件第一行即最早的记录；只导出勾选记录时同样按该顺序。
   设置页提供删除记录的保留天数，默认 30 天，亦可永不自动清理。
 * 历史日期排序和筛选使用独立 `history_date` 投影。历史导入缺游戏时间只标「待补充」，
   已确认结果仍计入总览统计，未知游戏时间不由原站日期替代。
@@ -1544,7 +1546,7 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
 | 总览：当前导随卡 | `GetCurrentRun` | `state` / `run` / `elapsed_ms` |
 | 侧栏状态点 · 顶栏 Collector 行 | `GetStatus` + `CollectorProcess` | FF14 / Npcap / 捕获 / Collector 生命周期 |
 | 历史记录：列表、分页、排序、搜索、筛选 | `QueryRuns`（`filter` / `page` / `page_size` / `sort`）| 默认 `sort = {history_date, desc}`（「日期」列），`page_size` 按窗口高度计算（最少 5，见 §2） |
-| 历史记录：导出 CSV / JSON | `ExportCsv` / `ExportJson` | 路径由 `QFileDialog` 选（默认「文档」）；对话框已就同名文件问过「是否替换」，因此在对话框中确认的路径带 `overwrite: true`。`--export-target DIR` 可跳过对话框，此时不带 `overwrite`，不替换已有文件 |
+| 历史记录：导出 CSV / JSON | `ExportCsv` / `ExportJson` | 路径由 `QFileDialog` 选（默认「文档」）；对话框已就同名文件问过「是否替换」，因此在对话框中确认的路径带 `overwrite: true`。`--export-target DIR` 可跳过对话框，此时不带 `overwrite`，不替换已有文件。`sort` 为列表当前的排序（`RunListModel.sortField / sortAscending`，默认 `{history_date, desc}`），文件按它写出 |
 | 历史记录：详情面板 | 行数据 + `GetRunRevisions` | 选中即读取修改记录 |
 | 副本统计 | `GetDungeonStats` | 含 `content_id = null` 的「未知副本」行 |
 | 职业统计 | `GetJobStats` | 含 `job_id = null` 的「未知」行；职能占比由 `job_id` 经职业目录推导 |

@@ -261,9 +261,11 @@ QJsonObject IpcBackend::buildRequestForTest(const QString &messageType,
     } else if (messageType == QLatin1String("GetReflectionSummary")) {
         backend.getReflectionSummary(intArg(args, "recent_limit", 3));
     } else if (messageType == QLatin1String("ExportCsv")) {
-        backend.exportCsv(stringArg(args, "target_path"), objectArg(args, "filter"));
+        backend.exportCsv(stringArg(args, "target_path"), objectArg(args, "filter"), false,
+                          objectArg(args, "sort"));
     } else if (messageType == QLatin1String("ExportJson")) {
-        backend.exportJson(stringArg(args, "target_path"), objectArg(args, "filter"));
+        backend.exportJson(stringArg(args, "target_path"), objectArg(args, "filter"), false,
+                           objectArg(args, "sort"));
     } else if (messageType == QLatin1String("BackupDatabase")) {
         backend.backupDatabase(stringArg(args, "target_path"));
     } else if (messageType == QLatin1String("ExportDiagnosticsReport")) {

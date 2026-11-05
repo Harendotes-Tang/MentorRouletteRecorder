@@ -159,8 +159,8 @@ internal sealed class ManualRunFieldProtection(SqliteDatabase database)
     /// 按修订顺序重放人工更正：字段被改成别的值即受保护，被改回“此人动手之前的值”（撤销的
     /// 典型形态）则解除保护，否则撤销会永久冻结该字段的自动补齐（评审 L-19）。
     ///
-    /// 参照物是该字段第一条 USER/CORRECT 修订的 OldValue，而非创建修订的初值：字段在被人改动
-    /// 之前往往已由抓包补过一次，用创建初值作参照会使撤销后字段仍被判为受保护（评审 R-8）。
+    /// 参照物是本轮保护开始时 USER/CORRECT 修订的 OldValue，而非创建初值或历史第一轮旧值。
+    /// 解除保护后自动补齐可能已改变字段；下次更正必须以当时的值开始新一轮保护。
     /// </summary>
     /// <param name="runId">记录标识。</param>
     /// <param name="transaction">串行保护读取与写入的事务。</param>
@@ -173,7 +173,7 @@ internal sealed class ManualRunFieldProtection(SqliteDatabase database)
         {
             foreach (var change in changes)
             {
-                if (!baseline.ContainsKey(change.Field))
+                if (!fields.Contains(change.Field))
                 {
                     baseline[change.Field] = change.OldValue;
                 }

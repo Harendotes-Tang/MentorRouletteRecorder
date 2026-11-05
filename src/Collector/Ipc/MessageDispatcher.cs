@@ -692,14 +692,17 @@ public sealed class MessageDispatcher
         // include_revisions was declared and then discarded: no export ever carried revisions. It
         // is no longer part of the contract and is refused like any other undeclared field
         // (audit 2026-10-03, OF-7).
-        reader.RejectUnknown("target_path", "filter", "overwrite");
+        reader.RejectUnknown("target_path", "filter", "overwrite", "sort");
         var targetPath = reader.RequiredString("target_path", 32000);
         var filter = RequestParsers.Filter(reader.Object("filter"));
         var overwrite = reader.Bool("overwrite") ?? false;
+        // The same RunSort QueryRuns takes: the Desktop sends the history list's current order,
+        // so the file reads top to bottom the way the list does (contracts/CHANGELOG.md 2026-11-03).
+        var sort = RequestParsers.Sort(reader.Object("sort"));
 
         var outcome = csv
-            ? _exporter.ExportCsv(targetPath, filter, overwrite, cancellationToken)
-            : _exporter.ExportJson(targetPath, filter, overwrite, cancellationToken);
+            ? _exporter.ExportCsv(targetPath, filter, overwrite, sort, cancellationToken)
+            : _exporter.ExportJson(targetPath, filter, overwrite, sort, cancellationToken);
 
         return new JsonObject
         {

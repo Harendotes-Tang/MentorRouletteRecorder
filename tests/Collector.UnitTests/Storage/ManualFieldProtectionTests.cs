@@ -132,6 +132,43 @@ public sealed class ManualFieldProtectionTests
     }
 
     [Theory]
+    [InlineData(19)]
+    [InlineData(24)]
+    public void EachCorrectionCycleUsesItsOwnBaselineAndCanReleaseProtection(int secondJob)
+    {
+        using var fixture = new Fixture();
+        void CorrectJob(int job) => fixture.Correct(new RunChangeSet
+        {
+            Specified = new HashSet<string> { RunFields.JobId }, JobId = job,
+        });
+        void Undo() => fixture.Service.UndoRevision(new RunReasonCommand(Guid.NewGuid().ToString("D"),
+            fixture.Run.RunId, fixture.Run.Revision, "撤销本轮职业更正"));
+
+        CorrectJob(24);
+        Undo();
+        fixture.Job(21, 5);
+        Assert.Equal(21, fixture.Run.JobId);
+        CorrectJob(secondJob);
+        fixture.Job(32, 6);
+        Assert.Equal(secondJob, fixture.Run.JobId);
+
+        var protection = new ManualRunFieldProtection(fixture.Database.Database);
+        var current = fixture.Run;
+        var merged = fixture.Database.Database.RunInTransaction(tx =>
+            protection.Merge(current, current with { JobId = 32 }, tx));
+        Assert.Equal(secondJob, merged.JobId);
+
+        Undo();
+        Assert.Equal(21, fixture.Run.JobId);
+        current = fixture.Run;
+        merged = fixture.Database.Database.RunInTransaction(tx =>
+            protection.Merge(current, current with { JobId = 32 }, tx));
+        Assert.Equal(32, merged.JobId);
+        fixture.Job(33, 7);
+        Assert.Equal(33, fixture.Run.JobId);
+    }
+
+    [Theory]
     [InlineData(30, 30_000L)]
     [InlineData(120, null)]
     public void CorrectedEntryTimeCannotMakeAnAutomaticExitFailStorage(int enteredSeconds, long? duration)
