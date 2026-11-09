@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import MentorRecorder 1.0
+import "../components/Lucide.js" as Lucide
 
 // ③ 排一把随机，按事件标记: which roulette, the five markers as a timeline (the
 // next one highlighted, earlier ones ticked or 漏按), what happened this round,
@@ -131,12 +132,21 @@ EvidenceStep {
                             Text {
                                 anchors.centerIn: parent
                                 textFormat: Text.PlainText
-                                text: markerCell.done ? "✓" : String(markerCell.index + 1)
+                                visible: !markerCell.done
+                                text: String(markerCell.index + 1)
                                 color: markerCell.done || markerCell.next ? Theme.badgeForeground
                                        : markerCell.skipped ? Theme.orangeText : Theme.textSecondary
                                 font.pixelSize: Theme.fs(13)
-                                font.family: markerCell.done ? Theme.bodyFamily : Theme.figureFamily
+                                font.family: Theme.figureFamily
                                 font.weight: Font.Bold
+                            }
+                            Image {
+                                visible: markerCell.done
+                                anchors.centerIn: parent
+                                width: 14; height: 14
+                                source: Lucide.source("check", Theme.badgeForeground)
+                                sourceSize: Qt.size(28, 28)
+                                Accessible.ignored: true
                             }
                         }
                         Text {

@@ -538,6 +538,7 @@ Item {
                 HistoryDateFilter {
                     id: dateRange
                     objectName: "historyDateRange"
+                    Layout.minimumWidth: implicitWidth
                     facets: page.filterFacets
                     onStartTextChanged: page.scheduleFilter()
                     onEndTextChanged: page.scheduleFilter()
@@ -545,6 +546,7 @@ Item {
                 HistoryRegionFilter {
                     id: regionBox
                     objectName: "historyRegionFilter"
+                    Layout.minimumWidth: implicitWidth
                     facets: page.filterFacets
                     onRegionPicked: function(region) { selection = region; page.scheduleFilter() }
                     onHelpRequested: page.helpAdaptationRequested()
@@ -574,14 +576,12 @@ Item {
                     }
                 }
 
-                // The closed filters show a short label (类型 / 职业 / 结果 / 来源). In
-                // Chinese it fits the fixed widths below; a translation may be
-                // longer, so each box grows to its own label: the text's padding
-                // (10 + 24) plus the box's own, and a pixel against rounding.
-                TextMetrics { id: typeLabelMetrics; font.pixelSize: Theme.fs(13); text: qsTr("类型") }
-                TextMetrics { id: jobLabelMetrics; font.pixelSize: Theme.fs(13); text: qsTr("职业") }
-                TextMetrics { id: resultLabelMetrics; font.pixelSize: Theme.fs(13); text: qsTr("结果") }
-                TextMetrics { id: sourceLabelMetrics; font.pixelSize: Theme.fs(13); text: qsTr("来源") }
+                // Size the closed fields for the selected text; Flow wraps whole
+                // controls instead of reducing a selection to an unreadable prefix.
+                TextMetrics { id: typeLabelMetrics; font.pixelSize: Theme.fs(13); text: categoryBox.displayText }
+                TextMetrics { id: jobLabelMetrics; font.pixelSize: Theme.fs(13); text: jobBox.displayText }
+                TextMetrics { id: resultLabelMetrics; font.pixelSize: Theme.fs(13); text: resultBox.displayText }
+                TextMetrics { id: sourceLabelMetrics; font.pixelSize: Theme.fs(13); text: sourceBox.displayText }
                 TextMetrics { id: markLabelMetrics; font.pixelSize: Theme.fs(13); text: markBox.displayText }
 
                 StyledComboBox {
@@ -589,7 +589,7 @@ Item {
                     objectName: "historyCategoryFilter"
                     leftPadding: 0
                     rightPadding: 0
-                    width: Math.max(66, Math.ceil(typeLabelMetrics.advanceWidth) + 40)
+                    width: Math.max(66, Math.ceil(typeLabelMetrics.advanceWidth) + 44)
                     // value: the Chinese category RunFilter.duty_category carries; label: as shown.
                     model: [{ value: null, label: qsTr("全部类型") }].concat(Theme.labelledCategories(Runtime.app.categoryOptions))
                     textRole: "label"
@@ -603,7 +603,7 @@ Item {
                     objectName: "historyJobFilter"
                     leftPadding: 0
                     rightPadding: 0
-                    width: Math.max(66, Math.ceil(jobLabelMetrics.advanceWidth) + 40)
+                    width: Math.max(66, Math.ceil(jobLabelMetrics.advanceWidth) + 44)
                     // The first row clears this filter; the closed field keeps its short label.
                     // The label is the job in the interface language; the filter sends job_id.
                     model: [{ job_id: null, job_name: qsTr("全部职业"), label: qsTr("全部职业") }]
@@ -621,7 +621,7 @@ Item {
                     id: resultBox
                     leftPadding: 0
                     rightPadding: 0
-                    width: Math.max(66, Math.ceil(resultLabelMetrics.advanceWidth) + 40)
+                    width: Math.max(66, Math.ceil(resultLabelMetrics.advanceWidth) + 44)
                     model: [
                         { value: null, label: qsTr("全部结果") },
                         { value: "COMPLETED", label: qsTr("通关") },
@@ -642,7 +642,7 @@ Item {
                     visible: !page.narrowFilters
                     leftPadding: 0
                     rightPadding: 0
-                    width: Math.max(66, Math.ceil(sourceLabelMetrics.advanceWidth) + 40)
+                    width: Math.max(66, Math.ceil(sourceLabelMetrics.advanceWidth) + 44)
                     model: [
                         { value: null, label: qsTr("全部来源") },
                         { value: "AUTO_NETWORK", label: qsTr("自动识别") },
@@ -661,7 +661,7 @@ Item {
                     objectName: "historyMarkFilter"
                     leftPadding: 0
                     rightPadding: 0
-                    width: Math.max(66, Math.ceil(markLabelMetrics.advanceWidth) + 40)
+                    width: Math.max(66, Math.ceil(markLabelMetrics.advanceWidth) + 44)
                     model: [qsTr("标记")]
                     readonly property int selectedCount: (page.pendingReviewFilter ? 1 : 0)
                                                        + (correctedOnly.checked ? 1 : 0)

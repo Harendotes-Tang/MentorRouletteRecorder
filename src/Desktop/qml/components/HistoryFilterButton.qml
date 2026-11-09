@@ -16,9 +16,9 @@ Button {
     readonly property color filterTint: Theme.dark ? "#36251f" : "#f7e5dc"
     readonly property alias menu: popup
     property alias menuContent: popup.contentItem
-    implicitHeight: 32
-    implicitWidth: Math.ceil(label.implicitWidth) + 64
-    leftPadding: 12
+    implicitHeight: Theme.eorzea ? 32 : 30
+    implicitWidth: Math.ceil(contentItem.implicitWidth) + leftPadding + rightPadding
+    leftPadding: 10
     rightPadding: 10
     focusPolicy: Qt.StrongFocus
     Accessible.name: text
@@ -27,11 +27,25 @@ Button {
     onEnabledChanged: if (!enabled) popup.close()
     onWindowActiveChanged: if (!windowActive) popup.close()
     background: Rectangle {
-        radius: 2
-        color: control.selected || popup.visible ? control.filterTint : Theme.fill
-        border.color: control.selected || popup.visible || control.activeFocus
-                      ? control.filterAccent : Theme.neutral300
+        radius: Theme.radiusS
+        color: Theme.eorzea
+               ? (Theme.dark ? "#47000000" : "#8cffffff")
+               : (control.enabled ? Theme.surface : Theme.fill)
+        border.color: control.invalid ? Theme.red
+                      : control.activeFocus ? (Theme.eorzea ? Theme.gold : Theme.accent)
+                      : control.hovered && control.enabled ? Theme.neutral400
+                      : Theme.eorzea ? Theme.border : Theme.neutral300
         border.width: 1
+        Behavior on border.color { ColorAnimation { duration: Theme.motionControl } }
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: -3
+            radius: parent.radius + 3
+            visible: !Theme.eorzea && control.activeFocus
+            color: "transparent"
+            border.width: 3
+            border.color: Theme.accentMuted
+        }
     }
     contentItem: RowLayout {
         spacing: 6
@@ -40,17 +54,17 @@ Button {
             source: Lucide.source(control.iconName, control.selected ? control.filterAccent : Theme.textSecondary)
             sourceSize: Qt.size(28, 28)
         }
-        Text {
+        Text { renderType: Theme.bodyRenderType;
             id: label
             Layout.fillWidth: true
             text: control.text
             font.pixelSize: Theme.fs(13)
-            font.bold: control.selected
-            color: control.selected ? control.filterAccent : Theme.textPrimary
+            color: Theme.textPrimary
+            verticalAlignment: Text.AlignVCenter
         }
         Image {
             Layout.preferredWidth: 12; Layout.preferredHeight: 12
-            source: Lucide.source("chevron-down", Theme.textSecondary)
+            source: Lucide.source("chevron-down", Theme.eorzea ? Theme.gold : Theme.textSecondary)
             sourceSize: Qt.size(24, 24)
             rotation: popup.visible ? 180 : 0
         }
@@ -66,9 +80,9 @@ Button {
         onOpened: contentItem.forceActiveFocus(Qt.PopupFocusReason)
         onClosed: if (control.visible) control.forceActiveFocus(Qt.PopupFocusReason)
         background: Rectangle {
-            radius: 2
+            radius: Theme.radiusS
             color: Theme.surface
-            border.color: control.filterAccent
+            border.color: Theme.eorzea ? Theme.gold3 : Theme.border
             border.width: 1
         }
     }

@@ -4,6 +4,7 @@ import MentorRecorder 1.0
 
 // `textarea.input`: same inset well as StyledTextField, wrapping and taller.
 TextArea {
+    renderType: Theme.bodyRenderType
     id: control
 
     selectByMouse: true

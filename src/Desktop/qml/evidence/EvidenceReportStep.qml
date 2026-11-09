@@ -150,7 +150,7 @@ EvidenceStep {
                 objectName: "evidenceCopyReportButton"
                 text: step.copied ? qsTr("已复制") : qsTr("复制回传说明")
                 variant: "primary"
-                iconName: step.copied ? "clipboard-check" : "clipboard-paste"
+                iconName: step.copied ? "clipboard-check" : "clipboard-copy"
                 onClicked: {
                     Runtime.app.copyToClipboard(step.session.report)
                     step.copied = true

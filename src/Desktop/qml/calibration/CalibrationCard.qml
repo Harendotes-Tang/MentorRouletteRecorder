@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import MentorRecorder 1.0
+import "../components/Lucide.js" as Lucide
 
 // 本机校准（面向玩家，非维护者工具）：the prototype's calibration row, 本机校准
 // (wide) beside 共享校准 (narrow). The sentence that says what the state means
@@ -285,12 +286,14 @@ ColumnLayout {
                                            : cell.near ? Theme.orangeBackground : Theme.surface
                                     Behavior on color { ColorAnimation { duration: Theme.motionControl } }
 
-                                    Text {
+                                    Image {
                                         anchors.centerIn: parent
-                                        text: cell.seen ? "✓" : (cell.near ? "!" : "")
-                                        color: cell.seen ? Theme.badgeForeground : Theme.orangeText
-                                        font.pixelSize: 13
-                                        font.bold: true
+                                        width: 14; height: 14
+                                        visible: cell.seen || cell.near
+                                        source: Lucide.source(cell.seen ? "check" : "circle-alert",
+                                                              cell.seen ? Theme.badgeForeground : Theme.orangeText)
+                                        sourceSize: Qt.size(28, 28)
+                                        Accessible.ignored: true
                                     }
                                 }
 

@@ -91,6 +91,10 @@ QtObject {
     readonly property string bodyFamily: typeof Runtime.lang !== "undefined" && Runtime.lang
         && typeof Runtime.lang.fontFamily === "string" && Runtime.lang.fontFamily.length > 0
         ? Runtime.lang.fontFamily : Application.font.family
+    // Use the same outline rendering as the Traditional Chinese navigation;
+    // native hinting can shift individual JhengHei glyphs at fractional DPI.
+    readonly property int bodyRenderType: typeof Runtime.lang !== "undefined" && Runtime.lang
+        && Runtime.lang.code === "zh-TW" ? Text.CurveRendering : Text.NativeRendering
     // Harendotes sets headings and big figures in Song (Noto Serif SC), Latin
     // included; eorzea keeps Cinzel for Latin and figures.
     readonly property string headingFamily: eorzea

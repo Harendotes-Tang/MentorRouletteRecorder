@@ -29,7 +29,7 @@ HistoryFilterButton {
     }
     menuContent: ColumnLayout {
         spacing: 2
-        Text { Layout.bottomMargin: 6; text: qsTr("区服"); color: Theme.textPrimary; font.bold: true; font.pixelSize: Theme.fs(13) }
+        Text { renderType: Theme.bodyRenderType; Layout.bottomMargin: 6; text: qsTr("区服"); color: Theme.textPrimary; font.bold: true; font.pixelSize: Theme.fs(13) }
         Repeater {
             model: control.choices
             RadioButton {
@@ -44,14 +44,16 @@ HistoryFilterButton {
                 onClicked: { control.regionPicked(modelData.key); control.menu.close() }
                 indicator: Rectangle {
                     x: 1; y: (choice.height - height) / 2
-                    width: 15; height: 15; radius: 8; color: "transparent"
-                    border.color: choice.checked || choice.activeFocus ? control.filterAccent : Theme.textSecondary
-                    Rectangle { anchors.centerIn: parent; width: 7; height: 7; radius: 4; color: control.filterAccent; visible: choice.checked }
+                    width: 18; height: 18; radius: 9
+                    color: choice.down ? Theme.fill : Theme.insetBackground
+                    border.width: choice.visualFocus ? 2 : 1
+                    border.color: choice.checked || choice.visualFocus ? Theme.accent : Theme.textSecondary
+                    Rectangle { anchors.centerIn: parent; width: 8; height: 8; radius: 4; color: Theme.accent; visible: choice.checked }
                 }
                 contentItem: RowLayout {
                     spacing: 8
-                    Text { Layout.leftMargin: 24; Layout.fillWidth: true; text: choice.text; color: Theme.textPrimary; font.pixelSize: Theme.fs(13); font.bold: choice.checked }
-                    Text { text: control.countText(choice.modelData.key); color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
+                    Text { renderType: Theme.bodyRenderType; Layout.leftMargin: 26; Layout.fillWidth: true; text: choice.text; color: Theme.textPrimary; font.pixelSize: Theme.fs(13) }
+                    Text { renderType: Theme.bodyRenderType; text: control.countText(choice.modelData.key); color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
                 }
                 background: Rectangle { radius: 2; color: choice.activeFocus || choice.hovered ? Theme.fill : "transparent" }
             }
@@ -59,19 +61,19 @@ HistoryFilterButton {
         Rectangle { Layout.fillWidth: true; Layout.topMargin: 8; Layout.bottomMargin: 5; implicitHeight: 1; color: Theme.neutral300 }
         RowLayout {
             Layout.fillWidth: true
-            Text { Layout.fillWidth: true; text: qsTr("未适配区服可协助采证"); color: Theme.textMuted; font.pixelSize: Theme.fs(11) }
+            Text { renderType: Theme.bodyRenderType; Layout.fillWidth: true; text: qsTr("未适配区服可协助采证"); color: Theme.textMuted; font.pixelSize: Theme.fs(11) }
             Button {
                 id: helpButton
                 objectName: "historyRegionHelp"
                 text: qsTr("帮助适配")
                 focusPolicy: Qt.StrongFocus
                 padding: 4
-                contentItem: Text { text: helpButton.text; color: control.filterAccent; font.pixelSize: Theme.fs(12) }
+                contentItem: Text { renderType: Theme.bodyRenderType; text: helpButton.text; color: control.filterAccent; font.pixelSize: Theme.fs(12) }
                 background: Rectangle { color: helpButton.hovered || helpButton.activeFocus ? control.filterTint : "transparent"; radius: 2 }
                 onClicked: { control.menu.close(); control.helpRequested() }
             }
         }
-        Text {
+        Text { renderType: Theme.bodyRenderType;
             visible: !!control.facets && control.facets.error.length > 0
             Layout.fillWidth: true; wrapMode: Text.Wrap
             text: control.facets ? control.facets.error : ""

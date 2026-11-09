@@ -207,7 +207,8 @@ Card {
                         readonly property bool selected: card.whitelist.indexOf(opcode) >= 0
                         objectName: "researchOpcode_" + opcode
                         compact: true
-                        text: (selected ? "✓ " : "") + label + (card.advanced ? "  " + opcode : "")
+                        text: label + (card.advanced ? "  " + opcode : "")
+                        iconName: selected ? "check" : ""
                         variant: selected ? "primary" : "secondary"
                         enabled: card.editable
                         Accessible.name: (selected ? qsTr("%1，已选择，点击移除") : qsTr("%1，未选择，点击加入"))
@@ -238,7 +239,8 @@ Card {
                     required property string modelData
                     objectName: "researchOpcode_" + modelData
                     compact: true
-                    text: "✓ " + modelData
+                    text: modelData
+                    iconName: "check"
                     variant: "primary"
                     enabled: card.editable
                     Accessible.name: qsTr("%1，已选择，点击移除").arg(modelData)

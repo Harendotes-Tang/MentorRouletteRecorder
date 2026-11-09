@@ -229,7 +229,7 @@ Button {
             smooth: true
         }
 
-        Text {
+        Text { renderType: Theme.bodyRenderType;
             id: label
             objectName: "buttonLabel"
             textFormat: Text.PlainText

@@ -839,9 +839,9 @@ ApplicationWindow {
 
                         Repeater {
                             model: [
-                                { glyph: "\u2500", action: "min" },
-                                { glyph: "\u2610", action: "max" },
-                                { glyph: "\u2715", action: "close" }
+                                { icon: "minus", action: "min" },
+                                { icon: "square", action: "max" },
+                                { icon: "x", action: "close" }
                             ]
 
                             delegate: Rectangle {
@@ -855,13 +855,15 @@ ApplicationWindow {
                                        ? (isClose ? "#e81123" : Theme.titlebarFill)
                                        : "transparent"
 
-                                Text {
+                                Image {
                                     anchors.centerIn: parent
-                                    text: control.modelData.action === "max" && window.maximized
-                                          ? "\u2750" : control.modelData.glyph
-                                    font.pixelSize: control.isClose ? 13 : 12
-                                    color: controlArea.containsMouse && control.isClose
-                                           ? "#ffffff" : Theme.titlebarText
+                                    width: 14
+                                    height: 14
+                                    sourceSize: Qt.size(28, 28)
+                                    source: Lucide.source(control.modelData.action === "max" && window.maximized
+                                                          ? "copy" : control.modelData.icon,
+                                                          controlArea.containsMouse && control.isClose
+                                                          ? "#ffffff" : Theme.titlebarText)
                                 }
 
                                 MouseArea {
@@ -911,8 +913,6 @@ ApplicationWindow {
                             Layout.leftMargin: 6
                             Layout.rightMargin: 6
                             spacing: 2
-
-                            CardKicker { text: qsTr("成就追踪") }
 
                             HeadingLabel {
                                 Layout.topMargin: 2
@@ -1075,6 +1075,8 @@ ApplicationWindow {
 
                         DashboardPage {
                             anchors.fill: parent
+                            // Keep the scrollbar in the shell's outer gutter.
+                            anchors.rightMargin: -16
                             onOpenManualRequested: window.openCreateDialog()
                             onOpenCaptureRequested: Runtime.app.navigate(4)
                             // 成就卡片上的「修改」：要改的是安装前已完成次数，所以打开

@@ -1,5 +1,6 @@
 import QtQuick
 import MentorRecorder 1.0
+import "Lucide.js" as Lucide
 
 // `.chip`: a tag-shaped toggle used by the history filter row. Classic is a
 // 4x8-padded fill plate with a 4 px radius; accent-100 + accent when on.
@@ -21,7 +22,7 @@ Rectangle {
     signal removed()
 
     implicitHeight: Theme.eorzea ? 28 : 22
-    implicitWidth: label.implicitWidth + 16
+    implicitWidth: label.implicitWidth + 16 + (root.removable ? 18 : 0)
     radius: Theme.eorzea ? Theme.radiusS : Theme.radiusXs
     color: root.checked
            ? Theme.accentMuted
@@ -33,16 +34,28 @@ Rectangle {
 
     HoverHandler { id: hover }
 
-    Text {
-        id: label
-        textFormat: Text.PlainText
+    Row {
         anchors.centerIn: parent
-        text: root.removable ? root.text + "  ✕" : root.text
-        color: root.checked
-               ? (Theme.eorzea ? (Theme.dark ? Theme.gold2 : Theme.accent700) : Theme.accent)
-               : Theme.textSecondary
-        font.pixelSize: Theme.fs(11)
-        font.weight: Theme.eorzea ? Font.Bold : Font.Normal
+        spacing: 6
+        Text {
+            id: label
+            textFormat: Text.PlainText
+            text: root.text
+            color: root.checked
+                   ? (Theme.eorzea ? (Theme.dark ? Theme.gold2 : Theme.accent700) : Theme.accent)
+                   : Theme.textSecondary
+            font.pixelSize: Theme.fs(11)
+            font.weight: Theme.eorzea ? Font.Bold : Font.Normal
+        }
+        Image {
+            visible: root.removable
+            width: 12
+            height: 12
+            y: (label.height - height) / 2
+            source: Lucide.source("x", label.color)
+            sourceSize: Qt.size(24, 24)
+            Accessible.ignored: true
+        }
     }
 
     TapHandler {

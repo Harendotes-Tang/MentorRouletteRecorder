@@ -81,8 +81,8 @@ HistoryFilterButton {
         RowLayout {
             Layout.fillWidth: true
             Layout.bottomMargin: 6
-            Text { text: qsTr("日期"); color: Theme.textPrimary; font.bold: true; font.pixelSize: Theme.fs(13) }
-            Text { text: qsTr("按匹配时间"); color: Theme.textMuted; font.pixelSize: Theme.fs(12) }
+            Text { renderType: Theme.bodyRenderType; text: qsTr("日期"); color: Theme.textPrimary; font.bold: true; font.pixelSize: Theme.fs(13) }
+            Text { renderType: Theme.bodyRenderType; text: qsTr("按匹配时间"); color: Theme.textMuted; font.pixelSize: Theme.fs(12) }
             Item { Layout.fillWidth: true }
         }
         Repeater {
@@ -99,15 +99,16 @@ HistoryFilterButton {
                 onClicked: control.choose(modelData.key)
                 indicator: Rectangle {
                     x: 1; y: (choice.height - height) / 2
-                    width: 15; height: 15; radius: 8
-                    color: "transparent"
-                    border.color: choice.checked || choice.activeFocus ? control.filterAccent : Theme.textSecondary
-                    Rectangle { anchors.centerIn: parent; width: 7; height: 7; radius: 4; color: control.filterAccent; visible: choice.checked }
+                    width: 18; height: 18; radius: 9
+                    color: choice.down ? Theme.fill : Theme.insetBackground
+                    border.width: choice.visualFocus ? 2 : 1
+                    border.color: choice.checked || choice.visualFocus ? Theme.accent : Theme.textSecondary
+                    Rectangle { anchors.centerIn: parent; width: 8; height: 8; radius: 4; color: Theme.accent; visible: choice.checked }
                 }
                 contentItem: RowLayout {
                     spacing: 8
-                    Text { Layout.leftMargin: 24; Layout.fillWidth: true; text: choice.text; color: Theme.textPrimary; font.pixelSize: Theme.fs(13); font.bold: choice.checked }
-                    Text { text: control.countText(choice.modelData.key); color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
+                    Text { renderType: Theme.bodyRenderType; Layout.leftMargin: 26; Layout.fillWidth: true; text: choice.text; color: Theme.textPrimary; font.pixelSize: Theme.fs(13) }
+                    Text { renderType: Theme.bodyRenderType; text: control.countText(choice.modelData.key); color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
                 }
                 background: Rectangle { radius: 2; color: choice.activeFocus || choice.hovered ? Theme.fill : "transparent" }
             }
@@ -120,7 +121,7 @@ HistoryFilterButton {
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 4
-                Text { text: qsTr("开始日期"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
+                Text { renderType: Theme.bodyRenderType; text: qsTr("开始日期"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
                 DateField {
                     id: fromInput
                     objectName: "fromDateField"
@@ -139,7 +140,7 @@ HistoryFilterButton {
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 4
-                Text { text: qsTr("结束日期"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
+                Text { renderType: Theme.bodyRenderType; text: qsTr("结束日期"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
                 DateField {
                     id: toInput
                     objectName: "toDateField"
@@ -150,7 +151,7 @@ HistoryFilterButton {
                 }
             }
         }
-        Text {
+        Text { renderType: Theme.bodyRenderType;
             visible: control.preset === "custom" && (!fromInput.valid || !toInput.valid || control.inverted)
             Layout.fillWidth: true
             Layout.topMargin: 4
@@ -158,7 +159,7 @@ HistoryFilterButton {
             text: control.inverted ? qsTr("开始日期不能晚于结束日期") : qsTr("请输入完整日期：年-月-日")
             color: Theme.red; font.pixelSize: Theme.fs(12)
         }
-        Text {
+        Text { renderType: Theme.bodyRenderType;
             visible: !!control.facets && control.facets.error.length > 0
             Layout.fillWidth: true
             wrapMode: Text.Wrap

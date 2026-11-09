@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import MentorRecorder 1.0
+import "Lucide.js" as Lucide
 
 ComboBox {
     id: control
@@ -74,7 +75,7 @@ ComboBox {
                 size: 20
             }
 
-            Text {
+            Text { renderType: Theme.bodyRenderType;
                 Layout.fillWidth: true
                 textFormat: Text.PlainText
                 text: control.textRole.length > 0 ? (row.model[control.textRole] || "")
@@ -119,7 +120,7 @@ ComboBox {
         }
     }
 
-    contentItem: Text {
+    contentItem: Text { renderType: Theme.bodyRenderType;
         textFormat: Text.PlainText
         leftPadding: 10
         rightPadding: 24
@@ -130,34 +131,15 @@ ComboBox {
         font.pixelSize: Theme.fs(13)
     }
 
-    // The prototype draws the caret with two CSS gradients. It is painted here
-    // because a glyph would depend on the fonts installed on the machine.
-    indicator: Canvas {
-        id: caret
-
-        width: 10
-        height: 6
+    indicator: Image {
+        width: 12
+        height: 12
         anchors.right: parent.right
-        anchors.rightMargin: 11
+        anchors.rightMargin: 10
         anchors.verticalCenter: parent.verticalCenter
-
-        Connections {
-            target: Theme
-            function onDarkChanged() { caret.requestPaint() }
-            function onEorzeaChanged() { caret.requestPaint() }
-        }
-
-        onPaint: {
-            const ctx = getContext("2d")
-            ctx.reset()
-            ctx.fillStyle = Theme.eorzea ? Theme.gold : Theme.textSecondary
-            ctx.beginPath()
-            ctx.moveTo(0, 0)
-            ctx.lineTo(width, 0)
-            ctx.lineTo(width / 2, height)
-            ctx.closePath()
-            ctx.fill()
-        }
+        source: Lucide.source("chevron-down", Theme.eorzea ? Theme.gold : Theme.textSecondary)
+        sourceSize: Qt.size(24, 24)
+        rotation: control.popup.visible ? 180 : 0
     }
 
     popup: Popup {
@@ -214,7 +196,7 @@ ComboBox {
             Component {
                 id: sectionHeader
 
-                Text {
+                Text { renderType: Theme.bodyRenderType;
                     required property string section
 
                     objectName: "comboSectionHeader"

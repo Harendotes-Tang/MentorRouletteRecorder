@@ -88,6 +88,7 @@ ScrollView {
     }
 
     clip: true
+    rightPadding: 16
     contentWidth: availableWidth
     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
@@ -675,18 +676,17 @@ ScrollView {
                                 Layout.fillWidth: true
                                 text: resultLegendRow.modelData.label || ""
                                 color: Theme.textPrimary
-                                font.pixelSize: Theme.fs(12)
+                                font.pixelSize: Theme.fs(13)
                             }
 
                             Text {
-                                text: String(resultLegendRow.modelData.count || 0)
+                                text: qsTr("%1 条").arg(resultLegendRow.modelData.count || 0)
                                 color: Theme.textPrimary
-                                font.pixelSize: Theme.fs(12)
-                                font.weight: Theme.figureWeight(true)
-                                font.family: Theme.figureFamily
+                                font.pixelSize: Theme.fs(13)
+                                font.family: Theme.bodyFamily
                                 font.features: ({ "tnum": 1 })
                                 horizontalAlignment: Text.AlignRight
-                                Layout.preferredWidth: 28
+                                Layout.minimumWidth: implicitWidth
                             }
                         }
                     }

@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import MentorRecorder 1.0
+import "Lucide.js" as Lucide
 
 // The history table's header (docs/ui-design.md §4.2). Every title sits over
 // its column at the x and width the page's layout gives it; the rows read the
@@ -160,12 +161,12 @@ Rectangle {
                 }
 
                 Text {
+                    id: headerLabel
                     objectName: "historyColumnHeader_" + cell.key
                     anchors.fill: parent
                     anchors.leftMargin: 2
-                    anchors.rightMargin: 2
+                    anchors.rightMargin: cell.sorted ? 18 : 2
                     text: cell.column.label
-                          + (cell.sorted ? (header.sortAscending ? " ↑" : " ↓") : "")
                     textFormat: Text.PlainText
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
@@ -177,6 +178,18 @@ Rectangle {
                     font.weight: Theme.eorzea ? Font.Bold : Font.Normal
                     font.letterSpacing: Theme.eorzea ? 0.7 : 0
                     elide: Text.ElideRight
+                }
+
+                Image {
+                    visible: cell.sorted
+                    anchors.right: parent.right
+                    anchors.rightMargin: 4
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 12
+                    height: 12
+                    source: Lucide.source(header.sortAscending ? "arrow-up" : "arrow-down", headerLabel.color)
+                    sourceSize: Qt.size(24, 24)
+                    Accessible.ignored: true
                 }
 
                 // A click (press and release within the drag threshold) sorts.

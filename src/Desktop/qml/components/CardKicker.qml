@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import MentorRecorder 1.0
+import "Lucide.js" as Lucide
 
 // `.card-kicker`: a small gold ◆ followed by a wide-tracked label (eorzea);
 // a plain t3 label at 600 in the text colour (classic).
@@ -12,13 +13,15 @@ RowLayout {
 
     spacing: 8
 
-    Text {
+    Image {
         visible: Theme.eorzea
-        text: "◆"
-        color: root.color
+        source: Lucide.source("diamond", root.color)
+        sourceSize: Qt.size(16, 16)
         opacity: 0.9
-        font.pixelSize: 7
+        Layout.preferredWidth: 8
+        Layout.preferredHeight: 8
         Layout.alignment: Qt.AlignVCenter
+        Accessible.ignored: true
     }
 
     Text {

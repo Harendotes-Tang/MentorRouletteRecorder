@@ -1,5 +1,6 @@
 import QtQuick
 import MentorRecorder 1.0
+import "../components/Lucide.js" as Lucide
 
 // The state mark beside the current duty: a pulsing green dot while the duty
 // is in progress, a green check once cleared, an amber "?" when it ended
@@ -94,13 +95,13 @@ Item {
             // A bell swings from where it hangs.
             transformOrigin: Item.Top
         }
-        Text {
+        Image {
             anchors.centerIn: parent
             visible: root.kind === "ended"
-            text: "?"
-            color: Theme.badgeForeground
-            font.pixelSize: 11
-            font.weight: Font.ExtraBold
+            width: 12; height: 12
+            source: Lucide.source("circle-help", Theme.badgeForeground)
+            sourceSize: Qt.size(24, 24)
+            Accessible.ignored: true
         }
     }
 }

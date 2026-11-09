@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import MentorRecorder 1.0
+import "../components/Lucide.js" as Lucide
 
 // `.ev-step`: one of the five steps. The header carries the number (a tick once
 // done), the title, a one-line summary of what the step settled, and a 当前 /
@@ -102,11 +103,20 @@ Card {
                 Text {
                     anchors.centerIn: parent
                     textFormat: Text.PlainText
-                    text: step.done ? "✓" : String(step.number)
+                    visible: !step.done
+                    text: String(step.number)
                     color: step.current || step.done ? Theme.badgeForeground : Theme.textSecondary
                     font.pixelSize: Theme.fs(12)
-                    font.family: step.done ? Theme.bodyFamily : Theme.figureFamily
+                    font.family: Theme.figureFamily
                     font.weight: Font.Bold
+                }
+                Image {
+                    visible: step.done
+                    anchors.centerIn: parent
+                    width: 14; height: 14
+                    source: Lucide.source("check", Theme.badgeForeground)
+                    sourceSize: Qt.size(28, 28)
+                    Accessible.ignored: true
                 }
             }
 

@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import MentorRecorder 1.0
+import "../components/Lucide.js" as Lucide
 
 // The 380 px overlay panel of the prototype: header, four tabs, action bar.
 Rectangle {
@@ -288,7 +289,8 @@ Rectangle {
                 compact: true
                 implicitWidth: 28
                 implicitHeight: 28
-                text: "×"
+                iconName: "x"
+                Accessible.name: qsTr("关闭")
                 onClicked: root.closeRequested()
             }
         }
@@ -990,10 +992,13 @@ Rectangle {
                                         elide: Text.ElideRight
                                     }
 
-                                    Text {
-                                        text: "\u2192"
-                                        color: Theme.textSecondary
-                                        font.pixelSize: Theme.fs(11)
+                                    Image {
+                                        Layout.preferredWidth: 12
+                                        Layout.preferredHeight: 12
+                                        Layout.alignment: Qt.AlignVCenter
+                                        source: Lucide.source("arrow-right", Theme.textSecondary)
+                                        sourceSize: Qt.size(24, 24)
+                                        Accessible.ignored: true
                                     }
 
                                     Text {

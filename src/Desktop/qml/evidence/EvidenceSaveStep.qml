@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import MentorRecorder 1.0
+import "../components/Lucide.js" as Lucide
 
 // ④ 停止采证，保存文件: the round stops and is written; the player ticks off the
 // files as they copy them out, with a button to the folder each one lives in.
@@ -109,13 +110,12 @@ EvidenceStep {
             implicitHeight: 22
             radius: 11
             color: step.whole ? Theme.green : step.failed ? Theme.red : Theme.orange
-            Text {
+            Image {
                 anchors.centerIn: parent
-                textFormat: Text.PlainText
-                text: step.whole ? "✓" : "!"
-                color: Theme.badgeForeground
-                font.pixelSize: Theme.fs(12)
-                font.weight: Font.Bold
+                width: 14; height: 14
+                source: Lucide.source(step.whole ? "check" : "circle-alert", Theme.badgeForeground)
+                sourceSize: Qt.size(28, 28)
+                Accessible.ignored: true
             }
         }
         Text {

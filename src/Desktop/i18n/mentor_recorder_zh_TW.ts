@@ -4898,6 +4898,10 @@ SHA256：%3</translation>
 <context>
     <name>DashboardPage</name>
     <message>
+        <source>%1 条</source>
+        <translation>%1 條</translation>
+    </message>
+    <message>
         <source>笔记数据尚未加载，请稍后再试</source>
         <translation>筆記資料尚未載入，請稍後再試</translation>
     </message>
