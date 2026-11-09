@@ -35,19 +35,15 @@ namespace {
 /// launched directly with a working directory outside the build directory.
 QString testArtifactRoot()
 {
-    for (const QString &start : {QDir::currentPath(), QCoreApplication::applicationDirPath()}) {
-        QDir candidate(start);
-        do {
-            if (!QFile::exists(candidate.filePath(QStringLiteral("src/Desktop/CMakeLists.txt"))))
-                continue;
-            const QString root = candidate.filePath(QStringLiteral("artifacts/recoverable-prompts-20261020"));
-            if (!QDir().mkpath(root))
-                qFatal("Cannot create the isolated reflection test artifact directory");
-            return root;
-        } while (candidate.cdUp());
-    }
-    qFatal("Cannot locate the checkout for isolated reflection tests");
-    return {};
+    // CMake supplies the checkout even when the build and working directories
+    // are outside it; never infer the source root from the executable's path.
+    const QDir source(QString::fromUtf8(MR_SOURCE_DIR));
+    if (!QFile::exists(source.filePath(QStringLiteral("src/Desktop/CMakeLists.txt"))))
+        qFatal("Cannot locate the checkout for isolated reflection tests");
+    const QString root = source.filePath(QStringLiteral("artifacts/recoverable-prompts-20261020"));
+    if (!QDir().mkpath(root))
+        qFatal("Cannot create the isolated reflection test artifact directory");
+    return root;
 }
 
 QTemporaryDir &settingsDirectory()
