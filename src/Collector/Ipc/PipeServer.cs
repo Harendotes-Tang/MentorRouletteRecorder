@@ -100,6 +100,7 @@ public sealed class PipeServer : IAsyncDisposable
     private readonly int? _label = PipeIntegrityLabel.ForThisProcess();
     private readonly CancellationTokenSource _stopping = new();
     private readonly List<Task> _workers = new();
+    private NamedPipeServerStream? _preparedStream;
     private int _accepted;
     private int _active;
     private bool _disposed;
@@ -132,6 +133,24 @@ public sealed class PipeServer : IAsyncDisposable
     /// <summary>How long a connection may stay silent before it is closed.</summary>
     public TimeSpan IdleTimeout => _idleTimeout;
 
+    /// <summary>
+    /// Creates the first instance synchronously, including its final ACL and integrity label,
+    /// before the process advertises readiness. The startup owner calls this once before
+    /// <see cref="RunAsync"/>; the loop takes ownership, or <see cref="StopAsync"/> releases it
+    /// when startup is cancelled or writing the startup announcement fails.
+    /// </summary>
+    internal void PrepareFirstInstance()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        _stopping.Token.ThrowIfCancellationRequested();
+        if (_preparedStream is not null)
+        {
+            throw new InvalidOperationException("The first pipe instance is already prepared.");
+        }
+
+        _preparedStream = CreateStream();
+    }
+
     /// <summary>Number of connections accepted since start.</summary>
     public int AcceptedCount => Volatile.Read(ref _accepted);
 
@@ -156,7 +175,7 @@ public sealed class PipeServer : IAsyncDisposable
             NamedPipeServerStream? stream = null;
             try
             {
-                stream = CreateStream();
+                stream = Interlocked.Exchange(ref _preparedStream, null) ?? CreateStream();
                 await stream.WaitForConnectionAsync(token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
@@ -242,6 +261,12 @@ public sealed class PipeServer : IAsyncDisposable
         if (!_stopping.IsCancellationRequested)
         {
             await _stopping.CancelAsync().ConfigureAwait(false);
+        }
+
+        var prepared = Interlocked.Exchange(ref _preparedStream, null);
+        if (prepared is not null)
+        {
+            await prepared.DisposeAsync().ConfigureAwait(false);
         }
 
         await DrainAsync(DrainTimeout).ConfigureAwait(false);

@@ -70,7 +70,10 @@ $BuildDir = if ([string]::IsNullOrWhiteSpace($configuredBuildDir)) {
 } else {
     [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $configuredBuildDir))
 }
-if ([string]::Equals($BuildDir.TrimEnd('\', '/'), (Join-Path $RepoRoot 'build'), [StringComparison]::OrdinalIgnoreCase)) {
+if ([string]::Equals(
+        [IO.Path]::GetFullPath($BuildDir).TrimEnd('\', '/'),
+        [IO.Path]::GetFullPath((Join-Path $RepoRoot 'build')).TrimEnd('\', '/'),
+        [StringComparison]::OrdinalIgnoreCase)) {
     throw ("MR_BUILD_DIR 指向开发构建目录 {0}；打包会把它配置成正式构建并留在那里。请取消 MR_BUILD_DIR（默认使用 build-distribution）或改用其他目录。" -f $BuildDir)
 }
 $DesktopExe = Join-Path $BuildDir 'src\Desktop\MentorRecorder.Desktop.exe'

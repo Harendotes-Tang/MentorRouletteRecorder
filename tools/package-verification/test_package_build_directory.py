@@ -34,6 +34,71 @@ def run_powershell(shell, script):
 
 @unittest.skipUnless(os.name == "nt", "Windows packaging paths")
 class PackageBuildDirectoryTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "Windows short-path aliases")
+    def test_short_paths_cannot_select_the_development_directory_for_distribution(self):
+        import ctypes
+        from ctypes import wintypes
+
+        short_path = ctypes.WinDLL("kernel32", use_last_error=True).GetShortPathNameW
+        short_path.argtypes = (wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD)
+        short_path.restype = wintypes.DWORD
+        with tempfile.TemporaryDirectory(prefix="mr build short names ") as temporary:
+            repository = Path(temporary).resolve()
+            (repository / "build").mkdir()
+            buffer = ctypes.create_unicode_buffer(32768)
+            length = short_path(str(repository), buffer, len(buffer))
+            self.assertGreater(length, 0, ctypes.get_last_error())
+            self.assertLess(length, len(buffer))
+            alias = Path(buffer.value)
+            if str(alias).casefold() == str(repository).casefold():
+                self.skipTest("The temporary volume does not provide a short-path alias")
+            shell = shutil.which("pwsh")
+            self.assertTrue(shell, "PowerShell 7 is required")
+            script = rf"""
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
+$SourceRoot = {ps_literal(REPO)}
+$results = @()
+foreach ($root in @({ps_literal(repository)}, {ps_literal(alias)})) {{
+    $RepoRoot = $root
+    foreach ($configured in @('build', {ps_literal(repository / 'build')}, {ps_literal(alias / 'build')})) {{
+        $env:MR_BUILD_DIR = $configured
+        foreach ($name in @('build', 'test', 'verify', 'package')) {{
+            $Distribution = [switch]$true
+            $tokens = $null
+            $errors = $null
+            $source = [IO.File]::ReadAllText((Join-Path $SourceRoot "scripts\$name.ps1"))
+            $ast = [Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$errors)
+            if ($errors.Count) {{ throw "Cannot parse $name.ps1" }}
+            $statements = @($ast.EndBlock.Statements)
+            $refusal = $null
+            for ($i = 0; $i -lt $statements.Count; $i++) {{
+                $statement = $statements[$i]
+                if ($statement -is [Management.Automation.Language.AssignmentStatementAst] -and
+                    $statement.Left.Extent.Text -in @('$configuredBuildDir', '$BuildDir')) {{
+                    . ([scriptblock]::Create($statement.Extent.Text))
+                    if ($statement.Left.Extent.Text -eq '$BuildDir') {{
+                        if ($statements[$i + 1] -isnot [Management.Automation.Language.IfStatementAst]) {{
+                            throw 'Missing distribution-directory guard'
+                        }}
+                        try {{ . ([scriptblock]::Create($statements[$i + 1].Extent.Text)) }}
+                        catch {{ $refusal = $_.Exception.Message }}
+                    }}
+                }}
+            }}
+            $results += @{{ root=$root; configured=$configured; script=$name; refusal=$refusal }}
+        }}
+    }}
+}}
+ConvertTo-Json -InputObject $results -Compress
+"""
+            result = run_powershell(shell, script)
+            self.assertEqual(0, result.returncode, result.stderr.decode(errors="replace"))
+            for row in json.loads(result.stdout):
+                self.assertTrue(row["refusal"], row)
+                self.assertIn("MR_BUILD_DIR", row["refusal"], row)
+                self.assertIn("build-distribution", row["refusal"], row)
+
     def test_package_selects_the_directory_built_and_tested(self):
         shells = [path for name in ("powershell", "pwsh") if (path := shutil.which(name))]
         self.assertTrue(shells, "PowerShell is required to verify packaging paths")

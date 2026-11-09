@@ -76,7 +76,10 @@ $BuildDir = if ([string]::IsNullOrWhiteSpace($configuredBuildDir)) {
 } else {
     [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $configuredBuildDir))
 }
-if ($Distribution -and [string]::Equals($BuildDir.TrimEnd('\', '/'), (Join-Path $RepoRoot 'build'), [StringComparison]::OrdinalIgnoreCase)) {
+if ($Distribution -and [string]::Equals(
+        [IO.Path]::GetFullPath($BuildDir).TrimEnd('\', '/'),
+        [IO.Path]::GetFullPath((Join-Path $RepoRoot 'build')).TrimEnd('\', '/'),
+        [StringComparison]::OrdinalIgnoreCase)) {
     throw ("MR_BUILD_DIR 指向开发构建目录 {0}；正式构建会把它配置成正式口味并留在那里。请取消 MR_BUILD_DIR（-Distribution 默认使用 build-distribution）或改用其他目录。" -f $BuildDir)
 }
 # Example default (see docs/build-and-package.md); override with MR_CTEST_EXE to

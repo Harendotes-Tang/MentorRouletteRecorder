@@ -139,7 +139,7 @@ class PackageScriptTests(unittest.TestCase):
             raise unittest.SkipTest("git is required to build the test repository")
 
     def setUp(self):
-        self.directory = Path(tempfile.mkdtemp(prefix="mr package script "))
+        self.directory = Path(tempfile.mkdtemp(prefix="mr package script ")).resolve()
         self.addCleanup(shutil.rmtree, self.directory, ignore_errors=True)
         self.repository = self.directory / "repo"
         self.repository.mkdir()

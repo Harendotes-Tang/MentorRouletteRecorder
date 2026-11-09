@@ -174,6 +174,71 @@ public sealed class LifecyclePipeSecurityTests : IDisposable
     }
 
     [Fact]
+    public async Task ThePreparedInstanceIsSecuredAndConnectableBeforeTheAcceptLoopStarts()
+    {
+        await using var server = new PipeServer(new MessageDispatcher(_host),
+            "MentorRecorder.prepared." + Guid.NewGuid().ToString("N") + ".v1");
+        var prepared = PrepareShippingPipe(server);
+        var preparedHandle = prepared.SafePipeHandle;
+        var rule = Assert.Single(prepared.GetAccessControl()
+            .GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier))
+            .Cast<PipeAccessRule>());
+        using var identity = WindowsIdentity.GetCurrent();
+        Assert.Equal(AccessControlType.Allow, rule.AccessControlType);
+        Assert.Equal(identity.User, rule.IdentityReference);
+        var elevated = new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
+        Assert.Equal(elevated ? "S:(ML;;NWNR;;;HI)" : string.Empty, LabelOf(prepared));
+
+        // The startup announcement may now be written: even a client that opens the pipe
+        // before RunAsync reaches WaitForConnection sees its complete security descriptor.
+        await using var client = new NamedPipeClientStream(".", server.PipeName, PipeDirection.InOut,
+            PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+        await client.ConnectAsync(5_000);
+        Assert.True(client.IsConnected);
+        using var stopping = new CancellationTokenSource();
+        var serving = server.RunAsync(stopping.Token);
+        stopping.Cancel();
+        await serving.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(preparedHandle.IsClosed);
+    }
+
+    [Fact]
+    public async Task StoppingBeforeTheAcceptLoopReleasesThePreparedInstance()
+    {
+        await using var server = new PipeServer(new MessageDispatcher(_host),
+            "MentorRecorder.prepared-stop." + Guid.NewGuid().ToString("N") + ".v1");
+        var prepared = PrepareShippingPipe(server);
+        var preparedHandle = prepared.SafePipeHandle;
+        await server.StopAsync();
+        Assert.True(preparedHandle.IsClosed);
+        await using var client = new NamedPipeClientStream(".", server.PipeName, PipeDirection.InOut,
+            PipeOptions.Asynchronous);
+        await Assert.ThrowsAsync<TimeoutException>(() => client.ConnectAsync(100));
+    }
+
+    [Fact]
+    public async Task DisposingBeforeTheAcceptLoopReleasesThePreparedInstance()
+    {
+        var server = new PipeServer(new MessageDispatcher(_host),
+            "MentorRecorder.prepared-dispose." + Guid.NewGuid().ToString("N") + ".v1");
+        var prepared = PrepareShippingPipe(server);
+        var preparedHandle = prepared.SafePipeHandle;
+        // This is also the ownership path when the process's startup console writer throws.
+        await server.DisposeAsync();
+        Assert.True(preparedHandle.IsClosed);
+    }
+
+    private static NamedPipeServerStream PrepareShippingPipe(PipeServer server)
+    {
+        var prepare = typeof(PipeServer).GetMethod("PrepareFirstInstance", BindingFlags.Instance | BindingFlags.NonPublic);
+        var field = typeof(PipeServer).GetField("_preparedStream", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(prepare);
+        Assert.NotNull(field);
+        prepare.Invoke(server, Array.Empty<object>());
+        return Assert.IsType<NamedPipeServerStream>(field.GetValue(server));
+    }
+
+    [Fact]
     public void ThePipeNameCarriesADigestOfTheUserSidRatherThanTheSidItself()
     {
         var sid = PipeNaming.CurrentUserSid();

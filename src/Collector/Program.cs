@@ -533,45 +533,47 @@ public static class Program
         // disposes. Without it a force-killed Desktop leaves an invisible Collector holding the
         // per-user serve lease, which the next Desktop launch silently "reuses".
 
-        if (options.Json)
-        {
-            Console.WriteLine(new JsonObject
-            {
-                ["mode"] = "serve",
-                ["pipe_name"] = server.PipeName,
-                ["database_path"] = host.Database.Path,
-                ["schema_version"] = host.Database.SchemaVersion,
-                ["recovered_runs"] = host.Recovery.RecoveredCount,
-                ["parent_pid"] = options.ParentProcessId,
-            }.ToJsonString());
-        }
-        else
-        {
-            Console.WriteLine(VersionString);
-            Console.WriteLine("pipe: " + server.PipeName);
-            Console.WriteLine("database: " + host.Database.Path);
-            Console.WriteLine($"schema: v{host.Database.SchemaVersion}");
-            Console.WriteLine($"recovered unfinished runs: {host.Recovery.RecoveredCount}");
-            if (options.ParentProcessId is int parentPid)
-            {
-                Console.WriteLine(
-                    "parent pid: " + parentPid.ToString(CultureInfo.InvariantCulture) +
-                    " (this process stops when that one does)");
-            }
-
-            Console.WriteLine("press Ctrl+C to stop");
-        }
-
-        Console.Out.Flush();
-        // The pid file is the Desktop's licence to end a hung holder, so it is written only
-        // after migrations, crash recovery and the pipe server are all in place: a Collector
-        // still running a schema migration is not hung, and a pid file that appears before the
-        // pipe lets a second Desktop kill a healthy instance (review 2 finding H-B). Declared
-        // last, it is also the first thing removed on the way out, so a stopping instance is
-        // never mistaken for a live one.
-        using var servePid = ServePidFile.Write(logDirectory, pipeName, logger);
         try
         {
+            stopping.Token.ThrowIfCancellationRequested();
+            server.PrepareFirstInstance();
+            stopping.Token.ThrowIfCancellationRequested();
+
+            // Only advertise ownership after the first pipe has its final security. Keep
+            // the marker inside this scope so a failed console write removes it before
+            // disposing the prepared listener.
+            using var servePid = ServePidFile.Write(logDirectory, pipeName, logger);
+
+            if (options.Json)
+            {
+                Console.WriteLine(new JsonObject
+                {
+                    ["mode"] = "serve",
+                    ["pipe_name"] = server.PipeName,
+                    ["database_path"] = host.Database.Path,
+                    ["schema_version"] = host.Database.SchemaVersion,
+                    ["recovered_runs"] = host.Recovery.RecoveredCount,
+                    ["parent_pid"] = options.ParentProcessId,
+                }.ToJsonString());
+            }
+            else
+            {
+                Console.WriteLine(VersionString);
+                Console.WriteLine("pipe: " + server.PipeName);
+                Console.WriteLine("database: " + host.Database.Path);
+                Console.WriteLine($"schema: v{host.Database.SchemaVersion}");
+                Console.WriteLine($"recovered unfinished runs: {host.Recovery.RecoveredCount}");
+                if (options.ParentProcessId is int parentPid)
+                {
+                    Console.WriteLine(
+                        "parent pid: " + parentPid.ToString(CultureInfo.InvariantCulture) +
+                        " (this process stops when that one does)");
+                }
+
+                Console.WriteLine("press Ctrl+C to stop");
+            }
+
+            Console.Out.Flush();
             await server.RunAsync(stopping.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)

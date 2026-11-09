@@ -748,6 +748,18 @@ public sealed class LifecycleProcessTests : IDisposable
         Assert.Null(outbound["last_fetch_status"]);
     }
 
+    [Fact]
+    public void AFailedFirstPipeDoesNotAnnounceAServingProcess()
+    {
+        // The BCL reserves this name for anonymous pipes. Parsing accepts a bare name,
+        // so the refusal comes from creating the actual first server instance.
+        var result = CollectorProcessFixture.RunToCompletion("--serve", "--json", "--pipe", "anonymous",
+            "--db", Path.Combine(_directory, "initial-pipe-refused.db"),
+            "--log-dir", Path.Combine(_directory, "initial-pipe-refused-logs"));
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(result.StandardOutput), result.StandardOutput);
+    }
+
     public void Dispose()
     {
         try
