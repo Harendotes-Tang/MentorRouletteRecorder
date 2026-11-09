@@ -48,6 +48,24 @@ public static class ExportPaths
         return fullPath;
     }
 
+    /// <summary>将空白路径或已有目录补全为生成文件名，并验证最终写入位置。</summary>
+    /// <param name="targetPath">调用者指定的文件或已有目录；空白表示使用默认目录。</param>
+    /// <param name="defaultDirectory">仅在路径空白时调用，取得默认目录；显式目标不依赖此目录。</param>
+    /// <param name="defaultFileName">调用者按本次操作时间生成的文件名。</param>
+    internal static string ResolveTarget(string? targetPath, Func<string> defaultDirectory, string defaultFileName)
+    {
+        if (string.IsNullOrWhiteSpace(targetPath))
+        {
+            return Resolve(Path.Combine(defaultDirectory(), defaultFileName));
+        }
+
+        var resolved = Resolve(targetPath);
+        // 追加文件名后再次检查：目录合法不代表该文件的链接最终落点也合法。
+        return Directory.Exists(resolved)
+            ? Resolve(Path.Combine(resolved, defaultFileName))
+            : resolved;
+    }
+
     /// <summary>
     /// Resolves reparse points (junctions and symbolic links) to the physical path a write
     /// would actually reach.

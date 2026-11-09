@@ -147,15 +147,7 @@ public sealed class CandidateObservationRepository
             // 幂等行 24 小时后被清理，但 candidate_reviews.request_id 是 UNIQUE 且只追加。
             // 迟到的重放不再撞约束变成 ERR_INTERNAL，而是按契约码回答（评审 M-7）。
             if (_idempotency.WasAppliedBeforePrune(requestId, tx))
-                throw new CollectorException(ErrorCodes.IdempotencyConflict,
-                    CollectorTexts.IdempotencyResponseExpired(),
-                    new Dictionary<string, object?>
-                    {
-                        ["conflict"] = "idempotency",
-                        ["request_id"] = requestId,
-                        ["reason"] = "RESPONSE_EXPIRED",
-                    },
-                    field: "request_id");
+                throw CollectorException.ExpiredIdempotencyResponse(requestId);
             if (GetInternal(id, tx) is null)
                 throw new CollectorException(ErrorCodes.CandidateObservationNotFound,
                     CollectorTexts.CandidateNotFound(),

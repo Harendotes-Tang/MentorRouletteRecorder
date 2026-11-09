@@ -210,6 +210,19 @@ public sealed class CollectorException : Exception
     public static CollectorException BadRequest(UserText text, string? field = null) =>
         new(ErrorCodes.BadRequest, text, field: field);
 
+    /// <summary>为已执行但响应已清理的请求构造错误，供调用者拒绝旧编号再次写入。</summary>
+    /// <param name="requestId">已执行请求的编号，随错误详情返回。</param>
+    internal static CollectorException ExpiredIdempotencyResponse(string requestId) => new(
+        ErrorCodes.IdempotencyConflict,
+        CollectorTexts.IdempotencyResponseExpired(),
+        new Dictionary<string, object?>
+        {
+            ["conflict"] = "idempotency",
+            ["request_id"] = requestId,
+            ["reason"] = "RESPONSE_EXPIRED",
+        },
+        field: "request_id");
+
     /// <summary>Convenience factory for a missing run.</summary>
     /// <param name="runId">Run that was not found.</param>
     public static CollectorException NotFound(string runId) =>

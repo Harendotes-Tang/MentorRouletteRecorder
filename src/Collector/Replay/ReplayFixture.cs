@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using MentorRecorder.Collector.Domain.Time;
@@ -63,21 +62,7 @@ public static class ReplayFixtureLoader
     /// <param name="path">Path to the <c>.fixture.json</c> file.</param>
     public static ReplayFixture Load(string path)
     {
-        ArgumentException.ThrowIfNullOrEmpty(path);
-        var fullPath = Path.GetFullPath(path);
-        var bytes = File.ReadAllBytes(fullPath);
-        var actualHash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-        var sidecarPath = fullPath + ".sha256";
-        if (!File.Exists(sidecarPath))
-        {
-            throw new InvalidDataException("fixture SHA-256 sidecar is missing: " + sidecarPath);
-        }
-
-        var expectedHash = File.ReadAllText(sidecarPath).Trim().ToLowerInvariant();
-        if (expectedHash.Length != 64 || !string.Equals(expectedHash, actualHash, StringComparison.Ordinal))
-        {
-            throw new InvalidDataException("fixture SHA-256 mismatch");
-        }
+        var (bytes, actualHash) = VerifiedFixtureFile.Read(path, "fixture");
 
         var document = JsonSerializer.Deserialize<FixtureDocument>(bytes)
             ?? throw new InvalidDataException("fixture document is empty");

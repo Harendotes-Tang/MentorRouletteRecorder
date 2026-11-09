@@ -93,7 +93,7 @@ public sealed class DiagnosticsReportExport
         ArgumentNullException.ThrowIfNull(snapshot);
 
         var now = UtcTimestamp.Truncate(_clock.UtcNow);
-        var fullPath = ResolveTarget(targetPath, now);
+        var fullPath = ExportPaths.ResolveTarget(targetPath, () => DefaultDirectory, FileNameFor(now));
 
         var allowOverwrite = overwrite || IsGeneratedName(Path.GetFileName(fullPath));
         ExportPaths.PrepareDestination(fullPath, allowOverwrite);
@@ -115,19 +115,6 @@ public sealed class DiagnosticsReportExport
         }
 
         return new DiagnosticsReportResult(fullPath, bytes.LongLength, now);
-    }
-
-    private string ResolveTarget(string? targetPath, DateTimeOffset now)
-    {
-        if (string.IsNullOrWhiteSpace(targetPath))
-        {
-            return ExportPaths.Resolve(Path.Combine(DefaultDirectory, FileNameFor(now)));
-        }
-
-        var resolved = ExportPaths.Resolve(targetPath);
-        return Directory.Exists(resolved)
-            ? ExportPaths.Resolve(Path.Combine(resolved, FileNameFor(now)))
-            : resolved;
     }
 
     /// <summary>

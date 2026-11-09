@@ -269,7 +269,8 @@ public sealed class RunMutationService
                     throw new CollectorException(ErrorCodes.IdempotencyConflict, CollectorTexts.HistoryBatchRequestReused(), field: "request_id");
                 return receipt.Outcome with { IdempotentReplay = true };
             }
-            if (_idempotency.WasAppliedBeforePrune(command.RequestId, tx)) throw ExpiredReplay(command.RequestId);
+            if (_idempotency.WasAppliedBeforePrune(command.RequestId, tx))
+                throw CollectorException.ExpiredIdempotencyResponse(command.RequestId);
             var runs = sorted.Select(target =>
             {
                 var run = Load(target.RunId, tx); RequireRevision(run, target.ExpectedRevision);
@@ -771,7 +772,7 @@ public sealed class RunMutationService
             // actually happened (review finding M-7).
             if (_idempotency.WasAppliedBeforePrune(requestId, tx))
             {
-                throw ExpiredReplay(requestId);
+                throw CollectorException.ExpiredIdempotencyResponse(requestId);
             }
 
             try
@@ -784,7 +785,7 @@ public sealed class RunMutationService
             {
                 // Belt and braces: a concurrent writer, or a row this process cannot see,
                 // still ends as the contract code rather than as an internal error.
-                throw ExpiredReplay(requestId);
+                throw CollectorException.ExpiredIdempotencyResponse(requestId);
             }
         });
     }
@@ -794,19 +795,6 @@ public sealed class RunMutationService
     private static bool IsRequestIdConflict(SqliteException ex) =>
         ex.SqliteErrorCode == 19 &&
         ex.Message.Contains("request_id", StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>The answer to a replay whose stored response has already been pruned.</summary>
-    /// <param name="requestId">Client-generated request id.</param>
-    private static CollectorException ExpiredReplay(string requestId) => new(
-        ErrorCodes.IdempotencyConflict,
-        CollectorTexts.IdempotencyResponseExpired(),
-        new Dictionary<string, object?>
-        {
-            ["conflict"] = "idempotency",
-            ["request_id"] = requestId,
-            ["reason"] = "RESPONSE_EXPIRED",
-        },
-        field: "request_id");
 
     /// <summary>
     /// A create revision records the full initial value set, not a difference

@@ -367,21 +367,15 @@ public sealed class SharedCalibrationStore : ISharedCalibrationStore
     }
 
     /// <inheritdoc />
-    public DateTimeOffset? BoundSince(Region region, string gameBuild, string profileSha256)
-    {
-        var directory = DirectoryFor(Root, region, gameBuild);
-        RequireSha256(profileSha256, nameof(profileSha256));
-        lock (Gate)
-        {
-            return ReadState(directory).State.Binding is { } binding &&
-                   string.Equals(binding.ProfileSha256, profileSha256, StringComparison.Ordinal)
-                ? binding.RecordsFromUtc
-                : null;
-        }
-    }
+    public DateTimeOffset? BoundSince(Region region, string gameBuild, string profileSha256) =>
+        FindBinding(region, gameBuild, profileSha256)?.RecordsFromUtc;
 
     /// <inheritdoc />
-    public string? BoundCode(Region region, string gameBuild, string profileSha256)
+    public string? BoundCode(Region region, string gameBuild, string profileSha256) =>
+        FindBinding(region, gameBuild, profileSha256)?.CodeSha256;
+
+    /// <summary>在存储锁内读取指定档案的绑定快照；没有匹配绑定时返回 null，不缓存磁盘状态。</summary>
+    private SharedBinding? FindBinding(Region region, string gameBuild, string profileSha256)
     {
         var directory = DirectoryFor(Root, region, gameBuild);
         RequireSha256(profileSha256, nameof(profileSha256));
@@ -389,7 +383,7 @@ public sealed class SharedCalibrationStore : ISharedCalibrationStore
         {
             return ReadState(directory).State.Binding is { } binding &&
                    string.Equals(binding.ProfileSha256, profileSha256, StringComparison.Ordinal)
-                ? binding.CodeSha256
+                ? binding
                 : null;
         }
     }

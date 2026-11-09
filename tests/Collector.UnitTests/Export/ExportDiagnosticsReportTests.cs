@@ -52,12 +52,15 @@ public sealed class ExportDiagnosticsReportTests : IDisposable
         }
     }
 
-    [Fact]
-    public void WritesTheGeneratedNameUnderTheDatabaseFolderWhenNoPathIsGiven()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" \t ")]
+    public void WritesTheGeneratedNameUnderTheDatabaseFolderWhenPathIsBlank(string? targetPath)
     {
         var export = NewExport();
 
-        var result = export.Write(Loaded(), "0.1.0");
+        var result = export.Write(Loaded(), "0.1.0", targetPath);
 
         Assert.Equal(
             Path.Combine(export.DefaultDirectory, "diag_20260904_1345.json"), result.TargetPath);
@@ -75,6 +78,24 @@ public sealed class ExportDiagnosticsReportTests : IDisposable
         var result = NewExport().Write(Loaded(), "0.1.0", target);
 
         Assert.Equal(Path.Combine(target, "diag_20260904_1345.json"), result.TargetPath);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ExplicitTargetDoesNotResolveAnInvalidDefaultDatabasePath(bool directoryTarget)
+    {
+        var export = new DiagnosticsReportExport("invalid\0database.db", _clock);
+        var target = directoryTarget ? _directory : Path.Combine(_directory, "chosen.json");
+        var expected = directoryTarget
+            ? Path.Combine(_directory, "diag_20260904_1345.json")
+            : target;
+
+        var result = export.Write(Loaded(), "0.1.0", target);
+
+        Assert.Equal(expected, result.TargetPath);
+        Assert.True(File.Exists(expected));
+        Assert.Equal(new FileInfo(expected).Length, result.ByteCount);
     }
 
     [Fact]

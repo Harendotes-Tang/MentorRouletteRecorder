@@ -85,16 +85,7 @@ public sealed class RunReflectionService
 
             if (_idempotency.WasAppliedBeforePrune(command.RequestId, tx))
             {
-                throw new CollectorException(
-                    ErrorCodes.IdempotencyConflict,
-                    CollectorTexts.IdempotencyResponseExpired(),
-                    new Dictionary<string, object?>
-                    {
-                        ["conflict"] = "idempotency",
-                        ["request_id"] = command.RequestId,
-                        ["reason"] = "RESPONSE_EXPIRED",
-                    },
-                    field: "request_id");
+                throw CollectorException.ExpiredIdempotencyResponse(command.RequestId);
             }
 
             var applied = Write(command, text, fingerprint, tx);

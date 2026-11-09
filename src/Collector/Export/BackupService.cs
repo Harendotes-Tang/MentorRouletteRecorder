@@ -64,7 +64,7 @@ public sealed class BackupService
     public BackupResult CreateBackup(string? targetPath = null, bool overwrite = false)
     {
         var now = UtcTimestamp.Truncate(_clock.UtcNow);
-        var fullPath = ResolveTarget(targetPath, now);
+        var fullPath = ExportPaths.ResolveTarget(targetPath, () => DefaultDirectory, FileNameFor(now));
         ExportPaths.PrepareDestination(fullPath, overwrite);
 
         BackupOutcome outcome;
@@ -89,23 +89,6 @@ public sealed class BackupService
     /// <param name="now">Backup time.</param>
     public static string FileNameFor(DateTimeOffset now) =>
         FileNamePrefix + now.ToUniversalTime().ToString(TimestampFormat, CultureInfo.InvariantCulture) + ".db";
-
-    private string ResolveTarget(string? targetPath, DateTimeOffset now)
-    {
-        if (string.IsNullOrWhiteSpace(targetPath))
-        {
-            return ExportPaths.Resolve(Path.Combine(DefaultDirectory, FileNameFor(now)));
-        }
-
-        var resolved = ExportPaths.Resolve(targetPath);
-
-        // The appended file name is validated too: resolving the directory alone would leave
-        // the combined path unchecked, and the check is not only about the directory -- it
-        // follows links to where a write would physically land.
-        return Directory.Exists(resolved)
-            ? ExportPaths.Resolve(Path.Combine(resolved, FileNameFor(now)))
-            : resolved;
-    }
 
     /// <summary>
     /// Deletes all but the newest <see cref="RetainedBackups"/> automatically named files, and

@@ -303,6 +303,36 @@ public sealed class ExportTests : IDisposable
         Assert.Equal("keep", File.ReadAllText(parent));
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" \t ")]
+    [InlineData("directory")]
+    [InlineData("file")]
+    public void BackupDatabase_ResolvesDefaultDirectoryAndExplicitFileTargets(string? targetKind)
+    {
+        var service = new BackupService(_database.Database, _database.Clock);
+        var fileName = BackupService.FileNameFor(_database.Clock.UtcNow);
+        var target = targetKind switch
+        {
+            "directory" => _outputDirectory,
+            "file" => Target("chosen.db"),
+            _ => targetKind,
+        };
+        var expected = targetKind switch
+        {
+            "directory" => Target(fileName),
+            "file" => Target("chosen.db"),
+            _ => Path.Combine(service.DefaultDirectory, fileName),
+        };
+
+        var result = service.CreateBackup(target);
+
+        Assert.Equal(expected, result.TargetPath);
+        Assert.True(File.Exists(expected));
+        Assert.True(result.IntegrityCheckPassed);
+    }
+
     [Fact]
     public void BackupDatabase_WritesAVerifiedCopyAndKeepsTheNewestFourteen()
     {

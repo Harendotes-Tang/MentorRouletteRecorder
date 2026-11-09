@@ -113,6 +113,49 @@ public sealed class FixtureIntegrityTests
             fixture.FixtureId);
     }
 
+    [Theory]
+    [InlineData(false, "missing")]
+    [InlineData(true, "missing")]
+    [InlineData(false, "malformed")]
+    [InlineData(true, "malformed")]
+    [InlineData(false, "uppercase")]
+    [InlineData(true, "uppercase")]
+    public void LoadChecksSidecarBeforeParsingAndAcceptsNormalizedHash(bool decoded, string sidecar)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.FixtureSidecar", Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(directory);
+        try
+        {
+            var source = decoded
+                ? Path.Combine(Directory, "decoded", "synthetic_complete.decoded.json")
+                : Path.Combine(Directory, "mentor_left_v1.fixture.json");
+            var copy = Path.Combine(directory, Path.GetFileName(source));
+            // Invalid JSON distinguishes integrity checking from document parsing on failure.
+            File.WriteAllBytes(copy, sidecar == "uppercase" ? File.ReadAllBytes(source) : "not JSON"u8.ToArray());
+            var hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(copy)));
+            if (sidecar != "missing")
+                File.WriteAllText(copy + ".sha256", sidecar == "uppercase" ? "  " + hash + "\r\n" : "not-a-hash");
+
+            string LoadHash() => decoded ? DecodedFixtureLoader.Load(copy).Sha256 : ReplayFixtureLoader.Load(copy).Sha256;
+            if (sidecar == "uppercase")
+            {
+                Assert.Equal(hash.ToLowerInvariant(), LoadHash());
+            }
+            else
+            {
+                var prefix = decoded ? "decoded fixture" : "fixture";
+                var error = Assert.Throws<InvalidDataException>(() => LoadHash());
+                Assert.Equal(prefix + (sidecar == "missing"
+                    ? " SHA-256 sidecar is missing: " + copy + ".sha256"
+                    : " SHA-256 mismatch"), error.Message);
+            }
+        }
+        finally
+        {
+            System.IO.Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact]
     public void TamperingWithAFixtureIsDetected()
     {
