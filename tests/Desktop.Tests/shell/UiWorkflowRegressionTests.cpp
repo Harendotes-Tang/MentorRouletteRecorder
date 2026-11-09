@@ -429,6 +429,7 @@ ApplicationWindow {
 
 /// 副本统计 and 职业统计 side by side on one scripted backend.
 struct StatsScene {
+    mr::AppSettings settings;
     WorkflowBackend backend;
     mr::AppController controller{&backend, nullptr};
     mr::Formatters formatters;
@@ -445,6 +446,7 @@ struct StatsScene {
         context->setContextProperty(QStringLiteral("Fmt"), &formatters);
         context->setContextProperty(QStringLiteral("Jobs"), &jobs);
         context->setContextProperty(QStringLiteral("Roles"), &roles);
+        context->setContextProperty(QStringLiteral("Settings"), &settings);
         context->setContextProperty(QStringLiteral("ReduceMotion"), true);
         QQmlComponent component(&engine);
         component.setData(R"(import QtQuick
@@ -552,9 +554,9 @@ private Q_SLOTS:
     void calibrationDialogsCannotBeCancelledWhileBusy();
     void historyMirrorsEveryFilterAndClearsStaleControls();
     void historyDeletedMenuUsesExclusiveFilter();
-    void historyRangeSelectionDoesNotSubmitHalfARange();
-    void historyCalendarUsesOtherFiltersAndBlocksEmptyDates();
-    void historyRangeStaysAppliedWhenANarrowerFilterEmptiesItsEndDays();
+    void historyDatePresetsAndKeyboardKeepTheAppliedRange();
+    void historyRegionMenuUsesKnownRegionsAndRealCountStates();
+    void historyRangeStaysAppliedWhenANarrowerFilterReturnsNoRows();
     void historyDetailDropsAnImageRefusalOfAnotherRun();
     void recycleBinFooterHasSpacing_data();
     void recycleBinFooterHasSpacing();
@@ -836,6 +838,7 @@ void UiWorkflowRegressionTests::historyLoadFailureIsNotShownAsNoMatches()
 void UiWorkflowRegressionTests::statisticsLoadFailureIsNotShownAsZero()
 {
     StatsScene scene;
+    QSignalSpy warnings(&scene.engine, &QQmlEngine::warnings);
     scene.backend.failures.insert(QStringLiteral("GetDungeonStats"), QStringLiteral("ERR_INTERNAL"));
     scene.backend.failures.insert(QStringLiteral("GetJobStats"), QStringLiteral("ERR_INTERNAL"));
     QVERIFY2(scene.create(), qPrintable(scene.errors));
@@ -859,6 +862,7 @@ void UiWorkflowRegressionTests::statisticsLoadFailureIsNotShownAsZero()
     scene.controller.dungeons()->reload();
     QTRY_VERIFY(scene.controller.dungeons()->loadError().isEmpty());
     QTRY_VERIFY(dungeons->property("subtitle").toString().contains(QString::fromUtf8("0 个副本")));
+    QCOMPARE(warnings.count(), 0);
 }
 
 // 审查 OK-5：去抖之后，半截或非法的日期不能被抹掉，也不能不带它就去查询；搜索
@@ -872,19 +876,25 @@ void UiWorkflowRegressionTests::historyKeepsAHalfTypedDateAndDoesNotQueryWithout
     QTest::qWait(400);
     auto *from = fixture.history()->findChild<QObject *>(QStringLiteral("fromDateField"));
     auto *search = fixture.history()->findChild<QObject *>(QStringLiteral("historySearchField"));
+    auto *range = fixture.history()->findChild<QObject *>(QStringLiteral("historyDateRange"));
     QVERIFY(from);
     QVERIFY(search);
+    QVERIFY(range);
     const int queries = fixture.backend.counts.value(QStringLiteral("QueryRuns"));
 
     from->setProperty("text", QStringLiteral("2026-09-1"));
     QTest::qWait(450);
     QCOMPARE(from->property("text").toString(), QStringLiteral("2026-09-1"));
+    QVERIFY(range->property("invalid").toBool());
+    QCOMPARE(range->property("text").toString(),
+             QCoreApplication::translate("HistoryDateFilter", "日期有误"));
     QCOMPARE(fixture.backend.counts.value(QStringLiteral("QueryRuns")), queries);
     QVERIFY(!fixture.controller.historyFilter().contains(QStringLiteral("from_utc")));
 
     from->setProperty("text", QStringLiteral("2026-09-10"));
     QTRY_VERIFY(fixture.controller.historyFilter().contains(QStringLiteral("from_utc")));
     QCOMPARE(from->property("text").toString(), QStringLiteral("2026-09-10"));
+    QVERIFY(!range->property("invalid").toBool());
 
     search->setProperty("text", QStringLiteral("fixture "));
     QTRY_COMPARE(fixture.controller.historyFilter().value(QStringLiteral("text")).toString(),
@@ -1384,62 +1394,244 @@ void UiWorkflowRegressionTests::historyDeletedMenuUsesExclusiveFilter()
     QVERIFY(!fixture.controller.historyFilter().contains(QStringLiteral("deleted_only")));
 }
 
-void UiWorkflowRegressionTests::historyRangeSelectionDoesNotSubmitHalfARange()
+namespace {
+
+void verifyCustomHistoryDateInput(UiFixture &fixture, QQuickItem *range, QQuickItem *from, QQuickItem *to)
+{
+    auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
+    auto *menu = range->property("menu").value<QObject *>();
+    const auto applied = fixture.controller.historyFilter();
+    // Escape dismisses the menu without changing the active preset or blocking the trigger.
+    QTest::keyClick(window, Qt::Key_Space);
+    QTRY_VERIFY(menu->property("visible").toBool());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!menu->property("visible").toBool());
+    QTRY_VERIFY(range->hasActiveFocus());
+    QCOMPARE(fixture.controller.historyFilter(), applied);
+    QTest::keyClick(window, Qt::Key_Space);
+    QTRY_VERIFY(menu->property("visible").toBool());
+    auto *custom = SettingsFixture::find(window->contentItem(), QStringLiteral("historyDatePreset_custom"));
+    QVERIFY(custom);
+    custom->forceActiveFocus(Qt::TabFocusReason);
+    QTest::keyClick(window, Qt::Key_Space);
+    QTRY_VERIFY(from->hasActiveFocus());
+    from->setProperty("text", QStringLiteral("2026-09-"));
+    QTest::qWait(400);
+    QCOMPARE(fixture.controller.historyFilter(), applied);
+    from->setProperty("text", QStringLiteral("2026-09-28"));
+    to->setProperty("text", QStringLiteral("2026-10-03"));
+    QTRY_COMPARE(fixture.controller.historyFilter().value(QStringLiteral("from_utc")).toString(),
+                 QDateTime(QDate(2026, 9, 28), QTime(0, 0)).toUTC().toString(Qt::ISODateWithMs));
+    QCOMPARE(fixture.controller.historyFilter().value(QStringLiteral("to_utc")).toString(),
+             QDateTime(QDate(2026, 10, 3), QTime(23, 59, 59, 999)).toUTC().toString(Qt::ISODateWithMs));
+    QVERIFY(from->property("valid").toBool());
+    QVERIFY(to->property("valid").toBool());
+    QCOMPARE(fixture.backend.counts.value(QStringLiteral("QueryRunCalendarDays")), 0);
+    const QString evidence = qEnvironmentVariable("MR_HISTORY_FILTER_SCREENSHOT_DIR");
+    if (!evidence.isEmpty()) {
+        QVERIFY(QDir().mkpath(evidence));
+        QTest::qWait(100);
+        QVERIFY(window->grabWindow().save(QDir(evidence).filePath(QStringLiteral("history-custom-date.png"))));
+    }
+}
+
+void verifyHistoryCalendarDismissal(UiFixture &fixture, QQuickItem *range, QQuickItem *from)
+{
+    auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
+    auto *menu = range->property("menu").value<QObject *>();
+    // The custom DateField owns a nested popup: Escape closes that layer first,
+    // and leaving the outer menu/page must not leave its calendar over the table.
+    QVERIFY(QMetaObject::invokeMethod(from, "openCalendar"));
+    auto *calendar = from->findChild<QObject *>(QStringLiteral("calendarPopup"));
+    QVERIFY(calendar);
+    QTRY_VERIFY(calendar->property("visible").toBool());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!calendar->property("visible").toBool());
+    QVERIFY(menu->property("visible").toBool());
+    QVERIFY(QMetaObject::invokeMethod(from, "openCalendar"));
+    QTRY_VERIFY(calendar->property("visible").toBool());
+    QVERIFY(QMetaObject::invokeMethod(menu, "close"));
+    QTRY_VERIFY(!menu->property("visible").toBool());
+    QTRY_VERIFY(!calendar->property("visible").toBool());
+    range->forceActiveFocus(Qt::TabFocusReason);
+    QTest::keyClick(window, Qt::Key_Space);
+    QTRY_VERIFY(menu->property("visible").toBool());
+    QVERIFY(QMetaObject::invokeMethod(from, "openCalendar"));
+    QTRY_VERIFY(calendar->property("visible").toBool());
+    fixture.history()->setProperty("visible", false);
+    QTRY_VERIFY(!menu->property("visible").toBool());
+    QTRY_VERIFY(!calendar->property("visible").toBool());
+    fixture.history()->setProperty("visible", true);
+    QVERIFY(QMetaObject::invokeMethod(fixture.history(), "resetFilter"));
+    QCOMPARE(range->property("preset").toString(), QStringLiteral("all"));
+    QVERIFY(!fixture.controller.historyFilter().contains(QStringLiteral("from_utc")));
+}
+
+void verifyHistoryRegionErrorAndHelp(UiFixture &fixture, QQuickItem *region, QObject *facets)
+{
+    auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
+    auto *menu = region->property("menu").value<QObject *>();
+    QVariant shown;
+    fixture.backend.failures.insert(QStringLiteral("QueryRuns"), QStringLiteral("ERR_INTERNAL"));
+    QTest::keyClick(window, Qt::Key_Space);
+    QTRY_VERIFY(menu->property("visible").toBool());
+    QTRY_VERIFY(!facets->property("error").toString().isEmpty());
+    QVERIFY(QMetaObject::invokeMethod(region, "countText", Q_RETURN_ARG(QVariant, shown),
+                                      Q_ARG(QVariant, QStringLiteral("TC"))));
+    QCOMPARE(shown.toString(), QString::fromUtf8("—"));
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!menu->property("visible").toBool());
+    QTRY_VERIFY(region->hasActiveFocus());
+
+    fixture.backend.failures.remove(QStringLiteral("QueryRuns"));
+    QSignalSpy helpRequested(fixture.history(), SIGNAL(helpAdaptationRequested()));
+    QVERIFY(helpRequested.isValid());
+    QTest::keyClick(window, Qt::Key_Space);
+    QTRY_VERIFY(menu->property("visible").toBool());
+    auto *help = SettingsFixture::find(window->contentItem(), QStringLiteral("historyRegionHelp"));
+    QVERIFY(help);
+    help->forceActiveFocus(Qt::TabFocusReason);
+    QTest::keyClick(window, Qt::Key_Space);
+    QTRY_COMPARE(helpRequested.count(), 1);
+    QTRY_VERIFY(!menu->property("visible").toBool());
+    QTRY_VERIFY(region->hasActiveFocus());
+    QCOMPARE(helpRequested.count(), 1);
+}
+
+} // namespace
+
+void UiWorkflowRegressionTests::historyDatePresetsAndKeyboardKeepTheAppliedRange()
 {
     UiFixture fixture;
+    fixture.backend.answers.insert(QStringLiteral("QueryRuns"),
+        {{QStringLiteral("items"), QJsonArray{}},
+         {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("total"), 0}, {QStringLiteral("page"), 1}}}});
     QVERIFY2(fixture.create(), qPrintable(fixture.errors));
     auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
     QVERIFY(QTest::qWaitForWindowExposed(window));
     auto *range = fixture.history()->findChild<QQuickItem *>(QStringLiteral("historyDateRange"));
-    QVERIFY(range);
     auto *from = fixture.history()->findChild<QQuickItem *>(QStringLiteral("fromDateField"));
     auto *to = fixture.history()->findChild<QQuickItem *>(QStringLiteral("toDateField"));
-    from->setProperty("text", QStringLiteral("2026-09-07"));
-    to->setProperty("text", QStringLiteral("2026-09-09"));
-    QTRY_COMPARE(fixture.controller.historyFilter().value(QStringLiteral("history_to_day")).toString(), QStringLiteral("2026-09-09"));
-    QTest::qWait(450);
-    const int before = fixture.backend.counts.value(QStringLiteral("QueryRuns"));
-    const auto findVisual = [](auto &&self, QQuickItem *parent, const QString &name) -> QQuickItem * {
-        if (parent->objectName() == name) return parent;
-        for (auto *child : parent->childItems()) if (auto *found = self(self, child, name)) return found;
-        return nullptr;
-    };
-    const auto clickDay = [&](int day) {
-        auto *grid = range->findChild<QQuickItem *>(QStringLiteral("calendarGrid"));
-        auto *item = findVisual(findVisual, grid, QStringLiteral("calendarDay%1").arg(day));
-        QVERIFY(item);
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, item->mapToScene(QPointF(item->width()/2, item->height()/2)).toPoint());
-    };
-    QVERIFY(QMetaObject::invokeMethod(range, "openCalendar"));
-    clickDay(28);
-    QVERIFY(range->property("selectionPending").toBool());
-    QTest::qWait(450);
-    QCOMPARE(fixture.backend.counts.value(QStringLiteral("QueryRuns")), before);
-    QVERIFY(QMetaObject::invokeMethod(range, "shiftMonth", Q_ARG(QVariant, 1)));
-    QTest::qWait(20);
-    clickDay(3);
-    QTRY_COMPARE(fixture.controller.historyFilter().value(QStringLiteral("history_from_day")).toString(), QStringLiteral("2026-09-28"));
-    QCOMPARE(fixture.controller.historyFilter().value(QStringLiteral("history_to_day")).toString(), QStringLiteral("2026-10-03"));
-    const auto bounds = fixture.controller.historyFilter();
-    QCOMPARE(bounds.value(QStringLiteral("from_utc")).toString(), QDateTime(QDate(2026, 9, 28), QTime(0, 0)).toUTC().toString(Qt::ISODateWithMs));
-    QCOMPARE(bounds.value(QStringLiteral("to_utc")).toString(), QDateTime(QDate(2026, 10, 3), QTime(23, 59, 59, 999)).toUTC().toString(Qt::ISODateWithMs));
-    const int completed = fixture.backend.counts.value(QStringLiteral("QueryRuns"));
-    QVERIFY(QMetaObject::invokeMethod(range, "openCalendar"));
-    clickDay(5);
-    QTest::keyClick(window, Qt::Key_Escape);
-    QTest::qWait(450);
-    QCOMPARE(fixture.controller.historyFilter(), bounds);
-    QCOMPARE(fixture.backend.counts.value(QStringLiteral("QueryRuns")), completed);
-    QCOMPARE(from->property("text").toString(), QStringLiteral("2026-09-28"));
-    QCOMPARE(to->property("text").toString(), QStringLiteral("2026-10-03"));
+    QVERIFY(range);
+    QVERIFY(from);
+    QVERIFY(to);
+    auto *menu = range->property("menu").value<QObject *>();
+    QVERIFY(menu);
+    QCOMPARE(range->property("preset").toString(), QStringLiteral("all"));
+    QVERIFY(from->property("text").toString().isEmpty());
+    QVERIFY(to->property("text").toString().isEmpty());
+    QVERIFY(!fixture.controller.historyFilter().contains(QStringLiteral("from_utc")));
+    QCOMPARE(fixture.controller.historyFilter().value(QStringLiteral("date_field")).toString(),
+             QStringLiteral("matched_at_utc"));
+
+    // Traverse the real closed-toolbar focus chain in both directions; activation
+    // tests below must not substitute forced focus for Tab reachability.
+    auto *search = fixture.history()->findChild<QQuickItem *>(QStringLiteral("historySearchField"));
+    auto *region = fixture.history()->findChild<QQuickItem *>(QStringLiteral("historyRegionFilter"));
+    QVERIFY(search);
+    QVERIFY(region);
+    auto *regionMenu = region->property("menu").value<QObject *>();
+    QVERIFY(regionMenu);
+    search->forceActiveFocus(Qt::TabFocusReason);
+    QTest::keyClick(window, Qt::Key_Tab);
+    QTRY_VERIFY(range->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Tab, Qt::ShiftModifier);
+    QTRY_VERIFY(search->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Tab);
+    QTRY_VERIFY(range->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Tab);
+    QTRY_VERIFY(region->hasActiveFocus());
+    QVERIFY(!menu->property("visible").toBool());
+    QVERIFY(!regionMenu->property("visible").toBool());
+    QTest::keyClick(window, Qt::Key_Tab, Qt::ShiftModifier);
+    QTRY_VERIFY(range->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Space);
+    QTRY_VERIFY(menu->property("visible").toBool());
+    auto *last7 = SettingsFixture::find(window->contentItem(), QStringLiteral("historyDatePreset_last7"));
+    QVERIFY(last7);
+    last7->forceActiveFocus(Qt::TabFocusReason);
+    QTest::keyClick(window, Qt::Key_Space);
+    QTRY_VERIFY(!menu->property("visible").toBool());
+    QTRY_VERIFY(range->hasActiveFocus());
+    const QDate today = QDate::currentDate();
+    QTRY_COMPARE(from->property("text").toString(), today.addDays(-6).toString(Qt::ISODate));
+    QCOMPARE(to->property("text").toString(), today.toString(Qt::ISODate));
+    QTRY_COMPARE(fixture.controller.historyFilter().value(QStringLiteral("from_utc")).toString(),
+                 QDateTime(today.addDays(-6), QTime(0, 0)).toUTC().toString(Qt::ISODateWithMs));
+    QCOMPARE(fixture.controller.historyFilter().value(QStringLiteral("to_utc")).toString(),
+             QDateTime(today, QTime(23, 59, 59, 999)).toUTC().toString(Qt::ISODateWithMs));
+    QVERIFY(!fixture.controller.historyFilter().contains(QStringLiteral("history_from_day")));
+    QVERIFY(!fixture.controller.historyFilter().contains(QStringLiteral("history_to_day")));
+
+    verifyCustomHistoryDateInput(fixture, range, from, to);
+    if (QTest::currentTestFailed())
+        return;
+    verifyHistoryCalendarDismissal(fixture, range, from);
 }
 
-void UiWorkflowRegressionTests::historyCalendarUsesOtherFiltersAndBlocksEmptyDates()
+void UiWorkflowRegressionTests::historyRegionMenuUsesKnownRegionsAndRealCountStates()
 {
     UiFixture fixture;
-    fixture.backend.answers.insert(QStringLiteral("QueryRunCalendarDays"),
-        {{QStringLiteral("month"), QStringLiteral("2026-09")},
-         {QStringLiteral("days"), QJsonArray{QStringLiteral("2026-09-07"), QStringLiteral("2026-09-17")}}});
+    fixture.backend.answers.insert(QStringLiteral("QueryRuns"),
+        {{QStringLiteral("items"), QJsonArray{}},
+         {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("total"), 0}, {QStringLiteral("page"), 1}}}});
+    QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+    auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    QTest::qWait(400);
+    auto *region = fixture.history()->findChild<QQuickItem *>(QStringLiteral("historyRegionFilter"));
+    QVERIFY(region);
+    auto *menu = region->property("menu").value<QObject *>();
+    QVERIFY(menu);
+    auto *facets = fixture.controller.property("historyFilterFacets").value<QObject *>();
+    QVERIFY(facets);
+    QVERIFY(!facets->property("active").toBool());
+    fixture.backend.holdTypes.append(QStringLiteral("QueryRuns"));
+    region->forceActiveFocus(Qt::TabFocusReason);
+    QTest::keyClick(window, Qt::Key_Space);
+    QTRY_VERIFY(menu->property("visible").toBool());
+    QTRY_VERIFY(facets->property("loading").toBool());
+    QVariant shown;
+    QVERIFY(QMetaObject::invokeMethod(region, "countText", Q_RETURN_ARG(QVariant, shown),
+                                      Q_ARG(QVariant, QStringLiteral("TC"))));
+    QCOMPARE(shown.toString(), QString::fromUtf8("…"));
+    for (const QString &key : {QStringLiteral("all"), QStringLiteral("CN"),
+                              QStringLiteral("TC"), QStringLiteral("GLOBAL")})
+        QVERIFY(SettingsFixture::find(window->contentItem(), QStringLiteral("historyRegionChoice_") + key));
+    QVERIFY(!SettingsFixture::find(window->contentItem(), QStringLiteral("historyRegionChoice_UNKNOWN")));
+    QTRY_VERIFY(!fixture.backend.pending.isEmpty());
+    fixture.backend.holdTypes.removeAll(QStringLiteral("QueryRuns"));
+    while (fixture.backend.release(QStringLiteral("QueryRuns"), fixture.backend.answers.value(QStringLiteral("QueryRuns")))) { }
+    QTRY_VERIFY(!facets->property("loading").toBool());
+    QVERIFY(facets->property("error").toString().isEmpty());
+    QVERIFY(QMetaObject::invokeMethod(region, "countText", Q_RETURN_ARG(QVariant, shown),
+                                      Q_ARG(QVariant, QStringLiteral("TC"))));
+    QCOMPARE(shown.toString(), QStringLiteral("0"));
+    const QString evidence = qEnvironmentVariable("MR_HISTORY_FILTER_SCREENSHOT_DIR");
+    if (!evidence.isEmpty()) {
+        QVERIFY(QDir().mkpath(evidence));
+        QTest::qWait(100);
+        QVERIFY(window->grabWindow().save(QDir(evidence).filePath(QStringLiteral("history-regions.png"))));
+    }
+    auto *tc = SettingsFixture::find(window->contentItem(), QStringLiteral("historyRegionChoice_TC"));
+    tc->forceActiveFocus(Qt::TabFocusReason);
+    QTest::keyClick(window, Qt::Key_Space);
+    QTRY_VERIFY(!menu->property("visible").toBool());
+    QTRY_COMPARE(fixture.controller.historyFilter().value(QStringLiteral("region")).toString(), QStringLiteral("TC"));
+    QTRY_VERIFY(region->hasActiveFocus());
+    QVERIFY(!facets->property("active").toBool());
+
+    verifyHistoryRegionErrorAndHelp(fixture, region, facets);
+}
+
+// A complete range remains applied when another criterion yields no records;
+// calendar availability is not a validity constraint on matched-time filtering.
+void UiWorkflowRegressionTests::historyRangeStaysAppliedWhenANarrowerFilterReturnsNoRows()
+{
+    UiFixture fixture;
+    fixture.backend.answers.insert(QStringLiteral("QueryRuns"),
+        {{QStringLiteral("items"), QJsonArray{}},
+         {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("total"), 0}, {QStringLiteral("page"), 1}}}});
     QVERIFY2(fixture.create(), qPrintable(fixture.errors));
     auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
     QVERIFY(QTest::qWaitForWindowExposed(window));
@@ -1449,91 +1641,17 @@ void UiWorkflowRegressionTests::historyCalendarUsesOtherFiltersAndBlocksEmptyDat
     QVERIFY(job);
     range->setProperty("startText", QStringLiteral("2026-09-07"));
     range->setProperty("endText", QStringLiteral("2026-09-17"));
-    QTRY_VERIFY(range->property("valid").toBool());
-    QTRY_COMPARE(fixture.controller.historyFilter().value(QStringLiteral("history_to_day")).toString(), QStringLiteral("2026-09-17"));
-    QVERIFY(QMetaObject::invokeMethod(range, "openCalendar"));
-    QTRY_COMPARE(fixture.controller.runs()->calendarMonth(), QStringLiteral("2026-09"));
-    const auto findVisual = [](auto &&self, QQuickItem *parent, const QString &name) -> QQuickItem * {
-        if (parent->objectName() == name) return parent;
-        for (auto *child : parent->childItems()) if (auto *found = self(self, child, name)) return found;
-        return nullptr;
-    };
-    auto *grid = range->findChild<QQuickItem *>(QStringLiteral("calendarGrid"));
-    auto *empty = findVisual(findVisual, grid, QStringLiteral("calendarDay8"));
-    auto *start = findVisual(findVisual, grid, QStringLiteral("calendarDay7"));
-    QVERIFY(empty);
-    QVERIFY(start);
-    QTRY_VERIFY(start->isEnabled());
-    QVERIFY(!empty->isEnabled());
-    const auto click = [&](QQuickItem *item) {
-        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
-            item->mapToScene(QPointF(item->width()/2, item->height()/2)).toPoint());
-    };
-    QTest::qWait(50);
-    click(empty);
-    QVERIFY(!range->property("selectionPending").toBool());
-    click(start);
-    QVERIFY(range->property("selectionPending").toBool());
+    QTRY_VERIFY(fixture.controller.historyFilter().contains(QStringLiteral("to_utc")));
+    const auto previous = fixture.controller.historyFilter();
     job->setProperty("currentIndex", 1);
     QVERIFY(QMetaObject::invokeMethod(job, "activated", Q_ARG(int, 1)));
-    QTRY_VERIFY(fixture.backend.lastPayloads.value(QStringLiteral("QueryRunCalendarDays"))
-        .value(QStringLiteral("filter")).toObject().contains(QStringLiteral("job_id")));
-    const auto filter = fixture.backend.lastPayloads.value(QStringLiteral("QueryRunCalendarDays"))
-        .value(QStringLiteral("filter")).toObject();
-    QVERIFY(!filter.contains(QStringLiteral("from_utc")));
-    QVERIFY(!filter.contains(QStringLiteral("history_to_day")));
-    QTRY_VERIFY(start->isEnabled());
-    click(start);
-    QTRY_COMPARE(fixture.controller.historyFilter().value(QStringLiteral("history_to_day")).toString(), QStringLiteral("2026-09-07"));
-    QVERIFY(fixture.controller.historyFilter().contains(QStringLiteral("job_id")));
-}
-
-/// 审查 K1-1：先选好 9 月 7 日至 17 日，再把职业收窄到一个 7 日没有记录的职业。
-/// 两个日期都完整合法，筛选必须照常发出；日历只是不再让人点选没有记录的日子。
-/// 此前 7 日被当成「不合法」，此后每一次筛选改动都被挡下，列表、条数与导出
-/// 仍是旧条件，而控件已显示新条件。
-void UiWorkflowRegressionTests::historyRangeStaysAppliedWhenANarrowerFilterEmptiesItsEndDays()
-{
-    UiFixture fixture;
-    fixture.backend.answerFor = [](const QString &type, const QJsonObject &payload) {
-        if (type != QLatin1String("QueryRunCalendarDays"))
-            return QJsonObject();
-        const QString month = payload.value(QStringLiteral("month")).toString();
-        const bool narrowed = payload.value(QStringLiteral("filter")).toObject()
-                                  .contains(QStringLiteral("job_id"));
-        QJsonArray days;
-        if (month == QLatin1String("2026-09")) {
-            if (!narrowed)
-                days.append(QStringLiteral("2026-09-07"));
-            days.append(QStringLiteral("2026-09-17"));
-        }
-        return QJsonObject{{QStringLiteral("month"), month}, {QStringLiteral("days"), days}};
-    };
-    QVERIFY2(fixture.create(), qPrintable(fixture.errors));
-    auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
-    QVERIFY(QTest::qWaitForWindowExposed(window));
-    auto *range = fixture.history()->findChild<QQuickItem *>(QStringLiteral("historyDateRange"));
-    auto *job = fixture.history()->findChild<QObject *>(QStringLiteral("historyJobFilter"));
-    QVERIFY(range);
-    QVERIFY(job);
-    range->setProperty("startText", QStringLiteral("2026-09-07"));
-    range->setProperty("endText", QStringLiteral("2026-09-17"));
-    QTRY_COMPARE(fixture.controller.historyFilter().value(QStringLiteral("history_to_day")).toString(),
-                 QStringLiteral("2026-09-17"));
-    QTRY_VERIFY(fixture.controller.runs()->calendarDayAvailable(QStringLiteral("2026-09-07")));
-
-    job->setProperty("currentIndex", 1);
-    QVERIFY(QMetaObject::invokeMethod(job, "activated", Q_ARG(int, 1)));
-    // The new scope's calendar no longer has the 7th ...
-    QTRY_VERIFY(fixture.controller.runs()->calendarMonthKnown(QStringLiteral("2026-09"))
-                && !fixture.controller.runs()->calendarDayAvailable(QStringLiteral("2026-09-07")));
-    // ... and the list still follows the controls.
     QTRY_VERIFY(fixture.controller.historyFilter().contains(QStringLiteral("job_id")));
-    QCOMPARE(fixture.controller.historyFilter().value(QStringLiteral("history_from_day")).toString(),
-             QStringLiteral("2026-09-07"));
-    QCOMPARE(fixture.controller.historyFilter().value(QStringLiteral("history_to_day")).toString(),
-             QStringLiteral("2026-09-17"));
-    QVERIFY(range->property("valid").toBool());
+    QCOMPARE(fixture.controller.historyFilter().value(QStringLiteral("from_utc")), previous.value(QStringLiteral("from_utc")));
+    QCOMPARE(fixture.controller.historyFilter().value(QStringLiteral("to_utc")), previous.value(QStringLiteral("to_utc")));
+    QCOMPARE(range->property("startText").toString(), QStringLiteral("2026-09-07"));
+    QCOMPARE(range->property("endText").toString(), QStringLiteral("2026-09-17"));
+    QCOMPARE(fixture.controller.runs()->total(), 0);
+    QCOMPARE(fixture.backend.counts.value(QStringLiteral("QueryRunCalendarDays")), 0);
 }
 
 /// 审查 L1-9：详情浮层换到另一条记录时，上一条记录「添加图片」被拒的原因不再
@@ -1686,7 +1804,9 @@ void UiWorkflowRegressionTests::historyRetainsAnUnlistedJobDrillDownUntilExplici
     QVERIFY2(fixture.create(), qPrintable(fixture.errors));
     auto *window = qobject_cast<QQuickWindow *>(fixture.root.get());
     QVERIFY(window);
-    if (narrow) window->setWidth(920);
+    // The compact toolbar keeps all secondary filters through 760 px;
+    // exercise the actual overflow layout rather than the former breakpoint.
+    if (narrow) window->setWidth(720);
     auto *chip = fixture.history()->findChild<QObject *>(QStringLiteral("retainedJobFilterChip"));
     auto *combo = fixture.history()->findChild<QObject *>(QStringLiteral("historyJobFilter"));
     auto *from = fixture.history()->findChild<QObject *>(QStringLiteral("fromDateField"));
@@ -2804,6 +2924,8 @@ MR_DESKTOP_TEST_SUITE(UiWorkflowRegression)
     mrtest::disableCollectorLaunch();
     QStandardPaths::setTestModeEnabled(true);
     QQuickStyle::setStyle(QStringLiteral("Basic"));
+    if (qEnvironmentVariableIsEmpty("QT_QPA_FONTDIR"))
+        qputenv("QT_QPA_FONTDIR", "C:/Windows/Fonts");
     QGuiApplication app(argc, argv);
     // Match main.cpp's screenshot font initialization; offscreen defaults may
     // otherwise choose a condensed fallback and conceal real layout overflow.

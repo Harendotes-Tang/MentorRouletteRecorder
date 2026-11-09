@@ -15,6 +15,8 @@ import MentorRecorder 1.0
 QtObject {
     id: entrance
 
+    property bool active: true
+    property bool classicOnly: true
     property real distanceX: 0
     property real distanceY: 0
     property real fromScale: 1
@@ -26,7 +28,7 @@ QtObject {
     readonly property real dx: (1 - progress) * distanceX
     readonly property real dy: (1 - progress) * distanceY
     readonly property real scale: fromScale + (1 - fromScale) * progress
-    readonly property bool enabled: Theme.motion && !Theme.eorzea
+    readonly property bool enabled: active && Theme.motion && (!classicOnly || !Theme.eorzea)
     readonly property bool running: animation.running
 
     function play(delay) {
@@ -35,7 +37,7 @@ QtObject {
             entrance.progress = 1
             return
         }
-        pause.duration = Math.max(0, delay || 0)
+        pause.duration = Math.min(50, Math.max(0, delay || 0))
         entrance.progress = 0
         animation.start()
     }
@@ -48,6 +50,7 @@ QtObject {
     // Switching to eorzea or to reduced motion mid-way must not leave an item
     // half transparent.
     onEnabledChanged: if (!entrance.enabled) entrance.finish()
+    onDurationChanged: if (duration === 0) entrance.finish()
 
     readonly property SequentialAnimation animation: SequentialAnimation {
         PauseAnimation { id: pause; duration: 0 }

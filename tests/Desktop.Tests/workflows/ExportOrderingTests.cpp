@@ -54,6 +54,8 @@ private Q_SLOTS:
         QTemporaryDir dir;
         app.setExportTargetOverride(dir.path());
         app.exportCsv();
+        QCOMPARE(backend.exports.value(QStringLiteral("ExportCsv")).value(QStringLiteral("filter")).toObject(),
+                 QJsonObject({{QStringLiteral("date_field"), QStringLiteral("matched_at_utc")}}));
         QCOMPARE(backend.exports.value(QStringLiteral("ExportCsv")).value(QStringLiteral("sort")).toObject(),
                  QJsonObject({{QStringLiteral("field"), QStringLiteral("history_date")},
                               {QStringLiteral("direction"), QStringLiteral("desc")}}));

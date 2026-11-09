@@ -6,7 +6,7 @@ import QtQuick.Layouts
 import MentorRecorder 1.0
 
 // First-run onboarding: the historical 导随 baseline and the achievement goal.
-Dialog {
+MotionDialog {
     id: dialog
 
     property int goalCount: 2000
@@ -48,13 +48,6 @@ Dialog {
 
     background: DialogFrame {}
 
-    enter: Transition {
-        NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionMedium; easing.type: Easing.OutCubic }
-        NumberAnimation { property: "scale"; from: 0.97; to: 1; duration: Theme.motionMedium; easing.type: Easing.OutCubic }
-    }
-    exit: Transition {
-        NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.motionFast }
-    }
 
     property string baselineText: String(baselineCount)
     property string goalText: String(goalCount)

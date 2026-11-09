@@ -238,7 +238,7 @@ bool systemReducesMotion()
 QStringList probeScenarios()
 {
     return {QStringLiteral("theme"), QStringLiteral("trend-week"), QStringLiteral("trend-month"),
-            QStringLiteral("trend-day"), QStringLiteral("history-rows")};
+            QStringLiteral("trend-day"), QStringLiteral("history-rows"), QStringLiteral("settings-tabs")};
 }
 
 bool isProbeScenario(const QString &name)
@@ -299,20 +299,35 @@ int runProbe(QQuickWindow *window, AppController *controller, const QString &sce
         settleEvents();
     }
 
+    if (scenario == QLatin1String("settings-tabs")) {
+        controller->navigate(5);
+        auto *settings = window->findChild<QObject *>(QStringLiteral("settingsPage"));
+        if (!settings || !QMetaObject::invokeMethod(settings, "selectTab",
+                Q_ARG(QVariant, QStringLiteral("general"))))
+            return 11;
+        advanceClock(2000);
+        settleEvents();
+    }
+
     if (!writeFrame(window, screenshotTarget))
         return 4;
 
     bool triggered = false;
-    if (scenario == QLatin1String("theme"))
+    if (scenario == QLatin1String("theme")) {
         triggered = triggerTheme(window);
-    else if (scenario == QLatin1String("trend-week"))
+    } else if (scenario == QLatin1String("trend-week")) {
         triggered = triggerTrend(window, controller, QStringLiteral("week"));
-    else if (scenario == QLatin1String("trend-month"))
+    } else if (scenario == QLatin1String("trend-month")) {
         triggered = triggerTrend(window, controller, QStringLiteral("month"));
-    else if (scenario == QLatin1String("trend-day"))
+    } else if (scenario == QLatin1String("trend-day")) {
         triggered = triggerTrend(window, controller, QStringLiteral("day"));
-    else if (scenario == QLatin1String("history-rows"))
+    } else if (scenario == QLatin1String("history-rows")) {
         triggered = triggerHistoryRows(controller);
+    } else if (scenario == QLatin1String("settings-tabs")) {
+        auto *settings = window->findChild<QObject *>(QStringLiteral("settingsPage"));
+        triggered = settings && QMetaObject::invokeMethod(settings, "selectTab",
+            Q_ARG(QVariant, QStringLiteral("about")));
+    }
     if (!triggered)
         return 11;
 

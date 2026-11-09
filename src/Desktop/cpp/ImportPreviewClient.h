@@ -10,7 +10,7 @@
 
 namespace mr {
 
-enum class ImportPreviewFailure { None, Disconnected, Rejected, Incomplete };
+enum class ImportPreviewFailure : quint8 { None, Disconnected, Rejected, Incomplete };
 
 /// A whole frozen preview or a failure; never exposes a partially accumulated page set.
 struct ImportPreviewResult
@@ -37,7 +37,7 @@ public:
 private:
     struct Operation;
     void requestPage(const std::shared_ptr<Operation> &operation);
-    void finish(const std::shared_ptr<Operation> &operation, ImportPreviewResult result);
+    void finish(const std::shared_ptr<Operation> &operation, ImportPreviewResult result) const;
     quint64 m_generation = 0;
 };
 

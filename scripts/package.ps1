@@ -48,6 +48,8 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'package-runtime.ps1')
 . (Join-Path $PSScriptRoot 'package-version.ps1')
 . (Join-Path $PSScriptRoot 'ocr-runtime.ps1')
+. (Join-Path $PSScriptRoot 'qtgraphs-runtime.ps1')
+. (Join-Path $PSScriptRoot 'qt-private-runtime.ps1')
 
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }
 
@@ -848,6 +850,8 @@ Copy-Item -LiteralPath (Join-Path $RepoRoot 'README.md') -Destination $StageDir
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'THIRD_PARTY_NOTICES.md') -Destination $StageDir
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'docs') -Destination (Join-Path $StageDir 'docs') -Recurse -Force
 Install-OcrRuntime -DestinationDirectory $StageDir -RepoRoot $RepoRoot
+$qtGraphsContext = Get-QtGraphsContextFromBuild -BuildDirectory $BuildDir -RepoRoot $RepoRoot
+$qtPrivateRuntime = Read-QtPrivateRuntime -BuildDirectory $BuildDir
 
 # The development output carries synthetic profiles for replay tests. They must not reach the
 # live selector in an installed build, even though their fake game-build marker keeps them
@@ -869,6 +873,7 @@ foreach ($localOnlyDocs in @('docs\diagrams', 'docs\plans', 'docs\reviews')) {
     'Complete corresponding source code for the packaged revision (see source_commit in'
     'BUILD-METADATA.json): https://github.com/Harendotes-Tang/MentorRouletteRecorder'
     'Licence: GPL-3.0-or-later (LICENSE); third-party notices: THIRD_PARTY_NOTICES.md.'
+    'Project-specific QtGraphs corresponding source, patch and build recipe: docs/licenses/qtgraphs/README.md.'
 ) | Set-Content -LiteralPath $SourceNotePath -Encoding utf8
 
 # A git that fails (not a repository, "dubious ownership", not installed) prints nothing, and
@@ -989,11 +994,17 @@ foreach ($blocker in $distributionBlockers) {
     public_distribution_ready = $publicDistributionReady
     public_distribution_ready_source = 'staged CaptureDiagnostics constant, packaged profiles, git worktree state, -SkipVerify and -Verify'
     public_distribution_blockers = @($distributionBlockers)
+    qtgraphs_runtime = $(if ($null -ne $qtGraphsContext) { Assert-QtGraphsCachedRuntime -Context $qtGraphsContext } else { $null })
+    qt_private_runtime = $qtPrivateRuntime
     produced_at_utc = [DateTimeOffset]::UtcNow.ToString('O')
 } | ConvertTo-Json | Set-Content -LiteralPath $BuildMetadataPath -Encoding utf8
 
 Write-Head '部署 Qt 运行时 / Deploy Qt runtime'
 $deployMode = if ($Configuration -eq 'Debug') { '--debug' } else { '--release' }
+$qtDeploymentArguments = @()
+if ($null -ne $qtGraphsContext) {
+    $qtDeploymentArguments = @(Get-QtGraphsDeploymentArguments -Context $qtGraphsContext)
+}
 # --no-ffmpeg / --exclude-plugins: online speech only plays WAV files, which the Windows
 # multimedia backend handles; see $ForbiddenMediaPatterns.
 & $Windeployqt `
@@ -1002,10 +1013,18 @@ $deployMode = if ($Configuration -eq 'Debug') { '--debug' } else { '--release' }
     --no-translations `
     --no-ffmpeg `
     --exclude-plugins ffmpegmediaplugin `
+    @qtDeploymentArguments `
     --qmldir $QmlSourceDir `
     (Join-Path $StageDir 'MentorRecorder.Desktop.exe')
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
+}
+
+# Private Qt layouts require the exact DLL bytes recorded when configuring the build.
+Assert-QtPrivateRuntime -Manifest $qtPrivateRuntime -Directory $StageDir
+# windeployqt copies the SDK's original DLL; restore and verify the reviewed patch afterwards.
+if ($null -ne $qtGraphsContext) {
+    Install-QtGraphsRuntime -Context $qtGraphsContext -DestinationDirectory $StageDir | Out-Null
 }
 
 Add-MinGwRuntime $StageDir
@@ -1062,6 +1081,10 @@ if ($Verify) {
         Assert-NoForbiddenPayload $unpacked
         Assert-NoLocalPathLeak $unpacked
         Assert-MultimediaLayout $unpacked
+        Assert-QtPrivateRuntime -Manifest $qtPrivateRuntime -Directory $unpacked
+        if ($null -ne $qtGraphsContext) {
+            Assert-InstalledQtGraphsRuntime -DestinationDirectory $unpacked -Context $qtGraphsContext | Out-Null
+        }
         Assert-RequiredContent $unpacked
         Assert-StagedVersion $unpacked
         Assert-ReleasedChangelogSectionsUnchanged

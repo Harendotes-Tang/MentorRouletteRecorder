@@ -78,6 +78,55 @@ QString textStartingWith(QQuickItem *from, const QString &prefix)
     return {};
 }
 
+void verifyCompactImageLimitsAndScrolling(DialogFixture &fixture, bool askingResult)
+{
+    fixture.dialog()->setProperty("pendingSwitchId", QStringLiteral("another-run"));
+    QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "pasteNoteImage"));
+    QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "removeNoteImage",
+        Q_ARG(QVariant, QVariant(fixture.images.imagesFor(kImageRunId()).first().toMap()))));
+    QCOMPARE(fixture.images.imagesFor(kImageRunId()).size(), 3);
+    auto *strip = fixture.dialog()->findChild<QObject *>(QStringLiteral("reflectionNoteImagesCompact"));
+    QVERIFY(strip);
+    QVERIFY(!strip->property("editable").toBool());
+    fixture.dialog()->setProperty("pendingSwitchId", QString());
+
+    for (int index = 3; index < mr::NoteImageStore::kMaxImagesPerRun; ++index)
+        QVERIFY(fixture.images.addClipboard(kImageRunId()).value(QStringLiteral("ok")).toBool());
+    auto *viewport = fixture.dialog()->findChild<QQuickItem *>(QStringLiteral("reflectionImageViewportCompact"));
+    QVERIFY(viewport);
+    QTRY_COMPARE(strip->property("count").toInt(), mr::NoteImageStore::kMaxImagesPerRun);
+    QTRY_VERIFY(strip->property("implicitHeight").toDouble() > 144);
+    QTRY_COMPARE(viewport->height(), 144.0);
+    viewport->ensurePolished();
+    QTest::qWait(40);
+    // A real reminder is bounded by its native window. Long text and
+    // a full image strip must still let the user scroll to the actions.
+    const QString longNote = QStringLiteral("这次记住提前提醒机制，保留全部心得文字。\n").repeated(24);
+    fixture.textArea()->setProperty("text", longNote);
+    fixture.textArea()->setProperty("cursorPosition", longNote.size());
+    fixture.dialog()->setProperty("managedPresentation", true);
+    QQmlExpression limitHeight(qmlContext(fixture.window()), fixture.window(), QStringLiteral("height = 360"));
+    limitHeight.evaluate();
+    QVERIFY2(!limitHeight.hasError(), qPrintable(limitHeight.error().toString()));
+    QTRY_COMPARE(fixture.window()->height(), 360);
+    auto *outer = fixture.dialog()->findChild<QQuickItem *>(QStringLiteral("reflectionCompactViewport"));
+    QVERIFY(outer);
+    auto *flickable = outer->property("contentItem").value<QQuickItem *>();
+    QVERIFY(flickable);
+    QTRY_VERIFY2(flickable->property("contentHeight").toReal() > flickable->height(),
+        qPrintable(QStringLiteral("content=%1 viewport=%2 dialog=%3 host=%4")
+            .arg(flickable->property("contentHeight").toReal()).arg(flickable->height())
+            .arg(fixture.dialog()->property("height").toReal()).arg(fixture.window()->height())));
+    flickable->setProperty("contentY", flickable->property("contentHeight").toReal() - flickable->height());
+    QCOMPARE(fixture.note(), longNote);
+    if (!askingResult) {
+        auto *save = fixture.dialog()->findChild<QQuickItem *>(QStringLiteral("saveReflectionButton"));
+        QVERIFY(save);
+        QTRY_VERIFY(QRectF(QPointF(), fixture.window()->size()).contains(
+            save->mapRectToScene(save->boundingRect())));
+    }
+}
+
 } // namespace
 
 namespace {
@@ -332,51 +381,8 @@ private Q_SLOTS:
         }
 
         if (standalone) {
-            fixture.dialog()->setProperty("pendingSwitchId", QStringLiteral("another-run"));
-            QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "pasteNoteImage"));
-            QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "removeNoteImage",
-                Q_ARG(QVariant, QVariant(fixture.images.imagesFor(kImageRunId()).first().toMap()))));
-            QCOMPARE(fixture.images.imagesFor(kImageRunId()).size(), 3);
-            auto *strip = fixture.dialog()->findChild<QObject *>(QStringLiteral("reflectionNoteImagesCompact"));
-            QVERIFY(strip);
-            QVERIFY(!strip->property("editable").toBool());
-            fixture.dialog()->setProperty("pendingSwitchId", QString());
-
-            for (int index = 3; index < mr::NoteImageStore::kMaxImagesPerRun; ++index)
-                QVERIFY(fixture.images.addClipboard(kImageRunId()).value(QStringLiteral("ok")).toBool());
-            auto *viewport = fixture.dialog()->findChild<QQuickItem *>(QStringLiteral("reflectionImageViewportCompact"));
-            QVERIFY(viewport);
-            QTRY_COMPARE(strip->property("count").toInt(), mr::NoteImageStore::kMaxImagesPerRun);
-            QTRY_VERIFY(strip->property("implicitHeight").toDouble() > 144);
-            QTRY_COMPARE(viewport->height(), 144.0);
-            viewport->ensurePolished();
-            QTest::qWait(40);
-            // A real reminder is bounded by its native window. Long text and
-            // a full image strip must still let the user scroll to the actions.
-            const QString longNote = QStringLiteral("这次记住提前提醒机制，保留全部心得文字。\n").repeated(24);
-            fixture.textArea()->setProperty("text", longNote);
-            fixture.textArea()->setProperty("cursorPosition", longNote.size());
-            fixture.dialog()->setProperty("managedPresentation", true);
-            QQmlExpression limitHeight(qmlContext(fixture.window()), fixture.window(), QStringLiteral("height = 360"));
-            limitHeight.evaluate();
-            QVERIFY2(!limitHeight.hasError(), qPrintable(limitHeight.error().toString()));
-            QTRY_COMPARE(fixture.window()->height(), 360);
-            auto *outer = fixture.dialog()->findChild<QQuickItem *>(QStringLiteral("reflectionCompactViewport"));
-            QVERIFY(outer);
-            auto *flickable = outer->property("contentItem").value<QQuickItem *>();
-            QVERIFY(flickable);
-            QTRY_VERIFY2(flickable->property("contentHeight").toReal() > flickable->height(),
-                qPrintable(QStringLiteral("content=%1 viewport=%2 dialog=%3 host=%4")
-                    .arg(flickable->property("contentHeight").toReal()).arg(flickable->height())
-                    .arg(fixture.dialog()->property("height").toReal()).arg(fixture.window()->height())));
-            flickable->setProperty("contentY", flickable->property("contentHeight").toReal() - flickable->height());
-            QCOMPARE(fixture.note(), longNote);
-            if (!askingResult) {
-                auto *save = fixture.dialog()->findChild<QQuickItem *>(QStringLiteral("saveReflectionButton"));
-                QVERIFY(save);
-                QTRY_VERIFY(QRectF(QPointF(), fixture.window()->size()).contains(
-                    save->mapRectToScene(save->boundingRect())));
-            }
+            verifyCompactImageLimitsAndScrolling(fixture, askingResult);
+            QVERIFY(!QTest::currentTestFailed());
         }
 
         // Attachments already belong to the completed run, like chosen files.

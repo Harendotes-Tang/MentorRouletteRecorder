@@ -4,11 +4,15 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS
     Qml
     Quick
     QuickControls2
+    QuickTemplates2
     Graphs
     Svg
     Test
     TextToSpeech
     Widgets)
+
+include("${PROJECT_SOURCE_DIR}/src/Desktop/cmake/QtPrivateModules.cmake")
+mr_find_qt_private_modules()
 
 # Each suite lives in the folder of the Desktop area it tests; support/ holds what
 # several suites share (the Collector guard, settings audit, expect_exit.cmake).
@@ -62,6 +66,9 @@ inline constexpr SuiteEntry Suites[] = {
     add_executable(${target} ${sources})
     target_include_directories(${target} PRIVATE "${generated}")
     target_link_libraries(${target} PRIVATE MentorRecorderDesktopLib Qt6::Gui Qt6::Test ${ARG_LIBRARIES})
+    if(TARGET mr_stage_qtgraphs)
+        add_dependencies(${target} mr_stage_qtgraphs)
+    endif()
     target_compile_definitions(${target} PRIVATE
         MR_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
         MR_DESKTOP_QML_DIR="${PROJECT_SOURCE_DIR}/src/Desktop/qml"
@@ -145,14 +152,14 @@ endforeach()
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopWorkflowTests
     SUITES Desktop WorkflowController AutomaticRecording RecordingWarning ExportFailure ExportOrdering Recovery RunFormValidator
-           RunListModel GameSelection DailyBackupScheduler HistoryImageCleanupController
+           RunListModel HistoryFilterFacets GameSelection DailyBackupScheduler HistoryImageCleanupController
     LIBRARIES Qt6::Widgets)
 mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests Desktop NAME MentorRecorderDesktopTests)
 foreach(suite IN ITEMS AutomaticRecording GameSelection)
     mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests ${suite} NO_LOG)
 endforeach()
 mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests RecordingWarning)
-foreach(suite IN ITEMS WorkflowController ExportFailure ExportOrdering Recovery RunFormValidator RunListModel
+foreach(suite IN ITEMS WorkflowController ExportFailure ExportOrdering Recovery RunFormValidator RunListModel HistoryFilterFacets
                        DailyBackupScheduler HistoryImageCleanupController)
     mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests ${suite})
 endforeach()
@@ -165,7 +172,7 @@ endforeach()
 # QmlRuntime is registered with its own environment below, after the common one is applied.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopShellTests
-    SUITES ShellDialog UiWorkflowRegression Motion RecoveryUi HistoryBatch HistoryColumns RunDetailPanel
+    SUITES ShellDialog UiWorkflowRegression Motion DialogMotion RecoveryUi HistoryBatch HistoryColumns RunDetailPanel
            EditRunDialogBinding ManualRunReflection RecordWorkspace RecordingWarningWindow NoteImageStore QmlRuntime QmlWarningCounter
     LIBRARIES ${MR_QUICK_TEST_LIBRARIES} Qt6::Widgets)
 # The manual-record editor stays alive while the real interface language changes.
@@ -181,7 +188,7 @@ qt_add_resources(MentorRecorderDesktopShellTests shell_test_i18n
     PREFIX "/i18n"
     BASE "${CMAKE_CURRENT_BINARY_DIR}/shell-i18n"
     FILES ${MR_SHELL_TEST_QM})
-foreach(suite IN ITEMS ShellDialog UiWorkflowRegression Motion RecoveryUi HistoryColumns RunDetailPanel
+foreach(suite IN ITEMS ShellDialog UiWorkflowRegression Motion DialogMotion RecoveryUi HistoryColumns RunDetailPanel
                        EditRunDialogBinding ManualRunReflection RecordWorkspace RecordingWarningWindow NoteImageStore QmlWarningCounter)
     mr_desktop_suite_test(MentorRecorderDesktopShellTests ${suite})
 endforeach()
@@ -285,10 +292,10 @@ endif()
 # a field's example, the combo box popup, the toggle switch.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopComponentsTests
-    SUITES Icon DateField TimeField PageNumberInput StyledTextField StyledComboBox ToggleSwitch
+    SUITES Icon DateField TimeField PageNumberInput StyledTextField StyledComboBox ToggleSwitch ControlMotion
     LIBRARIES ${MR_QUICK_TEST_LIBRARIES})
 mr_desktop_suite_test(MentorRecorderDesktopComponentsTests Icon NAME MentorRecorderIcons)
-foreach(suite IN ITEMS DateField TimeField PageNumberInput StyledTextField StyledComboBox)
+foreach(suite IN ITEMS DateField TimeField PageNumberInput StyledTextField StyledComboBox ControlMotion)
     mr_desktop_suite_test(MentorRecorderDesktopComponentsTests ${suite})
 endforeach()
 mr_desktop_suite_test(MentorRecorderDesktopComponentsTests ToggleSwitch NO_LOG)
@@ -1105,17 +1112,21 @@ set_property(TEST ${MR_ALL_DESKTOP_TESTS} APPEND PROPERTY ENVIRONMENT
 
 set_tests_properties(${MR_QML_TESTS} ${MR_VALIDATION_QML_TESTS} ${MR_RECORDING_QML_TESTS} PROPERTIES TIMEOUT 30)
 
-# A QML or JavaScript runtime diagnostic names the QML file it comes from
-# (qrc:/qt/qml/MentorRecorder/... or file:///...). The screenshot harness prints
-# it to stderr ("[warning] <url>:<line>: TypeError: ...", main.cpp's message
-# handler) and carries on to the frame, so a binding that throws, a failed
-# property assignment or an unresolved name would otherwise still pass (review
-# OJ-7). The harness counts them itself and exits 10 (QmlWarningCounter, review
-# DT4-X5); this pattern stays as a second net, and it also sees a warning logged
-# while the window is torn down. The harness's two environment notices (no font
-# directory, no Direct3D 12) name no QML file and are not matched. No "\\[" in front: CTest's regex
-# engine then fails to match the group that follows it.
-set(MR_QML_WARNING_REGEX "(warning|critical|fatal)\\] (qrc|file):")
+# The offscreen plugin otherwise probes the SDK's nonexistent lib/fonts.
+# Screenshot and CLI fixtures use the same bundled files as the application.
+if(WIN32)
+    set(MR_SCREENSHOT_FONT_TESTS ${MR_ALL_DESKTOP_TESTS})
+    list(FILTER MR_SCREENSHOT_FONT_TESTS INCLUDE
+        REGEX "^MentorRecorder(Qml|DesktopRejects|DesktopSpeechSelfTest)")
+    set_property(TEST ${MR_SCREENSHOT_FONT_TESTS}
+        APPEND PROPERTY ENVIRONMENT
+        "QT_QPA_FONTDIR=${PROJECT_SOURCE_DIR}/src/Desktop/resources/fonts")
+endif()
+
+# Screenshot runs must be free of Qt/QML warnings, including platform notices
+# and teardown diagnostics. The application's QML counter remains a second net.
+# No "\\[" in front: CTest's regex engine then misparses the following group.
+set(MR_QML_WARNING_REGEX "(warning|critical|fatal)\\]")
 set_tests_properties(${MR_QML_TESTS} ${MR_VALIDATION_QML_TESTS} ${MR_RECORDING_QML_TESTS}
     PROPERTIES FAIL_REGULAR_EXPRESSION "${MR_QML_WARNING_REGEX}")
 
@@ -1151,12 +1162,14 @@ endif()
 add_library(MentorRecorderQmlRuntimeTestSupport OBJECT
     "${PROJECT_SOURCE_DIR}/src/Desktop/cpp/QmlRuntime.h"
     "${PROJECT_SOURCE_DIR}/src/Desktop/cpp/QmlRuntime.cpp"
+    "${PROJECT_SOURCE_DIR}/src/Desktop/cpp/PopupMotion.h"
+    "${PROJECT_SOURCE_DIR}/src/Desktop/cpp/PopupMotion.cpp"
     support/QmlRuntimeTestRegistration.cpp)
 target_include_directories(MentorRecorderQmlRuntimeTestSupport PRIVATE
     "${PROJECT_SOURCE_DIR}/src/Desktop/cpp")
 target_compile_definitions(MentorRecorderQmlRuntimeTestSupport PRIVATE
     MR_DESKTOP_QML_DIR="${PROJECT_SOURCE_DIR}/src/Desktop/qml")
-target_link_libraries(MentorRecorderQmlRuntimeTestSupport PUBLIC Qt6::Qml)
+target_link_libraries(MentorRecorderQmlRuntimeTestSupport PUBLIC Qt6::Qml Qt6::QuickTemplates2Private Qt6::QuickPrivate)
 set_target_properties(MentorRecorderQmlRuntimeTestSupport PROPERTIES AUTOMOC TRUE)
 mr_use_ascii_autogen_dir(MentorRecorderQmlRuntimeTestSupport)
 

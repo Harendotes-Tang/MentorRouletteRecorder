@@ -228,6 +228,7 @@ private Q_SLOTS:
     void reducedMotionTrendSwitchIsInstant();
     void trendHoverMatchesRenderedBars();
     void renderingResumesAfterRepeatedHideAndShow();
+    void hiddenPageStopsItsEntrance();
     void classicPanelsPopWhenTheirPageOpens();
     void eorzeaPanelsKeepTheirOwnEntrance();
 
@@ -668,6 +669,42 @@ void MotionTests::reducedMotionTrendSwitchIsInstant()
         return;
 }
 
+void MotionTests::hiddenPageStopsItsEntrance()
+{
+    Scene scene;
+    QVERIFY2(scene.create(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    width: 400; height: 300; visible: true
+    PageHost { objectName: "host"; index: 1; anchors.fill: parent
+        Card { objectName: "panel"; width: 100; height: 40 }
+    }
+})", false, QStringLiteral("classic")), qPrintable(scene.errors));
+    QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
+    scene.controller.navigate(1);
+    auto *panel = scene.item(QStringLiteral("panel"));
+    QVERIFY(panel);
+    QCOMPARE(panel->opacity(), 0.0);
+    scene.controller.navigate(0);
+    QCOMPARE(panel->opacity(), 1.0);
+    auto *entrance = panel->property("popIn").value<QObject *>();
+    QVERIFY(entrance);
+    QTRY_VERIFY_WITH_TIMEOUT(!entrance->property("running").toBool(), 50);
+    scene.window()->hide();
+    scene.controller.navigate(1);
+    auto *host = scene.item(QStringLiteral("host"));
+    QVERIFY(host && !host->childItems().isEmpty());
+    QCOMPARE(host->childItems().first()->opacity(), 1.0);
+    QVERIFY(!entrance->property("running").toBool());
+    scene.controller.navigate(0);
+    scene.window()->show();
+    scene.controller.navigate(1);
+    QVERIFY(entrance->property("running").toBool());
+    scene.engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+    QTRY_COMPARE_WITH_TIMEOUT(panel->opacity(), 1.0, 50);
+    QTRY_VERIFY_WITH_TIMEOUT(!entrance->property("running").toBool(), 50);
+}
 void MotionTests::classicPanelsPopWhenTheirPageOpens()
 {
     const QByteArray qml = R"(import QtQuick

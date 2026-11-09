@@ -44,6 +44,8 @@ LGPL-3.0 全文随包提供于 `docs/licenses/LGPL-3.0.txt`。发行包中的 `l
 `libstdc++-6.dll`、`libwinpthread-1.dll` 为 MinGW-w64 / GCC 运行时库，按 GPL-3.0 附
 GCC Runtime Library Exception 3.1 分发（`docs/licenses/GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt`）。
 
+QtGraphs 6.11.2 使用本项目专用的两行修补版：Windows 纹理尺寸探测改用 D3D11，不屏蔽日志，也不关闭 2D/3D 功能。对应原始源码包、补丁、固定哈希、GPL-3.0-only 正文和重建说明均随包提供于 `docs/licenses/qtgraphs/`；实际 DLL 与 SDK 指纹记录于其中的 `runtime.json`。
+
 ---
 
 ## 其他组件

@@ -64,8 +64,8 @@ QtObject {
     readonly property int motionControl: motion ? 200 : 0
     readonly property int motionEnter: motion ? 200 : 0
     // wbSlide: the classic page slide.
-    readonly property int motionPage: motion ? 300 : 0
-    // Entrance steps: rows 22 ms apart (12 steps), panels 30 ms apart (5 steps).
+    readonly property int motionPage: motion ? 220 : 0
+    // Entrance steps; Entrance caps the accumulated delay at 50 ms.
     readonly property int motionRowStagger: motion ? 22 : 0
     readonly property int motionPanelStagger: motion ? 30 : 0
     // 完成趋势: height change, merge (日 -> 周 / 月), the regrow after a merge

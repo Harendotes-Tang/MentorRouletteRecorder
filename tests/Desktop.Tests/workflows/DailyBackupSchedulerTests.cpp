@@ -14,7 +14,7 @@ class DailyBackupSchedulerTests final : public QObject
 private Q_SLOTS:
     void inactiveObservationDoesNotEnableBackgroundWrites()
     {
-        mr::DailyBackupScheduler scheduler([] { return mr::DailyBackupScheduler::Context{true, {}, true, true, false}; });
+        mr::DailyBackupScheduler scheduler([] { return mr::DailyBackupScheduler::Context{.enabled = true, .connected = true, .runKnown = true}; });
         QSignalSpy requests(&scheduler, &mr::DailyBackupScheduler::backupRequested);
         scheduler.checkIfActive();
         QVERIFY(!scheduler.active());
@@ -23,7 +23,7 @@ private Q_SLOTS:
 
     void waitsForConnectionAndKnownRunWithoutBurningAttempt()
     {
-        mr::DailyBackupScheduler::Context state{true, {}, false, false, false};
+        mr::DailyBackupScheduler::Context state{.enabled = true};
         mr::DailyBackupScheduler scheduler([&state] { return state; });
         QSignalSpy requests(&scheduler, &mr::DailyBackupScheduler::backupRequested);
         scheduler.runIfDue();
@@ -41,7 +41,7 @@ private Q_SLOTS:
     void failedAttemptRetriesNextDayAndSuccessStampsCurrentDay()
     {
         QDate day(2026, 11, 9);
-        mr::DailyBackupScheduler scheduler([] { return mr::DailyBackupScheduler::Context{true, {}, true, true, false}; });
+        mr::DailyBackupScheduler scheduler([] { return mr::DailyBackupScheduler::Context{.enabled = true, .connected = true, .runKnown = true}; });
         scheduler.setTodayForTest([&day] { return day; });
         QSignalSpy requests(&scheduler, &mr::DailyBackupScheduler::backupRequested);
         QSignalSpy recorded(&scheduler, &mr::DailyBackupScheduler::backupRecorded);
@@ -59,7 +59,7 @@ private Q_SLOTS:
 
     void persistedSuccessAndDisabledSettingPreventAttempt()
     {
-        mr::DailyBackupScheduler::Context state{false, {}, true, true, false};
+        mr::DailyBackupScheduler::Context state{.connected = true, .runKnown = true};
         mr::DailyBackupScheduler scheduler([&state] { return state; });
         scheduler.setTodayForTest([] { return QDate(2026, 11, 9); });
         QSignalSpy requests(&scheduler, &mr::DailyBackupScheduler::backupRequested);
@@ -75,7 +75,7 @@ private Q_SLOTS:
 
     void nextDutyRestartsPostDutyDeferral()
     {
-        mr::DailyBackupScheduler::Context state{true, {}, true, true, true};
+        mr::DailyBackupScheduler::Context state{.enabled = true, .connected = true, .runKnown = true, .dutyInProgress = true};
         mr::DailyBackupScheduler scheduler([&state] { return state; });
         scheduler.setAfterDutyIntervalForTest(120);
         QSignalSpy requests(&scheduler, &mr::DailyBackupScheduler::backupRequested);
@@ -97,7 +97,7 @@ private Q_SLOTS:
 
     void destructionCancelsDeferredChecks()
     {
-        mr::DailyBackupScheduler::Context state{true, {}, true, true, true};
+        mr::DailyBackupScheduler::Context state{.enabled = true, .connected = true, .runKnown = true, .dutyInProgress = true};
         int requests = 0;
         auto scheduler = std::make_unique<mr::DailyBackupScheduler>([&state] { return state; });
         connect(scheduler.get(), &mr::DailyBackupScheduler::backupRequested, this, [&requests] { ++requests; });

@@ -48,7 +48,7 @@ ApplicationWindow {
         if (Runtime.app.maintainerToolsVisible || !window.visible || !window.active
             || window.visibility === Window.Minimized) return
         if (recordingWarningPending && Runtime.app.recording.pendingAlert
-            && Runtime.app.recording.blocked && !recordingAlert.opened)
+            && Runtime.app.recording.blocked && (!recordingAlert.visible || recordingAlert.exiting))
             recordingAlert.open()
     }
     onVisibilityChanged: Qt.callLater(window.presentRecordingAlert)
@@ -58,7 +58,7 @@ ApplicationWindow {
         recording: Runtime.app.recording
         anchorWindow: window
         foregroundDialogVisible: window.active && window.visible
-                                 && window.visibility !== Window.Minimized && recordingAlert.opened
+                                 && window.visibility !== Window.Minimized && recordingAlert.visible
         onDiagnosisRequested: {
             window.acknowledgeRecordingWarning()
             recordingAlert.close()
@@ -66,7 +66,7 @@ ApplicationWindow {
             if (window.visibility === Window.Minimized) window.showNormal()
             else window.show()
             // Only the player's explicit action may bring the main window forward.
-            window.raise()
+            if (Qt.platform.pluginName !== "offscreen") window.raise()
             window.requestActivate()
         }
     }
@@ -84,7 +84,7 @@ ApplicationWindow {
             Qt.callLater(window.presentRecordingAlert)
         }
     }
-    Dialog {
+    MotionDialog {
         id: recordingAlert
         objectName: "automaticRecordingAlert"
         anchors.centerIn: parent
@@ -307,7 +307,8 @@ ApplicationWindow {
             window.show()
         else if (window.visibility === Window.Minimized)
             window.showNormal()
-        window.raise()
+        // Offscreen has no stacking operation, but it still supports focus activation.
+        if (Qt.platform.pluginName !== "offscreen") window.raise()
         window.requestActivate()
     }
 
@@ -323,7 +324,7 @@ ApplicationWindow {
             window.bringToFront()
         } else if (host) {
             host.show()
-            host.raise()
+            if (Qt.platform.pluginName !== "offscreen") host.raise()
             host.requestActivate()
         }
     }
@@ -1123,6 +1124,10 @@ ApplicationWindow {
                             }
                             onOpenManualRequested: window.openCreateDialog()
                             onOpenImportRequested: window.openImportDialog()
+                            onHelpAdaptationRequested: {
+                                Runtime.app.navigate(4)
+                                capturePage.observationGuideExpanded = true
+                            }
                             onOpenCorrectRequested: window.openCorrectDialog()
                             onOpenDeleteRequested: window.openReasonDialog("delete")
                             onOpenRestoreRequested: window.openReasonDialog("restore")
@@ -1428,7 +1433,7 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    MotionDialog {
         id: reasonDialog
         objectName: "reasonDialog"
         modal: true

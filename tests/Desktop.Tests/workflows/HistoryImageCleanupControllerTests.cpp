@@ -15,8 +15,14 @@
 #include <memory>
 
 namespace {
-const QString firstRun = QStringLiteral("00000000-0000-0000-0000-000000000001");
-const QString secondRun = QStringLiteral("00000000-0000-0000-0000-000000000002");
+QString firstRun()
+{
+    return QStringLiteral("00000000-0000-0000-0000-000000000001");
+}
+QString secondRun()
+{
+    return QStringLiteral("00000000-0000-0000-0000-000000000002");
+}
 
 class CleanupBackend final : public mr::IBackend
 {
@@ -69,24 +75,24 @@ private Q_SLOTS:
     {
         QTemporaryDir root;
         mr::NoteImageStore store(root.path());
-        QVERIFY(QDir().mkpath(store.runDirectory(firstRun)));
-        QVERIFY(QDir().mkpath(store.runDirectory(secondRun) + QStringLiteral("/nested")));
-        QFile image(store.runDirectory(firstRun) + QStringLiteral("/note.png"));
+        QVERIFY(QDir().mkpath(store.runDirectory(firstRun())));
+        QVERIFY(QDir().mkpath(store.runDirectory(secondRun()) + QStringLiteral("/nested")));
+        QFile image(store.runDirectory(firstRun()) + QStringLiteral("/note.png"));
         QVERIFY(image.open(QIODevice::WriteOnly));
         image.write("fixture");
         image.close();
         CleanupBackend backend;
         mr::HistoryImageCleanupController controller(&backend);
         controller.setStore(&store);
-        backend.pendingRead->succeed({{QStringLiteral("run_ids"), QJsonArray{firstRun, secondRun}}});
+        backend.pendingRead->succeed({{QStringLiteral("run_ids"), QJsonArray{firstRun(), secondRun()}}});
         QTRY_COMPARE(backend.acknowledgements.size(), 1);
-        QCOMPARE(backend.acknowledgements.first(), QStringList{firstRun});
+        QCOMPARE(backend.acknowledgements.first(), QStringList{firstRun()});
         QVERIFY(!QFile::exists(image.fileName()));
         backend.pendingAck->fail(QStringLiteral("ERR_PIPE_CLOSED"), QStringLiteral("closed"));
         QVERIFY(!controller.running());
         QVERIFY(controller.feedback().contains(QStringLiteral("清理结果还没保存")));
         controller.retry();
-        backend.pendingRead->succeed({{QStringLiteral("run_ids"), QJsonArray{firstRun}}});
+        backend.pendingRead->succeed({{QStringLiteral("run_ids"), QJsonArray{firstRun()}}});
         QTRY_COMPARE(backend.acknowledgements.size(), 2);
         backend.pendingAck->succeed({});
         QVERIFY(!controller.running());
@@ -97,14 +103,14 @@ private Q_SLOTS:
     {
         QTemporaryDir root;
         mr::NoteImageStore store(root.path());
-        QVERIFY(QDir().mkpath(store.runDirectory(firstRun)));
+        QVERIFY(QDir().mkpath(store.runDirectory(firstRun())));
         CleanupBackend backend;
         auto controller = std::make_unique<mr::HistoryImageCleanupController>(&backend);
         controller->setStore(&store);
         controller.reset();
-        backend.pendingRead->succeed({{QStringLiteral("run_ids"), QJsonArray{firstRun}}});
+        backend.pendingRead->succeed({{QStringLiteral("run_ids"), QJsonArray{firstRun()}}});
         QCoreApplication::processEvents();
-        QVERIFY(QDir(store.runDirectory(firstRun)).exists());
+        QVERIFY(QDir(store.runDirectory(firstRun())).exists());
         QVERIFY(backend.acknowledgements.isEmpty());
     }
 
@@ -116,7 +122,7 @@ private Q_SLOTS:
         mr::HistoryImageCleanupController controller(&backend);
         controller.setStore(store.get());
         store.reset();
-        backend.pendingRead->succeed({{QStringLiteral("run_ids"), QJsonArray{firstRun}}});
+        backend.pendingRead->succeed({{QStringLiteral("run_ids"), QJsonArray{firstRun()}}});
         QVERIFY(!controller.running());
         QVERIFY(backend.acknowledgements.isEmpty());
         QVERIFY(controller.feedback().contains(QStringLiteral("图片服务已关闭")));
@@ -129,7 +135,7 @@ private Q_SLOTS:
         auto backend = std::make_unique<CleanupBackend>();
         mr::HistoryImageCleanupController controller(backend.get());
         controller.setStore(&store);
-        backend->pendingRead->succeed({{QStringLiteral("run_ids"), QJsonArray{firstRun}}});
+        backend->pendingRead->succeed({{QStringLiteral("run_ids"), QJsonArray{firstRun()}}});
         QVERIFY(controller.running());
         backend.reset();
         QTRY_VERIFY(!controller.running());

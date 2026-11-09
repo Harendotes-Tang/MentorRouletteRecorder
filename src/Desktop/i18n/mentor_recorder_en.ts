@@ -7050,6 +7050,18 @@ SHA256: %3</translation>
         <source>确认删除</source>
         <translation>Delete</translation>
     </message>
+    <message>
+        <source>搜索副本、职业、备注</source>
+        <translation>Search duties, jobs, notes</translation>
+    </message>
+    <message>
+        <source>标记 · %1</source>
+        <translation>Flags · %1</translation>
+    </message>
+    <message>
+        <source>清除筛选</source>
+        <translation>Clear filters</translation>
+    </message>
 </context>
 <context>
     <name>HistoryTableHeader</name>
@@ -14204,6 +14216,123 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>返回</source>
         <translation>Back</translation>
+    </message>
+</context>
+<context>
+    <name>HistoryDateFilter</name>
+    <message>
+        <source>全部时间</source>
+        <translation>All time</translation>
+    </message>
+    <message>
+        <source>今天</source>
+        <translation>Today</translation>
+    </message>
+    <message>
+        <source>近 7 天</source>
+        <translation>Last 7 days</translation>
+    </message>
+    <message>
+        <source>近 30 天</source>
+        <translation>Last 30 days</translation>
+    </message>
+    <message>
+        <source>本月</source>
+        <translation>This month</translation>
+    </message>
+    <message>
+        <source>自定义</source>
+        <translation>Custom</translation>
+    </message>
+    <message>
+        <source>日期有误</source>
+        <translation>Invalid dates</translation>
+    </message>
+    <message>
+        <source>历史日期范围</source>
+        <translation>History date range</translation>
+    </message>
+    <message>
+        <source>日期尚未应用，请检查格式与起止顺序</source>
+        <translation>Dates have not been applied. Check the format and start/end order.</translation>
+    </message>
+    <message>
+        <source>日期</source>
+        <translation>Date</translation>
+    </message>
+    <message>
+        <source>按匹配时间</source>
+        <translation>By match time</translation>
+    </message>
+    <message>
+        <source>开始日期</source>
+        <translation>Start date</translation>
+    </message>
+    <message>
+        <source>结束日期</source>
+        <translation>End date</translation>
+    </message>
+    <message>
+        <source>开始日期不能晚于结束日期</source>
+        <translation>Start date must not be after end date.</translation>
+    </message>
+    <message>
+        <source>请输入完整日期：年-月-日</source>
+        <translation>Enter a full date: YYYY-MM-DD</translation>
+    </message>
+    <message>
+        <source>重试</source>
+        <translation>Retry</translation>
+    </message>
+</context>
+<context>
+    <name>HistoryRegionFilter</name>
+    <message>
+        <source>全部区服</source>
+        <translation>All regions</translation>
+    </message>
+    <message>
+        <source>国服 CN</source>
+        <translation>China (CN)</translation>
+    </message>
+    <message>
+        <source>繁中服 TC</source>
+        <translation>Traditional Chinese (TC)</translation>
+    </message>
+    <message>
+        <source>国际服 GLOBAL</source>
+        <translation>Global (GLOBAL)</translation>
+    </message>
+    <message>
+        <source>记录区服</source>
+        <translation>Record region</translation>
+    </message>
+    <message>
+        <source>区服</source>
+        <translation>Server region</translation>
+    </message>
+    <message>
+        <source>未适配区服可协助采证</source>
+        <translation>Help support other regions</translation>
+    </message>
+    <message>
+        <source>帮助适配</source>
+        <translation>Help adapt</translation>
+    </message>
+    <message>
+        <source>重试</source>
+        <translation>Retry</translation>
+    </message>
+</context>
+<context>
+    <name>mr::HistoryFilterFacets</name>
+    <message>
+        <source>服务未连接，无法读取筛选数量。</source>
+        <translation>The service is disconnected. Filter counts are unavailable.</translation>
+    </message>
+    <message>
+        <source>读取筛选数量失败，请重试。</source>
+        <translation>Could not load filter counts. Please retry.</translation>
     </message>
 </context>
 </TS>

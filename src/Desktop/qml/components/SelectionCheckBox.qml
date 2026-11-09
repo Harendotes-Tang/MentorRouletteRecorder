@@ -5,6 +5,7 @@ import MentorRecorder 1.0
 // Selection controls share the import workflow's theme-aware local Lucide tick.
 CheckBox {
     id: control
+    readonly property real pixelRatio: Screen.devicePixelRatio > 0 ? Screen.devicePixelRatio : 1
     font.pixelSize: Theme.fs(12)
     indicator: Rectangle {
         implicitWidth: 22
@@ -22,6 +23,11 @@ CheckBox {
             width: 18
             height: 14
             visible: control.checked
+            // SVGs without an explicit size default to the 8 x 6 viewBox.
+            // Rasterize at the physical display size instead of enlarging that tiny image.
+            sourceSize: Qt.size(Math.ceil(width * control.pixelRatio),
+                                Math.ceil(height * control.pixelRatio))
+            fillMode: Image.PreserveAspectFit
             // Cropped check path from the existing ISC-licensed clipboard-check.svg.
             source: "data:image/svg+xml;utf8," + encodeURIComponent(
                 '<svg xmlns="http://www.w3.org/2000/svg" viewBox="8 11 8 6" fill="none" stroke="'

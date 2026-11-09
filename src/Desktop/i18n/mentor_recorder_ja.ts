@@ -7050,6 +7050,18 @@ SHA256：%3</translation>
         <source>确认删除</source>
         <translation>削除する</translation>
     </message>
+    <message>
+        <source>搜索副本、职业、备注</source>
+        <translation>コンテンツ・ジョブ・メモを検索</translation>
+    </message>
+    <message>
+        <source>标记 · %1</source>
+        <translation>マーク · %1</translation>
+    </message>
+    <message>
+        <source>清除筛选</source>
+        <translation>絞り込みを解除</translation>
+    </message>
 </context>
 <context>
     <name>HistoryTableHeader</name>
@@ -14204,6 +14216,123 @@ SHA256：%3</translation>
     <message>
         <source>返回</source>
         <translation>戻る</translation>
+    </message>
+</context>
+<context>
+    <name>HistoryDateFilter</name>
+    <message>
+        <source>全部时间</source>
+        <translation>全期間</translation>
+    </message>
+    <message>
+        <source>今天</source>
+        <translation>今日</translation>
+    </message>
+    <message>
+        <source>近 7 天</source>
+        <translation>過去7日間</translation>
+    </message>
+    <message>
+        <source>近 30 天</source>
+        <translation>過去30日間</translation>
+    </message>
+    <message>
+        <source>本月</source>
+        <translation>今月</translation>
+    </message>
+    <message>
+        <source>自定义</source>
+        <translation>指定期間</translation>
+    </message>
+    <message>
+        <source>日期有误</source>
+        <translation>日付エラー</translation>
+    </message>
+    <message>
+        <source>历史日期范围</source>
+        <translation>履歴の期間</translation>
+    </message>
+    <message>
+        <source>日期尚未应用，请检查格式与起止顺序</source>
+        <translation>日付は適用されていません。書式と開始日・終了日の順序を確認してください。</translation>
+    </message>
+    <message>
+        <source>日期</source>
+        <translation>日付</translation>
+    </message>
+    <message>
+        <source>按匹配时间</source>
+        <translation>マッチング時刻で絞り込み</translation>
+    </message>
+    <message>
+        <source>开始日期</source>
+        <translation>開始日</translation>
+    </message>
+    <message>
+        <source>结束日期</source>
+        <translation>終了日</translation>
+    </message>
+    <message>
+        <source>开始日期不能晚于结束日期</source>
+        <translation>開始日は終了日以前にしてください。</translation>
+    </message>
+    <message>
+        <source>请输入完整日期：年-月-日</source>
+        <translation>日付を年-月-日で入力してください</translation>
+    </message>
+    <message>
+        <source>重试</source>
+        <translation>再試行</translation>
+    </message>
+</context>
+<context>
+    <name>HistoryRegionFilter</name>
+    <message>
+        <source>全部区服</source>
+        <translation>すべてのサービス地域</translation>
+    </message>
+    <message>
+        <source>国服 CN</source>
+        <translation>中国版 CN</translation>
+    </message>
+    <message>
+        <source>繁中服 TC</source>
+        <translation>繁体字中国語版 TC</translation>
+    </message>
+    <message>
+        <source>国际服 GLOBAL</source>
+        <translation>グローバル版 GLOBAL</translation>
+    </message>
+    <message>
+        <source>记录区服</source>
+        <translation>記録のサービス地域</translation>
+    </message>
+    <message>
+        <source>区服</source>
+        <translation>リージョン</translation>
+    </message>
+    <message>
+        <source>未适配区服可协助采证</source>
+        <translation>未対応地域の証跡収集に協力</translation>
+    </message>
+    <message>
+        <source>帮助适配</source>
+        <translation>対応に協力</translation>
+    </message>
+    <message>
+        <source>重试</source>
+        <translation>再試行</translation>
+    </message>
+</context>
+<context>
+    <name>mr::HistoryFilterFacets</name>
+    <message>
+        <source>服务未连接，无法读取筛选数量。</source>
+        <translation>サービスに接続されていないため、絞り込み件数を取得できません。</translation>
+    </message>
+    <message>
+        <source>读取筛选数量失败，请重试。</source>
+        <translation>絞り込み件数を取得できませんでした。再試行してください。</translation>
     </message>
 </context>
 </TS>

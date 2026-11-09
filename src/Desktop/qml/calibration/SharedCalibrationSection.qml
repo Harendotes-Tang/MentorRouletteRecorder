@@ -257,7 +257,7 @@ Card {
         anchors.centerIn: parent
     }
 
-    Dialog {
+    MotionDialog {
         id: rejectDialog
         objectName: "sharedRejectDialog"
         parent: Overlay.overlay

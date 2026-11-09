@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "cache_id": "qtgraphs-6_11_2-d3d11-r1",
+  "qt_version": "6.11.2",
+  "source_commit": "7dfc71170d53215ac1145f94f308893441be91f8",
+  "source_url": "https://codeload.github.com/qt/qtgraphs/tar.gz/7dfc71170d53215ac1145f94f308893441be91f8",
+  "source_archive": "qtgraphs-source.tar.gz",
+  "source_sha256": "a8119f1f1426bd641021e1b9f4ac446b15b3a1262b4ed7b2ac738292064f2e30",
+  "patch_file": "qtgraphs-d3d11.patch",
+  "patch_sha256": "f3e7b1a09eb166f4d4b4e806ba3b7f21baa7ab0b362816187f5e5d2fdfbd0029",
+  "patched_file": "src/common/utils/commonutils.cpp",
+  "original_file_sha256": "646b84f1840a5fbc637897ab9dd350440d25503c62683686e97c8c880e74e806",
+  "patched_file_sha256": "11682cdceda0987dac9c2bed39633060a68b31c69c4a471aaa3b0e4ea406132f",
+  "cmake_options": [
+    "-DCMAKE_BUILD_TYPE=Release",
+    "-DQT_BUILD_TESTS=OFF",
+    "-DQT_BUILD_EXAMPLES=OFF",
+    "-DQT_BUILD_BENCHMARKS=OFF",
+    "-DQT_BUILD_DOCS=OFF",
+    "-DQT_USE_CCACHE=OFF"
+  ]
+}

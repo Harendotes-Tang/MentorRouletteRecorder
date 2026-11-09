@@ -66,6 +66,8 @@ Rectangle {
 
             delegate: Button {
                 id: option
+                readonly property bool feedbackVisible: visible && (!Window.window || Window.window.visible)
+
 
                 required property var modelData
 
@@ -84,19 +86,20 @@ Rectangle {
                 leftPadding: root.optionPadding + option.paddingDelta
                 rightPadding: root.optionPadding + option.paddingDelta
                 property real paddingDelta: option.current ? 3 : (option.resting ? -2 : 0)
-                scale: option.down ? 0.92 : 1.0
+                property real visualScale: Theme.motion && option.down ? 0.96 : 1.0
 
-                Behavior on scale { NumberAnimation { duration: Theme.motionMedium; easing.type: Easing.Bezier; easing.bezierCurve: Theme.curveStandard } }
-                Behavior on paddingDelta { NumberAnimation { duration: Theme.motionMedium; easing.type: Easing.Bezier; easing.bezierCurve: Theme.curveStandard } }
+                Behavior on visualScale { enabled: option.feedbackVisible && Theme.motion; SmoothedAnimation { id: pressMotion; velocity: -1; duration: option.feedbackVisible ? Theme.motionMedium : 0; easing.type: Easing.Bezier; easing.bezierCurve: Theme.curveStandard } }
+                Behavior on paddingDelta { enabled: option.feedbackVisible && Theme.motion; SmoothedAnimation { id: paddingMotion; velocity: -1; duration: option.feedbackVisible ? Theme.motionMedium : 0; easing.type: Easing.Bezier; easing.bezierCurve: Theme.curveStandard } }
 
                 background: Rectangle {
+                    scale: option.visualScale
                     // Classic chip plate. An unchosen option holds it at zero
                     // alpha so the transition animates alpha only (Theme.clear).
                     readonly property color plate: Theme.dark ? Theme.fillStrong : Theme.surface
 
                     radius: Theme.eorzea ? Theme.radiusS : Theme.radiusXs
                     color: option.current && !Theme.eorzea ? plate : Theme.clear(plate)
-                    Behavior on color { ColorAnimation { duration: Theme.motionMedium } }
+
                     border.width: option.current ? 1 : 0
                     border.color: Theme.eorzea ? Theme.tabActiveBorder : Theme.border
 
@@ -114,6 +117,7 @@ Rectangle {
                 }
 
                 contentItem: Text {
+                    scale: option.visualScale
                     text: option.text
                     color: {
                         if (!option.current)

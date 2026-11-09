@@ -8,7 +8,7 @@ import MentorRecorder 1.0
 // 导入校准码：连不上 GitHub 时的兜底，粘贴其他玩家提供的校准码。
 // 导入本身不联网，也不受"获取共享校准"开关影响；通过检查的码与下载所得一样，
 // 须先在本机流量中核实。采集服务给出的中文说明原样显示，不作改写。
-Dialog {
+MotionDialog {
     id: dialog
     objectName: "sharedImportDialog"
 

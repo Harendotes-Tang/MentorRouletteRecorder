@@ -83,7 +83,7 @@ void ImportPreviewClient::cancel()
     ++m_generation;
 }
 
-void ImportPreviewClient::finish(const std::shared_ptr<Operation> &operation, ImportPreviewResult result)
+void ImportPreviewClient::finish(const std::shared_ptr<Operation> &operation, ImportPreviewResult result) const
 {
     if (operation->generation != m_generation || !operation->completion)
         return;

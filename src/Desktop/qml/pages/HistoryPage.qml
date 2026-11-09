@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls 6.8
 import QtQuick.Layouts
 import MentorRecorder 1.0
+import "../components/Lucide.js" as Lucide
 
 Item {
     id: page
@@ -19,7 +20,9 @@ Item {
 
     property string detailTab: "info"
     property bool suspendFilter: false
-    readonly property bool narrowFilters: page.width < 1020
+    readonly property bool narrowFilters: page.width < 760
+    signal helpAdaptationRequested()
+    readonly property var filterFacets: Runtime.app.historyFilterFacets
     readonly property int checkedCount: Runtime.app.checkedHistoryRunCount
     function isChecked(runId) { return Runtime.app.checkedHistoryRunIds.indexOf(runId) >= 0 }
     function importIncomplete(run) {
@@ -228,7 +231,7 @@ Item {
     property real reservedBottom: 0
     readonly property int rowsThatFit: {
         // Everything above the rows is measured where the layout put it - the
-        // header, the 记录区服 row, the filter bar and whatever of it is showing -
+        // header, the primary criteria, the filter bar and whatever is showing -
         // rather than summed from a list that misses the next row added to it
         // (review K3-1). Below the table header: the spacing before and after the
         // rows, and the pagination row.
@@ -267,14 +270,8 @@ Item {
     // removable chip only while it is on.
     property bool pendingReviewFilter: false
 
-    property bool calendarReady: false
     function scheduleFilter() {
         if (page.suspendFilter) return
-        if (calendarReady) {
-            Runtime.app.runs.setCalendarFilter(page.buildFilter(true))
-            Runtime.app.runs.ensureCalendarDay(fromField.text.trim())
-            Runtime.app.runs.ensureCalendarDay(toField.text.trim())
-        }
         filterDebounce.restart()
     }
 
@@ -293,7 +290,7 @@ Item {
     }
 
     function buildFilter(withoutDates) {
-        const filter = { date_field: "history_date" }
+        const filter = { date_field: "matched_at_utc" }
         if (regionBox.selection.length > 0) filter.region = regionBox.selection
         // Keep the original words for notes; translated names add the runs
         // they name within the same query, so totals, paging and the calendar agree.
@@ -317,8 +314,6 @@ Item {
             filter.from_utc = from
         if (!withoutDates && to)
             filter.to_utc = to
-        if (!withoutDates && from) filter.history_from_day = fromField.text.trim()
-        if (!withoutDates && to) filter.history_to_day = toField.text.trim()
         if (page.contentFilter !== null && page.contentFilter !== undefined)
             filter.content_id = [page.contentFilter]
         if (categoryBox.currentIndex > 0)
@@ -362,6 +357,7 @@ Item {
         searchField.text = ""
         fromField.text = ""
         toField.text = ""
+        dateRange.syncPreset()
         page.contentFilter = null
         page.retainedJobFilter = null
         regionBox.selection = ""
@@ -415,6 +411,7 @@ Item {
         regionBox.selection = filter.region || ""
         fromField.text = filter.from_utc ? Runtime.fmt.localDate(filter.from_utc) : ""
         toField.text = filter.to_utc ? Runtime.fmt.localDate(filter.to_utc) : ""
+        dateRange.syncPreset()
         categoryBox.currentIndex = filterIndex(categoryBox.model, "value", filter.duty_category)
         jobBox.currentIndex = filterIndex(jobBox.model, "job_id", filter.job_id)
         page.retainedJobFilter = jobBox.currentIndex === 0 ? firstFilterValue(filter.job_id) : null
@@ -427,11 +424,6 @@ Item {
         joinedInProgressOnly.checked = filter.joined_in_progress === true
         page.contentFilter = firstFilterValue(filter.content_id)
         page.suspendFilter = false
-        if (page.calendarReady) {
-            Runtime.app.runs.setCalendarFilter(page.buildFilter(true))
-            Runtime.app.runs.ensureCalendarDay(fromField.text.trim())
-            Runtime.app.runs.ensureCalendarDay(toField.text.trim())
-        }
     }
 
     // The rows replay their entrance when the page becomes current
@@ -456,8 +448,6 @@ Item {
     Component.onCompleted: {
         page.pageHost = page.findPageHost()
         page.syncFilter()
-        page.calendarReady = true
-        Runtime.app.runs.setCalendarFilter(page.buildFilter(true))
         if (Runtime.app.historyFilterConfirmationPending) filterConfirmation.open()
     }
 
@@ -477,14 +467,10 @@ Item {
         }
     }
 
-    Connections {
-        target: Runtime.app.runs
-        function onCalendarChanged() {
-            if (!page.calendarReady) return
-            Runtime.app.runs.ensureCalendarDay(fromField.text.trim())
-            Runtime.app.runs.ensureCalendarDay(toField.text.trim())
-            filterDebounce.restart()
-        }
+    Binding {
+        target: page.filterFacets
+        property: "active"
+        value: page.visible && dateRange.windowActive && (dateRange.menu.visible || regionBox.menu.visible)
     }
 
     Flickable {
@@ -525,85 +511,53 @@ Item {
                 }
             }
 
+            // Primary criteria stay together; secondary filters form a separate row.
             RowLayout {
                 Layout.fillWidth: true
-                FieldLabel { text: qsTr("记录区服") }
-                RecordRegionSelector {
-                    id: regionBox
-                    objectName: "historyRegionFilter"
-                    Layout.preferredWidth: 180
-                    enabled: !Runtime.app.historyBatchRunning
-                    onRegionPicked: function(region) { selection = region; page.scheduleFilter() }
-                }
-                Item { Layout.fillWidth: true }
-            }
-
-            // -------------------------------------------------- 筛选栏 --
-            // One compact row, as in the prototype: search, date range, four
-            // narrow combo boxes, mark flags, page selection and 清除. A Flow rather than
-            // a RowLayout so that on a narrow window the trailing controls wrap
-            // to a second line instead of being clipped off the right edge.
-            Flow {
-                id: filterRow
-                Layout.fillWidth: true
-                spacing: 6
+                spacing: 8
                 enabled: !Runtime.app.historyBatchRunning
-
-                readonly property int controlHeight: Theme.eorzea ? 32 : 30
-                // Width of everything after the search field, gaps included.
-                readonly property real restWidth: {
-                    let total = 0
-                    for (let index = 1; index < children.length; ++index) {
-                        const child = children[index]
-                        if (!child.visible)
-                            continue
-                        total += child.width + spacing
-                    }
-                    return total
-                }
-                readonly property bool singleLine: restWidth + 120 <= width
-                // Narrow fallback: search + the date range share the first line,
-                // the combo boxes, chips and 清除 wrap to the second.
-                readonly property real dateWidth: dateRange.width + spacing
-
                 StyledTextField {
                     id: searchField
                     objectName: "historySearchField"
-                    // -1 keeps a sub-pixel rounding from pushing the last
-                    // control of a line onto the next one.
-                    width: filterRow.singleLine ? filterRow.width - filterRow.restWidth - 1
-                                                : filterRow.width - filterRow.dateWidth - 1
-                    placeholderText: qsTr("搜索 副本 / 职业 / 备注")
-                    // RunFilter.text maxLength: a longer search is refused outright.
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 140
+                    implicitHeight: 32
+                    leftPadding: 32
+                    placeholderText: qsTr("搜索副本、职业、备注")
                     maximumLength: 200
                     onTextChanged: page.scheduleFilter()
+                    Image {
+                        anchors.left: parent.left
+                        anchors.leftMargin: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 14; height: 14
+                        sourceSize: Qt.size(28, 28)
+                        source: Lucide.source("search", Theme.textSecondary)
+                    }
                 }
-
-                DateField {
+                HistoryDateFilter {
                     id: dateRange
                     objectName: "historyDateRange"
-                    width: 238
-                    rangeMode: true
-                    restrictToRecords: true
-                    availableDays: Runtime.app.runs.calendarAvailableDays
-                    knownMonths: Runtime.app.runs.calendarKnownMonths
-                    availabilityLoading: Runtime.app.runs.calendarLoading
-                    availabilityError: Theme.live(Runtime.app.runs.calendarError || Runtime.app.runs.calendarDayError(startText.trim()) || Runtime.app.runs.calendarDayError(endText.trim()))
-                    onCalendarRequested: function(month) {
-                        // Retry failed typed endpoints as well as the visible month.
-                        for (const date of [startText.trim(), endText.trim()]) {
-                            if (Runtime.app.runs.calendarDayError(date).length > 0)
-                                Runtime.app.runs.requestCalendarDays(date.slice(0, 7))
-                        }
-                        Runtime.app.runs.requestCalendarDays(month)
-                    }
-                    onEndpointRequested: date => Runtime.app.runs.ensureCalendarDay(date)
-                    Accessible.name: qsTr("历史日期范围")
+                    facets: page.filterFacets
                     onStartTextChanged: page.scheduleFilter()
                     onEndTextChanged: page.scheduleFilter()
-                    onSelectionPendingChanged: page.scheduleFilter()
                 }
+                HistoryRegionFilter {
+                    id: regionBox
+                    objectName: "historyRegionFilter"
+                    facets: page.filterFacets
+                    onRegionPicked: function(region) { selection = region; page.scheduleFilter() }
+                    onHelpRequested: page.helpAdaptationRequested()
+                }
+            }
 
+            Flow {
+                id: filterRow
+                Layout.fillWidth: true
+                Layout.topMargin: -8
+                spacing: 8
+                enabled: !Runtime.app.historyBatchRunning
+                readonly property int controlHeight: Theme.eorzea ? 32 : 30
                 // A removable chip rather than a fifth combo box, which would not
                 // fit the single row.
                 Chip {
@@ -628,12 +582,14 @@ Item {
                 TextMetrics { id: jobLabelMetrics; font.pixelSize: Theme.fs(13); text: qsTr("职业") }
                 TextMetrics { id: resultLabelMetrics; font.pixelSize: Theme.fs(13); text: qsTr("结果") }
                 TextMetrics { id: sourceLabelMetrics; font.pixelSize: Theme.fs(13); text: qsTr("来源") }
+                TextMetrics { id: markLabelMetrics; font.pixelSize: Theme.fs(13); text: markBox.displayText }
 
                 StyledComboBox {
                     id: categoryBox
                     objectName: "historyCategoryFilter"
-                    width: Math.max(78, Math.ceil(typeLabelMetrics.advanceWidth) + 36
-                                     + leftPadding + rightPadding)
+                    leftPadding: 0
+                    rightPadding: 0
+                    width: Math.max(66, Math.ceil(typeLabelMetrics.advanceWidth) + 40)
                     // value: the Chinese category RunFilter.duty_category carries; label: as shown.
                     model: [{ value: null, label: qsTr("全部类型") }].concat(Theme.labelledCategories(Runtime.app.categoryOptions))
                     textRole: "label"
@@ -645,8 +601,9 @@ Item {
                 StyledComboBox {
                     id: jobBox
                     objectName: "historyJobFilter"
-                    width: Math.max(78, Math.ceil(jobLabelMetrics.advanceWidth) + 36
-                                     + leftPadding + rightPadding)
+                    leftPadding: 0
+                    rightPadding: 0
+                    width: Math.max(66, Math.ceil(jobLabelMetrics.advanceWidth) + 40)
                     // The first row clears this filter; the closed field keeps its short label.
                     // The label is the job in the interface language; the filter sends job_id.
                     model: [{ job_id: null, job_name: qsTr("全部职业"), label: qsTr("全部职业") }]
@@ -662,8 +619,9 @@ Item {
 
                 StyledComboBox {
                     id: resultBox
-                    width: Math.max(80, Math.ceil(resultLabelMetrics.advanceWidth) + 36
-                                     + leftPadding + rightPadding)
+                    leftPadding: 0
+                    rightPadding: 0
+                    width: Math.max(66, Math.ceil(resultLabelMetrics.advanceWidth) + 40)
                     model: [
                         { value: null, label: qsTr("全部结果") },
                         { value: "COMPLETED", label: qsTr("通关") },
@@ -682,8 +640,9 @@ Item {
                 StyledComboBox {
                     id: sourceBox
                     visible: !page.narrowFilters
-                    width: Math.max(78, Math.ceil(sourceLabelMetrics.advanceWidth) + 36
-                                     + leftPadding + rightPadding)
+                    leftPadding: 0
+                    rightPadding: 0
+                    width: Math.max(66, Math.ceil(sourceLabelMetrics.advanceWidth) + 40)
                     model: [
                         { value: null, label: qsTr("全部来源") },
                         { value: "AUTO_NETWORK", label: qsTr("自动识别") },
@@ -700,14 +659,16 @@ Item {
                 StyledComboBox {
                     id: markBox
                     objectName: "historyMarkFilter"
-                    width: 118
-                    model: [qsTr("标记类型")]
+                    leftPadding: 0
+                    rightPadding: 0
+                    width: Math.max(66, Math.ceil(markLabelMetrics.advanceWidth) + 40)
+                    model: [qsTr("标记")]
                     readonly property int selectedCount: (page.pendingReviewFilter ? 1 : 0)
                                                        + (correctedOnly.checked ? 1 : 0)
                                                        + (withReflection.checked ? 1 : 0)
                                                        + (joinedInProgressOnly.checked ? 1 : 0)
                                                        + (deletedOnly.checked ? 1 : 0)
-                    displayText: selectedCount > 0 ? qsTr("标记类型 · %1").arg(selectedCount) : qsTr("标记类型")
+                    displayText: selectedCount > 0 ? qsTr("标记 · %1").arg(selectedCount) : qsTr("标记")
                     Accessible.name: qsTr("标记类型筛选，可多选")
                     popup: Popup {
                         id: markPopup
@@ -763,8 +724,6 @@ Item {
                     }
                 }
 
-                // Fixed 40 px: the Flow sums its children into restWidth and the
-                // search field takes whatever is left.
                 AppButton {
                     id: moreFiltersButton
                     objectName: "historyMoreFiltersButton"
@@ -773,12 +732,26 @@ Item {
                     height: filterRow.controlHeight
                     onClicked: moreFilters.open()
                 }
-                AppButton {
-                    variant: "ghost"
-                    // Its label's own width when a translation is longer than 清除.
-                    width: Math.max(40, Math.ceil(contentItem.implicitWidth) + 4)
+                Button {
+                    id: clearFilters
+                    objectName: "historyClearFilters"
+                    // Keep a comfortable hit target alongside the secondary filters.
+                    width: Math.max(64, Math.ceil(contentItem.implicitWidth) + 20)
                     height: filterRow.controlHeight
-                    text: qsTr("清除")
+                    text: qsTr("清除筛选")
+                    focusPolicy: Qt.StrongFocus
+                    contentItem: Text {
+                        text: clearFilters.text
+                        font.pixelSize: Theme.fs(13)
+                        font.bold: true
+                        color: dateRange.filterAccent
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        radius: 2
+                        color: clearFilters.hovered || clearFilters.activeFocus ? dateRange.filterTint : "transparent"
+                    }
                     onClicked: page.resetFilter()
                 }
             }
@@ -889,7 +862,7 @@ Item {
                         // The model resets on every reload, so a fresh delegate is
                         // a reloaded row; a changed field of a surviving row never
                         // replays the entrance.
-                        readonly property Entrance rowEntrance: Entrance { distanceY: 4 }
+                        readonly property Entrance rowEntrance: Entrance { distanceY: 4; active: runRow.visible && page.visible && (!page.Window.window || page.Window.window.visible) }
                         function playEntrance() {
                             runRow.rowEntrance.play(Math.min(runRow.index, 11) * Theme.motionRowStagger)
                         }
@@ -1269,7 +1242,7 @@ Item {
         }
     }
 
-    Dialog {
+    MotionDialog {
         id: filterConfirmation
         objectName: "historyFilterConfirmation"
         parent: Overlay.overlay
@@ -1298,7 +1271,7 @@ Item {
         }
     }
 
-    Dialog {
+    MotionDialog {
         id: batchDialog
         objectName: "historyBatchConfirmation"
         parent: Overlay.overlay

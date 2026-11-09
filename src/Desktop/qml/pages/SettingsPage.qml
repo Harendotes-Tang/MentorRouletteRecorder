@@ -19,6 +19,9 @@ import MentorRecorder 1.0
 // ---------------------------------------------------------------------------
 Item {
     id: page
+    objectName: "settingsPage"
+
+    Translate { id: contentShift; y: page.tabEntrance.dy }
 
     signal openBaselineRequested()
     signal openDisclosureRequested()
@@ -39,6 +42,13 @@ Item {
     ]
     readonly property int navWidth: 168
     readonly property int contentMaxWidth: 760
+
+    readonly property Entrance tabEntrance: Entrance {
+        active: page.visible && (!page.Window.window || page.Window.window.visible)
+        classicOnly: false
+        distanceY: 6
+    }
+    onCurrentTabChanged: if (tabEntrance) tabEntrance.play(0)
 
     function selectTab(id) {
         if (page.currentTab === id)
@@ -122,6 +132,8 @@ Item {
 
                 ColumnLayout {
                     id: column
+                    opacity: page.tabEntrance.opacity
+                    transform: contentShift
 
                     width: Math.min(page.contentMaxWidth, scroll.width - Theme.scrollGutter)
                     spacing: 16

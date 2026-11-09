@@ -1,4 +1,5 @@
 #include "QmlRuntime.h"
+#include "PopupMotion.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -19,6 +20,8 @@ QObject *createTestRuntime(QQmlEngine *engine, QJSEngine *)
 
 void registerTestRuntime()
 {
+    qmlRegisterSingletonType<mr::PopupMotion>("MentorRecorder", 1, 0, "PopupMotion",
+        [](QQmlEngine *, QJSEngine *) -> QObject * { return new mr::PopupMotion; });
     qmlRegisterSingletonType<mr::QmlRuntime>(
         "MentorRecorder", 1, 0, "Runtime", createTestRuntime);
     // Existing source fixtures register shared controls themselves. Feature

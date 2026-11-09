@@ -13,6 +13,7 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS
     Qml
     Quick
     QuickControls2
+    QuickTemplates2
     Graphs
     LinguistTools
     Multimedia
@@ -20,6 +21,9 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS
     Test
     TextToSpeech
     Widgets)
+
+include(cmake/QtPrivateModules.cmake)
+mr_find_qt_private_modules()
 
 qt_standard_project_setup(REQUIRES 6.8)
 
@@ -172,6 +176,8 @@ set(MR_CPP_SOURCES
     cpp/workflows/HistoryImageCleanupController.h
     cpp/HistoryController.cpp
     cpp/HistoryController.h
+    cpp/HistoryFilterFacets.cpp
+    cpp/HistoryFilterFacets.h
     cpp/HistoryColumnsController.cpp
     cpp/HistoryColumnsController.h
     cpp/StatisticsController.cpp
@@ -297,8 +303,12 @@ set(MR_QML_FILES
     qml/components/CategoryIcon.qml
     qml/components/Chip.qml
     qml/components/DateField.qml
+    qml/components/HistoryFilterButton.qml
+    qml/components/HistoryDateFilter.qml
+    qml/components/HistoryRegionFilter.qml
     qml/components/DialogFrame.qml
     qml/components/Entrance.qml
+    qml/components/MotionDialog.qml
     qml/components/FieldLabel.qml
     qml/components/HeadingLabel.qml
     qml/components/HistoryCell.qml
@@ -649,7 +659,7 @@ mr_use_ascii_autogen_dir(MentorRecorder.Desktop)
 
 target_link_libraries(MentorRecorder.Desktop
     PRIVATE
-        MentorRecorderDesktopLib Qt6::Widgets)
+        MentorRecorderDesktopLib Qt6::Widgets Qt6::QuickTemplates2Private Qt6::QuickPrivate)
 
 # Distribution build only: pin Qt's prefix to the application folder (audit 2026-11-03
 # Z4-1). Beside a deployed Qt6Core.dll, Qt takes the PARENT folder as its prefix whenever
@@ -691,7 +701,11 @@ if(MR_STAGE_COLLECTOR AND MR_DOTNET_EXE)
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/StageCollector.cmake"
         COMMENT "Staging MentorRecorder.Collector beside the Desktop executable"
         VERBATIM)
-    add_dependencies(mr_stage_collector MentorRecorder.Desktop)
+    # Qt Creator builds the selected executable target, not necessarily ALL.
+    # Stage its runtime prerequisite even when the Desktop binary is up to date;
+    # a POST_BUILD command would miss a deleted or stale Collector in that case.
+    # TARGET_FILE_DIR does not add the reverse dependency (CMP0112 is NEW).
+    add_dependencies(MentorRecorder.Desktop mr_stage_collector)
 else()
     message(STATUS "Collector staging skipped (MR_STAGE_COLLECTOR=${MR_STAGE_COLLECTOR}, dotnet=${MR_DOTNET_EXE}); run scripts/build.ps1, which stages one beside the Desktop, or configure with -DMR_DEV_COLLECTOR_DISCOVERY=ON and set MR_COLLECTOR_PATH")
 endif()
@@ -699,6 +713,8 @@ endif()
 
 set_source_files_properties(qml/Theme.qml
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+
+include(cmake/ProjectQtGraphs.cmake)
 
 # Icon helpers are imported by file path. Exporting them again through qmldir
 # makes Qt reject the explicit versioned module import together with QTP0004's
@@ -722,7 +738,7 @@ qt_add_qml_module(MentorRecorder.Desktop
     VERSION 1.0
     RESOURCE_PREFIX /qt/qml
     NO_IMPORT_SCAN
-    SOURCES cpp/QmlRuntime.h cpp/QmlRuntime.cpp
+    SOURCES cpp/QmlRuntime.h cpp/QmlRuntime.cpp cpp/PopupMotion.h cpp/PopupMotion.cpp
     QML_FILES ${MR_QML_FILES})
 
 # ---------------------------------------------------------------------------

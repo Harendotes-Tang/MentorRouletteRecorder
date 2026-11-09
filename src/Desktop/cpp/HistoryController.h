@@ -10,6 +10,7 @@
 #include <QStringList>
 #include "LiveText.h"
 #include "RunListModel.h"
+#include "HistoryFilterFacets.h"
 
 namespace mr {
 class IBackend;
@@ -24,6 +25,7 @@ class HistoryController : public QObject
 public:
     explicit HistoryController(IBackend *backend, QObject *parent = nullptr);
     RunListModel *runs() const { return m_runs; }
+    HistoryFilterFacets *filterFacets() const { return m_filterFacets; }
     QVariantMap historyFilter() const { return m_historyFilter.toVariantMap(); }
     bool hasSelection() const { return !m_selectedRun.isEmpty(); }
     QVariantList selectedRunRevisions() const { return m_selectedRunRevisions; }
@@ -177,6 +179,7 @@ private:
     /// reply cannot update a newly opened form in another backend context.
     quint64 m_resultRequestContextGeneration = 0;
     RunListModel *m_runs;
+    HistoryFilterFacets *m_filterFacets;
     QJsonObject m_selectedRun;
     QJsonObject m_historyFilter;
     QVariantList m_selectedRunRevisions;

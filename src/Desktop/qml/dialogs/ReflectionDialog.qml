@@ -12,7 +12,7 @@ import MentorRecorder 1.0
 // clear signal (docs/protocol-profile-format.md §12) stops at 待复核, and the
 // achievement count only moves once the user answers 通关. The program never
 // decides such a result by itself.
-Dialog {
+MotionDialog {
     font.family: Theme.bodyFamily
     id: dialog
     property bool inlinePresentation: false
@@ -524,13 +524,6 @@ Dialog {
         }
     }
 
-    enter: Transition {
-        NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionMedium; easing.type: Easing.OutCubic }
-        NumberAnimation { property: "scale"; from: 0.97; to: 1; duration: Theme.motionMedium; easing.type: Easing.OutCubic }
-    }
-    exit: Transition {
-        NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.motionFast }
-    }
 
     // Every way out of the window lands here - 通关 / 未通关 accepted, 稍后再说,
     // Escape, a click outside, and the programmatic close() after a saved 心得

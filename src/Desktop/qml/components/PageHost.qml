@@ -24,17 +24,20 @@ Item {
     visible: false
     Component.onCompleted: host.visible = host.active
     onActiveChanged: {
+        host.settle()
         host.visible = host.active
         if (!active)
             return
         host.entered()
-        if (!Theme.motion)
+        if (!Theme.motion || !host.visible || (host.Window.window && !host.Window.window.visible))
             return
         if (Theme.eorzea)
             rise.restart()
         else
             slide.restart()
     }
+
+    onVisibleChanged: if (!visible) host.settle()
 
     Item {
         id: inner
@@ -90,6 +93,13 @@ Item {
         target: Theme
         function onEorzeaChanged() { host.settle() }
         function onMotionChanged() { host.settle() }
+    }
+
+    Connections {
+        target: host.Window.window
+        function onVisibleChanged() {
+            if (host.Window.window && !host.Window.window.visible) host.settle()
+        }
     }
 
     function settle() {

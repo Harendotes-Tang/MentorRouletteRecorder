@@ -9,7 +9,7 @@ import MentorRecorder 1.0
 // 需要核对的每一行给"对 / 错"两个按钮，全部点过才能启用。带轮盘名的行点"错"记为
 // RELABEL（改名，不作废）；只有"这个时间我根本没排本"记为 WRONG，令本次校准作废。
 // 行文里只有时间、副本名和轮盘名，没有编号，也没有英文状态词。
-Dialog {
+MotionDialog {
     id: dialog
     objectName: "calibrationDialog"
 

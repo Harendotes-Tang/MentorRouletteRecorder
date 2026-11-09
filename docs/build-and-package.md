@@ -169,6 +169,14 @@ Machina.FFXIV 包中附带的原生注入载荷 `deucalion-*.dll` 从所有构�
 
 CMake 路径一律使用正斜杠 `/`。反斜杠在 CMake 中是转义字符。
 
+### 项目专用 QtGraphs 运行库
+
+Qt 6.11.2 MinGW x64 构建会自动准备项目专用 `Qt6Graphs.dll`，修正上游 Windows 纹理尺寸查询硬编码 D3D12 的警告；系统 Qt 安装目录不被修改。Qt Creator 选中 Desktop 或测试目标直接构建也会部署并校验此库，DLL 已正确时不会重复覆盖运行中的文件。
+
+固定源码包随项目保存，首次准备使用 Git、Windows `tar.exe` 离线编译，之后复用按源码、补丁、SDK 与编译器指纹区分的缓存。`MR_QT_GRAPHS_CACHE_DIR` 可指定不超过 100 字符的 ASCII 缓存根；`MR_QT_GRAPHS_SOURCE_ARCHIVE` 可指定固定 SHA256 的离线源码包。其他版本 SDK 不自动套用 6.11.2 的补丁。具体固定输入、对应源码和重建说明见 [`licenses/qtgraphs/README.md`](licenses/qtgraphs/README.md)。
+
+`scripts/package.ps1` 在 `windeployqt` 后恢复并校验专用 DLL，记录 `BUILD-METADATA.json` 的 `qtgraphs_runtime`，并将原始源码包、补丁和许可证一起放进 `docs/licenses/qtgraphs/`。解包验证再次核对 DLL 与对应材料，防止官方 DLL 覆盖修补版后悄悄进入发行包。
+
 ### 3.0 界面翻译
 
 译文文件位于 `src/Desktop/i18n/mentor_recorder_{zh_TW,en,ja}.ts`，源语言为简体中文。

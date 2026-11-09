@@ -3,7 +3,7 @@
 按钮、侧栏导航与状态板上的线条图标来自 **Lucide**（<https://lucide.dev>，仓库 <https://github.com/lucide-icons/lucide>），
 许可证 **ISC**（全文见同目录 `LICENSE`，即上游 `lucide-static` 包内的 `LICENSE`）。
 `LICENSE` 的后半段列出了 Lucide 从 **Feather** 项目派生的图标，它们同时受 **MIT** 许可证
-（Copyright (c) 2013-present Cole Bemis）约束。本目录中的 `calendar`、`chevron-left`、`chevron-right`、`chevrons-down`、`clock`、`moon`、`plus`、`radio`、`server`、`target`、`x`
+（Copyright (c) 2013-present Cole Bemis）约束。本目录中的 `calendar`、`chevron-down`、`chevron-left`、`chevron-right`、`chevrons-down`、`clock`、`globe`、`moon`、`plus`、`radio`、`search`、`server`、`target`、`x`
 即在该名单中，生成器会将 MIT 声明一并写入 `Lucide.js` 的文件头。
 与上一级目录中的 SQUARE ENIX 游戏素材不同，这些文件**可以**随本软件公开分发。
 
@@ -19,9 +19,11 @@
 `python tools/lucide-icons/generate.py`，并将新的 SHA-256 补入下表。`tools/lucide-icons/test_generate.py`
 在 `Lucide.js` 与本目录的 SVG 不一致时失败，该测试由 `scripts/verify.ps1` 的工具自测执行。
 
-本次采用官方标签源码获取资源，并逐个核对 Git blob SHA。上游别名保持与 `lucide-static`
+原有图标采用官方标签源码获取资源，并逐个核对 Git blob SHA。上游别名保持与 `lucide-static`
 发布流程一致：`file-json` 来自 `file-braces`，`filter-x` 来自 `funnel-x`，`history` 来自
 `rotate-ccw-clock`；别名关系由同标签的对应 `.json` 文件声明。
+
+2026-11-09 新增 `search`、`globe`、`chevron-down`，直接取自固定的官方 npm 包 `lucide-static@1.61.0`（`https://unpkg.com/lucide-static@1.61.0/icons/<name>.svg`），保留上游 SVG 及版本注释，校验值如下。
 
 | 文件 | SHA-256 |
 |------|---------|
@@ -29,6 +31,7 @@
 | `book-open-text.svg` | `7a6234f84d2f296421c4e27ea6d885e18d45bcb7737b5aa36a4ec6c147b0f746` |
 | `calendar.svg` | `5c0372f26e27a19c72b51e27315fa57d0dddbc325c6a2bf0ec32218e3a542ef6` |
 | `chart-column.svg` | `e4104761d3c5e4423544563d0e198550fbc301d43895db91703754d1e1a2bc13` |
+| `chevron-down.svg` | `763bbc7f305bad8b852b5ae5feadfc08858acf97f19a5897aa8f1fe636abed45` |
 | `chevron-left.svg` | `6e7478a72752c404c2ff077dfb768a84b718255d7bf9ea547de9b080114592ee` |
 | `chevron-right.svg` | `2af3089fa09497d5725172b172196d193cbe8205bf70ad6f9078ce4773285001` |
 | `chevrons-down.svg` | `92c65689ea0c942b24b9e675ac0f435c92e1d8fcdc0937eeb472a082ed81e38a` |
@@ -44,6 +47,7 @@
 | `flag.svg` | `e84d0cd56503debfaebf1f6c1c587cae253db067c1ff69a0737e2c4dd5296398` |
 | `folder-open.svg` | `5adf2987a25d174cb7c0ecfd241f12c40e35953217d7c4ee5ced8d29a3baef6f` |
 | `gamepad-2.svg` | `0a25090b8e0cf03d14a58e3fe5e85335402485c58c610034e64eb73c2c70241a` |
+| `globe.svg` | `994924c198fe332f0de7eb5953610c6bce145b93db86c97d7183ce170a6038cc` |
 | `hard-drive.svg` | `86c8c22e2e65cb913348935228c857de676f658cae3eb9acda7b79de53168bc6` |
 | `history.svg` | `15a0aa9c5c97acef0295b80e9d6a7d1d34f1e82f85c9f2866fc78187bce4d0d8` |
 | `image-down.svg` | `add0e62da3c12f3a04013d5cda5ea0d85e9019a23c06d7e3c68ca0bd102e0265` |
@@ -55,6 +59,7 @@
 | `notebook-pen.svg` | `119524879d2fc8c753887114ab988ee8f788482f2afddfb3103cc21d6d17cf86` |
 | `plus.svg` | `dfcf07b39b0f4c0b422595ae488fb08c468ef4782f6ef37d0deceaadfb2a5693` |
 | `radio.svg` | `8637908d6b1f5172ba710b9e12c052f614e2facdfc66535f0eb60d9a8a0ced6c` |
+| `search.svg` | `e0d89f53155655032f5c07fd8da930800b62b69a778d1dd76b388b9b78bf1d3f` |
 | `server.svg` | `91feaa119e863973e4be3a2beab09e7b21944bbe508d12b5268d903b757177f8` |
 | `settings.svg` | `f2235dfd6c69bdad1acd08554ba19557becefa526b21ae4cfabf8fe7bbc48796` |
 | `sun.svg` | `19d684776d546b673d45fc54b7dee7b22f18e0b2e673612220727e90f46fb4cf` |

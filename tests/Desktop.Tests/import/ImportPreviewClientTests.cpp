@@ -22,7 +22,7 @@ public:
     mr::BackendReply *request(const QString &type, const QJsonObject &payload) override
     {
         auto *reply = new mr::BackendReply(QString::number(calls.size()), type, this);
-        calls.append({payload, reply});
+        calls.append({.payload = payload, .reply = reply});
         if (!immediateAnswer.isEmpty())
             reply->succeed(immediateAnswer);
         return reply;
@@ -88,12 +88,12 @@ private Q_SLOTS:
         PreviewBackend backend;
         mr::ImportPreviewClient client;
         int completed = 0;
-        client.start(&backend, source(), [&](mr::ImportPreviewResult) { ++completed; });
+        client.start(&backend, source(), [&](const mr::ImportPreviewResult &) { ++completed; });
         backend.calls[0].reply->succeed(previewPage(1));
         client.cancel();
         QCoreApplication::processEvents();
         QCOMPARE(backend.calls.size(), 1);
-        client.start(&backend, source(), [&](mr::ImportPreviewResult) { ++completed; });
+        client.start(&backend, source(), [&](const mr::ImportPreviewResult &) { ++completed; });
         const auto late = backend.calls.last().reply;
         client.cancel();
         late->succeed(previewPage(1));
@@ -107,7 +107,7 @@ private Q_SLOTS:
         PreviewBackend backend;
         int completed = 0;
         auto client = std::make_unique<mr::ImportPreviewClient>();
-        client->start(&backend, source(), [&](mr::ImportPreviewResult) { ++completed; });
+        client->start(&backend, source(), [&](const mr::ImportPreviewResult &) { ++completed; });
         client.reset();
         backend.calls[0].reply->succeed(previewPage(1));
         QCoreApplication::processEvents();
@@ -142,8 +142,8 @@ private Q_SLOTS:
         mr::ImportPreviewClient client;
         int oldCompletions = 0;
         int newCompletions = 0;
-        client.start(&backend, source(), [&](mr::ImportPreviewResult) { ++oldCompletions; });
-        client.start(&backend, source(), [&](mr::ImportPreviewResult) { ++newCompletions; });
+        client.start(&backend, source(), [&](const mr::ImportPreviewResult &) { ++oldCompletions; });
+        client.start(&backend, source(), [&](const mr::ImportPreviewResult &) { ++newCompletions; });
         backend.calls[0].reply->succeed(previewPage(1));
         backend.calls[1].reply->succeed({{"preview_id", "replacement"}, {"summary", QJsonObject{{"total", 0}}},
                                        {"rows", QJsonArray{}}});

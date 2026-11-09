@@ -25,7 +25,7 @@ namespace motion {
 /// (SystemParametersInfo SPI_GETCLIENTAREAANIMATION). Always false elsewhere.
 bool systemReducesMotion();
 
-/// theme, trend-week, trend-month, trend-day, history-rows.
+/// theme, trend-week, trend-month, trend-day, history-rows, settings-tabs.
 QStringList probeScenarios();
 bool isProbeScenario(const QString &name);
 

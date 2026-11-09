@@ -90,6 +90,9 @@ public Q_SLOTS:
     QVariantMap runAt(int row) const;
 
 Q_SIGNALS:
+    /// Every explicit reload invalidates derived data, including a reload that
+    /// replaces an outstanding request without changing the loading boolean.
+    void reloadStarted();
     void calendarChanged();
     void pagingChanged();
     void loadingChanged();

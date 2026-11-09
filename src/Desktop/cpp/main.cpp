@@ -204,6 +204,8 @@ void installApplicationFont(bool screenshotMode)
         const QString windowsDir = qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows"));
         for (const char *file : {"Fonts/msyh.ttc", "Fonts/simhei.ttf"}) {
             const QString path = QDir(windowsDir).filePath(QString::fromLatin1(file));
+            if (!QFileInfo::exists(path))
+                continue;
             const int id = QFontDatabase::addApplicationFont(path);
             const QStringList registered = QFontDatabase::applicationFontFamilies(id);
             loadedCjkFont = loadedCjkFont || (id >= 0 && !registered.isEmpty());
@@ -219,14 +221,17 @@ void installApplicationFont(bool screenshotMode)
         // Theme.monoFamily picks Consolas in the eorzea style; without it the
         // offscreen "monospace" fallback lands on Cinzel and paths render in
         // capitals. Optional: a machine without the file keeps the fallback.
-        QFontDatabase::addApplicationFont(
-            QDir(windowsDir).filePath(QStringLiteral("Fonts/consola.ttf")));
+        const QString monoFontPath = QDir(windowsDir).filePath(QStringLiteral("Fonts/consola.ttf"));
+        if (QFileInfo::exists(monoFontPath))
+            QFontDatabase::addApplicationFont(monoFontPath);
         // The 繁體中文 and 日本語 interfaces lead with their own UI faces
         // (LanguageManager::preferredFamiliesFor); offscreen sees only what is
         // registered here. Optional: without them those screenshots keep YaHei.
-        for (const char *file : {"Fonts/msjh.ttc", "Fonts/YuGothM.ttc", "Fonts/meiryo.ttc"})
-            QFontDatabase::addApplicationFont(
-                QDir(windowsDir).filePath(QString::fromLatin1(file)));
+        for (const char *file : {"Fonts/msjh.ttc", "Fonts/YuGothM.ttc", "Fonts/meiryo.ttc"}) {
+            const QString path = QDir(windowsDir).filePath(QString::fromLatin1(file));
+            if (QFileInfo::exists(path))
+                QFontDatabase::addApplicationFont(path);
+        }
     }
 #else
     Q_UNUSED(screenshotMode)

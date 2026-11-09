@@ -5,7 +5,7 @@ import QtQuick.Controls 6.8
 import QtQuick.Layouts
 import MentorRecorder 1.0
 
-Dialog {
+MotionDialog {
     id: dialog
     objectName: "reflectionShareDialog"
     property var controller: typeof Runtime.reflectionShare !== "undefined" ? Runtime.reflectionShare : null

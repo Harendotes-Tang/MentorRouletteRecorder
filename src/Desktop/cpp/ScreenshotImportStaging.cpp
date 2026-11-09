@@ -29,13 +29,13 @@ ScreenshotSelectionResult ScreenshotImportStaging::validateSelection(
     for (const QString &path : chosen) {
         const QString identity = imageIdentity(path);
         if (inBatch.contains(identity))
-            return {ScreenshotSelectionFailure::AlreadyAccepted, QFileInfo(path).fileName()};
+            return {.failure = ScreenshotSelectionFailure::AlreadyAccepted, .fileName = QFileInfo(path).fileName()};
         if (selected.contains(identity))
-            return {ScreenshotSelectionFailure::RepeatedSelection, QFileInfo(path).fileName()};
+            return {.failure = ScreenshotSelectionFailure::RepeatedSelection, .fileName = QFileInfo(path).fileName()};
         selected.insert(identity);
     }
     if (chosen.size() + accepted.size() > maxImages)
-        return {ScreenshotSelectionFailure::TooMany, {}};
+        return {.failure = ScreenshotSelectionFailure::TooMany};
     return {};
 }
 

@@ -141,6 +141,7 @@ void RunListModel::setLoadError(const LiveText &error)
 
 void RunListModel::reload()
 {
+    Q_EMIT reloadStarted();
     invalidateCalendar();
     loadRows();
 }

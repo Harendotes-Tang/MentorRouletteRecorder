@@ -4,6 +4,10 @@
 // neither truncate an option to 讨伐歼… nor give every row a heading of its own.
 #include "DesktopTestRunner.h"
 #include "QmlComponentTestSupport.h"
+#include "JobCatalog.h"
+#include "RoleCatalog.h"
+#include <QQmlContext>
+#include <QSignalSpy>
 #include <QDir>
 #include <QGuiApplication>
 #include <QQuickItem>
@@ -15,8 +19,12 @@ namespace {
 
 struct Scene : mrtest::QmlComponentScene
 {
+    QSignalSpy warnings{&engine, &QQmlEngine::warnings};
     bool create(const QByteArray &qml)
     {
+        // The engine owns these catalogues until after its QML root is destroyed.
+        engine.rootContext()->setContextProperty(QStringLiteral("Jobs"), new mr::JobCatalog(&engine));
+        engine.rootContext()->setContextProperty(QStringLiteral("Roles"), new mr::RoleCatalog(&engine));
         return QmlComponentScene::create(qml, QStringLiteral("/components/ComboProbe.qml"));
     }
 
@@ -80,6 +88,7 @@ Window {
     QCOMPARE(countItems(list, QStringLiteral("comboSectionHeader")), 0);
     QVERIFY(list->property("section").value<QObject *>()->property("delegate").isNull()
             || !list->property("section").value<QObject *>()->property("delegate").value<QObject *>());
+    QCOMPARE(scene.warnings.count(), 0);
 }
 
 void StyledComboBoxTests::thePopupGrowsToTheLongestOption()
@@ -103,6 +112,7 @@ Window {
     QVERIFY(popup->property("width").toReal() > 86);
     QVERIFY(popup->property("widestOption").toReal() > 86);
     QCOMPARE(popup->property("width").toReal(), popup->property("widestOption").toReal());
+    QCOMPARE(scene.warnings.count(), 0);
 }
 
 void StyledComboBoxTests::aBoxWithASectionRoleStillGetsItsHeaders()
@@ -129,12 +139,15 @@ Window {
     QTRY_COMPARE(list->property("count").toInt(), 3);
     // Two groups, two headers.
     QTRY_COMPARE(countItems(list, QStringLiteral("comboSectionHeader")), 2);
+    QCOMPARE(scene.warnings.count(), 0);
 }
 
 MR_DESKTOP_TEST_SUITE(StyledComboBox)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QQuickStyle::setStyle(QStringLiteral("Basic"));
+    if (qEnvironmentVariableIsEmpty("QT_QPA_FONTDIR"))
+        qputenv("QT_QPA_FONTDIR", "C:/Windows/Fonts");
     QGuiApplication app(argc, argv);
     StyledComboBoxTests tests;
     return QTest::qExec(&tests, argc, argv);

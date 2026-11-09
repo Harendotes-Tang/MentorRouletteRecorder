@@ -14,7 +14,7 @@ struct ScreenshotImportBatch
     QVariantList evidence;
 };
 
-enum class ScreenshotSelectionFailure { None, AlreadyAccepted, RepeatedSelection, TooMany };
+enum class ScreenshotSelectionFailure : quint8 { None, AlreadyAccepted, RepeatedSelection, TooMany };
 struct ScreenshotSelectionResult
 {
     ScreenshotSelectionFailure failure = ScreenshotSelectionFailure::None;

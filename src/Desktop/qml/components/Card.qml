@@ -30,13 +30,13 @@ Rectangle {
     implicitHeight: body.implicitHeight + verticalPadding * 2
 
     // Classic wbPop: when the holding page becomes current the panel pops in
-    // from .97 and transparent, staggered per sibling (the fifth and later share
+    // from .97 and transparent, staggered per sibling (delay capped at 50 ms; later siblings share
     // the last step). Panels outside a page (sidebar plate, dialogs) never pop.
     property Item pageHost: null
     scale: popIn.scale
     opacity: popIn.opacity
 
-    readonly property Entrance popIn: Entrance { fromScale: 0.97 }
+    readonly property Entrance popIn: Entrance { fromScale: 0.97; active: root.visible && (!root.Window.window || root.Window.window.visible) }
 
     function isPageHostItem(item: var): bool {
         return item.isPageHost === true

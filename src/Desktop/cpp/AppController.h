@@ -238,6 +238,7 @@ class AppController final : public QObject, public CaptureValidationController::
     Q_PROPERTY(QVariantList categoryOptions READ categoryOptions NOTIFY optionsChanged)
     Q_PROPERTY(QVariantList jobOptions READ jobOptions NOTIFY optionsChanged)
     Q_PROPERTY(QVariantMap historyFilter READ historyFilter NOTIFY historyFilterChanged)
+    Q_PROPERTY(mr::HistoryFilterFacets *historyFilterFacets READ historyFilterFacets CONSTANT)
     Q_PROPERTY(QStringList checkedHistoryRunIds READ checkedHistoryRunIds NOTIFY checkedHistoryRunsChanged)
     Q_PROPERTY(int checkedHistoryRunCount READ checkedHistoryRunCount NOTIFY checkedHistoryRunsChanged)
     Q_PROPERTY(int checkedHistoryDeletedCount READ checkedHistoryDeletedCount NOTIFY checkedHistoryRunsChanged)
@@ -465,6 +466,7 @@ public:
     QVariantList categoryOptions() const;
     QVariantList jobOptions() const;
     QVariantMap historyFilter() const { return m_history->historyFilter(); }
+    HistoryFilterFacets *historyFilterFacets() const { return m_history->filterFacets(); }
     QStringList checkedHistoryRunIds() const { return m_history->checkedRunIds(); }
     int checkedHistoryRunCount() const { return m_history->checkedRunCount(); }
     int checkedHistoryDeletedCount() const { return m_history->checkedDeletedCount(); }

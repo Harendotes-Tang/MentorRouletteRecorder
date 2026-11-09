@@ -22,7 +22,7 @@ QDateTime historyInstant(const QVariantMap &run, const QTimeZone &zone)
             return value;
     }
     const QVariantMap source = run.value(QStringLiteral("import_metadata")).toMap();
-    const QDateTime recorded =
+    QDateTime recorded =
         QDateTime::fromString(source.value(QStringLiteral("source_recorded_at_utc")).toString(), Qt::ISODateWithMs);
     if (recorded.isValid())
         return recorded;
@@ -147,7 +147,7 @@ QVariantList ReflectionLibraryController::orderedByDate(const QVariantList &runs
     keyed.reserve(runs.size());
     for (const QVariant &run : runs)
         keyed.append({historyInstant(run.toMap(), zone), run});
-    std::stable_sort(keyed.begin(), keyed.end(), [ascending](const auto &a, const auto &b) {
+    std::ranges::stable_sort(keyed, [ascending](const auto &a, const auto &b) {
         // An undated record sorts after every dated one in both directions.
         if (!a.first.isValid() || !b.first.isValid())
             return a.first.isValid() && !b.first.isValid();

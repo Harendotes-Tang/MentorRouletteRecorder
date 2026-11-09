@@ -24,7 +24,7 @@ import MentorRecorder 1.0
 // Only the notes scroll; the title and upper-right close button stay put,
 // because the page is taller than a 720 px window.
 // ---------------------------------------------------------------------------
-Dialog {
+MotionDialog {
     id: dialog
     objectName: "disclosureDialog"
 
@@ -38,13 +38,6 @@ Dialog {
 
     background: DialogFrame {}
 
-    enter: Transition {
-        NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionMedium; easing.type: Easing.OutCubic }
-        NumberAnimation { property: "scale"; from: 0.97; to: 1; duration: Theme.motionMedium; easing.type: Easing.OutCubic }
-    }
-    exit: Transition {
-        NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.motionFast }
-    }
 
     function openDialog() {
         notesView.contentY = 0

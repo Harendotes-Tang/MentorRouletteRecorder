@@ -7,6 +7,9 @@ import MentorRecorder 1.0
 // the owner's value.
 Rectangle {
     id: root
+    readonly property bool feedbackVisible: visible && (!Window.window || Window.window.visible)
+
+
 
     property string text: ""
     property bool checked: false
@@ -23,9 +26,9 @@ Rectangle {
     border.color: root.checked
                   ? Theme.gold
                   : (hover.hovered ? Theme.gold3 : Theme.border)
-    scale: tap.pressed ? 0.96 : 1.0
+    property real visualScale: Theme.motion && tap.pressed ? 0.96 : 1.0
 
-    Behavior on scale { NumberAnimation { duration: Theme.motionFast; easing.type: Easing.OutCubic } }
+    Behavior on visualScale { enabled: root.feedbackVisible && Theme.motion; SmoothedAnimation { id: pressMotion; velocity: -1; duration: root.feedbackVisible ? Theme.motionFast : 0; easing.type: Easing.OutCubic } }
 
     activeFocusOnTab: true
     Accessible.role: Accessible.RadioButton
@@ -48,6 +51,7 @@ Rectangle {
 
     Text {
         id: label
+        scale: root.visualScale
         anchors.centerIn: parent
         text: root.text
         textFormat: Text.PlainText

@@ -11,7 +11,7 @@ import MentorRecorder 1.0
 // error code the Collector would have returned. The three step bodies are
 // views only (RunWizardResultStep / RunWizardDutyStep / RunWizardTimeStep);
 // the state, the option lists and the step 2 filtering all live here.
-Dialog {
+MotionDialog {
     font.family: Theme.bodyFamily
     id: dialog
     readonly property alias editorController: dialog
@@ -654,13 +654,6 @@ Dialog {
         color: Theme.eorzea ? (Theme.dark ? "#99060910" : "#66060910") : Theme.blackScrim
     }
 
-    enter: Transition {
-        NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.motionMedium; easing.type: Easing.OutCubic }
-        NumberAnimation { property: "scale"; from: 0.97; to: 1; duration: Theme.motionMedium; easing.type: Easing.OutCubic }
-    }
-    exit: Transition {
-        NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.motionFast }
-    }
 
     // ------------------------------------------------------------ 逻辑 --
     function rouletteCategory(category) {

@@ -259,6 +259,8 @@ private Q_SLOTS:
         engine.rootContext()->setContextProperty(QStringLiteral("Settings"), settings.get());
         engine.rootContext()->setContextProperty(QStringLiteral("Fmt"), &formatters);
         engine.rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        // Theme is engine-owned; destroy it before its borrowed settings and app.
+        const auto clearSingletons = qScopeGuard([&engine] { engine.clearSingletons(); });
         QQmlComponent component(&engine, QUrl::fromLocalFile(root + QStringLiteral("/pages/SettingsDataTab.qml")));
         QTRY_VERIFY_WITH_TIMEOUT(component.status() != QQmlComponent::Loading, 5000);
         std::unique_ptr<QObject> tab(component.create());
@@ -288,6 +290,8 @@ MR_DESKTOP_TEST_SUITE(ExportFailure)
     // Never run against the user's own Collector, database or serve lease - see
     // TestCollectorGuard.h. Must precede any construction.
     mrtest::disableCollectorLaunch();
+    if (qEnvironmentVariableIsEmpty("QT_QPA_FONTDIR"))
+        qputenv("QT_QPA_FONTDIR", "C:/Windows/Fonts");
     QGuiApplication app(argc, argv);
     ExportFailureTests tests;
     return QTest::qExec(&tests, argc, argv);

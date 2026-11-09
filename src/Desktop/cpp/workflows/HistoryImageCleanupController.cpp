@@ -67,34 +67,37 @@ void HistoryImageCleanupController::drain()
         QTimer::singleShot(0, this, &HistoryImageCleanupController::drain);
         return;
     }
-    const LiveText failures = m_failures.isEmpty() ? LiveText()
-        : LiveText([count = m_failures.size(), first = m_failures.first()] {
-              return QCoreApplication::translate("mr::AppController", "%1 条记录的图片暂时没能清理，软件会自动重试。%2")
-                  .arg(count).arg(first);
-          });
+    const bool hasFailures = !m_failures.isEmpty();
+    const auto failureText = [count = m_failures.size(), first = m_failures.value(0)] {
+        if (count == 0)
+            return QString();
+        return QCoreApplication::translate("mr::AppController", "%1 条记录的图片暂时没能清理，软件会自动重试。%2")
+            .arg(count).arg(first);
+    };
     if (m_successful.isEmpty()) {
-        finish(failures);
+        finish(hasFailures ? LiveText(failureText) : LiveText());
         return;
     }
     if (!m_backend) {
         // 后端先析构时不能确认；已删除文件仍可幂等重试，服务端待办保持未确认。
-        finish(LiveText([failures] {
+        const LiveText feedback([failureText] {
             return QCoreApplication::translate("mr::AppController", "图片已清理，但清理结果还没保存，软件会自动重试：%1 %2")
-                .arg(QStringLiteral("ERR_PIPE_CLOSED"), failures.text());
-        }));
+                .arg(QStringLiteral("ERR_PIPE_CLOSED"), failureText());
+        });
+        finish(feedback);
         return;
     }
     m_backend->acknowledgeImageCleanup(m_successful)
-        ->whenDone(this, [this, failures](bool ok, const QVariantMap &, const QString &code, const QString &message) {
+        ->whenDone(this, [this, failureText, hasFailures](bool ok, const QVariantMap &, const QString &code, const QString &message) {
             if (!ok) {
-                finish(LiveText([reason = message.isEmpty() ? code : message, failures] {
+                finish(LiveText([reason = message.isEmpty() ? code : message, failureText] {
                     return QCoreApplication::translate("mr::AppController", "图片已清理，但清理结果还没保存，软件会自动重试：%1 %2")
-                        .arg(reason, failures.text());
+                        .arg(reason, failureText());
                 }));
                 return;
             }
-            const bool nextBatch = failures.isEmpty() && m_ids.size() == 2000;
-            finish(failures);
+            const bool nextBatch = !hasFailures && m_ids.size() == 2000;
+            finish(hasFailures ? LiveText(failureText) : LiveText());
             if (nextBatch)
                 QTimer::singleShot(0, this, &HistoryImageCleanupController::retry);
         });

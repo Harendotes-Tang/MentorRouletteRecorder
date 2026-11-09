@@ -436,7 +436,7 @@ private Q_SLOTS:
         history.setHistoryFilter({{QStringLiteral("pending_review"), true}});
         history.confirmHistoryFilterChange(true);
         QCOMPARE(history.checkedRunCount(), 0);
-        QCOMPARE(history.historyFilter().value(QStringLiteral("date_field")).toString(), QStringLiteral("history_date"));
+        QCOMPARE(history.historyFilter().value(QStringLiteral("date_field")).toString(), QStringLiteral("matched_at_utc"));
         QVERIFY(history.historyFilter().value(QStringLiteral("pending_review")).toBool());
         QVERIFY(backend.last(QStringLiteral("QueryRuns")).reply);
     }
@@ -684,7 +684,7 @@ ApplicationWindow {
         std::unique_ptr<QObject> root(component.create());
         QVERIFY2(root, qPrintable(component.errorString()));
         auto *window = qobject_cast<QQuickWindow *>(root.get());
-        window->resize(narrow ? QSize(920, 760) : QSize(1140, 790));
+        window->resize(narrow ? QSize(720, 760) : QSize(1140, 790));
         QVERIFY(QTest::qWaitForWindowExposed(window));
         QTRY_VERIFY(!app.runs()->isLoading() && app.runs()->rowCount() > 0);
         auto *page = findVisual(window->contentItem(), QStringLiteral("historyUnderTest"));

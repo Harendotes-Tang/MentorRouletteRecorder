@@ -16,6 +16,8 @@ import "OverlayIcons.js" as OverlayIcons
 // disabled is a fill plate with muted text rather than a faded button.
 Button {
     id: control
+    readonly property bool feedbackVisible: visible && (!Window.window || Window.window.visible)
+
 
     property string variant: "secondary"
     // The small 11 px variant used in the title bar and inside panels.
@@ -55,17 +57,20 @@ Button {
     opacity: control.enabled || !Theme.eorzea ? 1.0 : 0.4
     // `.btn:active:not(:disabled)`: scale .96; reduced motion keeps the button
     // still, matching prefers-reduced-motion.
-    scale: Theme.motion && control.down ? 0.96 : 1.0
-    Behavior on scale {
-        NumberAnimation {
-            duration: Theme.motionControl
+    // Animate the painted layers, leaving the native button hit area fixed.
+    property real visualScale: Theme.motion && control.down ? 0.96 : 1.0
+    Behavior on visualScale { enabled: control.feedbackVisible && Theme.motion;
+        SmoothedAnimation { id: pressMotion;
+            velocity: -1
+            duration: control.feedbackVisible ? Theme.motionControl : 0
             easing.type: Easing.Bezier
             easing.bezierCurve: Theme.curveStandard
         }
     }
-    Behavior on opacity { NumberAnimation { duration: Theme.motionFast } }
+    Behavior on opacity { enabled: control.feedbackVisible && Theme.motion; SmoothedAnimation { velocity: -1; id: disabledOpacityMotion; duration: control.feedbackVisible ? Theme.motionFast : 0 } }
 
     background: Rectangle {
+        scale: control.visualScale
         readonly property bool active: control.down || control.hovered
 
         radius: Theme.eorzea ? Theme.radiusM : Theme.radiusS
@@ -86,7 +91,7 @@ Button {
                             ? (active ? Theme.accentStrong : Theme.accent)
                             : Theme.neutral300))
         color: control.inverse ? inverseColor() : (Theme.eorzea ? eorzeaColor() : classicColor())
-        Behavior on color { ColorAnimation { duration: Theme.motionControl } }
+
 
         function inverseColor() {
             if (!control.enabled)
@@ -125,7 +130,7 @@ Button {
             radius: Math.max(0, parent.radius - 1)
             visible: Theme.eorzea && control.primary && opacity > 0
             opacity: control.primaryFilled ? 1 : 0
-            Behavior on opacity { NumberAnimation { duration: Theme.motionControl } }
+            Behavior on opacity { enabled: control.feedbackVisible && Theme.motion; SmoothedAnimation { velocity: -1; id: primaryOpacityMotion; duration: control.feedbackVisible ? Theme.motionControl : 0 } }
             gradient: Gradient {
                 GradientStop { position: 0.0; color: Theme.buttonPrimaryTop }
                 GradientStop { position: 0.55; color: Theme.buttonPrimaryMid }
@@ -150,7 +155,7 @@ Button {
             radius: parent.radius
             visible: Theme.eorzea && opacity > 0
             opacity: control.hovered ? 1 : 0
-            Behavior on opacity { NumberAnimation { duration: Theme.motionFast } }
+            Behavior on opacity { enabled: control.feedbackVisible && Theme.motion; SmoothedAnimation { velocity: -1; id: hoverOpacityMotion; duration: control.feedbackVisible ? Theme.motionFast : 0 } }
             color: "#1affffff"
         }
 
@@ -188,6 +193,7 @@ Button {
     // implicit sizes.
     contentItem: Item {
         id: content
+        scale: control.visualScale
 
         readonly property real iconSpan: icon.visible ? icon.width : 0
         readonly property real gap: icon.visible && label.visible ? 6 : 0

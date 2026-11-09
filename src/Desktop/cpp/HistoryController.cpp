@@ -40,19 +40,24 @@ HistoryController::HistoryController(IBackend *backend, QObject *parent)
     : QObject(parent)
     , m_backend(backend)
     , m_runs(new RunListModel(this))
+    , m_filterFacets(new HistoryFilterFacets(backend, this))
 {
-    // 历史表日期与日期筛选共享 actual/source 投影；心得模型保持自己的排序。
+    // 日期列仍按 actual/source 投影排序，筛选按用户选择的匹配时间口径查询。
     // sortBy() on the current field reverses it; the model already defaults to
     // history_date newest first (review K1-8), so only another field is changed.
     if (m_runs->sortField() != QLatin1String("history_date"))
         m_runs->sortBy(QStringLiteral("history_date"));
-    m_historyFilter.insert(QStringLiteral("date_field"), QStringLiteral("history_date"));
+    m_historyFilter.insert(QStringLiteral("date_field"), QStringLiteral("matched_at_utc"));
+    m_runs->setFilter(m_historyFilter.toVariantMap());
+    m_filterFacets->setFilter(m_historyFilter);
     m_runs->setBackend(backend);
     // The existing model borrows a raw backend pointer. Keep that borrow within
     // this workflow's backend lifetime, including independently owned models.
     connect(backend, &QObject::destroyed, this, [this] { m_runs->setBackend(nullptr); });
     connect(m_runs, &QAbstractItemModel::modelReset, this, &HistoryController::checkedRunsChanged);
+    connect(m_runs, &QAbstractItemModel::modelReset, m_filterFacets, &HistoryFilterFacets::refresh);
     connect(m_runs, &RunListModel::loadingChanged, this, &HistoryController::checkedRunsChanged);
+    connect(m_runs, &RunListModel::reloadStarted, m_filterFacets, &HistoryFilterFacets::refresh);
     connect(backend, &IBackend::connectionChanged, this, [this] {
         invalidateResultRequests();
         if (m_backend && m_backend->isConnected())
@@ -271,7 +276,9 @@ void HistoryController::refreshRunEvents()
 void HistoryController::setHistoryFilter(const QVariantMap &filter)
 {
     QJsonObject next = QJsonObject::fromVariantMap(filter);
-    next.insert(QStringLiteral("date_field"), QStringLiteral("history_date"));
+    next.insert(QStringLiteral("date_field"), QStringLiteral("matched_at_utc"));
+    next.remove(QStringLiteral("history_from_day"));
+    next.remove(QStringLiteral("history_to_day"));
     if (next == m_historyFilter)
         return;
     if (m_batchRunning) {
@@ -286,6 +293,7 @@ void HistoryController::setHistoryFilter(const QVariantMap &filter)
         return;
     }
     m_historyFilter = next;
+    m_filterFacets->setFilter(next);
     m_runs->setFilter(next.toVariantMap());
     Q_EMIT historyFilterChanged();
 }

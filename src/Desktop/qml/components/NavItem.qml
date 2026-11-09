@@ -13,6 +13,10 @@ import "Lucide.js" as Lucide
 // its left edge.
 Button {
     id: navItem
+    readonly property bool feedbackVisible: visible && (!Window.window || Window.window.visible)
+
+    Translate { id: contentShift; x: navItem.visualShift }
+
 
     property string number: ""
     property string iconName: ""
@@ -37,26 +41,18 @@ Button {
 
     // `.navi:hover` moves 2 px right, `.navi:active` scales to .97 (and drops
     // the hover shift). Both stay put under reduced motion.
-    scale: Theme.motion && navItem.down ? 0.97 : 1.0
-    transform: Translate {
-        x: Theme.motion && navItem.hovered && !navItem.down ? 2 : 0
-        Behavior on x {
-            NumberAnimation {
-                duration: Theme.motionControl
-                easing.type: Easing.Bezier
-                easing.bezierCurve: Theme.curveStandard
-            }
-        }
+    // Only painted layers move; pointer and keyboard targets remain stationary.
+    property real visualScale: Theme.motion && navItem.down ? 0.97 : 1.0
+    property real visualShift: Theme.motion && navItem.hovered && !navItem.down ? 2 : 0
+    Behavior on visualScale { enabled: navItem.feedbackVisible && Theme.motion;
+        SmoothedAnimation { id: pressMotion; velocity: -1; duration: navItem.feedbackVisible ? Theme.motionControl : 0 }
     }
-    Behavior on scale {
-        NumberAnimation {
-            duration: Theme.motionControl
-            easing.type: Easing.Bezier
-            easing.bezierCurve: Theme.curveStandard
-        }
+    Behavior on visualShift { enabled: navItem.feedbackVisible && Theme.motion;
+        SmoothedAnimation { id: hoverShiftMotion; velocity: -1; duration: navItem.feedbackVisible ? Theme.motionControl : 0 }
     }
-
     background: Rectangle {
+        scale: navItem.visualScale
+        transform: Translate { x: navItem.visualShift }
         radius: Theme.radiusS
         color: Theme.eorzea
                ? (navItem.current || !navItem.hovered
@@ -64,7 +60,7 @@ Button {
                : (navItem.current
                   ? Theme.accentMuted
                   : (navItem.hovered ? navItem.hoverColor : Theme.clear(navItem.hoverColor)))
-        Behavior on color { ColorAnimation { duration: Theme.motionControl } }
+
 
         // .navi[data-active] gradient plate
         Rectangle {
@@ -72,7 +68,7 @@ Button {
             radius: parent.radius
             visible: Theme.eorzea && opacity > 0
             opacity: navItem.current ? 1 : 0
-            Behavior on opacity { NumberAnimation { duration: Theme.motionMedium } }
+            Behavior on opacity { enabled: navItem.feedbackVisible && Theme.motion; SmoothedAnimation { velocity: -1; id: activePlateMotion; duration: navItem.feedbackVisible ? Theme.motionMedium : 0 } }
             gradient: Gradient {
                 orientation: Gradient.Horizontal
                 GradientStop { position: 0.0; color: Theme.navActiveStart }
@@ -102,6 +98,8 @@ Button {
     }
 
     contentItem: RowLayout {
+        scale: navItem.visualScale
+        transform: contentShift
         anchors.fill: parent
         anchors.leftMargin: Theme.eorzea ? 10 : 12
         anchors.rightMargin: 12

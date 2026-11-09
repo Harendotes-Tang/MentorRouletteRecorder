@@ -45,6 +45,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'ocr-runtime.ps1')
+. (Join-Path $PSScriptRoot 'qtgraphs-runtime.ps1')
 
 # Force UTF-8 so a legacy code page (e.g. GBK) does not mangle the Chinese
 # output. Failure to set it is not fatal.
@@ -189,6 +190,12 @@ foreach ($destination in $collectorDestinations) {
     foreach ($item in Get-ChildItem -LiteralPath $CollectorOutput) {
         Copy-Item -LiteralPath $item.FullName -Destination $destination -Recurse -Force
     }
+}
+
+Write-Head '核验项目专用 QtGraphs / Verify project QtGraphs runtime'
+$qtGraphsContext = Get-QtGraphsContextFromBuild -BuildDirectory $BuildDir -RepoRoot $RepoRoot
+if ($null -ne $qtGraphsContext) {
+    Install-QtGraphsRuntime -Context $qtGraphsContext -DestinationDirectory $collectorDestinations | Out-Null
 }
 
 Write-Head '部署离线 OCR / Stage offline OCR beside Desktop'

@@ -9,7 +9,7 @@ import MentorRecorder 1.0
 //
 // 写明发什么、发给谁、密钥在哪、怎么关。确认一次记在 Settings.ttsOnlineConfirmed，
 // 这台机器以后不再问；取消则保持原来的语音。
-Dialog {
+MotionDialog {
     id: dialog
     objectName: "onlineSpeechConfirmDialog"
 

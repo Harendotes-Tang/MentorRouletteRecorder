@@ -10,6 +10,9 @@ import MentorRecorder 1.0
 // select this one.
 Rectangle {
     id: root
+    readonly property bool feedbackVisible: visible && (!Window.window || Window.window.visible)
+
+
 
     property bool selected: false
     property string accessibleName: ""
@@ -29,16 +32,8 @@ Rectangle {
             return Theme.eorzea ? Theme.gold3 : Theme.neutral300
         return Theme.eorzea ? Theme.insetBorder : Theme.clear(Theme.border)
     }
-    scale: tap.pressed ? 0.98 : 1.0
+    // The pressed colour provides feedback without shrinking the input area.
 
-    Behavior on color { ColorAnimation { duration: Theme.motionFast } }
-    Behavior on scale {
-        NumberAnimation {
-            duration: Theme.motionControl
-            easing.type: Easing.Bezier
-            easing.bezierCurve: Theme.curveStandard
-        }
-    }
 
     activeFocusOnTab: true
     Accessible.role: Accessible.RadioButton

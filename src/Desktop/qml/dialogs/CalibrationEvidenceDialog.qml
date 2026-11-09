@@ -5,7 +5,7 @@ import QtQuick.Controls 6.8
 import QtQuick.Layouts
 import MentorRecorder 1.0
 
-Dialog {
+MotionDialog {
     id: dialog
     objectName: "calibrationEvidenceDialog"
     property var evidenceController: null
@@ -21,13 +21,15 @@ Dialog {
         evidenceScroll.contentY = 0
         cancelButton.forceActiveFocus(Qt.PopupFocusReason)
     }
-    onClosed: if (evidenceController && evidenceController.visible) evidenceController.dismiss()
+    // Cancel the current request at close intent; a new request during the
+    // visual exit must not be dismissed by the previous close completing.
+    onAboutToHide: if (evidenceController && evidenceController.visible) evidenceController.dismiss()
 
     Connections {
         target: dialog.evidenceController
         function onChanged() {
-            if (dialog.evidenceController.visible && !dialog.opened) dialog.open()
-            else if (!dialog.evidenceController.visible && dialog.opened) dialog.close()
+            if (dialog.evidenceController.visible && (!dialog.visible || dialog.exiting)) dialog.open()
+            else if (!dialog.evidenceController.visible && dialog.visible) dialog.close()
         }
     }
 

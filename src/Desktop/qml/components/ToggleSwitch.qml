@@ -7,6 +7,8 @@ import MentorRecorder 1.0
 // white knob.
 FocusScope {
     id: root
+    readonly property bool feedbackVisible: visible && (!Window.window || Window.window.visible)
+
 
     property string accessibleName: ""
     activeFocusOnTab: enabled
@@ -41,9 +43,6 @@ FocusScope {
         border.width: Theme.eorzea ? 1 : 0
         border.color: root.checked ? Theme.gold3 : Theme.border
 
-        Behavior on color {
-            ColorAnimation { duration: Theme.motionControl }
-        }
     }
 
     // box-shadow: 0 1px 3px rgba(0,0,0,.2) under the classic knob.
@@ -59,8 +58,9 @@ FocusScope {
 
     Rectangle {
         id: knob
+        objectName: "toggleKnob"
 
-        width: root.pressed ? root.knobSize + 4 : root.knobSize
+        width: Theme.motion && root.pressed ? root.knobSize + 4 : root.knobSize
         height: root.knobSize
         radius: Theme.eorzea ? Theme.radiusXs : height / 2
         y: (root.height - height) / 2
@@ -77,16 +77,18 @@ FocusScope {
         }
 
         // `left .2s` / `width .15s`, both on workbench's --ease.
-        Behavior on x {
-            NumberAnimation {
-                duration: Theme.motionControl
+        Behavior on x { enabled: root.feedbackVisible && Theme.motion;
+            SmoothedAnimation { id: knobPositionMotion;
+                velocity: -1
+                duration: root.feedbackVisible ? Theme.motionControl : 0
                 easing.type: Easing.Bezier
                 easing.bezierCurve: Theme.curveStandard
             }
         }
-        Behavior on width {
-            NumberAnimation {
-                duration: Math.round(Theme.motionControl * 0.75)
+        Behavior on width { enabled: root.feedbackVisible && Theme.motion;
+            SmoothedAnimation { id: knobWidthMotion;
+                velocity: -1
+                duration: root.feedbackVisible ? Math.round(Theme.motionControl * 0.75) : 0
                 easing.type: Easing.Bezier
                 easing.bezierCurve: Theme.curveStandard
             }
@@ -101,7 +103,7 @@ FocusScope {
         color: "#0a000000"
         visible: opacity > 0
         opacity: hover.hovered && root.enabled ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: Theme.motionControl } }
+        Behavior on opacity { enabled: root.feedbackVisible && Theme.motion; SmoothedAnimation { velocity: -1; id: hoverOpacityMotion; duration: root.feedbackVisible ? Theme.motionControl : 0 } }
     }
 
     HoverHandler {

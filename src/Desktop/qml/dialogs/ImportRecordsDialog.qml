@@ -6,7 +6,7 @@ import QtQuick.Layouts
 import MentorRecorder 1.0
 import "../components/Lucide.js" as Lucide
 
-Dialog {
+MotionDialog {
     id: dialog
     objectName: "importRecordsDialog"
     property var controller: typeof Runtime.importRecords !== "undefined" ? Runtime.importRecords : null
@@ -1229,13 +1229,13 @@ Dialog {
     }
     Shortcut {
         sequences: [StandardKey.Paste]
-        enabled: dialog.opened && !dialog.inputLocked && !pasteDialog.opened && !batchDialog.opened
-                 && !imageDialog.opened && !mappingDialog.opened && !templatesDialog.opened && !dialog.editorOwnsPaste()
+        enabled: dialog.opened && !dialog.inputLocked && !pasteDialog.visible && !batchDialog.visible
+                 && !imageDialog.visible && !mappingDialog.visible && !templatesDialog.visible && !dialog.editorOwnsPaste()
         onActivated: {
             dialog.flushEditors(); dialog.controller.pasteClipboard()
         }
     }
-    Dialog {
+    MotionDialog {
         id: templatesDialog
         objectName: "importTemplatesDialog"
         modal: true
@@ -1281,7 +1281,7 @@ Dialog {
         }
     }
 
-    Dialog {
+    MotionDialog {
         id: mappingDialog
         objectName: "importMappingDialog"
         modal: true
@@ -1333,7 +1333,7 @@ Dialog {
             }
         }
     }
-    Dialog {
+    MotionDialog {
         id: pasteDialog
         objectName: "importManualPasteDialog"
         modal: true; width: Math.min(640, dialog.width - 24); height: Math.min(370, dialog.height - 24)
@@ -1354,7 +1354,7 @@ Dialog {
             RowLayout { Layout.fillWidth: true; Item { Layout.fillWidth: true } AppButton { text: qsTr("取消"); onClicked: pasteDialog.close() } AppButton { text: qsTr("预览粘贴内容"); variant: "primary"; enabled: !dialog.inputLocked && pastedText.text.trim().length > 0; onClicked: { pasteDialog.close(); dialog.controller.importText(pastedText.text) } } }
         }
     }
-    Dialog {
+    MotionDialog {
         id: batchDialog
         objectName: "importBatchDialog"
         modal: true; width: Math.min(430, dialog.width - 24); padding: 18
@@ -1393,7 +1393,7 @@ Dialog {
             }
         }
     }
-    Dialog {
+    MotionDialog {
         id: imageDialog
         objectName: "importWholeImageDialog"
         property real zoom: 1

@@ -1,0 +1,15 @@
+diff --git a/src/common/utils/commonutils.cpp b/src/common/utils/commonutils.cpp
+index 15aabfb..d52431c 100644
+--- a/src/common/utils/commonutils.cpp
++++ b/src/common/utils/commonutils.cpp
+@@ -24,8 +24,8 @@ qreal CommonUtils::maxTextureSize()
+     if (!s_maxTextureSize) {
+         std::unique_ptr<QRhi> rhi;
+ #if defined(Q_OS_WIN)
+-        QRhiD3D12InitParams params;
+-        rhi.reset(QRhi::create(QRhi::D3D12, &params));
++        QRhiD3D11InitParams params;
++        rhi.reset(QRhi::create(QRhi::D3D11, &params));
+ #elif defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+         QRhiMetalInitParams params;
+         rhi.reset(QRhi::create(QRhi::Metal, &params));

@@ -6,7 +6,7 @@ import QtQuick.Layouts
 import MentorRecorder 1.0
 import "../components/Lucide.js" as Lucide
 
-Dialog {
+MotionDialog {
     id: dialog
     objectName: "releaseNotesDialog"
     property var notesController: null

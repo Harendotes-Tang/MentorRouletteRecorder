@@ -92,6 +92,8 @@ StyledTextField {
         monthView = false
         popup.open()
     }
+    // A containing popup can close this nested calendar before restoring its own focus.
+    function closeCalendar() { popup.close() }
     function shiftMonth(delta) {
         const shown = new Date(grid.year, grid.month + delta, 1)
         if (shown.getFullYear() < 100 || shown.getFullYear() > 9999) return
@@ -172,7 +174,7 @@ StyledTextField {
                     Text { text: qsTr("开始日期"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
                     StyledTextField {
                         id: fromInput
-                        objectName: "fromDateField"
+                        objectName: field.rangeMode ? "fromDateField" : ""
                         width: 138
                         placeholderText: qsTr("开始 · 年/月/日")
                         readonly property bool valid: text.length === 0 || field.parse(text) !== null
@@ -187,7 +189,7 @@ StyledTextField {
                     Text { text: qsTr("结束日期"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
                     StyledTextField {
                         id: toInput
-                        objectName: "toDateField"
+                        objectName: field.rangeMode ? "toDateField" : ""
                         width: 138
                         placeholderText: qsTr("结束 · 年/月/日")
                         readonly property bool valid: text.length === 0 || field.parse(text) !== null

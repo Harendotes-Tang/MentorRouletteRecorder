@@ -158,7 +158,9 @@ Qt 官方文档 `https://doc.qt.io/qt-6/licensing.html` 列出的 GPLv3-only 模
 | **Qt TextToSpeech** | LGPL-3.0 | 可选的本地语音播报 |
 | **Qt Multimedia** | LGPL-3.0 | 播放在线语音取回的 WAV（`QSoundEffect`）；Qt TextToSpeech 本身也依赖它。只随包提供 Windows 后端 `windowsmediaplugin`，**不随包 FFmpeg**（见下） |
 | Qt Svg | LGPL-3.0 | 图标 |
-| Qt Quick 3D / Qt ShaderTools | GPL-3.0-only / LGPL-3.0 | **本项目不使用**（避免不必要的 GPL 依赖） |
+| Qt Quick 3D / Qt ShaderTools | GPL-3.0-only / LGPL-3.0 | 不直接创建 3D 界面；QtGraphs SDK 库的传递运行依赖由部署工具按实际 DLL 导入收集 |
+
+本项目为 QtGraphs 6.11.2 的 Windows 纹理尺寸探测提供两行修补，保留原 SDK 的全部 2D/3D 功能与导出符号。专用 DLL 的原始对应源码包、补丁、固定哈希、GPL-3.0-only 正文及重建说明随包放在 `docs/licenses/qtgraphs/`，系统 Qt SDK 不被修改。
 
 Qt 的整体许可说明：`https://www.qt.io/licensing/`、`https://doc.qt.io/qt-6/licensing.html`。
 
