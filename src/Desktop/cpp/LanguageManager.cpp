@@ -9,6 +9,7 @@
 #include <QGuiApplication>
 #include <QLocale>
 #include <QQmlEngine>
+#include <QSettings>
 #include <QTranslator>
 #include <QVariantMap>
 
@@ -152,14 +153,23 @@ QString LanguageManager::displayFamily(const QString &code) const
     return QGuiApplication::font().family();
 }
 
-void LanguageManager::initialize(const QString &pinnedCode)
+void LanguageManager::initialize(const QString &pinnedCode,
+                                 const QString &installerDefaultsPath)
 {
     QString code;
     if (!pinnedCode.isEmpty() && isSupported(pinnedCode)) {
         m_pinned = true;
         code = pinnedCode;
     } else if (m_settings) {
-        code = m_settings->value(QString::fromLatin1(kSettingsKey), defaultCode());
+        code = m_settings->value(QString::fromLatin1(kSettingsKey), QString());
+        if (code.isEmpty() && !installerDefaultsPath.isEmpty()) {
+            QSettings defaults(installerDefaultsPath, QSettings::IniFormat);
+            const QString installedCode = defaults.value(QStringLiteral("Installer/Language")).toString();
+            if (defaults.status() == QSettings::NoError && isSupported(installedCode)) {
+                code = installedCode;
+                m_settings->setValue(QString::fromLatin1(kSettingsKey), code);
+            }
+        }
     }
     if (!isSupported(code))
         code = defaultCode();

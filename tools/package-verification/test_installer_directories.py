@@ -549,5 +549,50 @@ class EarlierInstallationTests(unittest.TestCase):
         self.assertTrue(value)
 
 
+class InstallerLanguageTests(unittest.TestCase):
+    def test_interactive_language_choice_defaults_to_simplified_even_on_upgrade(self):
+        sections = installer_sections()
+        setup = dict(line.split("=", 1) for line in sections["setup"] if "=" in line)
+        self.assertEqual("yes", setup["ShowLanguageDialog"].strip())
+        self.assertEqual("none", setup["LanguageDetectionMethod"].strip())
+        self.assertEqual("no", setup["UsePreviousLanguage"].strip())
+        names = [re.search(r'Name:\s*"([^"]+)"', line).group(1)
+                 for line in sections["languages"]]
+        self.assertEqual(["chinesesimplified", "chinesetraditional", "english", "japanese"], names)
+
+    def test_language_default_is_machine_local_and_removed_on_uninstall(self):
+        sections = installer_sections()
+        self.assertEqual(1, len(sections["ini"]))
+        entry = sections["ini"][0]
+        self.assertIn('Filename: "{app}\\installer-language.ini"', entry)
+        self.assertIn('Section: "Installer"; Key: "Language"', entry)
+        self.assertIn('String: "{code:SelectedApplicationLanguage}"', entry)
+        self.assertIn('Type: files; Name: "{app}\\installer-language.ini"',
+                      sections["uninstalldelete"])
+        code = routine(pascal_code(), "SelectedApplicationLanguage")
+        for language, app_code in (("chinesetraditional", "zh-TW"),
+                                   ("english", "en"), ("japanese", "ja")):
+            self.assertRegex(code, rf"ActiveLanguage = '{language}' then\s*"
+                                   rf"Result := '{app_code}'")
+        self.assertRegex(code, r"else\s*Result := 'zh-CN'")
+
+    def test_all_custom_messages_have_translations_and_matching_placeholders(self):
+        messages = custom_messages()
+        expected = {key.split(".", 1)[1]: value for key, value in messages.items()
+                    if key.startswith("english.")}
+        self.assertGreaterEqual(len(expected), 21)
+        for language in ("chinesesimplified", "chinesetraditional", "english", "japanese"):
+            translated = {key.split(".", 1)[1]: value for key, value in messages.items()
+                          if key.startswith(language + ".")}
+            self.assertEqual(expected.keys(), translated.keys(), language)
+            for key, source in expected.items():
+                with self.subTest(language=language, key=key):
+                    self.assertTrue(translated[key].strip())
+                    normalise = lambda text: text.replace("{#AppNameEn}", "{#AppName}")
+                    tokens = lambda text: sorted(token.rstrip(".") for token in re.findall(
+                        r"%[0-9n]|\{#[^}]+\}|https://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+",
+                        normalise(text)))
+                    self.assertEqual(tokens(source), tokens(translated[key]))
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

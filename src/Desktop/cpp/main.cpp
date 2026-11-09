@@ -875,6 +875,16 @@ int main(int argc, char *argv[])
     if (mr::AppSettings::isHarnessRun(screenshotMode, selectedBackend))
         QStandardPaths::setTestModeEnabled(true);
 
+    // Snapshot before any controller can create desktop.ini: an older settings file
+    // without ui/language already means Simplified Chinese and must survive upgrades.
+    // Setup writes only the machine-local default; each user persists their own choice.
+    const bool hadUserSettings = QFileInfo::exists(mr::AppSettings::filePath());
+    const QString installerDefaultsPath = !mr::build::isDevelopmentBuild()
+            && !mr::AppSettings::isHarnessRun(screenshotMode, selectedBackend)
+            && !hadUserSettings
+        ? QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("installer-language.ini"))
+        : QString();
+
     // 设置先于控制器和 QML 引擎创建，确保它们销毁时设置对象仍然存活。
     mr::AppSettings settings;
     mr::ReleaseNotesController releaseNotes(&settings);
@@ -888,7 +898,7 @@ int main(int argc, char *argv[])
         return 2;
     }
     mr::LanguageManager language(&settings);
-    language.initialize(uiLanguage);
+    language.initialize(uiLanguage, installerDefaultsPath);
 
     const QString mockLiveMode = parser.value(liveOption);
     if (selectedBackend == QLatin1String("mock")

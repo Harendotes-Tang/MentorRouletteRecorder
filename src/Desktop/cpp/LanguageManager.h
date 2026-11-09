@@ -81,8 +81,12 @@ public:
     bool pinned() const { return m_pinned; }
 
     /// Apply the persisted language (or \a pinnedCode, without persisting it).
+    /// A nonempty \a installerDefaultsPath is allowed only for a normal distribution
+    /// first run without an existing settings file. Its supported Installer/Language
+    /// value seeds ui/language once; missing or invalid defaults keep Simplified Chinese.
     /// Call once after QApplication exists and before any controller builds text.
-    void initialize(const QString &pinnedCode = QString());
+    void initialize(const QString &pinnedCode = QString(),
+                    const QString &installerDefaultsPath = QString());
     /// The engine whose bindings are re-evaluated on a switch.
     void attachEngine(QQmlEngine *engine);
 

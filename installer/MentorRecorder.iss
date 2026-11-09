@@ -1,4 +1,4 @@
-﻿; MentorRecorder / 导随记录器 — Inno Setup script.
+; MentorRecorder / 导随记录器 — Inno Setup script.
 ;
 ; Built by scripts/package.ps1 (which passes AppVersion, StageDir and OutputDir) or by
 ; hand:  ISCC.exe /DAppVersion=<version> installer\MentorRecorder.iss   (no default exists)
@@ -102,8 +102,8 @@ LicenseFile={#StageDir}\LICENSE
 CloseApplications=yes
 RestartApplications=no
 MinVersion=10.0
-ShowLanguageDialog=no
-; Use Chinese by default on every Windows locale and after an English install.
+ShowLanguageDialog=yes
+; Always offer the chooser for interactive installs and upgrades; default to Simplified Chinese.
 ; An explicitly supplied /LANG can still choose a registered language.
 LanguageDetectionMethod=none
 UsePreviousLanguage=no
@@ -114,7 +114,9 @@ VersionInfoCopyright=GPL-3.0-or-later
 
 [Languages]
 Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
+Name: "chinesetraditional"; MessagesFile: "ChineseTraditional.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
 
 [CustomMessages]
 chinesesimplified.NpcapPageTitle=需要安装 Npcap
@@ -160,8 +162,60 @@ english.Arm64Windows10=This is Windows 10 on an ARM processor.%n%n{#AppNameEn} i
 english.Arm64Notice=This is Windows 11 on an ARM processor.%n%n{#AppNameEn} is a 64-bit x86 application and will run through the system's x64 emulation. The interface and manual records work; capturing through Npcap has not been verified on ARM devices.
 english.MediaFoundationMissing=This Windows has no Media Foundation (usually an "N" edition).%n%nThe application installs and records normally, but voice announcements will be silent. To hear them, install the "Media Feature Pack" under Settings > Apps > Optional features.
 
+chinesetraditional.NpcapPageTitle=需要安裝 Npcap
+chinesetraditional.NpcapPageSubtitle=本軟體透過 Npcap 被動讀取網路介面上的遊戲流量
+chinesetraditional.NpcapPageText=偵測到這台電腦尚未安裝 Npcap。%n%nNpcap 的免費授權不允許隨本軟體一併散布，因此安裝程式會從官方網站 npcap.com 下載 Npcap {#NpcapVersion} 的官方安裝程式（已驗證 SHA-256）並啟動它。%n%n請在 Npcap 安裝精靈中保留預設選項，尤其要勾選「Install Npcap in WinPcap API-compatible Mode」，完成後回到這裡繼續。%n%n如果想稍後手動安裝，也可以隨時從 https://npcap.com 下載。
+chinesetraditional.NpcapDownloadFailed=下載 Npcap 失敗：%1%n%n安裝會繼續，但在您手動安裝 Npcap 之前，軟體無法擷取封包。請至 https://npcap.com 下載並安裝。
+chinesetraditional.NpcapStillMissing=Npcap 仍未安裝。軟體已經安裝完成，但在安裝 Npcap 之前無法擷取封包。請至 https://npcap.com 下載並安裝。
+chinesetraditional.RemoveUserData=是否同時刪除這台電腦上的記錄資料（%1）？%n%n選擇「否」會保留您的導隨記錄、備份和設定，以便重新安裝後繼續使用。%n%n備註圖片不包含在內：它們儲存在安裝資料夾的「%2」中，無論選擇哪一項都會保留。如果不再需要，請在解除安裝完成後手動刪除該資料夾。
+chinesetraditional.InstallDirIsLink=選取的安裝資料夾「%1」是一個連結（接合點或符號連結），實際指向其他位置的資料夾。%n%n為避免將程式檔案安裝至連結指向的位置，或變更該位置的存取權限，請選擇一般資料夾。
+chinesetraditional.InstallDirNotEmpty=選取的資料夾「%1」中已有其他檔案。%n%n為避免程式檔案遭到竄改，安裝程式會將安裝資料夾設為僅系統管理員可以修改，其他使用者只能讀取和執行；其中原有的檔案也會套用相同權限。請選擇新的或空白的資料夾。
+chinesetraditional.InstallDirIsDriveRoot=無法將軟體直接安裝至整個磁碟機的根目錄（「%1」）。%n%n磁碟機根目錄通常允許這台電腦上的所有使用者在其中建立及重新命名資料夾，安裝程式無法像保護一般資料夾一樣保護它。請選擇該磁碟機上的子資料夾（例如 D:\MentorRecorder），而非磁碟機根目錄本身。
+chinesetraditional.InstallDirCreateFailed=無法建立安裝資料夾「%1」，安裝已停止。請重新執行安裝程式並選擇其他位置。
+chinesetraditional.InstallDirProtectFailed=無法設定安裝資料夾「%1」的存取權限（錯誤碼 %2），安裝已停止。%n%n安裝程式必須將該資料夾設為僅系統管理員可以修改，否則這台電腦上的其他使用者可以竄改程式檔案。該位置可能不在本機的 NTFS 磁碟上（例如隨身碟、FAT32 或 exFAT 分割區、網路位置）。請重新執行安裝程式，選擇本機 NTFS 磁碟上的資料夾。
+chinesetraditional.InstallDirFileIsLink=安裝資料夾中的檔案「%1」是指向其他位置檔案的連結（硬式連結或符號連結），或安裝程式無法確認它不是連結，因此安裝已停止。%n%n安裝程式會將安裝資料夾中原有的檔案設為僅系統管理員可以修改；如果此檔案是連結，這項變更就會影響與它連結的另一個檔案。請刪除此檔案（若它是連結，與它連結的檔案不受影響），然後重新執行安裝程式。
+chinesetraditional.InstallDirUnknownFolder=安裝資料夾中的「%1」不是本軟體的資料夾，安裝已停止。%n%n程式執行時可能會從安裝資料夾內的子資料夾載入元件。這個資料夾可能是其他人在安裝前放入的，安裝程式無法確認其中的內容是否安全，也不會自行刪除。如果您不認識它，請將它刪除；如果其中有您自己的檔案，請將它移至其他位置。然後重新執行安裝程式。
+chinesetraditional.InstallDirFolderNotRemoved=無法刪除安裝資料夾中的「%1」，安裝已停止。%n%n安裝程式必須先刪除此資料夾，再放入新版本的檔案。刪除失敗的原因可能是本軟體仍在執行，也可能是其他人在安裝前建立了此資料夾，並禁止刪除。程式執行時會使用此資料夾中的內容，因此安裝程式不會將檔案放入無法刪除的資料夾。%n%n請關閉本軟體後重新執行安裝程式。如果仍停在這裡，請刪除此資料夾（若提示沒有權限，請先在「內容 → 安全性 → 進階」中將擁有者改為自己），然後重新執行安裝程式。
+chinesetraditional.NoteImagesIsLink=安裝資料夾中的「%1」是一個連結（接合點或符號連結），而非一般資料夾，安裝已停止。%n%n安裝程式會允許這台電腦上的所有使用者在此資料夾中儲存備註圖片；如果它是連結，這項寫入權限就會套用到連結指向的位置。請刪除此連結（連結指向的資料夾不受影響），然後重新執行安裝程式。
+chinesetraditional.NoteImagesGrantFailed=無法設定安裝資料夾中「%1」的存取權限（錯誤碼 %2），安裝已停止。%n%n此資料夾用來儲存備註圖片，安裝程式必須允許這台電腦上的所有使用者在其中儲存及刪除圖片，但設定失敗。請重新執行安裝程式。
+chinesetraditional.LaunchAfterInstall=啟動 {#AppName}
+chinesetraditional.WindowsTooOld=這台電腦的 Windows 版本太舊（%1）。%n%n{#AppName} 需要 {#MinWindowsName}（組建 {#MinWindowsBuild}）或更新的 64 位元 Windows 10 / Windows 11。請先透過 Windows Update 更新系統，再執行此安裝程式。
+chinesetraditional.Arm64Windows10=這台電腦使用 ARM 處理器上的 Windows 10。%n%n{#AppName} 是 64 位元 x86 程式，Windows 10 on ARM 無法執行；需要 Windows 11 on ARM 或 x64 電腦。
+chinesetraditional.Arm64Notice=這台電腦使用 ARM 處理器上的 Windows 11。%n%n{#AppName} 是 64 位元 x86 程式，將透過系統的 x64 模擬執行；介面與手動記錄可用，但透過 Npcap 擷取封包尚未在 ARM 裝置上驗證。
+chinesetraditional.MediaFoundationMissing=這台電腦的 Windows 沒有 Media Foundation（通常是「N」版本）。%n%n軟體可以正常安裝及記錄，但語音播報不會發出聲音。若需要播報，請在「設定 → 應用程式 → 選用功能」中安裝「媒體功能套件（Media Feature Pack）」。
+japanese.NpcapPageTitle=Npcap のインストールが必要です
+japanese.NpcapPageSubtitle=このソフトウェアは Npcap を通じてゲームの通信を受動的に読み取ります
+japanese.NpcapPageText=このコンピューターには Npcap がインストールされていません。%n%nNpcap の無料ライセンスでは本ソフトウェアへの同梱が認められていないため、セットアップは公式サイト npcap.com から Npcap {#NpcapVersion} の公式インストーラー（SHA-256 検証済み）をダウンロードして起動します。%n%nNpcap のセットアップでは既定の設定を維持し、特に「Install Npcap in WinPcap API-compatible Mode」を有効にしてください。完了したら、この画面に戻って続行してください。%n%n後で手動でインストールする場合も、https://npcap.com からダウンロードできます。
+japanese.NpcapDownloadFailed=Npcap のダウンロードに失敗しました：%1%n%nセットアップは続行しますが、Npcap を手動でインストールするまではパケットをキャプチャできません。https://npcap.com からダウンロードしてインストールしてください。
+japanese.NpcapStillMissing=Npcap がまだインストールされていません。本ソフトウェアのインストールは完了しましたが、Npcap をインストールするまではパケットをキャプチャできません。https://npcap.com からダウンロードしてインストールしてください。
+japanese.RemoveUserData=このコンピューターの記録データ（%1）も削除しますか？%n%n「いいえ」を選ぶと、記録、バックアップ、設定が保持され、再インストール後も引き続き使用できます。%n%nメモ画像はこのデータに含まれません。どちらを選んでも、インストールフォルダー内の「%2」に保持されます。不要になった場合は、アンインストール完了後にそのフォルダーを手動で削除してください。
+japanese.InstallDirIsLink=選択したインストールフォルダー「%1」は、別の場所にあるフォルダーへのリンク（ジャンクションまたはシンボリックリンク）です。%n%nリンク先にプログラムファイルをインストールしたり、リンク先のアクセス権を変更したりしないよう、通常のフォルダーを選択してください。
+japanese.InstallDirNotEmpty=選択したフォルダー「%1」には、すでに他のファイルが存在します。%n%nプログラムファイルの改ざんを防ぐため、セットアップはインストールフォルダーを管理者のみが変更できるようにし、他のユーザーには読み取りと実行のみを許可します。この権限は、すでに存在するファイルにも適用されます。新しいフォルダーまたは空のフォルダーを選択してください。
+japanese.InstallDirIsDriveRoot=ドライブ全体のルートディレクトリ（「%1」）には直接インストールできません。%n%nドライブのルートでは通常、このコンピューターのすべてのユーザーがフォルダーの作成や名前の変更を行えるため、セットアップは通常のフォルダーと同じように保護できません。ドライブのルート自体ではなく、その下のサブフォルダー（例：D:\MentorRecorder）を選択してください。
+japanese.InstallDirCreateFailed=インストールフォルダー「%1」を作成できなかったため、セットアップを停止しました。セットアップを再実行し、別の場所を選択してください。
+japanese.InstallDirProtectFailed=インストールフォルダー「%1」のアクセス権を設定できなかったため（エラーコード %2）、セットアップを停止しました。%n%nこのフォルダーは管理者のみが変更できるようにする必要があります。そうしないと、このコンピューターの他のユーザーがプログラムファイルを改ざんできます。指定した場所は、ローカルの NTFS ディスク上にない可能性があります（例：USB ドライブ、FAT32 または exFAT パーティション、ネットワーク上の場所）。セットアップを再実行し、ローカルの NTFS ディスク上のフォルダーを選択してください。
+japanese.InstallDirFileIsLink=インストールフォルダー内のファイル「%1」が、別の場所にあるファイルへのリンク（ハードリンクまたはシンボリックリンク）であるか、リンクではないことを確認できなかったため、セットアップを停止しました。%n%nセットアップは、インストールフォルダーにすでに存在するファイルを管理者のみが変更できるようにします。このファイルがリンクの場合、その変更はリンクでつながった別のファイルにも及びます。このファイルを削除してから（リンクの場合、リンクでつながったファイルには影響しません）、セットアップを再実行してください。
+japanese.InstallDirUnknownFolder=インストールフォルダー内の「%1」は本ソフトウェアのフォルダーではないため、セットアップを停止しました。%n%nプログラムは、インストールフォルダー内のサブフォルダーからコンポーネントを読み込む場合があります。このフォルダーはセットアップの実行前に他の人が置いた可能性があり、セットアップでは内容の安全性を確認できません。また、自動では削除しません。見覚えがなければ削除し、ご自身のファイルが入っている場合は別の場所に移動してください。その後、セットアップを再実行してください。
+japanese.InstallDirFolderNotRemoved=インストールフォルダー内の「%1」を削除できなかったため、セットアップを停止しました。%n%nセットアップは、このフォルダーを削除してから新しいバージョンのファイルを配置します。削除できない原因として、本ソフトウェアがまだ動作しているか、セットアップの実行前に他の人がこのフォルダーを作成し、削除を禁止したことが考えられます。プログラムはこのフォルダーの内容を使用するため、セットアップは削除できないフォルダーにはファイルを配置しません。%n%n本ソフトウェアを終了してからセットアップを再実行してください。それでもこの画面で停止する場合は、このフォルダーを削除してからセットアップを再実行してください。アクセス権がないと表示される場合は、先に「プロパティ → セキュリティ → 詳細設定」で所有者をご自身に変更してください。
+japanese.NoteImagesIsLink=インストールフォルダー内の「%1」は、通常のフォルダーではなくリンク（ジャンクションまたはシンボリックリンク）であるため、セットアップを停止しました。%n%nセットアップは、このコンピューターのすべてのユーザーがこのフォルダーにメモ画像を保存できるようにします。リンクの場合、その書き込み権限はリンク先に適用されます。このリンクを削除してから（リンク先のフォルダーには影響しません）、セットアップを再実行してください。
+japanese.NoteImagesGrantFailed=インストールフォルダー内の「%1」のアクセス権を設定できなかったため（エラーコード %2）、セットアップを停止しました。%n%nこのフォルダーはメモ画像の保存に使用します。セットアップは、このコンピューターのすべてのユーザーに画像の保存と削除を許可する必要がありますが、設定できませんでした。セットアップを再実行してください。
+japanese.LaunchAfterInstall={#AppNameEn} を起動する
+japanese.WindowsTooOld=このコンピューターの Windows は古いバージョンです（%1）。%n%n{#AppNameEn} には、{#MinWindowsName}（ビルド {#MinWindowsBuild}）以降の 64 ビット版 Windows 10 / Windows 11 が必要です。Windows Update でシステムを更新してから、セットアップを再実行してください。
+japanese.Arm64Windows10=このコンピューターは ARM プロセッサー搭載の Windows 10 です。%n%n{#AppNameEn} は 64 ビットの x86 アプリケーションであり、Windows 10 on ARM では実行できません。Windows 11 on ARM または x64 PC が必要です。
+japanese.Arm64Notice=このコンピューターは ARM プロセッサー搭載の Windows 11 です。%n%n{#AppNameEn} は 64 ビットの x86 アプリケーションであり、システムの x64 エミュレーションで動作します。画面の操作と手動記録は利用できますが、Npcap によるパケットキャプチャは ARM デバイスで検証されていません。
+japanese.MediaFoundationMissing=このコンピューターの Windows には Media Foundation がありません（通常は「N」エディション）。%n%nソフトウェアのインストールと記録は通常どおり行えますが、音声読み上げでは音が出ません。読み上げを利用する場合は、「設定 → アプリ → オプション機能」から「メディア機能パック（Media Feature Pack）」をインストールしてください。
+
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+
+[INI]
+; A machine-local default only. The Desktop reads it on the first normal launch
+; without an existing per-user settings file; upgrades never reset that user's choice.
+; Do not write desktop.ini from an elevated installer (the account may be different).
+Filename: "{app}\installer-language.ini"; Section: "Installer"; Key: "Language"; String: "{code:SelectedApplicationLanguage}"
+
+[UninstallDelete]
+Type: files; Name: "{app}\installer-language.ini"
 
 [InstallDelete]
 ; Every directory below is filled with loose files by the staging step, so an upgrade
@@ -1043,6 +1097,18 @@ end;
 
 { Minimum requirements, checked before any page is shown. Each refusal names the
   requirement that is not met; each warning says what will not work and continues. }
+function SelectedApplicationLanguage(Param: String): String;
+begin
+  if ActiveLanguage = 'chinesetraditional' then
+    Result := 'zh-TW'
+  else if ActiveLanguage = 'english' then
+    Result := 'en'
+  else if ActiveLanguage = 'japanese' then
+    Result := 'ja'
+  else
+    Result := 'zh-CN';
+end;
+
 function InitializeSetup(): Boolean;
 var
   Version: TWindowsVersion;

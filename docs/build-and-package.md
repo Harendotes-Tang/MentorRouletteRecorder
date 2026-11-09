@@ -942,7 +942,10 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
   其他账户中的启动项，包括以另一位管理员的凭据提升卸载程序时用户自己账户中的启动项，都不会被删除。
   「开机启动」设置随其余数据保留，以后的安装在该设置为开时启动一次即重新登记。安装程序本身从不写入该值。
   手动删除程序文件夹不会删除该启动项。
-- 中文界面来自 `installer/ChineseSimplified.isl`（Inno Setup 官方仓库的用户贡献翻译）。
+- 安装与升级均显示语言选择，提供简体中文、繁體中文、English、日本語，默认简体中文；显式 `/LANG` 和静默参数仍遵循 Inno Setup 原有规则。
+  简体、繁体中文标准向导文本分别来自本地 `installer/ChineseSimplified.isl`、`installer/ChineseTraditional.isl`，英文与日文使用 Inno Setup 内置翻译。
+  安装器在程序文件夹写入 `installer-language.ini`，不直接写用户的 `desktop.ini`。正式软件仅在首次正常启动、尚无个人设置文件时读取它并保存语言；升级保留已有软件语言，之后仍可在设置中切换。
+  开发构建、截图与 mock 运行以及显式 `--ui-language` 不使用此默认值；无默认文件的 ZIP 包维持原有简体中文默认。
 
 ### 5.4 GitCode 镜像
 
