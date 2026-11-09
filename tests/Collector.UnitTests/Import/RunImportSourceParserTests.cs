@@ -279,6 +279,22 @@ public sealed class RunImportSourceParserTests : IDisposable
     }
 
     [Fact]
+    public void Xlsx_EmptySheetHasNoRowsAndOverwideRowsRemainErrors()
+    {
+        Assert.Empty(RunImportSourceParser.Parse("XLSX", WriteWorkbook("<worksheet><sheetData/></worksheet>")));
+        var worksheet = """
+            <worksheet><sheetData>
+            <row r="1"><c r="A1" t="inlineStr"><is><t>副本</t></is></c></row>
+            <row r="5"><c r="A5" t="inlineStr"><is><t>过宽</t></is></c><c r="B5"><v>1</v></c></row>
+            </sheetData></worksheet>
+            """;
+        var row = Assert.Single(RunImportSourceParser.Parse("XLSX", WriteWorkbook(worksheet)));
+        Assert.Equal(5, row.RowNumber);
+        Assert.Equal("过宽", Text(row, "duty_name"));
+        Assert.NotEmpty(row.Errors);
+    }
+
+    [Fact]
     public void Xlsx_ResolvesWorkbookRelationshipAnd1904DateSystem()
     {
         var worksheet = """

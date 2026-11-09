@@ -1,4 +1,5 @@
 #include "RunCompletionCoordinator.h"
+#include "UtcTimestamp.h"
 
 #include <QCoreApplication>
 #include <QSignalSpy>
@@ -79,9 +80,32 @@ private Q_SLOTS:
     void replayAndRepeatedCompletionDoNotSpeakAgain();
     void scopeResetDropsOldDeferredPrompt();
     void manualCompletionNeverOffersReflectionWork();
+    void wireTimestampsPreserveTimezoneMeaning();
+    void wireTimestampsRejectNonStringJson();
 };
 
 } // namespace
+
+void RunCompletionCoordinatorTests::wireTimestampsPreserveTimezoneMeaning()
+{
+    const QDateTime utc(QDate(2026, 11, 9), QTime(2, 3, 4, 123), QTimeZone::UTC);
+    QCOMPARE(mr::parseUtcTimestamp(QStringLiteral("2026-11-09T02:03:04.123")), utc);
+    QCOMPARE(mr::parseUtcTimestamp(QStringLiteral("2026-11-09T02:03:04.123Z")), utc);
+    const QDateTime offset = mr::parseUtcTimestamp(QStringLiteral("2026-11-09T10:03:04.123+08:00"));
+    QCOMPARE(offset.toUTC(), utc);
+    QCOMPARE(offset.offsetFromUtc(), 8 * 60 * 60);
+    QCOMPARE(mr::parseUtcTimestamp(QStringLiteral("2026-11-09T02:03:04")).timeSpec(), Qt::UTC);
+    QVERIFY(!mr::parseUtcTimestamp(QStringLiteral("invalid")).isValid());
+    QVERIFY(!mr::parseUtcTimestamp(QString()).isValid());
+}
+
+void RunCompletionCoordinatorTests::wireTimestampsRejectNonStringJson()
+{
+    for (const QJsonValue &value : {QJsonValue(), QJsonValue(true), QJsonValue(20261109)})
+        QVERIFY(!mr::parseUtcTimestamp(value).isValid());
+    QCOMPARE(mr::parseUtcTimestamp(QJsonValue(QStringLiteral("2026-11-09T02:03:04Z"))),
+             mr::parseUtcTimestamp(QStringLiteral("2026-11-09T02:03:04Z")));
+}
 
 void RunCompletionCoordinatorTests::manualCompletionNeverOffersReflectionWork()
 {

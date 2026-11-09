@@ -88,7 +88,9 @@ QtObject {
     // ----------------------------------------------------------- 字体 --
     // Classic headings use the application (body) font; an empty family name
     // would make Qt fall back to a serif face on Windows.
-    readonly property string bodyFamily: Application.font.family
+    readonly property string bodyFamily: typeof Runtime.lang !== "undefined" && Runtime.lang
+        && typeof Runtime.lang.fontFamily === "string" && Runtime.lang.fontFamily.length > 0
+        ? Runtime.lang.fontFamily : Application.font.family
     // Harendotes sets headings and big figures in Song (Noto Serif SC), Latin
     // included; eorzea keeps Cinzel for Latin and figures.
     readonly property string headingFamily: eorzea

@@ -107,13 +107,105 @@ private Q_SLOTS:
         QGuiApplication::clipboard()->clear();
     }
 
-    void longTextPasteAndKeyboardKeepCursorInViewport()
+    void editingSessionKeepsNoteSemanticsWithoutVisualControls()
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData("import MentorRecorder 1.0\nReflectionEditSession {}", QUrl());
+        std::unique_ptr<QObject> session(component.create());
+        QVERIFY2(session, qPrintable(component.errorString()));
+        QVERIFY(!qobject_cast<QQuickItem *>(session.get()));
+        QString expressionError;
+        const auto evaluate = [&](const QString &source) {
+            QQmlExpression expression(qmlContext(session.get()), session.get(), source);
+            const QVariant value = expression.evaluate();
+            if (expression.hasError())
+                expressionError = expression.error().toString();
+            return value;
+        };
+
+        QCOMPARE(evaluate(QStringLiteral("noteToSave(false)")).toString(), QString());
+        QCOMPARE(evaluate(QStringLiteral("noteToSave(true)")).toString(), QStringLiteral("顺利"));
+        session->setProperty("baselineText", QStringLiteral("顺利"));
+        session->setProperty("baselineMood", QStringLiteral("good"));
+        QVERIFY(QMetaObject::invokeMethod(session.get(), "showNote",
+                                         Q_ARG(QVariant, QVariant(QStringLiteral("顺利"))),
+                                         Q_ARG(QVariant, QVariant(QStringLiteral("Good")))));
+        QCOMPARE(session->property("text").toString(), QStringLiteral("Good"));
+        QCOMPARE(evaluate(QStringLiteral("noteToSave(false)")).toString(), QStringLiteral("顺利"));
+        // The label captured when the note was shown remains authoritative even
+        // after the interface language changes; changing mood updates its source word.
+        session->setProperty("mood", QStringLiteral("bad"));
+        QCOMPARE(evaluate(QStringLiteral("noteToSave(false)")).toString(), QStringLiteral("糟心"));
+        session->setProperty("text", QString());
+        QCOMPARE(evaluate(QStringLiteral("noteToSave(true)")).toString(), QString());
+        session->setProperty("text", QStringLiteral("  player text  "));
+        QCOMPARE(evaluate(QStringLiteral("noteToSave(false)")).toString(), QStringLiteral("player text"));
+        session->setProperty("submitting", true);
+        session->setProperty("submittedDraftToken", QStringLiteral("draft-token"));
+        session->setProperty("submittedNote", QStringLiteral("player text"));
+        QVERIFY(session->property("busy").toBool());
+        QCOMPARE(session->property("submittedDraftToken").toString(), QStringLiteral("draft-token"));
+        QCOMPARE(session->property("submittedNote").toString(), QStringLiteral("player text"));
+        QVERIFY2(expressionError.isEmpty(), qPrintable(expressionError));
+    }
+
+    void fullAndCompactViewsShareSessionTextAcrossCreationAndDestruction()
     {
         DialogFixture fixture;
         QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        auto *session = fixture.dialog()->property("editSession").value<QObject *>();
+        QVERIFY(session);
+        QVERIFY(session->setProperty("text", QStringLiteral("written before any additional view")));
+        QQmlComponent component(&fixture.engine);
+        component.setData("import MentorRecorder 1.0\nReflectionEditorContent {}", QUrl());
+        QQmlComponent compactComponent(&fixture.engine);
+        compactComponent.setData("import MentorRecorder 1.0\nResultPopupContent {}", QUrl());
+        const QVariantMap properties{{QStringLiteral("dialog"), QVariant::fromValue(fixture.dialog())}};
+        std::unique_ptr<QObject> first(component.createWithInitialProperties(properties));
+        std::unique_ptr<QObject> second(compactComponent.createWithInitialProperties(properties));
+        QVERIFY2(first, qPrintable(component.errorString()));
+        QVERIFY2(second, qPrintable(compactComponent.errorString()));
+        auto *firstArea = first->property("noteEditor").value<QObject *>();
+        auto *secondArea = second->findChild<QObject *>(QStringLiteral("reflectionTextArea"));
+        QVERIFY(firstArea && secondArea);
+        QCOMPARE(firstArea->property("text").toString(), session->property("text").toString());
+        QCOMPARE(secondArea->property("text").toString(), session->property("text").toString());
+        QVERIFY(firstArea->setProperty("text", QStringLiteral("typed in first view")));
+        QTRY_COMPARE(session->property("text").toString(), QStringLiteral("typed in first view"));
+        QTRY_COMPARE(secondArea->property("text").toString(), QStringLiteral("typed in first view"));
+        first.reset();
+        QVERIFY(secondArea->setProperty("text", QStringLiteral("kept after first view closes")));
+        QTRY_COMPARE(session->property("text").toString(), QStringLiteral("kept after first view closes"));
+        second.reset();
+        QCOMPARE(session->property("text").toString(), QStringLiteral("kept after first view closes"));
+        std::unique_ptr<QObject> reopened(compactComponent.createWithInitialProperties(properties));
+        QVERIFY2(reopened, qPrintable(compactComponent.errorString()));
+        auto *reopenedArea = reopened->findChild<QObject *>(QStringLiteral("reflectionTextArea"));
+        QVERIFY(reopenedArea);
+        QCOMPARE(reopenedArea->property("text").toString(), session->property("text").toString());
+    }
+
+    void longTextPasteAndKeyboardKeepCursorInViewport_data()
+    {
+        QTest::addColumn<bool>("standalone");
+        QTest::newRow("main-window") << false;
+        QTest::newRow("popup") << true;
+    }
+
+    void longTextPasteAndKeyboardKeepCursorInViewport()
+    {
+        QFETCH(bool, standalone);
+        DialogFixture fixture;
+        QVERIFY2(fixture.create(), qPrintable(fixture.errors));
+        fixture.dialog()->setProperty("standalone", standalone);
         QVERIFY(fixture.openForRun(finishedRun(kImageRunId(), QStringLiteral("水晶塔"), 3), QString()));
         QVERIFY(QTest::qWaitForWindowExposed(fixture.window()));
         QTRY_VERIFY(fixture.dialog()->property("opened").toBool());
+        if (standalone)
+            fixture.root->setProperty("visible", false);
+        fixture.window()->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(fixture.window()));
         auto *area = qobject_cast<QQuickItem *>(fixture.textArea());
         QVERIFY(area);
         QString text;
@@ -144,9 +236,17 @@ private Q_SLOTS:
         QTest::keyClick(fixture.window(), Qt::Key_X);
         QTRY_COMPARE(fixture.note(), text + QStringLiteral("x"));
         QTRY_VERIFY(cursorVisible());
+        if (standalone)
+            QTRY_COMPARE(fixture.window()->height(), qRound(fixture.dialog()->property("implicitHeight").toReal()));
+        if (standalone) {
+            auto *finish = fixture.dialog()->findChild<QQuickItem *>(QStringLiteral("saveReflectionButton"));
+            QVERIFY(finish);
+            QTRY_VERIFY(QRectF(QPointF(), fixture.window()->size()).contains(
+                finish->mapRectToScene(finish->boundingRect())));
+        }
         const QString screenshot = qEnvironmentVariable("MR_LONG_REFLECTION_SCREENSHOT");
         if (!screenshot.isEmpty())
-            QVERIFY(fixture.window()->grabWindow().save(screenshot));
+            QVERIFY(fixture.window()->grabWindow().save(screenshot + (standalone ? "-popup.png" : "-main.png")));
     }
 
     void completedDutyPopupAcceptsClipboardImagesByButtonAndKeyboard_data()
@@ -251,11 +351,31 @@ private Q_SLOTS:
             QTRY_COMPARE(viewport->height(), 144.0);
             viewport->ensurePolished();
             QTest::qWait(40);
+            // A real reminder is bounded by its native window. Long text and
+            // a full image strip must still let the user scroll to the actions.
+            const QString longNote = QStringLiteral("这次记住提前提醒机制，保留全部心得文字。\n").repeated(24);
+            fixture.textArea()->setProperty("text", longNote);
+            fixture.textArea()->setProperty("cursorPosition", longNote.size());
+            fixture.dialog()->setProperty("managedPresentation", true);
+            QQmlExpression limitHeight(qmlContext(fixture.window()), fixture.window(), QStringLiteral("height = 360"));
+            limitHeight.evaluate();
+            QVERIFY2(!limitHeight.hasError(), qPrintable(limitHeight.error().toString()));
+            QTRY_COMPARE(fixture.window()->height(), 360);
+            auto *outer = fixture.dialog()->findChild<QQuickItem *>(QStringLiteral("reflectionCompactViewport"));
+            QVERIFY(outer);
+            auto *flickable = outer->property("contentItem").value<QQuickItem *>();
+            QVERIFY(flickable);
+            QTRY_VERIFY2(flickable->property("contentHeight").toReal() > flickable->height(),
+                qPrintable(QStringLiteral("content=%1 viewport=%2 dialog=%3 host=%4")
+                    .arg(flickable->property("contentHeight").toReal()).arg(flickable->height())
+                    .arg(fixture.dialog()->property("height").toReal()).arg(fixture.window()->height())));
+            flickable->setProperty("contentY", flickable->property("contentHeight").toReal() - flickable->height());
+            QCOMPARE(fixture.note(), longNote);
             if (!askingResult) {
                 auto *save = fixture.dialog()->findChild<QQuickItem *>(QStringLiteral("saveReflectionButton"));
                 QVERIFY(save);
-                const QRectF saveRect = save->mapRectToScene(save->boundingRect());
-                QVERIFY(QRectF(QPointF(), fixture.window()->size()).contains(saveRect));
+                QTRY_VERIFY(QRectF(QPointF(), fixture.window()->size()).contains(
+                    save->mapRectToScene(save->boundingRect())));
             }
         }
 

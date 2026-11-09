@@ -1,8 +1,8 @@
 #include "RunCompletionCoordinator.h"
+#include "UtcTimestamp.h"
 
 #include <QPointer>
 #include <QTimer>
-#include <QTimeZone>
 
 #include <utility>
 
@@ -112,11 +112,7 @@ bool RunCompletionCoordinator::emittedBeforeThisSession(const QVariantMap &event
     const QJsonValue value = QJsonValue::fromVariant(event.value(QStringLiteral("emitted_at_utc")));
     if (!value.isString())
         return false;
-    QDateTime emitted = QDateTime::fromString(value.toString(), Qt::ISODateWithMs);
-    if (!emitted.isValid())
-        emitted = QDateTime::fromString(value.toString(), Qt::ISODate);
-    if (emitted.isValid() && emitted.timeSpec() == Qt::LocalTime)
-        emitted.setTimeZone(QTimeZone::UTC);
+    const QDateTime emitted = parseUtcTimestamp(value);
     return emitted.isValid() && m_cutoffUtc.isValid() && emitted < m_cutoffUtc;
 }
 

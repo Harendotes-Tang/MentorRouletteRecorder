@@ -39,6 +39,22 @@ public sealed class RunImportXlsTests : IDisposable
     }
 
     [Fact]
+    public void EmptySheetHasNoRowsAndOverwideRowsRemainErrors()
+    {
+        Assert.Empty(RunImportSourceParser.Parse("XLS", Write(workbook => { workbook.CreateSheet(); })));
+        var path = Write(workbook =>
+        {
+            var sheet = workbook.CreateSheet();
+            Set(sheet.CreateRow(0), "副本");
+            Set(sheet.CreateRow(4), "过宽", "额外单元格");
+        });
+        var row = Assert.Single(RunImportSourceParser.Parse("XLS", path));
+        Assert.Equal(5, row.RowNumber);
+        Assert.Equal("过宽", row.Values["duty_name"]!.GetValue<string>());
+        Assert.NotEmpty(row.Errors);
+    }
+
+    [Fact]
     public void ExplicitColumnMappingAndRemarksReuseKnownFields()
     {
         var path = Write(workbook =>

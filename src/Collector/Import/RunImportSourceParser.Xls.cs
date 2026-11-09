@@ -88,11 +88,7 @@ public static partial class RunImportSourceParser
                 if (ordered.Any(cell => cell.Text.Length != 0) || errors.Count != 0)
                     records.Add(new TableRow(number, ordered, errors));
             }
-            if (records.Count == 0) return Array.Empty<ImportSourceRow>();
-            var headerWidth = records[0].Cells.Count;
-            var padded = records.Select((record, index) => index == 0 || record.Cells.Count >= headerWidth ? record :
-                record with { Cells = record.Cells.Concat(Enumerable.Repeat(new Cell(string.Empty), headerWidth - record.Cells.Count)).ToArray() }).ToArray();
-            return ProjectTable(padded, mapping, nativeCsv: false);
+            return ProjectSpreadsheetRows(records, mapping);
         }
         catch (Exception error) when (error is not InvalidDataException &&
             (error is IOException or ArgumentException or InvalidOperationException or IndexOutOfRangeException or InvalidCastException or

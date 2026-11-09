@@ -145,14 +145,15 @@ endforeach()
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopWorkflowTests
     SUITES Desktop WorkflowController AutomaticRecording RecordingWarning ExportFailure ExportOrdering Recovery RunFormValidator
-           RunListModel GameSelection
+           RunListModel GameSelection DailyBackupScheduler HistoryImageCleanupController
     LIBRARIES Qt6::Widgets)
 mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests Desktop NAME MentorRecorderDesktopTests)
 foreach(suite IN ITEMS AutomaticRecording GameSelection)
     mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests ${suite} NO_LOG)
 endforeach()
 mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests RecordingWarning)
-foreach(suite IN ITEMS WorkflowController ExportFailure ExportOrdering Recovery RunFormValidator RunListModel)
+foreach(suite IN ITEMS WorkflowController ExportFailure ExportOrdering Recovery RunFormValidator RunListModel
+                       DailyBackupScheduler HistoryImageCleanupController)
     mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests ${suite})
 endforeach()
 
@@ -165,10 +166,23 @@ endforeach()
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopShellTests
     SUITES ShellDialog UiWorkflowRegression Motion RecoveryUi HistoryBatch HistoryColumns RunDetailPanel
-           EditRunDialogBinding ManualRunReflection RecordingWarningWindow NoteImageStore QmlRuntime QmlWarningCounter
+           EditRunDialogBinding ManualRunReflection RecordWorkspace RecordingWarningWindow NoteImageStore QmlRuntime QmlWarningCounter
     LIBRARIES ${MR_QUICK_TEST_LIBRARIES} Qt6::Widgets)
+# The manual-record editor stays alive while the real interface language changes.
+qt_add_lrelease(
+    TS_FILES
+        "${PROJECT_SOURCE_DIR}/src/Desktop/i18n/mentor_recorder_en.ts"
+        "${PROJECT_SOURCE_DIR}/src/Desktop/i18n/mentor_recorder_ja.ts"
+        "${PROJECT_SOURCE_DIR}/src/Desktop/i18n/mentor_recorder_zh_TW.ts"
+    LRELEASE_TARGET MentorRecorderShellTestTranslations
+    QM_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/shell-i18n"
+    QM_FILES_OUTPUT_VARIABLE MR_SHELL_TEST_QM)
+qt_add_resources(MentorRecorderDesktopShellTests shell_test_i18n
+    PREFIX "/i18n"
+    BASE "${CMAKE_CURRENT_BINARY_DIR}/shell-i18n"
+    FILES ${MR_SHELL_TEST_QM})
 foreach(suite IN ITEMS ShellDialog UiWorkflowRegression Motion RecoveryUi HistoryColumns RunDetailPanel
-                       EditRunDialogBinding ManualRunReflection RecordingWarningWindow NoteImageStore QmlWarningCounter)
+                       EditRunDialogBinding ManualRunReflection RecordWorkspace RecordingWarningWindow NoteImageStore QmlWarningCounter)
     mr_desktop_suite_test(MentorRecorderDesktopShellTests ${suite})
 endforeach()
 mr_desktop_suite_test(MentorRecorderDesktopShellTests HistoryBatch)
@@ -223,8 +237,10 @@ endforeach()
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopImportTests
     SUITES ImportRecordsController RegionalImport ScreenshotImportParser OfflineOcrEngine JobIconClassifier ImportImageOrientation
+           ImportPreviewClient ScreenshotImportStaging
     LIBRARIES ${MR_QUICK_TEST_LIBRARIES} Qt6::Widgets)
-foreach(suite IN ITEMS ImportRecordsController RegionalImport ScreenshotImportParser OfflineOcrEngine JobIconClassifier)
+foreach(suite IN ITEMS ImportRecordsController RegionalImport ScreenshotImportParser OfflineOcrEngine JobIconClassifier
+                       ImportPreviewClient ScreenshotImportStaging)
     mr_desktop_suite_test(MentorRecorderDesktopImportTests ${suite})
     set_tests_properties(MentorRecorder${suite} PROPERTIES ENVIRONMENT "${MR_DESKTOP_ISOLATED_ENVIRONMENT}")
 endforeach()

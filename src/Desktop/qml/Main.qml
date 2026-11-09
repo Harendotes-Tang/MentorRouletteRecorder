@@ -8,6 +8,8 @@ import "components/Lucide.js" as Lucide
 
 ApplicationWindow {
     id: window
+    readonly property bool recordEditorOccupied: editDialog.editingActive
+        || reflectionDialog.editingActive || reflectionDialog.busy
 
     width: 1280
     height: 800
@@ -72,7 +74,7 @@ ApplicationWindow {
     // hold every automatic popup back; it is put away like 稍后补录, its draft
     // kept (review L2-10).
     onVisibleChanged: {
-        if (!window.visible && reflectionDialog.visible && !reflectionDialog.standalone && !reflectionDialog.busy)
+        if (!window.visible && reflectionDialog.editingActive && !reflectionDialog.standalone && !reflectionDialog.busy)
             reflectionDialog.defer()
     }
     Connections {
@@ -222,13 +224,35 @@ ApplicationWindow {
              : Runtime.app.recording.state === "listening" ? Theme.green : Theme.neutral400
     }
 
+    property int recordWorkspaceReturnPage: 0
+    function showRecordWorkspace() {
+        if (Runtime.app.currentPage !== 8)
+            recordWorkspaceReturnPage = Runtime.app.currentPage
+        window.bringToFront()
+        Runtime.app.navigate(8)
+    }
+    function leaveRecordWorkspace() {
+        if (Runtime.app.currentPage === 8 && !editDialog.inlineActive && !reflectionDialog.inlineActive)
+            Runtime.app.navigate(recordWorkspaceReturnPage)
+    }
     function openCreateDialog() {
+        if (editDialog.editingActive || reflectionDialog.editingActive) {
+            window.raiseEditorHost()
+            return
+        }
+        editDialog.inlinePresentation = true
+        window.showRecordWorkspace()
         editDialog.openForCreate()
     }
 
     function openCorrectDialog() {
         if (!Runtime.app.hasSelection)
             return
+        if (editDialog.editingActive || reflectionDialog.editingActive) {
+            window.raiseEditorHost()
+            return
+        }
+        editDialog.inlinePresentation = false
         editDialog.openForRun(Runtime.app.selectedRun)
     }
 
@@ -238,7 +262,7 @@ ApplicationWindow {
     function openReflection(run, kicker) {
         // The editor is open for a record already, maybe in the popup beside
         // the float: show it rather than doing nothing (audit 2026-11-03 K1-5).
-        if (reflectionDialog.visible || reflectionDialog.busy) {
+        if (window.recordEditorOccupied) {
             window.raiseEditorHost()
             return
         }
@@ -249,10 +273,12 @@ ApplicationWindow {
     function prepareReflection(independent, automatic) {
         recoveryNotice.hide()
         reflectionDialog.standalone = independent
+        reflectionDialog.inlinePresentation = !independent
         reflectionDialog.automaticOpen = automatic
         reflectionDialog.automaticKind = ""
         reflectionDialog.parent = independent ? recoveryReminder.contentItem : Overlay.overlay
         if (independent) recoveryReminder.prepare(!automatic)
+        else window.showRecordWorkspace()
     }
 
     function offerReminder(run, kind) {
@@ -268,7 +294,7 @@ ApplicationWindow {
             else Runtime.app.reflectionPromptDeferred(run.run_id)
             return
         }
-        if (reflectionDialog.visible || reflectionDialog.busy) return
+        if (window.recordEditorOccupied) return
         prepareReflection(true, true)
         if (kind === "result") reflectionDialog.openForResult(run)
         else reflectionDialog.openForPrompt(run, qsTr("刚刚完成"))
@@ -288,6 +314,10 @@ ApplicationWindow {
     /// The editor is open, possibly for another record: show where it is
     /// rather than doing nothing (review K1-7).
     function raiseEditorHost() {
+        if (editDialog.inlineActive || reflectionDialog.inlineActive) {
+            window.showRecordWorkspace()
+            return
+        }
         const host = reflectionDialog.parent ? reflectionDialog.parent.Window.window : null
         if (host === window) {
             window.bringToFront()
@@ -302,7 +332,7 @@ ApplicationWindow {
         target: Runtime.app.recovery
         function onScopeChanging() { recoveryInbox.close(); recoveryNotice.hide() }
         function onInboxRequested() {
-            if (reflectionDialog.visible || reflectionDialog.busy) {
+            if (window.recordEditorOccupied) {
                 window.raiseEditorHost()
                 return
             }
@@ -312,7 +342,7 @@ ApplicationWindow {
         }
         function onOpenRequested(run, kind) {
             // The popup's pager: the open window takes the record it asked for.
-            if (reflectionDialog.visible && reflectionDialog.pendingSwitchId.length > 0
+            if (reflectionDialog.editingActive && reflectionDialog.pendingSwitchId.length > 0
                 && reflectionDialog.pendingSwitchId === run.run_id) {
                 reflectionDialog.switchTo(run, kind)
                 return
@@ -320,11 +350,11 @@ ApplicationWindow {
             // Another record's open supersedes the page read still out: its
             // reply is dropped, so nothing is awaited any more (audit 2026-11-03 L2-4).
             reflectionDialog.pendingSwitchId = ""
-            if (reflectionDialog.visible || reflectionDialog.busy) {
+            if (window.recordEditorOccupied) {
                 window.raiseEditorHost()
                 return
             }
-            window.prepareReflection(true, false)
+            window.prepareReflection(false, false)
             if (kind === "result") reflectionDialog.openForResult(run)
             else reflectionDialog.openForRun(run, qsTr("继续处理"))
             // Manual recovery is independent from automatic queue acknowledgments.
@@ -418,7 +448,7 @@ ApplicationWindow {
                 window.reasonDialogError = text
                 window.reasonSubmitting = false
             }
-            if (editDialog.visible && (kind === "create" || kind === "correct")) {
+            if (editDialog.editingActive && (kind === "create" || kind === "correct")) {
                 // The run, the code and whether it was sent first: the wizard
                 // reads them when the text arrives.
                 editDialog.externalErrorRunId = runId || ""
@@ -451,7 +481,7 @@ ApplicationWindow {
                 // 不能把用户此刻正在填的另一张表单静默关掉（审查第 4 条）。
                 if (!editDialog.acceptSubmission(runId))
                     return
-                if (kind === "create")
+                if (kind === "create" && !editDialog.inlinePresentation)
                     Runtime.app.navigate(1)
                 return
             }
@@ -1177,6 +1207,18 @@ ApplicationWindow {
                         }
 
                         PageHost {
+                            index: 8
+                            anchors.fill: parent
+                            RecordWorkspacePage {
+                                id: recordWorkspace
+                                anchors.fill: parent
+                                manualEditor: editDialog
+                                reflectionEditor: reflectionDialog
+                                onBackRequested: Runtime.app.navigate(window.recordWorkspaceReturnPage)
+                            }
+                        }
+
+                        PageHost {
                             index: 5
                             anchors.fill: parent
 
@@ -1219,6 +1261,12 @@ ApplicationWindow {
         id: editDialog
         objectName: "editRunDialog"
         anchors.centerIn: Overlay.overlay
+        inlineContent: recordWorkspace.manualContent
+        onEditorClosed: {
+            window.leaveRecordWorkspace()
+            Runtime.app.resultConfirmationClosed()
+            Runtime.app.reflectionPromptClosed()
+        }
         // Correcting a record needs the full duty and battle-job catalogues, not only
         // what this player has already recorded: the record worth correcting is
         // usually the one whose duty the software could not name.
@@ -1239,6 +1287,8 @@ ApplicationWindow {
         parent: Overlay.overlay
         anchors.centerIn: parent
         managedPresentation: true
+        inlineContent: recordWorkspace.reflectionContent
+        onEditorClosed: window.leaveRecordWorkspace()
         onReviewRequested: function(run) {
             window.bringToFront()
             // openHistoryForRun never toggles an already selected record off,

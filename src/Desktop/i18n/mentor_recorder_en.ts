@@ -14199,4 +14199,11 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <translation>The installer didn&apos;t start, possibly because the Windows install confirmation wasn&apos;t accepted. This app keeps running; click “Install now” again, or click “Download in browser”.</translation>
     </message>
 </context>
+<context>
+    <name>RecordWorkspacePage</name>
+    <message>
+        <source>返回</source>
+        <translation>Back</translation>
+    </message>
+</context>
 </TS>

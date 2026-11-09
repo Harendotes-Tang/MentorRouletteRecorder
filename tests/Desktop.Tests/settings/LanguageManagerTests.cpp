@@ -15,6 +15,7 @@
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QQuickStyle>
 #include <QScopeGuard>
 #include <QSettings>
 #include <QSignalSpy>
@@ -125,29 +126,50 @@ private Q_SLOTS:
         mr::AppSettings settings;
         mr::LanguageManager manager(&settings);
         manager.initialize();
-        const QString alias = QStringLiteral("MentorRecorder Interface");
-        // Every text item copies the application font once; it must name the
-        // alias, or a later switch could not reach the items already on screen.
+        const QString alias = QGuiApplication::font().family();
+        QVERIFY(alias.startsWith(QStringLiteral("MentorRecorder Interface zh-CN ")));
         QCOMPARE(QGuiApplication::font().families(), QStringList{alias});
         const QStringList base = QFont::substitutes(alias);
         QVERIFY(!base.isEmpty());
+        const QFont liveFont = QGuiApplication::font();
+        const QString liveFamily = QFontInfo(liveFont).family();
+        QSignalSpy databaseChanged(qGuiApp, &QGuiApplication::fontDatabaseChanged);
 
         manager.setLanguage("ja");
-        const QStringList ja = QFont::substitutes(alias);
-        QCOMPARE(QGuiApplication::font().families(), QStringList{alias});
+        const QString jaAlias = QGuiApplication::font().family();
+        QVERIFY(jaAlias != alias);
+        const QStringList ja = QFont::substitutes(jaAlias);
         // This language's faces (those installed) in front, the base stack behind.
         QVERIFY(ja.size() >= base.size());
         QCOMPARE(ja.mid(ja.size() - base.size()), base);
         if (QFontDatabase::hasFamily(QStringLiteral("Yu Gothic UI")))
-            QCOMPARE(ja.constFirst(), QStringLiteral("Yu Gothic UI"));
+            QCOMPARE(ja.constFirst().toLower(), QStringLiteral("yu gothic ui"));
 
         manager.setLanguage("zh-TW");
-        const QStringList tw = QFont::substitutes(alias);
-        QVERIFY(!tw.contains(QStringLiteral("Yu Gothic UI")));
+        const QStringList tw = QFont::substitutes(QGuiApplication::font().family());
+        QVERIFY(!tw.contains(QStringLiteral("Yu Gothic UI"), Qt::CaseInsensitive));
 
         manager.setLanguage("en");
-        QCOMPARE(QFont::substitutes(alias), base);
+        QCOMPARE(QFont::substitutes(QGuiApplication::font().family()), base);
         manager.setLanguage("zh-CN");
+        QCOMPARE(QGuiApplication::font().family(), alias);
+        QCOMPARE(QFont::substitutes(alias), base);
+        QCOMPARE(QFontInfo(liveFont).family(), liveFamily);
+        QCOMPARE(databaseChanged.count(), 0);
+    }
+
+    void anotherManagerDoesNotNestLanguageFontStacks()
+    {
+        mr::LanguageManager first(nullptr);
+        first.initialize("zh-CN");
+        const QStringList base = QFont::substitutes(QGuiApplication::font().family());
+        for (int round = 0; round < 4; ++round) {
+            first.setLanguage("ja");
+            mr::LanguageManager next(nullptr);
+            next.initialize("zh-CN");
+            QCOMPARE(QFont::substitutes(QGuiApplication::font().family()), base);
+            first.setLanguage("zh-CN");
+        }
     }
 
     void navigationFontAndInkFollowLiveLanguageSwitch()
@@ -360,6 +382,7 @@ Window {
 MR_DESKTOP_TEST_SUITE(LanguageManager)
 {
     QStandardPaths::setTestModeEnabled(true);
+    QQuickStyle::setStyle(QStringLiteral("Basic"));
     QGuiApplication app(argc, argv);
     LanguageManagerTests tests;
     return QTest::qExec(&tests, argc, argv);

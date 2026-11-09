@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls 6.8
-import QtQuick.Layouts
 import MentorRecorder 1.0
 
 // 手动修正 / 新增遗漏记录: a three-step wizard, 结果 → 副本与职业 → 时间与原因.
@@ -13,13 +12,28 @@ import MentorRecorder 1.0
 // views only (RunWizardResultStep / RunWizardDutyStep / RunWizardTimeStep);
 // the state, the option lists and the step 2 filtering all live here.
 Dialog {
+    font.family: Theme.bodyFamily
     id: dialog
+    readonly property alias editorController: dialog
+    property bool inlinePresentation: false
+    property bool inlineActive: false
+    property EditRunContent inlineContent: null
+    readonly property bool editingActive: visible || inlineActive
+    readonly property EditRunContent editorContent: inlinePresentation && inlineContent ? inlineContent : defaultBody
+    signal editorClosed()
 
-    component WizardSlide: Translate {
-        property real progress: 1
-        property int direction: 1
-        x: (1 - progress) * 16 * direction
+    function showEditor() {
+        if (inlinePresentation) inlineActive = true
+        else open()
     }
+    function closeEditor() {
+        if (inlineActive) {
+            inlineActive = false
+            editorClosed()
+        } else close()
+    }
+    onClosed: editorClosed()
+
 
     property var dutyOptions: []
     property string recordRegion: "UNKNOWN"
@@ -69,33 +83,39 @@ Dialog {
     /// connection, a refused write - so it cannot have been saved (review
     /// V4-1); set first as well.
     property bool externalErrorNeverSent: false
-    /// The last submission got no answer that says whether it was saved - the
-    /// client stopped waiting, the pipe dropped, or the Collector answered with
-    /// an internal error (ERR_INTERNAL) - so it may have been saved. Until
-    /// an answer arrives the form is frozen and 保存 resends that very request:
-    /// HistoryController sends identical content under the same request_id and
-    /// the Collector's idempotency answers it once. Edited content would get an
-    /// id of its own and could become a second record (review DT2-X1).
-    property bool awaitingRetry: false
-    /// { create, payload, reason } of the request sent last.
-    property var lastSubmission: null
-    /// True between "save" and the backend's answer; the buttons disable so a
-    /// second click cannot send the same correction twice.
-    property bool submitting: false
-    /// 这一次提交的身份，发出请求时记下，回应回来时重新核对。请求一旦上路就
-    /// 收不回来：保存期间窗口被关掉、随即为另一条记录重新打开后，迟到的回应
-    /// 既不能把新表单静默关掉、丢掉用户刚输入的内容，也不能把上一次的错误提
-    /// 示显示在里面（审查第 4 条）。请求发出时载荷已经正确，所以这条回应从不
-    /// 会把修改写到别的记录上，损害只在界面这一层。
-    /// 记录 id 与流水号各取一半：前者认得出回应说的是哪条记录，后者使同一条
-    /// 记录前后两次打开也各不相同，两次提交因而不会互相认领。
-    property string submissionTicket: ""
-    /// 每次打开自增，使前后两次打开得到不同的 submissionTicket。
-    property int openSerial: 0
-    /// 眼前这张表单此刻的身份。
-    readonly property string currentTicket:
-        (editMode ? "run:" + (runData && runData.run_id ? runData.run_id : "")
-                  : "new:") + ":" + openSerial
+    // Compatibility properties project the non-visual submission owner.
+    property alias awaitingRetry: submission.awaitingRetry
+    property alias lastSubmission: submission.lastSubmission
+    property alias submitting: submission.submitting
+    property alias submissionTicket: submission.submissionTicket
+    property alias openSerial: submission.openSerial
+    readonly property alias currentTicket: submission.currentTicket
+
+    ManualRunSubmission {
+        id: submission
+        sessionActive: dialog.editingActive
+        editMode: dialog.editMode
+        recordId: dialog.runData && dialog.runData.run_id ? dialog.runData.run_id : ""
+        hasManualReflection: dialog.hasManualReflection
+        reflectionMood: dialog.reflectionMood
+        reflectionText: dialog.reflectionText
+        databaseKey: Runtime.app.recovery.databaseKey
+        identityVerified: Runtime.app.recovery.identityVerified
+        reflectionBusy: Runtime.app.reflectionSaving === true
+        imageStore: dialog.imageStore
+        onCreateRequested: function(fields, reason) { dialog.createRequested(fields, reason) }
+        onCorrectRequested: function(changes, reason) { dialog.correctRequested(changes, reason) }
+        onReflectionRequested: function(runId, mood, text) { Runtime.app.saveReflection(runId, mood, text) }
+        onCompleted: dialog.closeEditor()
+        onImagesCommitted: function(added, removed) {
+            if (typeof Runtime.app !== "undefined" && Runtime.app && Runtime.app.showToast) {
+                Runtime.app.showToast(added > 0 && removed > 0
+                    ? qsTr("已添加 %1 张图片，移除 %2 张").arg(added).arg(removed)
+                    : added > 0 ? qsTr("已添加 %1 张图片").arg(added)
+                                : qsTr("已移除 %1 张图片").arg(removed))
+            }
+        }
+    }
 
     /// 1 结果, 2 副本与职业, 3 时间与原因.
     property int currentStep: 1
@@ -226,73 +246,24 @@ Dialog {
     property string noteText: ""
     property string reflectionMood: ""
     property string reflectionText: ""
-    property bool reflectionPending: false
-    property bool reflectionSubmitting: false
-    property string reflectionDatabaseKey: ""
-    property bool reflectionScopeChanged: false
+    property alias reflectionPending: submission.reflectionPending
+    property alias reflectionSubmitting: submission.reflectionSubmitting
+    property alias reflectionDatabaseKey: submission.reflectionDatabaseKey
+    property alias reflectionScopeChanged: submission.reflectionScopeChanged
     readonly property bool hasManualReflection: !editMode
         && (reflectionMood.length > 0 || reflectionText.trim().length > 0)
 
-    // Storage treats empty text as deletion. The user explicitly selected this
-    // fallback for a mood-only creation; persist source text across languages.
-    function manualReflectionText() {
-        if (reflectionText.trim().length > 0)
-            return reflectionText.trim()
-        return reflectionMood === "good" ? "顺利" : reflectionMood === "ok" ? "一般"
-             : reflectionMood === "bad" ? "糟心" : ""
-    }
-
-    function finishSavedRecord() {
-        if (!reflectionPending) {
-            finishWithImages(savedRunId)
-            return
-        }
-        if (reflectionScopeChanged || !Runtime.app.recovery.identityVerified
-                || reflectionDatabaseKey !== Runtime.app.recovery.databaseKey) {
-            errorCode = "ERR_RECOVERY_SCOPE_CHANGED"
-            errorText = qsTr("记录库连接已变化，心情和心得尚未保存。请保留输入，并在原记录库的历史记录中确认后补录。")
-            return
-        }
-        if (Runtime.app.reflectionSaving === true) {
-            errorText = qsTr("记录已保存，上一条心得仍在保存中，请稍候重试。")
-            return
-        }
-        errorText = ""
-        reflectionSubmitting = true
-        submitting = true
-        // submit() refused a 心得 without a mood, so the mood here is the player's.
-        Runtime.app.saveReflection(savedRunId, reflectionMood, manualReflectionText())
-    }
+    function manualReflectionText() { return submission.manualReflectionText() }
+    function finishSavedRecord() { submission.finishSavedRecord() }
 
     Connections {
         target: Runtime.app.recovery
-        function onScopeChanging() {
-            if (!dialog.editMode && (dialog.submitting || dialog.recordSaved))
-                dialog.reflectionScopeChanged = true
-        }
+        function onScopeChanging() { submission.scopeChanging() }
     }
-
     Connections {
         target: Runtime.app
-        function onReflectionSaved(runId) {
-            if (!dialog.reflectionSubmitting || runId !== dialog.savedRunId)
-                return
-            dialog.reflectionSubmitting = false
-            dialog.submitting = false
-            dialog.reflectionPending = false
-            dialog.finishWithImages(runId)
-        }
-        function onReflectionFailed(code, message) {
-            // ERR_BUSY from another editor is global too. Our request still
-            // owns the save while reflectionSaving is true; only its terminal
-            // failure clears that flag before emitting reflectionFailed.
-            if (!dialog.reflectionSubmitting || Runtime.app.reflectionSaving === true)
-                return
-            dialog.reflectionSubmitting = false
-            dialog.submitting = false
-            dialog.errorCode = code
-            dialog.errorText = qsTr("记录已保存，心情和心得未保存，请重试。") + "\n" + message
-        }
+        function onReflectionSaved(runId) { submission.reflectionSaved(runId) }
+        function onReflectionFailed(code, message) { submission.reflectionFailed(code, message) }
     }
     property bool contributesToGoal: true
     /// How the duty was entered, as $defs/Run.joined_in_progress carries it: true (中途加入),
@@ -302,8 +273,8 @@ Dialog {
     property int dutyIndex: 0
     /// Index into currentJobOptions(); 0 is 未知.
     property int jobIndex: 0
-    property string errorText: ""
-    property string errorCode: ""
+    property alias errorText: submission.errorText
+    property alias errorCode: submission.errorCode
 
     // ------------------------------------------------------ 备注图片 --
     // Files under the install directory (NoteImageStore), not fields of the
@@ -315,14 +286,14 @@ Dialog {
     /// imagesFor(run_id) at open: { path, url, name, byte_count }.
     property var existingImages: []
     /// Files chosen this session, not yet copied: { path, url, name, pending: true }.
-    property var pendingImageAdds: []
+    property alias pendingImageAdds: submission.pendingImageAdds
     /// Absolute paths of existing images to delete on save.
-    property var removedImagePaths: []
+    property alias removedImagePaths: submission.removedImagePaths
     /// Set once the Collector accepted the record but reflection/images remain.
     /// A retry applies only that work; a second CreateManualRun is a duplicate.
-    property string savedRunId: ""
-    readonly property bool recordSaved: savedRunId.length > 0
-    readonly property bool imagesDirty: pendingImageAdds.length > 0 || removedImagePaths.length > 0
+    property alias savedRunId: submission.savedRunId
+    readonly property alias recordSaved: submission.recordSaved
+    readonly property alias imagesDirty: submission.imagesDirty
     readonly property var noteImageRows: {
         const rows = []
         for (let i = 0; i < existingImages.length; ++i) {
@@ -341,7 +312,7 @@ Dialog {
         target: dialog.imageStore
         ignoreUnknownSignals: true
         function onImagesChanged(runId) {
-            if (!dialog.visible || !dialog.editMode || !dialog.runData || dialog.runData.run_id !== runId)
+            if (!dialog.editingActive || !dialog.editMode || !dialog.runData || dialog.runData.run_id !== runId)
                 return
             dialog.existingImages = dialog.imageStore.imagesFor(runId)
             const present = dialog.existingImages.map(function(row) { return row.path })
@@ -774,7 +745,7 @@ Dialog {
             return
         stepDirection = next > currentStep ? 1 : -1
         currentStep = next
-        formScroll.contentY = 0
+        editorContent.viewport.contentY = 0
         stepSwitch.stop()
         if (dialog.stepAnimates) {
             stepProgress = 0
@@ -783,7 +754,7 @@ Dialog {
             stepProgress = 1
         }
         if (next === 2)
-            Qt.callLater(dutyStep.showSelection)
+            Qt.callLater(editorContent.showDutySelection)
     }
 
     function nextStep() {
@@ -985,7 +956,7 @@ Dialog {
         difficultyFilter = ""
         dutyQuery = ""
         dayFieldsOpen = false
-        formScroll.contentY = 0
+        editorContent.viewport.contentY = 0
     }
 
     function openForCreate() {
@@ -1004,10 +975,6 @@ Dialog {
         noteText = ""
         reflectionMood = ""
         reflectionText = ""
-        reflectionPending = false
-        reflectionSubmitting = false
-        reflectionDatabaseKey = ""
-        reflectionScopeChanged = false
         resetNoteImages(null)
         contributesToGoal = true
         joinedInProgress = null
@@ -1019,23 +986,17 @@ Dialog {
         externalErrorRunId = ""
         externalErrorNeverSent = false
         externalErrorText = ""
-        submitting = false
-        awaitingRetry = false
-        lastSubmission = null
-        ++openSerial
-        submissionTicket = ""
+        submission.resetSession()
         estimatedEntry = false
         estimatedEntryAt = ""
         estimateNoted = false
         showTimeDetails = true
         resetWizard()
         refreshRecentDuties()
-        open()
+        showEditor()
     }
 
     function openForRun(run) {
-        reflectionPending = false
-        reflectionSubmitting = false
         importedResultSelected = false
         editMode = true
         runData = run
@@ -1064,18 +1025,14 @@ Dialog {
         externalErrorRunId = ""
         externalErrorNeverSent = false
         externalErrorText = ""
-        submitting = false
-        awaitingRetry = false
-        lastSubmission = null
-        ++openSerial
-        submissionTicket = ""
+        submission.resetSession()
         estimatedEntry = false
         estimatedEntryAt = ""
         estimateNoted = false
         showTimeDetails = false
         resetWizard()
         refreshRecentDuties()
-        open()
+        showEditor()
     }
 
     // ------------------------------------------------------ 备注图片 --
@@ -1137,52 +1094,10 @@ Dialog {
             removedImagePaths = removedImagePaths.concat([row.path])
     }
 
-    /// Applies the staged images to `runId`. Whatever the store accepted is
-    /// dropped from the staging lists, so a retry after a failure only sends
-    /// what is still outstanding. Returns whether everything went through.
-    function commitNoteImages(runId) {
-        if (!imagesDirty)
-            return true
-        if (!imageStore || !runId) {
-            errorCode = "ERR_NOTE_IMAGE"
-            errorText = qsTr("图片未保存，暂时无法关联到这条记录。")
-            return false
-        }
-        const adds = pendingImageAdds.map(function(item) { return item.path })
-        const result = imageStore.commit(runId, adds, removedImagePaths)
-        const added = result.added || []
-        const removed = result.removed || []
-        pendingImageAdds = pendingImageAdds.filter(function(item) { return added.indexOf(item.path) < 0 })
-        // A removal the store could not carry out is reported once and then
-        // dropped: the image stays, and the dialog does not stay stuck on it.
-        // Removals are only skipped (not attempted) when a bad add stopped the
-        // whole call, so they are kept while an add is still outstanding.
-        removedImagePaths = pendingImageAdds.length > 0
-                            ? removedImagePaths.filter(function(path) { return removed.indexOf(path) < 0 })
-                            : []
-        if (!result.ok) {
-            errorCode = "ERR_NOTE_IMAGE"
-            errorText = result.error || qsTr("图片没有保存。")
-            return false
-        }
-        if (typeof Runtime.app !== "undefined" && Runtime.app && Runtime.app.showToast) {
-            Runtime.app.showToast(added.length > 0 && removed.length > 0
-                          ? qsTr("已添加 %1 张图片，移除 %2 张").arg(added.length).arg(removed.length)
-                          : added.length > 0 ? qsTr("已添加 %1 张图片").arg(added.length)
-                                             : qsTr("已移除 %1 张图片").arg(removed.length))
-        }
-        return true
-    }
-
-    /// The record and any reflection are saved; apply only remaining images.
-    function finishWithImages(runId) {
-        if (!commitNoteImages(runId)) {
-            savedRunId = runId
-            return
-        }
-        savedRunId = ""
-        close()
-    }
+    // Compatibility entry points; staging and partial-save state live in the
+    // coordinator so a host can be replaced without replacing the workflow.
+    function commitNoteImages(runId) { return submission.commitNoteImages(runId) }
+    function finishWithImages(runId) { submission.finishWithImages(runId) }
 
     /// The fields a correction can carry: HistoryController's contractRunFields,
     /// less pending_review, which this form never edits.
@@ -1242,25 +1157,7 @@ Dialog {
     }
 
     function submit() {
-        if (submitting)
-            return
-        // The record went through on an earlier click: retry only outstanding
-        // reflection/images, never create the record again.
-        if (savedRunId.length > 0) {
-            finishSavedRecord()
-            return
-        }
-        if (awaitingRetry && lastSubmission) {
-            errorCode = ""
-            errorText = ""
-            submitting = true
-            submissionTicket = currentTicket
-            if (lastSubmission.create)
-                createRequested(lastSubmission.payload, lastSubmission.reason)
-            else
-                correctRequested(lastSubmission.payload, lastSubmission.reason)
-            return
-        }
+        if (submission.resume()) return
         if (!editMode && reflectionText.trim().length > 2000) {
             errorCode = "ERR_BAD_REQUEST"
             errorText = qsTr("心得不能超过 2000 个字符。")
@@ -1294,13 +1191,8 @@ Dialog {
             // The dialog stays open until AppController reports the outcome:
             // a Collector refusal (ERR_TIME_ORDER, ERR_REASON_REQUIRED …) has
             // to land in this form, not only in a toast that replaces it.
-            submitting = true
-            submissionTicket = currentTicket
-            // A pre-filled reason left as it was is stored in its source text (Theme.storedReason).
-            lastSubmission = { create: true, payload: fields, reason: Theme.storedReason(reasonText) }
-            reflectionDatabaseKey = Runtime.app.recovery.databaseKey
-            reflectionScopeChanged = false
-            createRequested(fields, lastSubmission.reason)
+            // A pre-filled reason is stored in its source text.
+            submission.begin(true, fields, Theme.storedReason(reasonText))
             return
         }
 
@@ -1352,55 +1244,12 @@ Dialog {
             return
         }
 
-        submitting = true
-        submissionTicket = currentTicket
-        lastSubmission = { create: false, payload: changes, reason: Theme.storedReason(reasonText) }
-        correctRequested(changes, lastSubmission.reason)
+        submission.begin(false, changes, Theme.storedReason(reasonText))
     }
 
-    /// True when a reply that just arrived belongs to the submission this form
-    /// is still waiting for. \a runId is the run the reply names, or "" when it
-    /// carries none - a creation's reply, accepted or refused.
-    function ownsReply(runId) {
-        if (!visible || !submitting || submissionTicket.length === 0
-            || submissionTicket !== currentTicket)
-            return false
-        // 修正的回应带着记录 id；补录的 id 由采集服务新生成，无从预先核对。
-        if (editMode && runId && runId.length > 0
-            && runId !== (runData && runData.run_id ? runData.run_id : ""))
-            return false
-        return true
-    }
-
-    /// Called by the shell once the mutation was accepted. Returns false and
-    /// changes nothing when the reply belongs to an earlier submission, so the
-    /// shell can skip the rest of its own handling as well.
-    function acceptSubmission(runId) {
-        if (!ownsReply(runId ? runId : ""))
-            return false
-        submitting = false
-        submissionTicket = ""
-        awaitingRetry = false
-        lastSubmission = null
-        // Reflection and images follow creation. Keep its ID after a partial
-        // failure so retries cannot create the same record twice.
-        const target = runId && runId.length > 0 ? runId
-                     : (runData && runData.run_id ? runData.run_id : "")
-        if (hasManualReflection) {
-            savedRunId = target
-            reflectionPending = true
-            finishSavedRecord()
-            return true
-        }
-        if (imagesDirty) {
-            savedRunId = target
-            if (!commitNoteImages(target))
-                return true
-            savedRunId = ""
-        }
-        close()
-        return true
-    }
+    /// Preserve the shell's reply ownership and acceptance surface.
+    function ownsReply(runId) { return submission.ownsReply(runId) }
+    function acceptSubmission(runId) { return submission.acceptSubmission(runId) }
 
     onExternalErrorTextChanged: {
         if (externalErrorText.length === 0)
@@ -1408,35 +1257,13 @@ Dialog {
         const text = externalErrorText
         const code = externalErrorCode
         const neverSent = externalErrorNeverSent
-        const mine = ownsReply(externalErrorRunId)
-        // 读完就清空，这个属性因而是一只"收件箱"：下一条内容相同的失败也会触发
-        // 这里，而属于上一次提交的那条到此为止。
+        const runId = externalErrorRunId
+        // Drain this inbox even when it belongs to a previous form session.
         externalErrorText = ""
         externalErrorCode = ""
         externalErrorRunId = ""
         externalErrorNeverSent = false
-        if (!mine)
-            return
-        // ERR_INTERNAL is the client's own "no answer" (timeout, dropped pipe) as
-        // well as the Collector's: either way nobody knows whether it was saved.
-        // Any other code is the Collector's answer, so the record was not saved
-        // and the form may be edited again. A request that never left the
-        // Desktop (no connection, a refused write) cannot have been saved and
-        // tells nothing new: an editable form stays editable, and one frozen by
-        // an earlier submission that went out unanswered stays frozen (review V4-1).
-        if (!neverSent)
-            awaitingRetry = code === "ERR_INTERNAL" && !!lastSubmission
-        errorText = neverSent
-                    ? text + "\n" + (awaitingRetry
-                                     ? qsTr("这次重试未能发给后台服务，上次提交可能已经保存。为避免重复，"
-                                            + "只能原样重试或关闭窗口；关闭后请先在历史记录中确认，再决定是否重新填写。")
-                                     : qsTr("这次提交未能发给后台服务，记录尚未保存。连接恢复后可重试。"))
-                    : awaitingRetry
-                      ? text + "\n" + qsTr("尚未确认保存结果，记录可能已经保存。"
-                                           + "为避免重复，只能原样重试或关闭窗口；关闭后请先在历史记录中确认，再决定是否重新填写。")
-                      : text
-        submitting = false
-        submissionTicket = ""
+        submission.rejectSubmission(runId, code, text, neverSent)
     }
 
     /// Every field the validator and the Collector can refuse - reason, dates,
@@ -1448,286 +1275,14 @@ Dialog {
         if (currentStep !== 3)
             goToStep(3)
         Qt.callLater(function() {
-            if (formScroll.contentHeight > formScroll.height)
-                formScroll.contentY = formScroll.contentHeight - formScroll.height
+            if (editorContent.viewport.contentHeight > editorContent.viewport.height)
+                editorContent.viewport.contentY = editorContent.viewport.contentHeight - editorContent.viewport.height
         })
     }
 
     // ------------------------------------------------------------ 视图 --
-    contentItem: ColumnLayout {
-        id: dialogBody
-
-        spacing: 0
-
-        // ------------------------------------------------ 标题与步骤条 --
-        ColumnLayout {
-            id: headerBlock
-
-            Layout.fillWidth: true
-            Layout.leftMargin: 24
-            Layout.rightMargin: 24
-            Layout.topMargin: 20
-            spacing: 14
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 12
-
-                HeadingLabel {
-                    text: dialog.editMode ? qsTr("手动修正") : qsTr("新增遗漏记录")
-                    font.pixelSize: Theme.dialogTitleSize(24)
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    Layout.alignment: Qt.AlignBaseline
-                    // Raw identifiers and column names are maintainer material; a
-                    // player sees the same fact in plain Chinese.
-                    text: dialog.editMode && dialog.runData
-                          ? (Runtime.app.maintainerToolsVisible
-                             ? qsTr("%1 · 当前修订 %2").arg(dialog.runData.run_id)
-                                                        .arg(dialog.runData.revision || 1)
-                             : qsTr("修正结果与进度，原记录会保留"))
-                          : (Runtime.app.maintainerToolsVisible
-                             ? qsTr("来源：手动新增")
-                             : qsTr("这条记录由你手动新增"))
-                    color: Theme.textSecondary
-                    font.pixelSize: Theme.fs(12)
-                    elide: Text.ElideMiddle
-                }
-
-                Text {
-                    objectName: "wizardStepLabel"
-                    Layout.alignment: Qt.AlignBaseline
-                    text: qsTr("第 %1 / 3 步").arg(dialog.currentStep)
-                    color: Theme.textSecondary
-                    font.pixelSize: Theme.fs(12)
-                }
-            }
-
-            RowLayout {
-                objectName: "wizardStepBar"
-                enabled: !dialog.submitting && !dialog.recordSaved && !dialog.awaitingRetry
-                Layout.fillWidth: true
-                spacing: 8
-
-                Repeater {
-                    model: dialog.stepItems
-
-                    delegate: Item {
-                        id: stepSegment
-
-                        required property var modelData
-                        readonly property bool active: dialog.currentStep === modelData.n
-                        readonly property bool done: dialog.currentStep > modelData.n
-                        readonly property color activeColor: Theme.eorzea ? Theme.gold : Theme.accent
-
-                        objectName: "wizardStep_" + modelData.n
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: 1
-                        implicitHeight: 40
-
-                        Accessible.role: Accessible.PageTab
-                        Accessible.name: modelData.label
-                        Accessible.selected: active
-                        Accessible.onPressAction: dialog.goToStep(modelData.n)
-
-                        Rectangle {
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.bottom: parent.bottom
-                            height: 2
-                            color: stepSegment.active ? stepSegment.activeColor : Theme.border
-                            Behavior on color { ColorAnimation { duration: Theme.motionFast } }
-                        }
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.bottomMargin: 4
-                            spacing: 8
-
-                            Rectangle {
-                                implicitWidth: 20
-                                implicitHeight: 20
-                                radius: 10
-                                color: stepSegment.active ? stepSegment.activeColor
-                                       : stepSegment.done ? Theme.accentMuted : "transparent"
-                                border.width: 1
-                                border.color: stepSegment.active ? stepSegment.activeColor
-                                              : (Theme.eorzea ? Theme.gold3 : Theme.neutral300)
-
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: stepSegment.modelData.n
-                                    color: stepSegment.active
-                                           ? (Theme.eorzea ? Theme.badgeForeground : "#ffffff")
-                                           : stepSegment.done
-                                             ? (Theme.eorzea ? Theme.gold2 : Theme.accent)
-                                             : Theme.textSecondary
-                                    font.pixelSize: 11
-                                    font.bold: true
-                                }
-                            }
-
-                            Text {
-                                text: stepSegment.modelData.label
-                                color: stepSegment.active ? Theme.textPrimary : Theme.textSecondary
-                                font.pixelSize: Theme.fs(13)
-                                font.weight: Font.DemiBold
-                            }
-
-                            Text {
-                                Layout.fillWidth: true
-                                horizontalAlignment: Text.AlignRight
-                                text: stepSegment.modelData.value
-                                textFormat: Text.PlainText
-                                color: Theme.textMuted
-                                font.pixelSize: Theme.fs(11)
-                                elide: Text.ElideRight
-                            }
-                        }
-
-                        HoverHandler { cursorShape: Qt.PointingHandCursor }
-                        TapHandler { onTapped: dialog.goToStep(stepSegment.modelData.n) }
-                    }
-                }
-            }
-        }
-
-        // ----------------------------------------------------------- 正文 --
-        Flickable {
-            id: formScroll
-
-            objectName: "wizardBody"
-
-            /// Width kept free on the right so the scroll bar never sits on
-            /// top of a field or of the last diff column.
-            readonly property real gutter: 12
-
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            Layout.leftMargin: 24
-            Layout.rightMargin: 24 - gutter
-            clip: true
-            contentWidth: width
-            contentHeight: stepColumn.implicitHeight + 36
-            boundsBehavior: Flickable.StopAtBounds
-            // AlwaysOn rather than the AsNeeded used by the pages: a dialog
-            // body clipped inside its own frame is not obviously scrollable,
-            // and the required reason field can sit below the fold.
-            ScrollBar.vertical: ScrollBar {
-                policy: formScroll.contentHeight > formScroll.height + 0.5
-                        ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
-            }
-
-            ColumnLayout {
-                id: stepColumn
-
-                y: 18
-                width: formScroll.width - formScroll.gutter
-                spacing: 16
-                enabled: !dialog.submitting && !dialog.awaitingRetry
-
-                // ------------------------------------------ 第 1 步：结果 --
-                RunWizardResultStep {
-                    objectName: "wizardStep1"
-                    enabled: !dialog.recordSaved
-                    Layout.fillWidth: true
-                    visible: dialog.currentStep === 1
-                    opacity: dialog.stepProgress
-                    transform: WizardSlide { progress: dialog.stepProgress; direction: dialog.stepDirection }
-                    wizard: dialog
-                }
-
-                // ------------------------------------ 第 2 步：副本与职业 --
-                RunWizardDutyStep {
-                    id: dutyStep
-
-                    objectName: "wizardStep2"
-                    enabled: !dialog.recordSaved
-                    Layout.fillWidth: true
-                    visible: dialog.currentStep === 2
-                    opacity: dialog.stepProgress
-                    transform: WizardSlide { progress: dialog.stepProgress; direction: dialog.stepDirection }
-                    wizard: dialog
-                }
-
-                // -------------------------------------- 第 3 步：时间与原因 --
-                RunWizardTimeStep {
-                    objectName: "wizardStep3"
-                    Layout.fillWidth: true
-                    visible: dialog.currentStep === 3
-                    opacity: dialog.stepProgress
-                    transform: WizardSlide { progress: dialog.stepProgress; direction: dialog.stepDirection }
-                    wizard: dialog
-                }
-            }
-        }
-
-        // ------------------------------------------------------- 按钮栏 --
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 1
-            color: Theme.border
-        }
-
-        RowLayout {
-            id: actionsRow
-
-            Layout.fillWidth: true
-            Layout.leftMargin: 24
-            Layout.rightMargin: 24
-            Layout.topMargin: 14
-            Layout.bottomMargin: 14
-            spacing: 10
-
-            Text {
-                Layout.fillWidth: true
-                text: dialog.recordSaved ? (dialog.reflectionPending
-                      ? qsTr("记录已保存，请重试心情和心得") : qsTr("记录已保存，请重试图片")) : dialog.progressTitle
-                color: dialog.progressDelta > 0 ? Theme.green : Theme.textSecondary
-                font.pixelSize: Theme.fs(12)
-                font.weight: Font.DemiBold
-                elide: Text.ElideRight
-            }
-
-            AppButton {
-                text: dialog.recordSaved ? qsTr("关闭") : qsTr("取消")
-                enabled: !dialog.submitting
-                onClicked: dialog.close()
-            }
-
-            AppButton {
-                objectName: "prevStepButton"
-                visible: dialog.currentStep > 1
-                text: qsTr("上一步")
-                enabled: !dialog.submitting && !dialog.recordSaved && !dialog.awaitingRetry
-                onClicked: dialog.prevStep()
-            }
-
-            AppButton {
-                objectName: "nextStepButton"
-                visible: dialog.currentStep < 3
-                variant: "primary"
-                text: qsTr("下一步")
-                enabled: !dialog.submitting && !dialog.recordSaved
-                onClicked: dialog.nextStep()
-            }
-
-            AppButton {
-                variant: "primary"
-                objectName: "saveRunButton"
-                visible: dialog.currentStep === 3
-                enabled: !dialog.submitting
-                         && (dialog.recordSaved || dialog.awaitingRetry || !dialog.editMode
-                             || dialog.diffRows.length > 0 || dialog.imagesDirty || dialog.confirmsImportedFacts)
-                text: dialog.submitting
-                      ? qsTr("提交中…")
-                      : dialog.recordSaved ? (dialog.reflectionPending ? qsTr("重试心情和心得") : qsTr("重试图片"))
-                      : dialog.awaitingRetry ? qsTr("原样重试")
-                      : (dialog.editMode ? qsTr("保存修正") : qsTr("添加记录"))
-                onClicked: dialog.submit()
-            }
-        }
+    contentItem: EditRunContent {
+        id: defaultBody
+        dialog: editorController
     }
 }

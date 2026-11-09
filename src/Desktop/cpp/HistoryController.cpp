@@ -152,13 +152,7 @@ void HistoryController::selectRun(const QVariantMap &run)
         return;
     }
     m_selectedRun = next;
-    m_selectedRunRevisions.clear();
-    m_selectedRunEvents.clear();
-    m_runEventsState = QStringLiteral("idle");
-    m_runEventsMessage.clear();
-    m_runEventsRunId.clear();
-    Q_EMIT selectionChanged();
-    Q_EMIT runEventsChanged();
+    resetSelectedDetails(/*clearErrorMessage=*/true);
     loadRevisionsForSelection();
 }
 
@@ -167,10 +161,16 @@ void HistoryController::clearSelection()
     if (m_selectedRun.isEmpty())
         return;
     m_selectedRun = QJsonObject();
+    resetSelectedDetails(/*clearErrorMessage=*/true);
+}
+
+void HistoryController::resetSelectedDetails(bool clearErrorMessage)
+{
     m_selectedRunRevisions.clear();
     m_selectedRunEvents.clear();
     m_runEventsState = QStringLiteral("idle");
-    m_runEventsMessage.clear();
+    if (clearErrorMessage)
+        m_runEventsMessage.clear();
     m_runEventsRunId.clear();
     Q_EMIT selectionChanged();
     Q_EMIT runEventsChanged();
@@ -973,12 +973,7 @@ void HistoryController::openRun(const QVariantMap &run)
     if (next.value(QStringLiteral("run_id")).toString().isEmpty())
         return;
     m_selectedRun = next;
-    m_selectedRunRevisions.clear();
-    m_selectedRunEvents.clear();
-    m_runEventsState = QStringLiteral("idle");
-    m_runEventsRunId.clear();
-    Q_EMIT selectionChanged();
-    Q_EMIT runEventsChanged();
+    resetSelectedDetails(/*clearErrorMessage=*/false);
     loadRevisionsForSelection();
 }
 

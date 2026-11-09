@@ -88,7 +88,8 @@
   副本内收到通关结算时自动记为通关；进本后按副本的开始宣布与剩余时间记下这一场是开局进入还是中途加入，
   总览给出中途加入的次数与占比。
 - **历史与统计**：按副本、职业、职能统计次数与耗时，提供成就进度与完成趋势。
-- **补录与更正**：支持手工补录、更正、软删除与撤销。修改过程会保留记录；已删除记录可在保留期内恢复，到期后永久删除。
+- **补录与更正**：在主窗口分步补录遗漏记录、更正已有记录，也可填写心得和添加图片；支持软删除与撤销。
+  修改过程会保留记录；已删除记录可在保留期内恢复，到期后永久删除。
 - **记录导入**：支持 CSV、XLS/XLSX、原生 JSON、软件数据库备份、粘贴表格与截图。先预览、核对并勾选记录，
   再确认导入；重复记录跳过，冲突保留本地。已计入成就起始次数的历史通关可在导入时从起始次数中扣除。
 - **离线截图识别**：支持 dlog 手机卡片与网页记录列表，使用随包 OCR 在本机识别，
@@ -164,7 +165,7 @@
 
 | 来源 | 支持范围 |
 |---|---|
-| 表格 | CSV、Excel `.xlsx`、粘贴的表格文字；表头不一致时可指定列映射 |
+| 表格 | CSV、Excel `.xls` / `.xlsx`、粘贴的表格文字；表头不一致时可指定列映射 |
 | 本软件记录 | 本软件导出的原生 JSON、独立的 SQLite 数据库备份；只读解析来源文件，不覆盖当前数据库 |
 | 截图 | PNG、JPG / JPEG、WebP、BMP；同批最多 20 张，支持 dlog 手机卡片与网页记录列表 |
 
@@ -437,6 +438,15 @@ pwsh -File scripts/verify.ps1 -Configuration Release   # 边界、架构、协�
 pwsh -File scripts/package.ps1 -Configuration Release -Verify   # 打包并验证解包运行（安装器需 Inno Setup 6.7+）
 ```
 
+日常修改可运行非长时间稳定性回归，仍会构建并检查边界、依赖、QML、C++、离线 OCR 及其余测试：
+
+```powershell
+pwsh -File scripts/verify.ps1 -Configuration Release -TestFilter 'Category!=Soak'
+```
+
+该命令排除了 Soak，不能作为完整发布验收。测试报告中的跳过项也不等于通过：真实网卡冒烟测试需显式指定
+`MR_NPCAP_SMOKE_IP` 和 `MR_NPCAP_SMOKE_ADAPTER`，符号链接测试需要相应的 Windows 权限。
+
 完整发布验证应使用 `package.ps1 -Configuration Release -Verify`，不能以仅运行 `dotnet test` 代替。
 离线测试、诊断常量与解包运行验证不代表真实游戏抓包、实际安装 / 升级 / 卸载或跨机器验收已通过。
 
@@ -459,6 +469,25 @@ tools/                  档案校验器、样本重放、数据生成器、静�
 docs/                   设计与验证文档
 openspec/               当前行为规格与活动变更（本地工作文档，不随仓库分发）
 ```
+
+### 模块职责
+
+桌面端保持 **C++20 / Qt Quick**，Collector 使用 **C# / .NET 8**；两者仍通过本机命名管道通信。
+控制器负责协调，各自的编辑状态、后台任务和采集辅助工作由独立模块持有：
+
+| 职责 | 实现入口 | 边界 |
+|---|---|---|
+| 手工录入 | [ManualRunSubmission.qml](src/Desktop/qml/dialogs/ManualRunSubmission.qml) | 协调记录、心得和图片的分阶段保存；部分成功后只重试未完成的阶段，保留请求身份及数据库切换保护 |
+| 心得编辑 | [ReflectionEditSession.qml](src/Desktop/qml/dialogs/ReflectionEditSession.qml) | 文本与编辑状态独立于显示控件，完整编辑页和结果小窗共用；持久草稿仍由 RecoveryController 管理 |
+| 导入预览与截图暂存 | [ImportPreviewClient.h](src/Desktop/cpp/ImportPreviewClient.h)、[ScreenshotImportStaging.h](src/Desktop/cpp/ScreenshotImportStaging.h) | 分页、取消和暂存独立处理；已接受批次、选择和提交身份仍由 ImportRecordsController 持有 |
+| 后台维护 | [DailyBackupScheduler.h](src/Desktop/cpp/workflows/DailyBackupScheduler.h)、[HistoryImageCleanupController.h](src/Desktop/cpp/workflows/HistoryImageCleanupController.h) | 各自管理定时、重试和生命周期，AppController 保留协调入口 |
+| 采集状态 | [CaptureHealthPolicy.cs](src/Collector/Capture/CaptureHealthPolicy.cs)、[CaptureDiagnosticsProjection.cs](src/Collector/Capture/CaptureDiagnosticsProjection.cs) | 从状态快照计算健康分类和诊断结果，采集资源的生命周期仍由 CaptureController 管理 |
+| 校准证据 | [CalibrationEvidencePersistence.cs](src/Collector/Protocol/Pipeline/CalibrationEvidencePersistence.cs) | 管理串行写入与后台任务，LiveProtocolPipeline 仍负责会话代际判断和最终证据取舍 |
+
+等价的 JSON 可读性检查、XLS/XLSX 行处理、结果到终态的映射及 UTC 时间解析共用实现；
+不同入口的错误消息、草稿保存顺序和部分成功语义保持各自约定。
+[架构边界检查](tools/architecture-boundary-check/check.py)与对应行为测试一同纳入 `verify.ps1`，
+用于防止已经拆出的模块重新依赖界面协调器或引入跨层调用。
 
 ## 参与贡献
 

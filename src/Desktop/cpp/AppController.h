@@ -53,6 +53,8 @@ class ExportController;
 class IBackend;
 class NoteImageStore;
 class RunCompletionCoordinator;
+class DailyBackupScheduler;
+class HistoryImageCleanupController;
 class TtsService;
 
 // `final`: the constructor calls refreshAll(), which reaches the virtual Host slot
@@ -305,13 +307,13 @@ public:
     void setReflectionPromptCutoffForTest(const QDateTime &utc);
 
     /// Test-only: what "today" is for the daily backup.
-    void setTodayForTest(std::function<QDate()> today) { m_today = std::move(today); }
+    void setTodayForTest(std::function<QDate()> today);
     /// Test-only: how often the running program checks whether a new day's
     /// backup is due (an hour otherwise).
-    void setDailyBackupCheckMsForTest(int milliseconds) { m_dailyBackupTimer.setInterval(milliseconds); }
+    void setDailyBackupCheckMsForTest(int milliseconds);
     /// Test-only: how long the daily backup keeps away from the end of a duty
-    /// (\ref kBackupAfterDutyMs otherwise).
-    void setBackupAfterDutyMsForTest(int milliseconds) { m_backupAfterDutyTimer.setInterval(milliseconds); }
+    /// (five minutes otherwise).
+    void setBackupAfterDutyMsForTest(int milliseconds);
 
     int currentPage() const { return m_currentPage; }
     QString themeMode() const { return m_themeMode; }
@@ -474,8 +476,8 @@ public:
     bool historyRetentionLoaded() const { return m_history->retentionLoaded(); }
     bool historyRetentionSaving() const { return m_history->retentionSaving(); }
     QString historyRetentionFeedback() const { return m_history->retentionFeedback(); }
-    bool historyImageCleanupRunning() const { return m_historyImageCleanupRunning; }
-    QString historyImageCleanupFeedback() const { return m_historyImageCleanupFeedback.text(); }
+    bool historyImageCleanupRunning() const;
+    QString historyImageCleanupFeedback() const;
     /// main() 注入既有图片根；测试使用临时根。没有 store 时不消费清理任务。
     void setNoteImageStore(NoteImageStore *store);
 
@@ -817,31 +819,11 @@ private:
     AppSettings *m_settings = nullptr;
     /// Optional borrowed process authority, supplied only by composition.
     QPointer<CollectorProcess> m_collector;
-    /// yyyy-MM-dd of the day an automatic backup was last attempted, so a
-    /// failing one is tried once a day rather than on every connection; the
-    /// date itself is stamped in the settings on success only.
-    QString m_autoBackupAttemptedOn;
-    /// The calendar day, local time. A function so a test can move midnight.
-    std::function<QDate()> m_today = [] { return QDate::currentDate(); };
-    /// Set by main()'s first runDailyBackupIfDue(): from then on every
-    /// connection and \ref m_dailyBackupTimer check the day again. Screenshots
-    /// and tests never set it, so they never write a backup.
-    bool m_dailyBackupActive = false;
-    QTimer m_dailyBackupTimer;
+    /// Owns daily attempts and duty deferral; the facade supplies current values only.
+    DailyBackupScheduler *m_dailyBackup = nullptr;
     /// m_currentRun holds an answer from this connection. Cleared on
     /// disconnect: until it is read again, a duty may be in progress.
     bool m_currentRunKnown = false;
-    static constexpr int kDailyBackupCheckMs = 60 * 60 * 1000;
-    /// Single-shot, started when a duty is seen to have ended: until it fires
-    /// the daily backup waits (runDailyBackupIfDue), then it checks again.
-    QTimer m_backupAfterDutyTimer;
-    /// The last current-run answer the daily check saw showed a duty in progress.
-    bool m_dutyInProgressSeen = false;
-    /// The Collector answers BackupDatabase on the connection's read loop, so
-    /// for as long as the copy takes every request behind it waits: 本次导随结果,
-    /// a 心得 save and the announcement go out right after a duty ends, and the
-    /// default 8 s deadline would expire on them (review V4-3).
-    static constexpr int kBackupAfterDutyMs = 5 * 60 * 1000;
     /// Failed connects in a row while the Collector state is Reused. At
     /// \ref kReusedTakeoverAttempts the serve lease is taken over, instead of a
     /// new child being launched on every attempt.
@@ -855,17 +837,7 @@ private:
     /// names a live holder; a vacant lease is taken on the first failure.
     static constexpr int kReusedTakeoverAttempts = 4;
     HistoryController *m_history = nullptr;
-    QPointer<NoteImageStore> m_noteImages;
-    QTimer m_historyImageCleanupTimer;
-    bool m_historyImageCleanupRunning = false;
-    /// A recipe, so a language switch re-renders it (LiveText.h).
-    LiveText m_historyImageCleanupFeedback;
-    QStringList m_historyCleanupIds;
-    QStringList m_historyCleanupSuccessful;
-    QStringList m_historyCleanupFailures;
-    int m_historyCleanupIndex = 0;
-    void drainHistoryImageCleanup();
-    void finishHistoryImageCleanup(const LiveText &feedback);
+    HistoryImageCleanupController *m_imageCleanup = nullptr;
     /// Re-announces every property whose text is built here, after a language switch.
     void retranslate();
     QVariantList m_recentDuties;

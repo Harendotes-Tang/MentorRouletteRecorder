@@ -126,14 +126,14 @@ public:
     bool connected = true;
 };
 
-QQuickItem *findItem(QQuickItem *from, const QString &name)
+QQuickItem *findItem(QQuickItem *from, const QString &name, bool visibleOnly = false)
 {
-    if (!from)
+    if (!from || (visibleOnly && !from->isVisible()))
         return nullptr;
     if (from->objectName() == name)
         return from;
     for (QQuickItem *child : from->childItems()) {
-        if (QQuickItem *match = findItem(child, name))
+        if (QQuickItem *match = findItem(child, name, visibleOnly))
             return match;
     }
     return nullptr;
@@ -236,7 +236,20 @@ struct Shell {
     QObject *named(const QString &name) const { return root->findChild<QObject *>(name); }
     /// Popups and Repeater delegates live in the visual tree only; the popups'
     /// overlay is a child of the window's root item.
-    QQuickItem *item(const QString &name) const { return findItem(window()->contentItem(), name); }
+    QQuickItem *item(const QString &name) const
+    {
+        if (auto *visible = findItem(window()->contentItem(), name, true))
+            return visible;
+        return findItem(window()->contentItem(), name);
+    }
+    bool manualWorkspaceActive(QObject *editor) const
+    {
+        auto *page = item(QStringLiteral("recordWorkspacePage"));
+        auto *body = item(QStringLiteral("manualRecordPageContent"));
+        return editor->property("inlineActive").toBool()
+            && !editor->property("visible").toBool() && controller->currentPage() == 8
+            && page && page->isVisible() && body && body->isVisible();
+    }
     /// The visible item whose `text` is \a text (a button the shell names only in words).
     QQuickItem *itemWithText(const QString &text) const
     {
@@ -342,7 +355,7 @@ void refuseRecordChanges(Shell &shell, QHash<QString, QString> &shown)
     auto *wizard = shell.named(QStringLiteral("editRunDialog"));
     QVERIFY(wizard);
     QVERIFY(shell.call("openCreateDialog"));
-    QTRY_VERIFY(wizard->property("visible").toBool());
+    QTRY_VERIFY(shell.manualWorkspaceActive(wizard));
     wizard->setProperty("matchedTime", QStringLiteral("20:00:00"));
     wizard->setProperty("enteredTime", QStringLiteral("20:01:00"));
     wizard->setProperty("endedTime", QStringLiteral("20:20:00"));
@@ -356,8 +369,8 @@ void refuseRecordChanges(Shell &shell, QHash<QString, QString> &shown)
     QVERIFY(refuse(shell.backend, QStringLiteral("CreateManualRun"), "wizard"));
     QTRY_VERIFY(!wizard->property("submitting").toBool());
     shown.insert(QStringLiteral("wizard"), wizard->property("errorText").toString());
-    QVERIFY(QMetaObject::invokeMethod(wizard, "close"));
-    QTRY_VERIFY(!wizard->property("visible").toBool());
+    QVERIFY(QMetaObject::invokeMethod(wizard, "closeEditor"));
+    QTRY_VERIFY(!wizard->property("editingActive").toBool());
 }
 
 void refuseBaselineChanges(Shell &shell, QHash<QString, QString> &shown)
@@ -1680,7 +1693,7 @@ private Q_SLOTS:
         auto *dialog = shell.named(QStringLiteral("editRunDialog"));
         QVERIFY(dialog);
         QVERIFY(shell.call("openCreateDialog"));
-        QTRY_VERIFY(dialog->property("visible").toBool());
+        QTRY_VERIFY(shell.manualWorkspaceActive(dialog));
         dialog->setProperty("matchedTime", QStringLiteral("20:00:00"));
         dialog->setProperty("enteredTime", QStringLiteral("20:01:00"));
         dialog->setProperty("endedTime", QStringLiteral("20:20:00"));
@@ -1693,7 +1706,7 @@ private Q_SLOTS:
         QVERIFY(first);
         first->fail(QStringLiteral("ERR_INTERNAL"), QString::fromUtf8("后台服务暂时没有响应，操作结果还未确认。请稍后检查结果。"));
         QTRY_VERIFY(!dialog->property("submitting").toBool());
-        QVERIFY(dialog->property("visible").toBool());
+        QVERIFY(shell.manualWorkspaceActive(dialog));
         // DT-10：同一句话也用于采集服务自己答复了内部错误的情形，所以它说的是「发出了、结果不明」，
         // 而不是「没有回应」。
         const QString shown = dialog->property("errorText").toString();
@@ -1715,11 +1728,11 @@ private Q_SLOTS:
         creates.at(1).reply->succeed({{QStringLiteral("run_id"), QStringLiteral("created-run")},
                                       {QStringLiteral("revision"), 1},
                                       {QStringLiteral("audit_event_id"), QStringLiteral("audit-1")}});
-        QTRY_VERIFY(!dialog->property("visible").toBool());
+        QTRY_VERIFY(!dialog->property("editingActive").toBool());
 
         // A fresh wizard is a fresh form again.
         QVERIFY(shell.call("openCreateDialog"));
-        QTRY_VERIFY(dialog->property("visible").toBool());
+        QTRY_VERIFY(shell.manualWorkspaceActive(dialog));
         QVERIFY(!dialog->property("awaitingRetry").toBool());
     }
 
@@ -1735,7 +1748,7 @@ private Q_SLOTS:
         auto *dialog = shell.named(QStringLiteral("editRunDialog"));
         QVERIFY(dialog);
         QVERIFY(shell.call("openCreateDialog"));
-        QTRY_VERIFY(dialog->property("visible").toBool());
+        QTRY_VERIFY(shell.manualWorkspaceActive(dialog));
         dialog->setProperty("matchedTime", QStringLiteral("20:00:00"));
         dialog->setProperty("enteredTime", QStringLiteral("20:01:00"));
         dialog->setProperty("endedTime", QStringLiteral("20:20:00"));

@@ -64,6 +64,23 @@ public sealed class ProtocolProfileMalformedFieldTests : IDisposable
         Assert.True(selected.IsUsable);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ValidatingAnAlreadyParsedProfileLeavesItsDocumentOwnedByTheCaller(bool malformed)
+    {
+        var path = malformed
+            ? WriteWithLoneSurrogate("borrowed-document", "value")
+            : ProfileTestFiles.Write(_directory, "borrowed-document", ProfileTestFiles.Valid());
+        using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+
+        var report = ProfileLoader.Validate(path, document.RootElement);
+
+        Assert.Equal(!malformed, report.Ok);
+        Assert.Equal("borrowed-document", document.RootElement.GetProperty("profile_id").GetString());
+        if (malformed) Assert.Equal("E_PROFILE_PARSE", Assert.Single(report.Errors).Code);
+    }
+
     // -------------------------------------------------------- calendar timestamps ----
     // Calendar-invalid profile metadata must not prevent healthy profiles loading.
 

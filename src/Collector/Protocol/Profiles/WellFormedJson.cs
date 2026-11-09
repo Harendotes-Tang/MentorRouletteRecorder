@@ -45,8 +45,11 @@ internal static class WellFormedJson
         return false;
     }
 
-    /// <summary>True when every key and string under <paramref name="root"/> can be read as text.</summary>
-    private static bool IsReadable(JsonElement root)
+    /// <summary>
+    /// True when every key and string under <paramref name="root"/> can be read as text.
+    /// Borrows an already parsed element; the caller retains document ownership and disposal.
+    /// </summary>
+    internal static bool IsReadable(JsonElement root)
     {
         try
         {

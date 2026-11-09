@@ -415,37 +415,39 @@ ColumnLayout {
                 }
             }
 
-            StyledTextArea {
-                id: noteArea
-                objectName: "reflectionTextArea"
+            ScrollView {
+                id: noteViewport
+                objectName: "reflectionTextViewportCompact"
                 Layout.fillWidth: true
                 Layout.minimumWidth: 0
-                Layout.preferredHeight: activeFocus || text.length > 0 ? Math.max(34, Math.min(96, contentHeight + 14)) : 34
+                Layout.preferredHeight: noteArea.activeFocus || noteArea.text.length > 0
+                                        ? Math.max(34, Math.min(96, noteArea.contentHeight + 14)) : 34
                 Behavior on Layout.preferredHeight { NumberAnimation { duration: Theme.motionFast } }
-                readOnly: popup.dialog.busy || popup.dialog.pendingSwitchId.length > 0
-                placeholderText: qsTr("写一句心得（可选）")
-                font.pixelSize: Theme.fs(12.5)
-                topPadding: 6
-                bottomPadding: 6
-                leftPadding: 9
-                rightPadding: 9
-                Keys.priority: Keys.BeforeItem
-                Keys.onPressed: function(event) {
-                    if (event.matches(StandardKey.Paste) && popup.dialog.imageStore
-                            && popup.dialog.imageStore.clipboardHasImage && !popup.dialog.busy) {
-                        popup.dialog.pasteNoteImage()
-                        event.accepted = true
-                    } else {
-                        event.accepted = false
+                contentWidth: availableWidth
+                clip: true
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+                StyledTextArea {
+                    id: noteArea
+                    objectName: "reflectionTextArea"
+                    width: noteViewport.availableWidth
+                    readOnly: popup.dialog.busy || popup.dialog.pendingSwitchId.length > 0
+                    placeholderText: qsTr("写一句心得（可选）")
+                    font.pixelSize: Theme.fs(12.5)
+                    topPadding: 6
+                    bottomPadding: 6
+                    leftPadding: 9
+                    rightPadding: 9
+                    Keys.priority: Keys.BeforeItem
+                    Keys.onPressed: function(event) { popup.dialog.handleNotePaste(event) }
+                    // Every face reads the same non-visual edit session. A face
+                    // can be recreated without another TextArea holding its note.
+                    text: popup.dialog.noteText
+                    onTextChanged: if (popup.dialog.noteText !== text) popup.dialog.noteText = text
+                    Connections {
+                        target: popup.dialog.editSession
+                        function onTextChanged() { if (noteArea.text !== popup.dialog.noteText) noteArea.text = popup.dialog.noteText }
                     }
-                }
-                // One text, two editors: the dialog's logic reads its own. The face is
-                // created after the text was set, so it starts from the editor's text.
-                Component.onCompleted: text = popup.dialog.noteEditor.text
-                onTextChanged: if (popup.dialog.noteEditor.text !== text) popup.dialog.noteEditor.text = text
-                Connections {
-                    target: popup.dialog.noteEditor
-                    function onTextChanged() { if (noteArea.text !== popup.dialog.noteEditor.text) noteArea.text = popup.dialog.noteEditor.text }
                 }
             }
         }

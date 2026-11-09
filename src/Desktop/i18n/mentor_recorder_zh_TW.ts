@@ -14199,4 +14199,11 @@ SHA256：%3</translation>
         <translation>安裝程式沒有啟動，可能是未通過 Windows 的安裝確認。本軟體會繼續執行，可再點「立即安裝」，或點「在瀏覽器中下載」。</translation>
     </message>
 </context>
+<context>
+    <name>RecordWorkspacePage</name>
+    <message>
+        <source>返回</source>
+        <translation>返回</translation>
+    </message>
+</context>
 </TS>

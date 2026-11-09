@@ -109,6 +109,8 @@ Q_SIGNALS:
     void retentionChanged();
 
 private:
+    // 保留入口差异：openRun 不清消息，选择/取消选择会清消息；通知顺序一致。
+    void resetSelectedDetails(bool clearErrorMessage);
     void loadRevisionsForSelection();
     void loadRevisionPage(const QString &runId, quint64 generation, int page,
                           QVariantList collected);

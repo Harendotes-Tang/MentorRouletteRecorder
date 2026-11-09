@@ -215,7 +215,7 @@ public sealed partial class CaptureController : IDisposable
     /// Twenty rather than one: a single rejected frame proves nothing, and the point of the
     /// verdict is that it is worth telling the user to log out and back in over.
     /// </summary>
-    public const int MidstreamRejectionThreshold = 20;
+    public const int MidstreamRejectionThreshold = CaptureHealthPolicy.MidstreamRejectionThreshold;
 
     /// <summary>
     /// How long a capture must have been running before silence is evidence of anything.
@@ -223,7 +223,7 @@ public sealed partial class CaptureController : IDisposable
     /// A minute, because a client sitting at the character-select screen legitimately sends
     /// almost nothing, and telling that user to relog would be wrong as well as annoying.
     /// </summary>
-    public static readonly TimeSpan LivenessGrace = TimeSpan.FromSeconds(60);
+    public static readonly TimeSpan LivenessGrace = CaptureHealthPolicy.LivenessGrace;
 
     /// <summary>First wait before a faulted capture is retried, doubling up to the cap.</summary>
     public const int InitialFaultBackoffMs = 30_000;
@@ -288,15 +288,8 @@ public sealed partial class CaptureController : IDisposable
     /// <param name="ingress">What ingress has seen, which decides between the two midstream sentences.</param>
     /// <param name="preexisting">Connections the game already held when capture started.</param>
     public static UserText? HintFor(
-        CaptureSilentReason reason, CaptureIngressCounters ingress, int? preexisting) => reason switch
-    {
-        CaptureSilentReason.Midstream => ingress.ReconnectedUnreadable(preexisting)
-            ? MidstreamReconnectedHint
-            : MidstreamHint,
-        CaptureSilentReason.NoPacketsOnAdapter => NoPacketsHint,
-        CaptureSilentReason.NoStreamOwnership => NoOwnershipHint,
-        _ => null,
-    };
+        CaptureSilentReason reason, CaptureIngressCounters ingress, int? preexisting) =>
+        CaptureDiagnosticsProjection.HintFor(reason, ingress, preexisting);
 
     private readonly CaptureServices _services;
     private readonly GameProcessSelection _gameSelection;
@@ -442,67 +435,18 @@ public sealed partial class CaptureController : IDisposable
         {
             var run = _run;
             var queue = _queue;
-            var state = _state == CaptureControllerState.Idle && !npcap.Usable
-                ? CaptureControllerState.Unavailable
-                : _state;
+            var state = CaptureDiagnosticsProjection.State(_state, npcap);
 
             var observed = run?.PacketsObserved ?? 0;
             var ingress = run is null ? CaptureIngressCounters.Empty : counters;
             var uptime = run?.Elapsed ?? TimeSpan.Zero;
             var rate = run is null ? 0 : _rate.Observe(observed, uptime);
 
-            var warnings = new List<UserText>(game.Warnings);
-            if (npcap.Status != NpcapStatus.Ready)
-            {
-                warnings.Add(npcap.Guidance);
-            }
-
-            // Somebody else holds the capture lease, and the only other holder is a validation
-            // session. Automatic recording waits for it without a refusal of its own, so without
-            // this sentence nothing says why nothing is recorded (audit 2026-10-03, OA-8).
-            if (_ownershipLease is null && _services.Ownership.IsHeld)
-            {
-                // A validation that has already ended and only keeps the lease until its source is
-                // released has nothing left for the player to stop (audit 2026-10-20, A2-2).
-                warnings.Add(_services.Ownership.IsReleasing
-                    ? CollectorTexts.CaptureWarningValidationReleasing()
-                    : CollectorTexts.CaptureWarningValidationHolds());
-            }
-
-            if (state == CaptureControllerState.Running
-                && profile.Status != ProfileStatus.Verified)
-            {
-                warnings.Add(profile.CalibrationActive
-                    ? CollectorTexts.CaptureWarningRecalibrating()
-                    : CollectorTexts.CaptureWarningProfileUnverified());
-            }
-
-            // The game was already logged in when capture started, so the connections it
-            // already held cannot be read at all. Play on them counts for nothing, and
-            // calibration looks broken rather than deaf: it can only report what it received.
-            // Once the game is readable -- the player logged in again, as asked -- the "you already
-            // reconnected" sentence is untrue, and following "restart the software" would cause the
-            // very late attach it warns about (audit 2026-11-03, A1-4). The plain sentence stays
-            // while a connection the game held at start is still in use: a chat connection that
-            // reconnected on its own decodes while the zone connection stays unreadable
-            // (re-review 2026-11-03, RV1-2).
-            if (state == CaptureControllerState.Running && _preexistingConnections > 0 &&
-                _pathRecovery.State != PathRecoveryState.Recovering)
-            {
-                // Which of the two sentences depends on whether the login already happened:
-                // telling a player to go back to the title screen when they just did reads as
-                // the software not listening to them, and is the wrong instruction besides.
-                if (run is { IpcMessagesDecoded: 0 })
-                {
-                    warnings.Add(ingress.ReconnectedUnreadable(_preexistingConnections)
-                        ? CollectorTexts.CaptureWarningPreexistingReconnected()
-                        : CollectorTexts.CaptureWarningPreexisting());
-                }
-                else if (ingress.GameConnectionsNow > ingress.GameConnectionsReadable)
-                {
-                    warnings.Add(CollectorTexts.CaptureWarningPreexisting());
-                }
-            }
+            bool? validationLeaseReleasing = _ownershipLease is null && _services.Ownership.IsHeld
+                ? _services.Ownership.IsReleasing : null;
+            var warnings = CaptureDiagnosticsProjection.Warnings(
+                game, npcap, profile, state, validationLeaseReleasing, _preexistingConnections,
+                _pathRecovery.State, run?.IpcMessagesDecoded, ingress);
 
             return new CaptureDiagnosticsSnapshot
             {
@@ -557,9 +501,8 @@ public sealed partial class CaptureController : IDisposable
                 // MIDSTREAM predates silent_reason and keeps its original meaning, so existing
                 // clients read this field unchanged.
                 MidstreamSuspected = run is null ? null : _silentReason == CaptureSilentReason.Midstream,
-                Hint = _pathRecovery.State == PathRecoveryState.Recovering
-                    ? CollectorTexts.CaptureHintPathRecovering()
-                    : run is null ? null : HintFor(_silentReason, ingress, _preexistingConnections),
+                Hint = CaptureDiagnosticsProjection.Hint(
+                    _pathRecovery.State, run is not null, _silentReason, ingress, _preexistingConnections),
                 OodleSignature = _source?.SignatureUse ?? OodleSignatureUse.None,
                 LastErrorCode = _lastErrorCode,
                 LastErrorMessage = _lastErrorMessage,
@@ -1448,7 +1391,9 @@ public sealed partial class CaptureController : IDisposable
             }
 
             generation = _generation;
-            reason = Classify(run, counters, _preexistingConnections, _gameConnectionSeen);
+            reason = CaptureHealthPolicy.Classify(
+                new CaptureHealthReading(run.IpcMessagesDecoded, run.DecodeErrors, run.Elapsed),
+                counters, _preexistingConnections, _gameConnectionSeen);
             if (reason == _silentReason)
             {
                 return;
@@ -1472,7 +1417,7 @@ public sealed partial class CaptureController : IDisposable
 
     /// <summary>
     /// Notes whether the game has held a TCP connection on any interface, before a quiet minute is
-    /// judged (see <see cref="Classify"/>). The ingress only counts the game's connections on the
+    /// judged (see <see cref="CaptureHealthPolicy.Classify"/>). The ingress only counts the game's connections on the
     /// paths being watched, which is exactly what is missing when the game talks over another card,
     /// so the system table is asked -- only while that judgement is pending, from the poll thread and
     /// outside both gates. An IPv4 table that cannot be read counts as connected, keeping the verdicts
@@ -1500,80 +1445,6 @@ public sealed partial class CaptureController : IDisposable
         {
             if (ReferenceEquals(run, _run)) _gameConnectionSeen = true;
         }
-    }
-
-    /// <summary>
-    /// Reads one verdict out of the counters. Pure, so the table of cases is testable without
-    /// a controller, a clock or a source.
-    /// </summary>
-    /// <param name="run">Counters of the capture in flight.</param>
-    /// <param name="ingress">What the adapter delivered and what was discarded.</param>
-    /// <param name="preexisting">Connections the game already held at start, when known.</param>
-    /// <param name="gameConnectionSeen">The game held a connection on some interface, or the table could not tell.</param>
-    private static CaptureSilentReason Classify(
-        CaptureRun run, CaptureIngressCounters ingress, int? preexisting, bool gameConnectionSeen)
-    {
-        // One decoded IPC segment proves the compressed stream is readable. Control segments
-        // do not: they stay readable exactly when Oodle state is missing.
-        if (run.IpcMessagesDecoded > 0)
-        {
-            return CaptureSilentReason.None;
-        }
-
-        // Two forms of hard evidence, neither of which needs to wait out the grace period.
-        // A sustained rejection run on a capture that started with connections is the
-        // original midstream signature; every frame being dropped for want of a handshake is
-        // the same fact observed one layer lower, where nothing reaches the observer at all.
-        if (preexisting > 0 && run.DecodeErrors >= MidstreamRejectionThreshold)
-        {
-            return CaptureSilentReason.Midstream;
-        }
-
-        // Every frame the card delivered was discarded before reassembly could use it. At
-        // the wire a mid-connection attach shows up as DroppedNoStream, not DroppedNoSyn:
-        // a continuation whose handshake happened before we were listening has no tracked
-        // stream at all, and only a connection that showed one SYN and not the other lands
-        // in DroppedNoSyn. Both mean the same thing -- no handshake was observed -- so both
-        // count, and the sample has to be big enough that ordinary background chatter on the
-        // same local address cannot produce this verdict on its own. And the game has to hold
-        // a connection at all: before login every frame is another program's, and those are
-        // dropped for want of a handshake too (audit 2026-10-03, OA-6).
-        if (ingress.AllDroppedBeforeDecode && ingress.RawPackets >= MidstreamRejectionThreshold &&
-            (ingress.GameConnectionsNow > 0 || preexisting > 0))
-        {
-            return CaptureSilentReason.Midstream;
-        }
-
-        if (run.Elapsed < LivenessGrace)
-        {
-            return CaptureSilentReason.None;
-        }
-
-        if (preexisting > 0)
-        {
-            return CaptureSilentReason.Midstream;
-        }
-
-        // The game has held no connection on any interface since this capture started: the
-        // title screen, an opening movie. Silence then says nothing about where its traffic goes,
-        // and other programs' frames say nothing about ownership: no verdict, no advice, no
-        // recovery episode, the same rule as OA-6 above (audit 2026-11-03, A1-5).
-        if (!gameConnectionSeen && ingress.GameConnections == 0)
-        {
-            return CaptureSilentReason.None;
-        }
-
-        // Nothing at all on this card for a whole minute while the game is running: the
-        // traffic is somewhere else, which is what a 加速器 or a VPN does.
-        if (ingress.RawPackets == 0)
-        {
-            return CaptureSilentReason.NoPacketsOnAdapter;
-        }
-
-        // Traffic arrives, but no tuple was ever confirmed as belonging to the game.
-        return ingress.UnconfirmedTuples > 0
-            ? CaptureSilentReason.NoStreamOwnership
-            : CaptureSilentReason.None;
     }
 
     /// <summary>

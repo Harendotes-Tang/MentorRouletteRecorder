@@ -14199,4 +14199,11 @@ SHA256：%3</translation>
         <translation>インストーラーが起動しませんでした。Windows のインストール確認で許可されなかった可能性があります。このアプリは実行を続けます。もう一度「今すぐインストール」を押すか、「ブラウザでダウンロード」を押してください。</translation>
     </message>
 </context>
+<context>
+    <name>RecordWorkspacePage</name>
+    <message>
+        <source>返回</source>
+        <translation>戻る</translation>
+    </message>
+</context>
 </TS>

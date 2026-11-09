@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls 6.8
-import QtQuick.Layouts
 import MentorRecorder 1.0
 
 // 导随心得: the per-run diary entry. Opened automatically after a COMPLETED
@@ -14,20 +13,46 @@ import MentorRecorder 1.0
 // achievement count only moves once the user answers 通关. The program never
 // decides such a result by itself.
 Dialog {
+    font.family: Theme.bodyFamily
     id: dialog
+    property bool inlinePresentation: false
+    property bool inlineActive: false
+    property ReflectionEditorContent inlineContent: null
+    readonly property bool editingActive: visible || inlineActive
+    readonly property bool editorOnScreen: inlinePresentation
+        ? inlineActive && inlineContent && inlineContent.visible
+          && inlineContent.Window.window && inlineContent.Window.window.visible
+        : visible
+    signal editorClosed()
+
+    function showEditor() {
+        if (inlinePresentation) {
+            inlineActive = true
+            acknowledge()
+        } else open()
+    }
+    function closeEditor() {
+        if (inlineActive) {
+            persistDraft()
+            inlineActive = false
+            presentationClosed()
+        } else close()
+    }
 
     property var runData: ({})
     property string kicker: qsTr("补录笔记")
-    property string mood: "good"
+    readonly property alias editSession: reflectionSession
+    property alias noteText: reflectionSession.text
+    property alias mood: reflectionSession.mood
     property string errorText: ""
-    property bool submitting: false
+    property alias submitting: reflectionSession.submitting
     // True while the dialog is asking 通关 / 未通关 first. The 心得 fields stay
     // visible underneath, so answering both is one window and one click.
     property bool askingResult: false
-    property bool resolving: false
-    property bool waitingForReflection: false
-    property string pendingResult: ""
-    property string pendingReason: ""
+    property alias resolving: reflectionSession.resolving
+    property alias waitingForReflection: reflectionSession.waitingForReflection
+    property alias pendingResult: reflectionSession.pendingResult
+    property alias pendingReason: reflectionSession.pendingReason
     property int jobIndex: 0
     readonly property bool needsJob: !(runData && runData.job_id > 0)
     // label: the job in the interface language; the request sends job_id.
@@ -39,7 +64,7 @@ Dialog {
     // matching App.resultConfirmationClosed(); the closing half must run on
     // every way out of this window - see onClosed.
     property bool resultAcknowledged: false
-    readonly property bool busy: submitting || resolving
+    readonly property bool busy: reflectionSession.busy
     // Main owns delivery; isolated legacy callers can keep the original route.
     property bool managedPresentation: false
     property bool standalone: false
@@ -50,17 +75,17 @@ Dialog {
     /// (review RV3-4).
     readonly property bool reminderChrome: managedPresentation && standalone
     property bool automaticOpen: false
-    property bool loadingDraft: false
-    property bool completedAction: false
-    property bool conflictUnresolved: false
-    property string draftToken: ""
-    property string submittedDraftToken: ""
+    property alias loadingDraft: reflectionSession.loadingDraft
+    property alias completedAction: reflectionSession.completedAction
+    property alias conflictUnresolved: reflectionSession.conflictUnresolved
+    property alias draftToken: reflectionSession.draftToken
+    property alias submittedDraftToken: reflectionSession.submittedDraftToken
     /// The text the last saveReflection sent: the note, or a mood word.
-    property string submittedNote: ""
-    property string baselineText: ""
-    property string baselineMood: "good"
+    property alias submittedNote: reflectionSession.submittedNote
+    property alias baselineText: reflectionSession.baselineText
+    property alias baselineMood: reflectionSession.baselineMood
     property string automaticKind: ""
-    property string editScope: ""
+    property alias editScope: reflectionSession.editScope
     property bool observedIdentityVerified: true
     readonly property var recovery: typeof Runtime.app !== "undefined" && Runtime.app.recovery ? Runtime.app.recovery : null
     // The compact popup beside the statistics float (standalone; docs/ui-design.md
@@ -85,7 +110,10 @@ Dialog {
             if ((queueItems[i].runId || queueItems[i].run_id) === runId) return i
         return -1
     }
-    readonly property alias noteEditor: textArea
+    // Compatibility accessor for focus and callers that locate the editor;
+    // draft and submission logic reads the non-visual session instead.
+    readonly property TextArea noteEditor: inlinePresentation && inlineContent ? inlineContent.noteEditor : fullForm.noteEditor
+    ReflectionEditSession { id: reflectionSession }
     /// This dialog, for the popup face: inside its Component the name `dialog`
     /// would resolve to the face's own `dialog` property.
     readonly property var popupHost: dialog
@@ -120,7 +148,7 @@ Dialog {
         if (!recovery || loadingDraft || !runId || completedAction) return true
         if (editScope !== recovery.databaseKey) return false
         // Drafts hold the text as it would be stored (a mood word in its source text).
-        const text = storedNote(textArea.text)
+        const text = storedNote(noteText)
         const changed = text !== baselineText || mood !== baselineMood || selectedJobId > 0
         if (!changed && !conflictUnresolved) {
             if (draftToken) recovery.clearDraft(runId, draftToken)
@@ -149,17 +177,17 @@ Dialog {
             errorText = recovery && recovery.error ? recovery.error : qsTr("草稿尚未保存，请保留窗口并稍后重试。")
             return
         }
-        close()
+        closeEditor()
     }
 
     function draftChanged() {
-        if (visible && !loadingDraft && !completedAction) draftTimer.restart()
+        if (editingActive && !loadingDraft && !completedAction) draftTimer.restart()
     }
 
     /// A mood's word in its source text, whatever the interface language - the
     /// record wizard's manualReflectionText words.
     function moodOnlyText(value) {
-        return value === "good" ? "顺利" : value === "ok" ? "一般" : value === "bad" ? "糟心" : ""
+        return reflectionSession.moodOnlyText(value)
     }
 
     /// A stored note as the editor shows it: a note that is only a mood's word
@@ -175,23 +203,19 @@ Dialog {
     /// empty for any other note. Kept rather than recomputed: a live language
     /// switch does not rewrite the editor's text, so the word on screen can be
     /// another language's than Theme.moodLabel() now returns (re-review RV6-3).
-    property string shownMoodLabel: ""
-    property string shownMoodWord: ""
+    property alias shownMoodLabel: reflectionSession.shownMoodLabel
+    property alias shownMoodWord: reflectionSession.shownMoodWord
 
     /// Puts a stored note into the editor as displayNote() shows it.
     function showNote(text) {
         const value = text || ""
-        const shown = displayNote(value)
-        shownMoodLabel = shown !== value ? shown : ""
-        shownMoodWord = shown !== value ? value : ""
-        textArea.text = shown
+        reflectionSession.showNote(value, displayNote(value))
     }
 
     /// The editor's text as stored: the mood word showNote() put there, still
     /// untouched, stays the stored word; anything typed is kept as typed.
     function storedNote(text) {
-        const value = text || ""
-        return shownMoodLabel.length > 0 && value.trim() === shownMoodLabel ? shownMoodWord : value
+        return reflectionSession.storedNote(text)
     }
 
     /// The text a save sends. A mood chosen without text is saved with its
@@ -202,13 +226,40 @@ Dialog {
     /// on show counts as chosen even unchanged (保存笔记); the popup's faces
     /// start on 顺利, so there only a changed face is a choice.
     function noteToSave(explicit) {
-        const typed = storedNote(textArea.text).trim()
-        const stored = baselineText.trim()
-        if (typed.length > 0)
-            return typed === stored && stored === moodOnlyText(baselineMood) ? moodOnlyText(mood) : typed
-        if (stored.length > 0)
-            return ""
-        return explicit || mood !== baselineMood ? moodOnlyText(mood) : ""
+        return reflectionSession.noteToSave(explicit)
+    }
+
+    // Keep draft persistence before choosing the explicit-save fallback. The
+    // completion path instead freezes its note before deciding whether to save.
+    function prepareNoteSubmission() {
+        errorText = ""
+        persistDraft()
+        submittedDraftToken = draftToken
+    }
+
+    // Callers decide whether a save is needed and check the available action.
+    // An empty note is intentional deletion, not a request for a mood fallback.
+    function submitNote(note) {
+        submittedNote = note
+        submitting = true
+        Runtime.app.saveReflection(runId, mood, note, submittedDraftToken)
+    }
+
+    function saveExplicitNote() {
+        if (runId.length === 0)
+            return
+        if (selectedJobId > 0) {
+            resolveWith("", QT_TRANSLATE_NOOP("SystemReason", "补录本次导随职业"))
+            return
+        }
+        if (typeof Runtime.app === "undefined" || !Runtime.app.saveReflection) {
+            errorText = qsTr("当前版本无法保存笔记。")
+            return
+        }
+        // The explicit-save button owns its busy/availability gate. Unlike
+        // finish(), it never acknowledges an unchanged prompt without saving.
+        prepareNoteSubmission()
+        submitNote(noteToSave(true))
     }
 
     // ---------------------------------------------------------------- 弹窗 --
@@ -232,12 +283,8 @@ Dialog {
                 errorText = qsTr("上一条笔记仍在保存中，请稍候再试。")
                 return
             }
-            errorText = ""
-            persistDraft()
-            submittedDraftToken = draftToken
-            submittedNote = note
-            submitting = true
-            Runtime.app.saveReflection(runId, mood, note, submittedDraftToken)
+            prepareNoteSubmission()
+            submitNote(note)
             return
         }
         completedAction = true
@@ -245,7 +292,7 @@ Dialog {
             if (draftToken) recovery.clearDraft(runId, draftToken)
             recovery.markReflectionSaved(runId)
         }
-        close()
+        closeEditor()
     }
 
     /// 在历史记录中复核: keep the draft, close, and let Main open the record and
@@ -258,7 +305,7 @@ Dialog {
             return
         }
         completedAction = true
-        close()
+        closeEditor()
         reviewRequested(run)
     }
 
@@ -325,23 +372,24 @@ Dialog {
     /// and Main's notice says where it went (review L2-6). Otherwise the
     /// database is switching and the work belongs to the other one.
     function invalidateEditor(putAway) {
-        if (!visible) return
+        if (!editingActive) return
         persistDraft()
         completedAction = putAway !== true
         submitting = false
         resolving = false
         waitingForReflection = false
         pendingResult = ""
-        close()
+        closeEditor()
     }
     Component.onCompleted: observedIdentityVerified = recovery ? recovery.identityVerified : true
+    onNoteTextChanged: draftChanged()
     onMoodChanged: draftChanged()
     onJobIndexChanged: draftChanged()
     Timer { id: draftTimer; interval: 250; onTriggered: dialog.persistDraft() }
     Connections {
         target: dialog.recovery
         ignoreUnknownSignals: true
-        function onFlushRequested() { if (dialog.visible) dialog.persistDraft() }
+        function onFlushRequested() { if (dialog.editingActive) dialog.persistDraft() }
         function onScopeChanging() { dialog.invalidateEditor(false) }
         function onChanged() {
             const verified = dialog.recovery.identityVerified
@@ -350,7 +398,7 @@ Dialog {
         }
         function onScopeChanged() {
             // The first verified identity claims provisional work without closing it.
-            if (dialog.visible && dialog.editScope.length === 0) dialog.editScope = dialog.recovery.databaseKey
+            if (dialog.editingActive && dialog.editScope.length === 0) dialog.editScope = dialog.recovery.databaseKey
         }
     }
 
@@ -393,12 +441,23 @@ Dialog {
         noteImageError = result.ok ? "" : (result.error || "")
     }
 
+    // Both text editors claim only the same image-paste shortcut; ordinary
+    // text and unrelated keys must continue to their native TextArea handler.
+    function handleNotePaste(event) {
+        if (event.matches(StandardKey.Paste) && imageStore && imageStore.clipboardHasImage && !busy) {
+            pasteNoteImage()
+            event.accepted = true
+        } else {
+            event.accepted = false
+        }
+    }
+
     Shortcut {
         sequences: [StandardKey.Paste]
         context: Qt.WindowShortcut
         // TextArea handles ordinary text paste itself. An image clipboard is
         // the only case this dialog claims Ctrl+V.
-        enabled: dialog.visible && !dialog.busy && !dialog.unavailable && dialog.pendingSwitchId.length === 0
+        enabled: dialog.editorOnScreen && !dialog.busy && !dialog.unavailable && dialog.pendingSwitchId.length === 0
             && !!dialog.imageStore
             && dialog.imageStore.clipboardHasImage && (!dialog.askingResult || dialog.promptEnabled)
         onActivated: dialog.pasteNoteImage()
@@ -444,7 +503,8 @@ Dialog {
     Shortcut {
         sequence: "Escape"
         context: Qt.WindowShortcut
-        enabled: dialog.visible && dialog.managedPresentation && !dialog.busy
+        objectName: "deferReflectionShortcut"
+        enabled: dialog.editorOnScreen && dialog.managedPresentation && !dialog.busy
         onActivated: dialog.defer()
     }
 
@@ -484,9 +544,11 @@ Dialog {
     // thing that re-offers it. The call is idempotent when no question is on
     // screen. The 心得 prompt has the same pair, asked after the result
     // question so that one comes first.
-    onClosed: {
+    onClosed: presentationClosed()
+    function presentationClosed() {
         dialog.dismissing(dialog.runId, dialog.completedAction)
         dialog.hostClosing()
+        dialog.editorClosed()
         dialog.resultAcknowledged = false
         if (typeof Runtime.app !== "undefined"
             && typeof Runtime.app.resultConfirmationClosed === "function")
@@ -499,7 +561,7 @@ Dialog {
     function openForRun(run, kickerText) {
         // Live completion prompts share this form with manually opened notes.
         // A visible draft belongs to the player until they close or save it.
-        if (!run || !run.run_id || dialog.busy || dialog.visible)
+        if (!run || !run.run_id || dialog.busy || dialog.editingActive)
             return
         dialog.runData = run
         dialog.jobIndex = 0
@@ -522,7 +584,7 @@ Dialog {
         dialog.resultFlow = false
         dialog.pendingSwitchId = ""
         dialog.restoreDraft(run)
-        dialog.open()
+        dialog.showEditor()
     }
 
     /// The Collector's achievement_progress as last read, or -1 when none was.
@@ -538,20 +600,20 @@ Dialog {
     // could not show stays queued in the controller and is offered again when
     // the window closes (review OH-6).
     function openForPrompt(run, kickerText) {
-        if (!run || !run.run_id || dialog.busy || dialog.visible)
+        if (!run || !run.run_id || dialog.busy || dialog.editingActive)
             return
         dialog.automaticKind = "reflection"
         openForRun(run, kickerText)
         // The popup shows the count the clear just raised: the figure held now,
         // read before this run's own events reached the dashboard, and the one
         // a read sent now returns. Nothing is counted here (review L2-1).
-        if (dialog.compact && dialog.visible && run.result === "COMPLETED" && run.contributes_to_goal === true
+        if (dialog.compact && dialog.editingActive && run.result === "COMPLETED" && run.contributes_to_goal === true
             && typeof Runtime.app !== "undefined" && typeof Runtime.app.readGoalProgress === "function") {
             dialog.progressFrom = dialog.collectorProgress()
             if (dialog.progressFrom >= 0)
                 Runtime.app.readGoalProgress(run.run_id, run.region || "CN")
         }
-        if (!managedPresentation && dialog.visible && dialog.runId === run.run_id
+        if (!managedPresentation && dialog.editingActive && dialog.runId === run.run_id
             && typeof Runtime.app !== "undefined"
             && typeof Runtime.app.reflectionPromptShown === "function")
             Runtime.app.reflectionPromptShown(run.run_id)
@@ -564,7 +626,7 @@ Dialog {
     function openForResult(run) {
         // The controller keeps unacknowledged questions queued and reoffers
         // them onClosed. Typing is just as important to preserve as saving.
-        if (!run || !run.run_id || dialog.busy || dialog.visible)
+        if (!run || !run.run_id || dialog.busy || dialog.editingActive)
             return
         dialog.runData = run
         dialog.kicker = qsTr("刚刚结束")
@@ -587,7 +649,7 @@ Dialog {
         dialog.pendingSwitchId = ""
         dialog.restoreDraft(run)
         dialog.automaticKind = "result"
-        dialog.open()
+        dialog.showEditor()
         // Acknowledge only once the window is up: until this call the run is not
         // recorded as asked, so a dialog that never opened stays re-offerable.
         if (!managedPresentation && typeof Runtime.app !== "undefined"
@@ -665,14 +727,14 @@ Dialog {
         ignoreUnknownSignals: true
 
         function onReflectionSaved(runId, cleared) {
-            if (!dialog.visible || runId !== dialog.runId
+            if (!dialog.editingActive || runId !== dialog.runId
                 || (!dialog.submitting && !dialog.waitingForReflection))
                 return
             dialog.submitting = false
             // What was stored, a mood word included, is what the editor shows.
             dialog.baselineText = dialog.submittedNote
             dialog.baselineMood = dialog.mood
-            if (dialog.storedNote(textArea.text).trim() !== dialog.submittedNote) {
+            if (dialog.storedNote(dialog.noteText).trim() !== dialog.submittedNote) {
                 dialog.loadingDraft = true
                 dialog.showNote(dialog.submittedNote)
                 dialog.loadingDraft = false
@@ -686,7 +748,7 @@ Dialog {
                 return
             }
             dialog.completedAction = true
-            dialog.close()
+            dialog.closeEditor()
         }
 
         // The controller decides whether the question may be asked (settings,
@@ -700,7 +762,7 @@ Dialog {
         // update would skip that check and overwrite an unseen result/job.
 
         function onMutationSucceeded(kind, runId, revision, auditEventId) {
-            if (!dialog.visible || !dialog.resolving || dialog.waitingForReflection
+            if (!dialog.editingActive || !dialog.resolving || dialog.waitingForReflection
                 || (kind !== "review" && kind !== "supplement_job") || runId !== dialog.runId)
                 return
             dialog.resolving = false
@@ -725,18 +787,18 @@ Dialog {
             // empty is the 完成 without one: handled, not 待补笔记 (audit
             // 2026-11-03 L2-2; a note that was saved first is already marked).
             if (kind === "supplement_job" && dialog.recovery) {
-                if (textArea.text.trim().length === 0)
+                if (dialog.noteText.trim().length === 0)
                     dialog.recovery.markReflectionSaved(dialog.runId, dialog.draftToken)
                 else if (dialog.draftToken)
                     dialog.recovery.clearDraft(dialog.runId, dialog.draftToken)
             }
             dialog.completedAction = true
-            dialog.close()
+            dialog.closeEditor()
         }
 
         // The read sent once this run counted: its answer is the count after it.
         function onGoalProgressRead(runId, ok) {
-            if (!ok || !dialog.visible || runId !== dialog.runId
+            if (!ok || !dialog.editingActive || runId !== dialog.runId
                 || dialog.progressFrom < 0 || dialog.progressTo >= 0)
                 return
             dialog.progressTo = dialog.collectorProgress()
@@ -745,7 +807,7 @@ Dialog {
         // Only the refusal of this window's own 通关 / 未通关 or 补录职业: one
         // for the 原因 dialog or 设置 meanwhile is not its answer (review DT3-X1).
         function onMutationFailed(code, message, kind, runId) {
-            if (!dialog.visible || !dialog.resolving || dialog.waitingForReflection
+            if (!dialog.editingActive || !dialog.resolving || dialog.waitingForReflection
                 || (kind !== "review" && kind !== "supplement_job") || runId !== dialog.runId)
                 return
             dialog.resolving = false
@@ -753,7 +815,7 @@ Dialog {
         }
 
         function onReflectionFailed(code, message) {
-            if (!dialog.visible || (!dialog.submitting && !dialog.waitingForReflection))
+            if (!dialog.editingActive || (!dialog.submitting && !dialog.waitingForReflection))
                 return
             dialog.submitting = false
             dialog.waitingForReflection = false
@@ -769,472 +831,32 @@ Dialog {
         id: reflectionContent
         readonly property alias popupHost: dialog.popupHost
         readonly property Item compactContent: compactFace.item as Item
-        implicitWidth: dialog.standalone && compactContent ? compactContent.implicitWidth : formViewport.implicitWidth
-        implicitHeight: dialog.standalone && compactContent ? compactContent.implicitHeight : formViewport.implicitHeight
+        implicitWidth: dialog.standalone && compactContent ? compactContent.implicitWidth : fullForm.implicitWidth
+        implicitHeight: dialog.standalone && compactContent ? compactContent.implicitHeight : fullForm.implicitHeight
 
         // The popup face lives only while the window is the standalone one.
-        Loader {
-            id: compactFace
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            active: dialog.standalone
+        ScrollView {
+            id: compactViewport
+            objectName: "reflectionCompactViewport"
+            anchors.fill: parent
             visible: dialog.standalone
-            sourceComponent: ResultPopupContent { dialog: reflectionContent.popupHost }
-        }
-
-        ScrollView {
-        id: formViewport
-        anchors.fill: parent
-        visible: !dialog.standalone
-        implicitHeight: form.implicitHeight
-        contentWidth: availableWidth
-        clip: true
-        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-        ColumnLayout {
-        id: form
-        width: formViewport.availableWidth
-        spacing: 14
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 12
-
-            Image {
-                visible: dialog.reminderChrome
-                source: "qrc:/app/app.png"
-                Layout.preferredWidth: 28
-                Layout.preferredHeight: 28
-                sourceSize.width: 56
-                sourceSize.height: 56
-            }
-            CardKicker { text: dialog.reminderChrome ? qsTr("导随记录器") : dialog.kicker }
-
-            Item { Layout.fillWidth: true }
-
-            Text {
-                text: dialog.reminderChrome ? dialog.kicker : dialog.runId
-                textFormat: Text.PlainText
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fs(11)
-                elide: Text.ElideMiddle
-                Layout.maximumWidth: 260
-            }
-            AppButton {
-                objectName: dialog.standalone ? "deferReflectionButtonFull" : "deferReflectionButton"
-                visible: dialog.reminderChrome
-                text: qsTr("收起")
-                iconName: "chevrons-down"
-                compact: true
-                enabled: !dialog.busy
-                onClicked: dialog.defer()
-            }
-            DragHandler {
-                enabled: dialog.standalone
-                target: null
-                onActiveChanged: if (active && dialog.parent && dialog.parent.Window.window) dialog.parent.Window.window.startSystemMove()
-            }
-        }
-
-        HeadingLabel {
-            Layout.fillWidth: true
-            text: dialog.reminderChrome
-                  ? (dialog.askingResult ? qsTr("本次结果待确认") : qsTr("本次笔记待补录"))
-                  : (dialog.askingResult ? qsTr("本次导随结果") : qsTr("导随笔记"))
-            font.pixelSize: Theme.dialogTitleSize(20)
-        }
-
-        Text {
-            Layout.fillWidth: true
-            visible: dialog.reminderChrome
-            text: qsTr("关闭只会收起提醒，待办和草稿会保留，可从“待处理”继续。")
-            color: Theme.textSecondary
-            font.pixelSize: Theme.fs(12)
-            wrapMode: Text.WordWrap
-        }
-        Text {
-            Layout.fillWidth: true
-            visible: dialog.unavailable
-            text: qsTr("这条记录已删除或暂时无法读取。草稿仍可复制，当前不能提交。")
-            color: Theme.red
-            font.pixelSize: Theme.fs(12)
-            wrapMode: Text.WordWrap
-        }
-        Text {
-            Layout.fillWidth: true
-            visible: !!dialog.recovery && dialog.recovery.error.length > 0
-            text: dialog.recovery ? dialog.recovery.error : ""
-            color: Theme.red
-            font.pixelSize: Theme.fs(12)
-            wrapMode: Text.WordWrap
-        }
-        AppButton {
-            objectName: "reviewRecoveredRecordButton"
-            visible: !dialog.askingResult && !!dialog.runData.pending_review && !dialog.unavailable
-            text: qsTr("在历史记录中复核")
-            enabled: !dialog.busy
-            onClicked: dialog.requestReview()
-        }
-        ColumnLayout {
-            Layout.fillWidth: true
-            visible: dialog.conflictUnresolved
-            Text {
-                Layout.fillWidth: true
-                text: qsTr("已保存的笔记有变化。下面保留了旧草稿，请选择要继续编辑的内容。最新笔记：\n%1")
-                      .arg(dialog.displayNote(dialog.baselineText) || qsTr("（空）"))
-                textFormat: Text.PlainText
-                color: Theme.textPrimary
-                font.pixelSize: Theme.fs(12)
-                wrapMode: Text.WordWrap
-            }
-            RowLayout {
-                AppButton {
-                    objectName: dialog.standalone ? "keepRecoveryDraftButtonFull" : "keepRecoveryDraftButton"
-                    text: qsTr("继续使用草稿")
-                    onClicked: { dialog.conflictUnresolved = false; dialog.persistDraft(true) }
-                }
-                AppButton {
-                    objectName: dialog.standalone ? "useLatestNoteButtonFull" : "useLatestNoteButton"
-                    text: qsTr("使用最新笔记")
-                    onClicked: dialog.useLatestNote()
-                }
-            }
-        }
-
-        ColumnLayout {
-            objectName: "missingJobField"
-            Layout.fillWidth: true
-            visible: dialog.needsJob
-            spacing: 6
-
-            FieldLabel { text: qsTr("本次职业（未自动识别，可补录）") }
-            StyledComboBox {
-                id: completedJobCombo
-                objectName: "completedJobCombo"
-                Layout.fillWidth: true
-                enabled: !dialog.busy
-                model: dialog.jobOptions
-                textRole: "label"
-                showJobIcons: true
-                Binding {
-                    target: completedJobCombo
-                    property: "currentIndex"
-                    value: dialog.jobIndex
-                    restoreMode: Binding.RestoreNone
-                }
-                onActivated: dialog.jobIndex = currentIndex
-            }
-        }
-
-        // The question itself. Deliberately three plain answers and no default:
-        // the program has no evidence either way and must not pick for the user.
-        ColumnLayout {
-            Layout.fillWidth: true
-            visible: dialog.askingResult
-            spacing: 8
-
-            Text {
-                Layout.fillWidth: true
-                textFormat: Text.PlainText
-                text: qsTr("《%1》通关了吗？软件尚未确认本次结果，"
-                           + "只有你确认“通关”后这一次才会计入导随次数。").arg(dialog.dutyText)
-                color: Theme.textPrimary
-                font.pixelSize: Theme.fs(13)
-                wrapMode: Text.WordWrap
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 8
-
-                AppButton {
-                    objectName: dialog.standalone ? "confirmCompletedButtonFull" : "confirmCompletedButton"
-                    variant: "primary"
-                    enabled: !dialog.busy && !dialog.conflictUnresolved && !dialog.unavailable
-                    text: qsTr("通关")
-                    onClicked: dialog.resolveWith("COMPLETED", QT_TRANSLATE_NOOP("SystemReason", "用户确认通关"))
-                }
-
-                AppButton {
-                    objectName: dialog.standalone ? "confirmLeftButtonFull" : "confirmLeftButton"
-                    enabled: !dialog.busy && !dialog.conflictUnresolved && !dialog.unavailable
-                    text: qsTr("退出 / 放弃")
-                    onClicked: dialog.resolveWith("LEFT_OR_ABANDONED",
-                                                  QT_TRANSLATE_NOOP("SystemReason", "用户确认退出或放弃"))
-                }
-
-                Item { Layout.fillWidth: true }
-
-                AppButton {
-                    enabled: !dialog.resolving
-                    text: qsTr("稍后再说")
-                    // Nothing is written: the run stays 待复核 and 待处理
-                    // keeps offering the same question.
-                    onClicked: dialog.defer()
-                }
-            }
-
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.topMargin: 2
-                Layout.preferredHeight: 1
-                color: Theme.border
-            }
-        }
-
-        InsetBox {
-            Layout.fillWidth: true
-            implicitHeight: summaryGrid.implicitHeight + 20
-
-            GridLayout {
-                id: summaryGrid
-
-                // Set when the duty name takes its second line; the columns then
-                // hang from the top so their labels stay level.
-                property bool dutyWrapped: false
-
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.leftMargin: 12
-                anchors.rightMargin: 12
-                columns: 4
-                columnSpacing: 8
-                rowSpacing: 4
-
-                Repeater {
-                    model: [
-                        // A long duty name (most English and Japanese ones) takes a
-                        // second line instead of an ellipsis; the others stay on one.
-                        { k: qsTr("副本"), wraps: true, v: Theme.dutyName(dialog.runData) || qsTr("未知副本") },
-                        { k: qsTr("职业"), v: dialog.selectedJobId > 0
-                            ? dialog.jobOptions[dialog.jobIndex].label : Theme.jobName(dialog.runData) || qsTr("未知") },
-                        { k: qsTr("结果"), v: Runtime.fmt.resultLabel(dialog.runData.result || "UNKNOWN") },
-                        { k: qsTr("耗时"), v: Runtime.fmt.duration(dialog.runData.duration_ms) }
-                    ]
-
-                    delegate: ColumnLayout {
-                        id: summaryItem
-                        required property var modelData
-
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: 1
-                        Layout.alignment: summaryGrid.dutyWrapped ? Qt.AlignLeft | Qt.AlignTop
-                                                                  : Qt.AlignLeft | Qt.AlignVCenter
-                        spacing: 2
-
-                        Text {
-                            text: summaryItem.modelData.k
-                            color: Theme.textSecondary
-                            font.pixelSize: Theme.fs(11)
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: summaryItem.modelData.v
-                            textFormat: Text.PlainText
-                            color: Theme.textPrimary
-                            font.pixelSize: Theme.fs(12)
-                            font.weight: Theme.figureWeight(true)
-                            font.family: Theme.figureFamily
-                            font.features: ({ "tnum": 1 })
-                            wrapMode: summaryItem.modelData.wraps === true ? Text.WordWrap : Text.NoWrap
-                            maximumLineCount: summaryItem.modelData.wraps === true ? 2 : 1
-                            elide: Text.ElideRight
-                            onLineCountChanged: if (summaryItem.modelData.wraps === true) summaryGrid.dutyWrapped = lineCount > 1
-                        }
-                    }
-                }
-            }
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            visible: !dialog.askingResult || dialog.promptEnabled
-            spacing: 12
-
-            Text {
-                text: dialog.mood === "unknown" ? qsTr("这次感觉 · 未记录") : qsTr("这次感觉")
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fs(12)
-            }
-
-            SegmentedControl {
-                Layout.preferredWidth: 220
-                enabled: !dialog.busy
-                options: [
-                    { value: "good", label: qsTr("顺利") },
-                    { value: "ok", label: qsTr("一般") },
-                    { value: "bad", label: qsTr("糟心") }
-                ]
-                currentValue: dialog.mood
-                onActivated: function(value) { dialog.mood = value }
-            }
-
-            Item { Layout.fillWidth: true }
-        }
-
-        ScrollView {
-            id: textViewport
-            Layout.fillWidth: true
-            visible: !dialog.askingResult || dialog.promptEnabled
-            Layout.preferredHeight: 132
             contentWidth: availableWidth
             clip: true
             ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-
-            StyledTextArea {
-                id: textArea
-                objectName: dialog.standalone ? "reflectionTextAreaFull" : "reflectionTextArea"
-                width: textViewport.availableWidth
-                readOnly: dialog.busy
-                onTextChanged: dialog.draftChanged()
-                placeholderText: qsTr("记下这次导随的感想：新人表现、机制提醒、想对自己说的话……")
-                // ScrollView keeps the cursor visible; native text paste and
-                // the image-only shortcut retain their existing behavior.
-                Keys.priority: Keys.BeforeItem
-                Keys.onPressed: function(event) {
-                    if (event.matches(StandardKey.Paste)
-                            && dialog.imageStore && dialog.imageStore.clipboardHasImage && !dialog.busy) {
-                        dialog.pasteNoteImage()
-                        event.accepted = true
-                    } else {
-                        event.accepted = false
-                    }
-                }
+            Loader {
+                id: compactFace
+                width: compactViewport.availableWidth
+                active: dialog.standalone
+                sourceComponent: ResultPopupContent { dialog: reflectionContent.popupHost }
             }
         }
 
-        NoteImageStrip {
-            objectName: "reflectionNoteImages"
-            Layout.fillWidth: true
-            visible: !!dialog.imageStore && (!dialog.askingResult || dialog.promptEnabled)
-            editable: !!dialog.imageStore && !dialog.busy
-            rows: dialog.noteImages
-            thumbSize: 64
-            onAddRequested: dialog.addNoteImage()
-            onRemoveRequested: function(row) { dialog.removeNoteImage(row) }
+        ReflectionEditorContent {
+            id: fullForm
+            anchors.fill: parent
+            dialog: reflectionContent.popupHost
+            visible: !reflectionContent.popupHost.standalone
         }
 
-        RowLayout {
-            Layout.fillWidth: true
-            visible: !!dialog.imageStore && (!dialog.askingResult || dialog.promptEnabled)
-            spacing: 8
-            AppButton {
-                objectName: "pasteReflectionImageButton"
-                text: qsTr("粘贴图片")
-                iconName: "clipboard-paste"
-                compact: true
-                enabled: !dialog.busy
-                onClicked: dialog.pasteNoteImage()
-            }
-            Text {
-                Layout.fillWidth: true
-                text: qsTr("Ctrl+V · 图片立即保存到本条记录")
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fs(11)
-                wrapMode: Text.WordWrap
-            }
-        }
-
-        Text {
-            objectName: "reflectionNoteImageError"
-            Layout.fillWidth: true
-            visible: dialog.noteImageError.length > 0
-            text: dialog.noteImageError
-            color: Theme.red
-            font.pixelSize: Theme.fs(12)
-            wrapMode: Text.WordWrap
-        }
-
-        Text {
-            Layout.fillWidth: true
-            visible: dialog.errorText.length > 0
-            text: dialog.errorText
-            color: Theme.red
-            font.pixelSize: Theme.fs(12)
-            wrapMode: Text.WordWrap
-        }
-
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 1
-            Layout.topMargin: 6
-            color: Theme.border
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 8
-
-            ToggleSwitch {
-                accessibleName: dialog.askingResult ? qsTr("结束后自动询问") : qsTr("通关后提醒记笔记")
-                scale: 0.8
-                checked: dialog.askingResult ? dialog.confirmEnabled : dialog.promptEnabled
-                onToggled: function(value) {
-                    if (typeof Runtime.settings === "undefined")
-                        return
-                    if (dialog.askingResult) {
-                        if (Runtime.settings.confirmPrompt !== undefined)
-                            Runtime.settings.confirmPrompt = value
-                    } else if (Runtime.settings.reflectPrompt !== undefined) {
-                        Runtime.settings.reflectPrompt = value
-                    }
-                }
-            }
-
-            Text {
-                text: dialog.askingResult ? qsTr("结束后自动询问") : qsTr("通关后提醒记笔记")
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fs(12)
-            }
-
-            Item { Layout.fillWidth: true }
-
-            AppButton {
-                visible: !dialog.askingResult
-                enabled: !dialog.busy
-                text: qsTr("稍后补录")
-                onClicked: dialog.defer()
-            }
-
-            AppButton {
-                objectName: dialog.standalone ? "saveReflectionButtonFull" : "saveReflectionButton"
-                visible: !dialog.askingResult
-                variant: "primary"
-                // A save started elsewhere (the dashboard's 补录) makes the
-                // controller drop a second call, so the button waits instead of
-                // pretending to submit.
-                enabled: !dialog.busy && !dialog.conflictUnresolved && !dialog.unavailable
-                         && !(typeof Runtime.app !== "undefined" && Runtime.app.reflectionSaving === true)
-                text: dialog.submitting
-                      ? qsTr("保存中…")
-                      : dialog.selectedJobId > 0 ? qsTr("保存记录")
-                      : (textArea.text.trim().length === 0 && !!dialog.runData.reflection
-                         ? qsTr("清空笔记") : qsTr("保存笔记"))
-                onClicked: {
-                    if (dialog.runId.length === 0)
-                        return
-                    if (dialog.selectedJobId > 0) {
-                        dialog.resolveWith("", QT_TRANSLATE_NOOP("SystemReason", "补录本次导随职业"))
-                        return
-                    }
-                    if (typeof Runtime.app === "undefined" || !Runtime.app.saveReflection) {
-                        dialog.errorText = qsTr("当前版本无法保存笔记。")
-                        return
-                    }
-                    dialog.errorText = ""
-                    dialog.persistDraft()
-                    dialog.submittedDraftToken = dialog.draftToken
-                    // The mood on show is the one chosen: without text its word is
-                    // the note, never an empty text that "clears" a run without one.
-                    dialog.submittedNote = dialog.noteToSave(true)
-                    dialog.submitting = true
-                    Runtime.app.saveReflection(dialog.runId, dialog.mood, dialog.submittedNote, dialog.submittedDraftToken)
-                }
-            }
-        }
-        }
-        }
     }
 }

@@ -1,26 +1,14 @@
 #include "StatisticsController.h"
+#include "workflows/UtcTimestamp.h"
 #include "IBackend.h"
 #include "DutyCatalog.h"
 #include "Formatters.h"
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QJsonArray>
-#include <QTimeZone>
 #include <utility>
 
 namespace {
-QDateTime parseUtc(const QJsonValue &value)
-{
-    if (!value.isString())
-        return {};
-    QDateTime dt = QDateTime::fromString(value.toString(), Qt::ISODateWithMs);
-    if (!dt.isValid())
-        dt = QDateTime::fromString(value.toString(), Qt::ISODate);
-    if (dt.isValid() && dt.timeSpec() == Qt::LocalTime)
-        dt.setTimeZone(QTimeZone::UTC);
-    return dt;
-}
-
 QVariantMap statCard(const QString &key, const QString &value)
 {
     QVariantMap card;
@@ -393,7 +381,7 @@ void StatisticsController::applyTrendSeries(const QJsonObject &trend)
     const QJsonArray buckets = trend.value(QStringLiteral("buckets")).toArray();
     for (const auto &value : buckets) {
         const QJsonObject entry = value.toObject();
-        const QDateTime start = parseUtc(entry.value(QStringLiteral("start_utc")));
+        const QDateTime start = parseUtcTimestamp(entry.value(QStringLiteral("start_utc")));
 
         QVariantMap bucket;
         bucket.insert(QStringLiteral("label"),

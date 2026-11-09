@@ -158,6 +158,7 @@ Button {
                                           : (navItem.hovered ? Theme.textPrimary : Theme.textSecondary))
                 // Classic: t2 (15 px); 500 at rest, 600 on the current page.
                 renderType: navItem.labelRenderType
+                font.family: Theme.bodyFamily
                 font.pixelSize: Theme.eorzea ? 13 : 15
                 font.weight: Theme.eorzea
                              ? (navItem.current ? Font.Bold : Font.Normal)
@@ -175,6 +176,7 @@ Button {
                 color: navItem.current ? labelText.color : Theme.textSecondary
                 opacity: navItem.current ? 0.8 : 1.0
                 renderType: navItem.labelRenderType
+                font.family: Theme.bodyFamily
                 font.pixelSize: 11
                 font.weight: Font.Normal
                 wrapMode: Text.WordWrap

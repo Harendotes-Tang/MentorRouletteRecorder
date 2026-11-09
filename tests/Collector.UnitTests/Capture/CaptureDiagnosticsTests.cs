@@ -438,6 +438,59 @@ public sealed class CaptureDiagnosticsTests
         Assert.Equal(2, report["counters"]!["damaged_game_directions"]!.GetValue<long>());
     }
 
+    [Fact]
+    public void WarningProjectionKeepsSourceOrderAndTheReconnectedMessage()
+    {
+        var snapshot = Loaded();
+        var gameWarning = new UserText("test.game", "game warning");
+        var driverWarning = new UserText("test.driver", "driver warning");
+        var warnings = CaptureDiagnosticsProjection.Warnings(
+            snapshot.Game with { Warnings = new[] { gameWarning } },
+            snapshot.Npcap with { Status = NpcapStatus.LoadFailed, Guidance = driverWarning },
+            snapshot.Profile, CaptureControllerState.Running, true, 1,
+            PathRecoveryState.None, 0, CaptureIngressCounters.Empty with { GameConnections = 2 });
+
+        Assert.Equal(new[]
+        {
+            gameWarning.Chinese, driverWarning.Chinese,
+            CollectorTexts.CaptureWarningValidationReleasing().Chinese,
+            CollectorTexts.CaptureWarningProfileUnverified().Chinese,
+            CollectorTexts.CaptureWarningPreexistingReconnected().Chinese,
+        }, warnings.Select(warning => warning.Chinese));
+    }
+
+    [Theory]
+    [InlineData(PathRecoveryState.None, 0, 1, true)]
+    [InlineData(PathRecoveryState.None, 1, 1, true)]
+    [InlineData(PathRecoveryState.None, 1, 0, false)]
+    [InlineData(PathRecoveryState.Recovering, 0, 1, false)]
+    public void PreexistingWarningRespectsRecoveryAndPartiallyReadableConnections(
+        PathRecoveryState recovery, long decoded, long unreadable, bool expected)
+    {
+        var snapshot = Loaded();
+        var warnings = CaptureDiagnosticsProjection.Warnings(
+            snapshot.Game, snapshot.Npcap, snapshot.Profile with { Status = ProfileStatus.Verified },
+            CaptureControllerState.Running, null, 1, recovery, decoded,
+            CaptureIngressCounters.Empty with { GameConnectionsNow = unreadable + 1, GameConnectionsReadable = 1 });
+
+        Assert.Equal(expected ? 1 : 0, warnings.Count);
+    }
+
+    [Fact]
+    public void DriverProjectionOnlyChangesIdleAndRecoveryHintHasPriority()
+    {
+        var npcap = Loaded().Npcap with { Status = NpcapStatus.NotInstalled };
+        Assert.Equal(CaptureControllerState.Unavailable,
+            CaptureDiagnosticsProjection.State(CaptureControllerState.Idle, npcap));
+        Assert.Equal(CaptureControllerState.Faulted,
+            CaptureDiagnosticsProjection.State(CaptureControllerState.Faulted, npcap));
+        Assert.Null(CaptureDiagnosticsProjection.Hint(PathRecoveryState.None, false,
+            CaptureSilentReason.Midstream, CaptureIngressCounters.Empty, 1));
+        Assert.Equal(CollectorTexts.CaptureHintPathRecovering().Chinese,
+            CaptureDiagnosticsProjection.Hint(PathRecoveryState.Recovering, false,
+                CaptureSilentReason.Midstream, CaptureIngressCounters.Empty, 1)!.Chinese);
+    }
+
     private static CaptureDiagnosticsSnapshot Loaded() => new()
     {
         State = CaptureControllerState.Running,

@@ -820,7 +820,10 @@ class Checker:
 
         queue: list[Path] = []
         for controller in ("HistoryController", "StatisticsController",
-                           "workflows/RunCompletionCoordinator"):
+                           "workflows/RunCompletionCoordinator",
+                           "workflows/DailyBackupScheduler",
+                           "workflows/HistoryImageCleanupController",
+                           "ImportPreviewClient", "ScreenshotImportStaging"):
             for suffix in (".h", ".cpp"):
                 path = cpp_root / f"{controller}{suffix}"
                 if not path.is_file():

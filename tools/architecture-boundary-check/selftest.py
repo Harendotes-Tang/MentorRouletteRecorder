@@ -58,6 +58,12 @@ class Fixture:
             "src/Desktop/cpp/workflows/RunCompletionCoordinator.cpp",
             '#include "RunCompletionCoordinator.h"\n',
         )
+        for controller in ("workflows/DailyBackupScheduler",
+                           "workflows/HistoryImageCleanupController",
+                           "ImportPreviewClient", "ScreenshotImportStaging"):
+            name = Path(controller).name
+            self.write(f"src/Desktop/cpp/{controller}.h", f"#pragma once\nclass {name} {{}};\n")
+            self.write(f"src/Desktop/cpp/{controller}.cpp", f'#include "{name}.h"\n')
 
     def write(self, relative: str, content: str | bytes) -> Path:
         path = self.root / relative
@@ -92,6 +98,27 @@ class BoundaryCheckerTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
+
+    def test_extracted_helpers_cannot_depend_on_application_facade(self) -> None:
+        for helper in ("workflows/DailyBackupScheduler",
+                       "workflows/HistoryImageCleanupController",
+                       "ImportPreviewClient", "ScreenshotImportStaging"):
+            with self.subTest(helper=helper):
+                path = self.fixture.write(
+                    f"src/Desktop/cpp/{helper}.h",
+                    "#pragma once\nclass AppController;\n",
+                )
+                try:
+                    self.assert_violation("workflow-forbidden-reference", "AppController", line=2)
+                finally:
+                    path.write_text("#pragma once\n", encoding="utf-8")
+
+    def test_extracted_helper_scope_cannot_silently_disappear(self) -> None:
+        path = self.fixture.root / "src/Desktop/cpp/ImportPreviewClient.cpp"
+        path.unlink()
+        code, report, stderr = self.fixture.run()
+        self.assertEqual(2, code, (report, stderr))
+        self.assertTrue(any("ImportPreviewClient.cpp" in item for item in report["errors"]), report)
 
     def assert_violation(self, rule: str, dependency: str, *, line: int | None = None,
                          column: int | None = None) -> dict[str, object]:

@@ -1,4 +1,5 @@
 #include "CalibrationController.h"
+#include "workflows/UtcTimestamp.h"
 
 #include "CollectorText.h"
 #include "IBackend.h"
@@ -6,25 +7,10 @@
 #include <QDateTime>
 #include <QJsonArray>
 #include <QJsonObject>
-#include <QTimeZone>
 
 #include <algorithm>
 
 namespace mr {
-namespace {
-
-QDateTime parseUtc(const QVariant &value)
-{
-    QDateTime stamp = QDateTime::fromString(value.toString(), Qt::ISODateWithMs);
-    if (!stamp.isValid())
-        stamp = QDateTime::fromString(value.toString(), Qt::ISODate);
-    if (stamp.isValid() && stamp.timeSpec() == Qt::LocalTime)
-        stamp.setTimeZone(QTimeZone::UTC);
-    return stamp;
-}
-
-} // namespace
-
 CalibrationController::CalibrationController(QObject *parent)
     : QObject(parent)
     , m_shared(new SharedCalibrationController(this))
@@ -94,7 +80,7 @@ void CalibrationController::refreshFromCaptureStatus(const QVariantMap &capture)
         // playing. The raw stamp stays on the map for anything that needs it.
         // The latest queue request before a pop or an entry may be from an
         // earlier day: a line not from today carries its date (「11-02 23:48」).
-        const QDateTime at = parseUtc(event.value(QStringLiteral("at_utc")));
+        const QDateTime at = parseUtcTimestamp(event.value(QStringLiteral("at_utc")).toString());
         const QDateTime local = at.isValid() ? at.toLocalTime() : QDateTime();
         QString timeText;
         if (local.isValid()) {

@@ -178,7 +178,13 @@ struct Scene {
     QQuickWindow *floating() const { return root->findChild<QQuickWindow *>(QStringLiteral("statisticsFloatingWindow")); }
     QObject *editor() const { return root->findChild<QObject *>(QStringLiteral("reflectionDialog")); }
     QObject *inbox() const { return root->findChild<QObject *>(QStringLiteral("recoveryInbox")); }
-    QObject *note() const { return editor()->findChild<QObject *>(QStringLiteral("reflectionTextArea")); }
+    QObject *note() const { return editor()->property("noteEditor").value<QObject *>(); }
+    QQuickWindow *editingWindow() const { return editor()->property("inlineActive").toBool() ? mainWindow() : host(); }
+    bool workspaceActive() const
+    {
+        return editor()->property("inlineActive").toBool() && !editor()->property("visible").toBool()
+            && mainWindow()->isVisible() && app->currentPage() == 8 && !host()->isVisible();
+    }
 
     QQuickItem *item(const QString &name) const
     {
@@ -227,13 +233,14 @@ struct Scene {
 
     bool enterNote(const QString &text) const
     {
-        host()->requestActivate();
-        if (!QTest::qWaitForWindowActive(host())) return false;
+        auto *window = editingWindow();
+        window->requestActivate();
+        if (!QTest::qWaitForWindowActive(window)) return false;
         if (!click(QStringLiteral("reflectionTextArea"))) return false;
         const QString previous = QApplication::clipboard()->text();
         QApplication::clipboard()->setText(text);
-        QTest::keyClick(host(), Qt::Key_A, Qt::ControlModifier);
-        QTest::keyClick(host(), Qt::Key_V, Qt::ControlModifier);
+        QTest::keyClick(window, Qt::Key_A, Qt::ControlModifier);
+        QTest::keyClick(window, Qt::Key_V, Qt::ControlModifier);
         QApplication::clipboard()->setText(previous);
         return note()->property("text").toString() == text;
     }
@@ -359,12 +366,12 @@ void RecoveryUiTests::hiddenMainReminderCanDeferAndReopen()
     QTRY_VERIFY(scene.item(QStringLiteral("reopenDeferredButton")));
     const int reads = scene.backend.freshReads;
     QVERIFY(scene.click(QStringLiteral("reopenDeferredButton")));
-    QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
+    QTRY_VERIFY(scene.workspaceActive());
     QVERIFY(scene.backend.freshReads > reads);
     QCOMPARE(scene.note()->property("text").toString(), QStringLiteral("remember this run"));
     QCOMPARE(scene.editor()->property("runId").toString(), run.value(QStringLiteral("run_id")).toString());
     QVERIFY(scene.click(QStringLiteral("deferReflectionButton")));
-    QTRY_VERIFY(!scene.host()->isVisible());
+    QTRY_VERIFY(!scene.editor()->property("editingActive").toBool() && !scene.host()->isVisible());
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 
@@ -387,21 +394,22 @@ void RecoveryUiTests::nativeCloseDefersTheDraftAndWaitsForAnActiveSave() const
     QCOMPARE(scene.backend.commands.count(QStringLiteral("SetRunReflection")), 0);
 
     scene.app->recovery()->requestOpen(run.value(QStringLiteral("run_id")).toString());
-    QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
+    QTRY_VERIFY(scene.workspaceActive());
     QCOMPARE(scene.note()->property("text").toString(), text);
     QSignalSpy success(scene.app.get(), &mr::AppController::reflectionSaved);
     scene.backend.setReplyDelay(1200, QStringLiteral("SetRunReflection"));
     QVERIFY(scene.click(QStringLiteral("saveReflectionButton")));
     QVERIFY(scene.editor()->property("busy").toBool());
-    QVERIFY(!scene.host()->close());
-    QVERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
+    QVERIFY(QMetaObject::invokeMethod(scene.editor(), "defer"));
+    QVERIFY(scene.workspaceActive());
+    QVERIFY(!scene.item(QStringLiteral("recordWorkspaceBackButton"))->isEnabled());
     QVERIFY(scene.editor()->property("busy").toBool());
     QCOMPARE(scene.note()->property("text").toString(), text);
     QCOMPARE(scene.app->recovery()->draft(run).value(QStringLiteral("text")).toString(), text);
     QCOMPARE(scene.backend.commands.count(QStringLiteral("SetRunReflection")), 1);
     QTRY_COMPARE(success.count(), 1);
     QTRY_VERIFY(!scene.editor()->property("busy").toBool());
-    QTRY_VERIFY(!scene.host()->isVisible() && !scene.editor()->property("visible").toBool());
+    QTRY_VERIFY(!scene.editor()->property("editingActive").toBool() && !scene.host()->isVisible());
     QVERIFY(scene.app->recovery()->draft(run).isEmpty());
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
@@ -466,11 +474,11 @@ void RecoveryUiTests::restartDraftCanOpenFromOverviewAndSave()
     QTRY_VERIFY(!restored.app->recovery()->busy());
     QVERIFY(!restored.host()->isVisible());
     QVERIFY(restored.click(QStringLiteral("openPendingWork_") + run.value(QStringLiteral("run_id")).toString()));
-    QTRY_VERIFY(restored.host()->isVisible() && restored.editor()->property("opened").toBool());
+    QTRY_VERIFY(restored.workspaceActive());
     QCOMPARE(restored.note()->property("text").toString(), note);
     QVERIFY(restored.backend.freshReads > 0);
     QVERIFY(restored.click(QStringLiteral("saveReflectionButton")));
-    QTRY_VERIFY(!restored.host()->isVisible());
+    QTRY_VERIFY(!restored.editor()->property("editingActive").toBool() && !restored.host()->isVisible());
     QTRY_VERIFY(restored.app->recovery()->draft(run).isEmpty());
     QTRY_COMPARE(restored.app->recovery()->count(), 0);
     QCOMPARE(restored.backend.commands.count(QStringLiteral("SetRunReflection")), 1);
@@ -524,17 +532,18 @@ void RecoveryUiTests::silentModesAndDisabledPrompts()
         QVERIFY(!scene.item(QStringLiteral("floatingHeader")));
         scene.app->statisticsOverlay()->setLocked(false);
         QVERIFY(scene.click(QStringLiteral("floatingPendingButton")));
-        QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
-        // Two records: the popup pages between them without closing.
-        QTRY_VERIFY(scene.item(QStringLiteral("popupNextButton")));
+        QTRY_VERIFY(scene.workspaceActive());
+        QVERIFY(!scene.item(QStringLiteral("popupNextButton")));
         const QString firstShown = scene.editor()->property("runId").toString();
-        QVERIFY(scene.click(QStringLiteral("popupNextButton")));
-        QTRY_VERIFY(scene.editor()->property("runId").toString() != firstShown);
-        QVERIFY(scene.host()->isVisible());
-        QVERIFY(scene.click(QStringLiteral("popupPreviousButton")));
-        QTRY_COMPARE(scene.editor()->property("runId").toString(), firstShown);
         QVERIFY(scene.click(QStringLiteral("deferReflectionButton")));
-        QTRY_VERIFY(!scene.host()->isVisible());
+        QTRY_VERIFY(!scene.editor()->property("editingActive").toBool());
+        const QString otherId = firstShown == run.value(QStringLiteral("run_id")).toString()
+            ? second.value(QStringLiteral("run_id")).toString() : run.value(QStringLiteral("run_id")).toString();
+        scene.app->recovery()->requestOpen(otherId);
+        QTRY_VERIFY(scene.workspaceActive());
+        QCOMPARE(scene.editor()->property("runId").toString(), otherId);
+        QVERIFY(scene.click(QStringLiteral("deferReflectionButton")));
+        QTRY_VERIFY(!scene.editor()->property("editingActive").toBool());
         // 浮窗提示 opens the popup beside a visible float (review L2-8); the
         // questions below are asked with the float closed again.
         scene.app->statisticsOverlay()->hide();
@@ -576,7 +585,7 @@ void RecoveryUiTests::failedSaveAndChangedNoteKeepRecoverableInput()
                {QStringLiteral("mood"), QStringLiteral("ok")}});
     scene.backend.resetRuns({QJsonObject::fromVariantMap(run)});
     scene.app->recovery()->requestOpen(run.value(QStringLiteral("run_id")).toString());
-    QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
+    QTRY_VERIFY(scene.workspaceActive());
     QVERIFY(scene.editor()->property("conflictUnresolved").toBool());
     QCOMPARE(scene.note()->property("text").toString(), QStringLiteral("unsaved draft"));
     QCOMPARE(scene.editor()->property("baselineText").toString(), QStringLiteral("new note saved elsewhere"));
@@ -590,7 +599,7 @@ void RecoveryUiTests::failedSaveAndChangedNoteKeepRecoverableInput()
     QVERIFY(scene.click(QStringLiteral("keepRecoveryDraftButton")));
     QVERIFY(!scene.editor()->property("conflictUnresolved").toBool());
     QVERIFY(scene.click(QStringLiteral("saveReflectionButton")));
-    QTRY_VERIFY(!scene.host()->isVisible());
+    QTRY_VERIFY(!scene.editor()->property("editingActive").toBool() && !scene.host()->isVisible());
     QTRY_VERIFY(scene.app->recovery()->draft(run).isEmpty());
     QCOMPARE(scene.backend.commands.count(QStringLiteral("SetRunReflection")), 2);
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
@@ -618,7 +627,7 @@ void RecoveryUiTests::journalFailureKeepsEditorOpenUntilRetry()
     QTRY_VERIFY(!scene.host()->isVisible());
     QVERIFY(QFileInfo::exists(journal));
     scene.app->recovery()->requestOpen(run.value(QStringLiteral("run_id")).toString());
-    QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
+    QTRY_VERIFY(scene.workspaceActive());
     QCOMPARE(scene.note()->property("text").toString(), QStringLiteral("retain input while disk is busy"));
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
@@ -642,11 +651,11 @@ void RecoveryUiTests::oldSaveReplyCannotCloseReopenedEditorAfterScopeChanges()
     QTRY_VERIFY(!scene.host()->isVisible());
     scene.app->recovery()->setDatabasePath(original);
     scene.app->recovery()->requestOpen(run.value(QStringLiteral("run_id")).toString());
-    QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
+    QTRY_VERIFY(scene.workspaceActive());
     QVERIFY(scene.enterNote(QStringLiteral("new editor input after reconnect")));
     QTRY_COMPARE(failure.count(), 1);
     QCOMPARE(success.count(), 0);
-    QVERIFY(scene.host()->isVisible() && scene.editor()->property("visible").toBool());
+    QVERIFY(scene.workspaceActive());
     QCOMPARE(scene.note()->property("text").toString(), QStringLiteral("new editor input after reconnect"));
     QTRY_COMPARE(scene.app->recovery()->draft(run).value(QStringLiteral("text")).toString(),
                  QStringLiteral("new editor input after reconnect"));
@@ -668,7 +677,7 @@ void RecoveryUiTests::sameRunWithoutDraftUsesLatestCommittedNote()
                {QStringLiteral("mood"), QStringLiteral("bad")}});
     scene.backend.resetRuns({QJsonObject::fromVariantMap(run)});
     scene.app->recovery()->requestOpen(run.value(QStringLiteral("run_id")).toString());
-    QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
+    QTRY_VERIFY(scene.workspaceActive());
     QCOMPARE(scene.note()->property("text").toString(), QStringLiteral("latest note from another editor"));
     QCOMPARE(scene.editor()->property("mood").toString(), QStringLiteral("bad"));
     QVERIFY(!scene.editor()->property("conflictUnresolved").toBool());
@@ -782,7 +791,10 @@ void RecoveryUiTests::aPageRequestOvertakenByAnAnswerLeavesTheNoteEditable()
     scene.publish(second);
     QTRY_COMPARE(scene.app->recovery()->count(), 2);
     scene.settings.setPromptPresentation(QStringLiteral("window"));
-    scene.app->recovery()->requestOpen(first.value(QStringLiteral("run_id")).toString());
+    // Exercise the retained compact editor API directly; explicit recovery uses a page.
+    QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "prepareReflection",
+        Q_ARG(QVariant, QVariant(true)), Q_ARG(QVariant, QVariant(false))));
+    QVERIFY(QMetaObject::invokeMethod(scene.editor(), "openForResult", Q_ARG(QVariant, QVariant(first))));
     QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
     QTRY_VERIFY(scene.editor()->property("askingResult").toBool());
     QTRY_VERIFY(scene.item(QStringLiteral("popupNextButton")) || scene.item(QStringLiteral("popupPreviousButton")));
@@ -874,17 +886,16 @@ void RecoveryUiTests::aDeletedRecordsReminderCanBeRemoved()
     scene.backend.resetRuns({}); // Purged by retention.
     QVERIFY(!scene.item(QStringLiteral("dismissPendingWork_") + id));
     QVERIFY(scene.click(QStringLiteral("openPendingWork_") + id));
-    QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
+    QTRY_VERIFY(scene.workspaceActive());
     QVERIFY(scene.editor()->property("unavailable").toBool());
     QCOMPARE(scene.note()->property("text").toString(), QStringLiteral("copy me first"));
     QVERIFY(scene.click(QStringLiteral("deferReflectionButton")));
-    QTRY_VERIFY(!scene.host()->isVisible());
+    QTRY_VERIFY(!scene.editor()->property("editingActive").toBool() && !scene.host()->isVisible());
     QTRY_COMPARE(scene.app->recovery()->count(), 1);
-    // The draft is still in 待处理, so the notice offers it again.
+    // Inline recovery returns to the overview; its retained draft remains listed.
     auto *notice = scene.root->findChild<QQuickWindow *>(QStringLiteral("recoveryNoticeWindow"));
     QVERIFY(notice);
-    QTRY_VERIFY(notice->isVisible());
-    notice->hide();
+    QVERIFY(!notice->isVisible());
     QVERIFY(scene.click(QStringLiteral("dismissPendingWork_") + id));
     QTest::qWait(50);
     QCOMPARE(scene.app->recovery()->count(), 1);
@@ -902,11 +913,11 @@ void RecoveryUiTests::aDeletedRecordsReminderCanBeRemoved()
     scene.publishedRuns = QJsonArray();
     scene.backend.resetRuns({});
     QVERIFY(scene.click(QStringLiteral("openPendingWork_") + bareId));
-    QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
+    QTRY_VERIFY(scene.workspaceActive());
     QVERIFY(scene.editor()->property("unavailable").toBool());
     QTRY_COMPARE(scene.app->recovery()->count(), 0);
     QVERIFY(scene.click(QStringLiteral("deferReflectionButton")));
-    QTRY_VERIFY(!scene.host()->isVisible());
+    QTRY_VERIFY(!scene.editor()->property("editingActive").toBool() && !scene.host()->isVisible());
     QTest::qWait(100);
     QVERIFY(!notice->isVisible());
     QVERIFY(!scene.item(QStringLiteral("reopenDeferredButton")));
@@ -930,7 +941,7 @@ void RecoveryUiTests::reviewFromTheNoteEditorOpensTheReasonDialogForThatRecord()
     QVERIFY(scene.app->hasSelection());
     QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openReflection",
                                       Q_ARG(QVariant, QVariant(run)), Q_ARG(QVariant, QVariant(QString()))));
-    QTRY_VERIFY(scene.editor()->property("opened").toBool());
+    QTRY_VERIFY(scene.workspaceActive());
     QVERIFY(scene.click(QStringLiteral("reviewRecoveredRecordButton")));
     auto *reason = scene.root->findChild<QObject *>(QStringLiteral("reasonDialog"));
     QVERIFY(reason);
@@ -957,24 +968,24 @@ void RecoveryUiTests::theMainWindowNoteEditorKeepsItsOwnLook()
     scene.backend.resetRuns(scene.publishedRuns);
     QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openReflection",
                                       Q_ARG(QVariant, QVariant(run)), Q_ARG(QVariant, QVariant(QString()))));
-    QTRY_VERIFY(scene.editor()->property("opened").toBool());
+    QTRY_VERIFY(scene.workspaceActive());
     QStringList texts;
     const auto collect = [&](auto &&self, QQuickItem *parent) -> void {
         const QString text = parent->property("text").toString();
         if (!text.isEmpty() && parent->isVisible()) texts.append(text);
         for (auto *child : parent->childItems()) self(self, child);
     };
-    collect(collect, scene.editor()->property("contentItem").value<QQuickItem *>());
+    collect(collect, scene.editor()->property("inlineContent").value<QQuickItem *>());
     QVERIFY2(texts.contains(QString::fromUtf8("导随笔记")), qPrintable(texts.join(QLatin1Char('|'))));
     QVERIFY2(texts.contains(QString::fromUtf8("编辑笔记")), qPrintable(texts.join(QLatin1Char('|'))));
     QVERIFY2(!texts.contains(QString::fromUtf8("本次笔记待补录")), qPrintable(texts.join(QLatin1Char('|'))));
     QVERIFY2(!texts.join(QLatin1Char('|')).contains(QString::fromUtf8("关闭只会收起提醒")),
              qPrintable(texts.join(QLatin1Char('|'))));
-    QVERIFY(!scene.item(QStringLiteral("deferReflectionButton")));
+    QVERIFY(scene.item(QStringLiteral("recordWorkspaceBackButton")));
     scene.mainWindow()->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(scene.mainWindow()));
     QTest::keyClick(scene.mainWindow(), Qt::Key_Escape);
-    QTRY_VERIFY(!scene.editor()->property("visible").toBool());
+    QTRY_VERIFY(!scene.editor()->property("editingActive").toBool());
     QTest::qWait(100);
     auto *notice = scene.root->findChild<QQuickWindow *>(QStringLiteral("recoveryNoticeWindow"));
     QVERIFY(notice && !notice->isVisible());
@@ -995,7 +1006,7 @@ void RecoveryUiTests::escapeInTheMainWindowEditorKeepsAnUnsavedDraft()
     scene.backend.resetRuns(scene.publishedRuns);
     QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openReflection",
                                       Q_ARG(QVariant, QVariant(run)), Q_ARG(QVariant, QVariant(QString()))));
-    QTRY_VERIFY(scene.editor()->property("opened").toBool());
+    QTRY_VERIFY(scene.workspaceActive());
     QVERIFY(!scene.editor()->property("standalone").toBool());
     const QString journal = QDir(QFileInfo(scene.settings.instanceFilePath()).absolutePath())
         .filePath(QStringLiteral("recovery/") + scene.app->recovery()->databaseKey() + QStringLiteral(".json"));
@@ -1006,11 +1017,11 @@ void RecoveryUiTests::escapeInTheMainWindowEditorKeepsAnUnsavedDraft()
     QVERIFY(QTest::qWaitForWindowActive(scene.mainWindow()));
     QTest::keyClick(scene.mainWindow(), Qt::Key_Escape);
     QTRY_VERIFY(!scene.editor()->property("errorText").toString().isEmpty());
-    QVERIFY(scene.editor()->property("visible").toBool());
+    QVERIFY(scene.workspaceActive());
     QCOMPARE(scene.note()->property("text").toString(), QStringLiteral("typed while the disk is busy"));
     lock.unlock();
     QTest::keyClick(scene.mainWindow(), Qt::Key_Escape);
-    QTRY_VERIFY(!scene.editor()->property("visible").toBool());
+    QTRY_VERIFY(!scene.editor()->property("editingActive").toBool());
     QCOMPARE(scene.app->recovery()->draft(run).value(QStringLiteral("text")).toString(),
              QStringLiteral("typed while the disk is busy"));
     QTest::qWait(100);
@@ -1037,10 +1048,10 @@ void RecoveryUiTests::aPendingRecordWithAKnownResultCanBeReviewed()
     QTRY_COMPARE(scene.app->recovery()->count(), 1);
     QTRY_VERIFY(!scene.app->recovery()->busy());
     QVERIFY(scene.click(QStringLiteral("openPendingWork_") + id));
-    QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
+    QTRY_VERIFY(scene.workspaceActive());
     QVERIFY(!scene.editor()->property("askingResult").toBool());
-    QVERIFY(scene.click(QStringLiteral("reviewRecoveredRecordButtonCompact")));
-    QTRY_VERIFY(!scene.host()->isVisible());
+    QVERIFY(scene.click(QStringLiteral("reviewRecoveredRecordButton")));
+    QTRY_VERIFY(!scene.editor()->property("editingActive").toBool() && !scene.host()->isVisible());
     auto *reason = scene.root->findChild<QObject *>(QStringLiteral("reasonDialog"));
     QVERIFY(reason);
     QTRY_VERIFY(reason->property("visible").toBool());
@@ -1086,10 +1097,10 @@ void RecoveryUiTests::aNoteEditorLeftInTheHiddenWindowDoesNotHoldPopupsBack()
     scene.backend.resetRuns(scene.publishedRuns);
     QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openReflection",
                                       Q_ARG(QVariant, QVariant(old)), Q_ARG(QVariant, QVariant(QString()))));
-    QTRY_VERIFY(scene.editor()->property("opened").toBool());
+    QTRY_VERIFY(scene.workspaceActive());
     scene.note()->setProperty("text", QStringLiteral("half a note"));
     scene.mainWindow()->hide();
-    QTRY_VERIFY(!scene.editor()->property("visible").toBool());
+    QTRY_VERIFY(!scene.editor()->property("editingActive").toBool());
     QCOMPARE(scene.app->recovery()->draft(old).value(QStringLiteral("text")).toString(), QStringLiteral("half a note"));
     const auto run = finishedRun(true, 96);
     scene.publish(run);
@@ -1153,14 +1164,14 @@ void RecoveryUiTests::openingAnotherRecordBringsTheOpenEditorForward()
     scene.app->recovery()->offer(other, QStringLiteral("reflection"));
     QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openReflection",
                                       Q_ARG(QVariant, QVariant(open)), Q_ARG(QVariant, QVariant(QString()))));
-    QTRY_VERIFY(scene.editor()->property("opened").toBool());
+    QTRY_VERIFY(scene.workspaceActive());
     scene.mainWindow()->showMinimized();
     if (!QTest::qWaitFor([&] { return scene.mainWindow()->visibility() == QWindow::Minimized; }))
         QSKIP("This platform plugin does not report a minimised window.");
     scene.app->recovery()->requestOpen(other.value(QStringLiteral("run_id")).toString());
     QTRY_VERIFY(scene.mainWindow()->visibility() != QWindow::Minimized);
     QCOMPARE(scene.editor()->property("runId").toString(), open.value(QStringLiteral("run_id")).toString());
-    QVERIFY(scene.editor()->property("visible").toBool());
+    QVERIFY(scene.workspaceActive());
 
     // Audit 2026-11-03 K1-5: 总览「补录笔记」, 心得页「编辑心得」 and 「写心得」
     // (openReflection) still did nothing at all in that case.
@@ -1210,15 +1221,23 @@ struct QueuedQuestion {
     QVariantMap question = finishedRun(false, 82);
 };
 
-bool openNoteThenQueueQuestion(Scene &scene, const QueuedQuestion &runs, QSignalSpy &offers)
+bool openNoteThenQueueQuestion(Scene &scene, const QueuedQuestion &runs, QSignalSpy &offers, bool compact)
 {
     scene.settings.setPromptPresentation(QStringLiteral("inbox"));
     scene.publish(runs.note);
     if (!QTest::qWaitFor([&] { return scene.app->recovery()->count() == 1; })) return false;
     scene.settings.setPromptPresentation(QStringLiteral("window"));
-    scene.app->recovery()->requestOpen(runs.note.value(QStringLiteral("run_id")).toString());
-    if (!QTest::qWaitFor([&] { return scene.host()->isVisible() && scene.editor()->property("opened").toBool(); }))
-        return false;
+    if (compact) {
+        if (!QMetaObject::invokeMethod(scene.root.get(), "prepareReflection",
+                Q_ARG(QVariant, QVariant(true)), Q_ARG(QVariant, QVariant(false)))) return false;
+        if (!QMetaObject::invokeMethod(scene.editor(), "openForRun", Q_ARG(QVariant, QVariant(runs.note)),
+                Q_ARG(QVariant, QVariant(QString())))) return false;
+        if (!QTest::qWaitFor([&] { return scene.host()->isVisible() && scene.editor()->property("opened").toBool(); }))
+            return false;
+    } else {
+        scene.app->recovery()->requestOpen(runs.note.value(QStringLiteral("run_id")).toString());
+        if (!QTest::qWaitFor([&] { return scene.workspaceActive(); })) return false;
+    }
     scene.publish(runs.question);
     if (!QTest::qWaitFor([&] { return offers.count() == 1 && scene.app->recovery()->count() == 2; })) return false;
     return scene.editor()->property("runId").toString() == runs.note.value(QStringLiteral("run_id")).toString();
@@ -1233,7 +1252,7 @@ void RecoveryUiTests::aQuestionAnsweredInThePagerIsNotAskedAgain()
     QVERIFY2(scene.create(), qPrintable(scene.errors));
     QSignalSpy offers(scene.app.get(), &mr::AppController::resultConfirmationRequested);
     const QueuedQuestion runs;
-    QVERIFY(openNoteThenQueueQuestion(scene, runs, offers));
+    QVERIFY(openNoteThenQueueQuestion(scene, runs, offers, true));
     const QString questionId = runs.question.value(QStringLiteral("run_id")).toString();
     QTRY_VERIFY(scene.item(QStringLiteral("popupNextButton")));
     const bool questionFirst = scene.editor()->property("queueIndex").toInt() == 1;
@@ -1259,12 +1278,12 @@ void RecoveryUiTests::aQuestionAnsweredElsewhereIsNotAskedAgain()
     QSignalSpy offers(scene.app.get(), &mr::AppController::resultConfirmationRequested);
     QSignalSpy reviewed(scene.app.get(), &mr::AppController::mutationSucceeded);
     const QueuedQuestion runs;
-    QVERIFY(openNoteThenQueueQuestion(scene, runs, offers));
+    QVERIFY(openNoteThenQueueQuestion(scene, runs, offers, false));
     scene.app->resolveRunResult(runs.question.value(QStringLiteral("run_id")).toString(), 1,
                                 QStringLiteral("COMPLETED"), QStringLiteral("answered on the history page"));
     QTRY_COMPARE(reviewed.count(), 1);
     QVERIFY(scene.click(QStringLiteral("deferReflectionButton")));
-    QTRY_VERIFY(!scene.host()->isVisible());
+    QTRY_VERIFY(!scene.editor()->property("editingActive").toBool() && !scene.host()->isVisible());
     QTest::qWait(300);
     QVERIFY(!scene.host()->isVisible());
     QCOMPARE(offers.count(), 1);
@@ -1366,17 +1385,17 @@ void RecoveryUiTests::overviewUsesUnifiedCountAndSharedActions()
     QTRY_VERIFY(scene.inbox()->property("opened").toBool());
     QTRY_VERIFY(!scene.app->recovery()->busy());
     QVERIFY(scene.click(QStringLiteral("openPendingWork_") + result.value(QStringLiteral("run_id")).toString()));
-    QTRY_VERIFY(scene.editor()->property("opened").toBool());
+    QTRY_VERIFY(scene.workspaceActive());
     QCOMPARE(scene.editor()->property("runId").toString(), result.value(QStringLiteral("run_id")).toString());
     QCOMPARE(scene.note()->property("text").toString(), QStringLiteral("result note draft"));
     QCOMPARE(scene.backend.commands.count(QStringLiteral("CorrectRun")), 0);
     QCOMPARE(scene.backend.commands.count(QStringLiteral("SetRunReflection")), 0);
     QVERIFY(scene.click(QStringLiteral("deferReflectionButton")));
-    QTRY_VERIFY(!scene.host()->isVisible());
+    QTRY_VERIFY(!scene.editor()->property("editingActive").toBool() && !scene.host()->isVisible());
 
     const QString firstId = scene.app->recovery()->items().first().toMap().value(QStringLiteral("runId")).toString();
     QVERIFY(scene.click(QStringLiteral("openPendingWork_") + firstId));
-    QTRY_VERIFY(scene.editor()->property("opened").toBool());
+    QTRY_VERIFY(scene.workspaceActive());
     QCOMPARE(scene.editor()->property("runId").toString(), firstId);
     QCOMPARE(scene.backend.commands.count(QStringLiteral("CorrectRun")), 0);
     QCOMPARE(scene.backend.commands.count(QStringLiteral("SetRunReflection")), 0);
@@ -1398,7 +1417,7 @@ void RecoveryUiTests::overviewDraftOnlyDisappearsAfterSave()
     auto *card = scene.item(QStringLiteral("dashboardPendingWorkCard"));
     QVERIFY(card);
     QVERIFY(scene.click(QStringLiteral("openPendingWork_") + draft.value(QStringLiteral("run_id")).toString()));
-    QTRY_VERIFY(scene.editor()->property("opened").toBool());
+    QTRY_VERIFY(scene.workspaceActive());
     QCOMPARE(scene.note()->property("text").toString(), QStringLiteral("draft only"));
     QVERIFY(scene.click(QStringLiteral("saveReflectionButton")));
     QTRY_COMPARE(scene.app->recovery()->count(), 0);

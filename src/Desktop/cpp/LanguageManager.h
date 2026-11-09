@@ -42,6 +42,9 @@ class LanguageManager : public QObject
     /// Bumped on every switch. A binding whose text comes from C++ (Fmt.*, a
     /// model role) reads it to be re-evaluated, which qsTr() bindings are anyway.
     Q_PROPERTY(int revision READ revision NOTIFY languageChanged)
+    /// Immutable font-stack alias for the active language; explicit QML bindings
+    /// must update even when Application.font still contains its startup value.
+    Q_PROPERTY(QString fontFamily READ fontFamily NOTIFY languageChanged)
     /// True when --ui-language pinned the language for this run: the settings
     /// card still switches, but nothing is written to desktop.ini.
     Q_PROPERTY(bool pinned READ pinned CONSTANT)
@@ -74,6 +77,7 @@ public:
     QString nativeName() const { return nativeNameFor(m_code); }
     QVariantList languages() const;
     int revision() const { return m_revision; }
+    QString fontFamily() const { return m_fontFamily; }
     bool pinned() const { return m_pinned; }
 
     /// Apply the persisted language (or \a pinnedCode, without persisting it).
@@ -101,6 +105,7 @@ private:
     std::unique_ptr<QTranslator> m_translator;
     QStringList m_baseFamilies;  // main.cpp's stack, behind the alias
     QString m_code;
+    QString m_fontFamily;
     int m_revision = 0;
     bool m_pinned = false;
 };

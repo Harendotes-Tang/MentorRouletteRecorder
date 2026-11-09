@@ -102,7 +102,7 @@ public sealed partial class LiveProtocolPipeline
             return;
         }
 
-        WriteCalibrationEvidence(_calibration.Region, build, template.Source.ProfileSha256, kept, ++_evidenceFrozen);
+        _evidencePersistence.Save(_calibration.Region, build, template.Source.ProfileSha256, kept);
     }
 
     /// <summary>

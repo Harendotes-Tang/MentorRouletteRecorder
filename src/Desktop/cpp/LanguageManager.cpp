@@ -3,7 +3,7 @@
 #include "AppSettings.h"
 
 #include <QCoreApplication>
-#include <QFile>
+#include <QCryptographicHash>
 #include <QFont>
 #include <QFontDatabase>
 #include <QGuiApplication>
@@ -15,7 +15,7 @@
 namespace {
 
 constexpr char kSettingsKey[] = "ui/language";
-// The application font's only family; see applyFont().
+// Prefix for immutable, language-specific font stacks; see applyFont().
 constexpr char kFontAlias[] = "MentorRecorder Interface";
 
 // The language on screen, readable without a manager (see currentCode()).
@@ -226,31 +226,28 @@ void LanguageManager::applyFont(const QString &code)
     if (!qobject_cast<QGuiApplication *>(QCoreApplication::instance()))
         return;
 
-    // Every text item copies the application font when it is created, so a new
-    // family list would reach only items made afterwards. The application font
-    // therefore names one alias, and a switch changes what the alias stands for:
-    // this language's own faces first (only those that exist), then the base
-    // stack main.cpp installed.
-    const QString alias = QString::fromLatin1(kFontAlias);
+    const QString aliasPrefix = QString::fromLatin1(kFontAlias);
     QFont font = QGuiApplication::font();
     if (m_baseFamilies.isEmpty()) {
-        // A font that already names the alias (an earlier manager) keeps its
-        // stack in the substitution table, behind any language's own faces.
+        // An earlier manager may have installed a language stack already.
+        // Recover its real base families, never another alias or its CJK prefix.
         QStringList current = font.families();
-        if (current == QStringList{alias}) {
+        if (current.size() == 1 && current.constFirst().startsWith(aliasPrefix, Qt::CaseInsensitive)) {
+            const QString currentAlias = current.constFirst();
             QStringList preferred;
             for (const LanguageInfo &info : kLanguages)
                 preferred.append(preferredFamiliesFor(QString::fromLatin1(info.code)));
             current.clear();
-            for (const QString &family : QFont::substitutes(alias)) {
-                if (!preferred.contains(family))
+            for (const QString &family : QFont::substitutes(currentAlias)) {
+                if (!preferred.contains(family, Qt::CaseInsensitive))
                     current.append(family);
             }
         } else if (current.isEmpty()) {
             current = {font.family()};
         }
         for (const QString &family : std::as_const(current)) {
-            if (family != alias && !family.isEmpty() && !m_baseFamilies.contains(family))
+            if (!family.startsWith(aliasPrefix, Qt::CaseInsensitive) && !family.isEmpty()
+                && !m_baseFamilies.contains(family, Qt::CaseInsensitive))
                 m_baseFamilies.append(family);
         }
     }
@@ -261,30 +258,22 @@ void LanguageManager::applyFont(const QString &code)
             substitutes.append(family);
     }
     for (const QString &family : std::as_const(m_baseFamilies)) {
-        if (!substitutes.contains(family))
+        if (!substitutes.contains(family, Qt::CaseInsensitive))
             substitutes.append(family);
     }
-    if (substitutes == QFont::substitutes(alias))
-        return;
-    QFont::removeSubstitutions(alias);
-    QFont::insertSubstitutions(alias, substitutes);
-
+    // Never change a mapping used by live text/render nodes. Clearing Qt's font
+    // database on each switch can leave their glyph indexes tied to another face.
+    // Include the stack in the key so another manager cannot overwrite it either.
+    const QString stackKey = QString::fromLatin1(QCryptographicHash::hash(
+        substitutes.join(QChar::Null).toUtf8(), QCryptographicHash::Sha256).toHex());
+    const QString alias = aliasPrefix + QLatin1Char(' ') + code + QLatin1Char(' ') + stackKey;
+    m_fontFamily = alias;
+    if (QFont::substitutes(alias).isEmpty())
+        QFont::insertSubstitutions(alias, substitutes);
     if (font.families() != QStringList{alias}) {
         font.setFamilies({alias});
         QGuiApplication::setFont(font);
-        return;
     }
-    // Same alias, new faces: drop the cached font engines. Registering and
-    // removing a font is the public way to do that, and the fontDatabaseChanged()
-    // it emits makes every Qt Quick text item lay itself out again.
-    QFile file(QStringLiteral(":/resources/fonts/Cinzel-Regular.ttf"));
-    const int id = file.open(QIODevice::ReadOnly)
-                       ? QFontDatabase::addApplicationFontFromData(file.readAll())
-                       : -1;
-    if (id >= 0)
-        QFontDatabase::removeApplicationFont(id);
-    else
-        qWarning("Cannot refresh the font cache; text on screen keeps its glyphs until restart");
 }
 
 } // namespace mr

@@ -1,4 +1,5 @@
 #include "AppController.h"
+#include "workflows/UtcTimestamp.h"
 
 #include "AppSettings.h"
 #include "GameNames.h"
@@ -14,6 +15,8 @@
 #include "StatsModels.h"
 #include "TtsService.h"
 #include "workflows/RunCompletionCoordinator.h"
+#include "workflows/DailyBackupScheduler.h"
+#include "workflows/HistoryImageCleanupController.h"
 
 #include <QDate>
 #include <QClipboard>
@@ -28,7 +31,6 @@
 #include <QStyleHints>
 #include <QSysInfo>
 #include <QUrl>
-#include <QTimeZone>
 
 #include <algorithm>
 #include <utility>
@@ -39,18 +41,6 @@ constexpr int kToastMs = 3200;
 /// How long a settings switch waits before it is written. Long enough that a
 /// spin box being dragged sends one message, short enough to feel immediate.
 constexpr int kCaptureSettingsDebounceMs = 400;
-
-QDateTime parseUtc(const QJsonValue &value)
-{
-    if (!value.isString())
-        return {};
-    QDateTime dt = QDateTime::fromString(value.toString(), Qt::ISODateWithMs);
-    if (!dt.isValid())
-        dt = QDateTime::fromString(value.toString(), Qt::ISODate);
-    if (dt.isValid() && dt.timeSpec() == Qt::LocalTime)
-        dt.setTimeZone(QTimeZone::UTC);
-    return dt;
-}
 
 /// The keys $defs/UpdateCaptureSettingsRequest accepts. An unknown key is
 /// dropped rather than sent into an additionalProperties:false schema, which
@@ -83,6 +73,24 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     , m_recovery(new RecoveryController(backend, settings, this))
     , m_tts(new TtsService(settings, this, speechEngine))
 {
+    m_dailyBackup = new DailyBackupScheduler([this] {
+        const QString state = currentRunState();
+        return DailyBackupScheduler::Context{
+            .enabled = m_settings && m_settings->autoBackup(),
+            .lastBackupDate = m_settings ? m_settings->lastAutoBackupDate() : QString(),
+            .connected = m_backend && m_backend->isConnected(),
+            .runKnown = m_currentRunKnown,
+            .dutyInProgress = state == QLatin1String("MENTOR_MATCHED") || state == QLatin1String("ENTERED_DUTY"),
+        };
+    }, this);
+    connect(m_dailyBackup, &DailyBackupScheduler::backupRequested, this, &AppController::backupDatabase);
+    connect(m_dailyBackup, &DailyBackupScheduler::backupRecorded, this, [this](const QString &date) {
+        if (m_settings)
+            m_settings->setLastAutoBackupDate(date);
+    });
+    m_imageCleanup = new HistoryImageCleanupController(backend, this);
+    connect(m_imageCleanup, &HistoryImageCleanupController::changed, this, &AppController::historyImageCleanupChanged);
+    connect(m_imageCleanup, &HistoryImageCleanupController::toastRequested, this, &AppController::showToast);
     m_completion = new RunCompletionCoordinator({
         .refreshHistory = [this] { m_history->runs()->reload(); },
         .refreshCurrentRun = [this] { refreshCurrentRun(); },
@@ -285,10 +293,7 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
             this, &AppController::integrityCheckChanged);
     connect(m_export, &ExportController::backupRunningChanged,
             this, &AppController::backupRunningChanged);
-    connect(m_export, &ExportController::backupSucceeded, this, [this] {
-        if (m_settings)
-            m_settings->setLastAutoBackupDate(m_today().toString(QStringLiteral("yyyy-MM-dd")));
-    });
+    connect(m_export, &ExportController::backupSucceeded, m_dailyBackup, &DailyBackupScheduler::recordSuccess);
 
     connect(m_statistics, &StatisticsController::dashboardChanged, this, &AppController::dashboardChanged);
     connect(m_statistics, &StatisticsController::achievementMilestoneReached,
@@ -346,8 +351,6 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
         if (action == QLatin1String("purge"))
             retryHistoryImageCleanup();
     });
-    m_historyImageCleanupTimer.setInterval(60000);
-    connect(&m_historyImageCleanupTimer, &QTimer::timeout, this, &AppController::retryHistoryImageCleanup);
     connect(m_history, &HistoryController::historyFilterChanged, this, [this] {
         if (m_export)
             m_export->setHistoryFilter(QJsonObject::fromVariantMap(m_history->historyFilter()));
@@ -517,13 +520,6 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     connect(&m_captureSettingsTimer, &QTimer::timeout,
             this, &AppController::flushCaptureSettings);
 
-    // Started by the first runDailyBackupIfDue() only.
-    m_dailyBackupTimer.setInterval(kDailyBackupCheckMs);
-    connect(&m_dailyBackupTimer, &QTimer::timeout, this, &AppController::runDailyBackupIfDue);
-    m_backupAfterDutyTimer.setSingleShot(true);
-    m_backupAfterDutyTimer.setInterval(kBackupAfterDutyMs);
-    connect(&m_backupAfterDutyTimer, &QTimer::timeout, this, &AppController::runDailyBackupIfDue);
-
     m_history->runs()->setPageSize(10);
     refreshAll();
     // The daily backup is started by main() for interactive runs only, so a
@@ -599,7 +595,7 @@ void AppController::setUiScale(int percent)
 void AppController::navigate(int page)
 {
     if (page == 6 && !m_maintainerToolsVisible) return;
-    const int clamped = qBound(0, page, 7);
+    const int clamped = qBound(0, page, 8);
     if (clamped == m_currentPage)
         return;
     m_currentPage = clamped;
@@ -919,7 +915,7 @@ QString AppController::currentRunState() const
 QVariant AppController::liveElapsedMs() const
 {
     const QJsonObject run = m_currentRun.value(QStringLiteral("run")).toObject();
-    const QDateTime entered = parseUtc(run.value(QStringLiteral("entered_at_utc")));
+    const QDateTime entered = parseUtcTimestamp(run.value(QStringLiteral("entered_at_utc")));
     if (!entered.isValid())
         return {};
 
@@ -1038,8 +1034,8 @@ void AppController::refreshCurrentRun()
             Q_EMIT currentRunChanged();
             // The daily backup waits for a run to end; this is where it learns
             // one has, or that none was going on after a (re)connect.
-            if (ok && m_dailyBackupActive)
-                runDailyBackupIfDue();
+            if (ok)
+                m_dailyBackup->checkIfActive();
         });
 }
 
@@ -1326,7 +1322,7 @@ void AppController::handleLiveEvent(const QVariantMap &event)
         // after its answer - it describes an older state and is not adopted.
         // The re-read below brings whatever is newer.
         const QDateTime emitted =
-            parseUtc(QJsonValue::fromVariant(event.value(QStringLiteral("emitted_at_utc"))));
+            parseUtcTimestamp(QJsonValue::fromVariant(event.value(QStringLiteral("emitted_at_utc"))));
         const bool olderThanAnswer =
             emitted.isValid() && m_captureAnswerAtUtc.isValid() && emitted < m_captureAnswerAtUtc;
         if (!capture.isEmpty() && !olderThanAnswer) {
@@ -1815,87 +1811,22 @@ void AppController::updateHistoryRetentionSettings(int days)
 
 void AppController::setNoteImageStore(NoteImageStore *store)
 {
-    m_noteImages = store;
-    if (store) {
-        m_historyImageCleanupTimer.start();
-        retryHistoryImageCleanup();
-    } else {
-        m_historyImageCleanupTimer.stop();
-    }
+    m_imageCleanup->setStore(store);
 }
 
 void AppController::retryHistoryImageCleanup()
 {
-    if (!m_noteImages || !m_backend || !m_backend->isConnected() || m_historyImageCleanupRunning)
-        return;
-    m_historyImageCleanupRunning = true;
-    Q_EMIT historyImageCleanupChanged();
-    m_backend->getPendingImageCleanup()
-        ->whenDone(this, [this](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
-            if (!ok) {
-                finishHistoryImageCleanup(LiveText([reason = message.isEmpty() ? code : message] {
-                    return tr("没能获取待清理的图片：%1").arg(reason);
-                }));
-                return;
-            }
-            m_historyCleanupIds = payload.value(QStringLiteral("run_ids")).toStringList();
-            m_historyCleanupSuccessful.clear();
-            m_historyCleanupFailures.clear();
-            m_historyCleanupIndex = 0;
-            drainHistoryImageCleanup();
-        });
+    m_imageCleanup->retry();
 }
 
-void AppController::drainHistoryImageCleanup()
+bool AppController::historyImageCleanupRunning() const
 {
-    if (!m_noteImages) {
-        finishHistoryImageCleanup(LiveText([] { return tr("图片服务已关闭，清理任务仍保留，稍后重试。"); }));
-        return;
-    }
-    if (m_historyCleanupIndex < m_historyCleanupIds.size()) {
-        const QString id = m_historyCleanupIds.at(m_historyCleanupIndex++);
-        const QVariantMap result = m_noteImages->cleanupRun(id);
-        if (result.value(QStringLiteral("ok")).toBool())
-            m_historyCleanupSuccessful.append(id);
-        else
-            m_historyCleanupFailures.append(id.left(8) + QStringLiteral(": ") + result.value(QStringLiteral("error")).toString());
-        // 每个记录之间让出事件循环；一次最多20张普通附件，不阻塞整批2000条。
-        QTimer::singleShot(0, this, &AppController::drainHistoryImageCleanup);
-        return;
-    }
-    const LiveText failures = m_historyCleanupFailures.isEmpty() ? LiveText()
-        : LiveText([count = m_historyCleanupFailures.size(), first = m_historyCleanupFailures.first()] {
-              return tr("%1 条记录的图片暂时没能清理，软件会自动重试。%2").arg(count).arg(first);
-          });
-    if (m_historyCleanupSuccessful.isEmpty()) {
-        finishHistoryImageCleanup(failures);
-        return;
-    }
-    m_backend->acknowledgeImageCleanup(m_historyCleanupSuccessful)
-        ->whenDone(this, [this, failures](bool ok, const QVariantMap &, const QString &code, const QString &message) {
-            if (!ok) {
-                finishHistoryImageCleanup(LiveText([reason = message.isEmpty() ? code : message, failures] {
-                    return tr("图片已清理，但清理结果还没保存，软件会自动重试：%1 %2")
-                        .arg(reason, failures.text());
-                }));
-                return;
-            }
-            const bool nextBatch = failures.isEmpty() && m_historyCleanupIds.size() == 2000;
-            finishHistoryImageCleanup(failures);
-            if (nextBatch)
-                QTimer::singleShot(0, this, &AppController::retryHistoryImageCleanup);
-        });
+    return m_imageCleanup->running();
 }
 
-void AppController::finishHistoryImageCleanup(const LiveText &feedback)
+QString AppController::historyImageCleanupFeedback() const
 {
-    const QString text = feedback.text();
-    const bool changed = text != m_historyImageCleanupFeedback.text();
-    m_historyImageCleanupRunning = false;
-    m_historyImageCleanupFeedback = feedback;
-    Q_EMIT historyImageCleanupChanged();
-    if (changed && !text.isEmpty())
-        showToast(text);
+    return m_imageCleanup->feedback();
 }
 
 void AppController::retranslate()
@@ -1906,7 +1837,6 @@ void AppController::retranslate()
     Q_EMIT captureHealthTextChanged();
     Q_EMIT captureSettingsChanged();
     Q_EMIT dashboardChanged();
-    Q_EMIT historyImageCleanupChanged();
     Q_EMIT catalogOptionsChanged();
     // 试听 reads the current run's {duty}: in the new language from now on.
     if (m_tts)
@@ -2264,49 +2194,22 @@ void AppController::openNpcapWebsite()
 
 void AppController::runDailyBackupIfDue()
 {
-    // The first call - main()'s, for an interactive run - switches the daily
-    // check on for the rest of the process: every connection and every hour
-    // look at the date again (review OH-5). A tray-resident Desktop runs for
-    // days; once per process would be once per week.
-    if (!m_dailyBackupActive) {
-        m_dailyBackupActive = true;
-        m_dailyBackupTimer.start();
-    }
-    // Every current-run answer passes through here, so the end of a duty is
-    // noticed whether or not a backup is due yet: from then on the backup keeps
-    // away for kBackupAfterDutyMs, the time 本次导随结果, the 心得 prompt and the
-    // announcement need the connection for (review V4-3).
-    const QString runState = currentRunState();
-    const bool dutyInProgress = m_currentRunKnown
-        && (runState == QLatin1String("MENTOR_MATCHED") || runState == QLatin1String("ENTERED_DUTY"));
-    if (dutyInProgress) {
-        m_dutyInProgressSeen = true;
-        m_backupAfterDutyTimer.stop();
-    } else if (m_currentRunKnown && m_dutyInProgressSeen) {
-        m_dutyInProgressSeen = false;
-        m_backupAfterDutyTimer.start();
-    }
-    if (!m_settings || !m_settings->autoBackup())
-        return;
-    const QString today = m_today().toString(QStringLiteral("yyyy-MM-dd"));
-    if (m_settings->lastAutoBackupDate() == today || m_autoBackupAttemptedOn == today)
-        return;
-    // Before the first connection - the normal case at start-up - wait, and let
-    // connectionChanged re-run this. A request now fails with 「Collector 未连接。」,
-    // burns the day's attempt and toasts an error on every launch.
-    if (!m_backend || !m_backend->isConnected())
-        return;
-    // Not in the middle of a duty: copying the database competes with recording
-    // it. Until the current run has been read back after a connect it is not
-    // known to be over; that reply and every later check try again. Nor right
-    // after one: m_backupAfterDutyTimer checks again when that while is over.
-    if (!m_currentRunKnown || dutyInProgress || m_backupAfterDutyTimer.isActive())
-        return;
-    // The date is stamped by the backupSucceeded handler wired in the constructor, so a
-    // backup that failed or timed out is not recorded as done. This flag only stops a
-    // persistently failing backup from toasting on every trigger; the next day tries again.
-    m_autoBackupAttemptedOn = today;
-    backupDatabase();
+    m_dailyBackup->runIfDue();
+}
+
+void AppController::setTodayForTest(std::function<QDate()> today)
+{
+    m_dailyBackup->setTodayForTest(std::move(today));
+}
+
+void AppController::setDailyBackupCheckMsForTest(int milliseconds)
+{
+    m_dailyBackup->setCheckIntervalForTest(milliseconds);
+}
+
+void AppController::setBackupAfterDutyMsForTest(int milliseconds)
+{
+    m_dailyBackup->setAfterDutyIntervalForTest(milliseconds);
 }
 
 void AppController::showToast(const QString &message)

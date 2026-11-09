@@ -15,10 +15,12 @@
 #include <memory>
 
 #include "LiveText.h"
+#include "ScreenshotImportStaging.h"
 
 namespace mr {
 class IBackend;
 class OfflineOcrEngine;
+class ImportPreviewClient;
 struct RunImportSource;
 
 /// Desktop input/evidence and editable preview of Collector-owned import work.
@@ -176,7 +178,6 @@ Q_SIGNALS:
     void imported(const QVariantMap &result);
 
 private:
-    struct PreviewPages;
     void beginInput(const QString &kind, const QString &name);
     /// The next screenshots are added to the batch on screen. A batch nothing was shown of -
     /// its first preview failed - is none (audit 2026-11-03 I3-1).
@@ -189,10 +190,8 @@ private:
     static QString regionName(const QString &region);
     void rememberSelectedIndices();
     void invalidatePreview(bool rememberSelection = true);
+    /// Accepts only the complete, validated snapshot returned by ImportPreviewClient.
     void acceptPreview(const QVariantMap &payload);
-    /// Collect one frozen preview before exposing it; generation discards cancelled replies.
-    /// Page 1 sends \a source, every later page asks for the frozen preview by id.
-    void requestPreviewPage(const RunImportSource &source, quint64 generation, const std::shared_ptr<PreviewPages> &pages);
     /// Puts \c error_texts / \c warning_texts on a preview row: its errors and
     /// warnings in the interface language (error_refs / warning_refs).
     static void renderCollectorTexts(QVariantMap &row);
@@ -214,6 +213,7 @@ private:
 
     QPointer<IBackend> m_backend;
     OfflineOcrEngine *m_ocr;
+    ImportPreviewClient *m_previewClient;
     std::unique_ptr<QTemporaryDir> m_clipboardFiles;
     QJsonArray m_candidates;
     QVariantList m_evidence;
@@ -227,10 +227,7 @@ private:
     QSet<int> m_restoreSelection;
     QStringList m_sourceImages;
     // 新截图在 OCR 和 Collector 校验全部成功前不替换现有批次。
-    QStringList m_appendImages;
-    QJsonArray m_appendCandidates;
-    QVariantList m_appendEvidence;
-    QString m_appendPreviousPhase;
+    ScreenshotImportStaging m_screenshotStaging;
     QString m_sourceKind;
     QString m_sourceName;
     QString m_filePath;

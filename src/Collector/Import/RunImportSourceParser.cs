@@ -346,6 +346,33 @@ public static partial class RunImportSourceParser
         return records;
     }
 
+    /// <summary>
+    /// XLS/XLSX 可以省略尾部空单元格，按首行宽度补齐后再投影。保留首行、超宽行、原行号和解析错误；
+    /// 不裁剪超宽数据，也不把此规则用于 CSV，后者缺列仍须报告宽度不匹配。
+    /// </summary>
+    private static IReadOnlyList<ImportSourceRow> ProjectSpreadsheetRows(
+        IReadOnlyList<TableRow> records, IReadOnlyDictionary<string, string>? mapping)
+    {
+        if (records.Count == 0) return Array.Empty<ImportSourceRow>();
+        var headerWidth = records[0].Cells.Count;
+        var padded = new TableRow[records.Count];
+        padded[0] = records[0];
+        for (var index = 1; index < records.Count; index++)
+        {
+            var row = records[index];
+            if (row.Cells.Count >= headerWidth)
+            {
+                padded[index] = row;
+                continue;
+            }
+
+            var missing = Enumerable.Repeat(new Cell(string.Empty), headerWidth - row.Cells.Count);
+            padded[index] = row with { Cells = row.Cells.Concat(missing).ToArray() };
+        }
+
+        return ProjectTable(padded, mapping, nativeCsv: false);
+    }
+
     private static IReadOnlyList<ImportSourceRow> ProjectTable(IReadOnlyList<TableRow> records,
         IReadOnlyDictionary<string, string>? mapping, bool nativeCsv)
     {
@@ -472,12 +499,7 @@ public static partial class RunImportSourceParser
                 if (ordered.Any(cell => cell.Text.Length != 0) || errors.Count != 0)
                     records.Add(new TableRow(number, ordered, errors));
             }
-            if (records.Count == 0) return Array.Empty<ImportSourceRow>();
-            // XLSX 不保存尾部空单元格；稀疏行补为空值，不把正常空列报成损坏的 CSV 行。
-            var headerWidth = records[0].Cells.Count;
-            var padded = records.Select((record, index) => index == 0 || record.Cells.Count >= headerWidth ? record :
-                record with { Cells = record.Cells.Concat(Enumerable.Repeat(new Cell(string.Empty), headerWidth - record.Cells.Count)).ToArray() }).ToArray();
-            return ProjectTable(padded, mapping, nativeCsv: false);
+            return ProjectSpreadsheetRows(records, mapping);
         }
         catch (Exception error) when (error is XmlException or OverflowException or ArgumentOutOfRangeException or RegexMatchTimeoutException)
         {

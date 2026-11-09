@@ -48,7 +48,8 @@ endif()
 # Completion policy consumes callbacks and Qt value types, never the UI facade.
 qt_add_library(MentorRecorderCompletion STATIC
     cpp/workflows/RunCompletionCoordinator.cpp
-    cpp/workflows/RunCompletionCoordinator.h)
+    cpp/workflows/RunCompletionCoordinator.h
+    cpp/workflows/UtcTimestamp.h)
 target_compile_features(MentorRecorderCompletion PUBLIC cxx_std_20)
 target_include_directories(MentorRecorderCompletion PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/workflows)
@@ -165,6 +166,10 @@ set(MR_CPP_SOURCES
     cpp/GameSelectionController.h
     cpp/AppController.cpp
     cpp/AppController.h
+    cpp/workflows/DailyBackupScheduler.cpp
+    cpp/workflows/DailyBackupScheduler.h
+    cpp/workflows/HistoryImageCleanupController.cpp
+    cpp/workflows/HistoryImageCleanupController.h
     cpp/HistoryController.cpp
     cpp/HistoryController.h
     cpp/HistoryColumnsController.cpp
@@ -212,6 +217,10 @@ set(MR_CPP_SOURCES
     cpp/transport/IpcClient.h
     cpp/ImportRecordsController.cpp
     cpp/ImportRecordsController.h
+    cpp/ImportPreviewClient.cpp
+    cpp/ImportPreviewClient.h
+    cpp/ScreenshotImportStaging.cpp
+    cpp/ScreenshotImportStaging.h
     cpp/OfflineOcrEngine.cpp
     cpp/OfflineOcrEngine.h
     cpp/ScreenshotImportParser.cpp
@@ -419,7 +428,13 @@ set(MR_QML_FILES
     qml/pages/SettingsGeneralTab.qml
     qml/pages/SettingsGoalTab.qml
     qml/pages/SettingsPage.qml
-    qml/pages/SettingsSpeechTab.qml)
+    qml/pages/SettingsSpeechTab.qml
+    qml/pages/RecordWorkspacePage.qml
+    qml/dialogs/EditRunContent.qml
+    qml/dialogs/WizardSlide.qml
+    qml/dialogs/ReflectionEditorContent.qml
+    qml/dialogs/ReflectionEditSession.qml
+    qml/dialogs/ManualRunSubmission.qml)
 
 # Preserve published resource URLs while physical sources reflect their owner.
 # Explicit aliases also keep relative JavaScript imports stable in packaged QML.

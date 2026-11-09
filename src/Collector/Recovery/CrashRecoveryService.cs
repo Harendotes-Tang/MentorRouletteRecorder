@@ -297,7 +297,7 @@ public static class CrashRecoveryService
                 // INTERRUPTED_PENDING_REVIEW stores as INTERRUPTED; a run that never entered was cancelled.
                 ToState = run.PendingReview && run.Result != RunResult.CancelledBeforeEntry
                     ? RunState.InterruptedPendingReview
-                    : TerminalState(run.Result),
+                    : RunStateProjection.TerminalFromResult(run.Result),
                 Confidence = run.DetectionConfidence,
                 EventKey = RestartKey(run),
                 DetailJson = null,
@@ -308,16 +308,6 @@ public static class CrashRecoveryService
     private static string RestartKey(MentorRun run) => new EventKey(
         run.CaptureSessionId ?? run.RunId, PacketDirection.None, EventType, 0, null,
         "restart:" + run.RunId).ToCanonicalString();
-
-    private static RunState TerminalState(RunResult result) => result switch
-    {
-        RunResult.Completed => RunState.Completed,
-        RunResult.LeftOrAbandoned => RunState.LeftOrAbandoned,
-        RunResult.CancelledBeforeEntry => RunState.CancelledBeforeEntry,
-        RunResult.Disconnected => RunState.Disconnected,
-        RunResult.Interrupted => RunState.Interrupted,
-        _ => RunState.UnknownFinalState,
-    };
 
     private static IReadOnlyList<RunFieldChange> Changes(MentorRun before, MentorRun after)
     {

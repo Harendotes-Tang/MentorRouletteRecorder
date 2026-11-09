@@ -1,4 +1,5 @@
 #include "Formatters.h"
+#include "workflows/UtcTimestamp.h"
 
 #include "CollectorText.h"
 #include "GameNames.h"
@@ -11,7 +12,6 @@
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QStringList>
-#include <QTimeZone>
 
 namespace mr {
 
@@ -25,14 +25,7 @@ QDateTime Formatters::parse(const QVariant &utcIso)
     if (text.isEmpty())
         return {};
 
-    QDateTime dt = QDateTime::fromString(text, Qt::ISODateWithMs);
-    if (!dt.isValid())
-        dt = QDateTime::fromString(text, Qt::ISODate);
-    if (!dt.isValid())
-        return {};
-    if (dt.timeSpec() == Qt::LocalTime)
-        dt.setTimeZone(QTimeZone::UTC);
-    return dt.toLocalTime();
+    return parseUtcTimestamp(text).toLocalTime();
 }
 
 QString Formatters::localTime(const QVariant &utcIso)
