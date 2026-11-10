@@ -249,25 +249,36 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
 
 ### 4.2 历史记录（page 2）
 
-* 页头与筛选栏之间是「记录区服」一行（`historyRegionFilter`，`components/RecordRegionSelector.qml`，180 px）：
-  全部区服 / 国服 CN / 繁中服 TC / 国际服 GLOBAL / 未知区服（`Fmt.regionLabel`），选定后以 `RunFilter.region` 筛选，只作用于本页，与总览的区服筛选互不影响。
-* 筛选栏按原型压缩为**一行**（`Flow`，间距 6），自左至右依次为：
-  搜索框（`historySearchField`，占据剩余宽度，最多 200 字，占位文字「搜索 副本 / 职业 / 备注」）；
-  日期范围（`historyDateRange`，`components/DateField.qml` 的范围模式，238 px，占位文字「日期范围」，
-  填写后显示为「开始 — 结束」；点击打开月历 `MonthGrid`，弹层上方另有「开始日期」「结束日期」两个输入框，
-  可手动输入 yyyy-MM-dd，对应原型的 `<input type="date">`）；类型 / 职业 / 结果 / 来源四个窄下拉框
-  （宽度按占位文字计算，首项即占位文字，不再使用「全部…」；「类型」的选项为四人迷宫 / 讨伐歼灭战 / 大型任务 /
-  团队任务 / 行会令（`App.categoryOptions`），以 `RunFilter.duty_category` 发送，「团队任务」即采集服务归入该分类的
-  标准 24 人团本，选「大型任务」时不含它们）；多选下拉框「标记类型」（`historyMarkFilter`，118 px，
-  选中若干项时写作「标记类型 · N」），其中为 待复核 / 已修正 / **有笔记** / **中途加入** / 已删除 五个开关；
-  以及 `清除`（ghost 纯文字，至少 40 px）。
-  页面宽度不足 1020 px 时「来源」收进「更多筛选」，其余筛选仍在原位；已选的来源以可移除的 chip 显示在筛选栏下方。
+* 筛选栏分为**两行**（1.9.0-beta.2 起）。第一行（`RowLayout`，间距 8）放主要条件，自左至右依次为：
+  搜索框（`historySearchField`，占据剩余宽度，最多 200 字，占位文字「搜索副本、职业、备注」）；
+  日期（`historyDateRange`，`components/HistoryDateFilter.qml`）；
+  记录区服（`historyRegionFilter`，`components/HistoryRegionFilter.qml`）。
+  日期与区服都是 `components/HistoryFilterButton.qml` 的菜单按钮，菜单内每个选项右侧显示符合条件的记录数
+  （`HistoryFilterFacets` 的 `dateCounts` / `regionCounts`；读取中显示「…」，读取失败时菜单内显示原因与「重试」）。
+  * **日期**菜单的标题为「日期」，旁注「按匹配时间」；选项为 全部时间 / 今天 / 近 7 天 / 近 30 天 / 本月 / 自定义，
+    按钮上显示当前选项。选「自定义」时菜单内出现「开始日期」「结束日期」两个 `DateField`，可手动输入 yyyy-MM-dd
+    或从月历点选；格式不完整或开始晚于结束时按钮显示「日期有误」，筛选保持上一次生效的内容。
+    月历不再禁选没有记录的日子（1.7.0 的做法已取消，所有者 2026-11-10 确认）。
+  * **记录区服**菜单的选项为 全部区服 / 国服 CN / 繁中服 TC / 国际服 GLOBAL，选定后以 `RunFilter.region` 筛选，
+    只作用于本页，与总览的区服筛选互不影响。菜单**不提供「未知区服」**（所有者 2026-11-10 确认）；
+    菜单底部有「未适配区服可协助采证」与「帮助适配」，后者跳到捕获诊断页（page 4）并展开其中的采证说明（`Main.qml` 的 `onHelpAdaptationRequested`）。
+* 第二行（`Flow`，间距 8）放其余条件：类型 / 职业 / 结果 / 来源四个窄下拉框
+  （按钮上未选时显示「类型」「职业」「结果」「来源」，列表首项为「全部类型」等；宽度按当前选中文字分配；
+  「类型」的选项为四人迷宫 / 讨伐歼灭战 / 大型任务 / 团队任务 / 行会令（`App.categoryOptions`），
+  以 `RunFilter.duty_category` 发送，「团队任务」即采集服务归入该分类的标准 24 人团本，选「大型任务」时不含它们）；
+  多选下拉框「标记」（选中若干项时写作「标记 · N」），其中为 待复核 / 已修正 / **有笔记** / **中途加入** / 已删除 五个开关；
+  以及「清除筛选」。
+  页面宽度不足时「来源」收进「更多筛选」，其余筛选仍在原位；已选的来源以可移除的 chip 显示在筛选栏下方。
 * 行首复选框按稳定编号跨页保留选择，全选仅覆盖当前页。改变筛选前提示清空选择，取消时保留原筛选与选择。
   已选记录可导出 CSV/JSON、批量软删除或恢复；永久删除只允许已软删除记录，并明确提示数量及不可恢复。
   导出按历史记录当前的排序写出（`ExportRequest.sort` 取 `RunListModel.sortField / sortAscending`）：
   表头切到最早在前后，文件第一行即最早的记录；只导出勾选记录时同样按该顺序。
   设置页提供删除记录的保留天数，默认 30 天，亦可永不自动清理。
-* 历史日期排序和筛选使用独立 `history_date` 投影。历史导入缺游戏时间只标「待补充」，
+* 历史列表的「日期」列与排序使用独立的 `history_date` 投影；**日期筛选**自 1.9.0-beta.2 起改按匹配时间：
+  `HistoryController::setHistoryFilter` 固定发送 `date_field = matched_at_utc`，不再发送
+  `history_from_day` / `history_to_day`。因此没有匹配时间的记录（多为只有日期的导入记录）在选定任何日期范围后
+  不会列出，也不计入日期菜单的记录数、不进入按该筛选导出的文件；选「全部时间」时照常显示。
+  这是有意的口径（所有者 2026-11-10 确认），不是记录丢失。历史导入缺游戏时间只标「待补充」，
   已确认结果仍计入总览统计，未知游戏时间不由原站日期替代。
 * 原型**删除了「副本」下拉框**，但副本统计页的下钻（`filter.content_id`）必须继续可用。
   实现的做法是：`App.historyFilter.content_id` 非空时，在筛选栏下方的一行中增加一枚以副本名命名的
@@ -1380,7 +1391,7 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 | 近期心得卡片（最多 3 张） | `App.openHistoryForRun(run)`，同时把详情浮层切到「笔记」页签 |
 | 历史筛选「有笔记」 | `RunFilter.with_reflection` |
 | 「全部心得」搜索框 | `RunFilter.text` 与 `RunFilter.reflection_text` 同时发送同一段文字（`ReflectionLibraryController::setFilter`），副本名、职业名、记录备注与心得正文任一包含即列出；界面译名另经 `name_exact` 扩展，与历史页相同。搜索文字（去掉首尾空白）恰为界面语言中的某个心情标签（顺利 / 一般 / 糟心或其译名，不区分大小写）时，`reflection_text` 改为存储的中文心情词，`text` 仍为输入的文字（见 §4.5.3） |
-| 「全部心得」日期范围与排列顺序 | 工具栏在搜索框之后放历史页同款的日期范围控件（`reflectionDateRange`，`DateField` 范围模式，200 px，月历只列该列表自己的日历中有心得的日子），填写后以 `from_utc` / `to_utc` 加 `history_from_day` / `history_to_day`（`date_field = history_date`）发送，与历史页相同；开始晚于结束或鼠标范围未选完时不发送日期。页头「刷新」左侧的「最新在前 / 最早在前」按钮（`reflectionSortOrder`）调用 `runs.sortBy("history_date")` 只翻转方向，列表始终按记录日期排序；换方向不清空勾选 |
+| 「全部心得」日期范围与排列顺序 | 工具栏在搜索框之后放日期范围控件（`reflectionDateRange`，`DateField` 范围模式，200 px，月历只列该列表自己的日历中有心得的日子），填写后以 `from_utc` / `to_utc` 加 `history_from_day` / `history_to_day`（`date_field = history_date`）发送；开始晚于结束或鼠标范围未选完时不发送日期。这与历史页不同：历史页自 1.9.0-beta.2 起用预设菜单并按匹配时间筛选（§4.2），本页仍按记录日期，只有日期的导入记录在这里可以按日期筛出。页头「刷新」左侧的「最新在前 / 最早在前」按钮（`reflectionSortOrder`）调用 `runs.sortBy("history_date")` 只翻转方向，列表始终按记录日期排序；换方向不清空勾选 |
 | 分享图片的排列顺序 | `ReflectionShareDialog` 批量时在「输出方式」前有「排列顺序」下拉（`reflectionImageOrder`，最新在前 / 最早在前），打开时取「全部心得」当前的排序方向，改选即按记录日期重排预览，逐条 PNG 的编号与合成长图都按此顺序（`ReflectionLibraryController::orderedByDate`：日期同采集服务的 history_date，相同日期保持原顺序，没有日期的记录排最后） |
 | 详情浮层「笔记」页签 | `run.reflection`；有则 心情 tag + 时间 + 正文 +「编辑笔记」，正文非空时另有「生成分享图片」；无则空状态框 +「补录笔记」 |
 | `dialogs/ReflectionDialog.qml` | `App.saveReflection(runId, mood, text)`；`App.reflectionSaved` 关闭，`App.reflectionFailed` 在对话框内红字显示 |
