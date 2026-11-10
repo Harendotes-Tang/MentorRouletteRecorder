@@ -6,10 +6,10 @@ decoded, and which signals appear from queueing until you leave the duty. Please
 round first and send the files back; once the data is confirmed usable, a second round
 follows.
 
-Download the **1.9.0-beta.1** test build (marked Pre-release) from the GitHub releases page,
-<https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/tag/v1.9.0-beta.1>, and run
-`MentorRecorder-1.9.0-beta.1-setup.exe` to install it; if a newer test build is listed there, use the
-newest one. The page also has a `.sha256` file beside each download, which you can check with
+Download the **1.9.0-beta.2** test build (marked Pre-release) from the GitHub releases page,
+<https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/tag/v1.9.0-beta.2>, and run
+`MentorRecorder-1.9.0-beta.2-setup.exe` to install it (the setup wizard offers English; its default
+language is Simplified Chinese); if a newer test build is listed there, use the newest one. The page also has a `.sha256` file beside each download, which you can check with
 PowerShell's `Get-FileHash -Algorithm SHA256`. The in-app update check only offers formal releases,
 so test builds have to be downloaded by hand. Automatic
 recording for the Global server currently shows as "unsupported"; during evidence

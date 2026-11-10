@@ -2,7 +2,7 @@
 
 這次想請你協助確認：繁中服客戶端能否被辨識、遊戲資料能否正常解碼，以及排隊到離開副本各階段出現了哪些訊號。請先做一輪，將檔案回傳；確認資料可用後，再補第二輪。
 
-請從 GitHub 發布頁下載 **1.9.0-beta.1** 測試版（標為 Pre-release）：<https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/tag/v1.9.0-beta.1>，執行 `MentorRecorder-1.9.0-beta.1-setup.exe` 安裝；發布頁上若已有更新的測試版，用最新的一版即可。發布頁同時提供 `.sha256` 校驗檔，可用 PowerShell 的 `Get-FileHash -Algorithm SHA256` 核對下載的檔案。軟體內的檢查更新只提供正式版，測試版需自行下載。目前繁中服自動記錄仍顯示「不支援」；採證期間不會自動新增正式導隨紀錄，這是本輪預期。
+請從 GitHub 發布頁下載 **1.9.0-beta.2** 測試版（標為 Pre-release）：<https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/tag/v1.9.0-beta.2>，執行 `MentorRecorder-1.9.0-beta.2-setup.exe` 安裝，安裝精靈的語言可選「繁體中文」（預設為簡體中文）；發布頁上若已有更新的測試版，用最新的一版即可。發布頁同時提供 `.sha256` 校驗檔，可用 PowerShell 的 `Get-FileHash -Algorithm SHA256` 核對下載的檔案。軟體內的檢查更新只提供正式版，測試版需自行下載。目前繁中服自動記錄仍顯示「不支援」；採證期間不會自動新增正式導隨紀錄，這是本輪預期。
 
 ## 一、開始前
 
