@@ -58,7 +58,9 @@ public sealed record CaptureTraceHeader(
 ///   (<see cref="ConnectionTag"/>), on each message line and in the summary's per-connection
 ///   rows;</description></item>
 ///   <item><description>character names, chat, or any other player's data -- none of it is
-///   read in the first place;</description></item>
+///   read in the first place. The opt-in identity probe (<see cref="CaptureIdentityProbe"/>) is
+///   the one documented addition: keyed digests of the header actor naming this client and of
+///   the leading payload bytes of messages about it, never a value;</description></item>
 ///   <item><description>arbitrary user text -- only the five documented canonical marker
 ///   tokens are accepted (<see cref="CaptureTraceMarkerText.Sanitize"/>).</description></item>
 /// </list>
@@ -120,6 +122,7 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
     private long _untracked;
     private bool _headerWritten;
     private bool _summaryWritten;
+    private readonly CaptureIdentityProbe? _identityProbe;
 
     /// <summary>Creates a sink writing to <paramref name="writer"/>.</summary>
     /// <param name="writer">Destination; the caller owns and disposes it.</param>
@@ -129,15 +132,21 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
     /// here when null; tests pass a deterministic function instead.
     /// </param>
     /// <param name="maxLines">Cap on message lines, clamped into the documented range.</param>
+    /// <param name="identityProbe">
+    /// The opt-in identity probe (<c>--identity-probe</c>), or null. Without one the file is exactly
+    /// what it was before the probe existed.
+    /// </param>
     public CaptureTraceSink(
         TextWriter writer,
         IClock? clock = null,
         Func<TimeSpan>? elapsed = null,
-        int maxLines = DefaultMaxLines)
+        int maxLines = DefaultMaxLines,
+        CaptureIdentityProbe? identityProbe = null)
     {
         ArgumentNullException.ThrowIfNull(writer);
 
         _writer = writer;
+        _identityProbe = identityProbe;
         _clock = clock ?? SystemClock.Instance;
         MaxLines = Math.Clamp(maxLines, MinMaxLines, MaxMaxLines);
 
@@ -184,7 +193,7 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
             }
 
             _headerWritten = true;
-            WriteLine(new JsonObject
+            var line = new JsonObject
             {
                 ["trace_version"] = TraceVersion,
                 ["synthetic"] = header.Synthetic,
@@ -204,7 +213,16 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
                 // repository is gated on is repeated on the line itself so a file that outlives
                 // its context cannot be mistaken for a verified result.
                 ["live_capture_status"] = CaptureDiagnosticsSnapshot.LiveCaptureStatus,
-            });
+            };
+
+            // Present only when the probe was asked for, so a reader can tell from the first line
+            // that this file also carries identity lines.
+            if (_identityProbe is not null)
+            {
+                line["identity_probe"] = true;
+            }
+
+            WriteLine(line);
         }
     }
 
@@ -230,7 +248,17 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
             Tally(direction, message.Opcode, length);
             TallyConnection(connection, tMs, message.Opcode);
 
-            if (_written >= MaxLines || _summaryWritten)
+            if (_summaryWritten)
+            {
+                Truncated = true;
+                return;
+            }
+
+            // Identity lines have a cap of their own: a login worth measuring may come long after
+            // the message cap was reached.
+            WriteIdentity(message, connection, tMs, seq);
+
+            if (_written >= MaxLines)
             {
                 Truncated = true;
                 return;
@@ -330,6 +358,11 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
                 ["untracked_connections"] = _untrackedConnections,
             };
 
+            if (_identityProbe is not null)
+            {
+                summary["identity"] = _identityProbe.Summary();
+            }
+
             _summaryWritten = true;
             WriteLine(summary);
             _writer.Flush();
@@ -393,6 +426,19 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
         return connectionKey.Length <= ConnectionTagLength
             ? connectionKey
             : connectionKey[..ConnectionTagLength];
+    }
+
+    private void WriteIdentity(DecodedMessage message, string connection, long tMs, long seq)
+    {
+        if (_identityProbe is null)
+        {
+            return;
+        }
+
+        foreach (var line in _identityProbe.Observe(message, connection, tMs, seq))
+        {
+            WriteLine(line);
+        }
     }
 
     private void TallyConnection(string connection, long tMs, ushort opcode)

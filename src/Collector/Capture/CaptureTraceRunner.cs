@@ -19,13 +19,17 @@ namespace MentorRecorder.Collector.Capture;
 /// Service region named on the command line (<c>--region</c>), for a client whose install path names
 /// none; it never relabels a path that names another region. The trace reads no settings.
 /// </param>
+/// <param name="IdentityProbe">
+/// Also write the keyed identity lines of <see cref="CaptureIdentityProbe"/> (<c>--identity-probe</c>).
+/// </param>
 public sealed record CaptureTraceOptions(
     string OutputPath,
     int DurationSeconds = 0,
     string? AdapterId = null,
     int MaxLines = CaptureTraceSink.DefaultMaxLines,
     bool AllowMidstream = false,
-    Domain.Region? Region = null);
+    Domain.Region? Region = null,
+    bool IdentityProbe = false);
 
 /// <summary>Everything <see cref="CaptureTraceRunner"/> depends on, so all of it can be substituted.</summary>
 public sealed record CaptureTraceServices
@@ -62,6 +66,12 @@ public sealed record CaptureTraceServices
     /// replace this to exercise failures that happen after a file has already been opened.
     /// </summary>
     public Func<string, TextWriter>? TraceWriterFactory { get; init; }
+
+    /// <summary>
+    /// Key file of the identity probe; the one in the managed data root when null. Tests point it
+    /// at a temporary folder so they never create or read the user's key.
+    /// </summary>
+    public string? IdentityKeyPath { get; init; }
 
     /// <summary>Version stamped on the header line.</summary>
     public string CollectorVersion { get; init; } = "0.0.0";
@@ -196,6 +206,20 @@ public static class CaptureTraceRunner
         "只接受上面 5 个固定词（大小写不敏感）；其他输入会被忽略，避免写入自由文本。",
         "文件里不含任何报文内容、地址、角色名——只有 opcode、方向、长度与负载摘要前 12 位。",
         "按 Ctrl+C 结束取证。");
+
+    /// <summary>Printed under the marker prompt when the identity probe is on.</summary>
+    public const string IdentityProbeNotice =
+        "已开启身份探针：文件另含本机密钥摘要后的角色标识线索（12 位），仍不含角色名、标识原值或报文内容；" +
+        "密钥只保存在本机，摘要离开本机后无法还原。请在换角色、重登、传送、进出副本时照常操作，并记下各自的大致时间。";
+
+    /// <summary>Printed when the identity probe's local key cannot be read or created just now.</summary>
+    public const string IdentityKeyRefusal =
+        "身份探针的本机密钥暂时无法读取或创建，取证未开始。请稍后重试，不要删除密钥文件；详情见本机诊断日志。";
+
+    /// <summary>Printed when the key file exists but does not hold a key this user can read.</summary>
+    public const string IdentityKeyInvalidRefusal =
+        "身份探针的密钥文件不是本机当前用户可用的密钥，取证未开始。它不会被自动重建，" +
+        "否则以前的取证将在没有提示的情况下无法与新的比对；确认不再需要比对以前的取证后，可手动删除该文件再试。";
 
     /// <summary>
     /// Runs one trace. Returns 0 when a trace was written, 1 when the machine could not
@@ -335,6 +359,29 @@ public static class CaptureTraceRunner
         CapturePathPlan pathPlan,
         int? preexistingConnections = 0)
     {
+        // Before the trace file exists: a probe that cannot digest must not leave an empty trace.
+        CaptureIdentityProbe? identityProbe = null;
+        if (options.IdentityProbe)
+        {
+            try
+            {
+                identityProbe = new CaptureIdentityProbe(IdentityProbeKey.LoadOrCreate(
+                    services.IdentityKeyPath ?? Storage.DatabasePaths.ResolveIdentityProbeKey()));
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException
+                                           or ArgumentException or NotSupportedException
+                                           or System.Security.Cryptography.CryptographicException
+                                           or PlatformNotSupportedException)
+            {
+                // Only InvalidDataException means "the file is there and is not a key", which is
+                // the one case where deleting it is the remedy; anything else may pass on its own.
+                services.Logger.WriteError("capture", "trace_identity_key_failed", ex);
+                output.WriteLine(ex is InvalidDataException ? IdentityKeyInvalidRefusal : IdentityKeyRefusal);
+                output.Flush();
+                return 1;
+            }
+        }
+
         var path = Path.GetFullPath(options.OutputPath);
         var directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(directory))
@@ -351,7 +398,8 @@ public static class CaptureTraceRunner
         var closeFile = true;
         try
         {
-            sink = new CaptureTraceSink(file, services.Clock, () => stopwatch.Elapsed, options.MaxLines);
+            sink = new CaptureTraceSink(
+                file, services.Clock, () => stopwatch.Elapsed, options.MaxLines, identityProbe);
             sink.WriteHeader(new CaptureTraceHeader(
                 UtcTimestamp.Truncate(services.Clock.UtcNow),
                 npcap.Version,
@@ -477,6 +525,11 @@ public static class CaptureTraceRunner
             // has actually started. In particular, an Oodle/Npcap startup refusal must not
             // leave buffered marker input looking as though it belonged to a live trace.
             output.WriteLine(MarkerPrompt);
+            if (options.IdentityProbe)
+            {
+                output.WriteLine(IdentityProbeNotice);
+            }
+
             output.WriteLine();
             output.Flush();
 

@@ -172,7 +172,11 @@ public sealed class FakeCaptureSource : ICaptureSource
             frame.SegmentType,
             frame.Opcode,
             payload,
-            ConnectionKey.From(sessionId, 0, connectionSuffix, 0, 0)));
+            ConnectionKey.From(sessionId, 0, connectionSuffix, 0, 0))
+        {
+            SourceActor = frame.SourceActor,
+            TargetActor = frame.TargetActor,
+        });
     }
 
     /// <summary>Feeds a minimal well-formed IPC message carrying one opcode and no payload.</summary>

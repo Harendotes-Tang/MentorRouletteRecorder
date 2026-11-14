@@ -187,6 +187,7 @@ MentorRecorder.Collector.exe --capture-trace trace.jsonl
 #       --region CN|TC|GLOBAL     安装路径不含区服标记时指明客户端所属的区服（见下文）
 #       --max-lines 200000        行数上限，默认 20 万行，最多 25 万行
 #       --allow-midstream         游戏已有连接时仍然开始（见下文）
+#       --identity-probe          另写入经本机密钥摘要的角色标识线索（capture-diagnostics.md §9.2）
 ```
 
 `--adapter` 的 `id` 是 Windows 的网卡标识（形如 `{GUID}` 的字符串，可用 PowerShell 的

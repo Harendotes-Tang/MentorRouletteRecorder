@@ -34,4 +34,22 @@ public sealed record DecodedMessage(
     ushort SegmentType,
     ushort Opcode,
     ReadOnlyMemory<byte> Payload,
-    string ConnectionKey);
+    string ConnectionKey)
+{
+    /// <summary>
+    /// Source actor of the segment header; 0 when the source did not supply one. Like the payload
+    /// it is held in memory only and never persisted, logged or exported as-is.
+    /// </summary>
+    public uint SourceActor { get; init; }
+
+    /// <summary>Target actor of the segment header, under the same rule.</summary>
+    public uint TargetActor { get; init; }
+
+    /// <summary>
+    /// Deliberately not the generated record text, which would print both actors: a message that
+    /// ends up in a log line or a failed assertion says only what a trace may say.
+    /// </summary>
+    public override string ToString() => string.Create(
+        System.Globalization.CultureInfo.InvariantCulture,
+        $"DecodedMessage {{ Direction = {Direction}, SegmentType = {SegmentType}, Opcode = 0x{Opcode:x4}, PayloadLength = {Payload.Length} }}");
+}

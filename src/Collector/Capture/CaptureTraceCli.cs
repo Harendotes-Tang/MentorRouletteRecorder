@@ -30,6 +30,12 @@ public static class CaptureTraceCli
     /// </summary>
     public const string RegionFlag = "--region";
 
+    /// <summary>
+    /// Also write the keyed identity lines (<see cref="CaptureIdentityProbe"/>): evidence for telling
+    /// the player's own characters apart, never an identifier.
+    /// </summary>
+    public const string IdentityProbeFlag = "--identity-probe";
+
     /// <summary>Flag restricting the report to one marker name.</summary>
     public const string AroundFlag = "--around";
 
@@ -64,7 +70,8 @@ public static class CaptureTraceCli
             options.AdapterId,
             options.MaxLines ?? CaptureTraceSink.DefaultMaxLines,
             options.AllowMidstream,
-            region);
+            region,
+            options.IdentityProbe);
 
         if (services is not null)
         {

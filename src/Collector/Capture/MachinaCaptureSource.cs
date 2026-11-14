@@ -483,7 +483,11 @@ public sealed class MachinaCaptureSource : ICaptureSource
                 frame.SegmentType,
                 frame.Opcode,
                 payload,
-                Key(options.CaptureSessionId, connection)));
+                Key(options.CaptureSessionId, connection))
+            {
+                SourceActor = frame.SourceActor,
+                TargetActor = frame.TargetActor,
+            });
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {

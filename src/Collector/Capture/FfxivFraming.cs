@@ -18,15 +18,31 @@ public readonly record struct FfxivFrame(
     ushort Opcode,
     uint Seconds,
     int PayloadOffset,
-    int PayloadLength);
+    int PayloadLength)
+{
+    /// <summary>
+    /// Source actor of the segment header. Held in memory only; never logged or persisted
+    /// (docs/privacy-boundary.md section 5).
+    /// </summary>
+    public uint SourceActor { get; init; }
+
+    /// <summary>Target actor of the segment header, under the same rule.</summary>
+    public uint TargetActor { get; init; }
+
+    /// <summary>Not the generated record text, which would print both actors.</summary>
+    public override string ToString() => string.Create(
+        System.Globalization.CultureInfo.InvariantCulture,
+        $"FfxivFrame {{ SegmentType = {SegmentType}, Opcode = 0x{Opcode:x4}, PayloadLength = {PayloadLength} }}");
+}
 
 /// <summary>
 /// Reads the two fixed FFXIV framing headers that Machina hands us, and nothing else.
 ///
 /// Machina has already reassembled TCP, split the bundle and decompressed it, so each
 /// callback carries exactly one message: a 16-byte segment header, optionally a 16-byte IPC
-/// header, then the payload. Only the three routing fields -- segment type, opcode and the
-/// header timestamp -- are extracted; the rest is passed on as opaque bytes. The layout below
+/// header, then the payload. Only the routing fields -- segment type, opcode, the header
+/// timestamp and the two actors of the segment header -- are extracted; the rest is passed on as
+/// opaque bytes. The layout below
 /// is Machina's own transport framing (<c>Machina.FFXIV.Headers.Server_MessageHeader</c>), not
 /// knowledge about any particular message; see docs/protocol-profile-format.md for what does
 /// require evidence.
@@ -70,6 +86,8 @@ public static class FfxivFraming
     public const ushort SegmentTypeIpc = 3;
 
     private const int OffsetDeclaredLength = 0;
+    private const int OffsetSourceActor = 4;
+    private const int OffsetTargetActor = 8;
     private const int OffsetSegmentType = 12;
     private const int OffsetOpcode = 18;
     private const int OffsetSeconds = 24;
@@ -99,12 +117,18 @@ public static class FfxivFraming
         }
 
         var segmentType = BinaryPrimitives.ReadUInt16LittleEndian(message[OffsetSegmentType..]);
+        var sourceActor = BinaryPrimitives.ReadUInt32LittleEndian(message[OffsetSourceActor..]);
+        var targetActor = BinaryPrimitives.ReadUInt32LittleEndian(message[OffsetTargetActor..]);
         if (segmentType != SegmentTypeIpc)
         {
             // Keep-alives and session control segments are valid framing but carry no IPC
             // header, hence no opcode.
             frame = new FfxivFrame(
-                declared, segmentType, 0, 0, SegmentHeaderBytes, (int)declared - SegmentHeaderBytes);
+                declared, segmentType, 0, 0, SegmentHeaderBytes, (int)declared - SegmentHeaderBytes)
+            {
+                SourceActor = sourceActor,
+                TargetActor = targetActor,
+            };
             return true;
         }
 
@@ -119,7 +143,11 @@ public static class FfxivFraming
             BinaryPrimitives.ReadUInt16LittleEndian(message[OffsetOpcode..]),
             BinaryPrimitives.ReadUInt32LittleEndian(message[OffsetSeconds..]),
             HeaderBytes,
-            (int)declared - HeaderBytes);
+            (int)declared - HeaderBytes)
+        {
+            SourceActor = sourceActor,
+            TargetActor = targetActor,
+        };
         return true;
     }
 }

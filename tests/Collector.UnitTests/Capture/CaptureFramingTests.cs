@@ -28,6 +28,22 @@ public sealed class CaptureFramingTests
     }
 
     [Fact]
+    public void ReadsBothActorsOfTheSegmentHeader_WithOrWithoutAnIpcHeader()
+    {
+        var ipc = FakeCaptureSource.BuildIpcMessage(opcode: 0x0142, payloadLength: 4);
+        var control = FakeCaptureSource.BuildIpcMessage(opcode: 0, payloadLength: 4, segmentType: 7);
+        foreach (var message in new[] { ipc, control })
+        {
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(message.AsSpan(4), 0x1098_7654);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(message.AsSpan(8), 0x1034_5678);
+
+            Assert.True(FfxivFraming.TryRead(message, out var frame));
+            Assert.Equal(0x1098_7654u, frame.SourceActor);
+            Assert.Equal(0x1034_5678u, frame.TargetActor);
+        }
+    }
+
+    [Fact]
     public void ReadsTheIpcTimestamp()
     {
         var message = FakeCaptureSource.BuildIpcMessage(1, 4);

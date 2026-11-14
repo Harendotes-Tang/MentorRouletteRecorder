@@ -134,6 +134,15 @@ public static class DatabasePaths
             : Path.Combine(directory, GameInstallFileName);
     }
 
+    /// <summary>
+    /// File name of the key the identity probe of a live trace digests with
+    /// (<c>Capture.IdentityProbeKey</c>). It never leaves this machine.
+    /// </summary>
+    public const string IdentityProbeKeyFileName = "identity-probe.key";
+
+    /// <summary>Where that key is kept: the managed root. A trace takes no <c>--db</c>.</summary>
+    public static string ResolveIdentityProbeKey() => Path.Combine(RootDirectory, IdentityProbeKeyFileName);
+
     /// <summary>Creates the directory of <paramref name="filePath"/> when it is missing.</summary>
     /// <param name="filePath">Path of a file that is about to be written.</param>
     public static void EnsureParentDirectory(string filePath)

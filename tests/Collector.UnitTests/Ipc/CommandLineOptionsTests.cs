@@ -323,4 +323,19 @@ public sealed class CommandLineOptionsTests
             Environment.SetEnvironmentVariable(DatabasePaths.DataDirectoryVariable, previous);
         }
     }
+
+    [Fact]
+    public void IdentityProbe_IsAcceptedForALiveTraceOnly()
+    {
+        var flag = Capture.CaptureTraceCli.IdentityProbeFlag;
+        var parsed = CommandLineOptions.Parse(new[] { Capture.CaptureTraceCli.CaptureFlag, "out.jsonl", flag });
+
+        Assert.True(parsed.IdentityProbe);
+        Assert.False(CommandLineOptions.Parse(new[] { Capture.CaptureTraceCli.CaptureFlag, "out.jsonl" }).IdentityProbe);
+        Assert.Throws<FormatException>(() => CommandLineOptions.Parse(
+            new[] { Capture.CaptureTraceCli.ReportFlag, "in.jsonl", flag }));
+        Assert.Throws<FormatException>(() => CommandLineOptions.Parse(new[] { "--capture-doctor", flag }));
+        Assert.Throws<FormatException>(() => CommandLineOptions.Parse(new[] { "--serve", flag }));
+        Assert.Throws<FormatException>(() => CommandLineOptions.Parse(new[] { flag }));
+    }
 }

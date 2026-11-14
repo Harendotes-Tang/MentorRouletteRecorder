@@ -299,6 +299,13 @@ public sealed class CaptureTraceAnalysis
             return;
         }
 
+        // Lines of the opt-in identity probe: evidence of their own, read from the summary's
+        // tally rather than row by row, and never an unreadable line.
+        if (node.ContainsKey("identity"))
+        {
+            return;
+        }
+
         if (Text(node, "marker") is { } marker)
         {
             markers.Add(new TraceMarkerRow(marker, Number(node, "t_ms")));
@@ -383,6 +390,7 @@ public static class CaptureTraceReport
         var window = Math.Clamp(windowMs, MinWindowMs, MaxWindowMs);
 
         WriteOverview(writer, analysis, window, markerName);
+        WriteIdentity(writer, analysis);
         WriteHistogram(writer, analysis);
         WriteWindows(writer, analysis, window, markerName);
         WriteCandidates(writer, analysis, window, markerName);
@@ -421,6 +429,38 @@ public static class CaptureTraceReport
         if (analysis.Summary is null)
         {
             writer.WriteLine("  ⚠ 文件没有 summary 行：这次取证没有正常结束，统计可能不完整。");
+        }
+    }
+
+    /// <summary>
+    /// Prints the identity probe's tally when the trace carries one: per connection, which keyed
+    /// ids named this client and how often. The ids are digests under a key that stays on the
+    /// machine that recorded the trace; equal ids mean the same actor, and nothing more can be read.
+    /// </summary>
+    private static void WriteIdentity(TextWriter writer, CaptureTraceAnalysis analysis)
+    {
+        if (analysis.Summary is null ||
+            !analysis.Summary.TryGetPropertyValue("identity", out var value) || value is not JsonObject identity)
+        {
+            return;
+        }
+
+        writer.WriteLine();
+        writer.WriteLine(
+            "身份探针（key_id " + Field(identity, "key_id") + "，行数 " + Field(identity, "lines") +
+            "，截断 " + Field(identity, "truncated") + "）");
+        writer.WriteLine("  连接      类型           标识          条数      首次ms    末次ms");
+        if (!identity.TryGetPropertyValue("actors", out var rows) || rows is not JsonArray actors)
+        {
+            return;
+        }
+
+        foreach (var row in actors.OfType<JsonObject>())
+        {
+            writer.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  {Field(row, "conn"),-8}  {Field(row, "kind"),-13}  {Field(row, "id"),-12}  " +
+                $"{Field(row, "count"),-8}  {Field(row, "first_t_ms"),-8}  {Field(row, "last_t_ms")}"));
         }
     }
 

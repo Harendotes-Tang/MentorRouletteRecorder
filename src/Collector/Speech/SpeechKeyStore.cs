@@ -28,12 +28,25 @@ public sealed class DpapiProtector : ISecretProtector
 {
     private const int CryptProtectUiForbidden = 0x1;
 
-    // Ties the blob to this purpose: a DPAPI blob written by another program for the same user
+    // Ties the blob to its purpose: a DPAPI blob written by another program for the same user
     // does not decrypt here, and ours does not decrypt there without this value.
-    private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("MentorRecorder.speech-key.v1");
+    private readonly byte[] _entropy;
 
-    /// <summary>Shared instance; the class is stateless.</summary>
-    public static DpapiProtector Instance { get; } = new();
+    private DpapiProtector(string purpose) => _entropy = Encoding.UTF8.GetBytes(purpose);
+
+    /// <summary>Shared instance for the online speech key.</summary>
+    public static DpapiProtector Instance { get; } = new("MentorRecorder.speech-key.v1");
+
+    /// <summary>
+    /// A protector bound to another purpose: what it writes does not decrypt under any other
+    /// purpose, the speech key's included.
+    /// </summary>
+    /// <param name="purpose">Stable, versioned name of what is being protected.</param>
+    public static DpapiProtector ForPurpose(string purpose)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(purpose);
+        return new DpapiProtector(purpose);
+    }
 
     /// <inheritdoc />
     public byte[] Protect(byte[] plaintext)
@@ -49,7 +62,7 @@ public sealed class DpapiProtector : ISecretProtector
         return Transform(ciphertext, protect: false);
     }
 
-    private static byte[] Transform(byte[] input, bool protect)
+    private byte[] Transform(byte[] input, bool protect)
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -57,7 +70,7 @@ public sealed class DpapiProtector : ISecretProtector
         }
 
         var inBlob = Allocate(input);
-        var entropyBlob = Allocate(Entropy);
+        var entropyBlob = Allocate(_entropy);
         var outBlob = default(DataBlob);
         try
         {
