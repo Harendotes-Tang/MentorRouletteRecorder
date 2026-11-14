@@ -152,7 +152,7 @@ endforeach()
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopWorkflowTests
     SUITES Desktop WorkflowController AutomaticRecording RecordingWarning ExportFailure ExportOrdering Recovery RunFormValidator
-           RunListModel HistoryFilterFacets GameSelection DailyBackupScheduler HistoryImageCleanupController
+           RunListModel HistoryFilterFacets AppLiveEvent GameSelection DailyBackupScheduler HistoryImageCleanupController
     LIBRARIES Qt6::Widgets)
 mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests Desktop NAME MentorRecorderDesktopTests)
 foreach(suite IN ITEMS AutomaticRecording GameSelection)
@@ -160,7 +160,7 @@ foreach(suite IN ITEMS AutomaticRecording GameSelection)
 endforeach()
 mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests RecordingWarning)
 foreach(suite IN ITEMS WorkflowController ExportFailure ExportOrdering Recovery RunFormValidator RunListModel HistoryFilterFacets
-                       DailyBackupScheduler HistoryImageCleanupController)
+                       DailyBackupScheduler HistoryImageCleanupController AppLiveEvent)
     mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests ${suite})
 endforeach()
 

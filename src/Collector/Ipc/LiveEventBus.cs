@@ -388,7 +388,7 @@ public abstract class LiveEventSubscription : IDisposable
                 FullMode = System.Threading.Channels.BoundedChannelFullMode.DropOldest,
                 SingleReader = false,
                 SingleWriter = false,
-            });
+            }, _ => Interlocked.Increment(ref _dropped));
     }
 
     /// <summary>Identifier returned to the client.</summary>
@@ -446,8 +446,7 @@ public abstract class LiveEventSubscription : IDisposable
     {
         lock (_queueGate)
         {
-            if (!_channel.Writer.TryWrite(payload.DeepClone().AsObject()))
-                Interlocked.Increment(ref _dropped);
+            _channel.Writer.TryWrite(payload.DeepClone().AsObject());
         }
     }
 

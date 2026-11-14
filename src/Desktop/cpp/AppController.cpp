@@ -1269,12 +1269,11 @@ void AppController::handleLiveEvent(const QVariantMap &event)
     const QString kind = event.value(QStringLiteral("kind")).toString();
     const QString type = event.value(QStringLiteral("event_type")).toString();
 
-    // A heartbeat says only that the pipe is alive; falling through to the
-    // catch-all below would fire a GetStatus every five seconds.
-    if (kind == QLatin1String("heartbeat") || type == QLatin1String("Heartbeat"))
-        return;
-
+    // Heartbeats share the bus sequence space. Observe them before returning:
+    // they may be the only surviving notification after a subscriber overflows.
     if (!adoptLiveEventOnce(event))
+        return;
+    if (kind == QLatin1String("heartbeat") || type == QLatin1String("Heartbeat"))
         return;
 
     if (kind == QLatin1String("candidate_observed") || type == QLatin1String("CandidateObserved")) {
@@ -1397,11 +1396,30 @@ bool AppController::adoptLiveEventOnce(const QVariantMap &event)
             // and is counting again, so the watermark follows it down.
             if (eventId.isEmpty() && sequence <= m_lastLiveSequence)
                 return false;
+            if (m_lastLiveSequence >= 0 && sequence > m_lastLiveSequence
+                && sequence - m_lastLiveSequence > 1 && !m_liveResyncQueued) {
+                m_liveResyncQueued = true;
+                const auto connectionGeneration = m_recoveryConnectionGeneration;
+                QTimer::singleShot(0, this, [this, connectionGeneration] {
+                    m_liveResyncQueued = false;
+                    // Reconnect already refreshes everything. Do not let an old
+                    // stream schedule work against a different connection.
+                    if (!m_backend || !m_backend->isConnected()
+                        || connectionGeneration != m_recoveryConnectionGeneration)
+                        return;
+                    refreshAll();
+                    retryHistoryImageCleanup();
+                });
+            }
             m_lastLiveSequence = sequence;
         }
     }
 
-    if (!eventId.isEmpty()) {
+    // The server never replays heartbeats. Keep their sequence watermark, but
+    // do not let hours of idle heartbeats evict identities of replayable events.
+    const bool heartbeat = event.value(QStringLiteral("kind")).toString() == QLatin1String("heartbeat")
+        || event.value(QStringLiteral("event_type")).toString() == QLatin1String("Heartbeat");
+    if (!eventId.isEmpty() && !heartbeat) {
         m_seenEventIds.insert(eventId);
         m_seenEventOrder.append(eventId);
         while (m_seenEventOrder.size() > kSeenEventIdLimit)

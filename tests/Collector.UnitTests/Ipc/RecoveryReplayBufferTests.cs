@@ -152,6 +152,28 @@ public sealed class RecoveryReplayBufferTests
     }
 
     [Fact]
+    public async Task OverflowCountsOnlyEvictedEventsForEachSubscriber()
+    {
+        var bus = new LiveEventBus(new TestClock(DateTimeOffset.UtcNow));
+        using var slow = bus.Subscribe("slow");
+        using var fast = bus.Subscribe("fast");
+        const int overflow = 3;
+        for (var i = 0; i < LiveEventBus.SubscriberCapacity + overflow; i++)
+        {
+            bus.PublishStatsInvalidated(i.ToString());
+            Assert.NotNull(await fast.ReadAsync(TimeSpan.FromSeconds(1), CancellationToken.None));
+        }
+        Assert.Equal(overflow, slow.DroppedCount);
+        Assert.Equal(0, fast.DroppedCount);
+        var retained = await DrainAsync(slow, LiveEventBus.SubscriberCapacity);
+        Assert.Equal(overflow.ToString(), retained[0]["message"]!.GetValue<string>());
+        Assert.Equal(LiveEventBus.SubscriberCapacity + overflow - 1,
+            int.Parse(retained[^1]["message"]!.GetValue<string>()));
+        Assert.Null(await slow.ReadAsync(TimeSpan.FromMilliseconds(20), CancellationToken.None));
+        Assert.Equal(overflow, slow.DroppedCount);
+    }
+
+    [Fact]
     public async Task EachSubscriberGetsItsOwnCopyOfTheSameRetainedEvent()
     {
         var bus = new LiveEventBus(new TestClock(new DateTimeOffset(2026, 9, 4, 7, 0, 0, TimeSpan.Zero)));

@@ -912,6 +912,7 @@ private:
     /// window; a restarted Collector sends event_ids this process has never
     /// seen, so its events are adopted and pull this watermark back down.
     qint64 m_lastLiveSequence = -1;
+    bool m_liveResyncQueued = false;
     QString m_themeMode = QStringLiteral("system");
     bool m_maintainerToolsVisible = false;
     QString m_toastMessage;
