@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls 6.8
 import QtQuick.Layouts
 import MentorRecorder 1.0
+import "../components/Lucide.js" as Lucide
 
 MotionDialog {
     id: dialog
@@ -11,10 +12,17 @@ MotionDialog {
     property var controller: typeof Runtime.reflectionShare !== "undefined" ? Runtime.reflectionShare : null
     property var runData: ({})
     property var runsData: []
+    property var manualOrder: []
+    readonly property int manualOrderIndex: 2
     readonly property var reflection: runData.reflection || ({})
     readonly property bool busy: controller && controller.busy
     readonly property bool batch: runsData.length > 1
     readonly property bool collection: batch && outputMode.currentIndex === 1
+    property int dragFrom: -1
+    property int dropIndex: -1
+    property real dragY: 0
+    /// The rendered rows a grip stands beside, in the order they are saved.
+    readonly property list<Item> gripEntries: !batch ? [] : collection ? combined.collectionEntries : stack.previewEntries
     property string exportDate: ""
     readonly property var preferences: typeof Runtime.settings !== "undefined" ? Runtime.settings : null
     readonly property bool identityValid: identityInput.text.trim().length === 0
@@ -46,6 +54,7 @@ MotionDialog {
         // long image for friends reads oldest first without a reminder.
         const library = typeof Runtime.reflections !== "undefined" ? Runtime.reflections : null
         orderMode.currentIndex = library && library.runs && library.runs.sortAscending ? 1 : 0
+        manualOrder = []
         runsData = ordered(valid)
         runData = runsData[0]
         outputMode.currentIndex = 0
@@ -62,9 +71,46 @@ MotionDialog {
         return library && runs.length > 1 ? library.orderedByDate(runs, orderMode.currentIndex === 1) : runs
     }
     function reorder() {
-        runsData = ordered(runsData)
+        runsData = orderMode.currentIndex === manualOrderIndex
+            ? (manualOrder.length ? manualOrder : runsData) : ordered(runsData)
         runData = runsData[0]
         if (controller) controller.resetFeedback()
+    }
+    function moveRun(from: int, to: int): bool {
+        if (!visible || exiting || busy || from === to || from < 0 || to < 0
+                || from >= runsData.length || to >= runsData.length) return false
+        const reordered = Array.from(runsData)
+        reordered.splice(to, 0, reordered.splice(from, 1)[0])
+        manualOrder = reordered
+        orderMode.currentIndex = manualOrderIndex
+        reorder()
+        return true
+    }
+    /// Top of the row  entry occupies, in the coordinates of the preview's content.
+    function rowTopOf(entry: Item): real {
+        if (!entry) return 0
+        return collection && entry.parent ? (entry.parent.y + entry.y) * combined.templateScale : entry.y
+    }
+    /// Height of that row, in the same coordinates.
+    function rowHeightOf(entry: Item): real {
+        return entry ? entry.height * (collection ? combined.templateScale : 1) : 0
+    }
+    function updateDropIndex() {
+        const y = gripsLayer.mapFromItem(preview, 0, dragY).y
+        let slot = 0
+        for (; slot < gripEntries.length; ++slot) {
+            const entry = gripEntries[slot]
+            if (y < rowTopOf(entry) + rowHeightOf(entry) / 2) break
+        }
+        dropIndex = slot > dragFrom ? slot - 1 : slot
+    }
+    function finishDrag(commit: bool) {
+        const from = dragFrom
+        const to = dropIndex
+        dragFrom = -1
+        dropIndex = -1
+        // Wait for the handler to release before changing the repeater's model.
+        if (commit && from !== to) Qt.callLater(dialog.moveRun, from, to)
     }
     function captureEntries() {
         const entries = []
@@ -73,16 +119,17 @@ MotionDialog {
         return entries
     }
     function saveSelected() {
-        if (!controller || busy || (identityOption.checked && !identityValid)) return
+        if (!controller || busy || dragFrom >= 0 || (identityOption.checked && !identityValid)) return
         rememberIdentity()
         if (batch && outputMode.currentIndex === 0)
-            controller.saveBatchPicked(captureEntries())
+            controller.saveBatchPicked(captureEntries(), orderMode.currentIndex === manualOrderIndex)
         else
             controller.savePicked(batch ? combined : cards.itemAt(0))
     }
     function rememberIdentity() {
         if (preferences && identityValid) preferences.shareGameIdentity = identityInput.text.trim()
     }
+    onAboutToHide: finishDrag(false)
     onClosed: rememberIdentity()
     onOpened: {
         preview.contentItem.contentY = 0
@@ -117,7 +164,7 @@ MotionDialog {
         }
         Text {
             Layout.fillWidth: true
-            text: dialog.batch ? qsTr("已选 %1 条。下方按所选排列顺序预览完整心得及副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。").arg(dialog.runsData.length)
+            text: dialog.batch ? qsTr("已选 %1 条。拖动预览右侧的把手排序，保存时使用当前顺序。").arg(dialog.runsData.length)
                               : qsTr("下方预览完整心得和副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。")
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)
@@ -133,8 +180,8 @@ MotionDialog {
                 id: orderMode
                 objectName: "reflectionImageOrder"
                 Layout.preferredWidth: 120
-                model: [qsTr("最新在前"), qsTr("最早在前")]
-                enabled: !dialog.busy
+                model: [qsTr("最新在前"), qsTr("最早在前"), qsTr("手动排序")]
+                enabled: !dialog.busy && dialog.dragFrom < 0
                 onActivated: dialog.reorder()
             }
             Text { text: qsTr("输出方式"); color: Theme.textSecondary; font.pixelSize: Theme.fs(12) }
@@ -143,7 +190,7 @@ MotionDialog {
                 objectName: "reflectionImageOutputMode"
                 Layout.fillWidth: true
                 model: [qsTr("逐条 PNG（每条一张，选择文件夹）"), qsTr("合成长图（按预览顺序保存一张）")]
-                enabled: !dialog.busy
+                enabled: !dialog.busy && dialog.dragFrom < 0
                 onActivated: if (dialog.controller) dialog.controller.resetFeedback()
             }
         }
@@ -202,6 +249,23 @@ MotionDialog {
             contentHeight: dialog.collection ? combined.height : stack.height
             ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
             ScrollBar.vertical.policy: ScrollBar.AsNeeded
+            Timer {
+                interval: 16
+                repeat: true
+                running: dialog.dragFrom >= 0
+                onTriggered: {
+                    const margin = Math.min(40, preview.height / 3)
+                    const y = dialog.dragY
+                    const speed = y < margin ? Math.max(-24, (y - margin) / 2)
+                        : y > preview.height - margin ? Math.min(24, (y - preview.height + margin) / 2) : 0
+                    const flick = preview.contentItem as Flickable
+                    if (speed === 0 || !flick) return
+                    const next = Math.max(0, Math.min(preview.contentHeight - preview.height, flick.contentY + speed))
+                    if (next === flick.contentY) return
+                    flick.contentY = next
+                    dialog.updateDropIndex()
+                }
+            }
             // Repeater 实例化每一条完整卡片；抓图对象为卡片/组合自身，绝不捕获可见视口。
             Item {
                 width: preview.availableWidth
@@ -218,6 +282,7 @@ MotionDialog {
                 }
                 Column {
                     id: stack
+                    readonly property list<Item> previewEntries: children.filter(child => child !== cards)
                     objectName: "reflectionShareIndividualCards"
                     width: parent.width
                     visible: !dialog.collection
@@ -232,6 +297,104 @@ MotionDialog {
                             showAttribution: attribution.checked
                             gameIdentity: identityOption.checked ? identityInput.text.trim() : ""
                             exportDate: dialog.exportDate
+                        }
+                    }
+                }
+                // The grips and drop indicator are siblings of the rendered cards.
+                Item {
+                    id: gripsLayer
+                    anchors.fill: parent
+                    visible: dialog.batch
+                    Repeater {
+                        id: grips
+                        model: dialog.gripEntries
+                        Rectangle {
+                            id: grip
+                            required property int index
+                            required property Item modelData
+                            readonly property real rowTop: dialog.rowTopOf(modelData)
+                            readonly property real rowHeight: dialog.rowHeightOf(modelData)
+                            objectName: "reflectionShareDragGrip_" + index
+                            anchors.right: parent.right
+                            anchors.rightMargin: 8
+                            y: rowTop + 8
+                            width: 28
+                            height: 28
+                            radius: Theme.radiusS
+                            enabled: !dialog.busy
+                            activeFocusOnTab: true
+                            color: drag.active || hover.hovered || activeFocus ? Theme.fillStrong : Theme.surfaceRaised
+                            border.color: activeFocus || drag.active ? Theme.accentStrong : Theme.borderStrong
+                            Accessible.role: Accessible.Button
+                            Accessible.name: qsTr("拖动排序") + " · " + (Theme.dutyName(dialog.runsData[index]) || qsTr("未知副本"))
+                            ToolTip.visible: hover.hovered && dialog.dragFrom < 0
+                            ToolTip.delay: 500
+                            ToolTip.text: qsTr("拖动排序，也可按 ↑ 或 ↓ 移动")
+                            Image {
+                                anchors.centerIn: parent
+                                width: 16
+                                height: 16
+                                source: Lucide.source("grip-vertical", Theme.textPrimary)
+                                Accessible.ignored: true
+                            }
+                            HoverHandler { id: hover; cursorShape: Qt.OpenHandCursor }
+                            DragHandler {
+                                id: drag
+                                target: null
+                                xAxis.enabled: false
+                                cursorShape: Qt.ClosedHandCursor
+                                grabPermissions: PointerHandler.CanTakeOverFromItems
+                                                 | PointerHandler.CanTakeOverFromHandlersOfDifferentType
+                                onTranslationChanged: {
+                                    if (!active || dialog.dragFrom !== grip.index) return
+                                    dialog.dragY = preview.mapFromItem(null, centroid.scenePosition.x, centroid.scenePosition.y).y
+                                    dialog.updateDropIndex()
+                                }
+                                onActiveChanged: {
+                                    if (active) {
+                                        const flick = preview.contentItem as Flickable
+                                        if (flick) flick.cancelFlick()
+                                        dialog.dragFrom = grip.index
+                                        dialog.dropIndex = grip.index
+                                        dialog.dragY = preview.mapFromItem(null, centroid.scenePosition.x, centroid.scenePosition.y).y
+                                        dialog.updateDropIndex()
+                                    }
+                                }
+                                onGrabChanged: function(transition, point) {
+                                    if (dialog.dragFrom !== grip.index) return
+                                    if (transition === PointerDevice.UngrabExclusive) dialog.finishDrag(true)
+                                    else if (transition === PointerDevice.CancelGrabExclusive) dialog.finishDrag(false)
+                                }
+                            }
+                            function moveBy(step: int) {
+                                const next = index + step
+                                if (dialog.moveRun(index, next))
+                                    Qt.callLater(function() { grips.itemAt(next)?.forceActiveFocus() })
+                            }
+                            Keys.onUpPressed: moveBy(-1)
+                            Keys.onDownPressed: moveBy(1)
+                            onActiveFocusChanged: {
+                                const flick = preview.contentItem as Flickable
+                                if (!activeFocus || !flick) return
+                                flick.contentY = Math.max(y + height - preview.height, Math.min(y, flick.contentY))
+                            }
+                        }
+                    }
+                    Rectangle {
+                        visible: dialog.dragFrom >= 0 && dialog.dropIndex !== dialog.dragFrom
+                        x: 4
+                        width: parent.width - 8
+                        height: 3
+                        radius: 1.5
+                        color: Theme.accentStrong
+                        y: {
+                            if (!visible) return 0
+                            const slot = dialog.dropIndex + (dialog.dropIndex > dialog.dragFrom ? 1 : 0)
+                            const entries = dialog.gripEntries
+                            const hasNext = slot < entries.length
+                            if (slot <= 0) return hasNext ? dialog.rowTopOf(entries[slot]) : 0
+                            const bottom = dialog.rowTopOf(entries[slot - 1]) + dialog.rowHeightOf(entries[slot - 1])
+                            return hasNext ? (bottom + dialog.rowTopOf(entries[slot])) / 2 : bottom - height
                         }
                     }
                 }
@@ -296,7 +459,8 @@ MotionDialog {
                     : dialog.batch ? qsTr("保存合成长图") : qsTr("保存 PNG 图片")
                 iconName: "image-down"
                 variant: "primary"
-                enabled: !!dialog.controller && !dialog.busy && (!identityOption.checked || dialog.identityValid)
+                enabled: !!dialog.controller && !dialog.busy && dialog.dragFrom < 0
+                    && (!identityOption.checked || dialog.identityValid)
                 onClicked: dialog.saveSelected()
             }
         }

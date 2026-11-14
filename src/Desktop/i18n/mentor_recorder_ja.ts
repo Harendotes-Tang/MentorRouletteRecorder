@@ -8979,6 +8979,18 @@ SHA256：%3</translation>
 <context>
     <name>ReflectionShareDialog</name>
     <message>
+        <source>手动排序</source>
+        <translation>手動で並べ替え</translation>
+    </message>
+    <message>
+        <source>拖动排序</source>
+        <translation>ドラッグして並べ替え</translation>
+    </message>
+    <message>
+        <source>拖动排序，也可按 ↑ 或 ↓ 移动</source>
+        <translation>ドラッグするか、↑ または ↓ キーで移動</translation>
+    </message>
+    <message>
         <source>排列顺序</source>
         <translation>並び順</translation>
     </message>
@@ -9015,8 +9027,8 @@ SHA256：%3</translation>
         <translation>共有用画像を作成</translation>
     </message>
     <message>
-        <source>已选 %1 条。下方按所选排列顺序预览完整心得及副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。</source>
-        <translation>%1 件を選択中です。下に、上で選んだ並び順で感想の全文とコンテンツ・ジョブなどの情報をプレビューしています。保存を押すと、選んだ場所に画像を保存します。共有する場合は、ご自身で画像を送ってください。</translation>
+        <source>已选 %1 条。拖动预览右侧的把手排序，保存时使用当前顺序。</source>
+        <translation>%1 件を選択中。プレビュー右側のハンドルをドラッグして並べ替えます。画像は表示順に保存されます。</translation>
     </message>
     <message>
         <source>下方预览完整心得和副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。</source>

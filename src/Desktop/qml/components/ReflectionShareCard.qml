@@ -15,6 +15,7 @@ Item {
     readonly property bool opaquePaper: true
     readonly property var entries: runsData.length > 0 ? runsData : [runData]
     readonly property bool single: entries.length === 1
+    readonly property list<Item> collectionEntries: timeline.children.filter(child => child !== entriesRepeater)
     readonly property bool spansYears: {
         const years = ({})
         for (let i = 0; i < entries.length; ++i) {

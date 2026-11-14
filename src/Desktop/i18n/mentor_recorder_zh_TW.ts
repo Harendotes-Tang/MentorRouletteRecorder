@@ -8979,6 +8979,18 @@ SHA256：%3</translation>
 <context>
     <name>ReflectionShareDialog</name>
     <message>
+        <source>手动排序</source>
+        <translation>手動排序</translation>
+    </message>
+    <message>
+        <source>拖动排序</source>
+        <translation>拖曳排序</translation>
+    </message>
+    <message>
+        <source>拖动排序，也可按 ↑ 或 ↓ 移动</source>
+        <translation>拖曳排序，也可按 ↑ 或 ↓ 移動</translation>
+    </message>
+    <message>
         <source>排列顺序</source>
         <translation>排列順序</translation>
     </message>
@@ -9015,8 +9027,8 @@ SHA256：%3</translation>
         <translation>產生分享圖片</translation>
     </message>
     <message>
-        <source>已选 %1 条。下方按所选排列顺序预览完整心得及副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。</source>
-        <translation>已選 %1 則。下方依所選排列順序預覽完整心得及副本、職業等資訊。點選儲存後，圖片會儲存到你選擇的位置；如需分享，請自行傳送圖片。</translation>
+        <source>已选 %1 条。拖动预览右侧的把手排序，保存时使用当前顺序。</source>
+        <translation>已選 %1 筆。拖曳預覽右側的把手排序，儲存時使用目前順序。</translation>
     </message>
     <message>
         <source>下方预览完整心得和副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。</source>

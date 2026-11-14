@@ -259,7 +259,7 @@ mr_desktop_suite_test(MentorRecorderDesktopImportTests ImportImageOrientation NO
 # The share image is checked in English and Japanese, so those catalogues are compiled in.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopReflectionTests
-    SUITES Reflection ReflectionLibrary ReflectionDateOrdering ReflectionShare ReflectionDialogBinding ReflectionDialogMoodNote
+    SUITES Reflection ReflectionLibrary ReflectionDateOrdering ReflectionShare ReflectionShareOrder ReflectionDialogBinding ReflectionDialogMoodNote
     LIBRARIES ${MR_QUICK_TEST_LIBRARIES} Qt6::Widgets)
 qt_add_lrelease(
     TS_FILES
@@ -275,7 +275,7 @@ qt_add_resources(MentorRecorderDesktopReflectionTests reflection_share_test_i18n
 mr_desktop_suite_test(MentorRecorderDesktopReflectionTests Reflection NAME MentorRecorderReflections NO_LOG)
 mr_desktop_suite_test(MentorRecorderDesktopReflectionTests ReflectionDialogBinding)
 mr_desktop_suite_test(MentorRecorderDesktopReflectionTests ReflectionDialogMoodNote)
-foreach(suite IN ITEMS ReflectionLibrary ReflectionDateOrdering ReflectionShare)
+foreach(suite IN ITEMS ReflectionLibrary ReflectionDateOrdering ReflectionShare ReflectionShareOrder)
     mr_desktop_suite_test(MentorRecorderDesktopReflectionTests ${suite})
     set_tests_properties(MentorRecorder${suite} PROPERTIES ENVIRONMENT "${MR_DESKTOP_ISOLATED_ENVIRONMENT}")
 endforeach()

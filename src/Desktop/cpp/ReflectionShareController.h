@@ -36,8 +36,8 @@ public:
     /// 空路径表示取消。capture 返回异步；只在 PNG 原子提交成功后发 saved。
     Q_INVOKABLE void saveTo(QObject *object, const QString &path);
     /// entries 为 {run_id, label, item}；借用显示中的完整卡片，只向用户选定目录写入。
-    Q_INVOKABLE void saveBatchPicked(const QVariantList &entries);
-    Q_INVOKABLE void saveBatchTo(const QVariantList &entries, const QString &directory);
+    Q_INVOKABLE void saveBatchPicked(const QVariantList &entries, bool numberFiles = false);
+    Q_INVOKABLE void saveBatchTo(const QVariantList &entries, const QString &directory, bool numberFiles = false);
     /// 保留成功项，只重新抓取本批失败项；重试仍生成独特文件名。
     Q_INVOKABLE void retryFailed();
     /// 实际 PNG 写入路径，也供测试核验失败和取消；不建立目标父目录。
@@ -55,7 +55,7 @@ private:
     void captureTo(QObject *object, const QString &path, bool rejectExisting, const CaptureDone &done);
     void capturePrepared(QObject *object, const QString &path, bool rejectExisting, const CaptureDone &done);
     void processNextBatch();
-    QString uniqueBatchPath(const BatchEntry &entry) const;
+    QString uniqueBatchPath(const BatchEntry &entry, int index) const;
     void startBatch(const QList<int> &indices);
     void finish(const QString &feedback, const QString &savedPath = {});
     bool m_busy = false;
@@ -67,5 +67,6 @@ private:
     QVariantList m_batchResults;
     QList<int> m_pendingBatch;
     QString m_batchDirectory;
+    bool m_numberBatchFiles = false;
 };
 }

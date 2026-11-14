@@ -209,13 +209,13 @@ QString ReflectionShareController::suggestedFileName(QObject *item, const QStrin
     return stem + QStringLiteral(".png");
 }
 
-void ReflectionShareController::saveBatchPicked(const QVariantList &entries)
+void ReflectionShareController::saveBatchPicked(const QVariantList &entries, bool numberFiles)
 {
     if (m_busy)
         return;
     const QString directory = QFileDialog::getExistingDirectory(nullptr, tr("选择逐条 PNG 的保存文件夹"),
         QStandardPaths::writableLocation(QStandardPaths::PicturesLocation));
-    saveBatchTo(entries, directory);
+    saveBatchTo(entries, directory, numberFiles);
 }
 
 void ReflectionShareController::finish(const QString &feedback, const QString &savedPath)
@@ -386,12 +386,17 @@ void ReflectionShareController::capturePrepared(QObject *object, const QString &
     });
 }
 
-QString ReflectionShareController::uniqueBatchPath(const BatchEntry &entry) const
+QString ReflectionShareController::uniqueBatchPath(const BatchEntry &entry, int index) const
 {
-    return availablePngPath(m_batchDirectory, suggestedFileName(entry.item, entry.label));
+    QString name = suggestedFileName(entry.item, entry.label);
+    if (m_numberBatchFiles) {
+        const int digits = qMax(2, static_cast<int>(QString::number(m_batchEntries.size()).size()));
+        name.prepend(QStringLiteral("%1_").arg(index + 1, digits, 10, QLatin1Char('0')));
+    }
+    return availablePngPath(m_batchDirectory, name);
 }
 
-void ReflectionShareController::saveBatchTo(const QVariantList &entries, const QString &directory)
+void ReflectionShareController::saveBatchTo(const QVariantList &entries, const QString &directory, bool numberFiles)
 {
     if (m_busy)
         return;
@@ -426,6 +431,7 @@ void ReflectionShareController::saveBatchTo(const QVariantList &entries, const Q
         finish(tr("没有可生成图片的选中心得。"));
         return;
     }
+    m_numberBatchFiles = numberFiles;
     startBatch(indices);
 }
 
@@ -456,7 +462,7 @@ void ReflectionShareController::processNextBatch()
     }
     const int index = m_pendingBatch.takeFirst();
     const BatchEntry entry = m_batchEntries.at(index);
-    captureTo(entry.item, uniqueBatchPath(entry), true,
+    captureTo(entry.item, uniqueBatchPath(entry, index), true,
               [this, index](const QString &path, const QString &error) {
         QVariantMap result = m_batchResults.at(index).toMap();
         result.insert(QStringLiteral("status"), error.isEmpty() ? QStringLiteral("saved") : QStringLiteral("failed"));

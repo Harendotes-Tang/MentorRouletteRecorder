@@ -8979,6 +8979,18 @@ Recorder</translation>
 <context>
     <name>ReflectionShareDialog</name>
     <message>
+        <source>手动排序</source>
+        <translation>Manual order</translation>
+    </message>
+    <message>
+        <source>拖动排序</source>
+        <translation>Drag to reorder</translation>
+    </message>
+    <message>
+        <source>拖动排序，也可按 ↑ 或 ↓ 移动</source>
+        <translation>Drag to reorder, or press ↑ or ↓</translation>
+    </message>
+    <message>
         <source>排列顺序</source>
         <translation>Order</translation>
     </message>
@@ -9015,8 +9027,8 @@ Recorder</translation>
         <translation>Create share image</translation>
     </message>
     <message>
-        <source>已选 %1 条。下方按所选排列顺序预览完整心得及副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。</source>
-        <translation>%1 selected. Below is a preview of the full notes with duty, job and other details, in the order chosen above. When you click Save, the images are saved where you choose; to share them, send the images yourself.</translation>
+        <source>已选 %1 条。拖动预览右侧的把手排序，保存时使用当前顺序。</source>
+        <translation>%1 selected. Drag the handles on the right to reorder the preview. Images are saved in this order.</translation>
     </message>
     <message>
         <source>下方预览完整心得和副本、职业等信息。点击保存后，图片会保存到你选择的位置；如需分享，请自行发送图片。</source>
