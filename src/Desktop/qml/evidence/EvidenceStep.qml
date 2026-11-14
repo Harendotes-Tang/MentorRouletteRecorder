@@ -22,10 +22,14 @@ Card {
 
     signal toggleRequested()
 
+    // What the step and its title and summary are named by; the number unless two
+    // steps share one (step 3 has a variant per purpose, one of them hidden).
+    property string nameKey: String(number)
+
     readonly property bool current: status === "cur"
     readonly property bool done: status === "done"
 
-    objectName: "evidenceStep_" + number
+    objectName: "evidenceStep_" + nameKey
     Layout.fillWidth: true
     padding: 0
     spacing: 0
@@ -124,7 +128,7 @@ Card {
                 Layout.fillWidth: true
                 spacing: 1
                 Text {
-                    objectName: "evidenceStepTitle_" + step.number
+                    objectName: "evidenceStepTitle_" + step.nameKey
                     Layout.fillWidth: true
                     textFormat: Text.PlainText
                     text: step.title
@@ -134,7 +138,7 @@ Card {
                     elide: Text.ElideRight
                 }
                 Text {
-                    objectName: "evidenceStepSummary_" + step.number
+                    objectName: "evidenceStepSummary_" + step.nameKey
                     Layout.fillWidth: true
                     visible: step.done && step.summary.length > 0
                     textFormat: Text.PlainText

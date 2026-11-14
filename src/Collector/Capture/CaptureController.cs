@@ -611,7 +611,8 @@ public sealed partial class CaptureController : IDisposable
     /// <param name="validation">与本控制器共用采集租约的主机采证控制器。</param>
     /// <param name="adapterId">采证网卡；null 使用既有推荐选择。</param>
     /// <returns>采证启动的 WAITING 状态；前置条件、停止或启动失败时抛出既有契约错误。</returns>
-    public JsonObject SwitchToMetadataObservation(CaptureValidationController validation, string? adapterId = null)
+    public JsonObject SwitchToMetadataObservation(
+        CaptureValidationController validation, string? adapterId = null, bool identityProbe = false)
     {
         ArgumentNullException.ThrowIfNull(validation);
         lock (_lifecycleGate)
@@ -621,7 +622,7 @@ public sealed partial class CaptureController : IDisposable
                 throw CollectorException.BadRequest(CollectorTexts.CaptureValidationSwitchRefusedVerified());
             if (State is CaptureControllerState.Running or CaptureControllerState.Starting || _releaseFailed)
                 StopCore();
-            return validation.Start(adapterId);
+            return validation.Start(adapterId, identityProbe);
         }
     }
 

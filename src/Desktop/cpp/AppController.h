@@ -538,6 +538,8 @@ public Q_SLOTS:
     void toggleCapture();
     /// 玩家显式开始/停止元数据采证，不启动正式记录、不切换维护者模式。
     void toggleTemplateObservation();
+    /// 下一轮玩家采证是否为「角色识别」：只影响之后开始的一轮，进行中的一轮以采集器状态为准。
+    void setTemplateObservationIdentity(bool identity);
     void addTemplateObservationMarker(const QString &marker);
     void setCaptureAdapterId(const QString &adapterId);
     void addCaptureValidationMarker(const QString &marker);

@@ -73,6 +73,7 @@ public sealed partial class CaptureValidationController : IDisposable
     private readonly CaptureOwnership _ownership;
     private readonly string _directory;
     private readonly string _oodleTempManifest;
+    private readonly string _identityKeyPath;
     private Session? _session;
     private bool _disposed;
     private string _state = "IDLE", _reason = "IDLE";
@@ -85,6 +86,7 @@ public sealed partial class CaptureValidationController : IDisposable
         // manifest as the capture's, so a Collector killed mid-validation has them removed at
         // the next start (audit 2026-10-03, OB-6).
         _oodleTempManifest = Storage.DatabasePaths.ResolveOodleTempManifest(databasePath);
+        _identityKeyPath = Storage.DatabasePaths.ResolveIdentityProbeKey(databasePath);
         _ownership = ownership;
         _services = services ?? new();
         if (_services.PollInterval <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(services));
@@ -162,13 +164,32 @@ public sealed partial class CaptureValidationController : IDisposable
                 ["truncated"] = s?.Sink?.Truncated ?? false, ["trace_path"] = measured ? s?.Path : null,
                 ["sha256_path"] = s?.Digest is not null ? s.Path + CaptureTraceDigest.SidecarExtension : null,
                 ["sha256"] = s?.Digest, ["error_code"] = s?.ErrorCode,
+                // The guided identity round: whether this session measures it, and its verdict so far.
+                ["identity_probe"] = s?.IdentityProbe ?? false,
+                ["identity_result"] = s is { IdentityProbe: true }
+                    ? s.Sink?.IdentityResult ?? CaptureIdentityProbe.ResultIncomplete : null,
+                ["identity_steps"] = s is { IdentityProbe: true } ? IdentitySteps(s.Sink?.IdentitySteps) : null,
             };
         }
     }
 
+    /// <summary>Which steps were confirmed and whether each named anyone; never an id.</summary>
+    private static JsonArray IdentitySteps(IReadOnlyList<(string Marker, bool Named)>? steps)
+    {
+        var rows = new JsonArray();
+        foreach (var (marker, named) in steps ?? Array.Empty<(string, bool)>())
+            rows.Add(new JsonObject { ["marker"] = marker, ["named"] = named });
+        return rows;
+    }
+
     private bool Active => _state is "WAITING" or "RECORDING" or "STOPPING";
 
-    public JsonObject Start(string? adapterId = null)
+    /// <param name="adapterId">Adapter to observe, or null for the remembered or recommended one.</param>
+    /// <param name="identityProbe">
+    /// Also write the keyed identity lines of <see cref="CaptureIdentityProbe"/> and judge the
+    /// guided identity round. Such a session is not a template observation.
+    /// </param>
+    public JsonObject Start(string? adapterId = null, bool identityProbe = false)
     {
         if (adapterId is not null && (string.IsNullOrWhiteSpace(adapterId) || adapterId.Length > 400))
             throw CollectorException.BadRequest(CollectorTexts.CaptureValidationAdapterIdInvalid(), "payload.adapter_id");
@@ -182,7 +203,7 @@ public sealed partial class CaptureValidationController : IDisposable
                 var npcap = _services.Trace.Npcap.Detect();
                 if (!npcap.Usable) throw new CollectorException(ErrorCodes.NpcapMissing, CollectorTexts.CaptureValidationNpcapUnavailable());
                 var session = new Session(adapterId ?? _services.RememberedAdapterId,
-                    adapterWasExplicit: adapterId is not null, lease, npcap);
+                    adapterWasExplicit: adapterId is not null, lease, npcap) { IdentityProbe = identityProbe };
                 _session = session;
                 SetState("WAITING", "WAITING_GAME", CollectorTexts.CaptureValidationWaitingGame());
                 var snapshot = Snapshot();
@@ -217,6 +238,12 @@ public sealed partial class CaptureValidationController : IDisposable
         {
             if (_state != "RECORDING") throw CollectorException.BadRequest(CollectorTexts.CaptureValidationMarkerNotRecording());
             var s = _session!;
+            // A step of the identity round belongs to an identity round only: in any other
+            // session it would make the trace useless as a template observation.
+            if (CaptureTraceMarkerText.IsIdentity(marker) && !s.IdentityProbe)
+                throw CollectorException.BadRequest(
+                    CollectorTexts.CaptureValidationMarkerInvalid(string.Join(" / ", CaptureTraceMarkerText.Events)),
+                    "payload.marker");
             if (s.AcceptedMarkers >= CaptureTraceSink.MaxMarkers ||
                 !s.Markers.Writer.TryWrite(new Marker(marker, _services.Trace.Clock.UtcNow, s.Elapsed!())))
                 throw CollectorException.BadRequest(CollectorTexts.CaptureValidationMarkerQueueFull());
@@ -302,6 +329,11 @@ public sealed partial class CaptureValidationController : IDisposable
                 source = trace.SourceFactory?.Invoke()
                     ?? new MachinaCaptureSource(trace.Logger, oodleTempManifestPath: _oodleTempManifest);
                 s.Stop.Token.ThrowIfCancellationRequested();
+                // Before the trace file exists: a probe that cannot digest fails the session
+                // without leaving an empty trace behind.
+                var identityProbe = s.IdentityProbe
+                    ? new CaptureIdentityProbe(IdentityProbeKey.LoadOrCreate(_identityKeyPath))
+                    : null;
                 // Named in the invariant calendar, the one SweepTraces ages it in: under an Umm
                 // al-Qura or Persian calendar the session read as centuries old and was deleted
                 // as soon as it was saved; under the Thai one it never aged (audit 2026-11-03, A2-2).
@@ -313,7 +345,7 @@ public sealed partial class CaptureValidationController : IDisposable
                     new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read), new UTF8Encoding(false));
                 var elapsed = Stopwatch.StartNew();
                 s.Elapsed = _services.Elapsed ?? (() => elapsed.Elapsed);
-                var sink = new CaptureTraceSink(writer, trace.Clock, s.Elapsed);
+                var sink = new CaptureTraceSink(writer, trace.Clock, s.Elapsed, identityProbe: identityProbe);
                 lock (_gate) { s.Sink = sink; s.Started = UtcTimestamp.Truncate(trace.Clock.UtcNow); }
                 sink.WriteHeader(new CaptureTraceHeader(s.Started.Value, s.Npcap.Version, game.GameBuild,
                     game.Region, SanitizedDiagnosticsReport.Fingerprint(adapter.Id), trace.CollectorVersion,
@@ -622,6 +654,7 @@ public sealed partial class CaptureValidationController : IDisposable
         public long? Dropped;
         public bool WriteFailed;
         public bool Finalized, RecordingStarted, TimedOut;
+        public bool IdentityProbe { get; init; }
         public ICaptureSource? RetainedSource;
         public Task? Work, MarkerWork;
     }

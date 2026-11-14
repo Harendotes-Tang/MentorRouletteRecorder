@@ -17,6 +17,7 @@ Card {
     readonly property var warnings: Theme.live(Runtime.app.collectorWarnings) || []
     readonly property var evidence: typeof Runtime.calibrationEvidence !== "undefined" ? Runtime.calibrationEvidence : null
     signal toggleObservationGuideRequested()
+    signal openIdentityEvidenceRequested()
     // 帮助适配其他区服 follows the round as the 采证 page tells it - the page's own
     // EvidenceSession, so a cancelled wait, an incomplete file and 开始下一轮 read
     // the same here (review K2-2): 采证中 with the clock, 已保存 waiting for the
@@ -29,6 +30,10 @@ Card {
     readonly property bool evidenceFailed: tools.evidenceEnded && tools.evidenceSession.phase === "failed"
     readonly property bool evidenceSaved: tools.evidenceEnded && tools.evidenceSession.saved
                                           && tools.evidenceSession.fileSaved
+    // The round under way, or over and still on the page, is a 角色识别 one: its
+    // state is told on that row and the 帮助适配其他区服 row keeps its standing sentence.
+    readonly property bool evidenceIdentity: !!tools.evidenceSession && tools.evidenceSession.identity
+                                             && (tools.evidenceActive || tools.evidenceEnded)
 
     horizontalPadding: 20
     verticalPadding: 16
@@ -57,16 +62,37 @@ Card {
         objectName: "templateObservationGuideRow"
         visible: !!tools.evidence
         label: qsTr("帮助适配其他区服")
-        description: tools.evidenceActive ? qsTr("采证中 · %1").arg(tools.evidenceClock.elapsedText)
+        description: tools.evidenceIdentity ? qsTr("按步骤采集报文元数据，未适配的区服仍不正式记录")
+                     : tools.evidenceActive ? qsTr("采证中 · %1").arg(tools.evidenceClock.elapsedText)
                      : tools.evidenceSaved ? qsTr("已保存，等回传")
                      : tools.evidenceFailed ? qsTr("采证失败，可回传已有文件")
                      : tools.evidenceEnded ? qsTr("已结束，文件不完整")
                      : qsTr("按步骤采集报文元数据，未适配的区服仍不正式记录")
-        descriptionColor: tools.evidenceActive ? Theme.orangeText : Theme.textSecondary
+        descriptionColor: tools.evidenceActive && !tools.evidenceIdentity ? Theme.orangeText : Theme.textSecondary
         AppButton {
             objectName: "templateObservationGuideButton"
-            text: tools.evidenceActive || tools.evidenceEnded ? qsTr("继续") : qsTr("采证步骤")
+            text: !tools.evidenceIdentity && (tools.evidenceActive || tools.evidenceEnded) ? qsTr("继续") : qsTr("采证步骤")
+            // One round at a time: while the other kind is under way this row waits.
+            enabled: !(tools.evidenceIdentity && tools.evidenceActive)
             onClicked: tools.toggleObservationGuideRequested()
+        }
+    }
+
+    SettingsRow {
+        objectName: "identityEvidenceRow"
+        visible: !!tools.evidence
+        label: qsTr("角色识别采证")
+        description: !tools.evidenceIdentity ? qsTr("两个角色轮流登录，核实软件能否区分它们；不新增正式记录")
+                     : tools.evidenceActive ? qsTr("采证中 · %1").arg(tools.evidenceClock.elapsedText)
+                     : tools.evidenceSaved ? qsTr("已保存，等回传")
+                     : tools.evidenceFailed ? qsTr("采证失败，可回传已有文件")
+                     : qsTr("已结束，文件不完整")
+        descriptionColor: tools.evidenceActive && tools.evidenceIdentity ? Theme.orangeText : Theme.textSecondary
+        AppButton {
+            objectName: "identityEvidenceButton"
+            text: tools.evidenceIdentity ? qsTr("继续") : qsTr("采证步骤")
+            enabled: tools.evidenceIdentity || !tools.evidenceActive
+            onClicked: tools.openIdentityEvidenceRequested()
         }
     }
 

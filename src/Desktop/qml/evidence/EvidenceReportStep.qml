@@ -34,8 +34,10 @@ EvidenceStep {
         columnSpacing: 16
         rowSpacing: 16
 
-        // `.ev-rf`
+        // `.ev-rf` -- what only the player knows about an event round; an identity
+        // round has nothing of the kind to ask.
         ColumnLayout {
+            visible: !step.session.identity
             Layout.alignment: Qt.AlignTop
             Layout.preferredWidth: step.wide ? 210 : -1
             Layout.minimumWidth: step.wide ? 210 : 0
@@ -114,7 +116,8 @@ EvidenceStep {
                 Text {
                     Layout.fillWidth: true
                     textFormat: Text.PlainText
-                    text: qsTr("版本、时间、区服、标记和计数已自动填好")
+                    text: step.session.identity ? qsTr("版本、时间、区服、步骤、结论和计数已自动填好")
+                                                : qsTr("版本、时间、区服、标记和计数已自动填好")
                     color: Theme.green
                     font.pixelSize: Theme.fs(11)
                     elide: Text.ElideRight
@@ -185,6 +188,8 @@ EvidenceStep {
     // `.ev-opt`
     AppButton {
         objectName: "evidenceOptionalToggle"
+        // The candidate summary is made from an event round only.
+        visible: !step.session.identity
         variant: "ghost"
         compact: true
         text: qsTr("候选摘要（可选）")
@@ -194,7 +199,7 @@ EvidenceStep {
     }
     RowLayout {
         Layout.fillWidth: true
-        visible: step.optionalOpen
+        visible: step.optionalOpen && !step.session.identity
         spacing: 16
         Rectangle { Layout.fillHeight: true; implicitWidth: 2; color: Theme.border }
         ColumnLayout {
@@ -217,7 +222,11 @@ EvidenceStep {
     RowLayout {
         Layout.fillWidth: true
         spacing: 16
-        EvidenceHint { text: qsTr("采证完成只代表拿到候选线索，仍需维护者验证。先回传一轮，确认可用后再补一轮。") }
+        EvidenceHint {
+            text: step.session.identity
+                  ? qsTr("结论只说明这一轮读到的标识是否不同；把文件回传给维护者，才能据此实现按角色分别统计。")
+                  : qsTr("采证完成只代表拿到候选线索，仍需维护者验证。先回传一轮，确认可用后再补一轮。")
+        }
         AppButton {
             objectName: "evidenceNextRoundButton"
             text: qsTr("开始下一轮")

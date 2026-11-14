@@ -1916,6 +1916,14 @@
         <translation>繼續</translation>
     </message>
     <message>
+        <source>角色识别采证</source>
+        <translation>角色識別採證</translation>
+    </message>
+    <message>
+        <source>两个角色轮流登录，核实软件能否区分它们；不新增正式记录</source>
+        <translation>兩個角色輪流登入，核實軟體能否區分它們；不新增正式記錄</translation>
+    </message>
+    <message>
         <source>导出诊断报告</source>
         <translation>匯出診斷報告</translation>
     </message>
@@ -5771,6 +5779,53 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>EvidenceIdentityStep</name>
+    <message>
+        <source>每一步都先在游戏里做完，进入游戏后等十秒左右再点右边的按钮。换角色时不用关游戏，返回角色选择即可。</source>
+        <translation>每一步都先在遊戲裡做完，進入遊戲後等十秒左右再點右邊的按鈕。換角色時不用關遊戲，返回角色選擇即可。</translation>
+    </message>
+    <message>
+        <source>角色识别步骤</source>
+        <translation>角色識別步驟</translation>
+    </message>
+    <message>
+        <source>%1（可选）</source>
+        <translation>%1（可選）</translation>
+    </message>
+    <message>
+        <source>没读到数据：确认得太早。在游戏里等十秒左右，再点「重新确认」</source>
+        <translation>沒讀到資料：確認得太早。在遊戲裡等十秒左右，再點「重新確認」</translation>
+    </message>
+    <message>
+        <source>已确认 · %1</source>
+        <translation>已確認 · %1</translation>
+    </message>
+    <message>
+        <source>已跳过</source>
+        <translation>已跳過</translation>
+    </message>
+    <message>
+        <source>重新确认</source>
+        <translation>重新確認</translation>
+    </message>
+    <message>
+        <source>采证操作失败：</source>
+        <translation>採證操作失敗：</translation>
+    </message>
+    <message>
+        <source>处理中…</source>
+        <translation>處理中…</translation>
+    </message>
+    <message>
+        <source>停止采证</source>
+        <translation>停止採證</translation>
+    </message>
+    <message>
+        <source>前三步确认后就可以停止；后两步做了更好</source>
+        <translation>前三步確認後就可以停止；後兩步做了更好</translation>
+    </message>
+</context>
+<context>
     <name>EvidenceMarkingStep</name>
     <message>
         <source>随机类型</source>
@@ -5844,6 +5899,14 @@ SHA256：%3</translation>
         <translation>新區服採證</translation>
     </message>
     <message>
+        <source>角色识别采证</source>
+        <translation>角色識別採證</translation>
+    </message>
+    <message>
+        <source>核实能否区分你的不同角色 · 不新增正式记录</source>
+        <translation>核實能否區分你的不同角色 · 不新增正式記錄</translation>
+    </message>
+    <message>
         <source>帮助适配其他区服 · 不新增正式记录</source>
         <translation>幫助適配其他區服 · 不新增正式記錄</translation>
     </message>
@@ -5891,6 +5954,10 @@ SHA256：%3</translation>
         <translation>採證操作失敗：</translation>
     </message>
     <message>
+        <source>登录后报文会一直增加</source>
+        <translation>登入後報文會一直增加</translation>
+    </message>
+    <message>
         <source>登录后正常活动 30～60 秒，报文要一直增加</source>
         <translation>登入後正常活動 30～60 秒，報文要一直增加</translation>
     </message>
@@ -5901,6 +5968,10 @@ SHA256：%3</translation>
     <message>
         <source>数据可读，接着排本</source>
         <translation>資料可讀，接著排本</translation>
+    </message>
+    <message>
+        <source>数据可读</source>
+        <translation>資料可讀</translation>
     </message>
     <message>
         <source>先截图，再停止并导出诊断，不用继续排本。</source>
@@ -5958,6 +6029,10 @@ SHA256：%3</translation>
         <translation>回傳說明</translation>
     </message>
     <message>
+        <source>版本、时间、区服、步骤、结论和计数已自动填好</source>
+        <translation>版本、時間、區服、步驟、結論和計數已自動填好</translation>
+    </message>
+    <message>
         <source>版本、时间、区服、标记和计数已自动填好</source>
         <translation>版本、時間、區服、標記和計數已自動填好</translation>
     </message>
@@ -6002,6 +6077,10 @@ SHA256：%3</translation>
         <translation>預覽只針對最近一輪，要在下一輪或重開軟體前處理。確認後會複製摘要並開啟 GitHub 提交頁；也可以把複製的 JSON 存成檔案一起回傳，不必發 Issue。</translation>
     </message>
     <message>
+        <source>结论只说明这一轮读到的标识是否不同；把文件回传给维护者，才能据此实现按角色分别统计。</source>
+        <translation>結論只說明這一輪讀到的標識是否不同；把檔案回傳給維護者，才能據此實作按角色分別統計。</translation>
+    </message>
+    <message>
         <source>采证完成只代表拿到候选线索，仍需维护者验证。先回传一轮，确认可用后再补一轮。</source>
         <translation>採證完成只代表拿到候選線索，仍需維護者驗證。先回傳一輪，確認可用後再補一輪。</translation>
     </message>
@@ -6035,6 +6114,10 @@ SHA256：%3</translation>
     <message>
         <source>离本回到外面再停止</source>
         <translation>離本回到外面再停止</translation>
+    </message>
+    <message>
+        <source>前三步确认后就可以停止</source>
+        <translation>前三步確認後就可以停止</translation>
     </message>
     <message>
         <source>正在保存…</source>
@@ -6144,6 +6227,30 @@ SHA256：%3</translation>
         <translation>打包回傳給維護者</translation>
     </message>
     <message>
+        <source>可以区分：两个角色读到的标识不同，回到角色 A 时与第一次相同。</source>
+        <translation>可以區分：兩個角色讀到的標識不同，回到角色 A 時與第一次相同。</translation>
+    </message>
+    <message>
+        <source>不能区分：两个角色读到的标识相同。</source>
+        <translation>不能區分：兩個角色讀到的標識相同。</translation>
+    </message>
+    <message>
+        <source>标识不稳定：角色 A 前后读到的标识不一致。</source>
+        <translation>標識不穩定：角色 A 前後讀到的標識不一致。</translation>
+    </message>
+    <message>
+        <source>启动游戏，等到可以登录</source>
+        <translation>啟動遊戲，等到可以登入</translation>
+    </message>
+    <message>
+        <source>轮流登录两个角色</source>
+        <translation>輪流登入兩個角色</translation>
+    </message>
+    <message>
+        <source>停止采证，查看结论</source>
+        <translation>停止採證，查看結論</translation>
+    </message>
+    <message>
         <source>国服 CN</source>
         <translation>國服 CN</translation>
     </message>
@@ -6186,6 +6293,58 @@ SHA256：%3</translation>
     <message>
         <source>自动选择</source>
         <translation>自動選擇</translation>
+    </message>
+    <message>
+        <source>已进入游戏</source>
+        <translation>已進入遊戲</translation>
+    </message>
+    <message>
+        <source>登录角色 A</source>
+        <translation>登入角色 A</translation>
+    </message>
+    <message>
+        <source>任选一个角色登录，进入游戏</source>
+        <translation>任選一個角色登入，進入遊戲</translation>
+    </message>
+    <message>
+        <source>换成角色 B</source>
+        <translation>換成角色 B</translation>
+    </message>
+    <message>
+        <source>返回角色选择，登录另一个角色</source>
+        <translation>返回角色選擇，登入另一個角色</translation>
+    </message>
+    <message>
+        <source>换回角色 A</source>
+        <translation>換回角色 A</translation>
+    </message>
+    <message>
+        <source>再返回角色选择，登录第一步用的那个角色</source>
+        <translation>再返回角色選擇，登入第一步用的那個角色</translation>
+    </message>
+    <message>
+        <source>已传送</source>
+        <translation>已傳送</translation>
+    </message>
+    <message>
+        <source>用角色 A 传送一次</source>
+        <translation>用角色 A 傳送一次</translation>
+    </message>
+    <message>
+        <source>传送到任意以太之光，到达后再点</source>
+        <translation>傳送到任意以太之光，到達後再點</translation>
+    </message>
+    <message>
+        <source>已离开副本</source>
+        <translation>已離開副本</translation>
+    </message>
+    <message>
+        <source>用角色 A 进出一次副本</source>
+        <translation>用角色 A 進出一次副本</translation>
+    </message>
+    <message>
+        <source>任意副本，进去再出来之后再点</source>
+        <translation>任意副本，進去再出來之後再點</translation>
     </message>
     <message>
         <source>已排队</source>
@@ -6308,12 +6467,28 @@ SHA256：%3</translation>
         <translation>手動補錄能找到對應區服的副本</translation>
     </message>
     <message>
+        <source>已跳过</source>
+        <translation>已跳過</translation>
+    </message>
+    <message>
         <source>无</source>
         <translation>無</translation>
     </message>
     <message>
         <source>（未填）</source>
         <translation>（未填）</translation>
+    </message>
+    <message>
+        <source>【导随记录器 · 角色识别采证回报】</source>
+        <translation>【導隨記錄器 · 角色識別採證回報】</translation>
+    </message>
+    <message>
+        <source>步骤：%1</source>
+        <translation>步驟：%1</translation>
+    </message>
+    <message>
+        <source>结论：%1</source>
+        <translation>結論：%1</translation>
     </message>
     <message>
         <source>未使用</source>
@@ -6376,6 +6551,10 @@ SHA256：%3</translation>
         <translation>、</translation>
     </message>
     <message>
+        <source>还不能判断：有的步骤确认得太早，没读到数据。在游戏里等十秒左右，再点那一步的「重新确认」。</source>
+        <translation>還不能判斷：有的步驟確認得太早，沒讀到資料。在遊戲裡等十秒左右，再點那一步的「重新確認」。</translation>
+    </message>
+    <message>
         <source>计数：报文 %1 · 已写入标记 %2 · 解码失败 %3 · 队列丢弃 %4</source>
         <translation>計數：報文 %1 · 已寫入標記 %2 · 解碼失敗 %3 · 佇列丟棄 %4</translation>
     </message>
@@ -6408,8 +6587,24 @@ SHA256：%3</translation>
         <translation>報文 %1</translation>
     </message>
     <message>
+        <source>已确认 %1 / 5 步</source>
+        <translation>已確認 %1 / 5 步</translation>
+    </message>
+    <message>
         <source>%1 · 标记 %2 / 5</source>
         <translation>%1 · 標記 %2 / 5</translation>
+    </message>
+    <message>
+        <source>已保存 · 可以区分</source>
+        <translation>已儲存 · 可以區分</translation>
+    </message>
+    <message>
+        <source>已保存 · 未能区分</source>
+        <translation>已儲存 · 未能區分</translation>
+    </message>
+    <message>
+        <source>已保存 · 还不能判断</source>
+        <translation>已儲存 · 還不能判斷</translation>
     </message>
     <message>
         <source>已保存 · 文件 %1 / %2</source>
@@ -6501,6 +6696,26 @@ SHA256：%3</source>
         <translation>Trace：%1
 SHA256 檔案：%2
 SHA256：%3</translation>
+    </message>
+    <message>
+        <source>采证目的</source>
+        <translation>採證目的</translation>
+    </message>
+    <message>
+        <source>新区服适配</source>
+        <translation>新區服適配</translation>
+    </message>
+    <message>
+        <source>角色识别</source>
+        <translation>角色識別</translation>
+    </message>
+    <message>
+        <source>核实软件能否区分你的不同角色：需要两个角色，按步骤轮流登录。文件里不含角色名。</source>
+        <translation>核實軟體能否區分你的不同角色：需要兩個角色，按步驟輪流登入。檔案裡不含角色名。</translation>
+    </message>
+    <message>
+        <source>帮助适配尚未支持的区服：排一把随机，按事件标记。</source>
+        <translation>幫助適配尚未支援的區服：排一把隨機，按事件標記。</translation>
     </message>
     <message>
         <source>区服</source>
@@ -6683,6 +6898,73 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>HistoryDateFilter</name>
+    <message>
+        <source>全部时间</source>
+        <translation>全部時間</translation>
+    </message>
+    <message>
+        <source>今天</source>
+        <translation>今天</translation>
+    </message>
+    <message>
+        <source>近 7 天</source>
+        <translation>近 7 天</translation>
+    </message>
+    <message>
+        <source>近 30 天</source>
+        <translation>近 30 天</translation>
+    </message>
+    <message>
+        <source>本月</source>
+        <translation>本月</translation>
+    </message>
+    <message>
+        <source>自定义</source>
+        <translation>自訂</translation>
+    </message>
+    <message>
+        <source>日期有误</source>
+        <translation>日期有誤</translation>
+    </message>
+    <message>
+        <source>历史日期范围</source>
+        <translation>歷史日期範圍</translation>
+    </message>
+    <message>
+        <source>日期尚未应用，请检查格式与起止顺序</source>
+        <translation>日期尚未套用，請檢查格式與起止順序</translation>
+    </message>
+    <message>
+        <source>日期</source>
+        <translation>日期</translation>
+    </message>
+    <message>
+        <source>按匹配时间</source>
+        <translation>按配對時間</translation>
+    </message>
+    <message>
+        <source>开始日期</source>
+        <translation>開始日期</translation>
+    </message>
+    <message>
+        <source>结束日期</source>
+        <translation>結束日期</translation>
+    </message>
+    <message>
+        <source>开始日期不能晚于结束日期</source>
+        <translation>開始日期不能晚於結束日期</translation>
+    </message>
+    <message>
+        <source>请输入完整日期：年-月-日</source>
+        <translation>請輸入完整日期：年-月-日</translation>
+    </message>
+    <message>
+        <source>重试</source>
+        <translation>重試</translation>
+    </message>
+</context>
+<context>
     <name>HistoryPage</name>
     <message>
         <source>中途加入</source>
@@ -6779,18 +7061,6 @@ SHA256：%3</translation>
         <translation>新增記錄</translation>
     </message>
     <message>
-        <source>记录区服</source>
-        <translation>記錄區服</translation>
-    </message>
-    <message>
-        <source>搜索 副本 / 职业 / 备注</source>
-        <translation>搜尋 副本 / 職業 / 備註</translation>
-    </message>
-    <message>
-        <source>历史日期范围</source>
-        <translation>歷史日期範圍</translation>
-    </message>
-    <message>
         <source>副本筛选</source>
         <translation>副本篩選</translation>
     </message>
@@ -6863,14 +7133,6 @@ SHA256：%3</translation>
         <translation>來源篩選</translation>
     </message>
     <message>
-        <source>标记类型</source>
-        <translation>標記類型</translation>
-    </message>
-    <message>
-        <source>标记类型 · %1</source>
-        <translation>標記類型 · %1</translation>
-    </message>
-    <message>
         <source>标记类型筛选，可多选</source>
         <translation>標記類型篩選，可複選</translation>
     </message>
@@ -6893,10 +7155,6 @@ SHA256：%3</translation>
     <message>
         <source>更多筛选</source>
         <translation>更多篩選</translation>
-    </message>
-    <message>
-        <source>清除</source>
-        <translation>清除</translation>
     </message>
     <message>
         <source>职业：%1</source>
@@ -7065,6 +7323,45 @@ SHA256：%3</translation>
     <message>
         <source>清除筛选</source>
         <translation>清除篩選</translation>
+    </message>
+</context>
+<context>
+    <name>HistoryRegionFilter</name>
+    <message>
+        <source>全部区服</source>
+        <translation>全部區服</translation>
+    </message>
+    <message>
+        <source>国服 CN</source>
+        <translation>中國服 CN</translation>
+    </message>
+    <message>
+        <source>繁中服 TC</source>
+        <translation>繁中服 TC</translation>
+    </message>
+    <message>
+        <source>国际服 GLOBAL</source>
+        <translation>國際服 GLOBAL</translation>
+    </message>
+    <message>
+        <source>记录区服</source>
+        <translation>記錄區服</translation>
+    </message>
+    <message>
+        <source>区服</source>
+        <translation>伺服器地區</translation>
+    </message>
+    <message>
+        <source>未适配区服可协助采证</source>
+        <translation>未適配區服可協助採證</translation>
+    </message>
+    <message>
+        <source>帮助适配</source>
+        <translation>協助適配</translation>
+    </message>
+    <message>
+        <source>重试</source>
+        <translation>重試</translation>
     </message>
 </context>
 <context>
@@ -7981,10 +8278,6 @@ SHA256：%3</translation>
         <translation>深色</translation>
     </message>
     <message>
-        <source>成就追踪</source>
-        <translation>成就追蹤</translation>
-    </message>
-    <message>
         <source>导随
 记录器</source>
         <translation>導隨
@@ -8690,6 +8983,13 @@ SHA256：%3</translation>
     <message>
         <source>记录区服</source>
         <translation>記錄區服</translation>
+    </message>
+</context>
+<context>
+    <name>RecordWorkspacePage</name>
+    <message>
+        <source>返回</source>
+        <translation>返回</translation>
     </message>
 </context>
 <context>
@@ -11559,8 +11859,8 @@ SHA256：%3</translation>
         <translation>驗證狀態重新整理失敗：%1，將自動重試。</translation>
     </message>
     <message>
-        <source>只能在验证取证中添加五种固定标记。</source>
-        <translation>只能在驗證取證期間新增五種固定標記。</translation>
+        <source>只能在验证取证中添加固定标记。</source>
+        <translation>只能在驗證取證中新增固定標記。</translation>
     </message>
     <message>
         <source>标记已接收</source>
@@ -12517,6 +12817,17 @@ SHA256：%3</translation>
     <message>
         <source>已保存删除记录的保留期。</source>
         <translation>已儲存刪除記錄的保留期限。</translation>
+    </message>
+</context>
+<context>
+    <name>mr::HistoryFilterFacets</name>
+    <message>
+        <source>服务未连接，无法读取筛选数量。</source>
+        <translation>服務未連線，無法讀取篩選數量。</translation>
+    </message>
+    <message>
+        <source>读取筛选数量失败，请重试。</source>
+        <translation>讀取篩選數量失敗，請重試。</translation>
     </message>
 </context>
 <context>
@@ -14225,130 +14536,6 @@ SHA256：%3</translation>
     <message>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>安裝程式沒有啟動，可能是未通過 Windows 的安裝確認。本軟體會繼續執行，可再點「立即安裝」，或點「在瀏覽器中下載」。</translation>
-    </message>
-</context>
-<context>
-    <name>RecordWorkspacePage</name>
-    <message>
-        <source>返回</source>
-        <translation>返回</translation>
-    </message>
-</context>
-<context>
-    <name>HistoryDateFilter</name>
-    <message>
-        <source>全部时间</source>
-        <translation>全部時間</translation>
-    </message>
-    <message>
-        <source>今天</source>
-        <translation>今天</translation>
-    </message>
-    <message>
-        <source>近 7 天</source>
-        <translation>近 7 天</translation>
-    </message>
-    <message>
-        <source>近 30 天</source>
-        <translation>近 30 天</translation>
-    </message>
-    <message>
-        <source>本月</source>
-        <translation>本月</translation>
-    </message>
-    <message>
-        <source>自定义</source>
-        <translation>自訂</translation>
-    </message>
-    <message>
-        <source>日期有误</source>
-        <translation>日期有誤</translation>
-    </message>
-    <message>
-        <source>历史日期范围</source>
-        <translation>歷史日期範圍</translation>
-    </message>
-    <message>
-        <source>日期尚未应用，请检查格式与起止顺序</source>
-        <translation>日期尚未套用，請檢查格式與起止順序</translation>
-    </message>
-    <message>
-        <source>日期</source>
-        <translation>日期</translation>
-    </message>
-    <message>
-        <source>按匹配时间</source>
-        <translation>按配對時間</translation>
-    </message>
-    <message>
-        <source>开始日期</source>
-        <translation>開始日期</translation>
-    </message>
-    <message>
-        <source>结束日期</source>
-        <translation>結束日期</translation>
-    </message>
-    <message>
-        <source>开始日期不能晚于结束日期</source>
-        <translation>開始日期不能晚於結束日期</translation>
-    </message>
-    <message>
-        <source>请输入完整日期：年-月-日</source>
-        <translation>請輸入完整日期：年-月-日</translation>
-    </message>
-    <message>
-        <source>重试</source>
-        <translation>重試</translation>
-    </message>
-</context>
-<context>
-    <name>HistoryRegionFilter</name>
-    <message>
-        <source>全部区服</source>
-        <translation>全部區服</translation>
-    </message>
-    <message>
-        <source>国服 CN</source>
-        <translation>中國服 CN</translation>
-    </message>
-    <message>
-        <source>繁中服 TC</source>
-        <translation>繁中服 TC</translation>
-    </message>
-    <message>
-        <source>国际服 GLOBAL</source>
-        <translation>國際服 GLOBAL</translation>
-    </message>
-    <message>
-        <source>记录区服</source>
-        <translation>記錄區服</translation>
-    </message>
-    <message>
-        <source>区服</source>
-        <translation>伺服器地區</translation>
-    </message>
-    <message>
-        <source>未适配区服可协助采证</source>
-        <translation>未適配區服可協助採證</translation>
-    </message>
-    <message>
-        <source>帮助适配</source>
-        <translation>協助適配</translation>
-    </message>
-    <message>
-        <source>重试</source>
-        <translation>重試</translation>
-    </message>
-</context>
-<context>
-    <name>mr::HistoryFilterFacets</name>
-    <message>
-        <source>服务未连接，无法读取筛选数量。</source>
-        <translation>服務未連線，無法讀取篩選數量。</translation>
-    </message>
-    <message>
-        <source>读取筛选数量失败，请重试。</source>
-        <translation>讀取篩選數量失敗，請重試。</translation>
     </message>
 </context>
 </TS>

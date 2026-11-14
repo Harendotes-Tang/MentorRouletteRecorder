@@ -1919,6 +1919,11 @@ void AppController::toggleTemplateObservation()
     m_capture->toggleMetadataObservation();
 }
 
+void AppController::setTemplateObservationIdentity(bool identity)
+{
+    m_capture->setIdentityProbe(identity);
+}
+
 void AppController::addTemplateObservationMarker(const QString &marker)
 {
     m_capture->addMarker(marker);

@@ -15,7 +15,7 @@
 //                          [--mock-calibration done] [--mock-shared consent]
 //                          [--mock-update-available] [--mock-update-download ready]
 //                          [--mock-recording-state waiting-verified]
-//                          [--mock-validation-state recording] [--mock-open-evidence steps|report]
+//                          [--mock-validation-state recording] [--mock-open-evidence steps|report|identity]
 //                          [--export-target DIR] [--open-detail] [--open-edit]
 //                          [--screenshot-size WxH] [--mock-speech azure]
 //                          [--mock-open-speech-confirm] [--mock-speech-preview]
@@ -666,8 +666,8 @@ int main(int argc, char *argv[])
         QStringLiteral("Keep a formal capture RUNNING while validation evidence is historical."));
     QCommandLineOption openEvidenceOption(
         QStringLiteral("mock-open-evidence"),
-        QStringLiteral("Open 新区服采证 under the capture page: steps (its current step) or "
-                       "report (the finished round's 回传说明)."),
+        QStringLiteral("Open 新区服采证 under the capture page: steps (its current step), "
+                       "report (the finished round's 回传说明) or identity (角色识别采证)."),
         QStringLiteral("view"), QString());
     QCommandLineOption validationKeyboardOption(
         QStringLiteral("mock-validation-keyboard"),
@@ -1047,6 +1047,10 @@ int main(int argc, char *argv[])
         }
         if (parser.isSet(validationOption))
             mock->setValidationFixture(mockValidationState);
+        // A guided identity round: finished ones show their verdict.
+        if (parser.value(openEvidenceOption) == QLatin1String("identity"))
+            mock->setValidationIdentityFixture(
+                mockValidationState.compare(QLatin1String("completed"), Qt::CaseInsensitive) == 0);
         if (parser.isSet(formalRunningOption))
             mock->setFormalCaptureRunning(true);
         if (parser.isSet(midstreamOption))
@@ -1217,8 +1221,8 @@ int main(int argc, char *argv[])
     }
     const QString openEvidence = parser.value(openEvidenceOption);
     if (!openEvidence.isEmpty() && openEvidence != QLatin1String("steps")
-        && openEvidence != QLatin1String("report")) {
-        std::fprintf(stderr, "invalid --mock-open-evidence value: %s (expected steps or report)\n",
+        && openEvidence != QLatin1String("report") && openEvidence != QLatin1String("identity")) {
+        std::fprintf(stderr, "invalid --mock-open-evidence value: %s (expected steps, report or identity)\n",
                      qPrintable(openEvidence));
         return 2;
     }

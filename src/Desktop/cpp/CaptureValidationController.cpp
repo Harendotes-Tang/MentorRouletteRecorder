@@ -507,11 +507,11 @@ void CaptureValidationController::toggleMetadataObservation()
         stopValidation();
     } else {
         // 由采集器在同一生命周期锁内暂停未知模板监听并取得验证所有权，避免 FollowGame 抢占间隙。
-        startValidation(m_host && m_host->formalCapturing());
+        startValidation(m_host && m_host->formalCapturing(), m_identityProbe);
     }
 }
 
-void CaptureValidationController::startValidation(bool switchFromUnsupported)
+void CaptureValidationController::startValidation(bool switchFromUnsupported, bool identityProbe)
 {
     ++m_generation;
     m_error.clear();
@@ -521,6 +521,7 @@ void CaptureValidationController::startValidation(bool switchFromUnsupported)
     QJsonObject payload;
     if (!m_adapterId.isEmpty()) payload.insert(QStringLiteral("adapter_id"), m_adapterId);
     if (switchFromUnsupported) payload.insert(QStringLiteral("switch_from_unsupported"), true);
+    if (identityProbe) payload.insert(QStringLiteral("identity_probe"), true);
     BackendReply *reply = m_backend->request(QStringLiteral("StartCaptureValidation"), payload);
     const QPointer<BackendReply> guard(reply);
     reply->whenDone(this, [this, guard, generation](bool ok, const QVariantMap &payload,
@@ -595,12 +596,17 @@ void CaptureValidationController::addMarker(const QString &marker)
 {
     // The single desktop-side copy of the whitelist. The Collector re-checks it
     // and the trace writer checks it again; this one only keeps the UI honest.
+    // The five events of a run, then the five steps of the guided identity round
+    // ($defs/AddCaptureValidationMarkerRequest).
     static const QSet<QString> allowed{QStringLiteral("queued"), QStringLiteral("pop"),
                                        QStringLiteral("entered"), QStringLiteral("victory"),
-                                       QStringLiteral("left")};
+                                       QStringLiteral("left"),
+                                       QStringLiteral("character_a"), QStringLiteral("character_b"),
+                                       QStringLiteral("character_a_again"),
+                                       QStringLiteral("after_teleport"), QStringLiteral("after_duty")};
     if (!allowed.contains(marker) || !recording()) {
         setFailure(QStringLiteral("ERR_BAD_REQUEST"),
-                   LiveText([] { return tr("只能在验证取证中添加五种固定标记。"); }));
+                   LiveText([] { return tr("只能在验证取证中添加固定标记。"); }));
         return;
     }
     if (!m_backend || !m_backend->isConnected() || m_markerBusy || m_commandBusy)

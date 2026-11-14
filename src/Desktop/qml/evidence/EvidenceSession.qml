@@ -41,6 +41,50 @@ QtObject {
     readonly property var decodeErrors: session.counter("decode_error_count")
     readonly property var queueDropped: session.counter("queue_dropped")
 
+    // ------------------------------------------------------- the purpose --
+    // What a round is for: "region" (新区服适配, the template observation) or
+    // "identity" (角色识别, the guided identity round). The player chooses while no
+    // round is under way; once there is one, the Collector's identity_probe says
+    // which it is, so a page reopened in the middle of a round shows the right steps.
+    property string purpose: "region"
+    readonly property bool identity: (session.active || session.ended)
+                                     ? !!session.status.identity_probe : session.purpose === "identity"
+    // INCOMPLETE | DISTINGUISHED | SAME_IDENTITY | UNSTABLE, or "" outside an identity round.
+    readonly property string identityResult: session.identity && session.status.identity_result
+                                             ? String(session.status.identity_result) : ""
+    readonly property bool identityJudged: identityResult.length > 0 && identityResult !== "INCOMPLETE"
+    // The Collector's reading of each confirmed step ($defs/CaptureValidationStatus
+    // identity_steps): true when it named someone, false when the step was confirmed
+    // too early to tell, null while the step is not confirmed or not yet answered.
+    function stepNamed(code) {
+        const steps = session.identity ? (session.status.identity_steps || []) : []
+        for (let index = 0; index < steps.length; ++index) {
+            if (steps[index].marker === code)
+                return !!steps[index].named
+        }
+        return null
+    }
+    // A confirmed step that named nobody is asked for again.
+    function stepNeedsRetry(index) {
+        const mark = session.marks[index]
+        return session.identity && !!mark && mark !== "skip"
+               && session.stepNamed(session.identityDefs[index].code) === false
+    }
+    // The three logins are confirmed: there is something to say, a verdict or why not.
+    readonly property bool identityAnswered: identity && marks.slice(0, 3).every(function(mark) { return !!mark && mark !== "skip" })
+    readonly property bool identityShown: identityJudged || (identityAnswered && identityResult === "INCOMPLETE")
+    readonly property string identityTone: identityResult === "DISTINGUISHED" ? "ok"
+                                           : identityResult === "INCOMPLETE" || identityResult === "" ? "warn" : "bad"
+    readonly property string identityVerdict: {
+        switch (session.identityResult) {
+        case "DISTINGUISHED": return qsTr("可以区分：两个角色读到的标识不同，回到角色 A 时与第一次相同。")
+        case "SAME_IDENTITY": return qsTr("不能区分：两个角色读到的标识相同。")
+        case "UNSTABLE": return qsTr("标识不稳定：角色 A 前后读到的标识不一致。")
+        case "INCOMPLETE": return qsTr("还不能判断：有的步骤确认得太早，没读到数据。在游戏里等十秒左右，再点那一步的「重新确认」。")
+        default: return ""
+        }
+    }
+
     // -------------------------------------------------------- the round --
     // 「开始下一轮」: the Collector still reports the finished round, the page
     // is back at step 1 until a new session starts.
@@ -155,7 +199,13 @@ QtObject {
     readonly property bool readable: recording && !anomaly && (messageCount || 0) >= readableAt
 
     // ---------------------------------------------------------- steps --
-    readonly property var stepTitles: [
+    readonly property var stepTitles: session.identity ? [
+        qsTr("选择区服和网卡"),
+        qsTr("启动游戏，等到可以登录"),
+        qsTr("轮流登录两个角色"),
+        qsTr("停止采证，查看结论"),
+        qsTr("打包回传给维护者")
+    ] : [
         qsTr("选择区服和网卡"),
         qsTr("启动游戏，登录后确认数据可读"),
         qsTr("排一把随机，按事件标记"),
@@ -168,7 +218,7 @@ QtObject {
         switch (session.phase) {
         case "waiting": return 2
         case "cancelling": return 2
-        case "capturing": return (session.readable || session.markedAny) && !session.anomaly ? 3 : 2
+        case "capturing": return (session.identity || session.readable || session.markedAny) && !session.anomaly ? 3 : 2
         case "stopping": return 4
         case "saved":
         case "failed": return session.reportOpen ? 5 : 4
@@ -250,7 +300,22 @@ QtObject {
     }
 
     // ---------------------------------------------------------- markers --
-    readonly property var markerDefs: [
+    // An identity round has its own five: what to do in the game (trigger and
+    // detail) and the button to press once it is done (label).
+    readonly property var identityDefs: [
+        { code: "character_a", label: qsTr("已进入游戏"), trigger: qsTr("登录角色 A"),
+          detail: qsTr("任选一个角色登录，进入游戏"), optional: false },
+        { code: "character_b", label: qsTr("已进入游戏"), trigger: qsTr("换成角色 B"),
+          detail: qsTr("返回角色选择，登录另一个角色"), optional: false },
+        { code: "character_a_again", label: qsTr("已进入游戏"), trigger: qsTr("换回角色 A"),
+          detail: qsTr("再返回角色选择，登录第一步用的那个角色"), optional: false },
+        { code: "after_teleport", label: qsTr("已传送"), trigger: qsTr("用角色 A 传送一次"),
+          detail: qsTr("传送到任意以太之光，到达后再点"), optional: true },
+        { code: "after_duty", label: qsTr("已离开副本"), trigger: qsTr("用角色 A 进出一次副本"),
+          detail: qsTr("任意副本，进去再出来之后再点"), optional: true }
+    ]
+    readonly property var markerDefs: session.identity ? session.identityDefs : session.eventDefs
+    readonly property var eventDefs: [
         { code: "queued", label: qsTr("已排队"), trigger: qsTr("开始排队") },
         { code: "pop", label: qsTr("已匹配"), trigger: qsTr("匹配弹窗出现") },
         { code: "entered", label: qsTr("已进入"), trigger: qsTr("读条结束进本") },
@@ -263,7 +328,8 @@ QtObject {
     readonly property int markedCount: marks.filter(function(mark) { return mark && mark !== "skip" }).length
     readonly property int nextMarkIndex: marks.indexOf(null)
     function markerEnabled(index) {
-        return session.recording && Runtime.app.validationMarkerEnabled && session.marks[index] === null
+        return session.recording && Runtime.app.validationMarkerEnabled
+               && (session.marks[index] === null || session.stepNeedsRetry(index))
     }
     // Pressing a later marker records the earlier ones as 漏按 (never back-dated).
     // The press is drawn at once but stays pending until the Collector answers:
@@ -283,6 +349,8 @@ QtObject {
             }
         }
         copy[index] = { at: new Date().toISOString() }
+        // 漏按 is a word of the event round; a skipped step of an identity round is just skipped.
+        skipped = skipped && !session.identity
         session.pendingMark = { marks: session.marks, missWasSet: !!session.chips.miss, skipped: skipped }
         session.marks = copy
         if (skipped)
@@ -403,14 +471,44 @@ QtObject {
         const parts = []
         for (let index = 0; index < session.markerDefs.length; ++index) {
             const mark = session.marks[index]
+            const name = session.identity ? session.markerDefs[index].trigger : session.markerDefs[index].label
             if (mark === "skip")
-                parts.push(session.markerDefs[index].label + " " + qsTr("漏按"))
+                parts.push(name + " " + (session.identity ? qsTr("已跳过") : qsTr("漏按")))
             else if (mark)
-                parts.push(session.markerDefs[index].label + " " + Runtime.fmt.localTime(mark.at))
+                parts.push(name + " " + Runtime.fmt.localTime(mark.at))
         }
         return parts.length > 0 ? parts.join(" · ") : qsTr("无")
     }
-    readonly property string report: {
+    readonly property string report: session.identity ? session.identityReport : session.regionReport
+    // 角色识别: what was done and what came of it. No character is named anywhere.
+    readonly property string identityReport: {
+        const unfilled = qsTr("（未填）")
+        const attached = session.fileDefs.filter(function(file) { return !!session.files[file.key] })
+                                         .map(function(file) { return file.name })
+        const lines = [
+            qsTr("【导随记录器 · 角色识别采证回报】"),
+            qsTr("软件版本：%1").arg("v" + Runtime.app.appVersion),
+            qsTr("游戏版本：%1").arg(Theme.live(Runtime.fmt.gameVersionLabel(Runtime.app.captureStatus.game_build))),
+            qsTr("系统：%1").arg(Runtime.app.systemVersion),
+            qsTr("测试时间：%1 – %2（%3）")
+                .arg(session.startedAt ? Runtime.fmt.localDateTime(session.startedAt) : unfilled)
+                .arg(session.endedAt ? Runtime.fmt.localTime(session.endedAt) : (session.active ? qsTr("进行中") : unfilled))
+                .arg(session.utcOffsetLabel()),
+            qsTr("区服 / 网卡：%1 · %2").arg(session.regionLabel).arg(session.adapterLabel),
+            qsTr("步骤：%1").arg(session.markerLine),
+            qsTr("结论：%1").arg(session.identityVerdict || qsTr("无")),
+            qsTr("计数：报文 %1 · 已写入标记 %2 · 解码失败 %3 · 队列丢弃 %4")
+                .arg(session.countText(session.messageCount)).arg(session.countText(session.markerCount))
+                .arg(session.countText(session.decodeErrors)).arg(session.countText(session.queueDropped)),
+            qsTr("附件：%1").arg(attached.length > 0 ? attached.join(qsTr("、")) : qsTr("无"))
+        ]
+        if (session.phase === "failed")
+            lines.push(qsTr("结果：%1").arg(session.failureText))
+        if (session.missingFiles.length > 0)
+            lines.push(qsTr("缺失：%1").arg(session.missingFiles.map(function(file) { return file.name }).join(qsTr("、"))))
+        return lines.join("\n")
+    }
+    readonly property string regionReport: {
         const unfilled = qsTr("（未填）")
         const vpnText = session.vpn === "none" ? qsTr("未使用")
                       : (session.vpn === "acc" ? qsTr("加速器") : "VPN") + (session.vpnName ? " · " + session.vpnName : "")
@@ -456,11 +554,17 @@ QtObject {
                    ? qsTr("数据可读 · 报文 %1").arg(session.countText(session.messageCount))
                    : qsTr("报文 %1").arg(session.countText(session.messageCount))
         case 3:
+            if (session.identity)
+                return qsTr("已确认 %1 / 5 步")
+                       .arg(session.markerCount !== null ? Math.max(session.markerCount, session.markedCount) : session.markedCount)
             // The Collector's count of written markers outlives this page; the
             // page's own clicks stand in until it has reported one.
             return qsTr("%1 · 标记 %2 / 5").arg(session.rouletteLabel)
                    .arg(session.markerCount !== null ? Math.max(session.markerCount, session.markedCount) : session.markedCount)
         case 4:
+            if (session.identity && session.saved && session.fileSaved)
+                return session.identityResult === "DISTINGUISHED" ? qsTr("已保存 · 可以区分")
+                     : session.identityJudged ? qsTr("已保存 · 未能区分") : qsTr("已保存 · 还不能判断")
             return (session.saved && session.fileSaved ? qsTr("已保存 · 文件 %1 / %2") : qsTr("文件不完整 · 文件 %1 / %2"))
                    .arg(session.copiedRequired).arg(session.requiredFiles.length)
         default:
@@ -494,8 +598,12 @@ QtObject {
 
     // --------------------------------------------------------- actions --
     function start() {
-        if (session.canStart)
-            Runtime.app.toggleTemplateObservation()
+        if (!session.canStart)
+            return
+        // What the page shows is what is asked for: after a failed round that is the
+        // kind of the round still on screen, otherwise the purpose chosen.
+        Runtime.app.setTemplateObservationIdentity(session.identity)
+        Runtime.app.toggleTemplateObservation()
     }
     function stop() {
         if (session.active)

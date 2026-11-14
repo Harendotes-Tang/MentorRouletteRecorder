@@ -101,6 +101,10 @@ public:
     void refreshStatusSnapshot();
     void toggle();
     void toggleMetadataObservation();
+    /// The next player-started round is a guided identity round (StartCaptureValidation
+    /// identity_probe). Read when the round starts; a running round is what the Collector says.
+    void setIdentityProbe(bool identityProbe) { m_identityProbe = identityProbe; }
+    bool identityProbe() const { return m_identityProbe; }
     void addMarker(const QString &marker);
     /// Drop every cached snapshot; called when the pipe goes down.
     void reset();
@@ -111,7 +115,7 @@ Q_SIGNALS:
     void mutationFailed(const QString &code, const QString &message);
 
 private:
-    void startValidation(bool switchFromUnsupported = false);
+    void startValidation(bool switchFromUnsupported = false, bool identityProbe = false);
     void stopValidation();
     void startFormalCapture();
     void applyStatus(const QVariantMap &payload, bool clearError = true);
@@ -143,6 +147,7 @@ private:
     bool m_statusRefreshQueued = false;
     bool m_commandBusy = false;
     bool m_markerBusy = false;
+    bool m_identityProbe = false;
     bool m_errorFromStatus = false;
     bool m_profileLoaded = false;
     bool m_profileStale = false;

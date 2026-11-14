@@ -61,7 +61,7 @@ public sealed record CaptureTraceHeader(
 ///   read in the first place. The opt-in identity probe (<see cref="CaptureIdentityProbe"/>) is
 ///   the one documented addition: keyed digests of the header actor naming this client and of
 ///   the leading payload bytes of messages about it, never a value;</description></item>
-///   <item><description>arbitrary user text -- only the five documented canonical marker
+///   <item><description>arbitrary user text -- only the documented canonical marker
 ///   tokens are accepted (<see cref="CaptureTraceMarkerText.Sanitize"/>).</description></item>
 /// </list>
 ///
@@ -123,6 +123,8 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
     private bool _headerWritten;
     private bool _summaryWritten;
     private readonly CaptureIdentityProbe? _identityProbe;
+    private volatile string? _identityResult;
+    private volatile IReadOnlyList<(string Marker, bool Named)>? _identitySteps;
 
     /// <summary>Creates a sink writing to <paramref name="writer"/>.</summary>
     /// <param name="writer">Destination; the caller owns and disposes it.</param>
@@ -147,6 +149,8 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
 
         _writer = writer;
         _identityProbe = identityProbe;
+        _identityResult = identityProbe?.Result;
+        _identitySteps = identityProbe?.Steps;
         _clock = clock ?? SystemClock.Instance;
         MaxLines = Math.Clamp(maxLines, MinMaxLines, MaxMaxLines);
 
@@ -175,6 +179,20 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
 
     /// <summary>Framing or upstream bundle-decompression failures counted by the capture source.</summary>
     public long DecodeErrorCount => Interlocked.Read(ref _decodeErrors);
+
+    /// <summary>
+    /// The identity probe's verdict so far (<see cref="CaptureIdentityProbe.Result"/>), or null
+    /// without a probe. Read without the writer's lock: a status poll must not wait behind a disk
+    /// write.
+    /// </summary>
+    public string? IdentityResult => _identityResult;
+
+    /// <summary>
+    /// The confirmed steps of the guided identity round and whether each named anyone
+    /// (<see cref="CaptureIdentityProbe.Steps"/>), or null without a probe. Lock-free like
+    /// <see cref="IdentityResult"/>.
+    /// </summary>
+    public IReadOnlyList<(string Marker, bool Named)>? IdentitySteps => _identitySteps;
 
     /// <summary>True when a cap stopped a line from being written.</summary>
     public bool Truncated { get; private set; }
@@ -323,6 +341,19 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
                 ["at_utc"] = UtcTimestamp.ToText(receivedAtUtc),
             });
             _markers++;
+
+            // A step the player confirmed in the guided identity round: say who the client is now.
+            if (_identityProbe is not null && CaptureTraceMarkerText.IsIdentity(sanitized))
+            {
+                if (_identityProbe.Checkpoint(sanitized, Milliseconds(receivedElapsed)) is { } checkpoint)
+                {
+                    WriteLine(checkpoint);
+                }
+
+                _identityResult = _identityProbe.Result;
+                _identitySteps = _identityProbe.Steps;
+            }
+
             return true;
         }
     }
@@ -532,12 +563,33 @@ public sealed class CaptureTraceSink : IDecodedMessageSink
 }
 
 /// <summary>
-/// Reduces user input to one of the five canonical event markers. Rejecting every other
-/// string makes it impossible for a pasted address, path, packet fragment or character name
-/// to enter the trace through the marker prompt.
+/// Reduces user input to one of the canonical markers: the five events of a run, and the five
+/// steps of the guided identity round. Rejecting every other string makes it impossible for a
+/// pasted address, path, packet fragment or character name to enter the trace through the marker
+/// prompt.
 /// </summary>
 public static class CaptureTraceMarkerText
 {
+    /// <summary>The events of one run, in the order they happen.</summary>
+    public static readonly IReadOnlyList<string> Events = new[]
+    {
+        "queued", "pop", "entered", "victory", "left",
+    };
+
+    /// <summary>
+    /// The steps of the guided identity round, in the order the page asks for them: logged in as
+    /// the first character, as the second, as the first again, then after a teleport and after a
+    /// duty. They name a step, never a character.
+    /// </summary>
+    public static readonly IReadOnlyList<string> Identity = new[]
+    {
+        "character_a", "character_b", "character_a_again", "after_teleport", "after_duty",
+    };
+
+    /// <summary>True for a step of the guided identity round.</summary>
+    /// <param name="marker">A canonical marker.</param>
+    public static bool IsIdentity(string marker) => Identity.Contains(marker, StringComparer.Ordinal);
+
     /// <summary>
     /// The complete set of markers this build accepts, in prompt order.
     ///
@@ -546,10 +598,7 @@ public static class CaptureTraceMarkerText
     /// or accepted over IPC and then dropped on the way to disk (review finding M-18). A
     /// contract test asserts the schema enum still matches.
     /// </summary>
-    public static readonly IReadOnlyList<string> Allowed = new[]
-    {
-        "queued", "pop", "entered", "victory", "left",
-    };
+    public static readonly IReadOnlyList<string> Allowed = Events.Concat(Identity).ToArray();
 
     /// <summary>
     /// Returns the canonical lowercase marker, or null when the input is not on the allowlist.

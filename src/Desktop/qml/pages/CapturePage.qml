@@ -45,6 +45,17 @@ Item {
         page.observationGuideExpanded = true
     }
 
+    // The page is opened for one purpose. A round of the other kind that is over and
+    // still on the page is put away first (its files stay where they are); one that
+    // is under way stays, and the row that would have replaced it is disabled.
+    function chooseEvidencePurpose(purpose) {
+        const session = evidencePage.session
+        if (!session.active && session.ended && session.identity !== (purpose === "identity"))
+            session.startNextRound()
+        if (session.blank)
+            session.purpose = purpose
+    }
+
     // Screenshot mode (--mock-open-evidence steps|report).
     readonly property string forceOpenEvidence: typeof Runtime.forceOpenEvidence !== "undefined"
                                                 ? Runtime.forceOpenEvidence : ""
@@ -52,6 +63,8 @@ Item {
         if (page.forceOpenEvidence.length > 0) {
             page.observationGuideExpanded = true
             evidencePage.session.reportOpen = page.forceOpenEvidence === "report"
+            if (page.forceOpenEvidence === "identity")
+                evidencePage.session.purpose = "identity"
         }
     }
 
@@ -170,7 +183,15 @@ Item {
                     Layout.preferredWidth: lowerRow.columns === 2
                         ? lowerRow.available - Math.round(lowerRow.available * 2 / 3) : contentColumn.width
                     Layout.alignment: Qt.AlignTop
-                    onToggleObservationGuideRequested: page.observationGuideExpanded = !page.observationGuideExpanded
+                    onToggleObservationGuideRequested: {
+                        if (!page.observationGuideExpanded)
+                            page.chooseEvidencePurpose("region")
+                        page.observationGuideExpanded = !page.observationGuideExpanded
+                    }
+                    onOpenIdentityEvidenceRequested: {
+                        page.chooseEvidencePurpose("identity")
+                        page.observationGuideExpanded = true
+                    }
                 }
             }
 

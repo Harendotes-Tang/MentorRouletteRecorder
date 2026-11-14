@@ -56,7 +56,10 @@ EvidenceStep {
             enabled: Runtime.app.templateObservationActionEnabled && !Runtime.app.captureCommandBusy
             onClicked: step.session.stop()
         }
-        EvidenceHint { visible: step.session.recording; text: qsTr("离本回到外面再停止") }
+        EvidenceHint {
+            visible: step.session.recording
+            text: step.session.identity ? qsTr("前三步确认后就可以停止") : qsTr("离本回到外面再停止")
+        }
 
         // `.ev-spin`
         Item {
@@ -134,6 +137,35 @@ EvidenceStep {
             visible: step.session.ended
             text: step.whole ? qsTr("先截一张图，留下状态和四项计数")
                              : qsTr("有多少文件就回传多少，缺的会写进回传说明。")
+        }
+    }
+
+    // 角色识别: what the round found, the first thing to read once it is over.
+    Rectangle {
+        objectName: "evidenceSaveVerdict"
+        Layout.fillWidth: true
+        visible: step.session.identity && step.session.ended && step.session.identityVerdict.length > 0
+        implicitHeight: saveVerdictRow.implicitHeight + 20
+        radius: Theme.radiusM
+        color: Theme.insetBackground
+        border.width: 1
+        border.color: Theme.toneColor(step.session.identityTone)
+        RowLayout {
+            id: saveVerdictRow
+            anchors.fill: parent
+            anchors.margins: 10
+            spacing: 8
+            StatusLed { tone: step.session.identityTone }
+            Text {
+                objectName: "evidenceSaveVerdictText"
+                Layout.fillWidth: true
+                textFormat: Text.PlainText
+                text: step.session.identityVerdict
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fs(13)
+                font.weight: Font.DemiBold
+                wrapMode: Text.Wrap
+            }
         }
     }
 

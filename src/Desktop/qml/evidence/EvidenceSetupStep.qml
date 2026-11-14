@@ -136,6 +136,31 @@ EvidenceStep {
         columnSpacing: 16
         rowSpacing: 10
 
+        FieldLabel { text: qsTr("采证目的"); Layout.alignment: Qt.AlignTop; Layout.topMargin: 8 }
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.maximumWidth: 360
+            spacing: 4
+            SegmentedControl {
+                objectName: "evidencePurposeControl"
+                Layout.fillWidth: true
+                options: [
+                    { value: "region", label: qsTr("新区服适配") },
+                    { value: "identity", label: qsTr("角色识别") }
+                ]
+                // A round under way, or over and still on the page, is what the Collector
+                // says it is; the purpose is chosen only while there is none.
+                currentValue: step.session.identity ? "identity" : "region"
+                enabled: step.session.blank && !step.lockFields
+                onActivated: function(value) { step.session.purpose = value }
+            }
+            EvidenceHint {
+                text: step.session.identity
+                      ? qsTr("核实软件能否区分你的不同角色：需要两个角色，按步骤轮流登录。文件里不含角色名。")
+                      : qsTr("帮助适配尚未支持的区服：排一把随机，按事件标记。")
+            }
+        }
+
         FieldLabel { text: qsTr("区服"); Layout.alignment: Qt.AlignTop; Layout.topMargin: 8 }
         ColumnLayout {
             Layout.fillWidth: true
@@ -208,6 +233,8 @@ EvidenceStep {
         }
         AppButton {
             objectName: "evidencePreChecksButton"
+            // The interface checks belong to adapting a new region.
+            visible: !step.session.identity
             variant: "ghost"
             text: qsTr("采证前可选检查") + "  " + step.session.preChecksDone + " / " + step.session.preCheckDefs.length
             iconName: "chevron-right"
@@ -220,7 +247,7 @@ EvidenceStep {
     // `.ev-prel`
     InsetBox {
         Layout.fillWidth: true
-        visible: step.preChecksOpen
+        visible: step.preChecksOpen && !step.session.identity
         implicitHeight: preChecks.implicitHeight + 24
         ColumnLayout {
             id: preChecks

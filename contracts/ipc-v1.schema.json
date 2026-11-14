@@ -1232,12 +1232,13 @@
       "type": "object", "additionalProperties": false,
       "properties": {
         "adapter_id": { "type": ["string", "null"], "minLength": 1, "maxLength": 400, "pattern": "\\S" },
-        "switch_from_unsupported": { "type": "boolean", "description": "Explicit player action only: atomically stop unsupported capture and start metadata validation under the capture lifecycle lock. VERIFIED recording is refused. Absent/false retains the original start behavior." }
+        "switch_from_unsupported": { "type": "boolean", "description": "Explicit player action only: atomically stop unsupported capture and start metadata validation under the capture lifecycle lock. VERIFIED recording is refused. Absent/false retains the original start behavior." },
+        "identity_probe": { "type": "boolean", "description": "Guided identity round: also write the keyed identity lines to the trace (docs/capture-diagnostics.md section 9.2) and judge the character_* markers into CaptureValidationStatus.identity_result. Such a session is not a template observation. Absent/false starts an ordinary validation." }
       }
     },
     "AddCaptureValidationMarkerRequest": {
       "type": "object", "additionalProperties": false, "required": ["marker"],
-      "properties": { "marker": { "enum": ["queued", "pop", "entered", "victory", "left"] } }
+      "properties": { "marker": { "enum": ["queued", "pop", "entered", "victory", "left", "character_a", "character_b", "character_a_again", "after_teleport", "after_duty"], "description": "The five events of a run, then the five steps of the guided identity round. A step names what the player just did, never a character." } }
     },
     "CaptureValidationStatus": {
       "type": "object", "additionalProperties": false,
@@ -1259,7 +1260,10 @@
         "trace_path": { "type": ["string", "null"] },
         "sha256_path": { "type": ["string", "null"] },
         "sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
-        "error_code": { "type": ["string", "null"] }
+        "error_code": { "type": ["string", "null"] },
+        "identity_probe": { "type": "boolean", "description": "True when this session was started with identity_probe. Optional: a Collector before 2026-11-14 does not send it." },
+        "identity_result": { "enum": ["INCOMPLETE", "DISTINGUISHED", "SAME_IDENTITY", "UNSTABLE", null], "description": "Verdict of the guided identity round so far; null when identity_probe is false. INCOMPLETE: a step is not confirmed yet or had too little traffic. DISTINGUISHED: the first character read the same both times and the second differently. SAME_IDENTITY: both characters read the same. UNSTABLE: the first character read differently later. Optional like identity_probe." },
+        "identity_steps": { "type": ["array", "null"], "maxItems": 5, "description": "The steps of the guided identity round confirmed so far, in the order they are asked for, and whether each one named an actor (false: too little or too mixed traffic when it was confirmed; confirm it again). The latest confirmation of a step counts. null when identity_probe is false. Never an identifier. Optional like identity_probe.", "items": { "type": "object", "additionalProperties": false, "required": ["marker", "named"], "properties": { "marker": { "enum": ["character_a", "character_b", "character_a_again", "after_teleport", "after_duty"] }, "named": { "type": "boolean" } } } }
       },
       "if": { "properties": { "state": { "enum": ["WAITING", "RECORDING", "STOPPING"] } } },
       "then": { "properties": { "active": { "const": true } } },

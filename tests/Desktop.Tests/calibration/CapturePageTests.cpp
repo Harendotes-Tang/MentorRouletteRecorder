@@ -1781,6 +1781,29 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(session, "startNextRound"));
         QTRY_COMPARE(row->property("description").toString(), standing);
         QCOMPARE(scene.text(QStringLiteral("templateObservationGuideButton")), QString::fromUtf8("采证步骤"));
+
+        // A 角色识别 round tells its state on its own row; this one keeps its standing sentence.
+        scene.page->setProperty("observationGuideExpanded", false);
+        auto *identityRow = scene.item(QStringLiteral("identityEvidenceRow"));
+        QVERIFY(identityRow);
+        QCOMPARE(scene.text(QStringLiteral("identityEvidenceButton")), QString::fromUtf8("采证步骤"));
+        QJsonObject identity = completed(QStringLiteral("COMPLETED"), trace, sha);
+        identity.insert(QStringLiteral("session_id"), QStringLiteral("round-identity"));
+        identity.insert(QStringLiteral("identity_probe"), true);
+        identity.insert(QStringLiteral("identity_result"), QStringLiteral("DISTINGUISHED"));
+        source->validation = identity;
+        scene.app->refreshCaptureValidation();
+        QTRY_COMPARE(identityRow->property("description").toString(), QString::fromUtf8("已保存，等回传"));
+        QCOMPARE(row->property("description").toString(), standing);
+        QCOMPARE(scene.text(QStringLiteral("identityEvidenceButton")), QString::fromUtf8("继续"));
+        QCOMPARE(scene.text(QStringLiteral("templateObservationGuideButton")), QString::fromUtf8("采证步骤"));
+
+        // Asking for the other kind puts the finished round away and opens the page for it.
+        QVERIFY(session->property("identity").toBool());
+        QVERIFY(QMetaObject::invokeMethod(scene.item(QStringLiteral("templateObservationGuideButton")), "clicked"));
+        QTRY_VERIFY(scene.page->property("observationGuideExpanded").toBool());
+        QTRY_VERIFY(!session->property("identity").toBool());
+        QCOMPARE(session->property("purpose").toString(), QStringLiteral("region"));
     }
 
     void aPlayersPageCarriesNoWireVocabulary()

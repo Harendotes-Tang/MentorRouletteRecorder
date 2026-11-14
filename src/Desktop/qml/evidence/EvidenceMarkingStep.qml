@@ -59,7 +59,9 @@ EvidenceStep {
         Accessible.name: qsTr("事件标记")
 
         Repeater {
-            model: step.session.markerDefs
+            // Always the events of a run: this step is hidden in an identity round, whose
+            // own step lists its own five.
+            model: step.session.eventDefs
             delegate: RowLayout {
                 id: markerCell
                 required property var modelData
@@ -236,7 +238,7 @@ EvidenceStep {
         Layout.fillWidth: true
         spacing: 12
         AppButton {
-            objectName: step.session.recording ? "templateObservationActionButton" : "evidenceStopButton"
+            objectName: step.session.recording && !step.session.identity ? "templateObservationActionButton" : "evidenceStopButton"
             text: Runtime.app.captureCommandBusy ? qsTr("处理中…") : qsTr("停止采证")
             enabled: step.session.active && Runtime.app.templateObservationActionEnabled && !Runtime.app.captureCommandBusy
             onClicked: step.session.stop()

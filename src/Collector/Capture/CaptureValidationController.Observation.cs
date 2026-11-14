@@ -24,7 +24,8 @@ public sealed partial class CaptureValidationController
             if (_session is not { } current) return Unavailable("NO_OBSERVATION");
             if (!current.Finalized) return Unavailable("OBSERVATION_ACTIVE");
             if (current.ErrorCode is not null || current.WriteFailed) return Unavailable("OBSERVATION_FAILED");
-            if (!current.RecordingStarted || current.Path is null || current.Digest is null)
+            // An identity round carries other markers and answers another question.
+            if (!current.RecordingStarted || current.Path is null || current.Digest is null || current.IdentityProbe)
                 return Unavailable("NO_OBSERVATION");
             session = current;
             path = current.Path;

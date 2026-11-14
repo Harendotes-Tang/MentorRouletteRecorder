@@ -230,9 +230,9 @@ set_tests_properties(MentorRecorderDungeonComposition PROPERTIES ENVIRONMENT "${
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopCalibrationTests
     SUITES Calibration SharedCalibration SharedCalibrationCard CapturePage CandidateReview EvidenceSubmission
-           EvidencePage)
+           EvidencePage EvidenceIdentity)
 foreach(suite IN ITEMS Calibration SharedCalibration SharedCalibrationCard CapturePage CandidateReview
-                       EvidenceSubmission EvidencePage)
+                       EvidenceSubmission EvidencePage EvidenceIdentity)
     mr_desktop_suite_test(MentorRecorderDesktopCalibrationTests ${suite})
 endforeach()
 

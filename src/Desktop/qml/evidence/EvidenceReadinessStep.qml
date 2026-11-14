@@ -109,7 +109,11 @@ EvidenceStep {
         RowLayout {
             Layout.fillWidth: true
             spacing: 12
-            FieldLabel { text: qsTr("登录后正常活动 30～60 秒，报文要一直增加"); Layout.fillWidth: true }
+            FieldLabel {
+                text: step.session.identity ? qsTr("登录后报文会一直增加")
+                                            : qsTr("登录后正常活动 30～60 秒，报文要一直增加")
+                Layout.fillWidth: true
+            }
             Text {
                 objectName: "evidenceMessageCount"
                 textFormat: Text.PlainText
@@ -144,7 +148,7 @@ EvidenceStep {
             EvidenceIcon { name: "clipboard-check"; color: Theme.green; size: 14 }
             Text {
                 textFormat: Text.PlainText
-                text: qsTr("数据可读，接着排本")
+                text: step.session.identity ? qsTr("数据可读") : qsTr("数据可读，接着排本")
                 color: Theme.green
                 font.pixelSize: Theme.fs(13)
                 font.weight: Font.Bold

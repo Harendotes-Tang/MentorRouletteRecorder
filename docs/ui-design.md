@@ -614,6 +614,8 @@ Npcap 的结论 `npcap.status` 随之更新），页面标签为「需手动记�
 下方左右两栏：左栏五个分步面板（`EvidenceStep.qml`，`evidenceStep_<n>`），右栏 272 px 的「本轮状态」与承诺卡（`EvidenceSidebar.qml`）。
 宽度不足 760 px 时右栏落到左栏下方。
 
+**角色识别采证**是同一个子页的另一种采证目的（`EvidenceSession.purpose`，第 ① 步的「采证目的」分段控件，只在页面上没有进行中或已结束的一轮时可改，或「工具」中的「角色识别采证」一行直接进入）。它核实软件能否区分玩家的不同角色，为按角色分别统计进度收集依据：开始请求带 `identity_probe`，一轮进行中或结束后以采集器状态里的 `identity_probe` 为准，页面中途重开也显示正确的步骤。与新区服采证的差别：标题为「角色识别采证」；第 ② 步不要求报文达到 100 条，开始取证后即进入第 ③ 步；第 ③ 步换成 `EvidenceIdentityStep.qml`，纵向列出五步（登录角色 A、换成角色 B、换回角色 A，以及可选的传送一次、进出一次副本），每步右侧一个按钮（`templateObservationMarker_<步骤>`），做完后点一下，不输入任何文字，跳过的步骤记为「已跳过」；采集器答复某一步没有读到数据时（`identity_steps` 中 `named` 为 false，即确认得太早），该步显示橙色说明并把按钮换成「重新确认」；前三步确认后在步骤下方显示结论（`evidenceIdentityVerdict`）；第 ④ 步在文件清单之前再次显示结论（`evidenceSaveVerdict`），第 ⑤ 步不问加速器、副本、职业与本轮情况，也没有候选摘要，回传说明改为「角色识别采证回报」并带上步骤与结论。结论四种：可以区分 / 不能区分 / 标识不稳定 / 还不能判断，对应 `identity_result` 的四个取值。截图参数 `--mock-open-evidence identity` 打开这一目的的页面。
+
 * 分步面板只展开**当前一步**；已完成的一步显示一行摘要（区服 · 网卡 · 开始于 …；数据可读 · 报文 N（数据从未可读时只写「报文 N」，
   数据异常时为「数据异常，已停止」）；随机类型 · 标记 k / 5；已保存 · 文件 k / 4（文件不完整或采证失败时为「文件不完整 · 文件 k / 4」）），
   点标题可重新展开；尚未到的一步锁定。当前一步左缘有 3 px 主色竖条，右侧标签「当前」/「完成」。
@@ -711,7 +713,7 @@ Npcap 的结论 `npcap.status` 随之更新），页面标签为「需手动记�
 
 本页可用的 Mock 开关：`--mock-recording-state listening|waiting`（正常 / 游戏未运行）、
 `--mock-npcap-missing`、`--maintainer-tools`、`--mock-midstream`、`--mock-calibration`、`--mock-shared`；
-新区服采证子页另有 `--mock-validation-state` 与 `--mock-open-evidence steps|report`（§7）。
+新区服采证子页另有 `--mock-validation-state` 与 `--mock-open-evidence steps|report|identity`（§7）。
 模拟后端的 `GetStatus` 同样带有 `npcap` 对象，与 `CaptureWire.StatusExtras` 同形。
 QtTest `MentorRecorderCapturePage`（`tests/Desktop.Tests/calibration/CapturePageTests.cpp`）覆盖：
 标题行的两种身份、连接状态的各种情况（含尚未读到捕获状态与断线前保留的故障）、新区服采证步骤的玩家视图、
@@ -2161,8 +2163,9 @@ build/src/Desktop/MentorRecorder.Desktop.exe --screenshot <png> --page N
     [--mock-validation-state waiting|recording|stopping|completed|cancelling|cancelled|failed]
                              # 采证 / 验证轮次的状态；cancelling / cancelled 为正在放弃 / 已放弃等待
     [--mock-formal-running]  # 采证证据为历史数据时，正式抓包保持 RUNNING
-    [--mock-open-evidence steps|report]
-                             # 打开捕获诊断下的新区服采证子页：steps 为当前一步，report 为已结束一轮的回传说明
+    [--mock-open-evidence steps|report|identity]
+                             # 打开捕获诊断下的新区服采证子页：steps 为当前一步，report 为已结束一轮的回传说明，
+                             # identity 为角色识别采证（已结束的一轮显示结论）
     [--mock-validation-keyboard]
                              # 截图前核对验证标记的 Tab / Shift+Tab / 空格行为（须配 --mock-validation-state recording）
     [--mock-candidates]      # 使用固定的候选复核数据（研究载荷保持关闭）

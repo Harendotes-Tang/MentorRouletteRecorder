@@ -140,8 +140,24 @@ public static class DatabasePaths
     /// </summary>
     public const string IdentityProbeKeyFileName = "identity-probe.key";
 
-    /// <summary>Where that key is kept: the managed root. A trace takes no <c>--db</c>.</summary>
-    public static string ResolveIdentityProbeKey() => Path.Combine(RootDirectory, IdentityProbeKeyFileName);
+    /// <summary>
+    /// Where that key is kept: beside an explicit <c>--db</c>, otherwise in the managed root, for
+    /// the same reason as the Oodle manifest. The command-line trace takes no <c>--db</c> and the
+    /// serving Collector's default database lives in the managed root, so both use one key.
+    /// </summary>
+    /// <param name="databasePath">Value of <c>--db</c>, or null for the default database.</param>
+    public static string ResolveIdentityProbeKey(string? databasePath = null)
+    {
+        if (string.IsNullOrWhiteSpace(databasePath))
+        {
+            return Path.Combine(RootDirectory, IdentityProbeKeyFileName);
+        }
+
+        var directory = Path.GetDirectoryName(Path.GetFullPath(databasePath));
+        return string.IsNullOrEmpty(directory)
+            ? Path.Combine(RootDirectory, IdentityProbeKeyFileName)
+            : Path.Combine(directory, IdentityProbeKeyFileName);
+    }
 
     /// <summary>Creates the directory of <paramref name="filePath"/> when it is missing.</summary>
     /// <param name="filePath">Path of a file that is about to be written.</param>

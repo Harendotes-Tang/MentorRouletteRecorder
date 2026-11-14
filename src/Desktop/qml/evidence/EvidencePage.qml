@@ -40,8 +40,9 @@ ColumnLayout {
     }
 
     PageHeader {
-        title: qsTr("新区服采证")
-        subtitle: qsTr("帮助适配其他区服 · 不新增正式记录")
+        title: page.session.identity ? qsTr("角色识别采证") : qsTr("新区服采证")
+        subtitle: page.session.identity ? qsTr("核实能否区分你的不同角色 · 不新增正式记录")
+                                        : qsTr("帮助适配其他区服 · 不新增正式记录")
         StatusTag {
             objectName: "evidenceStatusBadge"
             Layout.bottomMargin: 4
@@ -80,6 +81,15 @@ ColumnLayout {
                 onToggleRequested: page.session.toggleStep(2)
             }
             EvidenceMarkingStep {
+                visible: !page.session.identity
+                session: page.session
+                status: page.session.stepStatus(3)
+                open: page.session.stepOpen(3)
+                summary: page.session.summary(3)
+                onToggleRequested: page.session.toggleStep(3)
+            }
+            EvidenceIdentityStep {
+                visible: page.session.identity
                 session: page.session
                 status: page.session.stepStatus(3)
                 open: page.session.stepOpen(3)

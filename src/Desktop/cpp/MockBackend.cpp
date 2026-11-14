@@ -381,6 +381,29 @@ void MockBackend::setLiveMode(LiveMode mode)
     emitStateChanged(currentRun().value(QStringLiteral("state")).toString());
 }
 
+QJsonValue MockBackend::validationIdentitySteps() const
+{
+    if (!m_validationIdentityProbe)
+        return QJsonValue(QJsonValue::Null);
+    QJsonArray steps;
+    for (const QString &marker : {QStringLiteral("character_a"), QStringLiteral("character_b"),
+                                  QStringLiteral("character_a_again"), QStringLiteral("after_teleport"),
+                                  QStringLiteral("after_duty")}) {
+        if (m_validationIdentitySteps.contains(marker))
+            steps.append(QJsonObject{{QStringLiteral("marker"), marker}, {QStringLiteral("named"), true}});
+    }
+    return steps;
+}
+
+void MockBackend::setValidationIdentityFixture(bool complete)
+{
+    m_validationIdentityProbe = true;
+    m_validationIdentitySteps.clear();
+    if (complete)
+        m_validationIdentitySteps = {QStringLiteral("character_a"), QStringLiteral("character_b"),
+                                     QStringLiteral("character_a_again")};
+}
+
 void MockBackend::setValidationFixture(const QString &state)
 {
     m_validationState = state;
@@ -1448,6 +1471,16 @@ QJsonObject MockBackend::captureValidationStatus() const
         {QStringLiteral("decode_error_count"), measured ? QJsonValue(3) : nullValue},
         {QStringLiteral("queue_dropped"), measured ? QJsonValue(0) : nullValue},
         {QStringLiteral("truncated"), false},
+        // Three confirmed logins read as told apart; anything less is still incomplete.
+        {QStringLiteral("identity_probe"), m_validationIdentityProbe},
+        {QStringLiteral("identity_result"), !m_validationIdentityProbe
+                                                   ? nullValue
+                                                   : QJsonValue(m_validationIdentitySteps.contains(QStringLiteral("character_a"))
+                                                                        && m_validationIdentitySteps.contains(QStringLiteral("character_b"))
+                                                                        && m_validationIdentitySteps.contains(QStringLiteral("character_a_again"))
+                                                                    ? QStringLiteral("DISTINGUISHED")
+                                                                    : QStringLiteral("INCOMPLETE"))},
+        {QStringLiteral("identity_steps"), validationIdentitySteps()},
         {QStringLiteral("trace_path"), completed
                                              ? QJsonValue(QStringLiteral("C:/mock-only/trace.jsonl"))
                                              : nullValue},
@@ -3446,6 +3479,8 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
             errorMessage = QString::fromUtf8("正式捕获运行中，不能同时开始验证。");
         } else {
             m_validationState = QStringLiteral("WAITING");
+            m_validationIdentityProbe = payload.value(QStringLiteral("identity_probe")).toBool();
+            m_validationIdentitySteps.clear();
             result = captureValidationStatus();
         }
     } else if (messageType == QLatin1String("AddCaptureValidationMarker")) {
@@ -3454,6 +3489,9 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
                        "capture.validation.marker_not_recording");
         } else {
             m_lastValidationMarker = payload.value(QStringLiteral("marker")).toString();
+            if (m_lastValidationMarker.startsWith(QLatin1String("character_"))
+                || m_lastValidationMarker.startsWith(QLatin1String("after_")))
+                m_validationIdentitySteps.insert(m_lastValidationMarker);
             ++m_validationMarkerCount;
             result = captureValidationStatus();
         }

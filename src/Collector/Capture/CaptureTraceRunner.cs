@@ -203,14 +203,18 @@ public static class CaptureTraceRunner
         Environment.NewLine,
         "抓包取证已开始。请在游戏里发生下面这些事的**当下**，在本窗口输入一个词并回车：",
         "  queued=开始排队  pop=弹出确认框  entered=进入副本  victory=通关结算  left=离开副本",
-        "只接受上面 5 个固定词（大小写不敏感）；其他输入会被忽略，避免写入自由文本。",
+        "只接受固定的标记词（大小写不敏感）；其他输入会被忽略，避免写入自由文本。",
         "文件里不含任何报文内容、地址、角色名——只有 opcode、方向、长度与负载摘要前 12 位。",
         "按 Ctrl+C 结束取证。");
 
     /// <summary>Printed under the marker prompt when the identity probe is on.</summary>
-    public const string IdentityProbeNotice =
-        "已开启身份探针：文件另含本机密钥摘要后的角色标识线索（12 位），仍不含角色名、标识原值或报文内容；" +
-        "密钥只保存在本机，摘要离开本机后无法还原。请在换角色、重登、传送、进出副本时照常操作，并记下各自的大致时间。";
+    public static readonly string IdentityProbeNotice = string.Join(
+        Environment.NewLine,
+        "已开启身份探针：文件另含本机密钥摘要后的角色标识线索（12 位），仍不含角色名、标识原值或报文内容；",
+        "密钥只保存在本机，摘要离开本机后无法还原。上面 5 个词这次用不到，请按下面的顺序操作，",
+        "每完成一步、进入游戏十秒左右后输入对应的词并回车（在软件的「捕获诊断 › 角色识别采证」里做同样的事不用输入）：",
+        "  character_a=已用角色 A 进入游戏  character_b=已换成角色 B 进入游戏  character_a_again=已换回角色 A",
+        "  after_teleport=角色 A 传送之后（可选）  after_duty=角色 A 进出一次副本之后（可选）");
 
     /// <summary>Printed when the identity probe's local key cannot be read or created just now.</summary>
     public const string IdentityKeyRefusal =

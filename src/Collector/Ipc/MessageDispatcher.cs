@@ -415,11 +415,12 @@ public sealed class MessageDispatcher
 
     private JsonObject StartCaptureValidation(PayloadReader reader)
     {
-        reader.RejectUnknown("adapter_id", "switch_from_unsupported");
+        reader.RejectUnknown("adapter_id", "switch_from_unsupported", "identity_probe");
         var adapter = reader.String("adapter_id", 400);
+        var identityProbe = reader.Bool("identity_probe") == true;
         return reader.Bool("switch_from_unsupported") == true
-            ? _host.Capture.SwitchToMetadataObservation(_host.Validation, adapter)
-            : _host.Validation.Start(adapter);
+            ? _host.Capture.SwitchToMetadataObservation(_host.Validation, adapter, identityProbe)
+            : _host.Validation.Start(adapter, identityProbe);
     }
 
     private JsonObject GetTemplateObservation(PayloadReader reader)
@@ -437,7 +438,9 @@ public sealed class MessageDispatcher
     private JsonObject ValidationMarker(PayloadReader reader)
     {
         reader.RejectUnknown("marker");
-        return _host.Validation.AddMarker(reader.RequiredString("marker", 7));
+        // As long as the longest marker on the allowlist, so a new one cannot be refused here first.
+        return _host.Validation.AddMarker(reader.RequiredString(
+            "marker", Capture.CaptureTraceMarkerText.Allowed.Max(marker => marker.Length)));
     }
 
     private JsonObject GetCurrentRun(PayloadReader reader)

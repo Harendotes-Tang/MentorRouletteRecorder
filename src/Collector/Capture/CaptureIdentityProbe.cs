@@ -34,7 +34,7 @@ namespace MentorRecorder.Collector.Capture;
 ///
 /// Not thread-safe: the trace sink calls it under its own lock.
 /// </summary>
-public sealed class CaptureIdentityProbe
+public sealed partial class CaptureIdentityProbe
 {
     /// <summary>Size of the local key in bytes.</summary>
     public const int KeyBytes = 32;
@@ -147,6 +147,7 @@ public sealed class CaptureIdentityProbe
 
         var inbound = message.Direction == MessageDirection.Inbound;
         var actor = inbound ? message.TargetActor : message.SourceActor;
+        var connectionSeen = NoteConnection(connection);
         List<JsonObject>? lines = null;
 
         if (actor != 0 && TallyActor(connection, inbound ? HeaderTargetKind : HeaderSourceKind, actor, tMs) is { } id)
@@ -161,20 +162,30 @@ public sealed class CaptureIdentityProbe
             });
         }
 
-        if (inbound && message.SegmentType == FfxivFraming.SegmentTypeIpc && WantsPrefix(message, connection))
+        if (inbound && actor != 0)
+        {
+            RememberTarget(actor, tMs, connectionSeen);
+        }
+
+        if (inbound && message.SegmentType == FfxivFraming.SegmentTypeIpc && AboutThisClient(message))
         {
             var payload = message.Payload.Span;
-            Add(ref lines, new JsonObject
+            var prefix = Digest(PrefixDomain, payload[..PrefixBytes]);
+            RememberPrefix(message.Opcode, payload.Length, prefix);
+            if (WantsPrefixLine(message.Opcode, connection))
             {
-                ["identity"] = PayloadPrefixKind,
-                ["seq"] = seq,
-                ["t_ms"] = tMs,
-                ["conn"] = connection,
-                ["op"] = CaptureTraceSink.FormatOpcode(message.Opcode),
-                ["len"] = payload.Length,
-                ["p8"] = Digest(PrefixDomain, payload[..PrefixBytes]),
-                ["self_at"] = OffsetOf(payload, message.TargetActor),
-            });
+                Add(ref lines, new JsonObject
+                {
+                    ["identity"] = PayloadPrefixKind,
+                    ["seq"] = seq,
+                    ["t_ms"] = tMs,
+                    ["conn"] = connection,
+                    ["op"] = CaptureTraceSink.FormatOpcode(message.Opcode),
+                    ["len"] = payload.Length,
+                    ["p8"] = prefix,
+                    ["self_at"] = OffsetOf(payload, message.TargetActor),
+                });
+            }
         }
 
         return lines ?? Nothing;
@@ -207,6 +218,9 @@ public sealed class CaptureIdentityProbe
             ["truncated"] = _truncated,
             ["untracked_sightings"] = _untrackedSightings,
             ["actors"] = rows,
+            ["result"] = Result,
+            ["checkpoints"] = CheckpointRows(),
+            ["login_candidates"] = LoginCandidates(),
         };
     }
 
@@ -247,21 +261,25 @@ public sealed class CaptureIdentityProbe
         return id;
     }
 
-    private bool WantsPrefix(DecodedMessage message, string connection)
+    /// <summary>
+    /// True for a message whose leading bytes are worth digesting: about this client only (its own
+    /// character is both the subject and the addressee), long enough, and not all zero.
+    /// </summary>
+    private static bool AboutThisClient(DecodedMessage message)
     {
-        // About this client only: its own character is both the subject and the addressee.
         if (message.TargetActor == 0 || message.SourceActor != message.TargetActor)
         {
             return false;
         }
 
         var payload = message.Payload.Span;
-        if (payload.Length < PrefixBytes || payload[..PrefixBytes].IndexOfAnyExcept((byte)0) < 0)
-        {
-            return false;
-        }
+        return payload.Length >= PrefixBytes && payload[..PrefixBytes].IndexOfAnyExcept((byte)0) >= 0;
+    }
 
-        var key = (connection, message.Opcode);
+    /// <summary>Whether this occurrence of the opcode still earns a line on this connection.</summary>
+    private bool WantsPrefixLine(ushort opcode, string connection)
+    {
+        var key = (connection, opcode);
         if (!_occurrences.TryGetValue(key, out var seen))
         {
             if (_occurrences.Count >= MaxTrackedOpcodes)

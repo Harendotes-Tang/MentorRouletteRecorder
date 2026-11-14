@@ -1916,6 +1916,14 @@
         <translation>続ける</translation>
     </message>
     <message>
+        <source>角色识别采证</source>
+        <translation>キャラクター識別の採取</translation>
+    </message>
+    <message>
+        <source>两个角色轮流登录，核实软件能否区分它们；不新增正式记录</source>
+        <translation>2 つのキャラクターで順にログインし、アプリが区別できるか確かめます。正式な記録は作りません。</translation>
+    </message>
+    <message>
         <source>导出诊断报告</source>
         <translation>診断レポートを書き出す</translation>
     </message>
@@ -5771,6 +5779,53 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>EvidenceIdentityStep</name>
+    <message>
+        <source>每一步都先在游戏里做完，进入游戏后等十秒左右再点右边的按钮。换角色时不用关游戏，返回角色选择即可。</source>
+        <translation>各手順はまずゲーム内で済ませ、ゲームに入ってから 10 秒ほど待って右のボタンを押してください。キャラクターを替えるときはゲームを閉じず、キャラクター選択に戻るだけで構いません。</translation>
+    </message>
+    <message>
+        <source>角色识别步骤</source>
+        <translation>キャラクター識別の手順</translation>
+    </message>
+    <message>
+        <source>%1（可选）</source>
+        <translation>%1（任意）</translation>
+    </message>
+    <message>
+        <source>没读到数据：确认得太早。在游戏里等十秒左右，再点「重新确认」</source>
+        <translation>データを読み取れませんでした：確認が早すぎます。ゲーム内で 10 秒ほど待ってから「もう一度確認」を押してください</translation>
+    </message>
+    <message>
+        <source>已确认 · %1</source>
+        <translation>確認済み · %1</translation>
+    </message>
+    <message>
+        <source>已跳过</source>
+        <translation>スキップ</translation>
+    </message>
+    <message>
+        <source>重新确认</source>
+        <translation>もう一度確認</translation>
+    </message>
+    <message>
+        <source>采证操作失败：</source>
+        <translation>採取の操作に失敗しました：</translation>
+    </message>
+    <message>
+        <source>处理中…</source>
+        <translation>処理中…</translation>
+    </message>
+    <message>
+        <source>停止采证</source>
+        <translation>採取を停止</translation>
+    </message>
+    <message>
+        <source>前三步确认后就可以停止；后两步做了更好</source>
+        <translation>最初の 3 手順を確認したら停止できます。残りの 2 つも行うとなお良いです</translation>
+    </message>
+</context>
+<context>
     <name>EvidenceMarkingStep</name>
     <message>
         <source>随机类型</source>
@@ -5844,6 +5899,14 @@ SHA256：%3</translation>
         <translation>新しい地域のデータ採取</translation>
     </message>
     <message>
+        <source>角色识别采证</source>
+        <translation>キャラクター識別の採取</translation>
+    </message>
+    <message>
+        <source>核实能否区分你的不同角色 · 不新增正式记录</source>
+        <translation>キャラクターを区別できるか確認 · 正式な記録は作りません</translation>
+    </message>
+    <message>
         <source>帮助适配其他区服 · 不新增正式记录</source>
         <translation>他の地域への対応に協力 · 正式な記録は作りません</translation>
     </message>
@@ -5891,6 +5954,10 @@ SHA256：%3</translation>
         <translation>採取の操作に失敗しました：</translation>
     </message>
     <message>
+        <source>登录后报文会一直增加</source>
+        <translation>ログイン後はパケット数が増え続けます</translation>
+    </message>
+    <message>
         <source>登录后正常活动 30～60 秒，报文要一直增加</source>
         <translation>ログイン後 30〜60 秒ふつうに行動し、パケット数が増え続けるか確認</translation>
     </message>
@@ -5901,6 +5968,10 @@ SHA256：%3</translation>
     <message>
         <source>数据可读，接着排本</source>
         <translation>データを読み取れています。申請へ進んでください</translation>
+    </message>
+    <message>
+        <source>数据可读</source>
+        <translation>データを読み取れています</translation>
     </message>
     <message>
         <source>先截图，再停止并导出诊断，不用继续排本。</source>
@@ -5958,6 +6029,10 @@ SHA256：%3</translation>
         <translation>送付メモ</translation>
     </message>
     <message>
+        <source>版本、时间、区服、步骤、结论和计数已自动填好</source>
+        <translation>バージョン・時刻・地域・手順・結果・カウントは自動入力済み</translation>
+    </message>
+    <message>
         <source>版本、时间、区服、标记和计数已自动填好</source>
         <translation>バージョン・時刻・地域・マーク・カウントは自動入力済み</translation>
     </message>
@@ -6002,6 +6077,10 @@ SHA256：%3</translation>
         <translation>プレビューは最新の 1 回分だけが対象です。次の回や再起動の前に処理してください。確認すると要約をコピーして GitHub の送信ページを開きます。コピーした JSON をファイルとして保存し、Issue を立てずに一緒に送ることもできます。</translation>
     </message>
     <message>
+        <source>结论只说明这一轮读到的标识是否不同；把文件回传给维护者，才能据此实现按角色分别统计。</source>
+        <translation>結果は、今回読み取った識別子が異なるかどうかを示すだけです。キャラクターごとの集計を実現するため、ファイルをメンテナーに送ってください。</translation>
+    </message>
+    <message>
         <source>采证完成只代表拿到候选线索，仍需维护者验证。先回传一轮，确认可用后再补一轮。</source>
         <translation>採取が終わっても候補の手がかりが得られただけで、開発者の確認が必要です。まず 1 回分を送り、使えると分かってからもう 1 回行ってください。</translation>
     </message>
@@ -6035,6 +6114,10 @@ SHA256：%3</translation>
     <message>
         <source>离本回到外面再停止</source>
         <translation>外に戻ってから停止</translation>
+    </message>
+    <message>
+        <source>前三步确认后就可以停止</source>
+        <translation>最初の 3 手順を確認したら停止できます</translation>
     </message>
     <message>
         <source>正在保存…</source>
@@ -6144,6 +6227,30 @@ SHA256：%3</translation>
         <translation>ZIP にまとめて開発者に送る</translation>
     </message>
     <message>
+        <source>可以区分：两个角色读到的标识不同，回到角色 A 时与第一次相同。</source>
+        <translation>区別できます：2 つのキャラクターで読み取った識別子は異なり、キャラクター A に戻ったときは最初と同じでした。</translation>
+    </message>
+    <message>
+        <source>不能区分：两个角色读到的标识相同。</source>
+        <translation>区別できません：2 つのキャラクターで読み取った識別子が同じでした。</translation>
+    </message>
+    <message>
+        <source>标识不稳定：角色 A 前后读到的标识不一致。</source>
+        <translation>識別子が安定しません：キャラクター A で読み取った識別子が前後で一致しませんでした。</translation>
+    </message>
+    <message>
+        <source>启动游戏，等到可以登录</source>
+        <translation>ゲームを起動し、ログインできるまで待つ</translation>
+    </message>
+    <message>
+        <source>轮流登录两个角色</source>
+        <translation>2 つのキャラクターで順にログイン</translation>
+    </message>
+    <message>
+        <source>停止采证，查看结论</source>
+        <translation>採取を止めて結果を確認</translation>
+    </message>
+    <message>
         <source>国服 CN</source>
         <translation>中国版 (CN)</translation>
     </message>
@@ -6186,6 +6293,58 @@ SHA256：%3</translation>
     <message>
         <source>自动选择</source>
         <translation>自動選択</translation>
+    </message>
+    <message>
+        <source>已进入游戏</source>
+        <translation>ゲームに入りました</translation>
+    </message>
+    <message>
+        <source>登录角色 A</source>
+        <translation>キャラクター A でログイン</translation>
+    </message>
+    <message>
+        <source>任选一个角色登录，进入游戏</source>
+        <translation>好きなキャラクターでログインしてゲームに入る</translation>
+    </message>
+    <message>
+        <source>换成角色 B</source>
+        <translation>キャラクター B に替える</translation>
+    </message>
+    <message>
+        <source>返回角色选择，登录另一个角色</source>
+        <translation>キャラクター選択に戻り、別のキャラクターでログイン</translation>
+    </message>
+    <message>
+        <source>换回角色 A</source>
+        <translation>キャラクター A に戻す</translation>
+    </message>
+    <message>
+        <source>再返回角色选择，登录第一步用的那个角色</source>
+        <translation>もう一度キャラクター選択に戻り、手順 1 のキャラクターでログイン</translation>
+    </message>
+    <message>
+        <source>已传送</source>
+        <translation>テレポしました</translation>
+    </message>
+    <message>
+        <source>用角色 A 传送一次</source>
+        <translation>キャラクター A で 1 回テレポする</translation>
+    </message>
+    <message>
+        <source>传送到任意以太之光，到达后再点</source>
+        <translation>任意のエーテライトへテレポし、到着してから押す</translation>
+    </message>
+    <message>
+        <source>已离开副本</source>
+        <translation>コンテンツから出ました</translation>
+    </message>
+    <message>
+        <source>用角色 A 进出一次副本</source>
+        <translation>キャラクター A でコンテンツに 1 回出入りする</translation>
+    </message>
+    <message>
+        <source>任意副本，进去再出来之后再点</source>
+        <translation>どのコンテンツでも構いません。入って出たあとに押す</translation>
     </message>
     <message>
         <source>已排队</source>
@@ -6308,12 +6467,28 @@ SHA256：%3</translation>
         <translation>手動入力でその地域のコンテンツが見つかる</translation>
     </message>
     <message>
+        <source>已跳过</source>
+        <translation>スキップ</translation>
+    </message>
+    <message>
         <source>无</source>
         <translation>なし</translation>
     </message>
     <message>
         <source>（未填）</source>
         <translation>（未記入）</translation>
+    </message>
+    <message>
+        <source>【导随记录器 · 角色识别采证回报】</source>
+        <translation>【メンター記録 · キャラクター識別の採取レポート】</translation>
+    </message>
+    <message>
+        <source>步骤：%1</source>
+        <translation>手順：%1</translation>
+    </message>
+    <message>
+        <source>结论：%1</source>
+        <translation>結果：%1</translation>
     </message>
     <message>
         <source>未使用</source>
@@ -6376,6 +6551,10 @@ SHA256：%3</translation>
         <translation>、</translation>
     </message>
     <message>
+        <source>还不能判断：有的步骤确认得太早，没读到数据。在游戏里等十秒左右，再点那一步的「重新确认」。</source>
+        <translation>まだ判定できません：確認が早すぎてデータを読み取れなかった手順があります。ゲーム内で 10 秒ほど待ってから、その手順の「もう一度確認」を押してください。</translation>
+    </message>
+    <message>
         <source>计数：报文 %1 · 已写入标记 %2 · 解码失败 %3 · 队列丢弃 %4</source>
         <translation>カウント：パケット %1 · 書き込んだマーカー %2 · デコード失敗 %3 · キュー破棄 %4</translation>
     </message>
@@ -6408,8 +6587,24 @@ SHA256：%3</translation>
         <translation>パケット %1</translation>
     </message>
     <message>
+        <source>已确认 %1 / 5 步</source>
+        <translation>%1 / 5 手順を確認済み</translation>
+    </message>
+    <message>
         <source>%1 · 标记 %2 / 5</source>
         <translation>%1 · マーク %2 / 5</translation>
+    </message>
+    <message>
+        <source>已保存 · 可以区分</source>
+        <translation>保存済み · 区別できます</translation>
+    </message>
+    <message>
+        <source>已保存 · 未能区分</source>
+        <translation>保存済み · 区別できません</translation>
+    </message>
+    <message>
+        <source>已保存 · 还不能判断</source>
+        <translation>保存済み · まだ判定できません</translation>
     </message>
     <message>
         <source>已保存 · 文件 %1 / %2</source>
@@ -6501,6 +6696,26 @@ SHA256：%3</source>
         <translation>Trace：%1
 SHA256 ファイル：%2
 SHA256：%3</translation>
+    </message>
+    <message>
+        <source>采证目的</source>
+        <translation>採取の目的</translation>
+    </message>
+    <message>
+        <source>新区服适配</source>
+        <translation>新しい地域への対応</translation>
+    </message>
+    <message>
+        <source>角色识别</source>
+        <translation>キャラクター識別</translation>
+    </message>
+    <message>
+        <source>核实软件能否区分你的不同角色：需要两个角色，按步骤轮流登录。文件里不含角色名。</source>
+        <translation>アプリがあなたのキャラクターを区別できるか確かめます。キャラクターが 2 つ必要で、手順に沿って順にログインします。ファイルにキャラクター名は含まれません。</translation>
+    </message>
+    <message>
+        <source>帮助适配尚未支持的区服：排一把随机，按事件标记。</source>
+        <translation>まだ対応していない地域への対応に協力します。ルーレットを 1 回申請し、出来事ごとにマークします。</translation>
     </message>
     <message>
         <source>区服</source>
@@ -6683,6 +6898,73 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>HistoryDateFilter</name>
+    <message>
+        <source>全部时间</source>
+        <translation>全期間</translation>
+    </message>
+    <message>
+        <source>今天</source>
+        <translation>今日</translation>
+    </message>
+    <message>
+        <source>近 7 天</source>
+        <translation>過去7日間</translation>
+    </message>
+    <message>
+        <source>近 30 天</source>
+        <translation>過去30日間</translation>
+    </message>
+    <message>
+        <source>本月</source>
+        <translation>今月</translation>
+    </message>
+    <message>
+        <source>自定义</source>
+        <translation>指定期間</translation>
+    </message>
+    <message>
+        <source>日期有误</source>
+        <translation>日付エラー</translation>
+    </message>
+    <message>
+        <source>历史日期范围</source>
+        <translation>履歴の期間</translation>
+    </message>
+    <message>
+        <source>日期尚未应用，请检查格式与起止顺序</source>
+        <translation>日付は適用されていません。書式と開始日・終了日の順序を確認してください。</translation>
+    </message>
+    <message>
+        <source>日期</source>
+        <translation>日付</translation>
+    </message>
+    <message>
+        <source>按匹配时间</source>
+        <translation>マッチング時刻で絞り込み</translation>
+    </message>
+    <message>
+        <source>开始日期</source>
+        <translation>開始日</translation>
+    </message>
+    <message>
+        <source>结束日期</source>
+        <translation>終了日</translation>
+    </message>
+    <message>
+        <source>开始日期不能晚于结束日期</source>
+        <translation>開始日は終了日以前にしてください。</translation>
+    </message>
+    <message>
+        <source>请输入完整日期：年-月-日</source>
+        <translation>日付を年-月-日で入力してください</translation>
+    </message>
+    <message>
+        <source>重试</source>
+        <translation>再試行</translation>
+    </message>
+</context>
+<context>
     <name>HistoryPage</name>
     <message>
         <source>中途加入</source>
@@ -6779,18 +7061,6 @@ SHA256：%3</translation>
         <translation>記録を追加</translation>
     </message>
     <message>
-        <source>记录区服</source>
-        <translation>記録のサービス地域</translation>
-    </message>
-    <message>
-        <source>搜索 副本 / 职业 / 备注</source>
-        <translation>コンテンツ・ジョブ・備考で検索</translation>
-    </message>
-    <message>
-        <source>历史日期范围</source>
-        <translation>履歴の期間</translation>
-    </message>
-    <message>
         <source>副本筛选</source>
         <translation>コンテンツで絞り込み</translation>
     </message>
@@ -6863,14 +7133,6 @@ SHA256：%3</translation>
         <translation>記録元で絞り込み</translation>
     </message>
     <message>
-        <source>标记类型</source>
-        <translation>マークの種類</translation>
-    </message>
-    <message>
-        <source>标记类型 · %1</source>
-        <translation>マークの種類 · %1</translation>
-    </message>
-    <message>
         <source>标记类型筛选，可多选</source>
         <translation>マークの種類で絞り込み（複数選択可）</translation>
     </message>
@@ -6893,10 +7155,6 @@ SHA256：%3</translation>
     <message>
         <source>更多筛选</source>
         <translation>その他の条件</translation>
-    </message>
-    <message>
-        <source>清除</source>
-        <translation>解除</translation>
     </message>
     <message>
         <source>职业：%1</source>
@@ -7065,6 +7323,45 @@ SHA256：%3</translation>
     <message>
         <source>清除筛选</source>
         <translation>絞り込みを解除</translation>
+    </message>
+</context>
+<context>
+    <name>HistoryRegionFilter</name>
+    <message>
+        <source>全部区服</source>
+        <translation>すべてのサービス地域</translation>
+    </message>
+    <message>
+        <source>国服 CN</source>
+        <translation>中国版 CN</translation>
+    </message>
+    <message>
+        <source>繁中服 TC</source>
+        <translation>繁体字中国語版 TC</translation>
+    </message>
+    <message>
+        <source>国际服 GLOBAL</source>
+        <translation>グローバル版 GLOBAL</translation>
+    </message>
+    <message>
+        <source>记录区服</source>
+        <translation>記録のサービス地域</translation>
+    </message>
+    <message>
+        <source>区服</source>
+        <translation>リージョン</translation>
+    </message>
+    <message>
+        <source>未适配区服可协助采证</source>
+        <translation>未対応地域の証跡収集に協力</translation>
+    </message>
+    <message>
+        <source>帮助适配</source>
+        <translation>対応に協力</translation>
+    </message>
+    <message>
+        <source>重试</source>
+        <translation>再試行</translation>
     </message>
 </context>
 <context>
@@ -7981,10 +8278,6 @@ SHA256：%3</translation>
         <translation>ダーク</translation>
     </message>
     <message>
-        <source>成就追踪</source>
-        <translation>アチーブメント追跡</translation>
-    </message>
-    <message>
         <source>导随
 记录器</source>
         <translation>メンター
@@ -8690,6 +8983,13 @@ SHA256：%3</translation>
     <message>
         <source>记录区服</source>
         <translation>記録のサービス地域</translation>
+    </message>
+</context>
+<context>
+    <name>RecordWorkspacePage</name>
+    <message>
+        <source>返回</source>
+        <translation>戻る</translation>
     </message>
 </context>
 <context>
@@ -11559,8 +11859,8 @@ SHA256：%3</translation>
         <translation>検証状態の更新に失敗しました：%1。自動で再試行します。</translation>
     </message>
     <message>
-        <source>只能在验证取证中添加五种固定标记。</source>
-        <translation>決まった5種類のマーカーは、検証キャプチャ中にのみ追加できます。</translation>
+        <source>只能在验证取证中添加固定标记。</source>
+        <translation>固定のマークは検証キャプチャ中にのみ追加できます。</translation>
     </message>
     <message>
         <source>标记已接收</source>
@@ -12517,6 +12817,17 @@ SHA256：%3</translation>
     <message>
         <source>已保存删除记录的保留期。</source>
         <translation>削除した記録の保持期間を保存しました。</translation>
+    </message>
+</context>
+<context>
+    <name>mr::HistoryFilterFacets</name>
+    <message>
+        <source>服务未连接，无法读取筛选数量。</source>
+        <translation>サービスに接続されていないため、絞り込み件数を取得できません。</translation>
+    </message>
+    <message>
+        <source>读取筛选数量失败，请重试。</source>
+        <translation>絞り込み件数を取得できませんでした。再試行してください。</translation>
     </message>
 </context>
 <context>
@@ -14225,130 +14536,6 @@ SHA256：%3</translation>
     <message>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>インストーラーが起動しませんでした。Windows のインストール確認で許可されなかった可能性があります。このアプリは実行を続けます。もう一度「今すぐインストール」を押すか、「ブラウザでダウンロード」を押してください。</translation>
-    </message>
-</context>
-<context>
-    <name>RecordWorkspacePage</name>
-    <message>
-        <source>返回</source>
-        <translation>戻る</translation>
-    </message>
-</context>
-<context>
-    <name>HistoryDateFilter</name>
-    <message>
-        <source>全部时间</source>
-        <translation>全期間</translation>
-    </message>
-    <message>
-        <source>今天</source>
-        <translation>今日</translation>
-    </message>
-    <message>
-        <source>近 7 天</source>
-        <translation>過去7日間</translation>
-    </message>
-    <message>
-        <source>近 30 天</source>
-        <translation>過去30日間</translation>
-    </message>
-    <message>
-        <source>本月</source>
-        <translation>今月</translation>
-    </message>
-    <message>
-        <source>自定义</source>
-        <translation>指定期間</translation>
-    </message>
-    <message>
-        <source>日期有误</source>
-        <translation>日付エラー</translation>
-    </message>
-    <message>
-        <source>历史日期范围</source>
-        <translation>履歴の期間</translation>
-    </message>
-    <message>
-        <source>日期尚未应用，请检查格式与起止顺序</source>
-        <translation>日付は適用されていません。書式と開始日・終了日の順序を確認してください。</translation>
-    </message>
-    <message>
-        <source>日期</source>
-        <translation>日付</translation>
-    </message>
-    <message>
-        <source>按匹配时间</source>
-        <translation>マッチング時刻で絞り込み</translation>
-    </message>
-    <message>
-        <source>开始日期</source>
-        <translation>開始日</translation>
-    </message>
-    <message>
-        <source>结束日期</source>
-        <translation>終了日</translation>
-    </message>
-    <message>
-        <source>开始日期不能晚于结束日期</source>
-        <translation>開始日は終了日以前にしてください。</translation>
-    </message>
-    <message>
-        <source>请输入完整日期：年-月-日</source>
-        <translation>日付を年-月-日で入力してください</translation>
-    </message>
-    <message>
-        <source>重试</source>
-        <translation>再試行</translation>
-    </message>
-</context>
-<context>
-    <name>HistoryRegionFilter</name>
-    <message>
-        <source>全部区服</source>
-        <translation>すべてのサービス地域</translation>
-    </message>
-    <message>
-        <source>国服 CN</source>
-        <translation>中国版 CN</translation>
-    </message>
-    <message>
-        <source>繁中服 TC</source>
-        <translation>繁体字中国語版 TC</translation>
-    </message>
-    <message>
-        <source>国际服 GLOBAL</source>
-        <translation>グローバル版 GLOBAL</translation>
-    </message>
-    <message>
-        <source>记录区服</source>
-        <translation>記録のサービス地域</translation>
-    </message>
-    <message>
-        <source>区服</source>
-        <translation>リージョン</translation>
-    </message>
-    <message>
-        <source>未适配区服可协助采证</source>
-        <translation>未対応地域の証跡収集に協力</translation>
-    </message>
-    <message>
-        <source>帮助适配</source>
-        <translation>対応に協力</translation>
-    </message>
-    <message>
-        <source>重试</source>
-        <translation>再試行</translation>
-    </message>
-</context>
-<context>
-    <name>mr::HistoryFilterFacets</name>
-    <message>
-        <source>服务未连接，无法读取筛选数量。</source>
-        <translation>サービスに接続されていないため、絞り込み件数を取得できません。</translation>
-    </message>
-    <message>
-        <source>读取筛选数量失败，请重试。</source>
-        <translation>絞り込み件数を取得できませんでした。再試行してください。</translation>
     </message>
 </context>
 </TS>

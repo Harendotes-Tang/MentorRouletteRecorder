@@ -218,6 +218,73 @@ public sealed class CaptureValidationIpcTests
         }
     }
 
+    /// <summary>
+    /// The guided identity round over the real pipe: started by its switch, fed the step markers,
+    /// and reporting its verdict, every envelope within the contract.
+    /// </summary>
+    [Fact]
+    public async Task AnIdentityRoundIsStartedByItsSwitchAndReportsAVerdictWithinTheContract()
+    {
+        var source = new FakeCaptureSource();
+        var capture = CaptureFakes.Ready(source, "2026.01");
+        var validation = new CaptureValidationServices
+        {
+            PollInterval = TimeSpan.FromMilliseconds(10),
+            Trace = new CaptureTraceServices
+            {
+                Npcap = capture.Npcap, Game = capture.Game, Adapters = capture.Adapters,
+                SourceFactory = () => source, TcpConnectionCounter = (_, _) => 0,
+            },
+        };
+        await using var fixture = CaptureServerFixture.Start(capture, validation: validation);
+        await using var client = await fixture.ConnectAsync();
+        var responses = new List<JsonObject>();
+        client.EnvelopeReceived += envelope => { lock (responses) responses.Add(envelope.DeepClone().AsObject()); };
+
+        var idle = (await client.SendAsync("GetCaptureValidationStatus")).Require();
+        Assert.False(idle["identity_probe"]!.GetValue<bool>());
+        Assert.Null(idle["identity_result"]);
+        Assert.Null(idle["identity_steps"]);
+        Assert.Equal(ErrorCodes.BadRequest, (await client.SendAsync(
+            "StartCaptureValidation", new JsonObject { ["identity_probe"] = "yes" })).ErrorCode);
+
+        var start = await client.SendAsync("StartCaptureValidation",
+            new JsonObject { ["adapter_id"] = "{TEST-ADAPTER}", ["identity_probe"] = true });
+        Assert.True(start.Ok, start.ErrorMessage);
+        Assert.True(start.Require()["identity_probe"]!.GetValue<bool>());
+        await AwaitState(client, "RECORDING");
+        foreach (var marker in CaptureTraceMarkerText.Identity)
+        {
+            var added = await client.SendAsync("AddCaptureValidationMarker", new JsonObject { ["marker"] = marker });
+            Assert.True(added.Ok, marker + ": " + added.ErrorMessage);
+        }
+        Assert.Equal(ErrorCodes.BadRequest, (await client.SendAsync(
+            "AddCaptureValidationMarker", new JsonObject { ["marker"] = "character_c" })).ErrorCode);
+        await client.SendAsync("StopCaptureValidation");
+        var final = await AwaitState(client, "COMPLETED");
+
+        // No traffic was fed, so no step could name anyone.
+        Assert.Equal(CaptureIdentityProbe.ResultIncomplete, final["identity_result"]!.GetValue<string>());
+        Assert.Equal(CaptureTraceMarkerText.Identity.Count, final["marker_count"]!.GetValue<long>());
+        // Every step was confirmed and none could name anyone; no id travels with them.
+        Assert.Equal(CaptureTraceMarkerText.Identity,
+            final["identity_steps"]!.AsArray().Select(step => step!["marker"]!.GetValue<string>()));
+        Assert.All(final["identity_steps"]!.AsArray(), step => Assert.False(step!["named"]!.GetValue<bool>()));
+        Assert.Contains("\"identity_probe\":true", File.ReadLines(final["trace_path"]!.GetValue<string>()).First(),
+            StringComparison.Ordinal);
+        Assert.Empty((await client.SendAsync("QueryRuns")).Require()["items"]!.AsArray());
+
+        JsonObject[] envelopes;
+        lock (responses) envelopes = responses.ToArray();
+        foreach (var envelope in envelopes)
+        {
+            ContractSchema.Validate(string.Empty, envelope, "identity round envelope");
+            var type = envelope["message_type"]!.GetValue<string>();
+            if (envelope["ok"]!.GetValue<bool>() && type.Contains("Validation", StringComparison.Ordinal))
+                ContractSchema.Validate("$defs/Responses/" + type, envelope["payload"], type);
+        }
+    }
+
     private static async Task<JsonObject> AwaitState(PipeClient client, string state)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));

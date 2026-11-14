@@ -393,6 +393,7 @@ set(MR_QML_FILES
     qml/evidence/EvidenceClock.qml
     qml/evidence/EvidenceHint.qml
     qml/evidence/EvidenceIcon.qml
+    qml/evidence/EvidenceIdentityStep.qml
     qml/evidence/EvidenceMarkingStep.qml
     qml/evidence/EvidencePage.qml
     qml/evidence/EvidencePulse.qml

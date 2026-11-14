@@ -23,6 +23,7 @@
 #include <QHash>
 #include <QJsonArray>
 #include <QList>
+#include <QSet>
 #include <QString>
 #include <QVariantMap>
 
@@ -179,6 +180,11 @@ public:
     /// Last marker received through the typed request wrapper. This test-only
     /// seam verifies that Space activates the focused marker's exact payload.
     QString lastValidationMarker() const { return m_lastValidationMarker; }
+    bool validationIdentityProbe() const { return m_validationIdentityProbe; }
+    /// The validation fixture as a guided identity round; \a complete confirms its three logins.
+    void setValidationIdentityFixture(bool complete);
+    /// identity_steps of the mock's CaptureValidationStatus: every confirmed step named someone.
+    QJsonValue validationIdentitySteps() const;
 
     /// Emit one StateChanged live event, as the real Collector would on a
     /// state-machine transition. Used by setLiveMode(), by capture start/stop
@@ -419,6 +425,9 @@ private:
     QHash<QString, int> m_replyDelays;
     int m_validationMarkerCount = 0;
     QString m_lastValidationMarker;
+    // The guided identity round: whether the session was started for it, and its steps so far.
+    bool m_validationIdentityProbe = false;
+    QSet<QString> m_validationIdentitySteps;
     LiveMode m_liveMode = LiveMode::Entered;
     /// The last refuseWith(): the reply's message_ref while its message is still
     /// the one refuseWith() wrote.
