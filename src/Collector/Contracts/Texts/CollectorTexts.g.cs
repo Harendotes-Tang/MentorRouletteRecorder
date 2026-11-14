@@ -577,6 +577,14 @@ public static partial class CollectorTexts
     public static UserText CaptureValidationFailed() =>
         new("capture.validation.failed", "验证失败，文件可能不完整。详情见本机诊断日志。");
 
+    /// <summary><c>capture.validation.failed_identity_key_invalid</c>: 数据目录里的 identity-probe.key 不是当前用户可用的密钥，角色识别采证没有开始，也没有生成文件。它不会被自动重建；确认不再需要和以前的采证比对后，删除这个文件再试。</summary>
+    public static UserText CaptureValidationFailedIdentityKeyInvalid() =>
+        new("capture.validation.failed_identity_key_invalid", "数据目录里的 identity-probe.key 不是当前用户可用的密钥，角色识别采证没有开始，也没有生成文件。它不会被自动重建；确认不再需要和以前的采证比对后，删除这个文件再试。");
+
+    /// <summary><c>capture.validation.failed_identity_key_unreadable</c>: 暂时读不到角色识别采证要用的本机密钥，采证没有开始，也没有生成文件。请稍后再试；详情见本机诊断日志。</summary>
+    public static UserText CaptureValidationFailedIdentityKeyUnreadable() =>
+        new("capture.validation.failed_identity_key_unreadable", "暂时读不到角色识别采证要用的本机密钥，采证没有开始，也没有生成文件。请稍后再试；详情见本机诊断日志。");
+
     /// <summary><c>capture.validation.idle</c>: 尚未开始验证。</summary>
     public static UserText CaptureValidationIdle() =>
         new("capture.validation.idle", "尚未开始验证。");

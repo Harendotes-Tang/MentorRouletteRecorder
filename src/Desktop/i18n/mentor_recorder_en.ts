@@ -3116,6 +3116,16 @@ SHA256: %3</translation>
         <translation>Protocol profile unavailable, so capture didn&apos;t start: this version won&apos;t parse any packets or write any records automatically. If you only want to test the capture chain itself, turn on the capture.allow_without_profile setting first (counts only, no records).</translation>
     </message>
     <message>
+        <source>数据目录里的 identity-probe.key 不是当前用户可用的密钥，角色识别采证没有开始，也没有生成文件。它不会被自动重建；确认不再需要和以前的采证比对后，删除这个文件再试。</source>
+        <comment>capture.validation.failed_identity_key_invalid</comment>
+        <translation>identity-probe.key in the data folder is not a key the current user can use, so character identification capture did not start and no file was created. It is not rebuilt automatically; once you no longer need to compare with earlier captures, delete that file and try again.</translation>
+    </message>
+    <message>
+        <source>暂时读不到角色识别采证要用的本机密钥，采证没有开始，也没有生成文件。请稍后再试；详情见本机诊断日志。</source>
+        <comment>capture.validation.failed_identity_key_unreadable</comment>
+        <translation>The local key that character identification capture needs could not be read just now, so the capture did not start and no file was created. Try again later; see the local diagnostic log for details.</translation>
+    </message>
+    <message>
         <source>仅验证，不自动记录。设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。</source>
         <comment>capture.validation.waiting_region_mismatch</comment>
         <translation>Validation only, no automatic recording. The server region set manually in Settings isn&apos;t bound to this client yet and doesn&apos;t match the region its install path indicates. If this client really belongs to the manually set region, select the server region again in Settings while the client is running; otherwise, clear the manually set region.</translation>

@@ -3116,6 +3116,16 @@ SHA256：%3</translation>
         <translation>協定設定檔無法使用，未啟動封包擷取：本版本不會解析任何封包，也不會自動寫入任何記錄。若只是想驗證封包擷取鏈路本身，請先把設定 capture.allow_without_profile 開啟（僅統計，不記錄）。</translation>
     </message>
     <message>
+        <source>数据目录里的 identity-probe.key 不是当前用户可用的密钥，角色识别采证没有开始，也没有生成文件。它不会被自动重建；确认不再需要和以前的采证比对后，删除这个文件再试。</source>
+        <comment>capture.validation.failed_identity_key_invalid</comment>
+        <translation>資料目錄裡的 identity-probe.key 不是目前使用者可用的金鑰，角色識別採證沒有開始，也沒有產生檔案。它不會被自動重建；確認不再需要和以前的採證比對後，刪除這個檔案再試。</translation>
+    </message>
+    <message>
+        <source>暂时读不到角色识别采证要用的本机密钥，采证没有开始，也没有生成文件。请稍后再试；详情见本机诊断日志。</source>
+        <comment>capture.validation.failed_identity_key_unreadable</comment>
+        <translation>暫時讀不到角色識別採證要用的本機金鑰，採證沒有開始，也沒有產生檔案。請稍後再試；詳情請見本機診斷記錄檔。</translation>
+    </message>
+    <message>
         <source>仅验证，不自动记录。设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。</source>
         <comment>capture.validation.waiting_region_mismatch</comment>
         <translation>僅驗證，不自動記錄。設定中手動指定的伺服器地區尚未綁定到這個用戶端，且與它的安裝路徑表明的伺服器地區不一致。若這個用戶端確實屬於手動指定的伺服器地區，請在它執行時到設定中重新選擇一次伺服器地區；否則請清除手動指定的伺服器地區。</translation>

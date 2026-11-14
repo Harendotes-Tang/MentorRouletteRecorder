@@ -168,6 +168,8 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "已达到单次验证的时长上限，已停止等待，未创建取证文件。", "capture.validation.cancelled_time_limit"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "取证文件已保存到本机。真实 FF14 / Oodle 仍未验证。", "capture.validation.completed"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "验证失败，文件可能不完整。详情见本机诊断日志。", "capture.validation.failed"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "数据目录里的 identity-probe.key 不是当前用户可用的密钥，角色识别采证没有开始，也没有生成文件。它不会被自动重建；确认不再需要和以前的采证比对后，删除这个文件再试。", "capture.validation.failed_identity_key_invalid"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "暂时读不到角色识别采证要用的本机密钥，采证没有开始，也没有生成文件。请稍后再试；详情见本机诊断日志。", "capture.validation.failed_identity_key_unreadable"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "尚未开始验证。", "capture.validation.idle"), .args = ""},
     //: Placeholders: {markers} shown as it is. Keep every {placeholder} exactly as written. {markers} lists the marker tokens, for example queued / pop / entered / victory / left.
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "标记只能为 {markers}。", "capture.validation.marker_invalid"), .args = "markers:text"},

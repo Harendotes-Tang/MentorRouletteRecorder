@@ -378,6 +378,42 @@ public sealed class CaptureIdentityCheckpointTests
         Assert.Equal("NO_OBSERVATION", (string)controller.GetTemplateObservation()["reason"]!);
     }
 
+    [Theory]
+    [InlineData(false, "capture.validation.failed_identity_key_invalid")]
+    [InlineData(true, "capture.validation.failed_identity_key_unreadable")]
+    public void AValidationSession_WhoseKeyCannotBeUsed_FailsSayingWhy(bool unreadable, string expectedKey)
+    {
+        using var db = new TestDatabase();
+        var keyPath = Path.Combine(Path.GetDirectoryName(db.Path)!, Storage.DatabasePaths.IdentityProbeKeyFileName);
+        if (unreadable)
+        {
+            // Something that is there and cannot be read as a file at all.
+            Directory.CreateDirectory(keyPath);
+        }
+        else
+        {
+            File.WriteAllBytes(keyPath, new byte[] { 1, 2, 3 });
+        }
+
+        using var controller = new CaptureValidationController(db.Path, new(), Services());
+        controller.Start("wifi", identityProbe: true);
+        Until(controller, "state", "FAILED");
+
+        var failed = controller.Snapshot();
+        Assert.Equal(expectedKey, (string)failed["message_ref"]!["key"]!);
+        Assert.Equal(ErrorCodes.Internal, (string)failed["error_code"]!);
+        // Nothing was recorded and nothing was replaced.
+        Assert.Null(failed["trace_path"]);
+        Assert.Null(failed["sha256"]);
+        Assert.True(unreadable ? Directory.Exists(keyPath) : new FileInfo(keyPath).Length == 3);
+
+        // The capture is free again: an ordinary round starts and records.
+        controller.Start("wifi");
+        Until(controller, "state", "RECORDING");
+        controller.Stop();
+        Until(controller, "state", "COMPLETED");
+    }
+
     [Fact]
     public void AValidationSession_StartedWithoutIt_SaysSo()
     {
@@ -465,7 +501,8 @@ public sealed class CaptureIdentityCheckpointTests
     private static GameProcessDetection Game() => new(true, 42, "ffxiv_dx11", DateTimeOffset.UnixEpoch,
         Region.Cn, "2026.01", 1, @"D:\SdoA\game\ffxiv_dx11.exe", Array.Empty<UserText>());
 
-    private static CaptureValidationServices Services(ICaptureSource source) => new()
+    /// <param name="source">The source every session gets; a fresh one per session when null.</param>
+    private static CaptureValidationServices Services(ICaptureSource? source = null) => new()
     {
         LocateGame = Game,
         PollInterval = TimeSpan.FromMilliseconds(10),
@@ -474,7 +511,7 @@ public sealed class CaptureIdentityCheckpointTests
             Npcap = new NpcapDetector(FakeNpcapEnvironment.Healthy()),
             Adapters = new AdapterEnumerator(
                 new FakeAdapterProvider().Add("wifi", "WiFi", addresses: "192.168.1.2"), new FakeProcessTcpTable()),
-            SourceFactory = () => source,
+            SourceFactory = () => source ?? new FakeCaptureSource(),
             TcpConnectionCounter = (_, _) => 0,
         },
     };

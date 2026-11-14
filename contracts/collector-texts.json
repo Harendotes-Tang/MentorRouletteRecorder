@@ -489,6 +489,8 @@
     "capture.validation.recording": "仅验证，不自动记录。正在保存脱敏取证，可添加事件标记。",
     "capture.validation.stopping_time_limit": "已达到单次验证的时长上限，正在停止并保存本地文件……",
     "capture.validation.failed": "验证失败，文件可能不完整。详情见本机诊断日志。",
+    "capture.validation.failed_identity_key_unreadable": "暂时读不到角色识别采证要用的本机密钥，采证没有开始，也没有生成文件。请稍后再试；详情见本机诊断日志。",
+    "capture.validation.failed_identity_key_invalid": "数据目录里的 identity-probe.key 不是当前用户可用的密钥，角色识别采证没有开始，也没有生成文件。它不会被自动重建；确认不再需要和以前的采证比对后，删除这个文件再试。",
     "capture.validation.cancelled_time_limit": "已达到单次验证的时长上限，已停止等待，未创建取证文件。",
     "capture.validation.cancelled": "已取消等待，未创建取证文件。",
     "capture.validation.completed": "取证文件已保存到本机。真实 FF14 / Oodle 仍未验证。",

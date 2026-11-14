@@ -331,9 +331,28 @@ public sealed partial class CaptureValidationController : IDisposable
                 s.Stop.Token.ThrowIfCancellationRequested();
                 // Before the trace file exists: a probe that cannot digest fails the session
                 // without leaving an empty trace behind.
-                var identityProbe = s.IdentityProbe
-                    ? new CaptureIdentityProbe(IdentityProbeKey.LoadOrCreate(_identityKeyPath))
-                    : null;
+                CaptureIdentityProbe? identityProbe = null;
+                if (s.IdentityProbe)
+                {
+                    try
+                    {
+                        identityProbe = new CaptureIdentityProbe(IdentityProbeKey.LoadOrCreate(_identityKeyPath));
+                    }
+                    catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException
+                                                   or ArgumentException or NotSupportedException
+                                                   or System.Security.Cryptography.CryptographicException
+                                                   or PlatformNotSupportedException)
+                    {
+                        // Said in its own words: nothing was recorded, and only a file that is
+                        // there and is not a key is one the player may delete.
+                        lock (_gate) s.FailureText = ex is InvalidDataException
+                            ? CollectorTexts.CaptureValidationFailedIdentityKeyInvalid()
+                            : CollectorTexts.CaptureValidationFailedIdentityKeyUnreadable();
+                        Fault(s, ex);
+                        break;
+                    }
+                }
+
                 // Named in the invariant calendar, the one SweepTraces ages it in: under an Umm
                 // al-Qura or Persian calendar the session read as centuries old and was deleted
                 // as soon as it was saved; under the Thai one it never aged (audit 2026-11-03, A2-2).
@@ -435,7 +454,7 @@ public sealed partial class CaptureValidationController : IDisposable
                     CaptureOwnership.MarkReleasing(s.Lease);
                 }
                 s.Stop.Dispose();
-                if (s.ErrorCode is not null) SetState("FAILED", "FAILED", CollectorTexts.CaptureValidationFailed());
+                if (s.ErrorCode is not null) SetState("FAILED", "FAILED", s.FailureText ?? CollectorTexts.CaptureValidationFailed());
                 else if (s.Path is null) SetState("COMPLETED", "CANCELLED", s.TimedOut
                     ? CollectorTexts.CaptureValidationCancelledTimeLimit()
                     : CollectorTexts.CaptureValidationCancelled());
@@ -655,6 +674,8 @@ public sealed partial class CaptureValidationController : IDisposable
         public bool WriteFailed;
         public bool Finalized, RecordingStarted, TimedOut;
         public bool IdentityProbe { get; init; }
+        /// <summary>Why the session failed, when there is a better sentence than the general one.</summary>
+        public UserText? FailureText;
         public ICaptureSource? RetainedSource;
         public Task? Work, MarkerWork;
     }

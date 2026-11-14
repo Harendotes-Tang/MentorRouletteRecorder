@@ -3116,6 +3116,16 @@ SHA256：%3</translation>
         <translation>プロトコルプロファイルを使用できないため、キャプチャを開始していません。このバージョンはパケットを一切解析せず、記録も一切自動で書き込みません。キャプチャ経路そのものを検証したいだけの場合は、先に設定 capture.allow_without_profile をオンにしてください（統計のみで、記録はしません）。</translation>
     </message>
     <message>
+        <source>数据目录里的 identity-probe.key 不是当前用户可用的密钥，角色识别采证没有开始，也没有生成文件。它不会被自动重建；确认不再需要和以前的采证比对后，删除这个文件再试。</source>
+        <comment>capture.validation.failed_identity_key_invalid</comment>
+        <translation>データフォルダーの identity-probe.key は現在のユーザーが使える鍵ではないため、キャラクター識別の採取は始まらず、ファイルも作成されていません。自動では作り直されません。以前の採取と比較する必要がなくなったことを確認してから、このファイルを削除してもう一度お試しください。</translation>
+    </message>
+    <message>
+        <source>暂时读不到角色识别采证要用的本机密钥，采证没有开始，也没有生成文件。请稍后再试；详情见本机诊断日志。</source>
+        <comment>capture.validation.failed_identity_key_unreadable</comment>
+        <translation>キャラクター識別の採取に使うこの PC の鍵を今は読み取れないため、採取は始まらず、ファイルも作成されていません。しばらくしてからもう一度お試しください。詳細はこの PC の診断ログを確認してください。</translation>
+    </message>
+    <message>
         <source>仅验证，不自动记录。设置中手动指定的区服还没有绑定到这个客户端，且与它的安装路径表明的区服不一致。若这个客户端确实属于手动指定的区服，请在它运行时到设置里重新选择一次区服；否则请清除手动指定的区服。</source>
         <comment>capture.validation.waiting_region_mismatch</comment>
         <translation>検証のみで、自動記録はしません。設定で手動指定したリージョンはまだこのクライアントに関連付けられておらず、インストール先が示すリージョンとも一致しません。このクライアントが本当に手動指定したリージョンのものである場合は、クライアントの起動中に設定でリージョンをもう一度選択してください。そうでない場合は、手動指定したリージョンを解除してください。</translation>

@@ -6,6 +6,7 @@
 - **`StartCaptureValidationRequest.identity_probe`**（可选布尔，缺省为 false）：这一轮是「角色识别采证」。采证文件另含经本机密钥计算的角色标识摘要（docs/capture-diagnostics.md §9.2），并按下面的步骤标记给出结论。这样的会话不是模板观察：`GetTemplateObservation` 对它答 `NO_OBSERVATION`。
 - **`AddCaptureValidationMarkerRequest.marker`** 的枚举在原有五个事件之后增加五个步骤：`character_a`、`character_b`、`character_a_again`、`after_teleport`、`after_duty`。它们说的是玩家刚做完的那一步，不是角色。这些词只在 `identity_probe` 的会话中接受；其他会话答 `ERR_BAD_REQUEST`（否则该轮采证无法再生成模板观察摘要）。同一步骤可以重复确认，以最后一次为准。
 - **`CaptureValidationStatus.identity_probe`**（可选布尔）与 **`identity_result`**（可选，`INCOMPLETE` / `DISTINGUISHED` / `SAME_IDENTITY` / `UNSTABLE` 或 `null`）：本会话是否为角色识别采证，以及到目前为止的结论。`identity_probe` 为 false 时 `identity_result` 为 `null`。`INCOMPLETE` 表示前三步尚未全部确认，或某一步确认时报文太少；`DISTINGUISHED` 表示第一个角色两次读到的标识相同、第二个角色不同；`SAME_IDENTITY` 表示两个角色读到的标识相同；`UNSTABLE` 表示第一个角色前后（含传送、进出副本之后）读到的标识不一致。结论不含任何标识或其摘要。**`identity_steps`**（可选，数组或 `null`）按步骤顺序列出已确认的步骤及其 `named`：`false` 表示确认时报文太少或混杂、没有读到是谁，应当重新确认该步骤；同样不含标识。
+- **文字目录**新增 `capture.validation.failed_identity_key_unreadable` 与 `capture.validation.failed_identity_key_invalid`：角色识别采证读不到或用不了本机密钥时，会话以 `FAILED` 结束（`error_code` 仍为 `ERR_INTERNAL`，没有取证文件），`message` / `message_ref` 用这两句说明原因，而不是通用的「验证失败」。
 - 兼容性：旧采集服务不认识 `identity_probe` 与新的标记词，答 `ERR_BAD_REQUEST`，状态中也没有这两个字段；桌面端把缺少的字段当作普通采证。两端随同一安装包发布。
 
 ## 2026-11-03 · 历史导出按当前排序输出：`ExportRequest.sort`
