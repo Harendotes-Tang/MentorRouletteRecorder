@@ -10,6 +10,20 @@ HistoryFilterButton {
     property var facets: null
     property string preset: "all"
     property bool updating: false
+    signal relativeRangeChanged()
+    // Pages remain alive in the tray. Re-evaluate the selected relative range
+    // even while hidden, and immediately when the window/page returns.
+    Timer {
+        interval: 1000
+        repeat: true
+        running: control.preset !== "all" && control.preset !== "custom"
+        onTriggered: control.refreshRelativeRange()
+    }
+    Connections {
+        target: control
+        function onWindowActiveChanged() { if (control.windowActive) control.refreshRelativeRange() }
+        function onVisibleChanged() { if (control.visible) control.refreshRelativeRange() }
+    }
     // Compatibility with the page's atomic filter edit guard; single inputs do not stage a mouse range.
     property bool selectionPending: false
     property alias startField: fromInput
@@ -56,6 +70,19 @@ HistoryFilterButton {
         toInput.text = range.end || ""
         updating = false
         menu.close()
+    }
+    function refreshRelativeRange() {
+        if (!facets || updating || preset === "all" || preset === "custom") return
+        const range = facets.dateRange(preset)
+        const start = range.start || ""
+        const end = range.end || ""
+        if (fromInput.text === start && toInput.text === end) return
+        updating = true
+        fromInput.text = start
+        toInput.text = end
+        updating = false
+        // Both endpoints are ready before the page applies its query/export filter.
+        relativeRangeChanged()
     }
     function syncPreset() {
         if (!fromInput.text && !toInput.text) { preset = "all"; return }

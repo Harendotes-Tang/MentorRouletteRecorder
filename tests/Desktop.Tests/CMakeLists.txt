@@ -292,10 +292,10 @@ endif()
 # a field's example, the combo box popup, the toggle switch.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopComponentsTests
-    SUITES Icon DateField TimeField PageNumberInput StyledTextField StyledComboBox ToggleSwitch ControlMotion
+    SUITES Icon DateField HistoryDateFilter TimeField PageNumberInput StyledTextField StyledComboBox ToggleSwitch ControlMotion
     LIBRARIES ${MR_QUICK_TEST_LIBRARIES})
 mr_desktop_suite_test(MentorRecorderDesktopComponentsTests Icon NAME MentorRecorderIcons)
-foreach(suite IN ITEMS DateField TimeField PageNumberInput StyledTextField StyledComboBox ControlMotion)
+foreach(suite IN ITEMS DateField HistoryDateFilter TimeField PageNumberInput StyledTextField StyledComboBox ControlMotion)
     mr_desktop_suite_test(MentorRecorderDesktopComponentsTests ${suite})
 endforeach()
 mr_desktop_suite_test(MentorRecorderDesktopComponentsTests ToggleSwitch NO_LOG)

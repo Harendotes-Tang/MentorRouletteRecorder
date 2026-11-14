@@ -538,6 +538,10 @@ Item {
                 HistoryDateFilter {
                     id: dateRange
                     objectName: "historyDateRange"
+                    onRelativeRangeChanged: {
+                        filterDebounce.stop()
+                        page.applyFilter()
+                    }
                     Layout.minimumWidth: implicitWidth
                     facets: page.filterFacets
                     onStartTextChanged: page.scheduleFilter()
