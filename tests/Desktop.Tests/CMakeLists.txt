@@ -172,7 +172,7 @@ endforeach()
 # QmlRuntime is registered with its own environment below, after the common one is applied.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopShellTests
-    SUITES ShellDialog UiWorkflowRegression Motion DialogMotion RecoveryUi HistoryBatch HistoryColumns RunDetailPanel
+    SUITES ShellDialog UiWorkflowRegression Motion TrendMotion DialogMotion RecoveryUi HistoryBatch HistoryColumns RunDetailPanel
            EditRunDialogBinding ManualRunReflection RecordWorkspace RecordingWarningWindow NoteImageStore QmlRuntime QmlWarningCounter
     LIBRARIES ${MR_QUICK_TEST_LIBRARIES} Qt6::Widgets)
 # The manual-record editor stays alive while the real interface language changes.
@@ -188,7 +188,7 @@ qt_add_resources(MentorRecorderDesktopShellTests shell_test_i18n
     PREFIX "/i18n"
     BASE "${CMAKE_CURRENT_BINARY_DIR}/shell-i18n"
     FILES ${MR_SHELL_TEST_QM})
-foreach(suite IN ITEMS ShellDialog UiWorkflowRegression Motion DialogMotion RecoveryUi HistoryColumns RunDetailPanel
+foreach(suite IN ITEMS ShellDialog UiWorkflowRegression Motion TrendMotion DialogMotion RecoveryUi HistoryColumns RunDetailPanel
                        EditRunDialogBinding ManualRunReflection RecordWorkspace RecordingWarningWindow NoteImageStore QmlWarningCounter)
     mr_desktop_suite_test(MentorRecorderDesktopShellTests ${suite})
 endforeach()

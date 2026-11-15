@@ -68,21 +68,18 @@ QtObject {
     // Entrance steps; Entrance caps the accumulated delay at 50 ms.
     readonly property int motionRowStagger: motion ? 22 : 0
     readonly property int motionPanelStagger: motion ? 30 : 0
-    // 完成趋势: height change, merge (日 -> 周 / 月), the regrow after a merge
-    // and the split (周 / 月 -> 日), as in the prototype's switchTrend().
+    // 完成趋势: a height change in the same slots, and the one motion that
+    // carries the bars between 日 / 周 / 月 or between two windows.
     readonly property int motionTrendHeight: motion ? 300 : 0
-    readonly property int motionTrendMerge: motion ? 380 : 0
-    readonly property int motionTrendRegrow: motion ? 300 : 0
-    readonly property int motionTrendRegrowStagger: motion ? 22 : 0
-    readonly property int motionTrendSplit: motion ? 440 : 0
-    readonly property int motionTrendSplitStagger: motion ? 6 : 0
+    readonly property int motionTrendMorph: motion ? 460 : 0
     // The circular 深色 / 浅色 reveal.
     readonly property int motionReveal: motion ? 520 : 0
 
     // Easing.Bezier curves (x1, y1, x2, y2, 1, 1). curveStandard is
     // workbench.css --ease, cubic-bezier(.2,.7,.2,1).
     readonly property var curveStandard: [0.2, 0.7, 0.2, 1.0, 1.0, 1.0]
-    readonly property var curveMerge: [0.4, 0.0, 0.2, 1.0, 1.0, 1.0]
+    // Bars that travel across the trend chart: a gentle start and a gentle stop.
+    readonly property var curveMorph: [0.4, 0.0, 0.2, 1.0, 1.0, 1.0]
     readonly property var curveReveal: [0.05, 0.75, 0.2, 1.0, 1.0, 1.0]
 
     // ----------------------------------------------------------- 字体 --
@@ -745,6 +742,7 @@ QtObject {
         QT_TRANSLATE_NOOP("SystemReason", "永久删除已删除的记录"),
         QT_TRANSLATE_NOOP("SystemReason", "恢复已删除的记录"),
         QT_TRANSLATE_NOOP("SystemReason", "批量删除记录"),
+        QT_TRANSLATE_NOOP("SystemReason", "修改记录所属的角色"),
         QT_TRANSLATE_NOOP("SystemReason", "调整开始记录前已完成的导随次数"),
         QT_TRANSLATE_NOOP("SystemReason", "在设置中改为从 0 开始"),
         QT_TRANSLATE_NOOP("SystemReason", "首次启动未填写起始次数"),
