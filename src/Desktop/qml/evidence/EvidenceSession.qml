@@ -80,7 +80,11 @@ QtObject {
         case "DISTINGUISHED": return qsTr("可以区分：两个角色读到的标识不同，回到角色 A 时与第一次相同。")
         case "SAME_IDENTITY": return qsTr("不能区分：两个角色读到的标识相同。")
         case "UNSTABLE": return qsTr("标识不稳定：角色 A 前后读到的标识不一致。")
-        case "INCOMPLETE": return qsTr("还不能判断：有的步骤确认得太早，没读到数据。在游戏里等十秒左右，再点那一步的「重新确认」。")
+        case "INCOMPLETE":
+            // Over, no step can be confirmed again: the round is to be done anew.
+            return session.ended
+                   ? qsTr("这一轮没有得出结论：前三步没有全部确认并读到数据。请退出游戏后重做一轮，每一步进入游戏后等十秒左右再确认。")
+                   : qsTr("还不能判断：有的步骤确认得太早，没读到数据。在游戏里等十秒左右，再点那一步的「重新确认」。")
         default: return ""
         }
     }
@@ -327,8 +331,22 @@ QtObject {
     readonly property bool markedAny: marks.some(function(mark) { return mark && mark !== "skip" })
     readonly property int markedCount: marks.filter(function(mark) { return mark && mark !== "skip" }).length
     readonly property int nextMarkIndex: marks.indexOf(null)
+    // 角色识别 compares the three logins with each other, so none of them can be left
+    // out or taken out of turn: a step is reached once every login before it is
+    // confirmed and read (a login confirmed too early is confirmed again first), and
+    // the two optional steps come after the three. The events of a run have no such order.
+    function stepReachable(index) {
+        if (!session.identity)
+            return true
+        for (let earlier = 0; earlier < Math.min(index, 3); ++earlier) {
+            const mark = session.marks[earlier]
+            if (!mark || mark === "skip" || session.stepNeedsRetry(earlier))
+                return false
+        }
+        return true
+    }
     function markerEnabled(index) {
-        return session.recording && Runtime.app.validationMarkerEnabled
+        return session.recording && Runtime.app.validationMarkerEnabled && session.stepReachable(index)
                && (session.marks[index] === null || session.stepNeedsRetry(index))
     }
     // Pressing a later marker records the earlier ones as 漏按 (never back-dated).
@@ -480,11 +498,10 @@ QtObject {
         return parts.length > 0 ? parts.join(" · ") : qsTr("无")
     }
     readonly property string report: session.identity ? session.identityReport : session.regionReport
-    // 角色识别: what was done and what came of it. No character is named anywhere.
+    // 角色识别: what was done and what came of it. No character is named anywhere,
+    // and no file is ticked off: the round hands over its trace and nothing else.
     readonly property string identityReport: {
         const unfilled = qsTr("（未填）")
-        const attached = session.fileDefs.filter(function(file) { return !!session.files[file.key] })
-                                         .map(function(file) { return file.name })
         const lines = [
             qsTr("【导随记录器 · 角色识别采证回报】"),
             qsTr("软件版本：%1").arg("v" + Runtime.app.appVersion),
@@ -499,13 +516,10 @@ QtObject {
             qsTr("结论：%1").arg(session.identityVerdict || qsTr("无")),
             qsTr("计数：报文 %1 · 已写入标记 %2 · 解码失败 %3 · 队列丢弃 %4")
                 .arg(session.countText(session.messageCount)).arg(session.countText(session.markerCount))
-                .arg(session.countText(session.decodeErrors)).arg(session.countText(session.queueDropped)),
-            qsTr("附件：%1").arg(attached.length > 0 ? attached.join(qsTr("、")) : qsTr("无"))
+                .arg(session.countText(session.decodeErrors)).arg(session.countText(session.queueDropped))
         ]
         if (session.phase === "failed")
             lines.push(qsTr("结果：%1").arg(session.failureText))
-        if (session.missingFiles.length > 0)
-            lines.push(qsTr("缺失：%1").arg(session.missingFiles.map(function(file) { return file.name }).join(qsTr("、"))))
         return lines.join("\n")
     }
     readonly property string regionReport: {
@@ -562,9 +576,10 @@ QtObject {
             return qsTr("%1 · 标记 %2 / 5").arg(session.rouletteLabel)
                    .arg(session.markerCount !== null ? Math.max(session.markerCount, session.markedCount) : session.markedCount)
         case 4:
-            if (session.identity && session.saved && session.fileSaved)
-                return session.identityResult === "DISTINGUISHED" ? qsTr("已保存 · 可以区分")
-                     : session.identityJudged ? qsTr("已保存 · 未能区分") : qsTr("已保存 · 还不能判断")
+            if (session.identity)
+                return !(session.saved && session.fileSaved) ? qsTr("已结束，文件不完整")
+                     : session.identityResult === "DISTINGUISHED" ? qsTr("已保存 · 可以区分")
+                     : session.identityJudged ? qsTr("已保存 · 未能区分") : qsTr("已保存 · 没有得出结论")
             return (session.saved && session.fileSaved ? qsTr("已保存 · 文件 %1 / %2") : qsTr("文件不完整 · 文件 %1 / %2"))
                    .arg(session.copiedRequired).arg(session.requiredFiles.length)
         default:

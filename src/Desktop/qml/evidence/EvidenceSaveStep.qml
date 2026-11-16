@@ -8,7 +8,8 @@ import "../components/Lucide.js" as Lucide
 // ④ 停止采证，保存文件: the round stops and is written; the player ticks off the
 // files as they copy them out, with a button to the folder each one lives in.
 // A failed round lands here too, with why it failed: whatever it left is still
-// handed over (review K4-4).
+// handed over (review K4-4). A 角色识别 round hands over its trace and nothing
+// else, so it shows the verdict and the folder and has nothing to tick off.
 EvidenceStep {
     id: step
 
@@ -134,7 +135,7 @@ EvidenceStep {
             font.weight: Font.Bold
         }
         EvidenceHint {
-            visible: step.session.ended
+            visible: step.session.ended && !step.session.identity
             text: step.whole ? qsTr("先截一张图，留下状态和四项计数")
                              : qsTr("有多少文件就回传多少，缺的会写进回传说明。")
         }
@@ -232,10 +233,39 @@ EvidenceStep {
         wrapMode: Text.Wrap
     }
 
+    // 角色识别: the two files lie side by side in one folder.
+    RowLayout {
+        objectName: "evidenceIdentityFiles"
+        Layout.fillWidth: true
+        visible: step.session.identity && step.session.ended
+        spacing: 12
+        EvidenceHint {
+            iconName: "file-check"
+            color: Theme.textPrimary
+            text: qsTr("要交给维护者的只有两个文件：trace.jsonl 和 trace.jsonl.sha256。它们在同一个目录里，原样发过去就行，没有得出结论的一轮也一样。")
+        }
+        AppButton {
+            objectName: "evidenceIdentityFolderButton"
+            compact: true
+            text: step.fileActionLabel("folder")
+            enabled: step.fileActionEnabled("folder")
+            onClicked: step.runFileAction("folder")
+        }
+    }
+
+    // What the ticks below are for.
+    EvidenceHint {
+        objectName: "evidenceFileListLead"
+        visible: !step.session.identity
+        color: Theme.textPrimary
+        text: qsTr("下面是要交给维护者的文件。每复制出一项就勾一项：勾选只是帮你核对有没有漏，不勾也能继续。")
+    }
+
     // `.ev-files`
     Rectangle {
         objectName: "evidenceFileList"
         Layout.fillWidth: true
+        visible: !step.session.identity
         implicitHeight: fileRows.implicitHeight + 2
         radius: Theme.radiusM
         color: "transparent"
@@ -373,7 +403,11 @@ EvidenceStep {
         spacing: 4
         EvidenceHint { iconName: "file-check"; text: qsTr("每轮分开保存，不改原文件和文件名。") }
         EvidenceHint { iconName: "history"; text: qsTr("采证目录只留最近 10 份、7 天内，记得及时复制出去。") }
-        EvidenceHint { iconName: "file-down"; text: qsTr("失败也照样回传已有的文件，缺的会写进回传说明。") }
+        EvidenceHint {
+            visible: !step.session.identity
+            iconName: "file-down"
+            text: qsTr("失败也照样回传已有的文件，缺的会写进回传说明。")
+        }
     }
 
     // `.ev-acts`
@@ -390,7 +424,7 @@ EvidenceStep {
             onClicked: step.session.reportOpen = true
         }
         EvidenceHint {
-            visible: step.session.ended && step.session.missingFiles.length > 0
+            visible: step.session.ended && !step.session.identity && step.session.missingFiles.length > 0
             text: qsTr("还缺 %1 项，也能继续，回传说明里会注明").arg(step.session.missingFiles.length)
         }
     }

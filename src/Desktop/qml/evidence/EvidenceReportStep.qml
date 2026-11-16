@@ -158,7 +158,9 @@ EvidenceStep {
                     Runtime.app.copyToClipboard(step.session.report)
                     step.copied = true
                     copiedReset.restart()
-                    Runtime.app.showToast(qsTr("已复制回传说明，粘贴到 ZIP 旁边的文字里就行"))
+                    Runtime.app.showToast(step.session.identity
+                                          ? qsTr("已复制回传说明，和两个文件一起发给维护者")
+                                          : qsTr("已复制回传说明，粘贴到 ZIP 旁边的文字里就行"))
                 }
             }
         }
@@ -176,7 +178,9 @@ EvidenceStep {
             EvidenceHint {
                 iconName: "file-input"
                 color: Theme.textPrimary
-                text: qsTr("打包成一个 ZIP，私下交给维护者：采证文件、诊断 JSON、截图和这段说明。")
+                text: step.session.identity
+                      ? qsTr("私下交给维护者：trace.jsonl、trace.jsonl.sha256 和这段说明。")
+                      : qsTr("打包成一个 ZIP，私下交给维护者：采证文件、诊断 JSON、截图和这段说明。")
             }
             EvidenceHint {
                 iconName: "x"

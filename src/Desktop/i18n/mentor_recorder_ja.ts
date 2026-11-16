@@ -5791,8 +5791,8 @@ SHA256：%3</translation>
 <context>
     <name>EvidenceIdentityStep</name>
     <message>
-        <source>每一步都先在游戏里做完，进入游戏后等十秒左右再点右边的按钮。换角色时不用关游戏，返回角色选择即可。</source>
-        <translation>各手順はまずゲーム内で済ませ、ゲームに入ってから 10 秒ほど待って右のボタンを押してください。キャラクターを替えるときはゲームを閉じず、キャラクター選択に戻るだけで構いません。</translation>
+        <source>按顺序一步一步来：先在游戏里做完这一步，进入游戏后等十秒左右，再点这一步右边的按钮。换角色时不用关游戏，返回角色选择即可。</source>
+        <translation>手順は順番に進めます。まずゲーム内でその手順を済ませ、ゲームに入ってから 10 秒ほど待って、その手順の右のボタンを押してください。キャラクターを替えるときはゲームを閉じず、キャラクター選択に戻るだけで構いません。</translation>
     </message>
     <message>
         <source>角色识别步骤</source>
@@ -6055,8 +6055,16 @@ SHA256：%3</translation>
         <translation>メモをコピー</translation>
     </message>
     <message>
+        <source>已复制回传说明，和两个文件一起发给维护者</source>
+        <translation>レポートをコピーしました。2 つのファイルと一緒にメンテナーへ送ってください</translation>
+    </message>
+    <message>
         <source>已复制回传说明，粘贴到 ZIP 旁边的文字里就行</source>
         <translation>送付メモをコピーしました。ZIP に添えるメッセージに貼り付けてください</translation>
+    </message>
+    <message>
+        <source>私下交给维护者：trace.jsonl、trace.jsonl.sha256 和这段说明。</source>
+        <translation>trace.jsonl、trace.jsonl.sha256 とこのレポートを、非公開でメンテナーに渡してください。</translation>
     </message>
     <message>
         <source>打包成一个 ZIP，私下交给维护者：采证文件、诊断 JSON、截图和这段说明。</source>
@@ -6178,6 +6186,14 @@ SHA256：%3</translation>
         <translation>これはスクリーンショット用の模擬パスで、実際に開ける検証データとしては扱いません。</translation>
     </message>
     <message>
+        <source>要交给维护者的只有两个文件：trace.jsonl 和 trace.jsonl.sha256。它们在同一个目录里，原样发过去就行，没有得出结论的一轮也一样。</source>
+        <translation>メンテナーに渡すファイルは trace.jsonl と trace.jsonl.sha256 の 2 つだけです。同じフォルダーにあるので、そのまま送ってください。結果が出なかった回も同じです。</translation>
+    </message>
+    <message>
+        <source>下面是要交给维护者的文件。每复制出一项就勾一项：勾选只是帮你核对有没有漏，不勾也能继续。</source>
+        <translation>以下はメンテナーに渡すファイルです。コピーしたものから順にチェックを付けてください。チェックは漏れがないか確かめるためだけのもので、付けなくても先へ進めます。</translation>
+    </message>
+    <message>
         <source>按需附加</source>
         <translation>必要なときだけ</translation>
     </message>
@@ -6247,6 +6263,10 @@ SHA256：%3</translation>
     <message>
         <source>标识不稳定：角色 A 前后读到的标识不一致。</source>
         <translation>識別子が安定しません：キャラクター A で読み取った識別子が前後で一致しませんでした。</translation>
+    </message>
+    <message>
+        <source>这一轮没有得出结论：前三步没有全部确认并读到数据。请退出游戏后重做一轮，每一步进入游戏后等十秒左右再确认。</source>
+        <translation>今回は結果が出ませんでした：最初の 3 手順がすべて確認され、読み取られたわけではありません。ゲームを終了してからもう一度やり直し、各手順ではゲームに入って 10 秒ほど待ってから確認してください。</translation>
     </message>
     <message>
         <source>启动游戏，等到可以登录</source>
@@ -6613,10 +6633,6 @@ SHA256：%3</translation>
         <translation>保存済み · 区別できません</translation>
     </message>
     <message>
-        <source>已保存 · 还不能判断</source>
-        <translation>保存済み · まだ判定できません</translation>
-    </message>
-    <message>
         <source>已保存 · 文件 %1 / %2</source>
         <translation>保存済み · ファイル %1 / %2</translation>
     </message>
@@ -6651,6 +6667,10 @@ SHA256：%3</translation>
     <message>
         <source>已结束，文件不完整</source>
         <translation>終了（ファイルが不完全）</translation>
+    </message>
+    <message>
+        <source>已保存 · 没有得出结论</source>
+        <translation>保存済み · 結果なし</translation>
     </message>
     <message>
         <source>失败</source>

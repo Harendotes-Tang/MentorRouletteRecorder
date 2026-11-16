@@ -5791,8 +5791,8 @@ SHA256：%3</translation>
 <context>
     <name>EvidenceIdentityStep</name>
     <message>
-        <source>每一步都先在游戏里做完，进入游戏后等十秒左右再点右边的按钮。换角色时不用关游戏，返回角色选择即可。</source>
-        <translation>每一步都先在遊戲裡做完，進入遊戲後等十秒左右再點右邊的按鈕。換角色時不用關遊戲，返回角色選擇即可。</translation>
+        <source>按顺序一步一步来：先在游戏里做完这一步，进入游戏后等十秒左右，再点这一步右边的按钮。换角色时不用关游戏，返回角色选择即可。</source>
+        <translation>按順序一步一步來：先在遊戲裡做完這一步，進入遊戲後等十秒左右，再點這一步右邊的按鈕。換角色時不用關遊戲，返回角色選擇即可。</translation>
     </message>
     <message>
         <source>角色识别步骤</source>
@@ -6055,8 +6055,16 @@ SHA256：%3</translation>
         <translation>複製回傳說明</translation>
     </message>
     <message>
+        <source>已复制回传说明，和两个文件一起发给维护者</source>
+        <translation>已複製回傳說明，和兩個檔案一起傳給維護者</translation>
+    </message>
+    <message>
         <source>已复制回传说明，粘贴到 ZIP 旁边的文字里就行</source>
         <translation>已複製回傳說明，貼到 ZIP 旁邊的文字裡就行</translation>
+    </message>
+    <message>
+        <source>私下交给维护者：trace.jsonl、trace.jsonl.sha256 和这段说明。</source>
+        <translation>私下交給維護者：trace.jsonl、trace.jsonl.sha256 和這段說明。</translation>
     </message>
     <message>
         <source>打包成一个 ZIP，私下交给维护者：采证文件、诊断 JSON、截图和这段说明。</source>
@@ -6178,6 +6186,14 @@ SHA256：%3</translation>
         <translation>目前是截圖用的模擬路徑，不會當作可開啟的真實取證。</translation>
     </message>
     <message>
+        <source>要交给维护者的只有两个文件：trace.jsonl 和 trace.jsonl.sha256。它们在同一个目录里，原样发过去就行，没有得出结论的一轮也一样。</source>
+        <translation>要交給維護者的只有兩個檔案：trace.jsonl 和 trace.jsonl.sha256。它們在同一個目錄裡，原樣傳過去就行，沒有得出結論的一輪也一樣。</translation>
+    </message>
+    <message>
+        <source>下面是要交给维护者的文件。每复制出一项就勾一项：勾选只是帮你核对有没有漏，不勾也能继续。</source>
+        <translation>下面是要交給維護者的檔案。每複製出一項就勾一項：勾選只是幫你核對有沒有漏，不勾也能繼續。</translation>
+    </message>
+    <message>
         <source>按需附加</source>
         <translation>按需附加</translation>
     </message>
@@ -6247,6 +6263,10 @@ SHA256：%3</translation>
     <message>
         <source>标识不稳定：角色 A 前后读到的标识不一致。</source>
         <translation>標識不穩定：角色 A 前後讀到的標識不一致。</translation>
+    </message>
+    <message>
+        <source>这一轮没有得出结论：前三步没有全部确认并读到数据。请退出游戏后重做一轮，每一步进入游戏后等十秒左右再确认。</source>
+        <translation>這一輪沒有得出結論：前三步沒有全部確認並讀到資料。請結束遊戲後重做一輪，每一步進入遊戲後等十秒左右再確認。</translation>
     </message>
     <message>
         <source>启动游戏，等到可以登录</source>
@@ -6613,10 +6633,6 @@ SHA256：%3</translation>
         <translation>已儲存 · 未能區分</translation>
     </message>
     <message>
-        <source>已保存 · 还不能判断</source>
-        <translation>已儲存 · 還不能判斷</translation>
-    </message>
-    <message>
         <source>已保存 · 文件 %1 / %2</source>
         <translation>已儲存 · 檔案 %1 / %2</translation>
     </message>
@@ -6651,6 +6667,10 @@ SHA256：%3</translation>
     <message>
         <source>已结束，文件不完整</source>
         <translation>已結束，檔案不完整</translation>
+    </message>
+    <message>
+        <source>已保存 · 没有得出结论</source>
+        <translation>已儲存 · 沒有得出結論</translation>
     </message>
     <message>
         <source>失败</source>

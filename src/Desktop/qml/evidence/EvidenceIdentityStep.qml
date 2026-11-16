@@ -7,9 +7,10 @@ import "../components/Lucide.js" as Lucide
 
 // ③ 轮流登录两个角色 (角色识别采证): the five things to do, one under the other, the
 // next one highlighted. Each row says what to do in the game and has one button to
-// press once it is done; the last two are optional. Nothing is typed, and a step
-// names what was done, never a character. The Collector judges the three logins and
-// the verdict is shown as soon as it has one.
+// press once it is done; the last two are optional. The steps are taken in turn: a
+// button waits until the logins before it are confirmed and read. Nothing is typed,
+// and a step names what was done, never a character. The Collector judges the three
+// logins and the verdict is shown as soon as it has one.
 EvidenceStep {
     id: step
 
@@ -21,7 +22,7 @@ EvidenceStep {
 
     EvidenceHint {
         iconName: "activity"
-        text: qsTr("每一步都先在游戏里做完，进入游戏后等十秒左右再点右边的按钮。换角色时不用关游戏，返回角色选择即可。")
+        text: qsTr("按顺序一步一步来：先在游戏里做完这一步，进入游戏后等十秒左右，再点这一步右边的按钮。换角色时不用关游戏，返回角色选择即可。")
     }
 
     ColumnLayout {
@@ -43,6 +44,7 @@ EvidenceStep {
                 readonly property bool done: !!mark && mark !== "skip" && !retry
                 readonly property bool skipped: mark === "skip"
                 readonly property bool next: step.session.recording && index === step.session.nextMarkIndex
+                                             && step.session.stepReachable(index)
 
                 Layout.fillWidth: true
                 implicitHeight: rowLayout.implicitHeight + 16

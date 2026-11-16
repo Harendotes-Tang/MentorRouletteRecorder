@@ -407,6 +407,12 @@ private Q_SLOTS:
         auto *logs = scene.item(QStringLiteral("evidenceFileAction_log"));
         QVERIFY(logs && logs->isVisible() && logs->isEnabled());
         QVERIFY(scene.item(QStringLiteral("evidenceFile_trace"))->isEnabled());
+        // The list says what its ticks are for; the 角色识别 round's folder row is not here.
+        auto *lead = scene.item(QStringLiteral("evidenceFileListLead"));
+        QVERIFY(lead && lead->isVisible());
+        QVERIFY2(lead->property("text").toString().contains(QString::fromUtf8("不勾也能继续")),
+                 qPrintable(lead->property("text").toString()));
+        QVERIFY(!scene.item(QStringLiteral("evidenceIdentityFiles"))->isVisible());
         QVERIFY(scene.click(QStringLiteral("evidenceToReportButton")));
         QTRY_COMPARE(scene.stepStatus(5), QStringLiteral("cur"));
         const QString report = scene.text(QStringLiteral("evidenceReportText"));

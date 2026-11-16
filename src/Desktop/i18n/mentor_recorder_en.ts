@@ -5791,8 +5791,8 @@ SHA256: %3</translation>
 <context>
     <name>EvidenceIdentityStep</name>
     <message>
-        <source>每一步都先在游戏里做完，进入游戏后等十秒左右再点右边的按钮。换角色时不用关游戏，返回角色选择即可。</source>
-        <translation>Finish each step in the game first, wait about ten seconds after entering, then press the button on the right. To switch characters, return to character selection; there is no need to close the game.</translation>
+        <source>按顺序一步一步来：先在游戏里做完这一步，进入游戏后等十秒左右，再点这一步右边的按钮。换角色时不用关游戏，返回角色选择即可。</source>
+        <translation>Take the steps in order: finish the step in the game, wait about ten seconds after entering, then press the button on the right of that step. To switch characters, return to character selection; there is no need to close the game.</translation>
     </message>
     <message>
         <source>角色识别步骤</source>
@@ -6055,8 +6055,16 @@ SHA256: %3</translation>
         <translation>Copy note</translation>
     </message>
     <message>
+        <source>已复制回传说明，和两个文件一起发给维护者</source>
+        <translation>Report copied. Send it to the maintainer together with the two files</translation>
+    </message>
+    <message>
         <source>已复制回传说明，粘贴到 ZIP 旁边的文字里就行</source>
         <translation>Note copied. Paste it into the message that goes with the ZIP.</translation>
+    </message>
+    <message>
+        <source>私下交给维护者：trace.jsonl、trace.jsonl.sha256 和这段说明。</source>
+        <translation>Hand these to the maintainer privately: trace.jsonl, trace.jsonl.sha256 and this report.</translation>
     </message>
     <message>
         <source>打包成一个 ZIP，私下交给维护者：采证文件、诊断 JSON、截图和这段说明。</source>
@@ -6178,6 +6186,14 @@ SHA256: %3</translation>
         <translation>This is a mock path for screenshots, not a real capture that can be opened.</translation>
     </message>
     <message>
+        <source>要交给维护者的只有两个文件：trace.jsonl 和 trace.jsonl.sha256。它们在同一个目录里，原样发过去就行，没有得出结论的一轮也一样。</source>
+        <translation>Only two files go to the maintainer: trace.jsonl and trace.jsonl.sha256. They are in the same folder; send them as they are, also for a round that reached no result.</translation>
+    </message>
+    <message>
+        <source>下面是要交给维护者的文件。每复制出一项就勾一项：勾选只是帮你核对有没有漏，不勾也能继续。</source>
+        <translation>These are the files to hand to the maintainer. Tick each one as you copy it out: the ticks only help you check that nothing is missed, and you can go on without them.</translation>
+    </message>
+    <message>
         <source>按需附加</source>
         <translation>ONLY IF NEEDED</translation>
     </message>
@@ -6247,6 +6263,10 @@ SHA256: %3</translation>
     <message>
         <source>标识不稳定：角色 A 前后读到的标识不一致。</source>
         <translation>Unstable: character A read as different identifiers at different times.</translation>
+    </message>
+    <message>
+        <source>这一轮没有得出结论：前三步没有全部确认并读到数据。请退出游戏后重做一轮，每一步进入游戏后等十秒左右再确认。</source>
+        <translation>This round reached no result: the first three steps were not all confirmed and read. Quit the game and do the round again, waiting about ten seconds after entering the game before you confirm each step.</translation>
     </message>
     <message>
         <source>启动游戏，等到可以登录</source>
@@ -6613,10 +6633,6 @@ SHA256: %3</translation>
         <translation>Saved · not told apart</translation>
     </message>
     <message>
-        <source>已保存 · 还不能判断</source>
-        <translation>Saved · not decided</translation>
-    </message>
-    <message>
         <source>已保存 · 文件 %1 / %2</source>
         <translation>Saved · %1 / %2 files</translation>
     </message>
@@ -6651,6 +6667,10 @@ SHA256: %3</translation>
     <message>
         <source>已结束，文件不完整</source>
         <translation>Ended; file incomplete</translation>
+    </message>
+    <message>
+        <source>已保存 · 没有得出结论</source>
+        <translation>Saved · no result</translation>
     </message>
     <message>
         <source>失败</source>
