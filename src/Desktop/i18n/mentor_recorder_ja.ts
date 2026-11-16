@@ -5136,8 +5136,12 @@ SHA256：%3</translation>
         <translation>未識別</translation>
     </message>
     <message>
-        <source>%1 次</source>
-        <translation>%1 回</translation>
+        <source>所选通关</source>
+        <translation>選択したクリア</translation>
+    </message>
+    <message>
+        <source>通关次数</source>
+        <translation>クリア回数</translation>
     </message>
 </context>
 <context>
@@ -5536,7 +5540,7 @@ SHA256：%3</translation>
         <translation>表示をカスタマイズ</translation>
     </message>
     <message>
-        <source>设置两张饼图的显示和分类</source>
+        <source>设置两张占比图的显示和分类</source>
         <translation>表示するグラフとカテゴリを選択</translation>
     </message>
     <message>
@@ -7269,6 +7273,10 @@ SHA256：%3</translation>
         <translation>指定のコンテンツ</translation>
     </message>
     <message>
+        <source>%1 等 %2 个副本</source>
+        <translation>%1 など %2 件</translation>
+    </message>
+    <message>
         <source>日期</source>
         <translation>日付</translation>
     </message>
@@ -7451,6 +7459,14 @@ SHA256：%3</translation>
     <message>
         <source>职业：%1</source>
         <translation>ジョブ：%1</translation>
+    </message>
+    <message>
+        <source>职能：%1</source>
+        <translation>ロール：%1</translation>
+    </message>
+    <message>
+        <source>职业：%1 等 %2 个职业</source>
+        <translation>ジョブ：%1 など %2 件</translation>
     </message>
     <message>
         <source>角色：%1</source>
@@ -8423,10 +8439,6 @@ SHA256：%3</translation>
         <translation>不明</translation>
     </message>
     <message>
-        <source>%1%</source>
-        <translation>%1%</translation>
-    </message>
-    <message>
         <source>职业</source>
         <translation>ジョブ</translation>
     </message>
@@ -8445,6 +8457,14 @@ SHA256：%3</translation>
     <message>
         <source>中途加入</source>
         <translation>途中参加</translation>
+    </message>
+    <message>
+        <source>导随次数</source>
+        <translation>メンター回数</translation>
+    </message>
+    <message>
+        <source>还没有导随记录</source>
+        <translation>メンターの記録はまだありません</translation>
     </message>
 </context>
 <context>
@@ -11382,6 +11402,32 @@ SHA256：%3</translation>
     <message>
         <source>已恢复默认播报模板</source>
         <translation>読み上げテンプレートを既定に戻しました</translation>
+    </message>
+</context>
+<context>
+    <name>ShareDonut</name>
+    <message>
+        <source>%1 次</source>
+        <translation>%1 回</translation>
+    </message>
+    <message>
+        <source>：</source>
+        <translation>：</translation>
+    </message>
+    <message>
+        <source>；</source>
+        <translation>、</translation>
+    </message>
+    <message>
+        <source>在历史记录中查看</source>
+        <translation>履歴で表示</translation>
+    </message>
+</context>
+<context>
+    <name>ShareDonutHead</name>
+    <message>
+        <source>点一项查看对应记录</source>
+        <translation>項目をクリックで該当の記録を表示</translation>
     </message>
 </context>
 <context>

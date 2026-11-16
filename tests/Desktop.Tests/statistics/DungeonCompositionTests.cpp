@@ -120,6 +120,29 @@ qint64 count(const QVariantList &buckets, const char *label)
     return bucket(buckets, QString::fromUtf8(label)).value(QStringLiteral("completed_count")).toLongLong();
 }
 
+// The RunFilter part a bucket hands to App.showHistoryForCompletions.
+QVariantMap history(const QVariantList &buckets, const char *label)
+{
+    const QVariantMap found = bucket(buckets, QString::fromUtf8(label));
+    // A label that names no bucket is no "empty filter".
+    if (found.isEmpty())
+        return {{QStringLiteral("missing_bucket"), QString::fromUtf8(label)}};
+    return found.value(QStringLiteral("history_filter")).toMap();
+}
+
+QVariantMap byCategory(const char *category)
+{
+    return {{QStringLiteral("duty_category"), QVariantList{QString::fromUtf8(category)}}};
+}
+
+QVariantMap byContent(std::initializer_list<qint64> ids)
+{
+    QVariantList values;
+    for (const qint64 id : ids)
+        values.append(id);
+    return {{QStringLiteral("content_id"), values}};
+}
+
 qint64 total(const QVariantList &buckets)
 {
     qint64 result = 0;
@@ -265,7 +288,16 @@ private:
         QTRY_COMPARE(scene.controller.jobs()->totalAttemptCount(), 6 + unknown);
         QTRY_COMPARE(qmlList(page->property("rowsCache")).size(), unknown ? 6 : 5);
         QTRY_COMPARE(repeaterCount("jobsTableRows"), unknown ? 6 : 5);
-        QTRY_COMPARE(repeaterCount("jobsRoleLegend"), unknown ? 7 : 6);
+        QTRY_COMPARE(qmlList(page->property("rolesCache")).size(), unknown ? 7 : 6);
+        // The ring's legend: a row for 坦克, 治疗, 其他 and, when it counts
+        // something, 未知; the three roles nobody played share the folded row.
+        const int legendRows = unknown ? 4 : 3;
+        QTRY_VERIFY(scene.item(QStringLiteral("shareDonutRow") + QString::number(legendRows - 1)));
+        QTRY_VERIFY(!scene.item(QStringLiteral("shareDonutRow") + QString::number(legendRows)));
+        QCOMPARE(scene.item(QStringLiteral("shareDonutNumber"))->property("text").toString(),
+                 QString::number(6 + unknown));
+        QCOMPARE(scene.item(QStringLiteral("shareDonutZeroLabel"))->property("text").toString()
+                     .split(QStringLiteral(" · ")).size(), 3);
         QCOMPARE(scene.controller.jobs()->topRows(0).size(), 8);
         const auto rawRoles = scene.controller.jobs()->roleBreakdown();
         QCOMPARE(rawRoles.size(), 7);
@@ -377,6 +409,19 @@ private Q_SLOTS:
                  QStringLiteral("dutyMainScenario"));
         QCOMPARE(bucket(special, QString::fromUtf8("其他副本")).value("color_token").toString(),
                  QStringLiteral("dutyOther"));
+        // What lists a segment's runs in 历史记录: its category, or for 主线副本 the
+        // member duties that were cleared. With no 极神 among the trials the
+        // category is exact for them too. 未识别 and 其他副本 name nothing a
+        // filter can say, and neither does a segment nothing was cleared in.
+        QCOMPARE(history(categories, "四人迷宫"), byCategory("四人迷宫"));
+        QCOMPARE(history(categories, "讨伐歼灭战"), byCategory("讨伐歼灭战"));
+        QCOMPARE(history(categories, "行会令"), byCategory("行会令"));
+        QVERIFY(history(categories, "极神").isEmpty());
+        QVERIFY(history(categories, "未识别").isEmpty());
+        QCOMPARE(history(special, "主线副本"), byContent({15, 16, 830}));
+        QCOMPARE(history(special, "行会令"), byCategory("行会令"));
+        QVERIFY(history(special, "其他副本").isEmpty());
+        QVERIFY(history(special, "未识别").isEmpty());
     }
 
     void specialClassificationUsesCatalogueRatherThanMutableNamesOrRouletteIds()
@@ -474,6 +519,21 @@ private Q_SLOTS:
                                  QStringLiteral("dutyGuild")};
         for (qsizetype i = 0; i < ordinary.size(); ++i)
             QCOMPARE(bucket(categories, ordinary.at(i)).value("color_token").toString(), tokens.at(i));
+        // 极神 is listed by its duties. One trial row here has no number, so the
+        // other trials can only be named by the category, 极神 included.
+        QCOMPARE(history(categories, "极神"), byContent({63, 91}));
+        QCOMPARE(history(categories, "讨伐歼灭战"), byCategory("讨伐歼灭战"));
+        // With every trial numbered, the rest are listed by duty as well, and the
+        // two lists share nothing. A duty nobody cleared is in neither.
+        StatisticsBackend numberedBackend;
+        numberedBackend.rows = {duty(56, trials, 2), duty(63, trials, 3), duty(1118, trials, 5),
+                                duty(57, trials, 0), duty(64, trials, 0)};
+        mr::DungeonStatsModel numbered;
+        numbered.setBackend(&numberedBackend);
+        numbered.reload();
+        QTRY_COMPARE(numbered.rowCount(), 5);
+        QCOMPARE(history(numbered.categoryBreakdown(), "极神"), byContent({63}));
+        QCOMPARE(history(numbered.categoryBreakdown(), "讨伐歼灭战"), byContent({56, 1118}));
         const auto published = model.topRows(0);
         for (qsizetype i = 0; i < published.size(); ++i) {
             const auto source = backend.rows.at(i).toObject();
@@ -682,27 +742,39 @@ private Q_SLOTS:
             const QPointF position = chart->mapToItem(page, QPointF());
             QVERIFY(position.x() >= -0.5);
             QVERIFY(position.x() + chart->width() <= page->width() + 0.5);
-            auto *legend = findItem(chart, QStringLiteral("completionPieLegend"));
-            QVERIFY(legend);
-            for (int index = 0; index < qmlList(chart->property("visibleBuckets")).size(); ++index) {
-                auto *count = findItem(chart, QStringLiteral("completionPieCount") + QString::number(index));
-                auto *share = findItem(chart, QStringLiteral("completionPieShare") + QString::number(index));
+            // The ring, and the legend row of every type that was cleared (the
+            // rest share one folded row), stay inside the card.
+            QVERIFY(findItem(chart, QStringLiteral("shareDonutLegend")));
+            int rows = 0;
+            while (findItem(chart, QStringLiteral("shareDonutRow") + QString::number(rows)))
+                ++rows;
+            QVERIFY(rows > 0);
+            auto *folded = findItem(chart, QStringLiteral("shareDonutZeroRow"));
+            QVERIFY(folded);
+            // 副本类型 has types nobody cleared here; every 主线 / 行会令 group has runs.
+            QCOMPARE(rows, chart == category ? 5 : 4);
+            QCOMPARE(folded->isVisible(), rows < qmlList(chart->property("visibleBuckets")).size());
+            QCOMPARE(folded->isVisible(), chart == category);
+            QList<QQuickItem *> cells{findItem(chart, QStringLiteral("shareDonutRing")), folded};
+            for (int index = 0; index < rows; ++index) {
+                auto *count = findItem(chart, QStringLiteral("shareDonutCount") + QString::number(index));
+                auto *share = findItem(chart, QStringLiteral("shareDonutShare") + QString::number(index));
                 QVERIFY(count && share);
                 QTRY_VERIFY(count->width() > 0 && share->width() > 0);
                 const QPointF countEnd = count->mapToItem(chart, QPointF(count->width(), 0));
                 const QPointF shareStart = share->mapToItem(chart, QPointF());
                 QVERIFY2(shareStart.x() - countEnd.x() <= 12.0,
                          "Completion count and percentage must stay together, not at opposite card edges");
+                cells << findItem(chart, QStringLiteral("shareDonutSwatch") + QString::number(index))
+                      << findItem(chart, QStringLiteral("shareDonutLabel") + QString::number(index))
+                      << count << share;
             }
-            for (QQuickItem *row : legend->childItems()) {
-                if (!row->objectName().startsWith(QLatin1String("completionPieLegendRow")))
-                    continue;
-                for (QQuickItem *cell : row->childItems()) {
-                    const QPointF cellPosition = cell->mapToItem(chart, QPointF());
-                    QVERIFY2(cellPosition.x() >= -0.5
-                             && cellPosition.x() + cell->width() <= chart->width() + 0.5,
-                             qPrintable(cell->objectName()));
-                }
+            for (QQuickItem *cell : cells) {
+                QVERIFY(cell);
+                const QPointF cellPosition = cell->mapToItem(chart, QPointF());
+                QVERIFY2(cellPosition.x() >= -0.5
+                         && cellPosition.x() + cell->width() <= chart->width() + 0.5,
+                         qPrintable(cell->objectName()));
             }
         }
         QTest::qWait(80); // Allow the actual Canvas scene graph to paint, then inspect the PNG.
@@ -792,6 +864,9 @@ private Q_SLOTS:
         QCOMPARE(roles.size(), 7);
         QCOMPARE(roles[5].toMap().value("role_group").toString(), QString::fromUtf8("其他"));
         QCOMPARE(roles[5].toMap().value("attempt_count").toInt(), 2);
+        // A group known by name only has no job number to list its runs by.
+        QVERIFY(roles[5].toMap().contains("history_filter"));
+        QVERIFY(roles[5].toMap().value("history_filter").toMap().isEmpty());
         int sum = 0;
         for (const QVariant &role : roles) sum += role.toMap().value("attempt_count").toInt();
         QCOMPARE(sum, model.totalAttemptCount());
@@ -800,6 +875,85 @@ private Q_SLOTS:
         model.reload();
         QTRY_COMPARE(model.totalAttemptCount(), 0);
         QCOMPARE(model.roleBreakdown().size(), 7); // Known other category retains zero.
+    }
+
+    // 职能占比 is the same ring as the two duty charts (docs/ui-design.md §4.3):
+    // attempts in the middle, a row per role that was played with the game's
+    // role glyph, the rest folded, and a click opening the role's played jobs.
+    void roleRingPicksOutARoleAndOpensItsJobs()
+    {
+        mr::LanguageManager language(nullptr);
+        language.initialize(QStringLiteral("zh-CN"));
+        Scene scene;
+        const auto job = [](const QJsonValue &id, const char *name, int attempts) {
+            return QJsonObject{{"job_id", id}, {"job_name", QString::fromUtf8(name)},
+                               {"attempt_count", attempts}, {"completed_count", attempts}};
+        };
+        // 坦克 6 over two jobs (and a third nobody played), 治疗 3 of which 1 is
+        // known by name only, 未知 1.
+        scene.backend.jobRows = {job(21, "战士", 2), job(19, "骑士", 4), job(32, "暗黑骑士", 0),
+                                 job(24, "白魔法师", 2), job(QJsonValue::Null, "白魔法师", 1),
+                                 job(QJsonValue::Null, "未知", 1)};
+        QVERIFY2(scene.create(QStringLiteral("dark"), QStringLiteral("harendotes"), 1280, false, QStringLiteral("JobsPage")),
+                 qPrintable(scene.errors));
+        QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
+        QTRY_COMPARE(scene.controller.jobs()->totalAttemptCount(), 10);
+        const auto roles = scene.controller.jobs()->roleBreakdown();
+        const auto jobIds = [&](int index) {
+            return QJsonValue::fromVariant(roles[index].toMap().value("history_filter").toMap().value("job_id"));
+        };
+        QCOMPARE(jobIds(0), QJsonValue(QJsonArray{19, 21}));
+        QCOMPARE(jobIds(1), QJsonValue(QJsonArray{24}));
+        QVERIFY(roles[2].toMap().value("history_filter").toMap().isEmpty());
+        QVERIFY(roles.last().toMap().value("history_filter").toMap().isEmpty());
+
+        auto *ring = scene.item(QStringLiteral("jobsDonut"));
+        QVERIFY(ring);
+        const auto text = [&](const char *name) {
+            auto *found = scene.item(QString::fromLatin1(name));
+            return found ? found->property("text").toString() : QStringLiteral("<missing>");
+        };
+        const auto centre = [](QQuickItem *control) {
+            return control->mapToScene(QPointF(control->width() / 2, control->height() / 2)).toPoint();
+        };
+        QTRY_COMPARE(text("shareDonutLabel0"), QString::fromUtf8("坦克"));
+        QCOMPARE(text("shareDonutCount0"), QString::fromUtf8("6 次"));
+        QCOMPARE(text("shareDonutShare0"), QStringLiteral("60.0%"));
+        QCOMPARE(text("shareDonutLabel1"), QString::fromUtf8("治疗"));
+        QCOMPARE(text("shareDonutLabel2"), QString::fromUtf8("未知"));
+        QVERIFY(!scene.item(QStringLiteral("shareDonutRow3")));
+        QCOMPARE(text("shareDonutZeroLabel"), QString::fromUtf8("近战 · 远程物理 · 魔法"));
+        QCOMPARE(text("shareDonutNumber"), QStringLiteral("10"));
+        QCOMPARE(text("shareDonutCaption"), QString::fromUtf8("导随次数"));
+        auto *glyph = scene.item(QStringLiteral("shareDonutRole0"));
+        QVERIFY(glyph && glyph->isVisible());
+        QCOMPARE(glyph->property("role").toString(), QString::fromUtf8("坦克"));
+        // The ring sits above its legend in the 320 px card.
+        auto *art = scene.item(QStringLiteral("shareDonutRing"));
+        auto *legend = scene.item(QStringLiteral("shareDonutLegend"));
+        QVERIFY(art && legend);
+        QTRY_VERIFY(legend->mapToScene(QPointF()).y() >= art->mapToScene(QPointF(0, art->height())).y());
+
+        // 治疗 picked out by the pointer: its attempts and share in the middle.
+        QTest::mouseMove(scene.window(), centre(scene.item(QStringLiteral("shareDonutRow1"))));
+        QTRY_COMPARE(ring->property("hotKey").toString(), QString::fromUtf8("治疗"));
+        QCOMPARE(text("shareDonutNumber"), QStringLiteral("3"));
+        QCOMPARE(text("shareDonutShare"), QStringLiteral("30.0%"));
+        QTRY_COMPARE(scene.item(QStringLiteral("shareDonutSegment0"))->opacity(), 0.28);
+        // 未知 is the neutral remainder and stays as it is.
+        QCOMPARE(scene.item(QStringLiteral("shareDonutSegment2"))->opacity(), 1.0);
+        QVERIFY(scene.capture(QStringLiteral("role-ring-hover.png")));
+
+        // 未知 names no job, so a click on it stays here; 坦克 opens its two jobs.
+        QTest::mouseClick(scene.window(), Qt::LeftButton, Qt::NoModifier, centre(scene.item(QStringLiteral("shareDonutRow2"))));
+        QCOMPARE(scene.controller.currentPage(), 0);
+        QVERIFY(!scene.controller.historyFilter().contains(QStringLiteral("job_id")));
+        QTest::mouseClick(scene.window(), Qt::LeftButton, Qt::NoModifier, centre(scene.item(QStringLiteral("shareDonutRow0"))));
+        QTRY_COMPARE(scene.controller.currentPage(), 1);
+        const QVariantMap filter = scene.controller.historyFilter();
+        QCOMPARE(QJsonValue::fromVariant(filter.value(QStringLiteral("job_id"))), QJsonValue(QJsonArray{19, 21}));
+        QVERIFY(!filter.contains(QStringLiteral("result")));
+        QVERIFY2(scene.warnings.isEmpty(), qPrintable(scene.warnings.join(QLatin1Char('\n'))));
     }
 
     void statisticsHideOnlyZeroPlaceholders_data()
@@ -879,9 +1033,16 @@ private Q_SLOTS:
                         QCOMPARE(total(raw), static_cast<qint64>(1 + unknown));
                         for (qsizetype i = 0; i < raw.size() - 1; ++i)
                             QVERIFY(!raw[i].toMap().value("is_unknown").toBool());
-                        const int shown = rawSize - (unknown == 0 ? 1 : 0);
-                        QVERIFY(findItem(chart, QStringLiteral("completionPieLegendRow") + QString::number(shown - 1)));
-                        QVERIFY(!findItem(chart, QStringLiteral("completionPieLegendRow") + QString::number(shown)));
+                        // One legend row per bucket that counts something; the
+                        // known buckets at zero share the folded row, and a
+                        // zero 未识别 is in neither.
+                        const int shown = 1 + (unknown == 0 ? 0 : 1);
+                        QTRY_VERIFY(findItem(chart, QStringLiteral("shareDonutRow") + QString::number(shown - 1)));
+                        QTRY_VERIFY(!findItem(chart, QStringLiteral("shareDonutRow") + QString::number(shown)));
+                        auto *folded = findItem(chart, QStringLiteral("shareDonutZeroLabel"));
+                        QVERIFY(folded && folded->isVisible());
+                        QCOMPARE(folded->property("text").toString().split(QStringLiteral(" · ")).size(), rawSize - 2);
+                        QVERIFY(!folded->property("text").toString().contains(raw.last().toMap().value("label").toString()));
                     }
                 } else if (pageType == QLatin1String("JobsPage")) {
                     if (!translated) {
@@ -917,7 +1078,12 @@ private Q_SLOTS:
             scene.backend.jobRows = {};
             scene.controller.jobs()->reload();
             QTRY_COMPARE(scene.controller.jobs()->rowCount(), 0);
-            QTRY_COMPARE(repeaterCount("jobsRoleLegend"), 5);
+            // No rows at all: the five roles are known, nothing is drawn for them.
+            QTRY_COMPARE(qmlList(page->property("rolesCache")).size(), 5);
+            QTRY_VERIFY(!scene.item(QStringLiteral("shareDonutRow0")));
+            QVERIFY(scene.item(QStringLiteral("shareDonutEmpty"))->isVisible());
+            QVERIFY(scene.item(QStringLiteral("shareDonutTrack"))->isVisible());
+            QCOMPARE(scene.item(QStringLiteral("shareDonutNumber"))->property("text").toString(), QStringLiteral("0"));
             scene.backend.fail = true;
             scene.controller.jobs()->reload();
             QTRY_VERIFY(!scene.controller.jobs()->loadError().isEmpty());
@@ -1042,11 +1208,14 @@ private Q_SLOTS:
         auto *chart = scene.item(QStringLiteral("dungeonSpecialPie"));
         QVERIFY(chart);
         QTRY_COMPARE(chart->property("completedTotal").toDouble(), 0.0);
-        auto *empty = findItem(chart, QStringLiteral("completionPieEmpty"));
+        // Nothing cleared: the bare track around a 0, the reason in the legend,
+        // and neither a row nor the folded row of zeros.
+        auto *empty = findItem(chart, QStringLiteral("shareDonutEmpty"));
         QVERIFY(empty && empty->isVisible());
-        auto *share = findItem(chart, QStringLiteral("completionPieShare0"));
-        QVERIFY(share);
-        QCOMPARE(share->property("text").toString(), QString::fromUtf8("—"));
+        QVERIFY(findItem(chart, QStringLiteral("shareDonutTrack"))->isVisible());
+        QCOMPARE(findItem(chart, QStringLiteral("shareDonutNumber"))->property("text").toString(), QStringLiteral("0"));
+        QVERIFY(!findItem(chart, QStringLiteral("shareDonutRow0")));
+        QVERIFY(!findItem(chart, QStringLiteral("shareDonutZeroRow"))->isVisible());
         QCOMPARE(qmlList(chart->property("buckets")).size(), 4);
         QCOMPARE(qmlList(chart->property("visibleBuckets")).size(), 3);
         scene.backend.fail = true;

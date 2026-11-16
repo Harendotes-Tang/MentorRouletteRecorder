@@ -1941,24 +1941,39 @@ private Q_SLOTS:
         shell.controller->recording()->setUserObservation(false);
     }
 
-    // 审查 OK-9：职业占比的圆环只在深浅色切换时重画，换界面风格后仍是旧配色。
+    // 审查 OK-9：职能占比的圆环曾只在深浅色切换时重画，换界面风格后仍是旧配色。
+    // 现在分段的颜色随数据绑定：换风格后图例色块是新配色，圆环分段按同一颜色重画。
     void theJobDonutRepaintsWhenTheStyleChanges()
     {
         Shell shell;
         const QString before = shell.settings.uiStyle();
         const auto restore = qScopeGuard([&] { shell.settings.setUiStyle(before); });
         shell.settings.setUiStyle(QStringLiteral("classic"));
+        shell.backend.answers.insert(QStringLiteral("GetJobStats"), QJsonObject{
+            {QStringLiteral("items"), QJsonArray{QJsonObject{
+                {QStringLiteral("job_id"), 19}, {QStringLiteral("job_name"), QString::fromUtf8("骑士")},
+                {QStringLiteral("attempt_count"), 3}, {QStringLiteral("completed_count"), 3}}}},
+            {QStringLiteral("distinct_count"), 1},
+            {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("page"), 1},
+                {QStringLiteral("page_size"), 200}, {QStringLiteral("total"), 1}}}});
         QVERIFY2(shell.create(), qPrintable(shell.errors));
         shell.controller->navigate(3);
+        shell.controller->jobs()->reload();
         auto *donut = shell.item(QStringLiteral("jobsDonut"));
         QVERIFY(donut);
         QTRY_VERIFY(donut->isVisible());
-        QTest::qWait(200);
-        QSignalSpy paints(donut, SIGNAL(paint(QRect)));
-        QVERIFY(paints.isValid());
+        const auto tone = [&](const char *name, const char *property) {
+            auto *found = findItem(donut, QString::fromLatin1(name));
+            return found ? found->property(property).value<QColor>() : QColor();
+        };
+        QTRY_VERIFY(tone("shareDonutSwatch0", "color").isValid());
+        const QColor classic = tone("shareDonutSwatch0", "color");
+        QCOMPARE(tone("shareDonutSegment0", "tone"), classic);
 
         shell.settings.setUiStyle(QStringLiteral("eorzea"));
-        QTRY_VERIFY_WITH_TIMEOUT(paints.count() > 0, 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(tone("shareDonutSwatch0", "color").isValid()
+                                 && tone("shareDonutSwatch0", "color") != classic, 2000);
+        QTRY_COMPARE(tone("shareDonutSegment0", "tone"), tone("shareDonutSwatch0", "color"));
     }
 
     // 业主要求（2026-10-04）：总览成就卡片上的「修改」此前只打开设置的第一页（通用）。

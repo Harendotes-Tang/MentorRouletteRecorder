@@ -1950,6 +1950,42 @@ void AppController::showHistoryForJob(const QVariant &jobId)
     navigate(1);
 }
 
+// A chart segment counts completions under the statistics pages' region, so
+// the list it opens is those runs: the segment's own constraint, 通关, and the
+// same region. A segment no filter can name (未识别, 其他副本) sends nothing
+// and the chart does not offer the jump.
+void AppController::showHistoryForCompletions(const QVariantMap &constraint)
+{
+    QVariantMap filter;
+    for (const QString &key : {QStringLiteral("duty_category"), QStringLiteral("content_id")}) {
+        const QVariantList values = constraint.value(key).toList();
+        if (!values.isEmpty())
+            filter.insert(key, values);
+    }
+    if (filter.isEmpty())
+        return;
+    filter.insert(QStringLiteral("result"), QVariantList{QStringLiteral("COMPLETED")});
+    if (!recordRegion().isEmpty()) filter.insert(QStringLiteral("region"), recordRegion());
+    setHistoryFilter(filter);
+    clearSelection();
+    navigate(1);
+}
+
+// The role chart counts attempts, as the job rows do, so its jump is the
+// row's (showHistoryForJob) for several jobs at once.
+void AppController::showHistoryForJobs(const QVariantMap &constraint)
+{
+    const QVariantList jobIds = constraint.value(QStringLiteral("job_id")).toList();
+    if (jobIds.isEmpty())
+        return;
+    QVariantMap filter;
+    filter.insert(QStringLiteral("job_id"), jobIds);
+    if (!recordRegion().isEmpty()) filter.insert(QStringLiteral("region"), recordRegion());
+    setHistoryFilter(filter);
+    clearSelection();
+    navigate(1);
+}
+
 // ---------------------------------------------------------------------------
 // Capture commands
 // ---------------------------------------------------------------------------

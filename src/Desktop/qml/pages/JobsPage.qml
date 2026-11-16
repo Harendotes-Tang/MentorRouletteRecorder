@@ -57,7 +57,33 @@ Item {
             || (Theme.jobName(row) || unknown) !== unknown)
         rolesCache = Runtime.app.jobs.roleBreakdown().filter(row => row.role_group !== "未知"
             || Number(row.attempt_count || 0) !== 0)
-        donut.requestPaint()
+    }
+
+    // The role ring and its legend (ShareDonut): the groups in the model's
+    // order, each in its palette colour with the game's role glyph. 未知 is the
+    // neutral remainder.
+    readonly property var roleItems: rolesCache.map(row => ({
+        key: row.role_group,
+        label: Theme.roleGroupName(row.role_group),
+        color: Theme.token(row.color_token || "neutral500"),
+        count: Number(row.attempt_count || 0),
+        linkable: page.hasHistory(row),
+        quiet: row.role_group === "未知",
+        role: row.role_group
+    }))
+
+    function hasHistory(row) {
+        const filter = row.history_filter
+        return filter !== undefined && filter !== null && Object.keys(filter).length > 0
+    }
+
+    function showHistoryForRole(roleGroup) {
+        for (const row of rolesCache) {
+            if (row.role_group === roleGroup && hasHistory(row)) {
+                Runtime.app.showHistoryForJobs(row.history_filter)
+                return
+            }
+        }
     }
 
     Component.onCompleted: reloadRows()
@@ -65,14 +91,6 @@ Item {
     Connections {
         target: Runtime.app.jobs
         function onCountChanged() { page.reloadRows() }
-    }
-
-    // The donut is painted, not bound: a theme or a style switch has to ask
-    // for the new colours (review OK-9).
-    Connections {
-        target: Theme
-        function onDarkChanged() { donut.requestPaint() }
-        function onUiStyleChanged() { donut.requestPaint() }
     }
 
     Flickable {
@@ -121,111 +139,39 @@ Item {
                 Layout.alignment: Qt.AlignTop
                 spacing: 12
 
-                // ------------------------------------------------ 职业占比 --
+                // ------------------------------------------------ 职能占比 --
                 Card {
+                    id: roleCard
+                    objectName: "jobsRoleCard"
                     Layout.preferredWidth: 320
                     Layout.alignment: Qt.AlignTop
                     padding: 20
+                    spacing: 12
 
-                    CardKicker { text: qsTr("职能占比") }
-
-                    Canvas {
-                        id: donut
-                        objectName: "jobsDonut"
-
-                        Layout.preferredWidth: 200
-                        Layout.preferredHeight: 200
-                        Layout.alignment: Qt.AlignHCenter
-
-                        onPaint: {
-                            const context = getContext("2d")
-                            context.reset()
-                            let total = 0
-                            for (let index = 0; index < page.rolesCache.length; ++index)
-                                total += Number(page.rolesCache[index].attempt_count || 0)
-                            if (total <= 0)
-                                return
-                            let start = -Math.PI / 2
-                            context.lineWidth = 28
-                            context.lineCap = "butt"
-                            for (let roleIndex = 0; roleIndex < page.rolesCache.length; ++roleIndex) {
-                                const row = page.rolesCache[roleIndex]
-                                const span = Math.PI * 2 * Number(row.attempt_count || 0) / total
-                                if (span <= 0)
-                                    continue
-                                context.beginPath()
-                                context.strokeStyle = Theme.token(row.color_token || "neutral500")
-                                context.arc(100, 100, 80, start, start + span)
-                                context.stroke()
-                                start += span
-                            }
-                        }
+                    Connections {
+                        target: roleCard.pageHost
+                        enabled: roleCard.pageHost !== null
+                        function onEntered() { donut.playEntrance() }
                     }
 
-                    ColumnLayout {
+                    ShareDonutHead {
                         Layout.fillWidth: true
-                        spacing: 6
+                        title: qsTr("职能占比")
+                        hintVisible: donut.linkable
+                    }
 
-                        Repeater {
-                            objectName: "jobsRoleLegend"
-                            model: page.rolesCache
-
-                            delegate: RowLayout {
-                                id: roleLegendRow
-                                required property var modelData
-                                required property int index
-                                objectName: "jobsRoleLegendRow" + index
-
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 22
-                                spacing: 8
-
-                                // The donut uses the palette colours; the legend
-                                // keeps a thin accent beside the game glyph to
-                                // tie the two together.
-                                Rectangle {
-                                    Layout.preferredWidth: 3
-                                    Layout.preferredHeight: 16
-                                    radius: 1.5
-                                    color: Theme.token(roleLegendRow.modelData.color_token || "neutral500")
-                                }
-
-                                RoleIcon {
-                                    role: roleLegendRow.modelData.role_group || qsTr("未知")
-                                    size: 20
-                                }
-
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: Theme.roleGroupName(roleLegendRow.modelData.role_group)
-                                    color: Theme.textPrimary
-                                    font.pixelSize: Theme.fs(12)
-                                }
-
-                                Text {
-                                    Layout.preferredWidth: 44
-                                    text: qsTr("%1%").arg(Math.round(1000 * Number(roleLegendRow.modelData.attempt_count || 0)
-                                                                  / Math.max(1, Runtime.app.jobs.totalAttemptCount)) / 10)
-                                    color: Theme.textSecondary
-                                    font.pixelSize: Theme.fs(12)
-                                    horizontalAlignment: Text.AlignRight
-                                    font.family: Theme.figureFamily
-                                    font.weight: Theme.figureWeight(false)
-                                    font.features: ({ "tnum": 1 })
-                                }
-
-                                Text {
-                                    Layout.preferredWidth: 28
-                                    text: String(roleLegendRow.modelData.attempt_count || 0)
-                                    color: Theme.textPrimary
-                                    font.pixelSize: Theme.fs(12)
-                                    font.weight: Theme.figureWeight(true)
-                                    horizontalAlignment: Text.AlignRight
-                                    font.family: Theme.figureFamily
-                                    font.features: ({ "tnum": 1 })
-                                }
-                            }
-                        }
+                    // The ring's colours are bound through roleItems, so a theme
+                    // or a style switch rebuilds its segments (review OK-9).
+                    ShareDonut {
+                        id: donut
+                        objectName: "jobsDonut"
+                        Layout.fillWidth: true
+                        stacked: true
+                        title: qsTr("职能占比")
+                        items: page.roleItems
+                        caption: qsTr("导随次数")
+                        emptyText: qsTr("还没有导随记录")
+                        onActivated: function(key) { page.showHistoryForRole(key) }
                     }
                 }
 

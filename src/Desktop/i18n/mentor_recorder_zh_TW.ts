@@ -5136,8 +5136,12 @@ SHA256：%3</translation>
         <translation>未辨識</translation>
     </message>
     <message>
-        <source>%1 次</source>
-        <translation>%1 次</translation>
+        <source>所选通关</source>
+        <translation>所選通關</translation>
+    </message>
+    <message>
+        <source>通关次数</source>
+        <translation>通關次數</translation>
     </message>
 </context>
 <context>
@@ -5536,8 +5540,8 @@ SHA256：%3</translation>
         <translation>自訂顯示</translation>
     </message>
     <message>
-        <source>设置两张饼图的显示和分类</source>
-        <translation>設定兩張圓餅圖的顯示和分類</translation>
+        <source>设置两张占比图的显示和分类</source>
+        <translation>設定兩張佔比圖的顯示和分類</translation>
     </message>
     <message>
         <source>仅调整本页图表，选择会自动保存。</source>
@@ -7269,6 +7273,10 @@ SHA256：%3</translation>
         <translation>指定副本</translation>
     </message>
     <message>
+        <source>%1 等 %2 个副本</source>
+        <translation>%1 等 %2 個副本</translation>
+    </message>
+    <message>
         <source>日期</source>
         <translation>日期</translation>
     </message>
@@ -7451,6 +7459,14 @@ SHA256：%3</translation>
     <message>
         <source>职业：%1</source>
         <translation>職業：%1</translation>
+    </message>
+    <message>
+        <source>职能：%1</source>
+        <translation>職能：%1</translation>
+    </message>
+    <message>
+        <source>职业：%1 等 %2 个职业</source>
+        <translation>職業：%1 等 %2 個職業</translation>
     </message>
     <message>
         <source>角色：%1</source>
@@ -8423,10 +8439,6 @@ SHA256：%3</translation>
         <translation>未知</translation>
     </message>
     <message>
-        <source>%1%</source>
-        <translation>%1%</translation>
-    </message>
-    <message>
         <source>职业</source>
         <translation>職業</translation>
     </message>
@@ -8445,6 +8457,14 @@ SHA256：%3</translation>
     <message>
         <source>中途加入</source>
         <translation>中途加入</translation>
+    </message>
+    <message>
+        <source>导随次数</source>
+        <translation>導隨次數</translation>
+    </message>
+    <message>
+        <source>还没有导随记录</source>
+        <translation>還沒有導隨記錄</translation>
     </message>
 </context>
 <context>
@@ -11382,6 +11402,32 @@ SHA256：%3</translation>
     <message>
         <source>已恢复默认播报模板</source>
         <translation>已還原預設播報範本</translation>
+    </message>
+</context>
+<context>
+    <name>ShareDonut</name>
+    <message>
+        <source>%1 次</source>
+        <translation>%1 次</translation>
+    </message>
+    <message>
+        <source>：</source>
+        <translation>：</translation>
+    </message>
+    <message>
+        <source>；</source>
+        <translation>；</translation>
+    </message>
+    <message>
+        <source>在历史记录中查看</source>
+        <translation>在歷史記錄中檢視</translation>
+    </message>
+</context>
+<context>
+    <name>ShareDonutHead</name>
+    <message>
+        <source>点一项查看对应记录</source>
+        <translation>點一項檢視對應記錄</translation>
     </message>
 </context>
 <context>

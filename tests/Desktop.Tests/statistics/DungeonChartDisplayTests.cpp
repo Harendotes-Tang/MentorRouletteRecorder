@@ -266,15 +266,25 @@ private slots:
         mr::LanguageManager language{nullptr};
         language.initialize(QStringLiteral("zh-CN"));
         ChartScene scene;
+        // Only a type that was cleared has a swatch, so every type is: 四人迷宫
+        // (two duties, one of them 主线副本), 讨伐歼灭战, 极神 (content 63), 大型任务,
+        // 团队任务 and 行会令, in falling counts, which is the legend's order.
+        const auto cleared = [](const QJsonValue &id, const char *category, int completions) {
+            return QJsonObject{{"content_id", id}, {"duty_category", QString::fromUtf8(category)},
+                               {"completed_count", completions}, {"attempt_count", completions}};
+        };
+        scene.backend.rows = {cleared(15, "四人迷宫", 20), cleared(1, "四人迷宫", 10), cleared(999999, "讨伐歼灭战", 9),
+                              cleared(63, "讨伐歼灭战", 8), cleared(QJsonValue::Null, "大型任务", 7),
+                              cleared(QJsonValue::Null, "团队任务", 6), cleared(42, "行会令", 5)};
         QVERIFY2(scene.create(QStringLiteral("dark"), 1280, QString::fromLatin1(QTest::currentDataTag())),
                  qPrintable(scene.errors));
         QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
-        QTRY_COMPARE(scene.controller.dungeons()->totalCompletedCount(), 100);
+        QTRY_COMPARE(scene.controller.dungeons()->totalCompletedCount(), 65);
         auto *types = scene.find(QStringLiteral("dungeonCategoryPie"));
         auto *special = scene.find(QStringLiteral("dungeonSpecialPie"));
         QVERIFY(types && special);
         const auto swatch = [](QQuickItem *chart, int row) {
-            auto *found = item(chart, QStringLiteral("completionPieSwatch%1").arg(row));
+            auto *found = item(chart, QStringLiteral("shareDonutSwatch%1").arg(row));
             return found ? found->property("color").value<QColor>().name() : QString();
         };
         QString quietInDark;
@@ -296,6 +306,126 @@ private slots:
             QVERIFY(scene.capture(QString::fromLatin1(QTest::currentDataTag()) + QLatin1Char('-') + theme
                                   + QStringLiteral("-type-colours.png")));
         }
+        QVERIFY2(scene.warnings.isEmpty(), qPrintable(scene.warnings.join(QLatin1Char('\n'))));
+    }
+    // The ring (docs/ui-design.md §4.3): the total in the middle, a legend row
+    // per type that was cleared in falling order with the rest folded into one
+    // row, the item under the pointer or the keyboard focus picked out, and a
+    // click or Enter opening that item's completed runs in 历史记录.
+    void ringPicksOutOneItemAndOpensItsRuns()
+    {
+        mr::LanguageManager language{nullptr};
+        language.initialize(QStringLiteral("zh-CN"));
+        ChartScene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
+        QTRY_COMPARE(scene.controller.dungeons()->totalCompletedCount(), 100);
+        auto *types = scene.find(QStringLiteral("dungeonCategoryPie"));
+        auto *special = scene.find(QStringLiteral("dungeonSpecialPie"));
+        QVERIFY(types && special);
+        const auto text = [](QQuickItem *chart, const char *name) {
+            auto *found = item(chart, QString::fromLatin1(name));
+            return found ? found->property("text").toString() : QStringLiteral("<missing>");
+        };
+        const auto centre = [](QQuickItem *control) {
+            return control->mapToScene(QPointF(control->width() / 2, control->height() / 2)).toPoint();
+        };
+        const QString guildhests = QString::fromUtf8("行会令");
+
+        // 四人迷宫 70 and 行会令 30 of 100; the four types nobody cleared share a row.
+        QTRY_COMPARE(text(types, "shareDonutLabel0"), QString::fromUtf8("四人迷宫"));
+        QCOMPARE(text(types, "shareDonutCount0"), QString::fromUtf8("70 次"));
+        QCOMPARE(text(types, "shareDonutShare0"), QStringLiteral("70.0%"));
+        QCOMPARE(text(types, "shareDonutLabel1"), guildhests);
+        QVERIFY(!item(types, QStringLiteral("shareDonutRow2")));
+        QCOMPARE(text(types, "shareDonutZeroLabel"), QString::fromUtf8("讨伐歼灭战 · 极神 · 大型任务 · 团队任务"));
+        QCOMPARE(text(types, "shareDonutNumber"), QStringLiteral("100"));
+        QCOMPARE(text(types, "shareDonutCaption"), QString::fromUtf8("通关次数"));
+        QVERIFY(!item(types, QStringLiteral("shareDonutShare"))->isVisible());
+        QVERIFY(item(types, QStringLiteral("compositionHint"))->isVisible());
+        QVERIFY(!item(types, QStringLiteral("shareDonutTrack"))->isVisible());
+
+        // The pointer on a legend row: that item in the middle, the other segment faded.
+        auto *first = item(types, QStringLiteral("shareDonutSegment0"));
+        auto *second = item(types, QStringLiteral("shareDonutSegment1"));
+        QVERIFY(first && second);
+        QTest::mouseMove(scene.window(), centre(item(types, QStringLiteral("shareDonutRow1"))));
+        QTRY_COMPARE(types->property("highlightedKey").toString(), QString::fromUtf8("category:行会令"));
+        QCOMPARE(text(types, "shareDonutNumber"), QStringLiteral("30"));
+        QCOMPARE(text(types, "shareDonutCaption"), guildhests);
+        QVERIFY(item(types, QStringLiteral("shareDonutShare"))->isVisible());
+        QCOMPARE(text(types, "shareDonutShare"), QStringLiteral("30.0%"));
+        QTRY_COMPARE(first->opacity(), 0.28);
+        QCOMPARE(second->opacity(), 1.0);
+        QTRY_COMPARE(second->property("strokeWidth").toDouble(), 23.0);
+        QCOMPARE(first->property("strokeWidth").toDouble(), 18.0);
+        QCOMPARE(special->property("highlightedKey").toString(), QString());
+        QVERIFY(scene.capture(QStringLiteral("ring-row-hover.png")));
+        QTest::mouseMove(scene.window(), QPoint(2, 2));
+        QTRY_COMPARE(types->property("highlightedKey").toString(), QString());
+        QCOMPARE(text(types, "shareDonutNumber"), QStringLiteral("100"));
+        QTRY_COMPARE(first->opacity(), 1.0);
+
+        // Keyboard focus does the same, Tab moves on, and Enter opens the runs:
+        // the type, 通关, and the statistics pages' region.
+        scene.controller.setRecordRegion(QStringLiteral("CN"));
+        QTRY_COMPARE(scene.controller.dungeons()->totalCompletedCount(), 100);
+        QTRY_VERIFY(item(types, QStringLiteral("shareDonutRow0")));
+        item(types, QStringLiteral("shareDonutRow0"))->forceActiveFocus(Qt::TabFocusReason);
+        QTRY_COMPARE(types->property("highlightedKey").toString(), QString::fromUtf8("category:四人迷宫"));
+        QCOMPARE(text(types, "shareDonutNumber"), QStringLiteral("70"));
+        QTest::keyClick(scene.window(), Qt::Key_Tab);
+        QTRY_COMPARE(types->property("highlightedKey").toString(), QString::fromUtf8("category:行会令"));
+        QVERIFY(scene.capture(QStringLiteral("ring-keyboard-focus.png")));
+        QCOMPARE(scene.controller.currentPage(), 0);
+        QTest::keyClick(scene.window(), Qt::Key_Return);
+        QTRY_COMPARE(scene.controller.currentPage(), 1);
+        QVariantMap filter = scene.controller.historyFilter();
+        QCOMPARE(filter.value(QStringLiteral("duty_category")).toList(), QVariantList{guildhests});
+        QCOMPARE(filter.value(QStringLiteral("result")).toList(), QVariantList{QStringLiteral("COMPLETED")});
+        QCOMPARE(filter.value(QStringLiteral("region")).toString(), QStringLiteral("CN"));
+        QVERIFY(!filter.contains(QStringLiteral("content_id")));
+
+        // On the ring itself: 主线副本 is the first 60 %, so 3 o'clock is inside it.
+        // It is a list of duties, and that list is what the click opens.
+        scene.controller.navigate(0);
+        auto *ring = item(special, QStringLiteral("shareDonutRing"));
+        QVERIFY(ring);
+        const QPoint threeOClock = ring->mapToScene(QPointF(ring->width() / 2 + 65, ring->height() / 2)).toPoint();
+        QTest::mouseMove(scene.window(), threeOClock);
+        QTRY_COMPARE(special->property("highlightedKey").toString(), QStringLiteral("main-scenario"));
+        QCOMPARE(text(special, "shareDonutNumber"), QStringLiteral("60"));
+        QCOMPARE(text(special, "shareDonutShare"), QStringLiteral("60.0%"));
+        // The hole in the middle belongs to no segment.
+        QTest::mouseMove(scene.window(), centre(ring));
+        QTRY_COMPARE(special->property("highlightedKey").toString(), QString());
+        QTest::mouseClick(scene.window(), Qt::LeftButton, Qt::NoModifier, centre(ring));
+        QCOMPARE(scene.controller.currentPage(), 0);
+        QTest::mouseClick(scene.window(), Qt::LeftButton, Qt::NoModifier, threeOClock);
+        QTRY_COMPARE(scene.controller.currentPage(), 1);
+        filter = scene.controller.historyFilter();
+        QCOMPARE(filter.value(QStringLiteral("content_id")).toList().size(), 1);
+        QCOMPARE(filter.value(QStringLiteral("content_id")).toList().first().toInt(), 15);
+        QCOMPARE(filter.value(QStringLiteral("result")).toList(), QVariantList{QStringLiteral("COMPLETED")});
+        QVERIFY(!filter.contains(QStringLiteral("duty_category")));
+
+        // 其他副本 is "neither of the two", which no filter says: it is picked
+        // out like any item, never faded by another, and a click stays here.
+        scene.controller.navigate(0);
+        scene.controller.resetHistoryFilter();
+        auto *other = item(special, QStringLiteral("shareDonutRow2"));
+        QVERIFY(other);
+        QCOMPARE(text(special, "shareDonutLabel2"), QString::fromUtf8("其他副本"));
+        QTest::mouseMove(scene.window(), centre(other));
+        QTRY_COMPARE(special->property("highlightedKey").toString(), QStringLiteral("other"));
+        QTRY_COMPARE(item(special, QStringLiteral("shareDonutSegment0"))->opacity(), 0.28);
+        QTest::mouseClick(scene.window(), Qt::LeftButton, Qt::NoModifier, centre(other));
+        QTest::mouseMove(scene.window(), centre(item(special, QStringLiteral("shareDonutRow0"))));
+        QTRY_COMPARE(special->property("highlightedKey").toString(), QStringLiteral("main-scenario"));
+        QTRY_COMPARE(item(special, QStringLiteral("shareDonutSegment1"))->opacity(), 0.28);
+        QCOMPARE(item(special, QStringLiteral("shareDonutSegment2"))->opacity(), 1.0);
+        QCOMPARE(scene.controller.currentPage(), 0);
+        QVERIFY(!scene.controller.historyFilter().contains(QStringLiteral("result")));
         QVERIFY2(scene.warnings.isEmpty(), qPrintable(scene.warnings.join(QLatin1Char('\n'))));
     }
     void controlsRemainReachableAndLabelsFollowLanguage_data()
@@ -332,7 +462,10 @@ private slots:
         QVERIFY(!zeroSelection.isEmpty());
         for (const auto &value : zeroSelection)
             QVERIFY(value.toMap().value("share").isNull());
-        QCOMPARE(item(chart, QStringLiteral("completionPieShare0"))->property("text").toString(), QString::fromUtf8("—"));
+        // Nothing left to draw: no rows, the reason instead, and a 0 in the ring.
+        QTRY_VERIFY(!item(chart, QStringLiteral("shareDonutRow0")));
+        QVERIFY(item(chart, QStringLiteral("shareDonutEmpty"))->isVisible());
+        QCOMPARE(item(chart, QStringLiteral("shareDonutNumber"))->property("text").toString(), QStringLiteral("0"));
         scene.backend.rows.append(QJsonObject{{"content_id", QJsonValue::Null},
             {"duty_category", QString::fromUtf8("新增分类")}, {"completed_count", 5}, {"attempt_count", 5}});
         scene.controller.dungeons()->reload();
@@ -386,7 +519,7 @@ private slots:
         }
         QTRY_COMPARE(list(chart->property("selectedBuckets")).size(), 0);
         QCOMPARE(chart->property("completedTotal").toDouble(), 0.0);
-        QVERIFY(item(chart, QStringLiteral("completionPieEmpty"))->isVisible());
+        QVERIFY(item(chart, QStringLiteral("shareDonutEmpty"))->isVisible());
         QVERIFY(scene.capture(QString::fromLatin1(QTest::currentDataTag()) + QStringLiteral("-empty.png")));
         QVERIFY(scene.click(QStringLiteral("categoryChartVisibility")));
         QVERIFY(scene.click(QStringLiteral("customizeDungeonCharts")));

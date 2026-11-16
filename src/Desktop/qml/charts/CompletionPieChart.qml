@@ -4,9 +4,10 @@ import QtQuick
 import QtQuick.Layouts
 import MentorRecorder 1.0
 
-// The same Canvas and bucket snapshot render with Qt Graphs present or absent.
-// Raw counts come from DungeonStatsModel, never from table Top-N. Only this
-// view's optional selection changes the denominator; raw buckets stay intact.
+// One composition card of 副本统计: a ring of completion shares with its legend
+// (ShareDonut). Raw counts come from DungeonStatsModel, never from table Top-N.
+// Only this view's optional selection changes the denominator; raw buckets stay
+// intact. A bucket with a `history_filter` opens its runs (`bucketActivated`).
 Card {
     id: root
 
@@ -14,6 +15,8 @@ Card {
     property string detail: ""
     property var buckets: []
     property var hiddenBucketKeys: []
+    /// Largest share first, as the type chart is read; 未识别 stays last.
+    property bool sortByCount: false
     readonly property var selectedBuckets: {
         const selected = buckets.filter(bucket => hiddenBucketKeys.indexOf(bucket.key) < 0)
         let total = 0
@@ -32,189 +35,78 @@ Card {
             total += Number(bucket.completed_count || 0)
         return total
     }
-    readonly property bool stacked: width < 400
+    readonly property bool stacked: width < 380
     readonly property string totalCaption: selectionFiltered
         ? qsTr("所选通关 %1 次").arg(completedTotal)
         : qsTr("全部通关 %1 次").arg(completedTotal)
+    /// The bucket picked out by the pointer or the keyboard, "" when none.
+    readonly property alias highlightedKey: donut.hotKey
+
+    signal bucketActivated(var bucket)
+
+    // The ring and the legend read the same list: the selected buckets in the
+    // model's order, or by count when asked. Array.sort is stable, so equal
+    // counts keep the model's order.
+    readonly property var chartItems: {
+        const ordered = visibleBuckets.map((bucket, position) => ({ bucket: bucket, position: position }))
+        if (sortByCount) {
+            ordered.sort((a, b) => (a.bucket.is_unknown ? 1 : 0) - (b.bucket.is_unknown ? 1 : 0)
+                         || Number(b.bucket.completed_count || 0) - Number(a.bucket.completed_count || 0)
+                         || a.position - b.position)
+        }
+        return ordered.map(entry => ({
+            key: entry.bucket.key,
+            label: entry.bucket.label || qsTr("未识别"),
+            color: Theme.token(entry.bucket.color_token || "neutral500"),
+            count: Number(entry.bucket.completed_count || 0),
+            linkable: root.hasHistory(entry.bucket),
+            quiet: entry.bucket.is_unknown === true || entry.bucket.color_token === "dutyOther"
+        }))
+    }
+
+    function hasHistory(bucket) {
+        const filter = bucket.history_filter
+        return filter !== undefined && filter !== null && Object.keys(filter).length > 0
+    }
+
+    function activate(key) {
+        for (const bucket of visibleBuckets) {
+            if (bucket.key === key && hasHistory(bucket)) {
+                root.bucketActivated(bucket)
+                return
+            }
+        }
+    }
 
     padding: 16
-    spacing: 10
+    spacing: 12
 
     Accessible.role: Accessible.StaticText
     Accessible.name: title + " · " + totalCaption
 
-    function shareText(bucket) {
-        if (bucket.share === null || bucket.share === undefined || completedTotal <= 0)
-            return "—"
-        return (Number(bucket.share) * 100).toFixed(1) + "%"
-    }
-
-    onSelectedBucketsChanged: pie.requestPaint()
-
     Connections {
-        target: Theme
-        function onDarkChanged() { pie.requestPaint() }
-        function onUiStyleChanged() { pie.requestPaint() }
+        target: root.pageHost
+        enabled: root.pageHost !== null
+        function onEntered() { donut.playEntrance() }
     }
 
-    Text {
-        objectName: "compositionTitle"
+    ShareDonutHead {
         Layout.fillWidth: true
-        text: root.title
-        textFormat: Text.PlainText
-        wrapMode: Text.WordWrap
-        color: Theme.textPrimary
-        font.pixelSize: Theme.fs(14)
-        font.bold: true
+        title: root.title
+        hintVisible: donut.linkable
     }
 
-    Text {
-        objectName: "compositionTotal"
+    ShareDonut {
+        id: donut
+        objectName: "completionPieDonut"
         Layout.fillWidth: true
-        text: root.totalCaption
-        color: Theme.textSecondary
-        font.pixelSize: Theme.fs(12)
-        font.family: Theme.figureFamily
-        font.features: ({ "tnum": 1 })
-    }
-
-    GridLayout {
-        Layout.fillWidth: true
-        columns: root.stacked ? 1 : 2
-        columnSpacing: 12
-        rowSpacing: 12
-
-        Item {
-            Layout.preferredWidth: 128
-            Layout.preferredHeight: 128
-            Layout.alignment: root.stacked ? Qt.AlignHCenter : Qt.AlignVCenter
-
-            Canvas {
-                id: pie
-                objectName: "completionPieCanvas"
-                anchors.fill: parent
-                onWidthChanged: requestPaint()
-                onHeightChanged: requestPaint()
-
-                onPaint: {
-                    const ctx = getContext("2d")
-                    ctx.reset()
-                    const cx = width / 2, cy = height / 2
-                    const radius = Math.max(0, Math.min(width, height) / 2 - 2)
-                    if (root.completedTotal <= 0) {
-                        // An outline means no eligible completions, not a 100% unknown slice.
-                        ctx.strokeStyle = Theme.border
-                        ctx.lineWidth = 2
-                        ctx.beginPath()
-                        ctx.arc(cx, cy, radius, 0, Math.PI * 2)
-                        ctx.stroke()
-                        return
-                    }
-                    let angle = -Math.PI / 2
-                    for (const bucket of root.selectedBuckets) {
-                        const count = Number(bucket.completed_count || 0)
-                        if (count <= 0)
-                            continue
-                        const end = angle + Math.PI * 2 * count / root.completedTotal
-                        ctx.beginPath()
-                        ctx.moveTo(cx, cy)
-                        ctx.arc(cx, cy, radius, angle, end)
-                        ctx.closePath()
-                        ctx.fillStyle = Theme.token(bucket.color_token || "neutral500")
-                        ctx.fill()
-                        ctx.strokeStyle = Theme.surface
-                        ctx.lineWidth = 1
-                        ctx.stroke()
-                        angle = end
-                    }
-                }
-            }
-
-            Text {
-                objectName: "completionPieEmpty"
-                anchors.centerIn: parent
-                visible: root.completedTotal <= 0
-                text: root.selectedBuckets.length === 0 ? qsTr("未选择分类")
-                      : root.selectionFiltered ? qsTr("所选分类暂无通关") : qsTr("暂无通关")
-                color: Theme.textMuted
-                font.pixelSize: Theme.fs(12)
-                width: parent.width - 12
-                wrapMode: Text.WordWrap
-                horizontalAlignment: Text.AlignHCenter
-            }
-        }
-
-        ColumnLayout {
-            objectName: "completionPieLegend"
-            Layout.preferredWidth: 220
-            Layout.maximumWidth: 220
-            Layout.alignment: Qt.AlignLeft | Qt.AlignVCenter
-            spacing: 6
-
-            Repeater {
-                model: root.visibleBuckets
-                delegate: RowLayout {
-                    id: legendRow
-                    required property var modelData
-                    required property int index
-
-                    objectName: "completionPieLegendRow" + index
-                    Layout.fillWidth: true
-                    spacing: 8
-
-                    Rectangle {
-                        objectName: "completionPieSwatch" + legendRow.index
-                        Layout.preferredWidth: 9
-                        Layout.preferredHeight: 9
-                        radius: 2
-                        color: Theme.token(legendRow.modelData.color_token || "neutral500")
-                    }
-
-                    Text {
-                        objectName: "completionPieLabel" + legendRow.index
-                        Layout.preferredWidth: 88
-                        Layout.minimumWidth: 0
-                        text: legendRow.modelData.label || qsTr("未识别")
-                        textFormat: Text.PlainText
-                        wrapMode: Text.WordWrap
-                        color: Theme.textPrimary
-                        font.pixelSize: Theme.fs(12)
-                    }
-
-                    Text {
-                        objectName: "completionPieCount" + legendRow.index
-                        Layout.preferredWidth: 48
-                        text: qsTr("%1 次").arg(legendRow.modelData.completed_count || 0)
-                        color: Theme.textPrimary
-                        font.pixelSize: Theme.fs(12)
-                        font.family: Theme.figureFamily
-                        font.features: ({ "tnum": 1 })
-                        horizontalAlignment: Text.AlignRight
-                    }
-
-                    Text {
-                        objectName: "completionPieShare" + legendRow.index
-                        Layout.preferredWidth: 48
-                        text: root.shareText(legendRow.modelData)
-                        color: Theme.textSecondary
-                        font.pixelSize: Theme.fs(12)
-                        font.family: Theme.figureFamily
-                        font.features: ({ "tnum": 1 })
-                        horizontalAlignment: Text.AlignRight
-                    }
-                }
-            }
-        }
-    }
-
-    Text {
-        objectName: "compositionDetail"
-        Layout.fillWidth: true
-        visible: root.detail.length > 0
-        text: root.detail
-        textFormat: Text.PlainText
-        wrapMode: Text.WordWrap
-        color: Theme.textMuted
-        font.pixelSize: Theme.fs(11)
+        stacked: root.stacked
+        title: root.title
+        items: root.chartItems
+        caption: root.selectionFiltered ? qsTr("所选通关") : qsTr("通关次数")
+        emptyText: root.selectedBuckets.length === 0 ? qsTr("未选择分类")
+                   : root.selectionFiltered ? qsTr("所选分类暂无通关") : qsTr("暂无通关")
+        note: root.detail
+        onActivated: function(key) { root.activate(key) }
     }
 }

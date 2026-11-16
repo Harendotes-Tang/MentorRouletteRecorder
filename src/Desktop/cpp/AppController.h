@@ -642,6 +642,12 @@ public Q_SLOTS:
     /// Jump to the history page pre-filtered by one duty or one job.
     void showHistoryForContent(const QVariant &contentId, const QString &region = {});
     void showHistoryForJob(const QVariant &jobId);
+    /// The completed runs behind one segment of a composition chart:  constraint
+    /// is the bucket's `history_filter` (DungeonStatsModel::categoryBreakdown).
+    void showHistoryForCompletions(const QVariantMap &constraint);
+    /// The runs behind one segment of the role chart: \a constraint is the
+    /// entry's `history_filter` (JobStatsModel::roleBreakdown).
+    void showHistoryForJobs(const QVariantMap &constraint);
 
     void createManualRun(const QVariantMap &fields, const QString &reason);
     void correctSelectedRun(const QVariantMap &changes, const QString &reason,

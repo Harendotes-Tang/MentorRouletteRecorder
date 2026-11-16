@@ -1929,6 +1929,59 @@ void UiWorkflowRegressionTests::aStatisticsRowWithoutIdentityDoesNotOpenAnUnfilt
     fixture.controller.showHistoryForJob(19);
     QCOMPARE(filters.count(), 1);
     QCOMPARE(fixture.controller.currentPage(), 1);
+
+    // A chart segment that no filter can name (其他副本, 未识别) sends nothing
+    // either. One that is a list of duties opens their completed runs, and the
+    // 副本 chip keeps the whole list through a later edit until it is removed.
+    fixture.controller.navigate(2);
+    fixture.controller.showHistoryForCompletions({});
+    QCOMPARE(filters.count(), 1);
+    QCOMPARE(fixture.controller.currentPage(), 2);
+    const QVariantList members{15, 16, 830};
+    fixture.controller.showHistoryForCompletions({{QStringLiteral("content_id"), members}});
+    QCOMPARE(fixture.controller.currentPage(), 1);
+    QCOMPARE(fixture.controller.historyFilter().value(QStringLiteral("result")).toList(),
+             QVariantList{QStringLiteral("COMPLETED")});
+    auto *chip = fixture.history()->findChild<QObject *>(QStringLiteral("historyContentFilterChip"));
+    QVERIFY(chip);
+    QVERIFY(chip->property("visible").toBool());
+    QVERIFY2(chip->property("text").toString().endsWith(QString::fromUtf8("等 3 个副本")),
+             qPrintable(chip->property("text").toString()));
+    QVERIFY(QMetaObject::invokeMethod(fixture.history(), "applyFilter"));
+    QCOMPARE(QJsonValue::fromVariant(fixture.controller.historyFilter().value(QStringLiteral("content_id"))),
+             QJsonValue::fromVariant(members));
+    QCOMPARE(fixture.controller.historyFilter().value(QStringLiteral("result")).toList(),
+             QVariantList{QStringLiteral("COMPLETED")});
+    QVERIFY(QMetaObject::invokeMethod(chip, "removed"));
+    QTRY_VERIFY(!fixture.controller.historyFilter().contains(QStringLiteral("content_id")));
+    QVERIFY(!chip->property("visible").toBool());
+    QVERIFY(fixture.controller.historyFilter().contains(QStringLiteral("result")));
+
+    // A role segment of 职业统计 is several jobs. The picker shows one job, so it
+    // stays on 全部 and the chip names the role and keeps every job of it.
+    fixture.controller.navigate(3);
+    fixture.controller.showHistoryForJobs({});
+    QCOMPARE(fixture.controller.currentPage(), 3);
+    const QVariantList tanks{19, 21, 32};
+    fixture.controller.showHistoryForJobs({{QStringLiteral("job_id"), tanks}});
+    QCOMPARE(fixture.controller.currentPage(), 1);
+    QVERIFY(!fixture.controller.historyFilter().contains(QStringLiteral("result")));
+    auto *jobs = fixture.history()->findChild<QObject *>(QStringLiteral("retainedJobFilterChip"));
+    auto *picker = fixture.history()->findChild<QObject *>(QStringLiteral("historyJobFilter"));
+    QVERIFY(jobs && picker);
+    QVERIFY(jobs->property("visible").toBool());
+    QCOMPARE(jobs->property("text").toString(), QString::fromUtf8("职能：坦克"));
+    QCOMPARE(picker->property("currentIndex").toInt(), 0);
+    QVERIFY(QMetaObject::invokeMethod(fixture.history(), "applyFilter"));
+    QCOMPARE(QJsonValue::fromVariant(fixture.controller.historyFilter().value(QStringLiteral("job_id"))),
+             QJsonValue::fromVariant(tanks));
+    // Jobs of different roles are named by the first and a count.
+    fixture.controller.showHistoryForJobs({{QStringLiteral("job_id"), QVariantList{19, 24}}});
+    QVERIFY2(jobs->property("text").toString().endsWith(QString::fromUtf8("等 2 个职业")),
+             qPrintable(jobs->property("text").toString()));
+    QVERIFY(QMetaObject::invokeMethod(jobs, "removed"));
+    QTRY_VERIFY(!fixture.controller.historyFilter().contains(QStringLiteral("job_id")));
+    QVERIFY(!jobs->property("visible").toBool());
 }
 
 void UiWorkflowRegressionTests::externalHistoryFilterCancelsPendingDebounce()

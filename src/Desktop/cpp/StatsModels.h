@@ -134,7 +134,9 @@ class JobStatsModel : public StatsRowsModel
 public:
     using StatsRowsModel::StatsRowsModel;
 
-    /// Aggregation by role group, for the donut chart and its legend.
+    /// Aggregation by role group, for the donut chart and its legend. Each entry
+    /// carries `history_filter`: the group's played jobs as a RunFilter part
+    /// (`job_id`), empty when no filter can name its runs.
     Q_INVOKABLE QVariantList roleBreakdown() const;
 
     /// The prototype's fine-grained Chinese role group for one $defs/JobStatsRow.

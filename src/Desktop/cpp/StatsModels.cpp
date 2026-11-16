@@ -17,6 +17,8 @@
 #include <QTimer>
 #include <QVariantList>
 
+#include <algorithm>
+
 namespace mr {
 
 namespace {
@@ -65,15 +67,38 @@ const MainScenarioMembership &mainScenarioMembership()
     return membership;
 }
 
+/// \a history is the RunFilter part that lists the bucket's runs in 历史记录
+/// (App.showHistoryForCompletions adds 通关 and the region), or empty when no
+/// filter can name them: RunFilter cannot say "no category" or "none of these".
 QVariantMap completionBucket(const QString &key, const QString &label, qint64 count, qint64 total,
-                             const QString &token, bool unknown = false)
+                             const QString &token, bool unknown = false, const QVariantMap &history = {})
 {
     return {{QStringLiteral("key"), key},
             {QStringLiteral("label"), label},
             {QStringLiteral("completed_count"), count},
             {QStringLiteral("share"), total > 0 ? QVariant(static_cast<double>(count) / static_cast<double>(total)) : QVariant()},
             {QStringLiteral("color_token"), token},
-            {QStringLiteral("is_unknown"), unknown}};
+            {QStringLiteral("is_unknown"), unknown},
+            {QStringLiteral("history_filter"), history}};
+}
+
+QVariantMap categoryHistory(const QString &category)
+{
+    return {{QStringLiteral("duty_category"), QVariantList{category}}};
+}
+
+/// The duties themselves, in ascending order so the same rows always give the
+/// same filter. No ids, no filter.
+QVariantMap contentHistory(const QSet<qint64> &contentIds)
+{
+    if (contentIds.isEmpty())
+        return {};
+    QList<qint64> sorted(contentIds.cbegin(), contentIds.cend());
+    std::sort(sorted.begin(), sorted.end());
+    QVariantList ids;
+    for (const qint64 id : sorted)
+        ids.append(id);
+    return {{QStringLiteral("content_id"), ids}};
 }
 
 QString dutyCategory(const QJsonObject &row)
@@ -359,14 +384,32 @@ QVariantList DungeonStatsModel::categoryBreakdown() const
     counts.insert(unknown, 0);
     qint64 extremeCount = 0;
     const QString trials = QString::fromUtf8("讨伐歼灭战");
+    // 极神 is no category a RunFilter knows, so its runs are listed by duty; once
+    // it holds any, so are the remaining trials, which the category alone would
+    // list together with them. A trial row without a number keeps the category.
+    QSet<qint64> extremeIds;
+    QSet<qint64> ordinaryTrialIds;
+    bool ordinaryTrialsNumbered = true;
     for (const QJsonObject &row : m_rows) {
         const QString category = dutyCategory(row);
+        const qint64 completions = completionCount(row);
+        const QJsonValue id = row.value(QStringLiteral("content_id"));
         if (category == trials
-            && DutyCatalog::shared()->isExtremeTrial(row.value(QStringLiteral("content_id")).toVariant(), row.value(QStringLiteral("region")).toString()))
-            extremeCount += completionCount(row);
-        else
-            counts[category] += completionCount(row);
+            && DutyCatalog::shared()->isExtremeTrial(id.toVariant(), row.value(QStringLiteral("region")).toString())) {
+            extremeCount += completions;
+            if (completions > 0)
+                extremeIds.insert(id.toInteger());
+        } else {
+            counts[category] += completions;
+            if (category == trials && completions > 0) {
+                if (id.isDouble())
+                    ordinaryTrialIds.insert(id.toInteger());
+                else
+                    ordinaryTrialsNumbered = false;
+            }
+        }
     }
+    const bool trialsByDuty = !extremeIds.isEmpty() && ordinaryTrialsNumbered;
 
     QStringList categories = order;
     for (auto it = counts.cbegin(); it != counts.cend(); ++it) {
@@ -392,12 +435,16 @@ QVariantList DungeonStatsModel::categoryBreakdown() const
                                                         : GameNames::shared()->category(category),
                    counts.value(category), total,
                    category == unknown ? QStringLiteral("neutral500") : tokens.at(i % tokens.size()),
-                   category == unknown));
+                   category == unknown,
+                   category == unknown ? QVariantMap()
+                   : category == trials && trialsByDuty ? contentHistory(ordinaryTrialIds)
+                                                        : categoryHistory(category)));
         // Insert the display-only slice without changing ordinary category
         // indices/colors. Its separate count cannot collide with a supplied
         // category label, and zero remains a known bucket with the same denominator.
         if (category == trials)
-            out.append(completionBucket(QStringLiteral("trial:extreme"), tr("极神"), extremeCount, total, QStringLiteral("dutyExtreme")));
+            out.append(completionBucket(QStringLiteral("trial:extreme"), tr("极神"), extremeCount, total,
+                                        QStringLiteral("dutyExtreme"), false, contentHistory(extremeIds)));
     }
     return out;
 }
@@ -406,6 +453,10 @@ QVariantList DungeonStatsModel::specialDutyBreakdown() const
 {
     const auto &membership = mainScenarioMembership();
     qint64 counts[4]{};
+    // 主线副本 is a list of duties, so the same duties are what lists its runs;
+    // 行会令 is the category it is in the type chart; 其他副本 is "neither",
+    // which no filter says.
+    QSet<qint64> mainScenarioIds;
     for (const QJsonObject &row : m_rows) {
         const QJsonValue id = row.value(QStringLiteral("content_id"));
         // The row's own region, as dutyCategory() does: a TC-only duty is no
@@ -420,12 +471,16 @@ QVariantList DungeonStatsModel::specialDutyBreakdown() const
         else if (!catalogue.isEmpty() && membership.available)
             group = 2;
         counts[group] += completionCount(row);
+        if (group == 0 && completionCount(row) > 0)
+            mainScenarioIds.insert(id.toInteger());
     }
     const qint64 total = totalCompletedCount();
     // 行会令 has the colour it has in the type chart; 其他副本 is the quiet
     // neutral, so the two named groups stand out from the rest.
-    return {completionBucket(QStringLiteral("main-scenario"), tr("主线副本"), counts[0], total, QStringLiteral("dutyMainScenario")),
-            completionBucket(QStringLiteral("guildhest"), tr("行会令"), counts[1], total, QStringLiteral("dutyGuild")),
+    return {completionBucket(QStringLiteral("main-scenario"), tr("主线副本"), counts[0], total,
+                             QStringLiteral("dutyMainScenario"), false, contentHistory(mainScenarioIds)),
+            completionBucket(QStringLiteral("guildhest"), tr("行会令"), counts[1], total,
+                             QStringLiteral("dutyGuild"), false, categoryHistory(QString::fromUtf8("行会令"))),
             completionBucket(QStringLiteral("other"), tr("其他副本"), counts[2], total, QStringLiteral("dutyOther")),
             completionBucket(QStringLiteral("unknown"), tr("未识别"), counts[3], total, QStringLiteral("neutral500"), true)};
 }
@@ -485,14 +540,30 @@ QVariantList JobStatsModel::roleBreakdown() const
     QVariantList out;
     for (const QString &group : order) {
         int attempts = 0;
+        // What lists the group's runs in 历史记录: its jobs that were played, in
+        // ascending order. A row known by name only has no number to filter
+        // by, and 未知 is "no job", which no filter says.
+        QSet<qint64> played;
         for (const QJsonObject &row : m_rows) {
-            if (roleGroupOf(row) == group)
-                attempts += row.value(QStringLiteral("attempt_count")).toInt();
+            if (roleGroupOf(row) != group)
+                continue;
+            const int count = row.value(QStringLiteral("attempt_count")).toInt();
+            attempts += count;
+            const QJsonValue id = row.value(QStringLiteral("job_id"));
+            if (count > 0 && id.isDouble() && group != QString::fromUtf8("未知"))
+                played.insert(id.toInteger());
         }
+        QList<qint64> sorted(played.cbegin(), played.cend());
+        std::sort(sorted.begin(), sorted.end());
+        QVariantList jobIds;
+        for (const qint64 id : sorted)
+            jobIds.append(id);
         QVariantMap entry;
         entry.insert(QStringLiteral("role_group"), group);
         entry.insert(QStringLiteral("attempt_count"), attempts);
         entry.insert(QStringLiteral("color_token"), JobCatalog::tokenForRoleGroup(group));
+        entry.insert(QStringLiteral("history_filter"),
+                     jobIds.isEmpty() ? QVariantMap() : QVariantMap{{QStringLiteral("job_id"), jobIds}});
         out.append(entry);
     }
     return out;

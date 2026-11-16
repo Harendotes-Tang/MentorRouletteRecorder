@@ -296,6 +296,8 @@ set(MR_QML_FILES
     qml/charts/TrendChart.qml
     qml/charts/TrendMotionLayer.qml
     qml/charts/CompletionPieChart.qml
+    qml/charts/ShareDonut.qml
+    qml/charts/ShareDonutHead.qml
     qml/components/AppButton.qml
     qml/components/Card.qml
     qml/components/CardKicker.qml

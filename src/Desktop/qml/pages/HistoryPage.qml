@@ -92,14 +92,37 @@ Item {
         }
         return Runtime.fmt.dash()
     }
-    // A drill-down from 副本统计 arrives as a content_id; the 副本 chip below
-    // mirrors it so the two never disagree about what is filtered.
-    property var contentFilter: null
+    // A drill-down from 副本统计 arrives as content_id: one duty from a row, or
+    // the duties of a chart segment (主线副本, 极神). The 副本 chip below mirrors
+    // it so the two never disagree about what is filtered.
+    property var contentFilterIds: []
+    readonly property var contentFilter: contentFilterIds.length > 0 ? contentFilterIds[0] : null
+    readonly property string contentFilterLabel: contentFilterIds.length > 1
+        ? qsTr("%1 等 %2 个副本").arg(dutyLabel(contentFilter)).arg(contentFilterIds.length)
+        : dutyLabel(contentFilter)
     // Statistics can link to an old/imported job outside the current mentor
     // choices. Keep that drill-down visible without adding it to the picker.
-    property var retainedJobFilter: null
-    readonly property bool hasRetainedJobFilter: retainedJobFilter !== null
-                                                && retainedJobFilter !== undefined
+    // A role segment of 职业统计 arrives as several jobs at once; they stay
+    // together until the chip is removed or a job is picked.
+    property var retainedJobFilterIds: []
+    readonly property var retainedJobFilter: retainedJobFilterIds.length > 0 ? retainedJobFilterIds[0] : null
+    readonly property bool hasRetainedJobFilter: retainedJobFilterIds.length > 0
+    // One job by its name. Several jobs of one role group by the group, which
+    // is how the chart that sent them names them; anything else by a count.
+    readonly property string retainedJobFilterLabel: {
+        const ids = retainedJobFilterIds
+        if (ids.length <= 1)
+            return qsTr("职业：%1").arg(Theme.catalogJobName(retainedJobFilter))
+        const jobs = typeof Runtime.jobs !== "undefined" ? Runtime.jobs : null
+        const group = jobs ? jobs.roleGroup(ids[0]) : ""
+        for (let index = 1; group !== "" && index < ids.length; ++index) {
+            if (jobs.roleGroup(ids[index]) !== group)
+                return qsTr("职业：%1 等 %2 个职业").arg(Theme.catalogJobName(ids[0])).arg(ids.length)
+        }
+        return group !== "" && group !== "未知"
+            ? qsTr("职能：%1").arg(Theme.roleGroupName(group))
+            : qsTr("职业：%1 等 %2 个职业").arg(Theme.catalogJobName(ids[0])).arg(ids.length)
+    }
 
     // The chip label comes from App.dutyOptions, the list 副本统计 aggregates by.
     function dutyLabel(contentId) {
@@ -359,14 +382,14 @@ Item {
             filter.from_utc = from
         if (!withoutDates && to)
             filter.to_utc = to
-        if (page.contentFilter !== null && page.contentFilter !== undefined)
-            filter.content_id = [page.contentFilter]
+        if (page.contentFilterIds.length > 0)
+            filter.content_id = page.contentFilterIds.slice()
         if (categoryBox.currentIndex > 0)
             filter.duty_category = [categoryBox.model[categoryBox.currentIndex].value]
         if (jobBox.currentIndex > 0)
             filter.job_id = [jobBox.model[jobBox.currentIndex].job_id]
         else if (page.hasRetainedJobFilter)
-            filter.job_id = [page.retainedJobFilter]
+            filter.job_id = page.retainedJobFilterIds.slice()
         if (resultBox.currentIndex > 0)
             filter.result = [resultBox.model[resultBox.currentIndex].value]
         if (sourceBox.currentIndex > 0)
@@ -407,8 +430,8 @@ Item {
         fromField.text = ""
         toField.text = ""
         dateRange.syncPreset()
-        page.contentFilter = null
-        page.retainedJobFilter = null
+        page.contentFilterIds = []
+        page.retainedJobFilterIds = []
         regionBox.selection = ""
         categoryBox.currentIndex = 0
         jobBox.currentIndex = 0
@@ -433,6 +456,19 @@ Item {
         if (Array.isArray(value) || (typeof value === "object" && typeof value.length === "number"))
             return value.length > 0 ? value[0] : null
         return value
+    }
+
+    // Every value of an array field, in order; [] when the field is absent.
+    function filterValues(value) {
+        if (value === undefined || value === null)
+            return []
+        if (Array.isArray(value) || (typeof value === "object" && typeof value.length === "number")) {
+            const values = []
+            for (let index = 0; index < value.length; ++index)
+                values.push(value[index])
+            return values
+        }
+        return [value]
     }
 
     function filterIndex(model, key, value) {
@@ -463,8 +499,10 @@ Item {
         toField.text = filter.to_utc ? Runtime.fmt.localDate(filter.to_utc) : ""
         dateRange.syncPreset()
         categoryBox.currentIndex = filterIndex(categoryBox.model, "value", filter.duty_category)
-        jobBox.currentIndex = filterIndex(jobBox.model, "job_id", filter.job_id)
-        page.retainedJobFilter = jobBox.currentIndex === 0 ? firstFilterValue(filter.job_id) : null
+        // The picker shows one job; a list of several is never reduced to its first.
+        const jobIds = filterValues(filter.job_id)
+        jobBox.currentIndex = jobIds.length === 1 ? filterIndex(jobBox.model, "job_id", jobIds) : 0
+        page.retainedJobFilterIds = jobBox.currentIndex === 0 ? jobIds : []
         resultBox.currentIndex = filterIndex(resultBox.model, "value", filter.result)
         sourceBox.currentIndex = filterIndex(sourceBox.model, "value", filter.source)
         page.characterFilter = filter.profile_unassigned === true ? -1 : Number(filter.profile_id || 0)
@@ -473,7 +511,7 @@ Item {
         withReflection.checked = !!filter.with_reflection
         deletedOnly.checked = !!filter.deleted_only
         joinedInProgressOnly.checked = filter.joined_in_progress === true
-        page.contentFilter = firstFilterValue(filter.content_id)
+        page.contentFilterIds = filterValues(filter.content_id)
         page.suspendFilter = false
     }
 
@@ -627,12 +665,12 @@ Item {
                     id: dutyChip
                     visible: false
                     height: filterRow.controlHeight
-                    text: page.dutyLabel(page.contentFilter)
+                    text: page.contentFilterLabel
                     checked: true
                     removable: true
                     Accessible.name: qsTr("副本筛选")
                     onRemoved: {
-                        page.contentFilter = null
+                        page.contentFilterIds = []
                         page.scheduleFilter()
                     }
                 }
@@ -673,7 +711,7 @@ Item {
                     displayText: currentIndex === 0 ? qsTr("职业") : currentText
                     Accessible.name: qsTr("职业筛选")
                     onActivated: {
-                        page.retainedJobFilter = null
+                        page.retainedJobFilterIds = []
                         page.scheduleFilter()
                     }
                 }
@@ -844,8 +882,8 @@ Item {
                 visible: (page.contentFilter !== null && page.contentFilter !== undefined) || page.hasRetainedJobFilter
                          || (page.narrowFilters && (sourceBox.currentIndex > 0 || page.characterFilter !== 0))
                 spacing: 6
-                Chip { visible: page.contentFilter !== null && page.contentFilter !== undefined; text: page.dutyLabel(page.contentFilter); checked: true; removable: true; onRemoved: { page.contentFilter = null; page.scheduleFilter() } }
-                Chip { objectName: "retainedJobFilterChip"; visible: page.hasRetainedJobFilter; text: qsTr("职业：%1").arg(Theme.catalogJobName(page.retainedJobFilter)); checked: true; removable: true; Accessible.name: text; onRemoved: { page.retainedJobFilter = null; page.scheduleFilter() } }
+                Chip { objectName: "historyContentFilterChip"; visible: page.contentFilter !== null && page.contentFilter !== undefined; text: page.contentFilterLabel; checked: true; removable: true; onRemoved: { page.contentFilterIds = []; page.scheduleFilter() } }
+                Chip { objectName: "retainedJobFilterChip"; visible: page.hasRetainedJobFilter; text: page.retainedJobFilterLabel; checked: true; removable: true; Accessible.name: text; onRemoved: { page.retainedJobFilterIds = []; page.scheduleFilter() } }
                 Chip { visible: page.narrowFilters && sourceBox.currentIndex > 0; text: sourceBox.currentText; checked: true; removable: true; onRemoved: { sourceBox.currentIndex = 0; page.scheduleFilter() } }
                 Chip { objectName: "historyCharacterFilterChip"; visible: page.narrowFilters && page.characterFilter !== 0; text: qsTr("角色：%1").arg(characterBox.currentText); checked: true; removable: true; onRemoved: { page.characterFilter = 0; page.scheduleFilter() } }
             }

@@ -5136,8 +5136,12 @@ SHA256: %3</translation>
         <translation>Unrecognized</translation>
     </message>
     <message>
-        <source>%1 次</source>
-        <translation>%1</translation>
+        <source>所选通关</source>
+        <translation>Selected clears</translation>
+    </message>
+    <message>
+        <source>通关次数</source>
+        <translation>Clears</translation>
     </message>
 </context>
 <context>
@@ -5536,7 +5540,7 @@ SHA256: %3</translation>
         <translation>Customize charts</translation>
     </message>
     <message>
-        <source>设置两张饼图的显示和分类</source>
+        <source>设置两张占比图的显示和分类</source>
         <translation>Choose which charts and categories to show</translation>
     </message>
     <message>
@@ -7269,6 +7273,10 @@ SHA256: %3</translation>
         <translation>Specific duty</translation>
     </message>
     <message>
+        <source>%1 等 %2 个副本</source>
+        <translation>%1 and others (%2 duties)</translation>
+    </message>
+    <message>
         <source>日期</source>
         <translation>Date</translation>
     </message>
@@ -7451,6 +7459,14 @@ SHA256: %3</translation>
     <message>
         <source>职业：%1</source>
         <translation>Job: %1</translation>
+    </message>
+    <message>
+        <source>职能：%1</source>
+        <translation>Role: %1</translation>
+    </message>
+    <message>
+        <source>职业：%1 等 %2 个职业</source>
+        <translation>Job: %1 and others (%2 jobs)</translation>
     </message>
     <message>
         <source>角色：%1</source>
@@ -8423,10 +8439,6 @@ The image text was read as “%2”; confirm against the original image.</transl
         <translation>Unknown</translation>
     </message>
     <message>
-        <source>%1%</source>
-        <translation>%1%</translation>
-    </message>
-    <message>
         <source>职业</source>
         <translation>Job</translation>
     </message>
@@ -8445,6 +8457,14 @@ The image text was read as “%2”; confirm against the original image.</transl
     <message>
         <source>中途加入</source>
         <translation>Joined late</translation>
+    </message>
+    <message>
+        <source>导随次数</source>
+        <translation>Mentor runs</translation>
+    </message>
+    <message>
+        <source>还没有导随记录</source>
+        <translation>No mentor runs yet</translation>
     </message>
 </context>
 <context>
@@ -11382,6 +11402,32 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>已恢复默认播报模板</source>
         <translation>Restored the default templates</translation>
+    </message>
+</context>
+<context>
+    <name>ShareDonut</name>
+    <message>
+        <source>%1 次</source>
+        <translation>%1</translation>
+    </message>
+    <message>
+        <source>：</source>
+        <translation>: </translation>
+    </message>
+    <message>
+        <source>；</source>
+        <translation>; </translation>
+    </message>
+    <message>
+        <source>在历史记录中查看</source>
+        <translation>View in History</translation>
+    </message>
+</context>
+<context>
+    <name>ShareDonutHead</name>
+    <message>
+        <source>点一项查看对应记录</source>
+        <translation>Click an item to see its runs</translation>
     </message>
 </context>
 <context>

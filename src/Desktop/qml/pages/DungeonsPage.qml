@@ -142,7 +142,7 @@ Item {
                     checkable: true
                     checked: page.customizingCharts
                     onClicked: page.customizingCharts = !page.customizingCharts
-                    Accessible.description: qsTr("设置两张饼图的显示和分类")
+                    Accessible.description: qsTr("设置两张占比图的显示和分类")
                 }
             }
 
@@ -291,6 +291,8 @@ Item {
                     title: qsTr("副本类型占比")
                     buckets: page.categoriesCache
                     hiddenBucketKeys: Runtime.settings.dungeonCategoryHiddenBuckets
+                    sortByCount: true
+                    onBucketActivated: function(bucket) { Runtime.app.showHistoryForCompletions(bucket.history_filter) }
                 }
 
                 CompletionPieChart {
@@ -302,6 +304,7 @@ Item {
                     detail: qsTr("主线副本包含南方堡、天幕魔导城和究极神兵破坏作战。")
                     buckets: page.specialDutiesCache
                     hiddenBucketKeys: Runtime.settings.dungeonSpecialHiddenBuckets
+                    onBucketActivated: function(bucket) { Runtime.app.showHistoryForCompletions(bucket.history_filter) }
                 }
 
                 Card {
