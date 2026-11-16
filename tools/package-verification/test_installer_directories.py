@@ -550,15 +550,18 @@ class EarlierInstallationTests(unittest.TestCase):
 
 
 class InstallerLanguageTests(unittest.TestCase):
-    def test_interactive_language_choice_defaults_to_simplified_even_on_upgrade(self):
+    def test_interactive_language_choice_follows_the_windows_display_language(self):
+        # The chooser is always shown, preset to the Windows display language; a language none of
+        # the entries is falls back to the first entry, English, so nobody who cannot read Chinese
+        # is met by a Chinese dialog.
         sections = installer_sections()
         setup = dict(line.split("=", 1) for line in sections["setup"] if "=" in line)
         self.assertEqual("yes", setup["ShowLanguageDialog"].strip())
-        self.assertEqual("none", setup["LanguageDetectionMethod"].strip())
+        self.assertEqual("uilanguage", setup["LanguageDetectionMethod"].strip())
         self.assertEqual("no", setup["UsePreviousLanguage"].strip())
         names = [re.search(r'Name:\s*"([^"]+)"', line).group(1)
-                 for line in sections["languages"]]
-        self.assertEqual(["chinesesimplified", "chinesetraditional", "english", "japanese"], names)
+                 for line in sections["languages"] if line.lstrip().startswith("Name:")]
+        self.assertEqual(["english", "chinesesimplified", "chinesetraditional", "japanese"], names)
 
     def test_language_default_is_machine_local_and_removed_on_uninstall(self):
         sections = installer_sections()
