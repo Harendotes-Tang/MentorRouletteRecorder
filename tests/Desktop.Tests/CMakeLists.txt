@@ -168,12 +168,15 @@ endforeach()
 # shell/ - the main window, its dialogs, the history page and the QML runtime.
 # ShellDialog: Main.qml's own dialogs (原因, 首次引导, the wizard's retry) on the shipping window.
 # RunDetailPanel: the history detail panel - player wording of 修正历史 / 事件摘要, clicks that stay in it.
+# CharacterProfilePages: 角色档案 on the overview, the history and 设置 › 成就 of the shipping window -
+#   unchanged for one character; switching, editing and moving records with a second.
 # QmlWarningCounter: the screenshot harness's own count of QML/JS runtime warnings.
 # QmlRuntime is registered with its own environment below, after the common one is applied.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopShellTests
     SUITES ShellDialog UiWorkflowRegression Motion TrendMotion DialogMotion RecoveryUi HistoryBatch HistoryColumns RunDetailPanel
            EditRunDialogBinding ManualRunReflection RecordWorkspace RecordingWarningWindow NoteImageStore QmlRuntime QmlWarningCounter
+           CharacterProfilePages
     LIBRARIES ${MR_QUICK_TEST_LIBRARIES} Qt6::Widgets)
 # The manual-record editor stays alive while the real interface language changes.
 qt_add_lrelease(
@@ -189,7 +192,8 @@ qt_add_resources(MentorRecorderDesktopShellTests shell_test_i18n
     BASE "${CMAKE_CURRENT_BINARY_DIR}/shell-i18n"
     FILES ${MR_SHELL_TEST_QM})
 foreach(suite IN ITEMS ShellDialog UiWorkflowRegression Motion TrendMotion DialogMotion RecoveryUi HistoryColumns RunDetailPanel
-                       EditRunDialogBinding ManualRunReflection RecordWorkspace RecordingWarningWindow NoteImageStore QmlWarningCounter)
+                       EditRunDialogBinding ManualRunReflection RecordWorkspace RecordingWarningWindow NoteImageStore QmlWarningCounter
+                       CharacterProfilePages)
     mr_desktop_suite_test(MentorRecorderDesktopShellTests ${suite})
 endforeach()
 mr_desktop_suite_test(MentorRecorderDesktopShellTests HistoryBatch)
@@ -197,12 +201,15 @@ set_tests_properties(MentorRecorderHistoryBatch PROPERTIES ENVIRONMENT "${MR_DES
 
 # ---------------------------------------------------------------------------
 # statistics/ - the statistics float, achievement progress and dungeon composition.
+# CharacterProfiles: 角色档案 through Runtime.app against the MockBackend - visibility, per-profile
+#   progress, baselineProfileId, 改到角色 and the finished-run announcement.
 # The float switches the real interface language in place, so the shipping catalogues are
 # compiled into this executable instead of silently falling back to Chinese when
 # LanguageManager cannot find the application's resource.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopStatisticsTests
     SUITES StatisticsOverlay StatisticsOverlayRange DungeonComposition DungeonChartDisplay AchievementProgress
+           CharacterProfiles
     LIBRARIES ${MR_QUICK_TEST_LIBRARIES} Qt6::Widgets)
 qt_add_lrelease(
     TS_FILES
@@ -216,7 +223,7 @@ qt_add_resources(MentorRecorderDesktopStatisticsTests statistics_test_i18n
     PREFIX "/i18n"
     BASE "${CMAKE_CURRENT_BINARY_DIR}/statistics-i18n"
     FILES ${MR_STATISTICS_TEST_QM})
-foreach(suite IN ITEMS StatisticsOverlay StatisticsOverlayRange AchievementProgress)
+foreach(suite IN ITEMS StatisticsOverlay StatisticsOverlayRange AchievementProgress CharacterProfiles)
     mr_desktop_suite_test(MentorRecorderDesktopStatisticsTests ${suite})
 endforeach()
 mr_desktop_suite_test(MentorRecorderDesktopStatisticsTests DungeonComposition)

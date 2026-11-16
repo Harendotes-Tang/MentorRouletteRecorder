@@ -51,6 +51,7 @@ public static class RunFieldWriter
             RunFields.SoftDeleted => run with { SoftDeleted = AsBool(field, value) },
             RunFields.PendingReview => run with { PendingReview = AsBool(field, value) },
             RunFields.ManuallyCorrected => run with { ManuallyCorrected = AsBool(field, value) },
+            RunFields.ProfileId => run with { ProfileId = AsLong(field, value) },
             _ => throw new CollectorException(
                 ErrorCodes.Internal,
                 CollectorTexts.MutationUndoUnrestorableField(),

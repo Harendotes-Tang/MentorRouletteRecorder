@@ -2123,6 +2123,87 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>CharacterNames</name>
+    <message>
+        <source>原有记录</source>
+        <translation>原有記錄</translation>
+    </message>
+</context>
+<context>
+    <name>CharacterProfileDialog</name>
+    <message>
+        <source>请填写角色名称，最多 %1 个字。</source>
+        <translation>請填寫角色名稱，最多 %1 個字。</translation>
+    </message>
+    <message>
+        <source>角色</source>
+        <translation>角色</translation>
+    </message>
+    <message>
+        <source>添加角色</source>
+        <translation>新增角色</translation>
+    </message>
+    <message>
+        <source>给角色改名</source>
+        <translation>為角色改名</translation>
+    </message>
+    <message>
+        <source>每个角色有自己的目标、起始次数和进度。名称由你自己起，方便区分即可，软件不会读取游戏里的角色名。</source>
+        <translation>每個角色有自己的目標、起始次數和進度。名稱由你自己取，方便區分即可，軟體不會讀取遊戲裡的角色名。</translation>
+    </message>
+    <message>
+        <source>角色名称</source>
+        <translation>角色名稱</translation>
+    </message>
+    <message>
+        <source>例如：大号、小号</source>
+        <translation>例如：大號、小號</translation>
+    </message>
+    <message>
+        <source>起始次数：这个角色在游戏成就里已经完成的导随次数，之后记录的通关会加在它上面。</source>
+        <translation>起始次數：這個角色在遊戲成就裡已經完成的導隨次數，之後記錄的通關會加在它上面。</translation>
+    </message>
+    <message>
+        <source>现在就切换到这个角色</source>
+        <translation>現在就切換到這個角色</translation>
+    </message>
+    <message>
+        <source>打开后，之后的新记录记在这个角色名下；以前的记录不变。</source>
+        <translation>開啟後，之後的新記錄記在這個角色名下；以前的記錄不變。</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>添加</source>
+        <translation>新增</translation>
+    </message>
+    <message>
+        <source>保存</source>
+        <translation>儲存</translation>
+    </message>
+</context>
+<context>
+    <name>CharacterSelector</name>
+    <message>
+        <source>全部角色</source>
+        <translation>全部角色</translation>
+    </message>
+    <message>
+        <source>%1（当前）</source>
+        <translation>%1（目前）</translation>
+    </message>
+    <message>
+        <source>未分配</source>
+        <translation>未分配</translation>
+    </message>
+    <message>
+        <source>角色</source>
+        <translation>角色</translation>
+    </message>
+</context>
+<context>
     <name>CollectorText</name>
     <message>
         <source>未知副本</source>
@@ -4160,6 +4241,11 @@ SHA256：%3</translation>
         <translation>history_from_day 不能晚於 history_to_day。</translation>
     </message>
     <message>
+        <source>profile_id 与 profile_unassigned 不能同时使用。</source>
+        <comment>ipc.filter.profile_conflict</comment>
+        <translation>profile_id 與 profile_unassigned 不能同時使用。</translation>
+    </message>
+    <message>
         <source>收到超过 4 MiB 的帧，连接已断开。</source>
         <comment>ipc.frame_too_large_received</comment>
         <translation>收到超過 4 MiB 的訊框，連線已中斷。</translation>
@@ -4308,6 +4394,59 @@ SHA256：%3</translation>
         <source>结果为「未知」的自动记录必须填写结束时间：没有结束时间的未知结果会被当作仍在进行的记录，既不计入统计，也不会出现在待复核中。请填写结束时间，或选择实际结果。</source>
         <comment>mutation.unknown_needs_end</comment>
         <translation>結果為「未知」的自動記錄必須填寫結束時間：沒有結束時間的未知結果會被當作仍在進行的記錄，既不計入統計，也不會出現在待複核中。請填寫結束時間，或選擇實際結果。</translation>
+    </message>
+    <message>
+        <source>选中的记录已经都记在这里，没有需要修改的。</source>
+        <comment>profile.assign_unchanged</comment>
+        <translation>選取的記錄已經都記在這裡，沒有需要修改的。</translation>
+    </message>
+    <message>
+        <source>新记录正记在这个角色名下。请先切换到其他角色，再删除它。</source>
+        <comment>profile.delete_current</comment>
+        <translation>新記錄正記在這個角色名下。請先切換到其他角色，再刪除它。</translation>
+    </message>
+    <message>
+        <source>这个角色名下还有 {count} 条记录（含回收站）。请先在历史记录里把它们改到其他角色，再删除。</source>
+        <comment>profile.delete_has_runs</comment>
+        <extracomment>Placeholders: {count} a number. Keep every {placeholder} exactly as written.</extracomment>
+        <translation>這個角色名下還有 {count} 筆記錄（含資源回收筒）。請先在歷史記錄裡把它們改到其他角色，再刪除。</translation>
+    </message>
+    <message>
+        <source>每个区服至少保留一个角色，不能删除。</source>
+        <comment>profile.delete_last</comment>
+        <translation>每個區服至少保留一個角色，不能刪除。</translation>
+    </message>
+    <message>
+        <source>每个区服最多保存 {max} 个角色。</source>
+        <comment>profile.limit_reached</comment>
+        <extracomment>Placeholders: {max} a number. Keep every {placeholder} exactly as written.</extracomment>
+        <translation>每個區服最多儲存 {max} 個角色。</translation>
+    </message>
+    <message>
+        <source>请填写角色名称，最多 {max} 个字。</source>
+        <comment>profile.name_required</comment>
+        <extracomment>Placeholders: {max} a number. Keep every {placeholder} exactly as written.</extracomment>
+        <translation>請填寫角色名稱，最多 {max} 個字。</translation>
+    </message>
+    <message>
+        <source>这个区服已有同名的角色，请换一个名称。</source>
+        <comment>profile.name_taken</comment>
+        <translation>這個區服已有同名的角色，請換一個名稱。</translation>
+    </message>
+    <message>
+        <source>找不到这个角色，请刷新后重试。</source>
+        <comment>profile.not_found</comment>
+        <translation>找不到這個角色，請重新整理後再試。</translation>
+    </message>
+    <message>
+        <source>所选角色不属于这条记录的区服。</source>
+        <comment>profile.region_mismatch</comment>
+        <translation>所選角色不屬於這筆記錄的區服。</translation>
+    </message>
+    <message>
+        <source>此请求编号已用于不同的角色操作。</source>
+        <comment>profile.request_reused</comment>
+        <translation>此請求編號已用於不同的角色操作。</translation>
     </message>
     <message>
         <source>有不止一份游戏版本支持文件对应这个版本，软件不会从中任选一份。</source>
@@ -6909,6 +7048,29 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>HistoryAssignCharacterDialog</name>
+    <message>
+        <source>把 %1 条记录改到哪个角色？</source>
+        <translation>把 %1 筆記錄改到哪個角色？</translation>
+    </message>
+    <message>
+        <source>记录改到哪个角色名下，就计入哪个角色的进度。各角色的起始次数不会跟着变，需要时请到「设置 › 成就」分别修改。</source>
+        <translation>記錄改到哪個角色名下，就計入哪個角色的進度。各角色的起始次數不會跟著變，需要時請到「設定 › 成就」分別修改。</translation>
+    </message>
+    <message>
+        <source>请选择角色</source>
+        <translation>請選擇角色</translation>
+    </message>
+    <message>
+        <source>改到的角色</source>
+        <translation>改到的角色</translation>
+    </message>
+    <message>
+        <source>确认修改</source>
+        <translation>確認修改</translation>
+    </message>
+</context>
+<context>
     <name>HistoryColumnsDialog</name>
     <message>
         <source>自定义列</source>
@@ -7007,6 +7169,10 @@ SHA256：%3</translation>
 %1</translation>
     </message>
     <message>
+        <source>未分配</source>
+        <translation>未分配</translation>
+    </message>
+    <message>
         <source>未知副本</source>
         <translation>未知副本</translation>
     </message>
@@ -7049,6 +7215,10 @@ SHA256：%3</translation>
     <message>
         <source>来源</source>
         <translation>來源</translation>
+    </message>
+    <message>
+        <source>角色</source>
+        <translation>角色</translation>
     </message>
     <message>
         <source>标记</source>
@@ -7163,6 +7333,10 @@ SHA256：%3</translation>
         <translation>來源篩選</translation>
     </message>
     <message>
+        <source>角色筛选</source>
+        <translation>角色篩選</translation>
+    </message>
+    <message>
         <source>标记类型筛选，可多选</source>
         <translation>標記類型篩選，可複選</translation>
     </message>
@@ -7191,6 +7365,10 @@ SHA256：%3</translation>
         <translation>職業：%1</translation>
     </message>
     <message>
+        <source>角色：%1</source>
+        <translation>角色：%1</translation>
+    </message>
+    <message>
         <source>取消勾选</source>
         <translation>取消勾選</translation>
     </message>
@@ -7205,6 +7383,10 @@ SHA256：%3</translation>
     <message>
         <source>永久删除</source>
         <translation>永久刪除</translation>
+    </message>
+    <message>
+        <source>改角色</source>
+        <translation>改角色</translation>
     </message>
     <message>
         <source>正在处理选中的记录…</source>
@@ -7839,6 +8021,10 @@ SHA256：%3</translation>
     <message>
         <source>确认是自己的指导者任务并核对结果后，通关才会计入成就。游戏时间和耗时不知道可以留空，以后再补，不影响已确认的通关计数。</source>
         <translation>確認是自己的指導者任務並核對結果後，通關才會計入成就。不知道遊戲時間和耗時可以留空，以後再補，不影響已確認的通關計數。</translation>
+    </message>
+    <message>
+        <source>导入的记录会记在各区服的当前角色名下，起始次数也从当前角色扣除。要导入其他角色的记录，请先在总览把它设为当前角色；导入后也可以在历史记录里用「改角色」调整。</source>
+        <translation>匯入的記錄會記在各區服的目前角色名下，起始次數也從目前角色扣除。要匯入其他角色的記錄，請先在總覽把它設為目前角色；匯入後也可以在歷史記錄裡用「改角色」調整。</translation>
     </message>
     <message>
         <source>未包含：照常加在起始次数之上</source>
@@ -9613,8 +9799,16 @@ SHA256：%3</translation>
 <context>
     <name>RegionalAchievementCard</name>
     <message>
+        <source>没有切换成功：%1</source>
+        <translation>沒有切換成功：%1</translation>
+    </message>
+    <message>
         <source>成就进度 · %1 次</source>
         <translation>成就進度 · %1 次</translation>
+    </message>
+    <message>
+        <source>当前角色</source>
+        <translation>目前角色</translation>
     </message>
     <message>
         <source>还差 %1 次</source>
@@ -9627,6 +9821,10 @@ SHA256：%3</translation>
     <message>
         <source>修改</source>
         <translation>修改</translation>
+    </message>
+    <message>
+        <source>另有 %1 条记录没有分配角色，不计入任何角色的进度。可在历史记录中筛选「未分配」后分配。</source>
+        <translation>另有 %1 筆記錄沒有分配角色，不計入任何角色的進度。可在歷史記錄中篩選「未分配」後分配。</translation>
     </message>
 </context>
 <context>
@@ -10024,8 +10222,20 @@ SHA256：%3</translation>
         <translation>未知區服</translation>
     </message>
     <message>
+        <source>未分配</source>
+        <translation>未分配</translation>
+    </message>
+    <message>
+        <source>已删除的角色</source>
+        <translation>已刪除的角色</translation>
+    </message>
+    <message>
         <source>区服</source>
         <translation>區服</translation>
+    </message>
+    <message>
+        <source>角色</source>
+        <translation>角色</translation>
     </message>
     <message>
         <source>开启</source>
@@ -10800,6 +11010,46 @@ SHA256：%3</translation>
         <translation>正在讀取已儲存的目標和起始次數，讀取完成後才能修改和儲存。</translation>
     </message>
     <message>
+        <source>角色</source>
+        <translation>角色</translation>
+    </message>
+    <message>
+        <source>每个角色的目标、起始次数和进度分别保存。下面修改的是所选角色。</source>
+        <translation>每個角色的目標、起始次數和進度分別儲存。下面修改的是所選角色。</translation>
+    </message>
+    <message>
+        <source>有多个角色时，可以为每个角色分别保存目标和进度。</source>
+        <translation>有多個角色時，可以為每個角色分別儲存目標和進度。</translation>
+    </message>
+    <message>
+        <source>添加角色</source>
+        <translation>新增角色</translation>
+    </message>
+    <message>
+        <source>新记录现在记在这个角色名下。换角色上线前，把要用的角色设为当前。</source>
+        <translation>新記錄現在記在這個角色名下。換角色上線前，把要用的角色設為目前角色。</translation>
+    </message>
+    <message>
+        <source>新记录现在记在「%1」名下。</source>
+        <translation>新記錄現在記在「%1」名下。</translation>
+    </message>
+    <message>
+        <source>设为当前角色</source>
+        <translation>設為目前角色</translation>
+    </message>
+    <message>
+        <source>改名</source>
+        <translation>改名</translation>
+    </message>
+    <message>
+        <source>确认删除</source>
+        <translation>確認刪除</translation>
+    </message>
+    <message>
+        <source>删除</source>
+        <translation>刪除</translation>
+    </message>
+    <message>
         <source>修改原因</source>
         <translation>修改原因</translation>
     </message>
@@ -11155,6 +11405,10 @@ SHA256：%3</translation>
     <message>
         <source>批量删除记录</source>
         <translation>批次刪除記錄</translation>
+    </message>
+    <message>
+        <source>修改记录所属的角色</source>
+        <translation>修改記錄所屬的角色</translation>
     </message>
     <message>
         <source>调整开始记录前已完成的导随次数</source>
@@ -12544,6 +12798,10 @@ SHA256：%3</translation>
         <translation>待複核</translation>
     </message>
     <message>
+        <source>角色</source>
+        <translation>角色</translation>
+    </message>
+    <message>
         <source>空</source>
         <translation>空</translation>
     </message>
@@ -12743,6 +13001,14 @@ SHA256：%3</translation>
     <message>
         <source>%1 请刷新列表查看当前记录；如需重试，请取消并重新勾选发生变化的记录。</source>
         <translation>%1 請重新整理清單檢視目前的記錄；如需重試，請取消並重新勾選有變更的記錄。</translation>
+    </message>
+    <message>
+        <source>已把 %1 条记录改到所选角色。</source>
+        <translation>已把 %1 筆記錄改到所選角色。</translation>
+    </message>
+    <message>
+        <source>已把 %1 条记录改为不属于任何角色。</source>
+        <translation>已把 %1 筆記錄改為不屬於任何角色。</translation>
     </message>
     <message>
         <source>已恢复 %1 条记录。</source>

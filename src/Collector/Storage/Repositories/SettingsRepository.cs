@@ -14,7 +14,10 @@ namespace MentorRecorder.Collector.Storage.Repositories;
 /// </summary>
 public sealed class SettingsRepository
 {
-    /// <summary>Setting key holding the achievement baseline change history.</summary>
+    /// <summary>
+    /// Prefix of the setting keys holding the baseline change history, one list per profile:
+    /// <c>achievement.baseline_history.profile.&lt;profile_id&gt;</c>.
+    /// </summary>
     public const string BaselineHistoryKey = "achievement.baseline_history";
 
     /// <summary>Longest retained baseline history.</summary>
@@ -32,10 +35,18 @@ public sealed class SettingsRepository
         ArgumentNullException.ThrowIfNull(clock);
         _database = database;
         _clock = clock;
+        Profiles = new CharacterProfileRepository(database, clock);
     }
 
     /// <summary>
-    /// Creates CN/TC achievement rows and the default application settings when they are
+    /// The character profiles the goals and baselines are stored in since schema 14. The
+    /// region-addressed members of this class mean the region's current profile, which is the only
+    /// one a player with one character ever has.
+    /// </summary>
+    public CharacterProfileRepository Profiles { get; }
+
+    /// <summary>
+    /// Creates the CN/TC profiles and the default application settings when they are
     /// missing. Safe to call on every startup.
     /// </summary>
     public void EnsureDefaults()
@@ -43,17 +54,8 @@ public sealed class SettingsRepository
         var now = UtcTimestamp.Truncate(_clock.UtcNow);
         _database.RunInTransaction(tx =>
         {
-            using (var command = _database.CreateCommand())
-            {
-                command.Transaction = tx;
-                command.CommandText =
-                    "INSERT OR IGNORE INTO achievement_settings " +
-                    "(region, goal_count, baseline_completed_count, baseline_effective_at, updated_at_utc) " +
-                    "VALUES ('CN', $goal, 0, $now, $now), ('TC', $goal, 0, $now, $now);";
-                command.Parameters.AddWithValue("$goal", AchievementSettings.DefaultGoalCount);
-                command.Parameters.AddWithValue("$now", UtcTimestamp.ToText(now));
-                command.ExecuteNonQuery();
-            }
+            Profiles.EnsureCurrent(Region.Cn, tx);
+            Profiles.EnsureCurrent(Region.Tc, tx);
 
             SetDefault(tx, "ui.language", "\"zh-Hans\"", now);
             SetDefault(tx, "tts.enabled", "false", now);
@@ -76,7 +78,8 @@ public sealed class SettingsRepository
     }
 
     /// <summary>
-    /// Reads the achievement settings row.
+    /// Reads the goal and baseline of a region's current profile; the defaults, naming no profile,
+    /// when the region has none yet.
     ///
     /// The transaction-less form gates itself: every repository shares one SQLite connection
     /// and <see cref="SqliteDatabase"/> serialises access to it, so a read issued outside the
@@ -90,63 +93,44 @@ public sealed class SettingsRepository
 
     private AchievementSettings ReadAchievementSettings(SqliteTransaction? transaction, Region region)
     {
-        using var command = _database.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
-            "SELECT goal_count, baseline_completed_count, baseline_effective_at, updated_at_utc " +
-            "FROM achievement_settings WHERE region = $region;";
-        command.Parameters.AddWithValue("$region", EnumWire<Region>.Format(region));
-        using var reader = command.ExecuteReader();
-        if (!reader.Read())
+        if (Profiles.FindCurrent(region, transaction) is { } profile)
         {
-            var now = UtcTimestamp.Truncate(_clock.UtcNow);
-            return new AchievementSettings
-            {
-                Region = region,
-                GoalCount = AchievementSettings.DefaultGoalCount,
-                BaselineCompletedCount = 0,
-                BaselineEffectiveAt = now,
-                UpdatedAtUtc = now,
-            };
+            return profile.ToSettings();
         }
 
+        var now = UtcTimestamp.Truncate(_clock.UtcNow);
         return new AchievementSettings
         {
             Region = region,
-            GoalCount = reader.GetInt32(0),
-            BaselineCompletedCount = reader.GetInt32(1),
-            BaselineEffectiveAt = UtcTimestamp.Parse(reader.GetString(2)),
-            UpdatedAtUtc = UtcTimestamp.Parse(reader.GetString(3)),
+            GoalCount = AchievementSettings.DefaultGoalCount,
+            BaselineCompletedCount = 0,
+            BaselineEffectiveAt = now,
+            UpdatedAtUtc = now,
         };
     }
 
-    /// <summary>Writes the achievement settings row.</summary>
+    /// <summary>
+    /// Writes the goal and baseline of the profile <paramref name="settings"/> names, or of its
+    /// region's current profile when it names none, and returns them as stored.
+    /// </summary>
     /// <param name="settings">New values.</param>
     /// <param name="transaction">Enclosing transaction.</param>
-    public void UpdateAchievementSettings(AchievementSettings settings, SqliteTransaction transaction)
+    public AchievementSettings UpdateAchievementSettings(AchievementSettings settings, SqliteTransaction transaction)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(transaction);
 
-        using var command = _database.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
-            "INSERT INTO achievement_settings " +
-            "(region, goal_count, baseline_completed_count, baseline_effective_at, updated_at_utc) " +
-            "VALUES ($region, $goal, $baseline, $effective, $updated) " +
-            "ON CONFLICT(region) DO UPDATE SET goal_count = $goal, baseline_completed_count = $baseline, " +
-            "baseline_effective_at = $effective, updated_at_utc = $updated;";
-        command.Parameters.AddWithValue("$region", EnumWire<Region>.Format(settings.Region));
-        command.Parameters.AddWithValue("$goal", settings.GoalCount);
-        command.Parameters.AddWithValue("$baseline", settings.BaselineCompletedCount);
-        command.Parameters.AddWithValue("$effective", UtcTimestamp.ToText(settings.BaselineEffectiveAt));
-        command.Parameters.AddWithValue("$updated", UtcTimestamp.ToText(settings.UpdatedAtUtc));
-        command.ExecuteNonQuery();
+        var addressed = settings.ProfileId is null
+            ? settings with { ProfileId = Profiles.EnsureCurrent(settings.Region, transaction).ProfileId }
+            : settings;
+        Profiles.UpdateSettings(addressed, transaction);
+        return addressed;
     }
 
     /// <summary>
-    /// Appends one entry to the baseline change history kept in
-    /// <c>application_settings["achievement.baseline_history"]</c>.
+    /// Appends one entry to the baseline change history of the profile <paramref name="settings"/>
+    /// names, kept in <c>application_settings</c> under
+    /// <c>achievement.baseline_history.profile.&lt;profile_id&gt;</c>.
     ///
     /// The achievement baseline has no run to hang a <c>run_revisions</c> row on, so this is
     /// its audit trail: who changed the goal, to what, when and why. The list is capped so a
@@ -169,7 +153,9 @@ public sealed class SettingsRepository
         ArgumentException.ThrowIfNullOrEmpty(reason);
         ArgumentNullException.ThrowIfNull(transaction);
 
-        var history = ReadBaselineAudit(transaction, settings.Region).ToList();
+        // Settings that name no profile mean the region's current one, as in UpdateAchievementSettings.
+        var profileId = settings.ProfileId ?? Profiles.EnsureCurrent(settings.Region, transaction).ProfileId;
+        var history = ReadBaselineAuditRow(transaction, profileId, settings.Region).ToList();
         history.Add(new BaselineAuditEntry(
             auditEventId,
             requestId,
@@ -189,34 +175,64 @@ public sealed class SettingsRepository
             "INSERT INTO application_settings (key, value_json, updated_at_utc) " +
             "VALUES ($key, $value, $now) " +
             "ON CONFLICT(key) DO UPDATE SET value_json = $value, updated_at_utc = $now;";
-        command.Parameters.AddWithValue("$key", AuditKey(settings.Region));
+        command.Parameters.AddWithValue("$key", AuditKey(profileId));
         command.Parameters.AddWithValue("$value", JsonSerializer.Serialize(trimmed));
         command.Parameters.AddWithValue("$now", UtcTimestamp.ToText(settings.UpdatedAtUtc));
         command.ExecuteNonQuery();
     }
 
     /// <summary>
-    /// Reads the baseline change history, oldest first. Self-gating when no transaction is
-    /// supplied, for the same reason as <see cref="GetAchievementSettings"/>.
+    /// Reads the baseline change history of a region's current profile, oldest first. Self-gating
+    /// when no transaction is supplied, for the same reason as <see cref="GetAchievementSettings"/>.
     /// </summary>
     /// <param name="transaction">Enclosing transaction, or null for a standalone read.</param>
     public IReadOnlyList<BaselineAuditEntry> ReadBaselineAudit(SqliteTransaction? transaction = null, Region region = Region.Cn) =>
         transaction is null
-            ? _database.Read(_ => ReadBaselineAuditRow(null, region))
-            : ReadBaselineAuditRow(transaction, region);
+            ? _database.Read(_ => ReadCurrentBaselineAudit(null, region))
+            : ReadCurrentBaselineAudit(transaction, region);
 
-    private static string AuditKey(Region region) => region == Region.Cn ? BaselineHistoryKey
-        : BaselineHistoryKey + "." + EnumWire<Region>.Format(region);
+    /// <summary>Reads the baseline change history of one profile, oldest first.</summary>
+    /// <param name="profile">Profile whose history is read.</param>
+    /// <param name="transaction">Enclosing transaction, or null for a standalone read.</param>
+    public IReadOnlyList<BaselineAuditEntry> ReadBaselineAudit(CharacterProfile profile, SqliteTransaction? transaction = null)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        return transaction is null
+            ? _database.Read(_ => ReadBaselineAuditRow(null, profile.ProfileId, profile.Region))
+            : ReadBaselineAuditRow(transaction, profile.ProfileId, profile.Region);
+    }
 
-    /// <summary>Every surviving regional audit, including old CN entries with no region field.</summary>
+    private IReadOnlyList<BaselineAuditEntry> ReadCurrentBaselineAudit(SqliteTransaction? transaction, Region region) =>
+        Profiles.FindCurrent(region, transaction) is { } profile
+            ? ReadBaselineAuditRow(transaction, profile.ProfileId, region)
+            : Array.Empty<BaselineAuditEntry>();
+
+    private static string AuditKey(long profileId) =>
+        BaselineHistoryKey + ".profile." + profileId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>Every surviving baseline audit entry, of every profile.</summary>
     internal IReadOnlyList<BaselineAuditEntry> ReadAllBaselineAudit(SqliteTransaction? transaction = null) =>
-        Enum.GetValues<Region>().SelectMany(region => ReadBaselineAudit(transaction, region)).ToArray();
+        Profiles.List(transaction).SelectMany(profile => ReadBaselineAudit(profile, transaction)).ToArray();
 
-    /// <summary>Regions with records/settings plus the always-visible CN and TC defaults.</summary>
+    /// <summary>Drops the baseline change history of a profile that is being removed.</summary>
+    /// <param name="profileId">Profile identifier.</param>
+    /// <param name="transaction">Enclosing transaction.</param>
+    internal void DeleteBaselineAudit(long profileId, SqliteTransaction transaction)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+
+        using var command = _database.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "DELETE FROM application_settings WHERE key = $key;";
+        command.Parameters.AddWithValue("$key", AuditKey(profileId));
+        command.ExecuteNonQuery();
+    }
+
+    /// <summary>Regions with records/profiles plus the always-visible CN and TC defaults.</summary>
     public IReadOnlyList<Region> GetAchievementRegions() => _database.Read(_ =>
     {
         using var command = _database.CreateCommand();
-        command.CommandText = "SELECT region FROM achievement_settings UNION SELECT region FROM mentor_runs;";
+        command.CommandText = "SELECT region FROM character_profiles UNION SELECT region FROM mentor_runs;";
         using var reader = command.ExecuteReader();
         var regions = new HashSet<Region> { Region.Cn, Region.Tc };
         while (reader.Read()) regions.Add(EnumWire<Region>.Parse(reader.GetString(0)));
@@ -224,12 +240,13 @@ public sealed class SettingsRepository
             .ThenBy(value => EnumWire<Region>.Format(value), StringComparer.Ordinal).ToArray();
     });
 
-    private IReadOnlyList<BaselineAuditEntry> ReadBaselineAuditRow(SqliteTransaction? transaction, Region region)
+    private IReadOnlyList<BaselineAuditEntry> ReadBaselineAuditRow(
+        SqliteTransaction? transaction, long profileId, Region region)
     {
         using var command = _database.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = "SELECT value_json FROM application_settings WHERE key = $key;";
-        command.Parameters.AddWithValue("$key", AuditKey(region));
+        command.Parameters.AddWithValue("$key", AuditKey(profileId));
         if (command.ExecuteScalar() is not string json)
         {
             return Array.Empty<BaselineAuditEntry>();

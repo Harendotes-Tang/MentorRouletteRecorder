@@ -210,7 +210,22 @@ public:
     /// Test seam: set the achievement settings directly.
     void setAchievement(int goalCount, int baselineCompletedCount);
     /// Test seam: set only the named region; omitted-region callers retain CN semantics.
+    /// Addresses the region's current character profile, created when the region has none.
     void setAchievement(const QString &region, int goalCount, int baselineCompletedCount);
+
+    // -- 角色档案 (MockBackendProfiles.cpp) -----------------------------------
+    /// Test and --mock-profiles seam: adds a profile named \a displayName to \a region the
+    /// way CreateCharacterProfile does, without its validation, and returns its id.
+    int addCharacterProfile(const QString &region, const QString &displayName, int goalCount,
+                            int baselineCompletedCount, bool makeCurrent);
+    /// --mock-profiles: CN holds two named characters with different progress, the
+    /// second one current, and a few CN runs assigned to no character.
+    void setCharacterProfilesFixture();
+    /// $defs/DashboardStats.profiles as it stands: every profile with its own progress.
+    QJsonArray characterProfiles() const;
+    /// The profile a stored run belongs to: its profile_id, 0 for an explicit null, and
+    /// for a hand-written run without the field the first profile of its region.
+    int runProfileId(const QJsonObject &run) const;
 
     /// Statistics helpers, public so the unit tests can call them without
     /// going through the asynchronous request path.
@@ -379,9 +394,50 @@ private:
         QDateTime updatedAt;
         QString auditEventId;
     };
-    /// Per-region lifetime settings. Missing regions start at zero, never at CN's baseline.
+    /// The settings of the region's current profile. A region without a profile reads
+    /// the defaults: it starts at zero, never at CN's baseline.
     AchievementSettings achievementSettings(const QString &region) const;
-    QHash<QString, AchievementSettings> m_achievements;
+    /// One character_profiles row. Ids are never reused, like the Collector's AUTOINCREMENT.
+    struct CharacterProfileEntry
+    {
+        int id = 0;
+        QString region;
+        QString displayName;
+        bool current = false;
+        AchievementSettings settings;
+    };
+    QList<CharacterProfileEntry> m_profiles;
+    int m_nextProfileId = 1;
+    /// CharacterProfileRepository.EnsureCurrent: the region's current profile, created
+    /// unnamed with the default goal and a zero baseline when the region has none.
+    int ensureCurrentProfile(const QString &region);
+    const CharacterProfileEntry *findProfile(int profileId) const;
+    CharacterProfileEntry *findProfile(int profileId);
+    const CharacterProfileEntry *currentProfile(const QString &region) const;
+    /// $defs/CharacterProfile for \a profile, its progress counted over the stored runs.
+    QJsonObject profileJson(const CharacterProfileEntry &profile) const;
+    /// Profiles of \a region, oldest first.
+    QList<const CharacterProfileEntry *> profilesOf(const QString &region) const;
+    /// Runs of \a region assigned to no profile and not deleted.
+    int unassignedRunCount(const QString &region) const;
+    /// RunFilter.profile_id / profile_unassigned against one stored run.
+    bool runMatchesProfileFilter(const QJsonObject &run, const QJsonObject &filter) const;
+    /// RequestParsers: profile_id and profile_unassigned together are ERR_BAD_REQUEST.
+    bool refusedProfileFilter(const QJsonObject &filter, QString *errorCode, QString *errorMessage);
+    static bool isCharacterProfileMessage(const QString &messageType);
+    /// The three profile messages, with CharacterProfileService's refusals.
+    QJsonObject applyCharacterProfile(const QString &messageType, const QJsonObject &payload,
+                                      QString *errorCode, QString *errorMessage,
+                                      QJsonObject *errorDetails);
+    /// BatchMutateRuns assign_profile (RunMutationService.AssignProfile).
+    QJsonObject assignRunsToProfile(const QJsonObject &payload, QString *errorCode,
+                                    QString *errorMessage, QJsonObject *errorDetails);
+    /// The profile a newly created run of \a region is filed under (CharacterProfileService.Resolve):
+    /// \a requested, which must exist and belong to the region, or the region's current one.
+    /// Returns 0 after a refusal.
+    int resolveProfileForNewRun(const QString &region, const QJsonValue &requested,
+                                QString *errorCode, QString *errorMessage);
+    void emitStatsInvalidatedLater();
     static QJsonArray declaredCandidateHypotheses();
     QString captureRegion() const;
     bool unsupportedCaptureRegion() const;

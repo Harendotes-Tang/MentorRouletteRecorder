@@ -471,6 +471,7 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "from_utc 不能晚于 to_utc。", "ipc.filter.from_after_to"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "历史日历日期仅用于 history_date，并须同时提供对应的 UTC 起止边界。", "ipc.filter.history_day_needs_bounds"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "history_from_day 不能晚于 history_to_day。", "ipc.filter.history_from_after_to"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "profile_id 与 profile_unassigned 不能同时使用。", "ipc.filter.profile_conflict"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "收到超过 4 MiB 的帧，连接已断开。", "ipc.frame_too_large_received"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "待发送的帧超过 4 MiB 上限，已拒绝发送。", "ipc.frame_too_large_to_send"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "内部错误，详情见本机诊断日志。", "ipc.internal_error"), .args = ""},
@@ -501,6 +502,19 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "这条修订是程序为未完结的记录自动写下的。撤销它会让记录回到无法统计、也无法确认的状态，因此不能撤销；如果判断有误，请直接更正这条记录。", "mutation.undo.system_settlement"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "修订记录包含无法还原的字段，已拒绝撤销以免部分还原。", "mutation.undo.unrestorable_field"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "结果为「未知」的自动记录必须填写结束时间：没有结束时间的未知结果会被当作仍在进行的记录，既不计入统计，也不会出现在待复核中。请填写结束时间，或选择实际结果。", "mutation.unknown_needs_end"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "选中的记录已经都记在这里，没有需要修改的。", "profile.assign_unchanged"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "新记录正记在这个角色名下。请先切换到其他角色，再删除它。", "profile.delete_current"), .args = ""},
+    //: Placeholders: {count} a number. Keep every {placeholder} exactly as written.
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "这个角色名下还有 {count} 条记录（含回收站）。请先在历史记录里把它们改到其他角色，再删除。", "profile.delete_has_runs"), .args = "count:number"},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "每个区服至少保留一个角色，不能删除。", "profile.delete_last"), .args = ""},
+    //: Placeholders: {max} a number. Keep every {placeholder} exactly as written.
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "每个区服最多保存 {max} 个角色。", "profile.limit_reached"), .args = "max:number"},
+    //: Placeholders: {max} a number. Keep every {placeholder} exactly as written.
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "请填写角色名称，最多 {max} 个字。", "profile.name_required"), .args = "max:number"},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "这个区服已有同名的角色，请换一个名称。", "profile.name_taken"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "找不到这个角色，请刷新后重试。", "profile.not_found"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "所选角色不属于这条记录的区服。", "profile.region_mismatch"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "此请求编号已用于不同的角色操作。", "profile.request_reused"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "有不止一份游戏版本支持文件对应这个版本，软件不会从中任选一份。", "profile.unavailable.ambiguous"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "还不知道游戏的版本号。", "profile.unavailable.build_unknown"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "读取游戏版本支持文件时出错。", "profile.unavailable.failed"), .args = ""},

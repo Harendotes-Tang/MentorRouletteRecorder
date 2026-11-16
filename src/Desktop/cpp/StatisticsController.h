@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QHash>
 #include <QSet>
@@ -67,6 +68,36 @@ public:
     /// True while an UpdateAchievementBaseline is unanswered, whoever sent it.
     bool baselineSaving() const { return m_baselineSavesInFlight > 0; }
 
+    // -- 角色档案 (StatisticsControllerProfiles.cpp) --------------------------
+    /// $defs/DashboardStats.profiles of the newest answer, or of the newest profile
+    /// change's reply: every profile of every region, unaffected by any filter.
+    QVariantList characterProfiles() const { return m_profiles.toVariantList(); }
+    QVariantList characterProfilesForRegion(const QString &region) const;
+    /// The profile with \a profileId; empty when it is not known.
+    QVariantMap characterProfile(int profileId) const;
+    /// True when \a region holds two or more profiles or runs assigned to none; for an
+    /// empty \a region, when any region does. The one switch that keeps a player with a
+    /// single character on the interface they had before profiles existed.
+    bool characterFeaturesVisible(const QString &region) const;
+    /// The numbers a finished \a run's progress is spoken and shown with: its own
+    /// profile's; for a run without profile_id (an older Collector) its region's entry;
+    /// empty for a run assigned to no profile (profile_id null) or a profile not known.
+    QVariantMap achievementForRun(const QJsonObject &run) const;
+    /// True when \a run says it belongs to no character profile (profile_id: null).
+    static bool runIsUnassigned(const QJsonObject &run);
+    /// 0: goalCount() / baselineCount() / updateAchievementBaseline() address the current
+    /// profile of baselineRegion(). Otherwise the profile they address; refused (left as
+    /// it is) for a profile that is not known or not of baselineRegion(). Back to 0 when
+    /// the region changes or the profile disappears.
+    int baselineProfileId() const { return m_baselineProfileId; }
+    void setBaselineProfileId(int profileId);
+    bool characterProfileSaving() const { return m_profileSavesInFlight > 0; }
+    void createCharacterProfile(const QString &region, const QString &displayName, int goalCount,
+                                int baselineCount, bool makeCurrent);
+    void renameCharacterProfile(int profileId, const QString &displayName);
+    void selectCharacterProfile(int profileId);
+    void deleteCharacterProfile(int profileId);
+
 Q_SIGNALS:
     void dashboardChanged();
     /// A newly observed whole-goal milestone; first reads/settings/reconnects
@@ -87,8 +118,22 @@ Q_SIGNALS:
     void baselineFailed(const QString &code, const QString &message);
     void mutationFailed(const QString &code, const QString &message);
     void toastRequested(const QString &message);
+    void characterProfilesChanged();
+    void baselineProfileIdChanged();
+    void characterProfileSavingChanged();
+    /// A profile change was accepted; \a action is "create", "rename", "select" or
+    /// "delete". characterProfiles() already holds the reply's list.
+    void characterProfileSaved(int profileId, const QString &action);
+    /// A profile change was refused or went unanswered; \a message is the Collector's
+    /// sentence in the interface language (collector_text::replyErrorText).
+    void characterProfileFailed(const QString &action, const QString &code, const QString &message);
 
 private:
+    /// Adopts \a dashboard's profiles unless a newer list (by \a serial) is held.
+    void adoptProfiles(const QJsonObject &dashboard, quint64 serial);
+    void applyProfiles(const QJsonArray &profiles, quint64 serial);
+    /// Watches one profile request through to characterProfileSaved / characterProfileFailed.
+    void watchProfileRequest(const QString &action, BackendReply *reply);
     void observeAchievement(const QJsonObject &dashboard, quint64 serial);
     void adoptAchievements(const QJsonObject &dashboard, const QString &region, quint64 serial);
     QJsonObject regionFilter() const;
@@ -108,6 +153,8 @@ private:
         int goal = 0;
         int baseline = 0;
         int highestLap = 0;
+        /// The character profile the region's entry belonged to; 0 from an older Collector.
+        int profileId = 0;
     };
     QHash<QString, AchievementObservation> m_regionalObservations;
     QHash<QString, quint64> m_acceptedRegionalSerial;
@@ -132,6 +179,11 @@ private:
     /// GLOBAL and UNKNOWN included, on this connection and the following ones.
     bool m_allAchievementRegionsWanted = false;
     int m_baselineSavesInFlight = 0;
+    QJsonArray m_profiles;
+    /// The read serial m_profiles came with; an older answer never replaces it.
+    quint64 m_profilesSerial = 0;
+    int m_baselineProfileId = 0;
+    int m_profileSavesInFlight = 0;
     int m_completedLast7Days = 0;
     int m_completedLast30Days = 0;
     int m_trendWindowDays = 30;

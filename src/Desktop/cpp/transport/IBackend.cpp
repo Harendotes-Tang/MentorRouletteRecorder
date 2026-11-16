@@ -406,10 +406,13 @@ BackendReply *IBackend::updateAchievementBaseline(int goalCount,
                                                   int baselineCompletedCount,
                                                   const QString &reason,
                                                   const QString &baselineEffectiveAtUtc,
-                                                  const QString &region)
+                                                  const QString &region, int profileId)
 {
     QJsonObject payload;
     if (!region.isEmpty()) payload.insert(QStringLiteral("region"), region);
+    // Omitted rather than 0: the contract's minimum is 1, and an absent field is the
+    // region's current profile, which is what every older caller means.
+    if (profileId > 0) payload.insert(QStringLiteral("profile_id"), profileId);
     payload.insert(QStringLiteral("goal_count"), goalCount);
     payload.insert(QStringLiteral("baseline_completed_count"), baselineCompletedCount);
 
@@ -423,11 +426,57 @@ BackendReply *IBackend::updateAchievementBaseline(int goalCount,
     return request(QStringLiteral("UpdateAchievementBaseline"), payload);
 }
 
+BackendReply *IBackend::createCharacterProfile(const QString &region, const QString &displayName,
+                                               int goalCount, int baselineCompletedCount,
+                                               bool makeCurrent, const QString &requestId)
+{
+    QJsonObject payload;
+    payload.insert(QStringLiteral("region"), region);
+    payload.insert(QStringLiteral("display_name"), displayName);
+    payload.insert(QStringLiteral("goal_count"), goalCount);
+    payload.insert(QStringLiteral("baseline_completed_count"), baselineCompletedCount);
+    if (makeCurrent)
+        payload.insert(QStringLiteral("make_current"), true);
+    return requestWithId(QStringLiteral("CreateCharacterProfile"), payload, requestId);
+}
+
+BackendReply *IBackend::updateCharacterProfile(int profileId, const QString &displayName,
+                                               bool makeCurrent, const QString &requestId)
+{
+    QJsonObject payload;
+    payload.insert(QStringLiteral("profile_id"), profileId);
+    // A null name keeps the stored one; an empty one is sent and refused by the Collector.
+    if (!displayName.isNull())
+        payload.insert(QStringLiteral("display_name"), displayName);
+    if (makeCurrent)
+        payload.insert(QStringLiteral("make_current"), true);
+    return requestWithId(QStringLiteral("UpdateCharacterProfile"), payload, requestId);
+}
+
+BackendReply *IBackend::deleteCharacterProfile(int profileId, const QString &requestId)
+{
+    return requestWithId(QStringLiteral("DeleteCharacterProfile"),
+                         QJsonObject{{QStringLiteral("profile_id"), profileId}}, requestId);
+}
+
 BackendReply *IBackend::batchMutateRuns(const QString &action, const QJsonArray &runs,
                                         const QString &reason, const QString &requestId)
 {
     QJsonObject payload;
     payload.insert(QStringLiteral("action"), action);
+    payload.insert(QStringLiteral("runs"), runs);
+    payload.insert(QStringLiteral("reason"), reason);
+    return requestWithId(QStringLiteral("BatchMutateRuns"), payload, requestId);
+}
+
+BackendReply *IBackend::assignRunsToProfile(const QJsonArray &runs, int profileId,
+                                            const QString &reason, const QString &requestId)
+{
+    QJsonObject payload;
+    payload.insert(QStringLiteral("action"), QStringLiteral("assign_profile"));
+    // Required for this action: an explicit null files the runs under no profile.
+    payload.insert(QStringLiteral("profile_id"),
+                   profileId > 0 ? QJsonValue(profileId) : QJsonValue(QJsonValue::Null));
     payload.insert(QStringLiteral("runs"), runs);
     payload.insert(QStringLiteral("reason"), reason);
     return requestWithId(QStringLiteral("BatchMutateRuns"), payload, requestId);
@@ -490,7 +539,8 @@ BackendReply *IBackend::previewRunImportPage(const QString &previewId, int page)
 }
 
 BackendReply *IBackend::commitRunImport(const QString &previewId, const QList<int> &rowNumbers,
-                                        bool deductFromBaseline, const QString &requestId)
+                                        bool deductFromBaseline, const QString &requestId,
+                                        int profileId)
 {
     QJsonArray numbers;
     for (int number : rowNumbers)
@@ -501,6 +551,8 @@ BackendReply *IBackend::commitRunImport(const QString &previewId, const QList<in
     payload.insert(QStringLiteral("confirm_own_records"), true);
     if (deductFromBaseline)
         payload.insert(QStringLiteral("deduct_from_baseline"), true);
+    if (profileId > 0)
+        payload.insert(QStringLiteral("profile_id"), profileId);
     return requestWithId(QStringLiteral("CommitRunImport"), payload, requestId);
 }
 

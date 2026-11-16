@@ -320,6 +320,21 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
         Q_EMIT mutationFailed(code, message, QStringLiteral("baseline"), QString());
     });
     connect(m_statistics, &StatisticsController::toastRequested, this, &AppController::showToast);
+    connect(m_statistics, &StatisticsController::characterProfilesChanged, this,
+            &AppController::characterProfilesChanged);
+    connect(m_statistics, &StatisticsController::baselineProfileIdChanged, this,
+            &AppController::baselineProfileIdChanged);
+    connect(m_statistics, &StatisticsController::characterProfileSavingChanged, this,
+            &AppController::characterProfileSavingChanged);
+    connect(m_statistics, &StatisticsController::characterProfileFailed, this,
+            &AppController::characterProfileFailed);
+    connect(m_statistics, &StatisticsController::characterProfileSaved, this,
+            [this](int profileId, const QString &action) {
+        Q_EMIT characterProfileSaved(profileId, action);
+        // The Collector publishes stats_invalidated for the change as well; reading now
+        // keeps the pages right without waiting for it.
+        refreshAfterStatsInvalidated();
+    });
     connect(m_history, &HistoryController::selectionChanged, this, &AppController::selectionChanged);
     connect(m_history, &HistoryController::runEventsChanged, this, &AppController::runEventsChanged);
     connect(m_history, &HistoryController::runRevisionChanged, this, &AppController::runRevisionChanged);
@@ -1347,14 +1362,7 @@ void AppController::handleLiveEvent(const QVariantMap &event)
     }
 
     if (kind == QLatin1String("stats_invalidated")) {
-        refreshDashboard();
-        refreshTrend();
-        refreshReflections();
-        m_recovery->refresh();
-        m_history->runs()->reload();
-        retryHistoryImageCleanup();
-        m_statistics->dungeons()->reload();
-        m_statistics->jobs()->reload();
+        refreshAfterStatsInvalidated();
         return;
     }
 
@@ -1428,6 +1436,18 @@ bool AppController::adoptLiveEventOnce(const QVariantMap &event)
     return true;
 }
 
+void AppController::refreshAfterStatsInvalidated()
+{
+    refreshDashboard();
+    refreshTrend();
+    refreshReflections();
+    m_recovery->refresh();
+    m_history->runs()->reload();
+    retryHistoryImageCleanup();
+    m_statistics->dungeons()->reload();
+    m_statistics->jobs()->reload();
+}
+
 QString AppController::announcementKind(const QString &state)
 {
     return RunCompletionCoordinator::announcementKind(state);
@@ -1460,7 +1480,14 @@ QVariantMap AppController::announcementValues(const QJsonObject &run) const
     QString region = run.value(QStringLiteral("region")).toString();
     if (region.isEmpty()) region = m_currentRun.value(QStringLiteral("run")).toObject()
         .value(QStringLiteral("region")).toString();
-    const QVariantMap achievement = m_statistics->achievementForRegion(region.isEmpty() ? QStringLiteral("CN") : region);
+    // The run's own character profile when it names one; a run without the field (an
+    // older Collector) counts for its region. An unassigned run counts for no one, and the
+    // terminal line then omits the numbers (announceFinished); a match or entry line
+    // keeps the region's, as it did before profiles.
+    QVariantMap achievement = run.value(QStringLiteral("profile_id")).isDouble()
+        ? m_statistics->achievementForRun(run) : QVariantMap();
+    if (!achievement.contains(QStringLiteral("achievement_progress")))
+        achievement = m_statistics->achievementForRegion(region.isEmpty() ? QStringLiteral("CN") : region);
     values.insert(QStringLiteral("progress"), achievement.value(QStringLiteral("achievement_progress"), 0));
     values.insert(QStringLiteral("remaining"), achievement.value(QStringLiteral("remaining"), 2000));
     return values;
@@ -1516,9 +1543,11 @@ void AppController::announceFinished(const QString &state, const QJsonObject &ru
     if (!m_tts) return;
     const QString kind = announcementKind(state);
     if (kind.isEmpty()) return;
-    const QString region = run.value(QStringLiteral("region")).toString(QStringLiteral("CN"));
-    if (!numbersKnown && !m_statistics->achievementForRegion(region)
-            .contains(QStringLiteral("achievement_progress"))) {
+    // A run assigned to no character counts in no one's progress, so its line names no
+    // count; neither does one whose numbers were never read.
+    if (StatisticsController::runIsUnassigned(run)
+        || (!numbersKnown && !m_statistics->achievementForRun(run)
+                .contains(QStringLiteral("achievement_progress")))) {
         m_tts->announceText(kind, numberlessAnnouncement(kind));
         return;
     }
@@ -1822,6 +1851,8 @@ void AppController::clearCheckedHistoryRuns()
 { m_history->clearCheckedRuns(); }
 void AppController::mutateCheckedHistoryRuns(const QString &action, const QString &reason)
 { m_history->mutateCheckedRuns(action, reason); }
+void AppController::assignCheckedHistoryRunsToProfile(int profileId, const QString &reason)
+{ m_history->assignCheckedRunsToProfile(profileId, reason); }
 void AppController::confirmHistoryFilterChange(bool apply)
 { m_history->confirmHistoryFilterChange(apply); }
 void AppController::refreshHistoryRetentionSettings()
@@ -2102,6 +2133,27 @@ void AppController::restoreSelectedRun(const QString &reason, const QString &run
 void AppController::updateAchievementBaseline(int goal, int baseline, const QString &reason)
 {
     m_statistics->updateAchievementBaseline(goal, baseline, reason);
+}
+
+void AppController::createCharacterProfile(const QString &region, const QString &displayName,
+                                           int goalCount, int baselineCount, bool makeCurrent)
+{
+    m_statistics->createCharacterProfile(region, displayName, goalCount, baselineCount, makeCurrent);
+}
+
+void AppController::renameCharacterProfile(int profileId, const QString &displayName)
+{
+    m_statistics->renameCharacterProfile(profileId, displayName);
+}
+
+void AppController::selectCharacterProfile(int profileId)
+{
+    m_statistics->selectCharacterProfile(profileId);
+}
+
+void AppController::deleteCharacterProfile(int profileId)
+{
+    m_statistics->deleteCharacterProfile(profileId);
 }
 
 void AppController::completeFirstRun()

@@ -372,6 +372,233 @@ private Q_SLOTS:
         QVERIFY2(recording.message().contains(QString::fromUtf8("还没有适用于当前游戏版本的支持文件")),
                  qPrintable(recording.message()));
     }
+
+    // 角色档案: every region starts with one unnamed current profile that carries the
+    // region's numbers, so a player with one character sees what they saw before.
+    void aRegionStartsWithOneUnnamedCurrentProfileCarryingItsNumbers()
+    {
+        mr::MockBackend backend;
+        const QJsonObject stats = backend.dashboardStats({});
+        const QJsonArray profiles = stats.value("profiles").toArray();
+        QCOMPARE(profiles.size(), 2); // CN and TC, as SettingsRepository.EnsureDefaults
+        const QJsonObject cn = profiles.at(0).toObject();
+        QCOMPARE(cn.value("region").toString(), QStringLiteral("CN"));
+        QCOMPARE(cn.value("display_name").toString(), QString());
+        QVERIFY(cn.value("is_current").toBool());
+        QCOMPARE(cn.value("baseline_completed_count").toInt(), 1374);
+        QCOMPARE(profiles.at(1).toObject().value("region").toString(), QStringLiteral("TC"));
+        QJsonObject entry;
+        for (const auto &value : stats.value("achievements").toArray())
+            if (value.toObject().value("region") == QStringLiteral("CN")) entry = value.toObject();
+        QCOMPARE(entry.value("profile_id"), cn.value("profile_id"));
+        QCOMPARE(entry.value("profile_count").toInt(), 1);
+        QCOMPARE(entry.value("unassigned_run_count").toInt(), 0);
+        QCOMPARE(entry.value("achievement_progress"), cn.value("achievement_progress"));
+        QCOMPARE(stats.value("achievement_progress"), cn.value("achievement_progress"));
+        // Every sample run, and the live one, is filed under it.
+        const Answer page = ask(backend, QStringLiteral("QueryRuns"),
+                                {{"filter", QJsonObject{{"region", "CN"}}}, {"page_size", 200}});
+        QVERIFY(!page.payload.value("items").toArray().isEmpty());
+        for (const auto &run : page.payload.value("items").toArray())
+            QCOMPARE(run.toObject().value("profile_id"), cn.value("profile_id"));
+        QCOMPARE(ask(backend, QStringLiteral("GetCurrentRun")).payload.value("run").toObject().value("profile_id"),
+                 cn.value("profile_id"));
+    }
+
+    void profileMessagesRefuseWhatTheCollectorRefuses()
+    {
+        mr::MockBackend backend;
+        backend.resetRuns({autoRun(QStringLiteral("11111111-1111-4111-8111-111111111111"), QStringLiteral("COMPLETED"), true)});
+        QSignalSpy events(&backend, &mr::IBackend::liveEvent);
+        const auto create = [&backend](const QString &name, bool current = false) {
+            return ask(backend, QStringLiteral("CreateCharacterProfile"),
+                       {{"region", "CN"}, {"display_name", name}, {"goal_count", 500},
+                        {"baseline_completed_count", 7}, {"make_current", current}});
+        };
+        const Answer created = create(QStringLiteral("  白露  "));
+        QVERIFY2(created.ok, qPrintable(created.message));
+        const int second = created.payload.value("profile_id").toInt();
+        QCOMPARE(created.payload.value("region").toString(), QStringLiteral("CN"));
+        QVERIFY(!created.payload.value("deleted").toBool());
+        QCOMPARE(created.payload.value("profiles").toArray().size(), 3);
+        QCOMPARE(backend.dashboardStats({}).value("profiles").toArray().at(1).toObject().value("display_name").toString(),
+                 QString::fromUtf8("白露")); // trimmed, after CN's first and before TC
+        QTRY_COMPARE(events.size(), 1);
+        QCOMPARE(events.at(0).at(0).toMap().value("kind").toString(), QStringLiteral("stats_invalidated"));
+        QCOMPARE(create(QString::fromUtf8("白露")).code, QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(create(QStringLiteral("   ")).code, QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(create(QString(25, QLatin1Char('x'))).code, QStringLiteral("ERR_BAD_REQUEST"));
+        for (int i = 3; i <= 16; ++i)
+            QVERIFY(create(QStringLiteral("c%1").arg(i)).ok);
+        QCOMPARE(create(QStringLiteral("seventeen")).code, QStringLiteral("ERR_BAD_REQUEST"));
+
+        const int first = backend.characterProfiles().at(0).toObject().value("profile_id").toInt();
+        const int tc = backend.dashboardStats({{"region", "TC"}}).value("achievements").toArray()
+                           .first().toObject().value("profile_id").toInt();
+        const auto update = [&backend](const QJsonObject &payload) {
+            return ask(backend, QStringLiteral("UpdateCharacterProfile"), payload);
+        };
+        QCOMPARE(update({{"profile_id", second}}).code, QStringLiteral("ERR_BAD_REQUEST")); // asks for nothing
+        QCOMPARE(update({{"profile_id", 999}, {"make_current", true}}).code, QStringLiteral("ERR_NOT_FOUND"));
+        QCOMPARE(update({{"profile_id", second}, {"display_name", "c3"}}).code, QStringLiteral("ERR_BAD_REQUEST"));
+        QVERIFY(update({{"profile_id", second}, {"display_name", QString::fromUtf8("白露二")}}).ok);
+        QVERIFY(update({{"profile_id", second}, {"make_current", true}}).ok);
+        QVERIFY(backend.dashboardStats({}).value("achievements").toArray().first().toObject().value("profile_id").toInt()
+                == second);
+
+        const auto remove = [&backend](int id) {
+            return ask(backend, QStringLiteral("DeleteCharacterProfile"), {{"profile_id", id}});
+        };
+        QCOMPARE(remove(999).code, QStringLiteral("ERR_NOT_FOUND"));
+        QCOMPARE(remove(tc).code, QStringLiteral("ERR_BAD_REQUEST"));     // the last of its region
+        QCOMPARE(remove(second).code, QStringLiteral("ERR_BAD_REQUEST")); // the current one
+        const Answer owning = remove(first);                              // still owns a run
+        QCOMPARE(owning.code, QStringLiteral("ERR_BAD_REQUEST"));
+        const Answer gone = remove(backend.characterProfiles().at(2).toObject().value("profile_id").toInt());
+        QVERIFY2(gone.ok, qPrintable(gone.message));
+        QVERIFY(gone.payload.value("deleted").toBool());
+        QCOMPARE(backend.characterProfiles().size(), 16);
+    }
+
+    void eachProfileKeepsItsOwnProgressAndAFilterNamesOne()
+    {
+        mr::MockBackend backend;
+        const auto cnRun = [](const char *id) {
+            QJsonObject run = autoRun(QString::fromLatin1(id), QStringLiteral("COMPLETED"), true);
+            run.insert(QStringLiteral("region"), QStringLiteral("CN"));
+            return run;
+        };
+        backend.resetRuns({cnRun("11111111-1111-4111-8111-111111111111"),
+                           cnRun("22222222-2222-4222-8222-222222222222")});
+        backend.setAchievement(100, 10);
+        const int first = backend.characterProfiles().at(0).toObject().value("profile_id").toInt();
+        const int second = backend.addCharacterProfile(QStringLiteral("CN"), QStringLiteral("B"), 50, 3, true);
+        // setAchievement now addresses the new current profile.
+        backend.setAchievement(QStringLiteral("CN"), 60, 4);
+        QJsonObject manual{{"region", "CN"}, {"content_id", 5}, {"result", "COMPLETED"},
+            {"entered_at_utc", "2026-09-01T12:01:00.000Z"}, {"ended_at_utc", "2026-09-01T12:10:00.000Z"}, {"reason", "manual"}};
+        QCOMPARE(ask(backend, QStringLiteral("CreateManualRun"), manual).payload.value("run").toObject().value("profile_id").toInt(),
+                 second);
+        manual.insert("profile_id", first);
+        QCOMPARE(ask(backend, QStringLiteral("CreateManualRun"), manual).payload.value("run").toObject().value("profile_id").toInt(),
+                 first);
+        manual.insert("region", "TC");
+        QCOMPARE(ask(backend, QStringLiteral("CreateManualRun"), manual).code, QStringLiteral("ERR_BAD_REQUEST"));
+        manual.insert("profile_id", 999);
+        QCOMPARE(ask(backend, QStringLiteral("CreateManualRun"), manual).code, QStringLiteral("ERR_NOT_FOUND"));
+
+        const QJsonObject all = backend.dashboardStats({});
+        const QJsonObject a = all.value("profiles").toArray().at(0).toObject();
+        const QJsonObject b = all.value("profiles").toArray().at(1).toObject();
+        QCOMPARE(a.value("achievement_progress").toInt(), 13); // 10 + its three completions
+        QCOMPARE(a.value("run_count").toInt(), 3);
+        QCOMPARE(b.value("achievement_progress").toInt(), 5);  // 4 + its one
+        QCOMPARE(all.value("achievement_progress").toInt(), 5); // the current profile's
+        QCOMPARE(all.value("achievements").toArray().first().toObject().value("profile_count").toInt(), 2);
+        const QJsonObject named = backend.dashboardStats({{"profile_id", first}});
+        QCOMPARE(named.value("achievement_progress").toInt(), 13);
+        QCOMPARE(named.value("goal_count").toInt(), 100);
+        QCOMPARE(named.value("completed_count").toInt(), 3);
+        QCOMPARE(named.value("achievements").toArray().first().toObject().value("achievement_progress").toInt(), 5);
+        QCOMPARE(named.value("profiles").toArray(), all.value("profiles").toArray()); // unaffected by any filter
+
+        const auto total = [&backend](const QJsonObject &filter) {
+            const Answer page = ask(backend, QStringLiteral("QueryRuns"), {{"filter", filter}});
+            return page.ok ? page.payload.value("page_info").toObject().value("total").toInt() : -1;
+        };
+        QCOMPARE(total({{"profile_id", first}}), 3);
+        QCOMPARE(total({{"profile_id", second}}), 1);
+        QCOMPARE(total({{"profile_unassigned", true}}), 0);
+        const Answer both = ask(backend, QStringLiteral("QueryRuns"),
+                                {{"filter", QJsonObject{{"profile_id", first}, {"profile_unassigned", true}}}});
+        QCOMPARE(both.code, QStringLiteral("ERR_BAD_REQUEST"));
+        QVERIFY(ask(backend, QStringLiteral("QueryRunCalendarDays"),
+                    {{"month", "2026-09"}, {"filter", QJsonObject{{"profile_id", first}}}}).ok);
+
+        // A baseline named by profile edits that profile only.
+        const Answer baseline = ask(backend, QStringLiteral("UpdateAchievementBaseline"),
+            {{"profile_id", first}, {"goal_count", 100}, {"baseline_completed_count", 20}, {"reason", "fix"}});
+        QVERIFY(baseline.ok);
+        QCOMPARE(baseline.payload.value("profile_id").toInt(), first);
+        QCOMPARE(backend.characterProfiles().at(0).toObject().value("achievement_progress").toInt(), 23);
+        QCOMPARE(backend.characterProfiles().at(1).toObject().value("baseline_completed_count").toInt(), 4);
+        QCOMPARE(ask(backend, QStringLiteral("UpdateAchievementBaseline"),
+                     {{"profile_id", 999}, {"baseline_completed_count", 1}, {"reason", "fix"}}).code,
+                 QStringLiteral("ERR_NOT_FOUND"));
+    }
+
+    void assignProfileMovesRunsOnceAndKeepsEveryRegionApart()
+    {
+        mr::MockBackend backend;
+        QJsonObject tcRun = autoRun(QStringLiteral("33333333-3333-4333-8333-333333333333"), QStringLiteral("COMPLETED"), true);
+        tcRun.insert(QStringLiteral("region"), QStringLiteral("TC"));
+        backend.resetRuns({autoRun(QStringLiteral("11111111-1111-4111-8111-111111111111"), QStringLiteral("COMPLETED"), true),
+                           autoRun(QStringLiteral("22222222-2222-4222-8222-222222222222"), QStringLiteral("COMPLETED"), true),
+                           tcRun});
+        const int second = backend.addCharacterProfile(QStringLiteral("CN"), QStringLiteral("B"), 50, 0, false);
+        const QJsonArray both{QJsonObject{{"run_id", "11111111-1111-4111-8111-111111111111"}, {"expected_revision", 1}},
+                              QJsonObject{{"run_id", "22222222-2222-4222-8222-222222222222"}, {"expected_revision", 1}}};
+        const auto assign = [&backend](const QJsonArray &runs, const QJsonValue &profile) {
+            QJsonObject payload{{"action", "assign_profile"}, {"runs", runs}, {"reason", "move"}};
+            if (!profile.isUndefined())
+                payload.insert("profile_id", profile);
+            return ask(backend, QStringLiteral("BatchMutateRuns"), payload);
+        };
+        QCOMPARE(assign(both, QJsonValue(QJsonValue::Undefined)).code, QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(ask(backend, QStringLiteral("BatchMutateRuns"),
+                     {{"action", "soft_delete"}, {"runs", both}, {"reason", "x"}, {"profile_id", second}}).code,
+                 QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(assign(both, 999).code, QStringLiteral("ERR_NOT_FOUND"));
+        const Answer moved = assign(both, second);
+        QVERIFY2(moved.ok, qPrintable(moved.message));
+        QCOMPARE(moved.payload.value("changed_count").toInt(), 2);
+        QCOMPARE(moved.payload.value("action").toString(), QStringLiteral("assign_profile"));
+        const Answer revisions = ask(backend, QStringLiteral("GetRunRevisions"),
+                                     {{"run_id", "11111111-1111-4111-8111-111111111111"}});
+        const QJsonObject last = revisions.payload.value("items").toArray().last().toObject();
+        QCOMPARE(last.value("revision").toInt(), 2);
+        QCOMPARE(last.value("changes").toArray().first().toObject().value("field").toString(), QStringLiteral("profile_id"));
+        QCOMPARE(last.value("changes").toArray().first().toObject().value("new_value").toInt(), second);
+        QCOMPARE(backend.characterProfiles().at(1).toObject().value("completed_count").toInt(), 2);
+        // Runs already there are not moved again; the stale revision is a conflict.
+        QCOMPARE(assign(both, second).code, QStringLiteral("ERR_REVISION_CONFLICT"));
+        const QJsonArray fresh{QJsonObject{{"run_id", "11111111-1111-4111-8111-111111111111"}, {"expected_revision", 2}}};
+        QCOMPARE(assign(fresh, second).code, QStringLiteral("ERR_NO_CHANGES"));
+        const QJsonArray foreign{QJsonObject{{"run_id", "33333333-3333-4333-8333-333333333333"}, {"expected_revision", 1}}};
+        QCOMPARE(assign(foreign, second).code, QStringLiteral("ERR_BAD_REQUEST"));
+        // null: assigned to no profile, counted in nobody's progress.
+        QVERIFY(assign(fresh, QJsonValue(QJsonValue::Null)).ok);
+        const QJsonObject stats = backend.dashboardStats({});
+        QCOMPARE(stats.value("achievements").toArray().first().toObject().value("unassigned_run_count").toInt(), 1);
+        QCOMPARE(backend.characterProfiles().at(1).toObject().value("completed_count").toInt(), 1);
+        const Answer loose = ask(backend, QStringLiteral("QueryRuns"), {{"filter", QJsonObject{{"profile_unassigned", true}}}});
+        QCOMPARE(loose.payload.value("items").toArray().size(), 1);
+        QVERIFY(loose.payload.value("items").toArray().first().toObject().value("profile_id").isNull());
+    }
+
+    void anImportNamedForAProfileFilesItsRegionsRecordsThere()
+    {
+        mr::MockBackend backend;
+        backend.resetRuns({});
+        backend.setAchievement(100, 10);
+        const int second = backend.addCharacterProfile(QStringLiteral("CN"), QStringLiteral("B"), 50, 5, false);
+        QJsonObject cn{{"region", "CN"}, {"content_id", 5}, {"result", "COMPLETED"},
+            {"entered_at_utc", "2026-09-01T12:01:00.000Z"}, {"ended_at_utc", "2026-09-01T12:10:00.000Z"}};
+        QJsonObject tc = cn;
+        tc.insert("region", "TC");
+        const Answer preview = previewImport(backend, QStringLiteral("JSON"), {cn, tc}, QStringLiteral("profiles.json"));
+        QVERIFY2(preview.ok, qPrintable(preview.message));
+        const Answer saved = ask(backend, QStringLiteral("CommitRunImport"),
+            {{"preview_id", preview.payload.value("preview_id")}, {"row_numbers", QJsonArray{1, 2}},
+             {"confirm_own_records", true}, {"deduct_from_baseline", true}, {"profile_id", second}});
+        QVERIFY2(saved.ok, qPrintable(saved.message));
+        const QJsonArray adjustments = saved.payload.value("baseline_adjustments").toArray();
+        QCOMPARE(adjustments.size(), 2);
+        QCOMPARE(adjustments.at(0).toObject().value("profile_id").toInt(), second);
+        QCOMPARE(adjustments.at(0).toObject().value("baseline_completed_count").toInt(), 4);
+        QCOMPARE(backend.dashboardStats({}).value("baseline_completed_count").toInt(), 10); // CN's current is untouched
+        QCOMPARE(backend.characterProfiles().at(1).toObject().value("achievement_progress").toInt(), 5);
+    }
 };
 } // namespace
 

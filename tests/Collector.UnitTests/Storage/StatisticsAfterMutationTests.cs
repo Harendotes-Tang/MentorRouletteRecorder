@@ -182,10 +182,11 @@ public sealed class StatisticsAfterMutationTests : IDisposable
     {
         var saved = new DateTimeOffset(2026, 9, 4, 0, 0, 0, TimeSpan.Zero);
         var runs = new RunRepository(_database.Database);
+        var owner = _database.CurrentProfile();
         _database.Database.RunInTransaction(tx =>
         {
-            runs.Insert(TestDatabase.Run(enteredAt: saved.AddHours(-1)) with { EndedAtUtc = null }, tx);
-            runs.Insert(TestDatabase.Run(enteredAt: saved.AddHours(1)) with { EndedAtUtc = null }, tx);
+            runs.Insert(TestDatabase.Run(enteredAt: saved.AddHours(-1)) with { EndedAtUtc = null, ProfileId = owner }, tx);
+            runs.Insert(TestDatabase.Run(enteredAt: saved.AddHours(1)) with { EndedAtUtc = null, ProfileId = owner }, tx);
         });
 
         _mutations.UpdateAchievementBaseline(new UpdateAchievementBaselineCommand(

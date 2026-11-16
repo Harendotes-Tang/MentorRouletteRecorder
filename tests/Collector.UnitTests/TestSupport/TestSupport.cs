@@ -39,6 +39,15 @@ internal sealed class TestDatabase : IDisposable
         Database = SqliteDatabase.Open(Path, Clock);
     }
 
+    /// <summary>
+    /// The current character profile of a region, created when the region has none. Every production
+    /// writer files a new run under it; a row a test builds by hand names it the same way when the
+    /// row is meant to count towards the achievement. Not for use inside an open transaction.
+    /// </summary>
+    public long CurrentProfile(Region region = Region.Cn) => Database.RunInTransaction(tx =>
+        new MentorRecorder.Collector.Storage.Repositories.CharacterProfileRepository(Database, Clock)
+            .EnsureCurrent(region, tx).ProfileId);
+
     public static MentorRun Run(
         string? runId = null,
         RunResult result = RunResult.Completed,

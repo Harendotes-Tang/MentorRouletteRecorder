@@ -284,6 +284,9 @@ Machina 在释放库时会尝试删除自己产生的临时副本，其诊断信
   以及事件序列空洞已知丢失的观测条数（`dropped_count`）。
 - **禁止**写入：原始字节、十六进制转储、聊天内容、角色名、队友信息、
   IP 地址、MAC 地址、任何其他玩家的可识别信息。
+- 角色档案（`character_profiles`，[data-model.md](data-model.md) §4）不构成例外：档案的显示名称由用户自己填写，
+  软件不从报文读取角色名，也不把名称与任何游戏内标识对照；`profile_id` 是本地自增编号。档案目前不保存任何
+  来自游戏的身份标识。
 - 诊断日志同样受此约束，且不依赖调用方自觉。`RotatingFileLogger.Sanitize`
   在落盘前把任意用户的 profile 路径、Windows SID、IPv4 与 IPv6 字面量、
   以及连续 16 位及以上的十六进制串分别替换为 `%USERPROFILE%` / `[sid]` /

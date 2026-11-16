@@ -23,7 +23,7 @@ namespace MentorRecorder.Collector.Storage.Mutations;
 ///   already deleted records and removes their current content with replay tombstones.</description></item>
 /// </list>
 /// </summary>
-public sealed class RunMutationService
+public sealed partial class RunMutationService
 {
     private readonly SqliteDatabase _database;
     private readonly RunRepository _runs;
@@ -92,9 +92,14 @@ public sealed class RunMutationService
         // every explicit owning region gets a separate identity.
         if (command.Region != Region.Unknown)
             fingerprint = MutationSnapshotCodec.Fingerprint(fingerprint, EnumWire<Region>.Format(command.Region));
+        // Likewise for a request that names no character profile.
+        if (command.ProfileId is { } requestedProfile)
+            fingerprint = MutationSnapshotCodec.Fingerprint(fingerprint,
+                requestedProfile.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
         return Apply(command.RequestId, "CreateManualRun", fingerprint, tx =>
         {
+            var profileId = CharacterProfileService.Resolve(_settings.Profiles, command.Region, command.ProfileId, tx);
             var now = UtcTimestamp.Truncate(_clock.UtcNow);
             var job = _jobs.Find(command.JobId);
             var duty = _duties.Find(command.ContentId, command.Region);
@@ -104,6 +109,7 @@ public sealed class RunMutationService
                 Revision = 1,
                 CaptureSessionId = null,
                 Region = command.Region,
+                ProfileId = profileId,
                 GameBuild = null,
                 ProtocolProfileId = null,
                 MentorRouletteId = null,
@@ -244,70 +250,6 @@ public sealed class RunMutationService
     public RunMutationOutcome RestoreRun(RunReasonCommand command) =>
         SetDeleted(command, deleted: false, ChangeKind.Restore, "RestoreRun");
 
-    /// <summary>Checks every selected revision and deletion state before changing any row.</summary>
-    public BatchRunMutationOutcome BatchMutateRuns(BatchMutateRunsCommand command)
-    {
-        ArgumentNullException.ThrowIfNull(command);
-        if (!Guid.TryParseExact(command.RequestId, "D", out _))
-            throw CollectorException.BadRequest(CollectorTexts.IpcFieldNotUuid("request_id"), "request_id");
-        if (command.Action is not ("soft_delete" or "restore" or "purge"))
-            throw CollectorException.BadRequest(CollectorTexts.IpcFieldOnlyValues("action", "soft_delete / restore / purge"), "action");
-        var reason = RunMutationValidation.RequireReason(command.Reason);
-        HistoryRetentionService.ValidateIds(command.Runs.Select(run => run.RunId).ToArray());
-        if (command.Runs.Any(run => run.ExpectedRevision < 1))
-            throw CollectorException.BadRequest(CollectorTexts.IpcFieldAtLeast("expected_revision", 1), "runs");
-        var sorted = command.Runs.OrderBy(run => run.RunId, StringComparer.Ordinal).ToArray();
-        var fingerprint = MutationSnapshotCodec.Fingerprint("BatchMutateRuns", command.Action, reason,
-            string.Join(',', sorted.Select(run => run.RunId + ":" + run.ExpectedRevision.ToString(System.Globalization.CultureInfo.InvariantCulture))));
-        var committed = _database.RunInTransaction(tx =>
-        {
-            var stored = _idempotency.TryGetResponse(command.RequestId, tx);
-            if (stored is not null)
-            {
-                var receipt = BatchMutationReceiptCodec.Deserialize(stored);
-                if (receipt is null || receipt.Fingerprint != fingerprint)
-                    throw new CollectorException(ErrorCodes.IdempotencyConflict, CollectorTexts.HistoryBatchRequestReused(), field: "request_id");
-                return receipt.Outcome with { IdempotentReplay = true };
-            }
-            if (_idempotency.WasAppliedBeforePrune(command.RequestId, tx))
-                throw CollectorException.ExpiredIdempotencyResponse(command.RequestId);
-            var runs = sorted.Select(target =>
-            {
-                var run = Load(target.RunId, tx); RequireRevision(run, target.ExpectedRevision);
-                if (command.Action == "soft_delete" && run.SoftDeleted)
-                    throw new CollectorException(ErrorCodes.AlreadyDeleted, CollectorTexts.HistoryBatchAlreadyDeleted(),
-                        new Dictionary<string, object?> { ["run_id"] = run.RunId });
-                if (command.Action != "soft_delete" && !run.SoftDeleted)
-                    throw new CollectorException(ErrorCodes.NotDeleted, CollectorTexts.HistoryBatchNotDeleted(),
-                        new Dictionary<string, object?> { ["run_id"] = run.RunId });
-                return run;
-            }).ToArray();
-            if (command.Action == "purge")
-            {
-                using var retention = new HistoryRetentionService(_database, _clock); retention.Purge(runs, tx);
-            }
-            else
-            {
-                var deleted = command.Action == "soft_delete";
-                foreach (var before in runs)
-                {
-                    // UNIQUE audit request IDs remain per revision; the parent batch receipt is atomic.
-                    var auditRequestId = new Guid(System.Security.Cryptography.SHA256.HashData(
-                        System.Text.Encoding.UTF8.GetBytes(command.RequestId + ":" + before.RunId)).AsSpan(0, 16)).ToString("D");
-                    Commit(before, before with { SoftDeleted = deleted }, deleted ? ChangeKind.SoftDelete : ChangeKind.Restore,
-                        reason, auditRequestId, fingerprint, tx, markCorrected: false, clearPendingReview: deleted);
-                }
-            }
-            var outcome = new BatchRunMutationOutcome(
-                runs.Length, runs.Select(run => run.RunId).ToArray(), command.Action, IdempotentReplay: false);
-            _idempotency.Store(command.RequestId, "BatchMutateRuns",
-                BatchMutationReceiptCodec.Serialize(fingerprint, outcome), tx);
-            return outcome;
-        });
-        if (committed.Action == "purge") _onPurged?.Invoke(committed.RunIds);
-        return committed;
-    }
-
     /// <summary>
     /// Undoes the newest revision by appending a new one that restores the previous values.
     /// The undone revision stays in the chain: history is never rewritten.
@@ -380,6 +322,14 @@ public sealed class RunMutationService
                     field: "expected_revision");
             }
 
+            // The character profile an older revision names may have been removed since; a removed
+            // profile owns nothing, so the run goes back to belonging to none.
+            if (restored.ProfileId is { } restoredProfile &&
+                _settings.Profiles.Find(restoredProfile, tx)?.Region != restored.Region)
+            {
+                restored = restored with { ProfileId = null };
+            }
+
             var candidate = RunMutationValidation.ValidateFinalValue(restored, durationExplicit: true);
             // A system revision may contain only confidence, which is intentionally
             // absent from the client-editable field diff but is still a real undo.
@@ -418,14 +368,25 @@ public sealed class RunMutationService
             command.BaselineCompletedCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
             UtcTimestamp.ToText(command.BaselineEffectiveAt),
             reason);
-        // CN is the legacy implicit owner, so its pre-upgrade replay key remains valid.
-        if (command.Region != Region.Cn)
+        // A request that names a profile is that profile's alone: the region it also carries is
+        // ignored, here as in the write. One that names none means the region's current profile, as
+        // before profiles existed; CN is the legacy implicit owner, so its pre-upgrade replay key
+        // remains valid.
+        if (command.ProfileId is { } requestedProfile)
+            fingerprint = MutationSnapshotCodec.Fingerprint(fingerprint, "profile",
+                requestedProfile.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        else if (command.Region != Region.Cn)
             fingerprint = MutationSnapshotCodec.Fingerprint(fingerprint, EnumWire<Region>.Format(command.Region));
 
         var changed = false;
         var snapshot = ApplySnapshot(command.RequestId, "UpdateAchievementBaseline", fingerprint, tx =>
         {
-            var stored = _settings.GetAchievementSettings(tx, command.Region);
+            var profile = command.ProfileId is { } profileId
+                ? _settings.Profiles.Find(profileId, tx) ?? throw new CollectorException(
+                    ErrorCodes.NotFound, CollectorTexts.ProfileNotFound(),
+                    new Dictionary<string, object?> { ["profile_id"] = profileId }, field: "profile_id")
+                : _settings.Profiles.EnsureCurrent(command.Region, tx);
+            var stored = profile.ToSettings();
 
             // The same goal and the same baseline change nothing - the effective time stays with an
             // unchanged baseline - so nothing is written: no history entry pushes an older one out of
@@ -453,7 +414,7 @@ public sealed class RunMutationService
             // Every contributing completion is added on top of the baseline, whenever it ended,
             // exactly as the dashboard adds them (audit 2026-10-03, B3-1).
             var completed = new StatisticsRepository(_database, _settings, _jobs, _duties, _clock)
-                .CountContributingCompleted(tx, command.Region);
+                .CountContributingCompleted(profile.ProfileId, tx);
             if (completed > int.MaxValue - (long)command.BaselineCompletedCount)
             {
                 throw CollectorException.BadRequest(
@@ -464,7 +425,8 @@ public sealed class RunMutationService
             var now = UtcTimestamp.Truncate(_clock.UtcNow);
             var settings = new AchievementSettings
             {
-                Region = command.Region,
+                ProfileId = profile.ProfileId,
+                Region = profile.Region,
                 GoalCount = command.GoalCount,
                 BaselineCompletedCount = command.BaselineCompletedCount,
                 BaselineEffectiveAt = effectiveAt,
@@ -496,7 +458,9 @@ public sealed class RunMutationService
     /// <param name="transaction">Enclosing transaction.</param>
     private string StoredAuditEventId(AchievementSettings stored, SqliteTransaction transaction)
     {
-        var history = _settings.ReadBaselineAudit(transaction, stored.Region);
+        var history = stored.ProfileId is { } profileId && _settings.Profiles.Find(profileId, transaction) is { } profile
+            ? _settings.ReadBaselineAudit(profile, transaction)
+            : _settings.ReadBaselineAudit(transaction, stored.Region);
         if (history.Count > 0 && history[^1] is { } newest &&
             newest.GoalCount == stored.GoalCount &&
             newest.BaselineCompletedCount == stored.BaselineCompletedCount &&

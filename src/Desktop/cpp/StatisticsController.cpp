@@ -186,6 +186,7 @@ void StatisticsController::adoptAchievements(const QJsonObject &dashboard, const
             m_loadedAchievementRegions.insert(key);
         }
     }
+    adoptProfiles(dashboard, serial);
     const bool loaded = m_loadedAchievementRegions.contains(m_baselineRegion);
     if (loaded != m_achievementSettingsLoaded) {
         m_achievementSettingsLoaded = loaded;
@@ -224,6 +225,10 @@ void StatisticsController::setBaselineRegion(const QString &region)
         && region != QLatin1String("GLOBAL") && region != QLatin1String("UNKNOWN"))) return;
     m_baselineRegion = region;
     m_achievementSettingsLoaded = m_loadedAchievementRegions.contains(region);
+    if (m_baselineProfileId != 0) {
+        m_baselineProfileId = 0;
+        Q_EMIT baselineProfileIdChanged();
+    }
     Q_EMIT baselineRegionChanged();
     Q_EMIT dashboardChanged();
     Q_EMIT achievementSettingsLoadedChanged();
@@ -294,13 +299,18 @@ void StatisticsController::observeAchievement(const QJsonObject &dashboard, quin
         const int progress = row.value(QStringLiteral("achievement_progress")).toInt(-1);
         if (region.isEmpty() || goal < 1 || baseline < 0 || progress < 0) continue;
         auto &observation = m_regionalObservations[region];
-        const bool sameSettings = goal == observation.goal && baseline == observation.baseline;
+        // A region's entry follows its current character: after a switch the numbers are another
+        // character's, and a higher lap of theirs was not just reached.
+        const int profileId = row.value(QStringLiteral("profile_id")).toInt(0);
+        const bool sameSettings = goal == observation.goal && baseline == observation.baseline
+            && profileId == observation.profileId;
         const int lap = progress / goal;
         const bool celebrate = observation.ready && sameSettings && !baselineSaving()
             && lap > observation.highestLap;
         observation.highestLap = sameSettings ? qMax(observation.highestLap, lap) : lap;
         observation.goal = goal;
         observation.baseline = baseline;
+        observation.profileId = profileId;
         observation.ready = !baselineSaving();
         if (celebrate) {
             Q_EMIT regionalAchievementMilestoneReached(region, lap);
@@ -531,11 +541,15 @@ QVariantList StatisticsController::statCards() const
 
 int StatisticsController::goalCount() const
 {
+    if (m_baselineProfileId != 0)
+        return characterProfile(m_baselineProfileId).value(QStringLiteral("goal_count"), 2000).toInt();
     return m_achievements.value(m_baselineRegion).value(QStringLiteral("goal_count")).toInt(2000);
 }
 
 int StatisticsController::baselineCount() const
 {
+    if (m_baselineProfileId != 0)
+        return characterProfile(m_baselineProfileId).value(QStringLiteral("baseline_completed_count"), 0).toInt();
     return m_achievements.value(m_baselineRegion).value(QStringLiteral("baseline_completed_count")).toInt(0);
 }
 
@@ -593,8 +607,9 @@ void StatisticsController::updateAchievementBaseline(int goal, int baseline, con
     // Counted before the request: a pipe that is down answers inside the call.
     if (m_baselineSavesInFlight++ == 0)
         Q_EMIT baselineSavingChanged();
-    m_backend->updateAchievementBaseline(goal, baseline, reason, {}, m_baselineRegion)
-        ->whenDone(this, [this, region = m_baselineRegion](bool ok, const QVariantMap &payload, const QString &code,
+    // A named profile travels as profile_id; 0 leaves it out (the region's current one).
+    m_backend->updateAchievementBaseline(goal, baseline, reason, {}, m_baselineRegion, m_baselineProfileId)
+        ->whenDone(this, [this, region = m_baselineRegion, profile = m_baselineProfileId](bool ok, const QVariantMap &payload, const QString &code,
                                 const QString &message) {
             m_regionalObservations[region].ready = false;
             // Before the outcome, so whoever takes the answer may already send again.
@@ -617,11 +632,15 @@ void StatisticsController::updateAchievementBaseline(int goal, int baseline, con
             // fails the toast names none rather than a wrong one (CS7-D1). The
             // Collector also publishes stats_invalidated for this change, but the
             // read here keeps the page correct even without the event.
-            requestRegionalAchievement(region, [this, region, savedBaseline, savedGoal](bool reread) {
-                if (reread) {
+            requestRegionalAchievement(region, [this, region, profile, savedBaseline, savedGoal](bool reread) {
+                // The reply's profiles carry the named profile's own progress.
+                const QVariant progress = profile != 0
+                    ? characterProfile(profile).value(QStringLiteral("achievement_progress"))
+                    : m_achievements.value(region).value(QStringLiteral("achievement_progress")).toVariant();
+                if (reread && progress.isValid()) {
                     Q_EMIT toastRequested(tr("起始次数已设为 %1 · 目标 %2 · 总进度 %3")
                         .arg(savedBaseline).arg(savedGoal)
-                        .arg(m_achievements.value(region).value(QStringLiteral("achievement_progress")).toInt()));
+                        .arg(progress.toInt()));
                 } else {
                     Q_EMIT toastRequested(tr("起始次数已设为 %1 · 目标 %2 · 已保存")
                         .arg(savedBaseline).arg(savedGoal));

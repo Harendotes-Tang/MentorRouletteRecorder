@@ -276,11 +276,29 @@ public:
                                const QString &reason);
     /// \a baselineEffectiveAtUtc is required by the contract
     /// ($defs/UpdateAchievementBaselineRequest); an empty string means "now".
+    /// \a profileId names the character profile whose goal and baseline change; 0 leaves
+    /// the field out, which the Collector reads as the current profile of \a region.
     BackendReply *updateAchievementBaseline(int goalCount,
                                             int baselineCompletedCount,
                                             const QString &reason,
                                             const QString &baselineEffectiveAtUtc = {},
-                                            const QString &region = {});
+                                            const QString &region = {},
+                                            int profileId = 0);
+
+    // -- 角色档案 (character profiles) --------------------------------------
+    /// $defs/CreateCharacterProfileRequest -> $defs/CharacterProfileResult. make_current
+    /// travels only when true (the contract's default is false). \a requestId: see
+    /// requestWithId(); empty mints a fresh one.
+    BackendReply *createCharacterProfile(const QString &region, const QString &displayName,
+                                         int goalCount, int baselineCompletedCount,
+                                         bool makeCurrent, const QString &requestId = {});
+    /// $defs/UpdateCharacterProfileRequest. A null \a displayName keeps the name (the field
+    /// is left out); make_current travels only when true. A request asking for neither is
+    /// sent as it is and refused by the Collector.
+    BackendReply *updateCharacterProfile(int profileId, const QString &displayName,
+                                         bool makeCurrent, const QString &requestId = {});
+    /// $defs/DeleteCharacterProfileRequest.
+    BackendReply *deleteCharacterProfile(int profileId, const QString &requestId = {});
 
     // -- 已删除记录 ---------------------------------------------------------
     /// $defs/BatchMutateRunsRequest. \a action is soft_delete, restore or purge;
@@ -288,6 +306,11 @@ public:
     /// requestWithId(); the history page resends an unanswered batch with it.
     BackendReply *batchMutateRuns(const QString &action, const QJsonArray &runs,
                                   const QString &reason, const QString &requestId = {});
+    /// BatchMutateRuns with action assign_profile: files \a runs under \a profileId, or,
+    /// for 0, under no profile (profile_id: null - the field is always present for
+    /// this action and absent for the others).
+    BackendReply *assignRunsToProfile(const QJsonArray &runs, int profileId,
+                                      const QString &reason, const QString &requestId = {});
     /// {} -> $defs/HistoryRetentionSettings: how long deleted records are kept.
     BackendReply *getHistoryRetentionSettings();
     /// $defs/HistoryRetentionSettings. 0 turns the automatic purge off.
@@ -306,9 +329,12 @@ public:
     /// $defs/CommitRunImportRequest. confirm_own_records is always true - the
     /// dialog does not commit without it - and deduct_from_baseline travels only
     /// when true, so an older Collector never sees it unasked. \a requestId: see
-    /// requestWithId(); an unanswered commit is resent with it.
+    /// requestWithId(); an unanswered commit is resent with it. \a profileId files the
+    /// records of its region under that character profile; 0 leaves profile_id out (the
+    /// current profile of each region).
     BackendReply *commitRunImport(const QString &previewId, const QList<int> &rowNumbers,
-                                  bool deductFromBaseline, const QString &requestId = {});
+                                  bool deductFromBaseline, const QString &requestId = {},
+                                  int profileId = 0);
     /// The payload previewRunImport() sends for \a source.
     static QJsonObject previewRunImportPayload(const RunImportSource &source);
 

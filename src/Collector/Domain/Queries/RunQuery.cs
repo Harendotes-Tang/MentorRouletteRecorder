@@ -58,6 +58,15 @@ public sealed record RunFilter
     /// <summary>Owning service region; null includes every region.</summary>
     public Region? Region { get; init; }
 
+    /// <summary>Keep only the runs of this character profile; null constrains nothing.</summary>
+    public long? ProfileId { get; init; }
+
+    /// <summary>
+    /// Keep only the runs assigned to no character profile. Never sent together with
+    /// <see cref="ProfileId"/>: a run cannot be both.
+    /// </summary>
+    public bool ProfileUnassigned { get; init; }
+
     /// <summary>An empty filter that constrains nothing.</summary>
     public static RunFilter Empty { get; } = new();
 

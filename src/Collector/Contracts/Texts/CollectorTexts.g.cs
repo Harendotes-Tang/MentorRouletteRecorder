@@ -1581,6 +1581,10 @@ public static partial class CollectorTexts
     public static UserText IpcFilterHistoryFromAfterTo() =>
         new("ipc.filter.history_from_after_to", "history_from_day 不能晚于 history_to_day。");
 
+    /// <summary><c>ipc.filter.profile_conflict</c>: profile_id 与 profile_unassigned 不能同时使用。</summary>
+    public static UserText IpcFilterProfileConflict() =>
+        new("ipc.filter.profile_conflict", "profile_id 与 profile_unassigned 不能同时使用。");
+
     /// <summary><c>ipc.frame_too_large_received</c>: 收到超过 4 MiB 的帧，连接已断开。</summary>
     public static UserText IpcFrameTooLargeReceived() =>
         new("ipc.frame_too_large_received", "收到超过 4 MiB 的帧，连接已断开。");
@@ -1700,6 +1704,46 @@ public static partial class CollectorTexts
     /// <summary><c>mutation.unknown_needs_end</c>: 结果为「未知」的自动记录必须填写结束时间：没有结束时间的未知结果会被当作仍在进行的记录，既不计入统计，也不会出现在待复核中。请填写结束时间，或选择实际结果。</summary>
     public static UserText MutationUnknownNeedsEnd() =>
         new("mutation.unknown_needs_end", "结果为「未知」的自动记录必须填写结束时间：没有结束时间的未知结果会被当作仍在进行的记录，既不计入统计，也不会出现在待复核中。请填写结束时间，或选择实际结果。");
+
+    /// <summary><c>profile.assign_unchanged</c>: 选中的记录已经都记在这里，没有需要修改的。</summary>
+    public static UserText ProfileAssignUnchanged() =>
+        new("profile.assign_unchanged", "选中的记录已经都记在这里，没有需要修改的。");
+
+    /// <summary><c>profile.delete_current</c>: 新记录正记在这个角色名下。请先切换到其他角色，再删除它。</summary>
+    public static UserText ProfileDeleteCurrent() =>
+        new("profile.delete_current", "新记录正记在这个角色名下。请先切换到其他角色，再删除它。");
+
+    /// <summary><c>profile.delete_has_runs</c>: 这个角色名下还有 {count} 条记录（含回收站）。请先在历史记录里把它们改到其他角色，再删除。</summary>
+    public static UserText ProfileDeleteHasRuns(long count) =>
+        new("profile.delete_has_runs", "这个角色名下还有 {count} 条记录（含回收站）。请先在历史记录里把它们改到其他角色，再删除。", UserTextArg.Number("count", count));
+
+    /// <summary><c>profile.delete_last</c>: 每个区服至少保留一个角色，不能删除。</summary>
+    public static UserText ProfileDeleteLast() =>
+        new("profile.delete_last", "每个区服至少保留一个角色，不能删除。");
+
+    /// <summary><c>profile.limit_reached</c>: 每个区服最多保存 {max} 个角色。</summary>
+    public static UserText ProfileLimitReached(long max) =>
+        new("profile.limit_reached", "每个区服最多保存 {max} 个角色。", UserTextArg.Number("max", max));
+
+    /// <summary><c>profile.name_required</c>: 请填写角色名称，最多 {max} 个字。</summary>
+    public static UserText ProfileNameRequired(long max) =>
+        new("profile.name_required", "请填写角色名称，最多 {max} 个字。", UserTextArg.Number("max", max));
+
+    /// <summary><c>profile.name_taken</c>: 这个区服已有同名的角色，请换一个名称。</summary>
+    public static UserText ProfileNameTaken() =>
+        new("profile.name_taken", "这个区服已有同名的角色，请换一个名称。");
+
+    /// <summary><c>profile.not_found</c>: 找不到这个角色，请刷新后重试。</summary>
+    public static UserText ProfileNotFound() =>
+        new("profile.not_found", "找不到这个角色，请刷新后重试。");
+
+    /// <summary><c>profile.region_mismatch</c>: 所选角色不属于这条记录的区服。</summary>
+    public static UserText ProfileRegionMismatch() =>
+        new("profile.region_mismatch", "所选角色不属于这条记录的区服。");
+
+    /// <summary><c>profile.request_reused</c>: 此请求编号已用于不同的角色操作。</summary>
+    public static UserText ProfileRequestReused() =>
+        new("profile.request_reused", "此请求编号已用于不同的角色操作。");
 
     /// <summary><c>profile.unavailable.ambiguous</c>: 有不止一份游戏版本支持文件对应这个版本，软件不会从中任选一份。</summary>
     public static UserText ProfileUnavailableAmbiguous() =>

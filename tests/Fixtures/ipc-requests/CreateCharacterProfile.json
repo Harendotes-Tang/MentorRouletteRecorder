@@ -1,0 +1,11 @@
+{
+    "message_type": "CreateCharacterProfile",
+    "payload": {
+        "baseline_completed_count": 120,
+        "display_name": "合成角色",
+        "goal_count": 2000,
+        "region": "CN"
+    },
+    "protocol_version": 1,
+    "request_id": "11111111-2222-4333-8444-555555555555"
+}

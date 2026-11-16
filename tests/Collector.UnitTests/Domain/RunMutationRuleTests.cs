@@ -190,9 +190,10 @@ public sealed class RunMutationRuleTests
     {
         using var fixture = new TestDatabase();
         var runs = new RunRepository(fixture.Database);
+        var owner = fixture.CurrentProfile();
         fixture.Database.RunInTransaction(tx =>
         {
-            runs.Insert(Timeless(RunResult.Completed), tx);
+            runs.Insert(Timeless(RunResult.Completed) with { ProfileId = owner }, tx);
             runs.Insert(Timeless(RunResult.LeftOrAbandoned), tx);
             // Unknown and cancelled-before-entry prove no entry, so they are no attempt.
             runs.Insert(Timeless(RunResult.Unknown), tx);

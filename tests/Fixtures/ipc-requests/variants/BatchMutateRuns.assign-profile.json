@@ -1,0 +1,16 @@
+{
+    "message_type": "BatchMutateRuns",
+    "payload": {
+        "action": "assign_profile",
+        "profile_id": 2,
+        "reason": "改到角色",
+        "runs": [
+            {
+                "expected_revision": 1,
+                "run_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+            }
+        ]
+    },
+    "protocol_version": 1,
+    "request_id": "11111111-2222-4333-8444-555555555555"
+}

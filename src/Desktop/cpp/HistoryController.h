@@ -79,6 +79,11 @@ public:
     void setCurrentPageChecked(bool checked);
     void clearCheckedRuns();
     void mutateCheckedRuns(const QString &action, const QString &reason);
+    /// BatchMutateRuns assign_profile over the checked rows, live and deleted alike:
+    /// files them under  profileId, or under no character profile for 0. Same
+    /// confirmation, feedback, refresh and batchSucceeded("assign_profile", ids) path
+    /// as mutateCheckedRuns().
+    void assignCheckedRunsToProfile(int profileId, const QString &reason);
     bool filterConfirmationPending() const { return m_filterConfirmationPending; }
     void confirmHistoryFilterChange(bool apply);
     int retentionDays() const { return m_retentionDays; }
@@ -113,6 +118,8 @@ Q_SIGNALS:
 private:
     // 保留入口差异：openRun 不清消息，选择/取消选择会清消息；通知顺序一致。
     void resetSelectedDetails(bool clearErrorMessage);
+    /// Sends one batch over the checked rows;  profileId is used by assign_profile only.
+    void sendCheckedBatch(const QString &action, int profileId, const QString &reason);
     void loadRevisionsForSelection();
     void loadRevisionPage(const QString &runId, quint64 generation, int page,
                           QVariantList collected);

@@ -175,6 +175,16 @@ public static class RunFilterSql
             parameters.Add(new("$region", EnumWire<Region>.Format(region)));
         }
 
+        if (filter.ProfileId is { } profileId)
+        {
+            clauses.Add("profile_id = $profile_id");
+            parameters.Add(new("$profile_id", profileId));
+        }
+        else if (filter.ProfileUnassigned)
+        {
+            clauses.Add("profile_id IS NULL");
+        }
+
         AddContentIds(clauses, parameters, filter.ContentIds, duties, filter.Region);
         AddTextList(clauses, parameters, "run_id", filter.RunIds, "rid");
         AddIntList(clauses, parameters, "job_id", filter.JobIds, "jid");

@@ -180,6 +180,17 @@ class AppController final : public QObject, public CaptureValidationController::
     /// first-run guide sends only when none is, and nothing else can send one while
     /// it is open, so the next baseline answer is its own (audit 2026-10-03, DT6-X1).
     Q_PROPERTY(bool baselineSaving READ baselineSaving NOTIFY baselineSavingChanged)
+    /// 角色档案: $defs/DashboardStats.profiles as the Collector last sent them - every
+    /// profile of every region with its own progress, the wire maps unchanged.
+    Q_PROPERTY(QVariantList characterProfiles READ characterProfiles NOTIFY characterProfilesChanged)
+    /// 0: goalCount / baselineCount / updateAchievementBaseline address the current profile
+    /// of baselineRegion (the behaviour before profiles). Otherwise the profile they read
+    /// and write (profile_id). Back to 0 when baselineRegion changes or the profile goes.
+    Q_PROPERTY(int baselineProfileId READ baselineProfileId WRITE setBaselineProfileId
+                   NOTIFY baselineProfileIdChanged)
+    /// True while a Create/Update/DeleteCharacterProfile is unanswered.
+    Q_PROPERTY(bool characterProfileSaving READ characterProfileSaving
+                   NOTIFY characterProfileSavingChanged)
     /// $defs/DashboardStats.unfinished_pending_review: runs the crash-recovery
     /// service closed without evidence and that a human still has to confirm.
     Q_PROPERTY(int pendingReviewCount READ pendingReviewCount NOTIFY dashboardChanged)
@@ -404,6 +415,25 @@ public:
     void setBaselineRegion(const QString &region) { m_statistics->setBaselineRegion(region); }
     Q_INVOKABLE QVariantMap achievementForRegion(const QString &region) const
     { return m_statistics->achievementForRegion(region); }
+    QVariantList characterProfiles() const { return m_statistics->characterProfiles(); }
+    /// The profiles of \a region, oldest first.
+    Q_INVOKABLE QVariantList characterProfilesForRegion(const QString &region) const
+    { return m_statistics->characterProfilesForRegion(region); }
+    /// One profile by id; an empty map when it is not known.
+    Q_INVOKABLE QVariantMap characterProfile(int profileId) const
+    { return m_statistics->characterProfile(profileId); }
+    /// True when \a region holds two or more profiles or has runs assigned to none (for
+    /// "", when any region does): the switch that keeps a one-character player's UI as it was.
+    Q_INVOKABLE bool characterFeaturesVisible(const QString &region) const
+    { return m_statistics->characterFeaturesVisible(region); }
+    /// The progress numbers that belong to \a run: its profile's (profile_id), its region's
+    /// entry when the run carries no profile_id (older Collector), and an empty map for a
+    /// run assigned to no profile - whose result has no progress to show.
+    Q_INVOKABLE QVariantMap achievementForRun(const QVariantMap &run) const
+    { return m_statistics->achievementForRun(QJsonObject::fromVariantMap(run)); }
+    int baselineProfileId() const { return m_statistics->baselineProfileId(); }
+    void setBaselineProfileId(int profileId) { m_statistics->setBaselineProfileId(profileId); }
+    bool characterProfileSaving() const { return m_statistics->characterProfileSaving(); }
     Q_INVOKABLE QVariantList dutyChoicesForRegion(const QString &region) const;
     QVariantList resultBuckets() const;
     QVariantList statCards() const;
@@ -576,6 +606,9 @@ public Q_SLOTS:
     void setCurrentHistoryPageChecked(bool checked);
     void clearCheckedHistoryRuns();
     void mutateCheckedHistoryRuns(const QString &action, const QString &reason);
+    /// 改到角色: files the checked rows under \a profileId, or under no profile for 0,
+    /// through the same batch path, feedback and refresh as mutateCheckedHistoryRuns.
+    void assignCheckedHistoryRunsToProfile(int profileId, const QString &reason);
     void confirmHistoryFilterChange(bool apply);
     void refreshHistoryRetentionSettings();
     void updateHistoryRetentionSettings(int days);
@@ -613,6 +646,14 @@ public Q_SLOTS:
     /// A job-only correction leaves the outcome and its review flag untouched.
     void supplementRunJob(const QString &runId, int revision, int jobId, const QString &reason);
     void updateAchievementBaseline(int goalCount, int baselineCount, const QString &reason);
+    /// 角色档案. Each answers with characterProfileSaved (characterProfiles already holds
+    /// the reply's list, and the statistics are read again) or characterProfileFailed.
+    void createCharacterProfile(const QString &region, const QString &displayName, int goalCount,
+                                int baselineCount, bool makeCurrent);
+    void renameCharacterProfile(int profileId, const QString &displayName);
+    /// Makes \a profileId the current profile of its region: new runs are filed under it.
+    void selectCharacterProfile(int profileId);
+    void deleteCharacterProfile(int profileId);
     void completeFirstRun();
 
     void exportCsv();
@@ -740,6 +781,14 @@ Q_SIGNALS:
     void regionalAchievementMilestoneReached(const QString &region, int completedLaps);
     void recordRegionChanged();
     void baselineRegionChanged();
+    void characterProfilesChanged();
+    void baselineProfileIdChanged();
+    void characterProfileSavingChanged();
+    /// A profile change was accepted. \a action: "create", "rename", "select" or "delete".
+    void characterProfileSaved(int profileId, const QString &action);
+    /// A profile change was refused or went unanswered; \a message is the Collector's
+    /// sentence in the interface language.
+    void characterProfileFailed(const QString &action, const QString &code, const QString &message);
 
     void reflectionsChanged();
     /// \a cleared is true when the text was empty and the reflection was removed.
@@ -769,6 +818,9 @@ private:
     void applySystemTheme();
 
     void handleLiveEvent(const QVariantMap &event);
+    /// What a stats_invalidated event refreshes: statistics, trend, reflections, recovery,
+    /// the history list and the per-duty / per-job tables.
+    void refreshAfterStatsInvalidated();
     /// Adopt one accepted SetRunReflection response: selection, list, summary
     /// and the toast that says which of the two things just happened.
     void applySavedReflection(const QString &runId, const QVariantMap &payload,

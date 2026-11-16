@@ -181,6 +181,7 @@ set(MR_CPP_SOURCES
     cpp/HistoryColumnsController.cpp
     cpp/HistoryColumnsController.h
     cpp/StatisticsController.cpp
+    cpp/StatisticsControllerProfiles.cpp
     cpp/StatisticsController.h
     cpp/StatisticsOverlayController.cpp
     cpp/StatisticsOverlayController.h
@@ -246,6 +247,7 @@ set(MR_CPP_SOURCES
     cpp/MockBackendShared.cpp
     cpp/MockBackendSpeech.cpp
     cpp/MockBackendUpdate.cpp
+    cpp/MockBackendProfiles.cpp
     cpp/MockBackend.h
     cpp/MockBackendStats.cpp
     cpp/MockData.h
@@ -295,6 +297,9 @@ set(MR_QML_FILES
     qml/components/AppButton.qml
     qml/components/Card.qml
     qml/components/CardKicker.qml
+    qml/components/CharacterNames.qml
+    qml/components/CharacterSelector.qml
+    qml/components/HistoryAssignCharacterDialog.qml
     qml/calibration/CalibrationCard.qml
     qml/calibration/CalibrationCopy.qml
     qml/calibration/CalibrationDialog.qml
@@ -405,6 +410,7 @@ set(MR_QML_FILES
     qml/evidence/EvidenceSidebar.qml
     qml/evidence/EvidenceStep.qml
     qml/dialogs/BaselineDialog.qml
+    qml/dialogs/CharacterProfileDialog.qml
     qml/dialogs/DisclosureDialog.qml
     qml/dialogs/ReleaseNotesDialog.qml
     qml/dialogs/CalibrationEvidenceDialog.qml

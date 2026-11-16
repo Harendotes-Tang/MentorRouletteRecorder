@@ -77,27 +77,33 @@ public sealed class StatisticsRepository
 
         // Each of the dashboard's reads is its own trip through the database gate; this
         // repository gates itself, see SettingsRepository.GetAchievementSettings.
-        var achievements = GetAchievements(filter?.Region);
+        var profiles = GetProfiles();
+        var achievements = GetAchievements(filter?.Region, profiles);
         var achievement = achievements.Single(value => value.Region == (filter?.Region ?? Region.Cn));
+        // A listing narrowed to one character shows that character's progress; any other listing
+        // shows the progress of the region's current profile.
+        var selected = filter?.ProfileId is { } selectedId
+            ? profiles.FirstOrDefault(value => value.Profile.ProfileId == selectedId)
+            : null;
 
         // Progress deliberately ignores the dashboard date/filter and always uses the full
         // confirmed, live data set. The baseline counts the completions from before the software
         // was installed, so every recorded completion is added on top, whenever it ended; the
         // baseline's effective time only records when its count last changed (audit 2026-10-03,
         // B3-1: a cutoff at that time dropped the recorded runs whenever the count was edited).
-        var settings = _settings.GetAchievementSettings(region: achievement.Region);
         // The wire contract remains Int32. A later completion or an older oversized
         // baseline must not make every dashboard request fail; preserve the stored
         // counts and cap only the displayed aggregate at the representable maximum.
-        var progress = achievement.AchievementProgress;
+        var progress = selected?.AchievementProgress ?? achievement.AchievementProgress;
+        var goal = selected?.Profile.GoalCount ?? achievement.GoalCount;
 
         return new DashboardStatistics(
             attemptCount,
             completedCount,
-            settings.BaselineCompletedCount,
+            selected?.Profile.BaselineCompletedCount ?? achievement.BaselineCompletedCount,
             progress,
-            settings.GoalCount,
-            Math.Max(settings.GoalCount - progress, 0),
+            goal,
+            Math.Max(goal - progress, 0),
             Ratio(completedCount, attemptCount),
             Ratio(leaveCount, attemptCount),
             average,
@@ -105,21 +111,84 @@ public sealed class StatisticsRepository
             rows.Count(row => row.PendingReview && !row.ImportedHistory),
             GetTrend(filter, granularity),
             joinedInProgress,
-            Ratio(joinedInProgress, entryKnown), achievements);
+            Ratio(joinedInProgress, entryKnown), achievements, profiles);
     }
 
-    private IReadOnlyList<RegionalAchievementStatistics> GetAchievements(Region? selected)
+    /// <summary>
+    /// One entry per region: the achievement of the region's current profile, which is the whole
+    /// region's for a player with one character.
+    /// </summary>
+    private IReadOnlyList<RegionalAchievementStatistics> GetAchievements(
+        Region? selected, IReadOnlyList<CharacterProfileStatistics> profiles)
     {
         var regions = selected is { } region ? new[] { region } : _settings.GetAchievementRegions();
+        var unassigned = CountGrouped(
+            "SELECT region, COUNT(*) FROM mentor_runs WHERE soft_deleted = 0 AND profile_id IS NULL GROUP BY region;");
         return regions.Select(owner =>
         {
+            var ofRegion = profiles.Where(value => value.Profile.Region == owner).ToArray();
+            var unassignedCount = unassigned.TryGetValue(EnumWire<Region>.Format(owner), out var loose)
+                ? (int)Math.Min(loose, int.MaxValue)
+                : 0;
+            if (ofRegion.FirstOrDefault(value => value.Profile.IsCurrent) is { } current)
+            {
+                return new RegionalAchievementStatistics(owner, current.Profile.GoalCount,
+                    current.Profile.BaselineCompletedCount, current.AchievementProgress, current.Remaining,
+                    current.CompletedCount, current.Profile.ProfileId, ofRegion.Length, unassignedCount);
+            }
+
+            // A region nobody has recorded or set anything for is shown with the defaults.
             var settings = _settings.GetAchievementSettings(region: owner);
-            var count = CountContributingCompleted(region: owner);
-            var progress = settings.BaselineCompletedCount + (int)Math.Min(count,
-                int.MaxValue - (long)settings.BaselineCompletedCount);
             return new RegionalAchievementStatistics(owner, settings.GoalCount, settings.BaselineCompletedCount,
-                progress, Math.Max(settings.GoalCount - progress, 0), (int)Math.Min(count, int.MaxValue));
+                settings.BaselineCompletedCount, Math.Max(settings.GoalCount - settings.BaselineCompletedCount, 0),
+                0, null, 0, unassignedCount);
         }).ToArray();
+    }
+
+    /// <summary>
+    /// Every character profile with its progress: the profile's baseline plus every confirmed,
+    /// contributing completion that belongs to it, whenever it ended
+    /// (docs/statistics-definitions.md). A run assigned to no profile counts for none.
+    /// </summary>
+    public IReadOnlyList<CharacterProfileStatistics> GetProfiles() => _database.Read(_ =>
+    {
+        var filter = RunFilterSql.Build(RunFilter.Empty, forStatistics: true);
+        var completed = CountGrouped(
+            $"SELECT profile_id, COUNT(*) FROM mentor_runs WHERE {filter.Where} "
+            + "AND result = 'COMPLETED' AND contributes_to_goal = 1 AND profile_id IS NOT NULL GROUP BY profile_id;",
+            filter);
+        var runs = CountGrouped(
+            "SELECT profile_id, COUNT(*) FROM mentor_runs WHERE soft_deleted = 0 AND profile_id IS NOT NULL "
+            + "GROUP BY profile_id;");
+        return (IReadOnlyList<CharacterProfileStatistics>)_settings.Profiles.List().Select(profile =>
+        {
+            var key = profile.ProfileId.ToString(CultureInfo.InvariantCulture);
+            var count = completed.TryGetValue(key, out var done) ? done : 0;
+            var progress = profile.BaselineCompletedCount + (int)Math.Min(count,
+                int.MaxValue - (long)profile.BaselineCompletedCount);
+            return new CharacterProfileStatistics(profile, (int)Math.Min(count, int.MaxValue), progress,
+                Math.Max(profile.GoalCount - progress, 0),
+                runs.TryGetValue(key, out var all) ? (int)Math.Min(all, int.MaxValue) : 0);
+        }).ToArray();
+    });
+
+    private Dictionary<string, long> CountGrouped(string sql, RunFilterSql.Fragment? filter = null)
+    {
+        using var command = _database.CreateCommand();
+        command.CommandText = sql;
+        if (filter is not null)
+        {
+            RunFilterSql.Bind(command, filter);
+        }
+
+        using var reader = command.ExecuteReader();
+        var counts = new Dictionary<string, long>(StringComparer.Ordinal);
+        while (reader.Read())
+        {
+            counts[Convert.ToString(reader.GetValue(0), CultureInfo.InvariantCulture)!] = reader.GetInt64(1);
+        }
+
+        return counts;
     }
 
     /// <summary>
@@ -138,9 +207,23 @@ public sealed class StatisticsRepository
         return CountContributingCompletedCore(transaction, region);
     }
 
-    private long CountContributingCompletedCore(SqliteTransaction? transaction, Region region)
+    /// <summary>The same count for one character profile: the completions its progress adds to its baseline.</summary>
+    /// <param name="profileId">Profile whose runs are counted.</param>
+    /// <param name="transaction">Existing update transaction, or null for a gated read.</param>
+    internal long CountContributingCompleted(long profileId, SqliteTransaction? transaction = null)
     {
-        var filter = RunFilterSql.Build(new RunFilter { Region = region }, forStatistics: true);
+        var filter = new RunFilter { ProfileId = profileId };
+        return transaction is null
+            ? _database.Read(_ => CountContributingCompletedCore(null, filter))
+            : CountContributingCompletedCore(transaction, filter);
+    }
+
+    private long CountContributingCompletedCore(SqliteTransaction? transaction, Region region) =>
+        CountContributingCompletedCore(transaction, new RunFilter { Region = region });
+
+    private long CountContributingCompletedCore(SqliteTransaction? transaction, RunFilter scope)
+    {
+        var filter = RunFilterSql.Build(scope, forStatistics: true);
         using var command = _database.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = $"SELECT COUNT(*) FROM mentor_runs WHERE {filter.Where} "

@@ -42,9 +42,18 @@
 
 该错误码与 `ERR_BAD_REQUEST` 分开，用于让客户端区分请求格式错误与该修订按定义不可撤销两种情形。
 
-`BatchMutateRuns` 支持 `soft_delete`、`restore` 与 `purge`，携带最多 2000 条
+`BatchMutateRuns` 支持 `soft_delete`、`restore`、`purge` 与 `assign_profile`，携带最多 2000 条
 `runs[{run_id,expected_revision}]` 与理由。整批先检查版本及状态，任何冲突均不写入。
 `purge` 仅接受已软删除记录；普通审计写入仍只追加，永久清理事务获得指定记录的删除授权。
+
+`assign_profile` 改动记录所属的角色档案（[data-model.md](data-model.md) §1.6）：`profile_id` 为同区服的档案编号，
+或显式的 `null`（改为未分配）；该字段只属于这一动作：其他动作带上它按未声明的字段拒绝，这一动作缺少它按缺少必填字段拒绝，
+都答 `ERR_BAD_REQUEST`。
+有效记录与回收站中的记录都可以改。已在目标档案名下的记录保持原样、不写修订，也不出现在应答的 `run_ids` 中；
+一条都不需要改时答 `ERR_NO_CHANGES`。档案不存在答 `ERR_NOT_FOUND`，记录与档案不同区服答 `ERR_BAD_REQUEST`
+（`details.run_id` 给出第一条不符的记录）。每条被改动的记录追加一条 `CORRECT` 修订，差异只有 `profile_id`；
+归属不是软件记录的副本事实，这条修订不置 `manually_corrected`，可以像其他修订一样撤销。改归属不会改动任何档案的
+基数，各角色的起始次数由用户分别校准。
 
 ## 2. 修订链（append-only revisions）
 

@@ -35,14 +35,36 @@ public sealed record TrendBucket(DateTimeOffset StartUtc, int CompletedCount);
 /// <param name="Buckets">Buckets, oldest first.</param>
 public sealed record TrendSeries(TrendGranularity Granularity, IReadOnlyList<TrendBucket> Buckets);
 
-/// <summary>One region's achievement, independent of date, duty and job listing filters.</summary>
+/// <summary>
+/// One region's achievement, independent of date, duty and job listing filters: the numbers of the
+/// region's current character profile.
+/// </summary>
+/// <param name="ProfileId">The region's current profile; null while the region has none.</param>
+/// <param name="ProfileCount">How many profiles the region holds.</param>
+/// <param name="UnassignedRunCount">Live runs of the region that belong to no profile.</param>
 public sealed record RegionalAchievementStatistics(
     Region Region,
     int GoalCount,
     int BaselineCompletedCount,
     int AchievementProgress,
     int Remaining,
-    int CompletedCount);
+    int CompletedCount,
+    long? ProfileId = null,
+    int ProfileCount = 0,
+    int UnassignedRunCount = 0);
+
+/// <summary>One character profile and its achievement progress.</summary>
+/// <param name="Profile">The profile as stored.</param>
+/// <param name="CompletedCount">Confirmed, contributing completions that belong to the profile.</param>
+/// <param name="AchievementProgress">Baseline plus <paramref name="CompletedCount"/>, capped at Int32.</param>
+/// <param name="Remaining">Completions still missing to the goal; never negative.</param>
+/// <param name="RunCount">Live runs that belong to the profile, whatever their result.</param>
+public sealed record CharacterProfileStatistics(
+    CharacterProfile Profile,
+    int CompletedCount,
+    int AchievementProgress,
+    int Remaining,
+    int RunCount);
 
 /// <summary>Fixed dashboard statistics defined by docs/statistics-definitions.md.</summary>
 public sealed record DashboardStatistics(
@@ -60,7 +82,8 @@ public sealed record DashboardStatistics(
     TrendSeries Trend,
     int JoinedInProgressCount,
     double? JoinedInProgressRate,
-    IReadOnlyList<RegionalAchievementStatistics> Achievements);
+    IReadOnlyList<RegionalAchievementStatistics> Achievements,
+    IReadOnlyList<CharacterProfileStatistics>? Profiles = null);
 
 /// <summary>
 /// Statistics aggregated by duty identity: the observed content id when there is one, and

@@ -28,6 +28,10 @@ class HistoryColumnsController final : public QObject
     Q_PROPERTY(bool customised READ customised NOTIFY layoutChanged)
     Q_PROPERTY(int minimumWidth READ minimumWidth CONSTANT)
     Q_PROPERTY(int maximumWidth READ maximumWidth CONSTANT)
+    /// Whether the 角色 column exists at all. The page offers it only while a region tells
+    /// its characters apart; withheld, it is in neither list and cannot be shown, moved or
+    /// counted, and what is stored for it waits unchanged.
+    Q_PROPERTY(bool characterOffered READ characterOffered WRITE setCharacterOffered NOTIFY layoutChanged)
 public:
     static constexpr int kMinimumWidth = 40;
     static constexpr int kMaximumWidth = 800;
@@ -38,8 +42,10 @@ public:
     /// The design order: 日期 进本 结束 副本 类型 职业 结果 耗时 来源 标记.
     static QStringList defaultOrder();
 
-    QStringList order() const { return m_order; }
+    QStringList order() const;
     QStringList visible() const;
+    bool characterOffered() const { return m_characterOffered; }
+    void setCharacterOffered(bool offered);
     QVariantMap widths() const;
     bool customised() const;
     int minimumWidth() const { return kMinimumWidth; }
@@ -65,11 +71,13 @@ Q_SIGNALS:
 
 private:
     void store();
+    bool withheld(const QString &key) const;
 
     QPointer<AppSettings> m_settings;
     QStringList m_order;
     QStringList m_hidden;
     QMap<QString, int> m_widths;
+    bool m_characterOffered = false;
 };
 
 } // namespace mr

@@ -220,6 +220,8 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
         const QString owner = runRegion(run);
         if (!region.isEmpty() && owner != region)
             continue;
+        if (!runMatchesProfileFilter(run, filter))
+            continue;
         if (!contentZones.contains(owner))
             contentZones.insert(owner, zonesOfOnly(filter.value(QStringLiteral("content_id")).toArray(), owner));
         // Soft-deleted runs never take part in a statistic, whatever the
@@ -575,19 +577,22 @@ QJsonObject MockBackend::dashboardStats(const QJsonObject &filter,
 
     // Lifetime achievements use only the region scope. Date, duty, job and review
     // listing filters cannot remove an older contributing completion from its owner.
-    QMap<QString, int> goalRuns;
+    // Each region's entry carries its current character profile's numbers
+    // (StatisticsRepository.GetAchievements): its baseline plus the completions filed
+    // under it. A run assigned to no profile counts for none.
     QSet<QString> regions{QStringLiteral("CN"), QStringLiteral("TC")};
-    for (auto it = m_achievements.constBegin(); it != m_achievements.constEnd(); ++it)
-        regions.insert(it.key());
-    for (const auto &value : m_runs) {
-        const QJsonObject run = value.toObject();
-        const QString owner = runRegion(run);
-        regions.insert(owner);
-        if (!isSoftDeleted(run) && isConfirmedMentor(run)
-            && run.value(QStringLiteral("result")).toString() == QLatin1String("COMPLETED")
-            && run.value(QStringLiteral("contributes_to_goal")).toBool(true))
-            ++goalRuns[owner];
-    }
+    for (const CharacterProfileEntry &profile : m_profiles)
+        regions.insert(profile.region);
+    for (const auto &value : m_runs)
+        regions.insert(runRegion(value.toObject()));
+    const QJsonArray profiles = characterProfiles();
+    const auto profileById = [&profiles](int id) {
+        for (const auto &value : profiles) {
+            if (value.toObject().value(QStringLiteral("profile_id")).toInt() == id)
+                return value.toObject();
+        }
+        return QJsonObject();
+    };
     const QString selected = filter.value(QStringLiteral("region")).toString();
     QStringList owners = selected.isEmpty() ? regions.values() : QStringList{selected};
     std::ranges::sort(owners, [](const QString &left, const QString &right) {
@@ -603,19 +608,37 @@ QJsonObject MockBackend::dashboardStats(const QJsonObject &filter,
     QJsonArray achievements;
     QJsonObject legacyAchievement;
     for (const QString &owner : std::as_const(owners)) {
-        const AchievementSettings settings = achievementSettings(owner);
-        const int counted = goalRuns.value(owner);
-        const int progress = static_cast<int>(qMin<qint64>(std::numeric_limits<int>::max(),
-            static_cast<qint64>(settings.baselineCompletedCount) + counted));
-        const QJsonObject achievement{{QStringLiteral("region"), owner},
-            {QStringLiteral("goal_count"), settings.goalCount},
-            {QStringLiteral("baseline_completed_count"), settings.baselineCompletedCount},
-            {QStringLiteral("achievement_progress"), progress},
-            {QStringLiteral("remaining"), qMax(settings.goalCount - progress, 0)},
-            {QStringLiteral("completed_count"), counted}};
+        const CharacterProfileEntry *current = currentProfile(owner);
+        QJsonObject achievement{{QStringLiteral("region"), owner}};
+        if (current) {
+            const QJsonObject numbers = profileById(current->id);
+            for (const char *key : {"goal_count", "baseline_completed_count", "achievement_progress",
+                                    "remaining", "completed_count"})
+                achievement.insert(QLatin1String(key), numbers.value(QLatin1String(key)));
+            achievement.insert(QStringLiteral("profile_id"), current->id);
+        } else {
+            // A region nobody recorded or set anything for: the defaults.
+            const AchievementSettings settings = achievementSettings(owner);
+            achievement.insert(QStringLiteral("goal_count"), settings.goalCount);
+            achievement.insert(QStringLiteral("baseline_completed_count"), settings.baselineCompletedCount);
+            achievement.insert(QStringLiteral("achievement_progress"), settings.baselineCompletedCount);
+            achievement.insert(QStringLiteral("remaining"),
+                               qMax(settings.goalCount - settings.baselineCompletedCount, 0));
+            achievement.insert(QStringLiteral("completed_count"), 0);
+            achievement.insert(QStringLiteral("profile_id"), QJsonValue(QJsonValue::Null));
+        }
+        achievement.insert(QStringLiteral("profile_count"), static_cast<int>(profilesOf(owner).size()));
+        achievement.insert(QStringLiteral("unassigned_run_count"), unassignedRunCount(owner));
         achievements.append(achievement);
         if (owner == (selected.isEmpty() ? QStringLiteral("CN") : selected))
             legacyAchievement = achievement;
+    }
+    // A listing narrowed to one character projects that character's numbers.
+    const QJsonValue selectedProfile = filter.value(QStringLiteral("profile_id"));
+    if (selectedProfile.isDouble()) {
+        const QJsonObject numbers = profileById(selectedProfile.toInt());
+        if (!numbers.isEmpty())
+            legacyAchievement = numbers;
     }
 
     QJsonObject stats;
@@ -624,6 +647,7 @@ QJsonObject MockBackend::dashboardStats(const QJsonObject &filter,
     for (const auto *field : {"baseline_completed_count", "achievement_progress", "goal_count", "remaining"})
         stats.insert(QString::fromLatin1(field), legacyAchievement.value(QString::fromLatin1(field)));
     stats.insert(QStringLiteral("achievements"), achievements);
+    stats.insert(QStringLiteral("profiles"), profiles);
     stats.insert(QStringLiteral("completion_rate"),
                  nullableNumber(attempts > 0, static_cast<double>(completed) / static_cast<double>(attempts)));
     // leave_rate counts LEFT_OR_ABANDONED only. DISCONNECTED, INTERRUPTED and

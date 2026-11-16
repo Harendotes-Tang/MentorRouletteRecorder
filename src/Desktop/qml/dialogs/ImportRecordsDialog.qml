@@ -1068,6 +1068,18 @@ MotionDialog {
                 }
             }
         }
+        // With several characters the player has to know whose records these become: the
+        // Collector files an import under each region's current character.
+        Text {
+            objectName: "importCharacterHint"
+            visible: dialog.hasRows && typeof Runtime.app !== "undefined" && Runtime.app
+                     && typeof Runtime.app.characterFeaturesVisible === "function"
+                     && Theme.trackBindingDependency(Runtime.app.characterProfiles) !== undefined
+                     && Runtime.app.characterFeaturesVisible("")
+            textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.WordWrap
+            text: qsTr("导入的记录会记在各区服的当前角色名下，起始次数也从当前角色扣除。要导入其他角色的记录，请先在总览把它设为当前角色；导入后也可以在历史记录里用「改角色」调整。")
+            color: Theme.textSecondary; font.pixelSize: Theme.fs(12)
+        }
         // 这些记录是否已包含在基数中: the baseline is the count the game showed before this
         // software was installed, so imported history of that time is already inside it. The
         // Collector deducts the contributing completions in the same commit when told so.

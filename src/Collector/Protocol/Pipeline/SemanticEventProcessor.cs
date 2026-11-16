@@ -75,6 +75,7 @@ public sealed class SemanticEventProcessor : ISemanticEventSink, ICaptureLifecyc
     private readonly MentorRunStateMachine _machine;
     private readonly SemanticEventProcessorOptions _options;
     private readonly RunRepository _runs;
+    private readonly CharacterProfileRepository _profiles;
     private readonly RunEventRepository _events;
     private readonly RunRevisionRepository _revisions;
     private readonly IdempotencyRepository _purgedRuns;
@@ -126,6 +127,7 @@ public sealed class SemanticEventProcessor : ISemanticEventSink, ICaptureLifecyc
         _machine = machine;
         _options = options;
         _runs = new RunRepository(database);
+        _profiles = new CharacterProfileRepository(database, clock);
         _events = new RunEventRepository(database);
         _revisions = new RunRevisionRepository(database);
         _purgedRuns = new IdempotencyRepository(database, clock);
@@ -576,6 +578,9 @@ public sealed class SemanticEventProcessor : ISemanticEventSink, ICaptureLifecyc
             Revision = 1,
             CaptureSessionId = _options.CaptureSessionId,
             Region = _options.Region,
+            // The owner is fixed here, at match time: a result that arrives after the player has
+            // switched to another character still settles the run under the character it began on.
+            ProfileId = _profiles.EnsureCurrent(_options.Region, transaction).ProfileId,
             GameBuild = _options.GameBuild,
             ProtocolProfileId = _options.ProtocolProfileId,
             MentorRouletteId = create.MentorRouletteId,

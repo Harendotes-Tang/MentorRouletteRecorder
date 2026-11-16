@@ -108,6 +108,13 @@ public sealed record MentorRun
     /// </summary>
     public bool PendingReview { get; init; }
 
+    /// <summary>
+    /// Character profile the run belongs to, of the run's own region; null when it is assigned to
+    /// none. Set when the run is created - at match time for a recorded run - and changed afterwards
+    /// only by the player (docs/data-model.md, character_profiles).
+    /// </summary>
+    public long? ProfileId { get; init; }
+
     /// <summary>Free-text note typed by the user through a correction; never derived from traffic.</summary>
     public string? Note { get; init; }
 

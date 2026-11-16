@@ -35,7 +35,8 @@
         "GetVersion", "GetStatus", "GetCaptureStatus", "ListCaptureAdapters", "StartCapture", "SelectGameProcess",
         "StopCapture", "GetProtocolProfileStatus", "GetCurrentRun", "QueryRuns", "QueryRunCalendarDays", "GetDashboardStats",
         "GetDungeonStats", "GetJobStats", "GetResultStats", "CreateManualRun", "CorrectRun",
-        "SoftDeleteRun", "RestoreRun", "BatchMutateRuns", "GetHistoryRetentionSettings", "UpdateHistoryRetentionSettings", "GetPendingImageCleanup", "AcknowledgeImageCleanup", "GetRunRevisions", "UpdateAchievementBaseline", "ExportCsv",
+        "SoftDeleteRun", "RestoreRun", "BatchMutateRuns", "GetHistoryRetentionSettings", "UpdateHistoryRetentionSettings", "GetPendingImageCleanup", "AcknowledgeImageCleanup", "GetRunRevisions", "UpdateAchievementBaseline",
+        "CreateCharacterProfile", "UpdateCharacterProfile", "DeleteCharacterProfile", "ExportCsv",
         "ExportJson", "BackupDatabase", "SubscribeLiveEvents", "ExportDiagnosticsReport",
         "SetRunReflection", "GetReflectionSummary", "PreviewRunImport", "CommitRunImport",
         "StartCaptureValidation", "GetCaptureValidationStatus", "AddCaptureValidationMarker", "StopCaptureValidation",
@@ -224,6 +225,7 @@
         "run_id": { "$ref": "#/$defs/Uuid" },
         "revision": { "type": "integer", "minimum": 1 },
         "capture_session_id": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] },
+        "profile_id": { "type": ["integer", "null"], "minimum": 1, "description": "Character profile the run belongs to (CharacterProfile.profile_id), of the run's own region; null when it is assigned to none. Set when the run is created - at match time for a recorded run - and changed afterwards only through BatchMutateRuns assign_profile. Absent from older Collectors." },
         "region": { "$ref": "#/$defs/Region" },
         "game_build": { "type": ["string", "null"] },
         "protocol_profile_id": { "type": ["string", "null"] },
@@ -311,7 +313,8 @@
         "preview_id": { "$ref": "#/$defs/Uuid" },
         "row_numbers": { "type": "array", "minItems": 1, "maxItems": 5000, "uniqueItems": true, "items": { "type": "integer", "minimum": 1 } },
         "confirm_own_records": { "type": "boolean", "const": true },
-        "deduct_from_baseline": { "type": "boolean", "description": "True when the user says these records are already counted in baseline_completed_count: the imported completions that contribute to the achievement are deducted from the baseline in the same transaction, never below zero. Absent or false leaves the baseline alone." }
+        "deduct_from_baseline": { "type": "boolean", "description": "True when the user says these records are already counted in baseline_completed_count: the imported completions that contribute to the achievement are deducted from the baseline in the same transaction, never below zero. Absent or false leaves the baseline alone." },
+        "profile_id": { "type": "integer", "minimum": 1, "description": "Character profile the imported records of its region are filed under, and whose baseline deduct_from_baseline is taken from. Absent, and for the records of every other region, the region's current profile." }
       }
     },
     "RunImportPreview": {
@@ -472,6 +475,8 @@
       "description": "All fields optional; omitted fields do not constrain the query. Array fields are OR within the field and AND across fields. text, name_text, name_exact and reflection_text are OR with each other and AND with all other fields.",
       "properties": {
         "region": { "oneOf": [{ "$ref": "#/$defs/Region" }, { "type": "null" }], "description": "Service region. Omitted or null lists all regions; this is independent of UI language." },
+        "profile_id": { "type": "integer", "minimum": 1, "description": "Keeps only the runs of this character profile. Never sent together with profile_unassigned (ERR_BAD_REQUEST). In GetDashboardStats it also selects whose progress the scalar achievement fields project." },
+        "profile_unassigned": { "type": "boolean", "description": "True keeps only the runs assigned to no character profile." },
         "history_from_day": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
         "history_to_day": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
         "run_id": { "type": "array", "items": { "$ref": "#/$defs/Uuid" }, "maxItems": 2000, "uniqueItems": true },
@@ -526,7 +531,8 @@
         "completion_rate", "leave_rate", "avg_duration_ms", "result_breakdown"
       ],
       "properties": {
-        "achievements": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/RegionalAchievement" }, "description": "Independent lifetime achievement progress per region, unaffected by date/job/duty filters. A region filter selects one entry; all-region results include CN and TC, plus other regions with records/settings. Legacy scalar achievement fields project the selected region, or CN for an all-region request." },
+        "achievements": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/RegionalAchievement" }, "description": "Independent lifetime achievement progress per region, unaffected by date/job/duty filters. A region filter selects one entry; all-region results include CN and TC, plus other regions with records/settings. Each entry carries the numbers of the region's current character profile, which is the whole region's while it holds one profile. Legacy scalar achievement fields project the profile named by filter.profile_id; without one, the selected region, or CN for an all-region request." },
+        "profiles": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/CharacterProfile" }, "description": "Every character profile of every region with its own lifetime progress, unaffected by any filter: CN first, then TC, then the other regions; inside a region in creation order. Absent from older Collectors." },
         "attempt_count": { "type": "integer", "minimum": 0 },
         "completed_count": { "type": "integer", "minimum": 0 },
         "baseline_completed_count": { "type": "integer", "minimum": 0 },
@@ -553,7 +559,68 @@
         "baseline_completed_count": { "type": "integer", "minimum": 0 },
         "achievement_progress": { "type": "integer", "minimum": 0 },
         "remaining": { "type": "integer", "minimum": 0 },
-        "completed_count": { "type": "integer", "minimum": 0 }
+        "completed_count": { "type": "integer", "minimum": 0 },
+        "profile_id": { "type": ["integer", "null"], "minimum": 1, "description": "The region's current character profile, whose numbers this entry carries; null while the region has no profile. Absent from older Collectors." },
+        "profile_count": { "type": "integer", "minimum": 0, "description": "How many character profiles the region holds." },
+        "unassigned_run_count": { "type": "integer", "minimum": 0, "description": "Live runs of the region assigned to no character profile; they count in no profile's progress." }
+      }
+    },
+    "CharacterProfile": {
+      "type": "object", "additionalProperties": false,
+      "description": "One character the player keeps records for, inside one region, with its own goal and baseline (docs/data-model.md, character_profiles). profile_id is local bookkeeping, never a game identifier; display_name is typed by the player and never read from the game.",
+      "required": ["profile_id", "region", "display_name", "is_current", "goal_count", "baseline_completed_count", "achievement_progress", "remaining", "completed_count", "run_count"],
+      "properties": {
+        "profile_id": { "type": "integer", "minimum": 1 },
+        "region": { "$ref": "#/$defs/Region" },
+        "display_name": { "type": "string", "maxLength": 24, "description": "Empty for the profile the software created by itself (a region's records from before profiles existed, or a region's first profile); the client words that one." },
+        "is_current": { "type": "boolean", "description": "True for the one profile of its region that newly created runs are filed under." },
+        "goal_count": { "type": "integer", "minimum": 1 },
+        "baseline_completed_count": { "type": "integer", "minimum": 0 },
+        "achievement_progress": { "type": "integer", "minimum": 0, "description": "baseline_completed_count plus completed_count, capped at Int32." },
+        "remaining": { "type": "integer", "minimum": 0 },
+        "completed_count": { "type": "integer", "minimum": 0, "description": "Confirmed, contributing completions that belong to the profile, whenever they ended." },
+        "run_count": { "type": "integer", "minimum": 0, "description": "Live runs that belong to the profile, whatever their result." }
+      }
+    },
+    "CharacterProfileResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["profile_id", "region", "deleted", "profiles", "idempotent_replay"],
+      "properties": {
+        "profile_id": { "type": "integer", "minimum": 1, "description": "The profile the request created, changed or removed." },
+        "region": { "$ref": "#/$defs/Region" },
+        "deleted": { "type": "boolean", "description": "True when the profile no longer exists." },
+        "profiles": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/CharacterProfile" }, "description": "Every profile as it stands after the request, in the order of DashboardStats.profiles." },
+        "idempotent_replay": { "type": "boolean" }
+      }
+    },
+    "CreateCharacterProfileRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["region", "display_name"],
+      "description": "Adds a character profile to a region. A region holds at most 16; a name is unique inside its region (ERR_BAD_REQUEST, field display_name).",
+      "properties": {
+        "region": { "$ref": "#/$defs/Region" },
+        "display_name": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Trimmed by the Collector; 1 to 24 characters, one line, must remain." },
+        "goal_count": { "type": "integer", "minimum": 1, "default": 2000 },
+        "baseline_completed_count": { "type": "integer", "minimum": 0, "default": 0 },
+        "make_current": { "type": "boolean", "default": false, "description": "True files newly created runs of the region under the new profile from now on." }
+      }
+    },
+    "UpdateCharacterProfileRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["profile_id"],
+      "description": "Renames a profile, makes it the current one of its region, or both; a request that asks for neither is refused. Goal and baseline are changed through UpdateAchievementBaseline.",
+      "properties": {
+        "profile_id": { "type": "integer", "minimum": 1 },
+        "display_name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "make_current": { "type": "boolean", "default": false }
+      }
+    },
+    "DeleteCharacterProfileRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["profile_id"],
+      "description": "Removes a profile. Refused (ERR_BAD_REQUEST, field profile_id) for the last profile of a region, for the current one, and while any run - the recycle bin included - belongs to it.",
+      "properties": {
+        "profile_id": { "type": "integer", "minimum": 1 }
       }
     },
     "RegionalBaselineAdjustment": {
@@ -561,6 +628,7 @@
       "required": ["region", "baseline_deducted_count", "baseline_completed_count"],
       "properties": {
         "region": { "$ref": "#/$defs/Region" },
+        "profile_id": { "type": "integer", "minimum": 1, "description": "The character profile whose baseline changed. Absent from old receipts." },
         "baseline_deducted_count": { "type": "integer", "minimum": 0 },
         "baseline_completed_count": { "type": "integer", "minimum": 0 }
       }
@@ -1071,6 +1139,9 @@
         { "if": { "properties": { "message_type": { "const": "RestoreRun" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/RunReasonRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "GetRunRevisions" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/GetRunRevisionsRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "UpdateAchievementBaseline" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/UpdateAchievementBaselineRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "CreateCharacterProfile" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/CreateCharacterProfileRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "UpdateCharacterProfile" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/UpdateCharacterProfileRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "DeleteCharacterProfile" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/DeleteCharacterProfileRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "ExportCsv" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ExportRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "ExportJson" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ExportRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "BackupDatabase" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/BackupDatabaseRequest" } } } },
@@ -1103,8 +1174,14 @@
             "enum": [
               "soft_delete",
               "restore",
-              "purge"
+              "purge",
+              "assign_profile"
             ]
+          },
+          "profile_id": {
+            "type": ["integer", "null"],
+            "minimum": 1,
+            "description": "Required for assign_profile and refused for the other actions: the character profile, of the runs' own region, the runs are filed under; null leaves them assigned to none. Runs already there are left as they are and are not listed in run_ids; a request that would move none is ERR_NO_CHANGES. Live and deleted runs may both be moved."
           },
           "runs": {
             "type": "array",
@@ -1162,7 +1239,8 @@
             "enum": [
               "soft_delete",
               "restore",
-              "purge"
+              "purge",
+              "assign_profile"
             ]
           },
           "idempotent_replay": {
@@ -1348,6 +1426,7 @@
       "description": "Creates a run with source MANUAL and manually_created true. entered_at_utc <= ended_at_utc must hold (ERR_TIME_ORDER); duration_ms must be >= 0 (ERR_NEGATIVE_DURATION). Omitted duration_ms is derived from entry/end times; explicit null retains unknown duration and is excluded from average duration statistics.",
       "properties": {
         "region": { "$ref": "#/$defs/Region", "default": "UNKNOWN", "description": "Service region of this manual record. Legacy requests without it retain UNKNOWN." },
+        "profile_id": { "type": "integer", "minimum": 1, "description": "Character profile the record is filed under; it must belong to region (ERR_BAD_REQUEST). Absent files it under the region's current profile." },
         "content_id": { "type": ["integer", "null"], "minimum": 0 },
         "duty_name": { "type": ["string", "null"], "maxLength": 200 },
         "duty_category": { "type": ["string", "null"], "maxLength": 100 },
@@ -1427,7 +1506,8 @@
       "additionalProperties": false,
       "required": ["baseline_completed_count", "baseline_effective_at", "reason"],
       "properties": {
-        "region": { "$ref": "#/$defs/Region", "default": "CN", "description": "The region whose independent baseline and goal are edited. Omitted targets CN for legacy requests." },
+        "region": { "$ref": "#/$defs/Region", "default": "CN", "description": "The region whose independent baseline and goal are edited. Omitted targets CN for legacy requests. Ignored when profile_id is present." },
+        "profile_id": { "type": "integer", "minimum": 1, "description": "The character profile whose baseline and goal are edited. Absent targets the current profile of region." },
         "goal_count": { "type": "integer", "minimum": 1, "default": 2000 },
         "baseline_completed_count": { "type": "integer", "minimum": 0 },
         "baseline_effective_at": { "$ref": "#/$defs/UtcTimestamp", "description": "When the baseline count was changed. Stored and reported as information only: the progress adds every contributing completion on top of the baseline, whatever its time. Used only when baseline_completed_count differs from the stored baseline; a request that leaves the count as stored (a goal-only change, or the same number entered again) keeps the stored time, whatever this field says." },
@@ -1839,6 +1919,9 @@
 
     "Responses": {
       "BatchMutateRuns": { "$ref": "#/$defs/BatchMutateRunsResult" },
+      "CreateCharacterProfile": { "$ref": "#/$defs/CharacterProfileResult" },
+      "UpdateCharacterProfile": { "$ref": "#/$defs/CharacterProfileResult" },
+      "DeleteCharacterProfile": { "$ref": "#/$defs/CharacterProfileResult" },
       "GetHistoryRetentionSettings": { "$ref": "#/$defs/HistoryRetentionSettings" },
       "UpdateHistoryRetentionSettings": { "$ref": "#/$defs/HistoryRetentionSettings" },
       "GetPendingImageCleanup": { "$ref": "#/$defs/ImageCleanupIds" },
@@ -1951,6 +2034,7 @@
         "required": ["goal_count", "baseline_completed_count", "baseline_effective_at", "updated_at_utc", "audit_event_id"],
         "properties": {
           "region": { "$ref": "#/$defs/Region", "description": "The owning region of the returned achievement settings." },
+          "profile_id": { "type": ["integer", "null"], "minimum": 1, "description": "The character profile the returned settings belong to. Null only in a replay of a response stored before profiles existed." },
           "goal_count": { "type": "integer", "minimum": 1 },
           "baseline_completed_count": { "type": "integer", "minimum": 0 },
           "baseline_effective_at": { "$ref": "#/$defs/UtcTimestamp", "description": "The effective time as stored: the requested one when the baseline changed, otherwise the time kept from before." },

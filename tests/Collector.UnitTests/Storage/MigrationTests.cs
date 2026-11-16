@@ -15,7 +15,7 @@ public sealed class MigrationTests
         using var fixture = new TestDatabase();
 
         Assert.Equal(MigrationRunner.LatestVersion, fixture.Database.SchemaVersion);
-        Assert.Equal(13, MigrationRunner.LatestVersion);
+        Assert.Equal(14, MigrationRunner.LatestVersion);
 
         using var command = fixture.Database.CreateCommand();
         command.CommandText =
@@ -47,6 +47,7 @@ public sealed class MigrationTests
                 (11, "0011_run_joined_in_progress.sql"),
                 (12, "0012_regional_records.sql"),
                 (13, "0013_legacy_region_cn.sql"),
+                (14, "0014_character_profiles.sql"),
             },
             applied);
     }
@@ -423,13 +424,18 @@ public sealed class MigrationTests
         Assert.Equal(1L, check.ExecuteScalar());
         check.CommandText = "SELECT count(*) FROM run_revisions WHERE run_id='cn';";
         Assert.Equal(1L, check.ExecuteScalar());
+        // The rebuilt tables keep what a user added to them. ix_custom_goal sat on achievement_settings,
+        // which 0014 drops after moving its rows into character_profiles; an index cannot outlive its table.
         check.CommandText = "SELECT count(*) FROM sqlite_schema WHERE name IN ('ix_custom_region','ix_custom_goal','custom_run_update','custom_history');";
-        Assert.Equal(4L, check.ExecuteScalar());
+        Assert.Equal(3L, check.ExecuteScalar());
         check.CommandText = "UPDATE mentor_runs SET result='UNKNOWN' WHERE run_id='cn'; SELECT count(*) FROM custom_audit;";
         Assert.Equal(1L, check.ExecuteScalar());
         check.CommandText = "UPDATE run_revisions SET actor='SYSTEM' WHERE revision_id='revision';";
         Assert.Throws<SqliteException>(() => check.ExecuteNonQuery());
-        check.CommandText = "UPDATE mentor_runs SET region='TC' WHERE run_id='cn'; UPDATE capture_sessions SET region='TC';";
+        // A run cannot change region while a character of the old region owns it (0014).
+        check.CommandText = "UPDATE mentor_runs SET region='TC' WHERE run_id='cn';";
+        Assert.Throws<SqliteException>(() => check.ExecuteNonQuery());
+        check.CommandText = "UPDATE mentor_runs SET region='TC', profile_id=NULL WHERE run_id='cn'; UPDATE capture_sessions SET region='TC';";
         check.ExecuteNonQuery();
         check.CommandText = "UPDATE mentor_runs SET region='WRONG' WHERE run_id='cn';";
         Assert.Throws<SqliteException>(() => check.ExecuteNonQuery());
@@ -569,6 +575,77 @@ public sealed class MigrationTests
 
         Assert.Equal(Region.Cn, runs.Get("before-12")!.Region);
         Assert.Equal(Region.Unknown, runs.Get("after-12")!.Region);
+    }
+
+    /// <summary>
+    /// 0014. Each region's goal, baseline, baseline history and records move into one character profile, so
+    /// every number shown before the upgrade is the number shown after it; a region that only has records
+    /// gets a profile with the defaults it was shown with.
+    /// </summary>
+    [Fact]
+    public void EveryRegionsSettingsHistoryAndRecordsMoveIntoOneCharacterProfile()
+    {
+        using var fixture = new TestDatabase();
+        var path = fixture.Path + ".schema13";
+        using (var old = LegacyDatabase(path, fixture, 13))
+        {
+            using var seed = old.CreateCommand();
+            seed.CommandText = """
+                INSERT INTO achievement_settings(region,goal_count,baseline_completed_count,baseline_effective_at,updated_at_utc)
+                VALUES ('CN',3000,120,'2026-08-01T00:00:00.000Z','2026-08-02T00:00:00.000Z'),
+                       ('TC',1000,7,'2026-08-03T00:00:00.000Z','2026-08-03T00:00:00.000Z')
+                ON CONFLICT(region) DO UPDATE SET goal_count=excluded.goal_count,
+                    baseline_completed_count=excluded.baseline_completed_count,
+                    baseline_effective_at=excluded.baseline_effective_at, updated_at_utc=excluded.updated_at_utc;
+                INSERT INTO mentor_runs(run_id,revision,region,result,source,created_at_utc,updated_at_utc)
+                VALUES ('cn-1',1,'CN','COMPLETED','MANUAL','2026-09-04T01:02:03.456Z','2026-09-04T01:02:03.456Z'),
+                       ('cn-2',1,'CN','COMPLETED','MANUAL','2026-09-04T01:02:03.456Z','2026-09-04T01:02:03.456Z'),
+                       ('cn-deleted',1,'CN','COMPLETED','MANUAL','2026-09-04T01:02:03.456Z','2026-09-04T01:02:03.456Z'),
+                       ('global-1',1,'GLOBAL','COMPLETED','MANUAL','2026-09-04T01:02:03.456Z','2026-09-04T01:02:03.456Z');
+                UPDATE mentor_runs SET soft_deleted = 1 WHERE run_id = 'cn-deleted';
+                INSERT INTO application_settings(key,value_json,updated_at_utc) VALUES
+                ('achievement.baseline_history',
+                 '[{"audit_event_id":"a","request_id":"r","goal_count":3000,"baseline_completed_count":120,"baseline_effective_at":"2026-08-01T00:00:00.000Z","changed_at_utc":"2026-08-02T00:00:00.000Z","reason":"国服基数"}]',
+                 '2026-08-02T00:00:00.000Z'),
+                ('achievement.baseline_history.TC',
+                 '[{"audit_event_id":"b","request_id":"s","goal_count":1000,"baseline_completed_count":7,"baseline_effective_at":"2026-08-03T00:00:00.000Z","changed_at_utc":"2026-08-03T00:00:00.000Z","reason":"繁中服基数","region":3}]',
+                 '2026-08-03T00:00:00.000Z');
+                """;
+            seed.ExecuteNonQuery();
+        }
+
+        using var database = SqliteDatabase.Open(path, fixture.Clock);
+        var settings = new SettingsRepository(database, fixture.Clock);
+        settings.EnsureDefaults();
+        var profiles = settings.Profiles.List();
+
+        Assert.Equal(new[] { Region.Cn, Region.Tc, Region.Global }, profiles.Select(profile => profile.Region));
+        Assert.All(profiles, profile => Assert.True(profile.IsCurrent && profile.DisplayName.Length == 0));
+        var china = profiles[0];
+        Assert.Equal((3000, 120), (china.GoalCount, china.BaselineCompletedCount));
+        Assert.Equal(new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.Zero), china.BaselineEffectiveAt);
+        Assert.Equal((2000, 0), (profiles[2].GoalCount, profiles[2].BaselineCompletedCount));
+        var runs = new RunRepository(database);
+        Assert.Equal(china.ProfileId, runs.Get("cn-1")!.ProfileId);
+        Assert.Equal(china.ProfileId, runs.Get("cn-deleted")!.ProfileId);
+        Assert.Equal(profiles[2].ProfileId, runs.Get("global-1")!.ProfileId);
+        // No revision and no update time were written for it.
+        Assert.Equal(1, runs.Get("cn-1")!.Revision);
+        var dashboard = new StatisticsRepository(database, settings, clock: fixture.Clock).GetDashboard();
+        Assert.Equal((122, 3000, 120), (dashboard.AchievementProgress, dashboard.GoalCount, dashboard.BaselineCompletedCount));
+        Assert.Equal(7, dashboard.Achievements.Single(row => row.Region == Region.Tc).AchievementProgress);
+        Assert.Equal(1, dashboard.Achievements.Single(row => row.Region == Region.Global).AchievementProgress);
+        Assert.All(dashboard.Achievements, row => Assert.Equal(0, row.UnassignedRunCount));
+        Assert.Equal("国服基数", Assert.Single(settings.ReadBaselineAudit(region: Region.Cn)).Reason);
+        Assert.Equal("繁中服基数", Assert.Single(settings.ReadBaselineAudit(region: Region.Tc)).Reason);
+        using var check = database.CreateCommand();
+        check.CommandText = "SELECT count(*) FROM sqlite_schema WHERE name = 'achievement_settings';";
+        Assert.Equal(0L, check.ExecuteScalar());
+        check.CommandText = "SELECT count(*) FROM application_settings WHERE key IN " +
+            "('achievement.baseline_history','achievement.baseline_history.TC');";
+        Assert.Equal(0L, check.ExecuteScalar());
+        check.CommandText = "PRAGMA foreign_key_check;";
+        Assert.Null(check.ExecuteScalar());
     }
 
     private static SqliteConnection LegacyDatabase(string path, TestDatabase fixture, int version)

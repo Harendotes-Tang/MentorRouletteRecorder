@@ -32,6 +32,43 @@ Item {
         return result === "UNKNOWN" || (result !== "CANCELLED_BEFORE_ENTRY"
             && (!run.entered_at_utc || (result === "COMPLETED" && !run.ended_at_utc)))
     }
+    // Characters are told apart only where the player keeps more than one
+    // (or left records unassigned): the 角色 column, its filter and 改角色 appear
+    // then, for the region on show. A stand-in App without profiles has none.
+    readonly property bool characterFeatures: {
+        if (typeof Runtime.app.characterFeaturesVisible !== "function")
+            return false
+        Theme.trackBindingDependency(Runtime.app.characterProfiles)
+        Theme.trackBindingDependency(Runtime.app.dashboard)
+        return Runtime.app.characterFeaturesVisible(regionBox.selection)
+    }
+    // 0 every character, -1 the records assigned to none, else a profile id.
+    property int characterFilter: 0
+    // The filter goes when what it names does: the picker disappears with the last second
+    // character or unassigned record, and a character can be deleted while it is picked.
+    // Left in force it would empty the list with nothing on show to say why.
+    function dropStaleCharacterFilter() {
+        if (page.characterFilter === 0)
+            return
+        const gone = page.characterFilter > 0
+            && Runtime.app.characterProfile(page.characterFilter).profile_id === undefined
+        if (page.characterFeatures && !gone)
+            return
+        page.characterFilter = 0
+        page.scheduleFilter()
+    }
+    onCharacterFeaturesChanged: page.dropStaleCharacterFilter()
+    Connections {
+        target: Runtime.app
+        ignoreUnknownSignals: true
+        function onCharacterProfilesChanged() { page.dropStaleCharacterFilter() }
+    }
+    readonly property CharacterNames characterNames: CharacterNames {}
+    function characterLabel(run) {
+        if (run.profile_id === undefined)
+            return ""
+        return run.profile_id === null ? qsTr("未分配") : page.characterNames.labelOf(run.profile_id)
+    }
     function requestBatch(action) {
         batchDialog.action = action
         batchDialog.submitted = false
@@ -102,6 +139,7 @@ Item {
         result:   { label: qsTr("结果"), sortKey: "",               width: 92,  minimum: 64 },
         duration: { label: qsTr("耗时"), sortKey: "duration_ms",    width: 66,  minimum: 50 },
         source:   { label: qsTr("来源"), sortKey: "",               width: 60,  minimum: 48 },
+        character: { label: qsTr("角色"), sortKey: "",              width: 84,  minimum: 56 },
         marks:    { label: qsTr("标记"), sortKey: "",               width: 92,  minimum: 60 }
     })
     /// App.historyColumns; a scene whose App is a stand-in without it (some shell
@@ -114,6 +152,7 @@ Item {
         readonly property var visible: order
         readonly property var widths: ({})
         readonly property bool customised: false
+        property bool characterOffered: false
         readonly property int minimumWidth: 40
         readonly property int maximumWidth: 800
         function isVisible(key) { return order.indexOf(key) >= 0 }
@@ -125,6 +164,12 @@ Item {
         function reset() {}
     }
     /// Every column in the user's order, hidden ones included: the 自定义列 dialog's list.
+    // The 角色 column exists only while characters are told apart.
+    Binding {
+        target: page.columnsController
+        property: "characterOffered"
+        value: page.characterFeatures
+    }
     readonly property var allColumns: page.columnsController.order.map(function(key) {
         const column = page.columnCatalog[key]
         return { key: key, label: column ? column.label : key }
@@ -326,6 +371,10 @@ Item {
             filter.result = [resultBox.model[resultBox.currentIndex].value]
         if (sourceBox.currentIndex > 0)
             filter.source = [sourceBox.model[sourceBox.currentIndex].value]
+        if (page.characterFeatures && page.characterFilter > 0)
+            filter.profile_id = page.characterFilter
+        else if (page.characterFeatures && page.characterFilter < 0)
+            filter.profile_unassigned = true
         if (correctedOnly.checked)
             filter.corrected_only = true
         if (page.pendingReviewFilter)
@@ -365,6 +414,7 @@ Item {
         jobBox.currentIndex = 0
         resultBox.currentIndex = 0
         sourceBox.currentIndex = 0
+        page.characterFilter = 0
         correctedOnly.checked = false
         page.pendingReviewFilter = false
         withReflection.checked = false
@@ -417,6 +467,7 @@ Item {
         page.retainedJobFilter = jobBox.currentIndex === 0 ? firstFilterValue(filter.job_id) : null
         resultBox.currentIndex = filterIndex(resultBox.model, "value", filter.result)
         sourceBox.currentIndex = filterIndex(sourceBox.model, "value", filter.source)
+        page.characterFilter = filter.profile_unassigned === true ? -1 : Number(filter.profile_id || 0)
         correctedOnly.checked = !!filter.corrected_only
         page.pendingReviewFilter = !!filter.pending_review
         withReflection.checked = !!filter.with_reflection
@@ -552,7 +603,13 @@ Item {
                     objectName: "historyRegionFilter"
                     Layout.minimumWidth: implicitWidth
                     facets: page.filterFacets
-                    onRegionPicked: function(region) { selection = region; page.scheduleFilter() }
+                    // A character belongs to one region: another region starts from every character.
+                    onRegionPicked: function(region) {
+                        if (selection !== region && page.characterFilter > 0)
+                            page.characterFilter = 0
+                        selection = region
+                        page.scheduleFilter()
+                    }
                     onHelpRequested: page.helpAdaptationRequested()
                 }
             }
@@ -657,6 +714,27 @@ Item {
                     displayText: currentIndex === 0 ? qsTr("来源") : currentText
                     Accessible.name: qsTr("来源筛选")
                     onActivated: page.scheduleFilter()
+                }
+
+                CharacterSelector {
+                    id: characterBox
+                    objectName: "historyCharacterFilter"
+                    visible: page.characterFeatures && !page.narrowFilters
+                    leftPadding: 0
+                    rightPadding: 0
+                    width: Math.max(66, Math.ceil(characterLabelMetrics.advanceWidth) + 44)
+                    region: regionBox.selection
+                    selection: page.characterFilter
+                    includeAll: true
+                    includeUnassigned: true
+                    markCurrent: false
+                    displayText: page.characterFilter === 0 ? qsTr("角色") : currentText
+                    Accessible.name: qsTr("角色筛选")
+                    onProfilePicked: function(profileId) {
+                        page.characterFilter = profileId
+                        page.scheduleFilter()
+                    }
+                    TextMetrics { id: characterLabelMetrics; font.pixelSize: Theme.fs(13); text: characterBox.displayText }
                 }
 
                 // Four independent flags retain their existing combined filter semantics.
@@ -764,11 +842,12 @@ Item {
                 id: activeFilterRow
                 Layout.fillWidth: true
                 visible: (page.contentFilter !== null && page.contentFilter !== undefined) || page.hasRetainedJobFilter
-                         || (page.narrowFilters && (sourceBox.currentIndex > 0))
+                         || (page.narrowFilters && (sourceBox.currentIndex > 0 || page.characterFilter !== 0))
                 spacing: 6
                 Chip { visible: page.contentFilter !== null && page.contentFilter !== undefined; text: page.dutyLabel(page.contentFilter); checked: true; removable: true; onRemoved: { page.contentFilter = null; page.scheduleFilter() } }
                 Chip { objectName: "retainedJobFilterChip"; visible: page.hasRetainedJobFilter; text: qsTr("职业：%1").arg(Theme.catalogJobName(page.retainedJobFilter)); checked: true; removable: true; Accessible.name: text; onRemoved: { page.retainedJobFilter = null; page.scheduleFilter() } }
                 Chip { visible: page.narrowFilters && sourceBox.currentIndex > 0; text: sourceBox.currentText; checked: true; removable: true; onRemoved: { sourceBox.currentIndex = 0; page.scheduleFilter() } }
+                Chip { objectName: "historyCharacterFilterChip"; visible: page.narrowFilters && page.characterFilter !== 0; text: qsTr("角色：%1").arg(characterBox.currentText); checked: true; removable: true; onRemoved: { page.characterFilter = 0; page.scheduleFilter() } }
             }
 
             Flow {
@@ -782,6 +861,7 @@ Item {
                 AppButton { objectName: "batchSoftDeleteButton"; text: qsTr("删除记录"); visible: page.checkedCount > 0; enabled: Runtime.app.checkedHistoryDeletedCount === 0; onClicked: page.requestBatch("soft_delete") }
                 AppButton { objectName: "batchRestoreButton"; text: qsTr("恢复选中"); visible: page.checkedCount > 0 && Runtime.app.checkedHistoryDeletedCount > 0; enabled: Runtime.app.checkedHistoryDeletedCount === page.checkedCount; onClicked: page.requestBatch("restore") }
                 AppButton { objectName: "batchPurgeButton"; text: qsTr("永久删除"); visible: page.checkedCount > 0 && Runtime.app.checkedHistoryDeletedCount > 0; enabled: Runtime.app.checkedHistoryDeletedCount === page.checkedCount; onClicked: page.requestBatch("purge") }
+                AppButton { objectName: "batchAssignCharacterButton"; text: qsTr("改角色"); visible: page.checkedCount > 0 && page.characterFeatures; onClicked: assignCharacterDialog.ask(regionBox.selection, page.checkedCount) }
             }
 
             Text {
@@ -1105,6 +1185,20 @@ Item {
                                 }
                             }
                             HistoryCell {
+                                columnKey: "character"
+                                layout: page.columnLayout
+                                Text {
+                                    objectName: "historyCharacterCell"
+                                    anchors.fill: parent
+                                    text: page.characterLabel(run)
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                    color: run.profile_id === null ? Theme.orangeText : Theme.textSecondary
+                                    font.pixelSize: Theme.fs(12)
+                                    elide: Text.ElideRight
+                                }
+                            }
+                            HistoryCell {
                                 columnKey: "marks"
                                 layout: page.columnLayout
                                 Text {
@@ -1242,6 +1336,21 @@ Item {
                 Accessible.name: qsTr("来源筛选")
                 onActivated: { sourceBox.currentIndex = currentIndex; page.scheduleFilter() }
             }
+            CharacterSelector {
+                objectName: "historyMoreCharacter"
+                Layout.fillWidth: true
+                visible: page.characterFeatures
+                region: regionBox.selection
+                selection: page.characterFilter
+                includeAll: true
+                includeUnassigned: true
+                markCurrent: false
+                Accessible.name: qsTr("角色筛选")
+                onProfilePicked: function(profileId) {
+                    page.characterFilter = profileId
+                    page.scheduleFilter()
+                }
+            }
             AppButton { Layout.alignment: Qt.AlignRight; text: qsTr("完成"); onClicked: moreFilters.close() }
         }
     }
@@ -1272,6 +1381,20 @@ Item {
                 AppButton { id: keepFilterButton; objectName: "historyKeepSelection"; text: qsTr("保留勾选和筛选"); onClicked: { filterConfirmation.answered = true; Runtime.app.confirmHistoryFilterChange(false); filterConfirmation.close() } }
                 AppButton { objectName: "historyConfirmFilter"; text: qsTr("取消勾选并更改"); variant: "primary"; onClicked: { filterConfirmation.answered = true; Runtime.app.confirmHistoryFilterChange(true); filterConfirmation.close() } }
             }
+        }
+    }
+
+    HistoryAssignCharacterDialog {
+        id: assignCharacterDialog
+        parent: Overlay.overlay
+        width: Math.min(520, page.width - 24)
+        x: parent ? (parent.width - width) / 2 : 0
+        y: parent ? (parent.height - height) / 2 : 0
+        // Closed like the delete confirmation: once the checked rows are done with.
+        Connections {
+            target: Runtime.app
+            function onHistoryBatchChanged() { assignCharacterDialog.closeWhenDone(page.checkedCount) }
+            function onCheckedHistoryRunsChanged() { assignCharacterDialog.closeWhenDone(page.checkedCount) }
         }
     }
 

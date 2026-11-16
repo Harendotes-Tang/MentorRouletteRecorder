@@ -44,6 +44,7 @@ public sealed class CollectorHost : IDisposable
         Statistics = new StatisticsRepository(database, Settings, JobCatalog.Default, DutyCatalog.Default);
         LiveEvents = new LiveEventBus(clock);
         Mutations = new RunMutationService(database, Settings, clock, onPurged: LiveEvents.ForgetRuns);
+        Profiles = new CharacterProfileService(database, Settings, clock);
         HistoryRetention = new HistoryRetentionService(database, clock, LiveEvents.ForgetRuns);
         Reflections = new RunReflectionRepository(database);
         ReflectionWrites = new RunReflectionService(database, clock);
@@ -90,6 +91,9 @@ public sealed class CollectorHost : IDisposable
 
     /// <summary>Every write a human can cause.</summary>
     public RunMutationService Mutations { get; }
+
+    /// <summary>The player's changes to the character profiles.</summary>
+    public CharacterProfileService Profiles { get; }
 
     /// <summary>Recycle-bin expiry and persistent attachment cleanup tasks.</summary>
     public HistoryRetentionService HistoryRetention { get; }

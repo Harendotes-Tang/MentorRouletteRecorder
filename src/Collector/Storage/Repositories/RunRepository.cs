@@ -21,7 +21,8 @@ public sealed class RunRepository
         "mentor_roulette_id, content_id, territory_id, duty_name, duty_category, job_id, job_name, role, " +
         "matched_at_utc, entered_at_utc, ended_at_utc, duration_ms, result, detection_confidence, source, " +
         "contributes_to_goal, manually_created, manually_corrected, soft_deleted, " +
-        "created_at_utc, updated_at_utc, pending_review, note, duty_source, deleted_at_utc, joined_in_progress";
+        "created_at_utc, updated_at_utc, pending_review, note, duty_source, deleted_at_utc, joined_in_progress, " +
+        "profile_id";
 
     private readonly SqliteDatabase _database;
     private readonly RunReflectionRepository _reflections;
@@ -57,7 +58,7 @@ public sealed class RunRepository
             "$matched_at_utc, $entered_at_utc, $ended_at_utc, $duration_ms, $result, $detection_confidence, $source, " +
             "$contributes_to_goal, $manually_created, $manually_corrected, $soft_deleted, " +
             "$created_at_utc, $updated_at_utc, $pending_review, $note, $duty_source, $deleted_at_utc, " +
-            "$joined_in_progress);";
+            "$joined_in_progress, $profile_id);";
         BindRun(command, run);
         command.ExecuteNonQuery();
     }
@@ -89,7 +90,7 @@ public sealed class RunRepository
             "soft_deleted = $soft_deleted, created_at_utc = $created_at_utc, " +
             "updated_at_utc = $updated_at_utc, pending_review = $pending_review, note = $note, " +
             "duty_source = $duty_source, deleted_at_utc = $deleted_at_utc, " +
-            "joined_in_progress = $joined_in_progress " +
+            "joined_in_progress = $joined_in_progress, profile_id = $profile_id " +
             "WHERE run_id = $run_id AND revision = $expected_revision;";
         BindRun(command, run);
         command.Parameters.AddWithValue("$expected_revision", expectedRevision);
@@ -431,6 +432,7 @@ public sealed class RunRepository
         command.Parameters.AddWithValue(
             "$joined_in_progress",
             run.JoinedInProgress is { } joined ? (joined ? 1 : 0) : (object)DBNull.Value);
+        command.Parameters.AddWithValue("$profile_id", (object?)run.ProfileId ?? DBNull.Value);
     }
 
     /// <summary>Materialises a run from a reader positioned on a row of <see cref="Columns"/>.</summary>
@@ -475,6 +477,7 @@ public sealed class RunRepository
                 ? EnumWire<DutySource>.Parse(source)
                 : null,
             JoinedInProgress = reader.IsDBNull(31) ? null : reader.GetInt32(31) == 1,
+            ProfileId = reader.IsDBNull(32) ? null : reader.GetInt64(32),
         };
     }
 

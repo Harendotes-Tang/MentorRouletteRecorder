@@ -64,6 +64,7 @@ public sealed class MessageDispatcher
         "StopCapture", "GetProtocolProfileStatus", "GetCurrentRun", "QueryRuns", "QueryRunCalendarDays", "GetDashboardStats",
         "GetDungeonStats", "GetJobStats", "GetResultStats", "CreateManualRun", "CorrectRun",
         "SoftDeleteRun", "RestoreRun", "GetRunRevisions", "UpdateAchievementBaseline", "ExportCsv",
+        "CreateCharacterProfile", "UpdateCharacterProfile", "DeleteCharacterProfile",
         "BatchMutateRuns", "GetHistoryRetentionSettings", "UpdateHistoryRetentionSettings", "GetPendingImageCleanup", "AcknowledgeImageCleanup",
         "ExportJson", "BackupDatabase", "PreviewRunImport", "CommitRunImport", "SubscribeLiveEvents", "ExportDiagnosticsReport",
         "SetRunReflection", "GetReflectionSummary",
@@ -144,6 +145,9 @@ public sealed class MessageDispatcher
             "AcknowledgeImageCleanup" => AcknowledgeImageCleanup(reader),
             "UndoRevision" => UndoRevision(request.RequestId, reader),
             "UpdateAchievementBaseline" => UpdateBaseline(request.RequestId, reader),
+            "CreateCharacterProfile" => CharacterProfileHandlers.Create(_host, request.RequestId, reader),
+            "UpdateCharacterProfile" => CharacterProfileHandlers.Update(_host, request.RequestId, reader),
+            "DeleteCharacterProfile" => CharacterProfileHandlers.Delete(_host, request.RequestId, reader),
             "ExportCsv" => Export(reader, csv: true),
             "ExportJson" => Export(reader, csv: false),
             "BackupDatabase" => BackupDatabase(reader),
@@ -674,6 +678,7 @@ public sealed class MessageDispatcher
         return new JsonObject
         {
             ["region"] = EnumWire<Region>.Format(outcome.Settings.Region),
+            ["profile_id"] = outcome.Settings.ProfileId,
             ["goal_count"] = outcome.Settings.GoalCount,
             ["baseline_completed_count"] = outcome.Settings.BaselineCompletedCount,
             ["baseline_effective_at"] = UtcTimestamp.ToText(outcome.Settings.BaselineEffectiveAt),

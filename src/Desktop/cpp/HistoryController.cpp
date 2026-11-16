@@ -400,20 +400,44 @@ void HistoryController::mutateCheckedRuns(const QString &action, const QString &
         Q_EMIT batchChanged();
         return;
     }
+    sendCheckedBatch(action, 0, reason);
+}
+
+void HistoryController::assignCheckedRunsToProfile(int profileId, const QString &reason)
+{
+    if (!m_backend || m_batchRunning || m_checkedRuns.isEmpty())
+        return;
+    if (profileId < 0 || reason.trimmed().isEmpty() || reason.trimmed().size() > 500) {
+        m_batchFeedback = [] { return tr("请选择有效操作并填写 1–500 字原因。"); };
+        Q_EMIT batchChanged();
+        return;
+    }
+    // A run keeps its owner in the recycle bin, so live and deleted rows may both move.
+    sendCheckedBatch(QStringLiteral("assign_profile"), profileId, reason);
+}
+
+void HistoryController::sendCheckedBatch(const QString &action, int profileId, const QString &reason)
+{
+    const bool assigning = action == QLatin1String("assign_profile");
     QJsonArray rows;
     const QStringList ids = m_checkedOrder;
     for (const QString &id : ids)
         rows.append(QJsonObject{{QStringLiteral("run_id"), id},
                                 {QStringLiteral("expected_revision"), m_checkedRuns.value(id).value(QStringLiteral("revision"))}});
-    const QJsonObject payload{{QStringLiteral("action"), action}, {QStringLiteral("runs"), rows},
-                              {QStringLiteral("reason"), reason.trimmed()}};
+    QJsonObject payload{{QStringLiteral("action"), action}, {QStringLiteral("runs"), rows},
+                        {QStringLiteral("reason"), reason.trimmed()}};
+    if (assigning)
+        payload.insert(QStringLiteral("profile_id"),
+                       profileId > 0 ? QJsonValue(profileId) : QJsonValue(QJsonValue::Null));
     const QString requestId = requestIdFor(m_unansweredBatch, QJsonDocument(payload).toJson(QJsonDocument::Compact));
     m_batchRunning = true;
     m_batchFeedback.clear();
     Q_EMIT batchChanged();
-    BackendReply *batchReply = m_backend->batchMutateRuns(action, rows, reason.trimmed(), requestId);
+    BackendReply *batchReply = assigning
+        ? m_backend->assignRunsToProfile(rows, profileId, reason.trimmed(), requestId)
+        : m_backend->batchMutateRuns(action, rows, reason.trimmed(), requestId);
     const QPointer<BackendReply> batchGuard(batchReply);
-    batchReply->whenDone(this, [this, action, ids, requestId, batchGuard](bool ok, const QVariantMap &answer,
+    batchReply->whenDone(this, [this, action, profileId, ids, requestId, batchGuard](bool ok, const QVariantMap &answer,
                                                                        const QString &code, const QString &message) {
             settle(m_unansweredBatch, requestId, ok, code);
             m_batchRunning = false;
@@ -443,7 +467,10 @@ void HistoryController::mutateCheckedRuns(const QString &action, const QString &
             }
             if (ids.contains(m_selectedRun.value(QStringLiteral("run_id")).toString()))
                 clearSelection();
-            m_batchFeedback = [action, count = answer.value(QStringLiteral("changed_count")).toInt()] {
+            m_batchFeedback = [action, profileId, count = answer.value(QStringLiteral("changed_count")).toInt()] {
+                if (action == QLatin1String("assign_profile"))
+                    return profileId > 0 ? tr("已把 %1 条记录改到所选角色。").arg(count)
+                                         : tr("已把 %1 条记录改为不属于任何角色。").arg(count);
                 if (action == QLatin1String("restore"))
                     return tr("已恢复 %1 条记录。").arg(count);
                 if (action == QLatin1String("purge"))
@@ -597,6 +624,10 @@ void HistoryController::createManualRun(const QVariantMap &fields, const QString
     QJsonObject run = contractRunFields(QJsonObject::fromVariantMap(fields));
     if (fields.contains(QStringLiteral("region")))
         run.insert(QStringLiteral("region"), QJsonValue::fromVariant(fields.value(QStringLiteral("region"))));
+    // The character profile the record is filed under; absent is the region's current one.
+    // Only a positive id travels: $defs/CreateManualRunRequest.profile_id is never null.
+    if (const int profileId = fields.value(QStringLiteral("profile_id")).toInt(); profileId > 0)
+        run.insert(QStringLiteral("profile_id"), profileId);
     const QString requestId = requestIdFor(
         m_unansweredCreate,
         QJsonDocument(QJsonObject{{QStringLiteral("run"), run},

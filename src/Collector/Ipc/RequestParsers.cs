@@ -46,11 +46,13 @@ public static class RequestParsers
             "from_utc", "to_utc", "date_field", "content_id", "duty_category", "job_id",
             "result", "source", "corrected_only", "include_deleted", "deleted_only", "with_reflection",
             "pending_review", "text", "name_text", "name_exact", "reflection_text", "run_id", "history_from_day",
-            "history_to_day", "joined_in_progress", "region");
+            "history_to_day", "joined_in_progress", "region", "profile_id", "profile_unassigned");
 
         var filter = new RunFilter
         {
             Region = reader.Enum<Region>("region"),
+            ProfileId = reader.Long("profile_id", 1),
+            ProfileUnassigned = reader.Bool("profile_unassigned") ?? false,
             FromUtc = reader.Timestamp("from_utc"),
             RunIds = RunIds(reader, "run_id"),
             HistoryFromDay = HistoryDay(reader, "history_from_day"),
@@ -77,6 +79,11 @@ public static class RequestParsers
         if (filter.FromUtc is { } from && filter.ToUtc is { } to && from > to)
         {
             throw CollectorException.BadRequest(CollectorTexts.IpcFilterFromAfterTo(), "filter.from_utc");
+        }
+
+        if (filter.ProfileId is not null && filter.ProfileUnassigned)
+        {
+            throw CollectorException.BadRequest(CollectorTexts.IpcFilterProfileConflict(), "filter.profile_id");
         }
 
         if ((filter.HistoryFromDay is not null && (filter.DateField != RunDateField.HistoryDate || filter.FromUtc is null)) ||
@@ -123,11 +130,12 @@ public static class RequestParsers
         reader.RejectUnknown(
             "content_id", "duty_name", "duty_category", "job_id", "matched_at_utc",
             "entered_at_utc", "ended_at_utc", "duration_ms", "result", "contributes_to_goal",
-            "reason", "note", "joined_in_progress", "region");
+            "reason", "note", "joined_in_progress", "region", "profile_id");
 
         return new CreateManualRunCommand
         {
             Region = reader.Has("region") ? reader.RequiredEnum<Region>("region") : Region.Unknown,
+            ProfileId = reader.Long("profile_id", 1),
             RequestId = requestId,
             Reason = RequireReason(reader),
             Result = reader.RequiredEnum<RunResult>("result"),
@@ -248,15 +256,69 @@ public static class RequestParsers
         ArgumentNullException.ThrowIfNull(reader);
 
         reader.RejectUnknown(
-            "goal_count", "baseline_completed_count", "baseline_effective_at", "reason", "region");
+            "goal_count", "baseline_completed_count", "baseline_effective_at", "reason", "region", "profile_id");
         return new UpdateAchievementBaselineCommand(
             requestId,
             reader.Int("goal_count", 1) ?? AchievementSettings.DefaultGoalCount,
             reader.RequiredInt("baseline_completed_count", 0),
             reader.RequiredTimestamp("baseline_effective_at"),
             RequireReason(reader),
-            reader.Has("region") ? reader.RequiredEnum<Region>("region") : Region.Cn);
+            reader.Has("region") ? reader.RequiredEnum<Region>("region") : Region.Cn,
+            reader.Long("profile_id", 1));
     }
+
+    /// <summary>Reads a <c>$defs/CreateCharacterProfileRequest</c>.</summary>
+    /// <param name="requestId">Envelope request id, used as the idempotency key.</param>
+    /// <param name="reader">Request payload.</param>
+    public static CreateCharacterProfileCommand CreateCharacterProfile(string requestId, PayloadReader reader)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+
+        reader.RejectUnknown("region", "display_name", "goal_count", "baseline_completed_count", "make_current");
+        return new CreateCharacterProfileCommand(
+            requestId,
+            reader.RequiredEnum<Region>("region"),
+            reader.RequiredString("display_name", 200),
+            reader.Int("goal_count", 1) ?? AchievementSettings.DefaultGoalCount,
+            reader.Int("baseline_completed_count", 0) ?? 0,
+            reader.Bool("make_current") ?? false);
+    }
+
+    /// <summary>Reads a <c>$defs/UpdateCharacterProfileRequest</c>.</summary>
+    /// <param name="requestId">Envelope request id, used as the idempotency key.</param>
+    /// <param name="reader">Request payload.</param>
+    public static UpdateCharacterProfileCommand UpdateCharacterProfile(string requestId, PayloadReader reader)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+
+        reader.RejectUnknown("profile_id", "display_name", "make_current");
+        var command = new UpdateCharacterProfileCommand(
+            requestId,
+            RequiredProfileId(reader),
+            reader.Has("display_name") ? reader.RequiredString("display_name", 200) : null,
+            reader.Bool("make_current") ?? false);
+        if (command.DisplayName is null && !command.MakeCurrent)
+        {
+            throw CollectorException.BadRequest(CollectorTexts.MutationNoChanges(), "payload");
+        }
+
+        return command;
+    }
+
+    /// <summary>Reads a <c>$defs/DeleteCharacterProfileRequest</c>.</summary>
+    /// <param name="requestId">Envelope request id, used as the idempotency key.</param>
+    /// <param name="reader">Request payload.</param>
+    public static DeleteCharacterProfileCommand DeleteCharacterProfile(string requestId, PayloadReader reader)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+
+        reader.RejectUnknown("profile_id");
+        return new DeleteCharacterProfileCommand(requestId, RequiredProfileId(reader));
+    }
+
+    private static long RequiredProfileId(PayloadReader reader) =>
+        reader.Long("profile_id", 1)
+        ?? throw CollectorException.BadRequest(CollectorTexts.IpcFieldMissing("profile_id"), "payload.profile_id");
 
     /// <summary>Reads a <c>$defs/SetRunReflectionRequest</c>.</summary>
     /// <param name="requestId">Envelope request id, used as the idempotency key.</param>
@@ -423,14 +485,23 @@ public static class RequestParsers
 
     public static BatchMutateRunsCommand BatchMutateRuns(string requestId, PayloadReader reader)
     {
-        reader.RejectUnknown("action", "runs", "reason");
+        var action = reader.RequiredString("action", 16);
+        var assigning = action == Storage.Mutations.RunMutationService.AssignProfileAction;
+        // profile_id belongs to assign_profile alone: any other action that carries it names a
+        // field it does not have, and is refused as such.
+        if (assigning) reader.RejectUnknown("action", "runs", "reason", "profile_id");
+        else reader.RejectUnknown("action", "runs", "reason");
+        // "profile_id": null files the runs under no profile, so the field itself has to be there.
+        if (assigning && !reader.Has("profile_id"))
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldMissing("profile_id"), "payload.profile_id");
         var targets = reader.ObjectArray("runs", Storage.Mutations.HistoryRetentionService.MaxBatchSize).Select(item =>
         {
             item.RejectUnknown("run_id", "expected_revision");
             return new BatchRunTarget(Guid.Parse(item.RequiredUuid("run_id")).ToString("D"), item.RequiredInt("expected_revision", 1));
         }).ToArray();
         Storage.Mutations.HistoryRetentionService.ValidateIds(targets.Select(item => item.RunId).ToArray());
-        return new BatchMutateRunsCommand(requestId, reader.RequiredString("action", 16), targets, RequireReason(reader));
+        return new BatchMutateRunsCommand(requestId, action, targets, RequireReason(reader),
+            reader.IsNull("profile_id") ? null : reader.Long("profile_id", 1));
     }
 
     public static IReadOnlyList<string> RunIds(PayloadReader reader, string field = "run_ids", bool allowEmpty = true)

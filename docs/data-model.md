@@ -39,6 +39,7 @@ Microsoft.Data.Sqlite 仍会自行重试至命令超时（默认 5 秒）为止�
 | `revision` | INTEGER | NOT NULL, `>= 1` | 乐观并发版本号；每次成功变更 +1 |
 | `capture_session_id` | TEXT | NULL, FK → `capture_sessions.capture_session_id` | 手工补录为 NULL |
 | `region` | TEXT | NOT NULL, IN (`CN`,`GLOBAL`,`TC`,`UNKNOWN`) | 服务区服，与界面语言独立；schema 12 通过前向迁移扩展原约束，schema 13 把 schema 12 之前写下的无区服手工与导入记录归入 `CN`（§4） |
+| `profile_id` | INTEGER | NULL, FK → `character_profiles.profile_id` | 记录所属的角色档案，必须与记录同区服；NULL 表示未分配（schema v14 新增，见 §1.6） |
 | `game_build` | TEXT | NULL | 识别到的客户端版本标识 |
 | `protocol_profile_id` | TEXT | NULL | 产生该记录所用的协议档案 id；手工补录为 NULL |
 | `mentor_roulette_id` | INTEGER | NULL | 判定为导随所依据的 roulette id |
@@ -198,6 +199,34 @@ IPC 中返回副本表给出的 `content_id`，区域对应多个副本的那一
 统计口径见 [statistics-definitions.md](statistics-definitions.md) §12.2：按尝试计数，占比的分母是该列非空的尝试。
 CSV 导出在末尾追加同名列（`1` / `0` / 空），备份与 JSON 导入接受同名字段。
 
+### 1.6 `profile_id` —— 记录所属的角色档案（schema v14）
+
+由 `migrations/0014_character_profiles.sql` 追加一列，并建立索引 `ix_runs_profile(profile_id, soft_deleted, entered_at_utc)`。
+
+| 取值 | 含义 |
+|---|---|
+| 档案编号 | 记录属于该角色档案（§4），计入该档案的成就进度 |
+| `NULL` | 未分配：记录仍属于它的区服，出现在该区服的列表与次数类统计中，但不计入任何档案的进度 |
+
+写入规则：
+
+- **创建时确定。**自动记录在匹配成功、写入该行时取所属区服的「当前档案」；手工补录与导入取请求指定的档案
+  （`CreateManualRun.profile_id` / `CommitRunImport.profile_id`），未指定时同样取当前档案。区服尚无档案时先按默认值
+  建立一个。因此在只有一个档案的区服里，新建的记录都属于它；只有用户自己把记录改为未分配（或撤销一条指向已删除档案的
+  归属修订）才会出现不属于任何档案的记录，这样的记录以 `RegionalAchievement.unassigned_run_count` 计数，
+  桌面端此时即使区服只剩一个档案也照常显示角色相关的入口，供用户重新分配。
+- **之后不随当前档案改变。**延迟到达的结算、崩溃恢复与人工更正都不改这一列：切换当前档案之后，
+  先前匹配的那一场仍记在匹配时的档案名下（[state-machine.md](state-machine.md) §3.1）。
+- **只由用户改动。**`BatchMutateRuns` 的 `assign_profile` 把选中的记录改到指定档案或改为未分配，每条记录追加一条
+  `CORRECT` 修订，差异只有 `profile_id`；它不是对记录事实的更正，不置 `manually_corrected`，也不改动任何档案的基数
+  （[manual-correction.md](manual-correction.md) §1）。`CorrectRun` 不接受该字段。撤销这条修订时，
+  若修订记下的旧档案已被删除，记录改为未分配。
+- **区服一致由数据库保证。**触发器 `trg_runs_profile_region_insert` / `trg_runs_profile_region_update` 拒绝把记录
+  写到其他区服的档案名下；外键使仍有记录引用的档案无法删除。
+
+该列**进入 IPC**（`$defs/Run.profile_id`，每条记录都带，未分配以 `null` 传输），`RunFilter.profile_id` /
+`profile_unassigned` 按它筛选。它是本地档案的自增编号，不是游戏内的任何标识（[privacy-boundary.md](privacy-boundary.md) §5）。
+
 ## 2. `run_events` —— 一次尝试内的事件轨迹
 
 该表用于解释判定结果的成因，同时用于诊断。**只存元数据，不存报文正文。**
@@ -253,9 +282,40 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 
 `revision = 1` 一定是 `CREATE_AUTO` / `CREATE_MANUAL` / `IMPORT`。
 
-## 4. `achievement_settings` —— 成就目标与基线
+## 4. `character_profiles` —— 角色档案：成就目标与基线
 
-按服务区服分别保存，支持用户从中途开始使用本软件。schema 12 将旧单行设置归入 CN，TC 初始基数为 0；不复制基数。
+每个服务区服可以保存多个角色档案，每个档案有各自的目标与基数，支持用户从中途开始使用本软件；
+一条记录至多属于一个档案（§1.6）。只有一个角色的用户始终只有一个档案，界面与行为和引入档案之前相同。
+
+| 列 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `profile_id` | INTEGER | PK, AUTOINCREMENT | 本地档案编号。删除后不再复用：修订记录里保存着记录曾经所属的档案，复用编号会在撤销时指向另一个角色 |
+| `region` | TEXT | NOT NULL, IN (`CN`,`TC`,`GLOBAL`,`UNKNOWN`) | 档案所属服务区服，建立后不可更改（触发器 `trg_character_profiles_region_fixed`） |
+| `display_name` | TEXT | NOT NULL, default `''`，长度 `<= 24`，同一区服内唯一 | 用户填写的显示名称，如「大号」「小号」。软件自行建立的档案（升级时接收区服原有记录的档案、区服的第一个档案）名称为空，由桌面端显示为「原有记录」。**不从游戏读取角色名** |
+| `is_current` | INTEGER | NOT NULL, 0/1；部分唯一索引保证每个区服至多一个 1 | 当前档案：新建的记录记在它名下 |
+| `goal_count` | INTEGER | NOT NULL, `>= 1`, **default 2000** | 目标次数 |
+| `baseline_completed_count` | INTEGER | NOT NULL, `>= 0`, default 0 | 该角色开始使用本软件之前已完成的次数（用户自报）。计入进度的已记录完成不论何时结束，全部叠加在其上 |
+| `baseline_effective_at` | TEXT | NOT NULL | 基数最近一次改变的时间（UTC），从未改变时为建立该档案的时间；只作记录，不参与进度或任何统计。只在基数改变时更新为请求中的时间；只改目标或重新填入同一基数时保持不变（[statistics-definitions.md](statistics-definitions.md) §4）。1.5.0 及更早版本每次保存都会改写它，这些版本写入的值可能是最近一次保存的时间，升级后保持原样 |
+| `created_at_utc` | TEXT | NOT NULL | 建立时间；由 0014 迁入的档案为迁移执行的时间 |
+| `updated_at_utc` | TEXT | NOT NULL | |
+
+规则：
+
+- 采集服务启动时为国服与繁中服各保证一个档案；其他区服在写入第一条记录或第一次保存目标、基数时建立。
+  一个区服至少保留一个档案，至多 16 个。
+- 档案由 `CreateCharacterProfile`、`UpdateCharacterProfile`（改名、设为当前）与 `DeleteCharacterProfile` 管理，
+  三者都按 `request_id` 幂等。删除只接受既不是当前档案、也不是区服最后一个档案、且名下没有任何记录
+  （含回收站）的档案：记录要先由用户改到其他档案，归属的每次变化因此都有修订可查。
+- 目标与基数由 `UpdateAchievementBaseline` 修改：带 `profile_id` 时改该档案，否则改 `region`（缺省 CN）的当前档案。
+
+schema 14（`0014_character_profiles.sql`）以本表取代按区服一行的 `achievement_settings`：每个区服原有的目标、基数与
+基数修改时间迁入一个名称为空的当前档案，只有记录而没有设置行的区服按默认值（目标 2000、基数 0）建立档案；
+该区服的全部记录（含回收站）的 `profile_id` 指向这个档案，基数修改历史改按档案保存（见下）。迁移不写修订、
+不改 `updated_at_utc`，升级前后各区服的目标、基数与进度逐项相等。旧表随后删除。
+
+### 4.1 区服划分的由来（schema 12、13）
+
+schema 12 将旧单行设置归入 CN，TC 初始基数为 0；不复制基数。
 schema 13（`0013_legacy_region_cn.sql`）再把没有抓包会话、且创建时间（`created_at_utc`）早于 `schema_migrations`
 中第 12 版应用时间的 `UNKNOWN` 记录（即 1.8.0 及更早版本写下的手工补录与无区服列的导入）归入 `CN`：
 这些版本只服务国服，这些通关原本计入唯一的成就，「已包含」导入的扣减也随旧基数归入了 CN。数据库升到 12 之后才创建的
@@ -263,16 +323,12 @@ schema 13（`0013_legacy_region_cn.sql`）再把没有抓包会话、且创建�
 在同一事务中写入。该迁移只改 `region` 一列，不写修订、不改 `updated_at_utc`；采集记录保留其会话记下的区服。
 各区服成就进度独立，全部视图分别展示。
 
-| 列 | 类型 | 约束 | 说明 |
-|---|---|---|---|
-| `id` | INTEGER | PK | 保留本地行标识；旧行 id 保持原值 |
-| `region` | TEXT | NOT NULL, UNIQUE, IN (`CN`,`TC`,`GLOBAL`,`UNKNOWN`) | 成就设置所属服务区服 |
-| `goal_count` | INTEGER | NOT NULL, `>= 1`, **default 2000** | 目标次数 |
-| `baseline_completed_count` | INTEGER | NOT NULL, `>= 0`, default 0 | 开始使用本软件之前已完成的次数（用户自报）。计入进度的已记录完成不论何时结束，全部叠加在其上 |
-| `baseline_effective_at` | TEXT | NOT NULL | 基数最近一次改变的时间（UTC），从未改变时为采集服务首次启动写入该行的时间；只作记录，不参与进度或任何统计。只在基数改变时更新为请求中的时间；只改目标或重新填入同一基数时保持不变（[statistics-definitions.md](statistics-definitions.md) §4）。1.5.0 及更早版本每次保存都会改写它，这些版本写入的值可能是最近一次保存的时间，升级后保持原样 |
-| `updated_at_utc` | TEXT | NOT NULL | |
+### 4.2 基数修改历史
 
-基线的每次修改都必须带 `reason`，并写入 `application_settings` 的审计或独立审计行；
+基线的每次修改都必须带 `reason`，并写入 `application_settings` 中该档案的审计键
+`achievement.baseline_history.profile.<profile_id>`（JSON 数组，每个档案最多保留最近 100 条）；
+schema 13 及更早按区服保存的键 `achievement.baseline_history`（国服）与 `achievement.baseline_history.<REGION>`
+由 0014 改名到接收该区服设置的档案名下。删除档案时其历史一并删除，其中的请求编号先记入幂等表（§7.1）。
 `UpdateAchievementBaseline` 返回 `audit_event_id`。保存时，目标与基数均未发生变化则不算修改：
 除用于重发判定的幂等记录外不写入任何内容，返回的 `audit_event_id` 是写下当前值的那条审计记录的编号
 （审计记录中没有这样一条时为新编号）。
@@ -307,7 +363,7 @@ schema 13（`0013_legacy_region_cn.sql`）再把没有抓包会话、且创建�
 空字符串表示已选择、尚未绑定，64 位十六进制为该客户端程序路径（转为大写）的 SHA-256 指纹，不保存路径本身；
 缺失或为 `null` 表示未绑定（1.8.x 保存的选择即是如此）。绑定规则见 [capture-diagnostics.md](capture-diagnostics.md) §3。
 先行版 1.5.1-beta.1 与 1.5.1-beta.2 曾在启动时检查一次成就基数的 `baseline_effective_at` 并视情况改动，可能留下键
-`achievement.baseline_effective_at_checked`，以及 `achievement.baseline_history` 中请求标识为
+`achievement.baseline_effective_at_checked`，以及基数修改历史（§4.2）中请求标识为
 `system:baseline-effective-at-repair` 的一条审计记录。现行版本不再读写前者，后者按普通审计记录对待，两者都不影响进度。
 **此表不存放任何凭据、令牌或个人身份信息。**
 
@@ -354,7 +410,7 @@ schema 13（`0013_legacy_region_cn.sql`）再把没有抓包会话、且创建�
 `UpdateAchievementBaseline`、`SetRunReflection` 与 `BatchMutateRuns` 将 `response_json` 改为 JSON 文本 `null`，保留
 `request_id`、消息类型及执行时间：基数审计历史有上限、心得没有修订号、批量修订带派生的子编号，三者在快照清理之后
 都无法再证明原请求已经执行。包括成功的同值保存，这些标记都跨进程重启保留，
-防止旧请求把后续修改的基数（或心得、批量变更）写回旧值。展示用 `achievement.baseline_history` 仍只保留最近 100 条；
+防止旧请求把后续修改的基数（或心得、批量变更）写回旧值。展示用的基数修改历史（§4.2）仍只为每个档案保留最近 100 条；
 永久执行标记不保存基数、心得或变更的正文，并随这三类请求的次数增长。
 
 因此“同一 `request_id` 原样重放”的保证只在 24 小时响应窗口内成立。
@@ -456,8 +512,9 @@ schema v9 通过 `migrations/0009_personal_record_import.sql` 增加 `run_import
 来源缺少结果时，导入预览按用户选择默认通关并允许修改；确认本人导随及实际结果后，缺游戏时间的记录
 只显示待补充，仍计入完成次数与所属区服的成就。结果未知或未经确认的导入不计统计。
 备份导入只合并记录和心得，不复制来源数据库的采集外键、设置或备注附件。
-提交带 `deduct_from_baseline = true` 时，同一事务内还会按记录所属区服，把本次新写入且计入进度的通关数从该区服的 `achievement_settings.baseline_completed_count`
-中扣除（最低到 0），并以该提交的请求编号追加基数审计；回执的 `baseline_adjustments` 按区服返回扣减与扣减后基数，旧标量保留扣减总数与 CN 基数投影
+提交带 `deduct_from_baseline = true` 时，同一事务内还会按记录所属区服，把本次新写入且计入进度的通关数从这些记录所属档案的 `character_profiles.baseline_completed_count`
+中扣除（最低到 0），并以该提交的请求编号追加基数审计；记录归入 `CommitRunImport.profile_id` 指定的档案（只对该档案所在区服的记录生效），
+其余归入各自区服的当前档案。回执的 `baseline_adjustments` 按档案返回扣减与扣减后基数（含 `region` 与 `profile_id`），旧标量保留扣减总数与 CN 当前档案的基数投影
 （[statistics-definitions.md](statistics-definitions.md) §4）。
 
 `contracts/ipc-v1.schema.json` 中的 `$defs/Run` 与本表一一对应，

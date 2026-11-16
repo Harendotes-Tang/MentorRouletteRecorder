@@ -390,6 +390,7 @@ QString Formatters::fieldLabel(const QString &field)
         {QStringLiteral("note"), QT_TR_NOOP("备注")},
         {QStringLiteral("soft_deleted"), QT_TR_NOOP("删除状态")},
         {QStringLiteral("pending_review"), QT_TR_NOOP("待复核")},
+        {QStringLiteral("profile_id"), QT_TR_NOOP("角色")},
     };
     const char *source = kLabels.value(field);
     return source ? tr(source) : field;
@@ -430,7 +431,8 @@ bool Formatters::revisionFieldVisible(const QString &field)
         QStringLiteral("joined_in_progress"),
         QStringLiteral("note"),            QStringLiteral("soft_deleted"),
         QStringLiteral("pending_review"),  QStringLiteral("detection_confidence"),
-        QStringLiteral("source"),
+        // Worded by the detail panel, which knows the characters' names.
+        QStringLiteral("source"),          QStringLiteral("profile_id"),
     };
     return kShown.contains(field);
 }

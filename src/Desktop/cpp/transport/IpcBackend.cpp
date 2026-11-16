@@ -223,6 +223,22 @@ QJsonObject IpcBackend::buildRequestForTest(const QString &messageType,
         backend.undoRevision(stringArg(args, "run_id"),
                              intArg(args, "expected_revision", 1),
                              stringArg(args, "reason"));
+    } else if (messageType == QLatin1String("BatchMutateRuns")
+               && stringArg(args, "action") == QLatin1String("assign_profile")) {
+        backend.assignRunsToProfile(args.value(QLatin1String("runs")).toArray(),
+                                    intArg(args, "profile_id", 0), stringArg(args, "reason"));
+    } else if (messageType == QLatin1String("CreateCharacterProfile")) {
+        backend.createCharacterProfile(stringArg(args, "region"), stringArg(args, "display_name"),
+                                       intArg(args, "goal_count", 2000),
+                                       intArg(args, "baseline_completed_count", 0),
+                                       args.value(QLatin1String("make_current")).toBool(false));
+    } else if (messageType == QLatin1String("UpdateCharacterProfile")) {
+        const QJsonValue name = args.value(QLatin1String("display_name"));
+        backend.updateCharacterProfile(intArg(args, "profile_id", 0),
+                                       name.isString() ? name.toString() : QString(),
+                                       args.value(QLatin1String("make_current")).toBool(false));
+    } else if (messageType == QLatin1String("DeleteCharacterProfile")) {
+        backend.deleteCharacterProfile(intArg(args, "profile_id", 0));
     } else if (messageType == QLatin1String("BatchMutateRuns")) {
         backend.batchMutateRuns(stringArg(args, "action"), args.value(QLatin1String("runs")).toArray(),
                                 stringArg(args, "reason"));
@@ -249,12 +265,15 @@ QJsonObject IpcBackend::buildRequestForTest(const QString &messageType,
         backend.previewRunImport(source);
     } else if (messageType == QLatin1String("CommitRunImport")) {
         backend.commitRunImport(stringArg(args, "preview_id"), intListArg(args, "row_numbers"),
-                                args.value(QLatin1String("deduct_from_baseline")).toBool(false));
+                                args.value(QLatin1String("deduct_from_baseline")).toBool(false), {},
+                                intArg(args, "profile_id", 0));
     } else if (messageType == QLatin1String("UpdateAchievementBaseline")) {
         backend.updateAchievementBaseline(intArg(args, "goal_count", 2000),
                                           intArg(args, "baseline_completed_count", 0),
                                           stringArg(args, "reason"),
-                                          stringArg(args, "baseline_effective_at"));
+                                          stringArg(args, "baseline_effective_at"),
+                                          stringArg(args, "region"),
+                                          intArg(args, "profile_id", 0));
     } else if (messageType == QLatin1String("SetRunReflection")) {
         backend.setRunReflection(stringArg(args, "run_id"), stringArg(args, "mood"),
                                  stringArg(args, "text"));

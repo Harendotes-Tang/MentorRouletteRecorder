@@ -8,10 +8,24 @@ namespace {
 // The design order (docs/ui-design.md §4.2). The row checkbox is not a column.
 const char *const kColumns[] = {"date", "entered", "ended", "duty", "category",
                                 "job", "result", "duration", "source", "marks"};
+// 角色 sits before 标记 once the page offers it (characterOffered).
+const QLatin1String kCharacter("character");
+
+/// Every key that can be stored: the design order with 角色 in its place.
+QStringList fullOrder()
+{
+    QStringList order;
+    for (const char *column : kColumns) {
+        if (QLatin1String(column) == QLatin1String("marks"))
+            order.append(kCharacter);
+        order.append(QString::fromLatin1(column));
+    }
+    return order;
+}
 
 bool known(const QString &key)
 {
-    return std::ranges::any_of(kColumns, [&key](const char *column) {
+    return key == kCharacter || std::ranges::any_of(kColumns, [&key](const char *column) {
         return key == QLatin1String(column);
     });
 }
@@ -24,7 +38,10 @@ QStringList completeOrder(const QStringList &input)
     for (const QString &key : input)
         if (known(key) && !order.contains(key))
             order.append(key);
-    for (const QString &key : mr::HistoryColumnsController::defaultOrder())
+    // 角色, new to an order stored before it existed, takes its design place before 标记.
+    if (!order.contains(kCharacter) && order.contains(QStringLiteral("marks")))
+        order.insert(order.indexOf(QStringLiteral("marks")), kCharacter);
+    for (const QString &key : fullOrder())
         if (!order.contains(key))
             order.append(key);
     return order;
@@ -57,7 +74,7 @@ HistoryColumnsController::HistoryColumnsController(AppSettings *settings, QObjec
         }
     }
     // A file that hides every column shows them all: the table never loses every column.
-    if (m_hidden.size() >= m_order.size())
+    if (visible().isEmpty())
         m_hidden.clear();
 }
 
@@ -69,11 +86,33 @@ QStringList HistoryColumnsController::defaultOrder()
     return order;
 }
 
+bool HistoryColumnsController::withheld(const QString &key) const
+{
+    return !m_characterOffered && key == kCharacter;
+}
+
+void HistoryColumnsController::setCharacterOffered(bool offered)
+{
+    if (m_characterOffered == offered)
+        return;
+    m_characterOffered = offered;
+    Q_EMIT layoutChanged();
+}
+
+QStringList HistoryColumnsController::order() const
+{
+    QStringList offered;
+    for (const QString &key : m_order)
+        if (!withheld(key))
+            offered.append(key);
+    return offered;
+}
+
 QStringList HistoryColumnsController::visible() const
 {
     QStringList shown;
     for (const QString &key : m_order)
-        if (!m_hidden.contains(key))
+        if (!m_hidden.contains(key) && !withheld(key))
             shown.append(key);
     return shown;
 }
@@ -88,17 +127,23 @@ QVariantMap HistoryColumnsController::widths() const
 
 bool HistoryColumnsController::customised() const
 {
-    return m_order != defaultOrder() || !m_hidden.isEmpty() || !m_widths.isEmpty();
+    // Only what is on offer counts: what is stored for a withheld 角色 column is not something
+    // 恢复默认 would visibly change.
+    const auto offered = [this](const QString &key) { return !withheld(key); };
+    QStringList design = fullOrder();
+    design.removeIf([this](const QString &key) { return withheld(key); });
+    return order() != design || std::ranges::any_of(m_hidden, offered)
+           || std::ranges::any_of(m_widths.keys(), offered);
 }
 
 bool HistoryColumnsController::isVisible(const QString &key) const
 {
-    return m_order.contains(key) && !m_hidden.contains(key);
+    return m_order.contains(key) && !m_hidden.contains(key) && !withheld(key);
 }
 
 bool HistoryColumnsController::canHide(const QString &key) const
 {
-    return isVisible(key) && m_order.size() - m_hidden.size() > 1;
+    return isVisible(key) && visible().size() > 1;
 }
 
 int HistoryColumnsController::width(const QString &key) const
@@ -152,16 +197,16 @@ void HistoryColumnsController::moveTo(const QString &key, int visibleIndex)
     QStringList order;
     qsizetype next = 0;
     for (const QString &existing : std::as_const(m_order))
-        order.append(m_hidden.contains(existing) ? existing : shown.at(next++));
+        order.append(m_hidden.contains(existing) || withheld(existing) ? existing : shown.at(next++));
     m_order = order;
     store();
 }
 
 void HistoryColumnsController::reset()
 {
-    if (!customised())
+    if (m_order == fullOrder() && m_hidden.isEmpty() && m_widths.isEmpty())
         return;
-    m_order = defaultOrder();
+    m_order = fullOrder();
     m_hidden.clear();
     m_widths.clear();
     store();
@@ -170,7 +215,7 @@ void HistoryColumnsController::reset()
 void HistoryColumnsController::store()
 {
     if (m_settings) {
-        m_settings->setHistoryColumnOrder(m_order == defaultOrder() ? QStringList() : m_order);
+        m_settings->setHistoryColumnOrder(m_order == fullOrder() ? QStringList() : m_order);
         m_settings->setHistoryHiddenColumns(m_hidden);
         m_settings->setHistoryColumnWidths(widths());
     }

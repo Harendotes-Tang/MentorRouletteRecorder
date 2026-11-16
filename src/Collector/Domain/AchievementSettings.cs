@@ -1,11 +1,17 @@
 namespace MentorRecorder.Collector.Domain;
 
 /// <summary>
-/// One region's row of achievement_settings. It supports the
+/// The goal and baseline of one character profile. It supports the
 /// case where the user starts using this software part-way through the achievement.
 /// </summary>
 public sealed record AchievementSettings
 {
+    /// <summary>
+    /// Profile these values belong to (character_profiles). Null in a snapshot stored before schema 14
+    /// and in a write addressed to the region's current profile.
+    /// </summary>
+    public long? ProfileId { get; init; }
+
     /// <summary>Owning service region; snapshots written before regional settings belong to CN.</summary>
     public Region Region { get; init; } = Region.Cn;
 

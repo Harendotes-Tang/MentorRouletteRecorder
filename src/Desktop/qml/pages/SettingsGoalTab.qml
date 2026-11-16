@@ -1,8 +1,9 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import MentorRecorder 1.0
 
-// 设置 · 成就: 目标值、安装前已完成次数（基数）与修改原因。
+// 设置 · 成就: 目标值、安装前已完成次数（基数）与修改原因；有多个角色时按角色分别保存。
 ColumnLayout {
     id: tab
 
@@ -34,7 +35,10 @@ ColumnLayout {
     // the goal is in that total only (review OK-1).
     readonly property var regionalAchievement: {
         Theme.trackBindingDependency(Runtime.app.dashboard)
-        return Runtime.app.achievementForRegion(Runtime.app.baselineRegion)
+        // Another character's own progress, when that is whose numbers are being edited.
+        return Runtime.app.baselineProfileId !== 0 && tab.editedCharacterId === Runtime.app.baselineProfileId
+            ? tab.editedCharacter
+            : Runtime.app.achievementForRegion(Runtime.app.baselineRegion)
     }
     readonly property int progressCount: regionalAchievement.achievement_progress !== undefined
         ? Number(regionalAchievement.achievement_progress) : Runtime.app.baselineCount
@@ -51,6 +55,101 @@ ColumnLayout {
         const value = Number(text)
         return String(text).trim().length > 0 && Number.isFinite(value) && value >= 0
             ? Math.floor(value) : -1
+    }
+
+    // ---------------------------------------------------------------- 角色 --
+    // A region holds one character profile until the player adds another; the
+    // character row then also picks whose goal and starting count the fields
+    // below edit. Runtime.app.baselineProfileId is 0 while that is the region's
+    // current character.
+    readonly property CharacterNames characterNames: CharacterNames {}
+    readonly property var regionCharacters: {
+        Theme.trackBindingDependency(Runtime.app.characterProfiles)
+        return Runtime.app.characterProfilesForRegion(Runtime.app.baselineRegion)
+    }
+    readonly property bool severalCharacters: tab.regionCharacters.length > 1
+    readonly property var currentCharacter: {
+        for (const profile of tab.regionCharacters)
+            if (profile.is_current) return profile
+        return ({})
+    }
+    readonly property var editedCharacter: {
+        if (Runtime.app.baselineProfileId === 0)
+            return tab.currentCharacter
+        for (const profile of tab.regionCharacters)
+            if (Number(profile.profile_id) === Runtime.app.baselineProfileId) return profile
+        return tab.currentCharacter
+    }
+    readonly property int editedCharacterId: Number(tab.editedCharacter.profile_id || 0)
+    readonly property bool editingCurrentCharacter: tab.editedCharacter.is_current === true
+    property string characterErrorText: ""
+    // 删除 asks once more on the button itself before it is sent.
+    property bool deleteArmed: false
+    // This tab's own 设为当前角色 / 删除 still unanswered. The overview card switches through the
+    // same request and tells its own refusals.
+    property int ownCharacterRequests: 0
+    function selectEditedCharacter() {
+        tab.characterErrorText = ""
+        tab.ownCharacterRequests += 1
+        Runtime.app.selectCharacterProfile(tab.editedCharacterId)
+    }
+    onEditedCharacterIdChanged: {
+        tab.deleteArmed = false
+        tab.characterErrorText = ""
+    }
+
+    function pickCharacter(profileId) {
+        tab.achievementEdited = false
+        tab.baselineErrorText = ""
+        const current = Number(tab.currentCharacter.profile_id || 0)
+        Runtime.app.baselineProfileId = profileId === current ? 0 : profileId
+    }
+
+    function deleteEditedCharacter() {
+        if (!tab.deleteArmed) {
+            tab.deleteArmed = true
+            return
+        }
+        tab.deleteArmed = false
+        tab.characterErrorText = ""
+        tab.ownCharacterRequests += 1
+        Runtime.app.deleteCharacterProfile(tab.editedCharacterId)
+    }
+
+    Connections {
+        target: Runtime.app
+        // The dialog shows its own refusals; switching and deleting answer here.
+        function onCharacterProfileFailed(action, code, message) {
+            if ((action !== "select" && action !== "delete") || tab.ownCharacterRequests === 0)
+                return
+            tab.ownCharacterRequests -= 1
+            tab.characterErrorText = Runtime.app.errorText(message, code)
+        }
+        function onCharacterProfileSaved(profileId, action) {
+            if ((action === "select" || action === "delete") && tab.ownCharacterRequests > 0)
+                tab.ownCharacterRequests -= 1
+            tab.characterErrorText = ""
+            // A character just added is the one to look at next.
+            if (action === "create")
+                tab.pickCharacter(profileId)
+        }
+        function onBaselineProfileIdChanged() {
+            tab.baselineErrorText = ""
+            tab.baselineText = String(Runtime.app.baselineCount)
+            tab.goalText = String(Runtime.app.goalCount)
+            tab.achievementEdited = false
+        }
+    }
+
+    // Held by an object of its own, as SettingsSpeechTab holds its dialog: the tab is a
+    // layout, and a dialog is not one of its rows.
+    QtObject {
+        readonly property CharacterProfileDialog dialog: CharacterProfileDialog {
+            id: characterDialog
+
+            parent: Overlay.overlay
+            anchors.centerIn: parent
+        }
     }
 
     // 总览成就卡片上的「修改」把光标放进基数输入框，已有的数字被选中，直接输入即替换。
@@ -153,6 +252,71 @@ ColumnLayout {
                     Runtime.app.baselineRegion = region
                 }
             }
+        }
+
+        SettingsRow {
+            objectName: "achievementCharacterRow"
+            label: qsTr("角色")
+            description: tab.severalCharacters
+                ? qsTr("每个角色的目标、起始次数和进度分别保存。下面修改的是所选角色。")
+                : qsTr("有多个角色时，可以为每个角色分别保存目标和进度。")
+            controlSpacing: 8
+            CharacterSelector {
+                objectName: "achievementCharacterSelector"
+                Layout.preferredWidth: 170
+                visible: tab.severalCharacters
+                region: Runtime.app.baselineRegion
+                selection: tab.editedCharacterId
+                enabled: !Runtime.app.baselineSaving && !Runtime.app.characterProfileSaving
+                onProfilePicked: function(profileId) { tab.pickCharacter(profileId) }
+            }
+            AppButton {
+                objectName: "addCharacterButton"
+                text: qsTr("添加角色")
+                enabled: tab.settingsLoaded && !Runtime.app.characterProfileSaving
+                onClicked: characterDialog.openToAdd(Runtime.app.baselineRegion)
+            }
+        }
+
+        SettingsRow {
+            objectName: "achievementCharacterActions"
+            visible: tab.severalCharacters
+            label: tab.characterNames.label(tab.editedCharacter)
+            description: tab.editingCurrentCharacter
+                ? qsTr("新记录现在记在这个角色名下。换角色上线前，把要用的角色设为当前。")
+                : qsTr("新记录现在记在「%1」名下。").arg(tab.characterNames.label(tab.currentCharacter))
+            controlSpacing: 8
+            AppButton {
+                objectName: "selectCharacterButton"
+                visible: !tab.editingCurrentCharacter
+                text: qsTr("设为当前角色")
+                variant: "primary"
+                enabled: !Runtime.app.characterProfileSaving
+                onClicked: tab.selectEditedCharacter()
+            }
+            AppButton {
+                objectName: "renameCharacterButton"
+                text: qsTr("改名")
+                enabled: !Runtime.app.characterProfileSaving
+                onClicked: characterDialog.openToRename(tab.editedCharacter)
+            }
+            AppButton {
+                objectName: "deleteCharacterButton"
+                visible: !tab.editingCurrentCharacter
+                text: tab.deleteArmed ? qsTr("确认删除") : qsTr("删除")
+                enabled: !Runtime.app.characterProfileSaving
+                onClicked: tab.deleteEditedCharacter()
+            }
+        }
+
+        Text {
+            objectName: "characterErrorText"
+            Layout.fillWidth: true
+            visible: tab.characterErrorText.length > 0
+            text: tab.characterErrorText
+            color: Theme.red
+            font.pixelSize: Theme.fs(12)
+            wrapMode: Text.WordWrap
         }
 
         GridLayout {
@@ -291,7 +455,12 @@ ColumnLayout {
             Layout.fillWidth: true
             AppButton {
                 text: qsTr("重新打开首次引导")
-                onClicked: tab.openBaselineRequested()
+                // The guide asks about the region's current character and names nobody, so it
+                // must not be left editing another one picked above.
+                onClicked: {
+                    Runtime.app.baselineProfileId = 0
+                    tab.openBaselineRequested()
+                }
             }
             Item { Layout.fillWidth: true }
             AppButton {

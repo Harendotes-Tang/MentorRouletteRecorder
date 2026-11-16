@@ -151,6 +151,27 @@ Rectangle {
     /// maintainer material: a player sees only the Chinese label for the same
     /// fact, and identifier-only rows disappear.
     readonly property bool showRawTokens: Runtime.app.maintainerToolsVisible
+    // Characters are named only where the record's region tells them apart.
+    readonly property bool characterFeatures: {
+        if (typeof Runtime.app.characterFeaturesVisible !== "function")
+            return false
+        Theme.trackBindingDependency(Runtime.app.characterProfiles)
+        Theme.trackBindingDependency(Runtime.app.dashboard)
+        return Runtime.app.characterFeaturesVisible(root.runData.region || "")
+    }
+    readonly property CharacterNames characterNames: CharacterNames {}
+    function characterText(profileId) {
+        if (profileId === null || profileId === undefined)
+            return qsTr("未分配")
+        const name = root.characterNames.labelOf(profileId)
+        return name.length > 0 ? name : qsTr("已删除的角色")
+    }
+    /// One side of a change in the revision list, in words.
+    function revisionText(field, value) {
+        if (root.showRawTokens)
+            return Runtime.fmt.revisionValue(value)
+        return field === "profile_id" ? root.characterText(value) : Runtime.fmt.revisionFieldValue(field, value)
+    }
 
     readonly property var infoFields: {
         const fields = [
@@ -198,6 +219,8 @@ Rectangle {
                       v: root.showRawTokens
                          ? (runData.source || "AUTO_NETWORK")
                          : Runtime.fmt.sourceLabel(runData.source || "AUTO_NETWORK") })
+        if (root.characterFeatures && runData.profile_id !== undefined)
+            fields.push({ k: qsTr("角色"), v: root.characterText(runData.profile_id) })
         fields.push({ k: qsTr("成就计数设置"), v: runData.contributes_to_goal ? qsTr("开启") : qsTr("关闭") })
         fields.push({ k: qsTr("进入方式"), v: Runtime.fmt.joinedInProgressLabel(runData.joined_in_progress) })
         fields.push({ k: qsTr("识别可信度"),
@@ -958,6 +981,9 @@ Rectangle {
                                     // language, after a switch.
                                     return Theme.live(changes).filter(function(row) {
                                         const field = row.field || ""
+                                        // Whose record it is matters only where characters are told apart.
+                                        if (field === "profile_id" && !root.characterFeatures)
+                                            return false
                                         return Runtime.fmt.revisionFieldVisible(field)
                                             && Runtime.fmt.revisionFieldValue(field, row.old_value)
                                                !== Runtime.fmt.revisionFieldValue(field, row.new_value)
@@ -982,9 +1008,7 @@ Rectangle {
                                     Text {
                                         Layout.fillWidth: true
                                         Layout.preferredWidth: 1
-                                        text: Theme.live(root.showRawTokens
-                                              ? Runtime.fmt.revisionValue(modelData.old_value)
-                                              : Runtime.fmt.revisionFieldValue(modelData.field || "", modelData.old_value))
+                                        text: Theme.live(root.revisionText(modelData.field || "", modelData.old_value))
                                         textFormat: Text.PlainText
                                         color: Theme.textSecondary
                                         font.pixelSize: Theme.fs(11)
@@ -1004,9 +1028,7 @@ Rectangle {
                                     Text {
                                         Layout.fillWidth: true
                                         Layout.preferredWidth: 1
-                                        text: Theme.live(root.showRawTokens
-                                              ? Runtime.fmt.revisionValue(modelData.new_value)
-                                              : Runtime.fmt.revisionFieldValue(modelData.field || "", modelData.new_value))
+                                        text: Theme.live(root.revisionText(modelData.field || "", modelData.new_value))
                                         textFormat: Text.PlainText
                                         color: Theme.textPrimary
                                         font.pixelSize: Theme.fs(11)

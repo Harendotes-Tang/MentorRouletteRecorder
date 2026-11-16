@@ -1,4 +1,19 @@
 # IPC 契约变更记录 / IPC contract changelog
+## 2026-11-16 · 角色档案：按角色分别保存目标、基数与进度
+
+附加式变更，新增三个消息类型。schema 升到 14（`character_profiles`，`mentor_runs.profile_id`）。
+
+- **`$defs/CharacterProfile`**：一个区服内的一个角色档案，含 `profile_id`（本地编号）、`region`、`display_name`（用户填写，软件自建的档案为空）、`is_current`、`goal_count`、`baseline_completed_count`，以及该档案的 `achievement_progress`、`remaining`、`completed_count`、`run_count`。
+- **`CreateCharacterProfile` / `UpdateCharacterProfile` / `DeleteCharacterProfile`**：新建、改名或设为当前、删除。应答 `$defs/CharacterProfileResult` 带回操作后的全部档案。名称去掉首尾空白后须为 1 至 24 个字、单行、区服内不重复；每个区服至多 16 个档案；删除区服最后一个档案、当前档案或名下还有记录（含回收站）的档案答 `ERR_BAD_REQUEST`（`field = "profile_id"`），档案不存在答 `ERR_NOT_FOUND`。三者都按 `request_id` 幂等，实际发生变化时发布 `stats_invalidated`。
+- **`Run.profile_id`**（整数或 `null`，每条记录都带）：记录所属档案；`null` 为未分配。自动记录在匹配成功时取所属区服的当前档案，此后不随当前档案改变。
+- **`RunFilter.profile_id` 与 `profile_unassigned`**：只保留某个档案的记录，或只保留未分配的记录；两者同时出现答 `ERR_BAD_REQUEST`。
+- **`DashboardStats.profiles`**：全部区服的全部档案，不受筛选影响。**`RegionalAchievement`** 增加 `profile_id`、`profile_count`、`unassigned_run_count`；每个区服一项的数值取该区服当前档案（区服只有一个档案时与此前相同）。标量成就字段在带 `filter.profile_id` 时投影该档案。
+- **`UpdateAchievementBaselineRequest.profile_id`**（可选）：修改指定档案的目标与基数；省略时修改 `region` 的当前档案。应答增加 `profile_id`。
+- **`BatchMutateRunsRequest.action`** 增加 `assign_profile`，与它配套的 **`profile_id`**（整数或 `null`）把选中的记录改到同区服的某个档案或改为未分配；每条被改动的记录追加一条只含 `profile_id` 差异的修订，不置 `manually_corrected`。已在目标档案名下的记录不改动，也不出现在 `run_ids` 中；一条都不需要改时答 `ERR_NO_CHANGES`。
+- **`CreateManualRunRequest.profile_id`** 与 **`CommitRunImportRequest.profile_id`**（可选）：把补录或导入的记录记到指定档案名下（须与记录同区服；导入时只对该区服的记录生效），省略时记到所属区服的当前档案。带 `deduct_from_baseline` 的导入从记录所属档案的基数中扣除，`RegionalBaselineAdjustment` 增加 `profile_id`。
+- **文字目录**新增 `profile.not_found`、`profile.name_required`、`profile.name_taken`、`profile.limit_reached`、`profile.delete_last`、`profile.delete_current`、`profile.delete_has_runs`、`profile.region_mismatch`、`profile.assign_unchanged`、`profile.request_reused` 与 `ipc.filter.profile_conflict`。
+- 兼容性：旧采集服务不认识新消息与新字段，答 `ERR_BAD_REQUEST`；旧桌面端不发送新字段，按区服读取的目标、基数与进度即该区服当前档案的数值。两端随同一安装包发布。数据库升到 schema 14 后不能再由旧版程序打开（`ERR_DB_INTEGRITY`），回到旧版须以升级前的快照替换数据库。
+
 ## 2026-11-14 · 角色识别采证：`StartCaptureValidation.identity_probe` 与 `CaptureValidationStatus.identity_result`
 
 附加式变更，不新增消息类型。

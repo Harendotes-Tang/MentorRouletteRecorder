@@ -582,8 +582,12 @@ MotionDialog {
 
     /// The Collector's achievement_progress as last read, or -1 when none was.
     function collectorProgress() {
-        const achievement = typeof Runtime.app !== "undefined" && Runtime.app.achievementForRegion
-            ? Runtime.app.achievementForRegion(dialog.runData.region || "CN") : (Runtime.app.dashboard || {})
+        // The character the run belongs to; a run assigned to none has no progress to show.
+        const app = typeof Runtime.app !== "undefined" ? Runtime.app : null
+        const achievement = app && typeof app.achievementForRun === "function"
+            ? app.achievementForRun(dialog.runData)
+            : app && app.achievementForRegion
+              ? app.achievementForRegion(dialog.runData.region || "CN") : (Runtime.app.dashboard || {})
         const value = achievement.achievement_progress
         return typeof value === "number" && isFinite(value) && value >= 0 ? Math.floor(value) : -1
     }

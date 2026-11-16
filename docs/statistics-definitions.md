@@ -87,34 +87,45 @@ completed_count = COUNT(*) WHERE
 
 ## 4. 成就进度 `achievement_progress`
 
-成就目标、基数与进度按服务区服独立计算。下面公式中的设置与记录必须属于同一个 `region`；
-日期、职业、副本等列表筛选不改变该区服的全生命周期进度。全部区服视图使用
-`DashboardStats.achievements` 分别展示各区进度，不相加。为旧桌面端保留的标量字段在选定区服时
-投影该区服，全部区服请求时投影 CN。schema 12 将原有设置只归入 CN，繁中服 TC 从 0 基数开始。
+成就目标、基数与进度按**角色档案**独立计算（[data-model.md](data-model.md) §4）：每个档案属于一个服务区服，
+有自己的目标与基数；下面公式中的记录必须属于同一个档案（`mentor_runs.profile_id`）。未分配给任何档案的记录
+（`profile_id IS NULL`）不计入任何档案的进度，但仍计入所在区服的次数类统计。日期、职业、副本等列表筛选
+不改变档案的全生命周期进度；改动记录的归属不会改动任何档案的基数。
+
+- `DashboardStats.profiles` 列出全部区服的全部档案及各自的进度，不受任何筛选影响。
+- `DashboardStats.achievements` 仍按区服各给一项，取该区服**当前档案**的数值，并附 `profile_id`、
+  `profile_count` 与 `unassigned_run_count`（该区服未分配的有效记录数）。区服只有一个档案时，它就是整个区服的进度，
+  与引入档案之前相同。各区服、各档案的进度分别展示，不相加：区服有多个档案时，「全部角色」的视图只展示次数类统计，
+  不展示进度与目标。
+- 为旧桌面端保留的标量字段（`goal_count`、`baseline_completed_count`、`achievement_progress`、`remaining`）在请求带
+  `filter.profile_id` 时投影该档案，否则投影选定区服的当前档案，全部区服请求时投影 CN 的当前档案。
+
+schema 12 将原有设置只归入 CN，繁中服 TC 从 0 基数开始。
 schema 13 把 1.8.0 及更早版本写下的无区服手工补录与导入记录（`region = 'UNKNOWN'`、没有抓包会话，且创建于数据库升到 schema 12 之前）归入 CN
 （[data-model.md](data-model.md) §4）：这些版本只服务国服，这些通关原本计入唯一的成就，「已包含」导入的扣减也已随
 旧基数归入 CN，因此两者在升级后仍留在同一个区服，国服进度与升级前相同。
 
 ```
 achievement_progress =
-      achievement_settings.baseline_completed_count
+      character_profiles.baseline_completed_count
     + COUNT(*) WHERE
-          contributes_to_goal = 1
+          profile_id = character_profiles.profile_id
+      AND contributes_to_goal = 1
       AND result = 'COMPLETED'
       AND soft_deleted = 0
       AND confirmed_mentor
 ```
 
 - `baseline_completed_count` 是用户自行申报的、开始使用本软件之前已完成的次数，
-  经 `UpdateAchievementBaseline` 设置。可选 `region` 指定所属区服，省略仍为 CN。
-  该消息必须携带 `reason`；目标或基数有变化时写入该区服的审计。
+  经 `UpdateAchievementBaseline` 设置。可选 `profile_id` 指定档案；不带时修改 `region`（省略仍为 CN）的当前档案。
+  该消息必须携带 `reason`；目标或基数有变化时写入该档案的审计。
   目标与基数都与已保存的相同时不算修改：不写入设置与审计，也不发布 `stats_invalidated`，应答给出已保存的值。
 - 满足上述条件的已记录通关次数**全部**叠加在基数之上，不论何时结束（缺少结束时间的记录同样计入），
   也不论基数何时填写、修改过几次。
 - **导入历史记录时可以从基数中扣除。**基数是安装前游戏成就面板显示的完成数，用表格或截图导入的那段历史
   通常已经在其中；若再按本节口径叠加，就会被计两次。`CommitRunImport` 带 `deduct_from_baseline = true` 时，
   采集服务在同一事务内统计本次**新写入**的记录中满足本节条件（确认为导随、`result = COMPLETED`、
-  `contributes_to_goal = 1`、已确认实际结果）的条数，从 `baseline_completed_count` 中扣除同样多的次数，
+  `contributes_to_goal = 1`、已确认实际结果）的条数，从这些记录所属档案的 `baseline_completed_count` 中扣除同样多的次数，
   最低减至 0，并以提交的 `request_id` 写入一条基数修改记录（原因写明导入条数）。重复与冲突的行没有写入，
   不参与扣除；之后这些记录照常按本节叠加，因此 `completed_count` 增加，而进度在扣除未触及下限时不变；
   本次计入的通关数超过原基数时，基数减至 0，进度增加超出的部分。不带该字段时基数不动。
@@ -264,10 +275,11 @@ avg_duration_ms = AVG(duration_ms) WHERE
 |---|---|
 | `attempt_count` | §2 |
 | `completed_count` | §3 |
-| `baseline_completed_count` | `achievement_settings` |
+| `baseline_completed_count` | `character_profiles`，取值的档案见 §4 |
 | `achievement_progress` | §4（全量口径，不受时间过滤影响） |
-| `goal_count` | `achievement_settings`，默认 2000 |
-| `achievements` | 按区服分别给出的成就数组，不受日期、职业、副本筛选影响；选定区服时只含该区服，全部区服请求时含 CN 与 TC，以及另有记录或设置的其他区服，见 §4 |
+| `goal_count` | `character_profiles`，默认 2000，取值的档案见 §4 |
+| `achievements` | 按区服分别给出的成就数组（各取该区服当前档案的数值），不受日期、职业、副本筛选影响；选定区服时只含该区服，全部区服请求时含 CN 与 TC，以及另有记录或档案的其他区服，见 §4 |
+| `profiles` | 全部角色档案及各自的进度，不受任何筛选影响，见 §4 |
 | `remaining` | §5 |
 | `completion_rate` | §6 |
 | `leave_rate` | §7 |

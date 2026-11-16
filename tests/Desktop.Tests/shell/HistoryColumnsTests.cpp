@@ -369,6 +369,51 @@ private Q_SLOTS:
         QVERIFY(!columns.customised());
     }
 
+    /// 角色 exists only while the page offers it (a region that tells its characters apart).
+    /// Withheld, it is in neither list and takes part in nothing; offered, it sits before 标记,
+    /// also in an arrangement stored before the column existed.
+    void theCharacterColumnIsWithheldUntilThePageOffersIt()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("columns.ini"));
+        const QString character = QStringLiteral("character");
+        {
+            mr::AppSettings settings(path, nullptr);
+            mr::HistoryColumnsController columns(&settings);
+            QVERIFY(!columns.characterOffered());
+            QCOMPARE(columns.order(), defaults());
+            QVERIFY(!columns.isVisible(character));
+            columns.setVisible(character, false); // 不存在的列：无事可做。
+            columns.moveTo(character, 0);
+            QVERIFY(!columns.customised());
+            // An arrangement made without it, as an older build stored it.
+            columns.moveTo(QStringLiteral("marks"), 0);
+            columns.setVisible(QStringLiteral("source"), false);
+            QCOMPARE(columns.visible().size(), defaults().size() - 1);
+
+            QSignalSpy changed(&columns, &mr::HistoryColumnsController::layoutChanged);
+            columns.setCharacterOffered(true);
+            QCOMPARE(changed.size(), 1);
+            QVERIFY(columns.isVisible(character));
+            QCOMPARE(columns.order().size(), defaults().size() + 1);
+            columns.setWidth(character, 120);
+            columns.setCharacterOffered(false);
+            QVERIFY(!columns.visible().contains(character));
+            QCOMPARE(columns.visible().first(), QStringLiteral("marks"));
+        }
+        // What was stored for it waits for the next time it is offered.
+        mr::AppSettings settings(path, nullptr);
+        mr::HistoryColumnsController columns(&settings);
+        QVERIFY(!columns.order().contains(character));
+        columns.setCharacterOffered(true);
+        QCOMPARE(columns.width(character), 120);
+        columns.reset();
+        const QStringList order = columns.order();
+        QCOMPARE(order.indexOf(character), order.indexOf(QStringLiteral("marks")) - 1);
+        QCOMPARE(order.indexOf(character), order.indexOf(QStringLiteral("source")) + 1);
+    }
+
     void toleratesACorruptFile()
     {
         QTemporaryDir directory;

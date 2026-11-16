@@ -5,7 +5,7 @@
 // used to review the layout without a human at the keyboard:
 //
 //   MentorRecorder.Desktop --screenshot out.png --page 1 --theme dark
-//                          [--mock-npcap-missing] [--mock-live entered]
+//                          [--mock-npcap-missing] [--mock-live entered] [--mock-profiles]
 //                          [--mock-first-run] [--mock-open-detail]
 //                          [--mock-open-edit] [--show-disclosure]
 //                          [--mock-open-create] [--mock-wizard-step 1|2|3]
@@ -615,6 +615,10 @@ int main(int argc, char *argv[])
     QCommandLineOption npcapOption(
         QStringLiteral("mock-npcap-missing"),
         QStringLiteral("Pretend the Npcap driver is not installed."));
+    QCommandLineOption profilesOption(
+        QStringLiteral("mock-profiles"),
+        QStringLiteral("角色档案 fixture: CN holds two named characters with different progress "
+                       "(the second one current) and a few runs assigned to no character."));
     QCommandLineOption candidatesOption(
         QStringLiteral("mock-candidates"),
         QStringLiteral("Use deterministic candidate review fixtures; research payload remains disabled."));
@@ -784,6 +788,7 @@ int main(int argc, char *argv[])
     parser.addOption(themeOption);
     parser.addOption(npcapOption);
     parser.addOption(candidatesOption);
+    parser.addOption(profilesOption);
     parser.addOption(calibrationOption);
     parser.addOption(sharedOption);
     parser.addOption(updateOption);
@@ -924,6 +929,7 @@ int main(int argc, char *argv[])
     if (selectedBackend != QLatin1String("mock")
         && (parser.isSet(npcapOption)
             || parser.isSet(candidatesOption)
+            || parser.isSet(profilesOption)
             || parser.isSet(calibrationOption)
             || parser.isSet(sharedOption)
             || parser.isSet(updateOption)
@@ -1057,6 +1063,8 @@ int main(int argc, char *argv[])
             mock->setMidstreamSuspected(true);
         if (parser.isSet(candidatesOption))
             mock->setCandidateFixture();
+        if (parser.isSet(profilesOption))
+            mock->setCharacterProfilesFixture();
         if (parser.isSet(calibrationOption))
             mock->setCalibrationFixture(parser.value(calibrationOption));
         if (parser.isSet(sharedOption))

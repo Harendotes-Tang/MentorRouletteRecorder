@@ -268,7 +268,8 @@ bool isReplayableMutation(const QString &messageType)
         QStringLiteral("CreateManualRun"), QStringLiteral("CorrectRun"),
         QStringLiteral("SoftDeleteRun"),   QStringLiteral("RestoreRun"),
         QStringLiteral("UndoRevision"),    QStringLiteral("UpdateAchievementBaseline"),
-        QStringLiteral("BatchMutateRuns")};
+        QStringLiteral("BatchMutateRuns"), QStringLiteral("CreateCharacterProfile"),
+        QStringLiteral("UpdateCharacterProfile"), QStringLiteral("DeleteCharacterProfile")};
     return types.contains(messageType);
 }
 
@@ -348,14 +349,23 @@ namespace mr {
 MockBackend::MockBackend(QObject *parent)
     : IBackend(parent), m_now(QDate(2026, 9, 4), QTime(21, 40, 12), QTimeZone::LocalTime)
 {
+    // SettingsRepository.EnsureDefaults: CN and TC each hold their own unnamed profile.
     // The sample player entered the baseline before the 60 days the dataset spans.
-    AchievementSettings settings = achievementSettings(QStringLiteral("CN"));
-    settings.baselineCompletedCount = 1374;
-    settings.baselineEffectiveAt = m_now.addDays(-60).toUTC();
-    settings.updatedAt = settings.baselineEffectiveAt;
-    settings.auditEventId = mockUuid(QStringLiteral("baseline-audit-1"));
-    m_achievements.insert(QStringLiteral("CN"), settings);
+    CharacterProfileEntry *cn = findProfile(ensureCurrentProfile(QStringLiteral("CN")));
+    cn->settings.baselineCompletedCount = 1374;
+    cn->settings.baselineEffectiveAt = m_now.addDays(-60).toUTC();
+    cn->settings.updatedAt = cn->settings.baselineEffectiveAt;
+    cn->settings.auditEventId = mockUuid(QStringLiteral("baseline-audit-1"));
+    ensureCurrentProfile(QStringLiteral("TC"));
     generateRuns();
+    // Every sample run belongs to its region's own profile, as the schema-14 migration
+    // files the records made before profiles existed.
+    for (qsizetype index = 0; index < m_runs.size(); ++index) {
+        QJsonObject run = m_runs.at(index).toObject();
+        if (!run.contains(QStringLiteral("profile_id")))
+            run.insert(QStringLiteral("profile_id"), ensureCurrentProfile(runRegion(run)));
+        m_runs[index] = run;
+    }
 }
 
 QString MockBackend::connectionDetail() const
@@ -516,6 +526,10 @@ void MockBackend::resetRuns(const QJsonArray &runs)
 {
     m_runs = runs;
     m_revisions = QJsonArray();
+    // A run without profile_id belongs to its region's first profile (runProfileId), so
+    // every region with runs has one, as after the schema-14 migration.
+    for (const auto &run : runs)
+        ensureCurrentProfile(runRegion(run.toObject()));
 }
 
 void MockBackend::resetRuns(const QJsonArray &runs, const QHash<QString, QString> &importFingerprints)
@@ -532,20 +546,21 @@ void MockBackend::setAchievement(int goalCount, int baselineCompletedCount)
 void MockBackend::setAchievement(const QString &region, int goalCount, int baselineCompletedCount)
 {
     Q_ASSERT(isRegion(region));
-    AchievementSettings settings = achievementSettings(region);
-    settings.goalCount = goalCount;
-    settings.baselineCompletedCount = baselineCompletedCount;
+    CharacterProfileEntry *profile = findProfile(ensureCurrentProfile(region));
+    profile->settings.goalCount = goalCount;
+    profile->settings.baselineCompletedCount = baselineCompletedCount;
     // Set behind the history's back: no entry stored these values.
-    settings.auditEventId.clear();
-    m_achievements.insert(region, settings);
+    profile->settings.auditEventId.clear();
 }
 
 MockBackend::AchievementSettings MockBackend::achievementSettings(const QString &region) const
 {
+    if (const CharacterProfileEntry *profile = currentProfile(region))
+        return profile->settings;
     AchievementSettings defaults;
     defaults.baselineEffectiveAt = m_now.toUTC();
     defaults.updatedAt = defaults.baselineEffectiveAt;
-    return m_achievements.value(region, defaults);
+    return defaults;
 }
 
 QString MockBackend::captureRegion() const
@@ -1642,6 +1657,9 @@ QJsonObject MockBackend::currentRun() const
     run.insert(QStringLiteral("result"), QStringLiteral("UNKNOWN"));
     run.insert(QStringLiteral("source"), QStringLiteral("AUTO_NETWORK"));
     run.insert(QStringLiteral("region"), captureRegion());
+    // Filed under the region's current character profile at match time.
+    if (const CharacterProfileEntry *owner = currentProfile(captureRegion()))
+        run.insert(QStringLiteral("profile_id"), owner->id);
     run.insert(QStringLiteral("mentor_roulette_id"), 9);
     run.insert(QStringLiteral("matched_at_utc"), isoUtc(matched));
     run.insert(QStringLiteral("entered_at_utc"),
@@ -1726,13 +1744,27 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
 
     if (messageType == QLatin1String("UpdateAchievementBaseline")) {
         const QJsonValue requestedRegion = payload.value(QStringLiteral("region"));
-        const QString region = requestedRegion.toString(QStringLiteral("CN"));
+        QString region = requestedRegion.toString(QStringLiteral("CN"));
         if ((!requestedRegion.isUndefined() && !requestedRegion.isString()) || !isRegion(region)) {
             *errorCode = QStringLiteral("ERR_BAD_REQUEST");
             *errorMessage = QString::fromUtf8("区服必须是 CN、TC、GLOBAL 或 UNKNOWN。");
             return {};
         }
-        AchievementSettings settings = achievementSettings(region);
+        // A named profile wins over the region (the contract ignores region then); without
+        // one the region's current profile is edited, created when the region has none.
+        const QJsonValue requestedProfile = payload.value(QStringLiteral("profile_id"));
+        int profileId = 0;
+        if (!requestedProfile.isUndefined()) {
+            const CharacterProfileEntry *named =
+                requestedProfile.isDouble() ? findProfile(requestedProfile.toInt()) : nullptr;
+            if (!named)
+                return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_NOT_FOUND"), "profile.not_found");
+            profileId = named->id;
+            region = named->region;
+        } else {
+            profileId = ensureCurrentProfile(region);
+        }
+        AchievementSettings settings = findProfile(profileId)->settings;
         const int baseline = payload.value(QStringLiteral("baseline_completed_count"))
                                  .toInt(settings.baselineCompletedCount);
         const int goal = payload.value(QStringLiteral("goal_count")).toInt(settings.goalCount);
@@ -1772,9 +1804,10 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
             auditEventId = ipc::newRequestId();
         }
         if (changed)
-            m_achievements.insert(region, settings);
+            findProfile(profileId)->settings = settings;
         QJsonObject result;
         result.insert(QStringLiteral("region"), region);
+        result.insert(QStringLiteral("profile_id"), profileId);
         result.insert(QStringLiteral("goal_count"), settings.goalCount);
         result.insert(QStringLiteral("baseline_completed_count"), settings.baselineCompletedCount);
         result.insert(QStringLiteral("baseline_effective_at"), isoUtc(settings.baselineEffectiveAt));
@@ -1792,8 +1825,13 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
             *errorMessage = QString::fromUtf8("区服必须是 CN、TC、GLOBAL 或 UNKNOWN。");
             return {};
         }
+        const int owner = resolveProfileForNewRun(region, payload.value(QStringLiteral("profile_id")),
+                                                  errorCode, errorMessage);
+        if (owner == 0)
+            return {};
         QJsonObject run = payload;
         run.insert(QStringLiteral("region"), region);
+        run.insert(QStringLiteral("profile_id"), owner);
         run.remove(QStringLiteral("reason"));
         run.insert(QStringLiteral("run_id"), ipc::newRequestId());
         run.insert(QStringLiteral("revision"), 1);
@@ -2989,7 +3027,8 @@ QJsonObject MockBackend::commitRunImport(const QJsonObject &payload, QString *er
     };
     for (const QString &key : payload.keys()) {
         static const QStringList declared{QStringLiteral("preview_id"), QStringLiteral("row_numbers"),
-                                          QStringLiteral("confirm_own_records"), QStringLiteral("deduct_from_baseline")};
+                                          QStringLiteral("confirm_own_records"), QStringLiteral("deduct_from_baseline"),
+                                          QStringLiteral("profile_id")};
         if (!declared.contains(key))
             return refuse("ipc.field.unknown", {{QStringLiteral("field"), key}});
     }
@@ -3010,12 +3049,20 @@ QJsonObject MockBackend::commitRunImport(const QJsonObject &payload, QString *er
         return refuse("import.commit.selection_invalid");
     std::ranges::sort(selected);
     const bool deduct = payload.value(QStringLiteral("deduct_from_baseline")).toBool(false);
+    const QJsonValue namedProfile = payload.value(QStringLiteral("profile_id"));
+    if (!namedProfile.isUndefined() && (!namedProfile.isDouble() || namedProfile.toInt() < 1))
+        return refuse("ipc.field.at_least", {{QStringLiteral("field"), QStringLiteral("profile_id")},
+                                             {QStringLiteral("min"), 1}});
+    const int chosenProfile = namedProfile.toInt(0);
     QStringList numbers;
     for (int number : std::as_const(selected))
         numbers.append(QString::number(number));
-    // The baseline choice is part of the selection: a retry that changes it is another commit.
+    // The baseline choice and the profile are part of the selection: a retry that changes
+    // either is another commit.
     const QByteArray selection = (previewId + QLatin1Char(':') + numbers.join(QLatin1Char(','))
-                                  + (deduct ? QStringLiteral(":deduct_from_baseline") : QString())).toUtf8();
+                                  + (deduct ? QStringLiteral(":deduct_from_baseline") : QString())
+                                  + (chosenProfile > 0 ? QStringLiteral(":profile:%1").arg(chosenProfile)
+                                                       : QString())).toUtf8();
 
     // A receipt for this preview, or for this request, answers its resend.
     for (const ImportReceipt &receipt : std::as_const(m_importReceipts)) {
@@ -3053,6 +3100,10 @@ QJsonObject MockBackend::commitRunImport(const QJsonObject &payload, QString *er
         if (!entry.value(QStringLiteral("valid")).toBool())
             return refuse("import.commit.rows_have_errors");
     }
+    const CharacterProfileEntry *chosenOwner = chosenProfile > 0 ? findProfile(chosenProfile) : nullptr;
+    if (chosenProfile > 0 && !chosenOwner)
+        return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_NOT_FOUND"), "profile.not_found");
+    const QString chosenRegion = chosenOwner ? chosenOwner->region : QString();
 
     // Every selected row is checked again against the library as it is now; a duplicate or a
     // conflict is never written over local data.
@@ -3075,22 +3126,28 @@ QJsonObject MockBackend::commitRunImport(const QJsonObject &payload, QString *er
         } else if (status == QLatin1String("conflict")) {
             ++conflicts;
         } else {
-            // The preview owns the complete candidate; its revision chain starts here.
-            m_runs.append(run);
-            m_importFingerprints.insert(fingerprint, run.value(QStringLiteral("run_id")).toString());
+            // The preview owns the complete candidate; its revision chain starts here. The
+            // records of the named profile's region go to it, every other one to its
+            // region's current profile (RunImportService.Commit).
+            QJsonObject stored = run;
+            stored.insert(QStringLiteral("profile_id"), runRegion(stored) == chosenRegion
+                                                         ? chosenProfile
+                                                         : ensureCurrentProfile(runRegion(stored)));
+            m_runs.append(stored);
+            m_importFingerprints.insert(fingerprint, stored.value(QStringLiteral("run_id")).toString());
             QJsonArray changes;
-            for (auto it = run.constBegin(); it != run.constEnd(); ++it)
+            for (auto it = stored.constBegin(); it != stored.constEnd(); ++it)
                 changes.append(changeEntry(it.key(), QJsonValue(QJsonValue::Null), it.value()));
             m_revisions.append(QJsonObject{
                 {QStringLiteral("revision_id"), QUuid::createUuid().toString(QUuid::WithoutBraces)},
-                {QStringLiteral("run_id"), run.value(QStringLiteral("run_id"))},
+                {QStringLiteral("run_id"), stored.value(QStringLiteral("run_id"))},
                 {QStringLiteral("revision"), 1},
                 {QStringLiteral("changed_at_utc"), now},
                 {QStringLiteral("change_kind"), QStringLiteral("IMPORT")},
                 {QStringLiteral("reason"), QString::fromUtf8("导入本人的历史记录")},
                 {QStringLiteral("actor"), QStringLiteral("USER")},
                 {QStringLiteral("changes"), changes}});
-            accepted.append(run.value(QStringLiteral("run_id")));
+            accepted.append(stored.value(QStringLiteral("run_id")));
             status = QStringLiteral("imported");
             matching = run.value(QStringLiteral("run_id"));
         }
@@ -3099,32 +3156,35 @@ QJsonObject MockBackend::commitRunImport(const QJsonObject &payload, QString *er
                                     {QStringLiteral("run_id"), matching}});
     }
 
-    // Each accepted completion deducts only its owning region's baseline. The receipt
-    // freezes the regional outcomes, so replay never deducts from any baseline again.
-    QMap<QString, int> contributing;
+    // Each accepted completion deducts only the baseline of the profile it was filed under.
+    // The receipt freezes the outcomes, so replay never deducts from any baseline again.
+    QMap<QPair<QString, int>, int> contributing;
     for (const auto &id : std::as_const(accepted)) {
         const QJsonObject run = m_runs.at(indexOfRun(id.toString())).toObject();
-        if (!contributing.contains(runRegion(run)))
-            contributing.insert(runRegion(run), 0);
+        const QPair<QString, int> owner{runRegion(run), runProfileId(run)};
+        if (!contributing.contains(owner))
+            contributing.insert(owner, 0);
         if (!isSoftDeleted(run) && isConfirmedMentor(run)
             && run.value(QStringLiteral("result")).toString() == QLatin1String("COMPLETED")
             && run.value(QStringLiteral("contributes_to_goal")).toBool(true))
-            ++contributing[runRegion(run)];
+            ++contributing[owner];
     }
     int deducted = 0;
     QJsonArray adjustments;
     for (auto it = contributing.constBegin(); it != contributing.constEnd(); ++it) {
-        AchievementSettings settings = achievementSettings(it.key());
+        CharacterProfileEntry *profile = findProfile(it.key().second);
+        Q_ASSERT(profile);
+        AchievementSettings &settings = profile->settings;
         const int regionalDeduction = deduct ? qMin(it.value(), settings.baselineCompletedCount) : 0;
         if (regionalDeduction > 0) {
             settings.baselineCompletedCount -= regionalDeduction;
             settings.baselineEffectiveAt = QDateTime::currentDateTimeUtc();
             settings.updatedAt = settings.baselineEffectiveAt;
             settings.auditEventId = ipc::newRequestId();
-            m_achievements.insert(it.key(), settings);
         }
         deducted += regionalDeduction;
-        adjustments.append(QJsonObject{{QStringLiteral("region"), it.key()},
+        adjustments.append(QJsonObject{{QStringLiteral("region"), it.key().first},
+            {QStringLiteral("profile_id"), profile->id},
             {QStringLiteral("baseline_deducted_count"), regionalDeduction},
             {QStringLiteral("baseline_completed_count"), settings.baselineCompletedCount}});
     }
@@ -3300,6 +3360,7 @@ BackendReply *MockBackend::requestWithId(const QString &messageType, const QJson
             QString errorMessage;
             refuseWith(&errorCode, &errorMessage, QStringLiteral("ERR_IDEMPOTENCY_CONFLICT"),
                        messageType == QLatin1String("BatchMutateRuns") ? "history.batch.request_reused"
+                       : isCharacterProfileMessage(messageType)        ? "profile.request_reused"
                                                                        : "idempotency.request_reused");
             const QJsonObject errorRef = m_errorRef;
             m_errorRef = {};
@@ -3349,6 +3410,13 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         && (!requestedRegion.isString() || !isRegion(requestedRegion.toString()))) {
         deliver(reply, {}, QStringLiteral("ERR_BAD_REQUEST"),
                 QString::fromUtf8("区服筛选必须是 CN、TC、GLOBAL、UNKNOWN 或留空。"), {}, {});
+        return reply;
+    }
+    if (refusedProfileFilter(payload.value(QStringLiteral("filter")).toObject(), &errorCode, &errorMessage)) {
+        const QJsonObject errorRef = m_errorRef;
+        m_errorRef = {};
+        m_errorRefMessage.clear();
+        deliver(reply, {}, errorCode, errorMessage, {}, errorRef);
         return reply;
     }
 
@@ -3559,7 +3627,7 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
             QStringLiteral("with_reflection"), QStringLiteral("pending_review"), QStringLiteral("text"), QStringLiteral("name_text"),
             QStringLiteral("name_exact"), QStringLiteral("reflection_text"), QStringLiteral("run_id"),
             QStringLiteral("history_from_day"), QStringLiteral("history_to_day"), QStringLiteral("joined_in_progress"),
-            QStringLiteral("region")};
+            QStringLiteral("region"), QStringLiteral("profile_id"), QStringLiteral("profile_unassigned")};
         const QJsonObject filter = payload.value(QStringLiteral("filter")).toObject();
         for (auto it = filter.constBegin(); it != filter.constEnd(); ++it)
             if (!filterKeys.contains(it.key())) valid = false;
@@ -3615,13 +3683,19 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         for (const auto &id : payload.value(QStringLiteral("run_ids")).toArray())
             acknowledged += m_pendingImageCleanup.removeAll(id.toString());
         result.insert(QStringLiteral("acknowledged_count"), acknowledged);
+    } else if (isCharacterProfileMessage(messageType)) {
+        result = applyCharacterProfile(messageType, payload, &errorCode, &errorMessage, &errorDetails);
+    } else if (messageType == QLatin1String("BatchMutateRuns")
+               && payload.value(QStringLiteral("action")).toString() == QLatin1String("assign_profile")) {
+        result = assignRunsToProfile(payload, &errorCode, &errorMessage, &errorDetails);
     } else if (messageType == QLatin1String("BatchMutateRuns")) {
         const QString action = payload.value(QStringLiteral("action")).toString();
         const QString reason = payload.value(QStringLiteral("reason")).toString().trimmed();
         const QJsonArray targets = payload.value(QStringLiteral("runs")).toArray();
         QSet<QString> seen;
         if ((action != QLatin1String("soft_delete") && action != QLatin1String("restore") && action != QLatin1String("purge"))
-            || reason.isEmpty() || reason.size() > 500 || targets.isEmpty() || targets.size() > 2000) {
+            || reason.isEmpty() || reason.size() > 500 || targets.isEmpty() || targets.size() > 2000
+            || payload.contains(QStringLiteral("profile_id"))) {
             errorCode = QStringLiteral("ERR_BAD_REQUEST");
             errorMessage = tr("批量操作、原因或记录数量无效。");
         }

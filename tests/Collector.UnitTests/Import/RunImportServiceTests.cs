@@ -442,7 +442,7 @@ public sealed class RunImportServiceTests
         Settings(source);
         using (var command = source.Database.CreateCommand())
         {
-            command.CommandText = "UPDATE achievement_settings SET baseline_completed_count = 300";
+            command.CommandText = "UPDATE character_profiles SET baseline_completed_count = 300";
             command.ExecuteNonQuery();
         }
         source.Database.RunInTransaction(tx => new RunRepository(source.Database).Insert(TestDatabase.Run(), tx));
@@ -547,6 +547,47 @@ public sealed class RunImportServiceTests
             service.Commit(previewId, new[] { 1, 2 }, true, requestId)).Code);
         Assert.Equal(0, Settings(fixture).GetAchievementSettings().BaselineCompletedCount);
         Assert.Equal(2, new StatisticsRepository(fixture.Database, Settings(fixture)).GetDashboard().AchievementProgress);
+    }
+
+    /// <summary>
+    /// With several characters in a region the player says whose history a file is. The records go to
+    /// that character, the deduction comes out of that character's baseline, and nobody else's numbers
+    /// move; records of another region go to that region's current character as before.
+    /// </summary>
+    [Fact]
+    public void ImportedRecordsGoToTheNamedCharacterAndTheDeductionComesFromItsBaseline()
+    {
+        using var fixture = new TestDatabase();
+        SetBaseline(fixture, 1500);
+        var settings = Settings(fixture);
+        var main = settings.Profiles.FindCurrent(Region.Cn)!.ProfileId;
+        var alt = fixture.Database.RunInTransaction(tx => settings.Profiles.Insert(Region.Cn, "小号", 2000, 40, false, tx)).ProfileId;
+        var service = new RunImportService(fixture.Database, fixture.Clock);
+        var traditional = CompletedRun(3); traditional["region"] = "TC";
+        var preview = service.PreviewSource("JSON", rows: new JsonArray(CompletedRun(1), CompletedRun(2), traditional));
+        var previewId = preview["preview_id"]!.GetValue<string>();
+        var requestId = Id();
+
+        var committed = service.Commit(previewId, new[] { 1, 2, 3 }, true, requestId, deductFromBaseline: true, profileId: alt);
+
+        var runs = new RunRepository(fixture.Database);
+        var owners = committed["run_ids"]!.AsArray().Select(id => runs.Get(id!.GetValue<string>())!)
+            .ToDictionary(run => run.RunId, run => (run.Region, run.ProfileId));
+        Assert.Equal(2, owners.Values.Count(owner => owner == (Region.Cn, alt)));
+        Assert.Contains((Region.Tc, settings.Profiles.FindCurrent(Region.Tc)!.ProfileId), owners.Values);
+        var adjustment = committed["baseline_adjustments"]!.AsArray().Single(row => row!["region"]!.GetValue<string>() == "CN")!;
+        Assert.Equal((alt, 2, 38), (adjustment["profile_id"]!.GetValue<long>(),
+            adjustment["baseline_deducted_count"]!.GetValue<int>(), adjustment["baseline_completed_count"]!.GetValue<int>()));
+        var progress = new StatisticsRepository(fixture.Database, settings).GetProfiles()
+            .ToDictionary(value => value.Profile.ProfileId, value => (value.Profile.BaselineCompletedCount, value.AchievementProgress));
+        Assert.Equal((1500, 1500), progress[main]);
+        Assert.Equal((38, 40), progress[alt]);
+        // The character is part of what was committed: the same request for another one is another commit.
+        Assert.Equal(ErrorCodes.IdempotencyConflict, Assert.Throws<CollectorException>(() =>
+            service.Commit(previewId, new[] { 1, 2, 3 }, true, requestId, deductFromBaseline: true)).Code);
+        var later = service.PreviewSource("JSON", rows: new JsonArray(CompletedRun(5)))["preview_id"]!.GetValue<string>();
+        Assert.Equal(ErrorCodes.NotFound, Assert.Throws<CollectorException>(() =>
+            service.Commit(later, new[] { 1 }, true, Id(), profileId: 9999)).Code);
     }
 
     [Fact]

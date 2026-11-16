@@ -1006,6 +1006,32 @@
     "import.commit.request_reused": "本次提交的确认信息已用于其他操作，请重新打开导入窗口后预览。",
     "import.commit.preview_expired": "导入预览已失效，尚未保存。请点「重新校验」后再导入。",
     "import.commit.row_not_in_preview": "所选记录不在当前预览中，请重新校验并勾选。",
-    "import.commit.rows_have_errors": "所选记录仍有错误，本次未保存任何记录。请修正后重新校验。"
+    "import.commit.rows_have_errors": "所选记录仍有错误，本次未保存任何记录。请修正后重新校验。",
+    "profile.not_found": "找不到这个角色，请刷新后重试。",
+    "profile.name_required": {
+      "zh": "请填写角色名称，最多 {max} 个字。",
+      "args": {
+        "max": "number"
+      }
+    },
+    "profile.name_taken": "这个区服已有同名的角色，请换一个名称。",
+    "profile.limit_reached": {
+      "zh": "每个区服最多保存 {max} 个角色。",
+      "args": {
+        "max": "number"
+      }
+    },
+    "profile.delete_last": "每个区服至少保留一个角色，不能删除。",
+    "profile.delete_current": "新记录正记在这个角色名下。请先切换到其他角色，再删除它。",
+    "profile.delete_has_runs": {
+      "zh": "这个角色名下还有 {count} 条记录（含回收站）。请先在历史记录里把它们改到其他角色，再删除。",
+      "args": {
+        "count": "number"
+      }
+    },
+    "profile.region_mismatch": "所选角色不属于这条记录的区服。",
+    "profile.assign_unchanged": "选中的记录已经都记在这里，没有需要修改的。",
+    "profile.request_reused": "此请求编号已用于不同的角色操作。",
+    "ipc.filter.profile_conflict": "profile_id 与 profile_unassigned 不能同时使用。"
   }
 }

@@ -8,6 +8,26 @@ Card {
     required property var achievement
     property bool compact: false
     signal editRequested(string region)
+    // Shown only once the region holds a second character: the card then says
+    // whose progress this is and lets the player switch before logging in as
+    // another one. A player with one character sees the card as it always was.
+    readonly property bool severalCharacters: Number(card.achievement.profile_count || 0) > 1
+    readonly property int unassignedCount: Number(card.achievement.unassigned_run_count || 0)
+    // This card's own switch still unanswered: its refusal is this card's to tell.
+    property bool switching: false
+    Connections {
+        target: Runtime.app
+        enabled: card.switching
+        function onCharacterProfileSaved(profileId, action) {
+            if (action === "select") card.switching = false
+        }
+        function onCharacterProfileFailed(action, code, message) {
+            if (action !== "select")
+                return
+            card.switching = false
+            Runtime.app.showToast(qsTr("没有切换成功：%1").arg(Runtime.app.errorText(message, code)))
+        }
+    }
     objectName: achievement.region === "CN" ? "achievementCard" : "achievementCard_" + achievement.region
     padding: 20
     spacing: 8
@@ -15,6 +35,32 @@ Card {
         Layout.fillWidth: true
         text: Theme.live(Runtime.fmt.regionLabel(card.achievement.region)) + " · "
               + qsTr("成就进度 · %1 次").arg(card.achievement.goal_count)
+    }
+    RowLayout {
+        objectName: "achievementCharacter_" + card.achievement.region
+        Layout.fillWidth: true
+        visible: card.severalCharacters
+        spacing: 8
+        Text {
+            text: qsTr("当前角色")
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fs(12)
+        }
+        CharacterSelector {
+            objectName: "achievementCharacterSwitch_" + card.achievement.region
+            Layout.fillWidth: true
+            region: card.achievement.region
+            selection: Number(card.achievement.profile_id || 0)
+            markCurrent: false
+            enabled: !Runtime.app.characterProfileSaving && !card.switching
+            Accessible.name: qsTr("当前角色")
+            onProfilePicked: function(profileId) {
+                if (profileId === Number(card.achievement.profile_id || 0))
+                    return
+                card.switching = true
+                Runtime.app.selectCharacterProfile(profileId)
+            }
+        }
     }
     Item {
         Layout.fillWidth: true
@@ -62,5 +108,15 @@ Card {
             variant: "ghost"
             onClicked: card.editRequested(card.achievement.region)
         }
+    }
+    Text {
+        objectName: "achievementUnassigned_" + card.achievement.region
+        Layout.fillWidth: true
+        visible: card.unassignedCount > 0
+        text: qsTr("另有 %1 条记录没有分配角色，不计入任何角色的进度。可在历史记录中筛选「未分配」后分配。").arg(card.unassignedCount)
+        color: Theme.textSecondary
+        font.pixelSize: Theme.fs(11)
+        horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.WordWrap
     }
 }

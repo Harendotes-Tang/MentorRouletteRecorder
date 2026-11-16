@@ -89,6 +89,8 @@ public static class Wire
             ["revision"] = run.Revision,
             ["capture_session_id"] = run.CaptureSessionId,
             ["region"] = EnumWire<Region>.Format(run.Region),
+            // Always present: null means the run is assigned to no character profile.
+            ["profile_id"] = run.ProfileId,
             ["game_build"] = run.GameBuild,
             ["protocol_profile_id"] = run.ProtocolProfileId,
             ["mentor_roulette_id"] = run.MentorRouletteId,
@@ -280,7 +282,33 @@ public static class Wire
                     ["achievement_progress"] = value.AchievementProgress,
                     ["remaining"] = value.Remaining,
                     ["completed_count"] = value.CompletedCount,
+                    ["profile_id"] = value.ProfileId,
+                    ["profile_count"] = value.ProfileCount,
+                    ["unassigned_run_count"] = value.UnassignedRunCount,
                 }).ToArray()),
+            ["profiles"] = new JsonArray((statistics.Profiles ?? Array.Empty<CharacterProfileStatistics>())
+                .Select(value => (JsonNode?)Profile(value)).ToArray()),
+        };
+    }
+
+    /// <summary>Builds a <c>$defs/CharacterProfile</c> object.</summary>
+    /// <param name="value">Profile with its progress.</param>
+    public static JsonObject Profile(CharacterProfileStatistics value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        return new JsonObject
+        {
+            ["profile_id"] = value.Profile.ProfileId,
+            ["region"] = EnumWire<Region>.Format(value.Profile.Region),
+            ["display_name"] = value.Profile.DisplayName,
+            ["is_current"] = value.Profile.IsCurrent,
+            ["goal_count"] = value.Profile.GoalCount,
+            ["baseline_completed_count"] = value.Profile.BaselineCompletedCount,
+            ["achievement_progress"] = value.AchievementProgress,
+            ["remaining"] = value.Remaining,
+            ["completed_count"] = value.CompletedCount,
+            ["run_count"] = value.RunCount,
         };
     }
 

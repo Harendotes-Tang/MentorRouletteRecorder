@@ -523,8 +523,10 @@ public sealed class ContractSchemaTests
             // connection because it takes the exclusive capture lease.
             // GetCalibrationShareCode can only refuse here (no local calibration is in force);
             // SharedCalibrationContractTests validates its success shape from the renderer.
+            // CharacterProfileIpcTests holds the three profile messages to the contract over a real pipe.
             .Where(name => name is not ("StartCaptureValidation" or "AddCaptureValidationMarker" or "ConfirmCalibration"
-                or "GetCalibrationShareCode"))
+                or "GetCalibrationShareCode" or "CreateCharacterProfile" or "UpdateCharacterProfile"
+                or "DeleteCharacterProfile"))
             .ToArray();
         Assert.Empty(required.Except(seenResponses, StringComparer.Ordinal));
         Assert.Empty(seenResponses.Except(ContractSchema.ResponseMessageTypes, StringComparer.Ordinal));

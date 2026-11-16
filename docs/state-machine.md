@@ -101,6 +101,9 @@
 - 迁移时创建 `mentor_runs` 行，其中 `matched_at_utc` 取事件时间，`result` 暂记为
   `UNKNOWN`，`revision = 1`，`source = AUTO_NETWORK`，`change_kind = CREATE_AUTO`。
   同时启动该记录的单调计时器。
+- 记录所属的角色档案（`profile_id`）在创建该行时确定，取所属区服此刻的当前档案
+  （[data-model.md](data-model.md) §1.6）。此后状态机的任何迁移、延迟到达的结算与重启后的崩溃恢复都不改这一列：
+  用户在一场进行中切换了当前档案，这一场仍记在匹配时的档案名下。
 
 **本机校准的排队推断模式**：当档案以客户端排本请求代替匹配通知
 （`MatchFromQueue = true`）时，请求只暂存在内存中，状态保持 `IDLE`，没有当前场次，

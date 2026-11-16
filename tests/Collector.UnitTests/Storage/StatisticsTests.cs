@@ -89,12 +89,13 @@ public sealed class StatisticsTests
     {
         using var fixture = new TestDatabase();
         var runs = new RunRepository(fixture.Database);
+        var owner = fixture.CurrentProfile();
         fixture.Database.RunInTransaction(tx =>
         {
-            runs.Insert(TestDatabase.Run(result: RunResult.CancelledBeforeEntry), tx);
-            runs.Insert(TestDatabase.Run(result: RunResult.Completed, contributesToGoal: false), tx);
-            runs.Insert(TestDatabase.Run(result: RunResult.Completed, softDeleted: true), tx);
-            runs.Insert(TestDatabase.Run(result: RunResult.Completed, durationMs: null), tx);
+            runs.Insert(TestDatabase.Run(result: RunResult.CancelledBeforeEntry) with { ProfileId = owner }, tx);
+            runs.Insert(TestDatabase.Run(result: RunResult.Completed, contributesToGoal: false) with { ProfileId = owner }, tx);
+            runs.Insert(TestDatabase.Run(result: RunResult.Completed, softDeleted: true) with { ProfileId = owner }, tx);
+            runs.Insert(TestDatabase.Run(result: RunResult.Completed, durationMs: null) with { ProfileId = owner }, tx);
         });
         var settings = new SettingsRepository(fixture.Database, fixture.Clock);
         settings.EnsureDefaults();
@@ -419,13 +420,14 @@ public sealed class StatisticsTests
         var runs = new RunRepository(fixture.Database);
         var settings = new SettingsRepository(fixture.Database, fixture.Clock);
         settings.EnsureDefaults();
+        var owners = Enum.GetValues<Region>().ToDictionary(region => region, region => fixture.CurrentProfile(region));
         fixture.Database.RunInTransaction(tx =>
         {
-            runs.Insert(TestDatabase.Run() with { Region = Region.Cn }, tx);
-            runs.Insert(TestDatabase.Run() with { Region = Region.Tc }, tx);
-            runs.Insert(TestDatabase.Run() with { Region = Region.Tc }, tx);
-            runs.Insert(TestDatabase.Run() with { Region = Region.Global }, tx);
-            runs.Insert(TestDatabase.Run() with { Region = Region.Unknown }, tx);
+            runs.Insert(TestDatabase.Run() with { Region = Region.Cn, ProfileId = owners[Region.Cn] }, tx);
+            runs.Insert(TestDatabase.Run() with { Region = Region.Tc, ProfileId = owners[Region.Tc] }, tx);
+            runs.Insert(TestDatabase.Run() with { Region = Region.Tc, ProfileId = owners[Region.Tc] }, tx);
+            runs.Insert(TestDatabase.Run() with { Region = Region.Global, ProfileId = owners[Region.Global] }, tx);
+            runs.Insert(TestDatabase.Run() with { Region = Region.Unknown, ProfileId = owners[Region.Unknown] }, tx);
             settings.UpdateAchievementSettings(settings.GetAchievementSettings(tx) with
                 { BaselineCompletedCount = 1500, GoalCount = 2000 }, tx);
             settings.UpdateAchievementSettings(settings.GetAchievementSettings(tx, Region.Tc) with

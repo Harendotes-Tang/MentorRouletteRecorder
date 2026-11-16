@@ -175,8 +175,13 @@ public sealed partial class RunImportService
     /// to the progress are then deducted from <c>baseline_completed_count</c> in the same transaction,
     /// so the progress does not count them twice (docs/statistics-definitions.md section 4).
     /// </param>
+    /// <param name="profileId">
+    /// Character profile the imported records of its region are filed under, and whose baseline the
+    /// deduction is taken from. Null, and for the records of every other region, the region's
+    /// current profile.
+    /// </param>
     public JsonObject Commit(string previewId, IReadOnlyList<int> rowNumbers, bool confirmOwnRecords, string requestId,
-        bool deductFromBaseline = false, CancellationToken cancellationToken = default)
+        bool deductFromBaseline = false, CancellationToken cancellationToken = default, long? profileId = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!confirmOwnRecords) throw CollectorException.BadRequest(CollectorTexts.ImportCommitOwnRecordsRequired(), "confirm_own_records");
@@ -187,7 +192,8 @@ public sealed partial class RunImportService
         var selected = rowNumbers.OrderBy(number => number).ToArray();
         // The baseline choice is part of the selection: a retry that changes it is a different commit.
         var selectionFingerprint = RunImportCandidateNormalizer.Hash(previewId + ":" + string.Join(',', selected)
-            + (deductFromBaseline ? ":deduct_from_baseline" : ""));
+            + (deductFromBaseline ? ":deduct_from_baseline" : "")
+            + (profileId is { } named ? ":profile:" + named.ToString(CultureInfo.InvariantCulture) : ""));
         Preview? preview;
         lock (_gate) _previews.TryGetValue(previewId, out preview);
         return _database.RunInTransaction(transaction =>
@@ -213,9 +219,14 @@ public sealed partial class RunImportService
                 ?? throw CollectorException.BadRequest(CollectorTexts.ImportCommitRowNotInPreview(), "row_numbers")).ToArray();
             if (candidates.Any(candidate => candidate.Run is null || candidate.Errors.Count != 0))
                 throw CollectorException.BadRequest(CollectorTexts.ImportCommitRowsHaveErrors(), "row_numbers");
+            var chosen = profileId is { } chosenId
+                ? _settings.Profiles.Find(chosenId, transaction) ?? throw new CollectorException(
+                    ErrorCodes.NotFound, CollectorTexts.ProfileNotFound(),
+                    new Dictionary<string, object?> { ["profile_id"] = chosenId }, field: "profile_id")
+                : null;
             var outcomes = new JsonArray();
             var accepted = new List<string>();
-            var acceptedByRegion = new Dictionary<Region, List<string>>();
+            var acceptedByProfile = new Dictionary<long, List<string>>();
             var duplicateCount = 0;
             var conflictCount = 0;
             foreach (var candidate in candidates)
@@ -226,7 +237,10 @@ public sealed partial class RunImportService
                 else if (status == "conflict") conflictCount++;
                 else
                 {
-                    var run = candidate.Run!;
+                    var owner = chosen is not null && chosen.Region == candidate.Run!.Region
+                        ? chosen.ProfileId
+                        : _settings.Profiles.EnsureCurrent(candidate.Run!.Region, transaction).ProfileId;
+                    var run = candidate.Run! with { ProfileId = owner };
                     // The preview owns the complete validated candidate. Revisions start in this library.
                     _runs.Insert(run, transaction);
                     _imports.Insert(run.RunId, run.ImportMetadata!, transaction);
@@ -241,15 +255,15 @@ public sealed partial class RunImportService
                         Changes = Wire.Run(run).Select(pair => new RunFieldChange(pair.Key, null, AuditValue(pair.Value))).ToArray(),
                     }, transaction);
                     accepted.Add(run.RunId);
-                    if (!acceptedByRegion.TryGetValue(run.Region, out var owned))
-                        acceptedByRegion.Add(run.Region, owned = new List<string>());
+                    if (!acceptedByProfile.TryGetValue(owner, out var owned))
+                        acceptedByProfile.Add(owner, owned = new List<string>());
                     owned.Add(run.RunId);
                     status = "imported";
                     matching = run.RunId;
                 }
                 outcomes.Add(new JsonObject { ["row_number"] = candidate.RowNumber, ["status"] = status, ["run_id"] = matching });
             }
-            var adjustments = DeductFromBaseline(acceptedByRegion, deductFromBaseline, requestId, transaction);
+            var adjustments = DeductFromBaseline(acceptedByProfile, deductFromBaseline, requestId, transaction);
             var response = new JsonObject
             {
                 ["preview_id"] = previewId, ["imported_count"] = accepted.Count,
@@ -274,14 +288,16 @@ public sealed partial class RunImportService
     /// already in the library, and the eligibility test is the statistics query itself.
     /// </summary>
     /// <returns>How many completions were deducted, and the baseline as stored afterwards.</returns>
-    private JsonArray DeductFromBaseline(IReadOnlyDictionary<Region, List<string>> importedRuns, bool deduct,
+    private JsonArray DeductFromBaseline(IReadOnlyDictionary<long, List<string>> importedRuns, bool deduct,
         string requestId, SqliteTransaction transaction)
     {
         var output = new JsonArray();
         foreach (var (owner, importedRunIds) in importedRuns)
         {
-            var stored = _settings.GetAchievementSettings(transaction, owner);
-            var contributing = deduct ? CountContributingCompleted(importedRunIds, transaction, owner) : 0;
+            // The records went to this profile, so it is this profile's baseline that already
+            // counted them.
+            var stored = _settings.Profiles.Find(owner, transaction)!.ToSettings();
+            var contributing = deduct ? CountContributingCompleted(importedRunIds, transaction, stored.Region) : 0;
             var deducted = (int)Math.Min(contributing, stored.BaselineCompletedCount);
             var settings = stored;
             if (deducted > 0)
@@ -300,7 +316,8 @@ public sealed partial class RunImportService
             }
             output.Add(new JsonObject
             {
-                ["region"] = EnumWire<Region>.Format(owner),
+                ["region"] = EnumWire<Region>.Format(stored.Region),
+                ["profile_id"] = owner,
                 ["baseline_deducted_count"] = deducted,
                 ["baseline_completed_count"] = settings.BaselineCompletedCount,
             });

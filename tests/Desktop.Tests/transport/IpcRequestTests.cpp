@@ -217,6 +217,21 @@ QJsonObject argsFor(const QString &messageType)
             {QStringLiteral("run_id"), QStringLiteral("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")},
             {QStringLiteral("expected_revision"), 1}}});
         args.insert(QStringLiteral("reason"), QString::fromUtf8("批量删除"));
+    } else if (messageType == QLatin1String("CreateCharacterProfile")) {
+        // make_current false: the field stays off the wire (the contract's default).
+        args.insert(QStringLiteral("region"), QStringLiteral("CN"));
+        args.insert(QStringLiteral("display_name"), QString::fromUtf8("合成角色"));
+        args.insert(QStringLiteral("goal_count"), 2000);
+        args.insert(QStringLiteral("baseline_completed_count"), 120);
+    } else if (messageType == QLatin1String("UpdateCharacterProfile")) {
+        args.insert(QStringLiteral("profile_id"), 2);
+        args.insert(QStringLiteral("display_name"), QString::fromUtf8("合成角色二"));
+        args.insert(QStringLiteral("make_current"), true);
+    } else if (messageType == QLatin1String("DeleteCharacterProfile")) {
+        // An id no fresh library holds: ContractRequestSampleTests sends every sample to a
+        // real Collector, whose refusal of the last or current profile of a region would be
+        // ERR_BAD_REQUEST. An unknown id is ERR_NOT_FOUND and still reads the request whole.
+        args.insert(QStringLiteral("profile_id"), 999);
     } else if (messageType == QLatin1String("UpdateHistoryRetentionSettings")) {
         args.insert(QStringLiteral("retention_days"), 30);
     } else if (messageType == QLatin1String("AcknowledgeImageCleanup")) {
@@ -310,6 +325,9 @@ QStringList allMessageTypes()
         QStringLiteral("AcknowledgeImageCleanup"),
         QStringLiteral("PreviewRunImport"),
         QStringLiteral("CommitRunImport"),
+        QStringLiteral("CreateCharacterProfile"),
+        QStringLiteral("UpdateCharacterProfile"),
+        QStringLiteral("DeleteCharacterProfile"),
     };
 }
 
@@ -346,6 +364,36 @@ QList<RequestVariant> requestVariants()
         {.file=QStringLiteral("CommitRunImport.keep-baseline"), .messageType=QStringLiteral("CommitRunImport"),
          .args=QJsonObject{{QStringLiteral("preview_id"), QStringLiteral("6f1d2c3b-4a5e-4f60-8b7c-9d0e1f2a3b4c")},
                      {QStringLiteral("row_numbers"), QJsonArray{1, 2, 5}}}},
+        // 角色档案: the records of the profile's region are filed under it.
+        {.file=QStringLiteral("CommitRunImport.profile"), .messageType=QStringLiteral("CommitRunImport"),
+         .args=QJsonObject{{QStringLiteral("preview_id"), QStringLiteral("6f1d2c3b-4a5e-4f60-8b7c-9d0e1f2a3b4c")},
+                     {QStringLiteral("row_numbers"), QJsonArray{1}},
+                     {QStringLiteral("profile_id"), 2}}},
+        // One character's goal and baseline, named by profile rather than by region.
+        {.file=QStringLiteral("UpdateAchievementBaseline.profile"), .messageType=QStringLiteral("UpdateAchievementBaseline"),
+         .args=QJsonObject{{QStringLiteral("goal_count"), 1000},
+                     {QStringLiteral("baseline_completed_count"), 37},
+                     {QStringLiteral("baseline_effective_at"), QLatin1String(kStamp)},
+                     {QStringLiteral("reason"), QString::fromUtf8("设定角色起始次数")},
+                     {QStringLiteral("profile_id"), 2}}},
+        // 历史记录 → 改到角色: checked runs filed under one profile.
+        {.file=QStringLiteral("BatchMutateRuns.assign-profile"), .messageType=QStringLiteral("BatchMutateRuns"),
+         .args=QJsonObject{{QStringLiteral("action"), QStringLiteral("assign_profile")},
+                     {QStringLiteral("profile_id"), 2},
+                     {QStringLiteral("runs"), QJsonArray{QJsonObject{
+                         {QStringLiteral("run_id"), QStringLiteral("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")},
+                         {QStringLiteral("expected_revision"), 1}}}},
+                     {QStringLiteral("reason"), QString::fromUtf8("改到角色")}}},
+        // ... and under none: profile_id travels as an explicit null.
+        {.file=QStringLiteral("BatchMutateRuns.unassign-profile"), .messageType=QStringLiteral("BatchMutateRuns"),
+         .args=QJsonObject{{QStringLiteral("action"), QStringLiteral("assign_profile")},
+                     {QStringLiteral("runs"), QJsonArray{QJsonObject{
+                         {QStringLiteral("run_id"), QStringLiteral("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")},
+                         {QStringLiteral("expected_revision"), 1}}}},
+                     {QStringLiteral("reason"), QString::fromUtf8("不记在任何角色名下")}}},
+        // 切换角色: make_current alone, the name left as it is.
+        {.file=QStringLiteral("UpdateCharacterProfile.select"), .messageType=QStringLiteral("UpdateCharacterProfile"),
+         .args=QJsonObject{{QStringLiteral("profile_id"), 2}, {QStringLiteral("make_current"), true}}},
     };
 }
 

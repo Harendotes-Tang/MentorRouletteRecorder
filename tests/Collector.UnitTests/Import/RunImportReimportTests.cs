@@ -346,7 +346,10 @@ public sealed class RunImportReimportTests
         var earlier = CommitAll(service, PreviewCsv(service, path, text))["run_ids"]![0]!.GetValue<string>();
         using (var migrate = fixture.Database.CreateCommand())
         {
-            migrate.CommandText = "UPDATE mentor_runs SET region = 'CN' WHERE region = 'UNKNOWN' AND capture_session_id IS NULL;";
+            // What 0013 did to the region, and 0014 after it to the owning profile.
+            migrate.CommandText = "UPDATE mentor_runs SET region = 'CN', profile_id = " +
+                "(SELECT profile_id FROM character_profiles WHERE region = 'CN' AND is_current = 1) " +
+                "WHERE region = 'UNKNOWN' AND capture_session_id IS NULL;";
             migrate.ExecuteNonQuery();
         }
 
