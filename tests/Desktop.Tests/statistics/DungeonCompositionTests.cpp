@@ -370,6 +370,13 @@ private Q_SLOTS:
         QCOMPARE(bucket(special, QString::fromUtf8("主线副本")).value("share").toDouble(), 10.0 / 42.0);
         QCOMPARE(bucket(categories, QString::fromUtf8("大型任务")).value("completed_count").toLongLong(), static_cast<qint64>(0));
         QCOMPARE(bucket(categories, QString::fromUtf8("大型任务")).value("share").toDouble(), 0.0);
+        // A type has one colour in both charts; 其他副本 is the quiet neutral.
+        QCOMPARE(bucket(special, QString::fromUtf8("行会令")).value("color_token").toString(),
+                 bucket(categories, QString::fromUtf8("行会令")).value("color_token").toString());
+        QCOMPARE(bucket(special, QString::fromUtf8("主线副本")).value("color_token").toString(),
+                 QStringLiteral("dutyMainScenario"));
+        QCOMPARE(bucket(special, QString::fromUtf8("其他副本")).value("color_token").toString(),
+                 QStringLiteral("dutyOther"));
     }
 
     void specialClassificationUsesCatalogueRatherThanMutableNamesOrRouletteIds()
@@ -459,11 +466,12 @@ private Q_SLOTS:
         const auto extreme = bucket(categories, QString::fromUtf8("极神"));
         QCOMPARE(extreme.value("share").toDouble(), 7.0 / 65.0);
         QVERIFY(!extreme.value("is_unknown").toBool());
-        QCOMPARE(extreme.value("color_token").toString(), QStringLiteral("yellow"));
+        QCOMPARE(extreme.value("color_token").toString(), QStringLiteral("dutyExtreme"));
         const QStringList ordinary{QString::fromUtf8("四人迷宫"), trials, QString::fromUtf8("大型任务"),
                                    QString::fromUtf8("团队任务"), QString::fromUtf8("行会令")};
-        const QStringList tokens{QStringLiteral("blue"), QStringLiteral("orange"), QStringLiteral("teal"),
-                                 QStringLiteral("purple"), QStringLiteral("green")};
+        const QStringList tokens{QStringLiteral("dutyDungeon"), QStringLiteral("dutyTrial"),
+                                 QStringLiteral("dutyAlliance"), QStringLiteral("dutyRaid"),
+                                 QStringLiteral("dutyGuild")};
         for (qsizetype i = 0; i < ordinary.size(); ++i)
             QCOMPARE(bucket(categories, ordinary.at(i)).value("color_token").toString(), tokens.at(i));
         const auto published = model.topRows(0);

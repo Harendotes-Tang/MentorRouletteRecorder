@@ -82,7 +82,8 @@ struct ChartScene {
     QQmlEngine engine;
     std::unique_ptr<QObject> root;
 
-    bool create(const QString &theme = QStringLiteral("light"), int width = 1280)
+    bool create(const QString &theme = QStringLiteral("light"), int width = 1280,
+                const QString &style = QStringLiteral("classic"))
     {
         controller.setThemeMode(theme);
         auto *context = engine.rootContext();
@@ -93,7 +94,7 @@ struct ChartScene {
         context->setContextProperty(QStringLiteral("Roles"), &roles);
         context->setContextProperty(QStringLiteral("Names"), mr::GameNames::shared());
         context->setContextProperty(QStringLiteral("ReduceMotion"), true);
-        context->setContextProperty(QStringLiteral("ForceUiStyle"), QStringLiteral("classic"));
+        context->setContextProperty(QStringLiteral("ForceUiStyle"), style);
         context->setContextProperty(QStringLiteral("GraphsAvailable"), false);
         if (auto *language = mr::LanguageManager::instance()) {
             context->setContextProperty(QStringLiteral("Lang"), language);
@@ -248,6 +249,53 @@ private slots:
         scene.controller.dungeons()->reload();
         QTRY_COMPARE(chart->property("completedTotal").toDouble(), 30.0);
         QCOMPARE(scene.settings.dungeonSpecialHiddenBuckets(), QStringList{QStringLiteral("main-scenario")});
+        QVERIFY2(scene.warnings.isEmpty(), qPrintable(scene.warnings.join(QLatin1Char('\n'))));
+    }
+    void typeColoursAreTheDarkSetInBothThemes_data()
+    {
+        // 四人迷宫 / 讨伐歼灭战 / 极神 / 大型任务 / 团队任务 / 行会令 / 主线副本: the dark
+        // column of the prototype's 副本类型配色 table, per style.
+        QTest::addColumn<QStringList>("tones");
+        QTest::newRow("classic") << QStringList{"#6195f8", "#dc7401", "#d11929", "#037da1", "#7954d1", "#2ca656", "#e0b242"};
+        QTest::newRow("eorzea") << QStringList{"#5e8fcf", "#d67f35", "#c63944", "#63c9e6", "#9353b1", "#52d47f", "#dbb611"};
+        QTest::newRow("harendotes") << QStringList{"#66b4e3", "#ef5925", "#b71910", "#009390", "#9577cf", "#7dcf92", "#c3990a"};
+    }
+    void typeColoursAreTheDarkSetInBothThemes()
+    {
+        QFETCH(QStringList, tones);
+        mr::LanguageManager language{nullptr};
+        language.initialize(QStringLiteral("zh-CN"));
+        ChartScene scene;
+        QVERIFY2(scene.create(QStringLiteral("dark"), 1280, QString::fromLatin1(QTest::currentDataTag())),
+                 qPrintable(scene.errors));
+        QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
+        QTRY_COMPARE(scene.controller.dungeons()->totalCompletedCount(), 100);
+        auto *types = scene.find(QStringLiteral("dungeonCategoryPie"));
+        auto *special = scene.find(QStringLiteral("dungeonSpecialPie"));
+        QVERIFY(types && special);
+        const auto swatch = [](QQuickItem *chart, int row) {
+            auto *found = item(chart, QStringLiteral("completionPieSwatch%1").arg(row));
+            return found ? found->property("color").value<QColor>().name() : QString();
+        };
+        QString quietInDark;
+        for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("light")}) {
+            scene.controller.setThemeMode(theme);
+            QTRY_COMPARE(scene.controller.isDark(), theme == QLatin1String("dark"));
+            for (int row = 0; row < 6; ++row)
+                QTRY_COMPARE(swatch(types, row), tones.at(row));
+            QTRY_COMPARE(swatch(special, 0), tones.at(6));
+            // 行会令 is the same colour in both charts.
+            QTRY_COMPARE(swatch(special, 1), tones.at(5));
+            // 其他副本 is the quiet neutral, which follows the theme.
+            const QString quiet = swatch(special, 2);
+            QVERIFY(!quiet.isEmpty() && !tones.contains(quiet));
+            if (theme == QLatin1String("dark"))
+                quietInDark = quiet;
+            else
+                QVERIFY(quiet != quietInDark);
+            QVERIFY(scene.capture(QString::fromLatin1(QTest::currentDataTag()) + QLatin1Char('-') + theme
+                                  + QStringLiteral("-type-colours.png")));
+        }
         QVERIFY2(scene.warnings.isEmpty(), qPrintable(scene.warnings.join(QLatin1Char('\n'))));
     }
     void controlsRemainReachableAndLabelsFollowLanguage_data()

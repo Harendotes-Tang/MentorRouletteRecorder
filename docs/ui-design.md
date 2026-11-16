@@ -429,8 +429,12 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   只在界面上存在的分段（`DutyCatalog::isExtremeTrial`）：一行的内容编号在随包副本目录中对应一个讨伐歼灭战，
   且其名称属于极难度（以「歼殛战」等极神副本的名称结尾，或为「终极之战」），该行的通关计入「极神」；
   名称以「幻巧战」结尾的幻巧战不计入「极神」。其余讨伐歼灭战，包括内容编号在目录中查不到的行，仍计入「讨伐歼灭战」，
-  因此「讨伐歼灭战」分段不含极神，两段之和才是该类型的全部通关。「极神」为 0 时同样列出，颜色为 `yellow`，
+  因此「讨伐歼灭战」分段不含极神，两段之和才是该类型的全部通关。「极神」为 0 时同样列出，颜色为 `dutyExtreme`，
   其他分段的颜色不因它的插入而改变。记录、采集服务的统计与导出都不区分极神。
+  各分段使用副本类型色（`Theme.qml` 的 `duty*`，§6）：四人迷宫 `dutyDungeon`、讨伐歼灭战 `dutyTrial`、大型任务 `dutyAlliance`、
+  团队任务 `dutyRaid`、行会令 `dutyGuild`，五类之外的类型从 `dutyMainScenario` 起依次取用，「未识别」为 `neutral500`。
+  「主线副本与行会令占比」中主线副本为 `dutyMainScenario`，行会令与上一张图同为 `dutyGuild`，其他副本为中性的 `dutyOther`，
+  「未识别」为 `neutral500`。副本类型色在深色与浅色主题下取同一组值，只随界面风格变化。
 
 ### 4.4 捕获诊断（page 5）
 
@@ -1773,7 +1777,7 @@ QML 界面加载失败（没有根对象，或根对象不是窗口，例如安�
   贴近屏幕顶端没有空间时改到下方；迷你条上的提示框以整条为基准，不会盖住条上的数字或按钮。
   按钮落在可悬停的条上（标题栏的拖动区、迷你条的进度行）时只显示按钮自己的提示，不同时显示条的提示。
 * **副本类型色**与副本统计页的类型图例一致（`DungeonStatsModel::categoryBreakdown` 的 token，§4.3），角标为单字（迷 / 讨 / 大 / 团 / 令；
-  极神只作为图例分段出现，角标为「极」）；
+  极神只作为图例分段出现，角标为「极」），角标文字为 `dutyBadgeForeground`；
   职能色取自 `JobCatalog::tokenForRoleGroup`。累计进度来自各区服的 `achievements` 条目（`achievement_progress` 与 `goal_count`），
   当前副本来自 `App.currentRun`，进本后的用时来自 `liveElapsedMs`（由 `GetCurrentRun.elapsed_ms` 外推，自进入副本起计，
   进本之前该字段为空），已匹配阶段由 `matched_at_utc` 起算，平均用时取副本统计行的 `avg_duration_ms`
@@ -2007,6 +2011,9 @@ Collector 对同样的输入答 `ERR_TIME_ORDER`（[manual-correction.md](manual
 | `--color-green/orange/red/yellow/purple/teal/blue` | 同名属性 | 经典 `#31a24c` / `#dfa937` / `#d92b2b` / `#e9b949` / `#7b5cd6` / `#2b8fb8` / = accent |
 | `--color-green-bg` / `--color-orange-bg` / `--color-orange-fg` / `--color-red-bg` | `greenBackground` / `orangeBackground` / `orangeForeground` / `redBackground` | 经典标签的底色与橙色字 |
 | `--color-neutral-100…800` | `neutral100` / `neutral300` / `neutral400` / `neutral500` / `neutral600` / `neutral800` | |
+| `--dt-dungeon` / `-trial` / `-extreme` / `-alliance` / `-raid` / `-guild` / `-msq` | `dutyDungeon` / `dutyTrial` / `dutyExtreme` / `dutyAlliance` / `dutyRaid` / `dutyGuild` / `dutyMainScenario` | 副本类型色（四人迷宫 / 讨伐歼灭战 / 极神 / 大型任务 / 团队任务 / 行会令 / 主线副本）。原型为每种风格各给出深、浅两组，实现统一取**深色组**，同一类型在两种主题下颜色相同：经典 `#6195f8` / `#dc7401` / `#d11929` / `#037da1` / `#7954d1` / `#2ca656` / `#e0b242`；艾欧泽亚 `#5e8fcf` / `#d67f35` / `#c63944` / `#63c9e6` / `#9353b1` / `#52d47f` / `#dbb611`；Harendotes `#66b4e3` / `#ef5925` / `#b71910` / `#009390` / `#9577cf` / `#7dcf92` / `#c3990a` |
+| `--dt-other` | `dutyOther` | 「其他副本」的中性色，等于 `neutral300`，随主题变化（深色组的取值在浅色卡片上会成为最重的一块） |
+| — | `dutyBadgeForeground` | 副本类型色块上的文字，取深色组的 `--badge-fg`，两种主题相同 |
 | `--inset-bg` / `--inset-bg-2` | `insetBackground` / `insetBackgroundStrong` | `components/InsetBox.qml`；经典 `#212936` / `#f3f7fe`、`#2a3341` / `fill` |
 | `--inset-border` | `insetBorder` | 艾欧泽亚 = `border`；经典透明 |
 | `.status-panel` | `statusPanelBackground` / `statusPanelBorder` | 经典 = `--color-bg` + 1 px divider |

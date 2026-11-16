@@ -8,6 +8,7 @@ Rectangle {
 
     property string text: "?"
     property color tone: Theme.neutral500
+    property color foreground: Theme.badgeForeground
 
     implicitWidth: Math.max(16, label.implicitWidth + 6)
     implicitHeight: 16
@@ -18,7 +19,7 @@ Rectangle {
         id: label
         anchors.centerIn: parent
         text: root.text
-        color: Theme.badgeForeground
+        color: root.foreground
         font.pixelSize: 10
         font.weight: Font.ExtraBold
     }

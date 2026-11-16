@@ -374,9 +374,11 @@ QVariantList DungeonStatsModel::categoryBreakdown() const
             categories.append(it.key());
     }
     categories.append(unknown);
-    const QStringList tokens{QStringLiteral("blue"), QStringLiteral("orange"),
-                             QStringLiteral("teal"), QStringLiteral("purple"),
-                             QStringLiteral("green"), QStringLiteral("yellow")};
+    // Theme.qml's 副本类型色, in `order`; a category outside the five takes the
+    // next token round the list, as it did with the general palette.
+    const QStringList tokens{QStringLiteral("dutyDungeon"), QStringLiteral("dutyTrial"),
+                             QStringLiteral("dutyAlliance"), QStringLiteral("dutyRaid"),
+                             QStringLiteral("dutyGuild"), QStringLiteral("dutyMainScenario")};
     const qint64 total = totalCompletedCount();
     QVariantList out;
     for (qsizetype i = 0; i < categories.size(); ++i) {
@@ -395,7 +397,7 @@ QVariantList DungeonStatsModel::categoryBreakdown() const
         // indices/colors. Its separate count cannot collide with a supplied
         // category label, and zero remains a known bucket with the same denominator.
         if (category == trials)
-            out.append(completionBucket(QStringLiteral("trial:extreme"), tr("极神"), extremeCount, total, QStringLiteral("yellow")));
+            out.append(completionBucket(QStringLiteral("trial:extreme"), tr("极神"), extremeCount, total, QStringLiteral("dutyExtreme")));
     }
     return out;
 }
@@ -420,9 +422,11 @@ QVariantList DungeonStatsModel::specialDutyBreakdown() const
         counts[group] += completionCount(row);
     }
     const qint64 total = totalCompletedCount();
-    return {completionBucket(QStringLiteral("main-scenario"), tr("主线副本"), counts[0], total, QStringLiteral("blue")),
-            completionBucket(QStringLiteral("guildhest"), tr("行会令"), counts[1], total, QStringLiteral("green")),
-            completionBucket(QStringLiteral("other"), tr("其他副本"), counts[2], total, QStringLiteral("orange")),
+    // 行会令 has the colour it has in the type chart; 其他副本 is the quiet
+    // neutral, so the two named groups stand out from the rest.
+    return {completionBucket(QStringLiteral("main-scenario"), tr("主线副本"), counts[0], total, QStringLiteral("dutyMainScenario")),
+            completionBucket(QStringLiteral("guildhest"), tr("行会令"), counts[1], total, QStringLiteral("dutyGuild")),
+            completionBucket(QStringLiteral("other"), tr("其他副本"), counts[2], total, QStringLiteral("dutyOther")),
             completionBucket(QStringLiteral("unknown"), tr("未识别"), counts[3], total, QStringLiteral("neutral500"), true)};
 }
 

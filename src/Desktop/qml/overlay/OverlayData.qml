@@ -226,15 +226,18 @@ QtObject {
     readonly property var categoryKeys: ["四人迷宫", "讨伐歼灭战", "大型任务", "团队任务", "行会令"]
     function categoryToken(category) {
         switch (String(category || "")) {
-        case "四人迷宫": return "blue"
-        case "讨伐歼灭战": return "orange"
-        case "大型任务": return "teal"
-        case "团队任务": return "purple"
-        case "行会令": return "green"
+        case "四人迷宫": return "dutyDungeon"
+        case "讨伐歼灭战": return "dutyTrial"
+        case "大型任务": return "dutyAlliance"
+        case "团队任务": return "dutyRaid"
+        case "行会令": return "dutyGuild"
         default: return "neutral500"
         }
     }
     function categoryColor(category) { return Theme.token(categoryToken(category)) }
+    function categoryBadgeForeground(category) {
+        return categoryToken(category) === "neutral500" ? Theme.badgeForeground : Theme.dutyBadgeForeground
+    }
     function categoryBadge(category) {
         switch (String(category || "")) {
         case "四人迷宫": return qsTr("迷")

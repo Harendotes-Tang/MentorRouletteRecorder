@@ -33,6 +33,7 @@ RowLayout {
         visible: root.showCategory && !root.categoryArt && root.status !== "matched"
         text: root.ov.categoryBadge(root.category)
         tone: root.ov.categoryColor(root.category)
+        foreground: root.ov.categoryBadgeForeground(root.category)
     }
 
     CategoryIcon {

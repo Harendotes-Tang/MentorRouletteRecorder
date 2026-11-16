@@ -163,6 +163,7 @@ Card {
                     spacing: 8
 
                     Rectangle {
+                        objectName: "completionPieSwatch" + legendRow.index
                         Layout.preferredWidth: 9
                         Layout.preferredHeight: 9
                         radius: 2

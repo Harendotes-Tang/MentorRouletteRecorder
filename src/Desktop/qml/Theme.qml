@@ -411,6 +411,30 @@ QtObject {
         ? gilded("#6fc3d6", "#2f8ea3", "#1ab8cc", "#0f8d9e") : "#2b8fb8"
     readonly property color blue: eorzea
         ? gilded("#6ea0e0", "#3b6fb5", "#5fa8d3", "#2f6f9e") : accent
+    // 副本类型色 (the prototype's --dt-*): each style's own hues with the
+    // lightness staggered, so any two types stay apart side by side and a type
+    // has the same colour in both composition charts and in the overlay. The
+    // prototype lists a light and a dark set per style; the dark set is used
+    // in both themes (owner, 2026-11-16), so a type keeps one colour whatever
+    // the theme. 极神 sits with 讨伐歼灭战 in the warm hues, one step deeper.
+    function dutyTone(eorzeaTone, harendotesTone, classicTone) {
+        if (!eorzea)
+            return classicTone
+        return harendotes ? harendotesTone : eorzeaTone
+    }
+    readonly property color dutyDungeon: dutyTone("#5e8fcf", "#66b4e3", "#6195f8")
+    readonly property color dutyTrial: dutyTone("#d67f35", "#ef5925", "#dc7401")
+    readonly property color dutyExtreme: dutyTone("#c63944", "#b71910", "#d11929")
+    readonly property color dutyAlliance: dutyTone("#63c9e6", "#009390", "#037da1")
+    readonly property color dutyRaid: dutyTone("#9353b1", "#9577cf", "#7954d1")
+    readonly property color dutyGuild: dutyTone("#52d47f", "#7dcf92", "#2ca656")
+    readonly property color dutyMainScenario: dutyTone("#dbb611", "#c3990a", "#e0b242")
+    // --dt-other is each style's quiet neutral, which has to follow the theme
+    // to stay quiet: the dark value would be the heaviest slice on a light card.
+    readonly property color dutyOther: neutral300
+    // The letter on a type-coloured badge: the dark set's --badge-fg in both
+    // themes, as the tones are; a light theme's white is lost on them.
+    readonly property color dutyBadgeForeground: dutyTone("#1c1c1c", "#0a0d16", "#ffffff")
     // Tinted plates behind a coloured label (workbench.css --color-*-bg / -fg). The
     // eorzea tags are framed instead, so the eorzea values only mirror the palette.
     readonly property color greenBackground: eorzea
@@ -520,6 +544,22 @@ QtObject {
             return neutral500
         case "neutral400":
             return neutral400
+        case "dutyDungeon":
+            return dutyDungeon
+        case "dutyTrial":
+            return dutyTrial
+        case "dutyExtreme":
+            return dutyExtreme
+        case "dutyAlliance":
+            return dutyAlliance
+        case "dutyRaid":
+            return dutyRaid
+        case "dutyGuild":
+            return dutyGuild
+        case "dutyMainScenario":
+            return dutyMainScenario
+        case "dutyOther":
+            return dutyOther
         default:
             return textPrimary
         }
