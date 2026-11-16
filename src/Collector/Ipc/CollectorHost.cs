@@ -332,7 +332,8 @@ public sealed class CollectorHost : IDisposable
             };
             // A name of what happened, a count and an exception type: never an identifier.
             pipeline.CharacterIdentityNoted += note => _logger.Write(
-                note.Error is null && note.Event is not ("key_replace_failed" or "key_unusable" or "key_unavailable")
+                note.Error is null && note.Event is not ("key_replace_failed" or "key_unusable" or "key_unavailable"
+                    or "login_not_recognised" or "character_unknown_at_match" or "connection_limit_reached")
                     ? LogLevel.Info
                     : LogLevel.Warn,
                 "character_identity",

@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Mutations;
@@ -12,131 +13,126 @@ using MentorRecorder.Collector.Storage.Repositories;
 namespace MentorRecorder.Collector.UnitTests;
 
 /// <summary>
-/// Telling the logged-in character apart while capture runs: when the traffic names a character
-/// (<see cref="CharacterIdentityTracker"/>) and what the pipeline does about it
+/// Telling the logged-in character apart while capture runs: the login message that says who a
+/// character is (<see cref="CharacterLoginRecognizer"/>) and what the pipeline does about it
 /// (docs/state-machine.md section 3.1).
 /// </summary>
 public sealed class CharacterIdentificationTests
 {
-    private const uint Main = 0x1011_2233;
-    private const uint Alt = 0x1044_5566;
-    private const uint Lobby = 0x0000_7777;
+    private const ulong Main = 0x0040_1122_3344_5566;
+    private const ulong Alt = 0x0040_7788_99AA_BBCC;
     private const string Build = "2026.11.03.0000.0000";
 
-    private static DecodedMessage Segment(
-        uint target, double seconds, string session = "s", ushort type = FfxivFraming.SegmentTypeIpc,
-        MessageDirection direction = MessageDirection.Inbound, string connection = "zone") =>
-        new(session, direction, new DateTimeOffset(2026, 11, 16, 0, 0, 0, TimeSpan.Zero).AddSeconds(seconds),
-            TimeSpan.FromSeconds(seconds), 0, type, 0x0123, new byte[16], connection)
+    /// <summary>A server-to-client IPC message about the client, as every game message is.</summary>
+    private static DecodedMessage Inbound(
+        uint actor, byte[] payload, TimeSpan mono, string connection = "zone", string session = "s",
+        MessageDirection direction = MessageDirection.Inbound, ushort segment = FfxivFraming.SegmentTypeIpc,
+        uint? source = null) =>
+        new(session, direction, new DateTimeOffset(2026, 11, 16, 0, 0, 0, TimeSpan.Zero).Add(mono), mono, 0,
+            segment, 0x01ae, payload, connection)
         {
-            SourceActor = target,
-            TargetActor = target,
+            SourceActor = source ?? actor,
+            TargetActor = actor,
         };
 
-    /// <summary>Feeds <paramref name="count"/> segments spread evenly over a span and returns the changes.</summary>
-    private static List<CharacterIdentityChange> Feed(
-        CharacterIdentityTracker tracker, uint target, int count, double from, double to)
+    /// <summary>The login message of the 2026.11.03 client: 2952 bytes, identifier first, actor at 24.</summary>
+    private static byte[] LoginPayload(ulong character, uint actor, int length = 2952, int actorOffset = 24)
     {
-        var changes = new List<CharacterIdentityChange>();
-        for (var index = 0; index < count; index++)
-        {
-            var change = tracker.Observe(Segment(target, from + (to - from) * index / Math.Max(1, count - 1)));
-            if (change != CharacterIdentityChange.None)
-            {
-                changes.Add(change);
-            }
-        }
+        var payload = new byte[length];
+        BinaryPrimitives.WriteUInt64LittleEndian(payload, character);
+        BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(actorOffset), actor);
+        return payload;
+    }
 
-        return changes;
+    private static (bool Recognised, ulong Character, uint Actor) Recognise(
+        CharacterLoginRecognizer recognizer, DecodedMessage message)
+    {
+        Span<byte> identifier = stackalloc byte[CharacterLoginRecognizer.IdentifierBytes];
+        var recognised = recognizer.TryRecognise(message, identifier, out var actor);
+        return (recognised, recognised ? BinaryPrimitives.ReadUInt64LittleEndian(identifier) : 0, actor);
     }
 
     [Fact]
-    public void ADenseRunOfSegmentsNamesTheCharacterAndStayingSettlesIt()
+    public void TheLoginMessageIsKnownByItsShapeAndGivesTheCharactersLastingIdentifier()
     {
-        var tracker = new CharacterIdentityTracker();
+        var recognizer = new CharacterLoginRecognizer();
+        var start = TimeSpan.FromSeconds(10);
 
-        Assert.Empty(Feed(tracker, Main, CharacterIdentityTracker.WindowSize - 1, 0, 1));
-        Assert.Null(tracker.Actor);
-        Assert.Equal(CharacterIdentityChange.Named, tracker.Observe(Segment(Main, 1)));
-        Assert.Equal((Main, false), (tracker.Actor, tracker.IsSettled));
+        // The burst that opens a game connection, then the login message 186 ms later.
+        Assert.False(Recognise(recognizer, Inbound(0x1001, new byte[64], start)).Recognised);
+        var login = Recognise(recognizer, Inbound(0x1001, LoginPayload(Main, 0x1001), start + TimeSpan.FromMilliseconds(186)));
 
-        // Enough segments but not enough time, then enough of both.
-        Assert.Empty(Feed(tracker, Main, CharacterIdentityTracker.SettleSamples + 10, 1, 5));
-        Assert.Equal(new[] { CharacterIdentityChange.Settled }, Feed(tracker, Main, 50, 21, 25));
-        Assert.True(tracker.IsSettled);
-        Assert.Empty(Feed(tracker, Main, 2000, 25, 60));
+        Assert.Equal((true, Main, 0x1001u), login);
+        // Once per connection: a later message of the same shape says nothing new.
+        Assert.False(Recognise(recognizer, Inbound(0x1001, LoginPayload(Alt, 0x1001), start + TimeSpan.FromSeconds(1))).Recognised);
+        // The next login opens another connection, and the actor may be another one for the same character.
+        Assert.Equal((true, Main, 0x2002u),
+            Recognise(recognizer, Inbound(0x2002, LoginPayload(Main, 0x2002), start + TimeSpan.FromMinutes(1), "zone-2")));
+    }
+
+    public static TheoryData<string, DecodedMessage> NotALoginMessage()
+    {
+        var at = TimeSpan.FromSeconds(1);
+        return new TheoryData<string, DecodedMessage>
+        {
+            { "client to server", Inbound(0x1001, LoginPayload(Main, 0x1001), at, direction: MessageDirection.Outbound) },
+            { "not an IPC segment", Inbound(0x1001, LoginPayload(Main, 0x1001), at, segment: 7) },
+            { "about somebody else", Inbound(0x1001, LoginPayload(Main, 0x1001), at, source: 0x3003) },
+            { "no actor", Inbound(0, LoginPayload(Main, 0), at) },
+            { "too short", Inbound(0x1001, LoginPayload(Main, 0x1001, length: CharacterLoginRecognizer.MinimumLength - 4), at) },
+            { "actor elsewhere", Inbound(0x1001, LoginPayload(Main, 0x1001, actorOffset: 8), at) },
+            { "no identifier", Inbound(0x1001, LoginPayload(0, 0x1001), at) },
+            { "identifier is the actor", Inbound(0x1001, LoginPayload(0x0000_0001_0000_1001, 0x1001), at) },
+            { "identifier holds the actor", Inbound(0x1001, LoginPayload(0x0000_1001_0000_0002, 0x1001), at) },
+        };
+    }
+
+    [Theory]
+    [MemberData(nameof(NotALoginMessage))]
+    public void AMessageOfAnotherShapeIsNotTakenForALogin(string why, DecodedMessage message)
+    {
+        Assert.False(Recognise(new CharacterLoginRecognizer(), message).Recognised, why);
+    }
+
+    /// <summary>
+    /// The first large message about the client decides a connection: on the selection screen's
+    /// connection it is not a login, and nothing later on that connection is taken for one.
+    /// </summary>
+    [Fact]
+    public void TheFirstLargeMessageAboutTheClientDecidesTheConnection()
+    {
+        var recognizer = new CharacterLoginRecognizer();
+        var at = TimeSpan.FromSeconds(1);
+
+        Assert.False(Recognise(recognizer, Inbound(0x1001, new byte[1168], at, "lobby")).Recognised);
+        Assert.False(Recognise(recognizer, Inbound(0x1001, LoginPayload(Main, 0x1001), at + TimeSpan.FromMilliseconds(5), "lobby")).Recognised);
+        // Small messages and messages about somebody else decide nothing.
+        Assert.False(Recognise(recognizer, Inbound(0x2002, new byte[512], at, "zone")).Recognised);
+        Assert.False(Recognise(recognizer, Inbound(0x2002, new byte[2000], at, "zone", source: 0x9999)).Recognised);
+        Assert.True(Recognise(recognizer, Inbound(0x2002, LoginPayload(Main, 0x2002), at, "zone")).Recognised);
     }
 
     [Fact]
-    public void TheSelectionScreensTrickleNamesNobodyAndTakesNoNameAway()
+    public void ALoginMessageComesSoonAfterItsConnectionOpensOrNotAtAll()
     {
-        var tracker = new CharacterIdentityTracker();
+        var recognizer = new CharacterLoginRecognizer();
+        var opened = TimeSpan.FromSeconds(5);
+        Recognise(recognizer, Inbound(0x1001, new byte[64], opened));
 
-        // A few segments every eleven seconds, for an hour: never dense enough.
-        for (var second = 0.0; second < 3600; second += 11)
-        {
-            Assert.Empty(Feed(tracker, Lobby, 3, second, second + 0.2));
-        }
+        Assert.False(Recognise(recognizer, Inbound(0x1001, LoginPayload(Main, 0x1001), opened + CharacterLoginRecognizer.Window + TimeSpan.FromMilliseconds(1))).Recognised);
 
-        Assert.Null(tracker.Actor);
-
-        Feed(tracker, Main, 200, 3600, 3602);
-        Assert.Equal(Main, tracker.Actor);
-        // Back at the selection screen the name stays: a quiet moment is not a logout.
-        for (var second = 3700.0; second < 4000; second += 11)
-        {
-            Assert.Empty(Feed(tracker, Lobby, 3, second, second + 0.2));
-        }
-
-        Assert.Equal(Main, tracker.Actor);
-    }
-
-    [Fact]
-    public void AnotherCharactersLoginTakesTheNameAndStartsSettlingAgain()
-    {
-        var tracker = new CharacterIdentityTracker();
-        Feed(tracker, Main, 1000, 0, 30);
-        Assert.True(tracker.IsSettled);
-
-        // The new character's burst is interleaved with the tail of the selection screen.
-        var changes = new List<CharacterIdentityChange>();
-        for (var index = 0; index < 300; index++)
-        {
-            var target = index % 20 == 0 ? Lobby : Alt;
-            var change = tracker.Observe(Segment(target, 60 + index * 0.01));
-            if (change != CharacterIdentityChange.None)
-            {
-                changes.Add(change);
-            }
-        }
-
-        Assert.Equal(new[] { CharacterIdentityChange.Named }, changes);
-        Assert.Equal((Alt, false), (tracker.Actor, tracker.IsSettled));
-    }
-
-    [Fact]
-    public void OnlyInboundIpcSegmentsWithATargetAreCounted()
-    {
-        var tracker = new CharacterIdentityTracker();
-
-        for (var index = 0; index < 500; index++)
-        {
-            tracker.Observe(Segment(Main, index * 0.01, direction: MessageDirection.Outbound));
-            tracker.Observe(Segment(Main, index * 0.01, type: 7));
-            tracker.Observe(Segment(0, index * 0.01));
-        }
-
-        Assert.Null(tracker.Actor);
-        tracker.Reset();
-        Feed(tracker, Main, 200, 10, 11);
-        tracker.Reset();
-        Assert.Equal((null, false), (tracker.Actor, tracker.IsSettled));
+        recognizer.Reset();
+        Assert.True(Recognise(recognizer, Inbound(0x1001, LoginPayload(Main, 0x1001), opened + TimeSpan.FromMinutes(1))).Recognised);
     }
 
     private sealed class Rig : IDisposable
     {
         private static readonly byte[] KeyBytes = Enumerable.Range(1, CaptureIdentityProbe.KeyBytes).Select(value => (byte)value).ToArray();
         private double _seconds;
+        private int _connections;
+
+        /// <summary>The game connection of the latest login.</summary>
+        public string LastConnection { get; private set; } = "zone-0";
 
         public Rig(Region region = Region.Cn, bool recording = false)
         {
@@ -168,23 +164,6 @@ public sealed class CharacterIdentificationTests
 
         public List<CharacterIdentityNote> Notes { get; } = new();
 
-        /// <summary>The synthetic profile's pop: a run is matched for whoever <paramref name="actor"/> is.</summary>
-        public string Pop(uint actor)
-        {
-            var pop = new byte[8];
-            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(pop, 42);
-            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(pop.AsSpan(4), 900_001);
-            _seconds += 1;
-            Pipeline.Accept(new DecodedMessage(Session, MessageDirection.Inbound, Db.Clock.UtcNow.AddSeconds(_seconds),
-                TimeSpan.FromSeconds(_seconds), 0, 61440, 61441, pop, "zone")
-            {
-                SourceActor = actor,
-                TargetActor = actor,
-            });
-            return new RunRepository(Db.Database).Query(Domain.Queries.RunFilter.Empty, null, 1, 50).Items
-                .OrderByDescending(run => run.CreatedAtUtc).ThenByDescending(run => run.RunId).First().RunId;
-        }
-
         public TestDatabase Db { get; } = new();
 
         public LiveEventBus Bus => _bus ??= new LiveEventBus(Db.Clock);
@@ -214,27 +193,51 @@ public sealed class CharacterIdentificationTests
             Pipeline.OnCaptureStarted(Session);
         }
 
-        /// <summary>A login: a dense burst, then enough ordinary traffic to settle when asked.</summary>
-        public void Login(uint actor, bool stay = true)
+        /// <summary>
+        /// A character enters the game: a new game connection opens with a burst and the login
+        /// message follows. <paramref name="actor"/> is the actor it has this time.
+        /// </summary>
+        public void Login(ulong character, uint actor)
         {
-            Send(actor, 200, 2);
-            if (stay)
+            var connection = "zone-" + ++_connections;
+            LastConnection = connection;
+            for (var index = 0; index < 50; index++)
             {
-                Send(actor, CharacterIdentityTracker.SettleSamples + 50, 30);
+                Pipeline.Accept(Inbound(actor, new byte[64], Mono(0.001), connection, Session));
+            }
+
+            Pipeline.Accept(Inbound(actor, LoginPayload(character, actor), Mono(0.1), connection, Session));
+            for (var index = 0; index < 50; index++)
+            {
+                Pipeline.Accept(Inbound(actor, new byte[64], Mono(0.01), connection, Session));
             }
         }
 
-        public void Send(uint actor, int count, double overSeconds)
+        /// <summary>
+        /// The synthetic profile's pop on a game connection - the latest login's by default: a run
+        /// is matched for whoever logged in there. An hour after the last one and with its own
+        /// bundle time, so it is a run of its own: neither the last one offered again nor a repeat
+        /// of the same message.
+        /// </summary>
+        public string Pop(uint actor, string? connection = null)
         {
-            for (var index = 0; index < count; index++)
+            var pop = new byte[8];
+            BinaryPrimitives.WriteUInt16LittleEndian(pop, 42);
+            BinaryPrimitives.WriteUInt32LittleEndian(pop.AsSpan(4), 900_001);
+            var at = Mono(3600);
+            Pipeline.Accept(new DecodedMessage(Session, MessageDirection.Inbound, Db.Clock.UtcNow.Add(at),
+                at, (long)at.TotalMilliseconds, 61440, 61441, pop, connection ?? LastConnection)
             {
-                Pipeline.Accept(Segment(actor, _seconds + overSeconds * index / count, Session));
-            }
-
-            _seconds += overSeconds;
+                SourceActor = actor,
+                TargetActor = actor,
+            });
+            return new RunRepository(Db.Database).Query(Domain.Queries.RunFilter.Empty, null, 1, 50).Items
+                .OrderByDescending(run => run.CreatedAtUtc).ThenByDescending(run => run.RunId).First().RunId;
         }
 
         public long Current(Region region = Region.Cn) => Settings.Profiles.FindCurrent(region)!.ProfileId;
+
+        public int BoundIdentities() => Statistics.GetProfiles().Sum(value => value.IdentityCount);
 
         public int Announcements()
         {
@@ -256,23 +259,47 @@ public sealed class CharacterIdentificationTests
             Events.Dispose();
             Db.Dispose();
         }
+
+        private TimeSpan Mono(double advanceSeconds)
+        {
+            _seconds += advanceSeconds;
+            return TimeSpan.FromSeconds(_seconds);
+        }
     }
 
     [Fact]
-    public void APlayerWithOneCharacterIsBoundSilentlyOnceTheCharacterHasStayed()
+    public void APlayerWithOneCharacterIsBoundSilentlyAtLogin()
     {
         using var rig = new Rig();
         var only = rig.Current();
 
-        rig.Login(Main, stay: false);
-        // Named, but a name that has only just appeared is not written down.
-        Assert.Equal(0, rig.Statistics.GetProfiles().Sum(value => value.IdentityCount));
+        rig.Login(Main, 0x1001);
 
-        rig.Send(Main, CharacterIdentityTracker.SettleSamples + 50, 30);
-
-        Assert.Equal(1, rig.Statistics.GetProfiles().Sum(value => value.IdentityCount));
+        Assert.Equal(1, rig.BoundIdentities());
         Assert.Empty(rig.Statistics.GetIdentities());
         Assert.Equal(only, rig.Current());
+        Assert.Equal(0, rig.Announcements());
+    }
+
+    /// <summary>
+    /// What the real-machine rounds of 2026-11-14 to 2026-11-16 showed: one character kept its
+    /// login identifier on all three days and had another actor on the third. It is the same
+    /// character, so nothing is asked and nothing new is recorded.
+    /// </summary>
+    [Fact]
+    public void ACharacterThatComesBackWithAnotherActorIsStillTheSameCharacter()
+    {
+        using var rig = new Rig();
+        var main = rig.Current();
+        rig.Login(Main, 0x1001);
+        rig.Announcements();
+
+        rig.StartSession();
+        rig.Login(Main, 0x7777);
+
+        Assert.Equal(1, rig.BoundIdentities());
+        Assert.Empty(rig.Statistics.GetIdentities());
+        Assert.Equal(main, rig.Current());
         Assert.Equal(0, rig.Announcements());
     }
 
@@ -281,11 +308,11 @@ public sealed class CharacterIdentificationTests
     {
         using var rig = new Rig();
         var main = rig.Current();
-        rig.Login(Main);
+        rig.Login(Main, 0x1001);
         rig.Announcements();
 
         rig.StartSession();
-        rig.Login(Alt);
+        rig.Login(Alt, 0x2002);
 
         var waiting = Assert.Single(rig.Statistics.GetIdentities());
         Assert.Equal(CharacterIdentityState.Pending, waiting.Identity.State);
@@ -299,14 +326,14 @@ public sealed class CharacterIdentificationTests
         rig.Pipeline.ReconsiderCharacter();
         Assert.Equal(alt, rig.Current());
 
-        // Logging back in as the first character switches at once, before it has settled.
+        // Logging back in as the first character switches at once.
         rig.StartSession();
-        rig.Login(Main, stay: false);
+        rig.Login(Main, 0x1001);
         Assert.Equal(main, rig.Current());
         Assert.Equal(1, rig.Announcements());
 
-        rig.StartSession();
-        rig.Login(Alt, stay: false);
+        // Back to the selection screen and in again as the second, in the same session.
+        rig.Login(Alt, 0x2002);
         Assert.Equal(alt, rig.Current());
     }
 
@@ -315,18 +342,18 @@ public sealed class CharacterIdentificationTests
     {
         using (var elsewhere = new Rig(Region.Global))
         {
-            elsewhere.Login(Main);
-            Assert.Equal(0, elsewhere.Statistics.GetProfiles().Sum(value => value.IdentityCount));
+            elsewhere.Login(Main, 0x1001);
+            Assert.Equal(0, elsewhere.BoundIdentities());
         }
 
         using var rig = new Rig();
         rig.Pipeline.ApplyCharacterIdentificationSetting(false);
-        rig.Login(Main);
-        Assert.Equal(0, rig.Statistics.GetProfiles().Sum(value => value.IdentityCount));
+        rig.Login(Main, 0x1001);
+        Assert.Equal(0, rig.BoundIdentities());
 
         rig.Pipeline.ApplyCharacterIdentificationSetting(true);
-        rig.Login(Main);
-        Assert.Equal(1, rig.Statistics.GetProfiles().Sum(value => value.IdentityCount));
+        rig.Login(Main, 0x1001);
+        Assert.Equal(1, rig.BoundIdentities());
     }
 
     [Fact]
@@ -335,9 +362,9 @@ public sealed class CharacterIdentificationTests
         using var rig = new Rig();
         rig.Pipeline.CharacterIdentityKeySource = _ => CharacterIdentityKeyResult.Unavailable;
 
-        rig.Login(Main);
+        rig.Login(Main, 0x1001);
 
-        Assert.Equal(0, rig.Statistics.GetProfiles().Sum(value => value.IdentityCount));
+        Assert.Equal(0, rig.BoundIdentities());
         Assert.Empty(rig.Statistics.GetIdentities());
         Assert.Contains(rig.Notes, note => note.Event == "key_unavailable");
     }
@@ -351,10 +378,10 @@ public sealed class CharacterIdentificationTests
     public void AKeyFileThatStaysUnusableIsReplacedOnTheThirdSessionAndTheLogSaysSo()
     {
         using var rig = new Rig();
-        rig.Login(Main);
+        rig.Login(Main, 0x1001);
         rig.StartSession();
-        rig.Login(Alt);
-        Assert.Equal(1, rig.Statistics.GetProfiles().Sum(value => value.IdentityCount));
+        rig.Login(Alt, 0x2002);
+        Assert.Equal(1, rig.BoundIdentities());
         Assert.Single(rig.Statistics.GetIdentities());
         var other = new CharacterIdentityKey(Enumerable.Repeat((byte)9, CaptureIdentityProbe.KeyBytes).ToArray());
         var replaced = 0;
@@ -372,17 +399,17 @@ public sealed class CharacterIdentificationTests
         for (var session = 1; session < LiveProtocolPipeline.KeyFailuresBeforeReplacing; session++)
         {
             rig.StartSession();
-            rig.Login(Main);
+            rig.Login(Main, 0x1001);
         }
 
         // Still the old identities, and nothing recorded meanwhile.
         Assert.Equal(0, replaced);
-        Assert.Equal(1, rig.Statistics.GetProfiles().Sum(value => value.IdentityCount));
+        Assert.Equal(1, rig.BoundIdentities());
         Assert.Single(rig.Statistics.GetIdentities());
 
         rig.StartSession();
         Assert.Equal(1, replaced);
-        Assert.Equal(0, rig.Statistics.GetProfiles().Sum(value => value.IdentityCount));
+        Assert.Equal(0, rig.BoundIdentities());
         Assert.Empty(rig.Statistics.GetIdentities());
         Assert.Equal(
             new[] { "key_unusable", "key_unusable", "key_replaced", "identities_removed" },
@@ -396,25 +423,26 @@ public sealed class CharacterIdentificationTests
     }
 
     /// <summary>
-    /// The message that matches a run names the client by itself. A run matched before the traffic
-    /// has been dense enough to name anyone - capture restarted somewhere quiet - still belongs to
-    /// its own character, not to the profile chosen by hand.
+    /// A run belongs to the character that logged in on the connection its matching message came
+    /// on. A connection without a login of this session belongs to somebody unknown, so its run
+    /// belongs to nobody rather than to the character played before it; a session in which no login
+    /// message was recognised at all (a patch changed its shape, say) files runs as before
+    /// identification, and the log says why.
     /// </summary>
     [Fact]
-    public void ARunMatchedBeforeAnyoneIsNamedBelongsToTheCharacterItsOwnMessageNames()
+    public void ARunBelongsToTheCharacterThatLoggedInOnTheConnectionOfItsMatchingMessage()
     {
         using var rig = new Rig(recording: true);
         var main = rig.Current();
         var runs = new RunRepository(rig.Db.Database);
 
-        // One profile, nobody seen yet: the character of the first run is that profile.
-        Assert.Equal(main, runs.Get(rig.Pop(Main))!.ProfileId);
-        Assert.Equal(1, rig.Statistics.GetProfiles().Sum(value => value.IdentityCount));
+        rig.Login(Main, 0x1001);
+        Assert.Equal(main, runs.Get(rig.Pop(0x1001))!.ProfileId);
 
-        // Another character, in a session whose traffic names nobody: its run is nobody's until
-        // the player answers, and the answer files it.
-        rig.StartSession();
-        var orphan = rig.Pop(Alt);
+        // The second character waits for an answer; its run is nobody's until then, and the
+        // answer files it.
+        rig.Login(Alt, 0x2002);
+        var orphan = rig.Pop(0x2002);
         Assert.Null(runs.Get(orphan)!.ProfileId);
         var waiting = Assert.Single(rig.Statistics.GetIdentities());
         Assert.Equal(1, waiting.RunCount);
@@ -422,8 +450,57 @@ public sealed class CharacterIdentificationTests
             Guid.NewGuid().ToString("D"), Region.Cn, "小号", 2000, 0, false, waiting.Identity.IdentityId)).ProfileId;
         Assert.Equal(alt, runs.Get(orphan)!.ProfileId);
 
-        // A message that names nobody leaves the run to the current profile, as before.
+        // The first character's connection still says who played there.
+        Assert.Equal(main, runs.Get(rig.Pop(0x1001, "zone-1"))!.ProfileId);
+
+        // A connection no login of this session opened: nobody's, whatever profile is current.
+        Assert.Null(runs.Get(rig.Pop(0x3003, "zone-unknown"))!.ProfileId);
+        Assert.Contains(rig.Notes, note => note.Event == "character_unknown_at_match");
+
+        // No login message recognised in the session: the current profile, as before.
         rig.StartSession();
-        Assert.Equal(rig.Current(), runs.Get(rig.Pop(0))!.ProfileId);
+        Assert.Equal(rig.Current(), runs.Get(rig.Pop(0x1001))!.ProfileId);
+        rig.Pop(0x1001);
+        Assert.Single(rig.Notes, note => note.Event == "login_not_recognised");
+    }
+
+    /// <summary>
+    /// Another character can come with the actor an earlier one had: it is the login, not the
+    /// actor, that says who plays on a connection.
+    /// </summary>
+    [Fact]
+    public void AnotherCharacterWithAnActorAnEarlierOneHadIsStillAnotherCharacter()
+    {
+        using var rig = new Rig(recording: true);
+        var main = rig.Current();
+        var runs = new RunRepository(rig.Db.Database);
+        rig.Login(Main, 0x1001);
+
+        rig.Login(Alt, 0x1001);
+
+        Assert.Equal(CharacterIdentityState.Pending, Assert.Single(rig.Statistics.GetIdentities()).Identity.State);
+        Assert.Null(runs.Get(rig.Pop(0x1001))!.ProfileId);
+        Assert.Equal(main, runs.Get(rig.Pop(0x1001, "zone-1"))!.ProfileId);
+    }
+
+    /// <summary>
+    /// Identification turned on while a game connection is open must not take ordinary traffic on
+    /// it for a login: the connection was decided while identification was off.
+    /// </summary>
+    [Fact]
+    public void TurningIdentificationOnMidConnectionTakesNothingOnItForALogin()
+    {
+        using var rig = new Rig(recording: true);
+        var runs = new RunRepository(rig.Db.Database);
+        rig.Pipeline.ApplyCharacterIdentificationSetting(false);
+        rig.Login(Main, 0x1001);
+
+        rig.Pipeline.ApplyCharacterIdentificationSetting(true);
+        rig.Pipeline.Accept(Inbound(0x1001, LoginPayload(Alt, 0x1001), TimeSpan.FromMilliseconds(1), rig.LastConnection, rig.Session));
+
+        Assert.Equal(0, rig.BoundIdentities());
+        Assert.Empty(rig.Statistics.GetIdentities());
+        Assert.Equal(rig.Current(), runs.Get(rig.Pop(0x1001))!.ProfileId);
+        Assert.Contains(rig.Notes, note => note.Event == "login_not_recognised");
     }
 }

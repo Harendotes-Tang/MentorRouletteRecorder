@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
@@ -21,22 +22,23 @@ public sealed record CharacterIdentityNote(string Event, int? Count = null, stri
 /// <summary>
 /// Telling the logged-in character apart while capture runs (docs/state-machine.md section 3.1).
 ///
-/// Every message goes past <see cref="CharacterIdentityTracker"/>, whatever profile is bound. When
-/// it names a character seen before, that character's profile becomes the current one of the
-/// region; a character never seen before is recorded once it has stayed, or at the latest when a
-/// run is matched for it. A run is stamped with the character logged in at the moment it is
-/// matched (<see cref="IdentityAtMatch"/>), never with a profile the player chose for somebody
-/// else.
+/// Every message goes past <see cref="CharacterLoginRecognizer"/>, whatever profile is bound. The
+/// login message a character gets when it enters the game says, by a lasting identifier, who it is
+/// and which actor it has on that game connection. At that moment a character seen before makes
+/// its profile the current one of the region, and a character never seen is recorded. A run is
+/// filed under the character that logged in on the game connection the matching message came on
+/// (<see cref="IdentityAtMatch"/>), live or replayed: never under a profile the player chose for
+/// somebody else, and never under the character played before.
 ///
 /// Where nobody can be told apart - a region not verified for it, the setting off, no usable key,
-/// no traffic that names anyone - nothing here does anything and a run goes to the current profile
-/// exactly as before.
+/// no login message recognised in the session (one whose shape a patch has changed, say) - nothing
+/// here does anything and a run goes to the current profile exactly as before.
 ///
 /// Identification is an extra: nothing in it may cost a recorded message. Whatever fails here is
 /// noted (<see cref="CharacterIdentityNoted"/>) and recording goes on.
 ///
-/// The actor and its digest stay in this class and the storage call. Neither is logged, published
-/// or put on a status.
+/// The identifier is digested the moment it is read, and the digest stays in this class and the
+/// storage call; neither it nor an actor is logged, published or put on a status.
 /// </summary>
 public sealed partial class LiveProtocolPipeline
 {
@@ -49,7 +51,16 @@ public sealed partial class LiveProtocolPipeline
 
     private const string IdentityStatsMessage = "角色档案已更新，统计需要重新查询。";
 
-    private readonly CharacterIdentityTracker _identityTracker = new();
+    /// <summary>Game connections whose login is remembered per capture session.</summary>
+    private const int MaxSessionLogins = 64;
+
+    private readonly CharacterLoginRecognizer _logins = new();
+    // Game connection of this session -> digest of the lasting identifier of the character that
+    // logged in on it. Each login opens a connection of its own, and the match of a run comes on it.
+    private readonly Dictionary<string, string> _loginDigests = new(StringComparer.Ordinal);
+    private string? _lastLoginDigest;
+    private bool _loginMissingNoted;
+    private bool _saturationNoted;
     private CharacterIdentityService _identities = null!;
     private SettingsRepository _identitySettings = null!;
     private Func<bool, CharacterIdentityKeyResult> _identityKeySource = null!;
@@ -57,7 +68,8 @@ public sealed partial class LiveProtocolPipeline
     private bool _identityKeyTried;
     private bool _identificationEnabled;
     private bool _identityStatsOwed;
-    private uint _matchingActor;
+    // The connection of the message a run is being matched from, while the parser is at it.
+    private string? _matchingConnection;
 
     /// <summary>Raised for the log; see <see cref="CharacterIdentityNote"/>.</summary>
     public event Action<CharacterIdentityNote>? CharacterIdentityNoted;
@@ -91,7 +103,9 @@ public sealed partial class LiveProtocolPipeline
             _identificationEnabled = enabled;
             if (!enabled)
             {
-                _identityTracker.Reset();
+                // Which connections have been decided stays known: turned on again mid-connection,
+                // ordinary traffic must not be taken for a login.
+                ForgetLogins(keepConnections: true);
             }
         }
     }
@@ -106,14 +120,14 @@ public sealed partial class LiveProtocolPipeline
     {
         lock (_gate)
         {
-            if (!IdentificationActive || _identityTracker.Actor is not { } actor || _identityKey is not { } key)
+            if (!IdentificationActive || _identityKey is not { } key || _lastLoginDigest is not { } digest)
             {
                 return;
             }
 
             try
             {
-                _identities.Recognise(_selection.Region, key.KeyId, key.Digest(actor));
+                _identities.Recognise(_selection.Region, key.KeyId, digest);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -141,8 +155,8 @@ public sealed partial class LiveProtocolPipeline
     /// </summary>
     private void BeginCharacterIdentification()
     {
-        _identityTracker.Reset();
-        _matchingActor = 0;
+        ForgetLogins();
+        _matchingConnection = null;
         _identityKeyTried = false;
         _identityKey = null;
         if (IdentificationActive)
@@ -222,19 +236,38 @@ public sealed partial class LiveProtocolPipeline
     private void SetKeyFailures(int count) => _identitySettings.SetSetting(
         CharacterIdentification.KeyFailuresSetting, count.ToString(CultureInfo.InvariantCulture));
 
-    /// <summary>Lets the tracker see one message and acts on a character logging in.</summary>
+    private void ForgetLogins(bool keepConnections = false)
+    {
+        if (!keepConnections)
+        {
+            _logins.Reset();
+            _saturationNoted = false;
+        }
+
+        _loginDigests.Clear();
+        _lastLoginDigest = null;
+        _loginMissingNoted = false;
+    }
+
+    /// <summary>
+    /// Acts on a character entering the game: the one message that says who it is. Every message is
+    /// shown to the recogniser, identification on or off, so that it always knows which connections
+    /// have had their login; only an active identification reads the identifier.
+    /// </summary>
     /// <param name="message">Message being accepted, under the gate.</param>
     private void ObserveCharacter(DecodedMessage message)
     {
-        if (!IdentificationActive)
-        {
-            return;
-        }
-
+        Span<byte> identifier = stackalloc byte[CharacterLoginRecognizer.IdentifierBytes];
         try
         {
-            var change = _identityTracker.Observe(message);
-            if (change == CharacterIdentityChange.None || _identityTracker.Actor is not { } actor)
+            var recognised = _logins.TryRecognise(message, identifier, out _);
+            if (_logins.Saturated && !_saturationNoted)
+            {
+                _saturationNoted = true;
+                Note(new CharacterIdentityNote("connection_limit_reached", CharacterLoginRecognizer.MaxConnections));
+            }
+
+            if (!recognised || !IdentificationActive)
             {
                 return;
             }
@@ -250,11 +283,16 @@ public sealed partial class LiveProtocolPipeline
                 return;
             }
 
-            var digest = key.Digest(actor);
-            var observation = change == CharacterIdentityChange.Named
-                ? _identities.Recognise(_selection.Region, key.KeyId, digest)
-                : _identities.Observe(_selection.Region, key.KeyId, digest);
-            if (change == CharacterIdentityChange.Settled && observation.IdentityId is null)
+            var digest = key.Digest(identifier);
+            if (_loginDigests.Count >= MaxSessionLogins && !_loginDigests.ContainsKey(message.ConnectionKey))
+            {
+                _loginDigests.Clear();
+            }
+
+            _loginDigests[message.ConnectionKey] = digest;
+            _lastLoginDigest = digest;
+            var observation = _identities.Observe(_selection.Region, key.KeyId, digest);
+            if (observation.IdentityId is null)
             {
                 Note(new CharacterIdentityNote("identity_limit_reached", CharacterIdentity.MaxIdentitiesPerRegion));
             }
@@ -268,43 +306,70 @@ public sealed partial class LiveProtocolPipeline
             // to report.
             Note(new CharacterIdentityNote("observation_failed", Error: ex.GetType().Name));
         }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(identifier);
+        }
     }
 
     /// <summary>
-    /// The actor a message names as this client: the one a server-to-client segment is addressed
-    /// to, or the one a client-to-server segment comes from. Zero when it names nobody. Asked only
-    /// of a message a profile is parsing, which is a message of the game connection.
+    /// Runs <paramref name="apply"/> - a live message or a replayed one being parsed - as matching
+    /// from <paramref name="connection"/>, so a run it creates belongs to the character that logged in
+    /// there.
     /// </summary>
-    private static uint OwnActorOf(DecodedMessage message) =>
-        message.Direction == MessageDirection.Inbound ? message.TargetActor : message.SourceActor;
+    private void MatchingFrom(string? connection, Action apply)
+    {
+        var outer = _matchingConnection;
+        _matchingConnection = connection;
+        try
+        {
+            apply();
+        }
+        finally
+        {
+            _matchingConnection = outer;
+        }
+    }
 
     /// <summary>
     /// The character a run being created belongs to, read and - when it was never seen - recorded
-    /// inside the transaction that creates the run. Null when nobody is being told apart, which
-    /// sends the run to the current profile.
+    /// inside the transaction that creates the run.
     ///
-    /// The message that is matching the run says who the client is by itself, so a run matched
-    /// before the tracker has named anyone - capture restarted in a quiet place - still gets its
-    /// own character rather than the profile somebody chose by hand. A run created by anything
-    /// else (a replayed message, a lifecycle event) takes the tracker's word.
+    /// It is the character that logged in on the connection the matching message came on, whether
+    /// the message is parsed live or replayed. Null - the run goes to the current profile - when
+    /// nobody is being told apart, or when no login message has been recognised in the session at
+    /// all. A run created from a connection without a login of this session, or from no message at
+    /// all, belongs to somebody unknown: it is assigned to no profile rather than to the character
+    /// played before it.
     /// </summary>
     /// <param name="transaction">The processor's transaction.</param>
     private CharacterIdentityObservation? IdentityAtMatch(SqliteTransaction transaction)
     {
         // The key was read when the session began; it is not read here, inside somebody else's
         // transaction.
-        if (!IdentificationActive || _identityKey is not { } key)
+        if (!IdentificationActive || _identityKey is null)
         {
             return null;
         }
 
-        var actor = _matchingActor != 0 ? _matchingActor : _identityTracker.Actor ?? 0;
-        if (actor == 0)
+        if (_lastLoginDigest is null)
         {
+            if (!_loginMissingNoted)
+            {
+                _loginMissingNoted = true;
+                Note(new CharacterIdentityNote("login_not_recognised"));
+            }
+
             return null;
         }
 
-        var observation = _identities.Observe(_selection.Region, key.KeyId, key.Digest(actor), transaction);
+        if (_matchingConnection is not { } connection || !_loginDigests.TryGetValue(connection, out var digest))
+        {
+            Note(new CharacterIdentityNote("character_unknown_at_match"));
+            return new CharacterIdentityObservation(null, null, StatisticsChanged: false);
+        }
+
+        var observation = _identities.Observe(_selection.Region, _identityKey.KeyId, digest, transaction);
         if (observation.IdentityId is null)
         {
             Note(new CharacterIdentityNote("identity_limit_reached", CharacterIdentity.MaxIdentitiesPerRegion));

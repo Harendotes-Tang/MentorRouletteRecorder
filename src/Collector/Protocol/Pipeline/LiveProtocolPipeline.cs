@@ -709,16 +709,8 @@ public sealed partial class LiveProtocolPipeline :
                 // controller's asynchronous fault path is stopping the source.
                 ThrowIfStorageFailed();
                 var beforeStats = _parser.GetParserStats();
-                // A run this message matches belongs to the character the message itself names.
-                _matchingActor = OwnActorOf(message);
-                try
-                {
-                    ApplyAndPublish(() => _parser.Accept(message));
-                }
-                finally
-                {
-                    _matchingActor = 0;
-                }
+                // A run this message matches belongs to the character that logged in on its connection.
+                MatchingFrom(message.ConnectionKey, () => ApplyAndPublish(() => _parser.Accept(message)));
 
                 var afterStats = _parser.GetParserStats();
                 NoteProfileConnection(message, beforeStats.ParseOk, afterStats.ParseOk);
@@ -923,7 +915,7 @@ public sealed partial class LiveProtocolPipeline :
                 _shared.CompletePublicEvidence(captureSessionId, reason);
                 _active = false;
                 _sessionId = null;
-                _identityTracker.Reset();
+                ForgetLogins();
                 _sharedSwapOwed = null;
                 _localRebindOwed = null;
                 ForgetCardWait();

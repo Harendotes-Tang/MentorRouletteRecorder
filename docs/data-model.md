@@ -217,7 +217,7 @@ CSV 导出在末尾追加同名列（`1` / `0` / 空），备份与 JSON 导入�
   改取该角色绑定的档案，角色尚未绑定时为未分配（§1.7、[state-machine.md](state-machine.md) §3.1）；手工补录与导入取请求指定的档案
   （`CreateManualRun.profile_id` / `CommitRunImport.profile_id`），未指定时同样取当前档案。区服尚无档案时先按默认值
   建立一个。因此在只有一个档案、且没有尚未绑定的角色（§4.3）的区服里，新建的记录都属于它；不属于任何档案的记录只来自
-  用户自己把记录改为未分配（或撤销一条指向已删除档案的归属修订），以及角色识别遇到尚未绑定的角色（§1.7），这样的记录以 `RegionalAchievement.unassigned_run_count` 计数，
+  用户自己把记录改为未分配（或撤销一条指向已删除档案的归属修订），以及角色识别遇到尚未绑定的角色或无法确定这一场所属的角色（§1.7），这样的记录以 `RegionalAchievement.unassigned_run_count` 计数，
   桌面端此时即使区服只剩一个档案也照常显示角色相关的入口，供用户重新分配。
 - **之后不随当前档案改变。**延迟到达的结算、崩溃恢复与人工更正都不改这一列：切换当前档案之后，
   先前匹配的那一场仍记在匹配时的档案名下（[state-machine.md](state-machine.md) §3.1）。
@@ -240,7 +240,7 @@ CSV 导出在末尾追加同名列（`1` / `0` / 空），备份与 JSON 导入�
 | 取值 | 含义 |
 |---|---|
 | 角色编号 | 匹配这一场时采集服务区分出的角色（§4.3） |
-| `NULL` | 未经角色识别写入：0015 之前写入的全部记录、手工补录、导入，以及写入时不区分角色的自动记录（非国服、关闭了角色识别、本次抓包会话没有可用的密钥、匹配这一场的报文与此前的流量都没有指明角色，或该区服已记下 64 个角色而这是又一个未见过的角色）；此外还有被用户以 `assign_profile` 改动过归属、或其角色在密钥更换时被删除的记录 |
+| `NULL` | 未经角色识别写入：0015 之前写入的全部记录、手工补录、导入，以及写入时不区分角色的自动记录（非国服、关闭了角色识别、本次抓包会话没有可用的密钥、本次会话没有认出任何登录报文、匹配报文所在的连接在本会话中没有登录报文或记录不来自某条连接（此时记录同时为未分配），或该区服已记下 64 个角色而这是又一个未见过的角色）；此外还有被用户以 `assign_profile` 改动过归属、或其角色在密钥更换时被删除的记录 |
 
 写入规则：
 
@@ -365,15 +365,15 @@ schema 13 及更早按区服保存的键 `achievement.baseline_history`（国服
 
 ### 4.3 `character_identities` —— 角色识别：采集服务见过的角色（schema v15）
 
-由 `migrations/0015_character_identities.sql` 新增。采集服务在国服的游戏流量中区分当前登录的角色
-（[state-machine.md](state-machine.md) §3.1），每个见过的角色一行，记下它是哪个档案。行中不含任何游戏内标识，也不含角色名。
+由 `migrations/0015_character_identities.sql` 新增。采集服务在国服的游戏流量中按登录报文区分登录的角色
+（[state-machine.md](state-machine.md) §3.1），每个见过的角色一行，记下它是哪个档案。行中不含任何游戏内标识的原值，也不含角色名。
 
 | 列 | 类型 | 约束 | 说明 |
 |---|---|---|---|
 | `identity_id` | INTEGER | PK, AUTOINCREMENT | 本地编号，删除后不再复用 |
 | `region` | TEXT | NOT NULL, IN (`CN`,`TC`,`GLOBAL`,`UNKNOWN`) | 见到该角色时所在的服务区服 |
 | `key_id` | TEXT | NOT NULL, 长度 1–16 | 计算 `digest` 所用密钥自身的指纹（8 位十六进制），用于识别并删除在其他密钥下写入的行 |
-| `digest` | TEXT | NOT NULL, 长度恰为 32 | 角色标识的带密钥摘要：HMAC-SHA256 的前 32 位十六进制（[privacy-boundary.md](privacy-boundary.md) §5） |
+| `digest` | TEXT | NOT NULL, 长度恰为 32 | 角色永久标识的带密钥摘要：登录报文负载前 8 字节的 HMAC-SHA256 的前 32 位十六进制（[privacy-boundary.md](privacy-boundary.md) §5） |
 | `profile_id` | INTEGER | NULL, FK → `character_profiles.profile_id` | 该角色绑定的档案；NULL 表示尚未绑定 |
 | `ignored` | INTEGER | NOT NULL, 0/1, default 0 | 1 表示用户选择不为该角色统计进度 |
 | `first_seen_at_utc` | TEXT | NOT NULL | 第一次记下该角色的时间 |
@@ -400,23 +400,24 @@ INDEX ix_character_identities_profile        ON character_identities(profile_id)
 
 规则：
 
-- **何时写入。**采集服务认出一个从未见过的角色后，只在它持续登录到稳定（[state-machine.md](state-machine.md) §3.1）时记下，
-  最迟在为它创建记录的那个事务中记下。区服只有一个档案（或尚无档案）且尚未记下任何角色时，第一个角色直接绑定到该档案，
+- **何时写入。**采集服务认出一个从未见过的角色的登录报文（[state-machine.md](state-machine.md) §3.1）时立即记下；
+  登录时未能记下的，最迟在为它创建记录的那个事务中记下。区服只有一个档案（或尚无档案）且尚未记下任何角色时，第一个角色直接绑定到该档案，
   不发布任何事件：只有一个角色的用户看不到任何变化。其他情况下记为待登记，并发布 `stats_invalidated`。
   每个区服至多记下 64 个角色；超出后再出现的新角色不记下，其记录为未分配。
 - **用户的回答。**`ResolveCharacterIdentity` 的 `BIND` 把尚未绑定（待登记或不统计）的角色绑定到同区服的档案，
   并按 §1.7 归入该角色未分配的记录；不改动任何档案的基数。已绑定的角色被拒绝。
   `IGNORE` 把尚未绑定的角色设为不统计；`ASK_AGAIN` 把不统计的角色恢复为待登记。
   `CreateCharacterProfile.identity_id` 在新建档案的同一事务中完成同样的绑定。
-  绑定本身不改变区服的当前档案。采集服务在应答之前重新核对此刻登录的角色（[state-machine.md](state-machine.md) §3.1）：
-  此刻登录的角色已绑定到某个档案时，该档案成为当前档案。因此，对正在游玩的角色的回答立即生效；对其他角色的回答不改变当前档案；
+  绑定本身不改变区服的当前档案。采集服务在应答之前重新核对本次抓包会话最近一次登录的角色（[state-machine.md](state-machine.md) §3.1）：
+  该角色已绑定到某个档案时，该档案成为当前档案。因此，对正在游玩的角色的回答立即生效；对其他角色的回答不改变当前档案；
   游戏未运行时当前档案不变，直到该角色下次登录或下次为它创建记录。
   `UpdateCharacterProfile.forget_identities` 与 `DeleteCharacterProfile` 把绑定到该档案的角色恢复为待登记，已有记录的归属不变。
   这些请求都按 `request_id` 幂等（§7.1）。
 - **密钥。**`digest` 所用的密钥保存在数据库所在文件夹的 `character-identity.key` 中（[privacy-boundary.md](privacy-boundary.md) §5）。
-  采集服务在每次抓包会话开始时读取密钥（会话开始之后才开启角色识别或才得知区服时，改在第一次认出角色时读取），
+  采集服务在每次抓包会话开始时读取密钥（会话开始之后才开启角色识别或才得知区服时，改在第一次认出登录报文时读取），
   每个会话只读一次；读到可用的密钥后，先删除 `key_id` 与之不同的全部行（并先把指向这些行的记录的
-  `identity_id` 置空），再开始比较。这样的行只在密钥文件被替换或重新生成之后出现。这些记录的 `profile_id` 不变，
+  `identity_id` 置空），再开始比较。这样的行只在密钥文件被替换或重新生成之后出现。现行的密钥指纹还包含摘要方案标记 `login-identifier.v1`，
+  因此 1.9.0-beta.3 测试构建（按段头编号计算摘要）写下的行也读作其他密钥下的行，同样被删除。这些记录的 `profile_id` 不变，
   相应的角色再次出现时按「何时写入」重新处理。旧行未能删除时，本次会话不使用密钥。
   密钥文件存在但当前用户无法解密时，不立即替换：连续无法使用的抓包会话数记在设置 `capture.character_identity_key_failures` 中（§6），
   连续 3 次（`KeyFailuresBeforeReplacing`）之后才以新密钥替换该文件；在此之前，以及文件暂时读不到时，本次会话不区分角色，

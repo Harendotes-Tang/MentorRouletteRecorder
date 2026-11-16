@@ -129,7 +129,7 @@ schema 12 之前本软件只服务国服：1.8.0 及更早把所有手动补录�
 
 ## schema 14 → 15
 
-为按登录的角色自动归入档案，0015 新增 `character_identities`：采集服务见过的每个角色一行，保存角色标识在本机密钥下的
+为按登录的角色自动归入档案，0015 新增 `character_identities`：采集服务见过的每个角色一行，保存角色永久标识（登录报文负载前 8 字节）在本机密钥下的
 HMAC-SHA256 摘要（`digest`，32 位十六进制）与该密钥的指纹（`key_id`），以及它绑定的档案（`profile_id`）或「不统计」标记（`ignored`），
 不保存任何游戏内标识或角色名。`(region, key_id, digest)` 唯一；`CHECK (profile_id IS NULL OR ignored = 0)` 保证一个角色不会既绑定又不统计；
 两个触发器保证角色只能绑定到同区服的档案。`identity_id` 用 AUTOINCREMENT，删除后不复用。

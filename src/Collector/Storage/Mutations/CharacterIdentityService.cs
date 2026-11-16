@@ -48,9 +48,9 @@ public sealed class CharacterIdentityService
     }
 
     /// <summary>
-    /// A character has just been named by the traffic. A character seen before makes its profile
-    /// the current one; one never seen is not recorded yet - the name has to last first
-    /// (<see cref="Observe(Region, string, string)"/>) - and comes back with no identity.
+    /// Makes the profile of a known character the current one, and records nothing: what the
+    /// pipeline asks after the player has answered about a character, to switch to it only when it
+    /// is the one logged in. A character never seen comes back with no identity.
     /// </summary>
     /// <param name="region">Region the character is logged in to.</param>
     /// <param name="keyId">Fingerprint of the key the digest was made with.</param>
@@ -67,8 +67,8 @@ public sealed class CharacterIdentityService
     }
 
     /// <summary>
-    /// Records that a character is logged in - it has stayed, or a run is being matched for it -
-    /// and decides what the Collector can decide by itself.
+    /// Records that a character is logged in - its login message has just arrived, or a run is
+    /// being matched for it - and decides what the Collector can decide by itself.
     /// </summary>
     /// <param name="region">Region the character is logged in to.</param>
     /// <param name="keyId">Fingerprint of the key the digest was made with.</param>

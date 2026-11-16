@@ -287,12 +287,13 @@ Machina 在释放库时会尝试删除自己产生的临时副本，其诊断信
 - 角色档案（`character_profiles`，[data-model.md](data-model.md) §4）不构成例外：档案的显示名称由用户自己填写，
   软件不从报文读取角色名，也不把名称与任何游戏内标识对照；`profile_id` 是本地自增编号。
 - 角色识别（schema 15，[data-model.md](data-model.md) §4.3，[state-machine.md](state-machine.md) §3.1）同样不读取角色名。
-  采集服务读取游戏连接上服务器下发的 IPC 段的段头目标编号，以及匹配一场导随的那条报文所指的本机编号（下行取目标编号，
-  上行取来源编号），用于判断当前登录的、以及这一场所属的是哪个角色；该编号只保存在内存中，
-  本功能不把它写入数据库、日志、取证文件或任何导出。数据库 `character_identities` 表只保存它的带密钥摘要（HMAC-SHA256 的前 32 位十六进制）
-  与密钥指纹 `key_id`（8 位十六进制）。密钥为 32 个随机字节，保存在数据库所在文件夹的 `character-identity.key` 中，
-  以 Windows DPAPI 按当前用户加密。32 位编号若不加密钥直接取摘要，可以被穷举还原；加上只存在于本机的密钥之后，
-  数据库的副本（包括备份）只能说明见过几个角色，不能说明是哪些角色。该密钥与角色识别采证的 `identity-probe.key` 相互独立，
+  采集服务从角色登录时服务器下发的登录报文中只取出负载前 8 字节，即角色永久标识所在的位置。该标识对同一角色在任何地方、任何时候都相同，
+  比段头编号更敏感，因此读出后立即以本机密钥计算带密钥摘要（HMAC-SHA256 的前 32 位十六进制），复制出的字节随即清除，原值不保存、不写入日志、取证文件或任何导出。
+  采集服务只在内存中、在本次抓包会话内记住每条游戏连接上登录的是哪个摘要，用于把该连接上匹配的导随对应到这个角色。
+  角色识别关闭时，登录报文仍会被认出（以免重新开启时误认），但不计算摘要。
+  数据库 `character_identities` 表只保存摘要与密钥指纹 `key_id`（8 位十六进制）。密钥为 32 个随机字节，保存在数据库所在文件夹的
+  `character-identity.key` 中，以 Windows DPAPI 按当前用户加密。标识若不加密钥直接取摘要，可以与其他来源的同一标识比对而被认出；
+  加上只存在于本机的密钥之后，数据库的副本（包括备份）只能说明见过几个角色，不能说明是哪些角色。该密钥与角色识别采证的 `identity-probe.key` 相互独立，
   摘要计算使用不同的域字节，因此取证文件中的摘要无法与数据库中的摘要相互比对。
   密钥文件存在但当前用户无法解密（例如数据目录被拷贝到其他账户或其他机器）时，不立即替换：连续 3 次抓包会话都无法使用之后，
   该文件才被替换为新密钥，在其他密钥下记下的角色随之删除，其记录保留原有的档案归属。在此之前，以及密钥文件只是暂时读不到时，
@@ -302,8 +303,9 @@ Machina 在释放库时会尝试删除自己产生的临时副本，其诊断信
   桌面端只收到本地编号 `identity_id`、区服、登记状态、两个时间与记录条数。该功能可在设置中关闭
   （`capture.character_identification_enabled`）；关闭后不再区分角色，已记下的行保留。
 - 角色识别在诊断日志中写入组件为 `character_identity` 的行，事件为 `key_unusable`、`key_replaced`、`key_replace_failed`、
-  `key_unavailable`、`key_load_failed`、`identities_removed`、`observation_failed` 与 `identity_limit_reached`。每行只含事件名、
-  可选的计数（连续失败的会话数、删除的行数或每区服的上限）与可选的异常类型名，不含编号、摘要或密钥指纹
+  `key_unavailable`、`key_load_failed`、`identities_removed`、`observation_failed`、`identity_limit_reached`、
+  `character_unknown_at_match`、`login_not_recognised` 与 `connection_limit_reached`。每行只含事件名、
+  可选的计数（连续失败的会话数、删除的行数或相应的上限）与可选的异常类型名，不含标识、编号、摘要或密钥指纹
   （`CharacterIdentityNote`）。
 - 诊断日志同样受此约束，且不依赖调用方自觉。`RotatingFileLogger.Sanitize`
   在落盘前把任意用户的 profile 路径、Windows SID、IPv4 与 IPv6 字面量、

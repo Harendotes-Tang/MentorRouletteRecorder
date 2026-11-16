@@ -580,8 +580,12 @@ Machina 在自身线程内将失败写入 `Trace`，而不向调用方抛出异�
   （异常类型名），不含角色编号、摘要或密钥指纹：`key_unusable`（密钥文件当前用户无法解密，`count` 为连续失败的会话数）、
   `key_replaced` / `key_replace_failed`（连续 3 次之后替换密钥文件成功或失败）、`key_unavailable`（密钥文件暂时读不到）、
   `key_load_failed`（读取密钥或删除其他密钥下的角色时出错，本次会话不区分角色）、`identities_removed`（删除了其他密钥下的角色，
-  `count` 为行数）、`observation_failed`（认定或核对角色时出错，抓包照常进行）、`identity_limit_reached`（区服已记下 64 个角色，
-  新角色未记下）。带 `error` 的行以及 `key_unusable`、`key_replace_failed`、`key_unavailable` 为 Warn，其余为 Info。
+  `count` 为行数）、`observation_failed`（处理登录报文或核对角色时出错，抓包照常进行）、`identity_limit_reached`（区服已记下 64 个角色，
+  新角色未记下）、`character_unknown_at_match`（匹配报文所在的连接在本会话中没有登录报文，或记录不来自某条连接，这一场记为未分配）、
+  `login_not_recognised`（本会话一条登录报文也没有认出时的第一次匹配，每个会话只记一次，这一场归入当前档案）、
+  `connection_limit_reached`（本会话跟踪的连接达到 256 条，此后的新连接不再判定有无登录，每个会话只记一次，`count` 为该上限）。
+  带 `error` 的行，以及 `key_unusable`、`key_replace_failed`、`key_unavailable`、`login_not_recognised`、`character_unknown_at_match`
+  与 `connection_limit_reached` 为 Warn，其余为 Info。
   相关设置 `capture.character_identification_enabled`（是否区分角色，默认开启）与 `capture.character_identity_key_failures`
   （连续无法解密的会话数）见 [data-model.md](data-model.md) §6。
 

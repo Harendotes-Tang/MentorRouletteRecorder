@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using System.Security.Cryptography;
 
 namespace MentorRecorder.Collector.Capture;
@@ -36,9 +35,11 @@ public readonly record struct CharacterIdentityKeyResult(CharacterIdentityKey? K
 /// The key the character identities in the database are digested with
 /// (docs/privacy-boundary.md, character identification).
 ///
-/// The database never holds a character's identifier, only an HMAC-SHA256 of it under this key. A
-/// 32-bit identifier hashed without a key, or with a salt stored beside it, could be recovered by
-/// trying every value; the key lives outside the database, in the data folder, encrypted for the
+/// The database never holds a character's identifier, only an HMAC-SHA256 of it under this key. The
+/// identifier is the one in the login message (<c>CharacterLoginRecognizer</c>), which is the same
+/// for a character wherever and whenever it logs in; hashed without a key, or with a salt stored
+/// beside it, it could be looked up by anybody who knows the character. The key lives outside the
+/// database, in the data folder, encrypted for the
 /// current Windows user (DPAPI). A copy of the database sent to somebody else therefore says how
 /// many characters were seen and nothing about which.
 ///
@@ -62,8 +63,16 @@ public sealed class CharacterIdentityKey
     /// <summary>Hexadecimal characters of the key's own fingerprint.</summary>
     public const int KeyIdLength = 8;
 
-    private const byte ActorDomain = 0x10;
     private const byte KeyIdDomain = 0x11;
+    private const byte LoginDomain = 0x12;
+
+    /// <summary>
+    /// What the digests of this version are digests of. It goes into <see cref="KeyId"/>, so rows
+    /// written under another scheme - the 1.9.0-beta.3 test builds of 2026-11-16 digested the
+    /// segment-header actor, which turned out not to last - read as written under another key and
+    /// are removed like those.
+    /// </summary>
+    private static ReadOnlySpan<byte> Scheme => "login-identifier.v1"u8;
 
     private static readonly Speech.ISecretProtector DefaultProtector =
         Speech.DpapiProtector.ForPurpose("MentorRecorder.character-identity-key.v1");
@@ -80,7 +89,7 @@ public sealed class CharacterIdentityKey
         }
 
         _key = key.ToArray();
-        KeyId = Hash(KeyIdDomain, ReadOnlySpan<byte>.Empty)[..KeyIdLength];
+        KeyId = Hash(KeyIdDomain, Scheme)[..KeyIdLength];
     }
 
     /// <summary>
@@ -90,12 +99,17 @@ public sealed class CharacterIdentityKey
     public string KeyId { get; }
 
     /// <summary>The digest standing in for one character.</summary>
-    /// <param name="actor">Actor as read from a segment header; never stored or logged as it is.</param>
-    public string Digest(uint actor)
+    /// <param name="identifier">
+    /// The identifier read from the login message; never stored or logged as it is.
+    /// </param>
+    public string Digest(ReadOnlySpan<byte> identifier)
     {
-        Span<byte> bytes = stackalloc byte[sizeof(uint)];
-        BinaryPrimitives.WriteUInt32LittleEndian(bytes, actor);
-        return Hash(ActorDomain, bytes)[..DigestLength];
+        if (identifier.Length != Protocol.Pipeline.CharacterLoginRecognizer.IdentifierBytes)
+        {
+            throw new ArgumentException("a character identifier has 8 bytes", nameof(identifier));
+        }
+
+        return Hash(LoginDomain, identifier)[..DigestLength];
     }
 
     /// <summary>Reads the key beside a database, creating it on first use.</summary>
@@ -154,7 +168,15 @@ public sealed class CharacterIdentityKey
         value.CopyTo(input[1..]);
 
         Span<byte> digest = stackalloc byte[HMACSHA256.HashSizeInBytes];
-        HMACSHA256.HashData(_key, input, digest);
-        return Convert.ToHexString(digest).ToLowerInvariant();
+        try
+        {
+            HMACSHA256.HashData(_key, input, digest);
+            return Convert.ToHexString(digest).ToLowerInvariant();
+        }
+        finally
+        {
+            // The input holds a character's permanent identifier.
+            CryptographicOperations.ZeroMemory(input);
+        }
     }
 }

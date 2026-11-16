@@ -253,7 +253,10 @@ public sealed partial class LiveProtocolPipeline
                 switch (entry.Kind)
                 {
                     case StagedEntryKind.Event when entry.Event is { } semanticEvent:
-                        ApplyAndPublish(() => sink.Accept(semanticEvent), replayed: now - entry.Mono > FreshMatchAge);
+                        // Replayed from the connection it came on, so a run it creates belongs to the
+                        // character that logged in there, not to whoever logged in last.
+                        MatchingFrom(entry.ConnectionKey, () =>
+                            ApplyAndPublish(() => sink.Accept(semanticEvent), replayed: now - entry.Mono > FreshMatchAge));
                         if (entry.ConnectionKey is { } connectionKey)
                         {
                             NoteProfileConnection(connectionKey, entry.Direction);
