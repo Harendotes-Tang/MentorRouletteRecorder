@@ -103,9 +103,12 @@ CloseApplications=yes
 RestartApplications=no
 MinVersion=10.0
 ShowLanguageDialog=yes
-; Always offer the chooser for interactive installs and upgrades; default to Simplified Chinese.
+; Always offer the chooser for interactive installs and upgrades, preset to the Windows display
+; language, so a player who cannot read Chinese is not met by a Chinese dialog: an exact LanguageID
+; match first, then the primary language (Traditional and Simplified Chinese never stand in for each
+; other), then the first [Languages] entry - English, the one most players of any other language read.
 ; An explicitly supplied /LANG can still choose a registered language.
-LanguageDetectionMethod=none
+LanguageDetectionMethod=uilanguage
 UsePreviousLanguage=no
 VersionInfoVersion={#AppVersionNumeric}
 VersionInfoProductName={#AppNameEn}
@@ -113,9 +116,10 @@ VersionInfoDescription={#AppNameEn} Setup
 VersionInfoCopyright=GPL-3.0-or-later
 
 [Languages]
+; English first: it is what Setup falls back to when the Windows display language is none of these.
+Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
 Name: "chinesetraditional"; MessagesFile: "ChineseTraditional.isl"
-Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
 
 [CustomMessages]
