@@ -13,6 +13,8 @@ Card {
     // another one. A player with one character sees the card as it always was.
     readonly property bool severalCharacters: Number(card.achievement.profile_count || 0) > 1
     readonly property int unassignedCount: Number(card.achievement.unassigned_run_count || 0)
+    // How a new record of this region finds its character; "" from an older Collector.
+    readonly property string identification: String(card.achievement.identification || "")
     // This card's own switch still unanswered: its refusal is this card's to tell.
     property bool switching: false
     Connections {
@@ -61,6 +63,23 @@ Card {
                 Runtime.app.selectCharacterProfile(profileId)
             }
         }
+    }
+    Text {
+        objectName: "achievementIdentification_" + card.achievement.region
+        Layout.fillWidth: true
+        visible: card.severalCharacters && card.identification.length > 0
+        text: card.identification === "AUTOMATIC"
+            ? qsTr("登录游戏后会自动切换到对应的角色。")
+            : card.identification === "MANUAL_OFF"
+                ? qsTr("自动识别角色已关闭，换角色上线前请在这里选一下。")
+                : qsTr("这个区服暂时不能自动识别角色，换角色上线前请在这里选一下。")
+        color: Theme.textSecondary
+        font.pixelSize: Theme.fs(11)
+        wrapMode: Text.WordWrap
+    }
+    CharacterIdentityPrompt {
+        Layout.fillWidth: true
+        region: String(card.achievement.region || "")
     }
     Item {
         Layout.fillWidth: true

@@ -42,6 +42,7 @@ public sealed record TrendSeries(TrendGranularity Granularity, IReadOnlyList<Tre
 /// <param name="ProfileId">The region's current profile; null while the region has none.</param>
 /// <param name="ProfileCount">How many profiles the region holds.</param>
 /// <param name="UnassignedRunCount">Live runs of the region that belong to no profile.</param>
+/// <param name="Identification">How a newly recorded run of the region finds its profile.</param>
 public sealed record RegionalAchievementStatistics(
     Region Region,
     int GoalCount,
@@ -51,7 +52,8 @@ public sealed record RegionalAchievementStatistics(
     int CompletedCount,
     long? ProfileId = null,
     int ProfileCount = 0,
-    int UnassignedRunCount = 0);
+    int UnassignedRunCount = 0,
+    CharacterIdentificationMode Identification = CharacterIdentificationMode.ManualRegion);
 
 /// <summary>One character profile and its achievement progress.</summary>
 /// <param name="Profile">The profile as stored.</param>
@@ -59,12 +61,19 @@ public sealed record RegionalAchievementStatistics(
 /// <param name="AchievementProgress">Baseline plus <paramref name="CompletedCount"/>, capped at Int32.</param>
 /// <param name="Remaining">Completions still missing to the goal; never negative.</param>
 /// <param name="RunCount">Live runs that belong to the profile, whatever their result.</param>
+/// <param name="IdentityCount">Characters told apart in the game traffic that are bound to the profile.</param>
 public sealed record CharacterProfileStatistics(
     CharacterProfile Profile,
     int CompletedCount,
     int AchievementProgress,
     int Remaining,
-    int RunCount);
+    int RunCount,
+    int IdentityCount = 0);
+
+/// <summary>A character told apart in the game traffic that is bound to no profile.</summary>
+/// <param name="Identity">The identity as stored; never <see cref="CharacterIdentityState.Bound"/>.</param>
+/// <param name="RunCount">Live runs recorded for it that are assigned to no profile.</param>
+public sealed record CharacterIdentityStatistics(CharacterIdentity Identity, int RunCount);
 
 /// <summary>Fixed dashboard statistics defined by docs/statistics-definitions.md.</summary>
 public sealed record DashboardStatistics(
@@ -83,7 +92,8 @@ public sealed record DashboardStatistics(
     int JoinedInProgressCount,
     double? JoinedInProgressRate,
     IReadOnlyList<RegionalAchievementStatistics> Achievements,
-    IReadOnlyList<CharacterProfileStatistics>? Profiles = null);
+    IReadOnlyList<CharacterProfileStatistics>? Profiles = null,
+    IReadOnlyList<CharacterIdentityStatistics>? Identities = null);
 
 /// <summary>
 /// Statistics aggregated by duty identity: the observed content id when there is one, and

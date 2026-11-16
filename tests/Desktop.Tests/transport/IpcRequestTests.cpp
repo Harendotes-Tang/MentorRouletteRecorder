@@ -232,6 +232,12 @@ QJsonObject argsFor(const QString &messageType)
         // real Collector, whose refusal of the last or current profile of a region would be
         // ERR_BAD_REQUEST. An unknown id is ERR_NOT_FOUND and still reads the request whole.
         args.insert(QStringLiteral("profile_id"), 999);
+    } else if (messageType == QLatin1String("ResolveCharacterIdentity")) {
+        // 自动识别角色 → 是这个角色: BIND names the profile. An identity no fresh library holds,
+        // so the real Collector of ContractRequestSampleTests answers ERR_NOT_FOUND.
+        args.insert(QStringLiteral("identity_id"), 999);
+        args.insert(QStringLiteral("action"), QStringLiteral("BIND"));
+        args.insert(QStringLiteral("profile_id"), 1);
     } else if (messageType == QLatin1String("UpdateHistoryRetentionSettings")) {
         args.insert(QStringLiteral("retention_days"), 30);
     } else if (messageType == QLatin1String("AcknowledgeImageCleanup")) {
@@ -328,6 +334,7 @@ QStringList allMessageTypes()
         QStringLiteral("CreateCharacterProfile"),
         QStringLiteral("UpdateCharacterProfile"),
         QStringLiteral("DeleteCharacterProfile"),
+        QStringLiteral("ResolveCharacterIdentity"),
     };
 }
 
@@ -394,6 +401,23 @@ QList<RequestVariant> requestVariants()
         // 切换角色: make_current alone, the name left as it is.
         {.file=QStringLiteral("UpdateCharacterProfile.select"), .messageType=QStringLiteral("UpdateCharacterProfile"),
          .args=QJsonObject{{QStringLiteral("profile_id"), 2}, {QStringLiteral("make_current"), true}}},
+        // 自动识别角色 → 不统计: IGNORE carries no profile_id.
+        {.file=QStringLiteral("ResolveCharacterIdentity.ignore"), .messageType=QStringLiteral("ResolveCharacterIdentity"),
+         .args=QJsonObject{{QStringLiteral("identity_id"), 999}, {QStringLiteral("action"), QStringLiteral("IGNORE")}}},
+        // 新角色: the waiting identity is bound to the profile it creates.
+        {.file=QStringLiteral("CreateCharacterProfile.identity"), .messageType=QStringLiteral("CreateCharacterProfile"),
+         .args=QJsonObject{{QStringLiteral("region"), QStringLiteral("CN")},
+                     {QStringLiteral("display_name"), QString::fromUtf8("合成角色三")},
+                     {QStringLiteral("goal_count"), 2000},
+                     {QStringLiteral("baseline_completed_count"), 0},
+                     {QStringLiteral("identity_id"), 999}}},
+        // 重新识别: the characters bound to the profile are asked about again.
+        {.file=QStringLiteral("UpdateCharacterProfile.forget"), .messageType=QStringLiteral("UpdateCharacterProfile"),
+         .args=QJsonObject{{QStringLiteral("profile_id"), 2}, {QStringLiteral("forget_identities"), true}}},
+        // 自动识别角色 switched off; only the one key travels.
+        {.file=QStringLiteral("UpdateCaptureSettings.identification"), .messageType=QStringLiteral("UpdateCaptureSettings"),
+         .args=QJsonObject{{QStringLiteral("changes"),
+                            QJsonObject{{QStringLiteral("character_identification_enabled"), false}}}}},
     };
 }
 
@@ -431,6 +455,7 @@ private Q_SLOTS:
     void samplesMatchTheCommittedFixtures();
     void variantsMatchTheCommittedFixtures();
     void exportRequestsReplaceOnlyAConfirmedTarget();
+    void characterIdentityRequestsCarryOnlyTheirFields();
 };
 } // namespace
 
@@ -536,6 +561,27 @@ void IpcRequestTests::exportRequestsReplaceOnlyAConfirmedTarget()
         QCOMPARE(backend.payloads.value(QStringLiteral("ExportCsv")).value(QStringLiteral("filter")).toObject(),
                  sampleFilter());
     }
+}
+
+// 自动识别角色: the optional ids travel only when there is one (the contract's minimum is 1),
+// so a request without an identity is byte for byte what an older Collector already reads.
+void IpcRequestTests::characterIdentityRequestsCarryOnlyTheirFields()
+{
+    PayloadRecorder backend;
+    backend.resolveCharacterIdentity(7, QStringLiteral("ASK_AGAIN"), 0);
+    QCOMPARE(backend.payloads.value(QStringLiteral("ResolveCharacterIdentity")),
+             (QJsonObject{{QStringLiteral("identity_id"), 7}, {QStringLiteral("action"), QStringLiteral("ASK_AGAIN")}}));
+    backend.resolveCharacterIdentity(7, QStringLiteral("BIND"), 3);
+    QCOMPARE(backend.payloads.value(QStringLiteral("ResolveCharacterIdentity")).value(QStringLiteral("profile_id")),
+             QJsonValue(3));
+    backend.createCharacterProfile(QStringLiteral("CN"), QStringLiteral("A"), 2000, 0, false);
+    QVERIFY(!backend.payloads.value(QStringLiteral("CreateCharacterProfile")).contains(QStringLiteral("identity_id")));
+    backend.createCharacterProfile(QStringLiteral("CN"), QStringLiteral("A"), 2000, 0, false, {}, 7);
+    QCOMPARE(backend.payloads.value(QStringLiteral("CreateCharacterProfile")).value(QStringLiteral("identity_id")),
+             QJsonValue(7));
+    backend.forgetCharacterIdentities(4);
+    QCOMPARE(backend.payloads.value(QStringLiteral("UpdateCharacterProfile")),
+             (QJsonObject{{QStringLiteral("profile_id"), 4}, {QStringLiteral("forget_identities"), true}}));
 }
 
 MR_DESKTOP_TEST_SUITE(IpcRequest)

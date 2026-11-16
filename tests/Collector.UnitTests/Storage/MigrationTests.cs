@@ -15,7 +15,7 @@ public sealed class MigrationTests
         using var fixture = new TestDatabase();
 
         Assert.Equal(MigrationRunner.LatestVersion, fixture.Database.SchemaVersion);
-        Assert.Equal(14, MigrationRunner.LatestVersion);
+        Assert.Equal(15, MigrationRunner.LatestVersion);
 
         using var command = fixture.Database.CreateCommand();
         command.CommandText =
@@ -48,6 +48,7 @@ public sealed class MigrationTests
                 (12, "0012_regional_records.sql"),
                 (13, "0013_legacy_region_cn.sql"),
                 (14, "0014_character_profiles.sql"),
+                (15, "0015_character_identities.sql"),
             },
             applied);
     }

@@ -227,6 +227,22 @@ public:
     /// for a hand-written run without the field the first profile of its region.
     int runProfileId(const QJsonObject &run) const;
 
+    // -- 自动识别角色 (MockBackendIdentities.cpp) -------------------------------
+    /// Test and --mock-pending-identity seam: a character told apart in \a region, bound to
+    /// no profile, in \a state (PENDING or IGNORED). It claims \a runCount live runs of the
+    /// region - first the ones assigned to no profile, then the newest of the region, which
+    /// become assigned to no profile - fewer when the region has fewer. Returns its id.
+    int addCharacterIdentity(const QString &region, const QString &state, int runCount);
+    /// $defs/DashboardStats.identities as it stands: every identity bound to no profile.
+    QVariantList characterIdentities() const { return identitiesJson().toVariantList(); }
+    /// Test and --mock-pending-identity seam: the character the game is logged in as (0 =
+    /// nobody, the default). The Collector decides this from live traffic; BIND and
+    /// create-with-identity make the profile current only for the logged-in character.
+    void setLoggedInCharacterIdentity(int identityId) { m_loggedInIdentityId = identityId; }
+    /// Test seam: the identity disappears, as if another client or a restored database had
+    /// removed it; a later request about it is ERR_NOT_FOUND.
+    void dropCharacterIdentity(int identityId);
+
     /// Statistics helpers, public so the unit tests can call them without
     /// going through the asynchronous request path.
     QJsonObject dashboardStats(const QJsonObject &filter,
@@ -437,6 +453,44 @@ private:
     /// Returns 0 after a refusal.
     int resolveProfileForNewRun(const QString &region, const QJsonValue &requested,
                                 QString *errorCode, QString *errorMessage);
+    /// One character_identities row. boundProfileId 0: bound to no profile, and listed.
+    struct CharacterIdentityEntry
+    {
+        int id = 0;
+        QString region;
+        QString state = QStringLiteral("PENDING");
+        QDateTime firstSeen;
+        QDateTime lastSeen;
+        int boundProfileId = 0;
+        /// The runs recorded while this character was logged in; the live ones still
+        /// assigned to no profile are its run_count, and move with a BIND.
+        QStringList runIds;
+    };
+    QList<CharacterIdentityEntry> m_identities;
+    int m_nextIdentityId = 1;
+    int m_loggedInIdentityId = 0;
+    /// BatchMutateRuns assign_profile clears the identity stamp of the runs it moves.
+    void forgetIdentityStamps(const QStringList &runIds);
+    CharacterIdentityEntry *findIdentity(int identityId);
+    /// The identity's live runs still assigned to no profile.
+    QStringList unassignedIdentityRuns(const CharacterIdentityEntry &identity) const;
+    /// $defs/CharacterIdentity for every unbound identity: PENDING first, oldest first.
+    QJsonArray identitiesJson() const;
+    /// How many identities are bound to \a profileId (CharacterProfile.identity_count).
+    int boundIdentityCount(int profileId) const;
+    /// RegionalAchievement.identification of \a region.
+    QString identificationOf(const QString &region) const;
+    /// Binds \a identity to \a profileId the way the Collector does: its unassigned runs
+    /// move there, the profile becomes current. Returns how many runs moved.
+    int bindIdentity(CharacterIdentityEntry &identity, int profileId);
+    /// Validates CreateCharacterProfile.identity_id; returns the identity or nullptr after
+    /// a refusal. Absent: nullptr without a refusal (*refused stays false).
+    CharacterIdentityEntry *identityForNewProfile(const QJsonObject &payload, const QString &region,
+                                                  bool *refused, QString *errorCode, QString *errorMessage);
+    /// UpdateCharacterProfile.forget_identities: the profile's identities back to PENDING.
+    void forgetIdentitiesOf(int profileId);
+    QJsonObject resolveCharacterIdentity(const QJsonObject &payload, QString *errorCode,
+                                         QString *errorMessage);
     void emitStatsInvalidatedLater();
     static QJsonArray declaredCandidateHypotheses();
     QString captureRegion() const;

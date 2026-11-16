@@ -229,6 +229,19 @@ ColumnLayout {
 
         // 玩家可见（docs/privacy-boundary.md §8.2）：默认开启的联网请求，开关须显见。
         // 另一类为在线语音（§8.3），默认关闭，仅在「播报」中选择在线语音后出现。
+        // 玩家可见（docs/privacy-boundary.md，角色识别）：默认开启，只有一个角色的玩家也能在这里关闭。
+        SettingToggleRow {
+            objectName: "characterIdentificationToggle"
+            label: qsTr("自动识别登录的角色")
+            description: tab.captureSettingDescription(
+                qsTr("默认开启，目前只对国服有效。有多个角色时，登录游戏后软件会认出是哪个角色并自动切换；"
+                     + "第一次见到的角色会在总览询问一次。软件不读取角色名，只在本机保存一个无法还原成角色信息的标记。"
+                     + "关闭后改为在总览手动切换角色。"))
+            toggleEnabled: Runtime.app.captureSettingsSupported && Runtime.app.captureSettingsLoaded
+            checked: !Runtime.app.captureSettingsLoaded || Runtime.app.characterIdentificationEnabled
+            onToggled: function(value) { Runtime.app.setCharacterIdentificationEnabled(value) }
+        }
+
         SettingToggleRow {
             objectName: "sharedCalibrationToggle"
             showDivider: false

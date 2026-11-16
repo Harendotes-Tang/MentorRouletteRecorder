@@ -45,6 +45,7 @@ public sealed class CollectorHost : IDisposable
         LiveEvents = new LiveEventBus(clock);
         Mutations = new RunMutationService(database, Settings, clock, onPurged: LiveEvents.ForgetRuns);
         Profiles = new CharacterProfileService(database, Settings, clock);
+        Identities = new CharacterIdentityService(database, Settings, clock);
         HistoryRetention = new HistoryRetentionService(database, clock, LiveEvents.ForgetRuns);
         Reflections = new RunReflectionRepository(database);
         ReflectionWrites = new RunReflectionService(database, clock);
@@ -94,6 +95,9 @@ public sealed class CollectorHost : IDisposable
 
     /// <summary>The player's changes to the character profiles.</summary>
     public CharacterProfileService Profiles { get; }
+
+    /// <summary>Which profile a character seen in the game traffic is.</summary>
+    public CharacterIdentityService Identities { get; }
 
     /// <summary>Recycle-bin expiry and persistent attachment cleanup tasks.</summary>
     public HistoryRetentionService HistoryRetention { get; }
@@ -326,6 +330,14 @@ public sealed class CollectorHost : IDisposable
             {
                 if (Candidates.Add(observation)) LiveEvents.PublishCandidateObserved(observation);
             };
+            // A name of what happened, a count and an exception type: never an identifier.
+            pipeline.CharacterIdentityNoted += note => _logger.Write(
+                note.Error is null && note.Event is not ("key_replace_failed" or "key_unusable" or "key_unavailable")
+                    ? LogLevel.Info
+                    : LogLevel.Warn,
+                "character_identity",
+                note.Event,
+                new Dictionary<string, object?> { ["count"] = note.Count, ["error"] = note.Error });
             pipeline.CalibrationChanged += state =>
             {
                 LiveEvents.PublishCalibrationChanged(state);
@@ -433,6 +445,7 @@ public sealed class CollectorHost : IDisposable
         _logger.ApplyRetention(settings.LogRetentionDays);
         LiveProtocol?.ApplyCalibrationSetting(settings.AutoCalibrationEnabled);
         LiveProtocol?.ApplySharedCalibrationSetting(settings.SharedCalibrationEnabled);
+        LiveProtocol?.ApplyCharacterIdentificationSetting(settings.CharacterIdentificationEnabled);
         Updates?.ApplySetting(settings.UpdateCheckEnabled);
         if (!settings.UpdateCheckEnabled)
         {

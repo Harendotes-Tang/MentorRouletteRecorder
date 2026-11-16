@@ -629,6 +629,7 @@ QJsonObject MockBackend::dashboardStats(const QJsonObject &filter,
         }
         achievement.insert(QStringLiteral("profile_count"), static_cast<int>(profilesOf(owner).size()));
         achievement.insert(QStringLiteral("unassigned_run_count"), unassignedRunCount(owner));
+        achievement.insert(QStringLiteral("identification"), identificationOf(owner));
         achievements.append(achievement);
         if (owner == (selected.isEmpty() ? QStringLiteral("CN") : selected))
             legacyAchievement = achievement;
@@ -648,6 +649,7 @@ QJsonObject MockBackend::dashboardStats(const QJsonObject &filter,
         stats.insert(QString::fromLatin1(field), legacyAchievement.value(QString::fromLatin1(field)));
     stats.insert(QStringLiteral("achievements"), achievements);
     stats.insert(QStringLiteral("profiles"), profiles);
+    stats.insert(QStringLiteral("identities"), identitiesJson());
     stats.insert(QStringLiteral("completion_rate"),
                  nullableNumber(attempts > 0, static_cast<double>(completed) / static_cast<double>(attempts)));
     // leave_rate counts LEFT_OR_ABANDONED only. DISCONNECTED, INTERRUPTED and

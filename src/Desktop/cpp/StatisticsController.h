@@ -92,11 +92,32 @@ public:
     int baselineProfileId() const { return m_baselineProfileId; }
     void setBaselineProfileId(int profileId);
     bool characterProfileSaving() const { return m_profileSavesInFlight > 0; }
+    /// \a identityId above 0 binds that identity to the new profile in the same request.
     void createCharacterProfile(const QString &region, const QString &displayName, int goalCount,
-                                int baselineCount, bool makeCurrent);
+                                int baselineCount, bool makeCurrent, int identityId = 0);
     void renameCharacterProfile(int profileId, const QString &displayName);
     void selectCharacterProfile(int profileId);
     void deleteCharacterProfile(int profileId);
+
+    // -- 自动识别角色 (StatisticsControllerIdentities.cpp) ----------------------
+    /// $defs/DashboardStats.identities of the newest answer, or of the newest
+    /// ResolveCharacterIdentity reply: every identity bound to no profile, as received.
+    QVariantList characterIdentities() const { return m_identities.toVariantList(); }
+    /// The PENDING identities of \a region in the Collector's order; "" for every region.
+    QVariantList pendingCharacterIdentities(const QString &region) const;
+    /// How many identities of \a region are IGNORED; "" for every region.
+    int ignoredCharacterIdentityCount(const QString &region) const;
+    /// RegionalAchievement.identification of \a region; "" when the Collector sent none.
+    QString characterIdentification(const QString &region) const;
+    /// True when \a region ("" = any region) has an identity in characterIdentities().
+    bool hasCharacterIdentities(const QString &region) const;
+    void bindCharacterIdentity(int identityId, int profileId);
+    void ignoreCharacterIdentity(int identityId);
+    /// ASK_AGAIN for every IGNORED identity of \a region, one request after the other; one
+    /// characterProfileSaved(0, "ask_again") at the end, or characterProfileFailed at the
+    /// first refusal (the rest are not sent).
+    void askAgainAboutCharacterIdentities(const QString &region);
+    void forgetCharacterIdentities(int profileId);
 
 Q_SIGNALS:
     void dashboardChanged();
@@ -121,8 +142,10 @@ Q_SIGNALS:
     void characterProfilesChanged();
     void baselineProfileIdChanged();
     void characterProfileSavingChanged();
-    /// A profile change was accepted; \a action is "create", "rename", "select" or
-    /// "delete". characterProfiles() already holds the reply's list.
+    void characterIdentitiesChanged();
+    /// A profile change was accepted; \a action is "create", "rename", "select", "delete",
+    /// "bind", "ignore", "ask_again" or "forget". characterProfiles() (and, for a
+    /// ResolveCharacterIdentity, characterIdentities()) already hold the reply's lists.
     void characterProfileSaved(int profileId, const QString &action);
     /// A profile change was refused or went unanswered; \a message is the Collector's
     /// sentence in the interface language (collector_text::replyErrorText).
@@ -133,7 +156,25 @@ private:
     void adoptProfiles(const QJsonObject &dashboard, quint64 serial);
     void applyProfiles(const QJsonArray &profiles, quint64 serial);
     /// Watches one profile request through to characterProfileSaved / characterProfileFailed.
-    void watchProfileRequest(const QString &action, BackendReply *reply);
+    /// With \a then, an accepted answer calls it instead of emitting characterProfileSaved,
+    /// before characterProfileSaving drops, so a chain of requests reads as one save.
+    /// \a movesRuns: the request files runs under a profile (BIND, create with an identity);
+    /// while one is unanswered no lap is celebrated, and after it the next read only primes.
+    /// \a boundIdentityId: on success that identity leaves characterIdentities() at once
+    /// (a CharacterProfileResult carries no identities).
+    void watchProfileRequest(const QString &action, BackendReply *reply,
+                             std::function<void()> then = {}, bool movesRuns = false,
+                             int boundIdentityId = 0);
+    /// Drops \a identityId from characterIdentities(); true when it was there.
+    bool dropIdentity(int identityId);
+    /// Adopts \a dashboard's identities unless a newer list (by \a serial) is held.
+    void adoptIdentities(const QJsonObject &dashboard, quint64 serial);
+    void applyIdentities(const QJsonArray &identities, quint64 serial);
+    /// A request is about to move runs onto a profile of \a region: the next read of the
+    /// region's progress primes the milestone observation instead of celebrating a lap.
+    void suspendMilestone(const QString &region);
+    /// Sends ASK_AGAIN for the first of \a identityIds and the rest after it is accepted.
+    void askAgainInTurn(QList<int> identityIds);
     void observeAchievement(const QJsonObject &dashboard, quint64 serial);
     void adoptAchievements(const QJsonObject &dashboard, const QString &region, quint64 serial);
     QJsonObject regionFilter() const;
@@ -184,6 +225,11 @@ private:
     quint64 m_profilesSerial = 0;
     int m_baselineProfileId = 0;
     int m_profileSavesInFlight = 0;
+    /// Unanswered requests that move runs onto a profile (watchProfileRequest movesRuns).
+    int m_runMovesInFlight = 0;
+    QJsonArray m_identities;
+    /// The read serial m_identities came with; an older answer never replaces it.
+    quint64 m_identitiesSerial = 0;
     int m_completedLast7Days = 0;
     int m_completedLast30Days = 0;
     int m_trendWindowDays = 30;

@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
+using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Queries;
 using MentorRecorder.Collector.Domain.Statistics;
@@ -111,7 +112,7 @@ public sealed class StatisticsRepository
             rows.Count(row => row.PendingReview && !row.ImportedHistory),
             GetTrend(filter, granularity),
             joinedInProgress,
-            Ratio(joinedInProgress, entryKnown), achievements, profiles);
+            Ratio(joinedInProgress, entryKnown), achievements, profiles, GetIdentities());
     }
 
     /// <summary>
@@ -124,8 +125,10 @@ public sealed class StatisticsRepository
         var regions = selected is { } region ? new[] { region } : _settings.GetAchievementRegions();
         var unassigned = CountGrouped(
             "SELECT region, COUNT(*) FROM mentor_runs WHERE soft_deleted = 0 AND profile_id IS NULL GROUP BY region;");
+        var identification = IdentificationEnabled();
         return regions.Select(owner =>
         {
+            var mode = CharacterIdentification.ModeFor(owner, identification);
             var ofRegion = profiles.Where(value => value.Profile.Region == owner).ToArray();
             var unassignedCount = unassigned.TryGetValue(EnumWire<Region>.Format(owner), out var loose)
                 ? (int)Math.Min(loose, int.MaxValue)
@@ -134,16 +137,51 @@ public sealed class StatisticsRepository
             {
                 return new RegionalAchievementStatistics(owner, current.Profile.GoalCount,
                     current.Profile.BaselineCompletedCount, current.AchievementProgress, current.Remaining,
-                    current.CompletedCount, current.Profile.ProfileId, ofRegion.Length, unassignedCount);
+                    current.CompletedCount, current.Profile.ProfileId, ofRegion.Length, unassignedCount, mode);
             }
 
             // A region nobody has recorded or set anything for is shown with the defaults.
             var settings = _settings.GetAchievementSettings(region: owner);
             return new RegionalAchievementStatistics(owner, settings.GoalCount, settings.BaselineCompletedCount,
                 settings.BaselineCompletedCount, Math.Max(settings.GoalCount - settings.BaselineCompletedCount, 0),
-                0, null, 0, unassignedCount);
+                0, null, 0, unassignedCount, mode);
         }).ToArray();
     }
+
+    /// <summary>
+    /// <c>capture.character_identification_enabled</c> as it stands; on when it was never written
+    /// or cannot be read, like every other reader of it.
+    /// </summary>
+    private bool IdentificationEnabled()
+    {
+        try
+        {
+            return _settings.GetSetting(CharacterIdentification.EnabledSetting) is not { } raw ||
+                   !string.Equals(raw.Trim(), "false", StringComparison.Ordinal);
+        }
+        catch (CollectorException)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// The characters told apart in the game traffic that are bound to no profile, each with the
+    /// runs recorded for it that have no owner: the ones waiting for the player's answer first.
+    /// </summary>
+    public IReadOnlyList<CharacterIdentityStatistics> GetIdentities() => _database.Read(_ =>
+    {
+        var runs = _settings.Identities.CountUnassignedRuns();
+        return (IReadOnlyList<CharacterIdentityStatistics>)_settings.Identities.List()
+            .Where(identity => identity.State != CharacterIdentityState.Bound)
+            .OrderBy(identity => identity.Region == Region.Cn ? 0 : identity.Region == Region.Tc ? 1 : 2)
+            .ThenBy(identity => identity.Region)
+            .ThenBy(identity => identity.Ignored)
+            .ThenBy(identity => identity.IdentityId)
+            .Select(identity => new CharacterIdentityStatistics(
+                identity, runs.TryGetValue(identity.IdentityId, out var count) ? count : 0))
+            .ToArray();
+    });
 
     /// <summary>
     /// Every character profile with its progress: the profile's baseline plus every confirmed,
@@ -160,6 +198,7 @@ public sealed class StatisticsRepository
         var runs = CountGrouped(
             "SELECT profile_id, COUNT(*) FROM mentor_runs WHERE soft_deleted = 0 AND profile_id IS NOT NULL "
             + "GROUP BY profile_id;");
+        var identities = _settings.Identities.CountByProfile();
         return (IReadOnlyList<CharacterProfileStatistics>)_settings.Profiles.List().Select(profile =>
         {
             var key = profile.ProfileId.ToString(CultureInfo.InvariantCulture);
@@ -168,7 +207,8 @@ public sealed class StatisticsRepository
                 int.MaxValue - (long)profile.BaselineCompletedCount);
             return new CharacterProfileStatistics(profile, (int)Math.Min(count, int.MaxValue), progress,
                 Math.Max(profile.GoalCount - progress, 0),
-                runs.TryGetValue(key, out var all) ? (int)Math.Min(all, int.MaxValue) : 0);
+                runs.TryGetValue(key, out var all) ? (int)Math.Min(all, int.MaxValue) : 0,
+                identities.TryGetValue(profile.ProfileId, out var bound) ? bound : 0);
         }).ToArray();
     });
 

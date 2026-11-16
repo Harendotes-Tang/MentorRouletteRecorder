@@ -309,6 +309,7 @@ public sealed partial class LiveProtocolPipeline :
         _autoCalibrationEnabled = settings.AutoCalibrationEnabled;
         _shared = new SharedCalibrationSession(
             _gate, this, _calibrationServices, clock, settingsRepository, settings.SharedCalibrationEnabled);
+        InitializeCharacterIdentity(settingsRepository, settings.CharacterIdentificationEnabled);
         _selection = SafeSelect(GameProcessDetection.NotRunning);
         if (_candidateEnabled) SelectProfiles();
     }
@@ -555,6 +556,7 @@ public sealed partial class LiveProtocolPipeline :
             _lastMessageMono = null;
             _profileConnections.Clear();
             _counting = new CountingSink();
+            BeginCharacterIdentification();
 
             // The player's job survives a capture retry only when both sessions belong to
             // the same live process. A different client, a reused PID, or unreadable start
@@ -642,7 +644,8 @@ public sealed partial class LiveProtocolPipeline :
                 profile.ProfileId,
                 captureSessionId,
                 _selection.GameBuild),
-            _clock);
+            _clock,
+            identityAtMatch: IdentityAtMatch);
         // A local profile that reads every message of an opcode as a match is watched while it
         // records, so traffic that disproves it can take it out of use (WatchPops). A profile that
         // observes the CN clear has it counted on the way, for the diagnostics (DutyClearTally), into the
@@ -681,6 +684,9 @@ public sealed partial class LiveProtocolPipeline :
                 // stopwatch, so the last one observed is what a lifecycle event must be stamped
                 // with (see LifecycleMono).
                 _lastMessageMono = message.Mono;
+                // Before the parser: the message that matches a run is already counted when the
+                // run asks who is logged in.
+                ObserveCharacter(message);
                 _shared.ObservePublicEvidence(message);
                 _candidateObserver?.Accept(message);
                 _calibration.Accept(message);
@@ -703,7 +709,17 @@ public sealed partial class LiveProtocolPipeline :
                 // controller's asynchronous fault path is stopping the source.
                 ThrowIfStorageFailed();
                 var beforeStats = _parser.GetParserStats();
-                ApplyAndPublish(() => _parser.Accept(message));
+                // A run this message matches belongs to the character the message itself names.
+                _matchingActor = OwnActorOf(message);
+                try
+                {
+                    ApplyAndPublish(() => _parser.Accept(message));
+                }
+                finally
+                {
+                    _matchingActor = 0;
+                }
+
                 var afterStats = _parser.GetParserStats();
                 NoteProfileConnection(message, beforeStats.ParseOk, afterStats.ParseOk);
                 if (afterStats.ParseFailed > beforeStats.ParseFailed && afterStats.RecentErrors.Count > 0)
@@ -726,6 +742,8 @@ public sealed partial class LiveProtocolPipeline :
 
                 SettleOwedSharedSwap();
                 SettleOwedLocalRebind();
+                // After everything that can create a run for this message, replays included.
+                PublishOwedIdentityStats();
             }
         }
         finally
@@ -905,6 +923,7 @@ public sealed partial class LiveProtocolPipeline :
                 _shared.CompletePublicEvidence(captureSessionId, reason);
                 _active = false;
                 _sessionId = null;
+                _identityTracker.Reset();
                 _sharedSwapOwed = null;
                 _localRebindOwed = null;
                 ForgetCardWait();

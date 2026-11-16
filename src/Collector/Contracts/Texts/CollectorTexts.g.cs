@@ -809,6 +809,26 @@ public static partial class CollectorTexts
     public static UserText IdempotencyResponseExpired() =>
         new("idempotency.response_expired", "该操作此前已执行，但原结果已超出保留期。请先刷新并核对历史记录，确认是否还需要重新操作。");
 
+    /// <summary><c>identity.already_bound</c>: 这个角色已经登记过了，不需要再回答。</summary>
+    public static UserText IdentityAlreadyBound() =>
+        new("identity.already_bound", "这个角色已经登记过了，不需要再回答。");
+
+    /// <summary><c>identity.not_found</c>: 这个角色的登记信息已经不在了，下次登录这个角色时会重新询问。</summary>
+    public static UserText IdentityNotFound() =>
+        new("identity.not_found", "这个角色的登记信息已经不在了，下次登录这个角色时会重新询问。");
+
+    /// <summary><c>identity.not_ignored</c>: 这个角色没有被设为不统计。</summary>
+    public static UserText IdentityNotIgnored() =>
+        new("identity.not_ignored", "这个角色没有被设为不统计。");
+
+    /// <summary><c>identity.profile_required</c>: 请选择它是哪个角色。</summary>
+    public static UserText IdentityProfileRequired() =>
+        new("identity.profile_required", "请选择它是哪个角色。");
+
+    /// <summary><c>identity.request_reused</c>: 此请求编号已用于不同的角色登记操作。</summary>
+    public static UserText IdentityRequestReused() =>
+        new("identity.request_reused", "此请求编号已用于不同的角色登记操作。");
+
     /// <summary><c>import.backup.metadata_incomplete</c>: 备份中的记录来源信息不完整，请重新创建备份后重试。</summary>
     public static UserText ImportBackupMetadataIncomplete() =>
         new("import.backup.metadata_incomplete", "备份中的记录来源信息不完整，请重新创建备份后重试。");

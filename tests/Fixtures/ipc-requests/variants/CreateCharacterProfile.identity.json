@@ -1,0 +1,12 @@
+{
+    "message_type": "CreateCharacterProfile",
+    "payload": {
+        "baseline_completed_count": 0,
+        "display_name": "合成角色三",
+        "goal_count": 2000,
+        "identity_id": 999,
+        "region": "CN"
+    },
+    "protocol_version": 1,
+    "request_id": "11111111-2222-4333-8444-555555555555"
+}

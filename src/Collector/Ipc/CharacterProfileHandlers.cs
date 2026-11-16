@@ -21,7 +21,10 @@ public static class CharacterProfileHandlers
     public static JsonObject Create(CollectorHost host, string requestId, PayloadReader reader)
     {
         ArgumentNullException.ThrowIfNull(host);
-        return Render(host, host.Profiles.Create(RequestParsers.CreateCharacterProfile(requestId, reader)));
+        var outcome = host.Profiles.Create(RequestParsers.CreateCharacterProfile(requestId, reader));
+        // A new profile may have been bound to the character that is logged in.
+        host.LiveProtocol?.ReconsiderCharacter();
+        return Render(host, outcome);
     }
 
     /// <summary>Answers <c>UpdateCharacterProfile</c>.</summary>
@@ -42,6 +45,35 @@ public static class CharacterProfileHandlers
     {
         ArgumentNullException.ThrowIfNull(host);
         return Render(host, host.Profiles.Delete(RequestParsers.DeleteCharacterProfile(requestId, reader)));
+    }
+
+    /// <summary>Answers <c>ResolveCharacterIdentity</c>.</summary>
+    /// <param name="host">Open collector host.</param>
+    /// <param name="requestId">Envelope request id; the idempotency key.</param>
+    /// <param name="reader">Request payload.</param>
+    public static JsonObject ResolveIdentity(CollectorHost host, string requestId, PayloadReader reader)
+    {
+        ArgumentNullException.ThrowIfNull(host);
+        var outcome = host.Identities.Resolve(RequestParsers.ResolveCharacterIdentity(requestId, reader));
+        // Before the answer is rendered: when the character just bound is the one logged in, its
+        // profile is the current one in the lists the answer carries.
+        host.LiveProtocol?.ReconsiderCharacter();
+        if (!outcome.IdempotentReplay)
+        {
+            host.LiveEvents.PublishStatsInvalidated("角色档案已更新，统计需要重新查询。");
+        }
+
+        return new JsonObject
+        {
+            ["identity_id"] = outcome.IdentityId,
+            ["profile_id"] = outcome.ProfileId,
+            ["assigned_run_count"] = outcome.AssignedRunCount,
+            ["profiles"] = new JsonArray(
+                host.Statistics.GetProfiles().Select(value => (JsonNode?)Wire.Profile(value)).ToArray()),
+            ["identities"] = new JsonArray(
+                host.Statistics.GetIdentities().Select(value => (JsonNode?)Wire.Identity(value)).ToArray()),
+            ["idempotent_replay"] = outcome.IdempotentReplay,
+        };
     }
 
     private static JsonObject Render(CollectorHost host, CharacterProfileOutcome outcome)

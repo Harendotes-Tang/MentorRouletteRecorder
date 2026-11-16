@@ -24,6 +24,10 @@ StyledComboBox {
         Theme.trackBindingDependency(Runtime.app.characterProfiles)
         if (control.region.length > 0)
             return Runtime.app.characterProfilesForRegion(control.region)
+        // Which regions tell their characters apart also follows the records and the
+        // characters nobody has answered for.
+        Theme.trackBindingDependency(Runtime.app.dashboard)
+        Theme.trackBindingDependency(Runtime.app.characterIdentities)
         const rows = []
         for (const profile of Runtime.app.characterProfiles)
             if (Runtime.app.characterFeaturesVisible(String(profile.region)))

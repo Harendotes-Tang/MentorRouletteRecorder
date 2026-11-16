@@ -138,6 +138,10 @@ class AppController final : public QObject, public CaptureValidationController::
     /// disables the switches and says why.
     Q_PROPERTY(bool captureSettingsSupported READ captureSettingsSupported NOTIFY captureSettingsChanged)
     Q_PROPERTY(QString captureSettingsError READ captureSettingsError NOTIFY captureSettingsChanged)
+    /// $defs/CaptureSettings.character_identification_enabled; true while the Collector
+    /// has not sent the field (its default). Written by setCharacterIdentificationEnabled.
+    Q_PROPERTY(bool characterIdentificationEnabled READ characterIdentificationEnabled
+                   NOTIFY captureSettingsChanged)
     // -- 完整性校验 (CheckDatabaseIntegrity) ---------------------------------
     Q_PROPERTY(bool integrityCheckRunning READ integrityCheckRunning NOTIFY integrityCheckChanged)
     /// Empty before the first check; see ExportController::integrityCheckResult().
@@ -191,6 +195,11 @@ class AppController final : public QObject, public CaptureValidationController::
     /// True while a Create/Update/DeleteCharacterProfile is unanswered.
     Q_PROPERTY(bool characterProfileSaving READ characterProfileSaving
                    NOTIFY characterProfileSavingChanged)
+    /// 自动识别角色: $defs/DashboardStats.identities as the Collector last sent them (or the
+    /// last ResolveCharacterIdentity reply) - every identity bound to no profile, PENDING
+    /// and IGNORED, the wire maps unchanged.
+    Q_PROPERTY(QVariantList characterIdentities READ characterIdentities
+                   NOTIFY characterIdentitiesChanged)
     /// $defs/DashboardStats.unfinished_pending_review: runs the crash-recovery
     /// service closed without evidence and that a human still has to confirm.
     Q_PROPERTY(int pendingReviewCount READ pendingReviewCount NOTIFY dashboardChanged)
@@ -422,8 +431,9 @@ public:
     /// One profile by id; an empty map when it is not known.
     Q_INVOKABLE QVariantMap characterProfile(int profileId) const
     { return m_statistics->characterProfile(profileId); }
-    /// True when \a region holds two or more profiles or has runs assigned to none (for
-    /// "", when any region does): the switch that keeps a one-character player's UI as it was.
+    /// True when \a region holds two or more profiles, has runs assigned to none or has an
+    /// identity in characterIdentities (for "", when any region does): the switch that keeps
+    /// a one-character player's UI as it was.
     Q_INVOKABLE bool characterFeaturesVisible(const QString &region) const
     { return m_statistics->characterFeaturesVisible(region); }
     /// The progress numbers that belong to \a run: its profile's (profile_id), its region's
@@ -434,6 +444,22 @@ public:
     int baselineProfileId() const { return m_statistics->baselineProfileId(); }
     void setBaselineProfileId(int profileId) { m_statistics->setBaselineProfileId(profileId); }
     bool characterProfileSaving() const { return m_statistics->characterProfileSaving(); }
+    QVariantList characterIdentities() const { return m_statistics->characterIdentities(); }
+    /// The PENDING identities of \a region ("" = every region), in the Collector's order.
+    Q_INVOKABLE QVariantList pendingCharacterIdentities(const QString &region) const
+    { return m_statistics->pendingCharacterIdentities(region); }
+    /// How many identities of \a region ("" = every region) are IGNORED.
+    Q_INVOKABLE int ignoredCharacterIdentityCount(const QString &region) const
+    { return m_statistics->ignoredCharacterIdentityCount(region); }
+    /// RegionalAchievement.identification of \a region: "AUTOMATIC", "MANUAL_REGION",
+    /// "MANUAL_OFF", or "" when the Collector sent none (older Collector: manual).
+    Q_INVOKABLE QString characterIdentification(const QString &region) const
+    { return m_statistics->characterIdentification(region); }
+    bool characterIdentificationEnabled() const
+    { return m_captureSettings.value(QStringLiteral("character_identification_enabled")).toBool(true); }
+    /// Writes character_identification_enabled through UpdateCaptureSettings (debounced,
+    /// like updateCaptureSetting); the statistics are read again once it is accepted.
+    Q_INVOKABLE void setCharacterIdentificationEnabled(bool enabled);
     Q_INVOKABLE QVariantList dutyChoicesForRegion(const QString &region) const;
     QVariantList resultBuckets() const;
     QVariantList statCards() const;
@@ -648,12 +674,29 @@ public Q_SLOTS:
     void updateAchievementBaseline(int goalCount, int baselineCount, const QString &reason);
     /// 角色档案. Each answers with characterProfileSaved (characterProfiles already holds
     /// the reply's list, and the statistics are read again) or characterProfileFailed.
+    /// \a identityId above 0 also binds that PENDING identity to the new profile (identity_id),
+    /// which moves its runs there and makes the profile current.
     void createCharacterProfile(const QString &region, const QString &displayName, int goalCount,
-                                int baselineCount, bool makeCurrent);
+                                int baselineCount, bool makeCurrent, int identityId = 0);
     void renameCharacterProfile(int profileId, const QString &displayName);
     /// Makes \a profileId the current profile of its region: new runs are filed under it.
     void selectCharacterProfile(int profileId);
     void deleteCharacterProfile(int profileId);
+    /// 自动识别角色. Each answers with characterProfileSaved (action "bind", "ignore",
+    /// "ask_again" or "forget"; profileId 0 where there is none) or characterProfileFailed,
+    /// and the statistics and the history list are read again after a success.
+    /// BIND: \a identityId is the character of \a profileId; its runs move there and the
+    /// profile becomes current.
+    void bindCharacterIdentity(int identityId, int profileId);
+    /// IGNORE: keep no progress for \a identityId and stop asking.
+    void ignoreCharacterIdentity(int identityId);
+    /// ASK_AGAIN for every IGNORED identity of \a region ("" = every region), one request
+    /// after the other; one characterProfileSaved(0, "ask_again") at the end (also when there
+    /// was none), or characterProfileFailed at the first refusal.
+    void askAgainAboutCharacterIdentities(const QString &region);
+    /// UpdateCharacterProfile forget_identities: the characters bound to \a profileId return
+    /// to PENDING.
+    void forgetCharacterIdentities(int profileId);
     void completeFirstRun();
 
     void exportCsv();
@@ -784,7 +827,9 @@ Q_SIGNALS:
     void characterProfilesChanged();
     void baselineProfileIdChanged();
     void characterProfileSavingChanged();
-    /// A profile change was accepted. \a action: "create", "rename", "select" or "delete".
+    void characterIdentitiesChanged();
+    /// A profile change was accepted. \a action: "create", "rename", "select", "delete",
+    /// "bind", "ignore", "ask_again" or "forget".
     void characterProfileSaved(int profileId, const QString &action);
     /// A profile change was refused or went unanswered; \a message is the Collector's
     /// sentence in the interface language.

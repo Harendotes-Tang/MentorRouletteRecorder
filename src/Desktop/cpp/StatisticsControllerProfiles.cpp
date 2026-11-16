@@ -57,12 +57,17 @@ bool StatisticsController::characterFeaturesVisible(const QString &region) const
     QHash<QString, int> counts;
     for (const auto &value : m_profiles)
         ++counts[value.toObject().value(QStringLiteral("region")).toString()];
+    // A character told apart in the game traffic, waiting or ignored, is a second
+    // character the player has to be able to see and answer for.
     const auto visibleFor = [this, &counts](const QString &owner) {
         return counts.value(owner) >= 2
-               || m_achievements.value(owner).value(QStringLiteral("unassigned_run_count")).toInt() > 0;
+               || m_achievements.value(owner).value(QStringLiteral("unassigned_run_count")).toInt() > 0
+               || hasCharacterIdentities(owner);
     };
     if (!region.isEmpty())
         return visibleFor(region);
+    if (hasCharacterIdentities(QString()))
+        return true;
     QSet<QString> regions(counts.keyBegin(), counts.keyEnd());
     for (auto it = m_achievements.constBegin(); it != m_achievements.constEnd(); ++it)
         regions.insert(it.key());
@@ -104,6 +109,7 @@ void StatisticsController::setBaselineProfileId(int profileId)
 void StatisticsController::adoptProfiles(const QJsonObject &dashboard, quint64 serial)
 {
     // An older Collector sends no list; what is held stays.
+    adoptIdentities(dashboard, serial);
     if (!dashboard.contains(QStringLiteral("profiles")) || serial < m_profilesSerial)
         return;
     applyProfiles(dashboard.value(QStringLiteral("profiles")).toArray(), serial);
@@ -127,13 +133,16 @@ void StatisticsController::applyProfiles(const QJsonArray &profiles, quint64 ser
 }
 
 void StatisticsController::createCharacterProfile(const QString &region, const QString &displayName,
-                                                  int goalCount, int baselineCount, bool makeCurrent)
+                                                  int goalCount, int baselineCount, bool makeCurrent,
+                                                  int identityId)
 {
     if (!m_backend)
         return;
+    // Binding an identity moves its runs onto the new profile.
     watchProfileRequest(QStringLiteral("create"),
                         m_backend->createCharacterProfile(region, displayName, goalCount, baselineCount,
-                                                          makeCurrent, ipc::newRequestId()));
+                                                          makeCurrent, ipc::newRequestId(), identityId),
+                        {}, identityId > 0, qMax(identityId, 0));
 }
 
 void StatisticsController::renameCharacterProfile(int profileId, const QString &displayName)
@@ -164,27 +173,70 @@ void StatisticsController::deleteCharacterProfile(int profileId)
                         m_backend->deleteCharacterProfile(profileId, ipc::newRequestId()));
 }
 
-void StatisticsController::watchProfileRequest(const QString &action, BackendReply *reply)
+void StatisticsController::watchProfileRequest(const QString &action, BackendReply *reply,
+                                               std::function<void()> then, bool movesRuns,
+                                               int boundIdentityId)
 {
     // Counted before the answer: a pipe that is down answers inside the call.
     if (m_profileSavesInFlight++ == 0)
         Q_EMIT characterProfileSavingChanged();
+    // Runs moved onto a profile are not completions just made: while the request is out no
+    // lap is celebrated, and no read answered meanwhile may arm the observation again.
+    if (movesRuns) {
+        ++m_runMovesInFlight;
+        suspendMilestone(QString());
+    }
     const QPointer<BackendReply> guard(reply);
-    reply->whenDone(this, [this, action, guard](bool ok, const QVariantMap &payload, const QString &code,
-                                                const QString &message) {
-        if (--m_profileSavesInFlight == 0)
-            Q_EMIT characterProfileSavingChanged();
+    reply->whenDone(this, [this, action, guard, then = std::move(then), movesRuns, boundIdentityId](
+                              bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
+        if (movesRuns) {
+            --m_runMovesInFlight;
+            // The read that follows the move only primes the observation.
+            if (ok)
+                suspendMilestone(QString());
+        }
         if (!ok) {
+            if (--m_profileSavesInFlight == 0)
+                Q_EMIT characterProfileSavingChanged();
             const QString text = collector_text::replyErrorText(guard, message).text();
             Q_EMIT characterProfileFailed(action, code, text.isEmpty() ? code : text);
             return;
         }
-        // The reply's list is newer than every read sent before it.
+        // The reply's lists are newer than every read sent before it.
         const QJsonObject answer = QJsonObject::fromVariantMap(payload);
+        const quint64 serial = ++m_achievementReadSerial;
         if (answer.contains(QStringLiteral("profiles")))
-            applyProfiles(answer.value(QStringLiteral("profiles")).toArray(), ++m_achievementReadSerial);
+            applyProfiles(answer.value(QStringLiteral("profiles")).toArray(), serial);
+        if (answer.contains(QStringLiteral("identities")))
+            applyIdentities(answer.value(QStringLiteral("identities")).toArray(), serial);
+        else if (boundIdentityId > 0)
+            dropIdentity(boundIdentityId);
+        if (then) {
+            // The next request of the chain is counted before this one stops counting.
+            then();
+            if (--m_profileSavesInFlight == 0)
+                Q_EMIT characterProfileSavingChanged();
+            return;
+        }
+        if (--m_profileSavesInFlight == 0)
+            Q_EMIT characterProfileSavingChanged();
+        // profile_id is null for IGNORE / ASK_AGAIN: 0.
         Q_EMIT characterProfileSaved(answer.value(QStringLiteral("profile_id")).toInt(), action);
     });
+}
+
+bool StatisticsController::dropIdentity(int identityId)
+{
+    for (qsizetype index = 0; index < m_identities.size(); ++index) {
+        if (m_identities.at(index).toObject().value(QStringLiteral("identity_id")).toInt() != identityId)
+            continue;
+        m_identities.removeAt(index);
+        // A read sent before this answer still lists the identity: it must not bring it back.
+        m_identitiesSerial = ++m_achievementReadSerial;
+        Q_EMIT characterIdentitiesChanged();
+        return true;
+    }
+    return false;
 }
 
 } // namespace mr

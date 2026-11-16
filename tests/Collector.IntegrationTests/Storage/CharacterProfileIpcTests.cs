@@ -1,11 +1,13 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Domain;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
 /// <summary>
-/// Character profiles over a real pipe: the three profile messages, the profile fields of the run,
-/// filter, baseline, batch and dashboard messages, and every answer held to the contract.
+/// Character profiles over a real pipe: the three profile messages, the answer about a character
+/// the Collector told apart, the profile fields of the run, filter, baseline, batch, settings and
+/// dashboard messages, and every answer held to the contract.
 /// </summary>
 public sealed class CharacterProfileIpcTests
 {
@@ -115,5 +117,87 @@ public sealed class CharacterProfileIpcTests
         var removed = await Send("DeleteCharacterProfile", new JsonObject { ["profile_id"] = alt });
         Assert.True(removed["deleted"]!.GetValue<bool>());
         Assert.DoesNotContain(removed["profiles"]!.AsArray(), row => row!["profile_id"]!.GetValue<int>() == alt);
+    }
+
+    [Fact]
+    public async Task ACharacterToldApartIsShownAnsweredForgottenAndIgnoredOverThePipe()
+    {
+        const string key = "0a1b2c3d";
+        await using var fixture = ServerFixture.Start();
+        await using var client = await fixture.ConnectAsync();
+        async Task<JsonObject> Send(string message, JsonObject payload)
+        {
+            var result = (await client.SendAsync(message, payload)).Require();
+            ContractSchema.Validate("$defs/Responses/" + message, result, message + " identity response");
+            return result;
+        }
+
+        async Task<string?> Refused(string message, JsonObject payload) => (await client.SendAsync(message, payload)).ErrorCode;
+        JsonNode China(JsonObject dashboard) =>
+            dashboard["achievements"]!.AsArray().Single(row => row!["region"]!.GetValue<string>() == "CN")!;
+
+        // What capture does when characters log in: the first is the region's one profile, the
+        // second waits for the player.
+        var main = (int)fixture.Host.Identities.Observe(Region.Cn, key, new string('1', 32)).ProfileId!.Value;
+        var second = (int)fixture.Host.Identities.Observe(Region.Cn, key, new string('2', 32)).IdentityId!.Value;
+        var third = (int)fixture.Host.Identities.Observe(Region.Cn, key, new string('3', 32)).IdentityId!.Value;
+
+        var dashboard = await Send("GetDashboardStats", new JsonObject());
+        Assert.Equal("AUTOMATIC", China(dashboard)["identification"]!.GetValue<string>());
+        Assert.Equal(new[] { second, third }, dashboard["identities"]!.AsArray().Select(row => row!["identity_id"]!.GetValue<int>()));
+        Assert.All(dashboard["identities"]!.AsArray(), row => Assert.Equal("PENDING", row!["state"]!.GetValue<string>()));
+        Assert.Equal(1, dashboard["profiles"]!.AsArray().Single(row => row!["profile_id"]!.GetValue<int>() == main)!["identity_count"]!.GetValue<int>());
+        Assert.DoesNotContain(key, dashboard.ToJsonString());
+        Assert.DoesNotContain(new string('2', 32), dashboard.ToJsonString());
+
+        // A new character, named and bound in one request. Nobody is logged in here, so the
+        // answer does not change which profile is current.
+        var created = await Send("CreateCharacterProfile", new JsonObject
+            { ["region"] = "CN", ["display_name"] = "小号", ["identity_id"] = second });
+        var alt = created["profile_id"]!.GetValue<int>();
+        Assert.Contains(created["profiles"]!.AsArray(), row =>
+            row!["profile_id"]!.GetValue<int>() == alt && !row["is_current"]!.GetValue<bool>() && row["identity_count"]!.GetValue<int>() == 1);
+        // The character logging in is what makes its profile current.
+        Assert.True(fixture.Host.Identities.Recognise(Region.Cn, key, new string('2', 32)).StatisticsChanged);
+
+        // The third is the first character under another identifier.
+        var bound = await Send("ResolveCharacterIdentity", new JsonObject
+            { ["identity_id"] = third, ["action"] = "BIND", ["profile_id"] = main });
+        Assert.Equal((main, 0, false), (bound["profile_id"]!.GetValue<int>(), bound["assigned_run_count"]!.GetValue<int>(),
+            bound["idempotent_replay"]!.GetValue<bool>()));
+        Assert.Empty(bound["identities"]!.AsArray());
+        Assert.Contains(bound["profiles"]!.AsArray(), row =>
+            row!["profile_id"]!.GetValue<int>() == main && !row["is_current"]!.GetValue<bool>() && row["identity_count"]!.GetValue<int>() == 2);
+
+        // Released, both come back to be asked about; one is ignored and asked about again.
+        await Send("UpdateCharacterProfile", new JsonObject { ["profile_id"] = main, ["forget_identities"] = true });
+        dashboard = await Send("GetDashboardStats", new JsonObject());
+        Assert.Equal(2, dashboard["identities"]!.AsArray().Count);
+        var first = dashboard["identities"]!.AsArray().Select(row => row!["identity_id"]!.GetValue<int>()).First(id => id != third);
+        var ignored = await Send("ResolveCharacterIdentity", new JsonObject { ["identity_id"] = first, ["action"] = "IGNORE" });
+        Assert.Null(ignored["profile_id"]);
+        Assert.Equal("IGNORED", ignored["identities"]!.AsArray().Single(row => row!["identity_id"]!.GetValue<int>() == first)!["state"]!.GetValue<string>());
+        var asked = await Send("ResolveCharacterIdentity", new JsonObject { ["identity_id"] = first, ["action"] = "ASK_AGAIN" });
+        Assert.All(asked["identities"]!.AsArray(), row => Assert.Equal("PENDING", row!["state"]!.GetValue<string>()));
+
+        // What the contract refuses.
+        Assert.Equal(ErrorCodes.BadRequest, await Refused("ResolveCharacterIdentity", new JsonObject
+            { ["identity_id"] = first, ["action"] = "BIND" }));
+        Assert.Equal(ErrorCodes.BadRequest, await Refused("ResolveCharacterIdentity", new JsonObject
+            { ["identity_id"] = first, ["action"] = "IGNORE", ["profile_id"] = main }));
+        Assert.Equal(ErrorCodes.BadRequest, await Refused("ResolveCharacterIdentity", new JsonObject
+            { ["identity_id"] = second, ["action"] = "BIND", ["profile_id"] = main }));
+        Assert.Equal(ErrorCodes.NotFound, await Refused("ResolveCharacterIdentity", new JsonObject
+            { ["identity_id"] = 9999, ["action"] = "IGNORE" }));
+        Assert.Equal(ErrorCodes.BadRequest, await Refused("ResolveCharacterIdentity", new JsonObject
+            { ["identity_id"] = first, ["action"] = "LATER" }));
+
+        // The switch: off makes every region manual and says so; it is a capture setting like the others.
+        var settings = await Send("UpdateCaptureSettings", new JsonObject { ["character_identification_enabled"] = false });
+        Assert.False(settings["character_identification_enabled"]!.GetValue<bool>());
+        dashboard = await Send("GetDashboardStats", new JsonObject());
+        Assert.All(dashboard["achievements"]!.AsArray(), row => Assert.Equal("MANUAL_OFF", row!["identification"]!.GetValue<string>()));
+        Assert.Equal(ErrorCodes.BadRequest, await Refused("UpdateCaptureSettings", new JsonObject
+            { ["character_identification_enabled"] = "yes" }));
     }
 }

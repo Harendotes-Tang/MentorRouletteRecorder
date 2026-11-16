@@ -367,6 +367,136 @@ private Q_SLOTS:
         QTRY_VERIFY(!dialog->property("visible").toBool());
         QTRY_COMPARE(pages.profile(alt).value(QStringLiteral("run_count")).toInt(), 1);
     }
+
+    /// A character the Collector told apart and nobody has answered for is asked about on the
+    /// region's card. With one character there, one button says "it is that one"; the records
+    /// made for it then count, and the card is the plain card again.
+    void aCharacterNobodyAnsweredForIsAskedAboutOnTheOverviewCard()
+    {
+        Pages pages;
+        const int identity = pages.backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 2);
+        QVERIFY(identity > 0);
+        QVERIFY2(pages.create(), qPrintable(pages.errors));
+        const int only = pages.currentOf(QStringLiteral("CN"));
+        const int runsBefore = pages.profile(only).value(QStringLiteral("run_count")).toInt();
+        pages.app->navigate(0);
+
+        QTRY_VERIFY(pages.shown(QStringLiteral("characterIdentityPrompt_CN")));
+        QVERIFY(!pages.shown(QStringLiteral("characterIdentityPrompt_TC")));
+        QVERIFY(pages.shown(QStringLiteral("characterIdentityBody_CN"))->property("text").toString()
+                    .contains(QString::fromUtf8("2 条记录")));
+        // One character: no list to pick from, the button names it.
+        QVERIFY(!pages.shown(QStringLiteral("characterIdentityExisting_CN")));
+        QVERIFY(pages.shown(QStringLiteral("characterIdentityOnly_CN"))->property("text").toString()
+                    .contains(QString::fromUtf8("原有记录")));
+
+        QVERIFY(pages.click(QStringLiteral("characterIdentitySame_CN")));
+
+        QTRY_VERIFY(!pages.shown(QStringLiteral("characterIdentityPrompt_CN")));
+        QTRY_COMPARE(pages.profile(only).value(QStringLiteral("run_count")).toInt(), runsBefore + 2);
+        QCOMPARE(pages.profile(only).value(QStringLiteral("identity_count")).toInt(), 1);
+        QTRY_VERIFY(!pages.app->characterFeaturesVisible(QStringLiteral("CN")));
+    }
+
+    /// With several characters the player picks which one it is, or names a new one in the
+    /// dialog 添加角色 uses - which then neither offers nor needs "switch to it now".
+    void anUnansweredCharacterBecomesAnExistingOrANewCharacter()
+    {
+        Pages pages;
+        const int alt = pages.backend.addCharacterProfile(QStringLiteral("CN"), QString::fromUtf8("小号"), 1000, 0, false);
+        pages.backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 1);
+        pages.backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 1);
+        QVERIFY2(pages.create(), qPrintable(pages.errors));
+        // One is asked about at a time, in the order the Collector lists them.
+        const QVariantList waiting = pages.app->pendingCharacterIdentities(QStringLiteral("CN"));
+        QCOMPARE(waiting.size(), 2);
+        const int first = waiting.at(0).toMap().value(QStringLiteral("identity_id")).toInt();
+        const int second = waiting.at(1).toMap().value(QStringLiteral("identity_id")).toInt();
+        // The character being answered about is the one in the game, so its profile becomes current.
+        pages.backend.setLoggedInCharacterIdentity(first);
+        pages.app->navigate(0);
+
+        QTRY_VERIFY(pages.shown(QStringLiteral("characterIdentityPrompt_CN")));
+        QCOMPARE(pages.shown(QStringLiteral("characterIdentityPrompt_CN"))->property("identityId").toInt(), first);
+        QVERIFY(!pages.shown(QStringLiteral("characterIdentitySame_CN")));
+        // Nothing is bound until a character is picked.
+        QVERIFY(!pages.shown(QStringLiteral("characterIdentityBind_CN")));
+        QVERIFY(Pages::pick(pages.shown(QStringLiteral("characterIdentityExisting_CN")), alt));
+        QTRY_VERIFY(pages.shown(QStringLiteral("characterIdentityBind_CN")));
+        QVERIFY(pages.click(QStringLiteral("characterIdentityBind_CN")));
+
+        QTRY_COMPARE(pages.profile(alt).value(QStringLiteral("identity_count")).toInt(), 1);
+        QTRY_COMPARE(pages.currentOf(QStringLiteral("CN")), alt);
+        // The next one is asked about, with nothing carried over from the last.
+        QTRY_COMPARE(pages.shown(QStringLiteral("characterIdentityPrompt_CN"))->property("identityId").toInt(), second);
+        QVERIFY(!pages.shown(QStringLiteral("characterIdentityBind_CN")));
+
+        pages.backend.setLoggedInCharacterIdentity(second);
+        QVERIFY(pages.click(QStringLiteral("characterIdentityNew_CN")));
+        QTRY_VERIFY(pages.shown(QStringLiteral("characterNameField")));
+        QVERIFY(pages.shown(QStringLiteral("characterIdentityHint")));
+        QVERIFY(!pages.shown(QStringLiteral("characterMakeCurrentSwitch")));
+        QVERIFY(pages.shown(QStringLiteral("characterNameField"))->setProperty("text", QString::fromUtf8("第三个")));
+        QVERIFY(pages.click(QStringLiteral("characterProfileSave")));
+
+        QTRY_VERIFY(!pages.shown(QStringLiteral("characterIdentityPrompt_CN")));
+        // The prompt goes as soon as the answer is in; the current character follows with the next read.
+        QTRY_VERIFY(pages.currentOf(QStringLiteral("CN")) != alt);
+        const int created = pages.currentOf(QStringLiteral("CN"));
+        QCOMPARE(pages.profile(created).value(QStringLiteral("display_name")).toString(), QString::fromUtf8("第三个"));
+        QCOMPARE(pages.profile(created).value(QStringLiteral("identity_count")).toInt(), 1);
+        // The card now says how the region finds a record's character.
+        QTRY_VERIFY(pages.shown(QStringLiteral("achievementIdentification_CN")));
+    }
+
+    /// 不统计 stops the question; 设置 › 成就 says so and can ask again. The same tab switches
+    /// identification off and releases what a character was recognised as.
+    void ignoringForgettingAndTheSwitchLiveInAchievementSettings()
+    {
+        Pages pages;
+        const int alt = pages.backend.addCharacterProfile(QStringLiteral("CN"), QString::fromUtf8("小号"), 1000, 0, false);
+        pages.backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 1);
+        pages.backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 0);
+        QVERIFY2(pages.create(), qPrintable(pages.errors));
+        const QVariantList waiting = pages.app->pendingCharacterIdentities(QStringLiteral("CN"));
+        QCOMPARE(waiting.size(), 2);
+        const int guest = waiting.at(0).toMap().value(QStringLiteral("identity_id")).toInt();
+        const int mine = waiting.at(1).toMap().value(QStringLiteral("identity_id")).toInt();
+        pages.backend.setLoggedInCharacterIdentity(mine);
+        pages.app->navigate(0);
+        QTRY_COMPARE(pages.shown(QStringLiteral("characterIdentityPrompt_CN"))->property("identityId").toInt(), guest);
+
+        QVERIFY(pages.click(QStringLiteral("characterIdentityIgnore_CN")));
+        QTRY_COMPARE(pages.shown(QStringLiteral("characterIdentityPrompt_CN"))->property("identityId").toInt(), mine);
+        QCOMPARE(pages.app->ignoredCharacterIdentityCount(QStringLiteral("CN")), 1);
+        QVERIFY(Pages::pick(pages.shown(QStringLiteral("characterIdentityExisting_CN")), alt));
+        QTRY_VERIFY(pages.shown(QStringLiteral("characterIdentityBind_CN")));
+        QVERIFY(pages.click(QStringLiteral("characterIdentityBind_CN")));
+        QTRY_VERIFY(!pages.shown(QStringLiteral("characterIdentityPrompt_CN")));
+
+        QVERIFY(pages.openAchievementSettings());
+        // 小号 is current now, so it is the character the tab edits.
+        QTRY_VERIFY(pages.shown(QStringLiteral("characterBindingRow")));
+        QVERIFY(pages.shown(QStringLiteral("ignoredCharactersRow")));
+        QVERIFY(pages.click(QStringLiteral("forgetIdentitiesButton")));
+        QTRY_COMPARE(pages.profile(alt).value(QStringLiteral("identity_count")).toInt(), 0);
+        QTRY_VERIFY(!pages.shown(QStringLiteral("characterBindingRow")));
+        QVERIFY(pages.click(QStringLiteral("askAgainButton")));
+        QTRY_COMPARE(pages.app->ignoredCharacterIdentityCount(QStringLiteral("CN")), 0);
+        QTRY_VERIFY(!pages.shown(QStringLiteral("ignoredCharactersRow")));
+        QCOMPARE(pages.app->pendingCharacterIdentities(QStringLiteral("CN")).size(), 2);
+
+        // The switch itself is with the other switches in 设置 › 通用, where a player with one
+        // character finds it too.
+        QVERIFY(!pages.shown(QStringLiteral("characterIdentificationToggle")));
+        QVERIFY(pages.click(QStringLiteral("settingsTab_general")));
+        QTRY_VERIFY(pages.shown(QStringLiteral("characterIdentificationToggle")));
+        QQuickItem *toggle = pages.shown(QStringLiteral("characterIdentificationToggle"));
+        QCOMPARE(toggle->property("checked").toBool(), true);
+        QVERIFY(QMetaObject::invokeMethod(toggle, "toggled", Q_ARG(bool, false)));
+        QTRY_COMPARE(pages.app->characterIdentification(QStringLiteral("CN")), QStringLiteral("MANUAL_OFF"));
+        QTRY_COMPARE(toggle->property("checked").toBool(), false);
+    }
 };
 
 } // namespace

@@ -2123,6 +2123,57 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>CharacterIdentityPrompt</name>
+    <message>
+        <source>发现了一个还没有登记的角色</source>
+        <translation>まだ登録されていないキャラクターが見つかりました</translation>
+    </message>
+    <message>
+        <source>它已经有 %1 条记录，现在不计入任何角色的进度。</source>
+        <translation>すでに %1 件の記録がありますが、今はどのキャラクターの進捗にも含まれていません。</translation>
+    </message>
+    <message>
+        <source>在你说明之前，它的记录不计入任何角色的进度。</source>
+        <translation>どのキャラクターか指定するまで、その記録はどのキャラクターの進捗にも含まれません。</translation>
+    </message>
+    <message>
+        <source>说明它是哪个角色后，这些记录会自动归到那个角色名下。</source>
+        <translation>どのキャラクターか指定すると、これらの記録は自動的にそのキャラクターに振り分けられます。</translation>
+    </message>
+    <message>
+        <source>另外还有 %1 个角色等待说明，回答完这一个再问下一个。</source>
+        <translation>ほかに %1 人のキャラクターが指定待ちです。このキャラクターに答えると次を尋ねます。</translation>
+    </message>
+    <message>
+        <source>这是一个新角色</source>
+        <translation>新しいキャラクターです</translation>
+    </message>
+    <message>
+        <source>已有的角色：「%1」</source>
+        <translation>既存のキャラクター：「%1」</translation>
+    </message>
+    <message>
+        <source>它就是这个角色</source>
+        <translation>このキャラクターです</translation>
+    </message>
+    <message>
+        <source>它是已有的角色，请选择</source>
+        <translation>既存のキャラクターです（選択）</translation>
+    </message>
+    <message>
+        <source>它是已有的哪个角色</source>
+        <translation>既存のどのキャラクターか</translation>
+    </message>
+    <message>
+        <source>确定是这个角色</source>
+        <translation>このキャラクターで確定</translation>
+    </message>
+    <message>
+        <source>不统计这个角色</source>
+        <translation>このキャラクターは集計しない</translation>
+    </message>
+</context>
+<context>
     <name>CharacterNames</name>
     <message>
         <source>原有记录</source>
@@ -2148,6 +2199,10 @@ SHA256：%3</translation>
         <translation>キャラクターの名前を変更</translation>
     </message>
     <message>
+        <source>登记新角色</source>
+        <translation>新しいキャラクターを登録</translation>
+    </message>
+    <message>
         <source>每个角色有自己的目标、起始次数和进度。名称由你自己起，方便区分即可，软件不会读取游戏里的角色名。</source>
         <translation>キャラクターごとに目標、記録開始前の回数、進捗を持ちます。名前は見分けやすいように自分で付けてください。ゲーム内のキャラクター名を読み取ることはありません。</translation>
     </message>
@@ -2162,6 +2217,14 @@ SHA256：%3</translation>
     <message>
         <source>起始次数：这个角色在游戏成就里已经完成的导随次数，之后记录的通关会加在它上面。</source>
         <translation>記録開始前の回数：このキャラクターがゲーム内アチーブメントですでに達成しているメンタールーレットの回数です。今後記録されるクリアはその上に加算されます。</translation>
+    </message>
+    <message>
+        <source>添加后，这个角色之前没有归属的记录会记到它名下。</source>
+        <translation>追加すると、このキャラクターの未割り当ての記録がこのキャラクターに記録されます。</translation>
+    </message>
+    <message>
+        <source>以后登录这个角色时，软件会自动切换过来。</source>
+        <translation>今後このキャラクターでログインすると、自動的に切り替わります。</translation>
     </message>
     <message>
         <source>现在就切换到这个角色</source>
@@ -3225,6 +3288,21 @@ SHA256：%3</translation>
         <source>该操作此前已执行，但原结果已超出保留期。请先刷新并核对历史记录，确认是否还需要重新操作。</source>
         <comment>idempotency.response_expired</comment>
         <translation>この操作は既に実行済みですが、保存された応答の保管期限が切れています。履歴を更新して内容を確認し、再度操作する必要があるか判断してください。</translation>
+    </message>
+    <message>
+        <source>这个角色没有被设为不统计。</source>
+        <comment>identity.not_ignored</comment>
+        <translation>このキャラクターは「集計しない」に設定されていません。</translation>
+    </message>
+    <message>
+        <source>请选择它是哪个角色。</source>
+        <comment>identity.profile_required</comment>
+        <translation>どのキャラクターか選択してください。</translation>
+    </message>
+    <message>
+        <source>此请求编号已用于不同的角色登记操作。</source>
+        <comment>identity.request_reused</comment>
+        <translation>このリクエスト ID は別のキャラクター登録操作で使用済みです。</translation>
     </message>
     <message>
         <source>备份中的记录来源信息不完整，请重新创建备份后重试。</source>
@@ -4563,6 +4641,16 @@ SHA256：%3</translation>
         <source>无法识别这份校准码。请完整复制以 MRC1. 开头的校准码。</source>
         <comment>sharing.code.not_a_code</comment>
         <translation>この校正コードを識別できません。MRC1. で始まる校正コードを全体コピーしてください。</translation>
+    </message>
+    <message>
+        <source>这个角色已经登记过了，不需要再回答。</source>
+        <comment>identity.already_bound</comment>
+        <translation>このキャラクターはすでに登録されています。もう答える必要はありません。</translation>
+    </message>
+    <message>
+        <source>这个角色的登记信息已经不在了，下次登录这个角色时会重新询问。</source>
+        <comment>identity.not_found</comment>
+        <translation>このキャラクターの登録情報はもう存在しません。次回このキャラクターでログインしたときに、あらためて尋ねます。</translation>
     </message>
     <message>
         <source>请粘贴完整的校准码。</source>
@@ -9811,6 +9899,18 @@ SHA256：%3</translation>
         <translation>現在のキャラクター</translation>
     </message>
     <message>
+        <source>登录游戏后会自动切换到对应的角色。</source>
+        <translation>ゲームにログインすると、対応するキャラクターに自動で切り替わります。</translation>
+    </message>
+    <message>
+        <source>自动识别角色已关闭，换角色上线前请在这里选一下。</source>
+        <translation>キャラクターの自動認識はオフです。別のキャラクターでログインする前に、ここで選択してください。</translation>
+    </message>
+    <message>
+        <source>这个区服暂时不能自动识别角色，换角色上线前请在这里选一下。</source>
+        <translation>このリージョンではまだキャラクターを自動認識できません。別のキャラクターでログインする前に、ここで選択してください。</translation>
+    </message>
+    <message>
         <source>还差 %1 次</source>
         <translation>あと %1 回</translation>
     </message>
@@ -10847,6 +10947,14 @@ SHA256：%3</translation>
         <translation>ゲームの更新後、アプリが申請やコンテンツへの出入りを識別し直す必要がある場合があります。オンにしておけば、いつも通りルーレットをクリアし、案内に従って確認するだけです。校正が完了するまでは自動記録できません。オフにすると、ゲームの更新時にはアプリの更新を待たないと自動記録を再開できないことがあります。</translation>
     </message>
     <message>
+        <source>自动识别登录的角色</source>
+        <translation>ログイン中のキャラクターを自動認識</translation>
+    </message>
+    <message>
+        <source>默认开启，目前只对国服有效。有多个角色时，登录游戏后软件会认出是哪个角色并自动切换；第一次见到的角色会在总览询问一次。软件不读取角色名，只在本机保存一个无法还原成角色信息的标记。关闭后改为在总览手动切换角色。</source>
+        <translation>既定でオン。現在は中国版のみ有効です。複数のキャラクターがある場合、ゲームにログインするとどのキャラクターかを認識して自動で切り替えます。初めて見るキャラクターについては、概要で一度だけ尋ねます。キャラクター名は読み取りません。キャラクター情報に戻すことのできない目印だけをこの PC に保存します。オフにすると、概要で手動で切り替えます。</translation>
+    </message>
+    <message>
         <source>游戏更新后获取其他玩家的共享校准</source>
         <translation>ゲーム更新後にほかのプレイヤーが共有した校正を取得</translation>
     </message>
@@ -11048,6 +11156,30 @@ SHA256：%3</translation>
     <message>
         <source>删除</source>
         <translation>削除</translation>
+    </message>
+    <message>
+        <source>已识别的游戏角色</source>
+        <translation>認識済みのゲームキャラクター</translation>
+    </message>
+    <message>
+        <source>软件已经认出 %1 个游戏角色是「%2」。认错了可以解除，下次登录时会在总览重新询问；已有的记录不变。</source>
+        <translation>%1 人のゲームキャラクターを「%2」として認識しています。間違っている場合は解除できます。次回ログイン時に概要であらためて尋ねます。既存の記録は変わりません。</translation>
+    </message>
+    <message>
+        <source>解除</source>
+        <translation>解除</translation>
+    </message>
+    <message>
+        <source>不统计的角色</source>
+        <translation>集計しないキャラクター</translation>
+    </message>
+    <message>
+        <source>有 %1 个角色被设为不统计，它们的记录不计入任何角色的进度。</source>
+        <translation>%1 人のキャラクターが「集計しない」に設定されており、その記録はどのキャラクターの進捗にも含まれません。</translation>
+    </message>
+    <message>
+        <source>重新询问</source>
+        <translation>もう一度尋ねる</translation>
     </message>
     <message>
         <source>修改原因</source>

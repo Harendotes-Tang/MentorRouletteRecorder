@@ -177,6 +177,27 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   （`unassigned_run_count > 0`），卡片底部另有一行小字「另有 N 条记录没有分配角色，不计入任何角色的进度。
   可在历史记录中筛选「未分配」后分配。」（`achievementUnassigned_<区服>`）。
   软件自行建立的档案没有名称，界面上统一写作「原有记录」（`components/CharacterNames.qml`），改名后显示新名称。
+  **自动识别**：区服有多个角色时，「当前角色」一行下方有一句小字（`achievementIdentification_<区服>`），
+  按 `RegionalAchievement.identification` 说明新记录如何归入角色：`AUTOMATIC` 为「登录游戏后会自动切换到对应的角色。」，
+  `MANUAL_OFF` 为「自动识别角色已关闭，换角色上线前请在这里选一下。」，`MANUAL_REGION` 为
+  「这个区服暂时不能自动识别角色，换角色上线前请在这里选一下。」；旧版采集服务不带这个字段时不显示。
+  采集服务认出了一个玩家尚未说明的角色时（`DashboardStats.identities` 中该区服有 `PENDING` 项），进度环上方出现提示框
+  （`components/CharacterIdentityPrompt.qml`，`characterIdentityPrompt_<区服>`），只有一个角色的区服同样出现。
+  标题「发现了一个还没有登记的角色」，正文说明它已有几条记录（`run_count`）、在说明之前不计入任何角色的进度、
+  说明后这些记录会自动归到那个角色名下。一次只问一个，其余的在正文下注明「另外还有 N 个角色等待说明」。三种回答：
+  * 「这是一个新角色」（`characterIdentityNew_<区服>`）打开 `CharacterProfileDialog`，标题为「登记新角色」，
+    多一句说明（`characterIdentityHint`：之前没有归属的记录会记到它名下；区服为 `AUTOMATIC` 时另加
+    「以后登录这个角色时，软件会自动切换过来。」），不显示「现在就切换到这个角色」的开关
+    （`CreateCharacterProfile.identity_id`）。提示框询问的角色换了或消失时，为前一个角色打开的对话框随之关闭。
+  * 区服只有一个角色时，先用一行可换行的文字写出「已有的角色：「<角色名>」」（`characterIdentityOnly_<区服>`），
+    其下为按钮「它就是这个角色」（`characterIdentitySame_<区服>`），名称不放在按钮里，以免被截断；
+    有多个角色时为下拉框（`characterIdentityExisting_<区服>`，首行「它是已有的角色，请选择」，不替用户预选），
+    选定且所选角色仍然存在时才出现「确定是这个角色」（`characterIdentityBind_<区服>`）。
+    两者都发送 `ResolveCharacterIdentity` 的 `BIND`。
+  回答所针对的角色正在游戏里登录时，它的档案随即成为当前角色（由采集服务判断）；否则当前角色不变，
+  等它下次登录时再切换。
+  * 「不统计这个角色」（`characterIdentityIgnore_<区服>`）发送 `IGNORE`，此后不再询问，可在「设置 › 成就」重新询问。
+  采集服务拒绝时原因显示在提示框内（`characterIdentityError_<区服>`）。提示框不显示任何来自游戏的角色信息。
 * 趋势图：`charts/TrendChart.qml` 在 `GraphsAvailable` 为真时加载
   `charts/GraphsTrendChart.qml`，即 Qt Graphs 的 `GraphsView` 与 `BarSeries`；
   否则回落到手绘的 `components/TrendBars.qml`。
@@ -1301,6 +1322,21 @@ R 为采集服务给出的 `achievement_progress` 减去已保存的基数，即
   「删除」第一次点击变为「确认删除」，再点一次才发送；名下还有记录（含回收站）的角色不能删除，
   采集服务给出的原因显示在这一行下方（`characterErrorText`）。
 * 新添加的角色保存成功后自动成为所选角色，便于接着核对它的数字；是否成为当前角色只取决于对话框里的开关。
+
+自动识别的两行同样只在 `App.characterFeaturesVisible(<所选区服>)` 为真时出现（区服有多个角色、有未分配的记录，
+或有尚未绑定的已识别角色）。开关本身不在这里：「自动识别登录的角色」（`characterIdentificationToggle`，采集设置
+`character_identification_enabled`，默认开启，作用于全部区服）位于「设置 › 通用」的记录开关之中、共享校准开关之前，
+只有一个角色的用户也能看到并关闭，说明中写明目前只对国服有效、软件不读取角色名、关闭后改为在总览手动切换。
+
+* 「已识别的游戏角色」（`characterBindingRow`），所选角色的 `identity_count` 大于 0 时出现，说明软件已认出几个游戏角色
+  属于它；「解除」（`forgetIdentitiesButton`）发送 `UpdateCharacterProfile.forget_identities`，这些角色回到待说明，
+  总览重新询问，已有记录不变。
+* 「不统计的角色」（`ignoredCharactersRow`），该区服有 `IGNORED` 的角色时出现；「重新询问」（`askAgainButton`）
+  对它们逐个发送 `ASK_AGAIN`。
+
+「解除」与「重新询问」被拒绝时，原因同样显示在 `characterErrorText`。新添加的角色只有在由本页的对话框添加时才自动成为
+所选角色（对话框的 `saved` 信号）；从总览登记的角色不改变本页的选择，以免丢掉尚未保存的数字。`CharacterProfileDialog.qml` 位于 `qml/components/`，
+因为总览卡片中的提示框也要打开它。
 
 播报与「本次导随结果」弹窗中的进度取该场记录所属角色的进度（`App.achievementForRun`）；未分配角色的记录只报结果，
 不报进度数字。

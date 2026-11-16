@@ -2,7 +2,7 @@
 
 本目录存放本软件的数据库迁移脚本。本文面向需要新增或审阅迁移的维护者，说明迁移的命名、执行规则与版本记录方式。
 
-> 当前 schema 版本：**14**。`DATABASE_STATUS = READY`。
+> 当前 schema 版本：**15**。`DATABASE_STATUS = READY`。
 >
 > | 版本 | 文件 | 内容 |
 > |---|---|---|
@@ -20,6 +20,7 @@
 > | 12 | `0012_regional_records.sql` | 区服白名单加入 `TC`（重建 `capture_sessions` 与 `mentor_runs`），成就设置按区服分行，原设置归入国服 |
 > | 13 | `0013_legacy_region_cn.sql` | schema 12 之前创建、没有采集会话的 `UNKNOWN` 记录（1.8.0 及更早的补录与无区服列的导入）归入国服 |
 > | 14 | `0014_character_profiles.sql` | 角色档案 `character_profiles` 取代按区服一行的成就设置；`mentor_runs.profile_id` 记录所属档案，各区服原有设置、基数历史与全部记录归入一个档案 |
+> | 15 | `0015_character_identities.sql` | 角色识别 `character_identities`（见过的角色的带密钥摘要及其绑定的档案）；`mentor_runs.identity_id` 记录匹配时登录的角色，既有记录一律为 NULL |
 
 ## 命名
 
@@ -125,6 +126,16 @@ schema 12 之前本软件只服务国服：1.8.0 及更早把所有手动补录�
 
 `profile_id` 用 AUTOINCREMENT，编号删除后不复用。两个触发器保证记录只能归入同区服的档案，一个触发器禁止档案
 更换区服；外键使仍有记录引用的档案无法删除。用户在旧表上自建的索引会随旧表一并删除。
+
+## schema 14 → 15
+
+为按登录的角色自动归入档案，0015 新增 `character_identities`：采集服务见过的每个角色一行，保存角色标识在本机密钥下的
+HMAC-SHA256 摘要（`digest`，32 位十六进制）与该密钥的指纹（`key_id`），以及它绑定的档案（`profile_id`）或「不统计」标记（`ignored`），
+不保存任何游戏内标识或角色名。`(region, key_id, digest)` 唯一；`CHECK (profile_id IS NULL OR ignored = 0)` 保证一个角色不会既绑定又不统计；
+两个触发器保证角色只能绑定到同区服的档案。`identity_id` 用 AUTOINCREMENT，删除后不复用。
+
+`mentor_runs` 增加可空的 `identity_id` 及部分索引 `ix_runs_identity`。迁移不回填：升级前的全部记录为 NULL，归属不变；
+之后只有国服在开启角色识别时写入的自动记录才可能带有该值（[docs/data-model.md](../docs/data-model.md) §1.7、§4.3）。迁移不追加修订、不改更新时间。
 
 ## `schema_migrations` 表
 

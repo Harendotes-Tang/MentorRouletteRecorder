@@ -82,13 +82,23 @@ public sealed class CharacterProfileService
                 CollectorTexts.BaselineCompletedNegative(), "baseline_completed_count");
         }
 
-        var fingerprint = MutationSnapshotCodec.Fingerprint(
+        // A request without an identity keeps the fingerprint it had before identities existed.
+        var parts = new List<string?>
+        {
             "CreateCharacterProfile",
             EnumWire<Region>.Format(command.Region),
             name,
             command.GoalCount.ToString(CultureInfo.InvariantCulture),
             command.BaselineCompletedCount.ToString(CultureInfo.InvariantCulture),
-            command.MakeCurrent ? "1" : "0");
+            command.MakeCurrent ? "1" : "0",
+        };
+        if (command.IdentityId is { } named)
+        {
+            parts.Add("identity");
+            parts.Add(named.ToString(CultureInfo.InvariantCulture));
+        }
+
+        var fingerprint = MutationSnapshotCodec.Fingerprint(parts.ToArray());
 
         return Apply(command.RequestId, "CreateCharacterProfile", fingerprint, tx =>
         {
@@ -103,8 +113,31 @@ public sealed class CharacterProfileService
             }
 
             RequireFreeName(existing, name, exceptProfileId: null);
-            return _settings.Profiles.Insert(
+            // Checked before the profile is written, so a refusal names the identity, not a rollback.
+            var identity = command.IdentityId is { } identityId
+                ? CharacterIdentityService.Require(_settings, identityId, tx)
+                : null;
+            if (identity is not null && identity.Region != command.Region)
+            {
+                throw CollectorException.BadRequest(CollectorTexts.ProfileRegionMismatch(), "identity_id");
+            }
+
+            if (identity is { State: CharacterIdentityState.Bound })
+            {
+                throw CollectorException.BadRequest(CollectorTexts.IdentityAlreadyBound(), "identity_id");
+            }
+
+            var created = _settings.Profiles.Insert(
                 command.Region, name, command.GoalCount, command.BaselineCompletedCount, command.MakeCurrent, tx);
+            if (identity is null)
+            {
+                return created;
+            }
+
+            // The new profile takes the runs recorded for the character. Whether it becomes the
+            // current one is decided by who is logged in, not here (CharacterIdentityService.Bind).
+            CharacterIdentityService.Bind(_settings, identity, created.ProfileId, tx);
+            return _settings.Profiles.Find(created.ProfileId, tx)!;
         });
     }
 
@@ -115,11 +148,19 @@ public sealed class CharacterProfileService
         ArgumentNullException.ThrowIfNull(command);
 
         var name = command.DisplayName is null ? null : RequireName(command.DisplayName);
-        var fingerprint = MutationSnapshotCodec.Fingerprint(
+        var parts = new List<string?>
+        {
             "UpdateCharacterProfile",
             command.ProfileId.ToString(CultureInfo.InvariantCulture),
             name,
-            command.MakeCurrent ? "1" : "0");
+            command.MakeCurrent ? "1" : "0",
+        };
+        if (command.ForgetIdentities)
+        {
+            parts.Add("forget_identities");
+        }
+
+        var fingerprint = MutationSnapshotCodec.Fingerprint(parts.ToArray());
 
         return Apply(command.RequestId, "UpdateCharacterProfile", fingerprint, tx =>
         {
@@ -133,6 +174,12 @@ public sealed class CharacterProfileService
             if (command.MakeCurrent && !profile.IsCurrent)
             {
                 _settings.Profiles.SetCurrent(profile.ProfileId, tx);
+            }
+
+            if (command.ForgetIdentities)
+            {
+                // The characters are asked about again; what they recorded stays where it is.
+                _settings.Identities.ReleaseProfile(profile.ProfileId, tx);
             }
 
             return _settings.Profiles.Find(profile.ProfileId, tx)!;
@@ -178,6 +225,8 @@ public sealed class CharacterProfileService
             // The history goes with the profile; its request ids stay refused for a late replay.
             _idempotency.RememberBaselineHistory(_settings.ReadBaselineAudit(profile, tx), tx);
             _settings.DeleteBaselineAudit(profile.ProfileId, tx);
+            // A character that was this profile is nobody's now, and is asked about again.
+            _settings.Identities.ReleaseProfile(profile.ProfileId, tx);
             _settings.Profiles.Delete(profile.ProfileId, tx);
             return profile;
         }, deleted: true);

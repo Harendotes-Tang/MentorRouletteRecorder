@@ -288,10 +288,12 @@ public:
     // -- 角色档案 (character profiles) --------------------------------------
     /// $defs/CreateCharacterProfileRequest -> $defs/CharacterProfileResult. make_current
     /// travels only when true (the contract's default is false). \a requestId: see
-    /// requestWithId(); empty mints a fresh one.
+    /// requestWithId(); empty mints a fresh one. \a identityId binds that PENDING
+    /// identity to the new profile in the same request; 0 leaves identity_id out.
     BackendReply *createCharacterProfile(const QString &region, const QString &displayName,
                                          int goalCount, int baselineCompletedCount,
-                                         bool makeCurrent, const QString &requestId = {});
+                                         bool makeCurrent, const QString &requestId = {},
+                                         int identityId = 0);
     /// $defs/UpdateCharacterProfileRequest. A null \a displayName keeps the name (the field
     /// is left out); make_current travels only when true. A request asking for neither is
     /// sent as it is and refused by the Collector.
@@ -299,6 +301,14 @@ public:
                                          bool makeCurrent, const QString &requestId = {});
     /// $defs/DeleteCharacterProfileRequest.
     BackendReply *deleteCharacterProfile(int profileId, const QString &requestId = {});
+    /// UpdateCharacterProfile with forget_identities alone: every character bound to
+    /// \a profileId returns to PENDING (the player is asked again).
+    BackendReply *forgetCharacterIdentities(int profileId, const QString &requestId = {});
+    /// $defs/ResolveCharacterIdentityRequest -> $defs/CharacterIdentityResult. \a action is
+    /// BIND, IGNORE or ASK_AGAIN; \a profileId travels only when above 0 (BIND requires it,
+    /// the other actions refuse it - the wrapper sends what it is given).
+    BackendReply *resolveCharacterIdentity(int identityId, const QString &action, int profileId,
+                                           const QString &requestId = {});
 
     // -- 已删除记录 ---------------------------------------------------------
     /// $defs/BatchMutateRunsRequest. \a action is soft_delete, restore or purge;

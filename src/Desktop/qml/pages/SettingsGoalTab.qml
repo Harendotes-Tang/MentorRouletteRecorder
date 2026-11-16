@@ -81,6 +81,35 @@ ColumnLayout {
         return tab.currentCharacter
     }
     readonly property int editedCharacterId: Number(tab.editedCharacter.profile_id || 0)
+    // ------------------------------------------------------------ 自动识别 --
+    // What the Collector has recognised a character as, and the characters the
+    // player chose not to keep progress for. The rows appear with the other
+    // character features: a player with one character, whom nothing was ever
+    // asked, sees none of them. The switch itself is in 设置 › 通用.
+    readonly property bool characterFeatures: {
+        Theme.trackBindingDependency(Runtime.app.characterProfiles)
+        Theme.trackBindingDependency(Runtime.app.characterIdentities)
+        Theme.trackBindingDependency(Runtime.app.dashboard)
+        return Runtime.app.characterFeaturesVisible(Runtime.app.baselineRegion)
+    }
+    readonly property int boundIdentityCount: Number(tab.editedCharacter.identity_count || 0)
+    readonly property int ignoredIdentityCount: {
+        Theme.trackBindingDependency(Runtime.app.characterIdentities)
+        return Runtime.app.ignoredCharacterIdentityCount(Runtime.app.baselineRegion)
+    }
+    function forgetEditedCharacterIdentities() {
+        tab.characterErrorText = ""
+        tab.ownCharacterRequests += 1
+        Runtime.app.forgetCharacterIdentities(tab.editedCharacterId)
+    }
+    function askAgainAboutIgnoredCharacters() {
+        tab.characterErrorText = ""
+        tab.ownCharacterRequests += 1
+        Runtime.app.askAgainAboutCharacterIdentities(Runtime.app.baselineRegion)
+    }
+    function ownsCharacterAction(action) {
+        return action === "select" || action === "delete" || action === "forget" || action === "ask_again"
+    }
     readonly property bool editingCurrentCharacter: tab.editedCharacter.is_current === true
     property string characterErrorText: ""
     // 删除 asks once more on the button itself before it is sent.
@@ -120,18 +149,15 @@ ColumnLayout {
         target: Runtime.app
         // The dialog shows its own refusals; switching and deleting answer here.
         function onCharacterProfileFailed(action, code, message) {
-            if ((action !== "select" && action !== "delete") || tab.ownCharacterRequests === 0)
+            if (!tab.ownsCharacterAction(action) || tab.ownCharacterRequests === 0)
                 return
             tab.ownCharacterRequests -= 1
             tab.characterErrorText = Runtime.app.errorText(message, code)
         }
         function onCharacterProfileSaved(profileId, action) {
-            if ((action === "select" || action === "delete") && tab.ownCharacterRequests > 0)
+            if (tab.ownsCharacterAction(action) && tab.ownCharacterRequests > 0)
                 tab.ownCharacterRequests -= 1
             tab.characterErrorText = ""
-            // A character just added is the one to look at next.
-            if (action === "create")
-                tab.pickCharacter(profileId)
         }
         function onBaselineProfileIdChanged() {
             tab.baselineErrorText = ""
@@ -146,9 +172,14 @@ ColumnLayout {
     QtObject {
         readonly property CharacterProfileDialog dialog: CharacterProfileDialog {
             id: characterDialog
-
             parent: Overlay.overlay
             anchors.centerIn: parent
+            // A character just added here is the one to look at next. One registered from the
+            // overview is not: picking it would drop numbers typed on this tab and not yet saved.
+            onSaved: function(profileId, action) {
+                if (action === "create")
+                    tab.pickCharacter(profileId)
+            }
         }
     }
 
@@ -306,6 +337,33 @@ ColumnLayout {
                 text: tab.deleteArmed ? qsTr("确认删除") : qsTr("删除")
                 enabled: !Runtime.app.characterProfileSaving
                 onClicked: tab.deleteEditedCharacter()
+            }
+        }
+
+        SettingsRow {
+            objectName: "characterBindingRow"
+            visible: tab.characterFeatures && tab.boundIdentityCount > 0
+            label: qsTr("已识别的游戏角色")
+            description: qsTr("软件已经认出 %1 个游戏角色是「%2」。认错了可以解除，下次登录时会在总览重新询问；已有的记录不变。")
+                .arg(tab.boundIdentityCount).arg(tab.characterNames.label(tab.editedCharacter))
+            AppButton {
+                objectName: "forgetIdentitiesButton"
+                text: qsTr("解除")
+                enabled: !Runtime.app.characterProfileSaving
+                onClicked: tab.forgetEditedCharacterIdentities()
+            }
+        }
+
+        SettingsRow {
+            objectName: "ignoredCharactersRow"
+            visible: tab.ignoredIdentityCount > 0
+            label: qsTr("不统计的角色")
+            description: qsTr("有 %1 个角色被设为不统计，它们的记录不计入任何角色的进度。").arg(tab.ignoredIdentityCount)
+            AppButton {
+                objectName: "askAgainButton"
+                text: qsTr("重新询问")
+                enabled: !Runtime.app.characterProfileSaving
+                onClicked: tab.askAgainAboutIgnoredCharacters()
             }
         }
 

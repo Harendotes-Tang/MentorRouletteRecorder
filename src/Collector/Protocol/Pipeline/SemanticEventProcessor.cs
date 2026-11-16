@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Domain;
+using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Domain.StateMachine;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Protocol.Parsing;
@@ -76,6 +77,8 @@ public sealed class SemanticEventProcessor : ISemanticEventSink, ICaptureLifecyc
     private readonly SemanticEventProcessorOptions _options;
     private readonly RunRepository _runs;
     private readonly CharacterProfileRepository _profiles;
+    private readonly CharacterIdentityRepository _identities;
+    private readonly Func<SqliteTransaction, CharacterIdentityObservation?>? _identityAtMatch;
     private readonly RunEventRepository _events;
     private readonly RunRevisionRepository _revisions;
     private readonly IdempotencyRepository _purgedRuns;
@@ -109,6 +112,11 @@ public sealed class SemanticEventProcessor : ISemanticEventSink, ICaptureLifecyc
     /// Optional transaction runner, defaulting to the database's own. Injected so a test can
     /// make one commit fail the way a busy database does, without a real lock contender.
     /// </param>
+    /// <param name="identityAtMatch">
+    /// Says, inside the transaction that creates a run, which character is logged in. Absent - or
+    /// answering null - where characters are not told apart: the run then goes to the region's
+    /// current profile.
+    /// </param>
     public SemanticEventProcessor(
         SqliteDatabase database,
         MentorRunStateMachine machine,
@@ -117,7 +125,8 @@ public sealed class SemanticEventProcessor : ISemanticEventSink, ICaptureLifecyc
         JobCatalog? jobs = null,
         DutyCatalog? duties = null,
         Action<SemanticEvent>? beforeEvent = null,
-        Action<Action<SqliteTransaction>>? runInTransaction = null)
+        Action<Action<SqliteTransaction>>? runInTransaction = null,
+        Func<SqliteTransaction, CharacterIdentityObservation?>? identityAtMatch = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(machine);
@@ -128,6 +137,8 @@ public sealed class SemanticEventProcessor : ISemanticEventSink, ICaptureLifecyc
         _options = options;
         _runs = new RunRepository(database);
         _profiles = new CharacterProfileRepository(database, clock);
+        _identities = new CharacterIdentityRepository(database, clock);
+        _identityAtMatch = identityAtMatch;
         _events = new RunEventRepository(database);
         _revisions = new RunRevisionRepository(database);
         _purgedRuns = new IdempotencyRepository(database, clock);
@@ -572,6 +583,11 @@ public sealed class SemanticEventProcessor : ISemanticEventSink, ICaptureLifecyc
         }
 
         var mappedDuty = _duties.Find(create.ContentId, _options.Region);
+        // Null when nobody is telling characters apart here (a region switched by hand, a replay,
+        // identification off): the run goes to the profile the player chose. Otherwise the run
+        // belongs to the character that is logged in - to its profile, or to nobody while the
+        // player has not said which profile that is; never to the character played before it.
+        var character = _identityAtMatch?.Invoke(transaction);
         _runs.Insert(new MentorRun
         {
             RunId = create.RunId,
@@ -580,7 +596,9 @@ public sealed class SemanticEventProcessor : ISemanticEventSink, ICaptureLifecyc
             Region = _options.Region,
             // The owner is fixed here, at match time: a result that arrives after the player has
             // switched to another character still settles the run under the character it began on.
-            ProfileId = _profiles.EnsureCurrent(_options.Region, transaction).ProfileId,
+            ProfileId = character is null
+                ? _profiles.EnsureCurrent(_options.Region, transaction).ProfileId
+                : character.ProfileId,
             GameBuild = _options.GameBuild,
             ProtocolProfileId = _options.ProtocolProfileId,
             MentorRouletteId = create.MentorRouletteId,
@@ -598,6 +616,11 @@ public sealed class SemanticEventProcessor : ISemanticEventSink, ICaptureLifecyc
             CreatedAtUtc = create.MatchedAtUtc,
             UpdatedAtUtc = create.MatchedAtUtc,
         }, transaction);
+        if (character?.IdentityId is { } identityId)
+        {
+            // What lets the player's later answer about this character file the run.
+            _identities.StampRun(create.RunId, identityId, transaction);
+        }
 
         _newRunIds.Add(create.RunId);
         _pendingRevisionRunIds.Add(create.RunId);

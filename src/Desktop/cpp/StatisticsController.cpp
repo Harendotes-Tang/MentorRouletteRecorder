@@ -305,13 +305,15 @@ void StatisticsController::observeAchievement(const QJsonObject &dashboard, quin
         const bool sameSettings = goal == observation.goal && baseline == observation.baseline
             && profileId == observation.profileId;
         const int lap = progress / goal;
-        const bool celebrate = observation.ready && sameSettings && !baselineSaving()
+        // Runs being moved onto a profile (BIND) are no lap just reached either.
+        const bool settled = !baselineSaving() && m_runMovesInFlight == 0;
+        const bool celebrate = observation.ready && sameSettings && settled
             && lap > observation.highestLap;
         observation.highestLap = sameSettings ? qMax(observation.highestLap, lap) : lap;
         observation.goal = goal;
         observation.baseline = baseline;
         observation.profileId = profileId;
-        observation.ready = !baselineSaving();
+        observation.ready = settled;
         if (celebrate) {
             Q_EMIT regionalAchievementMilestoneReached(region, lap);
             if (region == (m_recordRegion.isEmpty() ? QStringLiteral("CN") : m_recordRegion))

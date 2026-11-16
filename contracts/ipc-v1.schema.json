@@ -36,7 +36,7 @@
         "StopCapture", "GetProtocolProfileStatus", "GetCurrentRun", "QueryRuns", "QueryRunCalendarDays", "GetDashboardStats",
         "GetDungeonStats", "GetJobStats", "GetResultStats", "CreateManualRun", "CorrectRun",
         "SoftDeleteRun", "RestoreRun", "BatchMutateRuns", "GetHistoryRetentionSettings", "UpdateHistoryRetentionSettings", "GetPendingImageCleanup", "AcknowledgeImageCleanup", "GetRunRevisions", "UpdateAchievementBaseline",
-        "CreateCharacterProfile", "UpdateCharacterProfile", "DeleteCharacterProfile", "ExportCsv",
+        "CreateCharacterProfile", "UpdateCharacterProfile", "DeleteCharacterProfile", "ResolveCharacterIdentity", "ExportCsv",
         "ExportJson", "BackupDatabase", "SubscribeLiveEvents", "ExportDiagnosticsReport",
         "SetRunReflection", "GetReflectionSummary", "PreviewRunImport", "CommitRunImport",
         "StartCaptureValidation", "GetCaptureValidationStatus", "AddCaptureValidationMarker", "StopCaptureValidation",
@@ -533,6 +533,7 @@
       "properties": {
         "achievements": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/RegionalAchievement" }, "description": "Independent lifetime achievement progress per region, unaffected by date/job/duty filters. A region filter selects one entry; all-region results include CN and TC, plus other regions with records/settings. Each entry carries the numbers of the region's current character profile, which is the whole region's while it holds one profile. Legacy scalar achievement fields project the profile named by filter.profile_id; without one, the selected region, or CN for an all-region request." },
         "profiles": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/CharacterProfile" }, "description": "Every character profile of every region with its own lifetime progress, unaffected by any filter: CN first, then TC, then the other regions; inside a region in creation order. Absent from older Collectors." },
+        "identities": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/CharacterIdentity" }, "description": "Characters told apart in the game traffic that are bound to no profile, of every region and unaffected by any filter: CN first, then TC, then the other regions; inside a region the ones waiting for the player's answer before the ignored ones, each oldest first. A region keeps at most 64 identities, bound ones included. Empty while there is none. Absent from older Collectors." },
         "attempt_count": { "type": "integer", "minimum": 0 },
         "completed_count": { "type": "integer", "minimum": 0 },
         "baseline_completed_count": { "type": "integer", "minimum": 0 },
@@ -562,7 +563,8 @@
         "completed_count": { "type": "integer", "minimum": 0 },
         "profile_id": { "type": ["integer", "null"], "minimum": 1, "description": "The region's current character profile, whose numbers this entry carries; null while the region has no profile. Absent from older Collectors." },
         "profile_count": { "type": "integer", "minimum": 0, "description": "How many character profiles the region holds." },
-        "unassigned_run_count": { "type": "integer", "minimum": 0, "description": "Live runs of the region assigned to no character profile; they count in no profile's progress." }
+        "unassigned_run_count": { "type": "integer", "minimum": 0, "description": "Live runs of the region assigned to no character profile; they count in no profile's progress." },
+        "identification": { "type": "string", "enum": ["AUTOMATIC", "MANUAL_REGION", "MANUAL_OFF"], "description": "How a newly recorded run of the region finds its profile. AUTOMATIC: the Collector tells the logged-in character apart and files the run under the profile that character is bound to, switching the current profile at login. MANUAL_REGION: this region has not been verified for it, so runs go to the current profile. MANUAL_OFF: character_identification_enabled is off. Absent from older Collectors, which are manual." }
       }
     },
     "CharacterProfile": {
@@ -579,7 +581,43 @@
         "achievement_progress": { "type": "integer", "minimum": 0, "description": "baseline_completed_count plus completed_count, capped at Int32." },
         "remaining": { "type": "integer", "minimum": 0 },
         "completed_count": { "type": "integer", "minimum": 0, "description": "Confirmed, contributing completions that belong to the profile, whenever they ended." },
-        "run_count": { "type": "integer", "minimum": 0, "description": "Live runs that belong to the profile, whatever their result." }
+        "run_count": { "type": "integer", "minimum": 0, "description": "Live runs that belong to the profile, whatever their result." },
+        "identity_count": { "type": "integer", "minimum": 0, "description": "How many characters told apart in the game traffic are bound to the profile; 0 for a profile that is only switched to by hand. Absent from older Collectors." }
+      }
+    },
+    "CharacterIdentity": {
+      "type": "object", "additionalProperties": false,
+      "description": "A character the Collector told apart in the game traffic and that is bound to no profile (docs/data-model.md, character_identities). identity_id is local bookkeeping. What distinguishes the character is a keyed digest that stays inside the Collector: no game identifier, no name and no digest crosses the pipe.",
+      "required": ["identity_id", "region", "state", "first_seen_at_utc", "last_seen_at_utc", "run_count"],
+      "properties": {
+        "identity_id": { "type": "integer", "minimum": 1 },
+        "region": { "$ref": "#/$defs/Region" },
+        "state": { "type": "string", "enum": ["PENDING", "IGNORED"], "description": "PENDING: the player has not said yet which profile this character is. IGNORED: the player chose to keep no progress for it. Runs recorded for either are assigned to no profile." },
+        "first_seen_at_utc": { "$ref": "#/$defs/UtcTimestamp" },
+        "last_seen_at_utc": { "$ref": "#/$defs/UtcTimestamp", "description": "The latest login the Collector saw this character at." },
+        "run_count": { "type": "integer", "minimum": 0, "description": "Live runs recorded while this character was logged in that are assigned to no profile. Binding the identity moves these and the ones of the same kind in the recycle bin, so assigned_run_count can be larger." }
+      }
+    },
+    "ResolveCharacterIdentityRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["identity_id", "action"],
+      "description": "The player's answer about a character the Collector told apart. BIND says it is the character of profile_id (same region; ERR_BAD_REQUEST otherwise): the identity is bound and every run recorded for it that is assigned to no profile moves to that profile without a revision; a run the player has filed by hand since (assign_profile) is not touched. The profile becomes the current one of its region when that character is the one logged in at the moment, and otherwise the next time it logs in. IGNORE keeps no progress for it and stops asking; ASK_AGAIN returns an IGNORED identity to PENDING. An identity already bound is refused (ERR_BAD_REQUEST, field identity_id); UpdateCharacterProfile.forget_identities releases it first.",
+      "properties": {
+        "identity_id": { "type": "integer", "minimum": 1 },
+        "action": { "type": "string", "enum": ["BIND", "IGNORE", "ASK_AGAIN"] },
+        "profile_id": { "type": "integer", "minimum": 1, "description": "Required for BIND, refused for the other actions." }
+      }
+    },
+    "CharacterIdentityResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["identity_id", "profile_id", "assigned_run_count", "profiles", "identities", "idempotent_replay"],
+      "properties": {
+        "identity_id": { "type": "integer", "minimum": 1 },
+        "profile_id": { "type": ["integer", "null"], "minimum": 1, "description": "The profile the identity is bound to after the request; null for IGNORE and ASK_AGAIN. Whether it is the current one is in profiles." },
+        "assigned_run_count": { "type": "integer", "minimum": 0, "description": "Runs that moved to the profile with a BIND." },
+        "profiles": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/CharacterProfile" }, "description": "Every profile as it stands after the request, in the order of DashboardStats.profiles." },
+        "identities": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/CharacterIdentity" }, "description": "Every unbound identity as it stands after the request, in the order of DashboardStats.identities." },
+        "idempotent_replay": { "type": "boolean" }
       }
     },
     "CharacterProfileResult": {
@@ -602,17 +640,19 @@
         "display_name": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Trimmed by the Collector; 1 to 24 characters, one line, must remain." },
         "goal_count": { "type": "integer", "minimum": 1, "default": 2000 },
         "baseline_completed_count": { "type": "integer", "minimum": 0, "default": 0 },
-        "make_current": { "type": "boolean", "default": false, "description": "True files newly created runs of the region under the new profile from now on." }
+        "make_current": { "type": "boolean", "default": false, "description": "True files newly created runs of the region under the new profile from now on." },
+        "identity_id": { "type": "integer", "minimum": 1, "description": "An identity of the same region that is bound to no profile (PENDING or IGNORED) and is this new character: it is bound to the new profile in the same transaction, exactly as ResolveCharacterIdentity BIND would. An identity that does not exist is ERR_NOT_FOUND; one of another region or already bound is refused (ERR_BAD_REQUEST, field identity_id), and no profile is created." }
       }
     },
     "UpdateCharacterProfileRequest": {
       "type": "object", "additionalProperties": false,
       "required": ["profile_id"],
-      "description": "Renames a profile, makes it the current one of its region, or both; a request that asks for neither is refused. Goal and baseline are changed through UpdateAchievementBaseline.",
+      "description": "Renames a profile, makes it the current one of its region, releases the characters bound to it, or any combination; a request that asks for none of them is refused. Goal and baseline are changed through UpdateAchievementBaseline.",
       "properties": {
         "profile_id": { "type": "integer", "minimum": 1 },
         "display_name": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "make_current": { "type": "boolean", "default": false }
+        "make_current": { "type": "boolean", "default": false },
+        "forget_identities": { "type": "boolean", "default": false, "description": "True returns every identity bound to the profile to PENDING, so the player is asked again which profile each one is. Runs keep their owner." }
       }
     },
     "DeleteCharacterProfileRequest": {
@@ -1142,6 +1182,7 @@
         { "if": { "properties": { "message_type": { "const": "CreateCharacterProfile" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/CreateCharacterProfileRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "UpdateCharacterProfile" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/UpdateCharacterProfileRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "DeleteCharacterProfile" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/DeleteCharacterProfileRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "ResolveCharacterIdentity" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResolveCharacterIdentityRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "ExportCsv" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ExportRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "ExportJson" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ExportRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "BackupDatabase" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/BackupDatabaseRequest" } } } },
@@ -1801,6 +1842,7 @@
         "auto_calibration_enabled": { "type": "boolean", "default": true },
         "shared_calibration_enabled": { "type": "boolean", "default": true },
         "update_check_enabled": { "type": "boolean", "default": true },
+        "character_identification_enabled": { "type": "boolean", "default": true },
         "research_payload_opcodes": { "type": "array", "default": [], "maxItems": 32, "uniqueItems": true, "items": { "type": "string", "pattern": "^0[xX][0-9a-fA-F]{4}$" }, "description": "Explicit small non-obfuscated candidate whitelist. Requires candidate validation before adding entries; [] disables further payload storage." },
         "follow_game": { "type": "boolean" },
         "autostart": { "type": "boolean" },
@@ -1821,6 +1863,7 @@
         "auto_calibration_enabled": { "type": "boolean", "description": "Whether a client build with no profile is calibrated automatically from the shipped template. Default true. Off means fail-closed silence on every patch day." },
         "shared_calibration_enabled": { "type": "boolean", "description": "Whether a build with no usable profile fetches other players' shared calibrations (docs/privacy-boundary.md §8.2). Default true. Off cancels a download in flight and drops downloaded candidates; a shared profile already verified stays, and ImportCalibrationCode is not affected. Absent from Collectors before shared calibration." },
         "update_check_enabled": { "type": "boolean", "description": "Whether the software asks once a day whether a newer version has been published (docs/privacy-boundary.md §8.4). Default true. The check itself is notification only: the answer is one version string. Off stops every check, refuses StartUpdateDownload (DISABLED), stops a running download and removes a ready installer (docs/privacy-boundary.md §8.6). Absent from Collectors before the update check." },
+        "character_identification_enabled": { "type": "boolean", "description": "Whether the Collector tells the player's characters apart in the game traffic and files each run under the profile of the character that is logged in (RegionalAchievement.identification). Default true. Off returns every region to the current profile chosen by hand; identities already bound are kept and used again when it is turned back on. Absent from Collectors before character identification." },
         "research_payload_opcodes": { "type": "array", "maxItems": 32, "uniqueItems": true, "items": { "type": "string", "pattern": "^0x[0-9a-f]{4}$" } },
         "follow_game": { "type": "boolean", "description": "Start capture automatically as soon as the game process appears." },
         "autostart": { "type": "boolean", "description": "Legacy name of follow_game, still honoured as a fallback when follow_game was never written." },
@@ -1922,6 +1965,7 @@
       "CreateCharacterProfile": { "$ref": "#/$defs/CharacterProfileResult" },
       "UpdateCharacterProfile": { "$ref": "#/$defs/CharacterProfileResult" },
       "DeleteCharacterProfile": { "$ref": "#/$defs/CharacterProfileResult" },
+      "ResolveCharacterIdentity": { "$ref": "#/$defs/CharacterIdentityResult" },
       "GetHistoryRetentionSettings": { "$ref": "#/$defs/HistoryRetentionSettings" },
       "UpdateHistoryRetentionSettings": { "$ref": "#/$defs/HistoryRetentionSettings" },
       "GetPendingImageCleanup": { "$ref": "#/$defs/ImageCleanupIds" },

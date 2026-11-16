@@ -162,7 +162,8 @@ QJsonObject MockBackend::profileJson(const CharacterProfileEntry &profile) const
             {QStringLiteral("achievement_progress"), progress},
             {QStringLiteral("remaining"), qMax(profile.settings.goalCount - progress, 0)},
             {QStringLiteral("completed_count"), completed},
-            {QStringLiteral("run_count"), runs}};
+            {QStringLiteral("run_count"), runs},
+            {QStringLiteral("identity_count"), boundIdentityCount(profile.id)}};
 }
 
 QJsonArray MockBackend::characterProfiles() const
@@ -320,14 +321,23 @@ QJsonObject MockBackend::applyCharacterProfile(const QString &messageType, const
             return refuse(badRequest, "profile.limit_reached", {{QStringLiteral("max"), kMaxProfilesPerRegion}});
         if (nameTaken(region, name, 0))
             return refuse(badRequest, "profile.name_taken");
+        bool identityRefused = false;
+        CharacterIdentityEntry *identity =
+            identityForNewProfile(payload, region, &identityRefused, errorCode, errorMessage);
+        if (identityRefused)
+            return {};
         profileId = addCharacterProfile(region, name, goal, baseline,
                                         payload.value(QStringLiteral("make_current")).toBool(false));
+        // In the same transaction, exactly as ResolveCharacterIdentity BIND.
+        if (identity)
+            bindIdentity(*identity, profileId);
     } else if (messageType == QLatin1String("UpdateCharacterProfile")) {
         const QJsonValue requestedName = payload.value(QStringLiteral("display_name"));
         const bool makeCurrent = payload.value(QStringLiteral("make_current")).toBool(false);
+        const bool forget = payload.value(QStringLiteral("forget_identities")).toBool(false);
         if (!payload.value(QStringLiteral("profile_id")).isDouble())
             return refuse(badRequest, "ipc.field.missing", {{QStringLiteral("field"), QStringLiteral("profile_id")}});
-        if (requestedName.isUndefined() && !makeCurrent)
+        if (requestedName.isUndefined() && !makeCurrent && !forget)
             return refuse(badRequest, "mutation.no_changes");
         const QString name = requestedName.toString().trimmed();
         if (!requestedName.isUndefined() && !usableName(name))
@@ -346,6 +356,8 @@ QJsonObject MockBackend::applyCharacterProfile(const QString &messageType, const
                     other.current = other.id == profile->id;
             }
         }
+        if (forget)
+            forgetIdentitiesOf(profile->id);
         profileId = profile->id;
         region = profile->region;
     } else {
@@ -369,6 +381,8 @@ QJsonObject MockBackend::applyCharacterProfile(const QString &messageType, const
         profileId = profile->id;
         region = profile->region;
         deleted = true;
+        // A character bound to a profile that goes is asked about again.
+        forgetIdentitiesOf(profileId);
         m_profiles.removeIf([profileId](const CharacterProfileEntry &entry) { return entry.id == profileId; });
     }
 
@@ -451,6 +465,12 @@ QJsonObject MockBackend::assignRunsToProfile(const QJsonObject &payload, QString
     }
     if (moved.isEmpty())
         return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_NO_CHANGES"), "profile.assign_unchanged");
+    // A run moved by hand no longer belongs to the character it was recorded for: no
+    // identity counts it, and a later BIND does not move it.
+    QStringList movedIds;
+    for (const auto &id : std::as_const(moved))
+        movedIds.append(id.toString());
+    forgetIdentityStamps(movedIds);
     emitStatsInvalidatedLater();
     return {{QStringLiteral("changed_count"), moved.size()},
             {QStringLiteral("run_ids"), moved},

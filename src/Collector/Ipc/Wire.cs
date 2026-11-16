@@ -285,9 +285,32 @@ public static class Wire
                     ["profile_id"] = value.ProfileId,
                     ["profile_count"] = value.ProfileCount,
                     ["unassigned_run_count"] = value.UnassignedRunCount,
+                    ["identification"] = EnumWire<CharacterIdentificationMode>.Format(value.Identification),
                 }).ToArray()),
             ["profiles"] = new JsonArray((statistics.Profiles ?? Array.Empty<CharacterProfileStatistics>())
                 .Select(value => (JsonNode?)Profile(value)).ToArray()),
+            ["identities"] = new JsonArray((statistics.Identities ?? Array.Empty<CharacterIdentityStatistics>())
+                .Select(value => (JsonNode?)Identity(value)).ToArray()),
+        };
+    }
+
+    /// <summary>
+    /// Builds a <c>$defs/CharacterIdentity</c> object. No digest: the model it is built from does
+    /// not hold one.
+    /// </summary>
+    /// <param name="value">Unbound identity with the runs recorded for it.</param>
+    public static JsonObject Identity(CharacterIdentityStatistics value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        return new JsonObject
+        {
+            ["identity_id"] = value.Identity.IdentityId,
+            ["region"] = EnumWire<Region>.Format(value.Identity.Region),
+            ["state"] = EnumWire<CharacterIdentityState>.Format(value.Identity.State),
+            ["first_seen_at_utc"] = UtcTimestamp.ToText(value.Identity.FirstSeenAtUtc),
+            ["last_seen_at_utc"] = UtcTimestamp.ToText(value.Identity.LastSeenAtUtc),
+            ["run_count"] = value.RunCount,
         };
     }
 
@@ -309,6 +332,7 @@ public static class Wire
             ["remaining"] = value.Remaining,
             ["completed_count"] = value.CompletedCount,
             ["run_count"] = value.RunCount,
+            ["identity_count"] = value.IdentityCount,
         };
     }
 

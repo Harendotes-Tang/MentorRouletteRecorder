@@ -28,6 +28,11 @@ namespace MentorRecorder.Collector.Capture;
 /// Turning it off cancels a download in flight; it never removes a shared profile that already
 /// passed local verification.
 /// </param>
+/// <param name="CharacterIdentificationEnabled">
+/// Whether the Collector tells the player's characters apart in the game traffic and files each
+/// run under the profile of the character that is logged in. On by default. Off returns every
+/// region to the current profile chosen by hand; what was bound stays bound.
+/// </param>
 /// <param name="UpdateCheckEnabled">
 /// Whether the software asks once a day whether a newer version has been published
 /// (docs/privacy-boundary.md §8.4). On by default. Notification only: nothing is ever downloaded
@@ -44,7 +49,8 @@ public sealed record CaptureSettingsSnapshot(
     IReadOnlyList<string>? ResearchPayloadOpcodes = null,
     bool AutoCalibrationEnabled = true,
     bool SharedCalibrationEnabled = true,
-    bool UpdateCheckEnabled = true);
+    bool UpdateCheckEnabled = true,
+    bool CharacterIdentificationEnabled = true);
 
 /// <summary>
 /// Reads and writes <see cref="CaptureSettingsSnapshot"/> against <c>application_settings</c>.
@@ -90,6 +96,12 @@ public static class CaptureSettingsStore
     /// </summary>
     public const string UpdateCheckSetting = Update.UpdateCheckService.EnabledSetting;
 
+    /// <summary>
+    /// Whether the logged-in character is told apart and its runs filed under its own profile
+    /// (docs/privacy-boundary.md, character identification). On by default.
+    /// </summary>
+    public const string CharacterIdentificationSetting = CharacterIdentification.EnabledSetting;
+
     /// <summary>Reads the current settings. Missing or unreadable values fall back to defaults.</summary>
     /// <param name="settings">Settings repository, or null when there is no database.</param>
     /// <param name="transaction">Enclosing settings transaction, or null for ordinary reads.</param>
@@ -111,7 +123,8 @@ public static class CaptureSettingsStore
             ResearchPayloadOpcodes: ReadResearchOpcodes(settings, transaction),
             AutoCalibrationEnabled: ReadBool(settings, AutoCalibrationSetting, transaction) ?? true,
             SharedCalibrationEnabled: ReadBool(settings, SharedCalibrationSetting, transaction) ?? true,
-            UpdateCheckEnabled: ReadBool(settings, UpdateCheckSetting, transaction) ?? true);
+            UpdateCheckEnabled: ReadBool(settings, UpdateCheckSetting, transaction) ?? true,
+            CharacterIdentificationEnabled: ReadBool(settings, CharacterIdentificationSetting, transaction) ?? true);
     }
 
     /// <summary>
@@ -160,6 +173,11 @@ public static class CaptureSettingsStore
         if (update.UpdateCheckEnabled is { } updateCheck)
         {
             values[UpdateCheckSetting] = updateCheck ? "true" : "false";
+        }
+
+        if (update.CharacterIdentificationEnabled is { } characterIdentification)
+        {
+            values[CharacterIdentificationSetting] = characterIdentification ? "true" : "false";
         }
 
         if (update.FollowGame is { } followGame)
@@ -218,6 +236,7 @@ public static class CaptureSettingsStore
             ["auto_calibration_enabled"] = snapshot.AutoCalibrationEnabled,
             ["shared_calibration_enabled"] = snapshot.SharedCalibrationEnabled,
             ["update_check_enabled"] = snapshot.UpdateCheckEnabled,
+            ["character_identification_enabled"] = snapshot.CharacterIdentificationEnabled,
             ["research_payload_opcodes"] = new JsonArray((snapshot.ResearchPayloadOpcodes ?? Array.Empty<string>())
                 .Select(value => (JsonNode?)JsonValue.Create(value)).ToArray()),
             ["autostart"] = snapshot.Autostart,
@@ -339,6 +358,9 @@ public sealed record CaptureSettingsUpdate
 
     /// <summary>Whether the daily update check runs; null leaves it alone.</summary>
     public bool? UpdateCheckEnabled { get; init; }
+
+    /// <summary>Whether the logged-in character is told apart; null leaves it alone.</summary>
+    public bool? CharacterIdentificationEnabled { get; init; }
     /// <summary>Start capture as soon as the game appears.</summary>
     public bool? FollowGame { get; init; }
 

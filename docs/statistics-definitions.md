@@ -97,6 +97,17 @@ completed_count = COUNT(*) WHERE
   `profile_count` 与 `unassigned_run_count`（该区服未分配的有效记录数）。区服只有一个档案时，它就是整个区服的进度，
   与引入档案之前相同。各区服、各档案的进度分别展示，不相加：区服有多个档案时，「全部角色」的视图只展示次数类统计，
   不展示进度与目标。
+- 每一项另附 `identification`，说明该区服新记录的归属方式（[state-machine.md](state-machine.md) §3.1）：`AUTOMATIC`
+  按登录的角色归入其绑定的档案（目前只有国服）；`MANUAL_REGION` 表示该区服尚未核实角色识别，`MANUAL_OFF` 表示已在设置中关闭，
+  两者的新记录都归入当前档案。
+- `DashboardStats.profiles` 的每个档案附 `identity_count`：绑定到该档案的角色数（[data-model.md](data-model.md) §4.3），
+  只靠手动切换的档案为 0。
+- `DashboardStats.identities` 列出全部区服中尚未绑定档案的角色，不受任何筛选影响：按区服排列（CN、TC、其他区服），
+  同一区服内待登记（`PENDING`）在前、不统计（`IGNORED`）在后，各自按记下的先后排列。每项的 `run_count` 是为该角色记下、
+  目前未分配的有效记录数，即登记该角色时会归入所选档案的有效记录。回收站中的同类记录也随之归入，但不计入该数，
+  因此 `CharacterIdentityResult.assigned_run_count` 可能大于登记前的 `run_count`。
+  待登记或不统计的角色的记录未分配，按本节开头的规则不计入任何档案的进度；用户登记之后，这些记录才计入所选档案。
+  登记不改动任何档案的基数。
 - 为旧桌面端保留的标量字段（`goal_count`、`baseline_completed_count`、`achievement_progress`、`remaining`）在请求带
   `filter.profile_id` 时投影该档案，否则投影选定区服的当前档案，全部区服请求时投影 CN 的当前档案。
 
@@ -280,6 +291,7 @@ avg_duration_ms = AVG(duration_ms) WHERE
 | `goal_count` | `character_profiles`，默认 2000，取值的档案见 §4 |
 | `achievements` | 按区服分别给出的成就数组（各取该区服当前档案的数值），不受日期、职业、副本筛选影响；选定区服时只含该区服，全部区服请求时含 CN 与 TC，以及另有记录或档案的其他区服，见 §4 |
 | `profiles` | 全部角色档案及各自的进度，不受任何筛选影响，见 §4 |
+| `identities` | 全部区服中尚未绑定档案的角色及各自未分配的有效记录数，不受任何筛选影响，见 §4 |
 | `remaining` | §5 |
 | `completion_rate` | §6 |
 | `leave_rate` | §7 |

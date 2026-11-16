@@ -6,6 +6,7 @@
 //
 //   MentorRecorder.Desktop --screenshot out.png --page 1 --theme dark
 //                          [--mock-npcap-missing] [--mock-live entered] [--mock-profiles]
+//                          [--mock-pending-identity]
 //                          [--mock-first-run] [--mock-open-detail]
 //                          [--mock-open-edit] [--show-disclosure]
 //                          [--mock-open-create] [--mock-wizard-step 1|2|3]
@@ -619,6 +620,11 @@ int main(int argc, char *argv[])
         QStringLiteral("mock-profiles"),
         QStringLiteral("角色档案 fixture: CN holds two named characters with different progress "
                        "(the second one current) and a few runs assigned to no character."));
+    QCommandLineOption pendingIdentityOption(
+        QStringLiteral("mock-pending-identity"),
+        QStringLiteral("自动识别角色 fixture: one CN character told apart in the game traffic and "
+                       "bound to no profile, waiting for the player's answer, with two runs; it is the "
+                       "character logged in, so answering for it switches to its profile."));
     QCommandLineOption candidatesOption(
         QStringLiteral("mock-candidates"),
         QStringLiteral("Use deterministic candidate review fixtures; research payload remains disabled."));
@@ -789,6 +795,7 @@ int main(int argc, char *argv[])
     parser.addOption(npcapOption);
     parser.addOption(candidatesOption);
     parser.addOption(profilesOption);
+    parser.addOption(pendingIdentityOption);
     parser.addOption(calibrationOption);
     parser.addOption(sharedOption);
     parser.addOption(updateOption);
@@ -930,6 +937,7 @@ int main(int argc, char *argv[])
         && (parser.isSet(npcapOption)
             || parser.isSet(candidatesOption)
             || parser.isSet(profilesOption)
+            || parser.isSet(pendingIdentityOption)
             || parser.isSet(calibrationOption)
             || parser.isSet(sharedOption)
             || parser.isSet(updateOption)
@@ -1065,6 +1073,11 @@ int main(int argc, char *argv[])
             mock->setCandidateFixture();
         if (parser.isSet(profilesOption))
             mock->setCharacterProfilesFixture();
+        // After the profiles fixture, so it claims the runs that fixture left to nobody first.
+        // It is the character logged in, so answering for it switches to its profile.
+        if (parser.isSet(pendingIdentityOption))
+            mock->setLoggedInCharacterIdentity(
+                mock->addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 2));
         if (parser.isSet(calibrationOption))
             mock->setCalibrationFixture(parser.value(calibrationOption));
         if (parser.isSet(sharedOption))

@@ -428,7 +428,8 @@ BackendReply *IBackend::updateAchievementBaseline(int goalCount,
 
 BackendReply *IBackend::createCharacterProfile(const QString &region, const QString &displayName,
                                                int goalCount, int baselineCompletedCount,
-                                               bool makeCurrent, const QString &requestId)
+                                               bool makeCurrent, const QString &requestId,
+                                               int identityId)
 {
     QJsonObject payload;
     payload.insert(QStringLiteral("region"), region);
@@ -437,6 +438,9 @@ BackendReply *IBackend::createCharacterProfile(const QString &region, const QStr
     payload.insert(QStringLiteral("baseline_completed_count"), baselineCompletedCount);
     if (makeCurrent)
         payload.insert(QStringLiteral("make_current"), true);
+    // Omitted rather than 0: the contract's minimum is 1, and an older Collector never sees it.
+    if (identityId > 0)
+        payload.insert(QStringLiteral("identity_id"), identityId);
     return requestWithId(QStringLiteral("CreateCharacterProfile"), payload, requestId);
 }
 
@@ -457,6 +461,25 @@ BackendReply *IBackend::deleteCharacterProfile(int profileId, const QString &req
 {
     return requestWithId(QStringLiteral("DeleteCharacterProfile"),
                          QJsonObject{{QStringLiteral("profile_id"), profileId}}, requestId);
+}
+
+BackendReply *IBackend::forgetCharacterIdentities(int profileId, const QString &requestId)
+{
+    return requestWithId(QStringLiteral("UpdateCharacterProfile"),
+                         QJsonObject{{QStringLiteral("profile_id"), profileId},
+                                     {QStringLiteral("forget_identities"), true}},
+                         requestId);
+}
+
+BackendReply *IBackend::resolveCharacterIdentity(int identityId, const QString &action, int profileId,
+                                                 const QString &requestId)
+{
+    QJsonObject payload;
+    payload.insert(QStringLiteral("identity_id"), identityId);
+    payload.insert(QStringLiteral("action"), action);
+    if (profileId > 0)
+        payload.insert(QStringLiteral("profile_id"), profileId);
+    return requestWithId(QStringLiteral("ResolveCharacterIdentity"), payload, requestId);
 }
 
 BackendReply *IBackend::batchMutateRuns(const QString &action, const QJsonArray &runs,

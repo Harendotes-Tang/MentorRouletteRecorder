@@ -36,6 +36,7 @@ public sealed class SettingsRepository
         _database = database;
         _clock = clock;
         Profiles = new CharacterProfileRepository(database, clock);
+        Identities = new CharacterIdentityRepository(database, clock);
     }
 
     /// <summary>
@@ -44,6 +45,11 @@ public sealed class SettingsRepository
     /// one a player with one character ever has.
     /// </summary>
     public CharacterProfileRepository Profiles { get; }
+
+    /// <summary>
+    /// The characters the Collector has told apart since schema 15, and the profile each one is.
+    /// </summary>
+    public CharacterIdentityRepository Identities { get; }
 
     /// <summary>
     /// Creates the CN/TC profiles and the default application settings when they are

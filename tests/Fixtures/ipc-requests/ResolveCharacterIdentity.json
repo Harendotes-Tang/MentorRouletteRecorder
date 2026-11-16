@@ -1,0 +1,10 @@
+{
+    "message_type": "ResolveCharacterIdentity",
+    "payload": {
+        "action": "BIND",
+        "identity_id": 999,
+        "profile_id": 1
+    },
+    "protocol_version": 1,
+    "request_id": "11111111-2222-4333-8444-555555555555"
+}

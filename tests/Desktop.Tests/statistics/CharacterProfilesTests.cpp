@@ -7,6 +7,10 @@
 // each profile keeps its own progress, baselineProfileId edits the named profile only,
 // 改到角色 moves the checked history rows, and a finished run is announced with its own
 // profile's numbers - or with none when it belongs to no character.
+//
+// 自动识别角色: a character the Collector told apart and bound to no profile shows the
+// features too; BIND / IGNORE / ASK_AGAIN / forget / create-with-identity answer through
+// characterProfileSaved / Failed, and the identification switch round-trips.
 // ---------------------------------------------------------------------------
 
 #include "DesktopTestRunner.h"
@@ -301,6 +305,386 @@ private Q_SLOTS:
         // Without the field (an older Collector) the run counts for its region.
         run.remove(QStringLiteral("profile_id"));
         QCOMPARE(app.achievementForRun(run.toVariantMap()).value(QStringLiteral("profile_id")).toInt(), second);
+    }
+
+    // -- 自动识别角色 ------------------------------------------------------------
+
+    void aWaitingIdentityShowsTheFeaturesForOneProfile()
+    {
+        mr::MockBackend backend;
+        seed(backend);
+        // No run of its own: the identity alone switches the features on.
+        const int identity = backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 0);
+        mr::AppController app(&backend, nullptr);
+        QVERIFY(load(app));
+        QTRY_COMPARE(app.characterIdentities().size(), 1);
+        QCOMPARE(app.characterProfilesForRegion(QStringLiteral("CN")).size(), 1);
+        QCOMPARE(app.achievementForRegion(QStringLiteral("CN")).value(QStringLiteral("unassigned_run_count")).toInt(), 0);
+        QVERIFY(app.characterFeaturesVisible(QStringLiteral("CN")));
+        QVERIFY(app.characterFeaturesVisible(QString()));
+        QVERIFY(!app.characterFeaturesVisible(QStringLiteral("TC")));
+        const QVariantList pending = app.pendingCharacterIdentities(QStringLiteral("CN"));
+        QCOMPARE(pending.size(), 1);
+        QCOMPARE(pending.first().toMap().value(QStringLiteral("identity_id")).toInt(), identity);
+        QCOMPARE(pending.first().toMap().value(QStringLiteral("state")).toString(), QStringLiteral("PENDING"));
+        QCOMPARE(app.pendingCharacterIdentities(QString()).size(), 1);
+        QVERIFY(app.pendingCharacterIdentities(QStringLiteral("TC")).isEmpty());
+        QCOMPARE(app.ignoredCharacterIdentityCount(QStringLiteral("CN")), 0);
+        QCOMPARE(app.characterIdentification(QStringLiteral("CN")), QStringLiteral("AUTOMATIC"));
+        QCOMPARE(app.characterIdentification(QStringLiteral("TC")), QStringLiteral("MANUAL_REGION"));
+        QCOMPARE(app.characterIdentification(QStringLiteral("GLOBAL")), QString()); // never read
+        QVERIFY(app.characterIdentificationEnabled());
+        QCOMPARE(app.characterProfilesForRegion(QStringLiteral("CN")).first().toMap()
+                     .value(QStringLiteral("identity_count")).toInt(), 0);
+    }
+
+    void bindMovesTheRunsAndIsNoMilestone()
+    {
+        mr::MockBackend backend;
+        seed(backend);
+        // B is current with goal 2 and progress 1: two more completions cross a lap of the same
+        // profile, which a move of old runs must not celebrate.
+        const int second = backend.addCharacterProfile(QStringLiteral("CN"), QStringLiteral("B"), 2, 1, true);
+        const int identity = backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 2);
+        QCOMPARE(backend.characterIdentities().first().toMap().value(QStringLiteral("run_count")).toInt(), 2);
+        mr::AppController app(&backend, nullptr);
+        QVERIFY(load(app));
+        QTRY_COMPARE(app.dashboard().value(QStringLiteral("achievement_progress")).toInt(), 1);
+        QCOMPARE(app.achievementForRegion(QStringLiteral("CN")).value(QStringLiteral("unassigned_run_count")).toInt(), 2);
+        QTRY_VERIFY(!app.runs()->isLoading() && app.runs()->rowCount() == 3);
+
+        QSignalSpy saved(&app, &mr::AppController::characterProfileSaved);
+        QSignalSpy milestone(&app, &mr::AppController::regionalAchievementMilestoneReached);
+        QSignalSpy identitiesChanged(&app, &mr::AppController::characterIdentitiesChanged);
+        app.bindCharacterIdentity(identity, second);
+        QVERIFY(app.characterProfileSaving());
+        QTRY_COMPARE(saved.size(), 1);
+        QVERIFY(!app.characterProfileSaving());
+        QCOMPARE(saved.at(0).at(0).toInt(), second);
+        QCOMPARE(saved.at(0).at(1).toString(), QStringLiteral("bind"));
+        // The reply's lists are applied at once.
+        QVERIFY(identitiesChanged.size() >= 1);
+        QVERIFY(app.characterIdentities().isEmpty());
+        QCOMPARE(profileNumber(app, second, "run_count"), 2);
+        QCOMPARE(profileNumber(app, second, "identity_count"), 1);
+        // Statistics and the history list are read again.
+        QTRY_COMPARE(app.dashboard().value(QStringLiteral("achievement_progress")).toInt(), 3);
+        QTRY_COMPARE(app.achievementForRegion(QStringLiteral("CN"))
+                         .value(QStringLiteral("unassigned_run_count")).toInt(), 0);
+        app.setHistoryFilter({{QStringLiteral("profile_id"), second}});
+        QTRY_VERIFY(!app.runs()->isLoading() && app.runs()->total() == 2);
+        QTest::qWait(50); // the Collector's own stats_invalidated arrives too
+        QCOMPARE(milestone.size(), 0);
+        QCOMPARE(app.dashboard().value(QStringLiteral("achievement_progress")).toInt(), 3);
+    }
+
+    void aReadAnsweredDuringABindPrimesInsteadOfCelebrating()
+    {
+        mr::MockBackend backend;
+        seed(backend);
+        // B is current, goal 2, progress 1; the bind takes it to 3 - a lap crossed by moved runs.
+        const int second = backend.addCharacterProfile(QStringLiteral("CN"), QStringLiteral("B"), 2, 1, true);
+        const int identity = backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 2);
+        mr::AppController app(&backend, nullptr);
+        QVERIFY(load(app));
+        QTRY_COMPARE(app.dashboard().value(QStringLiteral("achievement_progress")).toInt(), 1);
+        QTest::qWait(50); // nothing of the first load left on the wire
+        QSignalSpy saved(&app, &mr::AppController::characterProfileSaved);
+        QSignalSpy milestone(&app, &mr::AppController::regionalAchievementMilestoneReached);
+        // A read sent before the bind is answered, with the numbers before it, while the bind
+        // is still unanswered; so is the read the Collector's stats_invalidated asks for.
+        backend.setReplyDelay(150, QStringLiteral("GetDashboardStats"));
+        backend.setReplyDelay(400, QStringLiteral("ResolveCharacterIdentity"));
+        app.refreshDashboard();
+        app.bindCharacterIdentity(identity, second);
+        QTRY_COMPARE_WITH_TIMEOUT(saved.size(), 1, 3000);
+        backend.setReplyDelay(0, QStringLiteral("GetDashboardStats"));
+        app.refreshDashboard();
+        QTRY_COMPARE(app.dashboard().value(QStringLiteral("achievement_progress")).toInt(), 3);
+        QTest::qWait(300); // the reads the bind's answer asked for arrive as well
+        QCOMPARE(milestone.size(), 0);
+    }
+
+    void bindSwitchesOnlyToTheLoggedInCharacter()
+    {
+        mr::MockBackend backend;
+        seed(backend);
+        const int original = backend.characterProfiles().first().toObject().value(QStringLiteral("profile_id")).toInt();
+        const int second = backend.addCharacterProfile(QStringLiteral("CN"), QStringLiteral("B"), 50, 0, false);
+        const int elsewhere = backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 1);
+        const int playing = backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 1);
+        backend.setLoggedInCharacterIdentity(playing);
+        mr::AppController app(&backend, nullptr);
+        QVERIFY(load(app));
+        QSignalSpy saved(&app, &mr::AppController::characterProfileSaved);
+        // Not the character logged in: its runs move, the current profile stays.
+        app.bindCharacterIdentity(elsewhere, second);
+        QTRY_COMPARE(saved.size(), 1);
+        QCOMPARE(profileNumber(app, second, "run_count"), 1);
+        QVERIFY(app.characterProfile(original).value(QStringLiteral("is_current")).toBool());
+        QVERIFY(!app.characterProfile(second).value(QStringLiteral("is_current")).toBool());
+        // The one logged in: the Collector switches to its profile.
+        app.bindCharacterIdentity(playing, second);
+        QTRY_COMPARE(saved.size(), 2);
+        QCOMPARE(profileNumber(app, second, "run_count"), 2);
+        QVERIFY(app.characterProfile(second).value(QStringLiteral("is_current")).toBool());
+        QTRY_COMPARE(app.dashboard().value(QStringLiteral("achievement_progress")).toInt(), 2);
+    }
+
+    void aRunMovedByHandLeavesItsIdentity()
+    {
+        mr::MockBackend backend;
+        seed(backend);
+        const int original = backend.characterProfiles().first().toObject().value(QStringLiteral("profile_id")).toInt();
+        const int second = backend.addCharacterProfile(QStringLiteral("CN"), QStringLiteral("B"), 50, 0, false);
+        const int identity = backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 2);
+        mr::AppController app(&backend, nullptr);
+        QVERIFY(load(app));
+        app.setHistoryFilter({{QStringLiteral("profile_unassigned"), true}});
+        QTRY_VERIFY(!app.runs()->isLoading() && app.runs()->rowCount() == 2);
+        app.setHistoryRunChecked(app.runs()->runAt(0), true);
+        app.assignCheckedHistoryRunsToProfile(original, QStringLiteral("by hand"));
+        QTRY_VERIFY(!app.historyBatchRunning() && app.checkedHistoryRunCount() == 0);
+        QCOMPARE(backend.characterIdentities().first().toMap().value(QStringLiteral("run_count")).toInt(), 1);
+        // A later BIND moves only the run still waiting, not the one moved by hand.
+        QSignalSpy saved(&app, &mr::AppController::characterProfileSaved);
+        app.bindCharacterIdentity(identity, second);
+        QTRY_COMPARE(saved.size(), 1);
+        QCOMPARE(profileNumber(app, second, "run_count"), 1);
+        QCOMPARE(profileNumber(app, original, "run_count"), 2);
+    }
+
+    void createWithAnIdentityBindsItToTheNewProfile()
+    {
+        mr::MockBackend backend;
+        seed(backend);
+        const int identity = backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 2);
+        const int playing = backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 0);
+        backend.setLoggedInCharacterIdentity(playing);
+        mr::AppController app(&backend, nullptr);
+        QVERIFY(load(app));
+        QTRY_COMPARE(app.pendingCharacterIdentities(QStringLiteral("CN")).size(), 2);
+        QSignalSpy saved(&app, &mr::AppController::characterProfileSaved);
+        app.createCharacterProfile(QStringLiteral("CN"), QString::fromUtf8("新角色"), 100, 5, false, identity);
+        QTRY_COMPARE(saved.size(), 1);
+        QCOMPARE(saved.at(0).at(1).toString(), QStringLiteral("create"));
+        const int created = saved.at(0).at(0).toInt();
+        // Not the character logged in, and make_current false: the region keeps its current one.
+        QVERIFY(!app.characterProfile(created).value(QStringLiteral("is_current")).toBool());
+        QCOMPARE(profileNumber(app, created, "run_count"), 2);
+        QCOMPARE(profileNumber(app, created, "identity_count"), 1);
+        QCOMPARE(profileNumber(app, created, "achievement_progress"), 7);
+        QCOMPARE(app.pendingCharacterIdentities(QStringLiteral("CN")).size(), 1);
+        QTRY_COMPARE(app.dashboard().value(QStringLiteral("achievement_progress")).toInt(), 11);
+        // The character logged in: its new profile becomes the current one.
+        app.createCharacterProfile(QStringLiteral("CN"), QString::fromUtf8("在玩的"), 100, 0, false, playing);
+        QTRY_COMPARE(saved.size(), 2);
+        QVERIFY(app.characterProfile(saved.at(1).at(0).toInt()).value(QStringLiteral("is_current")).toBool());
+        QTRY_VERIFY(app.characterIdentities().isEmpty());
+
+        // An identity already bound is refused, and nothing is created.
+        QSignalSpy failed(&app, &mr::AppController::characterProfileFailed);
+        app.createCharacterProfile(QStringLiteral("CN"), QString::fromUtf8("又一个"), 100, 0, false, identity);
+        QTRY_COMPARE(failed.size(), 1);
+        QCOMPARE(failed.at(0).at(0).toString(), QStringLiteral("create"));
+        QCOMPARE(failed.at(0).at(1).toString(), QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(app.characterProfilesForRegion(QStringLiteral("CN")).size(), 3);
+    }
+
+    void createDropsTheIdentityBeforeItIsReadAgain()
+    {
+        mr::MockBackend backend;
+        seed(backend);
+        const int identity = backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 1);
+        mr::AppController app(&backend, nullptr);
+        QVERIFY(load(app));
+        QTRY_COMPARE(app.characterIdentities().size(), 1);
+        QTest::qWait(50);
+        // Every later read is held, so only the create's own answer can change the list.
+        backend.setReplyDelay(5000, QStringLiteral("GetDashboardStats"));
+        qsizetype listedAtSave = -1;
+        connect(&app, &mr::AppController::characterProfileSaved, &app,
+                [&app, &listedAtSave] { listedAtSave = app.characterIdentities().size(); });
+        QSignalSpy changed(&app, &mr::AppController::characterIdentitiesChanged);
+        app.createCharacterProfile(QStringLiteral("CN"), QString::fromUtf8("新角色"), 100, 0, false, identity);
+        QTRY_VERIFY(listedAtSave >= 0);
+        QCOMPARE(listedAtSave, 0);
+        QCOMPARE(changed.size(), 1);
+        QVERIFY(app.pendingCharacterIdentities(QStringLiteral("CN")).isEmpty());
+    }
+
+    void aRefusalForAnIdentityThatIsGoneReadsTheListsAgain()
+    {
+        mr::MockBackend backend;
+        seed(backend);
+        const int gone = backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 0);
+        const int other = backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 0);
+        const int profile = backend.characterProfiles().first().toObject().value(QStringLiteral("profile_id")).toInt();
+        mr::AppController app(&backend, nullptr);
+        QVERIFY(load(app));
+        QTRY_COMPARE(app.characterIdentities().size(), 2);
+        backend.dropCharacterIdentity(gone);
+        QSignalSpy failed(&app, &mr::AppController::characterProfileFailed);
+        app.bindCharacterIdentity(gone, profile);
+        QTRY_COMPARE(failed.size(), 1);
+        QCOMPARE(failed.at(0).at(0).toString(), QStringLiteral("bind"));
+        QCOMPARE(failed.at(0).at(1).toString(), QStringLiteral("ERR_NOT_FOUND"));
+        // The prompt stops asking about it: the lists are read again.
+        QTRY_COMPARE(app.characterIdentities(), backend.characterIdentities());
+        QCOMPARE(app.characterIdentities().size(), 1);
+        QCOMPARE(app.characterIdentities().first().toMap().value(QStringLiteral("identity_id")).toInt(), other);
+    }
+
+    void ignoreThenAskAgainFlipsTheStateInTurn()
+    {
+        mr::MockBackend backend;
+        seed(backend);
+        const int first = backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 0);
+        const int second = backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 0);
+        const int taiwan = backend.addCharacterIdentity(QStringLiteral("TC"), QStringLiteral("IGNORED"), 0);
+        mr::AppController app(&backend, nullptr);
+        QVERIFY(load(app));
+        QTRY_COMPARE(app.characterIdentities().size(), 3);
+        QCOMPARE(app.ignoredCharacterIdentityCount(QStringLiteral("TC")), 1);
+        QCOMPARE(app.ignoredCharacterIdentityCount(QString()), 1);
+        // An ignored identity still shows the features: the player can change their mind.
+        QVERIFY(app.characterFeaturesVisible(QStringLiteral("TC")));
+
+        QSignalSpy saved(&app, &mr::AppController::characterProfileSaved);
+        app.ignoreCharacterIdentity(first);
+        QTRY_COMPARE(saved.size(), 1);
+        QCOMPARE(saved.at(0).at(0).toInt(), 0);
+        QCOMPARE(saved.at(0).at(1).toString(), QStringLiteral("ignore"));
+        app.ignoreCharacterIdentity(second);
+        QTRY_COMPARE(saved.size(), 2);
+        QCOMPARE(app.ignoredCharacterIdentityCount(QStringLiteral("CN")), 2);
+        QVERIFY(app.pendingCharacterIdentities(QStringLiteral("CN")).isEmpty());
+
+        // Both CN identities, one request after the other, and one answer at the end; the
+        // saving flag stays up across the chain. TC's is left alone.
+        QSignalSpy saving(&app, &mr::AppController::characterProfileSavingChanged);
+        app.askAgainAboutCharacterIdentities(QStringLiteral("CN"));
+        QVERIFY(app.characterProfileSaving());
+        QTRY_COMPARE(saved.size(), 3);
+        QCOMPARE(saved.at(2).at(1).toString(), QStringLiteral("ask_again"));
+        QCOMPARE(saving.size(), 2);
+        QCOMPARE(app.ignoredCharacterIdentityCount(QStringLiteral("CN")), 0);
+        QCOMPARE(app.pendingCharacterIdentities(QStringLiteral("CN")).size(), 2);
+        QCOMPARE(app.ignoredCharacterIdentityCount(QStringLiteral("TC")), 1);
+        // Nothing left to ask again about: answered without a request.
+        app.askAgainAboutCharacterIdentities(QStringLiteral("CN"));
+        QCOMPARE(saved.size(), 4);
+        QCOMPARE(saved.at(3).at(1).toString(), QStringLiteral("ask_again"));
+        Q_UNUSED(taiwan);
+    }
+
+    void refusedIdentityRequestsSurfaceAsFailures()
+    {
+        mr::MockBackend backend;
+        seed(backend);
+        const int identity = backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 0);
+        const int taiwanProfile = backend.addCharacterProfile(QStringLiteral("TC"), QStringLiteral("T"), 100, 0, false);
+        mr::AppController app(&backend, nullptr);
+        QVERIFY(load(app));
+        QSignalSpy failed(&app, &mr::AppController::characterProfileFailed);
+        QSignalSpy saved(&app, &mr::AppController::characterProfileSaved);
+        app.bindCharacterIdentity(identity, taiwanProfile);
+        QTRY_COMPARE(failed.size(), 1);
+        QVERIFY(!app.characterProfileSaving());
+        QCOMPARE(failed.at(0).at(0).toString(), QStringLiteral("bind"));
+        QCOMPARE(failed.at(0).at(1).toString(), QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(failed.at(0).at(2).toString(), QString::fromUtf8("所选角色不属于这条记录的区服。"));
+        app.ignoreCharacterIdentity(999);
+        QTRY_COMPARE(failed.size(), 2);
+        QCOMPARE(failed.at(1).at(0).toString(), QStringLiteral("ignore"));
+        QCOMPARE(failed.at(1).at(1).toString(), QStringLiteral("ERR_NOT_FOUND"));
+        app.forgetCharacterIdentities(999);
+        QTRY_COMPARE(failed.size(), 3);
+        QCOMPARE(failed.at(2).at(0).toString(), QStringLiteral("forget"));
+        QCOMPARE(failed.at(2).at(1).toString(), QStringLiteral("ERR_NOT_FOUND"));
+        QCOMPARE(saved.size(), 0);
+        QVERIFY(!app.characterProfileSaving());
+        // The identity is still waiting.
+        QCOMPARE(app.pendingCharacterIdentities(QStringLiteral("CN")).size(), 1);
+    }
+
+    void forgetReturnsTheBoundIdentitiesToPending()
+    {
+        mr::MockBackend backend;
+        seed(backend);
+        const int second = backend.addCharacterProfile(QStringLiteral("CN"), QStringLiteral("B"), 50, 0, false);
+        const int identity = backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 1);
+        mr::AppController app(&backend, nullptr);
+        QVERIFY(load(app));
+        QSignalSpy saved(&app, &mr::AppController::characterProfileSaved);
+        app.bindCharacterIdentity(identity, second);
+        QTRY_COMPARE(saved.size(), 1);
+        QCOMPARE(profileNumber(app, second, "identity_count"), 1);
+        app.forgetCharacterIdentities(second);
+        QTRY_COMPARE(saved.size(), 2);
+        QCOMPARE(saved.at(1).at(0).toInt(), second);
+        QCOMPARE(saved.at(1).at(1).toString(), QStringLiteral("forget"));
+        QCOMPARE(profileNumber(app, second, "identity_count"), 0);
+        // The statistics read brings the identity back, waiting, its runs kept by the profile.
+        QTRY_COMPARE(app.pendingCharacterIdentities(QStringLiteral("CN")).size(), 1);
+        const QVariantMap back = app.pendingCharacterIdentities(QStringLiteral("CN")).first().toMap();
+        QCOMPARE(back.value(QStringLiteral("identity_id")).toInt(), identity);
+        QCOMPARE(back.value(QStringLiteral("run_count")).toInt(), 0);
+        QCOMPARE(profileNumber(app, second, "run_count"), 1);
+    }
+
+    void theIdentificationSwitchRoundTrips()
+    {
+        mr::MockBackend backend;
+        seed(backend);
+        mr::AppController app(&backend, nullptr);
+        QVERIFY(load(app));
+        QTRY_VERIFY(app.captureSettingsLoaded());
+        QVERIFY(app.characterIdentificationEnabled());
+        QCOMPARE(app.captureSettings().value(QStringLiteral("character_identification_enabled")).toBool(), true);
+        QTRY_COMPARE(app.characterIdentification(QStringLiteral("CN")), QStringLiteral("AUTOMATIC"));
+
+        app.setCharacterIdentificationEnabled(false);
+        QVERIFY(!app.characterIdentificationEnabled()); // optimistic while the write waits
+        QTRY_COMPARE(backend.lastCaptureSettingsUpdate(),
+                     (QJsonObject{{QStringLiteral("character_identification_enabled"), false}}));
+        QTRY_COMPARE(app.characterIdentification(QStringLiteral("CN")), QStringLiteral("MANUAL_OFF"));
+        QTRY_COMPARE(app.characterIdentification(QStringLiteral("TC")), QStringLiteral("MANUAL_OFF"));
+        QVERIFY(!app.characterIdentificationEnabled());
+
+        app.setCharacterIdentificationEnabled(true);
+        QTRY_COMPARE(app.characterIdentification(QStringLiteral("CN")), QStringLiteral("AUTOMATIC"));
+        QTRY_COMPARE(app.characterIdentification(QStringLiteral("TC")), QStringLiteral("MANUAL_REGION"));
+        QVERIFY(app.characterIdentificationEnabled());
+    }
+
+    void thePendingIdentityFixtureWorksWithAndWithoutProfiles()
+    {
+        // --mock-pending-identity alone: the region keeps its single unnamed profile.
+        mr::MockBackend plain;
+        plain.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 2);
+        QCOMPARE(plain.characterProfiles().size(), 2); // CN and TC, one each
+        QCOMPARE(plain.characterIdentities().size(), 1);
+        QCOMPARE(plain.characterIdentities().first().toMap().value(QStringLiteral("run_count")).toInt(), 2);
+        const QJsonObject stats = plain.dashboardStats({{QStringLiteral("region"), QStringLiteral("CN")}});
+        const QJsonObject cn = stats.value(QStringLiteral("achievements")).toArray().first().toObject();
+        QCOMPARE(cn.value(QStringLiteral("unassigned_run_count")).toInt(), 2);
+        QCOMPARE(cn.value(QStringLiteral("identification")).toString(), QStringLiteral("AUTOMATIC"));
+        QCOMPARE(stats.value(QStringLiteral("identities")).toArray().size(), 1);
+
+        // After --mock-profiles: it claims two of the three runs that fixture left to nobody.
+        mr::MockBackend profiles;
+        profiles.setCharacterProfilesFixture();
+        const auto unassigned = [](const mr::MockBackend &backend) {
+            return backend.dashboardStats({{QStringLiteral("region"), QStringLiteral("CN")}})
+                .value(QStringLiteral("achievements")).toArray().first().toObject()
+                .value(QStringLiteral("unassigned_run_count")).toInt();
+        };
+        const int before = unassigned(profiles);
+        QCOMPARE(before, 3);
+        profiles.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 2);
+        QCOMPARE(profiles.characterIdentities().first().toMap().value(QStringLiteral("run_count")).toInt(), 2);
+        QCOMPARE(unassigned(profiles), before);
     }
 };
 

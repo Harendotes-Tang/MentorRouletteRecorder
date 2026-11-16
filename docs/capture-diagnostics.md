@@ -576,6 +576,14 @@ Machina 在自身线程内将失败写入 `Trace`，而不向调用方抛出异�
   同样记一条（`decided = false`，`joined_in_progress` 为已有判定）——这是与「中途加入的玩家收不到开始宣布」相反的形状，
   真机核对要看的正是它（[state-machine.md](state-machine.md) §3.14）。副本外的报文与已判定后的剩余时间不记。
   不含负载、哈希、opcode 或副本编号。
+- 角色识别（[state-machine.md](state-machine.md) §3.1）记在组件 `character_identity` 下，元数据只有 `count` 与 `error`
+  （异常类型名），不含角色编号、摘要或密钥指纹：`key_unusable`（密钥文件当前用户无法解密，`count` 为连续失败的会话数）、
+  `key_replaced` / `key_replace_failed`（连续 3 次之后替换密钥文件成功或失败）、`key_unavailable`（密钥文件暂时读不到）、
+  `key_load_failed`（读取密钥或删除其他密钥下的角色时出错，本次会话不区分角色）、`identities_removed`（删除了其他密钥下的角色，
+  `count` 为行数）、`observation_failed`（认定或核对角色时出错，抓包照常进行）、`identity_limit_reached`（区服已记下 64 个角色，
+  新角色未记下）。带 `error` 的行以及 `key_unusable`、`key_replace_failed`、`key_unavailable` 为 Warn，其余为 Info。
+  相关设置 `capture.character_identification_enabled`（是否区分角色，默认开启）与 `capture.character_identity_key_failures`
+  （连续无法解密的会话数）见 [data-model.md](data-model.md) §6。
 
 ## 9. 脱敏诊断报告
 
@@ -722,6 +730,8 @@ Top 40 opcode，以及按连接标识汇总的每条连接的消息数、首末�
 设置了 `MR_DATA_DIR` 或使用开发构建时随之改变，`key_id` 也就不同），不写入取证文件、日志或诊断导出。
 文件内容以 Windows DPAPI 按当前用户加密，因此随数据目录一并拷贝给他人时，对方得不到可用的密钥。32 位编号若不加密钥直接取摘要，可以被穷举还原；加上只存在于本机的密钥之后，
 取证文件只能说明「本机的两次观测是否为同一个值」，离开本机即无法还原，也无法与其他机器的取证相互比对。
+记录归属所用的角色识别使用另一把密钥（数据库所在文件夹的 `character-identity.key`）与不同的摘要域，取证文件中的摘要因此也无法与数据库中的摘要相互比对
+（[privacy-boundary.md](privacy-boundary.md) §5）。
 密钥文件存在但不是当前用户可用的密钥时拒绝开始，不自动重建，否则此前的取证将在没有任何提示的情况下失去可比性；
 暂时读不到（被占用等）时同样拒绝，并提示稍后重试。界面采证遇到这两种情况时，这一轮以失败结束、不生成取证文件，
 页面显示对应的说明（`capture.validation.failed_identity_key_invalid` / `…_unreadable`）。

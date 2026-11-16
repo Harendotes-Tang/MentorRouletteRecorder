@@ -2123,6 +2123,57 @@ SHA256: %3</translation>
     </message>
 </context>
 <context>
+    <name>CharacterIdentityPrompt</name>
+    <message>
+        <source>发现了一个还没有登记的角色</source>
+        <translation>A character that isn&apos;t registered yet</translation>
+    </message>
+    <message>
+        <source>它已经有 %1 条记录，现在不计入任何角色的进度。</source>
+        <translation>It already has %1 record(s), which currently count toward no character&apos;s progress. </translation>
+    </message>
+    <message>
+        <source>在你说明之前，它的记录不计入任何角色的进度。</source>
+        <translation>Until you say which character it is, its records count toward no character&apos;s progress. </translation>
+    </message>
+    <message>
+        <source>说明它是哪个角色后，这些记录会自动归到那个角色名下。</source>
+        <translation>Once you say which character it is, those records are filed under that character automatically.</translation>
+    </message>
+    <message>
+        <source>另外还有 %1 个角色等待说明，回答完这一个再问下一个。</source>
+        <translation>%1 more character(s) are waiting; the next one is asked about after this one.</translation>
+    </message>
+    <message>
+        <source>这是一个新角色</source>
+        <translation>It&apos;s a new character</translation>
+    </message>
+    <message>
+        <source>已有的角色：「%1」</source>
+        <translation>Existing character: “%1”</translation>
+    </message>
+    <message>
+        <source>它就是这个角色</source>
+        <translation>It is this character</translation>
+    </message>
+    <message>
+        <source>它是已有的角色，请选择</source>
+        <translation>It&apos;s an existing character – choose</translation>
+    </message>
+    <message>
+        <source>它是已有的哪个角色</source>
+        <translation>Which existing character it is</translation>
+    </message>
+    <message>
+        <source>确定是这个角色</source>
+        <translation>Yes, it&apos;s this character</translation>
+    </message>
+    <message>
+        <source>不统计这个角色</source>
+        <translation>Don&apos;t track this character</translation>
+    </message>
+</context>
+<context>
     <name>CharacterNames</name>
     <message>
         <source>原有记录</source>
@@ -2148,6 +2199,10 @@ SHA256: %3</translation>
         <translation>Rename character</translation>
     </message>
     <message>
+        <source>登记新角色</source>
+        <translation>Register new character</translation>
+    </message>
+    <message>
         <source>每个角色有自己的目标、起始次数和进度。名称由你自己起，方便区分即可，软件不会读取游戏里的角色名。</source>
         <translation>Each character has its own goal, starting count and progress. The name is yours to choose, just to tell them apart; the software never reads character names from the game.</translation>
     </message>
@@ -2162,6 +2217,14 @@ SHA256: %3</translation>
     <message>
         <source>起始次数：这个角色在游戏成就里已经完成的导随次数，之后记录的通关会加在它上面。</source>
         <translation>Starting count: the mentor roulette completions this character already has in the in-game achievement. Completions recorded from now on are added on top.</translation>
+    </message>
+    <message>
+        <source>添加后，这个角色之前没有归属的记录会记到它名下。</source>
+        <translation>After you add it, this character&apos;s records that had no owner are filed under it. </translation>
+    </message>
+    <message>
+        <source>以后登录这个角色时，软件会自动切换过来。</source>
+        <translation>From then on the app switches to it automatically whenever you log in as this character.</translation>
     </message>
     <message>
         <source>现在就切换到这个角色</source>
@@ -3225,6 +3288,21 @@ SHA256: %3</translation>
         <source>该操作此前已执行，但原结果已超出保留期。请先刷新并核对历史记录，确认是否还需要重新操作。</source>
         <comment>idempotency.response_expired</comment>
         <translation>This operation was already completed, but its saved response has expired. Refresh and check your history before deciding whether another operation is needed.</translation>
+    </message>
+    <message>
+        <source>这个角色没有被设为不统计。</source>
+        <comment>identity.not_ignored</comment>
+        <translation>This character isn&apos;t set to untracked.</translation>
+    </message>
+    <message>
+        <source>请选择它是哪个角色。</source>
+        <comment>identity.profile_required</comment>
+        <translation>Choose which character it is.</translation>
+    </message>
+    <message>
+        <source>此请求编号已用于不同的角色登记操作。</source>
+        <comment>identity.request_reused</comment>
+        <translation>This request ID was already used for a different character registration.</translation>
     </message>
     <message>
         <source>备份中的记录来源信息不完整，请重新创建备份后重试。</source>
@@ -4563,6 +4641,16 @@ SHA256: %3</translation>
         <source>无法识别这份校准码。请完整复制以 MRC1. 开头的校准码。</source>
         <comment>sharing.code.not_a_code</comment>
         <translation>This calibration code can&apos;t be recognized. Copy the complete calibration code that starts with MRC1.</translation>
+    </message>
+    <message>
+        <source>这个角色已经登记过了，不需要再回答。</source>
+        <comment>identity.already_bound</comment>
+        <translation>This character is already registered; no answer is needed.</translation>
+    </message>
+    <message>
+        <source>这个角色的登记信息已经不在了，下次登录这个角色时会重新询问。</source>
+        <comment>identity.not_found</comment>
+        <translation>This character&apos;s registration no longer exists; the app asks again the next time you log in as it.</translation>
     </message>
     <message>
         <source>请粘贴完整的校准码。</source>
@@ -9811,6 +9899,18 @@ Recorder</translation>
         <translation>Current character</translation>
     </message>
     <message>
+        <source>登录游戏后会自动切换到对应的角色。</source>
+        <translation>The app switches to the right character automatically when you log in.</translation>
+    </message>
+    <message>
+        <source>自动识别角色已关闭，换角色上线前请在这里选一下。</source>
+        <translation>Automatic character detection is off. Before logging in as another character, choose it here.</translation>
+    </message>
+    <message>
+        <source>这个区服暂时不能自动识别角色，换角色上线前请在这里选一下。</source>
+        <translation>Characters can&apos;t be detected automatically on this region yet. Before logging in as another character, choose it here.</translation>
+    </message>
+    <message>
         <source>还差 %1 次</source>
         <translation>%1 to go</translation>
     </message>
@@ -10847,6 +10947,14 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <translation>After a game update, the app may need to relearn queueing and entering and leaving duties. With this on, just complete roulettes as usual and review as prompted. Automatic recording is unavailable until calibration is done. With it off, you may have to wait for an app update to get automatic recording back after a game update.</translation>
     </message>
     <message>
+        <source>自动识别登录的角色</source>
+        <translation>Detect the logged-in character automatically</translation>
+    </message>
+    <message>
+        <source>默认开启，目前只对国服有效。有多个角色时，登录游戏后软件会认出是哪个角色并自动切换；第一次见到的角色会在总览询问一次。软件不读取角色名，只在本机保存一个无法还原成角色信息的标记。关闭后改为在总览手动切换角色。</source>
+        <translation>On by default; currently effective on the Chinese service only. If you have several characters, the app recognises which one you logged in as and switches automatically; a character it sees for the first time is asked about once on the Overview. The app does not read character names; it keeps only a marker on this computer that cannot be turned back into character information. When off, switch characters by hand on the Overview.</translation>
+    </message>
+    <message>
         <source>游戏更新后获取其他玩家的共享校准</source>
         <translation>Get shared calibrations from other players after game updates</translation>
     </message>
@@ -11048,6 +11156,30 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>删除</source>
         <translation>Delete</translation>
+    </message>
+    <message>
+        <source>已识别的游戏角色</source>
+        <translation>Recognised game characters</translation>
+    </message>
+    <message>
+        <source>软件已经认出 %1 个游戏角色是「%2」。认错了可以解除，下次登录时会在总览重新询问；已有的记录不变。</source>
+        <translation>The app has recognised %1 game character(s) as “%2”. If that is wrong, release it: the Overview asks again at the next login. Existing records stay as they are.</translation>
+    </message>
+    <message>
+        <source>解除</source>
+        <translation>Release</translation>
+    </message>
+    <message>
+        <source>不统计的角色</source>
+        <translation>Untracked characters</translation>
+    </message>
+    <message>
+        <source>有 %1 个角色被设为不统计，它们的记录不计入任何角色的进度。</source>
+        <translation>%1 character(s) are set to untracked; their records count toward no character&apos;s progress.</translation>
+    </message>
+    <message>
+        <source>重新询问</source>
+        <translation>Ask again</translation>
     </message>
     <message>
         <source>修改原因</source>

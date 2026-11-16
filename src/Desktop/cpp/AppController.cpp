@@ -50,7 +50,8 @@ bool isCaptureSettingKey(const QString &key)
     static const char *kKeys[] = {"follow_game", "autostart", "adapter_id",
                                   "log_retention_days", "allow_without_profile",
                                   "region_override", "auto_calibration_enabled",
-                                  "shared_calibration_enabled", "update_check_enabled"};
+                                  "shared_calibration_enabled", "update_check_enabled",
+                                  "character_identification_enabled"};
     return std::ranges::any_of(kKeys, [&key](const char *name) {
         return key == QLatin1String(name);
     });
@@ -327,7 +328,19 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     connect(m_statistics, &StatisticsController::characterProfileSavingChanged, this,
             &AppController::characterProfileSavingChanged);
     connect(m_statistics, &StatisticsController::characterProfileFailed, this,
-            &AppController::characterProfileFailed);
+            [this](const QString &action, const QString &code, const QString &message) {
+        Q_EMIT characterProfileFailed(action, code, message);
+        // A refusal of an identity answer usually means the lists here are out of date (the
+        // identity is gone or already bound): read them again, or every retry fails alike.
+        static const QStringList kStaleAware{QStringLiteral("bind"), QStringLiteral("ignore"),
+                                             QStringLiteral("ask_again"), QStringLiteral("forget"),
+                                             QStringLiteral("create")};
+        if (kStaleAware.contains(action)
+            && (code == QLatin1String("ERR_NOT_FOUND") || code == QLatin1String("ERR_BAD_REQUEST")))
+            refreshAfterStatsInvalidated();
+    });
+    connect(m_statistics, &StatisticsController::characterIdentitiesChanged, this,
+            &AppController::characterIdentitiesChanged);
     connect(m_statistics, &StatisticsController::characterProfileSaved, this,
             [this](int profileId, const QString &action) {
         Q_EMIT characterProfileSaved(profileId, action);
@@ -851,6 +864,11 @@ void AppController::updateCaptureSetting(const QString &key, const QVariant &val
     m_captureSettingsTimer.start();
 }
 
+void AppController::setCharacterIdentificationEnabled(bool enabled)
+{
+    updateCaptureSetting(QStringLiteral("character_identification_enabled"), enabled);
+}
+
 void AppController::flushCaptureSettings()
 {
     if (!m_backend || m_pendingCaptureSettings.isEmpty())
@@ -900,6 +918,11 @@ void AppController::flushCaptureSettings()
             m_captureSettingsLoaded = true;
             m_captureSettingsError.clear();
             Q_EMIT captureSettingsChanged();
+            if (changes.contains(QStringLiteral("character_identification_enabled"))) {
+                // Every region's identification follows the switch: read them all again.
+                refreshAfterStatsInvalidated();
+                m_statistics->requestRegionalAchievement(QString());
+            }
             if (changes.contains(QStringLiteral("region_override"))) {
                 // 保存确认后才重查；选择区服本身既不启动正式捕获，也不启动采证。
                 refreshStatus();
@@ -2136,9 +2159,31 @@ void AppController::updateAchievementBaseline(int goal, int baseline, const QStr
 }
 
 void AppController::createCharacterProfile(const QString &region, const QString &displayName,
-                                           int goalCount, int baselineCount, bool makeCurrent)
+                                           int goalCount, int baselineCount, bool makeCurrent,
+                                           int identityId)
 {
-    m_statistics->createCharacterProfile(region, displayName, goalCount, baselineCount, makeCurrent);
+    m_statistics->createCharacterProfile(region, displayName, goalCount, baselineCount, makeCurrent,
+                                         identityId);
+}
+
+void AppController::bindCharacterIdentity(int identityId, int profileId)
+{
+    m_statistics->bindCharacterIdentity(identityId, profileId);
+}
+
+void AppController::ignoreCharacterIdentity(int identityId)
+{
+    m_statistics->ignoreCharacterIdentity(identityId);
+}
+
+void AppController::askAgainAboutCharacterIdentities(const QString &region)
+{
+    m_statistics->askAgainAboutCharacterIdentities(region);
+}
+
+void AppController::forgetCharacterIdentities(int profileId)
+{
+    m_statistics->forgetCharacterIdentities(profileId);
 }
 
 void AppController::renameCharacterProfile(int profileId, const QString &displayName)

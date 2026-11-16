@@ -231,7 +231,14 @@ QJsonObject IpcBackend::buildRequestForTest(const QString &messageType,
         backend.createCharacterProfile(stringArg(args, "region"), stringArg(args, "display_name"),
                                        intArg(args, "goal_count", 2000),
                                        intArg(args, "baseline_completed_count", 0),
-                                       args.value(QLatin1String("make_current")).toBool(false));
+                                       args.value(QLatin1String("make_current")).toBool(false), {},
+                                       intArg(args, "identity_id", 0));
+    } else if (messageType == QLatin1String("UpdateCharacterProfile")
+               && args.value(QLatin1String("forget_identities")).toBool(false)) {
+        backend.forgetCharacterIdentities(intArg(args, "profile_id", 0));
+    } else if (messageType == QLatin1String("ResolveCharacterIdentity")) {
+        backend.resolveCharacterIdentity(intArg(args, "identity_id", 0), stringArg(args, "action"),
+                                         intArg(args, "profile_id", 0));
     } else if (messageType == QLatin1String("UpdateCharacterProfile")) {
         const QJsonValue name = args.value(QLatin1String("display_name"));
         backend.updateCharacterProfile(intArg(args, "profile_id", 0),

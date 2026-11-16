@@ -111,6 +111,9 @@ public sealed partial class RunMutationService
         {
             Commit(before, before with { ProfileId = profileId }, ChangeKind.Correct, reason,
                 AuditRequestId(requestId, before), fingerprint, transaction, markCorrected: false, clearPendingReview: false);
+            // The player's word replaces the automatic stamp for good: an answer about the
+            // character given later must not move the run again behind this revision's back.
+            _settings.Identities.ClearRunStamp(before.RunId, transaction);
         }
 
         return moved;

@@ -1,4 +1,17 @@
 # IPC 契约变更记录 / IPC contract changelog
+## 2026-11-16 · 角色识别：按登录的角色自动归入档案
+
+附加式变更，新增一个消息类型。schema 升到 15（`character_identities`，`mentor_runs.identity_id`）。`mentor_runs.identity_id` 只在采集服务内部使用，`$defs/Run` 不变。
+
+- **`$defs/CharacterIdentity`**：采集服务在游戏流量中区分出、尚未绑定档案的一个角色，含 `identity_id`（本地编号）、`region`、`state`（`PENDING` 待登记 / `IGNORED` 不统计）、`first_seen_at_utc`、`last_seen_at_utc` 与 `run_count`（为它记下、目前未分配的有效记录数，不含回收站）。不含任何游戏内标识、角色名或摘要（docs/privacy-boundary.md §5）。
+- **`ResolveCharacterIdentity`**（请求 `$defs/ResolveCharacterIdentityRequest`：`identity_id`、`action` 取 `BIND` / `IGNORE` / `ASK_AGAIN`、`BIND` 时必填的 `profile_id`；应答 `$defs/CharacterIdentityResult`：`identity_id`、`profile_id`、`assigned_run_count`、操作后的 `profiles` 与 `identities`、`idempotent_replay`）。`BIND` 把角色绑定到同区服的档案，该角色名下未分配的记录（含回收站，因此 `assigned_run_count` 可能大于 `run_count`）归入该档案而不写修订。绑定本身不改变当前档案：采集服务在应答之前重新核对此刻登录的角色，它已绑定到某个档案时，该档案成为区服的当前档案，因此对正在游玩的角色的回答立即生效，对其他角色的回答不改变当前档案。`IGNORE` 不再为它统计、不再询问；`ASK_AGAIN` 把不统计的角色恢复为待登记。已绑定的角色答 `ERR_BAD_REQUEST`（`field = "identity_id"`），角色不存在答 `ERR_NOT_FOUND`。按 `request_id` 幂等，实际发生变化时发布 `stats_invalidated`。
+- **`CreateCharacterProfileRequest.identity_id`**（可选）：在新建档案的同一事务中把这个尚未绑定的角色绑定到新档案，效果与 `BIND` 相同（包括应答之前对当前档案的核对）。**`UpdateCharacterProfileRequest.forget_identities`**（可选布尔，缺省 false）：把绑定到该档案的角色恢复为待登记，记录的归属不变。删除档案时，绑定到它的角色同样恢复为待登记。
+- **`DashboardStats.identities`**：全部区服中尚未绑定的角色，不受筛选影响，按区服（CN、TC、其他区服）排列，同一区服内待登记在前，其次按记下的先后。**`CharacterProfile.identity_count`**：绑定到该档案的角色数。**`RegionalAchievement.identification`**（`AUTOMATIC` / `MANUAL_REGION` / `MANUAL_OFF`）：该区服新记录的归属方式；目前只有国服为 `AUTOMATIC`。
+- **`CaptureSettings.character_identification_enabled`** 与 **`UpdateCaptureSettings.character_identification_enabled`**（布尔，缺省开启）：是否区分登录的角色。关闭后各区服的新记录归入当前档案，已绑定的角色保留。
+- **`BatchMutateRunsRequest` 的 `assign_profile`**：消息与应答不变；被改动归属的记录同时失去内部的角色标记，之后对该角色的登记不再移动它（docs/data-model.md §1.7）。
+- **文字目录**新增 `identity.not_found`、`identity.already_bound`、`identity.profile_required`、`identity.not_ignored` 与 `identity.request_reused`。
+- 兼容性：旧采集服务不认识新消息与新字段，答 `ERR_BAD_REQUEST`，应答中也没有 `identities`、`identity_count` 与 `identification`；桌面端把缺少的 `identification` 当作手动切换。两端随同一安装包发布。数据库升到 schema 15 后不能再由旧版程序打开（`ERR_DB_INTEGRITY`），回到旧版须以升级前的快照替换数据库。
+
 ## 2026-11-16 · 角色档案：按角色分别保存目标、基数与进度
 
 附加式变更，新增三个消息类型。schema 升到 14（`character_profiles`，`mentor_runs.profile_id`）。

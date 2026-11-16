@@ -5,7 +5,7 @@ import QtQuick.Controls 6.8
 import QtQuick.Layouts
 import MentorRecorder 1.0
 
-// 添加角色 / 给角色改名（设置 · 成就）。
+// 添加角色 / 给角色改名（设置 · 成就），以及把一个还没有登记的角色登记为新角色（总览）。
 //
 // The name is what the player calls the character here - 大号, 小号 - and is
 // never read from the game. Adding asks for the character's own goal and
@@ -16,6 +16,10 @@ MotionDialog {
 
     // 0 adds a character to `region`; otherwise the profile being renamed.
     property int profileId: 0
+    // A character the Collector told apart that this new profile is: it is bound
+    // in the same request, takes the records made for it and becomes the current
+    // character. 0 when the player is simply adding a character.
+    property int identityId: 0
     property string region: "CN"
     property string nameText: ""
     property string goalText: "2000"
@@ -26,6 +30,8 @@ MotionDialog {
     // not close it.
     property bool waiting: false
     readonly property bool adding: dialog.profileId === 0
+    // This dialog's own request was answered; the profile it created or renamed.
+    signal saved(int profileId, string action)
     readonly property int maxNameLength: 24
 
     modal: true
@@ -36,8 +42,9 @@ MotionDialog {
 
     background: DialogFrame {}
 
-    function openToAdd(region) {
+    function openToAdd(region, identityId) {
         dialog.profileId = 0
+        dialog.identityId = Number(identityId) || 0
         dialog.region = region
         dialog.nameText = ""
         dialog.goalText = "2000"
@@ -47,6 +54,7 @@ MotionDialog {
     }
 
     function openToRename(profile) {
+        dialog.identityId = 0
         dialog.profileId = Number(profile.profile_id)
         dialog.region = String(profile.region)
         dialog.nameText = String(profile.display_name || "")
@@ -86,7 +94,7 @@ MotionDialog {
         dialog.errorText = ""
         dialog.waiting = true
         Runtime.app.createCharacterProfile(dialog.region, name, Math.floor(goal), Math.floor(baseline),
-                                           dialog.makeCurrent)
+                                           dialog.makeCurrent, dialog.identityId)
     }
 
     Connections {
@@ -97,6 +105,7 @@ MotionDialog {
                 return
             dialog.waiting = false
             dialog.close()
+            dialog.saved(profileId, action)
         }
         function onCharacterProfileFailed(action, code, message) {
             if (action !== "create" && action !== "rename")
@@ -115,7 +124,8 @@ MotionDialog {
 
         HeadingLabel {
             Layout.fillWidth: true
-            text: dialog.adding ? qsTr("添加角色") : qsTr("给角色改名")
+            text: !dialog.adding ? qsTr("给角色改名")
+                : dialog.identityId > 0 ? qsTr("登记新角色") : qsTr("添加角色")
             font.pixelSize: Theme.dialogTitleSize(20)
             wrapMode: Text.WordWrap
         }
@@ -198,9 +208,24 @@ MotionDialog {
             wrapMode: Text.WordWrap
         }
 
+        Text {
+            objectName: "characterIdentityHint"
+            Layout.fillWidth: true
+            visible: dialog.adding && dialog.identityId > 0
+            // Switching by itself is promised only where the Collector does it.
+            text: qsTr("添加后，这个角色之前没有归属的记录会记到它名下。")
+                  + (Runtime.app.characterIdentification(dialog.region) === "AUTOMATIC"
+                     ? qsTr("以后登录这个角色时，软件会自动切换过来。") : "")
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fs(12)
+            lineHeight: 1.35
+            wrapMode: Text.WordWrap
+        }
+
         RowLayout {
             Layout.fillWidth: true
-            visible: dialog.adding
+            // A character being registered becomes the current one anyway.
+            visible: dialog.adding && dialog.identityId === 0
             spacing: 12
 
             ColumnLayout {

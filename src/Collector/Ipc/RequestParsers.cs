@@ -274,14 +274,16 @@ public static class RequestParsers
     {
         ArgumentNullException.ThrowIfNull(reader);
 
-        reader.RejectUnknown("region", "display_name", "goal_count", "baseline_completed_count", "make_current");
+        reader.RejectUnknown(
+            "region", "display_name", "goal_count", "baseline_completed_count", "make_current", "identity_id");
         return new CreateCharacterProfileCommand(
             requestId,
             reader.RequiredEnum<Region>("region"),
             reader.RequiredString("display_name", 200),
             reader.Int("goal_count", 1) ?? AchievementSettings.DefaultGoalCount,
             reader.Int("baseline_completed_count", 0) ?? 0,
-            reader.Bool("make_current") ?? false);
+            reader.Bool("make_current") ?? false,
+            reader.Has("identity_id") ? RequiredIdentityId(reader) : null);
     }
 
     /// <summary>Reads a <c>$defs/UpdateCharacterProfileRequest</c>.</summary>
@@ -291,13 +293,14 @@ public static class RequestParsers
     {
         ArgumentNullException.ThrowIfNull(reader);
 
-        reader.RejectUnknown("profile_id", "display_name", "make_current");
+        reader.RejectUnknown("profile_id", "display_name", "make_current", "forget_identities");
         var command = new UpdateCharacterProfileCommand(
             requestId,
             RequiredProfileId(reader),
             reader.Has("display_name") ? reader.RequiredString("display_name", 200) : null,
-            reader.Bool("make_current") ?? false);
-        if (command.DisplayName is null && !command.MakeCurrent)
+            reader.Bool("make_current") ?? false,
+            reader.Bool("forget_identities") ?? false);
+        if (command.DisplayName is null && !command.MakeCurrent && !command.ForgetIdentities)
         {
             throw CollectorException.BadRequest(CollectorTexts.MutationNoChanges(), "payload");
         }
@@ -315,6 +318,36 @@ public static class RequestParsers
         reader.RejectUnknown("profile_id");
         return new DeleteCharacterProfileCommand(requestId, RequiredProfileId(reader));
     }
+
+    /// <summary>Reads a <c>$defs/ResolveCharacterIdentityRequest</c>.</summary>
+    /// <param name="requestId">Envelope request id, used as the idempotency key.</param>
+    /// <param name="reader">Request payload.</param>
+    public static ResolveCharacterIdentityCommand ResolveCharacterIdentity(string requestId, PayloadReader reader)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+
+        reader.RejectUnknown("identity_id", "action", "profile_id");
+        var action = reader.RequiredEnum<CharacterIdentityAction>("action");
+        // A profile says nothing for the other two answers; taking it silently would let a client
+        // believe it had bound something.
+        if (action != CharacterIdentityAction.Bind && reader.Has("profile_id"))
+        {
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldUnknown("profile_id"), "payload.profile_id");
+        }
+
+        return new ResolveCharacterIdentityCommand(
+            requestId,
+            RequiredIdentityId(reader),
+            action,
+            action == CharacterIdentityAction.Bind
+                ? reader.Long("profile_id", 1)
+                  ?? throw CollectorException.BadRequest(CollectorTexts.IdentityProfileRequired(), "payload.profile_id")
+                : null);
+    }
+
+    private static long RequiredIdentityId(PayloadReader reader) =>
+        reader.Long("identity_id", 1)
+        ?? throw CollectorException.BadRequest(CollectorTexts.IpcFieldMissing("identity_id"), "payload.identity_id");
 
     private static long RequiredProfileId(PayloadReader reader) =>
         reader.Long("profile_id", 1)
@@ -397,7 +430,8 @@ public static class RequestParsers
         reader.RejectUnknown(
             "follow_game", "autostart", "adapter_id", "log_retention_days",
             "allow_without_profile", "region_override", "candidate_validation_enabled", "research_payload_opcodes",
-            "auto_calibration_enabled", "shared_calibration_enabled", "update_check_enabled");
+            "auto_calibration_enabled", "shared_calibration_enabled", "update_check_enabled",
+            "character_identification_enabled");
 
         // adapter_id and region_override distinguish "not named" from "named as null": for
         // both, null is a request to clear the value, not a request to leave it alone.
@@ -408,6 +442,8 @@ public static class RequestParsers
             throw CollectorException.BadRequest(CollectorTexts.IpcFieldNotBoolean("candidate_validation_enabled"), "payload.candidate_validation_enabled");
         if (reader.Has("update_check_enabled") && reader.Bool("update_check_enabled") is null)
             throw CollectorException.BadRequest(CollectorTexts.IpcFieldNotBoolean("update_check_enabled"), "payload.update_check_enabled");
+        if (reader.Has("character_identification_enabled") && reader.Bool("character_identification_enabled") is null)
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldNotBoolean("character_identification_enabled"), "payload.character_identification_enabled");
         var regionSpecified = reader.Has("region_override");
         var regionText = reader.String("region_override", 16);
         if (regionSpecified && regionText is not (null or "CN" or "TC" or "GLOBAL"))
@@ -424,6 +460,7 @@ public static class RequestParsers
             AutoCalibrationEnabled = reader.Bool("auto_calibration_enabled"),
             SharedCalibrationEnabled = reader.Bool("shared_calibration_enabled"),
             UpdateCheckEnabled = reader.Bool("update_check_enabled"),
+            CharacterIdentificationEnabled = reader.Bool("character_identification_enabled"),
             FollowGame = reader.Bool("follow_game"),
             Autostart = reader.Bool("autostart"),
             AdapterId = reader.String("adapter_id", 400),

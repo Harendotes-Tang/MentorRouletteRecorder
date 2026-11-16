@@ -269,7 +269,8 @@ bool isReplayableMutation(const QString &messageType)
         QStringLiteral("SoftDeleteRun"),   QStringLiteral("RestoreRun"),
         QStringLiteral("UndoRevision"),    QStringLiteral("UpdateAchievementBaseline"),
         QStringLiteral("BatchMutateRuns"), QStringLiteral("CreateCharacterProfile"),
-        QStringLiteral("UpdateCharacterProfile"), QStringLiteral("DeleteCharacterProfile")};
+        QStringLiteral("UpdateCharacterProfile"), QStringLiteral("DeleteCharacterProfile"),
+        QStringLiteral("ResolveCharacterIdentity")};
     return types.contains(messageType);
 }
 
@@ -1328,6 +1329,9 @@ QJsonObject MockBackend::captureSettings() const
     // only, and this backend never reads anything from the network.
     if (!settings.contains(QStringLiteral("update_check_enabled")))
         settings.insert(QStringLiteral("update_check_enabled"), true);
+    // Default on, like the Collector: only CN tells characters apart (identificationOf).
+    if (!settings.contains(QStringLiteral("character_identification_enabled")))
+        settings.insert(QStringLiteral("character_identification_enabled"), true);
     if (!settings.contains(QStringLiteral("research_payload_opcodes")))
         settings.insert(QStringLiteral("research_payload_opcodes"), QJsonArray());
     return settings;
@@ -3361,6 +3365,7 @@ BackendReply *MockBackend::requestWithId(const QString &messageType, const QJson
             refuseWith(&errorCode, &errorMessage, QStringLiteral("ERR_IDEMPOTENCY_CONFLICT"),
                        messageType == QLatin1String("BatchMutateRuns") ? "history.batch.request_reused"
                        : isCharacterProfileMessage(messageType)        ? "profile.request_reused"
+                       : messageType == QLatin1String("ResolveCharacterIdentity") ? "identity.request_reused"
                                                                        : "idempotency.request_reused");
             const QJsonObject errorRef = m_errorRef;
             m_errorRef = {};
@@ -3685,6 +3690,8 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         result.insert(QStringLiteral("acknowledged_count"), acknowledged);
     } else if (isCharacterProfileMessage(messageType)) {
         result = applyCharacterProfile(messageType, payload, &errorCode, &errorMessage, &errorDetails);
+    } else if (messageType == QLatin1String("ResolveCharacterIdentity")) {
+        result = resolveCharacterIdentity(payload, &errorCode, &errorMessage);
     } else if (messageType == QLatin1String("BatchMutateRuns")
                && payload.value(QStringLiteral("action")).toString() == QLatin1String("assign_profile")) {
         result = assignRunsToProfile(payload, &errorCode, &errorMessage, &errorDetails);

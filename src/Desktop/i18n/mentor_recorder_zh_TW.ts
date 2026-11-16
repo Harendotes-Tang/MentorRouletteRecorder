@@ -2123,6 +2123,57 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>CharacterIdentityPrompt</name>
+    <message>
+        <source>发现了一个还没有登记的角色</source>
+        <translation>發現了一個還沒有登記的角色</translation>
+    </message>
+    <message>
+        <source>它已经有 %1 条记录，现在不计入任何角色的进度。</source>
+        <translation>它已經有 %1 筆記錄，現在不計入任何角色的進度。</translation>
+    </message>
+    <message>
+        <source>在你说明之前，它的记录不计入任何角色的进度。</source>
+        <translation>在你說明之前，它的記錄不計入任何角色的進度。</translation>
+    </message>
+    <message>
+        <source>说明它是哪个角色后，这些记录会自动归到那个角色名下。</source>
+        <translation>說明它是哪個角色後，這些記錄會自動歸到那個角色名下。</translation>
+    </message>
+    <message>
+        <source>另外还有 %1 个角色等待说明，回答完这一个再问下一个。</source>
+        <translation>另外還有 %1 個角色等待說明，回答完這一個再問下一個。</translation>
+    </message>
+    <message>
+        <source>这是一个新角色</source>
+        <translation>這是一個新角色</translation>
+    </message>
+    <message>
+        <source>已有的角色：「%1」</source>
+        <translation>已有的角色：「%1」</translation>
+    </message>
+    <message>
+        <source>它就是这个角色</source>
+        <translation>它就是這個角色</translation>
+    </message>
+    <message>
+        <source>它是已有的角色，请选择</source>
+        <translation>它是已有的角色，請選擇</translation>
+    </message>
+    <message>
+        <source>它是已有的哪个角色</source>
+        <translation>它是已有的哪個角色</translation>
+    </message>
+    <message>
+        <source>确定是这个角色</source>
+        <translation>確定是這個角色</translation>
+    </message>
+    <message>
+        <source>不统计这个角色</source>
+        <translation>不統計這個角色</translation>
+    </message>
+</context>
+<context>
     <name>CharacterNames</name>
     <message>
         <source>原有记录</source>
@@ -2148,6 +2199,10 @@ SHA256：%3</translation>
         <translation>為角色改名</translation>
     </message>
     <message>
+        <source>登记新角色</source>
+        <translation>登記新角色</translation>
+    </message>
+    <message>
         <source>每个角色有自己的目标、起始次数和进度。名称由你自己起，方便区分即可，软件不会读取游戏里的角色名。</source>
         <translation>每個角色有自己的目標、起始次數和進度。名稱由你自己取，方便區分即可，軟體不會讀取遊戲裡的角色名。</translation>
     </message>
@@ -2162,6 +2217,14 @@ SHA256：%3</translation>
     <message>
         <source>起始次数：这个角色在游戏成就里已经完成的导随次数，之后记录的通关会加在它上面。</source>
         <translation>起始次數：這個角色在遊戲成就裡已經完成的導隨次數，之後記錄的通關會加在它上面。</translation>
+    </message>
+    <message>
+        <source>添加后，这个角色之前没有归属的记录会记到它名下。</source>
+        <translation>新增後，這個角色之前沒有歸屬的記錄會記到它名下。</translation>
+    </message>
+    <message>
+        <source>以后登录这个角色时，软件会自动切换过来。</source>
+        <translation>以後登入這個角色時，軟體會自動切換過來。</translation>
     </message>
     <message>
         <source>现在就切换到这个角色</source>
@@ -3225,6 +3288,21 @@ SHA256：%3</translation>
         <source>该操作此前已执行，但原结果已超出保留期。请先刷新并核对历史记录，确认是否还需要重新操作。</source>
         <comment>idempotency.response_expired</comment>
         <translation>此操作先前已執行，但原結果已超過保留期限。請先重新整理並核對歷史記錄，確認是否還需要再次操作。</translation>
+    </message>
+    <message>
+        <source>这个角色没有被设为不统计。</source>
+        <comment>identity.not_ignored</comment>
+        <translation>這個角色沒有被設為不統計。</translation>
+    </message>
+    <message>
+        <source>请选择它是哪个角色。</source>
+        <comment>identity.profile_required</comment>
+        <translation>請選擇它是哪個角色。</translation>
+    </message>
+    <message>
+        <source>此请求编号已用于不同的角色登记操作。</source>
+        <comment>identity.request_reused</comment>
+        <translation>此請求編號已用於不同的角色登記操作。</translation>
     </message>
     <message>
         <source>备份中的记录来源信息不完整，请重新创建备份后重试。</source>
@@ -4563,6 +4641,16 @@ SHA256：%3</translation>
         <source>无法识别这份校准码。请完整复制以 MRC1. 开头的校准码。</source>
         <comment>sharing.code.not_a_code</comment>
         <translation>無法辨識這份校準碼。請完整複製以 MRC1. 開頭的校準碼。</translation>
+    </message>
+    <message>
+        <source>这个角色已经登记过了，不需要再回答。</source>
+        <comment>identity.already_bound</comment>
+        <translation>這個角色已經登記過了，不需要再回答。</translation>
+    </message>
+    <message>
+        <source>这个角色的登记信息已经不在了，下次登录这个角色时会重新询问。</source>
+        <comment>identity.not_found</comment>
+        <translation>這個角色的登記資訊已經不在了，下次登入這個角色時會重新詢問。</translation>
     </message>
     <message>
         <source>请粘贴完整的校准码。</source>
@@ -9811,6 +9899,18 @@ SHA256：%3</translation>
         <translation>目前角色</translation>
     </message>
     <message>
+        <source>登录游戏后会自动切换到对应的角色。</source>
+        <translation>登入遊戲後會自動切換到對應的角色。</translation>
+    </message>
+    <message>
+        <source>自动识别角色已关闭，换角色上线前请在这里选一下。</source>
+        <translation>自動識別角色已關閉，換角色上線前請在這裡選一下。</translation>
+    </message>
+    <message>
+        <source>这个区服暂时不能自动识别角色，换角色上线前请在这里选一下。</source>
+        <translation>這個區服暫時不能自動識別角色，換角色上線前請在這裡選一下。</translation>
+    </message>
+    <message>
         <source>还差 %1 次</source>
         <translation>還差 %1 次</translation>
     </message>
@@ -10847,6 +10947,14 @@ SHA256：%3</translation>
         <translation>遊戲更新後，軟體可能需要重新辨識排本和進出副本。開啟後照常完成隨機任務，依提示核對即可。校準完成前暫時無法自動記錄。關閉後，遊戲更新時可能需要等待軟體更新才能恢復自動記錄。</translation>
     </message>
     <message>
+        <source>自动识别登录的角色</source>
+        <translation>自動識別登入的角色</translation>
+    </message>
+    <message>
+        <source>默认开启，目前只对国服有效。有多个角色时，登录游戏后软件会认出是哪个角色并自动切换；第一次见到的角色会在总览询问一次。软件不读取角色名，只在本机保存一个无法还原成角色信息的标记。关闭后改为在总览手动切换角色。</source>
+        <translation>預設開啟，目前只對國服有效。有多個角色時，登入遊戲後軟體會認出是哪個角色並自動切換；第一次見到的角色會在總覽詢問一次。軟體不讀取角色名，只在本機儲存一個無法還原成角色資訊的標記。關閉後改為在總覽手動切換角色。</translation>
+    </message>
+    <message>
         <source>游戏更新后获取其他玩家的共享校准</source>
         <translation>遊戲更新後取得其他玩家的共享校準</translation>
     </message>
@@ -11048,6 +11156,30 @@ SHA256：%3</translation>
     <message>
         <source>删除</source>
         <translation>刪除</translation>
+    </message>
+    <message>
+        <source>已识别的游戏角色</source>
+        <translation>已識別的遊戲角色</translation>
+    </message>
+    <message>
+        <source>软件已经认出 %1 个游戏角色是「%2」。认错了可以解除，下次登录时会在总览重新询问；已有的记录不变。</source>
+        <translation>軟體已經認出 %1 個遊戲角色是「%2」。認錯了可以解除，下次登入時會在總覽重新詢問；已有的記錄不變。</translation>
+    </message>
+    <message>
+        <source>解除</source>
+        <translation>解除</translation>
+    </message>
+    <message>
+        <source>不统计的角色</source>
+        <translation>不統計的角色</translation>
+    </message>
+    <message>
+        <source>有 %1 个角色被设为不统计，它们的记录不计入任何角色的进度。</source>
+        <translation>有 %1 個角色被設為不統計，它們的記錄不計入任何角色的進度。</translation>
+    </message>
+    <message>
+        <source>重新询问</source>
+        <translation>重新詢問</translation>
     </message>
     <message>
         <source>修改原因</source>

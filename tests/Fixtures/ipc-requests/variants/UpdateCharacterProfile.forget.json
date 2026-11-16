@@ -1,0 +1,9 @@
+{
+    "message_type": "UpdateCharacterProfile",
+    "payload": {
+        "forget_identities": true,
+        "profile_id": 2
+    },
+    "protocol_version": 1,
+    "request_id": "11111111-2222-4333-8444-555555555555"
+}
