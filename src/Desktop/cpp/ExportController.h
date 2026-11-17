@@ -94,6 +94,9 @@ Q_SIGNALS:
     void integrityCheckChanged();
 
 private:
+    enum class ExportFormat { Csv, Json };
+    void exportRuns(ExportFormat format);
+
     /// The path to write, and in \a confirmedReplace whether the user already agreed to replace a
     /// file there: the save dialog asks about an existing one; the --export-target folder never did.
     QString chooseExportPath(const QString &suggestedName, const QString &filter, bool *confirmedReplace);

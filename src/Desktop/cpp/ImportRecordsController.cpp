@@ -48,6 +48,20 @@ namespace mr {
 
 namespace {
 
+bool selectedRowContributesToGoal(const QVariantMap &row)
+{
+    const QVariantMap run = row.value(QStringLiteral("run")).toMap();
+    const QVariant roulette = run.value(QStringLiteral("mentor_roulette_id"));
+    return row.value(QStringLiteral("selected")).toBool()
+        && run.value(QStringLiteral("result")).toString() == QLatin1String("COMPLETED")
+        && (!run.contains(QStringLiteral("contributes_to_goal"))
+            || run.value(QStringLiteral("contributes_to_goal")).toBool())
+        && !run.value(QStringLiteral("soft_deleted")).toBool()
+        && !run.value(QStringLiteral("pending_review")).toBool()
+        && (run.value(QStringLiteral("import_metadata")).toMap().value(QStringLiteral("mentor_confirmed")).toBool()
+            || (roulette.isValid() && !roulette.isNull()));
+}
+
 bool boundedInteger(const QVariant &value, int minimum, int maximum, int &result)
 {
     const QJsonValue json = QJsonValue::fromVariant(value);
@@ -1389,26 +1403,9 @@ int ImportRecordsController::contributingSelectedCount() const
 {
     // Mirrors docs/statistics-definitions.md §4 on the preview the Collector rendered: the
     // Collector decides at commit; this count only sizes the question and the preview.
-    int count = 0;
-    for (const QVariant &value : m_rows) {
-        const QVariantMap row = value.toMap();
-        if (!row.value(QStringLiteral("selected")).toBool())
-            continue;
-        const QVariantMap run = row.value(QStringLiteral("run")).toMap();
-        if (run.isEmpty() || run.value(QStringLiteral("result")).toString() != QLatin1String("COMPLETED"))
-            continue;
-        if (run.contains(QStringLiteral("contributes_to_goal")) && !run.value(QStringLiteral("contributes_to_goal")).toBool())
-            continue;
-        if (run.value(QStringLiteral("soft_deleted")).toBool() || run.value(QStringLiteral("pending_review")).toBool())
-            continue;
-        const QVariantMap metadata = run.value(QStringLiteral("import_metadata")).toMap();
-        const QVariant roulette = run.value(QStringLiteral("mentor_roulette_id"));
-        const bool confirmed = metadata.value(QStringLiteral("mentor_confirmed")).toBool()
-            || (roulette.isValid() && !roulette.isNull());
-        if (confirmed)
-            ++count;
-    }
-    return count;
+    return static_cast<int>(std::ranges::count_if(m_rows, [](const QVariant &value) {
+        return selectedRowContributesToGoal(value.toMap());
+    }));
 }
 
 void ImportRecordsController::setAchievements(const QVariantList &values)
@@ -1424,16 +1421,9 @@ QVariantList ImportRecordsController::baselinePreviews() const
     QMap<QString, int> counts;
     for (const QVariant &value : m_rows) {
         const QVariantMap row = value.toMap();
+        if (!selectedRowContributesToGoal(row))
+            continue;
         const QVariantMap run = row.value(QStringLiteral("run")).toMap();
-        if (!row.value(QStringLiteral("selected")).toBool()
-            || run.value(QStringLiteral("result")).toString() != QLatin1String("COMPLETED")
-            || (run.contains(QStringLiteral("contributes_to_goal")) && !run.value(QStringLiteral("contributes_to_goal")).toBool())
-            || run.value(QStringLiteral("soft_deleted")).toBool() || run.value(QStringLiteral("pending_review")).toBool())
-            continue;
-        const QVariant roulette = run.value(QStringLiteral("mentor_roulette_id"));
-        if (!run.value(QStringLiteral("import_metadata")).toMap().value(QStringLiteral("mentor_confirmed")).toBool()
-            && (!roulette.isValid() || roulette.isNull()))
-            continue;
         const QString region = run.value(QStringLiteral("region"), QStringLiteral("UNKNOWN")).toString();
         ++counts[region.isEmpty() ? QStringLiteral("UNKNOWN") : region];
     }

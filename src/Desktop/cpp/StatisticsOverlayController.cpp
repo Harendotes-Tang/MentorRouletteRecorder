@@ -102,16 +102,7 @@ QScreen *screenFor(const QRect &geometry)
 }
 QRect fitToAvailableScreen(const QRect &geometry)
 {
-    QScreen *chosen = QGuiApplication::primaryScreen();
-    qint64 bestArea = 0;
-    for (QScreen *screen : QGuiApplication::screens()) {
-        const QRect overlap = screen->availableGeometry().intersected(geometry);
-        const qint64 area = overlap.isValid() ? static_cast<qint64>(overlap.width()) * overlap.height() : 0;
-        if (area > bestArea) {
-            bestArea = area;
-            chosen = screen;
-        }
-    }
+    QScreen *chosen = screenFor(geometry);
     return chosen ? mr::StatisticsOverlayController::fitGeometry(geometry, chosen->availableGeometry())
                   : mr::StatisticsOverlayController::validGeometry(geometry);
 }

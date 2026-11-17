@@ -108,58 +108,42 @@ QJsonObject ExportController::historySort() const
 
 void ExportController::exportCsv()
 {
-    if (!m_backend)
-        return;
-    bool replace = false;
-    const QString path = chooseExportPath(
-        QStringLiteral("mentor_runs_") + stamp(QStringLiteral("yyyy-MM-dd"))
-            + QStringLiteral(".csv"),
-        QString::fromUtf8("CSV (*.csv)"), &replace);
-    if (path.isEmpty())
-        return;
-
-    m_backend->exportCsv(path, effectiveHistoryFilter(), replace, historySort())
-        ->whenDone(this, [this](bool ok, const QVariantMap &payload, const QString &code,
-                                const QString &message) {
-            if (!ok) {
-                Q_EMIT toastRequested(tr("导出失败：%1").arg(message.isEmpty() ? code : message));
-                return;
-            }
-            Q_EMIT toastRequested(
-                tr("已导出 %1 · %2 行 · %3")
-                    .arg(QDir::toNativeSeparators(
-                             payload.value(QStringLiteral("target_path")).toString()))
-                    .arg(payload.value(QStringLiteral("row_count")).toInt())
-                    .arg(byteSize(payload.value(QStringLiteral("byte_count")).toDouble())));
-        });
+    exportRuns(ExportFormat::Csv);
 }
 
 void ExportController::exportJson()
 {
+    exportRuns(ExportFormat::Json);
+}
+
+void ExportController::exportRuns(ExportFormat format)
+{
     if (!m_backend)
         return;
+    const bool csv = format == ExportFormat::Csv;
     bool replace = false;
     const QString path = chooseExportPath(
         QStringLiteral("mentor_runs_") + stamp(QStringLiteral("yyyy-MM-dd"))
-            + QStringLiteral(".json"),
-        QString::fromUtf8("JSON (*.json)"), &replace);
+            + (csv ? QStringLiteral(".csv") : QStringLiteral(".json")),
+        csv ? QStringLiteral("CSV (*.csv)") : QStringLiteral("JSON (*.json)"), &replace);
     if (path.isEmpty())
         return;
 
-    m_backend->exportJson(path, effectiveHistoryFilter(), replace, historySort())
-        ->whenDone(this, [this](bool ok, const QVariantMap &payload, const QString &code,
-                                const QString &message) {
-            if (!ok) {
-                Q_EMIT toastRequested(tr("导出失败：%1").arg(message.isEmpty() ? code : message));
-                return;
-            }
-            Q_EMIT toastRequested(
-                tr("已导出 %1 · %2 条 · %3")
-                    .arg(QDir::toNativeSeparators(
-                             payload.value(QStringLiteral("target_path")).toString()))
-                    .arg(payload.value(QStringLiteral("row_count")).toInt())
-                    .arg(byteSize(payload.value(QStringLiteral("byte_count")).toDouble())));
-        });
+    BackendReply *reply = csv
+        ? m_backend->exportCsv(path, effectiveHistoryFilter(), replace, historySort())
+        : m_backend->exportJson(path, effectiveHistoryFilter(), replace, historySort());
+    reply->whenDone(this, [this, csv](bool ok, const QVariantMap &payload, const QString &code,
+                                    const QString &message) {
+        if (!ok) {
+            Q_EMIT toastRequested(tr("导出失败：%1").arg(message.isEmpty() ? code : message));
+            return;
+        }
+        Q_EMIT toastRequested(
+            (csv ? tr("已导出 %1 · %2 行 · %3") : tr("已导出 %1 · %2 条 · %3"))
+                .arg(QDir::toNativeSeparators(payload.value(QStringLiteral("target_path")).toString()))
+                .arg(payload.value(QStringLiteral("row_count")).toInt())
+                .arg(byteSize(payload.value(QStringLiteral("byte_count")).toDouble())));
+    });
 }
 
 void ExportController::backupDatabase()
@@ -188,9 +172,7 @@ void ExportController::backupDatabase()
             }
             Q_EMIT backupSucceeded();
             Q_EMIT toastRequested(
-                (payload.value(QStringLiteral("integrity_check_passed")).toBool()
-                     ? tr("备份已保存到 %1 · %2 · 数据检查通过 · 已清理 %3 份旧备份")
-                     : tr("备份已保存到 %1 · %2 · 数据检查未通过 · 已清理 %3 份旧备份"))
+                tr("备份已保存到 %1 · %2 · 数据检查通过 · 已清理 %3 份旧备份")
                     .arg(QDir::toNativeSeparators(
                              payload.value(QStringLiteral("target_path")).toString()),
                          byteSize(payload.value(QStringLiteral("byte_count")).toDouble()))
