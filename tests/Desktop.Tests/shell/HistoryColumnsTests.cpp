@@ -414,6 +414,28 @@ private Q_SLOTS:
         QCOMPARE(order.indexOf(character), order.indexOf(QStringLiteral("source")) + 1);
     }
 
+    void withholdingTheOnlyVisibleColumnKeepsADateColumn()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        mr::AppSettings settings(directory.filePath(QStringLiteral("columns.ini")), nullptr);
+        mr::HistoryColumnsController columns(&settings);
+        columns.setCharacterOffered(true);
+        for (const QString &key : defaults())
+            columns.setVisible(key, false);
+        QCOMPARE(columns.visible(), QStringList{QStringLiteral("character")});
+        QSignalSpy changed(&columns, &mr::HistoryColumnsController::layoutChanged);
+        columns.setCharacterOffered(false);
+        QCOMPARE(changed.size(), 1);
+        QCOMPARE(columns.visible(), QStringList{QStringLiteral("date")});
+        QVERIFY(!columns.canHide(QStringLiteral("date")));
+        QVERIFY(!settings.historyHiddenColumns().contains(QStringLiteral("date")));
+        mr::HistoryColumnsController restored(&settings);
+        QCOMPARE(restored.visible(), columns.visible());
+        columns.setCharacterOffered(true);
+        QCOMPARE(columns.visible(), (QStringList{QStringLiteral("date"), QStringLiteral("character")}));
+    }
+
     void toleratesACorruptFile()
     {
         QTemporaryDir directory;

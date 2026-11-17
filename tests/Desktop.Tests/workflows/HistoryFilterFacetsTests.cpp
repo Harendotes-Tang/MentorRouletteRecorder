@@ -136,6 +136,52 @@ private Q_SLOTS:
         QVERIFY(!facets.regionCounts().contains("UNKNOWN"));
     }
 
+    void regionQueriesFollowThePickedCharacterScope_data()
+    {
+        QTest::addColumn<QString>("region");
+        QTest::addColumn<QJsonObject>("owner");
+        QTest::addColumn<QList<int>>("expectedProfileIds");
+        QTest::newRow("named character in CN") << QStringLiteral("CN")
+            << QJsonObject{{"profile_id", 42}} << QList<int>{0, 42, 0, 0};
+        QTest::newRow("named character across all regions") << QString()
+            << QJsonObject{{"profile_id", 42}} << QList<int>{42, 0, 0, 0};
+        QTest::newRow("all characters") << QStringLiteral("TC")
+            << QJsonObject{} << QList<int>{0, 0, 0, 0};
+        QTest::newRow("unassigned records") << QStringLiteral("CN")
+            << QJsonObject{{"profile_unassigned", true}} << QList<int>{0, 0, 0, 0};
+    }
+
+    void regionQueriesFollowThePickedCharacterScope()
+    {
+        QFETCH(QString, region);
+        QFETCH(QJsonObject, owner);
+        QFETCH(QList<int>, expectedProfileIds);
+        FacetBackend backend;
+        mr::HistoryFilterFacets facets(&backend);
+        QJsonObject filter = owner;
+        filter.insert("region", region);
+        filter.insert("text", "Scholar");
+        filter.insert("from_utc", "2026-01-01T00:00:00Z");
+        facets.setFilter(filter);
+        facets.setActive(true);
+        QTRY_COMPARE(backend.calls.size(), 9);
+        for (int i = 0; i < 5; ++i) {
+            const QJsonObject queried = backend.calls.at(i).payload.value("filter").toObject();
+            QCOMPARE(queried.value("profile_id"), owner.value("profile_id"));
+            QCOMPARE(queried.value("profile_unassigned"), owner.value("profile_unassigned"));
+        }
+        const QStringList regions{QString(), QStringLiteral("CN"), QStringLiteral("TC"), QStringLiteral("GLOBAL")};
+        for (int i = 0; i < regions.size(); ++i) {
+            const QJsonObject queried = backend.calls.at(5 + i).payload.value("filter").toObject();
+            QCOMPARE(queried.value("region").toString(), regions.at(i));
+            QCOMPARE(queried.value("profile_id").toInt(), expectedProfileIds.at(i));
+            if (expectedProfileIds.at(i) == 0) QVERIFY(!queried.contains("profile_id"));
+            QCOMPARE(queried.value("profile_unassigned"), owner.value("profile_unassigned"));
+            QCOMPARE(queried.value("text"), filter.value("text"));
+            QCOMPARE(queried.value("from_utc"), filter.value("from_utc"));
+        }
+    }
+
     void lateRepliesAndHiddenRequestsCannotReplaceCurrentCounts()
     {
         FacetBackend backend;

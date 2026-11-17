@@ -96,7 +96,12 @@ void HistoryColumnsController::setCharacterOffered(bool offered)
     if (m_characterOffered == offered)
         return;
     m_characterOffered = offered;
-    Q_EMIT layoutChanged();
+    if (visible().isEmpty()) {
+        m_hidden.removeOne(QStringLiteral("date"));
+        store();
+    } else {
+        Q_EMIT layoutChanged();
+    }
 }
 
 QStringList HistoryColumnsController::order() const

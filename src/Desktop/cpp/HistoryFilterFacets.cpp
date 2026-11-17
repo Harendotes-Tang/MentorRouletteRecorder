@@ -101,7 +101,12 @@ void HistoryFilterFacets::queryBatch()
     for (const auto *name : {"all", "CN", "TC", "GLOBAL"}) {
         const QString key = QString::fromLatin1(name);
         QJsonObject filter = regionFilter;
-        if (key != QLatin1String("all")) filter.insert(QStringLiteral("region"), key);
+        const QString region = key == QLatin1String("all") ? QString() : key;
+        if (!region.isEmpty()) filter.insert(QStringLiteral("region"), region);
+        // Picking another region clears a named character on the history page.
+        if (region != m_filter.value(QStringLiteral("region")).toString()
+            && filter.value(QStringLiteral("profile_id")).toInt() > 0)
+            filter.remove(QStringLiteral("profile_id"));
         queries.append({.key = key, .date = false, .filter = filter});
     }
     m_remaining = static_cast<int>(queries.size());
