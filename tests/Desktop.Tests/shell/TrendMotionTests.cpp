@@ -269,20 +269,37 @@ void TrendMotionTests::trendHoverMatchesRenderedBars()
     QVERIFY(chart);
     auto *hover = chart->findChild<QQuickItem *>(QStringLiteral("trendHoverArea"));
     QVERIFY(hover);
+    auto *tip = chart->findChild<QObject *>(QStringLiteral("trendHoverTip"));
+    QVERIFY(tip);
+    QVERIFY(tip->setProperty("delay", 0));
+    auto *tipContent = tip->property("contentItem").value<QQuickItem *>();
+    QVERIFY(tipContent);
+    scene.window()->setY(100);
     for (const int width : {720, 1100}) {
         scene.window()->setWidth(width);
         for (const int count : {7, 30}) {
-            QVERIFY(chart->setProperty("buckets", buckets(QStringLiteral("day"), QList<int>(count, 5))));
+            QList<int> counts(count, 1);
+            counts[count / 2] = 4;
+            QVERIFY(chart->setProperty("buckets", buckets(QStringLiteral("day"), counts)));
             QTRY_COMPARE(graphsBars(chart).size(), count);
-            QTest::qWait(100);
+            QTRY_VERIFY(!chart->property("transitionRunning").toBool());
             const auto drawn = graphsBars(chart);
             for (int i = 0; i < count; ++i) {
                 QTest::mouseMove(scene.window(), drawn.at(i).center().toPoint());
                 QTRY_COMPARE(hover->property("index").toInt(), i);
+                if (i == count / 2 - 1 || i == count / 2) {
+                    QTRY_VERIFY(tip->property("opened").toBool());
+                    const QPointF expected = scene.window()->mapToGlobal(QPointF(drawn.at(i).center().x(), drawn.at(i).top()));
+                    const QPointF tipBottom = tipContent->mapToGlobal(QPointF(tipContent->width() / 2, tipContent->height()));
+                    QVERIFY2(qAbs(tipBottom.x() - expected.x()) <= 2 && qAbs(expected.y() - tipBottom.y() - 6) <= 2,
+                             qPrintable(QStringLiteral("bucket %1: tooltip bottom (%2, %3), bar top (%4, %5)")
+                                 .arg(i).arg(tipBottom.x()).arg(tipBottom.y()).arg(expected.x()).arg(expected.y())));
+                }
             }
             // The chart's outer margin is not a data bucket.
             QTest::mouseMove(scene.window(), chart->mapToScene(QPointF(1, 1)).toPoint());
             QTRY_COMPARE(hover->property("index").toInt(), -1);
+            QTRY_VERIFY(!tip->property("visible").toBool());
         }
     }
 }

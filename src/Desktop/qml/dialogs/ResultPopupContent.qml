@@ -342,19 +342,20 @@ ColumnLayout {
                              && popup.dialog.progressTo === popup.dialog.progressFrom + 1
                     spacing: 3
                     Text {
+                        id: progressBefore
+                        Layout.alignment: Qt.AlignBaseline
                         text: String(popup.dialog.progressFrom) + " →"
                         color: Theme.textSecondary
-                        font.pixelSize: Theme.fs(12)
+                        font.pixelSize: Theme.fs(14)
                         font.family: Theme.figureFamily
+                        font.weight: Font.DemiBold
                         font.features: ({ "tnum": 1 })
                     }
                     Text {
+                        Layout.alignment: Qt.AlignBaseline
                         text: String(popup.dialog.progressTo)
                         color: ov.accent
-                        font.family: Theme.numFamily
-                        font.pixelSize: Theme.fs(15)
-                        font.weight: Theme.eorzea ? Font.Bold : Font.DemiBold
-                        font.features: ({ "tnum": 1 })
+                        font: progressBefore.font
                     }
                 }
             }
@@ -452,27 +453,6 @@ ColumnLayout {
             }
         }
 
-        RowLayout {
-            Layout.fillWidth: true
-            visible: !!popup.dialog.imageStore && popup.promptEnabled
-            spacing: 8
-            AppButton {
-                objectName: "pasteReflectionImageButtonCompact"
-                text: qsTranslate("ReflectionDialog", "粘贴图片")
-                iconName: "clipboard-paste"
-                compact: true
-                enabled: !popup.dialog.busy && !popup.dialog.unavailable && popup.dialog.pendingSwitchId.length === 0
-                onClicked: popup.dialog.pasteNoteImage()
-            }
-            Text {
-                Layout.fillWidth: true
-                text: qsTranslate("ReflectionDialog", "Ctrl+V · 图片立即保存到本条记录")
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fs(11)
-                wrapMode: Text.WordWrap
-            }
-        }
-
         ScrollView {
             id: imageViewport
             objectName: "reflectionImageViewportCompact"
@@ -514,16 +494,32 @@ ColumnLayout {
             wrapMode: Text.WordWrap
         }
 
-        // `.pp-foot`: 完成 once the result is on screen.
+        // `.pp-foot`: paste is also available while the result is still pending.
         RowLayout {
             Layout.fillWidth: true
-            visible: !popup.asking
+            visible: !popup.asking || (!!popup.dialog.imageStore && popup.promptEnabled)
+            AppButton {
+                id: pasteButton
+                objectName: "pasteReflectionImageButtonCompact"
+                visible: !!popup.dialog.imageStore && popup.promptEnabled
+                text: qsTranslate("ReflectionDialog", "粘贴图片")
+                iconName: "clipboard-paste"
+                compact: true
+                enabled: !popup.dialog.busy && !popup.dialog.unavailable && popup.dialog.pendingSwitchId.length === 0
+                readonly property string pasteHint: qsTranslate("ReflectionDialog", "Ctrl+V · 图片立即保存到本条记录")
+                Accessible.description: pasteHint
+                onClicked: popup.dialog.pasteNoteImage()
+                OverlayToolTip {
+                    visible: pasteButton.hovered || pasteButton.visualFocus
+                    text: pasteButton.pasteHint
+                }
+            }
             // A run kept for review with its result already recorded (crash
             // recovery, a withdrawn calibration) is settled in the history page;
             // without this the item could never leave 待处理 (review K1-2).
             AppButton {
                 objectName: "reviewRecoveredRecordButtonCompact"
-                visible: popup.run.pending_review === true && popup.result.length > 0
+                visible: !popup.asking && popup.run.pending_review === true && popup.result.length > 0
                          && popup.result !== "UNKNOWN" && !popup.dialog.unavailable
                 variant: "ghost"
                 compact: true
@@ -534,7 +530,8 @@ ColumnLayout {
             Item { Layout.fillWidth: true }
             AppButton {
                 objectName: "saveReflectionButton"
-                Layout.alignment: Qt.AlignRight
+                Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                visible: !popup.asking
                 variant: "primary"
                 compact: !Theme.eorzea
                 enabled: !popup.dialog.busy && !popup.dialog.conflictUnresolved && !popup.dialog.unavailable

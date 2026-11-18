@@ -338,6 +338,15 @@ private Q_SLOTS:
             fixture.root->setProperty("visible", false);
         fixture.window()->requestActivate();
         QVERIFY(QTest::qWaitForWindowActive(fixture.window()));
+        if (standalone && !askingResult) {
+            auto *paste = fixture.dialog()->findChild<QQuickItem *>(QStringLiteral("pasteReflectionImageButtonCompact"));
+            auto *finish = fixture.dialog()->findChild<QQuickItem *>(QStringLiteral("saveReflectionButton"));
+            QVERIFY(paste && finish);
+            const auto pasteRect = paste->mapRectToScene(paste->boundingRect());
+            const auto finishRect = finish->mapRectToScene(finish->boundingRect());
+            QVERIFY(qAbs(pasteRect.center().y() - finishRect.center().y()) <= 1);
+            QVERIFY(pasteRect.right() < finishRect.left());
+        }
         fixture.type(QStringLiteral("先保留正在写的心得。"));
         QImage image(36, 28, QImage::Format_ARGB32);
         image.fill(QColor(0, 80, 160, 192));

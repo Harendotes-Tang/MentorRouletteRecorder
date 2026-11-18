@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtGraphs
 import MentorRecorder 1.0
 
@@ -148,18 +147,33 @@ Item {
         hoverEnabled: true
         acceptedButtons: Qt.NoButton
 
-        readonly property int index: (root.buckets.length > 0 && width > 0 && height > 0
+        readonly property real slotWidth: root.buckets.length > 0 ? width / root.buckets.length : 0
+        readonly property int index: (slotWidth > 0 && height > 0
                                       && containsMouse && mouseX >= 0 && mouseX < width
                                       && mouseY >= 0 && mouseY < height && !motion.running)
                                      ? Math.min(root.buckets.length - 1,
-                                                Math.max(0, Math.floor(mouseX / (width / root.buckets.length))))
+                                                Math.floor(mouseX / slotWidth))
                                      : -1
 
-        ToolTip.visible: hoverArea.index >= 0
-        ToolTip.text: hoverArea.index >= 0
-                      ? qsTr("%1 · %2 次").arg(root.buckets[hoverArea.index].label || "")
-                                          .arg(root.buckets[hoverArea.index].count || 0)
-                      : ""
+        Item {
+            id: hoverAnchor
+            readonly property real count: hoverArea.index >= 0 ? root.values[hoverArea.index] : 0
+            x: (hoverArea.index + 0.5) * hoverArea.slotWidth
+            y: hoverArea.height * (1 - count / root.axisMax)
+
+            onXChanged: if (hoverTip.visible) hoverTip.place()
+            onYChanged: if (hoverTip.visible) hoverTip.place()
+        }
+
+        OverlayToolTip {
+            id: hoverTip
+            objectName: "trendHoverTip"
+            clearOf: hoverAnchor
+            visible: hoverArea.index >= 0
+            text: hoverArea.index >= 0
+                  ? qsTr("%1 · %2 次").arg(root.categories[hoverArea.index]).arg(hoverAnchor.count) : ""
+            onImplicitWidthChanged: if (visible) place()
+        }
     }
 
     Text {

@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Controls
 import MentorRecorder 1.0
 
 Item {
@@ -74,8 +73,11 @@ Item {
                 }
 
                 HoverHandler { id: hover }
-                ToolTip.visible: hover.hovered
-                ToolTip.text: qsTr("%1 · %2 次").arg(modelData.label || "").arg(modelData.count || 0)
+                OverlayToolTip {
+                    clearOf: bar
+                    visible: hover.hovered
+                    text: qsTr("%1 · %2 次").arg(bucket.modelData.label || "").arg(bucket.modelData.count || 0)
+                }
             }
         }
     }
