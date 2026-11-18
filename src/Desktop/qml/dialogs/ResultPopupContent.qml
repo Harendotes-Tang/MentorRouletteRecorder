@@ -494,6 +494,19 @@ ColumnLayout {
             wrapMode: Text.WordWrap
         }
 
+        // A run kept for review with its result already recorded is settled in
+        // the history page; keep the review action available for those runs.
+        AppButton {
+            objectName: "reviewRecoveredRecordButtonCompact"
+            visible: !popup.asking && popup.run.pending_review === true && popup.result.length > 0
+                     && popup.result !== "UNKNOWN" && !popup.dialog.unavailable
+            variant: "ghost"
+            compact: true
+            text: qsTr("在历史记录中复核")
+            enabled: !popup.dialog.busy
+            onClicked: popup.dialog.requestReview()
+        }
+
         // `.pp-foot`: paste is also available while the result is still pending.
         RowLayout {
             Layout.fillWidth: true
@@ -514,18 +527,13 @@ ColumnLayout {
                     text: pasteButton.pasteHint
                 }
             }
-            // A run kept for review with its result already recorded (crash
-            // recovery, a withdrawn calibration) is settled in the history page;
-            // without this the item could never leave 待处理 (review K1-2).
-            AppButton {
-                objectName: "reviewRecoveredRecordButtonCompact"
-                visible: !popup.asking && popup.run.pending_review === true && popup.result.length > 0
-                         && popup.result !== "UNKNOWN" && !popup.dialog.unavailable
-                variant: "ghost"
-                compact: true
-                text: qsTr("在历史记录中复核")
-                enabled: !popup.dialog.busy
-                onClicked: popup.dialog.requestReview()
+            Text {
+                objectName: "pasteReflectionShortcutCompact"
+                Layout.alignment: Qt.AlignVCenter
+                visible: pasteButton.visible
+                text: "Ctrl+V"
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fs(11)
             }
             Item { Layout.fillWidth: true }
             AppButton {

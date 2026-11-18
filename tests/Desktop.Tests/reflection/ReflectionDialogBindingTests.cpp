@@ -340,12 +340,16 @@ private Q_SLOTS:
         QVERIFY(QTest::qWaitForWindowActive(fixture.window()));
         if (standalone && !askingResult) {
             auto *paste = fixture.dialog()->findChild<QQuickItem *>(QStringLiteral("pasteReflectionImageButtonCompact"));
+            auto *shortcut = fixture.dialog()->findChild<QQuickItem *>(QStringLiteral("pasteReflectionShortcutCompact"));
             auto *finish = fixture.dialog()->findChild<QQuickItem *>(QStringLiteral("saveReflectionButton"));
-            QVERIFY(paste && finish);
+            QVERIFY(paste && shortcut && shortcut->isVisible() && finish);
+            QCOMPARE(shortcut->property("text").toString(), QStringLiteral("Ctrl+V"));
             const auto pasteRect = paste->mapRectToScene(paste->boundingRect());
+            const auto shortcutRect = shortcut->mapRectToScene(shortcut->boundingRect());
             const auto finishRect = finish->mapRectToScene(finish->boundingRect());
             QVERIFY(qAbs(pasteRect.center().y() - finishRect.center().y()) <= 1);
-            QVERIFY(pasteRect.right() < finishRect.left());
+            QVERIFY(qAbs(pasteRect.center().y() - shortcutRect.center().y()) <= 1);
+            QVERIFY(pasteRect.right() < shortcutRect.left() && shortcutRect.right() < finishRect.left());
         }
         fixture.type(QStringLiteral("先保留正在写的心得。"));
         QImage image(36, 28, QImage::Format_ARGB32);
