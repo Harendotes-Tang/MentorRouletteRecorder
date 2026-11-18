@@ -174,9 +174,8 @@ private Q_SLOTS:
         }
     }
 
-    /// One character: nothing on the three pages speaks of characters, except the one
-    /// button that adds a second.
-    void aPlayerWithOneCharacterSeesThePagesAsTheyWere()
+    /// Single-character settings expose the name and binding without extra history filters.
+    void aPlayerWithOneCharacterCanSeeTheBindingAndRename()
     {
         Pages pages;
         QVERIFY2(pages.create(), qPrintable(pages.errors));
@@ -192,15 +191,61 @@ private Q_SLOTS:
         QTRY_VERIFY(pages.app->runs()->rowCount() > 0);
         QVERIFY(!pages.shown(QStringLiteral("historyCharacterFilter")));
         QVERIFY(!pages.shown(QStringLiteral("historyCharacterCell")));
-        pages.app->setHistoryRunChecked(pages.app->runs()->runAt(0), true);
+        auto *selectAll = pages.shown(QStringLiteral("selectCurrentHistoryPage"));
+        QVERIFY(selectAll);
+        const int rowCount = pages.app->runs()->rowCount();
+        const int pageSize = pages.app->runs()->pageSize();
+        auto *header = pages.shown(QStringLiteral("historyTableHeader"));
+        QVERIFY(header);
+        const qreal headerTop = header->mapToScene(QPointF{}).y();
+        QVERIFY(pages.click(QStringLiteral("selectCurrentHistoryPage")));
         QTRY_VERIFY(pages.shown(QStringLiteral("batchSoftDeleteButton")));
+        QTRY_COMPARE(pages.app->checkedHistoryRunCount(), rowCount);
+        auto *batchBar = pages.shown(QStringLiteral("historyBatchBar"));
+        auto *clearFilters = pages.shown(QStringLiteral("historyClearFilters"));
+        QVERIFY(batchBar && clearFilters);
+        QTRY_VERIFY(batchBar->mapToScene(QPointF{}).x() >
+                    clearFilters->mapToScene(QPointF(clearFilters->width(), 0)).x());
+        QCOMPARE(batchBar->mapToScene(QPointF{}).y(), clearFilters->mapToScene(QPointF{}).y());
+        QCOMPARE(header->mapToScene(QPointF{}).y(), headerTop);
+        QCOMPARE(pages.app->runs()->pageSize(), pageSize);
         QVERIFY(!pages.shown(QStringLiteral("batchAssignCharacterButton")));
         pages.app->clearCheckedHistoryRuns();
 
         QVERIFY(pages.openAchievementSettings());
         QVERIFY(!pages.shown(QStringLiteral("achievementCharacterSelector")));
-        QVERIFY(!pages.shown(QStringLiteral("achievementCharacterActions")));
+        QVERIFY(pages.shown(QStringLiteral("renameCharacterButton")));
+        QVERIFY(pages.shown(QStringLiteral("characterBindingRow")));
+        QVERIFY(!pages.shown(QStringLiteral("forgetIdentitiesButton")));
         QVERIFY(pages.shown(QStringLiteral("goalField")));
+    }
+
+    void registrationNamesTheOriginalProfileAndShowsItsBinding()
+    {
+        Pages pages;
+        pages.backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 0, true);
+        QVERIFY2(pages.create(), qPrintable(pages.errors));
+        const int original = pages.currentOf(QStringLiteral("CN"));
+        pages.app->navigate(0);
+        QTRY_VERIFY(pages.shown(QStringLiteral("characterIdentityPrompt_CN")));
+        QVERIFY(pages.click(QStringLiteral("characterIdentityNew_CN")));
+        QTRY_VERIFY(pages.shown(QStringLiteral("characterNameField")));
+        QVERIFY(pages.shown(QStringLiteral("characterNameField"))->setProperty("text", QString::fromUtf8("白露")));
+        QVERIFY(pages.click(QStringLiteral("characterProfileSave")));
+        QTRY_VERIFY(!pages.shown(QStringLiteral("characterIdentityPrompt_CN")));
+        QTRY_VERIFY(pages.shown(QStringLiteral("achievementCharacterName_CN")));
+        QCOMPARE(pages.shown(QStringLiteral("achievementCharacterName_CN"))->property("text").toString(),
+                 QString::fromUtf8("白露"));
+        QCOMPARE(pages.currentOf(QStringLiteral("CN")), original);
+
+        QVERIFY(pages.openAchievementSettings());
+        QVERIFY(pages.shown(QStringLiteral("forgetIdentitiesButton")));
+        QVERIFY(pages.click(QStringLiteral("renameCharacterButton")));
+        QTRY_VERIFY(pages.shown(QStringLiteral("characterNameField")));
+        QVERIFY(pages.shown(QStringLiteral("characterNameField"))->setProperty("text", QString::fromUtf8("新名字")));
+        QVERIFY(pages.click(QStringLiteral("characterProfileSave")));
+        QTRY_COMPARE(pages.profile(original).value(QStringLiteral("display_name")).toString(), QString::fromUtf8("新名字"));
+        QCOMPARE(pages.profile(original).value(QStringLiteral("identity_count")).toInt(), 1);
     }
 
     /// 添加角色 asks for a name and the character's own numbers; the new character then has
@@ -480,7 +525,8 @@ private Q_SLOTS:
         QVERIFY(pages.shown(QStringLiteral("ignoredCharactersRow")));
         QVERIFY(pages.click(QStringLiteral("forgetIdentitiesButton")));
         QTRY_COMPARE(pages.profile(alt).value(QStringLiteral("identity_count")).toInt(), 0);
-        QTRY_VERIFY(!pages.shown(QStringLiteral("characterBindingRow")));
+        QTRY_VERIFY(!pages.shown(QStringLiteral("forgetIdentitiesButton")));
+        QVERIFY(pages.shown(QStringLiteral("characterBindingRow")));
         QVERIFY(pages.click(QStringLiteral("askAgainButton")));
         QTRY_COMPARE(pages.app->ignoredCharacterIdentityCount(QStringLiteral("CN")), 0);
         QTRY_VERIFY(!pages.shown(QStringLiteral("ignoredCharactersRow")));

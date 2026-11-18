@@ -2172,6 +2172,14 @@ SHA256：%3</translation>
         <source>不统计这个角色</source>
         <translation>このキャラクターは集計しない</translation>
     </message>
+    <message>
+        <source>输入角色名并确认绑定「原有记录」。已有记录和成就进度会保留。</source>
+        <translation>キャラクター名を入力し、「既存の記録」との紐づけを確認してください。記録とアチーブメントの進捗は引き継がれます。</translation>
+    </message>
+    <message>
+        <source>登记并绑定原有记录</source>
+        <translation>既存の記録と紐づける</translation>
+    </message>
 </context>
 <context>
     <name>CharacterNames</name>
@@ -2245,6 +2253,14 @@ SHA256：%3</translation>
     <message>
         <source>保存</source>
         <translation>保存</translation>
+    </message>
+    <message>
+        <source>登记原有角色</source>
+        <translation>既存のキャラクターを登録</translation>
+    </message>
+    <message>
+        <source>确认绑定</source>
+        <translation>紐づけを確定</translation>
     </message>
 </context>
 <context>
@@ -11275,6 +11291,10 @@ SHA256：%3</translation>
     <message>
         <source>记录保存在本机 · 无遥测 · 无云同步</source>
         <translation>記録はこの PC に保存 · テレメトリなし · クラウド同期なし</translation>
+    </message>
+    <message>
+        <source>尚未绑定游戏角色。</source>
+        <translation>ゲーム内キャラクターはまだ紐づけられていません。</translation>
     </message>
 </context>
 <context>

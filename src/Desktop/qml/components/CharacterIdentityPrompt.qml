@@ -26,12 +26,15 @@ InsetBox {
     }
     readonly property var identity: prompt.pending.length > 0 ? prompt.pending[0] : ({})
     readonly property int identityId: Number(prompt.identity.identity_id || 0)
+    readonly property int registrationProfileId: Number(prompt.identity.registration_profile_id || 0)
     readonly property int runCount: Number(prompt.identity.run_count || 0)
     readonly property var profiles: {
         Theme.trackBindingDependency(Runtime.app.characterProfiles)
         return Runtime.app.characterProfilesForRegion(prompt.region)
     }
     readonly property bool oneProfile: prompt.profiles.length === 1
+    readonly property var registrationProfile: prompt.profiles.find(
+        profile => Number(profile.profile_id) === prompt.registrationProfileId) || ({})
     readonly property CharacterNames names: CharacterNames {}
     // The character picked in the list; 0 until the player picks one. A region
     // with one character needs no list: its button names that character.
@@ -121,7 +124,9 @@ InsetBox {
         Text {
             objectName: "characterIdentityBody_" + prompt.region
             Layout.fillWidth: true
-            text: (prompt.runCount > 0
+            text: prompt.registrationProfileId > 0
+                  ? qsTr("输入角色名并确认绑定「原有记录」。已有记录和成就进度会保留。")
+                  : (prompt.runCount > 0
                    ? qsTr("它已经有 %1 条记录，现在不计入任何角色的进度。").arg(prompt.runCount)
                    : qsTr("在你说明之前，它的记录不计入任何角色的进度。"))
                   + qsTr("说明它是哪个角色后，这些记录会自动归到那个角色名下。")
@@ -143,16 +148,22 @@ InsetBox {
             objectName: "characterIdentityNew_" + prompt.region
             Layout.fillWidth: true
             variant: "primary"
-            text: qsTr("这是一个新角色")
-            enabled: !prompt.busy
-            onClicked: newCharacterDialog.openToAdd(prompt.region, prompt.identityId)
+            text: prompt.registrationProfileId > 0 ? qsTr("登记并绑定原有记录") : qsTr("这是一个新角色")
+            enabled: !prompt.busy && (prompt.registrationProfileId === 0 ||
+                                       prompt.registrationProfile.profile_id !== undefined)
+            onClicked: {
+                if (prompt.registrationProfileId > 0)
+                    newCharacterDialog.openToRename(prompt.registrationProfile, prompt.identityId)
+                else
+                    newCharacterDialog.openToAdd(prompt.region, prompt.identityId)
+            }
         }
 
         // The name on a line of its own, where it can wrap; the button stays short.
         Text {
             objectName: "characterIdentityOnly_" + prompt.region
             Layout.fillWidth: true
-            visible: prompt.oneProfile
+            visible: prompt.oneProfile && prompt.registrationProfileId === 0
             text: prompt.oneProfile
                 ? qsTr("已有的角色：「%1」").arg(prompt.names.label(prompt.profiles[0]))
                 : ""
@@ -163,7 +174,7 @@ InsetBox {
         AppButton {
             objectName: "characterIdentitySame_" + prompt.region
             Layout.fillWidth: true
-            visible: prompt.oneProfile
+            visible: prompt.oneProfile && prompt.registrationProfileId === 0
             text: qsTr("它就是这个角色")
             enabled: !prompt.busy
             onClicked: prompt.bind(Number(prompt.profiles[0].profile_id))
@@ -173,7 +184,7 @@ InsetBox {
         CharacterSelector {
             objectName: "characterIdentityExisting_" + prompt.region
             Layout.fillWidth: true
-            visible: !prompt.oneProfile
+            visible: !prompt.oneProfile && prompt.registrationProfileId === 0
             region: prompt.region
             selection: prompt.chosenProfileId
             includeAll: true
@@ -186,7 +197,7 @@ InsetBox {
         AppButton {
             objectName: "characterIdentityBind_" + prompt.region
             Layout.fillWidth: true
-            visible: !prompt.oneProfile && prompt.choiceStands
+            visible: !prompt.oneProfile && prompt.choiceStands && prompt.registrationProfileId === 0
             text: qsTr("确定是这个角色")
             enabled: !prompt.busy
             onClicked: prompt.bind(prompt.chosenProfileId)
@@ -194,6 +205,7 @@ InsetBox {
 
         AppButton {
             objectName: "characterIdentityIgnore_" + prompt.region
+            visible: prompt.registrationProfileId === 0
             Layout.alignment: Qt.AlignHCenter
             variant: "ghost"
             text: qsTr("不统计这个角色")

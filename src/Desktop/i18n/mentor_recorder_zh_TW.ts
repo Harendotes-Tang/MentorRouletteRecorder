@@ -2172,6 +2172,14 @@ SHA256：%3</translation>
         <source>不统计这个角色</source>
         <translation>不統計這個角色</translation>
     </message>
+    <message>
+        <source>输入角色名并确认绑定「原有记录」。已有记录和成就进度会保留。</source>
+        <translation>輸入角色名稱並確認綁定「原有紀錄」。已有紀錄與成就進度會保留。</translation>
+    </message>
+    <message>
+        <source>登记并绑定原有记录</source>
+        <translation>登記並綁定原有紀錄</translation>
+    </message>
 </context>
 <context>
     <name>CharacterNames</name>
@@ -2245,6 +2253,14 @@ SHA256：%3</translation>
     <message>
         <source>保存</source>
         <translation>儲存</translation>
+    </message>
+    <message>
+        <source>登记原有角色</source>
+        <translation>登記原有角色</translation>
+    </message>
+    <message>
+        <source>确认绑定</source>
+        <translation>確認綁定</translation>
     </message>
 </context>
 <context>
@@ -11275,6 +11291,10 @@ SHA256：%3</translation>
     <message>
         <source>记录保存在本机 · 无遥测 · 无云同步</source>
         <translation>記錄儲存在本機 · 無遙測 · 無雲端同步</translation>
+    </message>
+    <message>
+        <source>尚未绑定游戏角色。</source>
+        <translation>尚未綁定遊戲角色。</translation>
     </message>
 </context>
 <context>

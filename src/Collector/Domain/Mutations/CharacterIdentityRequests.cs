@@ -18,11 +18,13 @@ public enum CharacterIdentityAction
 /// <param name="IdentityId">Identity the answer is about.</param>
 /// <param name="Action">The answer.</param>
 /// <param name="ProfileId">Profile for <see cref="CharacterIdentityAction.Bind"/>; null otherwise.</param>
+/// <param name="DisplayName">Name supplied when confirming an upgraded profile, or null for ordinary binding.</param>
 public sealed record ResolveCharacterIdentityCommand(
     string RequestId,
     long IdentityId,
     CharacterIdentityAction Action,
-    long? ProfileId);
+    long? ProfileId,
+    string? DisplayName = null);
 
 /// <summary>Result of an answer about one identity.</summary>
 /// <param name="IdentityId">Identity the answer was about.</param>
@@ -42,7 +44,6 @@ public sealed record CharacterIdentityOutcome(
 /// </param>
 /// <param name="ProfileId">Profile the character is bound to, or null while nobody has said.</param>
 /// <param name="StatisticsChanged">
-/// True when what the Desktop shows changed: another profile became current, or an identity was
-/// recorded for the first time.
+/// True when a current profile, binding count or pending registration changed.
 /// </param>
 public sealed record CharacterIdentityObservation(long? IdentityId, long? ProfileId, bool StatisticsChanged);

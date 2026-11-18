@@ -64,13 +64,16 @@ QJsonArray MockBackend::identitiesJson() const
     });
     QJsonArray out;
     for (const CharacterIdentityEntry *identity : std::as_const(listed)) {
-        out.append(QJsonObject{{QStringLiteral("identity_id"), identity->id},
+        QJsonObject item{{QStringLiteral("identity_id"), identity->id},
                                {QStringLiteral("region"), identity->region},
                                {QStringLiteral("state"), identity->state},
                                {QStringLiteral("first_seen_at_utc"), isoUtc(identity->firstSeen)},
                                {QStringLiteral("last_seen_at_utc"), isoUtc(identity->lastSeen)},
                                {QStringLiteral("run_count"),
-                                static_cast<int>(unassignedIdentityRuns(*identity).size())}});
+                                static_cast<int>(unassignedIdentityRuns(*identity).size())}};
+        if (identity->registrationProfileId > 0)
+            item.insert(QStringLiteral("registration_profile_id"), identity->registrationProfileId);
+        out.append(item);
     }
     return out;
 }
@@ -90,15 +93,18 @@ QString MockBackend::identificationOf(const QString &region) const
     return region == QLatin1String("CN") ? QStringLiteral("AUTOMATIC") : QStringLiteral("MANUAL_REGION");
 }
 
-int MockBackend::addCharacterIdentity(const QString &region, const QString &state, int runCount)
+int MockBackend::addCharacterIdentity(const QString &region, const QString &state, int runCount,
+                                       bool registerOriginal)
 {
     Q_ASSERT(isRegion(region));
     Q_ASSERT(state == QLatin1String("PENDING") || state == QLatin1String("IGNORED"));
-    ensureCurrentProfile(region);
+    const int current = ensureCurrentProfile(region);
     CharacterIdentityEntry identity;
     identity.id = m_nextIdentityId++;
     identity.region = region;
     identity.state = state;
+    if (registerOriginal)
+        identity.registrationProfileId = current;
     identity.lastSeen = m_now.toUTC();
     identity.firstSeen = identity.lastSeen.addDays(-3).addSecs(-60 * identity.id);
 
@@ -222,7 +228,7 @@ QJsonObject MockBackend::resolveCharacterIdentity(const QJsonObject &payload, QS
         return refuseWith(errorCode, errorMessage, badRequest, key, args);
     };
     static const QStringList kAllowed{QStringLiteral("identity_id"), QStringLiteral("action"),
-                                      QStringLiteral("profile_id")};
+                                      QStringLiteral("profile_id"), QStringLiteral("display_name")};
     for (auto it = payload.constBegin(); it != payload.constEnd(); ++it) {
         if (!kAllowed.contains(it.key()))
             return refuse("ipc.field.unknown", {{QStringLiteral("field"), it.key()}});
@@ -235,7 +241,10 @@ QJsonObject MockBackend::resolveCharacterIdentity(const QJsonObject &payload, QS
         return refuse("ipc.field.not_one_of", {{QStringLiteral("field"), QStringLiteral("action")},
                                                {QStringLiteral("choices"), QStringLiteral("BIND / IGNORE / ASK_AGAIN")}});
     const QJsonValue requestedProfile = payload.value(QStringLiteral("profile_id"));
+    const QJsonValue requestedName = payload.value(QStringLiteral("display_name"));
     const bool binding = action == QLatin1String("BIND");
+    if (!binding && !requestedName.isUndefined())
+        return refuse("ipc.field.unknown", {{QStringLiteral("field"), QStringLiteral("display_name")}});
     if (binding && requestedProfile.isUndefined())
         return refuse("identity.profile_required");
     if (!binding && !requestedProfile.isUndefined())
@@ -260,9 +269,23 @@ QJsonObject MockBackend::resolveCharacterIdentity(const QJsonObject &payload, QS
         if (profile->region != identity->region)
             return refuse("profile.region_mismatch");
         boundTo = profile->id;
+        if (!requestedName.isUndefined()) {
+            if (identity->registrationProfileId != boundTo || identity->state == QLatin1String("IGNORED"))
+                return refuse("profile.not_found");
+            QJsonObject details;
+            if (applyCharacterProfile(QStringLiteral("UpdateCharacterProfile"),
+                                      {{QStringLiteral("profile_id"), boundTo},
+                                       {QStringLiteral("display_name"), requestedName}},
+                                      errorCode, errorMessage, &details).isEmpty())
+                return {};
+            identity->registrationProfileId = 0;
+        }
         moved = bindIdentity(*identity, boundTo);
+        if (identity->registrationProfileId != boundTo)
+            identity->registrationProfileId = 0;
     } else if (action == QLatin1String("IGNORE")) {
         identity->state = QStringLiteral("IGNORED");
+        identity->registrationProfileId = 0;
     } else {
         if (identity->state != QLatin1String("IGNORED"))
             return refuse("identity.not_ignored");

@@ -30,6 +30,8 @@ MotionDialog {
     // not close it.
     property bool waiting: false
     readonly property bool adding: dialog.profileId === 0
+    readonly property bool registering: dialog.profileId > 0 && dialog.identityId > 0
+    readonly property string saveAction: dialog.registering ? "register" : dialog.adding ? "create" : "rename"
     // This dialog's own request was answered; the profile it created or renamed.
     signal saved(int profileId, string action)
     readonly property int maxNameLength: 24
@@ -53,8 +55,8 @@ MotionDialog {
         dialog.present()
     }
 
-    function openToRename(profile) {
-        dialog.identityId = 0
+    function openToRename(profile, identityId) {
+        dialog.identityId = Number(identityId) || 0
         dialog.profileId = Number(profile.profile_id)
         dialog.region = String(profile.region)
         dialog.nameText = String(profile.display_name || "")
@@ -78,7 +80,10 @@ MotionDialog {
         if (!dialog.adding) {
             dialog.errorText = ""
             dialog.waiting = true
-            Runtime.app.renameCharacterProfile(dialog.profileId, name)
+            if (dialog.registering)
+                Runtime.app.bindCharacterIdentity(dialog.identityId, dialog.profileId, name)
+            else
+                Runtime.app.renameCharacterProfile(dialog.profileId, name)
             return
         }
         const goal = Number(dialog.goalText)
@@ -101,14 +106,14 @@ MotionDialog {
         target: Runtime.app
         enabled: dialog.waiting
         function onCharacterProfileSaved(profileId, action) {
-            if (action !== "create" && action !== "rename")
+            if (action !== dialog.saveAction)
                 return
             dialog.waiting = false
             dialog.close()
             dialog.saved(profileId, action)
         }
         function onCharacterProfileFailed(action, code, message) {
-            if (action !== "create" && action !== "rename")
+            if (action !== dialog.saveAction)
                 return
             dialog.waiting = false
             dialog.errorText = Runtime.app.errorText(message, code)
@@ -124,7 +129,7 @@ MotionDialog {
 
         HeadingLabel {
             Layout.fillWidth: true
-            text: !dialog.adding ? qsTr("给角色改名")
+            text: dialog.registering ? qsTr("登记原有角色") : !dialog.adding ? qsTr("给角色改名")
                 : dialog.identityId > 0 ? qsTr("登记新角色") : qsTr("添加角色")
             font.pixelSize: Theme.dialogTitleSize(20)
             wrapMode: Text.WordWrap
@@ -280,7 +285,7 @@ MotionDialog {
             AppButton {
                 objectName: "characterProfileSave"
                 variant: "primary"
-                text: dialog.adding ? qsTr("添加") : qsTr("保存")
+                text: dialog.registering ? qsTr("确认绑定") : dialog.adding ? qsTr("添加") : qsTr("保存")
                 enabled: !dialog.waiting
                 onClicked: dialog.submit()
             }

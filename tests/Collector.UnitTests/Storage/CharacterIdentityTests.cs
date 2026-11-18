@@ -85,20 +85,58 @@ public sealed class CharacterIdentityTests
     }
 
     [Fact]
-    public void TheFirstCharacterOfAOneProfileRegionIsBoundWithoutAskingOrAnnouncing()
+    public void TheFirstCharacterOfANewProfileIsBoundWithoutAsking()
     {
         using var fixture = new Fixture();
         var only = fixture.Current();
 
         var seen = fixture.Login(Main);
 
-        Assert.Equal((only, false), (seen.ProfileId, seen.StatisticsChanged));
+        Assert.Equal((only, true), (seen.ProfileId, seen.StatisticsChanged));
         Assert.NotNull(seen.IdentityId);
         Assert.Empty(fixture.Statistics.GetIdentities());
         Assert.Equal(1, fixture.BoundTo(only));
         // The same character again is the same identity, not a second one.
         Assert.Equal(seen.IdentityId, fixture.Login(Main).IdentityId);
         Assert.Equal(only, fixture.Runs.Get(fixture.Match(Main))!.ProfileId);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void UpgradedProfileOffersConfirmationAtLoginAndKeepsItsRuns(bool previouslyBound)
+    {
+        using var fixture = new Fixture();
+        var profileId = fixture.Current();
+        var oldRun = fixture.Match(null);
+        if (previouslyBound)
+        {
+            fixture.Login(Main);
+        }
+
+        using var seed = fixture.Database.Database.CreateCommand();
+        seed.CommandText = "INSERT INTO character_profile_registrations (profile_id) VALUES ($profile);";
+        seed.Parameters.AddWithValue("$profile", profileId);
+        seed.ExecuteNonQuery();
+
+        Assert.Empty(fixture.Statistics.GetIdentities());
+        var login = fixture.Login(Main);
+        Assert.True(login.StatisticsChanged);
+        Assert.Equal(previouslyBound ? profileId : (long?)null, login.ProfileId);
+        var waiting = Assert.Single(fixture.Statistics.GetIdentities()).Identity;
+        Assert.Equal(profileId, waiting.RegistrationProfileId);
+        var newRun = fixture.Match(Main);
+
+        var command = new ResolveCharacterIdentityCommand(
+            Fixture.NewId(), waiting.IdentityId, CharacterIdentityAction.Bind, profileId, "白露");
+        Assert.Equal(previouslyBound ? 0 : 1, fixture.Identities.Resolve(command).AssignedRunCount);
+        Assert.True(fixture.Identities.Resolve(command).IdempotentReplay);
+        Assert.Equal(profileId, fixture.Runs.Get(oldRun)!.ProfileId);
+        Assert.Equal(profileId, fixture.Runs.Get(newRun)!.ProfileId);
+        var saved = fixture.Settings.Profiles.FindCurrent(Region.Cn)!;
+        Assert.Equal((profileId, "白露", 0), (saved.ProfileId, saved.DisplayName, saved.BaselineCompletedCount));
+        Assert.False(fixture.Login(Main).StatisticsChanged);
+        Assert.Empty(fixture.Statistics.GetIdentities());
     }
 
     [Fact]

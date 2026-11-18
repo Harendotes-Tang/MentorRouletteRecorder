@@ -303,7 +303,7 @@ public static class Wire
     {
         ArgumentNullException.ThrowIfNull(value);
 
-        return new JsonObject
+        var result = new JsonObject
         {
             ["identity_id"] = value.Identity.IdentityId,
             ["region"] = EnumWire<Region>.Format(value.Identity.Region),
@@ -312,6 +312,12 @@ public static class Wire
             ["last_seen_at_utc"] = UtcTimestamp.ToText(value.Identity.LastSeenAtUtc),
             ["run_count"] = value.RunCount,
         };
+        if (value.Identity.RegistrationProfileId is { } profileId)
+        {
+            result["registration_profile_id"] = profileId;
+        }
+
+        return result;
     }
 
     /// <summary>Builds a <c>$defs/CharacterProfile</c> object.</summary>

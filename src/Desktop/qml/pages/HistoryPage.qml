@@ -874,6 +874,28 @@ Item {
                     }
                     onClicked: page.resetFilter()
                 }
+
+                // Fill the space left on the filter row so batch actions sit at its right edge.
+                Item {
+                    width: Math.max(0, Math.floor(filterRow.width - clearFilters.x - clearFilters.width
+                                                 - batchBar.width - 2 * filterRow.spacing))
+                    height: filterRow.controlHeight
+                    visible: batchBar.visible && width > 0
+                }
+
+                RowLayout {
+                    id: batchBar
+                    objectName: "historyBatchBar"
+                    width: implicitWidth
+                    height: filterRow.controlHeight
+                    visible: page.checkedCount > 0
+                    spacing: 8
+                    AppButton { text: qsTr("取消勾选"); variant: "ghost"; onClicked: Runtime.app.clearCheckedHistoryRuns() }
+                    AppButton { objectName: "batchSoftDeleteButton"; text: qsTr("删除记录"); enabled: Runtime.app.checkedHistoryDeletedCount === 0; onClicked: page.requestBatch("soft_delete") }
+                    AppButton { objectName: "batchRestoreButton"; text: qsTr("恢复选中"); visible: Runtime.app.checkedHistoryDeletedCount > 0; enabled: Runtime.app.checkedHistoryDeletedCount === page.checkedCount; onClicked: page.requestBatch("restore") }
+                    AppButton { objectName: "batchPurgeButton"; text: qsTr("永久删除"); visible: Runtime.app.checkedHistoryDeletedCount > 0; enabled: Runtime.app.checkedHistoryDeletedCount === page.checkedCount; onClicked: page.requestBatch("purge") }
+                    AppButton { objectName: "batchAssignCharacterButton"; text: qsTr("改角色"); visible: page.characterFeatures; onClicked: assignCharacterDialog.ask(regionBox.selection, page.checkedCount) }
+                }
             }
 
             Flow {
@@ -886,20 +908,6 @@ Item {
                 Chip { objectName: "retainedJobFilterChip"; visible: page.hasRetainedJobFilter; text: page.retainedJobFilterLabel; checked: true; removable: true; Accessible.name: text; onRemoved: { page.retainedJobFilterIds = []; page.scheduleFilter() } }
                 Chip { visible: page.narrowFilters && sourceBox.currentIndex > 0; text: sourceBox.currentText; checked: true; removable: true; onRemoved: { sourceBox.currentIndex = 0; page.scheduleFilter() } }
                 Chip { objectName: "historyCharacterFilterChip"; visible: page.narrowFilters && page.characterFilter !== 0; text: qsTr("角色：%1").arg(characterBox.currentText); checked: true; removable: true; onRemoved: { page.characterFilter = 0; page.scheduleFilter() } }
-            }
-
-            Flow {
-                id: batchBar
-                visible: page.checkedCount > 0
-                objectName: "historyBatchBar"
-                Layout.fillWidth: true
-                spacing: 8
-                enabled: !Runtime.app.historyBatchRunning
-                AppButton { text: qsTr("取消勾选"); visible: page.checkedCount > 0; variant: "ghost"; onClicked: Runtime.app.clearCheckedHistoryRuns() }
-                AppButton { objectName: "batchSoftDeleteButton"; text: qsTr("删除记录"); visible: page.checkedCount > 0; enabled: Runtime.app.checkedHistoryDeletedCount === 0; onClicked: page.requestBatch("soft_delete") }
-                AppButton { objectName: "batchRestoreButton"; text: qsTr("恢复选中"); visible: page.checkedCount > 0 && Runtime.app.checkedHistoryDeletedCount > 0; enabled: Runtime.app.checkedHistoryDeletedCount === page.checkedCount; onClicked: page.requestBatch("restore") }
-                AppButton { objectName: "batchPurgeButton"; text: qsTr("永久删除"); visible: page.checkedCount > 0 && Runtime.app.checkedHistoryDeletedCount > 0; enabled: Runtime.app.checkedHistoryDeletedCount === page.checkedCount; onClicked: page.requestBatch("purge") }
-                AppButton { objectName: "batchAssignCharacterButton"; text: qsTr("改角色"); visible: page.checkedCount > 0 && page.characterFeatures; onClicked: assignCharacterDialog.ask(regionBox.selection, page.checkedCount) }
             }
 
             Text {

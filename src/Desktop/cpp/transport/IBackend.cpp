@@ -472,13 +472,15 @@ BackendReply *IBackend::forgetCharacterIdentities(int profileId, const QString &
 }
 
 BackendReply *IBackend::resolveCharacterIdentity(int identityId, const QString &action, int profileId,
-                                                 const QString &requestId)
+                                                 const QString &requestId, const QString &displayName)
 {
     QJsonObject payload;
     payload.insert(QStringLiteral("identity_id"), identityId);
     payload.insert(QStringLiteral("action"), action);
     if (profileId > 0)
         payload.insert(QStringLiteral("profile_id"), profileId);
+    if (!displayName.isNull())
+        payload.insert(QStringLiteral("display_name"), displayName);
     return requestWithId(QStringLiteral("ResolveCharacterIdentity"), payload, requestId);
 }
 

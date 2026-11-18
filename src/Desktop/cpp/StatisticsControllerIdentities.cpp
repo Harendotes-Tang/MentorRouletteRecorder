@@ -32,7 +32,8 @@ QVariantList StatisticsController::pendingCharacterIdentities(const QString &reg
     for (const auto &value : m_identities) {
         const QJsonObject identity = value.toObject();
         if (inRegion(identity, region)
-            && identity.value(QStringLiteral("state")).toString() == QLatin1String("PENDING"))
+            && (identity.value(QStringLiteral("state")).toString() == QLatin1String("PENDING")
+                || identity.value(QStringLiteral("registration_profile_id")).toInt() > 0))
             out.append(identity.toVariantMap());
     }
     return out;
@@ -91,13 +92,13 @@ void StatisticsController::suspendMilestone(const QString &region)
     m_regionalObservations[region].ready = false;
 }
 
-void StatisticsController::bindCharacterIdentity(int identityId, int profileId)
+void StatisticsController::bindCharacterIdentity(int identityId, int profileId, const QString &displayName)
 {
     if (!m_backend)
         return;
-    watchProfileRequest(QStringLiteral("bind"),
+    watchProfileRequest(displayName.isNull() ? QStringLiteral("bind") : QStringLiteral("register"),
                         m_backend->resolveCharacterIdentity(identityId, QStringLiteral("BIND"), profileId,
-                                                            ipc::newRequestId()),
+                                                            ipc::newRequestId(), displayName),
                         {}, true);
 }
 

@@ -166,16 +166,17 @@ public sealed class StatisticsRepository
     }
 
     /// <summary>
-    /// The characters told apart in the game traffic that are bound to no profile, each with the
-    /// runs recorded for it that have no owner: the ones waiting for the player's answer first.
+    /// Unbound characters and characters awaiting confirmation for an upgraded profile, with
+    /// their unowned runs. Upgraded-profile registration precedes ordinary questions.
     /// </summary>
     public IReadOnlyList<CharacterIdentityStatistics> GetIdentities() => _database.Read(_ =>
     {
         var runs = _settings.Identities.CountUnassignedRuns();
         return (IReadOnlyList<CharacterIdentityStatistics>)_settings.Identities.List()
-            .Where(identity => identity.State != CharacterIdentityState.Bound)
+            .Where(identity => identity.State != CharacterIdentityState.Bound || identity.RegistrationProfileId is not null)
             .OrderBy(identity => identity.Region == Region.Cn ? 0 : identity.Region == Region.Tc ? 1 : 2)
             .ThenBy(identity => identity.Region)
+            .ThenBy(identity => identity.RegistrationProfileId is null)
             .ThenBy(identity => identity.Ignored)
             .ThenBy(identity => identity.IdentityId)
             .Select(identity => new CharacterIdentityStatistics(

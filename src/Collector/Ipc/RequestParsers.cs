@@ -326,13 +326,18 @@ public static class RequestParsers
     {
         ArgumentNullException.ThrowIfNull(reader);
 
-        reader.RejectUnknown("identity_id", "action", "profile_id");
+        reader.RejectUnknown("identity_id", "action", "profile_id", "display_name");
         var action = reader.RequiredEnum<CharacterIdentityAction>("action");
         // A profile says nothing for the other two answers; taking it silently would let a client
         // believe it had bound something.
         if (action != CharacterIdentityAction.Bind && reader.Has("profile_id"))
         {
             throw CollectorException.BadRequest(CollectorTexts.IpcFieldUnknown("profile_id"), "payload.profile_id");
+        }
+
+        if (action != CharacterIdentityAction.Bind && reader.Has("display_name"))
+        {
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldUnknown("display_name"), "payload.display_name");
         }
 
         return new ResolveCharacterIdentityCommand(
@@ -342,7 +347,8 @@ public static class RequestParsers
             action == CharacterIdentityAction.Bind
                 ? reader.Long("profile_id", 1)
                   ?? throw CollectorException.BadRequest(CollectorTexts.IdentityProfileRequired(), "payload.profile_id")
-                : null);
+                : null,
+            reader.Has("display_name") ? reader.RequiredString("display_name", 200) : null);
     }
 
     private static long RequiredIdentityId(PayloadReader reader) =>

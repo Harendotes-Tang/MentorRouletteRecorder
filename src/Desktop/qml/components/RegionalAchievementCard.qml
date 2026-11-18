@@ -12,6 +12,11 @@ Card {
     // whose progress this is and lets the player switch before logging in as
     // another one. A player with one character sees the card as it always was.
     readonly property bool severalCharacters: Number(card.achievement.profile_count || 0) > 1
+    readonly property string characterName: {
+        Theme.trackBindingDependency(Runtime.app.characterProfiles)
+        const profile = Runtime.app.characterProfile(Number(card.achievement.profile_id || 0))
+        return String(profile.display_name || "")
+    }
     readonly property int unassignedCount: Number(card.achievement.unassigned_run_count || 0)
     // How a new record of this region finds its character; "" from an older Collector.
     readonly property string identification: String(card.achievement.identification || "")
@@ -41,7 +46,7 @@ Card {
     RowLayout {
         objectName: "achievementCharacter_" + card.achievement.region
         Layout.fillWidth: true
-        visible: card.severalCharacters
+        visible: card.severalCharacters || card.characterName.length > 0
         spacing: 8
         Text {
             text: qsTr("当前角色")
@@ -51,6 +56,7 @@ Card {
         CharacterSelector {
             objectName: "achievementCharacterSwitch_" + card.achievement.region
             Layout.fillWidth: true
+            visible: card.severalCharacters
             region: card.achievement.region
             selection: Number(card.achievement.profile_id || 0)
             markCurrent: false
@@ -62,6 +68,16 @@ Card {
                 card.switching = true
                 Runtime.app.selectCharacterProfile(profileId)
             }
+        }
+        Text {
+            objectName: "achievementCharacterName_" + card.achievement.region
+            Layout.fillWidth: true
+            visible: !card.severalCharacters
+            text: card.characterName
+            textFormat: Text.PlainText
+            wrapMode: Text.Wrap
+            color: Theme.textPrimary
+            font.pixelSize: Theme.fs(13)
         }
     }
     Text {

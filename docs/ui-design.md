@@ -170,7 +170,7 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   「正在读取已保存的目标和起始次数，读取完成后才能修改和保存。」，同样带「修改」，不显示推测的数字。
   进度跨过目标次数的整数倍时的彩带（`AchievementConfetti`）按区服触发，只在跨过的那一张卡上播放；
   修改目标或起始次数、切换筛选都不触发。
-  **角色**：区服只有一个角色档案时，卡片与上面所述完全相同。区服有两个或更多档案时（`profile_count > 1`），
+  **角色**：单个档案已命名时显示「当前角色」和档案名。区服有两个或更多档案时（`profile_count > 1`），
   标题下多出一行「当前角色」与下拉框（`achievementCharacterSwitch_<区服>`，`components/CharacterSelector.qml`），
   卡片上的目标、进度环、「还差 N 次」与起始次数都是当前角色的数字；在下拉框里选另一个角色即把它设为当前角色
   （`App.selectCharacterProfile`），此后的新记录记在它名下，已有记录不变。区服里有未分配角色的记录时
@@ -183,6 +183,8 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   「这个区服暂时不能自动识别角色，换角色上线前请在这里选一下。」；旧版采集服务不带这个字段时不显示。
   采集服务认出了一个玩家尚未说明的角色时（`DashboardStats.identities` 中该区服有 `PENDING` 项），进度环上方出现提示框
   （`components/CharacterIdentityPrompt.qml`，`characterIdentityPrompt_<区服>`），只有一个角色的区服同样出现。
+  升级档案待确认时，`registration_profile_id` 提供「原有记录」的档案，提示框的「登记并绑定原有记录」打开姓名输入框。
+  确认后保留这个档案的旧记录和成就进度。
   标题「发现了一个还没有登记的角色」，正文说明它已有几条记录（`run_count`）、在说明之前不计入任何角色的进度、
   说明后这些记录会自动归到那个角色名下。一次只问一个，其余的在正文下注明「另外还有 N 个角色等待说明」。三种回答：
   * 「这是一个新角色」（`characterIdentityNew_<区服>`）打开 `CharacterProfileDialog`，标题为「登记新角色」，
@@ -308,7 +310,7 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   * 表格多一列「角色」（列键 `character`，默认位于「来源」与「标记」之间，可在「自定义列」中隐藏、拖动与调宽）：
     写该记录所属角色的名称，未分配的写「未分配」并用提示色。该列由 `HistoryColumnsController.characterOffered`
     控制是否存在：未启用时它不在任何列表中，已保存的位置、宽度与显隐原样保留。
-  * 勾选记录后，批量操作栏多一个「改角色」（`batchAssignCharacterButton`），打开 `HistoryAssignCharacterDialog`：
+  * 勾选记录后，第二排筛选项右侧显示批量操作。「改角色」（`batchAssignCharacterButton`）打开 `HistoryAssignCharacterDialog`：
     标题「把 N 条记录改到哪个角色？」，下拉框首行为「请选择角色」，不替用户预选，另有「未分配」；
     原因栏预填「修改记录所属的角色」。说明文字写明「各角色的起始次数不会跟着变」。确认后发送
     `BatchMutateRuns` 的 `assign_profile`；成功后取消勾选并关闭，被拒绝时保留勾选并在对话框内显示原因
@@ -1333,8 +1335,8 @@ R 为采集服务给出的 `achievement_progress` 减去已保存的基数，即
 （[statistics-definitions.md](statistics-definitions.md) §4）。
 总览的进度环、「还差 N 次」与语音播报中的进度数字取自 `achievement_progress`。
 
-**角色**（`achievementCharacterRow`）位于「成就区服」之下。区服只有一个角色档案时，这一行只有说明
-「有多个角色时，可以为每个角色分别保存目标和进度。」与「添加角色」按钮（`addCharacterButton`），其余内容与此前相同。
+**角色**（`achievementCharacterRow`）位于「成就区服」之下。区服只有一个角色档案时，这一行提供「添加角色」，
+下方显示档案名和「改名」按钮。
 「添加角色」打开 `CharacterProfileDialog`：角色名称（必填，最多 24 个字，由用户自己起，软件不读取游戏里的角色名）、
 该角色自己的目标值与起始次数（默认 2000 与 0），以及开关「现在就切换到这个角色」（默认关闭）；名称为空、
 同区服重名或一个区服超过 16 个角色时，原因显示在对话框内，不关闭。
@@ -1350,13 +1352,12 @@ R 为采集服务给出的 `achievement_progress` 减去已保存的基数，即
   采集服务给出的原因显示在这一行下方（`characterErrorText`）。
 * 新添加的角色保存成功后自动成为所选角色，便于接着核对它的数字；是否成为当前角色只取决于对话框里的开关。
 
-自动识别的两行同样只在 `App.characterFeaturesVisible(<所选区服>)` 为真时出现（区服有多个角色、有未分配的记录，
-或有尚未绑定的已识别角色）。开关本身不在这里：「自动识别登录的角色」（`characterIdentificationToggle`，采集设置
+「自动识别登录的角色」（`characterIdentificationToggle`，采集设置
 `character_identification_enabled`，默认开启，作用于全部区服）位于「设置 › 通用」的记录开关之中、共享校准开关之前，
 只有一个角色的用户也能看到并关闭，说明中写明目前只对国服有效、软件不读取角色名、关闭后改为在总览手动切换。
 
-* 「已识别的游戏角色」（`characterBindingRow`），所选角色的 `identity_count` 大于 0 时出现，说明软件已认出几个游戏角色
-  属于它；「解除」（`forgetIdentitiesButton`）发送 `UpdateCharacterProfile.forget_identities`，这些角色回到待说明，
+* 「已识别的游戏角色」（`characterBindingRow`）显示所选档案的绑定数量。数量为零时显示「尚未绑定游戏角色」。
+  有绑定时可点「解除」（`forgetIdentitiesButton`），发送 `UpdateCharacterProfile.forget_identities`，这些角色回到待说明，
   总览重新询问，已有记录不变。
 * 「不统计的角色」（`ignoredCharactersRow`），该区服有 `IGNORED` 的角色时出现；「重新询问」（`askAgainButton`）
   对它们逐个发送 `ASK_AGAIN`。

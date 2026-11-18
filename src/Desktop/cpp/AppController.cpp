@@ -2202,9 +2202,9 @@ void AppController::createCharacterProfile(const QString &region, const QString 
                                          identityId);
 }
 
-void AppController::bindCharacterIdentity(int identityId, int profileId)
+void AppController::bindCharacterIdentity(int identityId, int profileId, const QString &displayName)
 {
-    m_statistics->bindCharacterIdentity(identityId, profileId);
+    m_statistics->bindCharacterIdentity(identityId, profileId, displayName);
 }
 
 void AppController::ignoreCharacterIdentity(int identityId)

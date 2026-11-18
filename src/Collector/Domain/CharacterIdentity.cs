@@ -40,13 +40,15 @@ public enum CharacterIdentificationMode
 /// <param name="Ignored">True when the player chose to keep no progress for it.</param>
 /// <param name="FirstSeenAtUtc">The first login it was seen at.</param>
 /// <param name="LastSeenAtUtc">The latest login it was seen at.</param>
+/// <param name="RegistrationProfileId">Upgraded profile awaiting confirmation for this identity, if any.</param>
 public sealed record CharacterIdentity(
     long IdentityId,
     Region Region,
     long? ProfileId,
     bool Ignored,
     DateTimeOffset FirstSeenAtUtc,
-    DateTimeOffset LastSeenAtUtc)
+    DateTimeOffset LastSeenAtUtc,
+    long? RegistrationProfileId = null)
 {
     /// <summary>Most identities one region keeps; a further unknown character is not recorded.</summary>
     public const int MaxIdentitiesPerRegion = 64;

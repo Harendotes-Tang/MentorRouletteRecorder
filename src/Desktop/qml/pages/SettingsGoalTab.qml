@@ -82,16 +82,7 @@ ColumnLayout {
     }
     readonly property int editedCharacterId: Number(tab.editedCharacter.profile_id || 0)
     // ------------------------------------------------------------ 自动识别 --
-    // What the Collector has recognised a character as, and the characters the
-    // player chose not to keep progress for. The rows appear with the other
-    // character features: a player with one character, whom nothing was ever
-    // asked, sees none of them. The switch itself is in 设置 › 通用.
-    readonly property bool characterFeatures: {
-        Theme.trackBindingDependency(Runtime.app.characterProfiles)
-        Theme.trackBindingDependency(Runtime.app.characterIdentities)
-        Theme.trackBindingDependency(Runtime.app.dashboard)
-        return Runtime.app.characterFeaturesVisible(Runtime.app.baselineRegion)
-    }
+    // The switch itself is in 设置 › 通用.
     readonly property int boundIdentityCount: Number(tab.editedCharacter.identity_count || 0)
     readonly property int ignoredIdentityCount: {
         Theme.trackBindingDependency(Runtime.app.characterIdentities)
@@ -311,15 +302,15 @@ ColumnLayout {
 
         SettingsRow {
             objectName: "achievementCharacterActions"
-            visible: tab.severalCharacters
+            visible: tab.editedCharacterId > 0
             label: tab.characterNames.label(tab.editedCharacter)
-            description: tab.editingCurrentCharacter
+            description: !tab.severalCharacters ? "" : tab.editingCurrentCharacter
                 ? qsTr("新记录现在记在这个角色名下。换角色上线前，把要用的角色设为当前。")
                 : qsTr("新记录现在记在「%1」名下。").arg(tab.characterNames.label(tab.currentCharacter))
             controlSpacing: 8
             AppButton {
                 objectName: "selectCharacterButton"
-                visible: !tab.editingCurrentCharacter
+                visible: tab.severalCharacters && !tab.editingCurrentCharacter
                 text: qsTr("设为当前角色")
                 variant: "primary"
                 enabled: !Runtime.app.characterProfileSaving
@@ -333,7 +324,7 @@ ColumnLayout {
             }
             AppButton {
                 objectName: "deleteCharacterButton"
-                visible: !tab.editingCurrentCharacter
+                visible: tab.severalCharacters && !tab.editingCurrentCharacter
                 text: tab.deleteArmed ? qsTr("确认删除") : qsTr("删除")
                 enabled: !Runtime.app.characterProfileSaving
                 onClicked: tab.deleteEditedCharacter()
@@ -342,12 +333,14 @@ ColumnLayout {
 
         SettingsRow {
             objectName: "characterBindingRow"
-            visible: tab.characterFeatures && tab.boundIdentityCount > 0
+            visible: tab.editedCharacter.identity_count !== undefined
             label: qsTr("已识别的游戏角色")
-            description: qsTr("软件已经认出 %1 个游戏角色是「%2」。认错了可以解除，下次登录时会在总览重新询问；已有的记录不变。")
+            description: tab.boundIdentityCount === 0 ? qsTr("尚未绑定游戏角色。")
+                : qsTr("软件已经认出 %1 个游戏角色是「%2」。认错了可以解除，下次登录时会在总览重新询问；已有的记录不变。")
                 .arg(tab.boundIdentityCount).arg(tab.characterNames.label(tab.editedCharacter))
             AppButton {
                 objectName: "forgetIdentitiesButton"
+                visible: tab.boundIdentityCount > 0
                 text: qsTr("解除")
                 enabled: !Runtime.app.characterProfileSaving
                 onClicked: tab.forgetEditedCharacterIdentities()

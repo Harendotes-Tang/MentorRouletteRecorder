@@ -693,7 +693,7 @@ public Q_SLOTS:
     /// and the statistics and the history list are read again after a success.
     /// BIND: \a identityId is the character of \a profileId; its runs move there and the
     /// profile becomes current.
-    void bindCharacterIdentity(int identityId, int profileId);
+    void bindCharacterIdentity(int identityId, int profileId, const QString &displayName = {});
     /// IGNORE: keep no progress for \a identityId and stop asking.
     void ignoreCharacterIdentity(int identityId);
     /// ASK_AGAIN for every IGNORED identity of \a region ("" = every region), one request

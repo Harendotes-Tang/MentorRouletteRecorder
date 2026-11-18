@@ -12,6 +12,45 @@ namespace MentorRecorder.Collector.IntegrationTests;
 public sealed class CharacterProfileIpcTests
 {
     [Fact]
+    public async Task APreviouslyBoundCharacterConfirmsTheNameOfItsOriginalProfileOverThePipe()
+    {
+        await using var fixture = ServerFixture.Start();
+        await using var client = await fixture.ConnectAsync();
+        const string key = "0a1b2c3d";
+        var digest = new string('1', 32);
+        var previous = fixture.Host.Identities.Observe(Region.Cn, key, digest);
+        fixture.Host.Database.RunInTransaction(tx =>
+        {
+            using var seed = fixture.Host.Database.CreateCommand();
+            seed.Transaction = tx;
+            seed.CommandText = """
+                UPDATE character_profiles SET baseline_completed_count = 227 WHERE profile_id = $profile;
+                INSERT INTO character_profile_registrations (profile_id) VALUES ($profile);
+                """;
+            seed.Parameters.AddWithValue("$profile", previous.ProfileId!.Value);
+            seed.ExecuteNonQuery();
+        });
+        Assert.True(fixture.Host.Identities.Observe(Region.Cn, key, digest).StatisticsChanged);
+
+        var dashboard = (await client.SendAsync("GetDashboardStats", new JsonObject())).Require();
+        ContractSchema.Validate("$defs/Responses/GetDashboardStats", dashboard, "registration dashboard");
+        var prompt = Assert.Single(dashboard["identities"]!.AsArray())!;
+        Assert.Equal("BOUND", prompt["state"]!.GetValue<string>());
+        Assert.Equal(previous.ProfileId, prompt["registration_profile_id"]!.GetValue<long>());
+        var result = (await client.SendAsync("ResolveCharacterIdentity", new JsonObject
+        {
+            ["identity_id"] = previous.IdentityId, ["action"] = "BIND",
+            ["profile_id"] = previous.ProfileId, ["display_name"] = "白露",
+        })).Require();
+        ContractSchema.Validate("$defs/Responses/ResolveCharacterIdentity", result, "registration result");
+        Assert.Empty(result["identities"]!.AsArray());
+        var profile = result["profiles"]!.AsArray().Single(row => row!["region"]!.GetValue<string>() == "CN")!;
+        Assert.Equal((previous.ProfileId!.Value, "白露", 227, 1), (
+            profile["profile_id"]!.GetValue<long>(), profile["display_name"]!.GetValue<string>(),
+            profile["baseline_completed_count"]!.GetValue<int>(), profile["identity_count"]!.GetValue<int>()));
+    }
+
+    [Fact]
     public async Task ASecondCharacterKeepsItsOwnProgressAndRunsCanBeMovedBetweenCharacters()
     {
         await using var fixture = ServerFixture.Start();

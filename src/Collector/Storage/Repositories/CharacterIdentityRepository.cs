@@ -13,7 +13,8 @@ namespace MentorRecorder.Collector.Storage.Repositories;
 /// </summary>
 public sealed class CharacterIdentityRepository
 {
-    private const string Columns = "identity_id, region, profile_id, ignored, first_seen_at_utc, last_seen_at_utc";
+    private const string Columns = "identity_id, region, profile_id, ignored, first_seen_at_utc, last_seen_at_utc, " +
+        "(SELECT r.profile_id FROM character_profile_registrations r WHERE r.identity_id = character_identities.identity_id)";
 
     private readonly SqliteDatabase _database;
     private readonly IClock _clock;
@@ -115,6 +116,37 @@ public sealed class CharacterIdentityRepository
         return new CharacterIdentity(id, region, profileId, Ignored: false, now, now);
     }
 
+    /// <summary>Whether the upgraded profile has an open slot for a recognised character.</summary>
+    internal bool NeedsRegistration(long profileId, SqliteTransaction transaction)
+    {
+        using var command = Command(transaction, """
+            SELECT 1 FROM character_profile_registrations WHERE profile_id = $profile AND identity_id IS NULL;
+            """);
+        command.Parameters.AddWithValue("$profile", profileId);
+        return command.ExecuteScalar() is not null;
+    }
+
+    /// <summary>Offers the upgraded profile for confirmation at the next dashboard read.</summary>
+    internal bool OfferRegistration(long profileId, long identityId, SqliteTransaction transaction)
+    {
+        using var command = Command(transaction, """
+            UPDATE character_profile_registrations SET identity_id = $identity
+            WHERE profile_id = $profile AND identity_id IS NULL;
+            """);
+        command.Parameters.AddWithValue("$profile", profileId);
+        command.Parameters.AddWithValue("$identity", identityId);
+        return command.ExecuteNonQuery() != 0;
+    }
+
+    /// <summary>Closes the upgraded profile's registration after the user confirms it.</summary>
+    internal void FinishRegistration(long profileId, SqliteTransaction transaction)
+    {
+        using var command = Command(transaction,
+            "DELETE FROM character_profile_registrations WHERE profile_id = $profile;");
+        command.Parameters.AddWithValue("$profile", profileId);
+        command.ExecuteNonQuery();
+    }
+
     /// <summary>Notes that a known character has logged in again.</summary>
     /// <param name="identityId">Identity identifier.</param>
     /// <param name="transaction">Enclosing transaction.</param>
@@ -143,6 +175,14 @@ public sealed class CharacterIdentityRepository
         command.Parameters.AddWithValue("$ignored", ignored ? 1 : 0);
         command.Parameters.AddWithValue("$id", identityId);
         command.ExecuteNonQuery();
+
+        using var registration = Command(transaction, """
+            UPDATE character_profile_registrations SET identity_id = NULL
+            WHERE identity_id = $id AND profile_id IS NOT $profile;
+            """);
+        registration.Parameters.AddWithValue("$id", identityId);
+        registration.Parameters.AddWithValue("$profile", (object?)profileId ?? DBNull.Value);
+        registration.ExecuteNonQuery();
     }
 
     /// <summary>
@@ -289,5 +329,6 @@ public sealed class CharacterIdentityRepository
         reader.IsDBNull(2) ? null : reader.GetInt64(2),
         reader.GetInt32(3) == 1,
         UtcTimestamp.Parse(reader.GetString(4)),
-        UtcTimestamp.Parse(reader.GetString(5)));
+        UtcTimestamp.Parse(reader.GetString(5)),
+        reader.IsDBNull(6) ? null : reader.GetInt64(6));
 }

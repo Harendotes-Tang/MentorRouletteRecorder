@@ -2172,6 +2172,14 @@ SHA256: %3</translation>
         <source>不统计这个角色</source>
         <translation>Don&apos;t track this character</translation>
     </message>
+    <message>
+        <source>输入角色名并确认绑定「原有记录」。已有记录和成就进度会保留。</source>
+        <translation>Enter a name and confirm that this character owns the original records. Its records and achievement progress will be kept.</translation>
+    </message>
+    <message>
+        <source>登记并绑定原有记录</source>
+        <translation>Register with original records</translation>
+    </message>
 </context>
 <context>
     <name>CharacterNames</name>
@@ -2245,6 +2253,14 @@ SHA256: %3</translation>
     <message>
         <source>保存</source>
         <translation>Save</translation>
+    </message>
+    <message>
+        <source>登记原有角色</source>
+        <translation>Register existing character</translation>
+    </message>
+    <message>
+        <source>确认绑定</source>
+        <translation>Confirm binding</translation>
     </message>
 </context>
 <context>
@@ -11275,6 +11291,10 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>记录保存在本机 · 无遥测 · 无云同步</source>
         <translation>Records stay on this PC · no telemetry · no cloud sync</translation>
+    </message>
+    <message>
+        <source>尚未绑定游戏角色。</source>
+        <translation>No game character is bound yet.</translation>
     </message>
 </context>
 <context>

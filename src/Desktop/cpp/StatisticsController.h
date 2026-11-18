@@ -111,7 +111,7 @@ public:
     QString characterIdentification(const QString &region) const;
     /// True when \a region ("" = any region) has an identity in characterIdentities().
     bool hasCharacterIdentities(const QString &region) const;
-    void bindCharacterIdentity(int identityId, int profileId);
+    void bindCharacterIdentity(int identityId, int profileId, const QString &displayName = {});
     void ignoreCharacterIdentity(int identityId);
     /// ASK_AGAIN for every IGNORED identity of \a region, one request after the other; one
     /// characterProfileSaved(0, "ask_again") at the end, or characterProfileFailed at the

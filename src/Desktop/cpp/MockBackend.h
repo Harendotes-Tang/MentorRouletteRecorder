@@ -232,7 +232,8 @@ public:
     /// no profile, in \a state (PENDING or IGNORED). It claims \a runCount live runs of the
     /// region - first the ones assigned to no profile, then the newest of the region, which
     /// become assigned to no profile - fewer when the region has fewer. Returns its id.
-    int addCharacterIdentity(const QString &region, const QString &state, int runCount);
+    int addCharacterIdentity(const QString &region, const QString &state, int runCount,
+                             bool registerOriginal = false);
     /// $defs/DashboardStats.identities as it stands: every identity bound to no profile.
     QVariantList characterIdentities() const { return identitiesJson().toVariantList(); }
     /// Test and --mock-pending-identity seam: the character the game is logged in as (0 =
@@ -462,6 +463,7 @@ private:
         QDateTime firstSeen;
         QDateTime lastSeen;
         int boundProfileId = 0;
+        int registrationProfileId = 0;
         /// The runs recorded while this character was logged in; the live ones still
         /// assigned to no profile are its run_count, and move with a BIND.
         QStringList runIds;

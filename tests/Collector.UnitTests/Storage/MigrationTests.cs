@@ -15,7 +15,7 @@ public sealed class MigrationTests
         using var fixture = new TestDatabase();
 
         Assert.Equal(MigrationRunner.LatestVersion, fixture.Database.SchemaVersion);
-        Assert.Equal(15, MigrationRunner.LatestVersion);
+        Assert.Equal(16, MigrationRunner.LatestVersion);
 
         using var command = fixture.Database.CreateCommand();
         command.CommandText =
@@ -49,6 +49,7 @@ public sealed class MigrationTests
                 (13, "0013_legacy_region_cn.sql"),
                 (14, "0014_character_profiles.sql"),
                 (15, "0015_character_identities.sql"),
+                (16, "0016_character_registration.sql"),
             },
             applied);
     }
@@ -645,6 +646,8 @@ public sealed class MigrationTests
         check.CommandText = "SELECT count(*) FROM application_settings WHERE key IN " +
             "('achievement.baseline_history','achievement.baseline_history.TC');";
         Assert.Equal(0L, check.ExecuteScalar());
+        check.CommandText = "SELECT profile_id FROM character_profile_registrations WHERE identity_id IS NULL;";
+        Assert.Equal(china.ProfileId, check.ExecuteScalar());
         check.CommandText = "PRAGMA foreign_key_check;";
         Assert.Null(check.ExecuteScalar());
     }
