@@ -420,7 +420,7 @@ public:
     QVariantList achievements() const { return m_statistics->allAchievements(); }
     QVariantList visibleAchievements() const { return m_statistics->achievements(); }
     QString recordRegion() const { return m_statistics->recordRegion(); }
-    void setRecordRegion(const QString &region) { m_statistics->setRecordRegion(region); }
+    void setRecordRegion(const QString &region);
     QString baselineRegion() const { return m_statistics->baselineRegion(); }
     void setBaselineRegion(const QString &region) { m_statistics->setBaselineRegion(region); }
     Q_INVOKABLE QVariantMap achievementForRegion(const QString &region) const

@@ -2111,6 +2111,8 @@ void StatisticsOverlayTests::attemptCountDistinguishesLoadingFailureAndZero()
     Scene scene;
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
     QVERIFY2(scene.create(), qPrintable(scene.errors));
+    // Keep the failed request in view while checking its translation.
+    scene.app->setRecordRegion(QStringLiteral("CN"));
     QTRY_VERIFY(scene.app->achievementSettingsLoaded());
     scene.backend.holdDashboard = true;
     scene.overlay()->show();
@@ -2282,6 +2284,7 @@ void StatisticsOverlayTests::renderedEvidence()
     Scene scene;
     scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
     QVERIFY2(scene.create(style, dark), qPrintable(scene.errors));
+    scene.app->setRecordRegion(QString());
     scene.overlay()->setGeometry(QRect(80, 80, 300, 560));
     scene.overlay()->show();
     QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));

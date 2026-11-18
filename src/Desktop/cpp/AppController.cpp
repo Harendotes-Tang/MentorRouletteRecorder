@@ -42,6 +42,23 @@ constexpr int kToastMs = 3200;
 /// How long a settings switch waits before it is written. Long enough that a
 /// spin box being dragged sends one message, short enough to feel immediate.
 constexpr int kCaptureSettingsDebounceMs = 400;
+constexpr auto kRecordRegionKey = "dashboard/record_region";
+
+QString preferredRecordRegion(const mr::AppSettings &settings)
+{
+    // An empty saved value is the explicit "all regions" selection.
+    const QString saved = settings.value(QLatin1String(kRecordRegionKey), QStringLiteral("AUTO"));
+    if (mr::StatisticsController::isRecordRegion(saved))
+        return saved;
+
+    const auto *language = mr::LanguageManager::instance();
+    const QString code = language ? language->code() : mr::LanguageManager::defaultCode();
+    if (code == QLatin1String("zh-CN"))
+        return QStringLiteral("CN");
+    if (code == QLatin1String("zh-TW"))
+        return QStringLiteral("TC");
+    return QStringLiteral("GLOBAL");
+}
 
 /// The keys $defs/UpdateCaptureSettingsRequest accepts. An unknown key is
 /// dropped rather than sent into an additionalProperties:false schema, which
@@ -69,7 +86,7 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     , m_settings(settings)
     , m_collector(collector)
     , m_history(new HistoryController(backend, this))
-    , m_statistics(new StatisticsController(backend, this))
+    , m_statistics(new StatisticsController(backend, this, settings ? preferredRecordRegion(*settings) : QString()))
     , m_statisticsOverlay(new StatisticsOverlayController(settings, this))
     , m_historyColumns(new HistoryColumnsController(settings, this))
     , m_recovery(new RecoveryController(backend, settings, this))
@@ -136,6 +153,7 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
         m_statistics->dungeons()->reload();
         m_statistics->jobs()->reload();
     });
+    m_statisticsOverlay->setRecordRegion(m_statistics->recordRegion());
     m_statisticsOverlay->setBackend(backend);
     // After a dashboard read that answered, not on every dashboardChanged: a
     // region pick or a regional read changes no attempt (review I2-4).
@@ -308,7 +326,11 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     });
     connect(m_statistics, &StatisticsController::baselineRegionChanged, this, &AppController::baselineRegionChanged);
     connect(this, &AppController::statusChanged, this, &AppController::captureHealthTextChanged);
-    onLanguageChanged(this, &AppController::retranslate);
+    onLanguageChanged(this, [this] {
+        if (m_settings)
+            m_statistics->setRecordRegion(preferredRecordRegion(*m_settings));
+        retranslate();
+    });
     connect(m_statistics, &StatisticsController::achievementSettingsLoadedChanged, this,
             &AppController::achievementSettingsLoadedChanged);
     connect(m_statistics, &StatisticsController::trendChanged, this, &AppController::trendChanged);
@@ -1126,6 +1148,15 @@ void AppController::requestDashboard(std::function<void(bool ok)> then)
 void AppController::refreshTrend()
 {
     m_statistics->refreshTrend();
+}
+
+void AppController::setRecordRegion(const QString &region)
+{
+    if (!StatisticsController::isRecordRegion(region))
+        return;
+    if (m_settings)
+        m_settings->setValue(QLatin1String(kRecordRegionKey), region);
+    m_statistics->setRecordRegion(region);
 }
 
 void AppController::setTrendMode(const QString &mode)

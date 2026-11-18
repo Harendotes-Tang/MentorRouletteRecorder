@@ -22,13 +22,14 @@ class StatisticsController : public QObject
 {
     Q_OBJECT
 public:
-    explicit StatisticsController(IBackend *backend, QObject *parent = nullptr);
+    explicit StatisticsController(IBackend *backend, QObject *parent = nullptr, const QString &recordRegion = {});
     QJsonObject dashboardSnapshot() const { return m_dashboard; }
     QVariantMap dashboard() const { return m_dashboard.toVariantMap(); }
     QVariantList achievements() const;
     QVariantList allAchievements() const;
     QVariantMap achievementForRegion(const QString &region) const;
     QString recordRegion() const { return m_recordRegion; }
+    static bool isRecordRegion(const QString &region);
     void setRecordRegion(const QString &region);
     QString baselineRegion() const { return m_baselineRegion; }
     void setBaselineRegion(const QString &region);
@@ -178,6 +179,7 @@ private:
     void observeAchievement(const QJsonObject &dashboard, quint64 serial);
     void adoptAchievements(const QJsonObject &dashboard, const QString &region, quint64 serial);
     QJsonObject regionFilter() const;
+    void applyRegionFilter();
     void applyTrendSeries(const QJsonObject &trend);
     void applyDayCounts(const QJsonObject &trend);
     void rebuildDutyOptions();

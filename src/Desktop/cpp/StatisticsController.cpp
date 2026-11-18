@@ -20,12 +20,14 @@ QVariantMap statCard(const QString &key, const QString &value)
 
 namespace mr {
 
-StatisticsController::StatisticsController(IBackend *backend, QObject *parent)
+StatisticsController::StatisticsController(IBackend *backend, QObject *parent, const QString &recordRegion)
     : QObject(parent)
     , m_backend(backend)
     , m_dungeons(new DungeonStatsModel(this))
     , m_jobs(new JobStatsModel(this))
+    , m_recordRegion(isRecordRegion(recordRegion) ? recordRegion : QString())
 {
+    applyRegionFilter();
     m_dungeons->setBackend(backend);
     m_jobs->setBackend(backend);
     connect(backend, &QObject::destroyed, this, [this] {
@@ -129,6 +131,13 @@ QJsonObject StatisticsController::regionFilter() const
         : QJsonObject{{QStringLiteral("region"), m_recordRegion}};
 }
 
+void StatisticsController::applyRegionFilter()
+{
+    const QVariantMap filter = regionFilter().toVariantMap();
+    m_dungeons->setFilter(filter);
+    m_jobs->setFilter(filter);
+}
+
 QVariantList StatisticsController::achievements() const
 {
     QVariantList out;
@@ -194,11 +203,15 @@ void StatisticsController::adoptAchievements(const QJsonObject &dashboard, const
     }
 }
 
+bool StatisticsController::isRecordRegion(const QString &region)
+{
+    return region.isEmpty() || region == QLatin1String("CN") || region == QLatin1String("TC")
+        || region == QLatin1String("GLOBAL") || region == QLatin1String("UNKNOWN");
+}
+
 void StatisticsController::setRecordRegion(const QString &region)
 {
-    if (region == m_recordRegion || (!region.isEmpty() && region != QLatin1String("CN")
-        && region != QLatin1String("TC") && region != QLatin1String("GLOBAL")
-        && region != QLatin1String("UNKNOWN"))) return;
+    if (region == m_recordRegion || !isRecordRegion(region)) return;
     m_recordRegion = region;
     m_dashboard = {};
     m_trendBuckets.clear();
@@ -211,9 +224,7 @@ void StatisticsController::setRecordRegion(const QString &region)
     ++m_trendGeneration;
     // A scope change observes existing progress; it is never a completion.
     for (auto &observation : m_regionalObservations) observation.ready = false;
-    const QVariantMap filter = regionFilter().toVariantMap();
-    m_dungeons->setFilter(filter);
-    m_jobs->setFilter(filter);
+    applyRegionFilter();
     Q_EMIT recordRegionChanged();
     refreshDashboard();
     refreshTrend();
