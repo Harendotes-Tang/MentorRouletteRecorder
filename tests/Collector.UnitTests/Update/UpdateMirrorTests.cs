@@ -194,6 +194,128 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
         AssertNothingKept();
     }
 
+    [Theory]
+    [InlineData("accept")]
+    [InlineData("decline")]
+    [InlineData("finish")]
+    [InlineData("cancel")]
+    [InlineData("mirror unavailable after accept")]
+    public async Task SlowInstallerOfferAppliesOnlyToItsLiveAttempt(string choice)
+    {
+        const int prefix = 1024;
+        var github = new PausedInstaller(prefix);
+        var mirrorOpens = 0;
+        var transport = MirrorInstaller(new Transport().Publish(Published, Installer, body: github))
+            .On(Mirror(Exe), (uri, _) => Task.FromResult(
+                Interlocked.Increment(ref mirrorOpens) == 2 && choice == "mirror unavailable after accept"
+                    ? Transport.Status(uri, 404)
+                    : Bytes(uri, Installer)));
+        var service = Service(transport, limits: Limits() with { SlowWindow = TimeSpan.FromMilliseconds(80) });
+        service.Start();
+        await EventuallyAsync(() => service.Snapshot().MirrorOfferId is not null, "slow GitHub should prompt after sampling");
+
+        var offer = service.Snapshot();
+        Assert.Equal(prefix, offer.ReceivedBytes);
+        Assert.Equal(UpdateDownloadState.Downloading, offer.State);
+        Assert.Single(transport.Requests, request => request == Mirror(Exe));
+        Assert.Equal(offer, service.ResolveMirrorOffer(Guid.NewGuid().ToString(), useGitCode: true));
+        if (choice is "accept" or "mirror unavailable after accept")
+        {
+            Assert.Null(service.ResolveMirrorOffer(offer.MirrorOfferId!.ToUpperInvariant(), useGitCode: true).MirrorOfferId);
+            if (choice == "mirror unavailable after accept")
+            {
+                await EventuallyAsync(() => Volatile.Read(ref mirrorOpens) == 2, "mirror re-open should be attempted");
+                github.Resume();
+            }
+        }
+        else if (choice == "cancel")
+        {
+            service.Cancel();
+        }
+        else
+        {
+            if (choice == "decline")
+                Assert.Null(service.ResolveMirrorOffer(offer.MirrorOfferId!, useGitCode: false).MirrorOfferId);
+            github.Resume();
+        }
+
+        var final = await SettleAsync(service);
+        Assert.Equal(final, service.ResolveMirrorOffer(offer.MirrorOfferId!, useGitCode: true));
+        Assert.Null(final.MirrorOfferId);
+        if (choice == "cancel")
+        {
+            Assert.Equal(UpdateDownloadState.Idle, final.State);
+            AssertNothingKept();
+        }
+        else
+        {
+            Assert.Equal(UpdateDownloadState.Ready, final.State);
+            Assert.Equal(Installer, await File.ReadAllBytesAsync(InstallerPath()));
+        }
+        Assert.Equal(choice is "accept" or "cancel" ? prefix : Installer.Length, github.BytesRead);
+        Assert.Equal(choice is "accept" or "mirror unavailable after accept" ? 2 : 1, mirrorOpens);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SlowInstallerDoesNotOfferAnUnavailableOrMismatchedMirror(bool mismatched)
+    {
+        var github = new PausedInstaller(1024);
+        var transport = new Transport().Publish(Published, Installer, body: github);
+        if (mismatched)
+            MirrorInstaller(transport, new string('0', 64));
+
+        var service = Service(transport, limits: Limits() with { SlowWindow = TimeSpan.FromMilliseconds(80) });
+        service.Start();
+        await EventuallyAsync(() => transport.Requests.Contains(Mirror(Exe + ".sha256")), "slow GitHub should probe once");
+        github.Resume();
+
+        var final = await SettleAsync(service);
+        Assert.Equal(UpdateDownloadState.Ready, final.State);
+        Assert.Null(final.MirrorOfferId);
+        Assert.Equal(Installer, await File.ReadAllBytesAsync(InstallerPath()));
+        Assert.DoesNotContain(Mirror(Exe), transport.Requests);
+        Assert.Single(transport.Requests, request => request == Mirror(Exe + ".sha256"));
+    }
+
+    [Theory]
+    [InlineData(100, 100, 400, 1, true)]
+    [InlineData(760, 100, 400, 0, false)]
+    [InlineData(400, 100, 400, 4, false)]
+    [InlineData(400, 100, 100, 0, false)]
+    [InlineData(950, 0, 400, 4, true)]
+    [InlineData(1000, 0, 400, 0, false)]
+    public void MirrorMustBeatRemainingPrimaryTimeIncludingRestart(
+        long received, double primaryRate, double mirrorRate, double setupSeconds, bool expected)
+    {
+        Assert.Equal(expected,
+            UpdateDownloadTransfer.MirrorFinishesSooner(1000, received, primaryRate, mirrorRate, setupSeconds));
+    }
+
+    private sealed class PausedInstaller(int prefixLength) : BodyStream
+    {
+        private readonly TaskCompletionSource _resume = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _position;
+
+        public int BytesRead => Volatile.Read(ref _position);
+        public void Resume() => _resume.TrySetResult();
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            var end = prefixLength;
+            if (_position >= prefixLength)
+            {
+                await _resume.Task.WaitAsync(cancellationToken);
+                end = Installer.Length;
+            }
+            var read = Math.Min(buffer.Length, end - _position);
+            Installer.AsMemory(_position, read).CopyTo(buffer);
+            Volatile.Write(ref _position, _position + read);
+            return read;
+        }
+    }
+
     [Fact]
     public async Task AValidPrimaryCheckDoesNotContactMirror()
     {

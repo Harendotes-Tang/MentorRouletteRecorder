@@ -42,6 +42,7 @@ public sealed class UpdateDownloadService : IDisposable
     private readonly object _gate = new();
 
     private UpdateDownloadSnapshot _current = UpdateDownloadSnapshot.Idle;
+    private MirrorOffer? _mirrorOffer;
     private Job? _job;
     private long _generation;
     private long? _withdrawn;
@@ -102,7 +103,56 @@ public sealed class UpdateDownloadService : IDisposable
     {
         lock (_gate)
         {
-            return _current;
+            return SnapshotLocked();
+        }
+    }
+
+    /// <summary>Resolves the matching offer once. Late responses return the current state without changing it.</summary>
+    /// <param name="offerId">ID from the current download snapshot.</param>
+    /// <param name="useGitCode">True to attempt the switch, false to continue GitHub.</param>
+    public UpdateDownloadSnapshot ResolveMirrorOffer(string offerId, bool useGitCode)
+    {
+        lock (_gate)
+        {
+            if (_mirrorOffer is { } offer &&
+                string.Equals(SnapshotLocked().MirrorOfferId, offerId, StringComparison.OrdinalIgnoreCase))
+            {
+                _mirrorOffer = null;
+                offer.Decision.TrySetResult(useGitCode);
+            }
+            return SnapshotLocked();
+        }
+    }
+
+    private UpdateDownloadSnapshot SnapshotLocked() =>
+        _current.State == UpdateDownloadState.Downloading && _mirrorOffer is { } offer &&
+        offer.Generation == _generation
+            ? _current with { MirrorOfferId = offer.Id }
+            : _current;
+
+    private async Task<bool> OfferMirrorAsync(long generation, CancellationToken cancellation)
+    {
+        var offer = new MirrorOffer(generation);
+        lock (_gate)
+        {
+            if (_disposed || generation != _generation || _current.State != UpdateDownloadState.Downloading ||
+                cancellation.IsCancellationRequested)
+            {
+                return false;
+            }
+            _mirrorOffer = offer;
+        }
+
+        try
+        {
+            return await offer.Decision.Task.WaitAsync(cancellation).ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                if (ReferenceEquals(_mirrorOffer, offer)) _mirrorOffer = null;
+            }
         }
     }
 
@@ -122,7 +172,7 @@ public sealed class UpdateDownloadService : IDisposable
         {
             if (_disposed || _current.IsRunning)
             {
-                return _current;
+                return SnapshotLocked();
             }
 
             var check = _check.Snapshot();
@@ -387,7 +437,8 @@ public sealed class UpdateDownloadService : IDisposable
         });
 
         var transfer = new UpdateDownloadTransfer(
-            _client, _files, _limits, version, snapshot => Publish(generation, snapshot));
+            _client, _files, _limits, version, snapshot => Publish(generation, snapshot),
+            token => OfferMirrorAsync(generation, token));
         UpdateDownloadSnapshot outcome;
         string? errorType = null;
         try
@@ -457,6 +508,12 @@ public sealed class UpdateDownloadService : IDisposable
 
             return true;
         }
+    }
+
+    private sealed record MirrorOffer(long Generation)
+    {
+        public string Id { get; } = Guid.NewGuid().ToString();
+        public TaskCompletionSource<bool> Decision { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     private sealed record Job(Task Task, CancellationTokenSource Cancellation)

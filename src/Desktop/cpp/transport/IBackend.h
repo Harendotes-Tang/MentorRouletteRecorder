@@ -423,6 +423,9 @@ public:
     /// what was written; changes nothing in any other state.
     BackendReply *cancelUpdateDownload();
 
+    /// Resolve the offer reported by the Collector for an in-progress installer download.
+    BackendReply *resolveUpdateMirrorOffer(const QString &offerId, bool useGitCode);
+
 Q_SIGNALS:
     void connectionChanged();
     /// One LiveEvent payload (see $defs/LiveEvent).

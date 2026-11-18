@@ -179,6 +179,9 @@ QJsonObject argsFor(const QString &messageType)
         // The one optional field set, so the sample pins its name: the maintainer
         // tools' 重新下载最新正式版. 下载并安装 itself sends {} (the default false).
         args.insert(QStringLiteral("reinstall"), true);
+    } else if (messageType == QLatin1String("ResolveUpdateMirrorOffer")) {
+        args.insert(QStringLiteral("offer_id"), QStringLiteral("11111111-2222-4333-8444-666666666706"));
+        args.insert(QStringLiteral("use_gitcode"), true);
     } else if (messageType == QLatin1String("UpdateSpeechSettings")) {
         // All six optional fields at once, as in the hand-written sample: an
         // obvious fake key and a documentation host, never a real service.
@@ -324,6 +327,7 @@ QStringList allMessageTypes()
         QStringLiteral("CheckUpdateNow"),
         QStringLiteral("StartUpdateDownload"),
         QStringLiteral("CancelUpdateDownload"),
+        QStringLiteral("ResolveUpdateMirrorOffer"),
         QStringLiteral("BatchMutateRuns"),
         QStringLiteral("GetHistoryRetentionSettings"),
         QStringLiteral("UpdateHistoryRetentionSettings"),

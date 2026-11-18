@@ -76,7 +76,7 @@ public sealed class MessageDispatcher
         "GetCalibrationEvidence", "GetTemplateObservation",
         "RejectSharedCalibration",
         "GetSpeechSettings", "UpdateSpeechSettings", "SynthesizeSpeech", "CheckDatabaseIntegrity",
-        "CheckUpdateNow", "StartUpdateDownload", "CancelUpdateDownload",
+        "CheckUpdateNow", "StartUpdateDownload", "CancelUpdateDownload", "ResolveUpdateMirrorOffer",
     };
 
     /// <summary>
@@ -177,6 +177,7 @@ public sealed class MessageDispatcher
                 .GetAwaiter().GetResult(),
             "StartUpdateDownload" => UpdateHandlers.StartDownload(_host, reader),
             "CancelUpdateDownload" => UpdateHandlers.CancelDownload(_host, reader),
+            "ResolveUpdateMirrorOffer" => UpdateHandlers.ResolveMirrorOffer(_host, reader),
             _ => throw UnknownMessageType(request.MessageType),
         };
     }

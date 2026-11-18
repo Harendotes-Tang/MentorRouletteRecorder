@@ -162,6 +162,8 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
 * 页头右侧的区服筛选（`dashboardRegionFilter`，`components/RecordRegionSelector.qml`）可选「全部区服」与四个区服
   （「国服 CN」「繁中服 TC」「国际服 GLOBAL」「未知区服」），写入 `App.recordRegion`；它同时决定总览的统计卡、趋势与结果分布，以及副本统计、职业统计两页的
   `region` 筛选（`StatisticsController::setRecordRegion`）。
+  尚未手动选择时，区服随界面语言切换：简体中文选国服，繁體中文选繁中服，英语和日语选国际服。
+  手动选择后（包括「全部区服」），该选择会保存到本机，重启或更改界面语言后继续使用。
   成就进度按区服分卡（`components/RegionalAchievementCard.qml`）：选定某一区服时只有该区服一张；
   「全部区服」时依次为国服、繁中服，以及有成就数据的国际服、未知区服各一张，多于一张时改用紧凑尺寸。
   每张卡的标题为「<区服> · 成就进度 · N 次」，下方为「还差 N 次」与「含起始次数 N 次」及「修改」按钮；
@@ -184,7 +186,8 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   采集服务认出了一个玩家尚未说明的角色时（`DashboardStats.identities` 中该区服有 `PENDING` 项），进度环上方出现提示框
   （`components/CharacterIdentityPrompt.qml`，`characterIdentityPrompt_<区服>`），只有一个角色的区服同样出现。
   升级档案待确认时，`registration_profile_id` 提供「原有记录」的档案，提示框的「登记并绑定原有记录」打开姓名输入框。
-  确认后保留这个档案的旧记录和成就进度。
+  确认后保留这个档案的旧记录和成就进度。首次识别的是其他角色时，仍可点「这是一个新角色」、选择其他已有档案或「不统计这个角色」。
+  已经绑定的角色提供「设置 › 成就」的解除说明，解除后再选择正确的归属。
   标题「发现了一个还没有登记的角色」，正文说明它已有几条记录（`run_count`）、在说明之前不计入任何角色的进度、
   说明后这些记录会自动归到那个角色名下。一次只问一个，其余的在正文下注明「另外还有 N 个角色等待说明」。三种回答：
   * 「这是一个新角色」（`characterIdentityNew_<区服>`）打开 `CharacterProfileDialog`，标题为「登记新角色」，

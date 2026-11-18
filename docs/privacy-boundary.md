@@ -888,6 +888,10 @@ GitCode 起始地址为固定的 `/api/v5/repos/Harendotes-Tang/MentorRouletteRe
 文件名只能是上述同版本安装程序或 `.sha256`。已从 GitHub 取得的 SHA-256 保持为预期值；镜像公布不同 SHA-256 时拒绝安装。
 用户取消、禁用、总体超时、本机文件读写失败或最终保留文件被改写时，不改用镜像重试。
 
+已知安装包大小时，GitHub 连续 15 秒平均低于 256 KiB/s 会触发一次后台镜像探测。探测共用 5 秒预算，
+读取同版本的校验值和最多 256 KiB 的安装包内容。校验值一致且估计从头下载仍可更早完成时，软件会询问是否切换。
+探测和等待选择期间 GitHub 继续下载。用户选中 GitCode 后，镜像连接可用且预计仍更快时才丢弃 GitHub 的部分文件。
+
 每个附件请求显式跟随重定向、最多 3 跳。每一跳都必须是默认端口、不带用户信息及片段的 HTTPS 地址；按来源限定：
 
 - GitHub：本项目该版本的 `/Harendotes-Tang/MentorRouletteRecorder/releases/download/v<版本>/`，路径不含转义字符；

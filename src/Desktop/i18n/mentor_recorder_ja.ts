@@ -2129,6 +2129,14 @@ SHA256：%3</translation>
         <translation>まだ登録されていないキャラクターが見つかりました</translation>
     </message>
     <message>
+        <source>输入角色名并确认绑定「原有记录」。已有记录和成就进度会保留。</source>
+        <translation>キャラクター名を入力し、「既存の記録」との紐づけを確認してください。記録とアチーブメントの進捗は引き継がれます。</translation>
+    </message>
+    <message>
+        <source>如果认错了角色，可在「设置 › 成就」解除绑定。</source>
+        <translation>別のキャラクターに紐づけられている場合は、「設定 › アチーブメント」で解除できます。</translation>
+    </message>
+    <message>
         <source>它已经有 %1 条记录，现在不计入任何角色的进度。</source>
         <translation>すでに %1 件の記録がありますが、今はどのキャラクターの進捗にも含まれていません。</translation>
     </message>
@@ -2143,6 +2151,10 @@ SHA256：%3</translation>
     <message>
         <source>另外还有 %1 个角色等待说明，回答完这一个再问下一个。</source>
         <translation>ほかに %1 人のキャラクターが指定待ちです。このキャラクターに答えると次を尋ねます。</translation>
+    </message>
+    <message>
+        <source>登记并绑定原有记录</source>
+        <translation>既存の記録と紐づける</translation>
     </message>
     <message>
         <source>这是一个新角色</source>
@@ -2172,14 +2184,6 @@ SHA256：%3</translation>
         <source>不统计这个角色</source>
         <translation>このキャラクターは集計しない</translation>
     </message>
-    <message>
-        <source>输入角色名并确认绑定「原有记录」。已有记录和成就进度会保留。</source>
-        <translation>キャラクター名を入力し、「既存の記録」との紐づけを確認してください。記録とアチーブメントの進捗は引き継がれます。</translation>
-    </message>
-    <message>
-        <source>登记并绑定原有记录</source>
-        <translation>既存の記録と紐づける</translation>
-    </message>
 </context>
 <context>
     <name>CharacterNames</name>
@@ -2205,6 +2209,10 @@ SHA256：%3</translation>
     <message>
         <source>给角色改名</source>
         <translation>キャラクターの名前を変更</translation>
+    </message>
+    <message>
+        <source>登记原有角色</source>
+        <translation>既存のキャラクターを登録</translation>
     </message>
     <message>
         <source>登记新角色</source>
@@ -2253,10 +2261,6 @@ SHA256：%3</translation>
     <message>
         <source>保存</source>
         <translation>保存</translation>
-    </message>
-    <message>
-        <source>登记原有角色</source>
-        <translation>既存のキャラクターを登録</translation>
     </message>
     <message>
         <source>确认绑定</source>
@@ -5513,6 +5517,10 @@ SHA256：%3</translation>
         <translation>既定では、起動時と実行中に定期的に更新を確認します。まず GitHub 上の本プロジェクトの公開リリースページからバージョン情報を読み取り（GitHub から読み込めない場合は、GitCode 上の同名のミラーから読み込みます）、新しいバージョンがあれば概要に表示します。「更新を確認」から手動でも確認できます。「インストーラーをダウンロード」はダウンロード（こちらもまず GitHub から行い、失敗した場合は GitCode のミラーから行います）と公開チェックサムによる検証のみを行います。準備ができたら「今すぐインストール」で起動すると、このアプリは終了し、インストーラーが更新を行います。リクエストにアカウント、インストールID、端末識別情報は含まれません。GitHub、GitCode とそれらのダウンロードサービスにはIPアドレスが伝わります。アプリが勝手に更新をダウンロードまたはインストールすることはありません。設定 → 全般 → 更新で「新しいバージョンを確認して通知」をオフにすると、確認が無効になり、ダウンロードが中止され、準備済みのインストーラーも削除されます。</translation>
     </message>
     <message>
+        <source>GitHub 持续低速时，软件会探测 GitCode 镜像。如果预计能更早下载完成，软件会先询问再切换。</source>
+        <translation>GitHub の低速状態が続くと、GitCode ミラーを試します。早く完了する見込みがあれば、切り替える前に確認します。</translation>
+    </message>
+    <message>
         <source>运行顺序</source>
         <translation>使う手順</translation>
     </message>
@@ -8656,6 +8664,10 @@ SHA256：%3</translation>
         <translation>照合チェック</translation>
     </message>
     <message>
+        <source>意见反馈</source>
+        <translation>フィードバック</translation>
+    </message>
+    <message>
         <source>FF14</source>
         <translation>FF14</translation>
     </message>
@@ -8680,8 +8692,16 @@ SHA256：%3</translation>
         <translation>準備完了</translation>
     </message>
     <message>
-        <source>意见反馈</source>
-        <translation>フィードバック</translation>
+        <source>未安装</source>
+        <translation>未インストール</translation>
+    </message>
+    <message>
+        <source>捕获</source>
+        <translation>キャプチャ</translation>
+    </message>
+    <message>
+        <source>已收起到待处理，记录和草稿已保留</source>
+        <translation>要確認に移しました。記録と下書きは残っています</translation>
     </message>
     <message>
         <source>在 GitHub 反馈</source>
@@ -8700,16 +8720,20 @@ SHA256：%3</translation>
         <translation>メールアプリを開けませんでした。アドレスをコピーしてメールを送信できます。</translation>
     </message>
     <message>
-        <source>未安装</source>
-        <translation>未インストール</translation>
+        <source>切换到 GitCode 下载？</source>
+        <translation>GitCode に切り替えてダウンロードしますか？</translation>
     </message>
     <message>
-        <source>捕获</source>
-        <translation>キャプチャ</translation>
+        <source>GitCode 预计更早下载完成。切换后会从头下载，等待选择时 GitHub 会继续下载。</source>
+        <translation>GitCode の方が早く完了する見込みです。切り替えると最初からダウンロードします。選択するまでは GitHub からのダウンロードが続きます。</translation>
     </message>
     <message>
-        <source>已收起到待处理，记录和草稿已保留</source>
-        <translation>要確認に移しました。記録と下書きは残っています</translation>
+        <source>继续 GitHub</source>
+        <translation>GitHub で続ける</translation>
+    </message>
+    <message>
+        <source>切换到 GitCode</source>
+        <translation>GitCode に切り替える</translation>
     </message>
     <message>
         <source>原因</source>
@@ -9359,8 +9383,20 @@ SHA256：%3</translation>
         <translation>メンタールーレット記録 · 自動記録を利用できません</translation>
     </message>
     <message>
+        <source>导随记录器 · 自动记录已恢复</source>
+        <translation>メンタールーレット記録 · 自動記録が復旧しました</translation>
+    </message>
+    <message>
         <source>自动记录暂不可用</source>
         <translation>自動記録を利用できません</translation>
+    </message>
+    <message>
+        <source>自动记录已恢复</source>
+        <translation>自動記録が復旧しました</translation>
+    </message>
+    <message>
+        <source>已重新读取到游戏数据，可以继续自动记录。</source>
+        <translation>ゲームデータを再び読み取れるようになり、自動記録を再開できます。</translation>
     </message>
     <message>
         <source>恢复前，副本可能无法自动记录。后台仍会继续尝试恢复。</source>
@@ -11218,6 +11254,10 @@ SHA256：%3</translation>
         <translation>認識済みのゲームキャラクター</translation>
     </message>
     <message>
+        <source>尚未绑定游戏角色。</source>
+        <translation>ゲーム内キャラクターはまだ紐づけられていません。</translation>
+    </message>
+    <message>
         <source>软件已经认出 %1 个游戏角色是「%2」。认错了可以解除，下次登录时会在总览重新询问；已有的记录不变。</source>
         <translation>%1 人のゲームキャラクターを「%2」として認識しています。間違っている場合は解除できます。次回ログイン時に概要であらためて尋ねます。既存の記録は変わりません。</translation>
     </message>
@@ -11311,10 +11351,6 @@ SHA256：%3</translation>
     <message>
         <source>记录保存在本机 · 无遥测 · 无云同步</source>
         <translation>記録はこの PC に保存 · テレメトリなし · クラウド同期なし</translation>
-    </message>
-    <message>
-        <source>尚未绑定游戏角色。</source>
-        <translation>ゲーム内キャラクターはまだ紐づけられていません。</translation>
     </message>
 </context>
 <context>
@@ -11704,13 +11740,6 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
-    <name>TrendBars</name>
-    <message>
-        <source>%1 · %2 次</source>
-        <translation>%1 · %2 回</translation>
-    </message>
-</context>
-<context>
     <name>UpdateDownloadStatus</name>
     <message>
         <source>在浏览器中下载</source>
@@ -11890,6 +11919,14 @@ SHA256：%3</translation>
         <translation>ブラウザを開けませんでした。https://npcap.com に手動でアクセスしてドライバーをダウンロードしてください。</translation>
     </message>
     <message>
+        <source>没能打开浏览器，请在 GitHub 的 MentorRouletteRecorder 仓库中提交反馈。</source>
+        <translation>ブラウザーを開けませんでした。GitHub の MentorRouletteRecorder リポジトリからフィードバックを送信してください。</translation>
+    </message>
+    <message>
+        <source>导随记录器意见反馈</source>
+        <translation>メンタールーレット記録ツールへのフィードバック</translation>
+    </message>
+    <message>
         <source>后台服务不可用，暂时不能自动记录。%1</source>
         <translation>バックグラウンドサービスを利用できないため、現在は自動記録できません。%1</translation>
     </message>
@@ -11923,14 +11960,6 @@ SHA256：%3</translation>
     <message>
         <source>导随完成，当前 {progress} 次，剩余 {remaining}</source>
         <translation>メンタールーレットをクリアしました。現在 {progress} 回、残り {remaining} 回です</translation>
-    </message>
-    <message>
-        <source>没能打开浏览器，请在 GitHub 的 MentorRouletteRecorder 仓库中提交反馈。</source>
-        <translation>ブラウザーを開けませんでした。GitHub の MentorRouletteRecorder リポジトリからフィードバックを送信してください。</translation>
-    </message>
-    <message>
-        <source>导随记录器意见反馈</source>
-        <translation>メンタールーレット記録ツールへのフィードバック</translation>
     </message>
     <message>
         <source>导随结束，请确认是否通关，已确认 {progress} 次</source>
@@ -12639,10 +12668,6 @@ SHA256：%3</translation>
     <message>
         <source>备份已保存到 %1 · %2 · 数据检查通过 · 已清理 %3 份旧备份</source>
         <translation>%1 にバックアップを保存しました · %2 · データチェック合格 · 古いバックアップを %3 個削除</translation>
-    </message>
-    <message>
-        <source>备份已保存到 %1 · %2 · 数据检查未通过 · 已清理 %3 份旧备份</source>
-        <translation>%1 にバックアップを保存しました · %2 · データチェック不合格 · 古いバックアップを %3 個削除</translation>
     </message>
     <message>
         <source>后台服务尚未连接，暂时无法导出诊断报告。请稍后重试。</source>
@@ -15006,6 +15031,10 @@ SHA256：%3</translation>
     <message>
         <source>暂未确认下载是否取消，请稍后查看下载状态。</source>
         <translation>ダウンロードが取り消されたかまだ確認できていません。しばらくしてからダウンロードの状態を確認してください。</translation>
+    </message>
+    <message>
+        <source>未能确认是否已切换下载源，请查看下载状态。</source>
+        <translation>ダウンロード元の切り替えを確認できませんでした。ダウンロード状況を確認してください。</translation>
     </message>
     <message>
         <source>尚未确认当前导随是否结束，暂时不能安装，请稍后再试。</source>

@@ -23,13 +23,15 @@ Window {
     readonly property bool warningWanted: !!recording
         && typeof recording.warningActive !== "undefined" && recording.warningActive
         && typeof recording.warningPending !== "undefined" && recording.warningPending
+    readonly property bool recoveryWanted: !!recording
+        && typeof recording.recoveryPending !== "undefined" && recording.recoveryPending
     signal diagnosisRequested()
 
     transientParent: null
     visible: false
     modality: Qt.NonModal
     flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus
-    title: qsTr("导随记录器 · 自动记录暂不可用")
+    title: recoveryWanted ? qsTr("导随记录器 · 自动记录已恢复") : qsTr("导随记录器 · 自动记录暂不可用")
     color: "transparent"
     width: Math.max(300, Math.min(440, availableGeometry.width - 32))
     height: Math.min(warningContent.implicitHeight + 40, availableGeometry.height - 32)
@@ -53,7 +55,7 @@ Window {
     }
 
     function synchronize() {
-        if (warningWanted && !foregroundDialogVisible) {
+        if (recoveryWanted || (warningWanted && !foregroundDialogVisible)) {
             if (!visible) showWarning()
         } else {
             hide()
@@ -61,6 +63,7 @@ Window {
     }
 
     onWarningWantedChanged: Qt.callLater(synchronize)
+    onRecoveryWantedChanged: Qt.callLater(synchronize)
     onForegroundDialogVisibleChanged: Qt.callLater(synchronize)
     onWidthChanged: { if (visible) placeOnScreen() }
     onHeightChanged: { if (visible) placeOnScreen() }
@@ -84,13 +87,14 @@ Window {
             Image {
                 Layout.preferredWidth: 22
                 Layout.preferredHeight: 22
-                source: Lucide.source("radio", Theme.toneColor("warn"))
+                source: warning.recoveryWanted ? Lucide.source("check", Theme.toneColor("ok"))
+                                               : Lucide.source("radio", Theme.toneColor("warn"))
                 sourceSize.width: 22 * Screen.devicePixelRatio
                 sourceSize.height: 22 * Screen.devicePixelRatio
             }
             Label {
                 Layout.fillWidth: true
-                text: qsTr("自动记录暂不可用")
+                text: warning.recoveryWanted ? qsTr("自动记录已恢复") : qsTr("自动记录暂不可用")
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fs(18)
                 font.bold: true
@@ -112,14 +116,16 @@ Window {
                 Label {
                     objectName: "recordingWarningMessage"
                     Layout.fillWidth: true
-                    text: warning.recording && typeof warning.recording.warningMessage !== "undefined"
-                          ? warning.recording.warningMessage : ""
+                    text: warning.recoveryWanted ? qsTr("已重新读取到游戏数据，可以继续自动记录。")
+                          : warning.recording && typeof warning.recording.warningMessage !== "undefined"
+                            ? warning.recording.warningMessage : ""
                     textFormat: Text.PlainText
                     wrapMode: Text.WordWrap
                     color: Theme.textPrimary
                     font.pixelSize: Theme.fs(14)
                 }
                 Label {
+                    visible: !warning.recoveryWanted
                     Layout.fillWidth: true
                     text: qsTr("恢复前，副本可能无法自动记录。后台仍会继续尝试恢复。")
                     textFormat: Text.PlainText
@@ -135,6 +141,7 @@ Window {
             Item { Layout.fillWidth: true }
             AppButton {
                 objectName: "recordingWarningDiagnose"
+                visible: !warning.recoveryWanted
                 text: qsTr("查看诊断")
                 onClicked: warning.diagnosisRequested()
             }

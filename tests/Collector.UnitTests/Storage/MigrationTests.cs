@@ -155,6 +155,11 @@ public sealed class MigrationTests
         using var command = fixture.Database.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM schema_migrations;";
         Assert.Equal((long)MigrationRunner.LatestVersion, (long)command.ExecuteScalar()!);
+
+        // A database already upgraded by 1.9.1 carries this checksum. Editing the
+        // published script would make it impossible to reopen that database.
+        command.CommandText = "SELECT checksum FROM schema_migrations WHERE version = 16;";
+        Assert.Equal("f3e886382107ce8ba1ae34b1cf2a4169dd25affeaefb99503079da13094fa037", command.ExecuteScalar());
     }
 
     [Fact]

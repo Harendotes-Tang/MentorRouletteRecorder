@@ -710,4 +710,12 @@ BackendReply *IBackend::cancelUpdateDownload()
     return request(QStringLiteral("CancelUpdateDownload"));
 }
 
+BackendReply *IBackend::resolveUpdateMirrorOffer(const QString &offerId, bool useGitCode)
+{
+    return request(QStringLiteral("ResolveUpdateMirrorOffer"), {
+        { QStringLiteral("offer_id"), offerId },
+        { QStringLiteral("use_gitcode"), useGitCode },
+    });
+}
+
 } // namespace mr

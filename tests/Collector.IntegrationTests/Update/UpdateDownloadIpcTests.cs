@@ -182,6 +182,11 @@ public sealed class UpdateDownloadIpcTests
     [InlineData("StartUpdateDownload", "{\"reinstall\":1}")]
     [InlineData("StartUpdateDownload", "{\"version\":\"9.8.7\"}")]
     [InlineData("CancelUpdateDownload", "{\"reinstall\":true}")]
+    [InlineData("ResolveUpdateMirrorOffer", "{\"offer_id\":\"missing\",\"use_gitcode\":true}")]
+    [InlineData("ResolveUpdateMirrorOffer", "{\"offer_id\":\"+0000001-0000-0000-0000-000000000000\",\"use_gitcode\":true}")]
+    [InlineData("ResolveUpdateMirrorOffer", "{\"offer_id\":\"0x000001-0000-0000-0000-000000000000\",\"use_gitcode\":true}")]
+    [InlineData("ResolveUpdateMirrorOffer", "{\"offer_id\":\"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee\\n\",\"use_gitcode\":true}")]
+    [InlineData("ResolveUpdateMirrorOffer", "{\"offer_id\":\"11111111-2222-4333-8444-666666666706\"}")]
     public async Task APayloadTheContractDoesNotDeclareIsRefused(string messageType, string payload)
     {
         await using var fixture = ServerFixture.Start();

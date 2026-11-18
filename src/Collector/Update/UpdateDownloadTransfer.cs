@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 
 namespace MentorRecorder.Collector.Update;
@@ -21,13 +22,18 @@ namespace MentorRecorder.Collector.Update;
 internal sealed class UpdateDownloadTransfer
 {
     private const int BufferBytes = 81920;
+    private const int SlowBytesPerSecond = 256 * 1024;
+    private const int ProbeBytes = 256 * 1024;
+    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(5);
 
     private readonly UpdateCheckClient _client;
     private readonly UpdateDownloadFiles _files;
     private readonly UpdateDownloadLimits _limits;
     private readonly string _version;
     private readonly Action<UpdateDownloadSnapshot> _publish;
+    private readonly Func<CancellationToken, Task<bool>> _offerMirror;
     private long? _total;
+    private long _receivedBytes;
 
     /// <summary>Prepares a download; starts nothing.</summary>
     /// <param name="client">Sends the two requests.</param>
@@ -35,12 +41,14 @@ internal sealed class UpdateDownloadTransfer
     /// <param name="limits">Size cap, idle and overall limits.</param>
     /// <param name="version">A published version: three plain numbers.</param>
     /// <param name="publish">Receives every change of state: progress, then VERIFYING.</param>
+    /// <param name="offerMirror">Asks the Desktop to resolve a faster-mirror offer until the attempt ends.</param>
     public UpdateDownloadTransfer(
         UpdateCheckClient client,
         UpdateDownloadFiles files,
         UpdateDownloadLimits limits,
         string version,
-        Action<UpdateDownloadSnapshot> publish)
+        Action<UpdateDownloadSnapshot> publish,
+        Func<CancellationToken, Task<bool>> offerMirror)
     {
         _client = client;
         _files = files;
@@ -49,10 +57,11 @@ internal sealed class UpdateDownloadTransfer
             ? version
             : throw new ArgumentException("not a published version", nameof(version));
         _publish = publish;
+        _offerMirror = offerMirror;
     }
 
     /// <summary>Bytes written to the <c>.part</c> so far.</summary>
-    public long ReceivedBytes { get; private set; }
+    public long ReceivedBytes => Interlocked.Read(ref _receivedBytes);
 
     /// <summary>Runs the download to its end.</summary>
     /// <param name="cancellation">The user's cancel, or the Collector stopping.</param>
@@ -66,6 +75,7 @@ internal sealed class UpdateDownloadTransfer
 
         string? expected = null;
         UpdateDownloadFailedException? primaryFailure = null;
+        UpdateInstallerResponse? selectedMirror = null;
         foreach (var source in new[] { UpdateSource.GitHub, UpdateSource.GitCode })
         {
             cancellation.ThrowIfCancellationRequested();
@@ -80,10 +90,16 @@ internal sealed class UpdateDownloadTransfer
                 using var idle = CancellationTokenSource.CreateLinkedTokenSource(overall.Token);
                 idle.CancelAfter(_limits.IdleTimeout);
                 using var installer = await OpenAsync(source, cancellation, idle.Token).ConfigureAwait(false);
-                _total = installer.ContentLength;
-                ReceivedBytes = 0;
-                _publish(UpdateDownloadSnapshot.Downloading(_version, 0, _total));
-                return await StoreAsync(installer.Body!, expected, cancellation, overall.Token, idle).ConfigureAwait(false);
+                if (source == UpdateSource.GitHub && installer.ContentLength is > 0)
+                {
+                    var (ready, mirror) = await StorePrimaryAsync(installer, expected, cancellation, overall.Token, idle)
+                        .ConfigureAwait(false);
+                    if (ready is not null) return ready;
+                    selectedMirror = mirror;
+                    break;
+                }
+
+                return await StoreResponseAsync(installer, expected, cancellation, overall.Token, idle).ConfigureAwait(false);
             }
             catch (UpdateDownloadFailedException ex) when (source == UpdateSource.GitHub &&
                 ex.Failure is not UpdateDownloadFailure.DiskFailed and not UpdateDownloadFailure.Disabled &&
@@ -97,7 +113,176 @@ internal sealed class UpdateDownloadTransfer
                 throw primaryFailure;
             }
         }
-        throw primaryFailure!;
+        using (selectedMirror)
+        using (var idle = CancellationTokenSource.CreateLinkedTokenSource(overall.Token))
+        {
+            cancellation.ThrowIfCancellationRequested();
+            if (overall.IsCancellationRequested) throw new UpdateDownloadFailedException(UpdateDownloadFailure.Timeout);
+            return await StoreResponseAsync(selectedMirror!, expected!, cancellation, overall.Token, idle).ConfigureAwait(false);
+        }
+    }
+
+    private Task<UpdateDownloadSnapshot> StoreResponseAsync(
+        UpdateInstallerResponse installer, string expected, CancellationToken cancellation,
+        CancellationToken overall, CancellationTokenSource idle)
+    {
+        _total = installer.ContentLength;
+        Interlocked.Exchange(ref _receivedBytes, 0);
+        _publish(UpdateDownloadSnapshot.Downloading(_version, 0, _total));
+        return StoreAsync(installer.Body!, expected, cancellation, overall, idle);
+    }
+
+    // Keep one writer. Only a successful mirror re-open can interrupt the primary's read. If the
+    // primary is already verifying, let it finish. Neither normal completion nor cancel waits on user input.
+    private async Task<(UpdateDownloadSnapshot? Ready, UpdateInstallerResponse? Mirror)> StorePrimaryAsync(
+        UpdateInstallerResponse installer, string expected, CancellationToken cancellation,
+        CancellationToken overall, CancellationTokenSource primaryIdle)
+    {
+        using var stopProbe = CancellationTokenSource.CreateLinkedTokenSource(overall);
+        var primary = StoreResponseAsync(installer, expected, cancellation, overall, primaryIdle);
+        var probe = TryPrepareMirrorAsync(expected, installer.ContentLength!.Value, stopProbe.Token);
+        var switched = false;
+        try
+        {
+            if (await Task.WhenAny(primary, probe).ConfigureAwait(false) == probe &&
+                await probe.ConfigureAwait(false) is { } mirror && !primary.IsCompleted)
+            {
+                await primaryIdle.CancelAsync().ConfigureAwait(false);
+                try
+                {
+                    return (await primary.ConfigureAwait(false), null);
+                }
+                catch (UpdateDownloadFailedException ex) when (
+                    ex.Failure == UpdateDownloadFailure.Timeout && !overall.IsCancellationRequested)
+                {
+                    switched = true;
+                    return (null, mirror);
+                }
+            }
+
+            return (await primary.ConfigureAwait(false), null);
+        }
+        finally
+        {
+            await stopProbe.CancelAsync().ConfigureAwait(false);
+            var unused = await probe.ConfigureAwait(false);
+            if (!switched) unused?.Dispose();
+        }
+    }
+
+    private async Task<UpdateInstallerResponse?> TryPrepareMirrorAsync(
+        string expected, long total, CancellationToken cancellation)
+    {
+        try
+        {
+            var primaryRate = await WaitForSlowPrimaryAsync(cancellation).ConfigureAwait(false);
+            if (ReceivedBytes >= total) return null;
+            var sampleStart = Stopwatch.GetTimestamp();
+            var primaryBytes = ReceivedBytes;
+            var sample = await ProbeMirrorAsync(expected, total, cancellation).ConfigureAwait(false);
+            primaryRate = Math.Max(primaryRate, Rate(ReceivedBytes - primaryBytes, sampleStart, minimumSeconds: 1));
+            if (sample is not { } mirror || !MirrorFinishesSooner(total, ReceivedBytes, primaryRate,
+                    mirror.BytesPerSecond, mirror.SetupSeconds))
+            {
+                return null;
+            }
+
+            var decisionStart = Stopwatch.GetTimestamp();
+            primaryBytes = ReceivedBytes;
+            if (!await _offerMirror(cancellation).ConfigureAwait(false)) return null;
+
+            primaryRate = Math.Max(primaryRate, Rate(ReceivedBytes - primaryBytes, decisionStart, minimumSeconds: 1));
+            if (!MirrorFinishesSooner(total, ReceivedBytes, primaryRate, mirror.BytesPerSecond, mirror.SetupSeconds))
+            {
+                return null;
+            }
+
+            // Reuse the pinned GitHub digest. The first request verified the mirror's published
+            // digest, and the full file is still hashed against the original after the switch.
+            using var reopen = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+            reopen.CancelAfter(ProbeTimeout);
+            var installer = await OpenAsync(UpdateSource.GitCode, cancellation, reopen.Token).ConfigureAwait(false);
+            primaryRate = Math.Max(primaryRate, Rate(ReceivedBytes - primaryBytes, decisionStart, minimumSeconds: 1));
+            if (!cancellation.IsCancellationRequested && installer.ContentLength == total &&
+                MirrorFinishesSooner(total, ReceivedBytes, primaryRate, mirror.BytesPerSecond, setupSeconds: 0))
+            {
+                return installer;
+            }
+            installer.Dispose();
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            // GitHub completed, or the download was cancelled or timed out.
+        }
+        catch (UpdateDownloadFailedException)
+        {
+            // An optional probe or re-open failure leaves the primary download in flight.
+        }
+        return null;
+    }
+
+    private async Task<double> WaitForSlowPrimaryAsync(CancellationToken cancellation)
+    {
+        var samples = new Queue<(long Time, long Bytes)>();
+        var interval = _limits.SlowWindow / 15;
+        while (true)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            var now = Stopwatch.GetTimestamp();
+            var bytes = ReceivedBytes;
+            while (samples.TryPeek(out var oldest))
+            {
+                var elapsed = Stopwatch.GetElapsedTime(oldest.Time, now);
+                if (elapsed < _limits.SlowWindow) break;
+                samples.Dequeue();
+                var rate = (bytes - oldest.Bytes) / elapsed.TotalSeconds;
+                if (rate < SlowBytesPerSecond) return rate;
+            }
+            samples.Enqueue((now, bytes));
+            await Task.Delay(interval, cancellation).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<MirrorSample?> ProbeMirrorAsync(string expected, long total, CancellationToken cancellation)
+    {
+        var start = Stopwatch.GetTimestamp();
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        budget.CancelAfter(ProbeTimeout);
+        if (await ChecksumAsync(UpdateSource.GitCode, cancellation, budget.Token).ConfigureAwait(false) != expected)
+            return null;
+
+        using var installer = await OpenAsync(UpdateSource.GitCode, cancellation, budget.Token).ConfigureAwait(false);
+        if (installer.ContentLength != total) return null;
+
+        var sampleStart = Stopwatch.GetTimestamp();
+        var setupSeconds = Stopwatch.GetElapsedTime(start, sampleStart).TotalSeconds;
+        using var idle = CancellationTokenSource.CreateLinkedTokenSource(budget.Token);
+        var take = (int)Math.Min(ProbeBytes, total);
+        var buffer = new byte[Math.Min(BufferBytes, take)];
+        var received = 0;
+        while (received < take)
+        {
+            var read = await ReadAsync(installer.Body!, buffer.AsMemory(0, Math.Min(buffer.Length, take - received)),
+                cancellation, idle).ConfigureAwait(false);
+            if (read == 0) return null;
+            received += read;
+        }
+
+        return budget.IsCancellationRequested ? null : new MirrorSample(Rate(received, sampleStart), setupSeconds);
+    }
+
+    private readonly record struct MirrorSample(double BytesPerSecond, double SetupSeconds);
+
+    private static double Rate(long bytes, long start, double minimumSeconds = 0.001) =>
+        bytes / Math.Max(Stopwatch.GetElapsedTime(start).TotalSeconds, minimumSeconds);
+
+    internal static bool MirrorFinishesSooner(
+        long total, long received, double primaryRate, double mirrorRate, double setupSeconds)
+    {
+        // Compare durations without dividing by a possibly stalled primary's rate.
+        var remaining = total - received;
+        return remaining > 0 && mirrorRate > primaryRate &&
+            (setupSeconds + total / mirrorRate) * primaryRate < remaining;
     }
 
     /// <summary>
@@ -236,7 +421,7 @@ internal sealed class UpdateDownloadTransfer
 
             hash.AppendData(buffer, 0, read);
             await part.WriteAsync(buffer.AsMemory(0, read), overall).ConfigureAwait(false);
-            ReceivedBytes += read;
+            Interlocked.Add(ref _receivedBytes, read);
             _publish(UpdateDownloadSnapshot.Downloading(_version, ReceivedBytes, _total));
         }
 
@@ -254,7 +439,7 @@ internal sealed class UpdateDownloadTransfer
     /// spent waiting for the network.
     /// </summary>
     private async Task<int> ReadAsync(
-        Stream body, byte[] buffer, CancellationToken cancellation, CancellationTokenSource idle)
+        Stream body, Memory<byte> buffer, CancellationToken cancellation, CancellationTokenSource idle)
     {
         if (_client.IsDisabledNow) throw new UpdateDownloadFailedException(UpdateDownloadFailure.Disabled);
         idle.CancelAfter(_limits.IdleTimeout);

@@ -2129,6 +2129,14 @@ SHA256：%3</translation>
         <translation>發現了一個還沒有登記的角色</translation>
     </message>
     <message>
+        <source>输入角色名并确认绑定「原有记录」。已有记录和成就进度会保留。</source>
+        <translation>輸入角色名稱並確認綁定「原有紀錄」。已有紀錄與成就進度會保留。</translation>
+    </message>
+    <message>
+        <source>如果认错了角色，可在「设置 › 成就」解除绑定。</source>
+        <translation>如果認錯了角色，可以在「設定 › 成就」解除綁定。</translation>
+    </message>
+    <message>
         <source>它已经有 %1 条记录，现在不计入任何角色的进度。</source>
         <translation>它已經有 %1 筆記錄，現在不計入任何角色的進度。</translation>
     </message>
@@ -2143,6 +2151,10 @@ SHA256：%3</translation>
     <message>
         <source>另外还有 %1 个角色等待说明，回答完这一个再问下一个。</source>
         <translation>另外還有 %1 個角色等待說明，回答完這一個再問下一個。</translation>
+    </message>
+    <message>
+        <source>登记并绑定原有记录</source>
+        <translation>登記並綁定原有紀錄</translation>
     </message>
     <message>
         <source>这是一个新角色</source>
@@ -2172,14 +2184,6 @@ SHA256：%3</translation>
         <source>不统计这个角色</source>
         <translation>不統計這個角色</translation>
     </message>
-    <message>
-        <source>输入角色名并确认绑定「原有记录」。已有记录和成就进度会保留。</source>
-        <translation>輸入角色名稱並確認綁定「原有紀錄」。已有紀錄與成就進度會保留。</translation>
-    </message>
-    <message>
-        <source>登记并绑定原有记录</source>
-        <translation>登記並綁定原有紀錄</translation>
-    </message>
 </context>
 <context>
     <name>CharacterNames</name>
@@ -2205,6 +2209,10 @@ SHA256：%3</translation>
     <message>
         <source>给角色改名</source>
         <translation>為角色改名</translation>
+    </message>
+    <message>
+        <source>登记原有角色</source>
+        <translation>登記原有角色</translation>
     </message>
     <message>
         <source>登记新角色</source>
@@ -2253,10 +2261,6 @@ SHA256：%3</translation>
     <message>
         <source>保存</source>
         <translation>儲存</translation>
-    </message>
-    <message>
-        <source>登记原有角色</source>
-        <translation>登記原有角色</translation>
     </message>
     <message>
         <source>确认绑定</source>
@@ -5513,6 +5517,10 @@ SHA256：%3</translation>
         <translation>預設在啟動軟體時及持續執行期間定期檢查更新，先從本專案在 GitHub 的公開發布頁讀取版本資訊（GitHub 讀取失敗時，改從它在 GitCode 上的同名鏡像讀取），有新版本時在總覽提示。也可點「檢查更新」主動檢查。點「下載安裝程式」只下載安裝程式（同樣先從 GitHub 下載，失敗時改從 GitCode 鏡像下載），並核對發布時公布的校驗值；通過後還需點「立即安裝」啟動安裝程式，本軟體隨後關閉，由安裝程式完成更新。請求不含帳號、安裝編號或裝置身分資訊，GitHub、GitCode 及其下載服務能看到你的 IP 位址。軟體不會自行下載或安裝。可在「設定 → 一般 → 更新」關閉「檢查新版本並提示」，關閉後「檢查更新」也無法使用，進行中的下載會取消，已準備好的安裝程式會刪除。</translation>
     </message>
     <message>
+        <source>GitHub 持续低速时，软件会探测 GitCode 镜像。如果预计能更早下载完成，软件会先询问再切换。</source>
+        <translation>GitHub 持續低速時，軟體會測試 GitCode 鏡像。如果預計能更早下載完成，會先詢問再切換。</translation>
+    </message>
+    <message>
         <source>运行顺序</source>
         <translation>執行順序</translation>
     </message>
@@ -8656,6 +8664,10 @@ SHA256：%3</translation>
         <translation>對照核對</translation>
     </message>
     <message>
+        <source>意见反馈</source>
+        <translation>意見回饋</translation>
+    </message>
+    <message>
         <source>FF14</source>
         <translation>FF14</translation>
     </message>
@@ -8680,8 +8692,16 @@ SHA256：%3</translation>
         <translation>就緒</translation>
     </message>
     <message>
-        <source>意见反馈</source>
-        <translation>意見回饋</translation>
+        <source>未安装</source>
+        <translation>未安裝</translation>
+    </message>
+    <message>
+        <source>捕获</source>
+        <translation>擷取</translation>
+    </message>
+    <message>
+        <source>已收起到待处理，记录和草稿已保留</source>
+        <translation>已收合到待處理，記錄和草稿已保留</translation>
     </message>
     <message>
         <source>在 GitHub 反馈</source>
@@ -8700,16 +8720,20 @@ SHA256：%3</translation>
         <translation>無法開啟郵件應用程式。可以複製電子郵件地址後手動寄送。</translation>
     </message>
     <message>
-        <source>未安装</source>
-        <translation>未安裝</translation>
+        <source>切换到 GitCode 下载？</source>
+        <translation>切換到 GitCode 下載？</translation>
     </message>
     <message>
-        <source>捕获</source>
-        <translation>擷取</translation>
+        <source>GitCode 预计更早下载完成。切换后会从头下载，等待选择时 GitHub 会继续下载。</source>
+        <translation>GitCode 預計能更早下載完成。切換後會從頭下載，等待選擇時 GitHub 會繼續下載。</translation>
     </message>
     <message>
-        <source>已收起到待处理，记录和草稿已保留</source>
-        <translation>已收合到待處理，記錄和草稿已保留</translation>
+        <source>继续 GitHub</source>
+        <translation>繼續使用 GitHub</translation>
+    </message>
+    <message>
+        <source>切换到 GitCode</source>
+        <translation>切換到 GitCode</translation>
     </message>
     <message>
         <source>原因</source>
@@ -9359,8 +9383,20 @@ SHA256：%3</translation>
         <translation>導隨記錄器 · 自動記錄暫時無法使用</translation>
     </message>
     <message>
+        <source>导随记录器 · 自动记录已恢复</source>
+        <translation>導隨記錄器 · 自動記錄已恢復</translation>
+    </message>
+    <message>
         <source>自动记录暂不可用</source>
         <translation>自動記錄暫時無法使用</translation>
+    </message>
+    <message>
+        <source>自动记录已恢复</source>
+        <translation>自動記錄已恢復</translation>
+    </message>
+    <message>
+        <source>已重新读取到游戏数据，可以继续自动记录。</source>
+        <translation>已重新讀取到遊戲資料，可以繼續自動記錄。</translation>
     </message>
     <message>
         <source>恢复前，副本可能无法自动记录。后台仍会继续尝试恢复。</source>
@@ -11218,6 +11254,10 @@ SHA256：%3</translation>
         <translation>已識別的遊戲角色</translation>
     </message>
     <message>
+        <source>尚未绑定游戏角色。</source>
+        <translation>尚未綁定遊戲角色。</translation>
+    </message>
+    <message>
         <source>软件已经认出 %1 个游戏角色是「%2」。认错了可以解除，下次登录时会在总览重新询问；已有的记录不变。</source>
         <translation>軟體已經認出 %1 個遊戲角色是「%2」。認錯了可以解除，下次登入時會在總覽重新詢問；已有的記錄不變。</translation>
     </message>
@@ -11311,10 +11351,6 @@ SHA256：%3</translation>
     <message>
         <source>记录保存在本机 · 无遥测 · 无云同步</source>
         <translation>記錄儲存在本機 · 無遙測 · 無雲端同步</translation>
-    </message>
-    <message>
-        <source>尚未绑定游戏角色。</source>
-        <translation>尚未綁定遊戲角色。</translation>
     </message>
 </context>
 <context>
@@ -11704,13 +11740,6 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
-    <name>TrendBars</name>
-    <message>
-        <source>%1 · %2 次</source>
-        <translation>%1 · %2 次</translation>
-    </message>
-</context>
-<context>
     <name>UpdateDownloadStatus</name>
     <message>
         <source>在浏览器中下载</source>
@@ -11890,6 +11919,14 @@ SHA256：%3</translation>
         <translation>無法開啟瀏覽器，請手動前往 https://npcap.com 下載驅動程式。</translation>
     </message>
     <message>
+        <source>没能打开浏览器，请在 GitHub 的 MentorRouletteRecorder 仓库中提交反馈。</source>
+        <translation>無法開啟瀏覽器，請到 GitHub 的 MentorRouletteRecorder 儲存庫提交回饋。</translation>
+    </message>
+    <message>
+        <source>导随记录器意见反馈</source>
+        <translation>導隨記錄器意見回饋</translation>
+    </message>
+    <message>
         <source>后台服务不可用，暂时不能自动记录。%1</source>
         <translation>背景服務無法使用，暫時無法自動記錄。%1</translation>
     </message>
@@ -11923,14 +11960,6 @@ SHA256：%3</translation>
     <message>
         <source>导随完成，当前 {progress} 次，剩余 {remaining}</source>
         <translation>導隨完成，目前 {progress} 次，剩餘 {remaining}</translation>
-    </message>
-    <message>
-        <source>没能打开浏览器，请在 GitHub 的 MentorRouletteRecorder 仓库中提交反馈。</source>
-        <translation>無法開啟瀏覽器，請到 GitHub 的 MentorRouletteRecorder 儲存庫提交回饋。</translation>
-    </message>
-    <message>
-        <source>导随记录器意见反馈</source>
-        <translation>導隨記錄器意見回饋</translation>
     </message>
     <message>
         <source>导随结束，请确认是否通关，已确认 {progress} 次</source>
@@ -12639,10 +12668,6 @@ SHA256：%3</translation>
     <message>
         <source>备份已保存到 %1 · %2 · 数据检查通过 · 已清理 %3 份旧备份</source>
         <translation>備份已儲存到 %1 · %2 · 資料檢查通過 · 已清理 %3 份舊備份</translation>
-    </message>
-    <message>
-        <source>备份已保存到 %1 · %2 · 数据检查未通过 · 已清理 %3 份旧备份</source>
-        <translation>備份已儲存到 %1 · %2 · 資料檢查未通過 · 已清理 %3 份舊備份</translation>
     </message>
     <message>
         <source>后台服务尚未连接，暂时无法导出诊断报告。请稍后重试。</source>
@@ -15006,6 +15031,10 @@ SHA256：%3</translation>
     <message>
         <source>暂未确认下载是否取消，请稍后查看下载状态。</source>
         <translation>尚未確認下載是否已取消，請稍後檢視下載狀態。</translation>
+    </message>
+    <message>
+        <source>未能确认是否已切换下载源，请查看下载状态。</source>
+        <translation>無法確認是否已切換下載來源，請查看下載狀態。</translation>
     </message>
     <message>
         <source>尚未确认当前导随是否结束，暂时不能安装，请稍后再试。</source>

@@ -311,6 +311,9 @@ QJsonObject IpcBackend::buildRequestForTest(const QString &messageType,
         backend.startUpdateDownload(args.value(QLatin1String("reinstall")).toBool(false));
     } else if (messageType == QLatin1String("CancelUpdateDownload")) {
         backend.cancelUpdateDownload();
+    } else if (messageType == QLatin1String("ResolveUpdateMirrorOffer")) {
+        backend.resolveUpdateMirrorOffer(stringArg(args, "offer_id"),
+                                         args.value(QLatin1String("use_gitcode")).toBool());
     } else {
         return {};
 }

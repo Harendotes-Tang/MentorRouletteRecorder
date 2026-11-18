@@ -5,7 +5,7 @@ import QtQuick.Controls 6.8
 import QtQuick.Layouts
 import MentorRecorder 1.0
 
-// 添加角色 / 给角色改名（设置 · 成就），以及把一个还没有登记的角色登记为新角色（总览）。
+// 设置页用来添加和改名；总览也用它登记新角色或确认升级前的档案。
 //
 // The name is what the player calls the character here - 大号, 小号 - and is
 // never read from the game. Adding asks for the character's own goal and
@@ -16,9 +16,8 @@ MotionDialog {
 
     // 0 adds a character to `region`; otherwise the profile being renamed.
     property int profileId: 0
-    // A character the Collector told apart that this new profile is: it is bound
-    // in the same request, takes the records made for it and becomes the current
-    // character. 0 when the player is simply adding a character.
+    // With an identity, create binds a new profile and rename confirms an upgraded
+    // profile. A logged-in identity makes its profile current. Zero for settings edits.
     property int identityId: 0
     property string region: "CN"
     property string nameText: ""

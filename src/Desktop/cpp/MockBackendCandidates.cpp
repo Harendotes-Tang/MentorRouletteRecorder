@@ -3,7 +3,6 @@
 #include "IpcFraming.h"
 #include "MockData.h"
 
-#include <QRegularExpression>
 #include <QSet>
 #include <QStringList>
 
@@ -27,13 +26,6 @@ bool hasUnknownKeys(const QJsonObject &payload, const QStringList &allowed)
             return true;
     }
     return false;
-}
-
-bool isUuid(const QJsonValue &value)
-{
-    static const QRegularExpression pattern(QStringLiteral(
-        "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"));
-    return value.isString() && pattern.match(value.toString()).hasMatch();
 }
 
 bool isOptionalUtc(const QJsonValue &value)

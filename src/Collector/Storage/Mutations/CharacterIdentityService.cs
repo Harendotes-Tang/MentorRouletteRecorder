@@ -105,18 +105,15 @@ public sealed class CharacterIdentityService
         if (seen.Count == 0 && _settings.Profiles.List(transaction, region).Count <= 1)
         {
             var only = _settings.Profiles.EnsureCurrent(region, transaction);
-            if (_settings.Identities.NeedsRegistration(only.ProfileId, transaction))
+            if (!_settings.Identities.NeedsRegistration(only.ProfileId, transaction))
             {
-                var registration = _settings.Identities.Insert(region, keyId, digest, null, transaction);
-                _settings.Identities.OfferRegistration(only.ProfileId, registration.IdentityId, transaction);
-                return new CharacterIdentityObservation(registration.IdentityId, null, StatisticsChanged: true);
+                var first = _settings.Identities.Insert(region, keyId, digest, only.ProfileId, transaction);
+                return new CharacterIdentityObservation(first.IdentityId, only.ProfileId, StatisticsChanged: true);
             }
-
-            var first = _settings.Identities.Insert(region, keyId, digest, only.ProfileId, transaction);
-            return new CharacterIdentityObservation(first.IdentityId, only.ProfileId, StatisticsChanged: true);
         }
 
         var pending = _settings.Identities.Insert(region, keyId, digest, null, transaction);
+        _settings.Identities.OfferUnboundRegistration(region, pending.IdentityId, transaction);
         return new CharacterIdentityObservation(pending.IdentityId, null, StatisticsChanged: true);
     }
 

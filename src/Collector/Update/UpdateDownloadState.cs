@@ -92,6 +92,8 @@ public sealed record UpdateDownloadLimits(long MaxBytes, TimeSpan IdleTimeout, T
     /// <summary>300 MiB, 30 seconds without a byte, 30 minutes in all, a new download at most every 5 seconds.</summary>
     public static UpdateDownloadLimits Default { get; } =
         new(300L * 1024 * 1024, TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(30), TimeSpan.FromSeconds(5));
+
+    internal TimeSpan SlowWindow { get; init; } = TimeSpan.FromSeconds(15);
 }
 
 /// <summary>
@@ -107,6 +109,7 @@ public sealed record UpdateDownloadLimits(long MaxBytes, TimeSpan IdleTimeout, T
 /// <param name="Sha256">READY only: lower-case hex SHA-256 of that file, equal to the published one.</param>
 /// <param name="Failure">FAILED only: why.</param>
 /// <param name="Message">FAILED only: one sentence for the user.</param>
+/// <param name="MirrorOfferId">DOWNLOADING only: a pending choice for this GitHub attempt.</param>
 public sealed record UpdateDownloadSnapshot(
     UpdateDownloadState State,
     string? Version = null,
@@ -115,7 +118,8 @@ public sealed record UpdateDownloadSnapshot(
     string? FilePath = null,
     string? Sha256 = null,
     UpdateDownloadFailure? Failure = null,
-    UserText? Message = null)
+    UserText? Message = null,
+    string? MirrorOfferId = null)
 {
     /// <summary>Nothing asked.</summary>
     public static UpdateDownloadSnapshot Idle { get; } = new(UpdateDownloadState.Idle);

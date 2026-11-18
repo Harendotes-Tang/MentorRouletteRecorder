@@ -2129,6 +2129,14 @@ SHA256: %3</translation>
         <translation>A character that isn&apos;t registered yet</translation>
     </message>
     <message>
+        <source>输入角色名并确认绑定「原有记录」。已有记录和成就进度会保留。</source>
+        <translation>Enter a name and confirm that this character owns the original records. Its records and achievement progress will be kept.</translation>
+    </message>
+    <message>
+        <source>如果认错了角色，可在「设置 › 成就」解除绑定。</source>
+        <translation>If this is the wrong character, you can unlink it in Settings › Achievement.</translation>
+    </message>
+    <message>
         <source>它已经有 %1 条记录，现在不计入任何角色的进度。</source>
         <translation>It already has %1 record(s), which currently count toward no character&apos;s progress. </translation>
     </message>
@@ -2143,6 +2151,10 @@ SHA256: %3</translation>
     <message>
         <source>另外还有 %1 个角色等待说明，回答完这一个再问下一个。</source>
         <translation>%1 more character(s) are waiting; the next one is asked about after this one.</translation>
+    </message>
+    <message>
+        <source>登记并绑定原有记录</source>
+        <translation>Register with original records</translation>
     </message>
     <message>
         <source>这是一个新角色</source>
@@ -2172,14 +2184,6 @@ SHA256: %3</translation>
         <source>不统计这个角色</source>
         <translation>Don&apos;t track this character</translation>
     </message>
-    <message>
-        <source>输入角色名并确认绑定「原有记录」。已有记录和成就进度会保留。</source>
-        <translation>Enter a name and confirm that this character owns the original records. Its records and achievement progress will be kept.</translation>
-    </message>
-    <message>
-        <source>登记并绑定原有记录</source>
-        <translation>Register with original records</translation>
-    </message>
 </context>
 <context>
     <name>CharacterNames</name>
@@ -2205,6 +2209,10 @@ SHA256: %3</translation>
     <message>
         <source>给角色改名</source>
         <translation>Rename character</translation>
+    </message>
+    <message>
+        <source>登记原有角色</source>
+        <translation>Register existing character</translation>
     </message>
     <message>
         <source>登记新角色</source>
@@ -2253,10 +2261,6 @@ SHA256: %3</translation>
     <message>
         <source>保存</source>
         <translation>Save</translation>
-    </message>
-    <message>
-        <source>登记原有角色</source>
-        <translation>Register existing character</translation>
     </message>
     <message>
         <source>确认绑定</source>
@@ -5513,6 +5517,10 @@ SHA256: %3</translation>
         <translation>By default, the app checks for updates at startup and periodically while running. It first reads version information from this project’s public release page on GitHub (if reading from GitHub fails, it falls back to the project’s mirror of the same name on GitCode) and shows new versions on Overview. You can also click “Check for updates”. “Download installer” only downloads the installer (again from GitHub first, falling back to the GitCode mirror if that fails) and verifies the published checksum. Once ready, click “Install now” to launch it; this app then closes and the installer completes the update. Requests contain no account, installation ID or device identity. GitHub, GitCode and their download services can see your IP address. The app does not download or install updates on its own. Turn off “Check for new versions and notify me” in Settings → General → Updates to disable checks, cancel any download and remove the prepared installer.</translation>
     </message>
     <message>
+        <source>GitHub 持续低速时，软件会探测 GitCode 镜像。如果预计能更早下载完成，软件会先询问再切换。</source>
+        <translation>If GitHub stays slow, the app tests the GitCode mirror. If GitCode is expected to finish sooner, the app asks before switching.</translation>
+    </message>
+    <message>
         <source>运行顺序</source>
         <translation>Order of steps</translation>
     </message>
@@ -8656,6 +8664,10 @@ Recorder</translation>
         <translation>Cross-check</translation>
     </message>
     <message>
+        <source>意见反馈</source>
+        <translation>Feedback</translation>
+    </message>
+    <message>
         <source>FF14</source>
         <translation>FFXIV</translation>
     </message>
@@ -8680,8 +8692,16 @@ Recorder</translation>
         <translation>Ready</translation>
     </message>
     <message>
-        <source>意见反馈</source>
-        <translation>Feedback</translation>
+        <source>未安装</source>
+        <translation>Not installed</translation>
+    </message>
+    <message>
+        <source>捕获</source>
+        <translation>Capture</translation>
+    </message>
+    <message>
+        <source>已收起到待处理，记录和草稿已保留</source>
+        <translation>Moved to To review; the record and draft are kept</translation>
     </message>
     <message>
         <source>在 GitHub 反馈</source>
@@ -8700,16 +8720,20 @@ Recorder</translation>
         <translation>Couldn’t open the email app. Copy the address to send an email manually.</translation>
     </message>
     <message>
-        <source>未安装</source>
-        <translation>Not installed</translation>
+        <source>切换到 GitCode 下载？</source>
+        <translation>Switch the download to GitCode?</translation>
     </message>
     <message>
-        <source>捕获</source>
-        <translation>Capture</translation>
+        <source>GitCode 预计更早下载完成。切换后会从头下载，等待选择时 GitHub 会继续下载。</source>
+        <translation>GitCode is expected to finish sooner. Switching restarts the download. GitHub keeps downloading while you decide.</translation>
     </message>
     <message>
-        <source>已收起到待处理，记录和草稿已保留</source>
-        <translation>Moved to To review; the record and draft are kept</translation>
+        <source>继续 GitHub</source>
+        <translation>Continue on GitHub</translation>
+    </message>
+    <message>
+        <source>切换到 GitCode</source>
+        <translation>Switch to GitCode</translation>
     </message>
     <message>
         <source>原因</source>
@@ -9359,8 +9383,20 @@ Recorder</translation>
         <translation>Mentor Recorder · Automatic recording unavailable</translation>
     </message>
     <message>
+        <source>导随记录器 · 自动记录已恢复</source>
+        <translation>Mentor Recorder · Automatic recording restored</translation>
+    </message>
+    <message>
         <source>自动记录暂不可用</source>
         <translation>Automatic recording unavailable</translation>
+    </message>
+    <message>
+        <source>自动记录已恢复</source>
+        <translation>Automatic recording restored</translation>
+    </message>
+    <message>
+        <source>已重新读取到游戏数据，可以继续自动记录。</source>
+        <translation>The app can read game data again and resume automatic recording.</translation>
     </message>
     <message>
         <source>恢复前，副本可能无法自动记录。后台仍会继续尝试恢复。</source>
@@ -11218,6 +11254,10 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <translation>Recognised game characters</translation>
     </message>
     <message>
+        <source>尚未绑定游戏角色。</source>
+        <translation>No game character is bound yet.</translation>
+    </message>
+    <message>
         <source>软件已经认出 %1 个游戏角色是「%2」。认错了可以解除，下次登录时会在总览重新询问；已有的记录不变。</source>
         <translation>The app has recognised %1 game character(s) as “%2”. If that is wrong, release it: the Overview asks again at the next login. Existing records stay as they are.</translation>
     </message>
@@ -11311,10 +11351,6 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>记录保存在本机 · 无遥测 · 无云同步</source>
         <translation>Records stay on this PC · no telemetry · no cloud sync</translation>
-    </message>
-    <message>
-        <source>尚未绑定游戏角色。</source>
-        <translation>No game character is bound yet.</translation>
     </message>
 </context>
 <context>
@@ -11704,13 +11740,6 @@ The region cannot be changed while listening or collecting evidence.</translatio
     </message>
 </context>
 <context>
-    <name>TrendBars</name>
-    <message>
-        <source>%1 · %2 次</source>
-        <translation>%1 · %2 runs</translation>
-    </message>
-</context>
-<context>
     <name>UpdateDownloadStatus</name>
     <message>
         <source>在浏览器中下载</source>
@@ -11890,6 +11919,14 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <translation>Couldn&apos;t open the browser. Go to https://npcap.com yourself to download the driver.</translation>
     </message>
     <message>
+        <source>没能打开浏览器，请在 GitHub 的 MentorRouletteRecorder 仓库中提交反馈。</source>
+        <translation>Couldn&apos;t open the browser. Submit feedback in the MentorRouletteRecorder repository on GitHub.</translation>
+    </message>
+    <message>
+        <source>导随记录器意见反馈</source>
+        <translation>Mentor Roulette Recorder feedback</translation>
+    </message>
+    <message>
         <source>后台服务不可用，暂时不能自动记录。%1</source>
         <translation>The background service isn&apos;t available, so automatic recording can&apos;t run for now. %1</translation>
     </message>
@@ -11923,14 +11960,6 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>导随完成，当前 {progress} 次，剩余 {remaining}</source>
         <translation>Mentor run complete. {progress} done, {remaining} to go.</translation>
-    </message>
-    <message>
-        <source>没能打开浏览器，请在 GitHub 的 MentorRouletteRecorder 仓库中提交反馈。</source>
-        <translation>Couldn&apos;t open the browser. Submit feedback in the MentorRouletteRecorder repository on GitHub.</translation>
-    </message>
-    <message>
-        <source>导随记录器意见反馈</source>
-        <translation>Mentor Roulette Recorder feedback</translation>
     </message>
     <message>
         <source>导随结束，请确认是否通关，已确认 {progress} 次</source>
@@ -12639,10 +12668,6 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>备份已保存到 %1 · %2 · 数据检查通过 · 已清理 %3 份旧备份</source>
         <translation>Backup saved to %1 · %2 · data check passed · %3 old backups removed</translation>
-    </message>
-    <message>
-        <source>备份已保存到 %1 · %2 · 数据检查未通过 · 已清理 %3 份旧备份</source>
-        <translation>Backup saved to %1 · %2 · data check failed · %3 old backups removed</translation>
     </message>
     <message>
         <source>后台服务尚未连接，暂时无法导出诊断报告。请稍后重试。</source>
@@ -15006,6 +15031,10 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>暂未确认下载是否取消，请稍后查看下载状态。</source>
         <translation>Not yet confirmed whether the download was canceled. Check the download status shortly.</translation>
+    </message>
+    <message>
+        <source>未能确认是否已切换下载源，请查看下载状态。</source>
+        <translation>Couldn’t confirm the download source switch. Check the download status.</translation>
     </message>
     <message>
         <source>尚未确认当前导随是否结束，暂时不能安装，请稍后再试。</source>

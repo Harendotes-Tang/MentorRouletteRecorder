@@ -763,6 +763,7 @@ void AppController::adoptCollectorAnswer(const QVariantMap &payload, quint64 cap
         }
         Q_EMIT statusChanged();
     }
+    m_update->confirmMirrorOfferRetry();
 }
 
 // ---------------------------------------------------------------------------

@@ -315,6 +315,12 @@ public sealed class ContractSchemaTests
             Assert.Equal("NO_UPDATE", startedDownload["update"]!["download"]!["failure"]!.GetValue<string>());
             var cancelledDownload = (await client.SendAsync("CancelUpdateDownload")).Require();
             Assert.Equal("FAILED", cancelledDownload["update"]!["download"]!["state"]!.GetValue<string>());
+            var staleMirrorChoice = (await client.SendAsync("ResolveUpdateMirrorOffer", new JsonObject
+            {
+                ["offer_id"] = Guid.NewGuid().ToString(),
+                ["use_gitcode"] = true,
+            })).Require();
+            Assert.Equal("NO_UPDATE", staleMirrorChoice["update"]!["download"]!["failure"]!.GetValue<string>());
 
             // target_path omitted on purpose: the managed backups folder, and pruned_count.
             var backup = await client.SendAsync("BackupDatabase", new JsonObject());
