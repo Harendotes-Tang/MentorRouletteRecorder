@@ -63,7 +63,7 @@ const Duty kDuties[] = {
     {  .contentId = 4, .territoryId = 1036, .name = "沙斯塔夏溶洞",         .category = "四人迷宫",   .level = 15, .expansion = "2.0"},
     {  .contentId = 2, .territoryId = 1037, .name = "塔姆·塔拉墓园",        .category = "四人迷宫",   .level = 16, .expansion = "2.0"},
     {  .contentId = 3, .territoryId = 1038, .name = "铜铃铜山",             .category = "四人迷宫",   .level = 17, .expansion = "2.0"},
-    { .contentId = 17, .territoryId = 1039, .name = "天狼星灯塔",           .category = "四人迷宫",   .level = 32, .expansion = "2.0"},
+    { .contentId = 17, .territoryId = 160, .name = "天狼星灯塔",           .category = "四人迷宫",   .level = 32, .expansion = "2.0"},
     { .contentId = 11, .territoryId = 1043, .name = "石卫塔",               .category = "四人迷宫",   .level = 28, .expansion = "2.0"},
     { .contentId = 12, .territoryId = 1041, .name = "巴尔达姆霸国",         .category = "四人迷宫",   .level = 47, .expansion = "2.0"},
     { .contentId = 20, .territoryId = 1045, .name = "魔大陆阿济兹拉",       .category = "四人迷宫",   .level = 59, .expansion = "3.0"},
@@ -1672,7 +1672,7 @@ QJsonObject MockBackend::currentRun() const
     run.insert(QStringLiteral("duration_ms"), QJsonValue(QJsonValue::Null));
     run.insert(QStringLiteral("content_id"), entered ? QJsonValue(17) : QJsonValue(QJsonValue::Null));
     run.insert(QStringLiteral("territory_id"),
-               entered ? QJsonValue(1039) : QJsonValue(QJsonValue::Null));
+               entered ? QJsonValue(160) : QJsonValue(QJsonValue::Null));
     run.insert(QStringLiteral("duty_name"),
                entered ? QJsonValue(QString::fromUtf8("天狼星灯塔"))
                        : QJsonValue(QJsonValue::Null));
@@ -3690,6 +3690,8 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         result.insert(QStringLiteral("acknowledged_count"), acknowledged);
     } else if (isCharacterProfileMessage(messageType)) {
         result = applyCharacterProfile(messageType, payload, &errorCode, &errorMessage, &errorDetails);
+    } else if (messageType == QLatin1String("DutyCommunity")) {
+        result = dutyCommunity(payload);
     } else if (messageType == QLatin1String("ResolveCharacterIdentity")) {
         result = resolveCharacterIdentity(payload, &errorCode, &errorMessage);
     } else if (messageType == QLatin1String("BatchMutateRuns")

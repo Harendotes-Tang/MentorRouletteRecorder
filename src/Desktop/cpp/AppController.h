@@ -487,10 +487,10 @@ public:
     DungeonStatsModel *dungeons() const { return m_statistics->dungeons(); }
     JobStatsModel *jobs() const { return m_statistics->jobs(); }
     StatisticsOverlayController *statisticsOverlay() const { return m_statisticsOverlay; }
-    HistoryColumnsController *historyColumns() const { return m_historyColumns; }
     DutyCommunityController *dutyCommunity() const { return m_dutyCommunity; }
     QVariantMap activeCommunityRun() const;
     QVariantMap currentGuideRun() const;
+    HistoryColumnsController *historyColumns() const { return m_historyColumns; }
     RecoveryController *recovery() const { return m_recovery; }
     /// 「后台服务不可用，暂时不能自动记录。…」 while the background service is
     /// known not to serve - it refused to start, its executable is missing, or
@@ -957,9 +957,9 @@ private:
     QVariantList m_recentDuties;
     StatisticsController *m_statistics = nullptr;
     StatisticsOverlayController *m_statisticsOverlay = nullptr;
+    DutyCommunityController *m_dutyCommunity = nullptr;
     HistoryColumnsController *m_historyColumns = nullptr;
     RecoveryController *m_recovery = nullptr;
-    DutyCommunityController *m_dutyCommunity = nullptr;
     /// Owns completion order, prompt queues and recovery-context tokens; the
     /// facade only supplies model operations and renders its notification signals.
     RunCompletionCoordinator *m_completion = nullptr;

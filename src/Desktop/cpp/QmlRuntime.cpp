@@ -65,6 +65,7 @@ QVariant QmlRuntime::normalizedValue(Field field, const QVariant &value)
     case Field::ForceSpeechConfirm:
     case Field::ForceDetailTab:
     case Field::ForceOpenEvidence:
+    case Field::ForceOpenCommunity:
         return value.toString();
     case Field::ForceWizardStep:
         return value.isValid() ? value.toInt() : 1;
@@ -124,7 +125,7 @@ void QmlRuntime::enableLegacyContextAdapter()
         "GraphsAvailable", "SuppressOnboarding", "ForceBaselineDialog", "ForceDisclosure",
         "ForceUiStyle", "ForceSettingsTab", "ForceSpeechConfirm", "ReduceMotion", "ForceDetailTab",
         "ForceOpenReflection", "ForceOpenShare", "ForceOpenImport", "ForceOpenDetail", "ForceOpenEdit",
-        "ForceOpenCreate", "ForceWizardStep", "ForceOpenEvidence", "StartInTray"
+        "ForceOpenCreate", "ForceWizardStep", "ForceOpenEvidence", "ForceOpenCommunity", "StartInTray"
     };
     auto *engine = qobject_cast<QQmlEngine *>(parent());
     Q_ASSERT(engine);
@@ -188,6 +189,7 @@ void QmlRuntime::notifyChanged(Field field)
     case Field::ForceOpenCreate: emit forceOpenCreateChanged(); break;
     case Field::ForceWizardStep: emit forceWizardStepChanged(); break;
     case Field::ForceOpenEvidence: emit forceOpenEvidenceChanged(); break;
+    case Field::ForceOpenCommunity: emit forceOpenCommunityChanged(); break;
     case Field::StartInTray: emit startInTrayChanged(); break;
     }
 }

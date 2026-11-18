@@ -550,7 +550,8 @@ private slots:
         QVERIFY(QDir(qmlRoot).exists());
         qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
                                  "MentorRecorder", 1, 0, "Theme");
-        for (const auto &directory : {QStringLiteral("/charts"), QStringLiteral("/components"), QStringLiteral("/pages")}) {
+        for (const auto &directory : {QStringLiteral("/charts"), QStringLiteral("/components"), QStringLiteral("/dialogs"),
+                                      QStringLiteral("/pages")}) {
             for (const auto &file :
                  QDir(qmlRoot + directory).entryList({QStringLiteral("*.qml")}, QDir::Files)) {
                 const QByteArray name = file.chopped(4).toUtf8();

@@ -1662,6 +1662,16 @@ void StatisticsOverlayTests::dashboardOpensTheCommunityLibrary()
     auto *dialog = scene.root->findChild<QObject *>(QStringLiteral("dutyCommunityDialog"));
     QVERIFY(dialog);
     QTRY_VERIFY(dialog->property("visible").toBool());
+    QCOMPARE(dialog->property("tab").toString(), QStringLiteral("local"));
+    QCOMPARE(dialog->property("mode").toString(), QStringLiteral("view"));
+
+    // Creating happens in the right pane; leaving the tab drops the unsaved form.
+    QVERIFY(QMetaObject::invokeMethod(dialog, "editNew", Q_ARG(QVariant, QStringLiteral("macro")),
+                                      Q_ARG(QVariant, QVariant())));
+    QCOMPARE(dialog->property("mode").toString(), QStringLiteral("edit"));
+    dialog->setProperty("tab", QStringLiteral("public"));
+    QCOMPARE(dialog->property("mode").toString(), QStringLiteral("view"));
+    QVERIFY(dialog->property("remote").toBool());
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 

@@ -251,6 +251,7 @@ set(MR_CPP_SOURCES
     cpp/MockBackendUpdate.cpp
     cpp/MockBackendProfiles.cpp
     cpp/MockBackendIdentities.cpp
+    cpp/MockBackendCommunity.cpp
     cpp/MockBackend.h
     cpp/MockBackendStats.cpp
     cpp/MockData.h
@@ -430,7 +431,13 @@ set(MR_QML_FILES
     qml/dialogs/RunDetailPanel.qml
     qml/components/DutyGuideButton.qml
     qml/components/DutyGuideAction.qml
+    qml/components/MultiFilterButton.qml
+    qml/components/ActionMenuButton.qml
+    qml/components/ContentTypeTag.qml
     qml/dialogs/DutyCommunityDialog.qml
+    qml/dialogs/DutyCommunityToolbar.qml
+    qml/dialogs/DutyCommunityList.qml
+    qml/dialogs/DutyCommunityDetail.qml
     qml/dialogs/DutyCommunityEditor.qml
     qml/dialogs/DutyCommunitySubmission.qml
     qml/dialogs/RunWizardDutyStep.qml

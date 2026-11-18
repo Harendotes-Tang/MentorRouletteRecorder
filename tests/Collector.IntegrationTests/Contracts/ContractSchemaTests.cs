@@ -525,7 +525,9 @@ public sealed class ContractSchemaTests
             // SharedCalibrationContractTests validates its success shape from the renderer.
             // CharacterProfileIpcTests holds the three profile messages and ResolveCharacterIdentity
             // to the contract over a real pipe.
-            .Where(name => name is not ("StartCaptureValidation" or "AddCaptureValidationMarker" or "ConfirmCalibration"
+            // DutyCommunity is not scripted here yet: CommunityWorkspaceTests exercises the workspace
+            // behind it, and its result shape is one flat object of optional fields.
+            .Where(name => name is not ("DutyCommunity" or "StartCaptureValidation" or "AddCaptureValidationMarker" or "ConfirmCalibration"
                 or "GetCalibrationShareCode" or "CreateCharacterProfile" or "UpdateCharacterProfile"
                 or "DeleteCharacterProfile" or "ResolveCharacterIdentity"))
             .ToArray();

@@ -14,6 +14,22 @@ ScrollView {
         parent: Overlay.overlay
         run: Runtime.app.activeCommunityRun || ({})
     }
+    // --mock-open-community: the dialog as a screenshot or a test wants it.
+    readonly property string forceOpenCommunity: typeof Runtime.forceOpenCommunity !== "undefined"
+                                                 ? Runtime.forceOpenCommunity : ""
+    Timer {
+        interval: 400
+        running: page.forceOpenCommunity.length > 0
+        onTriggered: {
+            dutyCommunityDialog.openFor(!!dutyCommunityDialog.run.run_id)
+            if (page.forceOpenCommunity === "public" || page.forceOpenCommunity === "offline")
+                dutyCommunityDialog.tab = "public"
+            else if (page.forceOpenCommunity === "new")
+                dutyCommunityDialog.editNew("macro", null)
+            else if (page.forceOpenCommunity === "submit")
+                dutyCommunityDialog.submitRows(dutyCommunityDialog.localRows.slice(0, 2).map(row => row.content.id))
+        }
+    }
     readonly property var visibleResultBuckets: Runtime.app.resultBuckets.filter(bucket =>
         bucket.result !== "UNKNOWN" || Number(bucket.count || 0) !== 0)
     readonly property var pendingAchievementRegions: {
@@ -456,21 +472,52 @@ ScrollView {
                         }
 
                         Item { Layout.fillWidth: true }
-                    }
 
-                    Flow {
-                        Layout.fillWidth: true
-                        spacing: 6
-
+                        // The two entries sit at the end of the title row, off the card's body.
                         DutyGuideButton {
                             objectName: "dashboardDutyGuide"
+                            compact: true
+                            showSource: false
                             run: Runtime.app.currentGuideRun || ({})
                         }
-                        Button {
+                        AppButton {
+                            id: communityEntry
                             objectName: "dashboardDutyCommunity"
-                            text: qsTr("副本提醒与导随宏")
+                            compact: true
+                            iconName: "clipboard-copy"
+                            text: qsTr("提醒与宏")
                             enabled: !!Runtime.app.dutyCommunity
+                            rightPadding: communityBadge.visible ? communityBadge.width + 6 : 0
+                            implicitWidth: contentItem.implicitWidth + 20 + rightPadding
+                            Accessible.name: ToolTip.text
+                            ToolTip.visible: hovered
+                            ToolTip.text: dutyCommunityDialog.currentDutyCount > 0
+                                ? qsTr("%1有 %2 条提醒与宏").arg(dutyCommunityDialog.currentDutyName)
+                                                            .arg(dutyCommunityDialog.currentDutyCount)
+                                : qsTr("副本提醒与导随宏")
                             onClicked: dutyCommunityDialog.openFor(!!dutyCommunityDialog.run.run_id)
+
+                            // The number of local entries written for the duty the player is in.
+                            Rectangle {
+                                id: communityBadge
+                                objectName: "dashboardDutyCommunityBadge"
+                                visible: dutyCommunityDialog.currentDutyCount > 0
+                                anchors.right: parent.right
+                                anchors.rightMargin: 6
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: Math.max(18, badgeText.implicitWidth + 10)
+                                height: 18
+                                radius: 9
+                                color: Theme.accent
+                                Text {
+                                    id: badgeText
+                                    anchors.centerIn: parent
+                                    text: String(dutyCommunityDialog.currentDutyCount)
+                                    color: Theme.badgeForeground
+                                    font.pixelSize: 11
+                                    font.bold: true
+                                }
+                            }
                         }
                     }
 

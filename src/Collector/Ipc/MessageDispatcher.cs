@@ -197,8 +197,8 @@ public sealed class MessageDispatcher
                 _host, new PayloadReader(request.Payload), cancellationToken),
             "CheckDatabaseIntegrity" => CheckDatabaseIntegrityAsync(request, cancellationToken),
             "CheckUpdateNow" => UpdateHandlers.CheckNowAsync(_host, new PayloadReader(request.Payload), cancellationToken),
-            "PreviewRunImport" or "CommitRunImport" => DispatchImportAsync(request, cancellationToken),
             "DutyCommunity" => CommunityHandlers.HandleAsync(_host, request, cancellationToken),
+            "PreviewRunImport" or "CommitRunImport" => DispatchImportAsync(request, cancellationToken),
             "ExportCsv" or "ExportJson" => DispatchExportAsync(request, cancellationToken),
             _ => Task.FromResult(Dispatch(request)),
         };

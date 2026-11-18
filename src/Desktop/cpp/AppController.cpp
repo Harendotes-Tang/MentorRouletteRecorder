@@ -70,6 +70,7 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     , m_history(new HistoryController(backend, this))
     , m_statistics(new StatisticsController(backend, this))
     , m_statisticsOverlay(new StatisticsOverlayController(settings, this))
+    , m_dutyCommunity(new DutyCommunityController(backend, this))
     , m_historyColumns(new HistoryColumnsController(settings, this))
     , m_recovery(new RecoveryController(backend, settings, this))
     , m_tts(new TtsService(settings, this, speechEngine))
@@ -88,7 +89,6 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     connect(m_dailyBackup, &DailyBackupScheduler::backupRecorded, this, [this](const QString &date) {
         if (m_settings)
             m_settings->setLastAutoBackupDate(date);
-    , m_dutyCommunity(new DutyCommunityController(backend, this))
     });
     m_imageCleanup = new HistoryImageCleanupController(backend, this);
     connect(m_imageCleanup, &HistoryImageCleanupController::changed, this, &AppController::historyImageCleanupChanged);
@@ -948,6 +948,20 @@ bool AppController::ffxivRunning() const
         .toBool(false);
 }
 
+QVariantMap AppController::activeCommunityRun() const
+{
+    return currentRunState() == QLatin1String("ENTERED_DUTY") ? currentGuideRun() : QVariantMap{};
+}
+
+QVariantMap AppController::currentGuideRun() const
+{
+    const auto state = currentRunState();
+    if (!m_currentRunKnown || !backendConnected()
+        || (state != QLatin1String("MENTOR_MATCHED") && state != QLatin1String("ENTERED_DUTY")))
+        return {};
+    return currentRun().value(QStringLiteral("run")).toMap();
+}
+
 QString AppController::currentRunState() const
 {
     return m_currentRun.value(QStringLiteral("state")).toString(QStringLiteral("IDLE"));
@@ -971,20 +985,6 @@ QVariant AppController::liveElapsedMs() const
     if (sinceFetch <= 0)
         return QVariant::fromValue(base);
     const qint64 drift = QDateTime::currentMSecsSinceEpoch() - sinceFetch;
-QVariantMap AppController::activeCommunityRun() const
-{
-    return currentRunState() == QLatin1String("ENTERED_DUTY") ? currentGuideRun() : QVariantMap{};
-}
-
-QVariantMap AppController::currentGuideRun() const
-{
-    const auto state = currentRunState();
-    if (!m_currentRunKnown || !backendConnected()
-        || (state != QLatin1String("MENTOR_MATCHED") && state != QLatin1String("ENTERED_DUTY")))
-        return {};
-    return currentRun().value(QStringLiteral("run")).toMap();
-}
-
     return QVariant::fromValue(base + qMax<qint64>(0, drift));
 }
 

@@ -337,7 +337,7 @@ private Q_SLOTS:
         qmlRegisterSingletonType(QUrl::fromLocalFile(qmlRoot + QStringLiteral("/Theme.qml")),
                                  "MentorRecorder", 1, 0, "Theme");
         for (const QString &directory : {QStringLiteral("/components"), QStringLiteral("/charts"),
-                                         QStringLiteral("/pages")}) {
+                                         QStringLiteral("/pages"), QStringLiteral("/dialogs")}) {
             for (const QString &file : QDir(qmlRoot + directory).entryList(
                      {QStringLiteral("*.qml")}, QDir::Files)) {
                 const QByteArray name = file.chopped(4).toUtf8();
