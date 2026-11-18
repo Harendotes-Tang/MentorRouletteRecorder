@@ -3,6 +3,7 @@ using System.Text;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Contracts.Texts;
+using MentorRecorder.Collector.Diagnostics;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Storage;
@@ -47,16 +48,23 @@ public sealed class DiagnosticsReportExport
 
     private readonly string _databasePath;
     private readonly IClock _clock;
+    private readonly Func<DateTimeOffset, DesktopHangReading>? _readDesktopHang;
 
     /// <summary>Creates the exporter.</summary>
     /// <param name="databasePath">Path of the open database; its folder anchors the default target.</param>
     /// <param name="clock">Clock used to name and stamp the report.</param>
     public DiagnosticsReportExport(string databasePath, IClock clock)
+        : this(databasePath, clock, null)
+    {
+    }
+
+    internal DiagnosticsReportExport(string databasePath, IClock clock, Func<DateTimeOffset, DesktopHangReading>? readDesktopHang)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
         ArgumentNullException.ThrowIfNull(clock);
         _databasePath = databasePath;
         _clock = clock;
+        _readDesktopHang = readDesktopHang;
     }
 
     /// <summary>Folder reports are written to when the request names no path.</summary>
@@ -92,13 +100,14 @@ public sealed class DiagnosticsReportExport
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
-        var now = UtcTimestamp.Truncate(_clock.UtcNow);
+        var observedAt = _clock.UtcNow;
+        var now = UtcTimestamp.Truncate(observedAt);
         var fullPath = ExportPaths.ResolveTarget(targetPath, () => DefaultDirectory, FileNameFor(now));
 
         var allowOverwrite = overwrite || IsGeneratedName(Path.GetFileName(fullPath));
         ExportPaths.PrepareDestination(fullPath, allowOverwrite);
 
-        var report = SanitizedDiagnosticsReport.Build(snapshot, collectorVersion, now);
+        var report = SanitizedDiagnosticsReport.Build(snapshot, collectorVersion, now, _readDesktopHang?.Invoke(observedAt));
         var text = report.ToJsonString(Wire.IndentedJsonOptions) + Environment.NewLine;
         var bytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(text);
 

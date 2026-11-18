@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Contracts.Texts;
+using MentorRecorder.Collector.Diagnostics;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Export;
 using MentorRecorder.Collector.Ipc;
@@ -217,6 +218,90 @@ public sealed class ExportDiagnosticsReportTests : IDisposable
         Assert.Equal(1, report["counters"]!["duty_clear_completions"]!.GetValue<long>());
         Assert.Equal(2, report["report_version"]!.GetValue<int>());
     }
+
+    [Fact]
+    public void ExportReadsAndJoinsHangEventsIntoOneSanitizedSummary()
+    {
+        const string reportId = "2f4b467b-f4ad-4506-8ae6-26836ee61acb";
+        var hang = WindowsEvent(1002, "Application Hang", "2026-09-04T13:44:18.1110000Z", $"""
+            <Data Name="AppName">MentorRecorder.Desktop.exe</Data><Data Name="AppVersion">1.9.1.0</Data>
+            <Data Name="ReportId">{reportId}</Data><Data Name="ExeFileName">C:\Users\Someone\MentorRecorder.Desktop.exe</Data>
+            """);
+        var wer = WindowsEvent(1001, "Windows Error Reporting", "2026-09-04T13:44:18.2220000Z", $"""
+            <Data Name="EventName">AppHangB1</Data><Data Name="P1">MentorRecorder.Desktop.exe</Data>
+            <Data Name="P2">1.9.1.0</Data><Data Name="P3">6afdad46</Data><Data Name="P4">fabc</Data>
+            <Data Name="ReportId">{reportId}</Data><Data Name="StorePath">C:\ProgramData\PrivateReport</Data>
+            """);
+        var reads = 0;
+        var export = new DiagnosticsReportExport(Path.Combine(_directory, "runs.db"), _clock, now =>
+        {
+            ++reads;
+            return DesktopHangReading.FromEvents([wer, hang], now);
+        });
+        Assert.Equal(0, reads);
+
+        var result = export.Write(Loaded(), "1.9.1");
+        var text = File.ReadAllText(result.TargetPath);
+        var summary = JsonNode.Parse(text)!["desktop_hang"]!.AsObject();
+        Assert.Equal(1, reads);
+        Assert.Equal("found", (string?)summary["status"]);
+        Assert.Equal(1002, (int?)summary["event_id"]);
+        Assert.Equal("2026-09-04T13:44:18.111Z", (string?)summary["recorded_at_utc"]);
+        Assert.Equal("[1,9,1,0]", summary["desktop_version"]!.ToJsonString());
+        Assert.Equal("6afdad46", (string?)summary["image_timestamp"]);
+        Assert.Equal("fabc", (string?)summary["hang_signature"]);
+        Assert.Equal(6, summary.Count);
+        Assert.DoesNotContain(reportId, text);
+        Assert.DoesNotContain("PrivateReport", text);
+        Assert.DoesNotContain("Someone", text);
+        Assert.DoesNotMatch(WindowsPathPattern, text);
+        Assert.DoesNotMatch(IPv4Pattern, text);
+    }
+
+    [Theory]
+    [InlineData(true, "not_found")]
+    [InlineData(false, "unavailable")]
+    public void ExportDistinguishesNoMatchingHangFromAnUnreadableLog(bool available, string status)
+    {
+        var otherApp = WindowsEvent(1002, "Application Hang", "2026-09-04T13:44:18.000Z",
+            """<Data Name="AppName">OtherApp.exe</Data>""");
+        var stale = WindowsEvent(1002, "Application Hang", "2026-08-27T13:44:18.000Z",
+            """<Data Name="AppName">MentorRecorder.Desktop.exe</Data>""");
+        var export = new DiagnosticsReportExport(Path.Combine(_directory, "runs.db"), _clock, now => available
+            ? DesktopHangReading.FromEvents([otherApp, stale], now) : new DesktopHangReading(false));
+        var result = export.Write(Loaded(), "1.9.1");
+        var summary = JsonNode.Parse(File.ReadAllText(result.TargetPath))!["desktop_hang"]!.AsObject();
+        Assert.Equal(status, (string?)summary["status"]);
+        Assert.Single(summary);
+    }
+
+    [Fact]
+    public void LatestHangUsesTheHangTimeEvenIfAnOlderWerReportWasWrittenLater()
+    {
+        const string reportId = "d271194e-9da3-4910-9a44-58078b7facfc";
+        var olderHang = WindowsEvent(1002, "Application Hang", "2026-09-04T13:40:00.000Z", $"""
+            <Data Name="AppName">MentorRecorder.Desktop.exe</Data><Data Name="ReportId">{reportId}</Data>
+            """);
+        var newerHang = WindowsEvent(1002, "Application Hang", "2026-09-04T13:42:00.000Z",
+            """<Data>MentorRecorder.Desktop.exe</Data><Data>1.9.1.0</Data>""");
+        var delayedWer = WindowsEvent(1001, "Windows Error Reporting", "2026-09-04T13:44:00.000Z", $"""
+            <Data Name="EventName">AppHangB1</Data><Data Name="P1">MentorRecorder.Desktop.exe</Data>
+            <Data Name="P3">6afdad46</Data><Data Name="ReportId">{reportId}</Data>
+            """);
+        var result = DesktopHangReading.FromEvents([delayedWer, newerHang, olderHang], _clock.UtcNow);
+        Assert.NotNull(result.Latest);
+        Assert.Equal(42, result.Latest.RecordedAtUtc.Minute);
+        Assert.Equal(new Version(1, 9, 1, 0), result.Latest.DesktopVersion);
+        Assert.Null(result.Latest.ImageTimestamp);
+    }
+
+    private static string WindowsEvent(int id, string provider, string time, string data) => $"""
+        <Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+          <System><Provider Name="{provider}"/><EventID>{id}</EventID><TimeCreated SystemTime="{time}"/>
+            <Computer>private-machine</Computer></System>
+          <EventData>{data}</EventData>
+        </Event>
+        """;
 
     private DiagnosticsReportExport NewExport() =>
         new(Path.Combine(_directory, "mentor_recorder.db"), _clock);

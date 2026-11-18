@@ -1,6 +1,7 @@
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Protocol.Calibration;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -400,11 +401,16 @@ public static class SanitizedDiagnosticsReport
     /// <param name="collectorVersion">Collector version string.</param>
     /// <param name="generatedAtUtc">Report timestamp.</param>
     public static JsonObject Build(
-        CaptureDiagnosticsSnapshot snapshot, string collectorVersion, DateTimeOffset generatedAtUtc)
+        CaptureDiagnosticsSnapshot snapshot, string collectorVersion, DateTimeOffset generatedAtUtc) =>
+        Build(snapshot, collectorVersion, generatedAtUtc, null);
+
+    internal static JsonObject Build(
+        CaptureDiagnosticsSnapshot snapshot, string collectorVersion, DateTimeOffset generatedAtUtc,
+        DesktopHangReading? desktopHang)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
-        return new JsonObject
+        var report = new JsonObject
         {
             ["report_version"] = ReportVersion,
             ["generated_at_utc"] = UtcTimestamp.ToText(UtcTimestamp.Truncate(generatedAtUtc)),
@@ -550,6 +556,42 @@ public static class SanitizedDiagnosticsReport
             // pasted report and a screenshot of the page can never disagree.
             ["recent_parser_errors"] = CaptureWire.ParserErrors(snapshot.RecentParserErrors),
         };
+
+        if (desktopHang is not null)
+            report["desktop_hang"] = DesktopHang(desktopHang);
+        return report;
+    }
+
+    private static JsonObject DesktopHang(DesktopHangReading reading)
+    {
+        if (!reading.Available)
+            return new JsonObject { ["status"] = "unavailable" };
+        if (reading.Latest is not { } hang)
+            return new JsonObject { ["status"] = "not_found" };
+
+        var summary = new JsonObject
+        {
+            ["status"] = "found",
+            ["event_id"] = hang.EventId,
+            ["recorded_at_utc"] = UtcTimestamp.ToText(hang.RecordedAtUtc),
+        };
+
+        // Four dot-separated integers would be indistinguishable from IPv4 to a
+        // support-bundle scanner. Keep the version's original numeric components.
+        if (hang.DesktopVersion is { } version)
+        {
+            var components = new JsonArray(version.Major, version.Minor);
+            if (version.Build >= 0)
+                components.Add(version.Build);
+            if (version.Revision >= 0)
+                components.Add(version.Revision);
+            summary["desktop_version"] = components;
+        }
+        if (hang.ImageTimestamp is { } imageTimestamp)
+            summary["image_timestamp"] = imageTimestamp.ToString("x8", CultureInfo.InvariantCulture);
+        if (hang.Signature is { } signature)
+            summary["hang_signature"] = signature.ToString("x4", CultureInfo.InvariantCulture);
+        return summary;
     }
 
     /// <summary>

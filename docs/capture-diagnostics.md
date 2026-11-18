@@ -610,6 +610,12 @@ Machina 在自身线程内将失败写入 `Trace`，而不向调用方抛出异�
 `recent_parser_errors`（与 §5.3 为同一批行，由同一个渲染函数产出，
 因此提交的报告与诊断页的截图不会出现差异）。
 
+手动导出的报告另含 `desktop_hang`。它查询本机 Windows「应用程序」日志最近七天内
+本程序最新的 1002 挂起事件或 1001 `AppHangB1` 报告。同一次挂起的两条记录按报告 ID 关联。
+`status` 取 `found`、`not_found` 或 `unavailable`。找到记录时附带 `recorded_at_utc`、`event_id`，
+以及可用的 `desktop_version`（版本数值数组）、`image_timestamp` 和 `hang_signature`。
+`not_found` 表示查询范围内无匹配记录。导出内容排除 Windows 报告 ID、原始事件、应用路径及转储。
+
 `--capture-doctor --json` 在该白名单之外另加两项，因为它运行于**尚无数据库、尚无 IPC**
 的场合：`adapter_count`，以及 §9.3 的 `oodle_temp_copies`。
 

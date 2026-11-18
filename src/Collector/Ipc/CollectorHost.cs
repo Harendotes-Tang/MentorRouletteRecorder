@@ -54,7 +54,7 @@ public sealed class CollectorHost : IDisposable
         Exporter = new RunExporter(Runs, clock, database);
         Backups = new BackupService(database, clock);
         Imports = new RunImportService(database, clock);
-        DiagnosticsReports = new DiagnosticsReportExport(database.Path, clock);
+        DiagnosticsReports = new DiagnosticsReportExport(database.Path, clock, WindowsDesktopHangLog.Read);
     }
 
     /// <summary>Open database; the single writer.</summary>
