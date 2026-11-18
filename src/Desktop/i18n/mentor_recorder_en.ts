@@ -8680,6 +8680,26 @@ Recorder</translation>
         <translation>Ready</translation>
     </message>
     <message>
+        <source>意见反馈</source>
+        <translation>Feedback</translation>
+    </message>
+    <message>
+        <source>在 GitHub 反馈</source>
+        <translation>Give feedback on GitHub</translation>
+    </message>
+    <message>
+        <source>写邮件</source>
+        <translation>Write an email</translation>
+    </message>
+    <message>
+        <source>复制邮箱</source>
+        <translation>Copy email address</translation>
+    </message>
+    <message>
+        <source>没能打开邮件应用。可以复制邮箱后手动发邮件。</source>
+        <translation>Couldn’t open the email app. Copy the address to send an email manually.</translation>
+    </message>
+    <message>
         <source>未安装</source>
         <translation>Not installed</translation>
     </message>
@@ -11903,6 +11923,14 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>导随完成，当前 {progress} 次，剩余 {remaining}</source>
         <translation>Mentor run complete. {progress} done, {remaining} to go.</translation>
+    </message>
+    <message>
+        <source>没能打开浏览器，请在 GitHub 的 MentorRouletteRecorder 仓库中提交反馈。</source>
+        <translation>Couldn&apos;t open the browser. Submit feedback in the MentorRouletteRecorder repository on GitHub.</translation>
+    </message>
+    <message>
+        <source>导随记录器意见反馈</source>
+        <translation>Mentor Roulette Recorder feedback</translation>
     </message>
     <message>
         <source>导随结束，请确认是否通关，已确认 {progress} 次</source>

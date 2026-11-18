@@ -975,6 +975,15 @@ ApplicationWindow {
                             Layout.fillHeight: true
                         }
 
+                        NavItem {
+                            objectName: "feedbackEntry"
+                            Layout.fillWidth: true
+                            iconName: "flag"
+                            label: qsTr("意见反馈")
+                            text: label
+                            onClicked: feedbackDialog.open()
+                        }
+
                         // .status-panel: its own tint and border so it reads
                         // as a plate on the chrome rather than a nav card.
                         Card {
@@ -1394,6 +1403,96 @@ ApplicationWindow {
     DisclosureDialog {
         id: disclosureDialog
         anchors.centerIn: Overlay.overlay
+    }
+
+    MotionDialog {
+        id: feedbackDialog
+        objectName: "feedbackDialog"
+        anchors.centerIn: Overlay.overlay
+        width: 420
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        padding: 20
+        title: qsTr("意见反馈")
+
+        property bool emailOpenFailed: false
+        onAboutToShow: emailOpenFailed = false
+
+        background: DialogFrame {}
+        Overlay.modal: Rectangle { color: Theme.modalScrim(feedbackDialog.palette.shadow) }
+        header: RowLayout {
+            Label {
+                Layout.fillWidth: true
+                text: feedbackDialog.title
+                color: Theme.textPrimary
+                font.pixelSize: Theme.dialogTitleSize(18)
+                font.bold: true
+                padding: 20
+            }
+            AppButton {
+                Layout.rightMargin: 20
+                compact: true
+                variant: "ghost"
+                text: qsTr("关闭")
+                onClicked: feedbackDialog.close()
+            }
+        }
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            RowLayout {
+                Layout.fillWidth: true
+                AppButton {
+                    objectName: "feedbackGithubButton"
+                    Layout.fillWidth: true
+                    iconName: "globe"
+                    text: qsTr("在 GitHub 反馈")
+                    onClicked: {
+                        feedbackDialog.close()
+                        Runtime.app.openFeedbackPage()
+                    }
+                }
+                AppButton {
+                    objectName: "feedbackEmailButton"
+                    Layout.fillWidth: true
+                    text: qsTr("写邮件")
+                    onClicked: {
+                        if (Runtime.app.openFeedbackEmail())
+                            feedbackDialog.close()
+                        else
+                            feedbackDialog.emailOpenFailed = true
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    Layout.fillWidth: true
+                    text: Runtime.app.feedbackEmail
+                    textFormat: Text.PlainText
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fs(13)
+                }
+                AppButton {
+                    objectName: "feedbackCopyEmailButton"
+                    compact: true
+                    variant: "ghost"
+                    iconName: "copy"
+                    text: qsTr("复制邮箱")
+                    onClicked: Runtime.app.copyToClipboard(Runtime.app.feedbackEmail)
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                visible: feedbackDialog.emailOpenFailed
+                text: qsTr("没能打开邮件应用。可以复制邮箱后手动发邮件。")
+                color: Theme.orangeText
+                wrapMode: Text.Wrap
+            }
+        }
     }
 
     ReleaseNotesDialog {

@@ -31,6 +31,7 @@
 #include <QStyleHints>
 #include <QSysInfo>
 #include <QUrl>
+#include <QUrlQuery>
 
 #include <algorithm>
 #include <utility>
@@ -2348,6 +2349,28 @@ void AppController::openNpcapWebsite()
     } else {
         showToast(tr("没能打开浏览器，请手动访问 https://npcap.com 下载驱动。"));
     }
+}
+
+void AppController::openFeedbackPage()
+{
+    static const QUrl feedbackUrl(
+        QStringLiteral("https://github.com/Harendotes-Tang/MentorRouletteRecorder/issues/new/choose"));
+    if (!QDesktopServices::openUrl(feedbackUrl))
+        showToast(tr("没能打开浏览器，请在 GitHub 的 MentorRouletteRecorder 仓库中提交反馈。"));
+}
+
+QString AppController::feedbackEmail() const
+{
+    return QStringLiteral("mentorrecorder@gmail.com");
+}
+
+bool AppController::openFeedbackEmail()
+{
+    QUrl url(QStringLiteral("mailto:") + feedbackEmail());
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("subject"), tr("导随记录器意见反馈"));
+    url.setQuery(query);
+    return QDesktopServices::openUrl(url);
 }
 
 void AppController::runDailyBackupIfDue()

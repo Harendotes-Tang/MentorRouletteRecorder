@@ -8680,6 +8680,26 @@ SHA256：%3</translation>
         <translation>就緒</translation>
     </message>
     <message>
+        <source>意见反馈</source>
+        <translation>意見回饋</translation>
+    </message>
+    <message>
+        <source>在 GitHub 反馈</source>
+        <translation>在 GitHub 回饋</translation>
+    </message>
+    <message>
+        <source>写邮件</source>
+        <translation>寫電子郵件</translation>
+    </message>
+    <message>
+        <source>复制邮箱</source>
+        <translation>複製電子郵件地址</translation>
+    </message>
+    <message>
+        <source>没能打开邮件应用。可以复制邮箱后手动发邮件。</source>
+        <translation>無法開啟郵件應用程式。可以複製電子郵件地址後手動寄送。</translation>
+    </message>
+    <message>
         <source>未安装</source>
         <translation>未安裝</translation>
     </message>
@@ -11903,6 +11923,14 @@ SHA256：%3</translation>
     <message>
         <source>导随完成，当前 {progress} 次，剩余 {remaining}</source>
         <translation>導隨完成，目前 {progress} 次，剩餘 {remaining}</translation>
+    </message>
+    <message>
+        <source>没能打开浏览器，请在 GitHub 的 MentorRouletteRecorder 仓库中提交反馈。</source>
+        <translation>無法開啟瀏覽器，請到 GitHub 的 MentorRouletteRecorder 儲存庫提交回饋。</translation>
+    </message>
+    <message>
+        <source>导随记录器意见反馈</source>
+        <translation>導隨記錄器意見回饋</translation>
     </message>
     <message>
         <source>导随结束，请确认是否通关，已确认 {progress} 次</source>

@@ -275,6 +275,7 @@ class AppController final : public QObject, public CaptureValidationController::
 
     // -- feedback -----------------------------------------------------------
     Q_PROPERTY(QString toastMessage READ toastMessage NOTIFY toastChanged)
+    Q_PROPERTY(QString feedbackEmail READ feedbackEmail CONSTANT)
 
     // -- capture diagnostics -------------------------------------------------
     Q_PROPERTY(QVariantList parserErrors READ parserErrors NOTIFY statusChanged)
@@ -718,10 +719,11 @@ public Q_SLOTS:
     /// Put a text the page composed itself (the 新区服采证 回传说明) on the
     /// clipboard. Only ever called from an explicit click.
     Q_INVOKABLE void copyToClipboard(const QString &text);
-    /// Opens https://npcap.com in the system browser. The only external link in
-    /// the product; it is opened only on an explicit user click and nothing is
-    /// fetched by this process.
+    /// Open the Npcap website or the project's issue templates in the system browser.
     Q_INVOKABLE void openNpcapWebsite();
+    Q_INVOKABLE void openFeedbackPage();
+    QString feedbackEmail() const;
+    Q_INVOKABLE bool openFeedbackEmail();
     /// One GetCaptureStatus, adopted into the collector status: what a
     /// calibration_changed event, or a shared-calibration request that changed
     /// state, costs. Never a run query, a statistics refresh or an announcement.

@@ -8680,6 +8680,26 @@ SHA256：%3</translation>
         <translation>準備完了</translation>
     </message>
     <message>
+        <source>意见反馈</source>
+        <translation>フィードバック</translation>
+    </message>
+    <message>
+        <source>在 GitHub 反馈</source>
+        <translation>GitHub でフィードバック</translation>
+    </message>
+    <message>
+        <source>写邮件</source>
+        <translation>メールを書く</translation>
+    </message>
+    <message>
+        <source>复制邮箱</source>
+        <translation>メールアドレスをコピー</translation>
+    </message>
+    <message>
+        <source>没能打开邮件应用。可以复制邮箱后手动发邮件。</source>
+        <translation>メールアプリを開けませんでした。アドレスをコピーしてメールを送信できます。</translation>
+    </message>
+    <message>
         <source>未安装</source>
         <translation>未インストール</translation>
     </message>
@@ -11903,6 +11923,14 @@ SHA256：%3</translation>
     <message>
         <source>导随完成，当前 {progress} 次，剩余 {remaining}</source>
         <translation>メンタールーレットをクリアしました。現在 {progress} 回、残り {remaining} 回です</translation>
+    </message>
+    <message>
+        <source>没能打开浏览器，请在 GitHub 的 MentorRouletteRecorder 仓库中提交反馈。</source>
+        <translation>ブラウザーを開けませんでした。GitHub の MentorRouletteRecorder リポジトリからフィードバックを送信してください。</translation>
+    </message>
+    <message>
+        <source>导随记录器意见反馈</source>
+        <translation>メンタールーレット記録ツールへのフィードバック</translation>
     </message>
     <message>
         <source>导随结束，请确认是否通关，已确认 {progress} 次</source>
