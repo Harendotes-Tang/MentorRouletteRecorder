@@ -88,6 +88,7 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     connect(m_dailyBackup, &DailyBackupScheduler::backupRecorded, this, [this](const QString &date) {
         if (m_settings)
             m_settings->setLastAutoBackupDate(date);
+    , m_dutyCommunity(new DutyCommunityController(backend, this))
     });
     m_imageCleanup = new HistoryImageCleanupController(backend, this);
     connect(m_imageCleanup, &HistoryImageCleanupController::changed, this, &AppController::historyImageCleanupChanged);
@@ -970,6 +971,20 @@ QVariant AppController::liveElapsedMs() const
     if (sinceFetch <= 0)
         return QVariant::fromValue(base);
     const qint64 drift = QDateTime::currentMSecsSinceEpoch() - sinceFetch;
+QVariantMap AppController::activeCommunityRun() const
+{
+    return currentRunState() == QLatin1String("ENTERED_DUTY") ? currentGuideRun() : QVariantMap{};
+}
+
+QVariantMap AppController::currentGuideRun() const
+{
+    const auto state = currentRunState();
+    if (!m_currentRunKnown || !backendConnected()
+        || (state != QLatin1String("MENTOR_MATCHED") && state != QLatin1String("ENTERED_DUTY")))
+        return {};
+    return currentRun().value(QStringLiteral("run")).toMap();
+}
+
     return QVariant::fromValue(base + qMax<qint64>(0, drift));
 }
 

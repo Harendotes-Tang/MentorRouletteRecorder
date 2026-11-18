@@ -255,3 +255,7 @@ pwsh -NoProfile -File scripts/package.ps1 -Configuration Release -Verify
 
 FINAL FANTASY XIV 是 SQUARE ENIX CO., LTD. 的商标。本项目独立开发，未获得 SQUARE ENIX 的授权、认可或赞助。
 抓包会读取本机网卡流量，请确认所在环境允许此类操作，账号使用风险由用户自行判断。
+
+## 副本提醒与导随宏
+
+从主页的当前副本区域打开本地提醒、常用宏或公共共享库。提醒和宏可离线编辑、排序、收藏、复制和交换。公共库可匿名浏览，投稿使用自己的 GitHub 账号。攻略链接由浏览器打开，新大陆见闻录提供攻略目录与已对应的副本页面。[使用与维护说明](docs/duty-community.md)

@@ -21,6 +21,7 @@
 #include <QAnimationDriver>
 #include <QColor>
 #include <QDateTime>
+#include <QDesktopServices>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
@@ -146,9 +147,15 @@ public:
     QString holdRegion;
     QList<QPointer<mr::BackendReply>> pending;
     QList<QPointer<mr::BackendReply>> pendingRows;
+    QJsonObject currentRunOverride;
 
     mr::BackendReply *request(const QString &messageType, const QJsonObject &payload = {}) override
     {
+        if (!currentRunOverride.isEmpty() && messageType == QLatin1String("GetCurrentRun")) {
+            auto *reply = new mr::BackendReply(QStringLiteral("fixture-current-run"), messageType, this);
+            QTimer::singleShot(0, reply, [reply, snapshot = currentRunOverride] { reply->succeed(snapshot); });
+            return reply;
+        }
         if (!holdRegion.isEmpty() && messageType == QLatin1String("GetDashboardStats")
             && payload.value(QStringLiteral("filter")).toObject().value(QStringLiteral("region")).toString() == holdRegion) {
             auto *reply = new mr::BackendReply(QString::number(pending.size()), messageType, this);
@@ -624,6 +631,12 @@ private:
         QTRY_COMPARE(scene.floating()->y(), 300);
     }
 
+public:
+    Q_INVOKABLE void rememberGuideUrl(const QUrl &url) { m_openedGuide = url; }
+
+private:
+    QUrl m_openedGuide;
+
 private Q_SLOTS:
     void initTestCase();
     void preferencesPersistButVisibilityAndLockDoNot();
@@ -643,6 +656,9 @@ private Q_SLOTS:
     void miniBarTipsOpenOutsideTheBar();
     void pendingRowOpensTheFirstRecord();
     void hiddenFloatKeepsItsEndlessAnimationsStill();
+    void guideUsesExactDutyIdentity();
+    void dutyGuideFollowsTheActiveRunAndOverlayLock();
+    void dashboardOpensTheCommunityLibrary();
     void paceBarScalesByTheDutyThenItsCategory_data();
     void paceBarScalesByTheDutyThenItsCategory();
     void stateMarksStayInsideTheFloat();
@@ -1541,6 +1557,111 @@ void StatisticsOverlayTests::hiddenFloatKeepsItsEndlessAnimationsStill()
         QTRY_VERIFY(!scene.floating()->isVisible());
         QTRY_VERIFY2(scene.runningEndlessAnimations() == 0, run.state);
     }
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+void StatisticsOverlayTests::guideUsesExactDutyIdentity()
+{
+    QVariantMap run{{QStringLiteral("region"), QStringLiteral("CN")},
+                    {QStringLiteral("content_id"), 4},
+                    {QStringLiteral("territory_id"), 1036},
+                    {QStringLiteral("source"), QStringLiteral("AUTO_NETWORK")},
+                    {QStringLiteral("detection_confidence"), QStringLiteral("HIGH")}};
+    const QUrl directory(QStringLiteral("https://ff14.org/duty/"));
+    QCOMPARE(mr::DutyCommunityController::guideUrl(run), directory.resolved(QUrl(QStringLiteral("4.htm"))));
+    auto historyRun = run;
+    run[QStringLiteral("content_id")] = 28;
+    run[QStringLiteral("territory_id")] = 387;
+    run[QStringLiteral("region")] = QStringLiteral("GLOBAL");
+    QCOMPARE(mr::DutyCommunityController::guideUrl(run), directory.resolved(QUrl(QStringLiteral("28.htm"))));
+    QCOMPARE(mr::DutyCommunityController::guideUrl(historyRun), directory.resolved(QUrl(QStringLiteral("4.htm"))));
+    run[QStringLiteral("territory_id")] = 1036;
+    QCOMPARE(mr::DutyCommunityController::guideUrl(run), directory);
+    historyRun[QStringLiteral("detection_confidence")] = QStringLiteral("LOW");
+    QCOMPARE(mr::DutyCommunityController::guideUrl(historyRun), directory);
+    QCOMPARE(mr::DutyCommunityController::guideUrl({}), directory);
+
+    run[QStringLiteral("region")] = QStringLiteral("CN");
+    run[QStringLiteral("detection_confidence")] = QStringLiteral("MEDIUM");
+    run.remove(QStringLiteral("content_id"));
+    run[QStringLiteral("territory_id")] = 970;
+    QCOMPARE(mr::DutyCommunityController::guideUrl(run), directory.resolved(QUrl(QStringLiteral("789.htm"))));
+
+    run[QStringLiteral("region")] = QStringLiteral("TC");
+    run[QStringLiteral("territory_id")] = 616;
+    QCOMPARE(mr::DutyCommunityController::guideUrl(run), directory.resolved(QUrl(QStringLiteral("235.htm"))));
+    run[QStringLiteral("region")] = QStringLiteral("CN");
+
+    // A real but unlinked entry, and a territory shared by several enabled duties.
+    run[QStringLiteral("content_id")] = 1064;
+    run.remove(QStringLiteral("territory_id"));
+    QCOMPARE(mr::DutyCommunityController::guideUrl(run), directory);
+    run.remove(QStringLiteral("content_id"));
+    run[QStringLiteral("territory_id")] = 391;
+    QVERIFY(mr::DutyCommunityController::guideUrl(run) == directory);
+    QVERIFY(mr::DutyCommunityController(nullptr).dutyIdentity(run).isEmpty());
+}
+
+void StatisticsOverlayTests::dutyGuideFollowsTheActiveRunAndOverlayLock()
+{
+    Scene scene;
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    scene.overlay()->toggleModule(QStringLiteral("current_duty"));
+    scene.overlay()->show();
+    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+
+    const auto guide = QStringLiteral("floatingDutyGuide");
+    const auto https = QStringLiteral("https");
+    const QUrl directory(QStringLiteral("https://ff14.org/duty/"));
+    QDesktopServices::setUrlHandler(https, this, "rememberGuideUrl");
+    const auto restoreHandler = qScopeGuard([&] { QDesktopServices::unsetUrlHandler(https); });
+    m_openedGuide.clear();
+
+    QVERIFY(scene.click(guide));
+    QTRY_COMPARE(m_openedGuide, directory);
+
+    scene.backend.currentRunOverride = {
+        {QStringLiteral("state"), QStringLiteral("MENTOR_MATCHED")},
+        {QStringLiteral("run"), QJsonObject{{QStringLiteral("region"), QStringLiteral("CN")},
+                                          {QStringLiteral("content_id"), 17},
+                                          {QStringLiteral("territory_id"), 160}}},
+    };
+    scene.app->refreshAll();
+    QTRY_COMPARE(scene.app->currentRunState(), QStringLiteral("MENTOR_MATCHED"));
+    QVERIFY(scene.app->activeCommunityRun().isEmpty());
+    QVERIFY(!scene.item(QStringLiteral("floatingCurrentDuty"), true));
+    QCOMPARE(m_openedGuide, directory); // A state change never opens the browser.
+
+    QVERIFY(scene.click(guide));
+    QTRY_COMPARE(m_openedGuide, directory.resolved(QUrl(QStringLiteral("17.htm"))));
+
+    scene.overlay()->setForm(QStringLiteral("mini"));
+    QTRY_VERIFY(scene.item(QStringLiteral("floatingMiniContent"), true));
+    scene.backend.currentRunOverride = {};
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
+    scene.app->refreshAll();
+    QTRY_VERIFY(scene.app->currentGuideRun().isEmpty());
+    QVERIFY(scene.click(guide));
+    QTRY_COMPARE(m_openedGuide, directory);
+
+    scene.overlay()->setLocked(true);
+    QTRY_VERIFY(!scene.item(guide, true));
+    scene.overlay()->setLocked(false);
+    QTRY_VERIFY(scene.item(guide, true));
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+void StatisticsOverlayTests::dashboardOpensTheCommunityLibrary()
+{
+    Scene scene;
+    QVERIFY2(scene.create(QStringLiteral("harendotes"), true, true), qPrintable(scene.errors));
+    QVERIFY(QTest::qWaitForWindowExposed(scene.mainWindow()));
+    QTRY_VERIFY(scene.item(QStringLiteral("dashboardDutyCommunity"), true));
+    QVERIFY(scene.click(QStringLiteral("dashboardDutyCommunity")));
+    auto *dialog = scene.root->findChild<QObject *>(QStringLiteral("dutyCommunityDialog"));
+    QVERIFY(dialog);
+    QTRY_VERIFY(dialog->property("visible").toBool());
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 

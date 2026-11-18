@@ -11,6 +11,11 @@
 
 namespace mr {
 
+BackendReply *IBackend::dutyCommunity(const QJsonObject &payload)
+{
+    return request(QStringLiteral("DutyCommunity"), payload);
+}
+
 BackendReply::BackendReply(QString requestId, QString messageType, QObject *parent)
     : QObject(parent)
     , m_requestId(std::move(requestId))

@@ -857,3 +857,9 @@ C++ 端 `src/Desktop/cpp/{IpcFraming.h,IpcClient.cpp,IBackend.cpp}`。
 结论：四条中只有 `6d26de2`
 改动了 `contracts/`，即上表第四行的四条 capture-validation 消息，其余三条对契约没有改动。后续提交恢复 `docs/git-workflow` 要求的 conventional commits
 （`feat:` / `fix:` / …），并保证提交信息描述的是实际改动。
+
+## DutyCommunity（IPC v1 增量）
+
+- 新增 `DutyCommunity` 的动作类型和响应，覆盖 SQLite 本地条目管理、社区公开缓存、主动投稿与复制校验。
+- `list` / `browse` 使用分页，与 `refresh` 相同的公共分页带有发布代号。成功的包级响应包含领域 `status`。授权令牌、设备密钥和刷新令牌不经 IPC。
+- 社区内容数据形状见 [community-content-v1.schema.json](community-content-v1.schema.json)，项目运行时还校验叠加的内容字节、宏行数、链接闭包和稳定 ID。

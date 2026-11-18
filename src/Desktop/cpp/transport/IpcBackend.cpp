@@ -284,6 +284,8 @@ QJsonObject IpcBackend::buildRequestForTest(const QString &messageType,
     } else if (messageType == QLatin1String("SetRunReflection")) {
         backend.setRunReflection(stringArg(args, "run_id"), stringArg(args, "mood"),
                                  stringArg(args, "text"));
+    } else if (messageType == QLatin1String("DutyCommunity")) {
+        backend.dutyCommunity(args);
     } else if (messageType == QLatin1String("GetReflectionSummary")) {
         backend.getReflectionSummary(intArg(args, "recent_limit", 3));
     } else if (messageType == QLatin1String("ExportCsv")) {

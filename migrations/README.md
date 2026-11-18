@@ -2,7 +2,7 @@
 
 本目录存放本软件的数据库迁移脚本。本文面向需要新增或审阅迁移的维护者，说明迁移的命名、执行规则与版本记录方式。
 
-> 当前 schema 版本：**15**。`DATABASE_STATUS = READY`。
+> 当前 schema 版本：**16**。`DATABASE_STATUS = READY`。
 >
 > | 版本 | 文件 | 内容 |
 > |---|---|---|
@@ -21,6 +21,7 @@
 > | 13 | `0013_legacy_region_cn.sql` | schema 12 之前创建、没有采集会话的 `UNKNOWN` 记录（1.8.0 及更早的补录与无区服列的导入）归入国服 |
 > | 14 | `0014_character_profiles.sql` | 角色档案 `character_profiles` 取代按区服一行的成就设置；`mentor_runs.profile_id` 记录所属档案，各区服原有设置、基数历史与全部记录归入一个档案 |
 > | 15 | `0015_character_identities.sql` | 角色识别 `character_identities`（见过的角色的带密钥摘要及其绑定的档案）；`mentor_runs.identity_id` 记录匹配时登录的角色，既有记录一律为 NULL |
+> | 16 | `0016_duty_community.sql` | 副本攻略及社区内容 |
 
 ## 命名
 
@@ -145,3 +146,7 @@ HMAC-SHA256 摘要（`digest`，32 位十六进制）与该密钥的指纹（`ke
 | `name` | 迁移文件名 |
 | `checksum` | 脚本内容的 SHA-256 |
 | `applied_at_utc` | 应用时间（UTC ISO-8601 带毫秒） |
+
+## schema 15 → 16
+
+`0016_duty_community.sql` 新增 `community_local`、`community_cache` 和 `community_receipts`。旧历史、心得、角色和校准相关数据保持原值。Collector 启动时按现有流程留存 v15 升级前快照。

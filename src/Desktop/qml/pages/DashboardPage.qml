@@ -8,6 +8,12 @@ import MentorRecorder 1.0
 ScrollView {
     id: page
     objectName: "dashboardPage"
+
+    DutyCommunityDialog {
+        id: dutyCommunityDialog
+        parent: Overlay.overlay
+        run: Runtime.app.activeCommunityRun || ({})
+    }
     readonly property var visibleResultBuckets: Runtime.app.resultBuckets.filter(bucket =>
         bucket.result !== "UNKNOWN" || Number(bucket.count || 0) !== 0)
     readonly property var pendingAchievementRegions: {
@@ -450,6 +456,22 @@ ScrollView {
                         }
 
                         Item { Layout.fillWidth: true }
+                    }
+
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: 6
+
+                        DutyGuideButton {
+                            objectName: "dashboardDutyGuide"
+                            run: Runtime.app.currentGuideRun || ({})
+                        }
+                        Button {
+                            objectName: "dashboardDutyCommunity"
+                            text: qsTr("副本提醒与导随宏")
+                            enabled: !!Runtime.app.dutyCommunity
+                            onClicked: dutyCommunityDialog.openFor(!!dutyCommunityDialog.run.run_id)
+                        }
                     }
 
                     // Why the card is empty: it separates "nothing happened" from

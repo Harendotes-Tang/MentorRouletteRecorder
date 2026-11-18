@@ -89,6 +89,7 @@ try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } c
 # starts - tests, the probe Collector, the doctor run - may download anything. Set process-wide
 # so every child inherits it.
 $env:MR_DISABLE_SHARED_FETCH = '1'
+$env:MR_DISABLE_DUTY_COMMUNITY = '1'
 # Online-speech kill switch (docs/privacy-boundary.md section 8.3), for the second request class.
 $env:MR_DISABLE_ONLINE_SPEECH = '1'
 # Update-check kill switch (docs/privacy-boundary.md section 8.4), for the third request class.

@@ -173,10 +173,13 @@ public sealed class SpeechKeyStore
     /// <param name="dataDirectory">Directory holding the database.</param>
     /// <param name="protector">Encryption; DPAPI when null.</param>
     public SpeechKeyStore(string dataDirectory, ISecretProtector? protector = null)
+        : this(dataDirectory, protector ?? DpapiProtector.Instance, FileName) { }
+
+    internal SpeechKeyStore(string dataDirectory, ISecretProtector protector, string fileName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
-        FilePath = Path.Combine(Path.GetFullPath(dataDirectory), FileName);
-        _protector = protector ?? DpapiProtector.Instance;
+        FilePath = Path.Combine(Path.GetFullPath(dataDirectory), fileName);
+        _protector = protector;
     }
 
     /// <summary>Full path of <c>speech-key.bin</c>.</summary>
@@ -287,7 +290,7 @@ public sealed class SpeechKeyStore
     }
 
     /// <inheritdoc />
-    public override string ToString() => "SpeechKeyStore(" + FileName + ")";
+    public override string ToString() => "SpeechKeyStore(" + Path.GetFileName(FilePath) + ")";
 
     private static void TryDelete(string path)
     {

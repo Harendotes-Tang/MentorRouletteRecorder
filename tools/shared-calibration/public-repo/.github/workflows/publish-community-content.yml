@@ -1,0 +1,61 @@
+name: publish-community-content
+
+on:
+  issues:
+    types: [opened, edited, reopened, labeled, unlabeled]
+  schedule:
+    - cron: '23,53 * * * *'
+  workflow_dispatch:
+    inputs:
+      content_id:
+        description: Stable community UUID (leave empty to sweep)
+        type: string
+      status:
+        description: Maintainer-reviewed status
+        type: choice
+        options: [verified, outdated, withdrawn, community]
+      revision:
+        description: Expected current public revision
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  publish:
+    if: >-
+      github.repository == 'Harendotes-Tang/MentorRecorder-Calibrations' &&
+      (github.event_name != 'issues' || contains(github.event.issue.labels.*.name, 'community-content') ||
+       contains(github.event.issue.body, '<!-- mentor-recorder:community-content:v1 -->'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: publish-calibration
+      cancel-in-progress: false
+    steps:
+      - name: Check out trusted main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Process the latest issue or sweep pending submissions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          CONTENT_ID: ${{ inputs.content_id }}
+          CONTENT_STATUS: ${{ inputs.status }}
+          CONTENT_REVISION: ${{ inputs.revision }}
+        run: |
+          if [ "$EVENT_NAME" = issues ]; then
+            python -B tools/community/publish.py --event "$GITHUB_EVENT_PATH"
+          elif [ "$EVENT_NAME" = workflow_dispatch ] && [ -n "$CONTENT_ID" ]; then
+            python -B tools/community/publish.py --moderate "$CONTENT_ID" --status "$CONTENT_STATUS" --revision "$CONTENT_REVISION"
+          else
+            python -B tools/community/publish.py
+          fi

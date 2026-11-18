@@ -38,7 +38,7 @@
         "SoftDeleteRun", "RestoreRun", "BatchMutateRuns", "GetHistoryRetentionSettings", "UpdateHistoryRetentionSettings", "GetPendingImageCleanup", "AcknowledgeImageCleanup", "GetRunRevisions", "UpdateAchievementBaseline",
         "CreateCharacterProfile", "UpdateCharacterProfile", "DeleteCharacterProfile", "ResolveCharacterIdentity", "ExportCsv",
         "ExportJson", "BackupDatabase", "SubscribeLiveEvents", "ExportDiagnosticsReport",
-        "SetRunReflection", "GetReflectionSummary", "PreviewRunImport", "CommitRunImport",
+        "SetRunReflection", "GetReflectionSummary", "DutyCommunity", "PreviewRunImport", "CommitRunImport",
         "StartCaptureValidation", "GetCaptureValidationStatus", "AddCaptureValidationMarker", "StopCaptureValidation",
         "UndoRevision", "GetRunEvents", "GetCaptureSettings", "UpdateCaptureSettings",
         "QueryCandidateObservations", "ReviewCandidateObservation", "ExportCandidateEvidence",
@@ -1201,6 +1201,7 @@
       ]
     },
 
+        { "if": { "properties": { "message_type": { "const": "DutyCommunity" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/DutyCommunityRequest" } } } },
       "BatchMutateRunsRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -1820,6 +1821,29 @@
       "additionalProperties": false,
       "properties": {
         "event_types": { "type": "array", "items": { "type": "string" }, "description": "Empty or omitted means all event types. Values are $defs/LiveEvent.event_type tokens; an unrecognised token filters everything out rather than being ignored. Heartbeat frames are always delivered, because their whole purpose is to prove the subscription is alive." },
+    "DutyCommunityRequest": {
+      "oneOf": [
+        {"type":"object","properties":{"action":{"const":"list"},"offset":{"type":"integer","minimum":0,"maximum":400}},"required":["action"],"additionalProperties":false},
+        {"type":"object","properties":{"action":{"const":"browse"},"offset":{"type":"integer","minimum":0,"maximum":400}},"required":["action"],"additionalProperties":false},
+        {"type":"object","properties":{"action":{"const":"refresh"}},"required":["action"],"additionalProperties":false},
+        {"type":"object","properties":{"action":{"const":"online"},"enabled":{"type":"boolean"}},"required":["action","enabled"],"additionalProperties":false},
+        {"type":"object","properties":{"action":{"const":"save"},"content":{"type":"object"},"revision":{"type":"integer","minimum":0,"maximum":2147483647},"position":{"type":"integer","minimum":-9999,"maximum":9999},"favorite":{"type":"boolean"}},"required":["action","content","revision","position","favorite"],"additionalProperties":false},
+        {"type":"object","properties":{"action":{"const":"delete"},"id":{"type":"string","pattern":"^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$"},"revision":{"type":"integer","minimum":1,"maximum":2147483647}},"required":["action","id","revision"],"additionalProperties":false},
+        {"type":"object","properties":{"action":{"const":"install"},"id":{"type":"string","pattern":"^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$"}},"required":["action","id"],"additionalProperties":false},
+        {"type":"object","properties":{"action":{"const":"apply"},"id":{"type":"string","pattern":"^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$"},"local_id":{"type":"string","pattern":"^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$"},"revision":{"type":"integer","minimum":1,"maximum":2147483647},"source_revision":{"type":"integer","minimum":1,"maximum":2147483647},"mode":{"enum":["keep","replace"]}},"required":["action","id","revision","source_revision","mode"],"additionalProperties":false},
+        {"type":"object","properties":{"action":{"const":"fork"},"id":{"type":"string","pattern":"^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$"},"local_id":{"type":"string","pattern":"^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$"},"revision":{"type":"integer","minimum":1,"maximum":2147483647}},"required":["action","id","local_id","revision"],"additionalProperties":false},
+        {"type":"object","properties":{"action":{"const":"import_file"},"file":{"type":"string","maxLength":700000}},"required":["action","file"],"additionalProperties":false},
+        {"type":"object","properties":{"action":{"const":"copy"},"body":{"type":"string","maxLength":1600},"mode":{"enum":["reminder","chat","macro"]}},"required":["action","body","mode"],"additionalProperties":false},
+        {"type":"object","properties":{"action":{"const":"account"}},"required":["action"],"additionalProperties":false},
+        {"type":"object","properties":{"action":{"const":"sign_in"}},"required":["action"],"additionalProperties":false},
+        {"type":"object","properties":{"action":{"const":"poll"}},"required":["action"],"additionalProperties":false},
+        {"type":"object","properties":{"action":{"const":"cancel"}},"required":["action"],"additionalProperties":false},
+        {"type":"object","properties":{"action":{"const":"sign_out"}},"required":["action"],"additionalProperties":false},
+        {"type":"object","properties":{"action":{"const":"submit"},"items":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"object"}},"base_revisions":{"type":"object"},"license":{"enum":["CC-BY-4.0","CC-BY-SA-4.0"]},"consent":{"const":true},"author_id":{"type":"integer","minimum":1}},"required":["action","items","base_revisions","license","consent","author_id"],"additionalProperties":false},
+        {"type":"object","properties":{"action":{"const":"prepare_issue"},"items":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"object"}},"base_revisions":{"type":"object"},"license":{"enum":["CC-BY-4.0","CC-BY-SA-4.0"]},"consent":{"const":true},"author_id":{"type":"integer","minimum":1}},"required":["action","items","base_revisions","license","consent"],"additionalProperties":false},
+        {"type":"object","properties":{"action":{"const":"issue_status"},"issue":{"type":"integer","minimum":1,"maximum":2147483647}},"required":["action","issue"],"additionalProperties":false}
+      ]
+    },
         "heartbeat_interval_ms": { "type": "integer", "minimum": 1000, "maximum": 60000, "default": 5000, "description": "How often the Collector sends a Heartbeat event on an otherwise idle subscription. Echoed back in the acknowledgement." }
       }
     },
@@ -2214,6 +2238,26 @@
           "pending_completed_count": {
             "type": "integer",
             "minimum": 0,
+      "DutyCommunity": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status"],
+        "properties": {
+          "status": { "type": "string" },
+          "app_configured": { "type": "boolean" },
+          "online": { "type": "boolean" },
+          "cached": { "type": "boolean" },
+          "next": { "type": ["integer", "null"], "minimum": 0 },
+          "generation": { "type": "integer", "minimum": 0 },
+          "items": { "type": "array", "maxItems": 40, "items": { "type": "object" } },
+          "entries": { "type": "array", "maxItems": 40, "items": { "type": "object" } },
+          "body": { "type": "string", "maxLength": 30000 },
+          "account": { "type": "object" },
+          "user_code": { "type": "string", "maxLength": 32 },
+          "interval": { "type": "integer", "minimum": 5 },
+          "issue": { "type": "integer", "minimum": 1 }
+        }
+      },
             "description": "Non-deleted runs with result COMPLETED and no reflection."
           },
           "recent": {

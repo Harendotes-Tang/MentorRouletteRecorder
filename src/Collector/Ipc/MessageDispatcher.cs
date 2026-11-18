@@ -67,7 +67,7 @@ public sealed class MessageDispatcher
         "CreateCharacterProfile", "UpdateCharacterProfile", "DeleteCharacterProfile", "ResolveCharacterIdentity",
         "BatchMutateRuns", "GetHistoryRetentionSettings", "UpdateHistoryRetentionSettings", "GetPendingImageCleanup", "AcknowledgeImageCleanup",
         "ExportJson", "BackupDatabase", "PreviewRunImport", "CommitRunImport", "SubscribeLiveEvents", "ExportDiagnosticsReport",
-        "SetRunReflection", "GetReflectionSummary",
+        "SetRunReflection", "GetReflectionSummary", "DutyCommunity",
         "StartCaptureValidation", "GetCaptureValidationStatus", "AddCaptureValidationMarker", "StopCaptureValidation",
         "UndoRevision", "GetRunEvents", "GetCaptureSettings", "UpdateCaptureSettings",
         "QueryCandidateObservations", "ReviewCandidateObservation", "ExportCandidateEvidence",
@@ -93,7 +93,7 @@ public sealed class MessageDispatcher
         new HashSet<string>(StringComparer.Ordinal)
         {
             "SynthesizeSpeech", "CheckDatabaseIntegrity", "CheckUpdateNow", "PreviewRunImport", "CommitRunImport",
-            "ExportCsv", "ExportJson",
+            "ExportCsv", "ExportJson", "DutyCommunity",
         };
 
     /// <summary>Host this dispatcher serves.</summary>
@@ -156,6 +156,7 @@ public sealed class MessageDispatcher
             "ExportDiagnosticsReport" => ExportDiagnosticsReport(reader),
             "SetRunReflection" => ReflectionHandlers.SetRunReflection(_host, request.RequestId, reader),
             "GetReflectionSummary" => ReflectionHandlers.GetReflectionSummary(_host, reader),
+            "DutyCommunity" => CommunityHandlers.HandleAsync(_host, request, CancellationToken.None).GetAwaiter().GetResult(),
             "QueryCandidateObservations" => CandidateHandlers.Query(_host, reader),
             "ReviewCandidateObservation" => CandidateHandlers.Review(_host, request.RequestId, reader),
             "ExportCandidateEvidence" => CandidateHandlers.Export(_host, reader),
@@ -197,6 +198,7 @@ public sealed class MessageDispatcher
             "CheckDatabaseIntegrity" => CheckDatabaseIntegrityAsync(request, cancellationToken),
             "CheckUpdateNow" => UpdateHandlers.CheckNowAsync(_host, new PayloadReader(request.Payload), cancellationToken),
             "PreviewRunImport" or "CommitRunImport" => DispatchImportAsync(request, cancellationToken),
+            "DutyCommunity" => CommunityHandlers.HandleAsync(_host, request, cancellationToken),
             "ExportCsv" or "ExportJson" => DispatchExportAsync(request, cancellationToken),
             _ => Task.FromResult(Dispatch(request)),
         };

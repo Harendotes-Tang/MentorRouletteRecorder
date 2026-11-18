@@ -152,6 +152,8 @@ QJsonObject argsFor(const QString &messageType)
         args.insert(QStringLiteral("text"),
                     QString::fromUtf8("新人坦克第一次打灯塔，全程语音提醒机制，"
                                       "最后一个 boss 一次过。"));
+    } else if (messageType == QLatin1String("DutyCommunity")) {
+        args.insert(QStringLiteral("action"), QStringLiteral("list"));
     } else if (messageType == QLatin1String("GetReflectionSummary")) {
         args.insert(QStringLiteral("recent_limit"), 3);
     } else if (messageType == QLatin1String("ExportCsv") ||
@@ -316,6 +318,7 @@ QStringList allMessageTypes()
         QStringLiteral("ExportCsv"),
         QStringLiteral("ExportJson"),
         QStringLiteral("BackupDatabase"),
+        QStringLiteral("DutyCommunity"),
         QStringLiteral("ExportDiagnosticsReport"),
         QStringLiteral("CheckDatabaseIntegrity"),
         QStringLiteral("GetSpeechSettings"),

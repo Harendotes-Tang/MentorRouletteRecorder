@@ -9,7 +9,7 @@ on:
     - cron: '11,41 * * * *'
   workflow_dispatch:
   workflow_run:
-    workflows: [publish-calibration, evidence-calibration, report-calibration]
+    workflows: [publish-calibration, evidence-calibration, report-calibration, publish-community-content]
     types: [completed]
     branches: [main]
 
