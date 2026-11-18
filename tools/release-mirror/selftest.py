@@ -485,8 +485,8 @@ class CurlTransportTests(unittest.TestCase):
         result = subprocess.CompletedProcess([], 0, "200|8|8|1.000")
         with patch.object(m, "run_curl", return_value=result) as run:
             m.upload_with_curl(self.url, self.headers, self.path, m.time.monotonic() + 18000)
-        self.assertEqual(run.call_args.kwargs["timeout"], 1800)
-        self.assertIn('max-time = "1798.000000"', run.call_args.kwargs["input"])
+        self.assertEqual(run.call_args.kwargs["timeout"], 10800)
+        self.assertIn('max-time = "10798.000000"', run.call_args.kwargs["input"])
 
     def test_live_progress_discards_secrets_and_identifies_response_wait(self):
         script = (
