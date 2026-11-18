@@ -226,6 +226,9 @@ public sealed record CaptureDiagnosticsSnapshot
     /// <summary>Messages whose framing was read successfully.</summary>
     public long MessagesDecoded { get; init; }
 
+    /// <summary>Decoded game IPC segments in this capture session, excluding control segments.</summary>
+    public long IpcMessagesDecoded { get; init; }
+
     /// <summary>Messages whose framing could not be read.</summary>
     public long DecodeErrors { get; init; }
 

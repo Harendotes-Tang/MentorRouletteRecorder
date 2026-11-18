@@ -381,6 +381,13 @@ QVariantMap DutyCatalog::lookupByTerritory(const QVariant &territoryId, const QS
     return agreed;
 }
 
+QVariantMap DutyCatalog::uniqueDutyForTerritory(int territoryId, const QString &region) const
+{
+    const auto &duties = catalogue(region).byTerritoryId;
+    const auto found = duties.constFind(territoryId);
+    return found != duties.cend() && found->size() == 1 ? found->first() : QVariantMap{};
+}
+
 QString DutyCatalog::displayedCategory(const QVariantMap &run, bool fillMissingFromCatalog) const
 {
     QString recorded = run.value(QStringLiteral("duty_category")).toString();

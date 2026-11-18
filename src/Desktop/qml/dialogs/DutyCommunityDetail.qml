@@ -1,0 +1,389 @@
+pragma ComponentBehavior: Bound
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import MentorRecorder 1.0
+
+// The right pane of 副本提醒与导随宏 while reading an entry: what it is for, its text with the
+// macro's line numbers, and the actions on this one entry.
+ColumnLayout {
+    id: pane
+
+    required property var store
+    readonly property var row: store.current
+    readonly property var item: row ? row.content : null
+    readonly property bool macro: !!item && item.type === "macro"
+    readonly property var lines: item ? item.body.replace(/\r\n/g, "\n").replace(/\s+$/, "").split("\n") : []
+    readonly property bool installed: !!item && store.remote && store.isInstalled(item.id)
+    readonly property var sourceItem: store.source
+    readonly property bool sourceNewer: !store.remote && !!sourceItem && !!row && !!row.upstream
+        && sourceItem.status !== "withdrawn" && sourceItem.revision > row.upstream.revision
+    readonly property var meta: {
+        if (!item) return []
+        const author = item.author || (row.upstream && row.upstream.author)
+        const pairs = [
+            [qsTr("副本"), store.dutyLabel(item)],
+            [qsTr("BOSS / 阶段"), store.stageLabel(item) || "—"],
+            [qsTr("区服"), store.regionLabel(item.region)],
+            [qsTr("语言"), store.languageLabel(item.language)],
+            [qsTr("角色"), item.role],
+            [qsTr("适用版本"), item.game_version],
+            [qsTr("来源"), store.remote ? item.source : (row.upstream ? qsTr("公共共享库") : qsTr("自己写的"))],
+            [qsTr("作者"), author ? "@" + author.login : ""],
+            [qsTr("许可"), item.license || (row.upstream && row.upstream.license)],
+            [qsTr("状态"), item.status ? store.statusText(item.status) : ""],
+            [qsTr("更新于"), item.updated_at]
+        ]
+        return pairs.filter(pair => pair[1]).map(pair => ({ key: pair[0], value: String(pair[1]) }))
+    }
+    spacing: 0
+
+    function escaped(text) {
+        return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/ /g, "&nbsp;")
+    }
+    /// One macro line as StyledText: the command and the <placeholders> in their own colours.
+    /// Everything the player wrote is escaped first, so it can never act as markup.
+    function lineMarkup(line) {
+        const parts = /^(\/[^\s<]+)(.*)$/.exec(line)
+        const command = parts ? '<font color="' + Theme.blue + '"><b>' + escaped(parts[1]) + "</b></font>" : ""
+        const rest = (parts ? parts[2] : line).split(/(<[^<>\s]+>)/).map(piece =>
+            /^<[^<>\s]+>$/.test(piece) ? '<font color="' + Theme.teal + '">' + escaped(piece) + "</font>" : escaped(piece))
+        return command + rest.join("")
+    }
+
+    Text {
+        renderType: Theme.bodyRenderType
+        visible: !pane.item
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        horizontalAlignment: Text.AlignHCenter
+        verticalAlignment: Text.AlignVCenter
+        text: qsTr("在左边选一条查看")
+        color: Theme.textSecondary
+        font.pixelSize: Theme.fs(13)
+    }
+
+    ScrollView {
+        id: scroller
+        visible: !!pane.item
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        contentWidth: availableWidth
+        clip: true
+
+        ColumnLayout {
+            width: scroller.availableWidth
+            spacing: 14
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: 24
+                Layout.rightMargin: 24
+                Layout.topMargin: 18
+                spacing: 10
+                ContentTypeTag { Layout.alignment: Qt.AlignTop; Layout.topMargin: 3; type: pane.item ? pane.item.type : "macro" }
+                Text {
+                    objectName: "dutyCommunityDetailTitle"
+                    renderType: Theme.bodyRenderType
+                    Layout.fillWidth: true
+                    textFormat: Text.PlainText
+                    wrapMode: Text.Wrap
+                    text: pane.item ? pane.item.title : ""
+                    color: Theme.textPrimary
+                    font.pixelSize: Theme.fs(18)
+                    font.bold: true
+                }
+                AppButton {
+                    objectName: "dutyCommunityDetailFavorite"
+                    visible: !pane.store.remote
+                    compact: true
+                    variant: "ghost"
+                    text: pane.row && pane.row.favorite ? "★ " + qsTr("已收藏") : "☆ " + qsTr("收藏")
+                    onClicked: pane.store.toggleFavorite(pane.row)
+                }
+            }
+
+            Flow {
+                Layout.fillWidth: true
+                Layout.leftMargin: 24
+                Layout.rightMargin: 24
+                spacing: 10
+                Repeater {
+                    model: pane.meta
+                    delegate: Column {
+                        required property var modelData
+                        rightPadding: 18
+                        spacing: 2
+                        Text {
+                            renderType: Theme.bodyRenderType
+                            text: parent.modelData.key
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.fs(11)
+                        }
+                        Text {
+                            renderType: Theme.bodyRenderType
+                            textFormat: Text.PlainText
+                            width: Math.min(implicitWidth, 300)
+                            elide: Text.ElideRight
+                            text: parent.modelData.value
+                            color: Theme.textPrimary
+                            font.pixelSize: Theme.fs(13)
+                            font.weight: Font.DemiBold
+                        }
+                    }
+                }
+            }
+
+            InsetBox {
+                objectName: "dutyCommunityBody"
+                Layout.fillWidth: true
+                Layout.leftMargin: 24
+                Layout.rightMargin: 24
+                implicitHeight: bodyColumn.implicitHeight
+                border.width: 1
+
+                ColumnLayout {
+                    id: bodyColumn
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    spacing: 0
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 12
+                        Layout.rightMargin: 12
+                        Layout.preferredHeight: 32
+                        Text {
+                            renderType: Theme.bodyRenderType
+                            Layout.fillWidth: true
+                            text: pane.macro ? qsTr("宏内容") : qsTr("提醒内容")
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.fs(12)
+                        }
+                        Text {
+                            objectName: "dutyCommunityLineCount"
+                            renderType: Theme.bodyRenderType
+                            visible: pane.macro
+                            text: qsTr("%1 / 15 行").arg(pane.lines.length)
+                            color: pane.lines.length > 15 ? Theme.red : Theme.textSecondary
+                            font.pixelSize: Theme.fs(12)
+                            font.weight: pane.lines.length > 15 ? Font.DemiBold : Font.Normal
+                        }
+                    }
+                    Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.border }
+
+                    // A reminder is prose; a macro is a numbered listing in the mono face.
+                    TextEdit {
+                        visible: !pane.macro
+                        Layout.fillWidth: true
+                        Layout.margins: 12
+                        readOnly: true
+                        selectByMouse: true
+                        textFormat: TextEdit.PlainText
+                        wrapMode: TextEdit.Wrap
+                        text: pane.item && !pane.macro ? pane.item.body : ""
+                        color: Theme.textPrimary
+                        font.pixelSize: Theme.fs(13)
+                    }
+                    ColumnLayout {
+                        visible: pane.macro
+                        Layout.fillWidth: true
+                        Layout.topMargin: 10
+                        Layout.bottomMargin: 10
+                        spacing: 4
+                        Repeater {
+                            model: pane.macro ? pane.lines : []
+                            delegate: RowLayout {
+                                id: line
+                                required property string modelData
+                                required property int index
+                                Layout.fillWidth: true
+                                spacing: 12
+                                Text {
+                                    Layout.preferredWidth: 28
+                                    Layout.alignment: Qt.AlignTop
+                                    horizontalAlignment: Text.AlignRight
+                                    text: String(line.index + 1)
+                                    color: Theme.textMuted
+                                    font.family: Theme.monoFamily
+                                    font.pixelSize: 12
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    Layout.rightMargin: 14
+                                    textFormat: Text.StyledText
+                                    wrapMode: Text.WrapAnywhere
+                                    text: pane.lineMarkup(line.modelData)
+                                    color: Theme.textPrimary
+                                    font.family: Theme.monoFamily
+                                    font.pixelSize: 13
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Text {
+                renderType: Theme.bodyRenderType
+                visible: pane.macro
+                Layout.fillWidth: true
+                Layout.leftMargin: 24
+                Layout.rightMargin: 24
+                wrapMode: Text.Wrap
+                text: qsTr("复制后粘贴到游戏的「用户宏」里；一个宏最多 15 行。")
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fs(12)
+            }
+
+            // What the design keeps out of the footer: links to the other kind, and the
+            // entry's relation to the public version it came from.
+            Flow {
+                Layout.fillWidth: true
+                Layout.leftMargin: 24
+                Layout.rightMargin: 24
+                Layout.bottomMargin: 18
+                spacing: 6
+
+                Repeater {
+                    model: pane.item ? pane.item.links : []
+                    delegate: AppButton {
+                        required property string modelData
+                        readonly property var target: pane.store.rows.find(row => row.content.id === modelData)
+                        compact: true
+                        text: qsTr("关联项") + " · " + (target ? target.content.title : modelData)
+                        enabled: !!target
+                        onClicked: {
+                            pane.store.resetFilters()
+                            pane.store.select(modelData)
+                        }
+                    }
+                }
+                AppButton {
+                    objectName: "dutyCommunityMakeMacro"
+                    compact: true
+                    visible: !pane.store.remote && !!pane.item && !pane.macro
+                    text: qsTr("从提醒生成宏")
+                    onClicked: pane.store.editNew("macro", pane.item)
+                }
+                AppButton {
+                    compact: true
+                    visible: !pane.store.remote && !!pane.row && !!pane.row.upstream
+                    text: qsTr("另存个人版本")
+                    onClicked: pane.store.forkCurrent()
+                }
+                AppButton {
+                    compact: true
+                    variant: "primary"
+                    visible: pane.sourceNewer
+                    text: qsTr("对比来源更新")
+                    onClicked: pane.store.compareSource()
+                }
+            }
+        }
+    }
+
+    Rectangle { visible: !!pane.item; Layout.fillWidth: true; implicitHeight: 1; color: Theme.border }
+    RowLayout {
+        visible: !!pane.item
+        Layout.fillWidth: true
+        Layout.leftMargin: 24
+        Layout.rightMargin: 24
+        Layout.topMargin: 12
+        Layout.bottomMargin: 12
+        spacing: 8
+
+        AppButton {
+            objectName: "dutyCommunityCopy"
+            variant: "primary"
+            readonly property string copyMode: pane.macro ? "macro" : "reminder"
+            readonly property bool copied: !!pane.item && pane.store.copiedKey === pane.item.id + copyMode
+            iconName: copied ? "check" : "copy"
+            text: copied ? qsTr("已复制") : qsTr("复制")
+            onClicked: pane.store.copyBody(copyMode)
+        }
+        AppButton {
+            objectName: "dutyCommunityCopyChat"
+            visible: pane.macro && pane.lines.length === 1
+            readonly property bool copied: !!pane.item && pane.store.copiedKey === pane.item.id + "chat"
+            text: copied ? qsTr("已复制") : qsTr("复制队聊／团聊消息")
+            onClicked: pane.store.copyBody("chat")
+        }
+        AppButton {
+            objectName: "dutyCommunityEdit"
+            visible: !pane.store.remote && !pane.store.confirmingDelete
+            iconName: "notebook-pen"
+            text: qsTr("编辑")
+            onClicked: pane.store.startEdit(pane.row)
+        }
+        AppButton {
+            objectName: "dutyCommunityInstall"
+            visible: pane.store.remote && !pane.installed
+            enabled: !!pane.item && pane.item.status !== "withdrawn"
+            iconName: "file-input"
+            text: qsTr("导入到本地")
+            onClicked: pane.store.installAll([pane.item.id])
+        }
+        Text {
+            renderType: Theme.bodyRenderType
+            visible: pane.installed
+            text: "✓ " + qsTr("已在本地")
+            color: Theme.green
+            font.pixelSize: Theme.fs(12)
+        }
+        AppButton {
+            visible: pane.installed
+            variant: "ghost"
+            text: qsTr("在本地查看")
+            onClicked: {
+                const id = pane.item.id
+                const local = pane.store.localRows.find(row => row.content.id === id || (row.upstream && row.upstream.id === id))
+                pane.store.showLocal(local ? local.content.id : "")
+            }
+        }
+        Item { Layout.fillWidth: true }
+
+        Text {
+            renderType: Theme.bodyRenderType
+            visible: pane.store.confirmingDelete
+            text: qsTr("删除后不能恢复，确定删除？")
+            color: Theme.textPrimary
+            font.pixelSize: Theme.fs(13)
+        }
+        AppButton {
+            objectName: "dutyCommunityConfirmDelete"
+            visible: pane.store.confirmingDelete
+            text: qsTr("确定删除")
+            onClicked: pane.store.removeCurrent()
+        }
+        AppButton {
+            visible: pane.store.confirmingDelete
+            variant: "ghost"
+            text: qsTr("取消")
+            onClicked: pane.store.confirmingDelete = false
+        }
+        AppButton {
+            objectName: "dutyCommunityExport"
+            visible: !pane.store.remote && !pane.store.confirmingDelete
+            variant: "ghost"
+            iconName: "file-down"
+            text: qsTr("导出")
+            onClicked: pane.store.exportRows([pane.item.id])
+        }
+        AppButton {
+            objectName: "dutyCommunitySubmit"
+            visible: !pane.store.remote && !pane.store.confirmingDelete
+            variant: "ghost"
+            iconName: "arrow-up"
+            text: qsTr("投稿")
+            onClicked: pane.store.submitRows([pane.item.id])
+        }
+        AppButton {
+            objectName: "dutyCommunityDelete"
+            visible: !pane.store.remote && !pane.store.confirmingDelete
+            variant: "ghost"
+            text: qsTr("删除")
+            onClicked: pane.store.confirmingDelete = true
+        }
+    }
+}

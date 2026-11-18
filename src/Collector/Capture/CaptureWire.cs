@@ -91,6 +91,7 @@ public static class CaptureWire
             // (docs/capture-diagnostics.md section 5.1).
             ["connection_count"] = snapshot.ConnectionCount,
             ["messages_decoded"] = snapshot.MessagesDecoded,
+            ["ipc_decoded"] = snapshot.IpcMessagesDecoded,
             ["decode_errors"] = snapshot.DecodeErrors,
             ["parse_ok_count"] = snapshot.ParseOkCount,
             ["parse_fail_count"] = snapshot.ParseFailCount,

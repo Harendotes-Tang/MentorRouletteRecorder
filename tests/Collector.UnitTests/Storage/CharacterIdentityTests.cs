@@ -82,6 +82,14 @@ public sealed class CharacterIdentityTests
 
         public int BoundTo(long profileId) =>
             Statistics.GetProfiles().Single(value => value.Profile.ProfileId == profileId).IdentityCount;
+
+        public void Upgrade(long profileId)
+        {
+            using var seed = Database.Database.CreateCommand();
+            seed.CommandText = "INSERT INTO character_profile_registrations (profile_id) VALUES ($profile);";
+            seed.Parameters.AddWithValue("$profile", profileId);
+            seed.ExecuteNonQuery();
+        }
     }
 
     [Fact]
@@ -114,10 +122,7 @@ public sealed class CharacterIdentityTests
             fixture.Login(Main);
         }
 
-        using var seed = fixture.Database.Database.CreateCommand();
-        seed.CommandText = "INSERT INTO character_profile_registrations (profile_id) VALUES ($profile);";
-        seed.Parameters.AddWithValue("$profile", profileId);
-        seed.ExecuteNonQuery();
+        fixture.Upgrade(profileId);
 
         Assert.Empty(fixture.Statistics.GetIdentities());
         var login = fixture.Login(Main);
@@ -137,6 +142,82 @@ public sealed class CharacterIdentityTests
         Assert.Equal((profileId, "白露", 0), (saved.ProfileId, saved.DisplayName, saved.BaselineCompletedCount));
         Assert.False(fixture.Login(Main).StatisticsChanged);
         Assert.Empty(fixture.Statistics.GetIdentities());
+    }
+
+    [Theory]
+    [InlineData("create", true)]
+    [InlineData("bind", true)]
+    [InlineData("ignore", true)]
+    [InlineData("create", false)]
+    public void DecliningTheOriginalProfileOffersItToTheNextUnansweredCharacter(string answer, bool alreadySeen)
+    {
+        using var fixture = new Fixture();
+        var original = fixture.Current();
+        var oldRun = fixture.Match(null);
+        fixture.Upgrade(original);
+        var alt = fixture.Login(Alt).IdentityId!.Value;
+        var altRun = fixture.Match(Alt);
+        if (alreadySeen)
+        {
+            fixture.Login(Main);
+            fixture.Login(Third);
+        }
+
+        long? altProfile = null;
+        switch (answer)
+        {
+            case "create":
+                altProfile = fixture.Add("小号", identityId: alt);
+                break;
+            case "bind":
+                altProfile = fixture.Add("小号");
+                fixture.Answer(alt, CharacterIdentityAction.Bind, altProfile);
+                break;
+            default:
+                fixture.Answer(alt, CharacterIdentityAction.Ignore);
+                break;
+        }
+
+        if (!alreadySeen)
+            fixture.Login(Main);
+        var next = Assert.Single(fixture.Statistics.GetIdentities(), item => item.Identity.RegistrationProfileId == original);
+        var main = fixture.Login(Main).IdentityId!.Value;
+        Assert.Equal(main, next.Identity.IdentityId);
+        var mainRun = fixture.Match(Main);
+        fixture.Identities.Resolve(new ResolveCharacterIdentityCommand(
+            Fixture.NewId(), main, CharacterIdentityAction.Bind, original, "主号"));
+        Assert.Equal(altProfile, fixture.Runs.Get(altRun)!.ProfileId);
+        Assert.Equal(original, fixture.Runs.Get(mainRun)!.ProfileId);
+        Assert.Equal(original, fixture.Runs.Get(oldRun)!.ProfileId);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ForgettingAnOldBindingOffersTheOriginalProfileToTheWaitingCharacter(bool offerAtOldCharactersLogin)
+    {
+        using var fixture = new Fixture();
+        var original = fixture.Current();
+        var oldIdentity = fixture.Login(Alt).IdentityId!.Value;
+        var oldRun = fixture.Match(Alt);
+        fixture.Upgrade(original);
+        var main = fixture.Login(Main).IdentityId!.Value;
+        Assert.DoesNotContain(fixture.Statistics.GetIdentities(), item => item.Identity.RegistrationProfileId is not null);
+        if (offerAtOldCharactersLogin)
+        {
+            fixture.Login(Alt);
+            Assert.Equal(oldIdentity, Assert.Single(fixture.Statistics.GetIdentities(),
+                item => item.Identity.RegistrationProfileId == original).Identity.IdentityId);
+        }
+
+        fixture.Profiles.Update(new UpdateCharacterProfileCommand(
+            Fixture.NewId(), original, null, MakeCurrent: false, ForgetIdentities: true));
+
+        var waiting = fixture.Statistics.GetIdentities();
+        Assert.Equal(main, Assert.Single(waiting, item => item.Identity.RegistrationProfileId == original).Identity.IdentityId);
+        Assert.Contains(waiting, item => item.Identity.IdentityId == oldIdentity &&
+            item.Identity.State == CharacterIdentityState.Pending && item.Identity.RegistrationProfileId is null);
+        Assert.Equal(original, fixture.Runs.Get(oldRun)!.ProfileId);
     }
 
     [Fact]

@@ -169,6 +169,7 @@ set(MR_CPP_SOURCES
     cpp/GameSelectionController.cpp
     cpp/GameSelectionController.h
     cpp/AppController.cpp
+    cpp/DutyCommunityController.cpp
     cpp/AppController.h
     cpp/workflows/DailyBackupScheduler.cpp
     cpp/workflows/DailyBackupScheduler.h
@@ -250,6 +251,7 @@ set(MR_CPP_SOURCES
     cpp/MockBackendUpdate.cpp
     cpp/MockBackendProfiles.cpp
     cpp/MockBackendIdentities.cpp
+    cpp/MockBackendCommunity.cpp
     cpp/MockBackend.h
     cpp/MockBackendStats.cpp
     cpp/MockData.h
@@ -346,6 +348,7 @@ set(MR_QML_FILES
     qml/components/OverlayIcons.js
     qml/overlay/OverlayIcon.qml
     qml/overlay/OverlayIconButton.qml
+    qml/overlay/OverlayGuideButton.qml
     qml/overlay/OverlayToolTip.qml
     qml/overlay/OverlayData.qml
     qml/overlay/OverlayBar.qml
@@ -426,6 +429,17 @@ set(MR_QML_FILES
     qml/dialogs/ReflectionShareDialog.qml
     qml/dialogs/ImportRecordsDialog.qml
     qml/dialogs/RunDetailPanel.qml
+    qml/components/DutyGuideButton.qml
+    qml/components/DutyGuideAction.qml
+    qml/components/MultiFilterButton.qml
+    qml/components/ActionMenuButton.qml
+    qml/components/ContentTypeTag.qml
+    qml/dialogs/DutyCommunityDialog.qml
+    qml/dialogs/DutyCommunityToolbar.qml
+    qml/dialogs/DutyCommunityList.qml
+    qml/dialogs/DutyCommunityDetail.qml
+    qml/dialogs/DutyCommunityEditor.qml
+    qml/dialogs/DutyCommunitySubmission.qml
     qml/dialogs/RunWizardDutyStep.qml
     qml/dialogs/RunWizardResultStep.qml
     qml/dialogs/RunWizardTimeStep.qml
@@ -535,6 +549,7 @@ qt_add_resources(MentorRecorderDesktopLib "mr_duties"
     BASE "${CMAKE_CURRENT_SOURCE_DIR}/../.."
     FILES
         ${MR_DUTY_CATALOGUES}
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../data/duty-guides/ff14-org.json"
         # Display names of duties, jobs and roulettes in 繁體中文 / English / 日本語
         # (GameNames, data/i18n/README.md), and the Chinese roulette names they are
         # looked up by.

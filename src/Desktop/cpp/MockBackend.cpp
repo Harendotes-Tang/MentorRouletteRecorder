@@ -63,7 +63,7 @@ const Duty kDuties[] = {
     {  .contentId = 4, .territoryId = 1036, .name = "沙斯塔夏溶洞",         .category = "四人迷宫",   .level = 15, .expansion = "2.0"},
     {  .contentId = 2, .territoryId = 1037, .name = "塔姆·塔拉墓园",        .category = "四人迷宫",   .level = 16, .expansion = "2.0"},
     {  .contentId = 3, .territoryId = 1038, .name = "铜铃铜山",             .category = "四人迷宫",   .level = 17, .expansion = "2.0"},
-    { .contentId = 17, .territoryId = 1039, .name = "天狼星灯塔",           .category = "四人迷宫",   .level = 32, .expansion = "2.0"},
+    { .contentId = 17, .territoryId = 160, .name = "天狼星灯塔",           .category = "四人迷宫",   .level = 32, .expansion = "2.0"},
     { .contentId = 11, .territoryId = 1043, .name = "石卫塔",               .category = "四人迷宫",   .level = 28, .expansion = "2.0"},
     { .contentId = 12, .territoryId = 1041, .name = "巴尔达姆霸国",         .category = "四人迷宫",   .level = 47, .expansion = "2.0"},
     { .contentId = 20, .territoryId = 1045, .name = "魔大陆阿济兹拉",       .category = "四人迷宫",   .level = 59, .expansion = "3.0"},
@@ -390,6 +390,15 @@ void MockBackend::setLiveMode(LiveMode mode)
         return;
     m_liveMode = mode;
     emitStateChanged(currentRun().value(QStringLiteral("state")).toString());
+}
+
+void MockBackend::setRecordingFixture(const QString &state)
+{
+    // Each transition to healthy listening delivers one fresh game IPC message.
+    // Re-reading the same fixture must not invent any additional traffic.
+    if (state == QLatin1String("listening") && state != m_recordingFixture)
+        ++m_fixtureListeningPackets;
+    m_recordingFixture = state;
 }
 
 QJsonValue MockBackend::validationIdentitySteps() const
@@ -1080,7 +1089,7 @@ QJsonObject MockBackend::captureStatus() const
     status.insert(QStringLiteral("started_at_utc"),
                   running ? QJsonValue(isoUtc(m_now.addSecs(-((2 * 3600) + (14 * 60) + 9))))
                           : QJsonValue(QJsonValue::Null));
-    status.insert(QStringLiteral("packets_observed"), 918432);
+    status.insert(QStringLiteral("packets_observed"), 918432 + m_fixtureListeningPackets);
     status.insert(QStringLiteral("packets_dropped"), 0);
     status.insert(QStringLiteral("queue_depth"), running ? 3 : 0);
     status.insert(QStringLiteral("queue_capacity"), 4096);
@@ -1104,7 +1113,8 @@ QJsonObject MockBackend::captureStatus() const
     // A midstream session decodes nothing at all and only accumulates decode
     // errors; that is the whole point of the fixture.
     status.insert(QStringLiteral("messages_decoded"),
-                  running && !m_midstreamSuspected ? 917994 : 0);
+                  running && !m_midstreamSuspected ? 917994 + m_fixtureListeningPackets : 0);
+    status.insert(QStringLiteral("ipc_decoded"), running && !m_midstreamSuspected ? 917900 + m_fixtureListeningPackets : 0);
     int decodeErrors = 0;
     if (running)
         decodeErrors = m_midstreamSuspected ? 24518 : 438;
@@ -1114,7 +1124,7 @@ QJsonObject MockBackend::captureStatus() const
     status.insert(QStringLiteral("duplicate_count"), running && !candidateEnabled ? 17 : 0);
     // Undeclared opcodes: the bulk of ordinary traffic, counted but not failed
     // (contracts/CHANGELOG.md entry 18).
-    status.insert(QStringLiteral("ignored_count"), running && !candidateEnabled ? 904841 : 0);
+    status.insert(QStringLiteral("ignored_count"), running && !candidateEnabled ? 904841 + m_fixtureListeningPackets : 0);
     // A run that is matched but not yet entered has the match announcement as its
     // most recent valid event (contracts/CHANGELOG.md 2026-09-19), so that fixture
     // is the one that exercises MATCH_ANNOUNCED offline; every other fixture keeps
@@ -1290,7 +1300,7 @@ QJsonObject MockBackend::captureStatus() const
                                  "last_valid_event_at_utc", "last_valid_event_kind", "calibration_bound_at_utc"})
             status.insert(QString::fromLatin1(field), QJsonValue(QJsonValue::Null));
         for (const auto *field : {"parse_ok_count", "parse_fail_count", "duplicate_count", "ignored_count",
-                                 "messages_decoded", "message_rate_per_second"})
+                                 "messages_decoded", "ipc_decoded", "message_rate_per_second"})
             status.insert(QString::fromLatin1(field), 0);
         status.remove(QStringLiteral("calibration"));
     }
@@ -1671,8 +1681,8 @@ QJsonObject MockBackend::currentRun() const
     run.insert(QStringLiteral("ended_at_utc"), QJsonValue(QJsonValue::Null));
     run.insert(QStringLiteral("duration_ms"), QJsonValue(QJsonValue::Null));
     run.insert(QStringLiteral("content_id"), entered ? QJsonValue(17) : QJsonValue(QJsonValue::Null));
-    run.insert(QStringLiteral("territory_id"),
-               entered ? QJsonValue(1039) : QJsonValue(QJsonValue::Null));
+    const auto duty = entered ? DutyCatalog::shared()->lookup(17, captureRegion()) : QVariantMap{};
+    run.insert(QStringLiteral("territory_id"), QJsonValue::fromVariant(duty.value(QStringLiteral("territory_id"))));
     run.insert(QStringLiteral("duty_name"),
                entered ? QJsonValue(QString::fromUtf8("天狼星灯塔"))
                        : QJsonValue(QJsonValue::Null));
@@ -3609,7 +3619,7 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
     } else if (isUpdateDownloadMessage(messageType) && m_updateDownloadSupported) {
         // Without the feature the message falls through to the refusal below,
         // as an older Collector refuses it.
-        result = applyUpdateDownload(messageType, payload);
+        result = applyUpdateDownload(messageType, payload, &errorCode, &errorMessage, &errorDetails);
     } else if (messageType == QLatin1String("GetCurrentRun")) {
         result = currentRun();
     } else if (messageType == QLatin1String("SubscribeLiveEvents")) {
@@ -3690,6 +3700,8 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         result.insert(QStringLiteral("acknowledged_count"), acknowledged);
     } else if (isCharacterProfileMessage(messageType)) {
         result = applyCharacterProfile(messageType, payload, &errorCode, &errorMessage, &errorDetails);
+    } else if (messageType == QLatin1String("DutyCommunity")) {
+        result = dutyCommunity(payload);
     } else if (messageType == QLatin1String("ResolveCharacterIdentity")) {
         result = resolveCharacterIdentity(payload, &errorCode, &errorMessage);
     } else if (messageType == QLatin1String("BatchMutateRuns")

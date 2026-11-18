@@ -250,6 +250,7 @@ UpdateController::Download UpdateController::downloadFrom(const QVariant &raw)
     download.failure = object.value(QStringLiteral("failure")).toString();
     download.message = object.value(QStringLiteral("message")).toString();
     download.messageRef = object.value(QStringLiteral("message_ref"));
+    download.mirrorOfferId = object.value(QStringLiteral("mirror_offer_id")).toString();
     download.receivedBytes = qMax<qint64>(0, object.value(QStringLiteral("received_bytes")).toLongLong());
     const QVariant total = object.value(QStringLiteral("total_bytes"));
     download.totalBytes = total.isValid() && !total.isNull() ? qMax<qint64>(0, total.toLongLong()) : -1;
@@ -639,6 +640,49 @@ void UpdateController::cancelDownload()
         Q_EMIT changed();
         Q_EMIT toastRequested(m_errorText(tr("暂未确认下载是否取消，请稍后查看下载状态。"), code));
     });
+}
+
+QString UpdateController::mirrorOfferId() const
+{
+    const auto &download = m_state.download;
+    if (!downloadSupported() || !m_backend->isConnected() || !m_state.enabled || download.state != kDownloading
+        || download.mirrorOfferId == m_resolvedMirrorOfferId) {
+        return {};
+    }
+    return download.mirrorOfferId;
+}
+
+void UpdateController::resolveMirrorOffer(const QString &offerId, bool useGitCode)
+{
+    if (offerId.isEmpty() || offerId != mirrorOfferId())
+        return;
+
+    m_resolvedMirrorOfferId = offerId;
+    m_mirrorSwitchNeedsConfirmation = false;
+    m_backend->resolveUpdateMirrorOffer(offerId, useGitCode)->whenDone(this,
+        [this, offerId, useGitCode](bool ok, const QVariantMap &, const QString &code, const QString &) {
+        if (ok || !useGitCode || offerId != m_resolvedMirrorOfferId
+            || (m_state.download.present && m_state.download.mirrorOfferId != offerId))
+            return;
+        m_mirrorSwitchNeedsConfirmation = true;
+        if (m_backend && m_backend->isConnected())
+            Q_EMIT statusRefreshRequested();
+        Q_EMIT toastRequested(m_errorText(tr("未能确认是否已切换下载源，请查看下载状态。"), code));
+    });
+    // GetStatus owns progress. A delayed choice reply must not put a finished download back into DOWNLOADING.
+    Q_EMIT changed();
+}
+
+void UpdateController::confirmMirrorOfferRetry()
+{
+    if (!std::exchange(m_mirrorSwitchNeedsConfirmation, false))
+        return;
+    // Only a fresh GetStatus can reopen a failed switch. Choosing to keep GitHub
+    // needs no retry: the primary download continues even if that reply is lost.
+    if (m_state.download.state == kDownloading && m_state.download.mirrorOfferId == m_resolvedMirrorOfferId) {
+        m_resolvedMirrorOfferId.clear();
+        Q_EMIT changed();
+    }
 }
 
 void UpdateController::adoptDownloadAnswer(const QVariantMap &payload)

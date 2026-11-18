@@ -1,4 +1,6 @@
 using System.Text.Json.Nodes;
+using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Update;
 
@@ -68,6 +70,25 @@ public static class UpdateHandlers
         ArgumentNullException.ThrowIfNull(reader);
         reader.RequireEmpty();
         return Response(host, host.UpdateDownloads.Cancel());
+    }
+
+    /// <summary>Resolves an installer download's pending mirror offer without waiting on the network.</summary>
+    /// <param name="host">Collector host.</param>
+    /// <param name="reader">Attempt-scoped offer UUID and whether to choose GitCode.</param>
+    public static JsonObject ResolveMirrorOffer(CollectorHost host, PayloadReader reader)
+    {
+        reader.RejectUnknown("offer_id", "use_gitcode");
+        var offerId = reader.RequiredString("offer_id", 64);
+        // TryParseExact also accepts signed and 0x-prefixed fields for compatibility
+        // with older GUID parsers. The wire UUID permits only hexadecimal digits and dashes.
+        if (!Guid.TryParseExact(offerId, "D", out var parsed) ||
+            !string.Equals(offerId, parsed.ToString("D"), StringComparison.OrdinalIgnoreCase))
+        {
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldNotUuid("offer_id"), "payload.offer_id");
+        }
+        var useGitCode = reader.Bool("use_gitcode") ??
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldMissing("use_gitcode"), "payload.use_gitcode");
+        return Response(host, host.UpdateDownloads.ResolveMirrorOffer(offerId, useGitCode));
     }
 
     private static JsonObject Response(CollectorHost host, UpdateDownloadSnapshot download) =>

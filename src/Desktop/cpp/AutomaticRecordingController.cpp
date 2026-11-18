@@ -100,17 +100,59 @@ void AutomaticRecordingController::clearWarning()
 {
     m_warningActive = false;
     m_warningPending = false;
+    m_recoveryPending = false;
     m_warningGame.clear();
+    m_warningCapture.clear();
     m_warningMessage.clear();
+}
+
+bool AutomaticRecordingController::receivedGameDataSinceWarning()
+{
+    // Older Collectors only expose semantic events as proof of a game read.
+    // Their parser is recreated when the capture session changes.
+    const QString ipc = QStringLiteral("ipc_decoded");
+    const QString counter = m_latestCapture.contains(ipc) ? ipc : QStringLiteral("parse_ok_count");
+    if (!m_latestCapture.contains(counter))
+        return false;
+    const QString session = QStringLiteral("capture_session_id");
+    const QString currentSession = m_latestCapture.value(session).toString();
+    const bool replaced = !currentSession.isEmpty() && m_warningCapture.contains(session)
+        && currentSession != m_warningCapture.value(session).toString();
+    if (!replaced && !m_warningCapture.contains(counter)) {
+        // A partial warning snapshot gave no baseline. The next increase will
+        // be fresh, even if this first complete reading includes older traffic.
+        m_warningCapture = m_latestCapture;
+        return false;
+    }
+    const qint64 before = replaced ? 0 : m_warningCapture.value(counter).toLongLong();
+    return m_latestCapture.value(counter).toLongLong() > before;
 }
 
 bool AutomaticRecordingController::updateWarning(const QString &state, const LiveText &message)
 {
     if (m_maintenance || m_userObservation || state == QLatin1String("waiting")
-        || state == QLatin1String("listening") || state == QLatin1String("observing")) {
+        || state == QLatin1String("observing")) {
         clearWarning();
         return false;
     }
+    const bool anotherGame = !m_currentGame.isEmpty() && !m_warningGame.isEmpty()
+        && m_currentGame != m_warningGame;
+    if (state == QLatin1String("listening")) {
+        const bool gameKnown = m_latestCapture.value(QStringLiteral("ffxiv_process_id")).toULongLong() > 0;
+        if (anotherGame || (m_recoveryPending && !gameKnown)) {
+            clearWarning();
+        } else if (m_warningActive && gameKnown && receivedGameDataSinceWarning()) {
+            const bool sameGame = !m_warningGame.isEmpty() && m_warningGame == m_currentGame;
+            clearWarning();
+            if (sameGame) {
+                m_warningGame = m_currentGame;
+                m_recoveryPending = true;
+            }
+        }
+        return false;
+    }
+    if (m_recoveryPending)
+        clearWarning();
     const bool calibrationProgress = state == QLatin1String("calibrating")
         || state == QLatin1String("calibration_ready");
     const bool rawRecovering = m_latestCapture.value(QStringLiteral("path_recovery")).toMap()
@@ -130,16 +172,17 @@ bool AutomaticRecordingController::updateWarning(const QString &state, const Liv
         return false; // Missing/checking facts cannot establish recovery.
     }
 
-    const bool anotherGame = !m_currentGame.isEmpty() && !m_warningGame.isEmpty()
-        && m_currentGame != m_warningGame;
     const bool fresh = !m_warningActive || anotherGame;
     if (fresh) {
         m_warningActive = true;
         m_warningPending = true;
+        m_recoveryPending = false;
         ++m_warningSerial;
     }
     if (!m_currentGame.isEmpty())
         m_warningGame = m_currentGame;
+    if (!m_latestCapture.isEmpty())
+        m_warningCapture = m_latestCapture;
     if (state == QLatin1String("recovering") || (calibrationProgress && rawRecovering)) {
         m_warningMessage = LiveText([] {
             return tr("暂时读不到可用的游戏数据，自动记录尚未恢复。软件正在后台尝试恢复，恢复前不会自动生成记录。");
@@ -179,6 +222,7 @@ void AutomaticRecordingController::acknowledge()
 void AutomaticRecordingController::acknowledgeWarning()
 {
     m_warningPending = false;
+    m_recoveryPending = false;
     m_pending = false;
     Q_EMIT changed();
 }

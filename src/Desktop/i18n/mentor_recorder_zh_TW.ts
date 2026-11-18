@@ -2129,6 +2129,14 @@ SHA256：%3</translation>
         <translation>發現了一個還沒有登記的角色</translation>
     </message>
     <message>
+        <source>输入角色名并确认绑定「原有记录」。已有记录和成就进度会保留。</source>
+        <translation>輸入角色名稱並確認綁定「原有紀錄」。已有紀錄與成就進度會保留。</translation>
+    </message>
+    <message>
+        <source>如果认错了角色，可在「设置 › 成就」解除绑定。</source>
+        <translation>如果認錯了角色，可以在「設定 › 成就」解除綁定。</translation>
+    </message>
+    <message>
         <source>它已经有 %1 条记录，现在不计入任何角色的进度。</source>
         <translation>它已經有 %1 筆記錄，現在不計入任何角色的進度。</translation>
     </message>
@@ -2143,6 +2151,10 @@ SHA256：%3</translation>
     <message>
         <source>另外还有 %1 个角色等待说明，回答完这一个再问下一个。</source>
         <translation>另外還有 %1 個角色等待說明，回答完這一個再問下一個。</translation>
+    </message>
+    <message>
+        <source>登记并绑定原有记录</source>
+        <translation>登記並綁定原有紀錄</translation>
     </message>
     <message>
         <source>这是一个新角色</source>
@@ -2172,14 +2184,6 @@ SHA256：%3</translation>
         <source>不统计这个角色</source>
         <translation>不統計這個角色</translation>
     </message>
-    <message>
-        <source>输入角色名并确认绑定「原有记录」。已有记录和成就进度会保留。</source>
-        <translation>輸入角色名稱並確認綁定「原有紀錄」。已有紀錄與成就進度會保留。</translation>
-    </message>
-    <message>
-        <source>登记并绑定原有记录</source>
-        <translation>登記並綁定原有紀錄</translation>
-    </message>
 </context>
 <context>
     <name>CharacterNames</name>
@@ -2205,6 +2209,10 @@ SHA256：%3</translation>
     <message>
         <source>给角色改名</source>
         <translation>為角色改名</translation>
+    </message>
+    <message>
+        <source>登记原有角色</source>
+        <translation>登記原有角色</translation>
     </message>
     <message>
         <source>登记新角色</source>
@@ -2253,10 +2261,6 @@ SHA256：%3</translation>
     <message>
         <source>保存</source>
         <translation>儲存</translation>
-    </message>
-    <message>
-        <source>登记原有角色</source>
-        <translation>登記原有角色</translation>
     </message>
     <message>
         <source>确认绑定</source>
@@ -5161,6 +5165,17 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>ContentTypeTag</name>
+    <message>
+        <source>宏</source>
+        <translation>巨集</translation>
+    </message>
+    <message>
+        <source>提醒</source>
+        <translation>提醒</translation>
+    </message>
+</context>
+<context>
     <name>DashboardPage</name>
     <message>
         <source>%1 条</source>
@@ -5241,6 +5256,18 @@ SHA256：%3</translation>
     <message>
         <source>空闲</source>
         <translation>空閒</translation>
+    </message>
+    <message>
+        <source>提醒与宏</source>
+        <translation>提醒與巨集</translation>
+    </message>
+    <message>
+        <source>%1有 %2 条提醒与宏</source>
+        <translation>%1有 %2 則提醒與巨集</translation>
+    </message>
+    <message>
+        <source>副本提醒与导随宏</source>
+        <translation>副本提醒與導隨巨集</translation>
     </message>
     <message>
         <source>匹配时间</source>
@@ -5513,6 +5540,10 @@ SHA256：%3</translation>
         <translation>預設在啟動軟體時及持續執行期間定期檢查更新，先從本專案在 GitHub 的公開發布頁讀取版本資訊（GitHub 讀取失敗時，改從它在 GitCode 上的同名鏡像讀取），有新版本時在總覽提示。也可點「檢查更新」主動檢查。點「下載安裝程式」只下載安裝程式（同樣先從 GitHub 下載，失敗時改從 GitCode 鏡像下載），並核對發布時公布的校驗值；通過後還需點「立即安裝」啟動安裝程式，本軟體隨後關閉，由安裝程式完成更新。請求不含帳號、安裝編號或裝置身分資訊，GitHub、GitCode 及其下載服務能看到你的 IP 位址。軟體不會自行下載或安裝。可在「設定 → 一般 → 更新」關閉「檢查新版本並提示」，關閉後「檢查更新」也無法使用，進行中的下載會取消，已準備好的安裝程式會刪除。</translation>
     </message>
     <message>
+        <source>GitHub 持续低速时，软件会探测 GitCode 镜像。如果预计能更早下载完成，软件会先询问再切换。</source>
+        <translation>GitHub 持續低速時，軟體會測試 GitCode 鏡像。如果預計能更早下載完成，會先詢問再切換。</translation>
+    </message>
+    <message>
         <source>运行顺序</source>
         <translation>執行順序</translation>
     </message>
@@ -5658,6 +5689,1011 @@ SHA256：%3</translation>
     <message>
         <source>未识别</source>
         <translation>未辨識</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunityDetail</name>
+    <message>
+        <source>副本</source>
+        <translation>副本</translation>
+    </message>
+    <message>
+        <source>BOSS / 阶段</source>
+        <translation>BOSS / 階段</translation>
+    </message>
+    <message>
+        <source>区服</source>
+        <translation>伺服器地區</translation>
+    </message>
+    <message>
+        <source>语言</source>
+        <translation>語言</translation>
+    </message>
+    <message>
+        <source>角色</source>
+        <translation>角色</translation>
+    </message>
+    <message>
+        <source>适用版本</source>
+        <translation>適用版本</translation>
+    </message>
+    <message>
+        <source>来源</source>
+        <translation>來源</translation>
+    </message>
+    <message>
+        <source>公共共享库</source>
+        <translation>公共共享庫</translation>
+    </message>
+    <message>
+        <source>自己写的</source>
+        <translation>自己寫的</translation>
+    </message>
+    <message>
+        <source>作者</source>
+        <translation>作者</translation>
+    </message>
+    <message>
+        <source>许可</source>
+        <translation>授權</translation>
+    </message>
+    <message>
+        <source>状态</source>
+        <translation>狀態</translation>
+    </message>
+    <message>
+        <source>更新于</source>
+        <translation>更新於</translation>
+    </message>
+    <message>
+        <source>在左边选一条查看</source>
+        <translation>在左邊選一則檢視</translation>
+    </message>
+    <message>
+        <source>已收藏</source>
+        <translation>已收藏</translation>
+    </message>
+    <message>
+        <source>收藏</source>
+        <translation>收藏</translation>
+    </message>
+    <message>
+        <source>宏内容</source>
+        <translation>巨集內容</translation>
+    </message>
+    <message>
+        <source>提醒内容</source>
+        <translation>提醒內容</translation>
+    </message>
+    <message>
+        <source>%1 / 15 行</source>
+        <translation>%1 / 15 行</translation>
+    </message>
+    <message>
+        <source>复制后粘贴到游戏的「用户宏」里；一个宏最多 15 行。</source>
+        <translation>複製後貼到遊戲的「使用者巨集」裡；一個巨集最多 15 行。</translation>
+    </message>
+    <message>
+        <source>关联项</source>
+        <translation>關聯項目</translation>
+    </message>
+    <message>
+        <source>从提醒生成宏</source>
+        <translation>從提醒產生巨集</translation>
+    </message>
+    <message>
+        <source>另存个人版本</source>
+        <translation>另存個人版本</translation>
+    </message>
+    <message>
+        <source>对比来源更新</source>
+        <translation>比較來源更新</translation>
+    </message>
+    <message>
+        <source>已复制</source>
+        <translation>已複製</translation>
+    </message>
+    <message>
+        <source>复制</source>
+        <translation>複製</translation>
+    </message>
+    <message>
+        <source>复制队聊／团聊消息</source>
+        <translation>複製隊伍／團隊聊天訊息</translation>
+    </message>
+    <message>
+        <source>编辑</source>
+        <translation>編輯</translation>
+    </message>
+    <message>
+        <source>导入到本地</source>
+        <translation>匯入本機</translation>
+    </message>
+    <message>
+        <source>已在本地</source>
+        <translation>已在本機</translation>
+    </message>
+    <message>
+        <source>在本地查看</source>
+        <translation>在本機檢視</translation>
+    </message>
+    <message>
+        <source>删除后不能恢复，确定删除？</source>
+        <translation>刪除後無法復原，確定刪除？</translation>
+    </message>
+    <message>
+        <source>确定删除</source>
+        <translation>確定刪除</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>导出</source>
+        <translation>匯出</translation>
+    </message>
+    <message>
+        <source>投稿</source>
+        <translation>投稿</translation>
+    </message>
+    <message>
+        <source>删除</source>
+        <translation>刪除</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunityDialog</name>
+    <message>
+        <source>宏</source>
+        <translation>巨集</translation>
+    </message>
+    <message>
+        <source>一行一条指令，复制到游戏里用</source>
+        <translation>一行一條指令，複製到遊戲裡使用</translation>
+    </message>
+    <message>
+        <source>提醒</source>
+        <translation>提醒</translation>
+    </message>
+    <message>
+        <source>记下这个副本要注意的事</source>
+        <translation>記下這個副本要注意的事</translation>
+    </message>
+    <message>
+        <source>大家好～不熟悉机制的话可以说一声，需要的话我会简单说明。</source>
+        <translation>大家好～不熟悉機制的話可以說一聲，需要的話我會簡單說明。</translation>
+    </message>
+    <message>
+        <source>等大家看完动画再开，先准备一下。</source>
+        <translation>等大家看完動畫再開，先準備一下。</translation>
+    </message>
+    <message>
+        <source>我是中途加入的，现在进度到哪里？有什么需要先说明的吗？</source>
+        <translation>我是中途加入的，目前進度到哪裡？有什麼需要先說明的嗎？</translation>
+    </message>
+    <message>
+        <source>先停一下，我补充一下刚才的机制，说明后再开。</source>
+        <translation>先停一下，我補充一下剛才的機制，說明後再開。</translation>
+    </message>
+    <message>
+        <source>辛苦了，谢谢大家！</source>
+        <translation>辛苦了，謝謝大家！</translation>
+    </message>
+    <message>
+        <source>副本提醒与导随宏</source>
+        <translation>副本提醒與導隨巨集</translation>
+    </message>
+    <message>
+        <source>国服 CN</source>
+        <translation>中國服 CN</translation>
+    </message>
+    <message>
+        <source>繁中服 TC</source>
+        <translation>繁中服 TC</translation>
+    </message>
+    <message>
+        <source>国际服 GLOBAL</source>
+        <translation>國際服 GLOBAL</translation>
+    </message>
+    <message>
+        <source>全部区服</source>
+        <translation>全部區服</translation>
+    </message>
+    <message>
+        <source>通用</source>
+        <translation>一般</translation>
+    </message>
+    <message>
+        <source>已导入 %1 项到本地，可以在「本地」里编辑。</source>
+        <translation>已匯入 %1 項到本機，可以在「本機」裡編輯。</translation>
+    </message>
+    <message>
+        <source>正在查询…</source>
+        <translation>正在查詢…</translation>
+    </message>
+    <message>
+        <source>公共库联网已关闭，仍可使用本地内容与缓存。</source>
+        <translation>公共庫連線已關閉，仍可使用本機內容與快取。</translation>
+    </message>
+    <message>
+        <source>手动刷新时连接公共共享库。</source>
+        <translation>手動重新整理時連線到公共共享庫。</translation>
+    </message>
+    <message>
+        <source>正在刷新公共共享库。</source>
+        <translation>正在重新整理公共共享庫。</translation>
+    </message>
+    <message>
+        <source>公共共享库尚未部署。</source>
+        <translation>公共共享庫尚未部署。</translation>
+    </message>
+    <message>
+        <source>公共共享库暂时没有内容。</source>
+        <translation>公共共享庫暫時沒有內容。</translation>
+    </message>
+    <message>
+        <source>暂时无法联网或请求受限，保留上次有效缓存。</source>
+        <translation>目前無法連線或請求受限，保留上次有效快取。</translation>
+    </message>
+    <message>
+        <source>公共索引或内容校验失败，保留上次有效缓存。</source>
+        <translation>公共索引或內容驗證失敗，保留上次有效快取。</translation>
+    </message>
+    <message>
+        <source>镜像尚未同步，继续使用现有版本。</source>
+        <translation>鏡像尚未同步，繼續使用現有版本。</translation>
+    </message>
+    <message>
+        <source>已保存到本地。</source>
+        <translation>已儲存到本機。</translation>
+    </message>
+    <message>
+        <source>已删除本地条目。</source>
+        <translation>已刪除本機項目。</translation>
+    </message>
+    <message>
+        <source>已导入，可离线使用。</source>
+        <translation>已匯入，可離線使用。</translation>
+    </message>
+    <message>
+        <source>已应用来源更新。</source>
+        <translation>已套用來源更新。</translation>
+    </message>
+    <message>
+        <source>已安装，请在本地查看或检查更新。</source>
+        <translation>已安裝，請在本機查看或檢查更新。</translation>
+    </message>
+    <message>
+        <source>来源版本已变化，请重新刷新和对比。</source>
+        <translation>來源版本已變更，請重新整理並比較。</translation>
+    </message>
+    <message>
+        <source>来源或关联内容已撤回或不可用。</source>
+        <translation>來源或關聯內容已撤回或無法使用。</translation>
+    </message>
+    <message>
+        <source>本地有同一条目或更新的修改，请重新加载。</source>
+        <translation>本機有相同項目或較新的修改，請重新載入。</translation>
+    </message>
+    <message>
+        <source>本地库已达到 400 条。</source>
+        <translation>本機庫已達到 400 筆。</translation>
+    </message>
+    <message>
+        <source>请填写标题，最多 120 字。</source>
+        <translation>請填寫標題，最多 120 字。</translation>
+    </message>
+    <message>
+        <source>请填写正文，最多 1600 字。</source>
+        <translation>請填寫內文，最多 1600 字。</translation>
+    </message>
+    <message>
+        <source>完整宏最多 15 行。</source>
+        <translation>完整巨集最多 15 行。</translation>
+    </message>
+    <message>
+        <source>每行宏最多 180 个 UTF-8 字节。</source>
+        <translation>每行巨集最多 180 個 UTF-8 位元組。</translation>
+    </message>
+    <message>
+        <source>聊天指令最多 500 个 UTF-8 字节。</source>
+        <translation>聊天指令最多 500 個 UTF-8 位元組。</translation>
+    </message>
+    <message>
+        <source>聊天复制只支持带正文的单行 /p 或 /a 指令。</source>
+        <translation>聊天複製只支援有內文的單行 /p 或 /a 指令。</translation>
+    </message>
+    <message>
+        <source>剪贴板写入失败或内容不一致。</source>
+        <translation>剪貼簿寫入失敗或內容不一致。</translation>
+    </message>
+    <message>
+        <source>已复制到剪贴板。</source>
+        <translation>已複製到剪貼簿。</translation>
+    </message>
+    <message>
+        <source>文件格式不正确，单次最多 20 条。</source>
+        <translation>檔案格式不正確，單次最多 20 筆。</translation>
+    </message>
+    <message>
+        <source>无法读取或写入此文件。</source>
+        <translation>無法讀取或寫入此檔案。</translation>
+    </message>
+    <message>
+        <source>已导出。</source>
+        <translation>已匯出。</translation>
+    </message>
+    <message>
+        <source>关联项必须存在，且提醒和宏只能关联另一种类型。</source>
+        <translation>關聯項必須存在，且提醒和巨集只能關聯另一種類型。</translation>
+    </message>
+    <message>
+        <source>请选择 1 至 20 条内容并确认投稿许可。</source>
+        <translation>請選擇 1 至 20 筆內容並確認投稿授權。</translation>
+    </message>
+    <message>
+        <source>投稿文字超出大小限制，请分批投稿。</source>
+        <translation>投稿文字超出大小限制，請分批投稿。</translation>
+    </message>
+    <message>
+        <source>原生投稿尚未配置 GitHub App，可使用浏览器投稿。</source>
+        <translation>原生投稿尚未設定 GitHub App，可使用瀏覽器投稿。</translation>
+    </message>
+    <message>
+        <source>请在 GitHub 输入设备代码并确认授权。</source>
+        <translation>請在 GitHub 輸入裝置代碼並確認授權。</translation>
+    </message>
+    <message>
+        <source>授权代码已过期。</source>
+        <translation>授權代碼已過期。</translation>
+    </message>
+    <message>
+        <source>授权未完成。</source>
+        <translation>授權未完成。</translation>
+    </message>
+    <message>
+        <source>已取消授权。</source>
+        <translation>已取消授權。</translation>
+    </message>
+    <message>
+        <source>上一项授权操作尚在处理。</source>
+        <translation>上一項授權操作仍在處理。</translation>
+    </message>
+    <message>
+        <source>未登录 GitHub。</source>
+        <translation>未登入 GitHub。</translation>
+    </message>
+    <message>
+        <source>已登录 GitHub。</source>
+        <translation>已登入 GitHub。</translation>
+    </message>
+    <message>
+        <source>GitHub 账号已变化，请重新预览提交。</source>
+        <translation>GitHub 帳號已變更，請重新預覽投稿。</translation>
+    </message>
+    <message>
+        <source>已提交投稿，等待工作流处理。</source>
+        <translation>已提交投稿，等待工作流程處理。</translation>
+    </message>
+    <message>
+        <source>投稿正在处理。</source>
+        <translation>投稿正在處理。</translation>
+    </message>
+    <message>
+        <source>已公开发布。刷新共享库后可查看。</source>
+        <translation>已公開發布。重新整理共享庫後可查看。</translation>
+    </message>
+    <message>
+        <source>处理失败，请打开 GitHub Issue 查看原因。</source>
+        <translation>處理失敗，請開啟 GitHub Issue 查看原因。</translation>
+    </message>
+    <message>
+        <source>提交结果暂时无法确认，请在 GitHub 检查投稿后再重试。</source>
+        <translation>目前無法確認提交結果，請在 GitHub 檢查投稿後再重試。</translation>
+    </message>
+    <message>
+        <source>投稿已关闭。</source>
+        <translation>投稿已關閉。</translation>
+    </message>
+    <message>
+        <source>投稿正文已复制，请粘贴到浏览器表单并提交。</source>
+        <translation>投稿內文已複製，請貼到瀏覽器表單並提交。</translation>
+    </message>
+    <message>
+        <source>已核验</source>
+        <translation>已查核</translation>
+    </message>
+    <message>
+        <source>过时</source>
+        <translation>已過時</translation>
+    </message>
+    <message>
+        <source>已撤回</source>
+        <translation>已撤回</translation>
+    </message>
+    <message>
+        <source>社区投稿／未核验</source>
+        <translation>社群投稿／未查核</translation>
+    </message>
+    <message>
+        <source>输入无效或操作失败。</source>
+        <translation>輸入無效或操作失敗。</translation>
+    </message>
+    <message>
+        <source>本地</source>
+        <translation>本機</translation>
+    </message>
+    <message>
+        <source>公共共享库</source>
+        <translation>公共共享庫</translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation>關閉</translation>
+    </message>
+    <message>
+        <source>还没有提醒或宏</source>
+        <translation>還沒有提醒或巨集</translation>
+    </message>
+    <message>
+        <source>把进本要说的话、要注意的机制存在这里，进了副本一键复制。</source>
+        <translation>把進本要說的話、要注意的機制存在這裡，進了副本一鍵複製。</translation>
+    </message>
+    <message>
+        <source>新建宏</source>
+        <translation>新增巨集</translation>
+    </message>
+    <message>
+        <source>新建提醒</source>
+        <translation>新增提醒</translation>
+    </message>
+    <message>
+        <source>去公共共享库挑选</source>
+        <translation>去公共共享庫挑選</translation>
+    </message>
+    <message>
+        <source>或者从常用宏示例开始</source>
+        <translation>或者從常用巨集範例開始</translation>
+    </message>
+    <message>
+        <source>正在刷新公共库…</source>
+        <translation>正在重新整理公共庫…</translation>
+    </message>
+    <message>
+        <source>公共共享库还没有内容</source>
+        <translation>公共共享庫還沒有內容</translation>
+    </message>
+    <message>
+        <source>公共库联网已关闭</source>
+        <translation>公共庫連線已關閉</translation>
+    </message>
+    <message>
+        <source>第一次刷新需要几秒钟。</source>
+        <translation>第一次重新整理需要幾秒鐘。</translation>
+    </message>
+    <message>
+        <source>公共库联网已关闭，仍可使用本地内容与缓存。打开「允许公共库联网」后，可以刷新并浏览大家投稿的内容。</source>
+        <translation>公共庫連線已關閉，仍可使用本機內容與快取。開啟「允許公共庫連線」後，可以重新整理並瀏覽大家投稿的內容。</translation>
+    </message>
+    <message>
+        <source>刷新公共库</source>
+        <translation>重新整理公共庫</translation>
+    </message>
+    <message>
+        <source>允许联网并刷新</source>
+        <translation>允許連線並重新整理</translation>
+    </message>
+    <message>
+        <source>投稿进度</source>
+        <translation>投稿進度</translation>
+    </message>
+    <message>
+        <source>编号</source>
+        <translation>編號</translation>
+    </message>
+    <message>
+        <source>投稿的 Issue 编号</source>
+        <translation>投稿的 Issue 編號</translation>
+    </message>
+    <message>
+        <source>查看状态</source>
+        <translation>檢視狀態</translation>
+    </message>
+    <message>
+        <source>在 GitHub 打开</source>
+        <translation>在 GitHub 開啟</translation>
+    </message>
+    <message>
+        <source>来源更新对比</source>
+        <translation>比較來源更新</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>使用来源版本</source>
+        <translation>使用來源版本</translation>
+    </message>
+    <message>
+        <source>应用更新并保留我的修改</source>
+        <translation>套用更新並保留我的修改</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunityEditor</name>
+    <message>
+        <source>新建宏</source>
+        <translation>新增巨集</translation>
+    </message>
+    <message>
+        <source>新建提醒</source>
+        <translation>新增提醒</translation>
+    </message>
+    <message>
+        <source>编辑宏</source>
+        <translation>編輯巨集</translation>
+    </message>
+    <message>
+        <source>编辑提醒</source>
+        <translation>編輯提醒</translation>
+    </message>
+    <message>
+        <source>类型</source>
+        <translation>類型</translation>
+    </message>
+    <message>
+        <source>副本</source>
+        <translation>副本</translation>
+    </message>
+    <message>
+        <source>宏</source>
+        <translation>巨集</translation>
+    </message>
+    <message>
+        <source>提醒</source>
+        <translation>提醒</translation>
+    </message>
+    <message>
+        <source>当前副本</source>
+        <translation>目前副本</translation>
+    </message>
+    <message>
+        <source>通用</source>
+        <translation>一般</translation>
+    </message>
+    <message>
+        <source>改为通用</source>
+        <translation>改為通用</translation>
+    </message>
+    <message>
+        <source>搜索副本名称</source>
+        <translation>搜尋副本名稱</translation>
+    </message>
+    <message>
+        <source>选择副本</source>
+        <translation>選擇副本</translation>
+    </message>
+    <message>
+        <source>标题</source>
+        <translation>標題</translation>
+    </message>
+    <message>
+        <source>起个一眼能认出来的名字</source>
+        <translation>取個一眼就能認出來的名字</translation>
+    </message>
+    <message>
+        <source>请填写标题</source>
+        <translation>請填寫標題</translation>
+    </message>
+    <message>
+        <source>BOSS（可不填）</source>
+        <translation>BOSS（可不填）</translation>
+    </message>
+    <message>
+        <source>阶段（可不填）</source>
+        <translation>階段（可不填）</translation>
+    </message>
+    <message>
+        <source>区服</source>
+        <translation>伺服器地區</translation>
+    </message>
+    <message>
+        <source>语言</source>
+        <translation>語言</translation>
+    </message>
+    <message>
+        <source>例如：BOSS 2、尾王</source>
+        <translation>例如：BOSS 2、尾王</translation>
+    </message>
+    <message>
+        <source>例如：转场</source>
+        <translation>例如：轉場</translation>
+    </message>
+    <message>
+        <source>宏内容</source>
+        <translation>巨集內容</translation>
+    </message>
+    <message>
+        <source>提醒内容</source>
+        <translation>提醒內容</translation>
+    </message>
+    <message>
+        <source>一行一条指令，例如：/p 大家好 &lt;se.1&gt;</source>
+        <translation>一行一條指令，例如：/p 大家好 &lt;se.1&gt;</translation>
+    </message>
+    <message>
+        <source>写下这个副本要注意的事</source>
+        <translation>寫下這個副本要注意的事</translation>
+    </message>
+    <message>
+        <source>请填写正文</source>
+        <translation>請填寫正文</translation>
+    </message>
+    <message>
+        <source>超过 15 行了，游戏里要拆成两个宏。</source>
+        <translation>超過 15 行了，遊戲裡要拆成兩個巨集。</translation>
+    </message>
+    <message>
+        <source>游戏里一个宏最多 15 行。</source>
+        <translation>遊戲裡一個巨集最多 15 行。</translation>
+    </message>
+    <message>
+        <source>%1 / 15 行</source>
+        <translation>%1 / 15 行</translation>
+    </message>
+    <message>
+        <source>角色</source>
+        <translation>角色</translation>
+    </message>
+    <message>
+        <source>适用游戏版本</source>
+        <translation>適用遊戲版本</translation>
+    </message>
+    <message>
+        <source>显示顺序</source>
+        <translation>顯示順序</translation>
+    </message>
+    <message>
+        <source>收藏</source>
+        <translation>收藏</translation>
+    </message>
+    <message>
+        <source>标签，以逗号分隔</source>
+        <translation>標籤，以逗號分隔</translation>
+    </message>
+    <message>
+        <source>来源</source>
+        <translation>來源</translation>
+    </message>
+    <message>
+        <source>关联的提醒</source>
+        <translation>關聯的提醒</translation>
+    </message>
+    <message>
+        <source>关联的宏</source>
+        <translation>關聯的巨集</translation>
+    </message>
+    <message>
+        <source>保存</source>
+        <translation>儲存</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>只保存在这台电脑上，投稿之后才会公开</source>
+        <translation>只儲存在這台電腦上，投稿之後才會公開</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunityList</name>
+    <message>
+        <source>全选</source>
+        <translation>全選</translation>
+    </message>
+    <message>
+        <source>%1 项</source>
+        <translation>%1 項</translation>
+    </message>
+    <message>
+        <source>%1 / %2 项</source>
+        <translation>%1 / %2 項</translation>
+    </message>
+    <message>
+        <source>当前副本在前</source>
+        <translation>目前副本在前</translation>
+    </message>
+    <message>
+        <source>选择「%1」</source>
+        <translation>選擇「%1」</translation>
+    </message>
+    <message>
+        <source>取消收藏</source>
+        <translation>取消收藏</translation>
+    </message>
+    <message>
+        <source>收藏</source>
+        <translation>收藏</translation>
+    </message>
+    <message>
+        <source>已在本地</source>
+        <translation>已在本機</translation>
+    </message>
+    <message>
+        <source>没有匹配的内容</source>
+        <translation>沒有符合的內容</translation>
+    </message>
+    <message>
+        <source>清除筛选</source>
+        <translation>清除篩選</translation>
+    </message>
+    <message>
+        <source>去公共共享库找找</source>
+        <translation>去公共共享庫找找</translation>
+    </message>
+    <message>
+        <source>已选 %1 项</source>
+        <translation>已選 %1 項</translation>
+    </message>
+    <message>
+        <source>导出</source>
+        <translation>匯出</translation>
+    </message>
+    <message>
+        <source>投稿</source>
+        <translation>投稿</translation>
+    </message>
+    <message>
+        <source>导入到本地</source>
+        <translation>匯入本機</translation>
+    </message>
+    <message>
+        <source>取消选择</source>
+        <translation>取消選擇</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunitySubmission</name>
+    <message>
+        <source>投稿到公共共享库</source>
+        <translation>投稿到公共共享庫</translation>
+    </message>
+    <message>
+        <source>投稿通过 GitHub Issue 提交，处理完成后，所有人都能在公共共享库里看到。</source>
+        <translation>投稿透過 GitHub Issue 提交，處理完成後，所有人都能在公共共享庫裡看到。</translation>
+    </message>
+    <message>
+        <source>核对下面会公开的内容，选好许可并勾选确认。</source>
+        <translation>核對下面會公開的內容，選好授權並勾選確認。</translation>
+    </message>
+    <message>
+        <source>用 GitHub 账号直接提交；或者复制投稿正文，在浏览器打开的 GitHub 表单里粘贴并提交。</source>
+        <translation>用 GitHub 帳號直接提交；或者複製投稿正文，在瀏覽器開啟的 GitHub 表單裡貼上並提交。</translation>
+    </message>
+    <message>
+        <source>把生成的 Issue 编号填进底部的「投稿进度」，随时查看处理状态。</source>
+        <translation>把產生的 Issue 編號填進底部的「投稿進度」，隨時檢視處理狀態。</translation>
+    </message>
+    <message>
+        <source>会公开这 %1 项的标题、正文、副本、BOSS / 阶段、区服和语言，以及所选许可。只投稿你有权分享的文字，避免包含个人信息。</source>
+        <translation>會公開這 %1 項的標題、正文、副本、BOSS / 階段、區服和語言，以及所選授權。只投稿你有權分享的文字，避免包含個人資訊。</translation>
+    </message>
+    <message>
+        <source>公开作者：@%1</source>
+        <translation>公開作者：@%1</translation>
+    </message>
+    <message>
+        <source>公开作者以提交时登录的 GitHub 账号为准。</source>
+        <translation>公開作者以提交時登入的 GitHub 帳號為準。</translation>
+    </message>
+    <message>
+        <source>许可</source>
+        <translation>授權</translation>
+    </message>
+    <message>
+        <source>收起全文</source>
+        <translation>收合全文</translation>
+    </message>
+    <message>
+        <source>查看将公开的全文</source>
+        <translation>檢視將公開的全文</translation>
+    </message>
+    <message>
+        <source>我确认来源，并同意按所选许可公开发布。</source>
+        <translation>我確認來源，並同意依所選授權公開發布。</translation>
+    </message>
+    <message>
+        <source>GitHub 账号</source>
+        <translation>GitHub 帳號</translation>
+    </message>
+    <message>
+        <source>开始设备授权</source>
+        <translation>開始裝置授權</translation>
+    </message>
+    <message>
+        <source>打开 GitHub 授权</source>
+        <translation>開啟 GitHub 授權</translation>
+    </message>
+    <message>
+        <source>复制代码 %1</source>
+        <translation>複製代碼 %1</translation>
+    </message>
+    <message>
+        <source>取消授权</source>
+        <translation>取消授權</translation>
+    </message>
+    <message>
+        <source>退出 GitHub</source>
+        <translation>登出 GitHub</translation>
+    </message>
+    <message>
+        <source>用 GitHub 账号提交（%1 项）</source>
+        <translation>用 GitHub 帳號提交（%1 項）</translation>
+    </message>
+    <message>
+        <source>复制投稿并打开浏览器</source>
+        <translation>複製投稿並開啟瀏覽器</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>取消</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunityToolbar</name>
+    <message>
+        <source>%1：</source>
+        <translation>%1：</translation>
+    </message>
+    <message>
+        <source>搜索标题、正文、副本或作者</source>
+        <translation>搜尋標題、內文、副本或作者</translation>
+    </message>
+    <message>
+        <source>类型</source>
+        <translation>類型</translation>
+    </message>
+    <message>
+        <source>区服</source>
+        <translation>伺服器地區</translation>
+    </message>
+    <message>
+        <source>语言</source>
+        <translation>語言</translation>
+    </message>
+    <message>
+        <source>BOSS / 阶段</source>
+        <translation>BOSS / 階段</translation>
+    </message>
+    <message>
+        <source>搜索 BOSS 或阶段</source>
+        <translation>搜尋 BOSS 或階段</translation>
+    </message>
+    <message>
+        <source>没有匹配的 BOSS 或阶段</source>
+        <translation>沒有符合的 BOSS 或階段</translation>
+    </message>
+    <message>
+        <source>这里的内容还没有标 BOSS 或阶段</source>
+        <translation>這裡的內容還沒有標 BOSS 或階段</translation>
+    </message>
+    <message>
+        <source>当前副本与通用</source>
+        <translation>目前副本與通用</translation>
+    </message>
+    <message>
+        <source>不在副本中，只看通用</source>
+        <translation>不在副本中，只看通用</translation>
+    </message>
+    <message>
+        <source>只看%1和通用的内容</source>
+        <translation>只看%1和通用的內容</translation>
+    </message>
+    <message>
+        <source>现在不在副本里，打开后只显示通用的内容</source>
+        <translation>現在不在副本裡，開啟後只顯示通用的內容</translation>
+    </message>
+    <message>
+        <source>只看收藏</source>
+        <translation>只看收藏</translation>
+    </message>
+    <message>
+        <source>清除筛选</source>
+        <translation>清除篩選</translation>
+    </message>
+    <message>
+        <source>导入</source>
+        <translation>匯入</translation>
+    </message>
+    <message>
+        <source>从公共共享库挑选</source>
+        <translation>從公共共享庫挑選</translation>
+    </message>
+    <message>
+        <source>到「公共共享库」里勾选，再导入到本地</source>
+        <translation>到「公共共享庫」裡勾選，再匯入到本機</translation>
+    </message>
+    <message>
+        <source>导入文件…</source>
+        <translation>匯入檔案…</translation>
+    </message>
+    <message>
+        <source>选一个之前导出的 .json 文件</source>
+        <translation>選一個之前匯出的 .json 檔案</translation>
+    </message>
+    <message>
+        <source>新建</source>
+        <translation>新增</translation>
+    </message>
+    <message>
+        <source>宏</source>
+        <translation>巨集</translation>
+    </message>
+    <message>
+        <source>一行一条指令，复制到游戏里用</source>
+        <translation>一行一條指令，複製到遊戲裡使用</translation>
+    </message>
+    <message>
+        <source>提醒</source>
+        <translation>提醒</translation>
+    </message>
+    <message>
+        <source>记下这个副本要注意的事</source>
+        <translation>記下這個副本要注意的事</translation>
+    </message>
+    <message>
+        <source>从常用宏示例开始</source>
+        <translation>從常用巨集範例開始</translation>
+    </message>
+    <message>
+        <source>正在刷新…</source>
+        <translation>正在重新整理…</translation>
+    </message>
+    <message>
+        <source>已联网</source>
+        <translation>已連線</translation>
+    </message>
+    <message>
+        <source>联网已关闭 · 显示缓存</source>
+        <translation>連線已關閉 · 顯示快取</translation>
+    </message>
+    <message>
+        <source>联网已关闭</source>
+        <translation>連線已關閉</translation>
+    </message>
+    <message>
+        <source>允许公共库联网</source>
+        <translation>允許公共庫連線</translation>
+    </message>
+    <message>
+        <source>刷新公共库</source>
+        <translation>重新整理公共庫</translation>
+    </message>
+</context>
+<context>
+    <name>DutyGuideAction</name>
+    <message>
+        <source>在浏览器打开「新大陆见闻录」上这个副本的攻略</source>
+        <translation>在瀏覽器開啟「新大陆见闻录」上這個副本的攻略</translation>
+    </message>
+    <message>
+        <source>在浏览器打开「新大陆见闻录」的攻略目录</source>
+        <translation>在瀏覽器開啟「新大陆见闻录」的攻略目錄</translation>
+    </message>
+    <message>
+        <source>查看攻略</source>
+        <translation>檢視攻略</translation>
+    </message>
+    <message>
+        <source>攻略目录</source>
+        <translation>攻略目錄</translation>
+    </message>
+    <message>
+        <source>新大陆见闻录</source>
+        <translation>新大陸見聞錄</translation>
     </message>
 </context>
 <context>
@@ -8656,6 +9692,10 @@ SHA256：%3</translation>
         <translation>對照核對</translation>
     </message>
     <message>
+        <source>意见反馈</source>
+        <translation>意見回饋</translation>
+    </message>
+    <message>
         <source>FF14</source>
         <translation>FF14</translation>
     </message>
@@ -8680,8 +9720,16 @@ SHA256：%3</translation>
         <translation>就緒</translation>
     </message>
     <message>
-        <source>意见反馈</source>
-        <translation>意見回饋</translation>
+        <source>未安装</source>
+        <translation>未安裝</translation>
+    </message>
+    <message>
+        <source>捕获</source>
+        <translation>擷取</translation>
+    </message>
+    <message>
+        <source>已收起到待处理，记录和草稿已保留</source>
+        <translation>已收合到待處理，記錄和草稿已保留</translation>
     </message>
     <message>
         <source>在 GitHub 反馈</source>
@@ -8700,16 +9748,20 @@ SHA256：%3</translation>
         <translation>無法開啟郵件應用程式。可以複製電子郵件地址後手動寄送。</translation>
     </message>
     <message>
-        <source>未安装</source>
-        <translation>未安裝</translation>
+        <source>切换到 GitCode 下载？</source>
+        <translation>切換到 GitCode 下載？</translation>
     </message>
     <message>
-        <source>捕获</source>
-        <translation>擷取</translation>
+        <source>GitCode 预计更早下载完成。切换后会从头下载，等待选择时 GitHub 会继续下载。</source>
+        <translation>GitCode 預計能更早下載完成。切換後會從頭下載，等待選擇時 GitHub 會繼續下載。</translation>
     </message>
     <message>
-        <source>已收起到待处理，记录和草稿已保留</source>
-        <translation>已收合到待處理，記錄和草稿已保留</translation>
+        <source>继续 GitHub</source>
+        <translation>繼續使用 GitHub</translation>
+    </message>
+    <message>
+        <source>切换到 GitCode</source>
+        <translation>切換到 GitCode</translation>
     </message>
     <message>
         <source>原因</source>
@@ -8762,6 +9814,29 @@ SHA256：%3</translation>
     <message>
         <source>关闭</source>
         <translation>關閉</translation>
+    </message>
+</context>
+<context>
+    <name>MultiFilterButton</name>
+    <message>
+        <source>、</source>
+        <translation>、</translation>
+    </message>
+    <message>
+        <source>%1：%2</source>
+        <translation>%1：%2</translation>
+    </message>
+    <message>
+        <source>已选 %1 项</source>
+        <translation>已選 %1 項</translation>
+    </message>
+    <message>
+        <source>可多选</source>
+        <translation>可複選</translation>
+    </message>
+    <message>
+        <source>清空</source>
+        <translation>清空</translation>
     </message>
 </context>
 <context>
@@ -9359,8 +10434,20 @@ SHA256：%3</translation>
         <translation>導隨記錄器 · 自動記錄暫時無法使用</translation>
     </message>
     <message>
+        <source>导随记录器 · 自动记录已恢复</source>
+        <translation>導隨記錄器 · 自動記錄已恢復</translation>
+    </message>
+    <message>
         <source>自动记录暂不可用</source>
         <translation>自動記錄暫時無法使用</translation>
+    </message>
+    <message>
+        <source>自动记录已恢复</source>
+        <translation>自動記錄已恢復</translation>
+    </message>
+    <message>
+        <source>已重新读取到游戏数据，可以继续自动记录。</source>
+        <translation>已重新讀取到遊戲資料，可以繼續自動記錄。</translation>
     </message>
     <message>
         <source>恢复前，副本可能无法自动记录。后台仍会继续尝试恢复。</source>
@@ -11218,6 +12305,10 @@ SHA256：%3</translation>
         <translation>已識別的遊戲角色</translation>
     </message>
     <message>
+        <source>尚未绑定游戏角色。</source>
+        <translation>尚未綁定遊戲角色。</translation>
+    </message>
+    <message>
         <source>软件已经认出 %1 个游戏角色是「%2」。认错了可以解除，下次登录时会在总览重新询问；已有的记录不变。</source>
         <translation>軟體已經認出 %1 個遊戲角色是「%2」。認錯了可以解除，下次登入時會在總覽重新詢問；已有的記錄不變。</translation>
     </message>
@@ -11311,10 +12402,6 @@ SHA256：%3</translation>
     <message>
         <source>记录保存在本机 · 无遥测 · 无云同步</source>
         <translation>記錄儲存在本機 · 無遙測 · 無雲端同步</translation>
-    </message>
-    <message>
-        <source>尚未绑定游戏角色。</source>
-        <translation>尚未綁定遊戲角色。</translation>
     </message>
 </context>
 <context>
@@ -11704,13 +12791,6 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
-    <name>TrendBars</name>
-    <message>
-        <source>%1 · %2 次</source>
-        <translation>%1 · %2 次</translation>
-    </message>
-</context>
-<context>
     <name>UpdateDownloadStatus</name>
     <message>
         <source>在浏览器中下载</source>
@@ -11890,6 +12970,14 @@ SHA256：%3</translation>
         <translation>無法開啟瀏覽器，請手動前往 https://npcap.com 下載驅動程式。</translation>
     </message>
     <message>
+        <source>没能打开浏览器，请在 GitHub 的 MentorRouletteRecorder 仓库中提交反馈。</source>
+        <translation>無法開啟瀏覽器，請到 GitHub 的 MentorRouletteRecorder 儲存庫提交回饋。</translation>
+    </message>
+    <message>
+        <source>导随记录器意见反馈</source>
+        <translation>導隨記錄器意見回饋</translation>
+    </message>
+    <message>
         <source>后台服务不可用，暂时不能自动记录。%1</source>
         <translation>背景服務無法使用，暫時無法自動記錄。%1</translation>
     </message>
@@ -11923,14 +13011,6 @@ SHA256：%3</translation>
     <message>
         <source>导随完成，当前 {progress} 次，剩余 {remaining}</source>
         <translation>導隨完成，目前 {progress} 次，剩餘 {remaining}</translation>
-    </message>
-    <message>
-        <source>没能打开浏览器，请在 GitHub 的 MentorRouletteRecorder 仓库中提交反馈。</source>
-        <translation>無法開啟瀏覽器，請到 GitHub 的 MentorRouletteRecorder 儲存庫提交回饋。</translation>
-    </message>
-    <message>
-        <source>导随记录器意见反馈</source>
-        <translation>導隨記錄器意見回饋</translation>
     </message>
     <message>
         <source>导随结束，请确认是否通关，已确认 {progress} 次</source>
@@ -12496,6 +13576,25 @@ SHA256：%3</translation>
     </message>
 </context>
 <context>
+    <name>mr::DutyCommunityController</name>
+    <message>
+        <source>记录服务未连接</source>
+        <translation>記錄服務未連線</translation>
+    </message>
+    <message>
+        <source>导出提醒和宏</source>
+        <translation>匯出提醒和巨集</translation>
+    </message>
+    <message>
+        <source>JSON 文件 (*.json)</source>
+        <translation>JSON 檔案 (*.json)</translation>
+    </message>
+    <message>
+        <source>导入提醒和宏</source>
+        <translation>匯入提醒和巨集</translation>
+    </message>
+</context>
+<context>
     <name>mr::EvidenceSubmissionController</name>
     <message>
         <source>后台服务未连接，请连接后重新预览。</source>
@@ -12639,10 +13738,6 @@ SHA256：%3</translation>
     <message>
         <source>备份已保存到 %1 · %2 · 数据检查通过 · 已清理 %3 份旧备份</source>
         <translation>備份已儲存到 %1 · %2 · 資料檢查通過 · 已清理 %3 份舊備份</translation>
-    </message>
-    <message>
-        <source>备份已保存到 %1 · %2 · 数据检查未通过 · 已清理 %3 份旧备份</source>
-        <translation>備份已儲存到 %1 · %2 · 資料檢查未通過 · 已清理 %3 份舊備份</translation>
     </message>
     <message>
         <source>后台服务尚未连接，暂时无法导出诊断报告。请稍后重试。</source>
@@ -15006,6 +16101,10 @@ SHA256：%3</translation>
     <message>
         <source>暂未确认下载是否取消，请稍后查看下载状态。</source>
         <translation>尚未確認下載是否已取消，請稍後檢視下載狀態。</translation>
+    </message>
+    <message>
+        <source>未能确认是否已切换下载源，请查看下载状态。</source>
+        <translation>無法確認是否已切換下載來源，請查看下載狀態。</translation>
     </message>
     <message>
         <source>尚未确认当前导随是否结束，暂时不能安装，请稍后再试。</source>

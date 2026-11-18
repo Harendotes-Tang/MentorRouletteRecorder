@@ -2,8 +2,8 @@
 // 自动识别角色 (characters told apart in the game traffic) on the Desktop side of
 // StatisticsController.
 //
-// The list is the Collector's: every GetDashboardStats answer carries every identity bound
-// to no profile (DashboardStats.identities), whatever its filter, and every
+// Every GetDashboardStats answer lists unbound identities and upgraded-profile registrations
+// awaiting confirmation (DashboardStats.identities), whatever its filter, and every
 // ResolveCharacterIdentity answers with the list as it stands afterwards
 // (CharacterIdentityResult.identities). The player's answers travel through the same
 // saving flag and signals as the profile changes (characterProfileSaved / Failed).

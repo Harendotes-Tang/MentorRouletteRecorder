@@ -17,6 +17,7 @@
 //                          [--mock-update-available] [--mock-update-download ready]
 //                          [--mock-recording-state waiting-verified]
 //                          [--mock-validation-state recording] [--mock-open-evidence steps|report|identity]
+//                          [--mock-open-community local|public|offline|new|submit]
 //                          [--export-target DIR] [--open-detail] [--open-edit]
 //                          [--screenshot-size WxH] [--mock-speech azure]
 //                          [--mock-open-speech-confirm] [--mock-speech-preview]
@@ -380,7 +381,15 @@ bool verifyRecordingAlertFlow(QQuickWindow *window, mr::MockBackend *backend, mr
     const auto observe = [&](const QString &fixture, const QString &state) {
         backend->setRecordingFixture(fixture);
         app->recording()->refresh();
-        return waitFor([&] { return app->recording()->state() == state; });
+        const bool settled = waitFor([&] {
+            return app->recording()->state() == state
+                && (state != QLatin1String("listening") || !app->recording()->warningActive());
+        });
+        if (!settled)
+            qCritical("recording fixture %s: expected %s, got %s (warning active: %d)",
+                      qPrintable(fixture), qPrintable(state), qPrintable(app->recording()->state()),
+                      int(app->recording()->warningActive()));
+        return settled;
     };
     if (!observe(QStringLiteral("waiting"), QStringLiteral("waiting")) || isOpen()) return false;
     window->hide();
@@ -679,6 +688,11 @@ int main(int argc, char *argv[])
         QStringLiteral("Open 新区服采证 under the capture page: steps (its current step), "
                        "report (the finished round's 回传说明) or identity (角色识别采证)."),
         QStringLiteral("view"), QString());
+    QCommandLineOption openCommunityOption(
+        QStringLiteral("mock-open-community"),
+        QStringLiteral("Open 副本提醒与导随宏 from the dashboard: local, public (allowed and refreshed), "
+                       "offline (the public tab before it is allowed), new (the editor) or submit."),
+        QStringLiteral("view"), QString());
     QCommandLineOption validationKeyboardOption(
         QStringLiteral("mock-validation-keyboard"),
         QStringLiteral("Verify marker Tab/Shift+Tab/Space behavior before a mock screenshot."));
@@ -808,6 +822,7 @@ int main(int argc, char *argv[])
     parser.addOption(formalRunningOption);
     parser.addOption(validationKeyboardOption);
     parser.addOption(openEvidenceOption);
+    parser.addOption(openCommunityOption);
     parser.addOption(firstRunOption);
     parser.addOption(openDetailOption);
     parser.addOption(openEditOption);
@@ -949,6 +964,7 @@ int main(int argc, char *argv[])
             || parser.isSet(formalRunningOption)
             || parser.isSet(validationKeyboardOption)
             || parser.isSet(openEvidenceOption)
+            || parser.isSet(openCommunityOption)
             || parser.isSet(firstRunOption)
             || parser.isSet(openDetailOption)
             || parser.isSet(openEditOption)
@@ -1061,6 +1077,8 @@ int main(int argc, char *argv[])
         }
         if (parser.isSet(validationOption))
             mock->setValidationFixture(mockValidationState);
+        if (parser.value(openCommunityOption) == QLatin1String("public"))
+            mock->setCommunityLibraryFetched(true);
         // A guided identity round: finished ones show their verdict.
         if (parser.value(openEvidenceOption) == QLatin1String("identity"))
             mock->setValidationIdentityFixture(
@@ -1248,6 +1266,15 @@ int main(int argc, char *argv[])
         return 2;
     }
     runtime->setValue(mr::QmlRuntime::Field::ForceOpenEvidence, openEvidence);
+    const QString openCommunity = parser.value(openCommunityOption);
+    if (!openCommunity.isEmpty()
+        && !QStringList{QStringLiteral("local"), QStringLiteral("public"), QStringLiteral("offline"),
+                        QStringLiteral("new"), QStringLiteral("submit")}.contains(openCommunity)) {
+        std::fprintf(stderr, "invalid --mock-open-community value: %s (expected local, public, offline, new or submit)\n",
+                     qPrintable(openCommunity));
+        return 2;
+    }
+    runtime->setValue(mr::QmlRuntime::Field::ForceOpenCommunity, openCommunity);
     const QString detailTab = parser.value(detailTabOption);
     if (!detailTab.isEmpty()
         && !QStringList{QStringLiteral("info"), QStringLiteral("events"),

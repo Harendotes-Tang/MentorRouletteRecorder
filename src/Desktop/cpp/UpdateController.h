@@ -112,6 +112,7 @@ class UpdateController final : public QObject
     Q_PROPERTY(QString downloadStatusText READ downloadStatusText NOTIFY changed)
     /// 0..1 while the size is known, -1 when the server declared none.
     Q_PROPERTY(qreal downloadProgress READ downloadProgress NOTIFY changed)
+    Q_PROPERTY(QString mirrorOfferId READ mirrorOfferId NOTIFY changed)
     /// The sentence of the last 立即安装 that started nothing; empty otherwise.
     Q_PROPERTY(QString installProblem READ installProblem NOTIFY changed)
     /// This process is computing the installer's SHA-256 before starting it.
@@ -196,6 +197,7 @@ public:
     bool downloadActionEnabled() const;
     QString downloadStatusText() const;
     qreal downloadProgress() const;
+    QString mirrorOfferId() const;
     QString installProblem() const { return m_installProblem.text(); }
     bool verifyingInstaller() const { return m_hasher != nullptr; }
     bool browserFallbackOffered() const;
@@ -203,6 +205,8 @@ public:
     bool canReinstall() const;
     /// True while the status is being re-read for a running download.
     bool polling() const { return m_polling; }
+    /// Called after the shell adopts a successful, current GetStatus response.
+    void confirmMirrorOfferRetry();
 
     /// True only for an https://github.com/Harendotes-Tang/MentorRouletteRecorder
     /// address without credentials and on the default port: the one kind of
@@ -238,6 +242,8 @@ public Q_SLOTS:
     void reinstallLatest();
     /// 取消: CancelUpdateDownload.
     void cancelDownload();
+    /// Resolve the currently displayed offer. A closed dialog chooses to continue GitHub.
+    void resolveMirrorOffer(const QString &offerId, bool useGitCode);
     /// 立即安装. Only in READY and with no run in progress; checks the file -
     /// where it is, that it is a regular file, its SHA-256 - and only then starts
     /// it and quits. Any failed check starts nothing and says why.
@@ -267,6 +273,7 @@ private:
         /// message as a catalogue reference (contracts/collector-texts.md), or
         /// an invalid QVariant from a Collector that sends none.
         QVariant messageRef;
+        QString mirrorOfferId;
         qint64 receivedBytes = 0;
         /// -1 when the server declared no size.
         qint64 totalBytes = -1;
@@ -340,6 +347,8 @@ private:
     State m_state;
     /// Remembers 忽略此版本 while no AppSettings is attached.
     QString m_dismissedVersion;
+    QString m_resolvedMirrorOfferId;
+    bool m_mirrorSwitchNeedsConfirmation = false;
     bool m_checking = false;
 
     /// A StartUpdateDownload or CancelUpdateDownload is out.

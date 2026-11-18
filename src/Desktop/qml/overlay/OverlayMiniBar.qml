@@ -14,6 +14,7 @@ Item {
     required property var controller
     property bool movingEnabled: true
     property bool secondaryActionsEnabled: true
+    readonly property bool compactProgress: width < 270
     signal lockRequested()
     signal expandRequested()
     signal moveRequested()
@@ -41,7 +42,7 @@ Item {
             objectName: "floatingMiniProgress"
             Layout.fillWidth: true
             Layout.preferredHeight: 24
-            spacing: 4
+            spacing: root.compactProgress ? 2 : 4
 
             Item {
                 Layout.preferredWidth: 16
@@ -83,7 +84,9 @@ Item {
                 objectName: "floatingMiniCount"
                 Layout.leftMargin: 3
                 Layout.alignment: Qt.AlignBottom
-                text: root.ov.progressKnown ? root.ov.primaryRegion + " " + String(root.ov.progress) : Runtime.fmt.dash()
+                text: root.ov.progressKnown
+                      ? (root.compactProgress ? "" : root.ov.primaryRegion + " ") + String(root.ov.progress)
+                      : Runtime.fmt.dash()
                 color: root.ov.figure
                 font.family: Theme.numFamily
                 font.pixelSize: Theme.fs(16)
@@ -102,7 +105,7 @@ Item {
             OverlayPlusPill { visible: root.ov.plus > 0 && root.width >= 300; count: root.ov.plus; tone: root.ov.ok; Layout.alignment: Qt.AlignVCenter }
             OverlayBar {
                 Layout.fillWidth: true
-                Layout.minimumWidth: 12
+                Layout.minimumWidth: root.compactProgress ? 6 : 12
                 Layout.alignment: Qt.AlignVCenter
                 implicitHeight: 6
                 ratio: root.ov.progressKnown ? root.ov.progressRatio : 0
@@ -120,13 +123,17 @@ Item {
             RowLayout {
                 objectName: "floatingMiniActions"
                 visible: !root.controller.locked
-                spacing: 4
+                spacing: root.compactProgress ? 2 : 4
                 OverlayIconButton {
                     objectName: "floatingExpandButton"
                     iconName: "to-full"
                     tipClearOf: root
                     tip: qsTr("展开完整浮窗")
                     onClicked: root.expandRequested()
+                }
+                OverlayGuideButton {
+                    enabled: root.secondaryActionsEnabled && action.enabled
+                    tipClearOf: root
                 }
                 OverlayIconButton { objectName: "floatingLockButton"; enabled: root.secondaryActionsEnabled; iconName: "lock"; tipClearOf: root; tip: qsTr("锁定位置和大小，鼠标穿透；在主窗口或托盘解锁"); onClicked: root.lockRequested() }
                 // The buttons sit inside the progress row: while the pointer rests

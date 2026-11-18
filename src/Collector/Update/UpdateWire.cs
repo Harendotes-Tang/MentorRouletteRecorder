@@ -81,6 +81,11 @@ public static class UpdateWire
             rendered["total_bytes"] = total;
         }
 
+        if (download.MirrorOfferId is { } offerId)
+        {
+            rendered["mirror_offer_id"] = offerId;
+        }
+
         if (download.FilePath is { } path)
         {
             rendered["file_path"] = path;

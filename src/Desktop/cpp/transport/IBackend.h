@@ -355,6 +355,8 @@ public:
     /// of a captured fact, and it never bumps a run revision.
     BackendReply *setRunReflection(const QString &runId, const QString &mood,
                                    const QString &text);
+    BackendReply *dutyCommunity(const QJsonObject &payload);
+
     /// $defs/GetReflectionSummaryRequest. \a recentLimit is the number of
     /// recent entries the dashboard panel shows (0..20).
     BackendReply *getReflectionSummary(int recentLimit = 3);
@@ -422,6 +424,9 @@ public:
     /// {} -> {update: $defs/UpdateStatus}. Stops a running download and removes
     /// what was written; changes nothing in any other state.
     BackendReply *cancelUpdateDownload();
+
+    /// Resolve the offer reported by the Collector for an in-progress installer download.
+    BackendReply *resolveUpdateMirrorOffer(const QString &offerId, bool useGitCode);
 
 Q_SIGNALS:
     void connectionChanged();

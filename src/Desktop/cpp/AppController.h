@@ -40,6 +40,7 @@
 #include "SpeechController.h"
 #include "StatisticsController.h"
 #include "StatisticsOverlayController.h"
+#include "DutyCommunityController.h"
 #include "HistoryColumnsController.h"
 #include "RecoveryController.h"
 #include "TtsService.h"
@@ -112,6 +113,9 @@ class AppController final : public QObject, public CaptureValidationController::
     Q_PROPERTY(bool npcapInstalled READ npcapInstalled NOTIFY statusChanged)
     Q_PROPERTY(bool ffxivRunning READ ffxivRunning NOTIFY statusChanged)
     Q_PROPERTY(QVariantMap currentRun READ currentRun NOTIFY currentRunChanged)
+    Q_PROPERTY(mr::DutyCommunityController *dutyCommunity READ dutyCommunity CONSTANT)
+    Q_PROPERTY(QVariantMap activeCommunityRun READ activeCommunityRun NOTIFY currentRunChanged)
+    Q_PROPERTY(QVariantMap currentGuideRun READ currentGuideRun NOTIFY currentRunChanged)
     Q_PROPERTY(QString currentRunState READ currentRunState NOTIFY currentRunChanged)
     Q_PROPERTY(QVariant liveElapsedMs READ liveElapsedMs NOTIFY tick)
 
@@ -484,6 +488,9 @@ public:
     DungeonStatsModel *dungeons() const { return m_statistics->dungeons(); }
     JobStatsModel *jobs() const { return m_statistics->jobs(); }
     StatisticsOverlayController *statisticsOverlay() const { return m_statisticsOverlay; }
+    DutyCommunityController *dutyCommunity() const { return m_dutyCommunity; }
+    QVariantMap activeCommunityRun() const;
+    QVariantMap currentGuideRun() const;
     HistoryColumnsController *historyColumns() const { return m_historyColumns; }
     RecoveryController *recovery() const { return m_recovery; }
     /// 「后台服务不可用，暂时不能自动记录。…」 while the background service is
@@ -952,6 +959,7 @@ private:
     QVariantList m_recentDuties;
     StatisticsController *m_statistics = nullptr;
     StatisticsOverlayController *m_statisticsOverlay = nullptr;
+    DutyCommunityController *m_dutyCommunity = nullptr;
     HistoryColumnsController *m_historyColumns = nullptr;
     RecoveryController *m_recovery = nullptr;
     /// Owns completion order, prompt queues and recovery-context tokens; the

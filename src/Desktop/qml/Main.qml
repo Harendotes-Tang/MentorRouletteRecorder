@@ -51,7 +51,10 @@ ApplicationWindow {
             && Runtime.app.recording.blocked && (!recordingAlert.visible || recordingAlert.exiting))
             recordingAlert.open()
     }
-    onVisibilityChanged: Qt.callLater(window.presentRecordingAlert)
+    onVisibilityChanged: {
+        Qt.callLater(window.presentRecordingAlert)
+        Qt.callLater(updateMirrorDialog.presentOffer)
+    }
     onActiveChanged: Qt.callLater(window.presentRecordingAlert)
     RecordingWarningWindow {
         id: recordingWarning
@@ -1491,6 +1494,82 @@ ApplicationWindow {
                 text: qsTr("没能打开邮件应用。可以复制邮箱后手动发邮件。")
                 color: Theme.orangeText
                 wrapMode: Text.Wrap
+            }
+        }
+    }
+
+    MotionDialog {
+        id: updateMirrorDialog
+        objectName: "updateMirrorDialog"
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(480, window.width - 48)
+        padding: 20
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape
+        background: DialogFrame {}
+        Overlay.modal: Rectangle { color: Theme.modalScrim(updateMirrorDialog.palette.shadow) }
+
+        readonly property string pendingOfferId: Runtime.app.update.mirrorOfferId ?? ""
+        property string displayedOfferId: ""
+
+        function presentOffer() {
+            if (visible && displayedOfferId !== pendingOfferId) {
+                close()
+            } else if (!visible && pendingOfferId.length > 0 && window.visible
+                       && window.visibility !== Window.Minimized) {
+                displayedOfferId = pendingOfferId
+                open()
+            }
+        }
+
+        function chooseGitCode() {
+            const offerId = displayedOfferId
+            displayedOfferId = ""
+            Runtime.app.update.resolveMirrorOffer(offerId, true)
+            close()
+        }
+
+        onPendingOfferIdChanged: Qt.callLater(presentOffer)
+        Component.onCompleted: Qt.callLater(presentOffer)
+        onOpened: keepGitHub.forceActiveFocus()
+        onClosed: {
+            const offerId = displayedOfferId
+            displayedOfferId = ""
+            if (offerId.length > 0 && offerId === pendingOfferId)
+                Runtime.app.update.resolveMirrorOffer(offerId, false)
+            Qt.callLater(presentOffer)
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            HeadingLabel {
+                Layout.fillWidth: true
+                text: qsTr("切换到 GitCode 下载？")
+                wrapMode: Text.WordWrap
+            }
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("GitCode 预计更早下载完成。切换后会从头下载，等待选择时 GitHub 会继续下载。")
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fs(13)
+                wrapMode: Text.WordWrap
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                AppButton {
+                    id: keepGitHub
+                    objectName: "keepGitHubDownloadButton"
+                    text: qsTr("继续 GitHub")
+                    onClicked: updateMirrorDialog.close()
+                }
+                AppButton {
+                    objectName: "switchToGitCodeButton"
+                    variant: "primary"
+                    text: qsTr("切换到 GitCode")
+                    onClicked: updateMirrorDialog.chooseGitCode()
+                }
             }
         }
     }

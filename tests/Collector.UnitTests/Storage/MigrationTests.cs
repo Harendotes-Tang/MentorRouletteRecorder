@@ -15,7 +15,7 @@ public sealed class MigrationTests
         using var fixture = new TestDatabase();
 
         Assert.Equal(MigrationRunner.LatestVersion, fixture.Database.SchemaVersion);
-        Assert.Equal(16, MigrationRunner.LatestVersion);
+        Assert.Equal(17, MigrationRunner.LatestVersion);
 
         using var command = fixture.Database.CreateCommand();
         command.CommandText =
@@ -50,6 +50,7 @@ public sealed class MigrationTests
                 (14, "0014_character_profiles.sql"),
                 (15, "0015_character_identities.sql"),
                 (16, "0016_character_registration.sql"),
+                (17, "0017_duty_community.sql"),
             },
             applied);
     }
@@ -155,6 +156,85 @@ public sealed class MigrationTests
         using var command = fixture.Database.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM schema_migrations;";
         Assert.Equal((long)MigrationRunner.LatestVersion, (long)command.ExecuteScalar()!);
+
+        // A database already upgraded by 1.9.1 carries this checksum. Editing the
+        // published script would make it impossible to reopen that database.
+        command.CommandText = "SELECT checksum FROM schema_migrations WHERE version = 16;";
+        Assert.Equal("f3e886382107ce8ba1ae34b1cf2a4169dd25affeaefb99503079da13094fa037", command.ExecuteScalar());
+    }
+
+    [Fact]
+    public void CommunityUpgradePreservesRegisteredProfilesAndTheirHistory()
+    {
+        using var fixture = new TestDatabase();
+        var path = fixture.Path + ".released-1.9.1";
+        using (var old = LegacyDatabase(path, fixture, 16))
+        {
+            using var seed = old.CreateCommand();
+            seed.CommandText = """
+                UPDATE character_profiles SET goal_count = 2500, baseline_completed_count = 120
+                WHERE region = 'CN' AND is_current = 1;
+                INSERT INTO character_profile_registrations(profile_id)
+                SELECT profile_id FROM character_profiles WHERE region = 'CN' AND is_current = 1;
+                INSERT INTO mentor_runs(run_id, revision, region, result, source, profile_id, note,
+                    created_at_utc, updated_at_utc)
+                SELECT 'prior-run', 1, 'CN', 'COMPLETED', 'MANUAL', profile_id, '旧记录', $now, $now
+                FROM character_profiles WHERE region = 'CN' AND is_current = 1;
+                """;
+            seed.Parameters.AddWithValue("$now", UtcTimestamp.ToText(fixture.Clock.UtcNow));
+            seed.ExecuteNonQuery();
+        }
+
+        using var database = SqliteDatabase.Open(path, fixture.Clock);
+        Assert.Equal(17, database.SchemaVersion);
+        using var check = database.CreateCommand();
+        check.CommandText = "SELECT count(*) FROM mentor_runs;";
+        Assert.Equal(1L, check.ExecuteScalar());
+        check.CommandText = """
+            SELECT count(*) FROM mentor_runs r
+            JOIN character_profiles p ON p.profile_id = r.profile_id
+            JOIN character_profile_registrations c ON c.profile_id = p.profile_id
+            WHERE r.run_id = 'prior-run' AND r.note = '旧记录' AND p.region = 'CN' AND p.is_current = 1
+              AND p.goal_count = 2500 AND p.baseline_completed_count = 120 AND c.identity_id IS NULL;
+            """;
+        Assert.Equal(1L, check.ExecuteScalar());
+        check.CommandText = """
+            INSERT INTO community_local(id, revision, position, favorite, content_json)
+            VALUES ('test-reminder', 1, 0, 1, '{}');
+            INSERT INTO community_cache(singleton, index_json, snapshot_json) VALUES (1, X'7B7D', X'7B7D');
+            INSERT INTO community_receipts(request_id, fingerprint, response_json) VALUES ('test-request', 'hash', '{}');
+            SELECT favorite FROM community_local WHERE id = 'test-reminder';
+            """;
+        Assert.Equal(1L, check.ExecuteScalar());
+    }
+
+    [Fact]
+    public void ACommunityPreviewDatabaseKeepsItsDataWhenItsMigrationNumberConflicts()
+    {
+        using var fixture = new TestDatabase();
+        using var preview = LegacyDatabase(fixture.Path + ".community-preview", fixture, 15);
+        var community = MigrationRunner.Scripts.Single(script => script.Version == 17);
+        using var check = preview.CreateCommand();
+        check.CommandText = community.Sql;
+        check.ExecuteNonQuery();
+        check.CommandText = """
+            INSERT INTO schema_migrations(version, name, checksum, applied_at_utc)
+            VALUES (16, '0016_duty_community.sql', $checksum, $now);
+            INSERT INTO community_local(id, revision, position, favorite, content_json)
+            VALUES ('preview-item', 1, 0, 0, '{}');
+            """;
+        check.Parameters.AddWithValue("$checksum", community.Checksum);
+        check.Parameters.AddWithValue("$now", UtcTimestamp.ToText(fixture.Clock.UtcNow));
+        check.ExecuteNonQuery();
+
+        var error = Assert.Throws<CollectorException>(() => MigrationRunner.MigrateToLatest(preview, fixture.Clock));
+        Assert.Equal(ErrorCodes.DbIntegrity, error.Code);
+        check.CommandText = "SELECT name FROM schema_migrations WHERE version = 16;";
+        Assert.Equal("0016_duty_community.sql", check.ExecuteScalar());
+        check.CommandText = "SELECT id FROM community_local;";
+        Assert.Equal("preview-item", check.ExecuteScalar());
+        check.CommandText = "SELECT max(version) FROM schema_migrations;";
+        Assert.Equal(16L, check.ExecuteScalar());
     }
 
     [Fact]

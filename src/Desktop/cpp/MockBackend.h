@@ -62,7 +62,7 @@ public:
     /// Simulate a machine without the Npcap driver.
     void setNpcapMissing(bool missing);
     /// Synthetic-only UI capability fixture; never used by IpcBackend.
-    void setRecordingFixture(const QString &state) { m_recordingFixture = state; }
+    void setRecordingFixture(const QString &state);
     bool npcapMissing() const { return m_npcapMissing; }
 
     /// Simulate the live run state shown on the dashboard.
@@ -135,6 +135,8 @@ public:
     /// folder the Desktop's own check refuses unless a test points it there.
     /// false: an older Collector - no `download` object, both messages refused.
     void setUpdateDownloadSupported(bool supported) { m_updateDownloadSupported = supported; }
+    /// Test and --mock-open-community seam: the public library as allowed and refreshed.
+    void setCommunityLibraryFetched(bool fetched) { m_communityOnline = m_communityFetched = fetched; }
     bool updateDownloadSupported() const { return m_updateDownloadSupported; }
     /// A held state for screenshots and tests: "downloading" (45 %), "verifying",
     /// "ready" or "failed". Also makes a newer version known. A held download
@@ -228,13 +230,12 @@ public:
     int runProfileId(const QJsonObject &run) const;
 
     // -- 自动识别角色 (MockBackendIdentities.cpp) -------------------------------
-    /// Test and --mock-pending-identity seam: a character told apart in \a region, bound to
-    /// no profile, in \a state (PENDING or IGNORED). It claims \a runCount live runs of the
-    /// region - first the ones assigned to no profile, then the newest of the region, which
-    /// become assigned to no profile - fewer when the region has fewer. Returns its id.
+    /// Adds a recognised character in \a region. PENDING and IGNORED characters have no
+    /// profile; BOUND belongs to the current profile. It takes up to \a runCount sample
+    /// runs. \a registerOriginal marks it for upgraded-profile confirmation. Returns its id.
     int addCharacterIdentity(const QString &region, const QString &state, int runCount,
                              bool registerOriginal = false);
-    /// $defs/DashboardStats.identities as it stands: every identity bound to no profile.
+    /// Dashboard identities, including bound characters awaiting upgraded-profile confirmation.
     QVariantList characterIdentities() const { return identitiesJson().toVariantList(); }
     /// Test and --mock-pending-identity seam: the character the game is logged in as (0 =
     /// nobody, the default). The Collector decides this from live traffic; BIND and
@@ -337,10 +338,14 @@ private:
                                     QString *errorMessage);
     QJsonObject synthesizePayload(const QJsonObject &payload, QString *errorCode,
                                   QString *errorMessage, QJsonObject *errorDetails);
+    // -- 副本提醒与导随宏 (MockBackendCommunity.cpp) --------------------------
+    /// $defs/Results/DutyCommunity for one action against the in-memory library.
+    QJsonObject dutyCommunity(const QJsonObject &payload);
     // -- 下载并安装 (MockBackendUpdate.cpp) ----------------------------------
     static bool isUpdateDownloadMessage(const QString &messageType);
     /// {update: $defs/UpdateStatus} after one of the two messages.
-    QJsonObject applyUpdateDownload(const QString &messageType, const QJsonObject &payload);
+    QJsonObject applyUpdateDownload(const QString &messageType, const QJsonObject &payload,
+                                    QString *errorCode, QString *errorMessage, QJsonObject *errorDetails);
     /// $defs/UpdateDownload as it stands.
     QJsonObject updateDownload() const;
     /// One simulated step: bytes arrive, then the check, then READY.
@@ -430,6 +435,10 @@ private:
     int ensureCurrentProfile(const QString &region);
     const CharacterProfileEntry *findProfile(int profileId) const;
     CharacterProfileEntry *findProfile(int profileId);
+    bool profileNameTaken(const QString &region, const QString &name, int exceptId) const;
+    /// Checks the target and applies display_name when supplied. The enclosing mutation notifies once.
+    bool applyProfileName(CharacterProfileEntry *profile, const QJsonValue &requestedName,
+                          QString *errorCode, QString *errorMessage);
     const CharacterProfileEntry *currentProfile(const QString &region) const;
     /// $defs/CharacterProfile for \a profile, its progress counted over the stored runs.
     QJsonObject profileJson(const CharacterProfileEntry &profile) const;
@@ -463,12 +472,14 @@ private:
         QDateTime firstSeen;
         QDateTime lastSeen;
         int boundProfileId = 0;
-        int registrationProfileId = 0;
         /// The runs recorded while this character was logged in; the live ones still
         /// assigned to no profile are its run_count, and move with a BIND.
         QStringList runIds;
     };
     QList<CharacterIdentityEntry> m_identities;
+    /// Upgraded profile -> proposed identity (zero while waiting for another login).
+    QHash<int, int> m_registrationCandidates;
+    void replaceRegistrationCandidate(int profileId);
     int m_nextIdentityId = 1;
     int m_loggedInIdentityId = 0;
     /// BatchMutateRuns assign_profile clears the identity stamp of the runs it moves.
@@ -476,7 +487,7 @@ private:
     CharacterIdentityEntry *findIdentity(int identityId);
     /// The identity's live runs still assigned to no profile.
     QStringList unassignedIdentityRuns(const CharacterIdentityEntry &identity) const;
-    /// $defs/CharacterIdentity for every unbound identity: PENDING first, oldest first.
+    /// Dashboard identities, with each region's registration candidate first.
     QJsonArray identitiesJson() const;
     /// How many identities are bound to \a profileId (CharacterProfile.identity_count).
     int boundIdentityCount(int profileId) const;
@@ -502,6 +513,10 @@ private:
     bool m_midstreamSuspected = false;
     bool m_updateAvailable = false;
     bool m_updateDownloadSupported = true;
+    QJsonArray m_communityLocal;
+    bool m_communitySeeded = false;
+    bool m_communityOnline = false;
+    bool m_communityFetched = false;
     /// $defs/UpdateDownload.state, and the rest of the simulated download.
     QString m_updateDownloadState = QStringLiteral("IDLE");
     qint64 m_updateReceivedBytes = 0;
@@ -523,6 +538,7 @@ private:
     /// Monotonic $defs/LiveEvent.sequence handed to every emitted event.
     qint64 m_liveSequence = 0;
     QString m_recordingFixture;
+    qint64 m_fixtureListeningPackets = 0;
     int m_selectedGameProcessId = 0;
     QString m_calibrationState;
     QString m_sharedState;

@@ -193,6 +193,14 @@ private Q_SLOTS:
         QVERIFY(!pages.shown(QStringLiteral("historyCharacterCell")));
         auto *selectAll = pages.shown(QStringLiteral("selectCurrentHistoryPage"));
         QVERIFY(selectAll);
+        // HistoryPage applies its measured row capacity on a debounced timer.
+        // Compare the settled layout before and after selecting the page.
+        auto *historyPage = selectAll->parentItem();
+        while (historyPage && !historyPage->property("rowsThatFit").isValid())
+            historyPage = historyPage->parentItem();
+        QVERIFY(historyPage);
+        QTRY_COMPARE(pages.app->runs()->pageSize(), historyPage->property("rowsThatFit").toInt());
+        QTRY_VERIFY(!pages.app->runs()->isLoading());
         const int rowCount = pages.app->runs()->rowCount();
         const int pageSize = pages.app->runs()->pageSize();
         auto *header = pages.shown(QStringLiteral("historyTableHeader"));
@@ -208,6 +216,7 @@ private Q_SLOTS:
                     clearFilters->mapToScene(QPointF(clearFilters->width(), 0)).x());
         QCOMPARE(batchBar->mapToScene(QPointF{}).y(), clearFilters->mapToScene(QPointF{}).y());
         QCOMPARE(header->mapToScene(QPointF{}).y(), headerTop);
+        QCOMPARE(historyPage->property("rowsThatFit").toInt(), pageSize);
         QCOMPARE(pages.app->runs()->pageSize(), pageSize);
         QVERIFY(!pages.shown(QStringLiteral("batchAssignCharacterButton")));
         pages.app->clearCheckedHistoryRuns();
@@ -220,15 +229,30 @@ private Q_SLOTS:
         QVERIFY(pages.shown(QStringLiteral("goalField")));
     }
 
+    void registrationNamesTheOriginalProfileAndShowsItsBinding_data()
+    {
+        QTest::addColumn<QString>("state");
+        QTest::newRow("first-login") << QStringLiteral("PENDING");
+        QTest::newRow("previously-bound") << QStringLiteral("BOUND");
+    }
+
     void registrationNamesTheOriginalProfileAndShowsItsBinding()
     {
+        QFETCH(QString, state);
+        int invalidations = 0;
         Pages pages;
-        pages.backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 0, true);
+        pages.backend.addCharacterIdentity(QStringLiteral("CN"), state, 0, true);
         QVERIFY2(pages.create(), qPrintable(pages.errors));
         const int original = pages.currentOf(QStringLiteral("CN"));
+        connect(&pages.backend, &mr::IBackend::liveEvent, this, [&invalidations](const QVariantMap &event) {
+            if (event.value(QStringLiteral("kind")).toString() == QLatin1String("stats_invalidated"))
+                ++invalidations;
+        });
         pages.app->navigate(0);
         QTRY_VERIFY(pages.shown(QStringLiteral("characterIdentityPrompt_CN")));
-        QVERIFY(pages.click(QStringLiteral("characterIdentityNew_CN")));
+        QCOMPARE(pages.shown(QStringLiteral("characterIdentityNew_CN")) != nullptr, state == QLatin1String("PENDING"));
+        QCOMPARE(pages.shown(QStringLiteral("characterIdentityIgnore_CN")) != nullptr, state == QLatin1String("PENDING"));
+        QVERIFY(pages.click(QStringLiteral("characterIdentityRegister_CN")));
         QTRY_VERIFY(pages.shown(QStringLiteral("characterNameField")));
         QVERIFY(pages.shown(QStringLiteral("characterNameField"))->setProperty("text", QString::fromUtf8("白露")));
         QVERIFY(pages.click(QStringLiteral("characterProfileSave")));
@@ -237,6 +261,7 @@ private Q_SLOTS:
         QCOMPARE(pages.shown(QStringLiteral("achievementCharacterName_CN"))->property("text").toString(),
                  QString::fromUtf8("白露"));
         QCOMPARE(pages.currentOf(QStringLiteral("CN")), original);
+        QTRY_COMPARE(invalidations, 1);
 
         QVERIFY(pages.openAchievementSettings());
         QVERIFY(pages.shown(QStringLiteral("forgetIdentitiesButton")));
@@ -246,6 +271,59 @@ private Q_SLOTS:
         QVERIFY(pages.click(QStringLiteral("characterProfileSave")));
         QTRY_COMPARE(pages.profile(original).value(QStringLiteral("display_name")).toString(), QString::fromUtf8("新名字"));
         QCOMPARE(pages.profile(original).value(QStringLiteral("identity_count")).toInt(), 1);
+        QTRY_COMPARE(invalidations, 2);
+    }
+
+    void decliningRegistrationOffersTheNextCharacter_data()
+    {
+        QTest::addColumn<QString>("choice");
+        QTest::newRow("ignore") << QStringLiteral("ignore");
+        QTest::newRow("create") << QStringLiteral("create");
+        QTest::newRow("other-profile") << QStringLiteral("bind");
+        QTest::newRow("release-previous-binding") << QStringLiteral("forget");
+    }
+
+    void decliningRegistrationOffersTheNextCharacter()
+    {
+        QFETCH(QString, choice);
+        Pages pages;
+        const QString region = QStringLiteral("CN");
+        const bool wasBound = choice == QLatin1String("forget");
+        const int declined = pages.backend.addCharacterIdentity(region, wasBound ? QStringLiteral("BOUND")
+                                                                                : QStringLiteral("PENDING"), 1, true);
+        const int next = pages.backend.addCharacterIdentity(region, QStringLiteral("PENDING"), 1);
+        const int other = choice == QLatin1String("bind")
+            ? pages.backend.addCharacterProfile(region, QString::fromUtf8("小号"), 2000, 0, false) : 0;
+        QVERIFY2(pages.create(), qPrintable(pages.errors));
+        const int original = pages.currentOf(region);
+        pages.app->navigate(0);
+        QTRY_VERIFY(pages.shown(QStringLiteral("characterIdentityRegister_CN")));
+        QCOMPARE(pages.shown(QStringLiteral("characterIdentityPrompt_CN"))->property("identityId").toInt(), declined);
+
+        if (wasBound) {
+            QVERIFY(pages.openAchievementSettings());
+            QVERIFY(pages.click(QStringLiteral("forgetIdentitiesButton")));
+            QTRY_COMPARE(pages.profile(original).value(QStringLiteral("identity_count")).toInt(), 0);
+            pages.app->navigate(0);
+        } else if (choice == QLatin1String("create")) {
+            QVERIFY(pages.click(QStringLiteral("characterIdentityNew_CN")));
+            QTRY_VERIFY(pages.shown(QStringLiteral("characterNameField")));
+            QVERIFY(pages.shown(QStringLiteral("characterNameField"))->setProperty("text", QString::fromUtf8("小号")));
+            QVERIFY(pages.click(QStringLiteral("characterProfileSave")));
+            QTRY_COMPARE(pages.app->characterProfilesForRegion(region).size(), 2);
+        } else if (choice == QLatin1String("bind")) {
+            QVERIFY(Pages::pick(pages.shown(QStringLiteral("characterIdentityExisting_CN")), other));
+            QVERIFY(pages.click(QStringLiteral("characterIdentityBind_CN")));
+            QTRY_COMPARE(pages.profile(other).value(QStringLiteral("identity_count")).toInt(), 1);
+        } else {
+            QVERIFY(pages.click(QStringLiteral("characterIdentityIgnore_CN")));
+            QTRY_COMPARE(pages.app->ignoredCharacterIdentityCount(region), 1);
+        }
+        QTRY_VERIFY(pages.shown(QStringLiteral("characterIdentityRegister_CN")));
+        QTRY_COMPARE(pages.shown(QStringLiteral("characterIdentityPrompt_CN"))->property("identityId").toInt(), next);
+        QCOMPARE(pages.shown(QStringLiteral("characterIdentityPrompt_CN"))->property("registrationProfileId").toInt(), original);
+        QVERIFY(pages.profile(original).value(QStringLiteral("display_name")).toString().isEmpty());
+        QCOMPARE(pages.profile(original).value(QStringLiteral("identity_count")).toInt(), 0);
     }
 
     /// 添加角色 asks for a name and the character's own numbers; the new character then has

@@ -29,15 +29,6 @@ namespace {
 constexpr int kMaxProfilesPerRegion = 16;
 constexpr int kMaxDisplayNameLength = 24;
 
-int regionRank(const QString &region)
-{
-    if (region == QLatin1String("CN"))
-        return 0;
-    if (region == QLatin1String("TC"))
-        return 1;
-    return 2;
-}
-
 bool countsTowardsProgress(const QJsonObject &run)
 {
     return !isSoftDeleted(run) && isConfirmedMentor(run)
@@ -92,6 +83,36 @@ MockBackend::CharacterProfileEntry *MockBackend::findProfile(int profileId)
             return &profile;
     }
     return nullptr;
+}
+
+bool MockBackend::profileNameTaken(const QString &region, const QString &name, int exceptId) const
+{
+    return std::ranges::any_of(m_profiles, [&](const CharacterProfileEntry &profile) {
+        return profile.region == region && profile.id != exceptId && profile.displayName == name;
+    });
+}
+
+bool MockBackend::applyProfileName(CharacterProfileEntry *profile, const QJsonValue &requestedName,
+                                   QString *errorCode, QString *errorMessage)
+{
+    const QString name = requestedName.toString().trimmed();
+    if (!requestedName.isUndefined() && !usableName(name)) {
+        refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "profile.name_required",
+                   {{QStringLiteral("max"), kMaxDisplayNameLength}});
+        return false;
+    }
+    if (!profile) {
+        refuseWith(errorCode, errorMessage, QStringLiteral("ERR_NOT_FOUND"), "profile.not_found");
+        return false;
+    }
+    if (requestedName.isUndefined() || name == profile->displayName)
+        return true;
+    if (profileNameTaken(profile->region, name, profile->id)) {
+        refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "profile.name_taken");
+        return false;
+    }
+    profile->displayName = name;
+    return true;
 }
 
 const MockBackend::CharacterProfileEntry *MockBackend::currentProfile(const QString &region) const
@@ -173,10 +194,8 @@ QJsonArray MockBackend::characterProfiles() const
         ordered.append(&profile);
     // CN first, then TC, then the other regions; inside a region in creation order.
     std::ranges::stable_sort(ordered, [](const CharacterProfileEntry *left, const CharacterProfileEntry *right) {
-        if (regionRank(left->region) != regionRank(right->region))
-            return regionRank(left->region) < regionRank(right->region);
         if (left->region != right->region)
-            return left->region < right->region;
+            return regionBefore(left->region, right->region);
         return left->id < right->id;
     });
     QJsonArray out;
@@ -294,11 +313,6 @@ QJsonObject MockBackend::applyCharacterProfile(const QString &messageType, const
     };
     const QString badRequest = QStringLiteral("ERR_BAD_REQUEST");
     const QVariantMap nameLimit{{QStringLiteral("max"), kMaxDisplayNameLength}};
-    const auto nameTaken = [this](const QString &region, const QString &name, int except) {
-        return std::ranges::any_of(m_profiles, [&](const CharacterProfileEntry &profile) {
-            return profile.region == region && profile.id != except && profile.displayName == name;
-        });
-    };
 
     int profileId = 0;
     QString region;
@@ -319,7 +333,7 @@ QJsonObject MockBackend::applyCharacterProfile(const QString &messageType, const
         ensureCurrentProfile(region);
         if (profilesOf(region).size() >= kMaxProfilesPerRegion)
             return refuse(badRequest, "profile.limit_reached", {{QStringLiteral("max"), kMaxProfilesPerRegion}});
-        if (nameTaken(region, name, 0))
+        if (profileNameTaken(region, name, 0))
             return refuse(badRequest, "profile.name_taken");
         bool identityRefused = false;
         CharacterIdentityEntry *identity =
@@ -339,17 +353,9 @@ QJsonObject MockBackend::applyCharacterProfile(const QString &messageType, const
             return refuse(badRequest, "ipc.field.missing", {{QStringLiteral("field"), QStringLiteral("profile_id")}});
         if (requestedName.isUndefined() && !makeCurrent && !forget)
             return refuse(badRequest, "mutation.no_changes");
-        const QString name = requestedName.toString().trimmed();
-        if (!requestedName.isUndefined() && !usableName(name))
-            return refuse(badRequest, "profile.name_required", nameLimit);
         CharacterProfileEntry *profile = findProfile(payload.value(QStringLiteral("profile_id")).toInt());
-        if (!profile)
-            return refuse(QStringLiteral("ERR_NOT_FOUND"), "profile.not_found");
-        if (!requestedName.isUndefined() && name != profile->displayName) {
-            if (nameTaken(profile->region, name, profile->id))
-                return refuse(badRequest, "profile.name_taken");
-            profile->displayName = name;
-        }
+        if (!applyProfileName(profile, requestedName, errorCode, errorMessage))
+            return {};
         if (makeCurrent && !profile->current) {
             for (CharacterProfileEntry &other : m_profiles) {
                 if (other.region == profile->region)
@@ -383,6 +389,7 @@ QJsonObject MockBackend::applyCharacterProfile(const QString &messageType, const
         deleted = true;
         // A character bound to a profile that goes is asked about again.
         forgetIdentitiesOf(profileId);
+        m_registrationCandidates.remove(profileId);
         m_profiles.removeIf([profileId](const CharacterProfileEntry &entry) { return entry.id == profileId; });
     }
 

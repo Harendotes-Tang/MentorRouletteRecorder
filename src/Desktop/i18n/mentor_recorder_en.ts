@@ -2129,6 +2129,14 @@ SHA256: %3</translation>
         <translation>A character that isn&apos;t registered yet</translation>
     </message>
     <message>
+        <source>输入角色名并确认绑定「原有记录」。已有记录和成就进度会保留。</source>
+        <translation>Enter a name and confirm that this character owns the original records. Its records and achievement progress will be kept.</translation>
+    </message>
+    <message>
+        <source>如果认错了角色，可在「设置 › 成就」解除绑定。</source>
+        <translation>If this is the wrong character, you can unlink it in Settings › Achievement.</translation>
+    </message>
+    <message>
         <source>它已经有 %1 条记录，现在不计入任何角色的进度。</source>
         <translation>It already has %1 record(s), which currently count toward no character&apos;s progress. </translation>
     </message>
@@ -2143,6 +2151,10 @@ SHA256: %3</translation>
     <message>
         <source>另外还有 %1 个角色等待说明，回答完这一个再问下一个。</source>
         <translation>%1 more character(s) are waiting; the next one is asked about after this one.</translation>
+    </message>
+    <message>
+        <source>登记并绑定原有记录</source>
+        <translation>Register with original records</translation>
     </message>
     <message>
         <source>这是一个新角色</source>
@@ -2172,14 +2184,6 @@ SHA256: %3</translation>
         <source>不统计这个角色</source>
         <translation>Don&apos;t track this character</translation>
     </message>
-    <message>
-        <source>输入角色名并确认绑定「原有记录」。已有记录和成就进度会保留。</source>
-        <translation>Enter a name and confirm that this character owns the original records. Its records and achievement progress will be kept.</translation>
-    </message>
-    <message>
-        <source>登记并绑定原有记录</source>
-        <translation>Register with original records</translation>
-    </message>
 </context>
 <context>
     <name>CharacterNames</name>
@@ -2205,6 +2209,10 @@ SHA256: %3</translation>
     <message>
         <source>给角色改名</source>
         <translation>Rename character</translation>
+    </message>
+    <message>
+        <source>登记原有角色</source>
+        <translation>Register existing character</translation>
     </message>
     <message>
         <source>登记新角色</source>
@@ -2253,10 +2261,6 @@ SHA256: %3</translation>
     <message>
         <source>保存</source>
         <translation>Save</translation>
-    </message>
-    <message>
-        <source>登记原有角色</source>
-        <translation>Register existing character</translation>
     </message>
     <message>
         <source>确认绑定</source>
@@ -5161,6 +5165,17 @@ SHA256: %3</translation>
     </message>
 </context>
 <context>
+    <name>ContentTypeTag</name>
+    <message>
+        <source>宏</source>
+        <translation>Macro</translation>
+    </message>
+    <message>
+        <source>提醒</source>
+        <translation>Reminder</translation>
+    </message>
+</context>
+<context>
     <name>DashboardPage</name>
     <message>
         <source>%1 条</source>
@@ -5241,6 +5256,18 @@ SHA256: %3</translation>
     <message>
         <source>空闲</source>
         <translation>Idle</translation>
+    </message>
+    <message>
+        <source>提醒与宏</source>
+        <translation>Reminders &amp; macros</translation>
+    </message>
+    <message>
+        <source>%1有 %2 条提醒与宏</source>
+        <translation>%2 reminders &amp; macros for %1</translation>
+    </message>
+    <message>
+        <source>副本提醒与导随宏</source>
+        <translation>Duty reminders and mentor macros</translation>
     </message>
     <message>
         <source>匹配时间</source>
@@ -5513,6 +5540,10 @@ SHA256: %3</translation>
         <translation>By default, the app checks for updates at startup and periodically while running. It first reads version information from this project’s public release page on GitHub (if reading from GitHub fails, it falls back to the project’s mirror of the same name on GitCode) and shows new versions on Overview. You can also click “Check for updates”. “Download installer” only downloads the installer (again from GitHub first, falling back to the GitCode mirror if that fails) and verifies the published checksum. Once ready, click “Install now” to launch it; this app then closes and the installer completes the update. Requests contain no account, installation ID or device identity. GitHub, GitCode and their download services can see your IP address. The app does not download or install updates on its own. Turn off “Check for new versions and notify me” in Settings → General → Updates to disable checks, cancel any download and remove the prepared installer.</translation>
     </message>
     <message>
+        <source>GitHub 持续低速时，软件会探测 GitCode 镜像。如果预计能更早下载完成，软件会先询问再切换。</source>
+        <translation>If GitHub stays slow, the app tests the GitCode mirror. If GitCode is expected to finish sooner, the app asks before switching.</translation>
+    </message>
+    <message>
         <source>运行顺序</source>
         <translation>Order of steps</translation>
     </message>
@@ -5658,6 +5689,1011 @@ SHA256: %3</translation>
     <message>
         <source>未识别</source>
         <translation>Unrecognized</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunityDetail</name>
+    <message>
+        <source>副本</source>
+        <translation>Duty</translation>
+    </message>
+    <message>
+        <source>BOSS / 阶段</source>
+        <translation>Boss / phase</translation>
+    </message>
+    <message>
+        <source>区服</source>
+        <translation>Server region</translation>
+    </message>
+    <message>
+        <source>语言</source>
+        <translation>Language</translation>
+    </message>
+    <message>
+        <source>角色</source>
+        <translation>Character</translation>
+    </message>
+    <message>
+        <source>适用版本</source>
+        <translation>Game version</translation>
+    </message>
+    <message>
+        <source>来源</source>
+        <translation>Source</translation>
+    </message>
+    <message>
+        <source>公共共享库</source>
+        <translation>Public library</translation>
+    </message>
+    <message>
+        <source>自己写的</source>
+        <translation>Written by you</translation>
+    </message>
+    <message>
+        <source>作者</source>
+        <translation>Author</translation>
+    </message>
+    <message>
+        <source>许可</source>
+        <translation>Licence</translation>
+    </message>
+    <message>
+        <source>状态</source>
+        <translation>Status</translation>
+    </message>
+    <message>
+        <source>更新于</source>
+        <translation>Updated</translation>
+    </message>
+    <message>
+        <source>在左边选一条查看</source>
+        <translation>Choose an entry on the left</translation>
+    </message>
+    <message>
+        <source>已收藏</source>
+        <translation>Favourite</translation>
+    </message>
+    <message>
+        <source>收藏</source>
+        <translation>Favorites</translation>
+    </message>
+    <message>
+        <source>宏内容</source>
+        <translation>Macro text</translation>
+    </message>
+    <message>
+        <source>提醒内容</source>
+        <translation>Reminder text</translation>
+    </message>
+    <message>
+        <source>%1 / 15 行</source>
+        <translation>%1 / 15 lines</translation>
+    </message>
+    <message>
+        <source>复制后粘贴到游戏的「用户宏」里；一个宏最多 15 行。</source>
+        <translation>Copy it, then paste it into the game&apos;s User Macros. A macro holds up to 15 lines.</translation>
+    </message>
+    <message>
+        <source>关联项</source>
+        <translation>Linked items</translation>
+    </message>
+    <message>
+        <source>从提醒生成宏</source>
+        <translation>Create macro from reminder</translation>
+    </message>
+    <message>
+        <source>另存个人版本</source>
+        <translation>Save a personal copy</translation>
+    </message>
+    <message>
+        <source>对比来源更新</source>
+        <translation>Compare source update</translation>
+    </message>
+    <message>
+        <source>已复制</source>
+        <translation>Copied</translation>
+    </message>
+    <message>
+        <source>复制</source>
+        <translation>Copy</translation>
+    </message>
+    <message>
+        <source>复制队聊／团聊消息</source>
+        <translation>Copy a party/alliance message</translation>
+    </message>
+    <message>
+        <source>编辑</source>
+        <translation>Edit</translation>
+    </message>
+    <message>
+        <source>导入到本地</source>
+        <translation>Import locally</translation>
+    </message>
+    <message>
+        <source>已在本地</source>
+        <translation>Already local</translation>
+    </message>
+    <message>
+        <source>在本地查看</source>
+        <translation>View local copy</translation>
+    </message>
+    <message>
+        <source>删除后不能恢复，确定删除？</source>
+        <translation>This can&apos;t be undone. Delete it?</translation>
+    </message>
+    <message>
+        <source>确定删除</source>
+        <translation>Delete</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>导出</source>
+        <translation>Export</translation>
+    </message>
+    <message>
+        <source>投稿</source>
+        <translation>Submit</translation>
+    </message>
+    <message>
+        <source>删除</source>
+        <translation>Delete</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunityDialog</name>
+    <message>
+        <source>宏</source>
+        <translation>Macro</translation>
+    </message>
+    <message>
+        <source>一行一条指令，复制到游戏里用</source>
+        <translation>One command per line, to copy into the game</translation>
+    </message>
+    <message>
+        <source>提醒</source>
+        <translation>Reminder</translation>
+    </message>
+    <message>
+        <source>记下这个副本要注意的事</source>
+        <translation>Note what to watch for in this duty</translation>
+    </message>
+    <message>
+        <source>大家好～不熟悉机制的话可以说一声，需要的话我会简单说明。</source>
+        <translation>Hi! Let me know if you're new to the mechanics. I can explain.</translation>
+    </message>
+    <message>
+        <source>等大家看完动画再开，先准备一下。</source>
+        <translation>Let's wait for everyone to finish the cutscene before we pull.</translation>
+    </message>
+    <message>
+        <source>我是中途加入的，现在进度到哪里？有什么需要先说明的吗？</source>
+        <translation>I joined in progress. Where are we, and is there anything to go over first?</translation>
+    </message>
+    <message>
+        <source>先停一下，我补充一下刚才的机制，说明后再开。</source>
+        <translation>Let's pause. I'll explain that mechanic before the next pull.</translation>
+    </message>
+    <message>
+        <source>辛苦了，谢谢大家！</source>
+        <translation>Thanks for the run, everyone!</translation>
+    </message>
+    <message>
+        <source>副本提醒与导随宏</source>
+        <translation>Duty reminders and mentor macros</translation>
+    </message>
+    <message>
+        <source>国服 CN</source>
+        <translation>China (CN)</translation>
+    </message>
+    <message>
+        <source>繁中服 TC</source>
+        <translation>Traditional Chinese (TC)</translation>
+    </message>
+    <message>
+        <source>国际服 GLOBAL</source>
+        <translation>Global (GLOBAL)</translation>
+    </message>
+    <message>
+        <source>全部区服</source>
+        <translation>All regions</translation>
+    </message>
+    <message>
+        <source>通用</source>
+        <translation>General</translation>
+    </message>
+    <message>
+        <source>已导入 %1 项到本地，可以在「本地」里编辑。</source>
+        <translation>Imported %1 items. You can edit them under Local.</translation>
+    </message>
+    <message>
+        <source>正在查询…</source>
+        <translation>Checking…</translation>
+    </message>
+    <message>
+        <source>公共库联网已关闭，仍可使用本地内容与缓存。</source>
+        <translation>The public library is offline. Local and cached content remains available.</translation>
+    </message>
+    <message>
+        <source>手动刷新时连接公共共享库。</source>
+        <translation>Refresh manually to connect to the public library.</translation>
+    </message>
+    <message>
+        <source>正在刷新公共共享库。</source>
+        <translation>Refreshing the public library.</translation>
+    </message>
+    <message>
+        <source>公共共享库尚未部署。</source>
+        <translation>The public library has not been deployed yet.</translation>
+    </message>
+    <message>
+        <source>公共共享库暂时没有内容。</source>
+        <translation>The public library is empty.</translation>
+    </message>
+    <message>
+        <source>暂时无法联网或请求受限，保留上次有效缓存。</source>
+        <translation>Connection unavailable or rate limited. Using the last valid cache.</translation>
+    </message>
+    <message>
+        <source>公共索引或内容校验失败，保留上次有效缓存。</source>
+        <translation>Could not validate the public index or content. Using the last valid cache.</translation>
+    </message>
+    <message>
+        <source>镜像尚未同步，继续使用现有版本。</source>
+        <translation>The mirror is behind. Using the current version.</translation>
+    </message>
+    <message>
+        <source>已保存到本地。</source>
+        <translation>Saved locally.</translation>
+    </message>
+    <message>
+        <source>已删除本地条目。</source>
+        <translation>Local item deleted.</translation>
+    </message>
+    <message>
+        <source>已导入，可离线使用。</source>
+        <translation>Imported and available offline.</translation>
+    </message>
+    <message>
+        <source>已应用来源更新。</source>
+        <translation>Source update applied.</translation>
+    </message>
+    <message>
+        <source>已安装，请在本地查看或检查更新。</source>
+        <translation>Already installed. View it locally or check for updates.</translation>
+    </message>
+    <message>
+        <source>来源版本已变化，请重新刷新和对比。</source>
+        <translation>The source revision changed. Refresh and compare again.</translation>
+    </message>
+    <message>
+        <source>来源或关联内容已撤回或不可用。</source>
+        <translation>The source or a linked item was withdrawn or is unavailable.</translation>
+    </message>
+    <message>
+        <source>本地有同一条目或更新的修改，请重新加载。</source>
+        <translation>A matching or newer local item exists. Reload the library.</translation>
+    </message>
+    <message>
+        <source>本地库已达到 400 条。</source>
+        <translation>The local library has reached 400 items.</translation>
+    </message>
+    <message>
+        <source>请填写标题，最多 120 字。</source>
+        <translation>Enter a title of up to 120 characters.</translation>
+    </message>
+    <message>
+        <source>请填写正文，最多 1600 字。</source>
+        <translation>Enter text of up to 1,600 characters.</translation>
+    </message>
+    <message>
+        <source>完整宏最多 15 行。</source>
+        <translation>A full macro can have at most 15 lines.</translation>
+    </message>
+    <message>
+        <source>每行宏最多 180 个 UTF-8 字节。</source>
+        <translation>A macro line can have at most 180 UTF-8 bytes.</translation>
+    </message>
+    <message>
+        <source>聊天指令最多 500 个 UTF-8 字节。</source>
+        <translation>A chat command can have at most 500 UTF-8 bytes.</translation>
+    </message>
+    <message>
+        <source>聊天复制只支持带正文的单行 /p 或 /a 指令。</source>
+        <translation>Chat copy requires one /p or /a command with a message.</translation>
+    </message>
+    <message>
+        <source>剪贴板写入失败或内容不一致。</source>
+        <translation>Could not write the exact text to the clipboard.</translation>
+    </message>
+    <message>
+        <source>已复制到剪贴板。</source>
+        <translation>Copied to the clipboard.</translation>
+    </message>
+    <message>
+        <source>文件格式不正确，单次最多 20 条。</source>
+        <translation>Invalid file. Import or export up to 20 items at a time.</translation>
+    </message>
+    <message>
+        <source>无法读取或写入此文件。</source>
+        <translation>This file could not be read or written.</translation>
+    </message>
+    <message>
+        <source>已导出。</source>
+        <translation>Exported.</translation>
+    </message>
+    <message>
+        <source>关联项必须存在，且提醒和宏只能关联另一种类型。</source>
+        <translation>Links must point to an existing item of the other type.</translation>
+    </message>
+    <message>
+        <source>请选择 1 至 20 条内容并确认投稿许可。</source>
+        <translation>Select 1 to 20 items and confirm the contribution license.</translation>
+    </message>
+    <message>
+        <source>投稿文字超出大小限制，请分批投稿。</source>
+        <translation>The submission is too large. Submit it in smaller batches.</translation>
+    </message>
+    <message>
+        <source>原生投稿尚未配置 GitHub App，可使用浏览器投稿。</source>
+        <translation>In-app submission needs a configured GitHub App. You can submit in your browser.</translation>
+    </message>
+    <message>
+        <source>请在 GitHub 输入设备代码并确认授权。</source>
+        <translation>Enter the device code on GitHub and authorize the app.</translation>
+    </message>
+    <message>
+        <source>授权代码已过期。</source>
+        <translation>The authorization code expired.</translation>
+    </message>
+    <message>
+        <source>授权未完成。</source>
+        <translation>Authorization was not completed.</translation>
+    </message>
+    <message>
+        <source>已取消授权。</source>
+        <translation>Authorization canceled.</translation>
+    </message>
+    <message>
+        <source>上一项授权操作尚在处理。</source>
+        <translation>Another authorization request is still running.</translation>
+    </message>
+    <message>
+        <source>未登录 GitHub。</source>
+        <translation>Signed out of GitHub.</translation>
+    </message>
+    <message>
+        <source>已登录 GitHub。</source>
+        <translation>Signed in to GitHub.</translation>
+    </message>
+    <message>
+        <source>GitHub 账号已变化，请重新预览提交。</source>
+        <translation>The GitHub account changed. Preview the submission again.</translation>
+    </message>
+    <message>
+        <source>已提交投稿，等待工作流处理。</source>
+        <translation>Submitted. Waiting for the workflow.</translation>
+    </message>
+    <message>
+        <source>投稿正在处理。</source>
+        <translation>The submission is being processed.</translation>
+    </message>
+    <message>
+        <source>已公开发布。刷新共享库后可查看。</source>
+        <translation>Published. Refresh the library to see it.</translation>
+    </message>
+    <message>
+        <source>处理失败，请打开 GitHub Issue 查看原因。</source>
+        <translation>Processing failed. Open the GitHub issue for details.</translation>
+    </message>
+    <message>
+        <source>提交结果暂时无法确认，请在 GitHub 检查投稿后再重试。</source>
+        <translation>The result could not be confirmed. Check GitHub before retrying.</translation>
+    </message>
+    <message>
+        <source>投稿已关闭。</source>
+        <translation>The submission was closed.</translation>
+    </message>
+    <message>
+        <source>投稿正文已复制，请粘贴到浏览器表单并提交。</source>
+        <translation>Submission copied. Paste it into the browser form and submit.</translation>
+    </message>
+    <message>
+        <source>已核验</source>
+        <translation>Verified</translation>
+    </message>
+    <message>
+        <source>过时</source>
+        <translation>Outdated</translation>
+    </message>
+    <message>
+        <source>已撤回</source>
+        <translation>Withdrawn</translation>
+    </message>
+    <message>
+        <source>社区投稿／未核验</source>
+        <translation>Community submission / unverified</translation>
+    </message>
+    <message>
+        <source>输入无效或操作失败。</source>
+        <translation>Invalid input or operation failed.</translation>
+    </message>
+    <message>
+        <source>本地</source>
+        <translation>Local</translation>
+    </message>
+    <message>
+        <source>公共共享库</source>
+        <translation>Public library</translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation>Close</translation>
+    </message>
+    <message>
+        <source>还没有提醒或宏</source>
+        <translation>No reminders or macros yet</translation>
+    </message>
+    <message>
+        <source>把进本要说的话、要注意的机制存在这里，进了副本一键复制。</source>
+        <translation>Keep what you say on entering and the mechanics to watch for here, and copy them with one click once you&apos;re in the duty.</translation>
+    </message>
+    <message>
+        <source>新建宏</source>
+        <translation>New macro</translation>
+    </message>
+    <message>
+        <source>新建提醒</source>
+        <translation>New reminder</translation>
+    </message>
+    <message>
+        <source>去公共共享库挑选</source>
+        <translation>Browse the public library</translation>
+    </message>
+    <message>
+        <source>或者从常用宏示例开始</source>
+        <translation>Or start from a common macro</translation>
+    </message>
+    <message>
+        <source>正在刷新公共库…</source>
+        <translation>Refreshing the public library…</translation>
+    </message>
+    <message>
+        <source>公共共享库还没有内容</source>
+        <translation>Nothing in the public library yet</translation>
+    </message>
+    <message>
+        <source>公共库联网已关闭</source>
+        <translation>The public library is offline</translation>
+    </message>
+    <message>
+        <source>第一次刷新需要几秒钟。</source>
+        <translation>The first refresh takes a few seconds.</translation>
+    </message>
+    <message>
+        <source>公共库联网已关闭，仍可使用本地内容与缓存。打开「允许公共库联网」后，可以刷新并浏览大家投稿的内容。</source>
+        <translation>The public library is offline. Local and cached content remains available. Turn on “Allow public library network” to refresh and browse what others have submitted.</translation>
+    </message>
+    <message>
+        <source>刷新公共库</source>
+        <translation>Refresh public library</translation>
+    </message>
+    <message>
+        <source>允许联网并刷新</source>
+        <translation>Allow network and refresh</translation>
+    </message>
+    <message>
+        <source>投稿进度</source>
+        <translation>Submission progress</translation>
+    </message>
+    <message>
+        <source>编号</source>
+        <translation>Number</translation>
+    </message>
+    <message>
+        <source>投稿的 Issue 编号</source>
+        <translation>Issue number of the submission</translation>
+    </message>
+    <message>
+        <source>查看状态</source>
+        <translation>Check status</translation>
+    </message>
+    <message>
+        <source>在 GitHub 打开</source>
+        <translation>Open on GitHub</translation>
+    </message>
+    <message>
+        <source>来源更新对比</source>
+        <translation>Compare source revisions</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>使用来源版本</source>
+        <translation>Use source version</translation>
+    </message>
+    <message>
+        <source>应用更新并保留我的修改</source>
+        <translation>Apply update and keep my changes</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunityEditor</name>
+    <message>
+        <source>新建宏</source>
+        <translation>New macro</translation>
+    </message>
+    <message>
+        <source>新建提醒</source>
+        <translation>New reminder</translation>
+    </message>
+    <message>
+        <source>编辑宏</source>
+        <translation>Edit macro</translation>
+    </message>
+    <message>
+        <source>编辑提醒</source>
+        <translation>Edit reminder</translation>
+    </message>
+    <message>
+        <source>类型</source>
+        <translation>Type</translation>
+    </message>
+    <message>
+        <source>副本</source>
+        <translation>Duty</translation>
+    </message>
+    <message>
+        <source>宏</source>
+        <translation>Macro</translation>
+    </message>
+    <message>
+        <source>提醒</source>
+        <translation>Reminder</translation>
+    </message>
+    <message>
+        <source>当前副本</source>
+        <translation>Duty</translation>
+    </message>
+    <message>
+        <source>通用</source>
+        <translation>General</translation>
+    </message>
+    <message>
+        <source>改为通用</source>
+        <translation>Make general</translation>
+    </message>
+    <message>
+        <source>搜索副本名称</source>
+        <translation>Search duty name</translation>
+    </message>
+    <message>
+        <source>选择副本</source>
+        <translation>Choose a duty</translation>
+    </message>
+    <message>
+        <source>标题</source>
+        <translation>Title</translation>
+    </message>
+    <message>
+        <source>起个一眼能认出来的名字</source>
+        <translation>A name you&apos;ll recognise at a glance</translation>
+    </message>
+    <message>
+        <source>请填写标题</source>
+        <translation>Enter a title</translation>
+    </message>
+    <message>
+        <source>BOSS（可不填）</source>
+        <translation>Boss (optional)</translation>
+    </message>
+    <message>
+        <source>阶段（可不填）</source>
+        <translation>Phase (optional)</translation>
+    </message>
+    <message>
+        <source>区服</source>
+        <translation>Server region</translation>
+    </message>
+    <message>
+        <source>语言</source>
+        <translation>Language</translation>
+    </message>
+    <message>
+        <source>例如：BOSS 2、尾王</source>
+        <translation>e.g. Boss 2, final boss</translation>
+    </message>
+    <message>
+        <source>例如：转场</source>
+        <translation>e.g. transition</translation>
+    </message>
+    <message>
+        <source>宏内容</source>
+        <translation>Macro text</translation>
+    </message>
+    <message>
+        <source>提醒内容</source>
+        <translation>Reminder text</translation>
+    </message>
+    <message>
+        <source>一行一条指令，例如：/p 大家好 &lt;se.1&gt;</source>
+        <translation>One command per line, e.g. /p Hello &lt;se.1&gt;</translation>
+    </message>
+    <message>
+        <source>写下这个副本要注意的事</source>
+        <translation>Write down what to watch for in this duty</translation>
+    </message>
+    <message>
+        <source>请填写正文</source>
+        <translation>Enter the text</translation>
+    </message>
+    <message>
+        <source>超过 15 行了，游戏里要拆成两个宏。</source>
+        <translation>Over 15 lines: split it into two macros in the game.</translation>
+    </message>
+    <message>
+        <source>游戏里一个宏最多 15 行。</source>
+        <translation>A macro in the game holds up to 15 lines.</translation>
+    </message>
+    <message>
+        <source>%1 / 15 行</source>
+        <translation>%1 / 15 lines</translation>
+    </message>
+    <message>
+        <source>角色</source>
+        <translation>Character</translation>
+    </message>
+    <message>
+        <source>适用游戏版本</source>
+        <translation>Applicable game version</translation>
+    </message>
+    <message>
+        <source>显示顺序</source>
+        <translation>Display order</translation>
+    </message>
+    <message>
+        <source>收藏</source>
+        <translation>Favorites</translation>
+    </message>
+    <message>
+        <source>标签，以逗号分隔</source>
+        <translation>Tags, comma-separated</translation>
+    </message>
+    <message>
+        <source>来源</source>
+        <translation>Source</translation>
+    </message>
+    <message>
+        <source>关联的提醒</source>
+        <translation>Linked reminders</translation>
+    </message>
+    <message>
+        <source>关联的宏</source>
+        <translation>Linked macros</translation>
+    </message>
+    <message>
+        <source>保存</source>
+        <translation>Save</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>只保存在这台电脑上，投稿之后才会公开</source>
+        <translation>Saved on this computer only; public only after you submit it</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunityList</name>
+    <message>
+        <source>全选</source>
+        <translation>Select all</translation>
+    </message>
+    <message>
+        <source>%1 项</source>
+        <translation>%1 items</translation>
+    </message>
+    <message>
+        <source>%1 / %2 项</source>
+        <translation>%1 of %2</translation>
+    </message>
+    <message>
+        <source>当前副本在前</source>
+        <translation>Current duty first</translation>
+    </message>
+    <message>
+        <source>选择「%1」</source>
+        <translation>Select “%1”</translation>
+    </message>
+    <message>
+        <source>取消收藏</source>
+        <translation>Remove from favourites</translation>
+    </message>
+    <message>
+        <source>收藏</source>
+        <translation>Favorites</translation>
+    </message>
+    <message>
+        <source>已在本地</source>
+        <translation>Already local</translation>
+    </message>
+    <message>
+        <source>没有匹配的内容</source>
+        <translation>No matching content</translation>
+    </message>
+    <message>
+        <source>清除筛选</source>
+        <translation>Clear filters</translation>
+    </message>
+    <message>
+        <source>去公共共享库找找</source>
+        <translation>Look in the public library</translation>
+    </message>
+    <message>
+        <source>已选 %1 项</source>
+        <translation>%1 selected</translation>
+    </message>
+    <message>
+        <source>导出</source>
+        <translation>Export</translation>
+    </message>
+    <message>
+        <source>投稿</source>
+        <translation>Submit</translation>
+    </message>
+    <message>
+        <source>导入到本地</source>
+        <translation>Import locally</translation>
+    </message>
+    <message>
+        <source>取消选择</source>
+        <translation>Deselect</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunitySubmission</name>
+    <message>
+        <source>投稿到公共共享库</source>
+        <translation>Submit to the public library</translation>
+    </message>
+    <message>
+        <source>投稿通过 GitHub Issue 提交，处理完成后，所有人都能在公共共享库里看到。</source>
+        <translation>Submissions go through a GitHub Issue. Once processed, everyone can see them in the public library.</translation>
+    </message>
+    <message>
+        <source>核对下面会公开的内容，选好许可并勾选确认。</source>
+        <translation>Check what becomes public below, choose a licence and tick the confirmation.</translation>
+    </message>
+    <message>
+        <source>用 GitHub 账号直接提交；或者复制投稿正文，在浏览器打开的 GitHub 表单里粘贴并提交。</source>
+        <translation>Submit directly with your GitHub account, or copy the submission text and paste it into the GitHub form that opens in the browser.</translation>
+    </message>
+    <message>
+        <source>把生成的 Issue 编号填进底部的「投稿进度」，随时查看处理状态。</source>
+        <translation>Enter the Issue number under Submission progress at the bottom to check its state at any time.</translation>
+    </message>
+    <message>
+        <source>会公开这 %1 项的标题、正文、副本、BOSS / 阶段、区服和语言，以及所选许可。只投稿你有权分享的文字，避免包含个人信息。</source>
+        <translation>The title, text, duty, boss / phase, region and language of these %1 items become public, with the licence you choose. Submit only text you may share, and leave out personal information.</translation>
+    </message>
+    <message>
+        <source>公开作者：@%1</source>
+        <translation>Public author: @%1</translation>
+    </message>
+    <message>
+        <source>公开作者以提交时登录的 GitHub 账号为准。</source>
+        <translation>The GitHub account used to submit is the public author.</translation>
+    </message>
+    <message>
+        <source>许可</source>
+        <translation>Licence</translation>
+    </message>
+    <message>
+        <source>收起全文</source>
+        <translation>Hide full text</translation>
+    </message>
+    <message>
+        <source>查看将公开的全文</source>
+        <translation>Show the full public text</translation>
+    </message>
+    <message>
+        <source>我确认来源，并同意按所选许可公开发布。</source>
+        <translation>I confirm the source and agree to publish under the selected license.</translation>
+    </message>
+    <message>
+        <source>GitHub 账号</source>
+        <translation>GitHub account</translation>
+    </message>
+    <message>
+        <source>开始设备授权</source>
+        <translation>Start device authorization</translation>
+    </message>
+    <message>
+        <source>打开 GitHub 授权</source>
+        <translation>Open GitHub authorization</translation>
+    </message>
+    <message>
+        <source>复制代码 %1</source>
+        <translation>Copy code %1</translation>
+    </message>
+    <message>
+        <source>取消授权</source>
+        <translation>Cancel authorization</translation>
+    </message>
+    <message>
+        <source>退出 GitHub</source>
+        <translation>Sign out of GitHub</translation>
+    </message>
+    <message>
+        <source>用 GitHub 账号提交（%1 项）</source>
+        <translation>Submit with GitHub account (%1)</translation>
+    </message>
+    <message>
+        <source>复制投稿并打开浏览器</source>
+        <translation>Copy submission and open browser</translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation>Cancel</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunityToolbar</name>
+    <message>
+        <source>%1：</source>
+        <translation>%1: </translation>
+    </message>
+    <message>
+        <source>搜索标题、正文、副本或作者</source>
+        <translation>Search title, text, duty, or author</translation>
+    </message>
+    <message>
+        <source>类型</source>
+        <translation>Type</translation>
+    </message>
+    <message>
+        <source>区服</source>
+        <translation>Server region</translation>
+    </message>
+    <message>
+        <source>语言</source>
+        <translation>Language</translation>
+    </message>
+    <message>
+        <source>BOSS / 阶段</source>
+        <translation>Boss / phase</translation>
+    </message>
+    <message>
+        <source>搜索 BOSS 或阶段</source>
+        <translation>Search bosses or phases</translation>
+    </message>
+    <message>
+        <source>没有匹配的 BOSS 或阶段</source>
+        <translation>No matching boss or phase</translation>
+    </message>
+    <message>
+        <source>这里的内容还没有标 BOSS 或阶段</source>
+        <translation>Nothing here is marked with a boss or phase yet</translation>
+    </message>
+    <message>
+        <source>当前副本与通用</source>
+        <translation>Current duty and general</translation>
+    </message>
+    <message>
+        <source>不在副本中，只看通用</source>
+        <translation>Not in a duty: general only</translation>
+    </message>
+    <message>
+        <source>只看%1和通用的内容</source>
+        <translation>Show only %1 and general entries</translation>
+    </message>
+    <message>
+        <source>现在不在副本里，打开后只显示通用的内容</source>
+        <translation>You&apos;re not in a duty; when on, only general entries are shown</translation>
+    </message>
+    <message>
+        <source>只看收藏</source>
+        <translation>Favourites only</translation>
+    </message>
+    <message>
+        <source>清除筛选</source>
+        <translation>Clear filters</translation>
+    </message>
+    <message>
+        <source>导入</source>
+        <translation>Import</translation>
+    </message>
+    <message>
+        <source>从公共共享库挑选</source>
+        <translation>Pick from the public library</translation>
+    </message>
+    <message>
+        <source>到「公共共享库」里勾选，再导入到本地</source>
+        <translation>Tick entries in the public library, then import them</translation>
+    </message>
+    <message>
+        <source>导入文件…</source>
+        <translation>Import a file…</translation>
+    </message>
+    <message>
+        <source>选一个之前导出的 .json 文件</source>
+        <translation>Choose a .json file you exported earlier</translation>
+    </message>
+    <message>
+        <source>新建</source>
+        <translation>New</translation>
+    </message>
+    <message>
+        <source>宏</source>
+        <translation>Macro</translation>
+    </message>
+    <message>
+        <source>一行一条指令，复制到游戏里用</source>
+        <translation>One command per line, to copy into the game</translation>
+    </message>
+    <message>
+        <source>提醒</source>
+        <translation>Reminder</translation>
+    </message>
+    <message>
+        <source>记下这个副本要注意的事</source>
+        <translation>Note what to watch for in this duty</translation>
+    </message>
+    <message>
+        <source>从常用宏示例开始</source>
+        <translation>Start from a common macro</translation>
+    </message>
+    <message>
+        <source>正在刷新…</source>
+        <translation>Refreshing…</translation>
+    </message>
+    <message>
+        <source>已联网</source>
+        <translation>Online</translation>
+    </message>
+    <message>
+        <source>联网已关闭 · 显示缓存</source>
+        <translation>Offline · showing the cache</translation>
+    </message>
+    <message>
+        <source>联网已关闭</source>
+        <translation>Offline</translation>
+    </message>
+    <message>
+        <source>允许公共库联网</source>
+        <translation>Allow public library connections</translation>
+    </message>
+    <message>
+        <source>刷新公共库</source>
+        <translation>Refresh public library</translation>
+    </message>
+</context>
+<context>
+    <name>DutyGuideAction</name>
+    <message>
+        <source>在浏览器打开「新大陆见闻录」上这个副本的攻略</source>
+        <translation>Open this duty&apos;s guide on 新大陆见闻录 in the browser</translation>
+    </message>
+    <message>
+        <source>在浏览器打开「新大陆见闻录」的攻略目录</source>
+        <translation>Open the 新大陆见闻录 guide index in the browser</translation>
+    </message>
+    <message>
+        <source>查看攻略</source>
+        <translation>View guide</translation>
+    </message>
+    <message>
+        <source>攻略目录</source>
+        <translation>Guide index</translation>
+    </message>
+    <message>
+        <source>新大陆见闻录</source>
+        <translation>New World Guide</translation>
     </message>
 </context>
 <context>
@@ -8656,6 +9692,10 @@ Recorder</translation>
         <translation>Cross-check</translation>
     </message>
     <message>
+        <source>意见反馈</source>
+        <translation>Feedback</translation>
+    </message>
+    <message>
         <source>FF14</source>
         <translation>FFXIV</translation>
     </message>
@@ -8680,8 +9720,16 @@ Recorder</translation>
         <translation>Ready</translation>
     </message>
     <message>
-        <source>意见反馈</source>
-        <translation>Feedback</translation>
+        <source>未安装</source>
+        <translation>Not installed</translation>
+    </message>
+    <message>
+        <source>捕获</source>
+        <translation>Capture</translation>
+    </message>
+    <message>
+        <source>已收起到待处理，记录和草稿已保留</source>
+        <translation>Moved to To review; the record and draft are kept</translation>
     </message>
     <message>
         <source>在 GitHub 反馈</source>
@@ -8700,16 +9748,20 @@ Recorder</translation>
         <translation>Couldn’t open the email app. Copy the address to send an email manually.</translation>
     </message>
     <message>
-        <source>未安装</source>
-        <translation>Not installed</translation>
+        <source>切换到 GitCode 下载？</source>
+        <translation>Switch the download to GitCode?</translation>
     </message>
     <message>
-        <source>捕获</source>
-        <translation>Capture</translation>
+        <source>GitCode 预计更早下载完成。切换后会从头下载，等待选择时 GitHub 会继续下载。</source>
+        <translation>GitCode is expected to finish sooner. Switching restarts the download. GitHub keeps downloading while you decide.</translation>
     </message>
     <message>
-        <source>已收起到待处理，记录和草稿已保留</source>
-        <translation>Moved to To review; the record and draft are kept</translation>
+        <source>继续 GitHub</source>
+        <translation>Continue on GitHub</translation>
+    </message>
+    <message>
+        <source>切换到 GitCode</source>
+        <translation>Switch to GitCode</translation>
     </message>
     <message>
         <source>原因</source>
@@ -8762,6 +9814,29 @@ Recorder</translation>
     <message>
         <source>关闭</source>
         <translation>Close</translation>
+    </message>
+</context>
+<context>
+    <name>MultiFilterButton</name>
+    <message>
+        <source>、</source>
+        <translation>, </translation>
+    </message>
+    <message>
+        <source>%1：%2</source>
+        <translation>%1: %2</translation>
+    </message>
+    <message>
+        <source>已选 %1 项</source>
+        <translation>%1 selected</translation>
+    </message>
+    <message>
+        <source>可多选</source>
+        <translation>Choose any</translation>
+    </message>
+    <message>
+        <source>清空</source>
+        <translation>Clear</translation>
     </message>
 </context>
 <context>
@@ -9359,8 +10434,20 @@ Recorder</translation>
         <translation>Mentor Recorder · Automatic recording unavailable</translation>
     </message>
     <message>
+        <source>导随记录器 · 自动记录已恢复</source>
+        <translation>Mentor Recorder · Automatic recording restored</translation>
+    </message>
+    <message>
         <source>自动记录暂不可用</source>
         <translation>Automatic recording unavailable</translation>
+    </message>
+    <message>
+        <source>自动记录已恢复</source>
+        <translation>Automatic recording restored</translation>
+    </message>
+    <message>
+        <source>已重新读取到游戏数据，可以继续自动记录。</source>
+        <translation>The app can read game data again and resume automatic recording.</translation>
     </message>
     <message>
         <source>恢复前，副本可能无法自动记录。后台仍会继续尝试恢复。</source>
@@ -11218,6 +12305,10 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <translation>Recognised game characters</translation>
     </message>
     <message>
+        <source>尚未绑定游戏角色。</source>
+        <translation>No game character is bound yet.</translation>
+    </message>
+    <message>
         <source>软件已经认出 %1 个游戏角色是「%2」。认错了可以解除，下次登录时会在总览重新询问；已有的记录不变。</source>
         <translation>The app has recognised %1 game character(s) as “%2”. If that is wrong, release it: the Overview asks again at the next login. Existing records stay as they are.</translation>
     </message>
@@ -11311,10 +12402,6 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>记录保存在本机 · 无遥测 · 无云同步</source>
         <translation>Records stay on this PC · no telemetry · no cloud sync</translation>
-    </message>
-    <message>
-        <source>尚未绑定游戏角色。</source>
-        <translation>No game character is bound yet.</translation>
     </message>
 </context>
 <context>
@@ -11704,13 +12791,6 @@ The region cannot be changed while listening or collecting evidence.</translatio
     </message>
 </context>
 <context>
-    <name>TrendBars</name>
-    <message>
-        <source>%1 · %2 次</source>
-        <translation>%1 · %2 runs</translation>
-    </message>
-</context>
-<context>
     <name>UpdateDownloadStatus</name>
     <message>
         <source>在浏览器中下载</source>
@@ -11890,6 +12970,14 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <translation>Couldn&apos;t open the browser. Go to https://npcap.com yourself to download the driver.</translation>
     </message>
     <message>
+        <source>没能打开浏览器，请在 GitHub 的 MentorRouletteRecorder 仓库中提交反馈。</source>
+        <translation>Couldn&apos;t open the browser. Submit feedback in the MentorRouletteRecorder repository on GitHub.</translation>
+    </message>
+    <message>
+        <source>导随记录器意见反馈</source>
+        <translation>Mentor Roulette Recorder feedback</translation>
+    </message>
+    <message>
         <source>后台服务不可用，暂时不能自动记录。%1</source>
         <translation>The background service isn&apos;t available, so automatic recording can&apos;t run for now. %1</translation>
     </message>
@@ -11923,14 +13011,6 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>导随完成，当前 {progress} 次，剩余 {remaining}</source>
         <translation>Mentor run complete. {progress} done, {remaining} to go.</translation>
-    </message>
-    <message>
-        <source>没能打开浏览器，请在 GitHub 的 MentorRouletteRecorder 仓库中提交反馈。</source>
-        <translation>Couldn&apos;t open the browser. Submit feedback in the MentorRouletteRecorder repository on GitHub.</translation>
-    </message>
-    <message>
-        <source>导随记录器意见反馈</source>
-        <translation>Mentor Roulette Recorder feedback</translation>
     </message>
     <message>
         <source>导随结束，请确认是否通关，已确认 {progress} 次</source>
@@ -12496,6 +13576,25 @@ The region cannot be changed while listening or collecting evidence.</translatio
     </message>
 </context>
 <context>
+    <name>mr::DutyCommunityController</name>
+    <message>
+        <source>记录服务未连接</source>
+        <translation>Collector disconnected</translation>
+    </message>
+    <message>
+        <source>导出提醒和宏</source>
+        <translation>Export reminders and macros</translation>
+    </message>
+    <message>
+        <source>JSON 文件 (*.json)</source>
+        <translation>JSON file (*.json)</translation>
+    </message>
+    <message>
+        <source>导入提醒和宏</source>
+        <translation>Import reminders and macros</translation>
+    </message>
+</context>
+<context>
     <name>mr::EvidenceSubmissionController</name>
     <message>
         <source>后台服务未连接，请连接后重新预览。</source>
@@ -12639,10 +13738,6 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>备份已保存到 %1 · %2 · 数据检查通过 · 已清理 %3 份旧备份</source>
         <translation>Backup saved to %1 · %2 · data check passed · %3 old backups removed</translation>
-    </message>
-    <message>
-        <source>备份已保存到 %1 · %2 · 数据检查未通过 · 已清理 %3 份旧备份</source>
-        <translation>Backup saved to %1 · %2 · data check failed · %3 old backups removed</translation>
     </message>
     <message>
         <source>后台服务尚未连接，暂时无法导出诊断报告。请稍后重试。</source>
@@ -15006,6 +16101,10 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>暂未确认下载是否取消，请稍后查看下载状态。</source>
         <translation>Not yet confirmed whether the download was canceled. Check the download status shortly.</translation>
+    </message>
+    <message>
+        <source>未能确认是否已切换下载源，请查看下载状态。</source>
+        <translation>Couldn’t confirm the download source switch. Check the download status.</translation>
     </message>
     <message>
         <source>尚未确认当前导随是否结束，暂时不能安装，请稍后再试。</source>

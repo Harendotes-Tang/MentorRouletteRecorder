@@ -8,9 +8,7 @@ Card {
     required property var achievement
     property bool compact: false
     signal editRequested(string region)
-    // Shown only once the region holds a second character: the card then says
-    // whose progress this is and lets the player switch before logging in as
-    // another one. A player with one character sees the card as it always was.
+    // Multiple profiles get a switcher; a named single profile gets a read-only label.
     readonly property bool severalCharacters: Number(card.achievement.profile_count || 0) > 1
     readonly property string characterName: {
         Theme.trackBindingDependency(Runtime.app.characterProfiles)

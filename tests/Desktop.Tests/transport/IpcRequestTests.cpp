@@ -152,6 +152,8 @@ QJsonObject argsFor(const QString &messageType)
         args.insert(QStringLiteral("text"),
                     QString::fromUtf8("新人坦克第一次打灯塔，全程语音提醒机制，"
                                       "最后一个 boss 一次过。"));
+    } else if (messageType == QLatin1String("DutyCommunity")) {
+        args.insert(QStringLiteral("action"), QStringLiteral("list"));
     } else if (messageType == QLatin1String("GetReflectionSummary")) {
         args.insert(QStringLiteral("recent_limit"), 3);
     } else if (messageType == QLatin1String("ExportCsv") ||
@@ -179,6 +181,9 @@ QJsonObject argsFor(const QString &messageType)
         // The one optional field set, so the sample pins its name: the maintainer
         // tools' 重新下载最新正式版. 下载并安装 itself sends {} (the default false).
         args.insert(QStringLiteral("reinstall"), true);
+    } else if (messageType == QLatin1String("ResolveUpdateMirrorOffer")) {
+        args.insert(QStringLiteral("offer_id"), QStringLiteral("11111111-2222-4333-8444-666666666706"));
+        args.insert(QStringLiteral("use_gitcode"), true);
     } else if (messageType == QLatin1String("UpdateSpeechSettings")) {
         // All six optional fields at once, as in the hand-written sample: an
         // obvious fake key and a documentation host, never a real service.
@@ -313,6 +318,7 @@ QStringList allMessageTypes()
         QStringLiteral("UpdateAchievementBaseline"),
         QStringLiteral("SetRunReflection"),
         QStringLiteral("GetReflectionSummary"),
+        QStringLiteral("DutyCommunity"),
         QStringLiteral("ExportCsv"),
         QStringLiteral("ExportJson"),
         QStringLiteral("BackupDatabase"),
@@ -324,6 +330,7 @@ QStringList allMessageTypes()
         QStringLiteral("CheckUpdateNow"),
         QStringLiteral("StartUpdateDownload"),
         QStringLiteral("CancelUpdateDownload"),
+        QStringLiteral("ResolveUpdateMirrorOffer"),
         QStringLiteral("BatchMutateRuns"),
         QStringLiteral("GetHistoryRetentionSettings"),
         QStringLiteral("UpdateHistoryRetentionSettings"),

@@ -68,6 +68,9 @@ public:
     /// share a zone but differ in level keep that field empty rather than guess.
     Q_INVOKABLE QVariantMap lookupByTerritory(const QVariant &territoryId, const QString &region = QString()) const;
 
+    /// Resolves a territory to an identity only when the region has exactly one enabled duty there.
+    QVariantMap uniqueDutyForTerritory(int territoryId, const QString &region) const;
+
     /// 人数 group of a duty: 四人迷宫 4, 讨伐歼灭战 8, 团队任务 24, 行会令 and
     /// anything else 0. 大型任务 holds both 8-player raids and 24-player
     /// alliance raids; the data file's own party_size (ContentMemberType)

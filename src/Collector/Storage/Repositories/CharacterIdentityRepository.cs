@@ -16,6 +16,18 @@ public sealed class CharacterIdentityRepository
     private const string Columns = "identity_id, region, profile_id, ignored, first_seen_at_utc, last_seen_at_utc, " +
         "(SELECT r.profile_id FROM character_profile_registrations r WHERE r.identity_id = character_identities.identity_id)";
 
+    // When the offered character is declined, ask about the oldest unanswered character in
+    // the same region. An empty queue leaves the slot open for a subsequent login.
+    private const string ReplaceRegistrationCandidate = """
+        UPDATE character_profile_registrations SET identity_id =
+        (SELECT i.identity_id FROM character_identities i
+         JOIN character_profiles p ON p.region = i.region
+         WHERE p.profile_id = character_profile_registrations.profile_id
+           AND i.profile_id IS NULL AND i.ignored = 0
+           AND i.identity_id IS NOT character_profile_registrations.identity_id
+         ORDER BY i.identity_id LIMIT 1)
+        """;
+
     private readonly SqliteDatabase _database;
     private readonly IClock _clock;
 
@@ -138,6 +150,19 @@ public sealed class CharacterIdentityRepository
         return command.ExecuteNonQuery() != 0;
     }
 
+    /// <summary>Offers a newly seen character only when the original profile has no known binding to wait for.</summary>
+    internal void OfferUnboundRegistration(Region region, long identityId, SqliteTransaction transaction)
+    {
+        using var command = Command(transaction, """
+            UPDATE character_profile_registrations SET identity_id = $identity
+            WHERE identity_id IS NULL AND profile_id IN (SELECT profile_id FROM character_profiles WHERE region = $region)
+              AND NOT EXISTS (SELECT 1 FROM character_identities i WHERE i.profile_id = character_profile_registrations.profile_id);
+            """);
+        command.Parameters.AddWithValue("$region", EnumWire<Region>.Format(region));
+        command.Parameters.AddWithValue("$identity", identityId);
+        command.ExecuteNonQuery();
+    }
+
     /// <summary>Closes the upgraded profile's registration after the user confirms it.</summary>
     internal void FinishRegistration(long profileId, SqliteTransaction transaction)
     {
@@ -176,10 +201,8 @@ public sealed class CharacterIdentityRepository
         command.Parameters.AddWithValue("$id", identityId);
         command.ExecuteNonQuery();
 
-        using var registration = Command(transaction, """
-            UPDATE character_profile_registrations SET identity_id = NULL
-            WHERE identity_id = $id AND profile_id IS NOT $profile;
-            """);
+        using var registration = Command(transaction, ReplaceRegistrationCandidate +
+            " WHERE identity_id = $id AND profile_id IS NOT $profile;");
         registration.Parameters.AddWithValue("$id", identityId);
         registration.Parameters.AddWithValue("$profile", (object?)profileId ?? DBNull.Value);
         registration.ExecuteNonQuery();
@@ -194,6 +217,14 @@ public sealed class CharacterIdentityRepository
     public int ReleaseProfile(long profileId, SqliteTransaction transaction)
     {
         ArgumentNullException.ThrowIfNull(transaction);
+        // Pick a replacement before unbinding: none of the characters just released should
+        // immediately be proposed again in place of the original binding.
+        using var registration = Command(transaction, ReplaceRegistrationCandidate +
+            " WHERE profile_id = $profile AND (identity_id IS NULL OR identity_id IN " +
+            "(SELECT identity_id FROM character_identities WHERE profile_id = $profile));");
+        registration.Parameters.AddWithValue("$profile", profileId);
+        registration.ExecuteNonQuery();
+
         using var command = Command(
             transaction, "UPDATE character_identities SET profile_id = NULL WHERE profile_id = $profile;");
         command.Parameters.AddWithValue("$profile", profileId);

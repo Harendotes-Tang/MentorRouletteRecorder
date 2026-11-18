@@ -1,4 +1,19 @@
 # IPC 契约变更记录 / IPC contract changelog
+
+## 2026-11-18 · 自动记录恢复依据
+
+- `CaptureStatus.ipc_decoded` 是当前采集会话已解码的游戏 IPC 分段数，排除控制分段。旧采集服务可省略该字段。
+
+## 2026-11-18 · 升级角色登记
+
+- schema 16 保存待确认的原档案。`DashboardStats.identities` 与角色变更应答在登记候选上返回 `registration_profile_id`。原先静默绑定的候选可带 `state: BOUND`。
+- `ResolveCharacterIdentity` 的 `BIND` 可携带 `display_name`，一次确认原档案名和绑定。为误认的候选新建或选择其他档案、忽略它，或从设置解除旧绑定后，后续应答会反映同区下一个待确认角色。
+
+## 2026-11-18 · 安装包下载的镜像选择
+
+- `UpdateDownload.mirror_offer_id` 可在下载中出现，标记一次尚未决定的 GitCode 切换询问。
+- `ResolveUpdateMirrorOffer { offer_id, use_gitcode }` → `{ update: UpdateStatus }`。立即答复，过期或已处理的询问不会影响当前下载。
+
 ## 2026-11-16 · 角色识别：按登录的角色自动归入档案
 
 附加式变更，新增一个消息类型。schema 升到 15（`character_identities`，`mentor_runs.identity_id`）。`mentor_runs.identity_id` 只在采集服务内部使用，`$defs/Run` 不变。
@@ -857,3 +872,9 @@ C++ 端 `src/Desktop/cpp/{IpcFraming.h,IpcClient.cpp,IBackend.cpp}`。
 结论：四条中只有 `6d26de2`
 改动了 `contracts/`，即上表第四行的四条 capture-validation 消息，其余三条对契约没有改动。后续提交恢复 `docs/git-workflow` 要求的 conventional commits
 （`feat:` / `fix:` / …），并保证提交信息描述的是实际改动。
+
+## DutyCommunity（IPC v1 增量）
+
+- 新增 `DutyCommunity` 的动作类型和响应，覆盖 SQLite 本地条目管理、社区公开缓存、主动投稿与复制校验。
+- `list` / `browse` 使用分页，与 `refresh` 相同的公共分页带有发布代号。成功的包级响应包含领域 `status`。授权令牌、设备密钥和刷新令牌不经 IPC。
+- 社区内容数据形状见 [community-content-v1.schema.json](community-content-v1.schema.json)，项目运行时还校验叠加的内容字节、宏行数、链接闭包和稳定 ID。
