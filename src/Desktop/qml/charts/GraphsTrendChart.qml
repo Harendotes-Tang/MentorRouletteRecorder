@@ -12,6 +12,10 @@ Item {
     /// The bars are moving (TrendMotionLayer draws them meanwhile).
     readonly property bool transitionRunning: motion.running
     readonly property alias motionLayer: motion
+    readonly property int hoveredIndex: hoverArea.index
+    readonly property point hoveredBarTop: Qt.point(
+        hoverArea.x + (hoveredIndex + 0.5) * hoverArea.slotWidth,
+        hoverArea.y + hoverArea.height * (1 - (values[hoveredIndex] || 0) / axisMax))
 
     // Computed from the buckets: `maxCount` is bound by the owner to the same
     // buckets, but in an order the change handler below cannot rely on.
@@ -154,26 +158,6 @@ Item {
                                      ? Math.min(root.buckets.length - 1,
                                                 Math.floor(mouseX / slotWidth))
                                      : -1
-
-        Item {
-            id: hoverAnchor
-            readonly property real count: hoverArea.index >= 0 ? root.values[hoverArea.index] : 0
-            x: (hoverArea.index + 0.5) * hoverArea.slotWidth
-            y: hoverArea.height * (1 - count / root.axisMax)
-
-            onXChanged: if (hoverTip.visible) hoverTip.place()
-            onYChanged: if (hoverTip.visible) hoverTip.place()
-        }
-
-        OverlayToolTip {
-            id: hoverTip
-            objectName: "trendHoverTip"
-            clearOf: hoverAnchor
-            visible: hoverArea.index >= 0
-            text: hoverArea.index >= 0
-                  ? qsTr("%1 · %2 次").arg(root.categories[hoverArea.index]).arg(hoverAnchor.count) : ""
-            onImplicitWidthChanged: if (visible) place()
-        }
     }
 
     Text {

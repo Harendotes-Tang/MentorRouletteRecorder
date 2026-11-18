@@ -10,11 +10,24 @@ Item {
 
     implicitHeight: 156
 
+    readonly property real barWidth: buckets.length > 0
+        ? Math.max(0, (bars.width - bars.spacing * (buckets.length - 1)) / buckets.length) : 0
+    readonly property int hoveredIndex: hoverArea.containsMouse && barWidth > 0
+        && hoverArea.mouseX >= 0 && hoverArea.mouseX < bars.width
+        ? Math.floor(hoverArea.mouseX / (barWidth + bars.spacing)) : -1
+    readonly property point hoveredBarTop: Qt.point(
+        hoveredIndex * (barWidth + bars.spacing) + barWidth / 2,
+        bars.height - barHeight(buckets[hoveredIndex]?.count || 0))
+
     readonly property int maxCount: {
         let maxValue = 1
         for (let i = 0; i < buckets.length; ++i)
             maxValue = Math.max(maxValue, Number(buckets[i].count || 0))
         return maxValue
+    }
+
+    function barHeight(count: real): real {
+        return Math.max(2, bars.height * count / maxCount)
     }
 
     Rectangle {
@@ -28,6 +41,7 @@ Item {
 
     Row {
         id: bars
+        objectName: "trendFallbackBars"
 
         anchors.left: parent.left
         anchors.right: parent.right
@@ -41,24 +55,24 @@ Item {
 
             delegate: Item {
                 id: bucket
+                required property int index
                 required property var modelData
 
-                width: root.buckets.length > 0
-                       ? (bars.width - bars.spacing * (root.buckets.length - 1)) / root.buckets.length
-                       : 0
+                readonly property bool hovered: root.hoveredIndex === index
+                width: root.barWidth
                 height: bars.height
 
                 Rectangle {
                     id: bar
+                    objectName: "trendFallbackBar"
 
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
-                    height: Math.max(2, parent.height * Number(bucket.modelData.count || 0) / root.maxCount)
+                    height: root.barHeight(Number(bucket.modelData.count || 0))
                     radius: Theme.eorzea ? Theme.radiusXxs : 3
-                    readonly property color classicColor: hover.hovered ? Theme.accentStrong
-                                                                       : Theme.accent
-                    opacity: hover.hovered ? 1.0 : (Theme.eorzea ? 0.92 : 1.0)
+                    readonly property color classicColor: bucket.hovered ? Theme.accentStrong : Theme.accent
+                    opacity: bucket.hovered || !Theme.eorzea ? 1.0 : 0.92
 
                     gradient: Gradient {
                         GradientStop {
@@ -71,15 +85,15 @@ Item {
                         }
                     }
                 }
-
-                HoverHandler { id: hover }
-                OverlayToolTip {
-                    clearOf: bar
-                    visible: hover.hovered
-                    text: qsTr("%1 · %2 次").arg(bucket.modelData.label || "").arg(bucket.modelData.count || 0)
-                }
             }
         }
+    }
+
+    MouseArea {
+        id: hoverArea
+        anchors.fill: bars
+        hoverEnabled: true
+        acceptedButtons: Qt.NoButton
     }
 
     Text {

@@ -247,6 +247,7 @@ private Q_SLOTS:
     void interruptedTrendSwitchGoesOnFromTheFrameOnScreen();
     void interruptedTrendSwitchEndsClean();
     void reducedMotionTrendSwitchIsInstant();
+    void trendHoverMatchesRenderedBars_data();
     void trendHoverMatchesRenderedBars();
 
 private:
@@ -261,45 +262,80 @@ void TrendMotionTests::initTestCase()
     QVERIFY(registerShippingQml());
 }
 
+void TrendMotionTests::trendHoverMatchesRenderedBars_data()
+{
+    QTest::addColumn<bool>("useGraphs");
+    QTest::newRow("qt-graphs") << true;
+    QTest::newRow("fallback") << false;
+}
+
 void TrendMotionTests::trendHoverMatchesRenderedBars()
 {
+    QFETCH(bool, useGraphs);
     Scene scene;
-    QVERIFY2(scene.create(kTrendScene(), true), qPrintable(scene.errors));
+    scene.engine.rootContext()->setContextProperty(QStringLiteral("GraphsAvailable"), useGraphs);
+    QByteArray qml = kTrendScene();
+    qml.replace("GraphsTrendChart {", "TrendChart {");
+    QVERIFY2(scene.create(qml, true), qPrintable(scene.errors));
+    QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
     auto *chart = scene.item(QStringLiteral("chart"));
-    QVERIFY(chart);
-    auto *hover = chart->findChild<QQuickItem *>(QStringLiteral("trendHoverArea"));
-    QVERIFY(hover);
-    auto *tip = chart->findChild<QObject *>(QStringLiteral("trendHoverTip"));
-    QVERIFY(tip);
-    QVERIFY(tip->setProperty("delay", 0));
-    auto *tipContent = tip->property("contentItem").value<QQuickItem *>();
-    QVERIFY(tipContent);
-    scene.window()->setY(100);
+    auto *bars = scene.item(useGraphs ? QStringLiteral("completionTrendChart") : QStringLiteral("completionTrendBars"));
+    auto *tip = scene.item(QStringLiteral("trendHoverTip"));
+    QVERIFY(chart && bars && tip);
+    QCOMPARE(tip->window(), scene.window());
+    auto drawnBars = [&] {
+        if (useGraphs)
+            return graphsBars(bars);
+        QList<QRectF> result;
+        auto *row = Scene::find(bars, QStringLiteral("trendFallbackBars"));
+        if (row) {
+            const auto delegates = row->childItems();
+            for (auto *bucket : delegates) {
+                if (const auto *bar = Scene::find(bucket, QStringLiteral("trendFallbackBar")))
+                    result.append(sceneRect(bar));
+            }
+        }
+        std::ranges::sort(result, [](const QRectF &left, const QRectF &right) { return left.x() < right.x(); });
+        return result;
+    };
     for (const int width : {720, 1100}) {
         scene.window()->setWidth(width);
+        QTRY_COMPARE(chart->width(), qreal(width - 20));
         for (const int count : {7, 30}) {
             QList<int> counts(count, 1);
             counts[count / 2] = 4;
-            QVERIFY(chart->setProperty("buckets", buckets(QStringLiteral("day"), counts)));
-            QTRY_COMPARE(graphsBars(chart).size(), count);
-            QTRY_VERIFY(!chart->property("transitionRunning").toBool());
-            const auto drawn = graphsBars(chart);
+            const auto data = buckets(QStringLiteral("day"), counts);
+            QVERIFY(chart->setProperty("buckets", data));
+            QTRY_COMPARE(drawnBars().size(), count);
+            QTRY_VERIFY(!bars->property("transitionRunning").toBool());
+            QTRY_VERIFY(drawnBars().last().x() > drawnBars().first().x());
+            const auto drawn = drawnBars();
             for (int i = 0; i < count; ++i) {
                 QTest::mouseMove(scene.window(), drawn.at(i).center().toPoint());
-                QTRY_COMPARE(hover->property("index").toInt(), i);
+                QTRY_COMPARE(bars->property("hoveredIndex").toInt(), i);
+                QVERIFY(tip->isVisible());
+                const auto day = data.at(i).toMap().value(QStringLiteral("label")).toString();
+                QCOMPARE(tip->property("text").toString(), QStringLiteral("%1 · %2 次").arg(day).arg(counts.at(i)));
                 if (i == count / 2 - 1 || i == count / 2) {
-                    QTRY_VERIFY(tip->property("opened").toBool());
-                    const QPointF expected = scene.window()->mapToGlobal(QPointF(drawn.at(i).center().x(), drawn.at(i).top()));
-                    const QPointF tipBottom = tipContent->mapToGlobal(QPointF(tipContent->width() / 2, tipContent->height()));
-                    QVERIFY2(qAbs(tipBottom.x() - expected.x()) <= 2 && qAbs(expected.y() - tipBottom.y() - 6) <= 2,
-                             qPrintable(QStringLiteral("bucket %1: tooltip bottom (%2, %3), bar top (%4, %5)")
-                                 .arg(i).arg(tipBottom.x()).arg(tipBottom.y()).arg(expected.x()).arg(expected.y())));
+                    const auto tipRect = sceneRect(tip);
+                    QVERIFY(qAbs(tipRect.center().x() - drawn.at(i).center().x()) <= 2);
+                    QVERIFY(qAbs(drawn.at(i).top() - tipRect.bottom() - 6) <= 2);
                 }
             }
-            // The chart's outer margin is not a data bucket.
-            QTest::mouseMove(scene.window(), chart->mapToScene(QPointF(1, 1)).toPoint());
-            QTRY_COMPARE(hover->property("index").toInt(), -1);
-            QTRY_VERIFY(!tip->property("visible").toBool());
+            // Sweeping through an empty day clears the label without an exit frame.
+            const int empty = count / 2;
+            counts[empty] = 0;
+            QVERIFY(chart->setProperty("buckets", buckets(QStringLiteral("day"), counts)));
+            for (int pass = 0; pass < 3; ++pass) {
+                for (const int i : {empty - 1, empty, empty + 1}) {
+                    QTest::mouseMove(scene.window(), drawn.at(i).center().toPoint());
+                    QTRY_COMPARE(bars->property("hoveredIndex").toInt(), i);
+                    QCOMPARE(tip->isVisible(), i != empty);
+                }
+            }
+            QTest::mouseMove(scene.window(), QPoint(1, 1));
+            QTRY_COMPARE(bars->property("hoveredIndex").toInt(), -1);
+            QVERIFY(!tip->isVisible());
         }
     }
 }
