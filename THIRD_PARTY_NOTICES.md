@@ -15,7 +15,7 @@
 
 ### Machina / Machina.FFXIV
 
-- 版本：`Machina.FFXIV` 2.4.8.2、`Machina` 2.3.1.3
+- 版本：`Machina.FFXIV` 2.4.8.3、`Machina` 2.3.1.3
 - 作者：Ravahn
 - 许可证：**GNU General Public License v3.0**
 - 来源：https://github.com/ravahn/machina
@@ -67,8 +67,10 @@ QtGraphs 6.11.2 使用本项目专用的两行修补版：Windows 纹理尺寸�
 | NSax | 1.0.2 | LGPL-3.0-only |
 | SharpZipLib | 1.4.2 | MIT |
 | SixLabors.Fonts | 1.0.1 | Apache-2.0 |
-| System.Security.Cryptography.Pkcs | 8.0.2 | MIT |
-| System.Security.Cryptography.Xml | 8.0.5 | MIT |
+| Microsoft.Bcl.Cryptography | 10.0.15 | MIT |
+| System.Formats.Asn1 | 10.0.15 | MIT |
+| System.Security.Cryptography.Pkcs | 10.0.15 | MIT |
+| System.Security.Cryptography.Xml | 10.0.15 | MIT |
 | System.IO.Hashing | 8.0.0 | MIT |
 | ZString | 2.6.0 | MIT |
 
@@ -83,7 +85,7 @@ GPL-3.0-or-later 开源使用授予 Apache-2.0，适用说明和原始全文均�
 ### 离线截图文字识别
 
 随包的 `ocr/` 使用 **RapidOCR 3.10.0**（Apache-2.0）、**ONNX Runtime
-1.31.0**（MIT）和 **CPython 3.12.16**（PSF-2.0 及内嵌第三方声明）。固定本地模型为
+1.32.0**（MIT）和 **CPython 3.12.16**（PSF-2.0 及内嵌第三方声明）。固定本地模型为
 `PP-OCRv6_det_small.onnx`、`PP-OCRv6_rec_small.onnx` 和
 `ch_ppocr_mobile_v2.0_cls_mobile.onnx`（Apache-2.0）。
 识别程序由 PyInstaller 冻结为自包含 Windows x64 CPU 程序；PyInstaller 按
@@ -108,7 +110,7 @@ OpenSSL、Expat、XZ liblzma 和 zlib。构建来源记录还保留 PyInstaller 
 
 | 组件 | 版本 | 许可证 |
 |---|---|---|
-| Microsoft.Data.Sqlite / .Core | 10.0.14 | MIT |
+| Microsoft.Data.Sqlite / .Core | 10.0.15 | MIT |
 | SQLitePCLRaw.core / .bundle_e_sqlite3 / .config.e_sqlite3 / .provider.e_sqlite3 | 3.0.5 | Apache-2.0 |
 | SQLite（`e_sqlite3`，经由 `SQLite` 包附带） | 3.53.4 | Public Domain |
 | SharpPcap | 6.3.1 | MIT |
@@ -120,8 +122,8 @@ OpenSSL、Expat、XZ liblzma 和 zlib。构建来源记录还保留 PyInstaller 
 | MinGW-w64 GCC 运行时（`libstdc++`、`libgcc`） | GCC 13.1 | GPL-3.0 **with GCC Runtime Library Exception** |
 | xUnit.net（仅测试，不随发布分发） | 2.9.3 | Apache-2.0 |
 | xunit.runner.visualstudio（仅测试） | 4.0.0 | Apache-2.0 |
-| Microsoft.NET.Test.Sdk（仅测试） | 18.11.0 | MIT |
-| JsonSchema.Net（仅测试） | 7.3.4 | MIT |
+| Microsoft.NET.Test.Sdk（仅测试） | 18.12.0 | MIT |
+| JsonSchema.Net（仅测试） | 7.4.0 | MIT |
 | Json.More.Net（仅测试，JsonSchema.Net 的传递依赖） | 2.1.1 | MIT |
 | JsonPointer.Net（仅测试，JsonSchema.Net 的传递依赖） | 5.3.1 | MIT |
 | Humanizer.Core（仅测试，JsonPointer.Net 的传递依赖） | 2.14.1 | MIT |

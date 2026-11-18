@@ -5,7 +5,7 @@
 以及需要评估分发合规性的读者。
 
 离线 OCR 自 2026-10-10 起使用本地冻结的自包含 CPU 程序；当前固定为 RapidOCR
-3.10.0、ONNX Runtime 1.31.0、CPython 3.12.16，以及固定 PP-OCRv6 小型检测/
+3.10.0、ONNX Runtime 1.32.0、CPython 3.12.16，以及固定 PP-OCRv6 小型检测/
 识别模型和 mobile 方向模型。运行时不需要宿主 Python 或 GPU，也不下载模型或上传图片。
 机器可核验的来源、哈希、实际文件和内嵌组件归属、许可证正文及源码地址以
 `docs/licenses/ocr/dependency-manifest.json` schema 2 为准，随包副本为
@@ -21,7 +21,7 @@
 [`licenses/xls/dependency-manifest.json`](licenses/xls/dependency-manifest.json)。
 它以 NPOI 2.7.6 的实际 NuGet 包及新 Release 发布资产为准；登记包括 NSax 的
 LGPL-3.0-only、保留的 SixLabors.Fonts 1.0.1、修复版 System.Security.Cryptography.Xml
-8.0.5 和修复版 ImageSharp 4.1.3 的编译资产限制，不将主库 Apache-2.0 误当全部传递
+10.0.15 和修复版 ImageSharp 4.1.3 的编译资产限制，不将主库 Apache-2.0 误当全部传递
 依赖的许可。ImageSharp 原始 Split License 第 2 节对本 GPL-3.0-or-later 开源项目授予
 Apache-2.0；原始许可全文和适用条件一并保留。
 
@@ -43,7 +43,7 @@ Apache-2.0；原始许可全文和适用条件一并保留。
 | 项 | 值 |
 |---|---|
 | NuGet 包 id | `Machina.FFXIV` |
-| 当前固定版本 | **2.4.8.2** |
+| 当前固定版本 | **2.4.8.3** |
 | 作者 | Ravahn |
 | 许可证 | **GPL-3.0**（nuspec 为 `<license type="file">LICENSE.md`；该 LICENSE.md 即 GNU GPL v3 全文，673 行） |
 | 项目地址 | https://github.com/ravahn/machina |
@@ -97,7 +97,7 @@ SharpPcap 与 PacketDotNet 均不修改上游源码，表中前两个仓库链�
 ### 2.2 Deucalion（注入式钩子）：本项目禁用
 
 较新版本的 Machina.FFXIV 支持 **Deucalion**，即一个注入到游戏进程的 DLL 钩子。
-`Machina.FFXIV 2.4.8.2` 包的 `lib/netstandard2.0/` 目录中附带原生载荷
+`Machina.FFXIV 2.4.8.3` 包的 `lib/netstandard2.0/` 目录中附带原生载荷
 **`deucalion-1.5.1.dll`**，该文件在还原后的包目录中可以确认，
 且默认构建会将其复制到输出目录。
 
@@ -276,10 +276,10 @@ ISC 与 MIT 的条件均只有一条：在所有副本中保留版权声明与�
 
 | 包 | 版本 | 许可证 | 说明 |
 |---|---|---|---|
-| `Machina.FFXIV` | 2.4.8.2 | **GPL-3.0** | 直接依赖 |
+| `Machina.FFXIV` | 2.4.8.3 | **GPL-3.0** | 直接依赖 |
 | `Machina` | 2.3.1.3 | **GPL-3.0** | 传递依赖 |
-| `Microsoft.Data.Sqlite` | 10.0.14 | MIT | 直接依赖 |
-| `Microsoft.Data.Sqlite.Core` | 10.0.14 | MIT | 传递依赖 |
+| `Microsoft.Data.Sqlite` | 10.0.15 | MIT | 直接依赖 |
+| `Microsoft.Data.Sqlite.Core` | 10.0.15 | MIT | 传递依赖 |
 | `SQLitePCLRaw.core` | 3.0.5 | Apache-2.0 | 传递依赖 |
 | `SQLitePCLRaw.bundle_e_sqlite3` | 3.0.5 | Apache-2.0 | 直接固定版本；元包自身无运行 DLL |
 | `SQLitePCLRaw.config.e_sqlite3` | 3.0.5 | Apache-2.0 | 传递依赖，提供 `SQLitePCLRaw.batteries_v2.dll` |
@@ -293,8 +293,8 @@ ISC 与 MIT 的条件均只有一条：在所有副本中保留版权声明与�
 | `System.Runtime.CompilerServices.Unsafe` | 6.0.0 | MIT | 传递依赖 |
 | `xunit` | 2.9.3 | Apache-2.0 | 仅测试 |
 | `xunit.runner.visualstudio` | 4.0.0 | Apache-2.0 | 仅测试 |
-| `Microsoft.NET.Test.Sdk` | 18.11.0 | MIT | 仅测试 |
-| `JsonSchema.Net` | 7.3.4 | MIT | 仅测试（集成测试直接依赖） |
+| `Microsoft.NET.Test.Sdk` | 18.12.0 | MIT | 仅测试 |
+| `JsonSchema.Net` | 7.4.0 | MIT | 仅测试（集成测试直接依赖） |
 | `Json.More.Net` | 2.1.1 | MIT | 仅测试（`JsonSchema.Net` 的传递依赖） |
 | `JsonPointer.Net` | 5.3.1 | MIT | 仅测试（`JsonSchema.Net` 的传递依赖） |
 | `Humanizer.Core` | 2.14.1 | MIT | 仅测试（`JsonPointer.Net` 的传递依赖） |
@@ -303,7 +303,7 @@ ISC 与 MIT 的条件均只有一条：在所有副本中保留版权声明与�
 或 `<license type="file">LICENSE.md`（Machina 系列，内容为 GPL v3 全文）。
 .NET 运行时与 SDK 本身为 MIT。
 
-Microsoft.Data.Sqlite 10.0.14、SQLitePCLRaw 3.0.5 和 SQLite 3.53.4 的七个原始包声明、
+Microsoft.Data.Sqlite 10.0.15、SQLitePCLRaw 3.0.5 和 SQLite 3.53.4 的七个原始包声明、
 包 SHA256/内容 SHA512、已还原 win-x64 运行 DLL 哈希，以及 MIT、Apache-2.0 和
 SQLite public domain 原文保存在 [`licenses/sqlite/`](licenses/sqlite/)。2026-11-03 直接加载
 已还原包的原生 DLL，`sqlite3_libversion()` 返回 3.53.4；清单记录的是本次依赖图实际
@@ -320,7 +320,7 @@ Apache-2.0 与 **GPLv2** 不兼容，但与 GPLv3 兼容。
 
 | 包 | 版本 | 作者 | 项目主页 | `.nuspec` 声明 |
 |---|---|---|---|---|
-| `JsonSchema.Net` | 7.3.4 | Greg Dennis | <https://github.com/json-everything/json-everything> | `<license type="expression">MIT</license>` |
+| `JsonSchema.Net` | 7.4.0 | Greg Dennis | <https://github.com/json-everything/json-everything> | `<license type="expression">MIT</license>` |
 | `Json.More.Net` | 2.1.1 | Greg Dennis | 同上 | 同上 |
 | `JsonPointer.Net` | 5.3.1 | Greg Dennis | 同上 | 同上 |
 | `Humanizer.Core` | 2.14.1 | Mehdi Khalili, Claire Novotny | <https://github.com/Humanizr/Humanizer> | 同上 |

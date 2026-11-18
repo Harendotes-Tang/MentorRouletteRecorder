@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "scope": "Restored Microsoft.Data.Sqlite 10.0.14 with SQLitePCLRaw 3.0.5 and SQLite 3.53.4; runtime asset hashes are taken from the resolved win-x64 package graph",
+  "scope": "Restored Microsoft.Data.Sqlite 10.0.15 with SQLitePCLRaw 3.0.5 and SQLite 3.53.4; runtime asset hashes are taken from the resolved win-x64 package graph",
   "target": "net8.0-windows7.0/win-x64",
-  "verified_date": "2026-11-03",
+  "verified_date": "2026-11-18",
   "native_version": "3.53.4",
   "native_source_id": "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc",
   "packages": [
@@ -11,14 +11,14 @@
       "compile_only": false,
       "copyright": "© Microsoft Corporation. All rights reserved.",
       "license": "MIT",
-      "repository_commit": "0427b9abbead3fa64c6655eb4290c537397131fa",
+      "repository_commit": "8e0f8ed2312954727f8919d7d1c2f78b483b4ee7",
       "authors": "Microsoft",
-      "nuspec_file": "Microsoft.Data.Sqlite-10.0.14.nuspec.txt",
-      "package_sha256": "34ee7848923872dcbf341e89b6c192170f222815cb9cb2604ac707b25b7fb0b4",
-      "nuget_content_sha512": "K37udQU2dojYZuCUT9F8TlZTAxzE0XOkqUfgIM2+2Lj7yJnfoNhpLmxAp6eSL281R6ncc4uhIAvTxSpv1qjgVA==",
+      "nuspec_file": "Microsoft.Data.Sqlite-10.0.15.nuspec.txt",
+      "package_sha256": "10ddeafedfdffa276f26867a400bdd9290a12a667551431ddb1aa9cc9669a79b",
+      "nuget_content_sha512": "Tj+zwGHKyBat4qQktUjL/sNgFbNjNad3aAr9BOMSUUxbVfx/Dh7HpzjcoCc0PxoLfXn8l6vxFa5TJrKnD7hB4A==",
       "license_file": "MIT.txt",
-      "nuget_url": "https://www.nuget.org/packages/Microsoft.Data.Sqlite/10.0.14",
-      "version": "10.0.14",
+      "nuget_url": "https://www.nuget.org/packages/Microsoft.Data.Sqlite/10.0.15",
+      "version": "10.0.15",
       "id": "Microsoft.Data.Sqlite",
       "repository_url": "https://github.com/dotnet/dotnet",
       "license_source": "NuGet package declares MIT; text retained from docs/licenses/dotnet-MIT.txt"
@@ -26,7 +26,7 @@
     {
       "runtime_assets": [
         {
-          "sha256": "5a0627964721a7acdf5d242fa59db4e8452305d23789dd30c5d03227a370518b",
+          "sha256": "6db4849bbdfd10a8f675cbd30f188903b9e1c193894c9d30f84bdbc41442e202",
           "file": "Microsoft.Data.Sqlite.dll",
           "package_path": "lib/net8.0/Microsoft.Data.Sqlite.dll"
         }
@@ -34,14 +34,14 @@
       "compile_only": false,
       "copyright": "© Microsoft Corporation. All rights reserved.",
       "license": "MIT",
-      "repository_commit": "0427b9abbead3fa64c6655eb4290c537397131fa",
+      "repository_commit": "8e0f8ed2312954727f8919d7d1c2f78b483b4ee7",
       "authors": "Microsoft",
-      "nuspec_file": "Microsoft.Data.Sqlite.Core-10.0.14.nuspec.txt",
-      "package_sha256": "df0828e3861a1e0240c9a3ec1891cdc1942cdc47b61c8d2fb36ce2542f02b092",
-      "nuget_content_sha512": "/DjPbRUdkJvNKWR5f+OmjxN3jT3WBlNc/TlwJXVkg0CBpKcoWZRrJZSGsdmMgR0g3nNQQ9e1CQdArX6jrhxifA==",
+      "nuspec_file": "Microsoft.Data.Sqlite.Core-10.0.15.nuspec.txt",
+      "package_sha256": "56479098121b7d0feb2fed11bec4746b9ae4ae1410601ecb4a954c0b89f937c3",
+      "nuget_content_sha512": "eGkeotCCTox6XLG5s42KtschJlxmTJnPPzlmdvI8oc8Q4b4eL4Yku8Q39BtzQ04+etzaW34YbdqVsTL5y5zbGA==",
       "license_file": "MIT.txt",
-      "nuget_url": "https://www.nuget.org/packages/Microsoft.Data.Sqlite.Core/10.0.14",
-      "version": "10.0.14",
+      "nuget_url": "https://www.nuget.org/packages/Microsoft.Data.Sqlite.Core/10.0.15",
+      "version": "10.0.15",
       "id": "Microsoft.Data.Sqlite.Core",
       "repository_url": "https://github.com/dotnet/dotnet",
       "license_source": "NuGet package declares MIT; text retained from docs/licenses/dotnet-MIT.txt"

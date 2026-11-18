@@ -6,40 +6,6 @@
     {
       "runtime_assets": [
         {
-          "sha256": "5642f1014ff139bbb1cde0014e5b2081fefd140ce0776af9401ab390f662e266",
-          "file": "NPOI.Core.dll"
-        },
-        {
-          "sha256": "9cbd8b98ffe9044dd747ae3a210e58b79c65bfe34e71a4543c43065ec1d0f762",
-          "file": "NPOI.OOXML.dll"
-        },
-        {
-          "sha256": "3a4790b4228564bcf471df5bb5ac06da8079e14ac47e51068bb4a4bca9db1d3c",
-          "file": "NPOI.OpenXml4Net.dll"
-        },
-        {
-          "sha256": "b399be8186524644e6451460931f6b2357fcaca3dce45a0fad9dbbb010a310dd",
-          "file": "NPOI.OpenXmlFormats.dll"
-        }
-      ],
-      "compile_only": false,
-      "copyright": "Nissl LLC",
-      "license": "Apache-2.0",
-      "repository_commit": "a0f50a01a845aa4dd793cee0ac5b776745966cb6",
-      "authors": "Tony Qu,NPOI Contributors",
-      "nuspec_file": "NPOI-2.7.6.nuspec.txt",
-      "package_sha256": "263a921cb65bea57d640e667f0c75e3df8df77acf5d70f8a27bd7c8dfeb29a7f",
-      "nuget_content_sha512": "itLDt6M2VFcWjTGpzeRNy7Axmp2cVjHpTtf4zVLm6XQvuINlkHFBabBd4s8iCRAupx/NBSzqPxqe7+5fJOY8NQ==",
-      "license_file": "NPOI-2.7.6-LICENSE.txt",
-      "nuget_url": "https://www.nuget.org/packages/NPOI/2.7.6",
-      "version": "2.7.6",
-      "id": "NPOI",
-      "repository_url": "https://github.com/nissl-lab/npoi",
-      "license_source": "NuGet package"
-    },
-    {
-      "runtime_assets": [
-        {
           "sha256": "e5eeaf6d263c493619982fd3638e6135077311d08c961e1fe128f9107d29ebc6",
           "file": "BouncyCastle.Cryptography.dll"
         }
@@ -128,6 +94,29 @@
     {
       "runtime_assets": [
         {
+          "sha256": "89b168f62bd7075a1d69d4b5429e42cbe8ea78199fffe50f6d1e548f1c6fa625",
+          "file": "Microsoft.Bcl.Cryptography.dll"
+        }
+      ],
+      "compile_only": false,
+      "copyright": "© Microsoft Corporation. All rights reserved.",
+      "license": "MIT",
+      "repository_commit": "8e0f8ed2312954727f8919d7d1c2f78b483b4ee7",
+      "authors": "Microsoft",
+      "nuspec_file": "Microsoft.Bcl.Cryptography-10.0.15.nuspec.txt",
+      "package_sha256": "16fba39f21cc28dfc80c4b5ee4c3c688aabaaf97ed26d9b7d28bd75e4110064d",
+      "nuget_content_sha512": "B+2vRpxGQW3DLe0Oh/8j6o0kDpjBdQ6BL0bq7Ohb5IZjPsTYLMzIPnWRhEPOSP07okSp6r4KqSaCvIQqOxldnw==",
+      "license_file": "../dotnet-MIT.txt",
+      "nuget_url": "https://www.nuget.org/packages/Microsoft.Bcl.Cryptography/10.0.15",
+      "version": "10.0.15",
+      "id": "Microsoft.Bcl.Cryptography",
+      "repository_url": "https://github.com/dotnet/dotnet",
+      "license_source": "NuGet declares MIT; shared text retained from docs/licenses/dotnet-MIT.txt",
+      "third_party_notices_file": "dotnet-10.0.15-THIRD-PARTY-NOTICES.txt"
+    },
+    {
+      "runtime_assets": [
+        {
           "sha256": "631a5fc41df9498d032c0655ebd0e1209430ccffbec55667d89c2566b338ccc0",
           "file": "Microsoft.IO.RecyclableMemoryStream.dll"
         }
@@ -146,6 +135,40 @@
       "id": "Microsoft.IO.RecyclableMemoryStream",
       "repository_url": "https://github.com/Microsoft/Microsoft.IO.RecyclableMemoryStream",
       "license_source": "https://raw.githubusercontent.com/microsoft/Microsoft.IO.RecyclableMemoryStream/e29a28387da9018fa9605a1dcb3f7a0435aa9974/LICENSE"
+    },
+    {
+      "runtime_assets": [
+        {
+          "sha256": "5642f1014ff139bbb1cde0014e5b2081fefd140ce0776af9401ab390f662e266",
+          "file": "NPOI.Core.dll"
+        },
+        {
+          "sha256": "9cbd8b98ffe9044dd747ae3a210e58b79c65bfe34e71a4543c43065ec1d0f762",
+          "file": "NPOI.OOXML.dll"
+        },
+        {
+          "sha256": "3a4790b4228564bcf471df5bb5ac06da8079e14ac47e51068bb4a4bca9db1d3c",
+          "file": "NPOI.OpenXml4Net.dll"
+        },
+        {
+          "sha256": "b399be8186524644e6451460931f6b2357fcaca3dce45a0fad9dbbb010a310dd",
+          "file": "NPOI.OpenXmlFormats.dll"
+        }
+      ],
+      "compile_only": false,
+      "copyright": "Nissl LLC",
+      "license": "Apache-2.0",
+      "repository_commit": "a0f50a01a845aa4dd793cee0ac5b776745966cb6",
+      "authors": "Tony Qu,NPOI Contributors",
+      "nuspec_file": "NPOI-2.7.6.nuspec.txt",
+      "package_sha256": "263a921cb65bea57d640e667f0c75e3df8df77acf5d70f8a27bd7c8dfeb29a7f",
+      "nuget_content_sha512": "itLDt6M2VFcWjTGpzeRNy7Axmp2cVjHpTtf4zVLm6XQvuINlkHFBabBd4s8iCRAupx/NBSzqPxqe7+5fJOY8NQ==",
+      "license_file": "NPOI-2.7.6-LICENSE.txt",
+      "nuget_url": "https://www.nuget.org/packages/NPOI/2.7.6",
+      "version": "2.7.6",
+      "id": "NPOI",
+      "repository_url": "https://github.com/nissl-lab/npoi",
+      "license_source": "NuGet package"
     },
     {
       "runtime_assets": [
@@ -233,68 +256,25 @@
     {
       "runtime_assets": [
         {
-          "sha256": "443c614ab2f18918770ee5187e5deb39cd09c06a475ca6ed58c7a4b466d3e658",
-          "file": "System.Security.Cryptography.Pkcs.dll"
+          "sha256": "0d805eb6727075bd6d714e76ec6b650e887eff3e86dbf269d616a0b44998537f",
+          "file": "System.Formats.Asn1.dll"
         }
       ],
       "compile_only": false,
       "copyright": "© Microsoft Corporation. All rights reserved.",
       "license": "MIT",
-      "repository_commit": "b9a49e4a6d3a444a3685e318c74a7892d01873f7",
+      "repository_commit": "8e0f8ed2312954727f8919d7d1c2f78b483b4ee7",
       "authors": "Microsoft",
-      "nuspec_file": "System.Security.Cryptography.Pkcs-8.0.2.nuspec.txt",
-      "package_sha256": "372b652ceb0c34a77eff65381ef2435b9bc93e8261216cf5de711fc7d9ea7200",
-      "nuget_content_sha512": "VWACYq0JGxi9sw3TonSSV4B2MfhYk5nhgOtp9wbrt5NFOtUetFqHkMZylcCwPX+117cBJH5EnIzIy6X4OKn/kA==",
-      "license_file": "System.Security.Cryptography.Pkcs-8.0.2-LICENSE.txt",
-      "nuget_url": "https://www.nuget.org/packages/System.Security.Cryptography.Pkcs/8.0.2",
-      "version": "8.0.2",
-      "id": "System.Security.Cryptography.Pkcs",
-      "repository_url": "https://github.com/dotnet/runtime",
-      "license_source": "NuGet package"
-    },
-    {
-      "runtime_assets": [
-        {
-          "sha256": "b6cd19e08262b70d836ebb442d2d439e7949f7d613f9f6187f416d8511635574",
-          "file": "System.Security.Cryptography.Xml.dll"
-        }
-      ],
-      "compile_only": false,
-      "copyright": "© Microsoft Corporation. All rights reserved.",
-      "license": "MIT",
-      "repository_commit": "b9a49e4a6d3a444a3685e318c74a7892d01873f7",
-      "authors": "Microsoft",
-      "nuspec_file": "System.Security.Cryptography.Xml-8.0.5.nuspec.txt",
-      "package_sha256": "5e9cb9884ed268a1e36abecc886bf567825bca18e91e8b78f5d02669039dc633",
-      "nuget_content_sha512": "vu85aidUbxTh39CXdo/4mgtDlBNQ0h6k7oq5RIBwV2V2QYbRvtY6XlV3ikwYIyLX/LyaOraVvoCVVYnjFbV4/w==",
-      "license_file": "System.Security.Cryptography.Xml-8.0.5-LICENSE.txt",
-      "nuget_url": "https://www.nuget.org/packages/System.Security.Cryptography.Xml/8.0.5",
-      "version": "8.0.5",
-      "id": "System.Security.Cryptography.Xml",
-      "repository_url": "https://github.com/dotnet/runtime",
-      "license_source": "NuGet package"
-    },
-    {
-      "runtime_assets": [
-        {
-          "sha256": "1b9a6a0cd17058d2776e634ee12e90ed375877a281ffd8e2ad5911f54d3d00df",
-          "file": "ZString.dll"
-        }
-      ],
-      "compile_only": false,
-      "copyright": "© Cysharp, Inc.",
-      "license": "MIT",
-      "repository_commit": "3156134075b89a162fe95350a2e92a4c85ccca59",
-      "authors": "Cysharp",
-      "nuspec_file": "ZString-2.6.0.nuspec.txt",
-      "package_sha256": "f50fcbd523e623ea15c6f501233db4da6527f9456ca15ff2d8e7e1a291d7cdea",
-      "nuget_content_sha512": "XE8a+11nZg0LRaf+RGABEWaHIf8yGd5w8v/Ra1iWxMBmAVzwuKbW7G21mS0U7w7sh1lYcgckInWGgnz4qyET8A==",
-      "license_file": "ZString-2.6.0-LICENSE.txt",
-      "nuget_url": "https://www.nuget.org/packages/ZString/2.6.0",
-      "version": "2.6.0",
-      "id": "ZString",
-      "repository_url": "https://github.com/Cysharp/ZString",
-      "license_source": "https://raw.githubusercontent.com/Cysharp/ZString/3156134075b89a162fe95350a2e92a4c85ccca59/LICENSE"
+      "nuspec_file": "System.Formats.Asn1-10.0.15.nuspec.txt",
+      "package_sha256": "abc8ae7f7153619c737ac614e52c3a90354c77a91248f6d5479a1db7622fe9be",
+      "nuget_content_sha512": "Pm46BNEv2U/V5x5+dC3FAEOaYP7INd6C6/IY/ZFNnTDrCzsXKzCuKt2G/xDghCTgH/Qf1jlHyLZ8MmiTjZ+KMg==",
+      "license_file": "../dotnet-MIT.txt",
+      "nuget_url": "https://www.nuget.org/packages/System.Formats.Asn1/10.0.15",
+      "version": "10.0.15",
+      "id": "System.Formats.Asn1",
+      "repository_url": "https://github.com/dotnet/dotnet",
+      "license_source": "NuGet declares MIT; shared text retained from docs/licenses/dotnet-MIT.txt",
+      "third_party_notices_file": "dotnet-10.0.15-THIRD-PARTY-NOTICES.txt"
     },
     {
       "runtime_assets": [
@@ -317,7 +297,75 @@
       "id": "System.IO.Hashing",
       "repository_url": "https://github.com/dotnet/runtime",
       "license_source": "NuGet package LICENSE.TXT; accompanying THIRD-PARTY-NOTICES.TXT is preserved"
+    },
+    {
+      "runtime_assets": [
+        {
+          "sha256": "13658641aa901c620e52790ef42c6c26660df4ce5b572ed4f6ab6793bd5a48d5",
+          "file": "System.Security.Cryptography.Pkcs.dll"
+        }
+      ],
+      "compile_only": false,
+      "copyright": "© Microsoft Corporation. All rights reserved.",
+      "license": "MIT",
+      "repository_commit": "8e0f8ed2312954727f8919d7d1c2f78b483b4ee7",
+      "authors": "Microsoft",
+      "nuspec_file": "System.Security.Cryptography.Pkcs-10.0.15.nuspec.txt",
+      "package_sha256": "72d349612da39d21ee2ee45dfbcf45c7d80908ccfabd5b64da5ba61c71b46a60",
+      "nuget_content_sha512": "I/Qa4CdT+RuR8hbEloovVa0i1qjPMCYGYJpdqEFuvYdJj6AnMobHNbalgXkh+yjj3B+jnFHx6B4gkPf1xAba1w==",
+      "license_file": "../dotnet-MIT.txt",
+      "nuget_url": "https://www.nuget.org/packages/System.Security.Cryptography.Pkcs/10.0.15",
+      "version": "10.0.15",
+      "id": "System.Security.Cryptography.Pkcs",
+      "repository_url": "https://github.com/dotnet/dotnet",
+      "license_source": "NuGet declares MIT; shared text retained from docs/licenses/dotnet-MIT.txt",
+      "third_party_notices_file": "dotnet-10.0.15-THIRD-PARTY-NOTICES.txt"
+    },
+    {
+      "runtime_assets": [
+        {
+          "sha256": "3d6568453ce1da49234f740c41b270efe188fc30ef7efd2e4294a84c2d49fd53",
+          "file": "System.Security.Cryptography.Xml.dll"
+        }
+      ],
+      "compile_only": false,
+      "copyright": "© Microsoft Corporation. All rights reserved.",
+      "license": "MIT",
+      "repository_commit": "8e0f8ed2312954727f8919d7d1c2f78b483b4ee7",
+      "authors": "Microsoft",
+      "nuspec_file": "System.Security.Cryptography.Xml-10.0.15.nuspec.txt",
+      "package_sha256": "fd82e0ee2de53b8a683f45838d4b654381a183c1610e6087bbf24bcfa5d6ec7e",
+      "nuget_content_sha512": "YH5MJyYK4jQSMj+SoF8B8tAoXByP4pVRPCCJIAWefQ+QfGytkrIrxWtWEBjq5vJrIQo0Ehs3iv7bcRk7BIdvmw==",
+      "license_file": "../dotnet-MIT.txt",
+      "nuget_url": "https://www.nuget.org/packages/System.Security.Cryptography.Xml/10.0.15",
+      "version": "10.0.15",
+      "id": "System.Security.Cryptography.Xml",
+      "repository_url": "https://github.com/dotnet/dotnet",
+      "license_source": "NuGet declares MIT; shared text retained from docs/licenses/dotnet-MIT.txt",
+      "third_party_notices_file": "dotnet-10.0.15-THIRD-PARTY-NOTICES.txt"
+    },
+    {
+      "runtime_assets": [
+        {
+          "sha256": "1b9a6a0cd17058d2776e634ee12e90ed375877a281ffd8e2ad5911f54d3d00df",
+          "file": "ZString.dll"
+        }
+      ],
+      "compile_only": false,
+      "copyright": "© Cysharp, Inc.",
+      "license": "MIT",
+      "repository_commit": "3156134075b89a162fe95350a2e92a4c85ccca59",
+      "authors": "Cysharp",
+      "nuspec_file": "ZString-2.6.0.nuspec.txt",
+      "package_sha256": "f50fcbd523e623ea15c6f501233db4da6527f9456ca15ff2d8e7e1a291d7cdea",
+      "nuget_content_sha512": "XE8a+11nZg0LRaf+RGABEWaHIf8yGd5w8v/Ra1iWxMBmAVzwuKbW7G21mS0U7w7sh1lYcgckInWGgnz4qyET8A==",
+      "license_file": "ZString-2.6.0-LICENSE.txt",
+      "nuget_url": "https://www.nuget.org/packages/ZString/2.6.0",
+      "version": "2.6.0",
+      "id": "ZString",
+      "repository_url": "https://github.com/Cysharp/ZString",
+      "license_source": "https://raw.githubusercontent.com/Cysharp/ZString/3156134075b89a162fe95350a2e92a4c85ccca59/LICENSE"
     }
   ],
-  "verified_date": "2026-10-19"
+  "verified_date": "2026-11-18"
 }

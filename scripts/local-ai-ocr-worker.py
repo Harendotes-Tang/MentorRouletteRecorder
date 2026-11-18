@@ -22,7 +22,7 @@ MODELS = {
     "ch_ppocr_mobile_v2.0_cls_mobile.onnx": (585532, "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c"),
 }
 HEADER = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n"
-VERSION = "MentorRecorder local AI OCR 2; RapidOCR 3.10.0; ONNX Runtime 1.31.0; CPU-only"
+VERSION = "MentorRecorder local AI OCR 2; RapidOCR 3.10.0; ONNX Runtime 1.32.0; CPU-only"
 # Qt limits source files to 20 MiB before decoding. Its owned lossless PNG can
 # be larger than a JPEG source; bound that copy by the already permitted pixels.
 MAX_PIXELS = 50_000_000

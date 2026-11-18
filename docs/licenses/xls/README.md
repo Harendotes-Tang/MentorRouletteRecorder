@@ -1,6 +1,6 @@
 # XLS 导入依赖核对
 
-首次核对日期：2026-10-10；安全依赖更新：2026-10-19。
+首次核对日期为 2026-10-10，最近一次依赖核对为 2026-11-18。
 实际框架：`net8.0-windows7.0/win-x64`。
 
 Collector 固定 NPOI `[2.7.6]`，只调用 HSSF 读取真实 BIFF8，并保留已有 XLSX ZIP/XML
@@ -16,7 +16,7 @@ Math.NET 的包未记录提交，其许可证来自
 对应 `v5.0.0` 源码标签。NSax 1.0.2 为 LGPL-3.0-only，不是 Apache-2.0，其源码提交为
 `b75861cbc49be1ce4b02410e324b5755ffcb17a2`，未修改上游二进制。
 
-`dependency-manifest.json` 有 14 个 XLS 相关还原包，其中 13 个包含实际发布运行
+`dependency-manifest.json` 有 16 个 XLS 相关还原包，其中 15 个包含实际发布运行
 资产，ImageSharp 为编译资产。它同时记录 NuGet 包 SHA256、NuGet 内容 SHA512、
 实际发布 DLL 的 SHA256、许可证来源和源码仓库；既有 Machina、Sqlite、SharpPcap
 及其传递依赖分别声明；SQLite 安全升级的版本和原生 DLL 哈希见
@@ -24,8 +24,10 @@ Math.NET 的包未记录提交，其许可证来自
 
 ## 运行资产与审计
 
-NPOI 默认依赖的 System.Security.Cryptography.Xml 8.0.2 有已知漏洞，明确锁定同一
-.NET 8 系列修复版 `[8.0.5]`。其许可证仍为 MIT，实际传递 Pkcs 版本为 8.0.2。
+NPOI 默认依赖的 System.Security.Cryptography.Xml 8.0.2 有已知漏洞。Collector 固定采用
+`[10.0.15]`，并还原同版本的 Pkcs、Asn1 和 Microsoft.Bcl.Cryptography。
+四者均提供 .NET 8 的运行资产并采用 MIT。11.0.0 的构建目标会报告当前
+`net8.0-windows` 未获支持。
 
 SixLabors.Fonts `[1.0.1]` 保留运行资产：它由 NPOI 公式字符串解析路径使用，回归样本
 生成在没有该库的全新目录中曾抛出缺少程序集错误。实际 `.nuspec` 和对应源码的

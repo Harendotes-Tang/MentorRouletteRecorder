@@ -1,18 +1,18 @@
 {
   "schema_version": 2,
-  "cache_id": "local-ai-ocr-2-rapidocr-3_10_0-ort-1_31_0-cpython-3_12_16-numpy-2_5_4-win-x64-20261103",
+  "cache_id": "local-ai-ocr-2-rapidocr-3_10_0-ort-1_32_0-cpython-3_12_16-numpy-2_5_4-win-x64-20261118",
   "runtime": {
-    "version": "MentorRecorder local AI OCR 2; RapidOCR 3.10.0; ONNX Runtime 1.31.0; CPU-only",
+    "version": "MentorRecorder local AI OCR 2; RapidOCR 3.10.0; ONNX Runtime 1.32.0; CPU-only",
     "entry_point": "local-ai-ocr.exe",
     "model_directory": "models",
     "platform": "Windows x64",
     "dependency_scope": "Actual PyInstaller onedir file closure plus external local models and complete copied upstream notices. No Tesseract, GPU libraries or host Python dependency. Optional OpenCV video FFmpeg DLL excluded; still-image OCR only.",
-    "worker_source_sha256": "2bc439bee4ad7ea3dc8eb960942a3ef52ffa9bfca63bdae007671b815c8f0f0e",
-    "requirements_sha256": "0ebc2941c906708b004215d612efc0856aefd01b33ed29d6e088640cbdb390f3",
+    "worker_source_sha256": "73660d20cd87e4309bd89a54e52bec4a51a6a1ae7b8f9319e491dcedc64a2313",
+    "requirements_sha256": "d492f1242802ff2b91dea67fb197fb5f107dcfee3a2d99842a6abdb783a6b698",
     "python_version": "3.12.16 (main, Oct 26 2026, 14:10:56) [MSC v.1944 64 bit (AMD64)]",
-    "payload_bytes": 234852191,
+    "payload_bytes": 241744667,
     "payload_files": 238,
-    "build_inventory_reference": "artifacts/dependabot-20261103/ocr-runtime-final-build-inventory.json",
+    "build_inventory_reference": "artifacts/dependency-upgrade-20261118/ocr-runtime-final-build-inventory.json",
     "builder_source_sha256": "c9ba91be1121dfcbf4affd9af4b81c20579ef2ef7745b04d530ecc9cea143b33",
     "python_distribution": "Astral python-build-standalone 20261026 Windows x64 install_only",
     "python_source": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261026",
@@ -25,11 +25,11 @@
     {
       "id": "certifi",
       "name": "certifi",
-      "version": "2026.10.19",
+      "version": "2026.10.23",
       "licence": "MPL-2.0",
-      "source": "https://pypi.org/project/certifi/2026.10.19/",
+      "source": "https://pypi.org/project/certifi/2026.10.23/",
       "texts": [
-        "certifi__certifi-2026.10.19.dist-info_licenses_LICENSE"
+        "certifi__certifi-2026.10.23.dist-info_licenses_LICENSE"
       ],
       "embedded_in": [
         "local-ai-ocr.exe"
@@ -150,9 +150,9 @@
     {
       "id": "onnxruntime",
       "name": "onnxruntime",
-      "version": "1.31.0",
+      "version": "1.32.0",
       "licence": "MIT License",
-      "source": "https://pypi.org/project/onnxruntime/1.31.0/",
+      "source": "https://pypi.org/project/onnxruntime/1.32.0/",
       "texts": [
         "onnxruntime__onnxruntime_LICENSE",
         "onnxruntime__onnxruntime_ThirdPartyNotices.txt"
@@ -388,11 +388,11 @@
     {
       "id": "pyinstaller-hooks-contrib",
       "name": "pyinstaller-hooks-contrib",
-      "version": "2026.9",
+      "version": "2026.10",
       "licence": "GPL-2.0-or-later with PyInstaller bootloader exception and Apache-2.0 runtime hooks",
-      "source": "https://pypi.org/project/pyinstaller-hooks-contrib/2026.9/",
+      "source": "https://pypi.org/project/pyinstaller-hooks-contrib/2026.10/",
       "texts": [
-        "pyinstaller-hooks-contrib__pyinstaller_hooks_contrib-2026.9.dist-info_licenses_LICENSE"
+        "pyinstaller-hooks-contrib__pyinstaller_hooks_contrib-2026.10.dist-info_licenses_LICENSE"
       ],
       "embedded_in": [
         "local-ai-ocr.exe"
@@ -1062,10 +1062,10 @@
     },
     {
       "path": "_internal/certifi/cacert.pem",
-      "bytes": 238856,
-      "sha256": "50f79f98dac192b20dbf73f35c56f0b0c557ab267ff5199d1117cc1180b70785",
+      "bytes": 235863,
+      "sha256": "2ef52ad56b4803e264045c915e55c236cbfa045b84b81efefc218a19eb44bd2b",
       "component": "certifi",
-      "source": "https://pypi.org/project/certifi/2026.10.19/",
+      "source": "https://pypi.org/project/certifi/2026.10.23/",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/certifi/cacert.pem"
     },
@@ -1074,7 +1074,7 @@
       "bytes": 0,
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "component": "certifi",
-      "source": "https://pypi.org/project/certifi/2026.10.19/",
+      "source": "https://pypi.org/project/certifi/2026.10.23/",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/certifi/py.typed"
     },
@@ -1441,7 +1441,7 @@
     {
       "path": "_internal/numpy-2.5.4.dist-info/RECORD",
       "bytes": 113361,
-      "sha256": "542be04bec5cb3e06dd7910b47f9a69f8ed1ad774ce488ddfc3d4185cdfb91a2",
+      "sha256": "1bb10feb818a620c2567b00d07bfd93a87c9d345335caf294a9346bdc7463fbb",
       "component": "numpy",
       "source": "https://pypi.org/project/numpy/2.5.4/",
       "origin": "frozen-build",
@@ -1602,28 +1602,28 @@
     },
     {
       "path": "_internal/onnxruntime/capi/onnxruntime.dll",
-      "bytes": 19288928,
-      "sha256": "aa7737cc5c987286f09f6f12304fa786ea697b11b4ca7ab59a027ff4ce343a9c",
+      "bytes": 22668640,
+      "sha256": "443c0065fcdba17618ddef05050308f4b471893c5c7da0337d6957c9073ad8a7",
       "component": "onnxruntime",
-      "source": "https://pypi.org/project/onnxruntime/1.31.0/",
+      "source": "https://pypi.org/project/onnxruntime/1.32.0/",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/onnxruntime/capi/onnxruntime.dll"
     },
     {
       "path": "_internal/onnxruntime/capi/onnxruntime_providers_shared.dll",
-      "bytes": 21856,
-      "sha256": "029af27204cff24103c5837a0eb507e4a31ef269116f400c6b25c5457ddc9a32",
+      "bytes": 21816,
+      "sha256": "b7ce00a1246473401b9b7fed2816852c1f9ecd70f2e68a136761c40d6523b712",
       "component": "onnxruntime",
-      "source": "https://pypi.org/project/onnxruntime/1.31.0/",
+      "source": "https://pypi.org/project/onnxruntime/1.32.0/",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/onnxruntime/capi/onnxruntime_providers_shared.dll"
     },
     {
       "path": "_internal/onnxruntime/capi/onnxruntime_pybind11_state.pyd",
-      "bytes": 19998048,
-      "sha256": "f514d95a3095e85a3708ba051f8747edd8e4b968fb7b86f6e3478e1df3292d76",
+      "bytes": 23516512,
+      "sha256": "d4d9df764064dee9216dfa9a3933beaefc480b9c421a62d3f681168cec90c23c",
       "component": "onnxruntime",
-      "source": "https://pypi.org/project/onnxruntime/1.31.0/",
+      "source": "https://pypi.org/project/onnxruntime/1.32.0/",
       "origin": "frozen-build",
       "source_path": "frozen-build/_internal/onnxruntime/capi/onnxruntime_pybind11_state.pyd"
     },
@@ -1837,7 +1837,7 @@
     {
       "path": "_internal/tqdm-4.70.1.dist-info/RECORD",
       "bytes": 4637,
-      "sha256": "c0316d86368b38d1196736e5d07d9d31784bb8bfabaeca9aaf0ea1a4a7fc3408",
+      "sha256": "3b558373ff2f03893448c803d20b5843cb06ec18d0ee3bd8dc5b6348671a7747",
       "component": "tqdm",
       "source": "https://pypi.org/project/tqdm/4.70.1/",
       "origin": "frozen-build",
@@ -1925,13 +1925,13 @@
       "source_path": "docs/licenses/ocr/local-ai/altgraph__altgraph-0.17.5.dist-info_LICENSE"
     },
     {
-      "path": "licenses/certifi__certifi-2026.10.19.dist-info_licenses_LICENSE",
+      "path": "licenses/certifi__certifi-2026.10.23.dist-info_licenses_LICENSE",
       "bytes": 989,
       "sha256": "e93716da6b9c0d5a4a1df60fe695b370f0695603d21f6f83f053e42cfc10caf7",
       "component": "certifi",
-      "source": "https://pypi.org/project/certifi/2026.10.19/",
+      "source": "https://pypi.org/project/certifi/2026.10.23/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/certifi__certifi-2026.10.19.dist-info_licenses_LICENSE"
+      "source_path": "docs/licenses/ocr/local-ai/certifi__certifi-2026.10.23.dist-info_licenses_LICENSE"
     },
     {
       "path": "licenses/charset-normalizer__charset_normalizer-3.5.2.dist-info_licenses_LICENSE",
@@ -2181,16 +2181,16 @@
       "bytes": 1094,
       "sha256": "c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674",
       "component": "onnxruntime",
-      "source": "https://pypi.org/project/onnxruntime/1.31.0/",
+      "source": "https://pypi.org/project/onnxruntime/1.32.0/",
       "origin": "repository",
       "source_path": "docs/licenses/ocr/local-ai/onnxruntime__onnxruntime_LICENSE"
     },
     {
       "path": "licenses/onnxruntime__onnxruntime_ThirdPartyNotices.txt",
-      "bytes": 344457,
-      "sha256": "c53a76501ef60db6f865f20599f220761201ac4057683acefdab37d861b86622",
+      "bytes": 341120,
+      "sha256": "bf8073fd6a112ac2a656bb60799652127e881689e51d37ad20df446cd5188b2d",
       "component": "onnxruntime",
-      "source": "https://pypi.org/project/onnxruntime/1.31.0/",
+      "source": "https://pypi.org/project/onnxruntime/1.32.0/",
       "origin": "repository",
       "source_path": "docs/licenses/ocr/local-ai/onnxruntime__onnxruntime_ThirdPartyNotices.txt"
     },
@@ -2303,13 +2303,13 @@
       "source_path": "docs/licenses/ocr/local-ai/pyclipper__pyclipper-1.4.0.dist-info_licenses_LICENSE"
     },
     {
-      "path": "licenses/pyinstaller-hooks-contrib__pyinstaller_hooks_contrib-2026.9.dist-info_licenses_LICENSE",
+      "path": "licenses/pyinstaller-hooks-contrib__pyinstaller_hooks_contrib-2026.10.dist-info_licenses_LICENSE",
       "bytes": 27666,
       "sha256": "91d0baaff00773038e72c0a1fc9d5d2d38706b7a2b9c04f34296608f931b9cd0",
       "component": "pyinstaller-hooks-contrib",
-      "source": "https://pypi.org/project/pyinstaller-hooks-contrib/2026.9/",
+      "source": "https://pypi.org/project/pyinstaller-hooks-contrib/2026.10/",
       "origin": "repository",
-      "source_path": "docs/licenses/ocr/local-ai/pyinstaller-hooks-contrib__pyinstaller_hooks_contrib-2026.9.dist-info_licenses_LICENSE"
+      "source_path": "docs/licenses/ocr/local-ai/pyinstaller-hooks-contrib__pyinstaller_hooks_contrib-2026.10.dist-info_licenses_LICENSE"
     },
     {
       "path": "licenses/pyinstaller__pyinstaller-6.19.0.dist-info_licenses_COPYING.txt",
@@ -2655,8 +2655,8 @@
     },
     {
       "path": "local-ai-ocr.exe",
-      "bytes": 6433722,
-      "sha256": "8600eacee6254f1639662e998a3204e305b39cc6c15402771ae858c74c45b77f",
+      "bytes": 6434392,
+      "sha256": "a4ea2a20241adf9b68610b3eeb7042b3ac0bb1d980b8de4d18f81af41b9c96e6",
       "component": "mentorrecorder-helper",
       "source": "https://github.com/Harendotes-Tang/MentorRouletteRecorder",
       "origin": "frozen-build",

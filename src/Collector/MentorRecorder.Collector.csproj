@@ -15,9 +15,9 @@
       Machina.FFXIV is GPL-3.0; it is the reason this project is GPL-3.0-or-later.
       See docs/third-party-licenses.md.
     -->
-    <PackageReference Include="Machina.FFXIV" Version="2.4.8.2" />
+    <PackageReference Include="Machina.FFXIV" Version="2.4.8.3" />
     <PackageReference Include="SharpPcap" Version="6.3.1" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.15" />
     <!-- Keep the existing ADO.NET API while replacing its vulnerable native SQLite bundle. -->
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="[3.0.5]" />
     <!-- 2.7.6 is the Apache-2.0 release used solely for genuine BIFF8 XLS input. -->
@@ -26,7 +26,7 @@
          without adding its runtime or build tools to this HSSF-only application. -->
     <PackageReference Include="SixLabors.ImageSharp" Version="[4.1.3]" IncludeAssets="compile" />
     <PackageReference Include="SixLabors.Fonts" Version="[1.0.1]" />
-    <PackageReference Include="System.Security.Cryptography.Xml" Version="[8.0.5]" />
+    <PackageReference Include="System.Security.Cryptography.Xml" Version="[10.0.15]" />
   </ItemGroup>
 
   <ItemGroup>

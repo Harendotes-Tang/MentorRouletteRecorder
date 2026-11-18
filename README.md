@@ -142,7 +142,7 @@
 
 ## 离线截图 OCR
 
-随包提供 CPU 文字识别和小型职业图标分类器。用户无需安装 Python 或配置 GPU。程序使用 RapidOCR 3.10.0 与 ONNX Runtime 1.31.0，
+随包提供 CPU 文字识别和小型职业图标分类器。用户无需安装 Python 或配置 GPU。程序使用 RapidOCR 3.10.0 与 ONNX Runtime 1.32.0，
 在本机识别文字及其坐标，再结合表格布局和职业图标生成预览。低清晰度、陌生版式、符号和职业候选需人工核对。
 
 ![离线 OCR 架构，从文字与图标识别到预览核对](docs/ocr/local-ocr.svg)

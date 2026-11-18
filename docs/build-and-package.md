@@ -115,20 +115,20 @@ Machina.FFXIV 包中附带的原生注入载荷 `deucalion-*.dll` 从所有构�
 
 | 包 | 版本 | 许可证 |
 |---|---|---|
-| `Machina.FFXIV` | 2.4.8.2 | GPL-3.0 |
+| `Machina.FFXIV` | 2.4.8.3 | GPL-3.0 |
 | `Machina`（传递依赖） | 2.3.1.3 | GPL-3.0 |
-| `Microsoft.Data.Sqlite` | 10.0.14 | MIT |
+| `Microsoft.Data.Sqlite` | 10.0.15 | MIT |
 | `SQLitePCLRaw.bundle_e_sqlite3`（直接固定，原生库由传递依赖 `SQLite` 提供；其余 `SQLitePCLRaw.*` 为传递依赖） | 3.0.5 | Apache-2.0；SQLite 本体为 public domain |
 | `SharpPcap` | 6.3.1 | MIT |
 | `PacketDotNet`（传递依赖） | 1.4.8 | MPL-2.0 |
 | `NPOI`（仅用于读取 XLS） | 2.7.6 | Apache-2.0 |
 | `NPOI` 的传递依赖 | 见 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) | 同上文件逐项列出 |
 | `SixLabors.Fonts`（直接固定，NPOI 公式解析引用） | 1.0.1 | Apache-2.0 |
-| `System.Security.Cryptography.Xml`（直接固定） | 8.0.5 | MIT |
+| `System.Security.Cryptography.Xml`（直接固定） | 10.0.15 | MIT |
 | `SixLabors.ImageSharp`（仅取编译期资产，不进入运行与发布内容） | 4.1.3 | Six Labors Split License，对本项目授予 Apache-2.0（见 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)） |
 | `xunit` / `xunit.runner.visualstudio`（仅测试） | 2.9.3 / 4.0.0 | Apache-2.0 |
-| `Microsoft.NET.Test.Sdk`（仅测试） | 18.11.0 | MIT |
-| `JsonSchema.Net`（仅集成测试） | 7.3.4 | MIT |
+| `Microsoft.NET.Test.Sdk`（仅测试） | 18.12.0 | MIT |
+| `JsonSchema.Net`（仅集成测试） | 7.4.0 | MIT |
 
 ## 3. C++ / Qt 侧（Desktop）
 
@@ -477,7 +477,7 @@ pwsh -File scripts/package.ps1 -Force -Verify
 ### 离线截图识别依赖
 
 截图识别随应用部署 `ocr/local-ai-ocr.exe`、随包运行依赖及 `models/` 下的三份模型。
-当前固定版本为 CPython 3.12.16、RapidOCR 3.10.0、ONNX Runtime 1.31.0，采用 CPU。
+当前固定版本为 CPython 3.12.16、RapidOCR 3.10.0、ONNX Runtime 1.32.0，采用 CPU。
 当前 helper 2 在整图检测后对符号区域限量复读，文字模型和职业分类器权重不变；完整源代码与冻结产物仍逐文件固定。
 文字检测、识别和方向分类模型分别为 `PP-OCRv6_det_small.onnx`、`PP-OCRv6_rec_small.onnx`、
 `ch_ppocr_mobile_v2.0_cls_mobile.onnx`；来源、SHA256、完整运行依赖及许可证登记在
@@ -505,7 +505,7 @@ pwsh -File scripts/bootstrap-ocr.ps1 `
 替换示例中的绝对路径；输出目录必须尚不存在，以保留已有产物。
 `-InstallBuildDependencies` 是维护者显式选择的构建阶段 pip 安装；依赖已准备好时省略此开关。
 发布 payload 必须与固定清单完全一致，构建环境或产物变化不会自动放宽哈希检查。
-`requirements-build.txt` 固定的是当前 OCR payload 构建时使用的版本，其中 `Pillow` 为 13.0.0、`certifi` 为 2026.10.19、`setuptools` 为 84.2.1。
+`requirements-build.txt` 固定的是当前 OCR payload 构建时使用的版本，其中 `Pillow` 为 13.0.0、`certifi` 为 2026.10.23、`setuptools` 为 84.2.1。
 `tools/package-verification/test_ocr_manifest.py` 核对该文件（换行统一为 LF 后）的 SHA-256 与依赖清单记录的
 `requirements_sha256` 一致，并核对清单中每个来自 PyPI 的组件在该文件中固定为同一版本。因此升级其中任何依赖，
 包括 Dependabot 提出的升级，都必须在同一改动中重新构建 OCR payload 并更新依赖清单，否则工具自测失败。

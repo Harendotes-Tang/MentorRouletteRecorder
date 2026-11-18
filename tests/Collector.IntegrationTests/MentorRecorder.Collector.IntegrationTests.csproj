@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.12.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0" />
 
@@ -18,7 +18,7 @@
       every live event the Collector writes against contracts/ipc-v1.schema.json,
       so an undeclared field fails the build instead of reaching a client.
     -->
-    <PackageReference Include="JsonSchema.Net" Version="7.3.4" />
+    <PackageReference Include="JsonSchema.Net" Version="7.4.0" />
   </ItemGroup>
 
   <ItemGroup>

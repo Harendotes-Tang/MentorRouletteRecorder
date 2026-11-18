@@ -1,10 +1,10 @@
 # SQLite 依赖来源与原生资产核对
 
-核对日期：2026-11-03。目标：`net8.0-windows7.0/win-x64`。
+核对日期：2026-11-18。目标：`net8.0-windows7.0/win-x64`。
 
-Collector 使用 Microsoft.Data.Sqlite 10.0.14，并直接固定
+Collector 使用 Microsoft.Data.Sqlite 10.0.15，并直接固定
 `SQLitePCLRaw.bundle_e_sqlite3 [3.0.5]`。还原后的依赖图包含
-Microsoft.Data.Sqlite/.Core 10.0.14、SQLitePCLRaw 的 bundle、config、core、provider
+Microsoft.Data.Sqlite/.Core 10.0.15、SQLitePCLRaw 的 bundle、config、core、provider
 四个 3.0.5 包，以及原生包 `SQLite 3.53.4`。bundle 是元包，
 `SQLitePCLRaw.batteries_v2.dll` 由 config 包提供，`e_sqlite3.dll` 由 SQLite 包提供。
 
