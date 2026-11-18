@@ -19,7 +19,7 @@ from sync_refs import Git, REPOSITORIES, SHA, RefSyncError, parse_refs, reposito
 
 PLAN_PATH = Path(__file__).with_name("cleanup-plan.json")
 MAX_PLAN_BYTES = 16 * 1024
-MAX_ENTRIES = 32
+MAX_ENTRIES = 48
 MAIN = "refs/heads/main"
 
 

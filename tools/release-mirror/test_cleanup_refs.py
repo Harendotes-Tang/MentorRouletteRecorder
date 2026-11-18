@@ -93,22 +93,26 @@ class FakeGit:
 class PlanTests(unittest.TestCase):
     def test_real_plan_preserves_old_approvals_and_exact_retirement_scope(self):
         actual = m.load_plan()
-        self.assertEqual([(e["repo"], e["ref"]) for e in actual[:3]], [
+        previous, additions = actual[:19], actual[19:]
+        self.assertEqual([(e["repo"], e["ref"]) for e in previous[:3]], [
             (REPO, "refs/heads/dependabot/pip/tools/LocalAiOcr/setuptools-83.0.0"),
             (REPO, "refs/heads/codex/gitcode-mirror-fallback"),
             (OTHER, "refs/heads/codex/gitcode-actions-mirror")])
-        self.assertEqual(actual[1]["expected_sha"], "b47043a0dbd871cf5af8ced63ba1d36b41e9e089")
-        self.assertEqual(actual[1]["merge_anchor"], actual[1]["expected_sha"])
-        self.assertEqual(len(actual), 19)
-        discarded = [e for e in actual if "discard_anchor" in e]
+        self.assertEqual(previous[1]["expected_sha"], "b47043a0dbd871cf5af8ced63ba1d36b41e9e089")
+        self.assertEqual(previous[1]["merge_anchor"], previous[1]["expected_sha"])
+        discarded = [e for e in previous if "discard_anchor" in e]
         self.assertEqual(len(discarded), 15)
         self.assertTrue(all(e["repo"] == REPO and e["ref"].startswith("refs/heads/dependabot/")
                             and e["discard_anchor"] == "afdb03816f879c3e1143a129e11020170433699e"
                             for e in discarded))
-        self.assertEqual(actual[-1], entry(
+        self.assertEqual(previous[-1], entry(
             ref="refs/heads/fix/dependabot-scan-overlap",
             expected="0d3cc14d6a496c7bf22d88d6205364a76de51798",
             anchor="ee7e4d7a436021f5e79bce3f243a5bbeb9652841"))
+        self.assertEqual(len(additions), 22)
+        self.assertTrue(all(e["repo"] == REPO and e["ref"].startswith("refs/heads/dependabot/")
+                            and e.get("discard_anchor") == "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
+                            for e in additions))
 
     def test_discard_evidence_is_distinct_and_unambiguous(self):
         self.assertEqual(m.validate_plan(plan([entry(discard=True)])), [entry(discard=True)])

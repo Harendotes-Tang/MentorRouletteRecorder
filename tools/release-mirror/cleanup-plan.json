@@ -114,6 +114,138 @@
       "ref": "refs/heads/fix/dependabot-scan-overlap",
       "expected_sha": "0d3cc14d6a496c7bf22d88d6205364a76de51798",
       "merge_anchor": "ee7e4d7a436021f5e79bce3f243a5bbeb9652841"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/github_actions/actions/setup-dotnet-6.1.0",
+      "expected_sha": "cdb4ac9055ddc97821400584c032d753aa3e2ce2",
+      "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/github_actions/actions/setup-python-7.1.0",
+      "expected_sha": "1f65c751239280534144be3005484de80bb808cb",
+      "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/github_actions/jurplel/install-qt-action-4.5.0",
+      "expected_sha": "8279d13c578c9873e173e60fd6ef37af641ae508",
+      "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/nuget/src/Collector/Machina.FFXIV-2.4.8.2",
+      "expected_sha": "9de6945fe37fa0e805609f97e1fea13b7b06b113",
+      "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/nuget/src/Collector/Machina.FFXIV-2.4.8.3",
+      "expected_sha": "f5a761ebc5f7d1b3c9ac02ccf401d16a7b3f3e71",
+      "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/nuget/src/Collector/Microsoft.Data.Sqlite-10.0.14",
+      "expected_sha": "5700dd0d2b14b45fe47a0593dd95c5e371ed1df7",
+      "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/nuget/src/Collector/Microsoft.Data.Sqlite-10.0.15",
+      "expected_sha": "644f411bbd255ee8b1b547aa31a966736c052c3f",
+      "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/nuget/src/Collector/SQLitePCLRaw.bundle_e_sqlite3-3.0.5",
+      "expected_sha": "b585a37c9ae3715cc4bacbd582307bc3f285b30e",
+      "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/nuget/src/Collector/System.Security.Cryptography.Xml-11.0.0",
+      "expected_sha": "e30b128886e89d729a9a9d3ec37bdcd85ee84be8",
+      "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/nuget/tests/Collector.IntegrationTests/JsonSchema.Net-7.4.0",
+      "expected_sha": "b569b999f2d54169d34a4c20cd27a44d9ae8be27",
+      "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/nuget/tests/Collector.IntegrationTests/JsonSchema.Net-9.6.0",
+      "expected_sha": "576c5f26f6583223d655e0a8aa50581406e3dde9",
+      "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/nuget/tests/Collector.IntegrationTests/multi-45d74c8809",
+      "expected_sha": "5d60a4c4f3e72eddd23d0b8f9f1dabd59305138e",
+      "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/nuget/tests/Collector.IntegrationTests/multi-5166f76c5a",
+      "expected_sha": "28c6d27a20b6f1fe7a32aecfbd8df7725bf8d176",
+      "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/pip/tools/LocalAiOcr/certifi-2026.10.23",
+      "expected_sha": "7339079d14200c09d578901abcdd00482a966cb6",
+      "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/pip/tools/LocalAiOcr/numpy-2.5.4",
+      "expected_sha": "b7acc7645c985b7e21cd4d486a65c0639c73316c",
+      "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/pip/tools/LocalAiOcr/onnxruntime-1.32.0",
+      "expected_sha": "c516b4b2b5cf92f09d49be8cbf4e35e3b7f24f3a",
+      "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/pip/tools/LocalAiOcr/pillow-13.0.0",
+      "expected_sha": "62012abb2aa41056aabf4890c8a02bc43a5e497c",
+      "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/pip/tools/LocalAiOcr/pyinstaller-hooks-contrib-2026.10",
+      "expected_sha": "ab70e0a7a3ecf8da1f212230873c6647c6410de1",
+      "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/pip/tools/LocalAiOcr/pyinstaller-hooks-contrib-2026.9",
+      "expected_sha": "8a210b73765394dd0586e7fdb90798787a1a1824",
+      "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/pip/tools/LocalAiOcr/setuptools-84.1.0",
+      "expected_sha": "0ce271c45125e657dfa60930929c4ee4dffe14ee",
+      "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/pip/tools/LocalAiOcr/setuptools-84.2.1",
+      "expected_sha": "776aa8c6d23db62a790c60fd51d926a6e9626d92",
+      "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/heads/dependabot/pip/tools/numpy-2.5.4",
+      "expected_sha": "29083ea296f4a06e0ceb7d6d529da1591606cced",
+      "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
     }
   ]
 }
