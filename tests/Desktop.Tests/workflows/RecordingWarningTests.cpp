@@ -1,3 +1,4 @@
+#include <QPointer>
 #include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AppController.h"
@@ -38,6 +39,9 @@ public:
     bool isConnected() const override { return connected; }
     bool connected = true;
     bool statusFails = false;
+    /// Leaves GetCaptureSettings unanswered, as while a poll is on its way.
+    bool holdSettings = false;
+    QPointer<mr::BackendReply> heldSettings;
     QJsonObject capture{{"ffxiv_running", true}, {"ffxiv_process_id", 123},
                         {"profile_status", "VERIFIED"}, {"state", "RUNNING"},
                         {"silent_reason", "NONE"}};
@@ -51,7 +55,9 @@ public:
     mr::BackendReply *request(const QString &type, const QJsonObject & = {}) override
     {
         auto *reply = new mr::BackendReply(QString::number(++requests), type, this);
-        if (type == QLatin1String("GetCaptureSettings")) {
+        if (type == QLatin1String("GetCaptureSettings") && holdSettings) {
+            heldSettings = reply;
+        } else if (type == QLatin1String("GetCaptureSettings")) {
             reply->succeed({{"follow_game", true}});
         } else if (type == QLatin1String("GetCaptureValidationStatus")) {
             reply->succeed({{"active", false}, {"state", "IDLE"}});
@@ -409,6 +415,29 @@ private slots:
             recording.refresh();
         }
         QVERIFY(!recording.recoveryPending());
+    }
+
+    // Audit 2026-11-19 L3-7: a status event that arrives while the next poll's settings are
+    // still being read says nothing about the capture and must not take the notice back.
+    void pendingRecoverySurvivesAStatusEventDuringTheNextPoll()
+    {
+        WarningBackend backend;
+        backend.startRecovery();
+        mr::AutomaticRecordingController recording(&backend);
+        recording.refresh();
+        backend.recover();
+        recording.refresh();
+        QVERIFY(recording.recoveryPending());
+
+        backend.holdSettings = true;
+        recording.refresh();
+        QVERIFY(backend.heldSettings);
+        recording.observeCapture(backend.capture.toVariantMap());
+        QVERIFY(recording.recoveryPending());
+
+        backend.holdSettings = false;
+        backend.heldSettings->succeed({{"follow_game", true}});
+        QVERIFY(recording.recoveryPending());
     }
 
     void anotherGameHasItsOwnEpisode()

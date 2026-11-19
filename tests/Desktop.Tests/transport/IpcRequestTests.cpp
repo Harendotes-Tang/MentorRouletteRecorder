@@ -431,6 +431,10 @@ QList<RequestVariant> requestVariants()
         // 自动识别角色 → 不统计: IGNORE carries no profile_id.
         {.file=QStringLiteral("ResolveCharacterIdentity.ignore"), .messageType=QStringLiteral("ResolveCharacterIdentity"),
          .args=QJsonObject{{QStringLiteral("identity_id"), 999}, {QStringLiteral("action"), QStringLiteral("IGNORE")}}},
+        // 登记并绑定原有记录: BIND that also names the upgraded profile (audit 2026-11-19, G-4).
+        {.file=QStringLiteral("ResolveCharacterIdentity.register"), .messageType=QStringLiteral("ResolveCharacterIdentity"),
+         .args=QJsonObject{{QStringLiteral("identity_id"), 999}, {QStringLiteral("action"), QStringLiteral("BIND")},
+                     {QStringLiteral("profile_id"), 1}, {QStringLiteral("display_name"), QString::fromUtf8("合成角色四")}}},
         // 新角色: the waiting identity is bound to the profile it creates.
         {.file=QStringLiteral("CreateCharacterProfile.identity"), .messageType=QStringLiteral("CreateCharacterProfile"),
          .args=QJsonObject{{QStringLiteral("region"), QStringLiteral("CN")},

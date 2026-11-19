@@ -618,7 +618,10 @@ void HistoryController::sendCheckedBatch(const QString &action, int profileId, c
     m_batchFeedback.clear();
     Q_EMIT batchChanged();
     const bool movingRegion = action == QLatin1String("move_region");
-    if (movingRegion)
+    // Records filed under another character or region raise a progress that no duty just
+    // reached: the statistics must not celebrate the read that follows (audit 2026-11-19, I2-2).
+    const bool movingRuns = movingRegion || assigning;
+    if (movingRuns)
         Q_EMIT regionMovePendingChanged(true);
     BackendReply *batchReply = nullptr;
     if (movingRegion)
@@ -628,11 +631,11 @@ void HistoryController::sendCheckedBatch(const QString &action, int profileId, c
     else
         batchReply = m_backend->batchMutateRuns(action, rows, reason.trimmed(), requestId);
     const QPointer<BackendReply> batchGuard(batchReply);
-    batchReply->whenDone(this, [this, action, profileId, ids, requestId, batchGuard, movingRegion](bool ok, const QVariantMap &answer,
+    batchReply->whenDone(this, [this, action, profileId, ids, requestId, batchGuard, movingRuns](bool ok, const QVariantMap &answer,
                                                                        const QString &code, const QString &message) {
             settle(m_unansweredBatch, requestId, ok, code);
             m_batchRunning = false;
-            if (movingRegion)
+            if (movingRuns)
                 Q_EMIT regionMovePendingChanged(false);
             if (!ok) {
                 const bool unsent = batchGuard && batchGuard->neverSent() && code == QLatin1String("ERR_INTERNAL");

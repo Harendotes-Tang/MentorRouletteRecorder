@@ -154,6 +154,8 @@ private:
     QVariant m_regionMismatchRef;
     QString m_regionMismatchText;
     bool m_initializationPending = false;
+    /// True while a projection made only because the settings read is unanswered is applied.
+    bool m_transientProjection = false;
     bool m_busy = false;
     bool m_maintenance = false;
     bool m_userObservation = false;

@@ -333,7 +333,12 @@ ColumnLayout {
 
         SettingsRow {
             objectName: "characterBindingRow"
+            // "Not bound yet" promises a binding to come, which only a region that tells its
+            // characters apart by itself can keep (audit 2026-11-19, K1-2). A binding that
+            // exists is always shown, so it can be released.
             visible: tab.editedCharacter.identity_count !== undefined
+                     && (tab.boundIdentityCount > 0
+                         || Runtime.app.characterIdentification(String(tab.editedCharacter.region || "")) === "AUTOMATIC")
             label: qsTr("已识别的游戏角色")
             description: tab.boundIdentityCount === 0 ? qsTr("尚未绑定游戏角色。")
                 : qsTr("软件已经认出 %1 个游戏角色是「%2」。认错了可以解除，下次登录时会在总览重新询问；已有的记录不变。")

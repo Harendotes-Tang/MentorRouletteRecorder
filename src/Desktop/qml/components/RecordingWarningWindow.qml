@@ -15,6 +15,12 @@ Window {
     property var recording: null
     property var anchorWindow: null
     property bool foregroundDialogVisible: false
+    // The main window is what the player is looking at: good news is said there, in a toast,
+    // not in a window laid over it (owner decision 2026-11-19, audit K1-3).
+    property bool mainWindowForeground: false
+    // How long the recovery notice stays before it goes by itself. It asks for nothing, so it
+    // must not sit over the game until it is clicked away.
+    property int recoveryDismissMs: 8000
     // The native presenter can supply the precise work area, including a
     // taskbar on the left/top. The QML fallback stays on this screen.
     property rect availableGeometry: Qt.rect(Screen.virtualX, Screen.virtualY,
@@ -26,6 +32,8 @@ Window {
     readonly property bool recoveryWanted: !!recording
         && typeof recording.recoveryPending !== "undefined" && recording.recoveryPending
     signal diagnosisRequested()
+    /// The recovery was said in the main window instead of here.
+    signal recoveryShownInMainWindow()
 
     transientParent: null
     visible: false
@@ -55,16 +63,26 @@ Window {
     }
 
     function synchronize() {
-        if (recoveryWanted || (warningWanted && !foregroundDialogVisible)) {
+        if (recoveryWanted && mainWindowForeground) {
+            recoveryShownInMainWindow()
+            acknowledge()
+        } else if (recoveryWanted || (warningWanted && !foregroundDialogVisible)) {
             if (!visible) showWarning()
         } else {
             hide()
         }
     }
 
+    Timer {
+        interval: warning.recoveryDismissMs
+        running: warning.visible && warning.recoveryWanted
+        onTriggered: warning.acknowledge()
+    }
+
     onWarningWantedChanged: Qt.callLater(synchronize)
     onRecoveryWantedChanged: Qt.callLater(synchronize)
     onForegroundDialogVisibleChanged: Qt.callLater(synchronize)
+    onMainWindowForegroundChanged: Qt.callLater(synchronize)
     onWidthChanged: { if (visible) placeOnScreen() }
     onHeightChanged: { if (visible) placeOnScreen() }
     onAvailableGeometryChanged: { if (visible) placeOnScreen() }

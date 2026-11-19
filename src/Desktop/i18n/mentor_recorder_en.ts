@@ -5561,6 +5561,14 @@ SHA256: %3</translation>
         <translation>Game records stay on this PC</translation>
     </message>
     <message>
+        <source>会区分登录的角色（国服，默认开启，可关）</source>
+        <translation>Tells logged-in characters apart (CN, on by default, can be turned off)</translation>
+    </message>
+    <message>
+        <source>为了把记录归到对应的角色，软件会从登录时的流量里读出区分角色的标识，立刻换算成无法还原的标记，只把这个标记保存在本机。不读取角色名，标记不会离开这台电脑。不想要可以在「设置 → 通用」关掉。</source>
+        <translation>To file records under the right character, the app reads the identifier that tells characters apart from the login traffic, turns it at once into a marker that cannot be turned back, and keeps only that marker on this PC. It does not read the character name, and the marker never leaves this PC. You can turn this off in Settings → General.</translation>
+    </message>
+    <message>
         <source>记录保存在本机数据库，界面与后台服务只在本机通信。没有遥测或云同步，下列联网请求不会上传数据库。</source>
         <translation>Records are saved in a local database, and the interface talks to the background service only on this PC. There&apos;s no telemetry or cloud sync, and none of the network requests below upload the database.</translation>
     </message>
@@ -6430,8 +6438,8 @@ SHA256: %3</translation>
         <translation>The preview covers only the latest round; handle it before the next round or a restart. Confirming copies the summary and opens the GitHub form; you can also save the copied JSON as a file and send it along instead of filing an issue.</translation>
     </message>
     <message>
-        <source>结论只说明这一轮读到的标识是否不同；把文件回传给维护者，才能据此实现按角色分别统计。</source>
-        <translation>The result only says whether the identifiers read in this round differ. Send the files to the maintainer so per-character progress can be built on it.</translation>
+        <source>结论只说明这一轮读到的连接标识是否不同，不代表软件自动识别角色所用的登录标识；请把文件回传给维护者核对。</source>
+        <translation>The result only says whether the connection identifiers read in this round differ. It says nothing about the login identifier the app uses to tell characters apart; send the files to the maintainer to check.</translation>
     </message>
     <message>
         <source>采证完成只代表拿到候选线索，仍需维护者验证。先回传一轮，确认可用后再补一轮。</source>
@@ -8732,6 +8740,10 @@ The image text was read as “%2”; confirm against the original image.</transl
     <message>
         <source>打开新区服采证</source>
         <translation>Open new region capture</translation>
+    </message>
+    <message>
+        <source>自动记录已恢复，可以继续自动记录。</source>
+        <translation>Automatic recording is back. You can keep recording automatically.</translation>
     </message>
     <message>
         <source>浅色</source>

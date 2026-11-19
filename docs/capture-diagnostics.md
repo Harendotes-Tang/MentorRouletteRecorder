@@ -322,7 +322,8 @@ IPv6 表读不出时按 IPv4 表选择网卡；IPv4 表读不出仍不猜测。`
 | `injected_hook_enabled` | 恒为 `false` | `false` |
 | `last_error_code` | 最近一次错误码，抓包链路完全不可用时为 `UNAVAILABLE` | `null` |
 | `connection_count` | 本会话观察到的不同游戏连接数 | ≥ 1 |
-| `messages_decoded` | 分帧读取成功的报文数 | 持续增长 |
+| `messages_decoded` | 分帧读取成功的报文数，含控制分段 | 持续增长 |
+| `ipc_decoded` | 其中属于游戏 IPC 的分段数（分段类型 3），不含控制分段；判断「读到了游戏数据」以它为准，桌面端据此宣布自动记录已恢复 | 登录后持续增长 |
 | `decode_errors` | 分帧读取失败的报文数 | 保持 0 或增长极慢 |
 | `parse_ok_count` / `parse_fail_count` | 解析成功 / 声明消息被拒绝的报文数 | 成功率接近 1 |
 | `ignored_count` | 档案未声明的 opcode（与记录无关的普通报文），只计数 | 持续增长 |
@@ -340,7 +341,7 @@ IPv6 表读不出时按 IPv4 表选择网卡；IPv4 表读不出仍不猜测。`
 > 与"流量全部被丢弃"两种情况。2026-09-08 整晚无记录的故障即属后者
 > （contracts/CHANGELOG.md 第 19 条）。
 
-上述十个计数字段在契约中**全部是可选的**，属于 2026-09-04 的附加性变更
+上述计数字段在契约中**全部是可选的**（`ipc_decoded` 为 2026-11-18 新增），属于 2026-09-04 的附加性变更
 （contracts/CHANGELOG.md 第 14 条）。这些数值一直在采集，此前仅出现在导出的脱敏报告中。
 
 > **客户端必须区分 `0` 与字段缺失。** 字段存在且为 `0` 表示已测量且结果为零；
@@ -608,7 +609,9 @@ Machina 在自身线程内将失败写入 `Trace`，而不向调用方抛出异�
 `calibration`（状态、模板档案 id、本机档案 id、阻塞原因、进度、`evidence`、`shared`（§9.6）；
 **不含**时间线，因为时间线记录了用户完成过的副本与轮盘）、`run`、
 `recent_parser_errors`（与 §5.3 为同一批行，由同一个渲染函数产出，
-因此提交的报告与诊断页的截图不会出现差异）。
+因此提交的报告与诊断页的截图不会出现差异）、
+`last_validation_failure`（最近一次失败的界面采证中首个失败的 `category`、`stage` 与 `at_utc`，没有失败过时为 `null`；
+只含这三个枚举与时间，不含任何报文、路径或地址；此后的采证成功不会清除它，下一次失败才会替换）。
 
 `--capture-doctor --json` 在该白名单之外另加两项，因为它运行于**尚无数据库、尚无 IPC**
 的场合：`adapter_count`，以及 §9.3 的 `oodle_temp_copies`。
@@ -692,7 +695,9 @@ trace 同样采用**白名单**机制，每条消息只写入下列字段。
 Top 40 opcode，以及按连接标识汇总的每条连接的消息数、首末时间与不同 opcode 数（最多区分 64 条连接，
 其余只计数）。两者之间可能夹有用户输入的标记行（`marker` / `t_ms` / `at_utc`）。
 
-**身份探针（默认关闭）。** 用于在实现角色独立进度之前，核实哪个字段能够区分本人的不同角色。
+**身份探针（默认关闭）。** 最初用于在实现角色独立进度之前，核实哪个字段能够区分本人的不同角色。按角色统计与国服的自动识别已随
+1.9.0 提供，识别依据是登录报文中的标识（[state-machine.md](state-machine.md) §3.1），而探针的结论判断的仍是连接的段头编号，
+该编号对同一角色并不长期稳定：结论只说明这一轮读到的连接标识是否不同，不代表正式识别所用的登录标识。
 有两个入口：命令行取证加 `--identity-probe`；界面上「捕获诊断 › 工具 › 角色识别采证」按步骤进行的一轮
 （`StartCaptureValidation.identity_probe`，[ui-design.md](ui-design.md) §4.4）。
 开启后文件头多出 `identity_probe: true`，消息行之间夹有身份行，summary 多出 `identity` 一节。不开启时，
@@ -741,7 +746,8 @@ Top 40 opcode，以及按连接标识汇总的每条连接的消息数、首末�
 页面显示对应的说明（`capture.validation.failed_identity_key_invalid` / `…_unreadable`）。
 其他失败按首个失败的类别（诊断报告的 `last_validation_failure.category`）选择说明：Npcap 打不开或读不了网卡为
 `capture.validation.failed_npcap`，游戏版本的数据尚未适配为 `…failed_game_data_format`，读不到游戏主程序为
-`…failed_game_executable`，读不到连接信息为 `…failed_network_data`；无法归类时仍为 `capture.validation.failed`。
+`…failed_game_executable`，读不到连接信息为 `…failed_network_data`；无法归类时仍为 `capture.validation.failed`。本机日志的 `validation_failed` 一行带 `category`、`stage` 与 `error_type`；
+读写密钥或取证文件、清理资源失败时另带经过脱敏的 `error_message`，监视器报告的故障不带。
 这些说明都以「没有读到数据」为前提，只用于开始记录之前的失败（`stage` 为 `Waiting` 或 `Starting`）；
 已经在记录的一轮中途失败时仍显示 `capture.validation.failed`，已写出的文件照常保留。
 探针不读取角色名，不写入编号或标识的原值（由 `tests/Collector.UnitTests/Capture/CaptureIdentityProbeTests.cs`

@@ -607,7 +607,7 @@
         "identity_id": { "type": "integer", "minimum": 1 },
         "action": { "type": "string", "enum": ["BIND", "IGNORE", "ASK_AGAIN"] },
         "profile_id": { "type": "integer", "minimum": 1, "description": "Required for BIND, refused for the other actions." },
-        "display_name": { "type": "string", "minLength": 1, "maxLength": 24, "description": "For BIND with a pending upgraded-profile registration. Names the existing target profile and confirms its binding in the same transaction, including when already bound to that same profile." }
+        "display_name": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Trimmed by the Collector; 1 to 24 characters. For BIND with a pending upgraded-profile registration. Names the existing target profile and confirms its binding in the same transaction, including when already bound to that same profile." }
       }
     },
     "CharacterIdentityResult": {

@@ -11,6 +11,18 @@ HistoryFilterButton {
     property string preset: "all"
     property bool updating: false
     signal relativeRangeChanged()
+    // While true a relative range is not moved on: the page has records ticked or a batch
+    // running, and a new day would be a filter change nobody asked for, answered with a
+    // "change the filter and clear the ticks?" dialog (audit 2026-11-19, K3-1). The dates
+    // stay as applied and the preset says 自定义 until this is released; then it slides again.
+    property bool holdRelativeRange: false
+    property string heldPreset: ""
+    onHoldRelativeRangeChanged: {
+        if (holdRelativeRange || heldPreset.length === 0) return
+        preset = heldPreset
+        heldPreset = ""
+        refreshRelativeRange()
+    }
     // Pages remain alive in the tray. Re-evaluate the selected relative range
     // even while hidden, and immediately when the window/page returns.
     Timer {
@@ -77,6 +89,11 @@ HistoryFilterButton {
         const start = range.start || ""
         const end = range.end || ""
         if (fromInput.text === start && toInput.text === end) return
+        if (holdRelativeRange) {
+            heldPreset = preset
+            preset = "custom"
+            return
+        }
         updating = true
         fromInput.text = start
         toInput.text = end
@@ -155,7 +172,7 @@ HistoryFilterButton {
                     Layout.fillWidth: true
                     Layout.preferredWidth: 116
                     Accessible.name: qsTr("开始日期")
-                    onTextChanged: if (!control.updating) control.preset = "custom"
+                    onTextChanged: if (!control.updating) { control.preset = "custom"; control.heldPreset = "" }
                 }
             }
             Image {
@@ -174,7 +191,7 @@ HistoryFilterButton {
                     Layout.fillWidth: true
                     Layout.preferredWidth: 116
                     Accessible.name: qsTr("结束日期")
-                    onTextChanged: if (!control.updating) control.preset = "custom"
+                    onTextChanged: if (!control.updating) { control.preset = "custom"; control.heldPreset = "" }
                 }
             }
         }

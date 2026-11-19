@@ -446,7 +446,9 @@ QJsonObject MockBackend::assignRunsToProfile(const QJsonObject &payload, QString
         if (region == sourceRegion || (region != QLatin1String("CN") && region != QLatin1String("GLOBAL")
                                       && region != QLatin1String("TC")))
             return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "history.region.different_target");
-        if (!profile || profile->region != region)
+        if (!profile)
+            return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_NOT_FOUND"), "profile.not_found");
+        if (profile->region != region)
             return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "profile.region_mismatch");
         int contributing = 0;
         for (const QJsonObject &run : std::as_const(runs)) {
@@ -458,6 +460,38 @@ QJsonObject MockBackend::assignRunsToProfile(const QJsonObject &payload, QString
                 return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "history.region.mixed_source");
             if (countsTowardsProgress(run))
                 ++contributing;
+        }
+        // RunRepository.FindRegionMigrationDuplicate, in small: the same duty and job at the
+        // same match or entry time, already in the target (under its profile or under nobody)
+        // or twice in the batch.
+        const auto sameRecord = [](const QJsonObject &left, const QJsonObject &right) {
+            const auto same = [&left, &right](const char *key) {
+                const QJsonValue value = left.value(QLatin1String(key));
+                return !value.isNull() && !value.isUndefined() && value == right.value(QLatin1String(key));
+            };
+            return same("job_id") && (same("content_id") || same("duty_name"))
+                && (same("matched_at_utc") || same("entered_at_utc"));
+        };
+        for (qsizetype i = 0; i < runs.size(); ++i) {
+            const QJsonObject &run = runs.at(i);
+            QJsonValue match(QJsonValue::Undefined);
+            for (qsizetype j = 0; j < i && match.isUndefined(); ++j) {
+                if (sameRecord(run, runs.at(j)))
+                    match = runs.at(j).value(QStringLiteral("run_id"));
+            }
+            for (const auto &value : std::as_const(m_runs)) {
+                const QJsonObject other = value.toObject();
+                if (!match.isUndefined())
+                    break;
+                const int owner = runProfileId(other);
+                if (runRegion(other) == region && (owner == 0 || owner == profile->id) && sameRecord(run, other))
+                    match = other.value(QStringLiteral("run_id"));
+            }
+            if (!match.isUndefined()) {
+                *errorDetails = {{QStringLiteral("run_id"), run.value(QStringLiteral("run_id"))},
+                                 {QStringLiteral("matching_run_id"), match}};
+                return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "history.region.duplicate");
+            }
         }
         const int baseline = profile->settings.baselineCompletedCount;
         if (previewRegion) {

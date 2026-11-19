@@ -579,8 +579,9 @@ QtObject {
                    : qsTr("报文 %1").arg(session.countText(session.messageCount))
         case 3:
             if (session.identity)
-                return qsTr("已确认 %1 / 5 步")
-                       .arg(session.markerCount !== null ? Math.max(session.markerCount, session.markedCount) : session.markedCount)
+                // The steps confirmed, not the marker lines written: every 重新确认 writes one
+                // more line for the same step (audit 2026-11-19, K4-2).
+                return qsTr("已确认 %1 / 5 步").arg(Math.min(session.markedCount, 5))
             // The Collector's count of written markers outlives this page; the
             // page's own clicks stand in until it has reported one.
             return qsTr("%1 · 标记 %2 / 5").arg(session.rouletteLabel)

@@ -128,6 +128,8 @@ Q_SIGNALS:
     void batchChanged();
     void batchSucceeded(const QString &action, const QStringList &runIds);
     void regionMigrationChanged();
+    /// A batch that files records under another region or character (move_region,
+    /// assign_profile) is on its way, or has been answered.
     void regionMovePendingChanged(bool pending);
     void filterConfirmationChanged();
     void retentionChanged();

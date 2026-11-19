@@ -2103,7 +2103,18 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
             // through an undo, so the undone correction's mark stays.
             if (field.isEmpty() || field == QLatin1String("manually_corrected"))
                 continue;
-            const QJsonValue restored = change.value(QStringLiteral("old_value"));
+            // RunMutationService.UndoRevision: a region move also changed the target's
+            // baseline and is taken back by another move, never record by record.
+            if (field == QLatin1String("region"))
+                return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_UNDO_NOT_ALLOWED"),
+                                  "mutation.undo.region_migration");
+            QJsonValue restored = change.value(QStringLiteral("old_value"));
+            // A profile removed since, or one of another region: the run goes to nobody.
+            if (field == QLatin1String("profile_id") && restored.isDouble()) {
+                const CharacterProfileEntry *owner = findProfile(restored.toInt());
+                if (!owner || owner->region != runRegion(run))
+                    restored = QJsonValue(QJsonValue::Null);
+            }
             applied.append(changeEntry(field, run.value(field), restored));
             run.insert(field, restored);
         }

@@ -62,6 +62,8 @@ ApplicationWindow {
         anchorWindow: window
         foregroundDialogVisible: window.active && window.visible
                                  && window.visibility !== Window.Minimized && recordingAlert.visible
+        mainWindowForeground: window.active && window.visible && window.visibility !== Window.Minimized
+        onRecoveryShownInMainWindow: Runtime.app.showToast(qsTr("自动记录已恢复，可以继续自动记录。"))
         onDiagnosisRequested: {
             window.acknowledgeRecordingWarning()
             recordingAlert.close()

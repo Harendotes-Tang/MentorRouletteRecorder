@@ -2,6 +2,7 @@
 
 #include "CollectorText.h"
 #include "Formatters.h"
+#include <QScopedValueRollback>
 
 namespace mr {
 AutomaticRecordingController::AutomaticRecordingController(IBackend *backend, QObject *parent)
@@ -151,7 +152,10 @@ bool AutomaticRecordingController::updateWarning(const QString &state, const Liv
         }
         return false;
     }
-    if (m_recoveryPending)
+    // A status event that arrives while this poll's settings are still being read projects
+    // "checking" for a moment. It says nothing about the capture, and withdrawing the recovery
+    // on it would take back a notice that was just correctly raised (audit 2026-11-19, L3-7).
+    if (m_recoveryPending && !m_transientProjection)
         clearWarning();
     const bool calibrationProgress = state == QLatin1String("calibrating")
         || state == QLatin1String("calibration_ready");
@@ -266,6 +270,7 @@ void AutomaticRecordingController::observeCapture(const QVariantMap &capture)
     if (m_initializationPending && capture.value(QStringLiteral("ffxiv_running")).toBool()
         && capture.value(QStringLiteral("profile_status")).toString() == QLatin1String("VERIFIED")
         && !capture.value(QStringLiteral("game_selection_required")).toBool()) {
+        const QScopedValueRollback<bool> transient(m_transientProjection, true);
         finishUnknown(LiveText([] { return tr("正在准备自动记录，请稍候…"); }));
         return;
     }

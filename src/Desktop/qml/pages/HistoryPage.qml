@@ -631,6 +631,7 @@ Item {
                         filterDebounce.stop()
                         page.applyFilter()
                     }
+                    holdRelativeRange: page.checkedCount > 0 || Runtime.app.historyBatchRunning
                     Layout.minimumWidth: implicitWidth
                     facets: page.filterFacets
                     onStartTextChanged: page.scheduleFilter()

@@ -237,8 +237,10 @@ QJsonObject IpcBackend::buildRequestForTest(const QString &messageType,
                && args.value(QLatin1String("forget_identities")).toBool(false)) {
         backend.forgetCharacterIdentities(intArg(args, "profile_id", 0));
     } else if (messageType == QLatin1String("ResolveCharacterIdentity")) {
+        const QJsonValue name = args.value(QLatin1String("display_name"));
         backend.resolveCharacterIdentity(intArg(args, "identity_id", 0), stringArg(args, "action"),
-                                         intArg(args, "profile_id", 0));
+                                         intArg(args, "profile_id", 0), QString(),
+                                         name.isString() ? name.toString() : QString());
     } else if (messageType == QLatin1String("UpdateCharacterProfile")) {
         const QJsonValue name = args.value(QLatin1String("display_name"));
         backend.updateCharacterProfile(intArg(args, "profile_id", 0),

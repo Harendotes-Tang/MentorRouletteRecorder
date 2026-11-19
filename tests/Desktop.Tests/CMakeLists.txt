@@ -1076,6 +1076,8 @@ mr_use_ascii_autogen_dir(MentorRecorderAppSettingsIsolationTests)
 add_test(NAME MentorRecorderAppSettingsIsolation COMMAND MentorRecorderAppSettingsIsolationTests)
 
 set(MR_VALIDATION_QML_TESTS
+    MentorRecorderQmlEvidenceSteps
+    MentorRecorderQmlEvidenceReport
     MentorRecorderQmlMidstreamBanner
     MentorRecorderQmlPendingWorkCard
     MentorRecorderQmlRunEventsTab

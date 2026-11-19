@@ -654,6 +654,13 @@ public sealed partial class CaptureValidationController : IDisposable
             ["category"] = diagnosis.Category.ToString(),
             ["stage"] = diagnosis.Stage.ToString(),
             ["error_type"] = error?.GetType().Name,
+            // The sentences for these failures send the player to this log, so it has to say more
+            // than the exception's type. Only the Collector's own file and key errors: a monitor's
+            // wording may quote traffic and stays out (audit 2026-11-19, A2-3).
+            ["error_message"] = error is not null && diagnosis.Category is CaptureFailureCategory.IdentityKey
+                or CaptureFailureCategory.TraceWrite or CaptureFailureCategory.Cleanup
+                ? RotatingFileLogger.Sanitize(error.Message)
+                : null,
         });
     }
 

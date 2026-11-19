@@ -576,6 +576,58 @@ private Q_SLOTS:
         QVERIFY(loose.payload.value("items").toArray().first().toObject().value("profile_id").isNull());
     }
 
+    // Audit 2026-11-19 J-1, J-2: the mock answers a region move as the Collector does. A target
+    // that is gone is "not found", a record already in the target is a duplicate, and a move is
+    // taken back by another move, never by undoing one record's revision.
+    void regionMovesRefuseWhatTheCollectorRefusesAndAreNotUndone()
+    {
+        const QString first = QStringLiteral("11111111-1111-4111-8111-111111111111");
+        const QString twin = QStringLiteral("22222222-2222-4222-8222-222222222222");
+        const auto manual = [](const QString &id, const QString &region) {
+            QJsonObject run = autoRun(id, QStringLiteral("COMPLETED"), true);
+            run.insert(QStringLiteral("source"), QStringLiteral("MANUAL"));
+            run.remove(QStringLiteral("capture_session_id"));
+            run.insert(QStringLiteral("region"), region);
+            // The duplicate rule compares records that name their job and duty.
+            run.insert(QStringLiteral("job_id"), 24);
+            run.insert(QStringLiteral("content_id"), 5);
+            return run;
+        };
+        const auto profileOf = [](const mr::MockBackend &backend, const QString &region) {
+            for (const auto &value : backend.characterProfiles()) {
+                if (value.toObject().value("region").toString() == region)
+                    return value.toObject().value("profile_id").toInt();
+            }
+            return 0;
+        };
+        const QJsonArray runs{QJsonObject{{"run_id", first}, {"expected_revision", 1}}};
+
+        mr::MockBackend crowded;
+        crowded.resetRuns({manual(first, QStringLiteral("CN")), manual(twin, QStringLiteral("TC"))});
+        const int crowdedTarget = profileOf(crowded, QStringLiteral("TC"));
+        QVERIFY(crowdedTarget > 0);
+        QCOMPARE(ask(crowded, QStringLiteral("PreviewRunRegionMigration"),
+                     {{"runs", runs}, {"region", "TC"}, {"profile_id", 999}}).code, QStringLiteral("ERR_NOT_FOUND"));
+        const Answer duplicate = ask(crowded, QStringLiteral("PreviewRunRegionMigration"),
+                                     {{"runs", runs}, {"region", "TC"}, {"profile_id", crowdedTarget}});
+        QCOMPARE(duplicate.code, QStringLiteral("ERR_BAD_REQUEST"));
+        QVERIFY2(duplicate.message.contains(QString::fromUtf8("重复")), qPrintable(duplicate.message));
+
+        mr::MockBackend backend;
+        backend.resetRuns({manual(first, QStringLiteral("CN"))});
+        const int target = profileOf(backend, QStringLiteral("TC"));
+        const Answer preview = ask(backend, QStringLiteral("PreviewRunRegionMigration"),
+                                   {{"runs", runs}, {"region", "TC"}, {"profile_id", target}});
+        QVERIFY2(preview.ok, qPrintable(preview.message));
+        const Answer moved = ask(backend, QStringLiteral("BatchMutateRuns"),
+            {{"action", "move_region"}, {"runs", runs}, {"reason", "move"}, {"region", "TC"}, {"profile_id", target},
+             {"expected_baseline", preview.payload.value("target_baseline")}, {"baseline_overlap", 0}});
+        QVERIFY2(moved.ok, qPrintable(moved.message));
+        QCOMPARE(ask(backend, QStringLiteral("UndoRevision"),
+                     {{"run_id", first}, {"expected_revision", 2}, {"reason", "undo"}}).code,
+                 QStringLiteral("ERR_UNDO_NOT_ALLOWED"));
+    }
+
     void anImportNamedForAProfileFilesItsRegionsRecordsThere()
     {
         mr::MockBackend backend;

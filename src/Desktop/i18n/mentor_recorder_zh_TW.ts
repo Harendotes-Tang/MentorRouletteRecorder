@@ -5561,6 +5561,14 @@ SHA256：%3</translation>
         <translation>遊戲記錄儲存在本機</translation>
     </message>
     <message>
+        <source>会区分登录的角色（国服，默认开启，可关）</source>
+        <translation>會區分登入的角色（國服，預設開啟，可關）</translation>
+    </message>
+    <message>
+        <source>为了把记录归到对应的角色，软件会从登录时的流量里读出区分角色的标识，立刻换算成无法还原的标记，只把这个标记保存在本机。不读取角色名，标记不会离开这台电脑。不想要可以在「设置 → 通用」关掉。</source>
+        <translation>為了把記錄歸到對應的角色，軟體會從登入時的流量裡讀出區分角色的標識，立刻換算成無法還原的標記，只把這個標記保存在本機。不讀取角色名稱，標記不會離開這台電腦。不想要可以在「設定 → 一般」關掉。</translation>
+    </message>
+    <message>
         <source>记录保存在本机数据库，界面与后台服务只在本机通信。没有遥测或云同步，下列联网请求不会上传数据库。</source>
         <translation>記錄儲存在本機資料庫，介面與背景服務只在本機通訊。沒有遙測或雲端同步，下列連網請求不會上傳資料庫。</translation>
     </message>
@@ -6430,8 +6438,8 @@ SHA256：%3</translation>
         <translation>預覽只針對最近一輪，要在下一輪或重開軟體前處理。確認後會複製摘要並開啟 GitHub 提交頁；也可以把複製的 JSON 存成檔案一起回傳，不必發 Issue。</translation>
     </message>
     <message>
-        <source>结论只说明这一轮读到的标识是否不同；把文件回传给维护者，才能据此实现按角色分别统计。</source>
-        <translation>結論只說明這一輪讀到的標識是否不同；把檔案回傳給維護者，才能據此實作按角色分別統計。</translation>
+        <source>结论只说明这一轮读到的连接标识是否不同，不代表软件自动识别角色所用的登录标识；请把文件回传给维护者核对。</source>
+        <translation>結論只說明這一輪讀到的連線標識是否不同，不代表軟體自動辨識角色所用的登入標識；請把檔案回傳給維護者核對。</translation>
     </message>
     <message>
         <source>采证完成只代表拿到候选线索，仍需维护者验证。先回传一轮，确认可用后再补一轮。</source>
@@ -8732,6 +8740,10 @@ SHA256：%3</translation>
     <message>
         <source>打开新区服采证</source>
         <translation>開啟新區服採證</translation>
+    </message>
+    <message>
+        <source>自动记录已恢复，可以继续自动记录。</source>
+        <translation>自動記錄已恢復，可以繼續自動記錄。</translation>
     </message>
     <message>
         <source>浅色</source>

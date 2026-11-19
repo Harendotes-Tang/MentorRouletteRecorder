@@ -225,7 +225,6 @@ private Q_SLOTS:
         QVERIFY(!confirm->isEnabled());
         QVERIFY(overlap->setProperty("text", QStringLiteral("1")));
         QTRY_VERIFY(confirm->isEnabled());
-        QVERIFY(pages.window()->grabWindow().save(QDir::current().filePath(QStringLiteral("history-region-migration.png"))));
         QVERIFY(pages.click(QStringLiteral("historyRegionMigrationConfirm")));
         QTRY_COMPARE(pages.app->checkedHistoryRunCount(), 0);
         QTRY_COMPARE(pages.profile(target).value(QStringLiteral("baseline_completed_count")).toInt(), 1443);

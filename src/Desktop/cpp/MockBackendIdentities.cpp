@@ -158,13 +158,20 @@ int MockBackend::addCharacterIdentity(const QString &region, const QString &stat
 
 int MockBackend::bindIdentity(CharacterIdentityEntry &identity, int profileId)
 {
-    const QStringList moving = unassignedIdentityRuns(identity);
-    for (const QString &runId : moving) {
+    // CharacterIdentityRepository.AssignUnownedRuns moves every unowned run of the identity, the
+    // recycle bin included; run_count (unassignedIdentityRuns) counts the live ones only.
+    int moved = 0;
+    for (const QString &runId : std::as_const(identity.runIds)) {
         const int index = indexOfRun(runId);
+        if (index < 0)
+            continue;
         QJsonObject run = m_runs.at(index).toObject();
+        if (runProfileId(run) != 0)
+            continue;
         // Moved without a revision (ResolveCharacterIdentityRequest).
         run.insert(QStringLiteral("profile_id"), profileId);
         m_runs[index] = run;
+        ++moved;
     }
     const int registration = m_registrationCandidates.key(identity.id);
     if (registration > 0 && registration != profileId)
@@ -179,7 +186,7 @@ int MockBackend::bindIdentity(CharacterIdentityEntry &identity, int profileId)
                 profile.current = profile.id == profileId;
         }
     }
-    return static_cast<int>(moving.size());
+    return moved;
 }
 
 void MockBackend::dropCharacterIdentity(int identityId)

@@ -187,6 +187,35 @@ private slots:
         QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
     }
 
+    // Owner decision 2026-11-19 (audit K1-3): the recovery notice goes by itself, and with the
+    // main window in front it is said there instead of in a window over it.
+    void recoveryNoticeLeavesByItselfAndYieldsToTheMainWindow()
+    {
+        Scene scene;
+        scene.backend.capture.insert(QStringLiteral("messages_decoded"), 0);
+        scene.backend.capture.insert(QStringLiteral("ipc_decoded"), 0);
+        scene.backend.capture.insert(QStringLiteral("silent_reason"), QStringLiteral("MIDSTREAM"));
+        scene.backend.capture.insert(QStringLiteral("path_recovery"), QJsonObject{{"state", "RECOVERING"}});
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        scene.window()->hide();
+        QTRY_VERIFY(scene.warning()->isVisible());
+        QVERIFY(scene.warning()->setProperty("recoveryDismissMs", 60));
+        scene.healthy();
+        QTRY_COMPARE(scene.warning()->title(), QStringLiteral("导随记录器 · 自动记录已恢复"));
+        QVERIFY(scene.warning()->isVisible());
+        QTRY_VERIFY(!scene.warning()->isVisible());
+        QVERIFY(!scene.app.recording()->recoveryPending());
+
+        // A second episode, with the main window in front: said there, never shown here.
+        scene.recovering();
+        QTRY_VERIFY(scene.warning()->isVisible());
+        QVERIFY(scene.warning()->setProperty("mainWindowForeground", true));
+        scene.healthy();
+        QTRY_VERIFY(!scene.app.recording()->recoveryPending());
+        QVERIFY(!scene.warning()->isVisible());
+        QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+    }
+
     void recoveryShowsAfterAnAcknowledgedFirstFailure()
     {
         Scene scene;
