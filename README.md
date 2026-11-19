@@ -5,6 +5,8 @@
 
 <p align="center">记录《最终幻想 14》指导者任务的 Windows 桌面应用</p>
 
+<p align="center"><b>简体中文</b> · <a href="README.zh-TW.md">繁體中文</a> · <a href="README.en.md">English</a> · <a href="README.ja.md">日本語</a></p>
+
 <p align="center">
   <a href="https://github.com/Harendotes-Tang/MentorRouletteRecorder/actions/workflows/ci.yml"><img src="https://github.com/Harendotes-Tang/MentorRouletteRecorder/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/latest"><img src="https://img.shields.io/github/v/release/Harendotes-Tang/MentorRouletteRecorder" alt="Release"></a>
@@ -26,17 +28,6 @@
 繁中服和国际服支持手动管理记录。完整变更与升级注意事项见 [CHANGELOG.md](CHANGELOG.md)。
 
 <p align="center"><img src="docs/screenshots/dashboard-light.png" width="800" alt="1.9.0 总览页，使用模拟数据"></p>
-
-> **English summary.** Mentor Roulette Recorder tracks FINAL FANTASY XIV *Duty Roulette: Mentor*
-> runs, achievements per character and region, and personal reflections on Windows. Automatic
-> recording and character detection currently support the Chinese server. Traditional Chinese and
-> Global servers support manual records and imports. The UI and installer support Simplified Chinese,
-> Traditional Chinese, English, and Japanese. Screenshot OCR and reflection PNG export run locally.
-> Npcap captures traffic passively with no game injection, process-memory reading, or telemetry.
-> Shared calibration and update checks can be disabled. Online speech is opt-in and sends only the
-> sentence being announced. See [network and privacy details](docs/privacy-boundary.md), the
-> [latest stable release](https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/latest),
-> or the [Global server testing guide](docs/global-server-testing.md).
 
 ## 目录
 

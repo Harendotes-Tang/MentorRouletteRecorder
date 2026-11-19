@@ -199,4 +199,4 @@ jobs:
       # The linter is pinned to one release: unpinned, npx would install whatever is newest on
       # npm at every run. Dependabot does not see a version written here; bump it by hand.
       - name: markdownlint
-        run: npx --yes markdownlint-cli@0.49.1 'docs/**/*.md' 'README.md' 'CHANGELOG.md' 'CONTRIBUTING.md' 'SECURITY.md'
+        run: npx --yes markdownlint-cli@0.49.1 'docs/**/*.md' 'README.md' 'README.zh-TW.md' 'README.en.md' 'README.ja.md' 'CHANGELOG.md' 'CONTRIBUTING.md' 'SECURITY.md'

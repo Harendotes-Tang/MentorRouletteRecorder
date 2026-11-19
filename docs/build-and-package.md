@@ -617,7 +617,7 @@ CI 因此执行 `verify.ps1` 的绝大部分关卡：完整 NuGet 解析图审�
 这类运行不能作为发布验收；`package.ps1` 预验证得到这类结果时，`public_distribution_ready` 为 `false`，
 阻断原因写明「预验证只完成部分验证或未返回完整结果（verification_complete=false）」（[release-checklist.md](release-checklist.md) §7）。
 
-另有一个 `markdown` job，使用固定版本的 `markdownlint-cli@0.49.1` 检查 `docs/`、`README.md`、
+另有一个 `markdown` job，使用固定版本的 `markdownlint-cli@0.49.1` 检查 `docs/`、`README.md` 及其繁中、英文、日文版本（`README.zh-TW.md`、`README.en.md`、`README.ja.md`）、
 `CHANGELOG.md`、`CONTRIBUTING.md`、`SECURITY.md`；该版本号写在工作流中，Dependabot 不跟踪，需手动升级。
 规则见 `.markdownlint.json`，
 排除项见 `.markdownlintignore`；其中 `docs/reviews/`、`docs/plans/`、`openspec/`
