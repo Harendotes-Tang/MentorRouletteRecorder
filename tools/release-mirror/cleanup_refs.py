@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""Preview approved GitCode branch cleanup; only --execute permits deletion.
+"""Preview approved GitCode branch and prerelease-tag cleanup; only --execute permits deletion.
 
 Run from the trusted main checkout in Actions. The adjacent approval plan is the
-only authority; no CLI option can supply another plan, branch, SHA or destination.
+only authority; no CLI option can supply another plan, branch, tag, SHA or destination.
+
+Tags are a separate list in the plan. Only a prerelease tag (vX.Y.Z-suffix) can be approved,
+never a formal version tag, and like a branch it is deleted only while GitHub no longer has
+it and the mirror still holds exactly the approved object. A GitCode release attached to a
+deleted tag is not touched here: GitCode documents no API that deletes a release.
 """
 
 from __future__ import annotations
@@ -18,9 +23,13 @@ import tempfile
 from sync_refs import Git, REPOSITORIES, SHA, RefSyncError, parse_refs, repository_urls
 
 PLAN_PATH = Path(__file__).with_name("cleanup-plan.json")
-MAX_PLAN_BYTES = 16 * 1024
+MAX_PLAN_BYTES = 24 * 1024
 MAX_ENTRIES = 48
 MAIN = "refs/heads/main"
+# sync_release.py's PRERELEASE_TAG: a formal tag (no suffix) can never match.
+PRERELEASE_TAG_REF = re.compile(
+    r"refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-"
+    r"[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*\Z")
 
 
 def require(condition: bool, message: str) -> None:
@@ -36,11 +45,33 @@ def unique_object(pairs: list[tuple]) -> dict:
     return result
 
 
+def validate_tags(value: object) -> list[dict[str, str]]:
+    """The plan's approved prerelease tags; a plan without the list approves none."""
+    require(isinstance(value, dict), "Invalid approval plan schema")
+    entries = value.get("tags", [])
+    require(isinstance(entries, list) and len(entries) <= MAX_ENTRIES,
+            "Invalid approved tag count")
+    seen = set()
+    for entry in entries:
+        require(isinstance(entry, dict) and set(entry) == {"repo", "ref", "expected_sha"}
+                and all(isinstance(v, str) for v in entry.values()), "Invalid approved tag entry")
+        repository_urls(entry["repo"])
+        require(len(entry["ref"]) <= 255 and PRERELEASE_TAG_REF.fullmatch(entry["ref"]) is not None,
+                "Only prerelease tags can be approved for deletion")
+        require(SHA.fullmatch(entry["expected_sha"]) is not None and entry["expected_sha"] != "0" * 40,
+                "Approval requires complete nonzero object SHAs")
+        identity = (entry["repo"], entry["ref"])
+        require(identity not in seen, "Duplicate approved tag")
+        seen.add(identity)
+    return entries
+
+
 def validate_plan(value: object) -> list[dict[str, str]]:
-    require(isinstance(value, dict) and set(value) == {"schema_version", "branches"},
+    require(isinstance(value, dict) and set(value) - {"tags"} == {"schema_version", "branches"},
             "Invalid approval plan schema")
     require(type(value["schema_version"]) is int and value["schema_version"] == 1,
             "Unsupported approval plan version")
+    validate_tags(value)
     entries = value["branches"]
     require(isinstance(entries, list) and 0 < len(entries) <= MAX_ENTRIES,
             "Invalid approval plan entry count")
@@ -72,14 +103,24 @@ def validate_plan(value: object) -> list[dict[str, str]]:
     return entries
 
 
-def load_plan() -> list[dict[str, str]]:
+def read_plan() -> dict:
     try:
         with PLAN_PATH.open("rb") as stream:
             data = stream.read(MAX_PLAN_BYTES + 1)
         require(len(data) <= MAX_PLAN_BYTES, "Approval plan exceeds size limit")
-        return validate_plan(json.loads(data.decode("utf-8"), object_pairs_hook=unique_object))
+        value = json.loads(data.decode("utf-8"), object_pairs_hook=unique_object)
+        validate_plan(value)
+        return value
     except (OSError, UnicodeError, ValueError):
         raise RefSyncError("Approval plan could not be read or parsed") from None
+
+
+def load_plan() -> list[dict[str, str]]:
+    return validate_plan(read_plan())
+
+
+def load_tags() -> list[dict[str, str]]:
+    return validate_tags(read_plan())
 
 
 def remote_refs(git: Git, url: str) -> dict[str, str]:
@@ -126,10 +167,13 @@ def restore_reappeared(git: Git, repo: str, revived: dict[str, str]) -> None:
     incomplete cleanup, not deletion success. Cross-host reads are not a lock.
     """
     source_url, target_url = repository_urls(repo)
+    tag_objects = {sha for ref, sha in revived.items() if ref.startswith("refs/tags/")}
     for sha in sorted(set(revived.values())):
         git.run(["fetch", "--no-tags", source_url, sha])
-        require(git.run(["rev-parse", "--verify", sha + "^{commit}"]).strip() == sha,
-                "Source restoration object is not the observed commit")
+        # A branch points at a commit; an annotated tag at its own tag object.
+        kind = "^{object}" if sha in tag_objects else "^{commit}"
+        require(git.run(["rev-parse", "--verify", sha + kind]).strip() == sha,
+                "Source restoration object is not the observed object")
     before = remote_refs(git, target_url)
     source = remote_refs(git, source_url)
     require(all(source.get(ref) == sha for ref, sha in revived.items()),
@@ -148,19 +192,24 @@ def restore_reappeared(git: Git, repo: str, revived: dict[str, str]) -> None:
             "Restoration verification failed; cleanup remains incomplete")
 
 
-def cleanup(git: Git, repo: str, plan: list[dict[str, str]], *, execute: bool = False) -> dict[str, str]:
+def cleanup(git: Git, repo: str, plan: list[dict[str, str]], *, execute: bool = False,
+            tags: list[dict[str, str]] | None = None) -> dict[str, str]:
     source_url, target_url = repository_urls(repo)
     # Validate even in library use: callers cannot bypass protected-ref checks.
     plan = validate_plan({"schema_version": 1, "branches": plan})
-    entries = [entry for entry in plan if entry["repo"] == repo]
-    require(bool(entries), "Repository has no approved cleanup entries")
+    tags = validate_tags({"tags": list(tags or [])})
+    branches = [entry for entry in plan if entry["repo"] == repo]
+    require(bool(branches), "Repository has no approved cleanup entries")
+    # Anchors belong to branches only; a tag's authority is its prerelease name, its absence
+    # from GitHub and the exact object lease.
+    entries = branches + [entry for entry in tags if entry["repo"] == repo]
     git.run(["init", "--bare", "--template="])
     git.run(["fetch", "--no-tags", source_url, "+refs/heads/main:refs/heads/main"])
     main_sha = git.run(["rev-parse", "--verify", MAIN]).strip()
     require(SHA.fullmatch(main_sha) is not None, "Invalid fetched main commit")
     # A discard anchor records the main baseline at explicit abandonment approval;
     # it does not claim that the discarded dependency change was ever merged.
-    for anchor in sorted({entry.get("merge_anchor", entry.get("discard_anchor")) for entry in entries}):
+    for anchor in sorted({entry.get("merge_anchor", entry.get("discard_anchor")) for entry in branches}):
         require(git.run(["cat-file", "-t", anchor]).strip() == "commit",
                 "Approved retirement anchor must be a commit")
         try:
@@ -187,7 +236,7 @@ def cleanup(git: Git, repo: str, plan: list[dict[str, str]], *, execute: bool = 
     revived = {ref: source_after[ref] for ref in removed if ref in source_after}
     if revived:
         restore_reappeared(git, repo, revived)
-        raise RefSyncError("Source branch reappeared; approved refs restored and verified; cleanup remains incomplete")
+        raise RefSyncError("Source ref reappeared; approved refs restored and verified; cleanup remains incomplete")
     expected_after = {ref: sha for ref, sha in target.items() if ref not in removed}
     require(after == expected_after,
             "Anonymous cleanup verification failed; approved or unrelated refs changed")
@@ -201,11 +250,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args(argv)
     try:
-        plan = load_plan()
+        plan, tags = load_plan(), load_tags()
         token = os.environ.get("GITCODE_MIRROR_TOKEN", "") if args.execute else ""
         require(not args.execute or bool(token), "Configure GITCODE_MIRROR_TOKEN before execution")
         with tempfile.TemporaryDirectory(prefix="mentor-approved-cleanup-") as directory:
-            decisions = cleanup(Git(Path(directory), token), args.repo, plan, execute=args.execute)
+            decisions = cleanup(Git(Path(directory), token), args.repo, plan, execute=args.execute, tags=tags)
         print("Approved mirror cleanup " + ("execution" if args.execute else "preview") + ": " + args.repo)
         for ref, decision in decisions.items():
             print(ref + ": " + decision)

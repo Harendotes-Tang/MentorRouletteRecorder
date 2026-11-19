@@ -247,5 +247,87 @@
       "expected_sha": "29083ea296f4a06e0ceb7d6d529da1591606cced",
       "discard_anchor": "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
     }
+  ],
+  "tags": [
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/tags/v1.7.0-beta.1",
+      "expected_sha": "f92e346964cb54160fcdb81594ba79774b69ba58"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/tags/v1.7.0-beta.2",
+      "expected_sha": "7a154122183cb4cf25879fcadc471bf501926c06"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/tags/v1.7.0-beta.3",
+      "expected_sha": "dab49f1ece18d9896bac9dfcf3dd93493269239a"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/tags/v1.7.0-beta.4",
+      "expected_sha": "41c86572f462d648b9668c6b4729834df9978413"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/tags/v1.7.0-beta.5",
+      "expected_sha": "3d18bfd67dc0fe0000c27ff1b8941fb0339c4702"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/tags/v1.7.0-beta.6",
+      "expected_sha": "9d334b922463a295312423d5f65d93ad371e5c43"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/tags/v1.7.0-beta.7",
+      "expected_sha": "c0ca39d01740c0c6592484b00693a744ee82d0ba"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/tags/v1.7.1-beta.1",
+      "expected_sha": "6fe68caec7c3fcb8e384b56920ded0f7bf3644f0"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/tags/v1.7.3-beta.1",
+      "expected_sha": "99c36ce34b5483a08d34e6c1215d5c0ba8aa444c"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/tags/v1.7.3-beta.2",
+      "expected_sha": "e43561fa35a3fbd7fd72634eacc47f09a9263a1b"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/tags/v1.7.3-beta.3",
+      "expected_sha": "e31aeb1d5af6a593c45325164e4576cd5707dee0"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/tags/v1.7.3-beta.4",
+      "expected_sha": "ed9d83e11571ad541ee4919e16d22d7e4d935415"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/tags/v1.8.0-beta.2",
+      "expected_sha": "5418e6fdc19c89dc0ec1cdaf6f499263a625f16f"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/tags/v1.8.0-beta.3",
+      "expected_sha": "75e80095784e4d72a3c928fe3ec297b6f1585ad0"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/tags/v1.9.0-beta.1",
+      "expected_sha": "51845a2bcaa69216a1ccff3e145f50099babd093"
+    },
+    {
+      "repo": "MentorRouletteRecorder",
+      "ref": "refs/tags/v1.9.0-beta.2",
+      "expected_sha": "505399126d47755745994ed4149ddea476066714"
+    }
   ]
 }
