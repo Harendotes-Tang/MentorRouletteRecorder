@@ -38,6 +38,8 @@ MotionDialog {
     /// the new order puts every row where the slide had left it.
     property bool dragAnimated: false
     readonly property int dragDuration: Theme.motion ? 160 : 0
+    /// The hovered plate of a row's buttons: the resting plate tinted, still opaque.
+    readonly property color gripHoverColor: Qt.tint(Theme.surfaceRaised, Theme.fillStrong)
     /// The rendered rows a grip stands beside, in the order they are saved.
     readonly property list<Item> gripEntries: !batch ? [] : collection ? combined.collectionEntries : stack.previewEntries
     property string exportDate: ""
@@ -450,7 +452,9 @@ MotionDialog {
                                 restoreMode: Binding.RestoreBindingOrValue
                             }
                             activeFocusOnTab: true
-                            color: drag.active || hover.hovered || activeFocus ? Theme.fillStrong : Theme.surfaceRaised
+                            // Over a card, not over the window: the plate stays opaque when
+                            // hovered, or the icon is lost against the parchment.
+                            color: drag.active || hover.hovered || activeFocus ? dialog.gripHoverColor : Theme.surfaceRaised
                             border.color: activeFocus || drag.active ? Theme.accentStrong : Theme.borderStrong
                             Accessible.role: Accessible.Button
                             Accessible.name: qsTr("拖动排序") + " · " + (Theme.dutyName(dialog.runsData[index]) || qsTr("未知副本"))
@@ -480,7 +484,7 @@ MotionDialog {
                                     width: 28
                                     height: 28
                                     radius: Theme.radiusS
-                                    color: jumpHover.hovered ? Theme.fillStrong : Theme.surfaceRaised
+                                    color: jumpHover.hovered ? dialog.gripHoverColor : Theme.surfaceRaised
                                     border.color: Theme.borderStrong
                                     Accessible.role: Accessible.Button
                                     Accessible.name: modelData.label

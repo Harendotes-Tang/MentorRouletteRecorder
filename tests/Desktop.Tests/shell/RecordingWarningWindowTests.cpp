@@ -206,13 +206,29 @@ private slots:
         QTRY_VERIFY(!scene.warning()->isVisible());
         QVERIFY(!scene.app.recording()->recoveryPending());
 
-        // A second episode, with the main window in front: said there, never shown here.
+        // A second episode whose warning is still on screen when the main window comes to
+        // the front: the recovery is said in the same window, not in a toast (2026-11-20).
+        QSignalSpy saidInMainWindow(scene.warning(), SIGNAL(recoveryShownInMainWindow()));
         scene.recovering();
         QTRY_VERIFY(scene.warning()->isVisible());
         QVERIFY(scene.warning()->setProperty("mainWindowForeground", true));
         scene.healthy();
-        QTRY_VERIFY(!scene.app.recording()->recoveryPending());
+        QTRY_COMPARE(scene.warning()->title(), QStringLiteral("导随记录器 · 自动记录已恢复"));
+        QVERIFY(scene.warning()->isVisible());
+        QTRY_VERIFY(!scene.warning()->isVisible());
+        QVERIFY(!scene.app.recording()->recoveryPending());
+        QCOMPARE(saidInMainWindow.count(), 0);
+
+        // A third, acknowledged before it recovers, with the main window in front: nothing
+        // is on screen here, so it is said there and this window stays away.
+        scene.recovering();
+        QTRY_VERIFY(scene.warning()->isVisible());
+        QVERIFY(scene.invokeButton(QStringLiteral("recordingWarningAcknowledge")));
+        QTRY_VERIFY(!scene.warning()->isVisible());
+        scene.healthy();
+        QTRY_COMPARE(saidInMainWindow.count(), 1);
         QVERIFY(!scene.warning()->isVisible());
+        QVERIFY(!scene.app.recording()->recoveryPending());
         QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
     }
 

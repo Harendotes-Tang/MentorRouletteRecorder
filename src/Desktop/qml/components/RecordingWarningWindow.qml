@@ -16,7 +16,11 @@ Window {
     property var anchorWindow: null
     property bool foregroundDialogVisible: false
     // The main window is what the player is looking at: good news is said there, in a toast,
-    // not in a window laid over it (owner decision 2026-11-19, audit K1-3).
+    // not in a window laid over it (owner decision 2026-11-19, audit K1-3). That holds only
+    // while this window is not on screen. A warning still showing here turns into the
+    // recovery notice in place: the player who was told here that recording stopped is told
+    // here that it is back, instead of the window vanishing with a toast elsewhere
+    // (owner, 2026-11-20).
     property bool mainWindowForeground: false
     // How long the recovery notice stays before it goes by itself. It asks for nothing, so it
     // must not sit over the game until it is clicked away.
@@ -63,7 +67,7 @@ Window {
     }
 
     function synchronize() {
-        if (recoveryWanted && mainWindowForeground) {
+        if (recoveryWanted && mainWindowForeground && !visible) {
             recoveryShownInMainWindow()
             acknowledge()
         } else if (recoveryWanted || (warningWanted && !foregroundDialogVisible)) {
