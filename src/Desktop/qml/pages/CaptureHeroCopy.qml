@@ -227,6 +227,8 @@ QtObject {
             return qsTr("正在检查已安装的游戏版本。启动游戏后会自动继续。")
         if (chain.profileReady)
             return qsTr("已支持安装在这台电脑上的游戏版本。启动游戏后会自动记录。")
+        if (chain.regionUnsupported)
+            return qsTr("已安装游戏所在的区服暂不支持自动记录。启动游戏后会再次检查。")
         return qsTr("当前安装的游戏版本暂不支持自动记录。启动游戏后会再次检查。")
     }
 

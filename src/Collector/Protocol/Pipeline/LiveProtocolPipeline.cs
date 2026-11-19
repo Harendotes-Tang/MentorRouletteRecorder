@@ -1666,11 +1666,20 @@ public sealed partial class LiveProtocolPipeline :
     /// 在会话锁内裁决后台写入所属代次。重置或确认期间写出的旧证据必须先删除，
     /// 再保存当前状态，以免磁盘存储拒绝用较少但正确的新证据替换旧证据。
     /// 文件锁在此回调之前已释放；校准会话及 generation 的解释只属于管线。
+    /// 删除只针对同一区服、同一版本内的重置：校准已解除，或已改为另一区服、另一版本时，
+    /// 该文件里是停止采集时保存的最终证据，而此刻没有可重新保存的状态；删除它等于丢掉
+    /// 玩家切换客户端之前的校准进度（2026-11-20）。
     /// </summary>
     private void ReconcileCalibrationEvidence(CalibrationEvidenceWrite pending, bool written)
     {
-        if (!written || (_calibration.Generation == pending.Generation && _calibration.Armed &&
-            string.Equals(_calibration.GameBuild, pending.Build, StringComparison.Ordinal)))
+        if (!written)
+        {
+            return;
+        }
+
+        var sameKey = _calibration.Template is not null && _calibration.Region == pending.Region &&
+            string.Equals(_calibration.GameBuild, pending.Build, StringComparison.Ordinal);
+        if (!sameKey || (_calibration.Generation == pending.Generation && _calibration.Armed))
         {
             return;
         }

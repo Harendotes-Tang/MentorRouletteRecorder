@@ -155,6 +155,7 @@ Item {
                 heroSpeaksCalibration: hero.copy.kind === "calibration"
                 onOpenCalibrationRequested: page.openCalibrationRequested()
                 onOpenRegionSettingsRequested: page.openRegionSettingsRequested()
+                onEvidenceGuideRequested: page.openObservationGuide()
             }
 
             // Keep the same card instances while calibration appears/disappears.

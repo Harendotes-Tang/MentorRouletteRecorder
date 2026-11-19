@@ -52,6 +52,9 @@ QtObject {
         return false
     }
     readonly property string profileStatus: String(chain.capture.profile_status || "")
+    // The region has no support at all (not a patched build of a supported one).
+    readonly property bool regionUnsupported: Runtime.app.regionUnsupported === true
+                                              && chain.profileStatus === "UNSUPPORTED_BUILD"
     readonly property string profileOrigin: String(chain.capture.profile_origin || "")
     readonly property bool profileReady: chain.profileStatus === "VERIFIED"
     readonly property string calibrationState: Runtime.app.calibration ? Runtime.app.calibration.state : "IDLE"
@@ -129,6 +132,8 @@ QtObject {
                 return [qsTr("等待游戏启动 · 请查看「共享校准」中的进度"), "bad"]
             if (chain.calibrating)
                 return [qsTr("等待游戏启动 · 当前安装的游戏版本需要重新校准"), "bad"]
+            if (chain.regionUnsupported)
+                return [qsTr("等待游戏启动 · 已安装游戏所在的区服暂不支持自动记录"), "bad"]
             return [qsTr("等待游戏启动 · 当前安装的游戏版本暂不支持自动记录"), "bad"]
         }
         if (chain.recovering)
@@ -158,6 +163,8 @@ QtObject {
                 return [qsTr("尚未识别游戏区服 · 暂时不会自动记录"), "bad"]
             if (chain.buildUnknown)
                 return [qsTr("尚未识别游戏版本或区服 · 暂时不会自动记录"), "bad"]
+            if (chain.regionUnsupported)
+                return [qsTr("这个区服暂不支持自动记录"), "bad"]
             if (chain.profileStatus === "UNSUPPORTED_BUILD")
                 return [qsTr("当前游戏版本暂不支持自动记录"), "bad"]
             return [qsTr("还没找到适用的游戏版本支持文件，暂时不能自动记录"), "bad"]
@@ -234,6 +241,8 @@ QtObject {
         if (chain.buildUnknown)
             return chain.regionUnknown && chain.capture.game_build
                 ? qsTr("未识别区服") : qsTr("未识别版本")
+        if (chain.regionUnsupported)
+            return qsTr("区服未适配")
         if (chain.profileStatus === "UNSUPPORTED_BUILD")
             return qsTr("版本不支持")
         return qsTr("未匹配")
@@ -256,6 +265,8 @@ QtObject {
         if (chain.buildUnknown)
             return chain.regionUnknown && chain.capture.game_build
                 ? qsTr("尚未识别游戏区服") : qsTr("尚未识别游戏版本或区服")
+        if (chain.regionUnsupported)
+            return qsTr("这个区服暂时不会自动记录")
         return chain.gameRunning ? qsTr("当前版本暂时不会自动记录")
                                  : qsTr("已安装版本暂时不会自动记录")
     }

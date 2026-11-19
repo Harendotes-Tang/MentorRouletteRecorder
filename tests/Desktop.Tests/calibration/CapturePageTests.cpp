@@ -89,6 +89,8 @@ public:
     QJsonObject adapters;
     /// Further GetStatus members beside capture (warnings, warning_refs).
     QJsonObject extras;
+    /// GetProtocolProfileStatus when set.
+    QJsonObject profile;
     QHash<QString, int> counts;
 
     QString backendName() const override { return QStringLiteral("mock"); }
@@ -114,6 +116,8 @@ public:
             reply->succeed(validation);
         } else if (type == QLatin1String("ListCaptureAdapters") && !adapters.isEmpty()) {
             reply->succeed(adapters);
+        } else if (type == QLatin1String("GetProtocolProfileStatus") && !profile.isEmpty()) {
+            reply->succeed(profile);
         } else {
             reply->succeed({});
         }
@@ -1664,6 +1668,65 @@ private slots:
         const QString page = scene.visibleTexts().join(QLatin1Char('\n'));
         QVERIFY2(!page.contains(QString::fromUtf8("正在启动监听")), qPrintable(page));
         QVERIFY2(!page.contains(QString::fromUtf8("正在检查能否自动记录")), qPrintable(page));
+    }
+
+    // Owner, 2026-11-20: a client of a region without any support (繁中服, 国际服) is not a
+    // patched version waiting for calibration. Every place says "region", the card says
+    // calibration will not start, and 采证步骤 opens 新区服采证. A patched build of a
+    // supported region keeps the version wording and gets no such button.
+    void anUnsupportedRegionIsNotCalledAnUnsupportedVersion_data()
+    {
+        QTest::addColumn<QString>("region");
+        QTest::addColumn<bool>("regionIsTheReason");
+        QTest::newRow("tc") << QStringLiteral("TC") << true;
+        QTest::newRow("global") << QStringLiteral("GLOBAL") << true;
+        QTest::newRow("patched cn") << QStringLiteral("CN") << false;
+    }
+
+    void anUnsupportedRegionIsNotCalledAnUnsupportedVersion()
+    {
+        QFETCH(QString, region);
+        QFETCH(bool, regionIsTheReason);
+        const QString build = QStringLiteral("2026.09.01.0000.0000");
+        auto fake = std::make_unique<CaptureBackend>();
+        fake->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                         {QStringLiteral("ffxiv_running"), true},
+                         {QStringLiteral("ffxiv_process_id"), 18244},
+                         {QStringLiteral("npcap_installed"), true},
+                         {QStringLiteral("profile_status"), QStringLiteral("UNSUPPORTED_BUILD")},
+                         {QStringLiteral("region"), region},
+                         {QStringLiteral("game_build"), build}};
+        const QString key = regionIsTheReason ? QStringLiteral("profile.unavailable.region_unsupported")
+                                              : QStringLiteral("profile.unavailable.build_unsupported");
+        fake->profile = {{QStringLiteral("status"), QStringLiteral("UNSUPPORTED_BUILD")},
+                         {QStringLiteral("region"), region},
+                         {QStringLiteral("game_build"), build},
+                         {QStringLiteral("message"), QString::fromUtf8("采集服务的说明。")},
+                         {QStringLiteral("message_ref"), QJsonObject{{QStringLiteral("key"), key}}}};
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open());
+        QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("blocked"));
+        QTRY_COMPARE(scene.app->regionUnsupported(), regionIsTheReason);
+        const QString regionSummary = QString::fromUtf8("这个区服暂不支持自动记录");
+        const QString versionSummary = QString::fromUtf8("当前游戏版本暂不支持自动记录");
+        QTRY_COMPARE(scene.text(QStringLiteral("captureChainSummary")),
+                     regionIsTheReason ? regionSummary : versionSummary);
+        // The sentence of the modal notice and of 总览, said again once the reason is known.
+        QTRY_COMPARE(scene.app->recording()->message().contains(QString::fromUtf8("这个区服")), regionIsTheReason);
+        QCOMPARE(scene.app->recording()->message().contains(QString::fromUtf8("当前游戏版本")), !regionIsTheReason);
+        const QString page = scene.visibleTexts().join(QLatin1Char('\n'));
+        QCOMPARE(page.contains(QString::fromUtf8("区服未适配")), regionIsTheReason);
+        QCOMPARE(page.contains(QString::fromUtf8("版本不支持")), !regionIsTheReason);
+        QCOMPARE(page.contains(QString::fromUtf8("校准不会自动开始")), regionIsTheReason);
+        QVERIFY2(!page.contains(QStringLiteral("profile.unavailable")), qPrintable(page));
+        QCOMPARE(scene.shows(QStringLiteral("protocolEvidenceButton")), regionIsTheReason);
+        QVERIFY(!scene.shows(QStringLiteral("calibrationCard")));
+        if (!regionIsTheReason)
+            return;
+        QVERIFY(!scene.page->property("observationGuideExpanded").toBool());
+        QVERIFY(QMetaObject::invokeMethod(scene.item(QStringLiteral("protocolEvidenceButton")), "clicked"));
+        QTRY_VERIFY(scene.page->property("observationGuideExpanded").toBool());
     }
 
     // Review K2-4: a verified build the recording controller has blocked is not 「正在启动监听…」.

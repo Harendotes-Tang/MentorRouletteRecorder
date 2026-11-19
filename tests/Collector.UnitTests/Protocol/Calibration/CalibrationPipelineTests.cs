@@ -452,6 +452,71 @@ public sealed class CalibrationPipelineTests : IDisposable
     }
 
     /// <summary>
+    /// 2026-11-20. A periodic save that did reach the disk reports back late: the capture has
+    /// stopped by then (the stop gives up waiting after five seconds and writes the final
+    /// snapshot), and a client of a region without a template has disarmed calibration. The
+    /// report saw another generation, deleted the file - which held the final snapshot - and
+    /// saved nothing in its place, because nothing was armed. The unfinished calibration of the
+    /// region the player came from was lost. Deleting is for a reset inside the same
+    /// calibration; a calibration that is no longer the pending write's leaves the file alone.
+    /// </summary>
+    [Theory]
+    [InlineData(Region.Tc)]
+    [InlineData(Region.Global)]
+    public void ASaveReportedAfterAnotherRegionsClientStartedKeepsTheEvidence(Region other)
+    {
+        using var db = new TestDatabase();
+        var template = CalibrationObserverTests.Template();
+        var evidenceRoot = Path.Combine(_localRoot, "evidence-" + other);
+        var stored = Services(template).WithEvidenceIn(evidenceRoot);
+        LiveProtocolPipeline? pipeline = null;
+        var sessionId = string.Empty;
+        var periodic = true;
+        var services = stored with
+        {
+            SelectTemplate = region => region == Region.Cn ? template : null,
+            // The periodic write lands; before it can report, the capture stops and the other
+            // region's client is detected. Later writes (the stop's final one) go straight through.
+            SaveEvidence = (region, build, sha, snapshot) =>
+            {
+                var written = stored.SaveEvidence(region, build, sha, snapshot);
+                if (!periodic)
+                {
+                    return written;
+                }
+
+                periodic = false;
+                pipeline!.OnCaptureStopped(sessionId, CaptureEndReason.ProcessExit);
+                pipeline.Refresh(NewBuild with { Region = other });
+                return written;
+            },
+        };
+        pipeline = new LiveProtocolPipeline(
+            db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, services)
+        {
+            RunCalibrationFlush = write =>
+            {
+                write();
+                return Task.CompletedTask;
+            },
+        };
+        pipeline.Refresh(NewBuild);
+        sessionId = OpenSession(db);
+        pipeline.OnCaptureStarted(sessionId);
+        var last = new MessageKey(Domain.Events.PacketDirection.ServerToClient, 0xE00E, 8);
+        Feed(pipeline, sessionId, CalibrationObserverTests.Session1()
+            .Where(message => message.Mono < TimeSpan.FromMilliseconds(100_000))
+            .OrderBy(message => message.Mono)
+            .Append(CalibrationObserverTests.Message(MessageDirection.Inbound, last.Opcode, new byte[last.Length], 125_000)));
+
+        Assert.False(periodic, "the periodic save never ran");
+        Assert.Equal(CalibrationState.Idle, pipeline.CalibrationStatus().State);
+        var kept = CalibrationEvidenceStore.Load(evidenceRoot, Region.Cn, Build, template.Source.ProfileSha256);
+        Assert.NotNull(kept);
+        Assert.True(kept!.OutsideCounts.ContainsKey(last), "the final snapshot is not the one on disk");
+    }
+
+    /// <summary>
     /// Fails with <paramref name="because"/> rather than a bare timeout when <paramref name="task"/>
     /// is still running. Awaited, not waited on: a blocking wait in a test can deadlock, and the
     /// analyser refuses it (xUnit1031).

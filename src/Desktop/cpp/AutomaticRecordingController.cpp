@@ -79,6 +79,15 @@ void AutomaticRecordingController::setUserObservation(bool enabled)
         refresh();
 }
 
+void AutomaticRecordingController::setRegionUnsupported(bool unsupported)
+{
+    if (m_regionUnsupported == unsupported) return;
+    m_regionUnsupported = unsupported;
+    // The sentence on screen was built for the other reason; say it again.
+    if (m_state == QLatin1String("blocked") && !m_busy)
+        refresh();
+}
+
 void AutomaticRecordingController::setState(const QString &state, const LiveText &message)
 {
     // Both texts are built now, in the language on screen, so a switch between
@@ -511,7 +520,8 @@ void AutomaticRecordingController::project(const QVariantMap &c)
             return QStringLiteral("profile:") + profile;
         }();
         const bool regionMismatch = m_regionMismatchRef.isValid() || !m_regionMismatchText.isEmpty();
-        block(session + reason, LiveText([pathUnreadable, regionUnknown, buildUnknown, regionMismatch,
+        const bool regionUnsupported = m_regionUnsupported && profile == QLatin1String("UNSUPPORTED_BUILD");
+        block(session + reason, LiveText([pathUnreadable, regionUnknown, buildUnknown, regionMismatch, regionUnsupported,
                                           mismatchRef = m_regionMismatchRef, mismatchText = m_regionMismatchText] {
             // A manual region chosen for another client contradicts this one's
             // install path: the Collector's sentence says so and what to change
@@ -522,6 +532,8 @@ void AutomaticRecordingController::project(const QVariantMap &c)
                 return tr("无法识别游戏区服，暂时不能自动记录。请在「设置 → 通用」中选择实际区服（国服 / 繁中服 / 国际服），保存后会重新检查。");
             if (buildUnknown && !pathUnreadable)
                 return tr("无法读取游戏版本，暂时不能自动记录。请确认游戏文件完整，再点「重新检测游戏」。");
+            if (regionUnsupported && !pathUnreadable)
+                return tr("目前还不支持这个区服的自动记录，校准也不会自动开始。请查看「捕获诊断」，期间可以先手动记录。");
             return pathUnreadable
                 // 路径取自内核进程表，本就不需要额外权限，提权对此没有帮助，
                 // 因此这里不再建议以管理员身份运行（审查 2026-09-21 第 1 条）。

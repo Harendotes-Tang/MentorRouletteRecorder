@@ -2429,6 +2429,9 @@ Phase 4 的真实后端评审截图位于 `build/screenshots/phase4/`，包括
    * 全部心得页底部：「每页 N 条」在左，翻页与跳转在右，与历史记录一致。
    * 历史记录勾选后始终显示「迁移区服」（`batchMoveRegionButton`）；勾选的记录不能迁移时按钮置灰，悬停提示（`batchMoveRegionHint`）说明条件。
    * 统计浮窗「按类型通关」分段条：各段边缘对齐设备像素，间隙一致，首尾两段取底条的圆角。
+   * 区服未适配（`App.regionUnsupported`：`GetProtocolProfileStatus` 的 `message_ref.key` 为 `profile.unavailable.region_unsupported`）：
+     弹窗与总览的说明、捕获诊断的链路摘要与协议档案一格（「区服未适配」）、版本支持卡片都说「这个区服」而不是「游戏版本」；
+     卡片写明校准不会自动开始，并显示「采证步骤」（`protocolEvidenceButton`）打开新区服采证。受支持区服的新版本仍用「版本」措辞，不显示该按钮。
 
 ## 9. 图标清单与许可
 

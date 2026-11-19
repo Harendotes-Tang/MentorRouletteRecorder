@@ -313,6 +313,8 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
             this, &AppController::validationChanged);
     connect(m_capture, &CaptureValidationController::changed,
             this, &AppController::validationChanged);
+    connect(m_capture, &CaptureValidationController::changed, this,
+            [this] { m_recording->setRegionUnsupported(regionUnsupported()); });
     connect(m_capture, &CaptureValidationController::mutationFailed, this,
             [this](const QString &code, const QString &message) {
         Q_EMIT mutationFailed(code, message, QStringLiteral("validation"), QString());
@@ -1334,6 +1336,14 @@ QString AppController::protocolProfileStatus() const
     if (!effective.isEmpty())
         return effective;
     return QStringLiteral("NONE");
+}
+
+bool AppController::regionUnsupported() const
+{
+    const QVariantMap profile = protocolProfile();
+    return profile.value(QStringLiteral("status")).toString() == QLatin1String("UNSUPPORTED_BUILD")
+        && profile.value(QStringLiteral("message_ref")).toMap().value(QStringLiteral("key")).toString()
+               == QLatin1String("profile.unavailable.region_unsupported");
 }
 
 QVariantMap AppController::npcapInfo() const

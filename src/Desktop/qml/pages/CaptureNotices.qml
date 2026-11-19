@@ -17,6 +17,8 @@ ColumnLayout {
 
     signal openCalibrationRequested()
     signal openRegionSettingsRequested()
+    /// 版本支持 › 采证步骤, offered when the region itself is not supported.
+    signal evidenceGuideRequested()
 
     // The hero card is saying the calibration sentence, so the row need not.
     property bool heroSpeaksCalibration: false
@@ -44,6 +46,11 @@ ColumnLayout {
     // launcher may patch over it before the next login.
     readonly property bool buildUnknown: !notices.capture.game_build || !notices.capture.region
                                          || notices.capture.region === "UNKNOWN"
+    // The region has no support at all: nothing here will calibrate by itself, and the
+    // only thing the player can do about it is in 新区服采证.
+    readonly property bool regionUnsupported: Runtime.app.regionUnsupported === true
+                                              && notices.profileStatus === "UNSUPPORTED_BUILD"
+                                              && !notices.buildUnknown
     readonly property bool offersRegionSetting: Runtime.app.ffxivRunning
         && (!notices.capture.region || notices.capture.region === "UNKNOWN")
         && notices.capture.install_path_readable !== false
@@ -156,6 +163,9 @@ ColumnLayout {
             return qsTr("尚未识别游戏区服")
         if (notices.buildUnknown)
             return qsTr("尚未识别游戏版本或区服")
+        if (notices.regionUnsupported)
+            return Runtime.app.ffxivRunning ? qsTr("这个区服暂不支持自动记录")
+                                    : qsTr("已安装游戏所在的区服暂不支持自动记录")
         if (status === "UNSUPPORTED_BUILD")
             return Runtime.app.ffxivRunning ? qsTr("当前游戏版本暂不支持自动记录")
                                     : qsTr("已安装的游戏版本暂不支持自动记录")
@@ -182,6 +192,10 @@ ColumnLayout {
         const stale = Runtime.app.protocolProfileStale ? qsTr("（以下是上次检查的结果）") : ""
         if (notices.buildUnknown)
             return qsTr("还没确认当前游戏版本能否自动记录，请先手动记录。") + stale + detail
+        // The Collector's own sentence says the same; it is not repeated after this one.
+        if (notices.regionUnsupported)
+            return qsTr("这个区服还没有适配，暂时不能自动记录，请先手动记录。校准不会自动开始；"
+                        + "愿意帮忙适配的话，可以按「采证步骤」采集线索。") + stale
         return qsTr("暂时不能自动记录，请先手动记录。") + stale + detail
     }
 
@@ -411,6 +425,13 @@ ColumnLayout {
                     visible: notices.offersRegionSetting
                     text: qsTr("设置区服")
                     onClicked: notices.openRegionSettingsRequested()
+                }
+
+                AppButton {
+                    objectName: "protocolEvidenceButton"
+                    visible: notices.regionUnsupported
+                    text: qsTr("采证步骤")
+                    onClicked: notices.evidenceGuideRequested()
                 }
 
                 AppButton {

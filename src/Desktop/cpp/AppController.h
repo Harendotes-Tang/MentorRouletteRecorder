@@ -295,6 +295,7 @@ class AppController final : public QObject, public CaptureValidationController::
     Q_PROPERTY(QVariantMap adapterInfo READ adapterInfo NOTIFY adaptersChanged)
     /// $defs/ProtocolProfileStatus from GetProtocolProfileStatus.
     Q_PROPERTY(QVariantMap protocolProfile READ protocolProfile NOTIFY statusChanged)
+    Q_PROPERTY(bool regionUnsupported READ regionUnsupported NOTIFY statusChanged)
     /// True while the profile snapshot on screen is older than the last refresh
     /// attempt, so the page can say "上次已知" instead of pretending it is live.
     Q_PROPERTY(bool protocolProfileStale READ protocolProfileStale NOTIFY validationChanged)
@@ -576,6 +577,11 @@ public:
     QVariantList captureAdapters() const { return m_captureAdapters; }
     QVariantMap adapterInfo() const { return m_adapterInfo.toVariantMap(); }
     QVariantMap protocolProfile() const { return m_capture->protocolProfile(); }
+    /// The Collector says no profile fits because this region is not supported at all
+    /// (繁中服 / 国际服 without a template), not because a supported region was patched.
+    /// Calibration never starts by itself then, so the interface says "region", not
+    /// "version", and points at 新区服采证 (owner, 2026-11-20).
+    bool regionUnsupported() const;
     bool protocolProfileStale() const { return m_capture->profileStale(); }
     QVariantMap npcapInfo() const;
     QVariantMap gameInfo() const;

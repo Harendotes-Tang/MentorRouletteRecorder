@@ -73,6 +73,9 @@ public:
     void setMaintenance(bool enabled);
     /// 本桌面显式采证期间暂停自动初始化；重连保留意图，旧会话仍按原逻辑清理。
     void setUserObservation(bool enabled);
+    /// No profile fits because the region itself is not supported; the blocked
+    /// sentence then names the region instead of the game version.
+    void setRegionUnsupported(bool unsupported);
     /// Current poll period in milliseconds. \ref kIdlePollMs while the game is
     /// not running, \ref kActivePollMs otherwise.
     int pollIntervalMs() const { return m_timer.interval(); }
@@ -159,6 +162,7 @@ private:
     bool m_busy = false;
     bool m_maintenance = false;
     bool m_userObservation = false;
+    bool m_regionUnsupported = false;
     bool m_followAttempted = false;
     bool m_stopAttempted = false;
     bool m_stopPending = false;
