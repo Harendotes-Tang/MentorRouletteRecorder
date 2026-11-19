@@ -1607,6 +1607,9 @@ void ImportRecordsController::setColumnMapping(const QVariantMap &mapping)
         m_candidates = {};
         m_rows.clear();
         m_current = -1;
+        // The source is read again from scratch: its rows are new ones, to be preselected and
+        // given the default region like a first reading (audit 2026-11-10 I3-1).
+        m_hasAcceptedPreview = false;
     }
     invalidatePreview();
     Q_EMIT changed();

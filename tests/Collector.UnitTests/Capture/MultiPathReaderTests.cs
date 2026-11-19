@@ -34,7 +34,8 @@ public sealed class MultiPathReaderTests
 
         multiplexed.Open();
         Assert.Equal(1, optional.Disposals);
-        Assert.Equal(new CapturePathStatus(3, 2, 1, false, true), multiplexed.PathStatus);
+        Assert.Equal(new CapturePathStatus(3, 2, 1, false, true,
+            new[] { CapturePathPlan.NormalizeIdentity("virtual") }), multiplexed.PathStatus);
         multiplexed.Read((_, _) => { });
         Assert.Equal(0, optional.Reads);
         Assert.Equal(1, selected.Reads);
@@ -52,7 +53,9 @@ public sealed class MultiPathReaderTests
         Assert.Throws<IOException>(multiplexed.Open);
         Assert.Equal(new[] { "selected" }, created);
         Assert.Equal(1, selected.Disposals);
-        Assert.Equal(new CapturePathStatus(3, 0, 1, false, false), multiplexed.PathStatus);
+        // Nothing was opened: every planned interface is one that is not being read.
+        Assert.Equal(new CapturePathStatus(3, 0, 1, false, false), multiplexed.PathStatus with { ClosedInterfaces = null });
+        Assert.Equal(3, multiplexed.PathStatus.ClosedInterfaces!.Count);
     }
 
     [Fact]
@@ -154,7 +157,8 @@ public sealed class MultiPathReaderTests
         selected.Packets.Enqueue(new byte[] { 1 });
         Assert.True(multiplexed.Read((_, link) => links.Add(link)));
         Assert.Equal(1, optional.Disposals);
-        Assert.Equal(new CapturePathStatus(3, 2, 1, false, true), multiplexed.PathStatus);
+        Assert.Equal(new CapturePathStatus(3, 2, 1, false, true,
+            new[] { CapturePathPlan.NormalizeIdentity("virtual") }), multiplexed.PathStatus);
 
         selected.Packets.Enqueue(new byte[] { 2 });
         Assert.True(multiplexed.Read((_, link) => links.Add(link)));

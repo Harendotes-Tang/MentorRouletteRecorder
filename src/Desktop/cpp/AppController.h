@@ -267,6 +267,7 @@ class AppController final : public QObject, public CaptureValidationController::
     Q_PROPERTY(bool historyBatchRunning READ historyBatchRunning NOTIFY historyBatchChanged)
     Q_PROPERTY(QString historyBatchFeedback READ historyBatchFeedback NOTIFY historyBatchChanged)
     Q_PROPERTY(QString historyMigrationSource READ historyMigrationSource NOTIFY checkedHistoryRunsChanged)
+    Q_PROPERTY(QString historyCheckedRegion READ historyCheckedRegion NOTIFY checkedHistoryRunsChanged)
     Q_PROPERTY(bool historyMigrationReady READ historyMigrationReady NOTIFY historyMigrationReadyChanged)
     Q_PROPERTY(QVariantMap historyRegionMigrationPreview READ historyRegionMigrationPreview NOTIFY historyRegionMigrationChanged)
     Q_PROPERTY(bool historyRegionMigrationLoading READ historyRegionMigrationLoading NOTIFY historyRegionMigrationChanged)
@@ -542,6 +543,7 @@ public:
     bool historyBatchRunning() const { return m_history->batchRunning(); }
     QString historyBatchFeedback() const { return m_history->batchFeedback(); }
     QString historyMigrationSource() const { return m_history->checkedMigrationSource(); }
+    QString historyCheckedRegion() const { return m_history->checkedRegion(); }
     bool historyMigrationReady() const { return backendConnected() && m_recovery->identityVerified(); }
     QVariantMap historyRegionMigrationPreview() const { return m_history->regionMigrationPreview(); }
     bool historyRegionMigrationLoading() const { return m_history->regionMigrationLoading(); }

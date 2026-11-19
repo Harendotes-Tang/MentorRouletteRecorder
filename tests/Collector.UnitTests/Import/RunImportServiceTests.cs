@@ -462,6 +462,11 @@ public sealed class RunImportServiceTests
         Assert.Null(imported.CaptureSessionId);
         Assert.Null(imported.ProtocolProfileId);
         Assert.Null(imported.GameBuild);
+
+        // Audit 2026-11-10 H2-1: read back into the database it was taken from, an unchanged
+        // recorded run is the same record, not one that differs from the backup.
+        var same = new RunImportService(source.Database, source.Clock).PreviewSource("BACKUP", filePath: path);
+        Assert.Equal("duplicate", Row(same)["status"]!.GetValue<string>());
     }
 
     [Theory]

@@ -657,6 +657,19 @@ private Q_SLOTS:
         QVERIFY(fixture.openForRun(deleted));
         QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), 0);
         QVERIFY(fixture.dialog()->property("progressExplanation").toString().contains(QStringLiteral("先恢复")));
+
+        // A record assigned to no character counts for nobody, before and after (audit L1-1).
+        auto unassigned = run(QStringLiteral("unassigned"), 70, 19, QStringLiteral("CANCELLED_BEFORE_ENTRY"));
+        unassigned.insert(QStringLiteral("profile_id"), QVariant::fromValue(nullptr));
+        QVERIFY(fixture.openForRun(unassigned));
+        QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "markCompleted"));
+        QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), 0);
+        QVERIFY(fixture.dialog()->property("progressExplanation").toString().contains(QStringLiteral("还没有分配角色")));
+        auto unassignedDone = run(QStringLiteral("unassigned-done"), 70, 19, QStringLiteral("COMPLETED"));
+        unassignedDone.insert(QStringLiteral("profile_id"), QVariant::fromValue(nullptr));
+        QVERIFY(fixture.openForRun(unassignedDone));
+        fixture.dialog()->setProperty("contributesToGoal", false);
+        QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), 0);
     }
 
     // 进本 and 结束 may both stay empty (docs/manual-correction.md §7): completing a

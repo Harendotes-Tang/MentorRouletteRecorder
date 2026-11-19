@@ -39,7 +39,12 @@
 - `retryable = true` 表示同一 `request_id` 原样重发是安全且可能成功的。
 - 所有可变更消息（`CreateManualRun` / `CorrectRun` / `SoftDeleteRun` /
   `RestoreRun` / `UndoRevision` / `BatchMutateRuns` / `UpdateAchievementBaseline` /
+  `CreateCharacterProfile` / `UpdateCharacterProfile` / `DeleteCharacterProfile` / `ResolveCharacterIdentity` /
   `SetRunReflection` / `CommitRunImport`）按 `request_id` 幂等。
+  `BatchMutateRuns` 的 `move_region` 在预览之后目标基数已变时以 `ERR_REVISION_CONFLICT` 拒绝，记录不合条件
+  （自动记录、已删除、来源区服不一，或目标区服已有相同记录）时以 `ERR_BAD_REQUEST` 拒绝；区服修订的 `UndoRevision`
+  以 `ERR_UNDO_NOT_ALLOWED` 拒绝。`ResolveCharacterIdentity` 的登记确认在该角色已不是这个档案的登记对象时
+  以 `ERR_BAD_REQUEST`（`message_ref` 为 `identity.registration_moved`）拒绝。
   重放已应用的请求返回原结果，不再次变更，也不报错；应答带 `idempotent_replay` 字段的置为 `true`，
   `CommitRunImport` 的导入回执置 `replayed = true`。
   仅当**同一个 `request_id` 配上不同的请求内容**时才拒绝，错误码为

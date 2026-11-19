@@ -130,6 +130,14 @@ internal sealed class ManualRunFieldProtection(SqliteDatabase database)
             ended = enteredAt;
         }
 
+        // A run closed before it was entered has only these two stamps. RunMutationRules refuses
+        // matched > ended, so a row stored that way could never be corrected again, not even to
+        // confirm its review (audit 2026-11-10, D1-1).
+        if (run.EnteredAtUtc is null && matched is { } matchedAt && ended is { } closedAt && matchedAt > closedAt)
+        {
+            ended = matchedAt;
+        }
+
         var clamped = run with { MatchedAtUtc = matched, EndedAtUtc = ended };
 
         // 端点顺序之外的另一条矛盾：结果为 COMPLETED，进入或结束时刻却为空。贴端点解决不了它
@@ -150,6 +158,7 @@ internal sealed class ManualRunFieldProtection(SqliteDatabase database)
     private static bool IsTimeInconsistent(MentorRun run) =>
         (run.MatchedAtUtc is { } matched && run.EnteredAtUtc is { } entered && matched > entered)
         || (run.EnteredAtUtc is { } enter && run.EndedAtUtc is { } ended && enter > ended)
+        || (run.EnteredAtUtc is null && run.MatchedAtUtc is { } start && run.EndedAtUtc is { } close && start > close)
         || (run.Result == RunResult.Completed
             && (run.EnteredAtUtc is null || run.EndedAtUtc is null));
 

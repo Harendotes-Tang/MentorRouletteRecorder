@@ -894,7 +894,7 @@ Item {
                     AppButton { objectName: "batchSoftDeleteButton"; text: qsTr("删除记录"); enabled: Runtime.app.checkedHistoryDeletedCount === 0; onClicked: page.requestBatch("soft_delete") }
                     AppButton { objectName: "batchRestoreButton"; text: qsTr("恢复选中"); visible: Runtime.app.checkedHistoryDeletedCount > 0; enabled: Runtime.app.checkedHistoryDeletedCount === page.checkedCount; onClicked: page.requestBatch("restore") }
                     AppButton { objectName: "batchPurgeButton"; text: qsTr("永久删除"); visible: Runtime.app.checkedHistoryDeletedCount > 0; enabled: Runtime.app.checkedHistoryDeletedCount === page.checkedCount; onClicked: page.requestBatch("purge") }
-                    AppButton { objectName: "batchAssignCharacterButton"; text: qsTr("改角色"); visible: page.characterFeatures; onClicked: assignCharacterDialog.ask(regionBox.selection, page.checkedCount) }
+                    AppButton { objectName: "batchAssignCharacterButton"; text: qsTr("改角色"); visible: page.characterFeatures; onClicked: assignCharacterDialog.ask(Runtime.app.historyCheckedRegion, page.checkedCount) }
                     AppButton {
                         objectName: "batchMoveRegionButton"
                         text: qsTr("迁移区服")

@@ -3396,6 +3396,11 @@ SHA256: %3</translation>
         <translation>This request ID was already used for a different character registration.</translation>
     </message>
     <message>
+        <source>这个角色的登记情况已经变了，请按总览上最新的提示操作。</source>
+        <comment>identity.registration_moved</comment>
+        <translation>This character&apos;s registration has changed. Follow the latest prompt on the overview.</translation>
+    </message>
+    <message>
         <source>备份中的记录来源信息不完整，请重新创建备份后重试。</source>
         <comment>import.backup.metadata_incomplete</comment>
         <translation>The record source information in the backup is incomplete. Create the backup again and retry.</translation>
@@ -5822,6 +5827,10 @@ SHA256: %3</translation>
         <translation>This run already counts toward progress; editing other details won&apos;t count it twice.</translation>
     </message>
     <message>
+        <source>这条记录还没有分配角色，不计入任何角色的进度。可在历史记录勾选后用「改角色」归属。</source>
+        <translation>This record is not assigned to a character, so it counts toward no character&apos;s progress. Check it in History and use Change character to assign it.</translation>
+    </message>
+    <message>
         <source>这条通关记录将计入「未知区服」的单独进度，不计入国服、繁中服或国际服的导随成就。</source>
         <translation>This clear will count toward the separate “Unknown region” progress, not toward the China, Traditional Chinese or Global mentor achievement.</translation>
     </message>
@@ -7239,6 +7248,10 @@ SHA256: %3</translation>
     <message>
         <source>把 %1 条记录改到哪个角色？</source>
         <translation>Move %1 record(s) to which character?</translation>
+    </message>
+    <message>
+        <source>勾选的记录来自不同区服，只能一起改为「未分配」。要改到某个角色，请先按区服筛选，再勾选那个区服的记录。</source>
+        <translation>The checked records come from different regions, so they can only be set to Unassigned together. To move them to a character, filter by region first and check that region&apos;s records.</translation>
     </message>
     <message>
         <source>记录改到哪个角色名下，就计入哪个角色的进度。各角色的起始次数不会跟着变，需要时请到「设置 › 成就」分别修改。</source>

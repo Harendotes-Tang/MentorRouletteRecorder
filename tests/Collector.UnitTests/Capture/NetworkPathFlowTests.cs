@@ -45,6 +45,10 @@ public sealed class NetworkPathFlowTests
         var provider = new ConnectionProvider(new(new(ipv4, Array.Empty<ProcessNetworkConnection>()),
             new(ipv6, Array.Empty<ProcessNetworkConnection>())));
         Assert.Null(GameTcpConnectionProbe.TryCountPaths(42, Plan(Binding("physical", "192.0.2.10")), provider));
+        // Only an unreadable IPv4 table is worth waiting for; with IPv4 read, an IPv6 table that
+        // cannot be read leaves the count unknown and the validation starts (audit 2026-11-10, A2-1).
+        Assert.Equal(ipv4 == NetworkQueryStatus.Failed ? false : true,
+            GameTcpConnectionProbe.ProbePaths(42, Plan(Binding("physical", "192.0.2.10")), provider).Unanswerable);
     }
 
     [Fact]

@@ -507,6 +507,19 @@ void HistoryController::assignCheckedRunsToProfile(int profileId, const QString 
     sendCheckedBatch(QStringLiteral("assign_profile"), profileId, reason);
 }
 
+QString HistoryController::checkedRegion() const
+{
+    QString region;
+    for (const QJsonObject &run : m_checkedRuns) {
+        const QString own = run.value(QStringLiteral("region")).toString(QStringLiteral("UNKNOWN"));
+        if (region.isEmpty())
+            region = own;
+        else if (region != own)
+            return QStringLiteral("MIXED");
+    }
+    return region;
+}
+
 QString HistoryController::checkedMigrationSource() const
 {
     if (m_checkedRuns.isEmpty())

@@ -243,6 +243,7 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "这个角色的登记信息已经不在了，下次登录这个角色时会重新询问。", "identity.not_found"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "这个角色没有被设为不统计。", "identity.not_ignored"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "请选择它是哪个角色。", "identity.profile_required"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "这个角色的登记情况已经变了，请按总览上最新的提示操作。", "identity.registration_moved"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "此请求编号已用于不同的角色登记操作。", "identity.request_reused"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "备份中的记录来源信息不完整，请重新创建备份后重试。", "import.backup.metadata_incomplete"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "这个数据库不是软件支持的记录备份，请选择由导随记录创建的备份文件。", "import.backup.not_a_backup"), .args = ""},

@@ -90,6 +90,27 @@ public sealed class ReviewRecoveryRegressionTests
         Assert.Single(second.Events.ListForRun(fixture.RunId), item => item.EventType == CrashRecoveryService.EventType);
     }
 
+    /// <summary>
+    /// Audit 2026-11-10 D1-1: a run that was matched but never entered is closed with an end
+    /// stamp only. With the clock behind the match that end was stored before the match, and the
+    /// rule against it then refused every later change, confirming the review included.
+    /// </summary>
+    [Fact]
+    public void RestartOnAnUnenteredRunWithTheClockBackwardsLeavesItCorrectable()
+    {
+        using var fixture = new Fixture(entered: false);
+        using var host = fixture.Restart(-90);
+
+        var recovered = host.Runs.Get(fixture.RunId)!;
+        Assert.Null(recovered.EnteredAtUtc);
+        Assert.Equal(recovered.MatchedAtUtc, recovered.EndedAtUtc);
+        Assert.True(recovered.PendingReview);
+
+        var confirmed = host.Mutations.CorrectRun(new CorrectRunCommand(NewId(), fixture.RunId, recovered.Revision,
+            "确认无误", new RunChangeSet { Specified = new HashSet<string> { RunFields.PendingReview }, PendingReview = false })).Run!;
+        Assert.False(confirmed.PendingReview);
+    }
+
     [Fact]
     public void RestartWithAManualFutureEntryKeepsLegalTimesAndDoesNotRecoverAgain()
     {

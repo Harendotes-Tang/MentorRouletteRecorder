@@ -338,6 +338,16 @@ private Q_SLOTS:
         QVERIFY(!controller.rows()[1].toMap().value("selected").toBool());
         QVERIFY(controller.rows()[4].toMap().value("selected").toBool());
 
+        // A column mapping change reads the source again from scratch: its rows are new ones and
+        // take the default region like the first reading (audit 2026-11-10 I3-1).
+        controller.setColumnMapping({{QStringLiteral("duty_name"), QStringLiteral("副本")}});
+        controller.revalidate();
+        const int reread = backend.requestCount;
+        QVERIFY(!backend.payload.contains("rows"));
+        answerPreview(backend, {readRow(1, QJsonValue::Undefined)});
+        QCOMPARE(backend.requestCount, reread + 1);
+        QCOMPARE(backend.payload.value("rows").toArray()[0].toObject().value("region").toString(), QStringLiteral("TC"));
+
         // Only a named region is a default; without one the rows stay as the Collector read them.
         for (const QString &none : {QString(), QStringLiteral("UNKNOWN"), QStringLiteral("all")}) {
             RegionalImportBackend plain;

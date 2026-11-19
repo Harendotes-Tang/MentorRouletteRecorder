@@ -3396,6 +3396,11 @@ SHA256：%3</translation>
         <translation>此請求編號已用於不同的角色登記操作。</translation>
     </message>
     <message>
+        <source>这个角色的登记情况已经变了，请按总览上最新的提示操作。</source>
+        <comment>identity.registration_moved</comment>
+        <translation>這個角色的登記情況已經變了，請依總覽上最新的提示操作。</translation>
+    </message>
+    <message>
         <source>备份中的记录来源信息不完整，请重新创建备份后重试。</source>
         <comment>import.backup.metadata_incomplete</comment>
         <translation>備份中的記錄來源資訊不完整，請重新建立備份後重試。</translation>
@@ -5822,6 +5827,10 @@ SHA256：%3</translation>
         <translation>這次導隨已經計入進度，修改其他資訊不會重複計數。</translation>
     </message>
     <message>
+        <source>这条记录还没有分配角色，不计入任何角色的进度。可在历史记录勾选后用「改角色」归属。</source>
+        <translation>這筆記錄還沒有分配角色，不計入任何角色的進度。可以在歷史記錄勾選後用「改角色」歸屬。</translation>
+    </message>
+    <message>
         <source>这条通关记录将计入「未知区服」的单独进度，不计入国服、繁中服或国际服的导随成就。</source>
         <translation>這筆通關記錄將計入「未知區服」的單獨進度，不計入國服、繁中服或國際服的導隨成就。</translation>
     </message>
@@ -7239,6 +7248,10 @@ SHA256：%3</translation>
     <message>
         <source>把 %1 条记录改到哪个角色？</source>
         <translation>把 %1 筆記錄改到哪個角色？</translation>
+    </message>
+    <message>
+        <source>勾选的记录来自不同区服，只能一起改为「未分配」。要改到某个角色，请先按区服筛选，再勾选那个区服的记录。</source>
+        <translation>勾選的記錄來自不同區服，只能一起改為「未分配」。要改到某個角色，請先依區服篩選，再勾選那個區服的記錄。</translation>
     </message>
     <message>
         <source>记录改到哪个角色名下，就计入哪个角色的进度。各角色的起始次数不会跟着变，需要时请到「设置 › 成就」分别修改。</source>

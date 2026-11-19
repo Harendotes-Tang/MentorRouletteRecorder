@@ -205,10 +205,10 @@ MentorRecorder.Collector.exe --capture-trace trace.jsonl
 **本步必须从新的游戏 TCP 连接开始。** 若命令发现游戏已在所选适配器的本地地址上存在 TCP 连接，
 则拒绝启动并以退出码 1 结束：中途接入会使 Oodle 流状态不完整，既有连接上只会得到大量 `decode_errors`，
 不能作为候选 opcode 证据。连接数先按 IPv4 计：游戏同时持有 IPv6 连接、或系统的 IPv6 连接表过大而读不全时，
-只要计划中的网卡上已有游戏的 IPv4 连接，同样拒绝启动；只有 IPv4 上没有游戏连接、而 IPv6 有连接或读不全
+只要计划中的网卡上已有游戏的 IPv4 连接，同样拒绝启动；只有 IPv4 上没有游戏连接、而 IPv6 有连接、读不全或读取失败
 （或 IPv4 连接表本身读不全、读取失败）时，连接数记为未知，取证照常开始，文件头的 `preexisting_connections` 为 `null`。
 界面上的“开始验证”使用同一计数：IPv4 上已有连接时等待游戏退出并重新启动（`WAITING_RESTART`），连接数答不出时以未知开始，
-只有查询失败时才等待查询恢复（`WAITING_CONNECTION_CHECK`）。
+只有 IPv4 连接表查询失败时才等待查询恢复（`WAITING_CONNECTION_CHECK`）；IPv6 连接表读取失败不等待。
 所选适配器没有可绑定的 IPv4 地址时同样拒绝启动，此时应在 `--capture-doctor` 的网卡列表中按名称选出带 IPv4
 地址的实际流量网卡，再按上文查出它的 `id`，用 `--adapter <id>` 重试，不能由抓包源自行猜测。
 

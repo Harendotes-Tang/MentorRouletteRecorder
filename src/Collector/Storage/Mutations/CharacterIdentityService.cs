@@ -279,7 +279,9 @@ public sealed class CharacterIdentityService
         if (identity.RegistrationProfileId != profileId ||
             identity.Ignored || (identity.ProfileId is { } boundId && boundId != profileId))
         {
-            throw CollectorException.BadRequest(CollectorTexts.ProfileNotFound(), "profile_id");
+            // The profile exists; it is the offer that moved on (answered elsewhere, or handed to
+            // another character). The Desktop reads the lists again on this refusal.
+            throw CollectorException.BadRequest(CollectorTexts.IdentityRegistrationMoved(), "profile_id");
         }
 
         CharacterProfileService.RequireFreeName(_settings.Profiles.List(tx, identity.Region), name, profileId);

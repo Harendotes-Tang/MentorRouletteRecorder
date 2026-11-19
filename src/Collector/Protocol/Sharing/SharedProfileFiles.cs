@@ -24,6 +24,15 @@ public static class SharedProfileFiles
             Path.GetFullPath(root), LocalProfileWriter.RegionDirectory(region), SharedProfileBuilder.ProfileIdFor(region, gameBuild) + ".json");
     }
 
+    /// <summary>
+    /// Where the document a write displaced is kept until the next write or removal. Not
+    /// <c>*.json</c>, so no catalogue reads it. A build has one shared profile path, so a new
+    /// document is written over the one in use; when that write is not adopted after all, the
+    /// one it displaced must come back, or the build has no shared profile at the next start
+    /// although nobody withdrew it (audit 2026-11-10, E-1).
+    /// </summary>
+    private static string DisplacedPathFor(string path) => path + ".displaced";
+
     /// <summary>Writes a built shared profile atomically and returns its path.</summary>
     /// <param name="built">A <see cref="SharedProfileBuildStatus.Built"/> result.</param>
     /// <param name="root">Shared profile directory.</param>
@@ -43,6 +52,17 @@ public static class SharedProfileFiles
         try
         {
             File.WriteAllText(temporary, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            // Keeps exactly the document this write replaces; an older kept one is of no use any more.
+            var displaced = DisplacedPathFor(path);
+            if (File.Exists(path))
+            {
+                File.Copy(path, displaced, overwrite: true);
+            }
+            else
+            {
+                File.Delete(displaced);
+            }
+
             File.Move(temporary, path, overwrite: true);
         }
         finally
@@ -65,6 +85,8 @@ public static class SharedProfileFiles
         var path = PathFor(root, region, gameBuild);
         try
         {
+            // A removal is about the document in use; one displaced earlier goes with it.
+            File.Delete(DisplacedPathFor(path));
             if (!File.Exists(path))
             {
                 return false;
@@ -82,6 +104,7 @@ public static class SharedProfileFiles
     /// <summary>
     /// 取消绑定时按 canonical 哈希删除本次尚未采用的派生文档。调用者须持有写入/撤下共用的文件锁，
     /// 已被其他文档替换、损坏或无法读取时保留原文件，不扩大为按路径盲删。
+    /// 该文档写入时覆盖过另一份文档的，把那一份放回原处，而不是留下空路径（审计 2026-11-10，E-1）。
     /// </summary>
     public static bool DeleteIfMatches(string root, Region region, string gameBuild, string expectedSha256)
     {
@@ -90,7 +113,16 @@ public static class SharedProfileFiles
         {
             if (!File.Exists(path) || !string.Equals(ProfileLoader.Load(path).ProfileSha256, expectedSha256, StringComparison.Ordinal))
                 return false;
-            File.Delete(path);
+            var displaced = DisplacedPathFor(path);
+            if (File.Exists(displaced))
+            {
+                File.Move(displaced, path, overwrite: true);
+            }
+            else
+            {
+                File.Delete(path);
+            }
+
             return true;
         }
         catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException)

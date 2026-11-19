@@ -105,6 +105,11 @@ public sealed partial class CaptureController
         var inventoryKnown = false;
         var pathsUnavailable = false;
         var gamePathsIntact = false;
+        // An interface that carries the game while its reader is closed (it never opened, or was
+        // closed after a read failure while nothing of the game ran over it): planned exactly as
+        // before, and nothing of the game is read from it (audit 2026-11-10, A1-1).
+        var carrierUnread = false;
+        var pathStatus = ReadPathStatus(source);
         try
         {
             var adapters = _services.Adapters.List(game.ProcessId, ReadSettingString(AdapterSetting),
@@ -120,13 +125,16 @@ public sealed partial class CaptureController
             // RV1-4). An IPv6 table that cannot be read is not consulted; capture reads IPv4 only.
             var carriersUnknown = !adapters.Any(IsGameCarrier) && game.ProcessId is { } processId &&
                 _services.Adapters.GameHoldsConnections(processId) is null;
-            gamePathsIntact = next is not null && GamePathsIntact(run.PathPlan, next, adapters, carriersUnknown);
+            var closed = pathStatus.ClosedInterfaces ?? Array.Empty<string>();
+            carrierUnread = closed.Count != 0 && adapters.Where(IsGameCarrier).Any(adapter =>
+                closed.Contains(CapturePathPlan.NormalizeIdentity(adapter.Id), StringComparer.OrdinalIgnoreCase));
+            gamePathsIntact = next is not null && !carrierUnread &&
+                GamePathsIntact(run.PathPlan, next, adapters, carriersUnknown);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             // Failed discovery is unknown, never an empty topology that tears down a reader.
         }
-        var pathStatus = ReadPathStatus(source);
 
         lock (_lifecycleGate)
         {
@@ -177,8 +185,11 @@ public sealed partial class CaptureController
                     _recoveryRun = run;
                     _recoveryIpcBaseline = run.IpcMessagesDecoded;
                 }
-                else if (_silentReason != CaptureSilentReason.None)
+                else if (_silentReason != CaptureSilentReason.None || carrierUnread)
                 {
+                    // A session that decoded the game earlier is never judged silent, so a carrier
+                    // that is not read has to open the episode itself; its closed reader is then
+                    // retried like any failed optional open, under the same throttle and budget.
                     _pathRecovery.Begin(now);
                 }
 

@@ -286,6 +286,40 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
     /// withdrawal waits behind the bind, sees B standing on the path and leaves it. Only B's reload is held: the
     /// hook pauses the first reload that finds a document other than A's on disk, never the withdrawal's own.
     /// </summary>
+    /// <summary>
+    /// Audit 2026-11-10 E-1: a build has one shared profile path, so a better code is written over the profile in
+    /// use. When that write is not adopted after all, discarding it must bring the displaced document back: deleting
+    /// the path left the build with no shared profile at the next start although nobody withdrew the one in use.
+    /// </summary>
+    [Fact]
+    public void DiscardingAnUnadoptedWriteBringsBackTheDocumentItDisplaced()
+    {
+        var queue = SharedProfileBuilder.Build(
+            _bed.CodeFromEveningA(CalibrationTrafficCases.QueueRequest).Payload, Bed.Template, Bed.Confirmed,
+            new Dictionary<string, int>(), Bed.Confirmed);
+        var announced = SharedProfileBuilder.Build(
+            _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState).Payload, Bed.Template, Bed.Confirmed,
+            new Dictionary<string, int>(), Bed.Confirmed);
+        SharedProfileFiles.Write(queue, _bed.SharedRoot);
+        var inUse = File.ReadAllBytes(_bed.SharedProfilePath);
+
+        SharedProfileFiles.Write(announced, _bed.SharedRoot);
+        Assert.False(File.ReadAllBytes(_bed.SharedProfilePath).AsSpan().SequenceEqual(inUse));
+        // Another document's hash removes nothing.
+        Assert.False(SharedProfileFiles.DeleteIfMatches(_bed.SharedRoot, Region.Cn, Bed.Build, queue.ProfileSha256!));
+        Assert.True(SharedProfileFiles.DeleteIfMatches(_bed.SharedRoot, Region.Cn, Bed.Build, announced.ProfileSha256!));
+        Assert.True(File.ReadAllBytes(_bed.SharedProfilePath).AsSpan().SequenceEqual(inUse));
+
+        // The document brought back displaced nothing itself: discarding it leaves the path empty,
+        // and a removal takes a kept document with it.
+        Assert.True(SharedProfileFiles.DeleteIfMatches(_bed.SharedRoot, Region.Cn, Bed.Build, queue.ProfileSha256!));
+        Assert.False(File.Exists(_bed.SharedProfilePath));
+        SharedProfileFiles.Write(queue, _bed.SharedRoot);
+        SharedProfileFiles.Write(announced, _bed.SharedRoot);
+        Assert.True(SharedProfileFiles.Delete(_bed.SharedRoot, Region.Cn, Bed.Build));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(_bed.SharedProfilePath)!));
+    }
+
     [Fact]
     public async Task AWithdrawalScheduledWhileABetterCodeIsBeingWrittenLeavesThatCodesFileInPlace()
     {

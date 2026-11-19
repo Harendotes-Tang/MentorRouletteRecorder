@@ -3396,6 +3396,11 @@ SHA256：%3</translation>
         <translation>このリクエスト ID は別のキャラクター登録操作で使用済みです。</translation>
     </message>
     <message>
+        <source>这个角色的登记情况已经变了，请按总览上最新的提示操作。</source>
+        <comment>identity.registration_moved</comment>
+        <translation>このキャラクターの登録状況が変わりました。概要ページの最新の案内に従ってください。</translation>
+    </message>
+    <message>
         <source>备份中的记录来源信息不完整，请重新创建备份后重试。</source>
         <comment>import.backup.metadata_incomplete</comment>
         <translation>バックアップ内の記録元の情報が不完全です。バックアップを作成し直してから再試行してください。</translation>
@@ -5822,6 +5827,10 @@ SHA256：%3</translation>
         <translation>このメンターはすでに進捗に加算済みです。ほかの情報を変更しても二重には数えません。</translation>
     </message>
     <message>
+        <source>这条记录还没有分配角色，不计入任何角色的进度。可在历史记录勾选后用「改角色」归属。</source>
+        <translation>この記録はまだキャラクターに割り当てられていないため、どのキャラクターの進捗にも加算されません。履歴でチェックして「キャラクターを変更」から割り当てられます。</translation>
+    </message>
+    <message>
         <source>这条通关记录将计入「未知区服」的单独进度，不计入国服、繁中服或国际服的导随成就。</source>
         <translation>このクリア記録は「不明なサービス地域」の個別の進捗に加算され、中国版・繁体字中国語版・グローバル版のメンターのアチーブメントには加算されません。</translation>
     </message>
@@ -7239,6 +7248,10 @@ SHA256：%3</translation>
     <message>
         <source>把 %1 条记录改到哪个角色？</source>
         <translation>%1 件の記録をどのキャラクターに移しますか？</translation>
+    </message>
+    <message>
+        <source>勾选的记录来自不同区服，只能一起改为「未分配」。要改到某个角色，请先按区服筛选，再勾选那个区服的记录。</source>
+        <translation>チェックした記録は複数の地域にまたがっているため、まとめて「未割り当て」にすることしかできません。キャラクターに割り当てるには、先に地域で絞り込み、その地域の記録だけをチェックしてください。</translation>
     </message>
     <message>
         <source>记录改到哪个角色名下，就计入哪个角色的进度。各角色的起始次数不会跟着变，需要时请到「设置 › 成就」分别修改。</source>

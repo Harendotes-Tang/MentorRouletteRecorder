@@ -559,6 +559,11 @@ private Q_SLOTS:
         QObject *dialog = pages.object(QStringLiteral("historyAssignCharacterDialog"));
         QVERIFY(dialog);
         QTRY_VERIFY(dialog->property("opened").toBool());
+        // The list follows the ticked record's region, not the page's 全部区服 (audit K3-3).
+        QVERIFY(!pages.app->historyFilter().contains(QStringLiteral("region")));
+        QCOMPARE(dialog->property("region").toString(),
+                 pages.app->runs()->runAt(0).value(QStringLiteral("region")).toString());
+        QVERIFY(!dialog->property("mixedRegions").toBool());
         QTRY_VERIFY(pages.shown(QStringLiteral("historyAssignCharacterConfirm")));
         QVERIFY(!pages.shown(QStringLiteral("historyAssignCharacterConfirm"))->isEnabled());
         QVERIFY(Pages::pick(pages.shown(QStringLiteral("historyAssignCharacterTarget")), alt));

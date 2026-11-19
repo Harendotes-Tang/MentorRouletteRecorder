@@ -396,8 +396,12 @@ internal static class RunImportCandidateNormalizer
         localFacts["mentor_confirmed"] = local.ImportMetadata?.MentorConfirmed;
         importedFacts["joined_in_progress"] = incoming.Run.JoinedInProgress;
         localFacts["joined_in_progress"] = local.JoinedInProgress;
-        return incoming.ComparedFields.Where(importedFacts.ContainsKey).All(field =>
-            JsonNode.DeepEquals(importedFacts[field], localFacts[field]));
+        // A run this software recorded has no import metadata, so "mentor confirmed" was never
+        // stated for it: a backup row carries the key with no value, and the imported side's
+        // default would make every unchanged captured run a conflict (audit 2026-11-10, H2-1).
+        return incoming.ComparedFields.Where(importedFacts.ContainsKey)
+            .Where(field => field != "mentor_confirmed" || local.ImportMetadata is not null)
+            .All(field => JsonNode.DeepEquals(importedFacts[field], localFacts[field]));
     }
 
     public static string Facts(MentorRun run) => FactValues(run).ToJsonString(Wire.JsonOptions);

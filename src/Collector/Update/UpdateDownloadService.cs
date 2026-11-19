@@ -447,7 +447,7 @@ public sealed class UpdateDownloadService : IDisposable
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
-            LogFinished(version, "CANCELLED", transfer.ReceivedBytes, started, null);
+            LogFinished(version, "CANCELLED", transfer.ReceivedBytes, started, null, transfer.MirrorOutcome);
             throw;
         }
         catch (UpdateDownloadFailedException failed)
@@ -462,17 +462,18 @@ public sealed class UpdateDownloadService : IDisposable
             // Cancelled, or the Collector stopping, between the rename and this line: what IDLE reports is what
             // stays on disk, so the installer goes too.
             _files.DiscardInstaller(version);
-            LogFinished(version, "CANCELLED", transfer.ReceivedBytes, started, null);
+            LogFinished(version, "CANCELLED", transfer.ReceivedBytes, started, null, transfer.MirrorOutcome);
             return;
         }
 
         var token = outcome.Failure is { } failure
             ? EnumWire<UpdateDownloadFailure>.Format(failure)
             : EnumWire<UpdateDownloadState>.Format(outcome.State);
-        LogFinished(version, token, transfer.ReceivedBytes, started, errorType);
+        LogFinished(version, token, transfer.ReceivedBytes, started, errorType, transfer.MirrorOutcome);
     }
 
-    private void LogFinished(string version, string outcome, long bytes, TimeSpan started, string? errorType)
+    private void LogFinished(
+        string version, string outcome, long bytes, TimeSpan started, string? errorType, string? mirrorOffer = null)
     {
         var fields = new Dictionary<string, object?>
         {
@@ -484,6 +485,11 @@ public sealed class UpdateDownloadService : IDisposable
         if (errorType is not null)
         {
             fields["error_type"] = errorType;
+        }
+
+        if (mirrorOffer is not null)
+        {
+            fields["mirror_offer"] = mirrorOffer;
         }
 
         _logger().Write(outcome is "READY" or "CANCELLED" ? LogLevel.Info : LogLevel.Warn, LogComponent,

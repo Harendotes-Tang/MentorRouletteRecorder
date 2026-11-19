@@ -60,6 +60,16 @@ internal sealed class UpdateDownloadTransfer
         _offerMirror = offerMirror;
     }
 
+    /// <summary>
+    /// What became of the GitCode offer, for the local log: null while none was made, else
+    /// <c>declined</c>, <c>switched</c>, <c>not_switched_faster_primary</c> (GitHub caught up while
+    /// the player decided), <c>not_switched_mirror_unavailable</c> (the mirror could not be
+    /// re-opened in time, or no longer matched) or <c>not_switched_primary_ended</c> (GitHub
+    /// finished, or the download was stopped, while the mirror was being re-opened). The download is correct either way; without this
+    /// nothing says that a switch the player chose did not happen (audit 2026-11-19, F-2).
+    /// </summary>
+    public string? MirrorOutcome { get; private set; }
+
     /// <summary>Bytes written to the <c>.part</c> so far.</summary>
     public long ReceivedBytes => Interlocked.Read(ref _receivedBytes);
 
@@ -189,13 +199,20 @@ internal sealed class UpdateDownloadTransfer
 
             var decisionStart = Stopwatch.GetTimestamp();
             primaryBytes = ReceivedBytes;
-            if (!await _offerMirror(cancellation).ConfigureAwait(false)) return null;
+            if (!await _offerMirror(cancellation).ConfigureAwait(false))
+            {
+                MirrorOutcome = "declined";
+                return null;
+            }
 
             primaryRate = Math.Max(primaryRate, Rate(ReceivedBytes - primaryBytes, decisionStart, minimumSeconds: 1));
             if (!MirrorFinishesSooner(total, ReceivedBytes, primaryRate, mirror.BytesPerSecond, mirror.SetupSeconds))
             {
+                MirrorOutcome = "not_switched_faster_primary";
                 return null;
             }
+
+            MirrorOutcome = "not_switched_mirror_unavailable";
 
             // Reuse the pinned GitHub digest. The first request verified the mirror's published
             // digest, and the full file is still hashed against the original after the switch.
@@ -206,6 +223,7 @@ internal sealed class UpdateDownloadTransfer
             if (!cancellation.IsCancellationRequested && installer.ContentLength == total &&
                 MirrorFinishesSooner(total, ReceivedBytes, primaryRate, mirror.BytesPerSecond, setupSeconds: 0))
             {
+                MirrorOutcome = "switched";
                 return installer;
             }
             installer.Dispose();
@@ -213,6 +231,7 @@ internal sealed class UpdateDownloadTransfer
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
             // GitHub completed, or the download was cancelled or timed out.
+            if (MirrorOutcome == "not_switched_mirror_unavailable") MirrorOutcome = "not_switched_primary_ended";
         }
         catch (UpdateDownloadFailedException)
         {

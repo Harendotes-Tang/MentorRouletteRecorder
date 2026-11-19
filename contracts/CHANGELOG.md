@@ -1,5 +1,9 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-11-19 · 登记过期的拒绝说明
+
+- **文字目录**新增 `identity.registration_moved`：`ResolveCharacterIdentity` 确认登记时，该角色已不是这个档案的登记对象（已在别处回答，或改问了另一个角色），以 `ERR_BAD_REQUEST` 拒绝并给出这句说明，此前误用 `profile.not_found` 的句子。错误码与字段不变。
+
 ## 2026-11-19 · 记录迁移区服
 
 - `PreviewRunRegionMigration { runs, region, profile_id }` → `{ source_region, contributing_count, target_baseline, target_completed_count }`：只读预览。只接受手动补录与导入、未删除、同一来源区服的记录，目标档案须属于目标区服。

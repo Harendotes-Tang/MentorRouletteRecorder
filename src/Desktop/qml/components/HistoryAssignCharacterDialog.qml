@@ -14,8 +14,10 @@ MotionDialog {
     id: dialog
     objectName: "historyAssignCharacterDialog"
 
-    // Region the list is narrowed to; empty lists every region's characters.
+    // Region of the ticked records, which the list is narrowed to: a record can only go to a
+    // character of its own region. "MIXED" when they span regions: no character fits them all.
     property string region: ""
+    readonly property bool mixedRegions: dialog.region === "MIXED"
     property int checkedCount: 0
     // 0 until a character is picked; -1 is 「未分配」.
     property int target: 0
@@ -75,6 +77,17 @@ MotionDialog {
             wrapMode: Text.Wrap
             color: Theme.textPrimary
             font.pixelSize: Theme.fs(13)
+        }
+
+        Text {
+            objectName: "historyAssignCharacterMixed"
+            Layout.fillWidth: true
+            visible: dialog.mixedRegions
+            text: qsTr("勾选的记录来自不同区服，只能一起改为「未分配」。要改到某个角色，请先按区服筛选，再勾选那个区服的记录。")
+            textFormat: Text.PlainText
+            wrapMode: Text.Wrap
+            color: Theme.orangeText
+            font.pixelSize: Theme.fs(12)
         }
 
         CharacterSelector {

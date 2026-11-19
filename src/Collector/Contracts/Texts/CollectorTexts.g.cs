@@ -865,6 +865,10 @@ public static partial class CollectorTexts
     public static UserText IdentityProfileRequired() =>
         new("identity.profile_required", "请选择它是哪个角色。");
 
+    /// <summary><c>identity.registration_moved</c>: 这个角色的登记情况已经变了，请按总览上最新的提示操作。</summary>
+    public static UserText IdentityRegistrationMoved() =>
+        new("identity.registration_moved", "这个角色的登记情况已经变了，请按总览上最新的提示操作。");
+
     /// <summary><c>identity.request_reused</c>: 此请求编号已用于不同的角色登记操作。</summary>
     public static UserText IdentityRequestReused() =>
         new("identity.request_reused", "此请求编号已用于不同的角色登记操作。");

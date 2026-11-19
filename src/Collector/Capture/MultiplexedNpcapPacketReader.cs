@@ -115,9 +115,14 @@ internal sealed class MultiplexedNpcapPacketReader : INpcapPacketReader
         }
     }
 
+    // Planned and not being read: everything in the plan that has no open reader. An interface
+    // still waiting to be opened is listed for that instant too; the controller reads the status
+    // of a running capture, after Open has returned.
     private void UpdateStatus() => Volatile.Write(ref _status, new CapturePathStatus(
         _plan.Bindings.Count, _active.Count, _failures, _plan.CandidateLimitReached,
-        _active.Any(entry => entry.Binding.IsLoopback)));
+        _active.Any(entry => entry.Binding.IsLoopback),
+        _plan.Bindings.Where(binding => !_active.Any(entry => ReferenceEquals(entry.Binding, binding)))
+            .Select(binding => CapturePathPlan.NormalizeIdentity(binding.AdapterId)).ToArray()));
 
     public bool Read(NpcapPacketReceiver receive)
     {

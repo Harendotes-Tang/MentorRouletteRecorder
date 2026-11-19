@@ -90,6 +90,9 @@ public:
     /// as mutateCheckedRuns().
     void assignCheckedRunsToProfile(int profileId, const QString &reason);
     QString checkedMigrationSource() const;
+    /// The region every checked row is recorded in, "MIXED" when they span several, and ""
+    /// with nothing checked. 改角色 lists that region's characters only.
+    QString checkedRegion() const;
     QVariantMap regionMigrationPreview() const { return m_regionPreview; }
     bool regionMigrationLoading() const { return m_regionPreviewLoading; }
     QString regionMigrationFeedback() const { return m_regionPreviewFeedback.text(); }

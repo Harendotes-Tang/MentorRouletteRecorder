@@ -58,6 +58,13 @@ MotionDialog {
     /// The goal of recordRegion's achievement as last read, or 0 while none was:
     /// never another region's goal.
     readonly property int regionalGoalCount: {
+        // A record that belongs to a character counts toward that character's goal, which is
+        // not the region row's when another character is the current one (audit 2026-11-19 L1-1).
+        if (dialog.editMode && dialog.runData && typeof dialog.runData.profile_id === "number"
+                && Runtime.app && typeof Runtime.app.achievementForRun === "function") {
+            const own = Runtime.app.achievementForRun(dialog.runData)
+            if (own && own.goal_count !== undefined) return Number(own.goal_count || 0)
+        }
         const entries = Runtime.app && Runtime.app.achievements ? Runtime.app.achievements : []
         for (let i = 0; i < entries.length; ++i)
             if (entries[i].region === recordRegion) return Number(entries[i].goal_count || 0)
@@ -204,11 +211,16 @@ MotionDialog {
         || !importedHistory
         || (!!runData.import_metadata && runData.import_metadata.mentor_confirmed !== false)
         || (runData.mentor_roulette_id !== null && runData.mentor_roulette_id !== undefined)
+    // A record assigned to no character counts in nobody's progress, whatever its result.
+    // An older Collector sends no profile_id at all: its records count for their region.
+    readonly property bool unassignedRecord: editMode && !!runData && runData.profile_id === null
     readonly property bool countsAfterSave: resultCode === "COMPLETED" && contributesToGoal
+                                           && !unassignedRecord
                                            && importHasMentorQualification
                                            && !(editMode && runData && runData.soft_deleted)
                                            && (!importAwaitingConfirmation || confirmsImportedFacts)
     readonly property bool countedBefore: editMode && runData && runData.result === "COMPLETED"
+                                          && !unassignedRecord
                                           && importHasMentorQualification
                                           && !!runData.contributes_to_goal && !runData.soft_deleted
                                           && !(importedHistory && runData.pending_review)
@@ -224,6 +236,8 @@ MotionDialog {
         ? qsTr("这条导入记录还未确认是指导者任务，当前不计入成就进度。")
         : importAwaitingConfirmation && !confirmsImportedFacts
         ? qsTr("请确认这条导入记录的通关结果后保存；未知游戏时间可以留空。")
+        : unassignedRecord
+        ? qsTr("这条记录还没有分配角色，不计入任何角色的进度。可在历史记录勾选后用「改角色」归属。")
         : countedBefore ? qsTr("这条导随已经计入进度，修改其他信息不会重复计数。")
         // The achievement is the record's region's (audit 2026-11-03 L1-1).
         : recordRegion === "UNKNOWN" && editMode

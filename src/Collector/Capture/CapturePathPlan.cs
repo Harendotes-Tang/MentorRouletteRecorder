@@ -89,8 +89,24 @@ public sealed record CapturePathPlan(
 }
 
 /// <summary>Sanitized native-open facts; null counts mean no measurement was made.</summary>
+/// <param name="ClosedInterfaces">
+/// Normalised identities of the planned interfaces that are not being read: their reader could
+/// not be opened, or was closed after a read failure. Null when the source does not say.
+/// </param>
 public sealed record CapturePathStatus(int? CandidateInterfaces, int? OpenInterfaces,
-    int? OpenFailures, bool CandidateLimitReached, bool? LoopbackOpened)
+    int? OpenFailures, bool CandidateLimitReached, bool? LoopbackOpened,
+    IReadOnlyList<string>? ClosedInterfaces = null)
 {
     public static CapturePathStatus Unmeasured { get; } = new(null, null, null, false, null);
+
+    /// <summary>Compares the list by content: two readings of the same state are equal, and none listed equals an empty list.</summary>
+    public bool Equals(CapturePathStatus? other) =>
+        other is not null && CandidateInterfaces == other.CandidateInterfaces && OpenInterfaces == other.OpenInterfaces &&
+        OpenFailures == other.OpenFailures && CandidateLimitReached == other.CandidateLimitReached &&
+        LoopbackOpened == other.LoopbackOpened &&
+        (ClosedInterfaces ?? Array.Empty<string>()).SequenceEqual(other.ClosedInterfaces ?? Array.Empty<string>());
+
+    /// <inheritdoc />
+    public override int GetHashCode() =>
+        HashCode.Combine(CandidateInterfaces, OpenInterfaces, OpenFailures, CandidateLimitReached, LoopbackOpened);
 }

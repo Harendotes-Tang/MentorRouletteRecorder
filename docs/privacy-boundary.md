@@ -994,8 +994,9 @@ GitCode 镜像发行版公布的校验值就成为核对安装程序的唯一依
    其二是用户开启在线语音之后，播报或点击「测试」时连向用户选定的语音服务（§8.3；Azure 为 `<区域>.tts.speech.microsoft.com` 的 443 端口，
    OpenAI 兼容接口为用户填写的地址）；其三是更新：桌面端处于连接状态时，在启动时及持续运行期间定期检查（§8.4），
    以及用户点击「下载安装包」之后对安装程序及其校验值的下载（§8.6），每次先连向 `github.com` 的 443 端口，
-   并跟随合法重定向：GitHub 检查为 `*.githubusercontent.com`，下载只能是两个指定发布资产主机；失败时可连向
-   `api.gitcode.com` 及固定项目下载重定向的 `gitcode.com`、`file-cdn.gitcode.com`（§8.4、§8.6）。下载持续到安装程序接收完毕，
+   并跟随合法重定向：GitHub 检查为 `*.githubusercontent.com`，下载只能是两个指定发布资产主机；失败时，
+   以及下载安装程序期间 GitHub 明显过慢而探测镜像速度时，可连向
+   `api.gitcode.com` 及固定项目下载重定向的 `gitcode.com`、`file-cdn.gitcode.com`（§8.4、§8.6）；改从镜像下载须经用户在询问中同意。下载持续到安装程序接收完毕，
    或失败、被取消、「检查新版本并提示」被关闭为止。
    在设置中关闭「游戏更新后获取其他玩家的共享校准」与「检查新版本并提示」、并将播报的语音引擎保持为本机语音，
    或设置 `MR_DISABLE_SHARED_FETCH=1`、`MR_DISABLE_ONLINE_SPEECH=1` 与 `MR_DISABLE_UPDATE_CHECK=1` 并重启软件之后，

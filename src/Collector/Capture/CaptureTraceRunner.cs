@@ -784,7 +784,11 @@ internal static class GameTcpConnectionProbe
             if (tables.IPv6.Status == NetworkQueryStatus.Truncated ||
                 (tables.IPv6.Status == NetworkQueryStatus.Success && tables.IPv6.Connections.Count != 0))
                 return GameConnectionCount.NoAnswer;
-            return tables.IPv6.Status == NetworkQueryStatus.Success ? new(0, false) : GameConnectionCount.Failed;
+            // An IPv6 table that cannot be read leaves the count unknown, as a truncated one does:
+            // IPv6 is never captured, so waiting for that table to recover gains nothing, and a
+            // machine where it never does would wait out the whole session holding the capture
+            // (audit 2026-11-10, A2-1). Only an unreadable IPv4 table is worth waiting for.
+            return tables.IPv6.Status == NetworkQueryStatus.Success ? new(0, false) : GameConnectionCount.NoAnswer;
         }
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
         {

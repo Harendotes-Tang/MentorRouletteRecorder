@@ -72,6 +72,42 @@ public sealed class NetworkRecoveryTests
     }
 
     /// <summary>
+    /// Audit 2026-11-10, A1-1. The protection above keeps a session while the interfaces carrying
+    /// the game are planned as before. An optional interface whose reader is closed is planned as
+    /// before too, yet once the game moves onto it nothing of the game is read any more: the
+    /// session is then replaced, and not while the closed interface carries nothing.
+    /// </summary>
+    [Fact]
+    public void AGameCarrierWhoseReaderIsClosedIsNotAnIntactPath()
+    {
+        using var fixture = new Fixture();
+        fixture.Adapters.Add("virtual", "10.24.0.2");
+        fixture.Start();
+        var original = fixture.Source;
+        Assert.Contains(fixture.Plan.Bindings, binding => binding.AdapterId == "virtual");
+        original.Inner.PushOpcode(0x142);
+        original.OpenFailures = 1;
+        original.ClosedInterfaces = new[] { CapturePathPlan.NormalizeIdentity("virtual") };
+
+        // The closed interface carries nothing of the game: the session reads it and is kept.
+        fixture.Notify(100);
+        fixture.Tick(2_100);
+        fixture.Tick(40_000);
+        Assert.Single(fixture.Sources);
+        Assert.Equal(0, original.Inner.StopCount);
+
+        // The game's connections move onto it.
+        fixture.Tcp.With(Fixture.FirstPid, "10.24.0.2");
+        fixture.Notify(41_000);
+        fixture.Tick(43_000);
+        fixture.Tick(43_000);
+
+        Assert.Equal(2, fixture.Sources.Count);
+        Assert.Equal(1, original.Inner.StopCount);
+        Assert.Equal(CaptureControllerState.Running, fixture.Controller.State);
+    }
+
+    /// <summary>
     /// Re-review 2026-11-03, RV1-4. With the connection table unreadable nobody can tell which
     /// interface carries the game; a reader whose every path is still there, unchanged, is kept,
     /// since an interface that appears cannot hold a connection the game already had. A path of the
@@ -987,6 +1023,7 @@ public sealed class NetworkRecoveryTests
         internal readonly FakeCaptureSource Inner = new() { PreexistingTcpConnections = 0 };
         internal bool ReleaseFails, PathStatusFails;
         internal int DisposeAttempts, OpenFailures;
+        internal string[]? ClosedInterfaces;
         internal Action? BeforeStop;
         public string Kind => Inner.Kind;
         public bool IsRunning => Inner.IsRunning;
@@ -995,7 +1032,7 @@ public sealed class NetworkRecoveryTests
         public CaptureIngressCounters IngressCounters => Inner.IngressCounters;
         public CapturePathStatus PathStatus => PathStatusFails
             ? throw new InvalidOperationException("synthetic native facts unavailable")
-            : new(1, 1, OpenFailures, false, false);
+            : new(1, 1, OpenFailures, false, false, ClosedInterfaces);
         public void Start(CaptureStartOptions options, ICaptureSourceObserver observer) => Inner.Start(options, observer);
         public void Stop()
         {
