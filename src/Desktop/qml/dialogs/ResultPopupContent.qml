@@ -340,15 +340,24 @@ ColumnLayout {
                     // this run, or caught another one too, prints no arithmetic.
                     visible: popup.counted && popup.dialog.progressFrom >= 0
                              && popup.dialog.progressTo === popup.dialog.progressFrom + 1
-                    spacing: 3
+                    spacing: 4
+                    // Both figures share one face, size and weight; only the
+                    // colour tells the new count from the old one.
                     Text {
-                        text: String(popup.dialog.progressFrom) + " →"
+                        objectName: "popupProgressFrom"
+                        text: String(popup.dialog.progressFrom)
+                        color: Theme.textSecondary
+                        font: progressTo.font
+                    }
+                    Text {
+                        text: "→"
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fs(12)
                         font.family: Theme.figureFamily
-                        font.features: ({ "tnum": 1 })
                     }
                     Text {
+                        id: progressTo
+                        objectName: "popupProgressTo"
                         text: String(popup.dialog.progressTo)
                         color: ov.accent
                         font.family: Theme.numFamily
@@ -452,27 +461,6 @@ ColumnLayout {
             }
         }
 
-        RowLayout {
-            Layout.fillWidth: true
-            visible: !!popup.dialog.imageStore && popup.promptEnabled
-            spacing: 8
-            AppButton {
-                objectName: "pasteReflectionImageButtonCompact"
-                text: qsTranslate("ReflectionDialog", "粘贴图片")
-                iconName: "clipboard-paste"
-                compact: true
-                enabled: !popup.dialog.busy && !popup.dialog.unavailable && popup.dialog.pendingSwitchId.length === 0
-                onClicked: popup.dialog.pasteNoteImage()
-            }
-            Text {
-                Layout.fillWidth: true
-                text: qsTranslate("ReflectionDialog", "Ctrl+V · 图片立即保存到本条记录")
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fs(11)
-                wrapMode: Text.WordWrap
-            }
-        }
-
         ScrollView {
             id: imageViewport
             objectName: "reflectionImageViewportCompact"
@@ -514,16 +502,43 @@ ColumnLayout {
             wrapMode: Text.WordWrap
         }
 
-        // `.pp-foot`: 完成 once the result is on screen.
+        // `.pp-foot`: 粘贴图片 on the left, 完成 on the right once the result is
+        // on screen. One row, so the popup does not grow by a line for the button.
         RowLayout {
+            id: footRow
+            readonly property bool pasteOffered: !!popup.dialog.imageStore && popup.promptEnabled
             Layout.fillWidth: true
-            visible: !popup.asking
+            visible: !popup.asking || pasteOffered
+            spacing: 8
+            AppButton {
+                objectName: "pasteReflectionImageButtonCompact"
+                visible: footRow.pasteOffered
+                text: qsTranslate("ReflectionDialog", "粘贴图片")
+                iconName: "clipboard-paste"
+                compact: true
+                enabled: !popup.dialog.busy && !popup.dialog.unavailable && popup.dialog.pendingSwitchId.length === 0
+                onClicked: popup.dialog.pasteNoteImage()
+            }
+            Text {
+                objectName: "pasteReflectionImageHintCompact"
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                // The review button needs the room when it is offered.
+                visible: footRow.pasteOffered && !reviewButton.visible
+                text: qsTranslate("ReflectionDialog", "Ctrl+V · 图片立即保存到本条记录")
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fs(11)
+                wrapMode: Text.WordWrap
+                maximumLineCount: 2
+                elide: Text.ElideRight
+            }
             // A run kept for review with its result already recorded (crash
             // recovery, a withdrawn calibration) is settled in the history page;
             // without this the item could never leave 待处理 (review K1-2).
             AppButton {
+                id: reviewButton
                 objectName: "reviewRecoveredRecordButtonCompact"
-                visible: popup.run.pending_review === true && popup.result.length > 0
+                visible: !popup.asking && popup.run.pending_review === true && popup.result.length > 0
                          && popup.result !== "UNKNOWN" && !popup.dialog.unavailable
                 variant: "ghost"
                 compact: true
@@ -531,9 +546,10 @@ ColumnLayout {
                 enabled: !popup.dialog.busy
                 onClicked: popup.dialog.requestReview()
             }
-            Item { Layout.fillWidth: true }
+            Item { Layout.fillWidth: true; visible: !footRow.pasteOffered || reviewButton.visible }
             AppButton {
                 objectName: "saveReflectionButton"
+                visible: !popup.asking
                 Layout.alignment: Qt.AlignRight
                 variant: "primary"
                 compact: !Theme.eorzea

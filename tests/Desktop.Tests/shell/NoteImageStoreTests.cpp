@@ -472,6 +472,53 @@ private Q_SLOTS:
             QVERIFY(!QFileInfo::exists(source));
     }
 
+    void imageFilesCopiedInExplorerAreAddedAsPicturesAndTheirSourcesStay()
+    {
+        // Tester report, 2026-11-19: a copied screenshot file was not a picture to
+        // the note field, which pasted its file:/// address as text instead.
+        StoreFixture fixture;
+        QTemporaryDir sources;
+        QVERIFY(sources.isValid());
+        QImage image(20, 10, QImage::Format_RGB32);
+        image.fill(Qt::darkCyan);
+        const QString first = sources.filePath(QStringLiteral("ffxiv_1.png"));
+        const QString second = sources.filePath(QStringLiteral("ffxiv_2.JPG"));
+        const QString text = sources.filePath(QStringLiteral("notes.txt"));
+        QVERIFY(image.save(first, "PNG") && image.save(second, "JPG"));
+        QFile plain(text);
+        QVERIFY(plain.open(QIODevice::WriteOnly) && plain.write("text") == 4);
+        plain.close();
+        auto *clipboard = QGuiApplication::clipboard();
+        const auto copyFiles = [clipboard](const QStringList &paths) {
+            QList<QUrl> urls;
+            for (const QString &path : paths)
+                urls.append(QUrl::fromLocalFile(path));
+            auto *mime = new QMimeData;
+            mime->setUrls(urls);
+            clipboard->setMimeData(mime);
+        };
+
+        copyFiles({first, second});
+        QVERIFY(fixture.store.clipboardHasImage());
+        const QVariantMap result = fixture.store.addClipboard(kRunId());
+        QVERIFY2(result.value(QStringLiteral("ok")).toBool(), qPrintable(result.value(QStringLiteral("error")).toString()));
+        QCOMPARE(fixture.store.imagesFor(kRunId()).size(), 2);
+        QVERIFY(QFileInfo::exists(first) && QFileInfo::exists(second));
+
+        // A file that is not a picture, alone or among pictures, leaves Ctrl+V to the text field.
+        copyFiles({text});
+        QVERIFY(!fixture.store.clipboardHasImage());
+        copyFiles({first, text});
+        QVERIFY(!fixture.store.clipboardHasImage());
+        QVERIFY(!fixture.store.addClipboard(kRunId()).value(QStringLiteral("ok")).toBool());
+        auto *remote = new QMimeData;
+        remote->setUrls({QUrl(QStringLiteral("https://example.invalid/picture.png"))});
+        clipboard->setMimeData(remote);
+        QVERIFY(!fixture.store.clipboardHasImage());
+        QCOMPARE(fixture.store.imagesFor(kRunId()).size(), 2);
+        clipboard->clear();
+    }
+
     void emptyTextCorruptOversizedAndBombClipboardsNeverWrite()
     {
         StoreFixture fixture;

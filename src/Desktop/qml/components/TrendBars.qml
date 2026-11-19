@@ -1,15 +1,20 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Controls
 import MentorRecorder 1.0
 
 Item {
     id: root
 
     property var buckets: []
+    /// The bar under the pointer, -1 for none.
+    property int hoveredIndex: -1
 
     implicitHeight: 156
+
+    function countAt(index) {
+        return index >= 0 && index < buckets.length ? Number(buckets[index].count || 0) : 0
+    }
 
     readonly property int maxCount: {
         let maxValue = 1
@@ -43,6 +48,7 @@ Item {
             delegate: Item {
                 id: bucket
                 required property var modelData
+                required property int index
 
                 width: root.buckets.length > 0
                        ? (bars.width - bars.spacing * (root.buckets.length - 1)) / root.buckets.length
@@ -73,12 +79,32 @@ Item {
                     }
                 }
 
-                HoverHandler { id: hover }
-                ToolTip.visible: hover.hovered
-                ToolTip.text: qsTr("%1 · %2 次").arg(modelData.label || "").arg(modelData.count || 0)
+                HoverHandler {
+                    id: hover
+                    onHoveredChanged: {
+                        if (hovered) root.hoveredIndex = bucket.index
+                        else if (root.hoveredIndex === bucket.index) root.hoveredIndex = -1
+                    }
+                }
             }
         }
     }
+
+    ChartTip {
+        id: tip
+        objectName: "trendTip"
+        // The last bucket stays in place while the bubble fades out.
+        property int index: 0
+        readonly property var bucket: index < root.buckets.length ? root.buckets[index] : ({})
+        readonly property real slot: root.buckets.length > 0
+                                     ? (bars.width + bars.spacing) / root.buckets.length : 0
+        // An empty day has no bar to explain: nothing is shown over it.
+        shown: root.countAt(root.hoveredIndex) > 0
+        text: qsTr("%1 · %2 次").arg(bucket.label || "").arg(bucket.count || 0)
+        barCenter: bars.x + index * slot + (slot - bars.spacing) / 2
+        barTop: bars.y + bars.height * (1 - Number(bucket.count || 0) / root.maxCount)
+    }
+    onHoveredIndexChanged: if (countAt(hoveredIndex) > 0) tip.index = hoveredIndex
 
     Text {
         anchors.left: parent.left

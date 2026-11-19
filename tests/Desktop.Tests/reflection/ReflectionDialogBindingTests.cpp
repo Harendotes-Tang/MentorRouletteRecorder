@@ -343,6 +343,23 @@ private Q_SLOTS:
         image.fill(QColor(0, 80, 160, 192));
         QGuiApplication::clipboard()->setImage(image);
         fixture.backend.commands.clear();
+        if (standalone && !askingResult) {
+            // The popup: 粘贴图片 shares the bottom row with 完成 instead of taking a line of its own.
+            const auto shown = [&fixture](const QString &name) -> QQuickItem * {
+                for (auto *item : fixture.dialog()->findChildren<QQuickItem *>(name))
+                    if (item->isVisible() && item->width() > 0) return item;
+                return nullptr;
+            };
+            QQuickItem *paste = nullptr;
+            QQuickItem *finish = nullptr;
+            QTRY_VERIFY((paste = shown(QStringLiteral("pasteReflectionImageButtonCompact")))
+                        && (finish = shown(QStringLiteral("saveReflectionButton"))));
+            const qreal pasteMiddle = paste->mapToScene(QPointF(0, paste->height() / 2)).y();
+            const qreal finishMiddle = finish->mapToScene(QPointF(0, finish->height() / 2)).y();
+            QVERIFY2(qAbs(pasteMiddle - finishMiddle) <= 1.0,
+                     qPrintable(QStringLiteral("%1 vs %2").arg(pasteMiddle).arg(finishMiddle)));
+            QVERIFY(paste->mapToScene(QPointF(paste->width(), 0)).x() < finish->mapToScene(QPointF(0, 0)).x());
+        }
         QVERIFY(fixture.click(standalone ? QStringLiteral("pasteReflectionImageButtonCompact")
                                         : QStringLiteral("pasteReflectionImageButton")));
         QTRY_COMPARE(asList(fixture.dialog()->property("noteImages")).size(), 1);

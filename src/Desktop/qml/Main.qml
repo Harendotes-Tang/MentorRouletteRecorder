@@ -962,34 +962,57 @@ ApplicationWindow {
                             }
                         }
 
-                        ColumnLayout {
+                        // The entries sit in a layout of their own inside a plain item,
+                        // so the plate behind the current one is not one of its rows.
+                        Item {
                             Layout.fillWidth: true
                             Layout.topMargin: 6
-                            spacing: 2
+                            implicitHeight: pageNav.implicitHeight
 
-                            Repeater {
-                                // Lucide icons (components/Lucide.js) where the
-                                // prototype had 01-06.
-                                model: [
-                                    { index: 0, icon: "layout-dashboard", label: qsTr("总览") },
-                                    { index: 1, icon: "history", label: qsTr("历史记录") },
-                                    { index: 7, icon: "notebook-pen", label: qsTr("全部心得") },
-                                    { index: 2, icon: "swords", label: qsTr("副本统计") },
-                                    { index: 3, icon: "chart-column", label: qsTr("职业统计") },
-                                    { index: 4, icon: "activity", label: qsTr("捕获诊断") },
-                                    { index: 5, icon: "settings", label: qsTr("设置") },
-                                    { index: 6, icon: "clipboard-check", label: qsTr("对照核对") }
-                                ]
+                            NavPlate {
+                                objectName: "navCurrentPlate"
+                                width: parent.width
+                                target: {
+                                    for (let i = 0; i < pageEntries.count; ++i) {
+                                        const entry = pageEntries.itemAt(i) as NavItem
+                                        if (entry && entry.current && entry.visible) return entry
+                                    }
+                                    return null
+                                }
+                            }
 
-                                delegate: NavItem {
-                                    required property var modelData
+                            ColumnLayout {
+                                id: pageNav
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                spacing: 2
 
-                                    visible: modelData.index !== 6 || Runtime.app.maintainerToolsVisible
-                                    Layout.fillWidth: true
-                                    iconName: modelData.icon
-                                    label: modelData.label
-                                    current: modelData.index === Runtime.app.currentPage
-                                    onClicked: Runtime.app.navigate(modelData.index)
+                                Repeater {
+                                    id: pageEntries
+                                    // Lucide icons (components/Lucide.js) where the
+                                    // prototype had 01-06.
+                                    model: [
+                                        { index: 0, icon: "layout-dashboard", label: qsTr("总览") },
+                                        { index: 1, icon: "history", label: qsTr("历史记录") },
+                                        { index: 7, icon: "notebook-pen", label: qsTr("全部心得") },
+                                        { index: 2, icon: "swords", label: qsTr("副本统计") },
+                                        { index: 3, icon: "chart-column", label: qsTr("职业统计") },
+                                        { index: 4, icon: "activity", label: qsTr("捕获诊断") },
+                                        { index: 5, icon: "settings", label: qsTr("设置") },
+                                        { index: 6, icon: "clipboard-check", label: qsTr("对照核对") }
+                                    ]
+
+                                    delegate: NavItem {
+                                        required property var modelData
+
+                                        visible: modelData.index !== 6 || Runtime.app.maintainerToolsVisible
+                                        Layout.fillWidth: true
+                                        iconName: modelData.icon
+                                        label: modelData.label
+                                        current: modelData.index === Runtime.app.currentPage
+                                        plateExternal: true
+                                        onClicked: Runtime.app.navigate(modelData.index)
+                                    }
                                 }
                             }
                         }
@@ -1407,9 +1430,8 @@ ApplicationWindow {
     }
     Timer { id: recoveryNoticeTimer; interval: 6000; onTriggered: recoveryNotice.hide() }
 
-    ReflectionShareDialog {
+    ReflectionShareWindow {
         id: reflectionShareDialog
-        anchors.centerIn: Overlay.overlay
     }
 
     ImportRecordsDialog {

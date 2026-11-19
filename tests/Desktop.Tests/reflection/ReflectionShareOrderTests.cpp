@@ -13,6 +13,7 @@
 #include <QQmlListReference>
 #include <QQuickItem>
 #include <QQuickStyle>
+#include <QQuickWindow>
 #include <QTemporaryDir>
 
 namespace {
@@ -42,6 +43,38 @@ QPoint centerInWindow(QQuickItem *item)
     return item->mapToScene(item->boundingRect().center()).toPoint();
 }
 
+/// The objects the share dialog reads from its context, and the scene it is created in.
+struct ShareScene
+{
+    mr::Formatters formatters;
+    mr::JobCatalog jobs;
+    mr::ReflectionLibraryController library{nullptr};
+    mr::ReflectionShareController controller;
+    mrtest::QmlComponentScene scene;
+
+    ShareScene()
+    {
+        auto *context = scene.engine.rootContext();
+        context->setContextProperty(QStringLiteral("Fmt"), &formatters);
+        context->setContextProperty(QStringLiteral("Jobs"), &jobs);
+        context->setContextProperty(QStringLiteral("Reflections"), &library);
+        context->setContextProperty(QStringLiteral("ReflectionShare"), &controller);
+        context->setContextProperty(QStringLiteral("ReduceMotion"), true);
+    }
+
+    static QVariantList runs()
+    {
+        QVariantList runs;
+        for (int i = 1; i <= 3; ++i) {
+            runs.append(QVariantMap{{QStringLiteral("run_id"), QString::number(i)},
+                {QStringLiteral("duty_name"), QStringLiteral("副本 %1").arg(i)},
+                {QStringLiteral("matched_at_utc"), QStringLiteral("2026-11-0%1T08:00:00Z").arg(i)},
+                {QStringLiteral("reflection"), QVariantMap{{QStringLiteral("text"), QStringLiteral("心得 %1").arg(i)}}}});
+        }
+        return runs;
+    }
+};
+
 class ReflectionShareOrderTests final : public QObject
 {
     Q_OBJECT
@@ -54,21 +87,85 @@ private Q_SLOTS:
         mrtest::registerSourceQmlComponents();
         qmlRegisterType(QUrl::fromLocalFile(mrtest::qmlSourceRoot() + QStringLiteral("/dialogs/ReflectionShareDialog.qml")),
                         "MentorRecorder", 1, 0, "ReflectionShareDialog");
+        qmlRegisterType(QUrl::fromLocalFile(mrtest::qmlSourceRoot() + QStringLiteral("/dialogs/ReflectionShareWindow.qml")),
+                        "MentorRecorder", 1, 0, "ReflectionShareWindow");
+    }
+
+    void theWindowOfItsOwnKeepsCardsNarrowAndMovesARowToEitherEndInOneClick()
+    {
+        // Owner, 2026-11-19: 生成分享图片 is a window that can be maximised, and a
+        // row gets to the far end of a long list without being dragged there.
+        ShareScene share;
+        auto &scene = share.scene;
+        QVERIFY2(scene.create(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    visible: true; width: 420; height: 320
+    ReflectionShareWindow { objectName: "shareWindow" }
+})", QStringLiteral("/ReflectionShareWindowTest.qml")), qPrintable(scene.errors));
+        QVERIFY(QTest::qWaitForWindowExposed(scene.window()));
+        auto *host = scene.root->findChild<QQuickWindow *>(QStringLiteral("shareWindow"));
+        QVERIFY(host && !host->isVisible());
+        QVERIFY(host->flags().testFlag(Qt::WindowMaximizeButtonHint));
+        auto *dialog = host->property("dialog").value<QObject *>();
+        QVERIFY(dialog);
+        QVERIFY(QMetaObject::invokeMethod(host, "openForRuns", Q_ARG(QVariant, QVariant(ShareScene::runs()))));
+        QTRY_VERIFY(host->isVisible() && dialog->property("opened").toBool());
+        QVERIFY(QTest::qWaitForWindowExposed(host));
+
+        host->resize(1500, 900);
+        auto *stack = findVisual(host->contentItem(), QStringLiteral("reflectionShareIndividualCards"));
+        auto *preview = findVisual(host->contentItem(), QStringLiteral("reflectionSharePreview"));
+        QVERIFY(stack && preview);
+        // The dialog fills the window; the cards stop at their limit and sit in the middle.
+        QTRY_COMPARE(dialog->property("width").toReal(), 1500.0);
+        QTRY_COMPARE(stack->width(), dialog->property("cardLimit").toReal());
+        QVERIFY(preview->width() > 1400);
+        QVERIFY(qAbs(stack->mapToItem(preview, QPointF(stack->width() / 2, 0)).x() - preview->width() / 2) < 12);
+        QVERIFY(!findVisual(host->contentItem(), QStringLiteral("reflectionShareCloseButton"))->isVisible());
+
+        const QStringList newest{QStringLiteral("3"), QStringLiteral("2"), QStringLiteral("1")};
+        QCOMPARE(runIds(dialog), newest);
+        const auto tap = [host](const QString &name) {
+            auto *button = findVisual(host->contentItem(), name);
+            if (!button || !button->isVisible())
+                return false;
+            QTest::mouseClick(host, Qt::LeftButton, Qt::NoModifier, centerInWindow(button));
+            return true;
+        };
+        // The first row has nowhere further up to go, the last nowhere further down.
+        QTRY_VERIFY(findVisual(host->contentItem(), QStringLiteral("reflectionShareMoveLast_0")));
+        QVERIFY(!findVisual(host->contentItem(), QStringLiteral("reflectionShareMoveFirst_0"))->isVisible());
+        QVERIFY(!findVisual(host->contentItem(), QStringLiteral("reflectionShareMoveLast_2"))->isVisible());
+        QVERIFY(tap(QStringLiteral("reflectionShareMoveLast_0")));
+        QTRY_COMPARE(runIds(dialog), (QStringList{QStringLiteral("2"), QStringLiteral("1"), QStringLiteral("3")}));
+        QTRY_VERIFY(findVisual(host->contentItem(), QStringLiteral("reflectionShareMoveFirst_2")));
+        // The rows are rebuilt in the new order, and the last one lies below the window: bring it in.
+        QTest::qWait(200);
+        auto *flick = qvariant_cast<QObject *>(preview->property("contentItem"));
+        QVERIFY(flick);
+        flick->setProperty("contentY", flick->property("contentHeight").toReal() - preview->height());
+        QTest::qWait(100);
+        QVERIFY(tap(QStringLiteral("reflectionShareMoveFirst_2")));
+        QTRY_COMPARE(runIds(dialog), newest);
+        QCOMPARE(findVisual(host->contentItem(), QStringLiteral("reflectionImageOrder"))->property("currentIndex").toInt(), 2);
+
+        const QString shot = qEnvironmentVariable("MR_SHARE_WINDOW_SHOT");
+        if (!shot.isEmpty())
+            QVERIFY(host->grabWindow().save(shot));
+
+        // The title bar's close button closes the dialog with the window.
+        host->close();
+        QTRY_VERIFY(!host->isVisible() && !dialog->property("visible").toBool());
+        QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
     }
 
     void dragOrderFollowsBothPreviewsAndPngFiles()
     {
-        mr::Formatters formatters;
-        mr::JobCatalog jobs;
-        mr::ReflectionLibraryController library(nullptr);
-        mr::ReflectionShareController controller;
-        mrtest::QmlComponentScene scene;
-        auto *context = scene.engine.rootContext();
-        context->setContextProperty(QStringLiteral("Fmt"), &formatters);
-        context->setContextProperty(QStringLiteral("Jobs"), &jobs);
-        context->setContextProperty(QStringLiteral("Reflections"), &library);
-        context->setContextProperty(QStringLiteral("ReflectionShare"), &controller);
-        context->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        ShareScene share;
+        auto &controller = share.controller;
+        auto &scene = share.scene;
         QVERIFY2(scene.create(R"(import QtQuick
 import QtQuick.Controls
 import MentorRecorder
@@ -81,13 +178,7 @@ ApplicationWindow {
         QVERIFY(QTest::qWaitForWindowExposed(window));
         auto *dialog = scene.root->findChild<QObject *>(QStringLiteral("dialog"));
         QVERIFY(dialog);
-        QVariantList runs;
-        for (int i = 1; i <= 3; ++i) {
-            runs.append(QVariantMap{{QStringLiteral("run_id"), QString::number(i)},
-                {QStringLiteral("duty_name"), QStringLiteral("副本 %1").arg(i)},
-                {QStringLiteral("matched_at_utc"), QStringLiteral("2026-11-0%1T08:00:00Z").arg(i)},
-                {QStringLiteral("reflection"), QVariantMap{{QStringLiteral("text"), QStringLiteral("心得 %1").arg(i)}}}});
-        }
+        const QVariantList runs = ShareScene::runs();
         const auto open = [dialog, &runs] {
             return QMetaObject::invokeMethod(dialog, "openForRuns", Q_ARG(QVariant, QVariant(runs)));
         };

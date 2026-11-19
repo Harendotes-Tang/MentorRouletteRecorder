@@ -431,16 +431,17 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true
         spacing: 8
-        AppButton { objectName: "reflectionPreviousPage"; text: qsTr("上一页"); iconName: "chevron-left"; enabled: !!page.runs && !page.runs.loading && page.runs.page > 1; onClicked: page.runs.previousPage() }
-        PageNumberInput { objectName: "reflectionPageJump"; paginationModel: page.runs }
-        AppButton { objectName: "reflectionNextPage"; text: qsTr("下一页"); iconName: "chevron-right"; enabled: !!page.runs && !page.runs.loading && page.runs.page < page.runs.pageCount; onClicked: page.runs.nextPage() }
-        Item { Layout.fillWidth: true }
+        // 每页条数 on the left, the pager at the right edge: where 历史记录 has its own.
         StyledComboBox {
             objectName: "reflectionPageSize"
             Layout.preferredWidth: 110
             model: [qsTr("每页 10 条"), qsTr("每页 20 条"), qsTr("每页 50 条")]
             onActivated: if (page.runs) page.runs.pageSize = [10, 20, 50][currentIndex]
         }
+        Item { Layout.fillWidth: true }
+        AppButton { objectName: "reflectionPreviousPage"; text: qsTr("上一页"); iconName: "chevron-left"; enabled: !!page.runs && !page.runs.loading && page.runs.page > 1; onClicked: page.runs.previousPage() }
+        PageNumberInput { objectName: "reflectionPageJump"; paginationModel: page.runs }
+        AppButton { objectName: "reflectionNextPage"; text: qsTr("下一页"); iconName: "chevron-right"; iconAfterText: true; enabled: !!page.runs && !page.runs.loading && page.runs.page < page.runs.pageCount; onClicked: page.runs.nextPage() }
     }
     Item { Layout.fillWidth: true; Layout.preferredHeight: Math.max(0, page.reservedBottom) }
 }

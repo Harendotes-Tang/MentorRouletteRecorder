@@ -28,6 +28,10 @@ Button {
     readonly property real pixelRatio: Screen.devicePixelRatio > 0 ? Screen.devicePixelRatio : 1
     property string sub: ""
     property bool current: false
+    /// The owner draws the current page's plate itself (the main sidebar slides
+    /// one plate between its entries); this entry then only colours its text.
+    property bool plateExternal: false
+    readonly property bool plated: current && !plateExternal
     // The hover plate; at rest the background holds it at zero alpha.
     readonly property color hoverColor: Theme.fill
 
@@ -42,23 +46,28 @@ Button {
     // the hover shift). Both stay put under reduced motion.
     // Only painted layers move; pointer and keyboard targets remain stationary.
     property real visualScale: Theme.motion && navItem.down ? 0.97 : 1.0
-    property real visualShift: Theme.motion && navItem.hovered && !navItem.down ? 2 : 0
+    // Hover (2026-11-19, owner: the old one did not feel right): the plate fades
+    // in where it is instead of appearing at once and nudging sideways with the
+    // text; only the icon and label ease 3 px to the right. The current page
+    // keeps still: it already has its own plate.
+    property real visualShift: Theme.motion && navItem.hovered && !navItem.down && !navItem.current ? 3 : 0
+    property real hoverLevel: navItem.hovered && !navItem.current ? 1 : 0
+    Behavior on hoverLevel { enabled: navItem.feedbackVisible && Theme.motion
+        NumberAnimation { duration: navItem.hovered ? 140 : 220; easing.type: Easing.OutCubic }
+    }
     Behavior on visualScale { enabled: navItem.feedbackVisible && Theme.motion;
         SmoothedAnimation { id: pressMotion; velocity: -1; duration: navItem.feedbackVisible ? Theme.motionControl : 0 }
     }
-    Behavior on visualShift { enabled: navItem.feedbackVisible && Theme.motion;
-        SmoothedAnimation { id: hoverShiftMotion; velocity: -1; duration: navItem.feedbackVisible ? Theme.motionControl : 0 }
+    Behavior on visualShift { enabled: navItem.feedbackVisible && Theme.motion
+        NumberAnimation { id: hoverShiftMotion; duration: navItem.feedbackVisible ? Theme.motionControl : 0; easing.type: Easing.OutCubic }
     }
     background: Rectangle {
+        readonly property color hoverFill: Theme.eorzea ? Theme.fill : navItem.hoverColor
         scale: navItem.visualScale
-        transform: Translate { x: navItem.visualShift }
         radius: Theme.radiusS
-        color: Theme.eorzea
-               ? (navItem.current || !navItem.hovered
-                  ? Theme.clear(Theme.fill) : Theme.fill)
-               : (navItem.current
-                  ? Theme.accentMuted
-                  : (navItem.hovered ? navItem.hoverColor : Theme.clear(navItem.hoverColor)))
+        color: navItem.plated && !Theme.eorzea
+               ? Theme.accentMuted
+               : Qt.rgba(hoverFill.r, hoverFill.g, hoverFill.b, hoverFill.a * navItem.hoverLevel)
 
 
         // .navi[data-active] gradient plate
@@ -66,7 +75,7 @@ Button {
             anchors.fill: parent
             radius: parent.radius
             visible: Theme.eorzea && opacity > 0
-            opacity: navItem.current ? 1 : 0
+            opacity: navItem.plated ? 1 : 0
             Behavior on opacity { enabled: navItem.feedbackVisible && Theme.motion; SmoothedAnimation { velocity: -1; id: activePlateMotion; duration: navItem.feedbackVisible ? Theme.motionMedium : 0 } }
             gradient: Gradient {
                 orientation: Gradient.Horizontal
@@ -83,7 +92,7 @@ Button {
             anchors.topMargin: 4
             anchors.bottomMargin: 4
             width: 2
-            visible: Theme.eorzea && navItem.current
+            visible: Theme.eorzea && navItem.plated
             color: Theme.gold2
 
             Rectangle {

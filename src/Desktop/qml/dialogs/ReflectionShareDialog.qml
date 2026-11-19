@@ -21,19 +21,50 @@ MotionDialog {
     property int dragFrom: -1
     property int dropIndex: -1
     property real dragY: 0
+    // The drag as it is drawn (2026-11-19, after the task editor of another of the
+    // owner's programs): the row that is picked up stays behind as a faint
+    // placeholder, a slightly smaller copy of it follows the pointer, the rows in
+    // between slide out of its way, and on release the copy glides into the gap
+    // before the order really changes.
+    /// The pointer, in the coordinates of the preview's content.
+    property real dragLayerY: 0
+    /// Pointer minus the top of the row when it was picked up.
+    property real dragGrabOffset: 0
+    property real dragLeft: 0
+    property real dragWidth: 0
+    /// The copy is on its way into the gap; nothing else can be picked up.
+    property bool dragSettling: false
+    /// Rows slide while a drag is under way and jump back when it ends: by then
+    /// the new order puts every row where the slide had left it.
+    property bool dragAnimated: false
+    readonly property int dragDuration: Theme.motion ? 160 : 0
     /// The rendered rows a grip stands beside, in the order they are saved.
     readonly property list<Item> gripEntries: !batch ? [] : collection ? combined.collectionEntries : stack.previewEntries
     property string exportDate: ""
     readonly property var preferences: typeof Runtime.settings !== "undefined" ? Runtime.settings : null
     readonly property bool identityValid: identityInput.text.trim().length === 0
         || /^[^@\s]+(?: [^@\s]+)*@[^@\s]+(?: [^@\s]+)*$/.test(identityInput.text.trim())
-    modal: true
-    width: Math.min(800, Overlay.overlay ? Overlay.overlay.width - 48 : 800)
-    height: Math.min(850, Overlay.overlay ? Overlay.overlay.height - 48 : 850)
+    /// Hosted by ReflectionShareWindow: the dialog is the whole content of a window
+    /// of its own, which the player can resize and maximise (owner, 2026-11-19).
+    /// The window has the title and the close button; nothing is dimmed behind it.
+    property bool windowed: false
+    /// Cards are no wider than this in a window, however wide it is made: a taller
+    /// window then shows more of them, not the same ones larger.
+    readonly property int cardLimit: 900
+    modal: !windowed
+    dim: !windowed
+    width: windowed ? (Overlay.overlay ? Overlay.overlay.width : 800)
+                    : Math.min(800, Overlay.overlay ? Overlay.overlay.width - 48 : 800)
+    height: windowed ? (Overlay.overlay ? Overlay.overlay.height : 850)
+                     : Math.min(850, Overlay.overlay ? Overlay.overlay.height - 48 : 850)
     padding: 20
     closePolicy: busy ? Popup.NoAutoClose : Popup.CloseOnEscape
     Overlay.modal: Rectangle { color: Theme.modalScrim(dialog.palette.shadow) }
-    background: DialogFrame {}
+    background: Loader {
+        sourceComponent: dialog.windowed ? flatBackground : framedBackground
+        Component { id: framedBackground; DialogFrame {} }
+        Component { id: flatBackground; Rectangle { color: Theme.surface } }
+    }
 
     function openForRun(run) {
         openForRuns([run])
@@ -95,8 +126,49 @@ MotionDialog {
     function rowHeightOf(entry: Item): real {
         return entry ? entry.height * (collection ? combined.templateScale : 1) : 0
     }
+    /// The space between two rows.
+    function rowGap(): real {
+        return gripEntries.length > 1
+            ? rowTopOf(gripEntries[1]) - rowTopOf(gripEntries[0]) - rowHeightOf(gripEntries[0]) : 0
+    }
+    /// How far the row at  index is moved out of its place by the drag under way:
+    /// the picked-up row to the slot it would be dropped in, the rows between
+    /// that slot and its old one by its height the other way.
+    function rowShift(index: int): real {
+        const entries = gripEntries
+        if (dragFrom < 0 || dropIndex < 0 || dragFrom >= entries.length || dropIndex >= entries.length
+                || dropIndex === dragFrom) return 0
+        const moved = entries[dragFrom]
+        if (index === dragFrom) {
+            const target = entries[dropIndex]
+            return dropIndex > dragFrom
+                ? rowTopOf(target) + rowHeightOf(target) - rowHeightOf(moved) - rowTopOf(moved)
+                : rowTopOf(target) - rowTopOf(moved)
+        }
+        const pitch = rowHeightOf(moved) + rowGap()
+        if (dragFrom < index && index <= dropIndex) return -pitch
+        if (dropIndex <= index && index < dragFrom) return pitch
+        return 0
+    }
+    function beginDrag(index: int, sceneX: real, sceneY: real) {
+        if (dragFrom >= 0 || index < 0 || index >= gripEntries.length) return
+        const entry = gripEntries[index]
+        const box = gripsLayer.mapFromItem(entry, 0, 0, entry.width, entry.height)
+        dragLeft = box.x
+        dragWidth = box.width
+        dragFrom = index
+        dropIndex = index
+        dragY = preview.mapFromItem(null, sceneX, sceneY).y
+        dragLayerY = gripsLayer.mapFromItem(preview, 0, dragY).y
+        dragGrabOffset = dragLayerY - rowTopOf(entry)
+        dragAnimated = true
+        ghost.lift = 1
+        lift.restart()
+        updateDropIndex()
+    }
     function updateDropIndex() {
         const y = gripsLayer.mapFromItem(preview, 0, dragY).y
+        dragLayerY = y
         let slot = 0
         for (; slot < gripEntries.length; ++slot) {
             const entry = gripEntries[slot]
@@ -104,13 +176,36 @@ MotionDialog {
         }
         dropIndex = slot > dragFrom ? slot - 1 : slot
     }
+    /// The pointer let go: the copy glides into the gap (back to where the row
+    /// came from when the drag was cancelled), then the order changes.
     function finishDrag(commit: bool) {
+        if (dragFrom < 0 || dragSettling) return
+        if (!commit) dropIndex = dragFrom
+        lift.stop()
+        ghost.restY = ghost.y
+        settle.landing = rowTopOf(gripEntries[dragFrom]) + rowShift(dragFrom)
+        dragSettling = true
+        settle.restart()
+    }
+    function completeDrag() {
         const from = dragFrom
         const to = dropIndex
+        endDrag()
+        if (from < 0 || from === to) return
+        // Without motion this runs inside the handler's own release: wait for it
+        // before changing the repeater's model. With motion the handler let go
+        // long ago, and waiting would paint one frame in the old order.
+        if (dragDuration > 0) moveRun(from, to)
+        else Qt.callLater(dialog.moveRun, from, to)
+    }
+    /// Forget the drag at once, every row back in its own place.
+    function endDrag() {
+        settle.stop()
+        lift.stop()
+        dragAnimated = false
+        dragSettling = false
         dragFrom = -1
         dropIndex = -1
-        // Wait for the handler to release before changing the repeater's model.
-        if (commit && from !== to) Qt.callLater(dialog.moveRun, from, to)
     }
     function captureEntries() {
         const entries = []
@@ -129,7 +224,7 @@ MotionDialog {
     function rememberIdentity() {
         if (preferences && identityValid) preferences.shareGameIdentity = identityInput.text.trim()
     }
-    onAboutToHide: finishDrag(false)
+    onAboutToHide: endDrag()
     onClosed: rememberIdentity()
     onOpened: {
         preview.contentItem.contentY = 0
@@ -140,6 +235,7 @@ MotionDialog {
         spacing: 8
         RowLayout {
             Layout.fillWidth: true
+            visible: !dialog.windowed
             HeadingLabel {
                 Layout.fillWidth: true
                 text: qsTr("生成分享图片")
@@ -252,12 +348,14 @@ MotionDialog {
             Timer {
                 interval: 16
                 repeat: true
-                running: dialog.dragFrom >= 0
+                running: dialog.dragFrom >= 0 && !dialog.dragSettling
                 onTriggered: {
-                    const margin = Math.min(40, preview.height / 3)
+                    // A card is taller than the edge it is dragged to: a wide edge
+                    // zone and a quick top speed, or a long list takes for ever.
+                    const margin = Math.min(72, preview.height / 3)
                     const y = dialog.dragY
-                    const speed = y < margin ? Math.max(-24, (y - margin) / 2)
-                        : y > preview.height - margin ? Math.min(24, (y - preview.height + margin) / 2) : 0
+                    const speed = y < margin ? Math.max(-40, (y - margin) / 2)
+                        : y > preview.height - margin ? Math.min(40, (y - preview.height + margin) / 2) : 0
                     const flick = preview.contentItem as Flickable
                     if (speed === 0 || !flick) return
                     const next = Math.max(0, Math.min(preview.contentHeight - preview.height, flick.contentY + speed))
@@ -268,12 +366,16 @@ MotionDialog {
             }
             // Repeater 实例化每一条完整卡片；抓图对象为卡片/组合自身，绝不捕获可见视口。
             Item {
+                id: sheet
+                readonly property real cardWidth: dialog.windowed ? Math.min(width, dialog.cardLimit) : width
+                readonly property real cardLeft: Math.round((width - cardWidth) / 2)
                 width: preview.availableWidth
                 height: dialog.collection ? combined.height : stack.height
                 ReflectionShareCard {
                     id: combined
                     objectName: "reflectionShareCombinedCard"
-                    width: parent.width
+                    x: sheet.cardLeft
+                    width: sheet.cardWidth
                     visible: dialog.collection
                     runsData: dialog.runsData
                     showAttribution: attribution.checked
@@ -284,7 +386,8 @@ MotionDialog {
                     id: stack
                     readonly property list<Item> previewEntries: children.filter(child => child !== cards)
                     objectName: "reflectionShareIndividualCards"
-                    width: parent.width
+                    x: sheet.cardLeft
+                    width: sheet.cardWidth
                     visible: !dialog.collection
                     spacing: 12
                     Repeater {
@@ -303,7 +406,9 @@ MotionDialog {
                 // The grips and drop indicator are siblings of the rendered cards.
                 Item {
                     id: gripsLayer
-                    anchors.fill: parent
+                    x: sheet.cardLeft
+                    width: sheet.cardWidth
+                    height: parent.height
                     visible: dialog.batch
                     Repeater {
                         id: grips
@@ -314,14 +419,36 @@ MotionDialog {
                             required property Item modelData
                             readonly property real rowTop: dialog.rowTopOf(modelData)
                             readonly property real rowHeight: dialog.rowHeightOf(modelData)
+                            /// Where the drag under way wants this row, and where it is drawn.
+                            readonly property real shift: dialog.rowShift(index)
+                            property real slide: shift
+                            Behavior on slide {
+                                enabled: dialog.dragAnimated
+                                NumberAnimation { duration: dialog.dragDuration; easing.type: Easing.InOutCubic }
+                            }
                             objectName: "reflectionShareDragGrip_" + index
                             anchors.right: parent.right
                             anchors.rightMargin: 8
-                            y: rowTop + 8
+                            y: rowTop + slide + 8
                             width: 28
                             height: 28
                             radius: Theme.radiusS
-                            enabled: !dialog.busy
+                            enabled: !dialog.busy && !dialog.dragSettling
+                            // The row itself is moved and dimmed from here: it belongs to
+                            // the card that is saved, which knows nothing about dragging.
+                            // Saving waits for the drag to end, when both are undone.
+                            Translate {
+                                id: rowMove
+                                y: grip.slide / (dialog.collection ? combined.templateScale : 1)
+                            }
+                            Component.onCompleted: modelData.transform = [rowMove]
+                            Binding {
+                                target: grip.modelData
+                                property: "opacity"
+                                value: 0.25
+                                when: dialog.dragFrom === grip.index
+                                restoreMode: Binding.RestoreBindingOrValue
+                            }
                             activeFocusOnTab: true
                             color: drag.active || hover.hovered || activeFocus ? Theme.fillStrong : Theme.surfaceRaised
                             border.color: activeFocus || drag.active ? Theme.accentStrong : Theme.borderStrong
@@ -338,6 +465,44 @@ MotionDialog {
                                 Accessible.ignored: true
                             }
                             HoverHandler { id: hover; cursorShape: Qt.OpenHandCursor }
+                            // 移到最前 / 移到最后: one click where a drag would have to
+                            // cross the whole list (owner, 2026-11-19).
+                            Repeater {
+                                model: [{ toEnd: false, label: qsTr("移到最前") }, { toEnd: true, label: qsTr("移到最后") }]
+                                Rectangle {
+                                    id: jump
+                                    required property var modelData
+                                    required property int index
+                                    readonly property int target: modelData.toEnd ? dialog.runsData.length - 1 : 0
+                                    objectName: (modelData.toEnd ? "reflectionShareMoveLast_" : "reflectionShareMoveFirst_") + grip.index
+                                    visible: grip.index !== target && dialog.dragFrom < 0
+                                    x: (index - 2) * 32
+                                    width: 28
+                                    height: 28
+                                    radius: Theme.radiusS
+                                    color: jumpHover.hovered ? Theme.fillStrong : Theme.surfaceRaised
+                                    border.color: Theme.borderStrong
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: modelData.label
+                                    ToolTip.visible: jumpHover.hovered
+                                    ToolTip.delay: 500
+                                    ToolTip.text: modelData.label
+                                    Image {
+                                        anchors.centerIn: parent
+                                        width: 16
+                                        height: 16
+                                        rotation: jump.modelData.toEnd ? 0 : 180
+                                        source: Lucide.source("chevrons-down", Theme.textPrimary)
+                                        Accessible.ignored: true
+                                    }
+                                    HoverHandler { id: jumpHover; cursorShape: Qt.PointingHandCursor }
+                                    TapHandler {
+                                        enabled: !dialog.busy
+                                        // The model changes after this handler has let go.
+                                        onTapped: Qt.callLater(dialog.moveRun, grip.index, jump.target)
+                                    }
+                                }
+                            }
                             DragHandler {
                                 id: drag
                                 target: null
@@ -354,10 +519,7 @@ MotionDialog {
                                     if (active) {
                                         const flick = preview.contentItem as Flickable
                                         if (flick) flick.cancelFlick()
-                                        dialog.dragFrom = grip.index
-                                        dialog.dropIndex = grip.index
-                                        dialog.dragY = preview.mapFromItem(null, centroid.scenePosition.x, centroid.scenePosition.y).y
-                                        dialog.updateDropIndex()
+                                        dialog.beginDrag(grip.index, centroid.scenePosition.x, centroid.scenePosition.y)
                                     }
                                 }
                                 onGrabChanged: function(transition, point) {
@@ -380,22 +542,63 @@ MotionDialog {
                             }
                         }
                     }
-                    Rectangle {
-                        visible: dialog.dragFrom >= 0 && dialog.dropIndex !== dialog.dragFrom
-                        x: 4
-                        width: parent.width - 8
-                        height: 3
-                        radius: 1.5
-                        color: Theme.accentStrong
-                        y: {
-                            if (!visible) return 0
-                            const slot = dialog.dropIndex + (dialog.dropIndex > dialog.dragFrom ? 1 : 0)
-                            const entries = dialog.gripEntries
-                            const hasNext = slot < entries.length
-                            if (slot <= 0) return hasNext ? dialog.rowTopOf(entries[slot]) : 0
-                            const bottom = dialog.rowTopOf(entries[slot - 1]) + dialog.rowHeightOf(entries[slot - 1])
-                            return hasNext ? (bottom + dialog.rowTopOf(entries[slot])) / 2 : bottom - height
+                    // The copy that follows the pointer: a still picture of the row,
+                    // taken when it is picked up.
+                    ShaderEffectSource {
+                        id: ghost
+                        objectName: "reflectionShareDragGhost"
+                        readonly property Item row: dialog.dragFrom >= 0 && dialog.dragFrom < dialog.gripEntries.length
+                                                    ? dialog.gripEntries[dialog.dragFrom] : null
+                        /// 1 at rest, a little smaller while carried.
+                        property real lift: 1
+                        /// Where the copy is while it glides into the gap.
+                        property real restY: 0
+                        visible: row !== null
+                        sourceItem: row
+                        live: false
+                        z: 5
+                        opacity: 0.97
+                        x: dialog.dragLeft
+                        width: dialog.dragWidth
+                        height: dialog.rowHeightOf(row)
+                        y: dialog.dragSettling ? restY : dialog.dragLayerY - dialog.dragGrabOffset
+                        // Shrinks towards the grip, so the pointer keeps hold of it.
+                        transform: Scale {
+                            origin.x: ghost.width - 22
+                            origin.y: dialog.dragGrabOffset
+                            xScale: ghost.lift
+                            yScale: ghost.lift
                         }
+                        Rectangle {
+                            anchors.fill: parent
+                            color: "transparent"
+                            radius: Theme.radiusS
+                            border.width: 2
+                            border.color: Theme.accentStrong
+                        }
+                    }
+                    NumberAnimation {
+                        id: lift
+                        target: ghost
+                        property: "lift"
+                        to: 0.94
+                        duration: Theme.motion ? 150 : 0
+                        easing.type: Easing.OutQuad
+                    }
+                    SequentialAnimation {
+                        id: settle
+                        property real landing: 0
+                        ParallelAnimation {
+                            NumberAnimation {
+                                target: ghost; property: "restY"; to: settle.landing
+                                duration: dialog.dragDuration; easing.type: Easing.InOutCubic
+                            }
+                            NumberAnimation {
+                                target: ghost; property: "lift"; to: 1
+                                duration: dialog.dragDuration; easing.type: Easing.InOutCubic
+                            }
+                        }
+                        ScriptAction { script: dialog.completeDrag() }
                     }
                 }
             }

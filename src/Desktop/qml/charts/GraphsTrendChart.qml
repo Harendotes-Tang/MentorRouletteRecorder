@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtGraphs
 import MentorRecorder 1.0
 
@@ -21,6 +20,10 @@ Item {
         for (let i = 0; i < buckets.length; ++i)
             maxValue = Math.max(maxValue, Number(buckets[i].count || 0))
         return maxValue
+    }
+
+    function countAt(index) {
+        return index >= 0 && index < buckets.length ? Number(buckets[index].count || 0) : 0
     }
 
     function seriesOf(list) {
@@ -133,7 +136,7 @@ Item {
         color: Theme.eorzea ? Theme.gold3 : Theme.border
     }
 
-    // Bars are drawn by the scene graph, so the tooltip is driven from the pointer
+    // Bars are drawn by the scene graph, so the tip is driven from the pointer
     // position rather than from a per-bar hover handler.
     MouseArea {
         id: hoverArea
@@ -154,12 +157,24 @@ Item {
                                      ? Math.min(root.buckets.length - 1,
                                                 Math.max(0, Math.floor(mouseX / (width / root.buckets.length))))
                                      : -1
+    }
 
-        ToolTip.visible: hoverArea.index >= 0
-        ToolTip.text: hoverArea.index >= 0
-                      ? qsTr("%1 · %2 次").arg(root.buckets[hoverArea.index].label || "")
-                                          .arg(root.buckets[hoverArea.index].count || 0)
-                      : ""
+    ChartTip {
+        id: tip
+        objectName: "trendTip"
+        // The last bucket stays in place while the bubble fades out.
+        property int index: 0
+        readonly property var bucket: index < root.buckets.length ? root.buckets[index] : ({})
+        readonly property real slot: root.buckets.length > 0 ? hoverArea.width / root.buckets.length : 0
+        // An empty day has no bar to explain: nothing is shown over it.
+        shown: root.countAt(hoverArea.index) > 0
+        text: qsTr("%1 · %2 次").arg(bucket.label || "").arg(bucket.count || 0)
+        barCenter: hoverArea.x + (index + 0.5) * slot
+        barTop: hoverArea.y + hoverArea.height * (1 - Number(bucket.count || 0) / root.axisMax)
+        Connections {
+            target: hoverArea
+            function onIndexChanged() { if (root.countAt(hoverArea.index) > 0) tip.index = hoverArea.index }
+        }
     }
 
     Text {

@@ -47,6 +47,34 @@ const QStringList &clipboardImageFormats()
     return formats;
 }
 
+/// True when the clipboard carries picture data itself (a screenshot, an image copied
+/// from a browser or a chat window).
+bool hasImageData(const QMimeData *mime)
+{
+    return mime->hasImage()
+        || std::ranges::any_of(clipboardImageFormats(),
+                               [mime](const QString &format) { return mime->hasFormat(format); });
+}
+
+/// The image files a clipboard names: what copying files in Explorer puts there. Without
+/// this the note field pasted their addresses as text (tester report, 2026-11-19).
+/// Only local files with a supported image suffix count; one other file among them
+/// and the clipboard is not a set of pictures.
+QStringList imageFilesOn(const QMimeData *mime)
+{
+    QStringList files;
+    if (!mime->hasUrls())
+        return files;
+    const QStringList suffixes = NoteImageStore::supportedSuffixes();
+    for (const QUrl &url : mime->urls()) {
+        const QString path = url.isLocalFile() ? url.toLocalFile() : QString();
+        if (path.isEmpty() || !suffixes.contains(QFileInfo(path).suffix().toLower()))
+            return {};
+        files.append(path);
+    }
+    return files;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------- 构造 --
@@ -484,12 +512,7 @@ bool NoteImageStore::clipboardHasImage() const
 {
     const auto *clipboard = QGuiApplication::clipboard();
     const auto *mime = clipboard ? clipboard->mimeData() : nullptr;
-    if (!mime)
-        return false;
-    if (mime->hasImage())
-        return true;
-    return std::ranges::any_of(clipboardImageFormats(),
-                               [mime](const QString &format) { return mime->hasFormat(format); });
+    return mime && (hasImageData(mime) || !imageFilesOn(mime).isEmpty());
 }
 
 QVariantMap NoteImageStore::addClipboard(const QString &runId)
@@ -506,6 +529,13 @@ QVariantMap NoteImageStore::addClipboard(const QString &runId)
     const auto *mime = clipboard ? clipboard->mimeData() : nullptr;
     if (!mime || !clipboardHasImage())
         return fail(QCoreApplication::translate("mr::NoteImageStore", "剪贴板里没有图片，请先复制截图或图片。"));
+    // Copied image files go the way of chosen ones: all of them, or none.
+    if (!hasImageData(mime)) {
+        const QStringList files = imageFilesOn(mime);
+        if (imagesFor(runId).size() + files.size() > kMaxImagesPerRun)
+            return fail(QCoreApplication::translate("mr::NoteImageStore", "一条记录最多保存 %1 张图片。").arg(kMaxImagesPerRun));
+        return commit(runId, files, {});
+    }
 
     QImage image;
     // Prefer an encoded image when available: its byte count and header canvas

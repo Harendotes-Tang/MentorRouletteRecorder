@@ -331,6 +331,7 @@ set(MR_QML_FILES
     qml/components/JobIcon.qml
     qml/components/Lucide.js
     qml/components/NavItem.qml
+    qml/components/NavPlate.qml
     qml/components/NoteImageStrip.qml
     qml/components/OnlineSpeechPanel.qml
     qml/components/PageHeader.qml
@@ -338,6 +339,7 @@ set(MR_QML_FILES
     qml/components/PickSurface.qml
     qml/components/PanelDecoration.qml
     qml/components/PillSwitch.qml
+    qml/components/ChartTip.qml
     qml/components/PlainToolTip.qml
     qml/components/ProgressRing.qml
     qml/components/AchievementConfetti.qml
@@ -426,6 +428,7 @@ set(MR_QML_FILES
     qml/dialogs/ReflectionDialog.qml
     qml/dialogs/ResultPopupContent.qml
     qml/dialogs/ReflectionShareDialog.qml
+    qml/dialogs/ReflectionShareWindow.qml
     qml/dialogs/ImportRecordsDialog.qml
     qml/dialogs/RunDetailPanel.qml
     qml/dialogs/RunWizardDutyStep.qml

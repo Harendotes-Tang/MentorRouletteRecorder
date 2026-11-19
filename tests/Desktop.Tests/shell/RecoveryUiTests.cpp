@@ -1306,8 +1306,14 @@ void RecoveryUiTests::anAutomaticClearShowsTheCollectorsCountBeforeAndAfter()
     QCOMPARE(scene.editor()->property("progressFrom").toInt(), 10);
     const QStringList texts = scene.hostTexts();
     QVERIFY2(texts.contains(QString::fromUtf8("已计入导随次数")), qPrintable(texts.join(QLatin1Char('|'))));
-    QVERIFY2(texts.contains(QString::fromUtf8("10 →")), qPrintable(texts.join(QLatin1Char('|'))));
+    QVERIFY2(texts.contains(QStringLiteral("10")), qPrintable(texts.join(QLatin1Char('|'))));
     QVERIFY2(texts.contains(QStringLiteral("11")), qPrintable(texts.join(QLatin1Char('|'))));
+    // The two counts are one face, size and weight; only the colour differs.
+    auto *from = scene.item(QStringLiteral("popupProgressFrom"));
+    auto *to = scene.item(QStringLiteral("popupProgressTo"));
+    QVERIFY(from && to);
+    QCOMPARE(from->property("font").value<QFont>(), to->property("font").value<QFont>());
+    QVERIFY(from->property("color") != to->property("color"));
     QVERIFY(scene.click(QStringLiteral("deferReflectionButton")));
     QTRY_VERIFY(!scene.host()->isVisible());
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
@@ -1345,7 +1351,7 @@ void RecoveryUiTests::anAnsweredClearClaimsTheCountOnlyWhenTheRunContributes()
     }
     const QStringList texts = scene.hostTexts();
     QCOMPARE(texts.contains(QString::fromUtf8("已计入导随次数")), contributes);
-    QCOMPARE(texts.contains(QString::fromUtf8("10 →")), contributes);
+    QCOMPARE(texts.contains(QStringLiteral("10")), contributes);
     QCOMPARE(texts.contains(QStringLiteral("11")), contributes);
     QVERIFY(scene.click(QStringLiteral("saveReflectionButton")));
     QTRY_VERIFY(!scene.host()->isVisible());

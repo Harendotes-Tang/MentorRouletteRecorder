@@ -1384,6 +1384,16 @@ int main(int argc, char *argv[])
             QCoreApplication::quit();
             return;
         }
+        // 生成分享图片 is a window of its own: while it is open it is the frame under
+        // test, and its title is part of what it shows.
+        const auto subject = [window]() -> QQuickWindow * {
+            auto *share = window->findChild<QQuickWindow *>(QStringLiteral("reflectionShareWindow"));
+            return share && share->isVisible() ? share : window;
+        };
+        const auto shows = [&subject](const QString &needle) {
+            QQuickWindow *shown = subject();
+            return shown->title().contains(needle) || sceneShowsText(shown->contentItem(), needle);
+        };
         for (const QString &needle : parser.values(verifyTextOption)) {
             if (needle.isEmpty())
                 continue;
@@ -1392,13 +1402,12 @@ int main(int argc, char *argv[])
             // scheduling gap; genuinely missing text still fails within a bounded time.
             QElapsedTimer textDeadline;
             textDeadline.start();
-            while (!sceneShowsText(window->contentItem(), needle)
-                   && textDeadline.elapsed() < 5000) {
+            while (!shows(needle) && textDeadline.elapsed() < 5000) {
                 QEventLoop pending;
                 QTimer::singleShot(20, &pending, &QEventLoop::quit);
                 pending.exec();
             }
-            if (!sceneShowsText(window->contentItem(), needle)) {
+            if (!shows(needle)) {
                 std::fprintf(stderr, "expected on-screen text not found: %s\n",
                              qPrintable(needle));
                 exitCode = 8;
@@ -1407,7 +1416,7 @@ int main(int argc, char *argv[])
             }
             std::fprintf(stdout, "verified on-screen text: %s\n", qPrintable(needle));
         }
-        const QImage frame = window->grabWindow();
+        const QImage frame = subject()->grabWindow();
         if (frame.isNull()) {
             std::fputs("grabWindow returned a null image\n", stderr);
             exitCode = 4;

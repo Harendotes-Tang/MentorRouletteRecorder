@@ -62,18 +62,45 @@ ColumnLayout {
             implicitHeight: 10
             radius: Theme.eorzea ? Theme.radiusXs : 5
             color: Theme.insetBackgroundStrong
-            clip: true
             readonly property real total: Math.max(1, root.clears)
-            Row {
+            readonly property int gap: 2
+            // Where each segment starts and ends. Every edge is put on a device
+            // pixel, so at 125 % or 150 % scaling the gaps are all the same width;
+            // the last segment ends at the bar's own edge and the two ends take
+            // the bar's rounding (2026-11-19: uneven gaps and a square end made
+            // the segments look as if they were not on one line).
+            readonly property var edges: {
+                const out = []
+                const n = root.buckets.length
+                const room = Math.max(0, width - gap * (n - 1))
+                const ratio = Screen.devicePixelRatio > 0 ? Screen.devicePixelRatio : 1
+                const snap = function(v) { return Math.round(v * ratio) / ratio }
+                let x = 0
+                for (let i = 0; i < n; ++i) {
+                    const share = Number(root.buckets[i].completed_count || 0) / total
+                    const end = i === n - 1 ? width : Math.min(width, x + Math.max(3, room * share))
+                    out.push({ from: snap(x), to: snap(Math.max(end, x)) })
+                    x = end + gap
+                }
+                return out
+            }
+            Item {
                 anchors.fill: parent
-                spacing: 1
                 Repeater {
                     model: root.buckets
                     delegate: Rectangle {
                         id: categorySegment
                         required property var modelData
+                        required property int index
+                        readonly property var edge: index < stack.edges.length ? stack.edges[index] : ({ from: 0, to: 0 })
+                        objectName: "floatingCategorySegment"
+                        x: edge.from
                         height: stack.height
-                        width: Math.max(3, Math.round((stack.width - (root.buckets.length - 1)) * Number(modelData.completed_count || 0) / stack.total))
+                        width: Math.max(0, edge.to - edge.from)
+                        topLeftRadius: index === 0 ? stack.radius : 0
+                        bottomLeftRadius: topLeftRadius
+                        topRightRadius: index === root.buckets.length - 1 ? stack.radius : 0
+                        bottomRightRadius: topRightRadius
                         color: Theme.token(modelData.color_token || "neutral500")
                         HoverHandler { id: segmentHover }
                         OverlayToolTip {

@@ -896,12 +896,29 @@ Item {
                     AppButton { objectName: "batchRestoreButton"; text: qsTr("恢复选中"); visible: Runtime.app.checkedHistoryDeletedCount > 0; enabled: Runtime.app.checkedHistoryDeletedCount === page.checkedCount; onClicked: page.requestBatch("restore") }
                     AppButton { objectName: "batchPurgeButton"; text: qsTr("永久删除"); visible: Runtime.app.checkedHistoryDeletedCount > 0; enabled: Runtime.app.checkedHistoryDeletedCount === page.checkedCount; onClicked: page.requestBatch("purge") }
                     AppButton { objectName: "batchAssignCharacterButton"; text: qsTr("改角色"); visible: page.characterFeatures; onClicked: assignCharacterDialog.ask(Runtime.app.historyCheckedRegion, page.checkedCount) }
-                    AppButton {
-                        objectName: "batchMoveRegionButton"
-                        text: qsTr("迁移区服")
-                        visible: Runtime.app.historyMigrationSource.length > 0
-                        enabled: Runtime.app.historyMigrationReady && !Runtime.app.historyBatchRunning
-                        onClicked: regionMigrationDialog.ask(Runtime.app.historyMigrationSource, page.checkedCount)
+                    // Shown for every selection, so the feature can be found; one it
+                    // cannot take (an automatic record, records of two regions, a
+                    // deleted one) greys the button, and resting on it says why.
+                    Item {
+                        id: moveRegion
+                        readonly property bool eligible: Runtime.app.historyMigrationSource.length > 0
+                        implicitWidth: moveRegionButton.implicitWidth
+                        implicitHeight: moveRegionButton.implicitHeight
+                        AppButton {
+                            id: moveRegionButton
+                            objectName: "batchMoveRegionButton"
+                            anchors.fill: parent
+                            text: qsTr("迁移区服")
+                            enabled: moveRegion.eligible && Runtime.app.historyMigrationReady && !Runtime.app.historyBatchRunning
+                            onClicked: regionMigrationDialog.ask(Runtime.app.historyMigrationSource, page.checkedCount)
+                        }
+                        HoverHandler { id: moveRegionHover }
+                        PlainToolTip {
+                            objectName: "batchMoveRegionHint"
+                            visible: moveRegionHover.hovered && !moveRegion.eligible
+                            delay: 300
+                            text: qsTr("只能迁移手动补录和导入的记录，且勾选的记录须属于同一区服、未被删除。自动记录的区服由游戏客户端决定，不能迁移。")
+                        }
                     }
                 }
             }
