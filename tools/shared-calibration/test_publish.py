@@ -147,7 +147,7 @@ class FlowTests(PublishTestCase):
         self.assertEqual(0, self.call("revoke", "--repo", self.repo, "--code-sha256", self.sha)[0])
         _, refused, comment, _ = self.decide("check", self.issue(number=8), self.account())
         self.assertEqual(("refused", "REVOKED"), (refused["status"], refused["reason"]))
-        self.assertIn("已被维护者撤销", comment)
+        self.assertIn("已被撤回（由维护者撤销，或其提交者已用另一份替换）", comment)
         payload = testsupport.payload("MARKER_OFFSET", 2)
         other, other_sha = sharecode.encode(payload), sharecode.code_sha256(payload)
         held = self.publish_as(4242, "Octo-Cat", number=9, code=other)
@@ -722,6 +722,18 @@ class HelperCommandTests(PublishTestCase):
         self.assertEqual([(self.sha, True)], [(e["code_sha256"], e["revoked"]) for e in repo_index.load(self.repo).entries])
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(2, self.call("revoke", "--repo", self.repo, "--code-sha256", "e" * 64)[0])
+
+    def test_restore_puts_a_revoked_code_back_in_use_only_while_its_file_is_still_that_code(self):
+        self.publish_as(4242, "Octo-Cat")
+        self.assertEqual(0, self.call("revoke", "--repo", self.repo, "--code-sha256", self.sha)[0])
+        self.assertEqual(0, self.call("restore", "--repo", self.repo, "--code-sha256", self.sha)[0])
+        self.assertEqual([(self.sha, False)], [(e["code_sha256"], e["revoked"]) for e in repo_index.load(self.repo).entries])
+        self.assertEqual(0, self.call("revoke", "--repo", self.repo, "--code-sha256", self.sha)[0])
+        (self.repo / self.path).write_text(sharecode.encode(testsupport.payload("ANNOUNCEMENT", 5)), encoding="ascii")
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(2, self.call("restore", "--repo", self.repo, "--code-sha256", self.sha)[0])
+            self.assertEqual(2, self.call("restore", "--repo", self.repo, "--code-sha256", "e" * 64)[0])
+        self.assertTrue(repo_index.load(self.repo).entries[0]["revoked"])
 
     def test_two_published_codes_that_disagree_are_both_flagged_and_a_revoke_clears_the_flags(self):
         """plan section 20.3: same build and template; the same match source with another pop is a dispute."""

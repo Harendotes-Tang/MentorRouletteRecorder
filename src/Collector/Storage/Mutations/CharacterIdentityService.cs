@@ -84,7 +84,18 @@ public sealed class CharacterIdentityService
     /// <param name="keyId">Fingerprint of the key the digest was made with.</param>
     /// <param name="digest">Keyed digest of the character's identifier.</param>
     /// <param name="transaction">Enclosing transaction.</param>
-    public CharacterIdentityObservation Observe(Region region, string keyId, string digest, SqliteTransaction transaction)
+    /// <param name="loggedInNow">
+    /// False for a match replayed for a character that has logged out since - another character's
+    /// login came after it. The run is still that character's, but it is not the one playing: it
+    /// neither becomes the current profile nor counts as the character seen last (audit
+    /// 2026-11-19 D1-3).
+    /// </param>
+    public CharacterIdentityObservation Observe(
+        Region region,
+        string keyId,
+        string digest,
+        SqliteTransaction transaction,
+        bool loggedInNow = true)
     {
         ArgumentException.ThrowIfNullOrEmpty(keyId);
         ArgumentException.ThrowIfNullOrEmpty(digest);
@@ -92,7 +103,7 @@ public sealed class CharacterIdentityService
 
         if (_settings.Identities.FindByDigest(region, keyId, digest, transaction) is { } known)
         {
-            return Returning(known, transaction);
+            return Returning(known, transaction, loggedInNow);
         }
 
         var seen = _settings.Identities.List(transaction, region);
@@ -150,15 +161,22 @@ public sealed class CharacterIdentityService
         return !seen.Any(identity => identity.LastSeenAtUtc == latest && identity.ProfileId == current);
     }
 
-    private CharacterIdentityObservation Returning(CharacterIdentity known, SqliteTransaction transaction)
+    private CharacterIdentityObservation Returning(
+        CharacterIdentity known,
+        SqliteTransaction transaction,
+        bool loggedInNow = true)
     {
-        _settings.Identities.Touch(known.IdentityId, transaction);
+        if (loggedInNow)
+        {
+            _settings.Identities.Touch(known.IdentityId, transaction);
+        }
+
         if (known.ProfileId is not { } profileId)
         {
             return new CharacterIdentityObservation(known.IdentityId, null, StatisticsChanged: false);
         }
 
-        var switched = _settings.Profiles.Find(profileId, transaction) is { IsCurrent: false };
+        var switched = loggedInNow && _settings.Profiles.Find(profileId, transaction) is { IsCurrent: false };
         if (switched)
         {
             _settings.Profiles.SetCurrent(profileId, transaction);

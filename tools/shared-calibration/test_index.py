@@ -432,6 +432,31 @@ class ReplacementTests(unittest.TestCase):
         self.assertEqual((repo_index.REFUSED, repo_index.REVOKED), (outcome.status, outcome.reason))
         self.assertTrue(self.entry_for(state, old)["revoked"])
 
+    def test_a_maintainer_restores_a_replaced_code_and_another_account_then_joins_it(self):
+        """Audit 2026-11-10 N1-1: a correct code somebody copied and then replaced is not lost for the patch."""
+        old = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 1))
+        state = self.second(self.first()).index
+        restored = repo_index.restore(state, old)
+        self.assertEqual((False, 1), (self.entry_for(restored, old)["revoked"], self.entry_for(restored, old)["submitters"]))
+        self.assertTrue(self.entry_for(state, old)["revoked"], "the index passed in is not changed")
+        self.assertEqual(restored, repo_index.restore(restored, old))
+        repo_index.dump(restored)
+        outcome = _submit(restored, number=1, account=5, when=NOW + dt.timedelta(hours=2))
+        self.assertEqual(repo_index.ADDED, outcome.status)
+        self.assertEqual(2, self.entry_for(outcome.index, old)["submitters"])
+        with self.assertRaises(KeyError):
+            repo_index.restore(state, sha("e"))
+
+    def test_a_code_is_not_restored_onto_a_file_name_another_code_in_use_has_taken(self):
+        old = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 1))
+        state = self.second(self.first()).index
+        path = self.entry_for(state, old)["path"]
+        taken = repo_index.Index(tuple(
+            dict(entry, path=path) if not entry["revoked"] else entry for entry in state.entries
+        ), state.submissions)
+        with self.assertRaises(ValueError):
+            repo_index.restore(taken, old)
+
     def test_the_chain_of_replaced_codes_is_kept_in_the_ledger_and_reads_back(self):
         first = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 1))
         second = sharecode.code_sha256(testsupport.payload("ANNOUNCEMENT", 2))

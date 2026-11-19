@@ -376,6 +376,29 @@ private Q_SLOTS:
         QCOMPARE(scene.backend.commands.count(QStringLiteral("CreateManualRun")), 0);
         QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
     }
+
+    // Audit 2026-11-10 K1-1: a form left behind on another page is not being looked at, so the
+    // popup after a duty opens all the same and the draft stays where it was.
+    void aManualEntryLeftOnAnotherPageDoesNotHoldTheAutomaticPromptBack()
+    {
+        WorkspaceScene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openCreateDialog"));
+        QTRY_VERIFY(scene.inlineSession(scene.manual()));
+        scene.app->navigate(1);
+        QTRY_COMPARE(scene.app->currentPage(), 1);
+        scene.publish(finishedRun(false));
+        QTRY_VERIFY(scene.reminder()->isVisible() && scene.reflection()->property("opened").toBool());
+        QVERIFY(scene.reflection()->property("standalone").toBool());
+        QVERIFY(scene.reflection()->property("askingResult").toBool());
+        QVERIFY(scene.manual()->property("inlineActive").toBool());
+        QCOMPARE(scene.app->currentPage(), 1);
+        // Finishing the parked form does not answer the popup that is still open.
+        QVERIFY(QMetaObject::invokeMethod(scene.manual(), "closeEditor"));
+        QTRY_VERIFY(!scene.manual()->property("inlineActive").toBool());
+        QVERIFY(scene.reminder()->isVisible() && scene.reflection()->property("opened").toBool());
+        QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+    }
 };
 
 } // namespace

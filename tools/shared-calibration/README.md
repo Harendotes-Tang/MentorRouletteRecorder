@@ -17,9 +17,9 @@
 |---|---|---|
 | `sharecode.py` | `MRC1.` 校准码的解码、编码、规范化、`code_sha256` 与载荷规则；逐条移植 `ShareCode.cs` | 是 |
 | `rebuild.py` | 按随包模板结构重建校准码并拒绝无效内容；文件开头列明已移植的 C# 规则与留给客户端本机核实的部分 | 是 |
-| `index.py` | `index.json`（客户端读取格式的精确移植）与 `submissions.json` 台账；`add_submission`、`revoke`、`lift_hold`、`prune`；两个标记的 `update_marks` / `refresh_marks` 与字段级比对 `disputes` | 是 |
+| `index.py` | `index.json`（客户端读取格式的精确移植）与 `submissions.json` 台账；`add_submission`、`revoke`、`restore`、`lift_hold`、`prune`；两个标记的 `update_marks` / `refresh_marks` 与字段级比对 `disputes` | 是 |
 | `issue.py` | 读两个 Issue 表单的正文（提交表单、报告表单）；标题只用来发现不一致；回显内容的转义 | 是 |
-| `publish.py` | Action 的命令行：`check`、`update-index`、`push-failed`、`field`、`event-field`、`unchanged`、`pending`、`wrap-event`、`report`；维护者命令 `revoke`、`lift`、`prune`、`remark`、`evidence lift`、`evidence compact` | 是 |
+| `publish.py` | Action 的命令行：`check`、`update-index`、`push-failed`、`field`、`event-field`、`unchanged`、`pending`、`wrap-event`、`report`；维护者命令 `revoke`、`restore`、`lift`、`prune`、`remark`、`evidence lift`、`evidence compact` | 是 |
 | `publish_issue.sh` | 处理一个提交 Issue：实时查询状态与标签 → 查账号 → 校验、提交、推送（推送被拒时从新的 main 重新开始）→ 回复、打标签、关闭；有不一致的校准码时通知对方 Issue | 是 |
 | `sweep_issues.sh` | 定时补处理：逐个处理尚未回复的提交 | 是 |
 | `report_issue.sh` | 旧接口：处理一个「报告校准有误」Issue（校验栏目、回复一次、打两个标签）。现已没有工作流调用它，报告由 `evidence_workflow.py` 处理 | 是 |
@@ -178,6 +178,10 @@ python tools/publish.py remark --repo . --region CN --build 2026.10.06.0000.0000
 这一行被删除，被撤销条目的 `submitters` 相应减一（最少为 1），该账号随后的提交按全新提交处理，份数上限也重新计算。
 台账行增加可选字段 `replaced`（该账号此前提交过的码，旧在前），仅供审计；`index.json` 的格式**不变**，
 被取代的码就是 `revoked: true`，旧版客户端按撤销处理，语义正确。
+
+被撤销的码不会因为任何人的再次提交而恢复。确认一份被撤销的码其实正确时（例如有人抄走别人的正确校准码、成为唯一提交者后再用另一份替换它，
+或维护者撤销有误），维护者执行 `publish.py restore --repo . --code-sha256 <完整编号>`：条目改回 `revoked: false`，`submitters` 不变，
+相关标记重算，台账行仍在这份码上的账号不再暂停受理。码文件已不是这份码，或它的文件名已被另一份在用的码占用时，命令拒绝执行。
 
 `replaced` 的两条约束：
 

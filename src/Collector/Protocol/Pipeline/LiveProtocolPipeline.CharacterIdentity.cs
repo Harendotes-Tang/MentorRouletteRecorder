@@ -373,7 +373,13 @@ public sealed partial class LiveProtocolPipeline
             return new CharacterIdentityObservation(null, null, StatisticsChanged: false);
         }
 
-        var observation = _identities.Observe(_selection.Region, _identityKey.KeyId, digest, transaction);
+        // A replayed match may be an earlier character's: the session's latest login is who plays now.
+        var observation = _identities.Observe(
+            _selection.Region,
+            _identityKey.KeyId,
+            digest,
+            transaction,
+            loggedInNow: digest == _lastLoginDigest);
         if (observation.IdentityId is null)
         {
             Note(new CharacterIdentityNote("identity_limit_reached", CharacterIdentity.MaxIdentitiesPerRegion));

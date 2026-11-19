@@ -54,7 +54,7 @@ public sealed class CharacterIdentityTests
             Identities.Resolve(new ResolveCharacterIdentityCommand(NewId(), identityId, action, profileId));
 
         /// <summary>Matches one run while the character behind <paramref name="digest"/> is logged in.</summary>
-        public string Match(string? digest)
+        public string Match(string? digest, bool loggedInNow = true)
         {
             var session = Guid.NewGuid().ToString("D");
             var start = Database.Clock.UtcNow;
@@ -70,7 +70,7 @@ public sealed class CharacterIdentityTests
                 identityAtMatch: digest is null
                     ? null
                     : new Func<SqliteTransaction, CharacterIdentityObservation?>(
-                        tx => Identities.Observe(Region.Cn, Key, digest, tx)));
+                        tx => Identities.Observe(Region.Cn, Key, digest, tx, loggedInNow)));
             processor.Accept(new ContentFinderPop
             {
                 Key = new EventKey(session, PacketDirection.ServerToClient, "pop", 0, null, "pop0"),
@@ -371,6 +371,21 @@ public sealed class CharacterIdentityTests
         // Nobody telling characters apart: the run goes to the profile chosen by hand.
         fixture.Profiles.Update(new UpdateCharacterProfileCommand(Fixture.NewId(), alt, null, MakeCurrent: true));
         Assert.Equal(alt, fixture.Runs.Get(fixture.Match(null))!.ProfileId);
+    }
+
+    [Fact]
+    public void AMatchReplayedForACharacterThatLoggedOutKeepsTheCharacterPlayingNowCurrent()
+    {
+        using var fixture = new Fixture();
+        var main = fixture.Current();
+        fixture.Login(Main);
+        var pending = fixture.Login(Alt).IdentityId!.Value;
+        var alt = fixture.Add("小号", makeCurrent: true, identityId: pending);
+        // The main character's pop, held back while nothing was bound, is replayed after the switch.
+        var run = fixture.Match(Main, loggedInNow: false);
+
+        Assert.Equal(main, fixture.Runs.Get(run)!.ProfileId);
+        Assert.Equal(alt, fixture.Current());
     }
 
     [Fact]

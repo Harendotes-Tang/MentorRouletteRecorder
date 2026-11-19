@@ -10,6 +10,12 @@ ApplicationWindow {
     id: window
     readonly property bool recordEditorOccupied: editDialog.editingActive
         || reflectionDialog.editingActive || reflectionDialog.busy
+    // A 新增记录 form can be left behind: 「返回」, another page, minimising or the tray keep its
+    // draft. Only one the player is looking at holds an automatic popup back; a parked one must
+    // not swallow every 本次导随结果 / 心得 popup until it is found again (audit 2026-11-10 K1-1).
+    readonly property bool manualFormOnScreen: editDialog.editingActive && window.visible
+        && window.visibility !== Window.Minimized
+        && (editDialog.visible || Runtime.app.currentPage === 8)
 
     width: 1280
     height: 800
@@ -299,7 +305,7 @@ ApplicationWindow {
             else Runtime.app.reflectionPromptDeferred(run.run_id)
             return
         }
-        if (window.recordEditorOccupied) return
+        if (reflectionDialog.editingActive || reflectionDialog.busy || window.manualFormOnScreen) return
         prepareReflection(true, true)
         if (kind === "result") reflectionDialog.openForResult(run)
         else reflectionDialog.openForPrompt(run, qsTr("刚刚完成"))
@@ -1297,6 +1303,8 @@ ApplicationWindow {
         inlineContent: recordWorkspace.manualContent
         onEditorClosed: {
             window.leaveRecordWorkspace()
+            // A popup that opened while this form was parked is still being answered.
+            if (reflectionDialog.editingActive || reflectionDialog.busy) return
             Runtime.app.resultConfirmationClosed()
             Runtime.app.reflectionPromptClosed()
         }

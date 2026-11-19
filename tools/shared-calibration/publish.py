@@ -16,6 +16,8 @@ Run by tools/publish_issue.sh and tools/sweep_issues.sh, which .github/workflows
   wrap-event     wrap a REST issue object as an event file
   revoke         maintainer: mark a code revoked in index.json, recomputing the marks; every
                  account on it is then held for that region and build until `lift`
+  restore        maintainer: put a revoked code back in use after checking it, recomputing the marks;
+                 for a correct code that a replacement or a mistaken `revoke` took out of use
   remark         maintainer: recompute the marks of every region and build in index.json, or of the ones
                  named with --region and --build, and write the files (a one-off backfill after the marks
                  changed meaning; publication and revocation recompute them on their own)
@@ -158,7 +160,8 @@ _FORM_PROBLEMS_WITH_ADVICE = frozenset({issue_form.BASIS_INVALID})
 _REFUSALS = {
     repo_index.ACCOUNT_TOO_NEW: "提交校准码的 GitHub 账号需要注册满 30 天，这个账号还不满 30 天。满 30 天后可以重新提交，"
                                 "也可以把校准码交给注册满 30 天的玩家代为提交。",
-    repo_index.REVOKED: "完全相同的校准码之前发布过，但已被维护者撤销，不再发布。",
+    repo_index.REVOKED: "完全相同的校准码之前发布过，但已被撤回（由维护者撤销，或其提交者已用另一份替换），不再自动发布。"
+                        "如果你确认这一份是正确的，请在本 Issue 下留言说明，维护者核实后可以恢复它。",
     repo_index.PAYLOAD_MISMATCH: "校准码里的客户端版本号无法作为仓库目录名（需要以字母或数字开头），因此无法发布。",
     repo_index.BUILD_NOT_INDEXABLE: "校准码里的客户端版本号不是游戏客户端的版本号格式（形如 2026.09.01.0000.0000），因此无法发布。",
     repo_index.BUILD_IN_FUTURE: "校准码里的客户端版本号所含的日期晚于提交日（按 UTC 计算）的次日，不是已经发布的游戏客户端版本，"
@@ -1061,6 +1064,24 @@ def _remark_after_prune(repo: Path, pruned: repo_index.Index, region: str, remov
     return pruned
 
 
+def command_restore(args: argparse.Namespace) -> int:
+    repo = Path(args.repo)
+    state = repo_index.load(repo)
+    entry = next((entry for entry in state.entries if entry["code_sha256"] == args.code_sha256), None)
+    if entry is None:
+        raise UsageError("index.json does not list that code")
+    # A revoked code's file name may have been taken over since; what is restored must be this code.
+    if repo_index.code_payload(repo, entry) is None:
+        raise UsageError("the code file at %s is missing or is no longer that code" % entry["path"])
+    try:
+        updated = repo_index.restore(state, args.code_sha256)
+    except ValueError as error:
+        raise UsageError("another code in use holds the same file name") from error
+    repo_index.write_files(repo, _with_marks(repo, updated, entry["region"], entry["game_build"]))
+    print(json.dumps({"restored": args.code_sha256}))
+    return 0
+
+
 def command_lift(args: argparse.Namespace) -> int:
     repo = Path(args.repo)
     state = repo_index.load(repo)
@@ -1210,6 +1231,11 @@ def _parser() -> argparse.ArgumentParser:
     revoke.add_argument("--repo", required=True)
     revoke.add_argument("--code-sha256", required=True)
     revoke.set_defaults(run=command_revoke)
+
+    restore = commands.add_parser("restore")
+    restore.add_argument("--repo", required=True)
+    restore.add_argument("--code-sha256", required=True)
+    restore.set_defaults(run=command_restore)
 
     remark = commands.add_parser("remark")
     remark.add_argument("--repo", required=True)

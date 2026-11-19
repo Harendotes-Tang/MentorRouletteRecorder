@@ -10,10 +10,18 @@ HistoryFilterButton {
     property string selection: ""
     signal regionPicked(string region)
     signal helpRequested()
-    readonly property var choices: [
-        { key: "", label: qsTr("全部区服") }, { key: "CN", label: qsTr("国服 CN") },
-        { key: "TC", label: qsTr("繁中服 TC") }, { key: "GLOBAL", label: qsTr("国际服 GLOBAL") }
-    ]
+    // The menu offers no 未知区服 (owner, 2026-11-10). A statistics page showing that region
+    // still opens the list filtered by it; the menu then lists it, checked, for as long as it is
+    // the filter, so the menu never shows a filter that none of its rows admits to (K3-2).
+    readonly property var choices: {
+        const rows = [
+            { key: "", label: qsTr("全部区服") }, { key: "CN", label: qsTr("国服 CN") },
+            { key: "TC", label: qsTr("繁中服 TC") }, { key: "GLOBAL", label: qsTr("国际服 GLOBAL") }
+        ]
+        if (selection.length > 0 && !rows.some(row => row.key === selection))
+            rows.push({ key: selection, label: Theme.live(Runtime.fmt.regionLabel(selection)) })
+        return rows
+    }
     iconName: "globe"
     selected: selection.length > 0
     text: {
@@ -41,7 +49,8 @@ HistoryFilterButton {
                 checked: control.selection === modelData.key
                 text: modelData.label
                 focusPolicy: Qt.StrongFocus
-                onClicked: { control.regionPicked(modelData.key); control.menu.close() }
+                // Closed first: picking another row may take this one out of the list.
+                onClicked: { const key = modelData.key; control.menu.close(); control.regionPicked(key) }
                 indicator: Rectangle {
                     x: 1; y: (choice.height - height) / 2
                     width: 18; height: 18; radius: 9

@@ -320,7 +320,7 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 | `profile_id` | INTEGER | PK, AUTOINCREMENT | 本地档案编号。删除后不再复用：修订记录里保存着记录曾经所属的档案，复用编号会在撤销时指向另一个角色 |
 | `region` | TEXT | NOT NULL, IN (`CN`,`TC`,`GLOBAL`,`UNKNOWN`) | 档案所属服务区服，建立后不可更改（触发器 `trg_character_profiles_region_fixed`） |
 | `display_name` | TEXT | NOT NULL, default `''`，长度 `<= 24`，同一区服内唯一 | 用户填写的显示名称，如「大号」「小号」。软件自行建立的档案（升级时接收区服原有记录的档案、区服的第一个档案）名称为空，由桌面端显示为「原有记录」。**不从游戏读取角色名** |
-| `is_current` | INTEGER | NOT NULL, 0/1；部分唯一索引保证每个区服至多一个 1 | 当前档案：不区分角色时，新建的记录记在它名下；区分角色时，已绑定的角色登录或为它创建记录时把它的档案设为当前档案（§4.3） |
+| `is_current` | INTEGER | NOT NULL, 0/1；部分唯一索引保证每个区服至多一个 1 | 当前档案：不区分角色时，新建的记录记在它名下；区分角色时，已绑定的角色登录或为它创建记录时把它的档案设为当前档案（§4.3）；延后重放的匹配属于已经下线的角色时，记录仍归那个角色，但不改当前档案 |
 | `goal_count` | INTEGER | NOT NULL, `>= 1`, **default 2000** | 目标次数 |
 | `baseline_completed_count` | INTEGER | NOT NULL, `>= 0`, default 0 | 该角色开始使用本软件之前已完成的次数（用户自报）。计入进度的已记录完成不论何时结束，全部叠加在其上 |
 | `baseline_effective_at` | TEXT | NOT NULL | 基数最近一次改变的时间（UTC），从未改变时为建立该档案的时间；只作记录，不参与进度或任何统计。只在基数改变时更新为请求中的时间；只改目标或重新填入同一基数时保持不变（[statistics-definitions.md](statistics-definitions.md) §4）。1.5.0 及更早版本每次保存都会改写它，这些版本写入的值可能是最近一次保存的时间，升级后保持原样 |

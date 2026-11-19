@@ -22,7 +22,8 @@ Submission rules (``add_submission``):
   and is dated no later than the day after the submission (``BUILD_DATE_SLACK``, for the build's own
   time zone): a build from the future is no build any client runs;
 * the account is at least ``MIN_ACCOUNT_AGE`` old;
-* a revoked code is never published again, by anybody;
+* a revoked code is never published again, by anybody, unless a maintainer puts it back in use
+  (``restore``): a submission never undoes a revocation, whoever made it;
 * one *live* code per account per (region, build): the same code again changes nothing, and a
   different code **replaces** the account's earlier one (rollback plan section 2). Replacing takes
   the account off the old code: its last submitter revokes it, another only lowers ``submitters``.
@@ -964,6 +965,30 @@ def revoke(index: Index, code_sha256: str) -> Index:
         raise KeyError(code_sha256)
     return replace(index, entries=tuple(
         dict(entry, revoked=True) if entry["code_sha256"] == code_sha256 else entry for entry in index.entries
+    ))
+
+
+def restore(index: Index, code_sha256: str) -> Index:
+    """Puts a revoked code back in use; idempotent; KeyError when the index does not list it.
+
+    A replacement revokes a code nobody else submitted, and any account old enough may be that only
+    submitter of a code it merely copied from another player's issue: without this, replacing it
+    would take a correct code out of use for the rest of the patch (audit 2026-11-10 N1-1). Only a
+    maintainer runs it, after looking at the code; a submission never undoes a revocation.
+
+    The entry comes back as it was, ``submitters`` included, and accounts whose rows still name the
+    code are no longer held. ValueError (``PATH_COLLISION``) when another code in use has taken its
+    file name since: that code would have to go first.
+    """
+    entry = next((entry for entry in index.entries if entry["code_sha256"] == code_sha256), None)
+    if entry is None:
+        raise KeyError(code_sha256)
+    if not entry["revoked"]:
+        return index
+    if any(other["path"] == entry["path"] and not other["revoked"] for other in index.entries):
+        raise ValueError(PATH_COLLISION)
+    return replace(index, entries=tuple(
+        dict(item, revoked=False) if item["code_sha256"] == code_sha256 else item for item in index.entries
     ))
 
 

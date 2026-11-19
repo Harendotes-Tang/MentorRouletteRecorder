@@ -1621,6 +1621,23 @@ void UiWorkflowRegressionTests::historyRegionMenuUsesKnownRegionsAndRealCountSta
     QTRY_VERIFY(region->hasActiveFocus());
     QVERIFY(!facets->property("active").toBool());
 
+    // A statistics page under 未知区服 opens the list by that region (K3-2): the menu owns up
+    // to the filter while it lasts and drops the row once another region is picked.
+    fixture.controller.setHistoryFilter({{QStringLiteral("region"), QStringLiteral("UNKNOWN")}});
+    QTRY_COMPARE(region->property("selection").toString(), QStringLiteral("UNKNOWN"));
+    QTest::keyClick(window, Qt::Key_Space);
+    QTRY_VERIFY(menu->property("visible").toBool());
+    auto *unknown = SettingsFixture::find(window->contentItem(), QStringLiteral("historyRegionChoice_UNKNOWN"));
+    QVERIFY(unknown);
+    QVERIFY(unknown->property("checked").toBool());
+    auto *cn = SettingsFixture::find(window->contentItem(), QStringLiteral("historyRegionChoice_CN"));
+    cn->forceActiveFocus(Qt::TabFocusReason);
+    QTest::keyClick(window, Qt::Key_Space);
+    QTRY_VERIFY(!menu->property("visible").toBool());
+    QTRY_COMPARE(fixture.controller.historyFilter().value(QStringLiteral("region")).toString(), QStringLiteral("CN"));
+    QTRY_VERIFY(!SettingsFixture::find(window->contentItem(), QStringLiteral("historyRegionChoice_UNKNOWN")));
+    QTRY_VERIFY(region->hasActiveFocus());
+
     verifyHistoryRegionErrorAndHelp(fixture, region, facets);
 }
 

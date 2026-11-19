@@ -301,6 +301,7 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
     月历不再禁选没有记录的日子（1.7.0 的做法已取消，所有者 2026-11-10 确认）。
   * **记录区服**菜单的选项为 全部区服 / 国服 CN / 繁中服 TC / 国际服 GLOBAL，选定后以 `RunFilter.region` 筛选，
     只作用于本页，与总览的区服筛选互不影响。菜单**不提供「未知区服」**（所有者 2026-11-10 确认）；
+    只有当本页正按「未知区服」筛选时（副本统计、职业统计在该区服下点开一行或一段），菜单才临时列出这一项并显示为选中，改选其他区服后不再列出；
     菜单底部有「未适配区服可协助采证」与「帮助适配」，后者跳到捕获诊断页（page 4）并展开其中的采证说明（`Main.qml` 的 `onHelpAdaptationRequested`）。
 * 第二行（`Flow`，间距 8）放其余条件：类型 / 职业 / 结果 / 来源四个窄下拉框
   （按钮上未选时显示「类型」「职业」「结果」「来源」，列表首项为「全部类型」等；宽度按当前选中文字分配；
@@ -1528,7 +1529,7 @@ MockBackend 回 `{passed: true, detail: "ok", checked_at_utc: 现在}`。
 | 分享图片的排列顺序 | `ReflectionShareDialog` 批量时在「输出方式」前有「排列顺序」下拉（`reflectionImageOrder`，最新在前 / 最早在前 / 手动排序），打开时取「全部心得」当前的排序方向，改选前两项即按记录日期重排预览，合成长图按此顺序；选「手动排序」后每条预览左侧出现拖动手柄（`reflectionShareDragGrip_<n>`），可拖动或用 ↑ / ↓ 调整顺序。逐条 PNG 只在手动排序时在文件名前加序号，按日期排序时文件名只含日期与副本（`ReflectionLibraryController::orderedByDate`：日期同采集服务的 history_date，相同日期保持原顺序，没有日期的记录排最后） |
 | 详情浮层「笔记」页签 | `run.reflection`；有则 心情 tag + 时间 + 正文 +「编辑笔记」，正文非空时另有「生成分享图片」；无则空状态框 +「补录笔记」 |
 | `dialogs/ReflectionDialog.qml` | `App.saveReflection(runId, mood, text)`；`App.reflectionSaved` 关闭，`App.reflectionFailed` 在对话框内红字显示 |
-| 通关后自动提醒 | `App.reflectionPromptRequested(run)` → `Main.qml` 的 `offerReminder(run, "reflection")`：按提醒方式（§4.5.2）在紧凑弹窗中 `openForPrompt(run, "刚刚完成")`，或只记入待处理；弹窗正忙时请求留在队列中，弹窗关闭后再弹出（`reflectionPromptShown` / `reflectionPromptClosed`），期间关闭「通关后提醒记笔记」则清空队列；已在结果问句中弹出过的记录不再单独提示 |
+| 通关后自动提醒 | `App.reflectionPromptRequested(run)` → `Main.qml` 的 `offerReminder(run, "reflection")`：按提醒方式（§4.5.2）在紧凑弹窗中 `openForPrompt(run, "刚刚完成")`，或只记入待处理；弹窗正忙，或主窗口里正显示着「新增记录」表单时，请求留在队列中，弹窗或表单关闭后再弹出；表单被搁置（点了「返回」、切到别的页面、主窗口最小化或收进托盘）时不拦截，弹窗照常弹出，表单草稿保留（`reflectionPromptShown` / `reflectionPromptClosed`），期间关闭「通关后提醒记笔记」则清空队列；已在结果问句中弹出过的记录不再单独提示 |
 | 设置「通关后提醒记笔记」 | `Settings.reflectPrompt` |
 | 结束后询问结果 | `App.resultConfirmationRequested(run)` → `offerReminder(run, "result")` → 同一个对话框的 `openForResult(run)` |
 | 设置「结束后询问本次结果」 | `Settings.confirmPrompt` |
