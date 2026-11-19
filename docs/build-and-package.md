@@ -996,7 +996,10 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
 「<标签>: deleted on GitHub but still published on GitCode; delete the GitCode release by hand」。
 脚本从不删除镜像上的发布：维护者确认该版本确应撤回后，在 GitCode 上手动删除该发布，此后不再报告。
 
-**分支清理（`cleanup_refs.py`）。** 引用同步不删除镜像上的分支，需要删除的分支逐条写入
+**分支与测试版标签清理（`cleanup_refs.py`）。** 计划另有一个 `tags` 列表，用于删除 GitHub 上已撤下的测试版标签：
+只接受 `vX.Y.Z-后缀` 形式的标签，正式版标签不能列入；每条写明仓库、标签和镜像上该标签应有的对象号，不需要锚点，
+判定与删除方式和分支相同。GitCode 没有删除发布页的公开接口，实测删除标签后其发布页随之消失；若仍在，须在 GitCode 网站上手动删除。
+引用同步不删除镜像上的分支，需要删除的分支逐条写入
 `tools/release-mirror/cleanup-plan.json`。该计划是清理的唯一依据，命令行不能另行指定计划、分支、提交或目标。
 每条记录写明仓库、分支（只接受 `refs/heads/` 下的名称，`main` 与 `dev` 不能列入）、镜像上该分支应有的提交号，
 以及一个必须是 GitHub `main` 祖先的锚点提交（分支已合入时写 `merge_anchor`，放弃时写 `discard_anchor`）。
