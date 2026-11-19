@@ -75,7 +75,9 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
                 await Task.Delay(Timeout.Infinite, token);
                 return Transport.Status(uri, 500);
             });
-        var result = await Client(transport, TimeSpan.FromMilliseconds(400)).FetchAsync();
+        // The mirror has what the primary leaves of the budget. 400 ms left it too little on a
+        // loaded build machine; the primary never answers, so a larger budget only costs time.
+        var result = await Client(transport, TimeSpan.FromSeconds(3)).FetchAsync();
         Assert.Equal(UpdateSource.GitCode, result.Source);
         using var cancelled = new CancellationTokenSource();
         cancelled.Cancel();

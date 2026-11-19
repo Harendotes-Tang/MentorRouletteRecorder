@@ -176,12 +176,15 @@ public sealed class IpcHardeningTests
     public async Task ASubscriberThatOnlyListensIsKeptForAsLongAsTheHeartbeatsFlow()
     {
         using var peer = new SilentStream();
-        var stream = new IdleTimeoutStream(peer, TimeSpan.FromMilliseconds(600));
+        // The deadline is eight heartbeat intervals: on a loaded build machine one delay of 250 ms
+        // has been seen to take longer than 600 ms, which let the old 600 ms deadline pass between
+        // two heartbeats and failed the test for a reason that is not the code's.
+        var stream = new IdleTimeoutStream(peer, TimeSpan.FromSeconds(2));
         var buffer = new byte[64];
         var reading = stream.ReadAsync(buffer, CancellationToken.None).AsTask();
 
-        // Six heartbeats over 1.5 s -- well past the deadline -- while the client sends nothing.
-        for (var i = 0; i < 6; i++)
+        // Twelve heartbeats over 3 s -- well past the deadline -- while the client sends nothing.
+        for (var i = 0; i < 12; i++)
         {
             await Task.Delay(TimeSpan.FromMilliseconds(250));
             await stream.WriteAsync(new byte[] { 0x01 }, CancellationToken.None);
