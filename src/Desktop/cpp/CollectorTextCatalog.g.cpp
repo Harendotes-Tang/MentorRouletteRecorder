@@ -188,6 +188,7 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "已达到单次验证的时长上限，正在停止等待……", "capture.validation.stopping_wait_time_limit"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "当前版本已有已验证档案，请先停止正式记录后再使用维护工具采证。", "capture.validation.switch_refused_verified"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "仅验证，不自动记录。等待可用 IPv4 网卡；无法自动确定时，请取消并明确选择网卡。", "capture.validation.waiting_adapter"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "仅验证，不自动记录。所选网卡未连接或没有 IPv4 地址，取证不会开始。请取消后改选正在上网的网卡，或改用「自动选择」。", "capture.validation.waiting_adapter_chosen"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "仅验证，不自动记录。无法确认游戏连接状态，正在等待系统查询恢复。", "capture.validation.waiting_connection_check"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "仅验证，不自动记录。正在等待游戏启动。", "capture.validation.waiting_game"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "仅验证，不自动记录。正在等待可读取的游戏路径与客户端版本。", "capture.validation.waiting_identity"), .args = ""},

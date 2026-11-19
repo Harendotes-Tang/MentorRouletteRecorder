@@ -943,8 +943,16 @@
         <translation>正在採證 · 停止採證後恢復正常檢測</translation>
     </message>
     <message>
+        <source>等待游戏启动 · 已安装游戏所在的区服暂不支持自动记录</source>
+        <translation>等待遊戲啟動 · 已安裝遊戲所在的區服暫不支援自動記錄</translation>
+    </message>
+    <message>
         <source>暂时不会自动记录 · 见上方说明</source>
         <translation>暫時不會自動記錄 · 見上方說明</translation>
+    </message>
+    <message>
+        <source>这个区服暂不支持自动记录</source>
+        <translation>這個區服暫不支援自動記錄</translation>
     </message>
     <message>
         <source>游戏、驱动、网卡和版本支持均已就绪</source>
@@ -1035,6 +1043,10 @@
         <translation>未辨識版本</translation>
     </message>
     <message>
+        <source>区服未适配</source>
+        <translation>區服未適配</translation>
+    </message>
+    <message>
         <source>版本不支持</source>
         <translation>版本不支援</translation>
     </message>
@@ -1077,6 +1089,10 @@
     <message>
         <source>尚未识别游戏版本或区服</source>
         <translation>尚未辨識遊戲版本或伺服器地區</translation>
+    </message>
+    <message>
+        <source>这个区服暂时不会自动记录</source>
+        <translation>這個區服暫時不會自動記錄</translation>
     </message>
     <message>
         <source>当前版本暂时不会自动记录</source>
@@ -1292,6 +1308,10 @@
     <message>
         <source>已支持安装在这台电脑上的游戏版本。启动游戏后会自动记录。</source>
         <translation>已支援安裝在這台電腦上的遊戲版本。啟動遊戲後會自動記錄。</translation>
+    </message>
+    <message>
+        <source>已安装游戏所在的区服暂不支持自动记录。启动游戏后会再次检查。</source>
+        <translation>已安裝遊戲所在的區服暫不支援自動記錄。啟動遊戲後會再次檢查。</translation>
     </message>
     <message>
         <source>当前安装的游戏版本暂不支持自动记录。启动游戏后会再次检查。</source>
@@ -1664,6 +1684,14 @@
         <translation>尚未辨識遊戲版本或伺服器地區</translation>
     </message>
     <message>
+        <source>这个区服暂不支持自动记录</source>
+        <translation>這個區服暫不支援自動記錄</translation>
+    </message>
+    <message>
+        <source>已安装游戏所在的区服暂不支持自动记录</source>
+        <translation>已安裝遊戲所在的區服暫不支援自動記錄</translation>
+    </message>
+    <message>
         <source>当前游戏版本暂不支持自动记录</source>
         <translation>目前的遊戲版本暫不支援自動記錄</translation>
     </message>
@@ -1694,6 +1722,10 @@
     <message>
         <source>还没确认当前游戏版本能否自动记录，请先手动记录。</source>
         <translation>還沒確認目前的遊戲版本能否自動記錄，請先手動記錄。</translation>
+    </message>
+    <message>
+        <source>这个区服还没有适配，暂时不能自动记录，请先手动记录。校准不会自动开始；愿意帮忙适配的话，可以按「采证步骤」采集线索。</source>
+        <translation>這個區服尚未適配，暫時無法自動記錄，請先手動記錄。校準不會自動開始；若願意協助適配，可以按「採證步驟」採集線索。</translation>
     </message>
     <message>
         <source>暂时不能自动记录，请先手动记录。</source>
@@ -1734,6 +1766,10 @@
     <message>
         <source>副本进行中，结束后再试</source>
         <translation>副本進行中，結束後再試</translation>
+    </message>
+    <message>
+        <source>采证步骤</source>
+        <translation>採證步驟</translation>
     </message>
     <message>
         <source>恢复上一份本机校准</source>
@@ -3399,6 +3435,11 @@ SHA256：%3</translation>
         <source>这个角色的登记情况已经变了，请按总览上最新的提示操作。</source>
         <comment>identity.registration_moved</comment>
         <translation>這個角色的登記情況已經變了，請依總覽上最新的提示操作。</translation>
+    </message>
+    <message>
+        <source>仅验证，不自动记录。所选网卡未连接或没有 IPv4 地址，取证不会开始。请取消后改选正在上网的网卡，或改用「自动选择」。</source>
+        <comment>capture.validation.waiting_adapter_chosen</comment>
+        <translation>僅驗證，不自動記錄。所選網路卡未連線或沒有 IPv4 位址，取證不會開始。請取消後改選正在上網的網路卡，或改用「自動選擇」。</translation>
     </message>
     <message>
         <source>备份中的记录来源信息不完整，请重新创建备份后重试。</source>
@@ -6271,10 +6312,6 @@ SHA256：%3</translation>
         <translation>正在取消等待…</translation>
     </message>
     <message>
-        <source>等待游戏启动</source>
-        <translation>等待遊戲啟動</translation>
-    </message>
-    <message>
         <source>正在取证 · 可以登录了</source>
         <translation>正在取證 · 可以登入了</translation>
     </message>
@@ -6820,8 +6857,8 @@ SHA256：%3</translation>
         <translation>無法識別遊戲版本時，在遊戲資料夾</translation>
     </message>
     <message>
-        <source>启动或采证出错时，在数据目录 logs</source>
-        <translation>啟動或採證出錯時，在資料目錄 logs</translation>
+        <source>启动或采证出错时，在数据目录 logs；软件读不懂游戏数据格式时，含几小段游戏主程序的指令字节</source>
+        <translation>啟動或採證出錯時，在資料目錄 logs；軟體讀不懂遊戲資料格式時，含幾小段遊戲主程式的指令位元組</translation>
     </message>
     <message>
         <source>已在「设置 › 数据」备份正式记录（备份只留在本机）</source>
@@ -6982,6 +7019,26 @@ SHA256：%3</translation>
     <message>
         <source>文件不完整 · 文件 %1 / %2</source>
         <translation>檔案不完整 · 檔案 %1 / %2</translation>
+    </message>
+    <message>
+        <source>等待可用的网卡</source>
+        <translation>等待可用的網路卡</translation>
+    </message>
+    <message>
+        <source>等待读取游戏版本</source>
+        <translation>等待讀取遊戲版本</translation>
+    </message>
+    <message>
+        <source>等待识别区服</source>
+        <translation>等待識別區服</translation>
+    </message>
+    <message>
+        <source>等待确认游戏连接</source>
+        <translation>等待確認遊戲連線</translation>
+    </message>
+    <message>
+        <source>等待游戏重新启动</source>
+        <translation>等待遊戲重新啟動</translation>
     </message>
     <message>
         <source>等待游戏启动</source>
@@ -7613,6 +7670,10 @@ SHA256：%3</translation>
         <translation>改角色</translation>
     </message>
     <message>
+        <source>只能迁移手动补录和导入的记录，且勾选的记录须属于同一区服、未被删除。自动记录的区服由游戏客户端决定，不能迁移。</source>
+        <translation>只能遷移手動補錄和匯入的記錄，且勾選的記錄須屬於同一區服、未被刪除。自動記錄的區服由遊戲用戶端決定，無法遷移。</translation>
+    </message>
+    <message>
         <source>正在处理选中的记录…</source>
         <translation>正在處理所選的記錄…</translation>
     </message>
@@ -7802,6 +7863,65 @@ SHA256：%3</translation>
     <message>
         <source>重试</source>
         <translation>重試</translation>
+    </message>
+</context>
+<context>
+    <name>HistoryRegionMigrationDialog</name>
+    <message>
+        <source>从 %2 迁移 %1 条记录</source>
+        <translation>從 %2 遷移 %1 筆記錄</translation>
+    </message>
+    <message>
+        <source>请选择目标区服</source>
+        <translation>請選擇目標區服</translation>
+    </message>
+    <message>
+        <source>目标区服</source>
+        <translation>目標區服</translation>
+    </message>
+    <message>
+        <source>请选择目标角色</source>
+        <translation>請選擇目標角色</translation>
+    </message>
+    <message>
+        <source>目标角色</source>
+        <translation>目標角色</translation>
+    </message>
+    <message>
+        <source>目标区服还没有角色，可在「设置 › 成就」中添加。</source>
+        <translation>目標區服還沒有角色，可在「設定 › 成就」中新增。</translation>
+    </message>
+    <message>
+        <source>来源角色的起始次数不会变化。这些记录导入时如果已从来源的起始次数中扣除，迁移后请到「设置 › 成就」自行调整。</source>
+        <translation>來源角色的起始次數不會變化。這些記錄匯入時如果已從來源的起始次數中扣除，遷移後請到「設定 › 成就」自行調整。</translation>
+    </message>
+    <message>
+        <source>%1 条通关将计入目标角色。目标角色的起始次数为 %2。</source>
+        <translation>%1 筆通關將計入目標角色。目標角色的起始次數為 %2。</translation>
+    </message>
+    <message>
+        <source>已包含在起始次数中的通关数（0–%1）</source>
+        <translation>已包含在起始次數中的通關數（0–%1）</translation>
+    </message>
+    <message>
+        <source>已包含的通关数</source>
+        <translation>已包含的通關數</translation>
+    </message>
+    <message>
+        <source>目标起始次数变为 %1，目标成就进度增加 %2。来源起始次数保持原值。</source>
+        <translation>目標起始次數變為 %1，目標成就進度增加 %2。來源起始次數維持原值。</translation>
+    </message>
+    <message>
+        <source>正在预览…</source>
+        <translation>正在預覽…</translation>
+    </message>
+    <message>
+        <source>预览</source>
+        <translation>預覽</translation>
+    </message>
+    <message>
+        <source>确认迁移</source>
+        <translation>確認遷移</translation>
     </message>
 </context>
 <context>
@@ -9859,6 +9979,14 @@ SHA256：%3</translation>
         <translation>顯示 Powered by 導隨記錄器 署名</translation>
     </message>
     <message>
+        <source>移到最前</source>
+        <translation>移到最前</translation>
+    </message>
+    <message>
+        <source>移到最后</source>
+        <translation>移到最後</translation>
+    </message>
+    <message>
         <source>暂时无法保存图片，请关闭后重新打开。</source>
         <translation>暫時無法儲存圖片，請關閉後重新開啟。</translation>
     </message>
@@ -9927,6 +10055,13 @@ SHA256：%3</translation>
     <message>
         <source>导随记录</source>
         <translation>導隨記錄</translation>
+    </message>
+</context>
+<context>
+    <name>ReflectionShareWindow</name>
+    <message>
+        <source>生成分享图片</source>
+        <translation>產生分享圖片</translation>
     </message>
 </context>
 <context>
@@ -12180,6 +12315,10 @@ SHA256：%3</translation>
         <translation>正在檢查目前的遊戲版本能否自動記錄…</translation>
     </message>
     <message>
+        <source>目前还不支持这个区服的自动记录，校准也不会自动开始。请查看「捕获诊断」，期间可以先手动记录。</source>
+        <translation>目前還不支援這個區服的自動記錄，校準也不會自動開始。請檢視「擷取診斷」，期間可以先手動記錄。</translation>
+    </message>
+    <message>
         <source>找不到游戏的安装位置，无法确认游戏版本，暂时不能自动记录。请确认游戏已启动，再查看「捕获诊断」。</source>
         <translation>找不到遊戲的安裝位置，無法確認遊戲版本，暫時無法自動記錄。請確認遊戲已啟動，再檢視「擷取診斷」。</translation>
     </message>
@@ -12787,10 +12926,6 @@ SHA256：%3</translation>
     <message>
         <source>备份已保存到 %1 · %2 · 数据检查通过 · 已清理 %3 份旧备份</source>
         <translation>備份已儲存到 %1 · %2 · 資料檢查通過 · 已清理 %3 份舊備份</translation>
-    </message>
-    <message>
-        <source>备份已保存到 %1 · %2 · 数据检查未通过 · 已清理 %3 份旧备份</source>
-        <translation>備份已儲存到 %1 · %2 · 資料檢查未通過 · 已清理 %3 份舊備份</translation>
     </message>
     <message>
         <source>后台服务尚未连接，暂时无法导出诊断报告。请稍后重试。</source>
@@ -15238,65 +15373,6 @@ SHA256：%3</translation>
     <message>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>安裝程式沒有啟動，可能是未通過 Windows 的安裝確認。本軟體會繼續執行，可再點「立即安裝」，或點「在瀏覽器中下載」。</translation>
-    </message>
-</context>
-<context>
-    <name>HistoryRegionMigrationDialog</name>
-    <message>
-        <source>从 %2 迁移 %1 条记录</source>
-        <translation>從 %2 遷移 %1 筆記錄</translation>
-    </message>
-    <message>
-        <source>请选择目标区服</source>
-        <translation>請選擇目標區服</translation>
-    </message>
-    <message>
-        <source>目标区服</source>
-        <translation>目標區服</translation>
-    </message>
-    <message>
-        <source>请选择目标角色</source>
-        <translation>請選擇目標角色</translation>
-    </message>
-    <message>
-        <source>目标角色</source>
-        <translation>目標角色</translation>
-    </message>
-    <message>
-        <source>目标区服还没有角色，可在「设置 › 成就」中添加。</source>
-        <translation>目標區服還沒有角色，可在「設定 › 成就」中新增。</translation>
-    </message>
-    <message>
-        <source>来源角色的起始次数不会变化。这些记录导入时如果已从来源的起始次数中扣除，迁移后请到「设置 › 成就」自行调整。</source>
-        <translation>來源角色的起始次數不會變化。這些記錄匯入時如果已從來源的起始次數中扣除，遷移後請到「設定 › 成就」自行調整。</translation>
-    </message>
-    <message>
-        <source>%1 条通关将计入目标角色。目标角色的起始次数为 %2。</source>
-        <translation>%1 筆通關將計入目標角色。目標角色的起始次數為 %2。</translation>
-    </message>
-    <message>
-        <source>已包含在起始次数中的通关数（0–%1）</source>
-        <translation>已包含在起始次數中的通關數（0–%1）</translation>
-    </message>
-    <message>
-        <source>已包含的通关数</source>
-        <translation>已包含的通關數</translation>
-    </message>
-    <message>
-        <source>目标起始次数变为 %1，目标成就进度增加 %2。来源起始次数保持原值。</source>
-        <translation>目標起始次數變為 %1，目標成就進度增加 %2。來源起始次數維持原值。</translation>
-    </message>
-    <message>
-        <source>正在预览…</source>
-        <translation>正在預覽…</translation>
-    </message>
-    <message>
-        <source>预览</source>
-        <translation>預覽</translation>
-    </message>
-    <message>
-        <source>确认迁移</source>
-        <translation>確認遷移</translation>
     </message>
 </context>
 </TS>

@@ -943,8 +943,16 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>Capturing · normal checks resume when you stop capturing</translation>
     </message>
     <message>
+        <source>等待游戏启动 · 已安装游戏所在的区服暂不支持自动记录</source>
+        <translation>Waiting for the game · the installed game's region is not supported for automatic recording yet</translation>
+    </message>
+    <message>
         <source>暂时不会自动记录 · 见上方说明</source>
         <translation>No automatic recording for now · see the notes above</translation>
+    </message>
+    <message>
+        <source>这个区服暂不支持自动记录</source>
+        <translation>This region is not supported for automatic recording yet</translation>
     </message>
     <message>
         <source>游戏、驱动、网卡和版本支持均已就绪</source>
@@ -1035,6 +1043,10 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>Version not recognized</translation>
     </message>
     <message>
+        <source>区服未适配</source>
+        <translation>Region not supported</translation>
+    </message>
+    <message>
         <source>版本不支持</source>
         <translation>Version not supported</translation>
     </message>
@@ -1077,6 +1089,10 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
     <message>
         <source>尚未识别游戏版本或区服</source>
         <translation>Game version or server region not recognized yet</translation>
+    </message>
+    <message>
+        <source>这个区服暂时不会自动记录</source>
+        <translation>Runs in this region are not recorded automatically for now</translation>
     </message>
     <message>
         <source>当前版本暂时不会自动记录</source>
@@ -1292,6 +1308,10 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
     <message>
         <source>已支持安装在这台电脑上的游戏版本。启动游戏后会自动记录。</source>
         <translation>The game version installed on this PC is supported. Records automatically once the game starts.</translation>
+    </message>
+    <message>
+        <source>已安装游戏所在的区服暂不支持自动记录。启动游戏后会再次检查。</source>
+        <translation>The installed game's region is not supported for automatic recording yet. It is checked again when the game starts.</translation>
     </message>
     <message>
         <source>当前安装的游戏版本暂不支持自动记录。启动游戏后会再次检查。</source>
@@ -1664,6 +1684,14 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>Game version or server region not recognized yet</translation>
     </message>
     <message>
+        <source>这个区服暂不支持自动记录</source>
+        <translation>This region is not supported for automatic recording yet</translation>
+    </message>
+    <message>
+        <source>已安装游戏所在的区服暂不支持自动记录</source>
+        <translation>The installed game's region is not supported for automatic recording yet</translation>
+    </message>
+    <message>
         <source>当前游戏版本暂不支持自动记录</source>
         <translation>This game version doesn&apos;t support automatic recording yet</translation>
     </message>
@@ -1694,6 +1722,10 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
     <message>
         <source>还没确认当前游戏版本能否自动记录，请先手动记录。</source>
         <translation>It isn&apos;t confirmed yet whether this game version supports automatic recording, so record manually for now.</translation>
+    </message>
+    <message>
+        <source>这个区服还没有适配，暂时不能自动记录，请先手动记录。校准不会自动开始；愿意帮忙适配的话，可以按「采证步骤」采集线索。</source>
+        <translation>This region is not supported yet, so runs cannot be recorded automatically; please record them by hand for now. Calibration will not start by itself. If you would like to help add support, use “Collection steps” to collect clues.</translation>
     </message>
     <message>
         <source>暂时不能自动记录，请先手动记录。</source>
@@ -1734,6 +1766,10 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
     <message>
         <source>副本进行中，结束后再试</source>
         <translation>In a duty — try again after it ends</translation>
+    </message>
+    <message>
+        <source>采证步骤</source>
+        <translation>Collection steps</translation>
     </message>
     <message>
         <source>恢复上一份本机校准</source>
@@ -3399,6 +3435,11 @@ SHA256: %3</translation>
         <source>这个角色的登记情况已经变了，请按总览上最新的提示操作。</source>
         <comment>identity.registration_moved</comment>
         <translation>This character&apos;s registration has changed. Follow the latest prompt on the overview.</translation>
+    </message>
+    <message>
+        <source>仅验证，不自动记录。所选网卡未连接或没有 IPv4 地址，取证不会开始。请取消后改选正在上网的网卡，或改用「自动选择」。</source>
+        <comment>capture.validation.waiting_adapter_chosen</comment>
+        <translation>Verification only; nothing is recorded. The adapter you chose is not connected or has no IPv4 address, so the capture will not start. Cancel, then choose the adapter you are online with, or use “Automatic”.</translation>
     </message>
     <message>
         <source>备份中的记录来源信息不完整，请重新创建备份后重试。</source>
@@ -6271,10 +6312,6 @@ SHA256: %3</translation>
         <translation>Canceling the wait…</translation>
     </message>
     <message>
-        <source>等待游戏启动</source>
-        <translation>Waiting for the game</translation>
-    </message>
-    <message>
         <source>正在取证 · 可以登录了</source>
         <translation>Capturing · you can log in now</translation>
     </message>
@@ -6820,8 +6857,8 @@ SHA256: %3</translation>
         <translation>If the game version isn&apos;t recognized; in the game folder</translation>
     </message>
     <message>
-        <source>启动或采证出错时，在数据目录 logs</source>
-        <translation>If startup or capture failed; in the data folder&apos;s logs</translation>
+        <source>启动或采证出错时，在数据目录 logs；软件读不懂游戏数据格式时，含几小段游戏主程序的指令字节</source>
+        <translation>If startup or capture failed; in the data folder&apos;s logs. When the app cannot read the game&apos;s data format, it also holds a few short runs of the game executable&apos;s machine code</translation>
     </message>
     <message>
         <source>已在「设置 › 数据」备份正式记录（备份只留在本机）</source>
@@ -6982,6 +7019,26 @@ SHA256: %3</translation>
     <message>
         <source>文件不完整 · 文件 %1 / %2</source>
         <translation>Incomplete · %1 / %2 files</translation>
+    </message>
+    <message>
+        <source>等待可用的网卡</source>
+        <translation>Waiting for a usable adapter</translation>
+    </message>
+    <message>
+        <source>等待读取游戏版本</source>
+        <translation>Waiting to read the game version</translation>
+    </message>
+    <message>
+        <source>等待识别区服</source>
+        <translation>Waiting to identify the region</translation>
+    </message>
+    <message>
+        <source>等待确认游戏连接</source>
+        <translation>Waiting to confirm the game's connection</translation>
+    </message>
+    <message>
+        <source>等待游戏重新启动</source>
+        <translation>Waiting for the game to restart</translation>
     </message>
     <message>
         <source>等待游戏启动</source>
@@ -7613,6 +7670,10 @@ SHA256: %3</translation>
         <translation>Change character</translation>
     </message>
     <message>
+        <source>只能迁移手动补录和导入的记录，且勾选的记录须属于同一区服、未被删除。自动记录的区服由游戏客户端决定，不能迁移。</source>
+        <translation>Only manually added and imported records can be moved, and the checked records must belong to one region and not be deleted. The region of an automatic record is set by the game client and cannot be changed.</translation>
+    </message>
+    <message>
         <source>正在处理选中的记录…</source>
         <translation>Processing selected records…</translation>
     </message>
@@ -7802,6 +7863,65 @@ SHA256: %3</translation>
     <message>
         <source>重试</source>
         <translation>Retry</translation>
+    </message>
+</context>
+<context>
+    <name>HistoryRegionMigrationDialog</name>
+    <message>
+        <source>从 %2 迁移 %1 条记录</source>
+        <translation>Move %1 records from %2</translation>
+    </message>
+    <message>
+        <source>请选择目标区服</source>
+        <translation>Choose a destination region</translation>
+    </message>
+    <message>
+        <source>目标区服</source>
+        <translation>Destination region</translation>
+    </message>
+    <message>
+        <source>请选择目标角色</source>
+        <translation>Choose a destination character</translation>
+    </message>
+    <message>
+        <source>目标角色</source>
+        <translation>Destination character</translation>
+    </message>
+    <message>
+        <source>目标区服还没有角色，可在「设置 › 成就」中添加。</source>
+        <translation>Add a character for this region in Settings › Achievements.</translation>
+    </message>
+    <message>
+        <source>来源角色的起始次数不会变化。这些记录导入时如果已从来源的起始次数中扣除，迁移后请到「设置 › 成就」自行调整。</source>
+        <translation>The source character&apos;s starting count does not change. If these records were taken off the source&apos;s starting count when they were imported, adjust it yourself in Settings › Achievement after the move.</translation>
+    </message>
+    <message>
+        <source>%1 条通关将计入目标角色。目标角色的起始次数为 %2。</source>
+        <translation>%1 completions will count toward the selected character, whose starting count is %2.</translation>
+    </message>
+    <message>
+        <source>已包含在起始次数中的通关数（0–%1）</source>
+        <translation>Completions already in the starting count (0–%1)</translation>
+    </message>
+    <message>
+        <source>已包含的通关数</source>
+        <translation>Completions already included</translation>
+    </message>
+    <message>
+        <source>目标起始次数变为 %1，目标成就进度增加 %2。来源起始次数保持原值。</source>
+        <translation>The destination starting count becomes %1 and its achievement progress increases by %2. The source starting count stays the same.</translation>
+    </message>
+    <message>
+        <source>正在预览…</source>
+        <translation>Loading preview…</translation>
+    </message>
+    <message>
+        <source>预览</source>
+        <translation>Preview</translation>
+    </message>
+    <message>
+        <source>确认迁移</source>
+        <translation>Confirm move</translation>
     </message>
 </context>
 <context>
@@ -9859,6 +9979,14 @@ Recorder</translation>
         <translation>Show the “Powered by Mentor Recorder” credit</translation>
     </message>
     <message>
+        <source>移到最前</source>
+        <translation>Move to top</translation>
+    </message>
+    <message>
+        <source>移到最后</source>
+        <translation>Move to bottom</translation>
+    </message>
+    <message>
         <source>暂时无法保存图片，请关闭后重新打开。</source>
         <translation>Images can&apos;t be saved right now. Close this and open it again.</translation>
     </message>
@@ -9927,6 +10055,13 @@ Recorder</translation>
     <message>
         <source>导随记录</source>
         <translation>Mentor Roulette Records</translation>
+    </message>
+</context>
+<context>
+    <name>ReflectionShareWindow</name>
+    <message>
+        <source>生成分享图片</source>
+        <translation>Create share image</translation>
     </message>
 </context>
 <context>
@@ -12180,6 +12315,10 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <translation>Checking whether this game version supports automatic recording…</translation>
     </message>
     <message>
+        <source>目前还不支持这个区服的自动记录，校准也不会自动开始。请查看「捕获诊断」，期间可以先手动记录。</source>
+        <translation>Automatic recording is not supported for this region yet, and calibration will not start by itself. See “Capture diagnostics”; you can record by hand in the meantime.</translation>
+    </message>
+    <message>
         <source>找不到游戏的安装位置，无法确认游戏版本，暂时不能自动记录。请确认游戏已启动，再查看「捕获诊断」。</source>
         <translation>Can&apos;t find where the game is installed, so its version can&apos;t be confirmed and automatic recording is unavailable for now. Make sure the game is running, then see “Capture diagnostics”.</translation>
     </message>
@@ -12787,10 +12926,6 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>备份已保存到 %1 · %2 · 数据检查通过 · 已清理 %3 份旧备份</source>
         <translation>Backup saved to %1 · %2 · data check passed · %3 old backups removed</translation>
-    </message>
-    <message>
-        <source>备份已保存到 %1 · %2 · 数据检查未通过 · 已清理 %3 份旧备份</source>
-        <translation>Backup saved to %1 · %2 · data check failed · %3 old backups removed</translation>
     </message>
     <message>
         <source>后台服务尚未连接，暂时无法导出诊断报告。请稍后重试。</source>
@@ -15238,65 +15373,6 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>The installer didn&apos;t start, possibly because the Windows install confirmation wasn&apos;t accepted. This app keeps running; click “Install now” again, or click “Download in browser”.</translation>
-    </message>
-</context>
-<context>
-    <name>HistoryRegionMigrationDialog</name>
-    <message>
-        <source>从 %2 迁移 %1 条记录</source>
-        <translation>Move %1 records from %2</translation>
-    </message>
-    <message>
-        <source>请选择目标区服</source>
-        <translation>Choose a destination region</translation>
-    </message>
-    <message>
-        <source>目标区服</source>
-        <translation>Destination region</translation>
-    </message>
-    <message>
-        <source>请选择目标角色</source>
-        <translation>Choose a destination character</translation>
-    </message>
-    <message>
-        <source>目标角色</source>
-        <translation>Destination character</translation>
-    </message>
-    <message>
-        <source>目标区服还没有角色，可在「设置 › 成就」中添加。</source>
-        <translation>Add a character for this region in Settings › Achievements.</translation>
-    </message>
-    <message>
-        <source>来源角色的起始次数不会变化。这些记录导入时如果已从来源的起始次数中扣除，迁移后请到「设置 › 成就」自行调整。</source>
-        <translation>The source character&apos;s starting count does not change. If these records were taken off the source&apos;s starting count when they were imported, adjust it yourself in Settings › Achievement after the move.</translation>
-    </message>
-    <message>
-        <source>%1 条通关将计入目标角色。目标角色的起始次数为 %2。</source>
-        <translation>%1 completions will count toward the selected character, whose starting count is %2.</translation>
-    </message>
-    <message>
-        <source>已包含在起始次数中的通关数（0–%1）</source>
-        <translation>Completions already in the starting count (0–%1)</translation>
-    </message>
-    <message>
-        <source>已包含的通关数</source>
-        <translation>Completions already included</translation>
-    </message>
-    <message>
-        <source>目标起始次数变为 %1，目标成就进度增加 %2。来源起始次数保持原值。</source>
-        <translation>The destination starting count becomes %1 and its achievement progress increases by %2. The source starting count stays the same.</translation>
-    </message>
-    <message>
-        <source>正在预览…</source>
-        <translation>Loading preview…</translation>
-    </message>
-    <message>
-        <source>预览</source>
-        <translation>Preview</translation>
-    </message>
-    <message>
-        <source>确认迁移</source>
-        <translation>Confirm move</translation>
     </message>
 </context>
 </TS>

@@ -96,6 +96,10 @@ public sealed class MachinaCaptureSource : ICaptureSource
     private readonly long[] _traceSeen = new long[3];
     private readonly long[] _traceSuppressed = new long[3];
     private long _traceSummaryAtMs = Environment.TickCount64;
+    // What this capture read and failed to read, for one question at its end: did a signature
+    // set found on this machine decode anything at all?
+    private long _messagesRead;
+    private long _decodeFailures;
 
     private int _framingRejectionSampleLogged;
     private int _preexistingTcpConnections = -1;
@@ -351,6 +355,17 @@ public sealed class MachinaCaptureSource : ICaptureSource
         try
         {
             Detach(monitor);
+            // The last resort, and only here: a discovered set that read nothing and failed
+            // to read something was wrong. Before the runtime is released, so the excerpts
+            // name the set that was in force.
+            if (signatureRuntime is { IsDiscovered: true } &&
+                Interlocked.Read(ref _messagesRead) == 0 && Interlocked.Read(ref _decodeFailures) > 0)
+            {
+                signatureRuntime.LogContextAfterFailedDecode();
+            }
+
+            Interlocked.Exchange(ref _messagesRead, 0);
+            Interlocked.Exchange(ref _decodeFailures, 0);
             signatureRuntime?.Dispose();
 
             // Only a fully released monitor forgets its resources. A failure deliberately
@@ -456,10 +471,13 @@ public sealed class MachinaCaptureSource : ICaptureSource
         {
             if (message is null || !FfxivFraming.TryRead(message, out var frame))
             {
+                Interlocked.Increment(ref _decodeFailures);
                 observer.OnDecodeError();
                 LogFramingRejection(message, direction);
                 return;
             }
+
+            Interlocked.Increment(ref _messagesRead);
 
             // The payload is copied out of Machina's buffer immediately: the buffer is reused
             // by the capture loop, and nothing downstream may hold a reference to it.
@@ -587,6 +605,18 @@ public sealed class MachinaCaptureSource : ICaptureSource
             }
         }
 
+        // Which Oodle signature the scan could not place. Only the enum name is logged, and
+        // always: among thirteen start-up lines it would otherwise be one the sampling drops
+        // (2026-11-20, a Global build no table fits - nothing said which of the twelve it was).
+        if (MissingSignatureName(sanitized) is { } signature)
+        {
+            _logger.Write(
+                LogLevel.Warn,
+                "capture",
+                "oodle_signature_missing",
+                new Dictionary<string, object?> { ["signature"] = signature });
+        }
+
         var kind = fatal ? "fatal" : decodeError ? "decode_error" : "diagnostic";
         if (SampleMonitorTrace(kind))
         {
@@ -611,6 +641,7 @@ public sealed class MachinaCaptureSource : ICaptureSource
 
         if (decodeError)
         {
+            Interlocked.Increment(ref _decodeFailures);
             observer?.OnDecodeError();
         }
 
@@ -619,6 +650,35 @@ public sealed class MachinaCaptureSource : ICaptureSource
         // and look merely idle.
         if (category is { } failure)
             observer?.OnMonitorFault(failure, CollectorTexts.CaptureFaultMonitor());
+    }
+
+    /// <summary>Machina's and our scanner's line for a signature that was not found.</summary>
+    public const string MissingSignatureMarker = "Missing Signature [";
+
+    /// <summary>
+    /// The signature a "Missing Signature [X]" trace line names, when X is one of Machina's
+    /// <see cref="Machina.FFXIV.Memory.SignatureType"/> names; null for every other line.
+    /// </summary>
+    /// <param name="trace">Sanitized trace text.</param>
+    public static string? MissingSignatureName(string trace)
+    {
+        var at = trace.IndexOf(MissingSignatureMarker, StringComparison.Ordinal);
+        if (at < 0)
+        {
+            return null;
+        }
+
+        var start = at + MissingSignatureMarker.Length;
+        var end = trace.IndexOf(']', start);
+        if (end <= start)
+        {
+            return null;
+        }
+
+        return Enum.TryParse<Machina.FFXIV.Memory.SignatureType>(trace[start..end], out var type) &&
+            Enum.IsDefined(type) && string.Equals(type.ToString(), trace[start..end], StringComparison.Ordinal)
+            ? type.ToString()
+            : null;
     }
 
     /// <summary>

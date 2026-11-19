@@ -480,6 +480,7 @@
     "capture.validation.waiting_game": "仅验证，不自动记录。正在等待游戏启动。",
     "capture.validation.waiting_identity": "仅验证，不自动记录。正在等待可读取的游戏路径与客户端版本。",
     "capture.validation.waiting_adapter": "仅验证，不自动记录。等待可用 IPv4 网卡；无法自动确定时，请取消并明确选择网卡。",
+    "capture.validation.waiting_adapter_chosen": "仅验证，不自动记录。所选网卡未连接或没有 IPv4 地址，取证不会开始。请取消后改选正在上网的网卡，或改用「自动选择」。",
     "capture.validation.waiting_restart_connected": "仅验证，不自动记录。游戏已有连接，请退出并重新启动游戏，验证将自动继续。",
     "capture.validation.waiting_connection_check": "仅验证，不自动记录。无法确认游戏连接状态，正在等待系统查询恢复。",
     "capture.validation.waiting_region": "仅验证，不自动记录。无法从安装路径判断区服。请在设置里手动指定区服（国服 / 繁中服 / 国际服）后重试。",

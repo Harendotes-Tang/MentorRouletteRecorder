@@ -565,7 +565,12 @@ public sealed partial class CaptureValidationController : IDisposable
         var selected = s.AdapterId is not null ? AdapterEnumerator.Find(adapters, s.AdapterId) :
             adapters.Where(a => a.Recommended).Take(2).ToArray() is { Length: 1 } recommended ? recommended[0] : null;
         if (selected is null || !CapturePathPlan.IsUsable(selected))
-            return Wait("WAITING_ADAPTER", CollectorTexts.CaptureValidationWaitingAdapter());
+            // A card the player chose is never replaced by another, so this wait ends only if
+            // that card comes up. Telling them to "choose a card" would send them in a circle
+            // (2026-11-20: a tester waited four minutes on an unplugged Ethernet card).
+            return Wait("WAITING_ADAPTER", s.AdapterWasExplicit
+                ? CollectorTexts.CaptureValidationWaitingAdapterChosen()
+                : CollectorTexts.CaptureValidationWaitingAdapter());
         var plan = CapturePathPlan.Create(adapters, selected, automatic: !s.AdapterWasExplicit);
         s.AdapterId ??= selected.Id;
         var identity = (game.ProcessId.Value, game.StartedAtUtc);

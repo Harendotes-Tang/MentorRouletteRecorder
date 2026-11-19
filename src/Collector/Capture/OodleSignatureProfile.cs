@@ -150,6 +150,39 @@ public sealed class OodleSignatureProfile
     /// <summary>Short identifier used in log lines, for example <c>cn.2026.08.05</c>.</summary>
     public string Id => System.IO.Path.GetFileNameWithoutExtension(Path);
 
+    /// <summary>
+    /// A CANDIDATE set found on this machine by <see cref="OodleSignatureDiscovery"/> for an
+    /// executable no profile file exists for. It has no file and no resolved RVAs: the install
+    /// gate re-scans its patterns in the mapped image like a pattern donor's.
+    /// </summary>
+    /// <param name="region">Region of the running client.</param>
+    /// <param name="gameBuild">Build of the running client.</param>
+    /// <param name="exeSha256">SHA-256 of its executable, lowercase hex.</param>
+    /// <param name="exeSize">Size of its executable in bytes.</param>
+    /// <param name="signatures">One accepted pattern per signature.</param>
+    public static OodleSignatureProfile Discovered(
+        Region region,
+        string gameBuild,
+        string exeSha256,
+        long exeSize,
+        IReadOnlyDictionary<SignatureType, int[]> signatures)
+    {
+        ArgumentNullException.ThrowIfNull(signatures);
+        var id = $"discovered.{EnumWire<Region>.Format(region).ToLowerInvariant()}.{gameBuild}";
+        return new OodleSignatureProfile(
+            id + ".json",
+            EnumWire<Region>.Format(region),
+            gameBuild,
+            exeSha256,
+            exeSize,
+            DateTimeOffset.UtcNow,
+            CandidateStatus,
+            string.Empty,
+            ReproductionUnchecked,
+            signatures,
+            new Dictionary<SignatureType, int>());
+    }
+
     /// <summary>The signature directory under a profile root, or null when there is none.</summary>
     /// <param name="profileRoot">The <c>protocol-profiles</c> directory, or null.</param>
     public static string? DirectoryUnder(string? profileRoot)
@@ -693,6 +726,15 @@ public static class OodleSignaturePattern
         pattern = bytes;
         problem = string.Empty;
         return true;
+    }
+
+    /// <summary>The text form <see cref="TryParse"/> reads back, wildcards as <c>**</c>.</summary>
+    /// <param name="pattern">Parsed pattern.</param>
+    public static string Render(int[] pattern)
+    {
+        ArgumentNullException.ThrowIfNull(pattern);
+        return string.Join(' ', pattern.Select(value =>
+            value == Wildcard ? "**" : value.ToString("x2", CultureInfo.InvariantCulture)));
     }
 
     /// <summary>Every offset in <paramref name="image"/> where <paramref name="pattern"/> matches.</summary>

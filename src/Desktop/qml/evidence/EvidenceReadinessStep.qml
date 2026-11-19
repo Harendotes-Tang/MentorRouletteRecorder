@@ -47,7 +47,7 @@ EvidenceStep {
                     Layout.fillWidth: true
                     textFormat: Text.PlainText
                     text: step.cancelling ? qsTr("正在取消等待…")
-                          : step.waiting ? qsTr("等待游戏启动")
+                          : step.waiting ? step.session.waitingTitle
                           : step.session.recording ? qsTr("正在取证 · 可以登录了")
                           : step.session.badgeText
                     color: Theme.textPrimary

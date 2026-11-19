@@ -943,8 +943,16 @@
         <translation>採取中 · 採取を停止すると通常の確認を再開します</translation>
     </message>
     <message>
+        <source>等待游戏启动 · 已安装游戏所在的区服暂不支持自动记录</source>
+        <translation>ゲームの起動待ち · インストール済みゲームのリージョンは自動記録に未対応です</translation>
+    </message>
+    <message>
         <source>暂时不会自动记录 · 见上方说明</source>
         <translation>現在は自動記録しません · 上の説明を参照</translation>
+    </message>
+    <message>
+        <source>这个区服暂不支持自动记录</source>
+        <translation>このリージョンは自動記録に未対応です</translation>
     </message>
     <message>
         <source>游戏、驱动、网卡和版本支持均已就绪</source>
@@ -1035,6 +1043,10 @@
         <translation>バージョン不明</translation>
     </message>
     <message>
+        <source>区服未适配</source>
+        <translation>リージョン未対応</translation>
+    </message>
+    <message>
         <source>版本不支持</source>
         <translation>バージョン非対応</translation>
     </message>
@@ -1077,6 +1089,10 @@
     <message>
         <source>尚未识别游戏版本或区服</source>
         <translation>ゲームのバージョンまたはリージョンが不明</translation>
+    </message>
+    <message>
+        <source>这个区服暂时不会自动记录</source>
+        <translation>このリージョンは当面自動記録されません</translation>
     </message>
     <message>
         <source>当前版本暂时不会自动记录</source>
@@ -1292,6 +1308,10 @@
     <message>
         <source>已支持安装在这台电脑上的游戏版本。启动游戏后会自动记录。</source>
         <translation>この PC にインストールされているゲームバージョンに対応済みです。ゲームを起動すると自動で記録します。</translation>
+    </message>
+    <message>
+        <source>已安装游戏所在的区服暂不支持自动记录。启动游戏后会再次检查。</source>
+        <translation>インストール済みゲームのリージョンは自動記録に未対応です。ゲーム起動後にもう一度確認します。</translation>
     </message>
     <message>
         <source>当前安装的游戏版本暂不支持自动记录。启动游戏后会再次检查。</source>
@@ -1664,6 +1684,14 @@
         <translation>ゲームのバージョンまたはリージョンが不明</translation>
     </message>
     <message>
+        <source>这个区服暂不支持自动记录</source>
+        <translation>このリージョンは自動記録に未対応です</translation>
+    </message>
+    <message>
+        <source>已安装游戏所在的区服暂不支持自动记录</source>
+        <translation>インストール済みゲームのリージョンは自動記録に未対応です</translation>
+    </message>
+    <message>
         <source>当前游戏版本暂不支持自动记录</source>
         <translation>現在のゲームバージョンは自動記録にまだ対応していません</translation>
     </message>
@@ -1694,6 +1722,10 @@
     <message>
         <source>还没确认当前游戏版本能否自动记录，请先手动记录。</source>
         <translation>現在のゲームバージョンで自動記録できるかまだ確認できていません。ひとまず手動で記録してください。</translation>
+    </message>
+    <message>
+        <source>这个区服还没有适配，暂时不能自动记录，请先手动记录。校准不会自动开始；愿意帮忙适配的话，可以按「采证步骤」采集线索。</source>
+        <translation>このリージョンはまだ対応していないため、自動記録できません。当面は手動で記録してください。校正は自動では始まりません。対応にご協力いただける場合は「証拠収集の手順」から手がかりを採取できます。</translation>
     </message>
     <message>
         <source>暂时不能自动记录，请先手动记录。</source>
@@ -1734,6 +1766,10 @@
     <message>
         <source>副本进行中，结束后再试</source>
         <translation>コンテンツに参加中です。終わってから再試行してください</translation>
+    </message>
+    <message>
+        <source>采证步骤</source>
+        <translation>証拠収集の手順</translation>
     </message>
     <message>
         <source>恢复上一份本机校准</source>
@@ -3399,6 +3435,11 @@ SHA256：%3</translation>
         <source>这个角色的登记情况已经变了，请按总览上最新的提示操作。</source>
         <comment>identity.registration_moved</comment>
         <translation>このキャラクターの登録状況が変わりました。概要ページの最新の案内に従ってください。</translation>
+    </message>
+    <message>
+        <source>仅验证，不自动记录。所选网卡未连接或没有 IPv4 地址，取证不会开始。请取消后改选正在上网的网卡，或改用「自动选择」。</source>
+        <comment>capture.validation.waiting_adapter_chosen</comment>
+        <translation>検証のみで、自動記録はしません。選択したネットワークアダプターが接続されていないか、IPv4 アドレスがないため、採取は始まりません。キャンセルして、通信に使っているアダプターを選び直すか、「自動選択」を使ってください。</translation>
     </message>
     <message>
         <source>备份中的记录来源信息不完整，请重新创建备份后重试。</source>
@@ -6271,10 +6312,6 @@ SHA256：%3</translation>
         <translation>待機を取り消しています…</translation>
     </message>
     <message>
-        <source>等待游戏启动</source>
-        <translation>ゲームの起動待ち</translation>
-    </message>
-    <message>
         <source>正在取证 · 可以登录了</source>
         <translation>採取中 · ログインしてください</translation>
     </message>
@@ -6820,8 +6857,8 @@ SHA256：%3</translation>
         <translation>ゲームのバージョンを識別できないとき（ゲームフォルダー）</translation>
     </message>
     <message>
-        <source>启动或采证出错时，在数据目录 logs</source>
-        <translation>起動や採取でエラーが出たとき（データフォルダーの logs）</translation>
+        <source>启动或采证出错时，在数据目录 logs；软件读不懂游戏数据格式时，含几小段游戏主程序的指令字节</source>
+        <translation>起動や採取でエラーが出たとき（データフォルダーの logs）。ゲームのデータ形式を読み取れない場合は、ゲーム実行ファイルの機械語コードの短い断片が含まれます</translation>
     </message>
     <message>
         <source>已在「设置 › 数据」备份正式记录（备份只留在本机）</source>
@@ -6982,6 +7019,26 @@ SHA256：%3</translation>
     <message>
         <source>文件不完整 · 文件 %1 / %2</source>
         <translation>ファイルが不完全 · ファイル %1 / %2</translation>
+    </message>
+    <message>
+        <source>等待可用的网卡</source>
+        <translation>使用できるアダプターを待機中</translation>
+    </message>
+    <message>
+        <source>等待读取游戏版本</source>
+        <translation>ゲームバージョンの読み取り待ち</translation>
+    </message>
+    <message>
+        <source>等待识别区服</source>
+        <translation>リージョンの判別待ち</translation>
+    </message>
+    <message>
+        <source>等待确认游戏连接</source>
+        <translation>ゲーム接続の確認待ち</translation>
+    </message>
+    <message>
+        <source>等待游戏重新启动</source>
+        <translation>ゲームの再起動待ち</translation>
     </message>
     <message>
         <source>等待游戏启动</source>
@@ -7613,6 +7670,10 @@ SHA256：%3</translation>
         <translation>キャラクターを変更</translation>
     </message>
     <message>
+        <source>只能迁移手动补录和导入的记录，且勾选的记录须属于同一区服、未被删除。自动记录的区服由游戏客户端决定，不能迁移。</source>
+        <translation>移行できるのは手動で追加した記録とインポートした記録だけで、選択した記録は同じリージョンに属し、削除されていない必要があります。自動記録のリージョンはゲームクライアントで決まるため、移行できません。</translation>
+    </message>
+    <message>
         <source>正在处理选中的记录…</source>
         <translation>選択した記録を処理中…</translation>
     </message>
@@ -7802,6 +7863,65 @@ SHA256：%3</translation>
     <message>
         <source>重试</source>
         <translation>再試行</translation>
+    </message>
+</context>
+<context>
+    <name>HistoryRegionMigrationDialog</name>
+    <message>
+        <source>从 %2 迁移 %1 条记录</source>
+        <translation>%2 の記録 %1 件を移行</translation>
+    </message>
+    <message>
+        <source>请选择目标区服</source>
+        <translation>移行先の地域を選択</translation>
+    </message>
+    <message>
+        <source>目标区服</source>
+        <translation>移行先の地域</translation>
+    </message>
+    <message>
+        <source>请选择目标角色</source>
+        <translation>移行先のキャラクターを選択</translation>
+    </message>
+    <message>
+        <source>目标角色</source>
+        <translation>移行先のキャラクター</translation>
+    </message>
+    <message>
+        <source>目标区服还没有角色，可在「设置 › 成就」中添加。</source>
+        <translation>「設定 › アチーブメント」でこの地域のキャラクターを追加できます。</translation>
+    </message>
+    <message>
+        <source>来源角色的起始次数不会变化。这些记录导入时如果已从来源的起始次数中扣除，迁移后请到「设置 › 成就」自行调整。</source>
+        <translation>移行元キャラクターの開始回数は変わりません。これらの記録をインポートしたときに移行元の開始回数から差し引いていた場合は、移行後に「設定 › アチーブメント」でご自身で調整してください。</translation>
+    </message>
+    <message>
+        <source>%1 条通关将计入目标角色。目标角色的起始次数为 %2。</source>
+        <translation>移行先のキャラクターに %1 回のクリアが加算されます。開始回数は %2 回です。</translation>
+    </message>
+    <message>
+        <source>已包含在起始次数中的通关数（0–%1）</source>
+        <translation>開始回数に含まれるクリア数（0～%1）</translation>
+    </message>
+    <message>
+        <source>已包含的通关数</source>
+        <translation>すでに含まれるクリア数</translation>
+    </message>
+    <message>
+        <source>目标起始次数变为 %1，目标成就进度增加 %2。来源起始次数保持原值。</source>
+        <translation>移行先の開始回数は %1 回になり、進捗は %2 回増えます。移行元の開始回数は変わりません。</translation>
+    </message>
+    <message>
+        <source>正在预览…</source>
+        <translation>確認中…</translation>
+    </message>
+    <message>
+        <source>预览</source>
+        <translation>プレビュー</translation>
+    </message>
+    <message>
+        <source>确认迁移</source>
+        <translation>移行を確定</translation>
     </message>
 </context>
 <context>
@@ -9859,6 +9979,14 @@ SHA256：%3</translation>
         <translation>「Powered by メンターレコーダー」の署名を表示</translation>
     </message>
     <message>
+        <source>移到最前</source>
+        <translation>先頭へ移動</translation>
+    </message>
+    <message>
+        <source>移到最后</source>
+        <translation>末尾へ移動</translation>
+    </message>
+    <message>
         <source>暂时无法保存图片，请关闭后重新打开。</source>
         <translation>画像を保存できません。閉じてから開き直してください。</translation>
     </message>
@@ -9927,6 +10055,13 @@ SHA256：%3</translation>
     <message>
         <source>导随记录</source>
         <translation>メンタールーレット記録</translation>
+    </message>
+</context>
+<context>
+    <name>ReflectionShareWindow</name>
+    <message>
+        <source>生成分享图片</source>
+        <translation>共有用画像を作成</translation>
     </message>
 </context>
 <context>
@@ -12180,6 +12315,10 @@ SHA256：%3</translation>
         <translation>現在のゲームバージョンで自動記録できるか確認中…</translation>
     </message>
     <message>
+        <source>目前还不支持这个区服的自动记录，校准也不会自动开始。请查看「捕获诊断」，期间可以先手动记录。</source>
+        <translation>このリージョンの自動記録にはまだ対応しておらず、校正も自動では始まりません。「キャプチャ診断」をご確認ください。その間は手動で記録できます。</translation>
+    </message>
+    <message>
         <source>找不到游戏的安装位置，无法确认游戏版本，暂时不能自动记录。请确认游戏已启动，再查看「捕获诊断」。</source>
         <translation>ゲームのインストール先が見つからず、バージョンを確認できないため、自動記録できません。ゲームが起動していることを確かめてから、「キャプチャ診断」を確認してください。</translation>
     </message>
@@ -12787,10 +12926,6 @@ SHA256：%3</translation>
     <message>
         <source>备份已保存到 %1 · %2 · 数据检查通过 · 已清理 %3 份旧备份</source>
         <translation>%1 にバックアップを保存しました · %2 · データチェック合格 · 古いバックアップを %3 個削除</translation>
-    </message>
-    <message>
-        <source>备份已保存到 %1 · %2 · 数据检查未通过 · 已清理 %3 份旧备份</source>
-        <translation>%1 にバックアップを保存しました · %2 · データチェック不合格 · 古いバックアップを %3 個削除</translation>
     </message>
     <message>
         <source>后台服务尚未连接，暂时无法导出诊断报告。请稍后重试。</source>
@@ -15238,65 +15373,6 @@ SHA256：%3</translation>
     <message>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>インストーラーが起動しませんでした。Windows のインストール確認で許可されなかった可能性があります。このアプリは実行を続けます。もう一度「今すぐインストール」を押すか、「ブラウザでダウンロード」を押してください。</translation>
-    </message>
-</context>
-<context>
-    <name>HistoryRegionMigrationDialog</name>
-    <message>
-        <source>从 %2 迁移 %1 条记录</source>
-        <translation>%2 の記録 %1 件を移行</translation>
-    </message>
-    <message>
-        <source>请选择目标区服</source>
-        <translation>移行先の地域を選択</translation>
-    </message>
-    <message>
-        <source>目标区服</source>
-        <translation>移行先の地域</translation>
-    </message>
-    <message>
-        <source>请选择目标角色</source>
-        <translation>移行先のキャラクターを選択</translation>
-    </message>
-    <message>
-        <source>目标角色</source>
-        <translation>移行先のキャラクター</translation>
-    </message>
-    <message>
-        <source>目标区服还没有角色，可在「设置 › 成就」中添加。</source>
-        <translation>「設定 › アチーブメント」でこの地域のキャラクターを追加できます。</translation>
-    </message>
-    <message>
-        <source>来源角色的起始次数不会变化。这些记录导入时如果已从来源的起始次数中扣除，迁移后请到「设置 › 成就」自行调整。</source>
-        <translation>移行元キャラクターの開始回数は変わりません。これらの記録をインポートしたときに移行元の開始回数から差し引いていた場合は、移行後に「設定 › アチーブメント」でご自身で調整してください。</translation>
-    </message>
-    <message>
-        <source>%1 条通关将计入目标角色。目标角色的起始次数为 %2。</source>
-        <translation>移行先のキャラクターに %1 回のクリアが加算されます。開始回数は %2 回です。</translation>
-    </message>
-    <message>
-        <source>已包含在起始次数中的通关数（0–%1）</source>
-        <translation>開始回数に含まれるクリア数（0～%1）</translation>
-    </message>
-    <message>
-        <source>已包含的通关数</source>
-        <translation>すでに含まれるクリア数</translation>
-    </message>
-    <message>
-        <source>目标起始次数变为 %1，目标成就进度增加 %2。来源起始次数保持原值。</source>
-        <translation>移行先の開始回数は %1 回になり、進捗は %2 回増えます。移行元の開始回数は変わりません。</translation>
-    </message>
-    <message>
-        <source>正在预览…</source>
-        <translation>確認中…</translation>
-    </message>
-    <message>
-        <source>预览</source>
-        <translation>プレビュー</translation>
-    </message>
-    <message>
-        <source>确认迁移</source>
-        <translation>移行を確定</translation>
     </message>
 </context>
 </TS>

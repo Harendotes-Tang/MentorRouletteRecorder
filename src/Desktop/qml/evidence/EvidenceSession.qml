@@ -188,7 +188,10 @@ QtObject {
     readonly property Timer connectionProbe: Timer {
         interval: 10000
         repeat: true
-        running: session.recording && session.messageCount === 0 && session.connectedSince === 0
+        // A waiting round too: the sidebar would otherwise keep the "FF14 未运行" it had
+        // when the round began, with the game on screen (2026-11-20).
+        running: session.phase === "waiting"
+                 || (session.recording && session.messageCount === 0 && session.connectedSince === 0)
         onTriggered: Runtime.app.refreshStatus()
     }
     readonly property bool stalled: recording && messageCount === 0 && connectedSince > 0 && connectedSeconds >= 60
@@ -449,7 +452,7 @@ QtObject {
         { key: "sha", name: "trace.jsonl.sha256", desc: qsTr("校验文件，和上面同一目录"), mono: true, required: true, action: "", hint: "" },
         { key: "diag", name: qsTr("诊断报告 JSON"), desc: qsTr("不含游戏内容、网络地址与账号"), mono: false, required: true, action: "diagnostics", hint: "" },
         { key: "ver", name: "ffxivgame.ver", desc: qsTr("无法识别游戏版本时，在游戏目录"), mono: true, required: false, action: "", hint: "" },
-        { key: "log", name: "collector-*.log", desc: qsTr("启动或采证出错时，在数据目录 logs"), mono: true, required: false, action: "logs", hint: "" }
+        { key: "log", name: "collector-*.log", desc: qsTr("启动或采证出错时，在数据目录 logs；软件读不懂游戏数据格式时，含几小段游戏主程序的指令字节"), mono: true, required: false, action: "logs", hint: "" }
     ]
     property var files: ({})
     function toggleFile(key) {
@@ -610,9 +613,21 @@ QtObject {
         default: return "off"
         }
     }
+    // What a waiting round waits for. The game has started in every case but the first
+    // two, so "等待游戏启动" there contradicts the screen behind the window.
+    readonly property string waitingTitle: {
+        switch (String(session.status.reason || "")) {
+        case "WAITING_ADAPTER": return qsTr("等待可用的网卡")
+        case "WAITING_IDENTITY": return qsTr("等待读取游戏版本")
+        case "WAITING_REGION": return qsTr("等待识别区服")
+        case "WAITING_CONNECTION_CHECK": return qsTr("等待确认游戏连接")
+        case "WAITING_RESTART": return qsTr("等待游戏重新启动")
+        default: return qsTr("等待游戏启动")
+        }
+    }
     readonly property string badgeText: {
         switch (session.phase) {
-        case "waiting": return qsTr("等待游戏启动")
+        case "waiting": return session.waitingTitle
         case "cancelling": return qsTr("正在取消等待")
         case "capturing": return session.anomaly ? qsTr("数据异常") : qsTr("正在取证")
         case "stopping": return qsTr("正在保存")

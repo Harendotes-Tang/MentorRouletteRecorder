@@ -55,6 +55,22 @@ public sealed class CaptureValidationTests
             adapters: new FakeAdapterProvider().Add("wifi", "WiFi", isUp: false, addresses: "192.168.1.2")));
         controller.Start("wifi");
         Until(controller, "reason", "WAITING_ADAPTER");
+        // The card was chosen: the sentence says it is that card which is not usable, and
+        // does not tell the player to choose one (2026-11-20).
+        Assert.Equal("capture.validation.waiting_adapter_chosen",
+            controller.Snapshot()["message_ref"]!["key"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void WithNoCardChosenTheWaitStillAsksForOne()
+    {
+        using var db = new TestDatabase();
+        using var controller = new CaptureValidationController(db.Path, new(), Services(() => Game(),
+            adapters: new FakeAdapterProvider().Add("wifi", "WiFi", isUp: false, addresses: "192.168.1.2")));
+        controller.Start();
+        Until(controller, "reason", "WAITING_ADAPTER");
+        Assert.Equal("capture.validation.waiting_adapter",
+            controller.Snapshot()["message_ref"]!["key"]!.GetValue<string>());
     }
 
     [Fact]

@@ -653,6 +653,10 @@ public static partial class CollectorTexts
     public static UserText CaptureValidationWaitingAdapter() =>
         new("capture.validation.waiting_adapter", "仅验证，不自动记录。等待可用 IPv4 网卡；无法自动确定时，请取消并明确选择网卡。");
 
+    /// <summary><c>capture.validation.waiting_adapter_chosen</c>: 仅验证，不自动记录。所选网卡未连接或没有 IPv4 地址，取证不会开始。请取消后改选正在上网的网卡，或改用「自动选择」。</summary>
+    public static UserText CaptureValidationWaitingAdapterChosen() =>
+        new("capture.validation.waiting_adapter_chosen", "仅验证，不自动记录。所选网卡未连接或没有 IPv4 地址，取证不会开始。请取消后改选正在上网的网卡，或改用「自动选择」。");
+
     /// <summary><c>capture.validation.waiting_connection_check</c>: 仅验证，不自动记录。无法确认游戏连接状态，正在等待系统查询恢复。</summary>
     public static UserText CaptureValidationWaitingConnectionCheck() =>
         new("capture.validation.waiting_connection_check", "仅验证，不自动记录。无法确认游戏连接状态，正在等待系统查询恢复。");

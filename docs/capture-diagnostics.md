@@ -77,6 +77,7 @@
 表示同区服最新 `VERIFIED` 档案的模式在新 exe 上重扫成功
 （protocol-profiles/oodle-signatures/README.md）。该字段仍为 `builtin` 则表示模式匹配同样失败，
 国服客户端此时通常无法解出任何报文，`messages_decoded` 将持续为 0。
+取证会话里，`oodle_profile_id` 以 `discovered.` 开头的 `pattern-fallback` 表示这组签名是本机查找得出的候选（见同一 README 的「本机查找」），不是随包档案。
 
 ### 1.1 第 5 步的例外之二：`capture.allow_without_profile`
 

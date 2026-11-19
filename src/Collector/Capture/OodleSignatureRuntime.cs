@@ -309,6 +309,17 @@ public sealed class OodleSignatureRuntime : IDisposable
                 });
         }
 
+        if (profile is null && options.AllowCandidateOodleSignature &&
+            !string.IsNullOrWhiteSpace(executableHash) && executableSize > 0 &&
+            TryDiscover(options, directory, executableHash, executableSize, localLogger) is { } discovered)
+        {
+            // No profile and no donor of this region: a round the player started may use what
+            // this machine can find by itself, like any other CANDIDATE.
+            return new OodleSignatureRuntime(
+                options.GameExecutablePath, OodleImplementation.FfxivTcp, discovered, localLogger, cleaner,
+                requireExactRvas: false);
+        }
+
         if (profile is null)
         {
             localLogger.Write(
@@ -365,6 +376,181 @@ public sealed class OodleSignatureRuntime : IDisposable
             });
         return new OodleSignatureRuntime(
             options.GameExecutablePath, OodleImplementation.FfxivTcp, profile, localLogger, cleaner);
+    }
+
+    /// <summary>
+    /// Searches the executable for the twelve call sites with every pattern this installation
+    /// knows, and writes what it found to the local log whether or not it found them all: the
+    /// log is among the files a tester returns, and the patterns, the executable's hash and its
+    /// size are what a maintainer needs to write the region's profile without owning its client.
+    /// </summary>
+    private static OodleSignatureProfile? TryDiscover(
+        CaptureStartOptions options,
+        string? directory,
+        string executableHash,
+        long executableSize,
+        RotatingFileLogger logger)
+    {
+        byte[] image;
+        try
+        {
+            image = File.ReadAllBytes(options.GameExecutablePath!);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return null;
+        }
+
+        var sources = OodleSignatureDiscovery.KnownSources(directory);
+        var result = OodleSignatureDiscovery.Discover(image, sources);
+        static string Names(IEnumerable<OodleSignatureFinding> findings) =>
+            string.Join(',', findings.Select(finding => finding.Type.ToString()));
+        var accepted = result.Findings.Where(finding => finding.Pattern is not null).ToArray();
+        logger.Write(
+            result.Complete ? LogLevel.Info : LogLevel.Warn,
+            "capture",
+            "oodle_signature_discovery",
+            new Dictionary<string, object?>
+            {
+                ["complete"] = result.Complete,
+                ["region"] = EnumWire<Region>.Format(options.Region),
+                ["game_build"] = options.GameBuild,
+                // In groups of eight: the logger redacts sixteen hexadecimal digits in a row,
+                // and a profile is bound to the whole hash. It is the game file's, not a person's.
+                ["exe_sha256"] = string.Join(' ', Enumerable.Range(0, executableHash.Length / 8)
+                    .Select(group => executableHash.Substring(group * 8, 8))),
+                ["exe_size"] = executableSize,
+                ["missing"] = Names(result.Findings.Where(f => f.Outcome == OodleSignatureOutcome.Missing)),
+                ["ambiguous"] = Names(result.Findings.Where(f => f.Outcome == OodleSignatureOutcome.Ambiguous)),
+                ["sources"] = string.Join(',', accepted.Select(f => $"{f.Type}={f.Source}")),
+                ["relaxed"] = string.Join(',', accepted
+                    .Where(f => f.Outcome == OodleSignatureOutcome.Relaxed)
+                    .Select(f => $"{f.Type}@{f.RelaxedIndex}={f.ActualByte:x2}")),
+                ["signatures"] = string.Join(';', accepted
+                    .Select(f => $"{f.Type}={OodleSignaturePattern.Render(f.Pattern!)}")),
+            });
+        if (!result.Complete)
+        {
+            LogContext(logger, image, result, sources, "incomplete");
+            return null;
+        }
+
+        var profile = OodleSignatureProfile.Discovered(
+            options.Region, options.GameBuild ?? string.Empty, executableHash, executableSize, result.Patterns);
+        logger.Write(
+            LogLevel.Info,
+            "capture",
+            "oodle_signature_source",
+            new Dictionary<string, object?>
+            {
+                ["source"] = PatternFallbackSource,
+                ["profile_id"] = profile.Id,
+                ["status"] = profile.Status,
+                ["region"] = profile.Region,
+                ["game_build"] = profile.GameBuild,
+                ["exe_hash_prefix"] = GameExecutableHash.Prefix(executableHash),
+            });
+        return profile;
+    }
+
+    /// <summary>True when the signatures in force were found on this machine, not read from a profile.</summary>
+    public bool IsDiscovered => _profile.Id.StartsWith("discovered.", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Writes the code around the call sites to the local log after a round that used a
+    /// discovered set and decoded nothing: the set was wrong somewhere, and without this the
+    /// tester would have to be asked for another run. Never called for a set that worked.
+    /// </summary>
+    /// <param name="profileRoot">Profile root, or null for the installed one.</param>
+    public void LogContextAfterFailedDecode(string? profileRoot = null)
+    {
+        if (!IsDiscovered)
+        {
+            return;
+        }
+
+        byte[] image;
+        try
+        {
+            image = File.ReadAllBytes(_gameExecutablePath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return;
+        }
+
+        var sources = OodleSignatureDiscovery.KnownSources(
+            OodleSignatureProfile.DirectoryUnder(profileRoot ?? ProfileCatalog.FindDefaultRoot()));
+        LogContext(_logger, image, OodleSignatureDiscovery.Discover(image, sources), sources, "decode_failed");
+    }
+
+    private static void LogContext(
+        RotatingFileLogger logger,
+        byte[] image,
+        OodleSignatureDiscoveryResult result,
+        IReadOnlyList<(string Source, IReadOnlyDictionary<SignatureType, int[]> Patterns)> sources,
+        string reason)
+    {
+        // File offsets become RVAs with the section table, which is all this adds to them.
+        logger.Write(LogLevel.Warn, "capture", "oodle_signature_sections", new Dictionary<string, object?>
+        {
+            ["reason"] = reason,
+            ["sections"] = string.Join(',', PeSections(image)
+                .Select(section => $"{section.VirtualAddress:X8}:{section.RawOffset:X8}:{section.RawSize:X8}")),
+        });
+        foreach (var excerpt in OodleSignatureDiscovery.Context(image, result, sources))
+        {
+            logger.Write(LogLevel.Warn, "capture", "oodle_signature_context", new Dictionary<string, object?>
+            {
+                ["reason"] = reason,
+                ["signature"] = excerpt.Type.ToString(),
+                ["kind"] = excerpt.Kind,
+                ["source"] = excerpt.Source,
+                ["mismatches"] = excerpt.Mismatches,
+                ["file_offset"] = excerpt.Offset.ToString("X8", System.Globalization.CultureInfo.InvariantCulture),
+                ["site_offset"] = excerpt.SiteOffset.ToString("X8", System.Globalization.CultureInfo.InvariantCulture),
+                ["bytes"] = string.Join(' ', excerpt.Bytes.Select(value =>
+                    value.ToString("x2", System.Globalization.CultureInfo.InvariantCulture))),
+            });
+        }
+    }
+
+    /// <summary>The section table of a PE file: where each section lies in memory and in the file.</summary>
+    /// <param name="image">Bytes of the executable file.</param>
+    public static IReadOnlyList<(int VirtualAddress, int RawOffset, int RawSize)> PeSections(ReadOnlySpan<byte> image)
+    {
+        var sections = new List<(int, int, int)>();
+        const int sectionHeaderBytes = 40;
+        if (image.Length < 0x40 || image[0] != 0x4d || image[1] != 0x5a)
+        {
+            return sections;
+        }
+
+        var pe = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(image.Slice(0x3c, 4));
+        if (pe <= 0 || (long)pe + 24 > image.Length ||
+            System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(image.Slice(pe, 4)) != 0x00004550)
+        {
+            return sections;
+        }
+
+        var count = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(image.Slice(pe + 6, 2));
+        var optionalSize = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(image.Slice(pe + 20, 2));
+        var table = pe + 24 + optionalSize;
+        for (var i = 0; i < count && i < 96; i++)
+        {
+            var at = table + (i * sectionHeaderBytes);
+            if ((long)at + sectionHeaderBytes > image.Length)
+            {
+                break;
+            }
+
+            sections.Add((
+                System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(image.Slice(at + 12, 4)),
+                System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(image.Slice(at + 20, 4)),
+                System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(image.Slice(at + 16, 4))));
+        }
+
+        return sections;
     }
 
     /// <summary>Confirms that the private Machina contract still has the supported shape.</summary>
@@ -523,6 +709,11 @@ public sealed class OodleSignatureRuntime : IDisposable
                 ["missing"] = string.Join(',', missing),
                 ["ambiguous"] = string.Join(',', ambiguous),
                 ["rva_mismatch"] = string.Join(',', mismatched),
+                // Where each call resolved in the mapped image: with the patterns above, all a
+                // profile for this executable needs.
+                ["rvas"] = string.Join(',', scan.LastResults
+                    .Where(result => result.MatchCount == 1 && result.ResolvedRva is not null)
+                    .Select(result => $"{result.Type}={result.ResolvedRva:X8}")),
             });
     }
 

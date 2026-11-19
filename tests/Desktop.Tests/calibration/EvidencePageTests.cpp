@@ -50,7 +50,9 @@ private Q_SLOTS:
         QTest::newRow("idle") << QStringLiteral("IDLE") << 1 << QString::fromUtf8("尚未开始");
         // A failed round still has files and a 回传说明 to hand over (review K4-4).
         QTest::newRow("failed") << QStringLiteral("FAILED") << 4 << QString::fromUtf8("失败");
-        QTest::newRow("waiting") << QStringLiteral("WAITING") << 2 << QString::fromUtf8("等待游戏启动");
+        // The wait is named after what is waited for (2026-11-20); the mock waits for the
+        // restart a round asks for when the game was already connected.
+        QTest::newRow("waiting") << QStringLiteral("WAITING") << 2 << QString::fromUtf8("等待游戏重新启动");
         QTest::newRow("recording") << QStringLiteral("RECORDING") << 3 << QString::fromUtf8("正在取证");
         QTest::newRow("stopping") << QStringLiteral("STOPPING") << 4 << QString::fromUtf8("正在保存");
         QTest::newRow("completed") << QStringLiteral("COMPLETED") << 4 << QString::fromUtf8("已保存");

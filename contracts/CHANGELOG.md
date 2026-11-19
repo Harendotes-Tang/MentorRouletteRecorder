@@ -1,5 +1,10 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-11-20 · 所选网卡不可用的等待说明
+
+- **文字目录**新增 `capture.validation.waiting_adapter_chosen`：取证会话的 `reason` 仍为 `WAITING_ADAPTER`，但网卡由玩家明确选择且未连接或没有 IPv4 地址时，`message` / `message_ref` 改用这一句，说明等待的是所选网卡并提示改选；未指定网卡时仍是 `capture.validation.waiting_adapter`。字段与取值不变。
+- `CaptureStatus.oodle_signature_source = pattern-fallback` 的含义放宽：除同区服 VERIFIED 档案的模式外，也可以是取证会话在本机用内置表与各区服已验证档案的模式查得的一组（`oodle_profile_id` 以 `discovered.` 开头，`oodle_profile_status = CANDIDATE`）。只在允许候选签名的取证会话中出现，正式记录不使用。取值不变。
+
 ## 2026-11-19 · 登记过期的拒绝说明
 
 - **文字目录**新增 `identity.registration_moved`：`ResolveCharacterIdentity` 确认登记时，该角色已不是这个档案的登记对象（已在别处回答，或改问了另一个角色），以 `ERR_BAD_REQUEST` 拒绝并给出这句说明，此前误用 `profile.not_found` 的句子。错误码与字段不变。

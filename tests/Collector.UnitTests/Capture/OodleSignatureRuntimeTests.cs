@@ -227,6 +227,87 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
     }
 
     /// <summary>
+    /// 2026-11-20. A region with no profile of its own has no donor either. A round the player
+    /// started (the only place a CANDIDATE may be used) searches the executable with every
+    /// pattern this installation knows, another region's included; ordinary recording does not.
+    /// </summary>
+    [Fact]
+    public void ARegionWithoutAnyProfileIsSearchedOnlyWhereACandidateIsAllowed()
+    {
+        var nativeFixture = Path.Combine(AppContext.BaseDirectory, "e_sqlite3.dll");
+        var image = File.ReadAllBytes(nativeFixture);
+        var executable = Path.Combine(_root, "ffxiv_dx11.exe");
+        File.WriteAllBytes(executable, image);
+        WriteDonorProfile(image, "2026.08.05.0000.0000", OodleSignatureProfile.VerifiedStatus);
+        var recording = new CaptureStartOptions(
+            "test", 1, null, null, OodleMode.FfxivTcp, null, executable, Region.Global, "2026.11.03.0000.0000");
+
+        Assert.Null(OodleSignatureRuntime.TryCreate(recording, _root));
+
+        using var runtime = OodleSignatureRuntime.TryCreate(
+            recording with { AllowCandidateOodleSignature = true }, _root);
+
+        Assert.NotNull(runtime);
+        Assert.True(runtime!.IsPatternFallback);
+        Assert.Equal("discovered.global.2026.11.03.0000.0000", runtime.Profile.Id);
+        Assert.Equal(OodleSignatureProfile.CandidateStatus, runtime.Profile.Status);
+        Assert.Equal(Enum.GetValues<SignatureType>().Length, runtime.Profile.Signatures.Count);
+    }
+
+    /// <summary>
+    /// The excerpts of the executable's code are the last resort (owner, 2026-11-20): a search
+    /// that settled all twelve writes none, one that could not writes them once, with the whole
+    /// hash and the section table a maintainer needs beside them.
+    /// </summary>
+    [Fact]
+    public void CodeExcerptsAreLoggedOnlyWhenTheSearchCouldNotSettleEverySignature()
+    {
+        var image = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "e_sqlite3.dll"));
+        var executable = Path.Combine(_root, "ffxiv_dx11.exe");
+        File.WriteAllBytes(executable, image);
+        var options = new CaptureStartOptions(
+            "test", 1, null, null, OodleMode.FfxivTcp, null, executable, Region.Global, "2026.11.03.0000.0000",
+            AllowCandidateOodleSignature: true);
+        using var logger = new MentorRecorder.Collector.Diagnostics.RotatingFileLogger(
+            Path.Combine(_root, "logs"), new TestClock(DateTimeOffset.UnixEpoch.AddYears(56)));
+
+        WriteDonorProfile(image, "2026.08.05.0000.0000", OodleSignatureProfile.VerifiedStatus);
+        using (var found = OodleSignatureRuntime.TryCreate(options, _root, logger))
+        {
+            Assert.NotNull(found);
+        }
+
+        var lines = File.ReadAllLines(logger.CurrentPath);
+        Assert.Contains(lines, line => line.Contains("oodle_signature_discovery", StringComparison.Ordinal) &&
+            line.Contains("\"complete\":true", StringComparison.Ordinal));
+        Assert.DoesNotContain(lines, line => line.Contains("oodle_signature_context", StringComparison.Ordinal));
+        Assert.DoesNotContain(lines, line => line.Contains("oodle_signature_sections", StringComparison.Ordinal));
+
+        // No pattern of this installation fits this file: nothing to use, and the last resort.
+        foreach (var file in Directory.EnumerateFiles(Path.Combine(_root, OodleSignatureProfile.DirectoryName)))
+        {
+            File.Delete(file);
+        }
+
+        Assert.Null(OodleSignatureRuntime.TryCreate(options, _root, logger));
+
+        lines = File.ReadAllLines(logger.CurrentPath)[lines.Length..];
+        var discovery = Assert.Single(lines, line => line.Contains("oodle_signature_discovery", StringComparison.Ordinal));
+        Assert.Contains("\"complete\":false", discovery, StringComparison.Ordinal);
+        Assert.Contains("OodleNetwork1TCP_Train", discovery, StringComparison.Ordinal);
+        // The whole hash survives the logger's redaction of long hexadecimal runs.
+        Assert.DoesNotContain("[hex]", discovery, StringComparison.Ordinal);
+        Assert.Single(lines, line => line.Contains("oodle_signature_sections", StringComparison.Ordinal));
+        Assert.All(
+            lines.Where(line => line.Contains("oodle_signature_context", StringComparison.Ordinal)),
+            line =>
+            {
+                Assert.Contains("\"reason\":\"incomplete\"", line, StringComparison.Ordinal);
+                Assert.DoesNotContain("[hex]", line, StringComparison.Ordinal);
+            });
+    }
+
+    /// <summary>
     /// Writes a VERIFIED/CANDIDATE profile bound to *another* executable whose patterns are
     /// unique byte runs taken from <paramref name="image"/> (or runs that do not occur in it).
     /// </summary>

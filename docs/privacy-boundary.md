@@ -313,6 +313,12 @@ Machina 在释放库时会尝试删除自己产生的临时副本，其诊断信
   `[ip]` / `[ip6]` / `[hex]`。阈值取 16 是为了保留用作 id 的短哈希前缀。
   适配器指纹为 12 位，UUID 分段更短；这些前缀不泄漏信息，却是区分两张网卡、
   两个会话的唯一依据。该行为由 `DiagnosticsLogHygieneTests` 验证，所有用例均执行，没有跳过项。
+- 例外（2026-11-20，仅取证会话，作为最后手段）：游戏版本没有可用的 Oodle 签名档案、本机查找又没能确定全部调用点，
+  或确定之后这一轮取证没有解出任何报文时，诊断日志会写入 `oodle_signature_sections` 与 `oodle_signature_context`，
+  内容是游戏主程序文件里 Oodle 调用点附近的几小段机器码（每段不超过 384 字节，按字节以空格分隔写出）及 PE 节表。
+  这些字节来自磁盘上的游戏文件，不是报文，也不含地址、角色、账号或任何玩家数据；同一情形下 `oodle_signature_discovery`
+  还以 8 位一组写出该文件的 SHA-256 与大小。查找成功且解码正常时不写入机器码。范围与用途见
+  `protocol-profiles/oodle-signatures/README.md`「最后手段」。
 - 日志按大小滚动：单文件上限 **2 MiB**，最多保留 **5** 个文件，另按 **7 天**清理
   （[capture-diagnostics.md](capture-diagnostics.md) §8）。
 - 用户显式开启验证时，会额外生成 opcode 级取证文件。取证文件有**两条**通路，产物格式相同：
