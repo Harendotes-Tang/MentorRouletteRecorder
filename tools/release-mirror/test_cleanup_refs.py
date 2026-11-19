@@ -28,6 +28,11 @@ REF = "refs/heads/codex/approved-old-branch"
 SECOND = "refs/heads/dependabot/approved-old-branch"
 UNLISTED = "refs/heads/preserve-target-only"
 TAG = "refs/tags/v1.7.2"
+BETA = "refs/tags/v1.8.0-beta.2"
+
+
+def tag(ref=BETA, expected=B, repo=REPO):
+    return {"repo": repo, "ref": ref, "expected_sha": expected}
 
 
 def entry(ref=REF, expected=B, anchor=A, repo=REPO, discard=False):
@@ -55,7 +60,10 @@ class FakeGit:
     def run(self, args, *, destination=None):
         self.calls.append((args, destination))
         if args[0] == "rev-parse":
-            return (args[-1].removesuffix("^{commit}") if args[-1].endswith("^{commit}") else A) + "\n"
+            for suffix in ("^{commit}", "^{object}"):
+                if args[-1].endswith(suffix):
+                    return args[-1].removesuffix(suffix) + "\n"
+            return A + "\n"
         if args[0] == "cat-file":
             if args[-1] not in self.anchors:
                 raise m.RefSyncError("Missing object")
@@ -113,6 +121,35 @@ class PlanTests(unittest.TestCase):
         self.assertTrue(all(e["repo"] == REPO and e["ref"].startswith("refs/heads/dependabot/")
                             and e.get("discard_anchor") == "144c2537bbb8ce071842fc93f35c77c9c0b801d8"
                             for e in additions))
+
+    def test_real_plan_approves_only_withdrawn_prerelease_tags(self):
+        tags = m.load_tags()
+        self.assertEqual(len(tags), 16)
+        self.assertTrue(all(e["repo"] == REPO and "-beta." in e["ref"] for e in tags))
+        self.assertNotIn("refs/tags/v1.9.1-beta.1", [e["ref"] for e in tags])
+        self.assertEqual(tags[0], tag(ref="refs/tags/v1.7.0-beta.1",
+                                      expected="f92e346964cb54160fcdb81594ba79774b69ba58"))
+
+    def test_only_prerelease_tags_can_be_approved(self):
+        self.assertEqual(m.validate_tags({"tags": [tag()]}), [tag()])
+        self.assertEqual(m.validate_tags({}), [])
+        self.assertEqual(m.validate_plan({**plan(), "tags": [tag()]}), [entry()])
+        invalid = [tag(ref=TAG), tag(ref="refs/tags/v1.8.0"), tag(ref="refs/tags/1.8.0-beta.2"),
+                   tag(ref="refs/tags/v01.8.0-beta.2"), tag(ref="refs/tags/v1.8.0-beta.2/x"),
+                   tag(ref="refs/heads/v1.8.0-beta.2"), tag(ref=REF), tag(expected="0" * 40),
+                   tag(expected="short"), tag(repo="Another"), {**tag(), "merge_anchor": A},
+                   {"repo": REPO, "ref": BETA}, "refs/tags/v1.8.0-beta.2"]
+        for value in invalid:
+            with self.subTest(value=value), self.assertRaises(m.RefSyncError):
+                m.validate_tags({"tags": [value]})
+            with self.subTest(plan=value), self.assertRaises(m.RefSyncError):
+                m.validate_plan({**plan(), "tags": [value]})
+        with self.assertRaises(m.RefSyncError):
+            m.validate_tags({"tags": [tag(), tag()]})
+        with self.assertRaises(m.RefSyncError):
+            m.validate_tags({"tags": [tag(ref=BETA + str(i)) for i in range(m.MAX_ENTRIES + 1)]})
+        with self.assertRaises(m.RefSyncError):
+            m.validate_plan({**plan(), "tags": [tag()], "releases": []})
 
     def test_discard_evidence_is_distinct_and_unambiguous(self):
         self.assertEqual(m.validate_plan(plan([entry(discard=True)])), [entry(discard=True)])
@@ -191,6 +228,45 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(git.target[REF], C)
         self.assertIn("--force-with-lease=" + REF + ":", git.pushes()[1])
 
+    def test_approved_prerelease_tag_is_deleted_with_its_branch_batch_and_formal_tags_stay(self):
+        git = FakeGit()
+        git.target[BETA] = B
+        result = m.cleanup(git, REPO, [entry()], execute=True, tags=[tag(), tag(repo=OTHER)])
+        self.assertEqual(result, {REF: "deleted-and-verified", BETA: "deleted-and-verified"})
+        push = git.pushes()[0]
+        self.assertIn("--force-with-lease=" + BETA + ":" + B, push)
+        self.assertIn(":" + BETA, push)
+        self.assertEqual(git.target, {m.MAIN: A, SECOND: B, UNLISTED: C, TAG: A})
+
+    def test_tag_still_on_github_is_retained_and_a_moved_tag_is_refused(self):
+        git = FakeGit()
+        git.target[BETA] = B
+        git.source[BETA] = B
+        result = m.cleanup(git, REPO, [entry()], execute=True, tags=[tag()])
+        self.assertEqual(result[BETA], "retained-source-present")
+        self.assertEqual(git.target[BETA], B)
+        moved = FakeGit()
+        moved.target[BETA] = C
+        with self.assertRaises(m.RefSyncError):
+            m.cleanup(moved, REPO, [entry()], execute=True, tags=[tag()])
+        self.assertEqual(moved.pushes(), [])
+
+    def test_cleanup_validates_tags_in_library_use_too(self):
+        git = FakeGit()
+        with self.assertRaises(m.RefSyncError):
+            m.cleanup(git, REPO, [entry()], execute=True, tags=[tag(ref=TAG)])
+        self.assertEqual(git.calls, [])
+
+    def test_tag_recreated_on_github_at_push_is_restored_as_its_tag_object(self):
+        git = FakeGit()
+        git.target[BETA] = B
+        git.target.pop(REF)
+        git.after_push = lambda: git.source.__setitem__(BETA, B)
+        with self.assertRaisesRegex(m.RefSyncError, "restored and verified"):
+            m.cleanup(git, REPO, [entry()], execute=True, tags=[tag()])
+        self.assertEqual(git.target[BETA], B)
+        self.assertIn(["rev-parse", "--verify", B + "^{object}"], [args for args, _ in git.calls])
+
     def test_default_preview_never_pushes_or_supplies_credentials(self):
         git = FakeGit()
         self.assertEqual(m.cleanup(git, REPO, [entry()]), {REF: "eligible"})
@@ -200,7 +276,8 @@ class CleanupTests(unittest.TestCase):
     def test_default_cli_is_preview_and_has_no_arbitrary_plan_argument(self):
         git = FakeGit()
         output = io.StringIO()
-        with patch.object(m, "load_plan", return_value=[entry()]), patch.object(m, "Git", return_value=git) as constructor, \
+        with patch.object(m, "load_plan", return_value=[entry()]), patch.object(m, "load_tags", return_value=[]), \
+                patch.object(m, "Git", return_value=git) as constructor, \
                 patch.object(m.tempfile, "TemporaryDirectory") as temp, contextlib.redirect_stdout(output):
             temp.return_value.__enter__.return_value = str(HERE)
             self.assertEqual(m.main(["--repo", REPO]), 0)
