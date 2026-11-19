@@ -10,6 +10,7 @@
 #include <QDateTime>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QRegularExpression>
 #include <QString>
 #include <QTimeZone>
 
@@ -20,6 +21,17 @@ inline bool isRegion(const QString &region)
 {
     return region == QLatin1String("CN") || region == QLatin1String("TC")
         || region == QLatin1String("GLOBAL") || region == QLatin1String("UNKNOWN");
+}
+
+/// Dashboard lists put CN and TC first; the remaining regions use token order.
+inline bool regionBefore(const QString &left, const QString &right)
+{
+    if (left == right) return false;
+    if (left == QLatin1String("CN") || right == QLatin1String("CN"))
+        return left == QLatin1String("CN");
+    if (left == QLatin1String("TC") || right == QLatin1String("TC"))
+        return left == QLatin1String("TC");
+    return left < right;
 }
 
 /// Legacy hand-written mock fixtures omitted region and represented CN sample records.
@@ -43,6 +55,14 @@ inline QDateTime fromIso(const QJsonValue &value)
     if (dt.isValid() && dt.timeSpec() == Qt::LocalTime)
         dt.setTimeZone(QTimeZone::UTC);
     return dt;
+}
+
+/// Canonical UUID text used in mock request payloads, including the nil UUID.
+inline bool isUuid(const QJsonValue &value)
+{
+    static const QRegularExpression pattern(QStringLiteral(
+        "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"));
+    return value.isString() && pattern.match(value.toString()).hasMatch();
 }
 
 /// Deterministic pseudo-UUID so mock ids stay stable between processes.

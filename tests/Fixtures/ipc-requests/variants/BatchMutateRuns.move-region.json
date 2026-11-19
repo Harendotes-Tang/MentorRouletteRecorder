@@ -1,0 +1,14 @@
+{
+  "protocol_version": 1,
+  "request_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "message_type": "BatchMutateRuns",
+  "payload": {
+    "action": "move_region",
+    "runs": [{"run_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "expected_revision": 1}],
+    "reason": "更正原始区服",
+    "region": "GLOBAL",
+    "profile_id": 4,
+    "expected_baseline": 1444,
+    "baseline_overlap": 1
+  }
+}

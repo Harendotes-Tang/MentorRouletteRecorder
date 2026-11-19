@@ -13,7 +13,9 @@
 #include "RunFormValidator.h"
 
 #include <QApplication>
+#include <QClipboard>
 #include <QDateTime>
+#include <QDesktopServices>
 #include <QDir>
 #include <QFileInfo>
 #include <QFont>
@@ -24,6 +26,7 @@
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -144,6 +147,15 @@ struct WorkspaceScene
             && !reminder()->isVisible();
     }
 
+    bool click(QQuickItem *button) const
+    {
+        if (!button || !button->isVisible() || !button->isEnabled()) return false;
+        const QPoint center = button->mapToScene(QPointF(button->width() / 2, button->height() / 2)).toPoint();
+        if (!QRect(QPoint(), window()->size()).contains(center)) return false;
+        QTest::mouseClick(window(), Qt::LeftButton, Qt::NoModifier, center);
+        return true;
+    }
+
     bool clickNewRecord() const
     {
         QQuickItem *button = nullptr;
@@ -160,10 +172,7 @@ struct WorkspaceScene
                 button = find(find, window()->contentItem());
                 return button && button->isEnabled() && button->width() > 0 && button->height() > 0;
             })) return false;
-        const QPoint center = button->mapToScene(QPointF(button->width() / 2, button->height() / 2)).toPoint();
-        if (!QRect(QPoint(), window()->size()).contains(center)) return false;
-        QTest::mouseClick(window(), Qt::LeftButton, Qt::NoModifier, center);
-        return true;
+        return click(button);
     }
 
     void publish(const QVariantMap &run)
@@ -174,6 +183,14 @@ struct WorkspaceScene
             {"emitted_at_utc", QDateTime::currentDateTimeUtc().addSecs(1).toString(Qt::ISODateWithMs)},
             {"state", run.value(QStringLiteral("state"))}, {"run", run}});
     }
+};
+
+class FeedbackUrlReceiver final : public QObject
+{
+    Q_OBJECT
+public:
+    QList<QUrl> urls;
+    Q_SLOT void open(const QUrl &url) { urls.append(url); }
 };
 
 class RecordWorkspaceTests final : public QObject
@@ -220,6 +237,57 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(scene.manual(), "closeEditor"));
         QTRY_COMPARE(scene.app->currentPage(), sourcePage);
         QVERIFY(!scene.manual()->property("editingActive").toBool());
+        QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+    }
+
+    void feedbackOpensTheSelectedChannelWithoutLeavingTheWorkspace_data()
+    {
+        QTest::addColumn<QString>("actionName");
+        QTest::addColumn<QUrl>("expectedUrl");
+        QTest::newRow("github") << QStringLiteral("feedbackGithubButton") << QUrl(QStringLiteral(
+            "https://github.com/Harendotes-Tang/MentorRouletteRecorder/issues/new/choose"));
+        QTest::newRow("email") << QStringLiteral("feedbackEmailButton") << QUrl(QStringLiteral(
+            "mailto:mentorrecorder@gmail.com?subject=导随记录器意见反馈"));
+    }
+
+    void feedbackOpensTheSelectedChannelWithoutLeavingTheWorkspace()
+    {
+        QFETCH(QString, actionName);
+        QFETCH(QUrl, expectedUrl);
+        FeedbackUrlReceiver externalApp;
+        QDesktopServices::setUrlHandler(QStringLiteral("https"), &externalApp, "open");
+        QDesktopServices::setUrlHandler(QStringLiteral("mailto"), &externalApp, "open");
+        const auto restore = qScopeGuard([] {
+            QDesktopServices::unsetUrlHandler(QStringLiteral("https"));
+            QDesktopServices::unsetUrlHandler(QStringLiteral("mailto"));
+        });
+
+        WorkspaceScene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        QVERIFY(scene.clickNewRecord());
+        QTRY_VERIFY(scene.inlineSession(scene.manual()));
+        const QString draft = QStringLiteral("填写到一半的心得");
+        QVERIFY(scene.manual()->setProperty("reflectionText", draft));
+        QVERIFY(externalApp.urls.isEmpty());
+
+        const auto item = [&scene](const QString &name) { return scene.root->findChild<QQuickItem *>(name); };
+        QVERIFY(scene.click(item(QStringLiteral("feedbackEntry"))));
+        const auto *dialog = scene.root->findChild<QObject *>(QStringLiteral("feedbackDialog"));
+        QVERIFY(dialog);
+        QTRY_VERIFY(dialog->property("opened").toBool());
+        QVERIFY(externalApp.urls.isEmpty());
+
+        if (expectedUrl.scheme() == QStringLiteral("mailto")) {
+            QVERIFY(scene.click(item(QStringLiteral("feedbackCopyEmailButton"))));
+            QCOMPARE(QApplication::clipboard()->text(), expectedUrl.path());
+            QVERIFY(externalApp.urls.isEmpty());
+        }
+
+        QVERIFY(scene.click(item(actionName)));
+        QCOMPARE(externalApp.urls, QList<QUrl>{expectedUrl});
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+        QVERIFY(scene.inlineSession(scene.manual()));
+        QCOMPARE(scene.manual()->property("reflectionText").toString(), draft);
         QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
     }
 

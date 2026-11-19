@@ -31,6 +31,7 @@
 #include <QStyleHints>
 #include <QSysInfo>
 #include <QUrl>
+#include <QUrlQuery>
 
 #include <algorithm>
 #include <utility>
@@ -41,6 +42,23 @@ constexpr int kToastMs = 3200;
 /// How long a settings switch waits before it is written. Long enough that a
 /// spin box being dragged sends one message, short enough to feel immediate.
 constexpr int kCaptureSettingsDebounceMs = 400;
+constexpr auto kRecordRegionKey = "dashboard/record_region";
+
+QString preferredRecordRegion(const mr::AppSettings &settings)
+{
+    // An empty saved value is the explicit "all regions" selection.
+    const QString saved = settings.value(QLatin1String(kRecordRegionKey), QStringLiteral("AUTO"));
+    if (mr::StatisticsController::isRecordRegion(saved))
+        return saved;
+
+    const auto *language = mr::LanguageManager::instance();
+    const QString code = language ? language->code() : mr::LanguageManager::defaultCode();
+    if (code == QLatin1String("zh-CN"))
+        return QStringLiteral("CN");
+    if (code == QLatin1String("zh-TW"))
+        return QStringLiteral("TC");
+    return QStringLiteral("GLOBAL");
+}
 
 /// The keys $defs/UpdateCaptureSettingsRequest accepts. An unknown key is
 /// dropped rather than sent into an additionalProperties:false schema, which
@@ -68,7 +86,7 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     , m_settings(settings)
     , m_collector(collector)
     , m_history(new HistoryController(backend, this))
-    , m_statistics(new StatisticsController(backend, this))
+    , m_statistics(new StatisticsController(backend, this, settings ? preferredRecordRegion(*settings) : QString()))
     , m_statisticsOverlay(new StatisticsOverlayController(settings, this))
     , m_historyColumns(new HistoryColumnsController(settings, this))
     , m_recovery(new RecoveryController(backend, settings, this))
@@ -121,7 +139,7 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
         // QML closes the old editor before the recovery journal changes.
         // Its close callbacks must not re-offer a queued run from that scope.
         m_completion->invalidateContext(true);
-        m_history->invalidateResultRequests();
+        m_history->invalidateDatabaseScope();
     });
     connect(m_recovery, &RecoveryController::promptReady, this,
             [this](const QVariantMap &run, const QString &kind) {
@@ -135,6 +153,7 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
         m_statistics->dungeons()->reload();
         m_statistics->jobs()->reload();
     });
+    m_statisticsOverlay->setRecordRegion(m_statistics->recordRegion());
     m_statisticsOverlay->setBackend(backend);
     // After a dashboard read that answered, not on every dashboardChanged: a
     // region pick or a regional read changes no attempt (review I2-4).
@@ -307,7 +326,11 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     });
     connect(m_statistics, &StatisticsController::baselineRegionChanged, this, &AppController::baselineRegionChanged);
     connect(this, &AppController::statusChanged, this, &AppController::captureHealthTextChanged);
-    onLanguageChanged(this, &AppController::retranslate);
+    onLanguageChanged(this, [this] {
+        if (m_settings)
+            m_statistics->setRecordRegion(preferredRecordRegion(*m_settings));
+        retranslate();
+    });
     connect(m_statistics, &StatisticsController::achievementSettingsLoadedChanged, this,
             &AppController::achievementSettingsLoadedChanged);
     connect(m_statistics, &StatisticsController::trendChanged, this, &AppController::trendChanged);
@@ -373,6 +396,11 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
         Q_EMIT checkedHistoryRunsChanged();
     });
     connect(m_history, &HistoryController::batchChanged, this, &AppController::historyBatchChanged);
+    connect(m_history, &HistoryController::regionMigrationChanged, this, &AppController::historyRegionMigrationChanged);
+    connect(m_recovery, &RecoveryController::changed, this, &AppController::historyMigrationReadyChanged);
+    connect(this, &AppController::backendChanged, this, &AppController::historyMigrationReadyChanged);
+    connect(m_history, &HistoryController::regionMovePendingChanged,
+            m_statistics, &StatisticsController::setHistoryRegionMovePending);
     connect(m_history, &HistoryController::filterConfirmationChanged, this, &AppController::historyFilterConfirmationChanged);
     connect(m_history, &HistoryController::retentionChanged, this, &AppController::historyRetentionChanged);
     connect(m_history, &HistoryController::batchSucceeded, this, [this](const QString &action, const QStringList &) {
@@ -740,6 +768,7 @@ void AppController::adoptCollectorAnswer(const QVariantMap &payload, quint64 cap
         }
         Q_EMIT statusChanged();
     }
+    m_update->confirmMirrorOfferRetry();
 }
 
 // ---------------------------------------------------------------------------
@@ -1125,6 +1154,15 @@ void AppController::requestDashboard(std::function<void(bool ok)> then)
 void AppController::refreshTrend()
 {
     m_statistics->refreshTrend();
+}
+
+void AppController::setRecordRegion(const QString &region)
+{
+    if (!StatisticsController::isRecordRegion(region))
+        return;
+    if (m_settings)
+        m_settings->setValue(QLatin1String(kRecordRegionKey), region);
+    m_statistics->setRecordRegion(region);
 }
 
 void AppController::setTrendMode(const QString &mode)
@@ -1870,6 +1908,8 @@ void AppController::setHistoryRunChecked(const QVariantMap &run, bool checked)
 { m_history->setRunChecked(run, checked); }
 void AppController::setCurrentHistoryPageChecked(bool checked)
 { m_history->setCurrentPageChecked(checked); }
+void AppController::checkAllMatchingHistoryRuns()
+{ m_history->checkAllMatchingRuns(); }
 void AppController::clearCheckedHistoryRuns()
 { m_history->clearCheckedRuns(); }
 void AppController::mutateCheckedHistoryRuns(const QString &action, const QString &reason)
@@ -2202,9 +2242,9 @@ void AppController::createCharacterProfile(const QString &region, const QString 
                                          identityId);
 }
 
-void AppController::bindCharacterIdentity(int identityId, int profileId)
+void AppController::bindCharacterIdentity(int identityId, int profileId, const QString &displayName)
 {
-    m_statistics->bindCharacterIdentity(identityId, profileId);
+    m_statistics->bindCharacterIdentity(identityId, profileId, displayName);
 }
 
 void AppController::ignoreCharacterIdentity(int identityId)
@@ -2348,6 +2388,28 @@ void AppController::openNpcapWebsite()
     } else {
         showToast(tr("没能打开浏览器，请手动访问 https://npcap.com 下载驱动。"));
     }
+}
+
+void AppController::openFeedbackPage()
+{
+    static const QUrl feedbackUrl(
+        QStringLiteral("https://github.com/Harendotes-Tang/MentorRouletteRecorder/issues/new/choose"));
+    if (!QDesktopServices::openUrl(feedbackUrl))
+        showToast(tr("没能打开浏览器，请在 GitHub 的 MentorRouletteRecorder 仓库中提交反馈。"));
+}
+
+QString AppController::feedbackEmail() const
+{
+    return QStringLiteral("mentorrecorder@gmail.com");
+}
+
+bool AppController::openFeedbackEmail()
+{
+    QUrl url(QStringLiteral("mailto:") + feedbackEmail());
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("subject"), tr("导随记录器意见反馈"));
+    url.setQuery(query);
+    return QDesktopServices::openUrl(url);
 }
 
 void AppController::runDailyBackupIfDue()

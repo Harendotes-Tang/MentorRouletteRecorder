@@ -580,7 +580,7 @@ QJsonObject MockBackend::dashboardStats(const QJsonObject &filter,
     // Each region's entry carries its current character profile's numbers
     // (StatisticsRepository.GetAchievements): its baseline plus the completions filed
     // under it. A run assigned to no profile counts for none.
-    QSet<QString> regions{QStringLiteral("CN"), QStringLiteral("TC")};
+    QSet<QString> regions{QStringLiteral("CN"), QStringLiteral("TC"), QStringLiteral("GLOBAL")};
     for (const CharacterProfileEntry &profile : m_profiles)
         regions.insert(profile.region);
     for (const auto &value : m_runs)

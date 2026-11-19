@@ -62,7 +62,7 @@ public:
     /// Simulate a machine without the Npcap driver.
     void setNpcapMissing(bool missing);
     /// Synthetic-only UI capability fixture; never used by IpcBackend.
-    void setRecordingFixture(const QString &state) { m_recordingFixture = state; }
+    void setRecordingFixture(const QString &state);
     bool npcapMissing() const { return m_npcapMissing; }
 
     /// Simulate the live run state shown on the dashboard.
@@ -228,12 +228,12 @@ public:
     int runProfileId(const QJsonObject &run) const;
 
     // -- 自动识别角色 (MockBackendIdentities.cpp) -------------------------------
-    /// Test and --mock-pending-identity seam: a character told apart in \a region, bound to
-    /// no profile, in \a state (PENDING or IGNORED). It claims \a runCount live runs of the
-    /// region - first the ones assigned to no profile, then the newest of the region, which
-    /// become assigned to no profile - fewer when the region has fewer. Returns its id.
-    int addCharacterIdentity(const QString &region, const QString &state, int runCount);
-    /// $defs/DashboardStats.identities as it stands: every identity bound to no profile.
+    /// Adds a recognised character in \a region. PENDING and IGNORED characters have no
+    /// profile; BOUND belongs to the current profile. It takes up to \a runCount sample
+    /// runs. \a registerOriginal marks it for upgraded-profile confirmation. Returns its id.
+    int addCharacterIdentity(const QString &region, const QString &state, int runCount,
+                             bool registerOriginal = false);
+    /// Dashboard identities, including bound characters awaiting upgraded-profile confirmation.
     QVariantList characterIdentities() const { return identitiesJson().toVariantList(); }
     /// Test and --mock-pending-identity seam: the character the game is logged in as (0 =
     /// nobody, the default). The Collector decides this from live traffic; BIND and
@@ -339,7 +339,8 @@ private:
     // -- 下载并安装 (MockBackendUpdate.cpp) ----------------------------------
     static bool isUpdateDownloadMessage(const QString &messageType);
     /// {update: $defs/UpdateStatus} after one of the two messages.
-    QJsonObject applyUpdateDownload(const QString &messageType, const QJsonObject &payload);
+    QJsonObject applyUpdateDownload(const QString &messageType, const QJsonObject &payload,
+                                    QString *errorCode, QString *errorMessage, QJsonObject *errorDetails);
     /// $defs/UpdateDownload as it stands.
     QJsonObject updateDownload() const;
     /// One simulated step: bytes arrive, then the check, then READY.
@@ -429,6 +430,10 @@ private:
     int ensureCurrentProfile(const QString &region);
     const CharacterProfileEntry *findProfile(int profileId) const;
     CharacterProfileEntry *findProfile(int profileId);
+    bool profileNameTaken(const QString &region, const QString &name, int exceptId) const;
+    /// Checks the target and applies display_name when supplied. The enclosing mutation notifies once.
+    bool applyProfileName(CharacterProfileEntry *profile, const QJsonValue &requestedName,
+                          QString *errorCode, QString *errorMessage);
     const CharacterProfileEntry *currentProfile(const QString &region) const;
     /// $defs/CharacterProfile for \a profile, its progress counted over the stored runs.
     QJsonObject profileJson(const CharacterProfileEntry &profile) const;
@@ -445,9 +450,9 @@ private:
     QJsonObject applyCharacterProfile(const QString &messageType, const QJsonObject &payload,
                                       QString *errorCode, QString *errorMessage,
                                       QJsonObject *errorDetails);
-    /// BatchMutateRuns assign_profile (RunMutationService.AssignProfile).
+    /// History's profile assignment and region migration in the demo backend.
     QJsonObject assignRunsToProfile(const QJsonObject &payload, QString *errorCode,
-                                    QString *errorMessage, QJsonObject *errorDetails);
+                                    QString *errorMessage, QJsonObject *errorDetails, bool previewRegion = false);
     /// The profile a newly created run of \a region is filed under (CharacterProfileService.Resolve):
     /// \a requested, which must exist and belong to the region, or the region's current one.
     /// Returns 0 after a refusal.
@@ -467,6 +472,9 @@ private:
         QStringList runIds;
     };
     QList<CharacterIdentityEntry> m_identities;
+    /// Upgraded profile -> proposed identity (zero while waiting for another login).
+    QHash<int, int> m_registrationCandidates;
+    void replaceRegistrationCandidate(int profileId);
     int m_nextIdentityId = 1;
     int m_loggedInIdentityId = 0;
     /// BatchMutateRuns assign_profile clears the identity stamp of the runs it moves.
@@ -474,7 +482,7 @@ private:
     CharacterIdentityEntry *findIdentity(int identityId);
     /// The identity's live runs still assigned to no profile.
     QStringList unassignedIdentityRuns(const CharacterIdentityEntry &identity) const;
-    /// $defs/CharacterIdentity for every unbound identity: PENDING first, oldest first.
+    /// Dashboard identities, with each region's registration candidate first.
     QJsonArray identitiesJson() const;
     /// How many identities are bound to \a profileId (CharacterProfile.identity_count).
     int boundIdentityCount(int profileId) const;
@@ -521,6 +529,7 @@ private:
     /// Monotonic $defs/LiveEvent.sequence handed to every emitted event.
     qint64 m_liveSequence = 0;
     QString m_recordingFixture;
+    qint64 m_fixtureListeningPackets = 0;
     int m_selectedGameProcessId = 0;
     QString m_calibrationState;
     QString m_sharedState;

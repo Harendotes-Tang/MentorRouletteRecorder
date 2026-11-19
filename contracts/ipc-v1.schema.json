@@ -35,7 +35,7 @@
         "GetVersion", "GetStatus", "GetCaptureStatus", "ListCaptureAdapters", "StartCapture", "SelectGameProcess",
         "StopCapture", "GetProtocolProfileStatus", "GetCurrentRun", "QueryRuns", "QueryRunCalendarDays", "GetDashboardStats",
         "GetDungeonStats", "GetJobStats", "GetResultStats", "CreateManualRun", "CorrectRun",
-        "SoftDeleteRun", "RestoreRun", "BatchMutateRuns", "GetHistoryRetentionSettings", "UpdateHistoryRetentionSettings", "GetPendingImageCleanup", "AcknowledgeImageCleanup", "GetRunRevisions", "UpdateAchievementBaseline",
+        "SoftDeleteRun", "RestoreRun", "BatchMutateRuns", "PreviewRunRegionMigration", "GetHistoryRetentionSettings", "UpdateHistoryRetentionSettings", "GetPendingImageCleanup", "AcknowledgeImageCleanup", "GetRunRevisions", "UpdateAchievementBaseline",
         "CreateCharacterProfile", "UpdateCharacterProfile", "DeleteCharacterProfile", "ResolveCharacterIdentity", "ExportCsv",
         "ExportJson", "BackupDatabase", "SubscribeLiveEvents", "ExportDiagnosticsReport",
         "SetRunReflection", "GetReflectionSummary", "PreviewRunImport", "CommitRunImport",
@@ -46,7 +46,7 @@
         "GetCalibrationShareCode", "CheckSharedCalibration", "ImportCalibrationCode", "AcceptSharedQueueInference",
         "RejectSharedCalibration", "GetCalibrationEvidence", "GetTemplateObservation",
         "GetSpeechSettings", "UpdateSpeechSettings", "SynthesizeSpeech", "CheckDatabaseIntegrity",
-        "CheckUpdateNow", "StartUpdateDownload", "CancelUpdateDownload",
+        "CheckUpdateNow", "StartUpdateDownload", "CancelUpdateDownload", "ResolveUpdateMirrorOffer",
         "Event", "Error"
       ]
     },
@@ -225,7 +225,7 @@
         "run_id": { "$ref": "#/$defs/Uuid" },
         "revision": { "type": "integer", "minimum": 1 },
         "capture_session_id": { "oneOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }] },
-        "profile_id": { "type": ["integer", "null"], "minimum": 1, "description": "Character profile the run belongs to (CharacterProfile.profile_id), of the run's own region; null when it is assigned to none. Set when the run is created - at match time for a recorded run - and changed afterwards only through BatchMutateRuns assign_profile. Absent from older Collectors." },
+        "profile_id": { "type": ["integer", "null"], "minimum": 1, "description": "Character profile the run belongs to (CharacterProfile.profile_id), of the run's own region; null when it is assigned to none. Set when the run is created, at match time for a recorded run, and can be changed by BatchMutateRuns assign_profile or move_region. Absent from older Collectors." },
         "region": { "$ref": "#/$defs/Region" },
         "game_build": { "type": ["string", "null"] },
         "protocol_profile_id": { "type": ["string", "null"] },
@@ -531,9 +531,9 @@
         "completion_rate", "leave_rate", "avg_duration_ms", "result_breakdown"
       ],
       "properties": {
-        "achievements": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/RegionalAchievement" }, "description": "Independent lifetime achievement progress per region, unaffected by date/job/duty filters. A region filter selects one entry; all-region results include CN and TC, plus other regions with records/settings. Each entry carries the numbers of the region's current character profile, which is the whole region's while it holds one profile. Legacy scalar achievement fields project the profile named by filter.profile_id; without one, the selected region, or CN for an all-region request." },
+        "achievements": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/RegionalAchievement" }, "description": "Independent lifetime achievement progress per region, unaffected by date/job/duty filters. A region filter selects one entry; all-region results include CN, TC and GLOBAL, plus other regions with records/settings. Each entry carries the numbers of the region's current character profile, which is the whole region's while it holds one profile. Legacy scalar achievement fields project the profile named by filter.profile_id; without one, the selected region, or CN for an all-region request." },
         "profiles": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/CharacterProfile" }, "description": "Every character profile of every region with its own lifetime progress, unaffected by any filter: CN first, then TC, then the other regions; inside a region in creation order. Absent from older Collectors." },
-        "identities": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/CharacterIdentity" }, "description": "Characters told apart in the game traffic that are bound to no profile, of every region and unaffected by any filter: CN first, then TC, then the other regions; inside a region the ones waiting for the player's answer before the ignored ones, each oldest first. A region keeps at most 64 identities, bound ones included. Empty while there is none. Absent from older Collectors." },
+        "identities": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/CharacterIdentity" }, "description": "Unbound characters and characters awaiting upgraded-profile confirmation, irrespective of filter. Upgraded-profile confirmations precede other answers for the same region. Absent from older Collectors." },
         "attempt_count": { "type": "integer", "minimum": 0 },
         "completed_count": { "type": "integer", "minimum": 0 },
         "baseline_completed_count": { "type": "integer", "minimum": 0 },
@@ -587,12 +587,13 @@
     },
     "CharacterIdentity": {
       "type": "object", "additionalProperties": false,
-      "description": "A character the Collector told apart in the game traffic and that is bound to no profile (docs/data-model.md, character_identities). identity_id is local bookkeeping. What distinguishes the character is a keyed digest that stays inside the Collector: no game identifier, no name and no digest crosses the pipe.",
+      "description": "An unbound character or a previously bound character awaiting upgraded-profile confirmation. identity_id is local bookkeeping. The game identifier, name and digest stay off the pipe.",
       "required": ["identity_id", "region", "state", "first_seen_at_utc", "last_seen_at_utc", "run_count"],
       "properties": {
         "identity_id": { "type": "integer", "minimum": 1 },
         "region": { "$ref": "#/$defs/Region" },
-        "state": { "type": "string", "enum": ["PENDING", "IGNORED"], "description": "PENDING: the player has not said yet which profile this character is. IGNORED: the player chose to keep no progress for it. Runs recorded for either are assigned to no profile." },
+        "state": { "type": "string", "enum": ["PENDING", "IGNORED", "BOUND"], "description": "BOUND is included only while the user still needs to confirm an upgraded profile." },
+        "registration_profile_id": { "type": "integer", "minimum": 1, "description": "Existing upgraded profile to name and bind when confirming registration." },
         "first_seen_at_utc": { "$ref": "#/$defs/UtcTimestamp" },
         "last_seen_at_utc": { "$ref": "#/$defs/UtcTimestamp", "description": "The latest login the Collector saw this character at." },
         "run_count": { "type": "integer", "minimum": 0, "description": "Live runs recorded while this character was logged in that are assigned to no profile. Binding the identity moves these and the ones of the same kind in the recycle bin, so assigned_run_count can be larger." }
@@ -601,11 +602,12 @@
     "ResolveCharacterIdentityRequest": {
       "type": "object", "additionalProperties": false,
       "required": ["identity_id", "action"],
-      "description": "The player's answer about a character the Collector told apart. BIND says it is the character of profile_id (same region; ERR_BAD_REQUEST otherwise): the identity is bound and every run recorded for it that is assigned to no profile moves to that profile without a revision; a run the player has filed by hand since (assign_profile) is not touched. The profile becomes the current one of its region when that character is the one logged in at the moment, and otherwise the next time it logs in. IGNORE keeps no progress for it and stops asking; ASK_AGAIN returns an IGNORED identity to PENDING. An identity already bound is refused (ERR_BAD_REQUEST, field identity_id); UpdateCharacterProfile.forget_identities releases it first.",
+      "description": "BIND assigns the identity and its unowned runs to profile_id in the same region. Manually assigned runs keep their owner. The profile becomes current when this character is logged in. A pending upgraded-profile registration accepts display_name to name and bind the original profile or confirm its existing binding. Other requests for a bound identity are refused. IGNORE stops asking about an unbound identity. ASK_AGAIN returns an ignored identity to pending.",
       "properties": {
         "identity_id": { "type": "integer", "minimum": 1 },
         "action": { "type": "string", "enum": ["BIND", "IGNORE", "ASK_AGAIN"] },
-        "profile_id": { "type": "integer", "minimum": 1, "description": "Required for BIND, refused for the other actions." }
+        "profile_id": { "type": "integer", "minimum": 1, "description": "Required for BIND, refused for the other actions." },
+        "display_name": { "type": "string", "minLength": 1, "maxLength": 24, "description": "For BIND with a pending upgraded-profile registration. Names the existing target profile and confirms its binding in the same transaction, including when already bound to that same profile." }
       }
     },
     "CharacterIdentityResult": {
@@ -616,7 +618,7 @@
         "profile_id": { "type": ["integer", "null"], "minimum": 1, "description": "The profile the identity is bound to after the request; null for IGNORE and ASK_AGAIN. Whether it is the current one is in profiles." },
         "assigned_run_count": { "type": "integer", "minimum": 0, "description": "Runs that moved to the profile with a BIND." },
         "profiles": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/CharacterProfile" }, "description": "Every profile as it stands after the request, in the order of DashboardStats.profiles." },
-        "identities": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/CharacterIdentity" }, "description": "Every unbound identity as it stands after the request, in the order of DashboardStats.identities." },
+        "identities": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/CharacterIdentity" }, "description": "The identities listed by DashboardStats as they stand after the request." },
         "idempotent_replay": { "type": "boolean" }
       }
     },
@@ -878,6 +880,7 @@
 
         "connection_count": { "type": "integer", "minimum": 0, "description": "Distinct game connections observed this session, deduplicated by connection key, capped at 64." },
         "messages_decoded": { "type": "integer", "minimum": 0, "description": "Messages whose framing was read successfully." },
+        "ipc_decoded": { "type": "integer", "minimum": 0, "description": "Game IPC segments decoded in this capture_session_id. Excludes control segments; zero before capture starts." },
         "decode_errors": { "type": "integer", "minimum": 0, "description": "Messages whose framing could not be read. Counted, never thrown." },
         "parse_ok_count": { "type": "integer", "minimum": 0, "description": "Messages the parser turned into a semantic event." },
         "parse_fail_count": { "type": "integer", "minimum": 0, "description": "Messages of a declared profile message the parser refused (length, offset, constraint, unsupported profile, internal). Undeclared opcodes are ignored_count, not failures." },
@@ -1018,6 +1021,15 @@
         "reinstall": { "type": "boolean", "default": false, "description": "false or absent: only a version strictly newer than this build is downloaded (NO_UPDATE otherwise). true: the newest published version is downloaded whatever this build is, as long as one is known - a maintainer's way to fetch the published installer again. The Desktop offers it in the maintainer tools only." }
       }
     },
+    "ResolveUpdateMirrorOfferRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["offer_id", "use_gitcode"],
+      "properties": {
+        "offer_id": { "type": "string", "format": "uuid", "description": "The ID reported by download.mirror_offer_id." },
+        "use_gitcode": { "type": "boolean", "description": "True to attempt a full restart from GitCode, false to keep downloading from GitHub." }
+      }
+    },
     "UpdateDownload": {
       "type": "object",
       "additionalProperties": false,
@@ -1028,6 +1040,7 @@
         "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$", "description": "The version being downloaded or downloaded. Absent while IDLE." },
         "received_bytes": { "type": "integer", "minimum": 0, "description": "Bytes written so far. Present while DOWNLOADING, VERIFYING and READY." },
         "total_bytes": { "type": "integer", "minimum": 0, "description": "The size the server declared. Absent when it declared none." },
+        "mirror_offer_id": { "type": "string", "format": "uuid", "description": "Pending decision for this attempt. Present only during a GitHub download when GitCode is expected to finish sooner." },
         "file_path": { "type": "string", "description": "READY only: absolute path of the verified installer, inside the Collector's data directory (updates/MentorRecorder-<version>-setup.exe)." },
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "READY only: SHA-256 of the file at file_path, equal to the published one. The Desktop compares the file with it once more before starting it." },
         "failure": { "type": "string", "description": "FAILED only. NO_UPDATE (no newer version is known), DISABLED (update check turned off or the kill switch), HOST_REFUSED, REDIRECT_REFUSED, NOT_FOUND, RATE_LIMITED, HTTP_STATUS, TOO_LARGE, TIMEOUT, DNS_OR_CONNECT, TLS_FAILED, TRANSPORT_FAILED, CHECKSUM_UNAVAILABLE (the published SHA-256 could not be read), CHECKSUM_MISMATCH, DISK_FAILED. Not an enum: a build may learn new ones." },
@@ -1140,6 +1153,7 @@
       "description": "Binds message_type to its request payload schema. Response payload schemas are listed in $defs/Responses.",
       "allOf": [
         {"if": {"properties": {"message_type": {"const": "BatchMutateRuns"}}, "required": ["message_type"]}, "then": {"properties": {"payload": {"$ref": "#/$defs/BatchMutateRunsRequest"}}}},
+        {"if": {"properties": {"message_type": {"const": "PreviewRunRegionMigration"}}, "required": ["message_type"]}, "then": {"properties": {"payload": {"$ref": "#/$defs/PreviewRunRegionMigrationRequest"}}}},
         {"if": {"properties": {"message_type": {"const": "GetHistoryRetentionSettings"}}, "required": ["message_type"]}, "then": {"properties": {"payload": {"$ref": "#/$defs/EmptyPayload"}}}},
         {"if": {"properties": {"message_type": {"const": "UpdateHistoryRetentionSettings"}}, "required": ["message_type"]}, "then": {"properties": {"payload": {"$ref": "#/$defs/HistoryRetentionSettings"}}}},
         {"if": {"properties": {"message_type": {"const": "GetPendingImageCleanup"}}, "required": ["message_type"]}, "then": {"properties": {"payload": {"$ref": "#/$defs/EmptyPayload"}}}},
@@ -1196,6 +1210,7 @@
         { "if": { "properties": { "message_type": { "const": "UpdateCaptureSettings" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/UpdateCaptureSettingsRequest" } } } },
         { "if": { "properties": { "message_type": { "enum": ["GetSpeechSettings", "CheckDatabaseIntegrity", "CheckUpdateNow", "CancelUpdateDownload"] } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/EmptyPayload" } } } },
         { "if": { "properties": { "message_type": { "const": "StartUpdateDownload" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/StartUpdateDownloadRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "ResolveUpdateMirrorOffer" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResolveUpdateMirrorOfferRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "UpdateSpeechSettings" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/UpdateSpeechSettingsRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "SynthesizeSpeech" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/SynthesizeSpeechRequest" } } } }
       ]
@@ -1216,15 +1231,42 @@
               "soft_delete",
               "restore",
               "purge",
-              "assign_profile"
+              "assign_profile",
+              "move_region"
             ]
           },
           "profile_id": {
             "type": ["integer", "null"],
             "minimum": 1,
-            "description": "Required for assign_profile and refused for the other actions: the character profile, of the runs' own region, the runs are filed under; null leaves them assigned to none. Runs already there are left as they are and are not listed in run_ids; a request that would move none is ERR_NO_CHANGES. Live and deleted runs may both be moved."
+            "description": "For assign_profile, a profile of the existing region or null, including for deleted records. For move_region, a profile of the destination region."
           },
-          "runs": {
+          "region": { "enum": ["CN", "TC", "GLOBAL"] },
+          "baseline_overlap": { "type": "integer", "minimum": 0 },
+          "expected_baseline": { "type": "integer", "minimum": 0 },
+          "runs": { "$ref": "#/$defs/BatchRunTargets" },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "action": { "const": "move_region" } } },
+            "then": {
+              "required": ["region", "profile_id", "baseline_overlap", "expected_baseline"],
+              "properties": { "profile_id": { "type": "integer" } }
+            },
+            "else": {
+              "properties": { "region": false, "baseline_overlap": false, "expected_baseline": false },
+              "if": { "properties": { "action": { "const": "assign_profile" } } },
+              "then": { "required": ["profile_id"] },
+              "else": { "properties": { "profile_id": false } }
+            }
+          }
+        ]
+      },
+      "BatchRunTargets": {
             "type": "array",
             "items": {
               "type": "object",
@@ -1245,12 +1287,26 @@
             },
             "minItems": 1,
             "maxItems": 2000
-          },
-          "reason": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 500
-          }
+      },
+      "PreviewRunRegionMigrationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["runs", "region", "profile_id"],
+        "properties": {
+          "runs": { "$ref": "#/$defs/BatchRunTargets" },
+          "region": { "enum": ["CN", "TC", "GLOBAL"] },
+          "profile_id": { "type": "integer", "minimum": 1 }
+        }
+      },
+      "PreviewRunRegionMigrationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source_region", "contributing_count", "target_baseline", "target_completed_count"],
+        "properties": {
+          "source_region": { "$ref": "#/$defs/Region" },
+          "contributing_count": { "type": "integer", "minimum": 0 },
+          "target_baseline": { "type": "integer", "minimum": 0 },
+          "target_completed_count": { "type": "integer", "minimum": 0 }
         }
       },
       "BatchMutateRunsResult": {
@@ -1281,7 +1337,8 @@
               "soft_delete",
               "restore",
               "purge",
-              "assign_profile"
+              "assign_profile",
+              "move_region"
             ]
           },
           "idempotent_replay": {
@@ -1962,6 +2019,7 @@
 
     "Responses": {
       "BatchMutateRuns": { "$ref": "#/$defs/BatchMutateRunsResult" },
+      "PreviewRunRegionMigration": { "$ref": "#/$defs/PreviewRunRegionMigrationResult" },
       "CreateCharacterProfile": { "$ref": "#/$defs/CharacterProfileResult" },
       "UpdateCharacterProfile": { "$ref": "#/$defs/CharacterProfileResult" },
       "DeleteCharacterProfile": { "$ref": "#/$defs/CharacterProfileResult" },
@@ -2294,6 +2352,13 @@
         "additionalProperties": false,
         "required": ["update"],
         "description": "Stops a running download and removes what was written; download.state is IDLE afterwards. Does nothing in any other state.",
+        "properties": { "update": { "$ref": "#/$defs/UpdateStatus" } }
+      },
+      "ResolveUpdateMirrorOffer": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["update"],
+        "description": "Resolves the active offer without waiting for the mirror. A stale or unknown offer has no effect.",
         "properties": { "update": { "$ref": "#/$defs/UpdateStatus" } }
       }
     },

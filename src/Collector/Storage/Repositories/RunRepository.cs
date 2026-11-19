@@ -139,6 +139,77 @@ public sealed class RunRepository
         return run is null ? null : Attach(run, transaction);
     }
 
+    /// <summary>Finds an exact timed duplicate in the destination or among the selected records.</summary>
+    /// <remarks>Calendar days and approximate timestamp matches cannot establish a duplicate.</remarks>
+    internal (string RunId, string MatchId)? FindRegionMigrationDuplicate(
+        IReadOnlyList<MentorRun> runs, Region region, long profileId, SqliteTransaction transaction)
+    {
+        var index = new Dictionary<MigrationKey, List<MigrationIdentity>>();
+        foreach (var run in runs)
+        {
+            var identity = new MigrationIdentity(run.RunId, run.ContentId, run.DutyName, run.JobId,
+                UtcTimestamp.ToTextOrNull(run.MatchedAtUtc), UtcTimestamp.ToTextOrNull(run.EnteredAtUtc),
+                UtcTimestamp.ToTextOrNull(run.ImportMetadata?.SourceRecordedAtUtc));
+            foreach (var key in identity.Keys())
+            {
+                if (!index.TryGetValue(key, out var matches))
+                    index.Add(key, matches = []);
+                if (matches.FirstOrDefault(identity.CompatibleWith) is { } duplicate)
+                    return (identity.RunId, duplicate.RunId);
+                matches.Add(identity);
+            }
+        }
+        if (index.Count == 0) return null;
+
+        // Read the destination once. A long history of one duty/job must not be cross-joined
+        // with every selected record before testing its timestamps.
+        using var command = _database.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT r.run_id, r.content_id, r.duty_name, r.job_id, r.matched_at_utc, r.entered_at_utc, i.source_recorded_at_utc
+            FROM mentor_runs r LEFT JOIN run_import_metadata i ON i.run_id = r.run_id
+            WHERE r.region = $region AND (r.profile_id = $profile OR r.profile_id IS NULL)
+                AND r.job_id IS NOT NULL
+                AND (r.matched_at_utc IS NOT NULL OR r.entered_at_utc IS NOT NULL OR i.source_recorded_at_utc IS NOT NULL);
+            """;
+        command.Parameters.AddWithValue("$region", EnumWire<Region>.Format(region));
+        command.Parameters.AddWithValue("$profile", profileId);
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var identity = new MigrationIdentity(reader.GetString(0), GetNullableInt(reader, 1),
+                GetNullableString(reader, 2), reader.GetInt32(3), GetNullableString(reader, 4),
+                GetNullableString(reader, 5), GetNullableString(reader, 6));
+            foreach (var key in identity.Keys())
+            {
+                if (index.TryGetValue(key, out var matches) && matches.FirstOrDefault(identity.CompatibleWith) is { } duplicate)
+                    return (duplicate.RunId, identity.RunId);
+            }
+        }
+        return null;
+    }
+
+    private enum MigrationTime { Matched, Entered, Source }
+    private readonly record struct MigrationKey(int? ContentId, string? DutyName, int JobId, MigrationTime Kind, string Timestamp);
+
+    private sealed record MigrationIdentity(string RunId, int? ContentId, string? DutyName, int? JobId,
+        string? Matched, string? Entered, string? Source)
+    {
+        public IEnumerable<MigrationKey> Keys()
+        {
+            if (JobId is not { } job || (ContentId is null && string.IsNullOrWhiteSpace(DutyName)))
+                yield break;
+            var name = ContentId is null ? DutyName : null;
+            if (Matched is not null) yield return new(ContentId, name, job, MigrationTime.Matched, Matched);
+            if (Entered is not null) yield return new(ContentId, name, job, MigrationTime.Entered, Entered);
+            if (Source is not null) yield return new(ContentId, name, job, MigrationTime.Source, Source);
+        }
+
+        public bool CompatibleWith(MigrationIdentity other) =>
+            (Matched is null || other.Matched is null || Matched == other.Matched) &&
+            (Entered is null || other.Entered is null || Entered == other.Entered);
+    }
+
     /// <summary>
     /// Returns sorted distinct local history days over the full matching set in one month.
     /// Date bounds are deliberately removed; archival day-only records keep their source day.

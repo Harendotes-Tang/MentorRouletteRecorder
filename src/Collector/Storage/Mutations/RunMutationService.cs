@@ -282,6 +282,9 @@ public sealed partial class RunMutationService
 
             var target = _revisions.GetAt(command.RunId, before.Revision, tx)
                 ?? throw CollectorException.NotFound(command.RunId);
+            if (target.Changes.Any(change => change.Field == RunAuditFields.Region))
+                throw new CollectorException(ErrorCodes.UndoNotAllowed,
+                    CollectorTexts.MutationUndoRegionMigration(), field: "expected_revision");
 
             if (target.Actor == RevisionActor.System && (target.Reason == Import.ImportedHistoryMaintenance.AuditReason ||
                 target.Changes.Any(change => change.Field == "source")))

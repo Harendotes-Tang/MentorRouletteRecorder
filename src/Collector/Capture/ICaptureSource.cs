@@ -86,6 +86,9 @@ public interface ICaptureSourceObserver
     /// <param name="error">Underlying exception, for the local log only.</param>
     void OnFault(UserText reason, Exception? error) => OnFault(reason.Chinese, error);
 
+    /// <summary>A source recognized a bounded diagnostic category for its fault.</summary>
+    internal void OnMonitorFault(CaptureFailureCategory category, UserText message) => OnFault(message, null);
+
     /// <summary>
     /// A game connection that had delivered decoded messages ended: closed with FIN or RST, or
     /// no longer listed for the game process by the operating system. Capture itself continues

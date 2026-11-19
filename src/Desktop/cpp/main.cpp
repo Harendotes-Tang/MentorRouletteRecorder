@@ -380,7 +380,15 @@ bool verifyRecordingAlertFlow(QQuickWindow *window, mr::MockBackend *backend, mr
     const auto observe = [&](const QString &fixture, const QString &state) {
         backend->setRecordingFixture(fixture);
         app->recording()->refresh();
-        return waitFor([&] { return app->recording()->state() == state; });
+        const bool settled = waitFor([&] {
+            return app->recording()->state() == state
+                && (state != QLatin1String("listening") || !app->recording()->warningActive());
+        });
+        if (!settled)
+            qCritical("recording fixture %s: expected %s, got %s (warning active: %d)",
+                      qPrintable(fixture), qPrintable(state), qPrintable(app->recording()->state()),
+                      int(app->recording()->warningActive()));
+        return settled;
     };
     if (!observe(QStringLiteral("waiting"), QStringLiteral("waiting")) || isOpen()) return false;
     window->hide();

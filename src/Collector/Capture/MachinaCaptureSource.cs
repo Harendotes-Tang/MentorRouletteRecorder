@@ -22,18 +22,18 @@ public sealed class MachinaCaptureSource : ICaptureSource
     /// against the referenced Machina assembly by <c>MachinaTraceContractTests</c>, which reads
     /// this very list (audit 2026-11-03, A3-3).
     /// </summary>
-    internal static readonly string[] MachinaFatalTraceMarkers =
+    internal static readonly (string Text, CaptureFailureCategory Category)[] MachinaFatalTraceMarkers =
     {
-        "Cannot load",
-        "Unable to retrieve network data",
-        "Cannot find one or more signatures",
+        ("Cannot load", CaptureFailureCategory.GameExecutableLoad),
+        ("Unable to retrieve network data", CaptureFailureCategory.NetworkDataUnavailable),
+        ("Cannot find one or more signatures", CaptureFailureCategory.OodleSignatureMismatch),
     };
 
     /// <summary>Fatal trace fragments that come from SharpPcap, a separate contract.</summary>
-    internal static readonly string[] SharpPcapFatalTraceMarkers =
+    internal static readonly (string Text, CaptureFailureCategory Category)[] SharpPcapFatalTraceMarkers =
     {
-        "PcapException",
-        "Error opening",
+        ("Error opening", CaptureFailureCategory.PcapOpen),
+        ("PcapException", CaptureFailureCategory.PcapError),
     };
 
     /// <summary>Both halves of Machina's "the game executable does not exist" line; fatal only together.</summary>
@@ -44,7 +44,7 @@ public sealed class MachinaCaptureSource : ICaptureSource
     };
 
     /// <summary>Trace fragments that mean this capture will never produce data.</summary>
-    internal static readonly string[] FatalTraceMarkers =
+    internal static readonly (string Text, CaptureFailureCategory Category)[] FatalTraceMarkers =
         MachinaFatalTraceMarkers.Concat(SharpPcapFatalTraceMarkers).ToArray();
 
     /// <summary>
@@ -567,10 +567,13 @@ public sealed class MachinaCaptureSource : ICaptureSource
     private void OnMonitorTrace(string text)
     {
         var sanitized = RotatingFileLogger.Sanitize(text);
-        var fatal = Array.Exists(
-            FatalTraceMarkers, marker => sanitized.Contains(marker, StringComparison.OrdinalIgnoreCase)) ||
-            Array.TrueForAll(MissingExecutableTraceMarkers,
-                marker => sanitized.Contains(marker, StringComparison.OrdinalIgnoreCase));
+        var fatalMarker = Array.Find(FatalTraceMarkers,
+            item => sanitized.Contains(item.Text, StringComparison.OrdinalIgnoreCase));
+        CaptureFailureCategory? category = fatalMarker.Text is not null ? fatalMarker.Category : null;
+        if (category is null && Array.TrueForAll(MissingExecutableTraceMarkers,
+                part => sanitized.Contains(part, StringComparison.OrdinalIgnoreCase)))
+            category = CaptureFailureCategory.GameExecutableMissing;
+        var fatal = category is not null;
         // Bundle decompression fails upstream of MessageReceived/MessageSent. Machina 2.4.8.3
         // only emits a trace and returns null, so OnMessage cannot count those failures.
         // Do not count the following "Resetting stream" line a second time.
@@ -591,9 +594,8 @@ public sealed class MachinaCaptureSource : ICaptureSource
                 fatal ? LogLevel.Error : decodeError ? LogLevel.Warn : LogLevel.Info,
                 "capture",
                 "monitor_trace",
-                // Upstream trace strings may include packet hex, addresses and paths. Only
-                // categorical severity crosses the local logger boundary.
-                new Dictionary<string, object?> { ["kind"] = kind });
+                // Upstream trace strings may include packet hex, addresses and paths.
+                new Dictionary<string, object?> { ["kind"] = kind, ["category"] = category?.ToString() });
         }
 
         if (!fatal && !decodeError)
@@ -612,15 +614,11 @@ public sealed class MachinaCaptureSource : ICaptureSource
             observer?.OnDecodeError();
         }
 
-        if (!fatal)
-        {
-            return;
-        }
-
         // Machina reports its own thread's failures through Trace rather than by throwing
         // into ours. Without this, a monitor that died on startup would sit at zero packets
         // and look merely idle.
-        observer?.OnFault(CollectorTexts.CaptureFaultMonitor(), null);
+        if (category is { } failure)
+            observer?.OnMonitorFault(failure, CollectorTexts.CaptureFaultMonitor());
     }
 
     /// <summary>

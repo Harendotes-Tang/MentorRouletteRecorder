@@ -43,6 +43,8 @@ class AutomaticRecordingController : public QObject
     Q_PROPERTY(bool warningPending READ warningPending NOTIFY changed)
     Q_PROPERTY(quint64 warningSerial READ warningSerial NOTIFY changed)
     Q_PROPERTY(QString warningMessage READ warningMessage NOTIFY changed)
+    /// One recovery confirmation for a previously unavailable episode.
+    Q_PROPERTY(bool recoveryPending READ recoveryPending NOTIFY changed)
 public:
     explicit AutomaticRecordingController(IBackend *backend, QObject *parent = nullptr);
     QString state() const { return m_state; }
@@ -67,6 +69,7 @@ public:
     bool warningPending() const { return m_warningPending; }
     quint64 warningSerial() const { return m_warningSerial; }
     QString warningMessage() const { return m_warningMessage.text(); }
+    bool recoveryPending() const { return m_recoveryPending; }
     void setMaintenance(bool enabled);
     /// 本桌面显式采证期间暂停自动初始化；重连保留意图，旧会话仍按原逻辑清理。
     void setUserObservation(bool enabled);
@@ -89,8 +92,8 @@ public:
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void retry();
     Q_INVOKABLE void acknowledge();
-    /// Acknowledge both warning surfaces without declaring capture recovered.
-    /// System notification consumption is tracked separately by TrayController.
+    /// Dismiss the current warning or recovery confirmation. Acknowledging a warning
+    /// leaves its episode active. TrayController tracks system notification delivery.
     Q_INVOKABLE void acknowledgeWarning();
 Q_SIGNALS:
     void changed();
@@ -135,6 +138,7 @@ private:
     /// Updates the early-warning episode from a confirmed desktop projection;
     /// returns true only when a new serial was created. Unknown states retain it.
     bool updateWarning(const QString &state, const LiveText &message);
+    bool receivedGameDataSinceWarning();
     void clearWarning();
     /// A QPointer: IpcClient fails every request still in flight from its own
     /// destructor, and those callbacks land here while the backend is already
@@ -161,9 +165,13 @@ private:
     bool m_validationReady = false;
     bool m_warningActive = false;
     bool m_warningPending = false;
+    bool m_recoveryPending = false;
     quint64 m_warningSerial = 0;
     QString m_currentGame;
     QString m_warningGame;
+    // Last confirmed unavailable snapshot. Recovery needs a subsequent game IPC
+    // segment in this capture, or the first one from its replacement.
+    QVariantMap m_warningCapture;
     LiveText m_warningMessage;
     // Kept as recipes so a language switch re-renders them (LiveText.h).
     LiveText m_followError;

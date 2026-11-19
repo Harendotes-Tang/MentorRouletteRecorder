@@ -444,9 +444,10 @@ public sealed partial class CaptureController : IDisposable
 
             bool? validationLeaseReleasing = _ownershipLease is null && _services.Ownership.IsHeld
                 ? _services.Ownership.IsReleasing : null;
+            var decodedIpc = run?.IpcMessagesDecoded;
             var warnings = CaptureDiagnosticsProjection.Warnings(
                 game, npcap, profile, state, validationLeaseReleasing, _preexistingConnections,
-                _pathRecovery.State, run?.IpcMessagesDecoded, ingress);
+                _pathRecovery.State, decodedIpc, ingress);
 
             return new CaptureDiagnosticsSnapshot
             {
@@ -478,6 +479,7 @@ public sealed partial class CaptureController : IDisposable
                 PreexistingConnections = run is null ? null : _preexistingConnections,
                 SilentReason = run is null ? CaptureSilentReason.None : _silentReason,
                 MessagesDecoded = run?.MessagesDecoded ?? 0,
+                IpcMessagesDecoded = decodedIpc ?? 0,
                 DecodeErrors = run?.DecodeErrors ?? 0,
                 ParseOkCount = _parserStats.ParseOkCount,
                 ParseFailCount = _parserStats.ParseFailCount,

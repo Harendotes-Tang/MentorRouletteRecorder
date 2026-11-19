@@ -29,15 +29,6 @@ namespace {
 constexpr int kMaxProfilesPerRegion = 16;
 constexpr int kMaxDisplayNameLength = 24;
 
-int regionRank(const QString &region)
-{
-    if (region == QLatin1String("CN"))
-        return 0;
-    if (region == QLatin1String("TC"))
-        return 1;
-    return 2;
-}
-
 bool countsTowardsProgress(const QJsonObject &run)
 {
     return !isSoftDeleted(run) && isConfirmedMentor(run)
@@ -92,6 +83,36 @@ MockBackend::CharacterProfileEntry *MockBackend::findProfile(int profileId)
             return &profile;
     }
     return nullptr;
+}
+
+bool MockBackend::profileNameTaken(const QString &region, const QString &name, int exceptId) const
+{
+    return std::ranges::any_of(m_profiles, [&](const CharacterProfileEntry &profile) {
+        return profile.region == region && profile.id != exceptId && profile.displayName == name;
+    });
+}
+
+bool MockBackend::applyProfileName(CharacterProfileEntry *profile, const QJsonValue &requestedName,
+                                   QString *errorCode, QString *errorMessage)
+{
+    const QString name = requestedName.toString().trimmed();
+    if (!requestedName.isUndefined() && !usableName(name)) {
+        refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "profile.name_required",
+                   {{QStringLiteral("max"), kMaxDisplayNameLength}});
+        return false;
+    }
+    if (!profile) {
+        refuseWith(errorCode, errorMessage, QStringLiteral("ERR_NOT_FOUND"), "profile.not_found");
+        return false;
+    }
+    if (requestedName.isUndefined() || name == profile->displayName)
+        return true;
+    if (profileNameTaken(profile->region, name, profile->id)) {
+        refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "profile.name_taken");
+        return false;
+    }
+    profile->displayName = name;
+    return true;
 }
 
 const MockBackend::CharacterProfileEntry *MockBackend::currentProfile(const QString &region) const
@@ -173,10 +194,8 @@ QJsonArray MockBackend::characterProfiles() const
         ordered.append(&profile);
     // CN first, then TC, then the other regions; inside a region in creation order.
     std::ranges::stable_sort(ordered, [](const CharacterProfileEntry *left, const CharacterProfileEntry *right) {
-        if (regionRank(left->region) != regionRank(right->region))
-            return regionRank(left->region) < regionRank(right->region);
         if (left->region != right->region)
-            return left->region < right->region;
+            return regionBefore(left->region, right->region);
         return left->id < right->id;
     });
     QJsonArray out;
@@ -294,11 +313,6 @@ QJsonObject MockBackend::applyCharacterProfile(const QString &messageType, const
     };
     const QString badRequest = QStringLiteral("ERR_BAD_REQUEST");
     const QVariantMap nameLimit{{QStringLiteral("max"), kMaxDisplayNameLength}};
-    const auto nameTaken = [this](const QString &region, const QString &name, int except) {
-        return std::ranges::any_of(m_profiles, [&](const CharacterProfileEntry &profile) {
-            return profile.region == region && profile.id != except && profile.displayName == name;
-        });
-    };
 
     int profileId = 0;
     QString region;
@@ -319,7 +333,7 @@ QJsonObject MockBackend::applyCharacterProfile(const QString &messageType, const
         ensureCurrentProfile(region);
         if (profilesOf(region).size() >= kMaxProfilesPerRegion)
             return refuse(badRequest, "profile.limit_reached", {{QStringLiteral("max"), kMaxProfilesPerRegion}});
-        if (nameTaken(region, name, 0))
+        if (profileNameTaken(region, name, 0))
             return refuse(badRequest, "profile.name_taken");
         bool identityRefused = false;
         CharacterIdentityEntry *identity =
@@ -339,17 +353,9 @@ QJsonObject MockBackend::applyCharacterProfile(const QString &messageType, const
             return refuse(badRequest, "ipc.field.missing", {{QStringLiteral("field"), QStringLiteral("profile_id")}});
         if (requestedName.isUndefined() && !makeCurrent && !forget)
             return refuse(badRequest, "mutation.no_changes");
-        const QString name = requestedName.toString().trimmed();
-        if (!requestedName.isUndefined() && !usableName(name))
-            return refuse(badRequest, "profile.name_required", nameLimit);
         CharacterProfileEntry *profile = findProfile(payload.value(QStringLiteral("profile_id")).toInt());
-        if (!profile)
-            return refuse(QStringLiteral("ERR_NOT_FOUND"), "profile.not_found");
-        if (!requestedName.isUndefined() && name != profile->displayName) {
-            if (nameTaken(profile->region, name, profile->id))
-                return refuse(badRequest, "profile.name_taken");
-            profile->displayName = name;
-        }
+        if (!applyProfileName(profile, requestedName, errorCode, errorMessage))
+            return {};
         if (makeCurrent && !profile->current) {
             for (CharacterProfileEntry &other : m_profiles) {
                 if (other.region == profile->region)
@@ -383,6 +389,7 @@ QJsonObject MockBackend::applyCharacterProfile(const QString &messageType, const
         deleted = true;
         // A character bound to a profile that goes is asked about again.
         forgetIdentitiesOf(profileId);
+        m_registrationCandidates.remove(profileId);
         m_profiles.removeIf([profileId](const CharacterProfileEntry &entry) { return entry.id == profileId; });
     }
 
@@ -395,8 +402,9 @@ QJsonObject MockBackend::applyCharacterProfile(const QString &messageType, const
 }
 
 QJsonObject MockBackend::assignRunsToProfile(const QJsonObject &payload, QString *errorCode,
-                                             QString *errorMessage, QJsonObject *errorDetails)
+                                             QString *errorMessage, QJsonObject *errorDetails, bool previewRegion)
 {
+    const bool moving = previewRegion || payload.value(QStringLiteral("action")).toString() == QLatin1String("move_region");
     const QString reason = payload.value(QStringLiteral("reason")).toString().trimmed();
     const QJsonArray targets = payload.value(QStringLiteral("runs")).toArray();
     const QJsonValue requested = payload.value(QStringLiteral("profile_id"));
@@ -404,7 +412,7 @@ QJsonObject MockBackend::assignRunsToProfile(const QJsonObject &payload, QString
     if (requested.isUndefined() || (!requested.isNull() && !requested.isDouble()))
         return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "ipc.field.missing",
                           {{QStringLiteral("field"), QStringLiteral("profile_id")}});
-    if (reason.isEmpty() || reason.size() > 500 || targets.isEmpty() || targets.size() > 2000) {
+    if ((!previewRegion && (reason.isEmpty() || reason.size() > 500)) || targets.isEmpty() || targets.size() > 2000) {
         *errorCode = QStringLiteral("ERR_BAD_REQUEST");
         *errorMessage = tr("批量操作、原因或记录数量无效。");
         return {};
@@ -430,8 +438,40 @@ QJsonObject MockBackend::assignRunsToProfile(const QJsonObject &payload, QString
         runs.append(run);
     }
     const int target = requested.isDouble() ? requested.toInt() : 0;
-    if (target != 0) {
-        const CharacterProfileEntry *profile = findProfile(target);
+    CharacterProfileEntry *profile = target == 0 ? nullptr : findProfile(target);
+    const QString region = payload.value(QStringLiteral("region")).toString();
+    int overlap = 0;
+    if (moving) {
+        const QString sourceRegion = runRegion(runs.first());
+        if (region == sourceRegion || (region != QLatin1String("CN") && region != QLatin1String("GLOBAL")
+                                      && region != QLatin1String("TC")))
+            return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "history.region.different_target");
+        if (!profile || profile->region != region)
+            return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "profile.region_mismatch");
+        int contributing = 0;
+        for (const QJsonObject &run : std::as_const(runs)) {
+            const QString source = run.value(QStringLiteral("source")).toString();
+            if (isSoftDeleted(run) || !run.value(QStringLiteral("capture_session_id")).toString().isEmpty()
+                || (source != QLatin1String("IMPORT") && source != QLatin1String("MANUAL")))
+                return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "history.region.ineligible");
+            if (runRegion(run) != sourceRegion)
+                return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "history.region.mixed_source");
+            if (countsTowardsProgress(run))
+                ++contributing;
+        }
+        const int baseline = profile->settings.baselineCompletedCount;
+        if (previewRegion) {
+            return {{QStringLiteral("source_region"), sourceRegion},
+                    {QStringLiteral("contributing_count"), contributing},
+                    {QStringLiteral("target_baseline"), baseline},
+                    {QStringLiteral("target_completed_count"), profileJson(*profile).value(QStringLiteral("completed_count"))}};
+        }
+        overlap = payload.value(QStringLiteral("baseline_overlap")).toInt(-1);
+        if (payload.value(QStringLiteral("expected_baseline")).toInt(-1) != baseline)
+            return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_REVISION_CONFLICT"), "history.region.baseline_changed");
+        if (overlap < 0 || overlap > qMin(baseline, contributing))
+            return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "history.region.invalid_overlap");
+    } else if (target != 0) {
         if (!profile)
             return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_NOT_FOUND"), "profile.not_found");
         for (const QJsonObject &run : std::as_const(runs)) {
@@ -454,17 +494,23 @@ QJsonObject MockBackend::assignRunsToProfile(const QJsonObject &payload, QString
         QJsonObject run = before;
         const QJsonValue next = target > 0 ? QJsonValue(target) : QJsonValue(QJsonValue::Null);
         run.insert(QStringLiteral("profile_id"), next);
-        // A change of owner corrects no recorded fact: no 已修正, no baseline moves.
-        touchRun(run, QStringLiteral("CORRECT"), reason,
-                 QJsonArray{QJsonObject{{QStringLiteral("field"), QStringLiteral("profile_id")},
-                                        {QStringLiteral("old_value"),
-                                         owner > 0 ? QJsonValue(owner) : QJsonValue(QJsonValue::Null)},
-                                        {QStringLiteral("new_value"), next}}});
+        QJsonArray changes{QJsonObject{{QStringLiteral("field"), QStringLiteral("profile_id")},
+                                     {QStringLiteral("old_value"), owner > 0 ? QJsonValue(owner) : QJsonValue(QJsonValue::Null)},
+                                     {QStringLiteral("new_value"), next}}};
+        if (moving) {
+            run.insert(QStringLiteral("region"), region);
+            changes.append(QJsonObject{{QStringLiteral("field"), QStringLiteral("region")},
+                                       {QStringLiteral("old_value"), runRegion(before)},
+                                       {QStringLiteral("new_value"), region}});
+        }
+        touchRun(run, QStringLiteral("CORRECT"), reason, changes);
         m_runs[indexOfRun(run.value(QStringLiteral("run_id")).toString())] = run;
         moved.append(run.value(QStringLiteral("run_id")));
     }
     if (moved.isEmpty())
         return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_NO_CHANGES"), "profile.assign_unchanged");
+    if (moving && overlap > 0)
+        profile->settings.baselineCompletedCount -= overlap;
     // A run moved by hand no longer belongs to the character it was recorded for: no
     // identity counts it, and a later BIND does not move it.
     QStringList movedIds;
@@ -474,7 +520,7 @@ QJsonObject MockBackend::assignRunsToProfile(const QJsonObject &payload, QString
     emitStatsInvalidatedLater();
     return {{QStringLiteral("changed_count"), moved.size()},
             {QStringLiteral("run_ids"), moved},
-            {QStringLiteral("action"), QStringLiteral("assign_profile")},
+            {QStringLiteral("action"), moving ? QStringLiteral("move_region") : QStringLiteral("assign_profile")},
             {QStringLiteral("idempotent_replay"), false}};
 }
 

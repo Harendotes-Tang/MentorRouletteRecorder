@@ -75,6 +75,7 @@ public sealed partial class CaptureValidationController : IDisposable
     private readonly string _oodleTempManifest;
     private readonly string _identityKeyPath;
     private Session? _session;
+    private CaptureValidationFailure? _lastFailure;
     private bool _disposed;
     private string _state = "IDLE", _reason = "IDLE";
     private UserText _message = CollectorTexts.CaptureValidationIdle();
@@ -145,6 +146,11 @@ public sealed partial class CaptureValidationController : IDisposable
     [System.Text.RegularExpressions.GeneratedRegex(
         @"^[0-9]{8}T[0-9]{6}[0-9]{3}-[0-9a-fA-F-]{36}$")]
     private static partial System.Text.RegularExpressions.Regex SessionDirectoryPattern();
+
+    internal CaptureValidationFailure? LastFailure
+    {
+        get { lock (_gate) return _lastFailure; }
+    }
 
     public JsonObject Snapshot()
     {
@@ -326,8 +332,17 @@ public sealed partial class CaptureValidationController : IDisposable
                     continue;
                 }
                 s.Stop.Token.ThrowIfCancellationRequested();
-                source = trace.SourceFactory?.Invoke()
-                    ?? new MachinaCaptureSource(trace.Logger, oodleTempManifestPath: _oodleTempManifest);
+                lock (_gate) s.Stage = CaptureValidationStage.Starting;
+                try
+                {
+                    source = trace.SourceFactory?.Invoke()
+                        ?? new MachinaCaptureSource(trace.Logger, oodleTempManifestPath: _oodleTempManifest);
+                }
+                catch (Exception ex)
+                {
+                    Fault(s, ex, category: CaptureFailureCategory.MonitorStart);
+                    break;
+                }
                 s.Stop.Token.ThrowIfCancellationRequested();
                 // Before the trace file exists: a probe that cannot digest fails the session
                 // without leaving an empty trace behind.
@@ -348,7 +363,7 @@ public sealed partial class CaptureValidationController : IDisposable
                         lock (_gate) s.FailureText = ex is InvalidDataException
                             ? CollectorTexts.CaptureValidationFailedIdentityKeyInvalid()
                             : CollectorTexts.CaptureValidationFailedIdentityKeyUnreadable();
-                        Fault(s, ex);
+                        Fault(s, ex, category: CaptureFailureCategory.IdentityKey);
                         break;
                     }
                 }
@@ -374,16 +389,21 @@ public sealed partial class CaptureValidationController : IDisposable
                 var queue = new DecodedMessageQueue(sink, onSinkError: ex => Fault(s, ex, writeFailed: true));
                 lock (_gate) s.Queue = queue;
                 s.Stop.Token.ThrowIfCancellationRequested();
-                observer = new Observer(queue, sink, (reason, ex) => Fault(s, ex, reason: reason));
+                observer = new Observer(queue, sink, (category, ex) => Fault(s, ex, category: category));
                 try { source.Start(new CaptureStartOptions(s.Id, game.ProcessId!.Value, adapter.BindAddress, adapter.Id,
                     OodleMode.FfxivTcp, null, game.ExecutablePath, game.Region, game.GameBuild,
                     AllowCandidateOodleSignature: true) { PathPlan = checkedCandidate.Plan }, observer); }
-                catch (Exception ex) { Fault(s, ex); }
+                catch (Exception ex)
+                {
+                    Fault(s, ex, category: ex is CollectorException { Code: ErrorCodes.NpcapMissing }
+                        ? CaptureFailureCategory.PcapOpen : CaptureFailureCategory.MonitorStart);
+                }
                 lock (_gate)
                 {
                     if (!s.Stop.IsCancellationRequested)
                     {
                         s.RecordingStarted = true;
+                        s.Stage = CaptureValidationStage.Recording;
                         SetState("RECORDING", "RECORDING", CollectorTexts.CaptureValidationRecording());
                     }
                 }
@@ -405,10 +425,14 @@ public sealed partial class CaptureValidationController : IDisposable
             }
         }
         catch (OperationCanceledException) when (s.Stop.IsCancellationRequested) { }
-        catch (Exception ex) { Fault(s, ex, writeFailed: true); }
+        catch (Exception ex) { Fault(s, ex, writeFailed: true, category: CaptureFailureCategory.ValidationFault); }
         finally
         {
-            lock (_gate) SetState("STOPPING", "STOPPING", CollectorTexts.CaptureValidationStopping());
+            lock (_gate)
+            {
+                s.Stage = CaptureValidationStage.Finalizing;
+                SetState("STOPPING", "STOPPING", CollectorTexts.CaptureValidationStopping());
+            }
             // Each cleanup is attempted even if the previous operation failed. Hashing can only
             // run after source disposal, full queue drain and successful writer close.
             Cleanup(() => source?.Stop(), s);
@@ -604,27 +628,39 @@ public sealed partial class CaptureValidationController : IDisposable
     /// <param name="s">Session the fault belongs to.</param>
     /// <param name="error">Underlying exception, for the local log only.</param>
     /// <param name="writeFailed">True when the trace file can no longer be trusted.</param>
-    /// <param name="reason">
-    /// The source's own reason, for the local log only: a monitor fault often has no exception,
-    /// and without it the log line says nothing (audit 2026-10-20, A2-3).
-    /// </param>
-    private void Fault(Session s, Exception? error, bool writeFailed = false, string? reason = null)
+    /// <param name="category">Safe reason supplied by the callback or operation that failed.</param>
+    private void Fault(Session s, Exception? error, bool writeFailed = false, CaptureFailureCategory? category = null)
     {
+        CaptureValidationFailure diagnosis;
         lock (_gate)
         {
             if (!ReferenceEquals(_session, s) || s.Finalized) return;
+            diagnosis = new CaptureValidationFailure(
+                category ?? (writeFailed ? CaptureFailureCategory.TraceWrite : CaptureFailureCategory.ValidationFault),
+                s.Stage, UtcTimestamp.Truncate(_services.Trace.Clock.UtcNow));
+            if (s.ErrorCode is null)
+            {
+                _lastFailure = diagnosis;
+                // The first failure names the round; an earlier, more specific sentence stays.
+                s.FailureText ??= diagnosis.Advice;
+            }
             s.ErrorCode = ErrorCodes.Internal;
             s.WriteFailed |= writeFailed;
             SetState("STOPPING", "STOPPING", CollectorTexts.CaptureValidationStoppingAfterError());
             s.Stop.Cancel();
         }
-        _services.Trace.Logger.WriteError("capture", "validation_failed", error, reason);
+        _services.Trace.Logger.Write(LogLevel.Error, "capture", "validation_failed", new Dictionary<string, object?>
+        {
+            ["category"] = diagnosis.Category.ToString(),
+            ["stage"] = diagnosis.Stage.ToString(),
+            ["error_type"] = error?.GetType().Name,
+        });
     }
 
     private bool Cleanup(Action action, Session s)
     {
         try { action(); return true; }
-        catch (Exception ex) { Fault(s, ex, writeFailed: true); return false; }
+        catch (Exception ex) { Fault(s, ex, writeFailed: true, category: CaptureFailureCategory.Cleanup); return false; }
     }
 
     private void SetState(string state, string reason, UserText message) { _state = state; _reason = reason; _message = message; }
@@ -673,6 +709,7 @@ public sealed partial class CaptureValidationController : IDisposable
         public long? Dropped;
         public bool WriteFailed;
         public bool Finalized, RecordingStarted, TimedOut;
+        public CaptureValidationStage Stage;
         public bool IdentityProbe { get; init; }
         /// <summary>Why the session failed, when there is a better sentence than the general one.</summary>
         public UserText? FailureText;
@@ -682,18 +719,29 @@ public sealed partial class CaptureValidationController : IDisposable
 
     private sealed record Marker(string Text, DateTimeOffset ReceivedAtUtc, TimeSpan Elapsed);
 
-    private sealed class Observer(DecodedMessageQueue queue, CaptureTraceSink sink, Action<string, Exception?> fault) : ICaptureSourceObserver
+    private sealed class Observer(DecodedMessageQueue queue, CaptureTraceSink sink, Action<CaptureFailureCategory, Exception?> fault) : ICaptureSourceObserver
     {
         private readonly object _gate = new();
         private bool _closed;
         public void Close() { lock (_gate) _closed = true; }
         public void OnMessage(DecodedMessage message) { lock (_gate) if (!_closed) queue.Offer(message); }
         public void OnDecodeError() { lock (_gate) if (!_closed) sink.CountDecodeError(); }
-        public void OnFault(string reason, Exception? error)
+        public void OnFault(string reason, Exception? error) => ReportFault(CaptureFailureCategory.MonitorFault, error);
+        public void OnFault(UserText reason, Exception? error) => ReportFault(reason.Key switch
+        {
+            "capture.fault.npcap_read" => CaptureFailureCategory.NpcapRead,
+            "capture.fault.ownership_decode" => CaptureFailureCategory.OwnershipDecode,
+            "capture.fault.connection_table_full" or "capture.fault.raw_buffer_full" => CaptureFailureCategory.IngressCapacity,
+            _ => CaptureFailureCategory.MonitorFault,
+        }, error);
+        void ICaptureSourceObserver.OnMonitorFault(CaptureFailureCategory category, UserText message) =>
+            ReportFault(category, null);
+
+        private void ReportFault(CaptureFailureCategory category, Exception? error)
         {
             lock (_gate) if (_closed) return;
             // Fault takes the controller gate; never hold the observer gate across it.
-            fault(reason, error);
+            fault(category, error);
         }
     }
 }

@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
+using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Domain.Queries;
 using MentorRecorder.Collector.Domain.Time;
 
@@ -160,6 +161,26 @@ public sealed class RunRevisionRepository
             .Select(c => new ChangeRow(c.Field, c.OldValue, c.NewValue))
             .ToArray();
         return JsonSerializer.Serialize(rows, ChangeJsonOptions);
+    }
+
+    /// <summary>Whether this record's exact import provenance has been moved to another region.</summary>
+    internal bool HasRegionMigration(string runId, SqliteTransaction? transaction)
+    {
+        using var command = _database.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT EXISTS (
+                SELECT 1 FROM run_revisions rev,
+                json_each(CASE WHEN json_valid(rev.changes_json) THEN rev.changes_json ELSE '[]' END) field
+                WHERE rev.run_id = $run_id AND rev.revision > 1
+                    AND field.value ->> '$.field' = $field
+                    AND field.value ->> '$.old_value' IS NOT NULL
+                    AND field.value ->> '$.new_value' IS NOT NULL
+            );
+            """;
+        command.Parameters.AddWithValue("$run_id", runId);
+        command.Parameters.AddWithValue("$field", RunAuditFields.Region);
+        return Convert.ToInt64(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) != 0;
     }
 
     /// <summary>Reads field changes back from the stored JSON array form.</summary>

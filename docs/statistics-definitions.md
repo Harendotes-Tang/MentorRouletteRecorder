@@ -289,7 +289,7 @@ avg_duration_ms = AVG(duration_ms) WHERE
 | `baseline_completed_count` | `character_profiles`，取值的档案见 §4 |
 | `achievement_progress` | §4（全量口径，不受时间过滤影响） |
 | `goal_count` | `character_profiles`，默认 2000，取值的档案见 §4 |
-| `achievements` | 按区服分别给出的成就数组（各取该区服当前档案的数值），不受日期、职业、副本筛选影响；选定区服时只含该区服，全部区服请求时含 CN 与 TC，以及另有记录或档案的其他区服，见 §4 |
+| `achievements` | 按区服分别给出的成就数组（各取该区服当前档案的数值），不受日期、职业、副本筛选影响；选定区服时只含该区服，全部区服请求时含 CN、TC 与 GLOBAL，以及另有记录或档案的其他区服，见 §4 |
 | `profiles` | 全部角色档案及各自的进度，不受任何筛选影响，见 §4 |
 | `identities` | 全部区服中尚未绑定档案的角色及各自未分配的有效记录数，不受任何筛选影响，见 §4 |
 | `remaining` | §5 |

@@ -2,8 +2,8 @@
 // 自动识别角色 (characters told apart in the game traffic) on the Desktop side of
 // StatisticsController.
 //
-// The list is the Collector's: every GetDashboardStats answer carries every identity bound
-// to no profile (DashboardStats.identities), whatever its filter, and every
+// Every GetDashboardStats answer lists unbound identities and upgraded-profile registrations
+// awaiting confirmation (DashboardStats.identities), whatever its filter, and every
 // ResolveCharacterIdentity answers with the list as it stands afterwards
 // (CharacterIdentityResult.identities). The player's answers travel through the same
 // saving flag and signals as the profile changes (characterProfileSaved / Failed).
@@ -32,7 +32,8 @@ QVariantList StatisticsController::pendingCharacterIdentities(const QString &reg
     for (const auto &value : m_identities) {
         const QJsonObject identity = value.toObject();
         if (inRegion(identity, region)
-            && identity.value(QStringLiteral("state")).toString() == QLatin1String("PENDING"))
+            && (identity.value(QStringLiteral("state")).toString() == QLatin1String("PENDING")
+                || identity.value(QStringLiteral("registration_profile_id")).toInt() > 0))
             out.append(identity.toVariantMap());
     }
     return out;
@@ -91,13 +92,19 @@ void StatisticsController::suspendMilestone(const QString &region)
     m_regionalObservations[region].ready = false;
 }
 
-void StatisticsController::bindCharacterIdentity(int identityId, int profileId)
+void StatisticsController::setHistoryRegionMovePending(bool pending)
+{
+    m_runMovesInFlight += pending ? 1 : -1;
+    suspendMilestone(QString());
+}
+
+void StatisticsController::bindCharacterIdentity(int identityId, int profileId, const QString &displayName)
 {
     if (!m_backend)
         return;
-    watchProfileRequest(QStringLiteral("bind"),
+    watchProfileRequest(displayName.isNull() ? QStringLiteral("bind") : QStringLiteral("register"),
                         m_backend->resolveCharacterIdentity(identityId, QStringLiteral("BIND"), profileId,
-                                                            ipc::newRequestId()),
+                                                            ipc::newRequestId(), displayName),
                         {}, true);
 }
 

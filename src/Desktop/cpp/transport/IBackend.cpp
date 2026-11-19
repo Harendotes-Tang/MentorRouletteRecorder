@@ -472,13 +472,15 @@ BackendReply *IBackend::forgetCharacterIdentities(int profileId, const QString &
 }
 
 BackendReply *IBackend::resolveCharacterIdentity(int identityId, const QString &action, int profileId,
-                                                 const QString &requestId)
+                                                 const QString &requestId, const QString &displayName)
 {
     QJsonObject payload;
     payload.insert(QStringLiteral("identity_id"), identityId);
     payload.insert(QStringLiteral("action"), action);
     if (profileId > 0)
         payload.insert(QStringLiteral("profile_id"), profileId);
+    if (!displayName.isNull())
+        payload.insert(QStringLiteral("display_name"), displayName);
     return requestWithId(QStringLiteral("ResolveCharacterIdentity"), payload, requestId);
 }
 
@@ -706,6 +708,14 @@ BackendReply *IBackend::startUpdateDownload(bool reinstall)
 BackendReply *IBackend::cancelUpdateDownload()
 {
     return request(QStringLiteral("CancelUpdateDownload"));
+}
+
+BackendReply *IBackend::resolveUpdateMirrorOffer(const QString &offerId, bool useGitCode)
+{
+    return request(QStringLiteral("ResolveUpdateMirrorOffer"), {
+        { QStringLiteral("offer_id"), offerId },
+        { QStringLiteral("use_gitcode"), useGitCode },
+    });
 }
 
 } // namespace mr

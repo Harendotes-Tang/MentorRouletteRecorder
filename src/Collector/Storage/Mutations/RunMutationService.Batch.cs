@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using System.Globalization;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Application.Mutations;
@@ -12,6 +13,7 @@ public sealed partial class RunMutationService
 {
     /// <summary>Batch action that files the selected runs under one character profile, or under none.</summary>
     public const string AssignProfileAction = "assign_profile";
+    public const string MoveRegionAction = "move_region";
 
     /// <summary>Checks every selected revision and deletion state before changing any row.</summary>
     public BatchRunMutationOutcome BatchMutateRuns(BatchMutateRunsCommand command)
@@ -19,20 +21,25 @@ public sealed partial class RunMutationService
         ArgumentNullException.ThrowIfNull(command);
         if (!Guid.TryParseExact(command.RequestId, "D", out _))
             throw CollectorException.BadRequest(CollectorTexts.IpcFieldNotUuid("request_id"), "request_id");
-        if (command.Action is not ("soft_delete" or "restore" or "purge" or AssignProfileAction))
+        if (command.Action is not ("soft_delete" or "restore" or "purge" or AssignProfileAction or MoveRegionAction))
             throw CollectorException.BadRequest(
-                CollectorTexts.IpcFieldOnlyValues("action", "soft_delete / restore / purge / assign_profile"), "action");
+                CollectorTexts.IpcFieldOnlyValues("action", "soft_delete / restore / purge / assign_profile / move_region"), "action");
         var reason = RunMutationValidation.RequireReason(command.Reason);
-        HistoryRetentionService.ValidateIds(command.Runs.Select(run => run.RunId).ToArray());
-        if (command.Runs.Any(run => run.ExpectedRevision < 1))
-            throw CollectorException.BadRequest(CollectorTexts.IpcFieldAtLeast("expected_revision", 1), "runs");
-        var sorted = command.Runs.OrderBy(run => run.RunId, StringComparer.Ordinal).ToArray();
+        var sorted = ValidateBatchTargets(command.Runs);
+        var migration = command.Migration;
+        if (command.Action == MoveRegionAction && migration is null)
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldMissing("region"), "region");
         var fingerprint = MutationSnapshotCodec.Fingerprint("BatchMutateRuns", command.Action, reason,
-            string.Join(',', sorted.Select(run => run.RunId + ":" + run.ExpectedRevision.ToString(System.Globalization.CultureInfo.InvariantCulture))));
+            string.Join(',', sorted.Select(run => run.RunId + ":" + run.ExpectedRevision.ToString(CultureInfo.InvariantCulture))));
         // The three older actions keep the fingerprint their stored receipts were written with.
         if (command.Action == AssignProfileAction)
             fingerprint = MutationSnapshotCodec.Fingerprint(fingerprint,
-                command.ProfileId?.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                command.ProfileId?.ToString(CultureInfo.InvariantCulture));
+        if (command.Action == MoveRegionAction && migration is not null)
+            fingerprint = MutationSnapshotCodec.Fingerprint(fingerprint, EnumWire<Region>.Format(migration.Region),
+                migration.ProfileId.ToString(CultureInfo.InvariantCulture),
+                migration.ExpectedBaseline.ToString(CultureInfo.InvariantCulture),
+                migration.BaselineOverlap.ToString(CultureInfo.InvariantCulture));
         var committed = _database.RunInTransaction(tx =>
         {
             var stored = _idempotency.TryGetResponse(command.RequestId, tx);
@@ -47,9 +54,8 @@ public sealed partial class RunMutationService
                 throw CollectorException.ExpiredIdempotencyResponse(command.RequestId);
             var runs = sorted.Select(target =>
             {
-                var run = Load(target.RunId, tx); RequireRevision(run, target.ExpectedRevision);
-                // A run keeps its owner in the recycle bin, so both live and deleted rows may be moved.
-                if (command.Action == AssignProfileAction) return run;
+                var run = LoadBatchTarget(target, tx);
+                if (command.Action is AssignProfileAction or MoveRegionAction) return run;
                 if (command.Action == "soft_delete" && run.SoftDeleted)
                     throw new CollectorException(ErrorCodes.AlreadyDeleted, CollectorTexts.HistoryBatchAlreadyDeleted(),
                         new Dictionary<string, object?> { ["run_id"] = run.RunId });
@@ -65,6 +71,10 @@ public sealed partial class RunMutationService
             else if (command.Action == AssignProfileAction)
             {
                 runs = AssignProfile(runs, command.ProfileId, reason, command.RequestId, fingerprint, tx);
+            }
+            else if (command.Action == MoveRegionAction && migration is not null)
+            {
+                MoveRegion(runs, migration, reason, command.RequestId, fingerprint, tx);
             }
             else
             {
@@ -83,6 +93,21 @@ public sealed partial class RunMutationService
         });
         if (committed.Action == "purge") _onPurged?.Invoke(committed.RunIds);
         return committed;
+    }
+
+    private static BatchRunTarget[] ValidateBatchTargets(IReadOnlyList<BatchRunTarget> targets)
+    {
+        HistoryRetentionService.ValidateIds(targets.Select(target => target.RunId).ToArray());
+        if (targets.Any(target => target.ExpectedRevision < 1))
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldAtLeast("expected_revision", 1), "runs");
+        return targets.OrderBy(target => target.RunId, StringComparer.Ordinal).ToArray();
+    }
+
+    private MentorRun LoadBatchTarget(BatchRunTarget target, SqliteTransaction transaction)
+    {
+        var run = Load(target.RunId, transaction);
+        RequireRevision(run, target.ExpectedRevision);
+        return run;
     }
 
     /// <summary>

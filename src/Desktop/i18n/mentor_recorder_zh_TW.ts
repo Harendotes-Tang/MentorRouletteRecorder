@@ -2172,6 +2172,18 @@ SHA256：%3</translation>
         <source>不统计这个角色</source>
         <translation>不統計這個角色</translation>
     </message>
+    <message>
+        <source>如果认错了角色，可在「设置 › 成就」解除绑定。</source>
+        <translation>如果認錯了角色，可以在「設定 › 成就」解除綁定。</translation>
+    </message>
+    <message>
+        <source>输入角色名并确认绑定「原有记录」。已有记录和成就进度会保留。</source>
+        <translation>輸入角色名稱並確認綁定「原有紀錄」。已有紀錄與成就進度會保留。</translation>
+    </message>
+    <message>
+        <source>登记并绑定原有记录</source>
+        <translation>登記並綁定原有紀錄</translation>
+    </message>
 </context>
 <context>
     <name>CharacterNames</name>
@@ -2246,6 +2258,14 @@ SHA256：%3</translation>
         <source>保存</source>
         <translation>儲存</translation>
     </message>
+    <message>
+        <source>登记原有角色</source>
+        <translation>登記原有角色</translation>
+    </message>
+    <message>
+        <source>确认绑定</source>
+        <translation>確認綁定</translation>
+    </message>
 </context>
 <context>
     <name>CharacterSelector</name>
@@ -2268,6 +2288,41 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>CollectorText</name>
+    <message>
+        <source>只能迁移尚未删除的导入记录和手动补录。</source>
+        <comment>history.region.ineligible</comment>
+        <translation>只能遷移尚未刪除的匯入記錄和手動補錄。</translation>
+    </message>
+    <message>
+        <source>一次只能迁移同一区服的记录。</source>
+        <comment>history.region.mixed_source</comment>
+        <translation>一次只能遷移同一區服的記錄。</translation>
+    </message>
+    <message>
+        <source>请选择与来源不同的目标区服。</source>
+        <comment>history.region.different_target</comment>
+        <translation>請選擇與來源不同的目標區服。</translation>
+    </message>
+    <message>
+        <source>至少一条记录与目标角色或本批另一条记录重复。请检查所选记录后重新预览。</source>
+        <comment>history.region.duplicate</comment>
+        <translation>至少一筆記錄與目標角色或本批另一筆記錄重複。請檢查所選記錄後重新預覽。</translation>
+    </message>
+    <message>
+        <source>目标角色的起始次数已变化，请重新预览。</source>
+        <comment>history.region.baseline_changed</comment>
+        <translation>目標角色的起始次數已變更，請重新預覽。</translation>
+    </message>
+    <message>
+        <source>已包含的通关数不能超过计入进度的通关数或目标起始次数。</source>
+        <comment>history.region.invalid_overlap</comment>
+        <translation>已包含的通關數不能超過計入進度的通關數或目標起始次數。</translation>
+    </message>
+    <message>
+        <source>这条修订属于批量迁移，不能逐条撤销。需要再次变更区服时，请使用批量迁移。</source>
+        <comment>mutation.undo.region_migration</comment>
+        <translation>這筆修訂屬於批次遷移，無法逐筆復原。需要再次變更區服時，請使用批次遷移。</translation>
+    </message>
     <message>
         <source>未知副本</source>
         <comment>name.unknown_duty</comment>
@@ -2895,6 +2950,26 @@ SHA256：%3</translation>
         <source>验证失败，文件可能不完整。详情见本机诊断日志。</source>
         <comment>capture.validation.failed</comment>
         <translation>驗證失敗，檔案可能不完整。詳情請見本機診斷記錄檔。</translation>
+    </message>
+    <message>
+        <source>Npcap 没能打开或读取抓包网卡，采证没有读到数据。请把 Npcap 更新到最新版后再试；仍然失败时，在第 1 步改选实际上网用的网卡。</source>
+        <comment>capture.validation.failed_npcap</comment>
+        <translation>Npcap 無法開啟或讀取擷取用的網卡，採證沒有讀到資料。請將 Npcap 更新到最新版後再試；若仍然失敗，請在第 1 步改選實際上網使用的網卡。</translation>
+    </message>
+    <message>
+        <source>本软件还读不懂这个游戏版本的数据，采证没有读到内容。这需要维护者适配，请照常回传已有的文件和诊断报告。</source>
+        <comment>capture.validation.failed_game_data_format</comment>
+        <translation>本軟體還無法讀懂這個遊戲版本的資料，採證沒有讀到內容。這需要維護者適配，請照常回傳已有的檔案和診斷報告。</translation>
+    </message>
+    <message>
+        <source>读不到游戏主程序，采证没有读到数据。请确认游戏仍在运行后再试；仍然失败时，请回传已有的文件和诊断报告。</source>
+        <comment>capture.validation.failed_game_executable</comment>
+        <translation>讀不到遊戲主程式，採證沒有讀到資料。請確認遊戲仍在執行後再試；若仍然失敗，請回傳已有的檔案和診斷報告。</translation>
+    </message>
+    <message>
+        <source>读不到游戏的网络连接信息，采证没有读到数据。请稍后再试；仍然失败时，请回传已有的文件和诊断报告。</source>
+        <comment>capture.validation.failed_network_data</comment>
+        <translation>讀不到遊戲的網路連線資訊，採證沒有讀到資料。請稍後再試；若仍然失敗，請回傳已有的檔案和診斷報告。</translation>
     </message>
     <message>
         <source>尚未开始验证。</source>
@@ -5409,6 +5484,10 @@ SHA256：%3</translation>
 <context>
     <name>DisclosureDialog</name>
     <message>
+        <source>GitHub 持续低速时，软件会探测 GitCode 镜像。如果预计能更早下载完成，软件会先询问再切换。</source>
+        <translation>GitHub 持續低速時，軟體會測試 GitCode 鏡像。如果預計能更早下載完成，會先詢問再切換。</translation>
+    </message>
+    <message>
         <source>隐私说明</source>
         <translation>隱私說明</translation>
     </message>
@@ -7251,6 +7330,10 @@ SHA256：%3</translation>
 <context>
     <name>HistoryPage</name>
     <message>
+        <source>迁移区服</source>
+        <translation>遷移區服</translation>
+    </message>
+    <message>
         <source>中途加入</source>
         <translation>中途加入</translation>
     </message>
@@ -7539,6 +7622,10 @@ SHA256：%3</translation>
     <message>
         <source>已勾选 %1 条 · 翻页保留</source>
         <translation>已勾選 %1 筆 · 換頁時保留</translation>
+    </message>
+    <message>
+        <source>勾选全部 %1 条</source>
+        <translation>勾選全部 %1 筆</translation>
     </message>
     <message>
         <source>上一页</source>
@@ -8212,6 +8299,14 @@ SHA256：%3</translation>
         <translation>截圖或表格上的時間所在地區</translation>
     </message>
     <message>
+        <source>来源没有注明区服的记录归入的区服</source>
+        <translation>來源沒有註明區服的記錄歸入的區服</translation>
+    </message>
+    <message>
+        <source>来源没有注明区服的记录会归入这里选的区服；截图识别的记录固定归入国服。读取后仍可逐条或批量修改。</source>
+        <translation>來源沒有註明區服的記錄會歸入這裡選的區服；截圖辨識的記錄固定歸入國服。讀取後仍可逐筆或批次修改。</translation>
+    </message>
+    <message>
         <source>中国大陆来源通常使用北京时间，不会填补游戏进出时间。</source>
         <translation>中國大陸的來源通常使用北京時間，不會填補遊戲進出時間。</translation>
     </message>
@@ -8470,6 +8565,22 @@ SHA256：%3</translation>
 <context>
     <name>Main</name>
     <message>
+        <source>切换到 GitCode 下载？</source>
+        <translation>切換到 GitCode 下載？</translation>
+    </message>
+    <message>
+        <source>GitCode 预计更早下载完成。切换后会从头下载，等待选择时 GitHub 会继续下载。</source>
+        <translation>GitCode 預計能更早下載完成。切換後會從頭下載，等待選擇時 GitHub 會繼續下載。</translation>
+    </message>
+    <message>
+        <source>继续 GitHub</source>
+        <translation>繼續使用 GitHub</translation>
+    </message>
+    <message>
+        <source>切换到 GitCode</source>
+        <translation>切換到 GitCode</translation>
+    </message>
+    <message>
         <source>FF14 导随记录器</source>
         <translation>FF14 導隨記錄器</translation>
     </message>
@@ -8638,6 +8749,26 @@ SHA256：%3</translation>
     <message>
         <source>对照核对</source>
         <translation>對照核對</translation>
+    </message>
+    <message>
+        <source>意见反馈</source>
+        <translation>意見回饋</translation>
+    </message>
+    <message>
+        <source>在 GitHub 反馈</source>
+        <translation>在 GitHub 回饋</translation>
+    </message>
+    <message>
+        <source>写邮件</source>
+        <translation>寫電子郵件</translation>
+    </message>
+    <message>
+        <source>复制邮箱</source>
+        <translation>複製電子郵件地址</translation>
+    </message>
+    <message>
+        <source>没能打开邮件应用。可以复制邮箱后手动发邮件。</source>
+        <translation>無法開啟郵件應用程式。可以複製電子郵件地址後手動寄送。</translation>
     </message>
     <message>
         <source>FF14</source>
@@ -9318,6 +9449,18 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>RecordingWarningWindow</name>
+    <message>
+        <source>导随记录器 · 自动记录已恢复</source>
+        <translation>導隨記錄器 · 自動記錄已恢復</translation>
+    </message>
+    <message>
+        <source>自动记录已恢复</source>
+        <translation>自動記錄已恢復</translation>
+    </message>
+    <message>
+        <source>已重新读取到游戏数据，可以继续自动记录。</source>
+        <translation>已重新讀取到遊戲資料，可以繼續自動記錄。</translation>
+    </message>
     <message>
         <source>导随记录器 · 自动记录暂不可用</source>
         <translation>導隨記錄器 · 自動記錄暫時無法使用</translation>
@@ -11225,6 +11368,10 @@ SHA256：%3</translation>
         <source>保存</source>
         <translation>儲存</translation>
     </message>
+    <message>
+        <source>尚未绑定游戏角色。</source>
+        <translation>尚未綁定遊戲角色。</translation>
+    </message>
 </context>
 <context>
     <name>SettingsPage</name>
@@ -11848,6 +11995,14 @@ SHA256：%3</translation>
     <message>
         <source>没能打开浏览器，请手动访问 https://npcap.com 下载驱动。</source>
         <translation>無法開啟瀏覽器，請手動前往 https://npcap.com 下載驅動程式。</translation>
+    </message>
+    <message>
+        <source>没能打开浏览器，请在 GitHub 的 MentorRouletteRecorder 仓库中提交反馈。</source>
+        <translation>無法開啟瀏覽器，請到 GitHub 的 MentorRouletteRecorder 儲存庫提交回饋。</translation>
+    </message>
+    <message>
+        <source>导随记录器意见反馈</source>
+        <translation>導隨記錄器意見回饋</translation>
     </message>
     <message>
         <source>后台服务不可用，暂时不能自动记录。%1</source>
@@ -12656,6 +12811,22 @@ SHA256：%3</translation>
 <context>
     <name>mr::Formatters</name>
     <message>
+        <source>国服</source>
+        <translation>中國服</translation>
+    </message>
+    <message>
+        <source>繁中服</source>
+        <translation>繁中服</translation>
+    </message>
+    <message>
+        <source>国际服</source>
+        <translation>國際服</translation>
+    </message>
+    <message>
+        <source>区服</source>
+        <translation>區服</translation>
+    </message>
+    <message>
         <source>副本开始</source>
         <translation>副本開始</translation>
     </message>
@@ -13149,12 +13320,24 @@ SHA256：%3</translation>
 <context>
     <name>mr::HistoryController</name>
     <message>
+        <source>已迁移 %1 条记录的区服。</source>
+        <translation>已遷移 %1 筆記錄的區服。</translation>
+    </message>
+    <message>
         <source>批量操作尚未完成，请稍后调整筛选。</source>
         <translation>批次操作尚未完成，請稍後再調整篩選。</translation>
     </message>
     <message>
         <source>一次最多勾选 2000 条记录，请分批操作。</source>
         <translation>一次最多勾選 2000 筆記錄，請分批操作。</translation>
+    </message>
+    <message>
+        <source>符合筛选的记录超过 2000 条，请先缩小筛选范围再全部勾选。</source>
+        <translation>符合篩選的記錄超過 2000 筆，請先縮小篩選範圍再全部勾選。</translation>
+    </message>
+    <message>
+        <source>暂时读不到全部记录，没有改动勾选，请稍后再试。</source>
+        <translation>暫時讀不到全部記錄，勾選沒有變動，請稍後再試。</translation>
     </message>
     <message>
         <source>请选择有效操作并填写 1–500 字原因。</source>
@@ -14844,6 +15027,10 @@ SHA256：%3</translation>
 <context>
     <name>mr::UpdateController</name>
     <message>
+        <source>未能确认是否已切换下载源，请查看下载状态。</source>
+        <translation>無法確認是否已切換下載來源，請查看下載狀態。</translation>
+    </message>
+    <message>
         <source>有新版本 %1</source>
         <translation>有新版本 %1</translation>
     </message>
@@ -15010,6 +15197,61 @@ SHA256：%3</translation>
     <message>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>安裝程式沒有啟動，可能是未通過 Windows 的安裝確認。本軟體會繼續執行，可再點「立即安裝」，或點「在瀏覽器中下載」。</translation>
+    </message>
+</context>
+<context>
+    <name>HistoryRegionMigrationDialog</name>
+    <message>
+        <source>从 %2 迁移 %1 条记录</source>
+        <translation>從 %2 遷移 %1 筆記錄</translation>
+    </message>
+    <message>
+        <source>请选择目标区服</source>
+        <translation>請選擇目標區服</translation>
+    </message>
+    <message>
+        <source>目标区服</source>
+        <translation>目標區服</translation>
+    </message>
+    <message>
+        <source>请选择目标角色</source>
+        <translation>請選擇目標角色</translation>
+    </message>
+    <message>
+        <source>目标角色</source>
+        <translation>目標角色</translation>
+    </message>
+    <message>
+        <source>目标区服还没有角色，可在「设置 › 成就」中添加。</source>
+        <translation>目標區服還沒有角色，可在「設定 › 成就」中新增。</translation>
+    </message>
+    <message>
+        <source>%1 条通关将计入目标角色。目标角色的起始次数为 %2。</source>
+        <translation>%1 筆通關將計入目標角色。目標角色的起始次數為 %2。</translation>
+    </message>
+    <message>
+        <source>已包含在起始次数中的通关数（0–%1）</source>
+        <translation>已包含在起始次數中的通關數（0–%1）</translation>
+    </message>
+    <message>
+        <source>已包含的通关数</source>
+        <translation>已包含的通關數</translation>
+    </message>
+    <message>
+        <source>目标起始次数变为 %1，目标成就进度增加 %2。来源起始次数保持原值。</source>
+        <translation>目標起始次數變為 %1，目標成就進度增加 %2。來源起始次數維持原值。</translation>
+    </message>
+    <message>
+        <source>正在预览…</source>
+        <translation>正在預覽…</translation>
+    </message>
+    <message>
+        <source>预览</source>
+        <translation>預覽</translation>
+    </message>
+    <message>
+        <source>确认迁移</source>
+        <translation>確認遷移</translation>
     </message>
 </context>
 </TS>

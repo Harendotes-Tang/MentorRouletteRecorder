@@ -2172,6 +2172,18 @@ SHA256：%3</translation>
         <source>不统计这个角色</source>
         <translation>このキャラクターは集計しない</translation>
     </message>
+    <message>
+        <source>如果认错了角色，可在「设置 › 成就」解除绑定。</source>
+        <translation>別のキャラクターに紐づけられている場合は、「設定 › アチーブメント」で解除できます。</translation>
+    </message>
+    <message>
+        <source>输入角色名并确认绑定「原有记录」。已有记录和成就进度会保留。</source>
+        <translation>キャラクター名を入力し、「既存の記録」との紐づけを確認してください。記録とアチーブメントの進捗は引き継がれます。</translation>
+    </message>
+    <message>
+        <source>登记并绑定原有记录</source>
+        <translation>既存の記録と紐づける</translation>
+    </message>
 </context>
 <context>
     <name>CharacterNames</name>
@@ -2246,6 +2258,14 @@ SHA256：%3</translation>
         <source>保存</source>
         <translation>保存</translation>
     </message>
+    <message>
+        <source>登记原有角色</source>
+        <translation>既存のキャラクターを登録</translation>
+    </message>
+    <message>
+        <source>确认绑定</source>
+        <translation>紐づけを確定</translation>
+    </message>
 </context>
 <context>
     <name>CharacterSelector</name>
@@ -2268,6 +2288,41 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>CollectorText</name>
+    <message>
+        <source>只能迁移尚未删除的导入记录和手动补录。</source>
+        <comment>history.region.ineligible</comment>
+        <translation>削除されていないインポート記録と手動記録のみ移行できます。</translation>
+    </message>
+    <message>
+        <source>一次只能迁移同一区服的记录。</source>
+        <comment>history.region.mixed_source</comment>
+        <translation>一度に移行できるのは同じ地域の記録のみです。</translation>
+    </message>
+    <message>
+        <source>请选择与来源不同的目标区服。</source>
+        <comment>history.region.different_target</comment>
+        <translation>移行元とは異なる地域を選択してください。</translation>
+    </message>
+    <message>
+        <source>至少一条记录与目标角色或本批另一条记录重复。请检查所选记录后重新预览。</source>
+        <comment>history.region.duplicate</comment>
+        <translation>移行先または選択内に重複する記録があります。選択内容を確認し、再度プレビューしてください。</translation>
+    </message>
+    <message>
+        <source>目标角色的起始次数已变化，请重新预览。</source>
+        <comment>history.region.baseline_changed</comment>
+        <translation>移行先の開始回数が変わりました。再度プレビューしてください。</translation>
+    </message>
+    <message>
+        <source>已包含的通关数不能超过计入进度的通关数或目标起始次数。</source>
+        <comment>history.region.invalid_overlap</comment>
+        <translation>重複するクリア数は、進捗に加算される数と移行先の開始回数の両方以下にしてください。</translation>
+    </message>
+    <message>
+        <source>这条修订属于批量迁移，不能逐条撤销。需要再次变更区服时，请使用批量迁移。</source>
+        <comment>mutation.undo.region_migration</comment>
+        <translation>この変更は一括移行の一部です。地域を再度変更する場合は一括移行を使用してください。</translation>
+    </message>
     <message>
         <source>未知副本</source>
         <comment>name.unknown_duty</comment>
@@ -2895,6 +2950,26 @@ SHA256：%3</translation>
         <source>验证失败，文件可能不完整。详情见本机诊断日志。</source>
         <comment>capture.validation.failed</comment>
         <translation>検証に失敗しました。ファイルが不完全な可能性があります。詳細はこの PC の診断ログを確認してください。</translation>
+    </message>
+    <message>
+        <source>Npcap 没能打开或读取抓包网卡，采证没有读到数据。请把 Npcap 更新到最新版后再试；仍然失败时，在第 1 步改选实际上网用的网卡。</source>
+        <comment>capture.validation.failed_npcap</comment>
+        <translation>Npcap がキャプチャ用のネットワークアダプターを開けないか読み取れなかったため、データを取得できませんでした。Npcap を最新版に更新してからもう一度お試しください。それでも失敗する場合は、手順 1 で実際に通信に使っているアダプターを選んでください。</translation>
+    </message>
+    <message>
+        <source>本软件还读不懂这个游戏版本的数据，采证没有读到内容。这需要维护者适配，请照常回传已有的文件和诊断报告。</source>
+        <comment>capture.validation.failed_game_data_format</comment>
+        <translation>このゲームバージョンのデータはまだ読み取れないため、内容を取得できませんでした。メンテナーによる対応が必要です。いまあるファイルと診断レポートをそのままお送りください。</translation>
+    </message>
+    <message>
+        <source>读不到游戏主程序，采证没有读到数据。请确认游戏仍在运行后再试；仍然失败时，请回传已有的文件和诊断报告。</source>
+        <comment>capture.validation.failed_game_executable</comment>
+        <translation>ゲーム本体のプログラムを読み取れなかったため、データを取得できませんでした。ゲームが起動していることを確認してからもう一度お試しください。それでも失敗する場合は、いまあるファイルと診断レポートをお送りください。</translation>
+    </message>
+    <message>
+        <source>读不到游戏的网络连接信息，采证没有读到数据。请稍后再试；仍然失败时，请回传已有的文件和诊断报告。</source>
+        <comment>capture.validation.failed_network_data</comment>
+        <translation>ゲームのネットワーク接続情報を読み取れなかったため、データを取得できませんでした。しばらくしてからもう一度お試しください。それでも失敗する場合は、いまあるファイルと診断レポートをお送りください。</translation>
     </message>
     <message>
         <source>尚未开始验证。</source>
@@ -5409,6 +5484,10 @@ SHA256：%3</translation>
 <context>
     <name>DisclosureDialog</name>
     <message>
+        <source>GitHub 持续低速时，软件会探测 GitCode 镜像。如果预计能更早下载完成，软件会先询问再切换。</source>
+        <translation>GitHub の低速状態が続くと、GitCode ミラーを試します。早く完了する見込みがあれば、切り替える前に確認します。</translation>
+    </message>
+    <message>
         <source>隐私说明</source>
         <translation>プライバシーについて</translation>
     </message>
@@ -7251,6 +7330,10 @@ SHA256：%3</translation>
 <context>
     <name>HistoryPage</name>
     <message>
+        <source>迁移区服</source>
+        <translation>サーバー地域を移行</translation>
+    </message>
+    <message>
         <source>中途加入</source>
         <translation>途中参加</translation>
     </message>
@@ -7539,6 +7622,10 @@ SHA256：%3</translation>
     <message>
         <source>已勾选 %1 条 · 翻页保留</source>
         <translation>%1 件チェック中 · ページを移動しても保持</translation>
+    </message>
+    <message>
+        <source>勾选全部 %1 条</source>
+        <translation>%1 件すべてチェック</translation>
     </message>
     <message>
         <source>上一页</source>
@@ -8212,6 +8299,14 @@ SHA256：%3</translation>
         <translation>スクリーンショットや表の時刻の地域</translation>
     </message>
     <message>
+        <source>来源没有注明区服的记录归入的区服</source>
+        <translation>ソースにサーバー地域の記載がない記録の振り分け先</translation>
+    </message>
+    <message>
+        <source>来源没有注明区服的记录会归入这里选的区服；截图识别的记录固定归入国服。读取后仍可逐条或批量修改。</source>
+        <translation>ソースに地域の記載がない記録は、ここで選んだ地域に振り分けられます。スクリーンショットから読み取った記録は常に中国版になります。読み込み後も 1 件ずつ、またはまとめて変更できます。</translation>
+    </message>
+    <message>
         <source>中国大陆来源通常使用北京时间，不会填补游戏进出时间。</source>
         <translation>中国本土のデータは通常、北京時間です。コンテンツへの出入りの時刻を補うためには使いません。</translation>
     </message>
@@ -8470,6 +8565,22 @@ SHA256：%3</translation>
 <context>
     <name>Main</name>
     <message>
+        <source>切换到 GitCode 下载？</source>
+        <translation>GitCode に切り替えてダウンロードしますか？</translation>
+    </message>
+    <message>
+        <source>GitCode 预计更早下载完成。切换后会从头下载，等待选择时 GitHub 会继续下载。</source>
+        <translation>GitCode の方が早く完了する見込みです。切り替えると最初からダウンロードします。選択するまでは GitHub からのダウンロードが続きます。</translation>
+    </message>
+    <message>
+        <source>继续 GitHub</source>
+        <translation>GitHub で続ける</translation>
+    </message>
+    <message>
+        <source>切换到 GitCode</source>
+        <translation>GitCode に切り替える</translation>
+    </message>
+    <message>
         <source>FF14 导随记录器</source>
         <translation>FF14 メンターレコーダー</translation>
     </message>
@@ -8638,6 +8749,26 @@ SHA256：%3</translation>
     <message>
         <source>对照核对</source>
         <translation>照合チェック</translation>
+    </message>
+    <message>
+        <source>意见反馈</source>
+        <translation>フィードバック</translation>
+    </message>
+    <message>
+        <source>在 GitHub 反馈</source>
+        <translation>GitHub でフィードバック</translation>
+    </message>
+    <message>
+        <source>写邮件</source>
+        <translation>メールを書く</translation>
+    </message>
+    <message>
+        <source>复制邮箱</source>
+        <translation>メールアドレスをコピー</translation>
+    </message>
+    <message>
+        <source>没能打开邮件应用。可以复制邮箱后手动发邮件。</source>
+        <translation>メールアプリを開けませんでした。アドレスをコピーしてメールを送信できます。</translation>
     </message>
     <message>
         <source>FF14</source>
@@ -9318,6 +9449,18 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>RecordingWarningWindow</name>
+    <message>
+        <source>导随记录器 · 自动记录已恢复</source>
+        <translation>メンタールーレット記録 · 自動記録が復旧しました</translation>
+    </message>
+    <message>
+        <source>自动记录已恢复</source>
+        <translation>自動記録が復旧しました</translation>
+    </message>
+    <message>
+        <source>已重新读取到游戏数据，可以继续自动记录。</source>
+        <translation>ゲームデータを再び読み取れるようになり、自動記録を再開できます。</translation>
+    </message>
     <message>
         <source>导随记录器 · 自动记录暂不可用</source>
         <translation>メンタールーレット記録 · 自動記録を利用できません</translation>
@@ -11225,6 +11368,10 @@ SHA256：%3</translation>
         <source>保存</source>
         <translation>保存</translation>
     </message>
+    <message>
+        <source>尚未绑定游戏角色。</source>
+        <translation>ゲーム内キャラクターはまだ紐づけられていません。</translation>
+    </message>
 </context>
 <context>
     <name>SettingsPage</name>
@@ -11848,6 +11995,14 @@ SHA256：%3</translation>
     <message>
         <source>没能打开浏览器，请手动访问 https://npcap.com 下载驱动。</source>
         <translation>ブラウザを開けませんでした。https://npcap.com に手動でアクセスしてドライバーをダウンロードしてください。</translation>
+    </message>
+    <message>
+        <source>没能打开浏览器，请在 GitHub 的 MentorRouletteRecorder 仓库中提交反馈。</source>
+        <translation>ブラウザーを開けませんでした。GitHub の MentorRouletteRecorder リポジトリからフィードバックを送信してください。</translation>
+    </message>
+    <message>
+        <source>导随记录器意见反馈</source>
+        <translation>メンタールーレット記録ツールへのフィードバック</translation>
     </message>
     <message>
         <source>后台服务不可用，暂时不能自动记录。%1</source>
@@ -12656,6 +12811,22 @@ SHA256：%3</translation>
 <context>
     <name>mr::Formatters</name>
     <message>
+        <source>国服</source>
+        <translation>中国版</translation>
+    </message>
+    <message>
+        <source>繁中服</source>
+        <translation>繁体字版</translation>
+    </message>
+    <message>
+        <source>国际服</source>
+        <translation>グローバル版</translation>
+    </message>
+    <message>
+        <source>区服</source>
+        <translation>サーバー地域</translation>
+    </message>
+    <message>
         <source>副本开始</source>
         <translation>コンテンツ開始</translation>
     </message>
@@ -13149,12 +13320,24 @@ SHA256：%3</translation>
 <context>
     <name>mr::HistoryController</name>
     <message>
+        <source>已迁移 %1 条记录的区服。</source>
+        <translation>%1 件の記録を移行しました。</translation>
+    </message>
+    <message>
         <source>批量操作尚未完成，请稍后调整筛选。</source>
         <translation>一括操作がまだ終わっていません。しばらくしてから絞り込みを変更してください。</translation>
     </message>
     <message>
         <source>一次最多勾选 2000 条记录，请分批操作。</source>
         <translation>一度にチェックできる記録は 2000 件までです。何回かに分けて操作してください。</translation>
+    </message>
+    <message>
+        <source>符合筛选的记录超过 2000 条，请先缩小筛选范围再全部勾选。</source>
+        <translation>フィルターに一致する記録が 2000 件を超えています。条件を絞り込んでからすべてチェックしてください。</translation>
+    </message>
+    <message>
+        <source>暂时读不到全部记录，没有改动勾选，请稍后再试。</source>
+        <translation>すべての記録を読み込めませんでした。チェックは変更されていません。しばらくしてからもう一度お試しください。</translation>
     </message>
     <message>
         <source>请选择有效操作并填写 1–500 字原因。</source>
@@ -14844,6 +15027,10 @@ SHA256：%3</translation>
 <context>
     <name>mr::UpdateController</name>
     <message>
+        <source>未能确认是否已切换下载源，请查看下载状态。</source>
+        <translation>ダウンロード元の切り替えを確認できませんでした。ダウンロード状況を確認してください。</translation>
+    </message>
+    <message>
         <source>有新版本 %1</source>
         <translation>新しいバージョン %1 があります</translation>
     </message>
@@ -15010,6 +15197,61 @@ SHA256：%3</translation>
     <message>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>インストーラーが起動しませんでした。Windows のインストール確認で許可されなかった可能性があります。このアプリは実行を続けます。もう一度「今すぐインストール」を押すか、「ブラウザでダウンロード」を押してください。</translation>
+    </message>
+</context>
+<context>
+    <name>HistoryRegionMigrationDialog</name>
+    <message>
+        <source>从 %2 迁移 %1 条记录</source>
+        <translation>%2 の記録 %1 件を移行</translation>
+    </message>
+    <message>
+        <source>请选择目标区服</source>
+        <translation>移行先の地域を選択</translation>
+    </message>
+    <message>
+        <source>目标区服</source>
+        <translation>移行先の地域</translation>
+    </message>
+    <message>
+        <source>请选择目标角色</source>
+        <translation>移行先のキャラクターを選択</translation>
+    </message>
+    <message>
+        <source>目标角色</source>
+        <translation>移行先のキャラクター</translation>
+    </message>
+    <message>
+        <source>目标区服还没有角色，可在「设置 › 成就」中添加。</source>
+        <translation>「設定 › アチーブメント」でこの地域のキャラクターを追加できます。</translation>
+    </message>
+    <message>
+        <source>%1 条通关将计入目标角色。目标角色的起始次数为 %2。</source>
+        <translation>移行先のキャラクターに %1 回のクリアが加算されます。開始回数は %2 回です。</translation>
+    </message>
+    <message>
+        <source>已包含在起始次数中的通关数（0–%1）</source>
+        <translation>開始回数に含まれるクリア数（0～%1）</translation>
+    </message>
+    <message>
+        <source>已包含的通关数</source>
+        <translation>すでに含まれるクリア数</translation>
+    </message>
+    <message>
+        <source>目标起始次数变为 %1，目标成就进度增加 %2。来源起始次数保持原值。</source>
+        <translation>移行先の開始回数は %1 回になり、進捗は %2 回増えます。移行元の開始回数は変わりません。</translation>
+    </message>
+    <message>
+        <source>正在预览…</source>
+        <translation>確認中…</translation>
+    </message>
+    <message>
+        <source>预览</source>
+        <translation>プレビュー</translation>
+    </message>
+    <message>
+        <source>确认迁移</source>
+        <translation>移行を確定</translation>
     </message>
 </context>
 </TS>

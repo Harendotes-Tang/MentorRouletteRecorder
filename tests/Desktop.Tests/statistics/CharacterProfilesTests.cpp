@@ -332,7 +332,8 @@ private Q_SLOTS:
         QCOMPARE(app.ignoredCharacterIdentityCount(QStringLiteral("CN")), 0);
         QCOMPARE(app.characterIdentification(QStringLiteral("CN")), QStringLiteral("AUTOMATIC"));
         QCOMPARE(app.characterIdentification(QStringLiteral("TC")), QStringLiteral("MANUAL_REGION"));
-        QCOMPARE(app.characterIdentification(QStringLiteral("GLOBAL")), QString()); // never read
+        QCOMPARE(app.characterIdentification(QStringLiteral("GLOBAL")), QStringLiteral("MANUAL_REGION"));
+        QCOMPARE(app.characterIdentification(QStringLiteral("UNKNOWN")), QString()); // never read
         QVERIFY(app.characterIdentificationEnabled());
         QCOMPARE(app.characterProfilesForRegion(QStringLiteral("CN")).first().toMap()
                      .value(QStringLiteral("identity_count")).toInt(), 0);

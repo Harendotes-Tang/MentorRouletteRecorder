@@ -145,9 +145,14 @@ QString Formatters::npcapVersionLabel(const QVariant &version)
 
 QString Formatters::regionLabel(const QString &code)
 {
-    if (code == QLatin1String("CN")) return tr("国服 CN");
-    if (code == QLatin1String("TC")) return tr("繁中服 TC");
-    if (code == QLatin1String("GLOBAL")) return tr("国际服 GLOBAL");
+    return formatRegion(code, true);
+}
+
+QString Formatters::formatRegion(const QString &code, bool showCode)
+{
+    if (code == QLatin1String("CN")) return showCode ? tr("国服 CN") : tr("国服");
+    if (code == QLatin1String("TC")) return showCode ? tr("繁中服 TC") : tr("繁中服");
+    if (code == QLatin1String("GLOBAL")) return showCode ? tr("国际服 GLOBAL") : tr("国际服");
     if (code == QLatin1String("UNKNOWN")) return tr("未知区服");
     return tr("全部区服");
 }
@@ -391,6 +396,7 @@ QString Formatters::fieldLabel(const QString &field)
         {QStringLiteral("soft_deleted"), QT_TR_NOOP("删除状态")},
         {QStringLiteral("pending_review"), QT_TR_NOOP("待复核")},
         {QStringLiteral("profile_id"), QT_TR_NOOP("角色")},
+        {QStringLiteral("region"), QT_TR_NOOP("区服")},
     };
     const char *source = kLabels.value(field);
     return source ? tr(source) : field;
@@ -432,7 +438,7 @@ bool Formatters::revisionFieldVisible(const QString &field)
         QStringLiteral("note"),            QStringLiteral("soft_deleted"),
         QStringLiteral("pending_review"),  QStringLiteral("detection_confidence"),
         // Worded by the detail panel, which knows the characters' names.
-        QStringLiteral("source"),          QStringLiteral("profile_id"),
+        QStringLiteral("source"),          QStringLiteral("profile_id"), QStringLiteral("region"),
     };
     return kShown.contains(field);
 }
@@ -450,6 +456,8 @@ QString Formatters::revisionFieldValue(const QString &field, const QVariant &val
         return roleLabel(value.toString());
     if (field == QLatin1String("source"))
         return sourceLabel(value.toString());
+    if (field == QLatin1String("region"))
+        return formatRegion(value.toString(), false);
     if (field == QLatin1String("detection_confidence"))
         return confidenceLabel(value.toString());
     if (field == QLatin1String("duration_ms"))

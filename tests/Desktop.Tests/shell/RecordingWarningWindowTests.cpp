@@ -43,8 +43,8 @@ class WarningBackend final : public mr::MockBackend
 public:
     QJsonObject capture{{"ffxiv_running", true}, {"ffxiv_process_id", 123},
                         {"profile_status", "VERIFIED"}, {"state", "RUNNING"},
-                        {"silent_reason", "NONE"}, {"last_error_code", "NONE"},
-                        {"npcap_installed", true}};
+                        {"silent_reason", "NONE"}, {"last_error_code", "NONE"}, {"messages_decoded", 1},
+                        {"ipc_decoded", 1}, {"npcap_installed", true}};
 
     WarningBackend() { setRecordingFixture(QStringLiteral("listening")); }
 
@@ -109,6 +109,8 @@ struct Scene
     }
     void recovering()
     {
+        backend.capture.insert(QStringLiteral("messages_decoded"), 0);
+        backend.capture.insert(QStringLiteral("ipc_decoded"), 0);
         backend.capture.insert(QStringLiteral("silent_reason"), QStringLiteral("MIDSTREAM"));
         backend.capture.insert(QStringLiteral("path_recovery"), QJsonObject{{"state", "RECOVERING"}});
         app.recording()->observeCapture(backend.capture.toVariantMap());
@@ -120,6 +122,8 @@ struct Scene
     }
     void healthy()
     {
+        backend.capture.insert(QStringLiteral("messages_decoded"), 1);
+        backend.capture.insert(QStringLiteral("ipc_decoded"), 1);
         backend.capture.insert(QStringLiteral("silent_reason"), QStringLiteral("NONE"));
         backend.capture.insert(QStringLiteral("path_recovery"), QJsonObject{{"state", "NONE"}});
         app.recording()->observeCapture(backend.capture.toVariantMap());
@@ -156,6 +160,8 @@ private slots:
         QVERIFY2(scene.create(), qPrintable(scene.errors));
         QTRY_COMPARE(scene.app.recording()->state(), QStringLiteral("listening"));
         QVERIFY(scene.warning());
+        QVERIFY(!scene.app.recording()->recoveryPending());
+        QVERIFY(!scene.warning()->isVisible());
         scene.window()->hide();
         scene.recovering();
         QTRY_VERIFY(scene.warning()->isVisible());
@@ -181,13 +187,15 @@ private slots:
         QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
     }
 
-    void acknowledgementSurvivesFailureAndRecoveryClosesTheWindow()
+    void recoveryShowsAfterAnAcknowledgedFirstFailure()
     {
         Scene scene;
+        scene.backend.capture.insert(QStringLiteral("messages_decoded"), 0);
+        scene.backend.capture.insert(QStringLiteral("ipc_decoded"), 0);
+        scene.backend.capture.insert(QStringLiteral("silent_reason"), QStringLiteral("MIDSTREAM"));
+        scene.backend.capture.insert(QStringLiteral("path_recovery"), QJsonObject{{"state", "RECOVERING"}});
         QVERIFY2(scene.create(), qPrintable(scene.errors));
-        QTRY_COMPARE(scene.app.recording()->state(), QStringLiteral("listening"));
         scene.window()->hide();
-        scene.recovering();
         QTRY_VERIFY(scene.warning()->isVisible());
         const auto serial = scene.app.recording()->warningSerial();
         QVERIFY(scene.invokeButton(QStringLiteral("recordingWarningAcknowledge")));
@@ -198,12 +206,32 @@ private slots:
         QVERIFY(!scene.warning()->isVisible());
         QCOMPARE(scene.app.recording()->warningSerial(), serial);
         scene.healthy();
-        QTRY_VERIFY(!scene.app.recording()->warningActive());
+        QTRY_VERIFY(scene.warning()->isVisible());
+        QCOMPARE(scene.warning()->title(), QStringLiteral("导随记录器 · 自动记录已恢复"));
+        QVERIFY(!scene.app.recording()->warningActive());
+        const auto *diagnose = scene.warning()->findChild<QQuickItem *>(QStringLiteral("recordingWarningDiagnose"));
+        QVERIFY(diagnose && !diagnose->isVisible());
+        const auto *message = scene.warning()->findChild<QQuickItem *>(QStringLiteral("recordingWarningMessage"));
+        QVERIFY(message);
+        QCOMPARE(message->property("text").toString(), QStringLiteral("已重新读取到游戏数据，可以继续自动记录。"));
+        QTRY_VERIFY(message->property("paintedWidth").toReal() <= message->width() + 1);
+        QTRY_VERIFY(scene.warning()->screen()->availableGeometry().contains(scene.warning()->geometry()));
+        QVERIFY(scene.invokeButton(QStringLiteral("recordingWarningAcknowledge")));
+        QTRY_VERIFY(!scene.warning()->isVisible());
+        scene.healthy();
+        QTest::qWait(30);
+        QVERIFY(!scene.warning()->isVisible());
+
         scene.recovering();
         QTRY_VERIFY(scene.warning()->isVisible());
         QVERIFY(scene.app.recording()->warningSerial() > serial);
         scene.healthy();
-        QTRY_VERIFY(!scene.warning()->isVisible());
+        QTRY_COMPARE(scene.warning()->title(), QStringLiteral("导随记录器 · 自动记录已恢复"));
+        QVERIFY(scene.warning()->isVisible());
+        scene.recovering();
+        QTRY_COMPARE(scene.warning()->title(), QStringLiteral("导随记录器 · 自动记录暂不可用"));
+        QVERIFY(scene.warning()->isVisible());
+        QVERIFY(diagnose->isVisible());
         QVERIFY(!scene.window()->isVisible());
         QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
     }
@@ -275,7 +303,9 @@ private slots:
         QCOMPARE(::GetForegroundWindow(), foreground);
         QVERIFY(scene.warning()->isVisible());
         scene.healthy();
-        QTRY_VERIFY(!scene.warning()->isVisible());
+        QTRY_COMPARE(scene.warning()->title(), QStringLiteral("导随记录器 · 自动记录已恢复"));
+        QVERIFY(scene.warning()->isVisible());
+        QCOMPARE(::GetForegroundWindow(), foreground);
         // A direct blocker uses the legacy Dialog path as well; it must stay
         // deferred while this separate native window has the foreground.
         scene.failed();

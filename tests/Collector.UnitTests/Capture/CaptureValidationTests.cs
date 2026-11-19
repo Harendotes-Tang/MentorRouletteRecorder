@@ -217,13 +217,32 @@ public sealed class CaptureValidationTests
     }
 
     /// <summary>
-    /// Audit 2026-10-20, A2-3. A monitor fault often comes with a reason and no exception (an
-    /// adapter read that stopped, say). The validation dropped the reason, so its log line said
-    /// nothing at all while the player was told the details were in that log. The reason goes to
-    /// the local log only, never to the status.
+    /// A failure whose category tells the player what to do ends on that sentence; any
+    /// other failure keeps the general one.
+    /// </summary>
+    [Theory]
+    [InlineData(true, "capture.validation.failed_npcap")]
+    [InlineData(false, "capture.validation.failed")]
+    public void AFailedRoundSaysWhatThePlayerCanDoWhenItsCategoryIsKnown(bool npcapRead, string expectedKey)
+    {
+        using var db = new TestDatabase();
+        var source = new FakeCaptureSource
+        {
+            FaultTextDuringStart = npcapRead ? CollectorTexts.CaptureFaultNpcapRead() : CollectorTexts.CaptureFaultMonitor(),
+        };
+        using var controller = new CaptureValidationController(db.Path, new(), Services(() => Game(), source));
+        controller.Start("wifi");
+        Until(controller, "state", "FAILED");
+        Assert.Equal(expectedKey, controller.Snapshot()["message_ref"]!["key"]!.GetValue<string>());
+        Assert.Equal(npcapRead ? "NpcapRead" : "MonitorFault", controller.LastFailure!.Category.ToString());
+    }
+
+    /// <summary>
+    /// Logs a bounded classification even without an exception, and keeps upstream wording
+    /// out of the validation snapshot, log and report.
     /// </summary>
     [Fact]
-    public void ASourceFaultWithoutAnExceptionLogsItsReason()
+    public void ASourceFaultWithoutAnExceptionKeepsItsSafeCategory()
     {
         using var db = new TestDatabase();
         var directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.ValidationFault", Guid.NewGuid().ToString("N"));
@@ -238,13 +257,22 @@ public sealed class CaptureValidationTests
                     services with { Trace = services.Trace with { Logger = logger } });
                 controller.Start("wifi");
                 Until(controller, "state", "RECORDING");
-                source.Fault("simulated adapter read stop");
+                source.Fault(@"private trace D:\Games\ffxiv.exe 10.1.2.3");
                 Until(controller, "state", "FAILED");
 
-                Assert.Contains(File.ReadAllLines(logger.CurrentPath), line =>
-                    line.Contains("validation_failed", StringComparison.Ordinal) &&
-                    line.Contains("simulated adapter read stop", StringComparison.Ordinal));
-                Assert.DoesNotContain("simulated adapter read stop", controller.Snapshot().ToJsonString());
+                var lines = File.ReadAllText(logger.CurrentPath);
+                Assert.Contains("validation_failed", lines);
+                Assert.Contains("\"category\":\"MonitorFault\"", lines);
+                Assert.Contains("\"stage\":\"Recording\"", lines);
+                Assert.DoesNotContain("ffxiv.exe", lines);
+                using var formal = new CaptureController(new CaptureServices { EnableFollowTimer = false });
+                var report = SanitizedDiagnosticsReport.Build(formal.Snapshot() with
+                {
+                    LastValidationFailure = controller.LastFailure,
+                }, "test", db.Clock.UtcNow);
+                Assert.Equal("MonitorFault", report["last_validation_failure"]!["category"]!.GetValue<string>());
+                Assert.Equal("Recording", report["last_validation_failure"]!["stage"]!.GetValue<string>());
+                Assert.DoesNotContain("private trace", report.ToJsonString());
             }
         }
         finally

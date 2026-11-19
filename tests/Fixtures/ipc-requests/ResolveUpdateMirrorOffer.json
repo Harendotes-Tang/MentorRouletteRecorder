@@ -1,0 +1,9 @@
+{
+    "message_type": "ResolveUpdateMirrorOffer",
+    "payload": {
+        "offer_id": "11111111-2222-4333-8444-666666666706",
+        "use_gitcode": true
+    },
+    "protocol_version": 1,
+    "request_id": "11111111-2222-4333-8444-666666666706"
+}

@@ -326,13 +326,18 @@ public static class RequestParsers
     {
         ArgumentNullException.ThrowIfNull(reader);
 
-        reader.RejectUnknown("identity_id", "action", "profile_id");
+        reader.RejectUnknown("identity_id", "action", "profile_id", "display_name");
         var action = reader.RequiredEnum<CharacterIdentityAction>("action");
         // A profile says nothing for the other two answers; taking it silently would let a client
         // believe it had bound something.
         if (action != CharacterIdentityAction.Bind && reader.Has("profile_id"))
         {
             throw CollectorException.BadRequest(CollectorTexts.IpcFieldUnknown("profile_id"), "payload.profile_id");
+        }
+
+        if (action != CharacterIdentityAction.Bind && reader.Has("display_name"))
+        {
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldUnknown("display_name"), "payload.display_name");
         }
 
         return new ResolveCharacterIdentityCommand(
@@ -342,7 +347,8 @@ public static class RequestParsers
             action == CharacterIdentityAction.Bind
                 ? reader.Long("profile_id", 1)
                   ?? throw CollectorException.BadRequest(CollectorTexts.IdentityProfileRequired(), "payload.profile_id")
-                : null);
+                : null,
+            reader.Has("display_name") ? reader.RequiredString("display_name", 200) : null);
     }
 
     private static long RequiredIdentityId(PayloadReader reader) =>
@@ -524,21 +530,41 @@ public static class RequestParsers
     {
         var action = reader.RequiredString("action", 16);
         var assigning = action == Storage.Mutations.RunMutationService.AssignProfileAction;
-        // profile_id belongs to assign_profile alone: any other action that carries it names a
-        // field it does not have, and is refused as such.
+        if (action == Storage.Mutations.RunMutationService.MoveRegionAction)
+        {
+            reader.RejectUnknown("action", "runs", "reason", "region", "profile_id", "expected_baseline", "baseline_overlap");
+            var (region, profileId) = RegionDestination(reader);
+            return new BatchMutateRunsCommand(requestId, action, BatchRunTargets(reader), RequireReason(reader),
+                Migration: new RunRegionMigration(region, profileId, reader.RequiredInt("expected_baseline", 0),
+                    reader.RequiredInt("baseline_overlap", 0)));
+        }
+        // A null profile_id is meaningful only for assign_profile.
         if (assigning) reader.RejectUnknown("action", "runs", "reason", "profile_id");
         else reader.RejectUnknown("action", "runs", "reason");
         // "profile_id": null files the runs under no profile, so the field itself has to be there.
         if (assigning && !reader.Has("profile_id"))
             throw CollectorException.BadRequest(CollectorTexts.IpcFieldMissing("profile_id"), "payload.profile_id");
+        return new BatchMutateRunsCommand(requestId, action, BatchRunTargets(reader), RequireReason(reader),
+            reader.IsNull("profile_id") ? null : reader.Long("profile_id", 1));
+    }
+
+    public static (Region Region, long ProfileId) RegionDestination(PayloadReader reader)
+    {
+        var region = reader.RequiredEnum<Region>("region");
+        var profileId = reader.Long("profile_id", 1) ??
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldMissing("profile_id"), "payload.profile_id");
+        return (region, profileId);
+    }
+
+    public static IReadOnlyList<BatchRunTarget> BatchRunTargets(PayloadReader reader)
+    {
         var targets = reader.ObjectArray("runs", Storage.Mutations.HistoryRetentionService.MaxBatchSize).Select(item =>
         {
             item.RejectUnknown("run_id", "expected_revision");
             return new BatchRunTarget(Guid.Parse(item.RequiredUuid("run_id")).ToString("D"), item.RequiredInt("expected_revision", 1));
         }).ToArray();
         Storage.Mutations.HistoryRetentionService.ValidateIds(targets.Select(item => item.RunId).ToArray());
-        return new BatchMutateRunsCommand(requestId, action, targets, RequireReason(reader),
-            reader.IsNull("profile_id") ? null : reader.Long("profile_id", 1));
+        return targets;
     }
 
     public static IReadOnlyList<string> RunIds(PayloadReader reader, string field = "run_ids", bool allowEmpty = true)

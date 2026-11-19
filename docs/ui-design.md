@@ -33,7 +33,7 @@
 |------|------|------|
 | 窗口 | 1280 × 800（最小 1100 × 720） | 无边框窗口（`Qt.FramelessWindowHint`），标题栏由界面自行绘制，边缘缩放交给系统（`startSystemResize`） |
 | 标题栏 | 高 40 | 菱形徽标（仅艾欧泽亚系风格）+「导随记录器」+ 版本号 `v<版本>` + 后台服务状态（§4.8）+ 主题切换按钮 +「统计浮窗」按钮（§4.9.1）+ 最小化 / 最大化 / 关闭 |
-| 侧边栏 | 宽 200 | `Achievement` kicker + 衬线金色品牌块 + 渐变分隔线 + 7 个页面（维护者视图另有「对照核对」）+ 底部状态面板（`.status-panel`：自带底色和边框的扁平 `Card`，`Theme.statusPanelBackground/Border`）。状态面板只有原型的三行 FF14 / Npcap / 捕获；行首是按状态色（绿 / 灰 / 橙）绘制的 Lucide 图标（gamepad-2 / network / radio），取代原型的 8 px 圆点。Npcap 一行只在已连上采集服务、且读到的捕获状态带有 `npcap_installed` 时才写「就绪」或「未安装」，此前显示「—」并用灰色。「捕获」一行取自动记录控制器的状态（`Main.qml` 的 `captureBadgeText`）：自动监听中 / 读不到游戏数据 / 等待游戏 / 等待选择游戏 / 校准中 / 待核对 / 无法自动记录 / 自动寻找网络路径 / 采证中 / 检查中，其中「自动寻找网络路径」「采证中」与捕获诊断页的标签用词相同；只有自动监听中为绿色，需要处理的状态为橙色，其余为灰色 |
+| 侧边栏 | 宽 200 | `Achievement` kicker + 衬线金色品牌块 + 渐变分隔线 + 7 个页面（维护者视图另有「对照核对」）+「意见反馈」+ 底部状态面板（`.status-panel`：自带底色和边框的扁平 `Card`，`Theme.statusPanelBackground/Border`）。状态面板只有原型的三行 FF14 / Npcap / 捕获；行首是按状态色（绿 / 灰 / 橙）绘制的 Lucide 图标（gamepad-2 / network / radio），取代原型的 8 px 圆点。Npcap 一行只在已连上采集服务、且读到的捕获状态带有 `npcap_installed` 时才写「就绪」或「未安装」，此前显示「—」并用灰色。「捕获」一行取自动记录控制器的状态（`Main.qml` 的 `captureBadgeText`）：自动监听中 / 读不到游戏数据 / 等待游戏 / 等待选择游戏 / 校准中 / 待核对 / 无法自动记录 / 自动寻找网络路径 / 采证中 / 检查中，其中「自动寻找网络路径」「采证中」与捕获诊断页的标签用词相同；只有自动监听中为绿色，需要处理的状态为橙色，其余为灰色 |
 | 内容区 | 余下空间 | 左右内边距 28，上 22 下 32 |
 
 窗口没有系统边框，标题栏承担系统标题栏的职责：按住空白处拖动窗口，双击切换最大化；
@@ -162,6 +162,8 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
 * 页头右侧的区服筛选（`dashboardRegionFilter`，`components/RecordRegionSelector.qml`）可选「全部区服」与四个区服
   （「国服 CN」「繁中服 TC」「国际服 GLOBAL」「未知区服」），写入 `App.recordRegion`；它同时决定总览的统计卡、趋势与结果分布，以及副本统计、职业统计两页的
   `region` 筛选（`StatisticsController::setRecordRegion`）。
+  尚未手动选择时，区服随界面语言切换：简体中文选国服，繁體中文选繁中服，英语和日语选国际服。
+  手动选择后（包括「全部区服」），该选择会保存到本机，重启或更改界面语言后继续使用。
   成就进度按区服分卡（`components/RegionalAchievementCard.qml`）：选定某一区服时只有该区服一张；
   「全部区服」时依次为国服、繁中服，以及有成就数据的国际服、未知区服各一张，多于一张时改用紧凑尺寸。
   每张卡的标题为「<区服> · 成就进度 · N 次」，下方为「还差 N 次」与「含起始次数 N 次」及「修改」按钮；
@@ -170,7 +172,7 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   「正在读取已保存的目标和起始次数，读取完成后才能修改和保存。」，同样带「修改」，不显示推测的数字。
   进度跨过目标次数的整数倍时的彩带（`AchievementConfetti`）按区服触发，只在跨过的那一张卡上播放；
   修改目标或起始次数、切换筛选都不触发。
-  **角色**：区服只有一个角色档案时，卡片与上面所述完全相同。区服有两个或更多档案时（`profile_count > 1`），
+  **角色**：单个档案已命名时显示「当前角色」和档案名。区服有两个或更多档案时（`profile_count > 1`），
   标题下多出一行「当前角色」与下拉框（`achievementCharacterSwitch_<区服>`，`components/CharacterSelector.qml`），
   卡片上的目标、进度环、「还差 N 次」与起始次数都是当前角色的数字；在下拉框里选另一个角色即把它设为当前角色
   （`App.selectCharacterProfile`），此后的新记录记在它名下，已有记录不变。区服里有未分配角色的记录时
@@ -183,6 +185,9 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   「这个区服暂时不能自动识别角色，换角色上线前请在这里选一下。」；旧版采集服务不带这个字段时不显示。
   采集服务认出了一个玩家尚未说明的角色时（`DashboardStats.identities` 中该区服有 `PENDING` 项），进度环上方出现提示框
   （`components/CharacterIdentityPrompt.qml`，`characterIdentityPrompt_<区服>`），只有一个角色的区服同样出现。
+  升级档案待确认时，`registration_profile_id` 提供「原有记录」的档案，提示框的「登记并绑定原有记录」打开姓名输入框。
+  确认后保留这个档案的旧记录和成就进度。首次识别的是其他角色时，仍可点「这是一个新角色」、选择其他已有档案或「不统计这个角色」。
+  已经绑定的角色提供「设置 › 成就」的解除说明，解除后再选择正确的归属。
   标题「发现了一个还没有登记的角色」，正文说明它已有几条记录（`run_count`）、在说明之前不计入任何角色的进度、
   说明后这些记录会自动归到那个角色名下。一次只问一个，其余的在正文下注明「另外还有 N 个角色等待说明」。三种回答：
   * 「这是一个新角色」（`characterIdentityNew_<区服>`）打开 `CharacterProfileDialog`，标题为「登记新角色」，
@@ -308,11 +313,14 @@ IBM Plex Mono 随程序分发，许可为 SIL OFL 1.1。字体文件位于 `src/
   * 表格多一列「角色」（列键 `character`，默认位于「来源」与「标记」之间，可在「自定义列」中隐藏、拖动与调宽）：
     写该记录所属角色的名称，未分配的写「未分配」并用提示色。该列由 `HistoryColumnsController.characterOffered`
     控制是否存在：未启用时它不在任何列表中，已保存的位置、宽度与显隐原样保留。
-  * 勾选记录后，批量操作栏多一个「改角色」（`batchAssignCharacterButton`），打开 `HistoryAssignCharacterDialog`：
+  * 勾选记录后，第二排筛选项右侧显示批量操作。「改角色」（`batchAssignCharacterButton`）打开 `HistoryAssignCharacterDialog`：
     标题「把 N 条记录改到哪个角色？」，下拉框首行为「请选择角色」，不替用户预选，另有「未分配」；
     原因栏预填「修改记录所属的角色」。说明文字写明「各角色的起始次数不会跟着变」。确认后发送
     `BatchMutateRuns` 的 `assign_profile`；成功后取消勾选并关闭，被拒绝时保留勾选并在对话框内显示原因
     （例如所选记录与角色不在同一区服）。
+  * 已有勾选且筛选结果多于已勾选数时，表格下方显示「勾选全部 N 条」（`historyCheckAllMatching`）：按当前筛选向采集服务
+    读取全部记录并勾选，已勾选的记录保留勾选时的修订；超过 2000 条时提示先缩小筛选范围，读取失败或中途取消勾选时
+    不改动勾选。
   详情面板在同样条件下多一行「角色」，修订记录中归属的变化写作「角色：甲 → 乙」，已删除的档案写作「已删除的角色」。
   导出按历史记录当前的排序写出（`ExportRequest.sort` 取 `RunListModel.sortField / sortAscending`）：
   表头切到最早在前后，文件第一行即最早的记录；只导出勾选记录时同样按该顺序。
@@ -1333,8 +1341,8 @@ R 为采集服务给出的 `achievement_progress` 减去已保存的基数，即
 （[statistics-definitions.md](statistics-definitions.md) §4）。
 总览的进度环、「还差 N 次」与语音播报中的进度数字取自 `achievement_progress`。
 
-**角色**（`achievementCharacterRow`）位于「成就区服」之下。区服只有一个角色档案时，这一行只有说明
-「有多个角色时，可以为每个角色分别保存目标和进度。」与「添加角色」按钮（`addCharacterButton`），其余内容与此前相同。
+**角色**（`achievementCharacterRow`）位于「成就区服」之下。区服只有一个角色档案时，这一行提供「添加角色」，
+下方显示档案名和「改名」按钮。
 「添加角色」打开 `CharacterProfileDialog`：角色名称（必填，最多 24 个字，由用户自己起，软件不读取游戏里的角色名）、
 该角色自己的目标值与起始次数（默认 2000 与 0），以及开关「现在就切换到这个角色」（默认关闭）；名称为空、
 同区服重名或一个区服超过 16 个角色时，原因显示在对话框内，不关闭。
@@ -1350,13 +1358,12 @@ R 为采集服务给出的 `achievement_progress` 减去已保存的基数，即
   采集服务给出的原因显示在这一行下方（`characterErrorText`）。
 * 新添加的角色保存成功后自动成为所选角色，便于接着核对它的数字；是否成为当前角色只取决于对话框里的开关。
 
-自动识别的两行同样只在 `App.characterFeaturesVisible(<所选区服>)` 为真时出现（区服有多个角色、有未分配的记录，
-或有尚未绑定的已识别角色）。开关本身不在这里：「自动识别登录的角色」（`characterIdentificationToggle`，采集设置
+「自动识别登录的角色」（`characterIdentificationToggle`，采集设置
 `character_identification_enabled`，默认开启，作用于全部区服）位于「设置 › 通用」的记录开关之中、共享校准开关之前，
 只有一个角色的用户也能看到并关闭，说明中写明目前只对国服有效、软件不读取角色名、关闭后改为在总览手动切换。
 
-* 「已识别的游戏角色」（`characterBindingRow`），所选角色的 `identity_count` 大于 0 时出现，说明软件已认出几个游戏角色
-  属于它；「解除」（`forgetIdentitiesButton`）发送 `UpdateCharacterProfile.forget_identities`，这些角色回到待说明，
+* 「已识别的游戏角色」（`characterBindingRow`）显示所选档案的绑定数量。数量为零时显示「尚未绑定游戏角色」。
+  有绑定时可点「解除」（`forgetIdentitiesButton`），发送 `UpdateCharacterProfile.forget_identities`，这些角色回到待说明，
   总览重新询问，已有记录不变。
 * 「不统计的角色」（`ignoredCharactersRow`），该区服有 `IGNORED` 的角色时出现；「重新询问」（`askAgainButton`）
   对它们逐个发送 `ASK_AGAIN`。
@@ -1388,6 +1395,9 @@ D 为该区服的 N 与 B 中较小者；选「未包含」时为「<区服>：�
 扣除之后，新写入的计入进度的通关不多于原基数时总进度不变；多于原基数时基数减至 0，总进度增加超出的部分。
 勾选了会计入进度的通关、而相应区服的基数尚未从采集服务读到时（`ImportRecords.waitingForBaseline`），不能导入，
 底部写「起始次数尚未读取，读取后才能导入」；「重试确认保存」重发的是已经发出的同一批次，不受此限制。
+导入窗口的起始页有「记录区服」下拉框（`importDefaultRegion`：国服 / 繁中服 / 国际服），决定来源没有注明区服的记录归入
+哪个区服；预选总览当前显示的区服，总览显示全部区服或未知区服时预选国服，改选后以所选为准，直到下次打开导入窗口。
+截图识别的记录固定归入国服。读取之后该下拉框不再显示，各条记录的区服可逐条或用「批量设置」修改。
 各区服的基数由 `App.achievements`（已读到的全部区服）经 `main.cpp` 传给 `ImportRecords.setAchievements`，
 对话框不直接读 `App`。打开对话框时桌面端请求读取全部区服的成就设置（`refreshAchievementRegions`），
 之后每次重新连接、读到第一份总览时都再读一次尚未读到的区服，因此断线重连或在连上之前打开对话框都不会让批次一直等待基数。
@@ -1756,7 +1766,8 @@ Esc 同样关闭，左侧小字为「此说明可随时在「设置 → 关于�
 ## 4.8 Collector 生命周期在界面上的呈现
 
 `CollectorProcess` 的状态直接映射到标题栏的圆点与文案（`App.collectorStatusText`）。界面一律称采集服务为「后台服务」，
-不出现组件名 Collector；侧栏状态面板没有后台服务一行（§1）：
+不出现组件名 Collector；侧栏状态面板没有后台服务一行（§1）。文案最宽 420，放不下时省略，
+鼠标悬停时由 `components/PlainToolTip.qml`（`titleBarCollectorStatusToolTip`）显示全文：
 
 | 状态 | 文案 | 触发 |
 |---|---|---|

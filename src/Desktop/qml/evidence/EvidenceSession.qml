@@ -231,8 +231,18 @@ QtObject {
     }
     // Done steps the player reopened, by number.
     property var openedSteps: ({})
-    function stepStatus(n) { return n < session.step ? "done" : n === session.step ? "cur" : "todo" }
-    function stepOpen(n) { return n === session.step || (n < session.step && !!session.openedSteps[n]) }
+    function stepStatus(n) {
+        // A round that failed never finished marking, and one that failed before its
+        // data was readable never confirmed that either: neither step is ticked.
+        if ((session.phase === "failed" || session.status.error_code)
+                && (n === 3 || (n === 2 && n < session.step && (session.messageCount || 0) < session.readableAt)))
+            return "todo"
+        return n < session.step ? "done" : n === session.step ? "cur" : "todo"
+    }
+    function stepOpen(n) {
+        const status = session.stepStatus(n)
+        return status === "cur" || (status === "done" && !!session.openedSteps[n])
+    }
     function toggleStep(n) {
         const copy = Object.assign({}, session.openedSteps)
         copy[n] = !copy[n]

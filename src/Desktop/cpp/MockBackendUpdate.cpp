@@ -12,6 +12,7 @@
 // ---------------------------------------------------------------------------
 
 #include "MockBackend.h"
+#include "MockData.h"
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -83,7 +84,8 @@ void MockBackend::setUpdateDownloadFixture(const QString &state)
 bool MockBackend::isUpdateDownloadMessage(const QString &messageType)
 {
     return messageType == QLatin1String("StartUpdateDownload")
-           || messageType == QLatin1String("CancelUpdateDownload");
+           || messageType == QLatin1String("CancelUpdateDownload")
+           || messageType == QLatin1String("ResolveUpdateMirrorOffer");
 }
 
 QString MockBackend::mockInstallerPath() const
@@ -113,8 +115,38 @@ QJsonObject MockBackend::updateDownload() const
     return download;
 }
 
-QJsonObject MockBackend::applyUpdateDownload(const QString &messageType, const QJsonObject &payload)
+QJsonObject MockBackend::applyUpdateDownload(const QString &messageType, const QJsonObject &payload,
+                                             QString *errorCode, QString *errorMessage, QJsonObject *errorDetails)
 {
+    if (messageType == QLatin1String("ResolveUpdateMirrorOffer")) {
+        const QString offerField = QStringLiteral("offer_id");
+        const QString choiceField = QStringLiteral("use_gitcode");
+        const auto refuse = [&](const QString &field, const char *key, QVariantMap args = {}) {
+            errorDetails->insert(QStringLiteral("field"), QStringLiteral("payload.") + field);
+            args.insert(QStringLiteral("field"), field);
+            return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), key, args);
+        };
+        for (auto it = payload.begin(); it != payload.end(); ++it) {
+            if (it.key() != offerField && it.key() != choiceField)
+                return refuse(it.key(), "ipc.field.unknown");
+        }
+        const auto offer = payload.value(offerField);
+        if (offer.isNull() || offer.isUndefined() || (offer.isString() && offer.toString().isEmpty()))
+            return refuse(offerField, "ipc.field.missing");
+        if (!offer.isString())
+            return refuse(offerField, "ipc.field.not_string");
+        if (offer.toString().size() > 64)
+            return refuse(offerField, "ipc.field.too_long", {{QStringLiteral("max"), 64}});
+        if (offer.toString().size() != 36 || !mock::isUuid(offer))
+            return refuse(offerField, "ipc.field.not_uuid");
+        const auto choice = payload.value(choiceField);
+        if (choice.isUndefined() || choice.isNull())
+            return refuse(choiceField, "ipc.field.missing");
+        if (!choice.isBool())
+            return refuse(choiceField, "ipc.field.not_boolean");
+        // This fixture never probes a mirror, so every valid offer ID is stale.
+        return {{QStringLiteral("update"), collectorStatus().value(QStringLiteral("update"))}};
+    }
     const bool running = m_updateDownloadState == updateFixtureTokens().downloading || m_updateDownloadState == updateFixtureTokens().verifying;
     if (messageType == QLatin1String("CancelUpdateDownload")) {
         ++m_cancelUpdateDownloadCount;

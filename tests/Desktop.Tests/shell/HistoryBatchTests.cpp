@@ -291,6 +291,38 @@ private:
     }
 
 private Q_SLOTS:
+    void regionMoveRetryKeepsPreviewAndRequestAfterReconnect()
+    {
+        ControlledBackend backend;
+        mr::HistoryController history(&backend);
+        QVariantMap selected = row(firstId(), 3);
+        selected.insert(QStringLiteral("source"), QStringLiteral("IMPORT"));
+        selected.insert(QStringLiteral("region"), QStringLiteral("CN"));
+        history.setRunChecked(selected, true);
+        history.previewRegionMigration(QStringLiteral("GLOBAL"), 4);
+        const auto preview = backend.last(QStringLiteral("PreviewRunRegionMigration"));
+        QCOMPARE(preview.payload.value(QStringLiteral("profile_id")).toInt(), 4);
+        preview.reply->succeed({{QStringLiteral("target_baseline"), 1444},
+                                {QStringLiteral("contributing_count"), 1}});
+        QTRY_VERIFY(!history.regionMigrationPreview().isEmpty());
+        const QString reason = QStringLiteral("正确区服");
+        history.movePreviewedRuns(1, reason);
+        const auto first = backend.last(QStringLiteral("BatchMutateRuns"));
+        QCOMPARE(first.payload.value(QStringLiteral("action")).toString(), QStringLiteral("move_region"));
+        QCOMPARE(first.payload.value(QStringLiteral("baseline_overlap")).toInt(), 1);
+        QCOMPARE(first.payload.value(QStringLiteral("expected_baseline")).toInt(), 1444);
+        first.reply->fail(QStringLiteral("ERR_PIPE_CLOSED"), QStringLiteral("disconnected"));
+        QTRY_VERIFY(!history.batchRunning());
+        Q_EMIT backend.connectionChanged();
+        history.movePreviewedRuns(1, reason);
+        const auto retry = backend.last(QStringLiteral("BatchMutateRuns"));
+        QVERIFY(retry.reply != first.reply);
+        QCOMPARE(retry.id, first.id);
+        QCOMPARE(retry.payload, first.payload);
+        retry.reply->succeed({{QStringLiteral("changed_count"), 1}});
+        QTRY_VERIFY(history.checkedRunIds().isEmpty());
+    }
+
     void initTestCase() {
         const QString root = QString::fromUtf8(MR_DESKTOP_QML_DIR);
         qmlRegisterSingletonType(QUrl::fromLocalFile(root + QStringLiteral("/Theme.qml")), "MentorRecorder", 1, 0, "Theme");
@@ -324,6 +356,46 @@ private Q_SLOTS:
         QVERIFY(!history.batchRunning());
         QCOMPARE(history.checkedRunCount(), 2);
         QVERIFY(history.batchFeedback().contains(QStringLiteral("重新勾选")));
+    }
+    // 勾选全部 reads every matching record instead of a tick per page. A row checked
+    // before keeps the revision it was checked with; a failed or abandoned read
+    // changes nothing.
+    void checkAllMatchingReadsTheWholeFilterAndKeepsEarlierRevisions() {
+        ControlledBackend backend;
+        mr::HistoryController history(&backend);
+        history.runs()->setPageSize(1);
+        backend.completePage(row(firstId(), 4));
+        history.setCurrentPageChecked(true);
+        const QJsonObject everything{
+            {QStringLiteral("items"), QJsonArray{QJsonObject::fromVariantMap(row(firstId(), 9)),
+                                                 QJsonObject::fromVariantMap(row(secondId(), 7))}},
+            {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("page"), 1}, {QStringLiteral("total"), 2}}}};
+
+        history.checkAllMatchingRuns();
+        QVERIFY(history.checkAllLoading());
+        QCOMPARE(backend.last(QStringLiteral("QueryRuns")).payload.value(QStringLiteral("page_size")).toInt(), 200);
+        backend.last(QStringLiteral("QueryRuns")).reply->fail(QStringLiteral("ERR_INTERNAL"), QStringLiteral("读取失败"));
+        QVERIFY(!history.checkAllLoading());
+        QCOMPARE(history.checkedRunIds(), QStringList({firstId()}));
+
+        // 取消勾选 while the read is on its way: its late answer checks nothing.
+        history.checkAllMatchingRuns();
+        const auto abandoned = backend.last(QStringLiteral("QueryRuns"));
+        history.clearCheckedRuns();
+        QVERIFY(!history.checkAllLoading());
+        abandoned.reply->succeed(everything);
+        QCOMPARE(history.checkedRunCount(), 0);
+
+        history.setCurrentPageChecked(true);
+        history.checkAllMatchingRuns();
+        backend.last(QStringLiteral("QueryRuns")).reply->succeed(everything);
+        QVERIFY(!history.checkAllLoading());
+        QCOMPARE(history.checkedRunIds(), QStringList({firstId(), secondId()}));
+        history.mutateCheckedRuns(QStringLiteral("soft_delete"), QStringLiteral("清理记录"));
+        const auto targets = backend.last(QStringLiteral("BatchMutateRuns")).payload.value(QStringLiteral("runs")).toArray();
+        QCOMPARE(targets.size(), 2);
+        QCOMPARE(targets[0].toObject().value(QStringLiteral("expected_revision")).toInt(), 4);
+        QCOMPARE(targets[1].toObject().value(QStringLiteral("expected_revision")).toInt(), 7);
     }
     void transportFailureClassificationIsLocalAndTerminal() {
         mr::BackendReply business(QStringLiteral("business"), QStringLiteral("BatchMutateRuns"));

@@ -102,6 +102,7 @@ public sealed class CaptureMidstreamTests : IDisposable
         var snapshot = WaitFor(controller, status => status.MidstreamSuspected == false);
 
         Assert.Null(snapshot.Hint);
+        Assert.Equal(1L, CaptureWire.CaptureStatus(snapshot)["ipc_decoded"]!.GetValue<long>());
     }
 
     [Theory]
@@ -130,6 +131,7 @@ public sealed class CaptureMidstreamTests : IDisposable
         Assert.True(snapshot.MidstreamSuspected);
         Assert.Equal(Contracts.Texts.CollectorTexts.CaptureHintPathRecovering(), snapshot.Hint);
         Assert.Equal(1, snapshot.MessagesDecoded);
+        Assert.Equal(0L, CaptureWire.CaptureStatus(snapshot)["ipc_decoded"]!.GetValue<long>());
     }
 
     [Fact]

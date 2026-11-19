@@ -286,7 +286,7 @@ public sealed class CharacterProfileService
     /// A usable name: trimmed, 1 to <see cref="CharacterProfile.MaxDisplayNameLength"/> characters,
     /// one line, no control characters.
     /// </summary>
-    private static string RequireName(string? displayName)
+    internal static string RequireName(string? displayName)
     {
         var name = displayName?.Trim() ?? string.Empty;
         if (name.Length is 0 or > CharacterProfile.MaxDisplayNameLength || name.Any(char.IsControl))
@@ -298,7 +298,7 @@ public sealed class CharacterProfileService
         return name;
     }
 
-    private static void RequireFreeName(
+    internal static void RequireFreeName(
         IReadOnlyList<CharacterProfile> profiles, string name, long? exceptProfileId)
     {
         if (profiles.Any(profile => profile.ProfileId != exceptProfileId &&

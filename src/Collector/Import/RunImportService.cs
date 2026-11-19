@@ -292,12 +292,13 @@ public sealed partial class RunImportService
         string requestId, SqliteTransaction transaction)
     {
         var output = new JsonArray();
+        var statistics = deduct ? new StatisticsRepository(_database, _settings) : null;
         foreach (var (owner, importedRunIds) in importedRuns)
         {
             // The records went to this profile, so it is this profile's baseline that already
             // counted them.
             var stored = _settings.Profiles.Find(owner, transaction)!.ToSettings();
-            var contributing = deduct ? CountContributingCompleted(importedRunIds, transaction, stored.Region) : 0;
+            var contributing = statistics?.CountContributingCompleted(importedRunIds, transaction, stored.Region) ?? 0;
             var deducted = (int)Math.Min(contributing, stored.BaselineCompletedCount);
             var settings = stored;
             if (deducted > 0)
@@ -323,25 +324,6 @@ public sealed partial class RunImportService
             });
         }
         return output;
-    }
-
-    /// <summary>Counts, among the given runs, those the dashboard adds to the progress: the statistics filter plus COMPLETED and contributing.</summary>
-    private long CountContributingCompleted(IReadOnlyList<string> runIds, SqliteTransaction transaction, Region region)
-    {
-        var total = 0L;
-        foreach (var chunk in runIds.Chunk(500))
-        {
-            var filter = RunFilterSql.Build(new MentorRecorder.Collector.Domain.Queries.RunFilter { Region = region }, forStatistics: true);
-            var names = chunk.Select((_, index) => "$imported" + index.ToString(CultureInfo.InvariantCulture)).ToArray();
-            using var command = _database.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = $"SELECT COUNT(*) FROM mentor_runs WHERE {filter.Where} AND result = 'COMPLETED' AND contributes_to_goal = 1 " +
-                $"AND run_id IN ({string.Join(',', names)});";
-            RunFilterSql.Bind(command, filter);
-            for (var index = 0; index < chunk.Length; index++) command.Parameters.AddWithValue(names[index], chunk[index]);
-            total += Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
-        }
-        return total;
     }
 
     private JsonObject Render(Preview preview, CancellationToken cancellationToken)
@@ -452,10 +434,19 @@ public sealed partial class RunImportService
         // that preview (picked by the person or the Desktop's default), one this reading gives a different region,
         // or one 1.8.0 imported without a region that schema 13 made a CN record. It is offered as a possible
         // duplicate, never merged (audit 2026-11-03 H2-4, re-review RV2-2).
-        if ((candidate.RegionalFingerprints ?? Array.Empty<string>())
-            .Select(fingerprint => _imports.FindFingerprint(fingerprint, transaction))
-            .FirstOrDefault(runId => runId is not null) is { } regional)
-            return ("possible_duplicate", regional);
+        string? regionalMatch = null;
+        foreach (var fingerprint in candidate.RegionalFingerprints ?? Array.Empty<string>())
+        {
+            if (_imports.FindFingerprint(fingerprint, transaction) is not { } regional)
+                continue;
+            // Original fingerprints survive an in-place move. The same exact source arriving
+            // in the region where that moved record now lives cannot be inserted again.
+            if (_runs.GetInternal(regional, transaction)?.Region == incoming.Region &&
+                _revisions.HasRegionMigration(regional, transaction))
+                return ("duplicate", regional);
+            regionalMatch ??= regional;
+        }
+        if (regionalMatch is not null) return ("possible_duplicate", regionalMatch);
         var nearby = FindNearby(incoming, transaction);
         return nearby is null ? ("new", null) : ("possible_duplicate", nearby);
     }

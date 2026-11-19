@@ -234,13 +234,13 @@ public sealed class SettingsRepository
         command.ExecuteNonQuery();
     }
 
-    /// <summary>Regions with records/profiles plus the always-visible CN and TC defaults.</summary>
+    /// <summary>Regions with records/profiles plus the always-visible CN, TC and GLOBAL defaults.</summary>
     public IReadOnlyList<Region> GetAchievementRegions() => _database.Read(_ =>
     {
         using var command = _database.CreateCommand();
         command.CommandText = "SELECT region FROM character_profiles UNION SELECT region FROM mentor_runs;";
         using var reader = command.ExecuteReader();
-        var regions = new HashSet<Region> { Region.Cn, Region.Tc };
+        var regions = new HashSet<Region> { Region.Cn, Region.Tc, Region.Global };
         while (reader.Read()) regions.Add(EnumWire<Region>.Parse(reader.GetString(0)));
         return (IReadOnlyList<Region>)regions.OrderBy(value => value == Region.Cn ? 0 : value == Region.Tc ? 1 : 2)
             .ThenBy(value => EnumWire<Region>.Format(value), StringComparer.Ordinal).ToArray();

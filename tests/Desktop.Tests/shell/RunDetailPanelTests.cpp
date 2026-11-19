@@ -692,7 +692,7 @@ private Q_SLOTS:
         QTest::addColumn<QString>("shown");
         const QVariant noValue;
         // Identifiers and bookkeeping: maintainer material.
-        for (const char *field : {"run_id", "revision", "capture_session_id", "region",
+        for (const char *field : {"run_id", "revision", "capture_session_id",
                                   "protocol_profile_id", "mentor_roulette_id", "content_id",
                                   "territory_id", "job_id", "manually_created", "manually_corrected",
                                   "created_at_utc", "updated_at_utc", "duty_identity",
@@ -700,6 +700,8 @@ private Q_SLOTS:
             QTest::newRow(field) << QString::fromLatin1(field) << noValue << false << QString();
         }
         // What a player reads, in the player's words.
+        QTest::newRow("region") << "region" << QVariant(QStringLiteral("GLOBAL")) << true
+                                << QString::fromUtf8("国际服");
         QTest::newRow("result") << "result" << QVariant(QStringLiteral("COMPLETED")) << true
                                 << QString::fromUtf8("通关");
         QTest::newRow("result unknown") << "result" << QVariant(QStringLiteral("UNKNOWN")) << true

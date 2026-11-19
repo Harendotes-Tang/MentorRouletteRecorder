@@ -46,6 +46,17 @@ QJsonObject sampleFilter()
     return filter;
 }
 
+QJsonObject migrationPreviewArgs()
+{
+    return {
+        {QStringLiteral("region"), QStringLiteral("GLOBAL")},
+        {QStringLiteral("profile_id"), 4},
+        {QStringLiteral("runs"), QJsonArray{QJsonObject{
+            {QStringLiteral("run_id"), QStringLiteral("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")},
+            {QStringLiteral("expected_revision"), 1}}}},
+    };
+}
+
 /// Wrapper arguments per message type. Empty for the messages that take none.
 QJsonObject argsFor(const QString &messageType)
 {
@@ -179,6 +190,9 @@ QJsonObject argsFor(const QString &messageType)
         // The one optional field set, so the sample pins its name: the maintainer
         // tools' 重新下载最新正式版. 下载并安装 itself sends {} (the default false).
         args.insert(QStringLiteral("reinstall"), true);
+    } else if (messageType == QLatin1String("ResolveUpdateMirrorOffer")) {
+        args.insert(QStringLiteral("offer_id"), QStringLiteral("11111111-2222-4333-8444-666666666706"));
+        args.insert(QStringLiteral("use_gitcode"), true);
     } else if (messageType == QLatin1String("UpdateSpeechSettings")) {
         // All six optional fields at once, as in the hand-written sample: an
         // obvious fake key and a documentation host, never a real service.
@@ -210,6 +224,8 @@ QJsonObject argsFor(const QString &messageType)
         args.insert(QStringLiteral("verdicts"), verdicts);
     } else if (messageType == QLatin1String("GetCalibrationEvidence")) {
         args.insert(QStringLiteral("code_sha256"), QString(64, QLatin1Char('a')));
+    } else if (messageType == QLatin1String("PreviewRunRegionMigration")) {
+        args = migrationPreviewArgs();
     } else if (messageType == QLatin1String("BatchMutateRuns")) {
         // The hand-written sample's values (tests/Fixtures/README.md), now built by the wrapper.
         args.insert(QStringLiteral("action"), QStringLiteral("soft_delete"));
@@ -324,7 +340,9 @@ QStringList allMessageTypes()
         QStringLiteral("CheckUpdateNow"),
         QStringLiteral("StartUpdateDownload"),
         QStringLiteral("CancelUpdateDownload"),
+        QStringLiteral("ResolveUpdateMirrorOffer"),
         QStringLiteral("BatchMutateRuns"),
+        QStringLiteral("PreviewRunRegionMigration"),
         QStringLiteral("GetHistoryRetentionSettings"),
         QStringLiteral("UpdateHistoryRetentionSettings"),
         QStringLiteral("GetPendingImageCleanup"),
@@ -391,6 +409,15 @@ QList<RequestVariant> requestVariants()
                          {QStringLiteral("run_id"), QStringLiteral("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")},
                          {QStringLiteral("expected_revision"), 1}}}},
                      {QStringLiteral("reason"), QString::fromUtf8("改到角色")}}},
+        {.file=QStringLiteral("BatchMutateRuns.move-region"), .messageType=QStringLiteral("BatchMutateRuns"),
+         .args=[] {
+             QJsonObject args = migrationPreviewArgs();
+             args.insert(QStringLiteral("action"), QStringLiteral("move_region"));
+             args.insert(QStringLiteral("expected_baseline"), 1444);
+             args.insert(QStringLiteral("baseline_overlap"), 1);
+             args.insert(QStringLiteral("reason"), QString::fromUtf8("更正原始区服"));
+             return args;
+         }()},
         // ... and under none: profile_id travels as an explicit null.
         {.file=QStringLiteral("BatchMutateRuns.unassign-profile"), .messageType=QStringLiteral("BatchMutateRuns"),
          .args=QJsonObject{{QStringLiteral("action"), QStringLiteral("assign_profile")},

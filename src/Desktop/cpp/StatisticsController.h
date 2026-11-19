@@ -22,13 +22,14 @@ class StatisticsController : public QObject
 {
     Q_OBJECT
 public:
-    explicit StatisticsController(IBackend *backend, QObject *parent = nullptr);
+    explicit StatisticsController(IBackend *backend, QObject *parent = nullptr, const QString &recordRegion = {});
     QJsonObject dashboardSnapshot() const { return m_dashboard; }
     QVariantMap dashboard() const { return m_dashboard.toVariantMap(); }
     QVariantList achievements() const;
     QVariantList allAchievements() const;
     QVariantMap achievementForRegion(const QString &region) const;
     QString recordRegion() const { return m_recordRegion; }
+    static bool isRecordRegion(const QString &region);
     void setRecordRegion(const QString &region);
     QString baselineRegion() const { return m_baselineRegion; }
     void setBaselineRegion(const QString &region);
@@ -67,6 +68,7 @@ public:
     void updateAchievementBaseline(int goal, int baseline, const QString &reason);
     /// True while an UpdateAchievementBaseline is unanswered, whoever sent it.
     bool baselineSaving() const { return m_baselineSavesInFlight > 0; }
+    void setHistoryRegionMovePending(bool pending);
 
     // -- 角色档案 (StatisticsControllerProfiles.cpp) --------------------------
     /// $defs/DashboardStats.profiles of the newest answer, or of the newest profile
@@ -111,7 +113,7 @@ public:
     QString characterIdentification(const QString &region) const;
     /// True when \a region ("" = any region) has an identity in characterIdentities().
     bool hasCharacterIdentities(const QString &region) const;
-    void bindCharacterIdentity(int identityId, int profileId);
+    void bindCharacterIdentity(int identityId, int profileId, const QString &displayName = {});
     void ignoreCharacterIdentity(int identityId);
     /// ASK_AGAIN for every IGNORED identity of \a region, one request after the other; one
     /// characterProfileSaved(0, "ask_again") at the end, or characterProfileFailed at the
@@ -178,6 +180,7 @@ private:
     void observeAchievement(const QJsonObject &dashboard, quint64 serial);
     void adoptAchievements(const QJsonObject &dashboard, const QString &region, quint64 serial);
     QJsonObject regionFilter() const;
+    void applyRegionFilter();
     void applyTrendSeries(const QJsonObject &trend);
     void applyDayCounts(const QJsonObject &trend);
     void rebuildDutyOptions();

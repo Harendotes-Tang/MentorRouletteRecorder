@@ -308,7 +308,7 @@ public:
     /// BIND, IGNORE or ASK_AGAIN; \a profileId travels only when above 0 (BIND requires it,
     /// the other actions refuse it - the wrapper sends what it is given).
     BackendReply *resolveCharacterIdentity(int identityId, const QString &action, int profileId,
-                                           const QString &requestId = {});
+                                           const QString &requestId = {}, const QString &displayName = {});
 
     // -- 已删除记录 ---------------------------------------------------------
     /// $defs/BatchMutateRunsRequest. \a action is soft_delete, restore or purge;
@@ -422,6 +422,9 @@ public:
     /// {} -> {update: $defs/UpdateStatus}. Stops a running download and removes
     /// what was written; changes nothing in any other state.
     BackendReply *cancelUpdateDownload();
+
+    /// Resolve the offer reported by the Collector for an in-progress installer download.
+    BackendReply *resolveUpdateMirrorOffer(const QString &offerId, bool useGitCode);
 
 Q_SIGNALS:
     void connectionChanged();

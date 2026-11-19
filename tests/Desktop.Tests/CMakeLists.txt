@@ -336,8 +336,8 @@ mr_desktop_suite_test(MentorRecorderDesktopSettingsTests TtsService NO_LOG)
 # ReleaseNotes: the curated 本次更新 list.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopUpdateInstallTests
-    SUITES UpdateNotice UpdateInstall InstallerHold ReleaseNotes)
-foreach(suite IN ITEMS UpdateNotice UpdateInstall InstallerHold ReleaseNotes)
+    SUITES UpdateNotice UpdateInstall UpdateMirrorDialog InstallerHold ReleaseNotes)
+foreach(suite IN ITEMS UpdateNotice UpdateInstall UpdateMirrorDialog InstallerHold ReleaseNotes)
     mr_desktop_suite_test(MentorRecorderDesktopUpdateInstallTests ${suite})
 endforeach()
 

@@ -1,5 +1,6 @@
 using System.Reflection;
 using MentorRecorder.Collector.Capture;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Diagnostics;
 using MentorRecorder.Collector.Protocol.Decoded;
 
@@ -32,13 +33,15 @@ public sealed class CapturePipelineTests
     }
 
     [Theory]
-    [InlineData("DEBUG-MACHINA: FFXIVBundleDecoder: Oodle Decompression failure.", 1, 0)]
-    [InlineData("DEBUG-MACHINA: FFXIVBundleDecoder: Oodle Decompression error: invalid state", 1, 0)]
-    [InlineData("DEBUG-MACHINA: FFXIVBundleDecoder: Decompression error: invalid deflate stream", 1, 0)]
-    [InlineData("FFXIVBundleDecode() - Resetting stream. Message Null:True, Buffer Size:0", 0, 0)]
-    [InlineData(@"DEBUG-MACHINA: OodleNative_Ffxiv: ffxiv_dx11 executable at path D:\missing\game\ffxiv_dx11.exe does not exist.", 0, 1)]
+    [InlineData("DEBUG-MACHINA: FFXIVBundleDecoder: Oodle Decompression failure.", 1, null)]
+    [InlineData("DEBUG-MACHINA: FFXIVBundleDecoder: Oodle Decompression error: invalid state", 1, null)]
+    [InlineData("DEBUG-MACHINA: FFXIVBundleDecoder: Decompression error: invalid deflate stream", 1, null)]
+    [InlineData("FFXIVBundleDecode() - Resetting stream. Message Null:True, Buffer Size:0", 0, null)]
+    [InlineData(@"DEBUG-MACHINA: OodleNative_Ffxiv: ffxiv_dx11 executable at path D:\missing\game\ffxiv_dx11.exe does not exist.", 0, "GameExecutableMissing")]
+    [InlineData("OodleNative_Ffxiv: Cannot find one or more signatures", 0, "OodleSignatureMismatch")]
+    [InlineData("SharpPcap.PcapException: Error opening the device", 0, "PcapOpen")]
     public void MachinaMonitor_ReportsUpstreamFailures_EvenWithoutAMessageCallback(
-        string trace, int decodeErrors, int faults)
+        string trace, int decodeErrors, string? category)
     {
         using var source = new MachinaCaptureSource(RotatingFileLogger.Disabled);
         var observer = new CountingCaptureObserver();
@@ -53,7 +56,8 @@ public sealed class CapturePipelineTests
         onTrace!.Invoke(source, new object[] { trace });
 
         Assert.Equal(decodeErrors, observer.DecodeErrors);
-        Assert.Equal(faults, observer.Faults);
+        Assert.Equal(category is null ? 0 : 1, observer.Faults);
+        Assert.Equal(category, observer.Category?.ToString());
         Assert.Equal(0, observer.Messages);
     }
 
@@ -436,6 +440,7 @@ public sealed class CapturePipelineTests
         public int DecodeErrors { get; private set; }
 
         public int Faults { get; private set; }
+        public CaptureFailureCategory? Category { get; private set; }
 
         public int Messages { get; private set; }
 
@@ -444,6 +449,11 @@ public sealed class CapturePipelineTests
         public void OnDecodeError() => DecodeErrors++;
 
         public void OnFault(string reason, Exception? error) => Faults++;
+        void ICaptureSourceObserver.OnMonitorFault(CaptureFailureCategory category, UserText message)
+        {
+            Category = category;
+            Faults++;
+        }
     }
 
     private sealed class RecordingSink : IDecodedMessageSink

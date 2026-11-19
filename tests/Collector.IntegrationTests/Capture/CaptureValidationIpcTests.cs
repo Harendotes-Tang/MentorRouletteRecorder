@@ -79,7 +79,7 @@ public sealed class CaptureValidationIpcTests
                 Npcap = capture.Npcap, Game = capture.Game, Adapters = capture.Adapters,
                 // Npcap is present and the game is running, so the session gets as far as
                 // opening a source, which is what fails.
-                SourceFactory = () => throw new InvalidOperationException("无法打开所选网卡（测试）。"),
+                SourceFactory = () => throw new InvalidOperationException(@"private startup detail D:\FFXIV\ffxiv_dx11.exe"),
                 TcpConnectionCounter = (_, _) => 0,
             },
         };
@@ -102,6 +102,13 @@ public sealed class CaptureValidationIpcTests
         Assert.Null(final["sha256_path"]);
         // A failed session must not have created a run either.
         Assert.Empty((await client.SendAsync("QueryRuns")).Require()["items"]!.AsArray());
+
+        var output = (await client.SendAsync("ExportDiagnosticsReport")).Require();
+        var exported = await File.ReadAllTextAsync(output["target_path"]!.GetValue<string>());
+        var failure = JsonNode.Parse(exported)!["last_validation_failure"]!;
+        Assert.Equal("MonitorStart", failure["category"]!.GetValue<string>());
+        Assert.Equal("Starting", failure["stage"]!.GetValue<string>());
+        Assert.DoesNotContain("private startup detail", exported);
 
         JsonObject[] envelopes;
         lock (responses) envelopes = responses.ToArray();

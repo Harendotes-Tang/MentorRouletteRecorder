@@ -169,6 +169,7 @@ public static class RunMutationRules
         Compare(changes, RunFields.SoftDeleted, before.SoftDeleted, after.SoftDeleted);
         Compare(changes, RunFields.PendingReview, before.PendingReview, after.PendingReview);
         Compare(changes, RunFields.ManuallyCorrected, before.ManuallyCorrected, after.ManuallyCorrected);
+        Compare(changes, RunAuditFields.Region, EnumWire<Region>.Format(before.Region), EnumWire<Region>.Format(after.Region));
         Compare(changes, RunFields.ProfileId, before.ProfileId, after.ProfileId);
         return changes;
     }
@@ -212,7 +213,7 @@ public static class RunMutationRules
         {
             // Whose record it is was never something the software recorded about the duty.
             RunFields.ManuallyCorrected or RunFields.Note or RunAuditFields.DutyIdentity or
-                RunFields.ProfileId => false,
+                RunFields.ProfileId or RunAuditFields.Region => false,
             RunFields.Result or RunFields.PendingReview or RunFields.ContributesToGoal => !wasPendingReview,
             RunFields.JobId or RunFields.JobName or RunFields.Role or RunFields.ContentId or
                 RunFields.DutyName or RunFields.DutyCategory or RunFields.JoinedInProgress => !IsBlank(change.OldValue),

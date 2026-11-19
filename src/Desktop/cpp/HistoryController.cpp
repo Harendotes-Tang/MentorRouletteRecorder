@@ -60,12 +60,15 @@ HistoryController::HistoryController(IBackend *backend, QObject *parent)
     connect(m_runs, &RunListModel::reloadStarted, m_filterFacets, &HistoryFilterFacets::refresh);
     connect(backend, &IBackend::connectionChanged, this, [this] {
         invalidateResultRequests();
+        if (m_regionPreviewLoading)
+            clearRegionMigrationPreview();
         if (m_backend && m_backend->isConnected())
             refreshRetentionSettings();
     });
     onLanguageChanged(this, [this] {
         Q_EMIT runEventsChanged();
         Q_EMIT batchChanged();
+        Q_EMIT regionMigrationChanged();
         Q_EMIT retentionChanged();
     });
 }
@@ -73,6 +76,14 @@ HistoryController::HistoryController(IBackend *backend, QObject *parent)
 void HistoryController::invalidateResultRequests()
 {
     ++m_resultRequestContextGeneration;
+}
+
+void HistoryController::invalidateDatabaseScope()
+{
+    invalidateResultRequests();
+    m_unansweredBatch = {};
+    discardCheckedRuns();
+    clearRegionMigrationPreview();
 }
 
 void HistoryController::adoptRunRevisionFromEvent(const QJsonObject &run)
@@ -131,6 +142,11 @@ bool HistoryController::selectedRunCanUndo() const
             latest = revision;
         }
     }
+    const auto changes = latest.value(QStringLiteral("changes")).toList();
+    for (const QVariant &change : changes) {
+        if (change.toMap().value(QStringLiteral("field")).toString() == QLatin1String("region"))
+            return false;
+    }
     if (latest.value(QStringLiteral("actor")).toString() == QLatin1String("SYSTEM")) {
         if (latest.value(QStringLiteral("reason")).toString()
             // The Collector's own reason, stored in its source text; marked so the
@@ -138,7 +154,7 @@ bool HistoryController::selectedRunCanUndo() const
             == QStringLiteral(QT_TRANSLATE_NOOP("SystemReason",
                                                 "依据导入来源审计维护历史身份；缺游戏时间保留待补充，不作为采集结果待复核。")))
             return false;
-        for (const QVariant &change : latest.value(QStringLiteral("changes")).toList())
+        for (const QVariant &change : changes)
             if (change.toMap().value(QStringLiteral("field")).toString() == QLatin1String("source"))
                 return false; // 导入来源维护不能通过普通撤销还原成自动采集身份。
     }
@@ -292,6 +308,7 @@ void HistoryController::setHistoryFilter(const QVariantMap &filter)
         Q_EMIT filterConfirmationChanged();
         return;
     }
+    cancelCheckAll();
     m_historyFilter = next;
     m_filterFacets->setFilter(next);
     m_runs->setFilter(next.toVariantMap());
@@ -349,7 +366,7 @@ void HistoryController::setRunChecked(const QVariantMap &run, bool checked)
     if (checked) {
         if (m_checkedRuns.contains(id))
             return;
-        if (m_checkedRuns.size() >= 2000) {
+        if (m_checkedRuns.size() >= kMaxCheckedRuns) {
             Q_EMIT toastRequested(tr("一次最多勾选 2000 条记录，请分批操作。"));
             return;
         }
@@ -360,6 +377,7 @@ void HistoryController::setRunChecked(const QVariantMap &run, bool checked)
             return;
         m_checkedOrder.removeAll(id);
     }
+    clearRegionMigrationPreview();
     Q_EMIT checkedRunsChanged();
 }
 
@@ -371,12 +389,83 @@ void HistoryController::setCurrentPageChecked(bool checked)
         setRunChecked(m_runs->runAt(row), checked);
 }
 
+void HistoryController::checkAllMatchingRuns()
+{
+    if (!m_backend || m_batchRunning || m_checkAllLoading)
+        return;
+    if (m_runs->total() > kMaxCheckedRuns) {
+        Q_EMIT toastRequested(tr("符合筛选的记录超过 2000 条，请先缩小筛选范围再全部勾选。"));
+        return;
+    }
+    m_checkAllLoading = true;
+    Q_EMIT checkedRunsChanged();
+    fetchMatchingPage(++m_checkAllGeneration, 1, {});
+}
+
+void HistoryController::fetchMatchingPage(quint64 generation, int page, QList<QVariantMap> collected)
+{
+    if (!m_backend || generation != m_checkAllGeneration)
+        return;
+    m_backend->queryRuns(m_historyFilter, page, kCheckAllPageSize)->whenDone(this,
+        [this, generation, page, collected = std::move(collected)]
+        (bool ok, const QVariantMap &payload, const QString &, const QString &) mutable {
+        if (generation != m_checkAllGeneration)
+            return;
+        const QVariantList rows = payload.value(QStringLiteral("items")).toList();
+        const int total = payload.value(QStringLiteral("page_info")).toMap()
+                              .value(QStringLiteral("total")).toInt();
+        if (!ok || m_batchRunning || total > kMaxCheckedRuns) {
+            m_checkAllLoading = false;
+            Q_EMIT checkedRunsChanged();
+            if (!m_batchRunning)
+                Q_EMIT toastRequested(ok ? tr("符合筛选的记录超过 2000 条，请先缩小筛选范围再全部勾选。")
+                                         : tr("暂时读不到全部记录，没有改动勾选，请稍后再试。"));
+            return;
+        }
+        for (const QVariant &row : rows)
+            collected.append(row.toMap());
+        if (rows.size() == kCheckAllPageSize && static_cast<qint64>(page) * kCheckAllPageSize < total) {
+            fetchMatchingPage(generation, page + 1, std::move(collected));
+            return;
+        }
+        // Rows already checked keep the revision they were checked with.
+        for (const QVariantMap &run : std::as_const(collected)) {
+            const QString id = run.value(QStringLiteral("run_id")).toString();
+            if (id.isEmpty() || run.value(QStringLiteral("revision")).toInt() < 1
+                || m_checkedRuns.contains(id) || m_checkedRuns.size() >= kMaxCheckedRuns)
+                continue;
+            m_checkedRuns.insert(id, QJsonObject::fromVariantMap(run));
+            m_checkedOrder.append(id);
+        }
+        m_checkAllLoading = false;
+        clearRegionMigrationPreview();
+        Q_EMIT checkedRunsChanged();
+    });
+}
+
+void HistoryController::cancelCheckAll()
+{
+    ++m_checkAllGeneration;
+    if (!m_checkAllLoading)
+        return;
+    m_checkAllLoading = false;
+    Q_EMIT checkedRunsChanged();
+}
+
 void HistoryController::clearCheckedRuns()
 {
-    if (m_batchRunning || m_checkedRuns.isEmpty())
+    if (!m_batchRunning)
+        discardCheckedRuns();
+}
+
+void HistoryController::discardCheckedRuns()
+{
+    cancelCheckAll();
+    if (m_checkedRuns.isEmpty())
         return;
     m_checkedRuns.clear();
     m_checkedOrder.clear();
+    clearRegionMigrationPreview();
     Q_EMIT checkedRunsChanged();
 }
 
@@ -416,16 +505,93 @@ void HistoryController::assignCheckedRunsToProfile(int profileId, const QString 
     sendCheckedBatch(QStringLiteral("assign_profile"), profileId, reason);
 }
 
-void HistoryController::sendCheckedBatch(const QString &action, int profileId, const QString &reason)
+QString HistoryController::checkedMigrationSource() const
 {
-    const bool assigning = action == QLatin1String("assign_profile");
+    if (m_checkedRuns.isEmpty())
+        return {};
+    const QString region = m_checkedRuns.cbegin()->value(QStringLiteral("region")).toString(QStringLiteral("UNKNOWN"));
+    for (const QJsonObject &run : m_checkedRuns) {
+        const QString source = run.value(QStringLiteral("source")).toString();
+        if ((source != QLatin1String("MANUAL") && source != QLatin1String("IMPORT"))
+            || run.value(QStringLiteral("soft_deleted")).toBool()
+            || !run.value(QStringLiteral("capture_session_id")).toString().isEmpty()
+            || run.value(QStringLiteral("region")).toString(QStringLiteral("UNKNOWN")) != region)
+            return {};
+    }
+    return region;
+}
+
+void HistoryController::clearRegionMigrationPreview()
+{
+    if (!m_regionPreviewLoading && m_regionPreview.isEmpty() && m_regionPreviewFeedback.isEmpty())
+        return;
+    ++m_regionPreviewGeneration;
+    m_regionPreviewLoading = false;
+    m_regionDestination = {};
+    m_regionPreview.clear();
+    m_regionPreviewFeedback.clear();
+    Q_EMIT regionMigrationChanged();
+}
+
+void HistoryController::previewRegionMigration(const QString &region, int profileId)
+{
+    if (!m_backend || m_batchRunning || checkedMigrationSource().isEmpty()
+        || region.isEmpty() || profileId <= 0)
+        return;
+    clearRegionMigrationPreview();
+    const quint64 generation = m_regionPreviewGeneration;
+    m_regionPreviewLoading = true;
+    const QJsonObject destination{{QStringLiteral("region"), region}, {QStringLiteral("profile_id"), profileId}};
+    QJsonObject payload = destination;
+    payload.insert(QStringLiteral("runs"), checkedBatchTargets());
+    Q_EMIT regionMigrationChanged();
+    BackendReply *reply = m_backend->request(QStringLiteral("PreviewRunRegionMigration"), payload);
+    const QPointer<BackendReply> guard(reply);
+    reply->whenDone(this, [this, generation, destination, guard](bool ok, const QVariantMap &answer,
+                                                               const QString &code, const QString &message) {
+        if (generation != m_regionPreviewGeneration)
+            return;
+        m_regionPreviewLoading = false;
+        if (ok && answer.contains(QStringLiteral("target_baseline"))) {
+            m_regionDestination = destination;
+            m_regionPreview = answer;
+        } else {
+            m_regionPreviewFeedback = collector_text::replyErrorText(guard, message.isEmpty() ? code : message);
+        }
+        Q_EMIT regionMigrationChanged();
+    });
+}
+
+void HistoryController::movePreviewedRuns(int baselineOverlap, const QString &reason)
+{
+    if (!m_backend || m_batchRunning || m_regionPreview.isEmpty() || checkedMigrationSource().isEmpty()
+        || baselineOverlap < 0 || reason.trimmed().isEmpty() || reason.trimmed().size() > 500)
+        return;
+    QJsonObject migration = m_regionDestination;
+    migration.insert(QStringLiteral("expected_baseline"), m_regionPreview.value(QStringLiteral("target_baseline")).toInt());
+    migration.insert(QStringLiteral("baseline_overlap"), baselineOverlap);
+    sendCheckedBatch(QStringLiteral("move_region"), 0, reason, migration);
+}
+
+QJsonArray HistoryController::checkedBatchTargets() const
+{
     QJsonArray rows;
-    const QStringList ids = m_checkedOrder;
-    for (const QString &id : ids)
+    for (const QString &id : m_checkedOrder)
         rows.append(QJsonObject{{QStringLiteral("run_id"), id},
                                 {QStringLiteral("expected_revision"), m_checkedRuns.value(id).value(QStringLiteral("revision"))}});
-    QJsonObject payload{{QStringLiteral("action"), action}, {QStringLiteral("runs"), rows},
-                        {QStringLiteral("reason"), reason.trimmed()}};
+    return rows;
+}
+
+void HistoryController::sendCheckedBatch(const QString &action, int profileId, const QString &reason,
+                                         const QJsonObject &migration)
+{
+    const bool assigning = action == QLatin1String("assign_profile");
+    const QStringList ids = m_checkedOrder;
+    const QJsonArray rows = checkedBatchTargets();
+    QJsonObject payload = migration;
+    payload.insert(QStringLiteral("action"), action);
+    payload.insert(QStringLiteral("runs"), rows);
+    payload.insert(QStringLiteral("reason"), reason.trimmed());
     if (assigning)
         payload.insert(QStringLiteral("profile_id"),
                        profileId > 0 ? QJsonValue(profileId) : QJsonValue(QJsonValue::Null));
@@ -433,14 +599,23 @@ void HistoryController::sendCheckedBatch(const QString &action, int profileId, c
     m_batchRunning = true;
     m_batchFeedback.clear();
     Q_EMIT batchChanged();
-    BackendReply *batchReply = assigning
-        ? m_backend->assignRunsToProfile(rows, profileId, reason.trimmed(), requestId)
-        : m_backend->batchMutateRuns(action, rows, reason.trimmed(), requestId);
+    const bool movingRegion = action == QLatin1String("move_region");
+    if (movingRegion)
+        Q_EMIT regionMovePendingChanged(true);
+    BackendReply *batchReply = nullptr;
+    if (movingRegion)
+        batchReply = m_backend->requestWithId(QStringLiteral("BatchMutateRuns"), payload, requestId);
+    else if (assigning)
+        batchReply = m_backend->assignRunsToProfile(rows, profileId, reason.trimmed(), requestId);
+    else
+        batchReply = m_backend->batchMutateRuns(action, rows, reason.trimmed(), requestId);
     const QPointer<BackendReply> batchGuard(batchReply);
-    batchReply->whenDone(this, [this, action, profileId, ids, requestId, batchGuard](bool ok, const QVariantMap &answer,
+    batchReply->whenDone(this, [this, action, profileId, ids, requestId, batchGuard, movingRegion](bool ok, const QVariantMap &answer,
                                                                        const QString &code, const QString &message) {
             settle(m_unansweredBatch, requestId, ok, code);
             m_batchRunning = false;
+            if (movingRegion)
+                Q_EMIT regionMovePendingChanged(false);
             if (!ok) {
                 const bool unsent = batchGuard && batchGuard->neverSent() && code == QLatin1String("ERR_INTERNAL");
                 const bool uncertain = (batchGuard && batchGuard->transportFailed())
@@ -465,9 +640,12 @@ void HistoryController::sendCheckedBatch(const QString &action, int profileId, c
                 m_checkedRuns.remove(id);
                 m_checkedOrder.removeAll(id);
             }
+            clearRegionMigrationPreview();
             if (ids.contains(m_selectedRun.value(QStringLiteral("run_id")).toString()))
                 clearSelection();
             m_batchFeedback = [action, profileId, count = answer.value(QStringLiteral("changed_count")).toInt()] {
+                if (action == QLatin1String("move_region"))
+                    return tr("已迁移 %1 条记录的区服。").arg(count);
                 if (action == QLatin1String("assign_profile"))
                     return profileId > 0 ? tr("已把 %1 条记录改到所选角色。").arg(count)
                                          : tr("已把 %1 条记录改为不属于任何角色。").arg(count);

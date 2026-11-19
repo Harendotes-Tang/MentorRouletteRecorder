@@ -222,8 +222,13 @@ public sealed record CaptureDiagnosticsSnapshot
     /// <summary>Why this running capture is producing nothing, if it is.</summary>
     public CaptureSilentReason SilentReason { get; init; } = CaptureSilentReason.None;
 
+    internal CaptureValidationFailure? LastValidationFailure { get; init; }
+
     /// <summary>Messages whose framing was read successfully.</summary>
     public long MessagesDecoded { get; init; }
+
+    /// <summary>Decoded game IPC segments in this capture session, excluding control segments.</summary>
+    public long IpcMessagesDecoded { get; init; }
 
     /// <summary>Messages whose framing could not be read.</summary>
     public long DecodeErrors { get; init; }
@@ -549,6 +554,7 @@ public static class SanitizedDiagnosticsReport
             // The same rows the diagnostics page shows, rendered by the same builder, so a
             // pasted report and a screenshot of the page can never disagree.
             ["recent_parser_errors"] = CaptureWire.ParserErrors(snapshot.RecentParserErrors),
+            ["last_validation_failure"] = snapshot.LastValidationFailure?.ToJson(),
         };
     }
 

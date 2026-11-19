@@ -76,7 +76,8 @@ private Q_SLOTS:
         QTRY_COMPARE(scene.stepStatus(step), QStringLiteral("cur"));
         for (int number = 1; number <= 5; ++number) {
             QString expectedStatus = QStringLiteral("todo");
-            if (number < step)
+            // The mock's failed round read nothing: only step 1 was really done.
+            if (number < step && (number == 1 || state != QStringLiteral("FAILED")))
                 expectedStatus = QStringLiteral("done");
             else if (number == step)
                 expectedStatus = QStringLiteral("cur");
@@ -396,11 +397,20 @@ private Q_SLOTS:
     {
         EvidenceScene scene;
         scene.backend.scripted = true;
-        scene.backend.validation = roundStatus(QStringLiteral("FAILED"), QStringLiteral("round-failed"), 0, 40,
-                                               QStringLiteral("C:/mock-only/failed/trace.jsonl"));
+        const auto failed = roundStatus(QStringLiteral("FAILED"), QStringLiteral("round-failed"), 0, 40,
+                                        QStringLiteral("C:/mock-only/failed/trace.jsonl"));
+        scene.backend.validation = roundStatus(QStringLiteral("STOPPING"), QStringLiteral("round-failed"), 0, 39);
+        scene.backend.validation.insert(QStringLiteral("error_code"), QStringLiteral("ERR_INTERNAL"));
         QVERIFY(scene.open(QStringLiteral("IDLE")));
+        QTRY_COMPARE(scene.app->validationState(), QStringLiteral("STOPPING"));
+        QCOMPARE(scene.stepStatus(3), QStringLiteral("todo"));
+        scene.report(failed);
         QTRY_COMPARE(scene.app->validationState(), QStringLiteral("FAILED"));
         QTRY_COMPARE(scene.stepStatus(4), QStringLiteral("cur"));
+        QCOMPARE(scene.stepStatus(3), QStringLiteral("todo"));
+        // No message was ever read, so 确认数据可读 is not ticked either.
+        QCOMPARE(scene.stepStatus(2), QStringLiteral("todo"));
+        QCOMPARE(scene.stepStatus(1), QStringLiteral("done"));
         QCOMPARE(scene.text(QStringLiteral("evidenceSavedText")), QString::fromUtf8("采证失败"));
         auto *folder = scene.item(QStringLiteral("evidenceFileAction_trace"));
         QVERIFY(folder && folder->isVisible());
@@ -415,6 +425,7 @@ private Q_SLOTS:
         QVERIFY(!scene.item(QStringLiteral("evidenceIdentityFiles"))->isVisible());
         QVERIFY(scene.click(QStringLiteral("evidenceToReportButton")));
         QTRY_COMPARE(scene.stepStatus(5), QStringLiteral("cur"));
+        QCOMPARE(scene.stepStatus(3), QStringLiteral("todo"));
         const QString report = scene.text(QStringLiteral("evidenceReportText"));
         QVERIFY2(report.contains(QString::fromUtf8("结果：验证失败，文件可能不完整。详情见本机诊断日志。")),
                  qPrintable(report));

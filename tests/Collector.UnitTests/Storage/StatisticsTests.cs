@@ -25,6 +25,8 @@ public sealed class StatisticsTests
         Assert.Null(result.AverageDurationMs);
         Assert.Equal(2000, result.Remaining);
         Assert.Equal(Enum.GetValues<RunResult>().Length, result.ResultBreakdown.Buckets.Count);
+        // Every region the software can record is offered before anything is recorded in it.
+        Assert.Equal(new[] { Region.Cn, Region.Tc, Region.Global }, result.Achievements!.Select(row => row.Region));
     }
 
     /// <summary>

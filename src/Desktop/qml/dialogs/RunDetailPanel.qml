@@ -979,10 +979,11 @@ Rectangle {
                                         return changes
                                     // live(): the rows are read again, in the new
                                     // language, after a switch.
+                                    const includesRegion = changes.some(function(change) { return change.field === "region" })
                                     return Theme.live(changes).filter(function(row) {
                                         const field = row.field || ""
                                         // Whose record it is matters only where characters are told apart.
-                                        if (field === "profile_id" && !root.characterFeatures)
+                                        if (field === "profile_id" && !root.characterFeatures && !includesRegion)
                                             return false
                                         return Runtime.fmt.revisionFieldVisible(field)
                                             && Runtime.fmt.revisionFieldValue(field, row.old_value)

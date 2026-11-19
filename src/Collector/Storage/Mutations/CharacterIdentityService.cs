@@ -104,14 +104,16 @@ public sealed class CharacterIdentityService
 
         if (seen.Count == 0 && _settings.Profiles.List(transaction, region).Count <= 1)
         {
-            // The one character of a player with one character. Nothing the Desktop shows such a
-            // player changes, so nothing is announced.
             var only = _settings.Profiles.EnsureCurrent(region, transaction);
-            var first = _settings.Identities.Insert(region, keyId, digest, only.ProfileId, transaction);
-            return new CharacterIdentityObservation(first.IdentityId, only.ProfileId, StatisticsChanged: false);
+            if (!_settings.Identities.NeedsRegistration(only.ProfileId, transaction))
+            {
+                var first = _settings.Identities.Insert(region, keyId, digest, only.ProfileId, transaction);
+                return new CharacterIdentityObservation(first.IdentityId, only.ProfileId, StatisticsChanged: true);
+            }
         }
 
         var pending = _settings.Identities.Insert(region, keyId, digest, null, transaction);
+        _settings.Identities.OfferUnboundRegistration(region, pending.IdentityId, transaction);
         return new CharacterIdentityObservation(pending.IdentityId, null, StatisticsChanged: true);
     }
 
@@ -129,7 +131,9 @@ public sealed class CharacterIdentityService
             _settings.Profiles.SetCurrent(profileId, transaction);
         }
 
-        return new CharacterIdentityObservation(known.IdentityId, profileId, switched);
+        var offered = known.RegistrationProfileId is null &&
+            _settings.Identities.OfferRegistration(profileId, known.IdentityId, transaction);
+        return new CharacterIdentityObservation(known.IdentityId, profileId, switched || offered);
     }
 
     /// <summary>
@@ -159,11 +163,25 @@ public sealed class CharacterIdentityService
             throw CollectorException.BadRequest(CollectorTexts.IdentityProfileRequired(), "profile_id");
         }
 
-        var fingerprint = MutationSnapshotCodec.Fingerprint(
+        if (command.DisplayName is not null && command.Action != CharacterIdentityAction.Bind)
+        {
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldUnknown("display_name"), "display_name");
+        }
+
+        var name = command.DisplayName is null ? null : CharacterProfileService.RequireName(command.DisplayName);
+        var parts = new List<string?>
+        {
             "ResolveCharacterIdentity",
             command.IdentityId.ToString(CultureInfo.InvariantCulture),
             EnumWire<CharacterIdentityAction>.Format(command.Action),
-            command.ProfileId?.ToString(CultureInfo.InvariantCulture));
+            command.ProfileId?.ToString(CultureInfo.InvariantCulture),
+        };
+        if (name is not null)
+        {
+            parts.Add(name);
+        }
+
+        var fingerprint = MutationSnapshotCodec.Fingerprint(parts.ToArray());
 
         return _database.RunInTransaction(tx =>
         {
@@ -194,7 +212,9 @@ public sealed class CharacterIdentityService
             switch (command.Action)
             {
                 case CharacterIdentityAction.Bind:
-                    assigned = Bind(_settings, identity, command.ProfileId!.Value, tx);
+                    assigned = name is null
+                        ? Bind(_settings, identity, command.ProfileId!.Value, tx)
+                        : ConfirmRegistration(identity, command.ProfileId!.Value, name, tx);
                     break;
                 case CharacterIdentityAction.Ignore:
                     RequireUnbound(identity);
@@ -219,6 +239,21 @@ public sealed class CharacterIdentityService
                 tx);
             return new CharacterIdentityOutcome(identity.IdentityId, profileId, assigned, IdempotentReplay: false);
         });
+    }
+
+    private int ConfirmRegistration(CharacterIdentity identity, long profileId, string name, SqliteTransaction tx)
+    {
+        if (identity.RegistrationProfileId != profileId ||
+            identity.Ignored || (identity.ProfileId is { } boundId && boundId != profileId))
+        {
+            throw CollectorException.BadRequest(CollectorTexts.ProfileNotFound(), "profile_id");
+        }
+
+        CharacterProfileService.RequireFreeName(_settings.Profiles.List(tx, identity.Region), name, profileId);
+        var assigned = identity.ProfileId is null ? Bind(_settings, identity, profileId, tx) : 0;
+        _settings.Profiles.Rename(profileId, name, tx);
+        _settings.Identities.FinishRegistration(profileId, tx);
+        return assigned;
     }
 
     /// <summary>

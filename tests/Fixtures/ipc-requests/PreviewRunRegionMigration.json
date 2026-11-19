@@ -1,0 +1,10 @@
+{
+  "protocol_version": 1,
+  "request_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "message_type": "PreviewRunRegionMigration",
+  "payload": {
+    "runs": [{"run_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "expected_revision": 1}],
+    "region": "GLOBAL",
+    "profile_id": 4
+  }
+}

@@ -315,6 +315,12 @@ public sealed class ContractSchemaTests
             Assert.Equal("NO_UPDATE", startedDownload["update"]!["download"]!["failure"]!.GetValue<string>());
             var cancelledDownload = (await client.SendAsync("CancelUpdateDownload")).Require();
             Assert.Equal("FAILED", cancelledDownload["update"]!["download"]!["state"]!.GetValue<string>());
+            var staleMirrorChoice = (await client.SendAsync("ResolveUpdateMirrorOffer", new JsonObject
+            {
+                ["offer_id"] = Guid.NewGuid().ToString(),
+                ["use_gitcode"] = true,
+            })).Require();
+            Assert.Equal("NO_UPDATE", staleMirrorChoice["update"]!["download"]!["failure"]!.GetValue<string>());
 
             // target_path omitted on purpose: the managed backups folder, and pruned_count.
             var backup = await client.SendAsync("BackupDatabase", new JsonObject());
@@ -417,8 +423,21 @@ public sealed class ContractSchemaTests
                 ["row_numbers"] = new JsonArray(1), ["confirm_own_records"] = true,
             };
             var importRequestId = NewId();
-            Assert.True((await client.SendAsync("CommitRunImport", importPayload, importRequestId)).Ok);
+            var createdImport = (await client.SendAsync("CommitRunImport", importPayload, importRequestId)).Require();
             Assert.True((await client.SendAsync("CommitRunImport", importPayload.DeepClone().AsObject(), importRequestId)).Require()["replayed"]!.GetValue<bool>());
+            var migrationRole = (await client.SendAsync("CreateCharacterProfile", new JsonObject
+            {
+                ["region"] = "GLOBAL", ["display_name"] = "迁移测试角色", ["goal_count"] = 2000,
+                ["baseline_completed_count"] = 0,
+            })).Require();
+            (await client.SendAsync("PreviewRunRegionMigration", new JsonObject
+            {
+                ["region"] = "GLOBAL", ["profile_id"] = migrationRole["profile_id"]!.DeepClone(),
+                ["runs"] = new JsonArray(new JsonObject
+                {
+                    ["run_id"] = createdImport["run_ids"]![0]!.DeepClone(), ["expected_revision"] = 1,
+                }),
+            })).Require();
 
             Assert.Equal(30, (await client.SendAsync("GetHistoryRetentionSettings")).Require()["retention_days"]!.GetValue<int>());
             Assert.Equal(0, (await client.SendAsync("UpdateHistoryRetentionSettings", new JsonObject { ["retention_days"] = 0 })).Require()["retention_days"]!.GetValue<int>());

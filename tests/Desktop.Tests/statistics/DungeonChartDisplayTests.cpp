@@ -40,8 +40,11 @@ public:
         QJsonObject{{"content_id", 1}, {"duty_category", QString::fromUtf8("四人迷宫")}, {"completed_count", 10}, {"attempt_count", 10}}};
     QString backendName() const override { return QStringLiteral("chart-test"); }
     bool isConnected() const override { return true; }
-    mr::BackendReply *request(const QString &type, const QJsonObject & = {}) override
+    QHash<QString, QJsonObject> regionFilters;
+    mr::BackendReply *request(const QString &type, const QJsonObject &payload = {}) override
     {
+        if (payload.contains(QStringLiteral("filter")))
+            regionFilters.insert(type, payload.value(QStringLiteral("filter")).toObject());
         auto *reply = new mr::BackendReply(QString::number(++serial), type, this);
         const QJsonObject result{{"items", rows}, {"distinct_count", rows.size()},
             {"page_info", QJsonObject{{"page", 1}, {"page_size", 200}, {"total", rows.size()}}}};
@@ -72,8 +75,8 @@ QQuickItem *item(QQuickItem *root, const QString &name)
 struct ChartScene {
     QTemporaryDir directory;
     ChartBackend backend;
-    mr::AppController controller{&backend, nullptr};
-    mr::AppSettings settings{directory.filePath(QStringLiteral("desktop.ini")), nullptr};
+    mr::AppSettings settings;
+    mr::AppController controller;
     mr::Formatters formatters;
     mr::JobCatalog jobs;
     mr::RoleCatalog roles;
@@ -81,6 +84,11 @@ struct ChartScene {
     QStringList warnings;
     QQmlEngine engine;
     std::unique_ptr<QObject> root;
+
+    explicit ChartScene(const QString &settingsPath = {})
+        : settings(settingsPath.isEmpty() ? directory.filePath(QStringLiteral("desktop.ini")) : settingsPath, nullptr)
+        , controller(&backend, settingsPath.isEmpty() ? nullptr : &settings)
+    {}
 
     bool create(const QString &theme = QStringLiteral("light"), int width = 1280,
                 const QString &style = QStringLiteral("classic"))
@@ -178,6 +186,61 @@ class DungeonChartDisplayTests final : public QObject
 {
     Q_OBJECT
 private slots:
+    void regionFilterFollowsLanguageUntilPicked_data()
+    {
+        QTest::addColumn<int>("index");
+        QTest::addColumn<QString>("selection");
+        QTest::newRow("all-regions") << 0 << QString();
+        QTest::newRow("same-as-default") << 3 << QStringLiteral("GLOBAL");
+        QTest::newRow("unknown-region") << 4 << QStringLiteral("UNKNOWN");
+    }
+
+    void regionFilterFollowsLanguageUntilPicked()
+    {
+        QFETCH(int, index);
+        QFETCH(QString, selection);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("desktop.ini"));
+        mr::LanguageManager language(nullptr);
+        language.initialize(QStringLiteral("en"));
+        {
+            ChartScene scene(path);
+            QCOMPARE(scene.controller.recordRegion(), QStringLiteral("GLOBAL"));
+            for (const auto *request : {"GetDashboardStats", "GetDungeonStats", "GetJobStats"}) {
+                QCOMPARE(scene.backend.regionFilters.value(QLatin1String(request)).value(QStringLiteral("region")).toString(),
+                         QStringLiteral("GLOBAL"));
+            }
+            QVERIFY2(scene.create(), qPrintable(scene.errors));
+            auto *selector = scene.find(QStringLiteral("statisticsRegionFilter"));
+            QVERIFY(selector);
+            QCOMPARE(selector->property("currentValue").toString(), QStringLiteral("GLOBAL"));
+
+            const QList<QPair<QString, QString>> defaults{{"zh-CN", "CN"}, {"zh-TW", "TC"}, {"ja", "GLOBAL"}};
+            for (const auto &[code, region] : defaults) {
+                language.setLanguage(code);
+                QCoreApplication::processEvents();
+                QCOMPARE(scene.controller.recordRegion(), region);
+                QTRY_COMPARE(selector->property("currentValue").toString(), region);
+            }
+
+            QVERIFY(QMetaObject::invokeMethod(selector, "activated", index));
+            QCOMPARE(scene.controller.recordRegion(), selection);
+            language.setLanguage(QStringLiteral("zh-CN"));
+            QCoreApplication::processEvents();
+            QCOMPARE(scene.controller.recordRegion(), selection);
+            QTRY_COMPARE(selector->property("currentValue").toString(), selection);
+            scene.controller.setRecordRegion(QStringLiteral("invalid"));
+            QCOMPARE(scene.controller.recordRegion(), selection);
+        }
+
+        ChartScene restarted(path);
+        QCOMPARE(restarted.controller.recordRegion(), selection);
+        const auto filter = restarted.backend.regionFilters.value(QStringLiteral("GetDashboardStats"));
+        QCOMPARE(filter.contains(QStringLiteral("region")), !selection.isEmpty());
+        QCOMPARE(filter.value(QStringLiteral("region")).toString(), selection);
+    }
+
     void initTestCase()
     {
         const QString base = QString::fromUtf8(MR_DESKTOP_QML_DIR);

@@ -20,7 +20,8 @@ StyledComboBox {
     model: choices
     textRole: "label"
     valueRole: "value"
-    currentIndex: indexOfRegion(selection)
+    keepsRowAcrossLanguages: false
+    currentIndex: Theme.live(indexOfRegion(selection))
     onActivated: function(index) { control.regionPicked(control.choices[index].value) }
     Accessible.name: qsTr("记录区服")
 }

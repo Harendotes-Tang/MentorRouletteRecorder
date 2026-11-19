@@ -5,7 +5,7 @@ import QtQuick.Controls 6.8
 import QtQuick.Layouts
 import MentorRecorder 1.0
 
-// 添加角色 / 给角色改名（设置 · 成就），以及把一个还没有登记的角色登记为新角色（总览）。
+// 设置页用来添加和改名；总览也用它登记新角色或确认升级前的档案。
 //
 // The name is what the player calls the character here - 大号, 小号 - and is
 // never read from the game. Adding asks for the character's own goal and
@@ -16,9 +16,8 @@ MotionDialog {
 
     // 0 adds a character to `region`; otherwise the profile being renamed.
     property int profileId: 0
-    // A character the Collector told apart that this new profile is: it is bound
-    // in the same request, takes the records made for it and becomes the current
-    // character. 0 when the player is simply adding a character.
+    // With an identity, create binds a new profile and rename confirms an upgraded
+    // profile. A logged-in identity makes its profile current. Zero for settings edits.
     property int identityId: 0
     property string region: "CN"
     property string nameText: ""
@@ -30,6 +29,8 @@ MotionDialog {
     // not close it.
     property bool waiting: false
     readonly property bool adding: dialog.profileId === 0
+    readonly property bool registering: dialog.profileId > 0 && dialog.identityId > 0
+    readonly property string saveAction: dialog.registering ? "register" : dialog.adding ? "create" : "rename"
     // This dialog's own request was answered; the profile it created or renamed.
     signal saved(int profileId, string action)
     readonly property int maxNameLength: 24
@@ -53,8 +54,8 @@ MotionDialog {
         dialog.present()
     }
 
-    function openToRename(profile) {
-        dialog.identityId = 0
+    function openToRename(profile, identityId) {
+        dialog.identityId = Number(identityId) || 0
         dialog.profileId = Number(profile.profile_id)
         dialog.region = String(profile.region)
         dialog.nameText = String(profile.display_name || "")
@@ -78,7 +79,10 @@ MotionDialog {
         if (!dialog.adding) {
             dialog.errorText = ""
             dialog.waiting = true
-            Runtime.app.renameCharacterProfile(dialog.profileId, name)
+            if (dialog.registering)
+                Runtime.app.bindCharacterIdentity(dialog.identityId, dialog.profileId, name)
+            else
+                Runtime.app.renameCharacterProfile(dialog.profileId, name)
             return
         }
         const goal = Number(dialog.goalText)
@@ -101,14 +105,14 @@ MotionDialog {
         target: Runtime.app
         enabled: dialog.waiting
         function onCharacterProfileSaved(profileId, action) {
-            if (action !== "create" && action !== "rename")
+            if (action !== dialog.saveAction)
                 return
             dialog.waiting = false
             dialog.close()
             dialog.saved(profileId, action)
         }
         function onCharacterProfileFailed(action, code, message) {
-            if (action !== "create" && action !== "rename")
+            if (action !== dialog.saveAction)
                 return
             dialog.waiting = false
             dialog.errorText = Runtime.app.errorText(message, code)
@@ -124,7 +128,7 @@ MotionDialog {
 
         HeadingLabel {
             Layout.fillWidth: true
-            text: !dialog.adding ? qsTr("给角色改名")
+            text: dialog.registering ? qsTr("登记原有角色") : !dialog.adding ? qsTr("给角色改名")
                 : dialog.identityId > 0 ? qsTr("登记新角色") : qsTr("添加角色")
             font.pixelSize: Theme.dialogTitleSize(20)
             wrapMode: Text.WordWrap
@@ -280,7 +284,7 @@ MotionDialog {
             AppButton {
                 objectName: "characterProfileSave"
                 variant: "primary"
-                text: dialog.adding ? qsTr("添加") : qsTr("保存")
+                text: dialog.registering ? qsTr("确认绑定") : dialog.adding ? qsTr("添加") : qsTr("保存")
                 enabled: !dialog.waiting
                 onClicked: dialog.submit()
             }

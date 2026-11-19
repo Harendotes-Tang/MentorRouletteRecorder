@@ -51,7 +51,10 @@ ApplicationWindow {
             && Runtime.app.recording.blocked && (!recordingAlert.visible || recordingAlert.exiting))
             recordingAlert.open()
     }
-    onVisibilityChanged: Qt.callLater(window.presentRecordingAlert)
+    onVisibilityChanged: {
+        Qt.callLater(window.presentRecordingAlert)
+        Qt.callLater(updateMirrorDialog.presentOffer)
+    }
     onActiveChanged: Qt.callLater(window.presentRecordingAlert)
     RecordingWarningWindow {
         id: recordingWarning
@@ -786,11 +789,23 @@ ApplicationWindow {
                     }
 
                     Text {
+                        id: collectorStatusLabel
+                        objectName: "titleBarCollectorStatus"
                         text: Runtime.app.collectorStatusText
+                        textFormat: Text.PlainText
                         color: Theme.titlebarTextSecondary
                         font.pixelSize: Theme.fs(11)
                         elide: Text.ElideRight
                         Layout.maximumWidth: 420
+                        // A refused start explains itself in several sentences; the bar
+                        // has room for the first, the rest is a hover away.
+                        PlainToolTip {
+                            objectName: "titleBarCollectorStatusToolTip"
+                            visible: collectorStatusHover.hovered && collectorStatusLabel.truncated
+                            width: Math.min(implicitWidth, 460)
+                            text: collectorStatusLabel.text
+                        }
+                        HoverHandler { id: collectorStatusHover }
                     }
 
                     // `.ev-pill`: a 采证 round in progress, with its clock; the page
@@ -973,6 +988,15 @@ ApplicationWindow {
 
                         Item {
                             Layout.fillHeight: true
+                        }
+
+                        NavItem {
+                            objectName: "feedbackEntry"
+                            Layout.fillWidth: true
+                            iconName: "flag"
+                            label: qsTr("意见反馈")
+                            text: label
+                            onClicked: feedbackDialog.open()
                         }
 
                         // .status-panel: its own tint and border so it reads
@@ -1394,6 +1418,172 @@ ApplicationWindow {
     DisclosureDialog {
         id: disclosureDialog
         anchors.centerIn: Overlay.overlay
+    }
+
+    MotionDialog {
+        id: feedbackDialog
+        objectName: "feedbackDialog"
+        anchors.centerIn: Overlay.overlay
+        width: 420
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        padding: 20
+        title: qsTr("意见反馈")
+
+        property bool emailOpenFailed: false
+        onAboutToShow: emailOpenFailed = false
+
+        background: DialogFrame {}
+        Overlay.modal: Rectangle { color: Theme.modalScrim(feedbackDialog.palette.shadow) }
+        header: RowLayout {
+            Label {
+                Layout.fillWidth: true
+                text: feedbackDialog.title
+                color: Theme.textPrimary
+                font.pixelSize: Theme.dialogTitleSize(18)
+                font.bold: true
+                padding: 20
+            }
+            AppButton {
+                Layout.rightMargin: 20
+                compact: true
+                variant: "ghost"
+                text: qsTr("关闭")
+                onClicked: feedbackDialog.close()
+            }
+        }
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            RowLayout {
+                Layout.fillWidth: true
+                AppButton {
+                    objectName: "feedbackGithubButton"
+                    Layout.fillWidth: true
+                    iconName: "globe"
+                    text: qsTr("在 GitHub 反馈")
+                    onClicked: {
+                        feedbackDialog.close()
+                        Runtime.app.openFeedbackPage()
+                    }
+                }
+                AppButton {
+                    objectName: "feedbackEmailButton"
+                    Layout.fillWidth: true
+                    text: qsTr("写邮件")
+                    onClicked: {
+                        if (Runtime.app.openFeedbackEmail())
+                            feedbackDialog.close()
+                        else
+                            feedbackDialog.emailOpenFailed = true
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    Layout.fillWidth: true
+                    text: Runtime.app.feedbackEmail
+                    textFormat: Text.PlainText
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fs(13)
+                }
+                AppButton {
+                    objectName: "feedbackCopyEmailButton"
+                    compact: true
+                    variant: "ghost"
+                    iconName: "copy"
+                    text: qsTr("复制邮箱")
+                    onClicked: Runtime.app.copyToClipboard(Runtime.app.feedbackEmail)
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                visible: feedbackDialog.emailOpenFailed
+                text: qsTr("没能打开邮件应用。可以复制邮箱后手动发邮件。")
+                color: Theme.orangeText
+                wrapMode: Text.Wrap
+            }
+        }
+    }
+
+    MotionDialog {
+        id: updateMirrorDialog
+        objectName: "updateMirrorDialog"
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(480, window.width - 48)
+        padding: 20
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape
+        background: DialogFrame {}
+        Overlay.modal: Rectangle { color: Theme.modalScrim(updateMirrorDialog.palette.shadow) }
+
+        readonly property string pendingOfferId: Runtime.app.update.mirrorOfferId ?? ""
+        property string displayedOfferId: ""
+
+        function presentOffer() {
+            if (visible && displayedOfferId !== pendingOfferId) {
+                close()
+            } else if (!visible && pendingOfferId.length > 0 && window.visible
+                       && window.visibility !== Window.Minimized) {
+                displayedOfferId = pendingOfferId
+                open()
+            }
+        }
+
+        function chooseGitCode() {
+            const offerId = displayedOfferId
+            displayedOfferId = ""
+            Runtime.app.update.resolveMirrorOffer(offerId, true)
+            close()
+        }
+
+        onPendingOfferIdChanged: Qt.callLater(presentOffer)
+        Component.onCompleted: Qt.callLater(presentOffer)
+        onOpened: keepGitHub.forceActiveFocus()
+        onClosed: {
+            const offerId = displayedOfferId
+            displayedOfferId = ""
+            if (offerId.length > 0 && offerId === pendingOfferId)
+                Runtime.app.update.resolveMirrorOffer(offerId, false)
+            Qt.callLater(presentOffer)
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            HeadingLabel {
+                Layout.fillWidth: true
+                text: qsTr("切换到 GitCode 下载？")
+                wrapMode: Text.WordWrap
+            }
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("GitCode 预计更早下载完成。切换后会从头下载，等待选择时 GitHub 会继续下载。")
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fs(13)
+                wrapMode: Text.WordWrap
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                AppButton {
+                    id: keepGitHub
+                    objectName: "keepGitHubDownloadButton"
+                    text: qsTr("继续 GitHub")
+                    onClicked: updateMirrorDialog.close()
+                }
+                AppButton {
+                    objectName: "switchToGitCodeButton"
+                    variant: "primary"
+                    text: qsTr("切换到 GitCode")
+                    onClicked: updateMirrorDialog.chooseGitCode()
+                }
+            }
+        }
     }
 
     ReleaseNotesDialog {

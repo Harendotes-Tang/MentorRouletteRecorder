@@ -2172,6 +2172,18 @@ SHA256: %3</translation>
         <source>不统计这个角色</source>
         <translation>Don&apos;t track this character</translation>
     </message>
+    <message>
+        <source>如果认错了角色，可在「设置 › 成就」解除绑定。</source>
+        <translation>If this is the wrong character, you can unlink it in Settings › Achievement.</translation>
+    </message>
+    <message>
+        <source>输入角色名并确认绑定「原有记录」。已有记录和成就进度会保留。</source>
+        <translation>Enter a name and confirm that this character owns the original records. Its records and achievement progress will be kept.</translation>
+    </message>
+    <message>
+        <source>登记并绑定原有记录</source>
+        <translation>Register with original records</translation>
+    </message>
 </context>
 <context>
     <name>CharacterNames</name>
@@ -2246,6 +2258,14 @@ SHA256: %3</translation>
         <source>保存</source>
         <translation>Save</translation>
     </message>
+    <message>
+        <source>登记原有角色</source>
+        <translation>Register existing character</translation>
+    </message>
+    <message>
+        <source>确认绑定</source>
+        <translation>Confirm binding</translation>
+    </message>
 </context>
 <context>
     <name>CharacterSelector</name>
@@ -2268,6 +2288,41 @@ SHA256: %3</translation>
 </context>
 <context>
     <name>CollectorText</name>
+    <message>
+        <source>只能迁移尚未删除的导入记录和手动补录。</source>
+        <comment>history.region.ineligible</comment>
+        <translation>Only active imported or manual records can be moved.</translation>
+    </message>
+    <message>
+        <source>一次只能迁移同一区服的记录。</source>
+        <comment>history.region.mixed_source</comment>
+        <translation>Move records from one source region at a time.</translation>
+    </message>
+    <message>
+        <source>请选择与来源不同的目标区服。</source>
+        <comment>history.region.different_target</comment>
+        <translation>Choose a different destination region.</translation>
+    </message>
+    <message>
+        <source>至少一条记录与目标角色或本批另一条记录重复。请检查所选记录后重新预览。</source>
+        <comment>history.region.duplicate</comment>
+        <translation>A selected record duplicates one for the destination character or another selected record. Check the selection and preview again.</translation>
+    </message>
+    <message>
+        <source>目标角色的起始次数已变化，请重新预览。</source>
+        <comment>history.region.baseline_changed</comment>
+        <translation>The destination starting count changed. Preview the move again.</translation>
+    </message>
+    <message>
+        <source>已包含的通关数不能超过计入进度的通关数或目标起始次数。</source>
+        <comment>history.region.invalid_overlap</comment>
+        <translation>The overlap must be at most the contributing completions and the destination starting count.</translation>
+    </message>
+    <message>
+        <source>这条修订属于批量迁移，不能逐条撤销。需要再次变更区服时，请使用批量迁移。</source>
+        <comment>mutation.undo.region_migration</comment>
+        <translation>This revision is part of a batch move. To change the region again, use the batch move action.</translation>
+    </message>
     <message>
         <source>未知副本</source>
         <comment>name.unknown_duty</comment>
@@ -2895,6 +2950,26 @@ SHA256: %3</translation>
         <source>验证失败，文件可能不完整。详情见本机诊断日志。</source>
         <comment>capture.validation.failed</comment>
         <translation>Validation failed, and the file may be incomplete. See the local diagnostic log for details.</translation>
+    </message>
+    <message>
+        <source>Npcap 没能打开或读取抓包网卡，采证没有读到数据。请把 Npcap 更新到最新版后再试；仍然失败时，在第 1 步改选实际上网用的网卡。</source>
+        <comment>capture.validation.failed_npcap</comment>
+        <translation>Npcap could not open or read the capture adapter, so the capture read no data. Update Npcap to the latest version and try again; if it still fails, pick the adapter you actually use for the internet in step 1.</translation>
+    </message>
+    <message>
+        <source>本软件还读不懂这个游戏版本的数据，采证没有读到内容。这需要维护者适配，请照常回传已有的文件和诊断报告。</source>
+        <comment>capture.validation.failed_game_data_format</comment>
+        <translation>This app cannot read this game version&apos;s data yet, so the capture read nothing. The maintainer has to adapt it; please send back the files you have and the diagnostic report as usual.</translation>
+    </message>
+    <message>
+        <source>读不到游戏主程序，采证没有读到数据。请确认游戏仍在运行后再试；仍然失败时，请回传已有的文件和诊断报告。</source>
+        <comment>capture.validation.failed_game_executable</comment>
+        <translation>The game&apos;s main program could not be read, so the capture read no data. Make sure the game is still running and try again; if it still fails, send back the files you have and the diagnostic report.</translation>
+    </message>
+    <message>
+        <source>读不到游戏的网络连接信息，采证没有读到数据。请稍后再试；仍然失败时，请回传已有的文件和诊断报告。</source>
+        <comment>capture.validation.failed_network_data</comment>
+        <translation>The game&apos;s network connection information could not be read, so the capture read no data. Try again later; if it still fails, send back the files you have and the diagnostic report.</translation>
     </message>
     <message>
         <source>尚未开始验证。</source>
@@ -5409,6 +5484,10 @@ SHA256: %3</translation>
 <context>
     <name>DisclosureDialog</name>
     <message>
+        <source>GitHub 持续低速时，软件会探测 GitCode 镜像。如果预计能更早下载完成，软件会先询问再切换。</source>
+        <translation>If GitHub stays slow, the app tests the GitCode mirror. If GitCode is expected to finish sooner, the app asks before switching.</translation>
+    </message>
+    <message>
         <source>隐私说明</source>
         <translation>Privacy notice</translation>
     </message>
@@ -7251,6 +7330,10 @@ SHA256: %3</translation>
 <context>
     <name>HistoryPage</name>
     <message>
+        <source>迁移区服</source>
+        <translation>Move server region</translation>
+    </message>
+    <message>
         <source>中途加入</source>
         <translation>Joined in progress</translation>
     </message>
@@ -7539,6 +7622,10 @@ SHA256: %3</translation>
     <message>
         <source>已勾选 %1 条 · 翻页保留</source>
         <translation>%1 checked · kept across pages</translation>
+    </message>
+    <message>
+        <source>勾选全部 %1 条</source>
+        <translation>Check all %1</translation>
     </message>
     <message>
         <source>上一页</source>
@@ -8212,6 +8299,14 @@ The image text was read as “%2”; confirm against the original image.</transl
         <translation>Region of the times on the screenshot or spreadsheet</translation>
     </message>
     <message>
+        <source>来源没有注明区服的记录归入的区服</source>
+        <translation>Region for records whose source names none</translation>
+    </message>
+    <message>
+        <source>来源没有注明区服的记录会归入这里选的区服；截图识别的记录固定归入国服。读取后仍可逐条或批量修改。</source>
+        <translation>Records whose source names no region go to the region chosen here; records read from screenshots always go to CN. You can still change them one by one or in a batch after reading.</translation>
+    </message>
+    <message>
         <source>中国大陆来源通常使用北京时间，不会填补游戏进出时间。</source>
         <translation>Sources from mainland China usually use Beijing time; this doesn&apos;t fill in game entry or exit times.</translation>
     </message>
@@ -8470,6 +8565,22 @@ The image text was read as “%2”; confirm against the original image.</transl
 <context>
     <name>Main</name>
     <message>
+        <source>切换到 GitCode 下载？</source>
+        <translation>Switch the download to GitCode?</translation>
+    </message>
+    <message>
+        <source>GitCode 预计更早下载完成。切换后会从头下载，等待选择时 GitHub 会继续下载。</source>
+        <translation>GitCode is expected to finish sooner. Switching restarts the download. GitHub keeps downloading while you decide.</translation>
+    </message>
+    <message>
+        <source>继续 GitHub</source>
+        <translation>Continue on GitHub</translation>
+    </message>
+    <message>
+        <source>切换到 GitCode</source>
+        <translation>Switch to GitCode</translation>
+    </message>
+    <message>
         <source>FF14 导随记录器</source>
         <translation>FFXIV Mentor Recorder</translation>
     </message>
@@ -8638,6 +8749,26 @@ Recorder</translation>
     <message>
         <source>对照核对</source>
         <translation>Cross-check</translation>
+    </message>
+    <message>
+        <source>意见反馈</source>
+        <translation>Feedback</translation>
+    </message>
+    <message>
+        <source>在 GitHub 反馈</source>
+        <translation>Give feedback on GitHub</translation>
+    </message>
+    <message>
+        <source>写邮件</source>
+        <translation>Write an email</translation>
+    </message>
+    <message>
+        <source>复制邮箱</source>
+        <translation>Copy email address</translation>
+    </message>
+    <message>
+        <source>没能打开邮件应用。可以复制邮箱后手动发邮件。</source>
+        <translation>Couldn’t open the email app. Copy the address to send an email manually.</translation>
     </message>
     <message>
         <source>FF14</source>
@@ -9318,6 +9449,18 @@ Recorder</translation>
 </context>
 <context>
     <name>RecordingWarningWindow</name>
+    <message>
+        <source>导随记录器 · 自动记录已恢复</source>
+        <translation>Mentor Recorder · Automatic recording restored</translation>
+    </message>
+    <message>
+        <source>自动记录已恢复</source>
+        <translation>Automatic recording restored</translation>
+    </message>
+    <message>
+        <source>已重新读取到游戏数据，可以继续自动记录。</source>
+        <translation>The app can read game data again and resume automatic recording.</translation>
+    </message>
     <message>
         <source>导随记录器 · 自动记录暂不可用</source>
         <translation>Mentor Recorder · Automatic recording unavailable</translation>
@@ -11225,6 +11368,10 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <source>保存</source>
         <translation>Save</translation>
     </message>
+    <message>
+        <source>尚未绑定游戏角色。</source>
+        <translation>No game character is bound yet.</translation>
+    </message>
 </context>
 <context>
     <name>SettingsPage</name>
@@ -11848,6 +11995,14 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>没能打开浏览器，请手动访问 https://npcap.com 下载驱动。</source>
         <translation>Couldn&apos;t open the browser. Go to https://npcap.com yourself to download the driver.</translation>
+    </message>
+    <message>
+        <source>没能打开浏览器，请在 GitHub 的 MentorRouletteRecorder 仓库中提交反馈。</source>
+        <translation>Couldn&apos;t open the browser. Submit feedback in the MentorRouletteRecorder repository on GitHub.</translation>
+    </message>
+    <message>
+        <source>导随记录器意见反馈</source>
+        <translation>Mentor Roulette Recorder feedback</translation>
     </message>
     <message>
         <source>后台服务不可用，暂时不能自动记录。%1</source>
@@ -12656,6 +12811,22 @@ The region cannot be changed while listening or collecting evidence.</translatio
 <context>
     <name>mr::Formatters</name>
     <message>
+        <source>国服</source>
+        <translation>China</translation>
+    </message>
+    <message>
+        <source>繁中服</source>
+        <translation>Traditional Chinese</translation>
+    </message>
+    <message>
+        <source>国际服</source>
+        <translation>Global</translation>
+    </message>
+    <message>
+        <source>区服</source>
+        <translation>Server region</translation>
+    </message>
+    <message>
         <source>副本开始</source>
         <translation>Duty commenced</translation>
     </message>
@@ -13149,12 +13320,24 @@ The region cannot be changed while listening or collecting evidence.</translatio
 <context>
     <name>mr::HistoryController</name>
     <message>
+        <source>已迁移 %1 条记录的区服。</source>
+        <translation>Moved %1 records to the selected region.</translation>
+    </message>
+    <message>
         <source>批量操作尚未完成，请稍后调整筛选。</source>
         <translation>A bulk action is still running. Adjust filters in a moment.</translation>
     </message>
     <message>
         <source>一次最多勾选 2000 条记录，请分批操作。</source>
         <translation>You can check up to 2000 records at a time. Work in batches.</translation>
+    </message>
+    <message>
+        <source>符合筛选的记录超过 2000 条，请先缩小筛选范围再全部勾选。</source>
+        <translation>More than 2000 records match the filter. Narrow the filter before checking all.</translation>
+    </message>
+    <message>
+        <source>暂时读不到全部记录，没有改动勾选，请稍后再试。</source>
+        <translation>The full list of records could not be read just now. Nothing was checked; try again later.</translation>
     </message>
     <message>
         <source>请选择有效操作并填写 1–500 字原因。</source>
@@ -14844,6 +15027,10 @@ The region cannot be changed while listening or collecting evidence.</translatio
 <context>
     <name>mr::UpdateController</name>
     <message>
+        <source>未能确认是否已切换下载源，请查看下载状态。</source>
+        <translation>Couldn’t confirm the download source switch. Check the download status.</translation>
+    </message>
+    <message>
         <source>有新版本 %1</source>
         <translation>New version %1 available</translation>
     </message>
@@ -15010,6 +15197,61 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>The installer didn&apos;t start, possibly because the Windows install confirmation wasn&apos;t accepted. This app keeps running; click “Install now” again, or click “Download in browser”.</translation>
+    </message>
+</context>
+<context>
+    <name>HistoryRegionMigrationDialog</name>
+    <message>
+        <source>从 %2 迁移 %1 条记录</source>
+        <translation>Move %1 records from %2</translation>
+    </message>
+    <message>
+        <source>请选择目标区服</source>
+        <translation>Choose a destination region</translation>
+    </message>
+    <message>
+        <source>目标区服</source>
+        <translation>Destination region</translation>
+    </message>
+    <message>
+        <source>请选择目标角色</source>
+        <translation>Choose a destination character</translation>
+    </message>
+    <message>
+        <source>目标角色</source>
+        <translation>Destination character</translation>
+    </message>
+    <message>
+        <source>目标区服还没有角色，可在「设置 › 成就」中添加。</source>
+        <translation>Add a character for this region in Settings › Achievements.</translation>
+    </message>
+    <message>
+        <source>%1 条通关将计入目标角色。目标角色的起始次数为 %2。</source>
+        <translation>%1 completions will count toward the selected character, whose starting count is %2.</translation>
+    </message>
+    <message>
+        <source>已包含在起始次数中的通关数（0–%1）</source>
+        <translation>Completions already in the starting count (0–%1)</translation>
+    </message>
+    <message>
+        <source>已包含的通关数</source>
+        <translation>Completions already included</translation>
+    </message>
+    <message>
+        <source>目标起始次数变为 %1，目标成就进度增加 %2。来源起始次数保持原值。</source>
+        <translation>The destination starting count becomes %1 and its achievement progress increases by %2. The source starting count stays the same.</translation>
+    </message>
+    <message>
+        <source>正在预览…</source>
+        <translation>Loading preview…</translation>
+    </message>
+    <message>
+        <source>预览</source>
+        <translation>Preview</translation>
+    </message>
+    <message>
+        <source>确认迁移</source>
+        <translation>Confirm move</translation>
     </message>
 </context>
 </TS>

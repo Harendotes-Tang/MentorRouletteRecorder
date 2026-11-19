@@ -15,7 +15,7 @@ public sealed class MigrationTests
         using var fixture = new TestDatabase();
 
         Assert.Equal(MigrationRunner.LatestVersion, fixture.Database.SchemaVersion);
-        Assert.Equal(15, MigrationRunner.LatestVersion);
+        Assert.Equal(16, MigrationRunner.LatestVersion);
 
         using var command = fixture.Database.CreateCommand();
         command.CommandText =
@@ -49,6 +49,7 @@ public sealed class MigrationTests
                 (13, "0013_legacy_region_cn.sql"),
                 (14, "0014_character_profiles.sql"),
                 (15, "0015_character_identities.sql"),
+                (16, "0016_character_registration.sql"),
             },
             applied);
     }
@@ -154,6 +155,11 @@ public sealed class MigrationTests
         using var command = fixture.Database.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM schema_migrations;";
         Assert.Equal((long)MigrationRunner.LatestVersion, (long)command.ExecuteScalar()!);
+
+        // A database already upgraded by 1.9.1 carries this checksum. Editing the
+        // published script would make it impossible to reopen that database.
+        command.CommandText = "SELECT checksum FROM schema_migrations WHERE version = 16;";
+        Assert.Equal("f3e886382107ce8ba1ae34b1cf2a4169dd25affeaefb99503079da13094fa037", command.ExecuteScalar());
     }
 
     [Fact]
@@ -645,6 +651,8 @@ public sealed class MigrationTests
         check.CommandText = "SELECT count(*) FROM application_settings WHERE key IN " +
             "('achievement.baseline_history','achievement.baseline_history.TC');";
         Assert.Equal(0L, check.ExecuteScalar());
+        check.CommandText = "SELECT profile_id FROM character_profile_registrations WHERE identity_id IS NULL;";
+        Assert.Equal(china.ProfileId, check.ExecuteScalar());
         check.CommandText = "PRAGMA foreign_key_check;";
         Assert.Null(check.ExecuteScalar());
     }

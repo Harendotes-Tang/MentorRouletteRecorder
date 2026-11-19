@@ -11,7 +11,7 @@ ScrollView {
     readonly property var visibleResultBuckets: Runtime.app.resultBuckets.filter(bucket =>
         bucket.result !== "UNKNOWN" || Number(bucket.count || 0) !== 0)
     readonly property var pendingAchievementRegions: {
-        const expected = Runtime.app.recordRegion ? [Runtime.app.recordRegion] : ["CN", "TC"]
+        const expected = Runtime.app.recordRegion ? [Runtime.app.recordRegion] : ["CN", "TC", "GLOBAL"]
         return expected.filter(region => !Runtime.app.visibleAchievements.some(entry => entry.region === region))
     }
     readonly property bool recoveryBlocked: !!Runtime.app.captureStatus.path_recovery

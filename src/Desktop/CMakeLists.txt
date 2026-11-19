@@ -306,6 +306,7 @@ set(MR_QML_FILES
     qml/components/CharacterProfileDialog.qml
     qml/components/CharacterSelector.qml
     qml/components/HistoryAssignCharacterDialog.qml
+    qml/components/HistoryRegionMigrationDialog.qml
     qml/calibration/CalibrationCard.qml
     qml/calibration/CalibrationCopy.qml
     qml/calibration/CalibrationDialog.qml
@@ -337,6 +338,7 @@ set(MR_QML_FILES
     qml/components/PickSurface.qml
     qml/components/PanelDecoration.qml
     qml/components/PillSwitch.qml
+    qml/components/PlainToolTip.qml
     qml/components/ProgressRing.qml
     qml/components/AchievementConfetti.qml
     qml/overlay/StatisticsFloatingWindow.qml

@@ -268,7 +268,7 @@ public sealed class CharacterIdentificationTests
     }
 
     [Fact]
-    public void APlayerWithOneCharacterIsBoundSilentlyAtLogin()
+    public void ANewPlayerWithOneCharacterIsBoundWithoutPrompting()
     {
         using var rig = new Rig();
         var only = rig.Current();
@@ -278,7 +278,7 @@ public sealed class CharacterIdentificationTests
         Assert.Equal(1, rig.BoundIdentities());
         Assert.Empty(rig.Statistics.GetIdentities());
         Assert.Equal(only, rig.Current());
-        Assert.Equal(0, rig.Announcements());
+        Assert.Equal(1, rig.Announcements());
     }
 
     /// <summary>

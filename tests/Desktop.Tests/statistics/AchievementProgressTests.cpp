@@ -548,8 +548,12 @@ void AchievementProgressTests::regionalDashboardRendersSeparateProgress()
     }
     // Shrink and regrow the real Repeater while its outgoing delegates still
     // receive bindings; no removed row may become an undefined achievement.
-    for (const QString &region : {QStringLiteral("TC"), QStringLiteral("CN"), QString()}) {
-        scene.app.setRecordRegion(region);
+    auto *regionFilter = scene.find("dashboardRegionFilter");
+    QVERIFY(regionFilter);
+    const QList<QPair<int, QString>> regions{{2, QStringLiteral("TC")}, {1, QStringLiteral("CN")}, {0, QString()}};
+    for (const auto &[index, region] : regions) {
+        QVERIFY(QMetaObject::invokeMethod(regionFilter, "activated", index));
+        QCOMPARE(scene.app.recordRegion(), region);
         scene.backend.dashboards.takeLast()->succeed(regionalSnapshot(1500, 7));
         QTest::qWait(30);
         QVERIFY(scene.find(region == QLatin1String("TC") ? "achievementRing_TC" : "achievementRing"));

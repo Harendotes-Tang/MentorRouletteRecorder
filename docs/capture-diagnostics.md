@@ -739,6 +739,9 @@ Top 40 opcode，以及按连接标识汇总的每条连接的消息数、首末�
 密钥文件存在但不是当前用户可用的密钥时拒绝开始，不自动重建，否则此前的取证将在没有任何提示的情况下失去可比性；
 暂时读不到（被占用等）时同样拒绝，并提示稍后重试。界面采证遇到这两种情况时，这一轮以失败结束、不生成取证文件，
 页面显示对应的说明（`capture.validation.failed_identity_key_invalid` / `…_unreadable`）。
+其他失败按首个失败的类别（诊断报告的 `last_validation_failure.category`）选择说明：Npcap 打不开或读不了网卡为
+`capture.validation.failed_npcap`，游戏版本的数据尚未适配为 `…failed_game_data_format`，读不到游戏主程序为
+`…failed_game_executable`，读不到连接信息为 `…failed_network_data`；无法归类时仍为 `capture.validation.failed`。
 探针不读取角色名，不写入编号或标识的原值（由 `tests/Collector.UnitTests/Capture/CaptureIdentityProbeTests.cs`
 对产出的字节反向断言）。`--trace-report` 不把身份行计为无法解析的行，并在概览之后打印 summary 中的汇总表。
 

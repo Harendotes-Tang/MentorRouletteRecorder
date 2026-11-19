@@ -71,6 +71,8 @@ public:
         capture["state"] = "RUNNING";
         capture["silent_reason"] = "NONE";
         capture["last_error_code"] = "NONE";
+        capture["messages_decoded"] = 1;
+        capture["ipc_decoded"] = 1;
         capture.remove("calibration");
         capture.remove("path_recovery");
         capture["profile_status"] = "VERIFIED";
@@ -79,6 +81,8 @@ public:
     void startRecovery()
     {
         capture["silent_reason"] = "MIDSTREAM";
+        capture["messages_decoded"] = 0;
+        capture["ipc_decoded"] = 0;
         capture["path_recovery"] = QJsonObject{{"state", "RECOVERING"}, {"attempts", 0}, {"retry_after_ms", 0}};
     }
 
@@ -270,12 +274,141 @@ private slots:
         QVERIFY(!recording.warningActive());
         QVERIFY(!recording.warningPending());
         QVERIFY(recording.warningMessage().isEmpty());
+        QCOMPARE(recording.recoveryPending(), !exitGame);
         backend.capture["ffxiv_running"] = true;
         backend.startRecovery();
         recording.refresh();
         QCOMPARE(recording.warningSerial(), serial + 1);
         QCOMPARE(warnings.count(), 2);
         QVERIFY(recording.warningPending());
+        QVERIFY(!recording.recoveryPending());
+    }
+
+    void firstReadAfterConfirmedUnavailabilityOffersRecoveryOnce()
+    {
+        WarningBackend backend;
+        backend.startRecovery();
+        mr::AutomaticRecordingController recording(&backend);
+        recording.refresh();
+        QVERIFY(recording.warningActive());
+        recording.acknowledgeWarning();
+        backend.recover();
+        backend.capture.remove("ipc_decoded");
+        recording.refresh();
+        QVERIFY(recording.warningActive());
+        QVERIFY(!recording.recoveryPending());
+        backend.capture["ipc_decoded"] = 0; // A control segment decoded, but no game IPC.
+        recording.refresh();
+        QCOMPARE(recording.state(), QStringLiteral("listening"));
+        QVERIFY(recording.warningActive());
+        QVERIFY(!recording.recoveryPending());
+
+        backend.recover();
+        recording.refresh();
+        QVERIFY(!recording.warningActive());
+        QVERIFY(!recording.warningPending());
+        QVERIFY(recording.recoveryPending());
+        recording.acknowledgeWarning();
+        recording.refresh();
+        QVERIFY(!recording.recoveryPending());
+    }
+
+    void unconfirmedGameMatchDoesNotReportRecovery_data()
+    {
+        QTest::addColumn<int>("warningGame");
+        QTest::newRow("different-game") << 123;
+        QTest::newRow("previous-game-unknown") << 0;
+    }
+
+    void unconfirmedGameMatchDoesNotReportRecovery()
+    {
+        QFETCH(int, warningGame);
+        WarningBackend backend;
+        backend.startRecovery();
+        backend.capture["ffxiv_process_id"] = warningGame;
+        mr::AutomaticRecordingController recording(&backend);
+        recording.refresh();
+        QVERIFY(recording.warningActive());
+        backend.recover();
+        backend.capture["ffxiv_process_id"] = 456;
+        recording.refresh();
+        QVERIFY(!recording.warningActive());
+        QVERIFY(!recording.recoveryPending());
+    }
+
+    void recoveryNeedsFreshGameData_data()
+    {
+        QTest::addColumn<bool>("replacement");
+        QTest::addColumn<bool>("legacy");
+        QTest::newRow("same-session") << false << false;
+        QTest::newRow("new-session") << true << false;
+        QTest::newRow("legacy") << false << true;
+        QTest::newRow("legacy-new-session") << true << true;
+    }
+
+    void recoveryNeedsFreshGameData()
+    {
+        QFETCH(bool, replacement);
+        QFETCH(bool, legacy);
+        WarningBackend backend;
+        backend.startRecovery();
+        const QString counter = legacy ? QStringLiteral("parse_ok_count") : QStringLiteral("ipc_decoded");
+        if (legacy)
+            backend.capture.remove("ipc_decoded");
+        backend.capture[counter] = 12;
+        backend.capture["capture_session_id"] = "first";
+        mr::AutomaticRecordingController recording(&backend);
+        recording.refresh();
+        QVERIFY(recording.warningActive());
+        backend.recover();
+        if (legacy)
+            backend.capture.remove("ipc_decoded");
+        if (replacement)
+            backend.capture["capture_session_id"] = "second";
+        const int baseline = replacement ? 0 : 12;
+        backend.capture[counter] = baseline;
+        recording.refresh();
+        QVERIFY(recording.warningActive());
+        QVERIFY(!recording.recoveryPending());
+        backend.capture[counter] = baseline + 1;
+        recording.refresh();
+        QVERIFY(recording.recoveryPending());
+    }
+
+    void pendingRecoveryIsWithdrawnWhenFormalListeningEnds_data()
+    {
+        QTest::addColumn<QString>("transition");
+        QTest::newRow("disconnected") << QStringLiteral("disconnected");
+        QTest::newRow("status-unavailable") << QStringLiteral("status-unavailable");
+        QTest::newRow("choosing-game") << QStringLiteral("choosing-game");
+        QTest::newRow("calibrating") << QStringLiteral("calibrating");
+    }
+
+    void pendingRecoveryIsWithdrawnWhenFormalListeningEnds()
+    {
+        QFETCH(QString, transition);
+        WarningBackend backend;
+        backend.startRecovery();
+        mr::AutomaticRecordingController recording(&backend);
+        recording.refresh();
+        backend.recover();
+        recording.refresh();
+        QVERIFY(recording.recoveryPending());
+        if (transition == QLatin1String("disconnected")) {
+            backend.reconnect(false);
+        } else {
+            if (transition == QLatin1String("status-unavailable"))
+                backend.statusFails = true;
+            else if (transition == QLatin1String("choosing-game")) {
+                backend.capture["game_selection_required"] = true;
+                backend.capture["game_processes"] = QJsonArray{QJsonObject{{"process_id", 456}}};
+            } else {
+                backend.capture["profile_status"] = "NONE";
+                backend.capture["calibration"] = QJsonObject{{"state", "OBSERVING"}};
+            }
+            recording.refresh();
+        }
+        QVERIFY(!recording.recoveryPending());
     }
 
     void anotherGameHasItsOwnEpisode()
@@ -346,6 +479,9 @@ private slots:
         QVERIFY(recording.warningActive());
         backend.statusFails = false;
         backend.recover();
+        recording.refresh();
+        QVERIFY(!recording.recoveryPending());
+        backend.capture["ffxiv_process_id"] = 123;
         recording.refresh();
         QVERIFY(!recording.warningActive());
     }

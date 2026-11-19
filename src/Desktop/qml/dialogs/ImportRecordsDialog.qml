@@ -23,16 +23,6 @@ MotionDialog {
     readonly property bool unsupportedSourceJob: jobChoiceIndex < 0
     property bool showMapping: false
 
-    component PlainToolTip: ToolTip {
-        id: tip
-        contentItem: Text {
-            text: tip.text
-            textFormat: Text.PlainText
-            font: tip.font
-            wrapMode: Text.Wrap
-            color: tip.palette.toolTipText
-        }
-    }
     property bool showGameFacts: false
     property bool wholeImage: false
     property bool customTimeZoneSelected: false
@@ -92,12 +82,15 @@ MotionDialog {
     // Rows whose source names no region - no 区服 column, a blank cell - take the region the dashboard
     // shows, or 国服 while it shows every region or 未知区服; screenshot cards (dlog, a CN source) take
     // 国服. The controller sets it after the first reading (audit 2026-11-03 H1-1, re-review RV3-1).
-    // Without the application object (the dialog on its own) nothing is defaulted.
+    // Without the application object (the dialog on its own) nothing is defaulted. The start page
+    // shows this region and lets the person pick another before anything is read (chosenRegion).
+    property string chosenRegion: ""
     Binding {
         target: dialog.controller
         property: "defaultRegion"
         when: !!dialog.controller
         value: {
+            if (dialog.chosenRegion.length > 0) return dialog.chosenRegion
             const app = typeof Runtime.app === "undefined" ? null : Runtime.app
             const shown = app && typeof app.recordRegion === "string" ? app.recordRegion : null
             if (shown === null) return ""
@@ -356,6 +349,7 @@ MotionDialog {
         showMapping = false
         wholeImage = false
         customTimeZoneSelected = false
+        chosenRegion = ""
         mapDuty.text = ""
         mapJob.text = ""
         mapDate.text = ""
@@ -1195,6 +1189,25 @@ MotionDialog {
                 onActivated: function(index) { const zone = model[index].value; dialog.customTimeZoneSelected = zone === ""; if (zone !== "" && dialog.controller) dialog.controller.timeZone = zone }
                 Accessible.name: qsTr("截图或表格上的时间所在地区")
                 ToolTip.visible: hovered; ToolTip.delay: 600; ToolTip.text: qsTr("中国大陆来源通常使用北京时间，不会填补游戏进出时间。")
+            }
+        }
+        // The region of records whose source names none. Chosen before reading; once rows are
+        // shown each keeps its own 记录区服, changed per row or with 批量设置.
+        RowLayout {
+            visible: !dialog.hasRows && dialog.controller && dialog.controller.defaultRegion.length > 0
+            Text {
+                textFormat: Text.PlainText
+                text: qsTr("记录区服")
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fs(12)
+            }
+            StyledComboBox {
+                objectName: "importDefaultRegion"; Layout.preferredWidth: 200; enabled: !dialog.inputLocked
+                model: dialog.regionOptions.slice(1); textRole: "text"
+                currentIndex: Theme.live(dialog.optionIndex(model, "value", dialog.controller ? dialog.controller.defaultRegion : "CN"))
+                onActivated: function(index) { dialog.chosenRegion = model[index].value }
+                Accessible.name: qsTr("来源没有注明区服的记录归入的区服")
+                ToolTip.visible: hovered; ToolTip.delay: 600; ToolTip.text: qsTr("来源没有注明区服的记录会归入这里选的区服；截图识别的记录固定归入国服。读取后仍可逐条或批量修改。")
             }
         }
         RowLayout {

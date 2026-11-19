@@ -6,15 +6,9 @@ import QtQuick.Layouts
 import MentorRecorder 1.0
 
 // 「发现了一个还没有登记的角色」: shown on a region's achievement card while the
-// Collector has told a character apart that the player has not said anything
-// about. Until the player answers, that character's records count for nobody,
-// so the question is asked where the progress is read.
-//
-// One character is asked about at a time, the one seen first. The three answers
-// are the three the Collector takes: it is a new character (named in the same
-// dialog as 添加角色), it is one of the characters already here, or no progress
-// is kept for it. Nothing about the character itself is shown: the software
-// knows it only as "not one of the others".
+// Collector has a character waiting for the player's answer. Upgraded-profile
+// confirmations come first. Previously bound characters keep their progress;
+// unbound characters can be registered separately, assigned or ignored.
 InsetBox {
     id: prompt
 
@@ -26,12 +20,16 @@ InsetBox {
     }
     readonly property var identity: prompt.pending.length > 0 ? prompt.pending[0] : ({})
     readonly property int identityId: Number(prompt.identity.identity_id || 0)
+    readonly property int registrationProfileId: Number(prompt.identity.registration_profile_id || 0)
+    readonly property bool unbound: prompt.identity.state !== "BOUND"
     readonly property int runCount: Number(prompt.identity.run_count || 0)
     readonly property var profiles: {
         Theme.trackBindingDependency(Runtime.app.characterProfiles)
         return Runtime.app.characterProfilesForRegion(prompt.region)
     }
     readonly property bool oneProfile: prompt.profiles.length === 1
+    readonly property var registrationProfile: prompt.profiles.find(
+        profile => Number(profile.profile_id) === prompt.registrationProfileId) || ({})
     readonly property CharacterNames names: CharacterNames {}
     // The character picked in the list; 0 until the player picks one. A region
     // with one character needs no list: its button names that character.
@@ -66,6 +64,10 @@ InsetBox {
     function bind(profileId) {
         if (profileId <= 0 || prompt.identityId <= 0)
             return
+        if (profileId === prompt.registrationProfileId) {
+            newCharacterDialog.openToRename(prompt.registrationProfile, prompt.identityId)
+            return
+        }
         prompt.errorText = ""
         prompt.waiting = true
         Runtime.app.bindCharacterIdentity(prompt.identityId, profileId)
@@ -121,7 +123,10 @@ InsetBox {
         Text {
             objectName: "characterIdentityBody_" + prompt.region
             Layout.fillWidth: true
-            text: (prompt.runCount > 0
+            text: prompt.registrationProfileId > 0
+                  ? qsTr("输入角色名并确认绑定「原有记录」。已有记录和成就进度会保留。")
+                    + (prompt.unbound ? "" : "\n" + qsTr("如果认错了角色，可在「设置 › 成就」解除绑定。"))
+                  : (prompt.runCount > 0
                    ? qsTr("它已经有 %1 条记录，现在不计入任何角色的进度。").arg(prompt.runCount)
                    : qsTr("在你说明之前，它的记录不计入任何角色的进度。"))
                   + qsTr("说明它是哪个角色后，这些记录会自动归到那个角色名下。")
@@ -140,9 +145,19 @@ InsetBox {
         }
 
         AppButton {
+            objectName: "characterIdentityRegister_" + prompt.region
+            Layout.fillWidth: true
+            visible: prompt.registrationProfileId > 0
+            variant: "primary"
+            text: qsTr("登记并绑定原有记录")
+            enabled: !prompt.busy && prompt.registrationProfile.profile_id !== undefined
+            onClicked: prompt.bind(prompt.registrationProfileId)
+        }
+        AppButton {
             objectName: "characterIdentityNew_" + prompt.region
             Layout.fillWidth: true
-            variant: "primary"
+            visible: prompt.unbound
+            variant: prompt.registrationProfileId > 0 ? "ghost" : "primary"
             text: qsTr("这是一个新角色")
             enabled: !prompt.busy
             onClicked: newCharacterDialog.openToAdd(prompt.region, prompt.identityId)
@@ -152,7 +167,7 @@ InsetBox {
         Text {
             objectName: "characterIdentityOnly_" + prompt.region
             Layout.fillWidth: true
-            visible: prompt.oneProfile
+            visible: prompt.oneProfile && prompt.registrationProfileId === 0
             text: prompt.oneProfile
                 ? qsTr("已有的角色：「%1」").arg(prompt.names.label(prompt.profiles[0]))
                 : ""
@@ -163,7 +178,7 @@ InsetBox {
         AppButton {
             objectName: "characterIdentitySame_" + prompt.region
             Layout.fillWidth: true
-            visible: prompt.oneProfile
+            visible: prompt.oneProfile && prompt.registrationProfileId === 0
             text: qsTr("它就是这个角色")
             enabled: !prompt.busy
             onClicked: prompt.bind(Number(prompt.profiles[0].profile_id))
@@ -173,7 +188,7 @@ InsetBox {
         CharacterSelector {
             objectName: "characterIdentityExisting_" + prompt.region
             Layout.fillWidth: true
-            visible: !prompt.oneProfile
+            visible: !prompt.oneProfile && prompt.unbound
             region: prompt.region
             selection: prompt.chosenProfileId
             includeAll: true
@@ -186,7 +201,7 @@ InsetBox {
         AppButton {
             objectName: "characterIdentityBind_" + prompt.region
             Layout.fillWidth: true
-            visible: !prompt.oneProfile && prompt.choiceStands
+            visible: !prompt.oneProfile && prompt.choiceStands && prompt.unbound
             text: qsTr("确定是这个角色")
             enabled: !prompt.busy
             onClicked: prompt.bind(prompt.chosenProfileId)
@@ -194,6 +209,7 @@ InsetBox {
 
         AppButton {
             objectName: "characterIdentityIgnore_" + prompt.region
+            visible: prompt.unbound
             Layout.alignment: Qt.AlignHCenter
             variant: "ghost"
             text: qsTr("不统计这个角色")

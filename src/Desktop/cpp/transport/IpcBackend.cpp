@@ -246,6 +246,10 @@ QJsonObject IpcBackend::buildRequestForTest(const QString &messageType,
                                        args.value(QLatin1String("make_current")).toBool(false));
     } else if (messageType == QLatin1String("DeleteCharacterProfile")) {
         backend.deleteCharacterProfile(intArg(args, "profile_id", 0));
+    } else if (messageType == QLatin1String("PreviewRunRegionMigration")
+               || (messageType == QLatin1String("BatchMutateRuns")
+                   && stringArg(args, "action") == QLatin1String("move_region"))) {
+        backend.request(messageType, args);
     } else if (messageType == QLatin1String("BatchMutateRuns")) {
         backend.batchMutateRuns(stringArg(args, "action"), args.value(QLatin1String("runs")).toArray(),
                                 stringArg(args, "reason"));
@@ -311,6 +315,9 @@ QJsonObject IpcBackend::buildRequestForTest(const QString &messageType,
         backend.startUpdateDownload(args.value(QLatin1String("reinstall")).toBool(false));
     } else if (messageType == QLatin1String("CancelUpdateDownload")) {
         backend.cancelUpdateDownload();
+    } else if (messageType == QLatin1String("ResolveUpdateMirrorOffer")) {
+        backend.resolveUpdateMirrorOffer(stringArg(args, "offer_id"),
+                                         args.value(QLatin1String("use_gitcode")).toBool());
     } else {
         return {};
 }

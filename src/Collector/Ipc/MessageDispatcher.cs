@@ -65,7 +65,7 @@ public sealed class MessageDispatcher
         "GetDungeonStats", "GetJobStats", "GetResultStats", "CreateManualRun", "CorrectRun",
         "SoftDeleteRun", "RestoreRun", "GetRunRevisions", "UpdateAchievementBaseline", "ExportCsv",
         "CreateCharacterProfile", "UpdateCharacterProfile", "DeleteCharacterProfile", "ResolveCharacterIdentity",
-        "BatchMutateRuns", "GetHistoryRetentionSettings", "UpdateHistoryRetentionSettings", "GetPendingImageCleanup", "AcknowledgeImageCleanup",
+        "BatchMutateRuns", "PreviewRunRegionMigration", "GetHistoryRetentionSettings", "UpdateHistoryRetentionSettings", "GetPendingImageCleanup", "AcknowledgeImageCleanup",
         "ExportJson", "BackupDatabase", "PreviewRunImport", "CommitRunImport", "SubscribeLiveEvents", "ExportDiagnosticsReport",
         "SetRunReflection", "GetReflectionSummary",
         "StartCaptureValidation", "GetCaptureValidationStatus", "AddCaptureValidationMarker", "StopCaptureValidation",
@@ -76,7 +76,7 @@ public sealed class MessageDispatcher
         "GetCalibrationEvidence", "GetTemplateObservation",
         "RejectSharedCalibration",
         "GetSpeechSettings", "UpdateSpeechSettings", "SynthesizeSpeech", "CheckDatabaseIntegrity",
-        "CheckUpdateNow", "StartUpdateDownload", "CancelUpdateDownload",
+        "CheckUpdateNow", "StartUpdateDownload", "CancelUpdateDownload", "ResolveUpdateMirrorOffer",
     };
 
     /// <summary>
@@ -139,6 +139,7 @@ public sealed class MessageDispatcher
             "SoftDeleteRun" => SoftDeleteRun(request.RequestId, reader),
             "RestoreRun" => RestoreRun(request.RequestId, reader),
             "BatchMutateRuns" => BatchMutateRuns(request.RequestId, reader),
+            "PreviewRunRegionMigration" => PreviewRunRegionMigration(reader),
             "GetHistoryRetentionSettings" => GetHistoryRetentionSettings(reader),
             "UpdateHistoryRetentionSettings" => UpdateHistoryRetentionSettings(reader),
             "GetPendingImageCleanup" => GetPendingImageCleanup(reader),
@@ -177,6 +178,7 @@ public sealed class MessageDispatcher
                 .GetAwaiter().GetResult(),
             "StartUpdateDownload" => UpdateHandlers.StartDownload(_host, reader),
             "CancelUpdateDownload" => UpdateHandlers.CancelDownload(_host, reader),
+            "ResolveUpdateMirrorOffer" => UpdateHandlers.ResolveMirrorOffer(_host, reader),
             _ => throw UnknownMessageType(request.MessageType),
         };
     }
@@ -644,6 +646,20 @@ public sealed class MessageDispatcher
     private JsonObject GetHistoryRetentionSettings(PayloadReader reader)
     { reader.RequireEmpty(); return new JsonObject { ["retention_days"] = _host.HistoryRetention.GetRetentionDays() }; }
 
+    private JsonObject PreviewRunRegionMigration(PayloadReader reader)
+    {
+        reader.RejectUnknown("runs", "region", "profile_id");
+        var (region, profileId) = RequestParsers.RegionDestination(reader);
+        var preview = _host.Mutations.PreviewRunRegionMigration(RequestParsers.BatchRunTargets(reader), region, profileId);
+        return new JsonObject
+        {
+            ["source_region"] = EnumWire<Region>.Format(preview.SourceRegion),
+            ["contributing_count"] = preview.ContributingCount,
+            ["target_baseline"] = preview.TargetBaseline,
+            ["target_completed_count"] = preview.TargetCompletedCount,
+        };
+    }
+
     private JsonObject UpdateHistoryRetentionSettings(PayloadReader reader)
     {
         reader.RejectUnknown("retention_days");
@@ -752,6 +768,7 @@ public sealed class MessageDispatcher
             {
                 OnlineSpeech = _host.Speech.Diagnostics(),
                 UpdateCheck = _host.Updates.Diagnostics(),
+                LastValidationFailure = _host.Validation.LastFailure,
             },
             Program.Version,
             request.TargetPath,

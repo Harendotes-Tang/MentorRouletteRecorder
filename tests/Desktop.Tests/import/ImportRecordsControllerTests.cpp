@@ -3402,6 +3402,18 @@ ApplicationWindow {
             Q_EMIT app.changed();
             QTRY_COMPARE(controller.defaultRegion(), expected);
         }
+        // The start page shows that region and lets the person pick another, which then
+        // holds whatever the dashboard shows afterwards.
+        auto *picker = root->findChild<QObject *>(QStringLiteral("importDefaultRegion"));
+        QVERIFY(picker);
+        QTRY_COMPARE(picker->property("currentIndex").toInt(), 0);
+        QVERIFY(QMetaObject::invokeMethod(picker, "activated", Q_ARG(int, 2)));
+        QTRY_COMPARE(controller.defaultRegion(), QStringLiteral("GLOBAL"));
+        QTRY_COMPARE(picker->property("currentIndex").toInt(), 2);
+        app.recordRegion = QStringLiteral("TC");
+        Q_EMIT app.changed();
+        QTest::qWait(50);
+        QCOMPARE(controller.defaultRegion(), QStringLiteral("GLOBAL"));
     }
 
     void backupAndNativeJsonDefaultToKeepingTheBaseline()

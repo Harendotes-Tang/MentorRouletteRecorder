@@ -151,6 +151,7 @@ public:
     Q_INVOKABLE static QString collectorText(const QVariant &ref, const QString &chinese);
 
 private:
+    static QString formatRegion(const QString &code, bool showCode);
     static QDateTime parse(const QVariant &utcIso);
 };
 

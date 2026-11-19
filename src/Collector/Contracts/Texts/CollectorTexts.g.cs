@@ -577,6 +577,14 @@ public static partial class CollectorTexts
     public static UserText CaptureValidationFailed() =>
         new("capture.validation.failed", "验证失败，文件可能不完整。详情见本机诊断日志。");
 
+    /// <summary><c>capture.validation.failed_game_data_format</c>: 本软件还读不懂这个游戏版本的数据，采证没有读到内容。这需要维护者适配，请照常回传已有的文件和诊断报告。</summary>
+    public static UserText CaptureValidationFailedGameDataFormat() =>
+        new("capture.validation.failed_game_data_format", "本软件还读不懂这个游戏版本的数据，采证没有读到内容。这需要维护者适配，请照常回传已有的文件和诊断报告。");
+
+    /// <summary><c>capture.validation.failed_game_executable</c>: 读不到游戏主程序，采证没有读到数据。请确认游戏仍在运行后再试；仍然失败时，请回传已有的文件和诊断报告。</summary>
+    public static UserText CaptureValidationFailedGameExecutable() =>
+        new("capture.validation.failed_game_executable", "读不到游戏主程序，采证没有读到数据。请确认游戏仍在运行后再试；仍然失败时，请回传已有的文件和诊断报告。");
+
     /// <summary><c>capture.validation.failed_identity_key_invalid</c>: 数据目录里的 identity-probe.key 不是当前用户可用的密钥，角色识别采证没有开始，也没有生成文件。它不会被自动重建；确认不再需要和以前的采证比对后，删除这个文件再试。</summary>
     public static UserText CaptureValidationFailedIdentityKeyInvalid() =>
         new("capture.validation.failed_identity_key_invalid", "数据目录里的 identity-probe.key 不是当前用户可用的密钥，角色识别采证没有开始，也没有生成文件。它不会被自动重建；确认不再需要和以前的采证比对后，删除这个文件再试。");
@@ -584,6 +592,14 @@ public static partial class CollectorTexts
     /// <summary><c>capture.validation.failed_identity_key_unreadable</c>: 暂时读不到角色识别采证要用的本机密钥，采证没有开始，也没有生成文件。请稍后再试；详情见本机诊断日志。</summary>
     public static UserText CaptureValidationFailedIdentityKeyUnreadable() =>
         new("capture.validation.failed_identity_key_unreadable", "暂时读不到角色识别采证要用的本机密钥，采证没有开始，也没有生成文件。请稍后再试；详情见本机诊断日志。");
+
+    /// <summary><c>capture.validation.failed_network_data</c>: 读不到游戏的网络连接信息，采证没有读到数据。请稍后再试；仍然失败时，请回传已有的文件和诊断报告。</summary>
+    public static UserText CaptureValidationFailedNetworkData() =>
+        new("capture.validation.failed_network_data", "读不到游戏的网络连接信息，采证没有读到数据。请稍后再试；仍然失败时，请回传已有的文件和诊断报告。");
+
+    /// <summary><c>capture.validation.failed_npcap</c>: Npcap 没能打开或读取抓包网卡，采证没有读到数据。请把 Npcap 更新到最新版后再试；仍然失败时，在第 1 步改选实际上网用的网卡。</summary>
+    public static UserText CaptureValidationFailedNpcap() =>
+        new("capture.validation.failed_npcap", "Npcap 没能打开或读取抓包网卡，采证没有读到数据。请把 Npcap 更新到最新版后再试；仍然失败时，在第 1 步改选实际上网用的网卡。");
 
     /// <summary><c>capture.validation.idle</c>: 尚未开始验证。</summary>
     public static UserText CaptureValidationIdle() =>
@@ -780,6 +796,30 @@ public static partial class CollectorTexts
     /// <summary><c>history.batch.request_reused</c>: 此请求编号已用于不同的批量操作。</summary>
     public static UserText HistoryBatchRequestReused() =>
         new("history.batch.request_reused", "此请求编号已用于不同的批量操作。");
+
+    /// <summary><c>history.region.baseline_changed</c>: 目标角色的起始次数已变化，请重新预览。</summary>
+    public static UserText HistoryRegionBaselineChanged() =>
+        new("history.region.baseline_changed", "目标角色的起始次数已变化，请重新预览。");
+
+    /// <summary><c>history.region.different_target</c>: 请选择与来源不同的目标区服。</summary>
+    public static UserText HistoryRegionDifferentTarget() =>
+        new("history.region.different_target", "请选择与来源不同的目标区服。");
+
+    /// <summary><c>history.region.duplicate</c>: 至少一条记录与目标角色或本批另一条记录重复。请检查所选记录后重新预览。</summary>
+    public static UserText HistoryRegionDuplicate() =>
+        new("history.region.duplicate", "至少一条记录与目标角色或本批另一条记录重复。请检查所选记录后重新预览。");
+
+    /// <summary><c>history.region.ineligible</c>: 只能迁移尚未删除的导入记录和手动补录。</summary>
+    public static UserText HistoryRegionIneligible() =>
+        new("history.region.ineligible", "只能迁移尚未删除的导入记录和手动补录。");
+
+    /// <summary><c>history.region.invalid_overlap</c>: 已包含的通关数不能超过计入进度的通关数或目标起始次数。</summary>
+    public static UserText HistoryRegionInvalidOverlap() =>
+        new("history.region.invalid_overlap", "已包含的通关数不能超过计入进度的通关数或目标起始次数。");
+
+    /// <summary><c>history.region.mixed_source</c>: 一次只能迁移同一区服的记录。</summary>
+    public static UserText HistoryRegionMixedSource() =>
+        new("history.region.mixed_source", "一次只能迁移同一区服的记录。");
 
     /// <summary><c>history.retention_days_range</c>: retention_days 必须在 0 到 {max} 之间，0 表示永不自动清理。</summary>
     public static UserText HistoryRetentionDaysRange(long max) =>
@@ -1712,6 +1752,10 @@ public static partial class CollectorTexts
     /// <summary><c>mutation.undo.legacy_duty_revision</c>: 旧版副本修订缺少区域或来源的历史值，无法安全撤销；请通过更正记录重新选择副本。</summary>
     public static UserText MutationUndoLegacyDutyRevision() =>
         new("mutation.undo.legacy_duty_revision", "旧版副本修订缺少区域或来源的历史值，无法安全撤销；请通过更正记录重新选择副本。");
+
+    /// <summary><c>mutation.undo.region_migration</c>: 这条修订属于批量迁移，不能逐条撤销。需要再次变更区服时，请使用批量迁移。</summary>
+    public static UserText MutationUndoRegionMigration() =>
+        new("mutation.undo.region_migration", "这条修订属于批量迁移，不能逐条撤销。需要再次变更区服时，请使用批量迁移。");
 
     /// <summary><c>mutation.undo.system_settlement</c>: 这条修订是程序为未完结的记录自动写下的。撤销它会让记录回到无法统计、也无法确认的状态，因此不能撤销；如果判断有误，请直接更正这条记录。</summary>
     public static UserText MutationUndoSystemSettlement() =>

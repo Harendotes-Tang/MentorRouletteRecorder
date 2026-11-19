@@ -263,8 +263,14 @@ class AppController final : public QObject, public CaptureValidationController::
     Q_PROPERTY(int checkedHistoryRunCount READ checkedHistoryRunCount NOTIFY checkedHistoryRunsChanged)
     Q_PROPERTY(int checkedHistoryDeletedCount READ checkedHistoryDeletedCount NOTIFY checkedHistoryRunsChanged)
     Q_PROPERTY(bool allCurrentHistoryPageChecked READ allCurrentHistoryPageChecked NOTIFY checkedHistoryRunsChanged)
+    Q_PROPERTY(bool historyCheckAllLoading READ historyCheckAllLoading NOTIFY checkedHistoryRunsChanged)
     Q_PROPERTY(bool historyBatchRunning READ historyBatchRunning NOTIFY historyBatchChanged)
     Q_PROPERTY(QString historyBatchFeedback READ historyBatchFeedback NOTIFY historyBatchChanged)
+    Q_PROPERTY(QString historyMigrationSource READ historyMigrationSource NOTIFY checkedHistoryRunsChanged)
+    Q_PROPERTY(bool historyMigrationReady READ historyMigrationReady NOTIFY historyMigrationReadyChanged)
+    Q_PROPERTY(QVariantMap historyRegionMigrationPreview READ historyRegionMigrationPreview NOTIFY historyRegionMigrationChanged)
+    Q_PROPERTY(bool historyRegionMigrationLoading READ historyRegionMigrationLoading NOTIFY historyRegionMigrationChanged)
+    Q_PROPERTY(QString historyRegionMigrationFeedback READ historyRegionMigrationFeedback NOTIFY historyRegionMigrationChanged)
     Q_PROPERTY(bool historyFilterConfirmationPending READ historyFilterConfirmationPending NOTIFY historyFilterConfirmationChanged)
     Q_PROPERTY(int historyRetentionDays READ historyRetentionDays NOTIFY historyRetentionChanged)
     Q_PROPERTY(bool historyRetentionLoaded READ historyRetentionLoaded NOTIFY historyRetentionChanged)
@@ -275,6 +281,7 @@ class AppController final : public QObject, public CaptureValidationController::
 
     // -- feedback -----------------------------------------------------------
     Q_PROPERTY(QString toastMessage READ toastMessage NOTIFY toastChanged)
+    Q_PROPERTY(QString feedbackEmail READ feedbackEmail CONSTANT)
 
     // -- capture diagnostics -------------------------------------------------
     Q_PROPERTY(QVariantList parserErrors READ parserErrors NOTIFY statusChanged)
@@ -419,7 +426,7 @@ public:
     QVariantList achievements() const { return m_statistics->allAchievements(); }
     QVariantList visibleAchievements() const { return m_statistics->achievements(); }
     QString recordRegion() const { return m_statistics->recordRegion(); }
-    void setRecordRegion(const QString &region) { m_statistics->setRecordRegion(region); }
+    void setRecordRegion(const QString &region);
     QString baselineRegion() const { return m_statistics->baselineRegion(); }
     void setBaselineRegion(const QString &region) { m_statistics->setBaselineRegion(region); }
     Q_INVOKABLE QVariantMap achievementForRegion(const QString &region) const
@@ -527,8 +534,19 @@ public:
     int checkedHistoryRunCount() const { return m_history->checkedRunCount(); }
     int checkedHistoryDeletedCount() const { return m_history->checkedDeletedCount(); }
     bool allCurrentHistoryPageChecked() const { return m_history->allCurrentPageChecked(); }
+    bool historyCheckAllLoading() const { return m_history->checkAllLoading(); }
     bool historyBatchRunning() const { return m_history->batchRunning(); }
     QString historyBatchFeedback() const { return m_history->batchFeedback(); }
+    QString historyMigrationSource() const { return m_history->checkedMigrationSource(); }
+    bool historyMigrationReady() const { return backendConnected() && m_recovery->identityVerified(); }
+    QVariantMap historyRegionMigrationPreview() const { return m_history->regionMigrationPreview(); }
+    bool historyRegionMigrationLoading() const { return m_history->regionMigrationLoading(); }
+    QString historyRegionMigrationFeedback() const { return m_history->regionMigrationFeedback(); }
+    Q_INVOKABLE void clearHistoryRegionMigrationPreview() { m_history->clearRegionMigrationPreview(); }
+    Q_INVOKABLE void previewHistoryRegionMigration(const QString &region, int profileId)
+    { if (historyMigrationReady()) m_history->previewRegionMigration(region, profileId); }
+    Q_INVOKABLE void movePreviewedHistoryRuns(int overlap, const QString &reason)
+    { if (historyMigrationReady()) m_history->movePreviewedRuns(overlap, reason); }
     bool historyFilterConfirmationPending() const { return m_history->filterConfirmationPending(); }
     int historyRetentionDays() const { return m_history->retentionDays(); }
     bool historyRetentionLoaded() const { return m_history->retentionLoaded(); }
@@ -630,6 +648,8 @@ public Q_SLOTS:
     void resetHistoryFilter();
     void setHistoryRunChecked(const QVariantMap &run, bool checked);
     void setCurrentHistoryPageChecked(bool checked);
+    /// 勾选全部: every record the history filter matches, across pages.
+    void checkAllMatchingHistoryRuns();
     void clearCheckedHistoryRuns();
     void mutateCheckedHistoryRuns(const QString &action, const QString &reason);
     /// 改到角色: files the checked rows under \a profileId, or under no profile for 0,
@@ -693,7 +713,7 @@ public Q_SLOTS:
     /// and the statistics and the history list are read again after a success.
     /// BIND: \a identityId is the character of \a profileId; its runs move there and the
     /// profile becomes current.
-    void bindCharacterIdentity(int identityId, int profileId);
+    void bindCharacterIdentity(int identityId, int profileId, const QString &displayName = {});
     /// IGNORE: keep no progress for \a identityId and stop asking.
     void ignoreCharacterIdentity(int identityId);
     /// ASK_AGAIN for every IGNORED identity of \a region ("" = every region), one request
@@ -718,10 +738,11 @@ public Q_SLOTS:
     /// Put a text the page composed itself (the 新区服采证 回传说明) on the
     /// clipboard. Only ever called from an explicit click.
     Q_INVOKABLE void copyToClipboard(const QString &text);
-    /// Opens https://npcap.com in the system browser. The only external link in
-    /// the product; it is opened only on an explicit user click and nothing is
-    /// fetched by this process.
+    /// Open the Npcap website or the project's issue templates in the system browser.
     Q_INVOKABLE void openNpcapWebsite();
+    Q_INVOKABLE void openFeedbackPage();
+    QString feedbackEmail() const;
+    Q_INVOKABLE bool openFeedbackEmail();
     /// One GetCaptureStatus, adopted into the collector status: what a
     /// calibration_changed event, or a shared-calibration request that changed
     /// state, costs. Never a run query, a statistics refresh or an announcement.
@@ -782,6 +803,8 @@ Q_SIGNALS:
     void historyFilterChanged();
     void checkedHistoryRunsChanged();
     void historyBatchChanged();
+    void historyRegionMigrationChanged();
+    void historyMigrationReadyChanged();
     void historyFilterConfirmationChanged();
     void historyRetentionChanged();
     void historyImageCleanupChanged();

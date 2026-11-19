@@ -38,6 +38,7 @@ public:
     /// or connection change. Already sent mutations cannot be cancelled; the
     /// caller closes old forms and later opens a fresh record explicitly.
     void invalidateResultRequests();
+    void invalidateDatabaseScope();
 
     void adoptRunRevisionFromEvent(const QJsonObject &run);
     QVariantMap selectedRun() const;
@@ -77,6 +78,10 @@ public:
     QString batchFeedback() const { return m_batchFeedback.text(); }
     void setRunChecked(const QVariantMap &run, bool checked);
     void setCurrentPageChecked(bool checked);
+    /// Checks every record the current filter matches, on every page, up to the batch
+    /// limit; the rows are read from the Collector so each keeps its own revision.
+    void checkAllMatchingRuns();
+    bool checkAllLoading() const { return m_checkAllLoading; }
     void clearCheckedRuns();
     void mutateCheckedRuns(const QString &action, const QString &reason);
     /// BatchMutateRuns assign_profile over the checked rows, live and deleted alike:
@@ -84,6 +89,13 @@ public:
     /// confirmation, feedback, refresh and batchSucceeded("assign_profile", ids) path
     /// as mutateCheckedRuns().
     void assignCheckedRunsToProfile(int profileId, const QString &reason);
+    QString checkedMigrationSource() const;
+    QVariantMap regionMigrationPreview() const { return m_regionPreview; }
+    bool regionMigrationLoading() const { return m_regionPreviewLoading; }
+    QString regionMigrationFeedback() const { return m_regionPreviewFeedback.text(); }
+    void clearRegionMigrationPreview();
+    void previewRegionMigration(const QString &region, int profileId);
+    void movePreviewedRuns(int baselineOverlap, const QString &reason);
     bool filterConfirmationPending() const { return m_filterConfirmationPending; }
     void confirmHistoryFilterChange(bool apply);
     int retentionDays() const { return m_retentionDays; }
@@ -112,6 +124,8 @@ Q_SIGNALS:
     void checkedRunsChanged();
     void batchChanged();
     void batchSucceeded(const QString &action, const QStringList &runIds);
+    void regionMigrationChanged();
+    void regionMovePendingChanged(bool pending);
     void filterConfirmationChanged();
     void retentionChanged();
 
@@ -119,7 +133,14 @@ private:
     // 保留入口差异：openRun 不清消息，选择/取消选择会清消息；通知顺序一致。
     void resetSelectedDetails(bool clearErrorMessage);
     /// Sends one batch over the checked rows;  profileId is used by assign_profile only.
-    void sendCheckedBatch(const QString &action, int profileId, const QString &reason);
+    void sendCheckedBatch(const QString &action, int profileId, const QString &reason,
+                          const QJsonObject &migration = {});
+    QJsonArray checkedBatchTargets() const;
+    void discardCheckedRuns();
+    void fetchMatchingPage(quint64 generation, int page, QList<QVariantMap> collected);
+    /// Drops a 勾选全部 read that is still on its way: its answer is for another filter
+    /// or for a selection the player has since cleared.
+    void cancelCheckAll();
     void loadRevisionsForSelection();
     void loadRevisionPage(const QString &runId, quint64 generation, int page,
                           QVariantList collected);
@@ -167,6 +188,17 @@ private:
     QJsonObject m_proposedFilter;
     bool m_filterConfirmationPending = false;
     bool m_batchRunning = false;
+    quint64 m_checkAllGeneration = 0;
+    bool m_checkAllLoading = false;
+    /// BatchMutateRuns takes at most this many targets (contracts: run_id maxItems 2000).
+    static constexpr int kMaxCheckedRuns = 2000;
+    /// QueryRuns page size used to read the matching records.
+    static constexpr int kCheckAllPageSize = 200;
+    quint64 m_regionPreviewGeneration = 0;
+    bool m_regionPreviewLoading = false;
+    QJsonObject m_regionDestination;
+    QVariantMap m_regionPreview;
+    LiveText m_regionPreviewFeedback;
     // The three feedback lines are recipes, so a language switch re-renders them (LiveText.h).
     LiveText m_batchFeedback;
     int m_retentionDays = -1;

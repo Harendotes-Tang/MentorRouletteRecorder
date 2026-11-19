@@ -58,7 +58,7 @@ public sealed class MachinaTraceContractTests
     {
         var image = File.ReadAllBytes(MachinaAssembly().Location);
         var markers = MachinaCaptureSource.MachinaFatalTraceMarkers
-            .Concat(MachinaCaptureSource.MissingExecutableTraceMarkers).ToArray();
+            .Select(marker => marker.Text).Concat(MachinaCaptureSource.MissingExecutableTraceMarkers).ToArray();
 
         Assert.NotEmpty(MachinaCaptureSource.MachinaFatalTraceMarkers);
         foreach (var marker in markers)

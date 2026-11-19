@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.IntegrationTests;
@@ -16,6 +17,136 @@ public sealed class HistoryBatchIpcTests
         ["action"] = action, ["reason"] = "批量IPC验证",
         ["runs"] = new JsonArray(runs.Select(run => (JsonNode)new JsonObject { ["run_id"] = run.Id, ["expected_revision"] = run.Revision }).ToArray()),
     };
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task RealPipe_RegionMigrationPreservesHistoryAndDeductsOnlyTheConfirmedOverlap(int overlap)
+    {
+        await using var fixture = ServerFixture.Start();
+        await using var client = await fixture.ConnectAsync();
+        var manual = Manual();
+        manual["region"] = "CN";
+        var manualId = (await client.SendAsync("CreateManualRun", manual)).Require()["run_id"]!.GetValue<string>();
+        var sourceProfile = fixture.Host.Runs.Get(manualId)!.ProfileId!.Value;
+        var sourceBaseline = fixture.Host.Settings.Profiles.Find(sourceProfile)!.BaselineCompletedCount;
+        (await client.SendAsync("CorrectRun", new JsonObject
+        {
+            ["run_id"] = manualId, ["expected_revision"] = 1, ["reason"] = "保留的原修订",
+            ["changes"] = new JsonObject { ["note"] = "修订后的笔记" },
+        })).Require();
+        var sourceRow = new JsonObject
+        {
+            ["region"] = "CN", ["result"] = "COMPLETED", ["duty_name"] = "合成副本",
+            ["source_key"] = "archived-20240607-1",
+            ["source_recorded_at"] = "2024-06-07", ["reflection_text"] = "旧心得",
+        };
+        async Task<JsonObject> PreviewImport(JsonObject row) => (await client.SendAsync("PreviewRunImport", new JsonObject
+        {
+            ["source_kind"] = "JSON", ["rows"] = new JsonArray(row.DeepClone()),
+        })).Require();
+        var previewImport = await PreviewImport(sourceRow);
+        var imported = (await client.SendAsync("CommitRunImport", new JsonObject
+        {
+            ["preview_id"] = previewImport["preview_id"]!.DeepClone(), ["row_numbers"] = new JsonArray(1),
+            ["confirm_own_records"] = true,
+        })).Require();
+        var importedId = Assert.Single(imported["run_ids"]!.AsArray())!.GetValue<string>();
+        var provenance = fixture.Host.Runs.Get(importedId)!.ImportMetadata;
+
+        (await client.SendAsync("CreateCharacterProfile", new JsonObject
+        {
+            ["region"] = "GLOBAL", ["display_name"] = "海外", ["goal_count"] = 2000,
+            ["baseline_completed_count"] = 1444, ["make_current"] = true,
+        })).Require();
+        var destination = fixture.Host.Settings.GetAchievementSettings(region: Region.Global).ProfileId!.Value;
+        var payload = Batch("move_region", (manualId, 2), (importedId, 1));
+        payload["region"] = "GLOBAL";
+        payload["profile_id"] = destination;
+        payload["expected_baseline"] = 1444;
+        payload["baseline_overlap"] = overlap;
+        var preview = (await client.SendAsync("PreviewRunRegionMigration", new JsonObject
+        {
+            ["region"] = "GLOBAL", ["profile_id"] = destination, ["runs"] = payload["runs"]!.DeepClone(),
+        })).Require();
+        ContractSchema.Validate("$defs/Responses/PreviewRunRegionMigration", preview, "move region preview");
+        Assert.Equal("CN", preview["source_region"]!.GetValue<string>());
+        Assert.Equal(2, preview["contributing_count"]!.GetValue<int>());
+        Assert.Equal(1444, preview["target_baseline"]!.GetValue<int>());
+        Assert.Equal(Region.Cn, fixture.Host.Runs.Get(importedId)!.Region);
+
+        var requestId = Guid.NewGuid().ToString("D");
+        var committed = (await client.SendAsync("BatchMutateRuns", payload, requestId)).Require();
+        ContractSchema.Validate("$defs/Responses/BatchMutateRuns", committed, "move region result");
+        Assert.Equal(2, committed["changed_count"]!.GetValue<int>());
+        var replay = (await client.SendAsync("BatchMutateRuns", payload.DeepClone().AsObject(), requestId)).Require();
+        Assert.True(replay["idempotent_replay"]!.GetValue<bool>());
+        var movedManual = fixture.Host.Runs.Get(manualId)!;
+        Assert.Equal("修订后的笔记", movedManual.Note);
+        Assert.Equal(Region.Global, movedManual.Region);
+        Assert.Equal(destination, movedManual.ProfileId);
+        Assert.Equal(3, movedManual.Revision);
+        var movedImport = fixture.Host.Runs.Get(importedId)!;
+        Assert.Equal(provenance, movedImport.ImportMetadata);
+        Assert.Equal("旧心得", movedImport.Reflection!.Text);
+        Assert.Equal(Region.Global, movedImport.Region);
+        Assert.Equal(destination, movedImport.ProfileId);
+        var revisions = (await client.SendAsync("GetRunRevisions", new JsonObject { ["run_id"] = manualId }))
+            .Require()["items"]!.AsArray();
+        Assert.Equal(3, revisions.Count);
+        Assert.Equal("保留的原修订", revisions[1]!["reason"]!.GetValue<string>());
+        Assert.Contains(revisions[2]!["changes"]!.AsArray(), change =>
+            change!["field"]!.GetValue<string>() == "region" && change["new_value"]!.GetValue<string>() == "GLOBAL");
+        Assert.Equal(ErrorCodes.UndoNotAllowed, (await client.SendAsync("UndoRevision", new JsonObject
+        {
+            ["run_id"] = manualId, ["expected_revision"] = 3, ["reason"] = "不允许部分撤销",
+        })).ErrorCode);
+        Assert.Equal(sourceBaseline, fixture.Host.Settings.Profiles.Find(sourceProfile)!.BaselineCompletedCount);
+        var movedProfile = fixture.Host.Settings.Profiles.Find(destination)!;
+        Assert.Equal(1444 - overlap, movedProfile.BaselineCompletedCount);
+        var audit = Assert.Single(fixture.Host.Settings.ReadBaselineAudit(movedProfile), entry => entry.RequestId == requestId);
+        Assert.Equal(1444 - overlap, audit.BaselineCompletedCount);
+
+        sourceRow["region"] = "GLOBAL";
+        var reimport = await PreviewImport(sourceRow);
+        Assert.Equal("duplicate", Assert.Single(reimport["rows"]!.AsArray())!["status"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task RealPipe_RegionMigrationRefusesDuplicateStaleAndExcessOverlapAtomically()
+    {
+        await using var fixture = ServerFixture.Start();
+        await using var client = await fixture.ConnectAsync();
+        var original = Manual();
+        original["region"] = "CN";
+        original["content_id"] = 1;
+        original["job_id"] = 19;
+        var originalId = (await client.SendAsync("CreateManualRun", original)).Require()["run_id"]!.GetValue<string>();
+        var twin = original.DeepClone().AsObject();
+        twin["region"] = "GLOBAL";
+        var twinId = (await client.SendAsync("CreateManualRun", twin)).Require()["run_id"]!.GetValue<string>();
+        var targetProfile = fixture.Host.Runs.Get(twinId)!.ProfileId!.Value;
+        var payload = Batch("move_region", (originalId, 1));
+        payload["region"] = "GLOBAL";
+        payload["profile_id"] = targetProfile;
+        payload["expected_baseline"] = 0;
+        payload["baseline_overlap"] = 0;
+        Assert.Equal(ErrorCodes.BadRequest, (await client.SendAsync("BatchMutateRuns", payload.DeepClone().AsObject())).ErrorCode);
+        Assert.Equal(Region.Cn, fixture.Host.Runs.Get(originalId)!.Region);
+
+        payload["profile_id"] = (await client.SendAsync("CreateCharacterProfile", new JsonObject
+        {
+            ["region"] = "GLOBAL", ["display_name"] = "另一角色", ["goal_count"] = 2000,
+            ["baseline_completed_count"] = 1,
+        })).Require()["profile_id"]!.DeepClone();
+        Assert.Equal(ErrorCodes.RevisionConflict, (await client.SendAsync("BatchMutateRuns", payload.DeepClone().AsObject())).ErrorCode);
+        payload["expected_baseline"] = 1;
+        payload["baseline_overlap"] = 2;
+        Assert.Equal(ErrorCodes.BadRequest, (await client.SendAsync("BatchMutateRuns", payload)).ErrorCode);
+        Assert.Equal(1, fixture.Host.Runs.Get(originalId)!.Revision);
+        Assert.Equal(Region.Cn, fixture.Host.Runs.Get(originalId)!.Region);
+    }
 
     [Fact]
     public async Task RealPipe_DeletedOnlyPagesCountsExportAndRestoreUseTheSameFilter()
