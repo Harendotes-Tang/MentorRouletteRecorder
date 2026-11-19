@@ -128,16 +128,6 @@ public sealed class CharacterIdentityRepository
         return new CharacterIdentity(id, region, profileId, Ignored: false, now, now);
     }
 
-    /// <summary>Whether the upgraded profile has an open slot for a recognised character.</summary>
-    internal bool NeedsRegistration(long profileId, SqliteTransaction transaction)
-    {
-        using var command = Command(transaction, """
-            SELECT 1 FROM character_profile_registrations WHERE profile_id = $profile AND identity_id IS NULL;
-            """);
-        command.Parameters.AddWithValue("$profile", profileId);
-        return command.ExecuteScalar() is not null;
-    }
-
     /// <summary>Offers the upgraded profile for confirmation at the next dashboard read.</summary>
     internal bool OfferRegistration(long profileId, long identityId, SqliteTransaction transaction)
     {

@@ -33,9 +33,13 @@ internal sealed record CaptureValidationFailure(
 {
     /// <summary>
     /// What the player can do about this failure, when the category says more than the
-    /// general sentence; null keeps <c>capture.validation.failed</c>.
+    /// general sentence; null keeps <c>capture.validation.failed</c>. Every sentence says the
+    /// round read nothing, so it is given only for a failure before recording began: a round
+    /// that recorded for a while and then lost its adapter has a usable file.
     /// </summary>
-    internal UserText? Advice => Category switch
+    internal UserText? Advice => Stage is CaptureValidationStage.Recording or CaptureValidationStage.Finalizing
+        ? null
+        : Category switch
     {
         CaptureFailureCategory.PcapOpen or CaptureFailureCategory.PcapError or CaptureFailureCategory.NpcapRead
             => CollectorTexts.CaptureValidationFailedNpcap(),

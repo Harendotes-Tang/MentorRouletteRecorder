@@ -426,6 +426,21 @@ INDEX ix_character_identities_profile        ON character_identities(profile_id)
 `identity_id` 是本地自增编号，经 IPC 传给桌面端（`$defs/CharacterIdentity`，只列出尚未绑定的角色）；`key_id` 与 `digest`
 不离开采集服务：仓储层没有任何读取它们的方法，IPC、日志、诊断导出、记录导出与共享校准都不包含它们。
 
+### 4.4 `character_profile_registrations` —— 升级档案的一次性登记（schema v16）
+
+由 `migrations/0016_character_registration.sql` 新增。升级前就存在、尚未命名的国服档案（有记录、改过目标或基数，或已绑定角色）
+各有一行，表示这个档案还可以请玩家起一次名字。
+
+| 列 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `profile_id` | INTEGER | PK, FK → `character_profiles.profile_id` ON DELETE CASCADE | 待起名的档案 |
+| `identity_id` | INTEGER | UNIQUE, NULL, FK → `character_identities.identity_id` ON DELETE SET NULL | 正在就这个档案询问的角色；NULL 表示还没有可问的角色 |
+
+这张表只决定是否询问，不影响记录的归属：区服只有一个档案时，首个认出的角色照常绑定到该档案并立即计入，
+同时成为这一行的 `identity_id`。玩家起名（`ResolveCharacterIdentity` 的 `BIND` 带 `display_name`，或在设置中给该档案改名）后删除该行；
+玩家说明该角色属于别的档案、不统计，或解除绑定时，改问同区服下一个尚未回答的角色。
+schema 16 写入后，旧版本无法打开该数据库（采集服务拒绝版本高于自身的库），升级前的自动备份保留在数据目录的 `backups` 下。
+
 ## 5. `schema_migrations` —— 迁移记录
 
 | 列 | 类型 | 约束 | 说明 |

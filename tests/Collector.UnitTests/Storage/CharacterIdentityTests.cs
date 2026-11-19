@@ -127,20 +127,39 @@ public sealed class CharacterIdentityTests
         Assert.Empty(fixture.Statistics.GetIdentities());
         var login = fixture.Login(Main);
         Assert.True(login.StatisticsChanged);
-        Assert.Equal(previouslyBound ? profileId : (long?)null, login.ProfileId);
+        // A single profile's first character is bound at once (owner decision 2026-11-19, audit
+        // K1-1): the naming question is offered, and no run waits for its answer.
+        Assert.Equal(profileId, login.ProfileId);
         var waiting = Assert.Single(fixture.Statistics.GetIdentities()).Identity;
         Assert.Equal(profileId, waiting.RegistrationProfileId);
+        Assert.Equal(CharacterIdentityState.Bound, waiting.State);
         var newRun = fixture.Match(Main);
+        Assert.Equal(profileId, fixture.Runs.Get(newRun)!.ProfileId);
 
         var command = new ResolveCharacterIdentityCommand(
             Fixture.NewId(), waiting.IdentityId, CharacterIdentityAction.Bind, profileId, "白露");
-        Assert.Equal(previouslyBound ? 0 : 1, fixture.Identities.Resolve(command).AssignedRunCount);
+        Assert.Equal(0, fixture.Identities.Resolve(command).AssignedRunCount);
         Assert.True(fixture.Identities.Resolve(command).IdempotentReplay);
         Assert.Equal(profileId, fixture.Runs.Get(oldRun)!.ProfileId);
         Assert.Equal(profileId, fixture.Runs.Get(newRun)!.ProfileId);
         var saved = fixture.Settings.Profiles.FindCurrent(Region.Cn)!;
         Assert.Equal((profileId, "白露", 0), (saved.ProfileId, saved.DisplayName, saved.BaselineCompletedCount));
         Assert.False(fixture.Login(Main).StatisticsChanged);
+        Assert.Empty(fixture.Statistics.GetIdentities());
+    }
+
+    [Fact]
+    public void NamingAnUpgradedProfileInSettingsAnswersItsRegistration()
+    {
+        using var fixture = new Fixture();
+        var profileId = fixture.Current();
+        fixture.Upgrade(profileId);
+        fixture.Login(Main);
+        Assert.Single(fixture.Statistics.GetIdentities());
+
+        fixture.Profiles.Update(new UpdateCharacterProfileCommand(
+            Fixture.NewId(), profileId, "白露", MakeCurrent: false, ForgetIdentities: false));
+
         Assert.Empty(fixture.Statistics.GetIdentities());
     }
 
@@ -156,6 +175,10 @@ public sealed class CharacterIdentityTests
         var oldRun = fixture.Match(null);
         fixture.Upgrade(original);
         var alt = fixture.Login(Alt).IdentityId!.Value;
+        // The alt logged in first, so it was taken for the only profile's character. The player
+        // says otherwise in 设置 › 成就 before answering about it.
+        fixture.Profiles.Update(new UpdateCharacterProfileCommand(
+            Fixture.NewId(), original, null, MakeCurrent: false, ForgetIdentities: true));
         var altRun = fixture.Match(Alt);
         if (alreadySeen)
         {

@@ -2129,6 +2129,22 @@ SHA256：%3</translation>
         <translation>發現了一個還沒有登記的角色</translation>
     </message>
     <message>
+        <source>给「原有记录」起个名字</source>
+        <translation>為「原有紀錄」取個名字</translation>
+    </message>
+    <message>
+        <source>软件已经认出这个角色，新记录照常计入「原有记录」，已有记录和成就进度不变。给它起个名字，以后有多个角色时更容易区分。</source>
+        <translation>軟體已經認出這個角色，新記錄照常計入「原有紀錄」，已有記錄和成就進度不變。為它取個名字，以後有多個角色時更容易區分。</translation>
+    </message>
+    <message>
+        <source>给它起名</source>
+        <translation>為它取名</translation>
+    </message>
+    <message>
+        <source>以后再说</source>
+        <translation>以後再說</translation>
+    </message>
+    <message>
         <source>它已经有 %1 条记录，现在不计入任何角色的进度。</source>
         <translation>它已經有 %1 筆記錄，現在不計入任何角色的進度。</translation>
     </message>
@@ -15224,6 +15240,10 @@ SHA256：%3</translation>
     <message>
         <source>目标区服还没有角色，可在「设置 › 成就」中添加。</source>
         <translation>目標區服還沒有角色，可在「設定 › 成就」中新增。</translation>
+    </message>
+    <message>
+        <source>来源角色的起始次数不会变化。这些记录导入时如果已从来源的起始次数中扣除，迁移后请到「设置 › 成就」自行调整。</source>
+        <translation>來源角色的起始次數不會變化。這些記錄匯入時如果已從來源的起始次數中扣除，遷移後請到「設定 › 成就」自行調整。</translation>
     </message>
     <message>
         <source>%1 条通关将计入目标角色。目标角色的起始次数为 %2。</source>

@@ -137,6 +137,19 @@ MotionDialog {
             wrapMode: Text.Wrap
         }
 
+        // Owner decision 2026-11-19 (audit H1-1): the source's starting count is never
+        // changed by a move, and the preview says so before anything is confirmed.
+        Text {
+            objectName: "historyRegionMigrationSourceNote"
+            Layout.fillWidth: true
+            visible: dialog.previewReady
+            text: qsTr("来源角色的起始次数不会变化。这些记录导入时如果已从来源的起始次数中扣除，迁移后请到「设置 › 成就」自行调整。")
+            textFormat: Text.PlainText
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fs(12)
+            wrapMode: Text.Wrap
+        }
+
         Text {
             Layout.fillWidth: true
             visible: dialog.previewReady

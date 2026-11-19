@@ -113,8 +113,10 @@ InsetBox {
         spacing: 8
 
         Text {
+            objectName: "characterIdentityHeading_" + prompt.region
             Layout.fillWidth: true
-            text: qsTr("发现了一个还没有登记的角色")
+            // A bound character is already counted: its prompt only offers a name.
+            text: prompt.unbound ? qsTr("发现了一个还没有登记的角色") : qsTr("给「原有记录」起个名字")
             color: Theme.textPrimary
             font.pixelSize: Theme.fs(13)
             font.weight: Font.DemiBold
@@ -123,9 +125,11 @@ InsetBox {
         Text {
             objectName: "characterIdentityBody_" + prompt.region
             Layout.fillWidth: true
-            text: prompt.registrationProfileId > 0
+            text: !prompt.unbound
+                  ? qsTr("软件已经认出这个角色，新记录照常计入「原有记录」，已有记录和成就进度不变。给它起个名字，以后有多个角色时更容易区分。")
+                    + "\n" + qsTr("如果认错了角色，可在「设置 › 成就」解除绑定。")
+                  : prompt.registrationProfileId > 0
                   ? qsTr("输入角色名并确认绑定「原有记录」。已有记录和成就进度会保留。")
-                    + (prompt.unbound ? "" : "\n" + qsTr("如果认错了角色，可在「设置 › 成就」解除绑定。"))
                   : (prompt.runCount > 0
                    ? qsTr("它已经有 %1 条记录，现在不计入任何角色的进度。").arg(prompt.runCount)
                    : qsTr("在你说明之前，它的记录不计入任何角色的进度。"))
@@ -149,9 +153,20 @@ InsetBox {
             Layout.fillWidth: true
             visible: prompt.registrationProfileId > 0
             variant: "primary"
-            text: qsTr("登记并绑定原有记录")
+            text: prompt.unbound ? qsTr("登记并绑定原有记录") : qsTr("给它起名")
             enabled: !prompt.busy && prompt.registrationProfile.profile_id !== undefined
             onClicked: prompt.bind(prompt.registrationProfileId)
+        }
+        // Owner decision 2026-11-19 (audit K1-1): a player whose character is already
+        // counted is asked once and may leave it; nothing is held back meanwhile.
+        AppButton {
+            objectName: "characterIdentityLater_" + prompt.region
+            Layout.fillWidth: true
+            visible: !prompt.unbound && prompt.registrationProfileId > 0
+            variant: "ghost"
+            text: qsTr("以后再说")
+            enabled: !prompt.busy
+            onClicked: Runtime.app.dismissCharacterRegistration(prompt.identityId)
         }
         AppButton {
             objectName: "characterIdentityNew_" + prompt.region

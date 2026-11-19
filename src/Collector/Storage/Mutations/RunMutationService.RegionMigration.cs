@@ -70,13 +70,13 @@ public sealed partial class RunMutationService
                 markCorrected: false, clearPendingReview: false);
             _settings.Identities.ClearRunStamp(run.RunId, transaction);
         }
+        // The baseline audit records changes of the baseline only (docs/data-model.md section 4):
+        // a move that leaves the target's starting count as it was writes no entry.
+        if (migration.BaselineOverlap == 0) return;
         var now = UtcTimestamp.Truncate(_clock.UtcNow);
-        var settings = profile.ToSettings() with { UpdatedAtUtc = now };
-        if (migration.BaselineOverlap > 0)
-        {
-            settings = settings with { BaselineCompletedCount = baseline, BaselineEffectiveAt = now };
-            _settings.UpdateAchievementSettings(settings, transaction);
-        }
+        var settings = profile.ToSettings() with
+            { BaselineCompletedCount = baseline, BaselineEffectiveAt = now, UpdatedAtUtc = now };
+        _settings.UpdateAchievementSettings(settings, transaction);
         _settings.AppendBaselineAudit(Guid.NewGuid().ToString("D"), settings,
             $"批量迁移区服，确认 {migration.BaselineOverlap} 条通关已计入目标起始次数。", requestId, transaction);
     }

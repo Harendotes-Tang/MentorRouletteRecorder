@@ -235,6 +235,8 @@ public sealed class CaptureValidationTests
         Until(controller, "state", "FAILED");
         Assert.Equal(expectedKey, controller.Snapshot()["message_ref"]!["key"]!.GetValue<string>());
         Assert.Equal(npcapRead ? "NpcapRead" : "MonitorFault", controller.LastFailure!.Category.ToString());
+        // The advice says nothing was read: a round that had been recording keeps the general sentence.
+        Assert.Null((controller.LastFailure with { Stage = CaptureValidationStage.Recording }).Advice);
     }
 
     /// <summary>

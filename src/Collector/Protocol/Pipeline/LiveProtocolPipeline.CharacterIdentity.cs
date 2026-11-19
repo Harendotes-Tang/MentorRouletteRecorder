@@ -337,10 +337,12 @@ public sealed partial class LiveProtocolPipeline
     ///
     /// It is the character that logged in on the connection the matching message came on, whether
     /// the message is parsed live or replayed. Null - the run goes to the current profile - when
-    /// nobody is being told apart, or when no login message has been recognised in the session at
-    /// all. A run created from a connection without a login of this session, or from no message at
-    /// all, belongs to somebody unknown: it is assigned to no profile rather than to the character
-    /// played before it.
+    /// nobody is being told apart. When no login message has been recognised in the session at all
+    /// the current profile is used as well, unless the character seen last on this machine is not
+    /// that profile's (CharacterIdentityService.CurrentProfileIsInDoubt): then the run is assigned to
+    /// no profile. A run created from a connection without a login of this session, or from no
+    /// message at all, belongs to somebody unknown: it is assigned to no profile rather than to the
+    /// character played before it.
     /// </summary>
     /// <param name="transaction">The processor's transaction.</param>
     private CharacterIdentityObservation? IdentityAtMatch(SqliteTransaction transaction)
@@ -360,7 +362,9 @@ public sealed partial class LiveProtocolPipeline
                 Note(new CharacterIdentityNote("login_not_recognised"));
             }
 
-            return null;
+            return _identities.CurrentProfileIsInDoubt(_selection.Region, transaction)
+                ? new CharacterIdentityObservation(null, null, StatisticsChanged: false)
+                : null;
         }
 
         if (_matchingConnection is not { } connection || !_loginDigests.TryGetValue(connection, out var digest))

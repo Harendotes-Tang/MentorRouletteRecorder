@@ -386,6 +386,25 @@ private Q_SLOTS:
         abandoned.reply->succeed(everything);
         QCOMPARE(history.checkedRunCount(), 0);
 
+        // Unchecking one row, or a batch sent meanwhile, drops the read as well: its rows
+        // would come back checked, with the revisions from before the batch.
+        history.setCurrentPageChecked(true);
+        history.checkAllMatchingRuns();
+        const auto afterUncheck = backend.last(QStringLiteral("QueryRuns"));
+        history.setRunChecked(row(firstId(), 4), false);
+        QVERIFY(!history.checkAllLoading());
+        afterUncheck.reply->succeed(everything);
+        QCOMPARE(history.checkedRunCount(), 0);
+        history.setCurrentPageChecked(true);
+        history.checkAllMatchingRuns();
+        const auto duringBatch = backend.last(QStringLiteral("QueryRuns"));
+        history.mutateCheckedRuns(QStringLiteral("soft_delete"), QStringLiteral("清理记录"));
+        QVERIFY(!history.checkAllLoading());
+        backend.last(QStringLiteral("BatchMutateRuns")).reply->fail(QStringLiteral("ERR_REVISION_CONFLICT"), QStringLiteral("记录已更新"));
+        duringBatch.reply->succeed(everything);
+        QCOMPARE(history.checkedRunIds(), QStringList({firstId()}));
+        history.clearCheckedRuns();
+
         history.setCurrentPageChecked(true);
         history.checkAllMatchingRuns();
         backend.last(QStringLiteral("QueryRuns")).reply->succeed(everything);

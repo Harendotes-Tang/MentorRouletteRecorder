@@ -34,6 +34,7 @@
 #include <QUrlQuery>
 
 #include <algorithm>
+#include <memory>
 #include <utility>
 
 namespace {
@@ -44,12 +45,21 @@ constexpr int kToastMs = 3200;
 constexpr int kCaptureSettingsDebounceMs = 400;
 constexpr auto kRecordRegionKey = "dashboard/record_region";
 
+/// True once the person has picked a region; an empty saved value is the explicit
+/// "all regions" selection.
+bool recordRegionPicked(const mr::AppSettings &settings)
+{
+    return mr::StatisticsController::isRecordRegion(
+        settings.value(QLatin1String(kRecordRegionKey), QStringLiteral("AUTO")));
+}
+
+/// The region a fresh installation starts on, before anything is recorded: the one the
+/// interface language suggests. Region and language are otherwise independent, so existing
+/// records decide as soon as they are known (AppController::applyDefaultRecordRegion).
 QString preferredRecordRegion(const mr::AppSettings &settings)
 {
-    // An empty saved value is the explicit "all regions" selection.
-    const QString saved = settings.value(QLatin1String(kRecordRegionKey), QStringLiteral("AUTO"));
-    if (mr::StatisticsController::isRecordRegion(saved))
-        return saved;
+    if (recordRegionPicked(settings))
+        return settings.value(QLatin1String(kRecordRegionKey), QString());
 
     const auto *language = mr::LanguageManager::instance();
     const QString code = language ? language->code() : mr::LanguageManager::defaultCode();
@@ -327,8 +337,7 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     connect(m_statistics, &StatisticsController::baselineRegionChanged, this, &AppController::baselineRegionChanged);
     connect(this, &AppController::statusChanged, this, &AppController::captureHealthTextChanged);
     onLanguageChanged(this, [this] {
-        if (m_settings)
-            m_statistics->setRecordRegion(preferredRecordRegion(*m_settings));
+        applyDefaultRecordRegion();
         retranslate();
     });
     connect(m_statistics, &StatisticsController::achievementSettingsLoadedChanged, this,
@@ -357,7 +366,7 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
         // identity is gone or already bound): read them again, or every retry fails alike.
         static const QStringList kStaleAware{QStringLiteral("bind"), QStringLiteral("ignore"),
                                              QStringLiteral("ask_again"), QStringLiteral("forget"),
-                                             QStringLiteral("create")};
+                                             QStringLiteral("create"), QStringLiteral("register")};
         if (kStaleAware.contains(action)
             && (code == QLatin1String("ERR_NOT_FOUND") || code == QLatin1String("ERR_BAD_REQUEST")))
             refreshAfterStatsInvalidated();
@@ -1017,6 +1026,7 @@ void AppController::refreshAll()
     m_history->runs()->reload();
     m_statistics->dungeons()->reload();
     m_statistics->jobs()->reload();
+    probeRecordedRegions();
 }
 
 void AppController::refreshStatus()
@@ -1154,6 +1164,88 @@ void AppController::requestDashboard(std::function<void(bool ok)> then)
 void AppController::refreshTrend()
 {
     m_statistics->refreshTrend();
+}
+
+namespace {
+constexpr auto kDismissedRegistrationsKey = "dashboard/dismissed_registrations";
+} // namespace
+
+const QStringList &AppController::dismissedRegistrations() const
+{
+    if (!m_dismissedRegistrationsRead) {
+        m_dismissedRegistrationsRead = true;
+        if (m_settings)
+            m_dismissedRegistrations = m_settings->value(QLatin1String(kDismissedRegistrationsKey), QString())
+                                           .split(QLatin1Char(','), Qt::SkipEmptyParts);
+    }
+    return m_dismissedRegistrations;
+}
+
+QVariantList AppController::pendingCharacterIdentities(const QString &region) const
+{
+    QVariantList asked = m_statistics->pendingCharacterIdentities(region);
+    const QStringList &dismissed = dismissedRegistrations();
+    // Only the naming of a character that is already bound can be put off: a character
+    // without a profile holds its runs back until it is answered.
+    asked.removeIf([&dismissed](const QVariant &value) {
+        const QVariantMap identity = value.toMap();
+        return identity.value(QStringLiteral("state")).toString() == QLatin1String("BOUND")
+            && dismissed.contains(QString::number(identity.value(QStringLiteral("identity_id")).toInt()));
+    });
+    return asked;
+}
+
+void AppController::dismissCharacterRegistration(int identityId)
+{
+    const QString id = QString::number(identityId);
+    if (identityId <= 0 || dismissedRegistrations().contains(id))
+        return;
+    m_dismissedRegistrations.append(id);
+    // Bounded: a machine sees a handful of characters, and an old id is only ever stale.
+    while (m_dismissedRegistrations.size() > 32)
+        m_dismissedRegistrations.removeFirst();
+    if (m_settings)
+        m_settings->setValue(QLatin1String(kDismissedRegistrationsKey),
+                             m_dismissedRegistrations.join(QLatin1Char(',')));
+    Q_EMIT characterIdentitiesChanged();
+}
+
+void AppController::applyDefaultRecordRegion()
+{
+    if (!m_settings || recordRegionPicked(*m_settings))
+        return;
+    m_statistics->setRecordRegion(!m_recordedRegionsKnown || m_recordedRegions.isEmpty()
+                                      ? preferredRecordRegion(*m_settings)
+                                      : m_recordedRegions.size() == 1 ? m_recordedRegions.first() : QString());
+}
+
+void AppController::probeRecordedRegions()
+{
+    if (!m_backend || !m_backend->isConnected() || !m_settings || recordRegionPicked(*m_settings))
+        return;
+    static const QStringList kRegions{QStringLiteral("CN"), QStringLiteral("TC"), QStringLiteral("GLOBAL"),
+                                      QStringLiteral("UNKNOWN")};
+    struct Probe { QStringList recorded; int remaining; bool failed = false; };
+    const auto probe = std::make_shared<Probe>(Probe{{}, static_cast<int>(kRegions.size())});
+    const quint64 generation = ++m_recordedRegionsProbe;
+    for (const QString &region : kRegions) {
+        m_backend->queryRuns(QJsonObject{{QStringLiteral("region"), region}}, 1, 1)->whenDone(this,
+            [this, generation, probe, region](bool ok, const QVariantMap &payload, const QString &, const QString &) {
+            const QVariant total = payload.value(QStringLiteral("page_info")).toMap().value(QStringLiteral("total"));
+            if (!ok || !total.isValid())
+                probe->failed = true;
+            else if (total.toInt() > 0)
+                probe->recorded.append(region);
+            // One unanswered region leaves the default as it is: a guess from part of the
+            // records could hide the rest.
+            if (--probe->remaining != 0 || probe->failed || generation != m_recordedRegionsProbe)
+                return;
+            probe->recorded.sort();
+            m_recordedRegions = probe->recorded;
+            m_recordedRegionsKnown = true;
+            applyDefaultRecordRegion();
+        });
+    }
 }
 
 void AppController::setRecordRegion(const QString &region)
@@ -1507,6 +1599,7 @@ void AppController::refreshAfterStatsInvalidated()
     retryHistoryImageCleanup();
     m_statistics->dungeons()->reload();
     m_statistics->jobs()->reload();
+    probeRecordedRegions();
 }
 
 QString AppController::announcementKind(const QString &state)

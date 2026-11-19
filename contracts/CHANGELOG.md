@@ -1,12 +1,22 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-11-19 · 记录迁移区服
+
+- `PreviewRunRegionMigration { runs, region, profile_id }` → `{ source_region, contributing_count, target_baseline, target_completed_count }`：只读预览。只接受手动补录与导入、未删除、同一来源区服的记录，目标档案须属于目标区服。
+- `BatchMutateRuns` 新增 `move_region`，带 `region`、`profile_id`、`expected_baseline` 与 `baseline_overlap`：把记录改到目标区服与档案，并从目标档案的基数中扣除 `baseline_overlap`；`expected_baseline` 与预览时不同则以 `ERR_REVISION_CONFLICT` 拒绝。来源档案的基数不变。基数没有变化（`baseline_overlap` 为 0）时不写基数审计。区服修订不可撤销（`ERR_UNDO_NOT_ALLOWED`）。
+
+## 2026-11-19 · 角色登记不扣住记录
+
+- 区服只有一个档案时，首个认出的角色照常绑定到该档案（`state: BOUND`），升级档案的登记只作为起名的提示，以 `registration_profile_id` 给出。`UpdateCharacterProfile` 给该档案改名同样完成登记。字段不变。
+- 本次抓包会话没有认出登录报文时，新记录仍取当前档案；但本机最近一次认出的角色不绑定在当前档案上、且该区服不止一个档案时，`Run.profile_id` 为 `null`。
+
 ## 2026-11-19 · 全部区服的成就条目
 
 - `DashboardStats.achievements` 在未选区服时始终包含 `CN`、`TC` 与 `GLOBAL`（此前为 `CN` 与 `TC`），另加已有记录或档案的其他区服。没有档案的区服按默认目标与起始次数给出，`profile_id` 为 `null`。字段不变。
 
 ## 2026-11-19 · 采证失败的说明
 
-- **文字目录**新增 `capture.validation.failed_npcap`、`capture.validation.failed_game_data_format`、`capture.validation.failed_game_executable` 与 `capture.validation.failed_network_data`。界面采证以 `FAILED` 结束且首个失败的类别可以确定时，`CaptureValidationStatus.message` / `message_ref` 给出对应的说明；其余失败仍为 `capture.validation.failed`。消息与字段不变，旧桌面端按中文原句显示。
+- **文字目录**新增 `capture.validation.failed_npcap`、`capture.validation.failed_game_data_format`、`capture.validation.failed_game_executable` 与 `capture.validation.failed_network_data`。界面采证以 `FAILED` 结束且首个失败的类别可以确定时，`CaptureValidationStatus.message` / `message_ref` 给出对应的说明；开始记录之后才失败的一轮，以及其余失败，仍为 `capture.validation.failed`。消息与字段不变，旧桌面端按中文原句显示。
 
 ## 2026-11-18 · 自动记录恢复依据
 

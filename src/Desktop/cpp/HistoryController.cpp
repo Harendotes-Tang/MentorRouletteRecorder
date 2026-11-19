@@ -373,6 +373,8 @@ void HistoryController::setRunChecked(const QVariantMap &run, bool checked)
         m_checkedRuns.insert(id, QJsonObject::fromVariantMap(run));
         m_checkedOrder.append(id);
     } else {
+        // A 勾选全部 still being read would check this row again when it lands.
+        cancelCheckAll();
         if (!m_checkedRuns.remove(id))
             return;
         m_checkedOrder.removeAll(id);
@@ -585,6 +587,9 @@ QJsonArray HistoryController::checkedBatchTargets() const
 void HistoryController::sendCheckedBatch(const QString &action, int profileId, const QString &reason,
                                          const QJsonObject &migration)
 {
+    // The batch acts on what is checked now: a 勾选全部 still being read is dropped, or its
+    // rows would come back checked with the revisions they had before this batch.
+    cancelCheckAll();
     const bool assigning = action == QLatin1String("assign_profile");
     const QStringList ids = m_checkedOrder;
     const QJsonArray rows = checkedBatchTargets();

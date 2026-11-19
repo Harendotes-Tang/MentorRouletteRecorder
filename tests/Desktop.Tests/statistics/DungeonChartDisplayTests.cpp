@@ -41,13 +41,19 @@ public:
     QString backendName() const override { return QStringLiteral("chart-test"); }
     bool isConnected() const override { return true; }
     QHash<QString, QJsonObject> regionFilters;
+    /// Live records per region, as QueryRuns counts them; a region not named has none.
+    QHash<QString, int> recordedRuns;
     mr::BackendReply *request(const QString &type, const QJsonObject &payload = {}) override
     {
         if (payload.contains(QStringLiteral("filter")))
             regionFilters.insert(type, payload.value(QStringLiteral("filter")).toObject());
         auto *reply = new mr::BackendReply(QString::number(++serial), type, this);
-        const QJsonObject result{{"items", rows}, {"distinct_count", rows.size()},
-            {"page_info", QJsonObject{{"page", 1}, {"page_size", 200}, {"total", rows.size()}}}};
+        const bool runs = type == QLatin1String("QueryRuns");
+        const int total = runs ? recordedRuns.value(payload.value(QStringLiteral("filter")).toObject()
+                                                       .value(QStringLiteral("region")).toString())
+                               : static_cast<int>(rows.size());
+        const QJsonObject result{{"items", runs ? QJsonArray() : rows}, {"distinct_count", rows.size()},
+            {"page_info", QJsonObject{{"page", 1}, {"page_size", 200}, {"total", total}}}};
         QTimer::singleShot(0, reply, [reply, result] { reply->succeed(result); });
         return reply;
     }
@@ -239,6 +245,44 @@ private slots:
         const auto filter = restarted.backend.regionFilters.value(QStringLiteral("GetDashboardStats"));
         QCOMPARE(filter.contains(QStringLiteral("region")), !selection.isEmpty());
         QCOMPARE(filter.value(QStringLiteral("region")).toString(), selection);
+    }
+
+    // Owner decision 2026-11-19 (audit I1-1): the language only decides for an installation
+    // with no records. One recorded region is shown, several mean every region, and a region
+    // picked by hand is never replaced.
+    void regionFilterFollowsTheRecordedRegionsBeforeTheLanguage_data()
+    {
+        QTest::addColumn<QStringList>("recorded");
+        QTest::addColumn<QString>("expected");
+        QTest::newRow("none") << QStringList() << QStringLiteral("GLOBAL");
+        QTest::newRow("one") << QStringList{QStringLiteral("CN")} << QStringLiteral("CN");
+        QTest::newRow("several") << QStringList{QStringLiteral("CN"), QStringLiteral("TC")} << QString();
+    }
+
+    void regionFilterFollowsTheRecordedRegionsBeforeTheLanguage()
+    {
+        QFETCH(QStringList, recorded);
+        QFETCH(QString, expected);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        mr::LanguageManager language(nullptr);
+        language.initialize(QStringLiteral("en"));
+        ChartScene scene(directory.filePath(QStringLiteral("desktop.ini")));
+        for (const QString &region : recorded)
+            scene.backend.recordedRuns.insert(region, 3);
+        QCOMPARE(scene.controller.recordRegion(), QStringLiteral("GLOBAL")); // nothing read yet
+        scene.controller.refreshAll();
+        QTRY_COMPARE(scene.controller.recordRegion(), expected);
+        // Another interface language does not move a region that records decided.
+        language.setLanguage(QStringLiteral("zh-TW"));
+        QCoreApplication::processEvents();
+        QCOMPARE(scene.controller.recordRegion(), recorded.isEmpty() ? QStringLiteral("TC") : expected);
+
+        scene.controller.setRecordRegion(QStringLiteral("UNKNOWN"));
+        scene.backend.recordedRuns.insert(QStringLiteral("GLOBAL"), 1);
+        scene.controller.refreshAll();
+        QTest::qWait(50);
+        QCOMPARE(scene.controller.recordRegion(), QStringLiteral("UNKNOWN"));
     }
 
     void initTestCase()

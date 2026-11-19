@@ -288,6 +288,25 @@ private Q_SLOTS:
         QVERIFY(pages.shown(QStringLiteral("goalField")));
     }
 
+    // Owner decision 2026-11-19 (audit K1-1): a character that is already bound is only
+    // offered a name, in its own words, and the offer can be put off.
+    void aBoundCharactersNamingOfferCanBePutOff()
+    {
+        Pages pages;
+        pages.backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("BOUND"), 0, true);
+        QVERIFY2(pages.create(), qPrintable(pages.errors));
+        pages.app->navigate(0);
+        QTRY_VERIFY(pages.shown(QStringLiteral("characterIdentityPrompt_CN")));
+        QCOMPARE(pages.shown(QStringLiteral("characterIdentityHeading_CN"))->property("text").toString(),
+                 QString::fromUtf8("给「原有记录」起个名字"));
+        QVERIFY(!pages.shown(QStringLiteral("characterIdentityNew_CN")));
+        QVERIFY(pages.click(QStringLiteral("characterIdentityLater_CN")));
+        QTRY_VERIFY(!pages.shown(QStringLiteral("characterIdentityPrompt_CN")));
+        QVERIFY(pages.app->pendingCharacterIdentities(QStringLiteral("CN")).isEmpty());
+        // The Collector still offers it: the profile can be named from 设置 › 成就.
+        QCOMPARE(pages.app->characterIdentities().size(), 1);
+    }
+
     void registrationNamesTheOriginalProfileAndShowsItsBinding_data()
     {
         QTest::addColumn<QString>("state");

@@ -2129,6 +2129,22 @@ SHA256: %3</translation>
         <translation>A character that isn&apos;t registered yet</translation>
     </message>
     <message>
+        <source>给「原有记录」起个名字</source>
+        <translation>Name the original records</translation>
+    </message>
+    <message>
+        <source>软件已经认出这个角色，新记录照常计入「原有记录」，已有记录和成就进度不变。给它起个名字，以后有多个角色时更容易区分。</source>
+        <translation>The app already recognises this character. New records keep counting toward the original records, and existing records and achievement progress stay as they are. Give it a name so it is easier to tell apart once you have several characters.</translation>
+    </message>
+    <message>
+        <source>给它起名</source>
+        <translation>Name it</translation>
+    </message>
+    <message>
+        <source>以后再说</source>
+        <translation>Not now</translation>
+    </message>
+    <message>
         <source>它已经有 %1 条记录，现在不计入任何角色的进度。</source>
         <translation>It already has %1 record(s), which currently count toward no character&apos;s progress. </translation>
     </message>
@@ -15224,6 +15240,10 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>目标区服还没有角色，可在「设置 › 成就」中添加。</source>
         <translation>Add a character for this region in Settings › Achievements.</translation>
+    </message>
+    <message>
+        <source>来源角色的起始次数不会变化。这些记录导入时如果已从来源的起始次数中扣除，迁移后请到「设置 › 成就」自行调整。</source>
+        <translation>The source character&apos;s starting count does not change. If these records were taken off the source&apos;s starting count when they were imported, adjust it yourself in Settings › Achievement after the move.</translation>
     </message>
     <message>
         <source>%1 条通关将计入目标角色。目标角色的起始次数为 %2。</source>

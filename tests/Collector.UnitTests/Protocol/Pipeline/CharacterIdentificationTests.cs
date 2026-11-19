@@ -462,6 +462,17 @@ public sealed class CharacterIdentificationTests
         Assert.Equal(rig.Current(), runs.Get(rig.Pop(0x1001))!.ProfileId);
         rig.Pop(0x1001);
         Assert.Single(rig.Notes, note => note.Event == "login_not_recognised");
+
+        // The same, when the character seen last is not the current profile's: the alt played
+        // last and the player then made the main current by hand. Whose run this is cannot be
+        // told, so it is nobody's until the player says (owner decision 2026-11-19, audit D1-1).
+        rig.Db.Clock.UtcNow += TimeSpan.FromMinutes(5);
+        rig.Login(Alt, 0x2002);
+        Assert.Equal(alt, rig.Current());
+        rig.Profiles.Update(new UpdateCharacterProfileCommand(
+            Guid.NewGuid().ToString("D"), main, null, MakeCurrent: true, ForgetIdentities: false));
+        rig.StartSession();
+        Assert.Null(runs.Get(rig.Pop(0x1001))!.ProfileId);
     }
 
     /// <summary>

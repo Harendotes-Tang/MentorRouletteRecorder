@@ -104,17 +104,50 @@ public sealed class CharacterIdentityService
 
         if (seen.Count == 0 && _settings.Profiles.List(transaction, region).Count <= 1)
         {
+            // A player with one character is never held back by a question (owner decision
+            // 2026-11-19, audit K1-1): the first character is that profile's. An upgraded profile
+            // is still offered its one-time naming, which the player may leave unanswered.
             var only = _settings.Profiles.EnsureCurrent(region, transaction);
-            if (!_settings.Identities.NeedsRegistration(only.ProfileId, transaction))
-            {
-                var first = _settings.Identities.Insert(region, keyId, digest, only.ProfileId, transaction);
-                return new CharacterIdentityObservation(first.IdentityId, only.ProfileId, StatisticsChanged: true);
-            }
+            var first = _settings.Identities.Insert(region, keyId, digest, only.ProfileId, transaction);
+            _settings.Identities.OfferRegistration(only.ProfileId, first.IdentityId, transaction);
+            return new CharacterIdentityObservation(first.IdentityId, only.ProfileId, StatisticsChanged: true);
         }
 
         var pending = _settings.Identities.Insert(region, keyId, digest, null, transaction);
         _settings.Identities.OfferUnboundRegistration(region, pending.IdentityId, transaction);
         return new CharacterIdentityObservation(pending.IdentityId, null, StatisticsChanged: true);
+    }
+
+    /// <summary>
+    /// Whether the region's current profile may not be the character playing, for a session that
+    /// recognised no login message and so cannot say who it is.
+    ///
+    /// There is no doubt while the region has one profile, or while no character was ever
+    /// recognised in it. Otherwise the current profile is trusted only when the character seen
+    /// last on this machine is bound to it: a character still waiting for an answer, one that is
+    /// not counted, or one bound to another profile was the last to play, and the current profile
+    /// is then somebody else's (owner decision 2026-11-19, audit D1-1).
+    /// </summary>
+    /// <param name="region">Region the session records.</param>
+    /// <param name="transaction">Enclosing transaction.</param>
+    public bool CurrentProfileIsInDoubt(Region region, SqliteTransaction transaction)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        if (_settings.Profiles.List(transaction, region).Count <= 1)
+        {
+            return false;
+        }
+
+        var seen = _settings.Identities.List(transaction, region);
+        if (seen.Count == 0)
+        {
+            return false;
+        }
+
+        var current = _settings.Profiles.FindCurrent(region, transaction)?.ProfileId;
+        var latest = seen.Max(identity => identity.LastSeenAtUtc);
+        // Several characters seen in the same instant: any of them being the current one is enough.
+        return !seen.Any(identity => identity.LastSeenAtUtc == latest && identity.ProfileId == current);
     }
 
     private CharacterIdentityObservation Returning(CharacterIdentity known, SqliteTransaction transaction)

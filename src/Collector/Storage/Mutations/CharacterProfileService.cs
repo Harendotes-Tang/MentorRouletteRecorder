@@ -169,6 +169,8 @@ public sealed class CharacterProfileService
             {
                 RequireFreeName(_settings.Profiles.List(tx, profile.Region), name, profile.ProfileId);
                 _settings.Profiles.Rename(profile.ProfileId, name, tx);
+                // Naming an upgraded profile here answers its one-time registration as well.
+                _settings.Identities.FinishRegistration(profile.ProfileId, tx);
             }
 
             if (command.MakeCurrent && !profile.IsCurrent)

@@ -146,7 +146,7 @@ Q_SIGNALS:
     void characterProfileSavingChanged();
     void characterIdentitiesChanged();
     /// A profile change was accepted; \a action is "create", "rename", "select", "delete",
-    /// "bind", "ignore", "ask_again" or "forget". characterProfiles() (and, for a
+    /// "bind", "register", "ignore", "ask_again" or "forget". characterProfiles() (and, for a
     /// ResolveCharacterIdentity, characterIdentities()) already hold the reply's lists.
     void characterProfileSaved(int profileId, const QString &action);
     /// A profile change was refused or went unanswered; \a message is the Collector's

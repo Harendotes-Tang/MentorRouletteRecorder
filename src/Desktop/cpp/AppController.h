@@ -452,9 +452,13 @@ public:
     void setBaselineProfileId(int profileId) { m_statistics->setBaselineProfileId(profileId); }
     bool characterProfileSaving() const { return m_statistics->characterProfileSaving(); }
     QVariantList characterIdentities() const { return m_statistics->characterIdentities(); }
-    /// The PENDING identities of \a region ("" = every region), in the Collector's order.
-    Q_INVOKABLE QVariantList pendingCharacterIdentities(const QString &region) const
-    { return m_statistics->pendingCharacterIdentities(region); }
+    /// The identities of \a region ("" = every region) the dashboard asks about, in the
+    /// Collector's order: the PENDING ones, and a bound one whose upgraded profile may be
+    /// named, until that offer is put off (dismissCharacterRegistration).
+    Q_INVOKABLE QVariantList pendingCharacterIdentities(const QString &region) const;
+    /// 以后再说: stops offering to name the upgraded profile of this already bound identity.
+    /// Remembered on this machine; the profile can still be named in 设置 › 成就.
+    Q_INVOKABLE void dismissCharacterRegistration(int identityId);
     /// How many identities of \a region ("" = every region) are IGNORED.
     Q_INVOKABLE int ignoredCharacterIdentityCount(const QString &region) const
     { return m_statistics->ignoredCharacterIdentityCount(region); }
@@ -708,8 +712,8 @@ public Q_SLOTS:
     /// Makes \a profileId the current profile of its region: new runs are filed under it.
     void selectCharacterProfile(int profileId);
     void deleteCharacterProfile(int profileId);
-    /// 自动识别角色. Each answers with characterProfileSaved (action "bind", "ignore",
-    /// "ask_again" or "forget"; profileId 0 where there is none) or characterProfileFailed,
+    /// 自动识别角色. Each answers with characterProfileSaved (action "bind", "register",
+    /// "ignore", "ask_again" or "forget"; profileId 0 where there is none) or characterProfileFailed,
     /// and the statistics and the history list are read again after a success.
     /// BIND: \a identityId is the character of \a profileId; its runs move there and the
     /// profile becomes current.
@@ -858,7 +862,7 @@ Q_SIGNALS:
     void characterProfileSavingChanged();
     void characterIdentitiesChanged();
     /// A profile change was accepted. \a action: "create", "rename", "select", "delete",
-    /// "bind", "ignore", "ask_again" or "forget".
+    /// "bind", "register", "ignore", "ask_again" or "forget".
     void characterProfileSaved(int profileId, const QString &action);
     /// A profile change was refused or went unanswered; \a message is the Collector's
     /// sentence in the interface language.
@@ -895,6 +899,11 @@ private:
     /// What a stats_invalidated event refreshes: statistics, trend, reflections, recovery,
     /// the history list and the per-duty / per-job tables.
     void refreshAfterStatsInvalidated();
+    /// Until a region is picked by hand, the record region is the one that holds records:
+    /// that region when there is one, every region when there are several, and the
+    /// interface language's region only while nothing is recorded at all.
+    void probeRecordedRegions();
+    void applyDefaultRecordRegion();
     /// Adopt one accepted SetRunReflection response: selection, list, summary
     /// and the toast that says which of the two things just happened.
     void applySavedReflection(const QString &runId, const QVariantMap &payload,
@@ -947,6 +956,15 @@ private:
     /// every callback fire (review finding M-1).
     QPointer<IBackend> m_backend;
     AppSettings *m_settings = nullptr;
+    /// The regions with at least one live record, as last read; unread until m_recordedRegionsKnown.
+    QStringList m_recordedRegions;
+    bool m_recordedRegionsKnown = false;
+    quint64 m_recordedRegionsProbe = 0;
+    /// Identity ids whose naming offer was put off; read from the settings once, kept here so
+    /// the answer also holds for a session that has no settings file.
+    mutable QStringList m_dismissedRegistrations;
+    mutable bool m_dismissedRegistrationsRead = false;
+    const QStringList &dismissedRegistrations() const;
     /// Optional borrowed process authority, supplied only by composition.
     QPointer<CollectorProcess> m_collector;
     /// Owns daily attempts and duty deferral; the facade supplies current values only.

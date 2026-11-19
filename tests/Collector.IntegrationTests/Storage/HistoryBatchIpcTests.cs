@@ -105,8 +105,10 @@ public sealed class HistoryBatchIpcTests
         Assert.Equal(sourceBaseline, fixture.Host.Settings.Profiles.Find(sourceProfile)!.BaselineCompletedCount);
         var movedProfile = fixture.Host.Settings.Profiles.Find(destination)!;
         Assert.Equal(1444 - overlap, movedProfile.BaselineCompletedCount);
-        var audit = Assert.Single(fixture.Host.Settings.ReadBaselineAudit(movedProfile), entry => entry.RequestId == requestId);
-        Assert.Equal(1444 - overlap, audit.BaselineCompletedCount);
+        // The baseline audit records changes of the baseline: a move that leaves it alone writes none.
+        var audits = fixture.Host.Settings.ReadBaselineAudit(movedProfile).Where(entry => entry.RequestId == requestId).ToArray();
+        Assert.Equal(overlap > 0 ? 1 : 0, audits.Length);
+        Assert.All(audits, entry => Assert.Equal(1444 - overlap, entry.BaselineCompletedCount));
 
         sourceRow["region"] = "GLOBAL";
         var reimport = await PreviewImport(sourceRow);

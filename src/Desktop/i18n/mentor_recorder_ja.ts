@@ -2129,6 +2129,22 @@ SHA256：%3</translation>
         <translation>まだ登録されていないキャラクターが見つかりました</translation>
     </message>
     <message>
+        <source>给「原有记录」起个名字</source>
+        <translation>「既存の記録」に名前を付ける</translation>
+    </message>
+    <message>
+        <source>软件已经认出这个角色，新记录照常计入「原有记录」，已有记录和成就进度不变。给它起个名字，以后有多个角色时更容易区分。</source>
+        <translation>このキャラクターはすでに認識されています。新しい記録はこれまでどおり「既存の記録」に加算され、既存の記録とアチーブメントの進捗は変わりません。名前を付けておくと、キャラクターが増えたときに区別しやすくなります。</translation>
+    </message>
+    <message>
+        <source>给它起名</source>
+        <translation>名前を付ける</translation>
+    </message>
+    <message>
+        <source>以后再说</source>
+        <translation>あとで</translation>
+    </message>
+    <message>
         <source>它已经有 %1 条记录，现在不计入任何角色的进度。</source>
         <translation>すでに %1 件の記録がありますが、今はどのキャラクターの進捗にも含まれていません。</translation>
     </message>
@@ -15224,6 +15240,10 @@ SHA256：%3</translation>
     <message>
         <source>目标区服还没有角色，可在「设置 › 成就」中添加。</source>
         <translation>「設定 › アチーブメント」でこの地域のキャラクターを追加できます。</translation>
+    </message>
+    <message>
+        <source>来源角色的起始次数不会变化。这些记录导入时如果已从来源的起始次数中扣除，迁移后请到「设置 › 成就」自行调整。</source>
+        <translation>移行元キャラクターの開始回数は変わりません。これらの記録をインポートしたときに移行元の開始回数から差し引いていた場合は、移行後に「設定 › アチーブメント」でご自身で調整してください。</translation>
     </message>
     <message>
         <source>%1 条通关将计入目标角色。目标角色的起始次数为 %2。</source>
