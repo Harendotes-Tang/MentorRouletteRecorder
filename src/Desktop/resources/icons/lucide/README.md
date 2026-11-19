@@ -9,7 +9,7 @@
 
 | 项 | 值 |
 |---|---|
-| 上游发布 | 官方仓库标签 [`1.61.0`](https://github.com/lucide-icons/lucide/tree/1.61.0/icons) 的 SVG；按同标签 `packages/lucide-static/scripts/copyIcons.mts` 添加版本许可证注释与 `class`，绘制元素原样保留 |
+| 上游发布 | 官方仓库标签 [`1.76.0`](https://github.com/lucide-icons/lucide/tree/1.76.0/icons) 的 SVG；按同标签 `packages/lucide-static/scripts/copyIcons.mts` 添加版本许可证注释与 `class`，绘制元素原样保留 |
 | 取用方式 | 开发期下载一次；运行时不联网 |
 | 进入构建产物的形式 | 这些 SVG **本身不编入资源**。`tools/lucide-icons/generate.py` 将每个图标的绘制元素写入 `src/Desktop/qml/components/Lucide.js`（含 ISC 声明），QML 模块仅包含该文件 |
 | 着色 | Lucide 的 SVG 使用 `stroke="currentColor"`，Qt 的 SVG 渲染器不支持该取值。`Lucide.js` 在运行时将按钮当前的文字颜色写入 `stroke`，并生成 `data:` 地址供 `Image` 使用 |
@@ -26,76 +26,78 @@
 2026-11-09 新增 `search`、`globe`、`chevron-down`，直接取自固定的官方 npm 包 `lucide-static@1.61.0`（`https://unpkg.com/lucide-static@1.61.0/icons/<name>.svg`），保留上游 SVG 及版本注释，校验值如下。
 
 
+2026-11-19 全部 69 个图标升级到 `lucide-static@1.76.0`（`https://unpkg.com/lucide-static@1.76.0/icons/<name>.svg`），逐个覆盖并重新生成 `Lucide.js`；与 1.61.0 相比只有 `circle-help` 的问号画法有变化，其余文件仅版本注释不同。下表为新文件的校验值，上文两处「1.61.0」记录的是当时的取用版本。
+
 2026-11-09 图标统一补齐：复选、浮窗、完成状态、窗口控制与复制操作的新增图标同样取自上述固定官方 npm 版本；浮窗旧名称由 `OverlayIcons.js` 映射到标准 Lucide 名称，运行时仍只读取本地生成库。
 
 | 文件 | SHA-256 |
 |------|---------|
-| `activity.svg` | `ad2e728ce1a3bf4dee93223ce3912c7b52cd2ee061c832e08ba0a14b028f68ee` |
-| `arrow-down.svg` | `e4aef5810b8e5e1304c735f2af5c6f7c4cdebad1e00b4b2ebbf2e1bdfea17528` |
-| `arrow-right.svg` | `78af91b2c9d7cf8ea9564c3ca28a4f9021cced57aee0bc3bc801d68555d5b8e1` |
-| `arrow-up.svg` | `f76f6cc5e50fe25865dbf403a816016b1cf8d4de1bb4e230ff5b541b69bcde34` |
-| `bell-off.svg` | `43acc0c96240dd3ef1abf36ecfdffc262921524832378d44a904f78c9cc979e4` |
-| `bell.svg` | `01f419f823d3332da275a17fc7fcac7997597a0f533c9c81678ef5ee5b7bc341` |
-| `book-open-text.svg` | `7a6234f84d2f296421c4e27ea6d885e18d45bcb7737b5aa36a4ec6c147b0f746` |
-| `calendar.svg` | `5c0372f26e27a19c72b51e27315fa57d0dddbc325c6a2bf0ec32218e3a542ef6` |
-| `chart-column.svg` | `e4104761d3c5e4423544563d0e198550fbc301d43895db91703754d1e1a2bc13` |
-| `check.svg` | `cf5d8f45a017604917c0d74ed9c49c6926b0df780c4c9ad3ad85fb7a392bf746` |
-| `chevron-down.svg` | `763bbc7f305bad8b852b5ae5feadfc08858acf97f19a5897aa8f1fe636abed45` |
-| `chevron-left.svg` | `6e7478a72752c404c2ff077dfb768a84b718255d7bf9ea547de9b080114592ee` |
-| `chevron-right.svg` | `2af3089fa09497d5725172b172196d193cbe8205bf70ad6f9078ce4773285001` |
-| `chevrons-down.svg` | `92c65689ea0c942b24b9e675ac0f435c92e1d8fcdc0937eeb472a082ed81e38a` |
-| `circle-alert.svg` | `9297d24761982135593d8a24fa90f3b901e36ec3b79a744df61012b4bb74addc` |
-| `circle-help.svg` | `2617f32e3ffe4a0591a0d57f21f1c67fda961b4f15f779ecfe246a09593f9ae0` |
-| `clipboard-check.svg` | `4ac5ba3c2308b50d29c6cd5ba499166dc45ac433d355041eebd38a985197d6d9` |
-| `clipboard-copy.svg` | `7ee8d22109aa35b8d02294b91ba89fcfbfc6046f6bd452aa99a55c2e855d13ad` |
-| `clipboard-paste.svg` | `7a780940d3b4f6009d6ea174db51521a8bac9bdfbc0e8c16be41cb6d1b476723` |
-| `clock.svg` | `2a50ff1030ae5591447dd5b278bdbd24e7dda3c24e2133348e7a66231fd6e787` |
-| `cloud-off.svg` | `1d604c85417975248f5378283560df9668aa9d0a474edcf74d0dc6b69e1c3659` |
-| `copy.svg` | `0e68d3e49db956dfe42e8dfac1d8596081ee0a6fc5480fc6318d231bb07616d9` |
-| `diamond.svg` | `d4fd83ee244b877954f1de15c802a752ee41a33d7daa28b382a2e1da5c5eb984` |
-| `file-check.svg` | `dacdcd0514471272bb11c18769f42399dd068ff52151030b0b0a8463a8262945` |
-| `file-down.svg` | `1256558eaa140c1ac65b3f6cf1291ae5898a79ebe9ca5cc23873d45e4551216f` |
-| `file-input.svg` | `8b978cfd489cd92ca0ce4d0303bd0729cf9700ecee77daaf004b356440d6fd46` |
-| `file-json.svg` | `6a27ab5aa7f7960053588d374423bd56e4edc57039345f8c59bf1ee332f1379e` |
-| `filter-x.svg` | `abc4f423c1281e2e5080c3bcb95918a11c3d2a4870bca0eb8a44d9bdc9d57651` |
-| `flag.svg` | `e84d0cd56503debfaebf1f6c1c587cae253db067c1ff69a0737e2c4dd5296398` |
-| `folder-open.svg` | `5adf2987a25d174cb7c0ecfd241f12c40e35953217d7c4ee5ced8d29a3baef6f` |
-| `frown.svg` | `455c974a8e9ae585907525a8ab3d17508f3bb3da3c901e0be0fb7a3c29a38788` |
-| `gamepad-2.svg` | `0a25090b8e0cf03d14a58e3fe5e85335402485c58c610034e64eb73c2c70241a` |
-| `globe.svg` | `994924c198fe332f0de7eb5953610c6bce145b93db86c97d7183ce170a6038cc` |
-| `grip-vertical.svg` | `3a3be2604ef99b245d34f135139dd8cf91c1d4078d6660a48c01a4660cd987cf` |
-| `hard-drive.svg` | `86c8c22e2e65cb913348935228c857de676f658cae3eb9acda7b79de53168bc6` |
-| `history.svg` | `15a0aa9c5c97acef0295b80e9d6a7d1d34f1e82f85c9f2866fc78187bce4d0d8` |
-| `hourglass.svg` | `ed5ef04959d0ec3fbd7c05a730e67265c0e6626746952904fb109a5a598d7475` |
-| `image-down.svg` | `add0e62da3c12f3a04013d5cda5ea0d85e9019a23c06d7e3c68ca0bd102e0265` |
-| `image.svg` | `eb8267cf5cd811745284486e5494d022c37c0fb7cfc3e0c3c543675c3268db13` |
-| `inbox.svg` | `311abdf01ec9fe0ecd9b2a021d544b3ae2c208c0481c283837f682d836073e52` |
-| `info.svg` | `2dbeb8e85ec1aae8eedea831deb24a31b04917bceae5ce63bd49eaf07fdaf425` |
-| `layout-dashboard.svg` | `b02f45800b01e728a5f1a0c9eb2a7f7a12fef43917f2f5bda41259779e95b364` |
-| `lock-open.svg` | `7a49019d298ff9aedd0b915df02a7f0ba65650bea2f100e9b5c0cc33d8453113` |
-| `lock.svg` | `d5b171fc7578184bf9c70b20202e1398afeea956ca07bc896a8b88c23f1041e6` |
-| `log-out.svg` | `db1bc9f72f1bf537718991c9ab03bf8d913c4e67a820335d4f992cc97d18b65a` |
-| `maximize-2.svg` | `ee10a7d2d22d1eb81e26dbe21e4428f6afde774d3ec9d2b350c5832b51cea02b` |
-| `medal.svg` | `1bb9bfd648a2870f5a596315e583ceae0aaad5e122a8ca465fd1c4ded12cc607` |
-| `meh.svg` | `6a4d09e88996e895766f6a404223e19d2996b5b57d4e51cabaddeac34a62eaf5` |
-| `minimize-2.svg` | `002f219c062f0fd41d5cc402b5b606c286c5a90aa9f7267486d9b3a8dc51b802` |
-| `minus.svg` | `98fa3350421dfd2011b2f109d20de6069c963b1f668c24fe675878b8a4c86532` |
-| `moon.svg` | `3002badbef72a8f85358b3fe844ccac9c6e9638cc8088fb197426e8aeee6e0a9` |
-| `move-diagonal-2.svg` | `98359ae37dfb6df7fe8b1c434f5bd049dbd6cc3b5e3c6a770c8bfa5f9d83439f` |
-| `network.svg` | `4f2d416762604ac95e05546c074635bfaa24346680fc9d938f6849da2ce92f17` |
-| `notebook-pen.svg` | `119524879d2fc8c753887114ab988ee8f788482f2afddfb3103cc21d6d17cf86` |
-| `panel-top-close.svg` | `5bed49ff66484217b7f685eead046214af488425a0824d364be48cf1bd45c4ac` |
-| `plus.svg` | `dfcf07b39b0f4c0b422595ae488fb08c468ef4782f6ef37d0deceaadfb2a5693` |
-| `radio.svg` | `8637908d6b1f5172ba710b9e12c052f614e2facdfc66535f0eb60d9a8a0ced6c` |
-| `search.svg` | `e0d89f53155655032f5c07fd8da930800b62b69a778d1dd76b388b9b78bf1d3f` |
-| `server.svg` | `91feaa119e863973e4be3a2beab09e7b21944bbe508d12b5268d903b757177f8` |
-| `settings.svg` | `f2235dfd6c69bdad1acd08554ba19557becefa526b21ae4cfabf8fe7bbc48796` |
-| `sliders-horizontal.svg` | `d2b52bb681ecad5c0710c4bba8684fd7be8dfe1d2bf3c10e865dff242cf3775f` |
-| `smile.svg` | `703de8784f19c79d5768b8ed69c9bf6296d82089e7f9cc63513e278c17b72f42` |
-| `square.svg` | `3855d336619de5adc61a0b5293db82cb9f5456b859a7daf0cd249653c6f31063` |
-| `sun.svg` | `19d684776d546b673d45fc54b7dee7b22f18e0b2e673612220727e90f46fb4cf` |
-| `swords.svg` | `990cb2394a31acb9ed6fa898746d9e9c05bd199fe6342d6b95cb206f25e43e59` |
-| `target.svg` | `e26469cfee68a31c0ab6712987f7d05ea5d5326cb7b7061a243369e5e25c7d15` |
-| `timer.svg` | `706c74414d251d9faabb039ce9205bbb0e8c4b61181db439e4514672c895b58d` |
-| `users.svg` | `8d17ead4eb85514d53a2aa1b6e04198a4270207f2266fef9356967964db91f1e` |
-| `x.svg` | `a611112e8946480120e5e96f1d849651df76fa502f6190e293defaf6c4f56b07` |
+| `activity.svg` | `3d42112d2bc54483c1ba4ac89336f0a4a26d7544ed19a3dbbe950fd0b37eb8d2` |
+| `arrow-down.svg` | `755304acb9101d16746d2ebecc8cf042fe8862bbd126d027618f813b4e2f4e1c` |
+| `arrow-right.svg` | `1869af6bbcfce9193d951d8cd4308673a140624f4d44943d7c80b0abd53f6a3a` |
+| `arrow-up.svg` | `87245df478e1673410b4bf87243938e1c377c2f73218240d1cbb0ca03b11ac98` |
+| `bell-off.svg` | `725cef4d5ad6c6fd82ec3156d71e86bfe3ec35376782d4a0921bd7b11cd15288` |
+| `bell.svg` | `dbdcb73e110c7925e505b6b7a331f181e4fba0339ae12d3d916cf66079283680` |
+| `book-open-text.svg` | `8bc24f524dcb358aa4cfe76211fc6c12c40c2f1519f2a87fd916be116d7bf1f5` |
+| `calendar.svg` | `69902bf67882aa41c4e8a16548185713a36afd993e601b0ac6566b0912c91b73` |
+| `chart-column.svg` | `b967d3ef74b38d1718f1d34f4c49e6fc6db93175a5b5c4362fd40e66270503f6` |
+| `check.svg` | `b4c52eac69018dffa07321c57a0d7857d6e76c9c1ccc851350bbc09e6790e7de` |
+| `chevron-down.svg` | `2fe6bf9c85691036fb6463026cd0ceb0df0f4e6d57b90badacf009a4d029c105` |
+| `chevron-left.svg` | `96ec0362ebdcfe2a8178676a814d0f8c259fc18bf79ec57e90a9d51a8b5f34fe` |
+| `chevron-right.svg` | `a4e2552008bea9a6a5cd9b3a9de8d9db39d9b923ff083ba3077114f08bcf0d26` |
+| `chevrons-down.svg` | `88bbd765e55877aec3985fb5dfd87b677a0295d255c215e83ba4e1e9cb099288` |
+| `circle-alert.svg` | `f6e3270e82d294804356ed5aa8a17948f065ac17365efdc66426efde5d2a8ffa` |
+| `circle-help.svg` | `e6113143231f67e8b8aeeb2b0712f470d0361b725d27e6cd3392ef00472011ee` |
+| `clipboard-check.svg` | `23b7297983493c8a6c8e8a125d153d6530ca65ba49f5553a126cd7fa90b5e74e` |
+| `clipboard-copy.svg` | `15cc9357ae313a4d32206887282de3125addeab01673361d0e8cb747e0a3ca1a` |
+| `clipboard-paste.svg` | `3354ddd4382a6bfe2c6d7cd0091ef70f2cfb2bf09517437c0ab7597b816b6e8f` |
+| `clock.svg` | `8a6694e254942c8f349ad603dd6272698ed87f3efe29c73e204caa8ef4ea1728` |
+| `cloud-off.svg` | `b32b6eec0f0ddbe5aa6da470acc6d26e826844f84c154c3fdf516ff50e86d952` |
+| `copy.svg` | `7dad075505307e180ca7536d02d849cab403f3bcdffc96ea6970e75f770a31b3` |
+| `diamond.svg` | `0b0fa8579e57c2e7f651587ca62f6258b411b8e35502bd58989ddd11ea8b35e5` |
+| `file-check.svg` | `f5b97ec5277265788de350034caeee26bc4723228ce1d2138f9b2a00eb381ef9` |
+| `file-down.svg` | `2ac3838ae2a627b780a7f7d0913cf6b547d460ae6b506b67c03d51f1dd653692` |
+| `file-input.svg` | `5846bf615d309ed4ace903fd710d05166a2887729422aecb9da859fc48dee6a9` |
+| `file-json.svg` | `b7bf9105bd3fccc3b35873b03183bec0fd0e872939615a1b9b8b281025f7bc4c` |
+| `filter-x.svg` | `6950cc532249ab0dd9887553de1ba85ab6d2d03ee1764f558859c25008597e29` |
+| `flag.svg` | `37647b65bba3d175c742673c928acd607a11c2f2f141f93e607990ba2318f012` |
+| `folder-open.svg` | `6a9e312a3418ff87f1217766eba6556cbc954772589514100d30ddb830b224b0` |
+| `frown.svg` | `f79663d7779e4edf1cf534fec9217886d021899745c77fc7e88304020f89229c` |
+| `gamepad-2.svg` | `18a53c618d78e5ab27066f8f0216140d53457cc87cdf928a966ca0bbdb62b7d6` |
+| `globe.svg` | `7f8b42da752bf0525462bdac3a48ea51d0298b03077e3ccff1172e0795831835` |
+| `grip-vertical.svg` | `e19e472d1f324010885dbd282fda27119d95cbdac408e8697ff1bb0e36dfc59c` |
+| `hard-drive.svg` | `4b595eedb88ee0c677f570e8c8b3c56dcfcf8145898c949a73c4a6decdac38f8` |
+| `history.svg` | `f869160b6f74d0812033da62b97c1a96801173cf380b3ca56d6092a224f3ad26` |
+| `hourglass.svg` | `4ca74ca540649b7638b7bc08183f2da9d6e5f96469dabb0eb003a14ffa1c2df5` |
+| `image-down.svg` | `100899ca6a482e377681072fcca778eaf0f86c700f3eb9fe8f7c6fe069c3f777` |
+| `image.svg` | `a76d752a3bf99c20bab65453260308799cd90faf32f35c170b19222ace13885e` |
+| `inbox.svg` | `e567a335888a078a37e76740e654b582760b7f3f87e5cd4a14a7ca4cb41f8f47` |
+| `info.svg` | `e718a8c91a197551cf9c06c06e956f49e9f6e1f967414e18bad44f8591bcadb6` |
+| `layout-dashboard.svg` | `fc185932ada42aabb7de6c1ccdb91ea3f440aacee14a0461aaacb8b82bcc1541` |
+| `lock-open.svg` | `c0a4cd366aa5dcbf95434e071a944fc02065c7834dd995e457e0a9d62f37f3e9` |
+| `lock.svg` | `bb33207071e22c9d18ccb7ca1ae0604902476c5d117499a72c776589f039c3a3` |
+| `log-out.svg` | `0b7ba4e6c02e640247edd894e97f6a47c4a12b6344611b572e7a0baaf4a88a2c` |
+| `maximize-2.svg` | `564a309522844ab5e3f58f8c40e5b52f6e7a02ac86d419c93d6b43e5332115fb` |
+| `medal.svg` | `3b4f1b8aaf9a4e98929d5baa3d2b05ca75f7a106567bcf9554a8e86863ac8f1b` |
+| `meh.svg` | `098486f09c9b397bdafc8ac5a5238b6f0ac9d79647bc8e95d6306502626d418f` |
+| `minimize-2.svg` | `ce27b6463d8f7f927ea4998c70993195645b3115c3d91976dcec2b9b167744eb` |
+| `minus.svg` | `5abbf9143d9e133aa7086804083852834201b402290015d9bfbb9f05ffc7a0db` |
+| `moon.svg` | `856a8d9cd698f88596d683aa145b5520f9a6f07c03a4a959ec43c794c7ca2d57` |
+| `move-diagonal-2.svg` | `f9290af5898ee8eae43ae5ccb2fe39afc9f3338278762fed5972ea27540e0bb7` |
+| `network.svg` | `19ac03096a52b7792ffe22c835d0182935b2749af156b3202ab587e4979ada10` |
+| `notebook-pen.svg` | `9565cd625066a48517e84f8c83b208fbc96962d8a5e615fdac70b009a896ea4a` |
+| `panel-top-close.svg` | `44b3d83bab6444241e3216e2f4b18ced32e08bb2493c3691ebad610bee75e0f5` |
+| `plus.svg` | `6ae825b04b65ebd4593252d8a86b031a3dceb68bfde837e0f6611bc2b91e4058` |
+| `radio.svg` | `d719fbace88d9c180b9f0d17a8c47f242d9f09d64c29a9e938e3a3a123bb829e` |
+| `search.svg` | `d2c492f6c3e5bfe43d0ec7f22031d10dee141531907ef923fd63f89f3f631a05` |
+| `server.svg` | `63254fe737b5d1c505261ce56e8ef134a1c9073c0b9b9349efe8181efaa1ed8b` |
+| `settings.svg` | `bed6ed745f25d997a1141a057f16e7b89ee2d88ad2c42f9af0819c2d02e6c5f4` |
+| `sliders-horizontal.svg` | `227f58fd45bc90e5fd9a8a4c8b14fad14089e48f966895b8356efe43bcfed46a` |
+| `smile.svg` | `6d91891cf38d3d9cae4fea3dc08cf6e3e1fd00ead52e8c6c3ec57bedd2fcbc06` |
+| `square.svg` | `c59b10bcff68f8c815f3879917fb2ea8917553759436fe6c06921112209b961f` |
+| `sun.svg` | `e2877a548779ff45be8d74063b88c88119f0ea69c19fd6357baf44ccb9ee2509` |
+| `swords.svg` | `168de43f6e4b633492dcf9700a065382897191a4432764e021fb03990efd5fb1` |
+| `target.svg` | `bceb97844e2ba7875fbeef2182b6a83d4809ebe5091d472b4fd2a5c6952cc504` |
+| `timer.svg` | `5b4c50d0cfa744593819607b8153538c2e052b9e082f145c940d1161c8248b45` |
+| `users.svg` | `0bb5660bd932f758647166cda095445e457c64499213cbae514abaeb2e739b00` |
+| `x.svg` | `7bfd0cf7c80be3f053277f0ba94946d9cef28dc4d4bda2f1b13b134bcda6c0b6` |

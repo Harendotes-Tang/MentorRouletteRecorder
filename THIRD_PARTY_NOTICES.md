@@ -161,7 +161,7 @@ SQLitePCLRaw 的原始包声明、包哈希、实际发布 DLL 哈希及 Apache-
 
 ### 内置图标（ISC License）
 
-按钮上的线条图标来自 **Lucide**（<https://lucide.dev>），版本 1.61.0，许可证 ISC，
+按钮上的线条图标来自 **Lucide**（<https://lucide.dev>），版本 1.76.0，许可证 ISC，
 版权 Copyright (c) 2026 Lucide Icons and Contributors。其中 `calendar`、`chevron-left`、
 `chevron-right`、`chevrons-down`、`clock`、`moon`、`plus`、`radio`、`server`、`target`、`x` 十一个由 Lucide 从 **Feather** 项目派生，同时受
 **The MIT License (MIT)**，Copyright (c) 2013-present Cole Bemis 约束；该名单列于 Lucide 的

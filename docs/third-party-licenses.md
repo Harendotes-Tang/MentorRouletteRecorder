@@ -238,7 +238,7 @@ OFL 条件同 §3.2。IBM Plex 的保留字体名为 “Plex”；本项目只�
 
 | 项 | 值 |
 |---|---|
-| 上游 | <https://lucide.dev>，<https://github.com/lucide-icons/lucide>；取自官方仓库标签 `1.61.0` 的 SVG，按同标签 `lucide-static` 发布脚本添加版本许可证注释与 `class`；来源及别名见资源目录 `README.md` |
+| 上游 | <https://lucide.dev>，<https://github.com/lucide-icons/lucide>；取自官方仓库标签 `1.76.0` 的 SVG，按同标签 `lucide-static` 发布脚本添加版本许可证注释与 `class`；来源及别名见资源目录 `README.md` |
 | 许可证 | **ISC**（全文随附于 `src/Desktop/resources/icons/lucide/LICENSE`）。同一文件的后半段说明：Lucide 从 **Feather** 派生的那些图标同时受 **The MIT License (MIT)**，Copyright (c) 2013-present Cole Bemis 约束。本项目所用的 37 个图标中有 11 个在该名单上：`calendar`、`chevron-left`、`chevron-right`、`chevrons-down`、`clock`、`moon`、`plus`、`radio`、`server`、`target`、`x` |
 | 版权 | Copyright (c) 2026 Lucide Icons and Contributors；Feather 派生部分另有 Copyright (c) 2013-present Cole Bemis |
 | 文件 | `src/Desktop/resources/icons/lucide/*.svg`（绘制元素原样保留；SHA-256 见同目录 `README.md`） |
