@@ -101,7 +101,7 @@ public sealed class UserTextArg
     internal string Chinese => Value switch
     {
         long number => number.ToString(CultureInfo.InvariantCulture),
-        DateTimeOffset at => at.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture),
+        DateTimeOffset at => DisplayTimeZone.ClockOf(at),
         UserText text => text.Chinese,
         _ => (string)Value,
     };

@@ -155,6 +155,7 @@
       }
     },
     "ipc.request.month_invalid": "month 必须是有效的 YYYY-MM 月份。",
+    "ipc.request.time_zone_unknown": "time_zone 不是这台电脑认识的时区标识。",
     "ipc.filter.from_after_to": "from_utc 不能晚于 to_utc。",
     "ipc.filter.history_day_needs_bounds": "历史日历日期仅用于 history_date，并须同时提供对应的 UTC 起止边界。",
     "ipc.filter.history_from_after_to": "history_from_day 不能晚于 history_to_day。",

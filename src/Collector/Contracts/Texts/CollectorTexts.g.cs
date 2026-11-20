@@ -1701,6 +1701,10 @@ public static partial class CollectorTexts
     public static UserText IpcRequestRepeatedField() =>
         new("ipc.request.repeated_field", "请求中有重复的字段名。");
 
+    /// <summary><c>ipc.request.time_zone_unknown</c>: time_zone 不是这台电脑认识的时区标识。</summary>
+    public static UserText IpcRequestTimeZoneUnknown() =>
+        new("ipc.request.time_zone_unknown", "time_zone 不是这台电脑认识的时区标识。");
+
     /// <summary><c>ipc.response_too_large</c>: 响应超过 4 MiB 上限，请缩小查询范围或每页条数后重试。</summary>
     public static UserText IpcResponseTooLarge() =>
         new("ipc.response_too_large", "响应超过 4 MiB 上限，请缩小查询范围或每页条数后重试。");

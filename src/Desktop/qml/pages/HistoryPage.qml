@@ -571,6 +571,14 @@ Item {
         function onHistoryFilterChanged() {
             page.syncFilter()
         }
+        // 显示时区 changed: the picked days stay as typed, and their UTC bounds
+        // become those of the new zone's days (toUtcRange), not the old zone's.
+        function onDisplayTimeZoneChanged() {
+            if (page.fromField.text.trim().length === 0 && page.toField.text.trim().length === 0)
+                return
+            filterDebounce.stop()
+            page.applyFilter()
+        }
         function onHistoryFilterConfirmationChanged() {
             if (Runtime.app.historyFilterConfirmationPending && !filterConfirmation.visible)
                 filterConfirmation.open()

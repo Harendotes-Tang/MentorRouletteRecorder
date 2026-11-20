@@ -1,5 +1,11 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-11-20 · 采集服务知道显示时区
+
+- 新增 `SetDisplayTimeZone { time_zone }` → `{ time_zone, utc_offset_minutes }`。`time_zone` 为 IANA 时区标识（如 `Asia/Tokyo`），`null` 或空串表示跟随电脑时区；应答给出此后生效的时区（跟随电脑时为 `null`）及其当前与 UTC 的分钟差，供桌面端核对两端是否一致。电脑不认识的标识以 `ERR_BAD_REQUEST`（`field = "time_zone"`，`message_ref` 为新增的 `ipc.request.time_zone_unknown`）拒绝，生效的时区不变。
+- 采集服务此后按这个时区切日：`QueryRunCalendarDays` 的有记录日期、只有日期的导入记录在 `history_date` 排序中的锚点（该日在这个时区的第一个时刻），以及采集服务语句里的时刻（文字目录参数类型 `clock`）。每个 UTC 时刻按该时区自己的规则换算，含夏令时；某日零点因夏令时不存在时，该日从第一个存在的时刻算起。此前这三处使用电脑时区。趋势分桶仍按 UTC，CSV / JSON 导出仍为 UTC，字段与取值均不变。
+- 时区只保存在采集服务进程内，不写入数据库：采集服务重启后跟随电脑时区，桌面端在每次连上后及玩家改选时重新发送。旧采集服务不认识这条消息（`ERR_BAD_REQUEST`，`message_ref` 为 `ipc.unknown_message_type`），桌面端忽略这一拒绝，此时日历仍按电脑时区。
+
 ## 2026-11-20 · GitCode 切换询问的结果
 
 - `UpdateDownload.mirror_outcome`（可选，字符串或 `null`）：一次下载以 `READY` 或 `FAILED` 结束时，说明这次下载中用户已回答的 GitCode 切换询问结果：`switched`（其余部分改由 GitCode 下载）、`declined`（用户选择继续从 GitHub 下载）、`not_switched_faster_primary`、`not_switched_mirror_unavailable`、`not_switched_primary_ended`（用户选择了 GitCode，但分别因 GitHub 已追上、GitCode 未能及时重新打开或不再一致、GitHub 在切换生效前已结束或下载已停止而没有切换）。没有回答过询问（包括询问未答而 GitHub 已下完）、GitHub 随后失败而下载自行转由 GitCode 进行（无论用户怎样回答过）、取消下载以及重新核对已就绪的安装包时不出现。取值与本机日志 `update_download_finished.mirror_offer` 相同。旧采集服务不发送该字段（审查 2026-11-20 F-2）。

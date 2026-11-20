@@ -710,6 +710,13 @@ BackendReply *IBackend::cancelUpdateDownload()
     return request(QStringLiteral("CancelUpdateDownload"));
 }
 
+BackendReply *IBackend::setDisplayTimeZone(const QString &ianaId)
+{
+    return request(QStringLiteral("SetDisplayTimeZone"), {
+        { QStringLiteral("time_zone"), ianaId.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(ianaId) },
+    });
+}
+
 BackendReply *IBackend::resolveUpdateMirrorOffer(const QString &offerId, bool useGitCode)
 {
     return request(QStringLiteral("ResolveUpdateMirrorOffer"), {

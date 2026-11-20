@@ -5258,6 +5258,11 @@ SHA256：%3</translation>
         <comment>capture.hint.path_recovering</comment>
         <translation>読み取り可能なゲームのネットワーク経路を自動検索しています。しばらくお待ちください。今は操作の必要はありません。</translation>
     </message>
+    <message>
+        <source>time_zone 不是这台电脑认识的时区标识。</source>
+        <comment>ipc.request.time_zone_unknown</comment>
+        <translation>time_zone はこのコンピューターが認識できるタイムゾーン ID ではありません。</translation>
+    </message>
 </context>
 <context>
     <name>CompletionPieChart</name>

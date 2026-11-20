@@ -174,6 +174,8 @@ set(MR_CPP_SOURCES
     cpp/workflows/DailyBackupScheduler.h
     cpp/workflows/HistoryImageCleanupController.cpp
     cpp/workflows/HistoryImageCleanupController.h
+    cpp/workflows/DisplayTimeZoneSync.cpp
+    cpp/workflows/DisplayTimeZoneSync.h
     cpp/HistoryController.cpp
     cpp/HistoryController.h
     cpp/HistoryFilterFacets.cpp

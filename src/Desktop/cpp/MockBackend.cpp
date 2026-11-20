@@ -3809,6 +3809,23 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
             m_historyRetentionDays = days.toInt();
             result.insert(QStringLiteral("retention_days"), m_historyRetentionDays);
         }
+    } else if (messageType == QLatin1String("SetDisplayTimeZone")) {
+        // The Collector's SetDisplayTimeZone: null or "" follows the system; an id
+        // the zone database does not know is refused and changes nothing.
+        const QJsonValue requested = payload.value(QStringLiteral("time_zone"));
+        const QString id = requested.toString().trimmed();
+        const QTimeZone zone = id.isEmpty() ? QTimeZone(QTimeZone::LocalTime) : QTimeZone(id.toUtf8());
+        if (!payload.contains(QStringLiteral("time_zone")) || !(requested.isNull() || requested.isString())
+            || !zone.isValid()) {
+            errorCode = QStringLiteral("ERR_BAD_REQUEST");
+            errorMessage = QString::fromUtf8("time_zone 不是这台电脑认识的时区标识。");
+        } else {
+            m_displayZone = zone;
+            result.insert(QStringLiteral("time_zone"),
+                          id.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(id));
+            result.insert(QStringLiteral("utc_offset_minutes"),
+                          QDateTime::currentDateTimeUtc().toTimeZone(zone).offsetFromUtc() / 60);
+        }
     } else if (messageType == QLatin1String("GetPendingImageCleanup")) {
         QJsonArray ids;
         for (const QString &id : m_pendingImageCleanup.mid(0, 2000)) ids.append(id);

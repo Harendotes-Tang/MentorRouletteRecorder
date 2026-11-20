@@ -77,6 +77,7 @@ public sealed class MessageDispatcher
         "RejectSharedCalibration",
         "GetSpeechSettings", "UpdateSpeechSettings", "SynthesizeSpeech", "CheckDatabaseIntegrity",
         "CheckUpdateNow", "StartUpdateDownload", "CancelUpdateDownload", "ResolveUpdateMirrorOffer",
+        "SetDisplayTimeZone",
     };
 
     /// <summary>
@@ -179,6 +180,7 @@ public sealed class MessageDispatcher
             "StartUpdateDownload" => UpdateHandlers.StartDownload(_host, reader),
             "CancelUpdateDownload" => UpdateHandlers.CancelDownload(_host, reader),
             "ResolveUpdateMirrorOffer" => UpdateHandlers.ResolveMirrorOffer(_host, reader),
+            "SetDisplayTimeZone" => DisplayTimeZoneHandlers.Set(reader),
             _ => throw UnknownMessageType(request.MessageType),
         };
     }

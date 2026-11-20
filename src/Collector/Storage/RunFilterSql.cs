@@ -65,12 +65,14 @@ public static class RunFilterSql
         "COALESCE(" + HistoryInstant + ", (" + HistorySourceDay + ") || 'T00:00:00.000Z')";
 
     /// <summary>
-    /// Local history sorting anchors an archival day to local midnight only within the query.
-    /// The desktop and pipe host share the same computer timezone; game/source facts stay null.
-    /// Trends independently retain their UTC calendar-day grouping above.
+    /// History sorting anchors an archival day to the first instant of that day in the 显示时区
+    /// (<see cref="Domain.Time.DisplayTimeZone"/>, through <see cref="DisplayZoneSqlFunctions.DayStart"/>)
+    /// only within the query; game/source facts stay null. Following the computer's zone it is the
+    /// local midnight SQLite's <c>'utc'</c> modifier gave. Trends independently retain their UTC
+    /// calendar-day grouping above.
     /// </summary>
     public static string HistorySortDateExpression =>
-        "COALESCE(" + HistoryInstant + ", strftime('%Y-%m-%dT%H:%M:%fZ', (" + HistorySourceDay + "), 'utc'))";
+        "COALESCE(" + HistoryInstant + ", " + DisplayZoneSqlFunctions.DayStart + "((" + HistorySourceDay + ")))";
     /// <summary>A compiled fragment and the parameters it needs.</summary>
     /// <param name="Where">SQL boolean expression, without the WHERE keyword.</param>
     /// <param name="Parameters">Parameter name to value.</param>

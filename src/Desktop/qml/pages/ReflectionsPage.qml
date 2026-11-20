@@ -128,6 +128,17 @@ ColumnLayout {
         function onFilterChanged() { page.syncFilters() }
         function onFilterChangeNeedsConfirmation() { debounce.stop(); filterConfirmation.open() }
     }
+    // 显示时区 changed: the picked days stay, their UTC bounds follow the new zone.
+    Connections {
+        target: typeof Runtime.app !== "undefined" ? Runtime.app : null
+        ignoreUnknownSignals: true
+        function onDisplayTimeZoneChanged() {
+            if (dateRange.startText.trim().length === 0 && dateRange.endText.trim().length === 0)
+                return
+            debounce.stop()
+            page.applyFilter()
+        }
+    }
 
     PageHeader {
         title: qsTr("全部心得")

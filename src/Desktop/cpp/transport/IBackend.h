@@ -330,6 +330,11 @@ public:
     /// $defs/ImageCleanupIds: the runs whose note images the Desktop has removed.
     BackendReply *acknowledgeImageCleanup(const QStringList &runIds);
 
+    // -- 显示时区 -----------------------------------------------------------
+    /// $defs/SetDisplayTimeZoneRequest: the zone the Collector cuts calendar days
+    /// in.  ianaId "" follows the computer's zone (time_zone: null).
+    BackendReply *setDisplayTimeZone(const QString &ianaId);
+
     // -- 导入记录 -----------------------------------------------------------
     /// $defs/PreviewRunImportSourceRequest: read and classify a source. With a
     /// page size the answer is page 1 of a frozen preview.

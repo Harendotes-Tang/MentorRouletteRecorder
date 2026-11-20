@@ -1171,6 +1171,9 @@ int main(int argc, char *argv[])
     });
     QObject::connect(&controller, &mr::AppController::reflectionsChanged,
                      &reflections, &mr::ReflectionLibraryController::reload);
+    // The Collector now cuts the reflections' calendar days in the 显示时区 too.
+    QObject::connect(&controller, &mr::AppController::displayTimeZoneApplied,
+                     &reflections, &mr::ReflectionLibraryController::reload);
     // AppController chooses 立即安装's launcher: the shell for the IPC backend,
     // one that starts nothing for the mock (pinned by UpdateInstallTests).
     // The validation and candidate scenarios exercise maintainer tools that a

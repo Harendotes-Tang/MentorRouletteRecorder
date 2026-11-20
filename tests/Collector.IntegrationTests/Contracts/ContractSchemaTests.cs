@@ -453,6 +453,8 @@ public sealed class ContractSchemaTests
             }
             Assert.Contains(recycleId, (await client.SendAsync("GetPendingImageCleanup")).Require()["run_ids"]!.AsArray().Select(node => node!.GetValue<string>()));
             Assert.Equal(1, (await client.SendAsync("AcknowledgeImageCleanup", new JsonObject { ["run_ids"] = new JsonArray(recycleId) })).Require()["acknowledged_count"]!.GetValue<int>());
+            // null is the zone every parallel test expects; DisplayTimeZoneIpcTests sends the others alone.
+            Assert.Null((await client.SendAsync("SetDisplayTimeZone", new JsonObject { ["time_zone"] = null })).Require()["time_zone"]);
 
             Assert.Equal(
                 ErrorCodes.BadRequest,

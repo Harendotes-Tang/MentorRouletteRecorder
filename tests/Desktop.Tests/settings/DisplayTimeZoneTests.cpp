@@ -12,7 +12,13 @@
 //     and is ordered by offset;
 //   * the settings row lists 跟随系统 first, stores the id chosen, names the
 //     zone in force under the row, and a binding that formats through
-//     Runtime.fmt re-renders without a restart.
+//     Runtime.fmt re-renders without a restart;
+//   * the Collector is told the zone (SetDisplayTimeZone) on every connection
+//     and on every change, a Collector older than the message is ignored, and
+//     once it acknowledges a change the history list and its calendar of days
+//     are read again;
+//   * a date range already applied on the history page keeps its picked days
+//     and takes the new zone's bounds for them.
 // The machine's zone is never changed; every test leaves DisplayTimeZone on
 // the system (the suites of one executable share the process).
 // ---------------------------------------------------------------------------
@@ -23,12 +29,21 @@
 #include "AppSettings.h"
 #include "DisplayTimeZone.h"
 #include "Formatters.h"
+#include "IBackend.h"
 #include "JobCatalog.h"
 #include "MockBackend.h"
 #include "RoleCatalog.h"
+#include "RunFormValidator.h"
+#include "RunListModel.h"
+#include "TtsService.h"
+#include "workflows/DisplayTimeZoneSync.h"
 
 #include <QDir>
 #include <QGuiApplication>
+#include <QHash>
+#include <QJsonObject>
+#include <QJsonValue>
+#include <QList>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -39,6 +54,7 @@
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QTest>
 #include <QTimeZone>
 
@@ -132,6 +148,57 @@ ApplicationWindow {
     {
         auto *window = qobject_cast<QQuickWindow *>(root.get());
         return window ? findVisualItem(window->contentItem(), name) : nullptr;
+    }
+};
+
+/// A Collector connection the test opens and closes. SetDisplayTimeZone is
+/// answered on the next turn of the event loop with the zone it was sent, or -
+/// as a Collector older than the message does - refused with
+/// ipc.unknown_message_type. Nothing else is ever answered.
+class ZoneBackend final : public mr::IBackend
+{
+public:
+    bool connected = false;
+    bool olderCollector = false;
+    QList<QJsonValue> sent;
+
+    QString backendName() const override { return QStringLiteral("zone-backend"); }
+    bool isConnected() const override { return connected; }
+    void setConnected(bool value)
+    {
+        connected = value;
+        Q_EMIT connectionChanged();
+    }
+    mr::BackendReply *request(const QString &messageType, const QJsonObject &payload) override
+    {
+        auto *reply = new mr::BackendReply(QStringLiteral("zone"), messageType, this);
+        if (messageType != QLatin1String("SetDisplayTimeZone"))
+            return reply;
+        sent.append(payload.value(QStringLiteral("time_zone")));
+        const QJsonValue zone = payload.value(QStringLiteral("time_zone"));
+        const bool refuse = olderCollector;
+        QTimer::singleShot(0, reply, [reply, zone, refuse] {
+            if (refuse) {
+                reply->fail(QStringLiteral("ERR_BAD_REQUEST"), QStringLiteral("unknown"), {},
+                            QJsonObject{{QStringLiteral("key"), QStringLiteral("ipc.unknown_message_type")}});
+            } else {
+                reply->succeed({{QStringLiteral("time_zone"), zone},
+                                {QStringLiteral("utc_offset_minutes"), 0}});
+            }
+        });
+        return reply;
+    }
+};
+
+/// The offline backend, counting what the Desktop asks for.
+class CountingBackend final : public mr::MockBackend
+{
+public:
+    QHash<QString, int> counts;
+    mr::BackendReply *request(const QString &type, const QJsonObject &payload = {}) override
+    {
+        counts[type] += 1;
+        return MockBackend::request(type, payload);
     }
 };
 
@@ -313,6 +380,140 @@ private Q_SLOTS:
         QTRY_COMPARE(box->property("currentIndex").toInt(), 0);
         QTRY_VERIFY(!hint->isVisible());
         QTRY_COMPARE(probe->property("text").toString(), systemWallClock(kInstant));
+    }
+
+    void theCollectorIsToldOnEveryConnectionAndEveryChange()
+    {
+        ZoneBackend backend;
+        mr::DisplayTimeZoneSync sync(&backend);
+        QSignalSpy applied(&sync, &mr::DisplayTimeZoneSync::applied);
+        QVERIFY(backend.sent.isEmpty());
+
+        // Connected while following the system: null, and nothing to read again.
+        backend.setConnected(true);
+        QCOMPARE(backend.sent.size(), 1);
+        QVERIFY(backend.sent.constLast().isNull());
+        QTRY_VERIFY(sync.acknowledged());
+        QCOMPARE(sync.acknowledgedZone(), QString());
+        QCOMPARE(applied.count(), 0);
+
+        // A zone chosen while connected is sent and, acknowledged, read again.
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Tokyo"));
+        QCOMPARE(backend.sent.size(), 2);
+        QCOMPARE(backend.sent.constLast().toString(), QStringLiteral("Asia/Tokyo"));
+        QTRY_COMPARE(applied.count(), 1);
+        QCOMPARE(sync.acknowledgedZone(), QStringLiteral("Asia/Tokyo"));
+
+        // Disconnected: nothing travels; a change meanwhile goes with the next connection.
+        backend.setConnected(false);
+        QVERIFY(!sync.acknowledged());
+        mr::DisplayTimeZone::set(QStringLiteral("America/New_York"));
+        QCOMPARE(backend.sent.size(), 2);
+        backend.setConnected(true);
+        QCOMPARE(backend.sent.size(), 3);
+        QCOMPARE(backend.sent.constLast().toString(), QStringLiteral("America/New_York"));
+        QTRY_COMPARE(applied.count(), 2);
+
+        // A Collector older than the message: refused quietly, nothing read again.
+        backend.setConnected(false);
+        backend.olderCollector = true;
+        backend.setConnected(true);
+        QCOMPARE(backend.sent.size(), 4);
+        mr::DisplayTimeZone::set(QString());
+        QCOMPARE(backend.sent.size(), 5);
+        QVERIFY(backend.sent.constLast().isNull());
+        QTest::qWait(50);
+        QCOMPARE(applied.count(), 2);
+        QVERIFY(!sync.acknowledged());
+    }
+
+    void theHistoryAndItsCalendarAreReadAgainInTheNewZone()
+    {
+        QTemporaryDir directory;
+        CountingBackend backend;
+        mr::AppSettings settings(directory.filePath(QStringLiteral("desktop.ini")), nullptr);
+        mr::AppController app(&backend, &settings, nullptr, nullptr, mr::TtsService::EngineMode::None);
+        QSignalSpy applied(&app, &mr::AppController::displayTimeZoneApplied);
+        QSignalSpy changed(&app, &mr::AppController::displayTimeZoneChanged);
+        // The offline backend is up from the start: told at once, following the system.
+        QTRY_VERIFY(backend.counts.value(QStringLiteral("SetDisplayTimeZone")) >= 1);
+        const int toldBefore = backend.counts.value(QStringLiteral("SetDisplayTimeZone"));
+
+        mr::RunListModel *runs = app.runs();
+        QVERIFY(runs != nullptr);
+        runs->requestCalendarDays(QStringLiteral("2026-09"));
+        QTRY_VERIFY(runs->calendarMonthKnown(QStringLiteral("2026-09")));
+        QTest::qWait(50);
+        const int calendarBefore = backend.counts.value(QStringLiteral("QueryRunCalendarDays"));
+        const int queriesBefore = backend.counts.value(QStringLiteral("QueryRuns"));
+        QCOMPARE(applied.count(), 0);
+
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Tokyo"));
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(backend.counts.value(QStringLiteral("SetDisplayTimeZone")), toldBefore + 1);
+        QTRY_COMPARE(applied.count(), 1);
+        // The cached days were dropped and the month on screen asked for again,
+        // with the list itself: date-only records moved in the history order.
+        QTRY_VERIFY(backend.counts.value(QStringLiteral("QueryRunCalendarDays")) > calendarBefore);
+        QTRY_VERIFY(runs->calendarMonthKnown(QStringLiteral("2026-09")));
+        QVERIFY(backend.counts.value(QStringLiteral("QueryRuns")) > queriesBefore);
+    }
+
+    void anAppliedHistoryDateRangeTakesTheNewZonesBounds()
+    {
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Tokyo"));
+        QTemporaryDir directory;
+        mr::MockBackend backend;
+        mr::AppSettings settings(directory.filePath(QStringLiteral("desktop.ini")), nullptr);
+        mr::AppController app(&backend, &settings, nullptr, nullptr, mr::TtsService::EngineMode::None);
+        mr::Formatters formatters;
+        mr::JobCatalog jobs;
+        mr::RoleCatalog roles;
+        mr::RunFormValidator validator;
+        QQmlEngine engine;
+        auto *context = engine.rootContext();
+        context->setContextProperty(QStringLiteral("App"), &app);
+        context->setContextProperty(QStringLiteral("Fmt"), &formatters);
+        context->setContextProperty(QStringLiteral("Jobs"), &jobs);
+        context->setContextProperty(QStringLiteral("Roles"), &roles);
+        context->setContextProperty(QStringLiteral("RunForm"), &validator);
+        context->setContextProperty(QStringLiteral("Settings"), &settings);
+        context->setContextProperty(QStringLiteral("ReduceMotion"), true);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    visible: true; width: 1280; height: 800; color: Theme.surface
+    HistoryPage { objectName: "historyUnderTest"; anchors.fill: parent }
+})"), QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(window);
+        QQuickItem *page = findVisualItem(window->contentItem(), QStringLiteral("historyUnderTest"));
+        QVERIFY(page);
+        auto *from = page->property("fromField").value<QObject *>();
+        auto *to = page->property("toField").value<QObject *>();
+        QVERIFY(from && to);
+
+        // 2026-09-15 to 2026-09-15, picked in Tokyo.
+        from->setProperty("text", QStringLiteral("2026-09-15"));
+        to->setProperty("text", QStringLiteral("2026-09-15"));
+        QVERIFY(QMetaObject::invokeMethod(page, "applyFilter"));
+        QTRY_COMPARE(app.historyFilter().value(QStringLiteral("from_utc")).toString(),
+                     QStringLiteral("2026-09-14T15:00:00.000Z"));
+        QCOMPARE(app.historyFilter().value(QStringLiteral("to_utc")).toString(),
+                 QStringLiteral("2026-09-15T14:59:59.999Z"));
+
+        // The same days in New York: the fields keep them, the bounds move.
+        mr::DisplayTimeZone::set(QStringLiteral("America/New_York"));
+        QTRY_COMPARE(app.historyFilter().value(QStringLiteral("from_utc")).toString(),
+                     QStringLiteral("2026-09-15T04:00:00.000Z"));
+        QCOMPARE(app.historyFilter().value(QStringLiteral("to_utc")).toString(),
+                 QStringLiteral("2026-09-16T03:59:59.999Z"));
+        QCOMPARE(from->property("text").toString(), QStringLiteral("2026-09-15"));
+        QCOMPARE(to->property("text").toString(), QStringLiteral("2026-09-15"));
     }
 };
 

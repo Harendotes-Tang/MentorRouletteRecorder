@@ -318,7 +318,8 @@ mr_desktop_suite_test(MentorRecorderDesktopComponentsTests ToggleSwitch NO_LOG)
 # TtsService: template substitution, rate/volume mapping, live events. Its announcements go to Qt's
 #   silent mock speech engine and never to the machine's own voice; without that plugin they are skipped.
 # DisplayTimeZone: 显示时区 - formatting in the chosen zone, the setting, daylight saving, the offered
-#   list and the settings row, without changing the machine's own zone.
+#   list and the settings row, telling the Collector (SetDisplayTimeZone) and reading its days again,
+#   and the history page's date range in the new zone, without changing the machine's own zone.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopSettingsTests
     SUITES LanguageManager GameNames CollectorText CollectorTextDisplay Speech TtsService DisplayTimeZone)

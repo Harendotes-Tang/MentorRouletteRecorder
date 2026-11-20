@@ -501,6 +501,7 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "payload 必须是一个 JSON 对象。", "ipc.request.payload_not_object"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "协议版本不匹配，需要重新安装以使两端版本一致。", "ipc.request.protocol_version"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "请求中有重复的字段名。", "ipc.request.repeated_field"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "time_zone 不是这台电脑认识的时区标识。", "ipc.request.time_zone_unknown"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "响应超过 4 MiB 上限，请缩小查询范围或每页条数后重试。", "ipc.response_too_large"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "收到本版本不支持的消息类型，请确认两端版本一致。", "ipc.unknown_message_type"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "该记录已经处于删除状态。", "mutation.already_deleted"), .args = ""},

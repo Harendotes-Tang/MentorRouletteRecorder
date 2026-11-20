@@ -117,14 +117,16 @@ QDate sourceCalendarDay(const QJsonObject &run)
 
 /// RunRepository.Query: ORDER BY (field IS NULL), field <direction>, run_id -
 /// a missing value sorts last whichever way the list runs, and run_id breaks
-/// ties (review OJ-6).
-bool sortsBefore(const QJsonObject &a, const QJsonObject &b, const QString &field, bool ascending)
+/// ties (review OJ-6). A date-only record sorts from the first instant of its
+/// day in  zone, the 显示时区 the Desktop sent (RunFilterSql.HistorySortDateExpression).
+bool sortsBefore(const QJsonObject &a, const QJsonObject &b, const QString &field, bool ascending,
+                 const QTimeZone &zone)
 {
-    const auto sortValue = [&field](const QJsonObject &run) {
+    const auto sortValue = [&field, &zone](const QJsonObject &run) {
         if (field == QLatin1String("history_date")) {
             const QDate sourceDay = sourceCalendarDay(run);
             if (sourceDay.isValid())
-                return QJsonValue(isoUtc(sourceDay.startOfDay(QTimeZone::systemTimeZone())));
+                return QJsonValue(isoUtc(sourceDay.startOfDay(zone)));
         }
         return fieldForSort(run, field);
     };
@@ -391,7 +393,7 @@ QJsonObject MockBackend::queryRunCalendarDaysPayload(const QJsonObject &payload)
     for (const QJsonObject &run : selectRuns(filter, false)) {
         QDate day = sourceCalendarDay(run);
         if (!day.isValid())
-            day = fromIso(fieldForSort(run, QStringLiteral("history_date"))).toLocalTime().date();
+            day = fromIso(fieldForSort(run, QStringLiteral("history_date"))).toTimeZone(m_displayZone).date();
         if (day.isValid() && day.toString(QStringLiteral("yyyy-MM")) == month)
             unique.insert(day.toString(Qt::ISODate));
     }
@@ -413,7 +415,7 @@ QList<QJsonObject> MockBackend::sortedRuns(const QJsonObject &filter, const QJso
 
     std::ranges::stable_sort(rows,
                      [&](const QJsonObject &a, const QJsonObject &b) {
-                         return sortsBefore(a, b, field, ascending);
+                         return sortsBefore(a, b, field, ascending, m_displayZone);
                      });
     return rows;
 }

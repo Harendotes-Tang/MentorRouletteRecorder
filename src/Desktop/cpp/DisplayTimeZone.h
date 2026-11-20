@@ -13,8 +13,9 @@
 // Following the system (the default, an empty id) is Qt's LocalTime zone, so
 // the result is exactly what QDateTime::toLocalTime() gave before the setting
 // existed. What deliberately stays on the system clock: file names of exports
-// and backups, and the Collector's own work (trend buckets are cut in UTC,
-// exports are UTC, the calendar of days with records is the Collector's).
+// and backups. Trend buckets are cut in UTC and exports are UTC. The Collector
+// cuts its own days (the calendar of days with records, the order of records
+// known only by their day) in this zone too: DisplayTimeZoneSync tells it.
 //
 // QML never sees this class: Runtime.fmt (Formatters) formats through it and
 // QmlRuntime re-announces `fmt` on changed(), so every binding that formats a

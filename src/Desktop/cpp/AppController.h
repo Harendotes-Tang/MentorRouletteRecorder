@@ -55,6 +55,7 @@ class NoteImageStore;
 class RunCompletionCoordinator;
 class DailyBackupScheduler;
 class HistoryImageCleanupController;
+class DisplayTimeZoneSync;
 class TtsService;
 
 // `final`: the constructor calls refreshAll(), which reaches the virtual Host slot
@@ -823,6 +824,12 @@ Q_SIGNALS:
     void optionsChanged();
     void recentDutiesChanged();
     void historyFilterChanged();
+    /// The 显示时区 changed on this side (DisplayTimeZone::notifier()): pages that
+    /// turned picked days into UTC instants compute them again.
+    void displayTimeZoneChanged();
+    /// The Collector acknowledged the 显示时区 (DisplayTimeZoneSync::applied): what it
+    /// computed in days - the history calendar, the history_date order - is read again.
+    void displayTimeZoneApplied();
     void checkedHistoryRunsChanged();
     void historyBatchChanged();
     void historyRegionMigrationChanged();
@@ -1008,6 +1015,7 @@ private:
     static constexpr int kReusedTakeoverAttempts = 4;
     HistoryController *m_history = nullptr;
     HistoryImageCleanupController *m_imageCleanup = nullptr;
+    DisplayTimeZoneSync *m_displayZoneSync = nullptr;
     /// Re-announces every property whose text is built here, after a language switch.
     void retranslate();
     QVariantList m_recentDuties;

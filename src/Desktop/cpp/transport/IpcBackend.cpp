@@ -320,6 +320,8 @@ QJsonObject IpcBackend::buildRequestForTest(const QString &messageType,
     } else if (messageType == QLatin1String("ResolveUpdateMirrorOffer")) {
         backend.resolveUpdateMirrorOffer(stringArg(args, "offer_id"),
                                          args.value(QLatin1String("use_gitcode")).toBool());
+    } else if (messageType == QLatin1String("SetDisplayTimeZone")) {
+        backend.setDisplayTimeZone(stringArg(args, "time_zone"));
     } else {
         return {};
 }

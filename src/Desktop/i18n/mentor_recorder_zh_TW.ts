@@ -5258,6 +5258,11 @@ SHA256：%3</translation>
         <comment>capture.hint.path_recovering</comment>
         <translation>正在自動尋找可讀取的遊戲網路路徑，請稍候；暫時無需操作。</translation>
     </message>
+    <message>
+        <source>time_zone 不是这台电脑认识的时区标识。</source>
+        <comment>ipc.request.time_zone_unknown</comment>
+        <translation>time_zone 不是這台電腦認得的時區識別碼。</translation>
+    </message>
 </context>
 <context>
     <name>CompletionPieChart</name>

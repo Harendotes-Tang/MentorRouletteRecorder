@@ -211,9 +211,10 @@ public sealed class RunRepository
     }
 
     /// <summary>
-    /// Returns sorted distinct local history days over the full matching set in one month.
-    /// Date bounds are deliberately removed; archival day-only records keep their source day.
-    /// Missing history times stay NULL and cannot fabricate a selectable day.
+    /// Returns sorted distinct history days of the 显示时区 (<see cref="Domain.Time.DisplayTimeZone"/>)
+    /// over the full matching set in one month. Date bounds are deliberately removed; archival
+    /// day-only records keep their source day in every zone (their sort anchor is that day's first
+    /// instant in the same zone). Missing history times stay NULL and cannot fabricate a selectable day.
     /// </summary>
     public IReadOnlyList<string> QueryCalendarDays(string month, RunFilter? filter)
     {
@@ -222,7 +223,7 @@ public sealed class RunRepository
             FromUtc = null, ToUtc = null, HistoryFromDay = null, HistoryToDay = null,
         };
         var fragment = RunFilterSql.Build(nonDateFilter, forStatistics: false);
-        var day = $"date({RunFilterSql.HistorySortDateExpression}, 'localtime')";
+        var day = $"{DisplayZoneSqlFunctions.Day}({RunFilterSql.HistorySortDateExpression})";
         return _database.Read(_ =>
         {
             using var command = _database.CreateCommand();

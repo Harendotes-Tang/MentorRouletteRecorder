@@ -350,6 +350,9 @@ QStringList allMessageTypes()
         QStringLiteral("UpdateCharacterProfile"),
         QStringLiteral("DeleteCharacterProfile"),
         QStringLiteral("ResolveCharacterIdentity"),
+        // No args: the sample pins time_zone: null (跟随系统), which every parallel
+        // Collector test expects; the chosen-zone shape is the variant below.
+        QStringLiteral("SetDisplayTimeZone"),
     };
 }
 
@@ -435,6 +438,9 @@ QList<RequestVariant> requestVariants()
         // 重新识别: the characters bound to the profile are asked about again.
         {.file=QStringLiteral("UpdateCharacterProfile.forget"), .messageType=QStringLiteral("UpdateCharacterProfile"),
          .args=QJsonObject{{QStringLiteral("profile_id"), 2}, {QStringLiteral("forget_identities"), true}}},
+        // 显示时区 chosen in 设置 › 通用: the IANA id travels as it is.
+        {.file=QStringLiteral("SetDisplayTimeZone.chosen"), .messageType=QStringLiteral("SetDisplayTimeZone"),
+         .args=QJsonObject{{QStringLiteral("time_zone"), QStringLiteral("Asia/Tokyo")}}},
         // 自动识别角色 switched off; only the one key travels.
         {.file=QStringLiteral("UpdateCaptureSettings.identification"), .messageType=QStringLiteral("UpdateCaptureSettings"),
          .args=QJsonObject{{QStringLiteral("changes"),

@@ -17,6 +17,8 @@
 #include "workflows/RunCompletionCoordinator.h"
 #include "workflows/DailyBackupScheduler.h"
 #include "workflows/HistoryImageCleanupController.h"
+#include "workflows/DisplayTimeZoneSync.h"
+#include "DisplayTimeZone.h"
 
 #include <QDate>
 #include <QClipboard>
@@ -124,6 +126,16 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     m_imageCleanup = new HistoryImageCleanupController(backend, this);
     connect(m_imageCleanup, &HistoryImageCleanupController::changed, this, &AppController::historyImageCleanupChanged);
     connect(m_imageCleanup, &HistoryImageCleanupController::toastRequested, this, &AppController::showToast);
+    // 显示时区: the Collector cuts its calendar days in it too. The history list
+    // reloads with its calendar once the Collector has the zone; the history page
+    // recomputes a picked date range on the change itself (HistoryPage.qml).
+    if (DisplayTimeZone *zone = DisplayTimeZone::notifier())
+        connect(zone, &DisplayTimeZone::changed, this, &AppController::displayTimeZoneChanged);
+    m_displayZoneSync = new DisplayTimeZoneSync(backend, this);
+    connect(m_displayZoneSync, &DisplayTimeZoneSync::applied, this, [this] {
+        m_history->runs()->reload();
+        Q_EMIT displayTimeZoneApplied();
+    });
     m_completion = new RunCompletionCoordinator({
         .refreshHistory = [this] { m_history->runs()->reload(); },
         .refreshCurrentRun = [this] { refreshCurrentRun(); },

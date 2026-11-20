@@ -47,6 +47,7 @@
         "RejectSharedCalibration", "GetCalibrationEvidence", "GetTemplateObservation",
         "GetSpeechSettings", "UpdateSpeechSettings", "SynthesizeSpeech", "CheckDatabaseIntegrity",
         "CheckUpdateNow", "StartUpdateDownload", "CancelUpdateDownload", "ResolveUpdateMirrorOffer",
+        "SetDisplayTimeZone",
         "Event", "Error"
       ]
     },
@@ -1021,6 +1022,24 @@
         "reinstall": { "type": "boolean", "default": false, "description": "false or absent: only a version strictly newer than this build is downloaded (NO_UPDATE otherwise). true: the newest published version is downloaded whatever this build is, as long as one is known - a maintainer's way to fetch the published installer again. The Desktop offers it in the maintainer tools only." }
       }
     },
+    "SetDisplayTimeZoneRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["time_zone"],
+      "description": "The Desktop's 显示时区 (docs/ui-design.md, 显示时区). From then on the Collector cuts every day it computes in this zone - the days of QueryRunCalendarDays, the history_date sort anchor of a record known only by its day, the clock times inside its sentences - converting each UTC instant through the zone's own rules, daylight saving included. Process state, never stored: a Collector that starts follows the computer's zone until told otherwise, so the Desktop sends this after every connection and whenever the player picks another zone. Trend buckets stay cut in UTC and exports stay UTC. Unknown id: ERR_BAD_REQUEST (ipc.request.time_zone_unknown), the zone in force unchanged.",
+      "properties": {
+        "time_zone": { "type": ["string", "null"], "maxLength": 100, "description": "IANA zone id such as Asia/Tokyo; null (or an empty string) follows the computer's zone." }
+      }
+    },
+    "SetDisplayTimeZoneResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["time_zone", "utc_offset_minutes"],
+      "properties": {
+        "time_zone": { "type": ["string", "null"], "maxLength": 100, "description": "The zone now in force; null while the computer's zone is followed." },
+        "utc_offset_minutes": { "type": "integer", "minimum": -1440, "maximum": 1440, "description": "That zone's offset from UTC now, in minutes, so the Desktop can tell when both sides disagree." }
+      }
+    },
     "ResolveUpdateMirrorOfferRequest": {
       "type": "object",
       "additionalProperties": false,
@@ -1213,7 +1232,8 @@
         { "if": { "properties": { "message_type": { "const": "StartUpdateDownload" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/StartUpdateDownloadRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "ResolveUpdateMirrorOffer" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/ResolveUpdateMirrorOfferRequest" } } } },
         { "if": { "properties": { "message_type": { "const": "UpdateSpeechSettings" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/UpdateSpeechSettingsRequest" } } } },
-        { "if": { "properties": { "message_type": { "const": "SynthesizeSpeech" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/SynthesizeSpeechRequest" } } } }
+        { "if": { "properties": { "message_type": { "const": "SynthesizeSpeech" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/SynthesizeSpeechRequest" } } } },
+        { "if": { "properties": { "message_type": { "const": "SetDisplayTimeZone" } }, "required": ["message_type"] }, "then": { "properties": { "payload": { "$ref": "#/$defs/SetDisplayTimeZoneRequest" } } } }
       ]
     },
 
@@ -2029,6 +2049,7 @@
       "UpdateHistoryRetentionSettings": { "$ref": "#/$defs/HistoryRetentionSettings" },
       "GetPendingImageCleanup": { "$ref": "#/$defs/ImageCleanupIds" },
       "AcknowledgeImageCleanup": { "$ref": "#/$defs/ImageCleanupAcknowledgement" },
+      "SetDisplayTimeZone": { "$ref": "#/$defs/SetDisplayTimeZoneResult" },
 
       "PreviewRunImport": { "$ref": "#/$defs/RunImportPreview" },
       "CommitRunImport": { "$ref": "#/$defs/RunImportCommit" },

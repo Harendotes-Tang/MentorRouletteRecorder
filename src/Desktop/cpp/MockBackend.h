@@ -25,6 +25,7 @@
 #include <QList>
 #include <QSet>
 #include <QString>
+#include <QTimeZone>
 #include <QVariantMap>
 
 class QTimer;
@@ -406,6 +407,10 @@ private:
     QJsonArray m_candidateReviews;
     QJsonObject m_captureSettings;
     int m_historyRetentionDays = 30;
+    // SetDisplayTimeZone: the zone the imitated Collector cuts calendar days and the
+    // history_date anchor of a date-only record in; the system zone until the Desktop
+    // sends another, as the Collector does.
+    QTimeZone m_displayZone = QTimeZone(QTimeZone::LocalTime);
     QStringList m_pendingImageCleanup;
     QDateTime m_now;
     struct AchievementSettings {

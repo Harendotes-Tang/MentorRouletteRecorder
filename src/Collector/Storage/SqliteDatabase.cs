@@ -28,6 +28,10 @@ public sealed class SqliteDatabase : IDisposable
         Path = path;
         SchemaVersion = schemaVersion;
         _openReadOnly = openReadOnly;
+        // The writer and every read-only snapshot view (ReadSnapshot) run the repositories' queries,
+        // whose days are cut in the 显示时区. The bare read-only connections of the integrity check,
+        // the backup and the candidate-evidence export run no such query and go without.
+        DisplayZoneSqlFunctions.Register(connection);
     }
 
     /// <summary>Absolute path of the database file.</summary>

@@ -2,6 +2,7 @@ using System.Globalization;
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Events;
+using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Reference;
 
@@ -1336,10 +1337,10 @@ public sealed partial record CalibrationDraft(
             pair.ReplyAtUtc - TimeSpan.FromMilliseconds(pair.ReplyTMs - pair.RequestTMs);
     }
 
-    /// <summary>Local wall-clock HH:mm, the clock the player watched while playing.</summary>
+    /// <summary>Wall-clock HH:mm in the 显示时区, the clock the player reads the Desktop in.</summary>
     /// <param name="at">Instant to render.</param>
     private static string Local(DateTimeOffset at) =>
-        at.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture);
+        DisplayTimeZone.ClockOf(at);
 
     private static IReadOnlyList<CalibrationEvent> BuildEvents(
         CalibrationSnapshot snapshot,
@@ -1530,9 +1531,9 @@ public sealed partial record CalibrationDraft(
         return requests.Where((item, index) => asked.Contains(index) || days.Contains(LocalDay(item.AtUtc)));
     }
 
-    /// <summary>The local calendar day of an instant: the day the player played on.</summary>
+    /// <summary>The calendar day of an instant in the 显示时区: the day the player played on.</summary>
     /// <param name="at">Instant to place.</param>
-    private static DateTime LocalDay(DateTimeOffset at) => at.ToLocalTime().Date;
+    private static DateTime LocalDay(DateTimeOffset at) => DisplayTimeZone.Convert(at).Date;
 
     private static string Id(string kind, DateTimeOffset at) =>
         string.Create(CultureInfo.InvariantCulture, $"{kind}-{at.ToUnixTimeMilliseconds()}");

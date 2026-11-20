@@ -244,6 +244,7 @@
 | 分组 | 消息 |
 |---|---|
 | 版本、状态与更新 | `GetVersion` `GetStatus` `GetCaptureStatus` `GetProtocolProfileStatus` `CheckUpdateNow` `StartUpdateDownload` `CancelUpdateDownload` `ResolveUpdateMirrorOffer` |
+| 显示时区 | `SetDisplayTimeZone` |
 | 抓包控制 | `ListCaptureAdapters` `StartCapture` `StopCapture` `GetCaptureSettings` `UpdateCaptureSettings` `SelectGameProcess` |
 | 抓包验证 | `StartCaptureValidation` `GetCaptureValidationStatus` `AddCaptureValidationMarker` `StopCaptureValidation` |
 | 实时 | `GetCurrentRun` `SubscribeLiveEvents` |

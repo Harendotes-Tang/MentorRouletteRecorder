@@ -46,8 +46,9 @@ internal static class CollectorTextCatalogue
             builder.Append(kind switch
             {
                 "number" => value.GetValue<long>().ToString(CultureInfo.InvariantCulture),
-                "clock" => DateTimeOffset.Parse(value.GetValue<string>(), CultureInfo.InvariantCulture)
-                    .ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture),
+                // The Collector writes a clock in its 显示时区, the computer's zone unless told otherwise.
+                "clock" => MentorRecorder.Collector.Domain.Time.DisplayTimeZone.ClockOf(
+                    DateTimeOffset.Parse(value.GetValue<string>(), CultureInfo.InvariantCulture)),
                 "text_ref" => Render(value),
                 _ => value.GetValue<string>(),
             });
