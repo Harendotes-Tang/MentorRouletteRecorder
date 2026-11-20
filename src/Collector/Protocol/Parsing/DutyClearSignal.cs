@@ -70,6 +70,14 @@ public static class DutyClearSignal
     public const string EvidenceSha256 = "c398a7b5be6c5d1967eac585598947d1df27f1ff7695bec67ebe423a30541ad2";
 
     /// <summary>
+    /// SHA-256 of the trace in which the same content was observed on a GLOBAL client
+    /// (2026.11.03.0000.0000, a tester's 新区服采证 round of 2026-11-20; the file stays with the
+    /// maintainer). Its rows 41092, 1299 and 1301 carry the clear, the commencement and the
+    /// first remaining-time report of duty 0x0042 (docs/protocol-profile-format.md 12.2, 13.2).
+    /// </summary>
+    public const string GlobalEvidenceSha256 = "bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad";
+
+    /// <summary>
     /// True when the message is exactly the observed clear: server to client, an IPC segment,
     /// 40 bytes, and every fixed field and zero byte as observed. Allocation-free; the cheap
     /// tests come first, so ordinary traffic fails at the direction or the length.

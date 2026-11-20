@@ -1,0 +1,40 @@
+{
+  "exe_sha256": "ceb4260b2574476acf72e7b6105d0a4f8d1bd78b4e7cab5d8115c453f2f39339",
+  "exe_size": 51963136,
+  "game_build": "2026.11.03.0000.0000",
+  "generated_at_utc": "2026-11-20T06:45:23Z",
+  "profile_sha256": "0c04c3e321244a647652950c8a1411944da54b4e990a83988dc5a83bcf4f3dda",
+  "region": "GLOBAL",
+  "reproduction": "unchecked",
+  "resolved_rvas": {
+    "OodleFree": "028EA030",
+    "OodleMalloc": "028EA028",
+    "OodleNetwork1TCP_Decode": "01E58A90",
+    "OodleNetwork1TCP_Encode": "01E522F0",
+    "OodleNetwork1TCP_State_Size": "01E58AD0",
+    "OodleNetwork1TCP_Train": "01E58AE0",
+    "OodleNetwork1UDP_Decode": "01E58C30",
+    "OodleNetwork1UDP_Encode": "01E52900",
+    "OodleNetwork1UDP_State_Size": "01E592D0",
+    "OodleNetwork1UDP_Train": "01E59780",
+    "OodleNetwork1_Shared_SetWindow": "01E5AB20",
+    "OodleNetwork1_Shared_Size": "01E5AC50"
+  },
+  "schema_version": 1,
+  "signatures": {
+    "OodleFree": "48 8b cb f3 ab 4d 85 c0 74 ** 49 8b c8 ff 15",
+    "OodleMalloc": "41 be 00 00 00 40 ba 10 00 00 00 49 8b ce ff 15",
+    "OodleNetwork1TCP_Decode": "4c 8b 11 48 89 6c ** ** 4d 85 d2 74 ** 49 8b ca e8",
+    "OodleNetwork1TCP_Encode": "48 8b ** 48 8d ** ** ** c6 44 ** ** ** 49 8b ** 48 89 44 ** ** e8",
+    "OodleNetwork1TCP_State_Size": "48 8b 7f ** 48 85 f6 75 ** 48 89 ** ** e8 ** ** ** ** 4c ** ** e8",
+    "OodleNetwork1TCP_Train": "41 83 ** 01 75 ** 48 8b 0f e8",
+    "OodleNetwork1UDP_Decode": "74 ** 49 8b ca e8 ** ** ** ** eb ** 48 8b 49 ** e8",
+    "OodleNetwork1UDP_Encode": "48 83 c7 02 4d 8b c4 48 89 7c ** ** e8",
+    "OodleNetwork1UDP_State_Size": "48 8b 7f ** 48 85 f6 75 ** 48 89 ** ** e8",
+    "OodleNetwork1UDP_Train": "41 83 ** 01 75 ** 48 8b 0f e8 ** ** ** ** eb ** 48 8b 4f ** e8",
+    "OodleNetwork1_Shared_SetWindow": "4c 8b 43 ** 41 b9 00 00 10 00 ba ** 00 00 00 48 89 43 ** 48 8b c8 e8",
+    "OodleNetwork1_Shared_Size": "48 83 7b ** 00 75 ** b9 11 00 00 00 e8"
+  },
+  "source": "collector/oodle-signature-discovery",
+  "status": "VERIFIED"
+}

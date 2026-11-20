@@ -61,6 +61,27 @@ class ShippedProfileTests(unittest.TestCase):
                 self.assertIn("profile_sha256", document)
                 self.assertEqual(document["profile_sha256"], _digest(document))
 
+    def test_a_profile_names_one_of_the_two_known_sources(self):
+        # The finder tool, or a player's machine (OodleSignatureProfile.DiscoverySource).
+        for name in sorted(os.listdir(PROFILE_DIRECTORY)):
+            if not name.endswith(".json"):
+                continue
+            with open(os.path.join(PROFILE_DIRECTORY, name), encoding="utf-8") as handle:
+                document = json.load(handle)
+            with self.subTest(profile=name):
+                self.assertIn(document["source"], (
+                    "tools/oodle-signature-finder", "collector/oodle-signature-discovery"))
+
+    def test_the_global_evidence_is_a_digest_only(self):
+        # The tester's trace holds the timeline of their run: its SHA-256 is kept, the file
+        # is not (protocol-profiles/oodle-signatures/README.md, global.2026.11.03).
+        evidence = os.path.join(PROFILE_DIRECTORY, "evidence")
+        digest = os.path.join(evidence, "global.2026.11.03.oodle-verification.trace.jsonl.sha256")
+        with open(digest, encoding="ascii") as handle:
+            self.assertTrue(handle.read().startswith(
+                "bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad  "))
+        self.assertFalse(os.path.exists(digest[:-len(".sha256")]))
+
     def test_the_cn_profile_is_present_and_self_consistent(self):
         # Named explicitly so that deleting or renaming the profile the CN client depends
         # on fails here rather than quietly reducing the loop above to zero iterations.

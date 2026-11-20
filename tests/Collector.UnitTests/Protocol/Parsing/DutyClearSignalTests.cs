@@ -59,6 +59,22 @@ public sealed class DutyClearSignalTests
             DutyClearSignal.EvidenceSha256);
     }
 
+    /// <summary>
+    /// The same content on a GLOBAL client: the body the constants predict for duty 0x0042
+    /// hashes to row 41092 of the 2026-11-20 trace (h12 88174b420044), which is what allows a
+    /// GLOBAL profile to take part (ProtocolProfile.ObservesDutyClear).
+    /// </summary>
+    [Fact]
+    public void TheSameBodyWasObservedOnAGlobalClient()
+    {
+        var digest = Convert.ToHexString(SHA256.HashData(Body(0x0042))).ToLowerInvariant();
+
+        Assert.StartsWith("88174b420044", digest, StringComparison.Ordinal);
+        Assert.Equal(
+            "bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad",
+            DutyClearSignal.GlobalEvidenceSha256);
+    }
+
     [Theory]
     [InlineData(0x0000)]
     [InlineData(0x0056)]

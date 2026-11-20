@@ -568,9 +568,28 @@ public sealed class ProtocolProfileTests : IDisposable
         Assert.True(binding.CanDetectDutyResult);
     }
 
-    /// <summary>The clear was observed on a CN client only; Global keeps the UNKNOWN path.</summary>
+    /// <summary>
+    /// 2026-11-20: the clear, the commencement and the remaining-time report were observed byte
+    /// for byte on a GLOBAL client, so a verified GLOBAL profile takes part like a CN one.
+    /// </summary>
+    [Fact]
+    public void AGlobalProfileObservesTheContentSignalsSeenOnAGlobalClient()
+    {
+        var profile = InMemoryProfile(Region.Global, ProfileCompatibilityStatus.Verified, PopFromServer, ZoneChange);
+
+        var binding = profile.ToBinding();
+
+        Assert.True(profile.ObservesDutyClear);
+        Assert.True(profile.ObservesDutyStart);
+        Assert.True(binding.ObservesDutyClear);
+        Assert.True(binding.ObservesDutyStart);
+        // Declaring its own result message still switches the clear off, as on CN.
+        Assert.False(InMemoryProfile(
+            Region.Global, ProfileCompatibilityStatus.Verified, PopFromServer, ZoneChange, DeclaredResult).ObservesDutyClear);
+    }
+
+    /// <summary>A region with no observation of its own keeps the UNKNOWN path.</summary>
     [Theory]
-    [InlineData(Region.Global)]
     [InlineData(Region.Tc)]
     public void AnUnverifiedRegionNeverInheritsCnContentSignals(Region region)
     {

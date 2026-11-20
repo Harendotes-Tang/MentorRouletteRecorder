@@ -657,9 +657,11 @@ public sealed class ProtocolParserTests : IDisposable
         Assert.IsType<DutyCommenced>(Assert.Single(sink.Events));
     }
 
-    /// <summary>Observed on a CN client only: a GLOBAL profile treats the content as undeclared traffic.</summary>
+    /// <summary>
+    /// Observed on CN and (2026-11-20) GLOBAL clients: a profile of a region with no
+    /// observation treats the content as undeclared traffic.
+    /// </summary>
     [Theory]
-    [InlineData(Region.Global)]
     [InlineData(Region.Tc)]
     public void OtherRegionsIgnoreTheCnStartContent(Region region)
     {

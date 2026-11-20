@@ -87,6 +87,34 @@ public sealed class OodleSignatureShippedProfileTests
         }
     }
 
+    /// <summary>
+    /// The GLOBAL profile was not made by the finder tool: its patterns and call targets are what
+    /// a tester's 1.9.1-beta.2 found on GLOBAL 2026.11.03 and then decoded 41,965 messages with,
+    /// none failing. The file says where it came from, and the claim of that session is pinned
+    /// here like the CN one. Only the digest of the evidence trace is kept in the repository:
+    /// the trace holds the tester's timeline.
+    /// </summary>
+    [Fact]
+    public void TheGlobalProfileIsVerifiedAndSaysItWasFoundOnAPlayersMachine()
+    {
+        var path = Path.Combine(SignatureDirectory, "global.2026.11.03.json");
+        Assert.True(File.Exists(path), path);
+
+        var profile = OodleSignatureProfile.TryLoad(path, out var reason);
+        Assert.True(profile is not null, reason);
+
+        Assert.Equal(OodleSignatureProfile.VerifiedStatus, profile!.Status);
+        Assert.Equal(OodleSignatureProfile.DiscoverySource, profile.Source);
+        Assert.Equal(OodleSignatureProfile.ReproductionUnchecked, profile.Reproduction);
+        Assert.Equal(Region.Global, EnumWire<Region>.Parse(profile.Region));
+        Assert.Equal("2026.11.03.0000.0000", profile.GameBuild);
+        Assert.Equal(51963136, profile.ExeSize);
+        Assert.Equal(
+            "ceb4260b2574476acf72e7b6105d0a4f8d1bd78b4e7cab5d8115c453f2f39339", profile.ExeSha256);
+        Assert.Equal(0x01E58AE0, profile.ResolvedRvas[SignatureType.OodleNetwork1TCP_Train]);
+        Assert.Equal(0x01E59780, profile.ResolvedRvas[SignatureType.OodleNetwork1UDP_Train]);
+    }
+
     [Fact]
     public void MachinaAssemblyVersionIsTheOnlyOneThisBuildIsWiredFor()
     {

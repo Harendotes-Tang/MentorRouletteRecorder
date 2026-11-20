@@ -37,6 +37,26 @@ public sealed class OodleSignatureProfileTests : IDisposable
         Assert.Equal(Enum.GetNames<SignatureType>().Length, profile.ResolvedRvas.Count);
     }
 
+    /// <summary>
+    /// 2026-11-20. A profile written from what a player's machine found says so in its source,
+    /// and loads; it no longer has to claim the finder tool's provenance. Any third value is
+    /// still refused (the "source-foreign" case below).
+    /// </summary>
+    [Fact]
+    public void AProfileFoundOnAPlayersMachineSaysSoAndLoads()
+    {
+        var document = Valid();
+        document["source"] = OodleSignatureProfile.DiscoverySource;
+
+        var profile = OodleSignatureProfile.TryLoad(Write(document), out var reason);
+
+        Assert.True(profile is not null, reason);
+        Assert.Equal(OodleSignatureProfile.DiscoverySource, profile!.Source);
+        var finder = OodleSignatureProfile.TryLoad(Write(Valid()), out reason);
+        Assert.True(finder is not null, reason);
+        Assert.Equal(OodleSignatureProfile.FinderSource, finder!.Source);
+    }
+
     [Fact]
     public void RefusesAProfileWhoseHashDoesNotMatchItsBody()
     {

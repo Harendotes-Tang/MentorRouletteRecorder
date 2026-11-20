@@ -10,7 +10,7 @@ Machina 内置的签名表按国际服客户端维护。国服客户端的寄存
 
 | 文件 | 说明 |
 |---|---|
-| `cn.<game_build>.json` | 签名档案：12 条调用点模式 + 解析出的 RVA + `exe_sha256` / `exe_size` 双绑定 + `profile_sha256` 自校验 + `status` + `reproduction` |
+| `cn.<game_build>.json`、`global.<game_build>.json` | 签名档案：12 条调用点模式 + 解析出的 RVA + `exe_sha256` / `exe_size` 双绑定 + `profile_sha256` 自校验 + `status` + `reproduction` + `source` |
 | `evidence/<build>.oodle-verification.trace.jsonl` + `.sha256` | 将档案升级为 `VERIFIED` 所依据的脱敏 opcode 级取证文件（`--capture-trace` 产物，不含任何报文内容 / 地址 / 角色名） |
 
 档案由 `tools/oodle-signature-finder/find_signatures.py` 从本机 exe 生成，
@@ -120,3 +120,18 @@ M 字节止，每段不超过 384 字节，并截在文件范围内。已确定�
 （`CaptureDiagnostics.LiveCaptureStatus`，当前为 `VERIFIED_POP_TO_EXIT`）。
 请以该自检报告为准，本文件不复述会过期的状态词。
 见 [live-validation-guide.md](../../docs/live-validation-guide.md)。
+
+### global.2026.11.03：VERIFIED（2026-11-20）
+
+| 项 | 值 |
+|---|---|
+| 客户端 | 国际服 `2026.11.03.0000.0000`，`ffxiv_dx11.exe` SHA-256 `ceb4260b…f2f39339`，51,963,136 字节 |
+| 来源 | `source = collector/oodle-signature-discovery`：模式与 RVA 取自测试者电脑上「本机查找」的日志（`oodle_signature_discovery`、`oodle_signature_scan`），不是 `find_signatures.py` 对 exe 的产物，因此 `reproduction = unchecked`。12 处全部按原样命中，没有放宽任何字节；两条 `Train` 用的是国服档案的模式，其余 10 条与 Machina 内置表相同 |
+| 取证方式 | 测试者在 1.9.1-beta.2 中完成一轮「新区服采证」（自动选择网卡，使用加速器），从标题画面开始，登录后完成一次指导者任务 |
+| 结果 | 41,965 条消息全部解码，解码错误 0，丢弃 0，3 条连接 |
+| 证据 | 取证文件 SHA-256 `bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad`，记于 `evidence/global.2026.11.03.oodle-verification.trace.jsonl.sha256`。**文件本身不入库**：它含测试者这一局排队、进本与通关的时间线，由维护者另行保存 |
+| 档案哈希 | `profile_sha256 = 0c04c3e321244a647652950c8a1411944da54b4e990a83988dc5a83bcf4f3dda` |
+
+`source` 字段只接受两个取值：`tools/oodle-signature-finder`（由查找工具对 exe 生成）与
+`collector/oodle-signature-discovery`（由某台电脑上的本机查找得出、从该轮日志抄录）。后者不声称工具的交叉校验，
+升级为 `VERIFIED` 的门槛相同。本记录同样只证明 Oodle 解压链路正确，不证明任何协议 opcode；国际服目前仍没有协议档案。

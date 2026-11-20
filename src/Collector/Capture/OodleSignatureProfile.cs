@@ -54,6 +54,14 @@ public sealed class OodleSignatureProfile
     /// <summary>Only provenance accepted by schema version 1.</summary>
     public const string FinderSource = "tools/oodle-signature-finder";
 
+    /// <summary>
+    /// Provenance of a profile whose patterns and call targets were found on a player's machine
+    /// by <see cref="OodleSignatureDiscovery"/> and read back from the round's log, not produced
+    /// by the finder tool from the executable itself. Said as what it is (owner, 2026-11-20):
+    /// such a file never claims the tool's cross-checks.
+    /// </summary>
+    public const string DiscoverySource = "collector/oodle-signature-discovery";
+
     /// <summary>The finder reproduced Machina's own offsets for this executable.</summary>
     public const string ReproductionChecked = "checked";
 
@@ -141,6 +149,9 @@ public sealed class OodleSignatureProfile
     /// </summary>
     public string? Reproduction { get; }
 
+    /// <summary><see cref="FinderSource"/> or <see cref="DiscoverySource"/>: who derived the patterns.</summary>
+    public string Source { get; private init; } = FinderSource;
+
     /// <summary>The parsed patterns, one per <see cref="SignatureType"/>.</summary>
     public IReadOnlyDictionary<SignatureType, int[]> Signatures { get; }
 
@@ -180,7 +191,10 @@ public sealed class OodleSignatureProfile
             string.Empty,
             ReproductionUnchecked,
             signatures,
-            new Dictionary<SignatureType, int>());
+            new Dictionary<SignatureType, int>())
+        {
+            Source = DiscoverySource,
+        };
     }
 
     /// <summary>The signature directory under a profile root, or null when there is none.</summary>
@@ -450,9 +464,10 @@ public sealed class OodleSignatureProfile
             return null;
         }
 
-        if (!string.Equals(source, FinderSource, StringComparison.Ordinal))
+        if (!string.Equals(source, FinderSource, StringComparison.Ordinal) &&
+            !string.Equals(source, DiscoverySource, StringComparison.Ordinal))
         {
-            reason = $"source must be {FinderSource}";
+            reason = $"source must be {FinderSource} or {DiscoverySource}";
             return null;
         }
 
@@ -506,7 +521,10 @@ public sealed class OodleSignatureProfile
         reason = string.Empty;
         return new OodleSignatureProfile(
             path, region, gameBuild, exeSha256.ToLowerInvariant(), exeSize,
-            generatedAtUtc, status, expectedHash, reproduction, signatures, resolvedRvas);
+            generatedAtUtc, status, expectedHash, reproduction, signatures, resolvedRvas)
+        {
+            Source = source,
+        };
     }
 
     private static Dictionary<SignatureType, int[]>? ReadSignatures(JsonElement root, out string reason)

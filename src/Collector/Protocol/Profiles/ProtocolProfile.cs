@@ -284,24 +284,28 @@ public sealed record ProtocolProfile(
     /// (<see cref="Parsing.DutyClearSignal"/>, docs/protocol-profile-format.md section 12). It only
     /// ever adds a victory, and is never true for a profile that declares DUTY_RESULT, which
     /// keeps its own result message and behaves exactly as before. The signal was observed on a
-    /// CN client only, so a GLOBAL profile keeps the UNKNOWN path. A synthetic profile, which
-    /// must carry region UNKNOWN, takes part so that an offline fixture can replay the signal.
+    /// CN client and, byte for byte, on a GLOBAL one (2026-11-20,
+    /// <see cref="Parsing.DutyClearSignal.GlobalEvidenceSha256"/>; owner decision the same day),
+    /// so both take part; TC has no observation and keeps the UNKNOWN path. A synthetic profile,
+    /// which must carry region UNKNOWN, takes part so that an offline fixture can replay the signal.
     /// </summary>
     public bool ObservesDutyClear =>
-        Message("DUTY_RESULT") is null &&
-        (Region == Region.Cn || Status == ProfileCompatibilityStatus.Synthetic);
+        Message("DUTY_RESULT") is null && ObservesDirectorContent;
+
+    /// <summary>Regions on which the director's control content has been observed, plus fixtures.</summary>
+    private bool ObservesDirectorContent =>
+        Region is Region.Cn or Region.Global || Status == ProfileCompatibilityStatus.Synthetic;
 
     /// <summary>
     /// True when the parser recognises the CN duty-start content for this profile
     /// (<see cref="Parsing.DutyStartSignal"/>, docs/protocol-profile-format.md section 13): the
     /// commencement and the remaining-time report, which together say whether the player joined
-    /// a duty already under way. Observed on a CN client only, like the clear, so a GLOBAL
+    /// a duty already under way. Observed on CN and GLOBAL clients, like the clear; a TC
     /// profile leaves the question open; a synthetic profile takes part so that an offline
     /// fixture can replay them. Unlike the clear it does not depend on DUTY_RESULT: how the
     /// player got in is a different fact from how the duty ended.
     /// </summary>
-    public bool ObservesDutyStart =>
-        Region == Region.Cn || Status == ProfileCompatibilityStatus.Synthetic;
+    public bool ObservesDutyStart => ObservesDirectorContent;
 
     /// <summary>Finds a declared message by semantic name, or null.</summary>
     /// <param name="name">Semantic message name.</param>
