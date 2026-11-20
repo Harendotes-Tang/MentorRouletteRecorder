@@ -11,6 +11,9 @@ import MentorRecorder 1.0
 // open) and 本轮状态 on the right. EvidenceSession turns the Collector's
 // $defs/CaptureValidationStatus into the step the player is on; this file only
 // lays it out. A round records metadata only and never a formal run.
+// When the Collector has a candidate profile for this exact build, the second
+// round (EvidenceCandidateRound) sits above the steps: a different lane, which
+// keeps the content of the messages that profile names, behind its own consent.
 // ---------------------------------------------------------------------------
 ColumnLayout {
     id: page
@@ -64,6 +67,12 @@ ColumnLayout {
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignTop
             spacing: 8
+
+            EvidenceCandidateRound {
+                id: candidateRound
+                Layout.fillWidth: true
+                visible: candidateRound.available
+            }
 
             EvidenceSetupStep {
                 session: page.session

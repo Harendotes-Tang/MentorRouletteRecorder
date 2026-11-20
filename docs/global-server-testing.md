@@ -246,3 +246,37 @@ This round first confirms that the data can be read and locates the candidate si
 fields inside the messages still need confirming, a narrower follow-up collection will be
 provided. Completing this collection does not by itself mean Global automatic recording has
 been verified.
+
+## 7. Second round: message content (one round, about half an hour)
+
+Round 1 told us *which* messages matter. Round 2 records the *content* of those few messages,
+so the maintainer can find where the roulette, the duty and the job sit inside them. It needs
+the 1.9.1-beta.3 test build (or newer) and the Global client version 2026.11.03; with any other
+client version the section below does not appear.
+
+**What is different from round 1.** Round 1 stored no packet content at all. This round stores
+the full content of the handful of messages named in the Global candidate profile
+(`protocol-profiles/global/global.2026.11.03.candidate.json`, at most 512 bytes each). Some of
+them are guesses and may turn out to be a different message than expected, so they could contain
+information about your character. The file stays on your PC; nothing is uploaded, and you decide
+whether to send it. See [privacy-boundary.md §5.1.1](privacy-boundary.md).
+
+1. **Fully exit the game.** Open **Capture diagnostics → Tools → evidence steps** (the same page as
+   round 1). A card titled "第二轮：确定任务、副本和职业的位置" appears at the top of the page.
+2. Read the explanation, tick **我已了解并同意这一轮记录这些报文的内容** and click **开始**. The card
+   switches to its running state. You do not need the maintainer tools and you do not need to
+   start a round-1 collection; the two cannot run at the same time.
+3. Start the game and log in. The card shows **正在记录** once the game is running. Then do these
+   four things in order, ticking each one on the card when done (the ticks are only for you):
+   1. Queue for any roulette that is **not** the Mentor Roulette, wait 5 seconds, then withdraw.
+   2. Change job once.
+   3. Fully exit the game, start it again and log in. The app keeps recording on its own after
+      the restart; do not click anything in the app.
+   4. Queue for the **Mentor Roulette**, finish the duty and leave it.
+4. Click **结束并导出**. The card lists the folder and the two files to send:
+   `candidate-evidence-<date>-<id>.json` and the matching `.sha256`. **打开所在文件夹** opens the
+   folder (`%LOCALAPPDATA%\MentorRecorder\exports` by default).
+5. Email the two files privately as in section 6, subject `[GLOBAL evidence] <date> round 2`, and
+   write in the email which roulette you used in step 1, the job before and after step 2, and the
+   duty you got in step 4. You can delete the two files after sending; the app's own copy of the
+   recorded content is removed automatically after at most 30 days.

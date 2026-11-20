@@ -1,12 +1,39 @@
 # 协议档案：国际服
 
-> ## 状态：`UNSUPPORTED`（fail-closed 占位）
+> ## 状态：`UNSUPPORTED`（fail-closed）；另有一份 `CANDIDATE`
 >
-> 本目录**没有**任何真实的协议档案，`LIVE_CAPTURE_STATUS = UNVERIFIED`。
-> 本目录**不含任何 opcode、任何结构偏移、任何 `mentor_roulette_id`**。
+> 本目录**没有**可正式记录的协议档案，`LIVE_CAPTURE_STATUS = UNVERIFIED`，
+> **不含任何结构偏移与 `mentor_roulette_id`**。
 > 因此 Collector 在国际服上的协议档案状态为 `UNSUPPORTED_BUILD`（读不到客户端版本时为 `NONE`）：
 > `StartCapture` 返回 `ERR_PROFILE_UNSUPPORTED`（fail-closed），
 > 不解析任何报文，也不写入任何记录。
+
+## 文件
+
+| 文件 | 状态 | 用途 |
+|---|---|---|
+| `global-unsupported.json` | `UNSUPPORTED` | 占位：零消息，表达"国际服已知，但没有可用档案" |
+| `global.2026.11.03.candidate.json` | `CANDIDATE` | 国际服 `2026.11.03.0000.0000` 的 19 项 opcode 假设，供新区服采证页的「第二轮」记录报文内容 |
+
+### `global.2026.11.03.candidate.json`
+
+- **来源。** 全部假设来自 2026-11-20 一位测试者的一轮新区服采证（软件 1.9.1-beta.2，元数据 trace，
+  SHA-256 `bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad`，由维护者保存，不在仓库中）。
+  该 trace 只有方向、opcode、长度、时间与摘要；每一项假设在 `provenance.evidence` 中都有一条
+  `hypotheses.<名称>` 的 `OBSERVED_LOCAL_TRAFFIC` 条目，写明出现次数。
+- **内容。** `messages` 为空，`mentor_roulette_id` 为 `null`，不带 `calibration`。分组：
+  `queue`（排本申请 `0x0215` 与另一候选 `0x022b`、两个匹配候选、两条附带报文）、`finder`（状态更新候选 `0x016f`）、
+  `identity`（两个 136 字节副本识别候选、四个 16 字节职业候选）、`zone_load`（六个换区成员，作时间锚点）。
+  不确定的候选各自保留为独立的假设，不预先择一。按国服形状推测的字段位置只写在 `note` 中，未经证实。
+- **用途。** 玩家在新区服采证页顶部的「第二轮」勾选同意后，候选验证开启，全部长度上界不超过 512 字节的假设
+  （19 项中的 14 项）保存负载，用来确定任务编号、副本与职业的字段位置
+  （[`../../docs/privacy-boundary.md`](../../docs/privacy-boundary.md) §5.1.1，测试步骤见
+  [`../../docs/global-server-testing.md`](../../docs/global-server-testing.md) §7）。
+- **不做什么。** 普通档案目录不加载候选（`ProfileCatalog.LoadDefault()` 默认 `allowCandidate: false`），
+  正式选择排除候选（`ProfileSelector.Select`），模板选择只取 `VERIFIED`（`CalibrationTemplate.Select`）。
+  因此这份档案不会让国际服开始记录、不会启动本机校准，没开启「第二轮」的玩家看到的仍是"暂不支持"。
+- `0x02fc` 与国服候选同号但长度不同（664 / 104 字节），是两条不相干的报文；研究白名单只要求至少一份候选档案把它声明为可保存，
+  观测时再按当次会话的档案判断，因此国际服这一项（超过 512 字节，不保存负载）不影响国服。
 
 ## 档案文件格式
 
@@ -17,7 +44,7 @@
 完整的字段说明、类型、健壮性检查要求与**证据（evidence）要求**，
 见 [`../../docs/protocol-profile-format.md`](../../docs/protocol-profile-format.md)。
 
-## 为什么本目录为空
+## 为什么还没有可正式记录的档案
 
 本项目有一条硬规则：
 
@@ -35,8 +62,9 @@
 **不接受**：推测值、试错得出的数值、从 AGPL 项目复制的常量表、
 从客户端逆向得到的内部结构，以及任何无法说明来源的数字。
 
-本项目还没有任何国际服客户端在本机观察到的抓包样本，因此**不存在**任何合法证据，
-本目录未提供真实档案。这是有意设置的限制，并非遗漏。
+在 2026-11-20 之前，本项目没有任何国际服客户端在本机观察到的抓包样本，因此本目录只有占位档案。
+现有的元数据样本足以提出 opcode 假设（上面的候选档案），但不足以确定任何字段偏移，
+所以仍没有可正式记录的档案。这是有意设置的限制，并非遗漏。
 
 ## 贡献档案
 

@@ -738,6 +738,18 @@ Npcap 的结论 `npcap.status` 随之更新），页面标签为「需手动记�
 下方左右两栏：左栏五个分步面板（`EvidenceStep.qml`，`evidenceStep_<n>`），右栏 272 px 的「本轮状态」与承诺卡（`EvidenceSidebar.qml`）。
 宽度不足 760 px 时右栏落到左栏下方。
 
+**第二轮**（`EvidenceCandidateRound.qml`，`candidateRoundCard`，2026-11-21）位于左栏五个分步面板之上，只在采集器报告客户端版本恰好有候选档案
+（`candidate_hypotheses` 非空、`game_build` 已知）且 `profile_status` 为 `UNSUPPORTED_BUILD` 时出现，或在候选验证开启期间保持显示；
+不需要 `--maintainer-tools`。它不是第三种采证目的，而是另一条通道（候选验证，与 `CandidateValidationCard` 共用 `CandidateReviewController`），
+因此放成独立卡片，不改动五步面板的状态推导。卡片标题「第二轮：确定任务、副本和职业的位置」，右侧状态标签（尚未开始 / 等待游戏启动 / 正在记录 / 已导出）。
+未开始时：一句用途说明、内嵌框中的告知全文与必选勾选框「我已了解并同意这一轮记录这些报文的内容」（`candidateRoundConsent`），
+不能开始时一行橙色原因（`candidateRoundBlockedReason`：新区服采证正在进行 / 软件正在记录 / 游戏正在运行 / 未安装 Npcap / 读不到设置），
+按钮「开始」（`candidateRoundStartButton`）在勾选前不可用。进行中：一句提示（游戏退出后会自动接着记录）、玩家自己勾选的四项清单
+（`candidateRoundTask_1..4`，只是提示，不由软件判断）、计数「已看到 x / n 种报文 · 共记下 m 条」（`candidateRoundCounts`，按实时事件中的假设名去重）
+与「结束并导出」。导出后：说明文件只在本机、文件夹（缩写用户目录）、两个文件名（`candidateRoundFile_0/1`）、「打开所在文件夹」与删除提示；
+导出失败时显示原因与「重新导出」。第二轮进行期间，第 ① 步的「开始采证」不可用，并显示「第二轮正在进行，点上方的「结束并导出」后才能开始采证。」
+（`evidenceCandidateRoundBlocks`）。
+
 **角色识别采证**是同一个子页的另一种采证目的（`EvidenceSession.purpose`，第 ① 步的「采证目的」分段控件，只在页面上没有进行中或已结束的一轮时可改，或「工具」中的「角色识别采证」一行直接进入）。它核实软件能否区分玩家的不同角色，为按角色分别统计进度收集依据：开始请求带 `identity_probe`，一轮进行中或结束后以采集器状态里的 `identity_probe` 为准，页面中途重开也显示正确的步骤。与新区服采证的差别：标题为「角色识别采证」；第 ② 步不要求报文达到 100 条，开始取证后即进入第 ③ 步；第 ③ 步换成 `EvidenceIdentityStep.qml`，纵向列出五步（登录角色 A、换成角色 B、换回角色 A，以及可选的传送一次、进出一次副本），每步右侧一个按钮（`templateObservationMarker_<步骤>`），做完后点一下，不输入任何文字；步骤按顺序进行（`EvidenceSession.stepReachable`）：三次登录要互相比较，一步都不能少，所以后一步的按钮在它之前的登录全部确认并读到数据之前不可用，两个可选步骤排在三次登录之后，其中只有「传送一次」可以不做而直接确认「进出一次副本」，此时它记为「已跳过」；采集器答复某一步没有读到数据时（`identity_steps` 中 `named` 为 false，即确认得太早），该步显示橙色说明并把按钮换成「重新确认」，下一步在它重新确认并读到数据之前不可用（离开这个角色后就读不到了）；前三步确认后在步骤下方显示结论（`evidenceIdentityVerdict`）；第 ④ 步再次显示结论（`evidenceSaveVerdict`），没有文件清单，也不要求勾选：只有一句「要交给维护者的只有两个文件：trace.jsonl 和 trace.jsonl.sha256…」和「打开所在目录」（`evidenceIdentityFiles`、`evidenceIdentityFolderButton`）；第 ⑤ 步不问加速器、副本、职业与本轮情况，也没有候选摘要，回传说明改为「角色识别采证回报」并带上步骤与结论，不列附件与缺失。结论四种：可以区分 / 不能区分 / 连接标识不稳定 / 还不能判断，对应 `identity_result` 的四个取值，前三种的说明句写明比较的是两个角色读到的「连接标识」；第 ④ 步的摘要相应为「已保存 · 连接标识可以区分」或「已保存 · 连接标识未能区分」；一轮结束后仍为 `INCOMPLETE` 时不再提「重新确认」，改为「这一轮没有得出结论…请退出游戏后重做一轮」，第 ④ 步的摘要为「已保存 · 没有得出结论」。截图参数 `--mock-open-evidence identity` 打开这一目的的页面。
 
 * 分步面板只展开**当前一步**；已完成的一步显示一行摘要（区服 · 网卡 · 开始于 …；数据可读 · 报文 N（数据从未可读时只写「报文 N」，

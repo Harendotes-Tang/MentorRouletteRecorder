@@ -51,7 +51,12 @@ public static class ResearchPayloadPolicy
         !ObfuscatedNames.Contains(string.Concat(hypothesis.Name.Where(char.IsLetterOrDigit))) &&
         (hypothesis.ExpectedLength ?? hypothesis.MaxLength) is >= 0 and <= MaxPayloadBytes;
 
-    /// <summary>调用者已确认验证开关开启后，才能载入候选目录以校验用户增删的白名单。</summary>
+    /// <summary>
+    /// 调用者已确认验证开关开启后，才能载入候选目录以校验用户增删的白名单。
+    /// 只要至少一份候选档案把该 opcode 声明为可保存负载即接受：各区服的候选档案编号互不相干，
+    /// 国际服 0x02fc（664 字节，不可保存）不能挡住国服 0x02fc（104 字节）。观测器按当次会话的
+    /// 候选档案再判一次 <see cref="IsEligible"/>，所以别的档案声明的可保存条目不会让本档案保存负载。
+    /// </summary>
     public static string[] ValidateRequested(IReadOnlyList<string> values, IEnumerable<ProtocolProfile> profiles)
     {
         var normalized = Normalize(values);
@@ -61,7 +66,7 @@ public static class ResearchPayloadPolicy
         {
             TryParse(token, out var opcode);
             var matches = declared.Where(pair => pair.Hypothesis.Opcode == opcode).ToArray();
-            if (matches.Length == 0 || matches.Any(pair => !IsEligible(pair.Profile, pair.Hypothesis)))
+            if (!matches.Any(pair => IsEligible(pair.Profile, pair.Hypothesis)))
                 throw CollectorException.BadRequest(CollectorTexts.CaptureSettingsResearchNotEligible(), "payload.research_payload_opcodes");
         }
         return normalized;

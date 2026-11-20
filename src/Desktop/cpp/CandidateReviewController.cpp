@@ -4,7 +4,9 @@
 #include "IBackend.h"
 
 #include <QDateTime>
+#include <QDesktopServices>
 #include <QDir>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QPointer>
 #include <QUuid>
@@ -54,7 +56,11 @@ bool before(const QVariant &left, const QVariant &right)
 } // namespace
 
 namespace mr {
-CandidateReviewController::CandidateReviewController(QObject *parent) : QObject(parent)
+CandidateReviewController::CandidateReviewController(QObject *parent)
+    : QObject(parent)
+    // The export folder is a local directory the Collector reported, opened with
+    // QUrl::fromLocalFile, which backend data cannot re-scheme (as openCaptureValidationFolder).
+    , m_openUrl([](const QUrl &url) { return QDesktopServices::openUrl(url); })
 {
     m_liveRefresh.setSingleShot(true);
     m_liveRefresh.setInterval(750);
@@ -95,7 +101,7 @@ void CandidateReviewController::disconnected()
     ++m_pageGeneration;
     ++m_indexGeneration;
     m_liveRefresh.stop();
-    m_loading = m_indexLoading = m_indexComplete = m_exporting = m_settingsBusy = false;
+    m_loading = m_indexLoading = m_indexComplete = m_exporting = m_settingsBusy = m_finishing = false;
     m_rows.clear();
     m_sessions.clear();
     m_pairs.clear();
@@ -457,7 +463,10 @@ QVariantList CandidateReviewController::timeline() const
 
 void CandidateReviewController::observeLiveEvent(const QVariantMap &event)
 {
-    Q_UNUSED(event)
+    // The event names its hypothesis (and the inferred ZONE_LOAD / window rows); the
+    // round keeps the distinct names, never anything of the packet.
+    const QString name = event.value(QStringLiteral("name")).toString();
+    if (!name.isEmpty() && !m_seen.contains(name)) m_seen.append(name);
     m_hasNewObservations = true;
     m_indexChanged = true;
     m_indexComplete = false;
@@ -516,7 +525,7 @@ void CandidateReviewController::review(const QString &id, const QString &verdict
         });
 }
 
-void CandidateReviewController::writeSettings(const QJsonObject &changes)
+void CandidateReviewController::writeSettings(const QJsonObject &changes, std::function<void()> applied)
 {
     if (!m_backend || m_settingsBusy) return;
     const int generation = m_connectionGeneration;
@@ -526,17 +535,68 @@ void CandidateReviewController::writeSettings(const QJsonObject &changes)
     BackendReply *settingsReply = m_backend->updateCaptureSettings(changes);
     const QPointer<BackendReply> settingsGuard(settingsReply);
     settingsReply->whenDone(this,
-        [this, generation, settingsGuard](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
+        [this, generation, settingsGuard, applied](bool ok, const QVariantMap &payload, const QString &code,
+                                                   const QString &message) {
             if (generation != m_connectionGeneration) return;
             m_settingsBusy = false;
             if (!ok) {
                 m_settingsError = failureText(settingsGuard, code, message);
+                m_finishing = false;
             } else {
                 Q_EMIT captureSettingsApplied(payload);
                 Q_EMIT captureStatusRefreshRequested();
             }
             Q_EMIT changed();
+            if (ok && applied) applied();
         });
+}
+
+QVariantList CandidateReviewController::eligibleOpcodes(const QVariantList &hypotheses) const
+{
+    QVariantList opcodes;
+    for (const auto &value : hypotheses) {
+        const auto hypothesis = value.toMap();
+        const auto opcode = hypothesis.value(QStringLiteral("opcode")).toString();
+        if (hypothesis.value(QStringLiteral("research_eligible")).toBool() && !opcode.isEmpty()
+            && !opcodes.contains(opcode))
+            opcodes.append(opcode);
+    }
+    return opcodes;
+}
+
+void CandidateReviewController::startRound(const QVariantList &hypotheses)
+{
+    if (!m_backend || m_settingsBusy) return;
+    m_seen.clear();
+    m_exportResult.clear();
+    m_exportError.clear();
+    // One request: the Collector checks the whitelist against the switch it carries, and the
+    // capture it follows the game with starts the candidate session on the next launch.
+    writeSettings({{QStringLiteral("candidate_validation_enabled"), true},
+                   {QStringLiteral("research_payload_opcodes"),
+                    QJsonArray::fromVariantList(eligibleOpcodes(hypotheses))}});
+}
+
+void CandidateReviewController::finishRound()
+{
+    if (!m_backend || m_settingsBusy || m_exporting) return;
+    m_finishing = true;
+    // Off first: switching off flushes the open queue and duty windows into the ledger,
+    // so the export that follows has them.
+    writeSettings({{QStringLiteral("candidate_validation_enabled"), false},
+                   {QStringLiteral("research_payload_opcodes"), QJsonArray()}},
+                  [this] { exportEvidence(); });
+}
+
+void CandidateReviewController::openExportFolder()
+{
+    const QString target = m_exportResult.value(QStringLiteral("target_path")).toString();
+    const QString directory = target.isEmpty() ? QString() : QFileInfo(target).absolutePath();
+    if (directory.isEmpty() || !QDir(directory).exists() || !m_openUrl
+        || !m_openUrl(QUrl::fromLocalFile(directory))) {
+        m_exportError = [] { return tr("无法打开证据文件所在的文件夹，请按上面的路径自行打开。"); };
+        Q_EMIT changed();
+    }
 }
 
 void CandidateReviewController::setCandidateEnabled(bool enabled)
@@ -566,6 +626,7 @@ void CandidateReviewController::exportEvidence()
         [this, generation, exportGuard](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
             if (generation != m_connectionGeneration) return;
             m_exporting = false;
+            m_finishing = false;
             if (!ok) m_exportError = failureText(exportGuard, code, message);
             else m_exportResult = payload;
             Q_EMIT changed();

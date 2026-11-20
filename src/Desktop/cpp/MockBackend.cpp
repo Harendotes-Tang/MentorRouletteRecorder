@@ -1304,6 +1304,8 @@ QJsonObject MockBackend::captureStatus() const
             status.insert(QString::fromLatin1(field), 0);
         status.remove(QStringLiteral("calibration"));
     }
+    if (m_candidateRound)
+        applyCandidateRoundFixture(status);
     return status;
 }
 

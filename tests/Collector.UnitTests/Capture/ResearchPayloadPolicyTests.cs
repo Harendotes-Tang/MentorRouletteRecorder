@@ -19,6 +19,29 @@ public sealed class ResearchPayloadPolicyTests
         Assert.Throws<CollectorException>(() => ResearchPayloadPolicy.ValidateRequested(new[] { "0xf101" }, new[] { unbounded }));
     }
 
+    /// <summary>
+    /// Candidate profiles of different regions declare unrelated messages under the same opcode
+    /// (GLOBAL 0x02fc is 664 bytes, CN 0x02fc 104): one eligible declaration admits the opcode,
+    /// and the observer still refuses the payload under the profile that declared it too long.
+    /// </summary>
+    [Fact]
+    public void AnOpcodeEligibleInOneCandidateIsAcceptedAndStillJudgedPerProfile()
+    {
+        var eligible = CandidateObserverTests.Profile();
+        var tooLong = eligible with
+        {
+            ProfileId = "global.test.candidate",
+            Hypotheses = new[] { eligible.Hypotheses[0] with { ExpectedLength = 664, Group = "finder" } },
+        };
+        Assert.Equal(new[] { "0xf101" }, ResearchPayloadPolicy.ValidateRequested(new[] { "0xf101" }, new[] { tooLong, eligible }));
+        Assert.Throws<CollectorException>(() => ResearchPayloadPolicy.ValidateRequested(new[] { "0xf101" }, new[] { tooLong }));
+
+        var rows = new List<CandidateObservation>();
+        var observer = new CandidateObserver(tooLong, "session", rows.Add, new HashSet<ushort> { 0xf101 });
+        observer.Accept(CandidateObserverTests.Message() with { Payload = new byte[664] });
+        Assert.Null(Assert.Single(rows).PayloadHex);
+    }
+
     [Theory]
     [InlineData("PlayerSpawn")]
     [InlineData("NpcSpawn")]

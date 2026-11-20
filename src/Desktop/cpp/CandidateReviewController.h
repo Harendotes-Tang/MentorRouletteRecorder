@@ -2,6 +2,8 @@
 
 #include <QHash>
 #include <QJsonObject>
+#include <QStringList>
+#include <QUrl>
 #include <QObject>
 #include <QQmlEngine>
 #include <QSet>
@@ -10,6 +12,8 @@
 #include <QVariantMap>
 
 #include "LiveText.h"
+
+#include <functional>
 
 namespace mr {
 class IBackend;
@@ -45,6 +49,11 @@ class CandidateReviewController final : public QObject
     Q_PROPERTY(QString exportError READ exportError NOTIFY changed)
     Q_PROPERTY(bool candidateSettingsBusy READ candidateSettingsBusy NOTIFY changed)
     Q_PROPERTY(QString candidateSettingsError READ candidateSettingsError NOTIFY changed)
+    /// Hypothesis names the live candidate_observed events named since the last startRound(),
+    /// distinct and in arrival order: the player's round shows how many of the declared ones it saw.
+    Q_PROPERTY(QStringList seenHypotheses READ seenHypotheses NOTIFY changed)
+    /// True from finishRound() until its export has answered (or the switch-off failed).
+    Q_PROPERTY(bool finishing READ finishing NOTIFY changed)
 
 public:
     explicit CandidateReviewController(QObject *parent = nullptr);
@@ -76,6 +85,13 @@ public:
     QString exportError() const { return m_exportError.text(); }
     bool candidateSettingsBusy() const { return m_settingsBusy; }
     QString candidateSettingsError() const { return m_settingsError.text(); }
+    QStringList seenHypotheses() const { return m_seen; }
+    bool finishing() const { return m_finishing; }
+    /// Research-eligible opcodes of  hypotheses ($defs/CandidateHypothesis rows), every group,
+    /// in declaration order: what the player's round asks the Collector to keep the content of.
+    Q_INVOKABLE QVariantList eligibleOpcodes(const QVariantList &hypotheses) const;
+    /// Tests replace the shell hand-off of openExportFolder().
+    void setOpenUrl(std::function<bool(const QUrl &)> open) { m_openUrl = std::move(open); }
 
 public Q_SLOTS:
     void refresh();
@@ -85,6 +101,13 @@ public Q_SLOTS:
     void exportEvidence();
     void setCandidateEnabled(bool enabled);
     void setResearchOpcodes(const QVariantList &opcodes);
+    /// The player's 国际服候选验证 round (EvidenceCandidateRound.qml): candidate validation on and
+    /// every eligible hypothesis of  hypotheses whitelisted, in one UpdateCaptureSettings.
+    void startRound(const QVariantList &hypotheses);
+    /// Ends the round: validation off and the whitelist cleared, then exportEvidence().
+    void finishRound();
+    /// Opens the folder of the last export in the system's file manager.
+    void openExportFolder();
 
 Q_SIGNALS:
     void changed();
@@ -100,7 +123,7 @@ private:
     /// "MM-dd HH:mm · <session> · N 条" for one session summary, in the language on screen.
     static QString sessionLabel(const QVariantMap &summary);
     void buildTimeline();
-    void writeSettings(const QJsonObject &changes);
+    void writeSettings(const QJsonObject &changes, std::function<void()> applied = {});
     void disconnected();
 
     IBackend *m_backend = nullptr;
@@ -125,6 +148,8 @@ private:
     LiveText m_exportError;
     LiveText m_settingsError;
     QVariantMap m_exportResult;
+    QStringList m_seen;
+    std::function<bool(const QUrl &)> m_openUrl;
     int m_page = 1;
     int m_total = 0;
     int m_pageGeneration = 0;
@@ -140,5 +165,6 @@ private:
     bool m_hasNewObservations = false;
     bool m_exporting = false;
     bool m_settingsBusy = false;
+    bool m_finishing = false;
 };
 } // namespace mr

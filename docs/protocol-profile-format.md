@@ -45,6 +45,7 @@ protocol-profiles/
   global/
     README.md
     global-unsupported.json UNSUPPORTED 占位，无任何消息定义
+    global.2026.11.03.candidate.json CANDIDATE，仅 hypotheses，供新区服采证页「第二轮」记录报文内容
   tc/
     README.md
     tc-unsupported.json     UNSUPPORTED 占位，无任何消息定义

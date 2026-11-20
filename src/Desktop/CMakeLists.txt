@@ -409,6 +409,7 @@ set(MR_QML_FILES
     qml/components/CaptureRegionSelector.qml
     qml/components/UpdateDownloadStatus.qml
     qml/components/UpdateNotice.qml
+    qml/evidence/EvidenceCandidateRound.qml
     qml/evidence/EvidenceClock.qml
     qml/evidence/EvidenceHint.qml
     qml/evidence/EvidenceIcon.qml

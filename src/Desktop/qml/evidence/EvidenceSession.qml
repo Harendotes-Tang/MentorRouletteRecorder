@@ -132,8 +132,11 @@ QtObject {
     // Formal recording of a verified build cannot be turned into 采证.
     readonly property bool formalRecording: Runtime.app.capturing
                                             && Runtime.app.protocolProfileStatus === "VERIFIED"
+    // The second round (EvidenceCandidateRound) holds the ordinary capture while it is on;
+    // the two rounds never run together.
+    readonly property bool candidateRoundRunning: !!Runtime.app.captureSettings.candidate_validation_enabled
     readonly property bool canStart: idle && npcapInstalled && !gameRunning && !formalRecording
-                                     && adapterAvailable
+                                     && !candidateRoundRunning && adapterAvailable
                                      && Runtime.app.templateObservationActionEnabled
                                      && !Runtime.app.captureCommandBusy
 

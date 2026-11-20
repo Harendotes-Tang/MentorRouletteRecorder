@@ -7237,6 +7237,10 @@ SHA256：%3</translation>
         <source>去「设置 › 数据」备份</source>
         <translation>去「設定 › 資料」備份</translation>
     </message>
+    <message>
+        <source>第二轮正在进行，点上方的「结束并导出」后才能开始采证。</source>
+        <translation>第二輪正在進行，按上方的「結束並匯出」後才能開始採證。</translation>
+    </message>
 </context>
 <context>
     <name>EvidenceSidebar</name>
@@ -12616,6 +12620,10 @@ SHA256：%3</translation>
         <source>请选择有效观测与核对结论，备注最多 2000 字符。</source>
         <translation>請選擇有效的觀測與核對結論，備註最多 2000 個字元。</translation>
     </message>
+    <message>
+        <source>无法打开证据文件所在的文件夹，请按上面的路径自行打开。</source>
+        <translation>無法開啟證據檔案所在的資料夾，請依上面的路徑自行開啟。</translation>
+    </message>
 </context>
 <context>
     <name>mr::CaptureValidationController</name>
@@ -15509,6 +15517,113 @@ SHA256：%3</translation>
     <message>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>安裝程式沒有啟動，可能是未通過 Windows 的安裝確認。本軟體會繼續執行，可再點「立即安裝」，或點「在瀏覽器中下載」。</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceCandidateRound</name>
+    <message>
+        <source>排一个不是指导者任务的随机任务，等 5 秒后取消</source>
+        <translation>排一個不是指導者任務的隨機任務，等 5 秒後取消</translation>
+    </message>
+    <message>
+        <source>切换一次职业</source>
+        <translation>切換一次職業</translation>
+    </message>
+    <message>
+        <source>完全退出游戏，再重新启动并登录</source>
+        <translation>完全結束遊戲，再重新啟動並登入</translation>
+    </message>
+    <message>
+        <source>排指导者任务，完成后离开副本</source>
+        <translation>排指導者任務，完成後離開副本</translation>
+    </message>
+    <message>
+        <source>新区服采证正在进行，结束后才能开始这一轮。</source>
+        <translation>新區服採證正在進行，結束後才能開始這一輪。</translation>
+    </message>
+    <message>
+        <source>软件正在记录，不能同时开始这一轮。请先退出游戏。</source>
+        <translation>軟體正在記錄，不能同時開始這一輪。請先結束遊戲。</translation>
+    </message>
+    <message>
+        <source>游戏正在运行：先完全退出游戏，再开始。</source>
+        <translation>遊戲正在執行：先完全結束遊戲，再開始。</translation>
+    </message>
+    <message>
+        <source>未安装 Npcap，暂时不能开始。</source>
+        <translation>未安裝 Npcap，暫時無法開始。</translation>
+    </message>
+    <message>
+        <source>暂时读不到软件的设置，请稍后再试。</source>
+        <translation>暫時讀不到軟體的設定，請稍後再試。</translation>
+    </message>
+    <message>
+        <source>第二轮：确定任务、副本和职业的位置</source>
+        <translation>第二輪：確定任務、副本和職業的位置</translation>
+    </message>
+    <message>
+        <source>正在记录</source>
+        <translation>正在記錄</translation>
+    </message>
+    <message>
+        <source>等待游戏启动</source>
+        <translation>等待遊戲啟動</translation>
+    </message>
+    <message>
+        <source>已导出</source>
+        <translation>已匯出</translation>
+    </message>
+    <message>
+        <source>尚未开始</source>
+        <translation>尚未開始</translation>
+    </message>
+    <message>
+        <source>这个游戏版本已经有一份候选档案，列出了可能带有任务编号、副本和职业的几种报文。这一轮记下它们的内容，维护者据此确定具体位置，之后才能为这个区服正式自动记录。只需要做一轮。</source>
+        <translation>這個遊戲版本已經有一份候選設定檔，列出了可能帶有任務編號、副本和職業的幾種封包。這一輪會記下它們的內容，維護者據此確定具體位置，之後才能為這個區服正式自動記錄。只需要做一輪。</translation>
+    </message>
+    <message>
+        <source>这一轮会记录少数几种报文的内容，用来确定任务编号、副本和职业在报文里的位置。范围只限于这个游戏版本的候选档案里列出的报文；其中个别候选可能并不是我们以为的那一种，里面可能包含与你的角色有关的信息。文件只保存在这台电脑上，不会自动上传，由你决定是否发给维护者。</source>
+        <translation>這一輪會記錄少數幾種封包的內容，用來確定任務編號、副本和職業在封包裡的位置。範圍只限於這個遊戲版本的候選設定檔裡列出的封包；其中個別候選可能並不是我們以為的那一種，裡面可能包含與您的角色有關的資訊。檔案只儲存在這台電腦上，不會自動上傳，由您決定是否寄給維護者。</translation>
+    </message>
+    <message>
+        <source>我已了解并同意这一轮记录这些报文的内容</source>
+        <translation>我已瞭解並同意這一輪記錄這些封包的內容</translation>
+    </message>
+    <message>
+        <source>现在启动游戏并登录角色，再依次完成下面四件事，每完成一件就勾上。游戏退出后软件会自动接着记录，重新启动游戏后不需要再点开始。</source>
+        <translation>現在啟動遊戲並登入角色，再依序完成下面四件事，每完成一件就勾選。遊戲結束後軟體會自動接著記錄，重新啟動遊戲後不需要再按開始。</translation>
+    </message>
+    <message>
+        <source>已看到 %1 / %2 种报文 · 共记下 %3 条</source>
+        <translation>已看到 %1 / %2 種封包 · 共記下 %3 筆</translation>
+    </message>
+    <message>
+        <source>已导出。文件只保存在这台电脑上，没有上传。请把下面两个文件私下发给维护者：</source>
+        <translation>已匯出。檔案只儲存在這台電腦上，沒有上傳。請把下面兩個檔案私下寄給維護者：</translation>
+    </message>
+    <message>
+        <source>发给维护者以后可以删除这两个文件；软件自己记下的内容最多保留 30 天。</source>
+        <translation>寄給維護者之後可以刪除這兩個檔案；軟體自己記下的內容最多保留 30 天。</translation>
+    </message>
+    <message>
+        <source>开始</source>
+        <translation>開始</translation>
+    </message>
+    <message>
+        <source>重新导出</source>
+        <translation>重新匯出</translation>
+    </message>
+    <message>
+        <source>正在导出</source>
+        <translation>正在匯出</translation>
+    </message>
+    <message>
+        <source>结束并导出</source>
+        <translation>結束並匯出</translation>
+    </message>
+    <message>
+        <source>打开所在文件夹</source>
+        <translation>開啟所在資料夾</translation>
     </message>
 </context>
 </TS>

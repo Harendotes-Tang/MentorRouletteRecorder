@@ -249,6 +249,101 @@ QJsonObject MockBackend::reviewCandidatePayload(const QJsonObject &payload,
     return {};
 }
 
+void MockBackend::setCandidateRoundFixture(bool gameRunning)
+{
+    m_candidateRound = true;
+    m_candidateRoundGameRunning = gameRunning;
+    m_capturing = false;
+    m_liveMode = LiveMode::None;
+    m_captureSettings.insert(QStringLiteral("candidate_validation_enabled"), false);
+    m_captureSettings.insert(QStringLiteral("research_payload_opcodes"), QJsonArray());
+}
+
+QJsonArray MockBackend::candidateRoundHypotheses()
+{
+    struct Row
+    {
+        const char *name;
+        const char *label;
+        const char *opcode;
+        const char *direction;
+        const char *group;
+        int length;
+    };
+    static const Row rows[] = {
+        {"QUEUE_REGISTRATION", "排本申请（候选）", "0x0215", "C2S", "queue", 24},
+        {"FINDER_ACTION_022B", "排本前的客户端操作（候选）", "0x022b", "C2S", "queue", 24},
+        {"FINDER_STATE_NOTIFICATION", "副本查找器状态更新（候选）", "0x016f", "S2C", "finder", 40},
+        {"POP_CANDIDATE_0332", "匹配成功候选 A", "0x0332", "S2C", "queue", 16},
+        {"POP_CANDIDATE_02CB", "匹配成功候选 B（或确认进度）", "0x02cb", "S2C", "queue", 24},
+        {"QUEUE_SIDE_03BF", "排本附带报文 03bf", "0x03bf", "S2C", "queue", 40},
+        {"QUEUE_SIDE_0337", "排本附带报文 0337", "0x0337", "S2C", "queue", 8},
+        {"ZONE_INIT_031F", "进本／换区 031f", "0x031f", "S2C", "zone_load", 456},
+        {"TERRITORY_CANDIDATE_027D", "副本识别候选 A", "0x027d", "S2C", "identity", 136},
+        {"TERRITORY_CANDIDATE_00AB", "副本识别候选 B", "0x00ab", "S2C", "identity", 136},
+        {"ZONE_MEMBER_010D", "进本／换区 010d", "0x010d", "S2C", "zone_load", 640},
+        {"ZONE_MEMBER_0346", "进本／换区 0346", "0x0346", "S2C", "zone_load", 808},
+        {"JOB_CANDIDATE_02F5", "职业识别候选 02f5", "0x02f5", "S2C", "identity", 16},
+        {"JOB_CANDIDATE_02D8", "职业识别候选 02d8", "0x02d8", "S2C", "identity", 16},
+        {"JOB_CANDIDATE_03B0", "职业识别候选 03b0", "0x03b0", "S2C", "identity", 16},
+        {"JOB_CANDIDATE_02FF", "职业识别候选 02ff", "0x02ff", "S2C", "identity", 16},
+        {"ZONE_MEMBER_0317", "进本／换区 0317", "0x0317", "S2C", "zone_load", 1216},
+        {"ZONE_MEMBER_02FC", "进本／换区 02fc", "0x02fc", "S2C", "zone_load", 664},
+        {"ZONE_MEMBER_0176", "进本／换区 0176", "0x0176", "S2C", "zone_load", 656},
+    };
+    QJsonArray hypotheses;
+    for (const Row &row : rows) {
+        hypotheses.append(QJsonObject{
+            {QStringLiteral("profile_id"), QStringLiteral("global.2026.11.03.candidate")},
+            {QStringLiteral("name"), QString::fromUtf8(row.name)},
+            {QStringLiteral("label"), QString::fromUtf8(row.label)},
+            {QStringLiteral("opcode"), QString::fromUtf8(row.opcode)},
+            {QStringLiteral("direction"), QString::fromUtf8(row.direction)},
+            {QStringLiteral("group"), QString::fromUtf8(row.group)},
+            {QStringLiteral("expected_length"), row.length},
+            // ResearchPayloadPolicy.IsEligible: bounded by 512 bytes, nothing obfuscated.
+            {QStringLiteral("research_eligible"), row.length <= 512},
+        });
+    }
+    return hypotheses;
+}
+
+void MockBackend::applyCandidateRoundFixture(QJsonObject &status) const
+{
+    // LiveProtocolPipeline.ToCaptureStatus for a region nothing records: the build is read,
+    // the formal profile fails closed, and the exact-build candidate is described whether or
+    // not validation is on. Its id is reported only while validation is on.
+    const bool enabled = captureSettings().value(QStringLiteral("candidate_validation_enabled")).toBool();
+    const bool running = m_candidateRoundGameRunning;
+    const bool capturing = running && enabled && !m_npcapMissing;
+    const QJsonValue null(QJsonValue::Null);
+    status.insert(QStringLiteral("region"), QStringLiteral("GLOBAL"));
+    status.insert(QStringLiteral("game_build"), QStringLiteral("2026.11.03.0000.0000"));
+    status.insert(QStringLiteral("profile_status"), QStringLiteral("UNSUPPORTED_BUILD"));
+    status.insert(QStringLiteral("profile_matches_build"), false);
+    status.insert(QStringLiteral("candidate_validation_enabled"), enabled);
+    status.insert(QStringLiteral("candidate_profile_id"),
+                  enabled ? QJsonValue(QStringLiteral("global.2026.11.03.candidate")) : null);
+    status.insert(QStringLiteral("candidate_hypotheses"), candidateRoundHypotheses());
+    status.insert(QStringLiteral("ffxiv_running"), running);
+    status.insert(QStringLiteral("ffxiv_process_id"), running ? QJsonValue(18244) : null);
+    if (!running)
+        status.insert(QStringLiteral("game_processes"), QJsonArray());
+    status.insert(QStringLiteral("state"), capturing ? QStringLiteral("RUNNING") : QStringLiteral("STOPPED"));
+    status.insert(QStringLiteral("capture_session_id"),
+                  capturing ? QJsonValue(mockUuid(QStringLiteral("capture-session-1"))) : null);
+    status.insert(QStringLiteral("started_at_utc"), capturing ? QJsonValue(isoUtc(m_now)) : null);
+    status.insert(QStringLiteral("recent_parser_errors"), QJsonArray());
+    for (const auto *field : {"profile_id", "profile_origin", "oodle_signature_source", "oodle_profile_id",
+                             "oodle_profile_status", "last_valid_event_at_utc", "last_valid_event_kind",
+                             "calibration_bound_at_utc"})
+        status.insert(QString::fromLatin1(field), null);
+    for (const auto *field : {"parse_ok_count", "parse_fail_count", "duplicate_count", "ignored_count",
+                             "messages_decoded", "ipc_decoded", "message_rate_per_second"})
+        status.insert(QString::fromLatin1(field), 0);
+    status.remove(QStringLiteral("calibration"));
+}
+
 QJsonObject MockBackend::exportCandidatePayload(const QJsonObject &payload) const
 {
     // The mock returns the contract shape without creating evidence files.
@@ -256,7 +351,8 @@ QJsonObject MockBackend::exportCandidatePayload(const QJsonObject &payload) cons
     const QString label = QString::fromUtf8("（模拟后端未写入文件）");
     const QString path = label + payload.value(QStringLiteral("target_path")).toString();
     return {{QStringLiteral("target_path"), path},
-            {QStringLiteral("sha256_path"), label},
+            // The sidecar sits next to the evidence file, as CandidateEvidenceExporter writes it.
+            {QStringLiteral("sha256_path"), path + QStringLiteral(".sha256")},
             {QStringLiteral("sha256"), QString(64, QLatin1Char('0'))},
             {QStringLiteral("observation_count"), static_cast<int>(m_candidateObservations.size())},
             {QStringLiteral("review_count"), static_cast<int>(m_candidateReviews.size())},
@@ -524,8 +620,8 @@ QJsonObject MockBackend::applyCaptureSettings(const QJsonObject &payload,
         // declared, bounded, non-obfuscated hypotheses of at most 512 bytes.
         // No unknown or unbounded opcode can be enabled through manual input.
         QSet<QString> eligible;
-        const auto hypotheses = nextRegion == QLatin1String("CN")
-            ? declaredCandidateHypotheses() : QJsonArray();
+        const auto hypotheses = m_candidateRound ? candidateRoundHypotheses()
+            : nextRegion == QLatin1String("CN") ? declaredCandidateHypotheses() : QJsonArray();
         for (const auto &value : hypotheses) {
             const auto hypothesis = value.toObject();
             if (hypothesis.value(QStringLiteral("research_eligible")).toBool())

@@ -7237,6 +7237,10 @@ SHA256：%3</translation>
         <source>去「设置 › 数据」备份</source>
         <translation>「設定 › データ」でバックアップ</translation>
     </message>
+    <message>
+        <source>第二轮正在进行，点上方的「结束并导出」后才能开始采证。</source>
+        <translation>第 2 ラウンドが進行中です。上の「終了してエクスポート」を押してから採取を開始してください。</translation>
+    </message>
 </context>
 <context>
     <name>EvidenceSidebar</name>
@@ -12616,6 +12620,10 @@ SHA256：%3</translation>
         <source>请选择有效观测与核对结论，备注最多 2000 字符。</source>
         <translation>有効な観測と確認結果を選んでください。備考は 2000 文字までです。</translation>
     </message>
+    <message>
+        <source>无法打开证据文件所在的文件夹，请按上面的路径自行打开。</source>
+        <translation>証拠ファイルのあるフォルダーを開けませんでした。上のパスから手動で開いてください。</translation>
+    </message>
 </context>
 <context>
     <name>mr::CaptureValidationController</name>
@@ -15509,6 +15517,113 @@ SHA256：%3</translation>
     <message>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>インストーラーが起動しませんでした。Windows のインストール確認で許可されなかった可能性があります。このアプリは実行を続けます。もう一度「今すぐインストール」を押すか、「ブラウザでダウンロード」を押してください。</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceCandidateRound</name>
+    <message>
+        <source>排一个不是指导者任务的随机任务，等 5 秒后取消</source>
+        <translation>メンター以外のルーレットに申請し、5 秒待ってから取り下げる</translation>
+    </message>
+    <message>
+        <source>切换一次职业</source>
+        <translation>ジョブを一度切り替える</translation>
+    </message>
+    <message>
+        <source>完全退出游戏，再重新启动并登录</source>
+        <translation>ゲームを完全に終了し、もう一度起動してログインする</translation>
+    </message>
+    <message>
+        <source>排指导者任务，完成后离开副本</source>
+        <translation>メンタールーレットに申請し、コンテンツを完了してから退出する</translation>
+    </message>
+    <message>
+        <source>新区服采证正在进行，结束后才能开始这一轮。</source>
+        <translation>新しい地域のデータ採取が進行中です。終了後にこのラウンドを開始できます。</translation>
+    </message>
+    <message>
+        <source>软件正在记录，不能同时开始这一轮。请先退出游戏。</source>
+        <translation>アプリが記録中のため、このラウンドを同時に開始できません。先にゲームを終了してください。</translation>
+    </message>
+    <message>
+        <source>游戏正在运行：先完全退出游戏，再开始。</source>
+        <translation>ゲームが起動中です。完全に終了してから開始してください。</translation>
+    </message>
+    <message>
+        <source>未安装 Npcap，暂时不能开始。</source>
+        <translation>Npcap がインストールされていないため、まだ開始できません。</translation>
+    </message>
+    <message>
+        <source>暂时读不到软件的设置，请稍后再试。</source>
+        <translation>アプリの設定を読み取れません。しばらくしてからもう一度お試しください。</translation>
+    </message>
+    <message>
+        <source>第二轮：确定任务、副本和职业的位置</source>
+        <translation>第 2 ラウンド：ルーレット・コンテンツ・ジョブの位置を特定</translation>
+    </message>
+    <message>
+        <source>正在记录</source>
+        <translation>記録中</translation>
+    </message>
+    <message>
+        <source>等待游戏启动</source>
+        <translation>ゲームの起動待ち</translation>
+    </message>
+    <message>
+        <source>已导出</source>
+        <translation>エクスポート済み</translation>
+    </message>
+    <message>
+        <source>尚未开始</source>
+        <translation>未開始</translation>
+    </message>
+    <message>
+        <source>这个游戏版本已经有一份候选档案，列出了可能带有任务编号、副本和职业的几种报文。这一轮记下它们的内容，维护者据此确定具体位置，之后才能为这个区服正式自动记录。只需要做一轮。</source>
+        <translation>このゲームバージョンには、ルーレット番号・コンテンツ・ジョブを含む可能性のあるメッセージを列挙した候補プロファイルがあります。このラウンドではそれらの内容を記録し、メンテナーが正確な位置を特定します。それが済んで初めて、このリージョンを自動記録できるようになります。必要なのは 1 ラウンドだけです。</translation>
+    </message>
+    <message>
+        <source>这一轮会记录少数几种报文的内容，用来确定任务编号、副本和职业在报文里的位置。范围只限于这个游戏版本的候选档案里列出的报文；其中个别候选可能并不是我们以为的那一种，里面可能包含与你的角色有关的信息。文件只保存在这台电脑上，不会自动上传，由你决定是否发给维护者。</source>
+        <translation>このラウンドでは、ルーレット番号・コンテンツ・ジョブがメッセージ内のどこにあるかを特定するため、少数の種類のメッセージの内容を記録します。対象はこのゲームバージョンの候補プロファイルに記載されたメッセージに限られます。候補の一部は想定と異なる種類である可能性があり、あなたのキャラクターに関する情報が含まれることがあります。ファイルはこのコンピューターにのみ保存され、自動でアップロードされることはありません。メンテナーに送るかどうかはあなたが決められます。</translation>
+    </message>
+    <message>
+        <source>我已了解并同意这一轮记录这些报文的内容</source>
+        <translation>このラウンドでこれらのメッセージの内容が記録されることを理解し、同意します</translation>
+    </message>
+    <message>
+        <source>现在启动游戏并登录角色，再依次完成下面四件事，每完成一件就勾上。游戏退出后软件会自动接着记录，重新启动游戏后不需要再点开始。</source>
+        <translation>ゲームを起動してログインし、下の 4 つを順番に行い、済んだものにチェックを入れてください。ゲームを終了してもアプリは記録を続けます。ゲームを再起動したあと、もう一度「開始」を押す必要はありません。</translation>
+    </message>
+    <message>
+        <source>已看到 %1 / %2 种报文 · 共记下 %3 条</source>
+        <translation>%1 / %2 種類のメッセージを確認 · 計 %3 件を記録</translation>
+    </message>
+    <message>
+        <source>已导出。文件只保存在这台电脑上，没有上传。请把下面两个文件私下发给维护者：</source>
+        <translation>エクスポートしました。ファイルはこのコンピューターにのみ保存され、アップロードはされていません。下の 2 つのファイルをメンテナーに個別に送ってください：</translation>
+    </message>
+    <message>
+        <source>发给维护者以后可以删除这两个文件；软件自己记下的内容最多保留 30 天。</source>
+        <translation>メンテナーに送ったあとは、この 2 つのファイルを削除してかまいません。アプリ自体が記録した内容は最長 30 日間保持されます。</translation>
+    </message>
+    <message>
+        <source>开始</source>
+        <translation>開始</translation>
+    </message>
+    <message>
+        <source>重新导出</source>
+        <translation>もう一度エクスポート</translation>
+    </message>
+    <message>
+        <source>正在导出</source>
+        <translation>エクスポート中</translation>
+    </message>
+    <message>
+        <source>结束并导出</source>
+        <translation>終了してエクスポート</translation>
+    </message>
+    <message>
+        <source>打开所在文件夹</source>
+        <translation>保存先フォルダーを開く</translation>
     </message>
 </context>
 </TS>

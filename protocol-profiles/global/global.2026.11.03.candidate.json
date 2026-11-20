@@ -1,0 +1,352 @@
+{
+  "schema_version": 1,
+  "profile_id": "global.2026.11.03.candidate",
+  "region": "GLOBAL",
+  "game_build": "2026.11.03.0000.0000",
+  "generated_at": "2026-11-21T00:00:00.000Z",
+  "mentor_roulette_id": null,
+  "compatibility_status": "CANDIDATE",
+  "messages": [],
+  "hypotheses": [
+    {
+      "name": "QUEUE_REGISTRATION",
+      "direction": "CLIENT_TO_SERVER",
+      "opcode": 533,
+      "expected_length": 24,
+      "note": "整轮唯一一条 C2S 0x0215（24 字节），t=105468 ms，比测试者按下「已排队」早约 1.0 秒；排队标记前 2 秒内唯一的 C2S 24 字节报文。按国服形状推测第 0 字节为随机任务编号，但元数据无法证实，本轮要用负载确认。",
+      "group": "queue",
+      "label": "排本申请（候选）"
+    },
+    {
+      "name": "FINDER_ACTION_022B",
+      "direction": "CLIENT_TO_SERVER",
+      "opcode": 555,
+      "expected_length": 24,
+      "note": "C2S 0x022b（24 字节）整轮 13 次：t=94377–96437 ms 间成对出现 12 次（约每 0.35 秒一对，排队前约 10 秒），另一次在离开副本前约 1.3 秒。可能是勾选随机任务列表，也可能与排本无关；与 QUEUE_REGISTRATION 并列，用负载区分。",
+      "group": "queue",
+      "label": "排本前的客户端操作（候选）"
+    },
+    {
+      "name": "FINDER_STATE_NOTIFICATION",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 367,
+      "expected_length": 40,
+      "note": "S2C 0x016f（40 字节）整轮 2 次，分别在 0x0215 之后 63 ms 与 187 ms，与国服请求—两条回执的节奏相同。按国服形状推测第 16 字节为随机任务编号，未证实。",
+      "group": "finder",
+      "label": "副本查找器状态更新（候选）"
+    },
+    {
+      "name": "POP_CANDIDATE_0332",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 818,
+      "expected_length": 16,
+      "note": "S2C 0x0332（16 字节）整轮仅 1 次，t=107532 ms：申请后 2.06 秒、测试者按「已匹配」前 1.9 秒。",
+      "group": "queue",
+      "label": "匹配成功候选 A"
+    },
+    {
+      "name": "POP_CANDIDATE_02CB",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 715,
+      "expected_length": 24,
+      "note": "S2C 0x02cb（24 字节）整轮 4 次：「已匹配」前 0.85 秒一次，之后约每 2 秒一次直到读条（t=108603、110602、112544、122496 ms）。可能是匹配弹窗，也可能是队员确认进度。",
+      "group": "queue",
+      "label": "匹配成功候选 B（或确认进度）"
+    },
+    {
+      "name": "QUEUE_SIDE_03BF",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 959,
+      "expected_length": 40,
+      "note": "S2C 0x03bf（40 字节）整轮 1 次，申请后 375 ms。",
+      "group": "queue",
+      "label": "排本附带报文 03bf"
+    },
+    {
+      "name": "QUEUE_SIDE_0337",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 823,
+      "expected_length": 8,
+      "note": "S2C 0x0337（8 字节）整轮 2 次，均在申请后 375 ms。",
+      "group": "queue",
+      "label": "排本附带报文 0337"
+    },
+    {
+      "name": "ZONE_INIT_031F",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 799,
+      "expected_length": 456,
+      "note": "S2C 0x031f（456 字节）整轮 3 次，登录、进本、离本三次换区各 1 次，换区之外从未出现（t=77865、124238、998564 ms）。长度与国服区域初始化 0x014a 相同。",
+      "group": "zone_load",
+      "label": "进本／换区 031f"
+    },
+    {
+      "name": "TERRITORY_CANDIDATE_027D",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 637,
+      "expected_length": 136,
+      "note": "S2C 0x027d（136 字节）三次换区各 1 次（t=77740、124177、998440 ms）。长度与国服区域报文 0x028d 相同；按国服形状推测 u16@2 为区域编号，未证实。",
+      "group": "identity",
+      "label": "副本识别候选 A"
+    },
+    {
+      "name": "TERRITORY_CANDIDATE_00AB",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 171,
+      "expected_length": 136,
+      "note": "S2C 0x00ab（136 字节）三次换区各 1 次，与 0x027d 同一毫秒到达。两者之一应为区域报文，另一条可能与角色有关。",
+      "group": "identity",
+      "label": "副本识别候选 B"
+    },
+    {
+      "name": "ZONE_MEMBER_010D",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 269,
+      "expected_length": 640,
+      "note": "S2C 0x010d（640 字节）整轮 4 次，均在换区时（进本时 2 次）。超过 512 字节，不保存负载，只作时间锚点。",
+      "group": "zone_load",
+      "label": "进本／换区 010d"
+    },
+    {
+      "name": "ZONE_MEMBER_0346",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 838,
+      "expected_length": 808,
+      "note": "S2C 0x0346（808 字节）三次换区各 1 次。超过 512 字节，不保存负载，只作时间锚点。",
+      "group": "zone_load",
+      "label": "进本／换区 0346"
+    },
+    {
+      "name": "JOB_CANDIDATE_02F5",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 757,
+      "expected_length": 16,
+      "note": "S2C 0x02f5（16 字节）三次换区各 1 次（t=77678、124114、998377 ms）。四个 16 字节候选之一，长度与国服职业报文 0x0350 相同。",
+      "group": "identity",
+      "label": "职业识别候选 02f5"
+    },
+    {
+      "name": "JOB_CANDIDATE_02D8",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 728,
+      "expected_length": 16,
+      "note": "S2C 0x02d8（16 字节）三次换区各 1 次，与 0x02f5 同一毫秒到达。职业候选之一。",
+      "group": "identity",
+      "label": "职业识别候选 02d8"
+    },
+    {
+      "name": "JOB_CANDIDATE_03B0",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 944,
+      "expected_length": 16,
+      "note": "S2C 0x03b0（16 字节）三次换区各 1 次（t=77740、124177、998439 ms）。职业候选之一。",
+      "group": "identity",
+      "label": "职业识别候选 03b0"
+    },
+    {
+      "name": "JOB_CANDIDATE_02FF",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 767,
+      "expected_length": 16,
+      "note": "S2C 0x02ff（16 字节）三次换区各 1 次（t=77864、124177、998502 ms）。职业候选之一。",
+      "group": "identity",
+      "label": "职业识别候选 02ff"
+    },
+    {
+      "name": "ZONE_MEMBER_0317",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 791,
+      "expected_length": 1216,
+      "note": "S2C 0x0317（1216 字节）整轮 2 次：登录与离本时各 1 次，进本时没有。超过 512 字节，不保存负载，只作时间锚点。",
+      "group": "zone_load",
+      "label": "进本／换区 0317"
+    },
+    {
+      "name": "ZONE_MEMBER_02FC",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 764,
+      "expected_length": 664,
+      "note": "S2C 0x02fc（664 字节）整轮 6 次，均在换区时（进本时 4 次）。与国服候选同 opcode 而长度不同，互不相干。超过 512 字节，不保存负载，只作时间锚点。",
+      "group": "zone_load",
+      "label": "进本／换区 02fc"
+    },
+    {
+      "name": "ZONE_MEMBER_0176",
+      "direction": "SERVER_TO_CLIENT",
+      "opcode": 374,
+      "expected_length": 656,
+      "note": "S2C 0x0176（656 字节）整轮 125 次，成批出现在换区时。超过 512 字节，不保存负载，只作时间锚点。",
+      "group": "zone_load",
+      "label": "进本／换区 0176"
+    }
+  ],
+  "fixtures": [],
+  "provenance": {
+    "summary": "国际服 2026.11.03 的候选档案，只供「国际服候选验证」一轮记录所列报文的内容，用来确定任务编号、副本与职业所在的字段。全部假设来自 2026-11-20 一轮新区服采证的元数据（trace SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad，由维护者保存，不在仓库中）。档案保持 CANDIDATE：不含字段、不含指导者随机编号，永不用于正式记录，也不作为本机校准模板。",
+    "capture_fixture": null,
+    "capture_fixture_sha256": null,
+    "evidence": [
+      {
+        "field": "hypotheses",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T06:45:19.711Z",
+        "sample_count": 1,
+        "url": null,
+        "note": "2026-11-20 国际服 2026.11.03 新区服采证（软件 1.9.1-beta.2，元数据，trace SHA-256 bf39692b…f029e6ad，由维护者保存）。一轮完整的其他随机任务：排队、匹配、进本、通关、离本五个标记均由测试者按下；trace 只有方向、opcode、长度、时间与摘要，没有报文内容。下列每一条假设都只依据这一轮的出现次数与相对时间。"
+      },
+      {
+        "field": "hypotheses.QUEUE_REGISTRATION",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T06:45:19.711Z",
+        "sample_count": 1,
+        "url": null,
+        "note": "trace SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad：本轮出现 1 次（CLIENT_TO_SERVER 0x0215，24 字节）。"
+      },
+      {
+        "field": "hypotheses.FINDER_ACTION_022B",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T06:45:19.711Z",
+        "sample_count": 13,
+        "url": null,
+        "note": "trace SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad：本轮出现 13 次（CLIENT_TO_SERVER 0x022b，24 字节）。"
+      },
+      {
+        "field": "hypotheses.FINDER_STATE_NOTIFICATION",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T06:45:19.711Z",
+        "sample_count": 2,
+        "url": null,
+        "note": "trace SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad：本轮出现 2 次（SERVER_TO_CLIENT 0x016f，40 字节）。"
+      },
+      {
+        "field": "hypotheses.POP_CANDIDATE_0332",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T06:45:19.711Z",
+        "sample_count": 1,
+        "url": null,
+        "note": "trace SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad：本轮出现 1 次（SERVER_TO_CLIENT 0x0332，16 字节）。"
+      },
+      {
+        "field": "hypotheses.POP_CANDIDATE_02CB",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T06:45:19.711Z",
+        "sample_count": 4,
+        "url": null,
+        "note": "trace SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad：本轮出现 4 次（SERVER_TO_CLIENT 0x02cb，24 字节）。"
+      },
+      {
+        "field": "hypotheses.QUEUE_SIDE_03BF",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T06:45:19.711Z",
+        "sample_count": 1,
+        "url": null,
+        "note": "trace SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad：本轮出现 1 次（SERVER_TO_CLIENT 0x03bf，40 字节）。"
+      },
+      {
+        "field": "hypotheses.QUEUE_SIDE_0337",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T06:45:19.711Z",
+        "sample_count": 2,
+        "url": null,
+        "note": "trace SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad：本轮出现 2 次（SERVER_TO_CLIENT 0x0337，8 字节）。"
+      },
+      {
+        "field": "hypotheses.ZONE_INIT_031F",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T06:45:19.711Z",
+        "sample_count": 3,
+        "url": null,
+        "note": "trace SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad：本轮出现 3 次（SERVER_TO_CLIENT 0x031f，456 字节）。"
+      },
+      {
+        "field": "hypotheses.TERRITORY_CANDIDATE_027D",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T06:45:19.711Z",
+        "sample_count": 3,
+        "url": null,
+        "note": "trace SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad：本轮出现 3 次（SERVER_TO_CLIENT 0x027d，136 字节）。"
+      },
+      {
+        "field": "hypotheses.TERRITORY_CANDIDATE_00AB",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T06:45:19.711Z",
+        "sample_count": 3,
+        "url": null,
+        "note": "trace SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad：本轮出现 3 次（SERVER_TO_CLIENT 0x00ab，136 字节）。"
+      },
+      {
+        "field": "hypotheses.ZONE_MEMBER_010D",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T06:45:19.711Z",
+        "sample_count": 4,
+        "url": null,
+        "note": "trace SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad：本轮出现 4 次（SERVER_TO_CLIENT 0x010d，640 字节）。"
+      },
+      {
+        "field": "hypotheses.ZONE_MEMBER_0346",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T06:45:19.711Z",
+        "sample_count": 3,
+        "url": null,
+        "note": "trace SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad：本轮出现 3 次（SERVER_TO_CLIENT 0x0346，808 字节）。"
+      },
+      {
+        "field": "hypotheses.JOB_CANDIDATE_02F5",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T06:45:19.711Z",
+        "sample_count": 3,
+        "url": null,
+        "note": "trace SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad：本轮出现 3 次（SERVER_TO_CLIENT 0x02f5，16 字节）。"
+      },
+      {
+        "field": "hypotheses.JOB_CANDIDATE_02D8",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T06:45:19.711Z",
+        "sample_count": 3,
+        "url": null,
+        "note": "trace SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad：本轮出现 3 次（SERVER_TO_CLIENT 0x02d8，16 字节）。"
+      },
+      {
+        "field": "hypotheses.JOB_CANDIDATE_03B0",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T06:45:19.711Z",
+        "sample_count": 3,
+        "url": null,
+        "note": "trace SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad：本轮出现 3 次（SERVER_TO_CLIENT 0x03b0，16 字节）。"
+      },
+      {
+        "field": "hypotheses.JOB_CANDIDATE_02FF",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T06:45:19.711Z",
+        "sample_count": 3,
+        "url": null,
+        "note": "trace SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad：本轮出现 3 次（SERVER_TO_CLIENT 0x02ff，16 字节）。"
+      },
+      {
+        "field": "hypotheses.ZONE_MEMBER_0317",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T06:45:19.711Z",
+        "sample_count": 2,
+        "url": null,
+        "note": "trace SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad：本轮出现 2 次（SERVER_TO_CLIENT 0x0317，1216 字节）。"
+      },
+      {
+        "field": "hypotheses.ZONE_MEMBER_02FC",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T06:45:19.711Z",
+        "sample_count": 6,
+        "url": null,
+        "note": "trace SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad：本轮出现 6 次（SERVER_TO_CLIENT 0x02fc，664 字节）。"
+      },
+      {
+        "field": "hypotheses.ZONE_MEMBER_0176",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T06:45:19.711Z",
+        "sample_count": 125,
+        "url": null,
+        "note": "trace SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad：本轮出现 125 次（SERVER_TO_CLIENT 0x0176，656 字节）。"
+      }
+    ]
+  },
+  "profile_sha256": "dbe0dda9bfaa86cf0ad4c434d048436c93ca75c4193beeaf1614d41175612cd1"
+}

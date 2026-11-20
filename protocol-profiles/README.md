@@ -7,7 +7,8 @@
 > 其 `finder_state` 声明为 `"role": "selector"`（见下文）。该档案另带一个可选的
 > `calibration` 模板段（本机校准所需的报文结构，见 `../docs/protocol-profile-format.md` §11），并据此重新盖章，
 > `profile_sha256` 为 `8c6ffec309e0597f723a09e5c787759475828aaf6152402d3c94a24af92b3cd1`。
-> 每个常量的来源均记录在其 `provenance.evidence` 中。`global/` 与 `tc/` 仍只有 `UNSUPPORTED` 占位。
+> 每个常量的来源均记录在其 `provenance.evidence` 中。`global/` 与 `tc/` 没有可正式记录的档案；
+> `global/` 另有一份仅含假设的 `CANDIDATE`（`global.2026.11.03.candidate.json`，供新区服采证页的「第二轮」使用，见 [`global/README.md`](global/README.md)）。
 > `synthetic/synthetic-v1.json` 的每个常量均为**编造值**，仅服务于离线测试。
 
 **协议档案**将特定客户端版本的网络协议细节从代码中分离出来，
@@ -31,8 +32,9 @@ protocol-profiles/
     cn.2026.08.05.json      VERIFIED，弹窗 + 换区 + 区域 + 职业，无 DUTY_RESULT
     cn.2026.08.05.candidate.json CANDIDATE，仅 hypotheses，与正式档案并行观察
   global/
-    README.md               国际服：为什么本目录为空
+    README.md               国际服：状态、候选档案与证据要求
     global-unsupported.json UNSUPPORTED 占位，零消息
+    global.2026.11.03.candidate.json CANDIDATE，仅 hypotheses，供「第二轮」记录报文内容
   tc/
     README.md               繁中服：身份独立于国服与界面语言，首份档案需要什么证据
     tc-unsupported.json     UNSUPPORTED 占位，零消息
@@ -77,7 +79,8 @@ MentorRecorder.Collector.exe --list-profiles [--profiles-dir <path>] [--json]
 
 一条硬规则：**没有证据就不写常量。**
 
-`global/` 与 `tc/` 仍然只有占位档案，原因是没有国际服与繁中服的合法证据。`cn/` 自 2026-09-07 起有 `cn.2026.08.05`，
+`global/` 与 `tc/` 仍然没有可正式记录的档案，原因是还没有足以确定字段的国际服与繁中服证据
+（`global/` 的候选档案只列 opcode 假设，永不用于记录）。`cn/` 自 2026-09-07 起有 `cn.2026.08.05`，
 其每一条常量都可在档案的 `provenance` 中追溯到本机流量或用户核对。
 
 占位文件本身有其作用：它将"该区服已知，但没有可用档案"表达为显式且可校验的事实，

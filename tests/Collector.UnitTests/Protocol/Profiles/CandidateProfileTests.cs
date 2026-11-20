@@ -34,6 +34,57 @@ public sealed class CandidateProfileTests : IDisposable
         Assert.Equal("UNSUPPORTED", selector.GetProfileStatus().Status);
     }
 
+    /// <summary>
+    /// The shipped GLOBAL candidate (2026-11-21) exists for the player-facing 国际服候选验证 round only:
+    /// it loads and validates, every hypothesis cites the round-1 trace, its payload whitelist fits the
+    /// research limit, and GLOBAL stays exactly as unsupported as before - formal selection, the
+    /// status ordinary players see, and the calibration template are all unchanged.
+    /// </summary>
+    [Fact]
+    public void ShippedGlobalCandidateIsObservableOnlyAndLeavesGlobalUnsupported()
+    {
+        const string globalBuild = "2026.11.03.0000.0000";
+        var root = ProfileCatalog.FindDefaultRoot() ?? throw new InvalidOperationException("protocol-profiles not found");
+        var path = Path.Combine(root, "global", "global.2026.11.03.candidate.json");
+        var report = ProfileLoader.Validate(path);
+        Assert.True(report.Ok, string.Join("; ", report.Errors.Select(error => error.Message)));
+        var profile = Assert.IsType<ProtocolProfile>(report.Profile);
+        Assert.Equal(ProfileCompatibilityStatus.Candidate, profile.Status);
+        Assert.Equal(Region.Global, profile.Region);
+        Assert.Empty(profile.Messages);
+        Assert.Null(profile.MentorRouletteId);
+        Assert.Null(profile.Calibration);
+        Assert.False(profile.ToBinding().IsUsable);
+        var eligible = profile.Hypotheses.Where(h => Capture.ResearchPayloadPolicy.IsEligible(profile, h)).ToArray();
+        Assert.InRange(eligible.Length, 1, Capture.ResearchPayloadPolicy.MaxOpcodes);
+        Assert.Contains(eligible, h => h.Name == "QUEUE_REGISTRATION");
+
+        using (var json = JsonDocument.Parse(File.ReadAllBytes(path)))
+        {
+            var cited = json.RootElement.GetProperty("provenance").GetProperty("evidence").EnumerateArray()
+                .Where(item => item.GetProperty("method").GetString() == "OBSERVED_LOCAL_TRAFFIC" &&
+                    item.GetProperty("note").GetString()!.Contains("bf39692b", StringComparison.Ordinal))
+                .Select(item => item.GetProperty("field").GetString()).ToHashSet();
+            Assert.All(profile.Hypotheses, h => Assert.Contains("hypotheses." + h.Name, cited));
+        }
+
+        // Ordinary players: the catalogue they run on never holds it, so GLOBAL stays RegionUnsupported.
+        var formal = new ProfileSelector(ProfileCatalog.LoadDefault()).Select(Region.Global, globalBuild);
+        Assert.False(formal.IsUsable);
+        Assert.Equal(ProfileSelectionReason.RegionUnsupported, formal.ReasonCode);
+        // With candidates loaded it is found for its exact build only, and formal selection still refuses.
+        var withCandidates = ProfileCatalog.LoadDefault(allowCandidate: true);
+        var selector = new ProfileSelector(withCandidates);
+        Assert.Equal("global.2026.11.03.candidate", selector.SelectCandidate(Region.Global, globalBuild, enabled: true)?.ProfileId);
+        Assert.Null(selector.SelectCandidate(Region.Global, "2026.11.04.0000.0000", enabled: true));
+        Assert.Null(selector.SelectCandidate(Region.Global, globalBuild, enabled: false));
+        Assert.False(selector.Select(Region.Global, globalBuild).IsUsable);
+        Assert.Equal(ProfileSelectionReason.RegionUnsupported, selector.Select(Region.Global, globalBuild).ReasonCode);
+        Assert.Equal("UNSUPPORTED", selector.GetProfileStatus().Status);
+        // No calibration template for GLOBAL, so nothing arms for it.
+        Assert.Null(Protocol.Calibration.CalibrationTemplate.Select(withCandidates, Region.Global));
+    }
+
     [Fact]
     public void TcCandidateIsObservableOnlyForTcAndNeverEnablesFormalRecording()
     {

@@ -7237,6 +7237,10 @@ SHA256: %3</translation>
         <source>去「设置 › 数据」备份</source>
         <translation>Back up in Settings › Data</translation>
     </message>
+    <message>
+        <source>第二轮正在进行，点上方的「结束并导出」后才能开始采证。</source>
+        <translation>Round 2 is in progress. Press “Finish and export” above before starting a capture.</translation>
+    </message>
 </context>
 <context>
     <name>EvidenceSidebar</name>
@@ -12616,6 +12620,10 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <source>请选择有效观测与核对结论，备注最多 2000 字符。</source>
         <translation>Choose a valid observation and verdict; notes up to 2000 characters.</translation>
     </message>
+    <message>
+        <source>无法打开证据文件所在的文件夹，请按上面的路径自行打开。</source>
+        <translation>The folder holding the evidence files could not be opened. Please open it yourself using the path above.</translation>
+    </message>
 </context>
 <context>
     <name>mr::CaptureValidationController</name>
@@ -15509,6 +15517,113 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>安装程序没有启动，可能是未通过 Windows 的安装确认。本软件继续运行，可再点「立即安装」，或点「在浏览器中下载」。</source>
         <translation>The installer didn&apos;t start, possibly because the Windows install confirmation wasn&apos;t accepted. This app keeps running; click “Install now” again, or click “Download in browser”.</translation>
+    </message>
+</context>
+<context>
+    <name>EvidenceCandidateRound</name>
+    <message>
+        <source>排一个不是指导者任务的随机任务，等 5 秒后取消</source>
+        <translation>Queue any roulette other than Mentor, wait 5 seconds, then withdraw</translation>
+    </message>
+    <message>
+        <source>切换一次职业</source>
+        <translation>Switch job once</translation>
+    </message>
+    <message>
+        <source>完全退出游戏，再重新启动并登录</source>
+        <translation>Quit the game completely, then start it again and log in</translation>
+    </message>
+    <message>
+        <source>排指导者任务，完成后离开副本</source>
+        <translation>Queue Mentor roulette, finish the duty, then leave</translation>
+    </message>
+    <message>
+        <source>新区服采证正在进行，结束后才能开始这一轮。</source>
+        <translation>A new region capture is in progress; this round can start after it ends.</translation>
+    </message>
+    <message>
+        <source>软件正在记录，不能同时开始这一轮。请先退出游戏。</source>
+        <translation>The app is recording, so this round cannot start at the same time. Quit the game first.</translation>
+    </message>
+    <message>
+        <source>游戏正在运行：先完全退出游戏，再开始。</source>
+        <translation>The game is running: quit it completely first, then start.</translation>
+    </message>
+    <message>
+        <source>未安装 Npcap，暂时不能开始。</source>
+        <translation>Npcap is not installed, so this cannot start yet.</translation>
+    </message>
+    <message>
+        <source>暂时读不到软件的设置，请稍后再试。</source>
+        <translation>The app's settings can't be read right now. Please try again shortly.</translation>
+    </message>
+    <message>
+        <source>第二轮：确定任务、副本和职业的位置</source>
+        <translation>Round 2: locating the roulette, duty and job</translation>
+    </message>
+    <message>
+        <source>正在记录</source>
+        <translation>Recording</translation>
+    </message>
+    <message>
+        <source>等待游戏启动</source>
+        <translation>Waiting for the game</translation>
+    </message>
+    <message>
+        <source>已导出</source>
+        <translation>Exported</translation>
+    </message>
+    <message>
+        <source>尚未开始</source>
+        <translation>Not started</translation>
+    </message>
+    <message>
+        <source>这个游戏版本已经有一份候选档案，列出了可能带有任务编号、副本和职业的几种报文。这一轮记下它们的内容，维护者据此确定具体位置，之后才能为这个区服正式自动记录。只需要做一轮。</source>
+        <translation>This game version already has a candidate profile listing the few messages that may carry the roulette id, the duty and the job. This round records their content so the maintainer can pin down the exact positions; only then can this region be recorded automatically. One round is enough.</translation>
+    </message>
+    <message>
+        <source>这一轮会记录少数几种报文的内容，用来确定任务编号、副本和职业在报文里的位置。范围只限于这个游戏版本的候选档案里列出的报文；其中个别候选可能并不是我们以为的那一种，里面可能包含与你的角色有关的信息。文件只保存在这台电脑上，不会自动上传，由你决定是否发给维护者。</source>
+        <translation>This round records the content of a small number of message types, to find where the roulette id, the duty and the job sit in them. It is limited to the messages listed in this game version's candidate profile. A few of those candidates may not be what we think they are and could contain information related to your character. The file stays on this computer and is never uploaded automatically; you decide whether to send it to the maintainer.</translation>
+    </message>
+    <message>
+        <source>我已了解并同意这一轮记录这些报文的内容</source>
+        <translation>I understand and agree that this round records the content of these messages</translation>
+    </message>
+    <message>
+        <source>现在启动游戏并登录角色，再依次完成下面四件事，每完成一件就勾上。游戏退出后软件会自动接着记录，重新启动游戏后不需要再点开始。</source>
+        <translation>Start the game and log in now, then do the four things below in order, ticking each one when done. The app keeps recording after the game exits; you do not need to press Start again after restarting the game.</translation>
+    </message>
+    <message>
+        <source>已看到 %1 / %2 种报文 · 共记下 %3 条</source>
+        <translation>%1 of %2 message types seen · %3 recorded</translation>
+    </message>
+    <message>
+        <source>已导出。文件只保存在这台电脑上，没有上传。请把下面两个文件私下发给维护者：</source>
+        <translation>Exported. The files are only on this computer; nothing was uploaded. Please send the two files below to the maintainer privately:</translation>
+    </message>
+    <message>
+        <source>发给维护者以后可以删除这两个文件；软件自己记下的内容最多保留 30 天。</source>
+        <translation>You can delete these two files once you have sent them; what the app itself recorded is kept for at most 30 days.</translation>
+    </message>
+    <message>
+        <source>开始</source>
+        <translation>Start</translation>
+    </message>
+    <message>
+        <source>重新导出</source>
+        <translation>Export again</translation>
+    </message>
+    <message>
+        <source>正在导出</source>
+        <translation>Exporting</translation>
+    </message>
+    <message>
+        <source>结束并导出</source>
+        <translation>Finish and export</translation>
+    </message>
+    <message>
+        <source>打开所在文件夹</source>
+        <translation>Open containing folder</translation>
     </message>
 </context>
 </TS>

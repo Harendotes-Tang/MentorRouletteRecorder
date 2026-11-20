@@ -78,6 +78,14 @@ public:
     /// several connections and anchors across query pages. Never changes runs.
     void setCandidateFixture();
 
+    /// A GLOBAL client on 2026.11.03 with no profile that records it and the shipped
+    /// global.2026.11.03.candidate (the player's 第二轮 on the 新区服采证 page). The Collector
+    /// follows the game, so capture runs while the game does and candidate validation is on.
+    /// Test only.
+    void setCandidateRoundFixture(bool gameRunning);
+    /// $defs/CandidateHypothesis rows of protocol-profiles/global/global.2026.11.03.candidate.json.
+    static QJsonArray candidateRoundHypotheses();
+
     /// Keep a terminal validation fixture as history while simulating a
     /// currently running formal capture for projection screenshots.
     void setFormalCaptureRunning(bool running);
@@ -510,6 +518,10 @@ private:
                                          QString *errorMessage);
     void emitStatsInvalidatedLater();
     static QJsonArray declaredCandidateHypotheses();
+    /// What setCandidateRoundFixture() makes GetStatus.capture say.
+    void applyCandidateRoundFixture(QJsonObject &status) const;
+    bool m_candidateRound = false;
+    bool m_candidateRoundGameRunning = false;
     QString captureRegion() const;
     bool unsupportedCaptureRegion() const;
     bool m_npcapMissing = false;
