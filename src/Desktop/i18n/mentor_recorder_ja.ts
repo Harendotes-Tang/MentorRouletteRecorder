@@ -7862,6 +7862,42 @@ SHA256：%3</translation>
         <source>清除筛选</source>
         <translation>絞り込みを解除</translation>
     </message>
+    <message>
+        <source>：</source>
+        <translation>：</translation>
+    </message>
+    <message>
+        <source>软件记下了这一局，但没能确定结局，请打开记录确认结果。</source>
+        <translation>この回は記録されましたが、結果を判定できませんでした。記録を開いて結果を確認してください。</translation>
+    </message>
+    <message>
+        <source>导入的记录缺少结果或游戏内时间，补上后这个标记会消失。</source>
+        <translation>インポートした記録に結果またはゲーム内の時刻がありません。入力するとこのマークは消えます。</translation>
+    </message>
+    <message>
+        <source>进入时副本已经开始。</source>
+        <translation>入った時点でコンテンツはすでに始まっていました。</translation>
+    </message>
+    <message>
+        <source>你改动过软件记录的内容。</source>
+        <translation>アプリが記録した内容を変更しました。</translation>
+    </message>
+    <message>
+        <source>你补上或确认过软件不确定的内容，没有改动它记录的东西。</source>
+        <translation>アプリが判定できなかった内容を補足または確認しました。記録された内容は変更していません。</translation>
+    </message>
+    <message>
+        <source>已删除，仍保留在历史记录里，可以恢复。</source>
+        <translation>削除済みですが履歴に残っており、復元できます。</translation>
+    </message>
+    <message>
+        <source>这条记录是手动新增的。</source>
+        <translation>この記録は手動で追加したものです。</translation>
+    </message>
+    <message>
+        <source>这一局写了心得。</source>
+        <translation>この回にはメモがあります。</translation>
+    </message>
 </context>
 <context>
     <name>HistoryRegionFilter</name>
@@ -11475,6 +11511,22 @@ SHA256：%3</translation>
     <message>
         <source>仅保留待办</source>
         <translation>要対応に追加のみ</translation>
+    </message>
+    <message>
+        <source>显示时区</source>
+        <translation>表示タイムゾーン</translation>
+    </message>
+    <message>
+        <source>记录的时间按哪个时区显示和填写。数据仍按统一时间保存，切换不会改动任何记录。</source>
+        <translation>記録の時刻を表示・入力するタイムゾーンです。データは世界共通の時刻で保存されており、切り替えても記録は変更されません。</translation>
+    </message>
+    <message>
+        <source>跟随系统（%1）</source>
+        <translation>システムに合わせる（%1）</translation>
+    </message>
+    <message>
+        <source>当前按 %1 显示</source>
+        <translation>現在 %1 で表示中</translation>
     </message>
 </context>
 <context>

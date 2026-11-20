@@ -1,4 +1,5 @@
 #include "ReflectionShareController.h"
+#include "DisplayTimeZone.h"
 #include "Formatters.h"
 
 #include <QDir>
@@ -351,7 +352,7 @@ void ReflectionShareController::capturePrepared(QObject *object, const QString &
     const quint64 generation = ++m_generation;
     // 原生保存窗口可能跨过午夜；每次真正抓取前刷新日期，也覆盖逐条重试。
     if (item->property("opaquePaper").toBool())
-        item->setProperty("exportDate", QDate::currentDate().toString(QStringLiteral("yyyy.MM.dd")));
+        item->setProperty("exportDate", DisplayTimeZone::today().toString(QStringLiteral("yyyy.MM.dd")));
     m_grab = item->grabToImage(size);
     if (!m_grab) {
         done({}, tr("无法生成图片，请重新打开预览后重试。"));

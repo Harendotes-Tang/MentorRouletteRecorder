@@ -34,8 +34,7 @@ ColumnLayout {
     readonly property string whenText: {
         if (dialog.automaticOpen) return qsTr("刚刚结束")
         const iso = String(run.ended_at_utc || run.matched_at_utc || "")
-        const date = new Date(iso)
-        return isNaN(date.getTime()) ? Runtime.fmt.dash() : Qt.formatDateTime(date, "MM-dd HH:mm")
+        return Runtime.fmt.localFormat(iso, "MM-dd HH:mm") || Runtime.fmt.dash()
     }
 
     spacing: 0

@@ -7862,6 +7862,42 @@ SHA256: %3</translation>
         <source>清除筛选</source>
         <translation>Clear filters</translation>
     </message>
+    <message>
+        <source>：</source>
+        <translation>: </translation>
+    </message>
+    <message>
+        <source>软件记下了这一局，但没能确定结局，请打开记录确认结果。</source>
+        <translation>The app recorded this run but could not tell how it ended. Open the record and confirm the result.</translation>
+    </message>
+    <message>
+        <source>导入的记录缺少结果或游戏内时间，补上后这个标记会消失。</source>
+        <translation>This imported record is missing its result or its in-game times. The mark goes away once they are filled in.</translation>
+    </message>
+    <message>
+        <source>进入时副本已经开始。</source>
+        <translation>The duty was already under way when you entered.</translation>
+    </message>
+    <message>
+        <source>你改动过软件记录的内容。</source>
+        <translation>You changed something the app had recorded.</translation>
+    </message>
+    <message>
+        <source>你补上或确认过软件不确定的内容，没有改动它记录的东西。</source>
+        <translation>You filled in or confirmed something the app was unsure about, without changing what it recorded.</translation>
+    </message>
+    <message>
+        <source>已删除，仍保留在历史记录里，可以恢复。</source>
+        <translation>Deleted, but kept in the history; it can be restored.</translation>
+    </message>
+    <message>
+        <source>这条记录是手动新增的。</source>
+        <translation>This record was added by hand.</translation>
+    </message>
+    <message>
+        <source>这一局写了心得。</source>
+        <translation>A note was written for this run.</translation>
+    </message>
 </context>
 <context>
     <name>HistoryRegionFilter</name>
@@ -11475,6 +11511,22 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>仅保留待办</source>
         <translation>To do only</translation>
+    </message>
+    <message>
+        <source>显示时区</source>
+        <translation>Display time zone</translation>
+    </message>
+    <message>
+        <source>记录的时间按哪个时区显示和填写。数据仍按统一时间保存，切换不会改动任何记录。</source>
+        <translation>The time zone in which record times are shown and entered. Data is still stored in universal time; switching changes no record.</translation>
+    </message>
+    <message>
+        <source>跟随系统（%1）</source>
+        <translation>Follow system (%1)</translation>
+    </message>
+    <message>
+        <source>当前按 %1 显示</source>
+        <translation>Currently shown in %1</translation>
     </message>
 </context>
 <context>

@@ -1,5 +1,6 @@
 #include "GameSelectionController.h"
 #include "CollectorText.h"
+#include "DisplayTimeZone.h"
 #include <QDateTime>
 #include <QPointer>
 #include <algorithm>
@@ -43,11 +44,14 @@ GameSelectionController::GameSelectionController(IBackend *backend, QObject *par
         emit choicesChanged();
         emit changed();
     });
-    onLanguageChanged(this, [this] {
+    const auto relabelAll = [this] {
         relabel();
         emit choicesChanged();
         emit changed();
-    });
+    };
+    onLanguageChanged(this, relabelAll);
+    // The labels carry each game's start time (显示时区).
+    connect(DisplayTimeZone::notifier(), &DisplayTimeZone::changed, this, relabelAll);
 }
 
 QString GameSelectionController::choiceLabel(const QVariantMap &choice, int number)
@@ -55,7 +59,7 @@ QString GameSelectionController::choiceLabel(const QVariantMap &choice, int numb
     const auto started = QDateTime::fromString(
         choice.value(QStringLiteral("started_at_utc")).toString(), Qt::ISODateWithMs);
     return started.isValid()
-        ? tr("游戏 %1 · %2 启动").arg(number).arg(started.toLocalTime().toString(QStringLiteral("HH:mm:ss")))
+        ? tr("游戏 %1 · %2 启动").arg(number).arg(DisplayTimeZone::toDisplay(started).toString(QStringLiteral("HH:mm:ss")))
         : tr("游戏 %1 · 启动时间暂不可读").arg(number);
 }
 

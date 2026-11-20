@@ -8,7 +8,7 @@
 namespace mr {
 
 /// 解析后端 ISO 时间；缺少时区时按 UTC 解释，显式偏移保持原值，非法输入返回无效时间。
-/// 不转换为本地显示时间；需要本地显示的调用方自行调用 toLocalTime()。
+/// 不转换为本地显示时间；需要本地显示的调用方自行调用 DisplayTimeZone::toDisplay()（显示时区）。
 inline QDateTime parseUtcTimestamp(const QString &text)
 {
     QDateTime stamp = QDateTime::fromString(text, Qt::ISODateWithMs);

@@ -1,6 +1,7 @@
 #include "AppSettings.h"
 
 #include "BuildFlavour.h"
+#include "DisplayTimeZone.h"
 
 #include <QCoreApplication>
 #include <QDate>
@@ -103,6 +104,11 @@ AppSettings::AppSettings(const QString &iniPath, build::Flavour flavour, QObject
     , m_flavour(flavour)
 {
     QDir().mkpath(QFileInfo(iniPath).absolutePath());
+    // A 显示时区 Qt does not know (an edited file, a zone retired from the
+    // machine's database) is the system's, and is not kept as a choice.
+    const QString zoneKey = QStringLiteral("general/displayTimeZone");
+    if (m_settings.contains(zoneKey) && displayTimeZone().isEmpty())
+        m_settings.remove(zoneKey);
 }
 
 bool AppSettings::hasRawOption(const QStringList &arguments, const QString &name)
@@ -549,6 +555,26 @@ void AppSettings::setPromptPresentation(const QString &presentation)
         return;
     m_settings.setValue(QStringLiteral("general/promptPresentation"), presentation);
     Q_EMIT generalChanged();
+}
+
+QString AppSettings::displayTimeZone() const
+{
+    return DisplayTimeZone::normalized(
+        m_settings.value(QStringLiteral("general/displayTimeZone")).toString());
+}
+
+void AppSettings::setDisplayTimeZone(const QString &id)
+{
+    const QString next = DisplayTimeZone::normalized(id);
+    // In force first, so whatever the signal re-evaluates already reads the new zone.
+    DisplayTimeZone::set(next);
+    if (displayTimeZone() == next)
+        return;
+    if (next.isEmpty())
+        m_settings.remove(QStringLiteral("general/displayTimeZone"));
+    else
+        m_settings.setValue(QStringLiteral("general/displayTimeZone"), next);
+    Q_EMIT displayTimeZoneChanged();
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 #include "StatisticsController.h"
 #include "workflows/UtcTimestamp.h"
 #include "IBackend.h"
+#include "DisplayTimeZone.h"
 #include "DutyCatalog.h"
 #include "Formatters.h"
 #include <QCoreApplication>
@@ -36,6 +37,9 @@ StatisticsController::StatisticsController(IBackend *backend, QObject *parent, c
     });
     connect(m_dungeons, &DungeonStatsModel::countChanged,
             this, &StatisticsController::rebuildDutyOptions);
+    // The trend's buckets stay the Collector's UTC days; only their labels follow 显示时区.
+    connect(DisplayTimeZone::notifier(), &DisplayTimeZone::changed,
+            this, &StatisticsController::relabelTrend);
 }
 
 void StatisticsController::refreshDashboard()
@@ -395,27 +399,45 @@ void StatisticsController::applyTrendSeries(const QJsonObject &trend)
     // start_utc into a label the axis can carry, and it does that in local
     // time because that is the clock the user reads
     // (docs/statistics-definitions.md section 12.1).
+    // Local is the 显示时区 (DisplayTimeZone); relabelTrend() follows a change of it.
     const QString granularity = trend.value(QStringLiteral("granularity")).toString();
     m_trendSeriesGranularity = granularity;
-    const QString format = granularity == QLatin1String("month")
-                               ? QStringLiteral("yyyy-MM")
-                               : QStringLiteral("MM-dd");
 
     m_trendBuckets.clear();
     const QJsonArray buckets = trend.value(QStringLiteral("buckets")).toArray();
     for (const auto &value : buckets) {
         const QJsonObject entry = value.toObject();
-        const QDateTime start = parseUtcTimestamp(entry.value(QStringLiteral("start_utc")));
+        const QString startUtc = entry.value(QStringLiteral("start_utc")).toString();
 
         QVariantMap bucket;
-        bucket.insert(QStringLiteral("label"),
-                      start.isValid() ? start.toLocalTime().toString(format) : QString());
+        bucket.insert(QStringLiteral("label"), trendLabel(entry.value(QStringLiteral("start_utc"))));
         bucket.insert(QStringLiteral("count"),
                       entry.value(QStringLiteral("completed_count")).toInt());
-        bucket.insert(QStringLiteral("start_utc"),
-                      entry.value(QStringLiteral("start_utc")).toString());
+        bucket.insert(QStringLiteral("start_utc"), startUtc);
         m_trendBuckets.append(bucket);
     }
+}
+
+QString StatisticsController::trendLabel(const QJsonValue &startUtc) const
+{
+    const QString format = m_trendSeriesGranularity == QLatin1String("month")
+                               ? QStringLiteral("yyyy-MM")
+                               : QStringLiteral("MM-dd");
+    const QDateTime start = DisplayTimeZone::toDisplay(parseUtcTimestamp(startUtc));
+    return start.isValid() ? start.toString(format) : QString();
+}
+
+void StatisticsController::relabelTrend()
+{
+    if (m_trendBuckets.isEmpty())
+        return;
+    for (auto &value : m_trendBuckets) {
+        QVariantMap bucket = value.toMap();
+        bucket.insert(QStringLiteral("label"),
+                      trendLabel(QJsonValue(bucket.value(QStringLiteral("start_utc")).toString())));
+        value = bucket;
+    }
+    Q_EMIT trendChanged();
 }
 
 void StatisticsController::applyDayCounts(const QJsonObject &trend)

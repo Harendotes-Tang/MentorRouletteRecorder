@@ -87,17 +87,27 @@ StyledTextField {
         popup.close()
     }
 
-    function selectNow() {
+    /// Now as { hour, minute, second } in the 显示时区 (Fmt; the system's without it).
+    function nowParts() {
+        const text = typeof Runtime.fmt !== "undefined" && Runtime.fmt ? Runtime.fmt.nowLocalTime() : ""
+        const parsed = text ? field.parse(text) : null
+        if (parsed)
+            return parsed
         const now = new Date()
-        field.text = pad(now.getHours()) + ":" + pad(now.getMinutes()) + ":" + pad(now.getSeconds())
+        return { hour: now.getHours(), minute: now.getMinutes(), second: now.getSeconds() }
+    }
+
+    function selectNow() {
+        const now = field.nowParts()
+        field.text = pad(now.hour) + ":" + pad(now.minute) + ":" + pad(now.second)
         popup.close()
     }
 
     function openPicker() {
         const parsed = field.parse(field.text)
-        const now = new Date()
-        hourWheel.currentIndex = parsed ? parsed.hour : now.getHours()
-        minuteWheel.currentIndex = parsed ? parsed.minute : now.getMinutes()
+        const now = field.nowParts()
+        hourWheel.currentIndex = parsed ? parsed.hour : now.hour
+        minuteWheel.currentIndex = parsed ? parsed.minute : now.minute
         popup.open()
     }
 

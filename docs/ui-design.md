@@ -1095,6 +1095,12 @@ kicker `padding: 12px 0 4px`；`freeLayout` 面板 `padding: 20px 24px`，间距
   右侧为四段分段控件（`uiLanguageSettingControl`）：简体中文 / 繁體中文 / English / 日本語，
   每个选项以其自身语言书写，并以该语言的字形绘制（`Lang.displayFamily`）。
   点选即切换并写入 `desktop.ini` 的 `ui/language`，**不需要重启**，见 §4.5.3。
+  其下一行「显示时区」（`displayTimeZoneRow`），小字「记录的时间按哪个时区显示和填写。数据仍按统一时间保存，切换不会改动任何记录。」，
+  右侧下拉框（`displayTimeZoneBox`）第一项为「跟随系统（UTC+09:00）」（括号内为系统时区此刻的偏移），
+  其后是按此刻偏移排序的常用时区，每项写作「UTC+08:00 · Asia/Taipei」（列表只在 `DisplayTimeZone::curatedIds()` 一处，
+  只列本机 Qt 认得的时区）。选中即写入 `desktop.ini` 的 `general/displayTimeZone`（IANA 时区名，跟随系统时删除该键），
+  **不需要重启**；选了系统以外的时区时，行下一句小字（`displayTimeZoneHint`）「当前按 UTC+08:00 显示」说明屏幕上的时间为何与任务栏时钟不同。
+  选择放在设置行而不是历史记录页眉：只有改过设置的玩家才需要这句提示，页眉对其余玩家是多余的字。见 §8 第 9 条。
 * **启动与托盘**（`generalSettingsCard`）：开机启动（`autostartToggle`，小字随情况变化，见下文开机启动一条）、
   随 FF14 自动开始捕获（`followGameToggle`，仅维护者可见，写入 `UpdateCaptureSettings.follow_game`）、关闭时最小化到托盘。
 * **自动记录**（`captureRegionSettingsCard`）：唯一一行「游戏区服」，右侧为区服下拉框（`captureRegionSettingControl`，
@@ -2496,6 +2502,22 @@ Phase 4 的真实后端评审截图位于 `build/screenshots/phase4/`，包括
    * 区服未适配（`App.regionUnsupported`：`GetProtocolProfileStatus` 的 `message_ref.key` 为 `profile.unavailable.region_unsupported`）：
      弹窗与总览的说明、捕获诊断的链路摘要与协议档案一格（「区服未适配」）、版本支持卡片都说「这个区服」而不是「游戏版本」；
      卡片写明校准不会自动开始，并显示「采证步骤」（`protocolEvidenceButton`）打开新区服采证。受支持区服的新版本仍用「版本」措辞，不显示该按钮。
+9. **显示时区（2026-11-20）**：一位测试者的电脑时区设为日本，而他并不在日本，软件里看到和填写的时间都是日本时间，常需手动调整记录时间。
+   时间仍按 UTC 保存与传输（所有 `*_at_utc` 字段），设置只改变桌面端把 UTC 换成钟面时间时用哪个时区：
+   * 唯一的换算入口是 `cpp/DisplayTimeZone.*`：`current()` 为所选时区，未选时为系统时区（`QTimeZone::LocalTime`，与原先的
+     `toLocalTime()` 完全一致）；`set()` 之后发出 `changed()`。QML 不直接接触它：`Runtime.fmt` 的时间函数经它换算，
+     `QmlRuntime` 在 `changed()` 时重新通告 `fmt`，所有经 `Runtime.fmt` 格式化时间的绑定随之重算，无需重启；
+     把时间拼进文字后保存的 C++ 控制器（校准事件、候选会话标签、游戏选择、趋势标签）各自连接 `changed()` 重新生成。
+   * 跟随所选时区的：历史记录、详情、修正历史、心得与分享图上的日期和时刻；手动新增与修正表单中填写的日期和时刻
+     （`RunFormValidator::toDateTime` / `toUtcIso` 在所选时区里组装，不再经 JavaScript `Date`）、表单的「今天」与时间选择器的「现在」；
+     历史记录与全部心得的日期范围（`Fmt.dayBoundaryUtc`）及「今天 / 近 7 天 / 近 30 天 / 本月」预设（`HistoryFilterFacets`）；
+     统计浮窗的「今天 / 近 7 天 / 近 30 天」窗口（`StatisticsOverlayController`，切换时区立即重新读取）；趋势图柱子的日期标签；
+     捕获诊断、校准与采证回报中的时刻及回报里写的 UTC 偏移；导入窗口「原记录时区」的默认值（所选时区此刻的偏移，
+     未选时仍为北京时间 +08:00；玩家在导入窗口改过的时区不随设置变化，发送的仍是偏移）。
+   * 刻意不跟随的：趋势图的分桶（采集服务按 UTC 切分，见 docs/statistics-definitions.md「时区」一节，只有标签随时区）；
+     CSV / JSON 导出（UTC，由采集服务写出）；导出、备份、诊断报告与心得合集图片的**文件名**中的日期时间（仍为系统时间）；
+     采集服务自己按系统时区计算的内容，例如日期选择器中「有记录的日子」（`QueryRunCalendarDays`）、只有日期的导入记录的排序位置，
+     以及采集服务自行写出的中文原句里的时刻（桌面端按 `*_ref` 渲染的句子已随所选时区）。
 
 ## 9. 图标清单与许可
 

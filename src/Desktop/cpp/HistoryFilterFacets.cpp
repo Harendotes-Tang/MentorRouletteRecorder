@@ -1,4 +1,5 @@
 #include "HistoryFilterFacets.h"
+#include "DisplayTimeZone.h"
 #include "IBackend.h"
 
 #include <QDateTime>
@@ -15,6 +16,8 @@ HistoryFilterFacets::HistoryFilterFacets(IBackend *backend, QObject *parent)
 {
     m_refreshTimer.setSingleShot(true);
     connect(&m_refreshTimer, &QTimer::timeout, this, &HistoryFilterFacets::queryBatch);
+    // 今天 / 近 7 天 … are days of the 显示时区: another zone, other counts.
+    connect(DisplayTimeZone::notifier(), &DisplayTimeZone::changed, this, &HistoryFilterFacets::refresh);
     if (backend) {
         connect(backend, &IBackend::connectionChanged, this, &HistoryFilterFacets::refresh);
         connect(backend, &QObject::destroyed, this, [this] {
@@ -60,7 +63,8 @@ void HistoryFilterFacets::refresh()
 
 QVariantMap HistoryFilterFacets::dateRange(const QString &preset) const
 {
-    const QDate today = QDate::currentDate();
+    // Days of the 显示时区, like every date the history page shows.
+    const QDate today = DisplayTimeZone::today();
     QDate first;
     if (preset == QLatin1String("today")) first = today;
     else if (preset == QLatin1String("last7")) first = today.addDays(-6);
@@ -90,7 +94,7 @@ void HistoryFilterFacets::queryBatch()
         const QDate first = QDate::fromString(range.value(QStringLiteral("start")).toString(), Qt::ISODate);
         const QDate last = QDate::fromString(range.value(QStringLiteral("end")).toString(), Qt::ISODate);
         if (first.isValid()) {
-            const auto zone = QTimeZone::systemTimeZone();
+            const auto zone = DisplayTimeZone::current();
             filter.insert(QStringLiteral("from_utc"), first.startOfDay(zone).toUTC().toString(Qt::ISODateWithMs));
             filter.insert(QStringLiteral("to_utc"), last.endOfDay(zone).toUTC().toString(Qt::ISODateWithMs));
         }

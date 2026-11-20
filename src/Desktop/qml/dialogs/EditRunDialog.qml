@@ -937,8 +937,10 @@ MotionDialog {
     function buildUtc(dateText, timeText) {
         if (!timeText || timeText.trim().length === 0)
             return null
-        const value = Runtime.runForm.toDateTime(dateText, canonicalTime(timeText))
-        return value ? new Date(value).toISOString() : null
+        // Typed in the 显示时区; C++ turns it into the UTC text, never a JavaScript Date
+        // (which knows only the system zone).
+        const value = Runtime.runForm.toUtcIso(dateText, canonicalTime(timeText))
+        return value ? value : null
     }
 
     function fieldUtc(dateText, timeText, key) {
@@ -971,7 +973,7 @@ MotionDialog {
         editMode = false
         runData = null
         recordRegion = defaultRecordRegion()
-        matchedDate = Qt.formatDateTime(new Date(), "yyyy-MM-dd")
+        matchedDate = Runtime.fmt.todayLocal()
         enteredDate = matchedDate
         endedDate = matchedDate
         matchedTime = ""

@@ -1,5 +1,6 @@
 #include "CandidateReviewController.h"
 #include "CollectorText.h"
+#include "DisplayTimeZone.h"
 #include "IBackend.h"
 
 #include <QDateTime>
@@ -62,7 +63,7 @@ CandidateReviewController::CandidateReviewController(QObject *parent) : QObject(
         Q_EMIT captureStatusRefreshRequested();
         if (m_active && !m_loading && m_reviewBusyId.isEmpty()) loadPage(m_page);
     });
-    onLanguageChanged(this, [this] {
+    const auto relabel = [this] {
         // The messages are recipes; only the session labels were built as text.
         for (auto &session : m_sessions) {
             auto summary = session.toMap();
@@ -70,7 +71,10 @@ CandidateReviewController::CandidateReviewController(QObject *parent) : QObject(
             session = summary;
         }
         Q_EMIT changed();
-    });
+    };
+    onLanguageChanged(this, relabel);
+    // The labels carry a local time (显示时区).
+    connect(DisplayTimeZone::notifier(), &DisplayTimeZone::changed, this, relabel);
 }
 
 void CandidateReviewController::setBackend(IBackend *backend)
@@ -307,7 +311,8 @@ void CandidateReviewController::finishIndex()
 
 QString CandidateReviewController::sessionLabel(const QVariantMap &summary)
 {
-    const auto local = QDateTime::fromString(summary.value(QStringLiteral("first_at_utc")).toString(), Qt::ISODateWithMs).toLocalTime();
+    const auto local = DisplayTimeZone::toDisplay(
+        QDateTime::fromString(summary.value(QStringLiteral("first_at_utc")).toString(), Qt::ISODateWithMs));
     return tr("%1 · %2 · %3 条")
         .arg(local.toString(QStringLiteral("MM-dd HH:mm")), summary.value(QStringLiteral("session_id")).toString().left(8))
         .arg(summary.value(QStringLiteral("count")).toInt());

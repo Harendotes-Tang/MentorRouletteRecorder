@@ -142,6 +142,8 @@ private:
     void sendDiscard(bool retireLocalProfile, bool restoreLocalProfile);
     /// The profile in force as \a capture describes it: status, origin and build.
     static QString profileInForce(const QVariantMap &capture);
+    /// An event's at_utc as the line shows it: HH:mm today, MM-dd HH:mm before.
+    static QString eventTimeText(const QString &atUtc);
 
     QPointer<IBackend> m_backend;
     SharedCalibrationController *m_shared = nullptr;

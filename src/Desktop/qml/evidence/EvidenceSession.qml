@@ -544,12 +544,10 @@ QtObject {
     property string duty: ""
     property string job: ""
 
+    // The offset of the clock the report's times are written in: the 显示时区 when the
+    // round started (now before it has).
     function utcOffsetLabel() {
-        const minutes = -new Date().getTimezoneOffset()
-        const sign = minutes >= 0 ? "+" : "-"
-        const abs = Math.abs(minutes)
-        const two = function(n) { return (n < 10 ? "0" : "") + n }
-        return "UTC" + sign + two(Math.floor(abs / 60)) + ":" + two(abs % 60)
+        return Runtime.fmt.localUtcOffset(session.startedAt || "")
     }
     function countText(value) { return value === null ? Runtime.fmt.dash() : Runtime.fmt.count(value) }
     // Why a failed round failed, in the Collector's words when it sent some

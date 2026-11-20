@@ -86,7 +86,9 @@ StyledTextField {
         }
     }
     function openCalendar() {
-        const shown = parse(rangeMode ? fromInput.text : text) || new Date()
+        // An empty field opens on today's month in the 显示时区 (Fmt; the system's without it).
+        const today = typeof Runtime.fmt !== "undefined" && Runtime.fmt ? parse(Runtime.fmt.todayLocal()) : null
+        const shown = parse(rangeMode ? fromInput.text : text) || today || new Date()
         grid.year = shown.getFullYear()
         grid.month = shown.getMonth()
         monthView = false
@@ -349,6 +351,9 @@ StyledTextField {
                             && (!field.rangeMode || !field.restrictToRecords
                                 || field.availableDays.indexOf(dateKey) >= 0)
                         readonly property string dateKey: Qt.formatDate(model.date, "yyyy-MM-dd")
+                        // Today of the 显示时区 (Fmt); MonthGrid's own flag follows the system.
+                        readonly property bool isToday: typeof Runtime.fmt !== "undefined" && Runtime.fmt
+                            ? dateKey === Runtime.fmt.todayLocal() : model.today
                         readonly property bool selected: field.rangeMode
                             ? dateKey === fromInput.text || dateKey === toInput.text
                             : dateKey === field.text.trim()
@@ -365,7 +370,7 @@ StyledTextField {
                             radius: Theme.radiusS
                             color: day.selected ? Theme.accent : day.inRange ? Theme.accentMuted
                                    : day.hovered ? Theme.fill : "transparent"
-                            border.width: day.visualFocus ? 2 : day.model.today && day.enabled && !day.selected ? 1 : 0
+                            border.width: day.visualFocus ? 2 : day.isToday && day.enabled && !day.selected ? 1 : 0
                             border.color: Theme.accent
                         }
                         contentItem: Text {

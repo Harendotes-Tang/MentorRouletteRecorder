@@ -797,6 +797,34 @@ ApplicationWindow {
                 hasSupplement |= field.toMap().value(QStringLiteral("v")).toString() == QStringLiteral("待补充");
             QCOMPARE(hasSupplement, source == QLatin1String("IMPORT"));
         }
+        // 标记: every word of the column comes with the sentence that explains it (a tester
+        // did not know what 待补充 and 已确认 meant, 2026-11-20).
+        {
+            const auto marksOf = [page](const QVariantMap &run) {
+                QVariant returned;
+                QMetaObject::invokeMethod(page, "runMarks", Q_RETURN_ARG(QVariant, returned), Q_ARG(QVariant, QVariant(run)));
+                if (returned.metaType() == QMetaType::fromType<QJSValue>()) returned = returned.value<QJSValue>().toVariant();
+                QStringList labels;
+                for (const QVariant &mark : returned.toList()) {
+                    const QVariantMap entry = mark.toMap();
+                    if (entry.value(QStringLiteral("tip")).toString().size() < 6) return QStringList{QStringLiteral("(no tip)")};
+                    labels.append(entry.value(QStringLiteral("label")).toString());
+                }
+                return labels;
+            };
+            QCOMPARE(marksOf({{QStringLiteral("source"), QStringLiteral("IMPORT")}, {QStringLiteral("result"), QStringLiteral("UNKNOWN")}}),
+                     QStringList{QString::fromUtf8("待补充")});
+            // Edited without overruling anything: 已确认. Overruled: 已修正, never both.
+            QCOMPARE(marksOf({{QStringLiteral("source"), QStringLiteral("AUTO_NETWORK")}, {QStringLiteral("revision"), 2}}),
+                     QStringList{QString::fromUtf8("已确认")});
+            QCOMPARE(marksOf({{QStringLiteral("source"), QStringLiteral("AUTO_NETWORK")}, {QStringLiteral("revision"), 3},
+                              {QStringLiteral("manually_corrected"), true}, {QStringLiteral("reflection"), QVariantMap{{QStringLiteral("text"), QStringLiteral("x")}}}}),
+                     (QStringList{QString::fromUtf8("已修正"), QString::fromUtf8("有笔记")}));
+            QCOMPARE(marksOf({{QStringLiteral("source"), QStringLiteral("AUTO_NETWORK")}, {QStringLiteral("pending_review"), true},
+                              {QStringLiteral("revision"), 2}, {QStringLiteral("joined_in_progress"), true}}),
+                     (QStringList{QString::fromUtf8("待复核"), QString::fromUtf8("中途加入")}));
+            QVERIFY(marksOf({{QStringLiteral("source"), QStringLiteral("AUTO_NETWORK")}}).isEmpty());
+        }
         for (const QString &raw : {QStringLiteral("2024-09-24"), QStringLiteral("2024/9/24"), QStringLiteral("2024.9.24")}) {
             const QVariantMap source{{QStringLiteral("source_recorded_at"), raw}};
             const QVariant input = QVariantMap{{QStringLiteral("import_metadata"), source}};

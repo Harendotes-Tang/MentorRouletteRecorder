@@ -1,4 +1,5 @@
 #include "DesktopTestRunner.h"
+#include "DisplayTimeZone.h"
 #include "IBackend.h"
 #include "ImportRecordsController.h"
 #include "IpcFraming.h"
@@ -1485,6 +1486,27 @@ ApplicationWindow {
         }
         for (int id : {19, 24, 34, 42})
             QVERIFY2(selectable.contains(id), qPrintable(QString::number(id)));
+    }
+
+    // 显示时区: a chosen zone becomes the default source zone (its offset now); a zone
+    // the player picked in the dialog is never moved, and nothing else is sent.
+    void sourceZoneDefaultsToTheDisplayTimeZone()
+    {
+        const auto restore = qScopeGuard([] { mr::DisplayTimeZone::set(QString()); });
+        QCOMPARE(mr::ImportRecordsController::defaultTimeZone(), QStringLiteral("+08:00"));
+        mr::ImportRecordsController controller;
+        QCOMPARE(controller.timeZone(), QStringLiteral("+08:00"));
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Tokyo"));
+        QCOMPARE(mr::ImportRecordsController::defaultTimeZone(), QStringLiteral("+09:00"));
+        QCOMPARE(controller.timeZone(), QStringLiteral("+09:00"));
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Kolkata"));
+        QCOMPARE(controller.timeZone(), QStringLiteral("+05:30"));
+        controller.setTimeZone(QStringLiteral("+00:00"));
+        mr::DisplayTimeZone::set(QString());
+        QCOMPARE(controller.timeZone(), QStringLiteral("+00:00"));
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Tokyo"));
+        const mr::ImportRecordsController fresh;
+        QCOMPARE(fresh.timeZone(), QStringLiteral("+09:00"));
     }
 
     void revalidationRestoresOnlyPreviouslySelectedImportableRowNumbers()

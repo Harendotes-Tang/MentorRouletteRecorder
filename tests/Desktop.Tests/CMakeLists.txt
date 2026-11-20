@@ -317,10 +317,12 @@ mr_desktop_suite_test(MentorRecorderDesktopComponentsTests ToggleSwitch NO_LOG)
 # Speech: 在线语音 - SpeechController, TtsService routing, the tts-cache path check.
 # TtsService: template substitution, rate/volume mapping, live events. Its announcements go to Qt's
 #   silent mock speech engine and never to the machine's own voice; without that plugin they are skipped.
+# DisplayTimeZone: 显示时区 - formatting in the chosen zone, the setting, daylight saving, the offered
+#   list and the settings row, without changing the machine's own zone.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopSettingsTests
-    SUITES LanguageManager GameNames CollectorText CollectorTextDisplay Speech TtsService)
-foreach(suite IN ITEMS LanguageManager GameNames CollectorText CollectorTextDisplay Speech)
+    SUITES LanguageManager GameNames CollectorText CollectorTextDisplay Speech TtsService DisplayTimeZone)
+foreach(suite IN ITEMS LanguageManager GameNames CollectorText CollectorTextDisplay Speech DisplayTimeZone)
     mr_desktop_suite_test(MentorRecorderDesktopSettingsTests ${suite})
 endforeach()
 mr_desktop_suite_test(MentorRecorderDesktopSettingsTests TtsService NO_LOG)
@@ -1060,7 +1062,9 @@ list(APPEND MR_RECORDING_QML_TESTS MentorRecorderQmlClosedGame_dark_shared-fetch
 add_executable(MentorRecorderAppSettingsIsolationTests
     settings/AppSettingsIsolationTests.cpp support/AppSettingsAudit.h
     ${PROJECT_SOURCE_DIR}/src/Desktop/cpp/AppSettings.cpp
-    ${PROJECT_SOURCE_DIR}/src/Desktop/cpp/AppSettings.h)
+    ${PROJECT_SOURCE_DIR}/src/Desktop/cpp/AppSettings.h
+    ${PROJECT_SOURCE_DIR}/src/Desktop/cpp/DisplayTimeZone.cpp
+    ${PROJECT_SOURCE_DIR}/src/Desktop/cpp/DisplayTimeZone.h)
 target_include_directories(MentorRecorderAppSettingsIsolationTests PRIVATE
     ${PROJECT_SOURCE_DIR}/src/Desktop/cpp)
 target_link_libraries(MentorRecorderAppSettingsIsolationTests PRIVATE MentorRecorderIpcWire Qt6::Core Qt6::Test)

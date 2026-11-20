@@ -1,5 +1,6 @@
 #include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
+#include "DisplayTimeZone.h"
 #include "Formatters.h"
 #include "JobCatalog.h"
 #include "RoleCatalog.h"
@@ -13,8 +14,10 @@
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQmlPropertyMap>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QTest>
+#include <QTimeZone>
 #include <memory>
 
 namespace {
@@ -162,6 +165,25 @@ ApplicationWindow {
         const auto entered = mr::RunFormValidator::toDateTime("2026-09-07", "23:55:12.456").toDateTime();
         const auto ended = mr::RunFormValidator::toDateTime("2026-09-08", "00:20:14.789").toDateTime();
         QCOMPARE(entered.msecsTo(ended), 1502333);
+    }
+
+    // 显示时区: a typed date and time are a wall clock of the chosen zone, whatever the
+    // machine's own. Asia/Kolkata (+05:30) differs from Asia/Tokyo and from UTC.
+    void typedTimesAreReadInTheDisplayTimeZone()
+    {
+        const auto restore = qScopeGuard([] { mr::DisplayTimeZone::set(QString()); });
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Kolkata"));
+        QCOMPARE(mr::DisplayTimeZone::id(), QStringLiteral("Asia/Kolkata"));
+        const QDateTime matched = mr::RunFormValidator::toDateTime("2026-11-20", "21:30:00").toDateTime();
+        QCOMPARE(matched.toUTC(), QDateTime(QDate(2026, 11, 20), QTime(16, 0), QTimeZone::UTC));
+        QCOMPARE(mr::RunFormValidator::toUtcIso("2026-11-21", "00:15:30.250"),
+                 QStringLiteral("2026-11-20T18:45:30.250Z"));
+        QCOMPARE(mr::RunFormValidator::toUtcIso("2026-11-21", "not a time"), QString());
+        // Shown back as typed, so an untouched field is no edit.
+        QCOMPARE(mr::Formatters::localDate(QStringLiteral("2026-11-20T18:45:30.250Z")), QStringLiteral("2026-11-21"));
+        QCOMPARE(mr::Formatters::localTime(QStringLiteral("2026-11-20T18:45:30.250Z")), QStringLiteral("00:15:30"));
+        mr::DisplayTimeZone::set(QStringLiteral("America/New_York"));
+        QCOMPARE(mr::RunFormValidator::toUtcIso("2026-11-20", "21:30:00"), QStringLiteral("2026-11-21T02:30:00.000Z"));
     }
 
     void rejectsInvalidExplicitDateInsteadOfGuessingNextDay()

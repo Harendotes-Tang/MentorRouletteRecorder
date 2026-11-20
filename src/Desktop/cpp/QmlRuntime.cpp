@@ -1,5 +1,7 @@
 #include "QmlRuntime.h"
 
+#include "DisplayTimeZone.h"
+
 #include <QJSEngine>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -13,6 +15,10 @@ QmlRuntime::QmlRuntime(QQmlEngine *engine)
 {
     for (std::size_t index = 0; index < FieldCount; ++index)
         m_values[index] = normalizedValue(static_cast<Field>(index), QVariant{});
+    // 显示时区: Fmt's time formatters read the zone when they run, so announcing
+    // `fmt` again re-evaluates every binding that formats a time through it.
+    if (DisplayTimeZone *zone = DisplayTimeZone::notifier())
+        connect(zone, &DisplayTimeZone::changed, this, &QmlRuntime::fmtChanged);
 }
 
 QmlRuntime *QmlRuntime::forEngine(QQmlEngine *engine)

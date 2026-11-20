@@ -1,4 +1,5 @@
 #include "ReflectionLibraryController.h"
+#include "DisplayTimeZone.h"
 #include "IBackend.h"
 
 #include <QDate>
@@ -137,7 +138,8 @@ void ReflectionLibraryController::applyFilter(const QVariantMap &next)
 
 QVariantList ReflectionLibraryController::orderedByDate(const QVariantList &runs, bool ascending) const
 {
-    return orderedByDate(runs, ascending, QTimeZone::systemTimeZone());
+    // A record known only by its day is that day's start in the 显示时区.
+    return orderedByDate(runs, ascending, DisplayTimeZone::current());
 }
 
 QVariantList ReflectionLibraryController::orderedByDate(const QVariantList &runs, bool ascending,

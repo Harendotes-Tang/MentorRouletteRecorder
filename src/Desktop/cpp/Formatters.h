@@ -11,7 +11,10 @@
 //   * an undefined statistic (null) always renders as an em dash, never 0
 //     (docs/statistics-definitions.md 14);
 //   * timestamps travel as UTC ISO-8601 and are displayed in local time
-//     (docs/architecture.md 4.6).
+//     (docs/architecture.md 4.6) - the 显示时区 in force (DisplayTimeZone.h),
+//     which is the system zone unless the player chose another. Runtime.fmt is
+//     re-announced when that zone changes, so bindings that format through it
+//     re-render by themselves.
 // ---------------------------------------------------------------------------
 
 #include <QObject>
@@ -42,6 +45,24 @@ public:
     Q_INVOKABLE static QString localDateTime(const QVariant &utcIso);
     /// "yyyy-MM-dd" plus the weekday in the interface language, for page headers.
     Q_INVOKABLE static QString dateWithWeekday(const QVariant &utcIso);
+    /// \a utcIso in local time in Qt's \a format ("MM-dd HH:mm"); "" when it is
+    /// not a time, so the caller picks its own placeholder.
+    Q_INVOKABLE static QString localFormat(const QVariant &utcIso, const QString &format);
+    /// Today as "yyyy-MM-dd" in local time.
+    Q_INVOKABLE static QString todayLocal();
+    /// Now as "HH:mm:ss" in local time.
+    Q_INVOKABLE static QString nowLocalTime();
+    /// The UTC instant (ISO-8601, milliseconds) that starts the local day
+    /// \a date ("yyyy-MM-dd") names, or with \a endOfDay its last millisecond;
+    /// "" for a blank or impossible date.
+    Q_INVOKABLE static QString dayBoundaryUtc(const QString &date, bool endOfDay);
+    /// "UTC+08:00": the local zone's offset at \a utcIso, or now when it is empty.
+    Q_INVOKABLE static QString localUtcOffset(const QVariant &utcIso = {});
+    /// "UTC+09:00": the operating system's own zone now, whatever is chosen.
+    Q_INVOKABLE static QString systemUtcOffset();
+    /// 显示时区 choices after 跟随系统: [{ value: "Asia/Taipei", text: "UTC+08:00 · Asia/Taipei" }],
+    /// ordered by their offset now (DisplayTimeZone::curatedIds()).
+    Q_INVOKABLE static QVariantList displayTimeZoneOptions();
 
     // -- numbers ------------------------------------------------------------
     /// "mm:ss", or "hh:mm:ss" past an hour. Negative and null give an em dash.

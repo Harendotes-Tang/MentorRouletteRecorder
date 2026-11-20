@@ -122,6 +122,10 @@ public:
     QVariantMap currentEvidence() const;
     QString timeZone() const { return m_timeZone; }
     void setTimeZone(const QString &zone);
+    /// The source zone (原记录时区) a batch starts with: the 显示时区's offset now
+    /// ("+09:00") when the player chose one, else +08:00 (北京时间). Only the
+    /// default; what is sent stays an offset the player can change.
+    static QString defaultTimeZone();
     QVariantMap columnMapping() const { return m_columnMapping; }
     void setColumnMapping(const QVariantMap &mapping);
     QVariantMap commitResult() const { return m_commitResult; }
@@ -232,7 +236,10 @@ private:
     QString m_sourceName;
     QString m_filePath;
     QString m_text;
-    QString m_timeZone = QStringLiteral("+08:00");
+    // The source zone a batch starts with (defaultTimeZone()), and that default
+    // when it was last taken, so a 显示时区 change moves only an untouched choice.
+    QString m_defaultTimeZone = defaultTimeZone();
+    QString m_timeZone = m_defaultTimeZone;
     QString m_previewId;
     QString m_commitRequestId;
     QString m_phase = QStringLiteral("empty");

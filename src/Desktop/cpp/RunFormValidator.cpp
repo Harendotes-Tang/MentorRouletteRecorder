@@ -1,5 +1,6 @@
 #include "RunFormValidator.h"
 
+#include "DisplayTimeZone.h"
 #include "Formatters.h"
 
 #include <QDate>
@@ -66,7 +67,14 @@ QVariant RunFormValidator::toDateTime(const QString &date, const QString &time)
         clock = QTime::fromString(time.trimmed(), QStringLiteral("HH:mm"));
     if (!clock.isValid())
         return {};
-    return QVariant::fromValue(QDateTime(day, clock));
+    // Typed in the 显示时区, like every time the form shows.
+    return QVariant::fromValue(DisplayTimeZone::fromWallClock(day, clock));
+}
+
+QString RunFormValidator::toUtcIso(const QString &date, const QString &time)
+{
+    const QDateTime at = toDateTime(date, time).toDateTime();
+    return at.isValid() ? at.toUTC().toString(Qt::ISODateWithMs) : QString();
 }
 
 QVariantMap RunFormValidator::validate(const QVariantMap &form, const QVariantMap &before)

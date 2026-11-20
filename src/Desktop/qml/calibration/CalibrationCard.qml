@@ -67,14 +67,19 @@ ColumnLayout {
         && !card.progress.duty_exit_seen && card.lastLoginAt !== null
         && card.lastDutyEntryAt !== null && card.lastLoginAt > card.lastDutyEntryAt
 
+    // In the 显示时区 through Fmt; a scene without Fmt (a unit test) reads the system clock.
+    function stampText(at) {
+        var fmt = typeof Runtime.fmt !== "undefined" && Runtime.fmt ? Runtime.fmt : null
+        return fmt ? fmt.localFormat(at.toISOString(), "yyyy-MM-dd HH:mm:ss")
+                   : Qt.formatDateTime(at, "yyyy-MM-dd HH:mm:ss")
+    }
+
     function evidenceTimes() {
         var lines = []
         if (card.lastLoginAt !== null)
-            lines.push(qsTr("最近检测到登录：%1").arg(
-                Qt.formatDateTime(card.lastLoginAt, "yyyy-MM-dd HH:mm:ss")))
+            lines.push(qsTr("最近检测到登录：%1").arg(card.stampText(card.lastLoginAt)))
         if (card.lastDutyEntryAt !== null)
-            lines.push(qsTr("最近检测到进本：%1").arg(
-                Qt.formatDateTime(card.lastDutyEntryAt, "yyyy-MM-dd HH:mm:ss")))
+            lines.push(qsTr("最近检测到进本：%1").arg(card.stampText(card.lastDutyEntryAt)))
         return lines.join("\n")
     }
 

@@ -1,5 +1,6 @@
 #include "StatisticsOverlayController.h"
 #include "AppSettings.h"
+#include "DisplayTimeZone.h"
 #include "IBackend.h"
 #include "LiveText.h"
 #include <QGuiApplication>
@@ -117,8 +118,9 @@ StatisticsOverlayController::StatisticsOverlayController(AppSettings *settings, 
     , m_geometry(validGeometry(settings ? settings->statisticsOverlayGeometry() : QRect()))
     , m_form(validForm(settings ? settings->statisticsOverlayForm() : QString()))
 {
+    // 今日 / 本周 / 本月 are days of the 显示时区.
     if (!m_clock)
-        m_clock = [] { return QDateTime::currentDateTime(); };
+        m_clock = [] { return DisplayTimeZone::now(); };
     QStringList enabled = validModules(settings ? settings->statisticsOverlayModules(defaultModules()) : defaultModules());
     if (settings && settings->statisticsOverlayModuleVersion() < 1) {
         QStringList legacy = defaultModules();
@@ -144,6 +146,9 @@ StatisticsOverlayController::StatisticsOverlayController(AppSettings *settings, 
     m_calendarTimer->setObjectName(QStringLiteral("statisticsOverlayCalendarTimer"));
     m_calendarTimer->setInterval(30000);
     connect(m_calendarTimer, &QTimer::timeout, this, &StatisticsOverlayController::checkAttemptCalendar);
+    // A 显示时区 change moves the day at once rather than at the next tick.
+    connect(DisplayTimeZone::notifier(), &DisplayTimeZone::changed,
+            this, &StatisticsOverlayController::checkAttemptCalendar);
     onLanguageChanged(this, [this] {
         Q_EMIT moduleOptionsChanged();
         Q_EMIT modulesChanged();

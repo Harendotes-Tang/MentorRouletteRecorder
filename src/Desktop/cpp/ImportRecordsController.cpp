@@ -2,6 +2,7 @@
 #include "ImportPreviewClient.h"
 
 #include "CollectorText.h"
+#include "DisplayTimeZone.h"
 #include "IBackend.h"
 #include "DutyCatalog.h"
 #include "IpcFraming.h"
@@ -217,6 +218,18 @@ ImportRecordsController::ImportRecordsController(QObject *parent)
     : QObject(parent), m_ocr(new OfflineOcrEngine(this)), m_previewClient(new ImportPreviewClient(this))
 {
     initializeImportTemplateResources();
+    // A 显示时区 change moves the source zone only while it is still the default and
+    // no batch was read with it; a zone the player picked, or one rows depend on, stays.
+    connect(DisplayTimeZone::notifier(), &DisplayTimeZone::changed, this, [this] {
+        const QString next = defaultTimeZone();
+        const bool untouched = m_timeZone == m_defaultTimeZone;
+        m_defaultTimeZone = next;
+        if (!untouched || m_timeZone == next || !m_candidates.isEmpty() || busy()
+            || pendingCommitConfirmation())
+            return;
+        m_timeZone = next;
+        Q_EMIT changed();
+    });
     connect(m_ocr, &OfflineOcrEngine::changed, this, &ImportRecordsController::changed);
     connect(m_ocr, &OfflineOcrEngine::imageRecognized, this, &ImportRecordsController::recognizeImage);
     connect(m_ocr, &OfflineOcrEngine::failed, this, [this](const QString &message) { m_error = LiveText::verbatim(message); });
@@ -1558,6 +1571,13 @@ QVariantMap ImportRecordsController::currentEvidence() const
     if (!path.isEmpty())
         evidence.insert(QStringLiteral("source_url"), QUrl::fromLocalFile(path));
     return evidence;
+}
+
+QString ImportRecordsController::defaultTimeZone()
+{
+    return DisplayTimeZone::followsSystem()
+        ? QStringLiteral("+08:00")
+        : DisplayTimeZone::offsetText(DisplayTimeZone::current());
 }
 
 void ImportRecordsController::setTimeZone(const QString &zone)

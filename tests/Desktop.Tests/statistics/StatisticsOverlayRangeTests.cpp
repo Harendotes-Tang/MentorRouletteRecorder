@@ -1,12 +1,14 @@
 #include "DesktopTestRunner.h"
 #include <QGuiApplication>
 #include "AppSettings.h"
+#include "DisplayTimeZone.h"
 #include "IBackend.h"
 #include "StatisticsOverlayController.h"
 
 #include <QDateTime>
 #include <QJsonObject>
 #include <QPointer>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
@@ -289,6 +291,35 @@ private Q_SLOTS:
         QCOMPARE(backend.requests.size(), 3);
         overlay.show();
         QCOMPARE(backend.requests.size(), 4);
+    }
+
+    // 显示时区: 今日 is the day of the chosen zone. At 2026-11-20T16:30:00Z that is the
+    // 21st in Tokyo and the 20th in New York, and a change of zone asks again at once.
+    void todayFollowsTheDisplayTimeZone()
+    {
+        const auto restore = qScopeGuard([] { mr::DisplayTimeZone::set(QString()); });
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Tokyo"));
+        QCOMPARE(mr::DisplayTimeZone::now().timeZone().id(), QByteArray("Asia/Tokyo"));
+        const QDateTime instant(QDate(2026, 11, 20), QTime(16, 30), QTimeZone::UTC);
+        RangeBackend backend;
+        // The default clock with the instant pinned: now, in the zone in force.
+        mr::StatisticsOverlayController overlay(nullptr, nullptr, [&instant] {
+            return mr::DisplayTimeZone::toDisplay(instant);
+        });
+        overlay.setModules({QStringLiteral("attempts")});
+        overlay.setBackend(&backend);
+        overlay.setAttemptPeriod(QStringLiteral("today"));
+        overlay.show();
+        QCOMPARE(backend.requests.size(), 1);
+        const auto filter = [&backend] { return backend.requests.last().value(QStringLiteral("filter")).toObject(); };
+        QCOMPARE(filter().value(QStringLiteral("history_from_day")).toString(), QStringLiteral("2026-11-21"));
+        QCOMPARE(filter().value(QStringLiteral("from_utc")).toString(), QStringLiteral("2026-11-20T15:00:00.000Z"));
+        QCOMPARE(filter().value(QStringLiteral("to_utc")).toString(), QStringLiteral("2026-11-21T14:59:59.999Z"));
+        mr::DisplayTimeZone::set(QStringLiteral("America/New_York"));
+        QCOMPARE(backend.requests.size(), 2);
+        QCOMPARE(filter().value(QStringLiteral("history_from_day")).toString(), QStringLiteral("2026-11-20"));
+        QCOMPARE(filter().value(QStringLiteral("from_utc")).toString(), QStringLiteral("2026-11-20T05:00:00.000Z"));
+        QCOMPARE(filter().value(QStringLiteral("to_utc")).toString(), QStringLiteral("2026-11-21T04:59:59.999Z"));
     }
 
     void periodModelsShareFiltersAndRejectLateReplies()

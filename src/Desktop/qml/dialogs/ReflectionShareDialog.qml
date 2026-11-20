@@ -94,7 +94,8 @@ MotionDialog {
         attribution.checked = true
         identityOption.checked = true
         identityInput.text = preferences ? preferences.shareGameIdentity : ""
-        exportDate = Qt.formatDate(new Date(), "yyyy.MM.dd")
+        exportDate = typeof Runtime.fmt !== "undefined" && Runtime.fmt
+                     ? Runtime.fmt.todayLocal().replace(/-/g, ".") : Qt.formatDate(new Date(), "yyyy.MM.dd")
         if (controller) controller.resetFeedback()
         open()
     }

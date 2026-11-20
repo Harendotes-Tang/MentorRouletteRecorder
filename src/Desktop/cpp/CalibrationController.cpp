@@ -2,6 +2,7 @@
 #include "workflows/UtcTimestamp.h"
 
 #include "CollectorText.h"
+#include "DisplayTimeZone.h"
 #include "IBackend.h"
 
 #include <QDateTime>
@@ -17,6 +18,9 @@ CalibrationController::CalibrationController(QObject *parent)
 {
     // error is a recipe and queueInferenceText is built on every read.
     onLanguageChanged(this, [this] { Q_EMIT changed(); });
+    // So is each event's time_text.
+    connect(DisplayTimeZone::notifier(), &DisplayTimeZone::changed, this,
+            [this] { Q_EMIT changed(); });
 }
 
 void CalibrationController::setBackend(IBackend *backend)
@@ -73,22 +77,10 @@ void CalibrationController::refreshFromCaptureStatus(const QVariantMap &capture)
     QVariantList events;
     const auto eventValues = calibration.value(QStringLiteral("events")).toList();
     for (const auto &value : eventValues) {
-        QVariantMap event = value.toMap();
+        const QVariantMap event = value.toMap();
         if (event.value(QStringLiteral("event_id")).toString().isEmpty())
             continue;
-        // Local wall-clock, because that is the clock the user watched while
-        // playing. The raw stamp stays on the map for anything that needs it.
-        // The latest queue request before a pop or an entry may be from an
-        // earlier day: a line not from today carries its date (「11-02 23:48」).
-        const QDateTime at = parseUtcTimestamp(event.value(QStringLiteral("at_utc")).toString());
-        const QDateTime local = at.isValid() ? at.toLocalTime() : QDateTime();
-        QString timeText;
-        if (local.isValid()) {
-            const QString format = local.date() == QDate::currentDate()
-                ? QStringLiteral("HH:mm") : QStringLiteral("MM-dd HH:mm");
-            timeText = local.toString(format);
-        }
-        event.insert(QStringLiteral("time_text"), timeText);
+        // time_text is worded in events(), so a 显示时区 change rewords it.
         events.append(event);
     }
     std::ranges::stable_sort(events, [](const QVariant &left, const QVariant &right) {
@@ -329,9 +321,25 @@ QVariantList CalibrationController::events() const
         if (ref.isValid() && !ref.isNull())
             event.insert(QStringLiteral("label"),
                          collector_text::render(ref, event.value(QStringLiteral("label")).toString()));
+        event.insert(QStringLiteral("time_text"),
+                     eventTimeText(event.value(QStringLiteral("at_utc")).toString()));
         out.append(event);
     }
     return out;
+}
+
+QString CalibrationController::eventTimeText(const QString &atUtc)
+{
+    // Local wall-clock (显示时区), because that is the clock the user watched
+    // while playing. The raw stamp stays on the map for anything that needs it.
+    // The latest queue request before a pop or an entry may be from an earlier
+    // day: a line not from today carries its date (「11-02 23:48」).
+    const QDateTime local = DisplayTimeZone::toDisplay(parseUtcTimestamp(atUtc));
+    if (!local.isValid())
+        return {};
+    const QString format = local.date() == DisplayTimeZone::today()
+        ? QStringLiteral("HH:mm") : QStringLiteral("MM-dd HH:mm");
+    return local.toString(format);
 }
 
 QString CalibrationController::profileInForce(const QVariantMap &capture)

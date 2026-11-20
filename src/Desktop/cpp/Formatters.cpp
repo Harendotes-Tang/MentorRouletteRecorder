@@ -2,9 +2,11 @@
 #include "workflows/UtcTimestamp.h"
 
 #include "CollectorText.h"
+#include "DisplayTimeZone.h"
 #include "GameNames.h"
 
 #include <QDateTime>
+#include <QTimeZone>
 #include <QJSValue>
 #include <QDir>
 #include <QHash>
@@ -25,7 +27,56 @@ QDateTime Formatters::parse(const QVariant &utcIso)
     if (text.isEmpty())
         return {};
 
-    return parseUtcTimestamp(text).toLocalTime();
+    return DisplayTimeZone::toDisplay(parseUtcTimestamp(text));
+}
+
+QString Formatters::localFormat(const QVariant &utcIso, const QString &format)
+{
+    const QDateTime dt = parse(utcIso);
+    return dt.isValid() ? dt.toString(format) : QString();
+}
+
+QString Formatters::todayLocal()
+{
+    return DisplayTimeZone::today().toString(QStringLiteral("yyyy-MM-dd"));
+}
+
+QString Formatters::nowLocalTime()
+{
+    return DisplayTimeZone::now().toString(QStringLiteral("HH:mm:ss"));
+}
+
+QString Formatters::dayBoundaryUtc(const QString &date, bool endOfDay)
+{
+    const QDate day = QDate::fromString(date.trimmed(), QStringLiteral("yyyy-MM-dd"));
+    if (!day.isValid())
+        return {};
+    const QTimeZone zone = DisplayTimeZone::current();
+    const QDateTime at = endOfDay ? day.endOfDay(zone) : day.startOfDay(zone);
+    return at.isValid() ? at.toUTC().toString(Qt::ISODateWithMs) : QString();
+}
+
+QString Formatters::localUtcOffset(const QVariant &utcIso)
+{
+    const QDateTime at = utcIso.isValid() && !utcIso.isNull()
+        ? parseUtcTimestamp(utcIso.toString()) : QDateTime();
+    return DisplayTimeZone::offsetLabel(DisplayTimeZone::current(), at);
+}
+
+QString Formatters::systemUtcOffset()
+{
+    return DisplayTimeZone::offsetLabel(QTimeZone(QTimeZone::LocalTime));
+}
+
+QVariantList Formatters::displayTimeZoneOptions()
+{
+    QVariantList options;
+    for (const QString &id : DisplayTimeZone::curatedIds()) {
+        const QString label = DisplayTimeZone::offsetLabel(QTimeZone(id.toUtf8()))
+            + QStringLiteral(" · ") + id;
+        options.append(QVariantMap{{QStringLiteral("value"), id}, {QStringLiteral("text"), label}});
+    }
+    return options;
 }
 
 QString Formatters::localTime(const QVariant &utcIso)

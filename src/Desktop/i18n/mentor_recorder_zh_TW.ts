@@ -7862,6 +7862,42 @@ SHA256：%3</translation>
         <source>清除筛选</source>
         <translation>清除篩選</translation>
     </message>
+    <message>
+        <source>：</source>
+        <translation>：</translation>
+    </message>
+    <message>
+        <source>软件记下了这一局，但没能确定结局，请打开记录确认结果。</source>
+        <translation>軟體記下了這一局，但沒能確定結局，請開啟記錄確認結果。</translation>
+    </message>
+    <message>
+        <source>导入的记录缺少结果或游戏内时间，补上后这个标记会消失。</source>
+        <translation>匯入的記錄缺少結果或遊戲內時間，補上後這個標記就會消失。</translation>
+    </message>
+    <message>
+        <source>进入时副本已经开始。</source>
+        <translation>進入時副本已經開始。</translation>
+    </message>
+    <message>
+        <source>你改动过软件记录的内容。</source>
+        <translation>您改動過軟體記錄的內容。</translation>
+    </message>
+    <message>
+        <source>你补上或确认过软件不确定的内容，没有改动它记录的东西。</source>
+        <translation>您補上或確認過軟體不確定的內容，沒有改動它記錄的東西。</translation>
+    </message>
+    <message>
+        <source>已删除，仍保留在历史记录里，可以恢复。</source>
+        <translation>已刪除，仍保留在歷史記錄裡，可以復原。</translation>
+    </message>
+    <message>
+        <source>这条记录是手动新增的。</source>
+        <translation>這筆記錄是手動新增的。</translation>
+    </message>
+    <message>
+        <source>这一局写了心得。</source>
+        <translation>這一局寫了心得。</translation>
+    </message>
 </context>
 <context>
     <name>HistoryRegionFilter</name>
@@ -11475,6 +11511,22 @@ SHA256：%3</translation>
     <message>
         <source>仅保留待办</source>
         <translation>僅保留待辦</translation>
+    </message>
+    <message>
+        <source>显示时区</source>
+        <translation>顯示時區</translation>
+    </message>
+    <message>
+        <source>记录的时间按哪个时区显示和填写。数据仍按统一时间保存，切换不会改动任何记录。</source>
+        <translation>記錄的時間要依哪個時區顯示和填寫。資料仍依統一時間儲存，切換不會改動任何記錄。</translation>
+    </message>
+    <message>
+        <source>跟随系统（%1）</source>
+        <translation>跟隨系統（%1）</translation>
+    </message>
+    <message>
+        <source>当前按 %1 显示</source>
+        <translation>目前依 %1 顯示</translation>
     </message>
 </context>
 <context>

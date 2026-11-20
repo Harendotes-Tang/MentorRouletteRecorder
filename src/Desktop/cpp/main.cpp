@@ -43,6 +43,7 @@
 #include "CollectorProcess.h"
 #include <memory>
 #include "AppSettings.h"
+#include "DisplayTimeZone.h"
 #include "LanguageManager.h"
 #include "GameNames.h"
 #include "ReleaseNotesController.h"
@@ -908,6 +909,8 @@ int main(int argc, char *argv[])
     // 设置先于控制器和 QML 引擎创建，确保它们销毁时设置对象仍然存活。
     mr::AppSettings settings;
     mr::ReleaseNotesController releaseNotes(&settings);
+    // 显示时区 before any controller formats a time.
+    mr::DisplayTimeZone::set(settings.displayTimeZone());
 
     // 界面语言先于控制器生效：它们在构造时就会拼出界面文字。
     const QString uiLanguage = parser.value(uiLanguageOption);

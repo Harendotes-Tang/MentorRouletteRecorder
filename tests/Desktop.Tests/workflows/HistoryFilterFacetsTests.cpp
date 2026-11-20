@@ -1,4 +1,6 @@
 #include "DesktopTestRunner.h"
+#include "DisplayTimeZone.h"
+#include "Formatters.h"
 #include "HistoryController.h"
 #include "HistoryFilterFacets.h"
 #include "IBackend.h"
@@ -7,6 +9,7 @@
 #include <QDateTime>
 #include <QJsonArray>
 #include <QPointer>
+#include <QScopeGuard>
 #include <QTest>
 #include <QTimeZone>
 
@@ -287,6 +290,60 @@ private Q_SLOTS:
         QCOMPARE(start.time(), QTime(0, 0));
         QCOMPARE(end.date(), today);
         QCOMPARE(end.time(), QTime(23, 59, 59, 999));
+    }
+
+    // 显示时区: the presets and the date fields name days of the chosen zone. A record
+    // matched at 2026-11-20T16:30:00Z is on the 21st in Tokyo and on the 20th in New York.
+    void datesFollowTheDisplayTimeZone()
+    {
+        const auto restore = qScopeGuard([] { mr::DisplayTimeZone::set(QString()); });
+        const QDateTime record(QDate(2026, 11, 20), QTime(16, 30), QTimeZone::UTC);
+        const auto inside = [&record](const QString &from, const QString &to) {
+            return QDateTime::fromString(from, Qt::ISODateWithMs) <= record
+                && record <= QDateTime::fromString(to, Qt::ISODateWithMs);
+        };
+
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Tokyo"));
+        QCOMPARE(mr::DisplayTimeZone::dateOf(record), QDate(2026, 11, 21));
+        QCOMPARE(mr::Formatters::dayBoundaryUtc(QStringLiteral("2026-11-21"), false),
+                 QStringLiteral("2026-11-20T15:00:00.000Z"));
+        QCOMPARE(mr::Formatters::dayBoundaryUtc(QStringLiteral("2026-11-21"), true),
+                 QStringLiteral("2026-11-21T14:59:59.999Z"));
+        QVERIFY(inside(mr::Formatters::dayBoundaryUtc(QStringLiteral("2026-11-21"), false),
+                       mr::Formatters::dayBoundaryUtc(QStringLiteral("2026-11-21"), true)));
+        QVERIFY(!inside(mr::Formatters::dayBoundaryUtc(QStringLiteral("2026-11-20"), false),
+                        mr::Formatters::dayBoundaryUtc(QStringLiteral("2026-11-20"), true)));
+        QCOMPARE(mr::Formatters::dayBoundaryUtc(QStringLiteral("2026-02-30"), false), QString());
+
+        mr::DisplayTimeZone::set(QStringLiteral("America/New_York"));
+        QCOMPARE(mr::DisplayTimeZone::dateOf(record), QDate(2026, 11, 20));
+        QVERIFY(inside(mr::Formatters::dayBoundaryUtc(QStringLiteral("2026-11-20"), false),
+                       mr::Formatters::dayBoundaryUtc(QStringLiteral("2026-11-20"), true)));
+        QVERIFY(!inside(mr::Formatters::dayBoundaryUtc(QStringLiteral("2026-11-21"), false),
+                        mr::Formatters::dayBoundaryUtc(QStringLiteral("2026-11-21"), true)));
+
+        // The 今天 preset is today in the chosen zone, cut at that zone's midnight, and a
+        // change of zone counts again.
+        mr::DisplayTimeZone::set(QStringLiteral("Asia/Tokyo"));
+        FacetBackend backend;
+        mr::HistoryFilterFacets facets(&backend);
+        facets.setActive(true);
+        QTRY_COMPARE(backend.calls.size(), 9);
+        const QTimeZone tokyo("Asia/Tokyo");
+        const QDate tokyoToday = QDateTime::currentDateTimeUtc().toTimeZone(tokyo).date();
+        QCOMPARE(facets.dateRange("today").value("start").toString(), tokyoToday.toString(Qt::ISODate));
+        const QJsonObject today = backend.calls.at(1).payload.value("filter").toObject();
+        QCOMPARE(QDateTime::fromString(today.value("from_utc").toString(), Qt::ISODateWithMs),
+                 tokyoToday.startOfDay(tokyo));
+        QCOMPARE(QDateTime::fromString(today.value("to_utc").toString(), Qt::ISODateWithMs),
+                 tokyoToday.endOfDay(tokyo));
+        mr::DisplayTimeZone::set(QStringLiteral("America/New_York"));
+        QTRY_COMPARE(backend.calls.size(), 18);
+        const QTimeZone newYork("America/New_York");
+        const QDate newYorkToday = QDateTime::currentDateTimeUtc().toTimeZone(newYork).date();
+        const QJsonObject moved = backend.calls.at(10).payload.value("filter").toObject();
+        QCOMPARE(QDateTime::fromString(moved.value("from_utc").toString(), Qt::ISODateWithMs),
+                 newYorkToday.startOfDay(newYork));
     }
 
     void cancelledFilterAndRecordReloadKeepTheAppliedContext()

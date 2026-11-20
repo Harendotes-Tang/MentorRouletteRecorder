@@ -196,6 +196,10 @@ private:
     QJsonObject regionFilter() const;
     void applyRegionFilter();
     void applyTrendSeries(const QJsonObject &trend);
+    /// A bucket's axis label: its start_utc as a local date of the series' granularity.
+    QString trendLabel(const QJsonValue &startUtc) const;
+    /// Re-words the labels after a 显示时区 change; the buckets themselves stay.
+    void relabelTrend();
     void applyDayCounts(const QJsonObject &trend);
     void rebuildDutyOptions();
     QPointer<IBackend> m_backend;

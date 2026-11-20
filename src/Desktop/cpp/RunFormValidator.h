@@ -78,9 +78,12 @@ public:
     Q_INVOKABLE static QVariantList diff(const QVariantMap &before,
                                          const QVariantMap &form);
 
-    /// Combine \a date and \a time into a local QDateTime; invalid when either
-    /// part is missing or malformed.
+    /// Combine \a date and \a time into a QDateTime in the 显示时区
+    /// (DisplayTimeZone); invalid when either part is missing or malformed.
     Q_INVOKABLE static QVariant toDateTime(const QString &date, const QString &time);
+    /// toDateTime() as the UTC ISO-8601 text a record stores (milliseconds kept);
+    /// "" when it is invalid. The form sends this, never a JavaScript Date.
+    Q_INVOKABLE static QString toUtcIso(const QString &date, const QString &time);
 
     /// True when \a text is a calendar-valid "yyyy-MM-dd" date.
     Q_INVOKABLE static bool isValidDate(const QString &value);

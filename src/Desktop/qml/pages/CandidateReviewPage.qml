@@ -21,15 +21,20 @@ Item {
     property bool showPackets: false
     readonly property var sessionChoices: [{ session_id: "", label: qsTr("全部会话") }].concat(controller.sessions)
 
+    // In the 显示时区 (Fmt); a scene without Fmt reads the system clock.
+    function stamp(value, format) {
+        if (typeof Runtime.fmt !== "undefined" && Runtime.fmt)
+            return Runtime.fmt.localFormat(value, format) || qsTr("时间未知")
+        const date = new Date(value)
+        return isNaN(date.getTime()) ? qsTr("时间未知") : Qt.formatDateTime(date, format)
+    }
     function localTime(value) {
         if (!value) return qsTr("未配对")
-        const date = new Date(value)
-        return isNaN(date.getTime()) ? qsTr("时间未知") : Qt.formatDateTime(date, "MM-dd hh:mm:ss")
+        return page.stamp(value, "MM-dd hh:mm:ss")
     }
     function clock(value) {
         if (!value) return ""
-        const date = new Date(value)
-        return isNaN(date.getTime()) ? qsTr("时间未知") : Qt.formatDateTime(date, "hh:mm:ss")
+        return page.stamp(value, "hh:mm:ss")
     }
     function verdictLabel(verdict) {
         return verdict === "CORRECT" ? qsTr("对") : verdict === "WRONG" ? qsTr("错")

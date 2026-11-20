@@ -36,19 +36,26 @@ ComboBox {
     }
     onCurrentIndexChanged: Qt.callLater(control.settleIndex)
     Component.onCompleted: control.settleIndex()
+    function keepRow() {
+        if (!control.keepsRowAcrossLanguages)
+            return
+        const keptIndex = control.settledIndex
+        const keptValue = control.settledValue
+        Qt.callLater(function() {
+            const kept = keptValue !== undefined ? control.indexOfValue(keptValue) : keptIndex
+            if (kept >= 0 && kept < control.count && control.currentIndex !== kept)
+                control.currentIndex = kept
+        })
+    }
     Connections {
         target: Theme
-        function onLangRevisionChanged() {
-            if (!control.keepsRowAcrossLanguages)
-                return
-            const keptIndex = control.settledIndex
-            const keptValue = control.settledValue
-            Qt.callLater(function() {
-                const kept = keptValue !== undefined ? control.indexOfValue(keptValue) : keptIndex
-                if (kept >= 0 && kept < control.count && control.currentIndex !== kept)
-                    control.currentIndex = kept
-            })
-        }
+        function onLangRevisionChanged() { control.keepRow() }
+    }
+    // 显示时区: Runtime.fmt is announced again, so a model built through it is rebuilt
+    // as on a language switch; the row on show stays.
+    Connections {
+        target: Runtime
+        function onFmtChanged() { control.keepRow() }
     }
 
     delegate: ItemDelegate {

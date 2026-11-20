@@ -24,6 +24,24 @@ ColumnLayout {
     readonly property var lang: typeof Runtime.lang !== "undefined" ? Runtime.lang : null
     // A shell may supply the reveal callback; standalone test hosts need not.
     readonly property var themeRevealHost: tab.ApplicationWindow.window
+    // 显示时区: needs the real settings and formatters; a test scene without them shows no row.
+    readonly property bool displayTimeZoneAvailable: typeof Runtime.settings !== "undefined" && !!Runtime.settings
+        && Runtime.settings.displayTimeZone !== undefined
+        && typeof Runtime.fmt !== "undefined" && !!Runtime.fmt
+        && typeof Runtime.fmt.displayTimeZoneOptions === "function"
+    readonly property string displayTimeZoneValue: tab.displayTimeZoneAvailable ? Runtime.settings.displayTimeZone : ""
+    // 跟随系统 first, then the curated zones by offset (Fmt.displayTimeZoneOptions); a zone
+    // chosen outside that list (an edited settings file) is kept as a row of its own.
+    readonly property var displayTimeZoneChoices: {
+        if (!tab.displayTimeZoneAvailable)
+            return []
+        const choices = [{ value: "", text: qsTr("跟随系统（%1）").arg(Runtime.fmt.systemUtcOffset()) }]
+            .concat(Runtime.fmt.displayTimeZoneOptions())
+        const chosen = tab.displayTimeZoneValue
+        if (chosen !== "" && !choices.some(function(choice) { return choice.value === chosen }))
+            choices.push({ value: chosen, text: Runtime.fmt.localUtcOffset() + " · " + chosen })
+        return choices
+    }
 
     function focusLanguageControl() {
         languageChoices.focusSelectedOption()
@@ -67,11 +85,12 @@ ColumnLayout {
     // landed in a language they cannot read still finds the way back.
     SettingsPanel {
         objectName: "languageSettingsCard"
-        visible: tab.lang !== null
+        visible: tab.lang !== null || tab.displayTimeZoneAvailable
         kicker: tab.lang && tab.lang.code === "en" ? "Language" : qsTr("语言") + " · Language"
 
         SettingsRow {
-            showDivider: false
+            visible: tab.lang !== null
+            showDivider: tab.displayTimeZoneAvailable
             label: qsTr("界面语言")
             description: qsTr("界面文字和播报语音一起切换")
 
@@ -89,6 +108,64 @@ ColumnLayout {
                 currentValue: tab.lang ? tab.lang.code : ""
                 onActivated: function(value) { tab.lang.setLanguage(value) }
             }
+        }
+
+        // 显示时区: the zone every record time is shown and typed in (DisplayTimeZone.h).
+        SettingsRow {
+            objectName: "displayTimeZoneRow"
+            visible: tab.displayTimeZoneAvailable
+            showDivider: false
+            label: qsTr("显示时区")
+            description: qsTr("记录的时间按哪个时区显示和填写。数据仍按统一时间保存，切换不会改动任何记录。")
+
+            StyledComboBox {
+                id: displayTimeZoneBox
+                objectName: "displayTimeZoneBox"
+                Layout.preferredWidth: 300
+                // The row is put back by value below, whatever rebuilt the list.
+                keepsRowAcrossLanguages: false
+                textRole: "text"
+                valueRole: "value"
+                model: tab.displayTimeZoneChoices
+                Accessible.name: qsTr("显示时区")
+
+                function syncIndex() {
+                    const choices = tab.displayTimeZoneChoices
+                    let index = 0
+                    for (let i = 0; i < choices.length; ++i) {
+                        if (choices[i].value === tab.displayTimeZoneValue) {
+                            index = i
+                            break
+                        }
+                    }
+                    if (currentIndex !== index)
+                        currentIndex = index
+                }
+                onModelChanged: Qt.callLater(displayTimeZoneBox.syncIndex)
+                Component.onCompleted: displayTimeZoneBox.syncIndex()
+                onActivated: function(index) {
+                    const choice = tab.displayTimeZoneChoices[index]
+                    if (choice)
+                        Runtime.settings.displayTimeZone = choice.value
+                }
+                Connections {
+                    target: tab
+                    function onDisplayTimeZoneValueChanged() { displayTimeZoneBox.syncIndex() }
+                }
+            }
+        }
+
+        // Only another zone than the system's is named: the times on screen then differ
+        // from the taskbar clock, and this says why.
+        Text {
+            objectName: "displayTimeZoneHint"
+            Layout.fillWidth: true
+            Layout.bottomMargin: 4
+            visible: tab.displayTimeZoneAvailable && tab.displayTimeZoneValue !== ""
+            text: visible ? qsTr("当前按 %1 显示").arg(Runtime.fmt.localUtcOffset()) : ""
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fs(11)
+            wrapMode: Text.WordWrap
         }
     }
 

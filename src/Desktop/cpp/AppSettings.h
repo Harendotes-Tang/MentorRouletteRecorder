@@ -43,6 +43,8 @@ class AppSettings : public QObject
     Q_PROPERTY(bool confirmPrompt READ confirmPrompt WRITE setConfirmPrompt NOTIFY generalChanged)
     /// Reminder delivery: window, floating or inbox; existing prompt switches still gate eligibility.
     Q_PROPERTY(QString promptPresentation READ promptPresentation WRITE setPromptPresentation NOTIFY generalChanged)
+    /// 显示时区 - an IANA id (key `general/displayTimeZone`), "" to follow the system.
+    Q_PROPERTY(QString displayTimeZone READ displayTimeZone WRITE setDisplayTimeZone NOTIFY displayTimeZoneChanged)
 
     // -- 外观 ---------------------------------------------------------------
     /// 界面风格 "classic"（经典，workbench，默认）或 "eorzea"（艾欧泽亚）。
@@ -219,6 +221,13 @@ public:
     QString promptPresentation() const;
     void setPromptPresentation(const QString &presentation);
 
+    /// The zone record times are shown and typed in: an IANA id Qt knows, or ""
+    /// for the system's. A stored id Qt does not know reads as "" (and is
+    /// removed when the file is opened). Setting it also puts it in force
+    /// (DisplayTimeZone::set); main() puts the stored one in force at start-up.
+    QString displayTimeZone() const;
+    void setDisplayTimeZone(const QString &id);
+
     /// "classic" (default) or "eorzea"; anything else is ignored and keeps the old value.
     QString uiStyle() const;
     void setUiStyle(const QString &style);
@@ -295,6 +304,7 @@ public:
 Q_SIGNALS:
     void sharingChanged();
     void generalChanged();
+    void displayTimeZoneChanged();
     void appearanceChanged();
     void ttsChanged();
     void dataChanged();

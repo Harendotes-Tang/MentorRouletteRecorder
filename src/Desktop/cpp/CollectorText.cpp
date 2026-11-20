@@ -1,6 +1,7 @@
 #include "CollectorText.h"
 
 #include "CollectorTextCatalog.h"
+#include "DisplayTimeZone.h"
 #include "GameNames.h"
 #include "IBackend.h"
 
@@ -153,7 +154,7 @@ std::optional<QString> renderArg(const Arg &arg, const QVariant &value, int dept
         const QDateTime at = QDateTime::fromString(value.toString(), Qt::ISODateWithMs);
         if (!at.isValid())
             return std::nullopt;
-        return at.toLocalTime().toString(QStringLiteral("HH:mm"));
+        return DisplayTimeZone::toDisplay(at).toString(QStringLiteral("HH:mm"));
     }
     case Kind::Ref:
         return renderRef(value, depth + 1, translate);

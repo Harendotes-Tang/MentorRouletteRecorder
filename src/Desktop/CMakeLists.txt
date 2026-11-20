@@ -215,6 +215,8 @@ set(MR_CPP_SOURCES
     cpp/DutyCatalog.h
     cpp/ExportController.cpp
     cpp/ExportController.h
+    cpp/DisplayTimeZone.cpp
+    cpp/DisplayTimeZone.h
     cpp/Formatters.cpp
     cpp/Formatters.h
     cpp/transport/IBackend.cpp

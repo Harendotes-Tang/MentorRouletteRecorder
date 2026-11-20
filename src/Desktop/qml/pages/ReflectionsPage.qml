@@ -32,9 +32,8 @@ ColumnLayout {
         if (!dateText || dateText.length === 0) return null
         const date = dateRange.parse(dateText)
         if (date === null) return null
-        return new Date(date.getFullYear(), date.getMonth(), date.getDate(),
-                        endOfDay ? 23 : 0, endOfDay ? 59 : 0,
-                        endOfDay ? 59 : 0, endOfDay ? 999 : 0).toISOString()
+        // The day of the 显示时区, not of the system (Fmt.dayBoundaryUtc).
+        return Runtime.fmt.dayBoundaryUtc(dateText.trim(), endOfDay) || null
     }
     function scheduleDateFilter() {
         if (page.syncing) return

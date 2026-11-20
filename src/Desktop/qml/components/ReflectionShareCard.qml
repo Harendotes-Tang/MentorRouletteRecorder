@@ -11,7 +11,9 @@ Item {
     property var runsData: []
     property bool showAttribution: true
     property string gameIdentity: ""
-    property string exportDate: Qt.formatDate(new Date(), "yyyy.MM.dd")
+    // Today in the 显示时区 (Fmt; the system's in a scene without it).
+    property string exportDate: typeof Runtime.fmt !== "undefined" && Runtime.fmt
+                                ? Runtime.fmt.todayLocal().replace(/-/g, ".") : Qt.formatDate(new Date(), "yyyy.MM.dd")
     readonly property bool opaquePaper: true
     readonly property var entries: runsData.length > 0 ? runsData : [runData]
     readonly property bool single: entries.length === 1

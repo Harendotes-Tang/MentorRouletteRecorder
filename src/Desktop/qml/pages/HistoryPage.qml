@@ -25,6 +25,33 @@ Item {
     readonly property var filterFacets: Runtime.app.historyFilterFacets
     readonly property int checkedCount: Runtime.app.checkedHistoryRunCount
     function isChecked(runId) { return Runtime.app.checkedHistoryRunIds.indexOf(runId) >= 0 }
+    /// The words of the 标记 column for one record, each with the sentence that explains it.
+    /// 已修正：人改过软件记下的内容。已确认：人只回答了软件留待复核的结局，或补上了它没认出的
+    /// 职业、副本，没有改动它记下的东西。
+    function runMarks(run) {
+        if (!run) return []
+        const marks = []
+        if (run.source !== "IMPORT" && run.pending_review)
+            marks.push({ label: qsTr("待复核"), tip: qsTr("软件记下了这一局，但没能确定结局，请打开记录确认结果。") })
+        if (page.importIncomplete(run))
+            marks.push({ label: qsTr("待补充"), tip: qsTr("导入的记录缺少结果或游戏内时间，补上后这个标记会消失。") })
+        // 中途加入: the duty was already under way at the entry
+        // ($defs/Run.joined_in_progress); null and false say nothing here.
+        if (run.joined_in_progress === true)
+            marks.push({ label: qsTr("中途加入"), tip: qsTr("进入时副本已经开始。") })
+        if (run.manually_corrected)
+            marks.push({ label: qsTr("已修正"), tip: qsTr("你改动过软件记录的内容。") })
+        else if (Number(run.revision || 1) > 1 && !run.pending_review && !run.manually_created && !run.soft_deleted)
+            marks.push({ label: qsTr("已确认"), tip: qsTr("你补上或确认过软件不确定的内容，没有改动它记录的东西。") })
+        if (run.soft_deleted)
+            marks.push({ label: qsTr("已删除"), tip: qsTr("已删除，仍保留在历史记录里，可以恢复。") })
+        if (run.manually_created)
+            marks.push({ label: qsTr("手动创建"), tip: qsTr("这条记录是手动新增的。") })
+        if (run.reflection)
+            marks.push({ label: qsTr("有笔记"), tip: qsTr("这一局写了心得。") })
+        return marks
+    }
+
     function importIncomplete(run) {
         if (run.source !== "IMPORT") return false
         if (run.import_metadata) return !!run.import_metadata.incomplete
@@ -320,10 +347,8 @@ Item {
             return null
         if (!Runtime.runForm.isValidDate(dateText))
             return null
-        const parts = dateText.split("-").map(Number)
-        return new Date(parts[0], parts[1] - 1, parts[2],
-                        endOfDay ? 23 : 0, endOfDay ? 59 : 0,
-                        endOfDay ? 59 : 0, endOfDay ? 999 : 0).toISOString()
+        // The day of the 显示时区, not of the system (Fmt.dayBoundaryUtc).
+        return Runtime.fmt.dayBoundaryUtc(dateText, endOfDay) || null
     }
 
     // Filters apply live; the debounce keeps every keystroke from firing its own
@@ -1273,28 +1298,27 @@ Item {
                                 columnKey: "marks"
                                 layout: page.columnLayout
                                 Text {
+                                    id: marksText
+                                    objectName: "historyMarksCell"
+                                    readonly property var marks: page.runMarks(run)
                                     anchors.fill: parent
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
-                                    text: [run.source !== "IMPORT" && run.pending_review ? qsTr("待复核") : "",
-                                           page.importIncomplete(run) ? qsTr("待补充") : "",
-                                           // 中途加入: the duty was already under way at the entry
-                                           // ($defs/Run.joined_in_progress); null and false say nothing here.
-                                           run.joined_in_progress === true ? qsTr("中途加入") : "",
-                                           // 已修正：人改过软件记下的内容。已确认：人只回答了软件
-                                           // 留待复核的结局，或补上了它没认出的职业、副本。
-                                           run.manually_corrected ? qsTr("已修正")
-                                               : (Number(run.revision || 1) > 1 && !run.pending_review
-                                                  && !run.manually_created && !run.soft_deleted
-                                                  ? qsTr("已确认") : ""),
-                                           run.soft_deleted ? qsTr("已删除") : "",
-                                           run.manually_created ? qsTr("手动创建") : "",
-                                           run.reflection ? qsTr("有笔记") : ""]
-                                          .filter(function(part) { return part.length > 0 })
-                                          .join(" · ")
+                                    text: marks.map(function(mark) { return mark.label }).join(" · ")
                                     color: Theme.orangeText
                                     font.pixelSize: Theme.fs(11)
                                     elide: Text.ElideRight
+                                    // What each word means, on hover: the words alone were
+                                    // not understood (a tester, 2026-11-20).
+                                    HoverHandler { id: marksHover }
+                                    PlainToolTip {
+                                        objectName: "historyMarksTip"
+                                        visible: marksHover.hovered && marksText.marks.length > 0
+                                        delay: 300
+                                        text: marksText.marks.map(function(mark) {
+                                            return mark.label + qsTr("：") + mark.tip
+                                        }).join("\n")
+                                    }
                                 }
                             }
                         }
