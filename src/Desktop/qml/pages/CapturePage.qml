@@ -155,7 +155,12 @@ Item {
                 heroSpeaksCalibration: hero.copy.kind === "calibration"
                 onOpenCalibrationRequested: page.openCalibrationRequested()
                 onOpenRegionSettingsRequested: page.openRegionSettingsRequested()
-                onEvidenceGuideRequested: page.openObservationGuide()
+                // 版本支持 › 采证步骤 offers the region round, like 工具 › 帮助适配其他区服
+                // (audit 2026-11-20, K4-1).
+                onEvidenceGuideRequested: {
+                    page.chooseEvidencePurpose("region")
+                    page.openObservationGuide()
+                }
             }
 
             // Keep the same card instances while calibration appears/disappears.

@@ -44,6 +44,10 @@ constexpr int kToastMs = 3200;
 /// spin box being dragged sends one message, short enough to feel immediate.
 constexpr int kCaptureSettingsDebounceMs = 400;
 constexpr auto kRecordRegionKey = "dashboard/record_region";
+/// A recorded-region read that failed is tried again after this long, at most
+/// kRecordedRegionsProbeAttempts times in all for one refresh (review 2026-11-20 I1-1).
+constexpr int kRecordedRegionsRetryMs = 3000;
+constexpr int kRecordedRegionsProbeAttempts = 3;
 
 /// True once the person has picked a region; an empty saved value is the explicit
 /// "all regions" selection.
@@ -349,6 +353,8 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     connect(m_statistics, &StatisticsController::baselineFailed, this, &AppController::baselineFailed);
     connect(m_statistics, &StatisticsController::baselineSavingChanged, this,
             &AppController::baselineSavingChanged);
+    connect(m_statistics, &StatisticsController::runMovesSettlingChanged, this,
+            &AppController::runMovesSettlingChanged);
     connect(m_statistics, &StatisticsController::baselineSaved, this, &AppController::baselineSaved);
     connect(m_statistics, &StatisticsController::mutationFailed, this,
             [this](const QString &code, const QString &message) {
@@ -1216,12 +1222,20 @@ void AppController::applyDefaultRecordRegion()
 {
     if (!m_settings || recordRegionPicked(*m_settings))
         return;
-    m_statistics->setRecordRegion(!m_recordedRegionsKnown || m_recordedRegions.isEmpty()
-                                      ? preferredRecordRegion(*m_settings)
-                                      : m_recordedRegions.size() == 1 ? m_recordedRegions.first() : QString());
+    QString region; // every region
+    if (m_recordedRegionsKnown && !m_recordedRegions.isEmpty()) {
+        if (m_recordedRegions.size() == 1)
+            region = m_recordedRegions.first();
+    } else if (m_recordedRegionsKnown || !m_recordedRegionsReadFailed) {
+        // Nothing recorded, or nothing read yet: the interface language's region. A read
+        // that failed leaves the records unknown, not absent, so it keeps every region
+        // rather than a guess that could hide all of them (review 2026-11-20 I1-1).
+        region = preferredRecordRegion(*m_settings);
+    }
+    m_statistics->setRecordRegion(region);
 }
 
-void AppController::probeRecordedRegions()
+void AppController::probeRecordedRegions(int attempt)
 {
     if (!m_backend || !m_backend->isConnected() || !m_settings || recordRegionPicked(*m_settings))
         return;
@@ -1232,16 +1246,31 @@ void AppController::probeRecordedRegions()
     const quint64 generation = ++m_recordedRegionsProbe;
     for (const QString &region : kRegions) {
         m_backend->queryRuns(QJsonObject{{QStringLiteral("region"), region}}, 1, 1)->whenDone(this,
-            [this, generation, probe, region](bool ok, const QVariantMap &payload, const QString &, const QString &) {
+            [this, generation, probe, region, attempt](bool ok, const QVariantMap &payload, const QString &,
+                                                       const QString &) {
             const QVariant total = payload.value(QStringLiteral("page_info")).toMap().value(QStringLiteral("total"));
             if (!ok || !total.isValid())
                 probe->failed = true;
             else if (total.toInt() > 0)
                 probe->recorded.append(region);
-            // One unanswered region leaves the default as it is: a guess from part of the
-            // records could hide the rest.
-            if (--probe->remaining != 0 || probe->failed || generation != m_recordedRegionsProbe)
+            if (--probe->remaining != 0 || generation != m_recordedRegionsProbe)
                 return;
+            if (probe->failed) {
+                // A guess from part of the records could hide the rest: nothing is taken
+                // from this round. Until a read answers, every region is shown, and the
+                // read is tried again; a newer probe supersedes the retry.
+                if (!m_recordedRegionsKnown && !m_recordedRegionsReadFailed) {
+                    m_recordedRegionsReadFailed = true;
+                    applyDefaultRecordRegion();
+                }
+                if (attempt + 1 < kRecordedRegionsProbeAttempts) {
+                    QTimer::singleShot(kRecordedRegionsRetryMs, this, [this, generation, attempt] {
+                        if (generation == m_recordedRegionsProbe)
+                            probeRecordedRegions(attempt + 1);
+                    });
+                }
+                return;
+            }
             probe->recorded.sort();
             m_recordedRegions = probe->recorded;
             m_recordedRegionsKnown = true;
@@ -2013,6 +2042,8 @@ void AppController::setCurrentHistoryPageChecked(bool checked)
 { m_history->setCurrentPageChecked(checked); }
 void AppController::checkAllMatchingHistoryRuns()
 { m_history->checkAllMatchingRuns(); }
+void AppController::cancelHistoryCheckAll()
+{ m_history->cancelCheckAll(); }
 void AppController::clearCheckedHistoryRuns()
 { m_history->clearCheckedRuns(); }
 void AppController::mutateCheckedHistoryRuns(const QString &action, const QString &reason)

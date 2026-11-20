@@ -6,9 +6,9 @@ decoded, and which signals appear from queueing until you leave the duty. Please
 round first and send the files back; once the data is confirmed usable, a second round
 follows.
 
-Download the **1.9.0-beta.2** test build (marked Pre-release) from the GitHub releases page,
-<https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/tag/v1.9.0-beta.2>, and run
-`MentorRecorder-1.9.0-beta.2-setup.exe` to install it (the setup wizard offers English; its default
+Download the **1.9.1-beta.2** test build (marked Pre-release) from the GitHub releases page,
+<https://github.com/Harendotes-Tang/MentorRouletteRecorder/releases/tag/v1.9.1-beta.2>, and run
+`MentorRecorder-1.9.1-beta.2-setup.exe` to install it (the setup wizard offers English; its default
 language is Simplified Chinese); if a newer test build is listed there, use the newest one. The page also has a `.sha256` file beside each download, which you can check with
 PowerShell's `Get-FileHash -Algorithm SHA256`. The in-app update check only offers formal releases,
 so test builds have to be downloaded by hand. Automatic
@@ -148,8 +148,9 @@ way. Different duties or jobs should be recorded as they really were.
    together; do not edit the JSONL by hand or regenerate the checksum file.
 4. Click **Export report** on the **Diagnostic report (JSON)** row and choose where to save
    it. Saving it into the same return folder is easiest. The app suggests a name like
-   `mentor_diagnostics_<date-time>.json`; keep whatever name it generated. If logs are
-   needed, **Open logs** on the `collector-*.log` row opens their folder.
+   `mentor_diagnostics_<date-time>.json`; keep whatever name it generated. When the
+   `collector-*.log` row is listed as required, or logs are otherwise needed, **Open logs** on
+   that row opens their folder.
 5. Click **Next: write the note** to reach step ⑤. Fill in the duty, your job and the VPN or
    accelerator, check **This round**, then click **Copy note**. The note already carries the
    versions, times, region, markers and counters; paste it at the top of `test-report.txt`
@@ -197,8 +198,11 @@ if you exceed it. Do not post the files in a public issue or chat:
 - **If you would like to be credited:** put the name you want listed (for example
   `Character@World` or a nickname) in the email, and it will be added to the README
   acknowledgements. Without one, nothing is listed.
-- **Only for startup or collection problems: the `collector-*.log` diagnostic logs from
-  the same time.** Click **Open logs** in step ④, or reach the database folder via
+- **Whenever step ④ lists it as required, and otherwise for startup or collection
+  problems: the `collector-*.log` diagnostic logs from the same time.** The page marks this
+  row required when the round used a reading method the app found on your computer, or
+  when it could not find one; the row says why. The maintainer needs the search
+  result, which only this log contains. Click **Open logs** in step ④, or reach the database folder via
   **Settings → Data → Open folder** and open the `logs` subfolder; copy only the logs for this round, not the database. If you
   cannot find them, send the rest and say so.
 - **Only if the game version could not be identified: the small text file

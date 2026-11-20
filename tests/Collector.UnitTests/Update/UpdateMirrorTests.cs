@@ -202,16 +202,27 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
     [InlineData("finish")]
     [InlineData("cancel")]
     [InlineData("mirror unavailable after accept")]
+    [InlineData("primary ends during re-open")]
+    [InlineData("decline, then GitHub fails")]
     public async Task SlowInstallerOfferAppliesOnlyToItsLiveAttempt(string choice)
     {
         const int prefix = 1024;
-        var github = new PausedInstaller(prefix);
+        var github = new PausedInstaller(prefix, failAfterResume: choice == "decline, then GitHub fails");
         var mirrorOpens = 0;
         var transport = MirrorInstaller(new Transport().Publish(Published, Installer, body: github))
-            .On(Mirror(Exe), (uri, _) => Task.FromResult(
-                Interlocked.Increment(ref mirrorOpens) == 2 && choice == "mirror unavailable after accept"
+            .On(Mirror(Exe), async (uri, token) =>
+            {
+                var reopen = Interlocked.Increment(ref mirrorOpens) == 2;
+                if (reopen && choice == "primary ends during re-open")
+                {
+                    // Answers only once GitHub has finished and the re-open is called off.
+                    await Task.Delay(Timeout.Infinite, token);
+                }
+
+                return reopen && choice == "mirror unavailable after accept"
                     ? Transport.Status(uri, 404)
-                    : Bytes(uri, Installer)));
+                    : Bytes(uri, Installer);
+            });
         var service = Service(transport, limits: Limits() with { SlowWindow = TimeSpan.FromMilliseconds(80) });
         service.Start();
         await EventuallyAsync(() => service.Snapshot().MirrorOfferId is not null, "slow GitHub should prompt after sampling");
@@ -221,10 +232,10 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
         Assert.Equal(UpdateDownloadState.Downloading, offer.State);
         Assert.Single(transport.Requests, request => request == Mirror(Exe));
         Assert.Equal(offer, service.ResolveMirrorOffer(Guid.NewGuid().ToString(), useGitCode: true));
-        if (choice is "accept" or "mirror unavailable after accept")
+        if (choice is "accept" or "mirror unavailable after accept" or "primary ends during re-open")
         {
             Assert.Null(service.ResolveMirrorOffer(offer.MirrorOfferId!.ToUpperInvariant(), useGitCode: true).MirrorOfferId);
-            if (choice == "mirror unavailable after accept")
+            if (choice != "accept")
             {
                 await EventuallyAsync(() => Volatile.Read(ref mirrorOpens) == 2, "mirror re-open should be attempted");
                 github.Resume();
@@ -236,7 +247,7 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
         }
         else
         {
-            if (choice == "decline")
+            if (choice is "decline" or "decline, then GitHub fails")
                 Assert.Null(service.ResolveMirrorOffer(offer.MirrorOfferId!, useGitCode: false).MirrorOfferId);
             github.Resume();
         }
@@ -254,8 +265,30 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
             Assert.Equal(UpdateDownloadState.Ready, final.State);
             Assert.Equal(Installer, await File.ReadAllBytesAsync(InstallerPath()));
         }
-        Assert.Equal(choice is "accept" or "cancel" ? prefix : Installer.Length, github.BytesRead);
-        Assert.Equal(choice is "accept" or "mirror unavailable after accept" ? 2 : 1, mirrorOpens);
+        Assert.Equal(choice is "accept" or "cancel" or "decline, then GitHub fails" ? prefix : Installer.Length,
+            github.BytesRead);
+        Assert.Equal(choice is "accept" or "mirror unavailable after accept" or "primary ends during re-open"
+            or "decline, then GitHub fails" ? 2 : 1, mirrorOpens);
+
+        // The log says what became of the offer, and "switched" only when GitCode served the file (audit 2026-11-20, F-2).
+        // GitHub failing after the answer sends the download to GitCode by itself: no answer describes that, so
+        // nothing is said rather than a stale "declined" on a file that came from GitCode (re-review 2026-11-20, R2-1).
+        var expected = choice switch
+        {
+            "accept" => "switched",
+            "decline" => "declined",
+            "mirror unavailable after accept" => "not_switched_mirror_unavailable",
+            "primary ends during re-open" => "not_switched_primary_ended",
+            _ => null,
+        };
+        var finished = UpdateLines().Last(line => line["event"]!.GetValue<string>() == "update_download_finished");
+        Assert.Equal(expected, finished["mirror_offer"]?.GetValue<string>());
+
+        // The player is told too: the final state carries the same value, and nothing when the download was cancelled.
+        Assert.Equal(expected, final.MirrorOutcome);
+        var wire = UpdateWire.Download(final);
+        Assert.Equal(expected, wire["mirror_outcome"]?.GetValue<string>());
+        Assert.Equal(expected is not null, wire.ContainsKey("mirror_outcome"));
     }
 
     [Theory]
@@ -295,7 +328,7 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
             UpdateDownloadTransfer.MirrorFinishesSooner(1000, received, primaryRate, mirrorRate, setupSeconds));
     }
 
-    private sealed class PausedInstaller(int prefixLength) : BodyStream
+    private sealed class PausedInstaller(int prefixLength, bool failAfterResume = false) : BodyStream
     {
         private readonly TaskCompletionSource _resume = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _position;
@@ -309,6 +342,7 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
             if (_position >= prefixLength)
             {
                 await _resume.Task.WaitAsync(cancellationToken);
+                if (failAfterResume) throw new IOException("GitHub dropped the connection");
                 end = Installer.Length;
             }
             var read = Math.Min(buffer.Length, end - _position);

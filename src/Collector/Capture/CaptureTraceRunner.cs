@@ -46,6 +46,17 @@ public sealed record CaptureTraceServices
     /// <summary>Creates the capture source; the Machina/Npcap one when null.</summary>
     public Func<ICaptureSource>? SourceFactory { get; init; }
 
+    /// <summary>
+    /// The source of a trace or an evidence round: the substituted one, or the Machina/Npcap one
+    /// stamping its messages with <paramref name="mono"/>, the clock the round's markers are
+    /// stamped with too (audit 2026-11-20, A2b-1).
+    /// </summary>
+    /// <param name="oodleTempManifestPath">Manifest of the temp copies the live source owns.</param>
+    /// <param name="mono">The round's one clock.</param>
+    internal ICaptureSource CreateSource(string? oodleTempManifestPath, Func<TimeSpan> mono) =>
+        SourceFactory?.Invoke() ?? new MachinaCaptureSource(
+            Logger, oodleTempManifestPath: oodleTempManifestPath, mono: mono);
+
     /// <summary>Clock used for timestamps.</summary>
     public IClock Clock { get; init; } = SystemClock.Instance;
 
@@ -266,8 +277,11 @@ public static class CaptureTraceRunner
 
         // Registered in the managed root's manifest, which the next Collector start sweeps: a trace
         // stopped by closing its console window leaves no copy behind (audit 2026-10-03, OB-6).
-        using var source = svc.SourceFactory?.Invoke() ?? new MachinaCaptureSource(
-            svc.Logger, oodleTempManifestPath: Storage.DatabasePaths.ResolveOodleTempManifest(null));
+        // One clock for the messages the source stamps and the markers the sink writes, started
+        // before either (audit 2026-11-20, A2b-1).
+        var traceClock = Stopwatch.StartNew();
+        using var source = svc.CreateSource(
+            Storage.DatabasePaths.ResolveOodleTempManifest(null), () => traceClock.Elapsed);
         var isLiveSource = string.Equals(source.Kind, LiveSourceKind, StringComparison.Ordinal);
         // A new process can be visible before the kernel's process table answers with its
         // image path (ProcessImagePath, the only source we have). Starting from
@@ -317,7 +331,7 @@ public static class CaptureTraceRunner
 
         return Record(
             options, svc, output, status, npcap, game, adapter, processId, source,
-            pathPlan, preexistingConnections);
+            pathPlan, traceClock, preexistingConnections);
     }
 
     /// <summary>
@@ -361,6 +375,7 @@ public static class CaptureTraceRunner
         int processId,
         ICaptureSource source,
         CapturePathPlan pathPlan,
+        Stopwatch traceClock,
         int? preexistingConnections = 0)
     {
         // Before the trace file exists: a probe that cannot digest must not leave an empty trace.
@@ -393,7 +408,7 @@ public static class CaptureTraceRunner
             Directory.CreateDirectory(directory);
         }
 
-        var stopwatch = Stopwatch.StartNew();
+        var stopwatch = traceClock;
         CaptureTraceSink sink;
         long dropped;
         string? fault;

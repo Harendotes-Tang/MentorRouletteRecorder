@@ -110,6 +110,10 @@ public sealed record UpdateDownloadLimits(long MaxBytes, TimeSpan IdleTimeout, T
 /// <param name="Failure">FAILED only: why.</param>
 /// <param name="Message">FAILED only: one sentence for the user.</param>
 /// <param name="MirrorOfferId">DOWNLOADING only: a pending choice for this GitHub attempt.</param>
+/// <param name="MirrorOutcome">
+/// READY or FAILED only: what became of the GitCode offer the player answered during this attempt
+/// (<see cref="UpdateDownloadTransfer.MirrorOutcome"/>); null when no offer was answered.
+/// </param>
 public sealed record UpdateDownloadSnapshot(
     UpdateDownloadState State,
     string? Version = null,
@@ -119,7 +123,8 @@ public sealed record UpdateDownloadSnapshot(
     string? Sha256 = null,
     UpdateDownloadFailure? Failure = null,
     UserText? Message = null,
-    string? MirrorOfferId = null)
+    string? MirrorOfferId = null,
+    string? MirrorOutcome = null)
 {
     /// <summary>Nothing asked.</summary>
     public static UpdateDownloadSnapshot Idle { get; } = new(UpdateDownloadState.Idle);

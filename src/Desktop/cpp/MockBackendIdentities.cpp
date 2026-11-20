@@ -319,7 +319,7 @@ QJsonObject MockBackend::resolveCharacterIdentity(const QJsonObject &payload, QS
         if (!requestedName.isUndefined()) {
             if (m_registrationCandidates.key(identity->id) != boundTo || identity->state == QLatin1String("IGNORED")
                 || (identity->boundProfileId != 0 && identity->boundProfileId != boundTo))
-                return refuse("profile.not_found");
+                return refuse("identity.registration_moved"); // CharacterIdentityService.ConfirmRegistration
             if (!applyProfileName(profile, requestedName, errorCode, errorMessage))
                 return {};
             m_registrationCandidates.remove(boundTo);

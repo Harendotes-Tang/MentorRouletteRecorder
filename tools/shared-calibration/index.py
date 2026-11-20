@@ -627,7 +627,11 @@ def add_submission(
 
     if existing is not None:
         current = next(entry for entry in entries if entry["code_sha256"] == sha)
-        entry = dict(current, submitters=current["submitters"] + 1)
+        # Counted from the ledger: rows + 1 equals submitters + 1 whenever the code has rows. A code a
+        # maintainer restored after its last submitter left it has no row but keeps submitters 1
+        # (``restore``); counting up from that would write a state check_consistent refuses.
+        others = sum(1 for item in submissions if item["code_sha256"] == sha)
+        entry = dict(current, submitters=others + 1)
         entries = tuple(entry if item["code_sha256"] == sha else item for item in entries)
         status, path = ADDED, None
     else:
@@ -977,8 +981,11 @@ def restore(index: Index, code_sha256: str) -> Index:
     maintainer runs it, after looking at the code; a submission never undoes a revocation.
 
     The entry comes back as it was, ``submitters`` included, and accounts whose rows still name the
-    code are no longer held. ValueError (``PATH_COLLISION``) when another code in use has taken its
-    file name since: that code would have to go first.
+    code are no longer held. A code revoked because its last submitter replaced it (or whose last
+    hold was lifted) comes back with ``submitters`` 1 and no ledger row: that is consistent, and the
+    next account to submit it becomes its only counted submitter (``add_submission`` counts from the
+    ledger). ValueError (``PATH_COLLISION``) when another code in use has taken its file name since:
+    that code would have to go first.
     """
     entry = next((entry for entry in index.entries if entry["code_sha256"] == code_sha256), None)
     if entry is None:

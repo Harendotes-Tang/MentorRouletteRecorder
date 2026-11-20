@@ -579,6 +579,32 @@ class InstallerLanguageTests(unittest.TestCase):
                                    rf"Result := '{app_code}'")
         self.assertRegex(code, r"else\s*Result := 'zh-CN'")
 
+    def test_the_chinese_entries_carry_the_ids_the_preset_matches_other_chinese_regions_by(self):
+        # Audit 2026-11-19 M-2: no entry has zh-HK, zh-MO or zh-SG's own LanguageID; Setup's primary-language
+        # step then picks the entry of the same script (Inno help, "[Languages] section"), and it can do so
+        # only while each Chinese entry carries exactly one ID of its own script.
+        for name, expected in (("ChineseSimplified.isl", "$0804"), ("ChineseTraditional.isl", "$0404")):
+            with self.subTest(name=name):
+                lines = (REPO / "installer" / name).read_text(encoding="utf-8-sig").splitlines()
+                ids = [line.split("=", 1)[1].strip() for line in lines
+                       if line.strip().lower().startswith("languageid=")]
+                self.assertEqual([expected], ids)
+
+    def test_an_upgrade_in_another_language_leaves_one_uninstall_shortcut(self):
+        # Audit 2026-11-10 M-3: the uninstall shortcut's file name is in the setup language, so an upgrade
+        # in another language used to add a second one. The Start-menu folder is this application's alone,
+        # so every shortcut in it is cleared before [Icons] recreates them.
+        sections = installer_sections()
+        setup = dict(line.split("=", 1) for line in sections["setup"] if "=" in line)
+        self.assertEqual("{#AppName}", setup["DefaultGroupName"].strip())
+        self.assertEqual("yes", setup["DisableProgramGroupPage"].strip())
+        cleared = [entry for entry in install_delete_entries() if entry.get("name") == "{group}\\*.lnk"]
+        self.assertEqual(1, len(cleared))
+        self.assertEqual("files", cleared[0].get("type", "").lower())
+        icons = [line for line in sections["icons"] if line.startswith('Name: "{group}\\')]
+        self.assertTrue(any("{cm:UninstallProgram," in line for line in icons))
+        self.assertTrue(any('Filename: "{app}\\{#AppExe}"' in line for line in icons))
+
     def test_all_custom_messages_have_translations_and_matching_placeholders(self):
         messages = custom_messages()
         expected = {key.split(".", 1)[1]: value for key, value in messages.items()

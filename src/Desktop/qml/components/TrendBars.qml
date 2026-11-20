@@ -100,6 +100,9 @@ Item {
                                      ? (bars.width + bars.spacing) / root.buckets.length : 0
         // An empty day has no bar to explain: nothing is shown over it.
         shown: root.countAt(root.hoveredIndex) > 0
+        // A day under a resting pointer that gains a count shows its own figures, not
+        // those of the bar last hovered (audit 2026-11-20, K2-5).
+        onShownChanged: if (shown) tip.index = root.hoveredIndex
         text: qsTr("%1 · %2 次").arg(bucket.label || "").arg(bucket.count || 0)
         barCenter: bars.x + index * slot + (slot - bars.spacing) / 2
         barTop: bars.y + bars.height * (1 - Number(bucket.count || 0) / root.maxCount)

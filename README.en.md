@@ -97,7 +97,7 @@ See the [Traditional Chinese server testing guide](docs/traditional-chinese-serv
    The installed files are managed by administrators; the note image directory `note-images` is writable by standard users.
 4. The free edition of Npcap is distributed through the Npcap website. If the driver is missing, the installer downloads and verifies the official Npcap installer. Keep its default options, especially *WinPcap API-compatible Mode*.
 
-**Upgrading from an older version.** 1.9.1 upgrades the database to schema 16. Keep a database backup before upgrading; to roll back to an older version, use the backup made before the upgrade.
+**Upgrading from an older version.** 1.9.0 upgrades the database to schema 15, and the 1.9.1 test builds upgrade it to schema 16. Keep a database backup before upgrading; to roll back to an older version, use the backup made before the upgrade.
 Manual entries and imported records without a region from 1.8.0 and earlier are assigned to the Chinese server. Goals, starting counts and records that already have a region move into that region's existing profile.
 Database backups and record exports do not include note images; save `note-images` separately.
 
@@ -165,6 +165,7 @@ See [architecture](docs/architecture.md) (Chinese), [state machine](docs/state-m
 
 - Capture is passive, through Npcap: no injection, no reading of game process memory, no telemetry and no account. The capture path sends no packets to the game and does not keep raw packets long term.
   To decompress traffic, the Collector loads a temporary copy of the game executable into its own process and cleans it up when listening stops. A copy that is still in use is registered and handled at the next start.
+- During a new-region evidence round, if the current game version has no ready decompression support, the Collector reads the game executable file on this PC to look for the relevant locations, and writes what it found and the file's checksum to the local log; if the search is incomplete, or nothing can be decoded with what it found, the log also records a few short excerpts of the game executable's instruction bytes. The log contains no packets and no personal information, stays on this PC, and the tester decides whether to send it to the maintainer; see sections 4 and 5 of the [privacy and network boundary document](docs/privacy-boundary.md) (Chinese).
 - Chinese server character identification computes a digest of the character identifier in the login message with a key kept on this PC. Character names are entered by the user; the app never reads character names from the game. Neither record exports nor diagnostic reports contain identity digests.
 - Records, source files, OCR text, notes and images are processed on this PC; the desktop app and the Collector communicate over a local named pipe.
 
@@ -172,7 +173,7 @@ See [architecture](docs/architecture.md) (Chinese), [state machine](docs/state-m
 |---|---|
 | Shared calibration | On by default. Reads public calibrations on demand from a fixed GitHub repository, falling back to a fixed GitCode mirror. A calibration is used for recording only after it passes verification on this PC |
 | Online speech | Off by default. Available only after you enter a key for Azure or an OpenAI-compatible service. Only the text currently being announced is sent; the key is stored on this PC, encrypted by Windows |
-| Update check and download | Checking is on by default. GitHub is queried first, then GitCode if that fails. The matching installer is downloaded and its SHA-256 checked only after you click "Download installer", and it is started only after you click "Install now" |
+| Update check and download | Checking is on by default. GitHub is queried first, then GitCode if that fails. The matching installer is downloaded and its SHA-256 checked only after you click "Download installer" (if the GitHub download is too slow, you are asked whether to switch to GitCode), and it is started only after you click "Install now" |
 | Installing Npcap | The installer downloads and verifies the official Npcap installer only if it finds the driver missing while this app is being installed |
 
 You can turn off the first three in Settings, or set `MR_DISABLE_SHARED_FETCH`, `MR_DISABLE_ONLINE_SPEECH` and `MR_DISABLE_UPDATE_CHECK` to `1` and restart.

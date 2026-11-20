@@ -161,6 +161,63 @@ bool countsTowardsAverageDuration(const QJsonObject &run)
     return entered <= ended;
 }
 
+/// The jobs of data/jobs/jobs.json that carry approved Chinese aliases (aliases_zh): the only
+/// ones JobCatalog.FindByChineseSearchText expands. The Desktop does not bundle that file, so
+/// the mock keeps this copy of those rows.
+struct AliasedJob
+{
+    int id;
+    const char *nameZh;
+    const char *nameEn;
+    const char *abbreviation;
+    const char *aliases[2];
+};
+
+const AliasedJob kAliasedJobs[] = {
+    {22, "龙骑士", "dragoon", "DRG", {"龙骑", nullptr}},
+    {23, "吟游诗人", "bard", "BRD", {"诗人", nullptr}},
+    {24, "白魔法师", "white mage", "WHM", {"白魔", nullptr}},
+    {25, "黑魔法师", "black mage", "BLM", {"黑魔", nullptr}},
+    {27, "召唤师", "summoner", "SMN", {"召唤", nullptr}},
+    {31, "机工士", "machinist", "MCH", {"机工", nullptr}},
+    {32, "暗黑骑士", "dark knight", "DRK", {"暗骑", "黑骑"}},
+    {33, "占星术士", "astrologian", "AST", {"占星", nullptr}},
+    {35, "赤魔法师", "red mage", "RDM", {"赤魔", nullptr}},
+    {36, "青魔法师", "blue mage", "BLU", {"青魔", nullptr}},
+    {37, "绝枪战士", "gunbreaker", "GNB", {"绝枪", "枪刃"}},
+    {39, "钐镰客", "reaper", "RPR", {"钐镰", "镰刀"}},
+    {41, "蝰蛇剑士", "viper", "VPR", {"蝰蛇", nullptr}},
+    {42, "绘灵法师", "pictomancer", "PCT", {"绘灵", "画家"}},
+    {43, "驯兽师", "beastmaster", "BST", {"驯兽", nullptr}},
+};
+
+bool sameText(const QString &text, const char *name)
+{
+    return name && text.compare(QString::fromUtf8(name), Qt::CaseInsensitive) == 0;
+}
+
+/// RunFilterSql.AddChineseJobMatch: a search for one job's full Chinese name or Chinese alias
+/// also finds that job's runs - by job_id, or by any of the job's names when job_id is null.
+bool matchesChineseJob(const QJsonObject &run, const QString &text)
+{
+    const AliasedJob *found = nullptr;
+    for (const AliasedJob &job : kAliasedJobs) {
+        if (sameText(text, job.nameZh) || sameText(text, job.aliases[0]) || sameText(text, job.aliases[1])) {
+            if (found)
+                return false;
+            found = &job;
+        }
+    }
+    if (!found)
+        return false;
+    const QJsonValue jobId = run.value(QStringLiteral("job_id"));
+    if (!jobId.isNull() && !jobId.isUndefined())
+        return jobId.toInt() == found->id;
+    const QString name = run.value(QStringLiteral("job_name")).toString();
+    return sameText(name, found->nameZh) || sameText(name, found->nameEn) || sameText(name, found->abbreviation)
+        || sameText(name, found->aliases[0]) || sameText(name, found->aliases[1]);
+}
+
 } // namespace
 
 namespace mr {
@@ -299,8 +356,11 @@ QList<QJsonObject> MockBackend::selectRuns(const QJsonObject &filter,
         if (!text.isEmpty() || !nameText.isEmpty() || !nameExact.isEmpty() || !reflectionText.isEmpty()) {
             const QString dutyName = run.value(QStringLiteral("duty_name")).toString();
             const QString jobName = run.value(QStringLiteral("job_name")).toString();
-            const QString haystack = dutyName + jobName + run.value(QStringLiteral("note")).toString();
-            const bool originalMatch = !text.isEmpty() && haystack.contains(text, Qt::CaseInsensitive);
+            // RunFilterSql.Build: each column on its own, never across their boundary.
+            const bool originalMatch = !text.isEmpty()
+                && (dutyName.contains(text, Qt::CaseInsensitive) || jobName.contains(text, Qt::CaseInsensitive)
+                    || run.value(QStringLiteral("note")).toString().contains(text, Qt::CaseInsensitive)
+                    || matchesChineseJob(run, text));
             const bool nameMatch = !nameText.isEmpty()
                 && (dutyName.contains(nameText, Qt::CaseInsensitive)
                     || jobName.contains(nameText, Qt::CaseInsensitive));

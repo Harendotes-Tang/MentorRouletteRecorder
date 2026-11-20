@@ -543,6 +543,24 @@ public sealed class OnlineSpeechServiceTests : IDisposable
     }
 
     /// <summary>
+    /// Audit 2026-11-20 F-1: good audio this computer cannot keep in <c>tts-cache\</c> is a local failure, not the
+    /// service's format - neither ERR_SPEECH_FORMAT nor a sentence that blames the service's audio.
+    /// </summary>
+    [Fact]
+    public async Task GoodAudioThatCannotBeCachedIsNotReportedAsTheServicesFormat()
+    {
+        var service = Service(new FakeSpeechTransport((request, _) => Task.FromResult(FakeSpeechTransport.Wav(request))));
+        service.UpdateSettings(AzureUpdate());
+        File.WriteAllText(service.Cache.Directory, "a file where the cache folder belongs");
+
+        var error = await Assert.ThrowsAsync<CollectorException>(() => service.SynthesizeAsync(new SpeechRequest(Text, 100, false), default));
+        Assert.Equal(ErrorCodes.Internal, error.Code);
+        Assert.Equal("CACHE_WRITE", error.Details!["reason"]);
+        Assert.False(error.Retryable);
+        Assert.DoesNotContain("WAV", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// contracts/error-codes.md: a sentence the service gives up on because it is stopping is
     /// <c>ERR_SPEECH_TIMEOUT</c> with reason <c>CANCELLED</c>, and may be tried again - the one in flight and the
     /// one waiting for the slot alike (audit 2026-10-03, OE-6a). Never <c>ERR_SPEECH_DISABLED</c>, which names the

@@ -108,6 +108,46 @@ public sealed class NetworkRecoveryTests
     }
 
     /// <summary>
+    /// Audit 2026-11-20, A1-1. The game also holds a connection on an interface whose reader is
+    /// closed (a loopback reader Npcap cannot open, say) while its real traffic runs over a carrier
+    /// that is read. The session reads the game and is kept over many inspections; once the game
+    /// leaves the carrier that is read, nothing of it is read any more and the session is replaced.
+    /// </summary>
+    [Fact]
+    public void AClosedReaderOnOneCarrierKeepsASessionThatReadsAnotherCarrier()
+    {
+        using var fixture = new Fixture();
+        fixture.Adapters.Add("virtual", "10.24.0.2");
+        fixture.Tcp.With(Fixture.FirstPid, "192.0.2.10", "10.24.0.2");
+        fixture.Start();
+        var original = fixture.Source;
+        Assert.Contains(fixture.Plan.Bindings, binding => binding.AdapterId == "virtual");
+        original.Inner.PushOpcode(0x142);
+        original.OpenFailures = 1;
+        original.ClosedInterfaces = new[] { CapturePathPlan.NormalizeIdentity("virtual") };
+
+        fixture.Notify(100);
+        fixture.Tick(2_100);
+        fixture.Tick(20_000);
+        fixture.Tick(40_000);
+        fixture.Tick(80_000);
+        fixture.Tick(120_000);
+        Assert.Single(fixture.Sources);
+        Assert.Equal(0, original.Inner.StopCount);
+        Assert.Equal(PathRecoverySnapshot.None, fixture.Status.PathRecovery);
+
+        // The game's connection on the read carrier closes; only the unread one is left.
+        fixture.Tcp.With(Fixture.FirstPid, "10.24.0.2");
+        fixture.Notify(121_000);
+        fixture.Tick(123_000);
+        fixture.Tick(123_000);
+
+        Assert.Equal(2, fixture.Sources.Count);
+        Assert.Equal(1, original.Inner.StopCount);
+        Assert.Equal(CaptureControllerState.Running, fixture.Controller.State);
+    }
+
+    /// <summary>
     /// Re-review 2026-11-03, RV1-4. With the connection table unreadable nobody can tell which
     /// interface carries the game; a reader whose every path is still there, unchanged, is kept,
     /// since an interface that appears cannot hold a connection the game already had. A path of the

@@ -3,9 +3,11 @@
 
 #include <QDateTime>
 #include <QJsonValue>
+#include <QStringList>
 #include <QTimeZone>
 #include <cmath>
 #include <limits>
+#include <utility>
 
 namespace mr {
 HistoryFilterFacets::HistoryFilterFacets(IBackend *backend, QObject *parent)
@@ -98,8 +100,13 @@ void HistoryFilterFacets::queryBatch()
     regionFilter.insert(QStringLiteral("date_field"), QStringLiteral("matched_at_utc"));
     for (const auto *key : {"region", "history_from_day", "history_to_day"})
         regionFilter.remove(QString::fromLatin1(key));
-    for (const auto *name : {"all", "CN", "TC", "GLOBAL"}) {
-        const QString key = QString::fromLatin1(name);
+    QStringList regionKeys{QStringLiteral("all"), QStringLiteral("CN"), QStringLiteral("TC"), QStringLiteral("GLOBAL")};
+    // A region the menu does not offer (未知区服) is listed while it is the filter, and
+    // its row is counted like the others (review 2026-11-20 I2-1 / K3-2).
+    const QString filterRegion = m_filter.value(QStringLiteral("region")).toString();
+    if (!filterRegion.isEmpty() && !regionKeys.contains(filterRegion))
+        regionKeys.append(filterRegion);
+    for (const QString &key : std::as_const(regionKeys)) {
         QJsonObject filter = regionFilter;
         const QString region = key == QLatin1String("all") ? QString() : key;
         if (!region.isEmpty()) filter.insert(QStringLiteral("region"), region);

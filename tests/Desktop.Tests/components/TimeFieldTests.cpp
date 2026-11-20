@@ -30,6 +30,30 @@ Window {
     QQuickItem *field() const { return root->findChild<QQuickItem *>(QStringLiteral("field")); }
 };
 
+// The field inside a dialog that closes on Esc, as in 手动修正.
+struct DialogScene : mrtest::QmlComponentScene
+{
+    bool create()
+    {
+        return QmlComponentScene::create(R"(import QtQuick
+import QtQuick.Controls
+import QtQuick.Window
+import MentorRecorder
+Window {
+    width: 480; height: 420; visible: true
+    Popup {
+        objectName: "dialog"; x: 10; y: 10; width: 400; height: 380
+        modal: true; focus: true; visible: true
+        closePolicy: Popup.CloseOnEscape
+        TimeField { objectName: "field"; x: 20; y: 20; width: 140 }
+    }
+})", QStringLiteral("/components/TimeDialogProbe.qml"));
+    }
+
+    QObject *dialog() const { return root->findChild<QObject *>(QStringLiteral("dialog")); }
+    QQuickItem *field() const { return root->findChild<QQuickItem *>(QStringLiteral("field")); }
+};
+
 /// Types \a text into the focused field the way a player does, key by key.
 void typeText(QQuickWindow *window, const QString &text)
 {
@@ -72,6 +96,7 @@ private slots:
     void visibleNumbersCanBeClickedAndWheeled();
     void draggingTheHourColumnStillWorks();
     void nowWritesTheClockWithSeconds();
+    void escapeClosesOnlyThePickerInsideADialog();
 };
 } // namespace
 
@@ -302,6 +327,38 @@ void TimeFieldTests::nowWritesTheClockWithSeconds()
     QVERIFY(written >= QTime(before.hour(), before.minute(), before.second()));
     QVERIFY(written <= after);
     QVERIFY(field->property("valid").toBool());
+}
+
+// Audit 2026-11-10 L1-1: Esc pressed to put the clock away closed the whole 手动修正
+// dialog with the edits in it. The open picker holds the focus, so Esc closes only it.
+void TimeFieldTests::escapeClosesOnlyThePickerInsideADialog()
+{
+    DialogScene scene;
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    QQuickWindow *window = scene.window();
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    window->requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(window));
+    QTRY_VERIFY(scene.dialog()->property("opened").toBool());
+    QQuickItem *field = scene.field();
+    field->setProperty("text", QStringLiteral("14:05"));
+    field->forceActiveFocus();
+    QTRY_VERIFY(field->hasActiveFocus());
+    QVERIFY(QMetaObject::invokeMethod(field, "openPicker"));
+    QTRY_VERIFY(field->property("pickerOpen").toBool());
+    QQuickItem *hours = field->findChild<QQuickItem *>(QStringLiteral("hourWheel"));
+    QVERIFY(hours);
+    QTRY_VERIFY(hours->hasActiveFocus());
+
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!field->property("pickerOpen").toBool());
+    QVERIFY(scene.dialog()->property("visible").toBool());
+    QTRY_VERIFY(field->hasActiveFocus());
+    QCOMPARE(field->property("text").toString(), QStringLiteral("14:05"));
+
+    // With the picker away, Esc is the dialog's again.
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!scene.dialog()->property("visible").toBool());
 }
 
 MR_DESKTOP_TEST_SUITE(TimeField)

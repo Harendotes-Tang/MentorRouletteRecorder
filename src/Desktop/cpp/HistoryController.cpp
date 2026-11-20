@@ -622,7 +622,7 @@ void HistoryController::sendCheckedBatch(const QString &action, int profileId, c
     // reached: the statistics must not celebrate the read that follows (audit 2026-11-19, I2-2).
     const bool movingRuns = movingRegion || assigning;
     if (movingRuns)
-        Q_EMIT regionMovePendingChanged(true);
+        Q_EMIT regionMovePendingChanged(true, false);
     BackendReply *batchReply = nullptr;
     if (movingRegion)
         batchReply = m_backend->requestWithId(QStringLiteral("BatchMutateRuns"), payload, requestId);
@@ -635,13 +635,14 @@ void HistoryController::sendCheckedBatch(const QString &action, int profileId, c
                                                                        const QString &code, const QString &message) {
             settle(m_unansweredBatch, requestId, ok, code);
             m_batchRunning = false;
+            const bool uncertain = !ok && ((batchGuard && batchGuard->transportFailed())
+                || code == QLatin1String("ERR_PIPE_CLOSED") || code == QLatin1String("ERR_TIMEOUT")
+                || code == QLatin1String("ERR_DISCONNECTED"));
+            // Only a batch that may have applied is followed by a read (re-review 2026-11-20, R3-1).
             if (movingRuns)
-                Q_EMIT regionMovePendingChanged(false);
+                Q_EMIT regionMovePendingChanged(false, ok || uncertain);
             if (!ok) {
                 const bool unsent = batchGuard && batchGuard->neverSent() && code == QLatin1String("ERR_INTERNAL");
-                const bool uncertain = (batchGuard && batchGuard->transportFailed())
-                    || code == QLatin1String("ERR_PIPE_CLOSED") || code == QLatin1String("ERR_TIMEOUT")
-                    || code == QLatin1String("ERR_DISCONNECTED");
                 m_batchFeedback = [unsent, uncertain, code,
                                    refusal = collector_text::replyErrorText(batchGuard, message)] {
                     // %1 is the Collector's own sentence (or its code).

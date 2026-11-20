@@ -372,7 +372,8 @@ public sealed class ProfileCatalog
     /// file declares, falling back to the file's own last-write time when that cannot be read.
     /// Call it once per root (local and shared): each root keeps its own quota, so shared
     /// profiles never push out local ones or the reverse. Never touches anything that is not a
-    /// <c>.json</c> profile file, and never touches <see cref="SchemaFileName"/>. Pure directory
+    /// <c>.json</c> profile file or the <see cref="DisplacedSuffix"/> copy of one whose profile is
+    /// gone, and never touches <see cref="SchemaFileName"/>. Pure directory
     /// hygiene: it does no scheduling and is safe to call from a startup path.
     /// </summary>
     /// <param name="localRoot">Calibrated profile directory; a missing one deletes nothing.</param>
@@ -411,10 +412,38 @@ public sealed class ProfileCatalog
                     // is a best-effort sweep, never a hard requirement of startup.
                 }
             }
+
+            // A shared profile's displaced copy goes with the profile it belongs to: a build that
+            // is pruned never writes that path again, so nothing else would ever remove it (audit
+            // 2026-11-20, E-2). Copies orphaned before this sweep existed go the same way.
+            foreach (var displaced in Directory.EnumerateFiles(
+                regionDirectory, "*.json" + DisplacedSuffix, SearchOption.TopDirectoryOnly))
+            {
+                if (File.Exists(displaced[..^DisplacedSuffix.Length]))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    File.Delete(displaced);
+                    deleted.Add(displaced);
+                }
+                catch (IOException)
+                {
+                    // Best effort, as above.
+                }
+            }
         }
 
         return deleted;
     }
+
+    /// <summary>
+    /// Suffix of the copy a shared-profile write keeps of the document it replaced
+    /// (<c>&lt;name&gt;.json.displaced</c>). Not <c>*.json</c>, so no catalogue reads it.
+    /// </summary>
+    public const string DisplacedSuffix = ".displaced";
 
     /// <summary>
     /// Reads <c>generated_at</c> out of a profile file for retention ordering only. Any

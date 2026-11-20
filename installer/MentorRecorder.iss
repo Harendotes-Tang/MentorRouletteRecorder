@@ -107,6 +107,10 @@ ShowLanguageDialog=yes
 ; language, so a player who cannot read Chinese is not met by a Chinese dialog: an exact LanguageID
 ; match first, then the primary language (Traditional and Simplified Chinese never stand in for each
 ; other), then the first [Languages] entry - English, the one most players of any other language read.
+; The primary-language step is what serves the Chinese display languages without an entry of their
+; own: Inno's help ("[Languages] section") excludes only the other script there, so zh-HK and zh-MO
+; (Traditional) match chinesetraditional ($0404) and zh-SG (Simplified) matches chinesesimplified
+; ($0804) - which is why each .isl keeps exactly those LanguageIDs.
 ; An explicitly supplied /LANG can still choose a registered language.
 LanguageDetectionMethod=uilanguage
 UsePreviousLanguage=no
@@ -268,6 +272,11 @@ Type: files; Name: "{app}\*.dll"
 ; 1.5.0 and earlier installed the application manifest as a side file. It is embedded in the
 ; executable now and no longer shipped, so an upgrade removes the old copy.
 Type: files; Name: "{app}\MentorRecorder.Desktop.exe.manifest"
+; The uninstall shortcut is named in the setup language ({cm:UninstallProgram}), so an upgrade in
+; another language than the previous install would leave the old one beside the new one (audit
+; 2026-11-10 M-3). The Start-menu folder is this application's alone (DefaultGroupName, with
+; DisableProgramGroupPage=yes), and [Icons] recreates both shortcuts right after this section.
+Type: files; Name: "{group}\*.lnk"
 
 [Files]
 ; The Check is the second line of defence of ClearCodeDirectories (see [Code]): it stops the copy

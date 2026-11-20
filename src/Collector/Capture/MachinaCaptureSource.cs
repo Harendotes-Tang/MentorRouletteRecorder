@@ -68,12 +68,22 @@ public sealed class MachinaCaptureSource : ICaptureSource
         "FFXIVBundleDecoder: Decompression error",
     };
 
-    private readonly Stopwatch _mono = Stopwatch.StartNew();
+    // Monotonic time every message is stamped with: a stopwatch started with the source, or the
+    // owner's own clock so a trace's messages and markers share one time base (audit 2026-11-20,
+    // A2b-1).
+    private readonly Func<TimeSpan> _mono;
+
+    /// <summary>The clock this source stamps its messages with.</summary>
+    internal Func<TimeSpan> Mono => _mono;
+
     private readonly object _gate = new();
     private readonly object _lifecycleGate = new();
     private readonly OodleTempCopyCleaner _cleaner;
     private readonly RotatingFileLogger _logger;
     private readonly Domain.Time.IClock _clock;
+    // The Collector's data directory (beside the temp-copy manifest), where the marker of a
+    // discovered Oodle set in force is kept; null without a manifest.
+    private readonly string? _dataDirectory;
     private OodleSignatureRuntime? _oodleSignatureRuntime;
     private IMachinaMonitor? _monitor;
     private readonly Func<CaptureStartOptions, IMachinaMonitor>? _monitorFactory;
@@ -97,7 +107,7 @@ public sealed class MachinaCaptureSource : ICaptureSource
     private readonly long[] _traceSuppressed = new long[3];
     private long _traceSummaryAtMs = Environment.TickCount64;
     // What this capture read and failed to read, for one question at its end: did a signature
-    // set found on this machine decode anything at all?
+    // set found on this machine decode anything at all? Counts IPC segments only.
     private long _messagesRead;
     private long _decodeFailures;
 
@@ -118,14 +128,29 @@ public sealed class MachinaCaptureSource : ICaptureSource
     /// <param name="oodleTempManifestPath">
     /// Manifest of temp copies this capture owns; null keeps the copies in memory only.
     /// </param>
+    /// <param name="mono">
+    /// Monotonic time to stamp messages with; a stopwatch started here when null. A trace passes
+    /// the clock its markers are stamped with.
+    /// </param>
     public MachinaCaptureSource(
         RotatingFileLogger? logger = null,
         OodleTempCopyCleaner? cleaner = null,
         Domain.Time.IClock? clock = null,
-        string? oodleTempManifestPath = null)
+        string? oodleTempManifestPath = null,
+        Func<TimeSpan>? mono = null)
     {
         _logger = logger ?? RotatingFileLogger.Disabled;
         _clock = clock ?? Domain.Time.SystemClock.Instance;
+        if (mono is null)
+        {
+            var stopwatch = Stopwatch.StartNew();
+            mono = () => stopwatch.Elapsed;
+        }
+
+        _mono = mono;
+        _dataDirectory = string.IsNullOrWhiteSpace(oodleTempManifestPath)
+            ? null
+            : Path.GetDirectoryName(Path.GetFullPath(oodleTempManifestPath));
         _cleaner = cleaner ?? new OodleTempCopyCleaner(
             null,
             (eventName, count) => _logger.Write(
@@ -135,8 +160,10 @@ public sealed class MachinaCaptureSource : ICaptureSource
 
     internal MachinaCaptureSource(Func<CaptureStartOptions, IMachinaMonitor> monitorFactory,
         Func<int, System.Net.IPAddress?, int?>? connectionCounter = null,
-        Func<int, CapturePathPlan, int?>? pathConnectionCounter = null)
-        : this()
+        Func<int, CapturePathPlan, int?>? pathConnectionCounter = null,
+        RotatingFileLogger? logger = null,
+        string? oodleTempManifestPath = null)
+        : this(logger, oodleTempManifestPath: oodleTempManifestPath)
     {
         _monitorFactory = monitorFactory;
         _connectionCounter = connectionCounter ?? GameTcpConnectionProbe.TryCount;
@@ -279,7 +306,8 @@ public sealed class MachinaCaptureSource : ICaptureSource
                     : _connectionCounter(options.ProcessId, options.BindAddress)) ?? -1);
             // Own both resources before startup can fail. A rollback failure must leave
             // references on the source so its owner can retry instead of releasing Oodle.
-            var signatureRuntime = OodleSignatureRuntime.TryCreate(options, logger: _logger, cleaner: _cleaner);
+            var signatureRuntime = OodleSignatureRuntime.TryCreate(
+                options, logger: _logger, cleaner: _cleaner, dataDirectory: _dataDirectory);
             _oodleSignatureRuntime = signatureRuntime;
             try
             {
@@ -355,6 +383,9 @@ public sealed class MachinaCaptureSource : ICaptureSource
         try
         {
             Detach(monitor);
+            // The monitor stopped and the process is still here: a discovered set in force did
+            // not end the Collector (audit 2026-11-20, A2-1).
+            signatureRuntime?.ClearCrashSentinel();
             // The last resort, and only here: a discovered set that read nothing and failed
             // to read something was wrong. Before the runtime is released, so the excerpts
             // name the set that was in force.
@@ -477,7 +508,12 @@ public sealed class MachinaCaptureSource : ICaptureSource
                 return;
             }
 
-            Interlocked.Increment(ref _messagesRead);
+            // Only an IPC segment proves the set decoded anything: control segments (keep-alives)
+            // frame even while every compressed bundle fails (audit 2026-11-20, A1-2).
+            if (frame.SegmentType == FfxivFraming.SegmentTypeIpc)
+            {
+                Interlocked.Increment(ref _messagesRead);
+            }
 
             // The payload is copied out of Machina's buffer immediately: the buffer is reused
             // by the capture loop, and nothing downstream may hold a reference to it.
@@ -496,7 +532,7 @@ public sealed class MachinaCaptureSource : ICaptureSource
                 // built from: those are compared against lifecycle events and recovery
                 // timestamps, which come from here (review finding H-8).
                 _clock.UtcNow,
-                _mono.Elapsed,
+                _mono(),
                 epoch,
                 frame.SegmentType,
                 frame.Opcode,

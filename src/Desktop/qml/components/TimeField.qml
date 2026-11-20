@@ -136,8 +136,13 @@ StyledTextField {
         objectName: "timePopup"
         y: field.height + 4
         padding: 8
+        // Esc closes only the picker when it holds the focus, not a dialog around the field
+        // (audit 2026-11-10 L1-1), as DateField's calendar does.
+        focus: true
         modal: false
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
+        onOpened: hourWheel.forceActiveFocus()
+        onClosed: field.forceActiveFocus()
 
         background: Rectangle {
             radius: Theme.radiusS

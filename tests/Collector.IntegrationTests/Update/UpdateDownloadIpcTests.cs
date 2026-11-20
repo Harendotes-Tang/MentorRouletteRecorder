@@ -50,6 +50,30 @@ public sealed class UpdateDownloadIpcTests
     }
 
     /// <summary>
+    /// What became of an answered GitCode offer is rendered as <c>mirror_outcome</c> with exactly the contract's values;
+    /// a value outside them is refused (audit 2026-11-20, F-2).
+    /// </summary>
+    [Theory]
+    [InlineData("switched", true)]
+    [InlineData("declined", true)]
+    [InlineData("not_switched_faster_primary", true)]
+    [InlineData("not_switched_mirror_unavailable", true)]
+    [InlineData("not_switched_primary_ended", true)]
+    [InlineData("SWITCHED", false)]
+    public void AnAnsweredMirrorOfferIsRenderedWithTheContractsValues(string outcome, bool valid)
+    {
+        var ready = UpdateDownloadSnapshot.Ready(Published, 3, 3, @"C:\data\updates\MentorRecorder-9.8.7-setup.exe",
+            new string('a', 64)) with { MirrorOutcome = outcome };
+        var failed = UpdateDownloadSnapshot.Failed(Published, UpdateDownloadFailure.Timeout) with { MirrorOutcome = outcome };
+        foreach (var snapshot in new[] { ready, failed })
+        {
+            var wire = UpdateWire.Download(snapshot);
+            Assert.Equal(outcome, wire["mirror_outcome"]!.GetValue<string>());
+            Assert.Equal(valid, ContractSchema.Evaluate("$defs/UpdateDownload", wire).IsValid);
+        }
+    }
+
+    /// <summary>
     /// The whole round: a check learns the version, the download is asked for, GetStatus is polled until it is
     /// READY, and every answer on the way validates. The three requests sent are the metadata, the checksum and the
     /// installer, in that order, and nothing else.

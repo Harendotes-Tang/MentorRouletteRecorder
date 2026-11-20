@@ -283,6 +283,10 @@ tests/Fixtures/
 改动方式：**不得手写这些文件**。应修改 Desktop 侧的请求构造，运行 `MentorRecorderIpcRequests`，
 将其写入构建目录的新文件复制回本目录，并审阅 diff。
 
+区服迁移的两个样本（`PreviewRunRegionMigration.json` 与 `variants/BatchMutateRuns.move-region.json`）没有专用的
+`IBackend` 包装器：`MentorRecorderIpcRequests` 驱动真实的 `HistoryController` 预览并迁移一条记录，录下它发出的载荷作为请求参数，
+`IpcBackend` 原样转发。`HistoryController` 丢掉或改名某个字段时，样本比对即失败。
+
 **例外（共享校准，2026-09-15）**：`GetCalibrationShareCode`、`CheckSharedCalibration`、`ImportCalibrationCode`、
 `AcceptSharedQueueInference`、`RejectSharedCalibration` 五个样本最初由 Collector 侧手写，以满足第 1 步“契约中每条消息都有样本”的要求。
 桌面端包装器现已实现并加入 `MentorRecorderIpcRequests` 的消息列表，生成的载荷与此处完全一致。`ImportCalibrationCode` 使用 `shared-calibration/vectors.json` 的第一条合法码。

@@ -12,7 +12,7 @@
 //
 // The following icons are derived from the Feather project and are also under
 // The MIT License (MIT), Copyright (c) 2013-present Cole Bemis:
-//   arrow-down, arrow-right, arrow-up, calendar, check, chevron-down, chevron-left, chevron-right, chevrons-down, clock, frown, info, lock, log-out, meh, minimize-2, minus, moon, plus, radio, search, server, smile, square, target, x
+//   arrow-down, arrow-right, arrow-up, calendar, check, chevron-down, chevron-left, chevron-right, chevrons-down, circle-alert, circle-help, clock, frown, info, lock, log-out, meh, minimize-2, minus, moon, plus, radio, search, server, smile, square, target, x
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy of
 // this software and associated documentation files (the "Software"), to deal in
@@ -26,7 +26,7 @@
 var version = "1.76.0"
 
 // Icons Lucide derives from Feather (MIT, see the header); the rest are ISC only.
-var fromFeather = ["arrow-down", "arrow-right", "arrow-up", "calendar", "check", "chevron-down", "chevron-left", "chevron-right", "chevrons-down", "clock", "frown", "info", "lock", "log-out", "meh", "minimize-2", "minus", "moon", "plus", "radio", "search", "server", "smile", "square", "target", "x"]
+var fromFeather = ["arrow-down", "arrow-right", "arrow-up", "calendar", "check", "chevron-down", "chevron-left", "chevron-right", "chevrons-down", "circle-alert", "circle-help", "clock", "frown", "info", "lock", "log-out", "meh", "minimize-2", "minus", "moon", "plus", "radio", "search", "server", "smile", "square", "target", "x"]
 
 // name -> the drawing elements of the icon's 24x24 viewBox.
 var icons = {

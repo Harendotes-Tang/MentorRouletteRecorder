@@ -650,7 +650,13 @@ private Q_SLOTS:
     void miniBarDrawsNothingBelowTheRunRow();
     void importedTextIsShownAsWritten();
     void plusPillCountsCompletionsNotBaselineEdits();
+    void plusPillIgnoresASwitchOfCurrentCharacter();
+    void plusPillIgnoresRunsMovedOntoTheCurrentCharacter();
+    void plusPillCountsACompletionAfterARefusedMove();
     void progressRowsShowTheirOwnFiguresWhileAnotherRegionIsRead();
+    void pendingPillCountsEveryNewRecord();
+    void emptyStateSaysWhenTheHiddenModulesAppear();
+    void categoryBarKeepsSmallCategories();
     void entryButtonFollowsPageTheme_data();
     void entryButtonFollowsPageTheme();
     void mainWindowCanUnlockAndMinimizeIndependently();
@@ -1895,6 +1901,249 @@ void StatisticsOverlayTests::progressRowsShowTheirOwnFiguresWhileAnotherRegionIs
     QVERIFY(!scene.app->achievementSettingsLoaded());
     QTest::qWait(60);
     QCOMPARE(scene.item(QStringLiteral("floatingAchievementProgress"))->property("text").toString(), figure);
+    // The 数据暂未就绪 line follows the float's own figures, not the 成就 editor's region
+    // (audit 2026-11-10 L3-3).
+    QVERIFY(!scene.item(QStringLiteral("floatingDataNotReady"), true));
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+// Another character made current is no completion: the float's "+N" stays 0 while the
+// figure jumps to that character's, and the next real completion counts again
+// (audit 2026-11-20 L3-8).
+void StatisticsOverlayTests::plusPillIgnoresASwitchOfCurrentCharacter()
+{
+    Scene scene;
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
+    scene.backend.resetRuns({QJsonObject::fromVariantMap(completedRun(1))});
+    QJsonObject first;
+    for (const auto &profile : scene.backend.characterProfiles())
+        if (profile.toObject().value(QStringLiteral("region")).toString() == QLatin1String("CN")
+            && profile.toObject().value(QStringLiteral("is_current")).toBool())
+            first = profile.toObject();
+    QVERIFY(!first.isEmpty());
+    const int second = scene.backend.addCharacterProfile(
+        QStringLiteral("CN"), QString::fromUtf8("小号"), first.value(QStringLiteral("goal_count")).toInt(),
+        first.value(QStringLiteral("baseline_completed_count")).toInt(), false);
+    QJsonArray runs{QJsonObject::fromVariantMap(completedRun(1))};
+    for (int sequence = 2; sequence <= 4; ++sequence) {
+        QVariantMap run = completedRun(sequence);
+        run.insert(QStringLiteral("profile_id"), second);
+        runs.append(QJsonObject::fromVariantMap(run));
+    }
+    scene.backend.resetRuns(runs);
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    scene.overlay()->show();
+    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QTRY_VERIFY(scene.app->achievementSettingsLoaded());
+    QObject *data = scene.overlayData();
+    QVERIFY(data);
+    const int start = data->property("progress").toInt();
+    QTRY_COMPARE(data->property("observedProgress").toInt(), start);
+
+    scene.app->selectCharacterProfile(second);
+    QTRY_COMPARE(data->property("progress").toInt(), start + 2);
+    QTest::qWait(60);
+    QCOMPARE(data->property("plus").toInt(), 0);
+
+    QVariantMap made = completedRun(5);
+    made.insert(QStringLiteral("profile_id"), second);
+    runs.append(QJsonObject::fromVariantMap(made));
+    scene.backend.resetRuns(runs);
+    scene.app->refreshDashboard();
+    QTRY_COMPARE(data->property("progress").toInt(), start + 3);
+    QCOMPARE(data->property("plus").toInt(), 1);
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+// Runs filed under the current character (here a recognised character bound to it) raise its
+// progress without a duty being cleared: no "+N" for them, neither while the request is out
+// nor for the read that follows its answer (audit 2026-11-20 L3-8).
+void StatisticsOverlayTests::plusPillIgnoresRunsMovedOntoTheCurrentCharacter()
+{
+    Scene scene;
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
+    scene.backend.resetRuns({QJsonObject::fromVariantMap(completedRun(1)), QJsonObject::fromVariantMap(completedRun(2))});
+    // Takes both runs and assigns them to no character.
+    const int identity = scene.backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 2);
+    QVERIFY(identity > 0);
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    scene.overlay()->show();
+    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QTRY_VERIFY(scene.app->achievementSettingsLoaded());
+    QObject *data = scene.overlayData();
+    QVERIFY(data);
+    const int start = data->property("progress").toInt();
+    QTRY_COMPARE(data->property("observedProgress").toInt(), start);
+    const int current = scene.app->achievementForRegion(QStringLiteral("CN")).value(QStringLiteral("profile_id")).toInt();
+    QVERIFY(current > 0);
+
+    QSignalSpy settling(scene.app.get(), &mr::AppController::runMovesSettlingChanged);
+    scene.app->bindCharacterIdentity(identity, current);
+    QVERIFY(scene.app->runMovesSettling());
+    QTRY_COMPARE(data->property("progress").toInt(), start + 2);
+    QTRY_VERIFY(!scene.app->runMovesSettling());
+    QCOMPARE(settling.count(), 2);
+    QTest::qWait(60);
+    QCOMPARE(data->property("plus").toInt(), 0);
+
+    QJsonArray runs;
+    for (int sequence = 1; sequence <= 3; ++sequence) {
+        QVariantMap run = completedRun(sequence);
+        run.insert(QStringLiteral("profile_id"), current);
+        runs.append(QJsonObject::fromVariantMap(run));
+    }
+    scene.backend.resetRuns(runs);
+    scene.app->refreshDashboard();
+    QTRY_COMPARE(data->property("progress").toInt(), start + 3);
+    QCOMPARE(data->property("plus").toInt(), 1);
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+// A 改角色 batch the Collector refuses changes nothing and is followed by no read: it owes
+// none, so the next real completion still shows its "+1" (re-review 2026-11-20, R3-1).
+void StatisticsOverlayTests::plusPillCountsACompletionAfterARefusedMove()
+{
+    Scene scene;
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
+    scene.backend.resetRuns({QJsonObject::fromVariantMap(completedRun(1))});
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    scene.overlay()->show();
+    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QTRY_VERIFY(scene.app->achievementSettingsLoaded());
+    QObject *data = scene.overlayData();
+    QVERIFY(data);
+    const int start = data->property("progress").toInt();
+    QTRY_COMPARE(data->property("observedProgress").toInt(), start);
+    const int current = scene.app->achievementForRegion(QStringLiteral("CN")).value(QStringLiteral("profile_id")).toInt();
+    QVERIFY(current > 0);
+
+    // A revision the record no longer has: the Collector refuses the whole batch.
+    QVariantMap stale = completedRun(1);
+    stale.insert(QStringLiteral("revision"), 999);
+    scene.app->setHistoryRunChecked(stale, true);
+    QCOMPARE(scene.app->checkedHistoryRunCount(), 1);
+    scene.app->assignCheckedHistoryRunsToProfile(current, QStringLiteral("test"));
+    QTRY_VERIFY(!scene.app->historyBatchRunning());
+    QVERIFY(!scene.app->historyBatchFeedback().isEmpty());
+    QVERIFY(!scene.app->runMovesSettling());
+
+    scene.backend.resetRuns({QJsonObject::fromVariantMap(completedRun(1)), QJsonObject::fromVariantMap(completedRun(2))});
+    scene.app->refreshDashboard();
+    QTRY_COMPARE(data->property("progress").toInt(), start + 1);
+    QCOMPARE(data->property("plus").toInt(), 1);
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+// Records that arrive together are counted together: the pill says "+2", not "+1"
+// (audit 2026-11-10 L3-4).
+void StatisticsOverlayTests::pendingPillCountsEveryNewRecord()
+{
+    Scene scene;
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    scene.overlay()->show();
+    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QTRY_VERIFY(scene.app->recovery()->identityVerified());
+    QCOMPARE(scene.app->recovery()->count(), 0);
+    // The pill is hidden again 3.2 s after the last arrival, so every read tolerates a
+    // missing item instead of dereferencing it.
+    const auto shown = [&scene](const char *name, const char *property) {
+        const QQuickItem *item = scene.item(QString::fromLatin1(name), true);
+        return item ? item->property(property) : QVariant();
+    };
+    // The float's first change of the count only primes it: records already waiting
+    // when it starts are not new.
+    scene.app->recovery()->offer(unknownResultRun(1), QStringLiteral("result"));
+    QTRY_COMPARE(scene.app->recovery()->count(), 1);
+    QTRY_COMPARE(shown("floatingPendingCount", "text").toString(), QStringLiteral("1"));
+    QVERIFY(!scene.item(QStringLiteral("floatingPendingPlus"), true));
+    scene.app->recovery()->offer(unknownResultRun(2), QStringLiteral("result"));
+    scene.app->recovery()->offer(unknownResultRun(3), QStringLiteral("result"));
+    QTRY_COMPARE(scene.app->recovery()->count(), 3);
+    QTRY_COMPARE(shown("floatingPendingCount", "text").toString(), QStringLiteral("3"));
+    QTRY_COMPARE(shown("floatingPendingPlus", "count").toInt(), 2);
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+// With nothing to show, the float says when what is selected will appear
+// (audit 2026-11-10 L3-5).
+void StatisticsOverlayTests::emptyStateSaysWhenTheHiddenModulesAppear()
+{
+    Scene scene;
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    scene.overlay()->show();
+    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    QTRY_VERIFY(scene.app->recovery()->identityVerified());
+    QCOMPARE(scene.app->recovery()->count(), 0);
+    const struct { QStringList modules; const char *text; } cases[] = {
+        {.modules = {QStringLiteral("pending_work")}, .text = "有待处理记录时显示。"},
+        {.modules = {QStringLiteral("current_duty")}, .text = "所选内容进本后显示。"},
+        {.modules = {QStringLiteral("current_duty"), QStringLiteral("pending_work")},
+         .text = "所选内容进本后或有待处理记录时显示。"},
+    };
+    for (const auto &entry : cases) {
+        scene.overlay()->setModules(entry.modules);
+        QTRY_VERIFY(scene.item(QStringLiteral("floatingEmptyState"), true));
+        QTRY_COMPARE(scene.item(QStringLiteral("floatingEmptyState"), true)->property("text").toString(),
+                     QString::fromUtf8(entry.text));
+    }
+    QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+}
+
+// A category with few clears keeps a visible segment beside a dominant one, and the
+// bar still ends at its edge (audit 2026-11-20 L3-9).
+void StatisticsOverlayTests::categoryBarKeepsSmallCategories()
+{
+    const auto contentIdOf = [](const QString &category) {
+        for (const auto &entry : mr::DutyCatalog::shared()->allDuties()) {
+            const QVariantMap duty = entry.toMap();
+            if (duty.value(QStringLiteral("duty_category")).toString() == category)
+                return duty.value(QStringLiteral("content_id"));
+        }
+        return QVariant();
+    };
+    const struct { const char *category; int count; } categories[] = {
+        {.category = "四人迷宫", .count = 500}, {.category = "讨伐歼灭战", .count = 3}, {.category = "大型任务", .count = 2}};
+    QJsonArray runs;
+    int sequence = 1;
+    for (const auto &entry : categories) {
+        const QString category = QString::fromUtf8(entry.category);
+        const QVariant contentId = contentIdOf(category);
+        QVERIFY(contentId.isValid());
+        for (int i = 0; i < entry.count; ++i) {
+            QVariantMap run = completedRun(sequence++);
+            run.insert(QStringLiteral("duty_category"), category);
+            run.insert(QStringLiteral("content_id"), contentId);
+            runs.append(QJsonObject::fromVariantMap(run));
+        }
+    }
+    Scene scene;
+    scene.backend.setLiveMode(mr::MockBackend::LiveMode::None);
+    scene.backend.resetRuns(runs);
+    QVERIFY2(scene.create(), qPrintable(scene.errors));
+    scene.overlay()->setModules({QStringLiteral("dungeons")});
+    scene.overlay()->setGeometry(QRect(80, 80, 300, 560));
+    scene.overlay()->show();
+    QVERIFY(QTest::qWaitForWindowExposed(scene.floating()));
+    const auto segments = [&] {
+        QList<QQuickItem *> result;
+        const auto collect = [&](auto &&self, QQuickItem *parent) -> void {
+            if (parent->objectName() == QLatin1String("floatingCategorySegment") && parent->isVisible())
+                result.append(parent);
+            for (auto *child : parent->childItems()) self(self, child);
+        };
+        collect(collect, scene.floating()->contentItem());
+        return result;
+    };
+    QTRY_COMPARE(segments().size(), 3);
+    QTRY_VERIFY(std::ranges::all_of(segments(), [](QQuickItem *segment) { return segment->width() >= 3; }));
+    QList<QQuickItem *> shown = segments();
+    std::ranges::sort(shown, [](QQuickItem *left, QQuickItem *right) { return left->x() < right->x(); });
+    for (QQuickItem *segment : std::as_const(shown))
+        QVERIFY2(segment->width() >= 3, qPrintable(QString::number(segment->width())));
+    QQuickItem *last = shown.last();
+    QVERIFY(qAbs(last->x() + last->width() - last->parentItem()->width()) <= 0.5);
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
 }
 

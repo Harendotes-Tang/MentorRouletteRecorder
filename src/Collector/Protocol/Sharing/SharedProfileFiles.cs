@@ -31,7 +31,27 @@ public static class SharedProfileFiles
     /// one it displaced must come back, or the build has no shared profile at the next start
     /// although nobody withdrew it (audit 2026-11-10, E-1).
     /// </summary>
-    private static string DisplacedPathFor(string path) => path + ".displaced";
+    private static string DisplacedPathFor(string path) => path + ProfileCatalog.DisplacedSuffix;
+
+    /// <summary>
+    /// Removes the document a write displaced, once that write was adopted: nothing can bring it back
+    /// any more, and kept beside the profile in use it was a second profile document - possibly a
+    /// revoked or contradicted one - left on disk until the next write for the build (audit 2026-11-20,
+    /// E-2). Best effort: a copy that cannot be removed now goes with the next write, removal or prune.
+    /// </summary>
+    /// <param name="root">Shared profile directory.</param>
+    /// <param name="region">CN or GLOBAL.</param>
+    /// <param name="gameBuild">Client build.</param>
+    public static void ForgetDisplaced(string root, Region region, string gameBuild)
+    {
+        try
+        {
+            File.Delete(DisplacedPathFor(PathFor(root, region, gameBuild)));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
 
     /// <summary>Writes a built shared profile atomically and returns its path.</summary>
     /// <param name="built">A <see cref="SharedProfileBuildStatus.Built"/> result.</param>

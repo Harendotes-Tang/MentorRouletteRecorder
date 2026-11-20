@@ -27,14 +27,23 @@ public enum LogLevel
 ///
 /// What may be written is a short, closed list: timestamps, levels, component names, event
 /// names, counts and durations. What may never be written is everything that could identify
-/// a person or reconstruct traffic -- packet bytes, hex dumps, chat text, character names,
-/// IP or MAC addresses, SIDs and other users' paths. <see cref="Sanitize"/> is the last line
-/// of defence: any user's profile path, any IPv4 or IPv6 literal, any Windows SID and any
-/// hexadecimal run of sixteen characters or more is replaced with a placeholder even if a
-/// caller passes one in by accident. The install path ending in
+/// a person or reconstruct traffic -- packet bytes, chat text, character names, IP or MAC
+/// addresses, SIDs and other users' paths. <see cref="Sanitize"/> is a safety net for
+/// accidents: any user's profile path, any IPv4 or IPv6 literal, any Windows SID and any
+/// hexadecimal run of sixteen characters or more is replaced with a placeholder when a
+/// caller passes one in by mistake. The install path ending in
 /// <c>game\ffxiv_dx11.exe</c> is likewise collapsed to <c>[game-dir]</c>, including when it
 /// lives outside a user profile (docs/capture-diagnostics.md section 6,
 /// docs/privacy-boundary.md section 5).
+///
+/// One deliberate exception passes the net on purpose, and only through named events: in an
+/// evidence round, as a last resort when the game's Oodle call sites could not be settled,
+/// <c>oodle_signature_context</c> and <c>oodle_signature_sections</c> carry short excerpts of
+/// machine code from the game executable on disk (at most 384 bytes each, bytes separated by
+/// spaces) and its PE section table, and <c>oodle_signature_discovery</c> writes the
+/// executable's SHA-256 in groups of eight digits. These are bytes of the game file, never of
+/// a packet, and hold no address, character, account or player data (docs/privacy-boundary.md
+/// section 5, "例外"). No other caller may space or split hexadecimal to get past the net.
 /// </summary>
 public sealed partial class RotatingFileLogger : IDisposable
 {

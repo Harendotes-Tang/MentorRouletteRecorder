@@ -331,6 +331,7 @@ void StatisticsController::observeAchievement(const QJsonObject &dashboard, quin
                 Q_EMIT achievementMilestoneReached(lap);
         }
     }
+    settleRunMoves();
 }
 
 void StatisticsController::refreshTrend()

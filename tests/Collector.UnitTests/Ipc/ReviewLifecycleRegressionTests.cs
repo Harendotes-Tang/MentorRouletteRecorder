@@ -236,9 +236,12 @@ public sealed class ReviewLifecycleRegressionTests
         var captureDisposed = false;
         var records = new List<string>();
 
-        var failure = CollectorHost.DisposeSubsystems(
-            new ThrowingDisposable(boom),
-            new ActionDisposable(() => captureDisposed = true),
+        var failure = CollectorHost.RunShutdownSteps(
+            new (string, Action)[]
+            {
+                ("validation_dispose", () => throw boom),
+                ("capture_dispose", () => captureDisposed = true),
+            },
             (record, error) => records.Add(record));
 
         Assert.Same(boom, failure);
@@ -246,20 +249,62 @@ public sealed class ReviewLifecycleRegressionTests
         Assert.Contains("validation_dispose_failed", records);
     }
 
-    /// <summary>The first failure is the one reported when both subsystems refuse.</summary>
+    /// <summary>The first failure is the one reported when several steps refuse; every later step still runs.</summary>
     [Fact]
     public void BothSubsystemsFailingReportsTheFirstAndStillReleasesTheSecond()
     {
         var first = new InvalidOperationException("validation");
         var second = new TimeoutException("capture");
         var records = new List<string>();
+        var updatesDisposed = false;
 
-        var failure = CollectorHost.DisposeSubsystems(
-            new ThrowingDisposable(first), new ThrowingDisposable(second),
+        var failure = CollectorHost.RunShutdownSteps(
+            new (string, Action)[]
+            {
+                ("validation_dispose", () => throw first),
+                ("capture_dispose", () => throw second),
+                ("update_download_dispose", () => updatesDisposed = true),
+            },
             (record, error) => records.Add(record));
 
         Assert.Same(first, failure);
         Assert.Equal(new[] { "validation_dispose_failed", "capture_dispose_timed_out" }, records);
+        Assert.True(updatesDisposed, "a refusing capture must not keep the update download from being released");
+    }
+
+    /// <summary>
+    /// Capture is torn down right after the evidence round and before the update download and check, which can
+    /// each wait up to five seconds: once the round has released the capture lease, the automatic-recording timer
+    /// would otherwise start a live capture while the host is shutting down (re-review 2026-11-20, R1-1).
+    /// </summary>
+    [Fact]
+    public void ShutdownStopsTheRoundFirstAndDisposesCaptureBeforeTheUpdateWaits()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "MentorRecorder.Shutdown", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            using var logger = new RotatingFileLogger(directory, enabled: false);
+            using var host = CollectorHost.Open(Path.Combine(directory, "shutdown.db"), logger: logger);
+            var order = host.ShutdownSteps().Select(step => step.Record).ToList();
+
+            Assert.Equal("validation_stop", order[0]);
+            Assert.Equal(order.IndexOf("validation_dispose") + 1, order.IndexOf("capture_dispose"));
+            Assert.True(order.IndexOf("capture_dispose") < order.IndexOf("update_download_dispose"));
+            Assert.True(order.IndexOf("capture_dispose") < order.IndexOf("update_check_dispose"));
+            Assert.True(order.IndexOf("shared_calibration_stop") < order.IndexOf("capture_dispose"));
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (IOException)
+            {
+                // A log or WAL file still closing; the temp directory is swept by the system.
+            }
+        }
     }
 
     private static void WriteSetting(TestDatabase fixture)
@@ -306,14 +351,4 @@ public sealed class ReviewLifecycleRegressionTests
                 TimeZoneInfo.TransitionTime.CreateFloatingDateRule(
                     new DateTime(1, 1, 1, 2, 0, 0), 11, 1, DayOfWeek.Sunday)),
         });
-
-    private sealed class ThrowingDisposable(Exception error) : IDisposable
-    {
-        public void Dispose() => throw error;
-    }
-
-    private sealed class ActionDisposable(Action onDispose) : IDisposable
-    {
-        public void Dispose() => onDispose();
-    }
 }

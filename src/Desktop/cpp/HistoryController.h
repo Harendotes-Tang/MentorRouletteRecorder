@@ -82,6 +82,10 @@ public:
     /// limit; the rows are read from the Collector so each keeps its own revision.
     void checkAllMatchingRuns();
     bool checkAllLoading() const { return m_checkAllLoading; }
+    /// Drops a 勾选全部 read that is still on its way: its answer is for another filter,
+    /// for a selection the player has since cleared, or would grow the selection under a
+    /// dialog that is asking about it (audit 2026-11-20, K3-1).
+    void cancelCheckAll();
     void clearCheckedRuns();
     void mutateCheckedRuns(const QString &action, const QString &reason);
     /// BatchMutateRuns assign_profile over the checked rows, live and deleted alike:
@@ -129,8 +133,9 @@ Q_SIGNALS:
     void batchSucceeded(const QString &action, const QStringList &runIds);
     void regionMigrationChanged();
     /// A batch that files records under another region or character (move_region,
-    /// assign_profile) is on its way, or has been answered.
-    void regionMovePendingChanged(bool pending);
+    /// assign_profile) is on its way, or has been answered; \a mayHaveApplied on an answer
+    /// that applied it or whose outcome is unknown (a timeout, a closed pipe), false otherwise.
+    void regionMovePendingChanged(bool pending, bool mayHaveApplied);
     void filterConfirmationChanged();
     void retentionChanged();
 
@@ -143,9 +148,6 @@ private:
     QJsonArray checkedBatchTargets() const;
     void discardCheckedRuns();
     void fetchMatchingPage(quint64 generation, int page, QList<QVariantMap> collected);
-    /// Drops a 勾选全部 read that is still on its way: its answer is for another filter
-    /// or for a selection the player has since cleared.
-    void cancelCheckAll();
     void loadRevisionsForSelection();
     void loadRevisionPage(const QString &runId, quint64 generation, int page,
                           QVariantList collected);

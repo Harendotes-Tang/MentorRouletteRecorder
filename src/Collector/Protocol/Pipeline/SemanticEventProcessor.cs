@@ -584,9 +584,12 @@ public sealed class SemanticEventProcessor : ISemanticEventSink, ICaptureLifecyc
 
         var mappedDuty = _duties.Find(create.ContentId, _options.Region);
         // Null when nobody is telling characters apart here (a region switched by hand, a replay,
-        // identification off): the run goes to the profile the player chose. Otherwise the run
-        // belongs to the character that is logged in - to its profile, or to nobody while the
-        // player has not said which profile that is; never to the character played before it.
+        // identification off), or when no login was recognised in the session and the character
+        // seen last is the current profile's: the run goes to the profile the player chose.
+        // Otherwise the run belongs to the character that is logged in - to its profile, or to
+        // nobody while the player has not said which profile that is, or while no login was
+        // recognised and the current profile may be somebody else's; never to the character
+        // played before it.
         var character = _identityAtMatch?.Invoke(transaction);
         _runs.Insert(new MentorRun
         {

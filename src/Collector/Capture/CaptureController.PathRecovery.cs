@@ -105,9 +105,12 @@ public sealed partial class CaptureController
         var inventoryKnown = false;
         var pathsUnavailable = false;
         var gamePathsIntact = false;
-        // An interface that carries the game while its reader is closed (it never opened, or was
+        // Every interface that carries the game has its reader closed (it never opened, or was
         // closed after a read failure while nothing of the game ran over it): planned exactly as
-        // before, and nothing of the game is read from it (audit 2026-11-10, A1-1).
+        // before, and nothing of the game is read any more (audit 2026-11-10, A1-1). A closed
+        // reader on one carrier while another carrier is read does not count: the game's traffic
+        // is still read, and a replacement could never read its open connections again
+        // (audit 2026-11-20, A1-1).
         var carrierUnread = false;
         var pathStatus = ReadPathStatus(source);
         try
@@ -126,10 +129,11 @@ public sealed partial class CaptureController
             var carriersUnknown = !adapters.Any(IsGameCarrier) && game.ProcessId is { } processId &&
                 _services.Adapters.GameHoldsConnections(processId) is null;
             var closed = pathStatus.ClosedInterfaces ?? Array.Empty<string>();
-            carrierUnread = closed.Count != 0 && adapters.Where(IsGameCarrier).Any(adapter =>
+            var carriers = adapters.Where(IsGameCarrier).ToArray();
+            carrierUnread = closed.Count != 0 && carriers.Length != 0 && carriers.All(adapter =>
                 closed.Contains(CapturePathPlan.NormalizeIdentity(adapter.Id), StringComparer.OrdinalIgnoreCase));
             gamePathsIntact = next is not null && !carrierUnread &&
-                GamePathsIntact(run.PathPlan, next, adapters, carriersUnknown);
+                GamePathsIntact(run.PathPlan, next, adapters, carriersUnknown, closed);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
@@ -220,19 +224,23 @@ public sealed partial class CaptureController
     /// session exactly as it would be planned now: same identity, loopback role and addresses. When
     /// the connection table cannot say which interfaces carry the game, every path of the running
     /// plan must still be planned unchanged: an interface that appears cannot hold a connection the
-    /// game already had (re-review 2026-11-03, RV1-4). At the title screen nothing is intact.
+    /// game already had (re-review 2026-11-03, RV1-4). At the title screen nothing is intact. A
+    /// carrier whose reader is closed is not read by the session, so only the carriers it reads
+    /// are judged; the caller has already refused the case where it reads none of them.
     /// </summary>
     /// <param name="running">The running session's plan.</param>
     /// <param name="next">The plan discovery would make now.</param>
     /// <param name="adapters">The interface inventory <paramref name="next"/> was made from.</param>
     /// <param name="carriersUnknown">No interface was found carrying the game because the table could not be read.</param>
+    /// <param name="closed">Normalised identities of the interfaces whose reader is closed.</param>
     private static bool GamePathsIntact(CapturePathPlan? running, CapturePathPlan next,
-        IReadOnlyList<CaptureAdapterView> adapters, bool carriersUnknown)
+        IReadOnlyList<CaptureAdapterView> adapters, bool carriersUnknown, IReadOnlyCollection<string> closed)
     {
         if (running is null) return false;
         var kept = carriersUnknown
             ? running.Bindings.Select(binding => CapturePathPlan.NormalizeIdentity(binding.AdapterId)).ToArray()
-            : adapters.Where(IsGameCarrier).Select(adapter => CapturePathPlan.NormalizeIdentity(adapter.Id)).ToArray();
+            : adapters.Where(IsGameCarrier).Select(adapter => CapturePathPlan.NormalizeIdentity(adapter.Id))
+                .Where(identity => !closed.Contains(identity, StringComparer.OrdinalIgnoreCase)).ToArray();
         return kept.Length > 0 && kept.All(identity =>
             Binding(next, identity) is { } planned && Binding(running, identity) is { } current &&
             planned.IsLoopback == current.IsLoopback &&

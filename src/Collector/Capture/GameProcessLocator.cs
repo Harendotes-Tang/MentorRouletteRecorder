@@ -139,9 +139,15 @@ public sealed class GameProcessLocator
         "sdoa", "shanda", "sdogame", "sdo\\", "ff14cn", "盛趣", "最终幻想",
     };
 
+    /// <summary>
+    /// Includes the Steam client's own folder (<c>steamapps\common\FINAL FANTASY XIV Online</c>),
+    /// so a Steam library under a folder carrying a CN marker reads as ambiguous, not as CN
+    /// (audit 2026-11-20, A2-5).
+    /// </summary>
     private static readonly string[] GlobalMarkers =
     {
         "square enix", "squareenix", "final fantasy xiv - a realm reborn", "ffxiv - a realm reborn",
+        "final fantasy xiv online",
     };
 
     /// <summary>

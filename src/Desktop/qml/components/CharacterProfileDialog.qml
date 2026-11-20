@@ -24,6 +24,9 @@ MotionDialog {
     property string goalText: "2000"
     property string baselineText: "0"
     property bool makeCurrent: false
+    // The identity is already bound to the profile: registering only names it (audit
+    // 2026-11-20 K1-3), so nothing is said about a binding still to be made.
+    property bool namingOnly: false
     property string errorText: ""
     // This dialog's own request still unanswered; another window's change must
     // not close it.
@@ -51,11 +54,13 @@ MotionDialog {
         dialog.goalText = "2000"
         dialog.baselineText = "0"
         dialog.makeCurrent = false
+        dialog.namingOnly = false
         dialog.present()
     }
 
-    function openToRename(profile, identityId) {
+    function openToRename(profile, identityId, namingOnly) {
         dialog.identityId = Number(identityId) || 0
+        dialog.namingOnly = namingOnly === true
         dialog.profileId = Number(profile.profile_id)
         dialog.region = String(profile.region)
         dialog.nameText = String(profile.display_name || "")
@@ -127,8 +132,10 @@ MotionDialog {
         }
 
         HeadingLabel {
+            objectName: "characterProfileTitle"
             Layout.fillWidth: true
-            text: dialog.registering ? qsTr("登记原有角色") : !dialog.adding ? qsTr("给角色改名")
+            text: dialog.registering && dialog.namingOnly ? qsTr("给角色起名")
+                : dialog.registering ? qsTr("登记原有角色") : !dialog.adding ? qsTr("给角色改名")
                 : dialog.identityId > 0 ? qsTr("登记新角色") : qsTr("添加角色")
             font.pixelSize: Theme.dialogTitleSize(20)
             wrapMode: Text.WordWrap
@@ -284,7 +291,8 @@ MotionDialog {
             AppButton {
                 objectName: "characterProfileSave"
                 variant: "primary"
-                text: dialog.registering ? qsTr("确认绑定") : dialog.adding ? qsTr("添加") : qsTr("保存")
+                text: dialog.registering && !dialog.namingOnly ? qsTr("确认绑定")
+                    : dialog.adding ? qsTr("添加") : qsTr("保存")
                 enabled: !dialog.waiting
                 onClicked: dialog.submit()
             }

@@ -58,7 +58,8 @@ bool StatisticsController::characterFeaturesVisible(const QString &region) const
     for (const auto &value : m_profiles)
         ++counts[value.toObject().value(QStringLiteral("region")).toString()];
     // A character told apart in the game traffic, waiting or ignored, is a second
-    // character the player has to be able to see and answer for.
+    // character the player has to be able to see and answer for. One already bound to
+    // a profile is not, whether or not its naming offer was put off with 「以后再说」.
     const auto visibleFor = [this, &counts](const QString &owner) {
         return counts.value(owner) >= 2
                || m_achievements.value(owner).value(QStringLiteral("unassigned_run_count")).toInt() > 0
@@ -183,14 +184,14 @@ void StatisticsController::watchProfileRequest(const QString &action, BackendRep
     // Runs moved onto a profile are not completions just made: while the request is out no
     // lap is celebrated, and no read answered meanwhile may arm the observation again.
     if (movesRuns) {
-        ++m_runMovesInFlight;
+        countRunMove(1, false);
         suspendMilestone(QString());
     }
     const QPointer<BackendReply> guard(reply);
     reply->whenDone(this, [this, action, guard, then = std::move(then), movesRuns, boundIdentityId](
                               bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
         if (movesRuns) {
-            --m_runMovesInFlight;
+            countRunMove(-1, ok);
             // The read that follows the move only primes the observation.
             if (ok)
                 suspendMilestone(QString());

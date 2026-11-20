@@ -1249,6 +1249,36 @@ private slots:
         QCOMPARE(chainValue(scene, "npcap"), mr::Formatters::dash());
     }
 
+    // Audit 2026-11-20, K2-1: a kept Npcap incident says 「请按「捕获诊断」中的说明安装」, but
+    // without a status the page hides those steps; the hero keeps the verdict, not the pointer.
+    void aKeptNpcapIncidentDoesNotPointAtHiddenSteps()
+    {
+        auto fake = std::make_unique<UnreadableBackend>();
+        fake->connected = true;
+        fake->statusReadable = true;
+        fake->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
+                         {QStringLiteral("ffxiv_running"), true},
+                         {QStringLiteral("ffxiv_process_id"), 18244},
+                         {QStringLiteral("npcap_installed"), false},
+                         {QStringLiteral("profile_status"), QStringLiteral("VERIFIED")}};
+        auto *source = fake.get();
+        PageScene scene;
+        scene.other = std::move(fake);
+        QVERIFY(scene.open());
+        QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("blocked"));
+        QVERIFY(scene.app->recording()->message().contains(QString::fromUtf8("中的说明安装")));
+
+        source->setConnected(false);
+        QVERIFY(!scene.app->backendConnected());
+        QCOMPARE(scene.app->recording()->state(), QStringLiteral("blocked"));
+        QTRY_COMPARE(scene.text(QStringLiteral("captureHeroHeadline")), QString::fromUtf8("暂时不会自动记录"));
+        const QString hero = scene.text(QStringLiteral("captureHeroText"));
+        QVERIFY2(!hero.contains(QString::fromUtf8("捕获诊断")) && !hero.contains(QString::fromUtf8("说明安装")),
+                 qPrintable(hero));
+        QVERIFY2(hero.endsWith(QString::fromUtf8("。")), qPrintable(hero));
+        QVERIFY(!scene.shows(QStringLiteral("captureNpcapPanel")));
+    }
+
     // OB8-D1：只读得到 Npcap 自带 libpcap 的版本时，采集服务报「libpcap 1.10.6」；页面在
     // 前面再加「v」就成了「vlibpcap 1.10.6」。只有以数字开头的版本号才加「v」。
     void aLibpcapVersionIsNotPrefixedWithAV()
@@ -1626,14 +1656,24 @@ private slots:
         QTest::addColumn<QString>("headline");
         QTest::addColumn<QString>("text");
         QTest::addColumn<QString>("summary");
+        // The Collector's reason for UNSUPPORTED_BUILD (GetProtocolProfileStatus.message_ref).
+        QTest::addColumn<QString>("reasonKey");
         QTest::newRow("verified-cn") << QStringLiteral("VERIFIED") << QStringLiteral("CN")
                                      << QString::fromUtf8("新区服采证进行中，自动记录已暂停")
                                      << QString::fromUtf8("停止采证后会恢复自动记录。")
-                                     << QString::fromUtf8("正在采证 · 停止采证后恢复自动记录");
+                                     << QString::fromUtf8("正在采证 · 停止采证后恢复自动记录")
+                                     << QString();
+        // Audit 2026-11-20, K4-2: a region without support is not called an unsupported version.
         QTest::newRow("unsupported-tc") << QStringLiteral("UNSUPPORTED_BUILD") << QStringLiteral("TC")
                                         << QString::fromUtf8("新区服采证进行中")
-                                        << QString::fromUtf8("停止采证后恢复正常检测；当前游戏版本暂不自动记录。")
-                                        << QString::fromUtf8("正在采证 · 停止采证后恢复正常检测");
+                                        << QString::fromUtf8("停止采证后恢复正常检测；这个区服暂不自动记录。")
+                                        << QString::fromUtf8("正在采证 · 停止采证后恢复正常检测")
+                                        << QStringLiteral("profile.unavailable.region_unsupported");
+        QTest::newRow("patched-cn") << QStringLiteral("UNSUPPORTED_BUILD") << QStringLiteral("CN")
+                                    << QString::fromUtf8("新区服采证进行中")
+                                    << QString::fromUtf8("停止采证后恢复正常检测；当前游戏版本暂不自动记录。")
+                                    << QString::fromUtf8("正在采证 · 停止采证后恢复正常检测")
+                                    << QStringLiteral("profile.unavailable.build_unsupported");
     }
 
     void anEvidenceRoundPausesRecordingInWords()
@@ -1643,6 +1683,8 @@ private slots:
         QFETCH(QString, headline);
         QFETCH(QString, text);
         QFETCH(QString, summary);
+        QFETCH(QString, reasonKey);
+        const QString build = QStringLiteral("2026.09.01.0000.0000");
         auto fake = std::make_unique<CaptureBackend>();
         fake->capture = {{QStringLiteral("state"), QStringLiteral("STOPPED")},
                          {QStringLiteral("ffxiv_running"), true},
@@ -1650,7 +1692,13 @@ private slots:
                          {QStringLiteral("npcap_installed"), true},
                          {QStringLiteral("profile_status"), profile},
                          {QStringLiteral("region"), region},
-                         {QStringLiteral("game_build"), QStringLiteral("2026.09.01.0000.0000")}};
+                         {QStringLiteral("game_build"), build}};
+        if (!reasonKey.isEmpty())
+            fake->profile = {{QStringLiteral("status"), profile},
+                             {QStringLiteral("region"), region},
+                             {QStringLiteral("game_build"), build},
+                             {QStringLiteral("message"), QString::fromUtf8("采集服务的说明。")},
+                             {QStringLiteral("message_ref"), QJsonObject{{QStringLiteral("key"), reasonKey}}}};
         fake->validation = {{QStringLiteral("active"), true},
                             {QStringLiteral("state"), QStringLiteral("RECORDING")},
                             {QStringLiteral("reason"), QStringLiteral("RECORDING")},
@@ -1662,7 +1710,11 @@ private slots:
         scene.app->recording()->setUserObservation(true);
         QTRY_COMPARE(scene.app->recording()->state(), QStringLiteral("observing"));
         QTRY_COMPARE(scene.text(QStringLiteral("captureHeroHeadline")), headline);
-        QCOMPARE(scene.text(QStringLiteral("captureHeroText")), text);
+        QTRY_COMPARE(scene.app->regionUnsupported(),
+                     reasonKey == QLatin1String("profile.unavailable.region_unsupported"));
+        // regionUnsupported is notified with the status (audit 2026-11-20, K4-5): read it again.
+        scene.app->refreshStatus();
+        QTRY_COMPARE(scene.text(QStringLiteral("captureHeroText")), text);
         QCOMPARE(scene.text(QStringLiteral("captureHeaderStatusText")), QString::fromUtf8("采证中"));
         QCOMPARE(scene.text(QStringLiteral("captureChainSummary")), summary);
         const QString page = scene.visibleTexts().join(QLatin1Char('\n'));
@@ -1725,8 +1777,18 @@ private slots:
         if (!regionIsTheReason)
             return;
         QVERIFY(!scene.page->property("observationGuideExpanded").toBool());
+        // The page was last opened for 角色识别: the button still opens the region round
+        // (audit 2026-11-20, K4-1).
+        auto *evidence = findVisualItem(scene.page, QStringLiteral("templateObservationGuideCard"));
+        QVERIFY(evidence);
+        auto *session = evidence->property("session").value<QObject *>();
+        QVERIFY(session);
+        session->setProperty("purpose", QStringLiteral("identity"));
+        QVERIFY(session->property("identity").toBool());
         QVERIFY(QMetaObject::invokeMethod(scene.item(QStringLiteral("protocolEvidenceButton")), "clicked"));
         QTRY_VERIFY(scene.page->property("observationGuideExpanded").toBool());
+        QCOMPARE(session->property("purpose").toString(), QStringLiteral("region"));
+        QVERIFY(!session->property("identity").toBool());
     }
 
     // Review K2-4: a verified build the recording controller has blocked is not 「正在启动监听…」.

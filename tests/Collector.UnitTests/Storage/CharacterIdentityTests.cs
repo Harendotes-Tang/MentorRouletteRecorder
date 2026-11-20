@@ -545,4 +545,65 @@ public sealed class CharacterIdentityTests
 
         Assert.DoesNotContain("identity_id", runs);
     }
+
+    /// <summary>
+    /// What a session that recognised no login trusts (audit 2026-11-20 D1-2): the current profile, unless the region
+    /// has more than one profile and the character seen last is not bound to it.
+    /// </summary>
+    [Fact]
+    public void TheCurrentProfileIsInDoubtOnlyWhenTheCharacterSeenLastIsNotItsOwn()
+    {
+        static bool InDoubt(Fixture fixture) =>
+            fixture.Database.Database.RunInTransaction(tx => fixture.Identities.CurrentProfileIsInDoubt(Region.Cn, tx));
+
+        using (var empty = new Fixture())
+        {
+            empty.Add("小号");
+            Assert.False(InDoubt(empty)); // two profiles, no character ever recognised
+        }
+
+        using var fixture = new Fixture();
+        var main = fixture.Current();
+        Assert.False(InDoubt(fixture));
+        fixture.Login(Main);
+        fixture.Database.Clock.UtcNow += TimeSpan.FromMinutes(1);
+        var alt = fixture.Login(Alt).IdentityId!.Value;
+        Assert.False(InDoubt(fixture)); // one profile: a waiting character seen last changes nothing
+
+        var altProfile = fixture.Add("小号");
+        Assert.True(InDoubt(fixture)); // a waiting character seen last
+        fixture.Answer(alt, CharacterIdentityAction.Ignore);
+        Assert.True(InDoubt(fixture)); // a character not counted seen last
+
+        fixture.Database.Clock.UtcNow += TimeSpan.FromMinutes(1);
+        fixture.Login(Main);
+        Assert.False(InDoubt(fixture)); // the current profile's own character seen last
+
+        fixture.Answer(alt, CharacterIdentityAction.AskAgain);
+        fixture.Answer(alt, CharacterIdentityAction.Bind, altProfile);
+        fixture.Database.Clock.UtcNow += TimeSpan.FromMinutes(1);
+        fixture.Login(Alt);
+        Assert.Equal(altProfile, fixture.Current());
+        Assert.False(InDoubt(fixture));
+        fixture.Database.Database.RunInTransaction(tx => fixture.Settings.Profiles.SetCurrent(main, tx));
+        Assert.True(InDoubt(fixture)); // seen last, but bound to another profile than the current one
+
+        // Several characters seen in the same instant: the current profile's among them is enough.
+        fixture.Database.Clock.UtcNow += TimeSpan.FromMinutes(1);
+        fixture.Login(Main);
+        fixture.Login(Alt);
+        Assert.Equal(altProfile, fixture.Current());
+        Assert.False(InDoubt(fixture));
+        fixture.Database.Database.RunInTransaction(tx => fixture.Settings.Profiles.SetCurrent(main, tx));
+        Assert.False(InDoubt(fixture));
+
+        fixture.Database.Clock.UtcNow += TimeSpan.FromMinutes(1);
+        fixture.Login(Third);
+        Assert.True(InDoubt(fixture)); // a new waiting character seen last
+        fixture.Database.Clock.UtcNow += TimeSpan.FromMinutes(1);
+        fixture.Login(Third);
+        fixture.Login(Main);
+        Assert.Equal(main, fixture.Current());
+        Assert.False(InDoubt(fixture)); // tied with the current profile's character
+    }
 }

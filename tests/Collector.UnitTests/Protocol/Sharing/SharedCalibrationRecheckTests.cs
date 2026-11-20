@@ -470,9 +470,15 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
     /// <summary>
     /// A withdrawal mid-duty would close the run the way a stopped capture closes it. The revocation is
     /// therefore held until the machine is back between runs, and the run is recorded and flagged instead.
+    ///
+    /// Audit 2026-11-20, E-1: switching automatic calibration off before the run ends disarms calibration, and the
+    /// held revocation went with that key change; the revoked profile kept recording, unflagged. It is owed by the
+    /// profile in use, so it outlives the switch.
     /// </summary>
-    [Fact]
-    public async Task ARevocationThatArrivesDuringARunWaitsUntilTheRunEnds()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ARevocationThatArrivesDuringARunWaitsUntilTheRunEnds(bool calibrationSwitchedOff)
     {
         var code = _bed.CodeFromEveningA(CalibrationTrafficCases.ReplyState);
         _bed.Publish(code);
@@ -494,16 +500,23 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
         Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
         Assert.True(File.Exists(_bed.SharedProfilePath));
         Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+        if (calibrationSwitchedOff)
+        {
+            pipeline.ApplyCalibrationSetting(false);
+            await Bed.Idle(pipeline);
+            Assert.Equal(RunState.EnteredDuty, pipeline.RunState);
+            Assert.Equal(ProfileOrigin.Shared, pipeline.Current.Origin);
+        }
 
         Bed.Feed(pipeline, session, Bed.From(evening, 200_000));
         await Bed.Idle(pipeline);
 
         // The duty was recorded in full and only then did the profile go, with its records flagged. The re-arm that
-        // follows keeps what the withdrawal said (audit 2026-11-03, E-3).
+        // follows keeps what the withdrawal said (audit 2026-11-03, E-3); with calibration switched off nothing re-arms.
         Assert.False(File.Exists(_bed.SharedProfilePath));
         Assert.Null(pipeline.CalibrationStatus().Shared.ProfileId);
         Assert.Equal("REVOKED", pipeline.CalibrationStatus().Shared.LastRefusal);
-        Assert.True(pipeline.CalibrationArmed);
+        Assert.Equal(!calibrationSwitchedOff, pipeline.CalibrationArmed);
         var recorded = Assert.Single(new RunRepository(_bed.Db.Database).Query(null, null, 1, 50).Items);
         Assert.NotNull(recorded.EndedAtUtc);
         Assert.True(recorded.PendingReview);
@@ -541,6 +554,8 @@ public sealed class SharedCalibrationRecheckTests : IDisposable
         Assert.Null(shared.LastRefusal);
         Assert.DoesNotContain(shared.Candidates, item => item.Status == SharedCandidateStatus.Rejected);
         Assert.DoesNotContain(new RunRepository(_bed.Db.Database).Query(null, null, 1, 50).Items, run => run.PendingReview);
+        // The write was adopted, so the queue-inferred document it displaced is not kept beside it (audit 2026-11-20, E-2).
+        Assert.False(File.Exists(_bed.SharedProfilePath + ProfileCatalog.DisplacedSuffix));
     }
 
     [Fact]

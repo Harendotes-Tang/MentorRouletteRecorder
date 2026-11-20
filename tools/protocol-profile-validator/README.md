@@ -77,6 +77,8 @@ python tools/protocol-profile-validator/validate.py --stamp protocol-profiles/sy
 `--stamp` 仅 Python 侧提供，该选项会**改写文件**，且先按 schema 校验、通过后才写入。
 Collector 侧只校验，不写入。
 
+`generated_at` 符合 schema 的拼写但不是有效的 UTC 时间（例如 2 月 30 日）时拒绝（`E_PROFILE_TIMESTAMP`）。
+
 ### 4. 身份规则
 
 | 检查 | 代码 |
@@ -101,9 +103,18 @@ Collector 侧只校验，不写入。
 - 字段的 `offset + 大小` 不得超过 `expected_length`（或 `max_length`）
   （`E_PROFILE_FIELD_OOB`）；
 - `constraints.max < constraints.min` 拒绝（`E_PROFILE_CONSTRAINT`）；
+- `bytes` 字段不得带 `constraints` 或 `role`：解析器不从它读取值，筛选永远不会生效（`E_PROFILE_CONSTRAINT`，
+  Python 侧报告 `a bytes field cannot carry constraints or a role`）；
 - 必需字段齐全（`E_PROFILE_MISSING_FIELD`）：
   `CONTENT_FINDER_POP.roulette_id`、`ZONE_TERRITORY.territory_id`、`DUTY_RESULT.outcome`、`PLAYER_JOB.job_id`；
   `ZONE_INITIALIZATION` / `ZONE_LEFT` / `INSTANCE_LEFT` / `MATCH_CANCELLED` / `MATCH_ANNOUNCED` 无必需字段；
+  必需字段必须是整数类型，声明为 `bytes` 同样记 `E_PROFILE_MISSING_FIELD`（否则每条消息都会因缺少该值被拒）；
+- 同时列在 `obfuscated_opcodes` 中的 opcode 不得再声明为消息（`E_PROFILE_OBFUSCATED_MESSAGE`）；
+- `MATCH_ANNOUNCED` 的方向必须为 `SERVER_TO_CLIENT`，且只允许出现在 `CONTENT_FINDER_POP` 方向为
+  `CLIENT_TO_SERVER` 的档案里（`E_PROFILE_MESSAGE_CONTEXT`）；
+- `hypotheses` 只允许出现在 `CANDIDATE` 档案中（`E_PROFILE_HYPOTHESES_STATUS`）；假设名与
+  `(direction, opcode)` 均不得重复（`E_PROFILE_DUPLICATE_HYPOTHESIS` / `E_PROFILE_DUPLICATE_HYPOTHESIS_OPCODE`），
+  长度规则与消息相同；
 - `DUTY_RESULT` 的 `victory_values` 必须非空（`E_PROFILE_NO_VICTORY`）；
 - `calibration` 只允许出现在 `VERIFIED` 档案中（`E_PROFILE_CALIBRATION_STATUS`）。
   其 `finder_request.roulette_field` 按普通字段读取，因此同样执行上面的字段检查

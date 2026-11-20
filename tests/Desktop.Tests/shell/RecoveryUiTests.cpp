@@ -1322,8 +1322,11 @@ void RecoveryUiTests::anAutomaticClearShowsTheCollectorsCountBeforeAndAfter()
 void RecoveryUiTests::anAnsweredClearClaimsTheCountOnlyWhenTheRunContributes_data()
 {
     QTest::addColumn<bool>("contributes");
-    QTest::newRow("contributes") << true;
-    QTest::newRow("excluded from the goal") << false;
+    QTest::addColumn<bool>("unassigned");
+    QTest::newRow("contributes") << true << false;
+    QTest::newRow("excluded from the goal") << false << false;
+    // Audit 2026-11-20 L1-2: a record assigned to no character counts in no one's progress.
+    QTest::newRow("assigned to no character") << true << true;
 }
 
 void RecoveryUiTests::anAnsweredClearClaimsTheCountOnlyWhenTheRunContributes()
@@ -1331,6 +1334,8 @@ void RecoveryUiTests::anAnsweredClearClaimsTheCountOnlyWhenTheRunContributes()
     // Review L2-1 second path: answering 通关 must not print 「已计入导随次数」 and
     // "N → N+1" for a run the Collector does not count towards the goal.
     QFETCH(bool, contributes);
+    QFETCH(bool, unassigned);
+    const bool counted = contributes && !unassigned;
     Scene scene;
     scene.backend.setAchievement(2000, 10);
     QVERIFY2(scene.create(), qPrintable(scene.errors));
@@ -1338,11 +1343,22 @@ void RecoveryUiTests::anAnsweredClearClaimsTheCountOnlyWhenTheRunContributes()
     scene.mainWindow()->hide();
     auto run = finishedRun();
     run.insert(QStringLiteral("contributes_to_goal"), contributes);
+    if (unassigned) run.insert(QStringLiteral("profile_id"), QVariant::fromValue(nullptr));
     scene.publish(run);
     QTRY_VERIFY(scene.host()->isVisible() && scene.editor()->property("opened").toBool());
+    auto *confirm = scene.item(QStringLiteral("confirmCompletedButton"));
+    QVERIFY(confirm);
+    QCOMPARE(confirm->property("text").toString(),
+             unassigned ? QString::fromUtf8("通关") : QString::fromUtf8("通关 +1"));
     QVERIFY(scene.click(QStringLiteral("confirmCompletedButton")));
     QTRY_VERIFY(scene.editor()->property("answered").toBool());
-    if (contributes) {
+    if (unassigned) {
+        auto *resultText = scene.item(QStringLiteral("popupResultText"));
+        QVERIFY(resultText);
+        QTRY_COMPARE(resultText->property("text").toString(),
+                     QString::fromUtf8("已记为通关；还没有分配角色，暂不计入进度"));
+    }
+    if (counted) {
         QTRY_COMPARE(scene.editor()->property("progressTo").toInt(), 11);
         QCOMPARE(scene.editor()->property("progressFrom").toInt(), 10);
     } else {
@@ -1350,9 +1366,9 @@ void RecoveryUiTests::anAnsweredClearClaimsTheCountOnlyWhenTheRunContributes()
         QTRY_COMPARE(scene.app->dashboard().value(QStringLiteral("achievement_progress")).toInt(), 10);
     }
     const QStringList texts = scene.hostTexts();
-    QCOMPARE(texts.contains(QString::fromUtf8("已计入导随次数")), contributes);
-    QCOMPARE(texts.contains(QStringLiteral("10")), contributes);
-    QCOMPARE(texts.contains(QStringLiteral("11")), contributes);
+    QCOMPARE(texts.contains(QString::fromUtf8("已计入导随次数")), counted);
+    QCOMPARE(texts.contains(QStringLiteral("10")), counted);
+    QCOMPARE(texts.contains(QStringLiteral("11")), counted);
     QVERIFY(scene.click(QStringLiteral("saveReflectionButton")));
     QTRY_VERIFY(!scene.host()->isVisible());
     QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));

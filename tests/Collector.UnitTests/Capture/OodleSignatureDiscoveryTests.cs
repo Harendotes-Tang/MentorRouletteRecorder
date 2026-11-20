@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using Machina.FFXIV.Memory;
 using MentorRecorder.Collector.Capture;
 
@@ -11,10 +12,45 @@ public sealed class OodleSignatureDiscoveryTests
 {
     private const SignatureType Subject = SignatureType.OodleNetwork1TCP_Train;
 
-    /// <summary>An image that is nothing but one call site at <paramref name="at"/>.</summary>
-    private static byte[] ImageWith(params (int At, string Bytes)[] sites)
+    /// <summary>File offset where the executable section of <see cref="ImageWith"/> starts.</summary>
+    internal const int CodeStart = 0xc0;
+
+    /// <summary>File offset where its data section (readable, not executable) starts.</summary>
+    internal const int DataStart = 0x800;
+
+    /// <summary>RVA of the executable section.</summary>
+    internal const int CodeRva = 0x1000;
+
+    /// <summary>RVA of the data section.</summary>
+    internal const int DataRva = 0x2000;
+
+    /// <summary>
+    /// A minimal PE file of 4096 bytes - an executable section from <see cref="CodeStart"/> and a
+    /// data section from <see cref="DataStart"/> - holding nothing but the given call sites, each
+    /// followed by a rel32 of 0x10, which leads a little further into the section it is in.
+    /// </summary>
+    internal static byte[] ImageWith(params (int At, string Bytes)[] sites)
     {
         var image = new byte[4096];
+        image[0] = 0x4d;
+        image[1] = 0x5a;
+        const int pe = 0x40;
+        BinaryPrimitives.WriteInt32LittleEndian(image.AsSpan(0x3c, 4), pe);
+        BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(pe, 4), 0x00004550);
+        BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(pe + 6, 2), 2);
+        BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(pe + 20, 2), 0);
+        void Section(int at, int rva, int rawOffset, int size, uint characteristics)
+        {
+            BinaryPrimitives.WriteInt32LittleEndian(image.AsSpan(at + 8, 4), size);
+            BinaryPrimitives.WriteInt32LittleEndian(image.AsSpan(at + 12, 4), rva);
+            BinaryPrimitives.WriteInt32LittleEndian(image.AsSpan(at + 16, 4), size);
+            BinaryPrimitives.WriteInt32LittleEndian(image.AsSpan(at + 20, 4), rawOffset);
+            BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(at + 36, 4), characteristics);
+        }
+
+        // Code (execute, read) and initialised data (read, write); the table ends at 0xa8.
+        Section(pe + 24, CodeRva, CodeStart, DataStart - CodeStart, 0x60000020);
+        Section(pe + 64, DataRva, DataStart, image.Length - DataStart, 0xc0000040);
         foreach (var (at, bytes) in sites)
         {
             var parts = bytes.Split(' ');
@@ -111,6 +147,64 @@ public sealed class OodleSignatureDiscoveryTests
             Find(image, ("table", "41 83 fd 01 75 ** 48 8b 0f e8")).Outcome);
     }
 
+    /// <summary>
+    /// Audit 2026-11-20, A2-1. Machina runs what the set names inside the Collector, so only code
+    /// counts: a match in a section the header does not mark executable - exact or one byte off -
+    /// is no call site, and neither is a direct call that leads into data.
+    /// </summary>
+    [Fact]
+    public void OnlyACallInsideExecutableCodeIsASite()
+    {
+        const string pattern = "41 83 fd 01 75 ** 48 8b 0f e8";
+        Assert.Equal(OodleSignatureOutcome.Missing,
+            Find(ImageWith((0x900, "41 83 fd 01 75 0a 48 8b 0f e8")), ("table", pattern)).Outcome);
+        Assert.Equal(OodleSignatureOutcome.Missing,
+            Find(ImageWith((0x900, "41 83 fc 01 75 0a 48 8b 0f e8")), ("table", pattern)).Outcome);
+
+        // The variant in code is found. A copy of it in data still makes it ambiguous: the
+        // install gate counts every match in the mapped image.
+        Assert.Equal(OodleSignatureOutcome.Relaxed,
+            Find(ImageWith((0x100, "41 83 fc 01 75 0a 48 8b 0f e8")), ("table", pattern)).Outcome);
+        var both = ImageWith((0x100, "41 83 fc 01 75 0a 48 8b 0f e8"), (0x900, "41 83 fc 01 75 0b 48 8b 0f e8"));
+        Assert.Equal(OodleSignatureOutcome.Ambiguous, Find(both, ("table", pattern)).Outcome);
+
+        // A direct call from code into the data section.
+        var intoData = ImageWith((0x100, "41 83 fd 01 75 0a 48 8b 0f e8"));
+        var next = CodeRva + (0x100 + 10 + 4 - CodeStart);
+        BinaryPrimitives.WriteInt32LittleEndian(intoData.AsSpan(0x100 + 10, 4), DataRva + 0x10 - next);
+        Assert.Equal(OodleSignatureOutcome.Missing, Find(intoData, ("table", pattern)).Outcome);
+    }
+
+    /// <summary>Audit 2026-11-20, A2-1. Two signatures settled on one call: neither is used.</summary>
+    [Fact]
+    public void TwoSignaturesThatSettleOnTheSameCallAreBothRefused()
+    {
+        var image = ImageWith((0x100, "41 83 fd 01 75 0a 48 8b 0f e8"));
+        Assert.True(OodleSignaturePattern.TryParse("41 83 fd 01 75 ** 48 8b 0f e8", out var train, out _));
+        Assert.True(OodleSignaturePattern.TryParse("75 ** 48 8b 0f e8", out var suffix, out _));
+        var sources = new[]
+        {
+            ("table", (IReadOnlyDictionary<SignatureType, int[]>)new Dictionary<SignatureType, int[]>
+            {
+                [SignatureType.OodleNetwork1TCP_Train] = train,
+                [SignatureType.OodleNetwork1UDP_Train] = suffix,
+            }),
+        };
+
+        var findings = OodleSignatureDiscovery.Discover(image, sources).Findings;
+
+        Assert.All(
+            findings.Where(f => f.Type is SignatureType.OodleNetwork1TCP_Train or SignatureType.OodleNetwork1UDP_Train),
+            f =>
+            {
+                Assert.Equal(OodleSignatureOutcome.Ambiguous, f.Outcome);
+                Assert.Null(f.Pattern);
+            });
+
+        // Either one alone is found.
+        Assert.Equal(OodleSignatureOutcome.Exact, Find(image, ("table", "41 83 fd 01 75 ** 48 8b 0f e8")).Outcome);
+    }
+
     [Fact]
     public void TheResultIsCompleteOnlyWithAllTwelve()
     {
@@ -145,7 +239,36 @@ public sealed class OodleSignatureDiscoveryTests
             missed, OodleSignatureDiscovery.Discover(missed, sources), sources));
         Assert.Equal(("candidate", 0x400, 2), (candidate.Kind, candidate.SiteOffset, candidate.Mismatches));
         Assert.Equal(0x400 - OodleSignatureDiscovery.CandidateBytesAround, candidate.Offset);
-        Assert.True(candidate.Bytes.Length < 128);
+        // One rule for both kinds: from N bytes before the place to M bytes past its call operand.
+        Assert.Equal(OodleSignatureDiscovery.CandidateBytesAround + 10 + 4 + OodleSignatureDiscovery.CandidateBytesAround,
+            candidate.Bytes.Length);
+        Assert.Equal(OodleSignatureDiscovery.MaxExcerptBytes, site.Bytes.Length);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-20, D2-3. The near misses kept are the closest over the whole file, not the
+    /// first places in file order: seventy places three bytes off come before the one two bytes
+    /// off, and that one still leads.
+    /// </summary>
+    [Fact]
+    public void TheNearMissesKeptAreTheClosestOverTheWholeFile()
+    {
+        var sites = Enumerable.Range(0, 70)
+            .Select(i => (0x100 + (i * 16), "41 83 00 00 00 0a 48 8b 0f e8"))
+            .Append((0x700, "41 83 fc 02 75 0a 48 8b 0f e8"))
+            .ToArray();
+        var image = ImageWith(sites);
+        var sources = Sources(("table", "41 83 fd 01 75 ** 48 8b 0f e8"));
+
+        var candidates = OodleSignatureDiscovery.Context(image, OodleSignatureDiscovery.Discover(image, sources), sources);
+
+        Assert.Equal(OodleSignatureDiscovery.CandidateLimit, candidates.Count);
+        Assert.Equal((0x700, 2), (candidates[0].SiteOffset, candidates[0].Mismatches));
+        // Among equals the earlier place comes first.
+        Assert.Equal(
+            new[] { 0x100, 0x110, 0x120, 0x130 },
+            candidates.Skip(1).Select(candidate => candidate.SiteOffset));
+        Assert.All(candidates.Skip(1), candidate => Assert.Equal(3, candidate.Mismatches));
     }
 
     [Fact]

@@ -595,6 +595,16 @@ class PublicClaimTests(unittest.TestCase):
                 with self.subTest(readme=name, note=note):
                     self.assertNotIn(note, text)
 
+    def test_every_public_readme_shows_the_same_maintainer_commands(self):
+        # Audit 2026-11-20 N1-2: `restore` reached the Chinese README only, so the translations said a revoked
+        # code could never come back while the bot's reply told every submitter that a maintainer can restore it.
+        pattern = re.compile(r"python tools/publish\.py ([a-z-]+(?: (?:lift|compact))?)")
+        expected = set(pattern.findall((PUBLIC / "README.md").read_text(encoding="utf-8")))
+        self.assertIn("restore", expected)
+        for path in sorted(PUBLIC.glob("README.*.md")):
+            with self.subTest(path.name):
+                self.assertEqual(expected, set(pattern.findall(path.read_text(encoding="utf-8"))))
+
     def test_the_maintainer_readme_lists_every_publish_command(self):
         # Q-13: the file table names every command publish.py accepts; `unchanged` is the one the scripts run before a push.
         row = next(line for line in (testsupport.HERE / "README.md").read_text(encoding="utf-8").splitlines()

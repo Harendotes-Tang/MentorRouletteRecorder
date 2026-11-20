@@ -1609,18 +1609,21 @@ public sealed partial class LiveProtocolPipeline :
         }
     }
 
-    /// <summary>Removes the evidence file. Failure is never allowed to matter.</summary>
-    private void ForgetCalibrationEvidence()
+    /// <summary>
+    /// Removes the evidence file. Returns why it could not be removed, or null when it is gone (or
+    /// nothing is armed); only 清空校准进度 acts on a failure (audit 2026-11-20, C-2).
+    /// </summary>
+    private Exception? ForgetCalibrationEvidence()
     {
         if (_calibration.GameBuild is not { } build)
         {
-            return;
+            return null;
         }
 
         // The region calibration was armed for, not the locator's latest answer: with the game
         // closed that is "unknown", and the armed region's file would survive 清空校准进度
         // (audit 2026-11-03, C-1).
-        _evidencePersistence.Delete(_calibration.Region, build);
+        return _evidencePersistence.Delete(_calibration.Region, build);
     }
 
     /// <summary>Writes the evidence for the next run. Failure is never allowed to matter.</summary>
@@ -1680,6 +1683,14 @@ public sealed partial class LiveProtocolPipeline :
         var sameKey = _calibration.Template is not null && _calibration.Region == pending.Region &&
             string.Equals(_calibration.GameBuild, pending.Build, StringComparison.Ordinal);
         if (!sameKey || (_calibration.Generation == pending.Generation && _calibration.Armed))
+        {
+            return;
+        }
+
+        // A re-arm for the same region and build holds the evidence only as carried, with nothing
+        // observing it: the file is then the only copy of the final snapshot, and with no snapshot to
+        // write in its place deleting it loses the evening (audit 2026-11-20, C-1).
+        if (_calibration.Evidence() is null)
         {
             return;
         }

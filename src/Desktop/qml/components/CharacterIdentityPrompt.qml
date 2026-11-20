@@ -65,7 +65,7 @@ InsetBox {
         if (profileId <= 0 || prompt.identityId <= 0)
             return
         if (profileId === prompt.registrationProfileId) {
-            newCharacterDialog.openToRename(prompt.registrationProfile, prompt.identityId)
+            newCharacterDialog.openToRename(prompt.registrationProfile, prompt.identityId, !prompt.unbound)
             return
         }
         prompt.errorText = ""

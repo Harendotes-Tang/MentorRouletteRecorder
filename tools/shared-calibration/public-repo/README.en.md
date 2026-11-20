@@ -97,7 +97,7 @@ and submit a new Issue as usual. The Action replaces your previous submission fo
 
 - If you were the only submitter of the previous code, it is revoked (`revoked: true`, with the entry retained). Other players' apps stop using it.
 - If other accounts also submitted the previous code, it remains available; your submission is removed from its count, reducing `submitters` by one.
-- Revoked codes are never republished. Resubmitting one cannot restore publication; submit a new code instead.
+- Resubmitting a revoked code does not republish it; submit a new code instead. If you are sure the revoked code is in fact correct, leave a comment in the Issue; a maintainer can restore it after checking.
 - Replacing a code this way does not prevent further submissions. However, if a **maintainer** revoked your code, submissions by your account for that region and version are suspended
   until the maintainer reviews and lifts the suspension. If you believe the revocation was mistaken, explain the situation in the Issue where the Action rejected your submission.
 
@@ -192,7 +192,7 @@ The script modifies local files. Review the changes to `index.json` and other fi
 `revoke` retains the revoked entry, recalculates related flags, and suspends submissions by accounts that submitted the code for the corresponding region and version. See “Revocation” for details.
 Do not edit only `conflicting` or `submitters` to manufacture a resolution; subsequent publication and recalculation regenerate them.
 
-`remark` only recalculates flags. It does not decide correctness or revoke codes. `lift` only removes an account's submission suspension for a specified region and version; it does not restore a revoked code.
+`remark` only recalculates flags. It does not decide correctness or revoke codes. `lift` only removes an account's submission suspension for a specified region and version; it does not restore a revoked code. Restoring uses `restore`; see “Revocation”.
 `evidence lift` only ends one candidate's automatic quarantine; it neither revokes nor restores any code (see “Maintaining the Evidence Ledger”).
 Players who need a correction should share a new, correct code. Index refresh intervals and download caches affect when clients learn about revocation; running a maintenance command does not immediately change every machine.
 
@@ -233,7 +233,15 @@ Accounts that submitted a revoked code have submissions suspended for that regio
 python tools/publish.py lift --repo . --account id:<numeric-id> --region <CN-or-TC-or-GLOBAL> --build <game-client-version>
 ```
 
-The account can then submit again, but the revoked code itself will never be republished. Another code may reuse the filename—the first 12 characters of the identifier—previously occupied by a revoked code.
+The account can then submit again, but the revoked code itself is not republished. Another code may reuse the filename—the first 12 characters of the identifier—previously occupied by a revoked code.
+
+When a revoked code turns out to be correct (the revocation was a mistake, or its only submitter replaced it with another code), a maintainer checks the code file and runs:
+
+```bash
+python tools/publish.py restore --repo . --code-sha256 <full-identifier>
+```
+
+The entry is back in use with its submitter count unchanged, related flags are recalculated, and accounts still recorded on the code are no longer suspended. The command refuses when the code file has been overwritten by another code, or when another code in use holds the same filename.
 
 After flag rules change, maintainers can recalculate both flags for all versions or specified versions to backfill existing entries:
 

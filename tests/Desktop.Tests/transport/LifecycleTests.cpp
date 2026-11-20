@@ -750,11 +750,9 @@ void LifecycleTests::systemToolsComeFromTheSystemDirectoryNotFromTheEnvironment(
 /// A Collector that took the lease seconds ago is never ended, however silent
 /// it is.
 ///
-/// Silence from an instance that new is what a database migration looks like
-/// from outside: the lease is taken and serve.pid written before the pipe can
-/// answer anything, and the first start after an upgrade runs migrations in
-/// exactly that window. Ending it there kills a healthy process in the middle
-/// of writing the user's database.
+/// An instance that new has only just taken the lease and written serve.pid
+/// (after its migrations, once its pipe exists); silence that early is a
+/// healthy process still settling in, and ending it would only cost a restart.
 void LifecycleTests::aFreshServeLeaseHolderIsNeverEnded()
 {
     QTemporaryDir data;
@@ -787,7 +785,9 @@ void LifecycleTests::aFreshServeLeaseHolderIsNeverEnded()
     QTest::qWait(400);
     QVERIFY2(calls.isEmpty(), "a fresh serve.pid must not even be listed, let alone killed");
     QCOMPARE(takeovers.count(), 1);
-    QVERIFY(takeovers.at(0).at(1).toString().contains(QString::fromUtf8("刚刚启动")));
+    // serve.pid is written after the migrations: the notice says nothing about the
+    // database (review 2026-11-20 I5-1).
+    QCOMPARE(takeovers.at(0).at(1).toString(), QString::fromUtf8("采集服务刚刚启动，请稍候。"));
 
     // Asked again and again while the migration runs: still nothing ended, and
     // not a toast per attempt either.

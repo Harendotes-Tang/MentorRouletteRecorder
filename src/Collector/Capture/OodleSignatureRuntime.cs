@@ -177,6 +177,18 @@ public sealed class OodleSignatureRuntime : IDisposable
     private bool _installed;
     private readonly OodleTempCopyCleaner? _cleaner;
     private readonly bool _requireExactRvas;
+    // Set only for a discovered set whose capture knows the Collector's data directory.
+    private string? _crashSentinelPath;
+
+    /// <summary>
+    /// File name prefix of the marker kept while a discovered set is in force. The rest of the
+    /// name is the executable's SHA-256; the file holds that hash and nothing else - no path, no
+    /// user, no packet data.
+    /// </summary>
+    public const string CrashSentinelPrefix = "oodle-discovered-";
+
+    /// <summary>File name extension of that marker.</summary>
+    public const string CrashSentinelExtension = ".marker";
 
     private OodleSignatureRuntime(
         string gameExecutablePath,
@@ -229,10 +241,16 @@ public sealed class OodleSignatureRuntime : IDisposable
     /// <param name="options">The already detected game and requested Oodle mode.</param>
     /// <param name="profileRoot">Profile root, or null to use the installed/default root.</param>
     /// <param name="logger">Local diagnostics.</param>
+    /// <param name="cleaner">Owner of Machina's temp copies, or null.</param>
+    /// <param name="dataDirectory">
+    /// The Collector's data directory, where the marker of a discovered set in force is kept;
+    /// null keeps no marker (audit 2026-11-20, A2-1).
+    /// </param>
     public static OodleSignatureRuntime? TryCreate(
         CaptureStartOptions options,
         string? profileRoot = null,
-        RotatingFileLogger? logger = null, OodleTempCopyCleaner? cleaner = null)
+        RotatingFileLogger? logger = null, OodleTempCopyCleaner? cleaner = null,
+        string? dataDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         var localLogger = logger ?? RotatingFileLogger.Disabled;
@@ -309,15 +327,31 @@ public sealed class OodleSignatureRuntime : IDisposable
                 });
         }
 
-        if (profile is null && options.AllowCandidateOodleSignature &&
-            !string.IsNullOrWhiteSpace(executableHash) && executableSize > 0 &&
-            TryDiscover(options, directory, executableHash, executableSize, localLogger) is { } discovered)
+        var searchAllowed = profile is null && options.AllowCandidateOodleSignature &&
+            !string.IsNullOrWhiteSpace(executableHash) && executableSize > 0;
+        var sentinel = searchAllowed ? CrashSentinelPath(dataDirectory, executableHash!) : null;
+        // A marker left behind: the last round that used a set found on this machine for this
+        // executable never stopped cleanly, most likely because that set ended the Collector.
+        // The code around its call sites is logged, as the round itself could not, and no set
+        // is searched for this executable again; the marker stays.
+        var crashed = sentinel is not null && File.Exists(sentinel);
+        if (crashed)
         {
-            // No profile and no donor of this region: a round the player started may use what
-            // this machine can find by itself, like any other CANDIDATE.
+            LogContextFromFile(localLogger, options.GameExecutablePath, directory, "crashed");
+        }
+
+        if (searchAllowed && !crashed &&
+            TryDiscover(options, directory, executableHash!, executableSize, localLogger) is { } discovered)
+        {
+            // No profile and no usable donor of this region - none at all, or one whose patterns
+            // no longer fit this file (oodle_signature_donor_rejected above): a round the player
+            // started may use what this machine can find by itself, like any other CANDIDATE.
             return new OodleSignatureRuntime(
                 options.GameExecutablePath, OodleImplementation.FfxivTcp, discovered, localLogger, cleaner,
-                requireExactRvas: false);
+                requireExactRvas: false)
+            {
+                _crashSentinelPath = sentinel,
+            };
         }
 
         if (profile is null)
@@ -334,9 +368,11 @@ public sealed class OodleSignatureRuntime : IDisposable
                     ["exe_hash_prefix"] = GameExecutableHash.Prefix(executableHash),
                     ["fallback_reason"] = string.IsNullOrWhiteSpace(executableHash)
                         ? "executable hash unavailable"
-                        : directory is null
-                            ? "signature profile directory missing"
-                            : "no exact region/build/size/hash match",
+                        : crashed
+                            ? "a signature set found on this machine did not end its last round cleanly; not searched again"
+                            : directory is null
+                                ? "signature profile directory missing"
+                                : "no exact region/build/size/hash match",
                     ["refused_profile_count"] = problems.Count,
                 });
             return null;
@@ -380,7 +416,8 @@ public sealed class OodleSignatureRuntime : IDisposable
 
     /// <summary>
     /// Searches the executable for the twelve call sites with every pattern this installation
-    /// knows, and writes what it found to the local log whether or not it found them all: the
+    /// knows (<see cref="OodleSignatureDiscovery.IsCallSite"/> decides what counts as one), and
+    /// writes what it found to the local log whether or not it found them all: the
     /// log is among the files a tester returns, and the patterns, the executable's hash and its
     /// size are what a maintainer needs to write the region's profile without owning its client.
     /// </summary>
@@ -469,19 +506,89 @@ public sealed class OodleSignatureRuntime : IDisposable
             return;
         }
 
+        LogContextFromFile(
+            _logger,
+            _gameExecutablePath,
+            OodleSignatureProfile.DirectoryUnder(profileRoot ?? ProfileCatalog.FindDefaultRoot()),
+            "decode_failed");
+    }
+
+    /// <summary>
+    /// Removes the marker of this discovered set: the capture that used it stopped cleanly.
+    /// Does nothing for any other set. A marker that cannot be removed is only logged; the next
+    /// round then treats the set as one that ended the Collector, which costs a search, not data.
+    /// </summary>
+    public void ClearCrashSentinel()
+    {
+        if (_crashSentinelPath is not { } path)
+        {
+            return;
+        }
+
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.WriteError("capture", "oodle_signature_sentinel_failed", ex);
+        }
+    }
+
+    /// <summary>Writes the marker before a discovered set is handed to Machina.</summary>
+    private void ArmCrashSentinel()
+    {
+        if (_crashSentinelPath is not { } path)
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, _profile.ExeSha256 + Environment.NewLine);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Without a marker a crash is not remembered: the round goes on as it would have
+            // before markers existed, and the failure is in the log.
+            _logger.WriteError("capture", "oodle_signature_sentinel_failed", ex);
+        }
+    }
+
+    /// <summary>
+    /// Where the marker of a discovered set for <paramref name="executableHash"/> is kept, or
+    /// null when there is no data directory or the hash is not plain lowercase hexadecimal.
+    /// </summary>
+    /// <param name="dataDirectory">The Collector's data directory.</param>
+    /// <param name="executableHash">SHA-256 of the executable, lowercase hex.</param>
+    public static string? CrashSentinelPath(string? dataDirectory, string executableHash)
+    {
+        if (string.IsNullOrWhiteSpace(dataDirectory) || executableHash.Length != 64 ||
+            !executableHash.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f'))
+        {
+            return null;
+        }
+
+        return Path.Combine(dataDirectory, CrashSentinelPrefix + executableHash + CrashSentinelExtension);
+    }
+
+    /// <summary>Re-reads the executable and logs the last-resort excerpts for it.</summary>
+    private static void LogContextFromFile(
+        RotatingFileLogger logger, string executablePath, string? directory, string reason)
+    {
         byte[] image;
         try
         {
-            image = File.ReadAllBytes(_gameExecutablePath);
+            image = File.ReadAllBytes(executablePath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
             return;
         }
 
-        var sources = OodleSignatureDiscovery.KnownSources(
-            OodleSignatureProfile.DirectoryUnder(profileRoot ?? ProfileCatalog.FindDefaultRoot()));
-        LogContext(_logger, image, OodleSignatureDiscovery.Discover(image, sources), sources, "decode_failed");
+        var sources = OodleSignatureDiscovery.KnownSources(directory);
+        LogContext(logger, image, OodleSignatureDiscovery.Discover(image, sources), sources, reason);
     }
 
     private static void LogContext(
@@ -517,9 +624,9 @@ public sealed class OodleSignatureRuntime : IDisposable
 
     /// <summary>The section table of a PE file: where each section lies in memory and in the file.</summary>
     /// <param name="image">Bytes of the executable file.</param>
-    public static IReadOnlyList<(int VirtualAddress, int RawOffset, int RawSize)> PeSections(ReadOnlySpan<byte> image)
+    public static IReadOnlyList<PeSection> PeSections(ReadOnlySpan<byte> image)
     {
-        var sections = new List<(int, int, int)>();
+        var sections = new List<PeSection>();
         const int sectionHeaderBytes = 40;
         if (image.Length < 0x40 || image[0] != 0x4d || image[1] != 0x5a)
         {
@@ -544,10 +651,12 @@ public sealed class OodleSignatureRuntime : IDisposable
                 break;
             }
 
-            sections.Add((
+            sections.Add(new PeSection(
                 System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(image.Slice(at + 12, 4)),
+                System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(image.Slice(at + 8, 4)),
                 System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(image.Slice(at + 20, 4)),
-                System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(image.Slice(at + 16, 4))));
+                System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(image.Slice(at + 16, 4)),
+                System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(at + 36, 4))));
         }
 
         return sections;
@@ -582,6 +691,8 @@ public sealed class OodleSignatureRuntime : IDisposable
 
         var scan = new OodleSignatureScan(_profile);
         var native = new OodleNative_Ffxiv(scan);
+        // From here on Machina may run the functions the set names inside this process.
+        ArmCrashSentinel();
         try
         {
             lock (contract.SyncRoot)
@@ -616,6 +727,8 @@ public sealed class OodleSignatureRuntime : IDisposable
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
+            // The set was refused without ending the process: it is not in force.
+            ClearCrashSentinel();
             try
             {
                 lock (contract.SyncRoot)

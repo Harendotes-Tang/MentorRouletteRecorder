@@ -251,6 +251,7 @@ UpdateController::Download UpdateController::downloadFrom(const QVariant &raw)
     download.message = object.value(QStringLiteral("message")).toString();
     download.messageRef = object.value(QStringLiteral("message_ref"));
     download.mirrorOfferId = object.value(QStringLiteral("mirror_offer_id")).toString();
+    download.mirrorOutcome = object.value(QStringLiteral("mirror_outcome")).toString();
     download.receivedBytes = qMax<qint64>(0, object.value(QStringLiteral("received_bytes")).toLongLong());
     const QVariant total = object.value(QStringLiteral("total_bytes"));
     download.totalBytes = total.isValid() && !total.isNull() ? qMax<qint64>(0, total.toLongLong()) : -1;
@@ -650,6 +651,20 @@ QString UpdateController::mirrorOfferId() const
         return {};
     }
     return download.mirrorOfferId;
+}
+
+QString UpdateController::mirrorNotice() const
+{
+    // Only the not_switched_* outcomes follow a 「切换到 GitCode」 that did not happen;
+    // switched, declined, none and any value this build does not know say nothing.
+    const QString &outcome = m_state.download.mirrorOutcome;
+    if (outcome == QLatin1String("not_switched_faster_primary"))
+        return tr("没有切换到 GitCode：GitHub 的下载已经比镜像更快，仍从 GitHub 下载。");
+    if (outcome == QLatin1String("not_switched_mirror_unavailable"))
+        return tr("没有切换到 GitCode：镜像暂时无法使用，仍从 GitHub 下载。");
+    if (outcome == QLatin1String("not_switched_primary_ended"))
+        return tr("没有切换到 GitCode：切换生效之前，GitHub 的下载已经结束。");
+    return {};
 }
 
 void UpdateController::resolveMirrorOffer(const QString &offerId, bool useGitCode)

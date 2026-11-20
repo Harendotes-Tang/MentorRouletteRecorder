@@ -3,8 +3,9 @@
 按钮、侧栏导航与状态板上的线条图标来自 **Lucide**（<https://lucide.dev>，仓库 <https://github.com/lucide-icons/lucide>），
 许可证 **ISC**（全文见同目录 `LICENSE`，即上游 `lucide-static` 包内的 `LICENSE`）。
 `LICENSE` 的后半段列出了 Lucide 从 **Feather** 项目派生的图标，它们同时受 **MIT** 许可证
-（Copyright (c) 2013-present Cole Bemis）约束。本目录中的 `calendar`、`chevron-down`、`chevron-left`、`chevron-right`、`chevrons-down`、`clock`、`globe`、`moon`、`plus`、`radio`、`search`、`server`、`target`、`x`
-即在该名单中，生成器会将 MIT 声明一并写入 `Lucide.js` 的文件头。
+（Copyright (c) 2013-present Cole Bemis）约束。本目录全部 69 个图标中有 28 个属于该名单：`arrow-down`、`arrow-right`、`arrow-up`、`calendar`、`check`、`chevron-down`、`chevron-left`、`chevron-right`、`chevrons-down`、`circle-alert`、`circle-help`、`clock`、`frown`、`info`、`lock`、`log-out`、`meh`、`minimize-2`、`minus`、`moon`、`plus`、`radio`、`search`、`server`、`smile`、`square`、`target`、`x`。
+其中 `circle-alert` 与 `circle-help` 在名单上仍写作 Feather 的旧名 `alert-circle` 与 `help-circle`（Lucide 后来改了名，对应关系记在生成器的 `FEATHER_RENAMES` 中）；`globe` 不在名单上。
+生成器按同一份名单把 MIT 声明与这 28 个名称一并写入 `Lucide.js` 的文件头（`fromFeather`）。
 与上一级目录中的 SQUARE ENIX 游戏素材不同，这些文件**可以**随本软件公开分发。
 
 | 项 | 值 |

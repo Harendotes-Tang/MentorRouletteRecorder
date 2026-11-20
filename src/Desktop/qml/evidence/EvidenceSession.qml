@@ -75,11 +75,14 @@ QtObject {
     readonly property bool identityShown: identityJudged || (identityAnswered && identityResult === "INCOMPLETE")
     readonly property string identityTone: identityResult === "DISTINGUISHED" ? "ok"
                                            : identityResult === "INCOMPLETE" || identityResult === "" ? "warn" : "bad"
+    // The verdict is about the connection identifier this round read, never about the login
+    // identifier the automatic identification uses; every sentence says which (audit
+    // 2026-11-20, K4-3), from step 3 on, not only in step 5's closing hint.
     readonly property string identityVerdict: {
         switch (session.identityResult) {
-        case "DISTINGUISHED": return qsTr("可以区分：两个角色读到的标识不同，回到角色 A 时与第一次相同。")
-        case "SAME_IDENTITY": return qsTr("不能区分：两个角色读到的标识相同。")
-        case "UNSTABLE": return qsTr("标识不稳定：角色 A 前后读到的标识不一致。")
+        case "DISTINGUISHED": return qsTr("可以区分：两个角色读到的连接标识不同，回到角色 A 时与第一次相同。")
+        case "SAME_IDENTITY": return qsTr("不能区分：两个角色读到的连接标识相同。")
+        case "UNSTABLE": return qsTr("连接标识不稳定：角色 A 前后读到的连接标识不一致。")
         case "INCOMPLETE":
             // Over, no step can be confirmed again: the round is to be done anew.
             return session.ended
@@ -179,7 +182,14 @@ QtObject {
             session.connectedSince = Date.now()
     }
     onGameConnectedChanged: session.noteConnection()
-    onRecordingChanged: session.noteConnection()
+    onRecordingChanged: {
+        session.noteConnection()
+        session.noteOodleSearch(Runtime.app.captureStatus)
+        // Nothing else reads GetStatus during a round once 报文 arrive, and the
+        // capture's own facts (how it reads the game's data) are first there now.
+        if (session.recording)
+            Runtime.app.refreshStatus()
+    }
     readonly property int connectedSeconds: session.connectedSince > 0
                                             ? Math.max(0, Math.floor((session.clock.now - session.connectedSince) / 1000)) : 0
     // While a recording has counted nothing and the game is not yet known to be
@@ -195,6 +205,29 @@ QtObject {
         onTriggered: Runtime.app.refreshStatus()
     }
     readonly property bool stalled: recording && messageCount === 0 && connectedSince > 0 && connectedSeconds >= 60
+    // The connection the 60 s wait for cannot be seen: the system's connection table
+    // could not be read (null counts), or the game talks only to this machine (a local
+    // proxy). Nothing then starts the 60 s, so a round that has recorded for five
+    // minutes with no 报文 says so in amber - not the red verdict, which needs a
+    // measured connection (audit 2026-11-10, K4-1).
+    readonly property bool connectionUnmeasured: {
+        const path = Runtime.app.captureStatus.network_path
+        if (!path)
+            return true
+        const unread = function(value) { return value === null || value === undefined }
+        if (unread(path.ipv4_connections) || unread(path.ipv6_connections))
+            return true
+        const loopback = Number(path.loopback_connections || 0)
+        return loopback > 0 && Number(path.ipv4_connections) + Number(path.ipv6_connections) - loopback <= 0
+    }
+    readonly property int quietAfterSeconds: 300
+    readonly property bool quiet: {
+        if (!session.recording || session.messageCount !== 0 || session.connectedSince > 0
+                || !session.connectionUnmeasured || !session.startedAt)
+            return false
+        const since = Date.parse(String(session.startedAt))
+        return !isNaN(since) && session.clock.now - since >= session.quietAfterSeconds * 1000
+    }
     readonly property bool decodeStorm: recording && decodeErrors !== null && decodeErrors > 0
                                         && decodeErrors >= Math.max(10, messageCount || 0)
     readonly property bool anomaly: stalled || decodeStorm
@@ -444,16 +477,42 @@ QtObject {
                                            .map(function(chip) { return chip.label })
 
     // ----------------------------------------------------------- files --
-    // The real products of a round (docs/ui-design.md §4.4); the four required
-    // ones first, then the two a maintainer asks for only when needed.
-    readonly property var fileDefs: [
-        { key: "shot", name: qsTr("状态截图"), desc: qsTr("含状态和四项计数"), mono: false, required: true, action: "", hint: "Win + Shift + S" },
-        { key: "trace", name: "trace.jsonl", desc: qsTr("本轮取证数据"), mono: true, required: true, action: "folder", hint: "" },
-        { key: "sha", name: "trace.jsonl.sha256", desc: qsTr("校验文件，和上面同一目录"), mono: true, required: true, action: "", hint: "" },
-        { key: "diag", name: qsTr("诊断报告 JSON"), desc: qsTr("不含游戏内容、网络地址与账号"), mono: false, required: true, action: "diagnostics", hint: "" },
-        { key: "ver", name: "ffxivgame.ver", desc: qsTr("无法识别游戏版本时，在游戏目录"), mono: true, required: false, action: "", hint: "" },
-        { key: "log", name: "collector-*.log", desc: qsTr("启动或采证出错时，在数据目录 logs；软件读不懂游戏数据格式时，含几小段游戏主程序的指令字节"), mono: true, required: false, action: "logs", hint: "" }
-    ]
+    // How this round's capture came to read the game's data
+    // (GetStatus.capture.oodle_*), kept for the round because the capture stops
+    // before the report is written: "found" when the Collector searched this
+    // machine's game program and used what it found (a discovered.* id),
+    // "failed" when a round fell back to the built-in table, which it does only
+    // once that search came up short. The search's result is written nowhere
+    // but collector-*.log, so the log is then required (audit 2026-11-20, I4-1).
+    property string oodleSearch: ""
+    function noteOodleSearch(capture) {
+        if (!session.recording || !capture)
+            return
+        if (String(capture.oodle_profile_id || "").indexOf("discovered.") === 0)
+            session.oodleSearch = "found"
+        else if (capture.oodle_signature_source === "builtin")
+            session.oodleSearch = "failed"
+    }
+    readonly property var captureNow: Runtime.app.captureStatus
+    onCaptureNowChanged: session.noteOodleSearch(session.captureNow)
+    readonly property string logFileDesc: session.oodleSearch === "found"
+        ? qsTr("这一轮用了软件在本机找到的读取方法，维护者要用日志里的查找结果为这个区服适配；在数据目录 logs")
+        : session.oodleSearch === "failed"
+          ? qsTr("这一轮软件没能在本机找到读懂游戏数据的方法，维护者要用日志里的查找结果排查；在数据目录 logs")
+          : qsTr("启动或采证出错时，在数据目录 logs；软件读不懂游戏数据格式时，含几小段游戏主程序的指令字节")
+    // The real products of a round (docs/ui-design.md §4.4); the required ones
+    // first, then those a maintainer asks for only when needed.
+    readonly property var fileDefs: {
+        const log = { key: "log", name: "collector-*.log", desc: session.logFileDesc, mono: true,
+                      required: session.oodleSearch.length > 0, action: "logs", hint: "" }
+        const ver = { key: "ver", name: "ffxivgame.ver", desc: qsTr("无法识别游戏版本时，在游戏目录"), mono: true, required: false, action: "", hint: "" }
+        return [
+            { key: "shot", name: qsTr("状态截图"), desc: qsTr("含状态和四项计数"), mono: false, required: true, action: "", hint: "Win + Shift + S" },
+            { key: "trace", name: "trace.jsonl", desc: qsTr("本轮取证数据"), mono: true, required: true, action: "folder", hint: "" },
+            { key: "sha", name: "trace.jsonl.sha256", desc: qsTr("校验文件，和上面同一目录"), mono: true, required: true, action: "", hint: "" },
+            { key: "diag", name: qsTr("诊断报告 JSON"), desc: qsTr("不含游戏内容、网络地址与账号"), mono: false, required: true, action: "diagnostics", hint: "" }
+        ].concat(log.required ? [log, ver] : [ver, log])
+    }
     property var files: ({})
     function toggleFile(key) {
         const copy = Object.assign({}, session.files)
@@ -592,8 +651,8 @@ QtObject {
         case 4:
             if (session.identity)
                 return !(session.saved && session.fileSaved) ? qsTr("已结束，文件不完整")
-                     : session.identityResult === "DISTINGUISHED" ? qsTr("已保存 · 可以区分")
-                     : session.identityJudged ? qsTr("已保存 · 未能区分") : qsTr("已保存 · 没有得出结论")
+                     : session.identityResult === "DISTINGUISHED" ? qsTr("已保存 · 连接标识可以区分")
+                     : session.identityJudged ? qsTr("已保存 · 连接标识未能区分") : qsTr("已保存 · 没有得出结论")
             return (session.saved && session.fileSaved ? qsTr("已保存 · 文件 %1 / %2") : qsTr("文件不完整 · 文件 %1 / %2"))
                    .arg(session.copiedRequired).arg(session.requiredFiles.length)
         default:
@@ -606,7 +665,7 @@ QtObject {
         switch (session.phase) {
         case "waiting": return "warn"
         case "cancelling": return "warn"
-        case "capturing": return session.anomaly ? "bad" : "ok"
+        case "capturing": return session.anomaly ? "bad" : session.quiet ? "warn" : "ok"
         case "stopping": return "warn"
         case "saved": return session.fileSaved ? "ok" : "warn"
         case "failed": return "bad"
@@ -622,14 +681,16 @@ QtObject {
         case "WAITING_REGION": return qsTr("等待识别区服")
         case "WAITING_CONNECTION_CHECK": return qsTr("等待确认游戏连接")
         case "WAITING_RESTART": return qsTr("等待游戏重新启动")
-        default: return qsTr("等待游戏启动")
+        // The Collector waits with WAITING_GAME for a client to be chosen as well as for
+        // one to start; with several on screen it is the choice (audit 2026-11-20, K4-4).
+        default: return Runtime.app.gameSelection.selectionRequired ? qsTr("等待选择游戏") : qsTr("等待游戏启动")
         }
     }
     readonly property string badgeText: {
         switch (session.phase) {
         case "waiting": return session.waitingTitle
         case "cancelling": return qsTr("正在取消等待")
-        case "capturing": return session.anomaly ? qsTr("数据异常") : qsTr("正在取证")
+        case "capturing": return session.anomaly ? qsTr("数据异常") : session.quiet ? qsTr("还没有收到报文") : qsTr("正在取证")
         case "stopping": return qsTr("正在保存")
         case "saved": return session.fileSaved ? qsTr("已保存") : qsTr("已结束，文件不完整")
         case "failed": return qsTr("失败")
@@ -675,6 +736,7 @@ QtObject {
     function resetRound() {
         session.pendingMark = null
         session.connectedSince = 0
+        session.oodleSearch = ""
         session.marks = [null, null, null, null, null]
         session.chips = {}
         session.files = {}

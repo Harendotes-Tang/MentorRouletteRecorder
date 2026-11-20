@@ -536,7 +536,18 @@ public static class Program
         try
         {
             stopping.Token.ThrowIfCancellationRequested();
-            server.PrepareFirstInstance();
+            try
+            {
+                server.PrepareFirstInstance();
+            }
+            catch (ArgumentException ex)
+            {
+                // A --pipe name Windows reserves (e.g. "anonymous") is refused by the BCL with an
+                // argument exception; as an I/O failure it ends in exit code 3, not as an unhandled
+                // exception (audit 2026-11-10 G-1, 2026-11-20 G-2).
+                throw new IOException(ex.Message, ex);
+            }
+
             stopping.Token.ThrowIfCancellationRequested();
 
             // Only advertise ownership after the first pipe has its final security. Keep

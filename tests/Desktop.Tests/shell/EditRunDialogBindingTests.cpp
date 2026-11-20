@@ -636,6 +636,8 @@ private Q_SLOTS:
         QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), 0);
         QVERIFY(fixture.dialog()->property("progressExplanation").toString().contains(QStringLiteral("进本前取消")));
         QVERIFY(fixture.item(QStringLiteral("markCompletedButton"))->isVisible());
+        QCOMPARE(fixture.item(QStringLiteral("markCompletedButton"))->property("text").toString(),
+                 QStringLiteral("已通关，计入进度"));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "markCompleted"));
         QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), 1);
         QVERIFY(!fixture.item(QStringLiteral("markCompletedButton"))->isVisible());
@@ -662,6 +664,11 @@ private Q_SLOTS:
         auto unassigned = run(QStringLiteral("unassigned"), 70, 19, QStringLiteral("CANCELLED_BEFORE_ENTRY"));
         unassigned.insert(QStringLiteral("profile_id"), QVariant::fromValue(nullptr));
         QVERIFY(fixture.openForRun(unassigned));
+        // Neither the button nor the switch promises progress for it (audit 2026-11-20 L1-1).
+        QCOMPARE(fixture.item(QStringLiteral("markCompletedButton"))->property("text").toString(),
+                 QStringLiteral("已通关"));
+        QVERIFY(fixture.item(QStringLiteral("goalToggleCaption"))->property("text").toString()
+                    .contains(QStringLiteral("还没有分配角色")));
         QVERIFY(QMetaObject::invokeMethod(fixture.dialog(), "markCompleted"));
         QCOMPARE(fixture.dialog()->property("progressDelta").toInt(), 0);
         QVERIFY(fixture.dialog()->property("progressExplanation").toString().contains(QStringLiteral("还没有分配角色")));

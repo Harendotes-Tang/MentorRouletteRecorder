@@ -10,6 +10,7 @@
 
 class QQuickItemGrabResult;
 class QQuickItem;
+class QWindow;
 namespace mr {
 /// 保存完整的 QML 分享卡片；不读取或更改记录、心得和采集数据。
 class ReflectionShareController final : public QObject
@@ -54,6 +55,10 @@ private:
     };
     void captureTo(QObject *object, const QString &path, bool rejectExisting, const CaptureDone &done);
     void capturePrepared(QObject *object, const QString &path, bool rejectExisting, const CaptureDone &done);
+    /// Calls \a expired 15 s on unless capture \a generation has moved on. While \a window is
+    /// shown but minimised (not exposed) it draws no frame, so the wait starts again instead:
+    /// a batch carries on once the window is restored rather than failing every image.
+    void armCaptureTimeout(QWindow *window, quint64 generation, std::function<void()> expired);
     void processNextBatch();
     QString uniqueBatchPath(const BatchEntry &entry, int index) const;
     void startBatch(const QList<int> &indices);

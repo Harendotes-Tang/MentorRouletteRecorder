@@ -340,6 +340,51 @@ public sealed class CalibrationPipelineTests : IDisposable
     }
 
     /// <summary>
+    /// Audit 2026-11-20, C-2 (= 2026-11-10 C-1). Another program held the evidence file open when the
+    /// player pressed 清空校准进度: the delete failed unseen, the fresh observer's saves were all refused
+    /// as poorer than the old file, and the next start brought the cleared evidence back. A delete that
+    /// fails now fails the request, and nothing is discarded; once the file is free the same press works.
+    /// </summary>
+    [Fact]
+    public void ADiscardThatCannotDeleteTheEvidenceFailsAndDiscardsNothing()
+    {
+        using var db = new TestDatabase();
+        var template = CalibrationObserverTests.Template();
+        var evidenceRoot = Path.Combine(_localRoot, "evidence");
+        var services = Services(template).WithEvidenceIn(evidenceRoot);
+        var pipeline = new LiveProtocolPipeline(
+            db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, services);
+        pipeline.Refresh(NewBuild);
+        var sessionId = OpenSession(db);
+        pipeline.OnCaptureStarted(sessionId);
+        Feed(pipeline, sessionId, CalibrationObserverTests.Session1());
+        pipeline.OnCaptureStopped(sessionId, CaptureEndReason.UserStop);
+        var before = pipeline.CalibrationStatus();
+        Assert.NotEmpty(before.Events);
+        var path = Path.Combine(evidenceRoot, CalibrationEvidenceStore.FileNameFor(Region.Cn, Build));
+        Assert.True(File.Exists(path));
+
+        using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            var refused = Assert.Throws<CollectorException>(() => pipeline.DiscardCalibration());
+            Assert.Equal(ErrorCodes.CalibrationNotReady, refused.Code);
+            Assert.Equal("calibration.discard.evidence_busy", refused.Text?.Key);
+            Assert.Equal(before.State, pipeline.CalibrationStatus().State);
+            Assert.Equal(before.Events.Count, pipeline.CalibrationStatus().Events.Count);
+        }
+
+        Assert.True(File.Exists(path));
+        pipeline.DiscardCalibration();
+
+        var next = new LiveProtocolPipeline(
+            db.Database, db.Clock, new LiveEventBus(db.Clock), NoProfile, null, services);
+        next.Refresh(NewBuild);
+        next.OnCaptureStarted(OpenSession(db));
+        Assert.Equal(CalibrationState.Observing, next.CalibrationStatus().State);
+        Assert.Empty(next.CalibrationStatus().Events);
+    }
+
+    /// <summary>
     /// The two-minute evidence save must leave both the delivery thread and the pipeline lock
     /// alone. Serialising a whole snapshot and moving the file takes real time. Done on the
     /// delivery thread it stalls delivery itself, and the queue feeding it is bounded, so the
@@ -459,10 +504,16 @@ public sealed class CalibrationPipelineTests : IDisposable
     /// saved nothing in its place, because nothing was armed. The unfinished calibration of the
     /// region the player came from was lost. Deleting is for a reset inside the same
     /// calibration; a calibration that is no longer the pending write's leaves the file alone.
+    ///
+    /// Audit 2026-11-20, C-1: the same when calibration was disarmed (a running client whose build
+    /// cannot be read) and re-armed for the same region and build before the report. The evidence is
+    /// then only carried, nothing observes it, and nothing could be saved in the file's place; the
+    /// file is deleted only when a snapshot is there to replace it (<c>Region.Cn</c> below).
     /// </summary>
     [Theory]
     [InlineData(Region.Tc)]
     [InlineData(Region.Global)]
+    [InlineData(Region.Cn)]
     public void ASaveReportedAfterAnotherRegionsClientStartedKeepsTheEvidence(Region other)
     {
         using var db = new TestDatabase();
@@ -487,7 +538,16 @@ public sealed class CalibrationPipelineTests : IDisposable
 
                 periodic = false;
                 pipeline!.OnCaptureStopped(sessionId, CaptureEndReason.ProcessExit);
-                pipeline.Refresh(NewBuild with { Region = other });
+                if (other == Region.Cn)
+                {
+                    pipeline.Refresh(NewBuild with { Running = true, GameBuild = null });
+                    pipeline.Refresh(NewBuild);
+                }
+                else
+                {
+                    pipeline.Refresh(NewBuild with { Region = other });
+                }
+
                 return written;
             },
         };
@@ -510,7 +570,9 @@ public sealed class CalibrationPipelineTests : IDisposable
             .Append(CalibrationObserverTests.Message(MessageDirection.Inbound, last.Opcode, new byte[last.Length], 125_000)));
 
         Assert.False(periodic, "the periodic save never ran");
-        Assert.Equal(CalibrationState.Idle, pipeline.CalibrationStatus().State);
+        Assert.Equal(
+            other == Region.Cn ? CalibrationState.Waiting : CalibrationState.Idle,
+            pipeline.CalibrationStatus().State);
         var kept = CalibrationEvidenceStore.Load(evidenceRoot, Region.Cn, Build, template.Source.ProfileSha256);
         Assert.NotNull(kept);
         Assert.True(kept!.OutsideCounts.ContainsKey(last), "the final snapshot is not the one on disk");

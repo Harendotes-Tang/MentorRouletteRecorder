@@ -590,10 +590,18 @@ public static class ProfileLoader
             var fields = ReadFields(element, name, expected ?? max, errors);
             foreach (var required in RequiredFields.GetValueOrDefault(name, Array.Empty<string>()))
             {
-                if (!fields.Any(field => string.Equals(field.Name, required, StringComparison.Ordinal)))
+                var declared = fields.FirstOrDefault(field => string.Equals(field.Name, required, StringComparison.Ordinal));
+                if (declared is null)
                 {
                     errors.Add(new ProfileIssue(
                         "E_PROFILE_MISSING_FIELD", path, $"{name} must declare the field '{required}'"));
+                }
+                else if (declared.Type == ProfileFieldType.Bytes)
+                {
+                    // The parser reads no value out of a bytes field, so every message would be refused for
+                    // lacking it (audit 2026-11-20, D2-4; validate.py refuses it too).
+                    errors.Add(new ProfileIssue(
+                        "E_PROFILE_MISSING_FIELD", path, $"{name} must declare the field '{required}' as an integer, not bytes"));
                 }
             }
 
@@ -656,6 +664,15 @@ public static class ProfileLoader
             {
                 errors.Add(new ProfileIssue(
                     "E_PROFILE_FIELD_LENGTH", path, "length applies to bytes fields only"));
+            }
+
+            // The parser skips a bytes field (ProfileMessageParser), so a filter or a selector declared on one would
+            // never be applied (audit 2026-11-20, D2-4; validate.py refuses it too).
+            if (type == ProfileFieldType.Bytes &&
+                (element.TryGetProperty("constraints", out _) || element.TryGetProperty("role", out _)))
+            {
+                errors.Add(new ProfileIssue(
+                    "E_PROFILE_CONSTRAINT", path, "a bytes field cannot carry constraints or a role"));
             }
 
             var field = new ProfileField(

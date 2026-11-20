@@ -944,7 +944,7 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
     </message>
     <message>
         <source>等待游戏启动 · 已安装游戏所在的区服暂不支持自动记录</source>
-        <translation>Waiting for the game · the installed game's region is not supported for automatic recording yet</translation>
+        <translation>Waiting for the game · the installed game&apos;s region is not supported for automatic recording yet</translation>
     </message>
     <message>
         <source>暂时不会自动记录 · 见上方说明</source>
@@ -1262,6 +1262,10 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
         <translation>Automatic recording resumes when you stop capturing.</translation>
     </message>
     <message>
+        <source>停止采证后恢复正常检测；这个区服暂不自动记录。</source>
+        <translation>Normal checks resume when you stop capturing; this region isn&apos;t recorded automatically yet.</translation>
+    </message>
+    <message>
         <source>停止采证后恢复正常检测；当前游戏版本暂不自动记录。</source>
         <translation>Normal checks resume when you stop capturing; this game version isn&apos;t recorded automatically yet.</translation>
     </message>
@@ -1311,7 +1315,7 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
     </message>
     <message>
         <source>已安装游戏所在的区服暂不支持自动记录。启动游戏后会再次检查。</source>
-        <translation>The installed game's region is not supported for automatic recording yet. It is checked again when the game starts.</translation>
+        <translation>The installed game&apos;s region is not supported for automatic recording yet. It is checked again when the game starts.</translation>
     </message>
     <message>
         <source>当前安装的游戏版本暂不支持自动记录。启动游戏后会再次检查。</source>
@@ -1689,7 +1693,7 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
     </message>
     <message>
         <source>已安装游戏所在的区服暂不支持自动记录</source>
-        <translation>The installed game's region is not supported for automatic recording yet</translation>
+        <translation>The installed game&apos;s region is not supported for automatic recording yet</translation>
     </message>
     <message>
         <source>当前游戏版本暂不支持自动记录</source>
@@ -2261,6 +2265,10 @@ SHA256: %3</translation>
     <message>
         <source>给角色改名</source>
         <translation>Rename character</translation>
+    </message>
+    <message>
+        <source>给角色起名</source>
+        <translation>Name character</translation>
     </message>
     <message>
         <source>登记新角色</source>
@@ -3435,6 +3443,11 @@ SHA256: %3</translation>
         <source>这个角色的登记情况已经变了，请按总览上最新的提示操作。</source>
         <comment>identity.registration_moved</comment>
         <translation>This character&apos;s registration has changed. Follow the latest prompt on the overview.</translation>
+    </message>
+    <message>
+        <source>没能清空校准进度：保存校准进度的文件正被其他程序占用（例如安全软件正在检查它）。请稍后再点「清空校准进度」。</source>
+        <comment>calibration.discard.evidence_busy</comment>
+        <translation>Couldn&apos;t clear the calibration progress: the file that stores it is in use by another program (for example, security software is checking it). Click “Clear calibration progress” again later.</translation>
     </message>
     <message>
         <source>仅验证，不自动记录。所选网卡未连接或没有 IPv4 地址，取证不会开始。请取消后改选正在上网的网卡，或改用「自动选择」。</source>
@@ -6312,12 +6325,20 @@ SHA256: %3</translation>
         <translation>Canceling the wait…</translation>
     </message>
     <message>
+        <source>还没有收到报文</source>
+        <translation>No packets received yet</translation>
+    </message>
+    <message>
         <source>正在取证 · 可以登录了</source>
         <translation>Capturing · you can log in now</translation>
     </message>
     <message>
         <source>没有录到数据，不会保存文件。</source>
         <translation>No data was recorded, so no file will be saved.</translation>
+    </message>
+    <message>
+        <source>已经登录了报文仍为 0 时，先截图，再停止并导出诊断。</source>
+        <translation>If you&apos;ve logged in and the packet count is still 0, take a screenshot, then stop and export diagnostics.</translation>
     </message>
     <message>
         <source>启动游戏后会自动开始取证，看到「正在取证」再登录。</source>
@@ -6633,18 +6654,6 @@ SHA256: %3</translation>
         <translation>Zip it up and send it to the maintainer</translation>
     </message>
     <message>
-        <source>可以区分：两个角色读到的标识不同，回到角色 A 时与第一次相同。</source>
-        <translation>Told apart: the two characters read as different identifiers, and character A read the same on its return.</translation>
-    </message>
-    <message>
-        <source>不能区分：两个角色读到的标识相同。</source>
-        <translation>Not told apart: both characters read as the same identifier.</translation>
-    </message>
-    <message>
-        <source>标识不稳定：角色 A 前后读到的标识不一致。</source>
-        <translation>Unstable: character A read as different identifiers at different times.</translation>
-    </message>
-    <message>
         <source>这一轮没有得出结论：前三步没有全部确认并读到数据。请退出游戏后重做一轮，每一步进入游戏后等十秒左右再确认。</source>
         <translation>This round reached no result: the first three steps were not all confirmed and read. Quit the game and do the round again, waiting about ten seconds after entering the game before you confirm each step.</translation>
     </message>
@@ -6829,6 +6838,14 @@ SHA256: %3</translation>
         <translation>Disconnected</translation>
     </message>
     <message>
+        <source>这一轮用了软件在本机找到的读取方法，维护者要用日志里的查找结果为这个区服适配；在数据目录 logs</source>
+        <translation>This round used a reading method the app found on this PC; the maintainer needs the search results in the log to add support for this region; in the data folder&apos;s logs</translation>
+    </message>
+    <message>
+        <source>这一轮软件没能在本机找到读懂游戏数据的方法，维护者要用日志里的查找结果排查；在数据目录 logs</source>
+        <translation>This round the app couldn&apos;t find a way on this PC to read the game data; the maintainer needs the search results in the log to look into it; in the data folder&apos;s logs</translation>
+    </message>
+    <message>
         <source>状态截图</source>
         <translation>Status screenshot</translation>
     </message>
@@ -6855,6 +6872,18 @@ SHA256: %3</translation>
     <message>
         <source>无法识别游戏版本时，在游戏目录</source>
         <translation>If the game version isn&apos;t recognized; in the game folder</translation>
+    </message>
+    <message>
+        <source>可以区分：两个角色读到的连接标识不同，回到角色 A 时与第一次相同。</source>
+        <translation>Can tell them apart: the two characters gave different connection identifiers, and back on character A it matched the first one.</translation>
+    </message>
+    <message>
+        <source>不能区分：两个角色读到的连接标识相同。</source>
+        <translation>Can&apos;t tell them apart: the two characters gave the same connection identifier.</translation>
+    </message>
+    <message>
+        <source>连接标识不稳定：角色 A 前后读到的连接标识不一致。</source>
+        <translation>Connection identifier unstable: the two readings for character A don&apos;t match.</translation>
     </message>
     <message>
         <source>启动或采证出错时，在数据目录 logs；软件读不懂游戏数据格式时，含几小段游戏主程序的指令字节</source>
@@ -7005,14 +7034,6 @@ SHA256: %3</translation>
         <translation>%1 · %2 / 5 marked</translation>
     </message>
     <message>
-        <source>已保存 · 可以区分</source>
-        <translation>Saved · told apart</translation>
-    </message>
-    <message>
-        <source>已保存 · 未能区分</source>
-        <translation>Saved · not told apart</translation>
-    </message>
-    <message>
         <source>已保存 · 文件 %1 / %2</source>
         <translation>Saved · %1 / %2 files</translation>
     </message>
@@ -7034,7 +7055,7 @@ SHA256: %3</translation>
     </message>
     <message>
         <source>等待确认游戏连接</source>
-        <translation>Waiting to confirm the game's connection</translation>
+        <translation>Waiting to confirm the game&apos;s connection</translation>
     </message>
     <message>
         <source>等待游戏重新启动</source>
@@ -7043,6 +7064,10 @@ SHA256: %3</translation>
     <message>
         <source>等待游戏启动</source>
         <translation>Waiting for the game</translation>
+    </message>
+    <message>
+        <source>等待选择游戏</source>
+        <translation>Waiting for you to pick the game</translation>
     </message>
     <message>
         <source>正在取消等待</source>
@@ -7057,6 +7082,10 @@ SHA256: %3</translation>
         <translation>Capturing</translation>
     </message>
     <message>
+        <source>还没有收到报文</source>
+        <translation>No packets received yet</translation>
+    </message>
+    <message>
         <source>正在保存</source>
         <translation>Saving</translation>
     </message>
@@ -7069,8 +7098,16 @@ SHA256: %3</translation>
         <translation>Ended; file incomplete</translation>
     </message>
     <message>
+        <source>已保存 · 连接标识可以区分</source>
+        <translation>Saved · connection identifiers can tell them apart</translation>
+    </message>
+    <message>
         <source>已保存 · 没有得出结论</source>
         <translation>Saved · no result</translation>
+    </message>
+    <message>
+        <source>已保存 · 连接标识未能区分</source>
+        <translation>Saved · connection identifiers couldn&apos;t tell them apart</translation>
     </message>
     <message>
         <source>失败</source>
@@ -10427,6 +10464,14 @@ Collapsing keeps your draft; pick it up again from To review in the overlay.</tr
         <translation>Cleared +1</translation>
     </message>
     <message>
+        <source>通关</source>
+        <translation>Cleared</translation>
+    </message>
+    <message>
+        <source>确认通关；这条记录还没有分配角色，暂不计入进度</source>
+        <translation>Confirm the clear; this record isn&apos;t assigned to a character yet, so it doesn&apos;t count toward progress for now</translation>
+    </message>
+    <message>
         <source>确认通关，计入导随次数</source>
         <translation>Confirm the clear and count it</translation>
     </message>
@@ -10445,6 +10490,10 @@ Collapsing keeps your draft; pick it up again from To review in the overlay.</tr
     <message>
         <source>已计入导随次数</source>
         <translation>Counted toward your total</translation>
+    </message>
+    <message>
+        <source>已记为通关；还没有分配角色，暂不计入进度</source>
+        <translation>Saved as cleared; not assigned to a character yet, so it doesn&apos;t count toward progress for now</translation>
     </message>
     <message>
         <source>已记为退出 / 放弃，不计入</source>
@@ -10876,6 +10925,12 @@ Collapsing keeps your draft; pick it up again from To review in the overlay.</tr
         <translation>Count toward mentor achievement progress</translation>
     </message>
     <message>
+        <source>这条记录还没有分配角色，分配给角色后才计入该角色的进度。
+关闭后不增加成就进度，仍计入次数、通关率等统计。</source>
+        <translation>This record isn&apos;t assigned to a character yet; it counts toward a character&apos;s progress only once assigned to that character.
+Turning this off excludes the clear from achievement progress, but the run still contributes to counts, clear rates and other statistics.</translation>
+    </message>
+    <message>
         <source>这里只补录指导者任务。
 关闭后不增加成就进度，仍计入次数、通关率等统计。</source>
         <translation>Only add Mentor Roulette runs here.
@@ -10884,6 +10939,10 @@ Turning this off excludes the clear from achievement progress, but the run still
     <message>
         <source>已通关，计入进度</source>
         <translation>Cleared, counts toward progress</translation>
+    </message>
+    <message>
+        <source>已通关</source>
+        <translation>Cleared</translation>
     </message>
 </context>
 <context>
@@ -11811,6 +11870,14 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <translation>Nothing selected yet; use Customize in the title bar to add modules.</translation>
     </message>
     <message>
+        <source>有待处理记录时显示。</source>
+        <translation>Appears when there are to-do records.</translation>
+    </message>
+    <message>
+        <source>所选内容进本后或有待处理记录时显示。</source>
+        <translation>The selected modules appear once a duty begins or when there are to-do records.</translation>
+    </message>
+    <message>
         <source>所选内容进本后显示。</source>
         <translation>The selected modules appear once a duty begins.</translation>
     </message>
@@ -12723,8 +12790,8 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <translation>No process holding the capture service was found; the capture service was restarted.</translation>
     </message>
     <message>
-        <source>采集服务刚刚启动（进程 %1），可能正在升级数据库，请稍候。</source>
-        <translation>The capture service just started (process %1) and may be upgrading the database. Please wait.</translation>
+        <source>采集服务刚刚启动，请稍候。</source>
+        <translation>The capture service has just started. Please wait a moment.</translation>
     </message>
     <message>
         <source>采集服务被一个没有响应的旧实例（进程 %1）占用，已请求它退出并重新启动采集服务。</source>
@@ -15321,6 +15388,18 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>暂未确认下载是否取消，请稍后查看下载状态。</source>
         <translation>Not yet confirmed whether the download was canceled. Check the download status shortly.</translation>
+    </message>
+    <message>
+        <source>没有切换到 GitCode：GitHub 的下载已经比镜像更快，仍从 GitHub 下载。</source>
+        <translation>Didn&apos;t switch to GitCode: the GitHub download is now faster than the mirror, so it continues from GitHub.</translation>
+    </message>
+    <message>
+        <source>没有切换到 GitCode：镜像暂时无法使用，仍从 GitHub 下载。</source>
+        <translation>Didn&apos;t switch to GitCode: the mirror is unavailable right now, so the download continues from GitHub.</translation>
+    </message>
+    <message>
+        <source>没有切换到 GitCode：切换生效之前，GitHub 的下载已经结束。</source>
+        <translation>Didn&apos;t switch to GitCode: the GitHub download had already ended before the switch took effect.</translation>
     </message>
     <message>
         <source>尚未确认当前导随是否结束，暂时不能安装，请稍后再试。</source>

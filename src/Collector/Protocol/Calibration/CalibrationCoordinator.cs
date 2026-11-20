@@ -560,6 +560,22 @@ public sealed class CalibrationCoordinator
                 CalibratedProfileDocument.Message(message).ToJsonString(),
                 StringComparison.Ordinal)));
 
+    /// <summary>
+    /// True when a draft declares every optional message - the territory and the job - that the
+    /// queue-inferred profile in force declares. A draft that found the server's announcement replaces
+    /// the match the profile infers, so its match messages differ by design; but the confirmation writes
+    /// the profile from the draft alone, and a draft that had lost the territory or the job would write
+    /// it out of the profile: every later record would go without its duty or say 职业未知 (audit
+    /// 2026-11-20, Cb-1). With no profile in force to compare against there is nothing to keep.
+    /// </summary>
+    /// <param name="draft">Draft just derived.</param>
+    private bool KeepsOptionalInForce(CalibrationDraft draft) =>
+        _provisionalInForce is not { } inForce ||
+        inForce
+            .Where(current => current.Name is CalibratedShape.TerritoryName or CalibratedShape.JobName)
+            .All(current => draft.Messages.Any(message =>
+                string.Equals(message.Name, current.Name, StringComparison.Ordinal)));
+
     /// <summary>Feeds one decoded message to the observer, when observing.</summary>
     /// <param name="message">Decoded message.</param>
     public void Accept(DecodedMessage message)
@@ -608,7 +624,8 @@ public sealed class CalibrationCoordinator
             var brings = _draft.Messages.Any(message => _provisionalLacks.Contains(message.Name)) &&
                 KeepsInForce(_draft);
             _state = StateFor(
-                _draft.Status, _draft.MatchSource, _provisional, _retaining, brings, _completing, Completes(_draft));
+                _draft.Status, _draft.MatchSource, _provisional, _retaining, brings, _completing, Completes(_draft),
+                KeepsOptionalInForce(_draft));
         }
 
         return _draft;
@@ -622,9 +639,13 @@ public sealed class CalibrationCoordinator
     /// <param name="brings">The draft declares an optional message the profile in force lacks.</param>
     /// <param name="completing">A finished local profile without the job is in force and recording.</param>
     /// <param name="completes">That profile can take this draft's job without changing anything else.</param>
+    /// <param name="keepsOptional">
+    /// The draft declares every optional message (territory, job) the queue-inferred profile in force
+    /// declares; one that does not would write it out of the profile on confirmation.
+    /// </param>
     internal static CalibrationState StateFor(
         CalibrationDraftStatus status, CalibrationMatchSource source, bool provisional, bool retaining,
-        bool brings = false, bool completing = false, bool completes = false) => status switch
+        bool brings = false, bool completing = false, bool completes = false, bool keepsOptional = true) => status switch
     {
         // A finished profile is already recording, so nothing here is urgent and nothing is
         // shown (Snapshot reports IDLE for every state but READY). Only a draft that adds the
@@ -637,6 +658,9 @@ public sealed class CalibrationCoordinator
         // a draft that found the server's own announcement is worth interrupting for.
         CalibrationDraftStatus.Ready when provisional && source == CalibrationMatchSource.QueueRequest
             => CalibrationState.Observing,
+        // The announcement is worth interrupting for only when confirming it keeps the territory and
+        // the job the profile in force records (audit 2026-11-20, Cb-1).
+        CalibrationDraftStatus.Ready when provisional && !keepsOptional => CalibrationState.Observing,
         CalibrationDraftStatus.Ready when retaining => CalibrationState.Observing,
         CalibrationDraftStatus.Ready => CalibrationState.Ready,
         // BLOCKED reads "本机校准无法继续，当前不会生成记录" on the card. With a profile in force

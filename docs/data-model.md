@@ -38,7 +38,7 @@ Microsoft.Data.Sqlite 仍会自行重试至命令超时（默认 5 秒）为止�
 | `run_id` | TEXT | PK | UUID |
 | `revision` | INTEGER | NOT NULL, `>= 1` | 乐观并发版本号；每次成功变更 +1 |
 | `capture_session_id` | TEXT | NULL, FK → `capture_sessions.capture_session_id` | 手工补录为 NULL |
-| `region` | TEXT | NOT NULL, IN (`CN`,`GLOBAL`,`TC`,`UNKNOWN`) | 服务区服，与界面语言独立；schema 12 通过前向迁移扩展原约束，schema 13 把 schema 12 之前写下的无区服手工与导入记录归入 `CN`（§4） |
+| `region` | TEXT | NOT NULL, IN (`CN`,`GLOBAL`,`TC`,`UNKNOWN`) | 服务区服，与界面语言独立；schema 12 通过前向迁移扩展原约束，schema 13 把 schema 12 之前写下的无区服手工与导入记录归入 `CN`（§4）；手工补录与导入记录之后可由用户以 `move_region` 迁到另一具名区服（§1.6），这次修订不能撤销 |
 | `profile_id` | INTEGER | NULL, FK → `character_profiles.profile_id` | 记录所属的角色档案，必须与记录同区服；NULL 表示未分配（schema v14 新增，见 §1.6） |
 | `identity_id` | INTEGER | NULL, FK → `character_identities.identity_id` | 匹配成功时登录的角色（§4.3）；未经角色识别写入的记录一律为 NULL。仅供内部使用，不进入 IPC 与导出（schema v15 新增，见 §1.7） |
 | `game_build` | TEXT | NULL | 识别到的客户端版本标识 |
@@ -54,7 +54,7 @@ Microsoft.Data.Sqlite 仍会自行重试至命令超时（默认 5 秒）为止�
 | `role` | TEXT | NOT NULL, IN (`TANK`,`HEALER`,`DPS`,`UNKNOWN`) | 由 `job_id` 推导 |
 | `matched_at_utc` | TEXT | NULL | 匹配弹窗出现时间 |
 | `entered_at_utc` | TEXT | NULL | 进入副本时间。非空即计为 attempt；为空的记录按结果判定，结果既非 `UNKNOWN` 也非 `CANCELLED_BEFORE_ENTRY` 时同样计为 attempt，不分来源（[statistics-definitions.md](statistics-definitions.md) §2） |
-| `ended_at_utc` | TEXT | NULL | 结束时间 |
+| `ended_at_utc` | TEXT | NULL | 结束时间。没有进入时间的记录不得早于 `matched_at_utc`：自动写入时遇到本机时钟回拨，按匹配时间收拢；早期版本写下的结束早于匹配的记录由启动时的一次性改正处理（[state-machine.md](state-machine.md) §3.9） |
 | `duration_ms` | INTEGER | NULL, `>= 0` | 单调时钟测得的时长 |
 | `result` | TEXT | NOT NULL, IN (`COMPLETED`,`LEFT_OR_ABANDONED`,`CANCELLED_BEFORE_ENTRY`,`DISCONNECTED`,`INTERRUPTED`,`UNKNOWN`) | 结果 |
 | `detection_confidence` | TEXT | NOT NULL, IN (`HIGH`,`MEDIUM`,`LOW`,`NONE`) | 自动判定置信度；手工记录为 `NONE` |
@@ -225,6 +225,11 @@ CSV 导出在末尾追加同名列（`1` / `0` / 空），备份与 JSON 导入�
   `CORRECT` 修订，差异只有 `profile_id`；它不是对记录事实的更正，不置 `manually_corrected`，也不改动任何档案的基数
   （[manual-correction.md](manual-correction.md) §1）。`CorrectRun` 不接受该字段。撤销这条修订时，
   若修订记下的旧档案已被删除，记录改为未分配。被 `assign_profile` 改动归属的记录在同一事务中清除 `identity_id`（§1.7）。
+  `BatchMutateRuns` 的 `move_region`（schema 16 起）把选中的手工补录与导入记录迁到另一具名区服（`CN`、`TC` 或 `GLOBAL`）
+  的指定档案：每条记录追加一条 `CORRECT` 修订，差异为 `region` 与 `profile_id`，同样不置 `manually_corrected`，并清除 `identity_id`；
+  已删除的记录、抓包记录、混合来源区服的选择、目标区服已有相同记录，以及其他区服的档案均被拒绝。确认已计入目标起始次数的通关数
+  （`baseline_overlap`）大于 0 时，在同一事务中从目标档案的基数中扣除并追加基数审计（§4.2）；来源档案的基数不变。
+  这条修订不能撤销（`ERR_UNDO_NOT_ALLOWED`，[manual-correction.md](manual-correction.md) §1）。
   唯一的例外是角色登记：用户说明一个尚未绑定的角色属于哪个档案时，该角色名下仍为未分配的记录随之归入该档案，
   不写修订（§1.7）。
 - **区服一致由数据库保证。**触发器 `trg_runs_profile_region_insert` / `trg_runs_profile_region_update` 拒绝把记录
@@ -240,13 +245,14 @@ CSV 导出在末尾追加同名列（`1` / `0` / 空），备份与 JSON 导入�
 | 取值 | 含义 |
 |---|---|
 | 角色编号 | 匹配这一场时采集服务区分出的角色（§4.3） |
-| `NULL` | 未经角色识别写入：0015 之前写入的全部记录、手工补录、导入，以及写入时不区分角色的自动记录（非国服、关闭了角色识别、本次抓包会话没有可用的密钥、本次会话没有认出任何登录报文、匹配报文所在的连接在本会话中没有登录报文或记录不来自某条连接（此时记录同时为未分配），或该区服已记下 64 个角色而这是又一个未见过的角色）；此外还有被用户以 `assign_profile` 改动过归属、或其角色在密钥更换时被删除的记录 |
+| `NULL` | 未经角色识别写入：0015 之前写入的全部记录、手工补录、导入，以及写入时不区分角色的自动记录（非国服、关闭了角色识别、本次抓包会话没有可用的密钥、本次会话没有认出任何登录报文、匹配报文所在的连接在本会话中没有登录报文或记录不来自某条连接（此时记录同时为未分配），或该区服已记下 64 个角色而这是又一个未见过的角色）；此外还有被用户以 `assign_profile` 改动过归属、以 `move_region` 迁过区服，或其角色在密钥更换时被删除的记录 |
 
 写入规则：
 
 - **只在创建时写入。**自动记录与该行在同一事务中写入（[state-machine.md](state-machine.md) §3.1），之后只会被置空，不会改为另一个角色：
   - 用户以 `BatchMutateRuns` 的 `assign_profile` 改动这条记录的归属（改到某个档案或改为未分配）时，在同一事务中置空。
     用户亲手作出的归属取代自动标记，之后对该角色的登记不再移动这条记录。归属未改变的选中记录不受影响。
+  - 用户以 `move_region` 把这条记录迁到另一区服时，在同一事务中置空。
   - 在其他密钥下记下的角色被删除时（§4.3），指向它们的记录置空，`profile_id` 保持不变。
 - **用途是让迟到的登记找到记录。**角色尚未登记（待登记或不统计）时，记录的 `profile_id` 为 `NULL`。用户说明该角色属于哪个档案时
   （`ResolveCharacterIdentity` 的 `BIND`，或带 `identity_id` 的 `CreateCharacterProfile`），`identity_id` 等于该角色且 `profile_id`
@@ -313,7 +319,7 @@ INDEX ix_revisions_run ON run_revisions(run_id, revision)
 ## 4. `character_profiles` —— 角色档案：成就目标与基线
 
 每个服务区服可以保存多个角色档案，每个档案有各自的目标与基数，支持用户从中途开始使用本软件；
-一条记录至多属于一个档案（§1.6）。只有一个角色的用户始终只有一个档案，界面与行为和引入档案之前相同。
+一条记录至多属于一个档案（§1.6）。只有一个角色的用户始终只有一个档案，记录全部计入它；升级前就存在的档案可以请玩家起一次名字（§4.4）。
 
 | 列 | 类型 | 约束 | 说明 |
 |---|---|---|---|
@@ -402,10 +408,12 @@ INDEX ix_character_identities_profile        ON character_identities(profile_id)
 
 - **何时写入。**采集服务认出一个从未见过的角色的登录报文（[state-machine.md](state-machine.md) §3.1）时立即记下；
   登录时未能记下的，最迟在为它创建记录的那个事务中记下。区服只有一个档案（或尚无档案）且尚未记下任何角色时，第一个角色直接绑定到该档案，
-  不发布任何事件：只有一个角色的用户看不到任何变化。其他情况下记为待登记，并发布 `stats_invalidated`。
+  其记录立即计入；该档案在 `character_profile_registrations` 中待起名时，同时把这个角色作为询问对象（§4.4）。其他情况下记为待登记。
+  两种情况都发布 `stats_invalidated`，桌面端据此重新读取统计。
   每个区服至多记下 64 个角色；超出后再出现的新角色不记下，其记录为未分配。
 - **用户的回答。**`ResolveCharacterIdentity` 的 `BIND` 把尚未绑定（待登记或不统计）的角色绑定到同区服的档案，
-  并按 §1.7 归入该角色未分配的记录；不改动任何档案的基数。已绑定的角色被拒绝。
+  并按 §1.7 归入该角色未分配的记录；不改动任何档案的基数。已绑定的角色被拒绝，唯一的例外是一次性登记：
+  `BIND` 带 `display_name` 时，确认正就该档案询问的角色（已绑定的也可以）属于该档案并为档案命名（§4.4）。
   `IGNORE` 把尚未绑定的角色设为不统计；`ASK_AGAIN` 把不统计的角色恢复为待登记。
   `CreateCharacterProfile.identity_id` 在新建档案的同一事务中完成同样的绑定。
   绑定本身不改变区服的当前档案。采集服务在应答之前重新核对本次抓包会话最近一次登录的角色（[state-machine.md](state-machine.md) §3.1）：
@@ -423,7 +431,7 @@ INDEX ix_character_identities_profile        ON character_identities(profile_id)
   连续 3 次（`KeyFailuresBeforeReplacing`）之后才以新密钥替换该文件；在此之前，以及文件暂时读不到时，本次会话不区分角色，
   新记录归入当前档案。
 
-`identity_id` 是本地自增编号，经 IPC 传给桌面端（`$defs/CharacterIdentity`，只列出尚未绑定的角色）；`key_id` 与 `digest`
+`identity_id` 是本地自增编号，经 IPC 传给桌面端（`$defs/CharacterIdentity`，列出尚未绑定的角色，以及已绑定、但其档案仍在等待一次性登记的角色）；`key_id` 与 `digest`
 不离开采集服务：仓储层没有任何读取它们的方法，IPC、日志、诊断导出、记录导出与共享校准都不包含它们。
 
 ### 4.4 `character_profile_registrations` —— 升级档案的一次性登记（schema v16）
@@ -450,7 +458,7 @@ schema 16 写入后，旧版本无法打开该数据库（采集服务拒绝版�
 | `checksum` | TEXT | NOT NULL | 迁移脚本内容的 SHA-256，检测被篡改的历史迁移 |
 | `applied_at_utc` | TEXT | NOT NULL | |
 
-启动时向前迁移到本程序支持的最高版本（当前为 **15**，`0015_character_identities.sql`；
+启动时向前迁移到本程序支持的最高版本（当前为 **16**，`0016_character_registration.sql`；
 逐版说明见 [migrations/README.md](../migrations/README.md)）。若库中版本**高于**本程序支持的版本，
 或历史迁移的名称或 checksum 不匹配，则以 `ERR_DB_INTEGRITY` 拒绝启动（进程退出码 3，IPC 管道不会打开）；
 错误信息会给出数据库文件位置，提示先把该文件复制一份留底再处理。历史中缺少的版本不导致拒绝，而是补执行该脚本。本软件没有只读模式。
@@ -614,12 +622,12 @@ schema v9 通过 `migrations/0009_personal_record_import.sql` 增加 `run_import
 记录的区服取自来源中的 `region` 列（表头也可写作「区服」或「區服」；取值为 国服 / 國服 / 繁中服 / 国际服 / 國際服 /
 未知区服 / 未知區服，或 `CN` / `TC` / `GLOBAL` / `UNKNOWN`）。没有该列或单元格留空的行，采集服务一律按 `UNKNOWN` 预览；
 桌面端在第一次读取之后，把这类行（带 `run_id` 的本软件记录除外，它们保留原有区服）改为默认区服：截图来源（dlog 记录）一律为 `CN`；
-其他来源为总览所选的区服（`CN`、`TC` 或 `GLOBAL`；总览为「全部区服」或「未知区服」时为 `CN`）。默认值只改候选的 `region`，
+其他来源为导入窗口起始页「记录区服」所选的区服（`CN`、`TC` 或 `GLOBAL`；预选总览所选的区服，总览为「全部区服」或「未知区服」时预选 `CN`）。默认值只改候选的 `region`，
 不像用户手动改选区服那样清除来源给出的副本编号、领地与类别或确认待复核的识别结果；行的 `source_key` 不变，导入前仍可在预览中修改。
 同一行在其他区服下的身份也一并核对：每一行都在自身区服之外的每个区服（`CN`、`GLOBAL`、`TC`、`UNKNOWN`）下各算一份
 来源指纹，副本身份与目录事实按该区服重新解析，因此同一行曾以另一区服导入过（例如上一次在预览中改选了区服，或 1.8.0
 不带区服导入、经 schema 13 归入 `CN`）时同样能找到，带不带具体时刻都一样。以这些身份命中的本地记录只报告为「可能重复」，
-不判为重复或合并。按时间查找相近记录时，只有区服仍为 `UNKNOWN` 的行（命令行或 JSON 调用方，或桌面端导入中保留「未知区服」的候选）
+不判为重复或合并；唯一的例外是已经用 `move_region` 迁到该行所在区服的记录：迁移保留原有的来源指纹，同一来源在记录现在的区服再次导入时判为重复。按时间查找相近记录时，只有区服仍为 `UNKNOWN` 的行（命令行或 JSON 调用方，或桌面端导入中保留「未知区服」的候选）
 查所有区服；桌面端填入默认区服的行与写明区服的行一样，只在本区服与 `UNKNOWN` 中按时间查找，但指纹仍在其他每个区服下比对；
 两个具名区服之间不按时间互判（契约 2026-10-24：跨区相同时间与副本编号不会互判重复）。
 来源缺少结果时，导入预览按用户选择默认通关并允许修改；确认本人导随及实际结果后，缺游戏时间的记录
@@ -634,7 +642,7 @@ schema v9 通过 `migrations/0009_personal_record_import.sql` 增加 `run_import
 差别仅在于：布尔以 JSON `true/false` 表示；`NULL` 以 JSON `null` 表示；
 IPC 不暴露 `run_events.detail_json` 的原始内容，只暴露归纳后的字段；
 以及 `$defs/Run.reflection` 来自 `run_reflections`（§1.3）、可选 `import_metadata` 来自导入来源表，而不是 `mentor_runs` 的列；
-`mentor_runs.identity_id`（§1.7）不进入 `$defs/Run`。`character_identities`（§4.3）中尚未绑定的行以 `$defs/CharacterIdentity`
+`mentor_runs.identity_id`（§1.7）不进入 `$defs/Run`。`character_identities`（§4.3）中尚未绑定的行，以及已绑定但其档案仍在等待一次性登记（§4.4）的行，以 `$defs/CharacterIdentity`
 出现在 `DashboardStats.identities` 与 `CharacterIdentityResult.identities` 中，只含 `identity_id`、`region`、`state`、两个时间与
 `run_count`，不含 `key_id` 与 `digest`。
 

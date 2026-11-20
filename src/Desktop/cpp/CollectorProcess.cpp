@@ -292,7 +292,7 @@ void CollectorProcess::wireProcess()
     m_process->setWorkingDirectory(QFileInfo(m_executablePath).absolutePath());
 
     connect(m_process, &QProcess::started, this, [this] {
-        m_startedAtMs = QDateTime::currentMSecsSinceEpoch();
+        m_startedAt.start();
         m_failedLaunches = 0;
         setState(State::Running);
     });
@@ -885,7 +885,7 @@ void CollectorProcess::beginHolderGrace()
     // act on this, and the shutdown behind it is the only path that closes the
     // capture session row and deletes the temporary game-executable copies.
     signalStopEvent(/*requireOwnership=*/false);
-    m_holderGraceUntilMs = QDateTime::currentMSecsSinceEpoch() + m_holderGraceMs;
+    m_holderGraceUntil = QDeadlineTimer(m_holderGraceMs);
     m_holderGraceTimer.start();
     // Probe once straight away: the ordinary hand-off is already over by now.
     onHolderGraceTick();
@@ -915,7 +915,7 @@ void CollectorProcess::onHolderGraceTick()
     }
     if (!validateTakeoverHolder())
         return;
-    if (QDateTime::currentMSecsSinceEpoch() < m_holderGraceUntilMs)
+    if (!m_holderGraceUntil.hasExpired())
         return;
 
     // It had its chance.
@@ -957,17 +957,15 @@ void CollectorProcess::requestServeLeaseTakeover()
     }
 
     if (serveLeasePidIsFresh()) {
-        // It took the lease seconds ago, and silence from a Collector that new
-        // is what a database migration looks like from outside. Wait it out.
-        qCInfo(lcCollector) << "serve-lease holder is only" << serveLeasePidAgeMs()
-                            << "ms old; not ending it";
+        // It took the lease seconds ago and is never ended that young. Its
+        // migrations are already behind it (the Collector writes serve.pid only
+        // after them), so the notice claims nothing about the database.
+        qCInfo(lcCollector) << "serve-lease holder" << readServeLeasePid() << "is only"
+                            << serveLeasePidAgeMs() << "ms old; not ending it";
         if (!m_freshHolderReported) {
             m_freshHolderReported = true;
             m_takeoverToasted = false;
-            emitTakeoverOnce(true,
-                             tr("采集服务刚刚启动（进程 %1），"
-                                "可能正在升级数据库，请稍候。")
-                                 .arg(readServeLeasePid()));
+            emitTakeoverOnce(true, tr("采集服务刚刚启动，请稍候。"));
         }
         return;
     }
@@ -1151,9 +1149,7 @@ void CollectorProcess::onFinished(int exitCode, QProcess::ExitStatus status)
         return;
     }
 
-    const qint64 lifetime = m_startedAtMs > 0
-                                ? QDateTime::currentMSecsSinceEpoch() - m_startedAtMs
-                                : 0;
+    const qint64 lifetime = m_startedAt.isValid() ? m_startedAt.elapsed() : 0;
 
     // The Collector's own answer to "another instance already holds the per-user
     // serve lease". A distinct exit code, so this does not depend on our pipe

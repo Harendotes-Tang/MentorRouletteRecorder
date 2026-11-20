@@ -443,7 +443,13 @@ class ReplacementTests(unittest.TestCase):
         repo_index.dump(restored)
         outcome = _submit(restored, number=1, account=5, when=NOW + dt.timedelta(hours=2))
         self.assertEqual(repo_index.ADDED, outcome.status)
-        self.assertEqual(2, self.entry_for(outcome.index, old)["submitters"])
+        # Audit 2026-11-20 N1-1: the restored code had no ledger row, so its one joiner is its one submitter,
+        # and what the Action writes next must pass dump (it used to raise IndexCorrupt here).
+        self.assertEqual(1, self.entry_for(outcome.index, old)["submitters"])
+        repo_index.dump(outcome.index)
+        again = _submit(outcome.index, number=1, account=6, when=NOW + dt.timedelta(hours=3))
+        self.assertEqual((repo_index.ADDED, 2), (again.status, self.entry_for(again.index, old)["submitters"]))
+        repo_index.dump(again.index)
         with self.assertRaises(KeyError):
             repo_index.restore(state, sha("e"))
 

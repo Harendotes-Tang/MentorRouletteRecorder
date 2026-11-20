@@ -187,7 +187,7 @@ function Get-ReleasedChangelogSectionChange {
     .SYNOPSIS
         已发布段落是否被改动 / How a released section differs from what its tag recorded.
     .DESCRIPTION
-        $Tagged 是 vX.Y.Z tag 中的 CHANGELOG.md，$Working 是工作区中的。tag 中没有这一段时返回
+        $Tagged 是 vX.Y.Z（或 vX.Y.Z-beta.N）tag 中的 CHANGELOG.md，$Working 是工作区中的。tag 中没有这一段时返回
         $null（该版本发布时没有段落，无可保护）；否则工作区中的同名段落必须存在，标题行（含日期）
         与正文都与 tag 逐字一致，不一致时返回说明，一致时返回 $null。工作区中缺少该段落——被删除，
         或标题被改成了别的版本号——同样算作改动。
@@ -209,6 +209,69 @@ function Get-ReleasedChangelogSectionChange {
     }
     if ($current.Body -cne $released.Body) {
         return ("## [{0}] 的正文与 tag 中的不一致" -f $Version)
+    }
+    return $null
+}
+
+function Get-ReleasedChangelogTagVersion {
+    <#
+    .SYNOPSIS
+        tag 对应的已发布版本号 / The version a published tag protects; $null for any other tag.
+    .DESCRIPTION
+        正式版 tag（v1.9.0）与先行版 tag（v1.9.1-beta.1）都算：先行版现在以自己的
+        "## [X.Y.Z-beta.N] - 日期" 段落发布在空的 [Unreleased] 之下，tag 与 GitHub 预发布都由这段文字生成，
+        发布后同样不能再改（审计 2026-11-20 N2-3）。该 tag 中的 CHANGELOG 没有这一段时（旧流程的
+        先行版，条目还在 [Unreleased] 下），Get-ReleasedChangelogSectionChange 返回 $null，无可保护。
+    #>
+    param([AllowEmptyString()][AllowNull()][string]$Tag)
+
+    if ([string]::IsNullOrWhiteSpace($Tag)) { return $null }
+    $match = [regex]::Match($Tag.Trim(), '^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$')
+    if (-not $match.Success) { return $null }
+    return $match.Groups[1].Value
+}
+
+function Get-HeadCommitSubject {
+    <#
+    .SYNOPSIS
+        HEAD 的提交标题 / The subject line of HEAD; $null when git cannot answer.
+    #>
+    param([Parameter(Mandatory = $true)][string]$RepoRoot)
+
+    if (-not (Get-Command git -CommandType Application -ErrorAction SilentlyContinue)) { return $null }
+    $subject = @(& git -C $RepoRoot log -1 '--format=%s' 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $subject.Count -ne 1) { return $null }
+    return [string]$subject[0]
+}
+
+function Get-UnsuffixedVersionRefusal {
+    <#
+    .SYNOPSIS
+        正式版本号能否在这次打包中使用 / Why a version without a prerelease label may not be packaged here.
+    .DESCRIPTION
+        没有先行版后缀的版本号一经交到别人手里就被用掉了：之后真正发布的同号版本不会被当作更新提供
+        （审计 2026-11-20 M-2：1.9.1 曾被七个按 -SkipVerify 打出的本地测试包用掉）。因此正式版本号只能在
+        HEAD 正是它的发布提交（标题为 "chore(release): X.Y.Z"）且没有 -SkipVerify 时打包；其余情况返回
+        拒绝的说明，由 package.ps1 在验证与构建之前停下，除非显式给出 -AllowUnsuffixedVersion。
+        先行版（带 "-" 后缀）与满足条件的正式版返回 $null。
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$Version,
+        [switch]$SkipVerify,
+        [AllowEmptyString()][AllowNull()][string]$HeadSubject
+    )
+
+    if ($Version -match '-') { return $null }
+    $advice = '测试包请在 Directory.Build.props 中加上 <VersionSuffix>（如 beta.1 或 dev.1）；确需以正式版本号打包时加 -AllowUnsuffixedVersion'
+    if ($SkipVerify) {
+        return ("版本 {0} 没有先行版后缀，不能与 -SkipVerify 一起打包：正式版本号只用于通过验证的发布构建。{1}" -f
+            $Version, $advice)
+    }
+    $release = 'chore(release): {0}' -f $Version
+    if ($HeadSubject -cne $release) {
+        $observed = if ([string]::IsNullOrWhiteSpace($HeadSubject)) { '无法读取（git 没有回答）' } else { "「$HeadSubject」" }
+        return ("版本 {0} 没有先行版后缀，但 HEAD 不是它的发布提交「{1}」，HEAD 的标题为{2}。{3}" -f
+            $Version, $release, $observed, $advice)
     }
     return $null
 }

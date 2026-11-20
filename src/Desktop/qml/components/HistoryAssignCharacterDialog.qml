@@ -16,9 +16,13 @@ MotionDialog {
 
     // Region of the ticked records, which the list is narrowed to: a record can only go to a
     // character of its own region. "MIXED" when they span regions: no character fits them all.
-    property string region: ""
+    // Both follow the ticks while the dialog is open: the batch acts on every record ticked
+    // when it is confirmed, a 勾选全部 that lands meanwhile included (audit 2026-11-20, K3-1).
+    readonly property string region: Runtime.app.historyCheckedRegion
     readonly property bool mixedRegions: dialog.region === "MIXED"
-    property int checkedCount: 0
+    readonly property int checkedCount: Runtime.app.checkedHistoryRunCount
+    // A character of the region the ticks had before is no choice for the ones they have now.
+    onRegionChanged: if (dialog.target > 0) dialog.target = 0
     // 0 until a character is picked; -1 is 「未分配」.
     property int target: 0
     property bool submitted: false
@@ -30,9 +34,10 @@ MotionDialog {
     background: DialogFrame {}
     Overlay.modal: Rectangle { color: Theme.modalScrim(dialog.palette.shadow) }
 
-    function ask(region, count) {
-        dialog.region = region
-        dialog.checkedCount = count
+    function ask() {
+        // The dialog asks about the ticks as they are now; a 勾选全部 read still on its
+        // way is dropped rather than growing the selection under it (K3-1).
+        Runtime.app.cancelHistoryCheckAll()
         dialog.target = 0
         dialog.submitted = false
         reasonField.text = qsTranslate("SystemReason", "修改记录所属的角色")

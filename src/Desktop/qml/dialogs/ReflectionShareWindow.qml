@@ -11,8 +11,11 @@ Window {
     readonly property alias dialog: content
 
     title: qsTr("生成分享图片")
+    // No minimise: a minimised window draws nothing, so every image of a batch saved
+    // meanwhile would fail, and the window cannot be closed while it saves (audit
+    // 2026-11-20 L2-2). The owner asked for 可拉伸、可最大化.
     flags: Qt.Window | Qt.WindowTitleHint | Qt.WindowSystemMenuHint
-           | Qt.WindowMinMaxButtonsHint | Qt.WindowCloseButtonHint
+           | Qt.WindowMaximizeButtonHint | Qt.WindowCloseButtonHint
     modality: Qt.WindowModal
     color: Theme.surface
     width: 860

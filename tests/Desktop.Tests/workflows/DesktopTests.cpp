@@ -16,8 +16,10 @@
 
 #include <QDateTime>
 #include <QGuiApplication>
+#include <QHash>
 #include <QJsonDocument>
 #include <QFile>
+#include <QMetaProperty>
 #include <QPointer>
 #include <QSet>
 #include <QSignalSpy>
@@ -94,6 +96,26 @@ public:
             return reply;
         }
 
+        // The recorded-region probe: a one-row QueryRuns filtered by region only.
+        const QJsonObject filter = payload.value(QStringLiteral("filter")).toObject();
+        if (answerRegionProbes && messageType == QLatin1String("QueryRuns")
+            && filter.keys() == QStringList{QStringLiteral("region")}) {
+            const QString region = filter.value(QStringLiteral("region")).toString();
+            if (region == failRegionOnce) {
+                failRegionOnce.clear();
+                QTimer::singleShot(0, reply, [reply] {
+                    reply->fail(QStringLiteral("ERR_TIMEOUT"), QStringLiteral("timeout"));
+                });
+                return reply;
+            }
+            const QJsonObject result{{QStringLiteral("items"), QJsonArray{}},
+                                     {QStringLiteral("page_info"),
+                                      QJsonObject{{QStringLiteral("page"), 1},
+                                                  {QStringLiteral("total"), recordedRuns.value(region)}}}};
+            QTimer::singleShot(0, reply, [reply, result] { reply->succeed(result); });
+            return reply;
+        }
+
         if (!m_autoRespond) {
             m_pending.append(reply);
             return reply;
@@ -138,6 +160,12 @@ public:
     }
     void setProfileStatus(const QString &value) { m_profileStatus = value; }
     void setCaptureState(const QString &value) { m_captureState = value; }
+
+    /// Answer the recorded-region probe from recordedRuns (live records per region),
+    /// failing failRegionOnce's first read.
+    bool answerRegionProbes = false;
+    QHash<QString, int> recordedRuns;
+    QString failRegionOnce;
 
     void completeNext(const QString &messageType, const QJsonObject &payload,
                       bool ok = true, const QString &code = {}, const QString &message = {})
@@ -326,6 +354,9 @@ private Q_SLOTS:
     void appController_recordingPollRefreshesNpcapWithTheCapture();
     void appController_forwardsTheBackupInProgress();
     void appController_keepsTheAdapterListWhenAListingFails();
+    void appController_retriesAFailedRecordedRegionRead();
+    void appController_regionUnsupportedFollowsTheProfileReply();
+    void appController_aBoundCharacterAwaitingItsNameIsNoSecondCharacter();
     void runFormValidator_rejectsEveryPrototypeCase();
     void runFormValidator_buildsTheBeforeAfterDiff();
 };
@@ -1389,6 +1420,93 @@ void DesktopTests::appController_keepsTheAdapterListWhenAListingFails()
                          QStringLiteral("ERR_TIMEOUT"), QString::fromUtf8("网卡列表读取超时"));
     QCOMPARE(controller.captureAdapters().size(), 1);
     QVERIFY(controller.adapterInfo().value(QStringLiteral("npcap_installed")).toBool());
+}
+
+void DesktopTests::appController_retriesAFailedRecordedRegionRead()
+{
+    // Review 2026-11-20 I1-1: one failed read of the four recorded-region probes left
+    // the interface language's region in force for the session. The failed round shows
+    // every region, and the read is tried again until the records decide.
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    mr::AppSettings settings(directory.filePath(QStringLiteral("desktop.ini")), nullptr);
+    DeferredBackend backend;
+    backend.answerRegionProbes = true;
+    backend.recordedRuns.insert(QStringLiteral("TC"), 3);
+    backend.failRegionOnce = QStringLiteral("GLOBAL");
+    mr::AppController controller(&backend, &settings, nullptr, nullptr, mr::TtsService::EngineMode::Mock);
+    backend.setConnected(true);
+    QTRY_COMPARE(controller.recordRegion(), QString());
+    QTRY_COMPARE_WITH_TIMEOUT(controller.recordRegion(), QStringLiteral("TC"), 10000);
+    // The automatic default is never stored as a pick.
+    QCOMPARE(settings.value(QStringLiteral("dashboard/record_region"), QStringLiteral("AUTO")),
+             QStringLiteral("AUTO"));
+}
+
+void DesktopTests::appController_regionUnsupportedFollowsTheProfileReply()
+{
+    // Review 2026-11-20 K4-5: the profile reply arrives after the status reply and only
+    // emits validationChanged; a binding on regionUnsupported must see it at once, not
+    // at the next status poll.
+    DeferredBackend backend;
+    backend.setAutoRespond(false);
+    mr::AppController controller(&backend, nullptr);
+    backend.setConnected(true);
+    const QMetaObject *meta = controller.metaObject();
+    const QMetaProperty property = meta->property(meta->indexOfProperty("regionUnsupported"));
+    QVERIFY(property.hasNotifySignal());
+    QSignalSpy notified(&controller, property.notifySignal());
+    QVERIFY(notified.isValid());
+    QVERIFY(!controller.regionUnsupported());
+    QVERIFY(backend.completeEvery(QStringLiteral("GetProtocolProfileStatus"),
+                                  QJsonObject{{QStringLiteral("status"), QStringLiteral("UNSUPPORTED_BUILD")},
+                                              {QStringLiteral("message_ref"),
+                                               QJsonObject{{QStringLiteral("key"),
+                                                            QStringLiteral("profile.unavailable.region_unsupported")}}}})
+            >= 1);
+    QVERIFY(notified.count() > 0);
+    QVERIFY(controller.regionUnsupported());
+    QCOMPARE(meta->property(meta->indexOfProperty("protocolProfile")).notifySignal(), property.notifySignal());
+}
+
+void DesktopTests::appController_aBoundCharacterAwaitingItsNameIsNoSecondCharacter()
+{
+    // Owner decision 2026-11-20 (audit K1-2): a character bound to the region's only
+    // profile, whose naming offer is open or put off with 「以后再说」, does not turn on
+    // the character column, filter and 改角色; a character bound to no profile does.
+    DeferredBackend backend;
+    backend.setAutoRespond(false);
+    mr::AppController controller(&backend, nullptr);
+    backend.setConnected(true);
+    const auto identity = [](int id, const QString &state) {
+        QJsonObject value{{QStringLiteral("identity_id"), id}, {QStringLiteral("region"), QStringLiteral("CN")},
+                          {QStringLiteral("state"), state},
+                          {QStringLiteral("first_seen_at_utc"), QStringLiteral("2026-11-01T00:00:00.000Z")},
+                          {QStringLiteral("last_seen_at_utc"), QStringLiteral("2026-11-20T00:00:00.000Z")},
+                          {QStringLiteral("run_count"), 0}};
+        if (state == QLatin1String("BOUND"))
+            value.insert(QStringLiteral("registration_profile_id"), 1);
+        return value;
+    };
+    const QJsonArray profiles{QJsonObject{{QStringLiteral("profile_id"), 1}, {QStringLiteral("region"), QStringLiteral("CN")}}};
+    QVERIFY(backend.completeEvery(QStringLiteral("GetDashboardStats"),
+                                  QJsonObject{{QStringLiteral("profiles"), profiles},
+                                              {QStringLiteral("identities"), QJsonArray{identity(5, QStringLiteral("BOUND"))}}}) >= 1);
+    QCOMPARE(controller.pendingCharacterIdentities(QStringLiteral("CN")).size(), 1);
+    QVERIFY(!controller.characterFeaturesVisible(QStringLiteral("CN")));
+    QVERIFY(!controller.characterFeaturesVisible(QString()));
+    controller.dismissCharacterRegistration(5);
+    QVERIFY(controller.pendingCharacterIdentities(QStringLiteral("CN")).isEmpty());
+    QVERIFY(!controller.characterFeaturesVisible(QStringLiteral("CN")));
+
+    controller.refreshDashboard();
+    QVERIFY(backend.completeEvery(QStringLiteral("GetDashboardStats"),
+                                  QJsonObject{{QStringLiteral("profiles"), profiles},
+                                              {QStringLiteral("identities"),
+                                               QJsonArray{identity(5, QStringLiteral("BOUND")),
+                                                          identity(6, QStringLiteral("PENDING"))}}}) >= 1);
+    QVERIFY(controller.characterFeaturesVisible(QStringLiteral("CN")));
+    QVERIFY(controller.characterFeaturesVisible(QString()));
 }
 
 void DesktopTests::appController_ignoresStaleValidationStatusAfterStop()

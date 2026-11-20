@@ -13,6 +13,7 @@
 #include "IpcFraming.h"
 #include "MockData.h"
 
+#include <QHash>
 #include <QJsonArray>
 #include <QSet>
 #include <QTimer>
@@ -42,6 +43,56 @@ bool usableName(const QString &name)
     if (name.isEmpty() || name.size() > kMaxDisplayNameLength)
         return false;
     return std::ranges::none_of(name, [](QChar c) { return c.category() == QChar::Other_Control; });
+}
+
+/// RunRepository.MigrationIdentity: what a region move compares. An empty time is a missing one.
+struct MigrationIdentity
+{
+    QJsonValue runId;
+    QJsonValue contentId;
+    QString dutyName;
+    QJsonValue jobId;
+    QString matched;
+    QString entered;
+    QString source;
+};
+
+MigrationIdentity migrationIdentity(const QJsonObject &run)
+{
+    const auto time = [](const QJsonValue &value) { return value.isString() ? value.toString() : QString(); };
+    return {run.value(QStringLiteral("run_id")), run.value(QStringLiteral("content_id")),
+            run.value(QStringLiteral("duty_name")).toString(), run.value(QStringLiteral("job_id")),
+            time(run.value(QStringLiteral("matched_at_utc"))), time(run.value(QStringLiteral("entered_at_utc"))),
+            time(run.value(QStringLiteral("import_metadata")).toObject()
+                     .value(QStringLiteral("source_recorded_at_utc")))};
+}
+
+/// MigrationIdentity.Keys: the content id (the duty name only when there is none), the job,
+/// and one key per known time: matched, entered and the import's source time.
+QStringList migrationKeys(const MigrationIdentity &identity)
+{
+    const bool hasContent = identity.contentId.isDouble();
+    if (!identity.jobId.isDouble() || (!hasContent && identity.dutyName.trimmed().isEmpty()))
+        return {};
+    const QChar separator(0x1f);
+    const QString prefix = (hasContent ? QStringLiteral("c%1").arg(identity.contentId.toInt())
+                                       : QStringLiteral("n") + identity.dutyName)
+        + separator + QString::number(identity.jobId.toInt()) + separator;
+    QStringList keys;
+    if (!identity.matched.isEmpty())
+        keys.append(prefix + QStringLiteral("matched") + separator + identity.matched);
+    if (!identity.entered.isEmpty())
+        keys.append(prefix + QStringLiteral("entered") + separator + identity.entered);
+    if (!identity.source.isEmpty())
+        keys.append(prefix + QStringLiteral("source") + separator + identity.source);
+    return keys;
+}
+
+/// MigrationIdentity.CompatibleWith: no match or entry time that both know may differ.
+bool migrationCompatible(const MigrationIdentity &left, const MigrationIdentity &right)
+{
+    const auto agree = [](const QString &a, const QString &b) { return a.isEmpty() || b.isEmpty() || a == b; };
+    return agree(left.matched, right.matched) && agree(left.entered, right.entered);
 }
 
 } // namespace
@@ -461,36 +512,35 @@ QJsonObject MockBackend::assignRunsToProfile(const QJsonObject &payload, QString
             if (countsTowardsProgress(run))
                 ++contributing;
         }
-        // RunRepository.FindRegionMigrationDuplicate, in small: the same duty and job at the
-        // same match or entry time, already in the target (under its profile or under nobody)
-        // or twice in the batch.
-        const auto sameRecord = [](const QJsonObject &left, const QJsonObject &right) {
-            const auto same = [&left, &right](const char *key) {
-                const QJsonValue value = left.value(QLatin1String(key));
-                return !value.isNull() && !value.isUndefined() && value == right.value(QLatin1String(key));
-            };
-            return same("job_id") && (same("content_id") || same("duty_name"))
-                && (same("matched_at_utc") || same("entered_at_utc"));
+        // RunRepository.FindRegionMigrationDuplicate: twice in the batch first, then already in
+        // the target (under its profile or under nobody), by the same keys and compatibility.
+        const auto refuseDuplicate = [&](const QJsonValue &runId, const QJsonValue &matchingRunId) {
+            *errorDetails = {{QStringLiteral("run_id"), runId}, {QStringLiteral("matching_run_id"), matchingRunId}};
+            return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "history.region.duplicate");
         };
-        for (qsizetype i = 0; i < runs.size(); ++i) {
-            const QJsonObject &run = runs.at(i);
-            QJsonValue match(QJsonValue::Undefined);
-            for (qsizetype j = 0; j < i && match.isUndefined(); ++j) {
-                if (sameRecord(run, runs.at(j)))
-                    match = runs.at(j).value(QStringLiteral("run_id"));
+        QHash<QString, QList<MigrationIdentity>> index;
+        for (const QJsonObject &run : std::as_const(runs)) {
+            const MigrationIdentity identity = migrationIdentity(run);
+            for (const QString &key : migrationKeys(identity)) {
+                QList<MigrationIdentity> &matches = index[key];
+                for (const MigrationIdentity &earlier : std::as_const(matches)) {
+                    if (migrationCompatible(identity, earlier))
+                        return refuseDuplicate(identity.runId, earlier.runId);
+                }
+                matches.append(identity);
             }
-            for (const auto &value : std::as_const(m_runs)) {
-                const QJsonObject other = value.toObject();
-                if (!match.isUndefined())
-                    break;
-                const int owner = runProfileId(other);
-                if (runRegion(other) == region && (owner == 0 || owner == profile->id) && sameRecord(run, other))
-                    match = other.value(QStringLiteral("run_id"));
-            }
-            if (!match.isUndefined()) {
-                *errorDetails = {{QStringLiteral("run_id"), run.value(QStringLiteral("run_id"))},
-                                 {QStringLiteral("matching_run_id"), match}};
-                return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "history.region.duplicate");
+        }
+        for (const auto &value : std::as_const(m_runs)) {
+            const QJsonObject other = value.toObject();
+            const int owner = runProfileId(other);
+            if (index.isEmpty() || runRegion(other) != region || (owner != 0 && owner != profile->id))
+                continue;
+            const MigrationIdentity identity = migrationIdentity(other);
+            for (const QString &key : migrationKeys(identity)) {
+                for (const MigrationIdentity &selected : index.value(key)) {
+                    if (migrationCompatible(identity, selected))
+                        return refuseDuplicate(selected.runId, identity.runId);
+                }
             }
         }
         const int baseline = profile->settings.baselineCompletedCount;

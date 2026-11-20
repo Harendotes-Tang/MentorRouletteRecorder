@@ -333,10 +333,13 @@ public sealed partial class CaptureValidationController : IDisposable
                 }
                 s.Stop.Token.ThrowIfCancellationRequested();
                 lock (_gate) s.Stage = CaptureValidationStage.Starting;
+                // One clock for the messages the source stamps and the markers the sink writes,
+                // started before either (audit 2026-11-20, A2b-1).
+                var elapsed = Stopwatch.StartNew();
+                s.Elapsed = _services.Elapsed ?? (() => elapsed.Elapsed);
                 try
                 {
-                    source = trace.SourceFactory?.Invoke()
-                        ?? new MachinaCaptureSource(trace.Logger, oodleTempManifestPath: _oodleTempManifest);
+                    source = trace.CreateSource(_oodleTempManifest, s.Elapsed);
                 }
                 catch (Exception ex)
                 {
@@ -377,8 +380,6 @@ public sealed partial class CaptureValidationController : IDisposable
                 lock (_gate) s.Path = path;
                 writer = trace.TraceWriterFactory?.Invoke(path) ?? new StreamWriter(
                     new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read), new UTF8Encoding(false));
-                var elapsed = Stopwatch.StartNew();
-                s.Elapsed = _services.Elapsed ?? (() => elapsed.Elapsed);
                 var sink = new CaptureTraceSink(writer, trace.Clock, s.Elapsed, identityProbe: identityProbe);
                 lock (_gate) { s.Sink = sink; s.Started = UtcTimestamp.Truncate(trace.Clock.UtcNow); }
                 sink.WriteHeader(new CaptureTraceHeader(s.Started.Value, s.Npcap.Version, game.GameBuild,

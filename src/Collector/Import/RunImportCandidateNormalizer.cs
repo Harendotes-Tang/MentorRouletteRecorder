@@ -396,6 +396,9 @@ internal static class RunImportCandidateNormalizer
         localFacts["mentor_confirmed"] = local.ImportMetadata?.MentorConfirmed;
         importedFacts["joined_in_progress"] = incoming.Run.JoinedInProgress;
         localFacts["joined_in_progress"] = local.JoinedInProgress;
+        // A note is stored as typed but read back trimmed, so surrounding whitespace is no difference
+        // (audit 2026-11-20, H2-1). The fingerprint in FactValues stays as it was.
+        localFacts["note"] = string.IsNullOrWhiteSpace(local.Note) ? null : local.Note.Trim();
         // A run this software recorded has no import metadata, so "mentor confirmed" was never
         // stated for it: a backup row carries the key with no value, and the imported side's
         // default would make every unchanged captured run a conflict (audit 2026-11-10, H2-1).

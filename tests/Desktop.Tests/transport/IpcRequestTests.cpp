@@ -19,6 +19,7 @@
 
 #include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
+#include "HistoryController.h"
 #include "IpcBackend.h"
 #include "IpcFraming.h"
 
@@ -30,6 +31,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTest>
+#include <QTimer>
 
 namespace {
 
@@ -46,16 +48,11 @@ QJsonObject sampleFilter()
     return filter;
 }
 
-QJsonObject migrationPreviewArgs()
-{
-    return {
-        {QStringLiteral("region"), QStringLiteral("GLOBAL")},
-        {QStringLiteral("profile_id"), 4},
-        {QStringLiteral("runs"), QJsonArray{QJsonObject{
-            {QStringLiteral("run_id"), QStringLiteral("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")},
-            {QStringLiteral("expected_revision"), 1}}}},
-    };
-}
+/// The payload HistoryController itself sends as \a messageType when 迁移区服 is previewed
+/// and confirmed for one checked manual run (defined below PayloadRecorder). IpcBackend
+/// passes these two messages through unchanged, so the samples pin the real sender's
+/// fields, not arguments this test made up (review 2026-11-20 I5-2).
+QJsonObject recordedRegionMigrationPayload(const QString &messageType);
 
 /// Wrapper arguments per message type. Empty for the messages that take none.
 QJsonObject argsFor(const QString &messageType)
@@ -225,7 +222,7 @@ QJsonObject argsFor(const QString &messageType)
     } else if (messageType == QLatin1String("GetCalibrationEvidence")) {
         args.insert(QStringLiteral("code_sha256"), QString(64, QLatin1Char('a')));
     } else if (messageType == QLatin1String("PreviewRunRegionMigration")) {
-        args = migrationPreviewArgs();
+        args = recordedRegionMigrationPayload(messageType);
     } else if (messageType == QLatin1String("BatchMutateRuns")) {
         // The hand-written sample's values (tests/Fixtures/README.md), now built by the wrapper.
         args.insert(QStringLiteral("action"), QStringLiteral("soft_delete"));
@@ -410,14 +407,7 @@ QList<RequestVariant> requestVariants()
                          {QStringLiteral("expected_revision"), 1}}}},
                      {QStringLiteral("reason"), QString::fromUtf8("改到角色")}}},
         {.file=QStringLiteral("BatchMutateRuns.move-region"), .messageType=QStringLiteral("BatchMutateRuns"),
-         .args=[] {
-             QJsonObject args = migrationPreviewArgs();
-             args.insert(QStringLiteral("action"), QStringLiteral("move_region"));
-             args.insert(QStringLiteral("expected_baseline"), 1444);
-             args.insert(QStringLiteral("baseline_overlap"), 1);
-             args.insert(QStringLiteral("reason"), QString::fromUtf8("更正原始区服"));
-             return args;
-         }()},
+         .args=recordedRegionMigrationPayload(QStringLiteral("BatchMutateRuns"))},
         // ... and under none: profile_id travels as an explicit null.
         {.file=QStringLiteral("BatchMutateRuns.unassign-profile"), .messageType=QStringLiteral("BatchMutateRuns"),
          .args=QJsonObject{{QStringLiteral("action"), QStringLiteral("assign_profile")},
@@ -457,14 +447,43 @@ class PayloadRecorder final : public mr::IBackend
 {
 public:
     QHash<QString, QJsonObject> payloads;
+    /// Messages answered (on the next turn of the event loop) with these payloads;
+    /// every other request stays unanswered.
+    QHash<QString, QJsonObject> answers;
     QString backendName() const override { return QStringLiteral("payload-recorder"); }
     bool isConnected() const override { return true; }
     mr::BackendReply *request(const QString &messageType, const QJsonObject &payload) override
     {
         payloads.insert(messageType, payload);
-        return new mr::BackendReply(QStringLiteral("recorded"), messageType, this);
+        auto *reply = new mr::BackendReply(QStringLiteral("recorded"), messageType, this);
+        if (answers.contains(messageType)) {
+            const QJsonObject answer = answers.value(messageType);
+            QTimer::singleShot(0, reply, [reply, answer] { reply->succeed(answer); });
+        }
+        return reply;
     }
 };
+
+QJsonObject recordedRegionMigrationPayload(const QString &messageType)
+{
+    // The values of the hand-written samples: run bbbb… at revision 1 moved to GLOBAL,
+    // character 4, whose baseline the preview reads as 1444; one run overlaps it.
+    PayloadRecorder backend;
+    backend.answers.insert(QStringLiteral("PreviewRunRegionMigration"),
+                           QJsonObject{{QStringLiteral("target_baseline"), 1444}});
+    mr::HistoryController history(&backend);
+    history.setRunChecked({{QStringLiteral("run_id"), QStringLiteral("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")},
+                           {QStringLiteral("revision"), 1}, {QStringLiteral("source"), QStringLiteral("MANUAL")},
+                           {QStringLiteral("region"), QStringLiteral("CN")}},
+                          true);
+    history.previewRegionMigration(QStringLiteral("GLOBAL"), 4);
+    if (messageType == QLatin1String("BatchMutateRuns")) {
+        if (!QTest::qWaitFor([&history] { return !history.regionMigrationPreview().isEmpty(); }, 2000))
+            return {};
+        history.movePreviewedRuns(1, QString::fromUtf8("更正原始区服"));
+    }
+    return backend.payloads.value(messageType);
+}
 
 QJsonObject readSample(const QString &path)
 {

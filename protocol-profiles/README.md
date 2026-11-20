@@ -17,6 +17,7 @@
 例外是国服副本导演报文中的通关结算、副本开始宣布与剩余时间：它们与 opcode 无关，按固定内容识别，
 不属于任何档案，常量集中在 `src/Collector/Protocol/Parsing/DutyClearSignal.cs` 与 `DutyStartSignal.cs`，证据见
 [`../docs/protocol-profile-format.md`](../docs/protocol-profile-format.md) §12、§13。
+区分登录角色所用的登录报文同样不属于档案，按形状识别（同一文档 §14，`src/Collector/Protocol/Pipeline/CharacterLoginRecognizer.cs`）。
 
 ## 目录
 
@@ -115,7 +116,7 @@ MentorRecorder.Collector.exe --list-profiles [--profiles-dir <path>] [--json]
 
 仅将真正起筛选作用的字段标记为 `selector`。需要读取取值的字段（`roulette_id`、
 `territory_id`、`outcome` 等）保持默认的 `value`，否则偏移填写错误将被静默
-计入 `ignored`。规则详见
+计入 `ignored`。`bytes` 字段不得带 `role` 或 `constraints`，必需字段也不得声明为 `bytes`。规则详见
 [`../docs/protocol-profile-format.md`](../docs/protocol-profile-format.md) §3.4。
 
 **不接受**：推测值、试错得出的数值、凭外观判断的数值、从 AGPL 项目复制的常量表、

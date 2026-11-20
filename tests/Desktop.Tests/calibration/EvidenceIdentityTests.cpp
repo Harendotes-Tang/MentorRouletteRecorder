@@ -102,9 +102,15 @@ private Q_SLOTS:
         QVERIFY2(scene.text(QStringLiteral("evidenceSaveVerdictText")).startsWith(QString::fromUtf8("可以区分")),
                  qPrintable(scene.text(QStringLiteral("evidenceSaveVerdictText"))));
         QCOMPARE(scene.sessionValue("identityResult").toString(), QStringLiteral("DISTINGUISHED"));
+        // The verdict names what it compared - the connection identifier, not the login
+        // identifier the automatic identification uses - before step 5 says so
+        // (audit 2026-11-20, K4-3).
+        QVERIFY2(scene.text(QStringLiteral("evidenceSaveVerdictText")).contains(QString::fromUtf8("连接标识")),
+                 qPrintable(scene.text(QStringLiteral("evidenceSaveVerdictText"))));
 
         QVERIFY(scene.click(QStringLiteral("evidenceToReportButton")));
         QTRY_COMPARE(scene.stepStatus(5), QStringLiteral("cur"));
+        QCOMPARE(scene.text(QStringLiteral("evidenceStepSummary_4")), QString::fromUtf8("已保存 · 连接标识可以区分"));
         const QString report = scene.text(QStringLiteral("evidenceReportText"));
         QVERIFY2(report.startsWith(QString::fromUtf8("【导随记录器 · 角色识别采证回报】")), qPrintable(report));
         QVERIFY2(report.contains(QString::fromUtf8("结论：可以区分")), qPrintable(report));

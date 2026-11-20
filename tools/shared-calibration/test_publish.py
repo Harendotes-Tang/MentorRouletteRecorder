@@ -735,6 +735,19 @@ class HelperCommandTests(PublishTestCase):
             self.assertEqual(2, self.call("restore", "--repo", self.repo, "--code-sha256", "e" * 64)[0])
         self.assertTrue(repo_index.load(self.repo).entries[0]["revoked"])
 
+    def test_a_code_restored_after_its_only_submitter_replaced_it_can_be_submitted_again(self):
+        """Audit 2026-11-20 N1-1: the restored code has no ledger row; the next submitter's update-index used to fail."""
+        self.publish_as(4242, "Octo-Cat")
+        other = sharecode.encode(testsupport.payload("MARKER_OFFSET", 2))
+        self.assertEqual("published", self.publish_as(4242, "Octo-Cat", number=8, code=other)["status"])
+        self.assertEqual(0, self.call("restore", "--repo", self.repo, "--code-sha256", self.sha)[0])
+        added = self.publish_as(5151, "Other-One", number=9)
+        self.assertEqual(("added", 1), (added["status"], added["submitters"]))
+        state = repo_index.load(self.repo)
+        self.assertEqual((False, 1), tuple(next(e for e in state.entries if e["code_sha256"] == self.sha)[name]
+                                           for name in ("revoked", "submitters")))
+        self.assertEqual([self.sha], [row["code_sha256"] for row in state.submissions if row["account"] == "id:5151"])
+
     def test_two_published_codes_that_disagree_are_both_flagged_and_a_revoke_clears_the_flags(self):
         """plan section 20.3: same build and template; the same match source with another pop is a dispute."""
         self.assertEqual("published", self.publish_as(4242, "Octo-Cat")["status"])

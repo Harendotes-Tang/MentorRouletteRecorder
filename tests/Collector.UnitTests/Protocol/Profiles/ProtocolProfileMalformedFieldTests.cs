@@ -81,6 +81,62 @@ public sealed class ProtocolProfileMalformedFieldTests : IDisposable
         if (malformed) Assert.Equal("E_PROFILE_PARSE", Assert.Single(report.Errors).Code);
     }
 
+    // ------------------------------------------------------------- bytes fields ----
+    // The parser reads no value out of a bytes field (audit 2026-11-20, D2-4; validate.py refuses the same).
+
+    /// <summary>The message <paramref name="name"/> of a document built by <see cref="ProfileTestFiles.Valid"/>.</summary>
+    private static List<object> FieldsOf(Dictionary<string, object> document, string name) =>
+        (List<object>)((List<object>)document["messages"])
+            .Cast<Dictionary<string, object>>()
+            .Single(message => (string)message["name"] == name)["fields"];
+
+    [Theory]
+    [InlineData("selector", null)]
+    [InlineData(null, 3)]
+    public void ABytesFieldCannotCarryConstraintsOrARole(string? role, int? allowed)
+    {
+        var document = ProfileTestFiles.Valid();
+        var fields = FieldsOf(document, "CONTENT_FINDER_POP");
+        var padding = fields.FindIndex(field => (string)((Dictionary<string, object>)field)["name"] == "padding");
+        fields[padding] = ProfileTestFiles.Field(
+            "padding", 20, "bytes", length: 4, role: role, allowed: allowed is { } value ? new[] { value } : null);
+        var path = ProfileTestFiles.Write(_directory, "bytes-filter", document);
+
+        var report = ProfileLoader.Validate(path);
+
+        Assert.False(report.Ok);
+        Assert.Contains(report.Errors, error =>
+            error.Code == "E_PROFILE_CONSTRAINT" && error.Path == "$.messages.CONTENT_FINDER_POP.padding");
+    }
+
+    [Fact]
+    public void ARequiredFieldTypedBytesIsRefused()
+    {
+        var document = ProfileTestFiles.Valid();
+        var fields = FieldsOf(document, "DUTY_RESULT");
+        fields[0] = ProfileTestFiles.Field("outcome", 0, "bytes", length: 1);
+        var path = ProfileTestFiles.Write(_directory, "bytes-outcome", document);
+
+        var report = ProfileLoader.Validate(path);
+
+        Assert.False(report.Ok);
+        Assert.Contains(report.Errors, error =>
+            error.Code == "E_PROFILE_MISSING_FIELD" && error.Message.Contains("'outcome'", StringComparison.Ordinal));
+    }
+
+    /// <summary>Guards the two above: the plain bytes field of the valid document still loads.</summary>
+    [Fact]
+    public void APlainBytesFieldStillLoads()
+    {
+        var path = ProfileTestFiles.Write(_directory, "bytes-plain", ProfileTestFiles.Valid());
+        Assert.Contains(FieldsOf(ProfileTestFiles.Valid(), "CONTENT_FINDER_POP"),
+            field => (string)((Dictionary<string, object>)field)["type"] == "bytes");
+
+        var report = ProfileLoader.Validate(path);
+
+        Assert.True(report.Ok, string.Join("; ", report.Errors.Select(error => error.Message)));
+    }
+
     // -------------------------------------------------------- calendar timestamps ----
     // Calendar-invalid profile metadata must not prevent healthy profiles loading.
 

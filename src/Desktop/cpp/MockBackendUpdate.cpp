@@ -100,6 +100,10 @@ QJsonObject MockBackend::updateDownload() const
     if (m_updateDownloadState == updateFixtureTokens().idle)
         return download;
     download.insert(QStringLiteral("version"), updateFixtureTokens().latestVersion);
+    // Like the Collector, on the attempt's final snapshot only.
+    if (!m_updateMirrorOutcome.isEmpty() && (m_updateDownloadState == updateFixtureTokens().failed
+                                             || m_updateDownloadState == updateFixtureTokens().ready))
+        download.insert(QStringLiteral("mirror_outcome"), m_updateMirrorOutcome);
     if (m_updateDownloadState == updateFixtureTokens().failed) {
         download.insert(QStringLiteral("failure"), m_updateFailure);
         download.insert(QStringLiteral("message"), m_updateMessage);
@@ -175,6 +179,7 @@ QJsonObject MockBackend::applyUpdateDownload(const QString &messageType, const Q
         m_updateFailure.clear();
         m_updateMessage.clear();
         m_updateMessageRef = {};
+        m_updateMirrorOutcome.clear();
         if (!m_updateDownloadTimer) {
             m_updateDownloadTimer = new QTimer(this);
             connect(m_updateDownloadTimer, &QTimer::timeout, this,

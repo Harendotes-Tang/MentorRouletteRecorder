@@ -20,8 +20,12 @@ ColumnLayout {
     readonly property bool promptEnabled: dialog.askingResult ? dialog.promptEnabled : true
     readonly property string result: String(run.result || "")
     readonly property bool cleared: result === "COMPLETED"
-    /// 「已计入」 only on the Collector's own word that this run counts (review L2-1).
-    readonly property bool counted: cleared && run.contributes_to_goal === true
+    /// A record assigned to no character counts in no one's progress; an older Collector sends
+    /// no profile_id and its records count for their region (StatisticsController::runIsUnassigned).
+    readonly property bool unassigned: run.profile_id === null
+    /// 「已计入」 only on the Collector's own word that this run counts (review L2-1), and only
+    /// for a record that belongs to a character (audit 2026-11-20 L1-2).
+    readonly property bool counted: cleared && run.contributes_to_goal === true && !unassigned
     readonly property bool wasLeft: result === "LEFT_OR_ABANDONED"
     // Opened from 待处理 with more waiting: page through them, until one is answered.
     readonly property bool hasQueue: dialog.standalone && !dialog.automaticOpen && dialog.queueCount > 1
@@ -262,11 +266,15 @@ ColumnLayout {
                     Layout.preferredHeight: 40
                     variant: "primary"
                     overlayIcon: "check"
-                    text: qsTr("通关 +1")
+                    text: popup.unassigned ? qsTr("通关") : qsTr("通关 +1")
                     enabled: !popup.dialog.busy && !popup.dialog.conflictUnresolved && !popup.dialog.unavailable
                     onClicked: popup.dialog.resolveWith("COMPLETED", QT_TRANSLATE_NOOP("SystemReason", "用户确认通关"))
                     HoverHandler { id: yesHover }
-                    OverlayToolTip { visible: yesHover.hovered; text: qsTr("确认通关，计入导随次数") }
+                    OverlayToolTip {
+                        visible: yesHover.hovered
+                        text: popup.unassigned ? qsTr("确认通关；这条记录还没有分配角色，暂不计入进度")
+                                               : qsTr("确认通关，计入导随次数")
+                    }
                 }
                 AppButton {
                     objectName: "confirmLeftButton"
@@ -325,8 +333,10 @@ ColumnLayout {
                     }
                 }
                 Text {
+                    objectName: "popupResultText"
                     Layout.fillWidth: true
                     text: popup.counted ? qsTr("已计入导随次数")
+                        : popup.cleared && popup.unassigned ? qsTr("已记为通关；还没有分配角色，暂不计入进度")
                         : popup.wasLeft ? qsTr("已记为退出 / 放弃，不计入")
                         : Runtime.fmt.resultLabel(popup.result || "UNKNOWN")
                     textFormat: Text.PlainText

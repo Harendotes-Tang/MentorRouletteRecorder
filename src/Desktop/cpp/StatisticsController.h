@@ -68,7 +68,13 @@ public:
     void updateAchievementBaseline(int goal, int baseline, const QString &reason);
     /// True while an UpdateAchievementBaseline is unanswered, whoever sent it.
     bool baselineSaving() const { return m_baselineSavesInFlight > 0; }
-    void setHistoryRegionMovePending(bool pending);
+    /// True while a request that moves runs onto a profile (BIND, 改角色, 更正原始区服) is
+    /// unanswered, and after its answer until the next achievement read has been adopted:
+    /// a rise in progress meanwhile is runs being filed, not completions (audit 2026-11-20, L3-8).
+    bool runMovesSettling() const { return m_runMovesInFlight > 0 || m_runMoveReadOwed; }
+    /// A refused or failed batch changed nothing and is followed by no read: only an answer
+    /// that \a mayHaveApplied owes one (re-review 2026-11-20, R3-1).
+    void setHistoryRegionMovePending(bool pending, bool mayHaveApplied);
 
     // -- 角色档案 (StatisticsControllerProfiles.cpp) --------------------------
     /// $defs/DashboardStats.profiles of the newest answer, or of the newest profile
@@ -111,7 +117,8 @@ public:
     int ignoredCharacterIdentityCount(const QString &region) const;
     /// RegionalAchievement.identification of \a region; "" when the Collector sent none.
     QString characterIdentification(const QString &region) const;
-    /// True when \a region ("" = any region) has an identity in characterIdentities().
+    /// True when \a region ("" = any region) has an identity in characterIdentities() that is
+    /// bound to no profile (PENDING or IGNORED); a BOUND one awaiting its name does not count.
     bool hasCharacterIdentities(const QString &region) const;
     void bindCharacterIdentity(int identityId, int profileId, const QString &displayName = {});
     void ignoreCharacterIdentity(int identityId);
@@ -135,6 +142,7 @@ Q_SIGNALS:
     /// Emitted after adoption/notifications, before the request callback.
     void dashboardRequestFinished(bool ok);
     void baselineSavingChanged();
+    void runMovesSettlingChanged();
     /// UpdateAchievementBaseline was accepted; \a goal and \a baseline are what the
     /// Collector stored. Emitted before the dashboard is read again.
     void baselineSaved(int goal, int baseline);
@@ -175,6 +183,12 @@ private:
     /// A request is about to move runs onto a profile of \a region: the next read of the
     /// region's progress primes the milestone observation instead of celebrating a lap.
     void suspendMilestone(const QString &region);
+    /// A run move was sent (+1) or answered (-1; \a answered: the next read is owed), with
+    /// runMovesSettlingChanged when runMovesSettling() flips.
+    void countRunMove(int delta, bool answered);
+    /// Called after an achievement read was adopted: once its change notifications are
+    /// through, a read owed to an answered move has arrived and runMovesSettling() drops.
+    void settleRunMoves();
     /// Sends ASK_AGAIN for the first of \a identityIds and the rest after it is accepted.
     void askAgainInTurn(QList<int> identityIds);
     void observeAchievement(const QJsonObject &dashboard, quint64 serial);
@@ -230,6 +244,10 @@ private:
     int m_profileSavesInFlight = 0;
     /// Unanswered requests that move runs onto a profile (watchProfileRequest movesRuns).
     int m_runMovesInFlight = 0;
+    /// A move was answered and the read after it has not been adopted yet.
+    bool m_runMoveReadOwed = false;
+    /// Bumped by every answered move, so a settle queued for an earlier read keeps a newer debt.
+    quint64 m_runMoveAnswers = 0;
     QJsonArray m_identities;
     /// The read serial m_identities came with; an older answer never replaces it.
     quint64 m_identitiesSerial = 0;

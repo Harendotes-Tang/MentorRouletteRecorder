@@ -6,9 +6,13 @@ qualified references to Collector and known package namespaces, references to ty
 outside Domain in a namespace that encloses Domain's own (`MentorRecorder.Collector`,
 `MentorRecorder`, the global namespace), which Domain code can name with neither a using nor a
 qualifier (rule `domain-root-namespace-reference`), project-wide global and
-recursively imported MSBuild files, plus direct and transitive dependencies of
-`HistoryController`, `StatisticsController` and `workflows/RunCompletionCoordinator`.
-Local includes are followed through the source directory and the Desktop's `cpp/`,
+recursively imported MSBuild files, plus direct and transitive dependencies of seven workflow
+roots: `HistoryController`, `StatisticsController`, `workflows/RunCompletionCoordinator`,
+`workflows/DailyBackupScheduler`, `workflows/HistoryImageCleanupController`,
+`ImportPreviewClient` and `ScreenshotImportStaging` (each its `.h` and `.cpp` under
+`src/Desktop/cpp/`). A root whose `.h` or `.cpp` is missing is reported as "required
+controller source is missing" and ends the run with exit code `2`, so a renamed or moved root
+cannot silently drop out of the check. Local includes are followed through the source directory and the Desktop's `cpp/`,
 `cpp/transport/` and `cpp/workflows/` include directories. These workflows cannot depend on
 `AppController`, `CollectorProcess`, `TtsService` or QML pages, including through helper headers.
 

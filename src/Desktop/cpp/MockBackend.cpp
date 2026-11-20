@@ -1979,6 +1979,29 @@ QJsonObject MockBackend::applyMutation(const QString &messageType,
             *errorMessage = QString::fromUtf8("pending_review 只能改为 false（确认复核）。");
             return {};
         }
+        // RequestParsers.RunChangeSet: result and contributes_to_goal cannot be cleared (audit
+        // 2026-10-20 G-4), result must be a declared token, and the switches must be booleans.
+        const QString resultKey = QStringLiteral("result");
+        if (changes.contains(resultKey)) {
+            static const QStringList results{QStringLiteral("COMPLETED"), QStringLiteral("LEFT_OR_ABANDONED"),
+                                             QStringLiteral("CANCELLED_BEFORE_ENTRY"), QStringLiteral("DISCONNECTED"),
+                                             QStringLiteral("INTERRUPTED"), QStringLiteral("UNKNOWN")};
+            const QJsonValue value = changes.value(resultKey);
+            if (!value.isNull() && !value.isString())
+                return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "ipc.field.not_string",
+                                  {{QStringLiteral("field"), resultKey}});
+            if (!results.contains(value.toString()))
+                return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "ipc.field.not_one_of",
+                                  {{QStringLiteral("field"), resultKey},
+                                   {QStringLiteral("choices"), results.join(QStringLiteral(" / "))}});
+        }
+        for (const QString &key : {QStringLiteral("contributes_to_goal"), QStringLiteral("joined_in_progress")}) {
+            const QJsonValue value = changes.value(key);
+            const bool nullAllowed = key == QLatin1String("joined_in_progress");
+            if (changes.contains(key) && !value.isBool() && !(nullAllowed && value.isNull()))
+                return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "ipc.field.not_boolean",
+                                  {{QStringLiteral("field"), key}});
+        }
         const bool acknowledgesReview = changes.contains(QStringLiteral("result"))
                                         || explicitAcknowledgement;
         QJsonArray applied;
@@ -2524,7 +2547,14 @@ ImportRow normalizeImportRow(const QJsonObject &row, const QString &kind, const 
             appendSentence(out.warnings, out.warningRefs, "import.warning.job_unmatched");
     }
     const QString dutyName = read.text(QStringLiteral("duty_name"), 500);
+    // RunImportCandidateNormalizer.ParseRegion: the template's 区服 words, then the wire tokens.
+    static const QHash<QString, QString> regionWords{
+        {QString::fromUtf8("国服"), QStringLiteral("CN")},       {QString::fromUtf8("國服"), QStringLiteral("CN")},
+        {QString::fromUtf8("繁中服"), QStringLiteral("TC")},     {QString::fromUtf8("国际服"), QStringLiteral("GLOBAL")},
+        {QString::fromUtf8("國際服"), QStringLiteral("GLOBAL")}, {QString::fromUtf8("未知区服"), QStringLiteral("UNKNOWN")},
+        {QString::fromUtf8("未知區服"), QStringLiteral("UNKNOWN")}};
     QString region = read.text(QStringLiteral("region"), 64);
+    region = regionWords.value(region, region);
     if (region.isEmpty())
         region = QStringLiteral("UNKNOWN");
     else if (!isRegion(region))
@@ -2805,6 +2835,57 @@ QJsonObject importPage(const QJsonObject &whole, int page, int pageSize)
     return out;
 }
 
+/// RunImportService.Paging: one preview response may use three quarters of an IPC frame, and
+/// the frozen previews together 64 MiB.
+constexpr qint64 kMaxPreviewResponseBytes = mr::ipc::kMaxFrameBytes * 3 / 4;
+constexpr qint64 kMaxPreviewCacheBytes = 64LL * 1024 * 1024;
+
+qint64 compactJsonBytes(const QJsonValue &value)
+{
+    if (value.isObject())
+        return QJsonDocument(value.toObject()).toJson(QJsonDocument::Compact).size();
+    if (value.isArray())
+        return QJsonDocument(value.toArray()).toJson(QJsonDocument::Compact).size();
+    return 4; // null
+}
+
+/// RunImportService.CandidateBytes: every row's candidate as one re-check request carries them.
+qint64 importCandidateBytes(const QJsonArray &rows)
+{
+    qint64 total = 2 + qMax<qint64>(0, rows.size() - 1);
+    for (const auto &row : rows)
+        total += compactJsonBytes(row.toObject().value(QStringLiteral("candidate")));
+    return total;
+}
+
+/// RunImportService.BoundedPageSize: the largest page size up to \a requested whose every
+/// page fits one response, or 0 when not even one row per page fits.
+int boundedImportPageSize(const QJsonObject &whole, int requested)
+{
+    const QJsonArray rows = whole.value(QStringLiteral("rows")).toArray();
+    QList<qint64> rowBytes(rows.size() + 1, qint64(0));
+    for (qsizetype i = 0; i < rows.size(); ++i)
+        rowBytes[i + 1] = rowBytes[i] + compactJsonBytes(rows.at(i));
+    for (int size = requested; size >= 1; --size) {
+        const int pageCount = qMax(1, static_cast<int>((rows.size() + size - 1) / size));
+        // The last page has the longest page number: its empty envelope bounds every page's.
+        QJsonObject envelope = whole;
+        envelope.insert(QStringLiteral("rows"), QJsonArray());
+        envelope.insert(QStringLiteral("page_info"),
+                        QJsonObject{{QStringLiteral("page"), pageCount}, {QStringLiteral("page_size"), size},
+                                    {QStringLiteral("total"), rows.size()}});
+        const qint64 envelopeBytes = compactJsonBytes(envelope);
+        bool fits = envelopeBytes <= kMaxPreviewResponseBytes;
+        for (qsizetype start = 0; fits && start < rows.size(); start += size) {
+            const qsizetype end = qMin(start + size, rows.size());
+            fits = envelopeBytes + rowBytes[end] - rowBytes[start] + end - start - 1 <= kMaxPreviewResponseBytes;
+        }
+        if (fits)
+            return size;
+    }
+    return 0;
+}
+
 } // namespace
 
 QJsonObject MockBackend::previewRunImport(const QJsonObject &payload, QString *errorCode, QString *errorMessage)
@@ -3038,6 +3119,20 @@ QJsonObject MockBackend::previewRunImport(const QJsonObject &payload, QString *e
                                 {QStringLiteral("source_name"), sourceName},
                                 {QStringLiteral("rows"), rendered},
                                 {QStringLiteral("summary"), summary}};
+    // RunImportService.FreezeAndCache: a preview too big to freeze, to answer unpaged, or whose
+    // candidates could not travel back in one re-check request is refused; a paged one gets
+    // the largest page size whose every page fits one response.
+    const qint64 bytes = compactJsonBytes(preview.whole);
+    if (bytes > kMaxPreviewCacheBytes || (pageSize == 0 && bytes > kMaxPreviewResponseBytes))
+        return refuse("import.preview.too_large");
+    if (pageSize > 0) {
+        if (importCandidateBytes(rendered) > kMaxPreviewResponseBytes)
+            return refuse("import.preview.too_large");
+        pageSize = boundedImportPageSize(preview.whole, pageSize);
+        if (pageSize == 0)
+            return refuse("import.preview.too_large");
+        preview.pageSize = pageSize;
+    }
     // RunImportService.MaxPreviews: the oldest preview makes room for a new one.
     m_importPreviews.append(preview);
     while (m_importPreviews.size() > 8)
@@ -3238,6 +3333,15 @@ QJsonObject MockBackend::commitRunImport(const QJsonObject &payload, QString *er
 QJsonObject MockBackend::applyReflection(const QJsonObject &payload, QString *errorCode,
                                          QString *errorMessage)
 {
+    // RequestParsers.SetRunReflection: the token is checked before the run is looked up.
+    const QString mood = payload.value(QStringLiteral("mood")).toString();
+    if (mood != QLatin1String("good") && mood != QLatin1String("ok")
+        && mood != QLatin1String("bad") && mood != QLatin1String("unknown")) {
+        return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "ipc.field.only_values",
+                          {{QStringLiteral("field"), QStringLiteral("mood")},
+                           {QStringLiteral("choices"), QStringLiteral("good / ok / bad")}});
+    }
+
     const QString runId = payload.value(QStringLiteral("run_id")).toString();
     const int index = indexOfRun(runId);
     if (index < 0) {
@@ -3245,13 +3349,14 @@ QJsonObject MockBackend::applyReflection(const QJsonObject &payload, QString *er
         *errorMessage = QString::fromUtf8("找不到该记录，请刷新列表后重试。");
         return {};
     }
-
-    const QString mood = payload.value(QStringLiteral("mood")).toString();
-    if (mood != QLatin1String("good") && mood != QLatin1String("ok")
-        && mood != QLatin1String("bad")) {
-        *errorCode = QStringLiteral("ERR_BAD_REQUEST");
-        *errorMessage = QString::fromUtf8("心情取值无效，只接受 good / ok / bad。");
-        return {};
+    // RunReflectionService.Write: an unrecorded mood belongs to imported history only
+    // (MentorRun.IsImportedHistory: source IMPORT or import metadata present).
+    if (mood == QLatin1String("unknown")) {
+        const QJsonObject stored = m_runs.at(index).toObject();
+        if (stored.value(QStringLiteral("source")).toString() != QLatin1String("IMPORT")
+            && !stored.value(QStringLiteral("import_metadata")).isObject())
+            return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"),
+                              "reflection.unrecorded_mood_import_only");
     }
 
     const QString text = payload.value(QStringLiteral("text")).toString().trimmed();
@@ -3487,6 +3592,10 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
             result.insert(QStringLiteral("profile_id"), QJsonValue(QJsonValue::Null));
             result.insert(QStringLiteral("game_build"), captureStatus().value(QStringLiteral("game_build")));
             result.insert(QStringLiteral("verified_at_utc"), QJsonValue(QJsonValue::Null));
+            // LiveProtocolPipeline.ProfileUnavailableText: no profile records anything for the region.
+            const CollectorSentence unsupported = collectorSentence("profile.unavailable.region_unsupported");
+            result.insert(QStringLiteral("message"), unsupported.chinese);
+            result.insert(QStringLiteral("message_ref"), unsupported.ref);
         }
     } else if (messageType == QLatin1String("GetCaptureSettings")) {
         result = captureSettings();

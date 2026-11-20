@@ -45,6 +45,8 @@
 
 #include <QObject>
 #include <QDateTime>
+#include <QDeadlineTimer>
+#include <QElapsedTimer>
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QString>
@@ -161,8 +163,9 @@ public:
 
     /// A serve.pid written less than this long ago names a Collector that has
     /// only just taken the lease; it is never ended, however silent it looks.
-    /// The first start after an upgrade runs migrations, with the pipe still
-    /// down, while it writes the user's database.
+    /// The Collector writes serve.pid after its migrations and once its pipe
+    /// exists, so such a holder is past any database upgrade: it is a new
+    /// instance still settling in, and ending it would only cost a restart.
     static constexpr int servePidProtectionMs() { return 15000; }
 
     /// taskkill is asked without /F first; this is how long the holder gets to
@@ -451,7 +454,9 @@ private:
     /// A recipe, so statusText follows a language switch (LiveText.h); AppController
     /// re-announces it.
     LiveText m_detail;
-    qint64 m_startedAtMs = 0;
+    /// Started when the child starts; monotonic, so a clock step cannot make a crash
+    /// look like a long run or the reverse (review 2026-11-20 I5-3).
+    QElapsedTimer m_startedAt;
     State m_state = State::Idle;
     int m_backoffMs = minBackoffMs();
     int m_scheduledDelayMs = 0;
@@ -469,8 +474,9 @@ private:
     // -- takeover state machine ---------------------------------------------
     /// Polls "has the holder gone / has the pipe come back" during the grace.
     QTimer m_holderGraceTimer;
-    /// Deadline of the running grace, as ms since the epoch.
-    qint64 m_holderGraceUntilMs = 0;
+    /// Deadline of the running grace, on the monotonic clock: a step of the system
+    /// clock neither ends the grace early nor stretches it (review 2026-11-20 I5-3).
+    QDeadlineTimer m_holderGraceUntil;
     /// The holder the running sequence is about.
     qint64 m_takeoverPid = 0;
     HolderLease m_holderLease;

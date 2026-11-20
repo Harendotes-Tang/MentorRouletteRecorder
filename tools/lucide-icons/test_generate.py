@@ -120,6 +120,40 @@ class CommittedFilesTests(unittest.TestCase):
         self.assertIn("x", feather)
         self.assertNotIn("sun", feather)
 
+    def test_every_rename_names_a_listed_feather_icon_under_its_current_name(self):
+        with io.open(os.path.join(generate.ICON_DIR, "LICENSE"), "r", encoding="utf-8") as handle:
+            listed = {name.strip() for name in
+                      generate.FEATHER_LIST.search(handle.read()).group("names").split(",")}
+        for current, listed_as in generate.FEATHER_RENAMES.items():
+            with self.subTest(current=current):
+                self.assertIn(listed_as, listed)
+                self.assertNotIn(current, listed)
+                self.assertIn(current, generate.feather_icons())
+
+    def test_the_notices_name_exactly_the_feather_icons_that_ship(self):
+        # J-4 (audit 2026-11-20): THIRD_PARTY_NOTICES.md named 11 and the icon README 14 (globe among them)
+        # while Lucide.js carried the MIT notice for 26; circle-alert and circle-help, renamed by Lucide,
+        # were in none of them.
+        import re
+
+        _version, icons = generate.load_icons()
+        shipped = sorted(name for name in icons if name in generate.feather_icons())
+        self.assertIn("circle-alert", shipped)
+        self.assertNotIn("globe", shipped)
+        # Where each notice lists them: the icon README's sentence and the shipped notice's paragraph.
+        lists = {
+            os.path.join(generate.ICON_DIR, "README.md"): r"属于该名单：(.*?)。",
+            os.path.join(generate.REPO, "THIRD_PARTY_NOTICES.md"): r"个图标中，(.*?)由 Lucide 从",
+        }
+        for path, pattern in lists.items():
+            with self.subTest(path=os.path.basename(path)):
+                with io.open(path, "r", encoding="utf-8") as handle:
+                    text = handle.read()
+                match = re.search(pattern, text, re.S)
+                self.assertIsNotNone(match, "the Feather list was not found")
+                self.assertEqual(shipped, sorted(re.findall(r"`([a-z0-9-]+)`", match.group(1))))
+                self.assertIn("%d 个" % len(icons), text)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

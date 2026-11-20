@@ -62,8 +62,9 @@ public sealed record OnlineSpeechDiagnostics(
 /// Order of a synthesis: the kill switch; the settings and the key; the cache (unless it is a test);
 /// a place in the queue - one request in flight and at most <see cref="MaxQueued"/> waiting, each
 /// waiting no longer than one request's budget; the cache again, in case the sentence ahead was the
-/// same one; the request; the cache write. Every failure is one <c>ERR_SPEECH_*</c> error with no
-/// response text in it, and one log line with the error code and the host.
+/// same one; the request; the cache write. Every failure of the service or the request is one
+/// <c>ERR_SPEECH_*</c> error with no response text in it, and one log line with the error code and the
+/// host; a cache write that fails on this computer is <c>ERR_INTERNAL</c> (<c>reason = CACHE_WRITE</c>).
 /// </summary>
 public sealed class OnlineSpeechService : IDisposable
 {
@@ -236,7 +237,8 @@ public sealed class OnlineSpeechService : IDisposable
 
     /// <summary>
     /// Speaks one sentence into a file. Throws <see cref="CollectorException"/> with an
-    /// <c>ERR_SPEECH_*</c> code on every failure.
+    /// <c>ERR_SPEECH_*</c> code on every failure of the service or the request; a good answer this
+    /// computer cannot write into <c>tts-cache\</c> is <c>ERR_INTERNAL</c> with <c>reason = CACHE_WRITE</c>.
     /// </summary>
     /// <param name="request">Validated request.</param>
     /// <param name="cancellationToken">The connection's token.</param>
@@ -333,7 +335,11 @@ public sealed class OnlineSpeechService : IDisposable
                     {
                         ["error_type"] = ex.GetType().Name,
                     });
-                    throw Failure(SpeechOutcome.Format, result, reason: "CACHE_WRITE");
+                    // The service answered with good audio; this computer could not keep it. Not the
+                    // service's format, so not ERR_SPEECH_FORMAT (audit 2026-11-20, F-1).
+                    throw new CollectorException(
+                        ErrorCodes.Internal, CollectorTexts.SpeechFailureOther(),
+                        new Dictionary<string, object?> { ["reason"] = "CACHE_WRITE" }, inner: ex);
                 }
             }
             finally

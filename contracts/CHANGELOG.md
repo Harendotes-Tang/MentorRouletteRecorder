@@ -1,5 +1,13 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-11-20 · GitCode 切换询问的结果
+
+- `UpdateDownload.mirror_outcome`（可选，字符串或 `null`）：一次下载以 `READY` 或 `FAILED` 结束时，说明这次下载中用户已回答的 GitCode 切换询问结果：`switched`（其余部分改由 GitCode 下载）、`declined`（用户选择继续从 GitHub 下载）、`not_switched_faster_primary`、`not_switched_mirror_unavailable`、`not_switched_primary_ended`（用户选择了 GitCode，但分别因 GitHub 已追上、GitCode 未能及时重新打开或不再一致、GitHub 在切换生效前已结束或下载已停止而没有切换）。没有回答过询问（包括询问未答而 GitHub 已下完）、GitHub 随后失败而下载自行转由 GitCode 进行（无论用户怎样回答过）、取消下载以及重新核对已就绪的安装包时不出现。取值与本机日志 `update_download_finished.mirror_offer` 相同。旧采集服务不发送该字段（审查 2026-11-20 F-2）。
+
+## 2026-11-20 · 语音缓存写不进本机时的错误码
+
+- `SynthesizeSpeech`：语音服务已返回可播放的音频、但本机无法把它写入 `tts-cache\` 时，改答 `ERR_INTERNAL`（`details.reason = CACHE_WRITE`，`message_ref` 为 `speech.failure.other`，`retryable = false`），不再答 `ERR_SPEECH_FORMAT`：那是本机磁盘的问题，不是服务返回的声音无法播放（审查 2026-11-20 F-1）。错误码与目录键都是既有的；客户端照常改用本机语音播报这一句。
+
 ## 2026-11-20 · 所选网卡不可用的等待说明
 
 - **文字目录**新增 `capture.validation.waiting_adapter_chosen`：取证会话的 `reason` 仍为 `WAITING_ADAPTER`，但网卡由玩家明确选择且未连接或没有 IPv4 地址时，`message` / `message_ref` 改用这一句，说明等待的是所选网卡并提示改选；未指定网卡时仍是 `capture.validation.waiting_adapter`。字段与取值不变。
@@ -8,6 +16,7 @@
 ## 2026-11-19 · 登记过期的拒绝说明
 
 - **文字目录**新增 `identity.registration_moved`：`ResolveCharacterIdentity` 确认登记时，该角色已不是这个档案的登记对象（已在别处回答，或改问了另一个角色），以 `ERR_BAD_REQUEST` 拒绝并给出这句说明，此前误用 `profile.not_found` 的句子。错误码与字段不变。
+- `ResolveCharacterIdentityRequest.display_name` 的 schema 上限由 `maxLength 24` 放宽为 200，与 `CreateCharacterProfile` / `UpdateCharacterProfile` 的 `display_name` 一致：线上可以发送更长、未去空白的值，采集服务去掉首尾空白后仍要求 1 至 24 个字，不合格答 `ERR_BAD_REQUEST`。此前漏记（审查 2026-11-20 P-4）。
 
 ## 2026-11-19 · 记录迁移区服
 
@@ -80,14 +89,14 @@
 - **文字目录**新增 `capture.validation.failed_identity_key_unreadable` 与 `capture.validation.failed_identity_key_invalid`：角色识别采证读不到或用不了本机密钥时，会话以 `FAILED` 结束（`error_code` 仍为 `ERR_INTERNAL`，没有取证文件），`message` / `message_ref` 用这两句说明原因，而不是通用的「验证失败」。
 - 兼容性：旧采集服务不认识 `identity_probe` 与新的标记词，答 `ERR_BAD_REQUEST`，状态中也没有这两个字段；桌面端把缺少的字段当作普通采证。两端随同一安装包发布。
 
-## 2026-11-03 · 历史导出按当前排序输出：`ExportRequest.sort`
+## 2026-11-05 · 历史导出按当前排序输出：`ExportRequest.sort`
 
-附加式变更，不新增消息类型。
+附加式变更，不新增消息类型。（此前误记为 2026-11-03，审查 2026-11-20 G-3 更正日期。）
 
 - **`ExportRequest.sort`**（可选，`$defs/RunSort`，即 `QueryRuns.sort` 的同一结构）：`ExportCsv` 与 `ExportJson` 按它排列写出的行，取值与拒绝情形与 `QueryRuns` 相同（未声明的 `field` 或 `asc` / `desc` 之外的 `direction` 答 `ERR_BAD_REQUEST`，`field` 分别为 `sort.field` 与 `sort.direction`）。省略时与此前一样按 `entered_at_utc` 降序写出，最新在前。筛选（`filter`）与文件内容不变。
 - 桌面端把历史记录列表当前的排序（点击表头选定的列与升降序，默认「日期」列由新到旧）作为 `sort` 发送，因此在列表上切到「最早在前」后导出的文件第一行就是最早的记录；勾选记录只导出所选时同样按该排序。
 - 兼容性：旧采集服务不认识 `sort`，答 `ERR_BAD_REQUEST`；两端随同一安装包发布。旧桌面端不发送该字段，导出顺序不变。
-
+- 同期行为变化（契约形状不变；审查 2026-11-20 G-3 补记）：记录被永久删除（`BatchMutateRuns` 的 `purge`，或回收站按保留天数自动清理）并提交之后，`SubscribeLiveEvents` 的重放缓冲与各订阅者尚未读取的队列中关于这些记录的事件一并移除，此后迟到的同类事件也不再发布；已经送达的事件无法收回。其余事件的 `sequence` 保持原值，因此订阅者可能看到序号跳空，按既有约定把跳空视为需要重新查询。
 
 ## 2026-11-04 · 系统连接表读取原因
 

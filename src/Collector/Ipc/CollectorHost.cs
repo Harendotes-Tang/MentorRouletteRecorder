@@ -500,20 +500,8 @@ public sealed class CollectorHost : IDisposable
         Exception? failure;
         try
         {
-            HistoryRetention.Dispose();
-            // A download in flight is cancelled before anything it could claim into is torn down.
-            LiveProtocol?.StopSharedCalibration();
-            Speech?.Dispose();
-
-            // A download in flight is cancelled and its partial file removed; it writes nothing to the database,
-            // but the process should not exit with a .part half-written.
-            UpdateDownloads?.Dispose();
-
-            // The update check writes settings from a background task; it is stopped and waited for
-            // before the database below can start closing under it.
-            Updates?.Dispose();
-            failure = DisposeSubsystems(
-                Validation, Capture, (record, error) => _logger.WriteError("shutdown", record, error));
+            failure = RunShutdownSteps(
+                ShutdownSteps(), (record, error) => _logger.WriteError("shutdown", record, error));
         }
         finally
         {
@@ -527,35 +515,57 @@ public sealed class CollectorHost : IDisposable
         }
     }
 
+    /// <summary>The shutdown steps in the order <see cref="Dispose"/> runs them; the database closes after all of them.</summary>
+    internal IEnumerable<(string Record, Action Step)> ShutdownSteps()
+    {
+        // An evidence round starts stopping its capture source first: a source that stops cleanly
+        // removes the crash marker of a self-found Oodle signature set, and the Desktop and the
+        // parent watchdog give the whole shutdown ten seconds (audit 2026-11-20, A2-1).
+        // Non-blocking; the validation dispose below still waits for the round to finish.
+        yield return ("validation_stop", () => Validation?.Stop());
+        yield return ("history_retention_dispose", HistoryRetention.Dispose);
+
+        // A download in flight is cancelled before anything it could claim into is torn down.
+        yield return ("shared_calibration_stop", () => LiveProtocol?.StopSharedCalibration());
+        yield return ("speech_dispose", () => Speech?.Dispose());
+
+        // Capture goes right after the round, before the update download and check below can use
+        // up their waits: once the round has released the capture lease, the automatic-recording
+        // timer would otherwise start a live capture while the host is shutting down (re-review R1-1).
+        yield return ("validation_dispose", () => Validation?.Dispose());
+        yield return ("capture_dispose", () => Capture?.Dispose());
+
+        // A download in flight is cancelled and its partial file removed; it writes nothing to the database,
+        // but the process should not exit with a .part half-written.
+        yield return ("update_download_dispose", () => UpdateDownloads?.Dispose());
+
+        // The update check writes settings from a background task; it is stopped and waited for
+        // before the database can start closing under it.
+        yield return ("update_check_dispose", () => Updates?.Dispose());
+    }
+
     /// <summary>
-    /// Disposes the two capture subsystems, each in its own try, and returns the first failure
-    /// for the caller to rethrow after the database has been closed.
+    /// Runs every shutdown step, each in its own try, so one subsystem refusing to stop cannot
+    /// take the next one's cleanup with it, and returns the first failure for the caller to
+    /// rethrow after the database has been closed.
     /// </summary>
-    /// <param name="validation">Validation controller, or null when the host never built one.</param>
-    /// <param name="capture">Capture controller, or null when the host never built one.</param>
+    /// <param name="steps">Record-name prefix and action of each step, in order.</param>
     /// <param name="log">Diagnostic sink; receives a record name and the exception.</param>
-    internal static Exception? DisposeSubsystems(
-        IDisposable? validation, IDisposable? capture, Action<string, Exception> log)
+    internal static Exception? RunShutdownSteps(
+        IEnumerable<(string Record, Action Step)> steps, Action<string, Exception> log)
     {
         Exception? failure = null;
-        try
+        foreach (var (record, step) in steps)
         {
-            validation?.Dispose();
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
-        {
-            failure = ex;
-            log("validation_dispose_failed", ex);
-        }
-
-        try
-        {
-            capture?.Dispose();
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
-        {
-            failure ??= ex;
-            log(ex is TimeoutException ? "capture_dispose_timed_out" : "capture_dispose_failed", ex);
+            try
+            {
+                step();
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            {
+                failure ??= ex;
+                log(record + (ex is TimeoutException ? "_timed_out" : "_failed"), ex);
+            }
         }
 
         return failure;

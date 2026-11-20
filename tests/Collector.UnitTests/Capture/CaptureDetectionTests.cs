@@ -178,6 +178,21 @@ public sealed class CaptureDetectionTests
         Assert.Equal(Region.Global, new GameProcessLocator(processes, new FakeGameFileReader()).Locate().Region);
     }
 
+    /// <summary>Audit 2026-11-20, A2-5. The Steam client's own folder names the Global region.</summary>
+    [Fact]
+    public void Game_RecognisesTheSteamInstallFolder()
+    {
+        const string exe = @"D:\Steam\steamapps\common\FINAL FANTASY XIV Online\game\ffxiv_dx11.exe";
+        var processes = new FakeGameProcessProvider().Add(GameProcessLocator.Dx11ProcessName, 7, null, exe);
+        var version = Path.Combine(Path.GetDirectoryName(exe)!, GameProcessLocator.VersionFileName);
+        var files = new FakeGameFileReader().With(version, "2026.11.03.0000.0000");
+
+        var detection = new GameProcessLocator(processes, files).Locate();
+
+        Assert.Equal(Region.Global, detection.Region);
+        Assert.Empty(detection.Warnings);
+    }
+
     [Theory]
     [InlineData(@"C:\Program Files\USERJOY GAMES\FINAL FANTASY XIV TC\game\ffxiv_dx11.exe")]
     [InlineData(@"D:\Games\FINAL FANTASY XIV TC\game\ffxiv_dx11.exe")]
@@ -294,6 +309,8 @@ public sealed class CaptureDetectionTests
     [InlineData(@"E:\ff14cn\Square Enix\FINAL FANTASY XIV - A Realm Reborn\game\ffxiv_dx11.exe")]
     [InlineData(@"D:\最终幻想\USERJOY GAMES\FINAL FANTASY XIV TC\game\ffxiv_dx11.exe")]
     [InlineData(@"F:\Square Enix\FINAL FANTASY XIV TC\game\ffxiv_dx11.exe")]
+    // Audit 2026-11-20, A2-5: a Steam library kept under a folder named in Simplified Chinese.
+    [InlineData(@"D:\最终幻想14\SteamLibrary\steamapps\common\FINAL FANTASY XIV Online\game\ffxiv_dx11.exe")]
     public void Game_LeavesTheRegionUnknownAndSaysWhy_WhenThePathCarriesMarkersOfBothRegions(string exe)
     {
         var processes = new FakeGameProcessProvider().Add(GameProcessLocator.Dx11ProcessName, 7, null, exe);

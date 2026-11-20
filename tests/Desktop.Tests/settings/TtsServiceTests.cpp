@@ -179,6 +179,13 @@ public:
         else if (messageType == QLatin1String("BackupDatabase"))
             answer = QJsonObject{{QStringLiteral("integrity_check_passed"), true},
                                  {QStringLiteral("target_path"), QStringLiteral("backup.db")}};
+        // An empty record list, as the contract shapes it. Without page_info the
+        // recorded-region probe counts the read as failed, switches the default to
+        // every region (a statistics refresh nobody asked for) and retries 3 s later.
+        else if (messageType == QLatin1String("QueryRuns"))
+            answer = QJsonObject{{QStringLiteral("items"), QJsonArray{}},
+                                 {QStringLiteral("page_info"),
+                                  QJsonObject{{QStringLiteral("total"), 0}}}};
         QTimer::singleShot(0, reply, [reply, answer] { reply->succeed(answer); });
         return reply;
     }

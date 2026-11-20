@@ -883,6 +883,29 @@ void SpeechTests::mock_writesASilentWaveIntoTtsCache()
     QTRY_VERIFY(!second.isEmpty());
     QCOMPARE(second.value(QStringLiteral("from_cache")).toBool(), true);
 
+    // A cache that cannot be written is a local failure, not unplayable audio: as the
+    // Collector, ERR_INTERNAL with reason CACHE_WRITE and the general sentence (audit F-1).
+    const QString cache = data.filePath(QStringLiteral("tts-cache"));
+    QVERIFY(QDir(cache).removeRecursively());
+    {
+        QFile blocker(cache);
+        QVERIFY(blocker.open(QIODevice::WriteOnly));
+    }
+    QString cacheCode;
+    QString cacheMessage;
+    QVariantMap cacheDetails;
+    mr::BackendReply *unwritable = backend.synthesizeSpeech(QString::fromUtf8("进入副本"), 100, false);
+    unwritable->whenDone(&backend,
+        [&, unwritable](bool, const QVariantMap &, const QString &error, const QString &message) {
+            cacheCode = error;
+            cacheMessage = message;
+            cacheDetails = unwritable->errorDetails();
+        });
+    QTRY_COMPARE(cacheCode, QStringLiteral("ERR_INTERNAL"));
+    QCOMPARE(cacheDetails.value(QStringLiteral("reason")).toString(), QStringLiteral("CACHE_WRITE"));
+    QCOMPARE(cacheMessage, QString::fromUtf8("在线语音出错。"));
+    QVERIFY(QFile::remove(cache));
+
     backend.setSpeechFixture(QStringLiteral("fail"));
     QString code;
     backend.synthesizeSpeech(QStringLiteral("x"), 100, false)->whenDone(&backend,

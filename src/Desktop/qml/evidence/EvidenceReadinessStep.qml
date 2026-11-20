@@ -15,7 +15,9 @@ EvidenceStep {
     // The wait, and the moment it is being given up: the same quiet card.
     readonly property bool waiting: step.session.phase === "waiting" || step.cancelling
     readonly property bool cancelling: step.session.phase === "cancelling"
-    readonly property string liveTone: step.waiting ? "warn" : "ok"
+    // Recording for minutes with no 报文 and no connection to time it by (EvidenceSession.quiet).
+    readonly property bool quiet: step.session.quiet && !step.waiting
+    readonly property string liveTone: step.waiting || step.quiet ? "warn" : "ok"
 
     number: 2
     title: step.session.stepTitles[1]
@@ -26,9 +28,9 @@ EvidenceStep {
         visible: !(step.session.anomaly && step.session.recording)
         implicitHeight: liveRow.implicitHeight + 24
         radius: Theme.radiusM
-        color: step.waiting ? Theme.insetBackground : Theme.greenBackground
+        color: step.waiting ? Theme.insetBackground : step.quiet ? Theme.orangeBackground : Theme.greenBackground
         border.width: 1
-        border.color: step.waiting ? Theme.insetBorder : Theme.green
+        border.color: step.waiting ? Theme.insetBorder : step.quiet ? Theme.orange : Theme.green
         RowLayout {
             id: liveRow
             anchors.fill: parent
@@ -48,6 +50,7 @@ EvidenceStep {
                     textFormat: Text.PlainText
                     text: step.cancelling ? qsTr("正在取消等待…")
                           : step.waiting ? step.session.waitingTitle
+                          : step.quiet ? qsTr("还没有收到报文")
                           : step.session.recording ? qsTr("正在取证 · 可以登录了")
                           : step.session.badgeText
                     color: Theme.textPrimary
@@ -58,7 +61,9 @@ EvidenceStep {
                 EvidenceHint {
                     // The Collector's own sentence when it has one (message_ref) - except
                     // while the wait is given up, when its 正在停止并保存 would mislead.
+                    objectName: "evidenceLiveHint"
                     text: step.cancelling ? qsTr("没有录到数据，不会保存文件。")
+                          : step.quiet ? qsTr("已经登录了报文仍为 0 时，先截图，再停止并导出诊断。")
                           : step.session.status.message
                           ? Theme.live(Runtime.fmt.collectorText(step.session.status.message_ref, step.session.status.message))
                           : step.waiting ? qsTr("启动游戏后会自动开始取证，看到「正在取证」再登录。")
@@ -84,6 +89,15 @@ EvidenceStep {
                 text: Runtime.app.captureCommandBusy ? qsTr("处理中…") : qsTr("停止采证")
                 enabled: Runtime.app.templateObservationActionEnabled && !Runtime.app.captureCommandBusy
                 onClicked: step.session.stop()
+            }
+            AppButton {
+                objectName: "evidenceQuietExportButton"
+                visible: step.quiet
+                Layout.alignment: Qt.AlignVCenter
+                compact: true
+                text: qsTr("停止并导出诊断")
+                enabled: Runtime.app.templateObservationActionEnabled && !Runtime.app.captureCommandBusy
+                onClicked: step.session.stopAndExport()
             }
         }
     }

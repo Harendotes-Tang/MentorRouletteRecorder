@@ -182,6 +182,8 @@ python tools/publish.py remark --repo . --region CN --build 2026.10.06.0000.0000
 被撤销的码不会因为任何人的再次提交而恢复。确认一份被撤销的码其实正确时（例如有人抄走别人的正确校准码、成为唯一提交者后再用另一份替换它，
 或维护者撤销有误），维护者执行 `publish.py restore --repo . --code-sha256 <完整编号>`：条目改回 `revoked: false`，`submitters` 不变，
 相关标记重算，台账行仍在这份码上的账号不再暂停受理。码文件已不是这份码，或它的文件名已被另一份在用的码占用时，命令拒绝执行。
+因被替换而撤销的码（或唯一的暂停已被 `lift` 解除的码）恢复后没有台账行、`submitters` 仍为 1；之后提交它的账号按台账计数，
+第一个提交者使 `submitters` 保持为 1，此后每多一个账号加一，台账与索引始终一致。
 
 `replaced` 的两条约束：
 
@@ -384,6 +386,12 @@ pwsh -NoProfile -File scripts/run-python-tool-tests.ps1   # verify.ps1 的工具
 > `tools/sharecode.py`、`.github/workflows/publish-calibration.yml`、`.github/workflows/evidence-calibration.yml`、
 > `.github/workflows/report-calibration.yml` 与四份 README 同步到公开仓库并推送。不需要新标签、secret，也不改写既有的索引与台账。
 > 同步后证据 sweep 会把仍打开的证据与报告 Issue 的机器人回复原地更新一次（英文结尾一句改了措辞）。
+>
+> **2026-11-19 与 2026-11-20 审计决定需要补做的同步**，同样须先向用户确认：把 `sync_public_repo.py` 生成的 `tools/index.py`、
+> `tools/publish.py` 与四份 README 同步到公开仓库并推送（三者须一起推送：README 写明维护者可以恢复被撤回的码，
+> `publish.py restore` 与 `REVOKED` 回复的新措辞随 `publish.py` 生效；`index.py` 带有恢复后再次提交时按台账计数的修正，
+> 只同步 `publish.py` 而不同步它，恢复一份被替换撤回的码后，下一位提交者会使工作流出错）。
+> 不需要新标签、secret，也不改写既有的索引与台账。
 
 以下每一步都会对外产生效果，**执行前逐项向用户确认**：
 

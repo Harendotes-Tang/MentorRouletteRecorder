@@ -78,6 +78,12 @@
 （protocol-profiles/oodle-signatures/README.md）。该字段仍为 `builtin` 则表示模式匹配同样失败，
 国服客户端此时通常无法解出任何报文，`messages_decoded` 将持续为 0。
 取证会话里，`oodle_profile_id` 以 `discovered.` 开头的 `pattern-fallback` 表示这组签名是本机查找得出的候选（见同一 README 的「本机查找」），不是随包档案。
+本机查找在同区服模式来源档案被拒（日志 `oodle_signature_donor_rejected`）时同样进行。取证会话里为 `builtin` 时，
+多半是本机查找没有找全（日志有 `oodle_signature_discovery` 与 `reason = incomplete` 的最后手段内容），或数据目录中留有该 exe 的
+`oodle-discovered-<SHA-256>.marker`：上一轮使用本机查找结果时没有正常结束，日志 `oodle_signature_source` 的 `fallback_reason`
+为「a signature set found on this machine did not end its last round cleanly; not searched again」，并以 `reason = crashed`
+写出最后手段内容。该标记在采集源正常停止时删除（桌面端正常退出与父进程看护经停止事件在 10 秒内走到这一步，采集服务关闭时
+先请采证轮次停止）；强制结束、崩溃、停止超过 10 秒、关闭手动启动的控制台窗口或 Windows 注销关机时保留，删除后恢复查找。
 
 ### 1.1 第 5 步的例外之二：`capture.allow_without_profile`
 
@@ -153,7 +159,8 @@ Npcap 的官方安装程序并启动其向导，由用户自行完成安装（[p
   相抵触，已由静态边界检查的规则挡在代码之外。内核不返回结果时，安装路径即留空，
   不提权、不重试、不推测。
 - **区服判定**：仅依据安装路径中的关键字。`SdoA` / `Shanda` 等判为 `CN`，
-  `Square Enix` / `FINAL FANTASY XIV - A Realm Reborn` 判为 `GLOBAL`，
+  `Square Enix` / `FINAL FANTASY XIV - A Realm Reborn` / `FINAL FANTASY XIV Online`（Steam 的安装文件夹）判为 `GLOBAL`
+  （Steam 库位于带国服关键字的文件夹下时，按下文「多个区服的关键字同时出现」处理），
   `USERJOY GAMES` / `FINAL FANTASY XIV TC` 判为 `TC`（来自玩家公开报告的繁中服启动器默认目录
   `C:\Program Files\USERJOY GAMES\FINAL FANTASY XIV TC`，尚未在本项目的真机验收中核对），
   无法识别时为 `UNKNOWN`；多个区服的关键字同时出现时同样为 `UNKNOWN`，并提示在设置中手动指定区服。
@@ -271,8 +278,10 @@ IPv6 表读不出时按 IPv4 表选择网卡；IPv4 表读不出仍不猜测。`
 并不证明已经收到游戏报文。普通状态读取复用一秒内的系统测量；启动/停止持生命周期锁时的快照保持未测。
 自动跟随游戏会监听网络地址/可用性变化，合并连续通知，并每 15 秒复查路径以补偿遗漏通知。
 路径未变化时保留现有监听；路径变化、已确认消失的接口重新上线，或恢复期间有候选接口打开失败时才重建，重建至少间隔 30 秒。
-已解出 IPC 的会话另受两条保护，满足任一条即不重建：承载游戏连接的每一张接口在新计划中与当前会话完全相同、且其读取器仍然打开
-（身份、回环角色与地址均不变），与游戏无关的接口出现、消失或反复变化都不影响；或正有一条记录在进行中
+已解出 IPC 的会话另受两条保护，满足任一条即不重建：会话正在读取的每一张承载游戏连接的接口在新计划中与当前会话完全相同
+（身份、回环角色与地址均不变），与游戏无关的接口出现、消失或反复变化都不影响；读取器已关闭的承载接口不算在内，
+只有承载游戏连接的接口全部关闭了读取器时，才视为游戏流量已无人读取、不受这条保护（例如本机回环读不了而游戏另有一条回环连接时，
+只要承载游戏的物理网卡仍在读取，会话就保留）；或正有一条记录在进行中
 （已匹配、已进本，或有一条暂存的导随排本申请）。找不到承载游戏的接口时，先区分系统连接表读不出与游戏确实没有连接
 （`GameHoldsConnections`，只在这种情况下多读一次连接表）：连接表读不出时，当前计划中的每一张接口都在新计划中原样保留
 （身份、回环角色与地址均不变）即视为完整，新增接口不触发重建，正在使用的接口地址变化仍会触发；游戏确实没有连接
@@ -533,9 +542,13 @@ Machina 在自身线程内将失败写入 `Trace`，而不向调用方抛出异�
   以及有限的元数据。
 - **绝不写入**：原始字节、十六进制转储、聊天内容、角色名、IP、MAC、SID、
   其他用户的路径、其他玩家信息。允许写入：opcode 编号、方向、长度、解析出的 id 型字段、
-  档案 id、计数与耗时。
+  档案 id、计数与耗时。唯一的有意例外是取证会话的 Oodle 本机查找：`oodle_signature_discovery` 以 8 位一组写出游戏主程序的
+  SHA-256；作为最后手段时，`oodle_signature_sections` 写出 PE 节表，`oodle_signature_context` 写出调用点附近每段不超过
+  384 字节的机器码（按字节以空格分隔）。这些内容来自磁盘上的游戏文件，不是报文，范围见
+  [privacy-boundary.md](privacy-boundary.md) §5 与 `protocol-profiles/oodle-signatures/README.md`。
 - 兜底机制：`RotatingFileLogger.Sanitize` 在写盘前逐条替换下列五类内容。
-  Machina 的 trace 行同样经过该步骤后才落盘。
+  Machina 的 trace 行同样经过该步骤后才落盘。它是防止意外写入的安全网，不是保证：
+  调用方可以有意改变写法绕过它，上述 Oodle 事件即为此而以 8 位一组或按字节分隔写出，除此之外不得这样做。
 
   | 类别 | 匹配 | 替换为 |
   |---|---|---|
@@ -584,7 +597,8 @@ Machina 在自身线程内将失败写入 `Trace`，而不向调用方抛出异�
   `key_load_failed`（读取密钥或删除其他密钥下的角色时出错，本次会话不区分角色）、`identities_removed`（删除了其他密钥下的角色，
   `count` 为行数）、`observation_failed`（处理登录报文或核对角色时出错，抓包照常进行）、`identity_limit_reached`（区服已记下 64 个角色，
   新角色未记下）、`character_unknown_at_match`（匹配报文所在的连接在本会话中没有登录报文，或记录不来自某条连接，这一场记为未分配）、
-  `login_not_recognised`（本会话一条登录报文也没有认出时的第一次匹配，每个会话只记一次，这一场归入当前档案）、
+  `login_not_recognised`（本会话一条登录报文也没有认出时的第一次匹配，每个会话只记一次；这一场归入当前档案，但区服有两个或更多档案、且本机最近一次认出的角色不属于当前档案时记为未分配，
+  见 [state-machine.md](state-machine.md) §3.1）、
   `connection_limit_reached`（本会话跟踪的连接达到 256 条，此后的新连接不再判定有无登录，每个会话只记一次，`count` 为该上限）。
   带 `error` 的行，以及 `key_unusable`、`key_replace_failed`、`key_unavailable`、`login_not_recognised`、`character_unknown_at_match`
   与 `connection_limit_reached` 为 Warn，其余为 Info。
@@ -631,8 +645,8 @@ Machina 在自身线程内将失败写入 `Trace`，而不向调用方抛出异�
 ← { "target_path": ..., "byte_count": ..., "completed_at_utc": ... }
 ```
 
-- 省略 `target_path`，或指向一个已存在的目录时，写入
-  `<数据库目录>/diagnostics/diag_<yyyyMMdd_HHmm>.json`。
+- 省略 `target_path` 时写入 `<数据库目录>/diagnostics/diag_<yyyyMMdd_HHmm>.json`；
+  指向一个已存在的目录时，以同样生成的文件名写入该目录。
 - 目标可以是个人文件夹之外的任意可写本地目录，包括其他盘符。
   该消息与 `ExportCsv` / `ExportJson` / `BackupDatabase` / `ExportCandidateEvidence` 共用
   `ExportPaths`，拒绝 UNC、网络映射盘、设备路径及备用数据流；目录链接或文件链接的最终目标
@@ -676,7 +690,7 @@ trace 同样采用**白名单**机制，每条消息只写入下列字段。
 | 字段 | 含义 |
 |---|---|
 | `seq` | 本次取证内的序号 |
-| `t_ms` | 相对取证开始的**单调**毫秒 |
+| `t_ms` | 相对取证开始的**单调**毫秒；消息与标记行共用同一时钟（在采集源创建之前启动），两者可以直接比较 |
 | `at_utc` | UTC 时间戳，取自**本机时钟**。该行为自 0.2.4 起生效，更早版本的取证在此处记录的是服务器 epoch |
 | `epoch` | 该报文所属压缩包的**服务器 epoch**（毫秒）。`at_utc` 改用本机时钟之后，两代取证依靠该字段对齐 |
 | `conn` | 连接标识：连接键（§5.4）的前 8 位，只用于在同一份取证内区分连接，不含任何地址，跨会话不可关联 |
@@ -730,6 +744,8 @@ Top 40 opcode，以及按连接标识汇总的每条连接的消息数、首末�
 与 `login_candidates`：在相邻检查点之间，探针记下每个 opcode 最后一次的 `p8`，并列出第一个角色两次相同、
 第二个角色不同的 opcode 及其长度（最多 16 个），即携带长期角色标识的登录报文的候选。这三项只含摘要、opcode 与长度。
 界面采证的状态只返回 `identity_result` 与各步骤是否读到（`identity_steps`），不返回摘要。
+页面上的三种结论（「可以区分」「不能区分」「连接标识不稳定」）与第 ④ 步的保存摘要都写明比较的是「连接标识」，
+不代表软件自动识别角色的结果。
 
 `payload_prefix` 只取关于本人角色的报文，其他玩家的生成、聊天、调查等报文因段头来源方不是本人而不在其列。
 但关于本人的报文开头仍可能是别人的标识（例如小队列表），因此 `p8` 不保证对应本人，
@@ -834,7 +850,7 @@ Top 40 opcode，以及按连接标识汇总的每条连接的消息数、首末�
 | `carried` | 本轮观察从上一次运行继承的报文条数。该值为 0 而磁盘上本应存在证据时，说明证据未被读入，属于软件缺陷，而非用户未进行游戏 |
 | `carried_source` | 本轮从什么证据开始，说明 `carried` 的来由：`OK` 为完整读入；`OLD_QUEUE_RULE` 为读入了 1.5.0 及更早版本保存的证据，但其中按旧的排本识别规则积累的部分已丢弃（§9.4.1）；`NO_FILE` 为没有证据文件；`OLD_LAYOUT` / `OTHER_BUILD` / `OTHER_TEMPLATE` 为文件属于其他格式、其他客户端版本或其他模板，未读入；`UNREADABLE` 为文件无法读取或已损坏 |
 | `watched_seconds` / `quiet_seconds` | 观测器实际监听的时长，以及距其最后一次收到报文的时长。**应优先查看这两项**。`watched_seconds` 远小于用户实际在线时长，或 `quiet_seconds` 达到数十乃至上百秒时，说明缺少的是报文而非游戏行为，继续游戏无法补足 |
-| `clusters_at` / `pairs_at` | 每一次换区与每一次排本配对发生在导出时刻之前多少秒。该值为相对时间，不含任何绝对时间。若用户完成了两次副本而只有一个 `clusters_at`，便可直接判断缺失的是哪一段 |
+| `clusters_at` / `pairs_at` | 最近 16 次换区与最近 16 次排本配对发生在导出时刻之前多少秒，按时间先后排列、最新的在最后。该值为相对时间，不含任何绝对时间。若用户完成了两次副本而只有一个 `clusters_at`，便可直接判断缺失的是哪一段 |
 | `duty_zones` | 有多少次换区识别出了副本表中的区域。该值为 0 而 `clusters` 不为 0 时，说明本版本同时调整了区域报文，继续游戏无助于校准 |
 | `zone_candidates` / `territory_candidates` | 模板所声明的两个长度上剩余的候选数量 |
 | `zone_shapes` | 换区报文所在长度上每个形状的表现，格式为 `0x报文:长度=恰好出现一次的簇数/总簇数+簇外出现次数`。真正的换区标记表现为前一项数值大、后一项数值小。`zone_candidates` 为 0 时，本行是唯一能说明原因的字段 |
@@ -867,7 +883,9 @@ Top 40 opcode，以及按连接标识汇总的每条连接的消息数、首末�
   即使点击时还没有开始新的抓包会话、载入的证据尚未被采用。
 - 文件顶层的 `frequent` 列出曾在单个抓包会话中出现超过 2000 次的报文形状（[protocol-profile-format.md](protocol-profile-format.md) §11.3）。
   该名单跨会话、跨重启保留，同一版本后续会话中这些形状不再参与配对；1.8.x 写出的文件没有该名单，按「尚无」读入。
-- 点击「清空校准进度」时一并删除该文件，否则下次启动会重新载入已被放弃的证据。观察、玩家自己判为「错」的条目、草稿与
+- 点击「清空校准进度」时一并删除该文件，否则下次启动会重新载入已被放弃的证据。文件删不掉时（例如正被安全软件占用），
+  该操作以 `ERR_CALIBRATION_NOT_READY`（`calibration.discard.evidence_busy`，可重试）失败，内存中的观察也不丢弃；
+  同一请求中撤下的本机档案保持撤下。观察、玩家自己判为「错」的条目、草稿与
   `frequent` 名单随之清除。本机流量否定过匹配报文、而此时没有抓包会话在观察时，删除之后立即重新写出一份只含这些 opcode 的文件
   （`rejections.pops` 与 `rejections.disproved` 中列出它们，没有观察、配对、换区簇，`frequent` 为空），使它们在其间没有新会话的
   重启之后仍然有效；有会话在观察时，新的观察已持有它们，按通常方式保存。
@@ -895,6 +913,8 @@ Top 40 opcode，以及按连接标识汇总的每条连接的消息数、首末�
 - 卡片首行提示"已经可以正常记录导随了，软件还在后台找更准的判定依据"。校准**不会停止**，
   找到真正的匹配报文后会再次请用户核对并替换该档案。找到可补充的内容时，卡片改为说明这次核对能补上什么
   （真正的匹配报文、职业或匹配弹窗），并说明核对之前记录照常进行。
+  找到的结果若会丢掉在用档案已能识别的区域或职业（在用档案声明了 `ZONE_TERRITORY` 或 `PLAYER_JOB`，而新的草稿没有），
+  则不请用户核对，校准继续观察（`CalibrationCoordinator.KeepsOptionalInForce`）。
 
 已知且唯一的代价是：用户申请随机任务后取消，并在随后一小时内手动进入了一个副本，
 该次会被记入已取消的那个随机任务名下。协议本身不提供区分这两种情况的依据。

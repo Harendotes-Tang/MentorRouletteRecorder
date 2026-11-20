@@ -178,7 +178,8 @@
 **桌面端的接管流程因此也是渐进的**，退出码 6 本身不再结束任何进程：
 
 1. `serve.pid` 已不存在，或其指向本进程、本进程的子进程：直接启动自己的实例，不提示；
-2. `serve.pid` 写入不足 15 秒：不做任何处理，该状态正对应实例在执行迁移，仅提示"刚刚启动"；
+2. `serve.pid` 写入不足 15 秒：该实例刚取得租约（`serve.pid` 在迁移完成、管道就绪之后才写入），不做任何处理，
+   不结束它，仅提示「采集服务刚刚启动，请稍候。」；
 3. 置位其停止事件并等待 3 秒，期间每 250 ms 检查 `serve.pid` 是否消失、管道是否恢复，
    任一条件成立即结束等待；
 4. 只有在等待期满、**并且**桌面端一侧的"连续四次连接失败"计数也已计满时，才依次执行
@@ -268,7 +269,9 @@
 - 单条记录的变更（`CreateManualRun` `CorrectRun` `SoftDeleteRun` `RestoreRun` `UndoRevision`）返回
   `revision` 与 `audit_event_id`（`$defs/MutationResult`）；`UpdateAchievementBaseline` 返回保存后的设置与
   `audit_event_id`；`SetRunReflection` 返回保存后的心得；`BatchMutateRuns` 返回 `changed_count`、`run_ids` 与
-  `idempotent_replay`；`CommitRunImport` 返回导入回执（`$defs/RunImportCommit`）。
+  `idempotent_replay`；`CommitRunImport` 返回导入回执（`$defs/RunImportCommit`）；`CreateCharacterProfile`
+  `UpdateCharacterProfile` `DeleteCharacterProfile` 返回 `$defs/CharacterProfileResult`，`ResolveCharacterIdentity`
+  返回 `$defs/CharacterIdentityResult`，两者都带 `idempotent_replay`。
 - 以上消息均按 `request_id` **幂等**：重放不重复应用，返回原结果；应答带 `idempotent_replay` 字段的置为
   `true`，`CommitRunImport` 置 `replayed = true`。同一 `request_id` 配上不同内容时答 `ERR_IDEMPOTENCY_CONFLICT`。
 - 非法状态返回显式错误码，不静默成功。
@@ -310,6 +313,10 @@ payload: <LiveEvent>}`。
 `replayed` 字段，修改契约不在本次范围内。标记也并非必需：`event_id` 在补发前后保持一致，
 客户端可以据此识别自己已经见过的事件；`sequence` 跨越补发与实时之间的接缝仍然连续，
 不会被误读成空洞。
+
+记录被永久删除（`BatchMutateRuns` 的 `purge`，或回收站按保留天数自动清理）并提交之后，补发缓冲与各订阅者尚未读取的队列中
+关于这些记录的事件一并移除，此后迟到的同类事件也不再发布；已经送达的事件无法收回。其余事件保留原来的 `sequence`，
+订阅者因此可能看到序号缺口，按上文的约定合并补查。
 
 本实现发出的事件（`kind` 字段）与契约 `event_type` 的对应关系：
 

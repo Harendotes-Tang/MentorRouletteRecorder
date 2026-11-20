@@ -13,9 +13,29 @@ ApplicationWindow {
     // A 新增记录 form can be left behind: 「返回」, another page, minimising or the tray keep its
     // draft. Only one the player is looking at holds an automatic popup back; a parked one must
     // not swallow every 本次导随结果 / 心得 popup until it is found again (audit 2026-11-10 K1-1).
+    // A window left behind the game is not looked at either (audit 2026-11-20 K1-1). The test is
+    // on the application, not this window: the form's own file chooser (添加图片) is a window of
+    // its own and takes the focus while the player is still working in the form (re-review
+    // 2026-11-20, R4-1).
     readonly property bool manualFormOnScreen: editDialog.editingActive && window.visible
-        && window.visibility !== Window.Minimized
+        && Application.state === Qt.ApplicationActive && window.visibility !== Window.Minimized
         && (editDialog.visible || Runtime.app.currentPage === 8)
+    // offerReminder held a popup back for the form on show; it is offered again as soon as
+    // the form is parked, not only when it is finished (audit 2026-11-20 K1-1).
+    property bool popupHeldByManualForm: false
+    onManualFormOnScreenChanged: {
+        // A form that is closing re-offers through editDialog.onEditorClosed.
+        if (!window.manualFormOnScreen && window.popupHeldByManualForm && editDialog.editingActive)
+            window.releaseHeldPopups()
+    }
+    /// Lets the coordinator offer again what it marked as offered while a popup was held back.
+    function releaseHeldPopups() {
+        // A popup that opened meanwhile is still being answered.
+        if (reflectionDialog.editingActive || reflectionDialog.busy) return
+        window.popupHeldByManualForm = false
+        Runtime.app.resultConfirmationClosed()
+        Runtime.app.reflectionPromptClosed()
+    }
 
     width: 1280
     height: 800
@@ -152,7 +172,9 @@ ApplicationWindow {
     function presentReleaseNotes() {
         if (!releaseNotesWaiting || !window.visible || window.visibility === Window.Minimized)
             return
-        if (baselineDialog.visible || recordingAlert.visible)
+        // An inline editor on the record page is no overlay child, but is still being written
+        // in (audit 2026-11-10 L2-1).
+        if (baselineDialog.visible || recordingAlert.visible || window.recordEditorOccupied)
             return
         const children = Overlay.overlay.children
         for (let i = 0; i < children.length; ++i) {
@@ -305,7 +327,11 @@ ApplicationWindow {
             else Runtime.app.reflectionPromptDeferred(run.run_id)
             return
         }
-        if (reflectionDialog.editingActive || reflectionDialog.busy || window.manualFormOnScreen) return
+        if (reflectionDialog.editingActive || reflectionDialog.busy) return
+        if (window.manualFormOnScreen) {
+            window.popupHeldByManualForm = true
+            return
+        }
         prepareReflection(true, true)
         if (kind === "result") reflectionDialog.openForResult(run)
         else reflectionDialog.openForPrompt(run, qsTr("刚刚完成"))
@@ -326,17 +352,17 @@ ApplicationWindow {
     /// The editor is open, possibly for another record: show where it is
     /// rather than doing nothing (review K1-7).
     function raiseEditorHost() {
+        // The popup beside the float is the only editor outside this window. Its parent is
+        // left pointing at that window after it closes, so it is asked for only while the
+        // popup is open; 手动修正 shown as a dialog is in this window (audit 2026-11-10 K1-3).
         if (editDialog.inlineActive || reflectionDialog.inlineActive) {
             window.showRecordWorkspace()
-            return
-        }
-        const host = reflectionDialog.parent ? reflectionDialog.parent.Window.window : null
-        if (host === window) {
+        } else if (reflectionDialog.standalone && reflectionDialog.editingActive) {
+            recoveryReminder.show()
+            if (Qt.platform.pluginName !== "offscreen") recoveryReminder.raise()
+            recoveryReminder.requestActivate()
+        } else {
             window.bringToFront()
-        } else if (host) {
-            host.show()
-            if (Qt.platform.pluginName !== "offscreen") host.raise()
-            host.requestActivate()
         }
     }
 
@@ -1183,7 +1209,8 @@ ApplicationWindow {
                             onOpenImportRequested: window.openImportDialog()
                             onHelpAdaptationRequested: {
                                 Runtime.app.navigate(4)
-                                capturePage.observationGuideExpanded = true
+                                capturePage.chooseEvidencePurpose("region")
+                                capturePage.openObservationGuide()
                             }
                             onOpenCorrectRequested: window.openCorrectDialog()
                             onOpenDeleteRequested: window.openReasonDialog("delete")
@@ -1326,10 +1353,7 @@ ApplicationWindow {
         inlineContent: recordWorkspace.manualContent
         onEditorClosed: {
             window.leaveRecordWorkspace()
-            // A popup that opened while this form was parked is still being answered.
-            if (reflectionDialog.editingActive || reflectionDialog.busy) return
-            Runtime.app.resultConfirmationClosed()
-            Runtime.app.reflectionPromptClosed()
+            window.releaseHeldPopups()
         }
         // Correcting a record needs the full duty and battle-job catalogues, not only
         // what this player has already recorded: the record worth correcting is

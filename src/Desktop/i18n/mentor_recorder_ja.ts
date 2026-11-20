@@ -1262,6 +1262,10 @@
         <translation>採取を停止すると自動記録を再開します。</translation>
     </message>
     <message>
+        <source>停止采证后恢复正常检测；这个区服暂不自动记录。</source>
+        <translation>採取を停止すると通常の確認を再開します。このリージョンはまだ自動記録できません。</translation>
+    </message>
+    <message>
         <source>停止采证后恢复正常检测；当前游戏版本暂不自动记录。</source>
         <translation>採取を停止すると通常の確認を再開します。現在のゲームバージョンはまだ自動記録できません。</translation>
     </message>
@@ -2261,6 +2265,10 @@ SHA256：%3</translation>
     <message>
         <source>给角色改名</source>
         <translation>キャラクターの名前を変更</translation>
+    </message>
+    <message>
+        <source>给角色起名</source>
+        <translation>キャラクターに名前を付ける</translation>
     </message>
     <message>
         <source>登记新角色</source>
@@ -3435,6 +3443,11 @@ SHA256：%3</translation>
         <source>这个角色的登记情况已经变了，请按总览上最新的提示操作。</source>
         <comment>identity.registration_moved</comment>
         <translation>このキャラクターの登録状況が変わりました。概要ページの最新の案内に従ってください。</translation>
+    </message>
+    <message>
+        <source>没能清空校准进度：保存校准进度的文件正被其他程序占用（例如安全软件正在检查它）。请稍后再点「清空校准进度」。</source>
+        <comment>calibration.discard.evidence_busy</comment>
+        <translation>校正の進捗をリセットできませんでした：校正の進捗を保存しているファイルがほかのプログラムに使用されています（たとえばセキュリティソフトがファイルをチェックしています）。しばらくしてからもう一度「校正の進捗をリセット」を押してください。</translation>
     </message>
     <message>
         <source>仅验证，不自动记录。所选网卡未连接或没有 IPv4 地址，取证不会开始。请取消后改选正在上网的网卡，或改用「自动选择」。</source>
@@ -6312,12 +6325,20 @@ SHA256：%3</translation>
         <translation>待機を取り消しています…</translation>
     </message>
     <message>
+        <source>还没有收到报文</source>
+        <translation>まだパケットを受信していません</translation>
+    </message>
+    <message>
         <source>正在取证 · 可以登录了</source>
         <translation>採取中 · ログインしてください</translation>
     </message>
     <message>
         <source>没有录到数据，不会保存文件。</source>
         <translation>データは記録されていないため、ファイルは保存しません。</translation>
+    </message>
+    <message>
+        <source>已经登录了报文仍为 0 时，先截图，再停止并导出诊断。</source>
+        <translation>ログインしてもパケット数が 0 のままなら、スクリーンショットを撮ってから停止し、診断を書き出してください。</translation>
     </message>
     <message>
         <source>启动游戏后会自动开始取证，看到「正在取证」再登录。</source>
@@ -6633,18 +6654,6 @@ SHA256：%3</translation>
         <translation>ZIP にまとめて開発者に送る</translation>
     </message>
     <message>
-        <source>可以区分：两个角色读到的标识不同，回到角色 A 时与第一次相同。</source>
-        <translation>区別できます：2 つのキャラクターで読み取った識別子は異なり、キャラクター A に戻ったときは最初と同じでした。</translation>
-    </message>
-    <message>
-        <source>不能区分：两个角色读到的标识相同。</source>
-        <translation>区別できません：2 つのキャラクターで読み取った識別子が同じでした。</translation>
-    </message>
-    <message>
-        <source>标识不稳定：角色 A 前后读到的标识不一致。</source>
-        <translation>識別子が安定しません：キャラクター A で読み取った識別子が前後で一致しませんでした。</translation>
-    </message>
-    <message>
         <source>这一轮没有得出结论：前三步没有全部确认并读到数据。请退出游戏后重做一轮，每一步进入游戏后等十秒左右再确认。</source>
         <translation>今回は結果が出ませんでした：最初の 3 手順がすべて確認され、読み取られたわけではありません。ゲームを終了してからもう一度やり直し、各手順ではゲームに入って 10 秒ほど待ってから確認してください。</translation>
     </message>
@@ -6829,6 +6838,14 @@ SHA256：%3</translation>
         <translation>切断</translation>
     </message>
     <message>
+        <source>这一轮用了软件在本机找到的读取方法，维护者要用日志里的查找结果为这个区服适配；在数据目录 logs</source>
+        <translation>今回はアプリがこの PC で見つけた読み取り方法を使いました。メンテナーがこのリージョンに対応するには、ログ内の検索結果が必要です（データフォルダーの logs）</translation>
+    </message>
+    <message>
+        <source>这一轮软件没能在本机找到读懂游戏数据的方法，维护者要用日志里的查找结果排查；在数据目录 logs</source>
+        <translation>今回はアプリがこの PC でゲームデータを読み取る方法を見つけられませんでした。メンテナーが原因を調べるには、ログ内の検索結果が必要です（データフォルダーの logs）</translation>
+    </message>
+    <message>
         <source>状态截图</source>
         <translation>状態のスクリーンショット</translation>
     </message>
@@ -6855,6 +6872,18 @@ SHA256：%3</translation>
     <message>
         <source>无法识别游戏版本时，在游戏目录</source>
         <translation>ゲームのバージョンを識別できないとき（ゲームフォルダー）</translation>
+    </message>
+    <message>
+        <source>可以区分：两个角色读到的连接标识不同，回到角色 A 时与第一次相同。</source>
+        <translation>区別できる：2 つのキャラクターで読み取った接続の識別子が異なり、キャラクター A に戻したときは 1 回目と同じです。</translation>
+    </message>
+    <message>
+        <source>不能区分：两个角色读到的连接标识相同。</source>
+        <translation>区別できない：2 つのキャラクターで読み取った接続の識別子が同じです。</translation>
+    </message>
+    <message>
+        <source>连接标识不稳定：角色 A 前后读到的连接标识不一致。</source>
+        <translation>接続の識別子が不安定：キャラクター A で前後に読み取った接続の識別子が一致しません。</translation>
     </message>
     <message>
         <source>启动或采证出错时，在数据目录 logs；软件读不懂游戏数据格式时，含几小段游戏主程序的指令字节</source>
@@ -7005,14 +7034,6 @@ SHA256：%3</translation>
         <translation>%1 · マーク %2 / 5</translation>
     </message>
     <message>
-        <source>已保存 · 可以区分</source>
-        <translation>保存済み · 区別できます</translation>
-    </message>
-    <message>
-        <source>已保存 · 未能区分</source>
-        <translation>保存済み · 区別できません</translation>
-    </message>
-    <message>
         <source>已保存 · 文件 %1 / %2</source>
         <translation>保存済み · ファイル %1 / %2</translation>
     </message>
@@ -7045,6 +7066,10 @@ SHA256：%3</translation>
         <translation>ゲームの起動待ち</translation>
     </message>
     <message>
+        <source>等待选择游戏</source>
+        <translation>ゲームの選択待ち</translation>
+    </message>
+    <message>
         <source>正在取消等待</source>
         <translation>待機を取り消し中</translation>
     </message>
@@ -7055,6 +7080,10 @@ SHA256：%3</translation>
     <message>
         <source>正在取证</source>
         <translation>採取中</translation>
+    </message>
+    <message>
+        <source>还没有收到报文</source>
+        <translation>パケット未受信</translation>
     </message>
     <message>
         <source>正在保存</source>
@@ -7069,8 +7098,16 @@ SHA256：%3</translation>
         <translation>終了（ファイルが不完全）</translation>
     </message>
     <message>
+        <source>已保存 · 连接标识可以区分</source>
+        <translation>保存済み · 接続の識別子で区別できる</translation>
+    </message>
+    <message>
         <source>已保存 · 没有得出结论</source>
         <translation>保存済み · 結果なし</translation>
+    </message>
+    <message>
+        <source>已保存 · 连接标识未能区分</source>
+        <translation>保存済み · 接続の識別子で区別できなかった</translation>
     </message>
     <message>
         <source>失败</source>
@@ -10427,6 +10464,14 @@ SHA256：%3</translation>
         <translation>クリア +1</translation>
     </message>
     <message>
+        <source>通关</source>
+        <translation>クリア</translation>
+    </message>
+    <message>
+        <source>确认通关；这条记录还没有分配角色，暂不计入进度</source>
+        <translation>クリアを確定。この記録はまだキャラクターに割り当てられていないため、当面は進捗に加算しません</translation>
+    </message>
+    <message>
         <source>确认通关，计入导随次数</source>
         <translation>クリアを確定して回数に加算</translation>
     </message>
@@ -10445,6 +10490,10 @@ SHA256：%3</translation>
     <message>
         <source>已计入导随次数</source>
         <translation>回数に加算しました</translation>
+    </message>
+    <message>
+        <source>已记为通关；还没有分配角色，暂不计入进度</source>
+        <translation>クリアとして記録。まだキャラクターに割り当てられていないため、当面は進捗に加算しません</translation>
     </message>
     <message>
         <source>已记为退出 / 放弃，不计入</source>
@@ -10876,6 +10925,12 @@ SHA256：%3</translation>
         <translation>メンターのアチーブメント進捗に加算</translation>
     </message>
     <message>
+        <source>这条记录还没有分配角色，分配给角色后才计入该角色的进度。
+关闭后不增加成就进度，仍计入次数、通关率等统计。</source>
+        <translation>この記録はまだキャラクターに割り当てられていません。キャラクターに割り当てると、そのキャラクターの進捗に加算されます。
+オフにするとアチーブメントの進捗には加算されませんが、回数やクリア率などの統計には含まれます。</translation>
+    </message>
+    <message>
         <source>这里只补录指导者任务。
 关闭后不增加成就进度，仍计入次数、通关率等统计。</source>
         <translation>ここではメンタールーレットの記録だけを追加してください。
@@ -10884,6 +10939,10 @@ SHA256：%3</translation>
     <message>
         <source>已通关，计入进度</source>
         <translation>クリア済み、進捗に加算</translation>
+    </message>
+    <message>
+        <source>已通关</source>
+        <translation>クリア済み</translation>
     </message>
 </context>
 <context>
@@ -11811,6 +11870,14 @@ SHA256：%3</translation>
         <translation>まだ何も選んでいません。タイトルバーの「カスタマイズ」で追加できます。</translation>
     </message>
     <message>
+        <source>有待处理记录时显示。</source>
+        <translation>要対応の記録があるときに表示されます。</translation>
+    </message>
+    <message>
+        <source>所选内容进本后或有待处理记录时显示。</source>
+        <translation>選んだ内容はコンテンツ突入後、または要対応の記録があるときに表示されます。</translation>
+    </message>
+    <message>
         <source>所选内容进本后显示。</source>
         <translation>選んだ内容はコンテンツ突入後に表示されます。</translation>
     </message>
@@ -12723,8 +12790,8 @@ SHA256：%3</translation>
         <translation>収集サービスを占有しているプロセスが見つからないため、収集サービスを再起動しました。</translation>
     </message>
     <message>
-        <source>采集服务刚刚启动（进程 %1），可能正在升级数据库，请稍候。</source>
-        <translation>収集サービスが起動したばかりです（プロセス %1）。データベースを更新中の可能性があるため、しばらくお待ちください。</translation>
+        <source>采集服务刚刚启动，请稍候。</source>
+        <translation>収集サービスを起動したところです。しばらくお待ちください。</translation>
     </message>
     <message>
         <source>采集服务被一个没有响应的旧实例（进程 %1）占用，已请求它退出并重新启动采集服务。</source>
@@ -15321,6 +15388,18 @@ SHA256：%3</translation>
     <message>
         <source>暂未确认下载是否取消，请稍后查看下载状态。</source>
         <translation>ダウンロードが取り消されたかまだ確認できていません。しばらくしてからダウンロードの状態を確認してください。</translation>
+    </message>
+    <message>
+        <source>没有切换到 GitCode：GitHub 的下载已经比镜像更快，仍从 GitHub 下载。</source>
+        <translation>GitCode に切り替えませんでした：GitHub からのダウンロードのほうがミラーより速くなったため、引き続き GitHub からダウンロードします。</translation>
+    </message>
+    <message>
+        <source>没有切换到 GitCode：镜像暂时无法使用，仍从 GitHub 下载。</source>
+        <translation>GitCode に切り替えませんでした：ミラーが一時的に使えないため、引き続き GitHub からダウンロードします。</translation>
+    </message>
+    <message>
+        <source>没有切换到 GitCode：切换生效之前，GitHub 的下载已经结束。</source>
+        <translation>GitCode に切り替えませんでした：切り替えが反映される前に、GitHub からのダウンロードが終わりました。</translation>
     </message>
     <message>
         <source>尚未确认当前导随是否结束，暂时不能安装，请稍后再试。</source>

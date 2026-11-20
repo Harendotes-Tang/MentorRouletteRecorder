@@ -416,6 +416,40 @@ public sealed class ReviewRecoveryRegressionTests
     }
 
     /// <summary>
+    /// Audit 2026-11-20 D1-1: rows a version before the 11-10 D1-1 clamp already stored with the end
+    /// before the match - cancelled before entry under a backwards clock - are moved once to end at the
+    /// match, through a system revision that changes nothing else, and can then be confirmed.
+    /// </summary>
+    [Fact]
+    public void ANeverEnteredRunStoredEndingBeforeItsMatchIsRetimedOnceAndCanBeConfirmed()
+    {
+        using var fixture = new Fixture(entered: false);
+        fixture.WriteAsAnEarlierVersionRecovered(RunResult.CancelledBeforeEntry, -90);
+        Assert.True(fixture.Run.EndedAtUtc < fixture.Run.MatchedAtUtc);
+
+        MentorRun repaired;
+        using (var first = fixture.Restart(120))
+        {
+            repaired = first.Runs.Get(fixture.RunId)!;
+            Assert.Equal(repaired.MatchedAtUtc, repaired.EndedAtUtc);
+            Assert.Equal(RunResult.CancelledBeforeEntry, repaired.Result);
+            Assert.True(repaired.PendingReview);
+            Assert.Equal(3, repaired.Revision);
+            var revision = first.Revisions.GetAt(fixture.RunId, repaired.Revision, null)!;
+            Assert.Equal(RevisionActor.System, revision.Actor);
+            Assert.False(string.IsNullOrWhiteSpace(revision.Reason));
+            var change = Assert.Single(revision.Changes);
+            Assert.Equal(RunFields.EndedAtUtc, change.Field);
+        }
+
+        using var second = fixture.Restart(180);
+        Assert.Equal(repaired, second.Runs.Get(fixture.RunId));
+        var confirmed = second.Mutations.CorrectRun(new CorrectRunCommand(NewId(), fixture.RunId, repaired.Revision,
+            "确认无误", new RunChangeSet { Specified = new HashSet<string> { RunFields.PendingReview }, PendingReview = false })).Run!;
+        Assert.False(confirmed.PendingReview);
+    }
+
+    /// <summary>
     /// Audit 2026-10-03, V3-2. 1.5.0 still let the player undo the revision crash recovery wrote. That put an entered
     /// run back to UNKNOWN, open and not pending review - the "still in flight" shape every statistic and the review
     /// list leave out - and no later restart closed it, because its restart marker exists. Refusing the undo (OG-4)
@@ -540,19 +574,23 @@ public sealed class ReviewRecoveryRegressionTests
             Assert.NotNull(RunId);
         }
 
-        /// <summary>What crash recovery before audit 2026-10-03 wrote for a never-entered open run.</summary>
-        public void WriteAsAnEarlierVersionRecovered()
+        /// <summary>
+        /// What crash recovery before audit 2026-10-03 wrote for a never-entered open run; with
+        /// <paramref name="result"/> and a negative <paramref name="seconds"/>, what a later version
+        /// wrote under a backwards clock before audit 2026-11-10 D1-1 clamped it.
+        /// </summary>
+        public void WriteAsAnEarlierVersionRecovered(RunResult result = RunResult.Interrupted, int seconds = 60)
         {
             var runs = new RunRepository(_database.Database);
             var revisions = new RunRevisionRepository(_database.Database);
             var events = new RunEventRepository(_database.Database);
-            var at = Start.AddSeconds(60);
+            var at = Start.AddSeconds(seconds);
             _database.Database.RunInTransaction(tx =>
             {
                 var open = runs.GetInternal(RunId, tx)!;
                 var closed = open with
                 {
-                    Revision = open.Revision + 1, Result = RunResult.Interrupted,
+                    Revision = open.Revision + 1, Result = result,
                     DetectionConfidence = DetectionConfidence.Low, PendingReview = true,
                     EndedAtUtc = at, UpdatedAtUtc = at,
                 };

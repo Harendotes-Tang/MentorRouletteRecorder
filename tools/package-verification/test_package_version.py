@@ -223,6 +223,58 @@ trap {{ [Console]::Error.WriteLine($_.Exception.Message + "`n" + $_.ScriptStackT
         tagged = self.RELEASED[:start] + self.RELEASED[end:]
         self.assertIsNone(self.released_change(tagged, self.RELEASED))
 
+    def test_formal_and_prerelease_tags_both_protect_their_section(self):
+        # N2-3 (audit 2026-11-20): a beta is published as its own section, so its tag protects it too.
+        observed = self.run_helpers(
+            "@('v1.9.0', 'v1.9.1-beta.1', ' v1.9.1-beta.10 ', '1.9.0', 'v1.9', 'v1.9.0-', 'v1.9.0.1', 'x', '') |"
+            " ForEach-Object { Get-ReleasedChangelogTagVersion $_ } | ConvertTo-Json -Compress")
+        self.assertEqual(["1.9.0", "1.9.1-beta.1", "1.9.1-beta.10", None, None, None, None, None, None], observed)
+
+    PUBLISHED_BETA = (
+        "# 变更记录 / Changelog\n\n"
+        "## [Unreleased]\n\n"
+        "## [1.4.0-beta.1] - 2026-09-15\n\n### 新增\n- 备注图片\n\n"
+        "## [1.3.1] - 2026-09-19\n\n### 变更\n- older\n"
+    )
+
+    def test_a_published_beta_section_changed_after_its_tag_is_refused(self):
+        working = self.PUBLISHED_BETA.replace("\n", "\r\n")
+        self.assertIsNone(self.released_change(self.PUBLISHED_BETA, working, version="1.4.0-beta.1"))
+        changed = working.replace("- 备注图片", "- 备注图片（补写）")
+        self.assertIsNotNone(self.released_change(self.PUBLISHED_BETA, changed, version="1.4.0-beta.1"))
+        # Entries added above it, under [Unreleased] or a later beta's section, change nothing.
+        added = working.replace("## [Unreleased]\r\n", "## [Unreleased]\r\n\r\n## [1.4.0-beta.2] - 2026-09-20\r\n\r\n- 新条目\r\n")
+        self.assertIsNone(self.released_change(self.PUBLISHED_BETA, added, version="1.4.0-beta.1"))
+
+    # ------------------------------------------- an unsuffixed (formal) version
+
+    def test_an_unsuffixed_version_is_packaged_only_from_its_release_commit_with_verification(self):
+        # M-2 (audit 2026-11-20): seven local test installers built with -SkipVerify spent the number 1.9.1.
+        observed = self.run_helpers(
+            "@(@{v='1.4.0'; s=$false; h='chore(release): 1.4.0'},"
+            "  @{v='1.4.0'; s=$true; h='chore(release): 1.4.0'},"
+            "  @{v='1.4.0'; s=$false; h='feat(desktop): include feedback in the 1.4.0 test build'},"
+            "  @{v='1.4.0'; s=$false; h=$null},"
+            "  @{v='1.4.0'; s=$false; h='chore(release): 1.4.0-beta.1'},"
+            "  @{v='1.4.0'; s=$false; h='Chore(Release): 1.4.0'},"
+            "  @{v='1.4.0-beta.1'; s=$true; h='wip'},"
+            "  @{v='1.4.0-beta.1'; s=$false; h=$null}) |"
+            " ForEach-Object { [bool](Get-UnsuffixedVersionRefusal -Version $_.v -SkipVerify:($_.s) -HeadSubject $_.h) } |"
+            " ConvertTo-Json -Compress")
+        self.assertEqual([False, True, True, True, True, True, False, False], observed)
+
+    def test_the_unsuffixed_refusal_names_the_release_commit_and_the_override(self):
+        observed = self.run_helpers(
+            "@((Get-UnsuffixedVersionRefusal -Version '1.4.0' -HeadSubject 'fix: something'),"
+            "  (Get-UnsuffixedVersionRefusal -Version '1.4.0' -SkipVerify -HeadSubject 'chore(release): 1.4.0')) |"
+            " ConvertTo-Json -Compress")
+        self.assertIn("chore(release): 1.4.0", observed[0])
+        self.assertIn("fix: something", observed[0])
+        self.assertIn("-SkipVerify", observed[1])
+        for message in observed:
+            self.assertIn("-AllowUnsuffixedVersion", message)
+            self.assertIn("VersionSuffix", message)
+
     # ------------------------------------------------------ source tree
 
     def source_state(self, repository, path_prefix=None, path_only=None):

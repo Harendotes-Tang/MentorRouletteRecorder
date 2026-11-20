@@ -37,7 +37,8 @@ public sealed record CalibrationServices(
 
     /// <summary>
     /// Removes the evidence for a build. Called when the player discards it and when a profile
-    /// has been written, so neither decision is undone by the next restart. Never throws.
+    /// has been written, so neither decision is undone by the next restart. Throws when the file
+    /// is there and cannot be removed, so 清空校准进度 can say it did not happen (audit 2026-11-20, C-2).
     /// </summary>
     public Action<Region, string> DeleteEvidence { get; init; } = (_, _) => { };
 
@@ -93,6 +94,12 @@ public sealed record CalibrationServices(
 
     /// <summary>取消尚未采用的写入时，只删除仍匹配本次 canonical 哈希的派生档案；MRC 不受影响。</summary>
     public Func<Region, string, string, bool> DeleteSharedProfileIfMatches { get; init; } = (_, _, _) => false;
+
+    /// <summary>
+    /// Removes the copy a shared-profile write kept of the document it displaced, once that write was adopted
+    /// (audit 2026-11-20, E-2). Inert by default. Never throws.
+    /// </summary>
+    public Action<Region, string> ForgetDisplacedSharedProfile { get; init; } = (_, _) => { };
 
     /// <summary>
     /// Puts away the local profile of a region and build: either because this machine's own
@@ -177,6 +184,7 @@ public sealed record CalibrationServices(
             WriteSharedProfile = built => SharedProfileFiles.Write(built, root),
             DeleteSharedProfile = (region, build) => SharedProfileFiles.Delete(root, region, build),
             DeleteSharedProfileIfMatches = (region, build, sha) => SharedProfileFiles.DeleteIfMatches(root, region, build, sha),
+            ForgetDisplacedSharedProfile = (region, build) => SharedProfileFiles.ForgetDisplaced(root, region, build),
             LoadSharedProfiles = ProfilesIn(root),
         };
     }

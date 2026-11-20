@@ -21,6 +21,7 @@ public sealed class CharacterIdentificationTests
 {
     private const ulong Main = 0x0040_1122_3344_5566;
     private const ulong Alt = 0x0040_7788_99AA_BBCC;
+    private const ulong Third = 0x0040_DDEE_FF00_1122;
     private const string Build = "2026.11.03.0000.0000";
 
     /// <summary>A server-to-client IPC message about the client, as every game message is.</summary>
@@ -440,7 +441,9 @@ public sealed class CharacterIdentificationTests
         Assert.Equal(main, runs.Get(rig.Pop(0x1001))!.ProfileId);
 
         // The second character waits for an answer; its run is nobody's until then, and the
-        // answer files it.
+        // answer files it. A second later, so "seen last" below is never a tie by accident (audit
+        // 2026-11-20, D1-2).
+        rig.Db.Clock.UtcNow += TimeSpan.FromSeconds(1);
         rig.Login(Alt, 0x2002);
         var orphan = rig.Pop(0x2002);
         Assert.Null(runs.Get(orphan)!.ProfileId);
@@ -457,9 +460,13 @@ public sealed class CharacterIdentificationTests
         Assert.Null(runs.Get(rig.Pop(0x3003, "zone-unknown"))!.ProfileId);
         Assert.Contains(rig.Notes, note => note.Event == "character_unknown_at_match");
 
-        // No login message recognised in the session: the current profile, as before.
+        // No login message recognised in the session, and the character seen last - the main, back
+        // a minute later - is the current profile's: the current profile, as before.
+        rig.Db.Clock.UtcNow += TimeSpan.FromMinutes(1);
+        rig.Login(Main, 0x1001);
+        Assert.Equal(main, rig.Current());
         rig.StartSession();
-        Assert.Equal(rig.Current(), runs.Get(rig.Pop(0x1001))!.ProfileId);
+        Assert.Equal(main, runs.Get(rig.Pop(0x1001))!.ProfileId);
         rig.Pop(0x1001);
         Assert.Single(rig.Notes, note => note.Event == "login_not_recognised");
 
@@ -473,6 +480,22 @@ public sealed class CharacterIdentificationTests
             Guid.NewGuid().ToString("D"), main, null, MakeCurrent: true, ForgetIdentities: false));
         rig.StartSession();
         Assert.Null(runs.Get(rig.Pop(0x1001))!.ProfileId);
+
+        // Two characters seen in the same instant: either being the current profile's is enough.
+        rig.Db.Clock.UtcNow += TimeSpan.FromMinutes(5);
+        rig.Login(Main, 0x1001);
+        rig.Login(Alt, 0x2002);
+        Assert.Equal(alt, rig.Current());
+        rig.StartSession();
+        Assert.Equal(alt, runs.Get(rig.Pop(0x2002))!.ProfileId);
+
+        // A character still waiting for an answer played last: the current profile may be
+        // somebody else's, so the run is nobody's.
+        rig.Db.Clock.UtcNow += TimeSpan.FromMinutes(5);
+        rig.Login(Third, 0x4004);
+        Assert.Equal(alt, rig.Current());
+        rig.StartSession();
+        Assert.Null(runs.Get(rig.Pop(0x4004))!.ProfileId);
     }
 
     /// <summary>

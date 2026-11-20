@@ -78,19 +78,24 @@ Windows 版本资源的 `FILEVERSION` / `PRODUCTVERSION` 是四段数字，放�
 规则核对。任一处不一致即判定打包失败。该断言的由来是 0.2.2：当时 `app.rc` 中保留了独立的
 版本字面量，导致桌面端在资源管理器中显示为 0.2.1。
 
-**CHANGELOG 顶部段落**：当前版本是先行版时，最上方必须是 `## [Unreleased]`——测试包是从尚未
-发布的工作中切出来的，它携带的条目仍属于未发布内容；当前版本是正式版时，最上方必须是
+**CHANGELOG 顶部段落**：当前版本是先行版时，最上方必须是 `## [Unreleased]`——测试包的条目
+写在其下的 `## [x.y.z-beta.N] - 日期` 段落中，上方保留一个空的 `[Unreleased]`；当前版本是正式版时，最上方必须是
 `## [x.y.z]` 且与版本号一致。
 
+**正式版本号**：没有先行版后缀的版本号只能在 HEAD 正是其发布提交（标题为 `chore(release): X.Y.Z`）且未使用
+`-SkipVerify` 时打包，否则在验证与构建之前拒绝（`Get-UnsuffixedVersionRefusal`），以免发布号被本机测试包用掉
+（[release-checklist.md](release-checklist.md) §9.2）。`-AllowUnsuffixedVersion` 显式放行，只用于有意的例外，
+绝不用于测试包；放行时以黄色提示写明原因。
+
 **发布规则**：已经打过 tag 的 CHANGELOG 段落不得再修改。同一步中的
-`Assert-ReleasedChangelogSectionsUnchanged` 会针对每个 `vX.Y.Z` tag，将工作区
-`CHANGELOG.md` 中的 `## [X.Y.Z]` 段落与 `git show <tag>:CHANGELOG.md` 中的同名段落比较：
+`Assert-ReleasedChangelogSectionsUnchanged` 会针对每个 `vX.Y.Z` 或 `vX.Y.Z-beta.N` tag，将工作区
+`CHANGELOG.md` 中的同名段落与 `git show <tag>:CHANGELOG.md` 中的同名段落比较：
 标题行（含日期）与正文都必须逐字一致（区分大小写，换行统一为 LF 后比较），不一致则打包失败。
 tag 中有该段落而工作区中找不到（段落被删除，或标题被改成别的版本号）同样算作改动；
 tag 中原本不含该段落时，跳过。找不到 git 或当前目录不是仓库时跳过该检查并给出提示。已发布段落
 记录的是对应 tag 中的内容，tag 之后的改动一律写入 `[Unreleased]` 或下一个版本。
-`vX.Y.Z-beta.N` 形式的先行版 tag 不参与该比较：它标记的是测试包，其条目还在 `[Unreleased]`
-中，本来就会继续改动。该关卡的由来见 `reviews/2026-09-08/fix-status.md`
+先行版 tag（`vX.Y.Z-beta.N`）同样参与：先行版以自己的 `## [X.Y.Z-beta.N] - 日期` 段落发布，
+tag 中有该段落时它同样不得再改；旧流程的先行版 tag 中没有这样的段落，按无可保护跳过。该关卡的由来见 `reviews/2026-09-08/fix-status.md`
 （内部工作文档，不随仓库分发）的 H-9。
 
 上述无副作用的函数（读取版本号、归一化两种形状、判定 CHANGELOG 顶部段落、取出并比较已发布段落，
@@ -709,7 +714,8 @@ pwsh -File scripts/package.ps1 -Force -Verify   # 再解包运行一次，证明
 默认行为：
 
 1. 先做「版本预检」：按 §2 的规则核对 `CHANGELOG.md` 最上方的段落与版本号，并执行
-   `Assert-ReleasedChangelogSectionsUnchanged`。这两项不需要任何构建产物，因此在验证与构建之前进行，不符即打包失败，
+   `Assert-ReleasedChangelogSectionsUnchanged`，再按 §2 的「正式版本号」规则判断不带后缀的版本号能否在此打包
+   （`-AllowUnsuffixedVersion` 放行）。这几项不需要任何构建产物，因此在验证与构建之前进行，不符即打包失败，
    不必等正式口味构建完毕；可执行文件中的版本号仍在装配后由 `Assert-StagedVersion` 核对。
    随后读取一次源码状态（提交号、工作区是否有未提交改动、git 能否回答），再执行
    `scripts/verify.ps1 -Configuration <...> -Distribution`，使整条验证链路构建并测试的是正式口味（§3.7）。
@@ -828,7 +834,8 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
 3. **不打包 Npcap**（其免费版禁止外部再分发，见 [third-party-licenses.md](third-party-licenses.md)）。
 4. **不打包** `oo2net_9_win64.dll` 或任何游戏文件。
 5. **不打包** `deucalion-*.dll`（构建阶段已剔除；打包脚本需再做一次断言）。
-6. 默认先运行 `verify.ps1`，静态边界检查必须通过；只有显式指定 `-SkipVerify` 才允许跳过，此时产物仅适用于本地联调。
+6. 默认先运行 `verify.ps1`，静态边界检查必须通过；只有显式指定 `-SkipVerify` 才允许跳过，此时产物仅适用于本地联调，
+   且版本号必须带先行版后缀（除非显式给出 `-AllowUnsuffixedVersion`，见 §2）。
 
 `PUBLIC_DISTRIBUTION_READY` **不是固定字面量**，而是 `package.ps1` 按一组前提计算并
 写入 `BUILD-METADATA.json` 的实测值。前提不满足时，`public_distribution_blockers` 会逐条
@@ -914,7 +921,9 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
   此外正式构建的桌面端内嵌 `:/qt/etc/qt.conf`（§3.7），Qt 读取它先于磁盘上的这两个文件，因此即使在 `[InstallDelete]`
   执行之前，放入 `{app}` 的 `qt.conf` 或 `qt6.conf` 也不能改变桌面端加载插件与 QML 模块的位置；Collector 不读取这两个文件。
   可执行文件不在此列（卸载程序 `unins*.exe` 由 Setup 在每次升级时重写）。从 1.5.0 及更早版本升级时，另删除已不再使用的外部应用程序清单
-  `{app}\MentorRecorder.Desktop.exe.manifest`（清单已内嵌在程序中）。
+  `{app}\MentorRecorder.Desktop.exe.manifest`（清单已内嵌在程序中）。开始菜单中本软件文件夹里的快捷方式（`{group}\*.lnk`）
+  也在此时清除，再由 `[Icons]` 按本次安装语言重建：卸载快捷方式以安装语言命名，以另一种语言升级时否则会有两个并存。
+  该文件夹只属于本软件（`DefaultGroupName={#AppName}`，`DisableProgramGroupPage=yes`）。
 - **这项保护的范围。** 它针对的是安装文件夹自身，以下情形不在其内，与不受信任的用户共用的电脑应安装到
   `Program Files`：上级目录若允许普通用户删除或重命名其中的条目（例如对 Users 授予完全控制的数据盘根目录），
   其他本机用户仍可在软件未运行时把整个安装文件夹改名并换成自己的文件夹；`[InstallDelete]` 的删除失败时
@@ -943,8 +952,8 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
   「开机启动」设置随其余数据保留，以后的安装在该设置为开时启动一次即重新登记。安装程序本身从不写入该值。
   手动删除程序文件夹不会删除该启动项。
 - 安装与升级均显示语言选择，提供 English、简体中文、繁體中文、日本語，默认选中 Windows 显示语言对应的一项
-  （`LanguageDetectionMethod=uilanguage`：先找语言编号完全相同的一项，再找主语言相同的一项，简体与繁体中文互不替代；
-  都没有时用列表第一项 English），选择框本身也以该语言显示；显式 `/LANG` 和静默参数仍遵循 Inno Setup 原有规则。
+  （`LanguageDetectionMethod=uilanguage`：先找语言编号完全相同的一项，再找主语言相同的一项；主语言匹配时只排除另一种中文
+  （繁体系统不选简体，反之亦然），因此 zh-HK、zh-MO 选中繁體中文，zh-SG 选中简体中文；都没有时用列表第一项 English），选择框本身也以该语言显示；显式 `/LANG` 和静默参数仍遵循 Inno Setup 原有规则。
   简体、繁体中文标准向导文本分别来自本地 `installer/ChineseSimplified.isl`、`installer/ChineseTraditional.isl`，英文与日文使用 Inno Setup 内置翻译。
   安装器在程序文件夹写入 `installer-language.ini`，不直接写用户的 `desktop.ini`。正式软件仅在首次正常启动、尚无个人设置文件时读取它并保存语言；升级保留已有软件语言，之后仍可在设置中切换。
   开发构建、截图与 mock 运行以及显式 `--ui-language` 不使用此默认值；无默认文件的 ZIP 包维持原有简体中文默认。
@@ -952,7 +961,7 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
 ### 5.4 GitCode 镜像
 
 本仓库及其发布页同步到 GitCode 上的同名镜像 `https://gitcode.com/Harendotes-Tang/MentorRouletteRecorder`；
-更新检查与软件内下载在 GitHub 不可达时读取该镜像（见 [privacy-boundary.md](privacy-boundary.md) §8.4、§8.6）。
+更新检查在 GitHub 不可达时、软件内下载在 GitHub 不可达或下载过慢且用户同意改用镜像时读取该镜像（见 [privacy-boundary.md](privacy-boundary.md) §8.4、§8.6）。
 校准数据仓库 `MentorRecorder-Calibrations` 另有 GitCode 镜像（§8.2），其分支清理同样由本仓库的工作流执行。
 同步由下列三个工作流完成，脚本位于 `tools/release-mirror/`。三个工作流都只在仓库
 `Harendotes-Tang/MentorRouletteRecorder` 中运行，权限为 `contents: read`，并且总是检出 `main`，运行的是
@@ -999,6 +1008,7 @@ Windows 10/11；没有内嵌清单或任一项不符即打包失败。可执行�
 **分支与测试版标签清理（`cleanup_refs.py`）。** 计划另有一个 `tags` 列表，用于删除 GitHub 上已撤下的测试版标签：
 只接受 `vX.Y.Z-后缀` 形式的标签，正式版标签不能列入；每条写明仓库、标签和镜像上该标签应有的对象号，不需要锚点，
 判定与删除方式和分支相同。GitCode 没有删除发布页的公开接口，实测删除标签后其发布页随之消失；若仍在，须在 GitCode 网站上手动删除。
+撤下测试版时，同时在仓库中检索该标签（`git grep v<版本>`），把测试者指引等文档中的下载链接改为仍在的预发布。
 引用同步不删除镜像上的分支，需要删除的分支逐条写入
 `tools/release-mirror/cleanup-plan.json`。该计划是清理的唯一依据，命令行不能另行指定计划、分支、提交或目标。
 每条记录写明仓库、分支（只接受 `refs/heads/` 下的名称，`main` 与 `dev` 不能列入）、镜像上该分支应有的提交号，

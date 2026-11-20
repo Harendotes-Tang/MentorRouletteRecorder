@@ -32,6 +32,53 @@ public sealed class CapturePipelineTests
         Assert.IsAssignableFrom<IMachinaMonitor>(monitor);
     }
 
+    /// <summary>
+    /// Audit 2026-11-20, A2b-1. A trace stamps its markers with its own clock; the source must
+    /// stamp the messages with that same clock, or every message reads later than a marker typed
+    /// at the same instant.
+    /// </summary>
+    [Fact]
+    public void MachinaMonitor_StampsMessagesWithTheClockItWasGiven()
+    {
+        var now = TimeSpan.FromMilliseconds(1234);
+        using var source = new MachinaCaptureSource(RotatingFileLogger.Disabled, mono: () => now);
+        var observer = new CountingCaptureObserver();
+        typeof(MachinaCaptureSource).GetField("_observer", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(source, observer);
+        typeof(MachinaCaptureSource).GetField("_options", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(source, new CaptureStartOptions("test", 1, null, null, OodleMode.FfxivTcp, null, null));
+        var segment = new byte[FfxivFraming.HeaderBytes];
+        segment[0] = FfxivFraming.HeaderBytes;
+        segment[12] = (byte)FfxivFraming.SegmentTypeIpc;
+
+        typeof(MachinaCaptureSource).GetMethod("OnMessage", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(source, new object?[] { null, 0L, segment, MessageDirection.Inbound });
+        now = TimeSpan.FromMilliseconds(5678);
+
+        Assert.Equal(1, observer.Messages);
+        Assert.Equal(TimeSpan.FromMilliseconds(1234), observer.Last!.Mono);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-20, A2b-1. The evidence round and the command-line trace both build their live
+    /// source through <see cref="CaptureTraceServices.CreateSource"/> with the clock their sink stamps
+    /// markers with; the source must keep that very clock, not start its own. A substituted source is
+    /// used as given.
+    /// </summary>
+    [Fact]
+    public void ATraceBuildsItsLiveSourceOnTheRoundsOwnClock()
+    {
+        Func<TimeSpan> roundClock = () => TimeSpan.FromMilliseconds(42);
+
+        using var live = Assert.IsType<MachinaCaptureSource>(
+            new CaptureTraceServices().CreateSource(oodleTempManifestPath: null, roundClock));
+        Assert.Same(roundClock, live.Mono);
+
+        var substituted = new FakeCaptureSource();
+        Assert.Same(substituted, new CaptureTraceServices { SourceFactory = () => substituted }
+            .CreateSource(oodleTempManifestPath: null, roundClock));
+    }
+
     [Theory]
     [InlineData("DEBUG-MACHINA: FFXIVBundleDecoder: Oodle Decompression failure.", 1, null)]
     [InlineData("DEBUG-MACHINA: FFXIVBundleDecoder: Oodle Decompression error: invalid state", 1, null)]
@@ -444,7 +491,13 @@ public sealed class CapturePipelineTests
 
         public int Messages { get; private set; }
 
-        public void OnMessage(DecodedMessage message) => Messages++;
+        public DecodedMessage? Last { get; private set; }
+
+        public void OnMessage(DecodedMessage message)
+        {
+            Messages++;
+            Last = message;
+        }
 
         public void OnDecodeError() => DecodeErrors++;
 

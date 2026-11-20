@@ -31,7 +31,7 @@ internal sealed class UpdateDownloadTransfer
     private readonly UpdateDownloadLimits _limits;
     private readonly string _version;
     private readonly Action<UpdateDownloadSnapshot> _publish;
-    private readonly Func<CancellationToken, Task<bool>> _offerMirror;
+    private readonly Func<CancellationToken, Task<bool?>> _offerMirror;
     private long? _total;
     private long _receivedBytes;
 
@@ -41,14 +41,17 @@ internal sealed class UpdateDownloadTransfer
     /// <param name="limits">Size cap, idle and overall limits.</param>
     /// <param name="version">A published version: three plain numbers.</param>
     /// <param name="publish">Receives every change of state: progress, then VERIFYING.</param>
-    /// <param name="offerMirror">Asks the Desktop to resolve a faster-mirror offer until the attempt ends.</param>
+    /// <param name="offerMirror">
+    /// Asks the Desktop to resolve a faster-mirror offer until the attempt ends: true to switch, false declined,
+    /// null when the offer could not be made at all (the download had already left DOWNLOADING).
+    /// </param>
     public UpdateDownloadTransfer(
         UpdateCheckClient client,
         UpdateDownloadFiles files,
         UpdateDownloadLimits limits,
         string version,
         Action<UpdateDownloadSnapshot> publish,
-        Func<CancellationToken, Task<bool>> offerMirror)
+        Func<CancellationToken, Task<bool?>> offerMirror)
     {
         _client = client;
         _files = files;
@@ -61,12 +64,15 @@ internal sealed class UpdateDownloadTransfer
     }
 
     /// <summary>
-    /// What became of the GitCode offer, for the local log: null while none was made, else
-    /// <c>declined</c>, <c>switched</c>, <c>not_switched_faster_primary</c> (GitHub caught up while
-    /// the player decided), <c>not_switched_mirror_unavailable</c> (the mirror could not be
-    /// re-opened in time, or no longer matched) or <c>not_switched_primary_ended</c> (GitHub
-    /// finished, or the download was stopped, while the mirror was being re-opened). The download is correct either way; without this
-    /// nothing says that a switch the player chose did not happen (audit 2026-11-19, F-2).
+    /// What became of the GitCode offer, for the local log and the attempt's final <c>download.mirror_outcome</c>:
+    /// null while none was answered by the player, else
+    /// <c>declined</c>, <c>switched</c> (the rest of the file really came from GitCode),
+    /// <c>not_switched_faster_primary</c> (GitHub caught up while the player decided),
+    /// <c>not_switched_mirror_unavailable</c> (the mirror could not be re-opened in time, or no longer matched) or
+    /// <c>not_switched_primary_ended</c> (GitHub finished, failed or the download was stopped before the switch
+    /// took effect). The download is correct either way; without this nothing says that a switch the player chose
+    /// did not happen (audit 2026-11-19 F-2, 2026-11-20 F-2). Cleared again when GitHub then fails and the
+    /// download falls back to GitCode by itself, which no answer to the offer describes.
     /// </summary>
     public string? MirrorOutcome { get; private set; }
 
@@ -116,6 +122,9 @@ internal sealed class UpdateDownloadTransfer
                 !overall.IsCancellationRequested && !cancellation.IsCancellationRequested && ex.ErrorType != "KEPT_FILE_CHANGED")
             {
                 primaryFailure = ex;
+                // The download now goes to GitCode on its own, whatever the player answered: an earlier
+                // answer no longer says where the file comes from (re-review 2026-11-20, R2-1).
+                MirrorOutcome = null;
             }
             catch (UpdateDownloadFailedException ex) when (source == UpdateSource.GitCode && primaryFailure is not null &&
                 ex.Failure is not UpdateDownloadFailure.DiskFailed and not UpdateDownloadFailure.Disabled and not UpdateDownloadFailure.ChecksumMismatch)
@@ -165,7 +174,9 @@ internal sealed class UpdateDownloadTransfer
                 catch (UpdateDownloadFailedException ex) when (
                     ex.Failure == UpdateDownloadFailure.Timeout && !overall.IsCancellationRequested)
                 {
+                    // Only here does the mirror take over; every other way out keeps GitHub's result.
                     switched = true;
+                    MirrorOutcome = "switched";
                     return (null, mirror);
                 }
             }
@@ -199,10 +210,13 @@ internal sealed class UpdateDownloadTransfer
 
             var decisionStart = Stopwatch.GetTimestamp();
             primaryBytes = ReceivedBytes;
-            if (!await _offerMirror(cancellation).ConfigureAwait(false))
+            switch (await _offerMirror(cancellation).ConfigureAwait(false))
             {
-                MirrorOutcome = "declined";
-                return null;
+                case null:
+                    return null;
+                case false:
+                    MirrorOutcome = "declined";
+                    return null;
             }
 
             primaryRate = Math.Max(primaryRate, Rate(ReceivedBytes - primaryBytes, decisionStart, minimumSeconds: 1));
@@ -220,10 +234,15 @@ internal sealed class UpdateDownloadTransfer
             reopen.CancelAfter(ProbeTimeout);
             var installer = await OpenAsync(UpdateSource.GitCode, cancellation, reopen.Token).ConfigureAwait(false);
             primaryRate = Math.Max(primaryRate, Rate(ReceivedBytes - primaryBytes, decisionStart, minimumSeconds: 1));
-            if (!cancellation.IsCancellationRequested && installer.ContentLength == total &&
+            if (cancellation.IsCancellationRequested)
+            {
+                MirrorOutcome = "not_switched_primary_ended";
+            }
+            else if (installer.ContentLength == total &&
                 MirrorFinishesSooner(total, ReceivedBytes, primaryRate, mirror.BytesPerSecond, setupSeconds: 0))
             {
-                MirrorOutcome = "switched";
+                // Re-opened; StorePrimaryAsync turns this into "switched" only if GitHub is still reading.
+                MirrorOutcome = "not_switched_primary_ended";
                 return installer;
             }
             installer.Dispose();

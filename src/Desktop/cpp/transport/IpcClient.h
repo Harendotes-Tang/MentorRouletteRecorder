@@ -21,6 +21,7 @@
 // ---------------------------------------------------------------------------
 
 #include <QByteArray>
+#include <QDeadlineTimer>
 #include <QHash>
 #include <QJsonObject>
 #include <QLocalSocket>
@@ -119,7 +120,9 @@ private:
 
     struct Pending {
         QPointer<BackendReply> reply;
-        qint64 deadline = 0;
+        /// Monotonic: a step of the system clock neither stretches nor ends it
+        /// (review 2026-11-20 I5-3).
+        QDeadlineTimer deadline;
     };
 
     QLocalSocket *m_socket = nullptr;

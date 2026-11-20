@@ -135,6 +135,81 @@ private Q_SLOTS:
         scene.window()->show();
         QCOMPARE(scene.filter()->property("endText").toString(), QStringLiteral("2026-12-01"));
     }
+
+    /// A held preset slides again once released, but only after the event that released it:
+    /// 「取消勾选并更改」 applies the confirmed filter first (audit 2026-11-20, K3-3).
+    void aHeldPresetSlidesAfterTheReleaseIsOver()
+    {
+        Scene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        QVERIFY(scene.choose("today"));
+        QObject *filter = scene.filter();
+        QSignalSpy applied(filter, SIGNAL(relativeRangeChanged()));
+        filter->setProperty("holdRelativeRange", true);
+        scene.root->setProperty("today", "2026-12-01");
+        QVERIFY(scene.refresh());
+        QCOMPARE(filter->property("preset").toString(), QStringLiteral("custom"));
+        QCOMPARE(filter->property("heldPreset").toString(), QStringLiteral("today"));
+        QCOMPARE(filter->property("endText").toString(), QStringLiteral("2026-11-30"));
+        QCOMPARE(applied.count(), 0);
+
+        filter->setProperty("holdRelativeRange", false);
+        // Deferred: nothing moves inside the change that released the hold.
+        QCOMPARE(filter->property("preset").toString(), QStringLiteral("custom"));
+        QCOMPARE(applied.count(), 0);
+        QTRY_COMPARE(filter->property("preset").toString(), QStringLiteral("today"));
+        QCOMPARE(filter->property("endText").toString(), QStringLiteral("2026-12-01"));
+        QCOMPARE(filter->property("heldPreset").toString(), QString());
+        QCOMPARE(applied.count(), 1);
+    }
+
+    /// A filter with other dates mirrored while the preset is held drops the held preset.
+    void aMirroredFilterDropsTheHeldPreset()
+    {
+        Scene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        QVERIFY(scene.choose("today"));
+        QObject *filter = scene.filter();
+        QSignalSpy applied(filter, SIGNAL(relativeRangeChanged()));
+        filter->setProperty("holdRelativeRange", true);
+        scene.root->setProperty("today", "2026-12-01");
+        QVERIFY(scene.refresh());
+        QCOMPARE(filter->property("heldPreset").toString(), QStringLiteral("today"));
+        filter->setProperty("startText", "2026-11-02");
+        QCOMPARE(filter->property("heldPreset").toString(), QString());
+        filter->setProperty("holdRelativeRange", false);
+        QTest::qWait(50);
+        QCOMPARE(filter->property("preset").toString(), QStringLiteral("custom"));
+        QCOMPARE(filter->property("startText").toString(), QStringLiteral("2026-11-02"));
+        QCOMPARE(applied.count(), 0);
+    }
+
+    /// 自定义 left without a date filters nothing, so the button says 全部时间 again; with a
+    /// date typed it stays 自定义 (audit 2026-11-20, K3-4).
+    void customWithoutDatesFallsBackToAllWhenTheMenuCloses()
+    {
+        Scene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        QObject *filter = scene.filter();
+        QObject *menu = filter->property("menu").value<QObject *>();
+        QVERIFY(menu);
+        QVERIFY(scene.choose("custom"));
+        QVERIFY(filter->property("selected").toBool());
+        QVERIFY(QMetaObject::invokeMethod(menu, "open"));
+        QTRY_VERIFY(menu->property("opened").toBool());
+        QVERIFY(QMetaObject::invokeMethod(menu, "close"));
+        QTRY_COMPARE(filter->property("preset").toString(), QStringLiteral("all"));
+        QVERIFY(!filter->property("selected").toBool());
+
+        QVERIFY(scene.choose("custom"));
+        filter->setProperty("startText", "2026-11-02");
+        QVERIFY(QMetaObject::invokeMethod(menu, "open"));
+        QTRY_VERIFY(menu->property("opened").toBool());
+        QVERIFY(QMetaObject::invokeMethod(menu, "close"));
+        QTRY_VERIFY(!menu->property("visible").toBool());
+        QCOMPARE(filter->property("preset").toString(), QStringLiteral("custom"));
+        QVERIFY(filter->property("selected").toBool());
+    }
 };
 } // namespace
 

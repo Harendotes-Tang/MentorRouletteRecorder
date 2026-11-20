@@ -301,8 +301,11 @@ Window {
                     width: scroll.availableWidth
                     spacing: 8
                     Text {
+                        objectName: "floatingDataNotReady"
                         Layout.fillWidth: true
-                        visible: !Runtime.app.achievementSettingsLoaded
+                        // What the float shows, not the 成就 editor's region, which may be
+                        // another one still being read (audit 2026-11-10 L3-3).
+                        visible: !ov.progressKnown
                         text: qsTr("数据暂未就绪，已有统计可能不是最新。")
                         wrapMode: Text.WordWrap
                         color: Theme.orangeText

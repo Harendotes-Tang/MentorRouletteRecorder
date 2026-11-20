@@ -162,10 +162,12 @@ SQLitePCLRaw 的原始包声明、包哈希、实际发布 DLL 哈希及 Apache-
 ### 内置图标（ISC License）
 
 按钮上的线条图标来自 **Lucide**（<https://lucide.dev>），版本 1.76.0，许可证 ISC，
-版权 Copyright (c) 2026 Lucide Icons and Contributors。其中 `calendar`、`chevron-left`、
-`chevron-right`、`chevrons-down`、`clock`、`moon`、`plus`、`radio`、`server`、`target`、`x` 十一个由 Lucide 从 **Feather** 项目派生，同时受
+版权 Copyright (c) 2026 Lucide Icons and Contributors。所用 69 个图标中，`arrow-down`、`arrow-right`、
+`arrow-up`、`calendar`、`check`、`chevron-down`、`chevron-left`、`chevron-right`、`chevrons-down`、
+`circle-alert`、`circle-help`、`clock`、`frown`、`info`、`lock`、`log-out`、`meh`、`minimize-2`、
+`minus`、`moon`、`plus`、`radio`、`search`、`server`、`smile`、`square`、`target`、`x` 二十八个由 Lucide 从 **Feather** 项目派生，同时受
 **The MIT License (MIT)**，Copyright (c) 2013-present Cole Bemis 约束；该名单列于 Lucide 的
-许可证文件中。SVG 原件与许可证全文（ISC 与 MIT 两段）位于
+许可证文件中（`circle-alert`、`circle-help` 在名单上写作旧名 `alert-circle`、`help-circle`）。SVG 原件与许可证全文（ISC 与 MIT 两段）位于
 `src/Desktop/resources/icons/lucide/`。进入构建产物的是由其生成的
 `src/Desktop/qml/components/Lucide.js`，该文件头部载有 ISC 与 MIT 两份版权与许可声明，随
 `MentorRecorder.Desktop.exe` 的 QML 模块一并编入。逐项说明见

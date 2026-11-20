@@ -113,6 +113,9 @@ class UpdateController final : public QObject
     /// 0..1 while the size is known, -1 when the server declared none.
     Q_PROPERTY(qreal downloadProgress READ downloadProgress NOTIFY changed)
     Q_PROPERTY(QString mirrorOfferId READ mirrorOfferId NOTIFY changed)
+    /// One sentence when the player chose GitCode and the download did not switch
+    /// (`download.mirror_outcome` not_switched_*); empty otherwise (audit 2026-11-20, F-2).
+    Q_PROPERTY(QString mirrorNotice READ mirrorNotice NOTIFY changed)
     /// The sentence of the last 立即安装 that started nothing; empty otherwise.
     Q_PROPERTY(QString installProblem READ installProblem NOTIFY changed)
     /// This process is computing the installer's SHA-256 before starting it.
@@ -198,6 +201,7 @@ public:
     QString downloadStatusText() const;
     qreal downloadProgress() const;
     QString mirrorOfferId() const;
+    QString mirrorNotice() const;
     QString installProblem() const { return m_installProblem.text(); }
     bool verifyingInstaller() const { return m_hasher != nullptr; }
     bool browserFallbackOffered() const;
@@ -274,6 +278,8 @@ private:
         /// an invalid QVariant from a Collector that sends none.
         QVariant messageRef;
         QString mirrorOfferId;
+        /// What became of a GitCode offer, on the attempt's final snapshot; empty with none.
+        QString mirrorOutcome;
         qint64 receivedBytes = 0;
         /// -1 when the server declared no size.
         qint64 totalBytes = -1;

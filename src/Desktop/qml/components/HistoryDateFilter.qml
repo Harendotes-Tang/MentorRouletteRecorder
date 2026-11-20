@@ -17,7 +17,13 @@ HistoryFilterButton {
     // stay as applied and the preset says 自定义 until this is released; then it slides again.
     property bool holdRelativeRange: false
     property string heldPreset: ""
-    onHoldRelativeRangeChanged: {
+    // Released once the event that released it is over: when 「取消勾选并更改」 clears the
+    // ticks, the page first applies the filter the player confirmed, and only then does the
+    // range slide to today - instead of sliding in the middle and being overwritten by the
+    // confirmed filter's old dates, which lost the preset (audit 2026-11-20, K3-3). A filter
+    // with other dates mirrored meanwhile clears heldPreset (the fields' onTextChanged).
+    onHoldRelativeRangeChanged: if (!holdRelativeRange) Qt.callLater(control.releaseHeldPreset)
+    function releaseHeldPreset() {
         if (holdRelativeRange || heldPreset.length === 0) return
         preset = heldPreset
         heldPreset = ""
@@ -64,6 +70,10 @@ HistoryFilterButton {
         function onClosed() {
             fromInput.closeCalendar()
             toInput.closeCalendar()
+            // 自定义 chosen and left without a date filters nothing: the button says so
+            // instead of staying highlighted (audit 2026-11-20, K3-4).
+            if (control.preset === "custom" && !fromInput.text && !toInput.text)
+                control.syncPreset()
             if (control.visible && control.windowActive)
                 control.forceActiveFocus(Qt.PopupFocusReason)
         }

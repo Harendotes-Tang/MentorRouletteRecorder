@@ -178,6 +178,9 @@ protocol-profiles/
 
 `u8` `u16` `u32` `i32` `u64` `bytes`。
 `bytes` 必须带 `length`；其余类型不得带 `length`。
+解析器不从 `bytes` 字段读取值，因此 `bytes` 字段不得带 `constraints` 或 `role`（`E_PROFILE_CONSTRAINT`），
+各消息的必需字段（例如 `roulette_id`、`territory_id`、`outcome`、`job_id`）也必须是整数类型，声明为 `bytes`
+即 `E_PROFILE_MISSING_FIELD`。`tools/protocol-profile-validator/validate.py` 以同样的规则拒绝。
 `endian` 默认 `little`，且**不做猜测**：档案未声明为大端时，一律按小端读取。
 `offset` 是相对于**IPC 头之后的报文体**起始处的字节偏移
 （即 `DecodedMessage.Payload` 的起点）。
@@ -668,7 +671,8 @@ VERIFIED 模板还必须有 `field = "calibration.finder_request.roulette_field"
 并且随每次游戏更新改变。在档案中声明它，就要在每次更新后重新找出这个 opcode；
 按「整场只出现一次」寻找结算报文的做法（[live-validation-guide.md](live-validation-guide.md) §7.5）也找不到它。
 结算的内容却是完全确定的，因此采集服务不读取 opcode，只比较内容。
-它与 §13 的副本开始宣布、剩余时间是代码中仅有的按常量识别报文之处（§1），本节的常量集中在
+它与 §13 的副本开始宣布、剩余时间是代码中仅有的按常量识别报文之处；此外，区分登录角色所用的登录报文按形状识别（§14），
+同样不属于档案（§1）。本节的常量集中在
 `src/Collector/Protocol/Parsing/DutyClearSignal.cs`。
 
 ### 12.1 判据

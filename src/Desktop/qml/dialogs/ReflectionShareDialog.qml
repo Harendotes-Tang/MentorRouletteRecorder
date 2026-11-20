@@ -110,7 +110,9 @@ MotionDialog {
         if (controller) controller.resetFeedback()
     }
     function moveRun(from: int, to: int): bool {
-        if (!visible || exiting || busy || from === to || from < 0 || to < 0
+        // A drag under way holds row indexes into this order: nothing else may change it
+        // until the drag has ended (audit 2026-11-20 L2-1). completeDrag ends it first.
+        if (!visible || exiting || busy || dragFrom >= 0 || from === to || from < 0 || to < 0
                 || from >= runsData.length || to >= runsData.length) return false
         const reordered = Array.from(runsData)
         reordered.splice(to, 0, reordered.splice(from, 1)[0])

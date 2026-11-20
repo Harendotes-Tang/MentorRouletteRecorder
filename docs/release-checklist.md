@@ -78,7 +78,7 @@
 | 26 | 诊断日志不写入敏感数据、按大小滚动 | `DiagnosticsLogHygieneTests`（14 项，**0 跳过**）：profile 路径 / IPv4 / IPv6 / SID / 长十六进制串五类全部兜底脱敏，另有一项反向断言 12 位短哈希 id 不被误删 | **PASS** | 见第 6 节 |
 | 27 | 发布包不含禁止内容、含齐全许可证材料 | `package.ps1` 的 `Assert-NoForbiddenPayload` + `Assert-RequiredContent`，打包目录与**解包目录**各查一次；另由 `Assert-DesktopExecutable` 在暂存前与解包后核对桌面端内嵌的应用程序清单，并拒绝以开发用 Collector 查找（`MR_DEV_COLLECTOR_DISCOVERY`）编译的程序与开发构建（`MR_DEV_BUILD`：带有开发口味标记，或缺少正式口味标记） | **PASS** | 见第 2 节 |
 | 28 | 桌面端被强杀后不留孤儿 Collector | 桌面端固定以 `--serve --parent-pid <自身 pid>` 拉起子进程；`ParentProcessWatchdog` 用 `Process.GetProcessById` + `WaitForExitAsync`（**进程存在性检查，非 `OpenProcess`**）等父进程结束，随后走与 Ctrl+C 完全相同的停止路径，10 秒硬退出兜底。`LifecycleOrphanTests`（2 项，真进程：杀掉替身父进程后断言 Collector 15 s 内退出、退出码 0、`integrity_check = ok`、无残留未关闭的抓包会话）、`WatchdogTests`（21 项，含父进程身份核对）、Qt `LifecycleTests::theCollectorIsAlwaysToldOurProcessIdSoItCannotBeOrphaned` | **PASS** | 集成 TRX；ctest |
-| 29 | 已发布的 CHANGELOG 段落在打 tag 之后不被改写 | `package.ps1` 的 `Assert-ReleasedChangelogSectionsUnchanged`：对每个 `vX.Y.Z` tag，把工作区 `CHANGELOG.md` 里的 `## [X.Y.Z]` 段落与 `git show <tag>:CHANGELOG.md` 的同名段落比较，标题行（含日期）与正文逐字一致；段落被删除或标题被改名同样算作改动，任一不符即打包失败。新的变更只能写进 `[Unreleased]` 或下一个版本 | **PASS** | 打包脚本；缘由见内部工作文档 `reviews/2026-09-08/fix-status.md` 第 H-9 条，该文档不随仓库分发 |
+| 29 | 已发布的 CHANGELOG 段落在打 tag 之后不被改写 | `package.ps1` 的 `Assert-ReleasedChangelogSectionsUnchanged`：对每个 `vX.Y.Z` 或 `vX.Y.Z-beta.N` tag，把工作区 `CHANGELOG.md` 里的同名段落与 `git show <tag>:CHANGELOG.md` 的同名段落比较，标题行（含日期）与正文逐字一致；段落被删除或标题被改名同样算作改动，任一不符即打包失败。tag 中没有同名段落的旧流程先行版无可保护，跳过。新的变更只能写进 `[Unreleased]` 或下一个版本 | **PASS** | 打包脚本；缘由见内部工作文档 `reviews/2026-09-08/fix-status.md` 第 H-9 条，该文档不随仓库分发 |
 | 30 | 软件内下载并安装更新：下载、核对、Windows 的管理员批准提示、本软件退出、安装程序完成更新 | 自动化（不联网）：`UpdateChecksumTests`、`UpdateDownloadServiceTests`、`UpdateDownloadFailureTests`、`UpdateDownloadDiskTests` 与集成测试 `UpdateDownloadIpcTests` 都使用替身传输层；ctest `MentorRecorderUpdateInstall`、`MentorRecorderInstallerHold` 与 `MentorRecorderQmlUpdateDownload_*`，模拟后端从不启动安装程序。真机：在装有旧版本的机器上，待新版本的安装程序及其 `.sha256` 按第 2 节发布后，点「下载安装包」，确认下载进度持续更新、「取消」后数据目录 `updates\` 中不留 `.part`；再次下载至「立即安装」，确认安装程序被持有期间 Windows 仍弹出管理员批准提示、安装程序的向导仍能出现；批准提示显示期间，`updates\` 中的安装程序不能被删除或改名；选「否」时本软件继续运行并说明原因，此后该文件可以删除；选「是」时本软件退出、采集服务正常停止、安装程序的向导完成更新；新版本下次启动后 `updates\` 中不再留有已用过的安装程序 | **UNVERIFIED** | 自动化部分见 TRX 与 ctest；真机部分待执行 |
 
 **真机验收须补充的条目**：第 16 项（高 DPI 实机缩放）、第 30 项（软件内下载并安装更新），以及全部与真实抓包相关的行为。
@@ -433,6 +433,10 @@ Get-Content <解包目录>\BUILD-METADATA.json | ConvertFrom-Json |
 - `BUILD-METADATA.json` 中 `version` 为完整版本号、`prerelease` 为 `true`，
   `public_distribution_ready` 恒为 `false`（第 7 节）。
 
+不带后缀的版本号一经交到别人手里就被用掉了：之后真正发布的同号版本不会被当作更新提供。因此打包脚本在验证与构建之前
+（「版本预检」）拒绝打出不带先行版后缀的版本，除非 HEAD 正是它的发布提交（标题为 `chore(release): X.Y.Z`）且没有使用
+`-SkipVerify`。`-AllowUnsuffixedVersion` 可以显式放行，只用于有意的例外，绝不用于测试包。
+
 更新检查的判定规则：`X.Y.Z-beta.N` 比 `X.Y.Z` 旧，比任何更低的发布号新；
 `beta.10` 比 `beta.9` 新（按数字比较，不按文本）。因此运行 `1.4.0-beta.2` 的机器会被告知
 `1.4.0` 可用，而不会被 `1.3.9` 打扰；运行正式版的机器在任何情况下都不会被引向先行版。
@@ -452,9 +456,14 @@ pwsh -NoProfile -File scripts/package.ps1 -Force -Verify
 git tag v1.4.0-beta.1                             # 可选：仅当需要作为预发布分发时
 ```
 
-`CHANGELOG.md` 此时最上方必须仍是 `## [Unreleased]`：测试包携带的条目尚未发布。
-打包脚本在运行验证与构建之前（「版本预检」，见 [build-and-package.md](build-and-package.md) §5）核对这一点。
-下一个测试包把 `VersionSuffix` 改为 `beta.2`，依此类推。
+同一发布提交把 `[Unreleased]` 下的条目移入新段落 `## [1.4.0-beta.1] - 日期`，放在一个空的 `## [Unreleased]` 之下：
+`CHANGELOG.md` 最上方必须仍是 `## [Unreleased]`，打包脚本在运行验证与构建之前（「版本预检」，见
+[build-and-package.md](build-and-package.md) §5）核对这一点；GitHub 预发布的说明取自这一段。打上 tag 之后，
+该段落与正式版段落一样受第 1 节第 29 项保护，不得再改；之后的变更写进 `[Unreleased]`。
+下一个测试包把 `VersionSuffix` 改为 `beta.2`，依此类推。正式发布时测试包的段落原样保留，正式版另起一段。
+
+作为预发布分发时，GitHub 发布页同样附带第 9.4 节列出的五个资产（含独立的 `BUILD-METADATA.json`，见第 2 节）；
+GitCode 镜像只复制其中的安装程序、zip 与二者的 `.sha256`（第 9.5 节）。
 
 改动版本号（测试包与正式版都一样）的同一提交中，须同时整理「本次更新」的展示文件
 `src/Desktop/resources/release-notes/presentation.json`：把其中的 `version` 改为新的完整版本号，并让每条注解按
@@ -476,7 +485,7 @@ git tag v1.4.0
 ```
 
 `package.ps1` 必须带 `-Verify`：未带时 `public_distribution_ready` 为 `false`（第 7 节第 7 条），GitCode 镜像
-也不会复制该正式版（见第 9.5 节）。打包期间工作区不得变动，包括其他会话的提交、切换分支或暂存改动；
+也不会复制该正式版（见第 9.5 节）。打包须在发布提交本身上运行，不得带 `-SkipVerify`，否则版本预检拒绝（第 9.2 节）。打包期间工作区不得变动，包括其他会话的提交、切换分支或暂存改动；
 源码状态在打包开始与写入元数据时不一致，打包即失败。
 
 正式版的 `CHANGELOG.md` 最上方必须就是 `## [1.4.0]`：打包脚本取第一个 `## [..]` 标题与版本号比对，

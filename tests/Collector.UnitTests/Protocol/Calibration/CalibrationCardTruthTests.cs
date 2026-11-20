@@ -262,6 +262,50 @@ public sealed class CalibrationCardTruthTests
     }
 
     /// <summary>
+    /// Audit 2026-11-20, Cb-1. The same guard for a draft that found the server's own announcement: it
+    /// replaces the inferred match, but the confirmation still writes the profile from the draft alone. One
+    /// that lost the job (a gearset change inside a zone load) or the territory (a second territory-shaped
+    /// message in every burst) is not offered beside a queue-inferred profile that records them.
+    /// </summary>
+    [Theory]
+    [InlineData("PLAYER_JOB")]
+    [InlineData("ZONE_TERRITORY")]
+    public void AnAnnouncementThatWouldDropTheTerritoryOrTheJobIsNotOffered(string dropped)
+    {
+        var inForce = CalibrationTrafficCases.Derive(CalibrationTrafficCases.QueueRequest).Messages;
+        var evening = dropped == "PLAYER_JOB"
+            ? WithoutTheExitJob(CalibrationTrafficCases.MarkerOffset)
+            : CalibrationTrafficCases.Traffic(CalibrationTrafficCases.MarkerOffset)
+                .Concat(new long[] { 5_010, 125_010, 215_010 }.Select((at, index) => CalibrationObserverTests.Message(
+                    MessageDirection.Inbound, CalibrationTrafficCases.DecoyTerritory,
+                    index == 1
+                        ? CalibrationObserverTests.Bytes(136, (2, 15), (3, 4))
+                        : CalibrationObserverTests.Bytes(136, (2, 0x88), (3, 0x13)),
+                    at)))
+                .OrderBy(message => message.Mono)
+                .ToArray();
+        var draft = CalibrationDraft.Derive(CalibrationTrafficCases.Observe(evening), CalibrationObserverTests.Template());
+        Assert.Equal(CalibrationDraftStatus.Ready, draft.Status);
+        Assert.Equal(CalibrationMatchSource.MarkerOffset, draft.MatchSource);
+        Assert.Contains(inForce, message => message.Name == dropped);
+        Assert.DoesNotContain(draft.Messages, message => message.Name == dropped);
+
+        var coordinator = new CalibrationCoordinator();
+        coordinator.Arm(CalibrationObserverTests.Template(), Region.Cn, CalibrationTrafficCases.Build);
+        coordinator.UseProvisional(
+            true, "cn.2026.09.01.0000.0000.local", new HashSet<string> { "MATCH_ANNOUNCED" }, inForce);
+        coordinator.Begin("calibration-session");
+        foreach (var message in evening
+            .Concat(CalibrationObserverTests.Noise(470_000, 490_000))
+            .OrderBy(message => message.Mono))
+        {
+            coordinator.Accept(message);
+        }
+
+        Assert.Equal(CalibrationState.Observing, coordinator.Snapshot().State);
+    }
+
+    /// <summary>
     /// The desktop tells "a profile is recording while the search goes on" from the profile id on
     /// the status. That id used to be set only by the confirmation itself, so after a restart, or
     /// after 清空进度并清空校准进度, the card fell back to "正在重新校准…期间不会生成记录" above a

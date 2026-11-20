@@ -40,7 +40,8 @@
 - 不内置或分发 Npcap、`oo2net_9_win64.dll`、`deucalion-*.dll` 或任何游戏客户端文件。
   随包分发的游戏图标依据 FINAL FANTASY XIV Materials Usage License 使用，范围与条件见
   [docs/third-party-licenses.md](docs/third-party-licenses.md)。
-- 不从 AGPL 许可的项目复制代码或常量表，不通过逆向游戏客户端获取内部结构。
+- 不从 AGPL 许可的项目复制代码或常量表，不通过逆向游戏客户端获取内部结构。允许在本机读取磁盘上的游戏文件
+  （例如为解压流量查找 Oodle 调用位置），范围与限制见 [docs/privacy-boundary.md](docs/privacy-boundary.md) §4。
 
 上述规则由 `tools/static-boundary-check` 静态检查强制执行，`scripts/verify.ps1` 会运行该检查。
 完整定义见 [docs/privacy-boundary.md](docs/privacy-boundary.md)。
@@ -56,7 +57,7 @@
 - 软件版本（"设置 → 关于"，或 `MentorRecorder.Collector.exe --version` 的输出）；
 - 区服与客户端版本；
 - 实际行为、期望行为与复现步骤；
-- 如有必要，附上"捕获诊断 → 导出脱敏诊断报告"生成的 JSON。
+- 如有必要，附上"捕获诊断 → 导出诊断报告"生成的 JSON。
 
 **请勿**在公开 issue 中粘贴原始报文、角色名或其他玩家的信息。
 

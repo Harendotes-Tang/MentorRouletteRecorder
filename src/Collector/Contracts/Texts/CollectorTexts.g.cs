@@ -101,6 +101,10 @@ public static partial class CollectorTexts
     public static UserText CalibrationCompletingJobFound() =>
         new("calibration.completing.job_found", "导随记录照常进行。已找到补全职业的信息，请核对下面的时间线，再点「核对并启用」；之后的新记录会自动带上职业。");
 
+    /// <summary><c>calibration.discard.evidence_busy</c>: 没能清空校准进度：保存校准进度的文件正被其他程序占用（例如安全软件正在检查它）。请稍后再点「清空校准进度」。</summary>
+    public static UserText CalibrationDiscardEvidenceBusy() =>
+        new("calibration.discard.evidence_busy", "没能清空校准进度：保存校准进度的文件正被其他程序占用（例如安全软件正在检查它）。请稍后再点「清空校准进度」。");
+
     /// <summary><c>calibration.discard_conflict</c>: retire_local_profile 与 restore_local_profile 不能同时为真。</summary>
     public static UserText CalibrationDiscardConflict() =>
         new("calibration.discard_conflict", "retire_local_profile 与 restore_local_profile 不能同时为真。");

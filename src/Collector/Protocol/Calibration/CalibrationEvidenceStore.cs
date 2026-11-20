@@ -221,6 +221,11 @@ public static class CalibrationEvidenceStore
     /// <summary>
     /// Removes the file for a build. Used when the player throws the evidence away and when a
     /// profile has been written, so neither decision is quietly undone by the next restart.
+    ///
+    /// A file that cannot be deleted throws (<see cref="IOException"/>, <see cref="UnauthorizedAccessException"/>):
+    /// swallowed, 清空校准进度 looked done while the old file stayed, refused every poorer save of the fresh
+    /// observer and came back at the next restart (audit 2026-11-10 C-1 / 2026-11-20 C-2). A missing file is
+    /// not an error.
     /// </summary>
     /// <param name="root">Directory holding the files.</param>
     /// <param name="region">Region of the running client.</param>
@@ -228,16 +233,10 @@ public static class CalibrationEvidenceStore
     public static void Delete(string root, Region region, string gameBuild)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(root);
-        try
+        var path = Path.Combine(root, FileNameFor(region, gameBuild));
+        if (File.Exists(path))
         {
-            var path = Path.Combine(root, FileNameFor(region, gameBuild));
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
+            File.Delete(path);
         }
     }
 

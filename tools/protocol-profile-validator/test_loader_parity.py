@@ -236,6 +236,46 @@ class LoaderParityTests(unittest.TestCase):
 
         self.assertIn("fixture 'fixtures/pop\\x00.bin': fixture path is invalid", errors)
 
+    # --- (f) a bytes field is never read for a value (audit 2026-11-20, D2-4) ---------------
+
+    def test_a_bytes_field_with_constraints_or_a_role_is_refused(self):
+        # ProfileMessageParser skips bytes fields, so the selector and its filter would never apply;
+        # ProfileLoader refuses it with E_PROFILE_CONSTRAINT.
+        document = copy.deepcopy(self.document)
+        field = document["messages"][0]["fields"][0]
+        self.assertEqual("finder_state", field["name"])
+        field["type"] = "bytes"
+        field["length"] = 1
+        self.write(document)
+
+        errors = self.assert_refused()
+
+        self.assertIn(
+            "CONTENT_FINDER_POP.finder_state: a bytes field cannot carry constraints or a role", errors)
+
+    def test_a_required_field_typed_bytes_is_refused(self):
+        # Every ZONE_TERRITORY would be refused for lacking its territory; ProfileLoader refuses the
+        # profile with E_PROFILE_MISSING_FIELD.
+        document = copy.deepcopy(self.document)
+        territory = next(m for m in document["messages"] if m["name"] == "ZONE_TERRITORY")
+        territory["fields"] = [{"name": "territory_id", "offset": 2, "type": "bytes", "length": 2}]
+        self.write(document)
+
+        errors = self.assert_refused()
+
+        self.assertIn("ZONE_TERRITORY: required field 'territory_id' must be an integer, not bytes", errors)
+
+    def test_a_plain_bytes_field_is_still_accepted(self):
+        # Guards the two cases above: a bytes field with a length and nothing else stays legal.
+        document = copy.deepcopy(self.document)
+        document["messages"][0]["fields"].append(
+            {"name": "spare", "offset": 20, "type": "bytes", "length": 2})
+        self.write(document)
+
+        code, errors = validate.validate(str(self.path), stamp=False)
+
+        self.assertEqual(0, code, errors)
+
     def test_an_absent_fixture_is_still_only_unverified(self):
         # Guards the case above: a missing fixture stays a warning in the Collector, not an error.
         document = copy.deepcopy(self.document)

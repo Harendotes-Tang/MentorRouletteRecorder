@@ -591,15 +591,17 @@ public sealed record CalibrationEvidenceSummary(
             ? (long)(last - first).TotalSeconds
             : 0L;
         var quiet = snapshot.LastMessageAtUtc is { } latest ? (long)(asOf - latest).TotalSeconds : -1L;
+        // The newest sixteen: evidence is carried for the life of a build, and the evening the player is
+        // asking about is the last one, not the first (audit 2026-11-20, Cb-2).
         var clustersAt = snapshot.Clusters
             .OrderBy(cluster => cluster.LoadStartedAtUtc)
             .Select(cluster => (long)(asOf - cluster.LoadStartedAtUtc).TotalSeconds)
-            .Take(16)
+            .TakeLast(16)
             .ToArray();
         var pairsAt = snapshot.Pairs
             .OrderBy(pair => pair.ReplyAtUtc)
             .Select(pair => (long)(asOf - pair.ReplyAtUtc).TotalSeconds)
-            .Take(16)
+            .TakeLast(16)
             .ToArray();
         var states = snapshot.FinderSelectors
             .OrderByDescending(entry => entry.Value)

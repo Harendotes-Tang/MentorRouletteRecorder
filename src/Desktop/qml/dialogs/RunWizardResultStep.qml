@@ -161,8 +161,13 @@ ColumnLayout {
                     wrapMode: Text.WordWrap
                 }
                 Text {
+                    objectName: "goalToggleCaption"
                     Layout.fillWidth: true
-                    text: qsTr("这里只补录指导者任务。\n关闭后不增加成就进度，仍计入次数、通关率等统计。")
+                    // A record of no character counts for nobody until it is assigned (audit
+                    // 2026-11-20 L1-1, the same rule as the progress preview).
+                    text: step.wizard.unassignedRecord
+                          ? qsTr("这条记录还没有分配角色，分配给角色后才计入该角色的进度。\n关闭后不增加成就进度，仍计入次数、通关率等统计。")
+                          : qsTr("这里只补录指导者任务。\n关闭后不增加成就进度，仍计入次数、通关率等统计。")
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fs(12)
                     wrapMode: Text.WordWrap
@@ -200,7 +205,7 @@ ColumnLayout {
             objectName: "markCompletedButton"
             visible: step.wizard.resultCode !== "COMPLETED" || !step.wizard.contributesToGoal
             compact: true
-            text: qsTr("已通关，计入进度")
+            text: step.wizard.unassignedRecord ? qsTr("已通关") : qsTr("已通关，计入进度")
             onClicked: step.wizard.markCompleted()
         }
     }

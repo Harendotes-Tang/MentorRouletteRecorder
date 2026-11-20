@@ -375,6 +375,90 @@ for ($i = 0; $i -lt $statements.Count; $i++) {{
                 outcome = self.version_preflight(heading, version)
                 self.assertFalse(outcome["refused"], outcome["message"])
 
+    # ------------------------- a release number is spent only by its release commit (M-2, audit 2026-11-20)
+
+    def unsuffixed_guard(self, version, *, skip_verify=False, allow=False, subject=None, failing_git=False):
+        if subject is not None:
+            git("commit", "-q", "--allow-empty", "-m", subject, cwd=self.repository)
+        return self.run_package_statements(f"""
+$RepoRoot = {ps_literal(self.repository)}
+$Version = {ps_literal(version)}
+$SkipVerify = [switch]${'true' if skip_verify else 'false'}
+$AllowUnsuffixedVersion = [switch]${'true' if allow else 'false'}
+$refusal = $null
+try {{
+    . ([scriptblock]::Create((Get-StatementRange '^\\$unsuffixedRefusal\\s*=' '^if \\(\\$unsuffixedRefusal\\)' -Inclusive))) 6>$null
+}}
+catch {{ $refusal = $_.Exception.Message }}
+$order = @{{}}
+for ($i = 0; $i -lt $statements.Count; $i++) {{
+    if ($statements[$i].Extent.Text -match '^\\$unsuffixedRefusal\\s*=') {{ $order['guard'] = $i }}
+    if ($statements[$i] -is [Management.Automation.Language.TryStatementAst] -and
+        $statements[$i].Body.Extent.Text.Contains('$VerifyScript')) {{ $order['verify'] = $i }}
+}}
+[ordered]@{{ refused = [bool]$refusal; message = [string]$refusal;
+             guard = $order['guard']; verify = $order['verify'] }} | ConvertTo-Json -Compress
+""", failing_git=failing_git)
+
+    def test_a_formal_version_off_its_release_commit_is_refused_before_verify(self):
+        outcome = self.unsuffixed_guard("9.9.9", subject="feat(desktop): include feedback in the 9.9.9 test build")
+        self.assertTrue(outcome["refused"])
+        self.assertIn("chore(release): 9.9.9", outcome["message"])
+        self.assertIn("-AllowUnsuffixedVersion", outcome["message"])
+        self.assertIsNotNone(outcome["guard"])
+        self.assertIsNotNone(outcome["verify"])
+        self.assertLess(outcome["guard"], outcome["verify"])
+
+    def test_a_formal_version_with_skip_verify_is_refused_even_on_its_release_commit(self):
+        outcome = self.unsuffixed_guard("9.9.9", skip_verify=True, subject="chore(release): 9.9.9")
+        self.assertTrue(outcome["refused"])
+        self.assertIn("-SkipVerify", outcome["message"])
+
+    def test_a_formal_version_whose_head_git_cannot_read_is_refused(self):
+        self.assertTrue(self.unsuffixed_guard("9.9.9", failing_git=True)["refused"])
+
+    def test_the_release_commit_a_prerelease_or_the_override_passes(self):
+        self.assertFalse(self.unsuffixed_guard("9.9.9", subject="chore(release): 9.9.9")["refused"])
+        self.assertFalse(self.unsuffixed_guard("9.9.9-beta.1", skip_verify=True, subject="wip")["refused"])
+        self.assertFalse(self.unsuffixed_guard("9.9.9", skip_verify=True, allow=True)["refused"])
+
+    # ------------------------- the Qt runtime deployment order (N2-1, audits 2026-11-10 to 2026-11-20)
+
+    def qt_runtime_calls(self):
+        return self.run_package_statements(r"""
+$names = @('Assert-QtPrivateRuntime', 'Install-QtGraphsRuntime', 'Assert-InstalledQtGraphsRuntime')
+$calls = @($ast.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.CommandAst] -and
+        ($node.GetCommandName() -in $names -or $node.CommandElements[0].Extent.Text -eq '$Windeployqt')
+}, $true) | Sort-Object { $_.Extent.StartOffset })
+$verifyBlock = @($statements | Where-Object {
+    $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Clauses[0].Item1.Extent.Text -eq '$Verify'
+})
+if ($verifyBlock.Count -ne 1) { throw 'The -Verify block was not found' }
+$block = $verifyBlock[0].Extent
+@($calls | ForEach-Object {
+    $name = if ($_.CommandElements[0].Extent.Text -eq '$Windeployqt') { 'windeployqt' } else { $_.GetCommandName() }
+    [ordered]@{
+        name = $name
+        verify = ($_.Extent.StartOffset -ge $block.StartOffset -and $_.Extent.EndOffset -le $block.EndOffset)
+        text = $_.Extent.Text
+    }
+}) | ConvertTo-Json -Compress -AsArray
+""")
+
+    def test_the_qt_runtime_is_deployed_checked_patched_and_rechecked_in_order(self):
+        # windeployqt copies the SDK's Qt6Graphs.dll, so the reviewed patch is restored only after it; the
+        # private-ABI check reads what windeployqt deployed; -Verify checks both again in the unpacked tree.
+        calls = self.qt_runtime_calls()
+        self.assertEqual(
+            [("windeployqt", False), ("Assert-QtPrivateRuntime", False), ("Install-QtGraphsRuntime", False),
+             ("Assert-QtPrivateRuntime", True), ("Assert-InstalledQtGraphsRuntime", True)],
+            [(call["name"], call["verify"]) for call in calls])
+        for call, target in zip(calls, ("$StageDir", "$StageDir", "$StageDir", "$unpacked", "$unpacked")):
+            with self.subTest(call=call["name"], target=target):
+                self.assertIn(target, call["text"])
+
     def build_metadata(self, *, verify):
         metadata = self.directory / "BUILD-METADATA.json"
         self.run_package_statements(f"""

@@ -7,6 +7,8 @@
 #include "QmlComponentTestSupport.h"
 #include <QDir>
 #include <QGuiApplication>
+#include <QImage>
+#include <QPair>
 #include <QPointer>
 #include <QQmlContext>
 #include <QQuickItem>
@@ -63,13 +65,56 @@ private slots:
     void navItem_showsThePageIconInsteadOfTheNumber();
     void noteImages_keyboardActions_data();
     void noteImages_keyboardActions();
+    void hourglass_drawsTheSandWhereItIs();
 };
+
+/// Dark pixels in the upper and the lower half of \a image.
+QPair<int, int> darkHalves(const QImage &image)
+{
+    int upper = 0;
+    int lower = 0;
+    for (int y = 0; y < image.height(); ++y)
+        for (int x = 0; x < image.width(); ++x)
+            if (qGray(image.pixel(x, y)) < 128) (y < image.height() / 2 ? upper : lower) += 1;
+    return {upper, lower};
+}
 } // namespace
 
 void IconTests::initTestCase()
 {
     QVERIFY(QDir(mrtest::qmlSourceRoot()).exists());
     mrtest::registerSourceQmlComponents();
+    qmlRegisterType(QUrl::fromLocalFile(mrtest::qmlSourceRoot() + QStringLiteral("/overlay/OverlayHourglass.qml")),
+                    "MentorRecorder", 1, 0, "OverlayHourglass");
+}
+
+// Audit 2026-11-10 L3-1: the float's hourglass animated a `sand` value that nothing
+// drew. Full upper bulb, then full lower bulb: the dark pixels move from top to bottom.
+void IconTests::hourglass_drawsTheSandWhereItIs()
+{
+    Scene scene;
+    QVERIFY2(scene.create(R"(import QtQuick
+import QtQuick.Window
+import MentorRecorder
+Window {
+    width: 64; height: 64; visible: true; color: "white"
+    OverlayHourglass { objectName: "hourglass"; anchors.centerIn: parent; size: 48; color: "black" }
+})"), qPrintable(scene.errors));
+    QQuickWindow *window = scene.window();
+    QVERIFY(window);
+    QVERIFY(QTest::qWaitForWindowExposed(window));
+    QObject *hourglass = scene.root->findChild<QObject *>(QStringLiteral("hourglass"));
+    QVERIFY(hourglass);
+
+    // Positive: the sand sits in the upper bulb; negative: in the lower one.
+    const auto upperMinusLower = [window] {
+        const auto halves = darkHalves(window->grabWindow());
+        return halves.first - halves.second;
+    };
+    hourglass->setProperty("sand", 0.0);
+    QTRY_VERIFY_WITH_TIMEOUT(upperMinusLower() > 40, 5000);
+    hourglass->setProperty("sand", 1.0);
+    QTRY_VERIFY_WITH_TIMEOUT(upperMinusLower() < -40, 5000);
 }
 
 void IconTests::library_buildsADataUrlOnlyForBundledIcons()

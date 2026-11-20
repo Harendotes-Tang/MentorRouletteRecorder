@@ -538,6 +538,7 @@
     "calibration.verdicts_empty": "verdicts 不能为空。",
     "calibration.pipeline_not_ready": "游戏数据读取服务尚未就绪，请稍后重试。",
     "calibration.discard_conflict": "retire_local_profile 与 restore_local_profile 不能同时为真。",
+    "calibration.discard.evidence_busy": "没能清空校准进度：保存校准进度的文件正被其他程序占用（例如安全软件正在检查它）。请稍后再点「清空校准进度」。",
     "calibration.change_during_run": "正在进行的这一把导随还没结束，现在更换校准会中断这一把的记录。请在这一把结束后再试。",
     "calibration.change_while_queued": "你正在排导随，现在更换校准会让接下来这一把记不下来。请等这一把结束后再试。如果已经取消排队，软件可能察觉不到，请退出并重新启动游戏后再试，或在开始排队一小时后再试。",
     "calibration.evidence_hash_invalid": "code_sha256 必须是 64 位小写十六进制。",

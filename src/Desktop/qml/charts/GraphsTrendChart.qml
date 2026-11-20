@@ -168,6 +168,9 @@ Item {
         readonly property real slot: root.buckets.length > 0 ? hoverArea.width / root.buckets.length : 0
         // An empty day has no bar to explain: nothing is shown over it.
         shown: root.countAt(hoverArea.index) > 0
+        // A day under a resting pointer that gains a count shows its own figures, not
+        // those of the bar last hovered (audit 2026-11-20, K2-5).
+        onShownChanged: if (shown) tip.index = hoverArea.index
         text: qsTr("%1 · %2 次").arg(bucket.label || "").arg(bucket.count || 0)
         barCenter: hoverArea.x + (index + 0.5) * slot
         barTop: hoverArea.y + hoverArea.height * (1 - Number(bucket.count || 0) / root.axisMax)

@@ -51,8 +51,11 @@ internal sealed class CalibrationEvidencePersistence
         }
     }
 
-    /// <summary>删除指定证据，并在删除成功后废弃此前所有冻结写入；删除失败不废弃待写快照。</summary>
-    internal void Delete(Region region, string build)
+    /// <summary>
+    /// 删除指定证据，并在删除成功后废弃此前所有冻结写入；删除失败不废弃待写快照，并把失败交还调用者
+    /// （成功返回 null）。清空校准进度据此拒绝本次清空，而不是让旧文件在下次启动时悄悄回来（2026-11-20 C-2）。
+    /// </summary>
+    internal Exception? Delete(Region region, string build)
     {
         lock (_sessionGate)
         {
@@ -63,9 +66,12 @@ internal sealed class CalibrationEvidencePersistence
                     _delete(region, build);
                     _written = Math.Max(_written, _frozen);
                 }
+
+                return null;
             }
             catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
             {
+                return ex;
             }
         }
     }

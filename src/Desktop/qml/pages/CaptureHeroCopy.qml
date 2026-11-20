@@ -154,7 +154,12 @@ QtObject {
             // The reason is on the 记录对象 card and in the chain summary.
             return qsTr("在下方「记录对象」里点选要记录的游戏窗口。")
         case "observing":
+            // A region without any support is not called an unsupported version
+            // (audit 2026-11-20, K4-2), as on the other cards of the page.
             return copy.chain && copy.chain.profileReady ? qsTr("停止采证后会恢复自动记录。")
+                 : copy.chain && copy.chain.profileStatus !== "" && !copy.chain.buildUnknown
+                   && copy.chain.regionUnsupported
+                 ? qsTr("停止采证后恢复正常检测；这个区服暂不自动记录。")
                  : copy.chain && copy.chain.profileStatus !== ""
                  ? qsTr("停止采证后恢复正常检测；当前游戏版本暂不自动记录。")
                  : qsTr("停止采证后恢复正常检测。")
@@ -280,6 +285,10 @@ QtObject {
         // The same bracket in another interface language, e.g. "(code ERR_…)".
         text = text.replace(/\s*[（(][^（）()]*\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+[）)]/g, "")
         text = copy.withoutPagePointer(text)
+        // Without a capture status the page hides the install steps a kept Npcap incident
+        // points at, so its instruction goes and its verdict stays (audit 2026-11-20, K2-1).
+        if (!copy.statusKnown)
+            text = text.replace(/\s*(?:请|請)按(?:「捕获诊断」|「擷取診斷」)中的(?:说明|說明)[^。.]*[。.]?/g, "").trim()
         if (text.length > 0 && !/[。！？.!?]$/.test(text))
             //: The full stop that closes a sentence.
             text += qsTr("。")

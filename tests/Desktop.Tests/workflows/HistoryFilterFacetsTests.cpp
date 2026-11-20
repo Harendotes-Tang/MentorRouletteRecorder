@@ -136,6 +136,24 @@ private Q_SLOTS:
         QVERIFY(!facets.regionCounts().contains("UNKNOWN"));
     }
 
+    // Review 2026-11-20 I2-1 / K3-2: a statistics page opens the list filtered by
+    // 未知区服; the menu lists that row while it is the filter, and it needs a count.
+    void theActiveRegionOutsideTheMenuIsCountedToo()
+    {
+        FacetBackend backend;
+        mr::HistoryFilterFacets facets(&backend);
+        facets.setFilter({{"region", "UNKNOWN"}, {"text", "Scholar"}});
+        facets.setActive(true);
+        QTRY_COMPARE(backend.calls.size(), 10);
+        const QJsonObject queried = backend.calls.at(9).payload.value("filter").toObject();
+        QCOMPARE(queried.value("region").toString(), QStringLiteral("UNKNOWN"));
+        QCOMPARE(queried.value("text").toString(), QStringLiteral("Scholar"));
+        for (int i = 0; i < 10; ++i) backend.calls.at(i).reply->succeed(FacetBackend::answer(i));
+        QVERIFY(!facets.loading());
+        QCOMPARE(facets.regionCounts().value("UNKNOWN").toInt(), 9);
+        QCOMPARE(facets.regionCounts().value("GLOBAL").toInt(), 8);
+    }
+
     void regionQueriesFollowThePickedCharacterScope_data()
     {
         QTest::addColumn<QString>("region");

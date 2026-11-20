@@ -445,7 +445,9 @@ public sealed class RunImportServiceTests
             command.CommandText = "UPDATE character_profiles SET baseline_completed_count = 300";
             command.ExecuteNonQuery();
         }
-        source.Database.RunInTransaction(tx => new RunRepository(source.Database).Insert(TestDatabase.Run(), tx));
+        // Audit 2026-11-20 H2-1: a note is stored as typed, surrounding whitespace included.
+        source.Database.RunInTransaction(tx => new RunRepository(source.Database).Insert(
+            TestDatabase.Run() with { Note = " 带空格的备注 " }, tx));
         var path = Path.Combine(Path.GetDirectoryName(source.Path)!, "backup.db");
         new BackupService(source.Database, source.Clock).CreateBackup(path);
         var before = SHA256.HashData(File.ReadAllBytes(path));

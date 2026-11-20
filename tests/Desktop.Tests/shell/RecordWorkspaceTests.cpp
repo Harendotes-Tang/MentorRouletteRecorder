@@ -33,6 +33,7 @@
 #include <QTest>
 #include <QTimer>
 #include <QUuid>
+#include <qpa/qwindowsysteminterface.h>
 
 #include <memory>
 
@@ -360,6 +361,9 @@ private Q_SLOTS:
         QVERIFY2(scene.create(), qPrintable(scene.errors));
         QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openCreateDialog"));
         QTRY_VERIFY(scene.inlineSession(scene.manual()));
+        // Only a form in the active window is on show (audit 2026-11-20 K1-1).
+        scene.window()->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(scene.window()));
         QSignalSpy offers(scene.app.get(), &mr::AppController::resultConfirmationRequested);
         scene.publish(finishedRun(false));
         QTRY_COMPARE(offers.count(), 1);
@@ -397,6 +401,131 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(scene.manual(), "closeEditor"));
         QTRY_VERIFY(!scene.manual()->property("inlineActive").toBool());
         QVERIFY(scene.reminder()->isVisible() && scene.reflection()->property("opened").toBool());
+        QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+    }
+
+    // Audit 2026-11-20 K1-1 (b): a popup held back while the form was looked at is offered
+    // again as soon as the form is parked, not only once it is finished.
+    void aPopupHeldByTheFormOpensOnceTheFormIsParked()
+    {
+        WorkspaceScene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openCreateDialog"));
+        QTRY_VERIFY(scene.inlineSession(scene.manual()));
+        scene.window()->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(scene.window()));
+        QSignalSpy offers(scene.app.get(), &mr::AppController::resultConfirmationRequested);
+        scene.publish(finishedRun(false));
+        QTRY_COMPARE(offers.count(), 1);
+        QTRY_COMPARE(scene.app->recovery()->count(), 1);
+        QTest::qWait(100);
+        QVERIFY(!scene.reminder()->isVisible());
+        QVERIFY(!scene.reflection()->property("editingActive").toBool());
+        scene.app->navigate(1);
+        QTRY_VERIFY(scene.reminder()->isVisible() && scene.reflection()->property("opened").toBool());
+        QVERIFY(scene.reflection()->property("standalone").toBool());
+        QVERIFY(scene.reflection()->property("askingResult").toBool());
+        QVERIFY(scene.manual()->property("inlineActive").toBool());
+        QCOMPARE(scene.backend.commands.count(QStringLiteral("CreateManualRun")), 0);
+        QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+    }
+
+    // Re-review 2026-11-20 R4-1: 添加图片 opens a file chooser, a window of this application
+    // that takes the focus from the main window while the player is still in the form. The
+    // popup stays held back.
+    void aFileChooserOpenedFromTheFormKeepsThePopupHeld()
+    {
+        WorkspaceScene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openCreateDialog"));
+        QTRY_VERIFY(scene.inlineSession(scene.manual()));
+        scene.window()->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(scene.window()));
+        QWindow chooser;
+        chooser.resize(320, 240);
+        chooser.show();
+        chooser.requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(&chooser));
+        QTRY_VERIFY(!scene.window()->isActive());
+        QCOMPARE(QGuiApplication::applicationState(), Qt::ApplicationActive);
+        QSignalSpy offers(scene.app.get(), &mr::AppController::resultConfirmationRequested);
+        scene.publish(finishedRun(false));
+        QTRY_COMPARE(offers.count(), 1);
+        QTest::qWait(100);
+        QVERIFY(!scene.reminder()->isVisible());
+        QVERIFY(!scene.reflection()->property("editingActive").toBool());
+        QVERIFY(scene.root->property("popupHeldByManualForm").toBool());
+        QVERIFY(scene.manual()->property("inlineActive").toBool());
+        QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+    }
+
+    // Audit 2026-11-20 K1-1 (a): a main window left behind the game is not being looked at,
+    // so the form on its page does not hold the popup back.
+    void aFormInAnInactiveWindowDoesNotHoldThePopupBack()
+    {
+        WorkspaceScene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openCreateDialog"));
+        QTRY_VERIFY(scene.inlineSession(scene.manual()));
+        // The game is another process: this application as a whole stops being active. A window
+        // of this process would keep it active, so the platform's report is delivered directly.
+        QWindowSystemInterface::handleApplicationStateChanged<QWindowSystemInterface::SynchronousDelivery>(
+            Qt::ApplicationInactive);
+        const auto reactivate = qScopeGuard([] {
+            QWindowSystemInterface::handleApplicationStateChanged<QWindowSystemInterface::SynchronousDelivery>(
+                Qt::ApplicationActive);
+        });
+        QCOMPARE(QGuiApplication::applicationState(), Qt::ApplicationInactive);
+        QVERIFY(scene.window()->isVisible());
+        scene.publish(finishedRun(false));
+        QTRY_VERIFY(scene.reminder()->isVisible() && scene.reflection()->property("opened").toBool());
+        QVERIFY(scene.reflection()->property("askingResult").toBool());
+        QVERIFY(scene.manual()->property("inlineActive").toBool());
+        QCOMPARE(scene.app->currentPage(), 8);
+        QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+    }
+
+    // Audit 2026-11-10 L2-1: release notes waiting for the window do not open over a form
+    // being written on the record page; they open once it is closed.
+    void releaseNotesWaitForTheInlineEditor()
+    {
+        WorkspaceScene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        QVERIFY(QMetaObject::invokeMethod(scene.root.get(), "openCreateDialog"));
+        QTRY_VERIFY(scene.inlineSession(scene.manual()));
+        auto *notes = scene.root->findChild<QObject *>(QStringLiteral("releaseNotesDialog"));
+        QVERIFY(notes);
+        QVERIFY(scene.root->setProperty("releaseNotesWaiting", true));
+        QTest::qWait(600);
+        QVERIFY(!notes->property("visible").toBool());
+        QVERIFY(scene.root->property("releaseNotesWaiting").toBool());
+        QVERIFY(QMetaObject::invokeMethod(scene.manual(), "closeEditor"));
+        QTRY_VERIFY(notes->property("visible").toBool());
+        QVERIFY(!scene.root->property("releaseNotesWaiting").toBool());
+        QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
+    }
+
+    // Audit 2026-11-10 K1-3: 待处理 while 手动修正 is open as a dialog brings the main window
+    // forward; the popup window the editor was last parented to stays hidden.
+    void inboxDuringACorrectionDialogDoesNotShowTheEmptyPopupWindow()
+    {
+        WorkspaceScene scene;
+        QVERIFY2(scene.create(), qPrintable(scene.errors));
+        const auto run = finishedRun(true);
+        scene.backend.resetRuns({QJsonObject::fromVariantMap(run)});
+        // The last answered popup leaves the editor parented to the popup window.
+        QVERIFY(scene.reflection()->setProperty(
+            "parent", QVariant::fromValue<QQuickItem *>(scene.reminder()->contentItem())));
+        QVERIFY(scene.manual()->setProperty("inlinePresentation", false));
+        QVERIFY(QMetaObject::invokeMethod(scene.manual(), "openForRun", Q_ARG(QVariant, QVariant(run))));
+        QTRY_VERIFY(scene.manual()->property("visible").toBool());
+        QVERIFY(scene.root->property("recordEditorOccupied").toBool());
+        scene.app->recovery()->requestInbox();
+        QTest::qWait(100);
+        QVERIFY(!scene.reminder()->isVisible());
+        QVERIFY(scene.window()->isVisible());
+        QTRY_VERIFY(scene.window()->isActive());
+        QVERIFY(scene.manual()->property("visible").toBool());
         QVERIFY2(scene.errors.isEmpty(), qPrintable(scene.errors));
     }
 };

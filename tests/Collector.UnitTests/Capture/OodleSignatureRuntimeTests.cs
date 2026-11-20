@@ -9,6 +9,7 @@ using Machina.FFXIV.Oodle;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Ipc;
+using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Profiles;
 
 namespace MentorRecorder.Collector.UnitTests;
@@ -149,10 +150,13 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
     {
         public bool Fail = true;
         public int Attempts;
+        public string? MarkerPath;
+        public bool MarkerPresentAtFirstAttempt;
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             if (targetMethod!.Name == "UnInitialize")
             {
+                if (Attempts == 0 && MarkerPath is not null) MarkerPresentAtFirstAttempt = File.Exists(MarkerPath);
                 Attempts++;
                 if (Fail) throw new IOException("synthetic uninitialize fault");
             }
@@ -284,12 +288,17 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
         Assert.DoesNotContain(lines, line => line.Contains("oodle_signature_sections", StringComparison.Ordinal));
 
         // No pattern of this installation fits this file: nothing to use, and the last resort.
+        // The file has one place two bytes off the built-in TCP_Train pattern, so there is at
+        // least one near miss to show (audit 2026-11-20, A2-4: the check used to pass with none).
         foreach (var file in Directory.EnumerateFiles(Path.Combine(_root, OodleSignatureProfile.DirectoryName)))
         {
             File.Delete(file);
         }
 
-        Assert.Null(OodleSignatureRuntime.TryCreate(options, _root, logger));
+        var synthetic = Path.Combine(_root, "synthetic", "ffxiv_dx11.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(synthetic)!);
+        File.WriteAllBytes(synthetic, OodleSignatureDiscoveryTests.ImageWith((0x400, "41 83 fc 02 75 0a 48 8b 0f e8")));
+        Assert.Null(OodleSignatureRuntime.TryCreate(options with { GameExecutablePath = synthetic }, _root, logger));
 
         lines = File.ReadAllLines(logger.CurrentPath)[lines.Length..];
         var discovery = Assert.Single(lines, line => line.Contains("oodle_signature_discovery", StringComparison.Ordinal));
@@ -298,13 +307,228 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
         // The whole hash survives the logger's redaction of long hexadecimal runs.
         Assert.DoesNotContain("[hex]", discovery, StringComparison.Ordinal);
         Assert.Single(lines, line => line.Contains("oodle_signature_sections", StringComparison.Ordinal));
-        Assert.All(
-            lines.Where(line => line.Contains("oodle_signature_context", StringComparison.Ordinal)),
-            line =>
-            {
-                Assert.Contains("\"reason\":\"incomplete\"", line, StringComparison.Ordinal);
-                Assert.DoesNotContain("[hex]", line, StringComparison.Ordinal);
-            });
+        var context = lines.Where(line => line.Contains("oodle_signature_context", StringComparison.Ordinal)).ToArray();
+        Assert.Contains(context, line =>
+            line.Contains("\"signature\":\"OodleNetwork1TCP_Train\"", StringComparison.Ordinal) &&
+            line.Contains("\"kind\":\"candidate\"", StringComparison.Ordinal) &&
+            line.Contains("\"file_offset\":\"000003E0\"", StringComparison.Ordinal));
+        Assert.All(context, line =>
+        {
+            Assert.Contains("\"reason\":\"incomplete\"", line, StringComparison.Ordinal);
+            Assert.DoesNotContain("[hex]", line, StringComparison.Ordinal);
+        });
+    }
+
+    /// <summary>
+    /// Audit 2026-11-20, A1-2 / A2-4. A round that used a discovered set and read no IPC segment,
+    /// but failed to decompress something, writes the excerpts when it stops - however many
+    /// control segments (keep-alives) it framed. A round that read IPC writes none.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ADiscoveredSetThatReadNoIpcLogsTheCodeAroundItsCallSitesWhenTheRoundStops(bool ipcRead)
+    {
+        using var logger = new MentorRecorder.Collector.Diagnostics.RotatingFileLogger(
+            Path.Combine(_root, "logs"), new TestClock(DateTimeOffset.UnixEpoch.AddYears(56)));
+        using var runtime = DiscoveredRuntime(logger);
+        var source = new MachinaCaptureSource(_ => new MachinaCleanupTests.NativeMonitor());
+        source.Start(new CaptureStartOptions("synthetic", 42, null, null, OodleMode.LibraryTcp, null, null),
+            new SilentObserver());
+        typeof(MachinaCaptureSource).GetField("_oodleSignatureRuntime", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(source, runtime);
+        var onMessage = typeof(MachinaCaptureSource).GetMethod("OnMessage", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var onTrace = typeof(MachinaCaptureSource).GetMethod("OnMonitorTrace", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        onMessage.Invoke(source, new object?[] { null, 0L, Segment(segmentType: 7, length: 16), MessageDirection.Inbound });
+        if (ipcRead)
+        {
+            onMessage.Invoke(source, new object?[] { null, 0L, Segment(FfxivFraming.SegmentTypeIpc, 32), MessageDirection.Inbound });
+        }
+
+        onTrace.Invoke(source, new object[] { MachinaCaptureSource.DecodeFailureTraceMarkers[0] });
+        var before = File.ReadAllLines(logger.CurrentPath).Length;
+
+        source.Stop();
+
+        var lines = File.ReadAllLines(logger.CurrentPath)[before..];
+        var excerpts = lines.Where(line => line.Contains("oodle_signature_sections", StringComparison.Ordinal)).ToArray();
+        if (ipcRead)
+        {
+            Assert.Empty(excerpts);
+        }
+        else
+        {
+            Assert.Contains("\"reason\":\"decode_failed\"", Assert.Single(excerpts), StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// Audit 2026-11-20, A2-1. While a discovered set is in force a marker naming the executable's
+    /// hash lies in the data directory, and a clean stop removes it. One left behind means that
+    /// set's round died: the next round logs the code around its call sites with reason
+    /// <c>crashed</c>, uses the built-in table and says so, and keeps the marker.
+    /// </summary>
+    [Fact]
+    public void ADiscoveredSetWhoseRoundDidNotStopCleanlyIsNeverUsedAgain()
+    {
+        var data = Path.Combine(_root, "data");
+        using var logger = new MentorRecorder.Collector.Diagnostics.RotatingFileLogger(
+            Path.Combine(_root, "logs"), new TestClock(DateTimeOffset.UnixEpoch.AddYears(56)));
+        var options = DiscoveryOptions();
+        var hash = GameExecutableHash.Compute(options.GameExecutablePath)!;
+        var marker = OodleSignatureRuntime.CrashSentinelPath(data, hash)!;
+        Assert.DoesNotContain(Path.GetFileName(options.GameExecutablePath!), marker, StringComparison.OrdinalIgnoreCase);
+        var arm = typeof(OodleSignatureRuntime).GetMethod("ArmCrashSentinel", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        // Written when the set is handed to Machina, removed by a clean stop of the source.
+        using (var runtime = OodleSignatureRuntime.TryCreate(options, _root, logger, dataDirectory: data))
+        {
+            Assert.True(runtime!.IsDiscovered);
+            Assert.False(File.Exists(marker));
+            arm.Invoke(runtime, null);
+            Assert.Equal(hash, File.ReadAllText(marker).Trim());
+            var source = new MachinaCaptureSource(_ => new MachinaCleanupTests.NativeMonitor());
+            source.Start(new CaptureStartOptions("synthetic", 42, null, null, OodleMode.LibraryTcp, null, null),
+                new SilentObserver());
+            typeof(MachinaCaptureSource).GetField("_oodleSignatureRuntime", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(source, runtime);
+            source.Stop();
+            Assert.False(File.Exists(marker));
+        }
+
+        // A round that never stopped leaves it behind.
+        using (var runtime = OodleSignatureRuntime.TryCreate(options, _root, logger, dataDirectory: data))
+        {
+            arm.Invoke(runtime!, null);
+        }
+
+        var before = File.ReadAllLines(logger.CurrentPath).Length;
+        Assert.Null(OodleSignatureRuntime.TryCreate(options, _root, logger, dataDirectory: data));
+
+        var lines = File.ReadAllLines(logger.CurrentPath)[before..];
+        Assert.DoesNotContain(lines, line => line.Contains("oodle_signature_discovery", StringComparison.Ordinal));
+        Assert.Contains("\"reason\":\"crashed\"",
+            Assert.Single(lines, line => line.Contains("oodle_signature_sections", StringComparison.Ordinal)),
+            StringComparison.Ordinal);
+        Assert.Contains(lines, line => line.Contains("oodle_signature_source", StringComparison.Ordinal) &&
+            line.Contains("\"source\":\"builtin\"", StringComparison.Ordinal) &&
+            line.Contains("not searched again", StringComparison.Ordinal));
+        Assert.True(File.Exists(marker));
+        Assert.Null(OodleSignatureRuntime.TryCreate(options, _root, logger, dataDirectory: data));
+        Assert.True(File.Exists(marker));
+    }
+
+    /// <summary>
+    /// Audit 2026-11-20, A2-1, through <see cref="OodleSignatureRuntime.Install"/> itself: the marker is
+    /// on disk by the time Machina's native slot is first touched, and an install that is refused
+    /// removes it again. Machina's slot holds a probe whose release fails, so the install stops there
+    /// and never initialises the discovered set (a successful install needs a real client; not tested).
+    /// </summary>
+    [Fact]
+    public void InstallingADiscoveredSetWritesItsMarkerFirstAndARefusedInstallRemovesIt()
+    {
+        var data = Path.Combine(_root, "data");
+        var options = DiscoveryOptions();
+        var marker = OodleSignatureRuntime.CrashSentinelPath(data, GameExecutableHash.Compute(options.GameExecutablePath)!)!;
+        using var runtime = OodleSignatureRuntime.TryCreate(options, _root, dataDirectory: data);
+        Assert.True(runtime!.IsDiscovered);
+        var native = DispatchProxy.Create<IOodleNative, FailingNative>();
+        var probe = (FailingNative)native;
+        probe.MarkerPath = marker;
+        var originalImplementation = ReadImplementation();
+        lock (FactoryLock) NativeField.SetValue(null, native);
+        WriteImplementation(OodleImplementation.FfxivTcp);
+        try
+        {
+            Assert.Throws<CollectorException>(runtime.Install);
+
+            Assert.True(probe.Attempts > 0, "the install must have reached Machina's native slot");
+            Assert.True(probe.MarkerPresentAtFirstAttempt, "the marker must be written before Machina gets the set");
+            Assert.False(File.Exists(marker), "a refused install leaves no marker behind");
+        }
+        finally { probe.Fail = false; runtime.Dispose(); ClearMachinaNative(); WriteImplementation(originalImplementation); }
+    }
+
+    /// <summary>
+    /// Audit 2026-11-20, A2-1. The live source keeps the marker in the Collector's data directory, the
+    /// one beside its temp-copy manifest: a marker left there by a round that died makes the next
+    /// round fall back to the built-in table without searching again.
+    /// </summary>
+    [Fact]
+    public void TheCaptureSourceLooksForTheMarkerBesideItsTempManifest()
+    {
+        var data = Path.Combine(_root, "data");
+        var options = DiscoveryOptions();
+        var hash = GameExecutableHash.Compute(options.GameExecutablePath)!;
+        var marker = OodleSignatureRuntime.CrashSentinelPath(data, hash)!;
+        Directory.CreateDirectory(data);
+        File.WriteAllText(marker, hash + Environment.NewLine);
+        using var logger = new MentorRecorder.Collector.Diagnostics.RotatingFileLogger(
+            Path.Combine(_root, "logs"), new TestClock(DateTimeOffset.UnixEpoch.AddYears(56)));
+        // Should the marker be missed, the discovered set's install stops at this probe instead of
+        // initialising anything, and the assertions below fail.
+        var native = DispatchProxy.Create<IOodleNative, FailingNative>();
+        var probe = (FailingNative)native;
+        var originalImplementation = ReadImplementation();
+        lock (FactoryLock) NativeField.SetValue(null, native);
+        WriteImplementation(OodleImplementation.FfxivTcp);
+        var source = new MachinaCaptureSource(
+            _ => new MachinaCleanupTests.NativeMonitor(), connectionCounter: (_, _) => 0, logger: logger,
+            oodleTempManifestPath: Path.Combine(data, "oodle-temp-copies.json"));
+        try
+        {
+            source.Start(options, new SilentObserver());
+
+            Assert.Equal(OodleSignatureUse.Builtin, source.SignatureUse);
+            Assert.Contains(File.ReadAllLines(logger.CurrentPath), line =>
+                line.Contains("oodle_signature_source", StringComparison.Ordinal) &&
+                line.Contains("not searched again", StringComparison.Ordinal));
+            source.Stop();
+            Assert.True(File.Exists(marker));
+        }
+        finally
+        {
+            source.Dispose();
+            probe.Fail = false;
+            ClearMachinaNative();
+            WriteImplementation(originalImplementation);
+        }
+    }
+
+    /// <summary>A Global client with only a CN donor: the search finds all twelve in e_sqlite3.dll.</summary>
+    private CaptureStartOptions DiscoveryOptions()
+    {
+        var image = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "e_sqlite3.dll"));
+        var executable = Path.Combine(_root, "ffxiv_dx11.exe");
+        File.WriteAllBytes(executable, image);
+        WriteDonorProfile(image, "2026.08.05.0000.0000", OodleSignatureProfile.VerifiedStatus);
+        return new CaptureStartOptions(
+            "test", 1, null, null, OodleMode.FfxivTcp, null, executable, Region.Global, "2026.11.03.0000.0000",
+            AllowCandidateOodleSignature: true);
+    }
+
+    private OodleSignatureRuntime DiscoveredRuntime(MentorRecorder.Collector.Diagnostics.RotatingFileLogger logger)
+    {
+        var runtime = OodleSignatureRuntime.TryCreate(DiscoveryOptions(), _root, logger);
+        Assert.NotNull(runtime);
+        Assert.True(runtime!.IsDiscovered);
+        return runtime;
+    }
+
+    /// <summary>A framed segment of <paramref name="length"/> bytes and the given type.</summary>
+    private static byte[] Segment(ushort segmentType, int length)
+    {
+        var bytes = new byte[length];
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(0, 4), (uint)length);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(12, 2), segmentType);
+        return bytes;
+    }
+
+    private sealed class SilentObserver : ICaptureSourceObserver
+    {
+        public void OnMessage(DecodedMessage message) { }
+        public void OnDecodeError() { }
+        public void OnFault(string reason, Exception? error) { }
     }
 
     /// <summary>
@@ -316,6 +540,7 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
         var directory = Path.Combine(_root, OodleSignatureProfile.DirectoryName);
         Directory.CreateDirectory(directory);
         var patterns = new Dictionary<string, object>();
+        var sections = OodleSignatureRuntime.PeSections(image);
         var offset = 0x1000;
         foreach (var type in Enum.GetValues<SignatureType>())
         {
@@ -335,11 +560,14 @@ public sealed class OodleSignatureRuntimeTests : IDisposable
                         var run = image.AsSpan(offset, indirect ? 10 : 9).ToArray();
                         text = string.Join(' ', run.Select(b => b.ToString("x2")));
                         OodleSignaturePattern.TryParse(text, out var pattern, out _);
+                        // A call site both the donor check and the search accept (audit
+                        // 2026-11-20, A2-1: the search takes only calls inside code).
                         var hits = OodleSignaturePattern.FindAll(pattern, image, limit: 2);
                         var target = hits.Count == 1
                             ? OodleSignaturePattern.ResolveRelativeTarget(image, hits[0], pattern.Length)
                             : null;
-                        if (hits.Count == 1 && target is > 0 && target < image.Length)
+                        if (hits.Count == 1 && target is > 0 && target < image.Length &&
+                            OodleSignatureDiscovery.IsCallSite(image, sections, hits[0], pattern))
                         {
                             offset += 64;
                             break;

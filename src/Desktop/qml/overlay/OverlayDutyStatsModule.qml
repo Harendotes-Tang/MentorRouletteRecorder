@@ -69,16 +69,29 @@ ColumnLayout {
             // the last segment ends at the bar's own edge and the two ends take
             // the bar's rounding (2026-11-19: uneven gaps and a square end made
             // the segments look as if they were not on one line).
+            // A category too small for its share keeps a 3 px floor; the floors are
+            // set aside first and the rest of the bar is shared by the others, so a
+            // dominant first segment never pushes the last one off (audit 2026-11-20 L3-9).
+            readonly property int segmentFloor: 3
             readonly property var edges: {
                 const out = []
                 const n = root.buckets.length
                 const room = Math.max(0, width - gap * (n - 1))
                 const ratio = Screen.devicePixelRatio > 0 ? Screen.devicePixelRatio : 1
                 const snap = function(v) { return Math.round(v * ratio) / ratio }
+                const counts = root.buckets.map(function(row) { return Number(row.completed_count || 0) })
+                let floored = 0
+                let sharedCount = 0
+                for (let i = 0; i < n; ++i) {
+                    if (room * counts[i] / total < segmentFloor) floored += 1
+                    else sharedCount += counts[i]
+                }
+                const shared = Math.max(0, room - segmentFloor * floored)
                 let x = 0
                 for (let i = 0; i < n; ++i) {
-                    const share = Number(root.buckets[i].completed_count || 0) / total
-                    const end = i === n - 1 ? width : Math.min(width, x + Math.max(3, room * share))
+                    const small = room * counts[i] / total < segmentFloor || sharedCount <= 0
+                    const span = small ? segmentFloor : shared * counts[i] / sharedCount
+                    const end = i === n - 1 ? width : Math.min(width, x + span)
                     out.push({ from: snap(x), to: snap(Math.max(end, x)) })
                     x = end + gap
                 }

@@ -369,6 +369,43 @@ public sealed class CalibrationMatchSourceTests
     }
 
     /// <summary>
+    /// Audit 2026-11-20, Cb-2. Evidence is carried for the life of a build, and the report kept the sixteen
+    /// OLDEST loads and pairs: on evidence from a few evenings, tonight's duties were missing from it, which
+    /// reads as "never seen". The report keeps the newest sixteen, still newest last.
+    /// </summary>
+    [Fact]
+    public void TheEvidenceKeepsTheNewestLoadsAndPairsWhenThereAreMany()
+    {
+        var template = CalibrationObserverTests.Template();
+        var tonight = CalibrationTrafficCases.Observe(CalibrationObserverTests.Session1().OrderBy(message => message.Mono));
+        var cluster = tonight.Clusters[0];
+        var pair = tonight.Pairs[0];
+        // Twenty loads and queues from earlier evenings, carried in front of tonight's.
+        var earlier = Enumerable.Range(1, 20).Select(day => TimeSpan.FromDays(day)).Reverse().ToArray();
+        var snapshot = tonight with
+        {
+            Clusters = earlier.Select(age => cluster with { LoadStartedAtUtc = cluster.LoadStartedAtUtc - age })
+                .Concat(tonight.Clusters).ToArray(),
+            Pairs = earlier.Select(age => pair with { ReplyAtUtc = pair.ReplyAtUtc - age })
+                .Concat(tonight.Pairs).ToArray(),
+        };
+        var asOf = tonight.LastMessageAtUtc!.Value.AddMinutes(1);
+
+        var evidence = CalibrationEvidenceSummary.From(snapshot, template, asOf);
+
+        var clustersAt = evidence.ClustersAt!;
+        var pairsAt = evidence.PairsAt!;
+        Assert.Equal(16, clustersAt.Count);
+        Assert.Equal(16, pairsAt.Count);
+        var newestLoad = tonight.Clusters.Max(item => item.LoadStartedAtUtc);
+        var newestPair = tonight.Pairs.Max(item => item.ReplyAtUtc);
+        Assert.Equal((long)(asOf - newestLoad).TotalSeconds, clustersAt[clustersAt.Count - 1]);
+        Assert.Equal((long)(asOf - newestPair).TotalSeconds, pairsAt[pairsAt.Count - 1]);
+        Assert.All(clustersAt, seconds => Assert.True(seconds < TimeSpan.FromDays(20).TotalSeconds));
+        Assert.Equal(clustersAt.OrderByDescending(seconds => seconds), clustersAt);
+    }
+
+    /// <summary>
     /// One roulette, played from queue to exit, on a build whose match message nobody can find.
     /// Nothing can be written yet and the card has to say why: a single request/echo pair could
     /// be two unrelated messages that happened to share a byte, so the opcode pair is not named

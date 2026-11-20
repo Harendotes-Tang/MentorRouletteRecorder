@@ -144,6 +144,14 @@ internal sealed partial class SharedCalibrationSession
             return;
         }
 
+        // Adopted: the document this write displaced can never be put back now, so its copy goes (audit 2026-11-20,
+        // E-2). Still under the file lock the write took.
+        Attempt(() =>
+        {
+            _services.ForgetDisplacedSharedProfile(ticket.Key.Region, ticket.Key.GameBuild);
+            return true;
+        });
+
         // What the others said about it when it was chosen, kept with the profile in use for the card and the report: the
         // consensus it was bound under, and once the others are dropped below there is nobody left to ask anyway.
         var consensus = candidate.ChosenConsensus ?? ConsensusOf(Consensus(), candidate);
@@ -639,7 +647,18 @@ internal sealed partial class SharedCalibrationSession
         }
 
         _binding = null;
-        _deferred = null;
+        // A withdrawal held for the end of a run is owed by the profile in use, not by the arm: switching automatic
+        // calibration off or re-arming mid-duty dropped it, and the revoked profile went on recording unflagged until
+        // the next index read or restart (audit 2026-11-20, E-1). It is kept while that profile is still the one in
+        // use for the same region and build. The rest of the index it came with was prepared for the old arm, so it
+        // is not carried: the withdrawal offers the stored codes again off the disk instead, as for a revocation
+        // found on adoption.
+        _deferred = _deferred is { } owed && _bound is { } owing &&
+                    (key is not { } rearmed ||
+                     (rearmed.Region == owing.Region &&
+                      string.Equals(rearmed.GameBuild, owing.GameBuild, StringComparison.Ordinal)))
+            ? owed with { Pending = Array.Empty<Prepared>() }
+            : null;
         _key = key;
         if (key is { } next)
         {

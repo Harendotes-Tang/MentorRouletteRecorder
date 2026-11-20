@@ -130,7 +130,8 @@ public sealed class UpdateDownloadService : IDisposable
             ? _current with { MirrorOfferId = offer.Id }
             : _current;
 
-    private async Task<bool> OfferMirrorAsync(long generation, CancellationToken cancellation)
+    // Null when the offer could not be put to the player at all: not a decline (audit 2026-11-20, F-2).
+    private async Task<bool?> OfferMirrorAsync(long generation, CancellationToken cancellation)
     {
         var offer = new MirrorOffer(generation);
         lock (_gate)
@@ -138,7 +139,7 @@ public sealed class UpdateDownloadService : IDisposable
             if (_disposed || generation != _generation || _current.State != UpdateDownloadState.Downloading ||
                 cancellation.IsCancellationRequested)
             {
-                return false;
+                return null;
             }
             _mirrorOffer = offer;
         }
@@ -386,7 +387,8 @@ public sealed class UpdateDownloadService : IDisposable
             if (ready is not null && await IsIntactAsync(ready, cancel.Token).ConfigureAwait(false))
             {
                 BeforeOutcome?.Invoke();
-                Publish(generation, ready);
+                // No offer was put to the player in this re-check.
+                Publish(generation, ready with { MirrorOutcome = null });
                 return;
             }
 
@@ -456,6 +458,8 @@ public sealed class UpdateDownloadService : IDisposable
             errorType = failed.ErrorType;
         }
 
+        // The player who chose GitCode learns whether the switch happened (audit 2026-11-20, F-2).
+        outcome = outcome with { MirrorOutcome = transfer.MirrorOutcome };
         BeforeOutcome?.Invoke();
         if (!Publish(generation, outcome) && outcome.FilePath is not null)
         {

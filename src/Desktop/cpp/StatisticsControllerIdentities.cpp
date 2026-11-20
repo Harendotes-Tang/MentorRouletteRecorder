@@ -58,8 +58,12 @@ QString StatisticsController::characterIdentification(const QString &region) con
 
 bool StatisticsController::hasCharacterIdentities(const QString &region) const
 {
+    // A BOUND identity is listed only while its profile's naming offer is open: it is
+    // that profile's own character, not another one (review 2026-11-20 K1-2).
     return std::ranges::any_of(m_identities, [&region](const QJsonValue &value) {
-        return inRegion(value.toObject(), region);
+        const QJsonObject identity = value.toObject();
+        return inRegion(identity, region)
+            && identity.value(QStringLiteral("state")).toString() != QLatin1String("BOUND");
     });
 }
 
@@ -92,10 +96,36 @@ void StatisticsController::suspendMilestone(const QString &region)
     m_regionalObservations[region].ready = false;
 }
 
-void StatisticsController::setHistoryRegionMovePending(bool pending)
+void StatisticsController::setHistoryRegionMovePending(bool pending, bool mayHaveApplied)
 {
-    m_runMovesInFlight += pending ? 1 : -1;
+    countRunMove(pending ? 1 : -1, !pending && mayHaveApplied);
     suspendMilestone(QString());
+}
+
+void StatisticsController::countRunMove(int delta, bool answered)
+{
+    const bool before = runMovesSettling();
+    m_runMovesInFlight += delta;
+    if (answered) {
+        m_runMoveReadOwed = true;
+        ++m_runMoveAnswers;
+    }
+    if (runMovesSettling() != before)
+        Q_EMIT runMovesSettlingChanged();
+}
+
+void StatisticsController::settleRunMoves()
+{
+    if (!m_runMoveReadOwed || m_runMovesInFlight > 0)
+        return;
+    // Queued: the read's dashboardChanged is emitted around this call, and what follows the
+    // progress (the float's "+N") must still see the moves settling when it handles it.
+    QMetaObject::invokeMethod(this, [this, answers = m_runMoveAnswers] {
+        if (!m_runMoveReadOwed || m_runMovesInFlight > 0 || answers != m_runMoveAnswers)
+            return;
+        m_runMoveReadOwed = false;
+        Q_EMIT runMovesSettlingChanged();
+    }, Qt::QueuedConnection);
 }
 
 void StatisticsController::bindCharacterIdentity(int identityId, int profileId, const QString &displayName)

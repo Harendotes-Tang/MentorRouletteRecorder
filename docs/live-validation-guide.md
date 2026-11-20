@@ -195,7 +195,7 @@ MentorRecorder.Collector.exe --capture-trace trace.jsonl
 `--capture-doctor` 的网卡列表只显示名称，不打印该标识。一般无需指定：省略时取证使用推荐网卡。
 
 客户端的区服只按安装路径中的关键字判定（[capture-diagnostics.md](capture-diagnostics.md) §3），命令行取证不读取设置中的区服。
-安装路径不含区服标记时（例如经 Steam 安装的国际服），命令以“无法确定这个客户端所属的区服，取证未开始”拒绝启动，
+安装路径不含区服标记时（例如安装在自定义文件夹 `D:\Games\FF14\` 中的客户端），命令以“无法确定这个客户端所属的区服，取证未开始”拒绝启动，
 此时加上 `--region CN`、`--region TC` 或 `--region GLOBAL` 指明区服。该参数只用于不含区服标记的路径：
 路径已表明另一个区服时同样拒绝，不会被改标。
 

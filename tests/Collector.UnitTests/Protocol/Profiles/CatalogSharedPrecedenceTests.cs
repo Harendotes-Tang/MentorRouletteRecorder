@@ -320,6 +320,35 @@ public sealed class CatalogSharedPrecedenceTests : IDisposable
         Assert.All(locals.Skip(1).Concat(shared.Skip(1)), path => Assert.True(File.Exists(path)));
     }
 
+    /// <summary>
+    /// Audit 2026-11-20, E-2: the copy a shared-profile write keeps of the document it displaced goes with the
+    /// profile it belongs to. A pruned build never writes that path again, so the copy was left for good; one
+    /// orphaned before the sweep knew about it goes too, and the copy beside a kept profile stays.
+    /// </summary>
+    [Fact]
+    public void PruningRemovesTheDisplacedCopyOfAPrunedSharedProfile()
+    {
+        var baseline = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var shared = Enumerable.Range(0, 4)
+            .Select(i => Write(Shared, $"cn.s{i}.shared", $"2099.12.0{i + 1}.0000.0000", generatedAt: baseline.AddDays(i)))
+            .ToArray();
+        var prunedCopy = shared[0] + ProfileCatalog.DisplacedSuffix;
+        var keptCopy = shared[3] + ProfileCatalog.DisplacedSuffix;
+        var orphan = Path.Combine(Path.GetDirectoryName(shared[0])!, "cn.gone.shared.json" + ProfileCatalog.DisplacedSuffix);
+        foreach (var copy in new[] { prunedCopy, keptCopy, orphan })
+        {
+            File.WriteAllText(copy, "{}");
+        }
+
+        var deleted = ProfileCatalog.PruneLocalProfiles(Shared, keepPerRegion: 3);
+
+        Assert.Contains(shared[0], deleted);
+        Assert.False(File.Exists(prunedCopy));
+        Assert.False(File.Exists(orphan));
+        Assert.True(File.Exists(keptCopy));
+        Assert.All(shared.Skip(1), path => Assert.True(File.Exists(path)));
+    }
+
     [Fact]
     public void TheSharedRootLivesUnderTheDataDirectory()
     {

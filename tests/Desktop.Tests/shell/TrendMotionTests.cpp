@@ -10,6 +10,7 @@
 
 #include <QApplication>
 #include <QDateTime>
+#include <QJSValue>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
@@ -248,6 +249,8 @@ private Q_SLOTS:
     void interruptedTrendSwitchEndsClean();
     void reducedMotionTrendSwitchIsInstant();
     void trendHoverMatchesRenderedBars();
+    void trendMonthAxisGivesTheLastMonthItsOwnLength();
+    void trendTipFollowsADayThatGainsACountUnderThePointer();
 
 private:
     static void verifyTrendAtRest(QQuickItem *chart, int bars);
@@ -285,6 +288,78 @@ void TrendMotionTests::trendHoverMatchesRenderedBars()
             QTRY_COMPARE(hover->property("index").toInt(), -1);
         }
     }
+}
+
+// Audit 2026-11-20, K2-3: the last slot of a month axis ends at the next month's start.
+// Sized as the month before it, March after a 28-day February ended on the 29th, and the
+// day bars of 29-31 March had no month to merge into.
+void TrendMotionTests::trendMonthAxisGivesTheLastMonthItsOwnLength()
+{
+    Scene scene;
+    QVERIFY2(scene.create(kTrendScene(), true), qPrintable(scene.errors));
+    auto *chart = scene.item(QStringLiteral("chart"));
+    QVERIFY(chart);
+    auto *layer = chart->property("motionLayer").value<QQuickItem *>();
+    QVERIFY(layer);
+    const auto ms = [](const QDate &day, const QTimeZone &zone) {
+        return static_cast<double>(QDateTime(day, QTime(0, 0), zone).toMSecsSinceEpoch());
+    };
+    for (const QTimeZone &zone : {QTimeZone(QTimeZone::UTC), QTimeZone(QTimeZone::LocalTime)}) {
+        const QVariantList series{QVariantMap{{QStringLiteral("t"), ms({2026, 1, 1}, zone)}},
+                                  QVariantMap{{QStringLiteral("t"), ms({2026, 2, 1}, zone)}},
+                                  QVariantMap{{QStringLiteral("t"), ms({2026, 3, 1}, zone)}}};
+        QVariant edges;
+        QVERIFY(QMetaObject::invokeMethod(layer, "edgesOf", Q_RETURN_ARG(QVariant, edges),
+                                          Q_ARG(QVariant, QVariant(series))));
+        const QVariantList list = edges.value<QJSValue>().isArray()
+                                      ? edges.value<QJSValue>().toVariant().toList() : edges.toList();
+        QCOMPARE(list.size(), 4);
+        QCOMPARE(list.at(3).toDouble(), ms({2026, 4, 1}, zone));
+        // 31 March lies in March's slot.
+        QVariant slot;
+        QVERIFY(QMetaObject::invokeMethod(layer, "slotAt", Q_RETURN_ARG(QVariant, slot),
+                                          Q_ARG(QVariant, ms({2026, 3, 31}, zone)),
+                                          Q_ARG(QVariant, QVariant(list))));
+        QCOMPARE(slot.toInt(), 2);
+    }
+}
+
+// Audit 2026-11-20, K2-5: the pointer rests on an empty day after another bar was hovered;
+// a refresh gives that day a count. The bubble shows that day, not the bar hovered before.
+void TrendMotionTests::trendTipFollowsADayThatGainsACountUnderThePointer()
+{
+    Scene scene;
+    QVERIFY2(scene.create(kTrendScene(), true), qPrintable(scene.errors));
+    auto *chart = scene.item(QStringLiteral("chart"));
+    QVERIFY(chart);
+    auto *hover = chart->findChild<QQuickItem *>(QStringLiteral("trendHoverArea"));
+    auto *tip = chart->findChild<QQuickItem *>(QStringLiteral("trendTip"));
+    QVERIFY(hover && tip);
+    const QList<int> before{3, 1, 1, 1, 1, 1, 0};
+    QVERIFY(chart->setProperty("buckets", buckets(QStringLiteral("day"), before)));
+    QTRY_VERIFY(!chart->property("transitionRunning").toBool() && hover->width() > 0);
+    QTest::qWait(100);
+    // The centre of slot i of the plot, in scene coordinates.
+    const auto slotCentre = [hover](int i) {
+        return hover->mapToScene(QPointF((i + 0.5) * hover->width() / 7, hover->height() / 2)).toPoint();
+    };
+    QTest::mouseMove(scene.window(), slotCentre(0));
+    QTRY_COMPARE(hover->property("index").toInt(), 0);
+    QTRY_VERIFY(tip->property("shown").toBool());
+    // Today, with nothing recorded yet.
+    QTest::mouseMove(scene.window(), slotCentre(6));
+    QTRY_COMPARE(hover->property("index").toInt(), 6);
+    QTRY_VERIFY(!tip->property("shown").toBool());
+
+    QList<int> after = before;
+    after[6] = 2;
+    const QVariantList refreshed = buckets(QStringLiteral("day"), after);
+    QVERIFY(chart->setProperty("buckets", refreshed));
+    QTRY_VERIFY(tip->property("shown").toBool());
+    QCOMPARE(hover->property("index").toInt(), 6);
+    QCOMPARE(tip->property("index").toInt(), 6);
+    const QString label = refreshed.at(6).toMap().value(QStringLiteral("label")).toString();
+    QCOMPARE(tip->property("text").toString(), QString::fromUtf8("%1 · 2 次").arg(label));
 }
 
 void TrendMotionTests::verifyTrendAtRest(QQuickItem *chart, int bars)

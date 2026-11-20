@@ -91,9 +91,38 @@ Item {
                 return []
             edges.push(t)
         }
-        // The last slot is taken to be as long as the one before it.
-        edges.push((2 * edges[n - 1]) - edges[n - 2])
+        edges.push(trendLayer.lastEdge(edges[n - 2], edges[n - 1]))
         return edges
+    }
+
+    /// Where the last slot ends: one calendar step after it starts, the step being the
+    /// one between the last two starts. On a month axis the last month has its own
+    /// length, not the length of the month before it (audit 2026-11-20, K2-3); a day
+    /// keeps to midnight across a clock change. Starts at midnight are read in local
+    /// time, then in UTC; anything else is taken to be as long as the slot before it.
+    function lastEdge(previous, last) {
+        for (const utc of [false, true]) {
+            const fields = function(t) {
+                const d = new Date(t)
+                return utc
+                    ? { y: d.getUTCFullYear(), m: d.getUTCMonth(), day: d.getUTCDate(),
+                        midnight: d.getUTCHours() === 0 && d.getUTCMinutes() === 0
+                                  && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0 }
+                    : { y: d.getFullYear(), m: d.getMonth(), day: d.getDate(),
+                        midnight: d.getHours() === 0 && d.getMinutes() === 0
+                                  && d.getSeconds() === 0 && d.getMilliseconds() === 0 }
+            }
+            const a = fields(previous)
+            const b = fields(last)
+            if (!a.midnight || !b.midnight)
+                continue
+            const at = function(y, m, day) { return utc ? Date.UTC(y, m, day) : new Date(y, m, day).getTime() }
+            if (a.day === 1 && b.day === 1)
+                return at(b.y, b.m + (b.y - a.y) * 12 + b.m - a.m, 1)
+            const days = Math.round((Date.UTC(b.y, b.m, b.day) - Date.UTC(a.y, a.m, a.day)) / 86400000)
+            return at(b.y, b.m, b.day + days)
+        }
+        return (2 * last) - previous
     }
 
     /// Boundaries for a series without usable start times: n equal slots over 0..1.

@@ -46,6 +46,9 @@ QtObject {
     property int observedProgress: -1
     property int observedBaseline: -1
     property int observedGoal: -1
+    // The region's figures are its current character's: another character made
+    // current is no completion either (audit 2026-11-20 L3-8).
+    property var observedProfile: null
     readonly property Timer plusTimer: Timer {
         interval: 6000
         onTriggered: data.plus = 0
@@ -53,21 +56,32 @@ QtObject {
     // The settings are read from App, not from the bindings above: those may
     // not have caught up with the same dashboard update yet.
     function primeProgress() {
-        observedProgress = progress
+        observedProgress = Number(primaryAchievement.achievement_progress || 0)
         observedBaseline = Number(primaryAchievement.baseline_completed_count || 0)
         observedGoal = Number(primaryAchievement.goal_count || 0)
+        observedProfile = shownProfile()
+    }
+    function shownProfile() {
+        return primaryAchievement.profile_id === undefined ? null : primaryAchievement.profile_id
     }
     onProgressChanged: {
         const sameSettings = Number(primaryAchievement.baseline_completed_count || 0) === observedBaseline
                              && Number(primaryAchievement.goal_count || 0) === observedGoal
+                             && shownProfile() === observedProfile
+        // Runs moved onto the current character (BIND, 改角色, 更正原始区服) are no
+        // completions either, up to and including the read after the move.
         if (observedProgress >= 0 && progressKnown && sameSettings && !Runtime.app.baselineSaving
-                && progress > observedProgress) {
+                && !Runtime.app.runMovesSettling && progress > observedProgress) {
             plus += progress - observedProgress
             plusTimer.restart()
         }
         if (progressKnown) primeProgress()
     }
     onProgressKnownChanged: if (progressKnown) primeProgress()
+    // A switch that leaves the figure as it was still re-primes, or the next
+    // completion of the new character would be taken for another switch.
+    readonly property var primaryProfile: shownProfile()
+    onPrimaryProfileChanged: if (progressKnown) primeProgress()
 
     // ------------------------------------------------------------ 当前副本 --
     readonly property string runState: Runtime.app.currentRunState
@@ -190,13 +204,17 @@ QtObject {
     // unsaved draft, so the words claim none of those for all of them.
     readonly property string pendingTip: qsTr("%1 条记录待处理，点击逐条处理").arg(pendingCount)
     property bool pendingNew: false
+    // How many arrived while the pill is up: one change can bring several
+    // (audit 2026-11-10 L3-4).
+    property int pendingAdded: 0
     property int observedPending: -1
     readonly property Timer pendingTimer: Timer {
         interval: 3200
-        onTriggered: data.pendingNew = false
+        onTriggered: { data.pendingNew = false; data.pendingAdded = 0 }
     }
     onPendingCountChanged: {
         if (observedPending >= 0 && pendingCount > observedPending) {
+            pendingAdded += pendingCount - observedPending
             pendingNew = true
             pendingTimer.restart()
         }

@@ -55,11 +55,21 @@ ColumnLayout {
         }
     }
 
+    // Said of the modules that are hidden: the run modules come with a duty,
+    // 待处理记录 with a record to deal with (audit 2026-11-10 L3-5).
+    readonly property bool hidesRunModules: {
+        const selected = Runtime.app.statisticsOverlay.modules
+        return selected.indexOf("current_duty") >= 0 || selected.indexOf("elapsed") >= 0
+    }
+    readonly property bool hidesPending: Runtime.app.statisticsOverlay.modules.indexOf("pending_work") >= 0
     Text {
+        objectName: "floatingEmptyState"
         visible: content.shownModules.length === 0
         Layout.fillWidth: true
         text: Runtime.app.statisticsOverlay.modules.length === 0
               ? qsTr("还没有选择内容，点标题栏的“自定义”添加。")
+              : !content.hidesRunModules ? qsTr("有待处理记录时显示。")
+              : content.hidesPending ? qsTr("所选内容进本后或有待处理记录时显示。")
               : qsTr("所选内容进本后显示。")
         wrapMode: Text.WordWrap
         color: Theme.textSecondary

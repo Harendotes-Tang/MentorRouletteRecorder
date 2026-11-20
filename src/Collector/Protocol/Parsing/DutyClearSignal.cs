@@ -13,8 +13,10 @@ namespace MentorRecorder.Collector.Protocol.Parsing;
 /// and calibration cannot learn it. Its content is fully determined instead: a 40-byte body
 /// whose first twelve bytes are fixed (except the duty's director number) and whose remaining
 /// 28 bytes are zero. It and <see cref="DutyStartSignal"/>, two more contents of the same message,
-/// are the only places in the Collector that recognise a message by constants in code
-/// (docs/protocol-profile-format.md sections 12 and 13). The opcode is never read.
+/// recognise a message by constants in code (docs/protocol-profile-format.md sections 12 and 13);
+/// the only other place that does is the login message recogniser that tells characters apart
+/// (Pipeline/CharacterLoginRecognizer.cs, section 14), which recognises its message by shape. The
+/// opcode is never read.
 ///
 /// Layout (little-endian):
 /// <code>

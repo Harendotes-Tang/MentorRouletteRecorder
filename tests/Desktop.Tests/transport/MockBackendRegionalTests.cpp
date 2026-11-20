@@ -1,6 +1,7 @@
 #include "DesktopTestRunner.h"
 #include "TestCollectorGuard.h"
 #include "AutomaticRecordingController.h"
+#include "CollectorText.h"
 #include "DutyCatalog.h"
 #include "MockBackend.h"
 
@@ -339,8 +340,10 @@ private Q_SLOTS:
 
     // CaptureWire.StatusExtras: GetStatus always carries the game (with install_path_readable)
     // and the two Oodle disclosures. Under a TC override the client's build is still read
-    // from disk, so the profile decides, and the projection reaches the live 「还没有适用于
-    // 当前游戏版本的支持文件」 instead of waiting for the install path for good.
+    // from disk, so the profile decides instead of waiting for the install path for good.
+    // The profile answer says the region is unsupported (LiveProtocolPipeline.ProfileUnavailableText),
+    // and with AppController's forwarding of it the projection reaches the live sentence
+    // 「目前还不支持这个区服的自动记录…」 (audit 2026-11-20 J-3, Jb-4).
     void theStatusCarriesTheGameAndATcOverrideLetsTheProfileDecide()
     {
         mr::MockBackend backend;
@@ -364,13 +367,22 @@ private Q_SLOTS:
         QCOMPARE(tc.payload.value("game").toObject().value("region").toString(), QStringLiteral("TC"));
         QCOMPARE(tc.payload.value("game").toObject().value("game_build").toString(),
                  capture.value("game_build").toString());
-        QCOMPARE(ask(backend, QStringLiteral("GetProtocolProfileStatus")).payload.value("game_build").toString(),
-                 capture.value("game_build").toString());
+        const QJsonObject profile = ask(backend, QStringLiteral("GetProtocolProfileStatus")).payload;
+        QCOMPARE(profile.value("game_build").toString(), capture.value("game_build").toString());
+        QCOMPARE(profile.value("status").toString(), QStringLiteral("UNSUPPORTED_BUILD"));
+        QCOMPARE(profile.value("message_ref").toObject().value("key").toString(),
+                 QStringLiteral("profile.unavailable.region_unsupported"));
+        QCOMPARE(profile.value("message").toString(),
+                 mr::collector_text::chinese(mr::collector_text::textRef("profile.unavailable.region_unsupported")));
 
         mr::AutomaticRecordingController recording(&backend);
         QTRY_COMPARE(recording.state(), QStringLiteral("blocked"));
-        QVERIFY2(recording.message().contains(QString::fromUtf8("还没有适用于当前游戏版本的支持文件")),
-                 qPrintable(recording.message()));
+        // AppController::regionUnsupported, forwarded as AppController does.
+        recording.setRegionUnsupported(profile.value("status").toString() == QLatin1String("UNSUPPORTED_BUILD")
+            && profile.value("message_ref").toObject().value("key").toString()
+                   == QLatin1String("profile.unavailable.region_unsupported"));
+        QTRY_VERIFY2(recording.message().contains(QString::fromUtf8("目前还不支持这个区服的自动记录")),
+                     qPrintable(recording.message()));
     }
 
     // 角色档案: every region starts with one unnamed current profile that carries the
@@ -626,6 +638,80 @@ private Q_SLOTS:
         QCOMPARE(ask(backend, QStringLiteral("UndoRevision"),
                      {{"run_id", first}, {"expected_revision", 2}, {"reason", "undo"}}).code,
                  QStringLiteral("ERR_UNDO_NOT_ALLOWED"));
+    }
+
+    // Audit 2026-11-20 J-2: RunRepository.FindRegionMigrationDuplicate keys on the content (the
+    // name only without one), the job and each known time, the import's source time included;
+    // two records are one only when no match or entry time that both know differs.
+    void regionMoveDuplicatesAreTheCollectorsKeys()
+    {
+        const QString first = QStringLiteral("11111111-1111-4111-8111-111111111111");
+        const QString second = QStringLiteral("22222222-2222-4222-8222-222222222222");
+        const auto record = [](const QString &id, const QString &source) {
+            QJsonObject run = autoRun(id, QStringLiteral("COMPLETED"), true);
+            run.insert(QStringLiteral("source"), source);
+            run.insert(QStringLiteral("region"), QStringLiteral("CN"));
+            run.insert(QStringLiteral("job_id"), 24);
+            run.insert(QStringLiteral("content_id"), 5);
+            return run;
+        };
+        const QJsonArray both{QJsonObject{{"run_id", first}, {"expected_revision", 1}},
+                              QJsonObject{{"run_id", second}, {"expected_revision", 1}}};
+        const auto previewMove = [&both](mr::MockBackend &backend) {
+            int target = 0;
+            for (const auto &value : backend.characterProfiles()) {
+                if (value.toObject().value("region").toString() == QLatin1String("TC"))
+                    target = value.toObject().value("profile_id").toInt();
+            }
+            return ask(backend, QStringLiteral("PreviewRunRegionMigration"),
+                       {{"runs", both}, {"region", "TC"}, {"profile_id", target}});
+        };
+
+        // Two copies of one imported record that know only the source's time.
+        const auto imported = [&record](const QString &id) {
+            QJsonObject run = record(id, QStringLiteral("IMPORT"));
+            run.insert(QStringLiteral("matched_at_utc"), QJsonValue(QJsonValue::Null));
+            run.insert(QStringLiteral("entered_at_utc"), QJsonValue(QJsonValue::Null));
+            run.insert(QStringLiteral("import_metadata"),
+                       QJsonObject{{"source_recorded_at_utc", "2026-09-01T12:00:00.000Z"}});
+            return run;
+        };
+        mr::MockBackend copies;
+        copies.resetRuns({imported(first), imported(second)});
+        const Answer refused = previewMove(copies);
+        QCOMPARE(refused.code, QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(refused.message,
+                 mr::collector_text::chinese(mr::collector_text::textRef("history.region.duplicate")));
+
+        // One match time but two different entry times: two records, moved together.
+        QJsonObject later = record(second, QStringLiteral("MANUAL"));
+        later.insert(QStringLiteral("entered_at_utc"), QStringLiteral("2026-09-01T12:02:00.000Z"));
+        mr::MockBackend distinct;
+        distinct.resetRuns({record(first, QStringLiteral("MANUAL")), later});
+        const Answer moved = previewMove(distinct);
+        QVERIFY2(moved.ok, qPrintable(moved.message));
+    }
+
+    // Audit 2026-11-20 J-1: CharacterIdentityService.ConfirmRegistration refuses a confirmation
+    // whose offer moved on with identity.registration_moved; the profile itself still exists.
+    void aStaleRegistrationConfirmationSaysTheOfferMoved()
+    {
+        mr::MockBackend backend;
+        const int identity = backend.addCharacterIdentity(QStringLiteral("CN"), QStringLiteral("PENDING"), 0, true);
+        int profile = 0;
+        for (const auto &value : backend.characterProfiles()) {
+            if (value.toObject().value("region").toString() == QLatin1String("CN") && profile == 0)
+                profile = value.toObject().value("profile_id").toInt();
+        }
+        QVERIFY(profile > 0);
+        QVERIFY(ask(backend, QStringLiteral("ResolveCharacterIdentity"),
+                    {{"identity_id", identity}, {"action", "IGNORE"}}).ok);
+        const Answer confirm = ask(backend, QStringLiteral("ResolveCharacterIdentity"),
+            {{"identity_id", identity}, {"action", "BIND"}, {"profile_id", profile},
+             {"display_name", QString::fromUtf8("白露")}});
+        QCOMPARE(confirm.code, QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(confirm.message,
+                 mr::collector_text::chinese(mr::collector_text::textRef("identity.registration_moved")));
     }
 
     void anImportNamedForAProfileFilesItsRegionsRecordsThere()

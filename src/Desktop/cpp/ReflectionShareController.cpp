@@ -292,12 +292,27 @@ void ReflectionShareController::captureTo(QObject *object, const QString &path,
             capturePrepared(item, path, rejectExisting, done);
         }, Qt::QueuedConnection);
     item->window()->update();
-    QTimer::singleShot(15000, this, [this, generation, done, connection] {
-        if (m_busy && generation == m_generation) {
-            disconnect(*connection);
-            ++m_generation;
-            done({}, tr("图片预览未能及时准备好，尚未保存。请重试。"));
+    armCaptureTimeout(item->window(), generation, [this, done, connection] {
+        disconnect(*connection);
+        ++m_generation;
+        done({}, tr("图片预览未能及时准备好，尚未保存。请重试。"));
+    });
+}
+
+void ReflectionShareController::armCaptureTimeout(QWindow *window, quint64 generation,
+                                                  std::function<void()> expired)
+{
+    QTimer::singleShot(15000, this,
+        [this, window = QPointer<QWindow>(window), generation, expired = std::move(expired)]() mutable {
+        if (!m_busy || generation != m_generation)
+            return;
+        // Minimised from the taskbar while saving (audit 2026-11-20, L2-2): no frame comes until
+        // the window is restored, which is no reason to give up on the image.
+        if (window && window->isVisible() && !window->isExposed()) {
+            armCaptureTimeout(window, generation, std::move(expired));
+            return;
         }
+        expired();
     });
 }
 
@@ -377,12 +392,10 @@ void ReflectionShareController::capturePrepared(QObject *object, const QString &
         }
         done(QFileInfo(target).absoluteFilePath(), {});
     });
-    QTimer::singleShot(15000, this, [this, generation, done] {
-        if (m_busy && generation == m_generation) {
-            ++m_generation;
-            m_grab.reset();
-            done({}, tr("生成图片超时，未保存。请重试。"));
-        }
+    armCaptureTimeout(item->window(), generation, [this, done] {
+        ++m_generation;
+        m_grab.reset();
+        done({}, tr("生成图片超时，未保存。请重试。"));
     });
 }
 

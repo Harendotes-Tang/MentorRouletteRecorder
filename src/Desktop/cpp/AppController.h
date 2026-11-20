@@ -184,6 +184,9 @@ class AppController final : public QObject, public CaptureValidationController::
     /// first-run guide sends only when none is, and nothing else can send one while
     /// it is open, so the next baseline answer is its own (audit 2026-10-03, DT6-X1).
     Q_PROPERTY(bool baselineSaving READ baselineSaving NOTIFY baselineSavingChanged)
+    /// Runs are being moved onto a profile (BIND, 改角色, 更正原始区服), or the read after the
+    /// move is not in yet: a rise in progress meanwhile is no completion (audit 2026-11-20, L3-8).
+    Q_PROPERTY(bool runMovesSettling READ runMovesSettling NOTIFY runMovesSettlingChanged)
     /// 角色档案: $defs/DashboardStats.profiles as the Collector last sent them - every
     /// profile of every region with its own progress, the wire maps unchanged.
     Q_PROPERTY(QVariantList characterProfiles READ characterProfiles NOTIFY characterProfilesChanged)
@@ -287,15 +290,17 @@ class AppController final : public QObject, public CaptureValidationController::
     // -- capture diagnostics -------------------------------------------------
     Q_PROPERTY(QVariantList parserErrors READ parserErrors NOTIFY statusChanged)
     Q_PROPERTY(QString liveCaptureStatus READ liveCaptureStatus CONSTANT)
-    Q_PROPERTY(QString protocolProfileStatus READ protocolProfileStatus NOTIFY statusChanged)
+    Q_PROPERTY(QString protocolProfileStatus READ protocolProfileStatus NOTIFY validationChanged)
     Q_PROPERTY(bool publicDistributionReady READ publicDistributionReady CONSTANT)
     /// $defs/CaptureAdapter rows from ListCaptureAdapters. IPv4 addresses are
     /// already masked to a /24 by the Collector and are never unmasked here.
     Q_PROPERTY(QVariantList captureAdapters READ captureAdapters NOTIFY adaptersChanged)
     Q_PROPERTY(QVariantMap adapterInfo READ adapterInfo NOTIFY adaptersChanged)
-    /// $defs/ProtocolProfileStatus from GetProtocolProfileStatus.
-    Q_PROPERTY(QVariantMap protocolProfile READ protocolProfile NOTIFY statusChanged)
-    Q_PROPERTY(bool regionUnsupported READ regionUnsupported NOTIFY statusChanged)
+    /// $defs/ProtocolProfileStatus from GetProtocolProfileStatus. The profile reply lands
+    /// on validationChanged (CaptureValidationController::changed), which statusChanged
+    /// also reaches, so these follow it without waiting for the next status poll.
+    Q_PROPERTY(QVariantMap protocolProfile READ protocolProfile NOTIFY validationChanged)
+    Q_PROPERTY(bool regionUnsupported READ regionUnsupported NOTIFY validationChanged)
     /// True while the profile snapshot on screen is older than the last refresh
     /// attempt, so the page can say "上次已知" instead of pretending it is live.
     Q_PROPERTY(bool protocolProfileStale READ protocolProfileStale NOTIFY validationChanged)
@@ -485,6 +490,7 @@ public:
     int baselineCount() const;
     bool achievementSettingsLoaded() const { return m_statistics->achievementSettingsLoaded(); }
     bool baselineSaving() const { return m_statistics->baselineSaving(); }
+    bool runMovesSettling() const { return m_statistics->runMovesSettling(); }
     int pendingReviewCount() const;
 
     /// TTS template kind for one $defs/Run.state, or an empty string when the
@@ -662,6 +668,9 @@ public Q_SLOTS:
     void setCurrentHistoryPageChecked(bool checked);
     /// 勾选全部: every record the history filter matches, across pages.
     void checkAllMatchingHistoryRuns();
+    /// Drops a 勾选全部 read still on its way, so a dialog asking about the ticks is not
+    /// answered for a selection that grows under it (audit 2026-11-20, K3-1).
+    void cancelHistoryCheckAll();
     void clearCheckedHistoryRuns();
     void mutateCheckedHistoryRuns(const QString &action, const QString &reason);
     /// 改到角色: files the checked rows under \a profileId, or under no profile for 0,
@@ -807,6 +816,7 @@ Q_SIGNALS:
     void dashboardChanged();
     void achievementSettingsLoadedChanged();
     void baselineSavingChanged();
+    void runMovesSettlingChanged();
     void trendChanged();
     void selectionChanged();
     void runEventsChanged();
@@ -909,8 +919,9 @@ private:
     void refreshAfterStatsInvalidated();
     /// Until a region is picked by hand, the record region is the one that holds records:
     /// that region when there is one, every region when there are several, and the
-    /// interface language's region only while nothing is recorded at all.
-    void probeRecordedRegions();
+    /// interface language's region only while nothing is recorded at all. A round with a
+    /// failed read shows every region and is tried again (\a attempt counts the tries).
+    void probeRecordedRegions(int attempt = 0);
     void applyDefaultRecordRegion();
     /// Adopt one accepted SetRunReflection response: selection, list, summary
     /// and the toast that says which of the two things just happened.
@@ -967,6 +978,9 @@ private:
     /// The regions with at least one live record, as last read; unread until m_recordedRegionsKnown.
     QStringList m_recordedRegions;
     bool m_recordedRegionsKnown = false;
+    /// A read of the recorded regions failed while none had answered yet: the default is
+    /// every region, not the interface language's guess (review 2026-11-20 I1-1).
+    bool m_recordedRegionsReadFailed = false;
     quint64 m_recordedRegionsProbe = 0;
     /// Identity ids whose naming offer was put off; read from the settings once, kept here so
     /// the answer also holds for a session that has no settings file.

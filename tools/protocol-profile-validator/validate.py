@@ -330,6 +330,10 @@ def message_errors(message: dict) -> list:
             size = field["length"]
         elif "length" in field:
             errors.append("%s.%s: length applies to bytes fields only" % (name, field["name"]))
+        if field["type"] == "bytes" and ("constraints" in field or "role" in field):
+            # The parser skips a bytes field, so the filter or selector would never apply
+            # (mirrors ProfileLoader.ReadFields, E_PROFILE_CONSTRAINT; audit 2026-11-20, D2-4).
+            errors.append("%s.%s: a bytes field cannot carry constraints or a role" % (name, field["name"]))
         if upper is not None and field["offset"] + size > upper:
             errors.append("%s.%s: reads past the declared message length" % (name, field["name"]))
         constraints = field.get("constraints", {})
@@ -340,6 +344,11 @@ def message_errors(message: dict) -> list:
     for required in REQUIRED_MESSAGE_FIELDS.get(name, ()):
         if required not in field_names:
             errors.append("%s: missing required field '%s'" % (name, required))
+        elif any(field["name"] == required and field["type"] == "bytes"
+                 for field in message.get("fields", [])):
+            # No value is read out of a bytes field, so every message would be refused for lacking
+            # it (mirrors ProfileLoader E_PROFILE_MISSING_FIELD; audit 2026-11-20, D2-4).
+            errors.append("%s: required field '%s' must be an integer, not bytes" % (name, required))
     if name == "DUTY_RESULT" and not message.get("victory_values"):
         errors.append("DUTY_RESULT: victory_values must be a non-empty array")
     return errors

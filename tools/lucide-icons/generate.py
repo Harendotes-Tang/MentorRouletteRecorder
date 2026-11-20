@@ -109,6 +109,16 @@ FEATHER_LIST = re.compile(
     r"derived from the Feather project:\s*\n\s*\n(?P<names>[^\n]+)\n", re.S
 )
 
+# Lucide renamed some Feather-derived icons after that list was written, and the list still
+# names them as Feather did: {current Lucide name: the name on the list}. Only the renames of
+# bundled icons are recorded (audit 2026-11-20 J-4): circle-alert is Feather's alert-circle with
+# the same drawing, circle-help is Lucide's later name for help-circle. Add a row when a bundled
+# icon is another such rename; a row whose old name is not on the list adds nothing.
+FEATHER_RENAMES = {
+    "circle-alert": "alert-circle",
+    "circle-help": "help-circle",
+}
+
 
 def feather_icons(icon_dir: str = ICON_DIR) -> set[str]:
     """The icon names Lucide's LICENSE says are derived from Feather (MIT, Cole Bemis).
@@ -116,13 +126,15 @@ def feather_icons(icon_dir: str = ICON_DIR) -> set[str]:
     Those icons carry a second licence whose notice must also appear in every copy, so
     the generated library names the ones it actually contains. Read from the bundled
     LICENSE rather than hard-coded, so a Lucide update that moves the line moves it here.
+    The current names of renamed icons (FEATHER_RENAMES) are added beside their listed names.
     """
     with io.open(os.path.join(icon_dir, "LICENSE"), "r", encoding="utf-8") as handle:
         text = handle.read()
     match = FEATHER_LIST.search(text)
     if not match:
         raise IconError("LICENSE does not list the Feather-derived icons; Lucide changed its licence file")
-    return {name.strip() for name in match.group("names").split(",") if name.strip()}
+    listed = {name.strip() for name in match.group("names").split(",") if name.strip()}
+    return listed | {current for current, listed_as in FEATHER_RENAMES.items() if listed_as in listed}
 
 
 def js_string(text: str) -> str:

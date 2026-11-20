@@ -331,6 +331,12 @@ private Q_SLOTS:
         QCOMPARE(pages.shown(QStringLiteral("characterIdentityIgnore_CN")) != nullptr, state == QLatin1String("PENDING"));
         QVERIFY(pages.click(QStringLiteral("characterIdentityRegister_CN")));
         QTRY_VERIFY(pages.shown(QStringLiteral("characterNameField")));
+        // A character already counted is only named; nothing is left to bind (audit 2026-11-20 K1-3).
+        const bool bound = state == QLatin1String("BOUND");
+        QCOMPARE(pages.shown(QStringLiteral("characterProfileTitle"))->property("text").toString(),
+                 bound ? QString::fromUtf8("给角色起名") : QString::fromUtf8("登记原有角色"));
+        QCOMPARE(pages.shown(QStringLiteral("characterProfileSave"))->property("text").toString(),
+                 bound ? QString::fromUtf8("保存") : QString::fromUtf8("确认绑定"));
         QVERIFY(pages.shown(QStringLiteral("characterNameField"))->setProperty("text", QString::fromUtf8("白露")));
         QVERIFY(pages.click(QStringLiteral("characterProfileSave")));
         QTRY_VERIFY(!pages.shown(QStringLiteral("characterIdentityPrompt_CN")));
@@ -571,6 +577,32 @@ private Q_SLOTS:
         QTRY_COMPARE(pages.app->checkedHistoryRunCount(), 0);
         QTRY_VERIFY(!dialog->property("visible").toBool());
         QTRY_COMPARE(pages.profile(alt).value(QStringLiteral("run_count")).toInt(), 1);
+    }
+
+    /// 改角色 asks about the records ticked when it opens: a 勾选全部 read still on its way is
+    /// dropped, so its late answer cannot grow the selection under the dialog (audit K3-1).
+    void theCharacterDialogDropsAPendingCheckAll()
+    {
+        Pages pages;
+        pages.backend.addCharacterProfile(QStringLiteral("CN"), QString::fromUtf8("小号"), 1000, 0, false);
+        QVERIFY2(pages.create(), qPrintable(pages.errors));
+        pages.app->navigate(1);
+        QTRY_VERIFY(pages.app->runs()->rowCount() > 1);
+        pages.app->setHistoryRunChecked(pages.app->runs()->runAt(0), true);
+        QTRY_VERIFY(pages.shown(QStringLiteral("batchAssignCharacterButton")));
+        QCOMPARE(pages.app->checkedHistoryRunCount(), 1);
+
+        pages.backend.setReplyDelay(400, QStringLiteral("QueryRuns"));
+        pages.app->checkAllMatchingHistoryRuns();
+        QVERIFY(pages.app->historyCheckAllLoading());
+        QVERIFY(pages.click(QStringLiteral("batchAssignCharacterButton")));
+        QObject *dialog = pages.object(QStringLiteral("historyAssignCharacterDialog"));
+        QVERIFY(dialog);
+        QTRY_VERIFY(dialog->property("opened").toBool());
+        QVERIFY(!pages.app->historyCheckAllLoading());
+        QTest::qWait(600);
+        QCOMPARE(pages.app->checkedHistoryRunCount(), 1);
+        QCOMPARE(dialog->property("checkedCount").toInt(), 1);
     }
 
     /// A character the Collector told apart and nobody has answered for is asked about on the

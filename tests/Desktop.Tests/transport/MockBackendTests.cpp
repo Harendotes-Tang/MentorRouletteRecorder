@@ -385,6 +385,30 @@ private Q_SLOTS:
             {{QStringLiteral("month"), QStringLiteral("2026-09")}, {QStringLiteral("filter"), filter}});
         QVERIFY2(calendar.ok, qPrintable(calendar.message));
         QCOMPARE(calendar.payload.value(QStringLiteral("days")).toArray(), QJsonArray{QStringLiteral("2026-09-01")});
+
+        // RunFilterSql.Build tests each column on its own (audit 2026-11-20 Jb-3): 「灯塔白」 spans
+        // the end of a duty name and the start of a job name and finds nothing. A Chinese job
+        // name or alias (AddChineseJobMatch) also finds that job's runs by job_id, and a run
+        // without a job id by any of the job's names.
+        QJsonObject lighthouse = row(QStringLiteral("boundary"), 24, QString::fromUtf8("白魔法师"), QStringLiteral("unrelated"));
+        lighthouse.insert(QStringLiteral("duty_name"), QString::fromUtf8("天狼星灯塔"));
+        QJsonObject nameOnly = row(QStringLiteral("name-only"), 24, QStringLiteral("WHM"), QStringLiteral("unrelated"));
+        nameOnly.insert(QStringLiteral("job_id"), QJsonValue(QJsonValue::Null));
+        backend.resetRuns(QJsonArray{
+            lighthouse, nameOnly,
+            row(QStringLiteral("english"), 24, QStringLiteral("White Mage"), QStringLiteral("unrelated")),
+            row(QStringLiteral("paladin"), 19, QString::fromUtf8("骑士"), QStringLiteral("unrelated"))});
+        const auto found = [&query](const QString &text) {
+            QStringList ids;
+            for (const auto &item : query({{QStringLiteral("text"), text}}).payload.value(QStringLiteral("items")).toArray())
+                ids.append(item.toObject().value(QStringLiteral("run_id")).toString());
+            ids.sort();
+            return ids;
+        };
+        QCOMPARE(found(QString::fromUtf8("灯塔白")), QStringList{});
+        const QStringList whiteMages{QStringLiteral("boundary"), QStringLiteral("english"), QStringLiteral("name-only")};
+        QCOMPARE(found(QString::fromUtf8("白魔")), whiteMages);
+        QCOMPARE(found(QString::fromUtf8("白魔法师")), whiteMages);
     }
 
     // RunFilterSql: name_exact matches duty_name or job_name by equality, OR with
@@ -786,6 +810,26 @@ private Q_SLOTS:
         QVERIFY2(entryless.ok, qPrintable(entryless.message));
         QVERIFY(entryless.payload.value(QStringLiteral("run")).toObject()
                     .value(QStringLiteral("entered_at_utc")).isNull());
+
+        // RequestParsers.RunChangeSet (audit 2026-11-20 Jb-2, after 2026-10-20 G-4): neither the
+        // result nor contributes_to_goal can be cleared, the result must be a declared token, and
+        // joined_in_progress is a boolean or null.
+        const QString resultChoices = QStringLiteral(
+            "COMPLETED / LEFT_OR_ABANDONED / CANCELLED_BEFORE_ENTRY / DISCONNECTED / INTERRUPTED / UNKNOWN");
+        for (const QJsonValue &result : {QJsonValue(QJsonValue::Null), QJsonValue(QStringLiteral("FOO"))}) {
+            const Answer refused = correct(backend, runId, {{QStringLiteral("result"), result}});
+            QCOMPARE(refused.code, QStringLiteral("ERR_BAD_REQUEST"));
+            QCOMPARE(refused.message, collectorChinese("ipc.field.not_one_of",
+                {{QStringLiteral("field"), QStringLiteral("result")}, {QStringLiteral("choices"), resultChoices}}));
+        }
+        const Answer uncounted = correct(backend, runId, {{QStringLiteral("contributes_to_goal"), QJsonValue(QJsonValue::Null)}});
+        QCOMPARE(uncounted.code, QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(uncounted.message,
+                 collectorChinese("ipc.field.not_boolean", {{QStringLiteral("field"), QStringLiteral("contributes_to_goal")}}));
+        QCOMPARE(correct(backend, runId, {{QStringLiteral("joined_in_progress"), QStringLiteral("yes")}}).code,
+                 QStringLiteral("ERR_BAD_REQUEST"));
+        QVERIFY(correct(backend, runId, {{QStringLiteral("joined_in_progress"), true}}).ok);
+        QVERIFY(correct(backend, runId, {{QStringLiteral("joined_in_progress"), QJsonValue(QJsonValue::Null)}}).ok);
     }
 
     // D1-3 (audit 2026-11-03): RunMutationRules.ValidateFinalValue also refuses a record that
@@ -2490,6 +2534,71 @@ private Q_SLOTS:
         QCOMPARE(ask(backend, QStringLiteral("PreviewRunImport"),
                      {{QStringLiteral("source_kind"), QStringLiteral("DOCX")}}).message,
                  collectorChinese("import.preview.kind_unsupported"));
+
+        // RunImportCandidateNormalizer.ParseRegion (audit 2026-11-20 Jb-5): the template's 区服
+        // words, in either spelling, name the region as the wire tokens do.
+        const Answer words = ask(backend, QStringLiteral("PreviewRunImport"),
+            {{QStringLiteral("source_kind"), QStringLiteral("JSON")},
+             {QStringLiteral("text"), QString::fromUtf8(
+                 "[{\"region\":\"国服\",\"content_id\":4,\"result\":\"完成\"},"
+                 "{\"region\":\"國際服\",\"content_id\":2,\"result\":\"完成\"},"
+                 "{\"region\":\"繁中服\",\"content_id\":3,\"result\":\"完成\"}]")}});
+        QVERIFY2(words.ok, qPrintable(words.message));
+        QStringList regions;
+        for (const auto &row : words.payload.value(QStringLiteral("rows")).toArray()) {
+            QVERIFY(row.toObject().value(QStringLiteral("status")).toString() != QLatin1String("invalid"));
+            regions.append(row.toObject().value(QStringLiteral("run")).toObject().value(QStringLiteral("region")).toString());
+        }
+        QCOMPARE(regions, (QStringList{QStringLiteral("CN"), QStringLiteral("GLOBAL"), QStringLiteral("TC")}));
+
+        // RunImportService.FreezeAndCache (Jb-5): a preview too large to answer in one reply, or
+        // whose candidates could not travel back in one re-check request, is refused, paged or not.
+        mr::MockBackend crowded;
+        crowded.resetRuns({});
+        QJsonArray many;
+        for (int i = 0; i < 400; ++i) {
+            many.append(QJsonObject{{QStringLiteral("content_id"), 4}, {QStringLiteral("result"), QStringLiteral("COMPLETED")},
+                                    {QStringLiteral("note"), QString(1000, QChar(0x5907))},
+                                    {QStringLiteral("reflection_text"), QString(2000, QChar(0x5FC3))}});
+        }
+        QJsonObject large{{QStringLiteral("source_kind"), QStringLiteral("JSON")},
+                          {QStringLiteral("text"), QString::fromUtf8(QJsonDocument(many).toJson(QJsonDocument::Compact))}};
+        QCOMPARE(ask(crowded, QStringLiteral("PreviewRunImport"), large).message, collectorChinese("import.preview.too_large"));
+        large.insert(QStringLiteral("page_size"), 50);
+        QCOMPARE(ask(crowded, QStringLiteral("PreviewRunImport"), large).message, collectorChinese("import.preview.too_large"));
+    }
+
+    // RunReflectionService.Write (audit 2026-11-20 Jb-1): an imported reflection without a
+    // recorded mood keeps "unknown" when its text is edited; the player's own record may not
+    // take it, and a mood outside the contract is refused with the parser's sentence.
+    void anImportedReflectionKeepsItsUnrecordedMood()
+    {
+        mr::MockBackend backend;
+        const Answer preview = previewImport(backend, QStringLiteral("JSON"),
+            QJsonArray{QJsonObject{{QStringLiteral("content_id"), 4}, {QStringLiteral("result"), QStringLiteral("COMPLETED")},
+                                   {QStringLiteral("reflection_text"), QString::fromUtf8("带新人打完")}}},
+            QStringLiteral("notes.json"));
+        QVERIFY2(preview.ok, qPrintable(preview.message));
+        const Answer imported = commitWholePreview(backend, preview);
+        QVERIFY2(imported.ok, qPrintable(imported.message));
+        const QString importedId = imported.payload.value(QStringLiteral("run_ids")).toArray().first().toString();
+        const auto reflect = [&backend](const QString &runId, const QString &mood) {
+            return ask(backend, QStringLiteral("SetRunReflection"),
+                       {{QStringLiteral("run_id"), runId}, {QStringLiteral("mood"), mood},
+                        {QStringLiteral("text"), QString::fromUtf8("改过的心得")}});
+        };
+        const Answer edited = reflect(importedId, QStringLiteral("unknown"));
+        QVERIFY2(edited.ok, qPrintable(edited.message));
+
+        const QString ownId = createManualRun(backend);
+        QVERIFY(!ownId.isEmpty());
+        const Answer own = reflect(ownId, QStringLiteral("unknown"));
+        QCOMPARE(own.code, QStringLiteral("ERR_BAD_REQUEST"));
+        QCOMPARE(own.message, collectorChinese("reflection.unrecorded_mood_import_only"));
+        QCOMPARE(reflect(ownId, QStringLiteral("great")).message,
+                 collectorChinese("ipc.field.only_values", {{QStringLiteral("field"), QStringLiteral("mood")},
+                                                            {QStringLiteral("choices"), QStringLiteral("good / ok / bad")}}));
+        QVERIFY(reflect(ownId, QStringLiteral("good")).ok);
     }
 
     // RV2-5 (audit 2026-10-20 H2-1): RunImportService.PreviewSource - a row without its own

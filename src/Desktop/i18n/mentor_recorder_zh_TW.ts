@@ -1262,6 +1262,10 @@
         <translation>停止採證後會恢復自動記錄。</translation>
     </message>
     <message>
+        <source>停止采证后恢复正常检测；这个区服暂不自动记录。</source>
+        <translation>停止採證後恢復正常檢測；這個區服暫不自動記錄。</translation>
+    </message>
+    <message>
         <source>停止采证后恢复正常检测；当前游戏版本暂不自动记录。</source>
         <translation>停止採證後恢復正常檢測；目前遊戲版本暫不自動記錄。</translation>
     </message>
@@ -2261,6 +2265,10 @@ SHA256：%3</translation>
     <message>
         <source>给角色改名</source>
         <translation>為角色改名</translation>
+    </message>
+    <message>
+        <source>给角色起名</source>
+        <translation>為角色取名</translation>
     </message>
     <message>
         <source>登记新角色</source>
@@ -3435,6 +3443,11 @@ SHA256：%3</translation>
         <source>这个角色的登记情况已经变了，请按总览上最新的提示操作。</source>
         <comment>identity.registration_moved</comment>
         <translation>這個角色的登記情況已經變了，請依總覽上最新的提示操作。</translation>
+    </message>
+    <message>
+        <source>没能清空校准进度：保存校准进度的文件正被其他程序占用（例如安全软件正在检查它）。请稍后再点「清空校准进度」。</source>
+        <comment>calibration.discard.evidence_busy</comment>
+        <translation>沒能清空校準進度：儲存校準進度的檔案正被其他程式佔用（例如安全軟體正在檢查它）。請稍後再點「清空校準進度」。</translation>
     </message>
     <message>
         <source>仅验证，不自动记录。所选网卡未连接或没有 IPv4 地址，取证不会开始。请取消后改选正在上网的网卡，或改用「自动选择」。</source>
@@ -6312,12 +6325,20 @@ SHA256：%3</translation>
         <translation>正在取消等待…</translation>
     </message>
     <message>
+        <source>还没有收到报文</source>
+        <translation>還沒有收到報文</translation>
+    </message>
+    <message>
         <source>正在取证 · 可以登录了</source>
         <translation>正在取證 · 可以登入了</translation>
     </message>
     <message>
         <source>没有录到数据，不会保存文件。</source>
         <translation>沒有錄到資料，不會儲存檔案。</translation>
+    </message>
+    <message>
+        <source>已经登录了报文仍为 0 时，先截图，再停止并导出诊断。</source>
+        <translation>已經登入了報文仍為 0 時，先截圖，再停止並匯出診斷。</translation>
     </message>
     <message>
         <source>启动游戏后会自动开始取证，看到「正在取证」再登录。</source>
@@ -6633,18 +6654,6 @@ SHA256：%3</translation>
         <translation>打包回傳給維護者</translation>
     </message>
     <message>
-        <source>可以区分：两个角色读到的标识不同，回到角色 A 时与第一次相同。</source>
-        <translation>可以區分：兩個角色讀到的標識不同，回到角色 A 時與第一次相同。</translation>
-    </message>
-    <message>
-        <source>不能区分：两个角色读到的标识相同。</source>
-        <translation>不能區分：兩個角色讀到的標識相同。</translation>
-    </message>
-    <message>
-        <source>标识不稳定：角色 A 前后读到的标识不一致。</source>
-        <translation>標識不穩定：角色 A 前後讀到的標識不一致。</translation>
-    </message>
-    <message>
         <source>这一轮没有得出结论：前三步没有全部确认并读到数据。请退出游戏后重做一轮，每一步进入游戏后等十秒左右再确认。</source>
         <translation>這一輪沒有得出結論：前三步沒有全部確認並讀到資料。請結束遊戲後重做一輪，每一步進入遊戲後等十秒左右再確認。</translation>
     </message>
@@ -6829,6 +6838,14 @@ SHA256：%3</translation>
         <translation>斷線</translation>
     </message>
     <message>
+        <source>这一轮用了软件在本机找到的读取方法，维护者要用日志里的查找结果为这个区服适配；在数据目录 logs</source>
+        <translation>這一輪用了軟體在本機找到的讀取方法，維護者要用記錄檔裡的查找結果為這個區服適配；在資料目錄 logs</translation>
+    </message>
+    <message>
+        <source>这一轮软件没能在本机找到读懂游戏数据的方法，维护者要用日志里的查找结果排查；在数据目录 logs</source>
+        <translation>這一輪軟體沒能在本機找到讀懂遊戲資料的方法，維護者要用記錄檔裡的查找結果排查；在資料目錄 logs</translation>
+    </message>
+    <message>
         <source>状态截图</source>
         <translation>狀態截圖</translation>
     </message>
@@ -6855,6 +6872,18 @@ SHA256：%3</translation>
     <message>
         <source>无法识别游戏版本时，在游戏目录</source>
         <translation>無法識別遊戲版本時，在遊戲資料夾</translation>
+    </message>
+    <message>
+        <source>可以区分：两个角色读到的连接标识不同，回到角色 A 时与第一次相同。</source>
+        <translation>可以區分：兩個角色讀到的連線標識不同，回到角色 A 時與第一次相同。</translation>
+    </message>
+    <message>
+        <source>不能区分：两个角色读到的连接标识相同。</source>
+        <translation>不能區分：兩個角色讀到的連線標識相同。</translation>
+    </message>
+    <message>
+        <source>连接标识不稳定：角色 A 前后读到的连接标识不一致。</source>
+        <translation>連線標識不穩定：角色 A 前後讀到的連線標識不一致。</translation>
     </message>
     <message>
         <source>启动或采证出错时，在数据目录 logs；软件读不懂游戏数据格式时，含几小段游戏主程序的指令字节</source>
@@ -7005,14 +7034,6 @@ SHA256：%3</translation>
         <translation>%1 · 標記 %2 / 5</translation>
     </message>
     <message>
-        <source>已保存 · 可以区分</source>
-        <translation>已儲存 · 可以區分</translation>
-    </message>
-    <message>
-        <source>已保存 · 未能区分</source>
-        <translation>已儲存 · 未能區分</translation>
-    </message>
-    <message>
         <source>已保存 · 文件 %1 / %2</source>
         <translation>已儲存 · 檔案 %1 / %2</translation>
     </message>
@@ -7045,6 +7066,10 @@ SHA256：%3</translation>
         <translation>等待遊戲啟動</translation>
     </message>
     <message>
+        <source>等待选择游戏</source>
+        <translation>等待選擇遊戲</translation>
+    </message>
+    <message>
         <source>正在取消等待</source>
         <translation>正在取消等待</translation>
     </message>
@@ -7055,6 +7080,10 @@ SHA256：%3</translation>
     <message>
         <source>正在取证</source>
         <translation>正在取證</translation>
+    </message>
+    <message>
+        <source>还没有收到报文</source>
+        <translation>還沒有收到報文</translation>
     </message>
     <message>
         <source>正在保存</source>
@@ -7069,8 +7098,16 @@ SHA256：%3</translation>
         <translation>已結束，檔案不完整</translation>
     </message>
     <message>
+        <source>已保存 · 连接标识可以区分</source>
+        <translation>已儲存 · 連線標識可以區分</translation>
+    </message>
+    <message>
         <source>已保存 · 没有得出结论</source>
         <translation>已儲存 · 沒有得出結論</translation>
+    </message>
+    <message>
+        <source>已保存 · 连接标识未能区分</source>
+        <translation>已儲存 · 連線標識未能區分</translation>
     </message>
     <message>
         <source>失败</source>
@@ -10427,6 +10464,14 @@ SHA256：%3</translation>
         <translation>通關 +1</translation>
     </message>
     <message>
+        <source>通关</source>
+        <translation>通關</translation>
+    </message>
+    <message>
+        <source>确认通关；这条记录还没有分配角色，暂不计入进度</source>
+        <translation>確認通關；這筆記錄還沒有分配角色，暫不計入進度</translation>
+    </message>
+    <message>
         <source>确认通关，计入导随次数</source>
         <translation>確認通關，計入導隨次數</translation>
     </message>
@@ -10445,6 +10490,10 @@ SHA256：%3</translation>
     <message>
         <source>已计入导随次数</source>
         <translation>已計入導隨次數</translation>
+    </message>
+    <message>
+        <source>已记为通关；还没有分配角色，暂不计入进度</source>
+        <translation>已記為通關；還沒有分配角色，暫不計入進度</translation>
     </message>
     <message>
         <source>已记为退出 / 放弃，不计入</source>
@@ -10876,6 +10925,12 @@ SHA256：%3</translation>
         <translation>計入導隨成就進度</translation>
     </message>
     <message>
+        <source>这条记录还没有分配角色，分配给角色后才计入该角色的进度。
+关闭后不增加成就进度，仍计入次数、通关率等统计。</source>
+        <translation>這筆記錄還沒有分配角色，分配給角色後才計入該角色的進度。
+關閉後不增加成就進度，仍計入次數、通關率等統計。</translation>
+    </message>
+    <message>
         <source>这里只补录指导者任务。
 关闭后不增加成就进度，仍计入次数、通关率等统计。</source>
         <translation>這裡只補登指導者任務。
@@ -10884,6 +10939,10 @@ SHA256：%3</translation>
     <message>
         <source>已通关，计入进度</source>
         <translation>已通關，計入進度</translation>
+    </message>
+    <message>
+        <source>已通关</source>
+        <translation>已通關</translation>
     </message>
 </context>
 <context>
@@ -11811,6 +11870,14 @@ SHA256：%3</translation>
         <translation>還沒有選擇內容，點標題列的「自訂」新增。</translation>
     </message>
     <message>
+        <source>有待处理记录时显示。</source>
+        <translation>有待處理記錄時顯示。</translation>
+    </message>
+    <message>
+        <source>所选内容进本后或有待处理记录时显示。</source>
+        <translation>所選內容進本後或有待處理記錄時顯示。</translation>
+    </message>
+    <message>
         <source>所选内容进本后显示。</source>
         <translation>所選內容進本後顯示。</translation>
     </message>
@@ -12723,8 +12790,8 @@ SHA256：%3</translation>
         <translation>找不到佔用採集服務的處理程序，已重新啟動採集服務。</translation>
     </message>
     <message>
-        <source>采集服务刚刚启动（进程 %1），可能正在升级数据库，请稍候。</source>
-        <translation>採集服務剛剛啟動（處理程序 %1），可能正在升級資料庫，請稍候。</translation>
+        <source>采集服务刚刚启动，请稍候。</source>
+        <translation>採集服務剛剛啟動，請稍候。</translation>
     </message>
     <message>
         <source>采集服务被一个没有响应的旧实例（进程 %1）占用，已请求它退出并重新启动采集服务。</source>
@@ -15321,6 +15388,18 @@ SHA256：%3</translation>
     <message>
         <source>暂未确认下载是否取消，请稍后查看下载状态。</source>
         <translation>尚未確認下載是否已取消，請稍後檢視下載狀態。</translation>
+    </message>
+    <message>
+        <source>没有切换到 GitCode：GitHub 的下载已经比镜像更快，仍从 GitHub 下载。</source>
+        <translation>沒有切換到 GitCode：GitHub 的下載已經比鏡像更快，仍從 GitHub 下載。</translation>
+    </message>
+    <message>
+        <source>没有切换到 GitCode：镜像暂时无法使用，仍从 GitHub 下载。</source>
+        <translation>沒有切換到 GitCode：鏡像暫時無法使用，仍從 GitHub 下載。</translation>
+    </message>
+    <message>
+        <source>没有切换到 GitCode：切换生效之前，GitHub 的下载已经结束。</source>
+        <translation>沒有切換到 GitCode：切換生效之前，GitHub 的下載已經結束。</translation>
     </message>
     <message>
         <source>尚未确认当前导随是否结束，暂时不能安装，请稍后再试。</source>

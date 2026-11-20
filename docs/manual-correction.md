@@ -30,8 +30,12 @@
 `UndoRevision` 只能撤销**当前最新**的那条修订，且不能撤销 `revision = 1`，即创建修订本身。
 撤销创建修订时返回 `ERR_UNDO_NOT_ALLOWED`，其中 `field = "expected_revision"`，
 `details.run_id` 给出记录标识。需要移除记录时应使用软删除。
-以下两类修订同样不能撤销，并返回 `ERR_UNDO_NOT_ALLOWED`（`field = "expected_revision"`）：
+以下四类修订同样不能撤销，并返回 `ERR_UNDO_NOT_ALLOWED`（`field = "expected_revision"`）：
 
+- 改动了记录区服的修订，即 `move_region` 写下的修订（`mutation.undo.region_migration`）。
+  迁移是整批进行的操作，不能逐条撤销；需要再次变更区服时，应再做一次批量迁移；
+- 修复导入来源的系统修订：理由为导入来源审计维护的系统修订，或差异中含 `source` 的系统修订
+  （`mutation.undo.import_source_repair`）。撤销会把记录还原为错误的来源，需要调整时应直接更正记录内容；
 - 撤销后会使记录无法正常收尾的系统修订（`actor = SYSTEM`），也就是程序为未完结记录写下的收尾与待复核标记：
   重启时的崩溃恢复、启动时对早期记录的一次性改正，以及启动时为看似仍在进行的早期记录加上的待复核标记（见 §9）。
   无法正常收尾的状态指自动记录结果未知、
@@ -42,7 +46,7 @@
 
 该错误码与 `ERR_BAD_REQUEST` 分开，用于让客户端区分请求格式错误与该修订按定义不可撤销两种情形。
 
-`BatchMutateRuns` 支持 `soft_delete`、`restore`、`purge` 与 `assign_profile`，携带最多 2000 条
+`BatchMutateRuns` 支持 `soft_delete`、`restore`、`purge`、`assign_profile` 与 `move_region`，携带最多 2000 条
 `runs[{run_id,expected_revision}]` 与理由。整批先检查版本及状态，任何冲突均不写入。
 `purge` 仅接受已软删除记录；普通审计写入仍只追加，永久清理事务获得指定记录的删除授权。
 
@@ -54,6 +58,22 @@
 （`details.run_id` 给出第一条不符的记录）。每条被改动的记录追加一条 `CORRECT` 修订，差异只有 `profile_id`；
 归属不是软件记录的副本事实，这条修订不置 `manually_corrected`，可以像其他修订一样撤销。改归属不会改动任何档案的
 基数，各角色的起始次数由用户分别校准。
+
+`move_region` 把记录迁移到另一个区服及该区服的一个档案，用于更正手动补录或导入时选错的区服；
+自动记录的区服由游戏客户端决定，不能迁移。动作带 `region`（目标区服，只能是国服、繁中服或国际服，且不同于来源区服）、
+`profile_id`（目标区服的档案）、`expected_baseline` 与 `baseline_overlap`。界面先以只读的 `PreviewRunRegionMigration`
+取得来源区服、计入进度的通关数、目标档案的基数与已计入的通关数，再发送迁移（[ui-design.md](ui-design.md) §4.2）。
+
+- 所选记录须全部是未删除的手动补录或导入记录（没有抓包会话），且属于同一来源区服，否则答 `ERR_BAD_REQUEST`；
+  目标档案不存在答 `ERR_NOT_FOUND`（`field = "profile_id"`），不属于目标区服答 `ERR_BAD_REQUEST`。
+- 有记录与目标区服中属于目标档案或未分配的记录、或与本批另一条记录重复时，整批以 `ERR_BAD_REQUEST`
+  拒绝（`history.region.duplicate`，`details` 给出 `run_id` 与 `matching_run_id`）。
+- `expected_baseline` 须等于预览时目标档案的基数，否则答 `ERR_REVISION_CONFLICT`（`field = "expected_baseline"`），
+  应重新预览。`baseline_overlap` 是这些通关中已算进目标基数的条数，取值为 0 至 min(计入进度的通关数, 目标基数)，
+  超出答 `ERR_BAD_REQUEST`。
+- 每条记录追加一条 `CORRECT` 修订，差异为 `region` 与 `profile_id`，不置 `manually_corrected`，也不改变待复核状态；
+  记录上的角色识别标记一并清除。目标档案的基数减去 `baseline_overlap`，大于 0 时追加一条基数审计；
+  来源档案的基数不变（[statistics-definitions.md](statistics-definitions.md) §4）。这类修订不能撤销（见上文）。
 
 ## 2. 修订链（append-only revisions）
 

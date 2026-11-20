@@ -39,6 +39,31 @@ public sealed record OodleSignatureExcerpt(
     int Mismatches,
     byte[] Bytes);
 
+/// <summary>One entry of a PE file's section table.</summary>
+/// <param name="VirtualAddress">Where the section starts once mapped (RVA).</param>
+/// <param name="VirtualSize">Its size once mapped; zero in some files, where the raw size stands for it.</param>
+/// <param name="RawOffset">Where its bytes start in the file.</param>
+/// <param name="RawSize">How many of its bytes the file holds.</param>
+/// <param name="Characteristics">The section flags.</param>
+public readonly record struct PeSection(
+    int VirtualAddress, int VirtualSize, int RawOffset, int RawSize, uint Characteristics)
+{
+    /// <summary>IMAGE_SCN_MEM_EXECUTE.</summary>
+    public const uint ExecuteFlag = 0x20000000;
+
+    /// <summary>IMAGE_SCN_MEM_READ.</summary>
+    public const uint ReadFlag = 0x40000000;
+
+    /// <summary>True when the header marks the section executable.</summary>
+    public bool Executable => (Characteristics & ExecuteFlag) != 0;
+
+    /// <summary>True when the header marks the section readable.</summary>
+    public bool Readable => (Characteristics & ReadFlag) != 0;
+
+    /// <summary>Size once mapped.</summary>
+    public long MappedSize => VirtualSize > 0 ? VirtualSize : RawSize;
+}
+
 /// <summary>How the search for one signature ended.</summary>
 public enum OodleSignatureOutcome
 {
@@ -88,11 +113,18 @@ public sealed record OodleSignatureDiscoveryResult(IReadOnlyList<OodleSignatureF
 /// and the relaxed pattern must still match exactly once.</description></item>
 /// </list>
 ///
-/// The result is a guess, so it is used only where a CANDIDATE profile may be used (an evidence
-/// round the player started), it goes through the same install gate as a pattern donor (every
-/// signature exactly once in the mapped image), and a wrong guess shows as decode errors in the
-/// round's own counters. It reads the executable's bytes off disk, like the profile check; no
-/// process is opened.
+/// A place counts only when it is a call site the twelve can be (<see cref="IsCallSite"/>): the
+/// pattern lies in a section the PE header marks executable, a direct call leads into an
+/// executable section and an indirect one reads its pointer from a readable section. A set in
+/// which two signatures settle on the same call is refused (audit 2026-11-20, A2-1).
+///
+/// The result is still a guess, so it is used only where a CANDIDATE profile may be used (an
+/// evidence round the player started), and it goes through the same install gate as a pattern
+/// donor (every signature exactly once in the mapped image). Machina runs the functions it
+/// names inside the Collector, so a wrong guess can end the Collector rather than show as decode
+/// errors; <see cref="OodleSignatureRuntime"/> therefore keeps a marker while a discovered set is
+/// in force and never uses one again for an executable whose round did not end cleanly. It
+/// reads the executable's bytes off disk, like the profile check; no process is opened.
 /// </summary>
 public static class OodleSignatureDiscovery
 {
@@ -167,18 +199,92 @@ public static class OodleSignatureDiscovery
         IReadOnlyList<(string Source, IReadOnlyDictionary<SignatureType, int[]> Patterns)> sources)
     {
         ArgumentNullException.ThrowIfNull(sources);
+        var sections = OodleSignatureRuntime.PeSections(image);
         var findings = new List<OodleSignatureFinding>();
         foreach (var type in Enum.GetValues<SignatureType>())
         {
-            findings.Add(FindOne(type, image, sources));
+            findings.Add(FindOne(type, image, sections, sources));
         }
 
-        return new OodleSignatureDiscoveryResult(findings);
+        // Two signatures settled on one call: at least one of them is wrong, and nothing says
+        // which, so neither is used.
+        var shared = findings
+            .Where(finding => finding.Pattern is not null && finding.Offset >= 0)
+            .GroupBy(finding => (long)finding.Offset + finding.Pattern!.Length)
+            .Where(group => group.Count() > 1)
+            .SelectMany(group => group.Select(finding => finding.Type))
+            .ToHashSet();
+        return new OodleSignatureDiscoveryResult(findings
+            .Select(finding => shared.Contains(finding.Type)
+                ? new OodleSignatureFinding(finding.Type, OodleSignatureOutcome.Ambiguous, null, null)
+                : finding)
+            .ToArray());
     }
+
+    /// <summary>
+    /// True when the place a pattern matched is a call site one of the twelve can be: the pattern
+    /// and its four-byte call operand lie inside a section the PE header marks executable, and the
+    /// call leads where such a call must - a direct call (<c>e8</c>) into an executable section, an
+    /// indirect one (<c>ff 15</c>) to a pointer slot inside a readable section (the import table
+    /// or a function pointer, which is data, not code). Offsets are converted to RVAs with the
+    /// section table, as the mapped image would place them.
+    /// </summary>
+    /// <param name="image">Bytes of the executable file.</param>
+    /// <param name="sections">Its section table (<see cref="OodleSignatureRuntime.PeSections"/>).</param>
+    /// <param name="site">File offset of the first byte of the match.</param>
+    /// <param name="pattern">The pattern that matched there.</param>
+    public static bool IsCallSite(
+        ReadOnlySpan<byte> image, IReadOnlyList<PeSection> sections, int site, int[] pattern)
+    {
+        ArgumentNullException.ThrowIfNull(sections);
+        ArgumentNullException.ThrowIfNull(pattern);
+        var operand = (long)site + pattern.Length;
+        if (site < 0 || pattern.Length == 0 || operand + sizeof(int) > image.Length)
+        {
+            return false;
+        }
+
+        PeSection? code = null;
+        foreach (var section in sections)
+        {
+            if (section.Executable && site >= section.RawOffset &&
+                operand + sizeof(int) <= (long)section.RawOffset + section.RawSize)
+            {
+                code = section;
+                break;
+            }
+        }
+
+        if (code is not { } host)
+        {
+            return false;
+        }
+
+        var relative = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(
+            image.Slice((int)operand, sizeof(int)));
+        var target = host.VirtualAddress + (operand - host.RawOffset) + sizeof(int) + relative;
+        var indirect = IsIndirect(pattern);
+        var span = indirect ? sizeof(long) : 1;
+        foreach (var section in sections)
+        {
+            if (target >= section.VirtualAddress &&
+                target + span <= (long)section.VirtualAddress + section.MappedSize)
+            {
+                return indirect ? section.Readable : section.Executable;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>True for a pattern ending on an indirect call (<c>ff 15</c>), false for a direct one (<c>e8</c>).</summary>
+    private static bool IsIndirect(int[] pattern) =>
+        pattern.Length >= 2 && pattern[^2] == 0xff && pattern[^1] == 0x15;
 
     private static OodleSignatureFinding FindOne(
         SignatureType type,
         ReadOnlySpan<byte> image,
+        IReadOnlyList<PeSection> sections,
         IReadOnlyList<(string Source, IReadOnlyDictionary<SignatureType, int[]> Patterns)> sources)
     {
         var ambiguous = false;
@@ -191,7 +297,7 @@ public static class OodleSignatureDiscovery
 
             var hits = OodleSignaturePattern.FindAll(pattern, image, limit: 2);
             ambiguous |= hits.Count > 1;
-            if (hits.Count == 1 && TargetInside(image, hits[0], pattern.Length))
+            if (hits.Count == 1 && IsCallSite(image, sections, hits[0], pattern))
             {
                 return new OodleSignatureFinding(type, OodleSignatureOutcome.Exact, source, pattern, Offset: hits[0]);
             }
@@ -206,7 +312,7 @@ public static class OodleSignatureDiscovery
                 continue;
             }
 
-            foreach (var (offset, index) in FindOneByteOff(pattern, image, limit: 2))
+            foreach (var (offset, index) in FindOneByteOff(pattern, image, sections, limit: 2))
             {
                 if (near is { } seen && seen.Offset != offset)
                 {
@@ -226,7 +332,7 @@ public static class OodleSignatureDiscovery
         var relaxed = (int[])found.Pattern.Clone();
         relaxed[found.Index] = OodleSignaturePattern.Wildcard;
         var relaxedHits = OodleSignaturePattern.FindAll(relaxed, image, limit: 2);
-        if (relaxedHits.Count != 1 || !TargetInside(image, relaxedHits[0], relaxed.Length))
+        if (relaxedHits.Count != 1 || !IsCallSite(image, sections, relaxedHits[0], relaxed))
         {
             return new OodleSignatureFinding(type, OodleSignatureOutcome.Ambiguous, null, null);
         }
@@ -236,14 +342,23 @@ public static class OodleSignatureDiscovery
             image[found.Offset + found.Index], found.Offset);
     }
 
+    // Every excerpt follows one rule: it starts a number of bytes before the matched place, ends
+    // a number of bytes past the end of that place's four-byte call operand (place + pattern
+    // length + 4), and is never longer than MaxExcerptBytes; both ends are clamped to the file.
+
+    /// <summary>Longest excerpt ever written, in bytes.</summary>
+    public const int MaxExcerptBytes = 384;
+
     /// <summary>Bytes kept before an accepted call site.</summary>
     public const int SiteBytesBefore = 96;
 
-    /// <summary>Bytes kept from an accepted call site on: the finder derives the two
-    /// <c>Train</c> patterns from the instructions that follow <c>TCP_State_Size</c>.</summary>
+    /// <summary>Bytes kept past an accepted site's call operand: the finder derives the two
+    /// <c>Train</c> patterns from the instructions that follow <c>TCP_State_Size</c>. With
+    /// <see cref="MaxExcerptBytes"/> a site's excerpt is therefore always the 384 bytes that
+    /// start <see cref="SiteBytesBefore"/> before it.</summary>
     public const int SiteBytesAfter = 288;
 
-    /// <summary>Bytes kept on each side of a near miss.</summary>
+    /// <summary>Bytes kept before a near miss and past its call operand.</summary>
     public const int CandidateBytesAround = 32;
 
     /// <summary>Near misses kept per signature.</summary>
@@ -279,16 +394,18 @@ public static class OodleSignatureDiscovery
             {
                 excerpts.Add(Excerpt(
                     image, finding.Type, "site", finding.Source ?? string.Empty, finding.Offset, 0,
-                    SiteBytesBefore, SiteBytesAfter));
+                    finding.Pattern.Length, SiteBytesBefore, SiteBytesAfter));
                 continue;
             }
 
+            // The closest places of each source over the whole file: the closest overall are
+            // among them, whatever the file order (audit 2026-11-20, D2-3).
             var near = new List<(int Offset, int Mismatches, string Source, int Length)>();
             foreach (var (source, patterns) in sources)
             {
                 if (patterns.TryGetValue(finding.Type, out var pattern))
                 {
-                    near.AddRange(FindNear(pattern, image, CandidateMismatches, limit: 64)
+                    near.AddRange(FindNear(pattern, image, CandidateMismatches, CandidateLimit)
                         .Select(hit => (hit.Offset, hit.Mismatches, source, pattern.Length)));
                 }
             }
@@ -302,28 +419,35 @@ public static class OodleSignatureDiscovery
             {
                 excerpts.Add(Excerpt(
                     image, finding.Type, "candidate", hit.Source, hit.Offset, hit.Mismatches,
-                    CandidateBytesAround, hit.Length + sizeof(int) + CandidateBytesAround));
+                    hit.Length, CandidateBytesAround, CandidateBytesAround));
             }
         }
 
         return excerpts;
     }
 
+    /// <summary>The one excerpt rule: see <see cref="MaxExcerptBytes"/>.</summary>
     private static OodleSignatureExcerpt Excerpt(
         ReadOnlySpan<byte> image, SignatureType type, string kind, string source, int site, int mismatches,
-        int before, int after)
+        int patternLength, int before, int afterOperand)
     {
         var start = Math.Max(0, site - before);
-        var end = (int)Math.Min(image.Length, (long)site + after);
+        var end = (int)Math.Min(
+            image.Length,
+            Math.Min((long)site + patternLength + sizeof(int) + afterOperand, (long)start + MaxExcerptBytes));
         return new OodleSignatureExcerpt(type, kind, source, start, site, mismatches, image[start..end].ToArray());
     }
 
-    /// <summary>Places that differ from <paramref name="pattern"/> in at most a few literal bytes.</summary>
+    /// <summary>
+    /// The places closest to <paramref name="pattern"/> over the whole file - fewest differing
+    /// literal bytes, the earlier place first among equals - and at most <paramref name="limit"/>
+    /// of them, so memory stays bounded however many places come close.
+    /// </summary>
     private static List<(int Offset, int Mismatches)> FindNear(
         int[] pattern, ReadOnlySpan<byte> image, int maximumMismatches, int limit)
     {
-        var hits = new List<(int, int)>();
-        if (pattern.Length < OodleSignaturePattern.MinimumBytes || image.Length < pattern.Length)
+        var hits = new List<(int Offset, int Mismatches)>();
+        if (limit <= 0 || pattern.Length < OodleSignaturePattern.MinimumBytes || image.Length < pattern.Length)
         {
             return hits;
         }
@@ -338,40 +462,62 @@ public static class OodleSignatureDiscovery
                 continue;
             }
 
+            // Once the list is full a place must beat the worst kept one; a later place that only
+            // ties it loses, so equals keep file order.
+            var worst = hits.Count < limit ? -1 : WorstIndex(hits);
+            var allowed = worst < 0 ? maximumMismatches : hits[worst].Mismatches - 1;
             var mismatches = 0;
-            for (var j = 1; j < pattern.Length && mismatches <= maximumMismatches; j++)
+            for (var j = 1; j < pattern.Length && mismatches <= allowed; j++)
             {
                 if (pattern[j] != OodleSignaturePattern.Wildcard && pattern[j] != image[at + j])
                 {
-                    mismatches = j >= pattern.Length - fixedTail ? maximumMismatches + 1 : mismatches + 1;
+                    mismatches = j >= pattern.Length - fixedTail ? allowed + 1 : mismatches + 1;
                 }
             }
 
-            if (mismatches > maximumMismatches)
+            if (mismatches > allowed)
             {
                 continue;
             }
 
-            hits.Add((at, mismatches));
-            if (hits.Count >= limit)
+            if (worst < 0)
             {
-                return hits;
+                hits.Add((at, mismatches));
+            }
+            else
+            {
+                hits[worst] = (at, mismatches);
             }
         }
 
         return hits;
     }
 
-    private static bool TargetInside(ReadOnlySpan<byte> image, int site, int patternLength) =>
-        OodleSignaturePattern.ResolveRelativeTarget(image, site, patternLength) is { } target &&
-        target > 0 && target < image.Length;
+    /// <summary>The kept place that differs most, the latest of those among equals.</summary>
+    private static int WorstIndex(List<(int Offset, int Mismatches)> hits)
+    {
+        var worst = 0;
+        for (var i = 1; i < hits.Count; i++)
+        {
+            if (hits[i].Mismatches > hits[worst].Mismatches ||
+                (hits[i].Mismatches == hits[worst].Mismatches && hits[i].Offset > hits[worst].Offset))
+            {
+                worst = i;
+            }
+        }
+
+        return worst;
+    }
 
     /// <summary>
     /// Offsets where <paramref name="pattern"/> matches except for exactly one literal byte.
     /// The first byte and the call opcode the pattern ends on (<c>e8</c>, or <c>ff 15</c>) must
     /// match as written: the first keeps the scan fast, the last is what makes the place a call.
+    /// Only call sites count (<see cref="IsCallSite"/>): data that happens to look like the call
+    /// is no candidate at all.
     /// </summary>
-    private static List<(int Offset, int Index)> FindOneByteOff(int[] pattern, ReadOnlySpan<byte> image, int limit)
+    private static List<(int Offset, int Index)> FindOneByteOff(
+        int[] pattern, ReadOnlySpan<byte> image, IReadOnlyList<PeSection> sections, int limit)
     {
         var hits = new List<(int, int)>();
         if (pattern.Length < OodleSignaturePattern.MinimumBytes || image.Length < pattern.Length)
@@ -407,7 +553,7 @@ public static class OodleSignatureDiscovery
                 mismatch = j;
             }
 
-            if (!matched || mismatch < 0)
+            if (!matched || mismatch < 0 || !IsCallSite(image, sections, at, pattern))
             {
                 continue;
             }

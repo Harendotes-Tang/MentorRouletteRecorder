@@ -55,7 +55,13 @@ ColumnLayout {
                 font.family: Theme.figureFamily
                 font.features: ({ "tnum": 1 })
             }
-            OverlayPlusPill { visible: root.ov.pendingNew; count: 1; tone: root.ov.warn; Layout.alignment: Qt.AlignVCenter }
+            OverlayPlusPill {
+                objectName: "floatingPendingPlus"
+                visible: root.ov.pendingNew
+                count: Math.max(1, root.ov.pendingAdded)
+                tone: root.ov.warn
+                Layout.alignment: Qt.AlignVCenter
+            }
             Flow {
                 Layout.fillWidth: true
                 Layout.minimumWidth: 0

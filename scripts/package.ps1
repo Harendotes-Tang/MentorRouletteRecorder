@@ -39,7 +39,12 @@ param(
     [switch]$Verify,
 
     # Skip the Inno Setup installer even when ISCC.exe is available.
-    [switch]$NoInstaller
+    [switch]$NoInstaller,
+
+    # Package a version without a prerelease label although -SkipVerify is given or HEAD is not
+    # its "chore(release): X.Y.Z" commit (Get-UnsuffixedVersionRefusal). Such a build spends the
+    # release number; it is for a deliberate exception only, never for a test build.
+    [switch]$AllowUnsuffixedVersion
 )
 
 Set-StrictMode -Version Latest
@@ -508,9 +513,10 @@ function Assert-StagedVersion([string]$TargetDir) {
 }
 
 function Assert-ReleasedChangelogSectionsUnchanged {
-    # A published section records what a tag contains, so every "## [X.Y.Z]" section with a
-    # matching vX.Y.Z tag must read exactly as it did at that tag - heading line included -
-    # and must still be there. Newer entries belong under [Unreleased] or the next version.
+    # A published section records what a tag contains, so every "## [X.Y.Z]" or
+    # "## [X.Y.Z-beta.N]" section with a matching tag must read exactly as it did at that tag -
+    # heading line included - and must still be there. Newer entries belong under [Unreleased]
+    # or the next version.
     # The comparison itself is Get-ReleasedChangelogSectionChange in package-version.ps1.
     $git = Get-Command git -ErrorAction SilentlyContinue
     if (-not $git) {
@@ -531,10 +537,11 @@ function Assert-ReleasedChangelogSectionsUnchanged {
     try {
     [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
     foreach ($tag in $tags) {
-        # Release tags only. A vX.Y.Z-beta.N tag marks a test build, whose entries are still
-        # under [Unreleased] and are expected to keep changing until the release is cut.
-        if ($tag -notmatch '^v(\d+\.\d+\.\d+)$') { continue }
-        $version = $Matches[1]
+        # Formal and prerelease tags alike: a beta is published as its own section under an
+        # empty [Unreleased] (audit 2026-11-20 N2-3). A beta tag from before that practice has
+        # no such section and is skipped below as having nothing to protect.
+        $version = Get-ReleasedChangelogTagVersion -Tag $tag
+        if ($null -eq $version) { continue }
         # The tagged text is read first: a section that is missing from the working copy -
         # deleted, or renamed to another version - is a change, not a reason to skip.
         $tagged = & git -C $RepoRoot show ("{0}:CHANGELOG.md" -f $tag) 2>$null
@@ -766,6 +773,16 @@ if ($changelogRefusal) {
     throw ("版本不一致：Directory.Build.props 是 {0}，但 {1}" -f $Version, $changelogRefusal)
 }
 Assert-ReleasedChangelogSectionsUnchanged
+# A release number handed to anyone is spent: the real release under the same number is never
+# offered as an update (audit 2026-11-20 M-2). Refused here, before twenty minutes of building.
+$unsuffixedRefusal = Get-UnsuffixedVersionRefusal -Version $Version -SkipVerify:$SkipVerify `
+    -HeadSubject (Get-HeadCommitSubject -RepoRoot $RepoRoot)
+if ($unsuffixedRefusal) {
+    if (-not $AllowUnsuffixedVersion) {
+        throw $unsuffixedRefusal
+    }
+    Write-Host ("  按 -AllowUnsuffixedVersion 继续：{0}" -f $unsuffixedRefusal) -ForegroundColor Yellow
+}
 
 # The source the binaries are built from, read before verify.ps1 and build.ps1 run and required
 # unchanged where BUILD-METADATA.json records it (audit 2026-10-20, M-2): a checkout, stash or

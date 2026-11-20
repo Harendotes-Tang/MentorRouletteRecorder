@@ -6,6 +6,7 @@
 #include "AppController.h"
 #include "EvidenceSubmissionController.h"
 #include "Formatters.h"
+#include "GameSelectionController.h"
 #include "MockBackend.h"
 #include "QmlComponentTestSupport.h"
 #include "TestCollectorGuard.h"
@@ -103,6 +104,44 @@ private Q_SLOTS:
             QVERIFY(action);
             QVERIFY(action->isVisible());
         }
+        QCOMPARE(scene.warnings->size(), 0);
+    }
+
+    // Audit 2026-11-20, K4-4: a waiting round is named after what it waits for. The
+    // Collector waits with WAITING_GAME for a game to start and for one of several running
+    // clients to be chosen; the second is not 「等待游戏启动」.
+    void theWaitIsNamedAfterWhatItWaitsFor_data()
+    {
+        QTest::addColumn<QString>("reason");
+        QTest::addColumn<QString>("fixture");
+        QTest::addColumn<QString>("title");
+        QTest::newRow("game") << QStringLiteral("WAITING_GAME") << QString() << QString::fromUtf8("等待游戏启动");
+        QTest::newRow("choice") << QStringLiteral("WAITING_GAME") << QStringLiteral("multiple")
+                                << QString::fromUtf8("等待选择游戏");
+        QTest::newRow("adapter") << QStringLiteral("WAITING_ADAPTER") << QString() << QString::fromUtf8("等待可用的网卡");
+        QTest::newRow("identity") << QStringLiteral("WAITING_IDENTITY") << QString() << QString::fromUtf8("等待读取游戏版本");
+        QTest::newRow("region") << QStringLiteral("WAITING_REGION") << QString() << QString::fromUtf8("等待识别区服");
+        QTest::newRow("connection") << QStringLiteral("WAITING_CONNECTION_CHECK") << QString()
+                                    << QString::fromUtf8("等待确认游戏连接");
+        QTest::newRow("restart") << QStringLiteral("WAITING_RESTART") << QString() << QString::fromUtf8("等待游戏重新启动");
+    }
+
+    void theWaitIsNamedAfterWhatItWaitsFor()
+    {
+        QFETCH(QString, reason);
+        QFETCH(QString, fixture);
+        QFETCH(QString, title);
+        EvidenceScene scene;
+        if (!fixture.isEmpty())
+            scene.backend.setRecordingFixture(fixture);
+        scene.backend.scripted = true;
+        scene.backend.validation = roundStatus(QStringLiteral("WAITING"), QStringLiteral("round-wait-for"));
+        scene.backend.validation.insert(QStringLiteral("reason"), reason);
+        QVERIFY(scene.open(QStringLiteral("WAITING")));
+        QTRY_COMPARE(scene.app->validationState(), QStringLiteral("WAITING"));
+        QTRY_COMPARE(scene.app->gameSelection()->required(), !fixture.isEmpty());
+        QTRY_COMPARE(scene.sessionValue("waitingTitle").toString(), title);
+        QCOMPARE(scene.text(QStringLiteral("evidenceStatusBadgeText")), title);
         QCOMPARE(scene.warnings->size(), 0);
     }
 
@@ -213,6 +252,64 @@ private Q_SLOTS:
         QCOMPARE(scene.warnings->size(), 0);
     }
 
+    // Audit 2026-11-20, I4-1: what the Collector found in the game program by itself (or
+    // failed to find) is written only to collector-*.log, so a round that searched asks for
+    // the log - and keeps asking once the capture has stopped and its status is gone.
+    void aRoundThatSearchedForTheDecoderRequiresTheLog()
+    {
+        EvidenceScene scene;
+        scene.backend.scripted = true;
+        scene.backend.validation = roundStatus(QStringLiteral("RECORDING"), QStringLiteral("round-search"), 500, 30);
+        QVERIFY(scene.open(QStringLiteral("RECORDING")));
+        QTRY_COMPARE(scene.sessionValue("roundKey").toString(), QStringLiteral("round-search"));
+        QTRY_VERIFY(scene.sessionValue("recording").toBool());
+        const auto logRequired = [&scene] {
+            const QVariantList required = scene.sessionValue("requiredFiles").toList();
+            return std::ranges::any_of(required, [](const QVariant &file) {
+                return file.toMap().value(QStringLiteral("key")).toString() == QLatin1String("log");
+            });
+        };
+        QVERIFY(!logRequired());
+        // An exact profile: nothing was searched for.
+        const auto noteSearch = [&scene](const QString &source, const QString &profileId) {
+            QVariantMap capture{{QStringLiteral("oodle_signature_source"), source}};
+            if (!profileId.isEmpty()) capture.insert(QStringLiteral("oodle_profile_id"), profileId);
+            const QVariant argument(capture);
+            return QMetaObject::invokeMethod(scene.session(), "noteOodleSearch", Q_ARG(QVariant, argument));
+        };
+        QVERIFY(noteSearch(QStringLiteral("profile"), QStringLiteral("cn.2026.08.05")));
+        QVERIFY(!logRequired());
+        QVERIFY(noteSearch(QStringLiteral("pattern-fallback"), QStringLiteral("discovered.global.2026.11.03")));
+        QTRY_VERIFY(logRequired());
+        // The required rows come first, so the log is not filed under 按需附加.
+        const QVariantList defs = scene.sessionValue("fileDefs").toList();
+        QCOMPARE(defs.at(4).toMap().value(QStringLiteral("key")).toString(), QStringLiteral("log"));
+        QVERIFY(defs.at(4).toMap().value(QStringLiteral("desc")).toString().contains(QString::fromUtf8("本机找到")));
+        // A set found here may have decoded nothing: the row says it was used, never that it worked
+        // (re-review 2026-11-20, R5-1).
+        QVERIFY(!defs.at(4).toMap().value(QStringLiteral("desc")).toString().contains(QString::fromUtf8("读懂")));
+
+        // Saved: the capture has stopped, the round still asks for the log.
+        scene.report(roundStatus(QStringLiteral("COMPLETED"), QStringLiteral("round-search"), 520, 31,
+                                 QStringLiteral("C:/mock-only/search/trace.jsonl")));
+        QTRY_COMPARE(scene.stepStatus(4), QStringLiteral("cur"));
+        QVERIFY(logRequired());
+        QVERIFY2(scene.sessionValue("report").toString().contains(QStringLiteral("collector-*.log")),
+                 qPrintable(scene.sessionValue("report").toString()));
+        QVERIFY2(scene.text(QStringLiteral("evidenceStepSummary_4")).endsWith(QString::fromUtf8("文件 0 / 5")),
+                 qPrintable(scene.text(QStringLiteral("evidenceStepSummary_4"))));
+
+        // A search that came up short asks for it too; the next round starts without.
+        QVERIFY(QMetaObject::invokeMethod(scene.session(), "startNextRound"));
+        QTRY_VERIFY(!logRequired());
+        scene.report(roundStatus(QStringLiteral("RECORDING"), QStringLiteral("round-search-2"), 10, 5));
+        QTRY_COMPARE(scene.sessionValue("roundKey").toString(), QStringLiteral("round-search-2"));
+        QTRY_VERIFY(scene.sessionValue("recording").toBool());
+        QVERIFY(noteSearch(QStringLiteral("builtin"), QString()));
+        QTRY_VERIFY(logRequired());
+        QCOMPARE(scene.warnings->size(), 0);
+    }
+
     // Review K4-1: the Collector starts recording at the title screen, where the game holds
     // no connection and nothing can arrive yet. A 0 there is not an anomaly; the 60 s run
     // from the first status that counts a connection of the game.
@@ -246,6 +343,50 @@ private Q_SLOTS:
         QCOMPARE(scene.text(QStringLiteral("evidenceAnomalyTitle")), QString::fromUtf8("报文一直为 0"));
         QCOMPARE(scene.text(QStringLiteral("evidenceStatusBadgeText")), QString::fromUtf8("数据异常"));
         QVERIFY(scene.item(QStringLiteral("evidenceStopExportButton"))->isVisible());
+        QCOMPARE(scene.warnings->size(), 0);
+    }
+
+    // Audit 2026-11-10, K4-1: when the game's connections cannot be counted (the system table
+    // could not be read, or a local proxy carries them), nothing starts the 60 s. A round
+    // that has recorded five minutes with no 报文 then says so in amber, with the way out;
+    // the red verdict still needs a measured connection.
+    void anUncountedConnectionStillSaysNothingArrives()
+    {
+        EvidenceScene scene;
+        scene.backend.scripted = true;
+        scene.backend.validation = roundStatus(QStringLiteral("RECORDING"), QStringLiteral("round-uncounted"), 0, 400);
+        const QJsonValue unread(QJsonValue::Null);
+        scene.backend.networkPath = {{QStringLiteral("ipv4_connections"), unread},
+                                     {QStringLiteral("ipv6_connections"), unread},
+                                     {QStringLiteral("loopback_connections"), unread}};
+        QVERIFY(scene.open(QStringLiteral("RECORDING")));
+        QTRY_COMPARE(scene.sessionValue("roundKey").toString(), QStringLiteral("round-uncounted"));
+        scene.app->refreshStatus();
+        QTRY_VERIFY(scene.app->captureStatus().contains(QStringLiteral("network_path")));
+        QTRY_VERIFY(scene.sessionValue("quiet").toBool());
+        QVERIFY(!scene.sessionValue("anomaly").toBool());
+        QCOMPARE(scene.sessionValue("badgeTone").toString(), QStringLiteral("warn"));
+        QCOMPARE(scene.text(QStringLiteral("evidenceStatusBadgeText")), QString::fromUtf8("还没有收到报文"));
+        QCOMPARE(scene.text(QStringLiteral("evidenceLiveTitle")), QString::fromUtf8("还没有收到报文"));
+        QVERIFY(scene.item(QStringLiteral("evidenceQuietExportButton"))->isVisible());
+
+        // Every connection of the game goes through this machine: still nothing to time by.
+        scene.backend.networkPath = {{QStringLiteral("ipv4_connections"), 2},
+                                     {QStringLiteral("ipv6_connections"), 0},
+                                     {QStringLiteral("loopback_connections"), 2}};
+        scene.app->refreshStatus();
+        QTRY_COMPARE(scene.app->captureStatus().value(QStringLiteral("network_path")).toMap()
+                         .value(QStringLiteral("loopback_connections")).toInt(), 2);
+        QVERIFY(scene.sessionValue("quiet").toBool());
+
+        // Counted zeros (the title screen): no hint, the round simply waits.
+        scene.backend.networkPath = {{QStringLiteral("ipv4_connections"), 0},
+                                     {QStringLiteral("ipv6_connections"), 0},
+                                     {QStringLiteral("loopback_connections"), 0}};
+        scene.app->refreshStatus();
+        QTRY_VERIFY(!scene.sessionValue("quiet").toBool());
+        QCOMPARE(scene.text(QStringLiteral("evidenceStatusBadgeText")), QString::fromUtf8("正在取证"));
+        QVERIFY(!scene.item(QStringLiteral("evidenceQuietExportButton"))->isVisible());
         QCOMPARE(scene.warnings->size(), 0);
     }
 

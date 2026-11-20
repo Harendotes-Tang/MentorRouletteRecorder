@@ -30,9 +30,11 @@ public sealed record CharacterIdentityNote(string Event, int? Count = null, stri
 /// (<see cref="IdentityAtMatch"/>), live or replayed: never under a profile the player chose for
 /// somebody else, and never under the character played before.
 ///
-/// Where nobody can be told apart - a region not verified for it, the setting off, no usable key,
-/// no login message recognised in the session (one whose shape a patch has changed, say) - nothing
-/// here does anything and a run goes to the current profile exactly as before.
+/// Where nobody can be told apart - a region not verified for it, the setting off, no usable key -
+/// nothing here does anything and a run goes to the current profile exactly as before. When no login
+/// message was recognised in the session (one whose shape a patch has changed, say), a run goes to
+/// the current profile as well, unless the character seen last on this machine is not that
+/// profile's: then it goes to no profile until the player says (<see cref="IdentityAtMatch"/>).
 ///
 /// Identification is an extra: nothing in it may cost a recorded message. Whatever fails here is
 /// noted (<see cref="CharacterIdentityNoted"/>) and recording goes on.

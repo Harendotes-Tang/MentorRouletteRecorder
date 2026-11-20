@@ -485,7 +485,7 @@ public sealed class CaptureTraceTests
     }
 
     /// <summary>
-    /// Audit 2026-11-03, A2-4. A client whose path names no region (a Steam install, a custom
+    /// Audit 2026-11-03, A2-4. A client whose path names no region (a custom
     /// folder) is refused with a sentence that says so and names the one way out on the command
     /// line, never "wait for the client" or "use the settings", which the trace does not read. A
     /// region given with <c>--region</c> is used for such a path, but never relabels a path that
@@ -494,11 +494,12 @@ public sealed class CaptureTraceTests
     [Fact]
     public void TraceRun_NamesTheMissingRegion_AndTakesItFromTheCommandLine()
     {
-        const string steam = @"D:\Steam\steamapps\common\FINAL FANTASY XIV Online\game\ffxiv_dx11.exe";
+        // A Steam install names the Global region since audit 2026-11-20, A2-5.
+        const string unmarked = @"D:\Games\FF14\game\ffxiv_dx11.exe";
         const string userjoy = @"C:\Program Files\USERJOY GAMES\FINAL FANTASY XIV TC\game\ffxiv_dx11.exe";
         using var directory = new TempDirectory();
         var files = new FakeGameFileReader()
-            .With(Path.Combine(Path.GetDirectoryName(steam)!, GameProcessLocator.VersionFileName), "2026.10.01.0000.0000")
+            .With(Path.Combine(Path.GetDirectoryName(unmarked)!, GameProcessLocator.VersionFileName), "2026.10.01.0000.0000")
             .With(Path.Combine(Path.GetDirectoryName(userjoy)!, GameProcessLocator.VersionFileName), "2026.10.01.0000.0000");
 
         (int Result, string Output, RecordingTraceSource Source) Run(string exe, Region? region, string name)
@@ -524,14 +525,14 @@ public sealed class CaptureTraceTests
             return (result, output.ToString(), source);
         }
 
-        var refused = Run(steam, null, "unmarked.jsonl");
+        var refused = Run(unmarked, null, "unmarked.jsonl");
         Assert.Equal(1, refused.Result);
         Assert.Null(refused.Source.LastOptions);
         Assert.Contains(CaptureTraceRunner.RegionRefusal, refused.Output, StringComparison.Ordinal);
         Assert.Contains(CaptureTraceCli.RegionFlag, CaptureTraceRunner.RegionRefusal, StringComparison.Ordinal);
         Assert.DoesNotContain(CaptureTraceRunner.GameIdentityRefusal, refused.Output, StringComparison.Ordinal);
 
-        var named = Run(steam, Region.Global, "named.jsonl");
+        var named = Run(unmarked, Region.Global, "named.jsonl");
         Assert.Equal(Region.Global, Assert.IsType<CaptureStartOptions>(named.Source.LastOptions).Region);
         Assert.True(File.Exists(Path.Combine(directory.Path, "named.jsonl")));
 

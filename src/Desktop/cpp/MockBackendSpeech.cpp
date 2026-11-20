@@ -388,9 +388,11 @@ QJsonObject MockBackend::synthesizePayload(const QJsonObject &payload, QString *
         QSaveFile file(path);
         if (!QDir().mkpath(folder) || !file.open(QIODevice::WriteOnly)
             || file.write(silentWave()) < 0 || !file.commit()) {
+            // A local disk failure, not the service's audio: the Collector answers it as an
+            // internal error with its own reason (audit 2026-11-20, F-1).
             *errorDetails = {{QStringLiteral("reason"), QStringLiteral("CACHE_WRITE")}};
-            return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_SPEECH_FORMAT"),
-                              "speech.failure.format");
+            return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_INTERNAL"),
+                              "speech.failure.other");
         }
     }
     return {{QStringLiteral("audio_path"), QDir::toNativeSeparators(QFileInfo(path).absoluteFilePath())},

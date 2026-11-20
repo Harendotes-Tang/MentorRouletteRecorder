@@ -756,8 +756,12 @@ public sealed class LifecycleProcessTests : IDisposable
         var result = CollectorProcessFixture.RunToCompletion("--serve", "--json", "--pipe", "anonymous",
             "--db", Path.Combine(_directory, "initial-pipe-refused.db"),
             "--log-dir", Path.Combine(_directory, "initial-pipe-refused-logs"));
-        Assert.NotEqual(0, result.ExitCode);
+        // An orderly refusal, not an unhandled exception (0xE0434352): exit code 3 and a last
+        // stderr refusal saying it failed (audit 2026-11-20, G-2).
+        Assert.Equal(3, result.ExitCode);
         Assert.True(string.IsNullOrWhiteSpace(result.StandardOutput), result.StandardOutput);
+        Assert.Contains("failed: ", result.StandardError, StringComparison.Ordinal);
+        Assert.DoesNotContain("Unhandled exception", result.StandardError, StringComparison.Ordinal);
     }
 
     public void Dispose()

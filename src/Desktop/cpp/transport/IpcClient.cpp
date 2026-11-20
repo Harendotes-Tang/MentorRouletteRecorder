@@ -4,7 +4,6 @@
 #include "IpcFraming.h"
 #include "PipeName.h"
 
-#include <QDateTime>
 #include <QJsonDocument>
 #include <QLoggingCategory>
 #include <QSet>
@@ -97,11 +96,10 @@ IpcClient::IpcClient(QObject *parent)
 
     m_timeoutTimer.setInterval(1000);
     connect(&m_timeoutTimer, &QTimer::timeout, this, [this] {
-        const qint64 now = QDateTime::currentMSecsSinceEpoch();
         const QStringList ids = m_pending.keys();
         for (const QString &id : ids) {
             const Pending pending = m_pending.value(id);
-            if (pending.deadline > now)
+            if (!pending.deadline.hasExpired())
                 continue;
             m_pending.remove(id);
             if (pending.reply) {
@@ -403,7 +401,7 @@ void IpcClient::send(BackendReply *reply, const QString &messageType,
 
     Pending pending;
     pending.reply = reply;
-    pending.deadline = QDateTime::currentMSecsSinceEpoch() + deadlineMs;
+    pending.deadline = QDeadlineTimer(deadlineMs);
     m_pending.insert(reply->requestId(), pending);
     if (!m_timeoutTimer.isActive())
         m_timeoutTimer.start();

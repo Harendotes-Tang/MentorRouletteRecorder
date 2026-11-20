@@ -74,7 +74,25 @@ public sealed partial class LiveProtocolPipeline
 
             // 重新观察 has to survive a restart, or the next launch would hand the player back
             // exactly what they asked the software to forget.
-            ForgetCalibrationEvidence();
+            if (ForgetCalibrationEvidence() is { } failure)
+            {
+                // The file is still there (another program holding it open, say). Discarding in memory
+                // anyway would look done, and the old file would refuse every poorer save and come back
+                // at the next restart. Nothing is discarded; the failure reaches the desktop as any
+                // failed request does, and the details go to the log (audit 2026-11-20, C-2). A profile
+                // retired just now stays retired: the card is back, and the player can clear it again.
+                if (retireLocalProfile)
+                {
+                    NotifyCalibrationChanged();
+                }
+
+                throw new CollectorException(
+                    ErrorCodes.CalibrationNotReady,
+                    CollectorTexts.CalibrationDiscardEvidenceBusy(),
+                    retryable: true,
+                    inner: failure);
+            }
+
             _calibration.Discard(_active ? _sessionId : null);
             KeepDisprovedAfterDiscard();
             // 重新观察 also forgets which shared calibrations this build's traffic contradicted.

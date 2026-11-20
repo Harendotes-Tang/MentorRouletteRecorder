@@ -108,6 +108,8 @@ ApplicationWindow {
         auto *host = scene.root->findChild<QQuickWindow *>(QStringLiteral("shareWindow"));
         QVERIFY(host && !host->isVisible());
         QVERIFY(host->flags().testFlag(Qt::WindowMaximizeButtonHint));
+        // A minimised window renders nothing, so a batch saved meanwhile would fail (audit 2026-11-20 L2-2).
+        QVERIFY(!host->flags().testFlag(Qt::WindowMinimizeButtonHint));
         auto *dialog = host->property("dialog").value<QObject *>();
         QVERIFY(dialog);
         QVERIFY(QMetaObject::invokeMethod(host, "openForRuns", Q_ARG(QVariant, QVariant(ShareScene::runs()))));
@@ -267,6 +269,54 @@ ApplicationWindow {
         QTest::keyClick(window, Qt::Key_Escape);
         QTRY_VERIFY(!dialog->property("visible").toBool());
         QVERIFY(open());
+        QCOMPARE(runIds(dialog), newest);
+    }
+
+    // Audit 2026-11-20 L2-1: ↑/↓ on a focused grip during another grip's mouse drag rebuilt
+    // the rows under the drag's own row indexes. The order waits for the drag to end.
+    void aKeyMoveDuringAMouseDragLeavesTheOrderAlone()
+    {
+        ShareScene share;
+        auto &scene = share.scene;
+        QVERIFY2(scene.create(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    visible: true; width: 820; height: 940
+    ReflectionShareDialog { objectName: "dialog"; anchors.centerIn: Overlay.overlay }
+})", QStringLiteral("/ReflectionShareOrderTest.qml")), qPrintable(scene.errors));
+        auto *window = scene.window();
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *dialog = scene.root->findChild<QObject *>(QStringLiteral("dialog"));
+        QVERIFY(dialog);
+        QVERIFY(QMetaObject::invokeMethod(dialog, "openForRuns", Q_ARG(QVariant, QVariant(ShareScene::runs()))));
+        QTRY_VERIFY(dialog->property("opened").toBool());
+        const auto grip = [window](int i) {
+            return findVisual(window->contentItem(), QStringLiteral("reflectionShareDragGrip_%1").arg(i));
+        };
+        const QStringList newest{QStringLiteral("3"), QStringLiteral("2"), QStringLiteral("1")};
+        QCOMPARE(runIds(dialog), newest);
+        QTRY_VERIFY(grip(0) && grip(1) && grip(2) && grip(2)->y() > grip(0)->y());
+
+        // As dragOrderFollowsBothPreviewsAndPngFiles starts one: the first row's grip, which
+        // lies inside the window, past the drag threshold and then a little further.
+        const QPoint start = centerInWindow(grip(0));
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, start);
+        QTest::mouseMove(window, start + QPoint(0, 30));
+        QTest::mouseMove(window, start + QPoint(0, 40));
+        QTRY_COMPARE(dialog->property("dragFrom").toInt(), 0);
+        grip(2)->forceActiveFocus();
+        QTest::keyClick(window, Qt::Key_Up);
+        bool moved = true;
+        QVERIFY(QMetaObject::invokeMethod(dialog, "moveRun", Q_RETURN_ARG(bool, moved), Q_ARG(int, 2), Q_ARG(int, 1)));
+        QVERIFY(!moved);
+        QCOMPARE(runIds(dialog), newest);
+        QCOMPARE(dialog->property("dragFrom").toInt(), 0);
+
+        // The drag still lands the row it picked up.
+        QTest::mouseMove(window, start);
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, start);
+        QTRY_COMPARE(dialog->property("dragFrom").toInt(), -1);
         QCOMPARE(runIds(dialog), newest);
     }
 };

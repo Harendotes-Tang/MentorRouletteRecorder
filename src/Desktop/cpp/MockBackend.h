@@ -141,6 +141,10 @@ public:
     /// does not advance until it is started again or cancelled.
     void setUpdateDownloadFixture(const QString &state);
     static bool isUpdateDownloadFixture(const QString &state);
+    /// $defs/UpdateDownload.mirror_outcome of a finished (READY or FAILED) download, as the
+    /// Collector reports what became of a GitCode offer; empty sends none. This backend never
+    /// probes a mirror, so only a test sets it; starting a download clears it.
+    void setUpdateMirrorOutcome(const QString &outcome) { m_updateMirrorOutcome = outcome; }
     void setUpdateDownloadStepMs(int milliseconds);
     /// StartUpdateDownload / CancelUpdateDownload requests answered, and the
     /// payload of the last StartUpdateDownload.
@@ -516,6 +520,7 @@ private:
     QString m_updateFailure;
     QString m_updateMessage;
     QJsonObject m_updateMessageRef;
+    QString m_updateMirrorOutcome;
     /// Steps the simulated download; stopped while a fixture holds it.
     QTimer *m_updateDownloadTimer = nullptr;
     int m_updateDownloadStepMs = 150;

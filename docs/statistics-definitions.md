@@ -104,8 +104,9 @@ completed_count = COUNT(*) WHERE
   两者的新记录都归入当前档案。
 - `DashboardStats.profiles` 的每个档案附 `identity_count`：绑定到该档案的角色数（[data-model.md](data-model.md) §4.3），
   只靠手动切换的档案为 0。
-- `DashboardStats.identities` 列出全部区服中尚未绑定档案的角色，不受任何筛选影响：按区服排列（CN、TC、其他区服），
-  同一区服内待登记（`PENDING`）在前、不统计（`IGNORED`）在后，各自按记下的先后排列。每项的 `run_count` 是为该角色记下、
+- `DashboardStats.identities` 列出全部区服中尚未绑定档案的角色，以及已绑定、但其档案仍在等待一次性登记的角色
+  （`BOUND`，[data-model.md](data-model.md) §4.4），不受任何筛选影响：按区服排列（CN、TC、其他区服），
+  同一区服内正就一次性登记询问的角色在前，其余的待登记（`PENDING`）在前、不统计（`IGNORED`）在后，各自按记下的先后排列。每项的 `run_count` 是为该角色记下、
   目前未分配的有效记录数，即登记该角色时会归入所选档案的有效记录。回收站中的同类记录也随之归入，但不计入该数，
   因此 `CharacterIdentityResult.assigned_run_count` 可能大于登记前的 `run_count`。
   待登记或不统计的角色的记录未分配，按本节开头的规则不计入任何档案的进度；用户登记之后，这些记录才计入所选档案。
@@ -293,7 +294,7 @@ avg_duration_ms = AVG(duration_ms) WHERE
 | `goal_count` | `character_profiles`，默认 2000，取值的档案见 §4 |
 | `achievements` | 按区服分别给出的成就数组（各取该区服当前档案的数值），不受日期、职业、副本筛选影响；选定区服时只含该区服，全部区服请求时含 CN、TC 与 GLOBAL，以及另有记录或档案的其他区服，见 §4 |
 | `profiles` | 全部角色档案及各自的进度，不受任何筛选影响，见 §4 |
-| `identities` | 全部区服中尚未绑定档案的角色及各自未分配的有效记录数，不受任何筛选影响，见 §4 |
+| `identities` | 全部区服中尚未绑定档案的角色、已绑定但档案仍待一次性登记的角色，及各自未分配的有效记录数，不受任何筛选影响，见 §4 |
 | `remaining` | §5 |
 | `completion_rate` | §6 |
 | `leave_rate` | §7 |

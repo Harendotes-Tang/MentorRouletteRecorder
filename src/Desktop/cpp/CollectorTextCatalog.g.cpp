@@ -36,6 +36,7 @@ const CatalogueEntry kEntries[] = {
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "正在进行的这一把导随还没结束，现在更换校准会中断这一把的记录。请在这一把结束后再试。", "calibration.change_during_run"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "你正在排导随，现在更换校准会让接下来这一把记不下来。请等这一把结束后再试。如果已经取消排队，软件可能察觉不到，请退出并重新启动游戏后再试，或在开始排队一小时后再试。", "calibration.change_while_queued"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "导随记录照常进行。已找到补全职业的信息，请核对下面的时间线，再点「核对并启用」；之后的新记录会自动带上职业。", "calibration.completing.job_found"), .args = ""},
+    {.source = QT_TRANSLATE_NOOP3("CollectorText", "没能清空校准进度：保存校准进度的文件正被其他程序占用（例如安全软件正在检查它）。请稍后再点「清空校准进度」。", "calibration.discard.evidence_busy"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "retire_local_profile 与 restore_local_profile 不能同时为真。", "calibration.discard_conflict"), .args = ""},
     {.source = QT_TRANSLATE_NOOP3("CollectorText", "进入副本", "calibration.event.duty_enter"), .args = ""},
     //: Placeholders: {duty} a duty name, already in the interface language. Keep every {placeholder} exactly as written.

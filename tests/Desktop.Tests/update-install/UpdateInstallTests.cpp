@@ -1276,6 +1276,45 @@ private Q_SLOTS:
         QTRY_COMPARE(scene.backend->startUpdateDownloadCount(), 1);
     }
 
+    /// A 「切换到 GitCode」 that did not happen is said in one sentence under the status;
+    /// a switch that happened, a declined offer, none and an unknown value say nothing
+    /// (audit 2026-11-20, F-2).
+    void aSwitchThatDidNotHappenIsSaid_data()
+    {
+        QTest::addColumn<QString>("fixture");
+        QTest::addColumn<QString>("outcome");
+        QTest::addColumn<QString>("sentence");
+        QTest::newRow("faster primary") << QStringLiteral("ready") << QStringLiteral("not_switched_faster_primary")
+            << QString::fromUtf8("没有切换到 GitCode：GitHub 的下载已经比镜像更快，仍从 GitHub 下载。");
+        QTest::newRow("mirror unavailable") << QStringLiteral("failed") << QStringLiteral("not_switched_mirror_unavailable")
+            << QString::fromUtf8("没有切换到 GitCode：镜像暂时无法使用，仍从 GitHub 下载。");
+        QTest::newRow("primary ended") << QStringLiteral("ready") << QStringLiteral("not_switched_primary_ended")
+            << QString::fromUtf8("没有切换到 GitCode：切换生效之前，GitHub 的下载已经结束。");
+        QTest::newRow("switched") << QStringLiteral("ready") << QStringLiteral("switched") << QString();
+        QTest::newRow("declined") << QStringLiteral("ready") << QStringLiteral("declined") << QString();
+        QTest::newRow("unknown") << QStringLiteral("ready") << QStringLiteral("not_switched_later_reason") << QString();
+        QTest::newRow("none") << QStringLiteral("failed") << QString() << QString();
+    }
+
+    void aSwitchThatDidNotHappenIsSaid()
+    {
+        QFETCH(QString, fixture);
+        QFETCH(QString, outcome);
+        QFETCH(QString, sentence);
+        PageScene scene;
+        scene.backend->setUpdateMirrorOutcome(outcome);
+        QVERIFY(scene.open(QStringLiteral("SettingsAboutTab"), fixture));
+        QTRY_COMPARE(scene.app->update()->downloadPhase(), fixture);
+        const QVariantMap reported = scene.app->collectorStatus().value(QStringLiteral("update")).toMap()
+                                         .value(QStringLiteral("download")).toMap();
+        QCOMPARE(reported.value(QStringLiteral("mirror_outcome")).toString(), outcome);
+        QCOMPARE(scene.app->update()->mirrorNotice(), sentence);
+        QTRY_COMPARE(scene.shows(QStringLiteral("aboutMirrorNoticeText")), !sentence.isEmpty());
+        if (!sentence.isEmpty())
+            QCOMPARE(scene.textOf(QStringLiteral("aboutMirrorNoticeText")), sentence);
+        QVERIFY(scene.shows(QStringLiteral("aboutDownloadStatusText")));
+    }
+
     void reinstallIsInTheMaintainerToolsOnly()
     {
         PageScene player;

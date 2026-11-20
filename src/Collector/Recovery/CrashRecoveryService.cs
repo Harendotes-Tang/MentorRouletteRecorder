@@ -62,6 +62,7 @@ public static class CrashRecoveryService
         var recovered = new List<MentorRun>();
         var repairedEarlier = new List<MentorRun>();
         var flaggedEarlier = new List<MentorRun>();
+        var retimedEarlier = new List<MentorRun>();
         var protection = new ManualRunFieldProtection(host.Database);
 
         var closedSessions = host.Database.RunInTransaction(tx =>
@@ -112,11 +113,12 @@ public static class CrashRecoveryService
             }
 
             repairedEarlier.AddRange(RepairNeverEnteredRuns(host, protection, now, tx));
+            retimedEarlier.AddRange(RepairEndedBeforeMatchedRuns(host, protection, now, tx));
             flaggedEarlier.AddRange(FlagRunsLeftInFlight(host, now, tx));
             return host.Sessions.CloseAllOpen(host.CaptureSessionId, now, CaptureEndReason.Unknown, tx);
         });
 
-        foreach (var run in recovered.Concat(repairedEarlier).Concat(flaggedEarlier))
+        foreach (var run in recovered.Concat(repairedEarlier).Concat(retimedEarlier).Concat(flaggedEarlier))
         {
             host.LiveEvents.PublishRun(LiveEventKind.RunUpdated, run);
         }
@@ -162,24 +164,9 @@ public static class CrashRecoveryService
         DateTimeOffset now,
         Microsoft.Data.Sqlite.SqliteTransaction transaction)
     {
-        var runIds = new List<string>();
-        using (var command = host.Database.CreateCommand())
-        {
-            command.Transaction = transaction;
-            command.CommandText =
-                "SELECT run_id FROM mentor_runs " +
-                "WHERE soft_deleted = 0 AND capture_session_id IS NOT NULL " +
-                "AND entered_at_utc IS NULL AND ended_at_utc IS NOT NULL " +
-                "AND result IN ($interrupted, $unknown) AND NOT " +
-                RunFilterSql.ImportedHistoryPredicate + " ORDER BY created_at_utc ASC;";
-            command.Parameters.AddWithValue("$interrupted", EnumWire<RunResult>.Format(RunResult.Interrupted));
-            command.Parameters.AddWithValue("$unknown", EnumWire<RunResult>.Format(RunResult.Unknown));
-            using var reader = command.ExecuteReader();
-            while (reader.Read())
-            {
-                runIds.Add(reader.GetString(0));
-            }
-        }
+        var runIds = FindClosedUnenteredAutomaticRuns(host, "result IN ($interrupted, $unknown)", transaction,
+            ("$interrupted", EnumWire<RunResult>.Format(RunResult.Interrupted)),
+            ("$unknown", EnumWire<RunResult>.Format(RunResult.Unknown)));
 
         var repairedRuns = new List<MentorRun>();
         foreach (var runId in runIds)
@@ -221,6 +208,108 @@ public static class CrashRecoveryService
         }
 
         return repairedRuns;
+    }
+
+    /// <summary>
+    /// Puts right the closed automatic runs that never entered a duty yet end before they were matched:
+    /// what crash recovery or a live close before entry wrote under a backwards clock before audit
+    /// 2026-11-10 D1-1 clamped such writes. The correction rules refuse every edit of such a row, a plain
+    /// confirmation included. The end is moved up to the match time, exactly as a new automatic write is
+    /// clamped now, through a system revision; nothing else changes. A row whose end time a human
+    /// corrected is left as it is. Once repaired a row no longer matches, so this runs once per row.
+    /// </summary>
+    /// <param name="host">Host whose database to use.</param>
+    /// <param name="protection">Manual field protection, shared with the recovery pass.</param>
+    /// <param name="now">Discovery time.</param>
+    /// <param name="transaction">Enclosing transaction.</param>
+    private static List<MentorRun> RepairEndedBeforeMatchedRuns(
+        CollectorHost host,
+        ManualRunFieldProtection protection,
+        DateTimeOffset now,
+        Microsoft.Data.Sqlite.SqliteTransaction transaction)
+    {
+        // Both columns hold UtcTimestamp.Format text (fixed width, UTC), so text order is time order.
+        var runIds = FindClosedUnenteredAutomaticRuns(host,
+            "matched_at_utc IS NOT NULL AND matched_at_utc > ended_at_utc", transaction);
+
+        var repairedRuns = new List<MentorRun>();
+        foreach (var runId in runIds)
+        {
+            if (host.Runs.GetInternal(runId, transaction) is not { MatchedAtUtc: { } matched } run
+                || run.EndedAtUtc is not { } ended || matched <= ended)
+            {
+                continue;
+            }
+
+            var repaired = protection.Merge(run, run with
+            {
+                EndedAtUtc = matched,
+                UpdatedAtUtc = now,
+            }, transaction) with { Revision = run.Revision + 1 };
+
+            // Field protection keeps a hand-corrected end time; then this row is not ours to change.
+            if (repaired.EndedAtUtc != matched || repaired.Result != run.Result)
+            {
+                continue;
+            }
+
+            host.Runs.Update(repaired, run.Revision, transaction);
+            host.Revisions.Append(
+                new RunRevision
+                {
+                    RevisionId = Guid.NewGuid().ToString("D"),
+                    RunId = repaired.RunId,
+                    Revision = repaired.Revision,
+                    ChangedAtUtc = now,
+                    ChangeKind = ChangeKind.Correct,
+                    Actor = RevisionActor.System,
+                    Reason = "这条记录尚未进入副本，早期版本在本机时钟回拨时把结束时间记得早于匹配时间，" +
+                        "因而无法确认或补充说明；现把结束时间改为匹配时间。",
+                    RequestId = null,
+                    Changes = Changes(run, repaired),
+                },
+                transaction);
+            repairedRuns.Add(repaired);
+        }
+
+        return repairedRuns;
+    }
+
+    /// <summary>
+    /// Ids of the closed automatic runs (not imported, not deleted) that never entered a duty and meet
+    /// <paramref name="condition"/>, oldest first.
+    /// </summary>
+    /// <param name="host">Host whose database to use.</param>
+    /// <param name="condition">Further SQL condition on <c>mentor_runs</c>; values go in <paramref name="parameters"/>.</param>
+    /// <param name="transaction">Enclosing transaction.</param>
+    /// <param name="parameters">Named values the condition uses.</param>
+    private static List<string> FindClosedUnenteredAutomaticRuns(
+        CollectorHost host,
+        string condition,
+        Microsoft.Data.Sqlite.SqliteTransaction transaction,
+        params (string Name, string Value)[] parameters)
+    {
+        var runIds = new List<string>();
+        using var command = host.Database.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText =
+            "SELECT run_id FROM mentor_runs " +
+            "WHERE soft_deleted = 0 AND capture_session_id IS NOT NULL " +
+            "AND entered_at_utc IS NULL AND ended_at_utc IS NOT NULL " +
+            "AND " + condition + " AND NOT " +
+            RunFilterSql.ImportedHistoryPredicate + " ORDER BY created_at_utc ASC;";
+        foreach (var (name, value) in parameters)
+        {
+            command.Parameters.AddWithValue(name, value);
+        }
+
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            runIds.Add(reader.GetString(0));
+        }
+
+        return runIds;
     }
 
     /// <summary>

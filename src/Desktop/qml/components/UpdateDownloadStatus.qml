@@ -16,7 +16,7 @@ ColumnLayout {
     readonly property string phase: Runtime.app.update.downloadPhase
 
     spacing: 6
-    visible: statusLine.text.length > 0 || problemLine.visible || browserButton.visible
+    visible: statusLine.text.length > 0 || mirrorLine.visible || problemLine.visible || browserButton.visible
 
     StatBar {
         objectName: area.namePrefix + "DownloadProgress"
@@ -36,6 +36,20 @@ ColumnLayout {
         visible: text.length > 0
         text: Runtime.app.update.downloadStatusText
         color: area.phase === "failed" ? Theme.orangeText : Theme.textSecondary
+        font.pixelSize: Theme.fs(12)
+        lineHeight: 1.35
+        wrapMode: Text.WordWrap
+    }
+
+    // 选了「切换到 GitCode」却没有切换时，说明原因（后台进程报告的 mirror_outcome）。
+    Text {
+        id: mirrorLine
+
+        objectName: area.namePrefix + "MirrorNoticeText"
+        Layout.fillWidth: true
+        visible: text.length > 0
+        text: Runtime.app.update.mirrorNotice
+        color: Theme.textSecondary
         font.pixelSize: Theme.fs(12)
         lineHeight: 1.35
         wrapMode: Text.WordWrap
