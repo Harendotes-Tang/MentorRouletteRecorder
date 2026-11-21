@@ -124,9 +124,10 @@ class PlanTests(unittest.TestCase):
 
     def test_real_plan_approves_only_withdrawn_prerelease_tags(self):
         tags = m.load_tags()
-        # 16 betas withdrawn on 2026-11-19, then v1.9.1-beta.3 and v1.9.1-beta.4 as first issued
-        # (both withdrawn 2026-11-21).
-        self.assertEqual(len(tags), 18)
+        # 16 betas withdrawn on 2026-11-19, and v1.9.1-beta.4 as first issued (withdrawn 2026-11-21).
+        # An entry leaves the plan once its tag has been removed and the version issued again:
+        # the mirror then holds the tag at a new commit, which every later run would refuse.
+        self.assertEqual(len(tags), 17)
         self.assertTrue(all(e["repo"] == REPO and "-beta." in e["ref"] for e in tags))
         self.assertNotIn("refs/tags/v1.9.1-beta.1", [e["ref"] for e in tags])
         self.assertEqual(tags[0], tag(ref="refs/tags/v1.7.0-beta.1",
