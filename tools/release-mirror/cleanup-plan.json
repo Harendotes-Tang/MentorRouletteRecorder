@@ -328,11 +328,6 @@
       "repo": "MentorRouletteRecorder",
       "ref": "refs/tags/v1.9.0-beta.2",
       "expected_sha": "505399126d47755745994ed4149ddea476066714"
-    },
-    {
-      "repo": "MentorRouletteRecorder",
-      "ref": "refs/tags/v1.9.1-beta.4",
-      "expected_sha": "f85db91ba7dfc52e1bfccf670af9ce76809383bd"
     }
   ]
 }
