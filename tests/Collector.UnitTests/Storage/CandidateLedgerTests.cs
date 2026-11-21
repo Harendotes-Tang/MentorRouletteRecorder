@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Ipc;
+using MentorRecorder.Collector.Protocol.Decoded;
 using MentorRecorder.Collector.Protocol.Parsing;
 using MentorRecorder.Collector.Storage.Mutations;
 using MentorRecorder.Collector.Storage.Repositories;
@@ -359,6 +360,50 @@ public sealed class CandidateLedgerTests : IDisposable
         Assert.Equal(37, CandidateWire.Observation(page.Items.Single(e => e.Observation.Occurrences == 37))["occurrences"]!.GetValue<int>());
         // The table refuses a zero count itself, so no write path can slip one past the code.
         Assert.ThrowsAny<Exception>(() => _ledger.Add(Observation() with { Occurrences = 0 }));
+    }
+
+    [Fact]
+    public void EveryRowTheObserverEmitsFromQueueToDutyExitIsStored()
+    {
+        Enable();
+        var emitted = new List<CandidateObservation>();
+        var observer = new CandidateObserver(CandidateObserverTests.QueueProfile(), _session, row =>
+        {
+            emitted.Add(row);
+            // The table's own constraints judge the row: a shape they refuse throws here, which
+            // in a live session stops the capture at the first window sample.
+            Assert.True(_ledger.Add(row));
+        });
+        var start = _fixture.Clock.UtcNow;
+        long t = 0;
+        void Send(int opcode, int length, MessageDirection direction = MessageDirection.Inbound, long gap = 100)
+        {
+            t += gap;
+            observer.Accept(new DecodedMessage(_session, direction, start.AddMilliseconds(t),
+                TimeSpan.FromMilliseconds(t), 0, 3, (ushort)opcode, new byte[length], "private-connection"));
+        }
+        void ZoneBurst()
+        {
+            Send(0xf101, 8, gap: 5000);
+            for (var member = 2; member <= 5; member++) Send(0xf100 + member, 8);
+        }
+
+        Send(0x03bb, 128, MessageDirection.Outbound);   // registration opens the queue window
+        Send(0x0323, 40);                               // finder update writes the first segment
+        Send(0x0aaa, 16);
+        Send(0x0aaa, 16);
+        ZoneBurst();                                    // duty entry: queue window out, duty window open
+        Send(0x0bbb, 48);
+        Send(0x0bbb, 48);
+        ZoneBurst();                                    // duty exit: duty window out
+        observer.Flush();
+
+        var stored = _ledger.ReadEvidence().Observations.Select(entry => entry.Observation).ToList();
+        Assert.Equal(emitted.OrderBy(row => row.ObservationId), stored.OrderBy(row => row.ObservationId));
+        Assert.Equal(2, stored.Single(row => row.HypothesisName == CandidateObserver.QueueWindowSampleName &&
+            row.Opcode == 0x0aaa).Occurrences);
+        Assert.Equal(2, stored.Single(row => row.HypothesisName == CandidateObserver.DutyWindowSampleName).Occurrences);
+        Assert.Equal(2, stored.Count(row => row.HypothesisName == "ZONE_LOAD"));
     }
 
     private void Enable() => _settings.SetSetting(CaptureSettingsStore.CandidateValidationSetting, "true");

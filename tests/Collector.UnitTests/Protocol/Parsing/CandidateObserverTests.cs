@@ -119,13 +119,16 @@ public sealed class CandidateObserverTests
         {
             Assert.Equal(CandidateObserver.QueueWindowGroup, s.Group);
             Assert.Null(s.PayloadHex);
-            Assert.Equal(s.TMs, s.FirstTMs);
+            // First time only: the ledger keeps a first-to-last span for ZONE_LOAD anchors alone.
+            Assert.Null(s.FirstTMs);
+            Assert.Null(s.LastTMs);
+            Assert.Null(s.FirstObservedAtUtc);
+            Assert.Null(s.LastObservedAtUtc);
             Assert.Matches("^[0-9a-f]{12}$", s.PayloadHash12);
         });
         var aaa = samples.Single(s => s.Opcode == 0x0aaa && s.Length == 16);
         Assert.Equal(2, aaa.Occurrences);
         Assert.Equal(1500, aaa.TMs);                                    // first occurrence, first digest
-        Assert.Equal(1600, aaa.LastTMs);                                // last occurrence, for "seen last before exit"
         Assert.Equal("S2C", aaa.Direction);
         Assert.Equal(1, samples.Single(s => s.Opcode == 0x0bbb).Occurrences);
         // Flushed once the burst closed the window; the anchor itself was emitted before.
@@ -169,11 +172,10 @@ public sealed class CandidateObserverTests
         });
         var aaa = samples.Single(s => s.Opcode == 0x0aaa);
         Assert.Equal(2, aaa.Occurrences);
-        Assert.Equal(30_000, aaa.FirstTMs);
-        Assert.Equal(40_000, aaa.LastTMs);
+        Assert.Equal(30_000, aaa.TMs);
         var bbb = samples.Single(s => s.Opcode == 0x0bbb);
         Assert.Equal(1, bbb.Occurrences);
-        Assert.Equal(1_700_000, bbb.LastTMs);
+        Assert.Equal(1_700_000, bbb.TMs);
 
         // The exit burst had no recent finder update, so no new window: later traffic is dropped.
         observer.Accept(Raw(0x0ccc, 8, 1_950_000));

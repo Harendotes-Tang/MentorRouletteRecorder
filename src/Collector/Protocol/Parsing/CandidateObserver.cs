@@ -236,7 +236,9 @@ public sealed class CandidateObserver : IDecodedMessageSink
     /// Folds one message into the open window of its connection: one row per
     /// (direction, opcode, length), counting occurrences, keeping the first time and the
     /// digest of the first payload. Metadata only, never the payload -- the research
-    /// whitelist is the only path to bytes and it does not apply here.
+    /// whitelist is the only path to bytes and it does not apply here. A row carries the first
+    /// time alone: the ledger keeps a first-to-last span for ZONE_LOAD anchors only, and its
+    /// table refuses one on any other row.
     /// </summary>
     private void SampleQueueWindow(string tag, PacketDirection direction, DecodedMessage message, long t)
     {
@@ -253,7 +255,7 @@ public sealed class CandidateObserver : IDecodedMessageSink
     /// <summary>
     /// Same aggregation for the stretch between entering a duty and the next zone change,
     /// so the packet that ends a duty (the result nobody has named yet) can be read off the
-    /// ledger as "the S2C row seen once, last, just before the exit". Zone-load members are
+    /// ledger as "the S2C row seen once, just before the exit". Zone-load members are
     /// left out because the cluster already accounts for them.
     /// </summary>
     private void SampleDutyWindow(string tag, PacketDirection direction, DecodedMessage message, long t)
@@ -276,8 +278,6 @@ public sealed class CandidateObserver : IDecodedMessageSink
         if (window.Samples.TryGetValue(key, out var sample))
         {
             sample.Count++;
-            sample.LastTMs = t;
-            sample.LastAtUtc = message.ObservedAtUtc;
             return;
         }
         if (window.Samples.Count >= MaxQueueWindowKeys)
@@ -289,8 +289,6 @@ public sealed class CandidateObserver : IDecodedMessageSink
         {
             FirstTMs = t,
             FirstAtUtc = message.ObservedAtUtc,
-            LastTMs = t,
-            LastAtUtc = message.ObservedAtUtc,
             Hash12 = Convert.ToHexString(SHA256.HashData(message.Payload.Span))[..12].ToLowerInvariant(),
             Count = 1,
         };
@@ -333,7 +331,6 @@ public sealed class CandidateObserver : IDecodedMessageSink
                 Guid.NewGuid().ToString("D"), _sessionId, _profile.ProfileId, name, group,
                 direction == PacketDirection.ServerToClient ? "S2C" : "C2S", opcode, length, pair.Value.Hash12,
                 tag, pair.Value.FirstAtUtc, pair.Value.FirstTMs,
-                pair.Value.FirstAtUtc, pair.Value.LastAtUtc, pair.Value.FirstTMs, pair.Value.LastTMs,
                 Occurrences: pair.Value.Count, OverflowCount: window.Overflow));
         }
     }
@@ -349,8 +346,6 @@ public sealed class CandidateObserver : IDecodedMessageSink
     {
         public long FirstTMs { get; init; }
         public DateTimeOffset FirstAtUtc { get; init; }
-        public long LastTMs { get; set; }
-        public DateTimeOffset LastAtUtc { get; set; }
         public string Hash12 { get; init; } = "";
         public int Count { get; set; }
     }
