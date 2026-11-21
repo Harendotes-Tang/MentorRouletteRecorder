@@ -154,7 +154,7 @@ public sealed class HistorySelectionIpcTests
         var runIdColumn = Array.IndexOf(csvLines[0].Split(','), "run_id");
         // Every field before run_id is unquoted. The following reflection contains a comma and
         // embedded quotes, so verify its serialized form separately from the run_id column.
-        Assert.Equal(ordinals.Reverse().Select(RunId),
+        Assert.Equal(Enumerable.Reverse(ordinals).Select(RunId),
             csvLines.Skip(1).Select(row => row.Split(',', runIdColumn + 2)[runIdColumn]));
         var quotedReflection = "\"'=" + longReflection[1..].Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
         Assert.All(csvLines.Skip(1), row => Assert.Contains(quotedReflection, row, StringComparison.Ordinal));
