@@ -16,8 +16,10 @@ public sealed record CandidateExportResult(string TargetPath, string Sha256Path,
 
 /// <summary>只向用户本地允许目录导出独立证据及其 SHA256；不覆盖既有文件。</summary>
 /// <param name="databasePath">打开的数据库文件；其所在目录决定未指定路径时的导出目录。</param>
+/// <param name="roundReport">软件对这一轮的识别结果；缺省时导出不带这一段。</param>
 public sealed class CandidateEvidenceExporter(
-    CandidateObservationRepository repository, IClock clock, string databasePath)
+    CandidateObservationRepository repository, IClock clock, string databasePath,
+    Func<CandidateRoundReport?>? roundReport = null)
 {
     /// <summary>未指定路径时的导出目录：打开的数据库所在目录下的 exports，与备份、诊断报告一致。</summary>
     public string DefaultDirectory => Path.Combine(
@@ -29,8 +31,13 @@ public sealed class CandidateEvidenceExporter(
         CultureInfo.InvariantCulture,
         $"candidate-evidence-{now.ToUniversalTime():yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.json");
 
-    public CandidateExportResult Export(string? targetPath = null)
+    /// <param name="targetPath">目标文件；缺省时写入 <see cref="DefaultDirectory"/>。</param>
+    /// <param name="answers">玩家在卡片上填写的内容；与软件的识别结果一并写入 <c>round_report</c>。</param>
+    public CandidateExportResult Export(string? targetPath = null, CandidateRoundAnswers? answers = null)
     {
+        // Read before the file is opened: it takes the database gate, which the snapshot below
+        // deliberately does not hold while writing.
+        var guessed = roundReport?.Invoke();
         // 默认路径跟随打开的数据库，与备份、诊断报告、日志一致：只看数据根目录时，
         // 用一次性数据库启动、却没有设置 MR_DATA_DIR 的测试会把证据写进真人用户的
         // %LOCALAPPDATA%\MentorRecorder\exports。时间戳走不变文化，否则在使用非公历的
@@ -71,6 +78,17 @@ public sealed class CandidateEvidenceExporter(
                     writer.WriteEndArray();
                     writer.WriteNumber("observation_count", observations);
                     writer.WriteNumber("review_count", reviews);
+                    if (guessed is not null || answers is not null)
+                    {
+                        // What the software read at the guessed positions and what the player
+                        // wrote next to it; the maintainer compares the two.
+                        writer.WritePropertyName("round_report");
+                        new System.Text.Json.Nodes.JsonObject
+                        {
+                            ["guessed"] = guessed?.Wire(),
+                            ["answered"] = answers?.Wire(),
+                        }.WriteTo(writer);
+                    }
                     writer.WriteStartArray("observations");
                     foreach (var item in items)
                     {

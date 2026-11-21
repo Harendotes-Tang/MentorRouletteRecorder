@@ -305,11 +305,31 @@ BackendReply *IBackend::reviewCandidateObservation(const QString &id,
     return request(QStringLiteral("ReviewCandidateObservation"), payload);
 }
 
-BackendReply *IBackend::exportCandidateEvidence(const QString &targetPath)
+QJsonObject IBackend::candidateRoundAnswersPayload(const QVariantMap &answers)
+{
+    constexpr int kMaxAnswerLength = 100; // $defs/CandidateRoundAnswers maxLength
+    QJsonObject object;
+    for (const char *key : {"first_roulette", "job_before", "job_after", "duty"}) {
+        QString text = answers.value(QLatin1String(key)).toString().trimmed();
+        if (text.size() > kMaxAnswerLength)
+            text = text.left(text.at(kMaxAnswerLength - 1).isHighSurrogate() ? kMaxAnswerLength - 1
+                                                                            : kMaxAnswerLength).trimmed();
+        if (!text.isEmpty())
+            object.insert(QLatin1String(key), text);
+    }
+    return object;
+}
+
+BackendReply *IBackend::exportCandidateEvidence(const QString &targetPath, const QVariantMap &roundAnswers)
 {
     QJsonObject payload;
     payload.insert(QStringLiteral("target_path"),
                    targetPath.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(targetPath));
+    // Left out rather than sent empty or null: a request without answers stays the one an
+    // older Collector already reads.
+    const QJsonObject answers = candidateRoundAnswersPayload(roundAnswers);
+    if (!answers.isEmpty())
+        payload.insert(QStringLiteral("round_answers"), answers);
     return request(QStringLiteral("ExportCandidateEvidence"), payload);
 }
 

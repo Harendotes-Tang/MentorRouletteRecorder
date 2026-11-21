@@ -13,9 +13,16 @@
       "direction": "CLIENT_TO_SERVER",
       "opcode": 533,
       "expected_length": 24,
-      "note": "整轮唯一一条 C2S 0x0215（24 字节），t=105468 ms，比测试者按下「已排队」早约 1.0 秒；排队标记前 2 秒内唯一的 C2S 24 字节报文。按国服形状推测第 0 字节为随机任务编号，但元数据无法证实，本轮要用负载确认。",
+      "note": "整轮唯一一条 C2S 0x0215（24 字节），t=105468 ms，比测试者按下「已排队」早约 1.0 秒；排队标记前 2 秒内唯一的 C2S 24 字节报文。按国服形状推测第 0 字节为随机任务编号，但元数据无法证实，本轮要用负载确认。 第二轮：两次申请的第 0 字节分别为 2 与 9，与测试步骤（先排一个其他随机任务，再排指导者任务）相符；作为未证实的猜测位置供第二轮显示。",
       "group": "queue",
-      "label": "排本申请（候选）"
+      "label": "排本申请（候选）",
+      "guesses": [
+        {
+          "kind": "ROULETTE",
+          "offset": 0,
+          "size": 1
+        }
+      ]
     },
     {
       "name": "FINDER_ACTION_022B",
@@ -31,9 +38,16 @@
       "direction": "SERVER_TO_CLIENT",
       "opcode": 367,
       "expected_length": 40,
-      "note": "S2C 0x016f（40 字节）整轮 2 次，分别在 0x0215 之后 63 ms 与 187 ms，与国服请求—两条回执的节奏相同。按国服形状推测第 16 字节为随机任务编号，未证实。",
+      "note": "S2C 0x016f（40 字节）整轮 2 次，分别在 0x0215 之后 63 ms 与 187 ms，与国服请求—两条回执的节奏相同。按国服形状推测第 16 字节为随机任务编号，未证实。 第二轮：第 16 字节与同次申请的第 0 字节相同（2、9）。第 1 字节在换职业前后为 40、24，猜测为职业编号，未证实。",
       "group": "finder",
-      "label": "副本查找器状态更新（候选）"
+      "label": "副本查找器状态更新（候选）",
+      "guesses": [
+        {
+          "kind": "JOB",
+          "offset": 1,
+          "size": 1
+        }
+      ]
     },
     {
       "name": "POP_CANDIDATE_0332",
@@ -94,9 +108,16 @@
       "direction": "SERVER_TO_CLIENT",
       "opcode": 171,
       "expected_length": 136,
-      "note": "S2C 0x00ab（136 字节）三次换区各 1 次，与 0x027d 同一毫秒到达。两者之一应为区域报文，另一条可能与角色有关。",
+      "note": "S2C 0x00ab（136 字节）三次换区各 1 次，与 0x027d 同一毫秒到达。两者之一应为区域报文，另一条可能与角色有关。 第二轮：两次登录 u16@2 均为 641，末尾为三个浮点坐标；猜测 u16@2 为区域编号，只见过一个区域，未证实。",
       "group": "identity",
-      "label": "副本识别候选 B"
+      "label": "副本识别候选 B",
+      "guesses": [
+        {
+          "kind": "TERRITORY",
+          "offset": 2,
+          "size": 2
+        }
+      ]
     },
     {
       "name": "ZONE_MEMBER_010D",
@@ -345,8 +366,32 @@
         "sample_count": 125,
         "url": null,
         "note": "trace SHA-256 bf39692b384ae41de511fe6748edca1c029543e5b22526b16ef389e0f029e6ad：本轮出现 125 次（SERVER_TO_CLIENT 0x0176，656 字节）。"
+      },
+      {
+        "field": "hypotheses.QUEUE_REGISTRATION.guesses.ROULETTE",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T20:14:17.772Z",
+        "sample_count": 2,
+        "url": null,
+        "note": "第二轮证据（软件 1.9.1-beta.3，SHA-256 af709ee5d0c2f04ab735762c720f69a3eb7e981175e886e77681c04e51be4cdb，由维护者保存）：C2S 0x0215 出现 2 次，第 0 字节为 2、9；同一时刻 S2C 0x016f 的第 16 字节为相同的值。猜测，待测试者核对。"
+      },
+      {
+        "field": "hypotheses.FINDER_STATE_NOTIFICATION.guesses.JOB",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T20:14:17.772Z",
+        "sample_count": 2,
+        "url": null,
+        "note": "第二轮证据（软件 1.9.1-beta.3，SHA-256 af709ee5d0c2f04ab735762c720f69a3eb7e981175e886e77681c04e51be4cdb，由维护者保存）：S2C 0x016f 出现 2 次，第 1 字节为 40、24，其间测试者换过一次职业。猜测，待测试者核对。"
+      },
+      {
+        "field": "hypotheses.TERRITORY_CANDIDATE_00AB.guesses.TERRITORY",
+        "method": "OBSERVED_LOCAL_TRAFFIC",
+        "recorded_at_utc": "2026-11-20T20:14:17.772Z",
+        "sample_count": 2,
+        "url": null,
+        "note": "第二轮证据（软件 1.9.1-beta.3，SHA-256 af709ee5d0c2f04ab735762c720f69a3eb7e981175e886e77681c04e51be4cdb，由维护者保存）：S2C 0x00ab 出现 2 次，u16@2 均为 641（同一地点登录）。猜测，待测试者核对。"
       }
     ]
   },
-  "profile_sha256": "dbe0dda9bfaa86cf0ad4c434d048436c93ca75c4193beeaf1614d41175612cd1"
+  "profile_sha256": "6f583e74be368168fa66bce0a730643b55860e543c0f9e23374465bcb81e8f49"
 }

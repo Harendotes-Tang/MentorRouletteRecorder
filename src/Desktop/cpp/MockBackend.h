@@ -85,6 +85,12 @@ public:
     void setCandidateRoundFixture(bool gameRunning);
     /// $defs/CandidateHypothesis rows of protocol-profiles/global/global.2026.11.03.candidate.json.
     static QJsonArray candidateRoundHypotheses();
+    /// $defs/CandidateRoundGuesses the round fixture reports while its validation is on: by
+    /// default a roulette and the first job named, the second job by id alone and no duty yet.
+    /// Setting them reports a CaptureStatusChanged at once. Test only.
+    void setCandidateRoundGuesses(const QJsonObject &guesses);
+    /// The payload of the last ExportCandidateEvidence, so a test can read its round_answers.
+    QJsonObject lastCandidateExportRequest() const { return m_lastCandidateExportRequest; }
 
     /// Keep a terminal validation fixture as history while simulating a
     /// currently running formal capture for projection screenshots.
@@ -522,6 +528,8 @@ private:
     void applyCandidateRoundFixture(QJsonObject &status) const;
     bool m_candidateRound = false;
     bool m_candidateRoundGameRunning = false;
+    QJsonObject m_candidateRoundGuesses;
+    QJsonObject m_lastCandidateExportRequest;
     QString captureRegion() const;
     bool unsupportedCaptureRegion() const;
     bool m_npcapMissing = false;

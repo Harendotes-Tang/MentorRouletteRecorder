@@ -7,6 +7,7 @@
 #include "AppController.h"
 #include "EvidenceSubmissionController.h"
 #include "Formatters.h"
+#include "JobCatalog.h"
 #include "MockBackend.h"
 
 #include <QDateTime>
@@ -129,6 +130,8 @@ struct EvidenceScene
     bool reduceMotion = true;
     std::unique_ptr<mr::AppController> app;
     mr::Formatters formatters;
+    // The bundled job table, so a job known only by its id is named as in the app.
+    mr::JobCatalog jobs;
     std::unique_ptr<mr::EvidenceSubmissionController> evidence;
     std::unique_ptr<QQmlEngine> engine;
     std::unique_ptr<QSignalSpy> warnings;
@@ -153,6 +156,7 @@ struct EvidenceScene
         engine = std::make_unique<QQmlEngine>();
         engine->rootContext()->setContextProperty(QStringLiteral("App"), app.get());
         engine->rootContext()->setContextProperty(QStringLiteral("Fmt"), &formatters);
+        engine->rootContext()->setContextProperty(QStringLiteral("Jobs"), &jobs);
         engine->rootContext()->setContextProperty(QStringLiteral("CalibrationEvidence"), evidence.get());
         engine->rootContext()->setContextProperty(QStringLiteral("ReduceMotion"), reduceMotion);
         warnings = std::make_unique<QSignalSpy>(engine.get(), &QQmlEngine::warnings);

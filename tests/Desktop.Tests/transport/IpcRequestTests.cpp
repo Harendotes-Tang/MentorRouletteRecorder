@@ -512,6 +512,7 @@ private Q_SLOTS:
     void variantsMatchTheCommittedFixtures();
     void exportRequestsReplaceOnlyAConfirmedTarget();
     void characterIdentityRequestsCarryOnlyTheirFields();
+    void candidateEvidenceRequestsCarryAnswersOnlyWhenWritten();
 };
 } // namespace
 
@@ -638,6 +639,40 @@ void IpcRequestTests::characterIdentityRequestsCarryOnlyTheirFields()
     backend.forgetCharacterIdentities(4);
     QCOMPARE(backend.payloads.value(QStringLiteral("UpdateCharacterProfile")),
              (QJsonObject{{QStringLiteral("profile_id"), 4}, {QStringLiteral("forget_identities"), true}}));
+}
+
+// 第二轮 (EvidenceCandidateRound.qml): the tester's four answers travel as round_answers
+// ($defs/CandidateRoundAnswers), trimmed, at most 100 characters, blanks and unknown keys
+// left out; with nothing written the request is the committed sample's, without the field.
+void IpcRequestTests::candidateEvidenceRequestsCarryAnswersOnlyWhenWritten()
+{
+    PayloadRecorder backend;
+    const QString target = QStringLiteral("D:/exports/candidate.json");
+    backend.exportCandidateEvidence(target);
+    QCOMPARE(backend.payloads.value(QStringLiteral("ExportCandidateEvidence")),
+             (QJsonObject{{QStringLiteral("target_path"), target}}));
+    backend.exportCandidateEvidence({}, {{QStringLiteral("duty"), QStringLiteral("   ")},
+                                         {QStringLiteral("job_before"), QString()}});
+    QCOMPARE(backend.payloads.value(QStringLiteral("ExportCandidateEvidence")),
+             (QJsonObject{{QStringLiteral("target_path"), QJsonValue(QJsonValue::Null)}}));
+
+    backend.exportCandidateEvidence(target, {{QStringLiteral("first_roulette"), QString::fromUtf8(" 练级迷宫 ")},
+                                             {QStringLiteral("job_before"), QString::fromUtf8("骑士")},
+                                             {QStringLiteral("job_after"), QString()},
+                                             {QStringLiteral("duty"), QString(130, QLatin1Char('x'))},
+                                             {QStringLiteral("note"), QStringLiteral("not a contract field")}});
+    QCOMPARE(backend.payloads.value(QStringLiteral("ExportCandidateEvidence")).value(QStringLiteral("round_answers")).toObject(),
+             (QJsonObject{{QStringLiteral("first_roulette"), QString::fromUtf8("练级迷宫")},
+                          {QStringLiteral("job_before"), QString::fromUtf8("骑士")},
+                          {QStringLiteral("duty"), QString(100, QLatin1Char('x'))}}));
+
+    // The pipe dispatch of a test harness request carries the answers too.
+    const QJsonObject envelope = mr::IpcBackend::buildRequestForTest(
+        QStringLiteral("ExportCandidateEvidence"),
+        QJsonObject{{QStringLiteral("target_path"), target},
+                    {QStringLiteral("round_answers"), QJsonObject{{QStringLiteral("job_after"), QString::fromUtf8("学者")}}}});
+    QCOMPARE(envelope.value(QStringLiteral("payload")).toObject().value(QStringLiteral("round_answers")).toObject(),
+             (QJsonObject{{QStringLiteral("job_after"), QString::fromUtf8("学者")}}));
 }
 
 MR_DESKTOP_TEST_SUITE(IpcRequest)

@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain.Time;
+using MentorRecorder.Collector.Export;
 using MentorRecorder.Collector.Storage.Repositories;
 
 namespace MentorRecorder.Collector.Ipc;
@@ -42,8 +43,8 @@ public static class CandidateHandlers
 
     public static JsonObject Export(CollectorHost host, PayloadReader reader)
     {
-        reader.RejectUnknown("target_path");
-        var result = host.CandidateExporter.Export(reader.String("target_path", 32767));
+        reader.RejectUnknown("target_path", "round_answers");
+        var result = host.CandidateExporter.Export(reader.String("target_path", 32767), Answers(reader));
         return new JsonObject
         {
             ["target_path"] = result.TargetPath,
@@ -54,6 +55,16 @@ public static class CandidateHandlers
             ["byte_count"] = result.ByteCount,
             ["completed_at_utc"] = UtcTimestamp.ToText(result.CompletedAtUtc),
         };
+    }
+
+    /// <summary>The player's answers next to the software's guesses; blank ones count as not given.</summary>
+    private static CandidateRoundAnswers? Answers(PayloadReader reader)
+    {
+        if (reader.Object("round_answers") is not { } answers) return null;
+        answers.RejectUnknown("first_roulette", "job_before", "job_after", "duty");
+        string? Text(string name) =>
+            answers.String(name, CandidateRoundAnswers.MaxLength) is { } text && !string.IsNullOrWhiteSpace(text) ? text.Trim() : null;
+        return new CandidateRoundAnswers(Text("first_roulette"), Text("job_before"), Text("job_after"), Text("duty"));
     }
 }
 

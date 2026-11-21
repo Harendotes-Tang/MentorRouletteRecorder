@@ -56,6 +56,57 @@ Card {
     }
     readonly property int tasksDone: tasks.filter(function(done) { return done }).length
 
+    // What the software read at the candidates' positions (CaptureStatus.candidate_round_guesses,
+    // absent from an older Collector), and what the tester wrote instead. A field shows the guess
+    // and follows it until the tester edits it; from then on it keeps the tester's text.
+    readonly property var guesses: status.candidate_round_guesses || null
+    readonly property var answerDefs: [
+        { key: "first_roulette", label: qsTr("步骤 1 排的任务") },
+        { key: "job_before", label: qsTr("换职业前的职业") },
+        { key: "job_after", label: qsTr("换职业后的职业") },
+        { key: "duty", label: qsTr("步骤 4 进的副本") }
+    ]
+    property var edits: ({})
+    function isEdited(key) { return card.edits[key] !== undefined }
+    function setEdit(key, text) {
+        const copy = Object.assign({}, card.edits)
+        copy[key] = text
+        card.edits = copy
+    }
+    // The guess in the interface language, the Collector's reference name failing that, its
+    // number failing both; "" before anything was read.
+    function guessText(key) {
+        const guess = card.guesses ? card.guesses[key] : null
+        if (!guess || guess.id === undefined || guess.id === null)
+            return ""
+        const recorded = guess.name || ""
+        let name = ""
+        if (key === "first_roulette") {
+            name = Theme.rouletteLabel(guess.id, recorded)
+        } else if (key === "duty") {
+            if (recorded.length > 0 || (guess.content_id !== undefined && guess.content_id !== null))
+                name = Theme.dutyLabel(guess.content_id, recorded)
+        } else {
+            name = Theme.jobLabel(guess.id, recorded) || Theme.catalogJobName(guess.id, "")
+        }
+        return name || qsTr("编号 %1").arg(guess.id)
+    }
+    function answerText(key) { return card.isEdited(key) ? card.edits[key] : card.guessText(key) }
+    function roundAnswers() {
+        const answers = {}
+        for (let index = 0; index < card.answerDefs.length; ++index) {
+            const key = card.answerDefs[index].key
+            const text = String(card.answerText(key)).trim()
+            if (text.length > 0)
+                answers[key] = text
+        }
+        return answers
+    }
+    function finish() {
+        card.controller.roundAnswers = card.roundAnswers()
+        card.controller.finishRound()
+    }
+
     // Why 开始 cannot be pressed, in one line; "" when it can (the consent box aside).
     readonly property string blockedReason: {
         if (Runtime.app.validationActive)
@@ -100,6 +151,7 @@ Card {
         if (!card.canStart)
             return
         card.tasks = [false, false, false, false]
+        card.edits = ({})
         card.controller.startRound(card.hypotheses)
     }
 
@@ -184,6 +236,62 @@ Card {
                 text: (index + 1) + ". " + modelData
                 checked: !!card.tasks[index]
                 onToggled: card.toggleTask(index)
+            }
+        }
+    }
+    InsetBox {
+        objectName: "candidateRoundGuesses"
+        Layout.fillWidth: true
+        visible: card.phase === "running"
+        implicitHeight: guessColumn.implicitHeight + 24
+        ColumnLayout {
+            id: guessColumn
+            anchors.fill: parent
+            anchors.margins: 12
+            spacing: 8
+            Text {
+                Layout.fillWidth: true
+                textFormat: Text.PlainText
+                text: qsTr("软件识别到的情况")
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fs(13)
+                font.weight: Font.DemiBold
+                wrapMode: Text.Wrap
+            }
+            EvidenceHint {
+                text: qsTr("这些是软件按候选位置读到的，只是猜测。请对照游戏里的实际情况，不对或空着的直接改成实际名称。")
+            }
+            Repeater {
+                model: card.answerDefs
+                delegate: ColumnLayout {
+                    id: answerRow
+                    required property var modelData
+                    readonly property string key: modelData.key
+                    Layout.fillWidth: true
+                    spacing: 4
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        FieldLabel {
+                            Layout.fillWidth: true
+                            text: answerRow.modelData.label
+                        }
+                        Tag {
+                            objectName: "candidateRoundEdited_" + answerRow.key
+                            visible: card.isEdited(answerRow.key)
+                            text: qsTr("已修改")
+                            variant: "accent"
+                        }
+                    }
+                    StyledTextField {
+                        objectName: "candidateRoundAnswer_" + answerRow.key
+                        Layout.fillWidth: true
+                        maximumLength: 100
+                        text: card.answerText(answerRow.key)
+                        placeholderText: qsTr("还没有识别到，可以自己填")
+                        onTextEdited: card.setEdit(answerRow.key, text)
+                    }
+                }
             }
         }
     }
@@ -273,7 +381,7 @@ Card {
             variant: card.tasksDone === card.taskDefs.length ? "primary" : "secondary"
             text: card.busy ? qsTr("正在导出") : qsTr("结束并导出")
             enabled: !card.busy
-            onClicked: card.controller.finishRound()
+            onClicked: card.finish()
         }
         AppButton {
             objectName: "candidateRoundOpenFolderButton"

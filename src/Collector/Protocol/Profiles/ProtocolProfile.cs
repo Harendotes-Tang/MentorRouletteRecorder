@@ -180,6 +180,29 @@ public sealed record ProfileMessage(
 /// <param name="Sha256">Expected lowercase hex digest of the file.</param>
 public sealed record ProfileFixtureReference(string Path, string Sha256);
 
+/// <summary>What a guessed position inside a candidate message is taken to hold.</summary>
+public enum ProfileGuessKind
+{
+    /// <summary>The <c>ContentRoulette</c> id of the roulette being queued.</summary>
+    Roulette,
+    /// <summary>The <c>ClassJob</c> id of the player's current job.</summary>
+    Job,
+    /// <summary>The <c>TerritoryType</c> id of the zone being entered.</summary>
+    Territory,
+}
+
+/// <summary>
+/// An unconfirmed position inside a candidate message: a little-endian unsigned integer of
+/// <paramref name="Size"/> bytes at <paramref name="Offset"/>. It exists so that the player doing
+/// a content round can be shown what the software reads there and correct it
+/// (docs/protocol-profile-format.md 3.5.1). It is never a field: no parser, state machine or
+/// record reads it.
+/// </summary>
+/// <param name="Kind">What the value is taken to be.</param>
+/// <param name="Offset">Byte offset inside the payload.</param>
+/// <param name="Size">Width in bytes, 1 or 2.</param>
+public sealed record ProfileGuess(ProfileGuessKind Kind, int Offset, int Size);
+
 /// <summary>仅供候选时间线观察的 opcode 假设；不声明字段，不产生状态机事件。</summary>
 /// <param name="Name">档案内唯一的候选名称。</param>
 /// <param name="Opcode">观察的 IPC opcode。</param>
@@ -203,6 +226,9 @@ public sealed record ProfileHypothesis(
 {
     /// <summary>界面上显示的名称：档案声明的 <c>label</c>，否则退回候选名。</summary>
     public string DisplayLabel => string.IsNullOrWhiteSpace(Label) ? Name : Label;
+
+    /// <summary>未证实的猜测位置；只供「第二轮」向玩家显示软件读到的值，不参与解析。</summary>
+    public IReadOnlyList<ProfileGuess> Guesses { get; init; } = Array.Empty<ProfileGuess>();
 
     /// <summary>负载长度满足精确值或闭区间时返回 true；负长度始终拒绝。</summary>
     /// <param name="length">解码报文实际负载字节数。</param>

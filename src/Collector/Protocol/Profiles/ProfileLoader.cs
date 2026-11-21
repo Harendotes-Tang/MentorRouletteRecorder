@@ -505,6 +505,7 @@ public static class ProfileLoader
         var hypotheses = new List<ProfileHypothesis>();
         var names = new HashSet<string>(StringComparer.Ordinal);
         var identities = new HashSet<(PacketDirection, ushort)>();
+        var guessKinds = new HashSet<ProfileGuessKind>();
         foreach (var element in declared.EnumerateArray())
         {
             var name = element.GetProperty("name").GetString()!;
@@ -530,10 +531,48 @@ public static class ProfileLoader
             hypotheses.Add(new ProfileHypothesis(name, opcode, direction, expected, min, max,
                 element.GetProperty("note").GetString()!,
                 element.TryGetProperty("group", out var group) ? group.GetString() : null,
-                element.TryGetProperty("label", out var label) ? label.GetString() : null));
+                element.TryGetProperty("label", out var label) ? label.GetString() : null)
+            {
+                Guesses = ReadGuesses(element, path, expected, guessKinds, errors),
+            });
         }
 
         return hypotheses;
+    }
+
+    /// <summary>
+    /// Guessed positions of one hypothesis. Each kind may be guessed once per profile, so what
+    /// the player is shown has a single source, and only inside a message of a fixed length the
+    /// research whitelist can keep: a guess is read back from the stored content.
+    /// </summary>
+    private static IReadOnlyList<ProfileGuess> ReadGuesses(
+        JsonElement hypothesis, string path, int? expectedLength, HashSet<ProfileGuessKind> kinds, List<ProfileIssue> errors)
+    {
+        if (!hypothesis.TryGetProperty("guesses", out var declared))
+        {
+            return Array.Empty<ProfileGuess>();
+        }
+
+        var guesses = new List<ProfileGuess>();
+        foreach (var element in declared.EnumerateArray())
+        {
+            var kind = element.GetProperty("kind").GetString() switch
+            {
+                "ROULETTE" => ProfileGuessKind.Roulette,
+                "JOB" => ProfileGuessKind.Job,
+                _ => ProfileGuessKind.Territory,
+            };
+            var offset = element.GetProperty("offset").GetInt32();
+            var size = element.GetProperty("size").GetInt32();
+            if (!kinds.Add(kind))
+                errors.Add(new ProfileIssue("E_PROFILE_GUESS", path, "another hypothesis already guesses this kind"));
+            if (expectedLength is not { } length || length > Capture.ResearchPayloadPolicy.MaxPayloadBytes || offset + size > length)
+                errors.Add(new ProfileIssue("E_PROFILE_GUESS", path,
+                    "a guess needs an expected_length the content can be kept for, and must lie inside it"));
+            guesses.Add(new ProfileGuess(kind, offset, size));
+        }
+
+        return guesses;
     }
 
     private static IReadOnlyList<ProfileMessage> ReadMessages(

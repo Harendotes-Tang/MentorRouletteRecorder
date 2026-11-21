@@ -697,17 +697,24 @@ QtObject {
             return qsTr("未知")
         return namesAvailable ? Runtime.names.job(nameId(jobId), name) : name
     }
-    /// A bare job id named by the bundled job table; 未知 when it has no name.
-    function catalogJobName(jobId) {
+    /// A bare job id named by the bundled job table; \a unknownText (未知 by default) when it has no name.
+    function catalogJobName(jobId, unknownText) {
         Theme.trackBindingDependency(langRevision)
         const known = typeof Runtime.jobs !== "undefined" && Runtime.jobs ? Runtime.jobs.jobName(nameId(jobId)) : ""
-        return !known || known === "未知" ? qsTr("未知") : jobLabel(jobId, known)
+        return !known || known === "未知" ? (unknownText === undefined ? qsTr("未知") : unknownText)
+                                          : jobLabel(jobId, known)
     }
     /// A roulette known by its Chinese client name.
     function rouletteName(recorded) {
         Theme.trackBindingDependency(langRevision)
         const name = nameText(recorded)
         return namesAvailable && name.length > 0 ? Runtime.names.rouletteByName(name) : name
+    }
+    /// A roulette by id, \a recorded its Chinese client name or ""; "" when neither names it.
+    function rouletteLabel(rouletteId, recorded) {
+        Theme.trackBindingDependency(langRevision)
+        const name = nameText(recorded)
+        return namesAvailable ? Runtime.names.roulette(nameId(rouletteId), name) : name
     }
     /// A duty category (四人迷宫, 讨伐歼灭战 ...), or "".
     function categoryName(recorded) {

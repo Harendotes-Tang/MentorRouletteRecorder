@@ -29,6 +29,13 @@
   （19 项中的 14 项）保存负载，用来确定任务编号、副本与职业的字段位置
   （[`../../docs/privacy-boundary.md`](../../docs/privacy-boundary.md) §5.1.1，测试步骤见
   [`../../docs/global-server-testing.md`](../../docs/global-server-testing.md) §7）。
+- **猜测位置。** 三项假设带未证实的 `guesses`（[`../../docs/protocol-profile-format.md`](../../docs/protocol-profile-format.md) §3.5.1），
+  依据是 2026-11-21 收到的一份第二轮证据（软件 1.9.1-beta.3，SHA-256
+  `af709ee5d0c2f04ab735762c720f69a3eb7e981175e886e77681c04e51be4cdb`，由维护者保存；该版本的记录在排本申请后中断，只有前半段）：
+  `QUEUE_REGISTRATION` 第 0 字节为随机任务编号（两次申请为 2、9）；`FINDER_STATE_NOTIFICATION` 第 1 字节猜测为职业编号
+  （换职业前后为 40、24）；`TERRITORY_CANDIDATE_00AB` 的 u16@2 猜测为区域编号（只见过 641）。它们只用于「第二轮」卡片显示
+  软件读到的任务、职业与副本，供测试者改正，不是字段，不参与解析。同一份证据还表明 `FINDER_ACTION_022B` 是移动报文、
+  `POP_CANDIDATE_0332` 在未排本的登录后出现、`ZONE_INIT_031F` 含可读的文字标签；这三项的处理留待完整的一轮证据。
 - **不做什么。** 普通档案目录不加载候选（`ProfileCatalog.LoadDefault()` 默认 `allowCandidate: false`），
   正式选择排除候选（`ProfileSelector.Select`），模板选择只取 `VERIFIED`（`CalibrationTemplate.Select`）。
   因此这份档案不会让国际服开始记录、不会启动本机校准，没开启「第二轮」的玩家看到的仍是"暂不支持"。

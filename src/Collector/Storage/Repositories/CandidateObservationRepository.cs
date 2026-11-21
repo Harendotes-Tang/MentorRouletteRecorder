@@ -241,6 +241,41 @@ public sealed class CandidateObservationRepository
         }
     }
 
+    /// <summary>
+    /// The little-endian unsigned integers stored at one guessed position, oldest first: rows of
+    /// one (direction, opcode, length) observed at or after <paramref name="sinceUtc"/> whose
+    /// content was kept. SQLite cuts the bytes out, so the rest of a payload never leaves the
+    /// ledger; the caller gets numbers and times and nothing else.
+    /// </summary>
+    public IReadOnlyList<(DateTimeOffset At, int Value)> ReadGuessValues(
+        DateTimeOffset sinceUtc, string direction, int opcode, int length, int offset, int size)
+    {
+        if (size is not (1 or 2) || offset < 0 || offset + size > length)
+            throw new ArgumentOutOfRangeException(nameof(offset));
+        return _database.RunInTransaction(tx =>
+        {
+            Prune(tx);
+            using var command = Command(tx, "SELECT observed_at_utc, substr(payload_hex, $start, $chars) " +
+                "FROM candidate_observations WHERE payload_hex IS NOT NULL AND direction = $direction " +
+                "AND opcode = $opcode AND payload_length = $length AND observed_at_utc >= $since " +
+                "ORDER BY observed_at_utc, t_ms;");
+            command.Parameters.AddWithValue("$start", offset * 2 + 1);
+            command.Parameters.AddWithValue("$chars", size * 2);
+            Bind(command, "$direction", direction);
+            Bind(command, "$opcode", opcode);
+            Bind(command, "$length", length);
+            Bind(command, "$since", UtcTimestamp.ToText(sinceUtc));
+            var values = new List<(DateTimeOffset, int)>();
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                var bytes = Convert.FromHexString(reader.GetString(1));
+                values.Add((UtcTimestamp.Parse(reader.GetString(0)), size == 1 ? bytes[0] : bytes[0] | bytes[1] << 8));
+            }
+            return values;
+        });
+    }
+
     private IEnumerable<CandidateObservationEntry> StreamObservations(SqliteTransaction transaction, Func<bool> active)
     {
         RequireEvidenceScope(active);

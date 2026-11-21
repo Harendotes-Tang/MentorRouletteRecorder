@@ -112,6 +112,8 @@ Collector 侧只校验，不写入。
 - 同时列在 `obfuscated_opcodes` 中的 opcode 不得再声明为消息（`E_PROFILE_OBFUSCATED_MESSAGE`）；
 - `MATCH_ANNOUNCED` 的方向必须为 `SERVER_TO_CLIENT`，且只允许出现在 `CONTENT_FINDER_POP` 方向为
   `CLIENT_TO_SERVER` 的档案里（`E_PROFILE_MESSAGE_CONTEXT`）；
+- 假设的 `guesses`（未证实的猜测位置，格式文档 §3.5.1）要求所在假设有不超过 512 字节的 `expected_length`、
+  位置不越界、每种 `kind` 全档案至多一次（`E_PROFILE_GUESS`）；
 - `hypotheses` 只允许出现在 `CANDIDATE` 档案中（`E_PROFILE_HYPOTHESES_STATUS`）；假设名与
   `(direction, opcode)` 均不得重复（`E_PROFILE_DUPLICATE_HYPOTHESIS` / `E_PROFILE_DUPLICATE_HYPOTHESIS_OPCODE`），
   长度规则与消息相同；

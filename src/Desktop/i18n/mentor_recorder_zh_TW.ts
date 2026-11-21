@@ -15538,6 +15538,26 @@ SHA256：%3</translation>
         <translation>排指導者任務，完成後離開副本</translation>
     </message>
     <message>
+        <source>步骤 1 排的任务</source>
+        <translation>步驟 1 排的任務</translation>
+    </message>
+    <message>
+        <source>换职业前的职业</source>
+        <translation>換職業前的職業</translation>
+    </message>
+    <message>
+        <source>换职业后的职业</source>
+        <translation>換職業後的職業</translation>
+    </message>
+    <message>
+        <source>步骤 4 进的副本</source>
+        <translation>步驟 4 進的副本</translation>
+    </message>
+    <message>
+        <source>编号 %1</source>
+        <translation>編號 %1</translation>
+    </message>
+    <message>
         <source>新区服采证正在进行，结束后才能开始这一轮。</source>
         <translation>新區服採證正在進行，結束後才能開始這一輪。</translation>
     </message>
@@ -15592,6 +15612,22 @@ SHA256：%3</translation>
     <message>
         <source>现在启动游戏并登录角色，再依次完成下面四件事，每完成一件就勾上。游戏退出后软件会自动接着记录，重新启动游戏后不需要再点开始。</source>
         <translation>現在啟動遊戲並登入角色，再依序完成下面四件事，每完成一件就勾選。遊戲結束後軟體會自動接著記錄，重新啟動遊戲後不需要再按開始。</translation>
+    </message>
+    <message>
+        <source>软件识别到的情况</source>
+        <translation>軟體識別到的情況</translation>
+    </message>
+    <message>
+        <source>这些是软件按候选位置读到的，只是猜测。请对照游戏里的实际情况，不对或空着的直接改成实际名称。</source>
+        <translation>這些是軟體按候選位置讀到的，只是猜測。請對照遊戲裡的實際情況，不對或空著的直接改成實際名稱。</translation>
+    </message>
+    <message>
+        <source>已修改</source>
+        <translation>已修改</translation>
+    </message>
+    <message>
+        <source>还没有识别到，可以自己填</source>
+        <translation>還沒有識別到，可以自己填</translation>
     </message>
     <message>
         <source>已看到 %1 / %2 种报文 · 共记下 %3 条</source>

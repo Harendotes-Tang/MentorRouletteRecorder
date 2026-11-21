@@ -257,6 +257,26 @@ void MockBackend::setCandidateRoundFixture(bool gameRunning)
     m_liveMode = LiveMode::None;
     m_captureSettings.insert(QStringLiteral("candidate_validation_enabled"), false);
     m_captureSettings.insert(QStringLiteral("research_payload_opcodes"), QJsonArray());
+    // CaptureWire's candidate_round_guesses part way through a round: step 1's roulette and the
+    // first job read with their reference names, the second job by id alone (its name left to
+    // the Desktop's own tables), the duty of step 4 not reached yet.
+    const QJsonValue null(QJsonValue::Null);
+    const auto guess = [null](int id, const char *name) {
+        return QJsonObject{{QStringLiteral("id"), id},
+                           {QStringLiteral("name"), name ? QJsonValue(QString::fromUtf8(name)) : null},
+                           {QStringLiteral("content_id"), null}};
+    };
+    m_candidateRoundGuesses = {{QStringLiteral("started_at_utc"), isoUtc(m_now)},
+                               {QStringLiteral("first_roulette"), guess(1, "练级迷宫")},
+                               {QStringLiteral("job_before"), guess(19, "骑士")},
+                               {QStringLiteral("job_after"), guess(24, nullptr)},
+                               {QStringLiteral("duty"), null}};
+}
+
+void MockBackend::setCandidateRoundGuesses(const QJsonObject &guesses)
+{
+    m_candidateRoundGuesses = guesses;
+    emitCaptureStatusChanged();
 }
 
 QJsonArray MockBackend::candidateRoundHypotheses()
@@ -325,6 +345,9 @@ void MockBackend::applyCandidateRoundFixture(QJsonObject &status) const
     status.insert(QStringLiteral("candidate_profile_id"),
                   enabled ? QJsonValue(QStringLiteral("global.2026.11.03.candidate")) : null);
     status.insert(QStringLiteral("candidate_hypotheses"), candidateRoundHypotheses());
+    // The guesses belong to a round: none while validation is off.
+    status.insert(QStringLiteral("candidate_round_guesses"),
+                  enabled && !m_candidateRoundGuesses.isEmpty() ? QJsonValue(m_candidateRoundGuesses) : null);
     status.insert(QStringLiteral("ffxiv_running"), running);
     status.insert(QStringLiteral("ffxiv_process_id"), running ? QJsonValue(18244) : null);
     if (!running)

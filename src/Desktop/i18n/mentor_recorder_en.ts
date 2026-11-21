@@ -15538,6 +15538,26 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <translation>Queue Mentor roulette, finish the duty, then leave</translation>
     </message>
     <message>
+        <source>步骤 1 排的任务</source>
+        <translation>Roulette queued in step 1</translation>
+    </message>
+    <message>
+        <source>换职业前的职业</source>
+        <translation>Job before the switch</translation>
+    </message>
+    <message>
+        <source>换职业后的职业</source>
+        <translation>Job after the switch</translation>
+    </message>
+    <message>
+        <source>步骤 4 进的副本</source>
+        <translation>Duty entered in step 4</translation>
+    </message>
+    <message>
+        <source>编号 %1</source>
+        <translation>ID %1</translation>
+    </message>
+    <message>
         <source>新区服采证正在进行，结束后才能开始这一轮。</source>
         <translation>A new region capture is in progress; this round can start after it ends.</translation>
     </message>
@@ -15592,6 +15612,22 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>现在启动游戏并登录角色，再依次完成下面四件事，每完成一件就勾上。游戏退出后软件会自动接着记录，重新启动游戏后不需要再点开始。</source>
         <translation>Start the game and log in now, then do the four things below in order, ticking each one when done. The app keeps recording after the game exits; you do not need to press Start again after restarting the game.</translation>
+    </message>
+    <message>
+        <source>软件识别到的情况</source>
+        <translation>What the app detected</translation>
+    </message>
+    <message>
+        <source>这些是软件按候选位置读到的，只是猜测。请对照游戏里的实际情况，不对或空着的直接改成实际名称。</source>
+        <translation>The app read these at the candidate positions, so they are only guesses. Check them against what actually happened in the game, and replace anything wrong or empty with the actual name.</translation>
+    </message>
+    <message>
+        <source>已修改</source>
+        <translation>Edited</translation>
+    </message>
+    <message>
+        <source>还没有识别到，可以自己填</source>
+        <translation>Not detected yet; you can fill it in yourself</translation>
     </message>
     <message>
         <source>已看到 %1 / %2 种报文 · 共记下 %3 条</source>

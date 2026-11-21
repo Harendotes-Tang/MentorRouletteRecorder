@@ -92,6 +92,12 @@ public sealed record CaptureServices
         static () => Array.Empty<CandidateHypothesisView>();
 
     /// <summary>
+    /// What the software takes the content round under way to have been, for the player to
+    /// correct. Asked only while candidate validation is on; null when there is nothing to show.
+    /// </summary>
+    public Func<Export.CandidateRoundReport?> CandidateRoundReport { get; init; } = static () => null;
+
+    /// <summary>
     /// How long the follow-the-game poll waits before retrying an auto-start that was
     /// refused (no Npcap, no profile, no adapter). Without this the poll would re-refuse
     /// once a second for as long as the game runs, churning the last-error fields.
@@ -460,6 +466,7 @@ public sealed partial class CaptureController : IDisposable
                 CandidateProfileId = candidate.ProfileId,
                 CandidateObservationCount = candidate.Count,
                 CandidateHypotheses = hypotheses,
+                CandidateRoundGuesses = candidate.Enabled ? _services.CandidateRoundReport() : null,
                 Calibration = calibration,
                 ProfileOrigin = profile.Origin,
                 SharedCalibrationEnabled = sharedCalibrationEnabled,

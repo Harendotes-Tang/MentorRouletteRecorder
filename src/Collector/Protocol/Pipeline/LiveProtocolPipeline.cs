@@ -155,6 +155,17 @@ public sealed partial class LiveProtocolPipeline :
 
     private (Region Region, string? GameBuild) _hypothesisKey;
     private IReadOnlyList<CandidateHypothesisView>? _hypothesisCache;
+    private ProtocolProfile? _hypothesisProfile;
+
+    /// <summary>The candidate profile <see cref="DescribeCandidateHypotheses"/> describes, or null.</summary>
+    public ProtocolProfile? CandidateDisplayProfile()
+    {
+        lock (_gate)
+        {
+            DescribeCandidateHypotheses();
+            return _hypothesisProfile;
+        }
+    }
 
     /// <summary>
     /// Every CANDIDATE profile the catalogue holds, used only to label the whitelist while the
@@ -200,6 +211,7 @@ public sealed partial class LiveProtocolPipeline :
             }
 
             _hypothesisKey = key;
+            _hypothesisProfile = profile;
             _hypothesisCache = profile is null
                 ? Array.Empty<CandidateHypothesisView>()
                 : profile.Hypotheses.Select(h => CandidateHypothesisView.From(profile, h)).ToArray();

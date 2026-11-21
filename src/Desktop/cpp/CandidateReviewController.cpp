@@ -570,6 +570,7 @@ void CandidateReviewController::startRound(const QVariantList &hypotheses)
     m_seen.clear();
     m_exportResult.clear();
     m_exportError.clear();
+    m_roundAnswers.clear();
     // One request: the Collector checks the whitelist against the switch it carries, and the
     // capture it follows the game with starts the candidate session on the next launch.
     writeSettings({{QStringLiteral("candidate_validation_enabled"), true},
@@ -609,6 +610,15 @@ void CandidateReviewController::setResearchOpcodes(const QVariantList &opcodes)
     writeSettings({{QStringLiteral("research_payload_opcodes"), QJsonArray::fromVariantList(opcodes)}});
 }
 
+void CandidateReviewController::setRoundAnswers(const QVariantMap &answers)
+{
+    // Kept as they will travel, so the property shows what an export sends.
+    const QVariantMap normalized = IBackend::candidateRoundAnswersPayload(answers).toVariantMap();
+    if (normalized == m_roundAnswers) return;
+    m_roundAnswers = normalized;
+    Q_EMIT changed();
+}
+
 void CandidateReviewController::exportEvidence()
 {
     if (!m_backend || m_exporting) return;
@@ -620,7 +630,7 @@ void CandidateReviewController::exportEvidence()
     if (!m_targetOverride.isEmpty()) path = QDir(m_targetOverride).absoluteFilePath(
         QStringLiteral("candidate-evidence-") + QUuid::createUuid().toString(QUuid::WithoutBraces) + QStringLiteral(".json"));
     Q_EMIT changed();
-    BackendReply *exportReply = m_backend->exportCandidateEvidence(path);
+    BackendReply *exportReply = m_backend->exportCandidateEvidence(path, m_roundAnswers);
     const QPointer<BackendReply> exportGuard(exportReply);
     exportReply->whenDone(this,
         [this, generation, exportGuard](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {

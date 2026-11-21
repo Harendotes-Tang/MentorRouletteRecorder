@@ -3913,6 +3913,7 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
     } else if (messageType == QLatin1String("ReviewCandidateObservation")) {
         result = reviewCandidatePayload(payload, &errorCode, &errorMessage);
     } else if (messageType == QLatin1String("ExportCandidateEvidence")) {
+        m_lastCandidateExportRequest = payload;
         result = exportCandidatePayload(payload);
     } else if (messageType == QLatin1String("GetRunRevisions")) {
         // MessageDispatcher.GetRunRevisions + RunRevisionRepository.ListForRun:

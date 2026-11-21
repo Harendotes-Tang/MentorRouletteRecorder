@@ -251,7 +251,8 @@ been verified.
 
 Round 1 told us *which* messages matter. Round 2 records the *content* of those few messages,
 so the maintainer can find where the roulette, the duty and the job sit inside them. It needs
-the 1.9.1-beta.3 test build (or newer) and the Global client version 2026.11.03; with any other
+the test build after 1.9.1-beta.3 (in 1.9.1-beta.3 itself the recording stops after the first
+queue request, so a round done with it has to be repeated) and the Global client version 2026.11.03; with any other
 client version the section below does not appear.
 
 **What is different from round 1.** Round 1 stored no packet content at all. This round stores
@@ -273,10 +274,16 @@ whether to send it. See [privacy-boundary.md §5.1.1](privacy-boundary.md).
    3. Fully exit the game, start it again and log in. The app keeps recording on its own after
       the restart; do not click anything in the app.
    4. Queue for the **Mentor Roulette**, finish the duty and leave it.
+
+   Below the four items the card shows what the app believes happened: the roulette of step 1,
+   the job before and after step 2, and the duty of step 4. These are guesses read from the
+   recorded messages. Compare them with what you actually did; where a line is wrong or empty,
+   type the real name over it (any language is fine).
 4. Click **结束并导出**. The card lists the folder and the two files to send:
    `candidate-evidence-<date>-<id>.json` and the matching `.sha256`. **打开所在文件夹** opens the
    folder (`%LOCALAPPDATA%\MentorRecorder\exports` by default).
-5. Email the two files privately as in section 6, subject `[GLOBAL evidence] <date> round 2`, and
-   write in the email which roulette you used in step 1, the job before and after step 2, and the
-   duty you got in step 4. You can delete the two files after sending; the app's own copy of the
-   recorded content is removed automatically after at most 30 days.
+5. Email the two files privately as in section 6, subject `[GLOBAL evidence] <date> round 2`.
+   The roulette, the jobs and the duty shown on the card, with your corrections, are saved inside
+   the file, so you do not need to repeat them in the email. You can delete the two files after
+   sending; the app's own copy of the recorded content is removed automatically after at most
+   30 days.

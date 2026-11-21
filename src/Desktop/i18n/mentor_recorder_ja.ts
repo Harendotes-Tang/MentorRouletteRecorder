@@ -15538,6 +15538,26 @@ SHA256：%3</translation>
         <translation>メンタールーレットに申請し、コンテンツを完了してから退出する</translation>
     </message>
     <message>
+        <source>步骤 1 排的任务</source>
+        <translation>手順 1 で申請したルーレット</translation>
+    </message>
+    <message>
+        <source>换职业前的职业</source>
+        <translation>変更前のジョブ</translation>
+    </message>
+    <message>
+        <source>换职业后的职业</source>
+        <translation>変更後のジョブ</translation>
+    </message>
+    <message>
+        <source>步骤 4 进的副本</source>
+        <translation>手順 4 で入ったコンテンツ</translation>
+    </message>
+    <message>
+        <source>编号 %1</source>
+        <translation>ID %1</translation>
+    </message>
+    <message>
         <source>新区服采证正在进行，结束后才能开始这一轮。</source>
         <translation>新しい地域のデータ採取が進行中です。終了後にこのラウンドを開始できます。</translation>
     </message>
@@ -15592,6 +15612,22 @@ SHA256：%3</translation>
     <message>
         <source>现在启动游戏并登录角色，再依次完成下面四件事，每完成一件就勾上。游戏退出后软件会自动接着记录，重新启动游戏后不需要再点开始。</source>
         <translation>ゲームを起動してログインし、下の 4 つを順番に行い、済んだものにチェックを入れてください。ゲームを終了してもアプリは記録を続けます。ゲームを再起動したあと、もう一度「開始」を押す必要はありません。</translation>
+    </message>
+    <message>
+        <source>软件识别到的情况</source>
+        <translation>アプリが読み取った内容</translation>
+    </message>
+    <message>
+        <source>这些是软件按候选位置读到的，只是猜测。请对照游戏里的实际情况，不对或空着的直接改成实际名称。</source>
+        <translation>これらはアプリが候補の位置から読み取ったもので、推測にすぎません。ゲーム内で実際にどうだったかと照らし合わせ、違っているものや空欄のものは実際の名前に書き換えてください。</translation>
+    </message>
+    <message>
+        <source>已修改</source>
+        <translation>修正済み</translation>
+    </message>
+    <message>
+        <source>还没有识别到，可以自己填</source>
+        <translation>まだ読み取れていません。自分で入力できます</translation>
     </message>
     <message>
         <source>已看到 %1 / %2 种报文 · 共记下 %3 条</source>

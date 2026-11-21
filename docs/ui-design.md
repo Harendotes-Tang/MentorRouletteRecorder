@@ -745,8 +745,17 @@ Npcap 的结论 `npcap.status` 随之更新），页面标签为「需手动记�
 未开始时：一句用途说明、内嵌框中的告知全文与必选勾选框「我已了解并同意这一轮记录这些报文的内容」（`candidateRoundConsent`），
 不能开始时一行橙色原因（`candidateRoundBlockedReason`：新区服采证正在进行 / 软件正在记录 / 游戏正在运行 / 未安装 Npcap / 读不到设置），
 按钮「开始」（`candidateRoundStartButton`）在勾选前不可用。进行中：一句提示（游戏退出后会自动接着记录）、玩家自己勾选的四项清单
-（`candidateRoundTask_1..4`，只是提示，不由软件判断）、计数「已看到 x / n 种报文 · 共记下 m 条」（`candidateRoundCounts`，按实时事件中的假设名去重）
-与「结束并导出」。导出后：说明文件只在本机、文件夹（缩写用户目录）、两个文件名（`candidateRoundFile_0/1`）、「打开所在文件夹」与删除提示；
+（`candidateRoundTask_1..4`，只是提示，不由软件判断）、内嵌框「软件识别到的情况」（`candidateRoundGuesses`，见下）、
+计数「已看到 x / n 种报文 · 共记下 m 条」（`candidateRoundCounts`，按实时事件中的假设名去重）与「结束并导出」。
+「软件识别到的情况」框（2026-11-21）先用一句话说明这些只是软件按候选位置读到的猜测，请测试者对照游戏改正，
+再列四个单行输入框（各一行标签，至多 100 字）：「步骤 1 排的任务」「换职业前的职业」「换职业后的职业」「步骤 4 进的副本」
+（`candidateRoundAnswer_first_roulette` / `_job_before` / `_job_after` / `_duty`）。内容来自采集器状态的 `candidate_round_guesses`：
+随机任务按编号、职业按职业编号、副本按副本编号以界面语言显示名称（`Theme.rouletteLabel` / `jobLabel` / `dutyLabel`，职业还查内置职业表），
+查不到时用采集器给的简体中文名称，连名称也没有时显示「编号 %1」；尚未读到的项留空，占位文字「还没有识别到，可以自己填」
+（较早的采集器不报告这一项时四项都是空的）。测试者没改过的输入框跟随软件的猜测更新；一旦改过就保留测试者的文字，不再跟随，
+并在标签右侧显示「已修改」标签（`candidateRoundEdited_<项>`）。点「开始」会清除上一轮的修改。
+「结束并导出」把四个输入框当前的文字（去掉首尾空白，空的不发）作为 `round_answers` 交给 `CandidateReviewController.roundAnswers`，
+随导出请求发出，并保留给之后的「重新导出」；四项都为空时请求中不带 `round_answers`。导出后：说明文件只在本机、文件夹（缩写用户目录）、两个文件名（`candidateRoundFile_0/1`）、「打开所在文件夹」与删除提示；
 导出失败时显示原因与「重新导出」。第二轮进行期间，第 ① 步的「开始采证」不可用，并显示「第二轮正在进行，点上方的「结束并导出」后才能开始采证。」
 （`evidenceCandidateRoundBlocks`）。
 

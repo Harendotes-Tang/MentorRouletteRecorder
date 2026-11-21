@@ -164,6 +164,12 @@ public sealed record CaptureDiagnosticsSnapshot
     public IReadOnlyList<CandidateHypothesisView> CandidateHypotheses { get; init; } =
         Array.Empty<CandidateHypothesisView>();
 
+    /// <summary>
+    /// What the software reads at the candidate profile's guessed positions during a content
+    /// round, for the player to confirm or correct. Null outside a round.
+    /// </summary>
+    public Export.CandidateRoundReport? CandidateRoundGuesses { get; init; }
+
     /// <summary>Calibration status for the running build.</summary>
     public CalibrationStatusSnapshot Calibration { get; init; } = CalibrationStatusSnapshot.Idle;
 

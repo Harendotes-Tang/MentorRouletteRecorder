@@ -246,7 +246,7 @@ protocol-profiles/
 }
 ```
 
-每项必须包含 `name / direction / opcode / note`，不能包含 `fields` 或任何偏移。
+每项必须包含 `name / direction / opcode / note`，不能包含 `fields`；唯一允许的位置信息是 §3.5.1 的 `guesses`。
 名称为大写字母、数字、下划线，长度不超过 64；分组为小写字母、数字、下划线，
 长度不超过 32。名称及 `(direction, opcode)` 都必须唯一。
 方向沿用 `SERVER_TO_CLIENT / CLIENT_TO_SERVER`，opcode 为 0–65535 整数。
@@ -261,6 +261,31 @@ protocol-profiles/
 相对毫秒时间：排队登记 234100、取消排队 276500。这些时间是证据锚点，不是协议字段。
 `zone_load` 簇在同连接 3 秒内命中至少 5 个不同成员时产生 `ZONE_LOAD` 候选锚点；
 登录与传送同样会触发该锚点，因此不能据此确认进本、完成或离开。
+
+### 3.5.1 未证实的猜测位置 `guesses`（2026-11-21 负责人批准）
+
+假设可以带可选的 `guesses` 数组，声明该报文里**猜测**的位置，供新区服采证页「第二轮」向玩家显示
+软件读到的值并请玩家改正（[`privacy-boundary.md`](privacy-boundary.md) §5.1.1）：
+
+```jsonc
+{
+  "name": "QUEUE_REGISTRATION",
+  "direction": "CLIENT_TO_SERVER",
+  "opcode": 533,
+  "expected_length": 24,
+  "note": "……",
+  "guesses": [ { "kind": "ROULETTE", "offset": 0, "size": 1 } ]
+}
+```
+
+- `kind` 为 `ROULETTE`（随机任务编号）、`JOB`（职业编号）或 `TERRITORY`（区域编号）；`offset` 为负载内的字节偏移，
+  `size` 为 1 或 2，按小端无符号整数读取。
+- 所在假设必须声明 `expected_length`，不超过 512 字节，且 `offset + size` 不越界；每种 `kind` 在一份档案中至多出现一次
+  （`E_PROFILE_GUESS`）。只有内容可以保存的报文才能读回猜测位置。
+- 每个猜测在 `provenance.evidence` 中有一条 `hypotheses.<名称>.guesses.<KIND>` 条目，写明依据与样本数。
+- **猜测不是字段。** 解析器、状态机、正式记录、统计与本机校准都不读取它；档案仍是 CANDIDATE，
+  `messages` 仍为空。它只决定「第二轮」卡片上预填的内容和证据文件中 `round_report.guessed` 的值，
+  是否正确由玩家核对、维护者离线确认，之后才可能写成正式档案里带证据的字段。
 
 ## 4. `profile_sha256` 与规范化 JSON
 

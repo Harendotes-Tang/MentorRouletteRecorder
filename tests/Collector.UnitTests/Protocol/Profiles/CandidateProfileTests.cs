@@ -58,6 +58,12 @@ public sealed class CandidateProfileTests : IDisposable
         var eligible = profile.Hypotheses.Where(h => Capture.ResearchPayloadPolicy.IsEligible(profile, h)).ToArray();
         Assert.InRange(eligible.Length, 1, Capture.ResearchPayloadPolicy.MaxOpcodes);
         Assert.Contains(eligible, h => h.Name == "QUEUE_REGISTRATION");
+        // One guessed position per kind, each inside a message whose content the round keeps.
+        var guesses = profile.Hypotheses.SelectMany(h => h.Guesses.Select(guess => (Hypothesis: h, Guess: guess))).ToArray();
+        Assert.Equal(
+            new[] { ProfileGuessKind.Roulette, ProfileGuessKind.Job, ProfileGuessKind.Territory },
+            guesses.Select(pair => pair.Guess.Kind).Order().ToArray());
+        Assert.All(guesses, pair => Assert.Contains(pair.Hypothesis, eligible));
 
         using (var json = JsonDocument.Parse(File.ReadAllBytes(path)))
         {
@@ -191,6 +197,10 @@ public sealed class CandidateProfileTests : IDisposable
     [InlineData("duplicate-name", "E_PROFILE_DUPLICATE_HYPOTHESIS")]
     [InlineData("duplicate-opcode", "E_PROFILE_DUPLICATE_HYPOTHESIS_OPCODE")]
     [InlineData("empty", "E_PROFILE_NO_ROULETTE")]
+    [InlineData("guess-outside", "E_PROFILE_GUESS")]
+    [InlineData("guess-without-fixed-length", "E_PROFILE_GUESS")]
+    [InlineData("guess-twice", "E_PROFILE_GUESS")]
+    [InlineData("guess-offset-as-field", "E_PROFILE_SCHEMA")]
     public void MalformedCandidatesAreRefused(string mutation, string errorCode)
     {
         var document = Candidate();
@@ -215,6 +225,19 @@ public sealed class CandidateProfileTests : IDisposable
                     { ["name"] = "ANOTHER_CANDIDATE" });
                 break;
             case "empty": document["hypotheses"] = new List<object>(); break;
+            case "guess-outside": hypothesis["guesses"] = Guesses(("JOB", 127, 2)); break;
+            case "guess-without-fixed-length":
+                hypothesis.Remove("expected_length");
+                hypothesis["min_length"] = 8;
+                hypothesis["max_length"] = 24;
+                hypothesis["guesses"] = Guesses(("JOB", 0, 1));
+                break;
+            case "guess-twice":
+                hypothesis["guesses"] = Guesses(("JOB", 0, 1));
+                ((List<object>)document["hypotheses"]).Add(new Dictionary<string, object>(hypothesis)
+                    { ["name"] = "ANOTHER_CANDIDATE", ["opcode"] = 0x0104 });
+                break;
+            case "guess-offset-as-field": hypothesis["offset"] = 0; break;
         }
 
         var report = ProfileLoader.Validate(Write("candidate-bad", document));
@@ -319,6 +342,10 @@ public sealed class CandidateProfileTests : IDisposable
 
     private string Write(string id, Dictionary<string, object> document) =>
         ProfileTestFiles.Write(_directory, id, document);
+
+    private static List<object> Guesses(params (string Kind, int Offset, int Size)[] guesses) => guesses
+        .Select(guess => (object)new Dictionary<string, object>
+            { ["kind"] = guess.Kind, ["offset"] = guess.Offset, ["size"] = guess.Size }).ToList();
 
     private static Dictionary<string, object> Hypothesis(Dictionary<string, object> document) =>
         (Dictionary<string, object>)((List<object>)document["hypotheses"])[0];

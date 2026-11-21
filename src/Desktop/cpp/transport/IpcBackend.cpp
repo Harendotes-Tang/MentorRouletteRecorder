@@ -196,7 +196,8 @@ QJsonObject IpcBackend::buildRequestForTest(const QString &messageType,
                                              stringArg(args, "verdict"),
                                              stringArg(args, "note"));
     } else if (messageType == QLatin1String("ExportCandidateEvidence")) {
-        backend.exportCandidateEvidence(stringArg(args, "target_path"));
+        backend.exportCandidateEvidence(stringArg(args, "target_path"),
+                                        objectArg(args, "round_answers").toVariantMap());
     } else if (messageType == QLatin1String("GetDashboardStats")) {
         backend.getDashboardStats(objectArg(args, "filter"),
                                   stringArg(args, "trend_granularity"));

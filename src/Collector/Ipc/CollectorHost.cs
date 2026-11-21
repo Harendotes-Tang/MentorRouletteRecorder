@@ -50,7 +50,8 @@ public sealed class CollectorHost : IDisposable
         Reflections = new RunReflectionRepository(database);
         ReflectionWrites = new RunReflectionService(database, clock);
         Candidates = new CandidateObservationRepository(database, clock);
-        CandidateExporter = new CandidateEvidenceExporter(Candidates, clock, database.Path);
+        CandidateRound = new CandidateRoundReporter(Candidates, Settings, () => LiveProtocol?.CandidateDisplayProfile());
+        CandidateExporter = new CandidateEvidenceExporter(Candidates, clock, database.Path, CandidateRound.Read);
         Exporter = new RunExporter(Runs, clock, database);
         Backups = new BackupService(database, clock);
         Imports = new RunImportService(database, clock);
@@ -111,6 +112,9 @@ public sealed class CollectorHost : IDisposable
     /// <summary>独立候选账本；不参与正式记录和统计。</summary>
     public CandidateObservationRepository Candidates { get; }
     public CandidateEvidenceExporter CandidateExporter { get; }
+
+    /// <summary>What the software takes the current content round to have been.</summary>
+    public CandidateRoundReporter CandidateRound { get; }
 
     /// <summary>CSV and JSON export.</summary>
     public RunExporter Exporter { get; }
@@ -390,6 +394,7 @@ public sealed class CollectorHost : IDisposable
                 RunUnderWay = () => pipeline.RunUnderWayNow,
                 CandidateStatus = () => (pipeline.CandidateValidationEnabled, pipeline.CandidateProfileId, Candidates.Count()),
                 CandidateHypotheses = pipeline.DescribeCandidateHypotheses,
+                CandidateRoundReport = CandidateRound.Read,
                 CalibrationStatus = pipeline.CalibrationStatus,
             };
         }

@@ -286,6 +286,21 @@ public sealed class SettingsRepository
         });
     }
 
+    /// <summary>When a setting was last written, or null when it never was.</summary>
+    /// <param name="key">Setting key.</param>
+    public DateTimeOffset? GetSettingUpdatedAtUtc(string key)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(key);
+
+        return _database.Read(_ =>
+        {
+            using var command = _database.CreateCommand();
+            command.CommandText = "SELECT updated_at_utc FROM application_settings WHERE key = $key;";
+            command.Parameters.AddWithValue("$key", key);
+            return UtcTimestamp.ParseOrNull(command.ExecuteScalar() as string);
+        });
+    }
+
     /// <summary>Writes one application setting.</summary>
     /// <param name="key">Setting key.</param>
     /// <param name="valueJson">JSON-encoded value.</param>

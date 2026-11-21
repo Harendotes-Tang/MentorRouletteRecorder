@@ -221,8 +221,17 @@ def semantic_errors(document: dict, path: str) -> list:
     identities = [(item["direction"], item["opcode"]) for item in hypotheses]
     if len(identities) != len(set(identities)):
         errors.append("duplicate hypothesis (direction, opcode) pair")
+    guess_kinds = set()
     for hypothesis in hypotheses:
         errors += length_errors(hypothesis)
+        for guess in hypothesis.get("guesses", []):
+            if guess["kind"] in guess_kinds:
+                errors.append("another hypothesis already guesses %s" % guess["kind"])
+            guess_kinds.add(guess["kind"])
+            length = hypothesis.get("expected_length")
+            if length is None or length > 512 or guess["offset"] + guess["size"] > length:
+                errors.append("guess in %s needs an expected_length of at most 512 and must lie inside it"
+                              % hypothesis["name"])
     names = [message.get("name") for message in messages]
     if len(names) != len(set(names)):
         errors.append("duplicate message name")

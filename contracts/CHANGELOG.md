@@ -1,5 +1,18 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-11-21 · 「第二轮」显示软件读到的任务、职业与副本
+
+- `CaptureStatus.candidate_round_guesses`（可选，对象或 `null`）：候选验证开启、且候选档案声明了猜测位置
+  （档案格式 §3.5.1）时，给出 `{ started_at_utc, first_roulette, job_before, job_after, duty }`；四项各为 `null` 或
+  `{ id, name, content_id }`，`id` 是在猜测位置读到的编号，`name` 是参考表中的名称（查不到为 `null`），
+  `content_id` 仅在区域对应某个副本时给出。只读取这一轮开启之后的观测；仅供显示，不是记录、统计或字段证据。
+  旧采集服务不发送该字段，桌面端视同 `null`。
+- `ExportCandidateEvidence` 请求新增可选的 `round_answers`：`{ first_roulette, job_before, job_after, duty }`，
+  各为至多 100 个字符的字符串，表示卡片上该项最终的内容；空白视为未填。
+- 证据文件（`MentorRecorder.CandidateEvidence`，`schema_version` 仍为 1）在有上述任一内容时新增 `round_report`：
+  `guessed` 为导出时的 `candidate_round_guesses`（没有时为 `null`），`answered` 为请求中的 `round_answers`
+  （没有时为 `null`）。不带这两者的导出与此前逐字节同构。应答不变。
+
 ## 2026-11-20 · 采集服务知道显示时区
 
 - 新增 `SetDisplayTimeZone { time_zone }` → `{ time_zone, utc_offset_minutes }`。`time_zone` 为 IANA 时区标识（如 `Asia/Tokyo`），`null` 或空串表示跟随电脑时区；应答给出此后生效的时区（跟随电脑时为 `null`）及其当前与 UTC 的分钟差，供桌面端核对两端是否一致。电脑不认识的标识以 `ERR_BAD_REQUEST`（`field = "time_zone"`，`message_ref` 为新增的 `ipc.request.time_zone_unknown`）拒绝，生效的时区不变。

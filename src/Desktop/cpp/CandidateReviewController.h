@@ -54,6 +54,10 @@ class CandidateReviewController final : public QObject
     Q_PROPERTY(QStringList seenHypotheses READ seenHypotheses NOTIFY changed)
     /// True from finishRound() until its export has answered (or the switch-off failed).
     Q_PROPERTY(bool finishing READ finishing NOTIFY changed)
+    /// What the tester of the player's round wrote beside the software's guesses
+    /// ($defs/CandidateRoundAnswers, blanks left out), sent with every later export until
+    /// the next startRound().
+    Q_PROPERTY(QVariantMap roundAnswers READ roundAnswers WRITE setRoundAnswers NOTIFY changed)
 
 public:
     explicit CandidateReviewController(QObject *parent = nullptr);
@@ -87,6 +91,7 @@ public:
     QString candidateSettingsError() const { return m_settingsError.text(); }
     QStringList seenHypotheses() const { return m_seen; }
     bool finishing() const { return m_finishing; }
+    QVariantMap roundAnswers() const { return m_roundAnswers; }
     /// Research-eligible opcodes of  hypotheses ($defs/CandidateHypothesis rows), every group,
     /// in declaration order: what the player's round asks the Collector to keep the content of.
     Q_INVOKABLE QVariantList eligibleOpcodes(const QVariantList &hypotheses) const;
@@ -101,6 +106,8 @@ public Q_SLOTS:
     void exportEvidence();
     void setCandidateEnabled(bool enabled);
     void setResearchOpcodes(const QVariantList &opcodes);
+    /// Hands over the round's four answers before finishRound() or a later exportEvidence().
+    void setRoundAnswers(const QVariantMap &answers);
     /// The player's 国际服候选验证 round (EvidenceCandidateRound.qml): candidate validation on and
     /// every eligible hypothesis of  hypotheses whitelisted, in one UpdateCaptureSettings.
     void startRound(const QVariantList &hypotheses);
@@ -148,6 +155,7 @@ private:
     LiveText m_exportError;
     LiveText m_settingsError;
     QVariantMap m_exportResult;
+    QVariantMap m_roundAnswers;
     QStringList m_seen;
     std::function<bool(const QUrl &)> m_openUrl;
     int m_page = 1;

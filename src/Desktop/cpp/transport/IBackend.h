@@ -244,7 +244,15 @@ public:
     BackendReply *reviewCandidateObservation(const QString &id, const QString &verdict,
                                               const QString &note = {});
     /// An empty path selects the Collector's managed candidate evidence folder.
-    BackendReply *exportCandidateEvidence(const QString &targetPath = {});
+    /// \a roundAnswers holds what the tester of a 第二轮 wrote for the round's guesses
+    /// ($defs/CandidateRoundAnswers: first_roulette, job_before, job_after, duty). Only
+    /// those keys travel, trimmed, at most 100 characters, blanks left out; with none left
+    /// the request carries no round_answers at all, as before the field existed.
+    BackendReply *exportCandidateEvidence(const QString &targetPath = {},
+                                          const QVariantMap &roundAnswers = {});
+    /// The round_answers object exportCandidateEvidence() sends for \a answers; empty
+    /// when nothing is left to send.
+    static QJsonObject candidateRoundAnswersPayload(const QVariantMap &answers);
 
     // -- statistics ---------------------------------------------------------
     /// \a trendGranularity is the optional $defs/StatsRequest field: "day",

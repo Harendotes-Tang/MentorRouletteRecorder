@@ -63,6 +63,14 @@ public static class CaptureSettingsStore
 {
     public const string CandidateValidationSetting = "capture.candidate_validation_enabled";
     public const string ResearchPayloadOpcodesSetting = "capture.research_payload_opcodes";
+
+    /// <summary>
+    /// Written only when candidate validation goes from off to on, so the time it was last
+    /// written is when the current (or the last) content round began. Switching the round off,
+    /// or changing any other setting during it, leaves it alone: the export that follows the
+    /// switch-off still has to know which rows belong to the round.
+    /// </summary>
+    public const string CandidateRoundMarkSetting = "capture.candidate_round_mark";
     /// <summary>Setting holding the diagnostic log retention, in days.</summary>
     public const string LogRetentionDaysSetting = "diagnostics.log_retention_days";
 
@@ -158,7 +166,10 @@ public static class CaptureSettingsStore
         }
 
         if (update.CandidateValidationEnabled is { } candidate)
+        {
             values[CandidateValidationSetting] = candidate ? "true" : "false";
+            if (candidate && !Read(settings).CandidateValidationEnabled) values[CandidateRoundMarkSetting] = "true";
+        }
 
         if (update.AutoCalibrationEnabled is { } autoCalibration)
         {
