@@ -240,6 +240,7 @@ pwsh -NoProfile -File scripts/package.ps1 -Configuration Release -Verify
 ### 致謝
 
 - 感謝辛彌山@龍巢神殿參與專案。
+- 感謝シーヴ協助國際服的採證測試。
 - [Machina.FFXIV](https://github.com/ravahn/machina) 提供流量擷取與解碼，[Npcap](https://npcap.com/) 提供封包擷取驅動程式，
   [Qt](https://www.qt.io/) 提供桌面介面框架，[Lucide](https://lucide.dev/) 提供操作圖示。
 - SQUARE ENIX 的職業、職能、副本圖示及遊戲譯名依據

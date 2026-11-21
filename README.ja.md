@@ -240,6 +240,7 @@ pwsh -NoProfile -File scripts/package.ps1 -Configuration Release -Verify
 ### 謝辞
 
 - 辛弥山@龙巢神殿 さんのプロジェクトへの参加に感謝します。
+- シーヴ さんのグローバル版でのデータ収集テストへの協力に感謝します。
 - [Machina.FFXIV](https://github.com/ravahn/machina) は通信のキャプチャとデコードを、[Npcap](https://npcap.com/) はパケットキャプチャドライバーを、
   [Qt](https://www.qt.io/) はデスクトップ UI フレームワークを、[Lucide](https://lucide.dev/) は操作アイコンを提供しています。
 - SQUARE ENIX のジョブ、ロール、コンテンツのアイコンとゲーム内の各言語の名称は、

@@ -240,6 +240,7 @@ For the full steps, see [build and packaging](docs/build-and-package.md) (Chines
 ### Acknowledgements
 
 - Thanks to 辛弥山@龙巢神殿 for taking part in the project.
+- Thanks to シーヴ for helping with evidence collection on the Global server.
 - [Machina.FFXIV](https://github.com/ravahn/machina) provides traffic capture and decoding, [Npcap](https://npcap.com/) provides the capture driver,
   [Qt](https://www.qt.io/) provides the desktop UI framework, and [Lucide](https://lucide.dev/) provides the action icons.
 - SQUARE ENIX job, role and duty icons and in-game translated names are used for non-commercial distribution under the
