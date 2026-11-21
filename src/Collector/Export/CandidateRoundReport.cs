@@ -70,11 +70,30 @@ public sealed record CandidateRoundAnswers(string? FirstRoulette, string? JobBef
 /// <param name="ledger">Candidate ledger.</param>
 /// <param name="settings">Settings, for the time the round was switched on.</param>
 /// <param name="profile">The candidate profile for the current client, or null.</param>
+/// <param name="onError">Told when the report could not be built.</param>
 public sealed class CandidateRoundReporter(
-    CandidateObservationRepository ledger, SettingsRepository settings, Func<ProtocolProfile?> profile)
+    CandidateObservationRepository ledger, SettingsRepository settings, Func<ProtocolProfile?> profile,
+    Action<Exception>? onError = null)
 {
-    /// <summary>The report, or null when no round was started or the profile guesses nothing.</summary>
+    /// <summary>
+    /// The report, or null when no round was started, the profile guesses nothing, or it could
+    /// not be built. The guesses are a convenience beside the evidence: failing to read them must
+    /// never take the status or the export of a round down with it.
+    /// </summary>
     public CandidateRoundReport? Read()
+    {
+        try
+        {
+            return Build();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            onError?.Invoke(ex);
+            return null;
+        }
+    }
+
+    private CandidateRoundReport? Build()
     {
         if (profile() is not { Status: ProfileCompatibilityStatus.Candidate } candidate ||
             settings.GetSettingUpdatedAtUtc(CaptureSettingsStore.CandidateRoundMarkSetting) is not { } started)

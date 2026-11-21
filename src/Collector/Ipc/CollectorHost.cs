@@ -50,7 +50,9 @@ public sealed class CollectorHost : IDisposable
         Reflections = new RunReflectionRepository(database);
         ReflectionWrites = new RunReflectionService(database, clock);
         Candidates = new CandidateObservationRepository(database, clock);
-        CandidateRound = new CandidateRoundReporter(Candidates, Settings, () => LiveProtocol?.CandidateDisplayProfile());
+        CandidateRound = new CandidateRoundReporter(Candidates, Settings, () => LiveProtocol?.CandidateDisplayProfile(),
+            ex => _logger.Write(LogLevel.Warn, "candidate_ledger", "round_report_failed",
+                new Dictionary<string, object?> { ["error"] = ex.GetType().Name }));
         CandidateExporter = new CandidateEvidenceExporter(Candidates, clock, database.Path, CandidateRound.Read);
         Exporter = new RunExporter(Runs, clock, database);
         Backups = new BackupService(database, clock);
@@ -112,6 +114,38 @@ public sealed class CollectorHost : IDisposable
     /// <summary>独立候选账本；不参与正式记录和统计。</summary>
     public CandidateObservationRepository Candidates { get; }
     public CandidateEvidenceExporter CandidateExporter { get; }
+
+    private long _candidateRowsRefused;
+
+    /// <summary>Candidate rows the ledger could not store since this host started.</summary>
+    public long CandidateRowsRefused => Interlocked.Read(ref _candidateRowsRefused);
+
+    /// <summary>
+    /// Stores one candidate observation. A row the ledger refuses is counted, logged and dropped:
+    /// this runs on the capture's message path, and an exception leaving it stops the capture,
+    /// which is how one refused row cost a whole content round in 1.9.1-beta.3. Candidate rows
+    /// are research evidence, never records, so losing one is always better than losing the rest.
+    /// </summary>
+    /// <param name="observation">Row emitted by the candidate observer.</param>
+    public void StoreCandidate(Protocol.Parsing.CandidateObservation observation)
+    {
+        try
+        {
+            if (Candidates.Add(observation)) LiveEvents.PublishCandidateObserved(observation);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // The first few and then every thousandth: a failure that repeats must not flood the log.
+            var refused = Interlocked.Increment(ref _candidateRowsRefused);
+            if (refused <= 5 || refused % 1000 == 0)
+                _logger.Write(LogLevel.Warn, "candidate_ledger", "observation_not_stored", new Dictionary<string, object?>
+                {
+                    ["hypothesis"] = observation.HypothesisName,
+                    ["refused"] = refused,
+                    ["error"] = ex.GetType().Name,
+                });
+        }
+    }
 
     /// <summary>What the software takes the current content round to have been.</summary>
     public CandidateRoundReporter CandidateRound { get; }
@@ -330,10 +364,7 @@ public sealed class CollectorHost : IDisposable
                 ? LiveProtocolPipeline.CreateDefault(Database, Clock, LiveEvents)
                 : new LiveProtocolPipeline(Database, Clock, LiveEvents, profileSelector);
             LiveProtocol = pipeline;
-            pipeline.CandidateObserved += observation =>
-            {
-                if (Candidates.Add(observation)) LiveEvents.PublishCandidateObserved(observation);
-            };
+            pipeline.CandidateObserved += StoreCandidate;
             // A name of what happened, a count and an exception type: never an identifier.
             pipeline.CharacterIdentityNoted += note => _logger.Write(
                 note.Error is null && note.Event is not ("key_replace_failed" or "key_unusable" or "key_unavailable"

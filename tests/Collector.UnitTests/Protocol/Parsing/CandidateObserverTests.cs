@@ -142,6 +142,41 @@ public sealed class CandidateObserverTests
     }
 
     [Fact]
+    public void AFrequentCandidateStopsWritingItsOwnRowsButStaysCountedAndKeepsItsWindow()
+    {
+        var observations = new List<CandidateObservation>();
+        var observer = new CandidateObserver(QueueProfile(), "session", observations.Add);
+        var flood = CandidateObserver.MaxRowsPerHypothesis + 50;
+
+        // The finder update is the frequent one here; each also writes out the window segment.
+        observer.Accept(Raw(0x03bb, 128, 1000, MessageDirection.Outbound));
+        for (var i = 0; i < flood; i++) observer.Accept(Raw(0x0323, 40, 2000 + i));
+
+        Assert.Equal(CandidateObserver.MaxRowsPerHypothesis,
+            observations.Count(o => o.HypothesisName == "FINDER_STATE_NOTIFICATION"));
+        // Every one of them is still accounted for in the samples, and the window is still open.
+        Assert.Equal(flood, observations.Where(o => o.HypothesisName == CandidateObserver.QueueWindowSampleName && o.Opcode == 0x0323)
+            .Sum(o => o.Occurrences));
+        observer.Accept(Raw(0x0bbb, 300, 10_000));
+        observer.Flush();
+        Assert.Contains(observations, o => o.HypothesisName == CandidateObserver.QueueWindowSampleName && o.Opcode == 0x0bbb);
+    }
+
+    [Fact]
+    public void ASampleCountNeverExceedsWhatTheLedgerAccepts()
+    {
+        var observations = new List<CandidateObservation>();
+        var observer = new CandidateObserver(QueueProfile(), "session", observations.Add);
+
+        observer.Accept(Raw(0x03bb, 128, 1000, MessageDirection.Outbound));
+        var message = Raw(0x0aaa, 16, 2000);
+        for (var i = 0; i < CandidateObserver.MaxOccurrences + 3; i++) observer.Accept(message);
+        observer.Flush();
+
+        Assert.Equal(CandidateObserver.MaxOccurrences, observations.Single(o => o.Opcode == 0x0aaa).Occurrences);
+    }
+
+    [Fact]
     public void DutyWindowSamplesFromTheEntryBurstAfterAFinderUpdateUntilTheNextZoneLoad()
     {
         var observations = new List<CandidateObservation>();

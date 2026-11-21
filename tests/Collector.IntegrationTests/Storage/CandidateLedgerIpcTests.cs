@@ -24,6 +24,25 @@ public sealed class CandidateLedgerIpcTests
     }
 
     [Fact]
+    public async Task ARowTheLedgerRefusesIsDroppedAndTheRowsAfterItAreStillStored()
+    {
+        await using var fixture = ServerFixture.Start();
+        var host = fixture.Host;
+        host.Settings.SetSetting(CaptureSettingsStore.CandidateValidationSetting, "true");
+        CandidateObservation Row(int occurrences) => new(Guid.NewGuid().ToString("D"), host.CaptureSessionId,
+            "cn.2026.08.05.candidate", "FINDER_STATUS", "queue", "S2C", 0x0323, 40,
+            "0123456789ab", "abcdef012345", host.Clock.UtcNow, 1000, Occurrences: occurrences);
+
+        // The table refuses a zero count. On the capture's message path that exception used to
+        // stop the capture; now the row is counted and the next one goes in.
+        host.StoreCandidate(Row(0));
+        host.StoreCandidate(Row(1));
+
+        Assert.Equal(1, host.CandidateRowsRefused);
+        Assert.Equal(1, host.Candidates.Count());
+    }
+
+    [Fact]
     public async Task QueryReviewAndExportUseIndependentLedgerAndPreserveIdempotency()
     {
         await using var fixture = ServerFixture.Start();

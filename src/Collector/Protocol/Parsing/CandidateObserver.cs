@@ -60,6 +60,16 @@ public sealed class CandidateObserver : IDecodedMessageSink
     public const string ZoneLoadGroup = "zone_load";
     /// <summary>Distinct (direction, opcode, length) keys kept per window; the rest are dropped.</summary>
     public const int MaxQueueWindowKeys = 512;
+    /// <summary>
+    /// Rows one hypothesis may write in one capture session. A candidate that turns out to be a
+    /// frequent message (Global C2S 0x022b is sent several times a second while walking) would
+    /// otherwise fill the ledger to its cap, and the cap evicts the oldest rows: the queue
+    /// registration the round began with. Past the limit the message still counts in the window
+    /// samples; only its own rows stop.
+    /// </summary>
+    public const int MaxRowsPerHypothesis = 200;
+    /// <summary>The largest count a sample row may carry; the ledger table refuses more.</summary>
+    public const int MaxOccurrences = 1_000_000;
     /// <summary>Aggregated rows sampled between entering a duty and the next zone change.</summary>
     public const string DutyWindowSampleName = "DUTY_WINDOW_SAMPLE";
     public const string DutyWindowGroup = "duty_window";
@@ -78,6 +88,7 @@ public sealed class CandidateObserver : IDecodedMessageSink
     private readonly Dictionary<string, QueueWindow> _queueWindows = new(StringComparer.Ordinal);
     private readonly Dictionary<string, QueueWindow> _dutyWindows = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> _lastFinderTMs = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _rowsWritten = new(StringComparer.Ordinal);
     private IReadOnlySet<ushort> _researchOpcodes;
 
     /// <summary>只接受 CANDIDATE 档案；即使调用方误传 VERIFIED 也不会转换成候选旁路。</summary>
@@ -135,7 +146,13 @@ public sealed class CandidateObserver : IDecodedMessageSink
             return;
         }
 
-        _emit(observation);
+        // The window logic below runs either way: a registration past the limit still opens its window.
+        var written = _rowsWritten.GetValueOrDefault(hypothesis.Name);
+        if (written < MaxRowsPerHypothesis)
+        {
+            _rowsWritten[hypothesis.Name] = written + 1;
+            _emit(observation);
+        }
 
         if (hypothesis.Name == QueueWindowTrigger && !string.IsNullOrWhiteSpace(message.ConnectionKey))
         {
@@ -331,7 +348,7 @@ public sealed class CandidateObserver : IDecodedMessageSink
                 Guid.NewGuid().ToString("D"), _sessionId, _profile.ProfileId, name, group,
                 direction == PacketDirection.ServerToClient ? "S2C" : "C2S", opcode, length, pair.Value.Hash12,
                 tag, pair.Value.FirstAtUtc, pair.Value.FirstTMs,
-                Occurrences: pair.Value.Count, OverflowCount: window.Overflow));
+                Occurrences: Math.Min(pair.Value.Count, MaxOccurrences), OverflowCount: window.Overflow));
         }
     }
 
