@@ -15240,6 +15240,14 @@ SHA256：%3</translation>
         <translation>自動記録できません</translation>
     </message>
     <message>
+        <source>自动记录已恢复</source>
+        <translation>自動記録が復旧しました</translation>
+    </message>
+    <message>
+        <source>已重新读取到游戏数据，可以继续自动记录。</source>
+        <translation>ゲームデータを再び読み取れるようになり、自動記録を再開できます。</translation>
+    </message>
+    <message>
         <source>显示主窗口</source>
         <translation>メインウィンドウを表示</translation>
     </message>

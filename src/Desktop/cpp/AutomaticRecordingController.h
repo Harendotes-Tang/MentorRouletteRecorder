@@ -104,6 +104,9 @@ Q_SIGNALS:
     /// A new warning serial is available. Late subscribers must also inspect
     /// warningActive/serial; this signal does not prove OS notification display.
     void warningRaised();
+    /// recoveryPending has just become true: the episode that was warned about
+    /// reads game data again. Once per recovery; never without an earlier warning.
+    void recoveryRaised();
     void settingsConfirmed(const QVariantMap &settings);
     /// Every capture snapshot this poll read; the calibration card follows it so progress
     /// ticks appear within one poll interval instead of on the next state change.

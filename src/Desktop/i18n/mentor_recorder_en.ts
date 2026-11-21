@@ -15240,6 +15240,14 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <translation>Can&apos;t record automatically</translation>
     </message>
     <message>
+        <source>自动记录已恢复</source>
+        <translation>Automatic recording restored</translation>
+    </message>
+    <message>
+        <source>已重新读取到游戏数据，可以继续自动记录。</source>
+        <translation>The app can read game data again and resume automatic recording.</translation>
+    </message>
+    <message>
         <source>显示主窗口</source>
         <translation>Show main window</translation>
     </message>

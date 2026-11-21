@@ -62,6 +62,9 @@ Q_SIGNALS:
     /// system notification requests. It does not attest to OS/audio delivery.
     /// Offscreen test platforms suppress the native requests after this signal.
     void recordingWarningRequested(quint64 serial, bool systemTrayAvailable);
+    /// The counterpart for 「自动记录已恢复」: emitted once per recovery of an
+    /// episode that was warned about, before the same native requests.
+    void recordingRecoveryRequested(bool systemTrayAvailable);
 
 public:
     /// Turns the window's close into "hide to tray" while 关闭时最小化到托盘
@@ -72,10 +75,15 @@ protected:
     /// The native delivery boundary; overriding it lets tests count real
     /// dispatch attempts without making sounds or showing desktop messages.
     virtual void deliverRecordingWarning(const QString &message);
+    /// The same boundary for the recovery: one beep and the 「自动记录已恢复」
+    /// tray notification.
+    virtual void deliverRecordingRecovery();
 
 private:
     void refreshCaptureAction();
     void notifyRecordingWarning();
+    /// AutomaticRecordingController::recoveryRaised, told through deliverRecordingRecovery.
+    void notifyRecordingRecovery();
     /// AppController::serviceUnavailable, told through deliverRecordingWarning
     /// once per episode, and only while the window is not on screen (review I1-2).
     void notifyServiceUnavailable();

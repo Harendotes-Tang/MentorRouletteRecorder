@@ -96,7 +96,9 @@ void AutomaticRecordingController::setState(const QString &state, const LiveText
         ++m_messageSerial;
     m_state = state;
     m_message = message;
+    const bool recoveryWasPending = m_recoveryPending;
     const bool freshWarning = updateWarning(state, message);
+    const bool freshRecovery = !recoveryWasPending && m_recoveryPending;
     const auto publishedSerial = m_warningSerial;
     const QPointer<AutomaticRecordingController> guard(this);
     Q_EMIT changed();
@@ -104,6 +106,10 @@ void AutomaticRecordingController::setState(const QString &state, const LiveText
     // enter maintenance. Never deliver the warning that observer just withdrew.
     if (!guard.isNull() && freshWarning && m_warningActive && m_warningSerial == publishedSerial)
         Q_EMIT warningRaised();
+    // The same holds for the recovery: one that an observer dismissed or withdrew
+    // while it was being published is not announced.
+    if (!guard.isNull() && freshRecovery && m_recoveryPending && m_warningSerial == publishedSerial)
+        Q_EMIT recoveryRaised();
 }
 
 void AutomaticRecordingController::clearWarning()

@@ -71,6 +71,8 @@ TrayController::TrayController(AppController *controller, AppSettings *settings,
         // Startup status can arrive before this tray exists. Inspect the active
         // serial next turn, after tray setup; UI acknowledgement is independent.
         QTimer::singleShot(0, this, &TrayController::notifyRecordingWarning);
+        connect(m_controller->recording(), &AutomaticRecordingController::recoveryRaised,
+                this, &TrayController::notifyRecordingRecovery);
         // A Collector found missing while AppController was built is reported
         // before this tray exists, so the same replay looks for it.
         connect(m_controller, &AppController::serviceUnavailable,
@@ -196,6 +198,22 @@ void TrayController::notifyRecordingWarning()
     deliverRecordingWarning(message);
 }
 
+void TrayController::notifyRecordingRecovery()
+{
+    if (!m_controller)
+        return;
+    const QPointer<AutomaticRecordingController> recording(m_controller->recording());
+    if (recording.isNull() || !recording->recoveryPending())
+        return;
+    const QPointer<TrayController> guard(this);
+    Q_EMIT recordingRecoveryRequested(m_tray != nullptr);
+    // As for a warning: a direct observer may have withdrawn the recovery or
+    // destroyed either owner before the native boundary.
+    if (guard.isNull() || recording.isNull() || !recording->recoveryPending())
+        return;
+    deliverRecordingRecovery();
+}
+
 void TrayController::notifyServiceUnavailable()
 {
     if (!m_controller)
@@ -223,6 +241,18 @@ void TrayController::deliverRecordingWarning(const QString &message)
     QApplication::beep();
     if (m_tray)
         m_tray->showMessage(tr("无法自动记录"), message, QSystemTrayIcon::Warning);
+}
+
+void TrayController::deliverRecordingRecovery()
+{
+    // The same boundary and the same channel as the warning this answers.
+    const QString platform = QGuiApplication::platformName();
+    if (platform == QLatin1String("offscreen") || platform == QLatin1String("minimal"))
+        return;
+    QApplication::beep();
+    if (m_tray)
+        m_tray->showMessage(tr("自动记录已恢复"), tr("已重新读取到游戏数据，可以继续自动记录。"),
+                            QSystemTrayIcon::Information);
 }
 
 void TrayController::refreshCaptureAction()

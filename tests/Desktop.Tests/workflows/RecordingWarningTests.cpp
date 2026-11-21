@@ -105,6 +105,7 @@ public:
     }
 
     QString lastMessage;
+    int recoveries = 0;
 
 protected:
     void deliverRecordingWarning(const QString &message) override
@@ -112,6 +113,7 @@ protected:
         ++m_deliveries;
         lastMessage = message;
     }
+    void deliverRecordingRecovery() override { ++recoveries; }
 
 private:
     int &m_deliveries;
@@ -779,6 +781,116 @@ private slots:
         backend.reconnect(true);
         backend.reconnect(false);
         QTRY_COMPARE(deliveries, 2);
+    }
+
+    void recoveryIsRaisedOncePerWarnedEpisode()
+    {
+        WarningBackend backend;
+        mr::AutomaticRecordingController recording(&backend);
+        QSignalSpy recoveries(&recording, &mr::AutomaticRecordingController::recoveryRaised);
+        // Ordinary listening that was never interrupted has nothing to recover from.
+        backend.recover();
+        recording.refresh();
+        QCOMPARE(recording.state(), QStringLiteral("listening"));
+        backend.capture["ipc_decoded"] = 2;
+        recording.refresh();
+        QCOMPARE(recoveries.count(), 0);
+
+        backend.startRecovery();
+        recording.refresh();
+        QVERIFY(recording.warningActive());
+        QCOMPARE(recoveries.count(), 0);
+        backend.recover();
+        recording.refresh();
+        QVERIFY(recording.recoveryPending());
+        QCOMPARE(recoveries.count(), 1);
+        // The pending notice is one announcement, however long it stays.
+        backend.capture["ipc_decoded"] = 2;
+        recording.refresh();
+        QCOMPARE(recoveries.count(), 1);
+        recording.acknowledgeWarning();
+        recording.refresh();
+        QCOMPARE(recoveries.count(), 1);
+    }
+
+    void trayAnnouncesRecoveryOnceAfterAWarning()
+    {
+        WarningBackend backend;
+        backend.startRecovery();
+        mr::AppController app(&backend, nullptr);
+        int deliveries = 0;
+        WarningTray tray(&app, deliveries);
+        QSignalSpy requests(&tray, &mr::TrayController::recordingRecoveryRequested);
+        app.recording()->refresh();
+        QTRY_COMPARE(deliveries, 1);
+        QCOMPARE(tray.recoveries, 0);
+        // 「我知道了」 on the warning does not end its episode; the recovery is still said.
+        app.recording()->acknowledgeWarning();
+        backend.recover();
+        app.recording()->refresh();
+        QCOMPARE(requests.count(), 1);
+        QCOMPARE(tray.recoveries, 1);
+        app.recording()->refresh();
+        QCoreApplication::processEvents();
+        QCOMPARE(tray.recoveries, 1);
+        QCOMPARE(deliveries, 1);
+    }
+
+    void trayStaysQuietWithoutARecovery_data()
+    {
+        QTest::addColumn<QString>("ending");
+        QTest::newRow("never-interrupted") << QStringLiteral("never-interrupted");
+        QTest::newRow("game-exited") << QStringLiteral("game-exited");
+        QTest::newRow("another-game") << QStringLiteral("another-game");
+        QTest::newRow("maintenance") << QStringLiteral("maintenance");
+    }
+
+    void trayStaysQuietWithoutARecovery()
+    {
+        QFETCH(QString, ending);
+        WarningBackend backend;
+        if (ending != QLatin1String("never-interrupted"))
+            backend.startRecovery();
+        mr::AppController app(&backend, nullptr);
+        int deliveries = 0;
+        WarningTray tray(&app, deliveries);
+        app.recording()->refresh();
+        QCoreApplication::processEvents();
+        if (ending == QLatin1String("game-exited")) {
+            backend.capture["ffxiv_running"] = false;
+            app.recording()->refresh();
+            backend.capture["ffxiv_running"] = true;
+        } else if (ending == QLatin1String("another-game")) {
+            backend.capture["ffxiv_process_id"] = 456;
+        } else if (ending == QLatin1String("maintenance")) {
+            // The fault ends while the maintainer tools own the capture: the
+            // warning was withdrawn on entry, so there is nothing to answer.
+            app.recording()->setMaintenance(true);
+            backend.recover();
+            app.recording()->setMaintenance(false);
+        }
+        backend.recover();
+        app.recording()->refresh();
+        backend.capture["ipc_decoded"] = 2;
+        app.recording()->refresh();
+        QCoreApplication::processEvents();
+        QCOMPARE(app.recording()->state(), QStringLiteral("listening"));
+        QCOMPARE(tray.recoveries, 0);
+    }
+
+    void trayDropsARecoveryItsObserverDismissed()
+    {
+        WarningBackend backend;
+        backend.startRecovery();
+        mr::AppController app(&backend, nullptr);
+        int deliveries = 0;
+        WarningTray tray(&app, deliveries);
+        app.recording()->refresh();
+        connect(&tray, &mr::TrayController::recordingRecoveryRequested, &app,
+                [&] { app.recording()->acknowledgeWarning(); });
+        backend.recover();
+        app.recording()->refresh();
+        QCOMPARE(tray.recoveries, 0);
     }
 
     void trayDoesNotDeliverWarningThatRecoveredBeforeReplay()
