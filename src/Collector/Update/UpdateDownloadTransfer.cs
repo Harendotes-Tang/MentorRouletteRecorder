@@ -219,8 +219,15 @@ internal sealed class UpdateDownloadTransfer
                     return null;
             }
 
-            primaryRate = Math.Max(primaryRate, Rate(ReceivedBytes - primaryBytes, decisionStart, minimumSeconds: 1));
-            if (!MirrorFinishesSooner(total, ReceivedBytes, primaryRate, mirror.BytesPerSecond, mirror.SetupSeconds))
+            var received = ReceivedBytes;
+            if (received >= total)
+            {
+                MirrorOutcome = "not_switched_primary_ended";
+                return null;
+            }
+
+            primaryRate = Math.Max(primaryRate, Rate(received - primaryBytes, decisionStart, minimumSeconds: 1));
+            if (!MirrorFinishesSooner(total, received, primaryRate, mirror.BytesPerSecond, mirror.SetupSeconds))
             {
                 MirrorOutcome = "not_switched_faster_primary";
                 return null;
@@ -233,17 +240,21 @@ internal sealed class UpdateDownloadTransfer
             using var reopen = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
             reopen.CancelAfter(ProbeTimeout);
             var installer = await OpenAsync(UpdateSource.GitCode, cancellation, reopen.Token).ConfigureAwait(false);
-            primaryRate = Math.Max(primaryRate, Rate(ReceivedBytes - primaryBytes, decisionStart, minimumSeconds: 1));
-            if (cancellation.IsCancellationRequested)
+            received = ReceivedBytes;
+            if (cancellation.IsCancellationRequested || received >= total)
             {
                 MirrorOutcome = "not_switched_primary_ended";
             }
-            else if (installer.ContentLength == total &&
-                MirrorFinishesSooner(total, ReceivedBytes, primaryRate, mirror.BytesPerSecond, setupSeconds: 0))
+            else if (installer.ContentLength == total)
             {
-                // Re-opened; StorePrimaryAsync turns this into "switched" only if GitHub is still reading.
-                MirrorOutcome = "not_switched_primary_ended";
-                return installer;
+                primaryRate = Math.Max(primaryRate, Rate(received - primaryBytes, decisionStart, minimumSeconds: 1));
+                if (MirrorFinishesSooner(total, received, primaryRate, mirror.BytesPerSecond, setupSeconds: 0))
+                {
+                    // StorePrimaryAsync changes the outcome to "switched" if GitHub is still reading.
+                    MirrorOutcome = "not_switched_primary_ended";
+                    return installer;
+                }
+                MirrorOutcome = "not_switched_faster_primary";
             }
             installer.Dispose();
         }

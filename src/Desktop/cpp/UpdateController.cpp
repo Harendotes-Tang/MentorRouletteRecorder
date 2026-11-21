@@ -655,9 +655,13 @@ QString UpdateController::mirrorOfferId() const
 
 QString UpdateController::mirrorNotice() const
 {
+    return mirrorNoticeFor(m_state.download.mirrorOutcome);
+}
+
+QString UpdateController::mirrorNoticeFor(const QString &outcome)
+{
     // Only the not_switched_* outcomes follow a 「切换到 GitCode」 that did not happen;
     // switched, declined, none and any value this build does not know say nothing.
-    const QString &outcome = m_state.download.mirrorOutcome;
     if (outcome == QLatin1String("not_switched_faster_primary"))
         return tr("没有切换到 GitCode：GitHub 的下载已经比镜像更快，仍从 GitHub 下载。");
     if (outcome == QLatin1String("not_switched_mirror_unavailable"))
@@ -674,10 +678,24 @@ void UpdateController::resolveMirrorOffer(const QString &offerId, bool useGitCod
 
     m_resolvedMirrorOfferId = offerId;
     m_mirrorSwitchNeedsConfirmation = false;
+    const QString version = m_state.download.version;
     m_backend->resolveUpdateMirrorOffer(offerId, useGitCode)->whenDone(this,
-        [this, offerId, useGitCode](bool ok, const QVariantMap &, const QString &code, const QString &) {
-        if (ok || !useGitCode || offerId != m_resolvedMirrorOfferId
-            || (m_state.download.present && m_state.download.mirrorOfferId != offerId))
+        [this, offerId, useGitCode, version](bool ok, const QVariantMap &payload, const QString &code, const QString &) {
+        if (!useGitCode || offerId != m_resolvedMirrorOfferId)
+            return;
+        if (ok) {
+            // If the offer expired before the request arrived, the answer already shows
+            // verification or readiness. Read it without replacing the polled status.
+            const Download answer = downloadFrom(payload.value(QStringLiteral("update")).toMap()
+                                                        .value(QStringLiteral("download")));
+            if (answer.version == version && m_state.download.version == version
+                && (answer.state == kVerifying || answer.state == kReady)
+                && answer.mirrorOutcome.isEmpty() && m_state.download.mirrorOutcome.isEmpty()) {
+                Q_EMIT toastRequested(mirrorNoticeFor(QStringLiteral("not_switched_primary_ended")));
+            }
+            return;
+        }
+        if (m_state.download.present && m_state.download.mirrorOfferId != offerId)
             return;
         m_mirrorSwitchNeedsConfirmation = true;
         if (m_backend && m_backend->isConnected())

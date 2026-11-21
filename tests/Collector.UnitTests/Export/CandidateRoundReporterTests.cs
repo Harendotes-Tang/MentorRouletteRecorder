@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Events;
@@ -42,8 +43,10 @@ public sealed class CandidateRoundReporterTests : IDisposable
         Assert.Equal(new CandidateRoundReport(_fixture.Clock.UtcNow, null, null, null, null), Reporter().Read());
 
         Add(ZoneEntry, 136, 2, 641);             // logging in: a zone, but no queue yet
+        Add(FinderState, 40, 1, 24);            // earlier response does not identify the first queue
         Add(Registration, 24, 0, 2);
         Add(FinderState, 40, 1, 40);
+        Add(FinderState, 40, 1, 40);            // repeated response from the same queue
         var first = Reporter().Read()!;
         Assert.Equal(new RoundGuess(2, RouletteCatalog.Default.NameOf(2, Region.Global)), first.FirstRoulette);
         Assert.Equal(new RoundGuess(40, JobCatalog.Default.Find(40)!.NameZh), first.JobBefore);
@@ -52,6 +55,7 @@ public sealed class CandidateRoundReporterTests : IDisposable
 
         Add(ZoneEntry, 136, 2, 641);             // the restart between the two queues
         Add(Registration, 24, 0, 9);
+        Assert.Null(Reporter().Read()!.JobAfter);
         Add(FinderState, 40, 1, 24);
         Add(ZoneEntry, 136, 2, duty.TerritoryId!.Value);
         Add(ZoneEntry, 136, 2, 641);             // leaving the duty
@@ -62,6 +66,22 @@ public sealed class CandidateRoundReporterTests : IDisposable
         Assert.Equal(duty.TerritoryId, done.Duty!.Id);
         Assert.NotNull(done.Duty.Name);
         Assert.NotNull(done.Duty.ContentId);
+    }
+
+    [Fact]
+    public void GuessesReadRetainedRowsWhileAnotherConnectionHoldsTheWriteLock()
+    {
+        StartRound();
+        Add(Registration, 24, 0, 2);
+        Add(FinderState, 40, 1, 40);
+        using var writer = new SqliteConnection(new SqliteConnectionStringBuilder
+            { DataSource = _fixture.Path, Mode = SqliteOpenMode.ReadWrite, Pooling = false }.ToString());
+        writer.Open();
+        using var transaction = writer.BeginTransaction();
+
+        var report = Assert.IsType<CandidateRoundReport>(Reporter().Read());
+        Assert.Equal(2, report.FirstRoulette!.Id);
+        Assert.Equal(40, report.JobBefore!.Id);
     }
 
     [Fact]

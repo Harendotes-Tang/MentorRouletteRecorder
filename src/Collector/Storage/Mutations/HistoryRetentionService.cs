@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Contracts.Texts;
@@ -91,54 +92,81 @@ public sealed class HistoryRetentionService : IDisposable
     /// <summary>All callers validate soft-delete/revision prerequisites before entering this routine.</summary>
     internal void Purge(IReadOnlyList<MentorRun> runs, SqliteTransaction tx)
     {
+        if (runs.Count == 0) return;
         var now = UtcTimestamp.ToText(UtcTimestamp.Truncate(_clock.UtcNow));
+        TombstoneReceipts(runs, now, tx);
+
+        using var purge = _database.CreateCommand();
+        purge.Transaction = tx;
+        purge.CommandText =
+            "INSERT OR IGNORE INTO ipc_request_tombstones(request_id,message_type,fingerprint,purged_at_utc) " +
+            "SELECT request_id, change_kind, $fingerprint, $now FROM run_revisions WHERE run_id = $id AND request_id IS NOT NULL; " +
+            "INSERT INTO purged_run_tombstones(run_id,source_fingerprint,purged_at_utc) " +
+            "VALUES($id,(SELECT source_fingerprint FROM run_import_metadata WHERE run_id=$id),$now); " +
+            "INSERT OR IGNORE INTO pending_image_cleanup(run_id,queued_at_utc) VALUES($id,$now); " +
+            "INSERT INTO run_purge_authorizations(run_id) VALUES($id); " +
+            "DELETE FROM run_events WHERE run_id=$id; DELETE FROM run_revisions WHERE run_id=$id; " +
+            "DELETE FROM run_reflections WHERE run_id=$id; DELETE FROM run_import_metadata WHERE run_id=$id; " +
+            "DELETE FROM mentor_runs WHERE run_id=$id AND soft_deleted=1; " +
+            "DELETE FROM run_purge_authorizations WHERE run_id=$id;";
+        purge.Parameters.AddWithValue("$now", now);
+        var id = purge.Parameters.Add("$id", SqliteType.Text);
+        var fingerprint = purge.Parameters.Add("$fingerprint", SqliteType.Text);
         foreach (var run in runs)
         {
-            var id = run.RunId;
-            // Mixed import/batch receipts are invalidated as a whole: they must never replay a purged body.
-            using (var responses = _database.CreateCommand())
-            {
-                responses.Transaction = tx;
-                responses.CommandText =
-                    "SELECT request_id, message_type, response_json, NULL FROM ipc_idempotency " +
-                    "WHERE EXISTS (SELECT 1 FROM json_tree(response_json) WHERE type = 'text' AND value = $id) " +
-                    "UNION ALL SELECT request_id, 'CommitRunImport', selection_fingerprint, preview_id FROM run_import_batches " +
-                    "WHERE EXISTS (SELECT 1 FROM json_tree(response_json) WHERE type = 'text' AND value = $id);";
-                responses.Parameters.AddWithValue("$id", id);
-                var receipts = new List<(string Request, string Type, string Fingerprint, string? Preview)>();
-                using (var reader = responses.ExecuteReader())
-                    while (reader.Read()) receipts.Add((reader.GetString(0), reader.GetString(1),
-                        Hash(reader.GetString(2)), reader.IsDBNull(3) ? null : reader.GetString(3)));
-                foreach (var receipt in receipts)
-                {
-                    using var tombstone = _database.CreateCommand(); tombstone.Transaction = tx;
-                    tombstone.CommandText =
-                        "INSERT INTO ipc_request_tombstones(request_id,message_type,fingerprint,preview_id,purged_at_utc) " +
-                        "VALUES($request,$type,$fingerprint,$preview,$now) ON CONFLICT(request_id) DO UPDATE " +
-                        "SET preview_id = COALESCE(excluded.preview_id, ipc_request_tombstones.preview_id); " +
-                        "DELETE FROM ipc_idempotency WHERE request_id = $request; " +
-                        "DELETE FROM run_import_batches WHERE request_id = $request;";
-                    tombstone.Parameters.AddWithValue("$request", receipt.Request);
-                    tombstone.Parameters.AddWithValue("$type", receipt.Type);
-                    tombstone.Parameters.AddWithValue("$fingerprint", receipt.Fingerprint);
-                    tombstone.Parameters.AddWithValue("$preview", (object?)receipt.Preview ?? DBNull.Value);
-                    tombstone.Parameters.AddWithValue("$now", now); tombstone.ExecuteNonQuery();
-                }
-            }
-            using var purge = _database.CreateCommand(); purge.Transaction = tx;
-            purge.CommandText =
-                "INSERT OR IGNORE INTO ipc_request_tombstones(request_id,message_type,fingerprint,purged_at_utc) " +
-                "SELECT request_id, change_kind, $fingerprint, $now FROM run_revisions WHERE run_id = $id AND request_id IS NOT NULL; " +
-                "INSERT INTO purged_run_tombstones(run_id,source_fingerprint,purged_at_utc) " +
-                "VALUES($id,(SELECT source_fingerprint FROM run_import_metadata WHERE run_id=$id),$now); " +
-                "INSERT OR IGNORE INTO pending_image_cleanup(run_id,queued_at_utc) VALUES($id,$now); " +
-                "INSERT INTO run_purge_authorizations(run_id) VALUES($id); " +
-                "DELETE FROM run_events WHERE run_id=$id; DELETE FROM run_revisions WHERE run_id=$id; " +
-                "DELETE FROM run_reflections WHERE run_id=$id; DELETE FROM run_import_metadata WHERE run_id=$id; " +
-                "DELETE FROM mentor_runs WHERE run_id=$id AND soft_deleted=1; " +
-                "DELETE FROM run_purge_authorizations WHERE run_id=$id;";
-            purge.Parameters.AddWithValue("$id", id); purge.Parameters.AddWithValue("$now", now);
-            purge.Parameters.AddWithValue("$fingerprint", Hash(id)); purge.ExecuteNonQuery();
+            id.Value = run.RunId;
+            fingerprint.Value = Hash(run.RunId);
+            purge.ExecuteNonQuery();
+        }
+    }
+
+    // A receipt can refer to several records. Find it once for the whole purge, while
+    // retaining the original response fingerprint. Deleting by request ID clears both
+    // receipt tables, so also preserve any paired import preview that will be removed.
+    private void TombstoneReceipts(IReadOnlyList<MentorRun> runs, string now, SqliteTransaction tx)
+    {
+        using var responses = _database.CreateCommand();
+        responses.Transaction = tx;
+        responses.CommandText = """
+            WITH purged_ids(id) AS MATERIALIZED (SELECT value FROM json_each($ids))
+            SELECT receipt.request_id, receipt.message_type, receipt.response_json, imported.preview_id
+            FROM ipc_idempotency AS receipt
+            LEFT JOIN run_import_batches AS imported ON imported.request_id = receipt.request_id
+            WHERE EXISTS (SELECT 1 FROM json_tree(receipt.response_json)
+                          WHERE type = 'text' AND value IN (SELECT id FROM purged_ids))
+            UNION ALL
+            SELECT request_id, 'CommitRunImport', selection_fingerprint, preview_id FROM run_import_batches
+            WHERE EXISTS (SELECT 1 FROM json_tree(response_json)
+                          WHERE type = 'text' AND value IN (SELECT id FROM purged_ids));
+            """;
+        responses.Parameters.AddWithValue("$ids", JsonSerializer.Serialize(runs.Select(run => run.RunId)));
+        var receipts = new List<(string Request, string Type, string Fingerprint, string? Preview)>();
+        using (var reader = responses.ExecuteReader())
+            while (reader.Read())
+                receipts.Add((reader.GetString(0), reader.GetString(1), Hash(reader.GetString(2)),
+                    reader.IsDBNull(3) ? null : reader.GetString(3)));
+
+        using var tombstone = _database.CreateCommand();
+        tombstone.Transaction = tx;
+        tombstone.CommandText = """
+            INSERT INTO ipc_request_tombstones(request_id,message_type,fingerprint,preview_id,purged_at_utc)
+            VALUES($request,$type,$fingerprint,$preview,$now) ON CONFLICT(request_id) DO UPDATE
+            SET preview_id = COALESCE(excluded.preview_id, ipc_request_tombstones.preview_id);
+            DELETE FROM ipc_idempotency WHERE request_id = $request;
+            DELETE FROM run_import_batches WHERE request_id = $request;
+            """;
+        tombstone.Parameters.AddWithValue("$now", now);
+        var request = tombstone.Parameters.Add("$request", SqliteType.Text);
+        var type = tombstone.Parameters.Add("$type", SqliteType.Text);
+        var fingerprint = tombstone.Parameters.Add("$fingerprint", SqliteType.Text);
+        var preview = tombstone.Parameters.Add("$preview", SqliteType.Text);
+        foreach (var receipt in receipts)
+        {
+            request.Value = receipt.Request;
+            type.Value = receipt.Type;
+            fingerprint.Value = receipt.Fingerprint;
+            preview.Value = (object?)receipt.Preview ?? DBNull.Value;
+            tombstone.ExecuteNonQuery();
         }
     }
 

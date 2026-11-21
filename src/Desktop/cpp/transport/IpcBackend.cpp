@@ -197,7 +197,8 @@ QJsonObject IpcBackend::buildRequestForTest(const QString &messageType,
                                              stringArg(args, "note"));
     } else if (messageType == QLatin1String("ExportCandidateEvidence")) {
         backend.exportCandidateEvidence(stringArg(args, "target_path"),
-                                        objectArg(args, "round_answers").toVariantMap());
+                                        objectArg(args, "round_answers").toVariantMap(),
+                                        stringArg(args, "candidate_round_id"));
     } else if (messageType == QLatin1String("GetDashboardStats")) {
         backend.getDashboardStats(objectArg(args, "filter"),
                                   stringArg(args, "trend_granularity"));
@@ -224,10 +225,6 @@ QJsonObject IpcBackend::buildRequestForTest(const QString &messageType,
         backend.undoRevision(stringArg(args, "run_id"),
                              intArg(args, "expected_revision", 1),
                              stringArg(args, "reason"));
-    } else if (messageType == QLatin1String("BatchMutateRuns")
-               && stringArg(args, "action") == QLatin1String("assign_profile")) {
-        backend.assignRunsToProfile(args.value(QLatin1String("runs")).toArray(),
-                                    intArg(args, "profile_id", 0), stringArg(args, "reason"));
     } else if (messageType == QLatin1String("CreateCharacterProfile")) {
         backend.createCharacterProfile(stringArg(args, "region"), stringArg(args, "display_name"),
                                        intArg(args, "goal_count", 2000),
@@ -250,12 +247,14 @@ QJsonObject IpcBackend::buildRequestForTest(const QString &messageType,
     } else if (messageType == QLatin1String("DeleteCharacterProfile")) {
         backend.deleteCharacterProfile(intArg(args, "profile_id", 0));
     } else if (messageType == QLatin1String("PreviewRunRegionMigration")
-               || (messageType == QLatin1String("BatchMutateRuns")
-                   && stringArg(args, "action") == QLatin1String("move_region"))) {
+               || messageType == QLatin1String("QueryHistorySelection")
+               || messageType == QLatin1String("StageHistorySelection")) {
         backend.request(messageType, args);
     } else if (messageType == QLatin1String("BatchMutateRuns")) {
-        backend.batchMutateRuns(stringArg(args, "action"), args.value(QLatin1String("runs")).toArray(),
-                                stringArg(args, "reason"));
+        const QString action = stringArg(args, "action");
+        backend.request(messageType, batchMutationPayload(action, args.value(QLatin1String("runs")).toArray(),
+            stringArg(args, "reason"), intArg(args, "profile_id", 0),
+            action == QLatin1String("move_region") ? args : QJsonObject{}));
     } else if (messageType == QLatin1String("GetHistoryRetentionSettings")) {
         backend.getHistoryRetentionSettings();
     } else if (messageType == QLatin1String("UpdateHistoryRetentionSettings")) {

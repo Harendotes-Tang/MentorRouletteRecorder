@@ -24,7 +24,13 @@ Item {
     signal helpAdaptationRequested()
     readonly property var filterFacets: Runtime.app.historyFilterFacets
     readonly property int checkedCount: Runtime.app.checkedHistoryRunCount
-    function isChecked(runId) { return Runtime.app.checkedHistoryRunIds.indexOf(runId) >= 0 }
+    readonly property bool selectionBusy: Runtime.app.historyCheckAllLoading === true
+    function isChecked(runId) {
+        if (typeof Runtime.app.isHistoryRunChecked !== "function")
+            return Runtime.app.checkedHistoryRunIds.indexOf(runId) >= 0
+        Theme.trackBindingDependency(Runtime.app.checkedHistoryRunCount)
+        return Runtime.app.isHistoryRunChecked(runId)
+    }
     /// The words of the 标记 column for one record, each with the sentence that explains it.
     /// 已修正：人改过软件记下的内容。已确认：人只回答了软件留待复核的结局，或补上了它没认出的
     /// 职业、副本，没有改动它记下的东西。
@@ -97,6 +103,7 @@ Item {
         return run.profile_id === null ? qsTr("未分配") : page.characterNames.labelOf(run.profile_id)
     }
     function requestBatch(action) {
+        Runtime.app.cancelHistoryCheckAll()
         batchDialog.action = action
         batchDialog.submitted = false
         batchReason.text = action === "purge" ? qsTranslate("SystemReason", "永久删除已删除的记录")
@@ -622,8 +629,8 @@ Item {
                                                              .arg(Runtime.app.runs.page)
                                                              .arg(Runtime.app.runs.pageCount)
 
-                AppButton { text: page.checkedCount > 0 ? qsTr("导出选中 CSV (%1)").arg(page.checkedCount) : qsTr("导出 CSV"); iconName: "file-down"; enabled: !Runtime.app.historyBatchRunning; onClicked: Runtime.app.exportCsv() }
-                AppButton { text: page.checkedCount > 0 ? qsTr("导出选中 JSON (%1)").arg(page.checkedCount) : qsTr("导出 JSON"); iconName: "file-json"; enabled: !Runtime.app.historyBatchRunning; onClicked: Runtime.app.exportJson() }
+                AppButton { text: page.checkedCount > 0 ? qsTr("导出选中 CSV (%1)").arg(page.checkedCount) : qsTr("导出 CSV"); iconName: "file-down"; enabled: !page.selectionBusy && !Runtime.app.historyBatchRunning; onClicked: Runtime.app.exportCsv() }
+                AppButton { text: page.checkedCount > 0 ? qsTr("导出选中 JSON (%1)").arg(page.checkedCount) : qsTr("导出 JSON"); iconName: "file-json"; enabled: !page.selectionBusy && !Runtime.app.historyBatchRunning; onClicked: Runtime.app.exportJson() }
                 AppButton { text: qsTr("导入记录"); iconName: "file-input"; onClicked: page.openImportRequested() }
                 AppButton {
                     text: qsTr("新增记录")
@@ -943,7 +950,10 @@ Item {
                             anchors.fill: parent
                             text: qsTr("迁移区服")
                             enabled: moveRegion.eligible && Runtime.app.historyMigrationReady && !Runtime.app.historyBatchRunning
-                            onClicked: regionMigrationDialog.ask(Runtime.app.historyMigrationSource, page.checkedCount)
+                            onClicked: {
+                                Runtime.app.cancelHistoryCheckAll()
+                                regionMigrationDialog.ask(Runtime.app.historyMigrationSource, page.checkedCount)
+                            }
                         }
                         HoverHandler { id: moveRegionHover }
                         PlainToolTip {
@@ -1378,17 +1388,20 @@ Item {
                 // checked and the filter matches more than that.
                 AppButton {
                     objectName: "historyCheckAllMatching"
-                    text: qsTr("勾选全部 %1 条").arg(Runtime.app.runs.total)
+                    text: page.selectionBusy ? qsTr("取消读取") : qsTr("勾选全部 %1 条").arg(Runtime.app.runs.total)
                     variant: "ghost"
-                    visible: page.checkedCount > 0 && Runtime.app.runs.total > page.checkedCount
-                    enabled: !Runtime.app.historyCheckAllLoading && !Runtime.app.historyBatchRunning
-                             && !Runtime.app.runs.loading
-                    onClicked: Runtime.app.checkAllMatchingHistoryRuns()
+                    visible: page.selectionBusy || (page.checkedCount > 0 && Runtime.app.runs.total > page.checkedCount)
+                    enabled: page.selectionBusy || (!Runtime.app.historyBatchRunning && !Runtime.app.runs.loading)
+                    onClicked: {
+                        if (page.selectionBusy) Runtime.app.cancelHistoryCheckAll()
+                        else Runtime.app.checkAllMatchingHistoryRuns()
+                    }
                 }
 
                 Text {
                     objectName: "historyCheckedCount"
-                    text: qsTr("已勾选 %1 条 · 翻页保留").arg(page.checkedCount)
+                    text: page.selectionBusy ? qsTr("正在读取全部记录…")
+                                             : qsTr("已勾选 %1 条 · 翻页保留").arg(page.checkedCount)
                     textFormat: Text.PlainText
                     color: Theme.textSecondary
                     font.pixelSize: Theme.fs(12)

@@ -15,7 +15,7 @@ public sealed class MigrationTests
         using var fixture = new TestDatabase();
 
         Assert.Equal(MigrationRunner.LatestVersion, fixture.Database.SchemaVersion);
-        Assert.Equal(16, MigrationRunner.LatestVersion);
+        Assert.Equal(17, MigrationRunner.LatestVersion);
 
         using var command = fixture.Database.CreateCommand();
         command.CommandText =
@@ -50,6 +50,7 @@ public sealed class MigrationTests
                 (14, "0014_character_profiles.sql"),
                 (15, "0015_character_identities.sql"),
                 (16, "0016_character_registration.sql"),
+                (17, "0017_candidate_player_round.sql"),
             },
             applied);
     }
@@ -160,6 +161,42 @@ public sealed class MigrationTests
         // published script would make it impossible to reopen that database.
         command.CommandText = "SELECT checksum FROM schema_migrations WHERE version = 16;";
         Assert.Equal("f3e886382107ce8ba1ae34b1cf2a4169dd25affeaefb99503079da13094fa037", command.ExecuteScalar());
+    }
+
+    [Fact]
+    public void Open_UpgradesCandidateLedgerWithoutAssigningLegacyPayloadToAPlayerRound()
+    {
+        using var fixture = new TestDatabase();
+        using (var command = fixture.Database.CreateCommand())
+        {
+            // Restore the preceding schema in this isolated fixture before it contains player rows.
+            command.CommandText = """
+                DROP INDEX ix_candidate_player_round;
+                ALTER TABLE candidate_observations DROP COLUMN player_round_id;
+                DELETE FROM schema_migrations WHERE version = 17;
+                INSERT INTO candidate_observations (
+                    observation_id, capture_session_id, profile_id, hypothesis_name, direction, opcode,
+                    payload_length, payload_hash12, connection_tag, observed_at_utc, t_ms, payload_hex)
+                VALUES (
+                    '00000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-0000000000a2',
+                    'synthetic.candidate', 'SYNTHETIC', 'C2S', 1, 1, '0123456789ab', 'abcdef012345',
+                    '2026-09-04T01:02:03.456Z', 1, 'a1');
+                """;
+            command.ExecuteNonQuery();
+        }
+
+        fixture.Reopen();
+
+        Assert.Equal(17, fixture.Database.SchemaVersion);
+        using var check = fixture.Database.CreateCommand();
+        check.CommandText = "SELECT COUNT(*) FROM pragma_index_list('candidate_observations') WHERE name = 'ix_candidate_player_round';";
+        Assert.Equal(1L, check.ExecuteScalar());
+        check.CommandText = "SELECT payload_hex, player_round_id FROM candidate_observations;";
+        using var row = check.ExecuteReader();
+        Assert.True(row.Read());
+        Assert.Equal("a1", row.GetString(0));
+        Assert.True(row.IsDBNull(1));
+        Assert.False(row.Read());
     }
 
     [Fact]

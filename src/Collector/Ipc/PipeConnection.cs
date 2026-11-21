@@ -152,7 +152,7 @@ public sealed class PipeConnection
                 return IpcEnvelope.Success(request.RequestId, request.MessageType, acknowledgement);
             }
 
-            if (MessageDispatcher.AsynchronousMessageTypes.Contains(request.MessageType))
+            if (MessageDispatcher.ShouldDefer(request))
             {
                 // Answered later, on its own, so a sentence waiting for the speech service does not
                 // hold up the status polls behind it on this same connection. Finished answers are

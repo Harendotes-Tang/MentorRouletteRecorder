@@ -5263,6 +5263,51 @@ SHA256：%3</translation>
         <comment>ipc.request.time_zone_unknown</comment>
         <translation>time_zone はこのコンピューターが認識できるタイムゾーン ID ではありません。</translation>
     </message>
+    <message>
+        <source>该轮候选采证已无法确认。请返回页面检查采证状态。</source>
+        <comment>candidate.round_unavailable</comment>
+        <translation>この候補収集の回を確認できません。ページに戻って収集状況を確認してください。</translation>
+    </message>
+    <message>
+        <source>当前候选档案与开始时选择的档案不一致，请刷新采证页面。</source>
+        <comment>candidate.round_profile_changed</comment>
+        <translation>現在の候補プロファイルが開始時に選んだものと異なります。証拠収集ページを更新してください。</translation>
+    </message>
+    <message>
+        <source>请先结束正在进行的候选采证。</source>
+        <comment>candidate.round_finish_first</comment>
+        <translation>先に進行中の候補収集を終了してください。</translation>
+    </message>
+    <message>
+        <source>请先读取历史勾选快照的第一页。</source>
+        <comment>history.selection.first_page_required</comment>
+        <translation>先に履歴の選択の最初のページを読み込んでください。</translation>
+    </message>
+    <message>
+        <source>历史勾选标识须为 64 位小写十六进制字符。</source>
+        <comment>history.selection.digest_invalid</comment>
+        <translation>履歴の選択 ID は小文字の 16 進数 64 桁で指定してください。</translation>
+    </message>
+    <message>
+        <source>请选择一种历史勾选方式。</source>
+        <comment>history.selection.exclusive_target</comment>
+        <translation>履歴の選択方法を 1 つ指定してください。</translation>
+    </message>
+    <message>
+        <source>历史勾选已失效或尚未传送完成，请重试。</source>
+        <comment>history.selection.unavailable</comment>
+        <translation>履歴の選択が無効になったか、転送が完了していません。もう一度お試しください。</translation>
+    </message>
+    <message>
+        <source>历史勾选分块的顺序或内容不一致，请重试。</source>
+        <comment>history.selection.chunk_mismatch</comment>
+        <translation>履歴の選択データの分割順序または内容が一致しません。もう一度お試しください。</translation>
+    </message>
+    <message>
+        <source>导出勾选的记录时须包含勾选的已删除记录。</source>
+        <comment>export.selection_requires_deleted</comment>
+        <translation>選択した記録をエクスポートするには、選択した削除済みの記録も含めてください。</translation>
+    </message>
 </context>
 <context>
     <name>CompletionPieChart</name>
@@ -7469,6 +7514,14 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>HistoryPage</name>
+    <message>
+        <source>取消读取</source>
+        <translation>読み込みを中止</translation>
+    </message>
+    <message>
+        <source>正在读取全部记录…</source>
+        <translation>一致するすべての記録を読み込み中…</translation>
+    </message>
     <message>
         <source>迁移区服</source>
         <translation>サーバー地域を移行</translation>
@@ -12624,6 +12677,10 @@ SHA256：%3</translation>
         <source>无法打开证据文件所在的文件夹，请按上面的路径自行打开。</source>
         <translation>証拠ファイルのあるフォルダーを開けませんでした。上のパスから手動で開いてください。</translation>
     </message>
+    <message>
+        <source>当前后台服务无法按轮次限定证据，请更新软件后重试。</source>
+        <translation>現在の収集サービスは証拠を回ごとに限定できません。アプリを更新してから再試行してください。</translation>
+    </message>
 </context>
 <context>
     <name>mr::CaptureValidationController</name>
@@ -13031,6 +13088,10 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>mr::ExportController</name>
+    <message>
+        <source>导出失败：后台服务已切换。</source>
+        <translation>バックグラウンドサービスが切り替わったため、エクスポートできませんでした。</translation>
+    </message>
     <message>
         <source>选择保存位置</source>
         <translation>保存先を選択</translation>
@@ -13636,16 +13697,12 @@ SHA256：%3</translation>
         <translation>一括操作がまだ終わっていません。しばらくしてから絞り込みを変更してください。</translation>
     </message>
     <message>
-        <source>一次最多勾选 2000 条记录，请分批操作。</source>
-        <translation>一度にチェックできる記録は 2000 件までです。何回かに分けて操作してください。</translation>
-    </message>
-    <message>
-        <source>符合筛选的记录超过 2000 条，请先缩小筛选范围再全部勾选。</source>
-        <translation>フィルターに一致する記録が 2000 件を超えています。条件を絞り込んでからすべてチェックしてください。</translation>
-    </message>
-    <message>
         <source>暂时读不到全部记录，没有改动勾选，请稍后再试。</source>
         <translation>すべての記録を読み込めませんでした。チェックは変更されていません。しばらくしてからもう一度お試しください。</translation>
+    </message>
+    <message>
+        <source>当前后台服务不支持勾选全部。已保留现有勾选，请更新软件后重试。</source>
+        <translation>このバージョンの Collector ではすべての記録を選択できません。現在の選択は保持されています。アプリを更新してからもう一度お試しください。</translation>
     </message>
     <message>
         <source>请选择有效操作并填写 1–500 字原因。</source>
@@ -14146,6 +14203,14 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>mr::MockBackend</name>
+    <message>
+        <source>勾选记录暂不可用，请重试。</source>
+        <translation>選択した記録を一時的に利用できません。もう一度お試しください。</translation>
+    </message>
+    <message>
+        <source>有选中的记录已不存在，请重新勾选。</source>
+        <translation>選択した記録の一部が存在しません。選び直してください。</translation>
+    </message>
     <message>
         <source>保留期须为 0–36500 天，0 表示永不自动清理。</source>
         <translation>保持期間は 0–36500 日で指定してください。0 は自動消去しないことを表します。</translation>
@@ -15654,10 +15719,6 @@ SHA256：%3</translation>
         <translation>開始</translation>
     </message>
     <message>
-        <source>重新导出</source>
-        <translation>もう一度エクスポート</translation>
-    </message>
-    <message>
         <source>正在导出</source>
         <translation>エクスポート中</translation>
     </message>
@@ -15668,6 +15729,57 @@ SHA256：%3</translation>
     <message>
         <source>打开所在文件夹</source>
         <translation>保存先フォルダーを開く</translation>
+    </message>
+    <message>
+        <source>当前后台服务无法按轮次限定证据，请更新软件后重试。</source>
+        <translation>現在の収集サービスは証拠を回ごとに限定できません。アプリを更新してから再試行してください。</translation>
+    </message>
+    <message>
+        <source>待处理</source>
+        <translation>保留中</translation>
+    </message>
+    <message>
+        <source>导出的文件只包含这一轮的证据。</source>
+        <translation>出力ファイルにはこの回の証拠のみが含まれます。</translation>
+    </message>
+    <message>
+        <source>这次采证没有可确认的轮次，无法导出。可先结束这次采证，再开始新一轮。</source>
+        <translation>この収集の回を確認できないため、出力できません。いったん収集を終了し、新しい回を開始してください。</translation>
+    </message>
+    <message>
+        <source>重新连接后台服务后，可继续结束并导出这一轮。</source>
+        <translation>収集サービスに再接続すると、この回を終了して出力できます。</translation>
+    </message>
+    <message>
+        <source>重试结束并导出</source>
+        <translation>終了と出力を再試行</translation>
+    </message>
+    <message>
+        <source>结束采证</source>
+        <translation>収集を終了</translation>
+    </message>
+    <message>
+        <source>最近一轮已经结束，可以导出这轮证据，也可以开始新一轮。</source>
+        <translation>直近の回は終了しています。証拠を出力するか、新しい回を開始できます。</translation>
+    </message>
+    <message>
+        <source>开始新一轮</source>
+        <translation>新しい回を開始</translation>
+    </message>
+    <message>
+        <source>导出这一轮</source>
+        <translation>この回を出力</translation>
+    </message>
+    <message>
+        <source>放弃本次导出</source>
+        <translation>保留中の出力を破棄</translation>
+    </message>
+</context>
+<context>
+    <name>mr::IBackend</name>
+    <message>
+        <source>后台服务未确认完整的勾选记录，请重试。</source>
+        <translation>バックグラウンドサービスが選択全体を確認できませんでした。もう一度お試しください。</translation>
     </message>
 </context>
 </TS>

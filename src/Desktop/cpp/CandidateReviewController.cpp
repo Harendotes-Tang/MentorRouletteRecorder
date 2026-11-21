@@ -1,4 +1,5 @@
 #include "CandidateReviewController.h"
+#include "AppSettings.h"
 #include "CollectorText.h"
 #include "DisplayTimeZone.h"
 #include "IBackend.h"
@@ -102,6 +103,7 @@ void CandidateReviewController::disconnected()
     ++m_indexGeneration;
     m_liveRefresh.stop();
     m_loading = m_indexLoading = m_indexComplete = m_exporting = m_settingsBusy = m_finishing = false;
+    m_roundSettingsKnown = false;
     m_rows.clear();
     m_sessions.clear();
     m_pairs.clear();
@@ -109,6 +111,68 @@ void CandidateReviewController::disconnected()
     m_reviewBusyId.clear();
     m_indexMessage = [] { return tr("连接后刷新候选观测。"); };
     Q_EMIT changed();
+}
+
+void CandidateReviewController::setSettings(AppSettings *settings)
+{
+    m_settings = settings;
+    if (!settings) return;
+    const auto draft = settings->candidateRoundFinishDraft();
+    const QString id = draft.value(QStringLiteral("round_id")).toString();
+    const QUuid round(id);
+    if (round.isNull() || round.toString(QUuid::WithoutBraces) != id) return;
+    m_finishRoundId = id;
+    m_roundAnswers = IBackend::candidateRoundAnswersPayload(draft.value(QStringLiteral("answers")).toMap()).toVariantMap();
+}
+
+void CandidateReviewController::clearRoundFinishDraft()
+{
+    if (!finishPending()) return;
+    m_finishRoundId.clear();
+    if (m_settings)
+        m_settings->setCandidateRoundFinishDraft({});
+}
+
+bool CandidateReviewController::roundRecoverable() const
+{
+    return m_roundSettingsKnown && m_scopedRoundsSupported && !m_candidateEnabled
+        && !m_roundId.isEmpty() && m_roundId != m_exportedRoundId;
+}
+
+bool CandidateReviewController::canDiscardRoundFinish() const
+{
+    return finishPending() && !m_finishing && !m_settingsBusy;
+}
+
+void CandidateReviewController::adoptCaptureSettings(const QVariantMap &settings)
+{
+    if (!m_backend || !m_backend->isConnected()) return;
+    const QString key = QStringLiteral("candidate_round_id");
+    const bool supported = settings.contains(key);
+    const bool enabled = settings.value(QStringLiteral("candidate_validation_enabled")).toBool();
+    const QString observedId = settings.value(key).toString();
+    const bool adoptId = !m_settingsBusy && observedId != m_roundId;
+    const bool changedSettings = !m_roundSettingsKnown || supported != m_scopedRoundsSupported
+        || enabled != m_candidateEnabled;
+    m_roundSettingsKnown = true;
+    m_scopedRoundsSupported = supported;
+    m_candidateEnabled = enabled;
+    if (adoptId) {
+        m_roundId = observedId;
+        if (!m_roundId.isEmpty() && m_roundId != m_finishRoundId && m_roundId != m_exportedRoundId) {
+            // A maintenance session reports no player ID. Keep a pending or
+            // exported player round until another player round takes its place.
+            if (finishPending()) m_settingsError.clear();
+            clearRoundFinishDraft();
+            m_roundAnswers.clear();
+            m_roundExportResult.clear();
+            m_roundExportError.clear();
+            m_exportedRoundId.clear();
+        }
+        m_seen.clear();
+    }
+    if (adoptId || changedSettings)
+        Q_EMIT changed();
 }
 
 void CandidateReviewController::setActive(bool active)
@@ -527,11 +591,12 @@ void CandidateReviewController::review(const QString &id, const QString &verdict
 
 void CandidateReviewController::writeSettings(const QJsonObject &changes, std::function<void()> applied)
 {
-    if (!m_backend || m_settingsBusy) return;
+    if (!m_backend || !m_backend->isConnected() || m_settingsBusy) return;
     const int generation = m_connectionGeneration;
     m_settingsBusy = true;
     m_settingsError.clear();
     Q_EMIT changed();
+    if (generation != m_connectionGeneration) return;
     BackendReply *settingsReply = m_backend->updateCaptureSettings(changes);
     const QPointer<BackendReply> settingsGuard(settingsReply);
     settingsReply->whenDone(this,
@@ -542,12 +607,15 @@ void CandidateReviewController::writeSettings(const QJsonObject &changes, std::f
             if (!ok) {
                 m_settingsError = failureText(settingsGuard, code, message);
                 m_finishing = false;
+                if (finishPending())
+                    Q_EMIT captureSettingsRefreshRequested();
             } else {
                 Q_EMIT captureSettingsApplied(payload);
                 Q_EMIT captureStatusRefreshRequested();
             }
             Q_EMIT changed();
-            if (ok && applied) applied();
+            if (ok && applied && generation == m_connectionGeneration)
+                applied();
         });
 }
 
@@ -566,36 +634,89 @@ QVariantList CandidateReviewController::eligibleOpcodes(const QVariantList &hypo
 
 void CandidateReviewController::startRound(const QVariantList &hypotheses)
 {
-    if (!m_backend || m_settingsBusy) return;
-    m_seen.clear();
-    m_exportResult.clear();
-    m_exportError.clear();
-    m_roundAnswers.clear();
-    // One request: the Collector checks the whitelist against the switch it carries, and the
-    // capture it follows the game with starts the candidate session on the next launch.
+    if (!m_backend || !m_backend->isConnected() || !m_roundSettingsKnown || m_settingsBusy
+        || m_candidateEnabled || finishPending()) return;
+    if (!m_scopedRoundsSupported) {
+        m_settingsError = [] { return tr("当前后台服务无法按轮次限定证据，请更新软件后重试。"); };
+        Q_EMIT changed();
+        return;
+    }
+    const QString profileId = hypotheses.value(0).toMap().value(QStringLiteral("profile_id")).toString();
+    if (profileId.isEmpty()) return;
+    // The same request binds the consent, candidate profile and whitelist.
     writeSettings({{QStringLiteral("candidate_validation_enabled"), true},
+                   {QStringLiteral("candidate_round_id"), QUuid::createUuid().toString(QUuid::WithoutBraces)},
+                   {QStringLiteral("candidate_round_profile_id"), profileId},
                    {QStringLiteral("research_payload_opcodes"),
                     QJsonArray::fromVariantList(eligibleOpcodes(hypotheses))}});
 }
 
 void CandidateReviewController::finishRound()
 {
-    if (!m_backend || m_settingsBusy || m_exporting) return;
+    if (!m_backend || !m_backend->isConnected() || !m_roundSettingsKnown || !m_scopedRoundsSupported
+        || m_settingsBusy || m_exporting || m_finishing) return;
+    if (!finishPending()) {
+        if (m_roundId.isEmpty() || (!m_candidateEnabled && !roundRecoverable())) return;
+        m_finishRoundId = m_roundId;
+        if (m_settings) {
+            m_settings->setCandidateRoundFinishDraft({
+                {QStringLiteral("round_id"), m_finishRoundId},
+                {QStringLiteral("answers"), m_roundAnswers},
+            });
+        }
+    }
+    const QString roundId = m_finishRoundId;
     m_finishing = true;
-    // Off first: switching off flushes the open queue and duty windows into the ledger,
-    // so the export that follows has them.
+    m_roundExportError.clear();
+    // The Collector accepts repeat stops for an already closed round. Its
+    // settings may describe a maintenance session, so enforce scope at export.
     writeSettings({{QStringLiteral("candidate_validation_enabled"), false},
+                   {QStringLiteral("candidate_round_id"), roundId},
                    {QStringLiteral("research_payload_opcodes"), QJsonArray()}},
-                  [this] { exportEvidence(); });
+                  [this, roundId] {
+        if (m_finishRoundId == roundId) {
+            exportEvidence(roundId);
+        } else {
+            m_finishing = false;
+            Q_EMIT changed();
+        }
+    });
+}
+
+void CandidateReviewController::discardRoundFinish()
+{
+    if (!canDiscardRoundFinish()) return;
+    clearRoundFinishDraft();
+    m_roundAnswers.clear();
+    m_roundExportError.clear();
+    m_settingsError.clear();
+    Q_EMIT changed();
+}
+
+void CandidateReviewController::stopUnscopedRound()
+{
+    if (!m_roundSettingsKnown || !m_candidateEnabled || !m_roundId.isEmpty() || finishPending()) return;
+    writeSettings({{QStringLiteral("candidate_validation_enabled"), false},
+                   {QStringLiteral("research_payload_opcodes"), QJsonArray()}});
 }
 
 void CandidateReviewController::openExportFolder()
 {
-    const QString target = m_exportResult.value(QStringLiteral("target_path")).toString();
+    openExportFolder(m_exportResult, m_exportError);
+}
+
+void CandidateReviewController::openRoundExportFolder()
+{
+    openExportFolder(m_roundExportResult, m_roundExportError);
+}
+
+void CandidateReviewController::openExportFolder(const QVariantMap &result, LiveText &error)
+{
+    const QString target = result.value(QStringLiteral("target_path")).toString();
     const QString directory = target.isEmpty() ? QString() : QFileInfo(target).absolutePath();
     if (directory.isEmpty() || !QDir(directory).exists() || !m_openUrl
         || !m_openUrl(QUrl::fromLocalFile(directory))) {
-        m_exportError = [] { return tr("无法打开证据文件所在的文件夹，请按上面的路径自行打开。"); };
+        error = [] { return tr("无法打开证据文件所在的文件夹，请按上面的路径自行打开。"); };
         Q_EMIT changed();
     }
 }
@@ -613,6 +734,7 @@ void CandidateReviewController::setResearchOpcodes(const QVariantList &opcodes)
 void CandidateReviewController::setRoundAnswers(const QVariantMap &answers)
 {
     // Kept as they will travel, so the property shows what an export sends.
+    if (finishPending()) return;
     const QVariantMap normalized = IBackend::candidateRoundAnswersPayload(answers).toVariantMap();
     if (normalized == m_roundAnswers) return;
     m_roundAnswers = normalized;
@@ -621,24 +743,46 @@ void CandidateReviewController::setRoundAnswers(const QVariantMap &answers)
 
 void CandidateReviewController::exportEvidence()
 {
-    if (!m_backend || m_exporting) return;
+    if (!m_finishing)
+        exportEvidence({});
+}
+
+void CandidateReviewController::exportEvidence(const QString &roundId)
+{
+    if (!m_backend || !m_backend->isConnected() || m_exporting) return;
+    const bool scoped = !roundId.isEmpty();
     const int generation = m_connectionGeneration;
     m_exporting = true;
-    m_exportError.clear();
-    m_exportResult.clear();
+    (scoped ? m_roundExportError : m_exportError).clear();
+    (scoped ? m_roundExportResult : m_exportResult).clear();
     QString path;
     if (!m_targetOverride.isEmpty()) path = QDir(m_targetOverride).absoluteFilePath(
         QStringLiteral("candidate-evidence-") + QUuid::createUuid().toString(QUuid::WithoutBraces) + QStringLiteral(".json"));
     Q_EMIT changed();
-    BackendReply *exportReply = m_backend->exportCandidateEvidence(path, m_roundAnswers);
+    if (generation != m_connectionGeneration) return;
+    BackendReply *exportReply = m_backend->exportCandidateEvidence(path, scoped ? m_roundAnswers : QVariantMap{}, roundId);
     const QPointer<BackendReply> exportGuard(exportReply);
     exportReply->whenDone(this,
-        [this, generation, exportGuard](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
+        [this, generation, exportGuard, scoped, roundId](bool ok, const QVariantMap &payload, const QString &code, const QString &message) {
             if (generation != m_connectionGeneration) return;
             m_exporting = false;
-            m_finishing = false;
-            if (!ok) m_exportError = failureText(exportGuard, code, message);
-            else m_exportResult = payload;
+            if (scoped) {
+                m_finishing = false;
+                if (m_finishRoundId != roundId) {
+                    Q_EMIT changed();
+                    return;
+                }
+                if (ok) {
+                    m_exportedRoundId = roundId;
+                    clearRoundFinishDraft();
+                }
+            }
+            if (!ok) {
+                (scoped ? m_roundExportError : m_exportError) = failureText(exportGuard, code, message);
+                if (scoped) Q_EMIT captureSettingsRefreshRequested();
+            } else {
+                (scoped ? m_roundExportResult : m_exportResult) = payload;
+            }
             Q_EMIT changed();
         });
 }

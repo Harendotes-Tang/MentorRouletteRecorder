@@ -2,7 +2,7 @@
 
 本目录存放本软件的数据库迁移脚本。本文面向需要新增或审阅迁移的维护者，说明迁移的命名、执行规则与版本记录方式。
 
-> 当前 schema 版本：**16**。`DATABASE_STATUS = READY`。
+> 当前 schema 版本：**17**。`DATABASE_STATUS = READY`。
 >
 > | 版本 | 文件 | 内容 |
 > |---|---|---|
@@ -22,6 +22,7 @@
 > | 14 | `0014_character_profiles.sql` | 角色档案 `character_profiles` 取代按区服一行的成就设置；`mentor_runs.profile_id` 记录所属档案，各区服原有设置、基数历史与全部记录归入一个档案 |
 > | 15 | `0015_character_identities.sql` | 角色识别 `character_identities`（见过的角色的带密钥摘要及其绑定的档案）；`mentor_runs.identity_id` 记录匹配时登录的角色，既有记录一律为 NULL |
 > | 16 | `0016_character_registration.sql` | 保存升级档案及在登录时识别到的待确认角色 |
+> | 17 | `0017_candidate_player_round.sql` | 保存玩家第二轮采证的轮次标识，按轮次与协议档案查询。升级前的观测保留空标识 |
 
 ## 命名
 

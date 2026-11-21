@@ -592,7 +592,7 @@ private Q_SLOTS:
         QTRY_VERIFY(pages.shown(QStringLiteral("batchAssignCharacterButton")));
         QCOMPARE(pages.app->checkedHistoryRunCount(), 1);
 
-        pages.backend.setReplyDelay(400, QStringLiteral("QueryRuns"));
+        pages.backend.setReplyDelay(400, QStringLiteral("QueryHistorySelection"));
         pages.app->checkAllMatchingHistoryRuns();
         QVERIFY(pages.app->historyCheckAllLoading());
         QVERIFY(pages.click(QStringLiteral("batchAssignCharacterButton")));

@@ -399,6 +399,9 @@ public sealed partial class CaptureController : IDisposable
         var profile = ResolveProfile(game);
         var candidate = _services.CandidateStatus();
         var hypotheses = _services.CandidateHypotheses();
+        // The guesses consult the ledger. Keep that read outside the capture gate so decoded
+        // messages can continue to update capture health while it is in progress.
+        var candidateRoundGuesses = candidate.Enabled ? _services.CandidateRoundReport() : null;
         var calibration = _services.CalibrationStatus();
         // The one outbound request's switches, read as they stand now (docs/privacy-boundary.md §8.2). A setting
         // that is missing or unreadable is its default, on.
@@ -466,7 +469,7 @@ public sealed partial class CaptureController : IDisposable
                 CandidateProfileId = candidate.ProfileId,
                 CandidateObservationCount = candidate.Count,
                 CandidateHypotheses = hypotheses,
-                CandidateRoundGuesses = candidate.Enabled ? _services.CandidateRoundReport() : null,
+                CandidateRoundGuesses = candidateRoundGuesses,
                 Calibration = calibration,
                 ProfileOrigin = profile.Origin,
                 SharedCalibrationEnabled = sharedCalibrationEnabled,

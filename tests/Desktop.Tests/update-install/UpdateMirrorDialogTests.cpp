@@ -11,6 +11,7 @@
 
 #include <QPointer>
 #include <QQuickStyle>
+#include <QSignalSpy>
 #include <QStandardPaths>
 
 namespace {
@@ -163,6 +164,7 @@ private Q_SLOTS:
         QTest::newRow("keep") << QStringLiteral("keep");
         QTest::newRow("escape") << QStringLiteral("escape");
         QTest::newRow("finished") << QStringLiteral("finished");
+        QTest::newRow("offer expired before accepting") << QStringLiteral("expired");
     }
 
     void mirrorDownloadChoice()
@@ -200,7 +202,8 @@ private Q_SLOTS:
         QVERIFY(dialog->property("visible").toBool());
 
         const bool retry = action == QLatin1String("reconnect") || action == QLatin1String("timeout");
-        const bool switching = retry || action == QLatin1String("switch") || action == QLatin1String("applied");
+        const bool expired = action == QLatin1String("expired");
+        const bool switching = retry || expired || action == QLatin1String("switch") || action == QLatin1String("applied");
         if (switching) {
             QVERIFY(shell.click(QStringLiteral("switchToGitCodeButton")));
         } else if (action == QLatin1String("keep") || action == QLatin1String("keep failed")) {
@@ -262,10 +265,14 @@ private Q_SLOTS:
         shell.backend.status = {{QStringLiteral("update"), update}};
         QTRY_COMPARE(shell.controller.update()->downloadPhase(), QStringLiteral("verifying"));
         QTRY_VERIFY(!dialog->property("visible").toBool());
+        QSignalSpy toasts(shell.controller.update(), &mr::UpdateController::toastRequested);
         if (auto *late = shell.backend.pending.data())
-            late->succeed(pendingStatus);
+            late->succeed(expired ? shell.backend.status : pendingStatus);
         QCoreApplication::processEvents();
         QCOMPARE(shell.controller.update()->downloadPhase(), QStringLiteral("verifying"));
+        QCOMPARE(toasts.size(), expired ? 1 : 0);
+        if (expired)
+            QVERIFY(toasts.constFirst().constFirst().toString().contains(QStringLiteral("GitHub 的下载已经结束")));
         const int expectedChoices = retry ? 2 : (action == QLatin1String("finished") ? 0 : 1);
         QCOMPARE(shell.backend.choices.size(), expectedChoices);
     }

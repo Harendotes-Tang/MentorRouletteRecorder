@@ -5263,6 +5263,51 @@ SHA256: %3</translation>
         <comment>ipc.request.time_zone_unknown</comment>
         <translation>time_zone is not a time zone id this computer knows.</translation>
     </message>
+    <message>
+        <source>该轮候选采证已无法确认。请返回页面检查采证状态。</source>
+        <comment>candidate.round_unavailable</comment>
+        <translation>This candidate round could not be verified. Return to the page and check its status.</translation>
+    </message>
+    <message>
+        <source>当前候选档案与开始时选择的档案不一致，请刷新采证页面。</source>
+        <comment>candidate.round_profile_changed</comment>
+        <translation>The current candidate profile differs from the one selected at the start. Refresh the evidence page.</translation>
+    </message>
+    <message>
+        <source>请先结束正在进行的候选采证。</source>
+        <comment>candidate.round_finish_first</comment>
+        <translation>Finish the active candidate round first.</translation>
+    </message>
+    <message>
+        <source>请先读取历史勾选快照的第一页。</source>
+        <comment>history.selection.first_page_required</comment>
+        <translation>Read the first page of the history selection first.</translation>
+    </message>
+    <message>
+        <source>历史勾选标识须为 64 位小写十六进制字符。</source>
+        <comment>history.selection.digest_invalid</comment>
+        <translation>The history selection ID must contain 64 lowercase hexadecimal characters.</translation>
+    </message>
+    <message>
+        <source>请选择一种历史勾选方式。</source>
+        <comment>history.selection.exclusive_target</comment>
+        <translation>Choose one way to supply the selected history records.</translation>
+    </message>
+    <message>
+        <source>历史勾选已失效或尚未传送完成，请重试。</source>
+        <comment>history.selection.unavailable</comment>
+        <translation>The history selection expired or has not finished transferring. Try again.</translation>
+    </message>
+    <message>
+        <source>历史勾选分块的顺序或内容不一致，请重试。</source>
+        <comment>history.selection.chunk_mismatch</comment>
+        <translation>The order or contents of the history selection chunks do not match. Try again.</translation>
+    </message>
+    <message>
+        <source>导出勾选的记录时须包含勾选的已删除记录。</source>
+        <comment>export.selection_requires_deleted</comment>
+        <translation>To export the selected records, include any selected deleted records.</translation>
+    </message>
 </context>
 <context>
     <name>CompletionPieChart</name>
@@ -7469,6 +7514,14 @@ SHA256: %3</translation>
 </context>
 <context>
     <name>HistoryPage</name>
+    <message>
+        <source>取消读取</source>
+        <translation>Cancel loading</translation>
+    </message>
+    <message>
+        <source>正在读取全部记录…</source>
+        <translation>Reading all matching records…</translation>
+    </message>
     <message>
         <source>迁移区服</source>
         <translation>Move server region</translation>
@@ -12624,6 +12677,10 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <source>无法打开证据文件所在的文件夹，请按上面的路径自行打开。</source>
         <translation>The folder holding the evidence files could not be opened. Please open it yourself using the path above.</translation>
     </message>
+    <message>
+        <source>当前后台服务无法按轮次限定证据，请更新软件后重试。</source>
+        <translation>The current Collector cannot limit evidence to one round. Update the app and try again.</translation>
+    </message>
 </context>
 <context>
     <name>mr::CaptureValidationController</name>
@@ -13031,6 +13088,10 @@ The region cannot be changed while listening or collecting evidence.</translatio
 </context>
 <context>
     <name>mr::ExportController</name>
+    <message>
+        <source>导出失败：后台服务已切换。</source>
+        <translation>Export failed because the background service changed.</translation>
+    </message>
     <message>
         <source>选择保存位置</source>
         <translation>Choose where to save</translation>
@@ -13636,16 +13697,12 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <translation>A bulk action is still running. Adjust filters in a moment.</translation>
     </message>
     <message>
-        <source>一次最多勾选 2000 条记录，请分批操作。</source>
-        <translation>You can check up to 2000 records at a time. Work in batches.</translation>
-    </message>
-    <message>
-        <source>符合筛选的记录超过 2000 条，请先缩小筛选范围再全部勾选。</source>
-        <translation>More than 2000 records match the filter. Narrow the filter before checking all.</translation>
-    </message>
-    <message>
         <source>暂时读不到全部记录，没有改动勾选，请稍后再试。</source>
-        <translation>The full list of records could not be read just now. Nothing was checked; try again later.</translation>
+        <translation>The full list of records could not be read just now. Your selection was kept. Try again later.</translation>
+    </message>
+    <message>
+        <source>当前后台服务不支持勾选全部。已保留现有勾选，请更新软件后重试。</source>
+        <translation>This Collector version does not support selecting all records. Your selection was kept. Update the app and try again.</translation>
     </message>
     <message>
         <source>请选择有效操作并填写 1–500 字原因。</source>
@@ -14146,6 +14203,14 @@ The region cannot be changed while listening or collecting evidence.</translatio
 </context>
 <context>
     <name>mr::MockBackend</name>
+    <message>
+        <source>勾选记录暂不可用，请重试。</source>
+        <translation>The checked records are temporarily unavailable. Try again.</translation>
+    </message>
+    <message>
+        <source>有选中的记录已不存在，请重新勾选。</source>
+        <translation>Some checked records no longer exist. Select them again.</translation>
+    </message>
     <message>
         <source>保留期须为 0–36500 天，0 表示永不自动清理。</source>
         <translation>Retention must be 0–36500 days; 0 means never clean up automatically.</translation>
@@ -15654,10 +15719,6 @@ The region cannot be changed while listening or collecting evidence.</translatio
         <translation>Start</translation>
     </message>
     <message>
-        <source>重新导出</source>
-        <translation>Export again</translation>
-    </message>
-    <message>
         <source>正在导出</source>
         <translation>Exporting</translation>
     </message>
@@ -15668,6 +15729,57 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>打开所在文件夹</source>
         <translation>Open containing folder</translation>
+    </message>
+    <message>
+        <source>当前后台服务无法按轮次限定证据，请更新软件后重试。</source>
+        <translation>The current Collector cannot limit evidence to one round. Update the app and try again.</translation>
+    </message>
+    <message>
+        <source>待处理</source>
+        <translation>Pending</translation>
+    </message>
+    <message>
+        <source>导出的文件只包含这一轮的证据。</source>
+        <translation>The export contains evidence from this round only.</translation>
+    </message>
+    <message>
+        <source>这次采证没有可确认的轮次，无法导出。可先结束这次采证，再开始新一轮。</source>
+        <translation>This evidence has no verified round ID and cannot be exported. End this collection, then start a new round.</translation>
+    </message>
+    <message>
+        <source>重新连接后台服务后，可继续结束并导出这一轮。</source>
+        <translation>Reconnect to the Collector to finish and export this round.</translation>
+    </message>
+    <message>
+        <source>重试结束并导出</source>
+        <translation>Retry finish and export</translation>
+    </message>
+    <message>
+        <source>结束采证</source>
+        <translation>End collection</translation>
+    </message>
+    <message>
+        <source>最近一轮已经结束，可以导出这轮证据，也可以开始新一轮。</source>
+        <translation>The most recent round has ended. You can export its evidence or start a new round.</translation>
+    </message>
+    <message>
+        <source>开始新一轮</source>
+        <translation>Start a new round</translation>
+    </message>
+    <message>
+        <source>导出这一轮</source>
+        <translation>Export this round</translation>
+    </message>
+    <message>
+        <source>放弃本次导出</source>
+        <translation>Discard pending export</translation>
+    </message>
+</context>
+<context>
+    <name>mr::IBackend</name>
+    <message>
+        <source>后台服务未确认完整的勾选记录，请重试。</source>
+        <translation>The service did not confirm the full selection. Try again.</translation>
     </message>
 </context>
 </TS>

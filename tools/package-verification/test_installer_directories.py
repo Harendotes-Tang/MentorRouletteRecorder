@@ -591,16 +591,18 @@ class InstallerLanguageTests(unittest.TestCase):
                 self.assertEqual([expected], ids)
 
     def test_an_upgrade_in_another_language_leaves_one_uninstall_shortcut(self):
-        # Audit 2026-11-10 M-3: the uninstall shortcut's file name is in the setup language, so an upgrade
-        # in another language used to add a second one. The Start-menu folder is this application's alone,
-        # so every shortcut in it is cleared before [Icons] recreates them.
+        # Only the four shipped uninstall name translations can be removed.
         sections = installer_sections()
         setup = dict(line.split("=", 1) for line in sections["setup"] if "=" in line)
         self.assertEqual("{#AppName}", setup["DefaultGroupName"].strip())
         self.assertEqual("yes", setup["DisableProgramGroupPage"].strip())
-        cleared = [entry for entry in install_delete_entries() if entry.get("name") == "{group}\\*.lnk"]
-        self.assertEqual(1, len(cleared))
-        self.assertEqual("files", cleared[0].get("type", "").lower())
+        cleared = [entry for entry in install_delete_entries() if entry["name"].startswith("{group}")]
+        self.assertCountEqual(cleared, [
+            {"type": "files", "name": "{group}\\Uninstall {#AppName}.lnk"},
+            {"type": "files", "name": "{group}\\卸载 {#AppName}.lnk"},
+            {"type": "files", "name": "{group}\\解除安裝 {#AppName}.lnk"},
+            {"type": "files", "name": "{group}\\{#AppName} をアンインストールする.lnk"},
+        ])
         icons = [line for line in sections["icons"] if line.startswith('Name: "{group}\\')]
         self.assertTrue(any("{cm:UninstallProgram," in line for line in icons))
         self.assertTrue(any('Filename: "{app}\\{#AppExe}"' in line for line in icons))

@@ -8,7 +8,9 @@
 // what a synchronous pipe failure looks like.
 // ---------------------------------------------------------------------------
 
+#include <QJsonArray>
 #include <QJsonObject>
+#include <QPointer>
 #include <QObject>
 #include <QString>
 #include <QVariantMap>
@@ -54,8 +56,8 @@ public:
     /// The $defs/RunSort an export sends; empty until setHistorySort().
     QJsonObject historySort() const;
 
-    void exportCsv();
-    void exportJson();
+    void exportCsv(const QJsonArray &largeTargets = {});
+    void exportJson(const QJsonArray &largeTargets = {});
     /// 立即备份 and the daily backup. Ignored while one runs: each would write another copy
     /// and push the oldest kept one out of the managed folder (audit 2026-11-03 K1-8).
     void backupDatabase();
@@ -95,7 +97,7 @@ Q_SIGNALS:
 
 private:
     enum class ExportFormat { Csv, Json };
-    void exportRuns(ExportFormat format);
+    void exportRuns(ExportFormat format, const QJsonArray &largeTargets);
 
     /// The path to write, and in \a confirmedReplace whether the user already agreed to replace a
     /// file there: the save dialog asks about an existing one; the --export-target folder never did.
@@ -104,7 +106,7 @@ private:
     std::function<QString(const QString &, const QString &)> m_saveDialog;
     bool m_backupRunning = false;
 
-    IBackend *m_backend = nullptr;
+    QPointer<IBackend> m_backend;
     QJsonObject m_historyFilter;
     QStringList m_checkedRunIds;
     QString m_sortField;

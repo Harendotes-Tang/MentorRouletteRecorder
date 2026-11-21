@@ -15,6 +15,7 @@ Item {
     property string exportDate: typeof Runtime.fmt !== "undefined" && Runtime.fmt
                                 ? Runtime.fmt.todayLocal().replace(/-/g, ".") : Qt.formatDate(new Date(), "yyyy.MM.dd")
     readonly property bool opaquePaper: true
+    readonly property color paperColor: "#EFE5CF"
     readonly property var entries: runsData.length > 0 ? runsData : [runData]
     readonly property bool single: entries.length === 1
     readonly property list<Item> collectionEntries: timeline.children.filter(child => child !== entriesRepeater)
@@ -48,7 +49,7 @@ Item {
     }
 
     // 缩放后的纸张高度会向上取整；补满最后不足一像素的画布，防止 GPU 抓图留透明边。
-    Rectangle { anchors.fill: parent; color: "#EFE5CF" }
+    Rectangle { anchors.fill: parent; color: card.paperColor }
 
     Item {
         id: paper

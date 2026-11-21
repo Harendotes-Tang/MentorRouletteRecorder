@@ -272,11 +272,13 @@ Type: files; Name: "{app}\*.dll"
 ; 1.5.0 and earlier installed the application manifest as a side file. It is embedded in the
 ; executable now and no longer shipped, so an upgrade removes the old copy.
 Type: files; Name: "{app}\MentorRecorder.Desktop.exe.manifest"
-; The uninstall shortcut is named in the setup language ({cm:UninstallProgram}), so an upgrade in
-; another language than the previous install would leave the old one beside the new one (audit
-; 2026-11-10 M-3). The Start-menu folder is this application's alone (DefaultGroupName, with
-; DisableProgramGroupPage=yes), and [Icons] recreates both shortcuts right after this section.
-Type: files; Name: "{group}\*.lnk"
+; Remove the uninstall shortcut names shipped in earlier installers. These are the
+; UninstallProgram messages of the four supported installer languages with AppName inserted.
+; Keep these historical names even if a translation changes. [Icons] creates today's name.
+Type: files; Name: "{group}\Uninstall {#AppName}.lnk"
+Type: files; Name: "{group}\卸载 {#AppName}.lnk"
+Type: files; Name: "{group}\解除安裝 {#AppName}.lnk"
+Type: files; Name: "{group}\{#AppName} をアンインストールする.lnk"
 
 [Files]
 ; The Check is the second line of defence of ClearCodeDirectories (see [Code]): it stops the copy

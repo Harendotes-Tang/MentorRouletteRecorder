@@ -1,6 +1,9 @@
 using System.Diagnostics;
 using MentorRecorder.Collector.Capture;
+using MentorRecorder.Collector.Contracts.Errors;
+using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Diagnostics;
+using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Export;
 using MentorRecorder.Collector.Import;
@@ -47,6 +50,7 @@ public sealed class CollectorHost : IDisposable
         Profiles = new CharacterProfileService(database, Settings, clock);
         Identities = new CharacterIdentityService(database, Settings, clock);
         HistoryRetention = new HistoryRetentionService(database, clock, LiveEvents.ForgetRuns);
+        HistorySelections = new HistorySelectionStore(database);
         Reflections = new RunReflectionRepository(database);
         ReflectionWrites = new RunReflectionService(database, clock);
         Candidates = new CandidateObservationRepository(database, clock);
@@ -104,6 +108,9 @@ public sealed class CollectorHost : IDisposable
 
     /// <summary>Recycle-bin expiry and persistent attachment cleanup tasks.</summary>
     public HistoryRetentionService HistoryRetention { get; }
+
+    /// <summary>Transient history snapshots and sealed batch targets for this host.</summary>
+    internal HistorySelectionStore HistorySelections { get; }
 
     /// <summary>导随心得 reads: one per run, plus the dashboard summary.</summary>
     public RunReflectionRepository Reflections { get; }
@@ -423,7 +430,8 @@ public sealed class CollectorHost : IDisposable
                 Health = pipeline,
                 RunState = () => pipeline.RunState,
                 RunUnderWay = () => pipeline.RunUnderWayNow,
-                CandidateStatus = () => (pipeline.CandidateValidationEnabled, pipeline.CandidateProfileId, Candidates.Count()),
+                CandidateStatus = () => (pipeline.CandidateValidationEnabled, pipeline.CandidateProfileId,
+                    CandidatePlayerRound.Read(Settings) is { Active: true } round ? Candidates.CountPlayerRound(round) : Candidates.Count()),
                 CandidateHypotheses = pipeline.DescribeCandidateHypotheses,
                 CandidateRoundReport = CandidateRound.Read,
                 CalibrationStatus = pipeline.CalibrationStatus,
@@ -507,15 +515,78 @@ public sealed class CollectorHost : IDisposable
         lock (_captureSettingsGate)
         {
             CaptureSettingsSnapshot? applied = null;
-            if ((update.CandidateValidationEnabled.HasValue || update.ResearchPayloadOpcodes is not null) && LiveProtocol is { } pipeline)
-                pipeline.ApplyCandidateSettings(update.CandidateValidationEnabled,
-                    () => applied = CaptureSettingsStore.Apply(Settings, update), update.ResearchPayloadOpcodes);
+            if (update.CandidateValidationEnabled.HasValue || update.ResearchPayloadOpcodes is not null)
+            {
+                var current = CaptureSettingsStore.Read(Settings);
+                var (round, profile, replay) = PlanPlayerRound(current, update);
+                if (replay) return current;
+
+                if (round is { Active: false })
+                    update = update with { ResearchPayloadOpcodes = [] };
+                if (LiveProtocol is { } pipeline)
+                {
+                    pipeline.ApplyCandidateSettings(update.CandidateValidationEnabled,
+                        () => applied = CaptureSettingsStore.Apply(Settings, update, round, profile),
+                        update.ResearchPayloadOpcodes);
+                }
+                else
+                {
+                    applied = CaptureSettingsStore.Apply(Settings, update, round, profile);
+                }
+            }
             else
+            {
                 applied = CaptureSettingsStore.Apply(Settings, update);
+            }
 
             ApplyCaptureSettings(applied!, applyCandidateMode: false);
             return applied!;
         }
+    }
+
+    private (CandidatePlayerRound? Round, ProtocolProfile? Profile, bool Replay) PlanPlayerRound(
+        CaptureSettingsSnapshot current, CaptureSettingsUpdate update)
+    {
+        var active = current.PlayerRound is { Active: true } round ? round : null;
+        if (update.CandidateRoundId is not { } id)
+        {
+            if (active is null) return default;
+            if (update.CandidateValidationEnabled == false && update.ResearchPayloadOpcodes is not { Count: > 0 })
+                return (active with { Active = false }, null, false);
+            // A generic whitelist write must not replace the consented scope of a player round.
+            throw CollectorException.BadRequest(CollectorTexts.CandidateRoundFinishFirst(), "payload.candidate_round_id");
+        }
+
+        if (update.CandidateValidationEnabled == false)
+        {
+            if (update.ResearchPayloadOpcodes is { Count: > 0 })
+                throw CollectorException.BadRequest(CollectorTexts.CaptureSettingsResearchNeedsValidation(),
+                    "payload.research_payload_opcodes");
+            if (current.PlayerRound is not { } previous || previous.Id != id)
+                throw CollectorException.BadRequest(CollectorTexts.CandidateRoundUnavailable(), "payload.candidate_round_id");
+            // The acknowledgement might have been lost, or a maintainer session started meanwhile.
+            return previous.Active ? (previous with { Active = false }, null, false) : (null, null, true);
+        }
+
+        if (update.ResearchPayloadOpcodes is not { } requested)
+            throw CollectorException.BadRequest(CollectorTexts.IpcFieldMissing("research_payload_opcodes"),
+                "payload.research_payload_opcodes");
+        if (active is not null && active.Id == id && active.ProfileId == update.CandidateRoundProfileId &&
+            current.CandidateValidationEnabled && (current.ResearchPayloadOpcodes ?? []).SequenceEqual(requested))
+            return (null, null, true);
+        if (current.CandidateValidationEnabled)
+            throw CollectorException.BadRequest(CollectorTexts.CandidateRoundFinishFirst(), "payload.candidate_round_id");
+        if (current.PlayerRound?.Id == id || Candidates.HasPlayerRound(id))
+            throw CollectorException.BadRequest(CollectorTexts.CandidateRoundUnavailable(), "payload.candidate_round_id");
+
+        var offered = LiveProtocol?.CandidateDisplayProfile();
+        if (offered is not { Status: ProfileCompatibilityStatus.Candidate } ||
+            offered.ProfileId != update.CandidateRoundProfileId ||
+            LiveProtocol?.Current is not { Status: ProfileStatus.UnsupportedBuild, GameBuild: { Length: > 0 } build } ||
+            !string.Equals(build, offered.GameBuild, StringComparison.OrdinalIgnoreCase))
+            throw CollectorException.BadRequest(CollectorTexts.CandidateRoundProfileChanged(), "payload.candidate_round_profile_id");
+
+        return (new CandidatePlayerRound(id, offered.ProfileId, UtcTimestamp.Truncate(Clock.UtcNow), true), offered, false);
     }
 
     /// <inheritdoc />
@@ -560,6 +631,7 @@ public sealed class CollectorHost : IDisposable
         // Non-blocking; the validation dispose below still waits for the round to finish.
         yield return ("validation_stop", () => Validation?.Stop());
         yield return ("history_retention_dispose", HistoryRetention.Dispose);
+        yield return ("history_selection_dispose", HistorySelections.Dispose);
 
         // A download in flight is cancelled before anything it could claim into is torn down.
         yield return ("shared_calibration_stop", () => LiveProtocol?.StopSharedCalibration());

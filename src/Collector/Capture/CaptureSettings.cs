@@ -50,7 +50,10 @@ public sealed record CaptureSettingsSnapshot(
     bool AutoCalibrationEnabled = true,
     bool SharedCalibrationEnabled = true,
     bool UpdateCheckEnabled = true,
-    bool CharacterIdentificationEnabled = true);
+    bool CharacterIdentificationEnabled = true)
+{
+    internal CandidatePlayerRound? PlayerRound { get; init; }
+}
 
 /// <summary>
 /// Reads and writes <see cref="CaptureSettingsSnapshot"/> against <c>application_settings</c>.
@@ -132,7 +135,10 @@ public static class CaptureSettingsStore
             AutoCalibrationEnabled: ReadBool(settings, AutoCalibrationSetting, transaction) ?? true,
             SharedCalibrationEnabled: ReadBool(settings, SharedCalibrationSetting, transaction) ?? true,
             UpdateCheckEnabled: ReadBool(settings, UpdateCheckSetting, transaction) ?? true,
-            CharacterIdentificationEnabled: ReadBool(settings, CharacterIdentificationSetting, transaction) ?? true);
+            CharacterIdentificationEnabled: ReadBool(settings, CharacterIdentificationSetting, transaction) ?? true)
+        {
+            PlayerRound = CandidatePlayerRound.Read(settings, transaction),
+        };
     }
 
     /// <summary>
@@ -145,7 +151,11 @@ public static class CaptureSettingsStore
     /// <param name="settings">Settings repository.</param>
     /// <param name="update">Fields to write; null members are "not specified".</param>
     public static CaptureSettingsSnapshot Apply(
-        SettingsRepository settings, CaptureSettingsUpdate update)
+        SettingsRepository settings, CaptureSettingsUpdate update) => Apply(settings, update, null, null);
+
+    /// <summary>Persists a validated player round with the candidate switch and its profile-specific consent.</summary>
+    internal static CaptureSettingsSnapshot Apply(SettingsRepository settings, CaptureSettingsUpdate update,
+        CandidatePlayerRound? round, ProtocolProfile? consentedProfile)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(update);
@@ -158,8 +168,9 @@ public static class CaptureSettingsStore
             {
                 if (!(update.CandidateValidationEnabled ?? Read(settings).CandidateValidationEnabled))
                     throw CollectorException.BadRequest(CollectorTexts.CaptureSettingsResearchNeedsValidation(), "payload.research_payload_opcodes");
-                normalized = ResearchPayloadPolicy.ValidateRequested(normalized,
-                    ProfileCatalog.LoadDefault(allowCandidate: true).Entries
+                normalized = ResearchPayloadPolicy.ValidateRequested(normalized, consentedProfile is { } profile
+                    ? [profile]
+                    : ProfileCatalog.LoadDefault(allowCandidate: true).Entries
                         .Where(entry => entry.Profile is not null).Select(entry => entry.Profile!));
             }
             values[ResearchPayloadOpcodesSetting] = JsonSerializer.Serialize(normalized);
@@ -170,6 +181,8 @@ public static class CaptureSettingsStore
             values[CandidateValidationSetting] = candidate ? "true" : "false";
             if (candidate && !Read(settings).CandidateValidationEnabled) values[CandidateRoundMarkSetting] = "true";
         }
+
+        if (round is not null) values[CandidatePlayerRound.Setting] = JsonSerializer.Serialize(round);
 
         if (update.AutoCalibrationEnabled is { } autoCalibration)
         {
@@ -240,10 +253,12 @@ public static class CaptureSettingsStore
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
-        return new JsonObject
+        var wire = new JsonObject
         {
             ["follow_game"] = snapshot.FollowGame,
             ["candidate_validation_enabled"] = snapshot.CandidateValidationEnabled,
+            ["candidate_round_id"] = null,
+            ["candidate_round_profile_id"] = null,
             ["auto_calibration_enabled"] = snapshot.AutoCalibrationEnabled,
             ["shared_calibration_enabled"] = snapshot.SharedCalibrationEnabled,
             ["update_check_enabled"] = snapshot.UpdateCheckEnabled,
@@ -258,6 +273,13 @@ public static class CaptureSettingsStore
                 ? EnumWire<Region>.Format(region)
                 : null,
         };
+        // A maintainer session started after a completed player round has no player identity.
+        if (snapshot.PlayerRound is { } round && (round.Active || !snapshot.CandidateValidationEnabled))
+        {
+            wire["candidate_round_id"] = round.Id;
+            wire["candidate_round_profile_id"] = round.ProfileId;
+        }
+        return wire;
     }
 
     /// <summary>Clamps a retention value to the range the contract declares.</summary>
@@ -356,6 +378,10 @@ public static class CaptureSettingsStore
 /// </summary>
 public sealed record CaptureSettingsUpdate
 {
+    /// <summary>Identity the player supplies on start and reuses on stop.</summary>
+    internal string? CandidateRoundId { get; init; }
+    /// <summary>Exact candidate profile shown on the player's consent card, supplied on start only.</summary>
+    internal string? CandidateRoundProfileId { get; init; }
     /// <summary>显式提供的研究白名单；null 表示未提供，空数组立即停止保存后续负载。</summary>
     public IReadOnlyList<string>? ResearchPayloadOpcodes { get; init; }
     /// <summary>显式允许候选元数据观测；不改变正式解析的信任级别。</summary>

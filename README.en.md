@@ -97,7 +97,7 @@ See the [Traditional Chinese server testing guide](docs/traditional-chinese-serv
    The installed files are managed by administrators; the note image directory `note-images` is writable by standard users.
 4. The free edition of Npcap is distributed through the Npcap website. If the driver is missing, the installer downloads and verifies the official Npcap installer. Keep its default options, especially *WinPcap API-compatible Mode*.
 
-**Upgrading from an older version.** 1.9.0 upgrades the database to schema 15, and 1.9.1 upgrades it to schema 16. Keep a database backup before upgrading; to roll back to an older version, use the backup made before the upgrade.
+**Upgrading from an older version.** 1.9.0 upgrades the database to schema 15, and 1.9.1 upgrades it to schema 17. Keep a database backup before upgrading; to roll back to an older version, use the backup made before the upgrade.
 Manual entries and imported records without a region from 1.8.0 and earlier are assigned to the Chinese server. Goals, starting counts and records that already have a region move into that region's existing profile.
 Database backups and record exports do not include note images; save `note-images` separately.
 

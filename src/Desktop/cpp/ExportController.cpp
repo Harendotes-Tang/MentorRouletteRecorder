@@ -106,32 +106,42 @@ QJsonObject ExportController::historySort() const
              m_sortAscending ? QStringLiteral("asc") : QStringLiteral("desc")}};
 }
 
-void ExportController::exportCsv()
+void ExportController::exportCsv(const QJsonArray &largeTargets)
 {
-    exportRuns(ExportFormat::Csv);
+    exportRuns(ExportFormat::Csv, largeTargets);
 }
 
-void ExportController::exportJson()
+void ExportController::exportJson(const QJsonArray &largeTargets)
 {
-    exportRuns(ExportFormat::Json);
+    exportRuns(ExportFormat::Json, largeTargets);
 }
 
-void ExportController::exportRuns(ExportFormat format)
+void ExportController::exportRuns(ExportFormat format, const QJsonArray &largeTargets)
 {
     if (!m_backend)
         return;
     const bool csv = format == ExportFormat::Csv;
+    // The save dialog runs its own event loop. Preserve the checked set and
+    // sort the player requested even if another refresh arrives there.
+    const QJsonObject filter = largeTargets.isEmpty() ? effectiveHistoryFilter() : QJsonObject{};
+    const QJsonObject sort = historySort();
+    const QPointer<ExportController> guard(this);
+    const auto backend = m_backend;
     bool replace = false;
     const QString path = chooseExportPath(
         QStringLiteral("mentor_runs_") + stamp(QStringLiteral("yyyy-MM-dd"))
             + (csv ? QStringLiteral(".csv") : QStringLiteral(".json")),
         csv ? QStringLiteral("CSV (*.csv)") : QStringLiteral("JSON (*.json)"), &replace);
-    if (path.isEmpty())
+    if (!guard || !backend || path.isEmpty())
         return;
+    if (backend != m_backend) {
+        Q_EMIT toastRequested(tr("导出失败：后台服务已切换。"));
+        return;
+    }
 
     BackendReply *reply = csv
-        ? m_backend->exportCsv(path, effectiveHistoryFilter(), replace, historySort())
-        : m_backend->exportJson(path, effectiveHistoryFilter(), replace, historySort());
+        ? backend->exportCsv(path, filter, replace, sort, largeTargets)
+        : backend->exportJson(path, filter, replace, sort, largeTargets);
     reply->whenDone(this, [this, csv](bool ok, const QVariantMap &payload, const QString &code,
                                     const QString &message) {
         if (!ok) {

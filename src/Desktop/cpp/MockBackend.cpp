@@ -1329,6 +1329,11 @@ QJsonObject MockBackend::captureSettings() const
         settings.insert(QStringLiteral("region_override"), QJsonValue(QJsonValue::Null));
     if (!settings.contains(QStringLiteral("candidate_validation_enabled")))
         settings.insert(QStringLiteral("candidate_validation_enabled"), false);
+    const bool maintainerRound = settings.value(QStringLiteral("candidate_validation_enabled")).toBool()
+        && !m_candidatePlayerRoundActive;
+    for (const auto *key : {"candidate_round_id", "candidate_round_profile_id"})
+        if (maintainerRound || !settings.contains(QLatin1String(key)))
+            settings.insert(QLatin1String(key), QJsonValue(QJsonValue::Null));
     // On by default, like the Collector: off means fail-closed silence on
     // every patch day.
     if (!settings.contains(QStringLiteral("auto_calibration_enabled")))
@@ -3528,7 +3533,7 @@ void MockBackend::deliver(BackendReply *reply, const QJsonObject &result, const 
     });
 }
 
-BackendReply *MockBackend::request(const QString &messageType, const QJsonObject &payload)
+BackendReply *MockBackend::request(const QString &messageType, const QJsonObject &wirePayload)
 {
     auto *reply = new BackendReply(m_requestId.isEmpty() ? ipc::newRequestId() : m_requestId,
                                    messageType, this);
@@ -3538,6 +3543,11 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
     QJsonObject errorDetails;
     QJsonObject result;
     bool handled = true;
+    QJsonObject payload = wirePayload;
+    if (!resolveHistorySelection(messageType, payload, &errorCode)) {
+        deliver(reply, {}, errorCode, tr("勾选记录暂不可用，请重试。"), {}, {});
+        return reply;
+    }
     const QJsonValue requestedRegion = payload.value(QStringLiteral("filter")).toObject().value(QStringLiteral("region"));
     if (!requestedRegion.isUndefined() && !requestedRegion.isNull()
         && (!requestedRegion.isString() || !isRegion(requestedRegion.toString()))) {
@@ -3773,6 +3783,10 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
             errorMessage = QString::fromUtf8("日历查询需要有效的 YYYY-MM 月份和筛选对象。");
         } else { result = queryRunCalendarDaysPayload(payload);
 }
+    } else if (messageType == QLatin1String("QueryHistorySelection")) {
+        result = queryHistorySelection(payload, &errorCode);
+    } else if (messageType == QLatin1String("StageHistorySelection")) {
+        result = stageHistorySelection(payload, &errorCode);
     } else if (messageType == QLatin1String("QueryRuns")) {
         // RequestParsers.Paging (PayloadReader.Int): omitted or null is the default, anything
         // else must be an integer in range - page from 1, page_size 1 to 200 - and is refused,
@@ -3853,7 +3867,8 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         const QJsonArray targets = payload.value(QStringLiteral("runs")).toArray();
         QSet<QString> seen;
         if ((action != QLatin1String("soft_delete") && action != QLatin1String("restore") && action != QLatin1String("purge"))
-            || reason.isEmpty() || reason.size() > 500 || targets.isEmpty() || targets.size() > 2000
+            || reason.isEmpty() || reason.size() > 500 || targets.isEmpty()
+            || (!payload.contains(QStringLiteral("selection_id")) && targets.size() > kInlineHistorySelectionLimit)
             || payload.contains(QStringLiteral("profile_id"))) {
             errorCode = QStringLiteral("ERR_BAD_REQUEST");
             errorMessage = tr("批量操作、原因或记录数量无效。");
@@ -3914,7 +3929,15 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         result = reviewCandidatePayload(payload, &errorCode, &errorMessage);
     } else if (messageType == QLatin1String("ExportCandidateEvidence")) {
         m_lastCandidateExportRequest = payload;
-        result = exportCandidatePayload(payload);
+        const auto key = QStringLiteral("candidate_round_id");
+        if (payload.contains(key) && (!isUuid(payload.value(key))
+                                      || payload.value(key).toString().toLower() != m_captureSettings.value(key).toString()
+                                      || m_candidatePlayerRoundActive)) {
+            errorCode = QStringLiteral("ERR_BAD_REQUEST");
+            errorMessage = QString::fromUtf8("该轮候选采证已无法确认。请返回页面检查采证状态。");
+        } else {
+            result = exportCandidatePayload(payload);
+        }
     } else if (messageType == QLatin1String("GetRunRevisions")) {
         // MessageDispatcher.GetRunRevisions + RunRevisionRepository.ListForRun:
         // oldest first, page / page_size defaulting to 1 / 50 and refused out
@@ -4017,6 +4040,12 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
                           payload.value(QStringLiteral("target_path")));
             const qsizetype count = sortedRuns(payload.value(QStringLiteral("filter")).toObject(),
                                                payload.value(QStringLiteral("sort")).toObject()).size();
+            const auto requested = payload.value(QStringLiteral("filter")).toObject()
+                                       .value(QStringLiteral("run_id")).toArray().size();
+            if (payload.contains(QStringLiteral("selection_id")) && count != requested) {
+                errorCode = QStringLiteral("ERR_NOT_FOUND");
+                errorMessage = tr("有选中的记录已不存在，请重新勾选。");
+            }
             result.insert(QStringLiteral("row_count"), count);
             result.insert(QStringLiteral("byte_count"), count * 240);
             result.insert(QStringLiteral("completed_at_utc"),
@@ -4066,6 +4095,8 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
     }
 
     const bool failed = !errorCode.isEmpty();
+    if (messageType == QLatin1String("BatchMutateRuns") && payload.contains(QStringLiteral("selection_id")))
+        result.remove(QStringLiteral("run_ids"));
     // A refusal refuseWith() wrote carries its catalogue reference, as the
     // Collector's ErrorPayload does (message_ref).
     const QJsonObject errorRef =

@@ -2,6 +2,7 @@
 
 #include <QHash>
 #include <QJsonObject>
+#include <QPointer>
 #include <QStringList>
 #include <QUrl>
 #include <QObject>
@@ -16,6 +17,7 @@
 #include <functional>
 
 namespace mr {
+class AppSettings;
 class IBackend;
 
 /// Candidate-only read/review surface. Owns bounded paging and a complete cross-page
@@ -54,6 +56,14 @@ class CandidateReviewController final : public QObject
     Q_PROPERTY(QStringList seenHypotheses READ seenHypotheses NOTIFY changed)
     /// True from finishRound() until its export has answered (or the switch-off failed).
     Q_PROPERTY(bool finishing READ finishing NOTIFY changed)
+    Q_PROPERTY(bool roundSettingsKnown READ roundSettingsKnown NOTIFY changed)
+    Q_PROPERTY(bool scopedRoundsSupported READ scopedRoundsSupported NOTIFY changed)
+    Q_PROPERTY(bool finishPending READ finishPending NOTIFY changed)
+    Q_PROPERTY(bool roundRecoverable READ roundRecoverable NOTIFY changed)
+    Q_PROPERTY(bool canDiscardRoundFinish READ canDiscardRoundFinish NOTIFY changed)
+    Q_PROPERTY(QString roundId READ roundId NOTIFY changed)
+    Q_PROPERTY(QVariantMap roundExportResult READ roundExportResult NOTIFY changed)
+    Q_PROPERTY(QString roundExportError READ roundExportError NOTIFY changed)
     /// What the tester of the player's round wrote beside the software's guesses
     /// ($defs/CandidateRoundAnswers, blanks left out), sent with every later export until
     /// the next startRound().
@@ -62,9 +72,11 @@ class CandidateReviewController final : public QObject
 public:
     explicit CandidateReviewController(QObject *parent = nullptr);
     void setBackend(IBackend *backend);
+    void setSettings(AppSettings *settings);
     void setActive(bool active);
     void setTargetOverride(const QString &directory) { m_targetOverride = directory; }
     void observeLiveEvent(const QVariantMap &event);
+    void adoptCaptureSettings(const QVariantMap &settings);
 
     QVariantList rows() const { return m_rows; }
     QVariantMap pageInfo() const;
@@ -91,6 +103,14 @@ public:
     QString candidateSettingsError() const { return m_settingsError.text(); }
     QStringList seenHypotheses() const { return m_seen; }
     bool finishing() const { return m_finishing; }
+    bool roundSettingsKnown() const { return m_roundSettingsKnown; }
+    bool scopedRoundsSupported() const { return m_scopedRoundsSupported; }
+    bool finishPending() const { return !m_finishRoundId.isEmpty(); }
+    bool roundRecoverable() const;
+    bool canDiscardRoundFinish() const;
+    QString roundId() const { return m_roundId; }
+    QVariantMap roundExportResult() const { return m_roundExportResult; }
+    QString roundExportError() const { return m_roundExportError.text(); }
     QVariantMap roundAnswers() const { return m_roundAnswers; }
     /// Research-eligible opcodes of  hypotheses ($defs/CandidateHypothesis rows), every group,
     /// in declaration order: what the player's round asks the Collector to keep the content of.
@@ -106,20 +126,26 @@ public Q_SLOTS:
     void exportEvidence();
     void setCandidateEnabled(bool enabled);
     void setResearchOpcodes(const QVariantList &opcodes);
-    /// Hands over the round's four answers before finishRound() or a later exportEvidence().
+    /// Hands over the round's four answers before the first finish attempt.
     void setRoundAnswers(const QVariantMap &answers);
     /// The player's 国际服候选验证 round (EvidenceCandidateRound.qml): candidate validation on and
     /// every eligible hypothesis of  hypotheses whitelisted, in one UpdateCaptureSettings.
     void startRound(const QVariantList &hypotheses);
-    /// Ends the round: validation off and the whitelist cleared, then exportEvidence().
+    /// Stops the player round and exports its evidence. Repeated attempts reuse its ID and answers.
     void finishRound();
-    /// Opens the folder of the last export in the system's file manager.
+    /// Forgets submitted answers and a retry intent. The Collector keeps its observations.
+    void discardRoundFinish();
+    /// Stops an older candidate session whose observations have no player round identity.
+    void stopUnscopedRound();
+    /// Opens the folder of the last maintainer export or player export, respectively.
     void openExportFolder();
+    void openRoundExportFolder();
 
 Q_SIGNALS:
     void changed();
     void reviewFinished(const QString &observationId, bool ok, const QString &error);
     void captureSettingsApplied(const QVariantMap &settings);
+    void captureSettingsRefreshRequested();
     void captureStatusRefreshRequested();
 
 private:
@@ -131,9 +157,13 @@ private:
     static QString sessionLabel(const QVariantMap &summary);
     void buildTimeline();
     void writeSettings(const QJsonObject &changes, std::function<void()> applied = {});
+    void clearRoundFinishDraft();
+    void exportEvidence(const QString &roundId);
+    void openExportFolder(const QVariantMap &result, LiveText &error);
     void disconnected();
 
     IBackend *m_backend = nullptr;
+    QPointer<AppSettings> m_settings;
     QVariantList m_rows;
     QVariantList m_sessions;
     QVariantList m_pairs;
@@ -156,6 +186,11 @@ private:
     LiveText m_settingsError;
     QVariantMap m_exportResult;
     QVariantMap m_roundAnswers;
+    QVariantMap m_roundExportResult;
+    LiveText m_roundExportError;
+    QString m_roundId;
+    QString m_finishRoundId;
+    QString m_exportedRoundId;
     QStringList m_seen;
     std::function<bool(const QUrl &)> m_openUrl;
     int m_page = 1;
@@ -174,5 +209,8 @@ private:
     bool m_exporting = false;
     bool m_settingsBusy = false;
     bool m_finishing = false;
+    bool m_roundSettingsKnown = false;
+    bool m_scopedRoundsSupported = false;
+    bool m_candidateEnabled = false;
 };
 } // namespace mr

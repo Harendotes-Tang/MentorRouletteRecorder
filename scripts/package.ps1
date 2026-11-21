@@ -128,6 +128,8 @@ $SourceNotePath = Join-Path $StageDir 'SOURCE_CODE.md'
 $BuildMetadataPath = Join-Path $StageDir 'BUILD-METADATA.json'
 $HashPath = Join-Path $StageDir 'SHA256SUMS.txt'
 $ChangelogPath = Join-Path $RepoRoot 'CHANGELOG.md'
+# Each installed README links to the other languages and to the release notes beside it.
+$PackagedRootDocs = @('README.md', 'README.zh-TW.md', 'README.en.md', 'README.ja.md', 'CHANGELOG.md')
 $InstallerScript = Join-Path $RepoRoot 'installer\MentorRecorder.iss'
 $InstallerPath = Join-Path $OutputRoot ("MentorRecorder-{0}-setup.exe" -f $Version)
 $InstallerHashPath = $InstallerPath + '.sha256'
@@ -605,7 +607,7 @@ function Assert-RequiredContent([string]$TargetDir) {
         'multimedia\windowsmediaplugin.dll'
         'LICENSE'
         'THIRD_PARTY_NOTICES.md'
-        'README.md'
+        $PackagedRootDocs
         'SOURCE_CODE.md'
         'BUILD-METADATA.json'
         'SHA256SUMS.txt'
@@ -866,7 +868,9 @@ if (Test-Path -LiteralPath $DesktopManifest) {
     Write-Host ("  不随包：构建目录中旧的外部清单 {0}" -f $DesktopManifest) -ForegroundColor Yellow
 }
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'LICENSE') -Destination $StageDir
-Copy-Item -LiteralPath (Join-Path $RepoRoot 'README.md') -Destination $StageDir
+foreach ($document in $PackagedRootDocs) {
+    Copy-Item -LiteralPath (Join-Path $RepoRoot $document) -Destination $StageDir
+}
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'THIRD_PARTY_NOTICES.md') -Destination $StageDir
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'docs') -Destination (Join-Path $StageDir 'docs') -Recurse -Force
 Install-OcrRuntime -DestinationDirectory $StageDir -RepoRoot $RepoRoot

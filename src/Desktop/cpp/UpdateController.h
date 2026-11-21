@@ -312,6 +312,7 @@ private:
     };
 
     static Download downloadFrom(const QVariant &raw);
+    static QString mirrorNoticeFor(const QString &outcome);
     /// The Collector's sentence for \a download in the interface language.
     static QString downloadMessage(const Download &download);
     bool downloadRunning() const;

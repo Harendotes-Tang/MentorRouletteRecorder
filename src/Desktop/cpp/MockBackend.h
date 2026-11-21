@@ -390,6 +390,9 @@ private:
     bool refusedSort(const QJsonObject &payload, QString *errorCode, QString *errorMessage);
     QJsonObject queryRunCalendarDaysPayload(const QJsonObject &payload) const;
     QJsonObject queryRunsPayload(const QJsonObject &payload) const;
+    QJsonObject queryHistorySelection(const QJsonObject &payload, QString *errorCode);
+    QJsonObject stageHistorySelection(const QJsonObject &payload, QString *errorCode);
+    bool resolveHistorySelection(const QString &messageType, QJsonObject &payload, QString *errorCode) const;
     QJsonObject queryCandidatePayload(const QJsonObject &payload, QString *errorCode,
                                        QString *errorMessage) const;
     QJsonObject reviewCandidatePayload(const QJsonObject &payload, QString *errorCode,
@@ -415,6 +418,13 @@ private:
     void touchRun(QJsonObject &run, const QString &changeKind, const QString &reason,
                   const QJsonArray &changes);
 
+    struct StagedHistorySelection {
+        QList<QJsonArray> chunks;
+        QJsonArray targets;
+        bool sealed = false;
+    };
+    QHash<QString, QList<QJsonObject>> m_historySelectionSnapshots;
+    QHash<QString, StagedHistorySelection> m_stagedHistorySelections;
     QJsonArray m_runs;
     QJsonArray m_revisions;
     QJsonArray m_candidateObservations;
@@ -527,6 +537,7 @@ private:
     /// What setCandidateRoundFixture() makes GetStatus.capture say.
     void applyCandidateRoundFixture(QJsonObject &status) const;
     bool m_candidateRound = false;
+    bool m_candidatePlayerRoundActive = false;
     bool m_candidateRoundGameRunning = false;
     QJsonObject m_candidateRoundGuesses;
     QJsonObject m_lastCandidateExportRequest;

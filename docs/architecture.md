@@ -249,6 +249,7 @@
 | 抓包验证 | `StartCaptureValidation` `GetCaptureValidationStatus` `AddCaptureValidationMarker` `StopCaptureValidation` |
 | 实时 | `GetCurrentRun` `SubscribeLiveEvents` |
 | 查询 | `QueryRuns` `QueryRunCalendarDays` `GetRunRevisions` `GetRunEvents` |
+| 历史勾选 | `QueryHistorySelection` `StageHistorySelection` |
 | 统计 | `GetDashboardStats` `GetDungeonStats` `GetJobStats` `GetResultStats` |
 | 变更 | `CreateManualRun` `CorrectRun` `SoftDeleteRun` `RestoreRun` `UndoRevision` `BatchMutateRuns` `PreviewRunRegionMigration` `UpdateAchievementBaseline` |
 | 角色档案与识别 | `CreateCharacterProfile` `UpdateCharacterProfile` `DeleteCharacterProfile` `ResolveCharacterIdentity` |

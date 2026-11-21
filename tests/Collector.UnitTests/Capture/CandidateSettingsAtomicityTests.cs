@@ -171,7 +171,17 @@ public sealed class CandidateSettingsAtomicityTests
         var pipeline = new LiveProtocolPipeline(db.Database, db.Clock, new LiveEventBus(db.Clock),
             _ => new ProfileSelection(ProfileCompatibilityStatus.Unsupported, ProfileBinding.FailClosed,
                 null, Region.Cn, "test-build", "synthetic atomicity test"));
-        pipeline.OnCaptureStarted("session");
+        pipeline.Refresh(GameProcessDetection.NotRunning with { Region = Region.Cn, GameBuild = "2026.08.05.0000.0000" });
+        var rows = new List<CandidateObservation>();
+        pipeline.CandidateObserved += rows.Add;
+        var session = Guid.NewGuid().ToString("D");
+        pipeline.OnCaptureStarted(session);
+        var now = db.Clock.UtcNow;
+        pipeline.Accept(new DecodedMessage(session, MessageDirection.Outbound, now, TimeSpan.FromMilliseconds(1),
+            0, 3, 0x03bb, new byte[128], "synthetic connection"));
+        var sample = new DecodedMessage(session, MessageDirection.Inbound, now, TimeSpan.FromMilliseconds(2),
+            0, 3, 0x0eee, new byte[8], "synthetic connection");
+        pipeline.Accept(sample);
         RejectRegionWrite(db);
         var update = new CaptureSettingsUpdate
         {
@@ -184,11 +194,16 @@ public sealed class CandidateSettingsAtomicityTests
             () => CaptureSettingsStore.Apply(settings, update)));
         Assert.True(pipeline.CandidateValidationEnabled);
         Assert.True(CaptureSettingsStore.Read(settings).CandidateValidationEnabled);
+        Assert.Single(rows, row => row.Opcode == sample.Opcode && row.HypothesisName == CandidateObserver.QueueWindowSampleName);
 
+        // The committed samples are not duplicated, and the window still accepts new ones.
+        pipeline.Accept(sample with { Mono = TimeSpan.FromMilliseconds(3) });
         Execute(db, "DROP TRIGGER reject_region_write;");
         pipeline.ApplyCandidateSettings(false, () => CaptureSettingsStore.Apply(settings, update));
         Assert.False(pipeline.CandidateValidationEnabled);
         Assert.False(CaptureSettingsStore.Read(settings).CandidateValidationEnabled);
+        Assert.Equal(new long[] { 2, 3 }, rows.Where(row => row.Opcode == sample.Opcode)
+            .Select(row => row.TMs));
     }
 
     [Fact]

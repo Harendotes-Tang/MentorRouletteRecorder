@@ -12,13 +12,15 @@ public sealed partial class RunMutationService
 {
     /// <summary>Reads a consistent preview without changing the selected rows or target role.</summary>
     public RunRegionMigrationPreview PreviewRunRegionMigration(IReadOnlyList<BatchRunTarget> targets,
-        Region region, long profileId)
-    {
-        var sorted = ValidateBatchTargets(targets);
-        return _database.RunInTransaction(tx =>
+        Region region, long profileId) =>
+        PreviewStagedRunRegionMigration(ValidateBatchTargets(targets), region, profileId);
+
+    /// <summary>Previews an already validated sealed set without the inline wire-array size constraint.</summary>
+    internal RunRegionMigrationPreview PreviewStagedRunRegionMigration(IReadOnlyList<BatchRunTarget> sorted,
+        Region region, long profileId) =>
+        _database.RunInTransaction(tx =>
             InspectRegionMigration(sorted.Select(target => LoadBatchTarget(target, tx)).ToArray(),
                 region, profileId, tx).Preview);
-    }
 
     private (RunRegionMigrationPreview Preview, CharacterProfile Profile) InspectRegionMigration(
         MentorRun[] runs, Region region, long profileId, SqliteTransaction transaction)

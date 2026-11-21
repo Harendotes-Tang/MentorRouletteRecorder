@@ -42,6 +42,7 @@ bool isLongRunning(const QString &messageType)
         QStringLiteral("BackupDatabase"),
         QStringLiteral("ExportCsv"),
         QStringLiteral("ExportJson"),
+        QStringLiteral("QueryHistorySelection"),
         QStringLiteral("ExportDiagnosticsReport"),
         QStringLiteral("ExportCandidateEvidence"),
         // Imports parse bounded files and recheck/write a batch transaction;
@@ -396,8 +397,10 @@ void IpcClient::send(BackendReply *reply, const QString &messageType,
         return;
     }
 
-    const int deadlineMs =
-        timeoutMs > 0 ? timeoutMs : timeoutForMessageType(messageType, m_requestTimeoutMs);
+    const bool largeHistoryRequest = payload.contains(QStringLiteral("selection_id"))
+        && (messageType == QLatin1String("BatchMutateRuns") || messageType == QLatin1String("PreviewRunRegionMigration"));
+    const int deadlineMs = timeoutMs > 0 ? timeoutMs
+        : largeHistoryRequest ? kLongRequestTimeoutMs : timeoutForMessageType(messageType, m_requestTimeoutMs);
 
     Pending pending;
     pending.reply = reply;

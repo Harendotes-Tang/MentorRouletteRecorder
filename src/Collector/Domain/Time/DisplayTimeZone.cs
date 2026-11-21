@@ -70,7 +70,13 @@ public static class DisplayTimeZone
     /// <summary>The calendar day, <c>yyyy-MM-dd</c>, the instant falls on in the zone in force.</summary>
     /// <param name="instant">Any instant.</param>
     public static string DayOf(DateTimeOffset instant) =>
-        Convert(instant).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        DayOf(instant, Current);
+
+    /// <summary>The instant's calendar day in a given zone, including a frozen query zone.</summary>
+    /// <param name="instant">Any instant.</param>
+    /// <param name="zone">The zone to use.</param>
+    internal static string DayOf(DateTimeOffset instant, TimeZoneInfo zone) =>
+        TimeZoneInfo.ConvertTime(instant, zone).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     /// <summary>The wall-clock time <c>HH:mm</c> of the instant in the zone in force.</summary>
     /// <param name="instant">Any instant.</param>

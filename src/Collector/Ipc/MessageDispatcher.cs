@@ -61,7 +61,8 @@ public sealed class MessageDispatcher
     public static IReadOnlySet<string> KnownMessageTypes { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
         "GetVersion", "GetStatus", "GetCaptureStatus", "ListCaptureAdapters", "StartCapture", "SelectGameProcess",
-        "StopCapture", "GetProtocolProfileStatus", "GetCurrentRun", "QueryRuns", "QueryRunCalendarDays", "GetDashboardStats",
+        "StopCapture", "GetProtocolProfileStatus", "GetCurrentRun", "QueryRuns", "QueryHistorySelection", "StageHistorySelection",
+        "QueryRunCalendarDays", "GetDashboardStats",
         "GetDungeonStats", "GetJobStats", "GetResultStats", "CreateManualRun", "CorrectRun",
         "SoftDeleteRun", "RestoreRun", "GetRunRevisions", "UpdateAchievementBaseline", "ExportCsv",
         "CreateCharacterProfile", "UpdateCharacterProfile", "DeleteCharacterProfile", "ResolveCharacterIdentity",
@@ -94,8 +95,14 @@ public sealed class MessageDispatcher
         new HashSet<string>(StringComparer.Ordinal)
         {
             "SynthesizeSpeech", "CheckDatabaseIntegrity", "CheckUpdateNow", "PreviewRunImport", "CommitRunImport",
-            "ExportCsv", "ExportJson",
+            "ExportCsv", "ExportJson", "QueryHistorySelection",
         };
+
+    /// <summary>Defers history snapshot creation only; paging and release keep pipe receive order.</summary>
+    internal static bool ShouldDefer(IpcRequest request) =>
+        AsynchronousMessageTypes.Contains(request.MessageType) &&
+        (request.MessageType != "QueryHistorySelection" ||
+            (!request.Payload.ContainsKey("selection_id") && !request.Payload.ContainsKey("release")));
 
     /// <summary>Host this dispatcher serves.</summary>
     public CollectorHost Host => _host;
@@ -126,6 +133,8 @@ public sealed class MessageDispatcher
             "AddCaptureValidationMarker" => ValidationMarker(reader),
             "GetCurrentRun" => GetCurrentRun(reader),
             "QueryRuns" => QueryRuns(reader),
+            "QueryHistorySelection" => HistorySelectionHandlers.Query(_host, reader, CancellationToken.None),
+            "StageHistorySelection" => HistorySelectionHandlers.Stage(_host, reader),
             "QueryRunCalendarDays" => QueryRunCalendarDays(reader),
             "GetDashboardStats" => GetDashboardStats(reader),
             "GetDungeonStats" => GetDungeonStats(reader),
@@ -202,6 +211,8 @@ public sealed class MessageDispatcher
             "CheckUpdateNow" => UpdateHandlers.CheckNowAsync(_host, new PayloadReader(request.Payload), cancellationToken),
             "PreviewRunImport" or "CommitRunImport" => DispatchImportAsync(request, cancellationToken),
             "ExportCsv" or "ExportJson" => DispatchExportAsync(request, cancellationToken),
+            "QueryHistorySelection" => Task.Run(() =>
+                HistorySelectionHandlers.Query(_host, new PayloadReader(request.Payload), cancellationToken), cancellationToken),
             _ => Task.FromResult(Dispatch(request)),
         };
     }
@@ -633,16 +644,19 @@ public sealed class MessageDispatcher
 
     private JsonObject BatchMutateRuns(string requestId, PayloadReader reader)
     {
-        var outcome = _host.Mutations.BatchMutateRuns(RequestParsers.BatchMutateRuns(requestId, reader));
+        var command = RequestParsers.BatchMutateRuns(requestId, reader);
+        var outcome = _host.Mutations.BatchMutateRuns(command, _host.HistorySelections.RequireStaged);
         if (!outcome.IdempotentReplay)
             _host.LiveEvents.PublishStatsInvalidated("历史记录已批量更新，请重新查询。");
-        return new JsonObject
+        var response = new JsonObject
         {
             ["changed_count"] = outcome.ChangedCount,
-            ["run_ids"] = new JsonArray(outcome.RunIds.Select(id => (JsonNode?)JsonValue.Create(id)).ToArray()),
             ["action"] = outcome.Action,
             ["idempotent_replay"] = outcome.IdempotentReplay,
         };
+        if (command.SelectionId is null)
+            response["run_ids"] = new JsonArray(outcome.RunIds.Select(id => (JsonNode?)JsonValue.Create(id)).ToArray());
+        return response;
     }
 
     private JsonObject GetHistoryRetentionSettings(PayloadReader reader)
@@ -650,9 +664,12 @@ public sealed class MessageDispatcher
 
     private JsonObject PreviewRunRegionMigration(PayloadReader reader)
     {
-        reader.RejectUnknown("runs", "region", "profile_id");
+        reader.RejectUnknown("runs", "selection_id", "region", "profile_id");
         var (region, profileId) = RequestParsers.RegionDestination(reader);
-        var preview = _host.Mutations.PreviewRunRegionMigration(RequestParsers.BatchRunTargets(reader), region, profileId);
+        var selectionId = HistorySelectionHandlers.ReadTargetId(reader);
+        var preview = selectionId is null
+            ? _host.Mutations.PreviewRunRegionMigration(RequestParsers.BatchRunTargets(reader), region, profileId)
+            : _host.Mutations.PreviewStagedRunRegionMigration(_host.HistorySelections.RequireStaged(selectionId), region, profileId);
         return new JsonObject
         {
             ["source_region"] = EnumWire<Region>.Format(preview.SourceRegion),
@@ -719,17 +736,27 @@ public sealed class MessageDispatcher
         // include_revisions was declared and then discarded: no export ever carried revisions. It
         // is no longer part of the contract and is refused like any other undeclared field
         // (audit 2026-10-03, OF-7).
-        reader.RejectUnknown("target_path", "filter", "overwrite", "sort");
+        reader.RejectUnknown("target_path", "filter", "overwrite", "sort", "selection_id");
         var targetPath = reader.RequiredString("target_path", 32000);
-        var filter = RequestParsers.Filter(reader.Object("filter"));
+        var filterReader = reader.Object("filter");
+        var selectionId = HistorySelectionHandlers.ReadStagedId(reader);
+        IReadOnlyList<BatchRunTarget>? targets = null;
+        if (selectionId is not null)
+        {
+            filterReader?.RejectUnknown("include_deleted");
+            if (filterReader?.Bool("include_deleted") is false)
+                throw CollectorException.BadRequest(CollectorTexts.ExportSelectionRequiresDeleted(), "payload.filter.include_deleted");
+            targets = _host.HistorySelections.RequireStaged(selectionId);
+        }
+        var filter = targets is null ? RequestParsers.Filter(filterReader) : new RunFilter { IncludeDeleted = true };
         var overwrite = reader.Bool("overwrite") ?? false;
         // The same RunSort QueryRuns takes: the Desktop sends the history list's current order,
         // so the file reads top to bottom the way the list does (contracts/CHANGELOG.md 2026-11-03).
         var sort = RequestParsers.Sort(reader.Object("sort"));
 
         var outcome = csv
-            ? _exporter.ExportCsv(targetPath, filter, overwrite, sort, cancellationToken)
-            : _exporter.ExportJson(targetPath, filter, overwrite, sort, cancellationToken);
+            ? _exporter.ExportCsv(targetPath, filter, overwrite, sort, cancellationToken, targets)
+            : _exporter.ExportJson(targetPath, filter, overwrite, sort, cancellationToken, targets);
 
         return new JsonObject
         {

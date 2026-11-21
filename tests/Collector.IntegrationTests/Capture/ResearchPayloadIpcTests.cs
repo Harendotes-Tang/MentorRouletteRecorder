@@ -3,11 +3,48 @@ using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Decoded;
+using MentorRecorder.Collector.Protocol.Parsing;
 
 namespace MentorRecorder.Collector.IntegrationTests;
 
 public sealed class ResearchPayloadIpcTests
 {
+    [Fact]
+    public async Task DisablingResearchCommitsBufferedWindowMetadataBeforeTheLedgerCloses()
+    {
+        await using var fixture = ServerFixture.Start();
+        await using var client = await fixture.ConnectAsync();
+        (await client.SendAsync("UpdateCaptureSettings", new JsonObject
+        {
+            ["candidate_validation_enabled"] = true,
+            ["research_payload_opcodes"] = new JsonArray("0x03bb"),
+        })).Require();
+        var pipeline = fixture.Host.LiveProtocol!;
+        pipeline.Refresh(GameProcessDetection.NotRunning with { Region = Region.Cn, GameBuild = "2026.08.05.0000.0000" });
+        var session = fixture.Host.CaptureSessionId;
+        pipeline.OnCaptureStarted(session);
+        var now = fixture.Host.Clock.UtcNow;
+        pipeline.Accept(new DecodedMessage(session, MessageDirection.Outbound, now,
+            TimeSpan.FromMilliseconds(1), 0, 3, 0x03bb, new byte[128], "synthetic connection"));
+        var buffered = new DecodedMessage(session, MessageDirection.Inbound, now,
+            TimeSpan.FromMilliseconds(2), 0, 3, 0x0eee, new byte[8], "synthetic connection");
+        pipeline.Accept(buffered);
+        Assert.DoesNotContain(fixture.Host.Candidates.ReadEvidence().Observations, entry => entry.Observation.Opcode == buffered.Opcode);
+
+        (await client.SendAsync("UpdateCaptureSettings", new JsonObject
+        {
+            ["candidate_validation_enabled"] = false,
+            ["research_payload_opcodes"] = new JsonArray(),
+        })).Require();
+        pipeline.Accept(buffered with { Mono = TimeSpan.FromMilliseconds(3) });
+        pipeline.OnCaptureStopped(session, CaptureEndReason.ProcessExit);
+
+        var sample = Assert.Single(fixture.Host.Candidates.ReadEvidence().Observations, entry => entry.Observation.Opcode == buffered.Opcode);
+        Assert.Equal(CandidateObserver.QueueWindowSampleName, sample.Observation.HypothesisName);
+        Assert.Equal(1, sample.Observation.Occurrences);
+        Assert.Null(sample.Observation.PayloadHex);
+    }
+
     [Fact]
     public async Task ExpandedZonePayloadsTraverseLivePipelineAndEvidenceWithoutEnteringOrdinaryIpc()
     {
@@ -120,7 +157,11 @@ public sealed class ResearchPayloadIpcTests
         Assert.Single(fixture.Host.Candidates.ReadEvidence().Observations, item => item.Observation.PayloadHex is not null);
         (await client.SendAsync("UpdateCaptureSettings", new JsonObject { ["candidate_validation_enabled"] = false })).Require();
         pipeline.Accept(message with { Mono = TimeSpan.FromMilliseconds(125) });
-        Assert.Equal(2, fixture.Host.Candidates.Count());
+        var retained = fixture.Host.Candidates.ReadEvidence().Observations;
+        Assert.Equal(3, retained.Count);
+        var buffered = Assert.Single(retained, item => item.Observation.HypothesisName == CandidateObserver.QueueWindowSampleName);
+        Assert.Null(buffered.Observation.PayloadHex);
+        Assert.Equal(124L, buffered.Observation.TMs);
 
         var directory = Path.GetDirectoryName(fixture.DatabasePath)!;
         var path = Path.Combine(directory, "research.json");

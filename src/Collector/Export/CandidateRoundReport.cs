@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Events;
@@ -32,6 +33,9 @@ public sealed record RoundGuess(int Id, string? Name, int? ContentId = null)
 public sealed record CandidateRoundReport(
     DateTimeOffset StartedAtUtc, RoundGuess? FirstRoulette, RoundGuess? JobBefore, RoundGuess? JobAfter, RoundGuess? Duty)
 {
+    /// <summary>Player round that supplied the status guesses. Exported evidence carries its scope separately.</summary>
+    public string? PlayerRoundId { get; init; }
+
     /// <summary>Wire and export shape.</summary>
     public JsonObject Wire() => new()
     {
@@ -80,11 +84,38 @@ public sealed class CandidateRoundReporter(
     /// not be built. The guesses are a convenience beside the evidence: failing to read them must
     /// never take the status or the export of a round down with it.
     /// </summary>
-    public CandidateRoundReport? Read()
+    public CandidateRoundReport? Read() => TryRead(() =>
+    {
+        var current = profile();
+        if (CandidatePlayerRound.Read(settings) is { Active: true } round)
+        {
+            if (current is not { Status: ProfileCompatibilityStatus.Candidate } || current.ProfileId != round.ProfileId)
+                return null;
+            var report = Build(current, round.StartedAtUtc, positions => ledger.ReadPlayerGuessValues(round, positions));
+            return report is null ? null : report with { PlayerRoundId = round.Id };
+        }
+        return current is { Status: ProfileCompatibilityStatus.Candidate } &&
+               settings.GetSettingUpdatedAtUtc(CaptureSettingsStore.CandidateRoundMarkSetting) is { } started
+            ? Build(current, started, positions => ledger.ReadGuessValues(current.ProfileId, started, positions))
+            : null;
+    });
+
+    /// <summary>Builds an export's report from its exact observations, even after the client changed.</summary>
+    internal CandidateRoundReport? Read(CandidatePlayerRound round, SqliteTransaction transaction) => TryRead(() =>
+    {
+        var candidate = profile();
+        if (candidate is not { Status: ProfileCompatibilityStatus.Candidate } || candidate.ProfileId != round.ProfileId)
+            candidate = ProfileCatalog.LoadDefault(allowCandidate: true).Entries.Select(entry => entry.Profile)
+                .SingleOrDefault(item => item is { Status: ProfileCompatibilityStatus.Candidate } && item.ProfileId == round.ProfileId);
+        return candidate is null ? null : Build(candidate, round.StartedAtUtc,
+            positions => ledger.ReadPlayerGuessValues(round, positions, transaction));
+    });
+
+    private CandidateRoundReport? TryRead(Func<CandidateRoundReport?> build)
     {
         try
         {
-            return Build();
+            return build();
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
@@ -93,35 +124,45 @@ public sealed class CandidateRoundReporter(
         }
     }
 
-    private CandidateRoundReport? Build()
+    private static CandidateRoundReport? Build(ProtocolProfile candidate, DateTimeOffset started,
+        Func<IEnumerable<CandidateGuessPosition>, IReadOnlyDictionary<CandidateGuessPosition,
+            IReadOnlyList<(DateTimeOffset At, int Value)>>> readValues)
     {
-        if (profile() is not { Status: ProfileCompatibilityStatus.Candidate } candidate ||
-            settings.GetSettingUpdatedAtUtc(CaptureSettingsStore.CandidateRoundMarkSetting) is not { } started)
-            return null;
         var guesses = candidate.Hypotheses
-            .SelectMany(hypothesis => hypothesis.Guesses.Select(guess => (Hypothesis: hypothesis, Guess: guess)))
-            .ToDictionary(pair => pair.Guess.Kind);
+            .SelectMany(hypothesis => hypothesis.Guesses.Select(guess => (guess.Kind, Position: new CandidateGuessPosition(
+                hypothesis.Direction == PacketDirection.ServerToClient ? "S2C" : "C2S",
+                hypothesis.Opcode, hypothesis.ExpectedLength!.Value, guess.Offset, guess.Size))))
+            .ToDictionary(pair => pair.Kind, pair => pair.Position);
         if (guesses.Count == 0) return null;
 
+        var values = readValues(guesses.Values);
         IReadOnlyList<(DateTimeOffset At, int Value)> Values(ProfileGuessKind kind) =>
-            guesses.TryGetValue(kind, out var pair)
-                ? ledger.ReadGuessValues(started,
-                    pair.Hypothesis.Direction == PacketDirection.ServerToClient ? "S2C" : "C2S",
-                    pair.Hypothesis.Opcode, pair.Hypothesis.ExpectedLength!.Value, pair.Guess.Offset, pair.Guess.Size)
+            guesses.TryGetValue(kind, out var position)
+                ? values[position]
                 : Array.Empty<(DateTimeOffset, int)>();
 
         var roulettes = Values(ProfileGuessKind.Roulette);
+        if (roulettes.Count == 0) return new CandidateRoundReport(started, null, null, null, null);
+
+        var firstRegistration = roulettes[0];
         var jobs = Values(ProfileGuessKind.Job);
-        // The round queues twice: once to withdraw, once for the duty. Until the second
-        // registration there is no "after" and no duty to speak of.
-        var entered = roulettes.Count >= 2
-            ? Values(ProfileGuessKind.Territory).Where(row => row.At > roulettes[^1].At).Select(row => (int?)row.Value).FirstOrDefault()
+        // Replies before the final registration, including repeats and withdrawal from the
+        // first queue, cannot establish the job used for the final queue.
+        DateTimeOffset? finalRegistration = roulettes.Count >= 2 ? roulettes[^1].At : null;
+        var jobBefore = jobs
+            .Where(row => row.At >= firstRegistration.At && (finalRegistration is null || row.At < finalRegistration.Value))
+            .Select(row => (int?)row.Value).FirstOrDefault();
+        var jobAfter = finalRegistration is { } second
+            ? jobs.Where(row => row.At >= second).Select(row => (int?)row.Value).FirstOrDefault()
+            : null;
+        var entered = finalRegistration is { } registration
+            ? Values(ProfileGuessKind.Territory).Where(row => row.At > registration).Select(row => (int?)row.Value).FirstOrDefault()
             : null;
         return new CandidateRoundReport(
             started,
-            roulettes.Count > 0 ? Roulette(roulettes[0].Value, candidate.Region) : null,
-            jobs.Count > 0 ? Job(jobs[0].Value) : null,
-            jobs.Count >= 2 ? Job(jobs[^1].Value) : null,
+            Roulette(firstRegistration.Value, candidate.Region),
+            jobBefore is { } before ? Job(before) : null,
+            jobAfter is { } after ? Job(after) : null,
             entered is { } territory ? Duty(territory, candidate.Region) : null);
     }
 

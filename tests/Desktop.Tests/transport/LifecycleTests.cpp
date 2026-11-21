@@ -1946,6 +1946,7 @@ void LifecycleTests::everyAnswerTheCollectorDefersGetsAnExtendedDeadline()
     const int ordinary = mr::IpcClient::kDefaultRequestTimeoutMs;
     const QStringList deferred{QStringLiteral("SynthesizeSpeech"),
                                QStringLiteral("CheckDatabaseIntegrity"),
+                               QStringLiteral("QueryHistorySelection"),
                                QStringLiteral("CheckUpdateNow"),
                                QStringLiteral("PreviewRunImport"),
                                QStringLiteral("CommitRunImport"),

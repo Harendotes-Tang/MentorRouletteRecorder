@@ -6,6 +6,7 @@
 #include "ReflectionLibraryController.h"
 #include "ReflectionShareController.h"
 
+#include <QDir>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QJSValue>
@@ -15,6 +16,8 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QTemporaryDir>
+
+#include <algorithm>
 
 namespace {
 
@@ -41,6 +44,42 @@ QStringList runIds(QObject *dialog)
 QPoint centerInWindow(QQuickItem *item)
 {
     return item->mapToScene(item->boundingRect().center()).toPoint();
+}
+
+QRectF sceneRect(const QQuickItem *item)
+{
+    return item->mapRectToScene(item->boundingRect());
+}
+
+QRect framePixels(const QRectF &rect, const QImage &image, const QQuickWindow *window)
+{
+    const qreal scale = static_cast<qreal>(image.width()) / window->width();
+    return QRectF(rect.topLeft() * scale, rect.size() * scale).toAlignedRect().intersected(image.rect());
+}
+
+int changedPixels(const QImage &visible, const QImage &hidden, const QRect &region)
+{
+    int changed = 0;
+    for (int y = region.top(); y <= region.bottom(); ++y)
+        for (int x = region.left(); x <= region.right(); ++x) {
+            const auto a = visible.pixelColor(x, y);
+            const auto b = hidden.pixelColor(x, y);
+            if (qAbs(a.red() - b.red()) + qAbs(a.green() - b.green()) + qAbs(a.blue() - b.blue()) > 12)
+                ++changed;
+        }
+    return changed;
+}
+
+int textInk(const QImage &image, const QRect &region)
+{
+    int ink = 0;
+    for (int y = region.top(); y <= region.bottom(); ++y)
+        for (int x = region.left(); x <= region.right(); ++x) {
+            const auto pixel = image.pixelColor(x, y);
+            if (pixel.red() < 110 && pixel.green() < 100 && pixel.blue() < 95)
+                ++ink;
+        }
+    return ink;
 }
 
 /// The objects the share dialog reads from its context, and the scene it is created in.
@@ -270,6 +309,157 @@ ApplicationWindow {
         QTRY_VERIFY(!dialog->property("visible").toBool());
         QVERIFY(open());
         QCOMPARE(runIds(dialog), newest);
+    }
+
+
+    void combinedDragCoversTheRowBelowAndKeepsItsLastLine_data()
+    {
+        QTest::addColumn<int>("from");
+        QTest::newRow("short-down") << 0;
+        QTest::newRow("long-up") << 1;
+    }
+
+    void combinedDragCoversTheRowBelowAndKeepsItsLastLine()
+    {
+        QFETCH(int, from);
+        ShareScene share;
+        auto &scene = share.scene;
+        QVERIFY2(scene.create(R"(import QtQuick
+import QtQuick.Controls
+import MentorRecorder
+ApplicationWindow {
+    visible: true; width: 920; height: 1040
+    ReflectionShareDialog { objectName: "dialog"; windowed: true; anchors.centerIn: Overlay.overlay }
+})", QStringLiteral("/ReflectionShareDragPixels.qml")), qPrintable(scene.errors));
+        auto *window = scene.window();
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *dialog = scene.root->findChild<QObject *>(QStringLiteral("dialog"));
+        QVERIFY(dialog);
+
+        const QString shortNote = QStringLiteral("Palette practice\nShort reflection line two\nShort reflection last line");
+        const QString longNote = QStringLiteral("A longer reflection begins\n"
+            "Second reflection line\nThird reflection line\nFourth reflection line\nFifth reflection line\n"
+            "Sixth reflection line\nSeventh reflection line\nLong reflection last line");
+        auto runs = ShareScene::runs();
+        for (qsizetype i : {qsizetype(1), qsizetype(2)}) {
+            auto run = runs[i].toMap();
+            run[QStringLiteral("duty_name")] = i == 1 ? QStringLiteral("The Hidden Citadel") : QStringLiteral("The Amber Keep");
+            run[QStringLiteral("reflection")] = QVariantMap{{QStringLiteral("text"), i == 1 ? longNote : shortNote}};
+            runs[i] = run;
+        }
+        QVERIFY(QMetaObject::invokeMethod(dialog, "openForRuns", Q_ARG(QVariant, QVariant(runs))));
+        QTRY_VERIFY(dialog->property("opened").toBool());
+        const auto visible = [window](const QString &name) { return findVisual(window->contentItem(), name); };
+        auto *mode = visible(QStringLiteral("reflectionImageOutputMode"));
+        auto *preview = visible(QStringLiteral("reflectionSharePreview"));
+        auto *combined = visible(QStringLiteral("reflectionShareCombinedCard"));
+        auto *ghost = visible(QStringLiteral("reflectionShareDragGhost"));
+        QVERIFY(mode && preview && combined && ghost);
+        auto *flick = qvariant_cast<QObject *>(preview->property("contentItem"));
+        QVERIFY(flick);
+        mode->setProperty("currentIndex", 1);
+        const QQmlListReference entries(combined, "collectionEntries");
+        QTRY_COMPARE(entries.count(), 3);
+        const int to = 1 - from;
+        auto *source = qobject_cast<QQuickItem *>(entries.at(from));
+        auto *target = qobject_cast<QQuickItem *>(entries.at(to));
+        auto *first = qobject_cast<QQuickItem *>(entries.at(0));
+        QVERIFY(source && target && first);
+        auto *sourceText = findVisual(source, QStringLiteral("reflectionShareFullText"));
+        auto *targetTitle = findVisual(target, QStringLiteral("reflectionShareDutyTitle"));
+        auto *targetText = findVisual(target, QStringLiteral("reflectionShareFullText"));
+        QVERIFY(sourceText && targetTitle && targetText);
+        const auto date = target->property("playedDate").toString().mid(5).replace(QLatin1Char('-'), QLatin1Char('.'));
+        const auto children = target->childItems();
+        const auto dateItem = std::find_if(children.cbegin(), children.cend(), [&date](const QQuickItem *item) {
+            return item->property("text").toString() == date;
+        });
+        QVERIFY(dateItem != children.cend());
+        auto *targetDate = *dateItem;
+        QCOMPARE(sourceText->property("lineCount").toInt(), from == 0 ? 3 : 8);
+
+        // Keep both grips and the full lifted copy inside the viewport.
+        flick->setProperty("contentY", qMax(0.0, sceneRect(first).top() - sceneRect(preview).top() - 100.0));
+        const auto gripName = QStringLiteral("reflectionShareDragGrip_%1").arg(from);
+        QTRY_VERIFY(visible(gripName));
+        QTest::qWait(80);
+        const QString evidence = qEnvironmentVariable("MR_SHARE_DRAG_EVIDENCE_DIR");
+        const auto save = [&evidence](const QImage &image, const QString &step) {
+            if (evidence.isEmpty())
+                return true;
+            return image.save(QDir(evidence).filePath(QString::fromLatin1(QTest::currentDataTag())
+                + QLatin1Char('-') + step + QStringLiteral(".png")));
+        };
+        const auto before = window->grabWindow();
+        QVERIFY(!before.isNull() && save(before, QStringLiteral("before")));
+
+        const QPoint start = centerInWindow(visible(gripName));
+        // Pick up the handle with a generous lower grab offset so the copy can
+        // cover the neighbour's date, title and first body lines before it slides.
+        const QPoint liftPoint = start + QPoint(0, 100);
+        QVERIFY(sceneRect(preview).contains(liftPoint));
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, start);
+        QTest::mouseMove(window, liftPoint);
+        QTRY_COMPARE(dialog->property("dragFrom").toInt(), from);
+        QTRY_VERIFY(ghost->isVisible() && ghost->height() > 0);
+        QTest::qWait(40);
+        const qreal pointerToTop = liftPoint.y() - sceneRect(ghost).top();
+        const QPoint overlap(start.x(), qRound(sceneRect(target).top() + pointerToTop - 8));
+        QVERIFY(sceneRect(preview).contains(overlap));
+        QTest::mouseMove(window, overlap);
+        QTRY_COMPARE(dialog->property("dropIndex").toInt(), from);
+        QTest::qWait(60);
+        const auto carried = sceneRect(ghost);
+        const auto inner = carried.adjusted(8, 8, -8, -8).intersected(sceneRect(preview));
+        const auto during = window->grabWindow();
+        QVERIFY(!during.isNull() && save(during, QStringLiteral("during")));
+
+        // The lower row stays laid out. Only its paint changes so the two grabs
+        // compare the same pixels in the copy, including its transparent areas.
+        const qreal originalOpacity = target->opacity();
+        target->setOpacity(0);
+        QTest::qWait(50);
+        const auto withoutNeighbour = window->grabWindow();
+        target->setOpacity(originalOpacity);
+        QVERIFY(!withoutNeighbour.isNull() && save(withoutNeighbour, QStringLiteral("without-neighbour")));
+        const QRect datePixels = framePixels(inner.intersected(sceneRect(targetDate)), during, window);
+        const QRect titlePixels = framePixels(inner.intersected(sceneRect(targetTitle)), during, window);
+        const QRect bodyPixels = framePixels(inner.intersected(sceneRect(targetText)), during, window);
+        QVERIFY(datePixels.height() > 8 && titlePixels.height() > 10 && bodyPixels.height() > 12);
+
+        const qreal line = sourceText->property("lineHeight").toReal();
+        const QRectF tailInSource = sourceText->mapRectToItem(source,
+            QRectF(0, sourceText->height() - line, sourceText->width(), line));
+        const qreal xScale = ghost->width() / source->width();
+        const qreal yScale = ghost->height() / source->height();
+        const QRectF tail = ghost->mapRectToScene(QRectF(tailInSource.x() * xScale, tailInSource.y() * yScale,
+            tailInSource.width() * xScale, tailInSource.height() * yScale));
+        QVERIFY(sceneRect(preview).contains(tail.adjusted(2, 2, -2, -2)));
+        const int tailInk = textInk(withoutNeighbour, framePixels(tail, withoutNeighbour, window));
+
+        const qreal dropY = sceneRect(target).center().y() + (from < to ? 12 : -12);
+        const QPoint drop(start.x(), qRound(dropY));
+        QVERIFY(sceneRect(preview).contains(drop));
+        QTest::mouseMove(window, drop);
+        QTRY_COMPARE(dialog->property("dropIndex").toInt(), to);
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, drop);
+        QTRY_COMPARE(runIds(dialog), (QStringList{QStringLiteral("2"), QStringLiteral("3"), QStringLiteral("1")}));
+        QTRY_VERIFY(!ghost->isVisible());
+        auto *moved = qobject_cast<QQuickItem *>(entries.at(to));
+        QVERIFY(moved);
+        auto *movedNote = findVisual(moved, QStringLiteral("reflectionShareFullText"));
+        QVERIFY(movedNote);
+        QCOMPARE(movedNote->property("text").toString(), from == 0 ? shortNote : longNote);
+        const auto after = window->grabWindow();
+        QVERIFY(!after.isNull() && save(after, QStringLiteral("after")));
+
+        const int dateBleed = changedPixels(during, withoutNeighbour, datePixels);
+        const int titleBleed = changedPixels(during, withoutNeighbour, titlePixels);
+        const int bodyBleed = changedPixels(during, withoutNeighbour, bodyPixels);
+        QVERIFY2(dateBleed == 0 && titleBleed == 0 && bodyBleed == 0,
+                 qPrintable(QStringLiteral("lower row visible through copy: date %1, title %2, body %3 pixels")
+                     .arg(dateBleed).arg(titleBleed).arg(bodyBleed)));
+        QVERIFY2(tailInk > 24, qPrintable(QStringLiteral("lifted final line has only %1 dark pixels").arg(tailInk)));
     }
 
     // Audit 2026-11-20 L2-1: ↑/↓ on a focused grip during another grip's mouse drag rebuilt

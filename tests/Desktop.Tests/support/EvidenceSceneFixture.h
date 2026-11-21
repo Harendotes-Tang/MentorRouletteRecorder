@@ -5,6 +5,7 @@
 #pragma once
 
 #include "AppController.h"
+#include "AppSettings.h"
 #include "EvidenceSubmissionController.h"
 #include "Formatters.h"
 #include "JobCatalog.h"
@@ -46,11 +47,43 @@ public:
     QJsonObject validation;
     QJsonObject networkPath;
     bool refuseMarkers = false;
+    bool legacyCandidateRounds = false;
+    bool dropPlayerStopReply = false;
+    QPointer<mr::BackendReply> withheldStop;
+    QJsonObject withheldStopPayload;
     QHash<QString, int> counts;
+
+    bool isConnected() const override { return connected; }
+
+    void applyServerCaptureSettings(const QJsonObject &payload)
+    {
+        mr::MockBackend::request(QStringLiteral("UpdateCaptureSettings"), payload);
+    }
+
+    void setMaintainerRound(bool enabled)
+    {
+        applyServerCaptureSettings({{QStringLiteral("candidate_validation_enabled"), enabled},
+                                    {QStringLiteral("research_payload_opcodes"), QJsonArray()}});
+    }
+
+    void setConnected(bool value)
+    {
+        if (connected == value)
+            return;
+        connected = value;
+        Q_EMIT connectionChanged();
+    }
 
     mr::BackendReply *request(const QString &type, const QJsonObject &payload = {}) override
     {
         ++counts[type];
+        if (!connected) {
+            auto *reply = new mr::BackendReply(type, type, this);
+            QTimer::singleShot(0, reply, [reply] {
+                reply->failUnsent(QStringLiteral("ERR_INTERNAL"), QStringLiteral("disconnected"));
+            });
+            return reply;
+        }
         if (scripted && type == QLatin1String("GetCaptureValidationStatus"))
             return later(type, true, validation);
         if (refuseMarkers && type == QLatin1String("AddCaptureValidationMarker"))
@@ -59,6 +92,38 @@ public:
         if (scripted && type == QLatin1String("AddCaptureValidationMarker"))
             return later(type, true, validation);
         mr::BackendReply *answer = mr::MockBackend::request(type, payload);
+        if (type == QLatin1String("UpdateCaptureSettings") && dropPlayerStopReply
+            && payload.contains(QStringLiteral("candidate_round_id"))
+            && !payload.value(QStringLiteral("candidate_validation_enabled")).toBool(true)) {
+            dropPlayerStopReply = false;
+            auto *reply = new mr::BackendReply(type, type, this);
+            answer->whenDone(reply, [this, reply](bool ok, const QVariantMap &settings,
+                                                const QString &code, const QString &message) {
+                if (!ok) {
+                    reply->fail(code, message);
+                    return;
+                }
+                withheldStop = reply;
+                withheldStopPayload = QJsonObject::fromVariantMap(settings);
+                setConnected(false);
+            });
+            return reply;
+        }
+        if (type == QLatin1String("GetCaptureSettings") && legacyCandidateRounds) {
+            auto *reply = new mr::BackendReply(type, type, this);
+            answer->whenDone(reply, [reply](bool ok, const QVariantMap &settings,
+                                          const QString &code, const QString &message) {
+                if (!ok) {
+                    reply->fail(code, message);
+                    return;
+                }
+                QJsonObject legacy = QJsonObject::fromVariantMap(settings);
+                legacy.remove(QStringLiteral("candidate_round_id"));
+                legacy.remove(QStringLiteral("candidate_round_profile_id"));
+                reply->succeed(legacy);
+            });
+            return reply;
+        }
         if (type != QLatin1String("GetStatus") || networkPath.isEmpty())
             return answer;
         // The same answer, with the game's connections as the Collector counts them.
@@ -80,6 +145,8 @@ public:
     }
 
 private:
+    bool connected = true;
+
     mr::BackendReply *later(const QString &type, bool ok, const QJsonObject &payload)
     {
         auto *reply = new mr::BackendReply(type, type, this);
@@ -128,6 +195,7 @@ struct EvidenceScene
 {
     EvidenceBackend backend;
     bool reduceMotion = true;
+    std::unique_ptr<mr::AppSettings> settings;
     std::unique_ptr<mr::AppController> app;
     mr::Formatters formatters;
     // The bundled job table, so a job known only by its id is named as in the app.
@@ -139,18 +207,26 @@ struct EvidenceScene
     QQuickWindow *window = nullptr;
     QQuickItem *page = nullptr;
 
-    ~EvidenceScene()
+    ~EvidenceScene() { close(); }
+
+    void close()
     {
+        page = nullptr;
+        window = nullptr;
         root.reset();
+        warnings.reset();
         engine.reset();
         evidence.reset();
         app.reset();
+        settings.reset();
     }
 
-    bool open(const QString &validationState)
+    bool open(const QString &validationState, const QString &settingsPath = {})
     {
         backend.setValidationFixture(validationState);
-        app = std::make_unique<mr::AppController>(&backend, nullptr);
+        if (!settingsPath.isEmpty())
+            settings = std::make_unique<mr::AppSettings>(settingsPath, nullptr);
+        app = std::make_unique<mr::AppController>(&backend, settings.get());
         app->recording()->setUserObservation(true);
         evidence = std::make_unique<mr::EvidenceSubmissionController>(&backend);
         engine = std::make_unique<QQmlEngine>();

@@ -16,7 +16,12 @@ public sealed partial class RunMutationService
     public const string MoveRegionAction = "move_region";
 
     /// <summary>Checks every selected revision and deletion state before changing any row.</summary>
-    public BatchRunMutationOutcome BatchMutateRuns(BatchMutateRunsCommand command)
+    public BatchRunMutationOutcome BatchMutateRuns(BatchMutateRunsCommand command) =>
+        BatchMutateRuns(command, loadSelection: null);
+
+    /// <summary>Replays a durable receipt before resolving an expirable, content-addressed selection.</summary>
+    internal BatchRunMutationOutcome BatchMutateRuns(BatchMutateRunsCommand command,
+        Func<string, IReadOnlyList<BatchRunTarget>>? loadSelection)
     {
         ArgumentNullException.ThrowIfNull(command);
         if (!Guid.TryParseExact(command.RequestId, "D", out _))
@@ -25,12 +30,17 @@ public sealed partial class RunMutationService
             throw CollectorException.BadRequest(
                 CollectorTexts.IpcFieldOnlyValues("action", "soft_delete / restore / purge / assign_profile / move_region"), "action");
         var reason = RunMutationValidation.RequireReason(command.Reason);
-        var sorted = ValidateBatchTargets(command.Runs);
+        var selectionId = command.SelectionId;
+        if (selectionId is not null && (loadSelection is null || command.Runs.Count != 0))
+            throw CollectorException.BadRequest(CollectorTexts.HistorySelectionExclusiveTarget(), "selection_id");
+        var sorted = selectionId is null ? ValidateBatchTargets(command.Runs) : null;
         var migration = command.Migration;
         if (command.Action == MoveRegionAction && migration is null)
             throw CollectorException.BadRequest(CollectorTexts.IpcFieldMissing("region"), "region");
-        var fingerprint = MutationSnapshotCodec.Fingerprint("BatchMutateRuns", command.Action, reason,
-            string.Join(',', sorted.Select(run => run.RunId + ":" + run.ExpectedRevision.ToString(CultureInfo.InvariantCulture))));
+        var targetIdentity = sorted is null
+            ? "selection:" + selectionId
+            : string.Join(',', sorted.Select(run => run.RunId + ":" + run.ExpectedRevision.ToString(CultureInfo.InvariantCulture)));
+        var fingerprint = MutationSnapshotCodec.Fingerprint("BatchMutateRuns", command.Action, reason, targetIdentity);
         // The three older actions keep the fingerprint their stored receipts were written with.
         if (command.Action == AssignProfileAction)
             fingerprint = MutationSnapshotCodec.Fingerprint(fingerprint,
@@ -52,7 +62,8 @@ public sealed partial class RunMutationService
             }
             if (_idempotency.WasAppliedBeforePrune(command.RequestId, tx))
                 throw CollectorException.ExpiredIdempotencyResponse(command.RequestId);
-            var runs = sorted.Select(target =>
+            var targets = sorted ?? loadSelection!(selectionId!);
+            var runs = targets.Select(target =>
             {
                 var run = LoadBatchTarget(target, tx);
                 if (command.Action is AssignProfileAction or MoveRegionAction) return run;

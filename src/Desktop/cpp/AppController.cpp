@@ -229,6 +229,7 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
     m_export = new ExportController(this);
     m_export->setBackend(backend);
     m_candidates = new CandidateReviewController(this);
+    m_candidates->setSettings(settings);
     m_candidates->setBackend(backend);
     m_calibration = new CalibrationController(this);
     m_calibration->setBackend(backend);
@@ -317,6 +318,12 @@ AppController::AppController(IBackend *backend, AppSettings *settings, QObject *
         m_captureSettingsError.clear();
         Q_EMIT captureSettingsChanged();
     });
+    connect(this, &AppController::captureSettingsChanged, m_candidates, [this] {
+        if (m_captureSettingsLoaded)
+            m_candidates->adoptCaptureSettings(captureSettings());
+    });
+    connect(m_candidates, &CandidateReviewController::captureSettingsRefreshRequested,
+            this, &AppController::refreshCaptureSettings);
     connect(m_candidates, &CandidateReviewController::captureStatusRefreshRequested,
             this, &AppController::rereadCaptureStatus);
 
@@ -956,7 +963,8 @@ void AppController::flushCaptureSettings()
             if (candidateGeneration != m_candidateSettingsGeneration) {
                 // The debounced request owns ordinary settings only. A delayed reply must
                 // not overwrite newer confirmed candidate consent or its whitelist.
-                for (const auto *name : {"candidate_validation_enabled", "research_payload_opcodes"}) {
+                for (const auto *name : {"candidate_validation_enabled", "research_payload_opcodes",
+                                         "candidate_round_id", "candidate_round_profile_id"}) {
                     const auto key = QString::fromLatin1(name);
                     if (m_captureSettings.contains(key)) confirmed.insert(key, m_captureSettings.value(key));
                 }
@@ -2448,12 +2456,14 @@ QString AppController::exportTargetOverride() const
 
 void AppController::exportCsv()
 {
-    m_export->exportCsv();
+    if (!m_history->checkAllLoading() && !m_history->batchRunning())
+        m_export->exportCsv(m_history->largeCheckedBatchTargets());
 }
 
 void AppController::exportJson()
 {
-    m_export->exportJson();
+    if (!m_history->checkAllLoading() && !m_history->batchRunning())
+        m_export->exportJson(m_history->largeCheckedBatchTargets());
 }
 
 void AppController::backupDatabase()

@@ -2,6 +2,7 @@
 
 #include "DisplayTimeZone.h"
 #include "Formatters.h"
+#include "workflows/UtcTimestamp.h"
 
 #include <QDate>
 #include <QDateTime>
@@ -41,6 +42,15 @@ QString eventDate(const QVariantMap &form, const char *key)
 {
     const QString name = QString::fromLatin1(key);
     return form.contains(name) ? text(form, key) : text(form, "date");
+}
+
+/// Compare the instants the dialog will actually send. Callers without this
+/// map still validate their typed times in the display zone.
+QDateTime formDateTime(const QVariantMap &utcTimes, const char *key, const QString &date, const QString &time)
+{
+    if (utcTimes.contains(QLatin1String(key)))
+        return mr::parseUtcTimestamp(text(utcTimes, key));
+    return mr::RunFormValidator::toDateTime(date, time).toDateTime();
 }
 
 } // namespace
@@ -122,12 +132,12 @@ QVariantMap RunFormValidator::validate(const QVariantMap &form, const QVariantMa
                        tr("匹配时间不能为空。"));
     }
 
-    const QVariant matchedVar = toDateTime(date, matchedText);
-    if (!matchedText.isEmpty() && !matchedVar.isValid()) {
+    const QVariantMap utcTimes = form.value(QStringLiteral("utc_times")).toMap();
+    const QDateTime matched = formDateTime(utcTimes, "matched", date, matchedText);
+    if (!matchedText.isEmpty() && !matched.isValid()) {
         return failure(QStringLiteral("ERR_BAD_REQUEST"),
                        tr("请按“时:分:秒”填写匹配时间，例如 21:30:00。"));
     }
-    const QDateTime matched = matchedVar.toDateTime();
 
     const QString enteredText = text(form, "entered");
     const QString endedText = text(form, "ended");
@@ -141,20 +151,17 @@ QVariantMap RunFormValidator::validate(const QVariantMap &form, const QVariantMa
         return failure(QStringLiteral("ERR_BAD_REQUEST"),
                        tr("请按“年-月-日”填写结束日期，例如 2026-10-15。"));
     }
-    const QVariant enteredVar = toDateTime(enteredDate, enteredText);
-    const QVariant endedVar = toDateTime(endedDate, endedText);
+    const QDateTime entered = formDateTime(utcTimes, "entered", enteredDate, enteredText);
+    const QDateTime ended = formDateTime(utcTimes, "ended", endedDate, endedText);
 
-    if (!enteredText.isEmpty() && !enteredVar.isValid()) {
+    if (!enteredText.isEmpty() && !entered.isValid()) {
         return failure(QStringLiteral("ERR_BAD_REQUEST"),
                        tr("请按“时:分:秒”填写进本时间，例如 21:30:00。"));
     }
-    if (!endedText.isEmpty() && !endedVar.isValid()) {
+    if (!endedText.isEmpty() && !ended.isValid()) {
         return failure(QStringLiteral("ERR_BAD_REQUEST"),
                        tr("请按“时:分:秒”填写结束时间，例如 22:00:00。"));
     }
-
-    const QDateTime entered = enteredVar.toDateTime();
-    const QDateTime ended = endedVar.toDateTime();
 
     if (entered.isValid() && matched.isValid() && entered < matched) {
         return failure(QStringLiteral("ERR_TIME_ORDER"),

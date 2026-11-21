@@ -176,6 +176,38 @@ Invoke-Expression (Get-FunctionDefinitions @('Test-ForbiddenMediaFile'))
 """)
         self.assertEqual(result, dict(opencv=True, qt=True, alias=True, image=False))
 
+    def test_readmes_and_changelog_are_required_in_the_stage_and_archive(self):
+        stage = self.directory / "stage"
+        stage.mkdir()
+        unpacked = self.directory / "unpacked"
+        result = self.run_package_statements(rf"""
+$RepoRoot = {ps_literal(REPO)}
+$StageDir = {ps_literal(stage)}
+$ZipPath = {ps_literal(self.directory / "test.zip")}
+$verifyRoot = {ps_literal(unpacked)}
+Invoke-Expression (Get-Assignments @('$PackagedRootDocs'))
+Invoke-Expression (Get-StatementRange '^foreach \(\$document in \$PackagedRootDocs\)' '^Copy-Item .*THIRD_PARTY_NOTICES')
+Invoke-Expression (Get-FunctionDefinitions @('Assert-RequiredContent'))
+Invoke-Expression (Get-StatementRange '^Compress-Archive ' '^\$zipHash =')
+Expand-Archive -LiteralPath $ZipPath -DestinationPath $verifyRoot
+$unpacked = Join-Path $verifyRoot (Split-Path -Leaf $StageDir)
+Remove-Item -LiteralPath (Join-Path $StageDir 'README.ja.md')
+Remove-Item -LiteralPath (Join-Path $unpacked 'CHANGELOG.md')
+$missing = @{{}}
+foreach ($directory in @($StageDir, $unpacked)) {{
+    try {{ Assert-RequiredContent $directory }}
+    catch {{ $missing[$directory] = $_.Exception.Message -split '\r?\n' }}
+}}
+$missing | ConvertTo-Json -Compress
+""")
+        expected = {"README.md", "README.zh-TW.md", "README.en.md", "README.ja.md", "CHANGELOG.md"}
+        for folder, omitted in ((stage, "README.ja.md"), (unpacked / stage.name, "CHANGELOG.md")):
+            with self.subTest(folder=folder):
+                self.assertEqual({omitted}, expected.intersection(result[str(folder)]))
+                self.assertEqual(expected - {omitted}, {file.name for file in folder.iterdir()})
+                for name in expected - {omitted}:
+                    self.assertEqual((REPO / name).read_bytes(), (folder / name).read_bytes())
+
     # ----------------------------------------------- public_distribution_ready
 
     def distribution_claim(self, *, failing_git, verify=True, verification_complete=True):

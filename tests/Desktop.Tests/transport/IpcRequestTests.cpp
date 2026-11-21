@@ -70,6 +70,17 @@ QJsonObject argsFor(const QString &messageType)
     } else if (messageType == QLatin1String("QueryRunCalendarDays")) {
         args.insert(QStringLiteral("month"), QStringLiteral("2026-09"));
         args.insert(QStringLiteral("filter"), sampleFilter());
+    } else if (messageType == QLatin1String("QueryHistorySelection")) {
+        args.insert(QStringLiteral("filter"), sampleFilter());
+        args.insert(QStringLiteral("page"), 1);
+    } else if (messageType == QLatin1String("StageHistorySelection")) {
+        args.insert(QStringLiteral("selection_id"),
+                    QStringLiteral("beb8b3308966d7324a7afe7a4c2709539ca899c920a0e2f20108f2ab3e390df6"));
+        args.insert(QStringLiteral("chunk_index"), 0);
+        args.insert(QStringLiteral("runs"), QJsonArray{QJsonObject{
+            {QStringLiteral("run_id"), QStringLiteral("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")},
+            {QStringLiteral("expected_revision"), 1}}});
+        args.insert(QStringLiteral("last"), true);
     } else if (messageType == QLatin1String("QueryRuns")) {
         QJsonObject sort;
         sort.insert(QStringLiteral("field"), QStringLiteral("entered_at_utc"));
@@ -308,6 +319,8 @@ QStringList allMessageTypes()
         QStringLiteral("GetCurrentRun"),
         QStringLiteral("SubscribeLiveEvents"),
         QStringLiteral("QueryRuns"),
+        QStringLiteral("QueryHistorySelection"),
+        QStringLiteral("StageHistorySelection"),
         QStringLiteral("QueryRunCalendarDays"),
         QStringLiteral("GetRunRevisions"),
         QStringLiteral("GetRunEvents"),

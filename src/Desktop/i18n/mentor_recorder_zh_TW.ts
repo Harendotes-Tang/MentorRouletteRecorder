@@ -5263,6 +5263,51 @@ SHA256：%3</translation>
         <comment>ipc.request.time_zone_unknown</comment>
         <translation>time_zone 不是這台電腦認得的時區識別碼。</translation>
     </message>
+    <message>
+        <source>该轮候选采证已无法确认。请返回页面检查采证状态。</source>
+        <comment>candidate.round_unavailable</comment>
+        <translation>這輪候選採證已無法確認。請返回頁面檢查採證狀態。</translation>
+    </message>
+    <message>
+        <source>当前候选档案与开始时选择的档案不一致，请刷新采证页面。</source>
+        <comment>candidate.round_profile_changed</comment>
+        <translation>目前的候選檔案與開始時選擇的檔案不一致，請重新整理採證頁面。</translation>
+    </message>
+    <message>
+        <source>请先结束正在进行的候选采证。</source>
+        <comment>candidate.round_finish_first</comment>
+        <translation>請先結束正在進行的候選採證。</translation>
+    </message>
+    <message>
+        <source>请先读取历史勾选快照的第一页。</source>
+        <comment>history.selection.first_page_required</comment>
+        <translation>請先讀取歷史勾選快照的第一頁。</translation>
+    </message>
+    <message>
+        <source>历史勾选标识须为 64 位小写十六进制字符。</source>
+        <comment>history.selection.digest_invalid</comment>
+        <translation>歷史勾選識別碼須為 64 位小寫十六進位字元。</translation>
+    </message>
+    <message>
+        <source>请选择一种历史勾选方式。</source>
+        <comment>history.selection.exclusive_target</comment>
+        <translation>請選擇一種歷史勾選方式。</translation>
+    </message>
+    <message>
+        <source>历史勾选已失效或尚未传送完成，请重试。</source>
+        <comment>history.selection.unavailable</comment>
+        <translation>歷史勾選已失效或尚未傳送完成，請重試。</translation>
+    </message>
+    <message>
+        <source>历史勾选分块的顺序或内容不一致，请重试。</source>
+        <comment>history.selection.chunk_mismatch</comment>
+        <translation>歷史勾選分塊的順序或內容不一致，請重試。</translation>
+    </message>
+    <message>
+        <source>导出勾选的记录时须包含勾选的已删除记录。</source>
+        <comment>export.selection_requires_deleted</comment>
+        <translation>匯出勾選的記錄時，須包含勾選的已刪除記錄。</translation>
+    </message>
 </context>
 <context>
     <name>CompletionPieChart</name>
@@ -7469,6 +7514,14 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>HistoryPage</name>
+    <message>
+        <source>取消读取</source>
+        <translation>取消讀取</translation>
+    </message>
+    <message>
+        <source>正在读取全部记录…</source>
+        <translation>正在讀取全部記錄…</translation>
+    </message>
     <message>
         <source>迁移区服</source>
         <translation>遷移區服</translation>
@@ -12624,6 +12677,10 @@ SHA256：%3</translation>
         <source>无法打开证据文件所在的文件夹，请按上面的路径自行打开。</source>
         <translation>無法開啟證據檔案所在的資料夾，請依上面的路徑自行開啟。</translation>
     </message>
+    <message>
+        <source>当前后台服务无法按轮次限定证据，请更新软件后重试。</source>
+        <translation>目前的背景服務無法按輪次限定證據，請更新軟體後再試。</translation>
+    </message>
 </context>
 <context>
     <name>mr::CaptureValidationController</name>
@@ -13031,6 +13088,10 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>mr::ExportController</name>
+    <message>
+        <source>导出失败：后台服务已切换。</source>
+        <translation>匯出失敗，背景服務已切換。</translation>
+    </message>
     <message>
         <source>选择保存位置</source>
         <translation>選擇儲存位置</translation>
@@ -13636,16 +13697,12 @@ SHA256：%3</translation>
         <translation>批次操作尚未完成，請稍後再調整篩選。</translation>
     </message>
     <message>
-        <source>一次最多勾选 2000 条记录，请分批操作。</source>
-        <translation>一次最多勾選 2000 筆記錄，請分批操作。</translation>
-    </message>
-    <message>
-        <source>符合筛选的记录超过 2000 条，请先缩小筛选范围再全部勾选。</source>
-        <translation>符合篩選的記錄超過 2000 筆，請先縮小篩選範圍再全部勾選。</translation>
-    </message>
-    <message>
         <source>暂时读不到全部记录，没有改动勾选，请稍后再试。</source>
         <translation>暫時讀不到全部記錄，勾選沒有變動，請稍後再試。</translation>
+    </message>
+    <message>
+        <source>当前后台服务不支持勾选全部。已保留现有勾选，请更新软件后重试。</source>
+        <translation>目前的背景服務不支援勾選全部記錄。已保留現有勾選，請更新軟體後重試。</translation>
     </message>
     <message>
         <source>请选择有效操作并填写 1–500 字原因。</source>
@@ -14146,6 +14203,14 @@ SHA256：%3</translation>
 </context>
 <context>
     <name>mr::MockBackend</name>
+    <message>
+        <source>勾选记录暂不可用，请重试。</source>
+        <translation>勾選記錄暫時無法使用，請重試。</translation>
+    </message>
+    <message>
+        <source>有选中的记录已不存在，请重新勾选。</source>
+        <translation>部分勾選記錄已不存在，請重新勾選。</translation>
+    </message>
     <message>
         <source>保留期须为 0–36500 天，0 表示永不自动清理。</source>
         <translation>保留期限須為 0–36500 天，0 表示永不自動清理。</translation>
@@ -15654,10 +15719,6 @@ SHA256：%3</translation>
         <translation>開始</translation>
     </message>
     <message>
-        <source>重新导出</source>
-        <translation>重新匯出</translation>
-    </message>
-    <message>
         <source>正在导出</source>
         <translation>正在匯出</translation>
     </message>
@@ -15668,6 +15729,57 @@ SHA256：%3</translation>
     <message>
         <source>打开所在文件夹</source>
         <translation>開啟所在資料夾</translation>
+    </message>
+    <message>
+        <source>当前后台服务无法按轮次限定证据，请更新软件后重试。</source>
+        <translation>目前的背景服務無法按輪次限定證據，請更新軟體後再試。</translation>
+    </message>
+    <message>
+        <source>待处理</source>
+        <translation>待處理</translation>
+    </message>
+    <message>
+        <source>导出的文件只包含这一轮的证据。</source>
+        <translation>匯出的檔案只包含這一輪的證據。</translation>
+    </message>
+    <message>
+        <source>这次采证没有可确认的轮次，无法导出。可先结束这次采证，再开始新一轮。</source>
+        <translation>這次採證沒有可確認的輪次，無法匯出。可先結束這次採證，再開始新一輪。</translation>
+    </message>
+    <message>
+        <source>重新连接后台服务后，可继续结束并导出这一轮。</source>
+        <translation>重新連線背景服務後，即可繼續結束並匯出這一輪。</translation>
+    </message>
+    <message>
+        <source>重试结束并导出</source>
+        <translation>重試結束並匯出</translation>
+    </message>
+    <message>
+        <source>结束采证</source>
+        <translation>結束採證</translation>
+    </message>
+    <message>
+        <source>最近一轮已经结束，可以导出这轮证据，也可以开始新一轮。</source>
+        <translation>最近一輪已結束，可以匯出這輪證據，也可以開始新一輪。</translation>
+    </message>
+    <message>
+        <source>开始新一轮</source>
+        <translation>開始新一輪</translation>
+    </message>
+    <message>
+        <source>导出这一轮</source>
+        <translation>匯出這一輪</translation>
+    </message>
+    <message>
+        <source>放弃本次导出</source>
+        <translation>放棄本次匯出</translation>
+    </message>
+</context>
+<context>
+    <name>mr::IBackend</name>
+    <message>
+        <source>后台服务未确认完整的勾选记录，请重试。</source>
+        <translation>背景服務未確認完整的勾選記錄，請重試。</translation>
     </message>
 </context>
 </TS>

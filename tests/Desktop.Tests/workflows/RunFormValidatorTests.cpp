@@ -29,6 +29,8 @@ class TestAppProperties final : public QQmlPropertyMap
     Q_OBJECT
 public:
     TestAppProperties() : QQmlPropertyMap(this, nullptr) {}
+
+    Q_INVOKABLE QString errorText(const QString &message, const QString &) const { return message; }
 Q_SIGNALS:
     void scopeChanging();
     void reflectionSaved(const QString & /*runId*/, bool /*cleared*/);
@@ -262,6 +264,54 @@ ApplicationWindow {
         QCOMPARE(m_dialog->property("errorCode").toString(), "");
         QCOMPARE(corrected.count(), 1);
         QCOMPARE(asMap(corrected.first().first()), QVariantMap({{"note", "new note"}}));
+    }
+
+    void fallBackCorrectionUsesTheStoredUtcInstants_data()
+    {
+        QTest::addColumn<QString>("endTime");
+        QTest::addColumn<QString>("errorCode");
+        QTest::addColumn<QVariantMap>("expectedChanges");
+        QTest::newRow("note-only") << QString() << QString() << QVariantMap{{"note", "new note"}};
+        QTest::newRow("edit-end") << QStringLiteral("02:10:00") << QString()
+            << QVariantMap{{"note", "new note"}, {"ended_at_utc", "2026-11-01T07:10:00.000Z"},
+                           {"duration_ms", 3587544}};
+        QTest::newRow("reject-end-before-entry") << QStringLiteral("00:55:00")
+            << QStringLiteral("ERR_NEGATIVE_DURATION") << QVariantMap{};
+    }
+
+    void fallBackCorrectionUsesTheStoredUtcInstants()
+    {
+        QFETCH(QString, endTime);
+        QFETCH(QString, errorCode);
+        QFETCH(QVariantMap, expectedChanges);
+        const auto restore = qScopeGuard([zone = mr::DisplayTimeZone::id()] { mr::DisplayTimeZone::set(zone); });
+        mr::DisplayTimeZone::set(QStringLiteral("America/New_York"));
+        QCOMPARE(mr::DisplayTimeZone::id(), QStringLiteral("America/New_York"));
+
+        auto run = crossMidnightRun();
+        run["matched_at_utc"] = "2026-11-01T05:50:10.1234567Z";
+        run["entered_at_utc"] = "2026-11-01T06:10:12.456Z";
+        run["ended_at_utc"] = "2026-11-01T06:30:14.789Z";
+        run["duration_ms"] = 1202333;
+        QVERIFY(QMetaObject::invokeMethod(m_dialog, "openForRun", Q_ARG(QVariant, QVariant(run))));
+        QCOMPARE(m_dialog->property("matchedTime").toString(), QStringLiteral("01:50:10.123"));
+        QCOMPARE(m_dialog->property("enteredTime").toString(), QStringLiteral("01:10:12.456"));
+        QCOMPARE(m_dialog->property("endedTime").toString(), QStringLiteral("01:30:14.789"));
+        m_dialog->setProperty("noteText", "new note");
+        if (!endTime.isEmpty())
+            m_dialog->setProperty("endedTime", endTime);
+
+        QSignalSpy corrected(m_dialog, SIGNAL(correctRequested(QVariant,QString)));
+        QVERIFY(corrected.isValid());
+        QVERIFY(QMetaObject::invokeMethod(m_dialog, "submit"));
+        QCOMPARE(m_dialog->property("errorCode").toString(), errorCode);
+        QCOMPARE(m_dialog->property("errorText").toString().isEmpty(), errorCode.isEmpty());
+        if (errorCode.isEmpty()) {
+            QCOMPARE(corrected.count(), 1);
+            QCOMPARE(asMap(corrected.first().first()), expectedChanges);
+        } else {
+            QCOMPARE(corrected.count(), 0);
+        }
     }
 
     void dateOnlySubmissionChangesActualUtcField()

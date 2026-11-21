@@ -131,15 +131,28 @@ public sealed class IpcHardeningTests
     /// to succeed (2026-09-21 review finding 2).
     ///
     /// The Desktop half of this pair is
-    /// <c>LifecycleTests::everyAnswerTheCollectorDefersGetsAnExtendedDeadline</c>. A fourth
-    /// entry here has to be given a deadline there as well, and this test is what says so.
+    /// <c>LifecycleTests::everyAnswerTheCollectorDefersGetsAnExtendedDeadline</c>. Every
+    /// entry here has to be given a deadline there as well.
     /// </summary>
     [Fact]
     public void TheMessageTypesAnsweredLaterMatchTheDesktopExtendedDeadlines()
     {
         Assert.Equal(
-            new[] { "CheckDatabaseIntegrity", "CheckUpdateNow", "CommitRunImport", "ExportCsv", "ExportJson", "PreviewRunImport", "SynthesizeSpeech" },
+            new[] { "CheckDatabaseIntegrity", "CheckUpdateNow", "CommitRunImport", "ExportCsv", "ExportJson",
+                "PreviewRunImport", "QueryHistorySelection", "SynthesizeSpeech" },
             MessageDispatcher.AsynchronousMessageTypes.OrderBy(type => type, StringComparer.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("{}", true)]
+    [InlineData("{\"filter\":{}}", true)]
+    [InlineData("{\"selection_id\":\"one\",\"page\":2}", false)]
+    [InlineData("{\"selection_id\":\"one\",\"release\":true}", false)]
+    public void OnlyCreatingAHistorySnapshotIsDeferred(string payload, bool expected)
+    {
+        var request = new IpcRequest(Guid.NewGuid().ToString("D"), "QueryHistorySelection",
+            JsonNode.Parse(payload)!.AsObject());
+        Assert.Equal(expected, MessageDispatcher.ShouldDefer(request));
     }
 
     /// <summary>

@@ -28,17 +28,33 @@ Card {
     readonly property var controller: Runtime.app.candidates
     readonly property var status: Runtime.app.captureStatus
     readonly property var hypotheses: status.candidate_hypotheses || []
+    readonly property string offeredProfileId: hypotheses.length > 0 ? String(hypotheses[0].profile_id || "") : ""
+    onOfferedProfileIdChanged: consent = false
     readonly property bool candidateEnabled: !!Runtime.app.captureSettings.candidate_validation_enabled
     // A candidate profile for exactly this build, and nothing that records it.
-    readonly property bool exactBuild: hypotheses.length > 0 && !!status.game_build
+    readonly property bool exactBuild: offeredProfileId.length > 0 && !!status.game_build
                                        && status.profile_status === "UNSUPPORTED_BUILD"
-    readonly property var exportResult: controller.exportResult || ({})
-    readonly property bool exported: !candidateEnabled && !!exportResult.target_path
-    readonly property bool available: exactBuild || candidateEnabled || exported
+    readonly property var exportResult: controller.roundExportResult || ({})
+    readonly property bool exported: !!exportResult.target_path
+    readonly property bool recoverable: controller.roundRecoverable
+    readonly property bool available: exactBuild || candidateEnabled || exported || controller.finishPending || recoverable
     readonly property bool busy: controller.candidateSettingsBusy || controller.exporting || controller.finishing
+    readonly property bool settingsKnown: controller.roundSettingsKnown
+    readonly property bool scopedRoundsSupported: controller.scopedRoundsSupported
+    readonly property string playerRoundId: controller.roundId
+    property string formRoundId: ""
+    onPlayerRoundIdChanged: {
+        if (!playerRoundId || playerRoundId === formRoundId)
+            return
+        formRoundId = playerRoundId
+        card.tasks = [false, false, false, false]
+        card.edits = ({})
+    }
 
-    // "intro" | "running" | "exported"
-    readonly property string phase: candidateEnabled ? "running" : exported ? "exported" : "intro"
+    readonly property string phase: controller.finishPending ? "retry"
+                                    : exported ? "exported"
+                                    : candidateEnabled ? (controller.roundId ? "running" : "unscoped")
+                                    : recoverable ? "recover" : "intro"
 
     property bool consent: false
     // The four things to do, ticked by the tester: instructions, not detected states.
@@ -57,9 +73,12 @@ Card {
     readonly property int tasksDone: tasks.filter(function(done) { return done }).length
 
     // What the software read at the candidates' positions (CaptureStatus.candidate_round_guesses,
-    // absent from an older Collector), and what the tester wrote instead. A field shows the guess
-    // and follows it until the tester edits it; from then on it keeps the tester's text.
-    readonly property var guesses: status.candidate_round_guesses || null
+    // which may arrive independently of the round settings). Only this round's guesses can
+    // fill the form. A field follows its guess until the tester edits it.
+    readonly property var guesses: {
+        const values = status.candidate_round_guesses
+        return values && playerRoundId && values.candidate_round_id === playerRoundId ? values : null
+    }
     readonly property var answerDefs: [
         { key: "first_roulette", label: qsTr("步骤 1 排的任务") },
         { key: "job_before", label: qsTr("换职业前的职业") },
@@ -117,11 +136,15 @@ Card {
             return qsTr("游戏正在运行：先完全退出游戏，再开始。")
         if (!Runtime.app.npcapInstalled)
             return qsTr("未安装 Npcap，暂时不能开始。")
-        if (!Runtime.app.captureSettingsSupported)
+        if (!Runtime.app.captureSettingsSupported || !settingsKnown)
             return qsTr("暂时读不到软件的设置，请稍后再试。")
+        if (!scopedRoundsSupported)
+            return qsTr("当前后台服务无法按轮次限定证据，请更新软件后重试。")
         return ""
     }
-    readonly property bool canStart: phase !== "running" && consent && blockedReason.length === 0 && !busy
+    readonly property bool showStart: !candidateEnabled && exactBuild
+                                       && (phase === "intro" || phase === "exported" || phase === "recover")
+    readonly property bool canStart: showStart && consent && blockedReason.length === 0 && !busy
 
     readonly property var names: hypotheses.map(function(h) { return h.name })
     readonly property int seenCount: {
@@ -150,9 +173,8 @@ Card {
     function start() {
         if (!card.canStart)
             return
-        card.tasks = [false, false, false, false]
-        card.edits = ({})
         card.controller.startRound(card.hypotheses)
+        card.consent = false
     }
 
     RowLayout {
@@ -163,6 +185,7 @@ Card {
         StatusTag {
             objectName: "candidateRoundBadge"
             text: card.phase === "running" ? (Runtime.app.capturing ? qsTr("正在记录") : qsTr("等待游戏启动"))
+                  : card.phase === "retry" || card.phase === "unscoped" || card.phase === "recover" ? qsTr("待处理")
                   : card.phase === "exported" ? qsTr("已导出") : qsTr("尚未开始")
             tone: card.phase === "running" ? (Runtime.app.capturing ? "ok" : "warn")
                   : card.phase === "exported" ? "ok" : "off"
@@ -177,7 +200,7 @@ Card {
     InsetBox {
         objectName: "candidateRoundDisclosure"
         Layout.fillWidth: true
-        visible: card.phase === "intro"
+        visible: card.showStart
         implicitHeight: disclosure.implicitHeight + 24
         ColumnLayout {
             id: disclosure
@@ -195,6 +218,14 @@ Card {
                 lineHeight: 1.35
                 wrapMode: Text.Wrap
             }
+            Text {
+                Layout.fillWidth: true
+                textFormat: Text.PlainText
+                text: qsTr("导出的文件只包含这一轮的证据。")
+                color: Theme.textPrimary
+                font.pixelSize: Theme.fs(13)
+                wrapMode: Text.Wrap
+            }
             SelectionCheckBox {
                 objectName: "candidateRoundConsent"
                 Layout.fillWidth: true
@@ -208,12 +239,28 @@ Card {
     Text {
         objectName: "candidateRoundBlockedReason"
         Layout.fillWidth: true
-        visible: card.phase !== "running" && card.blockedReason.length > 0
+        visible: card.showStart && card.blockedReason.length > 0
         textFormat: Text.PlainText
         text: card.blockedReason
         color: Theme.orangeText
         font.pixelSize: Theme.fs(12)
         wrapMode: Text.Wrap
+    }
+
+    EvidenceHint {
+        visible: card.phase === "unscoped"
+        text: qsTr("这次采证没有可确认的轮次，无法导出。可先结束这次采证，再开始新一轮。")
+    }
+    EvidenceHint {
+        visible: card.phase === "retry" && (!card.settingsKnown || !card.scopedRoundsSupported)
+        text: card.settingsKnown
+              ? qsTr("当前后台服务无法按轮次限定证据，请更新软件后重试。")
+              : qsTr("重新连接后台服务后，可继续结束并导出这一轮。")
+    }
+
+    EvidenceHint {
+        visible: card.phase === "recover"
+        text: qsTr("最近一轮已经结束，可以导出这轮证据，也可以开始新一轮。")
     }
 
     // ---- during the round ----------------------------------------------------
@@ -350,7 +397,7 @@ Card {
         Layout.fillWidth: true
         visible: text.length > 0
         textFormat: Text.PlainText
-        text: card.controller.candidateSettingsError || card.controller.exportError
+        text: card.controller.candidateSettingsError || card.controller.roundExportError
         color: Theme.red
         font.pixelSize: Theme.fs(12)
         wrapMode: Text.Wrap
@@ -361,26 +408,40 @@ Card {
         spacing: 12
         AppButton {
             objectName: "candidateRoundStartButton"
-            visible: card.phase === "intro"
-            variant: "primary"
-            text: qsTr("开始")
+            visible: card.showStart
+            variant: card.phase === "intro" ? "primary" : "secondary"
+            text: card.phase === "intro" ? qsTr("开始") : qsTr("开始新一轮")
             enabled: card.canStart
             onClicked: card.start()
         }
-        // The round was switched off but its file could not be written: write it again.
         AppButton {
             objectName: "candidateRoundExportAgainButton"
-            visible: card.phase === "intro" && card.controller.exportError.length > 0
-            text: card.controller.exporting ? qsTr("正在导出") : qsTr("重新导出")
+            visible: card.phase === "retry" || card.phase === "recover"
+            text: card.busy ? qsTr("正在导出")
+                  : card.phase === "retry" ? qsTr("重试结束并导出") : qsTr("导出这一轮")
+            enabled: card.settingsKnown && card.scopedRoundsSupported && !card.busy
+            onClicked: card.controller.finishRound()
+        }
+        AppButton {
+            objectName: "candidateRoundDiscardFinishButton"
+            visible: card.controller.canDiscardRoundFinish
+            text: qsTr("放弃本次导出")
             enabled: !card.busy
-            onClicked: card.controller.exportEvidence()
+            onClicked: card.controller.discardRoundFinish()
+        }
+        AppButton {
+            objectName: "candidateRoundStopUnscopedButton"
+            visible: card.phase === "unscoped"
+            text: qsTr("结束采证")
+            enabled: card.settingsKnown && !card.busy
+            onClicked: card.controller.stopUnscopedRound()
         }
         AppButton {
             objectName: "candidateRoundFinishButton"
             visible: card.phase === "running"
             variant: card.tasksDone === card.taskDefs.length ? "primary" : "secondary"
             text: card.busy ? qsTr("正在导出") : qsTr("结束并导出")
-            enabled: !card.busy
+            enabled: card.settingsKnown && card.scopedRoundsSupported && !card.busy
             onClicked: card.finish()
         }
         AppButton {
@@ -388,7 +449,7 @@ Card {
             visible: card.phase === "exported"
             variant: "primary"
             text: qsTr("打开所在文件夹")
-            onClicked: card.controller.openExportFolder()
+            onClicked: card.controller.openRoundExportFolder()
         }
     }
 }

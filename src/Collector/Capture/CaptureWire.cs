@@ -26,6 +26,11 @@ public static class CaptureWire
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
+        var roundReport = snapshot.CandidateRoundGuesses;
+        var guesses = roundReport?.Wire();
+        if (guesses is not null && roundReport?.PlayerRoundId is { } roundId)
+            guesses["candidate_round_id"] = roundId;
+
         var status = new JsonObject
         {
             ["state"] = EnumWire<CaptureState>.Format(snapshot.ContractState),
@@ -50,7 +55,7 @@ public static class CaptureWire
             ["candidate_observation_count"] = snapshot.CandidateObservationCount,
             ["candidate_hypotheses"] = new JsonArray(
                 snapshot.CandidateHypotheses.Select(h => (JsonNode?)h.Wire()).ToArray()),
-            ["candidate_round_guesses"] = snapshot.CandidateRoundGuesses?.Wire(),
+            ["candidate_round_guesses"] = guesses,
             ["profile_origin"] = CalibrationWire.Origin(snapshot.ProfileOrigin),
             ["calibration_bound_at_utc"] = UtcTimestamp.ToTextOrNull(snapshot.Calibration.BoundAtUtc),
             ["calibration"] = CalibrationWire.Status(snapshot.Calibration),

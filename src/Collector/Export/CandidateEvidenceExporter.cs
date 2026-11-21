@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
+using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain.Time;
@@ -33,11 +35,15 @@ public sealed class CandidateEvidenceExporter(
 
     /// <param name="targetPath">目标文件；缺省时写入 <see cref="DefaultDirectory"/>。</param>
     /// <param name="answers">玩家在卡片上填写的内容；与软件的识别结果一并写入 <c>round_report</c>。</param>
-    public CandidateExportResult Export(string? targetPath = null, CandidateRoundAnswers? answers = null)
+    public CandidateExportResult Export(string? targetPath = null, CandidateRoundAnswers? answers = null) =>
+        Export(targetPath, answers, null, null);
+
+    /// <summary>Exports a scoped round when supplied, with its report calculated in the evidence snapshot.</summary>
+    internal CandidateExportResult Export(string? targetPath, CandidateRoundAnswers? answers,
+        CandidatePlayerRound? round, Func<SqliteTransaction, CandidateRoundReport?>? scopedReport)
     {
-        // Read before the file is opened: it takes the database gate, which the snapshot below
-        // deliberately does not hold while writing.
-        var guessed = roundReport?.Invoke();
+        // The maintainer's best-effort report reads its own snapshot.
+        var unscopedGuess = round is null ? roundReport?.Invoke() : null;
         // 默认路径跟随打开的数据库，与备份、诊断报告、日志一致：只看数据根目录时，
         // 用一次性数据库启动、却没有设置 MR_DATA_DIR 的测试会把证据写进真人用户的
         // %LOCALAPPDATA%\MentorRecorder\exports。时间戳走不变文化，否则在使用非公历的
@@ -63,8 +69,9 @@ public sealed class CandidateEvidenceExporter(
                 // writing while this file is written (audit 2026-10-03, OG-7 / CS5-X3). Only one
                 // row projection is materialised at a time, including arbitrarily long
                 // append-only history.
-                repository.VisitResearchEvidence((payloadOpcodes, observations, reviews, items, history) =>
+                repository.VisitResearchEvidence(round, (transaction, payloadOpcodes, observations, reviews, items, history) =>
                 {
+                    var guessed = scopedReport?.Invoke(transaction) ?? unscopedGuess;
                     observationCount = observations;
                     reviewCount = reviews;
                     writer.WriteStartObject();

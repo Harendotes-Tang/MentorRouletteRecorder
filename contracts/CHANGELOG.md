@@ -1,5 +1,21 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-11-22 · 历史勾选快照与第二轮采证导出
+
+- `QueryHistorySelection {filter, page:1}` 从一个只读快照返回 `selection_id`、`items` 和 `page_info`。
+  后续请求携带该 UUID 和页码，每页最多 200 条，仅含 ID、修订、删除状态、来源、区服和采集会话标识。
+  `{selection_id, release:true}` 释放快照或暂存的目标集。已失效的快照需要重新选择。
+- `StageHistorySelection {selection_id,chunk_index,runs,last}` 暂存精确勾选，每块 1–200 条，
+  序号从 0 起。标识为按小写 UUID 升序排列的 UTF-8 `uuid:revision\n` 各行的 SHA256。
+  应答给出同一标识、下一块序号和 `sealed`。封存后，批量修改、区服迁移预览、CSV 和 JSON 导出
+  均可携带该标识。原有的短数组形式仍可使用。按标识批量修改时，应答给出动作、修改数和重放状态。
+- 玩家第二轮在 `UpdateCaptureSettings` 开始时一并提交 `candidate_round_id` 和
+  `candidate_round_profile_id`。停止和 `ExportCandidateEvidence` 带原轮次 ID，
+  新版设置应答返回轮次及档案标识，尚无轮次时显式返回 `null`，便于桌面端识别旧采集服务。
+  玩家导出只读取属于本轮、同一档案的数据。维护者保留全账本导出。
+- `CaptureStatus.candidate_round_guesses.candidate_round_id` 是读出这些猜测时绑定的玩家轮次。
+  桌面端只使用与当前玩家轮次相同的猜测。未限定玩家轮次的维护采证不发送该字段。
+
 ## 2026-11-21 · 「第二轮」显示软件读到的任务、职业与副本
 
 - `CaptureStatus.candidate_round_guesses`（可选，对象或 `null`）：候选验证开启、且候选档案声明了猜测位置

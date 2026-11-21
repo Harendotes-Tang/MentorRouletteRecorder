@@ -300,6 +300,9 @@ public:
     int value(const QString &key, int defaultValue) const;
     QString value(const QString &key, const QString &defaultValue) const;
     void setValue(const QString &key, const QVariant &value);
+    /// A local-only, pending player export that survives Desktop restart.
+    QVariantMap candidateRoundFinishDraft() const;
+    void setCandidateRoundFinishDraft(const QVariantMap &draft);
 
 Q_SIGNALS:
     void sharingChanged();

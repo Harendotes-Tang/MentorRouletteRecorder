@@ -195,6 +195,136 @@ public sealed class HistoryRetentionTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void LargeStagedPurgeTombstonesPairedReceiptsAndRollsBackOnTheLastTarget(bool failLastTarget)
+    {
+        const int count = 2001;
+        using var f = new Fixture();
+        var runs = Enumerable.Range(0, count)
+            .Select(_ => TestDatabase.Run(softDeleted: true))
+            .OrderBy(run => run.RunId, StringComparer.Ordinal).ToArray();
+        var kept = TestDatabase.Run();
+        var both = (Request: Id(), Preview: Id());
+        var ipcOnly = (Request: Id(), Preview: Id());
+        var importOnly = (Request: Id(), Preview: Id());
+        var unrelated = (Request: Id(), Preview: Id());
+        var jsonBoth = ReceiptJson(runs[0].RunId, kept.RunId);
+        var jsonIpcOnly = ReceiptJson(runs[1].RunId);
+        var jsonKept = ReceiptJson(kept.RunId);
+        var importFingerprint = "import-selection";
+
+        f.Db.Database.RunInTransaction(tx =>
+        {
+            foreach (var run in runs) f.Runs.Insert(run, tx);
+            f.Runs.Insert(kept, tx);
+
+            using var seed = f.Db.Database.CreateCommand();
+            seed.Transaction = tx;
+            seed.CommandText = """
+                INSERT INTO ipc_idempotency (request_id,message_type,response_json,created_at_utc)
+                VALUES ($request,'BatchMutateRuns',$ipc,$now);
+                INSERT INTO run_import_batches (preview_id,request_id,selection_fingerprint,response_json,committed_at_utc)
+                VALUES ($preview,$request,$fingerprint,$import,$now);
+                """;
+            seed.Parameters.AddWithValue("$now", UtcTimestamp.ToText(f.Db.Clock.UtcNow));
+            seed.Parameters.AddWithValue("$fingerprint", importFingerprint);
+            var request = seed.Parameters.Add("$request", SqliteType.Text);
+            var preview = seed.Parameters.Add("$preview", SqliteType.Text);
+            var ipc = seed.Parameters.Add("$ipc", SqliteType.Text);
+            var import = seed.Parameters.Add("$import", SqliteType.Text);
+            foreach (var pair in new[]
+            {
+                (both, jsonBoth, ReceiptJson(runs[^1].RunId, kept.RunId)),
+                (ipcOnly, jsonIpcOnly, jsonKept),
+                (importOnly, jsonKept, ReceiptJson(runs[2].RunId)),
+                (unrelated, jsonKept, jsonKept),
+            })
+            {
+                request.Value = pair.Item1.Request;
+                preview.Value = pair.Item1.Preview;
+                ipc.Value = pair.Item2;
+                import.Value = pair.Item3;
+                seed.ExecuteNonQuery();
+            }
+        });
+
+        using var selections = new HistorySelectionStore(f.Db.Database);
+        var targets = runs.Select(run => new BatchRunTarget(run.RunId, run.Revision)).ToArray();
+        var selectionId = HistorySelectionStore.Digest(targets);
+        var chunks = targets.Chunk(Paging.MaxPageSize).ToArray();
+        for (var index = 0; index < chunks.Length; index++)
+            selections.Stage(selectionId, index, chunks[index], last: index == chunks.Length - 1);
+        var command = new BatchMutateRunsCommand(Id(), "purge", [], "批量清除", SelectionId: selectionId);
+
+        if (failLastTarget)
+        {
+            using var trigger = f.Db.Database.CreateCommand();
+            trigger.CommandText = "CREATE TRIGGER fail_last_purge BEFORE DELETE ON mentor_runs WHEN OLD.run_id='" +
+                runs[^1].RunId + "' BEGIN SELECT RAISE(ABORT,'synthetic purge failure'); END;";
+            trigger.ExecuteNonQuery();
+            Assert.Throws<SqliteException>(() => f.Mutations.BatchMutateRuns(command, selections.RequireStaged));
+
+            Assert.Equal(count + 1L, f.Runs.Query(new RunFilter { IncludeDeleted = true }, null, 1, 1).Total);
+            Assert.Equal(0, f.Count("purged_run_tombstones", runs[0].RunId));
+            Assert.Equal(0, f.Count("purged_run_tombstones", runs[^1].RunId));
+            Assert.Empty(f.Retention.PendingImageCleanup());
+            foreach (var receipt in new[] { both, ipcOnly, importOnly, unrelated })
+                Assert.Equal((true, true, null, null, null), ReadPairedReceipts(f, receipt.Request));
+            Assert.Equal((false, false, null, null, null), ReadPairedReceipts(f, command.RequestId));
+            return;
+        }
+
+        var outcome = f.Mutations.BatchMutateRuns(command, selections.RequireStaged);
+        Assert.Equal(count, outcome.ChangedCount);
+        var remaining = f.Runs.Query(new RunFilter { IncludeDeleted = true }, null, 1, 1);
+        Assert.Equal(1, remaining.Total);
+        Assert.Equal(kept.RunId, Assert.Single(remaining.Items).RunId);
+        Assert.Equal(1, f.Count("pending_image_cleanup", runs[0].RunId));
+        Assert.Equal(1, f.Count("pending_image_cleanup", runs[^1].RunId));
+        Assert.Equal(0, f.Count("pending_image_cleanup", kept.RunId));
+        Assert.Equal((true, true, null, null, null), ReadPairedReceipts(f, unrelated.Request));
+        Assert.Equal((false, false, both.Preview, "BatchMutateRuns", HistoryRetentionService.Hash(jsonBoth)),
+            ReadPairedReceipts(f, both.Request));
+        Assert.Equal((false, false, ipcOnly.Preview, "BatchMutateRuns", HistoryRetentionService.Hash(jsonIpcOnly)),
+            ReadPairedReceipts(f, ipcOnly.Request));
+        Assert.Equal((false, false, importOnly.Preview, "CommitRunImport", HistoryRetentionService.Hash(importFingerprint)),
+            ReadPairedReceipts(f, importOnly.Request));
+
+        var idempotency = new IdempotencyRepository(f.Db.Database, f.Db.Clock);
+        foreach (var receipt in new[] { both, ipcOnly, importOnly })
+        {
+            Assert.Equal(ErrorCodes.IdempotencyConflict,
+                Assert.Throws<CollectorException>(() => idempotency.ThrowIfPurgedRequest(receipt.Request)).Code);
+            Assert.Equal(ErrorCodes.IdempotencyConflict,
+                Assert.Throws<CollectorException>(() => idempotency.ThrowIfPurgedRequest(Id(), previewId: receipt.Preview)).Code);
+        }
+        selections.Release(selectionId);
+        Assert.True(f.Mutations.BatchMutateRuns(command, selections.RequireStaged).IdempotentReplay);
+    }
+
+    private static string ReceiptJson(params string[] runIds) =>
+        new JsonObject { ["run_ids"] = new JsonArray(runIds.Select(id => (JsonNode?)JsonValue.Create(id)).ToArray()) }.ToJsonString();
+
+    private static (bool Ipc, bool Import, string? Preview, string? Message, string? Fingerprint)
+        ReadPairedReceipts(Fixture f, string requestId)
+    {
+        using var command = f.Db.Database.CreateCommand();
+        command.CommandText = """
+            SELECT EXISTS(SELECT 1 FROM ipc_idempotency WHERE request_id = $id),
+                   EXISTS(SELECT 1 FROM run_import_batches WHERE request_id = $id),
+                   preview_id, message_type, fingerprint
+            FROM (SELECT $id AS request_id) AS request
+            LEFT JOIN ipc_request_tombstones USING (request_id);
+            """;
+        command.Parameters.AddWithValue("$id", requestId);
+        using var reader = command.ExecuteReader();
+        Assert.True(reader.Read());
+        return (reader.GetBoolean(0), reader.GetBoolean(1), reader.IsDBNull(2) ? null : reader.GetString(2),
+            reader.IsDBNull(3) ? null : reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task HostPurgesLiveBodiesAfterManualAndExpiredDeletion(bool expired)
     {
         using var fixture = new TestDatabase();

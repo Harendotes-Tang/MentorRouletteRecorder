@@ -463,7 +463,8 @@ QJsonObject MockBackend::assignRunsToProfile(const QJsonObject &payload, QString
     if (requested.isUndefined() || (!requested.isNull() && !requested.isDouble()))
         return refuseWith(errorCode, errorMessage, QStringLiteral("ERR_BAD_REQUEST"), "ipc.field.missing",
                           {{QStringLiteral("field"), QStringLiteral("profile_id")}});
-    if ((!previewRegion && (reason.isEmpty() || reason.size() > 500)) || targets.isEmpty() || targets.size() > 2000) {
+    if ((!previewRegion && (reason.isEmpty() || reason.size() > 500)) || targets.isEmpty()
+        || (!payload.contains(QStringLiteral("selection_id")) && targets.size() > kInlineHistorySelectionLimit)) {
         *errorCode = QStringLiteral("ERR_BAD_REQUEST");
         *errorMessage = tr("批量操作、原因或记录数量无效。");
         return {};

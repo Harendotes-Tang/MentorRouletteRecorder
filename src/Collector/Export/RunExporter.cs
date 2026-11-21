@@ -1,10 +1,10 @@
 using System.Globalization;
 using System.Text;
-using System.Text.Json.Nodes;
-using Microsoft.Data.Sqlite;
+using System.Text.Json;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
+using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Domain.Queries;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Ipc;
@@ -57,7 +57,7 @@ public sealed class RunExporter
     /// </summary>
     public static IReadOnlyList<string> LegacyCsvHeader { get; } = CsvHeader.Take(16).ToArray();
 
-    private const int BatchSize = 200;
+    private const int JsonFlushThreshold = 64 * 1024;
 
     /// <summary>
     /// Characters a spreadsheet reads as the start of a formula rather than as text.
@@ -99,7 +99,7 @@ public sealed class RunExporter
     /// <param name="clock">Clock used to stamp the outcome.</param>
     /// <param name="database">
     /// Database used to open an independent read-only snapshot. When omitted, the repository's
-    /// database supplies it; both construction paths preserve one snapshot across all pages.
+    /// database supplies it; both construction paths preserve one snapshot across all rows.
     /// </param>
     public RunExporter(RunRepository runs, IClock clock, SqliteDatabase? database = null)
     {
@@ -123,35 +123,18 @@ public sealed class RunExporter
     /// <param name="overwrite">是否允许原子替换已有文件。</param>
     /// <param name="sort">与 QueryRuns 相同的排序；null 按进本时间由新到旧。</param>
     /// <param name="cancellationToken">取消尚未发布的导出；已原子发布的文件仍返回成功。</param>
+    /// <param name="targets">已封存的勾选目标；缺省时使用现有筛选协议。</param>
     internal ExportOutcome ExportCsv(
-        string targetPath, RunFilter? filter, bool overwrite, RunSort? sort, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        var fullPath = ExportPaths.Resolve(targetPath);
-        ExportPaths.PrepareDestination(fullPath, overwrite);
-
-        var rows = LoadAll(filter, sort ?? RunSort.Default, cancellationToken);
-        var text = new StringBuilder(1024 + (rows.Count * 160));
-        text.Append(string.Join(',', CsvHeader)).Append("\r\n");
-        foreach (var run in rows)
+        string targetPath, RunFilter? filter, bool overwrite, RunSort? sort, CancellationToken cancellationToken,
+        IReadOnlyList<BatchRunTarget>? targets = null) =>
+        WriteExport(targetPath, overwrite, cancellationToken, stream =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            AppendCsvRow(text, run);
-        }
-
-        // The BOM is what makes Excel open a UTF-8 CSV with Chinese duty names correctly.
-        // Encoding.GetBytes never emits a preamble of its own, so it is prepended here.
-        var encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
-        var body = encoding.GetBytes(text.ToString());
-        var preamble = encoding.GetPreamble();
-        var bytes = new byte[preamble.Length + body.Length];
-        preamble.CopyTo(bytes, 0);
-        body.CopyTo(bytes, preamble.Length);
-
-        cancellationToken.ThrowIfCancellationRequested();
-        Write(fullPath, bytes, overwrite, cancellationToken);
-        return Outcome(fullPath, rows.Count);
-    }
+            // The BOM is what makes Excel open a UTF-8 CSV with Chinese duty names correctly.
+            using var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true),
+                leaveOpen: true) { NewLine = "\r\n" };
+            writer.WriteLine(string.Join(',', CsvHeader));
+            return WriteRows(filter, sort, targets, run => WriteCsvRow(writer, run), cancellationToken);
+        });
 
     /// <summary>Writes a JSON array of <c>$defs/Run</c> objects.</summary>
     /// <param name="targetPath">Destination chosen by the user.</param>
@@ -167,38 +150,41 @@ public sealed class RunExporter
     /// <param name="overwrite">是否允许原子替换已有文件。</param>
     /// <param name="sort">与 QueryRuns 相同的排序；null 按进本时间由新到旧。</param>
     /// <param name="cancellationToken">取消尚未发布的导出；已原子发布的文件仍返回成功。</param>
+    /// <param name="targets">已封存的勾选目标；缺省时使用现有筛选协议。</param>
     internal ExportOutcome ExportJson(
-        string targetPath, RunFilter? filter, bool overwrite, RunSort? sort, CancellationToken cancellationToken)
+        string targetPath, RunFilter? filter, bool overwrite, RunSort? sort, CancellationToken cancellationToken,
+        IReadOnlyList<BatchRunTarget>? targets = null) =>
+        WriteExport(targetPath, overwrite, cancellationToken, stream =>
+        {
+            var options = Wire.IndentedJsonOptions;
+            using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions
+            {
+                Indented = options.WriteIndented,
+                Encoder = options.Encoder,
+            });
+            writer.WriteStartArray();
+            var count = WriteRows(filter, sort, targets, run =>
+            {
+                Wire.Run(run).WriteTo(writer, options);
+                if (writer.BytesPending >= JsonFlushThreshold)
+                {
+                    writer.Flush();
+                }
+            }, cancellationToken);
+            writer.WriteEndArray();
+            return count;
+        });
+
+    /// <summary>Publishes only a fully written, validated export and returns its final file metadata.</summary>
+    private ExportOutcome WriteExport(
+        string targetPath, bool overwrite, CancellationToken cancellationToken, Func<Stream, int> write)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var fullPath = ExportPaths.Resolve(targetPath);
-        ExportPaths.PrepareDestination(fullPath, overwrite);
-
-        var rows = LoadAll(filter, sort ?? RunSort.Default, cancellationToken);
-        var array = new JsonArray();
-        foreach (var run in rows)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            array.Add(Wire.Run(run));
-        }
-
-        var json = array.ToJsonString(Wire.IndentedJsonOptions);
-        cancellationToken.ThrowIfCancellationRequested();
-        Write(fullPath, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(json), overwrite, cancellationToken);
-        return Outcome(fullPath, rows.Count);
-    }
-
-    private ExportOutcome Outcome(string fullPath, int rowCount) => new(
-        fullPath,
-        rowCount,
-        new FileInfo(fullPath).Length,
-        UtcTimestamp.Truncate(_clock.UtcNow));
-
-    private static void Write(string fullPath, byte[] bytes, bool overwrite, CancellationToken cancellationToken)
-    {
+        var rows = 0;
         try
         {
-            AtomicExportFile.Write(fullPath, overwrite, file => file.Write(bytes), cancellationToken);
+            AtomicExportFile.Write(fullPath, overwrite, stream => rows = write(stream), cancellationToken);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -208,44 +194,51 @@ public sealed class RunExporter
                 new Dictionary<string, object?> { ["target_path"] = fullPath },
                 inner: ex);
         }
+
+        return new ExportOutcome(fullPath, rows, new FileInfo(fullPath).Length, UtcTimestamp.Truncate(_clock.UtcNow));
     }
 
     /// <summary>
-    /// Reads every matching run and its attachments from one read-only transaction. WAL keeps
-    /// later live writes outside this snapshot without making them wait for the export.
+    /// Writes one sorted snapshot of matching rows and attachments to the temporary export.
+    /// WAL lets live writes continue while that snapshot is open. Missing checked rows abort publication.
     /// </summary>
     /// <param name="filter">Same filter as QueryRuns; null exports everything visible.</param>
-    /// <param name="sort">Order of the rows, applied by the repository on every page.</param>
-    /// <param name="cancellationToken">取消分页读取以及尚未发布的文件。</param>
-    private IReadOnlyList<MentorRun> LoadAll(RunFilter? filter, RunSort sort, CancellationToken cancellationToken) =>
+    /// <param name="sort">History list's sort; null selects the default.</param>
+    /// <param name="targets">已封存的勾选目标，使用快照连接的临时表避免 SQL 参数数量上限。</param>
+    /// <param name="write">Consumes each hydrated row in order.</param>
+    /// <param name="cancellationToken">Cancels the read and any pending publication.</param>
+    /// <returns>The number of rows written.</returns>
+    private int WriteRows(RunFilter? filter, RunSort? sort, IReadOnlyList<BatchRunTarget>? targets,
+        Action<MentorRun> write, CancellationToken cancellationToken) =>
         _database.ReadSnapshot((snapshot, transaction) =>
-            LoadPages(new RunRepository(snapshot), transaction, filter, sort, cancellationToken), cancellationToken);
-
-    private static IReadOnlyList<MentorRun> LoadPages(
-        RunRepository runs, SqliteTransaction transaction, RunFilter? filter, RunSort sort,
-        CancellationToken cancellationToken)
-    {
-        var rows = new List<MentorRun>();
-        var page = 1;
-        while (true)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var batch = runs.Query(filter, sort, page, BatchSize, transaction);
-            rows.AddRange(batch.Items);
-            if (batch.Items.Count < BatchSize || rows.Count >= batch.Total)
+            var runs = new RunRepository(snapshot);
+            if (targets is not null) runs.CreateSelectionTable(targets, transaction, cancellationToken);
+            var inlineIds = filter?.RunIds;
+            var inlineCount = inlineIds?.Count ?? 0;
+            var missingIds = inlineIds is { Count: > 0 } ? inlineIds.ToHashSet(StringComparer.Ordinal) : null;
+            var count = runs.VisitExportRows(filter, sort ?? RunSort.Default, transaction,
+                restrictToSelection: targets is not null, run =>
+                {
+                    missingIds?.Remove(run.RunId);
+                    write(run);
+                }, cancellationToken);
+            if (targets is not null && count != targets.Count)
             {
-                if (filter?.RunIds.Count > 0 &&
-                    (rows.Count != filter.RunIds.Count || !rows.Select(row => row.RunId).ToHashSet(StringComparer.Ordinal).SetEquals(filter.RunIds)))
-                    throw new CollectorException(ErrorCodes.NotFound, CollectorTexts.ExportSelectionChanged(),
-                        new Dictionary<string, object?> { ["requested_count"] = filter.RunIds.Count, ["matched_count"] = rows.Count });
-                return rows;
+                throw SelectionChanged(targets.Count, count);
             }
+            if (missingIds is not null && (count != inlineCount || missingIds.Count != 0))
+            {
+                throw SelectionChanged(inlineCount, count);
+            }
+            return count;
+        }, cancellationToken);
 
-            page++;
-        }
-    }
+    private static CollectorException SelectionChanged(int requested, int found) =>
+        new(ErrorCodes.NotFound, CollectorTexts.ExportSelectionChanged(),
+            new Dictionary<string, object?> { ["requested_count"] = requested, ["matched_count"] = found });
 
-    private static void AppendCsvRow(StringBuilder text, MentorRun run)
+    private static void WriteCsvRow(TextWriter writer, MentorRun run)
     {
         var date = run.EnteredAtUtc ?? run.MatchedAtUtc ?? run.EndedAtUtc;
         var cells = new[]
@@ -275,13 +268,13 @@ public sealed class RunExporter
         {
             if (i > 0)
             {
-                text.Append(',');
+                writer.Write(',');
             }
 
-            text.Append(Escape(cells[i], FreeTextColumns[i]));
+            writer.Write(Escape(cells[i], FreeTextColumns[i]));
         }
 
-        text.Append("\r\n");
+        writer.WriteLine();
     }
 
     /// <summary>

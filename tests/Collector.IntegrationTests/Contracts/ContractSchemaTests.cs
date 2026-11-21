@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Capture;
@@ -91,6 +92,34 @@ public sealed class ContractSchemaTests
                     ["page_size"] = 50,
                 });
             Assert.Equal(2, queried.Require()["items"]!.AsArray().Count);
+
+            var frozenHistory = (await client.SendAsync("QueryHistorySelection", new JsonObject
+            {
+                ["filter"] = new JsonObject { ["run_id"] = new JsonArray(firstRunId) },
+            })).Require();
+            var frozenId = frozenHistory["selection_id"]!.GetValue<string>();
+            var frozenRow = Assert.Single(frozenHistory["items"]!.AsArray())!.AsObject();
+            Assert.Equal(firstRunId, frozenRow["run_id"]!.GetValue<string>());
+            var selectedRevision = frozenRow["revision"]!.GetValue<int>();
+            var targetText = FormattableString.Invariant($"{firstRunId}:{selectedRevision}\n");
+            var targets = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(targetText))).ToLowerInvariant();
+            var stagedHistory = (await client.SendAsync("StageHistorySelection", new JsonObject
+            {
+                ["selection_id"] = targets,
+                ["chunk_index"] = 0,
+                ["last"] = true,
+                ["runs"] = new JsonArray(new JsonObject
+                {
+                    ["run_id"] = firstRunId, ["expected_revision"] = selectedRevision,
+                }),
+            })).Require();
+            Assert.True(stagedHistory["sealed"]!.GetValue<bool>());
+            foreach (var handle in new[] { frozenId, targets })
+            {
+                var released = (await client.SendAsync("QueryHistorySelection",
+                    new JsonObject { ["selection_id"] = handle, ["release"] = true })).Require();
+                Assert.True(released["released"]!.GetValue<bool>());
+            }
 
             Assert.True((await client.SendAsync("QueryRunCalendarDays",
                 new JsonObject { ["month"] = "2026-09", ["filter"] = new JsonObject() })).Ok);

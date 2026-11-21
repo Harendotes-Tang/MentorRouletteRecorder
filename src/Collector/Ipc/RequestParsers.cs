@@ -437,7 +437,26 @@ public static class RequestParsers
             "follow_game", "autostart", "adapter_id", "log_retention_days",
             "allow_without_profile", "region_override", "candidate_validation_enabled", "research_payload_opcodes",
             "auto_calibration_enabled", "shared_calibration_enabled", "update_check_enabled",
-            "character_identification_enabled");
+            "character_identification_enabled", "candidate_round_id", "candidate_round_profile_id");
+
+        var candidate = reader.Bool("candidate_validation_enabled");
+        var roundId = reader.Has("candidate_round_id")
+            ? Guid.Parse(reader.RequiredUuid("candidate_round_id")).ToString("D") : null;
+        var roundProfile = reader.Has("candidate_round_profile_id")
+            ? reader.RequiredString("candidate_round_profile_id", 256) : null;
+        if (roundId is not null || roundProfile is not null)
+        {
+            reader.RejectUnknown("candidate_validation_enabled", "research_payload_opcodes",
+                "candidate_round_id", "candidate_round_profile_id");
+            if (roundId is null)
+                throw CollectorException.BadRequest(CollectorTexts.IpcFieldMissing("candidate_round_id"), "payload.candidate_round_id");
+            if (candidate is null)
+                throw CollectorException.BadRequest(CollectorTexts.IpcFieldMissing("candidate_validation_enabled"), "payload.candidate_validation_enabled");
+            if (candidate == true && roundProfile is null)
+                throw CollectorException.BadRequest(CollectorTexts.IpcFieldMissing("candidate_round_profile_id"), "payload.candidate_round_profile_id");
+            if (candidate == false && roundProfile is not null)
+                throw CollectorException.BadRequest(CollectorTexts.IpcFieldUnknown("candidate_round_profile_id"), "payload.candidate_round_profile_id");
+        }
 
         // adapter_id and region_override distinguish "not named" from "named as null": for
         // both, null is a request to clear the value, not a request to leave it alone.
@@ -460,7 +479,9 @@ public static class RequestParsers
 
         return new Capture.CaptureSettingsUpdate
         {
-            CandidateValidationEnabled = reader.Bool("candidate_validation_enabled"),
+            CandidateValidationEnabled = candidate,
+            CandidateRoundId = roundId,
+            CandidateRoundProfileId = roundProfile,
             ResearchPayloadOpcodes = reader.Has("research_payload_opcodes")
                 ? Capture.ResearchPayloadPolicy.Normalize(reader.StringArray("research_payload_opcodes", Capture.ResearchPayloadPolicy.MaxOpcodes)) : null,
             AutoCalibrationEnabled = reader.Bool("auto_calibration_enabled"),
@@ -529,23 +550,27 @@ public static class RequestParsers
     public static BatchMutateRunsCommand BatchMutateRuns(string requestId, PayloadReader reader)
     {
         var action = reader.RequiredString("action", 16);
+        var selectionId = HistorySelectionHandlers.ReadTargetId(reader);
         var assigning = action == Storage.Mutations.RunMutationService.AssignProfileAction;
         if (action == Storage.Mutations.RunMutationService.MoveRegionAction)
         {
-            reader.RejectUnknown("action", "runs", "reason", "region", "profile_id", "expected_baseline", "baseline_overlap");
+            reader.RejectUnknown("action", "runs", "selection_id", "reason", "region", "profile_id",
+                "expected_baseline", "baseline_overlap");
             var (region, profileId) = RegionDestination(reader);
-            return new BatchMutateRunsCommand(requestId, action, BatchRunTargets(reader), RequireReason(reader),
+            return new BatchMutateRunsCommand(requestId, action, selectionId is null ? BatchRunTargets(reader) : [],
+                RequireReason(reader),
                 Migration: new RunRegionMigration(region, profileId, reader.RequiredInt("expected_baseline", 0),
-                    reader.RequiredInt("baseline_overlap", 0)));
+                    reader.RequiredInt("baseline_overlap", 0)), SelectionId: selectionId);
         }
         // A null profile_id is meaningful only for assign_profile.
-        if (assigning) reader.RejectUnknown("action", "runs", "reason", "profile_id");
-        else reader.RejectUnknown("action", "runs", "reason");
+        if (assigning) reader.RejectUnknown("action", "runs", "selection_id", "reason", "profile_id");
+        else reader.RejectUnknown("action", "runs", "selection_id", "reason");
         // "profile_id": null files the runs under no profile, so the field itself has to be there.
         if (assigning && !reader.Has("profile_id"))
             throw CollectorException.BadRequest(CollectorTexts.IpcFieldMissing("profile_id"), "payload.profile_id");
-        return new BatchMutateRunsCommand(requestId, action, BatchRunTargets(reader), RequireReason(reader),
-            reader.IsNull("profile_id") ? null : reader.Long("profile_id", 1));
+        return new BatchMutateRunsCommand(requestId, action, selectionId is null ? BatchRunTargets(reader) : [],
+            RequireReason(reader), reader.IsNull("profile_id") ? null : reader.Long("profile_id", 1),
+            SelectionId: selectionId);
     }
 
     public static (Region Region, long ProfileId) RegionDestination(PayloadReader reader)
@@ -556,9 +581,10 @@ public static class RequestParsers
         return (region, profileId);
     }
 
-    public static IReadOnlyList<BatchRunTarget> BatchRunTargets(PayloadReader reader)
+    public static IReadOnlyList<BatchRunTarget> BatchRunTargets(
+        PayloadReader reader, int maxCount = Storage.Mutations.HistoryRetentionService.MaxBatchSize)
     {
-        var targets = reader.ObjectArray("runs", Storage.Mutations.HistoryRetentionService.MaxBatchSize).Select(item =>
+        var targets = reader.ObjectArray("runs", maxCount).Select(item =>
         {
             item.RejectUnknown("run_id", "expected_revision");
             return new BatchRunTarget(Guid.Parse(item.RequiredUuid("run_id")).ToString("D"), item.RequiredInt("expected_revision", 1));

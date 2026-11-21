@@ -291,6 +291,52 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
         Assert.Equal(expected is not null, wire.ContainsKey("mirror_outcome"));
     }
 
+    [Fact]
+    public async Task PrimaryThatCatchesUpDuringAWorkingMirrorReopenIsReportedAsFaster()
+    {
+        var github = new PausedInstaller(1024, secondPause: Installer.Length - 1);
+        var reopenStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finishReopen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var mirrorClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var mirrorOpens = 0;
+        var transport = MirrorInstaller(new Transport().Publish(Published, Installer, body: github))
+            .On(Mirror(Exe), async (uri, token) =>
+            {
+                if (Interlocked.Increment(ref mirrorOpens) == 1)
+                    return Bytes(uri, Installer);
+                reopenStarted.TrySetResult();
+                await finishReopen.Task.WaitAsync(token);
+                return new UpdateTransportResponse(200, uri, null, Installer.Length,
+                    new MirrorBody(mirrorClosed));
+            });
+        var service = Service(transport, limits: Limits() with { SlowWindow = TimeSpan.FromMilliseconds(80) });
+        service.Start();
+        await EventuallyAsync(() => service.Snapshot().MirrorOfferId is not null, "slow GitHub should prompt");
+        service.ResolveMirrorOffer(service.Snapshot().MirrorOfferId!, useGitCode: true);
+        await reopenStarted.Task.WaitAsync(Patience);
+        github.Resume();
+        await EventuallyAsync(() => service.Snapshot().ReceivedBytes == Installer.Length - 1,
+            "GitHub should catch up before GitCode replies");
+        finishReopen.TrySetResult();
+        await mirrorClosed.Task.WaitAsync(Patience);
+        github.Finish();
+
+        var result = await SettleAsync(service);
+        Assert.Equal(UpdateDownloadState.Ready, result.State);
+        Assert.Equal("not_switched_faster_primary", result.MirrorOutcome);
+        Assert.Equal(Installer, await File.ReadAllBytesAsync(InstallerPath()));
+        Assert.Equal(2, mirrorOpens);
+    }
+
+    private sealed class MirrorBody(TaskCompletionSource closed) : MemoryStream(Installer, writable: false)
+    {
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            if (disposing) closed.TrySetResult();
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -328,13 +374,15 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
             UpdateDownloadTransfer.MirrorFinishesSooner(1000, received, primaryRate, mirrorRate, setupSeconds));
     }
 
-    private sealed class PausedInstaller(int prefixLength, bool failAfterResume = false) : BodyStream
+    private sealed class PausedInstaller(int prefixLength, bool failAfterResume = false, int? secondPause = null) : BodyStream
     {
         private readonly TaskCompletionSource _resume = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _finish = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _position;
 
         public int BytesRead => Volatile.Read(ref _position);
         public void Resume() => _resume.TrySetResult();
+        public void Finish() => _finish.TrySetResult();
 
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
@@ -343,7 +391,12 @@ public sealed class UpdateMirrorTests : UpdateDownloadTestBase
             {
                 await _resume.Task.WaitAsync(cancellationToken);
                 if (failAfterResume) throw new IOException("GitHub dropped the connection");
-                end = Installer.Length;
+                end = secondPause ?? Installer.Length;
+                if (secondPause is { } pause && _position >= pause)
+                {
+                    await _finish.Task.WaitAsync(cancellationToken);
+                    end = Installer.Length;
+                }
             }
             var read = Math.Min(buffer.Length, end - _position);
             Installer.AsMemory(_position, read).CopyTo(buffer);

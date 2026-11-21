@@ -151,7 +151,7 @@ endforeach()
 # AutomaticRecording / GameSelection / Recovery: their controllers, without a Collector.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopWorkflowTests
-    SUITES Desktop WorkflowController AutomaticRecording RecordingWarning ExportFailure ExportOrdering Recovery RunFormValidator
+    SUITES Desktop WorkflowController AutomaticRecording RecordingWarning TrayRecordingNotification ExportFailure ExportOrdering Recovery RunFormValidator
            RunListModel HistoryFilterFacets AppLiveEvent GameSelection DailyBackupScheduler HistoryImageCleanupController
     LIBRARIES Qt6::Widgets)
 mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests Desktop NAME MentorRecorderDesktopTests)
@@ -159,6 +159,7 @@ foreach(suite IN ITEMS AutomaticRecording GameSelection)
     mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests ${suite} NO_LOG)
 endforeach()
 mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests RecordingWarning)
+mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests TrayRecordingNotification)
 foreach(suite IN ITEMS WorkflowController ExportFailure ExportOrdering Recovery RunFormValidator RunListModel HistoryFilterFacets
                        DailyBackupScheduler HistoryImageCleanupController AppLiveEvent)
     mr_desktop_suite_test(MentorRecorderDesktopWorkflowTests ${suite})
@@ -174,7 +175,7 @@ endforeach()
 # QmlRuntime is registered with its own environment below, after the common one is applied.
 # ---------------------------------------------------------------------------
 mr_desktop_test_executable(MentorRecorderDesktopShellTests
-    SUITES ShellDialog UiWorkflowRegression Motion TrendMotion DialogMotion RecoveryUi HistoryBatch HistoryColumns RunDetailPanel
+    SUITES ShellDialog UiWorkflowRegression Motion TrendMotion DialogMotion RecoveryUi HistoryBatch HistoryBatchTransport HistorySelection HistoryColumns RunDetailPanel
            EditRunDialogBinding ManualRunReflection RecordWorkspace RecordingWarningWindow NoteImageStore QmlRuntime QmlWarningCounter
            CharacterProfilePages
     LIBRARIES ${MR_QUICK_TEST_LIBRARIES} Qt6::Widgets)
@@ -197,7 +198,10 @@ foreach(suite IN ITEMS ShellDialog UiWorkflowRegression Motion TrendMotion Dialo
     mr_desktop_suite_test(MentorRecorderDesktopShellTests ${suite})
 endforeach()
 mr_desktop_suite_test(MentorRecorderDesktopShellTests HistoryBatch)
-set_tests_properties(MentorRecorderHistoryBatch PROPERTIES ENVIRONMENT "${MR_DESKTOP_ISOLATED_ENVIRONMENT}")
+mr_desktop_suite_test(MentorRecorderDesktopShellTests HistoryBatchTransport)
+mr_desktop_suite_test(MentorRecorderDesktopShellTests HistorySelection)
+set_tests_properties(MentorRecorderHistoryBatch MentorRecorderHistoryBatchTransport MentorRecorderHistorySelection
+    PROPERTIES ENVIRONMENT "${MR_DESKTOP_ISOLATED_ENVIRONMENT}")
 
 # ---------------------------------------------------------------------------
 # statistics/ - the statistics float, achievement progress and dungeon composition.

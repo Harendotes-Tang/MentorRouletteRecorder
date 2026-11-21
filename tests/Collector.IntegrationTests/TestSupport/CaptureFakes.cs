@@ -34,11 +34,13 @@ internal static class CaptureFakes
     /// </summary>
     /// <param name="gameBuild">Build text the remembered install directory holds.</param>
     /// <param name="npcapInstalled">True supplies a usable driver, so capture refusals are about the game.</param>
-    public static CaptureServices RememberedInstall(string gameBuild, bool npcapInstalled = true) =>
+    /// <param name="executablePath">Remembered path; its install folder identifies the region.</param>
+    public static CaptureServices RememberedInstall(string gameBuild, bool npcapInstalled = true,
+        string executablePath = RememberedExecutable) =>
         NoGame(npcapInstalled) with
     {
         Game = new GameProcessLocator(new NoGameProcess(), new FixedGameFiles(gameBuild))
-            .WithInstallMemory(new RememberedGameInstall(RememberedExecutable)),
+            .WithInstallMemory(new RememberedGameInstall(executablePath)),
     };
 
     /// <summary>Where the fake install sits; a CN path, so the region is read from it.</summary>

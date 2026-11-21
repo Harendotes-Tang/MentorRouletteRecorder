@@ -7,6 +7,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 #include <QMap>
+#include <QSet>
 #include <QStringList>
 #include "LiveText.h"
 #include "RunListModel.h"
@@ -72,14 +73,16 @@ public:
     /// 勾选保存当时的修订，不随翻页或后台刷新偷偷推进冲突基线。
     QStringList checkedRunIds() const { return m_checkedOrder; }
     int checkedRunCount() const { return static_cast<int>(m_checkedOrder.size()); }
+    bool isRunChecked(const QString &runId) const { return m_checkedRuns.contains(runId); }
+    QJsonArray largeCheckedBatchTargets() const;
     int checkedDeletedCount() const;
     bool allCurrentPageChecked() const;
     bool batchRunning() const { return m_batchRunning; }
     QString batchFeedback() const { return m_batchFeedback.text(); }
     void setRunChecked(const QVariantMap &run, bool checked);
     void setCurrentPageChecked(bool checked);
-    /// Checks every record the current filter matches, on every page, up to the batch
-    /// limit; the rows are read from the Collector so each keeps its own revision.
+    /// Checks every record in the Collector's frozen reading of the current filter.
+    /// Failed, abandoned and superseded reads leave the previous selection intact.
     void checkAllMatchingRuns();
     bool checkAllLoading() const { return m_checkAllLoading; }
     /// Drops a 勾选全部 read that is still on its way: its answer is for another filter,
@@ -147,7 +150,8 @@ private:
                           const QJsonObject &migration = {});
     QJsonArray checkedBatchTargets() const;
     void discardCheckedRuns();
-    void fetchMatchingPage(quint64 generation, int page, QList<QVariantMap> collected);
+    void fetchMatchingPage(quint64 generation, int page);
+    void failCheckAll(bool outdatedCollector = false);
     void loadRevisionsForSelection();
     void loadRevisionPage(const QString &runId, quint64 generation, int page,
                           QVariantList collected);
@@ -197,10 +201,10 @@ private:
     bool m_batchRunning = false;
     quint64 m_checkAllGeneration = 0;
     bool m_checkAllLoading = false;
-    /// BatchMutateRuns takes at most this many targets (contracts: run_id maxItems 2000).
-    static constexpr int kMaxCheckedRuns = 2000;
-    /// QueryRuns page size used to read the matching records.
-    static constexpr int kCheckAllPageSize = 200;
+    QString m_checkAllSelectionId;
+    qint64 m_checkAllTotal = -1;
+    QList<QJsonObject> m_checkAllRows;
+    QSet<QString> m_checkAllIds;
     quint64 m_regionPreviewGeneration = 0;
     bool m_regionPreviewLoading = false;
     QJsonObject m_regionDestination;

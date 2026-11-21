@@ -873,6 +873,21 @@ QString AppSettings::value(const QString &key, const QString &defaultValue) cons
     return m_settings.value(key, defaultValue).toString();
 }
 
+QVariantMap AppSettings::candidateRoundFinishDraft() const
+{
+    return m_settings.value(QStringLiteral("candidate_round/finish_draft")).toMap();
+}
+
+void AppSettings::setCandidateRoundFinishDraft(const QVariantMap &draft)
+{
+    const auto key = QStringLiteral("candidate_round/finish_draft");
+    if (draft.isEmpty())
+        m_settings.remove(key);
+    else
+        m_settings.setValue(key, draft);
+    m_settings.sync();
+}
+
 void AppSettings::setValue(const QString &key, const QVariant &value)
 {
     m_settings.setValue(key, value);

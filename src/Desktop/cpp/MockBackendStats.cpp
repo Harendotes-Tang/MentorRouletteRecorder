@@ -16,6 +16,7 @@
 #include <QMap>
 #include <QSet>
 #include <QTimeZone>
+#include <QUuid>
 
 #include <algorithm>
 #include <limits>
@@ -458,6 +459,112 @@ bool MockBackend::refusedSort(const QJsonObject &payload, QString *errorCode, QS
         return true;
     }
     return false;
+}
+
+QJsonObject MockBackend::queryHistorySelection(const QJsonObject &payload, QString *errorCode)
+{
+    QString id = payload.value(QStringLiteral("selection_id")).toString();
+    if (payload.value(QStringLiteral("release")).toBool()) {
+        m_historySelectionSnapshots.remove(id);
+        m_stagedHistorySelections.remove(id);
+        return {{QStringLiteral("released"), true}};
+    }
+    const int page = payload.value(QStringLiteral("page")).toInt(1);
+    if (page < 1 || (id.isEmpty() && page != 1)) {
+        *errorCode = QStringLiteral("ERR_BAD_REQUEST");
+        return {};
+    }
+    if (id.isEmpty()) {
+        id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        QList<QJsonObject> snapshot;
+        for (const auto &run : selectRuns(payload.value(QStringLiteral("filter")).toObject(), false)) {
+            QJsonObject selected;
+            for (const auto &name : {"run_id", "revision", "soft_deleted", "source", "region", "capture_session_id"}) {
+                const QLatin1String field(name);
+                const auto value = run.value(field);
+                selected.insert(field, value.isUndefined() ? QJsonValue(QJsonValue::Null) : value);
+            }
+            snapshot.append(selected);
+        }
+        m_historySelectionSnapshots.insert(id, std::move(snapshot));
+    }
+    const auto snapshot = m_historySelectionSnapshots.constFind(id);
+    if (snapshot == m_historySelectionSnapshots.cend()) {
+        *errorCode = QStringLiteral("ERR_NOT_FOUND");
+        return {};
+    }
+    const auto offset = static_cast<qint64>(page - 1) * kHistorySelectionPageSize;
+    QJsonArray items;
+    for (auto i = offset; i < qMin(offset + kHistorySelectionPageSize, static_cast<qint64>(snapshot->size())); ++i)
+        items.append(snapshot->at(static_cast<qsizetype>(i)));
+    return {{QStringLiteral("selection_id"), id}, {QStringLiteral("items"), items},
+            {QStringLiteral("page_info"), QJsonObject{{QStringLiteral("page"), page},
+                {QStringLiteral("page_size"), kHistorySelectionPageSize}, {QStringLiteral("total"), snapshot->size()}}}};
+}
+
+QJsonObject MockBackend::stageHistorySelection(const QJsonObject &payload, QString *errorCode)
+{
+    const QString id = payload.value(QStringLiteral("selection_id")).toString();
+    const int index = payload.value(QStringLiteral("chunk_index")).toInt(-1);
+    const QJsonArray targets = payload.value(QStringLiteral("runs")).toArray();
+    const auto final = payload.value(QStringLiteral("last"));
+    if (id.size() != 64 || index < 0 || targets.isEmpty() || targets.size() > kHistorySelectionPageSize || !final.isBool()) {
+        *errorCode = QStringLiteral("ERR_BAD_REQUEST");
+        return {};
+    }
+
+    auto &stage = m_stagedHistorySelections[id];
+    if (index < stage.chunks.size()) {
+        if (stage.chunks.at(index) != targets || final.toBool() != (stage.sealed && index == stage.chunks.size() - 1)) {
+            *errorCode = QStringLiteral("ERR_BAD_REQUEST");
+            return {};
+        }
+    } else if (index == stage.chunks.size() && !stage.sealed) {
+        stage.chunks.append(targets);
+        if (final.toBool()) {
+            for (const auto &rows : std::as_const(stage.chunks))
+                for (const auto &target : rows)
+                    stage.targets.append(target);
+            if (historySelectionKey(stage.targets) != id) {
+                m_stagedHistorySelections.remove(id);
+                *errorCode = QStringLiteral("ERR_BAD_REQUEST");
+                return {};
+            }
+            stage.sealed = true;
+        }
+    } else {
+        *errorCode = QStringLiteral("ERR_BAD_REQUEST");
+        return {};
+    }
+    return {{QStringLiteral("selection_id"), id}, {QStringLiteral("next_chunk_index"), stage.chunks.size()},
+            {QStringLiteral("sealed"), stage.sealed}};
+}
+
+bool MockBackend::resolveHistorySelection(const QString &messageType, QJsonObject &payload, QString *errorCode) const
+{
+    const bool exporting = messageType == QLatin1String("ExportCsv") || messageType == QLatin1String("ExportJson");
+    if (!payload.contains(QStringLiteral("selection_id")) || (!exporting
+        && messageType != QLatin1String("BatchMutateRuns") && messageType != QLatin1String("PreviewRunRegionMigration")))
+        return true;
+    const auto stage = m_stagedHistorySelections.constFind(payload.value(QStringLiteral("selection_id")).toString());
+    if (stage == m_stagedHistorySelections.cend() || !stage->sealed) {
+        *errorCode = QStringLiteral("ERR_NOT_FOUND");
+        return false;
+    }
+    if (payload.contains(QStringLiteral("runs")) || (exporting && payload.contains(QStringLiteral("filter")))) {
+        *errorCode = QStringLiteral("ERR_BAD_REQUEST");
+        return false;
+    }
+    if (!exporting) {
+        payload.insert(QStringLiteral("runs"), stage->targets);
+    } else {
+        QJsonArray ids;
+        for (const auto &target : stage->targets)
+            ids.append(target.toObject().value(QStringLiteral("run_id")));
+        payload.insert(QStringLiteral("filter"), QJsonObject{{QStringLiteral("run_id"), ids},
+                                                             {QStringLiteral("include_deleted"), true}});
+    }
+    return true;
 }
 
 QJsonObject MockBackend::queryRunsPayload(const QJsonObject &payload) const

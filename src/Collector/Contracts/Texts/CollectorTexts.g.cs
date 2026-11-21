@@ -329,6 +329,18 @@ public static partial class CollectorTexts
     public static UserText CandidateRequestReused() =>
         new("candidate.request_reused", "同一个 request_id 被用于内容不同的请求，核对未修改。");
 
+    /// <summary><c>candidate.round_finish_first</c>: 请先结束正在进行的候选采证。</summary>
+    public static UserText CandidateRoundFinishFirst() =>
+        new("candidate.round_finish_first", "请先结束正在进行的候选采证。");
+
+    /// <summary><c>candidate.round_profile_changed</c>: 当前候选档案与开始时选择的档案不一致，请刷新采证页面。</summary>
+    public static UserText CandidateRoundProfileChanged() =>
+        new("candidate.round_profile_changed", "当前候选档案与开始时选择的档案不一致，请刷新采证页面。");
+
+    /// <summary><c>candidate.round_unavailable</c>: 该轮候选采证已无法确认。请返回页面检查采证状态。</summary>
+    public static UserText CandidateRoundUnavailable() =>
+        new("candidate.round_unavailable", "该轮候选采证已无法确认。请返回页面检查采证状态。");
+
     /// <summary><c>candidate.start_after_end</c>: 开始时间不能晚于结束时间。</summary>
     public static UserText CandidateStartAfterEnd() =>
         new("candidate.start_after_end", "开始时间不能晚于结束时间。");
@@ -785,6 +797,10 @@ public static partial class CollectorTexts
     public static UserText ExportSelectionChanged() =>
         new("export.selection_changed", "部分选中的记录已不存在或不符合当前筛选；本次没有写入导出文件，请刷新后重试。");
 
+    /// <summary><c>export.selection_requires_deleted</c>: 导出勾选的记录时须包含勾选的已删除记录。</summary>
+    public static UserText ExportSelectionRequiresDeleted() =>
+        new("export.selection_requires_deleted", "导出勾选的记录时须包含勾选的已删除记录。");
+
     /// <summary><c>export.write_failed</c>: 写入导出文件失败：路径不可写或磁盘空间不足。</summary>
     public static UserText ExportWriteFailed() =>
         new("export.write_failed", "写入导出文件失败：路径不可写或磁盘空间不足。");
@@ -840,6 +856,26 @@ public static partial class CollectorTexts
     /// <summary><c>history.run_not_found</c>: 找不到该记录，请刷新列表后重试。</summary>
     public static UserText HistoryRunNotFound() =>
         new("history.run_not_found", "找不到该记录，请刷新列表后重试。");
+
+    /// <summary><c>history.selection.chunk_mismatch</c>: 历史勾选分块的顺序或内容不一致，请重试。</summary>
+    public static UserText HistorySelectionChunkMismatch() =>
+        new("history.selection.chunk_mismatch", "历史勾选分块的顺序或内容不一致，请重试。");
+
+    /// <summary><c>history.selection.digest_invalid</c>: 历史勾选标识须为 64 位小写十六进制字符。</summary>
+    public static UserText HistorySelectionDigestInvalid() =>
+        new("history.selection.digest_invalid", "历史勾选标识须为 64 位小写十六进制字符。");
+
+    /// <summary><c>history.selection.exclusive_target</c>: 请选择一种历史勾选方式。</summary>
+    public static UserText HistorySelectionExclusiveTarget() =>
+        new("history.selection.exclusive_target", "请选择一种历史勾选方式。");
+
+    /// <summary><c>history.selection.first_page_required</c>: 请先读取历史勾选快照的第一页。</summary>
+    public static UserText HistorySelectionFirstPageRequired() =>
+        new("history.selection.first_page_required", "请先读取历史勾选快照的第一页。");
+
+    /// <summary><c>history.selection.unavailable</c>: 历史勾选已失效或尚未传送完成，请重试。</summary>
+    public static UserText HistorySelectionUnavailable() =>
+        new("history.selection.unavailable", "历史勾选已失效或尚未传送完成，请重试。");
 
     /// <summary><c>idempotency.purged_run</c>: 该请求涉及已永久删除的记录，不能重放；请刷新历史记录。</summary>
     public static UserText IdempotencyPurgedRun() =>

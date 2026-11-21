@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain;
+using MentorRecorder.Collector.Domain.Mutations;
 using MentorRecorder.Collector.Domain.Queries;
 using MentorRecorder.Collector.Domain.Time;
 
@@ -16,6 +17,7 @@ namespace MentorRecorder.Collector.Storage.Repositories;
 /// </summary>
 public sealed class RunRepository
 {
+    private const string SelectionTable = "temp.history_selection_ids";
     private const string Columns =
         "run_id, revision, capture_session_id, region, game_build, protocol_profile_id, " +
         "mentor_roulette_id, content_id, territory_id, duty_name, duty_category, job_id, job_name, role, " +
@@ -246,6 +248,47 @@ public sealed class RunRepository
     public Page<MentorRun> Query(RunFilter? filter, RunSort? sort, int page, int pageSize) =>
         Query(filter, sort, page, pageSize, transaction: null);
 
+    /// <summary>Reads only the immutable fields needed for a check-all snapshot in existing list order.</summary>
+    internal IReadOnlyList<HistorySelectionRow> ReadHistorySelection(
+        RunFilter? filter, SqliteTransaction transaction, CancellationToken cancellationToken)
+    {
+        var fragment = RunFilterSql.Build(filter, forStatistics: false);
+        using var command = _database.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT run_id, revision, soft_deleted, source, region, capture_session_id " +
+            $"FROM mentor_runs WHERE {fragment.Where} ORDER BY {OrderBy(RunSort.Default)};";
+        RunFilterSql.Bind(command, fragment);
+        var rows = new List<HistorySelectionRow>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            rows.Add(new HistorySelectionRow(reader.GetString(0), reader.GetInt32(1), reader.GetBoolean(2),
+                EnumWire<RunSource>.Parse(reader.GetString(3)), EnumWire<Region>.Parse(reader.GetString(4)),
+                GetNullableString(reader, 5)));
+        }
+        return rows.AsReadOnly();
+    }
+
+    /// <summary>Stages an admitted exact export selection in the short-lived local read snapshot.</summary>
+    internal void CreateSelectionTable(IReadOnlyList<BatchRunTarget> targets, SqliteTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        using var command = _database.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"CREATE TEMP TABLE {SelectionTable} (run_id TEXT PRIMARY KEY) WITHOUT ROWID;";
+        command.ExecuteNonQuery();
+        command.CommandText = $"INSERT INTO {SelectionTable} (run_id) VALUES ($id);";
+        var id = command.Parameters.Add("$id", SqliteType.Text);
+        command.Prepare();
+        foreach (var target in targets)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            id.Value = target.RunId;
+            command.ExecuteNonQuery();
+        }
+    }
+
     /// <summary>同一查询和附件装配逻辑，可在调用者持有的只读快照事务内分页。</summary>
     /// <param name="filter">与普通列表相同的筛选；null 不增加条件。</param>
     /// <param name="sort">排序；null 使用默认排序。</param>
@@ -266,10 +309,8 @@ public sealed class RunRepository
                 CollectorTexts.IpcFieldOutOfRange("page_size", 1, Paging.MaxPageSize), "page_size");
         }
 
-        sort ??= RunSort.Default;
         var fragment = RunFilterSql.Build(filter, forStatistics: false);
-        var sortColumn = RunFilterSql.ColumnOf(sort.Field);
-        var direction = sort.Direction == SortDirection.Asc ? "ASC" : "DESC";
+        var orderBy = OrderBy(sort ?? RunSort.Default);
 
         return _database.Read(_ =>
         {
@@ -286,11 +327,8 @@ public sealed class RunRepository
             using (var command = _database.CreateCommand())
             {
                 command.Transaction = transaction;
-                // NULLs last in both directions so that unfinished runs never crowd out the
-                // rows a user actually wants to see, then run_id as a stable tie-break.
                 command.CommandText =
-                    $"SELECT {Columns} FROM mentor_runs WHERE {fragment.Where} " +
-                    $"ORDER BY ({sortColumn} IS NULL) ASC, {sortColumn} {direction}, run_id ASC " +
+                    $"SELECT {Columns} FROM mentor_runs WHERE {fragment.Where} ORDER BY {orderBy} " +
                     "LIMIT $limit OFFSET $offset;";
                 RunFilterSql.Bind(command, fragment);
                 command.Parameters.AddWithValue("$limit", pageSize);
@@ -305,6 +343,86 @@ public sealed class RunRepository
             AttachAll(items, transaction);
             return new Page<MentorRun>(items, page, pageSize, total);
         });
+    }
+
+    /// <summary>Sorts matching IDs once and visits rows with their attachments in that order.</summary>
+    /// <param name="filter">The same filter as the interactive history list.</param>
+    /// <param name="sort">The list's ordering, including its NULL and tie rules.</param>
+    /// <param name="transaction">The export's private, read-only snapshot transaction.</param>
+    /// <param name="restrictToSelection">Whether to intersect with the staged IDs on this connection.</param>
+    /// <param name="visit">Consumes a hydrated row before the transaction closes.</param>
+    /// <param name="cancellationToken">Checked while reading IDs and emitting rows.</param>
+    /// <returns>The number of visited rows.</returns>
+    internal int VisitExportRows(RunFilter? filter, RunSort sort, SqliteTransaction transaction,
+        bool restrictToSelection, Action<MentorRun> visit, CancellationToken cancellationToken)
+    {
+        var fragment = RunFilterSql.Build(filter, forStatistics: false);
+        var where = restrictToSelection
+            ? $"{fragment.Where} AND run_id IN (SELECT run_id FROM {SelectionTable})"
+            : fragment.Where;
+        using var command = _database.CreateCommand();
+        command.Transaction = transaction;
+        // Sort only keys so SQLite does not buffer long notes as part of every sort record.
+        command.CommandText = $"SELECT run_id FROM mentor_runs WHERE {where} ORDER BY {OrderBy(sort)};";
+        RunFilterSql.Bind(command, fragment);
+        cancellationToken.ThrowIfCancellationRequested();
+        using var reader = command.ExecuteReader();
+        var ids = new List<string>(Paging.MaxPageSize);
+        var count = 0;
+        while (reader.Read())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ids.Add(reader.GetString(0));
+            if (ids.Count == Paging.MaxPageSize)
+            {
+                VisitBatch();
+            }
+        }
+
+        VisitBatch();
+        return count;
+
+        void VisitBatch()
+        {
+            if (ids.Count == 0) return;
+            var runs = LoadExportBatch(ids, transaction);
+            foreach (var id in ids)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                visit(runs[id]);
+            }
+            count += ids.Count;
+            ids.Clear();
+        }
+    }
+
+    /// <summary>Hydrates a bounded set of IDs from the same transaction as the ordered cursor.</summary>
+    private Dictionary<string, MentorRun> LoadExportBatch(IReadOnlyList<string> ids, SqliteTransaction transaction)
+    {
+        using var command = _database.CreateCommand();
+        command.Transaction = transaction;
+        var parameters = new string[ids.Count];
+        for (var i = 0; i < ids.Count; i++)
+        {
+            parameters[i] = $"$id{i}";
+            command.Parameters.AddWithValue(parameters[i], ids[i]);
+        }
+        command.CommandText = $"SELECT {Columns} FROM mentor_runs WHERE run_id IN ({string.Join(',', parameters)});";
+        var runs = new List<MentorRun>(ids.Count);
+        using (var reader = command.ExecuteReader())
+        {
+            while (reader.Read()) runs.Add(Read(reader));
+        }
+        AttachAll(runs, transaction);
+        return runs.ToDictionary(run => run.RunId, StringComparer.Ordinal);
+    }
+
+    private static string OrderBy(RunSort sort)
+    {
+        var column = RunFilterSql.ColumnOf(sort.Field);
+        var direction = sort.Direction == SortDirection.Asc ? "ASC" : "DESC";
+        // Keep NULLs last in both directions and break ties by the stable run identity.
+        return $"({column} IS NULL) ASC, {column} {direction}, run_id ASC";
     }
 
     /// <summary>
@@ -445,9 +563,9 @@ public sealed class RunRepository
             return;
         }
 
-        var reflections = _reflections.GetMany(
-            runs.Select(run => run.RunId).ToArray(), transaction);
-        var imports = _imports.GetMany(runs.Select(run => run.RunId).ToArray(), transaction);
+        var ids = runs.Select(run => run.RunId).ToArray();
+        var reflections = _reflections.GetMany(ids, transaction);
+        var imports = _imports.GetMany(ids, transaction);
 
         for (var i = 0; i < runs.Count; i++)
         {

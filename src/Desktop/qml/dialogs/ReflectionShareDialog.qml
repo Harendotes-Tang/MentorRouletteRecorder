@@ -549,9 +549,9 @@ MotionDialog {
                             }
                         }
                     }
-                    // The copy that follows the pointer: a still picture of the row,
-                    // taken when it is picked up.
-                    ShaderEffectSource {
+                    // Collection entries share the sheet's paper. Give the lifted
+                    // row its own opaque backing as it crosses other entries.
+                    Rectangle {
                         id: ghost
                         objectName: "reflectionShareDragGhost"
                         readonly property Item row: dialog.dragFrom >= 0 && dialog.dragFrom < dialog.gripEntries.length
@@ -561,10 +561,9 @@ MotionDialog {
                         /// Where the copy is while it glides into the gap.
                         property real restY: 0
                         visible: row !== null
-                        sourceItem: row
-                        live: false
+                        color: combined.paperColor
+                        clip: true
                         z: 5
-                        opacity: 0.97
                         x: dialog.dragLeft
                         width: dialog.dragWidth
                         height: dialog.rowHeightOf(row)
@@ -575,6 +574,11 @@ MotionDialog {
                             origin.y: dialog.dragGrabOffset
                             xScale: ghost.lift
                             yScale: ghost.lift
+                        }
+                        ShaderEffectSource {
+                            anchors.fill: parent
+                            sourceItem: ghost.row
+                            live: false
                         }
                         Rectangle {
                             anchors.fill: parent

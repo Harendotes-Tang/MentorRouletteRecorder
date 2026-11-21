@@ -65,6 +65,10 @@ public:
     /// IMPORT or import_metadata present), confirming an imported result
     /// included. It is false for creation and for runs the software recorded.
     /// It permits absent endpoints, never malformed or reversed supplied times.
+    /// The dialog passes utc_times (matched / entered / ended as UTC ISO text
+    /// or null) from its submission conversion. An unchanged time in a repeated
+    /// hour keeps its recorded UTC instant during ordering checks. Without this
+    /// map, the typed times are interpreted in the display time zone.
     /// \a before is the same shape for the record being corrected; it is only
     /// consulted when edit_mode is true, to detect "nothing changed".
     ///

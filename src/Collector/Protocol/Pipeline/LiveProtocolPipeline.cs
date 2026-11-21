@@ -356,20 +356,23 @@ public sealed partial class LiveProtocolPipeline :
                 throw new CollectorException(ErrorCodes.CaptureAlreadyRunning, CollectorTexts.CaptureSettingsStopBeforeValidation());
     }
 
-    /// <summary>关闭立即丢弃观测器。不会为仍在运行的候选会话创建正式解析器。</summary>
+    /// <summary>关闭前提交已缓冲的排队和副本窗口元数据，再丢弃观测器。不会为仍在运行的候选会话创建正式解析器。</summary>
     public void ApplyCandidateSettings(bool? enabled, Action? persist = null, IReadOnlyList<string>? researchPayloadOpcodes = null)
     {
         lock (_gate)
         {
             var effectiveEnabled = enabled ?? _candidateEnabled;
             ValidateCandidateModeChange(effectiveEnabled);
+            // The ledger rejects writes after the persisted switch is off. Only window summaries
+            // are buffered here; no new messages can enter while the pipeline gate is held.
+            if (!effectiveEnabled)
+                _candidateObserver?.FlushPendingSamples();
             persist?.Invoke();
             _candidateEnabled = effectiveEnabled;
             if (researchPayloadOpcodes is not null) _researchOpcodes = ParseResearchOpcodes(researchPayloadOpcodes);
             _candidateObserver?.SetResearchOpcodes(_researchOpcodes);
             if (!effectiveEnabled)
             {
-                _candidateObserver?.Flush();
                 _candidateObserver = null;
                 _candidateProfile = null;
             }

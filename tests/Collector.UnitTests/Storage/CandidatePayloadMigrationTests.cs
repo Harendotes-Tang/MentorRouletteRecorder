@@ -170,6 +170,7 @@ public sealed class CandidatePayloadMigrationTests
         Rows(connection, """
             SELECT type, name, tbl_name, sql FROM sqlite_master
             WHERE type IN ('index', 'trigger') AND tbl_name IN ('candidate_observations', 'candidate_reviews')
+                AND name <> 'ix_candidate_player_round' -- tested separately by the version 17 migration test
             ORDER BY type, name;
             """),
         Rows(connection, "PRAGMA foreign_key_list(candidate_reviews);"),

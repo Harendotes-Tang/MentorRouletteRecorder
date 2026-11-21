@@ -544,6 +544,7 @@ public:
     QVariantMap historyFilter() const { return m_history->historyFilter(); }
     HistoryFilterFacets *historyFilterFacets() const { return m_history->filterFacets(); }
     QStringList checkedHistoryRunIds() const { return m_history->checkedRunIds(); }
+    Q_INVOKABLE bool isHistoryRunChecked(const QString &runId) const { return m_history->isRunChecked(runId); }
     int checkedHistoryRunCount() const { return m_history->checkedRunCount(); }
     int checkedHistoryDeletedCount() const { return m_history->checkedDeletedCount(); }
     bool allCurrentHistoryPageChecked() const { return m_history->allCurrentPageChecked(); }

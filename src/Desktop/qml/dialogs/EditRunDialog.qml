@@ -420,6 +420,7 @@ MotionDialog {
             entered: dialog.canonicalTime(dialog.enteredTime),
             ended_date: dialog.endedDate,
             ended: dialog.canonicalTime(dialog.endedTime),
+            utc_times: dialog.resolvedTimestamps(),
             result: dialog.resultCode,
             // duty_name + content_id / job_name decide whether the field changed; the
             // *_label pair is what the 修改前后对比 table shows (RunFormValidator::diff).
@@ -953,6 +954,16 @@ MotionDialog {
         return buildUtc(dateText, timeText)
     }
 
+    // Use the same instants for order validation and submission. In particular,
+    // an untouched time in a repeated hour keeps the offset it was recorded with.
+    function resolvedTimestamps() {
+        return {
+            matched: fieldUtc(matchedDate, matchedTime, "matched_at_utc"),
+            entered: fieldUtc(enteredDate, enteredTime, "entered_at_utc"),
+            ended: fieldUtc(endedDate, endedTime, "ended_at_utc")
+        }
+    }
+
     function refreshRecentDuties() {
         if (typeof Runtime.app !== "undefined" && Runtime.app && typeof Runtime.app.refreshRecentDuties === "function")
             Runtime.app.refreshRecentDuties()
@@ -1121,9 +1132,10 @@ MotionDialog {
                 || (runData.content_id !== null && runData.content_id !== undefined && duty.content_id === runData.content_id))
         const job = lookupByIndex(jobOptionList, jobIndex)
         const preserveJob = editMode && runData && job && job.preservesRunJob
-        const matchedUtc = fieldUtc(matchedDate, matchedTime, "matched_at_utc")
-        const enteredUtc = fieldUtc(enteredDate, enteredTime, "entered_at_utc")
-        const endedUtc = fieldUtc(endedDate, endedTime, "ended_at_utc")
+        const times = resolvedTimestamps()
+        const matchedUtc = times.matched
+        const enteredUtc = times.entered
+        const endedUtc = times.ended
         const durationUnchanged = editMode && runData
                 && enteredUtc === runData.entered_at_utc && endedUtc === runData.ended_at_utc
         // A saved unknown duration stays unknown while its entry time is kept:
@@ -1179,7 +1191,7 @@ MotionDialog {
             errorText = qsTr("写了心得时，请在「这次感觉」中选择顺利、一般或糟心。")
             return
         }
-        const verdict = Runtime.runForm.validate(formState, beforeState)
+        const verdict = Runtime.runForm.validate(validationState(retainsIncompleteImportedFacts), beforeState)
         const confirmationOnly = editMode && confirmsImportedFacts
             && !verdict.ok && verdict.code === "ERR_NO_CHANGES"
         // An unchanged form with staged images is not "nothing to do": the

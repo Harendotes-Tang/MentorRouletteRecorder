@@ -3,13 +3,135 @@
 #include "CollectorText.h"
 #include "IpcFraming.h"
 
+#include <QCryptographicHash>
 #include <QDateTime>
+#include <QPointer>
 #include <QTimer>
 
+#include <algorithm>
 #include <memory>
 #include <utility>
 
 namespace mr {
+
+namespace {
+
+using HistoryTarget = QPair<QString, int>;
+
+QList<HistoryTarget> historyTargets(const QJsonArray &targets)
+{
+    QList<HistoryTarget> result;
+    result.reserve(targets.size());
+    for (const auto &entry : targets) {
+        const QJsonObject target = entry.toObject();
+        result.append({target.value(QStringLiteral("run_id")).toString().toLower(),
+                       target.value(QStringLiteral("expected_revision")).toInt()});
+    }
+    std::ranges::sort(result);
+    return result;
+}
+
+QString historySelectionDigest(const QList<HistoryTarget> &targets)
+{
+    QCryptographicHash digest(QCryptographicHash::Sha256);
+    for (const auto &[id, revision] : targets) {
+        const QByteArray line = id.toUtf8() + ':' + QByteArray::number(revision) + '\n';
+        digest.addData(QByteArrayView(line));
+    }
+    return QString::fromLatin1(digest.result().toHex());
+}
+
+class HistorySelectionRequest final : public QObject
+{
+public:
+    HistorySelectionRequest(IBackend *backend, BackendReply *result, QJsonObject payload,
+                            QList<HistoryTarget> targets, QString selectionId)
+        : QObject(result), m_backend(backend), m_result(result), m_payload(std::move(payload)),
+          m_targets(std::move(targets)), m_selectionId(std::move(selectionId))
+    {
+        connect(m_backend, &IBackend::connectionChanged, this, [this] {
+            if (!m_actionSent && !m_result->isFinished())
+                m_result->failUnsent(QStringLiteral("ERR_INTERNAL"), m_backend->connectionDetail());
+        });
+        QTimer::singleShot(0, this, &HistorySelectionRequest::sendChunk);
+    }
+
+private:
+    void sendChunk()
+    {
+        if (m_result->isFinished())
+            return;
+        const auto start = static_cast<qsizetype>(m_index) * IBackend::kHistorySelectionPageSize;
+        const auto end = qMin(start + IBackend::kHistorySelectionPageSize, m_targets.size());
+        QJsonArray targets;
+        for (qsizetype i = start; i < end; ++i) {
+            const auto &[id, revision] = m_targets.at(i);
+            targets.append(QJsonObject{{QStringLiteral("run_id"), id},
+                                       {QStringLiteral("expected_revision"), revision}});
+        }
+        const bool last = end == m_targets.size();
+        auto *stage = m_backend->request(QStringLiteral("StageHistorySelection"),
+            {{QStringLiteral("selection_id"), m_selectionId},
+             {QStringLiteral("chunk_index"), m_index}, {QStringLiteral("runs"), targets},
+             {QStringLiteral("last"), last}});
+        const QPointer<BackendReply> guard(stage);
+        stage->whenDone(this,
+            [this, last, guard](bool ok, const QVariantMap &answer, const QString &code, const QString &message) {
+                if (m_result->isFinished())
+                    return;
+                if (!ok) {
+                    // The actual export, preview or mutation has not been sent.
+                    if (guard)
+                        m_result->forwardFailure(*guard, true);
+                    else
+                        m_result->failUnsent(code, message);
+                    return;
+                }
+                const bool sealed = answer.value(QStringLiteral("sealed")).toBool();
+                const int next = answer.value(QStringLiteral("next_chunk_index")).toInt();
+                const auto chunks = (m_targets.size() - 1) / IBackend::kHistorySelectionPageSize + 1;
+                if (answer.value(QStringLiteral("selection_id")).toString() != m_selectionId
+                    || (sealed ? next != chunks : last || next <= m_index || next >= chunks)) {
+                    m_result->failUnsent(QStringLiteral("ERR_INTERNAL"),
+                        IBackend::tr("后台服务未确认完整的勾选记录，请重试。"));
+                    return;
+                }
+                if (sealed) {
+                    sendAction();
+                    return;
+                }
+                m_index = next;
+                QTimer::singleShot(0, this, &HistorySelectionRequest::sendChunk);
+            });
+    }
+
+    void sendAction()
+    {
+        m_actionSent = true;
+        BackendReply *action = m_backend->requestWithId(m_result->messageType(), m_payload, m_result->requestId());
+        const QPointer<BackendReply> guard(action);
+        action->whenDone(this, [this, guard](bool ok, const QVariantMap &answer,
+                                             const QString &code, const QString &message) {
+            if (ok) {
+                m_result->succeed(QJsonObject::fromVariantMap(answer));
+            } else if (guard) {
+                m_result->forwardFailure(*guard);
+            } else {
+                m_result->fail(code, message);
+            }
+        });
+    }
+
+    IBackend *m_backend;
+    BackendReply *m_result;
+    QJsonObject m_payload;
+    QList<HistoryTarget> m_targets;
+    QString m_selectionId;
+    int m_index = 0;
+    bool m_actionSent = false;
+};
+
+} // namespace
 
 BackendReply::BackendReply(QString requestId, QString messageType, QObject *parent)
     : QObject(parent)
@@ -58,6 +180,15 @@ void BackendReply::failTransport(const QString &code, const QString &message)
         return;
     m_transportFailed = true;
     fail(code, message);
+}
+
+void BackendReply::forwardFailure(const BackendReply &source, bool actionNeverSent)
+{
+    if (m_finished)
+        return;
+    m_neverSent = actionNeverSent || source.m_neverSent;
+    m_transportFailed = !m_neverSent && source.m_transportFailed;
+    fail(source.m_errorCode, source.m_errorMessage, source.m_errorDetails, source.m_errorRef);
 }
 
 void BackendReply::finish()
@@ -320,7 +451,8 @@ QJsonObject IBackend::candidateRoundAnswersPayload(const QVariantMap &answers)
     return object;
 }
 
-BackendReply *IBackend::exportCandidateEvidence(const QString &targetPath, const QVariantMap &roundAnswers)
+BackendReply *IBackend::exportCandidateEvidence(const QString &targetPath, const QVariantMap &roundAnswers,
+                                                 const QString &roundId)
 {
     QJsonObject payload;
     payload.insert(QStringLiteral("target_path"),
@@ -330,6 +462,8 @@ BackendReply *IBackend::exportCandidateEvidence(const QString &targetPath, const
     const QJsonObject answers = candidateRoundAnswersPayload(roundAnswers);
     if (!answers.isEmpty())
         payload.insert(QStringLiteral("round_answers"), answers);
+    if (!roundId.isEmpty())
+        payload.insert(QStringLiteral("candidate_round_id"), roundId);
     return request(QStringLiteral("ExportCandidateEvidence"), payload);
 }
 
@@ -504,27 +638,58 @@ BackendReply *IBackend::resolveCharacterIdentity(int identityId, const QString &
     return requestWithId(QStringLiteral("ResolveCharacterIdentity"), payload, requestId);
 }
 
-BackendReply *IBackend::batchMutateRuns(const QString &action, const QJsonArray &runs,
-                                        const QString &reason, const QString &requestId)
+IBackend::StagedHistoryRequest IBackend::prepareHistorySelection(QJsonObject payload, const QJsonArray &targets)
 {
-    QJsonObject payload;
-    payload.insert(QStringLiteral("action"), action);
-    payload.insert(QStringLiteral("runs"), runs);
-    payload.insert(QStringLiteral("reason"), reason);
-    return requestWithId(QStringLiteral("BatchMutateRuns"), payload, requestId);
+    Q_ASSERT(targets.size() > kInlineHistorySelectionLimit);
+    auto canonical = historyTargets(targets);
+    payload.remove(QStringLiteral("runs"));
+    payload.insert(QStringLiteral("selection_id"), historySelectionDigest(canonical));
+    return {std::move(payload), std::move(canonical)};
 }
 
-BackendReply *IBackend::assignRunsToProfile(const QJsonArray &runs, int profileId,
-                                            const QString &reason, const QString &requestId)
+BackendReply *IBackend::requestWithHistorySelection(const QString &messageType, StagedHistoryRequest request,
+                                                    const QString &requestId)
 {
-    QJsonObject payload;
-    payload.insert(QStringLiteral("action"), QStringLiteral("assign_profile"));
-    // Required for this action: an explicit null files the runs under no profile.
-    payload.insert(QStringLiteral("profile_id"),
-                   profileId > 0 ? QJsonValue(profileId) : QJsonValue(QJsonValue::Null));
+    const QString selectionId = request.payload.value(QStringLiteral("selection_id")).toString();
+    auto *reply = new BackendReply(requestId.isEmpty() ? ipc::newRequestId() : requestId, messageType, this);
+    ++m_historySelectionUsers[selectionId];
+    // Two actions can stage the same hash concurrently. Leave it available until
+    // the final user no longer needs it, even when one finishes or fails first.
+    connect(reply, &BackendReply::done, this, [this, selectionId] {
+        auto users = m_historySelectionUsers.find(selectionId);
+        if (--users.value() == 0) {
+            m_historySelectionUsers.erase(users);
+            releaseHistorySelection(selectionId);
+        }
+    });
+    new HistorySelectionRequest(this, reply, std::move(request.payload), std::move(request.targets), selectionId);
+    return reply;
+}
+
+QString IBackend::historySelectionKey(const QJsonArray &targets)
+{
+    return historySelectionDigest(historyTargets(targets));
+}
+
+void IBackend::releaseHistorySelection(const QString &selectionId)
+{
+    if (!selectionId.isEmpty() && isConnected())
+        request(QStringLiteral("QueryHistorySelection"),
+                {{QStringLiteral("selection_id"), selectionId}, {QStringLiteral("release"), true}});
+}
+
+QJsonObject IBackend::batchMutationPayload(const QString &action, const QJsonArray &runs,
+                                            const QString &reason, int profileId,
+                                            QJsonObject migration)
+{
+    QJsonObject payload = std::move(migration);
+    payload.insert(QStringLiteral("action"), action);
     payload.insert(QStringLiteral("runs"), runs);
-    payload.insert(QStringLiteral("reason"), reason);
-    return requestWithId(QStringLiteral("BatchMutateRuns"), payload, requestId);
+    payload.insert(QStringLiteral("reason"), reason.trimmed());
+    if (action == QLatin1String("assign_profile"))
+        payload.insert(QStringLiteral("profile_id"),
+                       profileId > 0 ? QJsonValue(profileId) : QJsonValue(QJsonValue::Null));
+    return payload;
 }
 
 BackendReply *IBackend::getHistoryRetentionSettings()
@@ -621,29 +786,30 @@ BackendReply *IBackend::getReflectionSummary(int recentLimit)
 }
 
 BackendReply *IBackend::exportCsv(const QString &targetPath, const QJsonObject &filter, bool replace,
-                                  const QJsonObject &sort)
+                                  const QJsonObject &sort, const QJsonArray &largeTargets)
 {
-    QJsonObject payload;
-    payload.insert(QStringLiteral("target_path"), targetPath);
-    payload.insert(QStringLiteral("filter"), filter);
-    if (replace)
-        payload.insert(QStringLiteral("overwrite"), true);
-    if (!sort.isEmpty())
-        payload.insert(QStringLiteral("sort"), sort);
-    return request(QStringLiteral("ExportCsv"), payload);
+    return exportRuns(QStringLiteral("ExportCsv"), targetPath, filter, replace, sort, largeTargets);
 }
 
 BackendReply *IBackend::exportJson(const QString &targetPath, const QJsonObject &filter, bool replace,
-                                   const QJsonObject &sort)
+                                   const QJsonObject &sort, const QJsonArray &largeTargets)
 {
-    QJsonObject payload;
-    payload.insert(QStringLiteral("target_path"), targetPath);
-    payload.insert(QStringLiteral("filter"), filter);
+    return exportRuns(QStringLiteral("ExportJson"), targetPath, filter, replace, sort, largeTargets);
+}
+
+BackendReply *IBackend::exportRuns(const QString &messageType, const QString &targetPath,
+                                   const QJsonObject &filter, bool replace, const QJsonObject &sort,
+                                   const QJsonArray &largeTargets)
+{
+    QJsonObject payload{{QStringLiteral("target_path"), targetPath}};
     if (replace)
         payload.insert(QStringLiteral("overwrite"), true);
     if (!sort.isEmpty())
         payload.insert(QStringLiteral("sort"), sort);
-    return request(QStringLiteral("ExportJson"), payload);
+    if (!largeTargets.isEmpty())
+        return requestWithHistorySelection(messageType, prepareHistorySelection(std::move(payload), largeTargets));
+    payload.insert(QStringLiteral("filter"), filter);
+    return request(messageType, payload);
 }
 
 BackendReply *IBackend::backupDatabase(const QString &targetPath)

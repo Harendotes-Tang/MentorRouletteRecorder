@@ -12,6 +12,8 @@ using namespace mr::mock;
 
 namespace {
 
+constexpr QLatin1String kPlayerCandidateProfile("global.2026.11.03.candidate");
+
 QJsonObject badRequest(QString *code, QString *message, const QString &detail)
 {
     *code = QStringLiteral("ERR_BAD_REQUEST");
@@ -253,6 +255,9 @@ void MockBackend::setCandidateRoundFixture(bool gameRunning)
 {
     m_candidateRound = true;
     m_candidateRoundGameRunning = gameRunning;
+    m_captureSettings.remove(QStringLiteral("candidate_round_id"));
+    m_captureSettings.remove(QStringLiteral("candidate_round_profile_id"));
+    m_candidatePlayerRoundActive = false;
     m_capturing = false;
     m_liveMode = LiveMode::None;
     m_captureSettings.insert(QStringLiteral("candidate_validation_enabled"), false);
@@ -276,6 +281,10 @@ void MockBackend::setCandidateRoundFixture(bool gameRunning)
 void MockBackend::setCandidateRoundGuesses(const QJsonObject &guesses)
 {
     m_candidateRoundGuesses = guesses;
+    if (m_candidatePlayerRoundActive && !m_candidateRoundGuesses.isEmpty()) {
+        const auto key = QStringLiteral("candidate_round_id");
+        m_candidateRoundGuesses.insert(key, m_captureSettings.value(key));
+    }
     emitCaptureStatusChanged();
 }
 
@@ -314,7 +323,7 @@ QJsonArray MockBackend::candidateRoundHypotheses()
     QJsonArray hypotheses;
     for (const Row &row : rows) {
         hypotheses.append(QJsonObject{
-            {QStringLiteral("profile_id"), QStringLiteral("global.2026.11.03.candidate")},
+            {QStringLiteral("profile_id"), QString(kPlayerCandidateProfile)},
             {QStringLiteral("name"), QString::fromUtf8(row.name)},
             {QStringLiteral("label"), QString::fromUtf8(row.label)},
             {QStringLiteral("opcode"), QString::fromUtf8(row.opcode)},
@@ -343,7 +352,7 @@ void MockBackend::applyCandidateRoundFixture(QJsonObject &status) const
     status.insert(QStringLiteral("profile_matches_build"), false);
     status.insert(QStringLiteral("candidate_validation_enabled"), enabled);
     status.insert(QStringLiteral("candidate_profile_id"),
-                  enabled ? QJsonValue(QStringLiteral("global.2026.11.03.candidate")) : null);
+                  enabled ? QJsonValue(QString(kPlayerCandidateProfile)) : null);
     status.insert(QStringLiteral("candidate_hypotheses"), candidateRoundHypotheses());
     // The guesses belong to a round: none while validation is off.
     status.insert(QStringLiteral("candidate_round_guesses"),
@@ -592,6 +601,8 @@ QJsonObject MockBackend::applyCaptureSettings(const QJsonObject &payload,
                               QStringLiteral("adapter_id"), QStringLiteral("log_retention_days"),
                               QStringLiteral("allow_without_profile"), QStringLiteral("region_override"),
                               QStringLiteral("candidate_validation_enabled"),
+                              QStringLiteral("candidate_round_id"),
+                              QStringLiteral("candidate_round_profile_id"),
                               QStringLiteral("auto_calibration_enabled"),
                               QStringLiteral("shared_calibration_enabled"),
                               QStringLiteral("update_check_enabled"),
@@ -600,6 +611,39 @@ QJsonObject MockBackend::applyCaptureSettings(const QJsonObject &payload,
     if (hasUnknownKeys(payload, allowed))
         return badRequest(errorCode, errorMessage, QString::fromUtf8("捕获设置含未知字段。"));
     QJsonObject next = captureSettings();
+    const auto enabledKey = QStringLiteral("candidate_validation_enabled");
+    const auto roundKey = QStringLiteral("candidate_round_id");
+    const auto profileKey = QStringLiteral("candidate_round_profile_id");
+    const auto currentRound = m_captureSettings.value(roundKey).toString();
+    const bool wasEnabled = next.value(enabledKey).toBool();
+    if (!currentRound.isEmpty()) {
+        next.insert(roundKey, currentRound);
+        next.insert(profileKey, m_captureSettings.value(profileKey));
+    }
+    if (payload.contains(roundKey)) {
+        const auto round = payload.value(roundKey).toString().toLower();
+        const auto enabled = payload.value(enabledKey);
+        const auto profile = payload.value(profileKey).toString();
+        if (!isUuid(payload.value(roundKey)) || !enabled.isBool()
+            || (!enabled.toBool() && (round != currentRound || payload.contains(profileKey)))) {
+            return badRequest(errorCode, errorMessage,
+                              QString::fromUtf8("该轮候选采证已无法确认。请返回页面检查采证状态。"));
+        }
+        if (!enabled.toBool() && !m_candidatePlayerRoundActive) {
+            m_lastCaptureSettingsUpdate = payload;
+            return captureSettings();
+        }
+        if (enabled.toBool()) {
+            if (!m_candidateRound || profile != kPlayerCandidateProfile)
+                return badRequest(errorCode, errorMessage,
+                                  QString::fromUtf8("当前候选档案与开始时选择的档案不一致，请刷新采证页面。"));
+            if (wasEnabled && (!m_candidatePlayerRoundActive || round != currentRound))
+                return badRequest(errorCode, errorMessage, QString::fromUtf8("请先结束正在进行的候选采证。"));
+        }
+    } else if (payload.contains(profileKey) || (m_candidatePlayerRoundActive
+        && (payload.value(enabledKey).toBool(true) && payload.contains(enabledKey)))) {
+        return badRequest(errorCode, errorMessage, QString::fromUtf8("请先结束正在进行的候选采证。"));
+    }
     for (auto it = payload.begin(); it != payload.end(); ++it) {
         const QString key = it.key();
         const QJsonValue value = it.value();
@@ -627,7 +671,7 @@ QJsonObject MockBackend::applyCaptureSettings(const QJsonObject &payload,
         } else if (key == QLatin1String("research_payload_opcodes") && !value.isArray()) {
             return badRequest(errorCode, errorMessage, QString::fromUtf8("研究白名单必须是数组，清空请传 []。"));
         }
-        next.insert(key, value);
+        next.insert(key, key == roundKey ? QJsonValue(value.toString().toLower()) : value);
     }
     const QString nextRegion = next.value(QStringLiteral("region_override")).toString(QStringLiteral("CN"));
     if (nextRegion != QLatin1String("CN") && !payload.contains(QStringLiteral("research_payload_opcodes")))
@@ -669,6 +713,13 @@ QJsonObject MockBackend::applyCaptureSettings(const QJsonObject &payload,
     const QString identification = QStringLiteral("character_identification_enabled");
     if (captureSettings().value(identification).toBool(true) != next.value(identification).toBool(true))
         emitStatsInvalidatedLater();
+    if (payload.contains(enabledKey)) {
+        m_candidatePlayerRoundActive = payload.value(enabledKey).toBool() && payload.contains(roundKey);
+        // Tag the preset on the first start. A new round never relabels old guesses.
+        if (m_candidatePlayerRoundActive && !m_candidateRoundGuesses.isEmpty()
+            && !m_candidateRoundGuesses.contains(roundKey))
+            m_candidateRoundGuesses.insert(roundKey, next.value(roundKey));
+    }
     m_captureSettings = next;
     m_lastCaptureSettingsUpdate = payload;
     return captureSettings();

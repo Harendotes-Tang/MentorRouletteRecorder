@@ -201,6 +201,33 @@ public sealed class RunCalendarDaysTests
     }
 
     [Fact]
+    public void HistoryPagesInOneReadSnapshotKeepTheSameZone()
+    {
+        using var fixture = new TestDatabase();
+        var runs = new RunRepository(fixture.Database);
+        var archival = InsertArchivalDay(fixture, "2026-09-15");
+        var timedAt = Utc("2026-09-14T20:00:00.000Z");
+        var timed = TestDatabase.Run() with { MatchedAtUtc = timedAt, EnteredAtUtc = timedAt, EndedAtUtc = timedAt.AddMinutes(20) };
+        fixture.Database.RunInTransaction(tx => runs.Insert(timed, tx));
+        var sort = new RunSort(RunSortField.HistoryDate, SortDirection.Asc);
+
+        using var restore = DisplayTimeZone.Use("Asia/Tokyo");
+        fixture.Database.ReadSnapshot((snapshot, tx) =>
+        {
+            var reader = new RunRepository(snapshot);
+            var first = reader.Query(null, sort, page: 1, pageSize: 1, transaction: tx);
+            Assert.Equal(archival, Assert.Single(first.Items).RunId);
+
+            DisplayTimeZone.Set("America/New_York");
+            Assert.Equal(timed.RunId, Assert.Single(runs.Query(null, sort, page: 1, pageSize: 1).Items).RunId);
+
+            var second = reader.Query(null, sort, page: 2, pageSize: 1, transaction: tx);
+            Assert.Equal(timed.RunId, Assert.Single(second.Items).RunId);
+            return second.Total;
+        });
+    }
+
+    [Fact]
     public void FollowingTheComputerGivesWhatSqliteLocaltimeGave()
     {
         using var fixture = new TestDatabase();

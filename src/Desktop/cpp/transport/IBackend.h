@@ -14,6 +14,7 @@
 // finished(ok, payload, errorCode, errorMessage) exactly once.
 // ---------------------------------------------------------------------------
 
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QList>
@@ -79,10 +80,11 @@ public:
     /// Keeps the existing error code; unlike fail(), this never represents a
     /// Collector business refusal. Set before done(), including synchronous handlers.
     void failTransport(const QString &code, const QString &message);
+    /// Copy a failed reply, retaining its structured error and local transport state.
+    /// \a actionNeverSent also marks failures from a preparatory request.
+    void forwardFailure(const BackendReply &source, bool actionNeverSent = false);
     bool transportFailed() const { return m_transportFailed; }
-    /// True only after \ref failUnsent(). Every other failure - a timeout, a
-    /// dropped pipe, the Collector's own refusal - may come after the Collector
-    /// received the request, and a mutation may then already be applied.
+    /// True when the action itself never left, even if a preparatory request was sent.
     bool neverSent() const { return m_neverSent; }
 
     using Handler = std::function<void(bool ok, const QVariantMap &payload,
@@ -249,7 +251,8 @@ public:
     /// those keys travel, trimmed, at most 100 characters, blanks left out; with none left
     /// the request carries no round_answers at all, as before the field existed.
     BackendReply *exportCandidateEvidence(const QString &targetPath = {},
-                                          const QVariantMap &roundAnswers = {});
+                                          const QVariantMap &roundAnswers = {},
+                                          const QString &roundId = {});
     /// The round_answers object exportCandidateEvidence() sends for \a answers; empty
     /// when nothing is left to send.
     static QJsonObject candidateRoundAnswersPayload(const QVariantMap &answers);
@@ -319,16 +322,28 @@ public:
                                            const QString &requestId = {}, const QString &displayName = {});
 
     // -- 已删除记录 ---------------------------------------------------------
-    /// $defs/BatchMutateRunsRequest. \a action is soft_delete, restore or purge;
-    /// \a runs holds {run_id, expected_revision} objects. \a requestId: see
-    /// requestWithId(); the history page resends an unanswered batch with it.
-    BackendReply *batchMutateRuns(const QString &action, const QJsonArray &runs,
-                                  const QString &reason, const QString &requestId = {});
-    /// BatchMutateRuns with action assign_profile: files \a runs under \a profileId, or,
-    /// for 0, under no profile (profile_id: null - the field is always present for
-    /// this action and absent for the others).
-    BackendReply *assignRunsToProfile(const QJsonArray &runs, int profileId,
-                                      const QString &reason, const QString &requestId = {});
+    /// The legacy inline limit is a wire constraint. Larger selections are uploaded
+    /// in chunks and the action references the sealed set by its content hash.
+    static constexpr qsizetype kInlineHistorySelectionLimit = 2000;
+    static constexpr int kHistorySelectionPageSize = 200;
+    struct StagedHistoryRequest {
+        QJsonObject payload;
+        QList<QPair<QString, int>> targets;
+    };
+    /// Prepares the exact action body and sorted upload targets once. The body can also key a retry.
+    static StagedHistoryRequest prepareHistorySelection(QJsonObject payload, const QJsonArray &targets);
+    BackendReply *requestWithHistorySelection(const QString &messageType, StagedHistoryRequest request,
+                                               const QString &requestId = {});
+    void releaseHistorySelection(const QString &selectionId);
+    /// Stable key of a staged history target set, independent of the input order.
+    static QString historySelectionKey(const QJsonArray &targets);
+
+    /// $defs/BatchMutateRunsRequest. \a runs holds {run_id, expected_revision} objects.
+    /// For assign_profile, zero \a profileId sends explicit null to clear the owner.
+    /// For move_region, \a migration carries the target and confirmed baseline values.
+    static QJsonObject batchMutationPayload(const QString &action, const QJsonArray &runs,
+                                            const QString &reason, int profileId = 0,
+                                            QJsonObject migration = {});
     /// {} -> $defs/HistoryRetentionSettings: how long deleted records are kept.
     BackendReply *getHistoryRetentionSettings();
     /// $defs/HistoryRetentionSettings. 0 turns the automatic purge off.
@@ -378,10 +393,11 @@ public:
     /// refuses an existing file.
     /// \a sort is the $defs/RunSort QueryRuns takes; an empty object omits the field, which
     /// the Collector reads as newest entered first (contracts/CHANGELOG.md 2026-11-03).
+    /// Nonempty \a largeTargets stages exact checked records in place of the inline filter.
     BackendReply *exportCsv(const QString &targetPath, const QJsonObject &filter = {}, bool replace = false,
-                            const QJsonObject &sort = {});
+                            const QJsonObject &sort = {}, const QJsonArray &largeTargets = {});
     BackendReply *exportJson(const QString &targetPath, const QJsonObject &filter = {}, bool replace = false,
-                             const QJsonObject &sort = {});
+                             const QJsonObject &sort = {}, const QJsonArray &largeTargets = {});
     /// An empty \a targetPath omits the field, which selects the Collector's
     /// managed backups folder.
     BackendReply *backupDatabase(const QString &targetPath = {});
@@ -443,6 +459,11 @@ Q_SIGNALS:
     void connectionChanged();
     /// One LiveEvent payload (see $defs/LiveEvent).
     void liveEvent(const QVariantMap &event);
+
+private:
+    BackendReply *exportRuns(const QString &messageType, const QString &targetPath, const QJsonObject &filter,
+                             bool replace, const QJsonObject &sort, const QJsonArray &largeTargets);
+    QHash<QString, int> m_historySelectionUsers;
 };
 
 } // namespace mr

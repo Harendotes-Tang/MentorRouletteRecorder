@@ -26,6 +26,9 @@ public sealed record CandidateReviewEntry(
 public sealed record CandidateEvidenceSnapshot(
     IReadOnlyList<CandidateObservationEntry> Observations, IReadOnlyList<CandidateReviewEntry> Reviews);
 
+/// <summary>One declared position whose numeric projection is allowed in the round report.</summary>
+internal readonly record struct CandidateGuessPosition(string Direction, ushort Opcode, int Length, int Offset, int Size);
+
 /// <summary>
 /// 候选账本唯一写入口。每次添加在数据库事务内重查显式开关，保留至多 30 天、20 000 行。
 /// 查询、计数及导出也清理过期数据；所有写入仅涉及候选表与既有 IPC 幂等表。
@@ -36,6 +39,7 @@ public sealed class CandidateObservationRepository
     public const int RetentionDays = 30;
     public const int MaxReviewNoteLength = 2000;
     private const string ReviewMessage = "ReviewCandidateObservation";
+    private const string PlayerScope = "player_round_id = $player_round AND profile_id = $profile";
     private const string Columns =
         "observation_id, capture_session_id, profile_id, hypothesis_name, group_name, direction, " +
         "opcode, payload_length, payload_hash12, connection_tag, observed_at_utc, t_ms, " +
@@ -66,18 +70,39 @@ public sealed class CandidateObservationRepository
         {
             Prune(tx);
             if (!Enabled(tx) || observation.ObservedAtUtc < Cutoff()) return false;
-            // 在插入事务里再次读取白名单，避免观察器排队后开关变化导致旧负载仍被保存。
+            // Read consent and assign membership in the transaction that actually stores the row.
+            // Launching another client during a player round must never make it part of that round.
+            var round = CandidatePlayerRound.Read(_settings, tx);
+            if (round is { Active: true } && round.ProfileId != observation.ProfileId) return false;
             var permitted = observation with { PayloadHex = ResearchPayload(observation, tx) };
-            using var command = Command(tx, "INSERT INTO candidate_observations (" + Columns + ") VALUES (" +
+            using var command = Command(tx, "INSERT INTO candidate_observations (" + Columns + ", player_round_id) VALUES (" +
                 "$id, $session, $profile, $name, $group, $direction, $opcode, $length, $hash, $connection, " +
-                "$observed, $t, $first, $last, $first_t, $last_t, NULL, NULL, NULL, $payload, $occurrences) " +
+                "$observed, $t, $first, $last, $first_t, $last_t, NULL, NULL, NULL, $payload, $occurrences, $player_round) " +
                 "ON CONFLICT(observation_id) DO NOTHING;");
             BindObservation(command, permitted);
+            Bind(command, "$player_round", round is { Active: true } ? round.Id : null);
             var inserted = command.ExecuteNonQuery() == 1;
             Prune(tx);
             return inserted && GetInternal(observation.ObservationId, tx) is not null;
         });
     }
+
+    /// <summary>Counts retained evidence from the consented round and profile.</summary>
+    internal int CountPlayerRound(CandidatePlayerRound round) => _database.RunInTransaction(tx =>
+    {
+        Prune(tx);
+        using var command = EvidenceCommand(tx, round, "SELECT COUNT(*) FROM candidate_observations WHERE " + PlayerScope);
+        return Convert.ToInt32(command.ExecuteScalar());
+    });
+
+    /// <summary>Whether a retained row already belongs to the offered identity.</summary>
+    internal bool HasPlayerRound(string id) => _database.Read(_ =>
+    {
+        using var command = _database.CreateCommand();
+        command.CommandText = "SELECT 1 FROM candidate_observations WHERE player_round_id = $id LIMIT 1;";
+        Bind(command, "$id", id);
+        return command.ExecuteScalar() is not null;
+    });
 
     /// <summary>按观察时间倒序分页；时间区间两端包含，page 从 1 开始，pageSize 为 1–200。</summary>
     public Page<CandidateObservationEntry> Query(
@@ -206,6 +231,15 @@ public sealed class CandidateObservationRepository
         IEnumerable<CandidateObservationEntry>, IEnumerable<CandidateReviewEntry>> write)
     {
         ArgumentNullException.ThrowIfNull(write);
+        VisitResearchEvidence(null, (_, opcodes, observations, reviews, items, history) =>
+            write(opcodes, observations, reviews, items, history));
+    }
+
+    /// <summary>Streams one closed player round or the full ledger from a single read snapshot.</summary>
+    internal void VisitResearchEvidence(CandidatePlayerRound? round, Action<SqliteTransaction,
+        IReadOnlyList<string>, int, int, IEnumerable<CandidateObservationEntry>, IEnumerable<CandidateReviewEntry>> write)
+    {
+        ArgumentNullException.ThrowIfNull(write);
         // 清理在数据库锁内单独提交；读取以及调用方在回调里写整个文件，都在一条自己的只读连接上进行，
         // 不持有数据库锁，与备份相同。此前导出在锁内写文件，期间所有写入——包括没有超时、一直等待这把锁的
         // 抓包线程——都要等文件写完（审计 2026-10-03，OG-7 / CS5-X3）。一个延迟读事务让计数、账本与核对历史
@@ -215,23 +249,27 @@ public sealed class CandidateObservationRepository
         {
             using var connection = SqliteDatabase.OpenReadOnlyConnection(_database.Path);
             using var tx = connection.BeginTransaction(deferred: true);
+            var observationWhere = round is null ? "" : " WHERE " + PlayerScope;
+            var reviewWhere = round is null ? "" :
+                " WHERE observation_id IN (SELECT observation_id FROM candidate_observations" + observationWhere + ")";
             var payloadOpcodes = new List<string>();
-            using (var command = Command(tx, "SELECT DISTINCT opcode FROM candidate_observations " +
-                "WHERE payload_hex IS NOT NULL ORDER BY opcode;"))
+            using (var command = EvidenceCommand(tx, round, "SELECT DISTINCT opcode FROM candidate_observations " +
+                "WHERE payload_hex IS NOT NULL " + (round is null ? "" : "AND " + PlayerScope + " ") + "ORDER BY opcode;"))
             using (var reader = command.ExecuteReader())
                 while (reader.Read()) payloadOpcodes.Add("0x" + reader.GetInt32(0).ToString("x4",
                     System.Globalization.CultureInfo.InvariantCulture));
             int observationCount;
             int reviewCount;
-            using (var count = Command(tx, "SELECT COUNT(*) FROM candidate_observations;"))
+            using (var count = EvidenceCommand(tx, round, "SELECT COUNT(*) FROM candidate_observations" + observationWhere + ";"))
                 observationCount = Convert.ToInt32(count.ExecuteScalar());
-            using (var count = Command(tx, "SELECT COUNT(*) FROM candidate_reviews;"))
+            using (var count = EvidenceCommand(tx, round, "SELECT COUNT(*) FROM candidate_reviews" + reviewWhere + ";"))
                 reviewCount = Convert.ToInt32(count.ExecuteScalar());
             var active = true;
             try
             {
-                write(payloadOpcodes, observationCount, reviewCount,
-                    StreamObservations(tx, () => active), StreamReviews(tx, () => active));
+                write(tx, payloadOpcodes, observationCount, reviewCount,
+                    StreamObservations(tx, round, observationWhere, () => active),
+                    StreamReviews(tx, round, reviewWhere, () => active));
             }
             finally { active = false; }
         }
@@ -242,45 +280,77 @@ public sealed class CandidateObservationRepository
     }
 
     /// <summary>
-    /// The little-endian unsigned integers stored at one guessed position, oldest first: rows of
-    /// one (direction, opcode, length) observed at or after <paramref name="sinceUtc"/> whose
-    /// content was kept. SQLite cuts the bytes out, so the rest of a payload never leaves the
-    /// ledger; the caller gets numbers and times and nothing else.
+    /// Reads all declared positions in one read-only snapshot, oldest first for each position.
+    /// SQLite returns only the requested bytes from retained rows in this profile since the round
+    /// started. Pruning remains the responsibility of the ledger's existing retention paths.
     /// </summary>
-    public IReadOnlyList<(DateTimeOffset At, int Value)> ReadGuessValues(
-        DateTimeOffset sinceUtc, string direction, int opcode, int length, int offset, int size)
+    internal IReadOnlyDictionary<CandidateGuessPosition, IReadOnlyList<(DateTimeOffset At, int Value)>> ReadGuessValues(
+        string profileId, DateTimeOffset sinceUtc, IEnumerable<CandidateGuessPosition> positions)
     {
-        if (size is not (1 or 2) || offset < 0 || offset + size > length)
-            throw new ArgumentOutOfRangeException(nameof(offset));
-        return _database.RunInTransaction(tx =>
-        {
-            Prune(tx);
-            using var command = Command(tx, "SELECT observed_at_utc, substr(payload_hex, $start, $chars) " +
-                "FROM candidate_observations WHERE payload_hex IS NOT NULL AND direction = $direction " +
-                "AND opcode = $opcode AND payload_length = $length AND observed_at_utc >= $since " +
-                "ORDER BY observed_at_utc, t_ms;");
-            command.Parameters.AddWithValue("$start", offset * 2 + 1);
-            command.Parameters.AddWithValue("$chars", size * 2);
-            Bind(command, "$direction", direction);
-            Bind(command, "$opcode", opcode);
-            Bind(command, "$length", length);
-            Bind(command, "$since", UtcTimestamp.ToText(sinceUtc));
-            var values = new List<(DateTimeOffset, int)>();
-            using var reader = command.ExecuteReader();
-            while (reader.Read())
-            {
-                var bytes = Convert.FromHexString(reader.GetString(1));
-                values.Add((UtcTimestamp.Parse(reader.GetString(0)), size == 1 ? bytes[0] : bytes[0] | bytes[1] << 8));
-            }
-            return values;
-        });
+        var cutoff = Cutoff();
+        var oldest = sinceUtc >= cutoff ? sinceUtc : cutoff;
+        return _database.ReadSnapshot((_, tx) => positions.Distinct()
+            .ToDictionary(position => position, position => ReadGuessValues(tx, profileId, oldest, position)));
     }
 
-    private IEnumerable<CandidateObservationEntry> StreamObservations(SqliteTransaction transaction, Func<bool> active)
+    /// <summary>Reads scoped guesses from the same snapshot the evidence export is streaming.</summary>
+    internal IReadOnlyDictionary<CandidateGuessPosition, IReadOnlyList<(DateTimeOffset At, int Value)>> ReadPlayerGuessValues(
+        CandidatePlayerRound round, IEnumerable<CandidateGuessPosition> positions, SqliteTransaction? transaction = null)
+    {
+        // A supplied export snapshot was already pruned before it opened.
+        var cutoff = transaction is null ? Cutoff() : DateTimeOffset.MinValue;
+        IReadOnlyDictionary<CandidateGuessPosition, IReadOnlyList<(DateTimeOffset At, int Value)>> Read(SqliteTransaction tx) =>
+            positions.Distinct().ToDictionary(position => position,
+                position => ReadGuessValues(tx, round.ProfileId, cutoff, position, round.Id));
+        return transaction is null ? _database.ReadSnapshot((_, tx) => Read(tx)) : Read(transaction);
+    }
+
+    private static IReadOnlyList<(DateTimeOffset At, int Value)> ReadGuessValues(
+        SqliteTransaction tx, string profileId, DateTimeOffset sinceUtc, CandidateGuessPosition position, string? roundId = null)
+    {
+        if (position.Size is not (1 or 2) || position.Offset < 0 || position.Offset > position.Length - position.Size)
+            throw new ArgumentOutOfRangeException(nameof(position));
+
+        using var command = Command(tx, "SELECT observed_at_utc, substr(payload_hex, $start, $chars) " +
+            "FROM candidate_observations WHERE profile_id = $profile AND payload_hex IS NOT NULL AND direction = $direction " +
+            "AND opcode = $opcode AND payload_length = $length AND observed_at_utc >= $since " +
+            (roundId is null ? "" : "AND player_round_id = $player_round ") +
+            "ORDER BY observed_at_utc, t_ms, observation_id;");
+        if (roundId is not null) Bind(command, "$player_round", roundId);
+        command.Parameters.AddWithValue("$start", position.Offset * 2 + 1);
+        command.Parameters.AddWithValue("$chars", position.Size * 2);
+        Bind(command, "$profile", profileId);
+        Bind(command, "$direction", position.Direction);
+        Bind(command, "$opcode", position.Opcode);
+        Bind(command, "$length", position.Length);
+        Bind(command, "$since", UtcTimestamp.ToText(sinceUtc));
+        var values = new List<(DateTimeOffset At, int Value)>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var bytes = Convert.FromHexString(reader.GetString(1));
+            values.Add((UtcTimestamp.Parse(reader.GetString(0)), position.Size == 1 ? bytes[0] : bytes[0] | bytes[1] << 8));
+        }
+        return values;
+    }
+
+    private static SqliteCommand EvidenceCommand(SqliteTransaction transaction, CandidatePlayerRound? round, string sql)
+    {
+        var command = Command(transaction, sql);
+        if (round is not null)
+        {
+            Bind(command, "$player_round", round.Id);
+            Bind(command, "$profile", round.ProfileId);
+        }
+        return command;
+    }
+
+    private IEnumerable<CandidateObservationEntry> StreamObservations(SqliteTransaction transaction,
+        CandidatePlayerRound? round, string where, Func<bool> active)
     {
         RequireEvidenceScope(active);
-        using var command = Command(transaction, "SELECT " + Columns + " FROM candidate_observations " +
-            "ORDER BY observed_at_utc DESC, observation_id DESC;");
+        using var command = EvidenceCommand(transaction, round, "SELECT " + Columns + " FROM candidate_observations" +
+            where + " ORDER BY observed_at_utc DESC, observation_id DESC;");
         using var reader = command.ExecuteReader();
         while (true)
         {
@@ -290,11 +360,12 @@ public sealed class CandidateObservationRepository
         }
     }
 
-    private IEnumerable<CandidateReviewEntry> StreamReviews(SqliteTransaction transaction, Func<bool> active)
+    private IEnumerable<CandidateReviewEntry> StreamReviews(SqliteTransaction transaction,
+        CandidatePlayerRound? round, string where, Func<bool> active)
     {
         RequireEvidenceScope(active);
-        using var command = Command(transaction, "SELECT review_id, observation_id, request_id, verdict, note, " +
-            "reviewed_at_utc FROM candidate_reviews ORDER BY reviewed_at_utc, rowid;");
+        using var command = EvidenceCommand(transaction, round, "SELECT review_id, observation_id, request_id, verdict, note, " +
+            "reviewed_at_utc FROM candidate_reviews" + where + " ORDER BY reviewed_at_utc, rowid;");
         using var reader = command.ExecuteReader();
         while (true)
         {

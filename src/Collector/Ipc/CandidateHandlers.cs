@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using MentorRecorder.Collector.Capture;
 using MentorRecorder.Collector.Contracts.Errors;
 using MentorRecorder.Collector.Contracts.Texts;
 using MentorRecorder.Collector.Domain.Time;
@@ -43,8 +44,23 @@ public static class CandidateHandlers
 
     public static JsonObject Export(CollectorHost host, PayloadReader reader)
     {
-        reader.RejectUnknown("target_path", "round_answers");
-        var result = host.CandidateExporter.Export(reader.String("target_path", 32767), Answers(reader));
+        reader.RejectUnknown("target_path", "round_answers", "candidate_round_id");
+        var path = reader.String("target_path", 32767);
+        var answers = Answers(reader);
+        CandidateExportResult result;
+        if (reader.Has("candidate_round_id"))
+        {
+            var id = Guid.Parse(reader.RequiredUuid("candidate_round_id")).ToString("D");
+            if (CandidatePlayerRound.Read(host.Settings) is not { } round || round.Id != id)
+                throw CollectorException.BadRequest(CollectorTexts.CandidateRoundUnavailable(), "payload.candidate_round_id");
+            if (round.Active)
+                throw CollectorException.BadRequest(CollectorTexts.CandidateRoundFinishFirst(), "payload.candidate_round_id");
+            result = host.CandidateExporter.Export(path, answers, round, tx => host.CandidateRound.Read(round, tx));
+        }
+        else
+        {
+            result = host.CandidateExporter.Export(path, answers);
+        }
         return new JsonObject
         {
             ["target_path"] = result.TargetPath,

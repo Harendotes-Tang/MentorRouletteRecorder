@@ -8,8 +8,10 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QTimeZone>
+#include <QTimer>
 #include <QUuid>
 #include <algorithm>
+#include <optional>
 #include <utility>
 
 namespace {
@@ -53,13 +55,17 @@ HistoryController::HistoryController(IBackend *backend, QObject *parent)
     m_runs->setBackend(backend);
     // The existing model borrows a raw backend pointer. Keep that borrow within
     // this workflow's backend lifetime, including independently owned models.
-    connect(backend, &QObject::destroyed, this, [this] { m_runs->setBackend(nullptr); });
+    connect(backend, &QObject::destroyed, this, [this] {
+        m_runs->setBackend(nullptr);
+        cancelCheckAll();
+    });
     connect(m_runs, &QAbstractItemModel::modelReset, this, &HistoryController::checkedRunsChanged);
     connect(m_runs, &QAbstractItemModel::modelReset, m_filterFacets, &HistoryFilterFacets::refresh);
     connect(m_runs, &RunListModel::loadingChanged, this, &HistoryController::checkedRunsChanged);
     connect(m_runs, &RunListModel::reloadStarted, m_filterFacets, &HistoryFilterFacets::refresh);
     connect(backend, &IBackend::connectionChanged, this, [this] {
         invalidateResultRequests();
+        cancelCheckAll();
         if (m_regionPreviewLoading)
             clearRegionMigrationPreview();
         if (m_backend && m_backend->isConnected())
@@ -366,10 +372,6 @@ void HistoryController::setRunChecked(const QVariantMap &run, bool checked)
     if (checked) {
         if (m_checkedRuns.contains(id))
             return;
-        if (m_checkedRuns.size() >= kMaxCheckedRuns) {
-            Q_EMIT toastRequested(tr("一次最多勾选 2000 条记录，请分批操作。"));
-            return;
-        }
         m_checkedRuns.insert(id, QJsonObject::fromVariantMap(run));
         m_checkedOrder.append(id);
     } else {
@@ -395,54 +397,97 @@ void HistoryController::checkAllMatchingRuns()
 {
     if (!m_backend || m_batchRunning || m_checkAllLoading)
         return;
-    if (m_runs->total() > kMaxCheckedRuns) {
-        Q_EMIT toastRequested(tr("符合筛选的记录超过 2000 条，请先缩小筛选范围再全部勾选。"));
-        return;
-    }
+    const quint64 generation = ++m_checkAllGeneration;
     m_checkAllLoading = true;
+    const QPointer<HistoryController> guard(this);
     Q_EMIT checkedRunsChanged();
-    fetchMatchingPage(++m_checkAllGeneration, 1, {});
+    if (guard)
+        fetchMatchingPage(generation, 1);
 }
 
-void HistoryController::fetchMatchingPage(quint64 generation, int page, QList<QVariantMap> collected)
+void HistoryController::fetchMatchingPage(quint64 generation, int page)
 {
-    if (!m_backend || generation != m_checkAllGeneration)
+    const auto backend = m_backend;
+    if (!backend || generation != m_checkAllGeneration)
         return;
-    m_backend->queryRuns(m_historyFilter, page, kCheckAllPageSize)->whenDone(this,
-        [this, generation, page, collected = std::move(collected)]
-        (bool ok, const QVariantMap &payload, const QString &, const QString &) mutable {
-        if (generation != m_checkAllGeneration)
-            return;
-        const QVariantList rows = payload.value(QStringLiteral("items")).toList();
-        const int total = payload.value(QStringLiteral("page_info")).toMap()
-                              .value(QStringLiteral("total")).toInt();
-        if (!ok || m_batchRunning || total > kMaxCheckedRuns) {
-            m_checkAllLoading = false;
-            Q_EMIT checkedRunsChanged();
-            if (!m_batchRunning)
-                Q_EMIT toastRequested(ok ? tr("符合筛选的记录超过 2000 条，请先缩小筛选范围再全部勾选。")
-                                         : tr("暂时读不到全部记录，没有改动勾选，请稍后再试。"));
-            return;
-        }
-        for (const QVariant &row : rows)
-            collected.append(row.toMap());
-        if (rows.size() == kCheckAllPageSize && static_cast<qint64>(page) * kCheckAllPageSize < total) {
-            fetchMatchingPage(generation, page + 1, std::move(collected));
+    const QString requestSelectionId = m_checkAllSelectionId;
+    QJsonObject request{{QStringLiteral("page"), page}};
+    if (requestSelectionId.isEmpty())
+        request.insert(QStringLiteral("filter"), m_historyFilter);
+    else
+        request.insert(QStringLiteral("selection_id"), requestSelectionId);
+
+    const QPointer<BackendReply> reply = backend->request(QStringLiteral("QueryHistorySelection"), request);
+    reply->whenDone(backend, [guard = QPointer<HistoryController>(this), backend, reply, generation, page,
+                              requestSelectionId](bool ok, const QVariantMap &, const QString &code, const QString &) {
+        const QJsonObject response = reply ? reply->payload() : QJsonObject{};
+        const QString selectionId = response.value(QStringLiteral("selection_id")).toString();
+        const bool issued = !QUuid::fromString(selectionId).isNull();
+        if (!guard || generation != guard->m_checkAllGeneration) {
+            // The first reply may arrive after cancellation, when its newly created token
+            // was not known yet. Later pages use a token cancellation has already released.
+            if (backend && issued && requestSelectionId.isEmpty())
+                backend->releaseHistorySelection(selectionId);
             return;
         }
-        // Rows already checked keep the revision they were checked with.
-        for (const QVariantMap &run : std::as_const(collected)) {
+        auto &history = *guard;
+        if (!ok || !issued || (!requestSelectionId.isEmpty() && selectionId != requestSelectionId)) {
+            history.failCheckAll(!ok && code == QLatin1String("ERR_UNKNOWN_MESSAGE"));
+            return;
+        }
+        history.m_checkAllSelectionId = selectionId;
+        const auto info = response.value(QStringLiteral("page_info")).toObject();
+        const auto items = response.value(QStringLiteral("items")).toArray();
+        const qint64 total = info.value(QStringLiteral("total")).toInteger(-1);
+        const qint64 offset = (static_cast<qint64>(page) - 1) * IBackend::kHistorySelectionPageSize;
+        if (!response.value(QStringLiteral("items")).isArray() || info.value(QStringLiteral("page")).toInt() != page
+            || info.value(QStringLiteral("page_size")).toInt() != IBackend::kHistorySelectionPageSize
+            || total < offset || items.size() != qMin<qint64>(IBackend::kHistorySelectionPageSize, total - offset)
+            || (page != 1 && history.m_checkAllTotal != total)) {
+            history.failCheckAll();
+            return;
+        }
+        history.m_checkAllTotal = total;
+        for (const auto &item : items) {
+            const auto run = item.toObject();
             const QString id = run.value(QStringLiteral("run_id")).toString();
             if (id.isEmpty() || run.value(QStringLiteral("revision")).toInt() < 1
-                || m_checkedRuns.contains(id) || m_checkedRuns.size() >= kMaxCheckedRuns)
-                continue;
-            m_checkedRuns.insert(id, QJsonObject::fromVariantMap(run));
-            m_checkedOrder.append(id);
+                || history.m_checkAllIds.contains(id)) {
+                history.failCheckAll();
+                return;
+            }
+            history.m_checkAllIds.insert(id);
+            history.m_checkAllRows.append(run);
         }
-        m_checkAllLoading = false;
-        clearRegionMigrationPreview();
-        Q_EMIT checkedRunsChanged();
+        if (history.m_checkAllRows.size() < total) {
+            QTimer::singleShot(0, &history, [guard, generation, page] {
+                if (guard)
+                    guard->fetchMatchingPage(generation, page + 1);
+            });
+            return;
+        }
+        // Earlier individual selections keep their original optimistic revision.
+        for (const QJsonObject &run : std::as_const(history.m_checkAllRows)) {
+            const QString id = run.value(QStringLiteral("run_id")).toString();
+            if (!history.m_checkedRuns.contains(id)) {
+                history.m_checkedRuns.insert(id, run);
+                history.m_checkedOrder.append(id);
+            }
+        }
+        history.clearRegionMigrationPreview();
+        if (guard)
+            history.cancelCheckAll();
     });
+}
+
+void HistoryController::failCheckAll(bool outdatedCollector)
+{
+    const QPointer<HistoryController> guard(this);
+    cancelCheckAll();
+    if (guard)
+        Q_EMIT toastRequested(outdatedCollector
+            ? tr("当前后台服务不支持勾选全部。已保留现有勾选，请更新软件后重试。")
+            : tr("暂时读不到全部记录，没有改动勾选，请稍后再试。"));
 }
 
 void HistoryController::cancelCheckAll()
@@ -451,6 +496,12 @@ void HistoryController::cancelCheckAll()
     if (!m_checkAllLoading)
         return;
     m_checkAllLoading = false;
+    const QString selectionId = std::exchange(m_checkAllSelectionId, {});
+    m_checkAllTotal = -1;
+    m_checkAllRows.clear();
+    m_checkAllIds.clear();
+    if (m_backend)
+        m_backend->releaseHistorySelection(selectionId);
     Q_EMIT checkedRunsChanged();
 }
 
@@ -553,14 +604,21 @@ void HistoryController::previewRegionMigration(const QString &region, int profil
     if (!m_backend || m_batchRunning || checkedMigrationSource().isEmpty()
         || region.isEmpty() || profileId <= 0)
         return;
+    cancelCheckAll();
     clearRegionMigrationPreview();
     const quint64 generation = m_regionPreviewGeneration;
     m_regionPreviewLoading = true;
     const QJsonObject destination{{QStringLiteral("region"), region}, {QStringLiteral("profile_id"), profileId}};
+    const QJsonArray targets = checkedBatchTargets();
+    const bool large = targets.size() > IBackend::kInlineHistorySelectionLimit;
     QJsonObject payload = destination;
-    payload.insert(QStringLiteral("runs"), checkedBatchTargets());
+    if (!large)
+        payload.insert(QStringLiteral("runs"), targets);
     Q_EMIT regionMigrationChanged();
-    BackendReply *reply = m_backend->request(QStringLiteral("PreviewRunRegionMigration"), payload);
+    BackendReply *reply = large
+        ? m_backend->requestWithHistorySelection(QStringLiteral("PreviewRunRegionMigration"),
+                                                IBackend::prepareHistorySelection(std::move(payload), targets))
+        : m_backend->request(QStringLiteral("PreviewRunRegionMigration"), payload);
     const QPointer<BackendReply> guard(reply);
     reply->whenDone(this, [this, generation, destination, guard](bool ok, const QVariantMap &answer,
                                                                const QString &code, const QString &message) {
@@ -597,6 +655,11 @@ QJsonArray HistoryController::checkedBatchTargets() const
     return rows;
 }
 
+QJsonArray HistoryController::largeCheckedBatchTargets() const
+{
+    return m_checkedRuns.size() > IBackend::kInlineHistorySelectionLimit ? checkedBatchTargets() : QJsonArray{};
+}
+
 void HistoryController::sendCheckedBatch(const QString &action, int profileId, const QString &reason,
                                          const QJsonObject &migration)
 {
@@ -605,15 +668,15 @@ void HistoryController::sendCheckedBatch(const QString &action, int profileId, c
     cancelCheckAll();
     const bool assigning = action == QLatin1String("assign_profile");
     const QStringList ids = m_checkedOrder;
-    const QJsonArray rows = checkedBatchTargets();
-    QJsonObject payload = migration;
-    payload.insert(QStringLiteral("action"), action);
-    payload.insert(QStringLiteral("runs"), rows);
-    payload.insert(QStringLiteral("reason"), reason.trimmed());
-    if (assigning)
-        payload.insert(QStringLiteral("profile_id"),
-                       profileId > 0 ? QJsonValue(profileId) : QJsonValue(QJsonValue::Null));
-    const QString requestId = requestIdFor(m_unansweredBatch, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    const QJsonArray targets = checkedBatchTargets();
+    const bool large = targets.size() > IBackend::kInlineHistorySelectionLimit;
+    QJsonObject payload = IBackend::batchMutationPayload(action, targets, reason, profileId, migration);
+    std::optional<IBackend::StagedHistoryRequest> staged;
+    if (large)
+        staged = IBackend::prepareHistorySelection(std::move(payload), targets);
+    const auto &actionPayload = staged ? staged->payload : payload;
+    const QString requestId = requestIdFor(m_unansweredBatch,
+        QJsonDocument(actionPayload).toJson(QJsonDocument::Compact));
     m_batchRunning = true;
     m_batchFeedback.clear();
     Q_EMIT batchChanged();
@@ -623,26 +686,22 @@ void HistoryController::sendCheckedBatch(const QString &action, int profileId, c
     const bool movingRuns = movingRegion || assigning;
     if (movingRuns)
         Q_EMIT regionMovePendingChanged(true, false);
-    BackendReply *batchReply = nullptr;
-    if (movingRegion)
-        batchReply = m_backend->requestWithId(QStringLiteral("BatchMutateRuns"), payload, requestId);
-    else if (assigning)
-        batchReply = m_backend->assignRunsToProfile(rows, profileId, reason.trimmed(), requestId);
-    else
-        batchReply = m_backend->batchMutateRuns(action, rows, reason.trimmed(), requestId);
+    BackendReply *batchReply = staged
+        ? m_backend->requestWithHistorySelection(QStringLiteral("BatchMutateRuns"), std::move(*staged), requestId)
+        : m_backend->requestWithId(QStringLiteral("BatchMutateRuns"), payload, requestId);
     const QPointer<BackendReply> batchGuard(batchReply);
     batchReply->whenDone(this, [this, action, profileId, ids, requestId, batchGuard, movingRuns](bool ok, const QVariantMap &answer,
                                                                        const QString &code, const QString &message) {
             settle(m_unansweredBatch, requestId, ok, code);
             m_batchRunning = false;
-            const bool uncertain = !ok && ((batchGuard && batchGuard->transportFailed())
+            const bool unsent = !ok && batchGuard && batchGuard->neverSent();
+            const bool uncertain = !ok && !unsent && ((batchGuard && batchGuard->transportFailed())
                 || code == QLatin1String("ERR_PIPE_CLOSED") || code == QLatin1String("ERR_TIMEOUT")
                 || code == QLatin1String("ERR_DISCONNECTED"));
             // Only a batch that may have applied is followed by a read (re-review 2026-11-20, R3-1).
             if (movingRuns)
                 Q_EMIT regionMovePendingChanged(false, ok || uncertain);
             if (!ok) {
-                const bool unsent = batchGuard && batchGuard->neverSent() && code == QLatin1String("ERR_INTERNAL");
                 m_batchFeedback = [unsent, uncertain, code,
                                    refusal = collector_text::replyErrorText(batchGuard, message)] {
                     // %1 is the Collector's own sentence (or its code).
@@ -658,10 +717,10 @@ void HistoryController::sendCheckedBatch(const QString &action, int profileId, c
                 Q_EMIT batchChanged();
                 return;
             }
-            for (const QString &id : ids) {
+            const QSet<QString> appliedIds(ids.cbegin(), ids.cend());
+            for (const QString &id : ids)
                 m_checkedRuns.remove(id);
-                m_checkedOrder.removeAll(id);
-            }
+            m_checkedOrder.removeIf([&appliedIds](const QString &id) { return appliedIds.contains(id); });
             clearRegionMigrationPreview();
             if (ids.contains(m_selectedRun.value(QStringLiteral("run_id")).toString()))
                 clearSelection();

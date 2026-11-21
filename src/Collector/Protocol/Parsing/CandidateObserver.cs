@@ -241,6 +241,16 @@ public sealed class CandidateObserver : IDecodedMessageSink
         foreach (var tag in _dutyWindows.Keys.ToArray()) FlushDutyWindow(tag);
     }
 
+    /// <summary>
+    /// Writes the buffered metadata before disabling candidate mode. Keeps the window boundaries
+    /// open so sampling can continue if persisting the disabled setting fails.
+    /// </summary>
+    public void FlushPendingSamples()
+    {
+        foreach (var (tag, window) in _queueWindows) FlushSegment(tag, window, QueueWindowSampleName, QueueWindowGroup);
+        foreach (var (tag, window) in _dutyWindows) FlushSegment(tag, window, DutyWindowSampleName, DutyWindowGroup);
+    }
+
     private void OpenQueueWindow(string tag, long t)
     {
         if (_queueWindows.ContainsKey(tag)) return; // A second registration extends nothing.
@@ -314,8 +324,13 @@ public sealed class CandidateObserver : IDecodedMessageSink
     /// <summary>Writes the current segment of an open window and keeps the window open.</summary>
     private void FlushQueueSegment(string tag)
     {
-        if (!_queueWindows.TryGetValue(tag, out var window)) return;
-        EmitSamples(tag, window, QueueWindowSampleName, QueueWindowGroup);
+        if (_queueWindows.TryGetValue(tag, out var window))
+            FlushSegment(tag, window, QueueWindowSampleName, QueueWindowGroup);
+    }
+
+    private void FlushSegment(string tag, QueueWindow window, string name, string group)
+    {
+        EmitSamples(tag, window, name, group);
         window.Samples.Clear();
         window.Overflow = 0;
     }

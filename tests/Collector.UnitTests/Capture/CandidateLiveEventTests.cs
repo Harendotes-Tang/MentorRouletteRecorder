@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using System.Threading.Channels;
 using MentorRecorder.Collector.Capture;
+using MentorRecorder.Collector.Export;
 using MentorRecorder.Collector.Ipc;
 using MentorRecorder.Collector.Protocol.Parsing;
 
@@ -108,6 +109,37 @@ public sealed class CandidateLiveEventTests
         Assert.Equal("NONE", status["profile_status"]!.GetValue<string>());
         var report = SanitizedDiagnosticsReport.Build(snapshot, "test", DateTimeOffset.UnixEpoch);
         Assert.DoesNotContain("candidate-fixture", report.ToJsonString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SlowRoundGuessReadDoesNotHoldTheCaptureGate()
+    {
+        using var resumeGuesses = new ManualResetEventSlim();
+        var startedGuesses = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var report = new CandidateRoundReport(DateTimeOffset.UnixEpoch, null, null, null, null);
+        using var capture = new CaptureController(FakeCapture() with
+        {
+            CandidateStatus = () => (true, "candidate-fixture", 0),
+            CandidateRoundReport = () =>
+            {
+                startedGuesses.SetResult();
+                if (!resumeGuesses.Wait(TimeSpan.FromSeconds(15)))
+                    throw new TimeoutException("The test did not release the candidate guesses.");
+                return report;
+            },
+        });
+        var snapshot = Task.Run(capture.Snapshot);
+        try
+        {
+            await startedGuesses.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            // State requires the same gate as the decoder's health update.
+            await Task.Run(() => capture.State).WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            resumeGuesses.Set();
+            Assert.Equal(report, (await snapshot.WaitAsync(TimeSpan.FromSeconds(5))).CandidateRoundGuesses);
+        }
     }
 
     [Fact]

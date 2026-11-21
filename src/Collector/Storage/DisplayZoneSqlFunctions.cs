@@ -11,7 +11,8 @@ namespace MentorRecorder.Collector.Storage;
 /// read-only snapshot views exports page through - so <see cref="RunFilterSql"/> expressions run
 /// on either.
 ///
-/// Both are registered as non-deterministic: their answer changes when the zone does. Neither may
+/// The live connection follows the current zone; a read snapshot keeps the zone it started with.
+/// Both are registered as non-deterministic so connection mode never affects where SQL uses them. Neither may
 /// appear in an index, a generated column, a view or a CHECK constraint (SQLite refuses a
 /// non-deterministic function there, and the schema could not be opened without this process);
 /// they are used only in the query text RunFilterSql and RunRepository build.
@@ -38,16 +39,18 @@ internal static class DisplayZoneSqlFunctions
 
     /// <summary>Registers both functions on an open connection.</summary>
     /// <param name="connection">The connection.</param>
-    public static void Register(SqliteConnection connection)
+    /// <param name="snapshotZone">Fixed zone for a read snapshot; null follows the current zone.</param>
+    public static void Register(SqliteConnection connection, TimeZoneInfo? snapshotZone)
     {
         ArgumentNullException.ThrowIfNull(connection);
-        connection.CreateFunction<string?, string?>(Day, DayOf, isDeterministic: false);
-        connection.CreateFunction<string?, string?>(DayStart, DayStartOf, isDeterministic: false);
+        connection.CreateFunction<string?, string?>(Day, instant => DayOf(instant, snapshotZone), isDeterministic: false);
+        connection.CreateFunction<string?, string?>(DayStart, day => DayStartOf(day, snapshotZone), isDeterministic: false);
     }
 
     /// <summary>The body of <see cref="Day"/>.</summary>
     /// <param name="instant">A UTC instant as stored; NULL or anything unreadable gives NULL.</param>
-    internal static string? DayOf(string? instant)
+    /// <param name="snapshotZone">Fixed zone for a read snapshot; null follows the current zone.</param>
+    internal static string? DayOf(string? instant, TimeZoneInfo? snapshotZone = null)
     {
         if (!TryParseInstant(instant, out var at))
         {
@@ -56,7 +59,7 @@ internal static class DisplayZoneSqlFunctions
 
         try
         {
-            return DisplayTimeZone.DayOf(at);
+            return DisplayTimeZone.DayOf(at, snapshotZone ?? DisplayTimeZone.Current);
         }
         catch (ArgumentOutOfRangeException)
         {
@@ -67,7 +70,8 @@ internal static class DisplayZoneSqlFunctions
 
     /// <summary>The body of <see cref="DayStart"/>.</summary>
     /// <param name="day">A calendar day <c>yyyy-MM-dd</c>; NULL or anything else gives NULL.</param>
-    internal static string? DayStartOf(string? day)
+    /// <param name="snapshotZone">Fixed zone for a read snapshot; null follows the current zone.</param>
+    internal static string? DayStartOf(string? day, TimeZoneInfo? snapshotZone = null)
     {
         if (day is null ||
             !DateOnly.TryParseExact(day, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
@@ -77,7 +81,7 @@ internal static class DisplayZoneSqlFunctions
 
         try
         {
-            return UtcTimestamp.ToText(DisplayTimeZone.DayStartUtc(date));
+            return UtcTimestamp.ToText(DisplayTimeZone.DayStartUtc(date, snapshotZone ?? DisplayTimeZone.Current));
         }
         catch (ArgumentOutOfRangeException)
         {

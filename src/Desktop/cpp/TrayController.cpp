@@ -203,13 +203,20 @@ void TrayController::notifyRecordingRecovery()
     if (!m_controller)
         return;
     const QPointer<AutomaticRecordingController> recording(m_controller->recording());
-    if (recording.isNull() || !recording->recoveryPending())
+    if (recording.isNull())
         return;
+    const auto serial = recording->warningSerial();
+    if (!recording->recoveryPending() || serial == 0 || serial <= m_lastRecoverySerial)
+        return;
+    m_lastRecoverySerial = serial;
     const QPointer<TrayController> guard(this);
     Q_EMIT recordingRecoveryRequested(m_tray != nullptr);
-    // As for a warning: a direct observer may have withdrawn the recovery or
-    // destroyed either owner before the native boundary.
-    if (guard.isNull() || recording.isNull() || !recording->recoveryPending())
+    // A direct observer may withdraw this recovery, publish another episode,
+    // or destroy either owner before the native boundary.
+    if (guard.isNull())
+        return;
+    const auto *currentRecording = recording.data();
+    if (!currentRecording || !currentRecording->recoveryPending() || currentRecording->warningSerial() != serial)
         return;
     deliverRecordingRecovery();
 }

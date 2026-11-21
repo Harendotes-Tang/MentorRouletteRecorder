@@ -46,8 +46,10 @@
 
 该错误码与 `ERR_BAD_REQUEST` 分开，用于让客户端区分请求格式错误与该修订按定义不可撤销两种情形。
 
-`BatchMutateRuns` 支持 `soft_delete`、`restore`、`purge`、`assign_profile` 与 `move_region`，携带最多 2000 条
-`runs[{run_id,expected_revision}]` 与理由。整批先检查版本及状态，任何冲突均不写入。
+`BatchMutateRuns` 支持 `soft_delete`、`restore`、`purge`、`assign_profile` 与 `move_region`。
+桌面端可直接提交最多 2000 条 `runs[{run_id,expected_revision}]`。更多记录先通过
+`StageHistorySelection` 分页传送，再以同一份已封存的 `selection_id` 提交。两种方式均需填写理由，
+整批先检查版本及状态，任何冲突均不写入。
 `purge` 仅接受已软删除记录；普通审计写入仍只追加，永久清理事务获得指定记录的删除授权。
 
 `assign_profile` 改动记录所属的角色档案（[data-model.md](data-model.md) §1.6）：`profile_id` 为同区服的档案编号，

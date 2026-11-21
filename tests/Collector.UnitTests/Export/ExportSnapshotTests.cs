@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 using MentorRecorder.Collector.Capture;
@@ -53,7 +54,7 @@ public sealed class ExportSnapshotTests : IDisposable
     }
 
     [Fact]
-    public void AllPagesAndAttachmentsKeepThePreWriteSnapshotWhileALiveWriteCommits()
+    public void ExportRowsAndAttachmentsKeepThePreWriteSnapshotWhileALiveWriteCommits()
     {
         var database = _fixture.Database;
         var runs = new RunRepository(database);
@@ -61,7 +62,7 @@ public sealed class ExportSnapshotTests : IDisposable
         var imports = new RunImportRepository(database);
         var originals = Enumerable.Range(0, 405).Select(index => TestDatabase.Run(
             source: RunSource.Import, enteredAt: _fixture.Clock.UtcNow.AddMinutes(index))).ToArray();
-        var victim = originals[0]; // The oldest record is read on the final page.
+        var victim = originals[0]; // The oldest record is hydrated in the final batch.
         database.RunInTransaction(tx =>
         {
             foreach (var run in originals) runs.Insert(run, tx);
@@ -75,28 +76,28 @@ public sealed class ExportSnapshotTests : IDisposable
         var exported = database.ReadSnapshot((snapshot, tx) =>
         {
             var reader = new RunRepository(snapshot);
-            var first = reader.Query(filter, RunSort.Default, 1, 200, tx);
-            Assert.Equal(405, first.Total);
-
-            // This is a real write through the shipping live-capture transaction path. It must
-            // commit while the reader's transaction is still open, before the later pages.
-            Task.Run(() => database.RunLiveCaptureTransaction(write =>
+            var rows = new List<MentorRun>();
+            var count = reader.VisitExportRows(filter, RunSort.Default, tx, restrictToSelection: false, row =>
             {
-                runs.Update(victim with { Revision = 2, SoftDeleted = true }, 1, write);
-                reflections.Upsert(victim.RunId, ReflectionMood.Good, "after-write", _fixture.Clock.UtcNow, write);
-                using var command = database.CreateCommand();
-                command.Transaction = write;
-                command.CommandText = "UPDATE run_import_metadata SET source_name = 'after-import' WHERE run_id = $id;";
-                command.Parameters.AddWithValue("$id", victim.RunId);
-                command.ExecuteNonQuery();
-                runs.Insert(inserted, write);
-            })).WaitAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
+                rows.Add(row);
+                if (rows.Count != Paging.MaxPageSize) return;
 
-            var second = reader.Query(filter, RunSort.Default, 2, 200, tx);
-            var third = reader.Query(filter, RunSort.Default, 3, 200, tx);
-            Assert.Equal(405, second.Total);
-            Assert.Equal(405, third.Total);
-            return first.Items.Concat(second.Items).Concat(third.Items).ToArray();
+                // Commit through the live-capture writer while the export cursor is still
+                // active, before fetching the later batch with the old record and attachments.
+                Task.Run(() => database.RunLiveCaptureTransaction(write =>
+                {
+                    runs.Update(victim with { Revision = 2, SoftDeleted = true }, 1, write);
+                    reflections.Upsert(victim.RunId, ReflectionMood.Good, "after-write", _fixture.Clock.UtcNow, write);
+                    using var command = database.CreateCommand();
+                    command.Transaction = write;
+                    command.CommandText = "UPDATE run_import_metadata SET source_name = 'after-import' WHERE run_id = $id;";
+                    command.Parameters.AddWithValue("$id", victim.RunId);
+                    command.ExecuteNonQuery();
+                    runs.Insert(inserted, write);
+                })).WaitAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
+            }, CancellationToken.None);
+            Assert.Equal(originals.Length, count);
+            return rows;
         });
 
         Assert.Equal(Enumerable.Reverse(originals).Select(run => run.RunId), exported.Select(run => run.RunId));
@@ -144,6 +145,8 @@ public sealed class ExportSnapshotTests : IDisposable
             var expected = runs.Query(filter, RunSort.Default, 1, 200).Items
                 .Concat(runs.Query(filter, RunSort.Default, 2, 200).Items).ToArray();
             Assert.Equal(expected.Select(run => Wire.Run(run).ToJsonString()), array.Select(row => row!.ToJsonString()));
+            var expectedFile = new JsonArray(expected.Select(run => (JsonNode?)Wire.Run(run)).ToArray());
+            Assert.Equal(Encoding.UTF8.GetBytes(expectedFile.ToJsonString(Wire.IndentedJsonOptions)), File.ReadAllBytes(path));
             Assert.Contains("snapshot-import", content, StringComparison.Ordinal);
         }
         else
@@ -161,6 +164,30 @@ public sealed class ExportSnapshotTests : IDisposable
         Assert.Equal(ErrorCodes.NotFound, error.Code);
         Assert.Equal(before, File.ReadAllBytes(path));
         Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(path)!, AtomicExportFile.TemporaryPrefix + "*.tmp"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CancelledSnapshotLeavesTheExistingFileAndRemovesTheTemporaryExport(bool csv)
+    {
+        var target = Target(csv ? "cancel.csv" : "cancel.json");
+        File.WriteAllText(target, "previous export");
+        _fixture.Database.Dispose();
+        using var cancellation = new CancellationTokenSource();
+        using var database = SqliteDatabase.Open(_fixture.Path, _fixture.Clock, path =>
+        {
+            Assert.Single(Directory.GetFiles(Path.GetDirectoryName(target)!, AtomicExportFile.TemporaryPrefix + "*.tmp"));
+            cancellation.Cancel();
+            return SqliteDatabase.OpenReadOnlyConnection(path);
+        });
+        var exporter = new RunExporter(new RunRepository(database), _fixture.Clock);
+
+        Assert.Throws<OperationCanceledException>(() => csv
+            ? exporter.ExportCsv(target, null, true, null, cancellation.Token)
+            : exporter.ExportJson(target, null, true, null, cancellation.Token));
+        Assert.Equal("previous export", File.ReadAllText(target));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(target)!, AtomicExportFile.TemporaryPrefix + "*.tmp"));
     }
 
     [Theory]

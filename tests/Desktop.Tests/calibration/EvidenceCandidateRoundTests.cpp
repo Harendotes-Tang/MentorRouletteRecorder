@@ -16,6 +16,7 @@
 #include <QSet>
 #include <QStandardPaths>
 #include <QTemporaryDir>
+#include <QUuid>
 
 namespace {
 
@@ -170,6 +171,9 @@ private Q_SLOTS:
         QTRY_VERIFY(scene.app->captureSettings().value(QStringLiteral("candidate_validation_enabled")).toBool());
         const QJsonObject request = scene.backend.lastCaptureSettingsUpdate();
         QVERIFY(request.value(QStringLiteral("candidate_validation_enabled")).toBool());
+        QVERIFY(!QUuid(request.value(QStringLiteral("candidate_round_id")).toString()).isNull());
+        QCOMPARE(request.value(QStringLiteral("candidate_round_profile_id")).toString(),
+                 QStringLiteral("global.2026.11.03.candidate"));
         QSet<QString> groups;
         const QStringList expected = eligibleOpcodes(&groups);
         QCOMPARE(strings(request.value(QStringLiteral("research_payload_opcodes")).toArray()), expected);
@@ -264,7 +268,7 @@ private Q_SLOTS:
         // The mock names a folder that does not exist: the page says so instead of opening it.
         QVERIFY(scene.click(QStringLiteral("candidateRoundOpenFolderButton")));
         QCOMPARE(opened, 0);
-        QTRY_VERIFY(!scene.app->candidates()->exportError().isEmpty());
+        QTRY_VERIFY(!scene.app->candidates()->roundExportError().isEmpty());
         QCOMPARE(scene.warnings->size(), 0);
     }
 
@@ -325,19 +329,27 @@ private Q_SLOTS:
                                {QStringLiteral("duty"), QString::fromUtf8("天然要害沙斯塔夏溶洞")}};
         QCOMPARE(scene.backend.lastCandidateExportRequest().value(QStringLiteral("round_answers")).toObject(), sent);
 
-        // 重新导出 writes the file again with the same answers.
+        // The maintainer still requests the entire ledger independently of the player card.
+        const QString playerFile = scene.app->candidates()->roundExportResult().value(QStringLiteral("target_path")).toString();
         scene.app->candidates()->exportEvidence();
         QTRY_VERIFY(!scene.app->candidates()->exporting());
-        QCOMPARE(scene.backend.lastCandidateExportRequest().value(QStringLiteral("round_answers")).toObject(), sent);
+        QVERIFY(!scene.backend.lastCandidateExportRequest().contains(QStringLiteral("candidate_round_id")));
+        QVERIFY(!scene.backend.lastCandidateExportRequest().contains(QStringLiteral("round_answers")));
+        QCOMPARE(scene.app->candidates()->roundExportResult().value(QStringLiteral("target_path")).toString(), playerFile);
 
-        // A new round starts from the software's guesses again. The exported card offers no
-        // 开始 button, so its start() is called the way the button calls it.
-        QVERIFY(roundCard(scene)->property("canStart").toBool());
-        QVERIFY(QMetaObject::invokeMethod(roundCard(scene), "start"));
+        // Another round requires the player to consent again, then uses its own answers.
+        const QString completedRoundId = scene.app->candidates()->roundId();
+        QVERIFY(!roundCard(scene)->property("canStart").toBool());
+        QVERIFY(scene.tap(QStringLiteral("candidateRoundConsent")));
+        QTRY_VERIFY(roundCard(scene)->property("canStart").toBool());
+        QVERIFY(scene.click(QStringLiteral("candidateRoundStartButton")));
         QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("running"));
+        QVERIFY(scene.app->candidates()->roundId() != completedRoundId);
         QVERIFY(scene.app->candidates()->roundAnswers().isEmpty());
         QVERIFY(!edited(scene, "job_after"));
-        QTRY_COMPARE(answer(scene, "job_after"), QString::fromUtf8("占星术士"));
+        QCOMPARE(answer(scene, "job_after"), QString());
+        scene.backend.setCandidateRoundGuesses({{QStringLiteral("job_after"), guess(24, nullptr)}});
+        QTRY_COMPARE(answer(scene, "job_after"), QString::fromUtf8("白魔法师"));
         QCOMPARE(scene.warnings->size(), 0);
     }
 
@@ -361,8 +373,229 @@ private Q_SLOTS:
         QVERIFY(scene.click(QStringLiteral("candidateRoundFinishButton")));
         QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("exported"));
         const QJsonObject request = scene.backend.lastCandidateExportRequest();
-        QCOMPARE(request.keys(), QStringList{QStringLiteral("target_path")});
+        QCOMPARE(request.keys(), (QStringList{QStringLiteral("candidate_round_id"), QStringLiteral("target_path")}));
+        QCOMPARE(request.value(QStringLiteral("candidate_round_id")).toString(), scene.app->candidates()->roundId());
         QCOMPARE(scene.warnings->size(), 0);
+    }
+
+    void aLostStopAcknowledgementKeepsTheOriginalRoundAndAnswers_data()
+    {
+        QTest::addColumn<bool>("maintainer");
+        QTest::newRow("no other round") << false;
+        QTest::newRow("maintainer round active") << true;
+    }
+
+    void aLostStopAcknowledgementKeepsTheOriginalRoundAndAnswers()
+    {
+        QFETCH(bool, maintainer);
+        EvidenceScene scene;
+        scene.backend.setCandidateRoundFixture(false);
+        QVERIFY(scene.open(QStringLiteral("IDLE")));
+        QVERIFY(startRound(scene));
+        auto *controller = scene.app->candidates();
+        const QString roundId = controller->roundId();
+        QVERIFY(!QUuid(roundId).isNull());
+        QVERIFY(typeAnswer(scene, "job_after", QStringLiteral("verified answer")));
+        scene.backend.dropPlayerStopReply = true;
+        QVERIFY(scene.click(QStringLiteral("candidateRoundFinishButton")));
+        QTRY_VERIFY(!scene.backend.isConnected());
+        QVERIFY(controller->finishPending());
+        QCOMPARE(controller->roundAnswers().value(QStringLiteral("job_after")).toString(), QStringLiteral("verified answer"));
+        QCOMPARE(scene.backend.counts.value(QStringLiteral("ExportCandidateEvidence")), 0);
+        QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("retry"));
+        QVERIFY(!scene.item(QStringLiteral("candidateRoundStartButton"))->isVisible());
+        auto *retry = scene.item(QStringLiteral("candidateRoundExportAgainButton"));
+        QVERIFY(retry && retry->isVisible() && !retry->isEnabled());
+
+        if (maintainer)
+            scene.backend.setMaintainerRound(true);
+        scene.backend.setConnected(true);
+        QTRY_VERIFY(retry->isEnabled());
+        QCOMPARE(scene.app->captureSettings().value(QStringLiteral("candidate_validation_enabled")).toBool(), maintainer);
+        QVERIFY(scene.backend.withheldStop);
+        scene.backend.withheldStop->succeed(scene.backend.withheldStopPayload);
+        QCoreApplication::processEvents();
+        QCOMPARE(scene.backend.counts.value(QStringLiteral("ExportCandidateEvidence")), 0);
+
+        QVERIFY(scene.click(QStringLiteral("candidateRoundExportAgainButton")));
+        QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("exported"));
+        QCOMPARE(scene.backend.counts.value(QStringLiteral("ExportCandidateEvidence")), 1);
+        const QJsonObject exported = scene.backend.lastCandidateExportRequest();
+        QCOMPARE(exported.value(QStringLiteral("candidate_round_id")).toString(), roundId);
+        QCOMPARE(exported.value(QStringLiteral("round_answers")).toObject()
+                   .value(QStringLiteral("job_after")).toString(), QStringLiteral("verified answer"));
+        QCOMPARE(scene.backend.lastCaptureSettingsUpdate().value(QStringLiteral("candidate_round_id")).toString(), roundId);
+        QCOMPARE(scene.app->captureSettings().value(QStringLiteral("candidate_validation_enabled")).toBool(), maintainer);
+        QVERIFY(scene.item(QStringLiteral("candidateRoundOpenFolderButton"))->isVisible());
+        if (maintainer) {
+            scene.backend.setMaintainerRound(false);
+            scene.app->refreshCaptureSettings();
+            QTRY_VERIFY(!scene.app->captureSettings().value(QStringLiteral("candidate_validation_enabled")).toBool());
+            QCOMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("exported"));
+            QVERIFY(scene.item(QStringLiteral("candidateRoundOpenFolderButton"))->isVisible());
+        }
+        QCOMPARE(scene.warnings->size(), 0);
+    }
+
+    void aRestartKeepsTheFinishDraftAndOffersAClosedRound()
+    {
+        QTemporaryDir local;
+        QVERIFY(local.isValid());
+        const QString settingsPath = local.filePath(QStringLiteral("desktop.ini"));
+        EvidenceScene scene;
+        scene.backend.setCandidateRoundFixture(false);
+        QVERIFY(scene.open(QStringLiteral("IDLE"), settingsPath));
+        QVERIFY(startRound(scene));
+        const QString roundId = scene.app->candidates()->roundId();
+        QVERIFY(!QUuid(roundId).isNull());
+        QVERIFY(typeAnswer(scene, "job_after", QStringLiteral("keep after restart")));
+        scene.backend.dropPlayerStopReply = true;
+        QVERIFY(scene.click(QStringLiteral("candidateRoundFinishButton")));
+        QTRY_VERIFY(!scene.backend.isConnected());
+
+        scene.close();
+        scene.backend.setConnected(true);
+        QVERIFY(scene.open(QStringLiteral("IDLE"), settingsPath));
+        QTRY_VERIFY(scene.item(QStringLiteral("candidateRoundExportAgainButton"))->isEnabled());
+        QCOMPARE(scene.app->candidates()->roundAnswers().value(QStringLiteral("job_after")).toString(),
+                 QStringLiteral("keep after restart"));
+        QVERIFY(scene.click(QStringLiteral("candidateRoundExportAgainButton")));
+        QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("exported"));
+        QCOMPARE(scene.backend.lastCandidateExportRequest().value(QStringLiteral("candidate_round_id")).toString(), roundId);
+        QCOMPARE(scene.backend.lastCandidateExportRequest().value(QStringLiteral("round_answers")).toObject()
+                     .value(QStringLiteral("job_after")).toString(), QStringLiteral("keep after restart"));
+        QVERIFY(scene.settings->candidateRoundFinishDraft().isEmpty());
+
+        scene.close();
+        QVERIFY(scene.open(QStringLiteral("IDLE"), settingsPath));
+        QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("recover"));
+        QVERIFY(scene.item(QStringLiteral("candidateRoundStartButton"))->isVisible());
+        QVERIFY(scene.item(QStringLiteral("candidateRoundExportAgainButton"))->isEnabled());
+        QVERIFY(scene.click(QStringLiteral("candidateRoundExportAgainButton")));
+        QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("exported"));
+        QCOMPARE(scene.backend.lastCandidateExportRequest().value(QStringLiteral("candidate_round_id")).toString(), roundId);
+        QVERIFY(!scene.backend.lastCandidateExportRequest().contains(QStringLiteral("round_answers")));
+        QCOMPARE(scene.warnings->size(), 0);
+    }
+
+    void aDifferentPlayerRoundReplacesTheOldFinishDraft_data()
+    {
+        QTest::addColumn<bool>("changedWhileDisconnected");
+        QTest::newRow("observed on reconnect") << true;
+        QTest::newRow("discovered after stale stop is refused") << false;
+    }
+
+    void aDifferentPlayerRoundReplacesTheOldFinishDraft()
+    {
+        QFETCH(bool, changedWhileDisconnected);
+        QTemporaryDir local;
+        QVERIFY(local.isValid());
+        EvidenceScene scene;
+        scene.backend.setCandidateRoundFixture(false);
+        QVERIFY(scene.open(QStringLiteral("IDLE"), local.filePath(QStringLiteral("desktop.ini"))));
+        QVERIFY(startRound(scene));
+        QJsonObject newStart = scene.backend.lastCaptureSettingsUpdate();
+        const QString oldId = newStart.value(QStringLiteral("candidate_round_id")).toString();
+        const QString newId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        newStart.insert(QStringLiteral("candidate_round_id"), newId);
+        QTRY_VERIFY(!answer(scene, "job_before").isEmpty());
+        QVERIFY(typeAnswer(scene, "job_after", QStringLiteral("answer for the old round")));
+        scene.backend.dropPlayerStopReply = true;
+        QVERIFY(scene.click(QStringLiteral("candidateRoundFinishButton")));
+        QTRY_VERIFY(!scene.backend.isConnected());
+        QVERIFY(!scene.settings->candidateRoundFinishDraft().isEmpty());
+
+        if (changedWhileDisconnected)
+            scene.backend.applyServerCaptureSettings(newStart);
+        scene.backend.setConnected(true);
+        if (!changedWhileDisconnected) {
+            QTRY_VERIFY(scene.item(QStringLiteral("candidateRoundExportAgainButton"))->isEnabled());
+            scene.backend.applyServerCaptureSettings(newStart);
+            QVERIFY(scene.click(QStringLiteral("candidateRoundExportAgainButton")));
+        }
+        QTRY_COMPARE(scene.app->candidates()->roundId(), newId);
+        QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("running"));
+        QVERIFY(scene.settings->candidateRoundFinishDraft().isEmpty());
+        QVERIFY(scene.app->candidates()->roundAnswers().isEmpty());
+        // A status reading with the previous round's nonempty guesses still reaches the card.
+        scene.app->refreshStatus();
+        QTRY_COMPARE(scene.app->captureStatus().value(QStringLiteral("candidate_round_guesses")).toMap()
+                         .value(QStringLiteral("candidate_round_id")).toString(), oldId);
+        QVERIFY(answer(scene, "job_after").isEmpty());
+        QVERIFY(answer(scene, "job_before").isEmpty());
+        QVERIFY(scene.backend.withheldStop);
+        scene.backend.withheldStop->succeed(scene.backend.withheldStopPayload);
+        QCoreApplication::processEvents();
+        QCOMPARE(scene.backend.counts.value(QStringLiteral("ExportCandidateEvidence")), 0);
+        QVERIFY(scene.app->captureSettings().value(QStringLiteral("candidate_validation_enabled")).toBool());
+        QVERIFY(scene.click(QStringLiteral("candidateRoundFinishButton")));
+        QTRY_COMPARE(scene.backend.counts.value(QStringLiteral("ExportCandidateEvidence")), 1);
+        QCOMPARE(scene.backend.lastCandidateExportRequest().value(QStringLiteral("candidate_round_id")).toString(), newId);
+        QVERIFY(!scene.backend.lastCandidateExportRequest().contains(QStringLiteral("round_answers")));
+    }
+
+    void aRefusedNewRoundKeepsThePreviousExport()
+    {
+        EvidenceScene scene;
+        scene.backend.setCandidateRoundFixture(false);
+        QVERIFY(scene.open(QStringLiteral("IDLE")));
+        QVERIFY(startRound(scene));
+        QVERIFY(scene.click(QStringLiteral("candidateRoundFinishButton")));
+        QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("exported"));
+        const QVariantMap previous = scene.app->candidates()->roundExportResult();
+        QVERIFY(!previous.value(QStringLiteral("target_path")).toString().isEmpty());
+
+        // The displayed settings are still idle while the Collector now has a maintainer session.
+        scene.backend.setMaintainerRound(true);
+        QVERIFY(scene.tap(QStringLiteral("candidateRoundConsent")));
+        QTRY_VERIFY(scene.item(QStringLiteral("candidateRoundStartButton"))->isEnabled());
+        QVERIFY(scene.click(QStringLiteral("candidateRoundStartButton")));
+        QTRY_VERIFY(!scene.app->candidates()->candidateSettingsError().isEmpty());
+        QCOMPARE(scene.app->candidates()->roundExportResult(), previous);
+        QVERIFY(scene.item(QStringLiteral("candidateRoundOpenFolderButton"))->isVisible());
+        QCOMPARE(scene.backend.counts.value(QStringLiteral("ExportCandidateEvidence")), 1);
+    }
+
+    void anOlderCollectorCannotStartOrExportThePlayerRound()
+    {
+        EvidenceScene scene;
+        scene.backend.legacyCandidateRounds = true;
+        scene.backend.setCandidateRoundFixture(false);
+        QVERIFY(scene.open(QStringLiteral("IDLE")));
+        QTRY_VERIFY(roundVisible(scene));
+        QTRY_VERIFY(scene.app->captureSettingsLoaded());
+        QVERIFY(scene.tap(QStringLiteral("candidateRoundConsent")));
+        QVERIFY(!scene.item(QStringLiteral("candidateRoundStartButton"))->isEnabled());
+        QVERIFY(scene.text(QStringLiteral("candidateRoundBlockedReason")).contains(QStringLiteral("无法按轮次限定证据")));
+        QCOMPARE(scene.backend.counts.value(QStringLiteral("UpdateCaptureSettings")), 0);
+        QCOMPARE(scene.backend.counts.value(QStringLiteral("ExportCandidateEvidence")), 0);
+        QCOMPARE(scene.warnings->size(), 0);
+    }
+
+    void aSavedDraftCannotExportThroughAnOlderCollector()
+    {
+        QTemporaryDir local;
+        QVERIFY(local.isValid());
+        const QString settingsPath = local.filePath(QStringLiteral("desktop.ini"));
+        {
+            mr::AppSettings settings(settingsPath, nullptr);
+            settings.setCandidateRoundFinishDraft({
+                {QStringLiteral("round_id"), QUuid::createUuid().toString(QUuid::WithoutBraces)},
+                {QStringLiteral("answers"), QVariantMap{{QStringLiteral("job_after"), QStringLiteral("saved answer")}}},
+            });
+        }
+        EvidenceScene scene;
+        scene.backend.legacyCandidateRounds = true;
+        scene.backend.setCandidateRoundFixture(false);
+        QVERIFY(scene.open(QStringLiteral("IDLE"), settingsPath));
+        QTRY_COMPARE(roundCard(scene)->property("phase").toString(), QStringLiteral("retry"));
+        QTRY_VERIFY(scene.app->captureSettingsLoaded());
+        QVERIFY(!scene.item(QStringLiteral("candidateRoundExportAgainButton"))->isEnabled());
+        QTRY_VERIFY(scene.item(QStringLiteral("candidateRoundDiscardFinishButton"))->isVisible());
+        QVERIFY(scene.click(QStringLiteral("candidateRoundDiscardFinishButton")));
+        QVERIFY(scene.settings->candidateRoundFinishDraft().isEmpty());
+        QCOMPARE(scene.backend.counts.value(QStringLiteral("UpdateCaptureSettings")), 0);
+        QCOMPARE(scene.backend.counts.value(QStringLiteral("ExportCandidateEvidence")), 0);
     }
 };
 
