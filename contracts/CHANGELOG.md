@@ -1,5 +1,9 @@
 # IPC 契约变更记录 / IPC contract changelog
 
+## 2026-11-22 · 自动记录拒绝原因
+
+- `$defs/CaptureStatus` 新增可选的 `last_error_text` / `last_error_ref`：`last_error_code` 背后的那句话。`last_error_text` 是采集服务拒绝或故障时写给玩家的简体中文句子，与脱敏诊断报告的 `last_error_detail` 经同一脱敏处理；`last_error_code` 为 `null` 时、以及 `UNAVAILABLE` 而没有具体拒绝时为 `null`。`last_error_ref` 是同一句话的目录引用（`$defs/TextRef`，contracts/collector-texts.md §2.1），句子不出自目录、或脱敏改动了句子时为 `null`，引用因此从不与另一句话同行。旧 Collector 没有这两个字段，桌面端照旧按错误码措辞。背景：2026-11-03 的诊断报告中自动开始被 `capture.start.adapter_undetermined` 拒绝（`ERR_BAD_REQUEST`），桌面端只收到错误码，显示为「暂时无法识别的问题」，采集服务请玩家手动选择网卡的那句话到不了界面；桌面端同期在捕获诊断页提供网卡选择，写入 `CaptureSettings.adapter_id`（契约形状不变）。
+
 ## 2026-11-22 · 历史勾选快照与第二轮采证导出
 
 - `QueryHistorySelection {filter, page:1}` 从一个只读快照返回 `selection_id`、`items` 和 `page_info`。

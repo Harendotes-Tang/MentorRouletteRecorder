@@ -384,6 +384,17 @@ void MockBackend::setNpcapMissing(bool missing)
     Q_EMIT connectionChanged();
 }
 
+void MockBackend::setAdapterUndetermined(bool undetermined)
+{
+    if (m_adapterUndetermined == undetermined)
+        return;
+    m_adapterUndetermined = undetermined;
+    // A start the Collector refused never ran.
+    if (undetermined)
+        m_capturing = false;
+    Q_EMIT connectionChanged();
+}
+
 void MockBackend::setLiveMode(LiveMode mode)
 {
     if (m_liveMode == mode)
@@ -1081,7 +1092,8 @@ QJsonObject MockBackend::captureStatus() const
     status.insert(QStringLiteral("profile_id"), candidateEnabled
                       ? QJsonValue(QJsonValue::Null) : QJsonValue(QStringLiteral("cn/2026.08.12")));
     status.insert(QStringLiteral("profile_matches_build"), !candidateEnabled && !m_npcapMissing);
-    status.insert(QStringLiteral("adapter_id"), QStringLiteral("Ethernet"));
+    status.insert(QStringLiteral("adapter_id"), m_adapterUndetermined
+                      ? QJsonValue(QJsonValue::Null) : QJsonValue(QStringLiteral("Ethernet")));
     status.insert(QStringLiteral("adapter_description"),
                   QStringLiteral("Intel(R) Ethernet"));
     status.insert(QStringLiteral("adapter_auto_selected"), true);
@@ -1093,9 +1105,36 @@ QJsonObject MockBackend::captureStatus() const
     status.insert(QStringLiteral("packets_dropped"), 0);
     status.insert(QStringLiteral("queue_depth"), running ? 3 : 0);
     status.insert(QStringLiteral("queue_capacity"), 4096);
+    // The refusal's own sentence beside the code (contracts/CHANGELOG.md
+    // 2026-11-04), as the Collector sends it: Npcap's guidance behind
+    // ERR_NPCAP_MISSING, and behind ERR_BAD_REQUEST the card the 2026-11-03
+    // report could not determine. The page words the first code itself and
+    // reads the second from here.
+    const CollectorSentence refusal = m_npcapMissing ? collectorSentence("capture.npcap.not_installed")
+        : m_adapterUndetermined ? collectorSentence("capture.start.adapter_undetermined")
+                                : CollectorSentence{};
     status.insert(QStringLiteral("last_error_code"),
                   m_npcapMissing ? QJsonValue(QStringLiteral("ERR_NPCAP_MISSING"))
-                                 : QJsonValue(QJsonValue::Null));
+                  : m_adapterUndetermined ? QJsonValue(QStringLiteral("ERR_BAD_REQUEST"))
+                                          : QJsonValue(QJsonValue::Null));
+    status.insert(QStringLiteral("last_error_text"), refusal.chinese.isEmpty()
+                      ? QJsonValue(QJsonValue::Null) : QJsonValue(refusal.chinese));
+    status.insert(QStringLiteral("last_error_ref"), refusal.ref.isEmpty()
+                      ? QJsonValue(QJsonValue::Null) : QJsonValue(refusal.ref));
+    if (m_adapterUndetermined) {
+        // The TCP-table reading behind the refusal: the game's connections map
+        // to no card of Npcap's.
+        status.insert(QStringLiteral("network_path"), QJsonObject{
+            {QStringLiteral("query_ipv4"), QStringLiteral("OK")},
+            {QStringLiteral("query_ipv6"), QStringLiteral("OK")},
+            {QStringLiteral("query_adapters"), QStringLiteral("OK")},
+            {QStringLiteral("kind"), QStringLiteral("UNMAPPED")},
+            {QStringLiteral("ipv4_connections"), 2},
+            {QStringLiteral("unmapped_ipv4_connections"), 2},
+            {QStringLiteral("matching_interfaces"), 0},
+            {QStringLiteral("candidate_limit_reached"), false},
+            {QStringLiteral("ipv6_capture_supported"), false}});
+    }
     // Constants the user can verify at runtime: the injected hook is never
     // used and the monitor is always the passive Npcap path.
     status.insert(QStringLiteral("monitor_type"), QStringLiteral("WinPCap"));
@@ -3621,7 +3660,20 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
         adapter.insert(QStringLiteral("ipv4_addresses"), QJsonArray{QStringLiteral("192.168.1.23")});
         adapter.insert(QStringLiteral("is_loopback"), false);
         adapter.insert(QStringLiteral("is_up"), true);
-        adapter.insert(QStringLiteral("recommended"), true);
+        adapter.insert(QStringLiteral("recommended"), !m_adapterUndetermined);
+        QJsonArray adapters{adapter};
+        if (m_adapterUndetermined) {
+            // The accelerator card beside the house's: as far as the Collector
+            // can see neither carries the game, so it recommends neither.
+            adapters.append(QJsonObject{
+                {QStringLiteral("adapter_id"), QStringLiteral("Accelerator")},
+                {QStringLiteral("description"), QStringLiteral("TAP-Windows Adapter V9")},
+                {QStringLiteral("friendly_name"), QString::fromUtf8("以太网 2")},
+                {QStringLiteral("ipv4_addresses"), QJsonArray{QStringLiteral("10.8.0.x")}},
+                {QStringLiteral("is_loopback"), false},
+                {QStringLiteral("is_up"), true},
+                {QStringLiteral("recommended"), false}});
+        }
         result.insert(QStringLiteral("npcap_installed"), !m_npcapMissing);
         result.insert(QStringLiteral("npcap_version"),
                       m_npcapMissing ? QJsonValue(QJsonValue::Null)
@@ -3631,8 +3683,7 @@ BackendReply *MockBackend::request(const QString &messageType, const QJsonObject
                       m_npcapMissing ? QJsonValue(guidance.chinese) : QJsonValue(QJsonValue::Null));
         result.insert(QStringLiteral("install_hint_ref"),
                       m_npcapMissing ? QJsonValue(guidance.ref) : QJsonValue(QJsonValue::Null));
-        result.insert(QStringLiteral("adapters"),
-                      m_npcapMissing ? QJsonArray() : QJsonArray{adapter});
+        result.insert(QStringLiteral("adapters"), m_npcapMissing ? QJsonArray() : adapters);
     } else if (messageType == QLatin1String("SelectGameProcess")) {
         bool found = false;
         for (const auto &value : captureStatus().value(QStringLiteral("game_processes")).toArray()) {

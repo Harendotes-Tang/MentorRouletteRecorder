@@ -454,6 +454,7 @@ set(MR_QML_FILES
     qml/dialogs/RunWizardResultStep.qml
     qml/dialogs/RunWizardTimeStep.qml
     qml/pages/CapturePage.qml
+    qml/pages/CaptureAdapterPicker.qml
     qml/pages/CaptureChainModel.qml
     qml/pages/CaptureHeroCopy.qml
     qml/pages/CaptureHeroPanel.qml

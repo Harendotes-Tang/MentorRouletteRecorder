@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
 using MentorRecorder.Collector.Contracts.Texts;
+using MentorRecorder.Collector.Diagnostics;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Time;
 
@@ -91,6 +92,8 @@ public static class CaptureWire
             ["queue_depth"] = snapshot.QueueDepth,
             ["queue_capacity"] = snapshot.QueueCapacity,
             ["last_error_code"] = LastErrorCode(snapshot),
+            ["last_error_text"] = LastErrorText(snapshot),
+            ["last_error_ref"] = LastErrorRef(snapshot),
 
             // The pipeline counters, live on the diagnostics page so that "packets arrive but
             // nothing is recorded" is a number the user can read rather than a guess
@@ -301,5 +304,46 @@ public static class CaptureWire
         return snapshot.State == CaptureControllerState.Unavailable
             ? snapshot.LastErrorCode ?? "UNAVAILABLE"
             : snapshot.LastErrorCode;
+    }
+
+    /// <summary>
+    /// Chooses the value of <c>last_error_text</c>: the sentence behind <c>last_error_code</c>,
+    /// as the refusal worded it for the player, run through the log scrubber like the diagnostics
+    /// report's <c>last_error_detail</c>. The code alone is a dead end on the Desktop, which can
+    /// only word the codes it knows: the 2026-11-03 report had it answering
+    /// <c>capture.start.adapter_undetermined</c> with "an unrecognised problem" while this sentence
+    /// said which card to choose. Null whenever the code is, and for an <c>UNAVAILABLE</c> that no
+    /// refusal worded.
+    /// </summary>
+    /// <param name="snapshot">Diagnostics reading.</param>
+    public static string? LastErrorText(CaptureDiagnosticsSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        if (LastErrorCode(snapshot) is null || snapshot.LastErrorMessage is not { Length: > 0 } message)
+        {
+            return null;
+        }
+
+        return RotatingFileLogger.Sanitize(message);
+    }
+
+    /// <summary>
+    /// Chooses the value of <c>last_error_ref</c>: <see cref="LastErrorText"/> as the catalogue
+    /// reference the Desktop renders in its interface language. Null when the text is, when the
+    /// failure was worded outside the catalogue, and when the scrubber changed the sentence - a
+    /// reference travels beside exactly the sentence it names, never beside a redacted one whose
+    /// arguments would carry what the scrubber took out.
+    /// </summary>
+    /// <param name="snapshot">Diagnostics reading.</param>
+    public static JsonObject? LastErrorRef(CaptureDiagnosticsSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        var text = LastErrorText(snapshot);
+        return text is not null && snapshot.LastErrorText is { } reference
+            && string.Equals(reference.Chinese, text, StringComparison.Ordinal)
+            ? reference.ToJson()
+            : null;
     }
 }

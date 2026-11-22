@@ -8,6 +8,8 @@ import MentorRecorder 1.0
 // The blocks between the hero card and 解析. Each one appears only while it has
 // something to say; with none of them visible the block takes no room.
 //   adapterPreferenceStaleNotice  the remembered card lost the game's traffic
+//   captureAdapterPicker ........ 网卡选择: the Collector could not pick the card
+//                                 (CaptureAdapterPicker)
 //   captureReadinessNotice ...... maintainer only: 自动跟随 is off
 //   calibrationCard ............ 本机校准 beside 共享校准 while calibration is not IDLE
 //   protocolProfileCard ........ 协议档案: calibrated profile, sharing, mismatch
@@ -22,6 +24,8 @@ ColumnLayout {
 
     // The hero card is saying the calibration sentence, so the row need not.
     property bool heroSpeaksCalibration: false
+    // The chain's verdicts (CaptureChainModel), for 网卡选择.
+    property var chain: null
 
     readonly property var capture: Runtime.app.captureStatus
     readonly property var profile: Runtime.app.protocolProfile
@@ -123,11 +127,16 @@ ColumnLayout {
                                             && notices.pathRecoveryState !== "RECOVERING"))
                                         && !!notices.staleAdapter && !!notices.recommendedAdapter
 
+    // 网卡选择 (CaptureAdapterPicker): the chain's call, except that the stale-
+    // card notice above already answers it with one click.
+    readonly property bool adapterPickerVisible: !!notices.chain && !!notices.chain.adapterChoiceOffered
+                                                 && !notices.staleVisible
+
     readonly property bool followOn: !Runtime.app.captureSettingsLoaded || !!Runtime.app.captureSettings.follow_game
     readonly property bool readinessVisible: Runtime.app.maintainerToolsVisible && !Runtime.app.capturing
 
     visible: notices.calibrationCardVisible || notices.profileCardVisible
-             || notices.staleVisible || notices.readinessVisible
+             || notices.staleVisible || notices.adapterPickerVisible || notices.readinessVisible
     spacing: 12
 
     function findAdapter(flag) {
@@ -263,6 +272,14 @@ ColumnLayout {
                 }
             }
         }
+    }
+
+    // The Collector could not pick the card that carries the game (2026-11-03
+    // report), or its reading of the game's connections leaves no card to pick:
+    // the player chooses one here, or goes back to 自动选择.
+    CaptureAdapterPicker {
+        Layout.fillWidth: true
+        visible: notices.adapterPickerVisible
     }
 
     // Nothing has to be done before login while follow-the-game is on. The Oodle

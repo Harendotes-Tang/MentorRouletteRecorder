@@ -152,6 +152,7 @@ Item {
                 // While the hero card talks about something else (Npcap, a game
                 // to choose, a silent capture, an error) the calibration row
                 // says its own sentence.
+                chain: hero.chain
                 heroSpeaksCalibration: hero.copy.kind === "calibration"
                 onOpenCalibrationRequested: page.openCalibrationRequested()
                 onOpenRegionSettingsRequested: page.openRegionSettingsRequested()

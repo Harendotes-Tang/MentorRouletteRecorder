@@ -126,6 +126,15 @@ private:
     static QString silentReason(const QVariantMap &capture);
     /// Plain-Chinese, actionable text for one silent_reason.
     static QString silentMessage(const QVariantMap &capture, const QString &reason);
+    /// The Collector's own sentence behind a last_error_code this build has
+    /// no wording for (last_error_text, rendered through last_error_ref in
+    /// the interface language); empty for a code this build words itself and
+    /// from a Collector before 2026-11-04, which sends none.
+    static QString collectorErrorSentence(const QVariantMap &capture, const QString &code);
+    /// 「暂时不能自动记录。…」 for a last_error_code: this build's wording, else
+    /// the Collector's sentence, else the generic line with the raw token
+    /// trailing for a maintainer.
+    static QString captureErrorMessage(const QVariantMap &capture, const QString &code);
     /// The 本机校准 projection for \a capture, or false when that capture is
     /// not calibrating and the ordinary profile rules apply.
     bool projectCalibration(const QVariantMap &capture);

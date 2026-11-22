@@ -821,6 +821,61 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
     </message>
 </context>
 <context>
+    <name>CaptureAdapterPicker</name>
+    <message>
+        <source>未命名网卡</source>
+        <translation>Unnamed adapter</translation>
+    </message>
+    <message>
+        <source>没有 IPv4 地址</source>
+        <translation>No IPv4 address</translation>
+    </message>
+    <message>
+        <source>未连接</source>
+        <translation>Not connected</translation>
+    </message>
+    <message>
+        <source>请选择游戏流量所在的网卡</source>
+        <translation>Choose the adapter that carries the game&apos;s traffic</translation>
+    </message>
+    <message>
+        <source>还没有确定哪张网卡承载游戏流量。开着加速器或 VPN 时，游戏流量往往走它们的网卡；选错了可以随时改回自动选择。</source>
+        <translation>It isn&apos;t clear yet which adapter carries the game&apos;s traffic. With an accelerator or VPN on, the game&apos;s traffic often goes through their adapter; a wrong pick can be switched back to Automatic at any time.</translation>
+    </message>
+    <message>
+        <source>当前后台服务版本无法保存网卡选择，请更新软件后重试。</source>
+        <translation>This version of the background service can&apos;t save the adapter choice. Update the app and try again.</translation>
+    </message>
+    <message>
+        <source>本机回环</source>
+        <translation>Loopback</translation>
+    </message>
+    <message>
+        <source>推荐</source>
+        <translation>Recommended</translation>
+    </message>
+    <message>
+        <source>已选择</source>
+        <translation>Selected</translation>
+    </message>
+    <message>
+        <source>使用这张网卡</source>
+        <translation>Use this adapter</translation>
+    </message>
+    <message>
+        <source>没有找到网卡。请点连接状态旁的“重新检测网卡”重试。</source>
+        <translation>No network adapters found. Click “Check adapters again” next to Connection status to retry.</translation>
+    </message>
+    <message>
+        <source>选择的网卡会一直使用，直到改回自动选择。</source>
+        <translation>The chosen adapter stays in use until you switch back to Automatic.</translation>
+    </message>
+    <message>
+        <source>改回自动选择</source>
+        <translation>Back to Automatic</translation>
+    </message>
+</context>
+<context>
     <name>CaptureChainModel</name>
     <message>
         <source>尚未识别游戏区服 · 暂时不会自动记录</source>
@@ -1153,6 +1208,10 @@ Turn on candidate validation on the Capture diagnostics page, start this app bef
     <message>
         <source>之前选择的网卡收不到游戏数据</source>
         <translation>The previously selected adapter isn&apos;t receiving game data</translation>
+    </message>
+    <message>
+        <source>请在下方选择网卡</source>
+        <translation>Choose an adapter below</translation>
     </message>
     <message>
         <source>自动选择（有 FF14 连接）</source>
@@ -13597,6 +13656,10 @@ The region cannot be changed while listening or collecting evidence.</translatio
     <message>
         <source>正在连接游戏，暂时不能自动记录。</source>
         <translation>Connecting to the game; automatic recording isn&apos;t available yet.</translation>
+    </message>
+    <message>
+        <source>暂时读不到游戏数据，正在重试。%1 请查看「捕获诊断」。</source>
+        <translation>Can&apos;t read game data right now; retrying. %1 See “Capture diagnostics”.</translation>
     </message>
     <message>
         <source>游戏更新了，需要重新校准。%1</source>

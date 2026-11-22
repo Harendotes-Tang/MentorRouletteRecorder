@@ -7,6 +7,7 @@
 //   MentorRecorder.Desktop --screenshot out.png --page 1 --theme dark
 //                          [--mock-npcap-missing] [--mock-live entered] [--mock-profiles]
 //                          [--mock-pending-identity]
+//                          [--mock-adapter-undetermined]
 //                          [--mock-first-run] [--mock-open-detail]
 //                          [--mock-open-edit] [--show-disclosure]
 //                          [--mock-open-create] [--mock-wizard-step 1|2|3]
@@ -635,6 +636,10 @@ int main(int argc, char *argv[])
         QStringLiteral("自动识别角色 fixture: one CN character told apart in the game traffic and "
                        "bound to no profile, waiting for the player's answer, with two runs; it is the "
                        "character logged in, so answering for it switches to its profile."));
+    QCommandLineOption adapterUndeterminedOption(
+        QStringLiteral("mock-adapter-undetermined"),
+        QStringLiteral("Pretend the Collector refused to start capture because no card visibly "
+                       "carries the game: the capture page shows its sentence and the card picker."));
     QCommandLineOption candidatesOption(
         QStringLiteral("mock-candidates"),
         QStringLiteral("Use deterministic candidate review fixtures; research payload remains disabled."));
@@ -808,6 +813,7 @@ int main(int argc, char *argv[])
     parser.addOption(pageOption);
     parser.addOption(themeOption);
     parser.addOption(npcapOption);
+    parser.addOption(adapterUndeterminedOption);
     parser.addOption(candidatesOption);
     parser.addOption(profilesOption);
     parser.addOption(pendingIdentityOption);
@@ -953,6 +959,7 @@ int main(int argc, char *argv[])
     }
     if (selectedBackend != QLatin1String("mock")
         && (parser.isSet(npcapOption)
+            || parser.isSet(adapterUndeterminedOption)
             || parser.isSet(candidatesOption)
             || parser.isSet(profilesOption)
             || parser.isSet(pendingIdentityOption)
@@ -1071,6 +1078,7 @@ int main(int argc, char *argv[])
         auto *mock = new mr::MockBackend(&app);
         mockBackend = mock;
         mock->setNpcapMissing(parser.isSet(npcapOption));
+        mock->setAdapterUndetermined(parser.isSet(adapterUndeterminedOption));
         if (mockLiveMode == QLatin1String("none")) {
             mock->setLiveMode(mr::MockBackend::LiveMode::None);
         } else if (mockLiveMode == QLatin1String("matched")) {

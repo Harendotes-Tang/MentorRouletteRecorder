@@ -331,6 +331,7 @@ IPv6 表读不出时按 IPv4 表选择网卡；IPv4 表读不出仍不猜测。`
 | `monitor_type` | 恒为 `WinPCap` | `WinPCap` |
 | `injected_hook_enabled` | 恒为 `false` | `false` |
 | `last_error_code` | 最近一次错误码，抓包链路完全不可用时为 `UNAVAILABLE` | `null` |
+| `last_error_text` / `last_error_ref` | 错误码背后那句写给玩家的话（与报告的 `last_error_detail` 同样脱敏）及其目录引用（契约 2026-11-04）；错误码为 `null`、或 `UNAVAILABLE` 而没有具体拒绝时为 `null`，旧版本不发送 | `null` |
 | `connection_count` | 本会话观察到的不同游戏连接数 | ≥ 1 |
 | `messages_decoded` | 分帧读取成功的报文数，含控制分段 | 持续增长 |
 | `ipc_decoded` | 其中属于游戏 IPC 的分段数（分段类型 3），不含控制分段；判断「读到了游戏数据」以它为准，桌面端据此宣布自动记录已恢复 | 登录后持续增长 |
