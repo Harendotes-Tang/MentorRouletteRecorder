@@ -6081,6 +6081,14 @@ SHA256：%3</translation>
         <translation>投稿</translation>
     </message>
     <message>
+        <source>导出 %1 项</source>
+        <translation>匯出 %1 項</translation>
+    </message>
+    <message>
+        <source>投稿 %1 项</source>
+        <translation>投稿 %1 項</translation>
+    </message>
+    <message>
         <source>删除</source>
         <translation>刪除</translation>
     </message>
@@ -6491,6 +6499,30 @@ SHA256：%3</translation>
         <source>、</source>
         <translation>、</translation>
     </message>
+    <message>
+        <source>不限职业</source>
+        <translation>不限職業</translation>
+    </message>
+    <message>
+        <source>注明作者即可转载、改编（CC BY 4.0）</source>
+        <translation>註明作者即可轉載、改編（CC BY 4.0）</translation>
+    </message>
+    <message>
+        <source>别人可以复制、修改并再次分享这段内容，只要写明原作者是你。</source>
+        <translation>別人可以複製、修改並再次分享這段內容，只要寫明原作者是你。</translation>
+    </message>
+    <message>
+        <source>注明作者，改编后也须同样共享（CC BY-SA 4.0）</source>
+        <translation>註明作者，改編後也須同樣分享（CC BY-SA 4.0）</translation>
+    </message>
+    <message>
+        <source>别人可以复制、修改并再次分享，要写明原作者是你，改过的版本也必须按同样的规则公开。</source>
+        <translation>別人可以複製、修改並再次分享，要寫明原作者是你，改過的版本也必須按同樣的規則公開。</translation>
+    </message>
+    <message>
+        <source>投稿的内容公共共享库里都已经有了，没有重复发布。</source>
+        <translation>投稿的內容公共共享庫裡都已經有了，沒有重複發布。</translation>
+    </message>
 </context>
 <context>
     <name>DutyCommunityEditor</name>
@@ -6812,6 +6844,18 @@ SHA256：%3</translation>
         <source>取消选择</source>
         <translation>取消選擇</translation>
     </message>
+    <message>
+        <source>收起相似</source>
+        <translation>收起相似</translation>
+    </message>
+    <message>
+        <source>另有 %1 条相似</source>
+        <translation>另有 %1 條相似</translation>
+    </message>
+    <message>
+        <source>正文几乎一样的条目收在这里，只是提示音、空格或个别字不同。</source>
+        <translation>內文幾乎相同的條目收在這裡，只是提示音、空格或個別字不同。</translation>
+    </message>
 </context>
 <context>
     <name>DutyCommunitySubmission</name>
@@ -6892,12 +6936,32 @@ SHA256：%3</translation>
         <translation>用 GitHub 帳號提交（%1 項）</translation>
     </message>
     <message>
-        <source>复制投稿并打开浏览器</source>
-        <translation>複製投稿並開啟瀏覽器</translation>
+        <source>复制投稿（%1 项）并打开浏览器</source>
+        <translation>複製投稿（%1 項）並開啟瀏覽器</translation>
     </message>
     <message>
         <source>取消</source>
         <translation>取消</translation>
+    </message>
+    <message>
+        <source>公共库里已有这一项，没有改动，不再投稿</source>
+        <translation>公共庫裡已有這一項，沒有改動，不再投稿</translation>
+    </message>
+    <message>
+        <source>公共库已有相同内容「%1」（%2），不再投稿</source>
+        <translation>公共庫已有相同內容「%1」（%2），不再投稿</translation>
+    </message>
+    <message>
+        <source>选中的内容公共共享库里都已经有了，不需要再投稿。</source>
+        <translation>選取的內容公共共享庫裡都已經有了，不需要再投稿。</translation>
+    </message>
+    <message>
+        <source>改编的来源要求改过的版本按同样的规则公开，所以只能选这一项。</source>
+        <translation>改編的來源要求改過的版本按同樣的規則公開，所以只能選這一項。</translation>
+    </message>
+    <message>
+        <source>一次最多投稿 20 项，请少选几项再投稿。</source>
+        <translation>一次最多投稿 20 項，請少選幾項再投稿。</translation>
     </message>
 </context>
 <context>
@@ -7029,6 +7093,30 @@ SHA256：%3</translation>
     <message>
         <source>刷新公共库</source>
         <translation>重新整理公共庫</translation>
+    </message>
+    <message>
+        <source>副本</source>
+        <translation>副本</translation>
+    </message>
+    <message>
+        <source>搜索副本名称</source>
+        <translation>搜尋副本名稱</translation>
+    </message>
+    <message>
+        <source>没有匹配的副本</source>
+        <translation>沒有符合的副本</translation>
+    </message>
+    <message>
+        <source>职业</source>
+        <translation>職業</translation>
+    </message>
+    <message>
+        <source>搜索职业名称或缩写</source>
+        <translation>搜尋職業名稱或縮寫</translation>
+    </message>
+    <message>
+        <source>没有匹配的职业</source>
+        <translation>沒有符合的職業</translation>
     </message>
 </context>
 <context>

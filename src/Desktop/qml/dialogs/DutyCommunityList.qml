@@ -5,13 +5,15 @@ import QtQuick.Layouts
 import MentorRecorder 1.0
 
 // The left column of 副本提醒与导随宏: the filtered entries, a tick box per row, and - only
-// once something is ticked - the actions that take several entries at once.
+// once something is ticked - the actions that take several entries at once. On the public tab
+// entries that read alike fold under the first one (store.listRows).
 ColumnLayout {
     id: pane
 
     required property var store
-    readonly property var ids: store.filtered.map(row => row.content.id)
-    readonly property bool allChecked: ids.length > 0 && store.checkedIds.length === ids.length
+    // 全选 takes the rows on screen: a folded group's other entries stay out until it is opened.
+    readonly property var ids: store.listRows.map(entry => entry.row.content.id)
+    readonly property bool allChecked: ids.length > 0 && ids.every(id => store.basket.includes(id))
     spacing: 0
 
     RowLayout {
@@ -34,9 +36,9 @@ ColumnLayout {
         Text {
             objectName: "dutyCommunityCount"
             renderType: Theme.bodyRenderType
-            text: pane.ids.length === pane.store.rows.length
-                  ? qsTr("%1 项").arg(pane.ids.length)
-                  : qsTr("%1 / %2 项").arg(pane.ids.length).arg(pane.store.rows.length)
+            text: pane.store.filtered.length === pane.store.rows.length
+                  ? qsTr("%1 项").arg(pane.store.filtered.length)
+                  : qsTr("%1 / %2 项").arg(pane.store.filtered.length).arg(pane.store.rows.length)
             color: Theme.textSecondary
             font.pixelSize: Theme.fs(12)
         }
@@ -60,17 +62,19 @@ ColumnLayout {
         bottomMargin: 6
         spacing: 2
         clip: true
-        model: pane.store.filtered
+        model: pane.store.listRows
         ScrollBar.vertical: ScrollBar {}
 
         delegate: ItemDelegate {
             id: entry
             required property var modelData
-            readonly property var item: modelData.content
+            readonly property var row: modelData.row
+            readonly property var item: row.content
             readonly property bool chosen: pane.store.currentId === item.id
             readonly property string author: pane.store.remote && item.author ? "@" + item.author.login : ""
-            x: 6
-            width: listing.width - 12
+            // An opened group's other entries sit indented under the first.
+            x: modelData.member ? 26 : 6
+            width: listing.width - x - 6
             padding: 8
             leftPadding: 8
             focusPolicy: Qt.StrongFocus
@@ -123,19 +127,37 @@ ColumnLayout {
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fs(12)
                     }
+                    AppButton {
+                        objectName: "dutyCommunitySimilarToggle"
+                        visible: entry.modelData.folded > 0
+                        compact: true
+                        variant: "ghost"
+                        iconName: pane.store.openGroups[entry.modelData.group] ? "chevron-down" : "chevron-right"
+                        text: pane.store.openGroups[entry.modelData.group]
+                              ? qsTr("收起相似") : qsTr("另有 %1 条相似").arg(entry.modelData.folded)
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("正文几乎一样的条目收在这里，只是提示音、空格或个别字不同。")
+                        // The list gets a new model; keep it where it was rather than back at the top.
+                        onClicked: {
+                            const y = listing.contentY
+                            pane.store.toggleGroup(entry.modelData.group)
+                            Qt.callLater(() => listing.contentY = Math.max(listing.originY,
+                                Math.min(y, listing.originY + listing.contentHeight - listing.height)))
+                        }
+                    }
                 }
                 Button {
                     id: star
                     visible: !pane.store.remote
-                             && (entry.modelData.favorite || entry.hovered || entry.chosen || activeFocus)
+                             && (entry.row.favorite || entry.hovered || entry.chosen || activeFocus)
                     implicitWidth: 26
                     implicitHeight: 26
                     padding: 0
                     focusPolicy: Qt.StrongFocus
-                    Accessible.name: entry.modelData.favorite ? qsTr("取消收藏") : qsTr("收藏")
+                    Accessible.name: entry.row.favorite ? qsTr("取消收藏") : qsTr("收藏")
                     ToolTip.visible: hovered
-                    ToolTip.text: entry.modelData.favorite ? qsTr("取消收藏") : qsTr("收藏")
-                    onClicked: pane.store.toggleFavorite(entry.modelData)
+                    ToolTip.text: entry.row.favorite ? qsTr("取消收藏") : qsTr("收藏")
+                    onClicked: pane.store.toggleFavorite(entry.row)
                     background: Rectangle {
                         radius: Theme.radiusXs
                         color: star.hovered || star.activeFocus ? Theme.fillStrong : "transparent"
@@ -144,8 +166,8 @@ ColumnLayout {
                         renderType: Theme.bodyRenderType
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
-                        text: entry.modelData.favorite ? "★" : "☆"
-                        color: entry.modelData.favorite ? Theme.yellow : Theme.textSecondary
+                        text: entry.row.favorite ? "★" : "☆"
+                        color: entry.row.favorite ? Theme.yellow : Theme.textSecondary
                         font.pixelSize: 15
                     }
                 }

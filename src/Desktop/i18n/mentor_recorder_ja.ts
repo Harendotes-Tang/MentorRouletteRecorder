@@ -6081,6 +6081,14 @@ SHA256：%3</translation>
         <translation>投稿</translation>
     </message>
     <message>
+        <source>导出 %1 项</source>
+        <translation>%1 件を書き出す</translation>
+    </message>
+    <message>
+        <source>投稿 %1 项</source>
+        <translation>%1 件を投稿</translation>
+    </message>
+    <message>
         <source>删除</source>
         <translation>削除</translation>
     </message>
@@ -6491,6 +6499,30 @@ SHA256：%3</translation>
         <source>、</source>
         <translation>、</translation>
     </message>
+    <message>
+        <source>不限职业</source>
+        <translation>ジョブ指定なし</translation>
+    </message>
+    <message>
+        <source>注明作者即可转载、改编（CC BY 4.0）</source>
+        <translation>作者名の表示だけで転載・改変可（CC BY 4.0）</translation>
+    </message>
+    <message>
+        <source>别人可以复制、修改并再次分享这段内容，只要写明原作者是你。</source>
+        <translation>作者があなたであることを明記すれば、ほかの人がこの内容をコピー・改変して再共有できます。</translation>
+    </message>
+    <message>
+        <source>注明作者，改编后也须同样共享（CC BY-SA 4.0）</source>
+        <translation>作者名の表示が必要、改変版も同じ条件で共有（CC BY-SA 4.0）</translation>
+    </message>
+    <message>
+        <source>别人可以复制、修改并再次分享，要写明原作者是你，改过的版本也必须按同样的规则公开。</source>
+        <translation>ほかの人がコピー・改変して再共有できます。作者があなたであることの明記が必要で、改変版も同じ条件で公開しなければなりません。</translation>
+    </message>
+    <message>
+        <source>投稿的内容公共共享库里都已经有了，没有重复发布。</source>
+        <translation>投稿した内容はすべて公開ライブラリにすでにあるため、重ねて公開されませんでした。</translation>
+    </message>
 </context>
 <context>
     <name>DutyCommunityEditor</name>
@@ -6812,6 +6844,18 @@ SHA256：%3</translation>
         <source>取消选择</source>
         <translation>選択を解除</translation>
     </message>
+    <message>
+        <source>收起相似</source>
+        <translation>似た項目を閉じる</translation>
+    </message>
+    <message>
+        <source>另有 %1 条相似</source>
+        <translation>ほかに似た項目 %1 件</translation>
+    </message>
+    <message>
+        <source>正文几乎一样的条目收在这里，只是提示音、空格或个别字不同。</source>
+        <translation>本文がほぼ同じ項目をここにまとめています。効果音、空白、一部の文字だけが異なります。</translation>
+    </message>
 </context>
 <context>
     <name>DutyCommunitySubmission</name>
@@ -6892,12 +6936,32 @@ SHA256：%3</translation>
         <translation>GitHub アカウントで送信（%1 件）</translation>
     </message>
     <message>
-        <source>复制投稿并打开浏览器</source>
-        <translation>投稿をコピーしてブラウザーを開く</translation>
+        <source>复制投稿（%1 项）并打开浏览器</source>
+        <translation>投稿（%1 件）をコピーしてブラウザーを開く</translation>
     </message>
     <message>
         <source>取消</source>
         <translation>キャンセル</translation>
+    </message>
+    <message>
+        <source>公共库里已有这一项，没有改动，不再投稿</source>
+        <translation>公開ライブラリに変更なしで掲載済みのため、再投稿しません</translation>
+    </message>
+    <message>
+        <source>公共库已有相同内容「%1」（%2），不再投稿</source>
+        <translation>公開ライブラリに同じ内容の「%1」（%2）があるため、再投稿しません</translation>
+    </message>
+    <message>
+        <source>选中的内容公共共享库里都已经有了，不需要再投稿。</source>
+        <translation>選んだ内容はすべて公開ライブラリにあるため、投稿する必要はありません。</translation>
+    </message>
+    <message>
+        <source>改编的来源要求改过的版本按同样的规则公开，所以只能选这一项。</source>
+        <translation>改変元が改変版を同じ条件で公開するよう求めているため、この項目しか選べません。</translation>
+    </message>
+    <message>
+        <source>一次最多投稿 20 项，请少选几项再投稿。</source>
+        <translation>一度に投稿できるのは 20 件までです。選ぶ項目を減らしてから投稿してください。</translation>
     </message>
 </context>
 <context>
@@ -7029,6 +7093,30 @@ SHA256：%3</translation>
     <message>
         <source>刷新公共库</source>
         <translation>公開ライブラリを更新</translation>
+    </message>
+    <message>
+        <source>副本</source>
+        <translation>コンテンツ</translation>
+    </message>
+    <message>
+        <source>搜索副本名称</source>
+        <translation>コンテンツ名を検索</translation>
+    </message>
+    <message>
+        <source>没有匹配的副本</source>
+        <translation>一致するコンテンツがありません</translation>
+    </message>
+    <message>
+        <source>职业</source>
+        <translation>ジョブ</translation>
+    </message>
+    <message>
+        <source>搜索职业名称或缩写</source>
+        <translation>ジョブ名または略称を検索</translation>
+    </message>
+    <message>
+        <source>没有匹配的职业</source>
+        <translation>一致するジョブがありません</translation>
     </message>
 </context>
 <context>

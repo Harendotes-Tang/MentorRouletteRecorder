@@ -79,7 +79,9 @@ HistoryFilterButton {
             id: choices
             model: {
                 const term = control.searchable ? finder.text.trim().toLowerCase() : ""
-                return control.options.filter(option => !term || option.label.toLowerCase().includes(term))
+                // The second line counts too: a job is found by its abbreviation as well as its name.
+                return control.options.filter(option => !term || option.label.toLowerCase().includes(term)
+                                                        || String(option.sub || "").toLowerCase().includes(term))
                                       .slice(0, control.shownLimit)
             }
 

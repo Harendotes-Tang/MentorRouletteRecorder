@@ -452,6 +452,7 @@ set(MR_QML_FILES
     qml/dialogs/DutyCommunityBodyEdit.qml
     qml/dialogs/DutyCommunityJobPicker.qml
     qml/dialogs/DutyCommunitySubmission.qml
+    qml/dialogs/DutyCommunityMatch.js
     qml/dialogs/RunWizardDutyStep.qml
     qml/dialogs/RunWizardResultStep.qml
     qml/dialogs/RunWizardTimeStep.qml
@@ -762,6 +763,7 @@ include(cmake/ProjectQtGraphs.cmake)
 set_source_files_properties(
     qml/components/Lucide.js
     qml/components/OverlayIcons.js
+    qml/dialogs/DutyCommunityMatch.js
     PROPERTIES QT_QML_SKIP_QMLDIR_ENTRY TRUE)
 
 # Put the QML module directly on the executable.  Keeping QML out of the

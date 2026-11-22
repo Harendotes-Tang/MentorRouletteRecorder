@@ -15,6 +15,10 @@ ColumnLayout {
     readonly property bool macro: !!item && item.type === "macro"
     readonly property var lines: item ? item.body.replace(/\r\n/g, "\n").replace(/\s+$/, "").split("\n") : []
     readonly property bool installed: !!item && store.remote && store.isInstalled(item.id)
+    // While entries are ticked, 导出 and 投稿 here take them, as the list's bar does: the owner
+    // ticked two, pressed this 投稿 and sent the open entry alone (2026-11-23).
+    readonly property int ticked: store.checkedIds.length
+    readonly property var actionIds: ticked > 0 ? store.checkedIds : item ? [item.id] : []
     readonly property var sourceItem: store.source
     readonly property bool sourceNewer: !store.remote && !!sourceItem && !!row && !!row.upstream
         && sourceItem.status !== "withdrawn" && sourceItem.revision > row.upstream.revision
@@ -30,7 +34,7 @@ ColumnLayout {
             [qsTr("适用版本"), store.versionLabel(item.game_version)],
             [qsTr("来源"), store.remote ? item.source : (row.upstream ? qsTr("公共共享库") : qsTr("自己写的"))],
             [qsTr("作者"), author ? "@" + author.login : ""],
-            [qsTr("许可"), item.license || (row.upstream && row.upstream.license)],
+            [qsTr("许可"), store.licenseLabel(item.license || (row.upstream && row.upstream.license))],
             [qsTr("状态"), item.status ? store.statusText(item.status) : ""],
             [qsTr("更新于"), item.updated_at]
         ]
@@ -367,16 +371,16 @@ ColumnLayout {
             visible: !pane.store.remote && !pane.store.confirmingDelete
             variant: "ghost"
             iconName: "file-down"
-            text: qsTr("导出")
-            onClicked: pane.store.exportRows([pane.item.id])
+            text: pane.ticked > 0 ? qsTr("导出 %1 项").arg(pane.ticked) : qsTr("导出")
+            onClicked: pane.store.exportRows(pane.actionIds)
         }
         AppButton {
             objectName: "dutyCommunitySubmit"
             visible: !pane.store.remote && !pane.store.confirmingDelete
             variant: "ghost"
             iconName: "arrow-up"
-            text: qsTr("投稿")
-            onClicked: pane.store.submitRows([pane.item.id])
+            text: pane.ticked > 0 ? qsTr("投稿 %1 项").arg(pane.ticked) : qsTr("投稿")
+            onClicked: pane.store.submitRows(pane.actionIds)
         }
         AppButton {
             objectName: "dutyCommunityDelete"

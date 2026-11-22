@@ -95,6 +95,30 @@ ColumnLayout {
             onSelectionEdited: value => bar.store.typeFilter = value
         }
         MultiFilterButton {
+            objectName: "dutyCommunityDutyFilter"
+            visible: bar.store.remote
+            iconName: "gamepad-2"
+            title: qsTr("副本")
+            options: bar.store.dutyOptions
+            selection: bar.store.dutyFilter
+            searchable: bar.store.dutyOptions.length > 6
+            searchPlaceholder: qsTr("搜索副本名称")
+            emptyText: qsTr("没有匹配的副本")
+            onSelectionEdited: value => bar.store.dutyFilter = value
+        }
+        MultiFilterButton {
+            objectName: "dutyCommunityJobFilter"
+            visible: bar.store.remote
+            iconName: "users"
+            title: qsTr("职业")
+            options: bar.store.jobOptions
+            selection: bar.store.jobFilter
+            searchable: true
+            searchPlaceholder: qsTr("搜索职业名称或缩写")
+            emptyText: qsTr("没有匹配的职业")
+            onSelectionEdited: value => bar.store.jobFilter = value
+        }
+        MultiFilterButton {
             objectName: "dutyCommunityRegionFilter"
             iconName: "globe"
             title: qsTr("区服")

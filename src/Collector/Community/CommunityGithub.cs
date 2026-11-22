@@ -222,6 +222,8 @@ internal sealed class CommunityGithub(string dataDirectory, string? clientId = n
         var status = labels switch
         {
             not null when labels.Contains("community-failed") || labels.Contains("community-classification") => "processing_failed",
+            // Every item repeated text already in the library, so nothing new was published.
+            not null when labels.Contains("community-duplicate") => "duplicate",
             not null when labels.Contains("community-published") => "published",
             _ when record["state"]?.GetValue<string>() == "closed" => "closed",
             _ => "processing",

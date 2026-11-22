@@ -6081,6 +6081,14 @@ SHA256: %3</translation>
         <translation>Submit</translation>
     </message>
     <message>
+        <source>导出 %1 项</source>
+        <translation>Export selected (%1)</translation>
+    </message>
+    <message>
+        <source>投稿 %1 项</source>
+        <translation>Submit selected (%1)</translation>
+    </message>
+    <message>
         <source>删除</source>
         <translation>Delete</translation>
     </message>
@@ -6491,6 +6499,30 @@ SHA256: %3</translation>
         <source>、</source>
         <translation>, </translation>
     </message>
+    <message>
+        <source>不限职业</source>
+        <translation>Any job</translation>
+    </message>
+    <message>
+        <source>注明作者即可转载、改编（CC BY 4.0）</source>
+        <translation>Reuse and adapt with credit (CC BY 4.0)</translation>
+    </message>
+    <message>
+        <source>别人可以复制、修改并再次分享这段内容，只要写明原作者是你。</source>
+        <translation>Others may copy, change and share this text again, as long as they name you as the author.</translation>
+    </message>
+    <message>
+        <source>注明作者，改编后也须同样共享（CC BY-SA 4.0）</source>
+        <translation>Reuse with credit, adaptations shared alike (CC BY-SA 4.0)</translation>
+    </message>
+    <message>
+        <source>别人可以复制、修改并再次分享，要写明原作者是你，改过的版本也必须按同样的规则公开。</source>
+        <translation>Others may copy, change and share it again; they must name you as the author, and a changed version must be shared under the same terms.</translation>
+    </message>
+    <message>
+        <source>投稿的内容公共共享库里都已经有了，没有重复发布。</source>
+        <translation>Everything in this submission is already in the public library, so nothing was published again.</translation>
+    </message>
 </context>
 <context>
     <name>DutyCommunityEditor</name>
@@ -6812,6 +6844,18 @@ SHA256: %3</translation>
         <source>取消选择</source>
         <translation>Deselect</translation>
     </message>
+    <message>
+        <source>收起相似</source>
+        <translation>Hide similar</translation>
+    </message>
+    <message>
+        <source>另有 %1 条相似</source>
+        <translation>%1 more similar</translation>
+    </message>
+    <message>
+        <source>正文几乎一样的条目收在这里，只是提示音、空格或个别字不同。</source>
+        <translation>Entries with almost the same text are grouped here; they differ only in sound cues, spacing or a few characters.</translation>
+    </message>
 </context>
 <context>
     <name>DutyCommunitySubmission</name>
@@ -6892,12 +6936,32 @@ SHA256: %3</translation>
         <translation>Submit with GitHub account (%1)</translation>
     </message>
     <message>
-        <source>复制投稿并打开浏览器</source>
-        <translation>Copy submission and open browser</translation>
+        <source>复制投稿（%1 项）并打开浏览器</source>
+        <translation>Copy submission (%1) and open browser</translation>
     </message>
     <message>
         <source>取消</source>
         <translation>Cancel</translation>
+    </message>
+    <message>
+        <source>公共库里已有这一项，没有改动，不再投稿</source>
+        <translation>Already in the public library and unchanged, so it is not submitted again</translation>
+    </message>
+    <message>
+        <source>公共库已有相同内容「%1」（%2），不再投稿</source>
+        <translation>The public library already has the same text in “%1” (%2), so it is not submitted again</translation>
+    </message>
+    <message>
+        <source>选中的内容公共共享库里都已经有了，不需要再投稿。</source>
+        <translation>Everything selected is already in the public library; there is nothing to submit.</translation>
+    </message>
+    <message>
+        <source>改编的来源要求改过的版本按同样的规则公开，所以只能选这一项。</source>
+        <translation> The source you adapted requires changed versions to be shared under the same terms, so this is the only choice.</translation>
+    </message>
+    <message>
+        <source>一次最多投稿 20 项，请少选几项再投稿。</source>
+        <translation>You can submit at most 20 items at a time; select fewer and try again.</translation>
     </message>
 </context>
 <context>
@@ -7029,6 +7093,30 @@ SHA256: %3</translation>
     <message>
         <source>刷新公共库</source>
         <translation>Refresh public library</translation>
+    </message>
+    <message>
+        <source>副本</source>
+        <translation>Duty</translation>
+    </message>
+    <message>
+        <source>搜索副本名称</source>
+        <translation>Search duty names</translation>
+    </message>
+    <message>
+        <source>没有匹配的副本</source>
+        <translation>No matching duty</translation>
+    </message>
+    <message>
+        <source>职业</source>
+        <translation>Job</translation>
+    </message>
+    <message>
+        <source>搜索职业名称或缩写</source>
+        <translation>Search job names or abbreviations</translation>
+    </message>
+    <message>
+        <source>没有匹配的职业</source>
+        <translation>No matching job</translation>
     </message>
 </context>
 <context>

@@ -197,6 +197,28 @@ public sealed class CommunityWorkspaceTests
         Assert.Equal("signed_out", Status(await Command("account")));
     }
 
+    // 投稿进度 reads the publishing workflow's labels; a submission whose items were all already
+    // in the library is labelled community-duplicate and published nothing.
+    [Theory]
+    [InlineData("community-duplicate", "duplicate")]
+    [InlineData("community-published", "published")]
+    [InlineData("community-failed", "processing_failed")]
+    [InlineData("", "processing")]
+    public async Task IssueStatusReadsTheWorkflowLabels(string label, string expected)
+    {
+        using var fixture = new TestDatabase();
+        var labels = label.Length == 0 ? "[]" : $$"""[{"name":"{{label}}"}]""";
+        var github = new CommunityGithub(Path.GetDirectoryName(fixture.Path)!, "publicClientId",
+            (method, url, token, content, cancellation) =>
+            {
+                content?.Dispose();
+                return Task.FromResult(JsonNode.Parse(
+                    $$"""{"state":"open","body":"{{CommunityGithub.IssueMarker}}","labels":{{labels}}}""")!.AsObject());
+            }, new TestTime(), new TestProtector());
+        var result = await github.RequestAsync("issue_status", new JsonObject { ["issue"] = 18 }, CancellationToken.None);
+        Assert.Equal(expected, Status(result));
+    }
+
     private sealed class TestProtector : ISecretProtector
     {
         public byte[] Protect(byte[] plaintext) => plaintext.Select(value => (byte)(value ^ 0x42)).ToArray();

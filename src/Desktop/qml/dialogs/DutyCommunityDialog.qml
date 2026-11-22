@@ -4,6 +4,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MentorRecorder 1.0
 import "../components/Lucide.js" as Lucide
+import "DutyCommunityMatch.js" as Match
 
 // 副本提醒与导随宏: tabs, one row of filters, the list on the left and the chosen entry on the
 // right. Creating, editing and submitting happen in the right pane, with no second dialog.
@@ -43,6 +44,10 @@ MotionDialog {
     property var regionFilter: []
     property var languageFilter: []
     property var stageFilter: []
+    // 副本 (content ids) and 职业 (职能 codes, job abbreviations, "ANY" for 不限) narrow the public
+    // library only; the local list has 当前副本与通用 instead.
+    property var dutyFilter: []
+    property var jobFilter: []
     property bool dutyOnly: false
     property bool favoriteOnly: false
 
@@ -58,14 +63,52 @@ MotionDialog {
         const here = row => row.content.content_id === duty.content_id
         return shown.filter(here).concat(shown.filter(row => !here(row)))
     }
+    // The open entry and the ticked ones are rows the list shows: an entry folded in a group is
+    // reached by opening the group (select does), so nothing hidden is open or acted on.
+    readonly property var shownRows: listRows.map(entry => entry.row)
     readonly property var current: mode === "edit" ? null
-        : (filtered.find(row => row.content.id === selectedId) || filtered[0] || null)
+        : (shownRows.find(row => row.content.id === selectedId) || shownRows[0] || null)
     readonly property string currentId: current ? current.content.id : ""
     readonly property var source: current && current.upstream
         ? (publicRows.find(row => row.content.id === current.upstream.id) || {}).content : null
-    readonly property var checkedIds: basket.filter(id => filtered.some(row => row.content.id === id))
+    readonly property var checkedIds: basket.filter(id => shownRows.some(row => row.content.id === id))
     readonly property bool filterActive: query.trim().length > 0 || typeFilter.length > 0 || regionFilter.length > 0
         || languageFilter.length > 0 || stageFilter.length > 0 || dutyOnly || (!remote && favoriteOnly)
+        || (remote && (dutyFilter.length > 0 || jobFilter.length > 0))
+    // Public entries that read alike (Match.groups): { id: the id that stands for its group }.
+    readonly property var similarGroups: Match.groups(publicRows)
+    property var openGroups: ({})
+    /// The rows the list draws, as { row, folded, member, group }. On the public tab an entry
+    /// that reads like another follows its group's first row, hidden until 「另有 N 条相似」
+    /// opens the group (owner, 2026-11-23).
+    readonly property var listRows: {
+        if (!remote) return filtered.map(row => ({ row: row, folded: 0, member: false, group: "" }))
+        const members = ({}), order = []
+        for (const row of filtered) {
+            const group = similarGroups[row.content.id] || row.content.id
+            if (!members[group]) { members[group] = []; order.push(group) }
+            members[group].push(row)
+        }
+        const out = []
+        for (const group of order) {
+            const head = members[group].find(row => row.content.id === group) || members[group][0]
+            out.push({ row: head, folded: members[group].length - 1, member: false, group: group })
+            if (openGroups[group])
+                for (const row of members[group])
+                    if (row !== head) out.push({ row: row, folded: 0, member: true, group: group })
+        }
+        return out
+    }
+    function toggleGroup(group) {
+        const opening = !openGroups[group]
+        const next = Object.assign({}, openGroups)
+        next[group] = opening
+        // Closing a group whose other entry is open moves to the entry that stays in view.
+        const head = listRows.find(entry => entry.group === group && !entry.member)
+        if (!opening && head && similarGroups[selectedId] === group)
+            selectedId = head.row.content.id
+        openGroups = next
+    }
     /// Local entries written for the duty the player is in; the dashboard entry shows it.
     readonly property int currentDutyCount: inDuty
         ? localRows.filter(row => row.content.content_id === duty.content_id
@@ -93,6 +136,64 @@ MotionDialog {
             if (counts[value] === undefined) counts[value] = 0
         return Object.keys(counts).sort((a, b) => counts[b] - counts[a] || a.localeCompare(b))
                      .map(value => ({ value: value, label: value, sub: "", count: counts[value] }))
+    }
+    /// The duties the public entries are for, 通用 first, then the most entries first.
+    readonly property var dutyOptions: {
+        if (!remote) return []
+        const counts = ({}), sample = ({})
+        for (const row of rows.filter(entry => matches(entry, "duty"))) {
+            const id = row.content.content_id
+            counts[id] = (counts[id] || 0) + 1
+            sample[id] = row.content
+        }
+        for (const id of dutyFilter)
+            if (counts[id] === undefined) { counts[id] = 0; sample[id] = { content_id: id, region: "ALL" } }
+        return Object.keys(counts).map(Number)
+            .map(id => ({ value: id, label: dutyLabel(sample[id]), sub: "", count: counts[id] }))
+            .sort((a, b) => (a.value === 0 ? -1 : b.value === 0 ? 1 : b.count - a.count || a.label.localeCompare(b.label)))
+    }
+    /// 不限 and the 职能 first (the panel shows a dozen rows before a search), then the single
+    /// jobs the public entries name.
+    readonly property var jobOptions: {
+        if (!remote) return []
+        const parsed = rows.filter(entry => matches(entry, "job")).map(row => jobCodes(row.content.role))
+        const count = choice => parsed.filter(codes => codesMatch(codes, choice)).length
+        const out = [{ value: "ANY", label: qsTr("不限职业"), sub: "", count: count("ANY") }]
+            .concat(jobGroups.map(group => ({ value: group.code, label: group.label, sub: "", count: count(group.code) })))
+        const named = ({})
+        for (const codes of parsed)
+            for (const code of (codes || [])) named[code] = true
+        for (const code of jobFilter) named[code] = true
+        for (const group of jobGroups)
+            for (const job of group.jobs)
+                if (named[job.abbreviation])
+                    out.push({ value: job.abbreviation, label: Theme.jobName(job), sub: job.abbreviation,
+                               count: count(job.abbreviation) })
+        return out
+    }
+    function jobGroupOf(code) {
+        if (jobGroups.some(group => group.code === code)) return code
+        const job = jobsByCode[code]
+        return job ? roleGroupCodes[job.role_group] || "" : ""
+    }
+    /// Whether an entry's 职业 (parsed by jobCodes) fits one choice of the filter: a 职能 covers
+    /// its jobs and a job its 职能; "ANY" is the entries for every job. Hand-written text fits none.
+    function codesMatch(codes, choice) {
+        if (codes === null) return false
+        if (choice === "ANY") return codes.length === 0
+        return codes.some(code => code === choice || jobGroupOf(code) === choice || jobGroupOf(choice) === code)
+    }
+    // The licence as what others may do with the text (owner: the bare code means nothing to most
+    // players); the code follows in brackets for those who know it.
+    readonly property var licenseOptions: [
+        { value: "CC-BY-4.0", label: qsTr("注明作者即可转载、改编（CC BY 4.0）"),
+          detail: qsTr("别人可以复制、修改并再次分享这段内容，只要写明原作者是你。") },
+        { value: "CC-BY-SA-4.0", label: qsTr("注明作者，改编后也须同样共享（CC BY-SA 4.0）"),
+          detail: qsTr("别人可以复制、修改并再次分享，要写明原作者是你，改过的版本也必须按同样的规则公开。") }
+    ]
+    function licenseLabel(code) {
+        const option = licenseOptions.find(entry => entry.value === code)
+        return option ? option.label : String(code || "")
     }
     // The owner's macros (2026-11-22), as written for the CN client. The macro text is not
     // translated: /micon and /marking take names in the client's own language. The Collector
@@ -163,6 +264,11 @@ MotionDialog {
         if (skip !== "region" && regionFilter.length && item.region !== "ALL" && !regionFilter.includes(item.region)) return false
         if (skip !== "language" && languageFilter.length && !languageFilter.includes(item.language)) return false
         if (skip !== "stage" && stageFilter.length && !stageFilter.includes(item.boss) && !stageFilter.includes(item.phase)) return false
+        if (remote && skip !== "duty" && dutyFilter.length && !dutyFilter.includes(item.content_id)) return false
+        if (remote && skip !== "job" && jobFilter.length) {
+            const codes = jobCodes(item.role)
+            if (!jobFilter.some(choice => codesMatch(codes, choice))) return false
+        }
         if (!remote && favoriteOnly && !row.favorite) return false
         if (dutyOnly && ((item.content_id !== 0 && item.content_id !== duty.content_id)
                          || (item.region !== "ALL" && item.region !== duty.region))) return false
@@ -182,6 +288,8 @@ MotionDialog {
         regionFilter = []
         languageFilter = []
         stageFilter = []
+        dutyFilter = []
+        jobFilter = []
         dutyOnly = false
         favoriteOnly = false
     }
@@ -386,6 +494,13 @@ MotionDialog {
     }
 
     function select(id) {
+        // An entry folded in a group of similar ones is shown by opening its group.
+        const group = remote ? similarGroups[id] : undefined
+        if (group && !openGroups[group] && !shownRows.some(row => row.content.id === id)) {
+            const next = Object.assign({}, openGroups)
+            next[group] = true
+            openGroups = next
+        }
         selectedId = id
         mode = "view"
     }
@@ -502,7 +617,14 @@ MotionDialog {
     }
     function submitRows(ids) {
         const picked = batch(ids)
-        if (!picked.length || picked.length > 20) { note = statusText("invalid_submission"); return }
+        // The 20-item limit counts what is sent: entries the public library already has are left
+        // out (DutyCommunitySubmission.twins). Unchanged is judged here under the licence the entry
+        // was published with; the pane holds the exact count against the licence chosen there.
+        const publishedLicense = row => (publicRows.find(entry => entry.content.id === row.content.id)
+                                         || { content: {} }).content.license
+        const sent = picked.filter(row => !Match.sameTextTwin(row.content, publicRows)
+                                          && !Match.unchangedEntry(row.content, publicRows, publishedLicense(row)))
+        if (!picked.length || sent.length > 20) { note = statusText("invalid_submission"); return }
         mode = "submit"
         submission.start(picked)
     }
@@ -576,6 +698,7 @@ MotionDialog {
         case "submitted": return qsTr("已提交投稿，等待工作流处理。")
         case "processing": return qsTr("投稿正在处理。")
         case "published": return qsTr("已公开发布。刷新共享库后可查看。")
+        case "duplicate": return qsTr("投稿的内容公共共享库里都已经有了，没有重复发布。")
         case "processing_failed": return qsTr("处理失败，请打开 GitHub Issue 查看原因。")
         case "submit_unconfirmed": return qsTr("提交结果暂时无法确认，请在 GitHub 检查投稿后再重试。")
         case "closed": return qsTr("投稿已关闭。")
@@ -588,7 +711,7 @@ MotionDialog {
         }
     }
     function issueTone(status) {
-        return status === "published" ? "ok" : status === "processing_failed" || status === "closed" ? "bad"
+        return status === "published" || status === "duplicate" ? "ok" : status === "processing_failed" || status === "closed" ? "bad"
              : status ? "warn" : "off"
     }
 
@@ -777,6 +900,7 @@ MotionDialog {
                     }
                     DutyCommunitySubmission {
                         id: submission
+                        objectName: "dutyCommunitySubmission"
                         anchors.fill: parent
                         visible: root.mode === "submit"
                         store: root

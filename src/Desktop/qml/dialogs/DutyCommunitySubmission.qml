@@ -3,6 +3,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import MentorRecorder 1.0
+import "DutyCommunityMatch.js" as Match
 
 // The right pane of 副本提醒与导随宏 while submitting: what becomes public, how it is sent,
 // under which licence. The player confirms here; nothing opens on top of the list.
@@ -17,8 +18,35 @@ ColumnLayout {
     property bool posting: false
     property bool cancelled: false
     property bool showFullText: false
-    readonly property bool requiresShareAlike: selected.some(row => row.upstream && row.upstream.id !== row.content.id
-        && row.upstream.license === "CC-BY-SA-4.0")
+    // What the public library already holds is left out and said why (owner, 2026-11-23): the
+    // same text under another entry, or this very entry as it would be sent, licence included.
+    // The publishing workflow decides the same way, so sending it would change nothing. Without
+    // a refreshed library nothing is known here and the workflow alone decides.
+    readonly property var sameText: {
+        const out = ({})
+        for (const row of selected) {
+            const twin = Match.sameTextTwin(row.content, store.publicRows)
+            if (twin) out[row.content.id] = twin
+        }
+        return out
+    }
+    readonly property bool requiresShareAlike: selected.some(row => !sameText[row.content.id] && row.upstream
+        && row.upstream.id !== row.content.id && row.upstream.license === "CC-BY-SA-4.0")
+    readonly property var licenseChoices: requiresShareAlike ? store.licenseOptions.filter(option => option.value === "CC-BY-SA-4.0")
+                                                             : store.licenseOptions
+    readonly property string licenseCode: license.currentValue || (licenseChoices.length ? licenseChoices[0].value : "")
+    /// { id: { kind: "same_text" | "unchanged", entry } } for every entry left out.
+    readonly property var twins: {
+        const out = ({})
+        for (const row of selected) {
+            const id = row.content.id
+            const unchanged = sameText[id] ? null : Match.unchangedEntry(draftFor(row), store.publicRows, licenseCode)
+            if (sameText[id]) out[id] = { kind: "same_text", entry: sameText[id] }
+            else if (unchanged) out[id] = { kind: "unchanged", entry: unchanged }
+        }
+        return out
+    }
+    readonly property var submittable: selected.filter(row => !twins[row.content.id])
     signal finished()
     spacing: 0
 
@@ -63,17 +91,21 @@ ColumnLayout {
                 + " · https://github.com/Harendotes-Tang/MentorRecorder-Calibrations/issues/" + base.issue
             if (!item.source.includes(origin)) item.source = item.source ? item.source + " · " + origin : origin
         }
+        // A link to a new entry left out for its public twin points at the twin, as the workflow
+        // does; a published entry whose edit is held back stays, and so do links to it.
+        const published = link => store.publicRows.some(entry => entry.content.id === link)
+        item.links = Array.from(new Set(item.links.map(link => sameText[link] && !published(link) ? sameText[link].id : link)))
         return item
     }
 
     function submit(native) {
         const bases = ({})
-        const items = selected.map(row => {
+        const items = submittable.map(row => {
             const latest = store.publicRows.find(item => item.content.id === row.content.id)
             if (latest) bases[row.content.id] = latest.content.revision
             return draftFor(row)
         })
-        const data = { items: items, base_revisions: bases, license: license.currentText, consent: consent.checked }
+        const data = { items: items, base_revisions: bases, license: pane.licenseCode, consent: consent.checked }
         if (account) data.author_id = account.id
         posting = true
         store.call(native ? "submit" : "prepare_issue", data, (result) => {
@@ -137,29 +169,49 @@ ColumnLayout {
                     delegate: InsetBox {
                         id: entry
                         required property var modelData
+                        readonly property var twin: pane.twins[modelData.content.id] || null
                         Layout.fillWidth: true
-                        implicitHeight: 36
+                        implicitHeight: entryColumn.implicitHeight + 16
                         border.width: 1
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 10
-                            anchors.rightMargin: 10
-                            spacing: 8
-                            ContentTypeTag { type: entry.modelData.content.type }
-                            Text {
-                                renderType: Theme.bodyRenderType
+                        ColumnLayout {
+                            id: entryColumn
+                            x: 10
+                            y: 8
+                            width: parent.width - 20
+                            spacing: 4
+                            RowLayout {
                                 Layout.fillWidth: true
-                                textFormat: Text.PlainText
-                                elide: Text.ElideRight
-                                text: entry.modelData.content.title
-                                color: Theme.textPrimary
-                                font.pixelSize: Theme.fs(13)
-                                font.weight: Font.DemiBold
+                                spacing: 8
+                                ContentTypeTag { type: entry.modelData.content.type }
+                                Text {
+                                    renderType: Theme.bodyRenderType
+                                    Layout.fillWidth: true
+                                    textFormat: Text.PlainText
+                                    elide: Text.ElideRight
+                                    text: entry.modelData.content.title
+                                    // Left out: told by colour, never by fading the text.
+                                    color: entry.twin ? Theme.textSecondary : Theme.textPrimary
+                                    font.pixelSize: Theme.fs(13)
+                                    font.weight: Font.DemiBold
+                                }
+                                Text {
+                                    renderType: Theme.bodyRenderType
+                                    textFormat: Text.PlainText
+                                    text: pane.store.dutyLabel(entry.modelData.content)
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.fs(12)
+                                }
                             }
                             Text {
                                 renderType: Theme.bodyRenderType
+                                visible: !!entry.twin
+                                Layout.fillWidth: true
+                                wrapMode: Text.Wrap
                                 textFormat: Text.PlainText
-                                text: pane.store.dutyLabel(entry.modelData.content)
+                                text: !entry.twin ? ""
+                                    : entry.twin.kind === "unchanged" ? qsTr("公共库里已有这一项，没有改动，不再投稿")
+                                    : qsTr("公共库已有相同内容「%1」（%2），不再投稿")
+                                          .arg(entry.twin.entry.title).arg(entry.twin.entry.author ? entry.twin.entry.author.login : "")
                                 color: Theme.textSecondary
                                 font.pixelSize: Theme.fs(12)
                             }
@@ -221,8 +273,11 @@ ColumnLayout {
                     spacing: 10
 
                     Body {
-                        text: qsTr("会公开这 %1 项的标题、正文、副本、BOSS / 阶段、区服和语言，以及所选许可。只投稿你有权分享的文字，避免包含个人信息。")
-                              .arg(pane.selected.length)
+                        text: pane.submittable.length === 0
+                              ? qsTr("选中的内容公共共享库里都已经有了，不需要再投稿。")
+                              : pane.submittable.length > 20 ? qsTr("一次最多投稿 20 项，请少选几项再投稿。")
+                              : qsTr("会公开这 %1 项的标题、正文、副本、BOSS / 阶段、区服和语言，以及所选许可。只投稿你有权分享的文字，避免包含个人信息。")
+                                    .arg(pane.submittable.length)
                     }
                     Body {
                         textFormat: Text.PlainText
@@ -242,16 +297,27 @@ ColumnLayout {
                         StyledComboBox {
                             id: license
                             objectName: "dutyCommunityLicense"
-                            Layout.preferredWidth: 170
-                            keepsRowAcrossLanguages: false
-                            model: pane.requiresShareAlike ? ["CC-BY-SA-4.0"] : ["CC-BY-4.0", "CC-BY-SA-4.0"]
+                            Layout.fillWidth: true
+                            Layout.maximumWidth: 420
+                            keepsRowAcrossLanguages: true
+                            textRole: "label"
+                            valueRole: "value"
+                            model: pane.licenseChoices
                         }
-                        Item { Layout.fillWidth: true }
                         AppButton {
                             compact: true
                             variant: "ghost"
                             text: pane.showFullText ? qsTr("收起全文") : qsTr("查看将公开的全文")
                             onClicked: pane.showFullText = !pane.showFullText
+                        }
+                    }
+                    Body {
+                        objectName: "dutyCommunityLicenseDetail"
+                        text: {
+                            const choice = pane.licenseChoices[Math.max(0, license.currentIndex)]
+                            const detail = choice ? choice.detail : ""
+                            return pane.requiresShareAlike
+                                ? detail + qsTr("改编的来源要求改过的版本按同样的规则公开，所以只能选这一项。") : detail
                         }
                     }
                     ScrollView {
@@ -263,7 +329,7 @@ ColumnLayout {
                             textFormat: TextEdit.PlainText
                             font.family: Theme.monoFamily
                             text: pane.showFullText
-                                  ? pane.selected.map(row => JSON.stringify(pane.draftFor(row), null, 2)).join("\n\n") : ""
+                                  ? pane.submittable.map(row => JSON.stringify(pane.draftFor(row), null, 2)).join("\n\n") : ""
                         }
                     }
                     SelectionCheckBox {
@@ -305,15 +371,16 @@ ColumnLayout {
             objectName: "dutyCommunitySubmitNative"
             visible: pane.store.configured
             variant: "primary"
-            text: qsTr("用 GitHub 账号提交（%1 项）").arg(pane.selected.length)
-            enabled: consent.checked && !!pane.account && !pane.posting
+            text: qsTr("用 GitHub 账号提交（%1 项）").arg(pane.submittable.length)
+            enabled: consent.checked && !!pane.account && !pane.posting && pane.submittable.length > 0
+                     && pane.submittable.length <= 20
             onClicked: pane.submit(true)
         }
         AppButton {
             objectName: "dutyCommunitySubmitBrowser"
             variant: pane.store.configured ? "secondary" : "primary"
-            text: qsTr("复制投稿并打开浏览器") + " ↗"
-            enabled: consent.checked && !pane.posting
+            text: qsTr("复制投稿（%1 项）并打开浏览器").arg(pane.submittable.length) + " ↗"
+            enabled: consent.checked && !pane.posting && pane.submittable.length > 0 && pane.submittable.length <= 20
             onClicked: pane.submit(false)
         }
         AppButton { objectName: "dutyCommunitySubmissionCancel"; text: qsTr("取消"); onClicked: pane.finished() }

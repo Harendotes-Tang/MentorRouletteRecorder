@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     concurrency:
-      group: publish-calibration
+      group: publish-community
       cancel-in-progress: false
     steps:
       - name: Check out trusted main

@@ -75,6 +75,8 @@ QJsonArray seededPublic()
         content(103, "macro", 0, "ALL", "新人说明", "/p 第一次来的话跟着我走就行，不用紧张。"),
         content(104, "macro", 0, "ALL", "中途加入询问", "/p 我是中途加入的，现在进度到哪里？"),
         content(105, "reminder", 4, "CN", "尾王击退", "击退前站到 BOSS 脚下，防击退技能留给第二次。", "尾王"),
+        // Reads like 103: the public list folds it under 「另有 1 条相似」.
+        content(106, "macro", 0, "ALL", "新人说明（感叹号版）", "/p 第一次来的话跟着我走就行，不用紧张！"),
     };
     int issue = 128;
     for (QJsonObject entry : drafts) {

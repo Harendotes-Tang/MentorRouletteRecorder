@@ -11,8 +11,11 @@
 # * The default GITHUB_TOKEN is the only credential: contents: write and issues: write, nothing else.
 # * publish.py prints each result as one line of ASCII JSON, so issue text can never begin a line of
 #   the log and be taken for a workflow command.
-# * All publication writers share a job-level concurrency group and never cancel a running job.
-#   A push that loses a race with an external write is redone from current main.
+# * Both jobs share one concurrency group (set on the jobs, so an event whose job is skipped never
+#   takes part) and a running job is never cancelled, so two submissions never race on index.json.
+#   The group is theirs alone: evidence and report Issues can stay open and start a job on every edit,
+#   so they use their own group (evidence-intake) and cannot keep cancelling a queued publish job.
+#   A push that still loses a race (a maintainer, the evidence lane or the community lane pushed) is redone from the new main.
 # * Every `uses:` is pinned to a commit id, with the release in the trailing comment. A tag can be
 #   moved to another commit, so a mutable reference lets a third-party action change under a job
 #   that holds this repository's token - and everything published here is downloaded by every

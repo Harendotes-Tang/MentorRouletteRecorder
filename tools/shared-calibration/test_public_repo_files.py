@@ -167,14 +167,22 @@ class WorkflowSecurityTests(unittest.TestCase):
                          "github.event.label.name == 'share-calibration'"):
             self.assertIn(fragment, condition)
 
-    def test_writers_share_the_publication_lock(self):
-        # Pending jobs can be replaced. Each lane retains a scheduled sweep for missed issue events.
+    def test_issues_that_never_close_cannot_hold_the_publication_queue(self):
+        # N1-2: GitHub keeps one pending job per concurrency group, and a newer one cancels it. Reports and waiting
+        # or invalid evidence Issues stay open and start a job on every edit, so in a group shared with publication a
+        # stream of edits would keep cancelling the queued publish job and the publish sweep. Both lanes redo their
+        # decision from the new main when a push is refused, so they need no shared lock to stay correct. Community
+        # Issues stay open after publication too, so the community publisher queues on its own lock as well.
         def groups(path):
             return re.findall(r"^\s*group:\s*(\S+)\s*$", path.read_text(encoding="utf-8"), re.M)
         self.assertEqual(["publish-calibration", "publish-calibration"], groups(WORKFLOW))
-        for path in (EVIDENCE_WORKFLOW, REPORT_WORKFLOW, WORKFLOW.with_name("publish-community-content.yml")):
-            with self.subTest(path.name):
-                self.assertEqual(["publish-calibration"], groups(path))
+        self.assertEqual(["evidence-intake"], groups(EVIDENCE_WORKFLOW))
+        self.assertEqual(["evidence-intake"], groups(REPORT_WORKFLOW))
+        self.assertEqual(["publish-community"], groups(WORKFLOW.with_name("publish-community-content.yml")))
+        for path in sorted((PUBLIC / ".github" / "workflows").glob("*.yml")):
+            if path != WORKFLOW:
+                with self.subTest(path.name):
+                    self.assertNotIn("publish-calibration", groups(path))
 
     def test_actions_are_pinned_to_a_commit_id_and_taken_from_the_main_ci_set(self):
         used = assert_every_action_is_pinned(self, self.text, "publish-calibration.yml")
@@ -328,7 +336,7 @@ class ReportWorkflowSecurityTests(unittest.TestCase):
 
     def test_reports_share_the_atomic_evidence_ledger_and_the_evidence_intake_lock(self):
         self.assertIn("contents: write", self.text)
-        self.assertIn("group: publish-calibration", self.text)
+        self.assertIn("group: evidence-intake", self.text)
         self.assertIn('python -B tools/evidence_workflow.py --event "$GITHUB_EVENT_PATH"', self.text)
         if yaml is None:
             self.assertIn("permissions:\n  contents: write\n  issues: write\n", self.text)
@@ -337,7 +345,7 @@ class ReportWorkflowSecurityTests(unittest.TestCase):
         self.assertEqual({"contents": "write", "issues": "write"}, data["permissions"])
         self.assertEqual({"issues"}, set(data.get("on", data.get(True))))
         for job in data["jobs"].values():
-            self.assertEqual({"group": "publish-calibration", "cancel-in-progress": False}, job["concurrency"])
+            self.assertEqual({"group": "evidence-intake", "cancel-in-progress": False}, job["concurrency"])
             self.assertIn("timeout-minutes", job)
             self.assertNotIn("permissions", job)
         condition = next(iter(data["jobs"].values()))["if"]
@@ -393,7 +401,7 @@ class EvidenceWorkflowSecurityTests(unittest.TestCase):
         self.assertLessEqual(used, available)
 
     def test_permissions_triggers_and_the_evidence_intake_concurrency_group(self):
-        self.assertIn("group: publish-calibration", self.text)
+        self.assertIn("group: evidence-intake", self.text)
         self.assertNotIn("cancel-in-progress: true", self.text)
         if yaml is None:
             self.assertIn("permissions:\n  contents: write\n  issues: write\n", self.text)
@@ -405,7 +413,7 @@ class EvidenceWorkflowSecurityTests(unittest.TestCase):
         self.assertEqual({"contents": "write", "issues": "write"}, data["permissions"])
         self.assertNotIn("concurrency", data, "a workflow-level group would let skipped events cancel pending jobs")
         for job in data["jobs"].values():
-            self.assertEqual({"group": "publish-calibration", "cancel-in-progress": False}, job["concurrency"])
+            self.assertEqual({"group": "evidence-intake", "cancel-in-progress": False}, job["concurrency"])
             self.assertIn("timeout-minutes", job)
             self.assertNotIn("permissions", job)
             for fragment in ("github.event.issue.state == 'open'",

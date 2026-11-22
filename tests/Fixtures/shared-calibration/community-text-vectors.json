@@ -1,0 +1,101 @@
+{
+  "comment": "Cases both community text checks must agree on: tools/shared-calibration/community_publish.py and src/Desktop/qml/dialogs/DutyCommunityMatch.js. similarity is taken between the loose texts, rounded to 6 places.",
+  "exact_text": [
+    [
+      "\r\n/p a  \r\n/p b\t\n\n",
+      "/p a\n/p b"
+    ],
+    [
+      "/p a\u3000\n\n",
+      "/p a"
+    ],
+    [
+      "/p a\ufeff\r\n",
+      "/p a"
+    ],
+    [
+      "\n\n",
+      ""
+    ],
+    [
+      "/p a <se.1>",
+      "/p a <se.1>"
+    ]
+  ],
+  "loose_text": [
+    [
+      "/P a\u3000\u5168\u89d2 <se.3>",
+      "/pa\u5168\u89d2"
+    ],
+    [
+      "/p\u3000\uff2f\uff34",
+      "/pot"
+    ],
+    [
+      "abc\ufeff",
+      "abc"
+    ],
+    [
+      "\ufeffabc",
+      "abc"
+    ],
+    [
+      "\u0391\u03a3\u3002",
+      "\u03b1\u03c3\u3002"
+    ],
+    [
+      "<se.\u0663>x",
+      "<se.\u0663>x"
+    ],
+    [
+      "<SE.12>Ok!",
+      "ok!"
+    ],
+    [
+      "x\u00a0y\u2028z",
+      "xyz"
+    ]
+  ],
+  "similarity": [
+    [
+      "/p\u8f9b\u82e6\u4e86!",
+      "/p\u8f9b\u82e6\u4e86~",
+      0.8
+    ],
+    [
+      "abc",
+      "abc",
+      1.0
+    ],
+    [
+      "abcd",
+      "abxy",
+      0.333333
+    ],
+    [
+      "a",
+      "b",
+      0.0
+    ],
+    [
+      "/p \u8ddf\u7740\u6211\u8d70\u5c31\u884c\u4e0d\ud83d\ude00",
+      "/p \u8ddf\u7740\u6211\u8d70\u5c31\u884c\u4e0d\ud83d\ude01",
+      0.888889
+    ],
+    [
+      "/p \u8f9b\u82e6\u4e86\u55f7\u2661 <se.2>\n/p \u4e0b\u6b21\u89c1",
+      "/p \u8f9b\u82e6\u4e86\u55f7\u2661 <se.4>\n/p \u4e0b\u6b21\u89c1\uff01",
+      0.956522
+    ],
+    [
+      "\u0391\u03a3\u3002",
+      "\u03b1\u03c3\u3002",
+      1.0
+    ],
+    [
+      "abc\ufeff",
+      "abc",
+      1.0
+    ]
+  ]
+}

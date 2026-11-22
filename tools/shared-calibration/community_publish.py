@@ -8,6 +8,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+from collections import Counter
 from pathlib import Path
 import re
 import subprocess
@@ -25,7 +26,9 @@ INDEX = ROOT / "index.json"
 SNAPSHOT = ROOT / "snapshot.json"
 LEDGER = ROOT / "submissions.json"
 RESULT_LABELS = {"published": "community-published", "failed": "community-failed",
-                 "conflict": "community-classification"}
+                 "conflict": "community-classification", "duplicate": "community-duplicate"}
+# Added beside the result label while a published item reads like one already in the library.
+SIMILAR_LABEL = "community-similar"
 FIELDS = {"schema_version", "id", "type", "content_id", "region", "language", "title", "body",
           "boss", "phase", "role", "tags", "game_version", "links", "source"}
 PUBLIC_FIELDS = FIELDS | {"author", "license", "revision", "updated_at", "status", "issue"}
@@ -37,6 +40,13 @@ MAX_BYTES = 1_250_000
 MAX_ISSUE = 30_000
 MAX_ENTRIES = 400
 MAX_BATCH = 20
+# Two bodies at least this alike are reported to the maintainer; the app folds them together.
+# The app computes the same number (src/Desktop/qml/dialogs/DutyCommunityMatch.js).
+SIMILAR = 0.9
+SOUND = re.compile(r"<se\.[0-9]+>", re.IGNORECASE | re.ASCII)
+# Spelled out so that Python and the app's JavaScript (whose \s differs) drop the same characters.
+SPACE = re.compile("[\t\n\x0b\x0c\r \x1c-\x1f\x85\xa0  -     　﻿]+")
+TRAILING_SPACE = re.compile(SPACE.pattern + "$")
 
 
 class Invalid(ValueError):
@@ -131,6 +141,101 @@ def validate_links(entries):
                 raise Invalid("Links must refer to published items of the other content type.")
 
 
+def exact_text(body):
+    """The body as the game runs it: line breaks unified, spaces at line ends and blank lines
+    at either end dropped. Two items of one type with the same exact text are the same item."""
+    lines = [TRAILING_SPACE.sub("", line) for line in body.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    while lines and not lines[0]:
+        lines.pop(0)
+    while lines and not lines[-1]:
+        lines.pop()
+    return "\n".join(lines)
+
+
+def loose_text(body):
+    """What a reader compares: NFKC (full- and half-width and other compatibility forms folded),
+    sound cues and all spacing dropped, lower case with the Greek final sigma as plain sigma."""
+    return SPACE.sub("", SOUND.sub("", unicodedata.normalize("NFKC", body))).lower().replace("ς", "σ")
+
+
+def similarity(first, second):
+    """Dice coefficient over neighbouring character pairs of two loose texts, 0 to 1."""
+    if first == second:
+        return 1.0
+    if len(first) < 2 or len(second) < 2:
+        return 0.0
+    left = Counter(first[i:i + 2] for i in range(len(first) - 1))
+    right = Counter(second[i:i + 2] for i in range(len(second) - 1))
+    return 2 * sum((left & right).values()) / (len(first) - 1 + len(second) - 1)
+
+
+def reachable(first, second):
+    """Whether texts of these lengths can reach SIMILAR at all; skips most comparisons."""
+    a, b = max(len(first) - 1, 0), max(len(second) - 1, 0)
+    return a + b == 0 or 2 * min(a, b) / (a + b) >= SIMILAR
+
+
+def twin_of(draft, entries):
+    """A live item of the same type with the same exact text under another ID, or None."""
+    wanted = exact_text(draft["body"])
+    for identifier in sorted(entries):
+        item = entries[identifier]
+        if identifier != draft["id"] and item["type"] == draft["type"] and item["status"] != "withdrawn" \
+                and exact_text(item["body"]) == wanted:
+            return item
+    return None
+
+
+def repeats(drafts, entries, author):
+    """Which of a submission's new or changed items repeat live text, as {id: twin}.
+
+    Revisions are weighed first, in ID order and against the library as the submission would
+    leave it, until none changes: a revision found repeating keeps its old text, which can make
+    another revision a repeat in turn. A revision that keeps its text is never a repeat. So the
+    order of the items does not decide for revisions. New items are weighed next, in order,
+    against that library and the new items accepted before them: of two new items with the same
+    text the first stays."""
+    view = dict(entries)
+    revisions = sorted((draft for draft in drafts if draft["id"] in entries), key=lambda draft: draft["id"])
+    for draft in revisions:
+        view[draft["id"]] = dict(entries[draft["id"]], body=draft["body"])
+    found = {}
+    settled = False
+    while not settled:
+        settled = True
+        for draft in revisions:
+            current = entries[draft["id"]]
+            if draft["id"] in found or exact_text(current["body"]) == exact_text(draft["body"]):
+                continue
+            twin = twin_of(draft, view)
+            if twin is not None:
+                found[draft["id"]] = twin
+                view[draft["id"]] = current
+                settled = False
+    for draft in drafts:
+        if draft["id"] in entries:
+            continue
+        twin = twin_of(draft, view)
+        if twin is not None:
+            found[draft["id"]] = twin
+        else:
+            view[draft["id"]] = dict(draft, author=author, status="community")
+    return found
+
+
+def similar_to(item, entries):
+    """Live items of the same type whose text reads like this one, best match first, at most 5."""
+    wanted = loose_text(item["body"])
+    found = []
+    for identifier, other in entries.items():
+        if identifier == item["id"] or other["type"] != item["type"] or other["status"] == "withdrawn":
+            continue
+        text = loose_text(other["body"])
+        if reachable(wanted, text) and similarity(wanted, text) >= SIMILAR:
+            found.append((-similarity(wanted, text), identifier))
+    return [{"id": identifier, "author": entries[identifier]["author"]["login"]} for _, identifier in sorted(found)[:5]]
+
+
 def parse_submission(issue):
     body = issue.get("body") or ""
     if len(body.encode("utf-8")) > MAX_ISSUE + 200:
@@ -172,8 +277,9 @@ def evaluate(issue, entries):
         timestamp = dt.datetime.strptime(issue["updated_at"], "%Y-%m-%dT%H:%M:%SZ").strftime("%Y-%m-%dT%H:%M:%SZ")
         author = {"id": user["id"], "login": user["login"]}
         revised = dict(entries)
+        unchanged, candidates = set(), []
         for draft in data["items"]:
-            current = revised.get(draft["id"])
+            current = entries.get(draft["id"])
             base = data["base_revisions"].get(draft["id"])
             if current:
                 if current["type"] != draft["type"]:
@@ -181,6 +287,7 @@ def evaluate(issue, entries):
                 if current["author"]["id"] != author["id"]:
                     raise Invalid("Only the original author can revise a published ID. Create a new ID for your adaptation.")
                 if all(current[key] == draft[key] for key in FIELDS) and current["license"] == data["license"]:
+                    unchanged.add(draft["id"])
                     continue
                 if current["status"] == "withdrawn":
                     raise Invalid("A withdrawn entry requires maintainer review.")
@@ -188,15 +295,45 @@ def evaluate(issue, entries):
                     raise Invalid("Update conflict. Refresh the community library and review the latest source revision.")
             elif base is not None:
                 raise Invalid("The base revision does not exist.")
+            candidates.append(draft)
+        # The same text twice is published once: the first stays and a later one is named in the
+        # receipt and left out. Links to a left-out new item point at the first; a left-out
+        # revision keeps the published version, so links to it stay.
+        twins = repeats(candidates, entries, author)
+        changed, skipped = [], []
+        for draft in candidates:
+            current = entries.get(draft["id"])
+            twin = twins.get(draft["id"])
+            if twin is not None:
+                skipped.append({"id": draft["id"], "same_as": twin["id"], "author": twin["author"]["login"],
+                                "own": twin["author"]["id"] == author["id"], "revision": current is not None})
+                continue
             published = dict(draft, author=author, license=data["license"],
                              revision=current["revision"] + 1 if current else 1, updated_at=timestamp,
                              status="community", issue=issue["number"])
             validate(published, published=True)
             revised[draft["id"]] = published
+            changed.append(draft["id"])
+        kept = [draft["id"] for draft in data["items"] if draft["id"] in unchanged or draft["id"] in changed]
+        redirect = {entry["id"]: entry["same_as"] for entry in skipped if not entry["revision"]}
+        for identifier in changed:
+            item = revised[identifier]
+            links = list(dict.fromkeys(redirect.get(link, link) for link in item["links"]))
+            if links != item["links"]:
+                revised[identifier] = dict(item, links=links)
+                validate(revised[identifier], published=True)
         validate_links(revised)
         if len(revised) > MAX_ENTRIES or len(encode(list(revised.values()))) + 100 > MAX_BYTES:
             raise Invalid("The current community release has reached its capacity.")
-        return {"status": "published", "ids": [item["id"] for item in data["items"]]}, revised
+        if not kept:
+            return {"status": "duplicate", "skipped": skipped}, entries
+        result = {"status": "published", "ids": kept}
+        if skipped:
+            result["skipped"] = skipped
+        similar = {identifier: similar_to(revised[identifier], revised) for identifier in changed}
+        if any(similar.values()):
+            result["similar"] = {identifier: found for identifier, found in similar.items() if found}
+        return result, revised
     except Invalid as error:
         return {"status": "failed", "detail": str(error)}, entries
 
@@ -276,22 +413,59 @@ def reply(repo, number, original, result):
     live = api(repo, f"issues/{number}")
     if fingerprint(live) != fingerprint(original):
         return
-    status = result["status"]
-    previous = labels(live) & set(RESULT_LABELS.values())
-    label = RESULT_LABELS[status]
+    present = labels(live)
+    label = RESULT_LABELS[result["status"]]
     marker = "<!-- mr-community-receipt:" + str(number) + ":" + fingerprint(live) + " -->"
     comments = api(repo, f"issues/{number}/comments?per_page=100", "--paginate", "--slurp")
-    if not any(comment.get("user", {}).get("login") == "github-actions[bot]"
-               and (comment.get("body") or "").startswith(marker)
-               for page in comments for comment in page):
-        message = result.get("detail", "Published as community content. Format validation does not verify game mechanics.")
-        if status == "published":
-            message += "\n\nIDs: " + ", ".join(result["ids"]) + "\n\n[Public index](../blob/main/community/v1/index.json)"
-        checked("gh", "issue", "comment", str(number), "--repo", repo, "--body", marker + "\n" + message)
-    for old in previous - {label}:
-        checked("gh", "issue", "edit", str(number), "--repo", repo, "--remove-label", old)
-    if label not in previous:
-        checked("gh", "issue", "edit", str(number), "--repo", repo, "--add-label", label)
+    first = not any(comment.get("user", {}).get("login") == "github-actions[bot]"
+                    and (comment.get("body") or "").startswith(marker)
+                    for page in comments for comment in page)
+
+    def edit(flag, name):
+        checked("gh", "issue", "edit", str(number), "--repo", repo, flag, name)
+
+    for old in sorted((present & set(RESULT_LABELS.values())) - {label}):
+        edit("--remove-label", old)
+    # community-similar is advice for maintainers. It comes with the first receipt for this text
+    # and never again, so a maintainer who has looked can remove it. The result label goes last:
+    # the sweep skips an issue that has it, so anything that fails before it is retried.
+    if result.get("similar") and first and SIMILAR_LABEL not in present:
+        edit("--add-label", SIMILAR_LABEL)
+    elif not result.get("similar") and SIMILAR_LABEL in present:
+        edit("--remove-label", SIMILAR_LABEL)
+    if first:
+        checked("gh", "issue", "comment", str(number), "--repo", repo, "--body", marker + "\n" + receipt(result))
+    if label not in present:
+        edit("--add-label", label)
+
+
+def receipt(result):
+    """The bot comment. It names IDs and GitHub logins only, never submitted text, and writes a
+    login in code style so that nobody is notified."""
+    status = result["status"]
+    if status not in ("published", "duplicate"):
+        return result.get("detail", "")
+    lines = ["Published as community content. Format validation does not verify game mechanics.",
+             "", "IDs: " + ", ".join(result["ids"])] if status == "published" else \
+        ["Nothing new was published: every item repeats text that is already in the library."]
+    def owner(entry):
+        return "your" if entry["own"] else "`" + entry["author"] + "`'s"
+
+    left_out = [entry for entry in result.get("skipped", []) if not entry.get("revision")]
+    kept_back = [entry for entry in result.get("skipped", []) if entry.get("revision")]
+    if left_out:
+        lines += ["", "Not published again, because the same text is already in the library (import that entry instead):"]
+        lines += [f"- `{entry['id']}` is the same as {owner(entry)} `{entry['same_as']}`" for entry in left_out]
+    if kept_back:
+        lines += ["", "Edits not applied, because the new text is already in the library; the published text stays:"]
+        lines += [f"- `{entry['id']}`: the new text is the same as {owner(entry)} `{entry['same_as']}`" for entry in kept_back]
+    if result.get("similar"):
+        lines += ["", "Published, and reads like entries already in the library (a maintainer may review):"]
+        for identifier, found in result["similar"].items():
+            others = ", ".join(f"`{entry['id']}` by `{entry['author']}`" for entry in found)
+            lines.append(f"- `{identifier}`: {others}")
+    lines += ["", "[Public index](../blob/main/community/v1/index.json)"]
+    return "\n".join(lines)
 
 
 def latest_checkout():

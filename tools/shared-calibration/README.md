@@ -204,7 +204,7 @@ python tools/publish.py remark --repo . --region CN --build 2026.10.06.0000.0000
    指引玩家用软件的「共享校准证据」生成摘要后新建证据 Issue，并打上 `evidence-waiting` 标签。
 3. 每份报告在 `evidence-ledger.json` 的 `reports` 中按 Issue 编号记一条无票收据（只含账号数字编号），用于去重与容量控制：
    全局最多 4096 条、每个账号最多 64 条，超出时回复 `LEDGER_CAPACITY_WAIT` 或 `ACCOUNT_CAPACITY_WAIT` 并保持等待。
-   收据随台账提交并推送 `main`，因此该工作流需要 `contents: write`，并与其他写入 main 的工作流共用 `publish-calibration` 并发组。
+   收据随台账提交并推送 `main`，因此该工作流需要 `contents: write`，并与证据工作流共用 `evidence-intake` 并发组（不与发布共用，见「工作流的安全措施」）。
 4. **不做任何自动撤回或隔离**，也不按报告数量设阈值：报告只是维护者查看的理由，**Issue 保持打开**。撤回始终由维护者执行 `publish.py revoke`。
 5. 状态、标签、作者与正文一律以实时 REST 查询为准，事件只用来定位 Issue 编号；回复前后各核对一次 Issue 未被改动。
    每个 Issue 只有一条机器人评论（按评论开头的标记识别），重投的事件与重试只原地更新它，不重复回复。
@@ -280,10 +280,15 @@ python tools/publish.py evidence compact --repo . --apply  # 写回 evidence-led
   `contents: write`、`issues: write`：三者都会推送 `main`（证据台账、索引的隔离提示、候选草案与报告收据也要提交）。
   只有 `mirror-repository.yml` 读取 secret `GITCODE_MIRROR_TOKEN`；它只检出可信的 `main`，`persist-credentials: false`，权限仅 `contents: read`。
   所有工作流都不用 `pull_request_target`。
-- 校准发布、证据、报告与社区内容工作流共享 `publish-calibration` 并发组。被 `if` 跳过的任务不占用队列，运行中的任务会执行完。
-  GitHub 可用新任务替换排队中的任务，按类别错开的定时补扫会从各自台账重新检查待处理 Issue。外部写入先一步推送时，从最新的
-  `main` 重新判定和生成提交。
-- `mirror-repository.yml` 在推送、每 30 分钟的定时任务，以及上述任一发布工作流运行结束后（不论结论，因为一次运行可能先推送再失败）
+- 发布工作流的两个 job（发布与补处理）共用 `publish-calibration` 并发组；证据工作流的 job（含它的定时 sweep）与报告工作流的 job
+  共用 `evidence-intake` 并发组。并发组写在 job 上，被 `if` 跳过的事件不占用队列；运行中的任务从不取消。
+  证据与报告写同一份 `evidence-ledger.json`，因此彼此不并行。两条通道分组，是因为报告与等待中、未受理的证据 Issue 一直打开，
+  每次编辑都会启动一个任务：与发布同组时，任何账号持续编辑这样一个 Issue，就能不断取消排队中的发布任务与补处理。
+  现在这样的编辑只能拖延证据通道，停止编辑后由证据 sweep 补处理。发布与证据通道都会写 `index.json`（证据写隔离提示），
+  两者可以同时运行：推送被拒绝时各自从最新的 `main` 重新判定（见下文「不执行 rebase」一条），不会丢失对方的更新。
+- 社区内容工作流使用自己的 `publish-community` 并发组：社区投稿 Issue 处理后仍保持打开，编辑同样会启动任务，因此不与发布同组。
+  它只写 `community/` 下的文件，推送被拒绝时同样从最新的 `main` 重做，定时补扫处理被替换掉的排队任务。
+- `mirror-repository.yml` 在推送、每 30 分钟的定时任务，以及上述四个工作流任意一次运行结束后（不论结论，因为一次运行可能先推送再失败）
   把公开仓库的分支与标签同步到 GitCode 上的同名镜像。
 - 推送被拒绝时**不执行 rebase**。索引按提交 sha 指向码文件，rebase 会改写该提交，因此每次重试都从最新的 main 重新判定、
   重新生成两个提交，最多 5 次；仍失败则回复并转交维护者。
@@ -473,6 +478,8 @@ gh label create community-content --repo Harendotes-Tang/MentorRecorder-Calibrat
 gh label create community-published --repo Harendotes-Tang/MentorRecorder-Calibrations
 gh label create community-failed --repo Harendotes-Tang/MentorRecorder-Calibrations
 gh label create community-classification --repo Harendotes-Tang/MentorRecorder-Calibrations
+gh label create community-duplicate --repo Harendotes-Tang/MentorRecorder-Calibrations
+gh label create community-similar --repo Harendotes-Tang/MentorRecorder-Calibrations
 ```
 
 [部署与联调说明](../../docs/duty-community.md)
