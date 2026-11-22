@@ -5957,10 +5957,6 @@ SHA256：%3</translation>
         <translation>言語</translation>
     </message>
     <message>
-        <source>角色</source>
-        <translation>キャラクター</translation>
-    </message>
-    <message>
         <source>适用版本</source>
         <translation>対応バージョン</translation>
     </message>
@@ -6088,6 +6084,10 @@ SHA256：%3</translation>
         <source>删除</source>
         <translation>削除</translation>
     </message>
+    <message>
+        <source>职业</source>
+        <translation>ジョブ</translation>
+    </message>
 </context>
 <context>
     <name>DutyCommunityDialog</name>
@@ -6106,26 +6106,6 @@ SHA256：%3</translation>
     <message>
         <source>记下这个副本要注意的事</source>
         <translation>このコンテンツで気をつけることのメモ</translation>
-    </message>
-    <message>
-        <source>大家好～不熟悉机制的话可以说一声，需要的话我会简单说明。</source>
-        <translation>こんにちは！ギミックが不安でしたら、簡単に説明しますので声をかけてください。</translation>
-    </message>
-    <message>
-        <source>等大家看完动画再开，先准备一下。</source>
-        <translation>ムービーが終わるまで待ってから始めましょう。</translation>
-    </message>
-    <message>
-        <source>我是中途加入的，现在进度到哪里？有什么需要先说明的吗？</source>
-        <translation>途中参加です。今はどこまで進んでいますか？先に確認しておくことはありますか？</translation>
-    </message>
-    <message>
-        <source>先停一下，我补充一下刚才的机制，说明后再开。</source>
-        <translation>少し待ってください。さっきのギミックを説明してから再開しましょう。</translation>
-    </message>
-    <message>
-        <source>辛苦了，谢谢大家！</source>
-        <translation>お疲れさまでした。ありがとうございました！</translation>
     </message>
     <message>
         <source>副本提醒与导随宏</source>
@@ -6467,6 +6447,50 @@ SHA256：%3</translation>
         <source>应用更新并保留我的修改</source>
         <translation>個人の変更を残して更新</translation>
     </message>
+    <message>
+        <source>不限</source>
+        <translation>指定なし</translation>
+    </message>
+    <message>
+        <source>返回列表</source>
+        <translation>一覧に戻る</translation>
+    </message>
+    <message>
+        <source>实盾姿</source>
+        <translation>スタンスON</translation>
+    </message>
+    <message>
+        <source>单点攻击</source>
+        <translation>集中攻撃</translation>
+    </message>
+    <message>
+        <source>无敌提醒宏</source>
+        <translation>無敵予告マクロ</translation>
+    </message>
+    <message>
+        <source>OT宏</source>
+        <translation>OTマクロ</translation>
+    </message>
+    <message>
+        <source>禁止攻击宏</source>
+        <translation>攻撃禁止マクロ</translation>
+    </message>
+    <message>
+        <source>辛苦宏</source>
+        <translation>お疲れさまマクロ</translation>
+    </message>
+    <message>
+        <source>到 %1</source>
+        <translation>%1 まで</translation>
+    </message>
+    <message>
+        <source>%1 → 最新</source>
+        <translation>%1 → 最新</translation>
+    </message>
+    <message>
+        <source>、</source>
+        <translation>、</translation>
+    </message>
 </context>
 <context>
     <name>DutyCommunityEditor</name>
@@ -6504,23 +6528,15 @@ SHA256：%3</translation>
     </message>
     <message>
         <source>当前副本</source>
-        <translation>コンテンツ</translation>
+        <translation>現在のコンテンツ</translation>
     </message>
     <message>
         <source>通用</source>
         <translation>一般</translation>
     </message>
     <message>
-        <source>改为通用</source>
-        <translation>汎用にする</translation>
-    </message>
-    <message>
         <source>搜索副本名称</source>
         <translation>コンテンツ名を検索</translation>
-    </message>
-    <message>
-        <source>选择副本</source>
-        <translation>コンテンツを選択</translation>
     </message>
     <message>
         <source>标题</source>
@@ -6535,28 +6551,12 @@ SHA256：%3</translation>
         <translation>タイトルを入力してください</translation>
     </message>
     <message>
-        <source>BOSS（可不填）</source>
-        <translation>ボス（任意）</translation>
-    </message>
-    <message>
-        <source>阶段（可不填）</source>
-        <translation>フェーズ（任意）</translation>
-    </message>
-    <message>
         <source>区服</source>
         <translation>リージョン</translation>
     </message>
     <message>
         <source>语言</source>
         <translation>言語</translation>
-    </message>
-    <message>
-        <source>例如：BOSS 2、尾王</source>
-        <translation>例：ボス 2、ラスボス</translation>
-    </message>
-    <message>
-        <source>例如：转场</source>
-        <translation>例：フェーズ移行</translation>
     </message>
     <message>
         <source>宏内容</source>
@@ -6591,38 +6591,6 @@ SHA256：%3</translation>
         <translation>%1 / 15 行</translation>
     </message>
     <message>
-        <source>角色</source>
-        <translation>キャラクター</translation>
-    </message>
-    <message>
-        <source>适用游戏版本</source>
-        <translation>対象ゲームバージョン</translation>
-    </message>
-    <message>
-        <source>显示顺序</source>
-        <translation>表示順</translation>
-    </message>
-    <message>
-        <source>收藏</source>
-        <translation>お気に入り</translation>
-    </message>
-    <message>
-        <source>标签，以逗号分隔</source>
-        <translation>タグ（カンマ区切り）</translation>
-    </message>
-    <message>
-        <source>来源</source>
-        <translation>記録元</translation>
-    </message>
-    <message>
-        <source>关联的提醒</source>
-        <translation>関連するリマインダー</translation>
-    </message>
-    <message>
-        <source>关联的宏</source>
-        <translation>関連するマクロ</translation>
-    </message>
-    <message>
         <source>保存</source>
         <translation>保存</translation>
     </message>
@@ -6633,6 +6601,149 @@ SHA256：%3</translation>
     <message>
         <source>只保存在这台电脑上，投稿之后才会公开</source>
         <translation>この PC にのみ保存されます。投稿するまで公開されません</translation>
+    </message>
+    <message>
+        <source>不限</source>
+        <translation>指定なし</translation>
+    </message>
+    <message>
+        <source>小队频道</source>
+        <translation>パーティチャット</translation>
+    </message>
+    <message>
+        <source>这一行发到小队频道</source>
+        <translation>この行をパーティチャットに送ります</translation>
+    </message>
+    <message>
+        <source>只给自己看</source>
+        <translation>自分だけに表示</translation>
+    </message>
+    <message>
+        <source>这一行只有你自己看得到</source>
+        <translation>この行は自分にしか見えません</translation>
+    </message>
+    <message>
+        <source>提示音</source>
+        <translation>効果音</translation>
+    </message>
+    <message>
+        <source>数字 1–16 换不同的声音</source>
+        <translation>1〜16 の数字で音が変わります</translation>
+    </message>
+    <message>
+        <source>等几秒</source>
+        <translation>待機</translation>
+    </message>
+    <message>
+        <source>这一行发完，等 3 秒再发下一行</source>
+        <translation>この行のあと 3 秒待ってから次の行へ</translation>
+    </message>
+    <message>
+        <source>当前目标</source>
+        <translation>ターゲット</translation>
+    </message>
+    <message>
+        <source>换成你选中的目标的名字</source>
+        <translation>選択中のターゲットの名前に置き換わります</translation>
+    </message>
+    <message>
+        <source>插入</source>
+        <translation>挿入</translation>
+    </message>
+    <message>
+        <source>适用范围</source>
+        <translation>適用範囲</translation>
+    </message>
+    <message>
+        <source>都可以不填，不填就是都适用。</source>
+        <translation>すべて任意です。空欄ならすべてに適用されます。</translation>
+    </message>
+    <message>
+        <source>BOSS / 阶段</source>
+        <translation>ボス / フェーズ</translation>
+    </message>
+    <message>
+        <source>职业</source>
+        <translation>ジョブ</translation>
+    </message>
+    <message>
+        <source>游戏版本</source>
+        <translation>ゲームバージョン</translation>
+    </message>
+    <message>
+        <source>开始版本</source>
+        <translation>開始バージョン</translation>
+    </message>
+    <message>
+        <source>结束版本</source>
+        <translation>終了バージョン</translation>
+    </message>
+    <message>
+        <source>开始版本不能晚于结束版本</source>
+        <translation>開始バージョンは終了バージョンより前にしてください</translation>
+    </message>
+    <message>
+        <source>原来写的是「%1」</source>
+        <translation>元の記入：「%1」</translation>
+    </message>
+    <message>
+        <source>清除</source>
+        <translation>クリア</translation>
+    </message>
+    <message>
+        <source>没有找到这个副本</source>
+        <translation>該当するコンテンツがありません</translation>
+    </message>
+    <message>
+        <source>例如：BOSS 2、尾王、转场</source>
+        <translation>例：ボス 2、ラスボス、フェーズ移行</translation>
+    </message>
+    <message>
+        <source>BOSS / 阶段最多 80 个字</source>
+        <translation>ボス / フェーズは 80 文字までです。</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunityJobPicker</name>
+    <message>
+        <source>职业：%1</source>
+        <translation>ジョブ：%1</translation>
+    </message>
+    <message>
+        <source>职业</source>
+        <translation>ジョブ</translation>
+    </message>
+    <message>
+        <source>已选 %1 项</source>
+        <translation>%1 件選択中</translation>
+    </message>
+    <message>
+        <source>按职能分组</source>
+        <translation>ロール別</translation>
+    </message>
+    <message>
+        <source>搜索职业或缩写</source>
+        <translation>ジョブ名・略称で検索</translation>
+    </message>
+    <message>
+        <source>全选「%1」</source>
+        <translation>%1をすべて選択</translation>
+    </message>
+    <message>
+        <source>没有匹配的职业</source>
+        <translation>一致するジョブはありません</translation>
+    </message>
+    <message>
+        <source>选整个职能时，以后新增的职业也算在内</source>
+        <translation>ロール単位で選ぶと、今後追加されるジョブも含まれます</translation>
+    </message>
+    <message>
+        <source>完成</source>
+        <translation>完了</translation>
+    </message>
+    <message>
+        <source>清空</source>
+        <translation>クリア</translation>
     </message>
 </context>
 <context>

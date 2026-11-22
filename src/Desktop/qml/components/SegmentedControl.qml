@@ -4,10 +4,12 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import MentorRecorder 1.0
+import "Lucide.js" as Lucide
 
 // `.seg` / `.seg-opt`: an inset track of radio-like options. Classic uses the
 // workbench fill track with 2 px padding; the chosen option is a surface chip
-// (dark: fill-2) with a divider ring and accent text at 600.
+// (dark: fill-2) with a divider ring and accent text at 600. An option may carry
+// a Lucide `icon` drawn before its label in the label's colour.
 Rectangle {
     id: root
 
@@ -116,25 +118,46 @@ Rectangle {
                     }
                 }
 
-                contentItem: Text {
+                readonly property color ink: {
+                    if (!option.current)
+                        return option.hovered ? Theme.textPrimary : Theme.textSecondary
+                    if (!Theme.eorzea)
+                        return Theme.accent
+                    return Theme.tabActiveText
+                }
+
+                contentItem: Item {
+                    implicitWidth: optionFace.implicitWidth
+                    implicitHeight: optionFace.implicitHeight
                     scale: option.visualScale
-                    text: option.text
-                    color: {
-                        if (!option.current)
-                            return option.hovered ? Theme.textPrimary : Theme.textSecondary
-                        if (!Theme.eorzea)
-                            return Theme.accent
-                        return Theme.tabActiveText
+
+                    Row {
+                        id: optionFace
+                        anchors.centerIn: parent
+                        spacing: 5
+
+                        Image {
+                            visible: !!option.modelData.icon
+                            width: 13
+                            height: 13
+                            anchors.verticalCenter: parent.verticalCenter
+                            source: option.modelData.icon ? Lucide.source(option.modelData.icon, option.ink) : ""
+                            sourceSize: Qt.size(26, 26)
+                        }
+                        Text {
+                            text: option.text
+                            color: option.ink
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            // An option may name its own face (the language card draws
+                            // 繁體中文 / 日本語 in their own shapes); the rest keep the body font.
+                            font.family: option.modelData.family || Theme.bodyFamily
+                            font.pixelSize: Theme.eorzea ? 12 : 13
+                            font.weight: option.current
+                                         ? (Theme.eorzea ? Font.Bold : Font.DemiBold)
+                                         : Font.Normal
+                        }
                     }
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    // An option may name its own face (the language card draws
-                    // 繁體中文 / 日本語 in their own shapes); the rest keep the body font.
-                    font.family: option.modelData.family || Theme.bodyFamily
-                    font.pixelSize: Theme.eorzea ? 12 : 13
-                    font.weight: option.current
-                                 ? (Theme.eorzea ? Font.Bold : Font.DemiBold)
-                                 : Font.Normal
                 }
 
                 onClicked: {

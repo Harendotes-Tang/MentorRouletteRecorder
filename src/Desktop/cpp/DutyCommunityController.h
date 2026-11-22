@@ -20,7 +20,6 @@ public:
     Q_INVOKABLE bool openGuide(const QVariantMap &run) const;
     Q_INVOKABLE QVariantMap dutyIdentity(const QVariantMap &run) const;
     Q_INVOKABLE QString newId() const;
-    Q_INVOKABLE QVariantList findDuties(const QString &region, const QString &query) const;
     Q_INVOKABLE void request(int ticket, const QString &action, const QVariantMap &payload = {});
     Q_INVOKABLE QString exportFile(const QVariantList &items) const;
     Q_INVOKABLE QVariantMap pickImport() const;

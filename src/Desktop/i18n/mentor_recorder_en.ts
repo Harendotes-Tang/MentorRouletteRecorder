@@ -5957,10 +5957,6 @@ SHA256: %3</translation>
         <translation>Language</translation>
     </message>
     <message>
-        <source>角色</source>
-        <translation>Character</translation>
-    </message>
-    <message>
         <source>适用版本</source>
         <translation>Game version</translation>
     </message>
@@ -6088,6 +6084,10 @@ SHA256: %3</translation>
         <source>删除</source>
         <translation>Delete</translation>
     </message>
+    <message>
+        <source>职业</source>
+        <translation>Job</translation>
+    </message>
 </context>
 <context>
     <name>DutyCommunityDialog</name>
@@ -6106,26 +6106,6 @@ SHA256: %3</translation>
     <message>
         <source>记下这个副本要注意的事</source>
         <translation>Note what to watch for in this duty</translation>
-    </message>
-    <message>
-        <source>大家好～不熟悉机制的话可以说一声，需要的话我会简单说明。</source>
-        <translation>Hi! Let me know if you're new to the mechanics. I can explain.</translation>
-    </message>
-    <message>
-        <source>等大家看完动画再开，先准备一下。</source>
-        <translation>Let's wait for everyone to finish the cutscene before we pull.</translation>
-    </message>
-    <message>
-        <source>我是中途加入的，现在进度到哪里？有什么需要先说明的吗？</source>
-        <translation>I joined in progress. Where are we, and is there anything to go over first?</translation>
-    </message>
-    <message>
-        <source>先停一下，我补充一下刚才的机制，说明后再开。</source>
-        <translation>Let's pause. I'll explain that mechanic before the next pull.</translation>
-    </message>
-    <message>
-        <source>辛苦了，谢谢大家！</source>
-        <translation>Thanks for the run, everyone!</translation>
     </message>
     <message>
         <source>副本提醒与导随宏</source>
@@ -6467,6 +6447,50 @@ SHA256: %3</translation>
         <source>应用更新并保留我的修改</source>
         <translation>Apply update and keep my changes</translation>
     </message>
+    <message>
+        <source>不限</source>
+        <translation>Any</translation>
+    </message>
+    <message>
+        <source>返回列表</source>
+        <translation>Back to the list</translation>
+    </message>
+    <message>
+        <source>实盾姿</source>
+        <translation>Tank stance</translation>
+    </message>
+    <message>
+        <source>单点攻击</source>
+        <translation>Focus target</translation>
+    </message>
+    <message>
+        <source>无敌提醒宏</source>
+        <translation>Invuln callout</translation>
+    </message>
+    <message>
+        <source>OT宏</source>
+        <translation>OT macro</translation>
+    </message>
+    <message>
+        <source>禁止攻击宏</source>
+        <translation>Don't-attack macro</translation>
+    </message>
+    <message>
+        <source>辛苦宏</source>
+        <translation>Thanks macro</translation>
+    </message>
+    <message>
+        <source>到 %1</source>
+        <translation>Up to %1</translation>
+    </message>
+    <message>
+        <source>%1 → 最新</source>
+        <translation>%1 → latest</translation>
+    </message>
+    <message>
+        <source>、</source>
+        <translation>, </translation>
+    </message>
 </context>
 <context>
     <name>DutyCommunityEditor</name>
@@ -6504,23 +6528,15 @@ SHA256: %3</translation>
     </message>
     <message>
         <source>当前副本</source>
-        <translation>Duty</translation>
+        <translation>Current duty</translation>
     </message>
     <message>
         <source>通用</source>
         <translation>General</translation>
     </message>
     <message>
-        <source>改为通用</source>
-        <translation>Make general</translation>
-    </message>
-    <message>
         <source>搜索副本名称</source>
         <translation>Search duty name</translation>
-    </message>
-    <message>
-        <source>选择副本</source>
-        <translation>Choose a duty</translation>
     </message>
     <message>
         <source>标题</source>
@@ -6535,28 +6551,12 @@ SHA256: %3</translation>
         <translation>Enter a title</translation>
     </message>
     <message>
-        <source>BOSS（可不填）</source>
-        <translation>Boss (optional)</translation>
-    </message>
-    <message>
-        <source>阶段（可不填）</source>
-        <translation>Phase (optional)</translation>
-    </message>
-    <message>
         <source>区服</source>
         <translation>Server region</translation>
     </message>
     <message>
         <source>语言</source>
         <translation>Language</translation>
-    </message>
-    <message>
-        <source>例如：BOSS 2、尾王</source>
-        <translation>e.g. Boss 2, final boss</translation>
-    </message>
-    <message>
-        <source>例如：转场</source>
-        <translation>e.g. transition</translation>
     </message>
     <message>
         <source>宏内容</source>
@@ -6591,38 +6591,6 @@ SHA256: %3</translation>
         <translation>%1 / 15 lines</translation>
     </message>
     <message>
-        <source>角色</source>
-        <translation>Character</translation>
-    </message>
-    <message>
-        <source>适用游戏版本</source>
-        <translation>Applicable game version</translation>
-    </message>
-    <message>
-        <source>显示顺序</source>
-        <translation>Display order</translation>
-    </message>
-    <message>
-        <source>收藏</source>
-        <translation>Favorites</translation>
-    </message>
-    <message>
-        <source>标签，以逗号分隔</source>
-        <translation>Tags, comma-separated</translation>
-    </message>
-    <message>
-        <source>来源</source>
-        <translation>Source</translation>
-    </message>
-    <message>
-        <source>关联的提醒</source>
-        <translation>Linked reminders</translation>
-    </message>
-    <message>
-        <source>关联的宏</source>
-        <translation>Linked macros</translation>
-    </message>
-    <message>
         <source>保存</source>
         <translation>Save</translation>
     </message>
@@ -6633,6 +6601,149 @@ SHA256: %3</translation>
     <message>
         <source>只保存在这台电脑上，投稿之后才会公开</source>
         <translation>Saved on this computer only; public only after you submit it</translation>
+    </message>
+    <message>
+        <source>不限</source>
+        <translation>Any</translation>
+    </message>
+    <message>
+        <source>小队频道</source>
+        <translation>Party chat</translation>
+    </message>
+    <message>
+        <source>这一行发到小队频道</source>
+        <translation>Sends this line to party chat</translation>
+    </message>
+    <message>
+        <source>只给自己看</source>
+        <translation>Echo (only you)</translation>
+    </message>
+    <message>
+        <source>这一行只有你自己看得到</source>
+        <translation>Only you can see this line</translation>
+    </message>
+    <message>
+        <source>提示音</source>
+        <translation>Sound effect</translation>
+    </message>
+    <message>
+        <source>数字 1–16 换不同的声音</source>
+        <translation>Change the number (1–16) for a different sound</translation>
+    </message>
+    <message>
+        <source>等几秒</source>
+        <translation>Wait</translation>
+    </message>
+    <message>
+        <source>这一行发完，等 3 秒再发下一行</source>
+        <translation>Waits 3 seconds before the next line</translation>
+    </message>
+    <message>
+        <source>当前目标</source>
+        <translation>Current target</translation>
+    </message>
+    <message>
+        <source>换成你选中的目标的名字</source>
+        <translation>Replaced with your target's name</translation>
+    </message>
+    <message>
+        <source>插入</source>
+        <translation>Insert</translation>
+    </message>
+    <message>
+        <source>适用范围</source>
+        <translation>Applies to</translation>
+    </message>
+    <message>
+        <source>都可以不填，不填就是都适用。</source>
+        <translation>All optional. Leave blank to apply everywhere.</translation>
+    </message>
+    <message>
+        <source>BOSS / 阶段</source>
+        <translation>Boss / phase</translation>
+    </message>
+    <message>
+        <source>职业</source>
+        <translation>Job</translation>
+    </message>
+    <message>
+        <source>游戏版本</source>
+        <translation>Game version</translation>
+    </message>
+    <message>
+        <source>开始版本</source>
+        <translation>Starting version</translation>
+    </message>
+    <message>
+        <source>结束版本</source>
+        <translation>Ending version</translation>
+    </message>
+    <message>
+        <source>开始版本不能晚于结束版本</source>
+        <translation>The starting version can't be later than the ending one</translation>
+    </message>
+    <message>
+        <source>原来写的是「%1」</source>
+        <translation>Previously written: “%1”</translation>
+    </message>
+    <message>
+        <source>清除</source>
+        <translation>Clear</translation>
+    </message>
+    <message>
+        <source>没有找到这个副本</source>
+        <translation>No duty found</translation>
+    </message>
+    <message>
+        <source>例如：BOSS 2、尾王、转场</source>
+        <translation>e.g. Boss 2, final boss, transition</translation>
+    </message>
+    <message>
+        <source>BOSS / 阶段最多 80 个字</source>
+        <translation>Boss / phase can be at most 80 characters.</translation>
+    </message>
+</context>
+<context>
+    <name>DutyCommunityJobPicker</name>
+    <message>
+        <source>职业：%1</source>
+        <translation>Job: %1</translation>
+    </message>
+    <message>
+        <source>职业</source>
+        <translation>Job</translation>
+    </message>
+    <message>
+        <source>已选 %1 项</source>
+        <translation>%1 selected</translation>
+    </message>
+    <message>
+        <source>按职能分组</source>
+        <translation>Grouped by role</translation>
+    </message>
+    <message>
+        <source>搜索职业或缩写</source>
+        <translation>Search job or abbreviation</translation>
+    </message>
+    <message>
+        <source>全选「%1」</source>
+        <translation>Select all %1</translation>
+    </message>
+    <message>
+        <source>没有匹配的职业</source>
+        <translation>No matching jobs</translation>
+    </message>
+    <message>
+        <source>选整个职能时，以后新增的职业也算在内</source>
+        <translation>Picking a whole role also covers jobs added later</translation>
+    </message>
+    <message>
+        <source>完成</source>
+        <translation>Done</translation>
+    </message>
+    <message>
+        <source>清空</source>
+        <translation>Clear</translation>
     </message>
 </context>
 <context>

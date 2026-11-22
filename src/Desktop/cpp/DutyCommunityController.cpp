@@ -91,27 +91,6 @@ bool DutyCommunityController::openGuide(const QVariantMap &run) const
 QVariantMap DutyCommunityController::dutyIdentity(const QVariantMap &run) const { return identity(run); }
 QString DutyCommunityController::newId() const { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
 
-QVariantList DutyCommunityController::findDuties(const QString &region, const QString &query) const
-{
-    const auto term = query.trimmed();
-    if (term.isEmpty())
-        return {};
-    QVariantList matches;
-    const auto duties = DutyCatalog::shared()->allDuties(region == QLatin1String("ALL") ? QStringLiteral("CN") : region);
-    for (const auto &duty : duties) {
-        const auto row = duty.toMap();
-        const auto id = row.value(QStringLiteral("content_id")).toString();
-        const auto name = row.value(QStringLiteral("duty_name")).toString();
-        if (id != term && !name.contains(term, Qt::CaseInsensitive))
-            continue;
-        matches.append(QVariantMap{{QStringLiteral("content_id"), row.value(QStringLiteral("content_id"))},
-            {QStringLiteral("label"), name + QStringLiteral(" · ") + id}});
-        if (matches.size() == 25)
-            break;
-    }
-    return matches;
-}
-
 void DutyCommunityController::request(int ticket, const QString &action, const QVariantMap &payload)
 {
     if (!m_backend) {

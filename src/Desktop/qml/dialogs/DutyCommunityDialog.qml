@@ -94,13 +94,46 @@ MotionDialog {
         return Object.keys(counts).sort((a, b) => counts[b] - counts[a] || a.localeCompare(b))
                      .map(value => ({ value: value, label: value, sub: "", count: counts[value] }))
     }
+    // The owner's macros (2026-11-22), as written for the CN client. The macro text is not
+    // translated: /micon and /marking take names in the client's own language. The Collector
+    // refuses more than 15 lines or a line over 180 UTF-8 bytes; a test holds every example to it.
     readonly property var examples: [
-        qsTr("大家好～不熟悉机制的话可以说一声，需要的话我会简单说明。"),
-        qsTr("等大家看完动画再开，先准备一下。"),
-        qsTr("我是中途加入的，现在进度到哪里？有什么需要先说明的吗？"),
-        qsTr("先停一下，我补充一下刚才的机制，说明后再开。"),
-        qsTr("辛苦了，谢谢大家！")
+        { title: qsTr("实盾姿"), body: [
+            "/micon 守护",
+            "/p 请开启盾姿：钢铁信念（剑术师/骑士）守护（斧术师/战士）深恶痛绝（暗黑骑士）王室亲卫（绝枪战士）<se.2>"
+        ].join("\n") },
+        { title: qsTr("单点攻击"), body: [
+            "/marking 攻击1 <t>",
+            "/p 请各位集中攻击<attack1>！！<se.1>"
+        ].join("\n") },
+        { title: qsTr("无敌提醒宏"), body: [
+            "/micon 神圣领域",
+            "/p 我将使用无敌，接下来10s内不需要进行过多治疗。<se.2><se.2>"
+        ].join("\n") },
+        { title: qsTr("OT宏"), body: [
+            "/p ｡ 　　 ∧＿∧｡ﾟ  <se.1>",
+            "/p  ﾟ 　(ﾟ ´Д｀ﾟ)っﾟ<se.2>",
+            "/p  　　(つ　　/",
+            "/p  　 　| （⌒）  <se.3>",
+            "/p  　　 し ⌒  <se.4>",
+            "/p 有怪在扒拉我！好痛！！ <se.1>",
+            "/p 有怪在扒拉我！！  <se.2>",
+            "/p 有怪在扒拉我！！  <se.3>"
+        ].join("\n") },
+        { title: qsTr("禁止攻击宏"), body: [
+            "/marking 禁止1 <t> ",
+            "/party 请不要攻击<禁止1> <se.1>"
+        ].join("\n") },
+        { title: qsTr("辛苦宏"), body: [
+            "/p    ／l、",
+            "/p （°、。７    <se.2>",
+            "/p    l、 ~ ヽ",
+            "/p   じしf_, )ノ",
+            "/p 辛苦了嗷♡ <se.2>"
+        ].join("\n") }
     ]
+    /// The line a card or a menu row shows for a macro of several lines.
+    function firstLine(text) { return String(text || "").split("\n")[0] }
 
     title: qsTr("副本提醒与导随宏")
     modal: true
@@ -115,6 +148,13 @@ MotionDialog {
     closePolicy: mode === "view" ? Popup.CloseOnEscape : Popup.NoAutoClose
     background: DialogFrame {}
     Overlay.modal: Rectangle { color: Theme.modalScrim(root.palette.shadow) }
+    // Ctrl + S saves the form (Design: Ctrl + S 保存), wherever in the dialog the focus is.
+    Shortcut {
+        objectName: "dutyCommunitySaveShortcut"
+        sequences: [StandardKey.Save]
+        enabled: root.opened && root.editing
+        onActivated: editor.save()
+    }
 
     // ------------------------------------------------------------ filters --
     function matches(row, skip) {
@@ -129,7 +169,7 @@ MotionDialog {
         const term = query.trim().toLowerCase()
         if (!term) return true
         const author = item.author || (row.upstream && row.upstream.author) || ({})
-        return [item.title, item.body, item.boss, item.phase, item.role, item.content_id,
+        return [item.title, item.body, item.boss, item.phase, item.role, jobsLabel(item.role), item.content_id,
                 item.content_id ? Theme.dutyName(item) : "", author.login].concat(item.tags)
             .join(" ").toLowerCase().includes(term)
     }
@@ -164,6 +204,92 @@ MotionDialog {
     }
     function stageLabel(item) {
         return [item.boss, item.phase].filter(value => value).join(" · ")
+    }
+    // 适用游戏版本 is a range kept in the content's one text field: "6.0-7.3", "-6.0" (up to
+    // 6.0), "7.3-" (7.3 to the latest); a version alone is that version only. Anything else
+    // was written by hand and is shown as it is.
+    function versionRange(value) {
+        const text = String(value || "").trim()
+        const range = /^([0-9][0-9.]*)?\s*-\s*([0-9][0-9.]*)?$/.exec(text)
+        if (range) return { from: range[1] || "", to: range[2] || "" }
+        return /^[0-9][0-9.]*$/.test(text) ? { from: text, to: text } : null
+    }
+    function versionValue(from, to) {
+        const first = from.trim().replace(/\.$/, ""), last = to.trim().replace(/\.$/, "")
+        return first && first === last ? first : (first || last ? first + "-" + last : "")
+    }
+    function versionLabel(value) {
+        const range = versionRange(value)
+        if (!range) return String(value || "")
+        if (range.from && range.from === range.to) return range.from
+        if (range.from && range.to) return range.from + " → " + range.to
+        if (range.to) return qsTr("到 %1").arg(range.to)
+        return range.from ? qsTr("%1 → 最新").arg(range.from) : ""
+    }
+    // 职业 of a macro (Design artifact, 职业怎么存): a whole 职能 is kept as the group itself, so
+    // jobs the game adds later count too; single jobs as their abbreviations. Both go into the
+    // content's free-text `role` field and read the same in every client: "TANK,BRD". Anything
+    // else there was written by hand and is shown as it is.
+    readonly property var roleGroupCodes: ({ "坦克": "TANK", "治疗": "HEALER", "近战": "MELEE",
+                                             "远程物理": "RANGED", "魔法": "CASTER" })
+    /// [{ code, label, token, jobs }] in the 职能 order of the history filters.
+    readonly property var jobGroups: {
+        const order = typeof Runtime.roles !== "undefined" ? Runtime.roles.roleGroups() : []
+        const jobs = typeof Runtime.jobs !== "undefined" ? Runtime.jobs.battleJobs() : []
+        return Theme.live(order.filter(group => !!roleGroupCodes[group]).map(group => ({
+            code: roleGroupCodes[group], label: Theme.roleGroupName(group),
+            token: Runtime.jobs.tokenForRoleGroup(group), jobs: jobs.filter(job => job.role_group === group)
+        })).filter(group => group.jobs.length > 0))
+    }
+    // Built once: search calls jobsLabel for every row on every keystroke.
+    readonly property var jobsByCode: {
+        const map = ({})
+        if (typeof Runtime.jobs !== "undefined")
+            for (const job of Runtime.jobs.battleJobs()) map[job.abbreviation] = job
+        return map
+    }
+    function jobCodes(value) {
+        const text = String(value || "").trim()
+        if (!text) return []
+        const codes = text.split(",").map(code => code.trim())
+        return codes.every(code => !!jobsByCode[code] || jobGroups.some(group => group.code === code)) ? codes : null
+    }
+    // A 职能 whose jobs are all chosen becomes the group; the catalogue's order throughout, so
+    // one choice is always written the same way.
+    function normalizeJobs(codes) {
+        let out = []
+        for (const group of jobGroups) {
+            const own = group.jobs.map(job => job.abbreviation)
+            if (codes.includes(group.code) || own.every(code => codes.includes(code)))
+                out.push(group.code)
+            else
+                out = out.concat(own.filter(code => codes.includes(code)))
+        }
+        return out
+    }
+    /// 不限, or the 职能 and job names, the first `max` of them (all when 0) and "+N".
+    function jobsSummary(codes, max) {
+        if (!codes || codes.length === 0) return qsTr("不限")
+        const names = codes.map(code => {
+            const group = jobGroups.find(entry => entry.code === code)
+            return group ? group.label : Theme.jobName(jobsByCode[code])
+        })
+        const separator = qsTr("、")
+        return !max || names.length <= max ? names.join(separator)
+                                           : names.slice(0, max).join(separator) + " +" + (names.length - max)
+    }
+    function jobsLabel(value) {
+        const codes = jobCodes(value)
+        return codes === null ? String(value || "") : codes.length > 0 ? jobsSummary(codes, 0) : ""
+    }
+    // 游戏版本 offers the patches, x.0 to x.5 of each expansion, newest first (Design: 只能选已有
+    // 的版本号). The game data has no patch list, so a new expansion adds a row here.
+    readonly property var gameVersions: {
+        const out = []
+        for (let major = 7; major >= 2; --major)
+            for (let minor = 5; minor >= 0; --minor)
+                out.push(major + "." + minor)
+        return out
     }
     function isInstalled(id) {
         return localRows.some(row => row.content.id === id || (row.upstream && row.upstream.id === id))
@@ -274,7 +400,8 @@ MotionDialog {
 
     function blankItem(type) {
         return { schema_version: 1, id: service.newId(), type: type,
-            content_id: inDuty ? duty.content_id : 0, region: inDuty ? duty.region : "ALL",
+            // 全部区服 unless chosen (Design: 区服默认「全部区服」); the duty still defaults to the current one.
+            content_id: inDuty ? duty.content_id : 0, region: "ALL",
             language: defaultLanguage(), title: "", body: "", boss: "", phase: "", role: "", tags: [],
             game_version: "", links: [], source: "" }
     }
@@ -288,8 +415,8 @@ MotionDialog {
         }
         startEdit({ content: item, revision: 0, position: 0, favorite: false })
     }
-    function editExample(text) {
-        const item = Object.assign(blankItem("macro"), { content_id: 0, region: "ALL", title: text, body: "/p " + text })
+    function editExample(example) {
+        const item = Object.assign(blankItem("macro"), { content_id: 0, region: "ALL", title: example.title, body: example.body })
         startEdit({ content: item, revision: 0, position: 0, favorite: false })
     }
     function startEdit(row) {
@@ -484,9 +611,13 @@ MotionDialog {
             source: Lucide.source(blank.iconName, Theme.textMuted)
             sourceSize: Qt.size(60, 60)
         }
+        // Filling the width lets the column stretch the blank state; otherwise it is only as
+        // wide as its widest line and sits at the column's left edge.
         Text {
             renderType: Theme.bodyRenderType
-            Layout.alignment: Qt.AlignHCenter
+            Layout.fillWidth: true
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.Wrap
             text: blank.heading
             color: Theme.textPrimary
             font.pixelSize: Theme.fs(16)
@@ -505,7 +636,10 @@ MotionDialog {
         }
     }
 
-    readonly property bool onboarding: !remote && localRows.length === 0 && mode !== "edit"
+    // Creating or editing takes the whole dialog (Design artifact, 新建宏): the tabs, filters,
+    // list and 投稿进度 step aside until the form is saved or left.
+    readonly property bool editing: mode === "edit"
+    readonly property bool onboarding: !remote && localRows.length === 0 && !editing
     readonly property bool publicBlank: remote && publicRows.length === 0
 
     contentItem: ColumnLayout {
@@ -521,13 +655,44 @@ MotionDialog {
 
             Text {
                 renderType: Theme.bodyRenderType
+                visible: !root.editing
                 text: root.title
                 color: Theme.textPrimary
                 font.pixelSize: Theme.dialogTitleSize(18)
                 font.bold: true
             }
+            // While editing: 「← 副本提醒与导随宏 / 新建宏」; the first half goes back to the list.
+            RowLayout {
+                visible: root.editing
+                spacing: 6
+                AppButton {
+                    objectName: "dutyCommunityBack"
+                    variant: "ghost"
+                    compact: true
+                    iconName: "chevron-left"
+                    text: root.title
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("返回列表")
+                    onClicked: editor.cancelled()
+                }
+                Text {
+                    renderType: Theme.bodyRenderType
+                    text: "/"
+                    color: Theme.textSecondary
+                    opacity: 0.55
+                }
+                Text {
+                    objectName: "dutyCommunityEditorHeading"
+                    renderType: Theme.bodyRenderType
+                    text: editor.heading
+                    color: Theme.textPrimary
+                    font.pixelSize: Theme.dialogTitleSize(18)
+                    font.bold: true
+                }
+            }
             SegmentedControl {
                 objectName: "dutyCommunityTabs"
+                visible: !root.editing
                 implicitWidth: naturalWidth
                 options: [
                     { value: "local", label: qsTr("本地") + "  " + root.localRows.length },
@@ -560,6 +725,7 @@ MotionDialog {
             Layout.leftMargin: 24
             Layout.rightMargin: 24
             Layout.bottomMargin: 12
+            visible: !root.editing
             store: root
         }
 
@@ -569,10 +735,22 @@ MotionDialog {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
+            DutyCommunityEditor {
+                id: editor
+                anchors.fill: parent
+                visible: root.editing
+                store: root
+                onSaved: value => {
+                    root.mode = "view"
+                    root.mutate("save", value, value.content.id)
+                }
+                onCancelled: root.mode = "view"
+            }
+
             RowLayout {
                 anchors.fill: parent
                 spacing: 0
-                visible: !root.onboarding && !root.publicBlank
+                visible: !root.onboarding && !root.publicBlank && !root.editing
 
                 DutyCommunityList {
                     Layout.fillWidth: false
@@ -596,17 +774,6 @@ MotionDialog {
                         anchors.fill: parent
                         visible: root.mode === "view"
                         store: root
-                    }
-                    DutyCommunityEditor {
-                        id: editor
-                        anchors.fill: parent
-                        visible: root.mode === "edit"
-                        store: root
-                        onSaved: value => {
-                            root.mode = "view"
-                            root.mutate("save", value, value.content.id)
-                        }
-                        onCancelled: root.mode = "view"
                     }
                     DutyCommunitySubmission {
                         id: submission
@@ -651,21 +818,22 @@ MotionDialog {
                 }
                 GridLayout {
                     Layout.fillWidth: true
-                    columns: 3
+                    // Up to three a row; fewer examples share the whole width.
+                    columns: Math.max(1, Math.min(3, root.examples.length))
                     columnSpacing: 10
                     rowSpacing: 10
                     Repeater {
                         model: root.examples
                         delegate: Button {
                             id: example
-                            required property string modelData
+                            required property var modelData
                             Layout.fillWidth: true
                             Layout.preferredWidth: 1
                             padding: 10
                             focusPolicy: Qt.StrongFocus
-                            Accessible.name: modelData
+                            Accessible.name: modelData.title
                             ToolTip.visible: hovered
-                            ToolTip.text: modelData
+                            ToolTip.text: modelData.body
                             onClicked: root.editExample(modelData)
                             background: InsetBox {
                                 border.width: 1
@@ -678,16 +846,19 @@ MotionDialog {
                                     renderType: Theme.bodyRenderType
                                     Layout.fillWidth: true
                                     elide: Text.ElideRight
-                                    text: example.modelData
+                                    textFormat: Text.PlainText
+                                    text: example.modelData.title
                                     color: Theme.textPrimary
                                     font.pixelSize: Theme.fs(13)
                                     font.weight: Font.DemiBold
                                 }
+                                // The macro as typed: <se.2> is a sound tag, not markup.
                                 Text {
                                     renderType: Theme.bodyRenderType
                                     Layout.fillWidth: true
                                     elide: Text.ElideRight
-                                    text: "/p " + example.modelData
+                                    textFormat: Text.PlainText
+                                    text: root.firstLine(example.modelData.body)
                                     color: Theme.textSecondary
                                     font.family: Theme.monoFamily
                                     font.pixelSize: Theme.fs(12)
@@ -727,7 +898,7 @@ MotionDialog {
             }
         }
 
-        Divider {}
+        Divider { visible: !root.editing }
 
         // 投稿进度: the Issue number is typed in; the state is shown in place.
         RowLayout {
@@ -736,6 +907,7 @@ MotionDialog {
             Layout.rightMargin: 24
             Layout.topMargin: 10
             Layout.bottomMargin: 10
+            visible: !root.editing
             spacing: 10
 
             Text {

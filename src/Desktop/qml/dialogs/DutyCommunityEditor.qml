@@ -4,10 +4,14 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MentorRecorder 1.0
 
-// The right pane of 副本提醒与导随宏 while creating or editing an entry. The form sits where the
-// entry is read, so nothing opens on top of the list.
+// The form of 副本提醒与导随宏 (Design artifact, 新建宏): it takes the whole dialog. On the left the
+// type, the title and the body; on the right one column, 适用范围, where nothing is required and
+// nothing filled in means everywhere. Ctrl + S saves; Esc, 取消 or the dialog's 「← 副本提醒与导随宏」
+// go back to the list unsaved. What the form does not show (tags, source, links, display order,
+// favourite) is saved as the entry has it.
 ColumnLayout {
     id: editor
+    objectName: "dutyCommunityEditor"
 
     required property var store
     property var row: null
@@ -15,15 +19,101 @@ ColumnLayout {
     property int dutyId: 0
     property bool titleMissing: false
     property bool bodyMissing: false
+    property bool stageTooLong: false
+    /// The version range as chosen: "" is 不限.
+    property string versionFrom: ""
+    property string versionTo: ""
+    /// What BOSS / 阶段, the version range and the jobs showed when the form opened; left alone,
+    /// the entry keeps what it had (boss and phase apart, a range as it was written).
+    property string loadedStage: ""
+    property string loadedFrom: ""
+    property string loadedTo: ""
+    property string loadedJobs: ""
+    /// The entry's 游戏版本 and 职业 as stored, kept while their fields stay as they opened. Text
+    /// written by hand (no range, no jobs) opens as empty fields, so it is shown under them and
+    /// can be cleared, which empties what is kept.
+    property string keptVersion: ""
+    property string keptRole: ""
+    /// 职业 of a macro: 职能 and job codes, none for every job.
+    property var jobs: []
     readonly property bool macro: type === "macro"
     readonly property bool fresh: !!row && row.revision === 0
-    readonly property int lineCount: bodyField.text.trim().length
-        ? bodyField.text.replace(/\s+$/, "").split("\n").length : 0
+    readonly property string heading: fresh ? (macro ? qsTr("新建宏") : qsTr("新建提醒"))
+                                            : (macro ? qsTr("编辑宏") : qsTr("编辑提醒"))
     readonly property var regionKeys: ["ALL", "CN", "TC", "GLOBAL"]
     readonly property string regionKey: regionKeys[Math.max(0, region.currentIndex)]
+    readonly property bool versionChanged: versionFrom !== loadedFrom || versionTo !== loadedTo
+    // Told at once (Design: 开始晚于结束时马上提示); a backwards range already stored does not stop
+    // other edits.
+    readonly property bool versionBackwards: versionChanged && versionFrom !== "" && versionTo !== ""
+                                             && parseFloat(versionFrom) > parseFloat(versionTo)
+    readonly property bool versionByHand: keptVersion !== "" && store.versionRange(keptVersion) === null
+    readonly property bool versionByHandShown: editor.versionByHand && !versionChanged
+    readonly property bool roleByHand: keptRole !== "" && store.jobCodes(keptRole) === null
+    readonly property int currentDuty: store.inDuty ? Number(store.duty.content_id) : 0
+    readonly property string dutyText: store.dutyLabel({ content_id: dutyId, region: regionKey })
+        + (dutyId > 0 && dutyId === currentDuty ? " · " + qsTr("当前副本") : "")
+    // 不限, the patches, and whatever the entry already names.
+    readonly property var versionOptions: {
+        const listed = store.gameVersions.slice()
+        for (const value of [loadedFrom, loadedTo])
+            if (value && !listed.includes(value))
+                listed.push(value)
+        listed.sort((a, b) => parseFloat(b) - parseFloat(a))
+        return [{ value: "", label: qsTr("不限") }].concat(listed.map(value => ({ value: value, label: value })))
+    }
+    // BOSS / 阶段 already written, this duty's first (Design: 从已有内容里给建议).
+    readonly property var stageSuggestions: {
+        const rows = store.localRows.filter(entry => entry.content.content_id === dutyId)
+            .concat(store.localRows.filter(entry => entry.content.content_id !== dutyId))
+        const out = []
+        for (const entry of rows) {
+            const label = store.stageLabel(entry.content)
+            if (label && !out.includes(label))
+                out.push(label)
+        }
+        return out
+    }
+    // 插入 (Design: 常用指令和占位符): commands start a line, placeholders go at the cursor.
+    readonly property var insertItems: [
+        { key: "party", code: "/p", command: true, label: qsTr("小队频道"), sub: qsTr("这一行发到小队频道") },
+        { key: "echo", code: "/e", command: true, label: qsTr("只给自己看"), sub: qsTr("这一行只有你自己看得到") },
+        { key: "sound", code: "<se.1>", command: false, label: qsTr("提示音"), sub: qsTr("数字 1–16 换不同的声音") },
+        { key: "wait", code: "<wait.3>", command: false, label: qsTr("等几秒"), sub: qsTr("这一行发完，等 3 秒再发下一行") },
+        { key: "target", code: "<t>", command: false, label: qsTr("当前目标"), sub: qsTr("换成你选中的目标的名字") }
+    ]
     signal saved(var value)
     signal cancelled()
     spacing: 0
+
+    // Esc leaves from anywhere in the form; an open list or panel takes it first and closes.
+    // Ctrl + S is the dialog's (DutyCommunityDialog), as a shortcut of the popup itself.
+    Keys.onEscapePressed: cancelled()
+
+    // 通用 and the duty the player is in first, then every duty of the server by type and level
+    // (Design: 其余按类型分组), narrowed to `term`. Built while the list is open only: a server
+    // has some 850 duties.
+    function dutyOptions(term) {
+        const order = ["四人迷宫", "讨伐歼灭战", "大型任务", "绝境战", "深层迷宫", "行会令", "任务战斗", "禁地探索"]
+        const rank = category => order.indexOf(category) < 0 ? order.length : order.indexOf(category)
+        const rows = Runtime.app.dutyChoicesForRegion(regionKey === "ALL" ? "CN" : regionKey)
+        const here = rows.find(duty => Number(duty.content_id) === currentDuty)
+        const top = [{ value: 0, label: qsTr("通用"), group: "" }]
+        if (here)
+            top.push({ value: currentDuty, label: Theme.dutyChoiceLabel(here) + " · " + qsTr("当前副本"), group: "" })
+        // An entry's duty the server's list does not hold is still offered, so it is never lost.
+        if (dutyId > 0 && dutyId !== currentDuty && !rows.some(duty => Number(duty.content_id) === dutyId))
+            top.push({ value: dutyId, label: dutyText, group: "" })
+        const rest = rows.filter(duty => Number(duty.content_id) !== currentDuty).sort((a, b) =>
+            rank(a.duty_category) - rank(b.duty_category)
+            || String(a.duty_category).localeCompare(String(b.duty_category))
+            || (a.duty_level || 0) - (b.duty_level || 0) || Number(a.content_id) - Number(b.content_id))
+        const all = top.concat(rest.map(duty => ({ value: Number(duty.content_id), label: Theme.dutyChoiceLabel(duty),
+                                                   group: Theme.categoryName(duty.duty_category) })))
+        const wanted = term.trim().toLowerCase()
+        return wanted ? all.filter(entry => entry.label.toLowerCase().includes(wanted) || String(entry.value) === wanted)
+                      : all
+    }
 
     function edit(value) {
         row = JSON.parse(JSON.stringify(value))
@@ -32,259 +122,539 @@ ColumnLayout {
         dutyId = item.content_id
         titleMissing = false
         bodyMissing = false
+        stageTooLong = false
         titleField.text = item.title
-        bodyField.text = item.body
-        findDuty.clear()
+        body.text = item.body
+        body.used = false
         region.currentIndex = Math.max(0, regionKeys.indexOf(item.region))
         language.currentIndex = Math.max(0, store.languageKeys.indexOf(item.language))
-        boss.text = item.boss
-        phase.text = item.phase
-        role.text = item.role
-        version.text = item.game_version
-        tags.text = item.tags.join(", ")
-        source.text = item.source
-        order.text = String(row.position)
-        favorite.checked = row.favorite
+        // Boss and phase share one field, joined as the list and the detail show them.
+        loadedStage = store.stageLabel(item)
+        stage.text = loadedStage
+        keptVersion = item.game_version
+        const range = store.versionRange(item.game_version) || { from: "", to: "" }
+        loadedFrom = range.from
+        loadedTo = range.to
+        versionFrom = range.from
+        versionTo = range.to
+        Qt.callLater(showVersions)
+        keptRole = item.role
+        jobs = store.jobCodes(item.role) || []
+        loadedJobs = jobs.join(",")
         titleField.forceActiveFocus()
     }
+    function showVersions() {
+        fromBox.currentIndex = Math.max(0, fromBox.indexOfValue(versionFrom))
+        toBox.currentIndex = Math.max(0, toBox.indexOfValue(versionTo))
+    }
 
+    // Only the title and the body are required (Design: 必填只有两项); a problem puts the cursor
+    // where it is.
     function save() {
         titleMissing = titleField.text.trim().length === 0
-        bodyMissing = bodyField.text.trim().length === 0
-        if (titleMissing || bodyMissing) return
+        bodyMissing = body.text.trim().length === 0
+        // An edited BOSS / 阶段 becomes the boss, which the Collector holds to 80 characters.
+        const stageChanged = stage.text !== loadedStage
+        stageTooLong = stageChanged && stage.text.trim().length > 80
+        if (titleMissing)
+            titleField.forceActiveFocus()
+        else if (bodyMissing)
+            body.area.forceActiveFocus()
+        else if (versionBackwards)
+            fromBox.forceActiveFocus()
+        else if (stageTooLong)
+            stage.forceActiveFocus()
+        if (titleMissing || bodyMissing || versionBackwards || stageTooLong)
+            return
         const item = row.content
+        // Only a macro chooses jobs; a reminder keeps whatever the entry had.
+        const jobsChanged = macro && jobs.join(",") !== loadedJobs
         const updated = Object.assign({}, item, {
             type: type, title: titleField.text,
-            body: bodyField.text === item.body.replace(/\r\n/g, "\n") ? item.body : bodyField.text,
+            body: body.text === item.body.replace(/\r\n/g, "\n") ? item.body : body.text,
             content_id: dutyId, region: regionKey, language: store.languageKeys[language.currentIndex],
-            boss: boss.text, phase: phase.text, role: role.text, game_version: version.text,
-            tags: tags.text.split(",").map(tag => tag.trim()).filter(tag => tag), source: source.text
+            boss: stageChanged ? stage.text.trim() : item.boss, phase: stageChanged ? "" : item.phase,
+            game_version: versionChanged ? store.versionValue(versionFrom, versionTo) : keptVersion,
+            role: jobsChanged ? jobs.join(",") : keptRole
         })
-        saved({ content: updated, revision: row.revision, position: Number(order.text) || 0, favorite: favorite.checked })
+        saved({ content: updated, revision: row.revision, position: row.position, favorite: row.favorite })
     }
 
     component Caption: Text {
         renderType: Theme.bodyRenderType
         color: Theme.textSecondary
-        font.pixelSize: Theme.fs(11)
+        font.pixelSize: Theme.fs(12)
     }
     component Problem: Text {
         renderType: Theme.bodyRenderType
         color: Theme.red
         font.pixelSize: Theme.fs(12)
     }
+    // A field of 适用范围: its name over its control.
+    component Field: ColumnLayout {
+        property alias label: fieldLabel.text
+        Layout.fillWidth: true
+        spacing: 4
+        Caption { id: fieldLabel }
+    }
+    // What the entry had written by hand where the form now offers a choice, and a way to drop it.
+    component ByHand: RowLayout {
+        id: byHand
+        property string value: ""
+        signal cleared()
+        Layout.fillWidth: true
+        spacing: 4
+        Caption {
+            Layout.fillWidth: true
+            elide: Text.ElideRight
+            textFormat: Text.PlainText
+            text: qsTr("原来写的是「%1」").arg(byHand.value)
+        }
+        AppButton {
+            compact: true
+            variant: "ghost"
+            text: qsTr("清除")
+            onClicked: byHand.cleared()
+        }
+    }
 
-    ScrollView {
-        id: scroller
+    RowLayout {
         Layout.fillWidth: true
         Layout.fillHeight: true
-        contentWidth: availableWidth
-        clip: true
+        spacing: 0
 
-        GridLayout {
-            width: scroller.availableWidth - 48
-            x: 24
-            columns: 4
-            columnSpacing: 12
-            rowSpacing: 4
+        // What the entry says.
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.leftMargin: 24
+            Layout.rightMargin: 24
+            Layout.topMargin: 18
+            Layout.bottomMargin: 16
+            spacing: 0
 
-            Text {
-                objectName: "dutyCommunityEditorHeading"
-                renderType: Theme.bodyRenderType
-                Layout.columnSpan: 4
-                Layout.topMargin: 18
-                Layout.bottomMargin: 10
-                text: editor.fresh ? (editor.macro ? qsTr("新建宏") : qsTr("新建提醒"))
-                                   : (editor.macro ? qsTr("编辑宏") : qsTr("编辑提醒"))
-                color: Theme.textPrimary
-                font.pixelSize: Theme.fs(18)
-                font.bold: true
-            }
-
-            Caption { Layout.columnSpan: 2; text: qsTr("类型") }
-            Caption { Layout.columnSpan: 2; text: qsTr("副本") }
-            SegmentedControl {
-                objectName: "dutyCommunityEditorType"
-                Layout.columnSpan: 2
-                Layout.alignment: Qt.AlignLeft
-                implicitWidth: naturalWidth
-                // The kind is fixed once the entry exists or links to the other kind.
-                enabled: editor.fresh && !!editor.row && editor.row.content.links.length === 0
-                options: [{ value: "macro", label: qsTr("宏") }, { value: "reminder", label: qsTr("提醒") }]
-                currentValue: editor.type
-                onActivated: value => editor.type = value
-            }
             RowLayout {
-                Layout.columnSpan: 2
                 Layout.fillWidth: true
-                spacing: 6
-                Text {
-                    objectName: "dutyCommunityEditorDuty"
-                    renderType: Theme.bodyRenderType
-                    Layout.fillWidth: true
-                    textFormat: Text.PlainText
-                    elide: Text.ElideRight
-                    text: editor.dutyId > 0
-                          ? (Theme.dutyName({ content_id: editor.dutyId, region: editor.regionKey }) || String(editor.dutyId))
-                            + (editor.store.inDuty && editor.dutyId === editor.store.duty.content_id ? " · " + qsTr("当前副本") : "")
-                          : qsTr("通用")
-                    color: Theme.textPrimary
-                    font.pixelSize: Theme.fs(13)
-                    font.weight: Font.DemiBold
+                spacing: 12
+                ColumnLayout {
+                    Layout.alignment: Qt.AlignTop
+                    spacing: 4
+                    Caption { text: qsTr("类型") }
+                    SegmentedControl {
+                        objectName: "dutyCommunityEditorType"
+                        implicitWidth: naturalWidth
+                        // The kind is fixed once the entry exists or links to the other kind.
+                        enabled: editor.fresh && !!editor.row && editor.row.content.links.length === 0
+                        options: [{ value: "macro", label: qsTr("宏"), icon: "clipboard-copy" },
+                                  { value: "reminder", label: qsTr("提醒"), icon: "bell" }]
+                        currentValue: editor.type
+                        onActivated: value => editor.type = value
+                    }
                 }
-                AppButton {
-                    compact: true
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignTop
+                    spacing: 4
+                    Caption { text: qsTr("标题") }
+                    StyledTextField {
+                        id: titleField
+                        objectName: "dutyCommunityEditorTitle"
+                        Layout.fillWidth: true
+                        maximumLength: 120
+                        placeholderText: qsTr("起个一眼能认出来的名字")
+                        Accessible.name: qsTr("标题")
+                        onTextEdited: editor.titleMissing = false
+                    }
+                    Problem {
+                        objectName: "dutyCommunityEditorTitleProblem"
+                        visible: editor.titleMissing
+                        text: qsTr("请填写标题")
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: 14
+                Layout.bottomMargin: 6
+                Layout.minimumHeight: 28
+                spacing: 8
+                Caption {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignBottom
+                    text: editor.macro ? qsTr("宏内容") : qsTr("提醒内容")
+                }
+                ActionMenuButton {
+                    objectName: "dutyCommunityEditorInsert"
+                    visible: editor.macro
                     variant: "ghost"
-                    visible: editor.dutyId > 0
-                    text: qsTr("改为通用")
-                    onClicked: editor.dutyId = 0
+                    compact: true
+                    text: qsTr("插入")
+                    menuWidth: 320
+                    groups: [{ head: "", items: editor.insertItems }]
+                    onPicked: (key, item) => body.insert(item.code, item.command)
                 }
             }
-
-            Item { Layout.columnSpan: 2; implicitHeight: 1 }
-            RowLayout {
-                Layout.columnSpan: 2
+            DutyCommunityBodyEdit {
+                id: body
+                objectName: "dutyCommunityEditorBodyEdit"
                 Layout.fillWidth: true
-                Layout.bottomMargin: 8
-                spacing: 6
-                StyledTextField {
-                    id: findDuty
-                    Layout.fillWidth: true
-                    Layout.preferredWidth: 1
-                    placeholderText: qsTr("搜索副本名称")
-                    Accessible.name: placeholderText
-                }
-                StyledComboBox {
-                    id: dutyChoices
-                    Layout.fillWidth: true
-                    Layout.preferredWidth: 1
-                    visible: count > 0
-                    textRole: "label"
-                    valueRole: "content_id"
-                    keepsRowAcrossLanguages: false
-                    currentIndex: -1
-                    displayText: currentIndex < 0 ? qsTr("选择副本") : currentText
-                    model: editor.store.service.findDuties(editor.regionKey, findDuty.text)
-                    onActivated: editor.dutyId = currentValue
-                }
-            }
-
-            Caption { Layout.columnSpan: 4; text: qsTr("标题") }
-            StyledTextField {
-                id: titleField
-                objectName: "dutyCommunityEditorTitle"
-                Layout.columnSpan: 4
-                Layout.fillWidth: true
-                maximumLength: 120
-                placeholderText: qsTr("起个一眼能认出来的名字")
-                onTextEdited: editor.titleMissing = false
-            }
-            Problem { Layout.columnSpan: 4; visible: editor.titleMissing; text: qsTr("请填写标题") }
-
-            Caption { Layout.topMargin: 8; text: qsTr("BOSS（可不填）") }
-            Caption { Layout.topMargin: 8; text: qsTr("阶段（可不填）") }
-            Caption { Layout.topMargin: 8; text: qsTr("区服") }
-            Caption { Layout.topMargin: 8; text: qsTr("语言") }
-            StyledTextField { id: boss; Layout.fillWidth: true; Layout.preferredWidth: 1; maximumLength: 80; placeholderText: qsTr("例如：BOSS 2、尾王") }
-            StyledTextField { id: phase; Layout.fillWidth: true; Layout.preferredWidth: 1; maximumLength: 80; placeholderText: qsTr("例如：转场") }
-            StyledComboBox {
-                id: region
-                Layout.fillWidth: true
-                Layout.preferredWidth: 1
-                keepsRowAcrossLanguages: false
-                model: editor.regionKeys.map(key => editor.store.regionLabel(key))
-            }
-            StyledComboBox {
-                id: language
-                Layout.fillWidth: true
-                Layout.preferredWidth: 1
-                keepsRowAcrossLanguages: false
-                model: editor.store.languageKeys.map(key => editor.store.languageLabel(key))
-            }
-
-            Caption { Layout.columnSpan: 4; Layout.topMargin: 8; text: editor.macro ? qsTr("宏内容") : qsTr("提醒内容") }
-            ScrollView {
-                Layout.columnSpan: 4
-                Layout.fillWidth: true
-                Layout.preferredHeight: 190
-                StyledTextArea {
-                    id: bodyField
-                    objectName: "dutyCommunityEditorBody"
-                    textFormat: TextEdit.PlainText
-                    font.family: editor.macro ? Theme.monoFamily : Theme.bodyFamily
-                    placeholderText: editor.macro ? qsTr("一行一条指令，例如：/p 大家好 <se.1>") : qsTr("写下这个副本要注意的事")
-                    onTextChanged: editor.bodyMissing = false
+                Layout.fillHeight: true
+                Layout.minimumHeight: 120
+                macro: editor.macro
+                problem: editor.bodyMissing
+                placeholderText: editor.macro ? qsTr("一行一条指令，例如：/p 大家好 <se.1>") : qsTr("写下这个副本要注意的事")
+                Connections {
+                    target: body.area
+                    function onTextChanged() { editor.bodyMissing = false }
                 }
             }
             RowLayout {
-                Layout.columnSpan: 4
                 Layout.fillWidth: true
-                Problem { visible: editor.bodyMissing; text: qsTr("请填写正文") }
+                Layout.topMargin: 6
+                spacing: 12
+                Problem {
+                    objectName: "dutyCommunityEditorBodyProblem"
+                    visible: editor.bodyMissing
+                    text: qsTr("请填写正文")
+                }
                 Caption {
                     visible: !editor.bodyMissing && editor.macro
                     Layout.fillWidth: true
-                    font.pixelSize: Theme.fs(12)
-                    text: editor.lineCount > 15 ? qsTr("超过 15 行了，游戏里要拆成两个宏。") : qsTr("游戏里一个宏最多 15 行。")
+                    text: body.lineCount > 15 ? qsTr("超过 15 行了，游戏里要拆成两个宏。") : qsTr("游戏里一个宏最多 15 行。")
                 }
                 Item { Layout.fillWidth: true }
                 Caption {
                     objectName: "dutyCommunityEditorLines"
                     visible: editor.macro
-                    font.pixelSize: Theme.fs(12)
-                    font.weight: editor.lineCount > 15 ? Font.DemiBold : Font.Normal
-                    color: editor.lineCount > 15 ? Theme.red : Theme.textSecondary
-                    text: qsTr("%1 / 15 行").arg(editor.lineCount)
+                    font.weight: body.lineCount > 15 ? Font.DemiBold : Font.Normal
+                    color: body.lineCount > 15 ? Theme.red : Theme.textSecondary
+                    text: qsTr("%1 / 15 行").arg(body.lineCount)
                 }
             }
+        }
 
-            Caption { Layout.topMargin: 8; text: qsTr("角色") }
-            Caption { Layout.topMargin: 8; text: qsTr("适用游戏版本") }
-            Caption { Layout.topMargin: 8; text: qsTr("显示顺序") }
-            Item { implicitHeight: 1 }
-            StyledTextField { id: role; Layout.fillWidth: true; Layout.preferredWidth: 1; maximumLength: 80 }
-            StyledTextField { id: version; Layout.fillWidth: true; Layout.preferredWidth: 1; maximumLength: 80 }
-            StyledTextField {
-                id: order
-                Layout.fillWidth: true
-                Layout.preferredWidth: 1
-                inputMethodHints: Qt.ImhFormattedNumbersOnly
-                validator: IntValidator { bottom: -9999; top: 9999 }
+        // 适用范围: where the entry applies. Nothing here is required.
+        Rectangle {
+            objectName: "dutyCommunityEditorScope"
+            Layout.preferredWidth: 300
+            Layout.fillHeight: true
+            color: Theme.eorzea ? Theme.insetBackground : Theme.windowBackground
+
+            Rectangle {
+                width: 1
+                height: parent.height
+                color: Theme.border
             }
-            SelectionCheckBox { id: favorite; text: qsTr("收藏") }
 
-            Caption { Layout.columnSpan: 2; Layout.topMargin: 8; text: qsTr("标签，以逗号分隔") }
-            Caption { Layout.columnSpan: 2; Layout.topMargin: 8; text: qsTr("来源") }
-            StyledTextField { id: tags; Layout.columnSpan: 2; Layout.fillWidth: true; Layout.preferredWidth: 1 }
-            StyledTextField { id: source; Layout.columnSpan: 2; Layout.fillWidth: true; Layout.preferredWidth: 1; maximumLength: 240 }
-
-            Caption {
-                Layout.columnSpan: 4
-                Layout.topMargin: 8
-                visible: links.count > 0
-                text: editor.macro ? qsTr("关联的提醒") : qsTr("关联的宏")
-            }
-            Flow {
-                Layout.columnSpan: 4
-                Layout.fillWidth: true
-                Layout.bottomMargin: 18
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 20
+                anchors.rightMargin: 20
+                anchors.topMargin: 18
+                anchors.bottomMargin: 16
                 spacing: 12
-                Repeater {
-                    id: links
-                    model: editor.row ? editor.store.localRows.filter(entry => entry.content.type !== editor.type
-                                                                               && entry.content.id !== editor.row.content.id) : []
-                    delegate: SelectionCheckBox {
-                        required property var modelData
-                        text: modelData.content.title
-                        checked: editor.row.content.links.includes(modelData.content.id)
-                        onClicked: {
-                            // A new row object, so everything bound to the links follows.
-                            const item = editor.row.content
-                            const linked = checked ? item.links.concat(modelData.content.id)
-                                                   : item.links.filter(id => id !== modelData.content.id)
-                            editor.row = Object.assign({}, editor.row, { content: Object.assign({}, item, { links: linked }) })
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 3
+                    Text {
+                        renderType: Theme.bodyRenderType
+                        text: qsTr("适用范围")
+                        color: Theme.textPrimary
+                        font.pixelSize: Theme.fs(13)
+                        font.bold: true
+                    }
+                    Text {
+                        renderType: Theme.bodyRenderType
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                        text: qsTr("都可以不填，不填就是都适用。")
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fs(12)
+                    }
+                }
+
+                // The list is long, so its panel opens with a search box.
+                Field {
+                    label: qsTr("副本")
+                    StyledComboBox {
+                        id: dutyBox
+                        objectName: "dutyCommunityEditorDuty"
+                        /// The chosen duty; 0 is 通用.
+                        readonly property int value: editor.dutyId
+                        function choose(value) {
+                            editor.dutyId = value
+                            popup.close()
+                        }
+                        Layout.fillWidth: true
+                        Accessible.name: qsTr("副本")
+                        model: []
+                        keepsRowAcrossLanguages: false
+                        displayText: editor.dutyText
+
+                        popup: Popup {
+                            id: dutyPanel
+                            x: dutyBox.width - width
+                            y: dutyBox.height + 4
+                            width: Math.max(dutyBox.width, 320)
+                            padding: 6
+                            onAboutToShow: dutySearch.text = ""
+                            onOpened: {
+                                dutySearch.forceActiveFocus()
+                                dutyList.positionViewAtIndex(Math.max(0, dutyList.model.findIndex(
+                                    entry => entry.value === editor.dutyId)), ListView.Contain)
+                            }
+                            background: Rectangle {
+                                radius: Theme.radiusS
+                                color: Theme.surface
+                                border.width: 1
+                                border.color: Theme.eorzea ? Theme.gold3 : Theme.border
+                            }
+                            contentItem: ColumnLayout {
+                                spacing: 4
+                                StyledTextField {
+                                    id: dutySearch
+                                    objectName: "dutyCommunityEditorDutySearch"
+                                    Layout.fillWidth: true
+                                    placeholderText: qsTr("搜索副本名称")
+                                    Accessible.name: placeholderText
+                                    // Enter takes the first duty found.
+                                    onAccepted: if (dutyList.count > 0) dutyBox.choose(dutyList.model[0].value)
+                                }
+                                ListView {
+                                    id: dutyList
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: Math.min(contentHeight, 320)
+                                    clip: true
+                                    model: dutyPanel.visible ? editor.dutyOptions(dutySearch.text) : []
+                                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                                    delegate: Column {
+                                        id: dutyEntry
+                                        required property var modelData
+                                        required property int index
+                                        // A type's name heads its first duty.
+                                        readonly property bool heads: modelData.group !== ""
+                                            && (index === 0 || dutyList.model[index - 1].group !== modelData.group)
+                                        width: ListView.view ? ListView.view.width : dutyBox.width
+                                        Text {
+                                            renderType: Theme.bodyRenderType
+                                            visible: dutyEntry.heads
+                                            width: parent.width
+                                            topPadding: 6
+                                            bottomPadding: 3
+                                            leftPadding: 8
+                                            text: dutyEntry.modelData.group
+                                            textFormat: Text.PlainText
+                                            color: Theme.textMuted
+                                            font.pixelSize: Theme.fs(11)
+                                            font.weight: Font.DemiBold
+                                        }
+                                        ItemDelegate {
+                                            id: dutyRow
+                                            objectName: "dutyCommunityEditorDutyRow"
+                                            width: parent.width
+                                            height: 32
+                                            highlighted: dutyEntry.modelData.value === editor.dutyId
+                                            background: Rectangle {
+                                                radius: Theme.radiusS
+                                                color: dutyRow.highlighted || dutyRow.hovered ? Theme.fill : "transparent"
+                                            }
+                                            contentItem: Text {
+                                                renderType: Theme.bodyRenderType
+                                                text: dutyEntry.modelData.label
+                                                textFormat: Text.PlainText
+                                                color: Theme.textPrimary
+                                                font.pixelSize: Theme.fs(13)
+                                                verticalAlignment: Text.AlignVCenter
+                                                elide: Text.ElideRight
+                                            }
+                                            onClicked: dutyBox.choose(dutyEntry.modelData.value)
+                                        }
+                                    }
+                                }
+                                Text {
+                                    renderType: Theme.bodyRenderType
+                                    visible: dutyList.count === 0
+                                    Layout.fillWidth: true
+                                    Layout.margins: 6
+                                    text: qsTr("没有找到这个副本")
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.fs(12)
+                                }
+                            }
                         }
                     }
                 }
+
+                Field {
+                    label: qsTr("BOSS / 阶段")
+                    StyledTextField {
+                        id: stage
+                        objectName: "dutyCommunityEditorStage"
+                        readonly property var hints: {
+                            const term = text.trim().toLowerCase()
+                            return editor.stageSuggestions.filter(value => value !== text
+                                && value.toLowerCase().includes(term)).slice(0, 8)
+                        }
+                        Layout.fillWidth: true
+                        // An entry whose boss and phase together run longer still opens whole; an
+                        // edit longer than the boss may be is refused under the field.
+                        maximumLength: Math.max(80, editor.loadedStage.length)
+                        placeholderText: qsTr("例如：BOSS 2、尾王、转场")
+                        Accessible.name: qsTr("BOSS / 阶段")
+                        onTextEdited: {
+                            editor.stageTooLong = false
+                            if (hints.length > 0) stageHints.open()
+                            else stageHints.close()
+                        }
+                        onActiveFocusChanged: {
+                            if (activeFocus && hints.length > 0) stageHints.open()
+                            else if (!activeFocus) stageHints.close()
+                        }
+
+                        // What other entries already say; typing goes on in the field.
+                        Popup {
+                            id: stageHints
+                            y: stage.height + 4
+                            width: stage.width
+                            padding: 4
+                            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
+                            background: Rectangle {
+                                radius: Theme.radiusS
+                                color: Theme.surface
+                                border.width: 1
+                                border.color: Theme.eorzea ? Theme.gold3 : Theme.border
+                            }
+                            contentItem: Column {
+                                Repeater {
+                                    model: stage.hints
+                                    delegate: ItemDelegate {
+                                        id: hint
+                                        required property string modelData
+                                        width: stageHints.availableWidth
+                                        height: 30
+                                        focusPolicy: Qt.NoFocus
+                                        background: Rectangle {
+                                            radius: Theme.radiusXs
+                                            color: hint.hovered ? Theme.fill : "transparent"
+                                        }
+                                        contentItem: Text {
+                                            renderType: Theme.bodyRenderType
+                                            text: hint.modelData
+                                            textFormat: Text.PlainText
+                                            color: Theme.textPrimary
+                                            font.pixelSize: Theme.fs(13)
+                                            verticalAlignment: Text.AlignVCenter
+                                            elide: Text.ElideRight
+                                        }
+                                        onClicked: {
+                                            stage.text = hint.modelData
+                                            editor.stageTooLong = false
+                                            stageHints.close()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Problem {
+                        objectName: "dutyCommunityEditorStageProblem"
+                        visible: editor.stageTooLong
+                        text: qsTr("BOSS / 阶段最多 80 个字")
+                    }
+                }
+
+                // 职业 is a macro's; a reminder keeps whatever the entry had.
+                Field {
+                    label: qsTr("职业")
+                    visible: editor.macro
+                    DutyCommunityJobPicker {
+                        id: jobPicker
+                        objectName: "dutyCommunityEditorJobs"
+                        Layout.fillWidth: true
+                        store: editor.store
+                        selection: editor.jobs
+                        onSelectionEdited: chosen => editor.jobs = chosen
+                    }
+                    ByHand {
+                        objectName: "dutyCommunityEditorRoleByHand"
+                        visible: editor.roleByHand && editor.jobs.length === 0
+                        value: editor.keptRole
+                        onCleared: editor.keptRole = ""
+                    }
+                }
+
+                // A range of the patches the game has had: 不限 → 不限 is every version.
+                Field {
+                    label: qsTr("游戏版本")
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 6
+                        StyledComboBox {
+                            id: fromBox
+                            objectName: "dutyCommunityEditorVersionFrom"
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            Accessible.name: qsTr("开始版本")
+                            textRole: "label"
+                            valueRole: "value"
+                            model: editor.versionOptions
+                            onActivated: editor.versionFrom = currentValue
+                        }
+                        Text {
+                            renderType: Theme.bodyRenderType
+                            text: "→"
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.fs(13)
+                        }
+                        StyledComboBox {
+                            id: toBox
+                            objectName: "dutyCommunityEditorVersionTo"
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            Accessible.name: qsTr("结束版本")
+                            textRole: "label"
+                            valueRole: "value"
+                            model: editor.versionOptions
+                            onActivated: editor.versionTo = currentValue
+                        }
+                    }
+                    Problem {
+                        objectName: "dutyCommunityEditorVersionProblem"
+                        visible: editor.versionBackwards
+                        text: qsTr("开始版本不能晚于结束版本")
+                    }
+                    ByHand {
+                        objectName: "dutyCommunityEditorVersionByHand"
+                        visible: editor.versionByHandShown
+                        value: editor.keptVersion
+                        onCleared: editor.keptVersion = ""
+                    }
+                }
+
+                Field {
+                    label: qsTr("区服")
+                    StyledComboBox {
+                        id: region
+                        objectName: "dutyCommunityEditorRegion"
+                        Layout.fillWidth: true
+                        Accessible.name: qsTr("区服")
+                        model: editor.regionKeys.map(key => editor.store.regionLabel(key))
+                    }
+                }
+
+                Field {
+                    label: qsTr("语言")
+                    StyledComboBox {
+                        id: language
+                        Layout.fillWidth: true
+                        Accessible.name: qsTr("语言")
+                        model: editor.store.languageKeys.map(key => editor.store.languageLabel(key))
+                    }
+                }
+
+                Item { Layout.fillHeight: true }
             }
         }
     }
@@ -297,7 +667,14 @@ ColumnLayout {
         Layout.topMargin: 12
         Layout.bottomMargin: 12
         spacing: 8
-        AppButton { objectName: "dutyCommunityEditorSave"; variant: "primary"; text: qsTr("保存"); onClicked: editor.save() }
+        AppButton {
+            objectName: "dutyCommunityEditorSave"
+            variant: "primary"
+            text: qsTr("保存")
+            ToolTip.visible: hovered
+            ToolTip.text: "Ctrl + S"
+            onClicked: editor.save()
+        }
         AppButton { objectName: "dutyCommunityEditorCancel"; text: qsTr("取消"); onClicked: editor.cancelled() }
         Text {
             renderType: Theme.bodyRenderType

@@ -9,7 +9,8 @@ import "Lucide.js" as Lucide
 AppButton {
     id: control
 
-    /// [{ head, items: [{ key, icon, label, sub }] }]
+    /// [{ head, items: [{ key, icon, label, sub, code }] }]; `code`, when given, is shown as
+    /// typed in a small monospace chip in place of the icon (the macro editor's 插入 menu).
     property var groups: []
     property real menuWidth: 288
     readonly property alias menu: popup
@@ -90,12 +91,30 @@ AppButton {
                             contentItem: RowLayout {
                                 spacing: 10
                                 Image {
+                                    visible: !entry.modelData.code
                                     Layout.alignment: Qt.AlignTop
                                     Layout.topMargin: 2
                                     Layout.preferredWidth: 14
                                     Layout.preferredHeight: 14
                                     source: Lucide.source(entry.modelData.icon || "", Theme.textSecondary)
                                     sourceSize: Qt.size(28, 28)
+                                }
+                                Rectangle {
+                                    visible: !!entry.modelData.code
+                                    Layout.alignment: Qt.AlignTop
+                                    Layout.preferredWidth: 76
+                                    implicitHeight: codeText.implicitHeight + 2
+                                    radius: Theme.radiusXs
+                                    color: Theme.fill
+                                    Text {
+                                        id: codeText
+                                        anchors.centerIn: parent
+                                        textFormat: Text.PlainText
+                                        text: entry.modelData.code || ""
+                                        color: Theme.blue
+                                        font.family: Theme.monoFamily
+                                        font.pixelSize: Theme.fs(12)
+                                    }
                                 }
                                 ColumnLayout {
                                     Layout.fillWidth: true

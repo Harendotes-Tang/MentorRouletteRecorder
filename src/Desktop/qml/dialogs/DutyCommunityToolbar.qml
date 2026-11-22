@@ -178,10 +178,10 @@ ColumnLayout {
                     { key: "macro", icon: "clipboard-copy", label: qsTr("宏"), sub: qsTr("一行一条指令，复制到游戏里用") },
                     { key: "reminder", icon: "bell", label: qsTr("提醒"), sub: qsTr("记下这个副本要注意的事") }
                 ] },
-                { head: qsTr("从常用宏示例开始"), items: bar.store.examples.map(text => (
-                    { key: "example", icon: "copy", label: text, sub: "/p " + text, text: text })) }
+                { head: qsTr("从常用宏示例开始"), items: bar.store.examples.map(example => (
+                    { key: "example", icon: "copy", label: example.title, sub: bar.store.firstLine(example.body), example: example })) }
             ]
-            onPicked: (key, item) => key === "example" ? bar.store.editExample(item.text) : bar.store.editNew(key, null)
+            onPicked: (key, item) => key === "example" ? bar.store.editExample(item.example) : bar.store.editNew(key, null)
         }
 
         StatusLed {

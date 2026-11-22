@@ -449,6 +449,8 @@ set(MR_QML_FILES
     qml/dialogs/DutyCommunityList.qml
     qml/dialogs/DutyCommunityDetail.qml
     qml/dialogs/DutyCommunityEditor.qml
+    qml/dialogs/DutyCommunityBodyEdit.qml
+    qml/dialogs/DutyCommunityJobPicker.qml
     qml/dialogs/DutyCommunitySubmission.qml
     qml/dialogs/RunWizardDutyStep.qml
     qml/dialogs/RunWizardResultStep.qml
