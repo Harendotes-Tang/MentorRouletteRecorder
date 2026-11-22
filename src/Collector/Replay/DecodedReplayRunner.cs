@@ -105,7 +105,8 @@ public static class DecodedReplayRunner
         var effectiveProfile = buildMatched ? profile : null;
 
         databasePath ??= Path.Combine(
-            Path.GetTempPath(), "MentorRecorder", "replay-decoded", fixture.Sha256 + ".db");
+            Path.GetTempPath(), "MentorRecorder", "replay-decoded",
+            effectiveProfile?.ProfileSha256 ?? "unmatched", fixture.Sha256 + ".db");
 
         var clock = new FixtureReplayRunner.ReplayClock(fixture.StartedAtUtc);
         using var database = SqliteDatabase.Open(databasePath, clock);
@@ -117,6 +118,7 @@ public static class DecodedReplayRunner
         var jobs = JobCatalog.Default;
         var duties = DutyCatalog.Default;
 
+        var region = effectiveProfile?.Region ?? Region.Unknown;
         var runOrdinal = 0;
         var binding = effectiveProfile?.ToBinding() ?? ProfileBinding.FailClosed;
         var machine = new MentorRunStateMachine(
@@ -125,7 +127,7 @@ public static class DecodedReplayRunner
             {
                 MatchWindow = effectiveProfile?.MatchWindow ?? StateMachineOptions.Default.MatchWindow,
                 IsKnownDuty = territory =>
-                    duties.FindByTerritory(territory, effectiveProfile?.Region ?? Region.Unknown) is not null,
+                    duties.FindByTerritory(territory, region) is not null,
             },
             () => SemanticEventProcessor.DeterministicId(fixture.FixtureId + ":run:" + runOrdinal++));
 
@@ -133,7 +135,7 @@ public static class DecodedReplayRunner
             database,
             machine,
             new SemanticEventProcessorOptions(
-                fixture.CaptureSessionId, Region.Unknown, effectiveProfile?.ProfileId, fixture.FixtureId),
+                fixture.CaptureSessionId, region, effectiveProfile?.ProfileId, fixture.FixtureId, effectiveProfile?.GameBuild),
             clock,
             jobs,
             duties,
@@ -171,7 +173,8 @@ public static class DecodedReplayRunner
                 CaptureSessionId = fixture.CaptureSessionId,
                 StartedAtUtc = fixture.StartedAtUtc,
                 CollectorVersion = Program.Version,
-                Region = Region.Unknown,
+                Region = region,
+                GameBuild = effectiveProfile?.GameBuild,
                 ProtocolProfileId = effectiveProfile?.ProfileId,
                 ProfileStatus = binding.Status,
                 PacketsObserved = fixture.Messages.Count,

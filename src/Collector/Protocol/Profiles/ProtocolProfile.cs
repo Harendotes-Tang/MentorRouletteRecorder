@@ -306,6 +306,16 @@ public sealed record ProtocolProfile(
         Message("CONTENT_FINDER_POP") is { Direction: PacketDirection.ClientToServer };
 
     /// <summary>
+    /// True when a zone change can be told apart as a duty by its territory: the profile either
+    /// announces the territory in a message of its own (ZONE_TERRITORY, as on CN, whose zone
+    /// marker has no readable field) or reads a scalar territory field from the zone change itself.
+    /// The parser skips opaque byte fields even when they have this name.
+    /// </summary>
+    public bool KnowsDutyTerritory =>
+        Message("ZONE_TERRITORY")?.Field("territory_id") is { Type: not ProfileFieldType.Bytes } ||
+        Message("ZONE_INITIALIZATION")?.Field("territory_id") is { Type: not ProfileFieldType.Bytes };
+
+    /// <summary>
     /// True when the parser recognises the CN duty-clear signal by content for this profile
     /// (<see cref="Parsing.DutyClearSignal"/>, docs/protocol-profile-format.md section 12). It only
     /// ever adds a victory, and is never true for a profile that declares DUTY_RESULT, which
@@ -366,11 +376,11 @@ public sealed record ProtocolProfile(
             _ => ProfileStatus.UnsupportedBuild,
         };
         // A profile that infers the match from the queue recognises a duty only by the
-        // territory it lands in. Without ZONE_TERRITORY it can never enter one: every run
-        // starts when the player queues and stays at "matched" for ever, and every record ends
+        // territory it lands in. Without a territory it can never enter one: every run starts
+        // when the player queues and stays at "matched" for ever, and every record ends
         // unknown. Since 0.7.2 no such profile is written; this also keeps one already on disk
         // out of force, so calibration takes over again and replaces it.
-        if (MatchFromQueue && Message("ZONE_TERRITORY") is null)
+        if (MatchFromQueue && !KnowsDutyTerritory)
         {
             return ProfileBinding.FailClosed with { ProfileId = ProfileId, Region = Region };
         }

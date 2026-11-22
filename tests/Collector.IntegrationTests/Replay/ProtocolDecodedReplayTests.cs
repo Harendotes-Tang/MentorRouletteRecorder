@@ -1,4 +1,7 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text.Json.Nodes;
+using MentorRecorder.Collector.Protocol.Profiles;
 using MentorRecorder.Collector.Domain;
 using MentorRecorder.Collector.Domain.Time;
 using MentorRecorder.Collector.Replay;
@@ -354,6 +357,48 @@ public sealed class ProtocolDecodedReplayTests
         Assert.Empty(result.Parser.Errors);
         Assert.Equal(1, result.Parser.Ignored);
         Assert.Equal(0, result.Writes.ParserErrors);
+    }
+
+    [Fact]
+    public void ReplayUsesTheSelectedRegionForBothTheDutyNameAndTheCaptureSession()
+    {
+        const string profileId = "synthetic-cn-shape-v1";
+        var databasePath = TempDatabase();
+        var directory = Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!).FullName;
+        var profilePath = Path.Combine(directory, profileId + ".json");
+        var profile = JsonNode.Parse(File.ReadAllText(ProfilePathFor(profileId)))!;
+        profile["region"] = "GLOBAL";
+        // Model a zone initialisation carrying its own territory, with invented message numbers.
+        var zone = profile["messages"]!.AsArray().Single(m => (string?)m?["name"] == "ZONE_INITIALIZATION")!;
+        zone["fields"] = JsonNode.Parse("""[{"name":"territory_id","offset":0,"type":"u16","endian":"little"}]""");
+        profile["profile_sha256"] = ProfileLoader.ComputeProfileHash(profile.ToJsonString());
+        File.WriteAllText(profilePath, profile.ToJsonString());
+
+        var fixture = JsonNode.Parse(File.ReadAllText(FixturePath("synthetic_territory_duty")))!;
+        var packets = fixture["messages"]!.AsArray();
+        packets.RemoveAt(2); // This case has no separate territory announcement.
+        packets[2]!["payload_hex"] = "ae01000000000000"; // duty 430
+        packets[3]!["payload_hex"] = "5501000000000000"; // return to housing area 341
+        var fixturePath = Path.Combine(directory, "region.decoded.json");
+        File.WriteAllText(fixturePath, fixture.ToJsonString());
+        File.WriteAllText(fixturePath + ".sha256", Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(fixturePath))));
+
+        var original = DecodedReplayRunner.Run(fixturePath, ProfilePathFor(profileId));
+        var replay = DecodedReplayRunner.Run(fixturePath, profilePath);
+        Assert.NotEqual(original.DatabasePath, replay.DatabasePath);
+        Assert.Equal(0, replay.Parser.ParseFailed);
+        var run = Assert.Single(replay.Runs);
+        Assert.Equal(Region.Global, run.Region);
+        Assert.Equal("the Fractal Continuum", run.DutyName);
+        Assert.Equal("四人迷宫", run.DutyCategory);
+        Assert.Equal(430, run.TerritoryId);
+        Assert.Equal(new DateTimeOffset(2026, 9, 4, 3, 0, 10, TimeSpan.Zero), run.MatchedAtUtc);
+        Assert.Equal(new DateTimeOffset(2026, 9, 4, 3, 0, 20, TimeSpan.Zero), run.EnteredAtUtc);
+        using var database = SqliteDatabase.Open(replay.DatabasePath, SystemClock.Instance);
+        var session = new CaptureSessionRepository(database).Get(run.CaptureSessionId!)!;
+        Assert.Equal(Region.Global, session.Region);
+        Assert.Equal("synthetic-build-3", session.GameBuild);
+        Assert.Equal(session.GameBuild, run.GameBuild);
     }
 
     [Fact]

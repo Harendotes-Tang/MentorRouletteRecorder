@@ -107,6 +107,23 @@ public sealed class CatalogSharedPrecedenceTests : IDisposable
         Assert.False(broken.ToBinding().IsUsable);
     }
 
+    [Theory]
+    [InlineData(ProfileFieldType.U16, true)]
+    [InlineData(ProfileFieldType.Bytes, false)]
+    public void QueueInferenceRequiresAReadableTerritoryOnTheZoneChange(ProfileFieldType type, bool usable)
+    {
+        var profile = ProfileLoader.Load(Write(Local, "cn.zone.local", "2099.10.10.0000.0000", Shape.QueueInferred));
+        var field = profile.Message("ZONE_TERRITORY")!.Field("territory_id")! with { Type = type, Length = 2 };
+        profile = profile with
+        {
+            Messages = profile.Messages.Where(m => m.Name != "ZONE_TERRITORY")
+                .Select(m => m.Name == "ZONE_INITIALIZATION" ? m with { Fields = new[] { field } } : m).ToArray(),
+        };
+
+        Assert.Equal(usable, profile.ToBinding().IsUsable);
+        Assert.Equal(usable, profile.KnowsDutyTerritory);
+    }
+
     [Fact]
     public void ASharedOnlyBuildIsUsableAndTaggedShared()
     {

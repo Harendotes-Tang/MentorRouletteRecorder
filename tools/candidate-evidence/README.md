@@ -74,3 +74,13 @@ python -m unittest discover -s tools/candidate-evidence -p "test_*.py" -v
 
 测试只在临时目录生成合成证据，覆盖输入拒绝、跨会话隔离、端序、歧义、CLI 文件保护和真实 profile schema 片段校验。
 维护者仍须离线复核，并在另一次会话中复现字段。本工具不执行 VERIFIED 提升。
+
+## 国际服进本离线回放
+
+解压测试者的候选证据，在仓库根目录执行：
+
+```powershell
+python tools/candidate-evidence/replay_global.py <candidate-evidence.json> data/duties/global.2026-09-04.json
+```
+
+输出按采证会话列出候选匹配与进本的毫秒时间以及区域编号。结果只用于离线核对。排队途中换区或只有匹配弹窗时，列表为空。弹窗后撤回并立刻从其他途径进本仍可能给出候选进本；须对照测试者说明。没有报文正文的元数据 trace 无法用此命令验证副本区域。

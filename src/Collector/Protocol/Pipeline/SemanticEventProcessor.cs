@@ -451,12 +451,15 @@ public sealed class SemanticEventProcessor : ISemanticEventSink, ICaptureLifecyc
                     // 人工更正仍由 Update 中的字段保护合并，未知映射则清除旧的自动名称。
                     var territoryId = enter.TerritoryId
                         ?? (identityChanged ? mapped?.TerritoryId : current.TerritoryId);
+                    // 进本标记自身只带区域编号时（国际服 2026.11.03），与 SetDuty 一样按区域补上名称与分类；
+                    // 从不由区域反查 content_id。
+                    var named = mapped ?? (contentId is null ? _duties.FindByTerritory(territoryId, current.Region) : null);
                     return current with
                     {
                         ContentId = contentId,
                         TerritoryId = territoryId,
-                        DutyName = identityChanged ? mapped?.LocalizedName : current.DutyName ?? mapped?.LocalizedName,
-                        DutyCategory = identityChanged ? mapped?.DutyCategory : current.DutyCategory ?? mapped?.DutyCategory,
+                        DutyName = identityChanged ? mapped?.LocalizedName : current.DutyName ?? named?.LocalizedName,
+                        DutyCategory = identityChanged ? mapped?.DutyCategory : current.DutyCategory ?? named?.DutyCategory,
                         DutySource = identityChanged ? Provenance(contentId, territoryId)
                             : current.DutySource ?? Provenance(contentId, territoryId),
                         EnteredAtUtc = enter.EnteredAtUtc,

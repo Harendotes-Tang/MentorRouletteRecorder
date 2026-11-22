@@ -24,8 +24,8 @@
 導隨記錄器透過 Npcap 被動讀取本機的遊戲流量，記錄指導者任務的配對、進本、通關與離開，依區服和角色追蹤成就進度。
 可補錄、匯入舊記錄、統計副本與職業、整理心得。記錄、截圖辨識與分享圖片都儲存在本機。
 
-**目前的原始碼版本記錄在 [Directory.Build.props](Directory.Build.props)，不代表該版本的安裝程式已發布。** 自動記錄及登入角色識別目前支援**國服**。
-繁中服和國際服支援手動管理記錄。完整變更與升級注意事項請見 [CHANGELOG.md](CHANGELOG.md)（簡體中文）。
+**目前的原始碼版本記錄在 [Directory.Build.props](Directory.Build.props)，不代表該版本的安裝程式已發布。** 自動記錄及登入角色識別目前支援**國服**，國際服 2026.11.03 正在進行離線重播與候選封包採樣。
+繁中服和國際服均可手動管理記錄。完整變更與升級注意事項請見 [CHANGELOG.md](CHANGELOG.md)（簡體中文）。
 
 <p align="center"><img src="docs/screenshots/dashboard-light.png" width="800" alt="1.9.0 總覽頁面，使用模擬資料"></p>
 

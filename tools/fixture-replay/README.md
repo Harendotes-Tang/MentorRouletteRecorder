@@ -27,7 +27,7 @@ MentorRecorder.Collector.exe --replay-decoded <fixture.decoded.json> [--profile 
 
 - `--db` 也可写作 `--database`，两者均被接受；Phase 1 的脚本使用后者。
 - 省略 `--db` 时：`--replay` 写 `%TEMP%\MentorRecorder\replay\<固件哈希>.db`，
-  `--replay-decoded` 写 `%TEMP%\MentorRecorder\replay-decoded\<固件哈希>.db`。
+  `--replay-decoded` 写 `%TEMP%\MentorRecorder\replay-decoded\<选中档案哈希或 unmatched>\<固件哈希>.db`。
 - 两个模式**都无条件将 JSON 报告输出到标准输出**，`--json` 对它们没有任何影响。
   该选项用于 `--serve` / `--version` / `--validate-profile` / `--list-profiles` /
   `--capture-doctor`。

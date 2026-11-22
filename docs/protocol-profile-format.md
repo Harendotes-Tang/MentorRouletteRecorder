@@ -168,6 +168,10 @@ protocol-profiles/
 又能补齐副本名（[state-machine.md](state-machine.md) §3.11）。
 声明该消息**不会**提高记录的置信度。
 
+按排本推断匹配的档案（`CONTENT_FINDER_POP` 方向为 CLIENT_TO_SERVER，§11.5）只能凭区域编号区分进入副本与普通传送，
+因此必须从 `ZONE_TERRITORY` 或 `ZONE_INITIALIZATION` 读取数值类型的 `territory_id`
+（`ProtocolProfile.KnowsDutyTerritory`）。两者都没有的档案绑定为 fail-closed。
+
 由 `ZONE_TERRITORY` 识别出的副本身份属于**推断**，不是协议证据，记录上带有
 `duty_source = 'TERRITORY'` 的来源标注（[data-model.md](data-model.md) §1.4）。
 它只写入 `territory_id` 与显示用的名称、分类，**绝不**把由区域反查出的 `content_id`

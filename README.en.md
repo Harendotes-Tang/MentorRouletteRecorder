@@ -24,8 +24,8 @@
 Mentor Roulette Recorder passively reads the game traffic on this PC through Npcap. It records Duty Roulette: Mentor matches, duty entries, clears and exits, and tracks achievement progress per region and character.
 You can add missed runs by hand, import older records, view duty and job statistics, and organize your notes. Records, screenshot recognition and share images all stay on this PC.
 
-**The current source version is recorded in [Directory.Build.props](Directory.Build.props); a version there does not mean that its installer has been released.** Automatic recording and login character identification currently support the **Chinese server**.
-The Traditional Chinese and Global servers support manually managed records. See [CHANGELOG.md](CHANGELOG.md) (Chinese) for the full list of changes and upgrade notes.
+**The current source version is recorded in [Directory.Build.props](Directory.Build.props); a version there does not mean that its installer has been released.** Automatic recording and login character identification currently support the **Chinese server**; Global client version 2026.11.03 supports opt-in evidence collection for offline analysis.
+The Traditional Chinese and Global servers both support manually managed records. See [CHANGELOG.md](CHANGELOG.md) (Chinese) for the full list of changes and upgrade notes.
 
 <p align="center"><img src="docs/screenshots/dashboard-light.png" width="800" alt="The 1.9.0 Overview page with mock data"></p>
 

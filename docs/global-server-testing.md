@@ -1,5 +1,16 @@
 # Global Server Testing and Evidence Collection
 
+<a id="current-test"></a>
+## Current test — one completed non-Mentor roulette
+
+For Global client build **2026.11.03**, the two Mentor runs are already on file. The outstanding comparison is a normal roulette that actually matches and enters a duty. Keep your current 1.9.1 build with the **second-round evidence** card (1.9.1-beta.4 or newer).
+
+1. With the game closed, open the second-round card and start a new capture as described in section 7, steps 1–2. Read the payload consent before starting.
+2. Log in, queue once for a **non-Mentor roulette**, accept the match and enter the duty. Leave normally. The four checkboxes on the card belong to the earlier test. Leave them unchecked.
+3. Use **结束并导出** and send the candidate JSON and its SHA-256 privately. Include the roulette name and actual duty name. Mention a re-formed party if it occurred naturally. No extra Mentor run, manual timing or recording is needed.
+
+## Earlier rounds (completed)
+
 This guide asks you to help confirm three things on the Global (international) version of
 FINAL FANTASY XIV: whether the Global client is recognised, whether its game data can be
 decoded, and which signals appear from queueing until you leave the duty. Please do one full

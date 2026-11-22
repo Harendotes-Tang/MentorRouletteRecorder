@@ -1545,7 +1545,7 @@ public sealed partial class LiveProtocolPipeline :
         // it, or the software does nothing at all: no recording and no calibration either.
         var localProfileRefused = calibratable && !_selection.IsUsable &&
             _selection.Profile is { Status: ProfileCompatibilityStatus.Verified } refused &&
-            refused.MatchFromQueue && refused.Message("ZONE_TERRITORY") is null;
+            refused.MatchFromQueue && !refused.KnowsDutyTerritory;
         var unknownBuild = calibratable && !_selection.IsUsable &&
             _selection.Status == ProfileCompatibilityStatus.Unsupported &&
             string.Equals(_selection.Reason, ProfileSelector.NoProfileMatchesReason, StringComparison.Ordinal);
