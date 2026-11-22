@@ -653,26 +653,35 @@ public sealed class CalibrationSeparateReplyTests : IDisposable
     /// The whole path on a GLOBAL build nobody has a profile for: the shipped template arms, one mentor evening is
     /// observed, the player confirms the timeline, the local profile is written and bound in the same session, and
     /// the next mentor match is recorded - matched at the popup, entered at the zone change, with the job.
+    /// Rehearsed (<see cref="CalibrationRehearsal"/>), the same path runs on the shipped build itself: its shipped
+    /// profile is withheld from selection, so the build reads as a new one of a region that records, the shipped
+    /// profile is still the template, and the local profile written for the build records - which the shipped
+    /// profile shadows again once the switch is gone.
     /// </summary>
-    [Fact]
-    public void UnknownGlobalBuildCalibratesAndRecordsTheNextMentorRunInTheSameSession()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void UnknownGlobalBuildCalibratesAndRecordsTheNextMentorRunInTheSameSession(bool rehearsed)
     {
-        const string build = "2026.12.01.0000.0000";
+        var build = rehearsed ? "2026.11.03.0000.0000" : "2026.12.01.0000.0000";
         using var db = new TestDatabase();
         var localRoot = Path.Combine(_root, "profiles");
         var template = CalibrationTemplate.Select(ProfileCatalog.LoadDefault(), Region.Global)!;
+        var rehearsal = rehearsed ? new CalibrationRehearsal(Region.Global, build) : null;
+        ProfileSelector Selector(CalibrationRehearsal? withheld) =>
+            new(ProfileCatalog.LoadMerged(ProfileCatalog.FindDefaultRoot(), localRoot, null, withheld));
         var services = new CalibrationServices(
             region => region == Region.Global ? template : null,
             () =>
             {
-                var selector = new ProfileSelector(ProfileCatalog.LoadMerged(null, localRoot));
+                var selector = Selector(rehearsal);
                 return game => selector.Select(game.Region, game.GameBuild);
             },
             (draft, chosen, gameBuild, now) => LocalProfileWriter.Prepare(draft, chosen, gameBuild, now, localRoot));
+        var initial = Selector(rehearsal);
+        Assert.Equal(ProfileSelectionReason.NoMatch, initial.Select(Region.Global, build).ReasonCode);
         var pipeline = new LiveProtocolPipeline(db.Database, db.Clock, new LiveEventBus(db.Clock),
-            game => new ProfileSelection(ProfileCompatibilityStatus.Unsupported, ProfileBinding.FailClosed, null,
-                game.Region, game.GameBuild, ProfileSelector.NoProfileMatchesReason),
-            null, services);
+            game => initial.Select(game.Region, game.GameBuild), null, services);
 
         pipeline.Refresh(GameProcessDetection.NotRunning with { Region = Region.Global, GameBuild = build });
         Assert.True(pipeline.CalibrationArmed);
@@ -708,6 +717,10 @@ public sealed class CalibrationSeparateReplyTests : IDisposable
         Assert.True(result.BoundInSession);
         Assert.Equal("global." + build + ".local", result.ProfileId);
         Assert.Equal(ProfileOrigin.Local, pipeline.Current.Origin);
+        var withoutSwitch = Selector(null).Select(Region.Global, build);
+        (string?, ProfileOrigin?) expected = rehearsed
+            ? ("global.2026.11.03", ProfileOrigin.Shipped) : (result.ProfileId, ProfileOrigin.Local);
+        Assert.Equal(expected, (withoutSwitch.Profile?.ProfileId, withoutSwitch.Origin));
 
         Feed(Queue(600_000, Mentor, 40).Concat(Match(630_000, Mentor)));
         Assert.Equal(RunState.MentorMatched, pipeline.RunState);

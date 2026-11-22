@@ -243,15 +243,15 @@ public sealed record CalibrationServices(
 
     /// <summary>
     /// Production wiring: shipped templates, the catalogue merged over the shipped, local and shared roots,
-    /// managed data directory. The shared-calibration download and profile write stay inert here; the
+    /// with the rehearsal switch file applied (CalibrationRehearsal), managed data directory. The shared-calibration
+    /// download and profile write stay inert here; the
     /// shipping pipeline opts into them (<c>LiveProtocolPipeline.CreateDefault</c>).
     /// </summary>
     public static CalibrationServices Default => new CalibrationServices(
         region => CalibrationTemplate.Select(ProfileCatalog.LoadDefault(), region),
         () =>
         {
-            var selector = new ProfileSelector(ProfileCatalog.LoadMerged(
-                ProfileCatalog.FindDefaultRoot(), ProfileCatalog.FindLocalRoot(), ProfileCatalog.FindSharedRoot()));
+            var selector = new ProfileSelector(ProfileCatalog.LoadMergedDefault());
             return game => selector.Select(game.Region, game.GameBuild);
         },
         (draft, template, build, now) => LocalProfileWriter.Prepare(draft, template, build, now, ProfileCatalog.LocalRootPath))

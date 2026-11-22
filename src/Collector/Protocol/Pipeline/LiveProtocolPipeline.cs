@@ -331,9 +331,9 @@ public sealed partial class LiveProtocolPipeline :
         SqliteDatabase database, IClock clock, LiveEventBus liveEvents)
     {
         // The formal selector sees the shipped, local (calibrated) and shared directories; only an
-        // entry whose binding is usable shadows another for the same build (ProfileCatalog).
-        var selector = new ProfileSelector(ProfileCatalog.LoadMerged(
-            ProfileCatalog.FindDefaultRoot(), ProfileCatalog.FindLocalRoot(), ProfileCatalog.FindSharedRoot()));
+        // entry whose binding is usable shadows another for the same build (ProfileCatalog). A maintainer's
+        // rehearsal switch withholds one shipped build from it (CalibrationRehearsal).
+        var selector = new ProfileSelector(ProfileCatalog.LoadMergedDefault());
         // The shipping pipeline, and only it, downloads shared calibrations and writes shared profiles.
         var services = CalibrationServices.Default
             .WithSharedCalibrationIn(SharedCalibrationStore.RootPath)

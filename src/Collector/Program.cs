@@ -505,6 +505,7 @@ public static class Program
             ["closed_sessions"] = host.Recovery.ClosedSessionCount,
         });
         PruneLocalProfiles(logger);
+        LogCalibrationRehearsal(logger);
 
         var dispatcher = new MessageDispatcher(host);
         await using var server = new PipeServer(
@@ -839,6 +840,36 @@ public static class Program
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
             logger.WriteError("startup", "local_profiles_prune_failed", ex);
+        }
+    }
+
+    /// <summary>
+    /// Notes in the local log that a maintainer's calibration rehearsal switch is in force, or that its file is
+    /// there but names no rehearsal (docs/protocol-profile-format.md section 11.8), so a mistyped switch is not
+    /// silently without effect. Nothing is logged when there is no switch file.
+    /// </summary>
+    private static void LogCalibrationRehearsal(RotatingFileLogger logger)
+    {
+        try
+        {
+            var path = CalibrationRehearsal.DefaultPath;
+            if (!File.Exists(path))
+            {
+                return;
+            }
+
+            var rehearsal = CalibrationRehearsal.Read(path);
+            logger.Write(rehearsal is null ? LogLevel.Warn : LogLevel.Info, "startup",
+                rehearsal is null ? "calibration_rehearsal_ignored" : "calibration_rehearsal_active",
+                new Dictionary<string, object?>
+                {
+                    ["region"] = rehearsal is null ? null : EnumWire<Region>.Format(rehearsal.Region),
+                    ["game_build"] = rehearsal?.GameBuild,
+                });
+        }
+        catch (ArgumentException ex)
+        {
+            logger.WriteError("startup", "calibration_rehearsal_unreadable", ex);
         }
     }
 

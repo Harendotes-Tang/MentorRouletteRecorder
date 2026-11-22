@@ -174,10 +174,11 @@ public sealed class ProfileSelector : IProfileStatusProvider
         if (candidates.Length == 0)
         {
             // Said apart for the player: a region the software does not know, a region nothing records
-            // for yet (only placeholders), and a build of a region that does record (D2-1).
+            // for yet (only placeholders), and a build of a region that does record (D2-1). A profile a
+            // rehearsal withholds still counts, so the rehearsed build reads as a new build.
             var why = region == Region.Unknown
                 ? ProfileSelectionReason.RegionUnknown
-                : _catalog.UsableFor(region).Any(profile => profile.Status == ProfileCompatibilityStatus.Verified)
+                : _catalog.RecordsIn(region)
                     ? ProfileSelectionReason.NoMatch
                     : ProfileSelectionReason.RegionUnsupported;
             return Refused(region, gameBuild, NoProfileMatchesReason, why);

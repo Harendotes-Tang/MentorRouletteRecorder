@@ -72,12 +72,15 @@ public sealed class ProfileCatalog
     /// <summary>Directory of Oodle signature evidence, which is not a protocol profile tree.</summary>
     public const string OodleSignatureDirectoryName = "oodle-signatures";
 
-    private ProfileCatalog(string? root, string? localRoot, string? sharedRoot, IReadOnlyList<ProfileCatalogEntry> entries)
+    private ProfileCatalog(
+        string? root, string? localRoot, string? sharedRoot, IReadOnlyList<ProfileCatalogEntry> entries,
+        IReadOnlyList<ProfileCatalogEntry>? withheld = null)
     {
         Root = root;
         LocalRoot = localRoot;
         SharedRoot = sharedRoot;
         Entries = entries;
+        WithheldEntries = withheld ?? Array.Empty<ProfileCatalogEntry>();
     }
 
     /// <summary>Shipped directory the catalogue was built from, or null when none was found.</summary>
@@ -99,6 +102,13 @@ public sealed class ProfileCatalog
     /// <summary>Entries a higher-ranked usable entry shadowed; for diagnostics only.</summary>
     public IReadOnlyList<ProfileCatalogEntry> ShadowedEntries =>
         Entries.Where(entry => entry.Shadowed).ToArray();
+
+    /// <summary>
+    /// Shipped entries a <see cref="CalibrationRehearsal"/> keeps out of <see cref="Entries"/>: they take no part
+    /// in shadowing, ambiguity or selection, and only <see cref="RecordsIn"/> still counts them. Empty unless
+    /// <see cref="LoadMerged(string?, string?, string?, CalibrationRehearsal?)"/> was given a rehearsal.
+    /// </summary>
+    public IReadOnlyList<ProfileCatalogEntry> WithheldEntries { get; }
 
     /// <summary>An empty catalogue. Every lookup fails closed.</summary>
     public static ProfileCatalog Empty { get; } = new(null, null, null, Array.Empty<ProfileCatalogEntry>());
@@ -154,15 +164,44 @@ public sealed class ProfileCatalog
     /// <param name="sharedRoot">Shared-calibration profile directory, or null to skip it.</param>
     /// <param name="allowCandidate">显式允许候选档案进入观察目录；默认不保留任何候选。</param>
     public static ProfileCatalog LoadMerged(
-        string? shippedRoot, string? localRoot, string? sharedRoot, bool allowCandidate = false)
+        string? shippedRoot, string? localRoot, string? sharedRoot, bool allowCandidate = false) =>
+        LoadMerged(shippedRoot, localRoot, sharedRoot, allowCandidate, rehearsal: null);
+
+    /// <summary>
+    /// <see cref="LoadMerged(string?, string?, string?, bool)"/> with a maintainer's rehearsal applied: the shipped
+    /// formal profile of the rehearsed region and build is moved to <see cref="WithheldEntries"/> before anything
+    /// is ranked, so a local or shared profile of that build is selected as it would be after a game update.
+    /// </summary>
+    /// <param name="shippedRoot">Shipped profile directory.</param>
+    /// <param name="localRoot">Local (self-calibration) profile directory, or null to skip it.</param>
+    /// <param name="sharedRoot">Shared-calibration profile directory, or null to skip it.</param>
+    /// <param name="rehearsal">The rehearsal in force, or null for none.</param>
+    public static ProfileCatalog LoadMerged(
+        string? shippedRoot, string? localRoot, string? sharedRoot, CalibrationRehearsal? rehearsal) =>
+        LoadMerged(shippedRoot, localRoot, sharedRoot, allowCandidate: false, rehearsal);
+
+    /// <summary>
+    /// The catalogue live capture selects from: the shipped, local and shared directories of this
+    /// installation, with the rehearsal its switch file names (<see cref="CalibrationRehearsal.ReadDefault"/>).
+    /// </summary>
+    public static ProfileCatalog LoadMergedDefault() =>
+        LoadMerged(FindDefaultRoot(), FindLocalRoot(), FindSharedRoot(), CalibrationRehearsal.ReadDefault());
+
+    private static ProfileCatalog LoadMerged(
+        string? shippedRoot, string? localRoot, string? sharedRoot, bool allowCandidate, CalibrationRehearsal? rehearsal)
     {
-        var tagged = LoadReports(shippedRoot, allowCandidate).Select(report => (Report: report, Origin: ProfileOrigin.Shipped))
+        var shipped = LoadReports(shippedRoot, allowCandidate);
+        var withheld = rehearsal is null
+            ? Array.Empty<ProfileValidationReport>()
+            : shipped.Where(report => report.Profile is { } profile && rehearsal.Withholds(profile)).ToArray();
+        var tagged = shipped.Where(report => !withheld.Contains(report)).Select(report => (Report: report, Origin: ProfileOrigin.Shipped))
             .Concat(LoadReports(localRoot, allowCandidate).Select(report => (Report: report, Origin: ProfileOrigin.Local)))
             .Concat(LoadReports(sharedRoot, allowCandidate).Select(report => (Report: report, Origin: ProfileOrigin.Shared)))
             .ToArray();
         var shadowed = Shadow(tagged);
         var entries = BuildEntries(tagged.Select((item, index) => (item.Report, item.Origin, shadowed.Contains(index))));
-        return new ProfileCatalog(FullOrNull(shippedRoot), FullOrNull(localRoot), FullOrNull(sharedRoot), entries);
+        return new ProfileCatalog(FullOrNull(shippedRoot), FullOrNull(localRoot), FullOrNull(sharedRoot), entries,
+            withheld.Select(report => new ProfileCatalogEntry(report.Path, report, report.Profile!.Status)).ToArray());
     }
 
     private static string? FullOrNull(string? root) => string.IsNullOrWhiteSpace(root) ? null : Path.GetFullPath(root);
@@ -483,6 +522,17 @@ public sealed class ProfileCatalog
         .Select(entry => entry.Profile!)
         .OrderBy(profile => profile.ProfileId, StringComparer.Ordinal)
         .ToArray();
+
+    /// <summary>
+    /// True when <paramref name="region"/> has a VERIFIED profile, counting one a rehearsal withholds: whether a
+    /// build without a profile is a new build of a region that records (and calibrates) or a region that does not
+    /// record yet. A rehearsal must read as the former, exactly as after a game update.
+    /// </summary>
+    /// <param name="region">Region to check.</param>
+    public bool RecordsIn(Region region) =>
+        UsableFor(region).Any(profile => profile.Status == ProfileCompatibilityStatus.Verified) ||
+        WithheldEntries.Any(entry => entry.Report.Profile is { Status: ProfileCompatibilityStatus.Verified } profile &&
+                                     profile.Region == region);
 
     /// <summary>True when two or more files claim <paramref name="region"/> and <paramref name="build"/>.</summary>
     /// <param name="region">Region to check.</param>

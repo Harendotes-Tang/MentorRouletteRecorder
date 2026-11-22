@@ -359,3 +359,41 @@ If you mark a popup line **错**, the app stops trusting that message. To go on,
 queue a different roulette once (you can withdraw right after the queue starts); it can then record
 from your own queue requests instead of the popup, and keeps looking for the popup in the background.
 Refusing a duty-finder popup in the game is never needed for any of this.
+
+<a id="calibration-rehearsal"></a>
+### 8.1 Rehearsal on the current version (only when asked)
+
+Self-calibration normally waits for a game update. To try it earlier, the app can be told to treat
+the current version, 2026.11.03, as if no profile existed for it. It then calibrates exactly as it
+would after an update, and the profile it learns can be compared with the one that ships with the
+app. This needs test build 1.10.0-beta.2 or newer, and it changes nothing for anyone who does not
+create the file below. Create and delete the file only while the app is closed: the app reads it
+again whenever it switches profiles, so changing it while the app runs can leave the learned profile
+unused.
+
+1. Close the app completely (right-click the tray icon → 退出).
+2. Open PowerShell and run this one line. It creates the switch file in the app's data folder:
+
+   ```powershell
+   Set-Content -Path "$env:LOCALAPPDATA\MentorRecorder\calibration-rehearsal.json" -Value '{"region": "GLOBAL", "game_build": "2026.11.03.0000.0000"}'
+   ```
+
+3. Start the app, then the game, and follow steps 1–3 of section 8: the capture page shows the
+   **本机校准** card, one Mentor Roulette (or any roulette) teaches the app, and after you check the
+   timeline it records with the profile it learned. Runs recorded this way are ordinary runs.
+4. Send privately the learned profile, the file
+   `%LOCALAPPDATA%\MentorRecorder\protocol-profiles\global\global.2026.11.03.0000.0000.local.json`,
+   together with the note from step 4 of section 8. The file holds the message numbers, lengths and
+   field positions the app learned, how many samples it saw, and when you confirmed the timeline;
+   nothing about your character, chat or the packets themselves.
+   If the app offers **分享给其他玩家** afterwards, you may try it: the shared code is removed again
+   after the comparison, and other players' apps never download it because they already have a
+   profile for this version.
+5. To turn the rehearsal off, close the app, delete the file, and start the app again:
+
+   ```powershell
+   Remove-Item "$env:LOCALAPPDATA\MentorRecorder\calibration-rehearsal.json"
+   ```
+
+   The shipped profile is used again; the learned one stays on disk unused. The switch also stops
+   on its own at the next game update, because it names this one version.

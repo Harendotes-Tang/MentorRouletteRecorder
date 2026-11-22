@@ -362,4 +362,106 @@ public sealed class CatalogMergeTests : IDisposable
             Environment.SetEnvironmentVariable(DatabasePaths.DataDirectoryVariable, previous);
         }
     }
+
+    /// <summary>
+    /// A maintainer's rehearsal (<see cref="CalibrationRehearsal"/>) withholds the shipped profile of exactly one
+    /// region and build. The local profile of that build, which the shipped one shadows otherwise, is selected;
+    /// other builds and regions are untouched; and with nothing else for the build it reads as a new build of a
+    /// region that records (NoMatch, which the player reads as a new game version), never as a region that does
+    /// not record yet.
+    /// </summary>
+    [Fact]
+    public void Rehearsal_WithholdsOneShippedBuildFromSelection()
+    {
+        const string rehearsed = "2099.01.01.0000.0000";
+        const string other = "2099.02.01.0000.0000";
+        var shipped = RestampShipped("cn.2099.01.01", rehearsed);
+        var otherShipped = RestampShipped("cn.2099.02.01", other);
+        var local = RestampLocal("cn.2099.01.01.local", rehearsed);
+        var rehearsal = new CalibrationRehearsal(Region.Cn, rehearsed);
+
+        var plain = new ProfileSelector(ProfileCatalog.LoadMerged(ShippedRoot, LocalRoot, null, null)).Select(Region.Cn, rehearsed);
+        Assert.Equal(("cn.2099.01.01", (ProfileOrigin?)ProfileOrigin.Shipped), (plain.Profile?.ProfileId, plain.Origin));
+
+        var catalog = ProfileCatalog.LoadMerged(ShippedRoot, LocalRoot, null, rehearsal);
+        Assert.Equal(shipped, Assert.Single(catalog.WithheldEntries).Path, ignoreCase: true);
+        Assert.DoesNotContain(catalog.Entries, entry => string.Equals(entry.Path, shipped, StringComparison.OrdinalIgnoreCase));
+        var selector = new ProfileSelector(catalog);
+        var selection = selector.Select(Region.Cn, rehearsed);
+        Assert.True(selection.IsUsable);
+        Assert.Equal(("cn.2099.01.01.local", (ProfileOrigin?)ProfileOrigin.Local), (selection.Profile?.ProfileId, selection.Origin));
+        Assert.Equal("cn.2099.02.01", selector.Select(Region.Cn, other).Profile?.ProfileId);
+        Assert.Empty(ProfileCatalog.LoadMerged(ShippedRoot, LocalRoot, null,
+            new CalibrationRehearsal(Region.Global, rehearsed)).WithheldEntries);
+
+        File.Delete(local);
+        File.Delete(otherShipped);
+        var bare = new ProfileSelector(ProfileCatalog.LoadMerged(ShippedRoot, LocalRoot, null, rehearsal)).Select(Region.Cn, rehearsed);
+        Assert.Equal((ProfileSelector.NoProfileMatchesReason, ProfileSelectionReason.NoMatch), (bare.Reason, bare.ReasonCode));
+        File.Delete(shipped);
+        Assert.Equal(ProfileSelectionReason.RegionUnsupported,
+            new ProfileSelector(ProfileCatalog.LoadMerged(ShippedRoot, LocalRoot, null, rehearsal)).Select(Region.Cn, rehearsed).ReasonCode);
+    }
+
+    /// <summary>
+    /// The switch file is written by hand, so the region's case and the surrounding spaces do not matter and the
+    /// encodings Windows tools write are read; anything that does not name a known region and a build is no
+    /// rehearsal, and neither is a missing or oversized file.
+    /// </summary>
+    [Theory]
+    [InlineData("{\"region\":\"GLOBAL\",\"game_build\":\"2026.11.03.0000.0000\"}", true)]
+    [InlineData("{\"region\":\" global \",\"game_build\":\" 2026.11.03.0000.0000 \",\"note\":1}", true)]
+    [InlineData("{\"region\":\"UNKNOWN\",\"game_build\":\"2026.11.03.0000.0000\"}", false)]
+    [InlineData("{\"region\":\"JP\",\"game_build\":\"2026.11.03.0000.0000\"}", false)]
+    [InlineData("{\"region\":\"GLOBAL\",\"game_build\":\"../2026.11.03\"}", false)]
+    [InlineData("{\"region\":\"GLOBAL\",\"game_build\":\"\"}", false)]
+    [InlineData("{\"region\":\"GLOBAL\",\"game_build\":20261103}", false)]
+    [InlineData("{\"region\":\"GLOBAL\"}", false)]
+    [InlineData("[\"GLOBAL\",\"2026.11.03.0000.0000\"]", false)]
+    [InlineData("not json", false)]
+    [InlineData("", false)]
+    public void Rehearsal_ReadsOnlyAWellFormedSwitchFile(string text, bool rehearses)
+    {
+        var path = Path.Combine(_root, CalibrationRehearsal.FileName);
+        var expected = rehearses ? new CalibrationRehearsal(Region.Global, "2026.11.03.0000.0000") : null;
+        foreach (var encoding in new Encoding[] { new UTF8Encoding(false), new UTF8Encoding(true), Encoding.Unicode })
+        {
+            File.WriteAllText(path, text, encoding);
+            Assert.Equal(expected, CalibrationRehearsal.Read(path));
+        }
+
+        File.WriteAllText(path, text + new string(' ', CalibrationRehearsal.MaxFileBytes));
+        Assert.Null(CalibrationRehearsal.Read(path));
+        File.Delete(path);
+        Assert.Null(CalibrationRehearsal.Read(path));
+    }
+
+    /// <summary>
+    /// The catalogue live capture and every reselection use (<see cref="ProfileCatalog.LoadMergedDefault"/>) reads
+    /// the switch from the data directory: with it, the shipped Global 2026.11.03 profile is withheld and the build
+    /// reads as new; without it, the shipped profile is selected as before.
+    /// </summary>
+    [Fact]
+    public void Rehearsal_TheDefaultCatalogueReadsTheSwitchFromTheDataDirectory()
+    {
+        const string build = "2026.11.03.0000.0000";
+        var previous = Environment.GetEnvironmentVariable(DatabasePaths.DataDirectoryVariable);
+        try
+        {
+            Environment.SetEnvironmentVariable(DatabasePaths.DataDirectoryVariable, _root);
+            Assert.Equal(Path.Combine(Path.GetFullPath(_root), CalibrationRehearsal.FileName), CalibrationRehearsal.DefaultPath);
+            Assert.Equal("global.2026.11.03",
+                new ProfileSelector(ProfileCatalog.LoadMergedDefault()).Select(Region.Global, build).Profile?.ProfileId);
+
+            File.WriteAllText(CalibrationRehearsal.DefaultPath, "{\"region\":\"GLOBAL\",\"game_build\":\"" + build + "\"}");
+            var catalog = ProfileCatalog.LoadMergedDefault();
+            Assert.Equal("global.2026.11.03", Assert.Single(catalog.WithheldEntries).Report.Profile?.ProfileId);
+            var selection = new ProfileSelector(catalog).Select(Region.Global, build);
+            Assert.Equal((ProfileSelector.NoProfileMatchesReason, ProfileSelectionReason.NoMatch), (selection.Reason, selection.ReasonCode));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(DatabasePaths.DataDirectoryVariable, previous);
+        }
+    }
 }
